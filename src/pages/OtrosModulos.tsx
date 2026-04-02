@@ -1,9 +1,9 @@
-// ── REPORTES DE OBRA ─────────────────────────────────────────────────────────
+// ââ REPORTES DE OBRA âââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { WorkReport, PayrollPeriod, PayrollItem, Delivery } from '../types'
 import { F, PAYROLL_STATUS_CONFIG, DELIVERY_STATUS_CONFIG, formatDate } from '../lib/utils'
-import { Badge, Table, Th, Td, Loading, SectionHeader, EmptyState } from '../layout/UI'
+import { Badge, Table, Th, Td, Loading, SectionHeader, EmptyState } from '../components/layout/UI'
 
 export function Reportes() {
   const [reports, setReports] = useState<WorkReport[]>([])
@@ -20,7 +20,7 @@ export function Reportes() {
   return (
     <div style={{ padding: '24px 28px' }}>
       <SectionHeader title="Reportes de obra" subtitle="Reportes diarios de los instaladores" />
-      {loading ? <Loading /> : reports.length === 0 ? <EmptyState message="Sin reportes aún" /> : (
+      {loading ? <Loading /> : reports.length === 0 ? <EmptyState message="Sin reportes aÃºn" /> : (
         <Table>
           <thead>
             <tr>
@@ -32,20 +32,20 @@ export function Reportes() {
               <>
                 <tr key={r.id} onClick={() => setExpanded(expanded === r.id ? null : r.id)} style={{ cursor: 'pointer' }}>
                   <Td muted>{formatDate(r.report_date)}</Td>
-                  <Td><span style={{ fontWeight: 500, color: '#fff' }}>{(r.project as any)?.name || '—'}</span></Td>
-                  <Td muted>{(r.employee as any)?.name || '—'}</Td>
+                  <Td><span style={{ fontWeight: 500, color: '#fff' }}>{(r.project as any)?.name || 'â'}</span></Td>
+                  <Td muted>{(r.employee as any)?.name || 'â'}</Td>
                   <Td>
                     <span style={{ color: r.check_in_time ? '#57FF9A' : '#444', fontSize: 11 }}>
-                      {r.check_in_time ? '✓ ' + new Date(r.check_in_time).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' }) : '—'}
+                      {r.check_in_time ? 'â ' + new Date(r.check_in_time).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' }) : 'â'}
                     </span>
                   </Td>
                   <Td>
                     <span style={{ color: r.check_out_time ? '#57FF9A' : '#444', fontSize: 11 }}>
-                      {r.check_out_time ? '✓ ' + new Date(r.check_out_time).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' }) : '—'}
+                      {r.check_out_time ? 'â ' + new Date(r.check_out_time).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' }) : 'â'}
                     </span>
                   </Td>
                   <Td muted style={{ maxWidth: 250, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: expanded === r.id ? 'normal' : 'nowrap' }}>
-                    {r.raw_text || '—'}
+                    {r.raw_text || 'â'}
                   </Td>
                 </tr>
               </>
@@ -57,7 +57,7 @@ export function Reportes() {
   )
 }
 
-// ── NÓMINA ────────────────────────────────────────────────────────────────────
+// ââ NÃMINA ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 export function Nomina() {
   const [periods, setPeriods] = useState<PayrollPeriod[]>([])
   const [selected, setSelected] = useState<string | null>(null)
@@ -86,8 +86,8 @@ export function Nomina() {
     <div style={{ padding: '24px 28px', display: 'grid', gridTemplateColumns: selected ? '220px 1fr' : '1fr', gap: 20 }}>
       {/* Lista de periodos */}
       <div>
-        <SectionHeader title="Nómina" subtitle="Períodos de pago" />
-        {loading ? <Loading /> : periods.length === 0 ? <EmptyState message="Sin períodos de nómina" /> : (
+        <SectionHeader title="NÃ³mina" subtitle="PerÃ­odos de pago" />
+        {loading ? <Loading /> : periods.length === 0 ? <EmptyState message="Sin perÃ­odos de nÃ³mina" /> : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {periods.map(p => {
               const cfg = PAYROLL_STATUS_CONFIG[p.status]
@@ -99,7 +99,7 @@ export function Nomina() {
                 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
                     <span style={{ fontSize: 12, fontWeight: 600, color: '#fff' }}>
-                      {formatDate(p.period_start)} — {formatDate(p.period_end)}
+                      {formatDate(p.period_start)} â {formatDate(p.period_end)}
                     </span>
                     <Badge label={cfg.label} color={cfg.color} />
                   </div>
@@ -112,10 +112,10 @@ export function Nomina() {
         )}
       </div>
 
-      {/* Detalle del período */}
+      {/* Detalle del perÃ­odo */}
       {selected && period && (
         <div>
-          <SectionHeader title={`${formatDate(period.period_start)} — ${formatDate(period.period_end)}`} subtitle={`${items.length} empleados`} />
+          <SectionHeader title={`${formatDate(period.period_start)} â ${formatDate(period.period_end)}`} subtitle={`${items.length} empleados`} />
           <Table>
             <thead>
               <tr>
@@ -123,13 +123,13 @@ export function Nomina() {
               </tr>
             </thead>
             <tbody>
-              {items.length === 0 && <tr><td colSpan={7}><EmptyState message="Sin items en este período" /></td></tr>}
+              {items.length === 0 && <tr><td colSpan={7}><EmptyState message="Sin items en este perÃ­odo" /></td></tr>}
               {items.map(i => {
                 const emp = i.employee as any
                 return (
                   <tr key={i.id}>
-                    <Td><span style={{ fontWeight: 500, color: '#fff' }}>{emp?.name || '—'}</span></Td>
-                    <Td muted style={{ textTransform: 'capitalize' }}>{emp?.role || '—'}</Td>
+                    <Td><span style={{ fontWeight: 500, color: '#fff' }}>{emp?.name || 'â'}</span></Td>
+                    <Td muted style={{ textTransform: 'capitalize' }}>{emp?.role || 'â'}</Td>
                     <Td right>{F(i.fiscal_amount)}</Td>
                     <Td right>{F(i.cash_amount)}</Td>
                     <Td right style={{ color: '#57FF9A' }}>{F(i.punctuality_bonus)}</Td>
@@ -155,7 +155,7 @@ export function Nomina() {
   )
 }
 
-// ── ENTREGAS ─────────────────────────────────────────────────────────────────
+// ââ ENTREGAS âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 export function Entregas() {
   const [deliveries, setDeliveries] = useState<Delivery[]>([])
   const [loading, setLoading] = useState(true)
@@ -186,7 +186,7 @@ export function Entregas() {
       border: `1px solid ${active ? '#57FF9A' : '#333'}`,
       background: active ? '#57FF9A22' : 'transparent',
     }}>
-      <span style={{ fontSize: 14, color: active ? '#57FF9A' : '#444' }}>{active ? '✓' : '○'}</span>
+      <span style={{ fontSize: 14, color: active ? '#57FF9A' : '#444' }}>{active ? 'â' : 'â'}</span>
       <span style={{ fontSize: 9, color: active ? '#57FF9A' : '#555', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{label}</span>
     </button>
   )
@@ -214,15 +214,15 @@ export function Entregas() {
                     <span style={{ color: '#aaa' }}>{d.destination}</span>
                   </Td>
                   <Td muted style={{ maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {d.material_description || '—'}
+                    {d.material_description || 'â'}
                   </Td>
-                  <Td muted>{(d.project as any)?.name || '—'}</Td>
-                  <Td muted>{(d.driver as any)?.name || '—'}</Td>
+                  <Td muted>{(d.project as any)?.name || 'â'}</Td>
+                  <Td muted>{(d.driver as any)?.name || 'â'}</Td>
                   <Td><Badge label={cfg.label} color={cfg.color} /></Td>
                   <Td>
                     <div style={{ display: 'flex', gap: 6 }}>
                       <SignBox active={d.signed_gabriel} label="Gabriel" onClick={() => toggleSign(d.id, 'signed_gabriel', d.signed_gabriel)} />
-                      <SignBox active={d.signed_ivan} label="Iván" onClick={() => toggleSign(d.id, 'signed_ivan', d.signed_ivan)} />
+                      <SignBox active={d.signed_ivan} label="IvÃ¡n" onClick={() => toggleSign(d.id, 'signed_ivan', d.signed_ivan)} />
                       <SignBox active={d.signed_installer} label="Inst." onClick={() => toggleSign(d.id, 'signed_installer', d.signed_installer)} />
                     </div>
                   </Td>
