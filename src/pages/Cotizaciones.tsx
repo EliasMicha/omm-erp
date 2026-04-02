@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { Quotation, QuotationArea, QuotationItem, CatalogProduct, Project } from '../types'
 import { F, SPECIALTY_CONFIG, STAGE_CONFIG, calcItemPrice, calcItemTotal } from '../lib/utils'
-import { Badge, Btn, Table, Th, Td, Loading, SectionHeader, EmptyState } from '../layout/UI'
+import { Badge, Btn, Table, Th, Td, Loading, SectionHeader, EmptyState } from '../components/layout/UI'
 import { Plus, ChevronLeft, X } from 'lucide-react'
 
 function CotDashboard({ onOpen }: { onOpen: (id: string) => void }) {
