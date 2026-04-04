@@ -15,12 +15,12 @@ const NAV = [
   { to: '/contabilidad', icon: Building2,         label: 'Contabilidad' },
 ]
 
-export default function Sidebar() {
+export default function Sidebar() 
   return (
     <aside style={{
       width: 200,
       minWidth: 200,
-      background: '#111',
+      background:#111'
       borderRight: '1px solid #222',
       display: 'flex',
       flexDirection: 'column',
@@ -64,7 +64,7 @@ export default function Sidebar() {
         ))}
       </nav>
       <div style={{ padding: '12px 16px', borderTop: '1px solid #222', fontSize: 10, color: '#444' }}>
-        OMM Technologies SA de CV
+      OMM Technologies SA de CV
       </div>
     </aside>
   )
