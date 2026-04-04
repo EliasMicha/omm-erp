@@ -1,4 +1,4 @@
-import { CSSProperties, ReactNode } from 'react'
+import { CSSProperties, ReactNode, MouseEvent as RMouseEvent } from 'react'
 
 // ── Badge ────────────────────────────────────────────────────────────────────
 export function Badge({ label, color }: { label: string; color: string }) {
@@ -45,7 +45,7 @@ export function Table({ children }: { children: ReactNode }) {
   )
 }
 
-export function Th({ children, right }: { children: ReactNode; right?: boolean }) {
+export function Th({ children, right }: { children?: ReactNode; right?: boolean }) {
   return (
     <th style={{
       padding: '8px 12px', background: '#1a1a1a',
@@ -60,11 +60,11 @@ export function Th({ children, right }: { children: ReactNode; right?: boolean }
   )
 }
 
-export function Td({ children, right, muted, style }: {
-  children: ReactNode; right?: boolean; muted?: boolean; style?: CSSProperties
+export function Td({ children, right, muted, style, colSpan }: {
+  children: ReactNode; right?: boolean; muted?: boolean; style?: CSSProperties; colSpan?: number
 }) {
   return (
-    <td style={{
+    <td colSpan={colSpan} style={{
       padding: '10px 12px',
       fontSize: 12, color: muted ? '#555' : '#ccc',
       textAlign: right ? 'right' : 'left',
@@ -89,27 +89,30 @@ export function ProgressBar({ pct, color = '#57FF9A' }: { pct: number; color?: s
 }
 
 // ── Button ────────────────────────────────────────────────────────────────────
-export function Btn({ children, onClick, variant = 'default', size = 'md', style }: {
+export function Btn({ children, onClick, variant = 'default', size = 'md', style, disabled }: {
   children: ReactNode
-  onClick?: () => void
-  variant?: 'default' | 'primary' | 'ghost'
+  onClick?: (e?: RMouseEvent<HTMLButtonElement>) => void
+  variant?: 'default' | 'primary' | 'ghost' | 'danger'
   size?: 'sm' | 'md'
   style?: CSSProperties
+  disabled?: boolean
 }) {
   const base: CSSProperties = {
-    cursor: 'pointer', border: 'none', borderRadius: 8, fontFamily: 'inherit',
+    cursor: disabled ? 'not-allowed' : 'pointer', border: 'none', borderRadius: 8, fontFamily: 'inherit',
     transition: 'all 0.12s', display: 'inline-flex', alignItems: 'center', gap: 5,
     fontSize: size === 'sm' ? 11 : 12,
     padding: size === 'sm' ? '4px 10px' : '7px 14px',
     fontWeight: 500,
+    opacity: disabled ? 0.5 : 1,
   }
   const variants: Record<string, CSSProperties> = {
     default: { background: '#1e1e1e', color: '#aaa', border: '1px solid #333' },
     primary: { background: '#57FF9A', color: '#000', fontWeight: 700 },
     ghost:   { background: 'transparent', color: '#666', border: '1px solid transparent' },
+    danger:  { background: '#EF4444', color: '#fff', fontWeight: 600 },
   }
   return (
-    <button onClick={onClick} style={{ ...base, ...variants[variant], ...style }}>
+    <button onClick={disabled ? undefined : onClick} disabled={disabled} style={{ ...base, ...variants[variant], ...style }}>
       {children}
     </button>
   )

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
-import { Quotation, QuotationArea, QuotationItem, CatalogProduct, Project } from '../types'
+import { Quotation, QuotationArea, QuotationItem, CatalogProduct, Project, ProjectLine } from '../types'
 import { F, SPECIALTY_CONFIG, STAGE_CONFIG, calcItemPrice, calcItemTotal } from '../lib/utils'
 import { Badge, Btn, Table, Th, Td, Loading, SectionHeader, EmptyState } from '../components/layout/UI'
 import { Plus, ChevronLeft, X } from 'lucide-react'
@@ -41,7 +41,7 @@ function CotDashboard({ onOpen }: { onOpen: (id: string) => void }) {
       <div style={{display:'flex',gap:6,marginBottom:16,flexWrap:'wrap'}}>
         {['todas','esp','elec','ilum','cort','proy'].map(f => {
           const on = filtro === f
-          const cfg = f !== 'todas' ? SPECIALTY_CONFIG[f as any] : null
+          const cfg = f !== 'todas' ? SPECIALTY_CONFIG[f as ProjectLine] : null
           return (
             <button key={f} onClick={() => setFiltro(f)} style={{
               padding:'5px 12px',borderRadius:20,fontSize:11,cursor:'pointer',fontFamily:'inherit',
@@ -71,7 +71,7 @@ function CotDashboard({ onOpen }: { onOpen: (id: string) => void }) {
                   <Td><Badge label={esp.icon+' '+esp.label} color={esp.color}/></Td>
                   <Td><Badge label={stage.label} color={stage.color}/></Td>
                   <Td right><span style={{fontWeight:600,color:'#57FF9A'}}>{F(c.total)}</span></Td>
-                  <Td><Btn size="sm" onClick={e => { e.stopPropagation(); onOpen(c.id) }}>Abrir</Btn></Td>
+                  <Td><Btn size="sm" onClick={e => { e?.stopPropagation(); onOpen(c.id) }}>Abrir</Btn></Td>
                 </tr>
               )
             })}
@@ -110,7 +110,7 @@ function NuevaCoModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
     <label style={{fontSize:11,color:'#555',textTransform:'uppercase',letterSpacing:'0.06em'}}>
       {label}
       <input value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder}
-        style={{display:'block',Width:'100%',marginTop:4,padding:'8px 10px',background:'#1e1e1e',border:'1px solid #333',borderRadius:8,color:'#fff',fontSize:13,fontFamily:'inherit'}}/>
+        style={{display:'block',width:'100%',marginTop:4,padding:'8px 10px',background:'#1e1e1e',border:'1px solid #333',borderRadius:8,color:'#fff',fontSize:13,fontFamily:'inherit'}}/>
     </label>
   )
 

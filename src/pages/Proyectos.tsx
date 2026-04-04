@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
-import { Project } from '../types'
+import { Project, ProjectStatus } from '../types'
 import { F, STATUS_CONFIG, SPECIALTY_CONFIG } from '../lib/utils'
 import { Badge, ProgressBar, Btn, Loading, SectionHeader, EmptyState } from '../components/layout/UI'
 import { Plus, X } from 'lucide-react'
@@ -122,7 +122,7 @@ export default function Proyectos() {
       <div style={{ display: 'flex', gap: 6, marginBottom: 20 }}>
         {['todos', 'activo', 'pausado', 'completado', 'cancelado'].map(f => {
           const on = filtro === f
-          const cfg = f !== 'todos' ? STATUS_CONFIG[f as any] : null
+          const cfg = f !== 'todos' ? STATUS_CONFIG[f as ProjectStatus] : null
           return (
             <button key={f} onClick={() => setFiltro(f)} style={{
               padding: '5px 12px', borderRadius: 20, fontSize: 11, cursor: 'pointer', fontFamily: 'inherit',

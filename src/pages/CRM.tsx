@@ -65,15 +65,15 @@ function Field({ label, value, onChange, placeholder = '', type = 'text', disabl
 }
 
 // ─── Chips de seleccion ────────────────────────────────────────────────────
-function Chips<T extends string>({ label, options, value, onChange, colorMap }: {
+function Chips({ label, options, value, onChange, colorMap }: {
   label: string
-  options: { key: T; label: string; color?: string }[]
-  value: T | T[]
-  onChange: (v: T) => void
-  colorMap?: Record<T, string>
+  options: { key: string; label: string; color?: string }[]
+  value: string | string[]
+  onChange: (v: string) => void
+  colorMap?: Record<string, string>
 }) {
   const isMulti = Array.isArray(value)
-  const isActive = (k: T) => isMulti ? (value as T[]).includes(k) : value === k
+  const isActive = (k: string) => isMulti ? (value as string[]).includes(k) : value === k
   return (
     <label style={{ fontSize: 11, color: '#555', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
       {label}
