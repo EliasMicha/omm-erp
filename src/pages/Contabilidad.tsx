@@ -1,4 +1,6 @@
 import { useState, useRef } from 'react'
+import { MOCK_CLIENTES } from './Clientes'
+import type { ClienteFiscal } from './Clientes'
 import { SectionHeader, KpiCard, Table, Th, Td, Badge, Btn, EmptyState } from '../components/layout/UI'
 import { F, formatDate } from '../lib/utils'
 import {
@@ -238,7 +240,7 @@ function TabFacturacion({ invoices, setInvoices }: { invoices: Invoice[]; setInv
   const [showNewForm, setShowNewForm] = useState(false)
   const [xmlProcessing, setXmlProcessing] = useState(false)
   const xmlInputRef = useRef<HTMLInputElement>(null)
-  const [newInv, setNewInv] = useState({ direccion: 'emitida' as InvoiceDirection, serie: 'FAC', folio: '', tipo_comprobante: 'I' as CfdiType, receptor_nombre: '', emisor_nombre: 'OMM Technologies', total: '', fecha_emision: new Date().toISOString().split('T')[0], proyecto_nombre: '', metodo_pago: 'PUE' })
+  const [newInv, setNewInv] = useState({ direccion: 'emitida' as InvoiceDirection, serie: 'FAC', folio: '', tipo_comprobante: 'I' as CfdiType, receptor_nombre: '', emisor_nombre: 'OMM Technologies SA de CV', cliente_id: '', rfc_receptor: '', regimen_receptor: '', cp_receptor: '', uso_cfdi: '', total: '', fecha_emision: new Date().toISOString().split('T')[0], proyecto_nombre: '', metodo_pago: 'PUE' })
 
   const handleXml = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]; if (!file) return
@@ -345,19 +347,45 @@ function TabFacturacion({ invoices, setInvoices }: { invoices: Invoice[]; setInv
       {showNewForm && (
         <Modal title="Nueva Factura" onClose={() => setShowNewForm(false)}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <Field label="Direccion"><select style={selectStyle} value={newInv.direccion} onChange={e => setNewInv({...newInv, direccion: e.target.value as InvoiceDirection})}><option value="emitida">Emitida</option><option value="recibida">Recibida</option></select></Field>
-            <Field label="Tipo CFDI"><select style={selectStyle} value={newInv.tipo_comprobante} onChange={e => setNewInv({...newInv, tipo_comprobante: e.target.value as CfdiType})}><option value="I">Ingreso</option><option value="E">Egreso</option><option value="P">Pago</option></select></Field>
-            <Field label="Serie"><input style={inputStyle} value={newInv.serie} onChange={e => setNewInv({...newInv, serie: e.target.value})} /></Field>
-            <Field label="Folio *"><input style={inputStyle} value={newInv.folio} onChange={e => setNewInv({...newInv, folio: e.target.value})} /></Field>
-            <Field label="Receptor *"><input style={inputStyle} value={newInv.receptor_nombre} onChange={e => setNewInv({...newInv, receptor_nombre: e.target.value})} /></Field>
-            <Field label="Emisor"><input style={inputStyle} value={newInv.emisor_nombre} onChange={e => setNewInv({...newInv, emisor_nombre: e.target.value})} /></Field>
-            <Field label="Total *"><input style={inputStyle} type="number" value={newInv.total} onChange={e => setNewInv({...newInv, total: e.target.value})} /></Field>
+            <Field label="Cliente *">
+              <select style={selectStyle} onChange={e => {
+                const cl = MOCK_CLIENTES.find(c => c.id === e.target.value)
+                if (cl) setNewInv({...newInv, receptor_nombre: cl.razon_social, emisor_nombre: 'OMM Technologies SA de CV', cliente_id: cl.id, rfc_receptor: cl.rfc, regimen_receptor: cl.regimen_fiscal_clave, cp_receptor: cl.codigo_postal, uso_cfdi: cl.uso_cfdi_clave})
+              }}>
+                <option value="">-- Seleccionar cliente --</option>
+                {MOCK_CLIENTES.filter(cl => cl.activo).map(cl => <option key={cl.id} value={cl.id}>{cl.rfc} - {cl.razon_social}</option>)}
+              </select>
+            </Field>
+            {newInv.receptor_nombre && (
+              <div style={{ background: '#0a0a0a', border: '1px solid #222', borderRadius: 8, padding: '10px 14px', marginBottom: 12 }}>
+                <div style={{ fontSize: 11, color: '#57FF9A', fontWeight: 600, marginBottom: 6 }}>Datos fiscales del cliente (solo lectura)</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 16px', fontSize: 11 }}>
+                  <div><span style={{color:'#555'}}>RFC:</span> <span style={{color:'#fff', fontFamily:'monospace'}}>{newInv.rfc_receptor}</span></div>
+                  <div><span style={{color:'#555'}}>Regimen:</span> <span style={{color:'#ccc'}}>{newInv.regimen_receptor}</span></div>
+                  <div style={{gridColumn:'1/-1'}}><span style={{color:'#555'}}>Razon Social:</span> <span style={{color:'#fff'}}>{newInv.receptor_nombre}</span></div>
+                  <div><span style={{color:'#555'}}>C.P.:</span> <span style={{color:'#ccc'}}>{newInv.cp_receptor}</span></div>
+                  <div><span style={{color:'#555'}}>Uso CFDI:</span> <span style={{color:'#ccc'}}>{newInv.uso_cfdi}</span></div>
+                </div>
+                <div style={{ fontSize: 10, color: '#444', marginTop: 6 }}>Para modificar datos fiscales, ve a Clientes</div>
+              </div>
+            )}
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <Field label="Direccion">
+              <select style={selectStyle} value={newInv.direccion} onChange={e => setNewInv({...newInv, direccion: e.target.value as InvoiceDirection})}><option value="emitida">Emitida</option><option value="recibida">Recibida</option></select>
+            </Field>
+            <Field label="Tipo CFDI">
+              <select style={selectStyle} value={newInv.tipo_comprobante} onChange={e => setNewInv({...newInv, tipo_comprobante: e.target.value as CfdiType})}><option value="I">Ingreso</option><option value="E">Egreso</option><option value="P">Pago</option></select>
+            </Field>
+            <Field label="Serie"><input style={inputStyle} value={newInv.serie} onChange={e => setNewInv({...newInv, serie: e.target.value})} placeholder="FAC" /></Field>
+            <Field label="Folio *"><input style={inputStyle} value={newInv.folio} onChange={e => setNewInv({...newInv, folio: e.target.value})} placeholder="003" /></Field>
+            <Field label="Total *"><input style={inputStyle} type="number" value={newInv.total} onChange={e => setNewInv({...newInv, total: e.target.value})} placeholder="0.00" /></Field>
             <Field label="Fecha"><input style={inputStyle} type="date" value={newInv.fecha_emision} onChange={e => setNewInv({...newInv, fecha_emision: e.target.value})} /></Field>
             <Field label="Proyecto"><select style={selectStyle} value={newInv.proyecto_nombre} onChange={e => setNewInv({...newInv, proyecto_nombre: e.target.value})}><option value="">Sin proyecto</option>{PROYECTOS.map(p => <option key={p} value={p}>{p}</option>)}</select></Field>
             <Field label="Metodo pago"><select style={selectStyle} value={newInv.metodo_pago} onChange={e => setNewInv({...newInv, metodo_pago: e.target.value})}><option value="PUE">PUE</option><option value="PPD">PPD</option></select></Field>
           </div>
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 20 }}>
-            <Btn size="sm" variant="default" onClick={() => setShowNewForm(false)}>Cancelar</Btn>
+            <Btn size="sm" variant="default" onClick={() => setShowForm(false)}>Cancelar</Btn>
             <Btn size="sm" variant="primary" onClick={handleNew}>Crear factura</Btn>
           </div>
         </Modal>
