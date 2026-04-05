@@ -239,18 +239,78 @@ function TabFacturacion({ invoices, setInvoices }: { invoices: Invoice[]; setInv
   const [filter, setFilter] = useState<'todas' | 'emitidas' | 'recibidas'>('todas')
   const [showNewForm, setShowNewForm] = useState(false)
   const [xmlProcessing, setXmlProcessing] = useState(false)
+  const [xmlResult, setXmlResult] = useState<string | null>(null)
   const xmlInputRef = useRef<HTMLInputElement>(null)
   const [newInv, setNewInv] = useState({ direccion: 'emitida' as InvoiceDirection, serie: 'FAC', folio: '', tipo_comprobante: 'I' as CfdiType, receptor_nombre: '', emisor_nombre: 'OMM Technologies SA de CV', cliente_id: '', rfc_receptor: '', regimen_receptor: '', cp_receptor: '', uso_cfdi: '', total: '', fecha_emision: new Date().toISOString().split('T')[0], proyecto_nombre: '', metodo_pago: 'PUE' })
 
   const handleXml = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]; if (!file) return
     setXmlProcessing(true)
-    const text = await file.text()
-    const result = await askClaude('Analiza este XML de CFDI mexicano. Devuelve SOLO JSON: {"serie":"","folio":"","tipo_comprobante":"I","receptor_nombre":"","emisor_nombre":"","total":0,"fecha_emision":"YYYY-MM-DD","metodo_pago":"PUE"}\nXML:\n' + text.substring(0,8000))
     try {
-      const p = JSON.parse(result.replace(/```json\n?/g,'').replace(/```/g,'').trim())
-      setInvoices([{ id: String(Date.now()), direccion: p.emisor_nombre?.includes('OMM') ? 'emitida' : 'recibida', serie: p.serie||'', folio: p.folio||'', tipo_comprobante: p.tipo_comprobante||'I', receptor_nombre: p.receptor_nombre||'', emisor_nombre: p.emisor_nombre||'', total: p.total||0, estado: 'timbrada', fecha_emision: p.fecha_emision||'', proyecto_nombre: '', conciliada: false, metodo_pago: p.metodo_pago||'' }, ...invoices])
-    } catch {}
+      const text = await file.text()
+      const parser = new DOMParser()
+      const xml = parser.parseFromString(text, 'text/xml')
+      const ns = 'http://www.sat.gob.mx/cfd/4'
+      const tfdNs = 'http://www.sat.gob.mx/TimbreFiscalDigital'
+      const comp = xml.getElementsByTagNameNS(ns, 'Comprobante')[0] || xml.documentElement
+      const emisor = xml.getElementsByTagNameNS(ns, 'Emisor')[0]
+      const receptor = xml.getElementsByTagNameNS(ns, 'Receptor')[0]
+      const timbre = xml.getElementsByTagNameNS(tfdNs, 'TimbreFiscalDigital')[0]
+      const conceptosNodes = xml.getElementsByTagNameNS(ns, 'Concepto')
+      const conceptos: any[] = []
+      for (let i = 0; i < conceptosNodes.length; i++) {
+        const cn = conceptosNodes[i]
+        conceptos.push({
+          clave_prod_serv: cn.getAttribute('ClaveProdServ') || '',
+          cantidad: parseFloat(cn.getAttribute('Cantidad') || '0'),
+          clave_unidad: cn.getAttribute('ClaveUnidad') || '',
+          unidad: cn.getAttribute('Unidad') || '',
+          descripcion: cn.getAttribute('Descripcion') || '',
+          valor_unitario: parseFloat(cn.getAttribute('ValorUnitario') || '0'),
+          importe: parseFloat(cn.getAttribute('Importe') || '0'),
+        })
+      }
+      const parsed = {
+        uuid: timbre?.getAttribute('UUID') || '',
+        serie: comp.getAttribute('Serie') || '',
+        folio: comp.getAttribute('Folio') || '',
+        fecha: (comp.getAttribute('Fecha') || '').substring(0, 10),
+        tipo_comprobante: comp.getAttribute('TipoDeComprobante') || 'I',
+        subtotal: parseFloat(comp.getAttribute('SubTotal') || '0'),
+        total: parseFloat(comp.getAttribute('Total') || '0'),
+        moneda: comp.getAttribute('Moneda') || 'MXN',
+        forma_pago: comp.getAttribute('FormaPago') || '',
+        metodo_pago: comp.getAttribute('MetodoPago') || '',
+        emisor_rfc: emisor?.getAttribute('Rfc') || '',
+        emisor_nombre: emisor?.getAttribute('Nombre') || '',
+        emisor_regimen: emisor?.getAttribute('RegimenFiscal') || '',
+        receptor_rfc: receptor?.getAttribute('Rfc') || '',
+        receptor_nombre: receptor?.getAttribute('Nombre') || '',
+        receptor_regimen: receptor?.getAttribute('RegimenFiscalReceptor') || '',
+        receptor_uso_cfdi: receptor?.getAttribute('UsoCFDI') || '',
+        receptor_cp: receptor?.getAttribute('DomicilioFiscalReceptor') || '',
+        conceptos,
+      }
+      const iva = parsed.total - parsed.subtotal
+      setXmlResult(JSON.stringify({...parsed, iva: Math.round(iva*100)/100}, null, 2))
+      const newInvoice: Invoice = {
+        id: String(Date.now()),
+        direccion: parsed.emisor_rfc.includes('OMM') || parsed.emisor_nombre.includes('OMM') ? 'emitida' : 'recibida',
+        serie: parsed.serie, folio: parsed.folio,
+        tipo_comprobante: (parsed.tipo_comprobante || 'I') as CfdiType,
+        receptor_nombre: parsed.receptor_nombre,
+        emisor_nombre: parsed.emisor_nombre,
+        total: parsed.total,
+        estado: 'timbrada',
+        fecha_emision: parsed.fecha,
+        proyecto_nombre: '',
+        conciliada: false,
+        metodo_pago: parsed.metodo_pago,
+      }
+      setInvoices([newInvoice, ...invoices])
+    } catch (err) {
+      setXmlResult('Error al parsear XML: ' + (err as Error).message)
+    }
     setXmlProcessing(false)
     if (xmlInputRef.current) xmlInputRef.current.value = ''
   }
