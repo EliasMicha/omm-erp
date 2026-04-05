@@ -372,7 +372,7 @@ function TabFacturacion({ invoices, setInvoices }: { invoices: Invoice[]; setInv
           {invoices.map(inv => {
             const cfg = INVOICE_STATUS_CONFIG[inv.estado]
             return (
-              <tr key={inv.id} style={{ cursor: 'pointer' }}>
+              <tr key={inv.id} style={{cursor:'pointer'}} onClick={() => setSelectedInv(inv)}>
                 <Td>
                   <span style={{ fontWeight: 600, color: '#fff' }}>
                     {inv.serie ? `${inv.serie}-${inv.folio}` : inv.folio}
@@ -448,6 +448,30 @@ function TabFacturacion({ invoices, setInvoices }: { invoices: Invoice[]; setInv
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 20 }}>
             <Btn size="sm" variant="default" onClick={() => setShowNewForm(false)}>Cancelar</Btn>
             <Btn size="sm" variant="primary" onClick={handleNew}>Crear factura</Btn>
+          </div>
+        </Modal>
+      )}
+
+      {selectedInv && (
+        <Modal title={selectedInv.serie ? selectedInv.serie + '-' + selectedInv.folio : selectedInv.folio} onClose={() => setSelectedInv(null)}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 20px', fontSize: 12 }}>
+            <div><span style={{color:'#555'}}>Direccion:</span> <Badge label={selectedInv.direccion === 'emitida' ? 'Emitida' : 'Recibida'} color={selectedInv.direccion === 'emitida' ? '#3B82F6' : '#F59E0B'} /></div>
+            <div><span style={{color:'#555'}}>Tipo CFDI:</span> <span style={{color:'#fff'}}>{CFDI_TYPE_LABELS[selectedInv.tipo_comprobante]}</span></div>
+            <div><span style={{color:'#555'}}>Emisor:</span> <span style={{color:'#ccc'}}>{selectedInv.emisor_nombre}</span></div>
+            <div><span style={{color:'#555'}}>Receptor:</span> <span style={{color:'#ccc'}}>{selectedInv.receptor_nombre}</span></div>
+            <div><span style={{color:'#555'}}>Fecha:</span> <span style={{color:'#ccc'}}>{formatDate(selectedInv.fecha_emision)}</span></div>
+            <div><span style={{color:'#555'}}>Estado:</span> <Badge label={INVOICE_STATUS_CONFIG[selectedInv.estado].label} color={INVOICE_STATUS_CONFIG[selectedInv.estado].color} /></div>
+            <div><span style={{color:'#555'}}>Metodo pago:</span> <span style={{color:'#ccc'}}>{selectedInv.metodo_pago || '--'}</span></div>
+            <div><span style={{color:'#555'}}>Proyecto:</span> <span style={{color:'#ccc'}}>{selectedInv.proyecto_nombre || '--'}</span></div>
+            <div><span style={{color:'#555'}}>Conciliada:</span> <span style={{color: selectedInv.conciliada ? '#57FF9A' : '#F59E0B'}}>{selectedInv.conciliada ? 'Si' : 'No'}</span></div>
+            <div><span style={{color:'#555'}}>Total:</span> <span style={{color:'#fff', fontWeight: 700, fontSize: 16}}>{F(selectedInv.total)}</span></div>
+          </div>
+          <div style={{ marginTop: 16, padding: '12px 0', borderTop: '1px solid #222' }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#888', marginBottom: 10 }}>Conceptos</div>
+            <div style={{ fontSize: 11, color: '#555', textAlign: 'center', padding: 20 }}>Los conceptos se mostraran al cargar desde XML o generar via Facturapi</div>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 12 }}>
+            <Btn size="sm" variant="default" onClick={() => setSelectedInv(null)}>Cerrar</Btn>
           </div>
         </Modal>
       )}
