@@ -78,7 +78,7 @@ interface BankMovement {
 
 const TABS: { key: Tab; label: string; icon: typeof FileText }[] = [
   { key: 'facturacion', label: 'Facturacion', icon: FileText },
-  { key: 'conciliacion', label: 'ConciliaciÃ³n', icon: ArrowLeftRight },
+  { key: 'conciliacion', label: 'Conciliacion', icon: ArrowLeftRight },
   { key: 'supervision', label: 'Supervision', icon: ShieldCheck },
   { key: 'efectivo', label: 'Efectivo', icon: Banknote },
   { key: 'cobranza', label: 'Cobranza', icon: DollarSign },
@@ -241,6 +241,7 @@ function TabFacturacion({ invoices, setInvoices }: { invoices: Invoice[]; setInv
   const [xmlProcessing, setXmlProcessing] = useState(false)
   const [xmlResult, setXmlResult] = useState<string | null>(null)
   const xmlInputRef = useRef<HTMLInputElement>(null)
+  const [selectedInv, setSelectedInv] = useState<Invoice | null>(null)
   const [newInv, setNewInv] = useState({ direccion: 'emitida' as InvoiceDirection, serie: 'FAC', folio: '', tipo_comprobante: 'I' as CfdiType, receptor_nombre: '', emisor_nombre: 'OMM Technologies SA de CV', cliente_id: '', rfc_receptor: '', regimen_receptor: '', cp_receptor: '', uso_cfdi: '', total: '', fecha_emision: new Date().toISOString().split('T')[0], proyecto_nombre: '', metodo_pago: 'PUE' })
 
   const handleXml = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -485,7 +486,7 @@ function TabConciliacion({ bankMovements, setBankMovements }: { bankMovements: B
         <Btn size="sm" variant="primary" onClick={() => fileRef.current?.click()}>{processing ? 'Claude procesando...' : <><Upload size={12} /> Subir estado de cuenta</>}</Btn>
       </div>
 
-      <EmptyState message="Sube un estado de cuenta (CSV de Banorte o BBVA) para iniciar la conciliacion automÃ¡tica" />
+      <EmptyState message="Sube un estado de cuenta (CSV de Banorte o BBVA) para iniciar la conciliacion automatica" />
     </div>
   )
 }
@@ -509,7 +510,7 @@ function TabSupervision({ invoices }: { invoices: Invoice[] }) {
       <div style={{ marginBottom: 20 }}>
         <div style={{ fontSize: 14, fontWeight: 600, color: '#fff', marginBottom: 10 }}>Alertas activas</div>
         {[
-          { title: 'FAC-001: Anticipo sin egreso de aplicaciÃ³n', desc: 'Riesgo de deducibilidad si no se aplica el anticipo', severity: 'alta', action: 'Crear egreso' },
+          { title: 'FAC-001: Anticipo sin egreso de aplicacion', desc: 'Riesgo de deducibilidad si no se aplica el anticipo', severity: 'alta', action: 'Crear egreso' },
           { title: '2 facturas recibidas sin validar contra SAT', desc: 'Verificar UUID de facturas de proveedores', severity: 'media', action: 'Validar' },
         ].map((a, i) => (
           <div key={i} style={{
@@ -530,7 +531,7 @@ function TabSupervision({ invoices }: { invoices: Invoice[] }) {
         ))}
       </div>
 
-      <EmptyState message="Las cadenas de documentos relacionados aparecerÃ¡n conforme se registren facturas con relaciones CFDI" />
+      <EmptyState message="Las cadenas de documentos relacionados apareceran conforme se registren facturas con relaciones CFDI" />
     </div>
   )
 }
@@ -551,7 +552,7 @@ function TabEfectivo() {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 20 }}>
         <KpiCard label="Cobros cash (clientes)" value={F(totalCobros)} color="#57FF9A" icon={<DollarSign size={16} />} />
         <KpiCard label="Pagos cash (proveedores)" value={F(totalPagos)} color="#F59E0B" icon={<Banknote size={16} />} />
-        <KpiCard label="NÃ³mina cash" value={F(totalNomina)} color="#C084FC" icon={<Users size={16} />} />
+        <KpiCard label="Nomina cash" value={F(totalNomina)} color="#C084FC" icon={<Users size={16} />} />
       </div>
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
@@ -580,7 +581,7 @@ function TabEfectivo() {
               <Td muted>{formatDate(m.fecha)}</Td>
               <Td>
                 <Badge
-                  label={m.tipo === 'cobro_cliente' ? 'Cobro' : m.tipo === 'pago_proveedor' ? 'Pago' : 'NÃ³mina'}
+                  label={m.tipo === 'cobro_cliente' ? 'Cobro' : m.tipo === 'pago_proveedor' ? 'Pago' : 'Nomina'}
                   color={m.tipo === 'cobro_cliente' ? '#57FF9A' : m.tipo === 'pago_proveedor' ? '#F59E0B' : '#C084FC'}
                 />
               </Td>
@@ -780,7 +781,7 @@ function TabFlujo() {
               <div style={{ fontSize: 14, fontWeight: 600, color: '#EF4444', marginBottom: 12 }}>Debo pagar</div>
               {[
                 { label: 'Gastos fijos', value: gastosFijos },
-                { label: 'Ãrdenes de compra', value: oc },
+                { label: 'Ordenes de compra', value: oc },
                 { label: 'Facturas por pagar', value: factPorPagar },
               ].map((item, i) => (
                 <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid #1a1a1a' }}>
