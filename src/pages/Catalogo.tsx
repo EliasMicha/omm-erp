@@ -1,8 +1,11 @@
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { SectionHeader, KpiCard, Table, Th, Td, Badge, Btn, EmptyState } from '../components/layout/UI'
-import { F } from '../lib/utils'
+import { F, PHASE_CONFIG } from '../lib/utils'
 import { Package, Plus, Search, Edit, X, Tag, Layers, Upload, Loader2 } from 'lucide-react'
+import { PurchasePhase } from '../types'
+
+interface Supplier { id: string; name: string }
 
 interface Product {
   id: string
@@ -12,6 +15,8 @@ interface Product {
   type: string
   specialty: string
   provider: string
+  supplier_id: string
+  purchase_phase: string
   unit: string
   cost: number
   markup: number
@@ -61,13 +66,18 @@ export default function Catalogo() {
   const [importResult, setImportResult] = useState<string | null>(null)
   const importRef = useRef<HTMLInputElement>(null)
   const [form, setForm] = useState<Partial<Product>>({
-    type: 'material', unit: 'pza', clave_unidad: 'H87', markup: 35, iva_rate: 0.16, is_active: true, system: 'Electrico', moneda: 'MXN',
+    type: 'material', unit: 'pza', clave_unidad: 'H87', markup: 35, iva_rate: 0.16, is_active: true, system: 'Electrico', moneda: 'MXN', purchase_phase: 'inicio', supplier_id: '',
   })
+  const [suppliers, setSuppliers] = useState<Supplier[]>([])
 
   useEffect(() => {
     const load = async () => {
-      const { data } = await supabase.from('catalog_products').select('*').order('name')
+      const [{ data }, { data: sups }] = await Promise.all([
+        supabase.from('catalog_products').select('*').order('name'),
+        supabase.from('suppliers').select('id,name').eq('is_active', true).order('name'),
+      ])
       if (data) setProducts(data.map((p: any) => ({...p, cost: Number(p.cost)||0, markup: Number(p.markup)||35, precio_venta: Number(p.precio_venta)||0, iva_rate: Number(p.iva_rate)||0.16})))
+      if (sups) setSuppliers(sups)
     }
     load()
   }, [])
@@ -80,7 +90,7 @@ export default function Catalogo() {
 
   const openNew = () => {
     setEditId(null)
-    setForm({ type: 'material', unit: 'pza', clave_unidad: 'H87', markup: 35, iva_rate: 0.16, is_active: true, system: 'Electrico' })
+    setForm({ type: 'material', unit: 'pza', clave_unidad: 'H87', markup: 35, iva_rate: 0.16, is_active: true, system: 'Electrico', purchase_phase: 'inicio', supplier_id: '' })
     setShowForm(true)
   }
 
@@ -103,6 +113,7 @@ export default function Catalogo() {
       clave_unidad: form.clave_unidad || 'H87', iva_rate: form.iva_rate ?? 0.16,
       category: form.category || 'general', sku: form.sku || null, is_active: form.is_active !== false,
       moneda: form.moneda || 'MXN', costo_usd: form.costo_usd || 0, tipo_cambio: form.tipo_cambio || 0, marca: form.marca || null, modelo: form.modelo || null,
+      supplier_id: form.supplier_id || null, purchase_phase: form.purchase_phase || 'inicio',
     }
     if (editId) {
       await supabase.from('catalog_products').update(row).eq('id', editId)
@@ -191,14 +202,15 @@ export default function Catalogo() {
       </div>
 
       <Table>
-        <thead><tr><Th>Producto</Th><Th>Clave SAT</Th><Th>Sistema</Th><Th>Unidad</Th><Th right>Costo</Th><Th right>Precio Venta</Th><Th>Tipo</Th><Th>{' '}</Th></tr></thead>
+        <thead><tr><Th>Producto</Th><Th>Clave SAT</Th><Th>Sistema</Th><Th>Fase</Th><Th>Unidad</Th><Th right>Costo</Th><Th right>Precio Venta</Th><Th>Tipo</Th><Th>{' '}</Th></tr></thead>
         <tbody>
-          {filtered.length === 0 && <tr><Td colSpan={8} muted>Sin productos. Agrega tu primer producto al catalogo.</Td></tr>}
+          {filtered.length === 0 && <tr><Td colSpan={9} muted>Sin productos. Agrega tu primer producto al catalogo.</Td></tr>}
           {filtered.map(p => (
             <tr key={p.id} style={{ cursor: 'pointer' }} onClick={() => setSelectedProduct(p)}>
               <Td><div style={{fontWeight: 600, color:'#fff'}}>{p.name}</div>{p.description && <div style={{fontSize:10, color:'#555', marginTop:2}}>{p.description.substring(0,50)}</div>}</Td>
               <Td><span style={{fontFamily:'monospace', fontSize: 11, color:'#888'}}>{p.clave_prod_serv || '--'}</span></Td>
               <Td muted style={{fontSize:11}}>{p.system || '--'}</Td>
+              <Td>{p.purchase_phase ? <Badge label={PHASE_CONFIG[p.purchase_phase as PurchasePhase]?.label || p.purchase_phase} color={PHASE_CONFIG[p.purchase_phase as PurchasePhase]?.color || '#555'} /> : <span style={{color:'#555',fontSize:11}}>--</span>}</Td>
               <Td muted style={{fontSize:11}}>{p.clave_unidad} ({p.unit})</Td>
               <Td right muted><span style={{fontSize:9,color:'#555'}}>{p.moneda||'MXN'}</span> {F(p.cost)}</Td>
               <Td right style={{fontWeight: 600, color:'#57FF9A'}}>{F(p.precio_venta || calcPrecioVenta(p.cost, p.markup))}</Td>
@@ -225,6 +237,8 @@ export default function Catalogo() {
               <div><span style={{color:'#555'}}>Tipo:</span> <Badge label={selectedProduct.type} color="#3B82F6" /></div>
               <div><span style={{color:'#555'}}>Unidad:</span> <span style={{color:'#ccc'}}>{selectedProduct.clave_unidad} ({selectedProduct.unit})</span></div>
               <div><span style={{color:'#555'}}>Proveedor:</span> <span style={{color:'#ccc'}}>{selectedProduct.provider || '--'}</span></div>
+              <div><span style={{color:'#555'}}>Distribuidor:</span> <span style={{color:'#ccc'}}>{suppliers.find(s => s.id === selectedProduct.supplier_id)?.name || '--'}</span></div>
+              <div><span style={{color:'#555'}}>Fase compra:</span> {selectedProduct.purchase_phase ? <Badge label={PHASE_CONFIG[selectedProduct.purchase_phase as PurchasePhase]?.label || selectedProduct.purchase_phase} color={PHASE_CONFIG[selectedProduct.purchase_phase as PurchasePhase]?.color || '#555'} /> : <span style={{color:'#555'}}>--</span>}</div>
               <div><span style={{color:'#555'}}>Marca:</span> <span style={{color:'#ccc'}}>{selectedProduct.marca || '--'}</span></div>
               <div><span style={{color:'#555'}}>Modelo:</span> <span style={{color:'#ccc'}}>{selectedProduct.modelo || '--'}</span></div>
               <div><span style={{color:'#555'}}>Moneda:</span> <span style={{color: selectedProduct.moneda === 'USD' ? '#3B82F6' : '#57FF9A'}}>{selectedProduct.moneda || 'MXN'}</span></div>
@@ -259,7 +273,9 @@ export default function Catalogo() {
               <Fld label="Sistema"><select style={iS} value={form.system || ''} onChange={e => setForm({...form, system: e.target.value})}><option value="">--</option>{SYSTEMS.map(s => <option key={s} value={s}>{s}</option>)}</select></Fld>
               <Fld label="Tipo"><select style={iS} value={form.type || 'material'} onChange={e => setForm({...form, type: e.target.value})}>{TYPES.map(t => <option key={t} value={t}>{t === 'mano_de_obra' ? 'Mano de obra' : t.charAt(0).toUpperCase() + t.slice(1)}</option>)}</select></Fld>
               <Fld label="Unidad SAT"><select style={iS} value={form.clave_unidad || 'H87'} onChange={e => { const u = UNITS.find(u => u.clave === e.target.value); setForm({...form, clave_unidad: e.target.value, unit: u?.label.split(' (')[0] || ''}) }}>{UNITS.map(u => <option key={u.clave} value={u.clave}>{u.label}</option>)}</select></Fld>
-              <Fld label="Proveedor"><input style={iS} value={form.provider || ''} onChange={e => setForm({...form, provider: e.target.value})} placeholder="Nombre del proveedor" /></Fld>
+              <Fld label="Proveedor (marca)"><input style={iS} value={form.provider || ''} onChange={e => setForm({...form, provider: e.target.value})} placeholder="Lutron, Hikvision..." /></Fld>
+              <Fld label="Distribuidor"><select style={iS} value={form.supplier_id || ''} onChange={e => setForm({...form, supplier_id: e.target.value})}><option value="">-- Sin distribuidor --</option>{suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></Fld>
+              <Fld label="Fase de compra"><select style={iS} value={form.purchase_phase || 'inicio'} onChange={e => setForm({...form, purchase_phase: e.target.value})}>{Object.entries(PHASE_CONFIG).map(([k,v]) => <option key={k} value={k}>{v.label}</option>)}</select></Fld>
               <Fld label="Marca"><input style={iS} value={form.marca || ''} onChange={e => setForm({...form, marca: e.target.value})} placeholder="Lutron, Hikvision..." /></Fld>
               <Fld label="Modelo"><input style={iS} value={form.modelo || ''} onChange={e => setForm({...form, modelo: e.target.value})} placeholder="Modelo del producto" /></Fld>
             </div>

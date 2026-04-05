@@ -8,8 +8,8 @@ import OtrosModulos from './pages/OtrosModulos'
 import Contabilidad from './pages/Contabilidad'
 import Clientes from './pages/Clientes'
 import Catalogo from './pages/Catalogo'
+import Compras from './pages/Compras'
 
-const Compras = () => <OtrosModulos title="Compras" />
 const Reportes = () => <OtrosModulos title="Reportes de obra" />
 const Cobranza = () => <OtrosModulos title="Cobranza" />
 const Nomina = () => <OtrosModulos title="Nomina" />

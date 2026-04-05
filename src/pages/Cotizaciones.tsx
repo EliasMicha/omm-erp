@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
-import { Quotation, QuotationArea, QuotationItem, CatalogProduct, Project, ProjectLine } from '../types'
-import { F, SPECIALTY_CONFIG, STAGE_CONFIG, calcItemPrice, calcItemTotal } from '../lib/utils'
+import { Quotation, QuotationArea, QuotationItem, CatalogProduct, Project, ProjectLine, PurchasePhase } from '../types'
+import { F, SPECIALTY_CONFIG, STAGE_CONFIG, PHASE_CONFIG, calcItemPrice, calcItemTotal } from '../lib/utils'
 import { Badge, Btn, Table, Th, Td, Loading, SectionHeader, EmptyState } from '../components/layout/UI'
-import { Plus, ChevronLeft, X } from 'lucide-react'
+import { Plus, ChevronLeft, X, Zap } from 'lucide-react'
+
+interface Supplier { id: string; name: string }
 
 function CotDashboard({ onOpen }: { onOpen: (id: string) => void }) {
   const [cots, setCots] = useState<Quotation[]>([])
@@ -162,18 +164,22 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
   const [items, setItems] = useState<QuotationItem[]>([])
   const [areaActiva, setAreaActiva] = useState<string|null>(null)
   const [catalog, setCatalog] = useState<CatalogProduct[]>([])
+  const [suppliers, setSuppliers] = useState<Supplier[]>([])
   const [showCat, setShowCat] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [generating, setGenerating] = useState(false)
+  const [genResult, setGenResult] = useState<string|null>(null)
 
   useEffect(() => {
     async function load() {
-      const [{ data: c },{ data: as_ },{ data: it },{ data: cat }] = await Promise.all([
+      const [{ data: c },{ data: as_ },{ data: it },{ data: cat },{ data: sups }] = await Promise.all([
         supabase.from('quotations').select('*,project:projects(name,client_name)').eq('id',cotId).single(),
         supabase.from('quotation_areas').select('*').eq('quotation_id',cotId).order('order_index'),
         supabase.from('quotation_items').select('*').eq('quotation_id',cotId),
         supabase.from('catalog_products').select('*').eq('is_active',true).order('name'),
+        supabase.from('suppliers').select('id,name').eq('is_active',true).order('name'),
       ])
-      setCot(c); setAreas(as_||[]); setItems(it||[]); setCatalog(cat||[])
+      setCot(c); setAreas(as_||[]); setItems(it||[]); setCatalog(cat||[]); setSuppliers(sups||[])
       if (as_ && as_.length > 0) setAreaActiva(as_[0].id)
       setLoading(false)
     }
@@ -181,8 +187,102 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
   }, [cotId])
 
   async function setStage(stage: string) {
+    const prevStage = cot?.stage
     await supabase.from('quotations').update({ stage }).eq('id', cotId)
     setCot(c => c ? {...c, stage: stage as any} : c)
+
+    // Auto-generate POs when moving to "contrato"
+    if (stage === 'contrato' && prevStage !== 'contrato') {
+      await generatePurchaseOrders()
+    }
+  }
+
+  // ─── AUTO-GENERATE PURCHASE ORDERS ──────────────────────────────────────
+  async function generatePurchaseOrders() {
+    if (!cot) return
+    setGenerating(true); setGenResult(null)
+
+    // Get all material items with supplier_id
+    const materialItems = items.filter(it => it.type === 'material' && it.supplier_id)
+
+    if (materialItems.length === 0) {
+      setGenResult('No hay materiales con distribuidor asignado. Asigna distribuidores desde el catálogo.')
+      setGenerating(false)
+      return
+    }
+
+    // Group by supplier_id × purchase_phase
+    const groups: Record<string, QuotationItem[]> = {}
+    materialItems.forEach(it => {
+      const key = `${it.supplier_id}__${it.purchase_phase || 'inicio'}`
+      if (!groups[key]) groups[key] = []
+      groups[key].push(it)
+    })
+
+    // Check if POs already exist for this quotation
+    const { data: existing } = await supabase.from('purchase_orders')
+      .select('id').eq('quotation_id', cotId)
+    if (existing && existing.length > 0) {
+      setGenResult(`Ya existen ${existing.length} OC generadas para esta cotización. Revísalas en el módulo de Compras.`)
+      setGenerating(false)
+      return
+    }
+
+    let created = 0
+    const now = new Date()
+    const prefix = `OC-${String(now.getFullYear()).slice(2)}${String(now.getMonth() + 1).padStart(2, '0')}`
+
+    // Get current count for numbering
+    const { count: baseCount } = await supabase.from('purchase_orders')
+      .select('id', { count: 'exact', head: true })
+      .like('po_number', `${prefix}%`)
+    let seq = (baseCount || 0)
+
+    for (const [key, groupItems] of Object.entries(groups)) {
+      const [supplierId, phase] = key.split('__')
+      seq++
+      const po_number = `${prefix}-${String(seq).padStart(3, '0')}`
+
+      const subtotal = groupItems.reduce((s, it) => s + (it.cost * it.quantity), 0)
+      const iva = Math.round(subtotal * 0.16)
+
+      const phaseCfg = PHASE_CONFIG[phase as PurchasePhase]
+      const supplierName = suppliers.find(s => s.id === supplierId)?.name || ''
+
+      const { data: po, error: poErr } = await supabase.from('purchase_orders').insert({
+        po_number,
+        project_id: cot.project_id || null,
+        supplier_id: supplierId,
+        quotation_id: cotId,
+        specialty: cot.specialty,
+        status: 'borrador',
+        purchase_phase: phase,
+        subtotal, iva, total: subtotal + iva,
+        notes: `Auto-generada | ${cot.name} | ${phaseCfg?.label || phase} | ${supplierName}`,
+      }).select().single()
+
+      if (poErr || !po) continue
+
+      // Insert PO items
+      const poItems = groupItems.map((it, i) => ({
+        purchase_order_id: po.id,
+        catalog_product_id: it.catalog_product_id || null,
+        name: it.name,
+        description: it.description || null,
+        system: it.system || null,
+        unit: 'pza',
+        quantity: it.quantity,
+        unit_cost: it.cost,
+        total: it.cost * it.quantity,
+        quantity_received: 0,
+        order_index: i,
+      }))
+      await supabase.from('po_items').insert(poItems)
+      created++
+    }
+
+    setGenResult(`Se generaron ${created} órdenes de compra agrupadas por distribuidor y fase.`)
+    setGenerating(false)
   }
 
   async function addArea() {
@@ -199,6 +299,8 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
       name: prod.name, description: prod.description, system: prod.system,
       type: prod.type, provider: prod.provider, quantity: 1,
       cost: prod.cost, markup: prod.markup,
+      supplier_id: prod.supplier_id || null,
+      purchase_phase: prod.purchase_phase || 'inicio',
       price: calcItemPrice(prod.cost, prod.markup),
       total: calcItemTotal(prod.cost, prod.markup, 1),
       installation_cost: 0, order_index: items.filter(i => i.area_id === areaActiva).length,
@@ -253,9 +355,23 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
           <Btn size="sm" variant="primary" onClick={()=>setShowCat(true)} style={{marginLeft:8}}>
             <Plus size={12}/> Producto
           </Btn>
+          {cot.stage === 'contrato' && (
+            <Btn size="sm" onClick={generatePurchaseOrders} disabled={generating} style={{marginLeft:4}}>
+              <Zap size={12}/> {generating ? 'Generando...' : 'Regenerar OC'}
+            </Btn>
+          )}
           <span style={{fontSize:14,fontWeight:700,color:'#57FF9A',marginLeft:8}}>{F(cotTotal)}</span>
         </div>
       </div>
+
+      {/* Auto-generation result banner */}
+      {genResult && (
+        <div style={{padding:'8px 16px',background:'#1a2a1a',borderBottom:'1px solid #333',display:'flex',alignItems:'center',gap:8,fontSize:12}}>
+          <Zap size={14} style={{color:'#57FF9A'}}/>
+          <span style={{color:'#ccc',flex:1}}>{genResult}</span>
+          <button onClick={()=>setGenResult(null)} style={{background:'none',border:'none',color:'#555',cursor:'pointer',fontSize:14}}>x</button>
+        </div>
+      )}
 
       <div style={{display:'grid',gridTemplateColumns:'175px 1fr',flex:1,overflow:'hidden'}}>
         <div style={{borderRight:'1px solid #222',overflowY:'auto',background:'#0e0e0e'}}>
@@ -288,18 +404,22 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
             <table style={{width:'100%',borderCollapse:'collapse'}}>
               <thead>
                 <tr style={{background:'#1a1a1a',position:'sticky',top:0,zIndex:1}}>
-                  {['Producto','Sistema','Tipo','Proveedor','Cant.','Costo','Markup%','Precio','Total',''].map((h,i) => (
-                    <th key={h} style={{padding:'6px 8px',fontSize:10,fontWeight:600,color:'#444',textAlign:i>=4?'right':'left',textTransform:'uppercase',letterSpacing:'0.06em',borderBottom:'1px solid #222',whiteSpace:'nowrap'}}>{h}</th>
+                  {['Producto','Sistema','Fase','Distrib.','Tipo','Cant.','Costo','Markup%','Precio','Total',''].map((h,i) => (
+                    <th key={h} style={{padding:'6px 8px',fontSize:10,fontWeight:600,color:'#444',textAlign:i>=5?'right':'left',textTransform:'uppercase',letterSpacing:'0.06em',borderBottom:'1px solid #222',whiteSpace:'nowrap'}}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {areaItems.map(item => (
+                {areaItems.map(item => {
+                  const phaseCfg = item.purchase_phase ? PHASE_CONFIG[item.purchase_phase as PurchasePhase] : null
+                  const supplierName = item.supplier_id ? suppliers.find(s => s.id === item.supplier_id)?.name : null
+                  return (
                   <tr key={item.id}>
                     <td style={{padding:'7px 8px',fontSize:12,fontWeight:500,color:'#ddd',borderBottom:'1px solid #1a1a1a'}}>{item.name}</td>
                     <td style={{padding:'7px 8px',borderBottom:'1px solid #1a1a1a'}}>{item.system&&<Badge label={item.system} color="#555"/>}</td>
+                    <td style={{padding:'7px 8px',borderBottom:'1px solid #1a1a1a'}}>{phaseCfg ? <Badge label={phaseCfg.label} color={phaseCfg.color}/> : <span style={{color:'#444',fontSize:10}}>--</span>}</td>
+                    <td style={{padding:'7px 8px',fontSize:10,color: supplierName ? '#ccc' : '#444',borderBottom:'1px solid #1a1a1a'}}>{supplierName || '--'}</td>
                     <td style={{padding:'7px 8px',fontSize:10,color:'#555',borderBottom:'1px solid #1a1a1a'}}>{item.type}</td>
-                    <td style={{padding:'7px 8px',fontSize:10,color:'#555',borderBottom:'1px solid #1a1a1a'}}>{item.provider||'--'}</td>
                     {['quantity','cost','markup'].map(campo => (
                       <td key={campo} style={{padding:'4px 8px',borderBottom:'1px solid #1a1a1a'}}>
                         <input type="number" defaultValue={item[campo as keyof QuotationItem] as number}
@@ -313,9 +433,10 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
                       <button onClick={()=>removeItem(item.id)} style={{background:'none',border:'none',color:'#444',cursor:'pointer',fontSize:16}}>x</button>
                     </td>
                   </tr>
-                ))}
+                  )
+                })}
                 <tr>
-                  <td colSpan={10} style={{padding:'6px 8px'}}>
+                  <td colSpan={11} style={{padding:'6px 8px'}}>
                     <Btn size="sm" onClick={()=>setShowCat(true)}><Plus size={12}/> Agregar producto</Btn>
                   </td>
                 </tr>

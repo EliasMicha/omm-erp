@@ -1,7 +1,14 @@
-import { ProjectLine, QuoteStage, ProjectStatus, DeliveryStatus, PaymentStatus, PayrollStatus, UserRole, UserLevel } from '../types'
+import { ProjectLine, QuoteStage, ProjectStatus, DeliveryStatus, PaymentStatus, PayrollStatus, UserRole, UserLevel, PurchasePhase } from '../types'
 
 export const F = (n: number) =>
   new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 }).format(n)
+
+export const PHASE_CONFIG: Record<PurchasePhase, { label: string; color: string; order: number }> = {
+  inicio:   { label: 'Inicio',   color: '#3B82F6', order: 0 },
+  roughin:  { label: 'Rough-in', color: '#F59E0B', order: 1 },
+  acabados: { label: 'Acabados', color: '#C084FC', order: 2 },
+  cierre:   { label: 'Cierre',   color: '#57FF9A', order: 3 },
+}
 
 export const SPECIALTY_CONFIG: Record<ProjectLine, { label: string; color: string; icon: string }> = {
   esp: { label: 'Especiales', color: '#57FF9A', icon: '◈' },

@@ -11,6 +11,7 @@ export type PayrollStatus = 'borrador' | 'aprobado' | 'pagado'
 export type DeliveryStatus = 'pendiente' | 'en_ruta' | 'entregado' | 'cancelado'
 export type DeliveryType = 'entrega' | 'recoleccion'
 export type PaymentStatus = 'pendiente' | 'vigente' | 'vencido' | 'cobrado'
+export type PurchasePhase = 'inicio' | 'roughin' | 'acabados' | 'cierre'
 
 export interface Employee {
   id: string
@@ -55,6 +56,8 @@ export interface CatalogProduct {
   type: ProductType
   specialty: ProjectLine
   provider?: string
+  supplier_id?: string
+  purchase_phase: PurchasePhase
   unit: string
   cost: number
   markup: number
@@ -96,6 +99,8 @@ export interface QuotationItem {
   system?: ProductSystem
   type: ProductType
   provider?: string
+  supplier_id?: string
+  purchase_phase: PurchasePhase
   quantity: number
   cost: number
   markup: number
