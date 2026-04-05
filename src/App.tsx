@@ -6,6 +6,7 @@ import Cotizaciones from './pages/Cotizaciones'
 import Proyectos from './pages/Proyectos'
 import OtrosModulos from './pages/OtrosModulos'
 import Contabilidad from './pages/Contabilidad'
+import Clientes from './pages/Clientes'
 
 const Compras = () => <OtrosModulos title="Compras" />
 const Reportes = () => <OtrosModulos title="Reportes de obra" />
@@ -32,6 +33,7 @@ export default function App() {
             <Route path="/entregas" element={<Entregas />} />
             <Route path="/empleados" element={<Empleados />} />
             <Route path="/cobranza" element={<Cobranza />} />
+            <Route path="/clientes" element={<Clientes />} />
           </Routes>
         </main>
       </div>
