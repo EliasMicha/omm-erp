@@ -12,6 +12,7 @@ const NAV = [
   { to: '/nomina', icon: Users, label: 'Nomina' },
   { to: '/entregas', icon: Truck, label: 'Entregas' },
   { to: '/empleados', icon: BookOpen, label: 'Empleados' },
+  { to: '/catalogo', icon: Package, label: 'Catalogo' },
   { to: '/clientes', icon: Users2, label: 'Clientes' },
   { to: '/contabilidad', icon: Building2, label: 'Contabilidad' },
 ]
