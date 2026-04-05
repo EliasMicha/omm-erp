@@ -310,6 +310,19 @@ function TabFacturacion({ invoices, setInvoices }: { invoices: Invoice[]; setInv
   const [xmlProcessing, setXmlProcessing] = useState(false)
   const [xmlResult, setXmlResult] = useState<string | null>(null)
   const xmlInputRef = useRef<HTMLInputElement>(null)
+  const [newConceptos, setNewConceptos] = useState<Concepto[]>([])
+  const addConcepto = () => setNewConceptos([...newConceptos, { clave_prod_serv: '', cantidad: 1, clave_unidad: 'E48', unidad: 'Servicio', descripcion: '', valor_unitario: 0, importe: 0 }])
+  const updateConcepto = (i: number, field: string, val: string | number) => {
+    const updated = [...newConceptos]
+    const cp = { ...updated[i], [field]: val } as Concepto
+    if (field === 'cantidad' || field === 'valor_unitario') cp.importe = Math.round(cp.cantidad * cp.valor_unitario * 100) / 100
+    updated[i] = cp
+    setNewConceptos(updated)
+  }
+  const removeConcepto = (i: number) => setNewConceptos(newConceptos.filter((_, idx) => idx !== i))
+  const conceptosSubtotal = newConceptos.reduce((s, cp) => s + cp.importe, 0)
+  const conceptosIva = Math.round(conceptosSubtotal * 0.16 * 100) / 100
+  const conceptosTotal = conceptosSubtotal + conceptosIva
   const [selectedInv, setSelectedInv] = useState<Invoice | null>(null)
   const [newInv, setNewInv] = useState({ direccion: 'emitida' as InvoiceDirection, serie: 'FAC', folio: '', tipo_comprobante: 'I' as CfdiType, receptor_nombre: '', emisor_nombre: 'OMM Technologies SA de CV', cliente_id: '', rfc_receptor: '', regimen_receptor: '', cp_receptor: '', uso_cfdi: '', total: '', fecha_emision: new Date().toISOString().split('T')[0], proyecto_nombre: '', metodo_pago: 'PUE' })
 
@@ -437,7 +450,10 @@ function TabFacturacion({ invoices, setInvoices }: { invoices: Invoice[]; setInv
   }
 
   const handleNew = async () => {
-    if (!newInv.folio || !newInv.total) return
+    if (!newInv.folio) return
+    const finalTotal = newConceptos.length > 0 ? conceptosTotal : parseFloat(newInv.total) || 0
+    const finalSubtotal = newConceptos.length > 0 ? conceptosSubtotal : 0
+    const finalIva = newConceptos.length > 0 ? conceptosIva : 0
     // Save to Supabase
     const { data: saved } = await supabase.from('facturas').insert({
       direccion: newInv.direccion,
@@ -446,13 +462,22 @@ function TabFacturacion({ invoices, setInvoices }: { invoices: Invoice[]; setInv
       tipo_comprobante: newInv.tipo_comprobante,
       receptor_nombre: newInv.receptor_nombre,
       emisor_nombre: newInv.emisor_nombre,
-      total: parseFloat(newInv.total),
+      total: finalTotal,
+      subtotal: finalSubtotal || null,
+      iva: finalIva || null,
       estado: 'borrador',
       fecha_emision: newInv.fecha_emision,
       metodo_pago: newInv.metodo_pago,
       proyecto_nombre: newInv.proyecto_nombre || null,
     }).select().single()
-    setInvoices([{ id: saved?.id || String(Date.now()), ...newInv, total: parseFloat(newInv.total), estado: 'borrador', conciliada: false } as Invoice, ...invoices])
+    // Save conceptos to Supabase
+    if (saved && newConceptos.length > 0) {
+      await supabase.from('factura_conceptos').insert(
+        newConceptos.map(cp => ({ factura_id: saved.id, clave_prod_serv: cp.clave_prod_serv, cantidad: cp.cantidad, clave_unidad: cp.clave_unidad, unidad: cp.unidad, descripcion: cp.descripcion, valor_unitario: cp.valor_unitario, importe: cp.importe }))
+      )
+    }
+    setInvoices([{ id: saved?.id || String(Date.now()), ...newInv, total: finalTotal, subtotal: finalSubtotal, iva: finalIva, estado: 'borrador', conciliada: false, conceptos: newConceptos } as Invoice, ...invoices])
+    setNewConceptos([])
     setShowNewForm(false)
   }
 
@@ -578,6 +603,48 @@ function TabFacturacion({ invoices, setInvoices }: { invoices: Invoice[]; setInv
             <Field label="Fecha"><input style={inputStyle} type="date" value={newInv.fecha_emision} onChange={e => setNewInv({...newInv, fecha_emision: e.target.value})} /></Field>
             <Field label="Proyecto"><select style={selectStyle} value={newInv.proyecto_nombre} onChange={e => setNewInv({...newInv, proyecto_nombre: e.target.value})}><option value="">Sin proyecto</option>{PROYECTOS.map(p => <option key={p} value={p}>{p}</option>)}</select></Field>
             <Field label="Metodo pago"><select style={selectStyle} value={newInv.metodo_pago} onChange={e => setNewInv({...newInv, metodo_pago: e.target.value})}><option value="PUE">PUE</option><option value="PPD">PPD</option></select></Field>
+          </div>
+          <div style={{ borderTop: '1px solid #222', paddingTop: 16, marginTop: 16 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: '#fff' }}>Conceptos / Productos</div>
+              <Btn size="sm" variant="default" onClick={addConcepto}><Plus size={12} /> Agregar linea</Btn>
+            </div>
+            {newConceptos.length === 0 ? (
+              <div style={{ fontSize: 11, color: '#444', textAlign: 'center', padding: '16px 0' }}>Agrega al menos un concepto para la factura</div>
+            ) : (
+              <>
+                {newConceptos.map((cp, i) => (
+                  <div key={i} style={{ display: 'grid', gridTemplateColumns: '100px 1fr 60px 90px 90px 30px', gap: 6, marginBottom: 8, alignItems: 'end' }}>
+                    <div>
+                      <div style={{ fontSize: 9, color: '#555', marginBottom: 2 }}>Clave SAT</div>
+                      <input style={inputStyle} value={cp.clave_prod_serv} onChange={e => updateConcepto(i, 'clave_prod_serv', e.target.value)} placeholder="84111506" />
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 9, color: '#555', marginBottom: 2 }}>Descripcion</div>
+                      <input style={inputStyle} value={cp.descripcion} onChange={e => updateConcepto(i, 'descripcion', e.target.value)} placeholder="Servicio de instalacion electrica" />
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 9, color: '#555', marginBottom: 2 }}>Cant.</div>
+                      <input style={inputStyle} type="number" value={cp.cantidad} onChange={e => updateConcepto(i, 'cantidad', parseFloat(e.target.value) || 0)} />
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 9, color: '#555', marginBottom: 2 }}>P. Unitario</div>
+                      <input style={inputStyle} type="number" value={cp.valor_unitario} onChange={e => updateConcepto(i, 'valor_unitario', parseFloat(e.target.value) || 0)} />
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 9, color: '#555', marginBottom: 2 }}>Importe</div>
+                      <div style={{ padding: '8px 12px', background: '#0a0a0a', border: '1px solid #222', borderRadius: 8, color: '#57FF9A', fontSize: 13, fontWeight: 600 }}>{F(cp.importe)}</div>
+                    </div>
+                    <button onClick={() => removeConcepto(i)} style={{ background: 'none', border: 'none', color: '#EF4444', cursor: 'pointer', padding: '8px 0' }}><X size={14} /></button>
+                  </div>
+                ))}
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 16, marginTop: 12, fontSize: 12, borderTop: '1px solid #1a1a1a', paddingTop: 8 }}>
+                  <div><span style={{color:'#555'}}>Subtotal:</span> <span style={{color:'#ccc'}}>{F(conceptosSubtotal)}</span></div>
+                  <div><span style={{color:'#555'}}>IVA 16%:</span> <span style={{color:'#ccc'}}>{F(conceptosIva)}</span></div>
+                  <div><span style={{color:'#fff', fontWeight: 700}}>Total: {F(conceptosTotal)}</span></div>
+                </div>
+              </>
+            )}
           </div>
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 20 }}>
             <Btn size="sm" variant="default" onClick={() => setShowNewForm(false)}>Cancelar</Btn>
