@@ -1,6 +1,7 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { MOCK_CLIENTES } from './Clientes'
 import type { ClienteFiscal } from './Clientes'
+import { supabase } from '../lib/supabase'
 import { SectionHeader, KpiCard, Table, Th, Td, Badge, Btn, EmptyState } from '../components/layout/UI'
 import { F, formatDate } from '../lib/utils'
 import {
@@ -210,6 +211,51 @@ export default function Contabilidad() {
   const [invoices, setInvoices] = useState<Invoice[]>(MOCK_INVOICES)
   const [bankMovements, setBankMovements] = useState<BankMovement[]>([])
 
+  // Load facturas from Supabase
+  useEffect(() => {
+    const loadFacturas = async () => {
+      const { data } = await supabase.from('facturas').select('*, factura_conceptos(*)').order('created_at', { ascending: false })
+      if (data && data.length > 0) {
+        setInvoices(data.map((f: any) => ({
+          id: f.id,
+          direccion: f.direccion || 'emitida',
+          serie: f.serie || '',
+          folio: f.folio || '',
+          tipo_comprobante: f.tipo_comprobante || 'I',
+          receptor_nombre: f.receptor_nombre || '',
+          emisor_nombre: f.emisor_nombre || '',
+          total: Number(f.total) || 0,
+          estado: f.estado || 'borrador',
+          fecha_emision: f.fecha_emision ? f.fecha_emision.substring(0,10) : '',
+          proyecto_nombre: f.proyecto_nombre || '',
+          conciliada: f.conciliada || false,
+          metodo_pago: f.metodo_pago || '',
+          uuid: f.uuid_fiscal || '',
+          subtotal: Number(f.subtotal) || 0,
+          iva: Number(f.iva) || 0,
+          moneda: f.moneda || 'MXN',
+          forma_pago: f.forma_pago || '',
+          emisor_rfc: f.emisor_rfc || '',
+          emisor_regimen: f.emisor_regimen_fiscal || '',
+          receptor_rfc: f.receptor_rfc || '',
+          receptor_regimen: f.receptor_regimen_fiscal || '',
+          receptor_uso_cfdi: f.receptor_uso_cfdi || '',
+          receptor_cp: f.receptor_domicilio_fiscal || '',
+          conceptos: (f.factura_conceptos || []).map((cp: any) => ({
+            clave_prod_serv: cp.clave_prod_serv || '',
+            cantidad: Number(cp.cantidad) || 0,
+            clave_unidad: cp.clave_unidad || '',
+            unidad: cp.unidad || '',
+            descripcion: cp.descripcion || '',
+            valor_unitario: Number(cp.valor_unitario) || 0,
+            importe: Number(cp.importe) || 0,
+          })),
+        })))
+      }
+    }
+    loadFacturas()
+  }, [])
+
   return (
     <div style={{ padding: '24px 28px', maxWidth: 1200 }}>
       <SectionHeader
@@ -343,7 +389,46 @@ function TabFacturacion({ invoices, setInvoices }: { invoices: Invoice[]; setInv
         receptor_cp: parsed.receptor_cp,
         conceptos: parsed.conceptos,
       }
-      setInvoices([newInvoice, ...invoices])
+      // Save to Supabase
+      const { data: savedFact } = await supabase.from('facturas').insert({
+        direccion: newInvoice.direccion,
+        uuid_fiscal: parsed.uuid || null,
+        serie: newInvoice.serie,
+        folio: newInvoice.folio,
+        tipo_comprobante: newInvoice.tipo_comprobante,
+        receptor_nombre: newInvoice.receptor_nombre,
+        emisor_nombre: newInvoice.emisor_nombre,
+        total: newInvoice.total,
+        subtotal: parsed.subtotal,
+        iva: Math.round((parsed.total - parsed.subtotal) * 100) / 100,
+        estado: 'timbrada',
+        fecha_emision: newInvoice.fecha_emision,
+        metodo_pago: newInvoice.metodo_pago,
+        forma_pago: parsed.forma_pago,
+        moneda: parsed.moneda,
+        emisor_rfc: parsed.emisor_rfc,
+        emisor_regimen_fiscal: parsed.emisor_regimen,
+        receptor_rfc: parsed.receptor_rfc,
+        receptor_regimen_fiscal: parsed.receptor_regimen,
+        receptor_uso_cfdi: parsed.receptor_uso_cfdi,
+        receptor_domicilio_fiscal: parsed.receptor_cp,
+      }).select().single()
+      // Save conceptos
+      if (savedFact && parsed.conceptos.length > 0) {
+        await supabase.from('factura_conceptos').insert(
+          parsed.conceptos.map((cp: any) => ({
+            factura_id: savedFact.id,
+            clave_prod_serv: cp.clave_prod_serv,
+            cantidad: cp.cantidad,
+            clave_unidad: cp.clave_unidad,
+            unidad: cp.unidad,
+            descripcion: cp.descripcion,
+            valor_unitario: cp.valor_unitario,
+            importe: cp.importe,
+          }))
+        )
+      }
+      setInvoices([{...newInvoice, id: savedFact?.id || newInvoice.id}, ...invoices])
     } catch (err) {
       setXmlResult('Error al parsear XML: ' + (err as Error).message)
     }
@@ -351,9 +436,23 @@ function TabFacturacion({ invoices, setInvoices }: { invoices: Invoice[]; setInv
     if (xmlInputRef.current) xmlInputRef.current.value = ''
   }
 
-  const handleNew = () => {
+  const handleNew = async () => {
     if (!newInv.folio || !newInv.total) return
-    setInvoices([{ id: String(Date.now()), ...newInv, total: parseFloat(newInv.total), estado: 'borrador', conciliada: false } as Invoice, ...invoices])
+    // Save to Supabase
+    const { data: saved } = await supabase.from('facturas').insert({
+      direccion: newInv.direccion,
+      serie: newInv.serie,
+      folio: newInv.folio,
+      tipo_comprobante: newInv.tipo_comprobante,
+      receptor_nombre: newInv.receptor_nombre,
+      emisor_nombre: newInv.emisor_nombre,
+      total: parseFloat(newInv.total),
+      estado: 'borrador',
+      fecha_emision: newInv.fecha_emision,
+      metodo_pago: newInv.metodo_pago,
+      proyecto_nombre: newInv.proyecto_nombre || null,
+    }).select().single()
+    setInvoices([{ id: saved?.id || String(Date.now()), ...newInv, total: parseFloat(newInv.total), estado: 'borrador', conciliada: false } as Invoice, ...invoices])
     setShowNewForm(false)
   }
 
