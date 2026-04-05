@@ -1,11 +1,11 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { SectionHeader, KpiCard, Table, Th, Td, Badge, Btn, EmptyState } from '../components/layout/UI'
 import { F, formatDate } from '../lib/utils'
 import {
   FileText, Building2, ArrowLeftRight, ShieldCheck,
   Banknote, Users, TrendingUp, Plus, Upload, Search,
   ChevronRight, AlertTriangle, CheckCircle, Clock,
-  DollarSign, FolderOpen, Eye
+  DollarSign, FolderOpen, Eye, X, Loader2
 } from 'lucide-react'
 
 /* âââ Types ââââââââââââââââââââââââââââââââââââââââââââââââââââââââ */
@@ -64,6 +64,12 @@ interface ProjectAccount {
   margen: number
   por_cobrar: number
   por_pagar: number
+}
+
+interface BankMovement {
+  id: string; fecha: string; concepto: string; referencia: string
+  monto: number; tipo: 'cargo' | 'abono'; saldo: number
+  categoria_sugerida?: string; proyecto_sugerido?: string; conciliado: boolean
 }
 
 /* âââ Config âââââââââââââââââââââââââââââââââââââââââââââââââââââââ */
@@ -130,6 +136,8 @@ const MOCK_PROJECT_ACCOUNTS: ProjectAccount[] = [
 
 export default function Contabilidad() {
   const [activeTab, setActiveTab] = useState<Tab>('facturacion')
+  const [invoices, setInvoices] = useState<Invoice[]>(MOCK_INVOICES)
+  const [bankMovements, setBankMovements] = useState<BankMovement[]>([])
 
   return (
     <div style={{ padding: '24px 28px', maxWidth: 1200 }}>
@@ -167,9 +175,9 @@ export default function Contabilidad() {
       </div>
 
       {/* Tab content */}
-      {activeTab === 'facturacion' && <TabFacturacion />}
-      {activeTab === 'conciliacion' && <TabConciliacion />}
-      {activeTab === 'supervision' && <TabSupervision />}
+      {activeTab === 'facturacion' && <TabFacturacion invoices={invoices} setInvoices={setInvoices} />}
+      {activeTab === 'conciliacion' && <TabConciliacion bankMovements={bankMovements} setBankMovements={setBankMovements} />}
+      {activeTab === 'supervision' && <TabSupervision invoices={invoices} />}
       {activeTab === 'efectivo' && <TabEfectivo />}
       {activeTab === 'cobranza' && <TabCobranza />}
       {activeTab === 'flujo' && <TabFlujo />}
@@ -179,10 +187,33 @@ export default function Contabilidad() {
 
 /* âââ Tab 1: FacturaciÃ³n âââââââââââââââââââââââââââââââââââââââââââ */
 
-function TabFacturacion() {
+function TabFacturacion({ invoices, setInvoices }: { invoices: Invoice[]; setInvoices: (i: Invoice[]) => void }) {
   const [filter, setFilter] = useState<'todas' | 'emitidas' | 'recibidas'>('todas')
+  const [showNewForm, setShowNewForm] = useState(false)
+  const [xmlProcessing, setXmlProcessing] = useState(false)
+  const xmlInputRef = useRef<HTMLInputElement>(null)
+  const [newInv, setNewInv] = useState({ direccion: 'emitida' as InvoiceDirection, serie: 'FAC', folio: '', tipo_comprobante: 'I' as CfdiType, receptor_nombre: '', emisor_nombre: 'OMM Technologies', total: '', fecha_emision: new Date().toISOString().split('T')[0], proyecto_nombre: '', metodo_pago: 'PUE' })
 
-  const invoices = MOCK_INVOICES.filter(i =>
+  const handleXml = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]; if (!file) return
+    setXmlProcessing(true)
+    const text = await file.text()
+    const result = await askClaude('Analiza este XML de CFDI mexicano. Devuelve SOLO JSON: {"serie":"","folio":"","tipo_comprobante":"I","receptor_nombre":"","emisor_nombre":"","total":0,"fecha_emision":"YYYY-MM-DD","metodo_pago":"PUE"}\nXML:\n' + text.substring(0,8000))
+    try {
+      const p = JSON.parse(result.replace(/```json\n?/g,'').replace(/```/g,'').trim())
+      setInvoices([{ id: String(Date.now()), direccion: p.emisor_nombre?.includes('OMM') ? 'emitida' : 'recibida', serie: p.serie||'', folio: p.folio||'', tipo_comprobante: p.tipo_comprobante||'I', receptor_nombre: p.receptor_nombre||'', emisor_nombre: p.emisor_nombre||'', total: p.total||0, estado: 'timbrada', fecha_emision: p.fecha_emision||'', proyecto_nombre: '', conciliada: false, metodo_pago: p.metodo_pago||'' }, ...invoices])
+    } catch {}
+    setXmlProcessing(false)
+    if (xmlInputRef.current) xmlInputRef.current.value = ''
+  }
+
+  const handleNew = () => {
+    if (!newInv.folio || !newInv.total) return
+    setInvoices([{ id: String(Date.now()), ...newInv, total: parseFloat(newInv.total), estado: 'borrador', conciliada: false } as Invoice, ...invoices])
+    setShowNewForm(false)
+  }
+
+  const filtered = invoices.filter(i =>
     filter === 'todas' ? true : filter === 'emitidas' ? i.direccion === 'emitida' : i.direccion === 'recibida'
   )
 
@@ -209,8 +240,8 @@ function TabFacturacion() {
           ))}
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <Btn size="sm" variant="default"><Upload size={12} /> Subir XML</Btn>
-          <Btn size="sm" variant="primary"><Plus size={12} /> Nueva factura</Btn>
+          <Btn size="sm" variant="default" onClick={() => xmlInputRef.current?.click()}>{xmlProcessing ? 'Procesando...' : <><Upload size={12} /> Subir XML</>}</Btn>
+          <Btn size="sm" variant="primary" onClick={() => setShowNewForm(true)}><Plus size={12} /> Nueva factura</Btn>
         </div>
       </div>
 
@@ -262,13 +293,51 @@ function TabFacturacion() {
           })}
         </tbody>
       </Table>
+
+      <input type="file" ref={xmlInputRef} accept=".xml" style={{ display: 'none' }} onChange={handleXml} />
+
+      {showNewForm && (
+        <Modal title="Nueva Factura" onClose={() => setShowNewForm(false)}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <Field label="Direccion"><select style={selectStyle} value={newInv.direccion} onChange={e => setNewInv({...newInv, direccion: e.target.value as InvoiceDirection})}><option value="emitida">Emitida</option><option value="recibida">Recibida</option></select></Field>
+            <Field label="Tipo CFDI"><select style={selectStyle} value={newInv.tipo_comprobante} onChange={e => setNewInv({...newInv, tipo_comprobante: e.target.value as CfdiType})}><option value="I">Ingreso</option><option value="E">Egreso</option><option value="P">Pago</option></select></Field>
+            <Field label="Serie"><input style={inputStyle} value={newInv.serie} onChange={e => setNewInv({...newInv, serie: e.target.value})} /></Field>
+            <Field label="Folio *"><input style={inputStyle} value={newInv.folio} onChange={e => setNewInv({...newInv, folio: e.target.value})} /></Field>
+            <Field label="Receptor *"><input style={inputStyle} value={newInv.receptor_nombre} onChange={e => setNewInv({...newInv, receptor_nombre: e.target.value})} /></Field>
+            <Field label="Emisor"><input style={inputStyle} value={newInv.emisor_nombre} onChange={e => setNewInv({...newInv, emisor_nombre: e.target.value})} /></Field>
+            <Field label="Total *"><input style={inputStyle} type="number" value={newInv.total} onChange={e => setNewInv({...newInv, total: e.target.value})} /></Field>
+            <Field label="Fecha"><input style={inputStyle} type="date" value={newInv.fecha_emision} onChange={e => setNewInv({...newInv, fecha_emision: e.target.value})} /></Field>
+            <Field label="Proyecto"><select style={selectStyle} value={newInv.proyecto_nombre} onChange={e => setNewInv({...newInv, proyecto_nombre: e.target.value})}><option value="">Sin proyecto</option>{PROYECTOS.map(p => <option key={p} value={p}>{p}</option>)}</select></Field>
+            <Field label="Metodo pago"><select style={selectStyle} value={newInv.metodo_pago} onChange={e => setNewInv({...newInv, metodo_pago: e.target.value})}><option value="PUE">PUE</option><option value="PPD">PPD</option></select></Field>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 20 }}>
+            <Btn size="sm" variant="default" onClick={() => setShowNewForm(false)}>Cancelar</Btn>
+            <Btn size="sm" variant="primary" onClick={handleNew}>Crear factura</Btn>
+          </div>
+        </Modal>
+      )}
     </div>
   )
 }
 
 /* âââ Tab 2: ConciliaciÃ³n Bancaria âââââââââââââââââââââââââââââââââ */
 
-function TabConciliacion() {
+function TabConciliacion({ bankMovements, setBankMovements }: { bankMovements: BankMovement[]; setBankMovements: (m: BankMovement[]) => void }) {
+  const [processing, setProcessing] = useState(false)
+  const fileRef = useRef<HTMLInputElement>(null)
+  const handleBankUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]; if (!file) return
+    setProcessing(true)
+    const text = await file.text()
+    const result = await askClaude('Analiza este estado de cuenta bancario CSV. Extrae movimientos como JSON array: [{"fecha":"YYYY-MM-DD","concepto":"","referencia":"","monto":0,"tipo":"cargo"|"abono","categoria_sugerida":"nomina"|"proveedor"|"cobro_cliente"|"otro","proyecto_sugerido":""}]. Si el concepto tiene nombre de persona=nomina, DEP=cobro_cliente.\nCSV:\n' + text.substring(0,12000))
+    try {
+      const parsed = JSON.parse(result.replace(/```json\n?/g,'').replace(/```/g,'').trim())
+      if (Array.isArray(parsed)) setBankMovements(parsed.map((m: any, i: number) => ({ id: String(Date.now()+i), fecha: m.fecha||'', concepto: m.concepto||'', referencia: m.referencia||'', monto: Math.abs(m.monto||0), tipo: m.tipo||'cargo', saldo: 0, categoria_sugerida: m.categoria_sugerida||'otro', proyecto_sugerido: m.proyecto_sugerido||'', conciliado: false })))
+    } catch {}
+    setProcessing(false)
+    if (fileRef.current) fileRef.current.value = ''
+  }
+  // original function continues below
   return (
     <div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
@@ -279,7 +348,8 @@ function TabConciliacion() {
       </div>
 
       <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-        <Btn size="sm" variant="primary"><Upload size={12} /> Subir estado de cuenta</Btn>
+        <input type="file" ref={fileRef} accept=".csv,.txt" style={{ display: 'none' }} onChange={handleBankUpload} />
+        <Btn size="sm" variant="primary" onClick={() => fileRef.current?.click()}>{processing ? 'Claude procesando...' : <><Upload size={12} /> Subir estado de cuenta</>}</Btn>
       </div>
 
       <EmptyState message="Sube un estado de cuenta (CSV de Banorte o BBVA) para iniciar la conciliaciÃ³n automÃ¡tica" />
@@ -289,9 +359,9 @@ function TabConciliacion() {
 
 /* âââ Tab 3: SupervisiÃ³n Fiscal ââââââââââââââââââââââââââââââââââââ */
 
-function TabSupervision() {
-  const vigentes = MOCK_INVOICES.filter(i => i.estado !== 'cancelada').length
-  const canceladas = MOCK_INVOICES.filter(i => i.estado === 'cancelada').length
+function TabSupervision({ invoices }: { invoices: Invoice[] }) {
+  const vigentes = invoices.filter(i => i.estado !== 'cancelada').length
+  const canceladas = invoices.filter(i => i.estado === 'cancelada').length
 
   return (
     <div>
