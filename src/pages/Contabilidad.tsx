@@ -337,7 +337,6 @@ function TabConciliacion({ bankMovements, setBankMovements }: { bankMovements: B
     setProcessing(false)
     if (fileRef.current) fileRef.current.value = ''
   }
-  // original function continues below
   return (
     <div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
