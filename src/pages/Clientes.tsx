@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { supabase } from '../lib/supabase'
 import { SectionHeader, KpiCard, Table, Th, Td, Badge, Btn, EmptyState } from '../components/layout/UI'
 import { F, formatDate } from '../lib/utils'
 import { Users2, Plus, Search, Edit, Trash2, X, CheckCircle, Building2 } from 'lucide-react'
@@ -75,8 +76,16 @@ function Fld({ label, children, span }: { label: string; children: React.ReactNo
 }
 
 export default function Clientes() {
-  const [clientes, setClientes] = useState<ClienteFiscal[]>(MOCK_CLIENTES)
+  const [clientes, setClientes] = useState<ClienteFiscal[]>([])
   const [showForm, setShowForm] = useState(false)
+
+  useEffect(() => {
+    const load = async () => {
+      const { data } = await supabase.from('clientes').select('*').order('created_at', { ascending: false })
+      if (data) setClientes(data.map((c: any) => ({ ...c, activo: c.activo !== false })))
+    }
+    load()
+  }, [])
   const [editId, setEditId] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [form, setForm] = useState<Partial<ClienteFiscal>>({
@@ -100,7 +109,7 @@ export default function Clientes() {
     setShowForm(true)
   }
 
-  const save = () => {
+  const save = async () => {
     if (!form.rfc || !form.razon_social || !form.codigo_postal) return
     const reg = REGIMENES.find(r => r.clave === form.regimen_fiscal_clave)
     const uso = USOS_CFDI.find(u => u.clave === form.uso_cfdi_clave)
@@ -127,9 +136,27 @@ export default function Clientes() {
       activo: form.activo !== false,
     }
     if (editId) {
+      await supabase.from('clientes').update({
+        rfc: full.rfc, razon_social: full.razon_social, regimen_fiscal: full.regimen_fiscal,
+        regimen_fiscal_clave: full.regimen_fiscal_clave, codigo_postal: full.codigo_postal,
+        uso_cfdi: full.uso_cfdi, uso_cfdi_clave: full.uso_cfdi_clave, curp: full.curp,
+        calle: full.calle, num_exterior: full.num_exterior, num_interior: full.num_interior,
+        colonia: full.colonia, localidad: full.localidad, municipio: full.municipio,
+        estado: full.estado, tipo_persona: full.tipo_persona, email: full.email,
+        telefono: full.telefono, activo: full.activo,
+      }).eq('id', editId)
       setClientes(clientes.map(c => c.id === editId ? full : c))
     } else {
-      setClientes([full, ...clientes])
+      const { data } = await supabase.from('clientes').insert({
+        rfc: full.rfc, razon_social: full.razon_social, regimen_fiscal: full.regimen_fiscal,
+        regimen_fiscal_clave: full.regimen_fiscal_clave, codigo_postal: full.codigo_postal,
+        uso_cfdi: full.uso_cfdi, uso_cfdi_clave: full.uso_cfdi_clave, curp: full.curp,
+        calle: full.calle, num_exterior: full.num_exterior, num_interior: full.num_interior,
+        colonia: full.colonia, localidad: full.localidad, municipio: full.municipio,
+        estado: full.estado, tipo_persona: full.tipo_persona, email: full.email,
+        telefono: full.telefono, activo: full.activo,
+      }).select().single()
+      setClientes([{...full, id: data?.id || full.id}, ...clientes])
     }
     setShowForm(false)
   }
