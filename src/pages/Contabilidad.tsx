@@ -8,7 +8,7 @@ import {
   DollarSign, FolderOpen, Eye
 } from 'lucide-react'
 
-/* ─── Types ──────────────────────────────────────────────────────── */
+/* âââ Types ââââââââââââââââââââââââââââââââââââââââââââââââââââââââ */
 
 type Tab = 'facturacion' | 'conciliacion' | 'supervision' | 'efectivo' | 'cobranza' | 'flujo'
 
@@ -66,12 +66,12 @@ interface ProjectAccount {
   por_pagar: number
 }
 
-/* ─── Config ─────────────────────────────────────────────────────── */
+/* âââ Config âââââââââââââââââââââââââââââââââââââââââââââââââââââââ */
 
 const TABS: { key: Tab; label: string; icon: typeof FileText }[] = [
-  { key: 'facturacion', label: 'Facturación', icon: FileText },
-  { key: 'conciliacion', label: 'Conciliación', icon: ArrowLeftRight },
-  { key: 'supervision', label: 'Supervisión', icon: ShieldCheck },
+  { key: 'facturacion', label: 'FacturaciÃ³n', icon: FileText },
+  { key: 'conciliacion', label: 'ConciliaciÃ³n', icon: ArrowLeftRight },
+  { key: 'supervision', label: 'SupervisiÃ³n', icon: ShieldCheck },
   { key: 'efectivo', label: 'Efectivo', icon: Banknote },
   { key: 'cobranza', label: 'Cobranza', icon: DollarSign },
   { key: 'flujo', label: 'Flujo de efectivo', icon: TrendingUp },
@@ -87,24 +87,24 @@ const INVOICE_STATUS_CONFIG: Record<InvoiceStatus, { label: string; color: strin
 }
 
 const CFDI_TYPE_LABELS: Record<CfdiType, string> = {
-  I: 'Ingreso', E: 'Egreso', T: 'Traslado', P: 'Pago', N: 'Nómina'
+  I: 'Ingreso', E: 'Egreso', T: 'Traslado', P: 'Pago', N: 'NÃ³mina'
 }
 
-/* ─── Mock Data ──────────────────────────────────────────────────── */
+/* âââ Mock Data ââââââââââââââââââââââââââââââââââââââââââââââââââââ */
 
 const MOCK_INVOICES: Invoice[] = [
   { id: '1', direccion: 'emitida', serie: 'FAC', folio: '001', tipo_comprobante: 'I', receptor_nombre: 'Alex Niz', emisor_nombre: 'OMM Technologies', total: 116000, estado: 'timbrada', fecha_emision: '2026-04-03', proyecto_nombre: 'Oasis', conciliada: false, metodo_pago: 'PPD' },
   { id: '2', direccion: 'emitida', serie: 'FAC', folio: '002', tipo_comprobante: 'I', receptor_nombre: 'Grupo Inmobiliario', emisor_nombre: 'OMM Technologies', total: 290000, estado: 'pagada', fecha_emision: '2026-04-01', proyecto_nombre: 'Reforma 222', conciliada: true, metodo_pago: 'PUE' },
   { id: '3', direccion: 'emitida', serie: 'NC', folio: '001', tipo_comprobante: 'E', receptor_nombre: 'Alex Niz', emisor_nombre: 'OMM Technologies', total: 16000, estado: 'timbrada', fecha_emision: '2026-04-02', proyecto_nombre: 'Oasis', conciliada: false },
   { id: '4', direccion: 'emitida', serie: 'PAG', folio: '001', tipo_comprobante: 'P', receptor_nombre: 'Oasis SA', emisor_nombre: 'OMM Technologies', total: 145000, estado: 'timbrada', fecha_emision: '2026-03-28', proyecto_nombre: 'Oasis', conciliada: true },
-  { id: '5', direccion: 'recibida', serie: '', folio: 'A-4521', tipo_comprobante: 'I', receptor_nombre: 'OMM Technologies', emisor_nombre: 'Eléctricos del Centro', total: 23456, estado: 'timbrada', fecha_emision: '2026-04-01', proyecto_nombre: 'Oasis', conciliada: false },
-  { id: '6', direccion: 'recibida', serie: '', folio: 'B-892', tipo_comprobante: 'I', receptor_nombre: 'OMM Technologies', emisor_nombre: 'Ferretería Díaz', total: 8200, estado: 'timbrada', fecha_emision: '2026-03-30', proyecto_nombre: 'Pachuca', conciliada: false },
+  { id: '5', direccion: 'recibida', serie: '', folio: 'A-4521', tipo_comprobante: 'I', receptor_nombre: 'OMM Technologies', emisor_nombre: 'ElÃ©ctricos del Centro', total: 23456, estado: 'timbrada', fecha_emision: '2026-04-01', proyecto_nombre: 'Oasis', conciliada: false },
+  { id: '6', direccion: 'recibida', serie: '', folio: 'B-892', tipo_comprobante: 'I', receptor_nombre: 'OMM Technologies', emisor_nombre: 'FerreterÃ­a DÃ­az', total: 8200, estado: 'timbrada', fecha_emision: '2026-03-30', proyecto_nombre: 'Pachuca', conciliada: false },
 ]
 
 const MOCK_CASH: CashMovement[] = [
   { id: '1', tipo: 'cobro_cliente', direccion: 'ingreso', persona: 'Alex Niz', concepto: 'Pago parcial obra Oasis', monto: 50000, fecha: '2026-03-29', proyecto_nombre: 'Oasis' },
   { id: '2', tipo: 'cobro_cliente', direccion: 'ingreso', persona: 'Grupo Inmobiliario', concepto: 'Adelanto Reforma', monto: 85000, fecha: '2026-04-01', proyecto_nombre: 'Reforma 222' },
-  { id: '3', tipo: 'pago_proveedor', direccion: 'egreso', persona: 'Ferretería Díaz', concepto: 'Material menor', monto: 8500, fecha: '2026-04-01', proyecto_nombre: 'Pachuca' },
+  { id: '3', tipo: 'pago_proveedor', direccion: 'egreso', persona: 'FerreterÃ­a DÃ­az', concepto: 'Material menor', monto: 8500, fecha: '2026-04-01', proyecto_nombre: 'Pachuca' },
   { id: '4', tipo: 'nomina_efectivo', direccion: 'egreso', persona: 'Ricardo Flores', concepto: 'Semana 14 efectivo', monto: 12000, fecha: '2026-04-02' },
   { id: '5', tipo: 'nomina_efectivo', direccion: 'egreso', persona: 'Juan Pablo', concepto: 'Semana 14 efectivo', monto: 12000, fecha: '2026-04-02' },
   { id: '6', tipo: 'nomina_efectivo', direccion: 'egreso', persona: 'Alfredo Rosas', concepto: 'Semana 14 efectivo', monto: 12000, fecha: '2026-03-31' },
@@ -126,7 +126,7 @@ const MOCK_PROJECT_ACCOUNTS: ProjectAccount[] = [
   { proyecto_nombre: 'Oasis 6', venta_total: 500000, ingreso_total: 320000, egreso_total: 48000, utilidad: 272000, margen: 85, por_cobrar: 180000, por_pagar: 12000 },
 ]
 
-/* ─── Main Page ──────────────────────────────────────────────────── */
+/* âââ Main Page ââââââââââââââââââââââââââââââââââââââââââââââââââââ */
 
 export default function Contabilidad() {
   const [activeTab, setActiveTab] = useState<Tab>('facturacion')
@@ -135,7 +135,7 @@ export default function Contabilidad() {
     <div style={{ padding: '24px 28px', maxWidth: 1200 }}>
       <SectionHeader
         title="Contabilidad"
-        subtitle="Facturación, conciliación, cobranza y flujo de efectivo"
+        subtitle="FacturaciÃ³n, conciliaciÃ³n, cobranza y flujo de efectivo"
       />
 
       {/* Tab bar */}
@@ -177,7 +177,7 @@ export default function Contabilidad() {
   )
 }
 
-/* ─── Tab 1: Facturación ─────────────────────────────────────────── */
+/* âââ Tab 1: FacturaciÃ³n âââââââââââââââââââââââââââââââââââââââââââ */
 
 function TabFacturacion() {
   const [filter, setFilter] = useState<'todas' | 'emitidas' | 'recibidas'>('todas')
@@ -244,7 +244,7 @@ function TabFacturacion() {
                     background: inv.direccion === 'emitida' ? '#3B82F622' : '#F59E0B22',
                     color: inv.direccion === 'emitida' ? '#3B82F6' : '#F59E0B',
                   }}>
-                    {inv.direccion === 'emitida' ? '↑ EMI' : '↓ REC'}
+                    {inv.direccion === 'emitida' ? 'â EMI' : 'â REC'}
                   </span>
                 </Td>
                 <Td muted>{CFDI_TYPE_LABELS[inv.tipo_comprobante]}</Td>
@@ -253,7 +253,7 @@ function TabFacturacion() {
                     {inv.direccion === 'emitida' ? inv.receptor_nombre : inv.emisor_nombre}
                   </span>
                 </Td>
-                <Td muted>{inv.proyecto_nombre || '—'}</Td>
+                <Td muted>{inv.proyecto_nombre || 'â'}</Td>
                 <Td right style={{ fontWeight: 600, color: '#fff' }}>{F(inv.total)}</Td>
                 <Td><Badge label={cfg.label} color={cfg.color} /></Td>
                 <Td muted>{formatDate(inv.fecha_emision)}</Td>
@@ -266,7 +266,7 @@ function TabFacturacion() {
   )
 }
 
-/* ─── Tab 2: Conciliación Bancaria ───────────────────────────────── */
+/* âââ Tab 2: ConciliaciÃ³n Bancaria âââââââââââââââââââââââââââââââââ */
 
 function TabConciliacion() {
   return (
@@ -282,12 +282,12 @@ function TabConciliacion() {
         <Btn size="sm" variant="primary"><Upload size={12} /> Subir estado de cuenta</Btn>
       </div>
 
-      <EmptyState message="Sube un estado de cuenta (CSV de Banorte o BBVA) para iniciar la conciliación automática" />
+      <EmptyState message="Sube un estado de cuenta (CSV de Banorte o BBVA) para iniciar la conciliaciÃ³n automÃ¡tica" />
     </div>
   )
 }
 
-/* ─── Tab 3: Supervisión Fiscal ──────────────────────────────────── */
+/* âââ Tab 3: SupervisiÃ³n Fiscal ââââââââââââââââââââââââââââââââââââ */
 
 function TabSupervision() {
   const vigentes = MOCK_INVOICES.filter(i => i.estado !== 'cancelada').length
@@ -306,7 +306,7 @@ function TabSupervision() {
       <div style={{ marginBottom: 20 }}>
         <div style={{ fontSize: 14, fontWeight: 600, color: '#fff', marginBottom: 10 }}>Alertas activas</div>
         {[
-          { title: 'FAC-001: Anticipo sin egreso de aplicación', desc: 'Riesgo de deducibilidad si no se aplica el anticipo', severity: 'alta', action: 'Crear egreso' },
+          { title: 'FAC-001: Anticipo sin egreso de aplicaciÃ³n', desc: 'Riesgo de deducibilidad si no se aplica el anticipo', severity: 'alta', action: 'Crear egreso' },
           { title: '2 facturas recibidas sin validar contra SAT', desc: 'Verificar UUID de facturas de proveedores', severity: 'media', action: 'Validar' },
         ].map((a, i) => (
           <div key={i} style={{
@@ -317,7 +317,7 @@ function TabSupervision() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div>
                 <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 2 }}>
-                  ⚠️ {a.title}
+                  â ï¸ {a.title}
                 </div>
                 <div style={{ fontSize: 11, color: '#666' }}>{a.desc}</div>
               </div>
@@ -327,12 +327,12 @@ function TabSupervision() {
         ))}
       </div>
 
-      <EmptyState message="Las cadenas de documentos relacionados aparecerán conforme se registren facturas con relaciones CFDI" />
+      <EmptyState message="Las cadenas de documentos relacionados aparecerÃ¡n conforme se registren facturas con relaciones CFDI" />
     </div>
   )
 }
 
-/* ─── Tab 4: Movimientos de Efectivo ─────────────────────────────── */
+/* âââ Tab 4: Movimientos de Efectivo âââââââââââââââââââââââââââââââ */
 
 function TabEfectivo() {
   const cobros = MOCK_CASH.filter(m => m.tipo === 'cobro_cliente')
@@ -348,7 +348,7 @@ function TabEfectivo() {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 20 }}>
         <KpiCard label="Cobros cash (clientes)" value={F(totalCobros)} color="#57FF9A" icon={<DollarSign size={16} />} />
         <KpiCard label="Pagos cash (proveedores)" value={F(totalPagos)} color="#F59E0B" icon={<Banknote size={16} />} />
-        <KpiCard label="Nómina cash" value={F(totalNomina)} color="#C084FC" icon={<Users size={16} />} />
+        <KpiCard label="NÃ³mina cash" value={F(totalNomina)} color="#C084FC" icon={<Users size={16} />} />
       </div>
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
@@ -377,13 +377,13 @@ function TabEfectivo() {
               <Td muted>{formatDate(m.fecha)}</Td>
               <Td>
                 <Badge
-                  label={m.tipo === 'cobro_cliente' ? 'Cobro' : m.tipo === 'pago_proveedor' ? 'Pago' : 'Nómina'}
+                  label={m.tipo === 'cobro_cliente' ? 'Cobro' : m.tipo === 'pago_proveedor' ? 'Pago' : 'NÃ³mina'}
                   color={m.tipo === 'cobro_cliente' ? '#57FF9A' : m.tipo === 'pago_proveedor' ? '#F59E0B' : '#C084FC'}
                 />
               </Td>
               <Td><span style={{ color: '#fff', fontWeight: 500 }}>{m.persona}</span></Td>
               <Td muted>{m.concepto}</Td>
-              <Td muted>{m.proyecto_nombre || '—'}</Td>
+              <Td muted>{m.proyecto_nombre || 'â'}</Td>
               <Td right style={{
                 fontWeight: 600,
                 color: m.direccion === 'ingreso' ? '#57FF9A' : '#ccc',
@@ -398,7 +398,7 @@ function TabEfectivo() {
   )
 }
 
-/* ─── Tab 5: Cobranza ────────────────────────────────────────────── */
+/* âââ Tab 5: Cobranza ââââââââââââââââââââââââââââââââââââââââââââââ */
 
 function TabCobranza() {
   const totalVendido = MOCK_SALES.reduce((s, v) => s + v.monto_total, 0)
@@ -475,7 +475,7 @@ function TabCobranza() {
   )
 }
 
-/* ─── Tab 6: Flujo de Efectivo ───────────────────────────────────── */
+/* âââ Tab 6: Flujo de Efectivo âââââââââââââââââââââââââââââââââââââ */
 
 function TabFlujo() {
   const [view, setView] = useState<'proyecto' | 'mensual'>('proyecto')
@@ -551,20 +551,20 @@ function TabFlujo() {
                 </Td>
               </tr>
               <tr>
-                <Td><span style={{ color: '#666' }}>OMM — Gastos generales</span></Td>
-                <Td right muted>—</Td>
-                <Td right muted>—</Td>
+                <Td><span style={{ color: '#666' }}>OMM â Gastos generales</span></Td>
+                <Td right muted>â</Td>
+                <Td right muted>â</Td>
                 <Td right style={{ color: '#F59E0B' }}>{F(gastosFijos)}</Td>
                 <Td right style={{ fontWeight: 700, color: '#EF4444' }}>-{F(gastosFijos)}</Td>
-                <Td right muted>—</Td>
+                <Td right muted>â</Td>
               </tr>
               <tr style={{ background: '#1a1a1a', borderTop: '2px solid #333' }}>
                 <Td><span style={{ fontWeight: 700, color: '#fff', fontSize: 13 }}>TOTAL EMPRESA</span></Td>
-                <Td right colSpan={3}></Td>
+                <Td right colSpan={3}>{' '}</Td>
                 <Td right style={{ fontSize: 16, fontWeight: 700, color: subtotalObra - gastosFijos >= 0 ? '#57FF9A' : '#EF4444' }}>
                   {subtotalObra - gastosFijos >= 0 ? '+' : ''}{F(subtotalObra - gastosFijos)}
                 </Td>
-                <Td right></Td>
+                <Td right>{' '}</Td>
               </tr>
             </tbody>
           </Table>
@@ -577,7 +577,7 @@ function TabFlujo() {
               <div style={{ fontSize: 14, fontWeight: 600, color: '#EF4444', marginBottom: 12 }}>Debo pagar</div>
               {[
                 { label: 'Gastos fijos', value: gastosFijos },
-                { label: 'Órdenes de compra', value: oc },
+                { label: 'Ãrdenes de compra', value: oc },
                 { label: 'Facturas por pagar', value: factPorPagar },
               ].map((item, i) => (
                 <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid #1a1a1a' }}>
