@@ -10,7 +10,7 @@ import {
   DollarSign, FolderOpen, Eye, X, Loader2
 } from 'lucide-react'
 
-/* âââ Types ââââââââââââââââââââââââââââââââââââââââââââââââââââââââ */
+/* --------- Types ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ */
 
 type Tab = 'facturacion' | 'conciliacion' | 'supervision' | 'efectivo' | 'cobranza' | 'flujo'
 
@@ -74,12 +74,12 @@ interface BankMovement {
   categoria_sugerida?: string; proyecto_sugerido?: string; conciliado: boolean
 }
 
-/* âââ Config âââââââââââââââââââââââââââââââââââââââââââââââââââââââ */
+/* --------- Config --------------------------------------------------------------------------------------------------------------------------------------------------------------------- */
 
 const TABS: { key: Tab; label: string; icon: typeof FileText }[] = [
-  { key: 'facturacion', label: 'FacturaciÃ³n', icon: FileText },
+  { key: 'facturacion', label: 'Facturacion', icon: FileText },
   { key: 'conciliacion', label: 'ConciliaciÃ³n', icon: ArrowLeftRight },
-  { key: 'supervision', label: 'SupervisiÃ³n', icon: ShieldCheck },
+  { key: 'supervision', label: 'Supervision', icon: ShieldCheck },
   { key: 'efectivo', label: 'Efectivo', icon: Banknote },
   { key: 'cobranza', label: 'Cobranza', icon: DollarSign },
   { key: 'flujo', label: 'Flujo de efectivo', icon: TrendingUp },
@@ -95,7 +95,7 @@ const INVOICE_STATUS_CONFIG: Record<InvoiceStatus, { label: string; color: strin
 }
 
 const CFDI_TYPE_LABELS: Record<CfdiType, string> = {
-  I: 'Ingreso', E: 'Egreso', T: 'Traslado', P: 'Pago', N: 'NÃ³mina'
+  I: 'Ingreso', E: 'Egreso', T: 'Traslado', P: 'Pago', N: 'Nomina'
 }
 
 const PROYECTOS = ['Oasis', 'Oasis 6', 'Reforma 222', 'Pachuca', 'Chapultepec Uno', 'Casa Luce', 'NULED', 'OMM - Gastos generales']
@@ -144,21 +144,21 @@ const inputStyle: React.CSSProperties = {
 }
 const selectStyle: React.CSSProperties = { ...inputStyle }
 
-/* âââ Mock Data ââââââââââââââââââââââââââââââââââââââââââââââââââââ */
+/* --------- Mock Data ------------------------------------------------------------------------------------------------------------------------------------------------------------ */
 
 const MOCK_INVOICES: Invoice[] = [
   { id: '1', direccion: 'emitida', serie: 'FAC', folio: '001', tipo_comprobante: 'I', receptor_nombre: 'Alex Niz', emisor_nombre: 'OMM Technologies', total: 116000, estado: 'timbrada', fecha_emision: '2026-04-03', proyecto_nombre: 'Oasis', conciliada: false, metodo_pago: 'PPD' },
   { id: '2', direccion: 'emitida', serie: 'FAC', folio: '002', tipo_comprobante: 'I', receptor_nombre: 'Grupo Inmobiliario', emisor_nombre: 'OMM Technologies', total: 290000, estado: 'pagada', fecha_emision: '2026-04-01', proyecto_nombre: 'Reforma 222', conciliada: true, metodo_pago: 'PUE' },
   { id: '3', direccion: 'emitida', serie: 'NC', folio: '001', tipo_comprobante: 'E', receptor_nombre: 'Alex Niz', emisor_nombre: 'OMM Technologies', total: 16000, estado: 'timbrada', fecha_emision: '2026-04-02', proyecto_nombre: 'Oasis', conciliada: false },
   { id: '4', direccion: 'emitida', serie: 'PAG', folio: '001', tipo_comprobante: 'P', receptor_nombre: 'Oasis SA', emisor_nombre: 'OMM Technologies', total: 145000, estado: 'timbrada', fecha_emision: '2026-03-28', proyecto_nombre: 'Oasis', conciliada: true },
-  { id: '5', direccion: 'recibida', serie: '', folio: 'A-4521', tipo_comprobante: 'I', receptor_nombre: 'OMM Technologies', emisor_nombre: 'ElÃ©ctricos del Centro', total: 23456, estado: 'timbrada', fecha_emision: '2026-04-01', proyecto_nombre: 'Oasis', conciliada: false },
-  { id: '6', direccion: 'recibida', serie: '', folio: 'B-892', tipo_comprobante: 'I', receptor_nombre: 'OMM Technologies', emisor_nombre: 'FerreterÃ­a DÃ­az', total: 8200, estado: 'timbrada', fecha_emision: '2026-03-30', proyecto_nombre: 'Pachuca', conciliada: false },
+  { id: '5', direccion: 'recibida', serie: '', folio: 'A-4521', tipo_comprobante: 'I', receptor_nombre: 'OMM Technologies', emisor_nombre: 'Electricos del Centro', total: 23456, estado: 'timbrada', fecha_emision: '2026-04-01', proyecto_nombre: 'Oasis', conciliada: false },
+  { id: '6', direccion: 'recibida', serie: '', folio: 'B-892', tipo_comprobante: 'I', receptor_nombre: 'OMM Technologies', emisor_nombre: 'Ferreteria Diaz', total: 8200, estado: 'timbrada', fecha_emision: '2026-03-30', proyecto_nombre: 'Pachuca', conciliada: false },
 ]
 
 const MOCK_CASH: CashMovement[] = [
   { id: '1', tipo: 'cobro_cliente', direccion: 'ingreso', persona: 'Alex Niz', concepto: 'Pago parcial obra Oasis', monto: 50000, fecha: '2026-03-29', proyecto_nombre: 'Oasis' },
   { id: '2', tipo: 'cobro_cliente', direccion: 'ingreso', persona: 'Grupo Inmobiliario', concepto: 'Adelanto Reforma', monto: 85000, fecha: '2026-04-01', proyecto_nombre: 'Reforma 222' },
-  { id: '3', tipo: 'pago_proveedor', direccion: 'egreso', persona: 'FerreterÃ­a DÃ­az', concepto: 'Material menor', monto: 8500, fecha: '2026-04-01', proyecto_nombre: 'Pachuca' },
+  { id: '3', tipo: 'pago_proveedor', direccion: 'egreso', persona: 'Ferreteria Diaz', concepto: 'Material menor', monto: 8500, fecha: '2026-04-01', proyecto_nombre: 'Pachuca' },
   { id: '4', tipo: 'nomina_efectivo', direccion: 'egreso', persona: 'Ricardo Flores', concepto: 'Semana 14 efectivo', monto: 12000, fecha: '2026-04-02' },
   { id: '5', tipo: 'nomina_efectivo', direccion: 'egreso', persona: 'Juan Pablo', concepto: 'Semana 14 efectivo', monto: 12000, fecha: '2026-04-02' },
   { id: '6', tipo: 'nomina_efectivo', direccion: 'egreso', persona: 'Alfredo Rosas', concepto: 'Semana 14 efectivo', monto: 12000, fecha: '2026-03-31' },
@@ -180,7 +180,7 @@ const MOCK_PROJECT_ACCOUNTS: ProjectAccount[] = [
   { proyecto_nombre: 'Oasis 6', venta_total: 500000, ingreso_total: 320000, egreso_total: 48000, utilidad: 272000, margen: 85, por_cobrar: 180000, por_pagar: 12000 },
 ]
 
-/* âââ Main Page ââââââââââââââââââââââââââââââââââââââââââââââââââââ */
+/* --------- Main Page ------------------------------------------------------------------------------------------------------------------------------------------------------------ */
 
 export default function Contabilidad() {
   const [activeTab, setActiveTab] = useState<Tab>('facturacion')
@@ -191,7 +191,7 @@ export default function Contabilidad() {
     <div style={{ padding: '24px 28px', maxWidth: 1200 }}>
       <SectionHeader
         title="Contabilidad"
-        subtitle="FacturaciÃ³n, conciliaciÃ³n, cobranza y flujo de efectivo"
+        subtitle="Facturacion, conciliacion, cobranza y flujo de efectivo"
       />
 
       {/* Tab bar */}
@@ -233,7 +233,7 @@ export default function Contabilidad() {
   )
 }
 
-/* âââ Tab 1: FacturaciÃ³n âââââââââââââââââââââââââââââââââââââââââââ */
+/* --------- Tab 1: Facturaci--n --------------------------------------------------------------------------------------------------------------------------------- */
 
 function TabFacturacion({ invoices, setInvoices }: { invoices: Invoice[]; setInvoices: (i: Invoice[]) => void }) {
   const [filter, setFilter] = useState<'todas' | 'emitidas' | 'recibidas'>('todas')
@@ -383,7 +383,7 @@ function TabFacturacion({ invoices, setInvoices }: { invoices: Invoice[]; setInv
                     background: inv.direccion === 'emitida' ? '#3B82F622' : '#F59E0B22',
                     color: inv.direccion === 'emitida' ? '#3B82F6' : '#F59E0B',
                   }}>
-                    {inv.direccion === 'emitida' ? 'â EMI' : 'â REC'}
+                    {inv.direccion === 'emitida' ? 'EMI' : 'REC'}
                   </span>
                 </Td>
                 <Td muted>{CFDI_TYPE_LABELS[inv.tipo_comprobante]}</Td>
@@ -445,7 +445,7 @@ function TabFacturacion({ invoices, setInvoices }: { invoices: Invoice[]; setInv
             <Field label="Metodo pago"><select style={selectStyle} value={newInv.metodo_pago} onChange={e => setNewInv({...newInv, metodo_pago: e.target.value})}><option value="PUE">PUE</option><option value="PPD">PPD</option></select></Field>
           </div>
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 20 }}>
-            <Btn size="sm" variant="default" onClick={() => setShowForm(false)}>Cancelar</Btn>
+            <Btn size="sm" variant="default" onClick={() => setShowNewForm(false)}>Cancelar</Btn>
             <Btn size="sm" variant="primary" onClick={handleNew}>Crear factura</Btn>
           </div>
         </Modal>
@@ -454,7 +454,7 @@ function TabFacturacion({ invoices, setInvoices }: { invoices: Invoice[]; setInv
   )
 }
 
-/* âââ Tab 2: ConciliaciÃ³n Bancaria âââââââââââââââââââââââââââââââââ */
+/* --------- Tab 2: Conciliaci--n Bancaria --------------------------------------------------------------------------------------------------- */
 
 function TabConciliacion({ bankMovements, setBankMovements }: { bankMovements: BankMovement[]; setBankMovements: (m: BankMovement[]) => void }) {
   const [processing, setProcessing] = useState(false)
@@ -485,12 +485,12 @@ function TabConciliacion({ bankMovements, setBankMovements }: { bankMovements: B
         <Btn size="sm" variant="primary" onClick={() => fileRef.current?.click()}>{processing ? 'Claude procesando...' : <><Upload size={12} /> Subir estado de cuenta</>}</Btn>
       </div>
 
-      <EmptyState message="Sube un estado de cuenta (CSV de Banorte o BBVA) para iniciar la conciliaciÃ³n automÃ¡tica" />
+      <EmptyState message="Sube un estado de cuenta (CSV de Banorte o BBVA) para iniciar la conciliacion automÃ¡tica" />
     </div>
   )
 }
 
-/* âââ Tab 3: SupervisiÃ³n Fiscal ââââââââââââââââââââââââââââââââââââ */
+/* --------- Tab 3: Supervisi--n Fiscal ------------------------------------------------------------------------------------------------------------ */
 
 function TabSupervision({ invoices }: { invoices: Invoice[] }) {
   const vigentes = invoices.filter(i => i.estado !== 'cancelada').length
@@ -535,7 +535,7 @@ function TabSupervision({ invoices }: { invoices: Invoice[] }) {
   )
 }
 
-/* âââ Tab 4: Movimientos de Efectivo âââââââââââââââââââââââââââââââ */
+/* --------- Tab 4: Movimientos de Efectivo --------------------------------------------------------------------------------------------- */
 
 function TabEfectivo() {
   const cobros = MOCK_CASH.filter(m => m.tipo === 'cobro_cliente')
@@ -601,7 +601,7 @@ function TabEfectivo() {
   )
 }
 
-/* âââ Tab 5: Cobranza ââââââââââââââââââââââââââââââââââââââââââââââ */
+/* --------- Tab 5: Cobranza ------------------------------------------------------------------------------------------------------------------------------------------ */
 
 function TabCobranza() {
   const totalVendido = MOCK_SALES.reduce((s, v) => s + v.monto_total, 0)
@@ -678,7 +678,7 @@ function TabCobranza() {
   )
 }
 
-/* âââ Tab 6: Flujo de Efectivo âââââââââââââââââââââââââââââââââââââ */
+/* --------- Tab 6: Flujo de Efectivo --------------------------------------------------------------------------------------------------------------- */
 
 function TabFlujo() {
   const [view, setView] = useState<'proyecto' | 'mensual'>('proyecto')
