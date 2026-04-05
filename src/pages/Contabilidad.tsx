@@ -18,6 +18,16 @@ type InvoiceDirection = 'emitida' | 'recibida'
 type InvoiceStatus = 'borrador' | 'timbrada' | 'enviada' | 'pagada' | 'cancelada' | 'error'
 type CfdiType = 'I' | 'E' | 'T' | 'P' | 'N'
 
+interface Concepto {
+  clave_prod_serv: string
+  cantidad: number
+  clave_unidad: string
+  unidad: string
+  descripcion: string
+  valor_unitario: number
+  importe: number
+}
+
 interface Invoice {
   id: string
   direccion: InvoiceDirection
@@ -32,6 +42,19 @@ interface Invoice {
   proyecto_nombre?: string
   conciliada: boolean
   metodo_pago?: string
+  uuid?: string
+  uuid_relacionado?: string
+  subtotal?: number
+  iva?: number
+  moneda?: string
+  forma_pago?: string
+  emisor_rfc?: string
+  emisor_regimen?: string
+  receptor_rfc?: string
+  receptor_regimen?: string
+  receptor_uso_cfdi?: string
+  receptor_cp?: string
+  conceptos?: Concepto[]
 }
 
 interface CashMovement {
@@ -307,6 +330,18 @@ function TabFacturacion({ invoices, setInvoices }: { invoices: Invoice[]; setInv
         proyecto_nombre: '',
         conciliada: false,
         metodo_pago: parsed.metodo_pago,
+        uuid: parsed.uuid,
+        subtotal: parsed.subtotal,
+        iva: Math.round((parsed.total - parsed.subtotal) * 100) / 100,
+        moneda: parsed.moneda,
+        forma_pago: parsed.forma_pago,
+        emisor_rfc: parsed.emisor_rfc,
+        emisor_regimen: parsed.emisor_regimen,
+        receptor_rfc: parsed.receptor_rfc,
+        receptor_regimen: parsed.receptor_regimen,
+        receptor_uso_cfdi: parsed.receptor_uso_cfdi,
+        receptor_cp: parsed.receptor_cp,
+        conceptos: parsed.conceptos,
       }
       setInvoices([newInvoice, ...invoices])
     } catch (err) {
@@ -471,6 +506,74 @@ function TabFacturacion({ invoices, setInvoices }: { invoices: Invoice[]; setInv
             <div style={{ fontSize: 11, color: '#555', textAlign: 'center', padding: 20 }}>Los conceptos se mostraran al cargar desde XML o generar via Facturapi</div>
           </div>
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 12 }}>
+            <Btn size="sm" variant="default" onClick={() => setSelectedInv(null)}>Cerrar</Btn>
+          </div>
+        </Modal>
+      )}
+
+      {selectedInv && (
+        <Modal title={(selectedInv.serie ? selectedInv.serie + '-' + selectedInv.folio : selectedInv.folio) + ' - Detalle'} onClose={() => setSelectedInv(null)}>
+          <div style={{ fontSize: 11, color: '#444', marginBottom: 12 }}>{selectedInv.uuid ? 'UUID: ' + selectedInv.uuid : 'Sin UUID (factura no timbrada)'}</div>
+          
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '6px 16px', fontSize: 12, marginBottom: 16 }}>
+            <div><span style={{color:'#555'}}>Direccion:</span> <Badge label={selectedInv.direccion === 'emitida' ? 'Emitida' : 'Recibida'} color={selectedInv.direccion === 'emitida' ? '#3B82F6' : '#F59E0B'} /></div>
+            <div><span style={{color:'#555'}}>Tipo:</span> <span style={{color:'#fff'}}>{CFDI_TYPE_LABELS[selectedInv.tipo_comprobante]}</span></div>
+            <div><span style={{color:'#555'}}>Estado:</span> <Badge label={INVOICE_STATUS_CONFIG[selectedInv.estado].label} color={INVOICE_STATUS_CONFIG[selectedInv.estado].color} /></div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 20px', fontSize: 12, marginBottom: 16 }}>
+            <div style={{borderBottom:'1px solid #1a1a1a', paddingBottom: 4}}>
+              <div style={{color:'#57FF9A', fontWeight: 600, fontSize: 11, marginBottom: 4}}>Emisor</div>
+              <div><span style={{color:'#555'}}>RFC:</span> <span style={{color:'#fff', fontFamily:'monospace'}}>{selectedInv.emisor_rfc || '--'}</span></div>
+              <div><span style={{color:'#555'}}>Nombre:</span> <span style={{color:'#ccc'}}>{selectedInv.emisor_nombre}</span></div>
+              <div><span style={{color:'#555'}}>Regimen:</span> <span style={{color:'#888'}}>{selectedInv.emisor_regimen || '--'}</span></div>
+            </div>
+            <div style={{borderBottom:'1px solid #1a1a1a', paddingBottom: 4}}>
+              <div style={{color:'#3B82F6', fontWeight: 600, fontSize: 11, marginBottom: 4}}>Receptor</div>
+              <div><span style={{color:'#555'}}>RFC:</span> <span style={{color:'#fff', fontFamily:'monospace'}}>{selectedInv.receptor_rfc || '--'}</span></div>
+              <div><span style={{color:'#555'}}>Nombre:</span> <span style={{color:'#ccc'}}>{selectedInv.receptor_nombre}</span></div>
+              <div><span style={{color:'#555'}}>Regimen:</span> <span style={{color:'#888'}}>{selectedInv.receptor_regimen || '--'}</span></div>
+              <div><span style={{color:'#555'}}>Uso CFDI:</span> <span style={{color:'#888'}}>{selectedInv.receptor_uso_cfdi || '--'}</span></div>
+              <div><span style={{color:'#555'}}>C.P.:</span> <span style={{color:'#888'}}>{selectedInv.receptor_cp || '--'}</span></div>
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '6px 16px', fontSize: 12, marginBottom: 16 }}>
+            <div><span style={{color:'#555'}}>Fecha:</span> <span style={{color:'#ccc'}}>{formatDate(selectedInv.fecha_emision)}</span></div>
+            <div><span style={{color:'#555'}}>Metodo:</span> <span style={{color:'#ccc'}}>{selectedInv.metodo_pago || '--'}</span></div>
+            <div><span style={{color:'#555'}}>Forma:</span> <span style={{color:'#ccc'}}>{selectedInv.forma_pago || '--'}</span></div>
+            <div><span style={{color:'#555'}}>Moneda:</span> <span style={{color:'#ccc'}}>{selectedInv.moneda || 'MXN'}</span></div>
+          </div>
+
+          <div style={{ borderTop: '1px solid #222', paddingTop: 12, marginBottom: 8 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#fff', marginBottom: 10 }}>Conceptos</div>
+            {selectedInv.conceptos && selectedInv.conceptos.length > 0 ? (
+              <Table>
+                <thead><tr><Th>Clave SAT</Th><Th>Descripcion</Th><Th>Unidad</Th><Th right>Cant.</Th><Th right>P. Unit.</Th><Th right>Importe</Th></tr></thead>
+                <tbody>
+                  {selectedInv.conceptos.map((cp, i) => (
+                    <tr key={i}>
+                      <Td><span style={{fontFamily:'monospace', fontSize: 11, color:'#888'}}>{cp.clave_prod_serv}</span></Td>
+                      <Td><span style={{color:'#ccc', fontSize: 11}}>{cp.descripcion}</span></Td>
+                      <Td muted style={{fontSize: 11}}>{cp.clave_unidad} {cp.unidad ? '(' + cp.unidad + ')' : ''}</Td>
+                      <Td right muted>{cp.cantidad}</Td>
+                      <Td right muted>{F(cp.valor_unitario)}</Td>
+                      <Td right style={{fontWeight: 600, color:'#fff'}}>{F(cp.importe)}</Td>
+                    </tr>
+                  ))}
+                </tbody>
+              </Table>
+            ) : (
+              <div style={{ fontSize: 11, color: '#444', textAlign: 'center', padding: '16px 0' }}>Sin conceptos. Sube el XML de la factura para ver el detalle.</div>
+            )}
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 20, marginTop: 12, borderTop: '1px solid #222', paddingTop: 12 }}>
+            <div style={{ display: 'flex', gap: 16, fontSize: 12 }}>
+              <div><span style={{color:'#555'}}>Subtotal:</span> <span style={{color:'#ccc'}}>{F(selectedInv.subtotal || 0)}</span></div>
+              <div><span style={{color:'#555'}}>IVA:</span> <span style={{color:'#ccc'}}>{F(selectedInv.iva || 0)}</span></div>
+              <div><span style={{color:'#fff', fontWeight: 700, fontSize: 16}}>Total: {F(selectedInv.total)}</span></div>
+            </div>
             <Btn size="sm" variant="default" onClick={() => setSelectedInv(null)}>Cerrar</Btn>
           </div>
         </Modal>
