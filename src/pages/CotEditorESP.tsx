@@ -415,14 +415,26 @@ Important: cost should be the retail/MSRP price in USD. If you can't find exact 
   async function save() {
     if (!form.name) return
     setSaving(true)
+    const rule = getPricingRule(form.provider)
+    const precioVenta = rule.precioPublico ? form.cost : calcPriceFromCost(form.cost, rule)
     const { data, error } = await supabase.from('catalog_products').insert({
-      name: form.name, description: form.description, system: form.system,
-      cost: form.cost, markup: form.markup, provider: form.provider, unit: form.unit,
-      type: 'material', specialty: 'esp', is_active: true, purchase_phase: 'inicio',
+      name: form.name,
+      description: form.description || null,
+      system: form.system || null,
+      type: 'material',
+      unit: form.unit || 'pza',
+      cost: form.cost,
+      markup: form.markup,
+      precio_venta: precioVenta,
+      provider: form.provider || null,
+      moneda: 'USD',
+      iva_rate: 0.16,
+      is_active: true,
+      clave_unidad: 'H87',
     }).select().single()
     if (error) {
       console.error('Error creating product:', error)
-      // Even if catalog insert fails, still pass the product data to add to quote
+      // Still add to quote even if catalog fails
       onCreate({ id: '', name: form.name, description: form.description, system: form.system, cost: form.cost, markup: form.markup, provider: form.provider, unit: form.unit })
     } else if (data) {
       onCreate(data)
