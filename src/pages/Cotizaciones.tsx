@@ -61,15 +61,16 @@ function CotDashboard({ onOpen }: { onOpen: (id: string, specialty?: string) => 
       {loading ? <Loading/> : (
         <Table>
           <thead><tr>
-            <Th>Cotizacion</Th><Th>Proyecto</Th><Th>Especialidad</Th><Th>Etapa</Th><Th right>Total</Th><Th></Th>
+            <Th>Cotizacion</Th><Th>Lead / Cliente</Th><Th>Proyecto</Th><Th>Especialidad</Th><Th>Etapa</Th><Th right>Total</Th><Th></Th>
           </tr></thead>
           <tbody>
-            {lista.length === 0 && (<tr><td colSpan={6}><EmptyState message="Sin cotizaciones - crea la primera"/></td></tr>)}
+            {lista.length === 0 && (<tr><td colSpan={7}><EmptyState message="Sin cotizaciones - crea la primera"/></td></tr>)}
             {lista.map(c => {
               const esp = SPECIALTY_CONFIG[c.specialty]; const stage = STAGE_CONFIG[c.stage]; const proj = c.project as any
               return (
                 <tr key={c.id} style={{cursor:'pointer'}} onClick={() => onOpen(c.id, c.specialty)}>
                   <Td><span style={{fontWeight:500,color:'#fff'}}>{c.name}</span></Td>
+                  <Td><span style={{color:'#ccc'}}>{c.client_name || '--'}</span></Td>
                   <Td muted>{proj?.name||'--'}</Td>
                   <Td><Badge label={esp.icon+' '+esp.label} color={esp.color}/></Td>
                   <Td><Badge label={stage.label} color={stage.color}/></Td>
