@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { F, STAGE_CONFIG } from '../lib/utils'
 import { Badge, Btn, Loading } from '../components/layout/UI'
+import { ANTHROPIC_API_KEY } from '../lib/config'
 import { Plus, ChevronLeft, ChevronRight, ChevronDown, X, Trash2, Image as ImageIcon, Search, RefreshCw } from 'lucide-react'
 
 // ═══════════════════════════════════════════════════════════════════
@@ -290,7 +291,7 @@ function CreateProductModal({ onClose, onCreate, systemName }: {
           'Content-Type': 'application/json',
           'anthropic-dangerous-direct-browser-access': 'true',
           'anthropic-version': '2023-06-01',
-          'x-api-key': import.meta.env.VITE_ANTHROPIC_KEY || '',
+          'x-api-key': ANTHROPIC_API_KEY,
         },
         body: JSON.stringify({
           model: 'claude-sonnet-4-20250514',
