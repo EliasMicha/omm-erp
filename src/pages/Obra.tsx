@@ -2,6 +2,7 @@ import React, { useState, useRef } from 'react'
 import { SectionHeader, KpiCard, Table, Th, Td, Badge, Btn, EmptyState, ProgressBar } from '../components/layout/UI'
 import { F, formatDate } from '../lib/utils'
 import { ANTHROPIC_API_KEY } from '../lib/config'
+import { supabase } from '../lib/supabase'
 import {
   HardHat, Users, ClipboardList, Calendar, AlertTriangle, CheckCircle,
   Clock, ChevronRight, ArrowLeft, Plus, Upload, Camera, X, Eye,
@@ -35,6 +36,7 @@ interface Actividad {
   id: string
   obra_id: string
   sistema: Sistema
+  area?: string
   descripcion: string
   status: ActividadStatus
   instalador_id?: string
@@ -72,6 +74,7 @@ interface ObraData {
   direccion: string
   status: ObraStatus
   cotizacion_ref?: string
+  cotizacion_id?: string
   coordinador: string
   sistemas: Sistema[]
   instaladores_ids: string[]
@@ -451,7 +454,10 @@ function SubActividades({ obra, instaladores, updateObra, showNew, setShowNew }:
   obra: ObraData; instaladores: Instalador[]; updateObra: (fn: (o: ObraData) => ObraData) => void
   showNew: boolean; setShowNew: (v: boolean) => void
 }) {
-  const [newAct, setNewAct] = useState({ sistema: 'CCTV' as Sistema, descripcion: '', instalador_id: '', fecha_fin_plan: '', bloqueo: '' })
+  const [newAct, setNewAct] = useState({ sistema: 'CCTV' as Sistema, descripcion: '', instalador_id: '', fecha_fin_plan: '', area: '' })
+  const [groupBy, setGroupBy] = useState<'sistema' | 'area'>('sistema')
+  const [generating, setGenerating] = useState(false)
+  const [genStatus, setGenStatus] = useState('')
 
   const addActividad = () => {
     if (!newAct.descripcion.trim()) return
@@ -460,10 +466,11 @@ function SubActividades({ obra, instaladores, updateObra, showNew, setShowNew }:
       descripcion: newAct.descripcion.trim(), status: 'pendiente',
       instalador_id: newAct.instalador_id || undefined,
       fecha_fin_plan: newAct.fecha_fin_plan || undefined,
+      area: newAct.area || undefined,
       porcentaje: 0,
     }
     updateObra(o => ({ ...o, actividades: [...o.actividades, act] }))
-    setNewAct({ sistema: 'CCTV', descripcion: '', instalador_id: '', fecha_fin_plan: '', bloqueo: '' })
+    setNewAct({ sistema: 'CCTV', descripcion: '', instalador_id: '', fecha_fin_plan: '', area: '' })
     setShowNew(false)
   }
 
@@ -478,26 +485,171 @@ function SubActividades({ obra, instaladores, updateObra, showNew, setShowNew }:
     }))
   }
 
-  // Group by sistema
-  const bySistema = new Map<Sistema, Actividad[]>()
+  /* --- AI Autogenerate from quotation --- */
+  const autogenerarConAI = async () => {
+    if (!obra.cotizacion_id) {
+      setGenStatus('No hay cotización vinculada a esta obra')
+      return
+    }
+    setGenerating(true)
+    setGenStatus('Leyendo cotización de Supabase...')
+
+    try {
+      // Fetch quotation areas and items
+      const [areasRes, itemsRes] = await Promise.all([
+        supabase.from('quotation_areas').select('*').eq('quotation_id', obra.cotizacion_id).order('order_index'),
+        supabase.from('quotation_items').select('*').eq('quotation_id', obra.cotizacion_id).order('order_index'),
+      ])
+
+      const areas = areasRes.data || []
+      const items = itemsRes.data || []
+
+      if (items.length === 0) {
+        setGenStatus('La cotización no tiene productos')
+        setGenerating(false)
+        return
+      }
+
+      setGenStatus(`${items.length} productos en ${areas.length} áreas. Generando tareas con AI...`)
+
+      // Build context for AI
+      const cotContext = areas.map(area => {
+        const areaItems = items.filter((it: any) => it.area_id === area.id)
+        return `ÁREA: ${area.name}\n${areaItems.map((it: any) => `  - ${it.quantity}x ${it.name} [${it.system || 'General'}]`).join('\n')}`
+      }).join('\n\n')
+
+      const systemMap = `Mapeo de sistemas de cotización a sistemas de obra:
+Audio, Sonos, bocina, speaker, amplificador = "Audio"
+Redes, access point, switch, patch panel, Cat6, rack, UPS = "Redes"
+CCTV, cámara, NVR, DVR, Hikvision = "CCTV"
+Control de Iluminación, Lutron, dimmer, keypad, procesador, Caseta, Pico = "Control"
+Control de Acceso, lector, HID, cerradura, chapa = "Acceso"
+Eléctrico, canalización, registro, contacto, apagador, centro de carga = "Electrico"`
+
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'anthropic-dangerous-direct-browser-access': 'true', 'anthropic-version': '2023-06-01', 'x-api-key': ANTHROPIC_API_KEY },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-20250514', max_tokens: 8000,
+          system: `Eres coordinador de obra de instalaciones especiales. A partir de la cotización, genera las TAREAS DE INSTALACIÓN en campo.
+
+REGLAS:
+1. Cada producto en cada área genera una tarea. El formato es: "[Acción] de [producto] - [área]"
+   Ejemplo: "Colocación de access point - Recámara Principal"
+   Ejemplo: "Instalación de cámara domo Hikvision - Estacionamiento N-2"
+   Ejemplo: "Tendido de cable Cat6 (3 corridas) - Sala"
+   Ejemplo: "Montaje de bocina Sonos Outdoor - Terraza"
+   Ejemplo: "Programación de procesador Lutron - General"
+2. Si un producto tiene quantity > 1, menciona la cantidad: "Colocación de 4 access points - Recámara Principal"
+3. Agrupa cables/canalizaciones del mismo tipo en la misma área en UNA sola tarea
+4. Agrega tareas de infraestructura implícitas: canalización, cableado, montaje de rack, pruebas
+5. Agrega tarea de programación/configuración por sistema al final (área "General")
+6. Agrega tarea de pruebas y puesta en marcha por sistema (área "General")
+
+${systemMap}
+
+Devuelve SOLO un JSON array, sin markdown:
+[{"descripcion":"texto de la tarea","sistema":"Audio|Redes|CCTV|Control|Acceso|Electrico","area":"nombre del área"}]`,
+          messages: [{ role: 'user', content: `Cotización de obra: ${obra.nombre}\n\n${cotContext}` }],
+        }),
+      })
+
+      if (!response.ok) {
+        setGenStatus('Error API: ' + response.status)
+        setGenerating(false)
+        return
+      }
+
+      const data = await response.json()
+      const text = (data.content || []).filter((b: any) => b.type === 'text').map((b: any) => b.text).join('')
+      const jsonMatch = text.match(/\[[\s\S]*\]/)
+
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0].replace(/```json|```/g, '').trim())
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const validSistemas = ['CCTV', 'Audio', 'Redes', 'Control', 'Acceso', 'Electrico']
+          const newActs: Actividad[] = parsed.map((t: any, i: number) => {
+            let sistema = t.sistema || 'Redes'
+            if (!validSistemas.includes(sistema)) {
+              // Try to match
+              const lower = sistema.toLowerCase()
+              if (lower.includes('audio')) sistema = 'Audio'
+              else if (lower.includes('red') || lower.includes('network')) sistema = 'Redes'
+              else if (lower.includes('cctv') || lower.includes('cam')) sistema = 'CCTV'
+              else if (lower.includes('control') && lower.includes('acc')) sistema = 'Acceso'
+              else if (lower.includes('control') || lower.includes('lutron')) sistema = 'Control'
+              else if (lower.includes('elec')) sistema = 'Electrico'
+              else sistema = 'Redes'
+            }
+            return {
+              id: 'a' + Date.now() + i,
+              obra_id: obra.id,
+              sistema: sistema as Sistema,
+              area: t.area || '',
+              descripcion: t.descripcion || '',
+              status: 'pendiente' as ActividadStatus,
+              porcentaje: 0,
+            }
+          })
+          updateObra(o => ({ ...o, actividades: [...o.actividades, ...newActs] }))
+          setGenStatus(`✓ ${newActs.length} tareas generadas desde cotización`)
+        } else {
+          setGenStatus('No se generaron tareas')
+        }
+      } else {
+        setGenStatus('Error al parsear respuesta AI')
+      }
+    } catch (err) {
+      setGenStatus('Error: ' + (err as Error).message)
+    }
+    setGenerating(false)
+  }
+
+  // Group activities
+  const grouped = new Map<string, Actividad[]>()
   obra.actividades.forEach(a => {
-    const arr = bySistema.get(a.sistema) || []
+    const key = groupBy === 'sistema' ? a.sistema : (a.area || 'Sin área')
+    const arr = grouped.get(key) || []
     arr.push(a)
-    bySistema.set(a.sistema, arr)
+    grouped.set(key, arr)
   })
+
+  // Get unique areas for the new activity form
+  const uniqueAreas = Array.from(new Set(obra.actividades.map(a => a.area).filter(Boolean))) as string[]
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: '#fff' }}>Actividades por sistema</div>
-        <Btn size="sm" variant="primary" onClick={() => setShowNew(true)}><Plus size={12} /> Nueva actividad</Btn>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: '#fff' }}>Actividades</div>
+          {/* Group toggle */}
+          <div style={{ display: 'flex', gap: 2, background: '#141414', borderRadius: 6, padding: 2, border: '1px solid #222' }}>
+            {(['sistema', 'area'] as const).map(g => (
+              <button key={g} onClick={() => setGroupBy(g)} style={{
+                padding: '3px 8px', fontSize: 10, fontWeight: groupBy === g ? 600 : 400,
+                color: groupBy === g ? '#fff' : '#555',
+                background: groupBy === g ? '#333' : 'transparent',
+                border: 'none', borderRadius: 4, cursor: 'pointer', fontFamily: 'inherit',
+              }}>Por {g}</button>
+            ))}
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+          {genStatus && <span style={{ fontSize: 10, color: genStatus.startsWith('✓') ? '#57FF9A' : genStatus.startsWith('Error') ? '#EF4444' : '#888' }}>{genStatus}</span>}
+          {obra.cotizacion_id && (
+            <Btn size="sm" variant="default" onClick={autogenerarConAI} disabled={generating}>
+              {generating ? <><Loader2 size={12} /> Generando...</> : <>🤖 Autogenerar desde cotización</>}
+            </Btn>
+          )}
+          <Btn size="sm" variant="primary" onClick={() => setShowNew(true)}><Plus size={12} /> Nueva actividad</Btn>
+        </div>
       </div>
 
       {/* New activity form */}
       {showNew && (
         <div style={{ ...cardStyle, borderColor: '#57FF9A33' }}>
           <div style={{ fontSize: 13, fontWeight: 600, color: '#fff', marginBottom: 12 }}>Nueva actividad</div>
-          <div style={{ display: 'grid', gridTemplateColumns: '150px 1fr 180px 140px', gap: 8, marginBottom: 10 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '130px 1fr 150px 150px 130px', gap: 8, marginBottom: 10 }}>
             <div>
               <div style={labelStyle}>Sistema</div>
               <select value={newAct.sistema} onChange={e => setNewAct(n => ({ ...n, sistema: e.target.value as Sistema }))} style={inputStyle}>
@@ -507,6 +659,11 @@ function SubActividades({ obra, instaladores, updateObra, showNew, setShowNew }:
             <div>
               <div style={labelStyle}>Descripción</div>
               <input value={newAct.descripcion} onChange={e => setNewAct(n => ({ ...n, descripcion: e.target.value }))} placeholder="Qué se va a hacer" style={inputStyle} />
+            </div>
+            <div>
+              <div style={labelStyle}>Área</div>
+              <input value={newAct.area} onChange={e => setNewAct(n => ({ ...n, area: e.target.value }))} placeholder="Ej: Recámara Principal" list="areas-list" style={inputStyle} />
+              <datalist id="areas-list">{uniqueAreas.map(a => <option key={a} value={a} />)}</datalist>
             </div>
             <div>
               <div style={labelStyle}>Instalador</div>
@@ -528,28 +685,48 @@ function SubActividades({ obra, instaladores, updateObra, showNew, setShowNew }:
       )}
 
       {obra.actividades.length === 0 ? (
-        <EmptyState message="No hay actividades registradas. Agrega la primera actividad para iniciar el seguimiento." />
+        <div>
+          <EmptyState message="No hay actividades registradas." />
+          {obra.cotizacion_id && (
+            <div style={{ textAlign: 'center', marginTop: 12 }}>
+              <Btn size="sm" variant="primary" onClick={autogenerarConAI} disabled={generating}>
+                {generating ? <><Loader2 size={12} /> Generando...</> : <>🤖 Autogenerar tareas desde cotización</>}
+              </Btn>
+              <div style={{ fontSize: 10, color: '#555', marginTop: 6 }}>Lee la cotización y genera las tareas de instalación por área y sistema</div>
+            </div>
+          )}
+          {!obra.cotizacion_id && (
+            <div style={{ textAlign: 'center', fontSize: 11, color: '#555', marginTop: 8 }}>
+              Vincula una cotización a esta obra para poder autogenerar tareas
+            </div>
+          )}
+        </div>
       ) : (
-        Array.from(bySistema.entries()).map(([sistema, acts]) => {
-          const cfg = SISTEMAS_CONFIG[sistema]
-          const Icon = cfg.icon
+        Array.from(grouped.entries()).sort((a, b) => a[0].localeCompare(b[0])).map(([groupKey, acts]) => {
+          const isSystemGroup = groupBy === 'sistema'
+          const cfg = isSystemGroup ? SISTEMAS_CONFIG[groupKey as Sistema] : null
+          const Icon = cfg?.icon || ClipboardList
+          const groupColor = cfg?.color || '#888'
           const avgPct = Math.round(acts.reduce((s, a) => s + a.porcentaje, 0) / acts.length)
           return (
-            <div key={sistema} style={{ marginBottom: 16 }}>
+            <div key={groupKey} style={{ marginBottom: 16 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                <Icon size={14} color={cfg.color} />
-                <span style={{ fontSize: 13, fontWeight: 600, color: cfg.color }}>{cfg.label}</span>
-                <span style={{ fontSize: 11, color: '#555' }}>{avgPct}% promedio</span>
+                <Icon size={14} color={groupColor} />
+                <span style={{ fontSize: 13, fontWeight: 600, color: groupColor }}>{isSystemGroup ? cfg?.label || groupKey : groupKey}</span>
+                <span style={{ fontSize: 11, color: '#555' }}>{acts.length} tarea{acts.length > 1 ? 's' : ''} · {avgPct}%</span>
               </div>
               {acts.map(a => {
                 const actSt = ACT_STATUS_CONFIG[a.status]
                 const inst = instaladores.find(i => i.id === a.instalador_id)
+                const aSistCfg = SISTEMAS_CONFIG[a.sistema]
                 return (
                   <div key={a.id} style={{ ...cardStyle, padding: 12, marginBottom: 6, borderLeft: `3px solid ${actSt.color}` }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                       <div style={{ flex: 1 }}>
                         <div style={{ fontSize: 12, color: '#ccc', marginBottom: 2 }}>{a.descripcion}</div>
-                        <div style={{ fontSize: 10, color: '#555', display: 'flex', gap: 12 }}>
+                        <div style={{ fontSize: 10, color: '#555', display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                          {!isSystemGroup && aSistCfg && <span style={{ color: aSistCfg.color }}>{aSistCfg.label}</span>}
+                          {isSystemGroup && a.area && <span style={{ color: '#888' }}>📍 {a.area}</span>}
                           {inst && <span><Users size={10} style={{ verticalAlign: 'middle' }} /> {inst.nombre}</span>}
                           {a.fecha_fin_plan && <span><Calendar size={10} style={{ verticalAlign: 'middle' }} /> {formatDate(a.fecha_fin_plan)}</span>}
                         </div>
@@ -580,7 +757,6 @@ function SubActividades({ obra, instaladores, updateObra, showNew, setShowNew }:
                         </select>
                       </div>
                     </div>
-                    {/* Bloqueo input when status is bloqueada */}
                     {a.status === 'bloqueada' && !a.bloqueo && (
                       <div style={{ marginTop: 6 }}>
                         <input placeholder="¿Qué lo está frenando?"
@@ -1342,9 +1518,41 @@ Después del JSON, escribe un párrafo con el razonamiento y recomendaciones.`,
 function NuevaObraModal({ onClose, onCreate }: { onClose: () => void; onCreate: (o: ObraData) => void }) {
   const [form, setForm] = useState({
     nombre: '', cliente: '', direccion: '', coordinador: 'Alfredo Rosas',
-    cotizacion_ref: '', valor_contrato: '', sistemas: [] as Sistema[],
+    cotizacion_ref: '', cotizacion_id: '', valor_contrato: '', sistemas: [] as Sistema[],
     fecha_fin_plan: '',
   })
+  const [cotizaciones, setCotizaciones] = useState<Array<{ id: string; name: string; total: number; project_name?: string; client_name?: string }>>([])
+  const [loadingCots, setLoadingCots] = useState(false)
+
+  // Load cotizaciones on mount
+  React.useEffect(() => {
+    setLoadingCots(true)
+    supabase.from('quotations').select('id, name, total, project_id, client_name, projects(name)')
+      .eq('specialty', 'esp').order('created_at', { ascending: false })
+      .then(({ data }) => {
+        if (data) {
+          setCotizaciones(data.map((q: any) => ({
+            id: q.id, name: q.name, total: q.total || 0,
+            project_name: q.projects?.name || '', client_name: q.client_name || '',
+          })))
+        }
+        setLoadingCots(false)
+      })
+  }, [])
+
+  const handleCotSelect = (cotId: string) => {
+    const cot = cotizaciones.find(c => c.id === cotId)
+    if (cot) {
+      setForm(f => ({
+        ...f, cotizacion_id: cotId, cotizacion_ref: cot.name,
+        valor_contrato: String(cot.total || f.valor_contrato),
+        cliente: f.cliente || cot.client_name || '',
+        nombre: f.nombre || cot.project_name || cot.name || '',
+      }))
+    } else {
+      setForm(f => ({ ...f, cotizacion_id: '', cotizacion_ref: '' }))
+    }
+  }
 
   const toggleSistema = (s: Sistema) => {
     setForm(f => ({ ...f, sistemas: f.sistemas.includes(s) ? f.sistemas.filter(x => x !== s) : [...f.sistemas, s] }))
@@ -1355,7 +1563,8 @@ function NuevaObraModal({ onClose, onCreate }: { onClose: () => void; onCreate: 
     const obra: ObraData = {
       id: 'o' + Date.now(), nombre: form.nombre.trim(), cliente: form.cliente.trim(),
       direccion: form.direccion.trim(), status: 'entrega_pendiente',
-      cotizacion_ref: form.cotizacion_ref.trim(), coordinador: form.coordinador.trim(),
+      cotizacion_ref: form.cotizacion_ref.trim(), cotizacion_id: form.cotizacion_id || undefined,
+      coordinador: form.coordinador.trim(),
       sistemas: form.sistemas, instaladores_ids: [],
       fecha_fin_plan: form.fecha_fin_plan || undefined,
       avance_global: 0, actividades: [], reportes: [],
@@ -1395,8 +1604,11 @@ function NuevaObraModal({ onClose, onCreate }: { onClose: () => void; onCreate: 
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
             <div>
-              <div style={labelStyle}>Ref. cotización</div>
-              <input value={form.cotizacion_ref} onChange={e => setForm(f => ({ ...f, cotizacion_ref: e.target.value }))} placeholder="COT-ESP-..." style={inputStyle} />
+              <div style={labelStyle}>Cotización ESP {loadingCots && '(cargando...)'}</div>
+              <select value={form.cotizacion_id} onChange={e => handleCotSelect(e.target.value)} style={inputStyle}>
+                <option value="">Sin cotización</option>
+                {cotizaciones.map(c => <option key={c.id} value={c.id}>{c.name} — {F(c.total)}</option>)}
+              </select>
             </div>
             <div>
               <div style={labelStyle}>Valor contrato</div>
