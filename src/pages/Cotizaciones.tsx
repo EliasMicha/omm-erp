@@ -91,7 +91,26 @@ function CotDashboard({ onOpen }: { onOpen: (id: string, specialty?: string) => 
                   <Td><span style={{color: leadName ? '#C084FC' : '#333'}}>{leadName || '--'}</span></Td>
                   <Td muted>{c.client_name || '--'}</Td>
                   <Td><Badge label={esp.icon+' '+esp.label} color={esp.color}/></Td>
-                  <Td><Badge label={stage.label} color={stage.color}/></Td>
+                  <Td>
+                    <select
+                      value={c.stage}
+                      onClick={e => e.stopPropagation()}
+                      onChange={e => {
+                        const newStage = e.target.value
+                        supabase.from('quotations').update({ stage: newStage }).eq('id', c.id).then(() => {})
+                        setCots(prev => prev.map(q => q.id === c.id ? { ...q, stage: newStage as any } : q))
+                      }}
+                      style={{
+                        padding: '3px 8px', fontSize: 10, fontWeight: 600, borderRadius: 6,
+                        background: stage.color + '18', border: `1px solid ${stage.color}44`,
+                        color: stage.color, cursor: 'pointer', fontFamily: 'inherit',
+                      }}
+                    >
+                      {(Object.entries(STAGE_CONFIG) as [string, { label: string; color: string }][]).map(([k, v]) => (
+                        <option key={k} value={k}>{v.label}</option>
+                      ))}
+                    </select>
+                  </Td>
                   <Td><span style={{fontSize:11,fontWeight:600,color: cur === 'USD' ? '#06B6D4' : '#F59E0B'}}>{cur}</span></Td>
                   <Td right><span style={{fontWeight:600,color:'#57FF9A'}}>{cur === 'MXN' ? '$' : 'US$'}{c.total.toLocaleString()}</span></Td>
                   <Td><Btn size="sm" onClick={e => { e?.stopPropagation(); onOpen(c.id, c.specialty) }}>Abrir</Btn></Td>
