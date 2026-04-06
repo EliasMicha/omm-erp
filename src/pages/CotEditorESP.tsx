@@ -716,6 +716,13 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
     const sub = eq + mo + config.programacion; return sub + sub * config.ivaRate / 100
   }, [products, config])
 
+  // Sync total to quotations table whenever it changes
+  useEffect(() => {
+    if (!loading && cotId) {
+      supabase.from('quotations').update({ total: Math.round(total * 100) / 100 }).eq('id', cotId)
+    }
+  }, [total, loading])
+
   function toggleArea(id: string) { setAreas(p => p.map(a => a.id === id ? { ...a, collapsed: !a.collapsed } : a)) }
   function toggleSys(k: string) { setCollapsedSys(p => ({ ...p, [k]: !p[k] })) }
   function addArea() { const n = prompt('Nombre del área:'); if (n) setAreas(p => [...p, { id: uid(), name: n, collapsed: false, order: p.length }]) }
