@@ -677,6 +677,9 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
   const [clientName, setClientName] = useState('')
   const [addingTo, setAddingTo] = useState<{ areaId: string; systemId: string } | null>(null)
   const [creatingProduct, setCreatingProduct] = useState(false)
+  const [showEditCot, setShowEditCot] = useState(false)
+  const [projectId, setProjectId] = useState<string | null>(null)
+  const [projectName, setProjectName] = useState('')
 
   useEffect(() => {
     async function load() {
@@ -687,6 +690,9 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
       ])
       if (cot) {
         setCotName(cot.name || ''); setClientName(cot.client_name || ''); setStage(cot.stage || 'oportunidad')
+        setProjectId(cot.project_id || null)
+        const proj = cot.project as any
+        setProjectName(proj?.name || '')
         try {
           const meta = JSON.parse(cot.notes || '{}')
           if (meta.systems) setActiveSysIds(meta.systems)
@@ -864,9 +870,11 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
       <div style={{ padding: '7px 16px', borderBottom: '1px solid #222', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0, background: '#111' }}>
         <button onClick={onBack} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, fontSize: 12 }}><ChevronLeft size={14} /> Cotizaciones</button>
         <span style={{ color: '#333' }}>/</span>
-        <span style={{ fontSize: 12, fontWeight: 500, color: '#57FF9A' }}>◈ {cotName || 'Cotización ESP'}</span>
+        <span style={{ fontSize: 12, fontWeight: 500, color: '#57FF9A', cursor: 'pointer' }} onClick={() => setShowEditCot(true)}>◈ {cotName || 'Cotización ESP'}</span>
         <Badge label="ESP" color="#57FF9A" />
-        {clientName && <span style={{ fontSize: 11, color: '#555' }}>{clientName}</span>}
+        {clientName && <span style={{ fontSize: 11, color: '#888' }}>{clientName}</span>}
+        {projectName && <span style={{ fontSize: 10, color: '#555' }}>| {projectName}</span>}
+        <button onClick={() => setShowEditCot(true)} style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer', fontSize: 10 }}>✏️</button>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 4, alignItems: 'center' }}>
           {(Object.entries(STAGE_CONFIG) as Array<[string, { label: string; color: string }]>).map(([s, cfg]) => (
             <button key={s} onClick={() => { setStage(s); supabase.from('quotations').update({ stage: s }).eq('id', cotId) }} style={{
@@ -959,6 +967,93 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
           </div>
         </div>
       )}
+
+      {/* Edit cotización modal */}
+      {showEditCot && <EditCotModal cotId={cotId} name={cotName} clientName={clientName} projectId={projectId}
+        onClose={() => setShowEditCot(false)}
+        onSaved={(n, cl, pId, pName) => { setCotName(n); setClientName(cl); setProjectId(pId); setProjectName(pName); setShowEditCot(false) }} />}
+    </div>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// EDIT COTIZACIÓN MODAL
+// ═══════════════════════════════════════════════════════════════════
+function EditCotModal({ cotId, name, clientName, projectId, onClose, onSaved }: {
+  cotId: string; name: string; clientName: string; projectId: string | null
+  onClose: () => void; onSaved: (name: string, client: string, projId: string | null, projName: string) => void
+}) {
+  const [form, setForm] = useState({ name, client_name: clientName, project_id: projectId || '' })
+  const [projects, setProjects] = useState<Array<{ id: string; name: string; client_name: string }>>([])
+  const [clientes, setClientes] = useState<Array<{ id: string; razon_social: string; rfc: string }>>([])
+  const [clientSearch, setClientSearch] = useState(clientName)
+  const [showDrop, setShowDrop] = useState(false)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    Promise.all([
+      supabase.from('projects').select('id,name,client_name').eq('status', 'activo'),
+      supabase.from('clientes_fiscales').select('id,razon_social,rfc').eq('activo', true).order('razon_social'),
+    ]).then(([{ data: p }, { data: c }]) => { setProjects(p || []); setClientes(c || []) })
+  }, [])
+
+  async function save() {
+    setSaving(true)
+    await supabase.from('quotations').update({
+      name: form.name, client_name: form.client_name, project_id: form.project_id || null,
+    }).eq('id', cotId)
+    const proj = projects.find(p => p.id === form.project_id)
+    onSaved(form.name, form.client_name, form.project_id || null, proj?.name || '')
+    setSaving(false)
+  }
+
+  const inputStyle = { display: 'block' as const, width: '100%', marginTop: 4, padding: '8px 10px', background: '#1e1e1e', border: '1px solid #333', borderRadius: 8, color: '#fff', fontSize: 13, fontFamily: 'inherit' }
+  const labelStyle = { fontSize: 10, color: '#555', textTransform: 'uppercase' as const, letterSpacing: '0.06em', display: 'block' as const }
+  const filtered = clientSearch.length >= 2
+    ? clientes.filter(c => c.razon_social.toLowerCase().includes(clientSearch.toLowerCase()))
+    : clientes.slice(0, 8)
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1020 }}>
+      <div style={{ background: '#141414', border: '1px solid #333', borderRadius: 16, padding: 24, width: 480 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: '#fff' }}>Editar cotización</div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer' }}><X size={16} /></button>
+        </div>
+        <div style={{ display: 'grid', gap: 12 }}>
+          <label style={labelStyle}>Nombre<input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} style={inputStyle} /></label>
+          <label style={labelStyle}>
+            Lead / Cliente
+            <div style={{ position: 'relative' }}>
+              <input value={clientSearch} onChange={e => { setClientSearch(e.target.value); setForm(f => ({ ...f, client_name: e.target.value })); setShowDrop(true) }}
+                onFocus={() => setShowDrop(true)} style={inputStyle} />
+              {showDrop && filtered.length > 0 && (
+                <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#1a1a1a', border: '1px solid #333', borderRadius: 8, marginTop: 2, maxHeight: 150, overflowY: 'auto', zIndex: 10 }}>
+                  {filtered.map(c => (
+                    <div key={c.id} onClick={() => { setForm(f => ({ ...f, client_name: c.razon_social })); setClientSearch(c.razon_social); setShowDrop(false) }}
+                      style={{ padding: '7px 10px', cursor: 'pointer', fontSize: 12, color: '#ccc', borderBottom: '1px solid #222' }}
+                      onMouseEnter={e => { e.currentTarget.style.background = '#222' }}
+                      onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}>
+                      {c.razon_social} <span style={{ fontSize: 10, color: '#555' }}>{c.rfc}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </label>
+          <label style={labelStyle}>
+            Proyecto
+            <select value={form.project_id} onChange={e => setForm(f => ({ ...f, project_id: e.target.value }))} style={inputStyle}>
+              <option value="">-- Sin proyecto --</option>
+              {projects.map(p => <option key={p.id} value={p.id}>{p.name} | {p.client_name}</option>)}
+            </select>
+          </label>
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
+          <Btn onClick={onClose}>Cancelar</Btn>
+          <Btn variant="primary" onClick={save} disabled={saving}>{saving ? 'Guardando...' : 'Guardar'}</Btn>
+        </div>
+      </div>
     </div>
   )
 }
