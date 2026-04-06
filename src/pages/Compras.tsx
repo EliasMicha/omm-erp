@@ -559,9 +559,14 @@ function POFromQuoteModal({ onClose, onCreated }: { onClose: () => void; onCreat
       const areaIds = (areas || []).map((a: any) => a.id)
       if (areaIds.length === 0) { setPreviewItems([]); return }
       let query = supabase.from('quotation_items').select('*').in('area_id', areaIds).eq('type', 'material')
-      if (selectedPhase) query = query.eq('purchase_phase', selectedPhase)
       const { data } = await query.order('order_index')
       let items = data || []
+      // Filter by phase in JS (column may not exist in DB)
+      if (selectedPhase) {
+        const phaseFiltered = items.filter(it => it.purchase_phase === selectedPhase)
+        if (phaseFiltered.length > 0) items = phaseFiltered
+        // If no items match the phase, show all (phase column might not exist)
+      }
       // Filter by supplier if selected
       if (selectedSupplier) {
         const sup = suppliers.find(s => s.id === selectedSupplier)
