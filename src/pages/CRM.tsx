@@ -99,7 +99,7 @@ function Chips({ label, options, value, onChange, colorMap }: {
 // ─── Modal Nuevo Lead ──────────────────────────────────────────────────────
 function NuevoLeadModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
   const [form, setForm] = useState({
-    name: '', company: '', contact_name: '', contact_phone: '', contact_email: '',
+    name: '', company: '', client_final: '', contact_name: '', contact_phone: '', contact_email: '',
     origin: 'inbound' as LeadOrigin, needs: [] as ProjectLine[], notes: '', estimated_value: ''
   })
   const [saving, setSaving] = useState(false)
@@ -142,11 +142,13 @@ function NuevoLeadModal({ onClose, onCreated }: { onClose: () => void; onCreated
   async function crear() {
     if (!form.name.trim()) { setError('El nombre es requerido'); return }
     setSaving(true); setError('')
+    const notesData = form.notes || ''
+    const notesWithClient = form.client_final ? JSON.stringify({ client_final: form.client_final, text: notesData }) : notesData
     const { error: err } = await supabase.from('leads').insert({
       name: form.name.trim(), company: form.company || null,
       contact_name: form.contact_name || null, contact_phone: form.contact_phone || null,
       contact_email: form.contact_email || null, origin: form.origin, status: 'nuevo',
-      needs: form.needs, notes: form.notes || null,
+      needs: form.needs, notes: notesWithClient || null,
       estimated_value: parseFloat(form.estimated_value) || null,
     })
     setSaving(false)
@@ -162,17 +164,25 @@ function NuevoLeadModal({ onClose, onCreated }: { onClose: () => void; onCreated
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer', padding: 4 }}><X size={18} /></button>
         </div>
         <div style={{ display: 'grid', gap: 14 }}>
-          <Field label="Nombre / Proyecto *" value={form.name} onChange={s('name')} placeholder="ej. Torre Reforma 222 — Lobby" />
+          <Field label="Nombre / Proyecto *" value={form.name} onChange={s('name')} placeholder="ej. Casa Salame" />
 
-          {/* Cliente with dropdown + create inline */}
+          {/* Arquitecto / Despacho */}
           <label style={{ fontSize: 11, color: '#555', textTransform: 'uppercase' as const, letterSpacing: '0.06em' }}>
-            Empresa / Cliente
+            Arquitecto / Despacho
+            <input value={form.company} onChange={e => { s('company')(e.target.value) }}
+              placeholder="ej. Niz+Chauvet Arquitectos"
+              style={{ display: 'block', width: '100%', marginTop: 4, padding: '8px 10px', background: '#1e1e1e', border: '1px solid #333', borderRadius: 8, color: '#fff', fontSize: 13, fontFamily: 'inherit', boxSizing: 'border-box' as const }} />
+          </label>
+
+          {/* Cliente Final (quien paga/factura) with dropdown */}
+          <label style={{ fontSize: 11, color: '#555', textTransform: 'uppercase' as const, letterSpacing: '0.06em' }}>
+            Cliente Final (quien paga / factura)
             <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
               <div style={{ position: 'relative' as const, flex: 1 }}>
-                <input value={clientSearch} onChange={e => { setClientSearch(e.target.value); setForm(f => ({ ...f, company: e.target.value })) }}
+                <input value={clientSearch} onChange={e => { setClientSearch(e.target.value); setForm(f => ({ ...f, client_final: e.target.value })) }}
                   onFocus={() => setShowClientDrop(true)}
                   onBlur={() => setTimeout(() => setShowClientDrop(false), 200)}
-                  placeholder="Escribe para buscar cliente..."
+                  placeholder="Buscar cliente fiscal..."
                   style={{ width: '100%', padding: '8px 10px', background: '#1e1e1e', border: '1px solid ' + (showClientDrop ? '#57FF9A' : '#333'), borderRadius: 8, color: '#fff', fontSize: 13, fontFamily: 'inherit', boxSizing: 'border-box' as const }} />
                 {showClientDrop && (
                   <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#1a1a1a', border: '1px solid #333', borderRadius: 8, marginTop: 2, maxHeight: 180, overflowY: 'auto', zIndex: 10 }}>
@@ -441,7 +451,7 @@ function ListView({ leads, onOpen, quoteTotals, displayCur, tc }: { leads: Lead[
     <Table>
       <thead>
         <tr>
-          <Th>Lead / Proyecto</Th><Th>Contacto</Th><Th>Origen</Th>
+          <Th>Lead / Proyecto</Th><Th>Arquitecto</Th><Th>Cliente Final</Th>
           <Th>Especialidades</Th><Th>Estatus</Th><Th right>Estimado</Th><Th right>Cotizado</Th><Th right>Vendido</Th>
         </tr>
       </thead>
@@ -449,19 +459,18 @@ function ListView({ leads, onOpen, quoteTotals, displayCur, tc }: { leads: Lead[
         {leads.map(lead => {
           const sCfg = STATUS_CFG[lead.status]
           const qt = quoteTotals[lead.id]
+          // Extract client_final from notes JSON
+          let clientFinal = ''
+          try { const m = JSON.parse(lead.notes || '{}'); clientFinal = m.client_final || '' } catch {}
           return (
             <tr key={lead.id} onClick={() => onOpen(lead)} style={{ cursor: 'pointer' }}
               onMouseEnter={e => (e.currentTarget.style.background = '#1a1a1a')}
               onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
               <Td>
                 <div style={{ fontWeight: 600, color: '#e8e8e8' }}>{lead.name}</div>
-                {lead.company && <div style={{ fontSize: 10, color: '#555' }}>{lead.company}</div>}
               </Td>
-              <Td>
-                <div style={{ fontSize: 12, color: '#aaa' }}>{lead.contact_name || '—'}</div>
-                {lead.contact_phone && <div style={{ fontSize: 10, color: '#555' }}>{lead.contact_phone}</div>}
-              </Td>
-              <Td muted>{ORIGIN_CFG[lead.origin]?.label}</Td>
+              <Td muted>{lead.company || '—'}</Td>
+              <Td><span style={{ color: clientFinal ? '#ccc' : '#333' }}>{clientFinal || '—'}</span></Td>
               <Td>
                 <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' as const }}>
                   {lead.needs.map(n => { const sp = SPECIALTY_CONFIG[n]; return sp ? <Badge key={n} label={sp.label} color={sp.color} /> : null })}
