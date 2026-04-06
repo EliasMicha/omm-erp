@@ -266,13 +266,79 @@ function CatalogModal({ onClose, onSelect, onCreateNew, systemName }: {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// CREATE NEW PRODUCT MINI FORM
+// CREATE NEW PRODUCT WITH AI SEARCH
 // ═══════════════════════════════════════════════════════════════════
 function CreateProductModal({ onClose, onCreate, systemName }: {
   onClose: () => void; onCreate: (p: CatProduct) => void; systemName: string
 }) {
   const [form, setForm] = useState({ name: '', description: '', system: systemName, cost: 0, markup: 30, provider: '', unit: 'pza' })
   const [saving, setSaving] = useState(false)
+  const [aiQuery, setAiQuery] = useState('')
+  const [aiLoading, setAiLoading] = useState(false)
+  const [aiStatus, setAiStatus] = useState('')
+
+  async function searchWithAI() {
+    const query = aiQuery || form.name
+    if (!query.trim()) return
+    setAiLoading(true)
+    setAiStatus('Buscando información del producto...')
+
+    try {
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 1000,
+          tools: [{ type: 'web_search_20250305', name: 'web_search' }],
+          messages: [{
+            role: 'user',
+            content: `Search for this product and return ONLY a JSON object with no other text:
+"${query}"
+
+Return this exact JSON format:
+{
+  "name": "Full official product name",
+  "description": "Brief technical description in Spanish, max 100 chars",
+  "cost": estimated MSRP/retail price in USD as a number,
+  "provider": "Brand/Manufacturer name",
+  "system": "${systemName}"
+}
+
+Important: cost should be the retail/MSRP price in USD. If you can't find exact price, estimate based on similar products. Return ONLY valid JSON, no markdown.`
+          }],
+        }),
+      })
+
+      const data = await response.json()
+      setAiStatus('Procesando resultados...')
+
+      // Extract text from response content blocks
+      const textBlocks = (data.content || []).filter((b: any) => b.type === 'text').map((b: any) => b.text)
+      const fullText = textBlocks.join('\n')
+
+      // Try to parse JSON from the response
+      const jsonMatch = fullText.match(/\{[\s\S]*\}/)
+      if (jsonMatch) {
+        const clean = jsonMatch[0].replace(/```json|```/g, '').trim()
+        const parsed = JSON.parse(clean)
+        setForm(f => ({
+          ...f,
+          name: parsed.name || f.name,
+          description: parsed.description || f.description,
+          cost: typeof parsed.cost === 'number' ? parsed.cost : f.cost,
+          provider: parsed.provider || f.provider,
+          system: parsed.system || f.system,
+        }))
+        setAiStatus('✓ Producto encontrado')
+      } else {
+        setAiStatus('No se encontró información estructurada')
+      }
+    } catch (err) {
+      setAiStatus('Error en la búsqueda — llena manualmente')
+    }
+    setAiLoading(false)
+  }
 
   async function save() {
     if (!form.name) return
@@ -286,21 +352,44 @@ function CreateProductModal({ onClose, onCreate, systemName }: {
     setSaving(false)
   }
 
-  const inp = (label: string, value: string | number, key: string, type = 'text', w = '100%') => (
+  const inp = (label: string, value: string | number, key: string, type = 'text') => (
     <label style={{ fontSize: 10, color: '#555', textTransform: 'uppercase' as const, letterSpacing: '0.06em', display: 'block' }}>
       {label}
       <input type={type} value={value} onChange={e => setForm(f => ({ ...f, [key]: type === 'number' ? parseFloat(e.target.value) || 0 : e.target.value }))}
-        style={{ display: 'block', width: w, marginTop: 3, padding: '7px 10px', background: '#1e1e1e', border: '1px solid #333', borderRadius: 8, color: '#fff', fontSize: 13, fontFamily: 'inherit' }} />
+        style={{ display: 'block', width: '100%', marginTop: 3, padding: '7px 10px', background: '#1e1e1e', border: '1px solid #333', borderRadius: 8, color: '#fff', fontSize: 13, fontFamily: 'inherit' }} />
     </label>
   )
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1010 }}>
-      <div style={{ background: '#141414', border: '1px solid #333', borderRadius: 16, padding: 24, width: 480 }}>
+      <div style={{ background: '#141414', border: '1px solid #333', borderRadius: 16, padding: 24, width: 520 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
           <div style={{ fontSize: 14, fontWeight: 600, color: '#fff' }}>Nuevo producto — {systemName}</div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer' }}><X size={16} /></button>
         </div>
+
+        {/* AI Search bar */}
+        <div style={{ background: '#0e0e0e', border: '1px solid #222', borderRadius: 10, padding: 12, marginBottom: 14 }}>
+          <div style={{ fontSize: 10, color: '#888', marginBottom: 6, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+            🔍 Búsqueda con AI
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input value={aiQuery} onChange={e => setAiQuery(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && searchWithAI()}
+              placeholder="Escribe modelo o nombre del producto..."
+              style={{ flex: 1, padding: '8px 10px', background: '#1a1a1a', border: '1px solid #333', borderRadius: 8, color: '#fff', fontSize: 13, fontFamily: 'inherit' }} />
+            <Btn variant="primary" onClick={searchWithAI} disabled={aiLoading}>
+              {aiLoading ? '⏳ Buscando...' : '🔍 Buscar'}
+            </Btn>
+          </div>
+          {aiStatus && (
+            <div style={{ marginTop: 6, fontSize: 11, color: aiStatus.startsWith('✓') ? '#57FF9A' : aiStatus.startsWith('Error') ? '#EF4444' : '#888' }}>
+              {aiStatus}
+            </div>
+          )}
+        </div>
+
+        {/* Form fields */}
         <div style={{ display: 'grid', gap: 10 }}>
           {inp('Nombre', form.name, 'name')}
           {inp('Descripción', form.description, 'description')}
@@ -312,7 +401,15 @@ function CreateProductModal({ onClose, onCreate, systemName }: {
             {inp('Proveedor', form.provider, 'provider')}
             {inp('Sistema', form.system, 'system')}
           </div>
+          {/* Preview: calculated sale price */}
+          {form.cost > 0 && (
+            <div style={{ background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 8, padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: 11, color: '#555' }}>Precio de venta estimado</span>
+              <span style={{ fontSize: 14, fontWeight: 700, color: '#57FF9A' }}>${Math.round(form.cost * (1 + form.markup / 100)).toFixed(2)}</span>
+            </div>
+          )}
         </div>
+
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
           <Btn onClick={onClose}>Cancelar</Btn>
           <Btn variant="primary" onClick={save} disabled={!form.name || saving}>{saving ? 'Guardando...' : 'Crear y agregar'}</Btn>
