@@ -14,10 +14,13 @@ function CotDashboard({ onOpen }: { onOpen: (id: string, specialty?: string) => 
   const [loading, setLoading] = useState(true)
   const [showNew, setShowNew] = useState(false)
 
-  useEffect(() => {
+  const loadCots = () => {
+    setLoading(true)
     supabase.from('quotations').select('*,project:projects(name,client_name)').order('updated_at',{ascending:false})
       .then(({ data }) => { setCots(data||[]); setLoading(false) })
-  }, [showNew])
+  }
+
+  useEffect(() => { loadCots() }, [])
 
   const lista = filtro === 'todas' ? cots : cots.filter(c => c.specialty === filtro)
 
