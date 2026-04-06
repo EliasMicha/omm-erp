@@ -321,7 +321,7 @@ function CreateProductModal({ onClose, onCreate, systemName }: {
 }) {
   const [form, setForm] = useState({
     name: '', description: '', system: systemName, cost: 0, markup: 30, provider: '', unit: 'pza',
-    marca: '', modelo: '', sku: '', clave_prod_serv: '', clave_unidad: 'H87', moneda: 'USD',
+    marca: '', modelo: '', sku: '', clave_prod_serv: '', clave_unidad: 'H87', moneda: 'USD', purchase_phase: 'inicio',
   })
   const [saving, setSaving] = useState(false)
   const [aiQuery, setAiQuery] = useState('')
@@ -438,6 +438,7 @@ IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
       moneda: form.moneda || 'USD',
       iva_rate: 0.16,
       is_active: true,
+      purchase_phase: form.purchase_phase || 'inicio',
     }).select().single()
     if (error) {
       console.error('Error creating product:', error)
@@ -491,8 +492,8 @@ IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
             {inp('SKU', form.sku, 'sku')}
           </div>
 
-          {/* Clave SAT, Unidad SAT */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+          {/* Clave SAT, Unidad SAT, Fase */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
             {inp('Clave SAT (ClaveProdServ)', form.clave_prod_serv, 'clave_prod_serv')}
             <label style={{ fontSize: 10, color: '#555', textTransform: 'uppercase' as const, letterSpacing: '0.06em', display: 'block' }}>
               Unidad SAT
@@ -501,6 +502,15 @@ IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
                 <option value="E48">Servicio (E48)</option>
                 <option value="MTR">Metro (MTR)</option>
                 <option value="KGM">Kilogramo (KGM)</option>
+              </select>
+            </label>
+            <label style={{ fontSize: 10, color: '#555', textTransform: 'uppercase' as const, letterSpacing: '0.06em', display: 'block' }}>
+              Fase de compra
+              <select value={form.purchase_phase} onChange={e => setForm(f => ({ ...f, purchase_phase: e.target.value }))} style={selStyle}>
+                <option value="inicio">Inicio</option>
+                <option value="roughin">Rough-in</option>
+                <option value="acabados">Acabados</option>
+                <option value="cierre">Cierre</option>
               </select>
             </label>
           </div>
