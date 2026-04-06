@@ -12,11 +12,12 @@ interface EspProduct {
   id: string; areaId: string; systemId: string; catalogId: string | null
   name: string; description: string; imageUrl: string | null
   quantity: number; price: number; laborCost: number; margin: number; order: number
+  monedaOrigen: string // USD or MXN — the currency of the catalog product
 }
 interface EspArea { id: string; name: string; collapsed: boolean; order: number }
 interface EspSystemDef { id: string; name: string; color: string }
-interface CatProduct { id: string; name: string; description: string; system: string; cost: number; markup: number; provider: string; unit: string }
-interface EspQuoteConfig { currency: string; ivaRate: number; programacion: number; paymentSchedule: Array<{ label: string; percentage: number }>; version: string }
+interface CatProduct { id: string; name: string; description: string; system: string; cost: number; markup: number; provider: string; unit: string; moneda?: string }
+interface EspQuoteConfig { currency: string; ivaRate: number; programacion: number; tipoCambio: number; paymentSchedule: Array<{ label: string; percentage: number }>; version: string }
 
 const ALL_SYSTEMS: EspSystemDef[] = [
   { id: 'audio', name: 'Audio', color: '#8B5CF6' },
@@ -667,7 +668,7 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
   const [activeSysIds, setActiveSysIds] = useState<string[]>([])
   const [products, setProducts] = useState<EspProduct[]>([])
   const [loading, setLoading] = useState(true)
-  const [config, setConfig] = useState<EspQuoteConfig>({ currency: 'USD', ivaRate: 16, programacion: 0, paymentSchedule: [{ label: 'Anticipo', percentage: 80 }, { label: 'Entrega de equipos', percentage: 10 }, { label: 'Finalización de Obra', percentage: 10 }], version: '1.0' })
+  const [config, setConfig] = useState<EspQuoteConfig>({ currency: 'USD', ivaRate: 16, programacion: 0, tipoCambio: 20.5, paymentSchedule: [{ label: 'Anticipo', percentage: 80 }, { label: 'Entrega de equipos', percentage: 10 }, { label: 'Finalización de Obra', percentage: 10 }], version: '1.0' })
   const [showInt, setShowInt] = useState(true)
   const [stage, setStage] = useState('oportunidad')
   const [collapsedSys, setCollapsedSys] = useState<Record<string, boolean>>({})
@@ -686,7 +687,13 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
       ])
       if (cot) {
         setCotName(cot.name || ''); setClientName(cot.client_name || ''); setStage(cot.stage || 'oportunidad')
-        try { const meta = JSON.parse(cot.notes || '{}'); if (meta.systems) setActiveSysIds(meta.systems) } catch (e) { /* ignore */ }
+        try {
+          const meta = JSON.parse(cot.notes || '{}')
+          if (meta.systems) setActiveSysIds(meta.systems)
+          if (meta.currency || meta.tipoCambio) {
+            setConfig(c => ({ ...c, currency: meta.currency || c.currency, tipoCambio: meta.tipoCambio || c.tipoCambio }))
+          }
+        } catch (e) { /* ignore */ }
       }
       if (qAreas && qAreas.length > 0) setAreas(qAreas.map((a: any, i: number) => ({ id: a.id, name: a.name, collapsed: false, order: i })))
       if (qItems && qItems.length > 0) {
@@ -695,6 +702,7 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
           catalogId: it.catalog_product_id || null, name: it.name, description: it.description || '',
           imageUrl: null, quantity: it.quantity, price: it.price || 0,
           laborCost: it.installation_cost || 0, margin: it.markup || 30, order: it.order_index || 0,
+          monedaOrigen: it.provider_currency || 'USD',
         })))
       }
       setLoading(false)
@@ -712,10 +720,20 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
   function toggleSys(k: string) { setCollapsedSys(p => ({ ...p, [k]: !p[k] })) }
   function addArea() { const n = prompt('Nombre del área:'); if (n) setAreas(p => [...p, { id: uid(), name: n, collapsed: false, order: p.length }]) }
 
+  function saveNotes(overrides?: Partial<{ systems: string[]; currency: string; tipoCambio: number }>) {
+    const data = { systems: overrides?.systems ?? activeSysIds, currency: overrides?.currency ?? config.currency, tipoCambio: overrides?.tipoCambio ?? config.tipoCambio }
+    supabase.from('quotations').update({ notes: JSON.stringify(data) }).eq('id', cotId)
+  }
+
   function toggleGlobalSystem(sysId: string) {
     const next = activeSysIds.includes(sysId) ? activeSysIds.filter(s => s !== sysId) : [...activeSysIds, sysId]
     setActiveSysIds(next)
-    supabase.from('quotations').update({ notes: JSON.stringify({ systems: next }) }).eq('id', cotId)
+    saveNotes({ systems: next })
+  }
+
+  function updateConfig(field: string, value: number) {
+    setConfig(prev => ({ ...prev, [field]: value }))
+    if (field === 'tipoCambio') saveNotes({ tipoCambio: value })
   }
 
   // Map EspProduct field to quotation_items column
@@ -761,12 +779,23 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
     supabase.from('quotation_items').delete().eq('id', id).then(() => {})
   }
 
+  // Convert price from product currency to quotation currency
+  function convertToQuoteCurrency(amount: number, productCurrency: string): number {
+    if (productCurrency === config.currency) return amount
+    if (productCurrency === 'USD' && config.currency === 'MXN') return Math.round(amount * config.tipoCambio * 100) / 100
+    if (productCurrency === 'MXN' && config.currency === 'USD') return Math.round(amount / config.tipoCambio * 100) / 100
+    return amount
+  }
+
   async function handleAddFromCatalog(catProd: CatProduct) {
     if (!addingTo) return
     const rule = getPricingRule(catProd.provider || '')
-    const precio = rule.precioPublico
+    const prodMoneda = catProd.moneda || 'USD'
+    let precioOrigen = rule.precioPublico
       ? Math.round(catProd.cost * (1 + catProd.markup / 100))
       : calcPriceFromCost(catProd.cost, rule)
+    // Convert to quote currency
+    const precio = convertToQuoteCurrency(precioOrigen, prodMoneda)
     const margin = rule.precioPublico ? (catProd.markup > 0 ? Math.round(catProd.markup / (100 + catProd.markup) * 100) : 30) : rule.margen
     const laborCost = calcLaborFromPrice(precio, rule)
     const sysName = ALL_SYSTEMS.find(s => s.id === addingTo.systemId)?.name || addingTo.systemId
@@ -782,6 +811,7 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
         id: data.id, areaId: addingTo.areaId, systemId: addingTo.systemId, catalogId: catProd.id || null,
         name: catProd.name, description: catProd.description || '', imageUrl: null,
         quantity: 1, price: precio, laborCost, margin, order: products.length,
+        monedaOrigen: prodMoneda,
       }])
     }
     setAddingTo(null)
@@ -790,9 +820,11 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
   async function handleCreateAndAdd(catProd: CatProduct) {
     if (!addingTo) return
     const rule = getPricingRule(catProd.provider || '')
-    const precio = rule.precioPublico
+    const prodMoneda = catProd.moneda || 'USD'
+    let precioOrigen = rule.precioPublico
       ? (catProd.cost > 0 ? Math.round(catProd.cost * (1 + catProd.markup / 100)) : 0)
       : calcPriceFromCost(catProd.cost, rule)
+    const precio = convertToQuoteCurrency(precioOrigen, prodMoneda)
     const margin = rule.precioPublico ? (catProd.markup > 0 ? Math.round(catProd.markup / (100 + catProd.markup) * 100) : 30) : rule.margen
     const laborCost = calcLaborFromPrice(precio, rule)
     const sysName = ALL_SYSTEMS.find(s => s.id === addingTo.systemId)?.name || addingTo.systemId
@@ -808,6 +840,7 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
         id: data.id, areaId: addingTo.areaId, systemId: addingTo.systemId, catalogId: catProd.id || null,
         name: catProd.name, description: catProd.description || '', imageUrl: null,
         quantity: 1, price: precio, laborCost, margin, order: products.length,
+        monedaOrigen: prodMoneda,
       }])
     }
     setCreatingProduct(false)
@@ -836,18 +869,25 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
           ))}
           <button onClick={() => setShowSystemPicker(true)} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #57FF9A44', background: 'transparent', color: '#57FF9A', marginLeft: 8 }}>⚙ Sistemas ({activeSysIds.length})</button>
           <button onClick={() => setShowInt(!showInt)} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid ' + (showInt ? '#F59E0B' : '#333'), background: showInt ? '#F59E0B22' : 'transparent', color: showInt ? '#F59E0B' : '#555' }}>{showInt ? '👁 Interno' : '👁 Cliente'}</button>
-          <span style={{ fontSize: 15, fontWeight: 700, color: '#57FF9A', marginLeft: 10 }}>${total.toFixed(2)}</span>
+          <span style={{ fontSize: 15, fontWeight: 700, color: '#57FF9A', marginLeft: 10 }}>{config.currency === 'MXN' ? '$' : 'US$'}{total.toFixed(2)}</span>
         </div>
       </div>
 
-      {/* Systems bar */}
+      {/* Systems bar + Currency */}
       <div style={{ padding: '5px 16px', borderBottom: '1px solid #1e1e1e', display: 'flex', gap: 5, alignItems: 'center', background: '#0e0e0e', flexShrink: 0 }}>
         <span style={{ fontSize: 9, color: '#444', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.1em', marginRight: 6 }}>Sistemas:</span>
         {activeSystems.length === 0 && <span style={{ fontSize: 10, color: '#444' }}>Ninguno — usa ⚙ para agregar</span>}
         {activeSystems.map(sys => {
           const st = products.filter(p => p.systemId === sys.id).reduce((s, p) => s + calcLine(p).total, 0)
-          return <span key={sys.id} style={{ padding: '2px 7px', borderRadius: 5, fontSize: 10, fontWeight: 600, background: sys.color + '18', color: sys.color, border: '1px solid ' + sys.color + '33' }}>{sys.name} ${st.toFixed(0)}</span>
+          return <span key={sys.id} style={{ padding: '2px 7px', borderRadius: 5, fontSize: 10, fontWeight: 600, background: sys.color + '18', color: sys.color, border: '1px solid ' + sys.color + '33' }}>{sys.name} {config.currency === 'MXN' ? '$' : 'US$'}{st.toFixed(0)}</span>
         })}
+        <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ fontSize: 10, fontWeight: 600, color: config.currency === 'USD' ? '#06B6D4' : '#F59E0B', background: config.currency === 'USD' ? '#06B6D422' : '#F59E0B22', padding: '2px 8px', borderRadius: 5 }}>{config.currency}</span>
+          <span style={{ fontSize: 9, color: '#555' }}>TC:</span>
+          <input type="number" value={config.tipoCambio} step={0.1}
+            onChange={e => updateConfig('tipoCambio', parseFloat(e.target.value) || 20)}
+            style={{ width: 55, padding: '2px 6px', background: '#1a1a1a', border: '1px solid #333', borderRadius: 4, color: '#ccc', fontSize: 11, fontFamily: 'inherit', textAlign: 'right' }} />
+        </span>
       </div>
 
       {/* Content */}
@@ -862,7 +902,7 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
           <div onClick={addArea} style={{ padding: '12px', border: '1px dashed #333', borderRadius: 10, textAlign: 'center', cursor: 'pointer', color: '#444', fontSize: 12 }}>+ Agregar área</div>
         </div>
         <div style={{ borderLeft: '1px solid #222', overflowY: 'auto', padding: '14px 10px', background: '#0e0e0e' }}>
-          <SummaryPanel products={products} areas={areas} config={config} activeSystems={activeSystems} showInt={showInt} onConfigChange={(f, v) => setConfig(p => ({ ...p, [f]: v }))} />
+          <SummaryPanel products={products} areas={areas} config={config} activeSystems={activeSystems} showInt={showInt} onConfigChange={updateConfig} />
         </div>
       </div>
 
