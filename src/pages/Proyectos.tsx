@@ -9,6 +9,7 @@ import { formatDate } from '../lib/utils'
 
 type EngPhaseId = 'conceptual' | 'revision_interna' | 'revision_cliente' | 'diseno_ejecutivo' | 'revision_final'
 type EngProjectStatus = 'activo' | 'pausado' | 'completado'
+type EngAreaId = 'ESP' | 'ILU' | 'ELEC'
 
 interface ChecklistItem {
   text: string
@@ -42,6 +43,7 @@ interface EngProject {
   id: string
   name: string
   client: string
+  area: EngAreaId
   cotizacionId: string
   specialties: string[]
   status: EngProjectStatus
@@ -64,6 +66,12 @@ const SPECIALTIES_CATALOG: Array<{ id: string; name: string; icon: string; color
   { id: 'bms', name: 'BMS', icon: '🏢', color: '#10B981' },
   { id: 'telefonia', name: 'Telefonía', icon: '📞', color: '#F97316' },
   { id: 'red_celular', name: 'Red Celular', icon: '📶', color: '#EC4899' },
+]
+
+const AREA_CONFIG: Array<{ id: EngAreaId; label: string; color: string; icon: string; leader: string }> = [
+  { id: 'ESP', label: 'Especiales', color: '#57FF9A', icon: '◈', leader: 'Alfredo Rosas' },
+  { id: 'ILU', label: 'Iluminación', color: '#C084FC', icon: '◇', leader: 'Juan Pablo' },
+  { id: 'ELEC', label: 'Eléctrico', color: '#FFB347', icon: '◉', leader: 'Ricardo Flores' },
 ]
 
 const DELIVERABLES_TEMPLATE: Array<{ id: string; name: string; phaseId: EngPhaseId; defaultChecklist: string[] }> = [
@@ -169,22 +177,34 @@ function isPhaseUnlocked(project: EngProject, phaseId: EngPhaseId): boolean {
 
 const INITIAL_PROJECTS: EngProject[] = [
   {
-    id: 'ep1', name: 'Oasis 6', client: 'Grupo Oasis', cotizacionId: 'COT-2026-0041',
+    id: 'ep1', name: 'Oasis 6', client: 'Grupo Oasis', area: 'ESP', cotizacionId: 'COT-2026-0041',
     specialties: ['cctv', 'audio', 'control_acceso', 'redes', 'deteccion_humo'],
     status: 'activo', createdAt: '2026-03-15',
     phases: buildProjectPhases(['cctv', 'audio', 'control_acceso', 'redes', 'deteccion_humo'], { conceptual: 85, revision_interna: 40 }),
   },
   {
-    id: 'ep2', name: 'Reforma 222', client: 'Inmobiliaria Reforma', cotizacionId: 'COT-2026-0038',
+    id: 'ep2', name: 'Reforma 222', client: 'Inmobiliaria Reforma', area: 'ESP', cotizacionId: 'COT-2026-0038',
     specialties: ['cctv', 'audio', 'control_acceso', 'redes', 'control_iluminacion', 'bms', 'telefonia', 'deteccion_humo'],
     status: 'activo', createdAt: '2026-02-20',
     phases: buildProjectPhases(['cctv', 'audio', 'control_acceso', 'redes', 'control_iluminacion', 'bms', 'telefonia', 'deteccion_humo'], { conceptual: 100, revision_interna: 100, revision_cliente: 100, diseno_ejecutivo: 60 }),
   },
   {
-    id: 'ep3', name: 'Chapultepec Uno', client: 'Desarrolladora Chapultepec', cotizacionId: 'COT-2026-0045',
+    id: 'ep3', name: 'Chapultepec Uno', client: 'Desarrolladora Chapultepec', area: 'ESP', cotizacionId: 'COT-2026-0045',
     specialties: ['cctv', 'audio', 'redes', 'cortinas', 'control_iluminacion'],
     status: 'activo', createdAt: '2026-04-01',
     phases: buildProjectPhases(['cctv', 'audio', 'redes', 'cortinas', 'control_iluminacion'], { conceptual: 20 }),
+  },
+  {
+    id: 'ep4', name: 'Oasis 6 - Iluminación', client: 'Grupo Oasis', area: 'ILU', cotizacionId: 'COT-2026-0042',
+    specialties: [],
+    status: 'activo', createdAt: '2026-03-18',
+    phases: buildProjectPhases([], { conceptual: 50 }),
+  },
+  {
+    id: 'ep5', name: 'Reforma 222 - Eléctrico', client: 'Inmobiliaria Reforma', area: 'ELEC', cotizacionId: 'COT-2026-0039',
+    specialties: [],
+    status: 'activo', createdAt: '2026-02-22',
+    phases: buildProjectPhases([], { conceptual: 100, revision_interna: 70 }),
   },
 ]
 
@@ -391,13 +411,18 @@ function ProjectDetail({ project, onBack, onUpdate }: {
     setAssigningDel(null)
   }
 
+  const detailAreaCfg = AREA_CONFIG.find(a => a.id === project.area) || AREA_CONFIG[0]
+
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
         <Btn onClick={onBack}><ArrowLeft size={14} /> Atrás</Btn>
         <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 18, fontWeight: 600, color: '#fff' }}>{project.name}</div>
-          <div style={{ fontSize: 11, color: '#555' }}>{project.client} · {project.cotizacionId} · Creado {formatDate(project.createdAt)}</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 10, fontWeight: 700, padding: '3px 8px', borderRadius: 5, background: detailAreaCfg.color + '22', color: detailAreaCfg.color, border: '1px solid ' + detailAreaCfg.color + '44', letterSpacing: '0.05em' }}>{project.area}</span>
+            <span style={{ fontSize: 18, fontWeight: 600, color: '#fff' }}>{project.name}</span>
+          </div>
+          <div style={{ fontSize: 11, color: '#555', marginTop: 2 }}>{project.client} · {project.cotizacionId} · Creado {formatDate(project.createdAt)}</div>
         </div>
         <span style={{ fontSize: 18, fontWeight: 700, color: totalProgress >= 100 ? '#57FF9A' : '#3B82F6' }}>{totalProgress}%</span>
         <Badge label="Activo" color="#57FF9A" />
@@ -451,6 +476,7 @@ function ProjectCard({ project, onClick }: { project: EngProject; onClick: () =>
   const colors: Record<string, string> = { activo: '#57FF9A', pausado: '#F59E0B', completado: '#6B7280' }
   const labels: Record<string, string> = { activo: 'Activo', pausado: 'Pausado', completado: 'Completado' }
   const c = colors[project.status] || '#57FF9A'
+  const areaCfg = AREA_CONFIG.find(a => a.id === project.area) || AREA_CONFIG[0]
 
   return (
     <div onClick={onClick} style={{ background: '#141414', border: '1px solid #222', borderRadius: 12, padding: '16px 18px', cursor: 'pointer', borderTop: '2px solid ' + c + '33', transition: 'border-color 0.15s' }}
@@ -459,7 +485,10 @@ function ProjectCard({ project, onClick }: { project: EngProject; onClick: () =>
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
         <div>
-          <div style={{ fontSize: 14, fontWeight: 600, color: '#fff', marginBottom: 2 }}>{project.name}</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+            <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 4, background: areaCfg.color + '22', color: areaCfg.color, border: '1px solid ' + areaCfg.color + '44', letterSpacing: '0.05em' }}>{project.area}</span>
+            <span style={{ fontSize: 14, fontWeight: 600, color: '#fff' }}>{project.name}</span>
+          </div>
           <div style={{ fontSize: 11, color: '#555' }}>{project.client} · {project.cotizacionId}</div>
         </div>
         <Badge label={labels[project.status] || 'Activo'} color={c} />
@@ -499,26 +528,32 @@ export default function Proyectos() {
   const [view, setView] = useState('list')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [filtro, setFiltro] = useState('todos')
+  const [areaTab, setAreaTab] = useState('TODAS' as string)
 
   const selected = projects.find(p => p.id === selectedId) || null
 
   const stats = useMemo(() => {
-    const active = projects.filter(p => p.status === 'activo').length
-    const avg = projects.length > 0 ? Math.round(projects.reduce((a, p) => a + calcProjectProgress(p), 0) / projects.length) : 0
-    const specs = projects.reduce((a, p) => a + p.specialties.length, 0)
+    const scoped = areaTab === 'TODAS' ? projects : projects.filter(p => p.area === areaTab)
+    const active = scoped.filter(p => p.status === 'activo').length
+    const avg = scoped.length > 0 ? Math.round(scoped.reduce((a, p) => a + calcProjectProgress(p), 0) / scoped.length) : 0
+    const specs = scoped.reduce((a, p) => a + p.specialties.length, 0)
     let overdue = 0
     const now = new Date()
-    projects.forEach(p => {
+    scoped.forEach(p => {
       p.phases.forEach(ph => {
         ph.deliverables.forEach(d => {
           if (d.dueDate && new Date(d.dueDate) < now && calcDeliverableProgress(d) < 100) overdue++
         })
       })
     })
-    return { active, avg, specs, overdue }
-  }, [projects])
+    return { active, avg, specs, overdue, total: scoped.length }
+  }, [projects, areaTab])
 
-  const lista = filtro === 'todos' ? projects : projects.filter(p => p.status === filtro)
+  const lista = useMemo(() => {
+    let filtered = areaTab === 'TODAS' ? [...projects] : projects.filter(p => p.area === areaTab)
+    if (filtro !== 'todos') filtered = filtered.filter(p => p.status === filtro)
+    return filtered
+  }, [projects, areaTab, filtro])
 
   function handleProjectUpdate(updated: EngProject) {
     setProjects(prev => prev.map(p => p.id === updated.id ? updated : p))
@@ -530,13 +565,39 @@ export default function Proyectos() {
         <>
           <SectionHeader
             title="Proyectos — Ingeniería y Diseño"
-            subtitle={projects.length + ' proyectos · Sistemas Especiales'}
+            subtitle={stats.total + ' proyectos' + (areaTab !== 'TODAS' ? ' · ' + (AREA_CONFIG.find(a => a.id === areaTab)?.label || '') : '')}
             action={
               <div style={{ display: 'flex', gap: 8 }}>
                 <Btn><Settings size={12} /> Templates</Btn>
               </div>
             }
           />
+
+          {/* Area Tabs */}
+          <div style={{ display: 'flex', gap: 4, marginBottom: 16, background: '#111', borderRadius: 10, padding: 4, border: '1px solid #1e1e1e' }}>
+            {(['TODAS', 'ESP', 'ILU', 'ELEC'] as const).map(tabId => {
+              const on = areaTab === tabId
+              const cfg = AREA_CONFIG.find(a => a.id === tabId)
+              const tabColor = cfg ? cfg.color : '#888'
+              const tabLabel = cfg ? cfg.label : 'Todas'
+              const tabIcon = cfg ? cfg.icon : ''
+              return (
+                <button key={tabId} onClick={() => setAreaTab(tabId)} style={{
+                  padding: '8px 16px', borderRadius: 8, fontSize: 12, cursor: 'pointer', fontFamily: 'inherit', border: 'none', transition: 'all 0.15s',
+                  background: on ? tabColor + '18' : 'transparent',
+                  color: on ? tabColor : '#555',
+                  fontWeight: on ? 700 : 400,
+                }}>
+                  {tabIcon ? tabIcon + ' ' : ''}{tabLabel}
+                  {tabId !== 'TODAS' && (
+                    <span style={{ marginLeft: 6, fontSize: 10, padding: '1px 5px', borderRadius: 4, background: on ? tabColor + '22' : '#1a1a1a', color: on ? tabColor : '#444' }}>
+                      {projects.filter(p => p.area === tabId).length}
+                    </span>
+                  )}
+                </button>
+              )
+            })}
+          </div>
 
           {/* KPIs */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
