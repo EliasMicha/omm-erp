@@ -51,6 +51,53 @@ const S = {
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// TABULADOR DE PRECIOS POR PROVEEDOR
+// costoMult: multiplicador sobre costo de lista (1.05 = +5% overhead)
+// margen: % de margen sobre precio de venta
+// instPct: % de instalación y programación sobre precio de venta
+// descMax: descuento máximo permitido
+// precioPublico: true = usar precio público directo, no calcular
+// ═══════════════════════════════════════════════════════════════════
+interface PricingRule {
+  costoMult: number
+  margen: number
+  instPct: number
+  descMax: number
+  precioPublico: boolean
+}
+
+const PRICING_RULES: Record<string, PricingRule> = {
+  'SYSCOM':                    { costoMult: 1.05, margen: 38, instPct: 22, descMax: 10, precioPublico: false },
+  'UBIQUITI':                  { costoMult: 1.05, margen: 30, instPct: 22, descMax: 10, precioPublico: false },
+  'DEALERSHOP':                { costoMult: 1.05, margen: 38, instPct: 22, descMax: 10, precioPublico: false },
+  'LUTRON':                    { costoMult: 1.05, margen: 0,  instPct: 22, descMax: 10, precioPublico: true },
+  'DEXTRA ELECTRONICS':        { costoMult: 1.05, margen: 33, instPct: 22, descMax: 10, precioPublico: false },
+  'REPRESENTACIONES DE AUDIO': { costoMult: 1.05, margen: 33, instPct: 22, descMax: 10, precioPublico: false },
+  'TECSO':                     { costoMult: 1.05, margen: 33, instPct: 22, descMax: 10, precioPublico: false },
+  'SONOS':                     { costoMult: 1.00, margen: 0,  instPct: 22, descMax: 10, precioPublico: true },
+  'SOMFY':                     { costoMult: 1.00, margen: 45, instPct: 14, descMax: 10, precioPublico: false },
+}
+const DEFAULT_RULE: PricingRule = { costoMult: 1.05, margen: 33, instPct: 22, descMax: 10, precioPublico: false }
+
+function getPricingRule(providerName: string): PricingRule {
+  const upper = (providerName || '').toUpperCase()
+  for (const [key, rule] of Object.entries(PRICING_RULES)) {
+    if (upper.includes(key) || key.includes(upper)) return rule
+  }
+  return DEFAULT_RULE
+}
+
+function calcPriceFromCost(cost: number, rule: PricingRule): number {
+  if (rule.precioPublico) return 0 // must be entered manually
+  const costoReal = cost * rule.costoMult
+  return Math.round(costoReal / (1 - rule.margen / 100) * 100) / 100
+}
+
+function calcLaborFromPrice(price: number, rule: PricingRule): number {
+  return Math.round(price * (rule.instPct / 100) * 100) / 100
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // PRODUCT ROW
 // ═══════════════════════════════════════════════════════════════════
 function ProductRow({ p, onUpdate, onRemove, onUpdateAll, showInt, duplicateCount }: {
@@ -418,14 +465,19 @@ Important: cost should be the retail/MSRP price in USD. If you can't find exact 
         <div style={{ display: 'grid', gap: 10 }}>
           {inp('Nombre', form.name, 'name')}
           {inp('Descripción', form.description, 'description')}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            {inp('Costo USD', form.cost, 'cost', 'number')}
-            {inp('Margen %', form.markup, 'markup', 'number')}
-          </div>
+
+          {/* Provider first — drives pricing rules */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             <label style={{ fontSize: 10, color: '#555', textTransform: 'uppercase' as const, letterSpacing: '0.06em', display: 'block' }}>
               Proveedor
-              <select value={form.provider} onChange={e => setForm(f => ({ ...f, provider: e.target.value }))}
+              <select value={form.provider} onChange={e => {
+                const prov = e.target.value
+                const rule = getPricingRule(prov)
+                setForm(f => {
+                  const newMarkup = rule.precioPublico ? f.markup : rule.margen
+                  return { ...f, provider: prov, markup: newMarkup }
+                })
+              }}
                 style={{ display: 'block', width: '100%', marginTop: 3, padding: '7px 10px', background: '#1e1e1e', border: '1px solid #333', borderRadius: 8, color: '#fff', fontSize: 13, fontFamily: 'inherit' }}>
                 <option value="">-- Seleccionar --</option>
                 {suppliers.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
@@ -439,13 +491,41 @@ Important: cost should be the retail/MSRP price in USD. If you can't find exact 
               </select>
             </label>
           </div>
-          {/* Preview: calculated sale price */}
-          {form.cost > 0 && (
-            <div style={{ background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 8, padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: 11, color: '#555' }}>Precio de venta estimado</span>
-              <span style={{ fontSize: 14, fontWeight: 700, color: '#57FF9A' }}>${Math.round(form.cost * (1 + form.markup / 100)).toFixed(2)}</span>
-            </div>
-          )}
+
+          {/* Pricing rule indicator */}
+          {form.provider && (() => {
+            const rule = getPricingRule(form.provider)
+            return (
+              <div style={{ background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 8, padding: '8px 12px', display: 'flex', gap: 16, fontSize: 10, color: '#666' }}>
+                <span>Costo: ×{rule.costoMult}</span>
+                <span>Margen: {rule.precioPublico ? 'Precio público' : rule.margen + '%'}</span>
+                <span>Inst: {rule.instPct}%</span>
+                <span>Desc máx: {rule.descMax}%</span>
+              </div>
+            )
+          })()}
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            {inp('Costo de lista USD', form.cost, 'cost', 'number')}
+            {inp('Margen %', form.markup, 'markup', 'number')}
+          </div>
+
+          {/* Auto-calculated preview */}
+          {form.cost > 0 && form.provider && (() => {
+            const rule = getPricingRule(form.provider)
+            const costoReal = form.cost * rule.costoMult
+            const precioVenta = rule.precioPublico ? form.cost : calcPriceFromCost(form.cost, rule)
+            const labor = calcLaborFromPrice(precioVenta, rule)
+            return (
+              <div style={{ background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 8, padding: '10px 12px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, fontSize: 11 }}>
+                  <div><span style={{ color: '#555' }}>Costo real</span><br /><span style={{ color: '#ccc', fontWeight: 600 }}>${costoReal.toFixed(2)}</span></div>
+                  <div><span style={{ color: '#555' }}>Precio venta</span><br /><span style={{ color: '#57FF9A', fontWeight: 700, fontSize: 14 }}>{rule.precioPublico ? 'Precio público' : '$' + precioVenta.toFixed(2)}</span></div>
+                  <div><span style={{ color: '#555' }}>Inst + Prog ({rule.instPct}%)</span><br /><span style={{ color: '#ccc', fontWeight: 600 }}>${labor.toFixed(2)}</span></div>
+                </div>
+              </div>
+            )
+          })()}
         </div>
 
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
@@ -602,9 +682,12 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
 
   function handleAddFromCatalog(catProd: CatProduct) {
     if (!addingTo) return
-    const precio = Math.round(catProd.cost * (1 + catProd.markup / 100))
-    const margin = catProd.markup > 0 ? Math.round(catProd.markup / (100 + catProd.markup) * 100) : 30
-    const laborCost = Math.round(precio * 0.22 * 100) / 100  // 22% del precio de venta
+    const rule = getPricingRule(catProd.provider || '')
+    const precio = rule.precioPublico
+      ? Math.round(catProd.cost * (1 + catProd.markup / 100))  // for Lutron/Sonos use catalog markup
+      : calcPriceFromCost(catProd.cost, rule)
+    const margin = rule.precioPublico ? (catProd.markup > 0 ? Math.round(catProd.markup / (100 + catProd.markup) * 100) : 30) : rule.margen
+    const laborCost = calcLaborFromPrice(precio, rule)
     setProducts(p => [...p, {
       id: uid(), areaId: addingTo.areaId, systemId: addingTo.systemId, catalogId: catProd.id,
       name: catProd.name, description: catProd.description || '', imageUrl: null,
