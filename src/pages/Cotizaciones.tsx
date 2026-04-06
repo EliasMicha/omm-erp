@@ -174,6 +174,7 @@ function NuevaCoModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
     const { data } = await supabase.from('quotations').insert({
       project_id: form.project_id || null, name: form.name,
       specialty: form.specialty, client_name: form.client_name, stage: 'oportunidad',
+      notes: isEsp ? JSON.stringify({ systems: form.systems }) : null,
     }).select().single()
     if (data) {
       // Create areas

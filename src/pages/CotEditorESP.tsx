@@ -1,67 +1,21 @@
-// ═══════════════════════════════════════════════════════════════════
-// CotEditorESP.tsx — Cotizador de Sistemas Especiales
-// 
-// ESTRUCTURA:
-//   Cotización define SISTEMAS globales (Audio, Redes, CCTV, etc.)
-//   Áreas son zonas físicas (Recámara Principal, Sala/Comedor, etc.)
-//   Productos pertenecen a un Área + Sistema
-//   Si un sistema no tiene productos en un área, no se muestra
-//
-// COLUMNAS CLIENTE: Imagen | Cant. | Descripción | Precio | Precio Ampliado | Mano de Obra Ampliado | Total
-// COLUMNAS INTERNAS: + Costo real, Margen %, Utilidad
-// Margen = % utilidad sobre precio de VENTA (no markup)
-// Fórmula: Costo = Precio × (1 - Margen%)
-// ═══════════════════════════════════════════════════════════════════
-
 import { useState, useMemo, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { F, STAGE_CONFIG } from '../lib/utils'
 import { Badge, Btn, Loading } from '../components/layout/UI'
-import { Plus, ChevronLeft, ChevronRight, ChevronDown, X, Trash2, Image as ImageIcon } from 'lucide-react'
+import { Plus, ChevronLeft, ChevronRight, ChevronDown, X, Trash2, Image as ImageIcon, Search, RefreshCw } from 'lucide-react'
 
 // ═══════════════════════════════════════════════════════════════════
 // TYPES
 // ═══════════════════════════════════════════════════════════════════
-
 interface EspProduct {
-  id: string
-  areaId: string
-  systemId: string
-  name: string
-  description: string
-  imageUrl: string | null
-  quantity: number
-  price: number
-  laborCost: number
-  costReal: number
-  margin: number
-  order: number
+  id: string; areaId: string; systemId: string; catalogId: string | null
+  name: string; description: string; imageUrl: string | null
+  quantity: number; price: number; laborCost: number; margin: number; order: number
 }
-
-interface EspArea {
-  id: string
-  name: string
-  collapsed: boolean
-  order: number
-}
-
-interface EspSystemDef {
-  id: string
-  name: string
-  color: string
-}
-
-interface EspQuoteConfig {
-  currency: 'USD' | 'MXN'
-  ivaRate: number
-  paymentSchedule: Array<{ label: string; percentage: number }>
-  version: string
-  programacion: number
-}
-
-// ═══════════════════════════════════════════════════════════════════
-// CATALOGS
-// ═══════════════════════════════════════════════════════════════════
+interface EspArea { id: string; name: string; collapsed: boolean; order: number }
+interface EspSystemDef { id: string; name: string; color: string }
+interface CatProduct { id: string; name: string; description: string; system: string; cost: number; markup: number; provider: string; unit: string }
+interface EspQuoteConfig { currency: string; ivaRate: number; programacion: number; paymentSchedule: Array<{ label: string; percentage: number }>; version: string }
 
 const ALL_SYSTEMS: EspSystemDef[] = [
   { id: 'audio', name: 'Audio', color: '#8B5CF6' },
@@ -76,10 +30,6 @@ const ALL_SYSTEMS: EspSystemDef[] = [
   { id: 'cortinas_ctrl', name: 'Cortinas y Persianas', color: '#67E8F9' },
 ]
 
-// ═══════════════════════════════════════════════════════════════════
-// HELPERS
-// ═══════════════════════════════════════════════════════════════════
-
 function uid(): string { return Math.random().toString(36).slice(2, 10) }
 
 function calcLine(p: EspProduct) {
@@ -90,56 +40,6 @@ function calcLine(p: EspProduct) {
   const utilidad = p.price - costReal
   return { precioAmp, moAmp, total, costReal, utilidad }
 }
-
-function calcSummary(products: EspProduct[], config: EspQuoteConfig) {
-  let equipoTotal = 0
-  let instalacion = 0
-  products.forEach(p => {
-    equipoTotal += p.price * p.quantity
-    instalacion += p.laborCost * p.quantity
-  })
-  const manoObraTotal = instalacion + config.programacion
-  const subtotal = equipoTotal + manoObraTotal
-  const iva = subtotal * (config.ivaRate / 100)
-  const total = subtotal + iva
-  return { equipoTotal, instalacion, programacion: config.programacion, manoObraTotal, subtotal, iva, total }
-}
-
-// ═══════════════════════════════════════════════════════════════════
-// MOCK DATA
-// ═══════════════════════════════════════════════════════════════════
-
-function buildMock(): { areas: EspArea[]; systems: string[]; products: EspProduct[] } {
-  const a1 = uid(), a2 = uid(), a3 = uid()
-  const areas: EspArea[] = [
-    { id: a1, name: 'Recámara Principal', collapsed: false, order: 0 },
-    { id: a2, name: 'Sala/Comedor', collapsed: true, order: 1 },
-    { id: a3, name: 'Site', collapsed: true, order: 2 },
-  ]
-  const systems = ['audio', 'redes']
-  const products: EspProduct[] = [
-    // Recámara - Audio
-    { id: uid(), areaId: a1, systemId: 'audio', name: 'Extendable Soundbar TV Mount Designed for Sonos Arc Sound...', description: '', imageUrl: null, quantity: 1, price: 150, laborCost: 40, costReal: 105, margin: 30, order: 0 },
-    { id: uid(), areaId: a1, systemId: 'audio', name: 'Sonos® Sub 4 Subwoofer - Black', description: '', imageUrl: null, quantity: 1, price: 799, laborCost: 140, costReal: 559.30, margin: 30, order: 1 },
-    { id: uid(), areaId: a1, systemId: 'audio', name: 'Sonos® Arc Ultra Soundbar - Black', description: '', imageUrl: null, quantity: 1, price: 959, laborCost: 160, costReal: 671.30, margin: 30, order: 2 },
-    // Recámara - Redes
-    { id: uid(), areaId: a1, systemId: 'redes', name: 'Salida de 1 Nodos de Red', description: '', imageUrl: null, quantity: 1, price: 56.10, laborCost: 5.81, costReal: 39.27, margin: 30, order: 0 },
-    { id: uid(), areaId: a1, systemId: 'redes', name: 'Ubiquiti U7-PRO WiF7 AP', description: '', imageUrl: null, quantity: 1, price: 318.25, laborCost: 60, costReal: 222.78, margin: 30, order: 1 },
-    // Sala - Audio
-    { id: uid(), areaId: a2, systemId: 'audio', name: 'Sonos AMP 125W per channel', description: '', imageUrl: null, quantity: 2, price: 770, laborCost: 170, costReal: 539, margin: 30, order: 0 },
-    { id: uid(), areaId: a2, systemId: 'audio', name: 'Triad In-Ceiling Speaker 6.5"', description: '', imageUrl: null, quantity: 4, price: 200, laborCost: 80, costReal: 140, margin: 30, order: 1 },
-    // Sala - Redes
-    { id: uid(), areaId: a2, systemId: 'redes', name: 'Ubiquiti U7-PRO WiF7 AP', description: '', imageUrl: null, quantity: 1, price: 318.25, laborCost: 60, costReal: 222.78, margin: 30, order: 0 },
-    // Site - Redes
-    { id: uid(), areaId: a3, systemId: 'redes', name: '10G Cloud Gateway with integrated WiFi 7', description: '', imageUrl: null, quantity: 1, price: 402.50, laborCost: 100.56, costReal: 281.75, margin: 30, order: 0 },
-    { id: uid(), areaId: a3, systemId: 'redes', name: 'RACK MEDIANO', description: '', imageUrl: null, quantity: 1, price: 1960.10, laborCost: 220.74, costReal: 1372.07, margin: 30, order: 1 },
-  ]
-  return { areas, systems, products }
-}
-
-// ═══════════════════════════════════════════════════════════════════
-// STYLES
-// ═══════════════════════════════════════════════════════════════════
 
 const S = {
   input: { background: '#1e1e1e', border: '1px solid #333', borderRadius: 6, color: '#ccc', fontSize: 12, fontFamily: 'inherit', padding: '5px 8px', textAlign: 'right' as const, width: 70 },
@@ -152,108 +52,87 @@ const S = {
 // ═══════════════════════════════════════════════════════════════════
 // PRODUCT ROW
 // ═══════════════════════════════════════════════════════════════════
-
-function ProductRow({ p, onUpdate, onRemove, showInt }: {
-  p: EspProduct; onUpdate: (id: string, f: string, v: number) => void; onRemove: (id: string) => void; showInt: boolean
+function ProductRow({ p, onUpdate, onRemove, onUpdateAll, showInt, duplicateCount }: {
+  p: EspProduct; onUpdate: (id: string, f: string, v: number | string) => void; onRemove: (id: string) => void
+  onUpdateAll: (catalogId: string, field: string, value: number) => void; showInt: boolean; duplicateCount: number
 }) {
   const { precioAmp, moAmp, total, costReal, utilidad } = calcLine(p)
+  const handleBlur = (field: string, value: number) => {
+    onUpdate(p.id, field, value)
+    if (duplicateCount > 1 && p.catalogId && (field === 'price' || field === 'laborCost' || field === 'margin')) {
+      if (confirm('Este producto aparece ' + duplicateCount + ' veces. ¿Actualizar ' + field + ' en todos?')) {
+        onUpdateAll(p.catalogId, field, value)
+      }
+    }
+  }
   return (
     <tr>
-      <td style={{ ...S.td, width: 50, textAlign: 'center' }}>
-        {p.imageUrl ? (
-          <img src={p.imageUrl} alt="" style={{ width: 40, height: 40, objectFit: 'contain', borderRadius: 4 }} />
-        ) : (
-          <div style={{ width: 40, height: 40, background: '#1a1a1a', borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto' }}>
-            <ImageIcon size={14} color="#333" />
-          </div>
-        )}
+      <td style={{ ...S.td, width: 44, textAlign: 'center' }}>
+        {p.imageUrl ? <img src={p.imageUrl} alt="" style={{ width: 36, height: 36, objectFit: 'contain', borderRadius: 4 }} />
+          : <div style={{ width: 36, height: 36, background: '#1a1a1a', borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto' }}><ImageIcon size={12} color="#333" /></div>}
       </td>
-      <td style={{ ...S.td, width: 50 }}>
-        <input type="number" value={p.quantity} min={1}
-          onChange={e => onUpdate(p.id, 'quantity', parseInt(e.target.value) || 1)}
-          style={{ ...S.input, width: 45 }} />
+      <td style={{ ...S.td, width: 45 }}>
+        <input type="number" defaultValue={p.quantity} min={1} onBlur={e => onUpdate(p.id, 'quantity', parseInt(e.target.value) || 1)} style={{ ...S.input, width: 40 }} />
       </td>
-      <td style={{ ...S.td, minWidth: 200 }}>
+      <td style={{ ...S.td, minWidth: 180 }}>
         <div style={{ fontSize: 12, fontWeight: 500, color: '#ddd' }}>{p.name}</div>
-        {p.description && <div style={{ fontSize: 10, color: '#555', marginTop: 2 }}>{p.description}</div>}
+        {p.description && <div style={{ fontSize: 10, color: '#555', marginTop: 1 }}>{p.description}</div>}
+        {duplicateCount > 1 && <span style={{ fontSize: 9, color: '#F59E0B', background: '#F59E0B18', padding: '1px 5px', borderRadius: 4 }}>×{duplicateCount}</span>}
       </td>
-      <td style={S.tdR}>
-        <input type="number" value={p.price} step={0.01}
-          onChange={e => onUpdate(p.id, 'price', parseFloat(e.target.value) || 0)}
-          style={S.input} />
-      </td>
+      <td style={S.tdR}><input type="number" defaultValue={p.price} step={0.01} onBlur={e => handleBlur('price', parseFloat(e.target.value) || 0)} style={S.input} /></td>
       <td style={S.tdM}>${precioAmp.toFixed(2)}</td>
-      <td style={S.tdR}>
-        <input type="number" value={p.laborCost} step={0.01}
-          onChange={e => onUpdate(p.id, 'laborCost', parseFloat(e.target.value) || 0)}
-          style={S.input} />
-      </td>
+      <td style={S.tdR}><input type="number" defaultValue={p.laborCost} step={0.01} onBlur={e => handleBlur('laborCost', parseFloat(e.target.value) || 0)} style={S.input} /></td>
       <td style={{ ...S.tdM, color: '#57FF9A' }}>${total.toFixed(2)}</td>
-      {showInt && (
-        <>
-          <td style={{ ...S.tdR, color: '#555', fontSize: 10 }}>${costReal.toFixed(2)}</td>
-          <td style={S.tdR}>
-            <input type="number" value={p.margin} step={1} min={0} max={99}
-              onChange={e => onUpdate(p.id, 'margin', parseFloat(e.target.value) || 0)}
-              style={{ ...S.input, width: 45, color: p.margin >= 25 ? '#57FF9A' : p.margin >= 15 ? '#F59E0B' : '#EF4444' }} />
-          </td>
-          <td style={{ ...S.tdR, fontSize: 10, color: utilidad >= 0 ? '#57FF9A' : '#EF4444' }}>${utilidad.toFixed(2)}</td>
-        </>
-      )}
-      <td style={{ ...S.td, width: 30 }}>
-        <button onClick={() => onRemove(p.id)} style={{ background: 'none', border: 'none', color: '#444', cursor: 'pointer' }}><Trash2 size={12} /></button>
-      </td>
+      {showInt && (<>
+        <td style={{ ...S.tdR, color: '#555', fontSize: 10 }}>${costReal.toFixed(2)}</td>
+        <td style={S.tdR}><input type="number" defaultValue={p.margin} step={1} onBlur={e => handleBlur('margin', parseFloat(e.target.value) || 0)} style={{ ...S.input, width: 40, color: p.margin >= 25 ? '#57FF9A' : p.margin >= 15 ? '#F59E0B' : '#EF4444' }} /></td>
+        <td style={{ ...S.tdR, fontSize: 10, color: utilidad >= 0 ? '#57FF9A' : '#EF4444' }}>${utilidad.toFixed(2)}</td>
+      </>)}
+      <td style={{ ...S.td, width: 28 }}><button onClick={() => onRemove(p.id)} style={{ background: 'none', border: 'none', color: '#444', cursor: 'pointer' }}><Trash2 size={12} /></button></td>
     </tr>
   )
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// SYSTEM BLOCK (within an area)
+// SYSTEM BLOCK
 // ═══════════════════════════════════════════════════════════════════
-
-function SystemBlock({ sysDef, products, collapsed, onToggle, onUpdate, onRemove, onAdd, showInt }: {
-  sysDef: EspSystemDef; products: EspProduct[]; collapsed: boolean
-  onToggle: () => void; onUpdate: (id: string, f: string, v: number) => void
-  onRemove: (id: string) => void; onAdd: () => void; showInt: boolean
+function SystemBlock({ sysDef, products, collapsed, onToggle, onUpdate, onRemove, onUpdateAll, onAdd, showInt, allProducts }: {
+  sysDef: EspSystemDef; products: EspProduct[]; collapsed: boolean; onToggle: () => void
+  onUpdate: (id: string, f: string, v: number | string) => void; onRemove: (id: string) => void
+  onUpdateAll: (catalogId: string, field: string, value: number) => void; onAdd: () => void; showInt: boolean; allProducts: EspProduct[]
 }) {
   const sysTotal = products.reduce((s, p) => s + calcLine(p).total, 0)
   return (
-    <div style={{ marginBottom: 12 }}>
-      <div onClick={onToggle} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', cursor: 'pointer', background: '#111', borderRadius: 6, marginBottom: 2 }}>
+    <div style={{ marginBottom: 10 }}>
+      <div onClick={onToggle} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 10px', cursor: 'pointer', background: '#111', borderRadius: 6, marginBottom: 2 }}>
         {collapsed ? <ChevronRight size={12} color="#555" /> : <ChevronDown size={12} color="#555" />}
-        <span style={{ width: 8, height: 8, borderRadius: '50%', background: sysDef.color, flexShrink: 0 }} />
+        <span style={{ width: 7, height: 7, borderRadius: '50%', background: sysDef.color, flexShrink: 0 }} />
         <span style={{ fontSize: 12, fontWeight: 700, color: sysDef.color, textTransform: 'uppercase' as const, letterSpacing: '0.04em' }}>{sysDef.name}</span>
-        <span style={{ marginLeft: 'auto', fontSize: 11, color: '#888' }}>{products.length} items</span>
+        <span style={{ marginLeft: 'auto', fontSize: 10, color: '#666' }}>{products.length}</span>
         <span style={{ fontSize: 12, fontWeight: 700, color: '#fff' }}>${sysTotal.toFixed(2)}</span>
       </div>
-      {!collapsed && (
-        <>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead><tr style={{ background: '#0e0e0e' }}>
-              <th style={{ ...S.th, textAlign: 'center' }}>IMAGEN</th>
-              <th style={{ ...S.th, textAlign: 'center' }}>CANT.</th>
-              <th style={S.th}>DESCRIPCIÓN</th>
-              <th style={{ ...S.th, textAlign: 'right' }}>PRECIO</th>
-              <th style={{ ...S.th, textAlign: 'right' }}>PRECIO AMP.</th>
-              <th style={{ ...S.th, textAlign: 'right' }}>MANO DE OBRA</th>
-              <th style={{ ...S.th, textAlign: 'right' }}>TOTAL</th>
-              {showInt && (<>
-                <th style={{ ...S.th, textAlign: 'right', color: '#555' }}>COSTO</th>
-                <th style={{ ...S.th, textAlign: 'right', color: '#555' }}>MG%</th>
-                <th style={{ ...S.th, textAlign: 'right', color: '#555' }}>UTIL.</th>
-              </>)}
-              <th style={S.th}></th>
-            </tr></thead>
-            <tbody>
-              {products.map(p => <ProductRow key={p.id} p={p} onUpdate={onUpdate} onRemove={onRemove} showInt={showInt} />)}
-            </tbody>
-          </table>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 8px' }}>
-            <Btn size="sm" onClick={onAdd}><Plus size={12} /> Producto</Btn>
-            <span style={{ fontSize: 11, color: '#555' }}>{sysDef.name.toUpperCase()} TOTAL <span style={{ fontWeight: 700, color: '#fff', marginLeft: 8 }}>${sysTotal.toFixed(2)}</span></span>
-          </div>
-        </>
-      )}
+      {!collapsed && (<>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead><tr style={{ background: '#0e0e0e' }}>
+            <th style={{ ...S.th, textAlign: 'center' }}>IMG</th><th style={{ ...S.th, textAlign: 'center' }}>CANT.</th>
+            <th style={S.th}>DESCRIPCIÓN</th><th style={{ ...S.th, textAlign: 'right' }}>PRECIO</th>
+            <th style={{ ...S.th, textAlign: 'right' }}>P. AMP.</th><th style={{ ...S.th, textAlign: 'right' }}>M.O.</th>
+            <th style={{ ...S.th, textAlign: 'right' }}>TOTAL</th>
+            {showInt && (<><th style={{ ...S.th, textAlign: 'right', color: '#555' }}>COSTO</th><th style={{ ...S.th, textAlign: 'right', color: '#555' }}>MG%</th><th style={{ ...S.th, textAlign: 'right', color: '#555' }}>UTIL.</th></>)}
+            <th style={S.th}></th>
+          </tr></thead>
+          <tbody>
+            {products.map(p => {
+              const dupCount = p.catalogId ? allProducts.filter(ap => ap.catalogId === p.catalogId).length : 0
+              return <ProductRow key={p.id} p={p} onUpdate={onUpdate} onRemove={onRemove} onUpdateAll={onUpdateAll} showInt={showInt} duplicateCount={dupCount} />
+            })}
+          </tbody>
+        </table>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 8px' }}>
+          <Btn size="sm" onClick={onAdd}><Plus size={12} /> Producto</Btn>
+          <span style={{ fontSize: 10, color: '#555' }}>{sysDef.name.toUpperCase()} TOTAL <span style={{ fontWeight: 700, color: '#fff', marginLeft: 6 }}>${sysTotal.toFixed(2)}</span></span>
+        </div>
+      </>)}
     </div>
   )
 }
@@ -261,63 +140,44 @@ function SystemBlock({ sysDef, products, collapsed, onToggle, onUpdate, onRemove
 // ═══════════════════════════════════════════════════════════════════
 // AREA BLOCK
 // ═══════════════════════════════════════════════════════════════════
-
-function AreaBlock({ area, activeSystems, products, collapsedSys, onToggleArea, onToggleSys, onUpdateProd, onRemoveProd, onAddProd, showInt }: {
-  area: EspArea; activeSystems: EspSystemDef[]; products: EspProduct[]
-  collapsedSys: Record<string, boolean>
-  onToggleArea: () => void; onToggleSys: (sysId: string) => void
-  onUpdateProd: (id: string, f: string, v: number) => void
-  onRemoveProd: (id: string) => void; onAddProd: (sysId: string) => void; showInt: boolean
+function AreaBlock({ area, activeSystems, products, allProducts, collapsedSys, onToggleArea, onToggleSys, onUpdateProd, onRemoveProd, onUpdateAll, onAddProd, showInt }: {
+  area: EspArea; activeSystems: EspSystemDef[]; products: EspProduct[]; allProducts: EspProduct[]
+  collapsedSys: Record<string, boolean>; onToggleArea: () => void; onToggleSys: (k: string) => void
+  onUpdateProd: (id: string, f: string, v: number | string) => void; onRemoveProd: (id: string) => void
+  onUpdateAll: (catalogId: string, field: string, value: number) => void
+  onAddProd: (sysId: string) => void; showInt: boolean
 }) {
   const areaProds = products.filter(p => p.areaId === area.id)
   const areaTotal = areaProds.reduce((s, p) => s + calcLine(p).total, 0)
-
-  // Only show systems that have products in this area, OR all active systems for adding
-  const systemsWithProducts = activeSystems.filter(sys => areaProds.some(p => p.systemId === sys.id))
-  const systemsEmpty = activeSystems.filter(sys => !areaProds.some(p => p.systemId === sys.id))
+  const sysWithProds = activeSystems.filter(sys => areaProds.some(p => p.systemId === sys.id))
+  const sysEmpty = activeSystems.filter(sys => !areaProds.some(p => p.systemId === sys.id))
 
   return (
-    <div style={{ marginBottom: 16 }}>
-      <div onClick={onToggleArea} style={{
-        display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', cursor: 'pointer',
-        background: '#1a1a1a', borderRadius: 10, borderLeft: '3px solid #57FF9A',
-      }}>
+    <div style={{ marginBottom: 14 }}>
+      <div onClick={onToggleArea} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 14px', cursor: 'pointer', background: '#1a1a1a', borderRadius: 10, borderLeft: '3px solid #57FF9A' }}>
         {area.collapsed ? <ChevronRight size={16} color="#57FF9A" /> : <ChevronDown size={16} color="#57FF9A" />}
         <span style={{ fontSize: 14, fontWeight: 700, color: '#fff', flex: 1, textTransform: 'uppercase' as const }}>{area.name}</span>
-        <span style={{ fontSize: 11, color: '#555' }}>{systemsWithProducts.length} sistemas</span>
+        <span style={{ fontSize: 10, color: '#555' }}>{sysWithProds.length} sistemas</span>
         <span style={{ fontSize: 14, fontWeight: 700, color: '#57FF9A' }}>${areaTotal.toFixed(2)}</span>
       </div>
-
       {!area.collapsed && (
-        <div style={{ paddingLeft: 14, paddingTop: 8 }}>
-          {/* Systems with products */}
-          {systemsWithProducts.map(sys => (
-            <SystemBlock key={sys.id} sysDef={sys}
-              products={areaProds.filter(p => p.systemId === sys.id)}
-              collapsed={collapsedSys[area.id + '_' + sys.id] || false}
-              onToggle={() => onToggleSys(area.id + '_' + sys.id)}
-              onUpdate={onUpdateProd} onRemove={onRemoveProd}
-              onAdd={() => onAddProd(sys.id)} showInt={showInt} />
+        <div style={{ paddingLeft: 14, paddingTop: 6 }}>
+          {sysWithProds.map(sys => (
+            <SystemBlock key={sys.id} sysDef={sys} products={areaProds.filter(p => p.systemId === sys.id)}
+              collapsed={collapsedSys[area.id + '_' + sys.id] || false} onToggle={() => onToggleSys(area.id + '_' + sys.id)}
+              onUpdate={onUpdateProd} onRemove={onRemoveProd} onUpdateAll={onUpdateAll}
+              onAdd={() => onAddProd(sys.id)} showInt={showInt} allProducts={allProducts} />
           ))}
-
-          {/* Empty systems — show as add buttons */}
-          {systemsEmpty.length > 0 && (
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', padding: '4px 0', marginTop: 4 }}>
-              {systemsEmpty.map(sys => (
-                <button key={sys.id} onClick={() => onAddProd(sys.id)} style={{
-                  padding: '4px 10px', borderRadius: 6, fontSize: 10, cursor: 'pointer', fontFamily: 'inherit',
-                  border: '1px dashed ' + sys.color + '44', background: 'transparent', color: sys.color + '88',
-                }}>
-                  + {sys.name}
-                </button>
+          {sysEmpty.length > 0 && (
+            <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', padding: '4px 0' }}>
+              {sysEmpty.map(sys => (
+                <button key={sys.id} onClick={() => onAddProd(sys.id)} style={{ padding: '4px 10px', borderRadius: 6, fontSize: 10, cursor: 'pointer', fontFamily: 'inherit', border: '1px dashed ' + sys.color + '44', background: 'transparent', color: sys.color + '88' }}>+ {sys.name}</button>
               ))}
             </div>
           )}
-
-          {/* Area total */}
-          <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '8px 12px', borderTop: '1px solid #1e1e1e', marginTop: 8 }}>
-            <span style={{ fontSize: 12, fontWeight: 700, color: '#555', marginRight: 16 }}>{area.name.toUpperCase()} TOTAL</span>
-            <span style={{ fontSize: 14, fontWeight: 700, color: '#fff' }}>${areaTotal.toFixed(2)}</span>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '6px 12px', borderTop: '1px solid #1e1e1e', marginTop: 6 }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: '#555', marginRight: 12 }}>{area.name.toUpperCase()} TOTAL</span>
+            <span style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>${areaTotal.toFixed(2)}</span>
           </div>
         </div>
       )}
@@ -326,106 +186,211 @@ function AreaBlock({ area, activeSystems, products, collapsedSys, onToggleArea, 
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// SUMMARY PANEL
+// CATALOG SEARCH + CREATE PRODUCT MODAL
 // ═══════════════════════════════════════════════════════════════════
-
-function SummaryPanel({ products, areas, config, activeSystems, showInt, onConfigChange }: {
-  products: EspProduct[]; areas: EspArea[]; config: EspQuoteConfig
-  activeSystems: EspSystemDef[]; showInt: boolean
-  onConfigChange: (field: string, value: number) => void
+function CatalogModal({ onClose, onSelect, onCreateNew, systemName }: {
+  onClose: () => void; onSelect: (p: CatProduct) => void; onCreateNew: () => void; systemName: string
 }) {
-  const sm = calcSummary(products, config)
-  const rows = [
-    { label: 'EQUIPO TOTAL', value: sm.equipoTotal, bold: true },
-    { label: 'INSTALACIÓN', value: sm.instalacion, bold: false },
-    { label: 'PROGRAMACIÓN', value: sm.programacion, bold: false, editable: true },
-    { label: 'MANO DE OBRA TOTAL', value: sm.manoObraTotal, bold: true },
-    { label: 'SUBTOTAL', value: sm.subtotal, bold: true },
-    { label: 'TOTAL IVA', value: sm.iva, bold: false },
-    { label: 'TOTAL DEL PROYECTO', value: sm.total, bold: true, highlight: true },
-  ]
+  const [catalog, setCatalog] = useState<CatProduct[]>([])
+  const [search, setSearch] = useState('')
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    supabase.from('catalog_products').select('*').eq('is_active', true).order('name')
+      .then(({ data }) => { setCatalog(data || []); setLoading(false) })
+  }, [])
+
+  const filtered = search.length >= 2
+    ? catalog.filter(p => p.name.toLowerCase().includes(search.toLowerCase()) || (p.description || '').toLowerCase().includes(search.toLowerCase()))
+    : catalog
 
   return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+      <div style={{ background: '#141414', border: '1px solid #333', borderRadius: 16, padding: 20, width: 700, maxHeight: '80vh', display: 'flex', flexDirection: 'column' as const }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 600, color: '#fff' }}>Agregar producto — {systemName}</div>
+            <div style={{ fontSize: 11, color: '#555' }}>Busca en el catálogo o crea uno nuevo</div>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer' }}><X size={18} /></button>
+        </div>
+
+        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+          <div style={{ flex: 1, position: 'relative' }}>
+            <Search size={14} style={{ position: 'absolute', left: 10, top: 10, color: '#444' }} />
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar producto..."
+              style={{ width: '100%', padding: '8px 10px 8px 30px', background: '#1e1e1e', border: '1px solid #333', borderRadius: 8, color: '#fff', fontSize: 13, fontFamily: 'inherit' }} autoFocus />
+          </div>
+          <Btn variant="primary" onClick={onCreateNew}><Plus size={14} /> Crear nuevo</Btn>
+        </div>
+
+        <div style={{ flex: 1, overflowY: 'auto' }}>
+          {loading ? <Loading /> : filtered.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '30px 20px', color: '#444', fontSize: 13 }}>
+              {search ? 'Sin resultados — ' : 'Catálogo vacío — '}
+              <button onClick={onCreateNew} style={{ background: 'none', border: 'none', color: '#57FF9A', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, textDecoration: 'underline' }}>Crear producto nuevo</button>
+            </div>
+          ) : (
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead><tr style={{ background: '#1a1a1a' }}>
+                <th style={{ ...S.th, textAlign: 'left' }}>Producto</th>
+                <th style={{ ...S.th }}>Sistema</th>
+                <th style={{ ...S.th }}>Proveedor</th>
+                <th style={{ ...S.th, textAlign: 'right' }}>Costo</th>
+                <th style={{ ...S.th, textAlign: 'right' }}>Precio</th>
+                <th style={S.th}></th>
+              </tr></thead>
+              <tbody>
+                {filtered.slice(0, 50).map(p => {
+                  const precio = Math.round(p.cost * (1 + p.markup / 100))
+                  return (
+                    <tr key={p.id} style={{ cursor: 'pointer' }} onClick={() => onSelect(p)}
+                      onMouseEnter={e => { e.currentTarget.style.background = '#1a1a1a' }}
+                      onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}>
+                      <td style={{ ...S.td }}><div style={{ fontWeight: 500, color: '#ddd' }}>{p.name}</div>{p.description && <div style={{ fontSize: 10, color: '#555' }}>{p.description}</div>}</td>
+                      <td style={{ ...S.td, fontSize: 10, color: '#666' }}>{p.system || '--'}</td>
+                      <td style={{ ...S.td, fontSize: 10, color: '#666' }}>{p.provider || '--'}</td>
+                      <td style={{ ...S.tdR, fontSize: 10, color: '#555' }}>${p.cost.toFixed(2)}</td>
+                      <td style={{ ...S.tdR, fontWeight: 600, color: '#57FF9A' }}>${precio}</td>
+                      <td style={S.td}><Btn size="sm" variant="primary">+ Agregar</Btn></td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// CREATE NEW PRODUCT MINI FORM
+// ═══════════════════════════════════════════════════════════════════
+function CreateProductModal({ onClose, onCreate, systemName }: {
+  onClose: () => void; onCreate: (p: CatProduct) => void; systemName: string
+}) {
+  const [form, setForm] = useState({ name: '', description: '', system: systemName, cost: 0, markup: 30, provider: '', unit: 'pza' })
+  const [saving, setSaving] = useState(false)
+
+  async function save() {
+    if (!form.name) return
+    setSaving(true)
+    const { data } = await supabase.from('catalog_products').insert({
+      name: form.name, description: form.description, system: form.system,
+      cost: form.cost, markup: form.markup, provider: form.provider, unit: form.unit,
+      type: 'material', specialty: 'esp', is_active: true, purchase_phase: 'inicio',
+    }).select().single()
+    if (data) onCreate(data)
+    setSaving(false)
+  }
+
+  const inp = (label: string, value: string | number, key: string, type = 'text', w = '100%') => (
+    <label style={{ fontSize: 10, color: '#555', textTransform: 'uppercase' as const, letterSpacing: '0.06em', display: 'block' }}>
+      {label}
+      <input type={type} value={value} onChange={e => setForm(f => ({ ...f, [key]: type === 'number' ? parseFloat(e.target.value) || 0 : e.target.value }))}
+        style={{ display: 'block', width: w, marginTop: 3, padding: '7px 10px', background: '#1e1e1e', border: '1px solid #333', borderRadius: 8, color: '#fff', fontSize: 13, fontFamily: 'inherit' }} />
+    </label>
+  )
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1010 }}>
+      <div style={{ background: '#141414', border: '1px solid #333', borderRadius: 16, padding: 24, width: 480 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: '#fff' }}>Nuevo producto — {systemName}</div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer' }}><X size={16} /></button>
+        </div>
+        <div style={{ display: 'grid', gap: 10 }}>
+          {inp('Nombre', form.name, 'name')}
+          {inp('Descripción', form.description, 'description')}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            {inp('Costo USD', form.cost, 'cost', 'number')}
+            {inp('Margen %', form.markup, 'markup', 'number')}
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            {inp('Proveedor', form.provider, 'provider')}
+            {inp('Sistema', form.system, 'system')}
+          </div>
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
+          <Btn onClick={onClose}>Cancelar</Btn>
+          <Btn variant="primary" onClick={save} disabled={!form.name || saving}>{saving ? 'Guardando...' : 'Crear y agregar'}</Btn>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// SUMMARY PANEL
+// ═══════════════════════════════════════════════════════════════════
+function SummaryPanel({ products, areas, config, activeSystems, showInt, onConfigChange }: {
+  products: EspProduct[]; areas: EspArea[]; config: EspQuoteConfig; activeSystems: EspSystemDef[]; showInt: boolean
+  onConfigChange: (f: string, v: number) => void
+}) {
+  let eqTotal = 0, inst = 0
+  products.forEach(p => { eqTotal += p.price * p.quantity; inst += p.laborCost * p.quantity })
+  const moTotal = inst + config.programacion
+  const sub = eqTotal + moTotal
+  const iva = sub * (config.ivaRate / 100)
+  const total = sub + iva
+
+  const rows = [
+    { l: 'EQUIPO TOTAL', v: eqTotal, b: true }, { l: 'INSTALACIÓN', v: inst },
+    { l: 'PROGRAMACIÓN', v: config.programacion, ed: true }, { l: 'MANO DE OBRA TOTAL', v: moTotal, b: true },
+    { l: 'SUBTOTAL', v: sub, b: true }, { l: 'TOTAL IVA', v: iva },
+    { l: 'TOTAL DEL PROYECTO', v: total, b: true, h: true },
+  ]
+  return (
     <div>
-      {/* Financial summary */}
-      <div style={{ background: '#141414', border: '1px solid #222', borderRadius: 12, padding: 16, marginBottom: 12 }}>
-        <div style={{ fontSize: 11, fontWeight: 600, color: '#555', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10 }}>Resumen</div>
+      <div style={{ background: '#141414', border: '1px solid #222', borderRadius: 12, padding: 14, marginBottom: 10 }}>
+        <div style={{ fontSize: 10, fontWeight: 600, color: '#555', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Resumen</div>
         {rows.map((r, i) => (
-          <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0', borderTop: r.bold ? '1px solid #222' : 'none' }}>
-            <span style={{ fontSize: 11, color: r.highlight ? '#57FF9A' : r.bold ? '#ccc' : '#555', fontWeight: r.bold ? 700 : 400 }}>{r.label}</span>
-            {r.editable ? (
-              <input type="number" value={r.value} step={10}
-                onChange={e => onConfigChange('programacion', parseFloat(e.target.value) || 0)}
-                style={{ ...S.input, width: 80, fontSize: 12, fontWeight: 600 }} />
-            ) : (
-              <span style={{ fontSize: r.highlight ? 16 : 12, fontWeight: r.bold ? 700 : 400, color: r.highlight ? '#57FF9A' : '#fff' }}>${r.value.toFixed(2)}</span>
-            )}
+          <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '3px 0', borderTop: r.b ? '1px solid #222' : 'none' }}>
+            <span style={{ fontSize: 10, color: r.h ? '#57FF9A' : r.b ? '#ccc' : '#555', fontWeight: r.b ? 700 : 400 }}>{r.l}</span>
+            {r.ed ? <input type="number" value={r.v} step={10} onChange={e => onConfigChange('programacion', parseFloat(e.target.value) || 0)} style={{ ...S.input, width: 70, fontSize: 11, fontWeight: 600 }} />
+              : <span style={{ fontSize: r.h ? 15 : 11, fontWeight: r.b ? 700 : 400, color: r.h ? '#57FF9A' : '#fff' }}>${r.v.toFixed(2)}</span>}
           </div>
         ))}
-
-        {/* Payment schedule */}
-        <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px solid #222' }}>
-          <div style={{ fontSize: 9, fontWeight: 600, color: '#444', textTransform: 'uppercase', marginBottom: 6 }}>Multivencimiento</div>
+        <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px solid #222' }}>
+          <div style={{ fontSize: 9, fontWeight: 600, color: '#444', textTransform: 'uppercase', marginBottom: 4 }}>Multivencimiento</div>
           {config.paymentSchedule.map((ps, i) => (
             <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}>
               <span style={{ color: '#666' }}>{ps.percentage}% {ps.label}</span>
-              <span style={{ color: '#aaa' }}>${(sm.total * ps.percentage / 100).toFixed(2)}</span>
+              <span style={{ color: '#aaa' }}>${(total * ps.percentage / 100).toFixed(2)}</span>
             </div>
           ))}
         </div>
       </div>
-
-      {/* By area */}
-      <div style={{ background: '#141414', border: '1px solid #222', borderRadius: 12, padding: 16, marginBottom: 12 }}>
-        <div style={{ fontSize: 11, fontWeight: 600, color: '#555', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10 }}>Por Área</div>
-        {areas.map(area => {
-          const t = products.filter(p => p.areaId === area.id).reduce((s, p) => s + calcLine(p).total, 0)
-          return (
-            <div key={area.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0', fontSize: 11 }}>
-              <span style={{ color: '#888' }}>{area.name}</span>
-              <span style={{ color: '#ccc', fontWeight: 500 }}>${t.toFixed(2)}</span>
-            </div>
-          )
+      <div style={{ background: '#141414', border: '1px solid #222', borderRadius: 12, padding: 14, marginBottom: 10 }}>
+        <div style={{ fontSize: 10, fontWeight: 600, color: '#555', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Por Área</div>
+        {areas.map(a => {
+          const t = products.filter(p => p.areaId === a.id).reduce((s, p) => s + calcLine(p).total, 0)
+          return <div key={a.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}><span style={{ color: '#888' }}>{a.name}</span><span style={{ color: '#ccc', fontWeight: 500 }}>${t.toFixed(2)}</span></div>
         })}
       </div>
-
-      {/* By system */}
-      <div style={{ background: '#141414', border: '1px solid #222', borderRadius: 12, padding: 16, marginBottom: 12 }}>
-        <div style={{ fontSize: 11, fontWeight: 600, color: '#555', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10 }}>Por Sistema</div>
+      <div style={{ background: '#141414', border: '1px solid #222', borderRadius: 12, padding: 14, marginBottom: 10 }}>
+        <div style={{ fontSize: 10, fontWeight: 600, color: '#555', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Por Sistema</div>
         {activeSystems.map(sys => {
           const t = products.filter(p => p.systemId === sys.id).reduce((s, p) => s + calcLine(p).total, 0)
-          return (
-            <div key={sys.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0', fontSize: 11 }}>
-              <span style={{ color: sys.color }}>{sys.name}</span>
-              <span style={{ color: '#ccc', fontWeight: 500 }}>${t.toFixed(2)}</span>
-            </div>
-          )
+          return <div key={sys.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}><span style={{ color: sys.color }}>{sys.name}</span><span style={{ color: '#ccc', fontWeight: 500 }}>${t.toFixed(2)}</span></div>
         })}
       </div>
-
-      {/* Internal margin */}
       {showInt && (
-        <div style={{ background: '#1a1414', border: '1px solid #332222', borderRadius: 12, padding: 16 }}>
-          <div style={{ fontSize: 11, fontWeight: 600, color: '#F59E0B', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10 }}>Análisis Interno</div>
+        <div style={{ background: '#1a1414', border: '1px solid #332222', borderRadius: 12, padding: 14 }}>
+          <div style={{ fontSize: 10, fontWeight: 600, color: '#F59E0B', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Análisis Interno</div>
           {(() => {
-            let venta = 0, costo = 0
-            products.forEach(p => { venta += p.price * p.quantity; costo += p.price * (1 - p.margin / 100) * p.quantity })
-            const mg = venta > 0 ? Math.round((venta - costo) / venta * 100) : 0
+            let vt = 0, ct = 0; products.forEach(p => { vt += p.price * p.quantity; ct += p.price * (1 - p.margin / 100) * p.quantity })
+            const mg = vt > 0 ? Math.round((vt - ct) / vt * 100) : 0
             return (<>
-              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0', fontSize: 11 }}>
-                <span style={{ color: '#888' }}>Venta equipo</span><span style={{ color: '#fff', fontWeight: 600 }}>${venta.toFixed(2)}</span>
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}><span style={{ color: '#888' }}>Venta</span><span style={{ color: '#fff', fontWeight: 600 }}>${vt.toFixed(2)}</span></div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}><span style={{ color: '#888' }}>Costo</span><span style={{ color: '#ccc' }}>${ct.toFixed(2)}</span></div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10, borderTop: '1px solid #332222', marginTop: 3, paddingTop: 5 }}>
+                <span style={{ color: '#F59E0B', fontWeight: 600 }}>Margen</span>
+                <span style={{ color: mg >= 25 ? '#57FF9A' : mg >= 15 ? '#F59E0B' : '#EF4444', fontWeight: 700, fontSize: 13 }}>{mg}%</span>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0', fontSize: 11 }}>
-                <span style={{ color: '#888' }}>Costo real</span><span style={{ color: '#ccc' }}>${costo.toFixed(2)}</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0', fontSize: 11, borderTop: '1px solid #332222', marginTop: 4, paddingTop: 6 }}>
-                <span style={{ color: '#F59E0B', fontWeight: 600 }}>Margen global</span>
-                <span style={{ color: mg >= 25 ? '#57FF9A' : mg >= 15 ? '#F59E0B' : '#EF4444', fontWeight: 700, fontSize: 14 }}>{mg}%</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0', fontSize: 11 }}>
-                <span style={{ color: '#888' }}>Utilidad equipo</span>
-                <span style={{ color: '#57FF9A', fontWeight: 600 }}>${(venta - costo).toFixed(2)}</span>
-              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}><span style={{ color: '#888' }}>Utilidad</span><span style={{ color: '#57FF9A', fontWeight: 600 }}>${(vt - ct).toFixed(2)}</span></div>
             </>)
           })()}
         </div>
@@ -437,29 +402,21 @@ function SummaryPanel({ products, areas, config, activeSystems, showInt, onConfi
 // ═══════════════════════════════════════════════════════════════════
 // MAIN COMPONENT
 // ═══════════════════════════════════════════════════════════════════
-
 export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack: () => void }) {
   const [areas, setAreas] = useState<EspArea[]>([])
   const [activeSysIds, setActiveSysIds] = useState<string[]>([])
   const [products, setProducts] = useState<EspProduct[]>([])
   const [loading, setLoading] = useState(true)
-  const [config, setConfig] = useState<EspQuoteConfig>({
-    currency: 'USD', ivaRate: 16, programacion: 740,
-    paymentSchedule: [
-      { label: 'Anticipo', percentage: 80 },
-      { label: 'Entrega de equipos', percentage: 10 },
-      { label: 'Finalización de Obra', percentage: 10 },
-    ],
-    version: '1.0',
-  })
+  const [config, setConfig] = useState<EspQuoteConfig>({ currency: 'USD', ivaRate: 16, programacion: 0, paymentSchedule: [{ label: 'Anticipo', percentage: 80 }, { label: 'Entrega de equipos', percentage: 10 }, { label: 'Finalización de Obra', percentage: 10 }], version: '1.0' })
   const [showInt, setShowInt] = useState(true)
   const [stage, setStage] = useState('oportunidad')
   const [collapsedSys, setCollapsedSys] = useState<Record<string, boolean>>({})
   const [showSystemPicker, setShowSystemPicker] = useState(false)
   const [cotName, setCotName] = useState('')
   const [clientName, setClientName] = useState('')
+  const [addingTo, setAddingTo] = useState<{ areaId: string; systemId: string } | null>(null)
+  const [creatingProduct, setCreatingProduct] = useState(false)
 
-  // Load quotation data from Supabase
   useEffect(() => {
     async function load() {
       const [{ data: cot }, { data: qAreas }] = await Promise.all([
@@ -467,182 +424,155 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
         supabase.from('quotation_areas').select('*').eq('quotation_id', cotId).order('order_index'),
       ])
       if (cot) {
-        setCotName(cot.name || '')
-        setClientName(cot.client_name || '')
-        setStage(cot.stage || 'oportunidad')
+        setCotName(cot.name || ''); setClientName(cot.client_name || ''); setStage(cot.stage || 'oportunidad')
+        try { const meta = JSON.parse(cot.notes || '{}'); if (meta.systems) setActiveSysIds(meta.systems) } catch (e) { /* ignore */ }
       }
-      if (qAreas && qAreas.length > 0) {
-        setAreas(qAreas.map((a: any, i: number) => ({ id: a.id, name: a.name, collapsed: false, order: i })))
-      }
+      if (qAreas && qAreas.length > 0) setAreas(qAreas.map((a: any, i: number) => ({ id: a.id, name: a.name, collapsed: false, order: i })))
       setLoading(false)
     }
     load()
   }, [cotId])
 
   const activeSystems = useMemo(() => ALL_SYSTEMS.filter(s => activeSysIds.includes(s.id)), [activeSysIds])
-  const summary = useMemo(() => calcSummary(products, config), [products, config])
+  const total = useMemo(() => {
+    let eq = 0, mo = 0; products.forEach(p => { eq += p.price * p.quantity; mo += p.laborCost * p.quantity })
+    const sub = eq + mo + config.programacion; return sub + sub * config.ivaRate / 100
+  }, [products, config])
 
-  // ─── ACTIONS ───────────────────────────────────────────────────
-  function toggleArea(areaId: string) {
-    setAreas(prev => prev.map(a => a.id === areaId ? { ...a, collapsed: !a.collapsed } : a))
-  }
-
-  function toggleSys(key: string) {
-    setCollapsedSys(prev => ({ ...prev, [key]: !prev[key] }))
-  }
-
-  function addArea() {
-    const name = prompt('Nombre del área (zona):')
-    if (!name) return
-    setAreas(prev => [...prev, { id: uid(), name, collapsed: false, order: prev.length }])
-  }
+  function toggleArea(id: string) { setAreas(p => p.map(a => a.id === id ? { ...a, collapsed: !a.collapsed } : a)) }
+  function toggleSys(k: string) { setCollapsedSys(p => ({ ...p, [k]: !p[k] })) }
+  function addArea() { const n = prompt('Nombre del área:'); if (n) setAreas(p => [...p, { id: uid(), name: n, collapsed: false, order: p.length }]) }
 
   function toggleGlobalSystem(sysId: string) {
-    setActiveSysIds(prev => prev.includes(sysId) ? prev.filter(s => s !== sysId) : [...prev, sysId])
+    const next = activeSysIds.includes(sysId) ? activeSysIds.filter(s => s !== sysId) : [...activeSysIds, sysId]
+    setActiveSysIds(next)
+    supabase.from('quotations').update({ notes: JSON.stringify({ systems: next }) }).eq('id', cotId)
   }
 
-  function updateProduct(id: string, field: string, value: number) {
-    setProducts(prev => prev.map(p => {
-      if (p.id !== id) return p
-      const updated = { ...p, [field]: value }
-      if (field === 'price' || field === 'margin') {
-        updated.costReal = updated.price * (1 - updated.margin / 100)
-      }
-      return updated
+  function updateProduct(id: string, field: string, value: number | string) {
+    setProducts(p => p.map(pr => {
+      if (pr.id !== id) return pr
+      return { ...pr, [field]: value }
     }))
   }
 
-  function removeProduct(id: string) {
-    setProducts(prev => prev.filter(p => p.id !== id))
+  function updateAllByCatalogId(catalogId: string, field: string, value: number) {
+    setProducts(p => p.map(pr => {
+      if (pr.catalogId !== catalogId) return pr
+      return { ...pr, [field]: value }
+    }))
   }
 
-  function addProduct(areaId: string, systemId: string) {
-    setProducts(prev => [...prev, {
-      id: uid(), areaId, systemId, name: 'Nuevo producto', description: '', imageUrl: null,
-      quantity: 1, price: 0, laborCost: 0, costReal: 0, margin: 30,
-      order: prev.filter(p => p.areaId === areaId && p.systemId === systemId).length,
+  function removeProduct(id: string) { setProducts(p => p.filter(pr => pr.id !== id)) }
+
+  function handleAddFromCatalog(catProd: CatProduct) {
+    if (!addingTo) return
+    const precio = Math.round(catProd.cost * (1 + catProd.markup / 100))
+    const margin = catProd.markup > 0 ? Math.round(catProd.markup / (100 + catProd.markup) * 100) : 30
+    setProducts(p => [...p, {
+      id: uid(), areaId: addingTo.areaId, systemId: addingTo.systemId, catalogId: catProd.id,
+      name: catProd.name, description: catProd.description || '', imageUrl: null,
+      quantity: 1, price: precio, laborCost: 0, margin, order: p.length,
     }])
+    setAddingTo(null)
   }
 
-  function removeArea(areaId: string) {
-    if (!confirm('¿Eliminar esta área y todos sus productos?')) return
-    setAreas(prev => prev.filter(a => a.id !== areaId))
-    setProducts(prev => prev.filter(p => p.areaId !== areaId))
+  function handleCreateAndAdd(catProd: CatProduct) {
+    setCreatingProduct(false)
+    handleAddFromCatalog(catProd)
   }
 
-  // ─── RENDER ────────────────────────────────────────────────────
+  function openAddProduct(areaId: string, systemId: string) { setAddingTo({ areaId, systemId }) }
+
   if (loading) return <Loading />
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column' as const, height: '100vh', overflow: 'hidden' }}>
       {/* Top bar */}
-      <div style={{ padding: '8px 16px', borderBottom: '1px solid #222', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0, background: '#111' }}>
-        <button onClick={onBack} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, fontSize: 12 }}>
-          <ChevronLeft size={14} /> Cotizaciones
-        </button>
+      <div style={{ padding: '7px 16px', borderBottom: '1px solid #222', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0, background: '#111' }}>
+        <button onClick={onBack} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, fontSize: 12 }}><ChevronLeft size={14} /> Cotizaciones</button>
         <span style={{ color: '#333' }}>/</span>
         <span style={{ fontSize: 12, fontWeight: 500, color: '#57FF9A' }}>◈ {cotName || 'Cotización ESP'}</span>
         <Badge label="ESP" color="#57FF9A" />
         {clientName && <span style={{ fontSize: 11, color: '#555' }}>{clientName}</span>}
-
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 4, alignItems: 'center' }}>
-          {/* Stage buttons */}
           {(Object.entries(STAGE_CONFIG) as Array<[string, { label: string; color: string }]>).map(([s, cfg]) => (
-            <button key={s} onClick={() => setStage(s)} style={{
+            <button key={s} onClick={() => { setStage(s); supabase.from('quotations').update({ stage: s }).eq('id', cotId) }} style={{
               padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
-              border: '1px solid ' + (stage === s ? cfg.color : '#333'),
-              background: stage === s ? cfg.color + '22' : 'transparent',
-              color: stage === s ? cfg.color : '#555',
+              border: '1px solid ' + (stage === s ? cfg.color : '#333'), background: stage === s ? cfg.color + '22' : 'transparent', color: stage === s ? cfg.color : '#555',
             }}>{cfg.label}</button>
           ))}
-
-          {/* Systems config */}
-          <button onClick={() => setShowSystemPicker(true)} style={{
-            padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
-            border: '1px solid #57FF9A44', background: 'transparent', color: '#57FF9A', marginLeft: 8,
-          }}>⚙ Sistemas ({activeSysIds.length})</button>
-
-          {/* Toggle internal */}
-          <button onClick={() => setShowInt(!showInt)} style={{
-            padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
-            border: '1px solid ' + (showInt ? '#F59E0B' : '#333'),
-            background: showInt ? '#F59E0B22' : 'transparent',
-            color: showInt ? '#F59E0B' : '#555',
-          }}>{showInt ? '👁 Interno' : '👁 Cliente'}</button>
-
-          <span style={{ fontSize: 16, fontWeight: 700, color: '#57FF9A', marginLeft: 12 }}>${summary.total.toFixed(2)}</span>
+          <button onClick={() => setShowSystemPicker(true)} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #57FF9A44', background: 'transparent', color: '#57FF9A', marginLeft: 8 }}>⚙ Sistemas ({activeSysIds.length})</button>
+          <button onClick={() => setShowInt(!showInt)} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid ' + (showInt ? '#F59E0B' : '#333'), background: showInt ? '#F59E0B22' : 'transparent', color: showInt ? '#F59E0B' : '#555' }}>{showInt ? '👁 Interno' : '👁 Cliente'}</button>
+          <span style={{ fontSize: 15, fontWeight: 700, color: '#57FF9A', marginLeft: 10 }}>${total.toFixed(2)}</span>
         </div>
       </div>
 
-      {/* Active systems bar */}
-      <div style={{ padding: '6px 16px', borderBottom: '1px solid #1e1e1e', display: 'flex', gap: 6, alignItems: 'center', background: '#0e0e0e', flexShrink: 0 }}>
-        <span style={{ fontSize: 9, color: '#444', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.1em', marginRight: 8 }}>Sistemas:</span>
+      {/* Systems bar */}
+      <div style={{ padding: '5px 16px', borderBottom: '1px solid #1e1e1e', display: 'flex', gap: 5, alignItems: 'center', background: '#0e0e0e', flexShrink: 0 }}>
+        <span style={{ fontSize: 9, color: '#444', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.1em', marginRight: 6 }}>Sistemas:</span>
+        {activeSystems.length === 0 && <span style={{ fontSize: 10, color: '#444' }}>Ninguno — usa ⚙ para agregar</span>}
         {activeSystems.map(sys => {
-          const sysTotal = products.filter(p => p.systemId === sys.id).reduce((s, p) => s + calcLine(p).total, 0)
-          return (
-            <span key={sys.id} style={{
-              padding: '3px 8px', borderRadius: 6, fontSize: 10, fontWeight: 600,
-              background: sys.color + '18', color: sys.color, border: '1px solid ' + sys.color + '33',
-            }}>
-              {sys.name} ${sysTotal.toFixed(0)}
-            </span>
-          )
+          const st = products.filter(p => p.systemId === sys.id).reduce((s, p) => s + calcLine(p).total, 0)
+          return <span key={sys.id} style={{ padding: '2px 7px', borderRadius: 5, fontSize: 10, fontWeight: 600, background: sys.color + '18', color: sys.color, border: '1px solid ' + sys.color + '33' }}>{sys.name} ${st.toFixed(0)}</span>
         })}
       </div>
 
-      {/* Main content */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 280px', flex: 1, overflow: 'hidden' }}>
-        {/* Left: Areas */}
-        <div style={{ overflowY: 'auto', padding: '16px 20px' }}>
+      {/* Content */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 260px', flex: 1, overflow: 'hidden' }}>
+        <div style={{ overflowY: 'auto', padding: '14px 18px' }}>
           {areas.map(area => (
-            <AreaBlock key={area.id} area={area} activeSystems={activeSystems}
-              products={products} collapsedSys={collapsedSys}
-              onToggleArea={() => toggleArea(area.id)}
-              onToggleSys={toggleSys}
-              onUpdateProd={updateProduct}
-              onRemoveProd={removeProduct}
-              onAddProd={(sysId) => addProduct(area.id, sysId)}
-              showInt={showInt} />
+            <AreaBlock key={area.id} area={area} activeSystems={activeSystems} products={products} allProducts={products}
+              collapsedSys={collapsedSys} onToggleArea={() => toggleArea(area.id)} onToggleSys={toggleSys}
+              onUpdateProd={updateProduct} onRemoveProd={removeProduct} onUpdateAll={updateAllByCatalogId}
+              onAddProd={(sysId) => openAddProduct(area.id, sysId)} showInt={showInt} />
           ))}
-          <div onClick={addArea} style={{
-            padding: '14px', border: '1px dashed #333', borderRadius: 10, textAlign: 'center',
-            cursor: 'pointer', color: '#444', fontSize: 12,
-          }}>+ Agregar área (zona)</div>
+          <div onClick={addArea} style={{ padding: '12px', border: '1px dashed #333', borderRadius: 10, textAlign: 'center', cursor: 'pointer', color: '#444', fontSize: 12 }}>+ Agregar área</div>
         </div>
-
-        {/* Right: Summary */}
-        <div style={{ borderLeft: '1px solid #222', overflowY: 'auto', padding: '16px 12px', background: '#0e0e0e' }}>
-          <SummaryPanel products={products} areas={areas} config={config}
-            activeSystems={activeSystems} showInt={showInt}
-            onConfigChange={(f, v) => setConfig(prev => ({ ...prev, [f]: v }))} />
+        <div style={{ borderLeft: '1px solid #222', overflowY: 'auto', padding: '14px 10px', background: '#0e0e0e' }}>
+          <SummaryPanel products={products} areas={areas} config={config} activeSystems={activeSystems} showInt={showInt} onConfigChange={(f, v) => setConfig(p => ({ ...p, [f]: v }))} />
         </div>
       </div>
 
-      {/* System picker modal */}
+      {/* Catalog modal */}
+      {addingTo && !creatingProduct && (
+        <CatalogModal
+          systemName={ALL_SYSTEMS.find(s => s.id === addingTo.systemId)?.name || addingTo.systemId}
+          onClose={() => setAddingTo(null)}
+          onSelect={handleAddFromCatalog}
+          onCreateNew={() => setCreatingProduct(true)} />
+      )}
+
+      {/* Create product modal */}
+      {creatingProduct && addingTo && (
+        <CreateProductModal
+          systemName={ALL_SYSTEMS.find(s => s.id === addingTo.systemId)?.name || addingTo.systemId}
+          onClose={() => setCreatingProduct(false)}
+          onCreate={handleCreateAndAdd} />
+      )}
+
+      {/* System picker */}
       {showSystemPicker && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
           <div style={{ background: '#141414', border: '1px solid #333', borderRadius: 16, padding: 24, width: 380 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
               <div style={{ fontSize: 14, fontWeight: 600, color: '#fff' }}>Sistemas de la cotización</div>
               <button onClick={() => setShowSystemPicker(false)} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer' }}><X size={16} /></button>
             </div>
-            <div style={{ fontSize: 11, color: '#555', marginBottom: 12 }}>Selecciona los sistemas que aplican para esta cotización. Todos los que elijas estarán disponibles en todas las áreas.</div>
-            <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 6 }}>
+            <div style={{ fontSize: 11, color: '#555', marginBottom: 10 }}>Aplican para todas las áreas.</div>
+            <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 5 }}>
               {ALL_SYSTEMS.map(sys => {
-                const active = activeSysIds.includes(sys.id)
-                const count = products.filter(p => p.systemId === sys.id).length
+                const on = activeSysIds.includes(sys.id)
+                const cnt = products.filter(p => p.systemId === sys.id).length
                 return (
                   <button key={sys.id} onClick={() => toggleGlobalSystem(sys.id)} style={{
-                    display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px',
-                    background: active ? sys.color + '11' : '#1a1a1a',
-                    border: '1px solid ' + (active ? sys.color + '44' : '#222'),
-                    borderRadius: 10, cursor: 'pointer', color: active ? '#fff' : '#666',
-                    fontSize: 13, fontFamily: 'inherit', textAlign: 'left' as const,
+                    display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', background: on ? sys.color + '11' : '#1a1a1a',
+                    border: '1px solid ' + (on ? sys.color + '44' : '#222'), borderRadius: 10, cursor: 'pointer', color: on ? '#fff' : '#666', fontSize: 13, fontFamily: 'inherit', textAlign: 'left' as const,
                   }}>
-                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: active ? sys.color : '#333', flexShrink: 0 }} />
+                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: on ? sys.color : '#333' }} />
                     <span style={{ flex: 1 }}>{sys.name}</span>
-                    {count > 0 && <span style={{ fontSize: 10, color: '#555' }}>{count} productos</span>}
-                    <span style={{ fontSize: 16, color: active ? sys.color : '#333' }}>{active ? '✓' : '○'}</span>
+                    {cnt > 0 && <span style={{ fontSize: 10, color: '#555' }}>{cnt}</span>}
+                    <span style={{ fontSize: 14, color: on ? sys.color : '#333' }}>{on ? '✓' : '○'}</span>
                   </button>
                 )
               })}
