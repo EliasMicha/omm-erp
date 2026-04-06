@@ -7,7 +7,7 @@ const NAV = [
   { to: '/cotizaciones', icon: FileText, label: 'Cotizaciones' },
   { to: '/proyectos', icon: FolderOpen, label: 'Proyectos' },
   { to: '/compras', icon: ShoppingCart, label: 'Compras' },
-  { to: '/reportes', icon: ClipboardList, label: 'Reportes de obra' },
+  { to: '/obra', icon: ClipboardList, label: 'Obra' },
   { to: '/cobranza', icon: CreditCard, label: 'Cobranza' },
   { to: '/nomina', icon: Users, label: 'Nomina' },
   { to: '/entregas', icon: Truck, label: 'Entregas' },

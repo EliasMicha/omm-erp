@@ -9,8 +9,8 @@ import Contabilidad from './pages/Contabilidad'
 import Clientes from './pages/Clientes'
 import Catalogo from './pages/Catalogo'
 import Compras from './pages/Compras'
+import Obra from './pages/Obra'
 
-const Reportes = () => <OtrosModulos title="Reportes de obra" />
 const Cobranza = () => <OtrosModulos title="Cobranza" />
 const Nomina = () => <OtrosModulos title="Nomina" />
 const Entregas = () => <OtrosModulos title="Entregas" />
@@ -29,7 +29,7 @@ export default function App() {
             <Route path="/compras" element={<Compras />} />
             <Route path="/proyectos" element={<Proyectos />} />
             <Route path="/contabilidad" element={<Contabilidad />} />
-            <Route path="/reportes" element={<Reportes />} />
+            <Route path="/obra" element={<Obra />} />
             <Route path="/nomina" element={<Nomina />} />
             <Route path="/entregas" element={<Entregas />} />
             <Route path="/empleados" element={<Empleados />} />
