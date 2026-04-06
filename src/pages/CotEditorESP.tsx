@@ -679,15 +679,24 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
 
   useEffect(() => {
     async function load() {
-      const [{ data: cot }, { data: qAreas }] = await Promise.all([
+      const [{ data: cot }, { data: qAreas }, { data: qItems }] = await Promise.all([
         supabase.from('quotations').select('*,project:projects(name,client_name)').eq('id', cotId).single(),
         supabase.from('quotation_areas').select('*').eq('quotation_id', cotId).order('order_index'),
+        supabase.from('quotation_items').select('*').eq('quotation_id', cotId).order('order_index'),
       ])
       if (cot) {
         setCotName(cot.name || ''); setClientName(cot.client_name || ''); setStage(cot.stage || 'oportunidad')
         try { const meta = JSON.parse(cot.notes || '{}'); if (meta.systems) setActiveSysIds(meta.systems) } catch (e) { /* ignore */ }
       }
       if (qAreas && qAreas.length > 0) setAreas(qAreas.map((a: any, i: number) => ({ id: a.id, name: a.name, collapsed: false, order: i })))
+      if (qItems && qItems.length > 0) {
+        setProducts(qItems.map((it: any) => ({
+          id: it.id, areaId: it.area_id, systemId: (it.system || '').toLowerCase().replace(/ /g, '_'),
+          catalogId: it.catalog_product_id || null, name: it.name, description: it.description || '',
+          imageUrl: null, quantity: it.quantity, price: it.price || 0,
+          laborCost: it.installation_cost || 0, margin: it.markup || 30, order: it.order_index || 0,
+        })))
+      }
       setLoading(false)
     }
     load()
@@ -709,39 +718,76 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
     supabase.from('quotations').update({ notes: JSON.stringify({ systems: next }) }).eq('id', cotId)
   }
 
+  // Map EspProduct field to quotation_items column
+  function fieldToColumn(field: string): string {
+    if (field === 'laborCost') return 'installation_cost'
+    if (field === 'margin') return 'markup'
+    return field
+  }
+
   function updateProduct(id: string, field: string, value: number | string) {
     setProducts(p => p.map(pr => {
       if (pr.id !== id) return pr
       return { ...pr, [field]: value }
     }))
+    const col = fieldToColumn(field)
+    const updateData: any = { [col]: value }
+    if (field === 'price' || field === 'quantity' || field === 'laborCost') {
+      // Recalculate total
+      const prod = products.find(pr => pr.id === id)
+      if (prod) {
+        const p = field === 'price' ? (value as number) : prod.price
+        const q = field === 'quantity' ? (value as number) : prod.quantity
+        const l = field === 'laborCost' ? (value as number) : prod.laborCost
+        updateData.total = (p + l) * q
+      }
+    }
+    supabase.from('quotation_items').update(updateData).eq('id', id).then(() => {})
   }
 
   function updateAllByCatalogId(catalogId: string, field: string, value: number) {
+    const ids: string[] = []
     setProducts(p => p.map(pr => {
       if (pr.catalogId !== catalogId) return pr
+      ids.push(pr.id)
       return { ...pr, [field]: value }
     }))
+    const col = fieldToColumn(field)
+    ids.forEach(id => supabase.from('quotation_items').update({ [col]: value }).eq('id', id).then(() => {}))
   }
 
-  function removeProduct(id: string) { setProducts(p => p.filter(pr => pr.id !== id)) }
+  function removeProduct(id: string) {
+    setProducts(p => p.filter(pr => pr.id !== id))
+    supabase.from('quotation_items').delete().eq('id', id).then(() => {})
+  }
 
-  function handleAddFromCatalog(catProd: CatProduct) {
+  async function handleAddFromCatalog(catProd: CatProduct) {
     if (!addingTo) return
     const rule = getPricingRule(catProd.provider || '')
     const precio = rule.precioPublico
-      ? Math.round(catProd.cost * (1 + catProd.markup / 100))  // for Lutron/Sonos use catalog markup
+      ? Math.round(catProd.cost * (1 + catProd.markup / 100))
       : calcPriceFromCost(catProd.cost, rule)
     const margin = rule.precioPublico ? (catProd.markup > 0 ? Math.round(catProd.markup / (100 + catProd.markup) * 100) : 30) : rule.margen
     const laborCost = calcLaborFromPrice(precio, rule)
-    setProducts(p => [...p, {
-      id: uid(), areaId: addingTo.areaId, systemId: addingTo.systemId, catalogId: catProd.id,
-      name: catProd.name, description: catProd.description || '', imageUrl: null,
-      quantity: 1, price: precio, laborCost, margin, order: p.length,
-    }])
+    const sysName = ALL_SYSTEMS.find(s => s.id === addingTo.systemId)?.name || addingTo.systemId
+    const { data } = await supabase.from('quotation_items').insert({
+      quotation_id: cotId, area_id: addingTo.areaId, catalog_product_id: catProd.id || null,
+      name: catProd.name, description: catProd.description || null, system: sysName,
+      type: 'material', quantity: 1, cost: catProd.cost, markup: margin, price: precio,
+      total: precio + laborCost, installation_cost: laborCost,
+      order_index: products.filter(p => p.areaId === addingTo.areaId && p.systemId === addingTo.systemId).length,
+    }).select().single()
+    if (data) {
+      setProducts(p => [...p, {
+        id: data.id, areaId: addingTo.areaId, systemId: addingTo.systemId, catalogId: catProd.id || null,
+        name: catProd.name, description: catProd.description || '', imageUrl: null,
+        quantity: 1, price: precio, laborCost, margin, order: products.length,
+      }])
+    }
     setAddingTo(null)
   }
 
-  function handleCreateAndAdd(catProd: CatProduct) {
+  async function handleCreateAndAdd(catProd: CatProduct) {
     if (!addingTo) return
     const rule = getPricingRule(catProd.provider || '')
     const precio = rule.precioPublico
@@ -749,11 +795,21 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
       : calcPriceFromCost(catProd.cost, rule)
     const margin = rule.precioPublico ? (catProd.markup > 0 ? Math.round(catProd.markup / (100 + catProd.markup) * 100) : 30) : rule.margen
     const laborCost = calcLaborFromPrice(precio, rule)
-    setProducts(p => [...p, {
-      id: uid(), areaId: addingTo.areaId, systemId: addingTo.systemId, catalogId: catProd.id || null,
-      name: catProd.name, description: catProd.description || '', imageUrl: null,
-      quantity: 1, price: precio, laborCost, margin, order: p.length,
-    }])
+    const sysName = ALL_SYSTEMS.find(s => s.id === addingTo.systemId)?.name || addingTo.systemId
+    const { data } = await supabase.from('quotation_items').insert({
+      quotation_id: cotId, area_id: addingTo.areaId, catalog_product_id: catProd.id || null,
+      name: catProd.name, description: catProd.description || null, system: sysName,
+      type: 'material', quantity: 1, cost: catProd.cost, markup: margin, price: precio,
+      total: precio + laborCost, installation_cost: laborCost,
+      order_index: products.filter(p => p.areaId === addingTo.areaId && p.systemId === addingTo.systemId).length,
+    }).select().single()
+    if (data) {
+      setProducts(p => [...p, {
+        id: data.id, areaId: addingTo.areaId, systemId: addingTo.systemId, catalogId: catProd.id || null,
+        name: catProd.name, description: catProd.description || '', imageUrl: null,
+        quantity: 1, price: precio, laborCost, margin, order: products.length,
+      }])
+    }
     setCreatingProduct(false)
     setAddingTo(null)
   }
