@@ -580,10 +580,11 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
     if (!addingTo) return
     const precio = Math.round(catProd.cost * (1 + catProd.markup / 100))
     const margin = catProd.markup > 0 ? Math.round(catProd.markup / (100 + catProd.markup) * 100) : 30
+    const laborCost = Math.round(precio * 0.22 * 100) / 100  // 22% del precio de venta
     setProducts(p => [...p, {
       id: uid(), areaId: addingTo.areaId, systemId: addingTo.systemId, catalogId: catProd.id,
       name: catProd.name, description: catProd.description || '', imageUrl: null,
-      quantity: 1, price: precio, laborCost: 0, margin, order: p.length,
+      quantity: 1, price: precio, laborCost, margin, order: p.length,
     }])
     setAddingTo(null)
   }
