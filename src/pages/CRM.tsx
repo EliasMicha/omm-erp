@@ -346,19 +346,20 @@ function KanbanView({ leads, onOpen }: { leads: Lead[]; onOpen: (l: Lead) => voi
 }
 
 // ─── Lista ─────────────────────────────────────────────────────────────────
-function ListView({ leads, onOpen }: { leads: Lead[]; onOpen: (l: Lead) => void }) {
+function ListView({ leads, onOpen, quoteTotals }: { leads: Lead[]; onOpen: (l: Lead) => void; quoteTotals: Record<string, { cotizado: number; vendido: number }> }) {
   if (leads.length === 0) return <EmptyState message="Sin leads en este filtro" />
   return (
     <Table>
       <thead>
         <tr>
           <Th>Lead / Proyecto</Th><Th>Contacto</Th><Th>Origen</Th>
-          <Th>Especialidades</Th><Th>Estatus</Th><Th right>Valor est.</Th>
+          <Th>Especialidades</Th><Th>Estatus</Th><Th right>Estimado</Th><Th right>Cotizado</Th><Th right>Vendido</Th>
         </tr>
       </thead>
       <tbody>
         {leads.map(lead => {
           const sCfg = STATUS_CFG[lead.status]
+          const qt = quoteTotals[lead.id]
           return (
             <tr key={lead.id} onClick={() => onOpen(lead)} style={{ cursor: 'pointer' }}
               onMouseEnter={e => (e.currentTarget.style.background = '#1a1a1a')}
@@ -380,7 +381,17 @@ function ListView({ leads, onOpen }: { leads: Lead[]; onOpen: (l: Lead) => void 
               <Td><Badge label={sCfg.label} color={sCfg.color} /></Td>
               <Td right>
                 {lead.estimated_value
-                  ? <span style={{ fontWeight: 700, color: '#57FF9A' }}>{F(lead.estimated_value)}</span>
+                  ? <span style={{ fontWeight: 500, color: '#888' }}>{F(lead.estimated_value)}</span>
+                  : <span style={{ color: '#333' }}>—</span>}
+              </Td>
+              <Td right>
+                {qt?.cotizado
+                  ? <span style={{ fontWeight: 600, color: '#C084FC' }}>{F(qt.cotizado)}</span>
+                  : <span style={{ color: '#333' }}>—</span>}
+              </Td>
+              <Td right>
+                {qt?.vendido
+                  ? <span style={{ fontWeight: 700, color: '#57FF9A' }}>{F(qt.vendido)}</span>
                   : <span style={{ color: '#333' }}>—</span>}
               </Td>
             </tr>
@@ -403,11 +414,28 @@ export default function CRM() {
   const [aiQuery, setAiQuery] = useState('')
   const [aiLoading, setAiLoading] = useState(false)
   const [aiFilter, setAiFilter] = useState<Partial<{ status: LeadStatus; origin: LeadOrigin; minValue: number; text: string }> | null>(null)
+  const [quoteTotals, setQuoteTotals] = useState<Record<string, { cotizado: number; vendido: number }>>({})
 
   function load() {
     setLoading(true)
-    supabase.from('leads').select('*').order('updated_at', { ascending: false })
-      .then(({ data }) => { setLeads(data || []); setLoading(false) })
+    Promise.all([
+      supabase.from('leads').select('*').order('updated_at', { ascending: false }),
+      supabase.from('quotations').select('id,client_name,stage,total'),
+    ]).then(([{ data: ld }, { data: qt }]) => {
+      setLeads(ld || [])
+      // Build totals per lead name
+      const totals: Record<string, { cotizado: number; vendido: number }> = {}
+      if (ld && qt) {
+        for (const lead of ld) {
+          const leadQuotes = qt.filter(q => q.client_name && lead.name && q.client_name.toLowerCase().includes(lead.name.toLowerCase()))
+          const cotizado = leadQuotes.reduce((s, q) => s + (q.total || 0), 0)
+          const vendido = leadQuotes.filter(q => q.stage === 'contrato').reduce((s, q) => s + (q.total || 0), 0)
+          if (cotizado > 0 || vendido > 0) totals[lead.id] = { cotizado, vendido }
+        }
+      }
+      setQuoteTotals(totals)
+      setLoading(false)
+    })
   }
 
   useEffect(() => { load() }, [])
@@ -546,7 +574,7 @@ Devuelve solo el JSON, sin explicaciones. Si no hay filtro para un campo, omitel
       {loading ? <Loading /> : (
         viewMode === 'kanban'
           ? <KanbanView leads={filtered} onOpen={setSelected} />
-          : <ListView leads={filtered} onOpen={setSelected} />
+          : <ListView leads={filtered} onOpen={setSelected} quoteTotals={quoteTotals} />
       )}
 
       {/* Seccion ganados/perdidos/pausados en kanban */}
@@ -559,7 +587,7 @@ Devuelve solo el JSON, sin explicaciones. Si no hay filtro para un campo, omitel
             })}
           </div>
           {leads.filter(l => ['ganado', 'perdido', 'pausado'].includes(l.status)).length > 0 && (
-            <ListView leads={leads.filter(l => ['ganado', 'perdido', 'pausado'].includes(l.status))} onOpen={setSelected} />
+            <ListView leads={leads.filter(l => ['ganado', 'perdido', 'pausado'].includes(l.status))} onOpen={setSelected} quoteTotals={quoteTotals} />
           )}
         </div>
       )}
