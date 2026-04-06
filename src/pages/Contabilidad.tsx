@@ -4,6 +4,7 @@ import type { ClienteFiscal } from './Clientes'
 import { supabase } from '../lib/supabase'
 import { SectionHeader, KpiCard, Table, Th, Td, Badge, Btn, EmptyState } from '../components/layout/UI'
 import { F, formatDate } from '../lib/utils'
+import { ANTHROPIC_API_KEY } from '../lib/config'
 import {
   FileText, Building2, ArrowLeftRight, ShieldCheck,
   Banknote, Users, TrendingUp, Plus, Upload, Search,
@@ -752,34 +753,144 @@ function TabFacturacion({ invoices, setInvoices }: { invoices: Invoice[]; setInv
 
 function TabConciliacion({ bankMovements, setBankMovements }: { bankMovements: BankMovement[]; setBankMovements: (m: BankMovement[]) => void }) {
   const [processing, setProcessing] = useState(false)
+  const [status, setStatus] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
+
   const handleBankUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]; if (!file) return
-    setProcessing(true)
-    const text = await file.text()
-    const result = await askClaude('Analiza este estado de cuenta bancario CSV. Extrae movimientos como JSON array: [{"fecha":"YYYY-MM-DD","concepto":"","referencia":"","monto":0,"tipo":"cargo"|"abono","categoria_sugerida":"nomina"|"proveedor"|"cobro_cliente"|"otro","proyecto_sugerido":""}]. Si el concepto tiene nombre de persona=nomina, DEP=cobro_cliente.\nCSV:\n' + text.substring(0,12000))
+    setProcessing(true); setStatus('Leyendo archivo...')
+    const ext = file.name.split('.').pop()?.toLowerCase()
+
     try {
-      const parsed = JSON.parse(result.replace(/```json\n?/g,'').replace(/```/g,'').trim())
-      if (Array.isArray(parsed)) setBankMovements(parsed.map((m: any, i: number) => ({ id: String(Date.now()+i), fecha: m.fecha||'', concepto: m.concepto||'', referencia: m.referencia||'', monto: Math.abs(m.monto||0), tipo: m.tipo||'cargo', saldo: 0, categoria_sugerida: m.categoria_sugerida||'otro', proyecto_sugerido: m.proyecto_sugerido||'', conciliado: false })))
-    } catch {}
+      const systemPrompt = `Eres un experto contable mexicano. Extrae TODOS los movimientos bancarios del estado de cuenta.
+Devuelve SOLO un JSON array, sin markdown, sin explicaciones:
+[{"fecha":"YYYY-MM-DD","codigo":"","concepto":"descripción corta","referencia":"","monto":0,"tipo":"cargo"|"abono","beneficiario":"nombre si aparece","categoria":"nomina"|"proveedor"|"cobro_cliente"|"impuestos"|"comision"|"traspaso"|"prestamo"|"suscripcion"|"otro"}]
+
+REGLAS IMPORTANTES:
+- Si el concepto dice PAGO DE NOMINA, TRANSF SPEI con NOMINA, o tiene nombre de persona = categoria "nomina"
+- SPEI RECIBIDO, DEPOSITO DE TERCERO con empresa = "cobro_cliente"  
+- PAGO CUENTA DE TERCERO a proveedor = "proveedor"
+- SAT, IMSS, CDMX = "impuestos"
+- SISTEMAS Y SERVICIOS, COMISION, IVA COM = "comision"
+- TRASPASO ENTRE CUENTAS = "traspaso"
+- Prestamo = "prestamo"
+- STRIPE, UBER, CLAUDE, suscripciones = "suscripcion"
+- El beneficiario es la persona o empresa mencionada en la descripción
+- MONTO siempre positivo, el TIPO indica si es cargo o abono
+- Fecha en formato YYYY-MM-DD (año 2026 para MAR)`
+
+      let messages: any[]
+
+      if (ext === 'pdf') {
+        setStatus('Procesando PDF con AI...')
+        const base64 = await new Promise<string>((res, rej) => {
+          const r = new FileReader()
+          r.onload = () => res((r.result as string).split(',')[1])
+          r.onerror = () => rej(new Error('Error leyendo PDF'))
+          r.readAsDataURL(file)
+        })
+        messages = [{ role: 'user', content: [
+          { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64 } },
+          { type: 'text', text: systemPrompt }
+        ] }]
+      } else {
+        // CSV / Excel as text
+        setStatus('Procesando archivo con AI...')
+        const text = await file.text()
+        messages = [{ role: 'user', content: systemPrompt + '\n\nESTADO DE CUENTA:\n' + text.substring(0, 15000) }]
+      }
+
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'anthropic-dangerous-direct-browser-access': 'true', 'anthropic-version': '2023-06-01', 'x-api-key': ANTHROPIC_API_KEY },
+        body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 8000, messages }),
+      })
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}))
+        setStatus('Error API: ' + (errData.error?.message || response.status))
+        setProcessing(false); return
+      }
+
+      const data = await response.json()
+      const text = (data.content || []).filter((b: any) => b.type === 'text').map((b: any) => b.text).join('')
+      const jsonMatch = text.match(/\[[\s\S]*\]/)
+
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0].replace(/```json|```/g, '').trim())
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setBankMovements(parsed.map((m: any, i: number) => ({
+            id: String(Date.now() + i),
+            fecha: m.fecha || '',
+            concepto: m.concepto || '',
+            referencia: m.referencia || '',
+            monto: Math.abs(m.monto || 0),
+            tipo: m.tipo || 'cargo',
+            saldo: 0,
+            categoria_sugerida: m.categoria || 'otro',
+            proyecto_sugerido: m.beneficiario || '',
+            conciliado: false,
+          })))
+          setStatus(`✓ ${parsed.length} movimientos extraídos`)
+        } else {
+          setStatus('No se encontraron movimientos')
+        }
+      } else {
+        setStatus('Error: no se pudo parsear la respuesta')
+      }
+    } catch (err) {
+      setStatus('Error: ' + (err as Error).message)
+    }
     setProcessing(false)
     if (fileRef.current) fileRef.current.value = ''
   }
+
+  const totalCargos = bankMovements.filter(m => m.tipo === 'cargo').reduce((s, m) => s + m.monto, 0)
+  const totalAbonos = bankMovements.filter(m => m.tipo === 'abono').reduce((s, m) => s + m.monto, 0)
+  const conciliados = bankMovements.filter(m => m.conciliado).length
+
   return (
     <div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
-        <KpiCard label="Movimientos" value="0" icon={<ArrowLeftRight size={16} />} />
-        <KpiCard label="Conciliados" value="0" color="#57FF9A" icon={<CheckCircle size={16} />} />
-        <KpiCard label="Pendientes" value="0" color="#F59E0B" icon={<Clock size={16} />} />
-        <KpiCard label="Sin factura" value="0" color="#EF4444" icon={<AlertTriangle size={16} />} />
+        <KpiCard label="Movimientos" value={bankMovements.length} icon={<ArrowLeftRight size={16} />} />
+        <KpiCard label="Cargos" value={F(totalCargos)} color="#EF4444" icon={<TrendingUp size={16} />} />
+        <KpiCard label="Abonos" value={F(totalAbonos)} color="#57FF9A" icon={<Banknote size={16} />} />
+        <KpiCard label="Conciliados" value={`${conciliados}/${bankMovements.length}`} color="#3B82F6" icon={<CheckCircle size={16} />} />
       </div>
 
-      <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-        <input type="file" ref={fileRef} accept=".csv,.txt" style={{ display: 'none' }} onChange={handleBankUpload} />
-        <Btn size="sm" variant="primary" onClick={() => fileRef.current?.click()}>{processing ? 'Claude procesando...' : <><Upload size={12} /> Subir estado de cuenta</>}</Btn>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16, alignItems: 'center' }}>
+        <input type="file" ref={fileRef} accept=".pdf,.csv,.xlsx,.xls,.txt" style={{ display: 'none' }} onChange={handleBankUpload} />
+        <Btn size="sm" variant="primary" onClick={() => fileRef.current?.click()}>
+          {processing ? '⏳ Procesando...' : <><Upload size={12} /> Subir estado de cuenta</>}
+        </Btn>
+        <span style={{ fontSize: 10, color: '#555' }}>PDF (BBVA/Banorte) · CSV · Excel</span>
+        {status && <span style={{ fontSize: 11, color: status.startsWith('✓') ? '#57FF9A' : status.startsWith('Error') ? '#EF4444' : '#888', marginLeft: 8 }}>{status}</span>}
       </div>
 
-      <EmptyState message="Sube un estado de cuenta (CSV de Banorte o BBVA) para iniciar la conciliacion automatica" />
+      {bankMovements.length === 0 ? (
+        <EmptyState message="Sube un estado de cuenta (PDF de BBVA/Banorte, CSV o Excel) para iniciar la conciliación automática" />
+      ) : (
+        <Table>
+          <thead><tr>
+            <Th>Fecha</Th><Th>Concepto</Th><Th>Beneficiario</Th><Th>Categoría</Th><Th right>Cargo</Th><Th right>Abono</Th>
+          </tr></thead>
+          <tbody>
+            {bankMovements.map(m => {
+              const catColors: Record<string, string> = { nomina: '#C084FC', proveedor: '#F59E0B', cobro_cliente: '#57FF9A', impuestos: '#EF4444', comision: '#6B7280', traspaso: '#3B82F6', prestamo: '#06B6D4', suscripcion: '#EC4899', otro: '#555' }
+              return (
+                <tr key={m.id}>
+                  <Td muted>{m.fecha}</Td>
+                  <Td><span style={{ color: '#ccc', fontSize: 12 }}>{m.concepto}</span></Td>
+                  <Td muted>{m.proyecto_sugerido || '—'}</Td>
+                  <Td><Badge label={m.categoria_sugerida || 'otro'} color={catColors[m.categoria_sugerida || 'otro'] || '#555'} /></Td>
+                  <Td right>{m.tipo === 'cargo' ? <span style={{ color: '#EF4444' }}>{F(m.monto)}</span> : ''}</Td>
+                  <Td right>{m.tipo === 'abono' ? <span style={{ color: '#57FF9A' }}>{F(m.monto)}</span> : ''}</Td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </Table>
+      )}
     </div>
   )
 }
