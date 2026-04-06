@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { SectionHeader, KpiCard, Table, Th, Td, Badge, Btn, EmptyState } from '../components/layout/UI'
 import { F, formatDate } from '../lib/utils'
-import { Users2, Plus, Search, Edit, Trash2, X, CheckCircle, Building2 } from 'lucide-react'
+import { Users2, Plus, Search, Edit, Trash2, X, CheckCircle, Building2, Upload } from 'lucide-react'
+import { ANTHROPIC_API_KEY } from '../lib/config'
 
 interface ClienteFiscal {
   id: string
@@ -88,6 +89,8 @@ export default function Clientes() {
   }, [])
   const [editId, setEditId] = useState<string | null>(null)
   const [search, setSearch] = useState('')
+  const [csfLoading, setCsfLoading] = useState(false)
+  const [csfStatus, setCsfStatus] = useState('')
   const [form, setForm] = useState<Partial<ClienteFiscal>>({
     tipo_persona: 'moral', regimen_fiscal_clave: '601', uso_cfdi_clave: 'G03', activo: true,
   })
@@ -161,6 +164,72 @@ export default function Clientes() {
     setShowForm(false)
   }
 
+  async function handleCSFUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setCsfLoading(true); setCsfStatus('Leyendo PDF...')
+    try {
+      const base64 = await new Promise<string>((res, rej) => {
+        const r = new FileReader()
+        r.onload = () => res((r.result as string).split(',')[1])
+        r.onerror = () => rej(new Error('Error leyendo archivo'))
+        r.readAsDataURL(file)
+      })
+      setCsfStatus('Extrayendo datos con AI...')
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'anthropic-dangerous-direct-browser-access': 'true', 'anthropic-version': '2023-06-01', 'x-api-key': ANTHROPIC_API_KEY },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-20250514', max_tokens: 1500,
+          messages: [{ role: 'user', content: [
+            { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64 } },
+            { type: 'text', text: `Extrae los datos fiscales de esta Constancia de Situación Fiscal del SAT mexicano. Devuelve SOLO un JSON con estos campos exactos, sin markdown:
+{
+  "rfc": "RFC del contribuyente",
+  "razon_social": "Nombre o razón social",
+  "tipo_persona": "moral" o "fisica",
+  "curp": "CURP si es persona física, vacío si moral",
+  "regimen_fiscal_clave": "Clave del régimen fiscal (ej: 601, 612, 626)",
+  "codigo_postal": "Código postal del domicilio fiscal",
+  "calle": "Nombre de la vialidad",
+  "num_exterior": "Número exterior",
+  "num_interior": "Número interior o vacío",
+  "colonia": "Nombre de la colonia",
+  "municipio": "Municipio o delegación",
+  "estado": "Estado"
+}` }
+          ] }],
+        }),
+      })
+      if (!response.ok) { setCsfStatus('Error API'); setCsfLoading(false); return }
+      const data = await response.json()
+      const text = (data.content || []).filter((b: any) => b.type === 'text').map((b: any) => b.text).join('')
+      const jsonMatch = text.match(/\{[\s\S]*\}/)
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0].replace(/```json|```/g, '').trim())
+        setForm(f => ({
+          ...f,
+          rfc: parsed.rfc || f.rfc,
+          razon_social: parsed.razon_social || f.razon_social,
+          tipo_persona: parsed.tipo_persona || f.tipo_persona,
+          curp: parsed.curp || f.curp,
+          regimen_fiscal_clave: parsed.regimen_fiscal_clave || f.regimen_fiscal_clave,
+          codigo_postal: parsed.codigo_postal || f.codigo_postal,
+          calle: parsed.calle || f.calle,
+          num_exterior: parsed.num_exterior || f.num_exterior,
+          num_interior: parsed.num_interior || f.num_interior,
+          colonia: parsed.colonia || f.colonia,
+          municipio: parsed.municipio || f.municipio,
+          estado: parsed.estado || f.estado,
+        }))
+        setShowForm(true)
+        setCsfStatus('✓ Datos extraídos — revisa y guarda')
+      } else { setCsfStatus('No se pudieron extraer los datos') }
+    } catch (err) { setCsfStatus('Error: ' + (err as Error).message) }
+    setCsfLoading(false)
+    e.target.value = '' // reset input
+  }
+
   return (
     <div style={{ padding: '24px 28px', maxWidth: 1200 }}>
       <SectionHeader title="Clientes" subtitle="Datos fiscales de clientes (Constancia de Situacion Fiscal)" />
@@ -176,7 +245,16 @@ export default function Clientes() {
           <Search size={14} style={{ position: 'absolute', left: 10, top: 9, color: '#555' }} />
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar por nombre o RFC..." style={{ ...iS, width: 300, paddingLeft: 32 }} />
         </div>
-        <Btn size="sm" variant="primary" onClick={openNew}><Plus size={12} /> Nuevo cliente</Btn>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          {csfStatus && <span style={{ fontSize: 11, color: csfStatus.startsWith('✓') ? '#57FF9A' : csfStatus.startsWith('Error') ? '#EF4444' : '#888' }}>{csfStatus}</span>}
+          <label style={{ cursor: 'pointer' }}>
+            <input type="file" accept=".pdf" onChange={handleCSFUpload} style={{ display: 'none' }} />
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '6px 12px', background: '#1a1a1a', border: '1px solid #333', borderRadius: 8, color: '#ccc', fontSize: 12, fontFamily: 'inherit', cursor: 'pointer' }}>
+              <Upload size={12} /> {csfLoading ? '⏳ Procesando...' : '📄 Subir CSF'}
+            </span>
+          </label>
+          <Btn size="sm" variant="primary" onClick={openNew}><Plus size={12} /> Nuevo cliente</Btn>
+        </div>
       </div>
 
       <Table>
