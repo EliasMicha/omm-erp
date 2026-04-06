@@ -104,10 +104,40 @@ function NuevoLeadModal({ onClose, onCreated }: { onClose: () => void; onCreated
   })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [clientes, setClientes] = useState<Array<{ id: string; razon_social: string; rfc: string }>>([])
+  const [clientSearch, setClientSearch] = useState('')
+  const [showClientDrop, setShowClientDrop] = useState(false)
+  const [showNewClient, setShowNewClient] = useState(false)
+  const [newClientName, setNewClientName] = useState('')
+  const [newClientRfc, setNewClientRfc] = useState('')
+
+  useEffect(() => {
+    supabase.from('clientes_fiscales').select('id,razon_social,rfc').eq('activo', true).order('razon_social')
+      .then(({ data }) => setClientes(data || []))
+  }, [])
 
   const s = (k: string) => (v: string) => setForm(f => ({ ...f, [k]: v }))
   const toggleNeed = (n: ProjectLine) =>
     setForm(f => ({ ...f, needs: f.needs.includes(n) ? f.needs.filter(x => x !== n) : [...f.needs, n] }))
+
+  const filteredClientes = clientSearch.length >= 1
+    ? clientes.filter(c => c.razon_social.toLowerCase().includes(clientSearch.toLowerCase()) || c.rfc.toLowerCase().includes(clientSearch.toLowerCase()))
+    : clientes.slice(0, 10)
+
+  async function crearClienteInline() {
+    if (!newClientName.trim()) return
+    const { data } = await supabase.from('clientes_fiscales').insert({
+      razon_social: newClientName.trim(), rfc: newClientRfc.trim() || 'XAXX010101000',
+      regimen_fiscal: '601', regimen_fiscal_clave: '601', codigo_postal: '00000',
+      uso_cfdi: 'G03', uso_cfdi_clave: 'G03', tipo_persona: 'moral', activo: true,
+    }).select().single()
+    if (data) {
+      setClientes(prev => [...prev, data])
+      setForm(f => ({ ...f, company: data.razon_social }))
+      setClientSearch(data.razon_social)
+    }
+    setShowNewClient(false); setNewClientName(''); setNewClientRfc('')
+  }
 
   async function crear() {
     if (!form.name.trim()) { setError('El nombre es requerido'); return }
@@ -133,7 +163,47 @@ function NuevoLeadModal({ onClose, onCreated }: { onClose: () => void; onCreated
         </div>
         <div style={{ display: 'grid', gap: 14 }}>
           <Field label="Nombre / Proyecto *" value={form.name} onChange={s('name')} placeholder="ej. Torre Reforma 222 — Lobby" />
-          <Field label="Empresa / Cliente" value={form.company} onChange={s('company')} placeholder="ej. Grupo Desarrollador XYZ" />
+
+          {/* Cliente with dropdown + create inline */}
+          <label style={{ fontSize: 11, color: '#555', textTransform: 'uppercase' as const, letterSpacing: '0.06em' }}>
+            Empresa / Cliente
+            <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
+              <div style={{ position: 'relative' as const, flex: 1 }}>
+                <input value={clientSearch || form.company} onChange={e => { setClientSearch(e.target.value); setForm(f => ({ ...f, company: e.target.value })); setShowClientDrop(true) }}
+                  onFocus={() => setShowClientDrop(true)} placeholder="Buscar cliente..."
+                  style={{ width: '100%', padding: '8px 10px', background: '#1e1e1e', border: '1px solid #333', borderRadius: 8, color: '#fff', fontSize: 13, fontFamily: 'inherit', boxSizing: 'border-box' as const }} />
+                {showClientDrop && filteredClientes.length > 0 && (
+                  <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#1a1a1a', border: '1px solid #333', borderRadius: 8, marginTop: 2, maxHeight: 160, overflowY: 'auto', zIndex: 10 }}>
+                    {filteredClientes.map(c => (
+                      <div key={c.id} onClick={() => { setForm(f => ({ ...f, company: c.razon_social })); setClientSearch(c.razon_social); setShowClientDrop(false) }}
+                        style={{ padding: '7px 10px', cursor: 'pointer', fontSize: 12, color: '#ccc', borderBottom: '1px solid #222' }}
+                        onMouseEnter={e => { e.currentTarget.style.background = '#222' }}
+                        onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}>
+                        {c.razon_social} <span style={{ fontSize: 10, color: '#555' }}>{c.rfc}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <Btn size="sm" onClick={() => setShowNewClient(true)}>+ Nuevo</Btn>
+            </div>
+            {/* Inline new client mini form */}
+            {showNewClient && (
+              <div style={{ marginTop: 8, padding: 10, background: '#0e0e0e', border: '1px solid #222', borderRadius: 8 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 8 }}>
+                  <input value={newClientName} onChange={e => setNewClientName(e.target.value)} placeholder="Razón social"
+                    style={{ padding: '6px 8px', background: '#1a1a1a', border: '1px solid #333', borderRadius: 6, color: '#fff', fontSize: 12, fontFamily: 'inherit' }} />
+                  <input value={newClientRfc} onChange={e => setNewClientRfc(e.target.value)} placeholder="RFC"
+                    style={{ padding: '6px 8px', background: '#1a1a1a', border: '1px solid #333', borderRadius: 6, color: '#fff', fontSize: 12, fontFamily: 'inherit' }} />
+                </div>
+                <div style={{ display: 'flex', gap: 6, marginTop: 6, justifyContent: 'flex-end' }}>
+                  <Btn size="sm" onClick={() => setShowNewClient(false)}>Cancelar</Btn>
+                  <Btn size="sm" variant="primary" onClick={crearClienteInline}>Crear cliente</Btn>
+                </div>
+              </div>
+            )}
+          </label>
+
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <Field label="Contacto" value={form.contact_name} onChange={s('contact_name')} />
             <Field label="Telefono" value={form.contact_phone} onChange={s('contact_phone')} placeholder="+52 55..." />
