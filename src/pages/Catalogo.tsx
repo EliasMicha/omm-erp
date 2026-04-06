@@ -55,6 +55,7 @@ function Fld({ label, children, span }: { label: string; children: React.ReactNo
 }
 
 export default function Catalogo() {
+  const [tab, setTab] = useState<'productos' | 'proveedores'>('productos')
   const [products, setProducts] = useState<Product[]>([])
   const [showForm, setShowForm] = useState(false)
   const [editId, setEditId] = useState<string | null>(null)
@@ -176,8 +177,31 @@ export default function Catalogo() {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 20 }}>
         <KpiCard label="Total productos" value={totalProducts} icon={<Package size={16} />} />
         <KpiCard label="Activos" value={activeProducts} color="#57FF9A" icon={<Layers size={16} />} />
-        <KpiCard label="Sistemas" value={new Set(products.map(p => p.system).filter(Boolean)).size} color="#3B82F6" icon={<Tag size={16} />} />
+        <KpiCard label="Proveedores" value={suppliers.length} color="#3B82F6" icon={<Tag size={16} />} />
       </div>
+
+      {/* Tabs */}
+      <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid #222', marginBottom: 20 }}>
+        {([
+          { key: 'productos' as const, label: 'Productos' },
+          { key: 'proveedores' as const, label: 'Proveedores' },
+        ]).map(({ key, label }) => {
+          const active = tab === key
+          return (
+            <button key={key} onClick={() => setTab(key)} style={{
+              padding: '8px 14px', fontSize: 12, fontWeight: active ? 600 : 400,
+              color: active ? '#57FF9A' : '#666',
+              background: active ? 'rgba(87,255,154,0.08)' : 'transparent',
+              border: 'none', borderBottom: active ? '2px solid #57FF9A' : '2px solid transparent',
+              cursor: 'pointer', fontFamily: 'inherit', borderRadius: '8px 8px 0 0',
+            }}>{label}</button>
+          )
+        })}
+      </div>
+
+      {tab === 'proveedores' && <TabProveedores suppliers={suppliers} setSuppliers={setSuppliers} />}
+
+      {tab === 'productos' && (<>
 
       {importResult && (
         <div style={{ background: '#141414', border: '1px solid #57FF9A33', borderRadius: 10, padding: '10px 16px', marginBottom: 12, fontSize: 12, color: '#57FF9A', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -295,7 +319,159 @@ export default function Catalogo() {
           </div>
         </div>
       )}
+      </>)}
       <style>{`@keyframes spin { from { transform: rotate(0deg) } to { transform: rotate(360deg) } }`}</style>
+    </div>
+  )
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   TAB PROVEEDORES
+   ═══════════════════════════════════════════════════════════════════ */
+
+interface SupplierFull {
+  id: string; name: string; rfc?: string; contacto?: string; telefono?: string; email?: string
+  direccion?: string; notas?: string; is_active: boolean; sistemas?: string[]
+}
+
+function TabProveedores({ suppliers, setSuppliers }: { suppliers: Supplier[]; setSuppliers: (s: Supplier[]) => void }) {
+  const [proveedores, setProveedores] = useState<SupplierFull[]>([])
+  const [showForm, setShowForm] = useState(false)
+  const [editId, setEditId] = useState<string | null>(null)
+  const [search, setSearch] = useState('')
+  const [form, setForm] = useState<Partial<SupplierFull>>({ name: '', is_active: true, sistemas: [] })
+
+  useEffect(() => {
+    supabase.from('suppliers').select('*').order('name').then(({ data }) => {
+      if (data) setProveedores(data.map((s: any) => ({
+        id: s.id, name: s.name || '', rfc: s.rfc || '', contacto: s.contacto || '',
+        telefono: s.telefono || '', email: s.email || '', direccion: s.direccion || '',
+        notas: s.notas || '', is_active: s.is_active !== false,
+        sistemas: s.sistemas || [],
+      })))
+    })
+  }, [])
+
+  const filtered = proveedores.filter(p =>
+    !search || p.name.toLowerCase().includes(search.toLowerCase()) ||
+    (p.rfc || '').toLowerCase().includes(search.toLowerCase()) ||
+    (p.contacto || '').toLowerCase().includes(search.toLowerCase())
+  )
+
+  const openNew = () => {
+    setEditId(null)
+    setForm({ name: '', rfc: '', contacto: '', telefono: '', email: '', direccion: '', notas: '', is_active: true, sistemas: [] })
+    setShowForm(true)
+  }
+  const openEdit = (p: SupplierFull) => { setEditId(p.id); setForm({ ...p }); setShowForm(true) }
+
+  const toggleSistema = (s: string) => {
+    const cur = form.sistemas || []
+    setForm({ ...form, sistemas: cur.includes(s) ? cur.filter(x => x !== s) : [...cur, s] })
+  }
+
+  const save = async () => {
+    if (!form.name?.trim()) return
+    const dbRow = {
+      name: form.name!.trim(), rfc: form.rfc || null, contacto: form.contacto || null,
+      telefono: form.telefono || null, email: form.email || null, direccion: form.direccion || null,
+      notas: form.notas || null, is_active: form.is_active !== false, sistemas: form.sistemas || [],
+    }
+    const stateRow: SupplierFull = {
+      id: editId || '', name: dbRow.name, rfc: form.rfc || '', contacto: form.contacto || '',
+      telefono: form.telefono || '', email: form.email || '', direccion: form.direccion || '',
+      notas: form.notas || '', is_active: dbRow.is_active, sistemas: dbRow.sistemas,
+    }
+    if (editId) {
+      await supabase.from('suppliers').update(dbRow).eq('id', editId)
+      setProveedores(prev => prev.map(p => p.id === editId ? { ...stateRow, id: editId } : p))
+    } else {
+      const { data } = await supabase.from('suppliers').insert(dbRow).select().single()
+      if (data) {
+        setProveedores(prev => [{ ...stateRow, id: data.id }, ...prev])
+        setSuppliers([...suppliers, { id: data.id, name: dbRow.name }])
+      }
+    }
+    setShowForm(false)
+  }
+
+  const SYSTEMS = ['CCTV', 'Audio', 'Redes', 'Control de iluminacion', 'Control de acceso', 'Electrico', 'Iluminacion', 'Cortinas', 'General']
+  const fS: React.CSSProperties = { width: '100%', padding: '8px 12px', background: '#111', border: '1px solid #333', borderRadius: 8, color: '#fff', fontSize: 13, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' as const }
+
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <div style={{ position: 'relative' }}>
+          <Search size={14} style={{ position: 'absolute', left: 10, top: 9, color: '#555' }} />
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar proveedor..." style={{ ...fS, width: 280, paddingLeft: 32 }} />
+        </div>
+        <Btn size="sm" variant="primary" onClick={openNew}><Plus size={12} /> Nuevo proveedor</Btn>
+      </div>
+
+      {filtered.length === 0 ? <EmptyState message="No hay proveedores registrados" /> : (
+        <Table>
+          <thead><tr>
+            <Th>Proveedor</Th><Th>RFC</Th><Th>Contacto</Th><Th>Teléfono</Th><Th>Email</Th><Th>Sistemas</Th><Th>Estado</Th><Th></Th>
+          </tr></thead>
+          <tbody>
+            {filtered.map(p => (
+              <tr key={p.id}>
+                <Td><span style={{ fontWeight: 600, color: '#fff' }}>{p.name}</span></Td>
+                <Td muted>{p.rfc || '—'}</Td>
+                <Td muted>{p.contacto || '—'}</Td>
+                <Td muted>{p.telefono || '—'}</Td>
+                <Td muted>{p.email || '—'}</Td>
+                <Td>
+                  <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
+                    {(p.sistemas || []).map(s => <Badge key={s} label={s.length > 10 ? s.substring(0, 8) + '..' : s} color="#3B82F6" />)}
+                  </div>
+                </Td>
+                <Td><Badge label={p.is_active ? 'Activo' : 'Inactivo'} color={p.is_active ? '#57FF9A' : '#6B7280'} /></Td>
+                <Td><button onClick={() => openEdit(p)} style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer' }}><Edit size={14} /></button></Td>
+              </tr>
+            ))}
+          </tbody>
+        </Table>
+      )}
+
+      {/* Form modal */}
+      {showForm && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setShowForm(false)}>
+          <div style={{ background: '#141414', border: '1px solid #222', borderRadius: 12, padding: 24, width: 520, maxHeight: '80vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
+              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#fff' }}>{editId ? 'Editar proveedor' : 'Nuevo proveedor'}</h3>
+              <button onClick={() => setShowForm(false)} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer' }}><X size={16} /></button>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <Fld label="Nombre *"><input style={fS} value={form.name || ''} onChange={e => setForm({ ...form, name: e.target.value })} /></Fld>
+              <Fld label="RFC"><input style={fS} value={form.rfc || ''} onChange={e => setForm({ ...form, rfc: e.target.value.toUpperCase() })} placeholder="XAXX010101000" /></Fld>
+              <Fld label="Contacto"><input style={fS} value={form.contacto || ''} onChange={e => setForm({ ...form, contacto: e.target.value })} /></Fld>
+              <Fld label="Teléfono"><input style={fS} value={form.telefono || ''} onChange={e => setForm({ ...form, telefono: e.target.value })} /></Fld>
+              <Fld label="Email" span><input type="email" style={fS} value={form.email || ''} onChange={e => setForm({ ...form, email: e.target.value })} /></Fld>
+              <Fld label="Dirección" span><input style={fS} value={form.direccion || ''} onChange={e => setForm({ ...form, direccion: e.target.value })} /></Fld>
+              <Fld label="Sistemas que provee" span>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  {SYSTEMS.map(s => {
+                    const sel = (form.sistemas || []).includes(s)
+                    return (
+                      <button key={s} onClick={() => toggleSistema(s)} style={{
+                        padding: '4px 10px', fontSize: 11, borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit',
+                        background: sel ? 'rgba(59,130,246,0.15)' : '#0a0a0a',
+                        border: `1px solid ${sel ? '#3B82F6' : '#333'}`, color: sel ? '#3B82F6' : '#666',
+                      }}>{s}</button>
+                    )
+                  })}
+                </div>
+              </Fld>
+              <Fld label="Notas" span><textarea style={{ ...fS, resize: 'vertical' }} rows={2} value={form.notas || ''} onChange={e => setForm({ ...form, notas: e.target.value })} /></Fld>
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginTop: 16, justifyContent: 'flex-end' }}>
+              <Btn size="sm" variant="default" onClick={() => setShowForm(false)}>Cancelar</Btn>
+              <Btn size="sm" variant="primary" onClick={save}>{editId ? 'Guardar' : 'Crear proveedor'}</Btn>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
