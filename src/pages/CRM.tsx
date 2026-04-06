@@ -121,7 +121,7 @@ function NuevoLeadModal({ onClose, onCreated }: { onClose: () => void; onCreated
     setForm(f => ({ ...f, needs: f.needs.includes(n) ? f.needs.filter(x => x !== n) : [...f.needs, n] }))
 
   const filteredClientes = clientSearch.length >= 1
-    ? clientes.filter(c => c.razon_social.toLowerCase().includes(clientSearch.toLowerCase()) || c.rfc.toLowerCase().includes(clientSearch.toLowerCase()))
+    ? clientes.filter(c => c.razon_social.toLowerCase().includes(clientSearch.toLowerCase()) || c.rfc.toLowerCase().includes(clientSearch.toLowerCase())).slice(0, 10)
     : clientes.slice(0, 10)
 
   async function crearClienteInline() {
@@ -169,17 +169,23 @@ function NuevoLeadModal({ onClose, onCreated }: { onClose: () => void; onCreated
             Empresa / Cliente
             <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
               <div style={{ position: 'relative' as const, flex: 1 }}>
-                <input value={clientSearch || form.company} onChange={e => { setClientSearch(e.target.value); setForm(f => ({ ...f, company: e.target.value })); setShowClientDrop(true) }}
-                  onFocus={() => setShowClientDrop(true)} placeholder="Buscar cliente..."
-                  style={{ width: '100%', padding: '8px 10px', background: '#1e1e1e', border: '1px solid #333', borderRadius: 8, color: '#fff', fontSize: 13, fontFamily: 'inherit', boxSizing: 'border-box' as const }} />
-                {showClientDrop && filteredClientes.length > 0 && (
-                  <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#1a1a1a', border: '1px solid #333', borderRadius: 8, marginTop: 2, maxHeight: 160, overflowY: 'auto', zIndex: 10 }}>
-                    {filteredClientes.map(c => (
-                      <div key={c.id} onClick={() => { setForm(f => ({ ...f, company: c.razon_social })); setClientSearch(c.razon_social); setShowClientDrop(false) }}
-                        style={{ padding: '7px 10px', cursor: 'pointer', fontSize: 12, color: '#ccc', borderBottom: '1px solid #222' }}
+                <input value={clientSearch} onChange={e => { setClientSearch(e.target.value); setForm(f => ({ ...f, company: e.target.value })) }}
+                  onFocus={() => setShowClientDrop(true)}
+                  onBlur={() => setTimeout(() => setShowClientDrop(false), 200)}
+                  placeholder="Escribe para buscar cliente..."
+                  style={{ width: '100%', padding: '8px 10px', background: '#1e1e1e', border: '1px solid ' + (showClientDrop ? '#57FF9A' : '#333'), borderRadius: 8, color: '#fff', fontSize: 13, fontFamily: 'inherit', boxSizing: 'border-box' as const }} />
+                {showClientDrop && (
+                  <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#1a1a1a', border: '1px solid #333', borderRadius: 8, marginTop: 2, maxHeight: 180, overflowY: 'auto', zIndex: 10 }}>
+                    {filteredClientes.length === 0 ? (
+                      <div style={{ padding: '10px', fontSize: 11, color: '#555', textAlign: 'center' }}>Sin resultados — usa "+ Nuevo" para crear</div>
+                    ) : filteredClientes.map(c => (
+                      <div key={c.id} onMouseDown={e => e.preventDefault()}
+                        onClick={() => { setForm(f => ({ ...f, company: c.razon_social })); setClientSearch(c.razon_social); setShowClientDrop(false) }}
+                        style={{ padding: '8px 10px', cursor: 'pointer', fontSize: 12, color: '#ccc', borderBottom: '1px solid #222' }}
                         onMouseEnter={e => { e.currentTarget.style.background = '#222' }}
                         onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}>
-                        {c.razon_social} <span style={{ fontSize: 10, color: '#555' }}>{c.rfc}</span>
+                        <div style={{ fontWeight: 500 }}>{c.razon_social}</div>
+                        <div style={{ fontSize: 10, color: '#555' }}>{c.rfc}</div>
                       </div>
                     ))}
                   </div>
