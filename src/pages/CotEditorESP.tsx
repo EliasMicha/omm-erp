@@ -983,8 +983,9 @@ function EditCotModal({ cotId, name, clientName, projectId, onClose, onSaved }: 
   cotId: string; name: string; clientName: string; projectId: string | null
   onClose: () => void; onSaved: (name: string, client: string, projId: string | null, projName: string) => void
 }) {
-  const [form, setForm] = useState({ name, client_name: clientName, project_id: projectId || '' })
+  const [form, setForm] = useState({ name, client_name: clientName, project_id: projectId || '', lead_id: '' })
   const [projects, setProjects] = useState<Array<{ id: string; name: string; client_name: string }>>([])
+  const [leads, setLeads] = useState<Array<{ id: string; name: string; company: string }>>([])
   const [clientes, setClientes] = useState<Array<{ id: string; razon_social: string; rfc: string }>>([])
   const [clientSearch, setClientSearch] = useState(clientName)
   const [showDrop, setShowDrop] = useState(false)
@@ -993,15 +994,30 @@ function EditCotModal({ cotId, name, clientName, projectId, onClose, onSaved }: 
   useEffect(() => {
     Promise.all([
       supabase.from('projects').select('id,name,client_name').eq('status', 'activo'),
+      supabase.from('leads').select('id,name,company').order('name'),
       supabase.from('clientes_fiscales').select('id,razon_social,rfc').eq('activo', true).order('razon_social'),
-    ]).then(([{ data: p }, { data: c }]) => { setProjects(p || []); setClientes(c || []) })
+      supabase.from('quotations').select('notes').eq('id', cotId).single(),
+    ]).then(([{ data: p }, { data: l }, { data: c }, { data: q }]) => {
+      setProjects(p || []); setLeads(l || []); setClientes(c || [])
+      try { const meta = JSON.parse(q?.notes || '{}'); if (meta.lead_id) setForm(f => ({ ...f, lead_id: meta.lead_id })) } catch {}
+    })
   }, [])
 
   async function save() {
     setSaving(true)
+    // Update quotation fields
     await supabase.from('quotations').update({
       name: form.name, client_name: form.client_name, project_id: form.project_id || null,
     }).eq('id', cotId)
+    // Update lead_id in notes (merge with existing notes)
+    const { data: current } = await supabase.from('quotations').select('notes').eq('id', cotId).single()
+    let meta: any = {}
+    try { meta = JSON.parse(current?.notes || '{}') } catch {}
+    const selectedLead = leads.find(l => l.id === form.lead_id)
+    meta.lead_id = form.lead_id || null
+    meta.lead_name = selectedLead?.name || ''
+    await supabase.from('quotations').update({ notes: JSON.stringify(meta) }).eq('id', cotId)
+
     const proj = projects.find(p => p.id === form.project_id)
     onSaved(form.name, form.client_name, form.project_id || null, proj?.name || '')
     setSaving(false)
@@ -1022,8 +1038,22 @@ function EditCotModal({ cotId, name, clientName, projectId, onClose, onSaved }: 
         </div>
         <div style={{ display: 'grid', gap: 12 }}>
           <label style={labelStyle}>Nombre<input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} style={inputStyle} /></label>
+
+          {/* Lead — the master entity */}
           <label style={labelStyle}>
-            Lead / Cliente
+            Lead
+            <select value={form.lead_id} onChange={e => {
+              const lead = leads.find(l => l.id === e.target.value)
+              setForm(f => ({ ...f, lead_id: e.target.value, client_name: lead?.name || f.client_name }))
+            }} style={inputStyle}>
+              <option value="">-- Seleccionar lead --</option>
+              {leads.map(l => <option key={l.id} value={l.id}>{l.name}{l.company ? ' | ' + l.company : ''}</option>)}
+            </select>
+          </label>
+
+          {/* Cliente fiscal */}
+          <label style={labelStyle}>
+            Cliente (fiscal)
             <div style={{ position: 'relative' }}>
               <input value={clientSearch} onChange={e => { setClientSearch(e.target.value); setForm(f => ({ ...f, client_name: e.target.value })); setShowDrop(true) }}
                 onFocus={() => setShowDrop(true)} style={inputStyle} />
@@ -1041,8 +1071,10 @@ function EditCotModal({ cotId, name, clientName, projectId, onClose, onSaved }: 
               )}
             </div>
           </label>
+
+          {/* Proyecto */}
           <label style={labelStyle}>
-            Proyecto
+            Proyecto (opcional — se asigna después)
             <select value={form.project_id} onChange={e => setForm(f => ({ ...f, project_id: e.target.value }))} style={inputStyle}>
               <option value="">-- Sin proyecto --</option>
               {projects.map(p => <option key={p.id} value={p.id}>{p.name} | {p.client_name}</option>)}

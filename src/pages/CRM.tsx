@@ -420,14 +420,22 @@ export default function CRM() {
     setLoading(true)
     Promise.all([
       supabase.from('leads').select('*').order('updated_at', { ascending: false }),
-      supabase.from('quotations').select('id,client_name,stage,total'),
+      supabase.from('quotations').select('id,client_name,stage,total,notes'),
     ]).then(([{ data: ld }, { data: qt }]) => {
       setLeads(ld || [])
-      // Build totals per lead name
+      // Build totals per lead — match by lead_id in notes or by name
       const totals: Record<string, { cotizado: number; vendido: number }> = {}
       if (ld && qt) {
         for (const lead of ld) {
-          const leadQuotes = qt.filter(q => q.client_name && lead.name && q.client_name.toLowerCase().includes(lead.name.toLowerCase()))
+          const leadQuotes = qt.filter(q => {
+            // First try lead_id from notes
+            try {
+              const meta = JSON.parse(q.notes || '{}')
+              if (meta.lead_id === lead.id) return true
+            } catch {}
+            // Fallback: match by name
+            return q.client_name && lead.name && q.client_name.toLowerCase().includes(lead.name.toLowerCase())
+          })
           const cotizado = leadQuotes.reduce((s, q) => s + (q.total || 0), 0)
           const vendido = leadQuotes.filter(q => q.stage === 'contrato').reduce((s, q) => s + (q.total || 0), 0)
           if (cotizado > 0 || vendido > 0) totals[lead.id] = { cotizado, vendido }
