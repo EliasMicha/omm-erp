@@ -1219,7 +1219,6 @@ function TabInstaladores({ instaladores, setInstaladores, showNew, setShowNew }:
 function TabPlaneacion({ obras, instaladores }: { obras: ObraData[]; instaladores: Instalador[] }) {
   const [weekOffset, setWeekOffset] = useState(0)
   const [processing, setProcessing] = useState(false)
-  const [aiSuggestion, setAiSuggestion] = useState<string | null>(null)
   const [assignments, setAssignments] = useState<Map<string, Map<number, { obra: string; tarea: string; obraColor: string }[]>>>(new Map())
   const [selectedCell, setSelectedCell] = useState<{ instId: string; dayIdx: number } | null>(null)
   const [newTask, setNewTask] = useState({ obra_id: '', tarea: '' })
@@ -1283,7 +1282,6 @@ function TabPlaneacion({ obras, instaladores }: { obras: ObraData[]; instaladore
   // AI suggestion
   const sugerirConAI = async () => {
     setProcessing(true)
-    setAiSuggestion(null)
 
     const context = obrasActivas.map((o, i) => {
       const pending = o.actividades.filter(a => a.status !== 'completada')
@@ -1315,10 +1313,8 @@ Tu trabajo es planear la semana de los instaladores considerando:
 5. Actividades que están más retrasadas tienen prioridad
 6. La planeación es de lunes a sábado
 
-Responde con un JSON y luego una explicación. El JSON debe ser:
-{"plan": [{"instalador": "nombre", "dia": "Lun|Mar|Mié|Jue|Vie|Sáb", "obra": "nombre obra", "tarea": "qué hacer"}]}
-
-Después del JSON, escribe un párrafo con el razonamiento y recomendaciones.`,
+Responde SOLO con un JSON, sin markdown, sin explicación:
+{"plan": [{"instalador": "nombre", "dia": "Lun|Mar|Mié|Jue|Vie|Sáb", "obra": "nombre obra", "tarea": "qué hacer"}]}`,
           messages: [{ role: 'user', content: `Semana: ${weekLabel}\n\nOBRAS ACTIVAS:\n${context}\n\nINSTALADORES:\n${instContext}\n\nGenera la planeación semanal óptima.` }],
         }),
       })
@@ -1355,16 +1351,11 @@ Después del JSON, escribe un párrafo con el razonamiento y recomendaciones.`,
 
               setAssignments(newAssignments)
             }
-          } catch (_e) { /* parse error, still show text */ }
+          } catch (_e) { /* parse error */ }
         }
-
-        // Extract explanation (everything after JSON)
-        const explanation = text.replace(/\{[\s\S]*?"plan"[\s\S]*?\}/, '').replace(/```json|```/g, '').trim()
-        if (explanation) setAiSuggestion(explanation)
       }
     } catch (err) {
       console.error('AI planning error:', err)
-      setAiSuggestion('Error al generar sugerencia. Intenta de nuevo.')
     }
     setProcessing(false)
   }
@@ -1384,17 +1375,6 @@ Después del JSON, escribe un párrafo con el razonamiento y recomendaciones.`,
           {processing ? <><Loader2 size={12} /> Generando...</> : <>🤖 Sugerir con AI</>}
         </Btn>
       </div>
-
-      {/* AI suggestion */}
-      {aiSuggestion && (
-        <div style={{ ...cardStyle, borderColor: 'rgba(59,130,246,0.3)', background: 'rgba(59,130,246,0.03)', marginBottom: 16 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: 6 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: '#3B82F6' }}>🤖 Razonamiento AI</div>
-            <button onClick={() => setAiSuggestion(null)} style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer' }}><X size={14} /></button>
-          </div>
-          <div style={{ fontSize: 11, color: '#aaa', lineHeight: 1.6 }}>{aiSuggestion}</div>
-        </div>
-      )}
 
       {/* Obra legend */}
       {obrasActivas.length > 0 && (
