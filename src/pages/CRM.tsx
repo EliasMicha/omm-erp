@@ -346,8 +346,21 @@ function KanbanView({ leads, onOpen }: { leads: Lead[]; onOpen: (l: Lead) => voi
 }
 
 // ─── Lista ─────────────────────────────────────────────────────────────────
-function ListView({ leads, onOpen, quoteTotals }: { leads: Lead[]; onOpen: (l: Lead) => void; quoteTotals: Record<string, { cotizado: number; vendido: number }> }) {
+function ListView({ leads, onOpen, quoteTotals, displayCur, tc }: { leads: Lead[]; onOpen: (l: Lead) => void; quoteTotals: Record<string, { cotizado: number; vendido: number; cotCurrency: string }>; displayCur: string; tc: number }) {
   if (leads.length === 0) return <EmptyState message="Sin leads en este filtro" />
+
+  // Convert value to display currency
+  // estimated_value is always MXN, cotizado/vendido are in USD (from quotes)
+  function toDisplay(amount: number, fromCur: string): string {
+    if (!amount) return '—'
+    let converted = amount
+    if (fromCur !== displayCur) {
+      converted = fromCur === 'USD' ? amount * tc : amount / tc
+    }
+    const prefix = displayCur === 'USD' ? 'US$' : '$'
+    return prefix + Math.round(converted).toLocaleString()
+  }
+
   return (
     <Table>
       <thead>
@@ -379,21 +392,9 @@ function ListView({ leads, onOpen, quoteTotals }: { leads: Lead[]; onOpen: (l: L
                 </div>
               </Td>
               <Td><Badge label={sCfg.label} color={sCfg.color} /></Td>
-              <Td right>
-                {lead.estimated_value
-                  ? <span style={{ fontWeight: 500, color: '#888' }}>{F(lead.estimated_value)}</span>
-                  : <span style={{ color: '#333' }}>—</span>}
-              </Td>
-              <Td right>
-                {qt?.cotizado
-                  ? <span style={{ fontWeight: 600, color: '#C084FC' }}>{F(qt.cotizado)}</span>
-                  : <span style={{ color: '#333' }}>—</span>}
-              </Td>
-              <Td right>
-                {qt?.vendido
-                  ? <span style={{ fontWeight: 700, color: '#57FF9A' }}>{F(qt.vendido)}</span>
-                  : <span style={{ color: '#333' }}>—</span>}
-              </Td>
+              <Td right><span style={{ fontWeight: 500, color: '#888' }}>{toDisplay(lead.estimated_value || 0, 'MXN')}</span></Td>
+              <Td right><span style={{ fontWeight: 600, color: '#C084FC' }}>{qt?.cotizado ? toDisplay(qt.cotizado, qt.cotCurrency || 'USD') : '—'}</span></Td>
+              <Td right><span style={{ fontWeight: 700, color: '#57FF9A' }}>{qt?.vendido ? toDisplay(qt.vendido, qt.cotCurrency || 'USD') : '—'}</span></Td>
             </tr>
           )
         })}
@@ -414,8 +415,9 @@ export default function CRM() {
   const [aiQuery, setAiQuery] = useState('')
   const [aiLoading, setAiLoading] = useState(false)
   const [aiFilter, setAiFilter] = useState<Partial<{ status: LeadStatus; origin: LeadOrigin; minValue: number; text: string }> | null>(null)
-  const [quoteTotals, setQuoteTotals] = useState<Record<string, { cotizado: number; vendido: number }>>({})
-
+  const [quoteTotals, setQuoteTotals] = useState<Record<string, { cotizado: number; vendido: number; cotCurrency: string }>>({})
+  const [displayCur, setDisplayCur] = useState<'USD' | 'MXN'>('MXN')
+  const [tc, setTc] = useState(20.5)
   function load() {
     setLoading(true)
     Promise.all([
@@ -424,21 +426,22 @@ export default function CRM() {
     ]).then(([{ data: ld }, { data: qt }]) => {
       setLeads(ld || [])
       // Build totals per lead — match by lead_id in notes or by name
-      const totals: Record<string, { cotizado: number; vendido: number }> = {}
+      const totals: Record<string, { cotizado: number; vendido: number; cotCurrency: string }> = {}
       if (ld && qt) {
         for (const lead of ld) {
           const leadQuotes = qt.filter(q => {
-            // First try lead_id from notes
             try {
               const meta = JSON.parse(q.notes || '{}')
               if (meta.lead_id === lead.id) return true
             } catch {}
-            // Fallback: match by name
             return q.client_name && lead.name && q.client_name.toLowerCase().includes(lead.name.toLowerCase())
           })
-          const cotizado = leadQuotes.reduce((s, q) => s + (q.total || 0), 0)
-          const vendido = leadQuotes.filter(q => q.stage === 'contrato').reduce((s, q) => s + (q.total || 0), 0)
-          if (cotizado > 0 || vendido > 0) totals[lead.id] = { cotizado, vendido }
+          let cotizado = 0, vendido = 0
+          leadQuotes.forEach(q => {
+            cotizado += q.total || 0
+            if (q.stage === 'contrato') vendido += q.total || 0
+          })
+          if (cotizado > 0 || vendido > 0) totals[lead.id] = { cotizado, vendido, cotCurrency: 'USD' }
         }
       }
       setQuoteTotals(totals)
@@ -513,7 +516,7 @@ Devuelve solo el JSON, sin explicaciones. Si no hay filtro para un campo, omitel
       />
 
       {/* KPIs */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 12 }}>
         {[
           { label: 'Pipeline activo', value: activePipeline.length.toString(), sub: F(pipelineValue), color: '#3B82F6' },
           { label: 'Ganados', value: ganados.toString(), sub: 'total historico', color: '#57FF9A' },
@@ -526,6 +529,23 @@ Devuelve solo el JSON, sin explicaciones. Si no hay filtro para un campo, omitel
             <div style={{ fontSize: 10, color: '#444', marginTop: 2 }}>{k.sub}</div>
           </div>
         ))}
+      </div>
+
+      {/* Currency toggle */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16, padding: '8px 12px', background: '#0e0e0e', borderRadius: 8, border: '1px solid #1e1e1e' }}>
+        <span style={{ fontSize: 10, color: '#555', fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: '0.06em' }}>Ver en:</span>
+        {(['MXN', 'USD'] as const).map(cur => (
+          <button key={cur} onClick={() => setDisplayCur(cur)} style={{
+            padding: '4px 12px', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+            border: '1px solid ' + (displayCur === cur ? (cur === 'USD' ? '#06B6D4' : '#F59E0B') : '#333'),
+            background: displayCur === cur ? (cur === 'USD' ? '#06B6D422' : '#F59E0B22') : 'transparent',
+            color: displayCur === cur ? (cur === 'USD' ? '#06B6D4' : '#F59E0B') : '#555',
+          }}>{cur === 'USD' ? '🇺🇸 USD' : '🇲🇽 MXN'}</button>
+        ))}
+        <span style={{ fontSize: 10, color: '#555', marginLeft: 8 }}>TC:</span>
+        <input type="number" value={tc} step={0.1} onChange={e => setTc(parseFloat(e.target.value) || 20)}
+          style={{ width: 55, padding: '3px 6px', background: '#1a1a1a', border: '1px solid #333', borderRadius: 4, color: '#ccc', fontSize: 11, fontFamily: 'inherit', textAlign: 'right' }} />
+        <span style={{ fontSize: 10, color: '#444' }}>Estimados en MXN · Cotizados en USD</span>
       </div>
 
       {/* Busqueda normal + AI */}
@@ -582,7 +602,7 @@ Devuelve solo el JSON, sin explicaciones. Si no hay filtro para un campo, omitel
       {loading ? <Loading /> : (
         viewMode === 'kanban'
           ? <KanbanView leads={filtered} onOpen={setSelected} />
-          : <ListView leads={filtered} onOpen={setSelected} quoteTotals={quoteTotals} />
+          : <ListView leads={filtered} onOpen={setSelected} quoteTotals={quoteTotals} displayCur={displayCur} tc={tc} />
       )}
 
       {/* Seccion ganados/perdidos/pausados en kanban */}
@@ -595,7 +615,7 @@ Devuelve solo el JSON, sin explicaciones. Si no hay filtro para un campo, omitel
             })}
           </div>
           {leads.filter(l => ['ganado', 'perdido', 'pausado'].includes(l.status)).length > 0 && (
-            <ListView leads={leads.filter(l => ['ganado', 'perdido', 'pausado'].includes(l.status))} onOpen={setSelected} quoteTotals={quoteTotals} />
+            <ListView leads={leads.filter(l => ['ganado', 'perdido', 'pausado'].includes(l.status))} onOpen={setSelected} quoteTotals={quoteTotals} displayCur={displayCur} tc={tc} />
           )}
         </div>
       )}
