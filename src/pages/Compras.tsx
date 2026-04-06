@@ -521,51 +521,75 @@ function NuevaPOModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
 //  PO FROM QUOTATION
 // ═══════════════════════════════════════════════════════════════════════════════
 function POFromQuoteModal({ onClose, onCreated }: { onClose: () => void; onCreated: (id: string) => void }) {
+  const [leads, setLeads] = useState<any[]>([])
   const [quotations, setQuotations] = useState<any[]>([])
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
+  const [selectedLead, setSelectedLead] = useState('')
   const [selectedQuote, setSelectedQuote] = useState('')
   const [selectedSupplier, setSelectedSupplier] = useState('')
   const [selectedPhase, setSelectedPhase] = useState('inicio' as PurchasePhase)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [previewItems, setPreviewItems] = useState<any[]>([])
 
   useEffect(() => {
     Promise.all([
+      supabase.from('leads').select('id,name,company').order('name'),
       supabase.from('quotations').select('*,project:projects(name,client_name)').in('stage', ['propuesta', 'contrato']).order('updated_at', { ascending: false }),
       supabase.from('suppliers').select('*').eq('is_active', true).order('name'),
-    ]).then(([qRes, sRes]) => {
+    ]).then(([lRes, qRes, sRes]) => {
+      setLeads(lRes.data || [])
       setQuotations(qRes.data || [])
       setSuppliers(sRes.data || [])
       setLoading(false)
     })
   }, [])
 
+  // Filter quotations by lead
+  const filteredQuotes = selectedLead
+    ? quotations.filter(q => q.client_name?.toLowerCase().includes(leads.find(l => l.id === selectedLead)?.name?.toLowerCase() || ''))
+    : quotations
+
+  // Load preview items when quote + supplier + phase are selected
+  useEffect(() => {
+    if (!selectedQuote) { setPreviewItems([]); return }
+    async function loadItems() {
+      const { data: areas } = await supabase.from('quotation_areas').select('id').eq('quotation_id', selectedQuote)
+      const areaIds = (areas || []).map((a: any) => a.id)
+      if (areaIds.length === 0) { setPreviewItems([]); return }
+      let query = supabase.from('quotation_items').select('*').in('area_id', areaIds).eq('type', 'material')
+      if (selectedPhase) query = query.eq('purchase_phase', selectedPhase)
+      const { data } = await query.order('order_index')
+      let items = data || []
+      // Filter by supplier if selected
+      if (selectedSupplier) {
+        const sup = suppliers.find(s => s.id === selectedSupplier)
+        if (sup) items = items.filter(it => (it.provider || '').toLowerCase().includes(sup.name.toLowerCase()))
+      }
+      setPreviewItems(items)
+    }
+    loadItems()
+  }, [selectedQuote, selectedSupplier, selectedPhase])
+
   async function crear() {
     if (!selectedQuote) { setError('Selecciona una cotización'); return }
+    if (previewItems.length === 0) { setError('No hay productos que cumplan el filtro'); return }
     setSaving(true); setError('')
 
     const quote = quotations.find(q => q.id === selectedQuote)
     if (!quote) { setError('Cotización no encontrada'); setSaving(false); return }
 
-    // Get quotation items
-    const { data: areas } = await supabase.from('quotation_areas').select('id').eq('quotation_id', quote.id)
-    const areaIds = (areas || []).map(a => a.id)
-    let items: any[] = []
-    if (areaIds.length > 0) {
-      const { data: qItems } = await supabase.from('quotation_items').select('*').in('area_id', areaIds).eq('type', 'material').order('order_index')
-      items = qItems || []
-    }
-
-    // Generate PO number
     const now = new Date()
     const prefix = `OC-${String(now.getFullYear()).slice(2)}${String(now.getMonth() + 1).padStart(2, '0')}`
     const { count } = await supabase.from('purchase_orders').select('id', { count: 'exact', head: true }).like('po_number', `${prefix}%`)
     const num = String((count || 0) + 1).padStart(3, '0')
     const po_number = `${prefix}-${num}`
 
-    const subtotal = items.reduce((s, it) => s + (it.cost * it.quantity), 0)
+    const subtotal = previewItems.reduce((s: number, it: any) => s + (it.cost * it.quantity), 0)
     const iva = Math.round(subtotal * 0.16)
+    const supplierName = suppliers.find(s => s.id === selectedSupplier)?.name || ''
+    const phaseCfg = PHASE_CONFIG[selectedPhase]
 
     const { data: po, error: err } = await supabase.from('purchase_orders').insert({
       po_number,
@@ -576,14 +600,13 @@ function POFromQuoteModal({ onClose, onCreated }: { onClose: () => void; onCreat
       status: 'borrador',
       purchase_phase: selectedPhase,
       subtotal, iva, total: subtotal + iva,
-      notes: `Generada desde cotización: ${quote.name}`,
+      notes: `${quote.name} | ${supplierName} | ${phaseCfg?.label || selectedPhase}`,
     }).select().single()
 
     if (err || !po) { setError(err?.message || 'Error al crear'); setSaving(false); return }
 
-    // Insert items (materials only, at cost)
-    if (items.length > 0) {
-      const poItems = items.map((it: any, i: number) => ({
+    if (previewItems.length > 0) {
+      const poItems = previewItems.map((it: any, i: number) => ({
         purchase_order_id: po.id,
         catalog_product_id: it.catalog_product_id || null,
         name: it.name,
@@ -611,21 +634,32 @@ function POFromQuoteModal({ onClose, onCreated }: { onClose: () => void; onCreat
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-      <div style={{ background: '#141414', border: '1px solid #2a2a2a', borderRadius: 16, padding: 24, width: 560, maxHeight: '90vh', overflowY: 'auto' }}>
+      <div style={{ background: '#141414', border: '1px solid #2a2a2a', borderRadius: 16, padding: 24, width: 620, maxHeight: '90vh', overflowY: 'auto' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
           <div style={{ fontSize: 16, fontWeight: 600, color: '#fff' }}>OC desde cotización</div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer' }}><X size={18} /></button>
         </div>
         <div style={{ display: 'grid', gap: 14 }}>
+          {/* Lead filter */}
+          <SelectField label="Lead (opcional — filtra cotizaciones)" value={selectedLead}
+            onChange={v => { setSelectedLead(v); setSelectedQuote('') }}
+            options={leads.map(l => ({ value: l.id, label: `${l.name}${l.company ? ' | ' + l.company : ''}` }))}
+            placeholder="-- Todos los leads --" />
+
+          {/* Cotización */}
           <SelectField label="Cotización (propuesta o contrato)" value={selectedQuote}
             onChange={v => setSelectedQuote(v)}
-            options={quotations.map(q => ({
+            options={filteredQuotes.map(q => ({
               value: q.id,
               label: `${q.name} — ${(q.project as any)?.name || 'Sin proyecto'} — ${F(q.total)}`,
             }))} placeholder="-- Seleccionar cotización --" />
-          <SelectField label="Proveedor" value={selectedSupplier}
+
+          {/* Proveedor */}
+          <SelectField label="Proveedor (opcional — filtra productos)" value={selectedSupplier}
             onChange={v => setSelectedSupplier(v)}
-            options={suppliers.map(s => ({ value: s.id, label: s.name }))} placeholder="-- Seleccionar proveedor --" />
+            options={suppliers.map(s => ({ value: s.id, label: s.name }))} placeholder="-- Todos los proveedores --" />
+
+          {/* Fase */}
           <label style={{ fontSize: 11, color: '#555', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
             Fase de compra
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
@@ -642,14 +676,27 @@ function POFromQuoteModal({ onClose, onCreated }: { onClose: () => void; onCreat
               ))}
             </div>
           </label>
-          <div style={{ fontSize: 11, color: '#666', padding: '8px 10px', background: '#1a1a1a', borderRadius: 8 }}>
-            Se importarán solo los materiales (sin mano de obra) al costo de la cotización. Podrás editar cantidades y precios después.
-          </div>
+
+          {/* Preview */}
+          {selectedQuote && (
+            <div style={{ background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 10, padding: '10px 12px' }}>
+              <div style={{ fontSize: 11, color: '#555', fontWeight: 600, marginBottom: 6 }}>
+                {previewItems.length} productos encontrados — Costo total: {F(previewItems.reduce((s: number, it: any) => s + it.cost * it.quantity, 0))}
+              </div>
+              {previewItems.slice(0, 8).map((it: any, i: number) => (
+                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10, color: '#666' }}>
+                  <span style={{ color: '#aaa' }}>{it.quantity}× {it.name}</span>
+                  <span>${(it.cost * it.quantity).toFixed(2)}</span>
+                </div>
+              ))}
+              {previewItems.length > 8 && <div style={{ fontSize: 10, color: '#444', marginTop: 4 }}>...y {previewItems.length - 8} más</div>}
+            </div>
+          )}
         </div>
         {error && <div style={{ color: '#EF4444', fontSize: 12, marginTop: 10 }}>{error}</div>}
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 20 }}>
           <Btn onClick={onClose}>Cancelar</Btn>
-          <Btn variant="primary" onClick={crear}>{saving ? 'Generando...' : 'Generar OC'}</Btn>
+          <Btn variant="primary" onClick={crear} disabled={saving || previewItems.length === 0}>{saving ? 'Generando...' : `Generar OC (${previewItems.length} items)`}</Btn>
         </div>
       </div>
     </div>
