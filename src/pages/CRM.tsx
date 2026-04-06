@@ -112,7 +112,7 @@ function NuevoLeadModal({ onClose, onCreated }: { onClose: () => void; onCreated
   const [newClientRfc, setNewClientRfc] = useState('')
 
   useEffect(() => {
-    supabase.from('clientes_fiscales').select('id,razon_social,rfc').eq('activo', true).order('razon_social')
+    supabase.from('clientes_fiscales').select('id,razon_social,rfc').neq('activo', false).order('razon_social')
       .then(({ data }) => setClientes(data || []))
   }, [])
 
