@@ -254,12 +254,16 @@ function NuevoLeadModal({ onClose, onCreated }: { onClose: () => void; onCreated
 function LeadModal({ lead, onClose, onUpdated, onDeleted }: {
   lead: Lead; onClose: () => void; onUpdated: () => void; onDeleted: () => void
 }) {
-  const [form, setForm] = useState({
-    name: lead.name, company: lead.company || '',
-    contact_name: lead.contact_name || '', contact_phone: lead.contact_phone || '',
-    contact_email: lead.contact_email || '', origin: lead.origin, status: lead.status,
-    needs: lead.needs || [] as ProjectLine[], notes: lead.notes || '',
-    estimated_value: lead.estimated_value?.toString() || '', lost_reason: lead.lost_reason || '',
+  const [form, setForm] = useState(() => {
+    let client_final = ''
+    try { const m = JSON.parse(lead.notes || '{}'); client_final = m.client_final || '' } catch {}
+    return {
+      name: lead.name, company: lead.company || '', client_final,
+      contact_name: lead.contact_name || '', contact_phone: lead.contact_phone || '',
+      contact_email: lead.contact_email || '', origin: lead.origin, status: lead.status,
+      needs: lead.needs || [] as ProjectLine[], notes: lead.notes || '',
+      estimated_value: lead.estimated_value?.toString() || '', lost_reason: lead.lost_reason || '',
+    }
   })
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
@@ -275,11 +279,22 @@ function LeadModal({ lead, onClose, onUpdated, onDeleted }: {
 
   async function guardar() {
     setSaving(true)
+    // Merge client_final into notes
+    let notesValue = form.notes || ''
+    if (form.client_final) {
+      try {
+        const existing = JSON.parse(notesValue || '{}')
+        existing.client_final = form.client_final
+        notesValue = JSON.stringify(existing)
+      } catch {
+        notesValue = JSON.stringify({ client_final: form.client_final, text: notesValue })
+      }
+    }
     await supabase.from('leads').update({
       name: form.name, company: form.company || null,
       contact_name: form.contact_name || null, contact_phone: form.contact_phone || null,
       contact_email: form.contact_email || null, origin: form.origin, status: form.status,
-      needs: form.needs, notes: form.notes || null,
+      needs: form.needs, notes: notesValue || null,
       estimated_value: parseFloat(form.estimated_value) || null,
       lost_reason: form.lost_reason || null, updated_at: new Date().toISOString(),
     }).eq('id', lead.id)
@@ -332,7 +347,8 @@ function LeadModal({ lead, onClose, onUpdated, onDeleted }: {
         <div style={{ flex: 1, overflowY: 'auto' as const, padding: '18px 22px' }}>
           <div style={{ display: 'grid', gap: 14 }}>
             <Field label="Nombre / Proyecto" value={form.name} onChange={s('name')} />
-            <Field label="Empresa / Cliente" value={form.company} onChange={s('company')} />
+            <Field label="Arquitecto / Despacho" value={form.company} onChange={s('company')} placeholder="ej. Niz+Chauvet Arquitectos" />
+            <Field label="Cliente Final (quien paga)" value={form.client_final || ''} onChange={s('client_final')} placeholder="ej. Grupo Desarrollador XYZ" />
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               <Field label="Contacto" value={form.contact_name} onChange={s('contact_name')} />
               <Field label="Telefono" value={form.contact_phone} onChange={s('contact_phone')} />
