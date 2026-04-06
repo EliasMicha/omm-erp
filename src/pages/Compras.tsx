@@ -525,6 +525,7 @@ function POFromQuoteModal({ onClose, onCreated }: { onClose: () => void; onCreat
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
   const [selectedQuote, setSelectedQuote] = useState('')
   const [selectedSupplier, setSelectedSupplier] = useState('')
+  const [selectedPhase, setSelectedPhase] = useState('inicio' as PurchasePhase)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -573,6 +574,7 @@ function POFromQuoteModal({ onClose, onCreated }: { onClose: () => void; onCreat
       quotation_id: quote.id,
       specialty: quote.specialty,
       status: 'borrador',
+      purchase_phase: selectedPhase,
       subtotal, iva, total: subtotal + iva,
       notes: `Generada desde cotización: ${quote.name}`,
     }).select().single()
@@ -624,6 +626,22 @@ function POFromQuoteModal({ onClose, onCreated }: { onClose: () => void; onCreat
           <SelectField label="Proveedor" value={selectedSupplier}
             onChange={v => setSelectedSupplier(v)}
             options={suppliers.map(s => ({ value: s.id, label: s.name }))} placeholder="-- Seleccionar proveedor --" />
+          <label style={{ fontSize: 11, color: '#555', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+            Fase de compra
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
+              {(Object.entries(PHASE_CONFIG) as [PurchasePhase, typeof PHASE_CONFIG[PurchasePhase]][]).map(([k, v]) => (
+                <button key={k} onClick={() => setSelectedPhase(k)}
+                  style={{
+                    padding: '5px 12px', borderRadius: 20, fontSize: 11, cursor: 'pointer', fontFamily: 'inherit', fontWeight: 600,
+                    border: `1px solid ${selectedPhase === k ? v.color : '#333'}`,
+                    background: selectedPhase === k ? v.color + '22' : 'transparent',
+                    color: selectedPhase === k ? v.color : '#666',
+                  }}>
+                  {v.label}
+                </button>
+              ))}
+            </div>
+          </label>
           <div style={{ fontSize: 11, color: '#666', padding: '8px 10px', background: '#1a1a1a', borderRadius: 8 }}>
             Se importarán solo los materiales (sin mano de obra) al costo de la cotización. Podrás editar cantidades y precios después.
           </div>
