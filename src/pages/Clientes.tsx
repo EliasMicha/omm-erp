@@ -81,7 +81,7 @@ export default function Clientes() {
 
   useEffect(() => {
     const load = async () => {
-      const { data } = await supabase.from('clientes').select('*').order('created_at', { ascending: false })
+      const { data } = await supabase.from('clientes_fiscales').select('*').order('created_at', { ascending: false })
       if (data) setClientes(data.map((c: any) => ({ ...c, activo: c.activo !== false })))
     }
     load()
@@ -136,7 +136,7 @@ export default function Clientes() {
       activo: form.activo !== false,
     }
     if (editId) {
-      await supabase.from('clientes').update({
+      await supabase.from('clientes_fiscales').update({
         rfc: full.rfc, razon_social: full.razon_social, regimen_fiscal: full.regimen_fiscal,
         regimen_fiscal_clave: full.regimen_fiscal_clave, codigo_postal: full.codigo_postal,
         uso_cfdi: full.uso_cfdi, uso_cfdi_clave: full.uso_cfdi_clave, curp: full.curp,
@@ -147,7 +147,7 @@ export default function Clientes() {
       }).eq('id', editId)
       setClientes(clientes.map(c => c.id === editId ? full : c))
     } else {
-      const { data } = await supabase.from('clientes').insert({
+      const { data } = await supabase.from('clientes_fiscales').insert({
         rfc: full.rfc, razon_social: full.razon_social, regimen_fiscal: full.regimen_fiscal,
         regimen_fiscal_clave: full.regimen_fiscal_clave, codigo_postal: full.codigo_postal,
         uso_cfdi: full.uso_cfdi, uso_cfdi_clave: full.uso_cfdi_clave, curp: full.curp,
