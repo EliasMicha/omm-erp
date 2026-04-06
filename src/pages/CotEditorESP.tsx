@@ -319,7 +319,10 @@ function CatalogModal({ onClose, onSelect, onCreateNew, systemName }: {
 function CreateProductModal({ onClose, onCreate, systemName }: {
   onClose: () => void; onCreate: (p: CatProduct) => void; systemName: string
 }) {
-  const [form, setForm] = useState({ name: '', description: '', system: systemName, cost: 0, markup: 30, provider: '', unit: 'pza' })
+  const [form, setForm] = useState({
+    name: '', description: '', system: systemName, cost: 0, markup: 30, provider: '', unit: 'pza',
+    marca: '', modelo: '', sku: '', clave_prod_serv: '', clave_unidad: 'H87', moneda: 'USD',
+  })
   const [saving, setSaving] = useState(false)
   const [aiQuery, setAiQuery] = useState('')
   const [aiLoading, setAiLoading] = useState(false)
@@ -359,20 +362,21 @@ Return this exact JSON format:
 {
   "name": "Full official product name",
   "description": "Brief technical description in Spanish, max 100 chars",
-  "cost": estimated MSRP/retail price in USD as a number,
   "provider": "Brand/Manufacturer name",
-  "system": "${systemName}"
+  "marca": "Brand name (e.g. Ubiquiti, Sonos, Lutron, Hikvision)",
+  "modelo": "Model number/name",
+  "sku": "SKU or part number if found",
+  "clave_prod_serv": "Mexican SAT product code (6-8 digits). Use these common ones: 43222600 for networking/WiFi, 46171600 for CCTV/cameras, 52161500 for audio/speakers, 39121700 for lighting control, 46171500 for access control, 43222500 for switches/routers",
+  "system": "One of: Audio, Redes, CCTV, Control de Acceso, Control de Iluminación"
 }
 
-Important: cost should be the retail/MSRP price in USD. If you can't find exact price, estimate based on similar products. Return ONLY valid JSON, no markdown.`
+IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
           }],
         }),
       })
 
       if (!response.ok) {
-        const errText = await response.text()
-        console.error('AI API error:', response.status, errText)
-        setAiStatus('Error API (' + response.status + ') — configura VITE_ANTHROPIC_KEY en Vercel')
+        setAiStatus('Error API (' + response.status + ')')
         setAiLoading(false)
         return
       }
@@ -380,19 +384,14 @@ Important: cost should be the retail/MSRP price in USD. If you can't find exact 
       const data = await response.json()
       setAiStatus('Procesando resultados...')
 
-      // Extract text from response content blocks
       const textBlocks = (data.content || []).filter((b: any) => b.type === 'text').map((b: any) => b.text)
       const fullText = textBlocks.join('\n')
-
-      // Try to parse JSON from the response
       const jsonMatch = fullText.match(/\{[\s\S]*\}/)
       if (jsonMatch) {
         const clean = jsonMatch[0].replace(/```json|```/g, '').trim()
         const parsed = JSON.parse(clean)
-        // Try to match AI provider to existing supplier
-        const aiProvider = parsed.provider || ''
+        const aiProvider = parsed.provider || parsed.marca || ''
         const matchedSupplier = suppliers.find(s => s.name.toLowerCase().includes(aiProvider.toLowerCase()) || aiProvider.toLowerCase().includes(s.name.toLowerCase()))
-        // Try to match AI system to existing system
         const aiSystem = parsed.system || ''
         const matchedSystem = ALL_SYSTEMS.find(s => s.name.toLowerCase().includes(aiSystem.toLowerCase()) || aiSystem.toLowerCase().includes(s.name.toLowerCase()))
         setForm(f => ({
@@ -401,6 +400,10 @@ Important: cost should be the retail/MSRP price in USD. If you can't find exact 
           description: parsed.description || f.description,
           provider: matchedSupplier ? matchedSupplier.name : f.provider,
           system: matchedSystem ? matchedSystem.name : f.system,
+          marca: parsed.marca || f.marca,
+          modelo: parsed.modelo || f.modelo,
+          sku: parsed.sku || f.sku,
+          clave_prod_serv: parsed.clave_prod_serv || f.clave_prod_serv,
         }))
         setAiStatus('✓ Producto encontrado')
       } else {
@@ -427,14 +430,17 @@ Important: cost should be the retail/MSRP price in USD. If you can't find exact 
       markup: form.markup,
       precio_venta: precioVenta,
       provider: form.provider || null,
-      moneda: 'USD',
+      marca: form.marca || null,
+      modelo: form.modelo || null,
+      sku: form.sku || null,
+      clave_prod_serv: form.clave_prod_serv || null,
+      clave_unidad: form.clave_unidad || 'H87',
+      moneda: form.moneda || 'USD',
       iva_rate: 0.16,
       is_active: true,
-      clave_unidad: 'H87',
     }).select().single()
     if (error) {
       console.error('Error creating product:', error)
-      // Still add to quote even if catalog fails
       onCreate({ id: '', name: form.name, description: form.description, system: form.system, cost: form.cost, markup: form.markup, provider: form.provider, unit: form.unit })
     } else if (data) {
       onCreate(data)
@@ -450,9 +456,11 @@ Important: cost should be the retail/MSRP price in USD. If you can't find exact 
     </label>
   )
 
+  const selStyle = { display: 'block' as const, width: '100%', marginTop: 3, padding: '7px 10px', background: '#1e1e1e', border: '1px solid #333', borderRadius: 8, color: '#fff', fontSize: 13, fontFamily: 'inherit' }
+
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1010 }}>
-      <div style={{ background: '#141414', border: '1px solid #333', borderRadius: 16, padding: 24, width: 520 }}>
+      <div style={{ background: '#141414', border: '1px solid #333', borderRadius: 16, padding: 24, width: 600, maxHeight: '90vh', overflowY: 'auto' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
           <div style={{ fontSize: 14, fontWeight: 600, color: '#fff' }}>Nuevo producto — {systemName}</div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer' }}><X size={16} /></button>
@@ -460,23 +468,15 @@ Important: cost should be the retail/MSRP price in USD. If you can't find exact 
 
         {/* AI Search bar */}
         <div style={{ background: '#0e0e0e', border: '1px solid #222', borderRadius: 10, padding: 12, marginBottom: 14 }}>
-          <div style={{ fontSize: 10, color: '#888', marginBottom: 6, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-            🔍 Búsqueda con AI
-          </div>
+          <div style={{ fontSize: 10, color: '#888', marginBottom: 6, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' }}>🔍 Búsqueda con AI</div>
           <div style={{ display: 'flex', gap: 8 }}>
             <input value={aiQuery} onChange={e => setAiQuery(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && searchWithAI()}
               placeholder="Escribe modelo o nombre del producto..."
               style={{ flex: 1, padding: '8px 10px', background: '#1a1a1a', border: '1px solid #333', borderRadius: 8, color: '#fff', fontSize: 13, fontFamily: 'inherit' }} />
-            <Btn variant="primary" onClick={searchWithAI} disabled={aiLoading}>
-              {aiLoading ? '⏳ Buscando...' : '🔍 Buscar'}
-            </Btn>
+            <Btn variant="primary" onClick={searchWithAI} disabled={aiLoading}>{aiLoading ? '⏳ Buscando...' : '🔍 Buscar'}</Btn>
           </div>
-          {aiStatus && (
-            <div style={{ marginTop: 6, fontSize: 11, color: aiStatus.startsWith('✓') ? '#57FF9A' : aiStatus.startsWith('Error') ? '#EF4444' : '#888' }}>
-              {aiStatus}
-            </div>
-          )}
+          {aiStatus && <div style={{ marginTop: 6, fontSize: 11, color: aiStatus.startsWith('✓') ? '#57FF9A' : aiStatus.startsWith('Error') ? '#EF4444' : '#888' }}>{aiStatus}</div>}
         </div>
 
         {/* Form fields */}
@@ -484,33 +484,49 @@ Important: cost should be the retail/MSRP price in USD. If you can't find exact 
           {inp('Nombre', form.name, 'name')}
           {inp('Descripción', form.description, 'description')}
 
-          {/* Provider first — drives pricing rules */}
+          {/* Marca, Modelo, SKU */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+            {inp('Marca', form.marca, 'marca')}
+            {inp('Modelo', form.modelo, 'modelo')}
+            {inp('SKU', form.sku, 'sku')}
+          </div>
+
+          {/* Clave SAT, Unidad SAT */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            {inp('Clave SAT (ClaveProdServ)', form.clave_prod_serv, 'clave_prod_serv')}
+            <label style={{ fontSize: 10, color: '#555', textTransform: 'uppercase' as const, letterSpacing: '0.06em', display: 'block' }}>
+              Unidad SAT
+              <select value={form.clave_unidad} onChange={e => setForm(f => ({ ...f, clave_unidad: e.target.value }))} style={selStyle}>
+                <option value="H87">Pieza (H87)</option>
+                <option value="E48">Servicio (E48)</option>
+                <option value="MTR">Metro (MTR)</option>
+                <option value="KGM">Kilogramo (KGM)</option>
+              </select>
+            </label>
+          </div>
+
+          {/* Proveedor y Sistema */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             <label style={{ fontSize: 10, color: '#555', textTransform: 'uppercase' as const, letterSpacing: '0.06em', display: 'block' }}>
               Proveedor
               <select value={form.provider} onChange={e => {
                 const prov = e.target.value
                 const rule = getPricingRule(prov)
-                setForm(f => {
-                  const newMarkup = rule.precioPublico ? f.markup : rule.margen
-                  return { ...f, provider: prov, markup: newMarkup }
-                })
-              }}
-                style={{ display: 'block', width: '100%', marginTop: 3, padding: '7px 10px', background: '#1e1e1e', border: '1px solid #333', borderRadius: 8, color: '#fff', fontSize: 13, fontFamily: 'inherit' }}>
+                setForm(f => ({ ...f, provider: prov, markup: rule.precioPublico ? f.markup : rule.margen }))
+              }} style={selStyle}>
                 <option value="">-- Seleccionar --</option>
                 {suppliers.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
               </select>
             </label>
             <label style={{ fontSize: 10, color: '#555', textTransform: 'uppercase' as const, letterSpacing: '0.06em', display: 'block' }}>
               Sistema
-              <select value={form.system} onChange={e => setForm(f => ({ ...f, system: e.target.value }))}
-                style={{ display: 'block', width: '100%', marginTop: 3, padding: '7px 10px', background: '#1e1e1e', border: '1px solid #333', borderRadius: 8, color: '#fff', fontSize: 13, fontFamily: 'inherit' }}>
+              <select value={form.system} onChange={e => setForm(f => ({ ...f, system: e.target.value }))} style={selStyle}>
                 {ALL_SYSTEMS.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
               </select>
             </label>
           </div>
 
-          {/* Pricing rule indicator */}
+          {/* Pricing rule */}
           {form.provider && (() => {
             const rule = getPricingRule(form.provider)
             return (
@@ -523,12 +539,13 @@ Important: cost should be the retail/MSRP price in USD. If you can't find exact 
             )
           })()}
 
+          {/* Pricing */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             {inp('Costo de lista USD', form.cost, 'cost', 'number')}
             {inp('Margen %', form.markup, 'markup', 'number')}
           </div>
 
-          {/* Auto-calculated preview */}
+          {/* Preview */}
           {form.cost > 0 && form.provider && (() => {
             const rule = getPricingRule(form.provider)
             const costoReal = form.cost * rule.costoMult
