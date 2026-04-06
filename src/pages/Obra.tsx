@@ -1323,17 +1323,32 @@ Responde SOLO con un JSON, sin markdown, sin explicación:
         const data = await response.json()
         const text = (data.content || []).filter((b: any) => b.type === 'text').map((b: any) => b.text).join('')
 
-        // Parse JSON plan
-        const jsonMatch = text.match(/\{[\s\S]*?"plan"[\s\S]*?\}/)
-        if (jsonMatch) {
+        // Parse JSON plan — use brace counting to extract full JSON object
+        const cleanText = text.replace(/```json|```/g, '').trim()
+        let jsonStr = ''
+        const planIdx = cleanText.indexOf('"plan"')
+        if (planIdx !== -1) {
+          let braceStart = cleanText.lastIndexOf('{', planIdx)
+          if (braceStart !== -1) {
+            let depth = 0
+            for (let ci = braceStart; ci < cleanText.length; ci++) {
+              if (cleanText[ci] === '{') depth++
+              else if (cleanText[ci] === '}') { depth--; if (depth === 0) { jsonStr = cleanText.substring(braceStart, ci + 1); break } }
+            }
+          }
+        }
+        if (jsonStr) {
           try {
-            const parsed = JSON.parse(jsonMatch[0].replace(/```json|```/g, '').trim())
+            const parsed = JSON.parse(jsonStr)
             if (parsed.plan && Array.isArray(parsed.plan)) {
               const newAssignments = new Map<string, Map<number, { obra: string; tarea: string; obraColor: string }[]>>()
-              const dayMap: Record<string, number> = { 'Lun': 0, 'Mar': 1, 'Mié': 2, 'Jue': 3, 'Vie': 4, 'Sáb': 5 }
+              const dayMap: Record<string, number> = { 'Lun': 0, 'Mar': 1, 'Mié': 2, 'Mir': 2, 'Mie': 2, 'Jue': 3, 'Vie': 4, 'Sáb': 5, 'Sab': 5 }
 
               parsed.plan.forEach((item: any) => {
-                const inst = instaladores.find(i => i.nombre.toLowerCase().includes((item.instalador || '').toLowerCase().split(' ')[0]))
+                // Match installer by first name
+                const firstName = (item.instalador || '').toLowerCase().split(' ')[0]
+                const inst = instaladores.find(i => i.nombre.toLowerCase().split(' ')[0] === firstName) ||
+                             instaladores.find(i => i.nombre.toLowerCase().includes(firstName))
                 if (!inst) return
                 const dayIdx = dayMap[item.dia]
                 if (dayIdx === undefined) return
@@ -1351,7 +1366,7 @@ Responde SOLO con un JSON, sin markdown, sin explicación:
 
               setAssignments(newAssignments)
             }
-          } catch (_e) { /* parse error */ }
+          } catch (_e) { console.error('JSON parse error in plan:', _e) }
         }
       }
     } catch (err) {
