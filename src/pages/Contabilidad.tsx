@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import React, { useState, useRef, useEffect } from 'react'
 import { MOCK_CLIENTES } from './Clientes'
 import type { ClienteFiscal } from './Clientes'
 import { supabase } from '../lib/supabase'
@@ -97,6 +97,7 @@ interface BankMovement {
   id: string; fecha: string; concepto: string; referencia: string
   monto: number; tipo: 'cargo' | 'abono'; saldo: number
   categoria_sugerida?: string; proyecto_sugerido?: string; conciliado: boolean
+  beneficiario?: string; factura_match_id?: string; factura_match_info?: string
 }
 
 /* --------- Config --------------------------------------------------------------------------------------------------------------------------------------------------------------------- */
@@ -294,7 +295,7 @@ export default function Contabilidad() {
 
       {/* Tab content */}
       {activeTab === 'facturacion' && <TabFacturacion invoices={invoices} setInvoices={setInvoices} />}
-      {activeTab === 'conciliacion' && <TabConciliacion bankMovements={bankMovements} setBankMovements={setBankMovements} />}
+      {activeTab === 'conciliacion' && <TabConciliacion bankMovements={bankMovements} setBankMovements={setBankMovements} invoices={invoices} />}
       {activeTab === 'supervision' && <TabSupervision invoices={invoices} />}
       {activeTab === 'efectivo' && <TabEfectivo />}
       {activeTab === 'cobranza' && <TabCobranza />}
@@ -751,33 +752,75 @@ function TabFacturacion({ invoices, setInvoices }: { invoices: Invoice[]; setInv
 
 /* --------- Tab 2: Conciliaci--n Bancaria --------------------------------------------------------------------------------------------------- */
 
-function TabConciliacion({ bankMovements, setBankMovements }: { bankMovements: BankMovement[]; setBankMovements: (m: BankMovement[]) => void }) {
+function TabConciliacion({ bankMovements, setBankMovements, invoices }: { bankMovements: BankMovement[]; setBankMovements: (m: BankMovement[]) => void; invoices: Invoice[] }) {
   const [processing, setProcessing] = useState(false)
   const [status, setStatus] = useState('')
+  const [filtro, setFiltro] = useState<'todos' | 'pendientes' | 'conciliados'>('todos')
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [expandedId, setExpandedId] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
+  /* --- Auto-match movements with invoices --- */
+  const findMatch = (m: BankMovement): { id: string; info: string } | null => {
+    if (!invoices || invoices.length === 0) return null
+    const tolerance = 0.02 // 2%
+    const candidates = invoices.filter(inv => {
+      const montoMatch = Math.abs(inv.total - m.monto) / Math.max(inv.total, 1) <= tolerance
+      if (!montoMatch) return false
+      // For abonos match emitidas (cobros), for cargos match recibidas (pagos)
+      if (m.tipo === 'abono' && inv.direccion === 'emitida') return true
+      if (m.tipo === 'cargo' && inv.direccion === 'recibida') return true
+      return false
+    })
+    if (candidates.length === 0) return null
+    // Prefer name match
+    const benefLower = (m.beneficiario || m.concepto || '').toLowerCase()
+    const nameMatch = candidates.find(c => {
+      const invName = (c.direccion === 'emitida' ? c.receptor_nombre : c.emisor_nombre).toLowerCase()
+      return benefLower.includes(invName) || invName.includes(benefLower.split(' ')[0])
+    })
+    const best = nameMatch || candidates[0]
+    const who = best.direccion === 'emitida' ? best.receptor_nombre : best.emisor_nombre
+    return { id: best.id, info: `${best.serie || ''}${best.serie ? '-' : ''}${best.folio} · ${who} · ${F(best.total)} · ${best.proyecto_nombre || 'Sin proyecto'}` }
+  }
+
+  /* --- Upload handler --- */
   const handleBankUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]; if (!file) return
     setProcessing(true); setStatus('Leyendo archivo...')
     const ext = file.name.split('.').pop()?.toLowerCase()
 
     try {
-      const systemPrompt = `Eres un experto contable mexicano. Extrae TODOS los movimientos bancarios del estado de cuenta.
-Devuelve SOLO un JSON array, sin markdown, sin explicaciones:
-[{"fecha":"YYYY-MM-DD","codigo":"","concepto":"descripción corta","referencia":"","monto":0,"tipo":"cargo"|"abono","beneficiario":"nombre si aparece","categoria":"nomina"|"proveedor"|"cobro_cliente"|"impuestos"|"comision"|"traspaso"|"prestamo"|"suscripcion"|"otro"}]
+      const systemPrompt = `Eres un experto contable mexicano. Extrae TODOS los movimientos bancarios del estado de cuenta PDF de BBVA.
 
-REGLAS IMPORTANTES:
-- Si el concepto dice PAGO DE NOMINA, TRANSF SPEI con NOMINA, o tiene nombre de persona = categoria "nomina"
-- SPEI RECIBIDO, DEPOSITO DE TERCERO con empresa = "cobro_cliente"  
-- PAGO CUENTA DE TERCERO a proveedor = "proveedor"
-- SAT, IMSS, CDMX = "impuestos"
-- SISTEMAS Y SERVICIOS, COMISION, IVA COM = "comision"
-- TRASPASO ENTRE CUENTAS = "traspaso"
-- Prestamo = "prestamo"
-- STRIPE, UBER, CLAUDE, suscripciones = "suscripcion"
-- El beneficiario es la persona o empresa mencionada en la descripción
-- MONTO siempre positivo, el TIPO indica si es cargo o abono
-- Fecha en formato YYYY-MM-DD (año 2026 para MAR)`
+REGLAS CRITICAS DE EXTRACCION BBVA:
+- El PDF tiene columnas: Fecha | Concepto/Referencia | Cargos | Abonos | Saldo
+- SOLO usa las columnas "Cargos" y "Abonos" para el monto. IGNORA cualquier numero en columnas de "Operacion" o "Liquidacion" o "Saldo"
+- Si un movimiento tiene monto en "Cargos" → tipo "cargo"
+- Si un movimiento tiene monto en "Abonos" → tipo "abono"
+- El concepto puede ocupar multiples lineas, concatenalas
+
+EXTRACCION DE PROYECTO/OBRA del concepto:
+- Busca codigos de proyecto como: E101, E402, E501, E601, etc.
+- Busca nombres de obra: Oasis, Piano C5C, Arcos Bosques, Reforma, Chapultepec, Pachuca, Casa Luce, NULED, Tere Metta
+- Si el concepto menciona alguno, ponlo en "proyecto"
+- Si dice PAGO NOMINA o nombre de persona sin referencia a obra = proyecto "OMM - Gastos generales"
+
+Devuelve SOLO un JSON array, sin markdown, sin explicaciones:
+[{"fecha":"YYYY-MM-DD","concepto":"descripcion completa","referencia":"num ref si existe","monto":0,"tipo":"cargo"|"abono","beneficiario":"persona o empresa","proyecto":"nombre proyecto o vacio","categoria":"nomina"|"proveedor"|"cobro_cliente"|"impuestos"|"comision"|"traspaso"|"prestamo"|"suscripcion"|"otro"}]
+
+REGLAS DE CATEGORIA:
+- PAGO DE NOMINA, TRANSF SPEI con nombre de persona sin empresa = "nomina"
+- Cualquier concepto con nombre de persona = "nomina" (cualquier gasto con nombre de persona en el concepto es salario)
+- SPEI RECIBIDO de empresa / DEPOSITO DE TERCERO = "cobro_cliente"
+- PAGO CUENTA DE TERCERO a proveedor/empresa = "proveedor"
+- SAT, IMSS, INFONAVIT, ISN, CDMX, gobierno = "impuestos"
+- COMISION, IVA COM, SISTEMAS Y SERVICIOS = "comision"
+- TRASPASO ENTRE CUENTAS PROPIAS = "traspaso"
+- DISPOSICION CREDITO, PAGO CREDITO = "prestamo"
+- STRIPE, UBER, CLAUDE, SPOTIFY, suscripciones digitales = "suscripcion"
+- MONTO siempre positivo
+- Fecha formato YYYY-MM-DD (inferir año del encabezado, si dice MAR = marzo)`
 
       let messages: any[]
 
@@ -794,7 +837,6 @@ REGLAS IMPORTANTES:
           { type: 'text', text: systemPrompt }
         ] }]
       } else {
-        // CSV / Excel as text
         setStatus('Procesando archivo con AI...')
         const text = await file.text()
         messages = [{ role: 'user', content: systemPrompt + '\n\nESTADO DE CUENTA:\n' + text.substring(0, 15000) }]
@@ -828,9 +870,11 @@ REGLAS IMPORTANTES:
             tipo: m.tipo || 'cargo',
             saldo: 0,
             categoria_sugerida: m.categoria || 'otro',
-            proyecto_sugerido: m.beneficiario || '',
+            proyecto_sugerido: m.proyecto || '',
+            beneficiario: m.beneficiario || '',
             conciliado: false,
           })))
+          setSelected(new Set())
           setStatus(`✓ ${parsed.length} movimientos extraídos`)
         } else {
           setStatus('No se encontraron movimientos')
@@ -845,12 +889,57 @@ REGLAS IMPORTANTES:
     if (fileRef.current) fileRef.current.value = ''
   }
 
+  /* --- Selection helpers --- */
+  const filtered = bankMovements.filter(m =>
+    filtro === 'todos' ? true : filtro === 'pendientes' ? !m.conciliado : m.conciliado
+  )
+  const allSelected = filtered.length > 0 && filtered.every(m => selected.has(m.id))
+  const toggleAll = () => {
+    if (allSelected) { setSelected(new Set()) }
+    else { setSelected(new Set(filtered.map(m => m.id))) }
+  }
+  const toggleOne = (id: string) => {
+    const next = new Set(selected)
+    next.has(id) ? next.delete(id) : next.add(id)
+    setSelected(next)
+  }
+  const deleteSelected = () => {
+    if (selected.size === 0) return
+    setBankMovements(bankMovements.filter(m => !selected.has(m.id)))
+    setSelected(new Set())
+  }
+  const conciliarSelected = () => {
+    if (selected.size === 0) return
+    setBankMovements(bankMovements.map(m => selected.has(m.id) ? { ...m, conciliado: true } : m))
+    setSelected(new Set())
+  }
+
+  /* --- Toggle conciliar one --- */
+  const toggleConciliar = (id: string) => {
+    setBankMovements(bankMovements.map(m => m.id === id ? { ...m, conciliado: !m.conciliado } : m))
+  }
+
+  /* --- KPIs --- */
   const totalCargos = bankMovements.filter(m => m.tipo === 'cargo').reduce((s, m) => s + m.monto, 0)
   const totalAbonos = bankMovements.filter(m => m.tipo === 'abono').reduce((s, m) => s + m.monto, 0)
   const conciliados = bankMovements.filter(m => m.conciliado).length
 
+  /* --- Project summary --- */
+  const projectMap = new Map<string, { cargos: number; abonos: number; count: number }>()
+  bankMovements.forEach(m => {
+    const proy = m.proyecto_sugerido || 'Sin proyecto'
+    const cur = projectMap.get(proy) || { cargos: 0, abonos: 0, count: 0 }
+    cur.count++
+    if (m.tipo === 'cargo') cur.cargos += m.monto; else cur.abonos += m.monto
+    projectMap.set(proy, cur)
+  })
+
+  const catColors: Record<string, string> = { nomina: '#C084FC', proveedor: '#F59E0B', cobro_cliente: '#57FF9A', impuestos: '#EF4444', comision: '#6B7280', traspaso: '#3B82F6', prestamo: '#06B6D4', suscripcion: '#EC4899', otro: '#555' }
+  const chkStyle: React.CSSProperties = { width: 15, height: 15, accentColor: '#57FF9A', cursor: 'pointer' }
+
   return (
     <div>
+      {/* KPIs */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
         <KpiCard label="Movimientos" value={bankMovements.length} icon={<ArrowLeftRight size={16} />} />
         <KpiCard label="Cargos" value={F(totalCargos)} color="#EF4444" icon={<TrendingUp size={16} />} />
@@ -858,34 +947,119 @@ REGLAS IMPORTANTES:
         <KpiCard label="Conciliados" value={`${conciliados}/${bankMovements.length}`} color="#3B82F6" icon={<CheckCircle size={16} />} />
       </div>
 
-      <div style={{ display: 'flex', gap: 8, marginBottom: 16, alignItems: 'center' }}>
+      {/* Toolbar */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16, alignItems: 'center', flexWrap: 'wrap' }}>
         <input type="file" ref={fileRef} accept=".pdf,.csv,.xlsx,.xls,.txt" style={{ display: 'none' }} onChange={handleBankUpload} />
         <Btn size="sm" variant="primary" onClick={() => fileRef.current?.click()}>
           {processing ? '⏳ Procesando...' : <><Upload size={12} /> Subir estado de cuenta</>}
         </Btn>
         <span style={{ fontSize: 10, color: '#555' }}>PDF (BBVA/Banorte) · CSV · Excel</span>
-        {status && <span style={{ fontSize: 11, color: status.startsWith('✓') ? '#57FF9A' : status.startsWith('Error') ? '#EF4444' : '#888', marginLeft: 8 }}>{status}</span>}
+
+        {/* Filtro */}
+        {bankMovements.length > 0 && (
+          <div style={{ display: 'flex', gap: 2, marginLeft: 'auto', background: '#141414', borderRadius: 8, padding: 2, border: '1px solid #222' }}>
+            {(['todos', 'pendientes', 'conciliados'] as const).map(f => (
+              <button key={f} onClick={() => { setFiltro(f); setSelected(new Set()) }} style={{
+                padding: '4px 10px', fontSize: 11, fontWeight: filtro === f ? 600 : 400,
+                color: filtro === f ? '#fff' : '#666',
+                background: filtro === f ? '#333' : 'transparent',
+                border: 'none', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit', textTransform: 'capitalize',
+              }}>{f}</button>
+            ))}
+          </div>
+        )}
+
+        {status && <span style={{ fontSize: 11, color: status.startsWith('✓') ? '#57FF9A' : status.startsWith('Error') ? '#EF4444' : '#888' }}>{status}</span>}
       </div>
 
+      {/* Batch actions */}
+      {selected.size > 0 && (
+        <div style={{ display: 'flex', gap: 8, marginBottom: 12, alignItems: 'center', padding: '8px 12px', background: 'rgba(87,255,154,0.05)', border: '1px solid rgba(87,255,154,0.15)', borderRadius: 8 }}>
+          <span style={{ fontSize: 12, color: '#57FF9A', fontWeight: 600 }}>{selected.size} seleccionado{selected.size > 1 ? 's' : ''}</span>
+          <Btn size="sm" variant="primary" onClick={conciliarSelected}><CheckCircle size={11} /> Conciliar</Btn>
+          <Btn size="sm" variant="default" onClick={deleteSelected} style={{ color: '#EF4444', borderColor: '#EF4444' }}><X size={11} /> Eliminar</Btn>
+          <button onClick={() => setSelected(new Set())} style={{ marginLeft: 'auto', fontSize: 11, color: '#666', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit' }}>Deseleccionar</button>
+        </div>
+      )}
+
+      {/* Project summary bar */}
+      {bankMovements.length > 0 && projectMap.size > 1 && (
+        <div style={{ display: 'flex', gap: 6, marginBottom: 16, flexWrap: 'wrap' }}>
+          {Array.from(projectMap.entries()).filter(([k]) => k !== 'Sin proyecto').sort((a, b) => b[1].count - a[1].count).slice(0, 8).map(([proy, d]) => (
+            <div key={proy} style={{ background: '#141414', border: '1px solid #222', borderRadius: 8, padding: '6px 10px', fontSize: 11 }}>
+              <span style={{ color: '#fff', fontWeight: 600 }}>{proy}</span>
+              <span style={{ color: '#666', marginLeft: 6 }}>{d.count} mov</span>
+              {d.abonos > 0 && <span style={{ color: '#57FF9A', marginLeft: 6 }}>+{F(d.abonos)}</span>}
+              {d.cargos > 0 && <span style={{ color: '#EF4444', marginLeft: 6 }}>-{F(d.cargos)}</span>}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Table */}
       {bankMovements.length === 0 ? (
         <EmptyState message="Sube un estado de cuenta (PDF de BBVA/Banorte, CSV o Excel) para iniciar la conciliación automática" />
       ) : (
         <Table>
           <thead><tr>
-            <Th>Fecha</Th><Th>Concepto</Th><Th>Beneficiario</Th><Th>Categoría</Th><Th right>Cargo</Th><Th right>Abono</Th>
+            <Th><input type="checkbox" checked={allSelected} onChange={toggleAll} style={chkStyle} /></Th>
+            <Th>Fecha</Th><Th>Concepto</Th><Th>Beneficiario</Th><Th>Proyecto</Th><Th>Categoría</Th><Th right>Cargo</Th><Th right>Abono</Th><Th>Match</Th><Th></Th>
           </tr></thead>
           <tbody>
-            {bankMovements.map(m => {
-              const catColors: Record<string, string> = { nomina: '#C084FC', proveedor: '#F59E0B', cobro_cliente: '#57FF9A', impuestos: '#EF4444', comision: '#6B7280', traspaso: '#3B82F6', prestamo: '#06B6D4', suscripcion: '#EC4899', otro: '#555' }
+            {filtered.map(m => {
+              const match = !m.conciliado ? findMatch(m) : (m.factura_match_info ? { id: m.factura_match_id || '', info: m.factura_match_info } : null)
+              const isExpanded = expandedId === m.id
               return (
-                <tr key={m.id}>
-                  <Td muted>{m.fecha}</Td>
-                  <Td><span style={{ color: '#ccc', fontSize: 12 }}>{m.concepto}</span></Td>
-                  <Td muted>{m.proyecto_sugerido || '—'}</Td>
-                  <Td><Badge label={m.categoria_sugerida || 'otro'} color={catColors[m.categoria_sugerida || 'otro'] || '#555'} /></Td>
-                  <Td right>{m.tipo === 'cargo' ? <span style={{ color: '#EF4444' }}>{F(m.monto)}</span> : ''}</Td>
-                  <Td right>{m.tipo === 'abono' ? <span style={{ color: '#57FF9A' }}>{F(m.monto)}</span> : ''}</Td>
-                </tr>
+                <React.Fragment key={m.id}>
+                  <tr style={{ opacity: m.conciliado ? 0.55 : 1, background: selected.has(m.id) ? 'rgba(87,255,154,0.04)' : undefined }}>
+                    <Td><input type="checkbox" checked={selected.has(m.id)} onChange={() => toggleOne(m.id)} style={chkStyle} /></Td>
+                    <Td muted>{m.fecha}</Td>
+                    <Td>
+                      <span style={{ color: '#ccc', fontSize: 12, cursor: 'pointer' }} onClick={() => setExpandedId(isExpanded ? null : m.id)}>
+                        {m.concepto.length > 40 ? m.concepto.substring(0, 40) + '...' : m.concepto}
+                      </span>
+                    </Td>
+                    <Td muted>{m.beneficiario || '—'}</Td>
+                    <Td>{m.proyecto_sugerido ? <Badge label={m.proyecto_sugerido} color="#3B82F6" /> : <span style={{ color: '#444' }}>—</span>}</Td>
+                    <Td><Badge label={m.categoria_sugerida || 'otro'} color={catColors[m.categoria_sugerida || 'otro'] || '#555'} /></Td>
+                    <Td right>{m.tipo === 'cargo' ? <span style={{ color: '#EF4444' }}>{F(m.monto)}</span> : ''}</Td>
+                    <Td right>{m.tipo === 'abono' ? <span style={{ color: '#57FF9A' }}>{F(m.monto)}</span> : ''}</Td>
+                    <Td>{match ? <span style={{ fontSize: 10, color: '#3B82F6', cursor: 'pointer' }} onClick={() => setExpandedId(isExpanded ? null : m.id)}>🔗 Ver</span> : <span style={{ fontSize: 10, color: '#444' }}>—</span>}</Td>
+                    <Td>
+                      <button
+                        onClick={() => {
+                          if (!m.conciliado && match) {
+                            setBankMovements(bankMovements.map(x => x.id === m.id ? { ...x, conciliado: true, factura_match_id: match.id, factura_match_info: match.info } : x))
+                          } else {
+                            toggleConciliar(m.id)
+                          }
+                        }}
+                        style={{
+                          padding: '3px 8px', fontSize: 10, fontWeight: 600, borderRadius: 6, cursor: 'pointer',
+                          border: m.conciliado ? '1px solid #333' : '1px solid rgba(87,255,154,0.3)',
+                          background: m.conciliado ? '#1a1a1a' : 'rgba(87,255,154,0.08)',
+                          color: m.conciliado ? '#666' : '#57FF9A', fontFamily: 'inherit',
+                        }}
+                      >
+                        {m.conciliado ? 'Desconciliar' : 'Conciliar ✓'}
+                      </button>
+                    </Td>
+                  </tr>
+                  {/* Expanded row */}
+                  {isExpanded && (
+                    <tr>
+                      <td colSpan={10} style={{ padding: '8px 16px', background: '#0d0d0d', borderBottom: '1px solid #1a1a1a' }}>
+                        <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}><strong style={{ color: '#aaa' }}>Concepto completo:</strong> {m.concepto}</div>
+                        {m.referencia && <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}><strong style={{ color: '#aaa' }}>Referencia:</strong> {m.referencia}</div>}
+                        {match && (
+                          <div style={{ fontSize: 11, color: '#3B82F6', marginTop: 6, padding: '6px 10px', background: 'rgba(59,130,246,0.06)', borderRadius: 6, border: '1px solid rgba(59,130,246,0.15)' }}>
+                            <strong>Match sugerido:</strong> {match.info}
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  )}
+                </React.Fragment>
               )
             })}
           </tbody>
