@@ -565,7 +565,23 @@ function POFromQuoteModal({ onClose, onCreated }: { onClose: () => void; onCreat
       // Filter by supplier if selected
       if (selectedSupplier) {
         const sup = suppliers.find(s => s.id === selectedSupplier)
-        if (sup) items = items.filter(it => (it.provider || '').toLowerCase().includes(sup.name.toLowerCase()))
+        if (sup) {
+          const supLower = sup.name.toLowerCase()
+          const filtered = items.filter(it => {
+            if (it.supplier_id === selectedSupplier) return true
+            const provLower = (it.provider || '').toLowerCase()
+            // Match if provider name is contained in supplier name or vice versa
+            if (provLower && (supLower.includes(provLower) || provLower.includes(supLower))) return true
+            // Match first word (brand name like "Hikvision" in "Hikvision Mexico SA de CV")
+            const supFirst = supLower.split(' ')[0]
+            const provFirst = provLower.split(' ')[0]
+            if (provFirst.length > 2 && supFirst.includes(provFirst)) return true
+            if (supFirst.length > 2 && provFirst.includes(supFirst)) return true
+            return false
+          })
+          // Only apply filter if it matches something; otherwise show all
+          if (filtered.length > 0) items = filtered
+        }
       }
       setPreviewItems(items)
     }
