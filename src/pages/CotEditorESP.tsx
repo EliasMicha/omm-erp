@@ -13,7 +13,8 @@
 // Fórmula: Costo = Precio × (1 - Margen%)
 // ═══════════════════════════════════════════════════════════════════
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
+import { supabase } from '../lib/supabase'
 import { F, STAGE_CONFIG } from '../lib/utils'
 import { Badge, Btn, Loading } from '../components/layout/UI'
 import { Plus, ChevronLeft, ChevronRight, ChevronDown, X, Trash2, Image as ImageIcon } from 'lucide-react'
@@ -438,10 +439,10 @@ function SummaryPanel({ products, areas, config, activeSystems, showInt, onConfi
 // ═══════════════════════════════════════════════════════════════════
 
 export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack: () => void }) {
-  const mock = useMemo(() => buildMock(), [])
-  const [areas, setAreas] = useState<EspArea[]>(mock.areas)
-  const [activeSysIds, setActiveSysIds] = useState<string[]>(mock.systems)
-  const [products, setProducts] = useState<EspProduct[]>(mock.products)
+  const [areas, setAreas] = useState<EspArea[]>([])
+  const [activeSysIds, setActiveSysIds] = useState<string[]>([])
+  const [products, setProducts] = useState<EspProduct[]>([])
+  const [loading, setLoading] = useState(true)
   const [config, setConfig] = useState<EspQuoteConfig>({
     currency: 'USD', ivaRate: 16, programacion: 740,
     paymentSchedule: [
@@ -452,9 +453,31 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
     version: '1.0',
   })
   const [showInt, setShowInt] = useState(true)
-  const [stage, setStage] = useState('propuesta')
+  const [stage, setStage] = useState('oportunidad')
   const [collapsedSys, setCollapsedSys] = useState<Record<string, boolean>>({})
   const [showSystemPicker, setShowSystemPicker] = useState(false)
+  const [cotName, setCotName] = useState('')
+  const [clientName, setClientName] = useState('')
+
+  // Load quotation data from Supabase
+  useEffect(() => {
+    async function load() {
+      const [{ data: cot }, { data: qAreas }] = await Promise.all([
+        supabase.from('quotations').select('*,project:projects(name,client_name)').eq('id', cotId).single(),
+        supabase.from('quotation_areas').select('*').eq('quotation_id', cotId).order('order_index'),
+      ])
+      if (cot) {
+        setCotName(cot.name || '')
+        setClientName(cot.client_name || '')
+        setStage(cot.stage || 'oportunidad')
+      }
+      if (qAreas && qAreas.length > 0) {
+        setAreas(qAreas.map((a: any, i: number) => ({ id: a.id, name: a.name, collapsed: false, order: i })))
+      }
+      setLoading(false)
+    }
+    load()
+  }, [cotId])
 
   const activeSystems = useMemo(() => ALL_SYSTEMS.filter(s => activeSysIds.includes(s.id)), [activeSysIds])
   const summary = useMemo(() => calcSummary(products, config), [products, config])
@@ -508,6 +531,8 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
   }
 
   // ─── RENDER ────────────────────────────────────────────────────
+  if (loading) return <Loading />
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column' as const, height: '100vh', overflow: 'hidden' }}>
       {/* Top bar */}
@@ -516,8 +541,9 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
           <ChevronLeft size={14} /> Cotizaciones
         </button>
         <span style={{ color: '#333' }}>/</span>
-        <span style={{ fontSize: 12, fontWeight: 500, color: '#57FF9A' }}>◈ Cotización ESP</span>
+        <span style={{ fontSize: 12, fontWeight: 500, color: '#57FF9A' }}>◈ {cotName || 'Cotización ESP'}</span>
         <Badge label="ESP" color="#57FF9A" />
+        {clientName && <span style={{ fontSize: 11, color: '#555' }}>{clientName}</span>}
 
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 4, alignItems: 'center' }}>
           {/* Stage buttons */}
