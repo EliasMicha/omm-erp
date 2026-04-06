@@ -213,6 +213,29 @@ export default function Contabilidad() {
   const [invoices, setInvoices] = useState<Invoice[]>(MOCK_INVOICES)
   const [bankMovements, setBankMovements] = useState<BankMovement[]>([])
 
+  // Load bank movements from Supabase
+  useEffect(() => {
+    supabase.from('bank_movements').select('*').order('fecha', { ascending: false }).then(({ data }) => {
+      if (data && data.length > 0) {
+        setBankMovements(data.map((m: any) => ({
+          id: m.id,
+          fecha: m.fecha || '',
+          concepto: m.concepto || '',
+          referencia: m.referencia || '',
+          monto: Number(m.monto) || 0,
+          tipo: m.tipo || 'cargo',
+          saldo: Number(m.saldo) || 0,
+          categoria_sugerida: m.categoria || 'otro',
+          proyecto_sugerido: m.proyecto || '',
+          beneficiario: m.beneficiario || '',
+          conciliado: m.conciliado || false,
+          factura_match_id: m.factura_match_id || undefined,
+          factura_match_info: m.factura_match_info || '',
+        })))
+      }
+    })
+  }, [])
+
   // Load facturas from Supabase
   useEffect(() => {
     const loadFacturas = async () => {
@@ -762,11 +785,43 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices }: { bankMo
   const [manual, setManual] = useState({ fecha: new Date().toISOString().substring(0, 10), concepto: '', beneficiario: '', monto: '', tipo: 'cargo' as 'cargo' | 'abono', categoria: 'otro', proyecto: '' })
   const fileRef = useRef<HTMLInputElement>(null)
 
-  const addManual = () => {
+  /* --- Supabase sync helpers --- */
+  const toRow = (m: BankMovement) => ({
+    id: m.id, fecha: m.fecha, concepto: m.concepto, referencia: m.referencia,
+    monto: m.monto, tipo: m.tipo, saldo: m.saldo,
+    categoria: m.categoria_sugerida || 'otro', proyecto: m.proyecto_sugerido || '',
+    beneficiario: m.beneficiario || '', conciliado: m.conciliado,
+    factura_match_id: m.factura_match_id || null, factura_match_info: m.factura_match_info || '',
+  })
+
+  const dbInsertMany = async (movements: BankMovement[]) => {
+    if (movements.length === 0) return
+    const rows = movements.map(toRow)
+    // Batch in chunks of 50
+    for (let i = 0; i < rows.length; i += 50) {
+      await supabase.from('bank_movements').upsert(rows.slice(i, i + 50), { onConflict: 'id' })
+    }
+  }
+
+  const dbDeleteMany = async (ids: string[]) => {
+    if (ids.length === 0) return
+    await supabase.from('bank_movements').delete().in('id', ids)
+  }
+
+  const dbUpdate = async (id: string, updates: Record<string, any>) => {
+    await supabase.from('bank_movements').update(updates).eq('id', id)
+  }
+
+  const dbUpdateMany = async (ids: string[], updates: Record<string, any>) => {
+    if (ids.length === 0) return
+    await supabase.from('bank_movements').update(updates).in('id', ids)
+  }
+
+  const addManual = async () => {
     const monto = Math.abs(parseFloat(manual.monto) || 0)
     if (!manual.concepto.trim() || monto === 0) return
-    setBankMovements([{
-      id: String(Date.now()),
+    const newMov: BankMovement = {
+      id: crypto.randomUUID(),
       fecha: manual.fecha,
       concepto: manual.concepto.trim(),
       referencia: '',
@@ -777,7 +832,9 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices }: { bankMo
       proyecto_sugerido: manual.proyecto,
       beneficiario: manual.beneficiario.trim(),
       conciliado: false,
-    }, ...bankMovements])
+    }
+    setBankMovements([newMov, ...bankMovements])
+    dbInsertMany([newMov])
     setManual({ fecha: new Date().toISOString().substring(0, 10), concepto: '', beneficiario: '', monto: '', tipo: 'cargo', categoria: 'otro', proyecto: '' })
     setShowManual(false)
   }
@@ -883,8 +940,8 @@ REGLAS DE CATEGORIA:
       if (jsonMatch) {
         const parsed = JSON.parse(jsonMatch[0].replace(/```json|```/g, '').trim())
         if (Array.isArray(parsed) && parsed.length > 0) {
-          setBankMovements(parsed.map((m: any, i: number) => ({
-            id: String(Date.now() + i),
+          const newMovs: BankMovement[] = parsed.map((m: any) => ({
+            id: crypto.randomUUID(),
             fecha: m.fecha || '',
             concepto: m.concepto || '',
             referencia: m.referencia || '',
@@ -895,9 +952,20 @@ REGLAS DE CATEGORIA:
             proyecto_sugerido: m.proyecto || '',
             beneficiario: m.beneficiario || '',
             conciliado: false,
-          })))
+          }))
+          // Deduplicate: skip if same fecha+monto+tipo+concepto already exists
+          const existing = bankMovements
+          const deduped = newMovs.filter(n => !existing.some(e =>
+            e.fecha === n.fecha && Math.abs(e.monto - n.monto) < 0.01 && e.tipo === n.tipo && e.concepto === n.concepto
+          ))
+          if (deduped.length < newMovs.length) {
+            setStatus(`✓ ${deduped.length} nuevos (${newMovs.length - deduped.length} duplicados omitidos)`)
+          } else {
+            setStatus(`✓ ${deduped.length} movimientos extraídos`)
+          }
+          setBankMovements([...deduped, ...existing])
+          dbInsertMany(deduped)
           setSelected(new Set())
-          setStatus(`✓ ${parsed.length} movimientos extraídos`)
         } else {
           setStatus('No se encontraron movimientos')
         }
@@ -927,18 +995,25 @@ REGLAS DE CATEGORIA:
   }
   const deleteSelected = () => {
     if (selected.size === 0) return
+    const ids = Array.from(selected)
     setBankMovements(bankMovements.filter(m => !selected.has(m.id)))
+    dbDeleteMany(ids)
     setSelected(new Set())
   }
   const conciliarSelected = () => {
     if (selected.size === 0) return
+    const ids = Array.from(selected)
     setBankMovements(bankMovements.map(m => selected.has(m.id) ? { ...m, conciliado: true } : m))
+    dbUpdateMany(ids, { conciliado: true })
     setSelected(new Set())
   }
 
   /* --- Toggle conciliar one --- */
   const toggleConciliar = (id: string) => {
-    setBankMovements(bankMovements.map(m => m.id === id ? { ...m, conciliado: !m.conciliado } : m))
+    const mov = bankMovements.find(m => m.id === id)
+    const newVal = !mov?.conciliado
+    setBankMovements(bankMovements.map(m => m.id === id ? { ...m, conciliado: newVal } : m))
+    dbUpdate(id, { conciliado: newVal })
   }
 
   /* --- KPIs --- */
@@ -1106,6 +1181,7 @@ REGLAS DE CATEGORIA:
                         onClick={() => {
                           if (!m.conciliado && match) {
                             setBankMovements(bankMovements.map(x => x.id === m.id ? { ...x, conciliado: true, factura_match_id: match.id, factura_match_info: match.info } : x))
+                            dbUpdate(m.id, { conciliado: true, factura_match_id: match.id, factura_match_info: match.info })
                           } else {
                             toggleConciliar(m.id)
                           }
