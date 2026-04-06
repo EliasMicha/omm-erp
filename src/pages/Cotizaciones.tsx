@@ -699,10 +699,27 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
 }
 
 export default function Cotizaciones() {
-  const [openId, setOpenId] = useState<string|null>(null)
-  const [openSpecialty, setOpenSpecialty] = useState<string|null>(null)
+  // Read initial state from URL hash: #cotId:specialty
+  const parseHash = () => {
+    const h = window.location.hash.slice(1)
+    if (!h) return { id: null, spec: null }
+    const [id, spec] = h.split(':')
+    return { id: id || null, spec: spec || null }
+  }
+  const initial = parseHash()
+  const [openId, setOpenId] = useState<string|null>(initial.id)
+  const [openSpecialty, setOpenSpecialty] = useState<string|null>(initial.spec)
 
-  if (openId && openSpecialty === 'esp') return <CotEditorESP cotId={openId} onBack={()=>{setOpenId(null);setOpenSpecialty(null)}}/>
-  if (openId) return <CotEditor cotId={openId} onBack={()=>{setOpenId(null);setOpenSpecialty(null)}}/>
-  return <CotDashboard onOpen={(id, specialty) => {setOpenId(id);setOpenSpecialty(specialty||null)}}/>
+  const open = (id: string, specialty?: string) => {
+    setOpenId(id); setOpenSpecialty(specialty || null)
+    window.location.hash = id + (specialty ? ':' + specialty : '')
+  }
+  const close = () => {
+    setOpenId(null); setOpenSpecialty(null)
+    window.location.hash = ''
+  }
+
+  if (openId && openSpecialty === 'esp') return <CotEditorESP cotId={openId} onBack={close}/>
+  if (openId) return <CotEditor cotId={openId} onBack={close}/>
+  return <CotDashboard onOpen={open}/>
 }
