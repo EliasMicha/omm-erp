@@ -352,7 +352,6 @@ Important: cost should be the retail/MSRP price in USD. If you can't find exact 
           ...f,
           name: parsed.name || f.name,
           description: parsed.description || f.description,
-          cost: typeof parsed.cost === 'number' ? parsed.cost : f.cost,
           provider: matchedSupplier ? matchedSupplier.name : f.provider,
           system: matchedSystem ? matchedSystem.name : f.system,
         }))
