@@ -277,6 +277,12 @@ function CreateProductModal({ onClose, onCreate, systemName }: {
   const [aiQuery, setAiQuery] = useState('')
   const [aiLoading, setAiLoading] = useState(false)
   const [aiStatus, setAiStatus] = useState('')
+  const [suppliers, setSuppliers] = useState<Array<{ id: string; name: string }>>([])
+
+  useEffect(() => {
+    supabase.from('suppliers').select('id,name').eq('is_active', true).order('name')
+      .then(({ data }) => setSuppliers(data || []))
+  }, [])
 
   async function searchWithAI() {
     const query = aiQuery || form.name
@@ -336,13 +342,19 @@ Important: cost should be the retail/MSRP price in USD. If you can't find exact 
       if (jsonMatch) {
         const clean = jsonMatch[0].replace(/```json|```/g, '').trim()
         const parsed = JSON.parse(clean)
+        // Try to match AI provider to existing supplier
+        const aiProvider = parsed.provider || ''
+        const matchedSupplier = suppliers.find(s => s.name.toLowerCase().includes(aiProvider.toLowerCase()) || aiProvider.toLowerCase().includes(s.name.toLowerCase()))
+        // Try to match AI system to existing system
+        const aiSystem = parsed.system || ''
+        const matchedSystem = ALL_SYSTEMS.find(s => s.name.toLowerCase().includes(aiSystem.toLowerCase()) || aiSystem.toLowerCase().includes(s.name.toLowerCase()))
         setForm(f => ({
           ...f,
           name: parsed.name || f.name,
           description: parsed.description || f.description,
           cost: typeof parsed.cost === 'number' ? parsed.cost : f.cost,
-          provider: parsed.provider || f.provider,
-          system: parsed.system || f.system,
+          provider: matchedSupplier ? matchedSupplier.name : f.provider,
+          system: matchedSystem ? matchedSystem.name : f.system,
         }))
         setAiStatus('✓ Producto encontrado')
       } else {
@@ -412,8 +424,21 @@ Important: cost should be the retail/MSRP price in USD. If you can't find exact 
             {inp('Margen %', form.markup, 'markup', 'number')}
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            {inp('Proveedor', form.provider, 'provider')}
-            {inp('Sistema', form.system, 'system')}
+            <label style={{ fontSize: 10, color: '#555', textTransform: 'uppercase' as const, letterSpacing: '0.06em', display: 'block' }}>
+              Proveedor
+              <select value={form.provider} onChange={e => setForm(f => ({ ...f, provider: e.target.value }))}
+                style={{ display: 'block', width: '100%', marginTop: 3, padding: '7px 10px', background: '#1e1e1e', border: '1px solid #333', borderRadius: 8, color: '#fff', fontSize: 13, fontFamily: 'inherit' }}>
+                <option value="">-- Seleccionar --</option>
+                {suppliers.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+              </select>
+            </label>
+            <label style={{ fontSize: 10, color: '#555', textTransform: 'uppercase' as const, letterSpacing: '0.06em', display: 'block' }}>
+              Sistema
+              <select value={form.system} onChange={e => setForm(f => ({ ...f, system: e.target.value }))}
+                style={{ display: 'block', width: '100%', marginTop: 3, padding: '7px 10px', background: '#1e1e1e', border: '1px solid #333', borderRadius: 8, color: '#fff', fontSize: 13, fontFamily: 'inherit' }}>
+                {ALL_SYSTEMS.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+              </select>
+            </label>
           </div>
           {/* Preview: calculated sale price */}
           {form.cost > 0 && (
