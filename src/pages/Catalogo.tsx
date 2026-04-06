@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { SectionHeader, KpiCard, Table, Th, Td, Badge, Btn, EmptyState } from '../components/layout/UI'
 import { F, PHASE_CONFIG } from '../lib/utils'
+import { ANTHROPIC_API_KEY } from '../lib/config'
 import { Package, Plus, Search, Edit, X, Tag, Layers, Upload, Loader2 } from 'lucide-react'
 import { PurchasePhase } from '../types'
 
@@ -340,6 +341,9 @@ function TabProveedores({ suppliers, setSuppliers }: { suppliers: Supplier[]; se
   const [editId, setEditId] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [form, setForm] = useState<Partial<SupplierFull>>({ name: '', is_active: true, sistemas: [] })
+  const [extracting, setExtracting] = useState(false)
+  const [extractStatus, setExtractStatus] = useState('')
+  const pdfRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     supabase.from('suppliers').select('*').order('name').then(({ data }) => {
@@ -351,6 +355,57 @@ function TabProveedores({ suppliers, setSuppliers }: { suppliers: Supplier[]; se
       })))
     })
   }, [])
+
+  const handlePdfExtract = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]; if (!file) return
+    setExtracting(true); setExtractStatus('Leyendo PDF...')
+    try {
+      const base64 = await new Promise<string>((res, rej) => {
+        const r = new FileReader()
+        r.onload = () => res((r.result as string).split(',')[1])
+        r.onerror = () => rej(new Error('Error leyendo PDF'))
+        r.readAsDataURL(file)
+      })
+      setExtractStatus('Extrayendo datos con AI...')
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'anthropic-dangerous-direct-browser-access': 'true', 'anthropic-version': '2023-06-01', 'x-api-key': ANTHROPIC_API_KEY },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-20250514', max_tokens: 2000,
+          messages: [{ role: 'user', content: [
+            { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64 } },
+            { type: 'text', text: `Extrae los datos del proveedor de este documento (puede ser una Constancia de Situación Fiscal CSF, una factura CFDI, o cualquier documento fiscal mexicano).
+
+Devuelve SOLO un JSON sin markdown:
+{"nombre":"razón social completa","rfc":"RFC del proveedor","contacto":"nombre de contacto si aparece","telefono":"teléfono si aparece","email":"email si aparece","direccion":"dirección fiscal completa","sistemas":["sistemas que podría proveer basándote en los productos/servicios mencionados: CCTV, Audio, Redes, Control de iluminacion, Control de acceso, Electrico, Iluminacion, Cortinas, General"]}
+
+Si un campo no aparece, déjalo como string vacío. Para sistemas, infiere del giro o productos mencionados.` }
+          ] }],
+        }),
+      })
+      if (response.ok) {
+        const data = await response.json()
+        const text = (data.content || []).filter((b: any) => b.type === 'text').map((b: any) => b.text).join('')
+        const jsonMatch = text.match(/\{[\s\S]*\}/)
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0].replace(/```json|```/g, '').trim())
+          setForm(f => ({
+            ...f,
+            name: parsed.nombre || f.name,
+            rfc: parsed.rfc || f.rfc,
+            contacto: parsed.contacto || f.contacto,
+            telefono: parsed.telefono || f.telefono,
+            email: parsed.email || f.email,
+            direccion: parsed.direccion || f.direccion,
+            sistemas: parsed.sistemas?.length > 0 ? parsed.sistemas : f.sistemas,
+          }))
+          setExtractStatus('✓ Datos extraídos')
+        } else { setExtractStatus('No se pudieron extraer datos') }
+      } else { setExtractStatus('Error API') }
+    } catch (err) { setExtractStatus('Error: ' + (err as Error).message) }
+    setExtracting(false)
+    if (pdfRef.current) pdfRef.current.value = ''
+  }
 
   const filtered = proveedores.filter(p =>
     !search || p.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -441,6 +496,15 @@ function TabProveedores({ suppliers, setSuppliers }: { suppliers: Supplier[]; se
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
               <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#fff' }}>{editId ? 'Editar proveedor' : 'Nuevo proveedor'}</h3>
               <button onClick={() => setShowForm(false)} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer' }}><X size={16} /></button>
+            </div>
+            {/* PDF extraction */}
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 16, padding: '10px 12px', background: '#0d0d0d', borderRadius: 8, border: '1px solid #222' }}>
+              <input type="file" ref={pdfRef} accept=".pdf" style={{ display: 'none' }} onChange={handlePdfExtract} />
+              <Btn size="sm" variant="default" onClick={() => pdfRef.current?.click()} disabled={extracting}>
+                {extracting ? <><Loader2 size={12} /> Extrayendo...</> : <><Upload size={12} /> Subir CSF o factura PDF</>}
+              </Btn>
+              <span style={{ fontSize: 10, color: '#555' }}>Extrae datos automáticamente con AI</span>
+              {extractStatus && <span style={{ fontSize: 10, color: extractStatus.startsWith('✓') ? '#57FF9A' : '#888', marginLeft: 'auto' }}>{extractStatus}</span>}
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
               <Fld label="Nombre *"><input style={fS} value={form.name || ''} onChange={e => setForm({ ...form, name: e.target.value })} /></Fld>
