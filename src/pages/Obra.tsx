@@ -16,7 +16,7 @@ import {
 type ObraStatus = 'entrega_pendiente' | 'en_ejecucion' | 'pausada' | 'completada'
 type ActividadStatus = 'pendiente' | 'en_progreso' | 'bloqueada' | 'completada'
 type Sistema = 'CCTV' | 'Audio' | 'Redes' | 'Control' | 'Acceso' | 'Electrico'
-type Tab = 'obras' | 'instaladores'
+type Tab = 'obras' | 'instaladores' | 'planeacion'
 
 interface Instalador {
   id: string
@@ -266,6 +266,7 @@ export default function Obra() {
       <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid #222', marginBottom: 20 }}>
         {([
           { key: 'obras' as Tab, label: 'Obras', icon: HardHat },
+          { key: 'planeacion' as Tab, label: 'Planeación semanal', icon: Calendar },
           { key: 'instaladores' as Tab, label: 'Equipo de instalación', icon: Users },
         ]).map(({ key, label, icon: Icon }) => {
           const active = tab === key
@@ -330,6 +331,8 @@ export default function Obra() {
       )}
 
       {tab === 'instaladores' && <TabInstaladores instaladores={instaladores} setInstaladores={setInstaladores} showNew={showNewInstalador} setShowNew={setShowNewInstalador} />}
+
+      {tab === 'planeacion' && <TabPlaneacion obras={obras} instaladores={instaladores} />}
 
       {/* Modal nueva obra */}
       {showNewObra && <NuevaObraModal onClose={() => setShowNewObra(false)} onCreate={(o) => { setObras([o, ...obras]); setShowNewObra(false) }} />}
@@ -1027,6 +1030,305 @@ function TabInstaladores({ instaladores, setInstaladores, showNew, setShowNew }:
               </div>
             )
           })}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   TAB: PLANEACION SEMANAL
+   ═══════════════════════════════════════════════════════════════════ */
+
+function TabPlaneacion({ obras, instaladores }: { obras: ObraData[]; instaladores: Instalador[] }) {
+  const [weekOffset, setWeekOffset] = useState(0)
+  const [processing, setProcessing] = useState(false)
+  const [aiSuggestion, setAiSuggestion] = useState<string | null>(null)
+  const [assignments, setAssignments] = useState<Map<string, Map<number, { obra: string; tarea: string; obraColor: string }[]>>>(new Map())
+  const [selectedCell, setSelectedCell] = useState<{ instId: string; dayIdx: number } | null>(null)
+  const [newTask, setNewTask] = useState({ obra_id: '', tarea: '' })
+
+  // Week calculation
+  const today = new Date()
+  const mondayBase = new Date(today)
+  mondayBase.setDate(today.getDate() - ((today.getDay() + 6) % 7) + weekOffset * 7)
+  const weekDays = Array.from({ length: 6 }, (_, i) => {
+    const d = new Date(mondayBase)
+    d.setDate(mondayBase.getDate() + i)
+    return d
+  })
+  const dayLabels = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb']
+  const weekLabel = `${weekDays[0].toLocaleDateString('es-MX', { day: 'numeric', month: 'short' })} — ${weekDays[5].toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: 'numeric' })}`
+
+  const obrasActivas = obras.filter(o => o.status === 'en_ejecucion')
+  const obraColors = ['#57FF9A', '#3B82F6', '#F59E0B', '#C084FC', '#EF4444', '#06B6D4', '#EC4899', '#FF6B35']
+
+  // Get assignments for an installer on a day
+  const getCell = (instId: string, dayIdx: number) => {
+    return assignments.get(instId)?.get(dayIdx) || []
+  }
+
+  // Add manual assignment
+  const addAssignment = () => {
+    if (!selectedCell || !newTask.obra_id || !newTask.tarea.trim()) return
+    const { instId, dayIdx } = selectedCell
+    const obra = obras.find(o => o.id === newTask.obra_id)
+    if (!obra) return
+    const obraIdx = obrasActivas.findIndex(o => o.id === newTask.obra_id)
+    const color = obraColors[obraIdx % obraColors.length]
+
+    setAssignments(prev => {
+      const next = new Map(prev)
+      const instMap = new Map(next.get(instId) || new Map())
+      const dayArr = [...(instMap.get(dayIdx) || [])]
+      dayArr.push({ obra: obra.nombre, tarea: newTask.tarea.trim(), obraColor: color })
+      instMap.set(dayIdx, dayArr)
+      next.set(instId, instMap)
+      return next
+    })
+    setNewTask({ obra_id: '', tarea: '' })
+    setSelectedCell(null)
+  }
+
+  // Remove assignment
+  const removeAssignment = (instId: string, dayIdx: number, taskIdx: number) => {
+    setAssignments(prev => {
+      const next = new Map(prev)
+      const instMap = new Map(next.get(instId) || new Map())
+      const dayArr = [...(instMap.get(dayIdx) || [])]
+      dayArr.splice(taskIdx, 1)
+      if (dayArr.length === 0) instMap.delete(dayIdx)
+      else instMap.set(dayIdx, dayArr)
+      next.set(instId, instMap)
+      return next
+    })
+  }
+
+  // AI suggestion
+  const sugerirConAI = async () => {
+    setProcessing(true)
+    setAiSuggestion(null)
+
+    const context = obrasActivas.map((o, i) => {
+      const pending = o.actividades.filter(a => a.status !== 'completada')
+      const blocked = o.actividades.filter(a => a.status === 'bloqueada')
+      const assignedInst = instaladores.filter(inst => o.instaladores_ids.includes(inst.id))
+      return `OBRA ${i + 1}: ${o.nombre} (${o.avance_global}% avance, cliente: ${o.cliente})
+  Pendientes: ${pending.map(a => `${a.descripcion} [${a.sistema}, ${a.porcentaje}%, ${ACT_STATUS_CONFIG[a.status].label}]`).join('; ') || 'ninguna'}
+  Bloqueadas: ${blocked.map(a => `${a.descripcion}: ${a.bloqueo || 'sin detalle'}`).join('; ') || 'ninguna'}
+  Instaladores asignados: ${assignedInst.map(inst => `${inst.nombre} (${inst.nivel}, ${inst.habilidades.join('/')})`).join('; ') || 'ninguno'}`
+    }).join('\n\n')
+
+    const instContext = instaladores.map(i =>
+      `${i.nombre}: nivel ${i.nivel}, habilidades [${i.habilidades.join(', ')}], ${i.disponible ? 'disponible' : 'NO disponible'}, obras activas: ${i.obras_activas.length}`
+    ).join('\n')
+
+    try {
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'anthropic-dangerous-direct-browser-access': 'true', 'anthropic-version': '2023-06-01', 'x-api-key': ANTHROPIC_API_KEY },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-20250514', max_tokens: 4000,
+          system: `Eres el coordinador de obra de OMM Technologies, empresa de instalaciones especiales (CCTV, audio, redes, control de iluminación Lutron, control de acceso, eléctrico).
+
+Tu trabajo es planear la semana de los instaladores considerando:
+1. Prioridad de actividades bloqueadas vs pendientes
+2. Habilidades de cada instalador vs sistemas requeridos
+3. No saturar a un instalador (máx 1 obra por día idealmente)
+4. Ubicación de obras (minimizar traslados)
+5. Actividades que están más retrasadas tienen prioridad
+6. La planeación es de lunes a sábado
+
+Responde con un JSON y luego una explicación. El JSON debe ser:
+{"plan": [{"instalador": "nombre", "dia": "Lun|Mar|Mié|Jue|Vie|Sáb", "obra": "nombre obra", "tarea": "qué hacer"}]}
+
+Después del JSON, escribe un párrafo con el razonamiento y recomendaciones.`,
+          messages: [{ role: 'user', content: `Semana: ${weekLabel}\n\nOBRAS ACTIVAS:\n${context}\n\nINSTALADORES:\n${instContext}\n\nGenera la planeación semanal óptima.` }],
+        }),
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        const text = (data.content || []).filter((b: any) => b.type === 'text').map((b: any) => b.text).join('')
+
+        // Parse JSON plan
+        const jsonMatch = text.match(/\{[\s\S]*?"plan"[\s\S]*?\}/)
+        if (jsonMatch) {
+          try {
+            const parsed = JSON.parse(jsonMatch[0].replace(/```json|```/g, '').trim())
+            if (parsed.plan && Array.isArray(parsed.plan)) {
+              const newAssignments = new Map<string, Map<number, { obra: string; tarea: string; obraColor: string }[]>>()
+              const dayMap: Record<string, number> = { 'Lun': 0, 'Mar': 1, 'Mié': 2, 'Jue': 3, 'Vie': 4, 'Sáb': 5 }
+
+              parsed.plan.forEach((item: any) => {
+                const inst = instaladores.find(i => i.nombre.toLowerCase().includes((item.instalador || '').toLowerCase().split(' ')[0]))
+                if (!inst) return
+                const dayIdx = dayMap[item.dia]
+                if (dayIdx === undefined) return
+
+                const obraMatch = obrasActivas.find(o => o.nombre.toLowerCase().includes((item.obra || '').toLowerCase().split(' ')[0]))
+                const obraIdx = obraMatch ? obrasActivas.indexOf(obraMatch) : 0
+                const color = obraColors[obraIdx % obraColors.length]
+
+                const instMap = newAssignments.get(inst.id) || new Map()
+                const dayArr = instMap.get(dayIdx) || []
+                dayArr.push({ obra: item.obra || '', tarea: item.tarea || '', obraColor: color })
+                instMap.set(dayIdx, dayArr)
+                newAssignments.set(inst.id, instMap)
+              })
+
+              setAssignments(newAssignments)
+            }
+          } catch (_e) { /* parse error, still show text */ }
+        }
+
+        // Extract explanation (everything after JSON)
+        const explanation = text.replace(/\{[\s\S]*?"plan"[\s\S]*?\}/, '').replace(/```json|```/g, '').trim()
+        if (explanation) setAiSuggestion(explanation)
+      }
+    } catch (err) {
+      console.error('AI planning error:', err)
+      setAiSuggestion('Error al generar sugerencia. Intenta de nuevo.')
+    }
+    setProcessing(false)
+  }
+
+  return (
+    <div>
+      {/* Week navigation */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+        <button onClick={() => setWeekOffset(w => w - 1)} style={{ background: '#141414', border: '1px solid #333', borderRadius: 6, padding: '4px 10px', color: '#ccc', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12 }}>← Anterior</button>
+        <div style={{ fontSize: 14, fontWeight: 600, color: '#fff', flex: 1, textAlign: 'center' }}>
+          <Calendar size={14} style={{ verticalAlign: 'middle', marginRight: 6 }} />
+          {weekLabel}
+          {weekOffset === 0 && <span style={{ fontSize: 10, color: '#57FF9A', marginLeft: 8 }}>Esta semana</span>}
+        </div>
+        <button onClick={() => setWeekOffset(w => w + 1)} style={{ background: '#141414', border: '1px solid #333', borderRadius: 6, padding: '4px 10px', color: '#ccc', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12 }}>Siguiente →</button>
+        <Btn size="sm" variant="primary" onClick={sugerirConAI} disabled={processing || obrasActivas.length === 0}>
+          {processing ? <><Loader2 size={12} /> Generando...</> : <>🤖 Sugerir con AI</>}
+        </Btn>
+      </div>
+
+      {/* AI suggestion */}
+      {aiSuggestion && (
+        <div style={{ ...cardStyle, borderColor: 'rgba(59,130,246,0.3)', background: 'rgba(59,130,246,0.03)', marginBottom: 16 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: 6 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: '#3B82F6' }}>🤖 Razonamiento AI</div>
+            <button onClick={() => setAiSuggestion(null)} style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer' }}><X size={14} /></button>
+          </div>
+          <div style={{ fontSize: 11, color: '#aaa', lineHeight: 1.6 }}>{aiSuggestion}</div>
+        </div>
+      )}
+
+      {/* Obra legend */}
+      {obrasActivas.length > 0 && (
+        <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+          {obrasActivas.map((o, i) => (
+            <div key={o.id} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11 }}>
+              <div style={{ width: 10, height: 10, borderRadius: 3, background: obraColors[i % obraColors.length] }} />
+              <span style={{ color: '#888' }}>{o.nombre}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Calendar grid */}
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+          <thead>
+            <tr>
+              <th style={{ padding: '8px 12px', textAlign: 'left', color: '#666', fontSize: 11, fontWeight: 600, borderBottom: '1px solid #222', minWidth: 140, background: '#111' }}>Instalador</th>
+              {weekDays.map((d, i) => {
+                const isToday = d.toDateString() === today.toDateString()
+                return (
+                  <th key={i} style={{
+                    padding: '8px 6px', textAlign: 'center', fontSize: 11, fontWeight: 600,
+                    borderBottom: '1px solid #222', minWidth: 130,
+                    color: isToday ? '#57FF9A' : '#666',
+                    background: isToday ? 'rgba(87,255,154,0.04)' : '#111',
+                  }}>
+                    <div>{dayLabels[i]}</div>
+                    <div style={{ fontSize: 10, fontWeight: 400 }}>{d.getDate()}/{d.getMonth() + 1}</div>
+                  </th>
+                )
+              })}
+            </tr>
+          </thead>
+          <tbody>
+            {instaladores.filter(i => i.disponible).map(inst => {
+              const niv = NIVEL_CONFIG[inst.nivel]
+              return (
+                <tr key={inst.id}>
+                  <td style={{ padding: '8px 12px', borderBottom: '1px solid #1a1a1a', verticalAlign: 'top' }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: '#ccc' }}>{inst.nombre}</div>
+                    <div style={{ fontSize: 9, color: niv.color }}>{niv.label}</div>
+                    <div style={{ fontSize: 9, color: '#444', marginTop: 2 }}>{inst.habilidades.map(h => SISTEMAS_CONFIG[h]?.label?.substring(0, 4)).join(' · ')}</div>
+                  </td>
+                  {weekDays.map((_, dayIdx) => {
+                    const tasks = getCell(inst.id, dayIdx)
+                    const isSelected = selectedCell?.instId === inst.id && selectedCell?.dayIdx === dayIdx
+                    const isToday = weekDays[dayIdx].toDateString() === today.toDateString()
+                    return (
+                      <td key={dayIdx}
+                        onClick={() => setSelectedCell(isSelected ? null : { instId: inst.id, dayIdx })}
+                        style={{
+                          padding: 4, borderBottom: '1px solid #1a1a1a', verticalAlign: 'top',
+                          cursor: 'pointer', minHeight: 60,
+                          background: isSelected ? 'rgba(87,255,154,0.06)' : isToday ? 'rgba(87,255,154,0.02)' : 'transparent',
+                          border: isSelected ? '1px solid rgba(87,255,154,0.2)' : '1px solid transparent',
+                          transition: 'all 0.1s',
+                        }}
+                      >
+                        {tasks.map((t, ti) => (
+                          <div key={ti} style={{
+                            padding: '3px 6px', marginBottom: 3, borderRadius: 4, fontSize: 10,
+                            background: `${t.obraColor}10`, borderLeft: `2px solid ${t.obraColor}`,
+                            position: 'relative',
+                          }}>
+                            <div style={{ fontWeight: 600, color: t.obraColor, fontSize: 9 }}>{t.obra}</div>
+                            <div style={{ color: '#aaa' }}>{t.tarea}</div>
+                            <button onClick={e => { e.stopPropagation(); removeAssignment(inst.id, dayIdx, ti) }}
+                              style={{ position: 'absolute', top: 2, right: 2, background: 'none', border: 'none', color: '#444', cursor: 'pointer', fontSize: 8, padding: 0 }}>
+                              <X size={8} />
+                            </button>
+                          </div>
+                        ))}
+                        {tasks.length === 0 && (
+                          <div style={{ fontSize: 10, color: '#2a2a2a', textAlign: 'center', padding: '8px 0' }}>+</div>
+                        )}
+
+                        {/* Inline add form */}
+                        {isSelected && (
+                          <div style={{ marginTop: 4, padding: 4, background: '#0d0d0d', borderRadius: 6, border: '1px solid #333' }}
+                            onClick={e => e.stopPropagation()}>
+                            <select value={newTask.obra_id} onChange={e => setNewTask(t => ({ ...t, obra_id: e.target.value }))}
+                              style={{ ...inputStyle, fontSize: 10, padding: '3px 4px', marginBottom: 3 }}>
+                              <option value="">Obra...</option>
+                              {obrasActivas.map(o => <option key={o.id} value={o.id}>{o.nombre}</option>)}
+                            </select>
+                            <input value={newTask.tarea} onChange={e => setNewTask(t => ({ ...t, tarea: e.target.value }))}
+                              placeholder="Tarea..."
+                              onKeyDown={e => { if (e.key === 'Enter') addAssignment() }}
+                              style={{ ...inputStyle, fontSize: 10, padding: '3px 4px', marginBottom: 3 }} />
+                            <div style={{ display: 'flex', gap: 3 }}>
+                              <button onClick={addAssignment} style={{ flex: 1, padding: '2px 4px', fontSize: 9, background: 'rgba(87,255,154,0.1)', border: '1px solid rgba(87,255,154,0.2)', borderRadius: 4, color: '#57FF9A', cursor: 'pointer', fontFamily: 'inherit' }}>Agregar</button>
+                              <button onClick={() => setSelectedCell(null)} style={{ padding: '2px 4px', fontSize: 9, background: '#1a1a1a', border: '1px solid #333', borderRadius: 4, color: '#666', cursor: 'pointer', fontFamily: 'inherit' }}>×</button>
+                            </div>
+                          </div>
+                        )}
+                      </td>
+                    )
+                  })}
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {obrasActivas.length === 0 && (
+        <div style={{ marginTop: 20 }}>
+          <EmptyState message="No hay obras en ejecución. La planeación semanal se genera a partir de obras activas con actividades pendientes." />
         </div>
       )}
     </div>
