@@ -87,72 +87,271 @@ function CotDashboard({ onOpen }: { onOpen: (id: string, specialty?: string) => 
   )
 }
 
+// ─── CATALOGS FOR NEW QUOTE MODAL ─────────────────────────────────────────
+const AREA_PRESETS = [
+  'Recámara Principal', 'Sala/Comedor', 'Cocina', 'Cocina Abierta', 'Family', 'Site',
+  'Gym', 'Vestidor/Baño', 'Lavado', 'Rec. 1', 'Rec. 2', 'Rec. 3', 'Rec. 4',
+  'Estudio', 'Terraza', 'Jardín', 'Alberca', 'Lobby', 'Estacionamiento',
+  'Cuarto de Servicio', 'Roof Garden', 'Sala de Juntas', 'Oficina',
+]
+
+const SYSTEM_PRESETS = [
+  { id: 'audio', name: 'Audio', color: '#8B5CF6' },
+  { id: 'redes', name: 'Redes', color: '#06B6D4' },
+  { id: 'cctv', name: 'CCTV', color: '#3B82F6' },
+  { id: 'control_acceso', name: 'Control de Acceso', color: '#F59E0B' },
+  { id: 'control_iluminacion', name: 'Control de Iluminación', color: '#C084FC' },
+  { id: 'deteccion_humo', name: 'Detección de Humo', color: '#EF4444' },
+  { id: 'bms', name: 'BMS', color: '#10B981' },
+  { id: 'telefonia', name: 'Telefonía', color: '#F97316' },
+  { id: 'red_celular', name: 'Red Celular', color: '#EC4899' },
+  { id: 'cortinas_ctrl', name: 'Cortinas y Persianas', color: '#67E8F9' },
+]
+
+interface ClienteSimple { id: string; razon_social: string; rfc: string }
+interface LeadSimple { id: string; name: string; company: string; contact_name: string }
+
 function NuevaCoModal({ onClose, onCreated }: { onClose: () => void; onCreated: (id: string, specialty: string) => void }) {
   const [projects, setProjects] = useState<Project[]>([])
-  const [form, setForm] = useState({ project_id:'', name:'', specialty:'esp', client_name:'' })
+  const [clientes, setClientes] = useState<ClienteSimple[]>([])
+  const [leads, setLeads] = useState<LeadSimple[]>([])
+  const [form, setForm] = useState({
+    project_id: '', name: '', specialty: 'esp', client_name: '', client_id: '', lead_id: '',
+    systems: ['audio', 'redes'] as string[],
+    areas: ['Recámara Principal', 'Sala/Comedor', 'Cocina', 'Site'] as string[],
+  })
   const [saving, setSaving] = useState(false)
+  const [customArea, setCustomArea] = useState('')
+  const [clientSearch, setClientSearch] = useState('')
+  const [showClientDrop, setShowClientDrop] = useState(false)
 
   useEffect(() => {
-    supabase.from('projects').select('*').eq('status','activo').then(({ data }) => setProjects(data||[]))
+    Promise.all([
+      supabase.from('projects').select('*').eq('status', 'activo'),
+      supabase.from('clientes_fiscales').select('id,razon_social,rfc').eq('activo', true).order('razon_social'),
+      supabase.from('leads').select('id,name,company,contact_name').order('created_at', { ascending: false }).limit(50),
+    ]).then(([{ data: p }, { data: c }, { data: l }]) => {
+      setProjects(p || [])
+      setClientes(c || [])
+      setLeads(l || [])
+    })
   }, [])
 
+  const toggleSystem = (sysId: string) =>
+    setForm(f => ({ ...f, systems: f.systems.includes(sysId) ? f.systems.filter(s => s !== sysId) : [...f.systems, sysId] }))
+
+  const toggleArea = (area: string) =>
+    setForm(f => ({ ...f, areas: f.areas.includes(area) ? f.areas.filter(a => a !== area) : [...f.areas, area] }))
+
+  const addCustomArea = () => {
+    if (!customArea.trim() || form.areas.includes(customArea.trim())) return
+    setForm(f => ({ ...f, areas: [...f.areas, customArea.trim()] }))
+    setCustomArea('')
+  }
+
+  const selectClient = (c: ClienteSimple) => {
+    setForm(f => ({ ...f, client_name: c.razon_social, client_id: c.id }))
+    setClientSearch(c.razon_social)
+    setShowClientDrop(false)
+  }
+
+  const selectLead = (l: LeadSimple) => {
+    setForm(f => ({
+      ...f,
+      lead_id: l.id,
+      client_name: l.company || l.name,
+      name: f.name || (l.name + ' - Especiales'),
+    }))
+  }
+
+  const filteredClientes = clientSearch.length >= 2
+    ? clientes.filter(c => c.razon_social.toLowerCase().includes(clientSearch.toLowerCase()) || c.rfc.toLowerCase().includes(clientSearch.toLowerCase()))
+    : clientes.slice(0, 8)
+
   async function crear() {
+    if (!form.name) return
     setSaving(true)
     const { data } = await supabase.from('quotations').insert({
-      project_id: form.project_id||null, name: form.name,
+      project_id: form.project_id || null, name: form.name,
       specialty: form.specialty, client_name: form.client_name, stage: 'oportunidad',
     }).select().single()
     if (data) {
-      await supabase.from('quotation_areas').insert({ quotation_id: data.id, name: 'General', order_index: 0 })
+      // Create areas
+      const areaInserts = form.areas.map((name, i) => ({ quotation_id: data.id, name, order_index: i }))
+      if (areaInserts.length > 0) {
+        await supabase.from('quotation_areas').insert(areaInserts)
+      } else {
+        await supabase.from('quotation_areas').insert({ quotation_id: data.id, name: 'General', order_index: 0 })
+      }
       onCreated(data.id, form.specialty)
     }
     setSaving(false)
   }
 
-  const inp = (label: string, value: string, onChange: (v:string)=>void, placeholder='') => (
-    <label style={{fontSize:11,color:'#555',textTransform:'uppercase',letterSpacing:'0.06em'}}>
-      {label}
-      <input value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder}
-        style={{display:'block',width:'100%',marginTop:4,padding:'8px 10px',background:'#1e1e1e',border:'1px solid #333',borderRadius:8,color:'#fff',fontSize:13,fontFamily:'inherit'}}/>
-    </label>
-  )
+  const isEsp = form.specialty === 'esp'
+  const inputStyle = { display: 'block' as const, width: '100%', marginTop: 4, padding: '8px 10px', background: '#1e1e1e', border: '1px solid #333', borderRadius: 8, color: '#fff', fontSize: 13, fontFamily: 'inherit' }
+  const labelStyle = { fontSize: 11, color: '#555', textTransform: 'uppercase' as const, letterSpacing: '0.06em', display: 'block' as const }
 
   return (
-    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.8)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000}}>
-      <div style={{background:'#141414',border:'1px solid #333',borderRadius:16,padding:24,width:480}}>
-        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20}}>
-          <div style={{fontSize:15,fontWeight:600,color:'#fff'}}>Nueva cotizacion</div>
-          <button onClick={onClose} style={{background:'none',border:'none',color:'#666',cursor:'pointer'}}><X size={18}/></button>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+      <div style={{ background: '#141414', border: '1px solid #333', borderRadius: 16, padding: 24, width: 560, maxHeight: '90vh', overflowY: 'auto' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+          <div style={{ fontSize: 15, fontWeight: 600, color: '#fff' }}>Nueva cotización</div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer' }}><X size={18} /></button>
         </div>
-        <div style={{display:'grid',gap:12}}>
-          {inp('Nombre', form.name, v=>setForm(f=>({...f,name:v})), 'ej. Cero5cien O-402 - Especiales')}
-          {inp('Cliente', form.client_name, v=>setForm(f=>({...f,client_name:v})), 'Nombre del cliente')}
-          <label style={{fontSize:11,color:'#555',textTransform:'uppercase',letterSpacing:'0.06em'}}>
-            Proyecto (opcional)
-            <select value={form.project_id} onChange={e=>setForm(f=>({...f,project_id:e.target.value}))}
-              style={{display:'block',width:'100%',marginTop:4,padding:'8px 10px',background:'#1e1e1e',border:'1px solid #333',borderRadius:8,color:'#fff',fontSize:13,fontFamily:'inherit'}}>
-              <option value="">-- Sin proyecto --</option>
-              {projects.map(p => <option key={p.id} value={p.id}>{p.name} | {p.client_name}</option>)}
-            </select>
-          </label>
-          <label style={{fontSize:11,color:'#555',textTransform:'uppercase',letterSpacing:'0.06em'}}>
+        <div style={{ display: 'grid', gap: 14 }}>
+
+          {/* Especialidad */}
+          <label style={labelStyle}>
             Especialidad
-            <div style={{display:'flex',gap:6,flexWrap:'wrap',marginTop:6}}>
-              {Object.entries(SPECIALTY_CONFIG).map(([k,v]) => (
-                <button key={k} onClick={()=>setForm(f=>({...f,specialty:k}))}
-                  style={{padding:'5px 12px',borderRadius:20,fontSize:11,cursor:'pointer',fontFamily:'inherit',fontWeight:600,
-                    border:`1px solid ${form.specialty===k?v.color:'#333'}`,
-                    background:form.specialty===k?v.color+'22':'transparent',
-                    color:form.specialty===k?v.color:'#666'}}>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
+              {Object.entries(SPECIALTY_CONFIG).map(([k, v]) => (
+                <button key={k} onClick={() => setForm(f => ({ ...f, specialty: k }))}
+                  style={{
+                    padding: '5px 12px', borderRadius: 20, fontSize: 11, cursor: 'pointer', fontFamily: 'inherit', fontWeight: 600,
+                    border: '1px solid ' + (form.specialty === k ? v.color : '#333'),
+                    background: form.specialty === k ? v.color + '22' : 'transparent',
+                    color: form.specialty === k ? v.color : '#666',
+                  }}>
                   {v.icon} {v.label}
                 </button>
               ))}
             </div>
           </label>
+
+          {/* Nombre */}
+          <label style={labelStyle}>
+            Nombre de la cotización
+            <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="ej. Mizrahi - Miralta" style={inputStyle} />
+          </label>
+
+          {/* Lead */}
+          {leads.length > 0 && (
+            <label style={labelStyle}>
+              Lead (opcional)
+              <select value={form.lead_id} onChange={e => {
+                const lead = leads.find(l => l.id === e.target.value)
+                if (lead) selectLead(lead)
+                else setForm(f => ({ ...f, lead_id: '' }))
+              }} style={inputStyle}>
+                <option value="">-- Seleccionar lead --</option>
+                {leads.map(l => <option key={l.id} value={l.id}>{l.name}{l.company ? ' | ' + l.company : ''}</option>)}
+              </select>
+            </label>
+          )}
+
+          {/* Cliente */}
+          <label style={labelStyle}>
+            Cliente
+            <div style={{ position: 'relative' }}>
+              <input value={clientSearch || form.client_name}
+                onChange={e => { setClientSearch(e.target.value); setForm(f => ({ ...f, client_name: e.target.value, client_id: '' })); setShowClientDrop(true) }}
+                onFocus={() => setShowClientDrop(true)}
+                placeholder="Buscar cliente o escribir nombre..."
+                style={inputStyle} />
+              {showClientDrop && filteredClientes.length > 0 && (
+                <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#1a1a1a', border: '1px solid #333', borderRadius: 8, marginTop: 2, maxHeight: 180, overflowY: 'auto', zIndex: 10 }}>
+                  {filteredClientes.map(c => (
+                    <div key={c.id} onClick={() => selectClient(c)}
+                      style={{ padding: '8px 10px', cursor: 'pointer', fontSize: 12, color: '#ccc', borderBottom: '1px solid #222' }}
+                      onMouseEnter={e => { e.currentTarget.style.background = '#222' }}
+                      onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}>
+                      <div style={{ fontWeight: 500 }}>{c.razon_social}</div>
+                      <div style={{ fontSize: 10, color: '#555' }}>{c.rfc}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </label>
+
+          {/* Proyecto */}
+          <label style={labelStyle}>
+            Proyecto (opcional)
+            <select value={form.project_id} onChange={e => setForm(f => ({ ...f, project_id: e.target.value }))} style={inputStyle}>
+              <option value="">-- Sin proyecto --</option>
+              {projects.map(p => <option key={p.id} value={p.id}>{p.name} | {p.client_name}</option>)}
+            </select>
+          </label>
+
+          {/* === ESP-SPECIFIC: Sistemas === */}
+          {isEsp && (
+            <label style={labelStyle}>
+              Sistemas
+              <div style={{ fontSize: 10, color: '#444', marginTop: 2, marginBottom: 6, fontStyle: 'italic', textTransform: 'none' }}>
+                Selecciona los sistemas que aplican. Estarán disponibles en todas las áreas.
+              </div>
+              <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+                {SYSTEM_PRESETS.map(sys => {
+                  const on = form.systems.includes(sys.id)
+                  return (
+                    <button key={sys.id} onClick={() => toggleSystem(sys.id)} style={{
+                      padding: '5px 10px', borderRadius: 8, fontSize: 10, cursor: 'pointer', fontFamily: 'inherit', fontWeight: 600,
+                      border: '1px solid ' + (on ? sys.color : '#333'),
+                      background: on ? sys.color + '22' : 'transparent',
+                      color: on ? sys.color : '#555',
+                      display: 'flex', alignItems: 'center', gap: 4,
+                    }}>
+                      <span style={{ width: 6, height: 6, borderRadius: '50%', background: on ? sys.color : '#444' }} />
+                      {sys.name}
+                    </button>
+                  )
+                })}
+              </div>
+            </label>
+          )}
+
+          {/* === ESP-SPECIFIC: Áreas === */}
+          {isEsp && (
+            <label style={labelStyle}>
+              Áreas / Zonas
+              <div style={{ fontSize: 10, color: '#444', marginTop: 2, marginBottom: 6, fontStyle: 'italic', textTransform: 'none' }}>
+                Selecciona las zonas del proyecto. Puedes agregar áreas custom.
+              </div>
+              <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 8 }}>
+                {AREA_PRESETS.map(area => {
+                  const on = form.areas.includes(area)
+                  return (
+                    <button key={area} onClick={() => toggleArea(area)} style={{
+                      padding: '4px 10px', borderRadius: 8, fontSize: 10, cursor: 'pointer', fontFamily: 'inherit',
+                      border: '1px solid ' + (on ? '#57FF9A' : '#333'),
+                      background: on ? '#57FF9A18' : 'transparent',
+                      color: on ? '#57FF9A' : '#555', fontWeight: on ? 600 : 400,
+                    }}>
+                      {on ? '✓ ' : ''}{area}
+                    </button>
+                  )
+                })}
+                {/* Custom areas added */}
+                {form.areas.filter(a => !AREA_PRESETS.includes(a)).map(area => (
+                  <button key={area} onClick={() => toggleArea(area)} style={{
+                    padding: '4px 10px', borderRadius: 8, fontSize: 10, cursor: 'pointer', fontFamily: 'inherit',
+                    border: '1px solid #57FF9A', background: '#57FF9A18', color: '#57FF9A', fontWeight: 600,
+                  }}>✓ {area}</button>
+                ))}
+              </div>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <input value={customArea} onChange={e => setCustomArea(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && addCustomArea()}
+                  placeholder="Área personalizada..."
+                  style={{ ...inputStyle, flex: 1, marginTop: 0 }} />
+                <Btn size="sm" onClick={addCustomArea}>+ Agregar</Btn>
+              </div>
+            </label>
+          )}
+
+          {/* Selected summary */}
+          {isEsp && (form.systems.length > 0 || form.areas.length > 0) && (
+            <div style={{ background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 8, padding: '10px 12px', fontSize: 10, color: '#555' }}>
+              <span style={{ color: '#888' }}>{form.systems.length} sistemas</span> × <span style={{ color: '#888' }}>{form.areas.length} áreas</span>
+              <span style={{ color: '#444' }}> = {form.systems.length * form.areas.length} combinaciones posibles</span>
+            </div>
+          )}
         </div>
-        <div style={{display:'flex',justifyContent:'flex-end',gap:8,marginTop:20}}>
+
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 20 }}>
           <Btn onClick={onClose}>Cancelar</Btn>
-          <Btn variant="primary" onClick={crear}>{saving?'Creando...':'Crear cotizacion'}</Btn>
+          <Btn variant="primary" onClick={crear} disabled={!form.name || saving}>{saving ? 'Creando...' : 'Crear cotización'}</Btn>
         </div>
       </div>
     </div>
