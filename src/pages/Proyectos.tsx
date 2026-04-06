@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import { Badge, ProgressBar, Btn, SectionHeader, EmptyState } from '../components/layout/UI'
+import { Badge, ProgressBar, Btn, SectionHeader, EmptyState, Table, Th, Td } from '../components/layout/UI'
 import { X, ChevronRight, ChevronDown, Check, Clock, Lock, Users, Calendar, Settings, ArrowLeft } from 'lucide-react'
 import { formatDate } from '../lib/utils'
 
@@ -529,6 +529,7 @@ export default function Proyectos() {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [filtro, setFiltro] = useState('todos')
   const [areaTab, setAreaTab] = useState('TODAS' as string)
+  const [viewMode, setViewMode] = useState<'cards' | 'lista'>('cards')
 
   const selected = projects.find(p => p.id === selectedId) || null
 
@@ -619,8 +620,8 @@ export default function Proyectos() {
             </div>
           </div>
 
-          {/* Filters */}
-          <div style={{ display: 'flex', gap: 6, marginBottom: 20 }}>
+          {/* Filters + View toggle */}
+          <div style={{ display: 'flex', gap: 6, marginBottom: 20, alignItems: 'center' }}>
             {['todos', 'activo', 'pausado', 'completado'].map(f => {
               const on = filtro === f
               const fcolors: Record<string, string> = { todos: '#57FF9A', activo: '#57FF9A', pausado: '#F59E0B', completado: '#6B7280' }
@@ -635,16 +636,58 @@ export default function Proyectos() {
                 </button>
               )
             })}
+            <div style={{ marginLeft: 'auto', display: 'flex', gap: 2 }}>
+              {(['cards', 'lista'] as const).map(m => (
+                <button key={m} onClick={() => setViewMode(m)} style={{
+                  padding: '5px 12px', borderRadius: 20, fontSize: 11, cursor: 'pointer', fontFamily: 'inherit',
+                  border: '1px solid ' + (viewMode === m ? '#57FF9A' : '#333'), background: viewMode === m ? '#57FF9A22' : 'transparent',
+                  color: viewMode === m ? '#57FF9A' : '#555', fontWeight: viewMode === m ? 600 : 400,
+                }}>{m === 'cards' ? 'Cards' : 'Lista'}</button>
+              ))}
+            </div>
           </div>
 
           {lista.length === 0 ? (
             <EmptyState message="Sin proyectos en esta vista" />
-          ) : (
+          ) : viewMode === 'cards' ? (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))', gap: 14 }}>
               {lista.map(p => (
                 <ProjectCard key={p.id} project={p} onClick={() => { setSelectedId(p.id); setView('detail') }} />
               ))}
             </div>
+          ) : (
+            <Table>
+              <thead><tr>
+                <Th>Proyecto</Th><Th>Cliente</Th><Th>Área</Th><Th>Especialidades</Th><Th>Fase</Th><Th>Avance</Th><Th>Estatus</Th><Th></Th>
+              </tr></thead>
+              <tbody>
+                {lista.map(p => {
+                  const progress = calcProjectProgress(p)
+                  const currentPhase = p.phases.find(ph => ph.deliverables.some(d => calcDeliverableProgress(d) < 100))
+                  const areaCfg = AREA_CONFIG.find(a => a.id === p.area)
+                  const statusColors: Record<string, string> = { activo: '#57FF9A', pausado: '#F59E0B', completado: '#6B7280', cancelado: '#EF4444' }
+                  return (
+                    <tr key={p.id} style={{ cursor: 'pointer' }} onClick={() => { setSelectedId(p.id); setView('detail') }}
+                      onMouseEnter={e => { e.currentTarget.style.background = '#1a1a1a' }}
+                      onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}>
+                      <Td><span style={{ fontWeight: 600, color: '#e8e8e8' }}>{p.name}</span></Td>
+                      <Td muted>{p.client}</Td>
+                      <Td>{areaCfg && <Badge label={areaCfg.icon + ' ' + areaCfg.label} color={areaCfg.color} />}</Td>
+                      <Td><div style={{ display: 'flex', gap: 3, flexWrap: 'wrap' as const }}>{p.specialties.map(s => <Badge key={s} label={s} color="#555" />)}</div></Td>
+                      <Td muted>{currentPhase?.name || 'Completado'}</Td>
+                      <Td>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <div style={{ width: 60, height: 4, background: '#222', borderRadius: 2 }}><div style={{ width: `${progress}%`, height: 4, background: progress > 60 ? '#57FF9A' : '#3B82F6', borderRadius: 2 }} /></div>
+                          <span style={{ fontSize: 11, fontWeight: 600, color: progress > 60 ? '#57FF9A' : '#3B82F6' }}>{progress}%</span>
+                        </div>
+                      </Td>
+                      <Td><Badge label={p.status.charAt(0).toUpperCase() + p.status.slice(1)} color={statusColors[p.status] || '#666'} /></Td>
+                      <Td><Btn size="sm" onClick={e => { e?.stopPropagation(); setSelectedId(p.id); setView('detail') }}>Abrir</Btn></Td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </Table>
           )}
 
           <div style={{ padding: '32px 20px', textAlign: 'center' as const, color: '#333', fontSize: 11, marginTop: 16 }}>
