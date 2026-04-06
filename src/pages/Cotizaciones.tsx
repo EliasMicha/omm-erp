@@ -20,22 +20,32 @@ function CotDashboard({ onOpen }: { onOpen: (id: string, specialty?: string) => 
   }, [showNew])
 
   const lista = filtro === 'todas' ? cots : cots.filter(c => c.specialty === filtro)
-  const totalPipeline = cots.reduce((s,c) => s+c.total, 0)
-  const byStage = (s: string) => cots.filter(c => c.stage === s).reduce((a,c) => a+c.total, 0)
+
+  function getCur(c: any): string {
+    try { const m = JSON.parse(c.notes || '{}'); return m.currency || 'USD' } catch { return 'USD' }
+  }
+
+  const byStageAndCur = (s: string, cur: string) => cots.filter(c => c.stage === s && getCur(c) === cur).reduce((a,c) => a+c.total, 0)
+  const totalUSD = cots.filter(c => getCur(c) === 'USD').reduce((s,c) => s+c.total, 0)
+  const totalMXN = cots.filter(c => getCur(c) === 'MXN').reduce((s,c) => s+c.total, 0)
 
   return (
     <div style={{padding:'24px 28px'}}>
       <SectionHeader title="Cotizaciones"
-        subtitle={`${cots.length} cotizaciones | Pipeline: ${F(totalPipeline)}`}
+        subtitle={`${cots.length} cotizaciones | USD: ${F(totalUSD)} | MXN: ${F(totalMXN)}`}
         action={<Btn variant="primary" onClick={() => setShowNew(true)}><Plus size={14}/> Nueva cotizacion</Btn>}/>
 
       <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:10,marginBottom:20}}>
         {(['contrato','propuesta','estimacion','oportunidad'] as const).map(s => {
           const cfg = STAGE_CONFIG[s]
+          const usd = byStageAndCur(s, 'USD')
+          const mxn = byStageAndCur(s, 'MXN')
           return (
             <div key={s} style={{background:'#141414',border:'1px solid #222',borderRadius:10,padding:'12px 14px',borderTop:`2px solid ${cfg.color}`}}>
               <div style={{fontSize:10,color:'#555',textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:4}}>{cfg.label}</div>
-              <div style={{fontSize:18,fontWeight:700,color:'#fff'}}>{F(byStage(s))}</div>
+              {usd > 0 && <div style={{fontSize:16,fontWeight:700,color:'#fff'}}>USD {F(usd)}</div>}
+              {mxn > 0 && <div style={{fontSize:14,fontWeight:600,color:'#ccc'}}>MXN {F(mxn)}</div>}
+              {usd === 0 && mxn === 0 && <div style={{fontSize:16,fontWeight:700,color:'#333'}}>$0</div>}
             </div>
           )
         })}
@@ -61,12 +71,13 @@ function CotDashboard({ onOpen }: { onOpen: (id: string, specialty?: string) => 
       {loading ? <Loading/> : (
         <Table>
           <thead><tr>
-            <Th>Cotizacion</Th><Th>Lead / Cliente</Th><Th>Proyecto</Th><Th>Especialidad</Th><Th>Etapa</Th><Th right>Total</Th><Th></Th>
+            <Th>Cotizacion</Th><Th>Lead / Cliente</Th><Th>Proyecto</Th><Th>Especialidad</Th><Th>Etapa</Th><Th>Moneda</Th><Th right>Total</Th><Th></Th>
           </tr></thead>
           <tbody>
-            {lista.length === 0 && (<tr><td colSpan={7}><EmptyState message="Sin cotizaciones - crea la primera"/></td></tr>)}
+            {lista.length === 0 && (<tr><td colSpan={8}><EmptyState message="Sin cotizaciones - crea la primera"/></td></tr>)}
             {lista.map(c => {
               const esp = SPECIALTY_CONFIG[c.specialty]; const stage = STAGE_CONFIG[c.stage]; const proj = c.project as any
+              const cur = getCur(c)
               return (
                 <tr key={c.id} style={{cursor:'pointer'}} onClick={() => onOpen(c.id, c.specialty)}>
                   <Td><span style={{fontWeight:500,color:'#fff'}}>{c.name}</span></Td>
@@ -74,7 +85,8 @@ function CotDashboard({ onOpen }: { onOpen: (id: string, specialty?: string) => 
                   <Td muted>{proj?.name||'--'}</Td>
                   <Td><Badge label={esp.icon+' '+esp.label} color={esp.color}/></Td>
                   <Td><Badge label={stage.label} color={stage.color}/></Td>
-                  <Td right><span style={{fontWeight:600,color:'#57FF9A'}}>{F(c.total)}</span></Td>
+                  <Td><span style={{fontSize:11,fontWeight:600,color: cur === 'USD' ? '#06B6D4' : '#F59E0B'}}>{cur}</span></Td>
+                  <Td right><span style={{fontWeight:600,color:'#57FF9A'}}>{cur === 'MXN' ? '$' : 'US$'}{c.total.toLocaleString()}</span></Td>
                   <Td><Btn size="sm" onClick={e => { e?.stopPropagation(); onOpen(c.id, c.specialty) }}>Abrir</Btn></Td>
                 </tr>
               )
@@ -117,7 +129,7 @@ function NuevaCoModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
   const [clientes, setClientes] = useState<ClienteSimple[]>([])
   const [leads, setLeads] = useState<LeadSimple[]>([])
   const [form, setForm] = useState({
-    project_id: '', name: '', specialty: 'esp', client_name: '', client_id: '', lead_id: '',
+    project_id: '', name: '', specialty: 'esp', client_name: '', client_id: '', lead_id: '', currency: 'USD' as 'USD' | 'MXN',
     systems: ['audio', 'redes'] as string[],
     areas: ['Recámara Principal', 'Sala/Comedor', 'Cocina', 'Site'] as string[],
   })
@@ -175,7 +187,7 @@ function NuevaCoModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
     const { data } = await supabase.from('quotations').insert({
       project_id: form.project_id || null, name: form.name,
       specialty: form.specialty, client_name: form.client_name, stage: 'oportunidad',
-      notes: isEsp ? JSON.stringify({ systems: form.systems }) : null,
+      notes: JSON.stringify({ systems: isEsp ? form.systems : [], currency: form.currency }),
     }).select().single()
     if (data) {
       // Create areas
@@ -221,11 +233,26 @@ function NuevaCoModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
             </div>
           </label>
 
-          {/* Nombre */}
-          <label style={labelStyle}>
-            Nombre de la cotización
-            <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="ej. Mizrahi - Miralta" style={inputStyle} />
-          </label>
+          {/* Nombre + Moneda */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 10 }}>
+            <label style={labelStyle}>
+              Nombre de la cotización
+              <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="ej. Mizrahi - Miralta" style={inputStyle} />
+            </label>
+            <label style={labelStyle}>
+              Moneda
+              <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
+                {(['USD', 'MXN'] as const).map(cur => (
+                  <button key={cur} onClick={() => setForm(f => ({ ...f, currency: cur }))} style={{
+                    padding: '8px 14px', borderRadius: 8, fontSize: 13, cursor: 'pointer', fontFamily: 'inherit', fontWeight: 600,
+                    border: '1px solid ' + (form.currency === cur ? '#57FF9A' : '#333'),
+                    background: form.currency === cur ? '#57FF9A22' : 'transparent',
+                    color: form.currency === cur ? '#57FF9A' : '#555',
+                  }}>{cur === 'USD' ? '🇺🇸 USD' : '🇲🇽 MXN'}</button>
+                ))}
+              </div>
+            </label>
+          </div>
 
           {/* Lead */}
           {leads.length > 0 && (
