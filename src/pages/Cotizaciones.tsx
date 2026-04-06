@@ -4,10 +4,11 @@ import { Quotation, QuotationArea, QuotationItem, CatalogProduct, Project, Proje
 import { F, SPECIALTY_CONFIG, STAGE_CONFIG, PHASE_CONFIG, calcItemPrice, calcItemTotal } from '../lib/utils'
 import { Badge, Btn, Table, Th, Td, Loading, SectionHeader, EmptyState } from '../components/layout/UI'
 import { Plus, ChevronLeft, X, Zap } from 'lucide-react'
+import CotEditorESP from './CotEditorESP'
 
 interface Supplier { id: string; name: string }
 
-function CotDashboard({ onOpen }: { onOpen: (id: string) => void }) {
+function CotDashboard({ onOpen }: { onOpen: (id: string, specialty?: string) => void }) {
   const [cots, setCots] = useState<Quotation[]>([])
   const [filtro, setFiltro] = useState<string>('todas')
   const [loading, setLoading] = useState(true)
@@ -67,13 +68,13 @@ function CotDashboard({ onOpen }: { onOpen: (id: string) => void }) {
             {lista.map(c => {
               const esp = SPECIALTY_CONFIG[c.specialty]; const stage = STAGE_CONFIG[c.stage]; const proj = c.project as any
               return (
-                <tr key={c.id} style={{cursor:'pointer'}} onClick={() => onOpen(c.id)}>
+                <tr key={c.id} style={{cursor:'pointer'}} onClick={() => onOpen(c.id, c.specialty)}>
                   <Td><span style={{fontWeight:500,color:'#fff'}}>{c.name}</span></Td>
                   <Td muted>{proj?.name||'--'}</Td>
                   <Td><Badge label={esp.icon+' '+esp.label} color={esp.color}/></Td>
                   <Td><Badge label={stage.label} color={stage.color}/></Td>
                   <Td right><span style={{fontWeight:600,color:'#57FF9A'}}>{F(c.total)}</span></Td>
-                  <Td><Btn size="sm" onClick={e => { e?.stopPropagation(); onOpen(c.id) }}>Abrir</Btn></Td>
+                  <Td><Btn size="sm" onClick={e => { e?.stopPropagation(); onOpen(c.id, c.specialty) }}>Abrir</Btn></Td>
                 </tr>
               )
             })}
@@ -81,12 +82,12 @@ function CotDashboard({ onOpen }: { onOpen: (id: string) => void }) {
         </Table>
       )}
 
-      {showNew && <NuevaCoModal onClose={() => setShowNew(false)} onCreated={id => { setShowNew(false); onOpen(id) }}/>}
+      {showNew && <NuevaCoModal onClose={() => setShowNew(false)} onCreated={(id, spec) => { setShowNew(false); onOpen(id, spec) }}/>}
     </div>
   )
 }
 
-function NuevaCoModal({ onClose, onCreated }: { onClose: () => void; onCreated: (id: string) => void }) {
+function NuevaCoModal({ onClose, onCreated }: { onClose: () => void; onCreated: (id: string, specialty: string) => void }) {
   const [projects, setProjects] = useState<Project[]>([])
   const [form, setForm] = useState({ project_id:'', name:'', specialty:'esp', client_name:'' })
   const [saving, setSaving] = useState(false)
@@ -103,7 +104,7 @@ function NuevaCoModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
     }).select().single()
     if (data) {
       await supabase.from('quotation_areas').insert({ quotation_id: data.id, name: 'General', order_index: 0 })
-      onCreated(data.id)
+      onCreated(data.id, form.specialty)
     }
     setSaving(false)
   }
@@ -499,6 +500,9 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
 
 export default function Cotizaciones() {
   const [openId, setOpenId] = useState<string|null>(null)
-  if (openId) return <CotEditor cotId={openId} onBack={()=>setOpenId(null)}/>
-  return <CotDashboard onOpen={setOpenId}/>
+  const [openSpecialty, setOpenSpecialty] = useState<string|null>(null)
+
+  if (openId && openSpecialty === 'esp') return <CotEditorESP cotId={openId} onBack={()=>{setOpenId(null);setOpenSpecialty(null)}}/>
+  if (openId) return <CotEditor cotId={openId} onBack={()=>{setOpenId(null);setOpenSpecialty(null)}}/>
+  return <CotDashboard onOpen={(id, specialty) => {setOpenId(id);setOpenSpecialty(specialty||null)}}/>
 }
