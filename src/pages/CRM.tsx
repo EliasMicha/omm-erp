@@ -408,7 +408,7 @@ export default function CRM() {
   const [loading, setLoading] = useState(true)
   const [showNew, setShowNew] = useState(false)
   const [selected, setSelected] = useState<Lead | null>(null)
-  const [viewMode, setViewMode] = useState<'kanban' | 'lista'>('kanban')
+  const [viewMode, setViewMode] = useState<'kanban' | 'lista'>('lista')
   const [filtroStatus, setFiltroStatus] = useState<LeadStatus | 'todos'>('todos')
   const [search, setSearch] = useState('')
   const [aiQuery, setAiQuery] = useState('')
