@@ -415,12 +415,18 @@ Important: cost should be the retail/MSRP price in USD. If you can't find exact 
   async function save() {
     if (!form.name) return
     setSaving(true)
-    const { data } = await supabase.from('catalog_products').insert({
+    const { data, error } = await supabase.from('catalog_products').insert({
       name: form.name, description: form.description, system: form.system,
       cost: form.cost, markup: form.markup, provider: form.provider, unit: form.unit,
       type: 'material', specialty: 'esp', is_active: true, purchase_phase: 'inicio',
     }).select().single()
-    if (data) onCreate(data)
+    if (error) {
+      console.error('Error creating product:', error)
+      // Even if catalog insert fails, still pass the product data to add to quote
+      onCreate({ id: '', name: form.name, description: form.description, system: form.system, cost: form.cost, markup: form.markup, provider: form.provider, unit: form.unit })
+    } else if (data) {
+      onCreate(data)
+    }
     setSaving(false)
   }
 
@@ -697,8 +703,20 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
   }
 
   function handleCreateAndAdd(catProd: CatProduct) {
+    if (!addingTo) return
+    const rule = getPricingRule(catProd.provider || '')
+    const precio = rule.precioPublico
+      ? (catProd.cost > 0 ? Math.round(catProd.cost * (1 + catProd.markup / 100)) : 0)
+      : calcPriceFromCost(catProd.cost, rule)
+    const margin = rule.precioPublico ? (catProd.markup > 0 ? Math.round(catProd.markup / (100 + catProd.markup) * 100) : 30) : rule.margen
+    const laborCost = calcLaborFromPrice(precio, rule)
+    setProducts(p => [...p, {
+      id: uid(), areaId: addingTo.areaId, systemId: addingTo.systemId, catalogId: catProd.id || null,
+      name: catProd.name, description: catProd.description || '', imageUrl: null,
+      quantity: 1, price: precio, laborCost, margin, order: p.length,
+    }])
     setCreatingProduct(false)
-    handleAddFromCatalog(catProd)
+    setAddingTo(null)
   }
 
   function openAddProduct(areaId: string, systemId: string) { setAddingTo({ areaId, systemId }) }
