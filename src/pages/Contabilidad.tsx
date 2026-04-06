@@ -758,7 +758,29 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices }: { bankMo
   const [filtro, setFiltro] = useState<'todos' | 'pendientes' | 'conciliados'>('todos')
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [showManual, setShowManual] = useState(false)
+  const [manual, setManual] = useState({ fecha: new Date().toISOString().substring(0, 10), concepto: '', beneficiario: '', monto: '', tipo: 'cargo' as 'cargo' | 'abono', categoria: 'otro', proyecto: '' })
   const fileRef = useRef<HTMLInputElement>(null)
+
+  const addManual = () => {
+    const monto = Math.abs(parseFloat(manual.monto) || 0)
+    if (!manual.concepto.trim() || monto === 0) return
+    setBankMovements([{
+      id: String(Date.now()),
+      fecha: manual.fecha,
+      concepto: manual.concepto.trim(),
+      referencia: '',
+      monto,
+      tipo: manual.tipo,
+      saldo: 0,
+      categoria_sugerida: manual.categoria,
+      proyecto_sugerido: manual.proyecto,
+      beneficiario: manual.beneficiario.trim(),
+      conciliado: false,
+    }, ...bankMovements])
+    setManual({ fecha: new Date().toISOString().substring(0, 10), concepto: '', beneficiario: '', monto: '', tipo: 'cargo', categoria: 'otro', proyecto: '' })
+    setShowManual(false)
+  }
 
   /* --- Auto-match movements with invoices --- */
   const findMatch = (m: BankMovement): { id: string; info: string } | null => {
@@ -953,7 +975,10 @@ REGLAS DE CATEGORIA:
         <Btn size="sm" variant="primary" onClick={() => fileRef.current?.click()}>
           {processing ? '⏳ Procesando...' : <><Upload size={12} /> Subir estado de cuenta</>}
         </Btn>
-        <span style={{ fontSize: 10, color: '#555' }}>PDF (BBVA/Banorte) · CSV · Excel</span>
+        <Btn size="sm" variant="default" onClick={() => setShowManual(!showManual)}>
+          <Plus size={12} /> Manual
+        </Btn>
+        <span style={{ fontSize: 10, color: '#555' }}>PDF (BBVA/Banorte) · CSV · Excel · TXT</span>
 
         {/* Filtro */}
         {bankMovements.length > 0 && (
@@ -971,6 +996,57 @@ REGLAS DE CATEGORIA:
 
         {status && <span style={{ fontSize: 11, color: status.startsWith('✓') ? '#57FF9A' : status.startsWith('Error') ? '#EF4444' : '#888' }}>{status}</span>}
       </div>
+
+      {/* Manual entry form */}
+      {showManual && (
+        <div style={{ background: '#141414', border: '1px solid #222', borderRadius: 10, padding: 16, marginBottom: 16 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: '#fff', marginBottom: 12 }}>Agregar movimiento manual</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr 1fr 120px 100px', gap: 8, marginBottom: 10 }}>
+            <div>
+              <div style={{ fontSize: 10, color: '#666', marginBottom: 4 }}>Fecha</div>
+              <input type="date" value={manual.fecha} onChange={e => setManual(m => ({ ...m, fecha: e.target.value }))} style={{ width: '100%', padding: '6px 8px', fontSize: 12, background: '#0a0a0a', border: '1px solid #333', borderRadius: 6, color: '#fff', fontFamily: 'inherit' }} />
+            </div>
+            <div>
+              <div style={{ fontSize: 10, color: '#666', marginBottom: 4 }}>Concepto</div>
+              <input value={manual.concepto} onChange={e => setManual(m => ({ ...m, concepto: e.target.value }))} placeholder="Descripción del movimiento" style={{ width: '100%', padding: '6px 8px', fontSize: 12, background: '#0a0a0a', border: '1px solid #333', borderRadius: 6, color: '#fff', fontFamily: 'inherit' }} />
+            </div>
+            <div>
+              <div style={{ fontSize: 10, color: '#666', marginBottom: 4 }}>Beneficiario</div>
+              <input value={manual.beneficiario} onChange={e => setManual(m => ({ ...m, beneficiario: e.target.value }))} placeholder="Persona o empresa" style={{ width: '100%', padding: '6px 8px', fontSize: 12, background: '#0a0a0a', border: '1px solid #333', borderRadius: 6, color: '#fff', fontFamily: 'inherit' }} />
+            </div>
+            <div>
+              <div style={{ fontSize: 10, color: '#666', marginBottom: 4 }}>Monto</div>
+              <input type="number" value={manual.monto} onChange={e => setManual(m => ({ ...m, monto: e.target.value }))} placeholder="0.00" style={{ width: '100%', padding: '6px 8px', fontSize: 12, background: '#0a0a0a', border: '1px solid #333', borderRadius: 6, color: '#fff', fontFamily: 'inherit', textAlign: 'right' }} />
+            </div>
+            <div>
+              <div style={{ fontSize: 10, color: '#666', marginBottom: 4 }}>Tipo</div>
+              <select value={manual.tipo} onChange={e => setManual(m => ({ ...m, tipo: e.target.value as 'cargo' | 'abono' }))} style={{ width: '100%', padding: '6px 8px', fontSize: 12, background: '#0a0a0a', border: '1px solid #333', borderRadius: 6, color: '#fff', fontFamily: 'inherit' }}>
+                <option value="cargo">Cargo</option>
+                <option value="abono">Abono</option>
+              </select>
+            </div>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 8, alignItems: 'end' }}>
+            <div>
+              <div style={{ fontSize: 10, color: '#666', marginBottom: 4 }}>Categoría</div>
+              <select value={manual.categoria} onChange={e => setManual(m => ({ ...m, categoria: e.target.value }))} style={{ width: '100%', padding: '6px 8px', fontSize: 12, background: '#0a0a0a', border: '1px solid #333', borderRadius: 6, color: '#fff', fontFamily: 'inherit' }}>
+                {['nomina', 'proveedor', 'cobro_cliente', 'impuestos', 'comision', 'traspaso', 'prestamo', 'suscripcion', 'otro'].map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+            <div>
+              <div style={{ fontSize: 10, color: '#666', marginBottom: 4 }}>Proyecto</div>
+              <select value={manual.proyecto} onChange={e => setManual(m => ({ ...m, proyecto: e.target.value }))} style={{ width: '100%', padding: '6px 8px', fontSize: 12, background: '#0a0a0a', border: '1px solid #333', borderRadius: 6, color: '#fff', fontFamily: 'inherit' }}>
+                <option value="">Sin proyecto</option>
+                {PROYECTOS.map(p => <option key={p} value={p}>{p}</option>)}
+              </select>
+            </div>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <Btn size="sm" variant="primary" onClick={addManual}>Agregar</Btn>
+              <Btn size="sm" variant="default" onClick={() => setShowManual(false)}>Cancelar</Btn>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Batch actions */}
       {selected.size > 0 && (
