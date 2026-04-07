@@ -206,20 +206,22 @@ function ComprasDashboard({ onOpenPO, onGoToList }: { onOpenPO: (id: string) => 
   const bySupplier: Record<string, { name: string; total: number; count: number }> = {}
   orders.forEach(o => {
     const sn = (o.supplier as any)?.name || 'Sin proveedor'
-    if (!bySupplier[sn]) bySupplier[sn] = { name: sn, total: 0, count: 0 }
-    bySupplier[sn].total += o.total
+    if (!bySupplier[sn]) bySupplier[sn] = { name: sn, totalMXN: 0, totalUSD: 0, count: 0 }
+    if (o.currency === 'USD') bySupplier[sn].totalUSD += o.total
+    else bySupplier[sn].totalMXN += o.total
     bySupplier[sn].count++
   })
-  const topSuppliers = Object.values(bySupplier).sort((a, b) => b.total - a.total).slice(0, 5)
+  const topSuppliers = Object.values(bySupplier).sort((a: any, b: any) => (b.totalMXN + b.totalUSD) - (a.totalMXN + a.totalUSD)).slice(0, 5) as any[]
 
   // Group by project
   const byProject: Record<string, { name: string; total: number }> = {}
   active.forEach(o => {
     const pn = (o.project as any)?.name || 'Sin proyecto'
-    if (!byProject[pn]) byProject[pn] = { name: pn, total: 0 }
-    byProject[pn].total += o.total
+    if (!byProject[pn]) byProject[pn] = { name: pn, totalMXN: 0, totalUSD: 0 }
+    if (o.currency === 'USD') byProject[pn].totalUSD += o.total
+    else byProject[pn].totalMXN += o.total
   })
-  const topProjects = Object.values(byProject).sort((a, b) => b.total - a.total).slice(0, 5)
+  const topProjects = Object.values(byProject).sort((a: any, b: any) => (b.totalMXN + b.totalUSD) - (a.totalMXN + a.totalUSD)).slice(0, 5) as any[]
 
   return (
     <div>
@@ -260,7 +262,11 @@ function ComprasDashboard({ onOpenPO, onGoToList }: { onOpenPO: (id: string) => 
             topSuppliers.map((s, i) => (
               <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #1e1e1e' }}>
                 <span style={{ fontSize: 12, color: '#ccc' }}>{s.name}</span>
-                <span style={{ fontSize: 12, fontWeight: 600, color: '#57FF9A' }}>{F(s.total)} <span style={{ color: '#555', fontWeight: 400 }}>({s.count})</span></span>
+                <span style={{ fontSize: 12, fontWeight: 600, color: '#57FF9A', display: 'flex', gap: 8, alignItems: 'baseline' }}>
+                  {s.totalMXN > 0 && <span>{F(s.totalMXN)}</span>}
+                  {s.totalUSD > 0 && <span style={{ color: '#A78BFA' }}>{FUSD(s.totalUSD)}</span>}
+                  <span style={{ color: '#555', fontWeight: 400 }}>({s.count})</span>
+                </span>
               </div>
             ))
           }
@@ -272,7 +278,10 @@ function ComprasDashboard({ onOpenPO, onGoToList }: { onOpenPO: (id: string) => 
             topProjects.map((p, i) => (
               <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #1e1e1e' }}>
                 <span style={{ fontSize: 12, color: '#ccc' }}>{p.name}</span>
-                <span style={{ fontSize: 12, fontWeight: 600, color: '#F59E0B' }}>{F(p.total)}</span>
+                <span style={{ fontSize: 12, fontWeight: 600, display: 'flex', gap: 8, alignItems: 'baseline' }}>
+                  {p.totalMXN > 0 && <span style={{ color: '#F59E0B' }}>{F(p.totalMXN)}</span>}
+                  {p.totalUSD > 0 && <span style={{ color: '#A78BFA' }}>{FUSD(p.totalUSD)}</span>}
+                </span>
               </div>
             ))
           }
