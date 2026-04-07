@@ -62,6 +62,7 @@ export default function Catalogo() {
   const [editId, setEditId] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [filterSystem, setFilterSystem] = useState('')
+  const [filterProvider, setFilterProvider] = useState('')
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
   const [showImport, setShowImport] = useState(false)
   const [importing, setImporting] = useState(false)
@@ -87,8 +88,24 @@ export default function Catalogo() {
   const filtered = products.filter(p => {
     const matchSearch = !search || p.name?.toLowerCase().includes(search.toLowerCase()) || p.description?.toLowerCase().includes(search.toLowerCase()) || p.clave_prod_serv?.includes(search) || p.sku?.toLowerCase().includes(search.toLowerCase())
     const matchSystem = !filterSystem || p.system === filterSystem
-    return matchSearch && matchSystem
+    const matchProvider = !filterProvider || (filterProvider === '__sin__' ? !p.provider : (p.provider || '').toLowerCase() === filterProvider.toLowerCase())
+    return matchSearch && matchSystem && matchProvider
   })
+
+  // Tabs dinámicos por provider — se generan a partir de los productos cargados
+  const providerTabs = (() => {
+    const counts: Record<string, number> = {}
+    let sinMarca = 0
+    products.forEach(p => {
+      if (p.is_active === false) return
+      const prov = (p.provider || '').trim()
+      if (!prov) sinMarca++
+      else counts[prov] = (counts[prov] || 0) + 1
+    })
+    const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]).map(([name, count]) => ({ key: name, label: name, count }))
+    if (sinMarca > 0) sorted.push({ key: '__sin__', label: 'Sin marca', count: sinMarca })
+    return sorted
+  })()
 
   const openNew = () => {
     setEditId(null)
@@ -210,6 +227,18 @@ export default function Catalogo() {
           <button onClick={() => setImportResult(null)} style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer' }}><X size={14} /></button>
         </div>
       )}
+      {/* Tabs por marca/provider */}
+      <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+        <button onClick={() => setFilterProvider('')} style={{ padding: '6px 14px', borderRadius: 20, fontSize: 11, cursor: 'pointer', fontFamily: 'inherit', fontWeight: 600, border: `1px solid ${!filterProvider ? '#57FF9A' : '#333'}`, background: !filterProvider ? '#57FF9A18' : 'transparent', color: !filterProvider ? '#57FF9A' : '#888' }}>
+          Todos ({products.filter(p => p.is_active !== false).length})
+        </button>
+        {providerTabs.map(t => (
+          <button key={t.key} onClick={() => setFilterProvider(t.key)} style={{ padding: '6px 14px', borderRadius: 20, fontSize: 11, cursor: 'pointer', fontFamily: 'inherit', fontWeight: 600, border: `1px solid ${filterProvider === t.key ? '#A78BFA' : '#333'}`, background: filterProvider === t.key ? '#A78BFA22' : 'transparent', color: filterProvider === t.key ? '#C084FC' : '#888' }}>
+            {t.label} ({t.count})
+          </button>
+        ))}
+      </div>
+
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, gap: 12 }}>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <div style={{ position: 'relative' }}>
