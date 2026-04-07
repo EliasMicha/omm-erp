@@ -3,6 +3,13 @@ import { ProjectLine, QuoteStage, ProjectStatus, DeliveryStatus, PaymentStatus, 
 export const F = (n: number) =>
   new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 }).format(n)
 
+export const FUSD = (n: number) =>
+  new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
+
+export const FCUR = (n: number, currency?: string | null) =>
+  (currency === 'USD' ? FUSD : F)(n)
+
+
 export const PHASE_CONFIG: Record<PurchasePhase, { label: string; color: string; order: number }> = {
   inicio:   { label: 'Inicio',   color: '#3B82F6', order: 0 },
   roughin:  { label: 'Rough-in', color: '#F59E0B', order: 1 },
