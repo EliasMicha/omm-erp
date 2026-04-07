@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { Project, CatalogProduct, ProjectLine, PurchasePhase } from '../types'
-import { F, SPECIALTY_CONFIG, PHASE_CONFIG, formatDate } from '../lib/utils'
+import { F, FUSD, FCUR, SPECIALTY_CONFIG, PHASE_CONFIG, formatDate } from '../lib/utils'
 import { Badge, Btn, KpiCard, Table, Th, Td, Loading, SectionHeader, EmptyState } from '../components/layout/UI'
 import { Plus, ChevronLeft, X, Search, Trash2, Save, ShoppingCart, Truck, Package, Users2, FileText, Copy } from 'lucide-react'
 
@@ -38,6 +38,7 @@ interface PurchaseOrder {
   subtotal: number
   iva: number
   total: number
+  currency: 'MXN' | 'USD'
   notes?: string
   requested_by?: string
   approved_by?: string
@@ -60,6 +61,7 @@ interface POItem {
   quantity: number
   unit_cost: number
   total: number
+  currency: 'MXN' | 'USD'
   quantity_received: number
   order_index: number
   // Cotejo fields — valores reales de la compra
@@ -188,13 +190,15 @@ function ComprasDashboard({ onOpenPO, onGoToList }: { onOpenPO: (id: string) => 
   if (loading) return <Loading />
 
   const active = orders.filter(o => !['recibida', 'cancelada'].includes(o.status))
-  const totalPendiente = active.reduce((s, o) => s + o.total, 0)
+  const totalPendienteMXN = active.filter(o => o.currency === 'MXN').reduce((s, o) => s + o.total, 0)
+  const totalPendienteUSD = active.filter(o => o.currency === 'USD').reduce((s, o) => s + o.total, 0)
   const thisMonth = orders.filter(o => {
     const d = new Date(o.created_at)
     const now = new Date()
     return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()
   })
-  const totalMes = thisMonth.reduce((s, o) => s + o.total, 0)
+  const totalMesMXN = thisMonth.filter(o => o.currency === 'MXN').reduce((s, o) => s + o.total, 0)
+  const totalMesUSD = thisMonth.filter(o => o.currency === 'USD').reduce((s, o) => s + o.total, 0)
   const porRecibir = orders.filter(o => o.status === 'pedida' || o.status === 'recibida_parcial').length
 
   // Group by supplier
@@ -224,8 +228,10 @@ function ComprasDashboard({ onOpenPO, onGoToList }: { onOpenPO: (id: string) => 
       {/* KPIs */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 24 }}>
         <KpiCard label="OC Activas" value={active.length} color="#3B82F6" icon={<FileText size={16} />} />
-        <KpiCard label="Total pendiente" value={F(totalPendiente)} color="#F59E0B" icon={<ShoppingCart size={16} />} />
-        <KpiCard label="Compras del mes" value={F(totalMes)} color="#57FF9A" icon={<Package size={16} />} />
+        <KpiCard label="Pendiente MXN" value={F(totalPendienteMXN)} color="#F59E0B" icon={<ShoppingCart size={16} />} />
+        <KpiCard label="Pendiente USD" value={FUSD(totalPendienteUSD)} color="#F59E0B" icon={<ShoppingCart size={16} />} />
+        <KpiCard label="Mes MXN" value={F(totalMesMXN)} color="#57FF9A" icon={<Package size={16} />} />
+        <KpiCard label="Mes USD" value={FUSD(totalMesUSD)} color="#57FF9A" icon={<Package size={16} />} />
         <KpiCard label="Por recibir" value={porRecibir} color="#C084FC" icon={<Truck size={16} />} />
       </div>
 
@@ -278,7 +284,7 @@ function ComprasDashboard({ onOpenPO, onGoToList }: { onOpenPO: (id: string) => 
           <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 10 }}>Órdenes activas recientes</div>
           <Table>
             <thead><tr>
-              <Th>OC #</Th><Th>Proveedor</Th><Th>Proyecto</Th><Th>Especialidad</Th><Th>Fase</Th><Th>Estado</Th><Th right>Total</Th>
+              <Th>OC #</Th><Th>Proveedor</Th><Th>Proyecto</Th><Th>Especialidad</Th><Th>Fase</Th><Th>Estado</Th><Th right>Total MXN</Th><Th right>Total USD</Th>
             </tr></thead>
             <tbody>
               {active.slice(0, 8).map(o => {
@@ -293,7 +299,8 @@ function ComprasDashboard({ onOpenPO, onGoToList }: { onOpenPO: (id: string) => 
                     <Td><Badge label={esp.icon + ' ' + esp.label} color={esp.color} /></Td>
                     <Td>{phaseCfg ? <Badge label={phaseCfg.label} color={phaseCfg.color} /> : <span style={{color:'#555',fontSize:11}}>--</span>}</Td>
                     <Td><Badge label={st.label} color={st.color} /></Td>
-                    <Td right><span style={{ fontWeight: 600, color: '#57FF9A' }}>{F(o.total)}</span></Td>
+                    <Td right>{o.currency === 'MXN' ? <span style={{ fontWeight: 600, color: '#57FF9A' }}>{F(o.total)}</span> : <span style={{ color: '#333' }}>—</span>}</Td>
+                  <Td right>{o.currency === 'USD' ? <span style={{ fontWeight: 600, color: '#57FF9A' }}>{FUSD(o.total)}</span> : <span style={{ color: '#333' }}>—</span>}</Td>
                   </tr>
                 )
               })}
@@ -337,12 +344,13 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
     )
   }
 
-  const totalFiltered = lista.reduce((s, o) => s + o.total, 0)
+  const totalFilteredMXN = lista.filter(o => o.currency === 'MXN').reduce((s, o) => s + o.total, 0)
+  const totalFilteredUSD = lista.filter(o => o.currency === 'USD').reduce((s, o) => s + o.total, 0)
 
   return (
     <div>
       <SectionHeader title="Órdenes de compra"
-        subtitle={`${lista.length} órdenes | Total: ${F(totalFiltered)}`}
+        subtitle={`${lista.length} órdenes | MXN: ${F(totalFilteredMXN)} · USD: ${FUSD(totalFilteredUSD)}`}
         action={
           <div style={{ display: 'flex', gap: 8 }}>
             <Btn onClick={() => setShowFromQuote(true)}><Copy size={14} /> Desde cotización</Btn>
@@ -394,7 +402,7 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
       {loading ? <Loading /> : (
         <Table>
           <thead><tr>
-            <Th>OC #</Th><Th>Proveedor</Th><Th>Proyecto</Th><Th>Especialidad</Th><Th>Fase</Th><Th>Estado</Th><Th>Fecha</Th><Th right>Total</Th><Th></Th>
+            <Th>OC #</Th><Th>Proveedor</Th><Th>Proyecto</Th><Th>Especialidad</Th><Th>Fase</Th><Th>Estado</Th><Th>Fecha</Th><Th right>Total MXN</Th><Th right>Total USD</Th><Th></Th>
           </tr></thead>
           <tbody>
             {lista.length === 0 && <tr><td colSpan={9}><EmptyState message="Sin órdenes de compra" /></td></tr>}
@@ -411,7 +419,8 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
                   <Td>{phaseCfg ? <Badge label={phaseCfg.label} color={phaseCfg.color} /> : <span style={{color:'#555',fontSize:11}}>--</span>}</Td>
                   <Td><Badge label={st.label} color={st.color} /></Td>
                   <Td muted>{formatDate(o.created_at)}</Td>
-                  <Td right><span style={{ fontWeight: 600, color: '#57FF9A' }}>{F(o.total)}</span></Td>
+                  <Td right>{o.currency === 'MXN' ? <span style={{ fontWeight: 600, color: '#57FF9A' }}>{F(o.total)}</span> : <span style={{ color: '#333' }}>—</span>}</Td>
+                  <Td right>{o.currency === 'USD' ? <span style={{ fontWeight: 600, color: '#57FF9A' }}>{FUSD(o.total)}</span> : <span style={{ color: '#333' }}>—</span>}</Td>
                   <Td><Btn size="sm" onClick={e => { e?.stopPropagation(); onOpen(o.id) }}>Abrir</Btn></Td>
                 </tr>
               )
@@ -588,6 +597,15 @@ function POFromQuoteModal({ onClose, onCreated }: { onClose: () => void; onCreat
           if (filtered.length > 0) items = filtered
         }
       }
+      // Enrich items with currency from catalog_products
+      const catIds = items.map(it => it.catalog_product_id).filter(Boolean)
+      if (catIds.length > 0) {
+        const { data: catProducts } = await supabase.from('catalog_products').select('id, moneda').in('id', catIds)
+        const monedaMap = new Map((catProducts || []).map((p: any) => [p.id, p.moneda || 'USD']))
+        items = items.map((it: any) => ({ ...it, _moneda: it.catalog_product_id ? (monedaMap.get(it.catalog_product_id) || 'USD') : 'USD' }))
+      } else {
+        items = items.map((it: any) => ({ ...it, _moneda: 'USD' }))
+      }
       setPreviewItems(items)
     }
     loadItems()
@@ -607,27 +625,47 @@ function POFromQuoteModal({ onClose, onCreated }: { onClose: () => void; onCreat
     const num = String((count || 0) + 1).padStart(3, '0')
     const po_number = `${prefix}-${num}`
 
-    const subtotal = previewItems.reduce((s: number, it: any) => s + (it.cost * it.quantity), 0)
-    const iva = Math.round(subtotal * 0.16)
     const supplierName = suppliers.find(s => s.id === selectedSupplier)?.name || ''
     const phaseCfg = PHASE_CONFIG[selectedPhase]
 
-    const { data: po, error: err } = await supabase.from('purchase_orders').insert({
-      po_number,
-      project_id: quote.project_id || null,
-      supplier_id: selectedSupplier || null,
-      quotation_id: quote.id,
-      specialty: quote.specialty,
-      status: 'borrador',
-      purchase_phase: selectedPhase,
-      subtotal, iva, total: subtotal + iva,
-      notes: `${quote.name} | ${supplierName} | ${phaseCfg?.label || selectedPhase}`,
-    }).select().single()
+    // Group items by currency (MXN/USD). If mixed, create 2 separate POs.
+    const itemsByCurrency: Record<string, any[]> = { MXN: [], USD: [] }
+    previewItems.forEach((it: any) => {
+      const cur = it._moneda === 'MXN' ? 'MXN' : 'USD'
+      itemsByCurrency[cur].push(it)
+    })
 
-    if (err || !po) { setError(err?.message || 'Error al crear'); setSaving(false); return }
+    const currencies = (['MXN','USD'] as const).filter(c => itemsByCurrency[c].length > 0)
+    let createdIds: string[] = []
+    let baseCount = count || 0
 
-    if (previewItems.length > 0) {
-      const poItems = previewItems.map((it: any, i: number) => ({
+    for (let ci = 0; ci < currencies.length; ci++) {
+      const cur = currencies[ci]
+      const groupItems = itemsByCurrency[cur]
+      const groupSubtotal = groupItems.reduce((s: number, it: any) => s + (it.cost * it.quantity), 0)
+      const groupIva = Math.round(groupSubtotal * 0.16)
+      const thisNum = String(baseCount + 1 + ci).padStart(3, '0')
+      const thisPoNumber = `${prefix}-${thisNum}`
+
+      const { data: po, error: err } = await supabase.from('purchase_orders').insert({
+        po_number: thisPoNumber,
+        project_id: quote.project_id || null,
+        supplier_id: selectedSupplier || null,
+        quotation_id: quote.id,
+        specialty: quote.specialty,
+        status: 'borrador',
+        purchase_phase: selectedPhase,
+        subtotal: groupSubtotal,
+        iva: groupIva,
+        total: groupSubtotal + groupIva,
+        currency: cur,
+        notes: `${quote.name} | ${supplierName} | ${phaseCfg?.label || selectedPhase}${currencies.length > 1 ? ' | ' + cur : ''}`,
+      }).select().single()
+
+      if (err || !po) { setError(err?.message || 'Error al crear'); setSaving(false); return }
+      createdIds.push(po.id)
+
+      const poItems = groupItems.map((it: any, i: number) => ({
         purchase_order_id: po.id,
         catalog_product_id: it.catalog_product_id || null,
         name: it.name,
@@ -637,6 +675,7 @@ function POFromQuoteModal({ onClose, onCreated }: { onClose: () => void; onCreat
         quantity: it.quantity,
         unit_cost: it.cost,
         total: it.cost * it.quantity,
+        currency: cur,
         quantity_received: 0,
         order_index: i,
       }))
@@ -644,7 +683,7 @@ function POFromQuoteModal({ onClose, onCreated }: { onClose: () => void; onCreat
     }
 
     setSaving(false)
-    onCreated(po.id)
+    onCreated(createdIds[0])
   }
 
   if (loading) return (
