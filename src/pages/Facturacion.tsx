@@ -41,6 +41,14 @@ interface ClienteFiscal {
   regimen_fiscal?: string
   regimen_fiscal_clave?: string
   codigo_postal?: string
+  email?: string
+  telefono?: string
+  calle?: string
+  num_exterior?: string
+  num_interior?: string
+  colonia?: string
+  municipio?: string
+  estado?: string
   facturapi_customer_id?: string
 }
 
@@ -405,9 +413,16 @@ function NuevaFactura({ onCancel, onCreated }: { onCancel: () => void; onCreated
   const [error, setError] = useState<string | null>(null)
   const [resultado, setResultado] = useState<any>(null)
 
+  // Pre-llenar uso CFDI cuando se selecciona un cliente con preferencia
+  useEffect(() => {
+    if (!clienteId) return
+    const c = clientes.find(x => x.id === clienteId)
+    if (c?.uso_cfdi_clave) setUsoCfdi(c.uso_cfdi_clave)
+  }, [clienteId, clientes])
+
   useEffect(() => {
     Promise.all([
-      supabase.from('clientes').select('id,razon_social,rfc,uso_cfdi,uso_cfdi_clave,regimen_fiscal,regimen_fiscal_clave,codigo_postal,facturapi_customer_id').eq('activo', true).order('razon_social'),
+      supabase.from('clientes').select('id,razon_social,rfc,uso_cfdi,uso_cfdi_clave,regimen_fiscal,regimen_fiscal_clave,codigo_postal,email,telefono,calle,num_exterior,num_interior,colonia,municipio,estado,facturapi_customer_id').eq('activo', true).order('razon_social'),
       supabase.from('quotations').select('id,name,client_name,specialty').order('created_at', { ascending: false }).limit(200)
     ]).then(([cli, cot]) => {
       setClientes((cli.data as ClienteFiscal[]) || [])
@@ -654,6 +669,47 @@ function NuevaFactura({ onCancel, onCreated }: { onCancel: () => void; onCreated
             </select>
           </div>
         </div>
+        {clienteId && (() => {
+          const c = clientes.find(x => x.id === clienteId)
+          if (!c) return null
+          const checks = [
+            { label: 'RFC', value: c.rfc, ok: !!c.rfc && c.rfc.length >= 12 },
+            { label: 'Razon social', value: c.razon_social, ok: !!c.razon_social },
+            { label: 'Regimen fiscal', value: c.regimen_fiscal_clave ? c.regimen_fiscal_clave + ' - ' + (c.regimen_fiscal || '') : (c.regimen_fiscal || ''), ok: !!c.regimen_fiscal_clave },
+            { label: 'Codigo postal', value: c.codigo_postal, ok: !!c.codigo_postal && c.codigo_postal.length === 5 },
+            { label: 'Uso CFDI default', value: c.uso_cfdi_clave ? c.uso_cfdi_clave + ' - ' + (c.uso_cfdi || '') : (c.uso_cfdi || 'no definido'), ok: !!c.uso_cfdi_clave, optional: true },
+            { label: 'Email', value: c.email, ok: !!c.email, optional: true },
+          ]
+          const direccion = [c.calle, c.num_exterior, c.num_interior, c.colonia, c.municipio, c.estado].filter(Boolean).join(' ')
+          const faltanCriticos = checks.filter(ck => !ck.ok && !ck.optional).length > 0
+          return (
+            <div style={{ marginTop: 12, background: faltanCriticos ? '#3a1a1a' : '#0a1f0e', border: '1px solid ' + (faltanCriticos ? '#5a2a2a' : '#1a3a1f'), borderRadius: 8, padding: 14 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: faltanCriticos ? '#f87171' : '#57FF9A', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{faltanCriticos ? 'Datos fiscales incompletos' : 'Datos fiscales del cliente'}</div>
+                {c.facturapi_customer_id && <span style={{ fontSize: 9, color: '#888', fontFamily: 'monospace' }}>FacturAPI: {c.facturapi_customer_id.slice(0, 12)}...</span>}
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, fontSize: 11 }}>
+                {checks.map(ck => (
+                  <div key={ck.label} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    {ck.ok ? <CheckCircle2 size={11} style={{ color: '#57FF9A', flexShrink: 0 }} /> : <AlertCircle size={11} style={{ color: ck.optional ? '#666' : '#EF4444', flexShrink: 0 }} />}
+                    <span style={{ color: '#888', minWidth: 90 }}>{ck.label}:</span>
+                    <span style={{ color: ck.ok ? '#ddd' : (ck.optional ? '#666' : '#f87171'), fontFamily: ck.label === 'RFC' ? 'monospace' : 'inherit' }}>{ck.value || '-- falta --'}</span>
+                  </div>
+                ))}
+              </div>
+              {direccion && (
+                <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid ' + (faltanCriticos ? '#5a2a2a' : '#1a3a1f'), fontSize: 10, color: '#888' }}>
+                  <span style={{ color: '#666' }}>Direccion: </span>{direccion}
+                </div>
+              )}
+              {faltanCriticos && (
+                <div style={{ marginTop: 10, fontSize: 10, color: '#f87171', fontStyle: 'italic' }}>
+                  Faltan datos fiscales criticos. Completalos en el modulo Clientes antes de emitir o FacturAPI rechazara el timbrado.
+                </div>
+              )}
+            </div>
+          )
+        })()}
       </div>
 
       {/* Toggle modo conceptos */}
