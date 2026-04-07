@@ -40,6 +40,7 @@ interface PurchaseOrder {
   iva: number
   total: number
   currency: 'MXN' | 'USD'
+  supplier_doc_number?: string
   notes?: string
   requested_by?: string
   approved_by?: string
@@ -72,6 +73,20 @@ interface POItem {
   real_total?: number
   cotejo_status: 'pendiente' | 'cotejado' | 'sustituido'
   cotejo_notes?: string
+}
+
+interface POPayment {
+  id: string
+  purchase_order_id: string
+  amount: number
+  currency: 'MXN' | 'USD'
+  payment_date: string
+  method: string
+  reference?: string
+  receipt_url?: string
+  receipt_filename?: string
+  notes?: string
+  created_at: string
 }
 
 // ─── Config ───────────────────────────────────────────────────────────────────
@@ -471,6 +486,7 @@ function POFromPDFModal({ onClose, onCreated }: { onClose: () => void; onCreated
   const [supplierData, setSupplierData] = useState({ name: '', rfc: '', contact_name: '', contact_phone: '', contact_email: '', address: '' })
   const [currency, setCurrency] = useState<'MXN' | 'USD'>('USD')
   const [notes, setNotes] = useState('')
+  const [docNumber, setDocNumber] = useState('')
 
   useEffect(() => {
     Promise.all([
@@ -581,6 +597,7 @@ REGLAS:
       })))
       setCurrency(parsed.currency === 'MXN' ? 'MXN' : 'USD')
       setNotes(parsed.notes || '')
+      setDocNumber(parsed.document_number || '')
 
       // Auto-match supplier by name (fuzzy)
       const extractedName = (parsed.supplier?.name || '').toLowerCase().trim()
@@ -684,6 +701,7 @@ REGLAS:
       iva,
       total,
       currency,
+      supplier_doc_number: docNumber || null,
       notes: notes || null,
     }).select().single()
 
@@ -786,6 +804,12 @@ REGLAS:
                   </div>
                 </div>
               )}
+            </div>
+
+            {/* Folio del proveedor */}
+            <div>
+              <label style={labelStyle}>Folio del proveedor (su número de OC/cotización)</label>
+              <input value={docNumber} onChange={e => setDocNumber(e.target.value)} placeholder="Ej. OV-12345" style={inputStyle} />
             </div>
 
             {/* Proyecto + Especialidad + Fase + Moneda */}
@@ -1252,6 +1276,7 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
       supplier_id: po.supplier_id || null,
       project_id: po.project_id || null,
       notes: po.notes || null,
+      supplier_doc_number: po.supplier_doc_number || null,
       expected_delivery: po.expected_delivery || null,
       updated_at: new Date().toISOString(),
     }).eq('id', po.id)
@@ -1701,6 +1726,201 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
           </div>
         </div>
       )}
+    {po && <PaymentsSection poId={po.id} poTotal={po.total} poCurrency={po.currency} poStatus={po.status} onStatusChange={(newStatus) => setPO({ ...po, status: newStatus })} />}
+    </div>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  PAYMENTS SECTION (inside POEditor)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function PaymentsSection({ poId, poTotal, poCurrency, poStatus, onStatusChange }: { poId: string; poTotal: number; poCurrency: 'MXN' | 'USD'; poStatus: POStatus; onStatusChange: (newStatus: POStatus) => void }) {
+  const [payments, setPayments] = useState<POPayment[]>([])
+  const [showModal, setShowModal] = useState(false)
+  const [loading, setLoading] = useState(true)
+
+  async function load() {
+    setLoading(true)
+    const { data } = await supabase.from('purchase_order_payments').select('*').eq('purchase_order_id', poId).order('payment_date', { ascending: false })
+    setPayments((data as POPayment[]) || [])
+    setLoading(false)
+  }
+
+  useEffect(() => { load() }, [poId])
+
+  async function handleDelete(id: string) {
+    if (!confirm('¿Eliminar este pago?')) return
+    await supabase.from('purchase_order_payments').delete().eq('id', id)
+    load()
+  }
+
+  const totalPaid = payments.reduce((s, p) => s + (Number(p.amount) || 0), 0)
+  const pct = poTotal > 0 ? Math.min(100, (totalPaid / poTotal) * 100) : 0
+  const fmtMoney = (n: number) => poCurrency === 'USD' ? FUSD(n) : F(n)
+
+  return (
+    <div style={{ marginTop: 20, background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 12, padding: 16 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: '#fff' }}>Pagos ({payments.length})</div>
+        <Btn variant="primary" onClick={() => setShowModal(true)}><Plus size={12} /> Registrar pago</Btn>
+      </div>
+
+      {/* Progreso */}
+      <div style={{ marginBottom: 12 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#888', marginBottom: 4 }}>
+          <span>Pagado: {fmtMoney(totalPaid)} de {fmtMoney(poTotal)}</span>
+          <span style={{ color: pct >= 100 ? '#57FF9A' : pct > 0 ? '#F59E0B' : '#555' }}>{pct.toFixed(0)}%</span>
+        </div>
+        <div style={{ height: 6, background: '#1a1a1a', borderRadius: 4, overflow: 'hidden' }}>
+          <div style={{ height: '100%', width: pct + '%', background: pct >= 100 ? '#57FF9A' : '#F59E0B', transition: 'width 0.3s' }} />
+        </div>
+      </div>
+
+      {/* Lista de pagos */}
+      {loading ? <div style={{ fontSize: 11, color: '#555', padding: 10 }}>Cargando...</div> :
+        payments.length === 0 ? <div style={{ fontSize: 11, color: '#555', padding: 10, textAlign: 'center' as const }}>Sin pagos registrados</div> :
+        <div>
+          {payments.map(p => (
+            <div key={p.id} style={{ display: 'grid', gridTemplateColumns: '90px 1fr 100px 110px 24px', gap: 8, padding: '8px 0', borderBottom: '1px solid #1a1a1a', fontSize: 11, alignItems: 'center' }}>
+              <span style={{ color: '#888' }}>{formatDate(p.payment_date)}</span>
+              <span style={{ color: '#aaa' }}>{p.method}{p.reference ? ' · ' + p.reference : ''}</span>
+              <span style={{ color: '#57FF9A', fontWeight: 600 }}>{fmtMoney(p.amount)}</span>
+              <span>{p.receipt_url ? <a href={p.receipt_url} target="_blank" rel="noopener noreferrer" style={{ color: '#A78BFA', fontSize: 10 }}>Ver comprobante</a> : <span style={{ color: '#444', fontSize: 10 }}>Sin comprobante</span>}</span>
+              <button onClick={() => handleDelete(p.id)} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', padding: 2 }}><Trash2 size={12} /></button>
+            </div>
+          ))}
+        </div>
+      }
+
+      {showModal && <RegistrarPagoModal poId={poId} poCurrency={poCurrency} poTotal={poTotal} totalPaid={totalPaid} poStatus={poStatus} onClose={() => setShowModal(false)} onCreated={(newStatus) => { setShowModal(false); load(); if (newStatus) onStatusChange(newStatus) }} />}
+    </div>
+  )
+}
+
+function RegistrarPagoModal({ poId, poCurrency, poTotal, totalPaid, poStatus, onClose, onCreated }: { poId: string; poCurrency: 'MXN' | 'USD'; poTotal: number; totalPaid: number; poStatus: POStatus; onClose: () => void; onCreated: (newStatus: POStatus | null) => void }) {
+  const [amount, setAmount] = useState<string>(String(Math.max(0, poTotal - totalPaid)))
+  const [paymentDate, setPaymentDate] = useState(new Date().toISOString().slice(0, 10))
+  const [method, setMethod] = useState('transferencia')
+  const [reference, setReference] = useState('')
+  const [notes, setNotes] = useState('')
+  const [file, setFile] = useState<File | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  async function crear() {
+    const numAmount = Number(amount)
+    if (!numAmount || numAmount <= 0) { setError('Monto inválido'); return }
+    setSaving(true)
+    setError('')
+
+    let receipt_url: string | null = null
+    let receipt_filename: string | null = null
+
+    if (file) {
+      const filename = Date.now() + '_' + file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
+      const path = poId + '/' + filename
+      const { error: upErr } = await supabase.storage.from('payment-receipts').upload(path, file)
+      if (upErr) {
+        setError('Error al subir comprobante: ' + upErr.message)
+        setSaving(false)
+        return
+      }
+      const { data: urlData } = supabase.storage.from('payment-receipts').getPublicUrl(path)
+      receipt_url = urlData.publicUrl
+      receipt_filename = file.name
+    }
+
+    const { error: insErr } = await supabase.from('purchase_order_payments').insert({
+      purchase_order_id: poId,
+      amount: numAmount,
+      currency: poCurrency,
+      payment_date: paymentDate,
+      method,
+      reference: reference || null,
+      receipt_url,
+      receipt_filename,
+      notes: notes || null,
+    })
+
+    if (insErr) {
+      setError('Error al guardar pago: ' + insErr.message)
+      setSaving(false)
+      return
+    }
+
+    // Si la OC estaba en borrador o aprobada, pasarla a 'pedida' al primer pago (Opción B)
+    let newStatus: POStatus | null = null
+    if (poStatus === 'borrador' || poStatus === 'aprobada') {
+      const { error: updErr } = await supabase.from('purchase_orders').update({ status: 'pedida' }).eq('id', poId)
+      if (!updErr) newStatus = 'pedida'
+    }
+
+    setSaving(false)
+    onCreated(newStatus)
+  }
+
+  const overlayStyle: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100 }
+  const modalStyle: React.CSSProperties = { background: '#141414', border: '1px solid #2a2a2a', borderRadius: 16, padding: 24, width: 520, maxHeight: '90vh', overflowY: 'auto' }
+  const inpStyle: React.CSSProperties = { width: '100%', padding: '8px 12px', background: '#0e0e0e', border: '1px solid #2a2a2a', borderRadius: 8, color: '#fff', fontSize: 13, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }
+  const lblStyle: React.CSSProperties = { fontSize: 11, color: '#666', textTransform: 'uppercase' as const, letterSpacing: '0.06em', fontWeight: 600, marginBottom: 4, display: 'block' }
+
+  return (
+    <div style={overlayStyle}>
+      <div style={modalStyle}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+          <div style={{ fontSize: 16, fontWeight: 600, color: '#fff' }}>Registrar pago</div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer' }}><X size={18} /></button>
+        </div>
+
+        {error && <div style={{ background: '#3a1a1a', border: '1px solid #5a2a2a', borderRadius: 8, padding: 10, color: '#f87171', fontSize: 12, marginBottom: 12 }}>{error}</div>}
+
+        <div style={{ display: 'grid', gap: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <div>
+              <label style={lblStyle}>Monto ({poCurrency})</label>
+              <input type="number" value={amount} onChange={e => setAmount(e.target.value)} style={inpStyle} />
+            </div>
+            <div>
+              <label style={lblStyle}>Fecha</label>
+              <input type="date" value={paymentDate} onChange={e => setPaymentDate(e.target.value)} style={inpStyle} />
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <div>
+              <label style={lblStyle}>Método</label>
+              <select value={method} onChange={e => setMethod(e.target.value)} style={inpStyle}>
+                <option value="transferencia">Transferencia</option>
+                <option value="cheque">Cheque</option>
+                <option value="efectivo">Efectivo</option>
+                <option value="tarjeta">Tarjeta</option>
+                <option value="otro">Otro</option>
+              </select>
+            </div>
+            <div>
+              <label style={lblStyle}>Referencia</label>
+              <input value={reference} onChange={e => setReference(e.target.value)} placeholder="Folio SPEI, num cheque..." style={inpStyle} />
+            </div>
+          </div>
+
+          <div>
+            <label style={lblStyle}>Comprobante (opcional)</label>
+            <input type="file" accept="application/pdf,image/*" onChange={e => setFile(e.target.files?.[0] || null)} style={{ ...inpStyle, padding: 6 }} />
+            {file && <div style={{ fontSize: 10, color: '#888', marginTop: 4 }}>{file.name}</div>}
+          </div>
+
+          <div>
+            <label style={lblStyle}>Notas</label>
+            <textarea value={notes} onChange={e => setNotes(e.target.value)} style={{ ...inpStyle, minHeight: 40, fontFamily: 'inherit', resize: 'vertical' }} />
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 20 }}>
+          <Btn onClick={onClose}>Cancelar</Btn>
+          <Btn variant="primary" onClick={crear} disabled={saving}>{saving ? 'Guardando...' : 'Guardar pago'}</Btn>
+        </div>
+      </div>
     </div>
   )
 }
