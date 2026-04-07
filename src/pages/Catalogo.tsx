@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase'
 import { SectionHeader, KpiCard, Table, Th, Td, Badge, Btn, EmptyState } from '../components/layout/UI'
 import { F, PHASE_CONFIG } from '../lib/utils'
 import { ANTHROPIC_API_KEY } from '../lib/config'
-import { Package, Plus, Search, Edit, X, Tag, Layers, Upload, Loader2 } from 'lucide-react'
+import { Package, Plus, Search, Edit, X, Tag, Layers, Upload, Loader2, Sparkles } from 'lucide-react'
 import { PurchasePhase } from '../types'
 
 interface Supplier { id: string; name: string }
@@ -67,11 +67,97 @@ export default function Catalogo() {
   const [showImport, setShowImport] = useState(false)
   const [importing, setImporting] = useState(false)
   const [importResult, setImportResult] = useState<string | null>(null)
+  const [aiSearching, setAiSearching] = useState(false)
+  const [aiError, setAiError] = useState<string | null>(null)
   const importRef = useRef<HTMLInputElement>(null)
   const [form, setForm] = useState<Partial<Product>>({
     type: 'material', unit: 'pza', clave_unidad: 'H87', markup: 35, iva_rate: 0.16, is_active: true, system: 'Electrico', moneda: 'MXN', purchase_phase: 'inicio', supplier_id: '',
   })
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
+
+  async function searchProductWithAI() {
+    const marca = (form as any).marca || form.provider || ''
+    const modelo = (form as any).modelo || ''
+    const name = form.name || ''
+    const queryParts = [marca, modelo, name].filter(Boolean)
+    if (queryParts.length === 0) {
+      setAiError('Llena al menos nombre, marca o modelo antes de buscar')
+      return
+    }
+    setAiSearching(true)
+    setAiError(null)
+
+    const productQuery = [marca, modelo].filter(Boolean).join(' ') || name
+    const specialty = filterSpecialty
+    const specialtyHint = specialty === 'ilum' ? 'iluminación arquitectónica (luminaria, foco, driver)' :
+      specialty === 'elec' ? 'producto eléctrico (cable, interruptor, breaker, conduit)' :
+      specialty === 'esp' ? 'instalación especial (audio, video, CCTV, redes, control)' :
+      'servicio profesional o producto'
+
+    const prompt = `Busca en internet las especificaciones técnicas oficiales del siguiente producto y devuelve SOLO un JSON válido con los campos que encuentres. NO inventes datos, solo incluye lo que confirmes en datasheets oficiales del fabricante.\n\nProducto: ${productQuery}\nCategoría: ${specialtyHint}\n\nDevuelve un JSON con este formato exacto (omite campos que no encuentres con certeza):\n{\n  "description": "descripción técnica corta del producto en español",\n  "marca": "marca/fabricante",\n  "modelo": "código de modelo exacto del fabricante",\n  "watts": número de watts (solo número, sin unidad),\n  "lumens": número de lúmenes (solo número),\n  "cct": temperatura de color en Kelvin (solo número, ej. 3000),\n  "cri": índice de reproducción cromática (solo número, ej. 90),\n  "ip_rating": "IP20, IP65, etc.",\n  "mounting_type": "empotrado, suspendido, sobreponer, riel, etc.",\n  "system": "Iluminacion / Audio / Video / CCTV / Redes / Control / Electrico",\n  "unit": "pza / m / kg / rollo / etc.",\n  "clave_prod_serv": "clave SAT mexicana de 8 dígitos si la sabes"\n}\n\nIMPORTANTE: Devuelve SOLO el JSON, sin texto antes ni después, sin markdown, sin backticks. Si no encuentras información confiable del producto, devuelve {} (objeto vacío).`
+
+    try {
+      const res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': ANTHROPIC_API_KEY,
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true',
+        },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 2000,
+          tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 5 }],
+          messages: [{ role: 'user', content: prompt }],
+        }),
+      })
+      const data = await res.json()
+      if (data.error) {
+        setAiError(data.error.message || 'Error de la API')
+        setAiSearching(false)
+        return
+      }
+      // Extraer texto de la respuesta (puede venir en varios bloques de tipo 'text')
+      const textBlocks = (data.content || []).filter((b: any) => b.type === 'text').map((b: any) => b.text).join('\n')
+      // Intentar parsear el JSON del texto
+      let parsed: any = null
+      try {
+        const cleaned = textBlocks.replace(/```json|```/g, '').trim()
+        const jsonMatch = cleaned.match(/\{[\s\S]*\}/)
+        if (jsonMatch) parsed = JSON.parse(jsonMatch[0])
+      } catch (e) {
+        setAiError('No se pudo parsear la respuesta. Intenta con marca y modelo más específicos.')
+        setAiSearching(false)
+        return
+      }
+      if (!parsed || Object.keys(parsed).length === 0) {
+        setAiError('No se encontró información del producto. Verifica marca y modelo.')
+        setAiSearching(false)
+        return
+      }
+      // Auto-llenar SOLO campos vacíos (no sobreescribir lo que ya pusiste)
+      const updates: any = {}
+      const f: any = form
+      if (parsed.description && !f.description) updates.description = parsed.description
+      if (parsed.marca && !f.marca) updates.marca = parsed.marca
+      if (parsed.modelo && !f.modelo) updates.modelo = parsed.modelo
+      if (parsed.watts && !f.watts) updates.watts = parsed.watts
+      if (parsed.lumens && !f.lumens) updates.lumens = parsed.lumens
+      if (parsed.cct && !f.cct) updates.cct = parsed.cct
+      if (parsed.cri && !f.cri) updates.cri = parsed.cri
+      if (parsed.ip_rating && !f.ip_rating) updates.ip_rating = parsed.ip_rating
+      if (parsed.mounting_type && !f.mounting_type) updates.mounting_type = parsed.mounting_type
+      if (parsed.system && !f.system) updates.system = parsed.system
+      if (parsed.unit && !f.unit) updates.unit = parsed.unit
+      if (parsed.clave_prod_serv && !f.clave_prod_serv) updates.clave_prod_serv = parsed.clave_prod_serv
+      setForm({ ...form, ...updates })
+      setAiSearching(false)
+    } catch (err: any) {
+      setAiError('Error: ' + (err.message || 'no se pudo conectar'))
+      setAiSearching(false)
+    }
+  }
 
   useEffect(() => {
     const load = async () => {
@@ -346,8 +432,14 @@ export default function Catalogo() {
           <div style={{ background: '#1a1a1a', border: '1px solid #333', borderRadius: 16, padding: 24, width: 700, maxHeight: '85vh', overflowY: 'auto' as const }} onClick={e => e.stopPropagation()}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
               <div style={{ fontSize: 16, fontWeight: 700, color: '#fff' }}>{editId ? 'Editar Producto' : 'Nuevo Producto'}</div>
-              <button onClick={() => setShowForm(false)} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer' }}><X size={18} /></button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <Btn size="sm" variant="primary" onClick={searchProductWithAI} disabled={aiSearching}>
+                  {aiSearching ? <><Loader2 size={12} style={{animation:'spin 1s linear infinite'}} /> Buscando...</> : <><Sparkles size={12} /> Buscar con IA</>}
+                </Btn>
+                <button onClick={() => setShowForm(false)} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer' }}><X size={18} /></button>
+              </div>
             </div>
+            {aiError && <div style={{ background: '#3a1a1a', border: '1px solid #5a2a2a', borderRadius: 8, padding: 10, color: '#f87171', fontSize: 12, marginBottom: 12 }}>{aiError} <button onClick={() => setAiError(null)} style={{float:'right',background:'none',border:'none',color:'#f87171',cursor:'pointer'}}>×</button></div>}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
               <Fld label="Nombre *" span><input style={iS} value={form.name || ''} onChange={e => setForm({...form, name: e.target.value})} placeholder="Cable THW calibre 12" /></Fld>
               <Fld label="Descripcion" span><input style={iS} value={form.description || ''} onChange={e => setForm({...form, description: e.target.value})} placeholder="Descripcion detallada del producto" /></Fld>
