@@ -203,7 +203,7 @@ function ComprasDashboard({ onOpenPO, onGoToList }: { onOpenPO: (id: string) => 
   const porRecibir = orders.filter(o => o.status === 'pedida' || o.status === 'recibida_parcial').length
 
   // Group by supplier
-  const bySupplier: Record<string, { name: string; total: number; count: number }> = {}
+  const bySupplier: Record<string, any> = {}
   orders.forEach(o => {
     const sn = (o.supplier as any)?.name || 'Sin proveedor'
     if (!bySupplier[sn]) bySupplier[sn] = { name: sn, totalMXN: 0, totalUSD: 0, count: 0 }
@@ -214,7 +214,7 @@ function ComprasDashboard({ onOpenPO, onGoToList }: { onOpenPO: (id: string) => 
   const topSuppliers = Object.values(bySupplier).sort((a: any, b: any) => (b.totalMXN + b.totalUSD) - (a.totalMXN + a.totalUSD)).slice(0, 5) as any[]
 
   // Group by project
-  const byProject: Record<string, { name: string; total: number }> = {}
+  const byProject: Record<string, any> = {}
   active.forEach(o => {
     const pn = (o.project as any)?.name || 'Sin proyecto'
     if (!byProject[pn]) byProject[pn] = { name: pn, totalMXN: 0, totalUSD: 0 }
