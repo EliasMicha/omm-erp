@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
+import { ANTHROPIC_API_KEY } from '../lib/config'
 import { Quotation, QuotationArea, QuotationItem, CatalogProduct, Project, ProjectLine, PurchasePhase } from '../types'
 import { F, SPECIALTY_CONFIG, STAGE_CONFIG, PHASE_CONFIG, calcItemPrice, calcItemTotal } from '../lib/utils'
 import { Badge, Btn, Table, Th, Td, Loading, SectionHeader, EmptyState } from '../components/layout/UI'
@@ -422,6 +423,12 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
   const [catalog, setCatalog] = useState<CatalogProduct[]>([])
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
   const [showCat, setShowCat] = useState(false)
+  const [catalogSearch, setCatalogSearch] = useState('')
+  const [showNewProd, setShowNewProd] = useState(false)
+  const [newProd, setNewProd] = useState<any>({ name: '', description: '', marca: '', modelo: '', system: '', cost: 0, markup: 35, moneda: 'USD' })
+  const [savingNewProd, setSavingNewProd] = useState(false)
+  const [aiSearchingNewProd, setAiSearchingNewProd] = useState(false)
+  const [aiErrorNewProd, setAiErrorNewProd] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [generating, setGenerating] = useState(false)
   const [genResult, setGenResult] = useState<string|null>(null)
@@ -546,6 +553,87 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
     if (!nombre) return
     const { data } = await supabase.from('quotation_areas').insert({ quotation_id: cotId, name: nombre, order_index: areas.length }).select().single()
     if (data) { setAreas(a => [...a, data]); setAreaActiva(data.id) }
+  }
+
+  async function aiSearchNewProd() {
+    const marca = newProd.marca || ''
+    const modelo = newProd.modelo || ''
+    const name = newProd.name || ''
+    if (!marca && !modelo && !name) {
+      setAiErrorNewProd('Llena al menos nombre, marca o modelo antes de buscar')
+      return
+    }
+    setAiSearchingNewProd(true)
+    setAiErrorNewProd(null)
+    const productQuery = [marca, modelo].filter(Boolean).join(' ') || name
+    const cotSpecialty = cot?.specialty || 'esp'
+    const specialtyHint = cotSpecialty === 'ilum' ? 'iluminacion arquitectonica' : cotSpecialty === 'elec' ? 'producto electrico' : cotSpecialty === 'esp' ? 'instalacion especial audio video CCTV redes control' : 'servicio profesional'
+    const prompt = 'Busca en internet las especificaciones tecnicas oficiales del siguiente producto y devuelve SOLO un JSON valido con los campos que encuentres. NO inventes datos.\n\nProducto: ' + productQuery + '\nCategoria: ' + specialtyHint + '\n\nFormato JSON (omite campos que no encuentres):\n{\n  "name": "nombre completo",\n  "description": "descripcion tecnica corta",\n  "marca": "marca",\n  "modelo": "modelo exacto",\n  "watts": numero,\n  "lumens": numero,\n  "cct": numero,\n  "cri": numero,\n  "ip_rating": "IP20",\n  "mounting_type": "empotrado",\n  "system": "Iluminacion/Audio/CCTV/Redes/Control/Electrico",\n  "unit": "pza/m/kg"\n}\n\nDevuelve SOLO el JSON sin markdown ni backticks. Si no encuentras informacion devuelve {}.'
+    try {
+      const res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-api-key': ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
+        body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 2000, tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 5 }], messages: [{ role: 'user', content: prompt }] })
+      })
+      const data = await res.json()
+      if (data.error) { setAiErrorNewProd(data.error.message || 'Error API'); setAiSearchingNewProd(false); return }
+      const textBlocks = (data.content || []).filter((b: any) => b.type === 'text').map((b: any) => b.text).join('\n')
+      let parsed: any = null
+      try {
+        const cleaned = textBlocks.replace(/```json|```/g, '').trim()
+        const m = cleaned.match(/\{[\s\S]*\}/)
+        if (m) parsed = JSON.parse(m[0])
+      } catch (e) { setAiErrorNewProd('No se pudo parsear respuesta'); setAiSearchingNewProd(false); return }
+      if (!parsed || Object.keys(parsed).length === 0) { setAiErrorNewProd('No se encontro informacion'); setAiSearchingNewProd(false); return }
+      const updates: any = {}
+      Object.keys(parsed).forEach(k => { if (parsed[k] && !newProd[k]) updates[k] = parsed[k] })
+      setNewProd({ ...newProd, ...updates })
+      setAiSearchingNewProd(false)
+    } catch (err: any) {
+      setAiErrorNewProd('Error: ' + (err.message || 'no se pudo conectar'))
+      setAiSearchingNewProd(false)
+    }
+  }
+
+  async function createAndAddNewProduct() {
+    if (!newProd.name) return
+    if (!areaActiva) return
+    setSavingNewProd(true)
+    const cotSpecialty = cot?.specialty || 'esp'
+    const productPayload: any = {
+      name: newProd.name,
+      description: newProd.description || null,
+      marca: newProd.marca || null,
+      modelo: newProd.modelo || null,
+      provider: newProd.marca || null,
+      system: newProd.system || null,
+      cost: Number(newProd.cost) || 0,
+      markup: Number(newProd.markup) || 35,
+      moneda: newProd.moneda || 'USD',
+      purchase_phase: 'inicio',
+      is_active: true,
+      type: 'material',
+      unit: newProd.unit || 'pza',
+      specialty: cotSpecialty,
+      watts: newProd.watts || null,
+      lumens: newProd.lumens || null,
+      cct: newProd.cct || null,
+      cri: newProd.cri || null,
+      ip_rating: newProd.ip_rating || null,
+      mounting_type: newProd.mounting_type || null,
+    }
+    const { data: created, error: errCreate } = await supabase.from('catalog_products').insert(productPayload).select().single()
+    if (errCreate || !created) {
+      setSavingNewProd(false)
+      alert('Error al crear producto: ' + (errCreate?.message || ''))
+      return
+    }
+    setCatalog(prev => [...prev, created as any])
+    await addFromCatalog(created as any)
+    setShowNewProd(false)
+    setNewProd({ name: '', description: '', marca: '', modelo: '', system: '', cost: 0, markup: 35, moneda: 'USD' })
+    setAiErrorNewProd(null)
+    setSavingNewProd(false)
   }
 
   async function addFromCatalog(prod: CatalogProduct) {
@@ -730,29 +818,89 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
 
       {showCat && (
         <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.8)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000}}>
-          <div style={{background:'#141414',border:'1px solid #333',borderRadius:16,padding:20,width:700,maxHeight:'80vh',overflow:'hidden',display:'flex',flexDirection:'column'}}>
-            <div style={{display:'flex',justifyContent:'space-between',marginBottom:14}}>
-              <div style={{fontSize:15,fontWeight:600,color:'#fff'}}>Catalogo de productos</div>
-              <button onClick={()=>setShowCat(false)} style={{background:'none',border:'none',color:'#666',cursor:'pointer'}}><X size={18}/></button>
+          <div style={{background:'#141414',border:'1px solid #333',borderRadius:16,padding:20,width:780,maxHeight:'85vh',overflow:'hidden',display:'flex',flexDirection:'column'}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}>
+              <div style={{fontSize:15,fontWeight:600,color:'#fff'}}>{showNewProd ? 'Nuevo producto' : 'Catalogo (' + (cot?.specialty === 'ilum' ? 'Iluminacion' : cot?.specialty === 'elec' ? 'Electrico' : cot?.specialty === 'proy' ? 'Proyecto' : 'Especiales') + ')'}</div>
+              <button onClick={()=>{setShowCat(false); setShowNewProd(false); setCatalogSearch('')}} style={{background:'none',border:'none',color:'#666',cursor:'pointer'}}><X size={18}/></button>
             </div>
-            <div style={{overflowY:'auto',flex:1}}>
+            {!showNewProd && <div style={{display:'flex',gap:8,marginBottom:12,alignItems:'center'}}>
+              <input value={catalogSearch} onChange={e => setCatalogSearch(e.target.value)} placeholder="Buscar por nombre, marca o modelo..." autoFocus style={{flex:1,padding:'8px 12px',background:'#0e0e0e',border:'1px solid #333',borderRadius:8,color:'#fff',fontSize:13,fontFamily:'inherit',outline:'none'}}/>
+              <Btn size="sm" variant="primary" onClick={()=>setShowNewProd(true)}><Plus size={12}/> Nuevo producto</Btn>
+            </div>}
+            {showNewProd && <div style={{overflowY:'auto',flex:1,padding:'4px 4px 12px'}}>
+              {aiErrorNewProd && <div style={{background:'#3a1a1a',border:'1px solid #5a2a2a',borderRadius:8,padding:10,color:'#f87171',fontSize:12,marginBottom:12}}>{aiErrorNewProd}</div>}
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:10,marginBottom:10}}>
+                <div style={{gridColumn:'1 / span 3'}}>
+                  <div style={{fontSize:11,color:'#666',marginBottom:4}}>Nombre *</div>
+                  <input value={newProd.name} onChange={e=>setNewProd({...newProd,name:e.target.value})} placeholder="Hikvision DS-7616NXI" style={{width:'100%',padding:'8px 12px',background:'#0e0e0e',border:'1px solid #333',borderRadius:8,color:'#fff',fontSize:13,fontFamily:'inherit',outline:'none',boxSizing:'border-box'}}/>
+                </div>
+                <div style={{gridColumn:'1 / span 3'}}>
+                  <div style={{fontSize:11,color:'#666',marginBottom:4}}>Descripcion</div>
+                  <input value={newProd.description} onChange={e=>setNewProd({...newProd,description:e.target.value})} placeholder="Descripcion tecnica" style={{width:'100%',padding:'8px 12px',background:'#0e0e0e',border:'1px solid #333',borderRadius:8,color:'#fff',fontSize:13,fontFamily:'inherit',outline:'none',boxSizing:'border-box'}}/>
+                </div>
+                <div>
+                  <div style={{fontSize:11,color:'#666',marginBottom:4}}>Marca</div>
+                  <input value={newProd.marca} onChange={e=>setNewProd({...newProd,marca:e.target.value})} placeholder="Lutron" style={{width:'100%',padding:'8px 12px',background:'#0e0e0e',border:'1px solid #333',borderRadius:8,color:'#fff',fontSize:13,fontFamily:'inherit',outline:'none',boxSizing:'border-box'}}/>
+                </div>
+                <div>
+                  <div style={{fontSize:11,color:'#666',marginBottom:4}}>Modelo</div>
+                  <input value={newProd.modelo} onChange={e=>setNewProd({...newProd,modelo:e.target.value})} placeholder="DS-7616NXI" style={{width:'100%',padding:'8px 12px',background:'#0e0e0e',border:'1px solid #333',borderRadius:8,color:'#fff',fontSize:13,fontFamily:'inherit',outline:'none',boxSizing:'border-box'}}/>
+                </div>
+                <div>
+                  <div style={{fontSize:11,color:'#666',marginBottom:4}}>Sistema</div>
+                  <input value={newProd.system} onChange={e=>setNewProd({...newProd,system:e.target.value})} placeholder="CCTV/Audio" style={{width:'100%',padding:'8px 12px',background:'#0e0e0e',border:'1px solid #333',borderRadius:8,color:'#fff',fontSize:13,fontFamily:'inherit',outline:'none',boxSizing:'border-box'}}/>
+                </div>
+                <div>
+                  <div style={{fontSize:11,color:'#666',marginBottom:4}}>Costo</div>
+                  <input type="number" value={newProd.cost} onChange={e=>setNewProd({...newProd,cost:parseFloat(e.target.value)||0})} style={{width:'100%',padding:'8px 12px',background:'#0e0e0e',border:'1px solid #333',borderRadius:8,color:'#fff',fontSize:13,fontFamily:'inherit',outline:'none',boxSizing:'border-box'}}/>
+                </div>
+                <div>
+                  <div style={{fontSize:11,color:'#666',marginBottom:4}}>Moneda</div>
+                  <select value={newProd.moneda} onChange={e=>setNewProd({...newProd,moneda:e.target.value})} style={{width:'100%',padding:'8px 12px',background:'#0e0e0e',border:'1px solid #333',borderRadius:8,color:'#fff',fontSize:13,fontFamily:'inherit',outline:'none',boxSizing:'border-box'}}>
+                    <option value="USD">USD</option>
+                    <option value="MXN">MXN</option>
+                  </select>
+                </div>
+                <div>
+                  <div style={{fontSize:11,color:'#666',marginBottom:4}}>Markup %</div>
+                  <input type="number" value={newProd.markup} onChange={e=>setNewProd({...newProd,markup:parseFloat(e.target.value)||0})} style={{width:'100%',padding:'8px 12px',background:'#0e0e0e',border:'1px solid #333',borderRadius:8,color:'#fff',fontSize:13,fontFamily:'inherit',outline:'none',boxSizing:'border-box'}}/>
+                </div>
+              </div>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,marginTop:14}}>
+                <Btn size="sm" variant="primary" onClick={aiSearchNewProd} disabled={aiSearchingNewProd}>{aiSearchingNewProd ? 'Buscando...' : 'Buscar con IA'}</Btn>
+                <div style={{display:'flex',gap:8}}>
+                  <Btn size="sm" onClick={()=>{setShowNewProd(false); setAiErrorNewProd(null)}}>Cancelar</Btn>
+                  <Btn size="sm" variant="primary" onClick={createAndAddNewProduct} disabled={!newProd.name || savingNewProd}>{savingNewProd ? 'Guardando...' : 'Crear y agregar'}</Btn>
+                </div>
+              </div>
+            </div>}
+            {!showNewProd && <div style={{overflowY:'auto',flex:1}}>
               <Table>
-                <thead><tr><Th>Producto</Th><Th>Sistema</Th><Th>Tipo</Th><Th>Proveedor</Th><Th right>Precio</Th><Th></Th></tr></thead>
+                <thead><tr><Th>Producto</Th><Th>Marca/Modelo</Th><Th>Sistema</Th><Th right>Precio</Th><Th></Th></tr></thead>
                 <tbody>
-                  {catalog.length===0&&<tr><td colSpan={6}><EmptyState message="Catalogo vacio - agrega productos en Supabase"/></td></tr>}
-                  {catalog.map(p => (
-                    <tr key={p.id}>
-                      <Td><span style={{fontWeight:500,color:'#ddd'}}>{p.name}</span><br/><span style={{fontSize:10,color:'#555'}}>{p.description}</span></Td>
-                      <Td muted>{p.system||'--'}</Td>
-                      <Td muted>{p.type}</Td>
-                      <Td muted>{p.provider||'--'}</Td>
-                      <Td right><span style={{fontWeight:600,color:'#57FF9A'}}>{F(calcItemPrice(p.cost,p.markup))}</span></Td>
-                      <Td><Btn size="sm" variant="primary" onClick={()=>addFromCatalog(p)}>+ Agregar</Btn></Td>
-                    </tr>
-                  ))}
+                  {(() => {
+                    const cotSp = cot?.specialty || 'esp'
+                    const q = catalogSearch.toLowerCase().trim()
+                    const filtered = catalog.filter((p: any) => {
+                      const matchSp = (p.specialty || 'esp') === cotSp
+                      if (!matchSp) return false
+                      if (!q) return true
+                      return (p.name || '').toLowerCase().includes(q) || (p.marca || '').toLowerCase().includes(q) || (p.modelo || '').toLowerCase().includes(q) || (p.provider || '').toLowerCase().includes(q) || (p.description || '').toLowerCase().includes(q)
+                    })
+                    if (filtered.length === 0) return <tr><td colSpan={5} style={{padding:'20px',textAlign:'center',color:'#666',fontSize:12}}>{q ? 'Sin resultados. Crea uno nuevo o cambia tu busqueda.' : 'Aun no hay productos en este catalogo.'}</td></tr>
+                    return filtered.map((p: any) => (
+                      <tr key={p.id}>
+                        <Td><span style={{fontWeight:500,color:'#ddd'}}>{p.name}</span><br/><span style={{fontSize:10,color:'#555'}}>{p.description}</span></Td>
+                        <Td muted><span style={{color:'#aaa',fontSize:11}}>{(p as any).marca || p.provider || '--'}</span><br/><span style={{fontSize:10,color:'#555'}}>{(p as any).modelo || ''}</span></Td>
+                        <Td muted>{p.system||'--'}</Td>
+                        <Td right><span style={{fontWeight:600,color:'#57FF9A'}}>{(p as any).moneda === 'USD' ? '$' : ''}{F(calcItemPrice(p.cost,p.markup))}</span></Td>
+                        <Td><Btn size="sm" variant="primary" onClick={()=>addFromCatalog(p)}>+ Agregar</Btn></Td>
+                      </tr>
+                    ))
+                  })()}
                 </tbody>
               </Table>
-            </div>
+            </div>}
           </div>
         </div>
       )}
