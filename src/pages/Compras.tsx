@@ -624,15 +624,19 @@ REGLAS:
 
     // Create new supplier if needed
     if (createNewSupplier && supplierData.name) {
-      const { data: newSup, error: supErr } = await supabase.from('suppliers').insert({
+      // Build supplier insert with only safe columns; put address into notas to avoid schema mismatch
+      const supplierInsert: any = {
         name: supplierData.name,
         rfc: supplierData.rfc || null,
         contact_name: supplierData.contact_name || null,
         contact_phone: supplierData.contact_phone || null,
         contact_email: supplierData.contact_email || null,
-        address: supplierData.address || null,
         is_active: true,
-      }).select().single()
+      }
+      if (supplierData.address) {
+        supplierInsert.notas = 'Dirección: ' + supplierData.address
+      }
+      const { data: newSup, error: supErr } = await supabase.from('suppliers').insert(supplierInsert).select().single()
       if (supErr || !newSup) {
         setError('Error al crear proveedor: ' + (supErr?.message || 'desconocido'))
         setSaving(false)
