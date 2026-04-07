@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
+import { ANTHROPIC_API_KEY } from '../lib/config'
 import { Project, CatalogProduct, ProjectLine, PurchasePhase } from '../types'
 import { F, FUSD, FCUR, SPECIALTY_CONFIG, PHASE_CONFIG, formatDate } from '../lib/utils'
 import { Badge, Btn, KpiCard, Table, Th, Td, Loading, SectionHeader, EmptyState } from '../components/layout/UI'
-import { Plus, ChevronLeft, X, Search, Trash2, Save, ShoppingCart, Truck, Package, Users2, FileText, Copy } from 'lucide-react'
+import { Plus, ChevronLeft, X, Search, Trash2, Save, ShoppingCart, Truck, Package, Users2, FileText, Copy, Sparkles, Upload } from 'lucide-react'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type POStatus = 'borrador' | 'aprobada' | 'pedida' | 'recibida_parcial' | 'recibida' | 'cancelada'
@@ -323,6 +324,7 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
   const [filterSpec, setFilterSpec] = useState<string>('todas')
   const [showNew, setShowNew] = useState(false)
   const [showFromQuote, setShowFromQuote] = useState(false)
+  const [showFromPDF, setShowFromPDF] = useState(false)
 
   const load = () => {
     setLoading(true)
@@ -353,7 +355,8 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
         subtitle={`${lista.length} órdenes | MXN: ${F(totalFilteredMXN)} · USD: ${FUSD(totalFilteredUSD)}`}
         action={
           <div style={{ display: 'flex', gap: 8 }}>
-            <Btn onClick={() => setShowFromQuote(true)}><Copy size={14} /> Desde cotización</Btn>
+            <Btn onClick={() => setShowFromPDF(true)} style={{ borderColor: '#A855F7', color: '#C084FC' }}><Sparkles size={14} /> Desde PDF (IA)</Btn>
+          <Btn onClick={() => setShowFromQuote(true)}><Copy size={14} /> Desde cotización</Btn>
             <Btn variant="primary" onClick={() => setShowNew(true)}><Plus size={14} /> Nueva OC</Btn>
           </div>
         } />
@@ -431,6 +434,415 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
 
       {showNew && <NuevaPOModal onClose={() => setShowNew(false)} onCreated={id => { setShowNew(false); onOpen(id) }} />}
       {showFromQuote && <POFromQuoteModal onClose={() => setShowFromQuote(false)} onCreated={id => { setShowFromQuote(false); onOpen(id) }} />}
+      {showFromPDF && <POFromPDFModal onClose={() => setShowFromPDF(false)} onCreated={(id) => { setShowFromPDF(false); load(); onOpen(id) }} />}
+    </div>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  NUEVA PO DESDE PDF (IA)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function POFromPDFModal({ onClose, onCreated }: { onClose: () => void; onCreated: (id: string) => void }) {
+  const [step, setStep] = useState<'upload' | 'processing' | 'review'>('upload')
+  const [file, setFile] = useState<File | null>(null)
+  const [error, setError] = useState('')
+  const [extracted, setExtracted] = useState<any>(null)
+  const [suppliers, setSuppliers] = useState<Supplier[]>([])
+  const [projects, setProjects] = useState<Project[]>([])
+  const [saving, setSaving] = useState(false)
+
+  // Form state for review step
+  const [supplierId, setSupplierId] = useState('')
+  const [createNewSupplier, setCreateNewSupplier] = useState(false)
+  const [projectId, setProjectId] = useState('')
+  const [specialty, setSpecialty] = useState<ProjectLine>('elec')
+  const [phase, setPhase] = useState<PurchasePhase>('rough_in')
+  const [items, setItems] = useState<any[]>([])
+  const [supplierData, setSupplierData] = useState({ name: '', rfc: '', contact_name: '', contact_phone: '', contact_email: '', address: '' })
+  const [currency, setCurrency] = useState<'MXN' | 'USD'>('USD')
+  const [notes, setNotes] = useState('')
+
+  useEffect(() => {
+    Promise.all([
+      supabase.from('suppliers').select('*').eq('is_active', true).order('name'),
+      supabase.from('projects').select('*').order('name'),
+    ]).then(([s, p]) => {
+      setSuppliers((s.data as Supplier[]) || [])
+      setProjects((p.data as Project[]) || [])
+    })
+  }, [])
+
+  async function processFile(f: File) {
+    setFile(f)
+    setStep('processing')
+    setError('')
+    try {
+      const base64 = await new Promise<string>((res, rej) => {
+        const r = new FileReader()
+        r.onload = () => res((r.result as string).split(',')[1])
+        r.onerror = () => rej(new Error('Error leyendo archivo'))
+        r.readAsDataURL(f)
+      })
+
+      const systemPrompt = `Eres un experto en compras y procurement de instalaciones eléctricas y especiales en México. Extrae los datos de esta orden de compra, cotización o factura proforma de proveedor.
+
+Devuelve SOLO un JSON sin markdown, sin explicaciones, con esta estructura exacta:
+{
+  "supplier": {
+    "name": "nombre comercial completo del proveedor",
+    "rfc": "RFC si aparece, vacío si no",
+    "contact_name": "nombre del contacto/vendedor si aparece",
+    "contact_phone": "teléfono si aparece",
+    "contact_email": "email si aparece",
+    "address": "dirección completa si aparece"
+  },
+  "document_number": "folio del proveedor (su número de cotización/OC/factura)",
+  "document_date": "YYYY-MM-DD",
+  "currency": "MXN o USD (detectar del documento, default USD si no es claro)",
+  "items": [
+    {
+      "name": "nombre corto del producto",
+      "description": "descripción detallada con marca/modelo/especificaciones",
+      "quantity": 0,
+      "unit": "pza/m/kg/etc",
+      "unit_cost": 0,
+      "total": 0
+    }
+  ],
+  "subtotal": 0,
+  "iva": 0,
+  "total": 0,
+  "notes": "condiciones de entrega, garantía, tiempo de entrega, forma de pago, observaciones relevantes"
+}
+
+REGLAS:
+- Todos los montos siempre positivos
+- Si no encuentras un campo, usa string vacío para texto o 0 para números
+- El campo "items" debe contener TODOS los productos del documento, sin omitir ninguno
+- Si el documento muestra IVA desglosado, sepáralo en "iva". Si solo muestra total, calcula iva = total - subtotal
+- Detecta moneda por símbolo (\$ MXN, USD, US\$, etc.) o por contexto`
+
+      const messages = [{
+        role: 'user',
+        content: [
+          { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64 } },
+          { type: 'text', text: systemPrompt }
+        ]
+      }]
+
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'anthropic-dangerous-direct-browser-access': 'true',
+          'anthropic-version': '2023-06-01',
+          'x-api-key': ANTHROPIC_API_KEY,
+        },
+        body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 8000, messages }),
+      })
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}))
+        setError('Error API: ' + (errData.error?.message || response.status))
+        setStep('upload')
+        return
+      }
+
+      const data = await response.json()
+      const text = (data.content || []).filter((b: any) => b.type === 'text').map((b: any) => b.text).join('')
+      const jsonMatch = text.match(/\{[\s\S]*\}/)
+      if (!jsonMatch) {
+        setError('No se pudo extraer JSON de la respuesta')
+        setStep('upload')
+        return
+      }
+      const parsed = JSON.parse(jsonMatch[0].replace(/```json|```/g, '').trim())
+
+      // Pre-fill form
+      setExtracted(parsed)
+      setSupplierData(parsed.supplier || { name: '', rfc: '', contact_name: '', contact_phone: '', contact_email: '', address: '' })
+      setItems((parsed.items || []).map((it: any) => ({
+        name: it.name || '',
+        description: it.description || '',
+        quantity: Number(it.quantity) || 1,
+        unit: it.unit || 'pza',
+        unit_cost: Number(it.unit_cost) || 0,
+        total: Number(it.total) || 0,
+      })))
+      setCurrency(parsed.currency === 'MXN' ? 'MXN' : 'USD')
+      setNotes(parsed.notes || '')
+
+      // Auto-match supplier by name (fuzzy)
+      const extractedName = (parsed.supplier?.name || '').toLowerCase().trim()
+      if (extractedName) {
+        const match = suppliers.find(s => {
+          const n = s.name.toLowerCase()
+          if (n === extractedName) return true
+          if (n.includes(extractedName) || extractedName.includes(n)) return true
+          const firstWord = extractedName.split(' ')[0]
+          if (firstWord.length > 3 && n.includes(firstWord)) return true
+          return false
+        })
+        if (match) {
+          setSupplierId(match.id)
+          setCreateNewSupplier(false)
+        } else {
+          setCreateNewSupplier(true)
+        }
+      }
+
+      setStep('review')
+    } catch (e) {
+      setError('Error: ' + (e as Error).message)
+      setStep('upload')
+    }
+  }
+
+  function updateItem(idx: number, field: string, value: any) {
+    const updated = [...items]
+    updated[idx] = { ...updated[idx], [field]: value }
+    if (field === 'quantity' || field === 'unit_cost') {
+      updated[idx].total = (Number(updated[idx].quantity) || 0) * (Number(updated[idx].unit_cost) || 0)
+    }
+    setItems(updated)
+  }
+
+  function removeItem(idx: number) {
+    setItems(items.filter((_, i) => i !== idx))
+  }
+
+  const subtotal = items.reduce((s, it) => s + (Number(it.total) || 0), 0)
+  const iva = Math.round(subtotal * 0.16)
+  const total = subtotal + iva
+
+  async function crear() {
+    setSaving(true)
+    setError('')
+
+    let finalSupplierId = supplierId
+
+    // Create new supplier if needed
+    if (createNewSupplier && supplierData.name) {
+      const { data: newSup, error: supErr } = await supabase.from('suppliers').insert({
+        name: supplierData.name,
+        rfc: supplierData.rfc || null,
+        contact_name: supplierData.contact_name || null,
+        contact_phone: supplierData.contact_phone || null,
+        contact_email: supplierData.contact_email || null,
+        address: supplierData.address || null,
+        is_active: true,
+      }).select().single()
+      if (supErr || !newSup) {
+        setError('Error al crear proveedor: ' + (supErr?.message || 'desconocido'))
+        setSaving(false)
+        return
+      }
+      finalSupplierId = newSup.id
+    }
+
+    if (!finalSupplierId) {
+      setError('Selecciona o crea un proveedor')
+      setSaving(false)
+      return
+    }
+
+    if (items.length === 0) {
+      setError('Agrega al menos un item')
+      setSaving(false)
+      return
+    }
+
+    // Generate folio
+    const now = new Date()
+    const prefix = `OC-${String(now.getFullYear()).slice(2)}${String(now.getMonth() + 1).padStart(2, '0')}`
+    const { count } = await supabase.from('purchase_orders').select('id', { count: 'exact', head: true }).like('po_number', `${prefix}%`)
+    const num = String((count || 0) + 1).padStart(3, '0')
+    const po_number = `${prefix}-${num}`
+
+    const { data: po, error: err } = await supabase.from('purchase_orders').insert({
+      po_number,
+      project_id: projectId || null,
+      supplier_id: finalSupplierId,
+      specialty,
+      status: 'borrador',
+      purchase_phase: phase,
+      subtotal,
+      iva,
+      total,
+      currency,
+      notes: notes || null,
+    }).select().single()
+
+    if (err || !po) {
+      setError(err?.message || 'Error al crear OC')
+      setSaving(false)
+      return
+    }
+
+    const poItems = items.map((it: any, i: number) => ({
+      purchase_order_id: po.id,
+      catalog_product_id: null,
+      name: it.name,
+      description: it.description || null,
+      system: null,
+      unit: it.unit || 'pza',
+      quantity: Number(it.quantity) || 1,
+      unit_cost: Number(it.unit_cost) || 0,
+      total: Number(it.total) || 0,
+      currency,
+      quantity_received: 0,
+      order_index: i,
+    }))
+    await supabase.from('po_items').insert(poItems)
+
+    setSaving(false)
+    onCreated(po.id)
+  }
+
+  const overlayStyle: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }
+  const modalStyle: React.CSSProperties = { background: '#141414', border: '1px solid #2a2a2a', borderRadius: 16, padding: 24, width: 720, maxHeight: '90vh', overflowY: 'auto' }
+  const inputStyle: React.CSSProperties = { width: '100%', padding: '8px 12px', background: '#0e0e0e', border: '1px solid #2a2a2a', borderRadius: 8, color: '#fff', fontSize: 13, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }
+  const labelStyle: React.CSSProperties = { fontSize: 11, color: '#666', textTransform: 'uppercase' as const, letterSpacing: '0.06em', fontWeight: 600, marginBottom: 4, display: 'block' }
+
+  return (
+    <div style={overlayStyle}>
+      <div style={modalStyle}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+          <div style={{ fontSize: 16, fontWeight: 600, color: '#fff', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Sparkles size={16} color="#C084FC" /> OC desde PDF (IA)
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer' }}><X size={18} /></button>
+        </div>
+
+        {error && <div style={{ background: '#3a1a1a', border: '1px solid #5a2a2a', borderRadius: 8, padding: 10, color: '#f87171', fontSize: 12, marginBottom: 12 }}>{error}</div>}
+
+        {step === 'upload' && (
+          <div>
+            <div style={{ border: '2px dashed #2a2a2a', borderRadius: 12, padding: 40, textAlign: 'center' as const, cursor: 'pointer' }}
+              onClick={() => document.getElementById('pdf-input')?.click()}
+              onDragOver={e => { e.preventDefault(); (e.currentTarget as HTMLDivElement).style.borderColor = '#A855F7' }}
+              onDragLeave={e => { (e.currentTarget as HTMLDivElement).style.borderColor = '#2a2a2a' }}
+              onDrop={e => {
+                e.preventDefault()
+                ;(e.currentTarget as HTMLDivElement).style.borderColor = '#2a2a2a'
+                const f = e.dataTransfer.files[0]
+                if (f && f.type === 'application/pdf') processFile(f)
+                else setError('Sube un archivo PDF')
+              }}>
+              <Upload size={32} color="#666" style={{ marginBottom: 12 }} />
+              <div style={{ fontSize: 14, color: '#aaa', marginBottom: 4 }}>Arrastra un PDF aquí o haz click</div>
+              <div style={{ fontSize: 11, color: '#555' }}>Orden de compra, cotización o factura proforma del proveedor</div>
+            </div>
+            <input id="pdf-input" type="file" accept="application/pdf" style={{ display: 'none' }}
+              onChange={e => { const f = e.target.files?.[0]; if (f) processFile(f) }} />
+          </div>
+        )}
+
+        {step === 'processing' && (
+          <div style={{ padding: 60, textAlign: 'center' as const }}>
+            <div style={{ fontSize: 14, color: '#C084FC', marginBottom: 8 }}><Sparkles size={20} /> Analizando PDF con IA...</div>
+            <div style={{ fontSize: 11, color: '#555' }}>Extrayendo proveedor, productos y montos</div>
+          </div>
+        )}
+
+        {step === 'review' && (
+          <div style={{ display: 'grid', gap: 14 }}>
+            {/* Proveedor */}
+            <div>
+              <label style={labelStyle}>Proveedor</label>
+              <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
+                <button onClick={() => setCreateNewSupplier(false)} style={{ padding: '5px 12px', borderRadius: 16, fontSize: 11, cursor: 'pointer', fontFamily: 'inherit', border: `1px solid ${!createNewSupplier ? '#57FF9A' : '#333'}`, background: !createNewSupplier ? '#57FF9A22' : 'transparent', color: !createNewSupplier ? '#57FF9A' : '#666' }}>Existente</button>
+                <button onClick={() => setCreateNewSupplier(true)} style={{ padding: '5px 12px', borderRadius: 16, fontSize: 11, cursor: 'pointer', fontFamily: 'inherit', border: `1px solid ${createNewSupplier ? '#A855F7' : '#333'}`, background: createNewSupplier ? '#A855F722' : 'transparent', color: createNewSupplier ? '#C084FC' : '#666' }}>Crear nuevo</button>
+              </div>
+              {!createNewSupplier ? (
+                <select value={supplierId} onChange={e => setSupplierId(e.target.value)} style={inputStyle}>
+                  <option value="">-- Selecciona proveedor --</option>
+                  {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                </select>
+              ) : (
+                <div style={{ display: 'grid', gap: 6 }}>
+                  <input placeholder="Nombre" value={supplierData.name} onChange={e => setSupplierData({ ...supplierData, name: e.target.value })} style={inputStyle} />
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                    <input placeholder="RFC" value={supplierData.rfc} onChange={e => setSupplierData({ ...supplierData, rfc: e.target.value })} style={inputStyle} />
+                    <input placeholder="Contacto" value={supplierData.contact_name} onChange={e => setSupplierData({ ...supplierData, contact_name: e.target.value })} style={inputStyle} />
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                    <input placeholder="Teléfono" value={supplierData.contact_phone} onChange={e => setSupplierData({ ...supplierData, contact_phone: e.target.value })} style={inputStyle} />
+                    <input placeholder="Email" value={supplierData.contact_email} onChange={e => setSupplierData({ ...supplierData, contact_email: e.target.value })} style={inputStyle} />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Proyecto + Especialidad + Fase + Moneda */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <div>
+                <label style={labelStyle}>Obra / Proyecto</label>
+                <select value={projectId} onChange={e => setProjectId(e.target.value)} style={inputStyle}>
+                  <option value="">-- Sin proyecto --</option>
+                  {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={labelStyle}>Moneda</label>
+                <select value={currency} onChange={e => setCurrency(e.target.value as 'MXN' | 'USD')} style={inputStyle}>
+                  <option value="USD">USD</option>
+                  <option value="MXN">MXN</option>
+                </select>
+              </div>
+              <div>
+                <label style={labelStyle}>Especialidad</label>
+                <select value={specialty} onChange={e => setSpecialty(e.target.value as ProjectLine)} style={inputStyle}>
+                  {Object.entries(SPECIALTY_CONFIG).map(([k, v]: any) => <option key={k} value={k}>{v.icon} {v.label}</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={labelStyle}>Fase</label>
+                <select value={phase} onChange={e => setPhase(e.target.value as PurchasePhase)} style={inputStyle}>
+                  {Object.entries(PHASE_CONFIG).map(([k, v]: any) => <option key={k} value={k}>{v.label}</option>)}
+                </select>
+              </div>
+            </div>
+
+            {/* Items */}
+            <div>
+              <label style={labelStyle}>Items extraídos ({items.length})</label>
+              <div style={{ background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 10, padding: 8, maxHeight: 240, overflowY: 'auto' }}>
+                {items.length === 0 && <div style={{ fontSize: 11, color: '#555', padding: 10, textAlign: 'center' as const }}>No se extrajeron items</div>}
+                {items.map((it, i) => (
+                  <div key={i} style={{ display: 'grid', gridTemplateColumns: '2fr 60px 60px 90px 90px 24px', gap: 4, padding: '6px 0', borderBottom: '1px solid #1a1a1a', alignItems: 'center' }}>
+                    <input value={it.name} onChange={e => updateItem(i, 'name', e.target.value)} style={{ ...inputStyle, fontSize: 11, padding: '4px 6px' }} placeholder="Producto" />
+                    <input type="number" value={it.quantity} onChange={e => updateItem(i, 'quantity', e.target.value)} style={{ ...inputStyle, fontSize: 11, padding: '4px 6px' }} />
+                    <input value={it.unit} onChange={e => updateItem(i, 'unit', e.target.value)} style={{ ...inputStyle, fontSize: 11, padding: '4px 6px' }} />
+                    <input type="number" value={it.unit_cost} onChange={e => updateItem(i, 'unit_cost', e.target.value)} style={{ ...inputStyle, fontSize: 11, padding: '4px 6px' }} />
+                    <input type="number" value={it.total} onChange={e => updateItem(i, 'total', e.target.value)} style={{ ...inputStyle, fontSize: 11, padding: '4px 6px' }} />
+                    <button onClick={() => removeItem(i)} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', padding: 2 }}><Trash2 size={12} /></button>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Totales */}
+            <div style={{ background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 10, padding: 12, display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, fontSize: 12 }}>
+              <div><div style={{ color: '#555', fontSize: 10 }}>Subtotal</div><div style={{ color: '#fff', fontWeight: 600 }}>{currency === 'USD' ? FUSD(subtotal) : F(subtotal)}</div></div>
+              <div><div style={{ color: '#555', fontSize: 10 }}>IVA (16%)</div><div style={{ color: '#fff', fontWeight: 600 }}>{currency === 'USD' ? FUSD(iva) : F(iva)}</div></div>
+              <div><div style={{ color: '#555', fontSize: 10 }}>Total</div><div style={{ color: '#57FF9A', fontWeight: 700 }}>{currency === 'USD' ? FUSD(total) : F(total)}</div></div>
+            </div>
+
+            {/* Notas */}
+            <div>
+              <label style={labelStyle}>Notas</label>
+              <textarea value={notes} onChange={e => setNotes(e.target.value)} style={{ ...inputStyle, minHeight: 50, fontFamily: 'inherit', resize: 'vertical' }} />
+            </div>
+          </div>
+        )}
+
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 20 }}>
+          <Btn onClick={onClose}>Cancelar</Btn>
+          {step === 'review' && <Btn variant="primary" onClick={crear} disabled={saving || items.length === 0}>{saving ? 'Creando...' : 'Crear OC'}</Btn>}
+        </div>
+      </div>
     </div>
   )
 }
