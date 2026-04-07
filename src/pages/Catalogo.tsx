@@ -371,6 +371,18 @@ export default function Catalogo() {
               <Fld label="Tipo Cambio"><input style={iS} type="number" value={form.tipo_cambio || ''} onChange={e => setForm({...form, tipo_cambio: parseFloat(e.target.value)||0})} placeholder="20.50" /></Fld>
               <Fld label="IVA %"><select style={iS} value={String(form.iva_rate ?? 0.16)} onChange={e => setForm({...form, iva_rate: parseFloat(e.target.value)})}><option value="0.16">16%</option><option value="0.08">8% (frontera)</option><option value="0">0% (exento)</option></select></Fld>
             </div>
+
+            {/* Especificaciones técnicas (Iluminación arquitectónica) */}
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#888', marginTop: 12, marginBottom: 10 }}>Especificaciones técnicas (Iluminación)</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+              <Fld label="Watts (W)"><input style={iS} type="number" value={(form as any).watts || ''} onChange={e => setForm({...form, watts: parseFloat(e.target.value) || null} as any)} placeholder="9" /></Fld>
+              <Fld label="Lúmenes"><input style={iS} type="number" value={(form as any).lumens || ''} onChange={e => setForm({...form, lumens: parseInt(e.target.value) || null} as any)} placeholder="800" /></Fld>
+              <Fld label="CCT (K)"><input style={iS} type="number" value={(form as any).cct || ''} onChange={e => setForm({...form, cct: parseInt(e.target.value) || null} as any)} placeholder="3000" /></Fld>
+              <Fld label="CRI"><input style={iS} type="number" value={(form as any).cri || ''} onChange={e => setForm({...form, cri: parseInt(e.target.value) || null} as any)} placeholder="90" /></Fld>
+              <Fld label="IP Rating"><input style={iS} value={(form as any).ip_rating || ''} onChange={e => setForm({...form, ip_rating: e.target.value} as any)} placeholder="IP65" /></Fld>
+              <Fld label="Tipo de montaje"><input style={iS} value={(form as any).mounting_type || ''} onChange={e => setForm({...form, mounting_type: e.target.value} as any)} placeholder="Empotrado, suspendido..." /></Fld>
+            </div>
+
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 20 }}>
               <Btn size="sm" variant="default" onClick={() => setShowForm(false)}>Cancelar</Btn>
               <Btn size="sm" variant="primary" onClick={save}>{editId ? 'Guardar' : 'Crear producto'}</Btn>
