@@ -62,7 +62,7 @@ export default function Catalogo() {
   const [editId, setEditId] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [filterSystem, setFilterSystem] = useState('')
-  const [filterProvider, setFilterProvider] = useState('')
+  const [filterSpecialty, setFilterSpecialty] = useState<'esp' | 'ilum' | 'elec' | 'proy'>('esp')
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
   const [showImport, setShowImport] = useState(false)
   const [importing, setImporting] = useState(false)
@@ -88,24 +88,23 @@ export default function Catalogo() {
   const filtered = products.filter(p => {
     const matchSearch = !search || p.name?.toLowerCase().includes(search.toLowerCase()) || p.description?.toLowerCase().includes(search.toLowerCase()) || p.clave_prod_serv?.includes(search) || p.sku?.toLowerCase().includes(search.toLowerCase())
     const matchSystem = !filterSystem || p.system === filterSystem
-    const matchProvider = !filterProvider || (filterProvider === '__sin__' ? !p.provider : (p.provider || '').toLowerCase() === filterProvider.toLowerCase())
-    return matchSearch && matchSystem && matchProvider
+    const matchSpecialty = (p.specialty || 'esp') === filterSpecialty
+    return matchSearch && matchSystem && matchSpecialty
   })
 
-  // Tabs dinámicos por provider — se generan a partir de los productos cargados
-  const providerTabs = (() => {
-    const counts: Record<string, number> = {}
-    let sinMarca = 0
-    products.forEach(p => {
-      if (p.is_active === false) return
-      const prov = (p.provider || '').trim()
-      if (!prov) sinMarca++
-      else counts[prov] = (counts[prov] || 0) + 1
-    })
-    const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]).map(([name, count]) => ({ key: name, label: name, count }))
-    if (sinMarca > 0) sorted.push({ key: '__sin__', label: 'Sin marca', count: sinMarca })
-    return sorted
-  })()
+  // Conteos por especialidad para los tabs
+  const specialtyCounts = {
+    esp: products.filter(p => p.is_active !== false && (p.specialty || 'esp') === 'esp').length,
+    ilum: products.filter(p => p.is_active !== false && p.specialty === 'ilum').length,
+    elec: products.filter(p => p.is_active !== false && p.specialty === 'elec').length,
+    proy: products.filter(p => p.is_active !== false && p.specialty === 'proy').length,
+  }
+  const SPECIALTY_TABS: Array<{ key: 'esp' | 'ilum' | 'elec' | 'proy'; label: string; icon: string }> = [
+    { key: 'esp',  label: 'Especiales',   icon: '◈' },
+    { key: 'ilum', label: 'Iluminación',  icon: '◇' },
+    { key: 'elec', label: 'Eléctrico',    icon: '◉' },
+    { key: 'proy', label: 'Proyecto',     icon: '▲' },
+  ]
 
   const openNew = () => {
     setEditId(null)
@@ -227,16 +226,16 @@ export default function Catalogo() {
           <button onClick={() => setImportResult(null)} style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer' }}><X size={14} /></button>
         </div>
       )}
-      {/* Tabs por marca/provider */}
-      <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
-        <button onClick={() => setFilterProvider('')} style={{ padding: '6px 14px', borderRadius: 20, fontSize: 11, cursor: 'pointer', fontFamily: 'inherit', fontWeight: 600, border: `1px solid ${!filterProvider ? '#57FF9A' : '#333'}`, background: !filterProvider ? '#57FF9A18' : 'transparent', color: !filterProvider ? '#57FF9A' : '#888' }}>
-          Todos ({products.filter(p => p.is_active !== false).length})
-        </button>
-        {providerTabs.map(t => (
-          <button key={t.key} onClick={() => setFilterProvider(t.key)} style={{ padding: '6px 14px', borderRadius: 20, fontSize: 11, cursor: 'pointer', fontFamily: 'inherit', fontWeight: 600, border: `1px solid ${filterProvider === t.key ? '#A78BFA' : '#333'}`, background: filterProvider === t.key ? '#A78BFA22' : 'transparent', color: filterProvider === t.key ? '#C084FC' : '#888' }}>
-            {t.label} ({t.count})
-          </button>
-        ))}
+      {/* Tabs por especialidad */}
+      <div style={{ display: 'flex', gap: 6, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center', borderBottom: '1px solid #1e1e1e', paddingBottom: 12 }}>
+        {SPECIALTY_TABS.map(t => {
+          const active = filterSpecialty === t.key
+          return (
+            <button key={t.key} onClick={() => setFilterSpecialty(t.key)} style={{ padding: '8px 18px', borderRadius: 20, fontSize: 12, cursor: 'pointer', fontFamily: 'inherit', fontWeight: 600, border: `1px solid ${active ? '#57FF9A' : '#333'}`, background: active ? '#57FF9A18' : 'transparent', color: active ? '#57FF9A' : '#888' }}>
+              {t.icon} {t.label} ({specialtyCounts[t.key]})
+            </button>
+          )
+        })}
       </div>
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, gap: 12 }}>
@@ -256,19 +255,49 @@ export default function Catalogo() {
       </div>
 
       <Table>
-        <thead><tr><Th>Producto</Th><Th>Clave SAT</Th><Th>Sistema</Th><Th>Fase</Th><Th>Unidad</Th><Th right>Costo</Th><Th right>Precio Venta</Th><Th>Tipo</Th><Th>{' '}</Th></tr></thead>
+        <thead><tr>
+          <Th>Producto</Th>
+          {filterSpecialty === 'esp' && <><Th>Sistema</Th><Th>Marca</Th><Th>Modelo</Th></>}
+          {filterSpecialty === 'ilum' && <><Th>Marca</Th><Th>Modelo</Th><Th right>W</Th><Th right>Lúmenes</Th><Th right>CCT</Th><Th right>CRI</Th><Th>IP</Th><Th>Montaje</Th></>}
+          {filterSpecialty === 'elec' && <><Th>Categoría</Th><Th>Unidad</Th></>}
+          {filterSpecialty === 'proy' && <><Th>Unidad</Th></>}
+          <Th>Proveedor</Th>
+          <Th>Fase</Th>
+          <Th right>Costo</Th>
+          <Th right>Precio Venta</Th>
+          <Th>{' '}</Th>
+        </tr></thead>
         <tbody>
           {filtered.length === 0 && <tr><Td colSpan={9} muted>Sin productos. Agrega tu primer producto al catalogo.</Td></tr>}
           {filtered.map(p => (
             <tr key={p.id} style={{ cursor: 'pointer' }} onClick={() => setSelectedProduct(p)}>
               <Td><div style={{fontWeight: 600, color:'#fff'}}>{p.name}</div>{p.description && <div style={{fontSize:10, color:'#555', marginTop:2}}>{p.description.substring(0,50)}</div>}</Td>
-              <Td><span style={{fontFamily:'monospace', fontSize: 11, color:'#888'}}>{p.clave_prod_serv || '--'}</span></Td>
-              <Td muted style={{fontSize:11}}>{p.system || '--'}</Td>
+              {filterSpecialty === 'esp' && <>
+                <Td muted style={{fontSize:11}}>{p.system || '--'}</Td>
+                <Td muted style={{fontSize:11}}>{(p as any).marca || p.provider || '--'}</Td>
+                <Td muted style={{fontSize:11}}>{(p as any).modelo || '--'}</Td>
+              </>}
+              {filterSpecialty === 'ilum' && <>
+                <Td muted style={{fontSize:11}}>{(p as any).marca || p.provider || '--'}</Td>
+                <Td muted style={{fontSize:11}}>{(p as any).modelo || '--'}</Td>
+                <Td right muted style={{fontSize:11}}>{(p as any).watts || '--'}</Td>
+                <Td right muted style={{fontSize:11}}>{(p as any).lumens || '--'}</Td>
+                <Td right muted style={{fontSize:11}}>{(p as any).cct ? (p as any).cct + 'K' : '--'}</Td>
+                <Td right muted style={{fontSize:11}}>{(p as any).cri || '--'}</Td>
+                <Td muted style={{fontSize:11}}>{(p as any).ip_rating || '--'}</Td>
+                <Td muted style={{fontSize:11}}>{(p as any).mounting_type || '--'}</Td>
+              </>}
+              {filterSpecialty === 'elec' && <>
+                <Td muted style={{fontSize:11}}>{p.category || p.system || '--'}</Td>
+                <Td muted style={{fontSize:11}}>{p.clave_unidad} ({p.unit})</Td>
+              </>}
+              {filterSpecialty === 'proy' && <>
+                <Td muted style={{fontSize:11}}>{p.unit || 'pza'}</Td>
+              </>}
+              <Td muted style={{fontSize:11}}>{suppliers.find(s => s.id === p.supplier_id)?.name || p.provider || '--'}</Td>
               <Td>{p.purchase_phase ? <Badge label={PHASE_CONFIG[p.purchase_phase as PurchasePhase]?.label || p.purchase_phase} color={PHASE_CONFIG[p.purchase_phase as PurchasePhase]?.color || '#555'} /> : <span style={{color:'#555',fontSize:11}}>--</span>}</Td>
-              <Td muted style={{fontSize:11}}>{p.clave_unidad} ({p.unit})</Td>
               <Td right muted><span style={{fontSize:9,color:'#555'}}>{p.moneda||'MXN'}</span> {F(p.cost)}</Td>
               <Td right style={{fontWeight: 600, color:'#57FF9A'}}>{F(p.precio_venta || calcPrecioVenta(p.cost, p.markup))}</Td>
-              <Td><Badge label={p.type === 'material' ? 'Material' : p.type === 'mano_de_obra' ? 'MO' : p.type === 'servicio' ? 'Servicio' : 'Equipo'} color={p.type === 'material' ? '#3B82F6' : p.type === 'mano_de_obra' ? '#C084FC' : p.type === 'servicio' ? '#57FF9A' : '#F59E0B'} /></Td>
               <Td><Edit size={12} style={{ color: '#555' }} onClick={(e: React.MouseEvent) => { e.stopPropagation(); openEdit(p) }} /></Td>
             </tr>
           ))}
