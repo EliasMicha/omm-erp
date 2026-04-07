@@ -216,8 +216,9 @@ function NuevaCoModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
       notes: JSON.stringify({ systems: isEsp ? form.systems : [], currency: form.currency, lead_id: form.lead_id || null, lead_name: form.lead_id ? (leads.find(l => l.id === form.lead_id)?.name || '') : '' }),
     }).select().single()
     if (data) {
-      // Create areas
-      const areaInserts = form.areas.map((name, i) => ({ quotation_id: data.id, name, order_index: i }))
+      // Create areas — solo aplica para Especiales. Iluminación/otros usan General invisible
+      const useFormAreas = form.specialty === 'esp'
+      const areaInserts = useFormAreas ? form.areas.map((name, i) => ({ quotation_id: data.id, name, order_index: i })) : []
       if (areaInserts.length > 0) {
         await supabase.from('quotation_areas').insert(areaInserts)
       } else {
@@ -587,6 +588,9 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
   const cotTotal = items.reduce((s,i) => s+i.total, 0)
   const areaObj = areas.find(a => a.id === areaActiva)
   const esp = SPECIALTY_CONFIG[cot.specialty]
+  const isIlum = cot.specialty === 'ilum'
+  const displayItems = isIlum ? items : areaItems
+  const displayTotal = isIlum ? cotTotal : areaTotal
   const proj = cot.project as any
 
   return (
@@ -628,8 +632,8 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
         </div>
       )}
 
-      <div style={{display:'grid',gridTemplateColumns:'175px 1fr',flex:1,overflow:'hidden'}}>
-        <div style={{borderRight:'1px solid #222',overflowY:'auto',background:'#0e0e0e'}}>
+      <div style={{display:'grid',gridTemplateColumns: isIlum ? '1fr' : '175px 1fr',flex:1,overflow:'hidden'}}>
+        {!isIlum && <div style={{borderRight:'1px solid #222',overflowY:'auto',background:'#0e0e0e'}}>
           <div style={{padding:'8px 8px 4px',fontSize:9,fontWeight:600,color:'#444',textTransform:'uppercase',letterSpacing:'0.1em'}}>Areas</div>
           {areas.map(a => {
             const tot = items.filter(i=>i.area_id===a.id).reduce((s,i)=>s+i.total,0)
@@ -647,34 +651,38 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
             )
           })}
           <div onClick={addArea} style={{margin:'4px 8px',padding:'4px',border:'1px dashed #333',borderRadius:6,textAlign:'center',cursor:'pointer',fontSize:10,color:'#444'}}>+ Area</div>
-        </div>
+        </div>}
 
         <div style={{display:'flex',flexDirection:'column',overflow:'hidden'}}>
           <div style={{padding:'6px 14px',borderBottom:'1px solid #222',display:'flex',alignItems:'center',gap:8,flexShrink:0,background:'#111'}}>
-            <span style={{fontSize:12,fontWeight:600,color:'#fff'}}>{areaObj?.name}</span>
-            <span style={{marginLeft:'auto',fontSize:13,fontWeight:700,color:esp.color}}>{F(areaTotal)}</span>
+            <span style={{fontSize:12,fontWeight:600,color:'#fff'}}>{isIlum ? 'Luminarias' : areaObj?.name}</span>
+            <span style={{marginLeft:'auto',fontSize:13,fontWeight:700,color:esp.color}}>{F(displayTotal)}</span>
           </div>
 
           <div style={{flex:1,overflowY:'auto'}}>
             <table style={{width:'100%',borderCollapse:'collapse'}}>
               <thead>
                 <tr style={{background:'#1a1a1a',position:'sticky',top:0,zIndex:1}}>
-                  {['Producto','Sistema','Fase','Distrib.','Tipo','Cant.','Costo','Markup%','Precio','Total',''].map((h,i) => (
-                    <th key={h} style={{padding:'6px 8px',fontSize:10,fontWeight:600,color:'#444',textAlign:i>=5?'right':'left',textTransform:'uppercase',letterSpacing:'0.06em',borderBottom:'1px solid #222',whiteSpace:'nowrap'}}>{h}</th>
+                  {(isIlum ? ['Producto','Marca','Modelo','W','Cant.','Costo','Markup%','Precio','Total',''] : ['Producto','Sistema','Fase','Distrib.','Tipo','Cant.','Costo','Markup%','Precio','Total','']).map((h,i) => (
+                    <th key={h} style={{padding:'6px 8px',fontSize:10,fontWeight:600,color:'#444',textAlign:(isIlum ? i>=4 : i>=5)?'right':'left',textTransform:'uppercase',letterSpacing:'0.06em',borderBottom:'1px solid #222',whiteSpace:'nowrap'}}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {areaItems.map(item => {
+                {displayItems.map(item => {
                   const phaseCfg = item.purchase_phase ? PHASE_CONFIG[item.purchase_phase as PurchasePhase] : null
                   const supplierName = item.supplier_id ? suppliers.find(s => s.id === item.supplier_id)?.name : null
+                  const catProd = catalog.find(c => c.id === item.catalog_product_id) as any
                   return (
                   <tr key={item.id}>
                     <td style={{padding:'7px 8px',fontSize:12,fontWeight:500,color:'#ddd',borderBottom:'1px solid #1a1a1a'}}>{item.name}</td>
-                    <td style={{padding:'7px 8px',borderBottom:'1px solid #1a1a1a'}}>{item.system&&<Badge label={item.system} color="#555"/>}</td>
-                    <td style={{padding:'7px 8px',borderBottom:'1px solid #1a1a1a'}}>{phaseCfg ? <Badge label={phaseCfg.label} color={phaseCfg.color}/> : <span style={{color:'#444',fontSize:10}}>--</span>}</td>
-                    <td style={{padding:'7px 8px',fontSize:10,color: supplierName ? '#ccc' : '#444',borderBottom:'1px solid #1a1a1a'}}>{supplierName || '--'}</td>
-                    <td style={{padding:'7px 8px',fontSize:10,color:'#555',borderBottom:'1px solid #1a1a1a'}}>{item.type}</td>
+                    {!isIlum && <td style={{padding:'7px 8px',borderBottom:'1px solid #1a1a1a'}}>{item.system&&<Badge label={item.system} color="#555"/>}</td>}
+                    {!isIlum && <td style={{padding:'7px 8px',borderBottom:'1px solid #1a1a1a'}}>{phaseCfg ? <Badge label={phaseCfg.label} color={phaseCfg.color}/> : <span style={{color:'#444',fontSize:10}}>--</span>}</td>}
+                    {!isIlum && <td style={{padding:'7px 8px',fontSize:10,color: supplierName ? '#ccc' : '#444',borderBottom:'1px solid #1a1a1a'}}>{supplierName || '--'}</td>}
+                    {!isIlum && <td style={{padding:'7px 8px',fontSize:10,color:'#555',borderBottom:'1px solid #1a1a1a'}}>{item.type}</td>}
+                    {isIlum && <td style={{padding:'7px 8px',fontSize:11,color:'#aaa',borderBottom:'1px solid #1a1a1a'}}>{(catProd && catProd.marca) || item.provider || '--'}</td>}
+                    {isIlum && <td style={{padding:'7px 8px',fontSize:11,color:'#aaa',borderBottom:'1px solid #1a1a1a'}}>{(catProd && catProd.modelo) || '--'}</td>}
+                    {isIlum && <td style={{padding:'7px 8px',fontSize:11,color:'#888',textAlign:'right',borderBottom:'1px solid #1a1a1a'}}>{(catProd && catProd.watts) ? catProd.watts + 'W' : '--'}</td>}
                     {['quantity','cost','markup'].map(campo => (
                       <td key={campo} style={{padding:'4px 8px',borderBottom:'1px solid #1a1a1a'}}>
                         <input type="number" defaultValue={item[campo as keyof QuotationItem] as number}
@@ -691,7 +699,7 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
                   )
                 })}
                 <tr>
-                  <td colSpan={11} style={{padding:'6px 8px'}}>
+                  <td colSpan={isIlum ? 10 : 11} style={{padding:'6px 8px'}}>
                     <Btn size="sm" onClick={()=>setShowCat(true)}><Plus size={12}/> Agregar producto</Btn>
                   </td>
                 </tr>
