@@ -37,7 +37,9 @@ interface ClienteFiscal {
   razon_social: string
   rfc: string
   uso_cfdi?: string
+  uso_cfdi_clave?: string
   regimen_fiscal?: string
+  regimen_fiscal_clave?: string
   codigo_postal?: string
   facturapi_customer_id?: string
 }
@@ -405,7 +407,7 @@ function NuevaFactura({ onCancel, onCreated }: { onCancel: () => void; onCreated
 
   useEffect(() => {
     Promise.all([
-      supabase.from('clientes_fiscales').select('id,razon_social,rfc,uso_cfdi,regimen_fiscal,codigo_postal,facturapi_customer_id').eq('activo', true).order('razon_social'),
+      supabase.from('clientes').select('id,razon_social,rfc,uso_cfdi,uso_cfdi_clave,regimen_fiscal,regimen_fiscal_clave,codigo_postal,facturapi_customer_id').eq('activo', true).order('razon_social'),
       supabase.from('quotations').select('id,name,client_name,specialty').order('created_at', { ascending: false }).limit(200)
     ]).then(([cli, cot]) => {
       setClientes((cli.data as ClienteFiscal[]) || [])
@@ -420,7 +422,7 @@ function NuevaFactura({ onCancel, onCreated }: { onCancel: () => void; onCreated
     setError(null)
     const { data, error: err } = await supabase
       .from('quotation_items')
-      .select('id,name,description,quantity,cost,markup,price,unit,catalog_product_id,catalog_product:catalog_products(clave_prod_serv,clave_unidad,unit,iva_rate)')
+      .select('id,name,description,quantity,cost,markup,price,catalog_product_id,catalog_product:catalog_products(clave_prod_serv,clave_unidad,unit,iva_rate)')
       .eq('quotation_id', cotizacionId)
       .order('order_index')
     if (err) {
@@ -441,7 +443,7 @@ function NuevaFactura({ onCancel, onCreated }: { onCancel: () => void; onCreated
         descripcion: it.name + (it.description ? ' - ' + it.description : ''),
         clave_prod_serv: cat.clave_prod_serv || '81111500',
         clave_unidad: cat.clave_unidad || 'E48',
-        unidad: cat.unit || it.unit || 'Unidad de servicio',
+        unidad: cat.unit || 'Unidad de servicio',
         cantidad: it.quantity || 1,
         valor_unitario: Math.round(valorUnit * 100) / 100,
         iva_tasa: cat.iva_rate ? Number(cat.iva_rate) : 0.16,
@@ -489,7 +491,7 @@ function NuevaFactura({ onCancel, onCreated }: { onCancel: () => void; onCreated
         const customerPayload = {
           legal_name: cliente.razon_social,
           tax_id: cliente.rfc,
-          tax_system: cliente.regimen_fiscal || '601',
+          tax_system: cliente.regimen_fiscal_clave || cliente.regimen_fiscal || '601',
           email: '',
           address: { zip: cliente.codigo_postal || '01000' }
         }
@@ -500,7 +502,7 @@ function NuevaFactura({ onCancel, onCreated }: { onCancel: () => void; onCreated
           return
         }
         facturapiCustomerId = cr.data.id
-        await supabase.from('clientes_fiscales').update({ facturapi_customer_id: facturapiCustomerId }).eq('id', clienteId)
+        await supabase.from('clientes').update({ facturapi_customer_id: facturapiCustomerId }).eq('id', clienteId)
       }
 
       const invoicePayload: any = {
@@ -548,7 +550,7 @@ function NuevaFactura({ onCancel, onCreated }: { onCancel: () => void; onCreated
         receptor_rfc: cliente.rfc,
         receptor_nombre: cliente.razon_social,
         receptor_uso_cfdi: usoCfdi,
-        receptor_regimen_fiscal: cliente.regimen_fiscal,
+        receptor_regimen_fiscal: cliente.regimen_fiscal_clave || cliente.regimen_fiscal,
         receptor_codigo_postal: cliente.codigo_postal,
         subtotal,
         iva,
