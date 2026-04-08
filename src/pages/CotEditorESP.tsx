@@ -293,6 +293,143 @@ function AIImportModal({ cotId, areas, activeSysIds, currency, tipoCambio, onClo
     return { items: data.items || [], confidence: data.confidence || 'medium', warnings: data.warnings || [] }
   }
 
+  // Carga SheetJS dinámicamente desde CDN si no está cargado ya
+  async function loadXLSX(): Promise<any> {
+    if ((window as any).XLSX) return (window as any).XLSX
+    await new Promise<void>((resolve, reject) => {
+      const script = document.createElement('script')
+      script.src = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js'
+      script.onload = () => resolve()
+      script.onerror = () => reject(new Error('No se pudo cargar SheetJS desde CDN'))
+      document.head.appendChild(script)
+    })
+    if (!(window as any).XLSX) throw new Error('SheetJS cargado pero no disponible en window')
+    return (window as any).XLSX
+  }
+
+  // Mapeo de sistemas del archivo (D-Tools usa nombres en español) al systemId interno
+  function mapSystemToId(systemName: string): string {
+    const s = (systemName || '').toLowerCase().trim()
+    if (!s) return 'audio'
+    if (s.includes('audio')) return 'audio'
+    if (s.includes('red')) return 'redes'
+    if (s.includes('cctv') || s.includes('camara') || s.includes('video vigilancia')) return 'cctv'
+    if (s.includes('acceso')) return 'control_acceso'
+    if (s.includes('ilumin')) return 'control_iluminacion'
+    if (s.includes('humo') || s.includes('fire') || s.includes('incendio')) return 'deteccion_humo'
+    if (s.includes('bms') || s.includes('automatiz')) return 'bms'
+    if (s.includes('telefon')) return 'telefonia'
+    if (s.includes('celular') || s.includes('das')) return 'red_celular'
+    if (s.includes('cortina') || s.includes('persiana') || s.includes('shade')) return 'cortinas_ctrl'
+    return 'audio'
+  }
+
+  // Busca una columna por posibles nombres (case-insensitive, primer match gana)
+  function findCol(row: any, candidates: string[]): any {
+    const keys = Object.keys(row)
+    for (const cand of candidates) {
+      const hit = keys.find(k => k.toLowerCase().trim() === cand.toLowerCase().trim())
+      if (hit && row[hit] != null && String(row[hit]).trim() !== '') return row[hit]
+    }
+    return null
+  }
+
+  // Intenta parsear filas estructuradas (formato D-Tools o similar) sin llamar a AI
+  function tryParseStructuredRows(rows: any[]): { items: any[]; confidence: string; warnings: string[] } | null {
+    if (!rows || rows.length === 0) return null
+    // Verificar que tenga las columnas clave
+    const firstRow = rows[0]
+    if (!firstRow || typeof firstRow !== 'object') return null
+    const keys = Object.keys(firstRow).map(k => k.toLowerCase())
+    const hasModel = keys.some(k => k === 'model' || k === 'modelo' || k === 'part number' || k === 'sku')
+    const hasSystem = keys.some(k => k === 'system' || k === 'sistema')
+    const hasRoom = keys.some(k => k === 'room' || k === 'area' || k === 'área' || k === 'zona')
+    if (!hasModel || !hasSystem) return null // no es formato estructurado reconocible
+
+    const items: any[] = []
+    const warnings: string[] = []
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i]
+      const model = findCol(row, ['Model', 'Modelo', 'Part Number', 'SKU'])
+      if (!model) {
+        // fila sin modelo, skip
+        continue
+      }
+      const manufacturer = findCol(row, ['Manufacturer', 'Marca', 'Brand', 'Fabricante']) || ''
+      const vendor = findCol(row, ['Vendor', 'Proveedor', 'Supplier', 'Distribuidor']) || ''
+      const room = findCol(row, ['Room', 'Area', 'Área', 'Zona', 'Ubicación', 'Location']) || ''
+      const system = findCol(row, ['System', 'Sistema']) || ''
+      const description = findCol(row, ['Short Description', 'Description', 'Descripción', 'Descripcion', 'Product Description']) || ''
+      const qtyRaw = findCol(row, ['Item Ext Qty', 'Item Unit Qty', 'Qty', 'Quantity', 'Cantidad', 'Cant'])
+      const qty = qtyRaw != null ? parseFloat(String(qtyRaw)) : 1
+      const priceRaw = findCol(row, ['Unit Price', 'Precio Unitario', 'Price', 'Precio', 'Unit Cost', 'Cost'])
+      const price = priceRaw != null ? parseFloat(String(priceRaw).replace(/[$,]/g, '')) : null
+      const currency = findCol(row, ['Selling Currency', 'Cost Currency', 'Currency', 'Moneda'])
+      let moneda: 'USD' | 'MXN' | null = null
+      if (currency) {
+        const c = String(currency).toUpperCase()
+        if (c.includes('USD') || c.includes('DLL') || c === 'US$') moneda = 'USD'
+        else if (c.includes('MXN') || c.includes('PESO') || c === 'MX$') moneda = 'MXN'
+      }
+
+      items.push({
+        area: String(room).trim(),
+        systemId: mapSystemToId(String(system)),
+        marca: String(manufacturer).trim(),
+        modelo: String(model).trim(),
+        descripcion: String(description).trim(),
+        cantidad: isNaN(qty) ? 1 : Math.max(1, Math.round(qty)),
+        precio_unitario: price != null && !isNaN(price) ? price : null,
+        moneda,
+        provider: String(vendor).trim() || String(manufacturer).trim(),
+        notas: '',
+      })
+    }
+    if (items.length === 0) return null
+    const skipped = rows.length - items.length
+    if (skipped > 0) warnings.push(skipped + ' fila(s) sin modelo fueron omitidas')
+    warnings.push('Parseado directamente del Excel (' + items.length + ' items) — sin usar AI')
+    return { items, confidence: 'high', warnings }
+  }
+
+  // Mismo parser pero partiendo de texto CSV/TSV
+  function tryParseStructured(text: string): { items: any[]; confidence: string; warnings: string[] } | null {
+    if (!text || text.length < 50) return null
+    // Detectar separador: coma o tab
+    const firstLine = text.split('\n')[0]
+    const sep = firstLine.includes('\t') ? '\t' : ','
+    const lines = text.split('\n').filter(l => l.trim().length > 0)
+    if (lines.length < 2) return null
+    // Parse simple CSV (sin soporte de quotes multiline, suficiente para casos comunes)
+    function splitCSV(line: string): string[] {
+      const out: string[] = []
+      let cur = ''
+      let inQuotes = false
+      for (let i = 0; i < line.length; i++) {
+        const c = line[i]
+        if (c === '"' && (i === 0 || line[i-1] !== '\\')) {
+          inQuotes = !inQuotes
+        } else if (c === sep && !inQuotes) {
+          out.push(cur)
+          cur = ''
+        } else {
+          cur += c
+        }
+      }
+      out.push(cur)
+      return out.map(s => s.trim().replace(/^"|"$/g, ''))
+    }
+    const headers = splitCSV(lines[0])
+    const rows: any[] = []
+    for (let i = 1; i < lines.length; i++) {
+      const cells = splitCSV(lines[i])
+      const row: any = {}
+      headers.forEach((h, idx) => { row[h] = cells[idx] || null })
+      rows.push(row)
+    }
+    return tryParseStructuredRows(rows)
+  }
+
   async function handleFile(file: File) {
     setError(null)
     setStep('processing')
@@ -303,28 +440,64 @@ function AIImportModal({ cotId, areas, activeSysIds, currency, tipoCambio, onClo
 
       if (['csv', 'tsv', 'txt'].includes(ext)) {
         const text = await file.text()
-        setProgress('Analizando con AI...')
-        extracted = await callExtractAPI({ kind: 'text', payload: text })
-      } else if (['xlsx', 'xls'].includes(ext)) {
-        // Intentar leer con SheetJS si está disponible globalmente, si no caer a texto plano
-        let text = ''
-        try {
-          const XLSX: any = (window as any).XLSX
-          if (XLSX) {
-            const buf = await file.arrayBuffer()
-            const wb = XLSX.read(buf, { type: 'array' })
-            wb.SheetNames.forEach((name: string) => {
-              text += '\n=== Hoja: ' + name + ' ===\n'
-              text += XLSX.utils.sheet_to_csv(wb.Sheets[name])
-            })
-          } else {
-            text = await file.text()
-          }
-        } catch {
-          text = await file.text()
+        // Intentar detectar formato D-Tools en CSV también
+        const dtResult = tryParseStructured(text)
+        if (dtResult) {
+          extracted = dtResult
+        } else {
+          setProgress('Analizando con AI...')
+          extracted = await callExtractAPI({ kind: 'text', payload: text })
         }
-        setProgress('Analizando con AI...')
-        extracted = await callExtractAPI({ kind: 'text', payload: text })
+      } else if (['xlsx', 'xls'].includes(ext)) {
+        setProgress('Cargando parser de Excel...')
+        const XLSX = await loadXLSX()
+        const buf = await file.arrayBuffer()
+        const wb = XLSX.read(buf, { type: 'array' })
+        // Tomar la primera hoja con datos — detectando automáticamente la fila de headers
+        let rows: any[] = []
+        for (const sheetName of wb.SheetNames) {
+          const sheet = wb.Sheets[sheetName]
+          // Obtener datos como matriz 2D para detectar dónde están los headers
+          const matrix: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null, raw: false })
+          if (matrix.length === 0) continue
+          // Buscar la primera fila que tenga al menos 3 celdas con headers típicos
+          const headerKeywords = ['model', 'modelo', 'system', 'sistema', 'room', 'area', 'manufacturer', 'marca', 'part number', 'quantity', 'cantidad', 'description', 'descripcion', 'price', 'precio']
+          let headerRowIdx = 0
+          for (let i = 0; i < Math.min(matrix.length, 10); i++) {
+            const cells = (matrix[i] || []).map((c: any) => String(c || '').toLowerCase().trim())
+            const matches = cells.filter((c: string) => headerKeywords.some(kw => c === kw || c.includes(kw))).length
+            if (matches >= 3) { headerRowIdx = i; break }
+          }
+          const headers = (matrix[headerRowIdx] || []).map((h: any, idx: number) => String(h || '').trim() || ('col_' + idx))
+          const dataRows: any[] = []
+          for (let i = headerRowIdx + 1; i < matrix.length; i++) {
+            const row: any = {}
+            const cells = matrix[i] || []
+            let hasData = false
+            headers.forEach((h: string, idx: number) => {
+              const v = cells[idx]
+              row[h] = v != null && v !== '' ? v : null
+              if (v != null && String(v).trim() !== '') hasData = true
+            })
+            if (hasData) dataRows.push(row)
+          }
+          if (dataRows.length > rows.length) rows = dataRows
+        }
+        setProgress('Detectando formato...')
+        // Intentar parseo directo primero (D-Tools o similar)
+        const structured = tryParseStructuredRows(rows)
+        if (structured) {
+          extracted = structured
+        } else {
+          // Fallback a AI con CSV
+          setProgress('Analizando con AI...')
+          let text = ''
+          for (const name of wb.SheetNames) {
+            text += '\n=== Hoja: ' + name + ' ===\n'
+            text += XLSX.utils.sheet_to_csv(wb.Sheets[name])
+          }
+          extracted = await callExtractAPI({ kind: 'text', payload: text })
+        }
       } else if (ext === 'pdf') {
         setProgress('Codificando PDF...')
         const base64 = await fileToBase64(file)
