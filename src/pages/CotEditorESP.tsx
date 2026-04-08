@@ -1,9 +1,9 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { F, STAGE_CONFIG } from '../lib/utils'
 import { Badge, Btn, Loading } from '../components/layout/UI'
 import { ANTHROPIC_API_KEY } from '../lib/config'
-import { Plus, ChevronLeft, ChevronRight, ChevronDown, X, Trash2, Image as ImageIcon, Search, RefreshCw } from 'lucide-react'
+import { Plus, ChevronLeft, ChevronRight, ChevronDown, X, Trash2, Image as ImageIcon, Search, RefreshCw, Sparkles, Upload, Loader2 } from 'lucide-react'
 
 // ═══════════════════════════════════════════════════════════════════
 // TYPES
@@ -230,6 +230,492 @@ function AreaBlock({ area, activeSystems, products, allProducts, collapsedSys, o
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// AI IMPORT MODAL — Importar listado de productos con AI
+// ═══════════════════════════════════════════════════════════════════
+interface AIExtractedItem {
+  _rowId: string
+  area: string
+  systemId: string
+  marca: string
+  modelo: string
+  descripcion: string
+  cantidad: number
+  precio_unitario: number | null
+  moneda: 'USD' | 'MXN' | null
+  provider: string
+  notas: string
+  match_status: 'exact' | 'partial' | 'none'
+  catalog_product_id: string | null
+}
+
+function AIImportModal({ cotId, areas, activeSysIds, currency, tipoCambio, onClose, onImported }: {
+  cotId: string
+  areas: EspArea[]
+  activeSysIds: string[]
+  currency: string
+  tipoCambio: number
+  onClose: () => void
+  onImported: () => void
+}) {
+  const [step, setStep] = useState<'upload' | 'processing' | 'review' | 'inserting'>('upload')
+  const [items, setItems] = useState<AIExtractedItem[]>([])
+  const [warnings, setWarnings] = useState<string[]>([])
+  const [confidence, setConfidence] = useState<string>('')
+  const [error, setError] = useState<string | null>(null)
+  const [progress, setProgress] = useState<string>('')
+  const [insertedCount, setInsertedCount] = useState(0)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  function fileToBase64(file: File): Promise<string> {
+    return new Promise((res, rej) => {
+      const r = new FileReader()
+      r.onload = () => res((r.result as string).split(',')[1])
+      r.onerror = () => rej(new Error('Error leyendo archivo'))
+      r.readAsDataURL(file)
+    })
+  }
+
+  async function callExtractAPI(body: any): Promise<{ items: any[]; confidence: string; warnings: string[] }> {
+    const r = await fetch('/api/extract', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    const data = await r.json()
+    if (!r.ok || !data.ok) {
+      throw new Error(data.error || 'Error en /api/extract (' + r.status + ')')
+    }
+    return { items: data.items || [], confidence: data.confidence || 'medium', warnings: data.warnings || [] }
+  }
+
+  async function handleFile(file: File) {
+    setError(null)
+    setStep('processing')
+    setProgress('Leyendo archivo...')
+    try {
+      const ext = (file.name.split('.').pop() || '').toLowerCase()
+      let extracted: { items: any[]; confidence: string; warnings: string[] }
+
+      if (['csv', 'tsv', 'txt'].includes(ext)) {
+        const text = await file.text()
+        setProgress('Analizando con AI...')
+        extracted = await callExtractAPI({ kind: 'text', payload: text })
+      } else if (['xlsx', 'xls'].includes(ext)) {
+        // Intentar leer con SheetJS si está disponible globalmente, si no caer a texto plano
+        let text = ''
+        try {
+          const XLSX: any = (window as any).XLSX
+          if (XLSX) {
+            const buf = await file.arrayBuffer()
+            const wb = XLSX.read(buf, { type: 'array' })
+            wb.SheetNames.forEach((name: string) => {
+              text += '\n=== Hoja: ' + name + ' ===\n'
+              text += XLSX.utils.sheet_to_csv(wb.Sheets[name])
+            })
+          } else {
+            text = await file.text()
+          }
+        } catch {
+          text = await file.text()
+        }
+        setProgress('Analizando con AI...')
+        extracted = await callExtractAPI({ kind: 'text', payload: text })
+      } else if (ext === 'pdf') {
+        setProgress('Codificando PDF...')
+        const base64 = await fileToBase64(file)
+        setProgress('Analizando PDF con AI...')
+        extracted = await callExtractAPI({ kind: 'pdf', payload: base64 })
+      } else if (['jpg', 'jpeg', 'png', 'webp', 'gif'].includes(ext)) {
+        setProgress('Codificando imagen...')
+        const base64 = await fileToBase64(file)
+        const mediaType = 'image/' + (ext === 'jpg' ? 'jpeg' : ext)
+        setProgress('Analizando imagen con AI...')
+        extracted = await callExtractAPI({ kind: 'image', payload: base64, mediaType })
+      } else {
+        throw new Error('Formato no soportado: .' + ext + ' (usa Excel, CSV, PDF o imagen)')
+      }
+
+      setProgress('Verificando catálogo...')
+      const matched = await matchCatalog(extracted.items)
+      setItems(matched)
+      setWarnings(extracted.warnings || [])
+      setConfidence(extracted.confidence || 'medium')
+      setStep('review')
+    } catch (err: any) {
+      setError(err.message || 'Error procesando archivo')
+      setStep('upload')
+    }
+  }
+
+  async function matchCatalog(rawItems: any[]): Promise<AIExtractedItem[]> {
+    const result: AIExtractedItem[] = []
+    for (const it of rawItems) {
+      const row: AIExtractedItem = {
+        _rowId: uid(),
+        area: it.area || '',
+        systemId: it.systemId || 'audio',
+        marca: it.marca || '',
+        modelo: it.modelo || '',
+        descripcion: it.descripcion || '',
+        cantidad: parseInt(it.cantidad) || 1,
+        precio_unitario: it.precio_unitario != null ? Number(it.precio_unitario) : null,
+        moneda: it.moneda === 'USD' || it.moneda === 'MXN' ? it.moneda : null,
+        provider: it.provider || it.marca || '',
+        notas: it.notas || '',
+        match_status: 'none',
+        catalog_product_id: null,
+      }
+      if (!row.modelo) {
+        result.push(row)
+        continue
+      }
+      const { data: exact } = await supabase
+        .from('catalog_products')
+        .select('id, name, modelo')
+        .eq('modelo', row.modelo)
+        .limit(5)
+      if (exact && exact.length === 1) {
+        row.match_status = 'exact'
+        row.catalog_product_id = exact[0].id
+      } else if (exact && exact.length > 1) {
+        row.match_status = 'partial'
+        row.catalog_product_id = exact[0].id
+      } else {
+        const { data: fuzzy } = await supabase
+          .from('catalog_products')
+          .select('id, name, modelo')
+          .ilike('modelo', '%' + row.modelo + '%')
+          .limit(5)
+        if (fuzzy && fuzzy.length > 0) {
+          row.match_status = 'partial'
+          row.catalog_product_id = fuzzy[0].id
+        }
+      }
+      result.push(row)
+    }
+    return result
+  }
+
+  function updateRow(rowId: string, field: keyof AIExtractedItem, value: any) {
+    setItems(prev => prev.map(it => it._rowId === rowId ? { ...it, [field]: value } : it))
+  }
+
+  function removeRow(rowId: string) {
+    setItems(prev => prev.filter(it => it._rowId !== rowId))
+  }
+
+  function convertToQuoteCurrency(amount: number, productCurrency: string): number {
+    if (productCurrency === currency) return amount
+    if (productCurrency === 'USD' && currency === 'MXN') return Math.round(amount * tipoCambio * 100) / 100
+    if (productCurrency === 'MXN' && currency === 'USD') return Math.round(amount / tipoCambio * 100) / 100
+    return amount
+  }
+
+  async function handleConfirm() {
+    setStep('inserting')
+    setError(null)
+    setInsertedCount(0)
+    try {
+      // 1) Sincronizar áreas — crear las que falten
+      setProgress('Sincronizando áreas...')
+      const areaCache: Record<string, string> = {}
+      areas.forEach(a => { areaCache[a.name.toLowerCase().trim()] = a.id })
+      const uniqueAreaNames = Array.from(new Set(items.map(it => (it.area || 'General').trim()).filter(Boolean)))
+      let nextOrder = areas.length
+      for (const name of uniqueAreaNames) {
+        const key = name.toLowerCase()
+        if (areaCache[key]) continue
+        const { data: newArea, error: areaErr } = await supabase
+          .from('quotation_areas')
+          .insert({ quotation_id: cotId, name, order_index: nextOrder++, subtotal: 0 })
+          .select()
+          .single()
+        if (areaErr) throw new Error('Error creando área "' + name + '": ' + areaErr.message)
+        if (newArea) areaCache[key] = newArea.id
+      }
+
+      // 2) Procesar cada item
+      setProgress('Procesando productos...')
+      let inserted = 0
+      for (const it of items) {
+        if (!it.modelo) continue
+        let catalogProductId = it.catalog_product_id
+        let prodCost = 0
+        let prodMoneda: string = it.moneda || 'USD'
+        let prodProvider = it.provider || it.marca || ''
+
+        if (!catalogProductId) {
+          // Crear producto en catálogo
+          const sysName = ALL_SYSTEMS.find(s => s.id === it.systemId)?.name || 'Audio'
+          const newProductCost = it.precio_unitario || 0
+          const newProductMoneda = it.moneda || 'USD'
+          const ruleNew = getPricingRule(prodProvider)
+          const precioVenta = ruleNew.precioPublico ? newProductCost : calcPriceFromCost(newProductCost, ruleNew)
+          const productName = it.descripcion || ((it.marca + ' ' + it.modelo).trim())
+          const { data: newProd, error: prodErr } = await supabase
+            .from('catalog_products')
+            .insert({
+              name: productName,
+              description: it.descripcion || null,
+              system: sysName,
+              type: 'material',
+              unit: 'pza',
+              cost: newProductCost,
+              markup: ruleNew.precioPublico ? 0 : ruleNew.margen,
+              precio_venta: precioVenta,
+              provider: prodProvider || null,
+              marca: it.marca || null,
+              modelo: it.modelo,
+              moneda: newProductMoneda,
+              clave_unidad: 'H87',
+              iva_rate: 0.16,
+              is_active: true,
+              purchase_phase: 'inicio',
+            })
+            .select()
+            .single()
+          if (prodErr) {
+            console.error('Error creando producto:', prodErr, it)
+            continue
+          }
+          if (newProd) {
+            catalogProductId = newProd.id
+            prodCost = newProductCost
+            prodMoneda = newProductMoneda
+          }
+        } else {
+          const { data: existing } = await supabase
+            .from('catalog_products')
+            .select('cost, moneda, provider, markup')
+            .eq('id', catalogProductId)
+            .single()
+          if (existing) {
+            prodCost = Number(existing.cost) || 0
+            prodMoneda = existing.moneda || 'USD'
+            if (existing.provider) prodProvider = existing.provider
+          }
+        }
+
+        // Calcular precio aplicando pricing rule
+        const rule = getPricingRule(prodProvider)
+        let precioOrigen: number
+        if (rule.precioPublico) {
+          precioOrigen = it.precio_unitario || (prodCost > 0 ? Math.round(prodCost * 1.30) : 0)
+        } else {
+          precioOrigen = calcPriceFromCost(prodCost || it.precio_unitario || 0, rule)
+        }
+        const precio = convertToQuoteCurrency(precioOrigen, prodMoneda)
+        const margin = rule.precioPublico ? 30 : rule.margen
+        const laborCost = calcLaborFromPrice(precio, rule)
+        const sysName = ALL_SYSTEMS.find(s => s.id === it.systemId)?.name || 'Audio'
+        const areaId = areaCache[(it.area || 'General').toLowerCase().trim()]
+        if (!areaId) {
+          console.warn('Sin área para item', it)
+          continue
+        }
+        const itemName = it.descripcion || ((it.marca + ' ' + it.modelo).trim())
+
+        const { error: itemErr } = await supabase.from('quotation_items').insert({
+          quotation_id: cotId,
+          area_id: areaId,
+          catalog_product_id: catalogProductId,
+          name: itemName,
+          description: it.descripcion || null,
+          system: sysName,
+          type: 'material',
+          quantity: it.cantidad,
+          cost: prodCost,
+          markup: margin,
+          price: precio,
+          total: (precio + laborCost) * it.cantidad,
+          installation_cost: laborCost,
+          order_index: inserted,
+        })
+        if (itemErr) {
+          console.error('Error insertando item:', itemErr, it)
+          continue
+        }
+        inserted++
+        setInsertedCount(inserted)
+      }
+
+      // 3) Activar sistemas que no estaban activos
+      const usedSystems = Array.from(new Set(items.map(it => it.systemId).filter(Boolean)))
+      const newActiveSystems = Array.from(new Set([...activeSysIds, ...usedSystems]))
+      if (newActiveSystems.length !== activeSysIds.length) {
+        const { data: cot } = await supabase.from('quotations').select('notes').eq('id', cotId).single()
+        let meta: any = {}
+        try { meta = JSON.parse(cot?.notes || '{}') } catch {}
+        meta.systems = newActiveSystems
+        await supabase.from('quotations').update({ notes: JSON.stringify(meta) }).eq('id', cotId)
+      }
+
+      onImported()
+      onClose()
+    } catch (err: any) {
+      setError(err.message || 'Error en la importación')
+      setStep('review')
+    }
+  }
+
+  const exactCount = items.filter(i => i.match_status === 'exact').length
+  const partialCount = items.filter(i => i.match_status === 'partial').length
+  const noneCount = items.filter(i => i.match_status === 'none').length
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1030 }}>
+      <div style={{ background: '#141414', border: '1px solid #333', borderRadius: 16, padding: 20, width: '92vw', maxWidth: 1200, maxHeight: '92vh', display: 'flex', flexDirection: 'column' as const }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 600, color: '#fff', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Sparkles size={14} color="#57FF9A" /> Importar con AI
+            </div>
+            <div style={{ fontSize: 11, color: '#555' }}>Sube un listado en Excel, CSV, PDF o imagen — la AI extrae los productos</div>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer' }}><X size={18} /></button>
+        </div>
+
+        {error && (
+          <div style={{ background: '#3a1a1a', border: '1px solid #5a2a2a', borderRadius: 8, padding: 10, color: '#f87171', fontSize: 12, marginBottom: 12 }}>{error}</div>
+        )}
+
+        {step === 'upload' && (
+          <div
+            onClick={() => fileInputRef.current?.click()}
+            onDrop={e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) handleFile(f) }}
+            onDragOver={e => e.preventDefault()}
+            style={{ border: '2px dashed #333', borderRadius: 12, padding: '60px 20px', textAlign: 'center', cursor: 'pointer', color: '#666' }}
+          >
+            <Upload size={36} color="#444" style={{ marginBottom: 12 }} />
+            <div style={{ fontSize: 14, fontWeight: 600, color: '#ccc', marginBottom: 6 }}>Arrastra un archivo o haz clic</div>
+            <div style={{ fontSize: 11, color: '#555' }}>Excel (.xlsx, .csv, .tsv), PDF, imagen (JPG, PNG, WEBP)</div>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".xlsx,.xls,.csv,.tsv,.txt,.pdf,.jpg,.jpeg,.png,.webp,.gif"
+              style={{ display: 'none' }}
+              onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f) }}
+            />
+          </div>
+        )}
+
+        {step === 'processing' && (
+          <div style={{ padding: '60px 20px', textAlign: 'center' }}>
+            <Loader2 size={32} color="#57FF9A" style={{ animation: 'spin 1s linear infinite', marginBottom: 12 }} />
+            <div style={{ fontSize: 13, color: '#ccc' }}>{progress}</div>
+          </div>
+        )}
+
+        {step === 'inserting' && (
+          <div style={{ padding: '60px 20px', textAlign: 'center' }}>
+            <Loader2 size={32} color="#57FF9A" style={{ animation: 'spin 1s linear infinite', marginBottom: 12 }} />
+            <div style={{ fontSize: 13, color: '#ccc' }}>{progress}</div>
+            <div style={{ fontSize: 11, color: '#555', marginTop: 8 }}>Insertados: {insertedCount} / {items.length}</div>
+          </div>
+        )}
+
+        {step === 'review' && (
+          <>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 10, fontSize: 11 }}>
+              <span style={{ color: '#888' }}>Confianza: <span style={{ color: confidence === 'high' ? '#57FF9A' : confidence === 'medium' ? '#F59E0B' : '#EF4444', fontWeight: 600 }}>{confidence}</span></span>
+              <span style={{ color: '#888' }}>{items.length} items detectados</span>
+              <span style={{ color: '#57FF9A' }}>✓ {exactCount} en catálogo</span>
+              <span style={{ color: '#F59E0B' }}>~ {partialCount} parciales</span>
+              <span style={{ color: '#06B6D4' }}>+ {noneCount} nuevos</span>
+            </div>
+
+            {warnings.length > 0 && (
+              <div style={{ background: '#2a200a', border: '1px solid #3a2e10', borderRadius: 8, padding: 10, marginBottom: 10 }}>
+                <div style={{ fontSize: 11, color: '#F59E0B', fontWeight: 600, marginBottom: 4 }}>Advertencias:</div>
+                {warnings.map((w, i) => <div key={i} style={{ fontSize: 11, color: '#aaa' }}>• {w}</div>)}
+              </div>
+            )}
+
+            <div style={{ flex: 1, overflowY: 'auto', border: '1px solid #222', borderRadius: 8 }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+                <thead style={{ position: 'sticky', top: 0, background: '#1a1a1a' }}>
+                  <tr>
+                    <th style={S.th}></th>
+                    <th style={{ ...S.th, textAlign: 'left' }}>Área</th>
+                    <th style={{ ...S.th, textAlign: 'left' }}>Sistema</th>
+                    <th style={{ ...S.th, textAlign: 'left' }}>Marca</th>
+                    <th style={{ ...S.th, textAlign: 'left' }}>Modelo</th>
+                    <th style={{ ...S.th, textAlign: 'left' }}>Descripción</th>
+                    <th style={{ ...S.th, textAlign: 'right' }}>Cant</th>
+                    <th style={{ ...S.th, textAlign: 'right' }}>Precio</th>
+                    <th style={S.th}>Mon</th>
+                    <th style={S.th}></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {items.map(it => (
+                    <tr key={it._rowId}>
+                      <td style={{ ...S.td, textAlign: 'center', width: 28 }}>
+                        {it.match_status === 'exact' && <span title="En catálogo" style={{ color: '#57FF9A' }}>✓</span>}
+                        {it.match_status === 'partial' && <span title="Match parcial" style={{ color: '#F59E0B' }}>~</span>}
+                        {it.match_status === 'none' && <span title="Se creará nuevo" style={{ color: '#06B6D4' }}>+</span>}
+                      </td>
+                      <td style={S.td}>
+                        <input value={it.area} onChange={e => updateRow(it._rowId, 'area', e.target.value)}
+                          style={{ width: 110, padding: '4px 6px', background: '#1e1e1e', border: '1px solid #333', borderRadius: 4, color: '#ccc', fontSize: 11, fontFamily: 'inherit' }} />
+                      </td>
+                      <td style={S.td}>
+                        <select value={it.systemId} onChange={e => updateRow(it._rowId, 'systemId', e.target.value)}
+                          style={{ padding: '4px 6px', background: '#1e1e1e', border: '1px solid #333', borderRadius: 4, color: '#ccc', fontSize: 11, fontFamily: 'inherit' }}>
+                          {ALL_SYSTEMS.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                        </select>
+                      </td>
+                      <td style={S.td}>
+                        <input value={it.marca} onChange={e => updateRow(it._rowId, 'marca', e.target.value)}
+                          style={{ width: 90, padding: '4px 6px', background: '#1e1e1e', border: '1px solid #333', borderRadius: 4, color: '#ccc', fontSize: 11, fontFamily: 'inherit' }} />
+                      </td>
+                      <td style={S.td}>
+                        <input value={it.modelo} onChange={e => updateRow(it._rowId, 'modelo', e.target.value)}
+                          style={{ width: 110, padding: '4px 6px', background: '#1e1e1e', border: '1px solid #333', borderRadius: 4, color: '#ccc', fontSize: 11, fontFamily: 'inherit' }} />
+                      </td>
+                      <td style={S.td}>
+                        <input value={it.descripcion} onChange={e => updateRow(it._rowId, 'descripcion', e.target.value)}
+                          style={{ width: 180, padding: '4px 6px', background: '#1e1e1e', border: '1px solid #333', borderRadius: 4, color: '#ccc', fontSize: 11, fontFamily: 'inherit' }} />
+                      </td>
+                      <td style={S.tdR}>
+                        <input type="number" value={it.cantidad} onChange={e => updateRow(it._rowId, 'cantidad', parseInt(e.target.value) || 1)}
+                          style={{ width: 50, padding: '4px 6px', background: '#1e1e1e', border: '1px solid #333', borderRadius: 4, color: '#ccc', fontSize: 11, fontFamily: 'inherit', textAlign: 'right' }} />
+                      </td>
+                      <td style={S.tdR}>
+                        <input type="number" step={0.01} value={it.precio_unitario ?? ''} onChange={e => updateRow(it._rowId, 'precio_unitario', e.target.value ? parseFloat(e.target.value) : null)}
+                          style={{ width: 75, padding: '4px 6px', background: '#1e1e1e', border: '1px solid #333', borderRadius: 4, color: '#ccc', fontSize: 11, fontFamily: 'inherit', textAlign: 'right' }} />
+                      </td>
+                      <td style={S.td}>
+                        <select value={it.moneda || ''} onChange={e => updateRow(it._rowId, 'moneda', (e.target.value || null) as any)}
+                          style={{ padding: '4px 6px', background: '#1e1e1e', border: '1px solid #333', borderRadius: 4, color: '#ccc', fontSize: 11, fontFamily: 'inherit' }}>
+                          <option value="">—</option>
+                          <option value="USD">USD</option>
+                          <option value="MXN">MXN</option>
+                        </select>
+                      </td>
+                      <td style={{ ...S.td, width: 28 }}>
+                        <button onClick={() => removeRow(it._rowId)} style={{ background: 'none', border: 'none', color: '#444', cursor: 'pointer' }}><X size={12} /></button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 14 }}>
+              <Btn onClick={onClose}>Cancelar</Btn>
+              <Btn variant="primary" onClick={handleConfirm} disabled={items.length === 0}>
+                Importar {items.length} items a la cotización
+              </Btn>
+            </div>
+          </>
+        )}
+      </div>
     </div>
   )
 }
@@ -678,41 +1164,46 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
   const [addingTo, setAddingTo] = useState<{ areaId: string; systemId: string } | null>(null)
   const [creatingProduct, setCreatingProduct] = useState(false)
   const [showEditCot, setShowEditCot] = useState(false)
+  const [showAIImport, setShowAIImport] = useState(false)
   const [projectId, setProjectId] = useState<string | null>(null)
   const [projectName, setProjectName] = useState('')
 
-  useEffect(() => {
-    async function load() {
-      const [{ data: cot }, { data: qAreas }, { data: qItems }] = await Promise.all([
-        supabase.from('quotations').select('*,project:projects(name,client_name)').eq('id', cotId).single(),
-        supabase.from('quotation_areas').select('*').eq('quotation_id', cotId).order('order_index'),
-        supabase.from('quotation_items').select('*').eq('quotation_id', cotId).order('order_index'),
-      ])
-      if (cot) {
-        setCotName(cot.name || ''); setClientName(cot.client_name || ''); setStage(cot.stage || 'oportunidad')
-        setProjectId(cot.project_id || null)
-        const proj = cot.project as any
-        setProjectName(proj?.name || '')
-        try {
-          const meta = JSON.parse(cot.notes || '{}')
-          if (meta.systems) setActiveSysIds(meta.systems)
-          if (meta.currency || meta.tipoCambio) {
-            setConfig(c => ({ ...c, currency: meta.currency || c.currency, tipoCambio: meta.tipoCambio || c.tipoCambio }))
-          }
-        } catch (e) { /* ignore */ }
-      }
-      if (qAreas && qAreas.length > 0) setAreas(qAreas.map((a: any, i: number) => ({ id: a.id, name: a.name, collapsed: false, order: i })))
-      if (qItems && qItems.length > 0) {
-        setProducts(qItems.map((it: any) => ({
-          id: it.id, areaId: it.area_id, systemId: (it.system || '').toLowerCase().replace(/ /g, '_'),
-          catalogId: it.catalog_product_id || null, name: it.name, description: it.description || '',
-          imageUrl: null, quantity: it.quantity, price: it.price || 0,
-          laborCost: it.installation_cost || 0, margin: it.markup || 30, order: it.order_index || 0,
-          monedaOrigen: it.provider_currency || 'USD',
-        })))
-      }
-      setLoading(false)
+  async function load() {
+    const [{ data: cot }, { data: qAreas }, { data: qItems }] = await Promise.all([
+      supabase.from('quotations').select('*,project:projects(name,client_name)').eq('id', cotId).single(),
+      supabase.from('quotation_areas').select('*').eq('quotation_id', cotId).order('order_index'),
+      supabase.from('quotation_items').select('*').eq('quotation_id', cotId).order('order_index'),
+    ])
+    if (cot) {
+      setCotName(cot.name || ''); setClientName(cot.client_name || ''); setStage(cot.stage || 'oportunidad')
+      setProjectId(cot.project_id || null)
+      const proj = cot.project as any
+      setProjectName(proj?.name || '')
+      try {
+        const meta = JSON.parse(cot.notes || '{}')
+        if (meta.systems) setActiveSysIds(meta.systems)
+        if (meta.currency || meta.tipoCambio) {
+          setConfig(c => ({ ...c, currency: meta.currency || c.currency, tipoCambio: meta.tipoCambio || c.tipoCambio }))
+        }
+      } catch (e) { /* ignore */ }
     }
+    if (qAreas && qAreas.length > 0) setAreas(qAreas.map((a: any, i: number) => ({ id: a.id, name: a.name, collapsed: false, order: i })))
+    else setAreas([])
+    if (qItems && qItems.length > 0) {
+      setProducts(qItems.map((it: any) => ({
+        id: it.id, areaId: it.area_id, systemId: (it.system || '').toLowerCase().replace(/ /g, '_'),
+        catalogId: it.catalog_product_id || null, name: it.name, description: it.description || '',
+        imageUrl: null, quantity: it.quantity, price: it.price || 0,
+        laborCost: it.installation_cost || 0, margin: it.markup || 30, order: it.order_index || 0,
+        monedaOrigen: it.provider_currency || 'USD',
+      })))
+    } else {
+      setProducts([])
+    }
+    setLoading(false)
+  }
+
+  useEffect(() => {
     load()
   }, [cotId])
 
@@ -882,7 +1373,8 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
               border: '1px solid ' + (stage === s ? cfg.color : '#333'), background: stage === s ? cfg.color + '22' : 'transparent', color: stage === s ? cfg.color : '#555',
             }}>{cfg.label}</button>
           ))}
-          <button onClick={() => setShowSystemPicker(true)} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #57FF9A44', background: 'transparent', color: '#57FF9A', marginLeft: 8 }}>⚙ Sistemas ({activeSysIds.length})</button>
+          <button onClick={() => setShowAIImport(true)} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #57FF9A44', background: 'transparent', color: '#57FF9A', marginLeft: 8, display: 'inline-flex', alignItems: 'center', gap: 4 }}><Sparkles size={11} /> Importar con AI</button>
+          <button onClick={() => setShowSystemPicker(true)} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #57FF9A44', background: 'transparent', color: '#57FF9A' }}>⚙ Sistemas ({activeSysIds.length})</button>
           <button onClick={() => setShowInt(!showInt)} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid ' + (showInt ? '#F59E0B' : '#333'), background: showInt ? '#F59E0B22' : 'transparent', color: showInt ? '#F59E0B' : '#555' }}>{showInt ? '👁 Interno' : '👁 Cliente'}</button>
           <span style={{ fontSize: 15, fontWeight: 700, color: '#57FF9A', marginLeft: 10 }}>{config.currency === 'MXN' ? '$' : 'US$'}{total.toFixed(2)}</span>
         </div>
@@ -936,6 +1428,19 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
           systemName={ALL_SYSTEMS.find(s => s.id === addingTo.systemId)?.name || addingTo.systemId}
           onClose={() => setCreatingProduct(false)}
           onCreate={handleCreateAndAdd} />
+      )}
+
+      {/* AI Import modal */}
+      {showAIImport && (
+        <AIImportModal
+          cotId={cotId}
+          areas={areas}
+          activeSysIds={activeSysIds}
+          currency={config.currency}
+          tipoCambio={config.tipoCambio}
+          onClose={() => setShowAIImport(false)}
+          onImported={() => { load() }}
+        />
       )}
 
       {/* System picker */}
