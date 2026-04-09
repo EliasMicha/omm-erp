@@ -56,29 +56,71 @@ api/
 
 **⚠️ Crítico:** verificar siempre el nombre real antes de hacer queries. Ha habido bugs por usar nombres asumidos (ej. `clientes_fiscales` que no existe, es `clientes`).
 
-### Tablas confirmadas (verificadas contra Supabase el 2026-04-08)
+### 📊 Auditoría completa del schema (2026-04-08)
 
-| Tabla | Uso | Notas |
+Hay **38 tablas totales** en `public`. Auditoría verificada contra `information_schema.tables` y cruzada contra todas las referencias `supabase.from('X')` en el código del repo.
+
+**Resultado clave:** cero bugs tipo 404 actualmente. Cada tabla referenciada por el código existe. Las 21 tablas huérfanas están **vacías** — son andamios de módulos planeados pero no construidos. **NO eliminar** hasta que Elias termine todos los módulos y haga una prueba general con DB vacía.
+
+#### ✅ Tablas ACTIVAS usadas por el código (17)
+
+| Tabla | Filas | Usada en | Notas |
+|---|---:|---|---|
+| `clientes` | 2 | Clientes, CRM, Cotizaciones, CotEditorESP, Facturacion | **NO es `clientes_fiscales`**. Columnas: id, rfc, razon_social, regimen_fiscal, regimen_fiscal_clave, codigo_postal, uso_cfdi, uso_cfdi_clave, curp, calle, num_exterior, num_interior, colonia, localidad, municipio, estado, tipo_persona, email, telefono, activo, facturapi_customer_id, created_at |
+| `leads` | 1 | CRM | id, name, company, ... |
+| `projects` | 1 | Proyectos, Compras, Obras | id, name, client_name, status |
+| `quotations` | 10 | Cotizaciones, CotEditorESP | id, name, client_name, project_id, specialty, stage, total, notes (JSON con systems/currency/tipoCambio/lead_id/lead_name), created_at |
+| `quotation_areas` | 35 | CotEditorESP, Compras, Obra (SubMateriales) | id, quotation_id, name, order_index, subtotal |
+| `quotation_items` | 8 | CotEditorESP, Compras, Obra (SubMateriales) | id, quotation_id, area_id, catalog_product_id, name, description, system, type ('material'\|'labor'), provider, supplier_id, purchase_phase, quantity, cost, markup, price, total, installation_cost, order_index |
+| `catalog_products` | 8 | CotEditorESP, Catalogo, Compras | id, name, description, system, type, unit, cost, markup, precio_venta, provider, marca, modelo, sku, clave_prod_serv, clave_unidad, moneda, iva_rate, is_active, purchase_phase |
+| `suppliers` | 2 | Compras, CotEditorESP | id, name, is_active, ... |
+| `purchase_orders` | 2 | Compras | id, po_number, project_id, supplier_id, specialty, status, purchase_phase, subtotal, iva, total, currency |
+| `po_items` | 19 | Compras | id, purchase_order_id, catalog_product_id, name, quantity, unit_cost, total, quantity_received, real_name, real_unit_cost |
+| `purchase_order_payments` | 0 | Compras | (vacía, módulo de pagos activo) |
+| `payment_milestones` | 0 | Cotizaciones | Hitos de cobro (vacía aún) |
+| `facturas` | 3 | Facturacion | CFDI emitidos |
+| `factura_conceptos` | 3 | Facturacion | Conceptos de CFDI |
+| `bank_movements` | 1 | Contabilidad | Movimientos bancarios |
+| `employees` | 0 | (lectura en algún lugar, verificar) | Empleados |
+| `work_reports` | 0 | Obra | Reportes de trabajo |
+
+#### 💤 Tablas HUÉRFANAS — vacías, módulos planeados (21, NO ELIMINAR)
+
+Son andamios. Elias tiene planeado construir estos módulos más adelante. Conservar.
+
+**Módulo fiscal v2 (planeado):**
+- `alertas_fiscales` · `cfdi_relaciones` · `cfdi_validaciones` · `factura_pagos`
+
+**Contabilidad completa (planeado):**
+- `movimientos_bancarios` · `movimientos_efectivo` · `conciliacion_match` · `estados_cuenta_uploads` · `cuentas_bancarias` · `flujo_mensual` · `gastos_fijos` · `ventas`
+
+**Cobranza / seguimiento (planeado, duplicado conceptual con `payment_milestones`):**
+- `cobranza_seguimiento` · `hitos_cobro`
+
+**Payroll / RH (planeado):**
+- `payroll_items` · `payroll_periods` · `attendance_records`
+
+**Planeación semanal (planeado):**
+- `weekly_plans` · `weekly_plan_assignments`
+
+**Otros andamios:**
+- `work_report_items` (duplicado conceptual con `work_reports`)
+- `deliveries` (gestión de entregas a obra)
+
+#### Duplicados conceptuales a resolver cuando se construyan los módulos
+
+| Concepto | Versión en uso | Duplicado(s) huérfano(s) |
 |---|---|---|
-| `clientes` | Clientes fiscales (CSF) | **NO es `clientes_fiscales`**. Columnas: id, rfc, razon_social, regimen_fiscal, regimen_fiscal_clave, codigo_postal, uso_cfdi, uso_cfdi_clave, curp, calle, num_exterior, num_interior, colonia, localidad, municipio, estado, tipo_persona, email, telefono, activo, facturapi_customer_id, created_at |
-| `leads` | CRM | id, name, company, ... |
-| `projects` | Proyectos | id, name, client_name, status |
-| `quotations` | Cotizaciones | id, name, client_name, project_id, specialty, stage, total, notes (JSON con systems/currency/tipoCambio/lead_id/lead_name), created_at |
-| `quotation_areas` | Áreas de cada cotización | id, quotation_id, name, order_index, subtotal |
-| `quotation_items` | Items de cotización | id, quotation_id, area_id, catalog_product_id, name, description, system, type ('material'\|'labor'), provider, supplier_id, purchase_phase, quantity, cost, markup, price, total, installation_cost, order_index |
-| `catalog_products` | Catálogo | id, name, description, system, type, unit, cost, markup, precio_venta, provider, marca, modelo, sku, clave_prod_serv, clave_unidad, moneda, iva_rate, is_active, purchase_phase |
-| `suppliers` | Proveedores/distribuidores | id, name, is_active, ... |
-| `purchase_orders` | Órdenes de compra | id, po_number, project_id, supplier_id, specialty, status, purchase_phase, subtotal, iva, total, currency |
-| `po_items` | Items de OC | id, purchase_order_id, catalog_product_id, name, quantity, unit_cost, total, quantity_received, real_name, real_unit_cost |
-| `purchase_order_payments` | Pagos a proveedor | |
-| `facturas` | CFDI emitidos | |
-| `factura_conceptos` | |
-| `bank_movements` | Movimientos bancarios | |
+| Movimientos bancarios | `bank_movements` ✅ | `movimientos_bancarios` 💤 |
+| Cuentas por cobrar | `payment_milestones` ✅ | `hitos_cobro`, `cobranza_seguimiento` 💤 |
+| Reportes de obra | `work_reports` ✅ | `work_report_items` 💤 |
 
-### ⚠️ Tablas que NO EXISTEN (bugs históricos)
+Cuando Elias construya el módulo de contabilidad o el de cobranza, **decidir primero** cuál versión va a ganar (la que ya tiene datos es fuerte candidata) y borrar la otra. Nunca construir dos implementaciones paralelas.
 
-- ~~`clientes_fiscales`~~ → usar `clientes`
-- ~~`obras`~~ → **no existe**. Todo el módulo `Obra.tsx` usa mock data (`MOCK_OBRAS`). Ver deuda técnica.
+### ⚠️ Tablas que NO EXISTEN (bugs históricos / deuda)
+
+- ~~`clientes_fiscales`~~ → usar `clientes` (fix aplicado en commit `2561ea9`)
+- ~~`obras`~~ → **no existe**. Todo el módulo `Obra.tsx` usa mock data (`MOCK_OBRAS`). **Próximo gran trabajo pendiente** — ver deuda técnica.
 
 ### Antes de asumir que una tabla existe
 
@@ -416,6 +458,22 @@ Cotizaciones son per-quotation en USD o MXN, guardado en `quotations.notes` JSON
 - Mantener este archivo `CLAUDE.md` como primer paso de cada sesión.
 - AI Importer prioriza parseo directo sobre llamadas a Claude API (más confiable, más rápido, sin tokens).
 - Fix de Clientes ahora es el patrón estándar para manejo de errores en TODA operación de Supabase.
+
+### 2026-04-08 (continuación — sesión de tarde/noche)
+
+- `37b3003` · docs: crear `CLAUDE.md` como documento vivo de contexto entre sesiones · `CLAUDE.md` (nuevo)
+- `(pendiente)` · docs: actualizar `CLAUDE.md` con auditoría completa del schema de Supabase · `CLAUDE.md`
+
+**Descubrimientos importantes de esta continuación:**
+- **Auditoría completa del schema:** 38 tablas en public, 17 usadas por código (todas existen), 21 huérfanas vacías (andamios de módulos planeados). Cero bugs tipo 404 actualmente.
+- **El anon key de Supabase NO puede listar tablas** via OpenAPI del REST API (requiere `service_role`). Para listar tablas hay que usar el SQL Editor de Supabase con `information_schema.tables`.
+- **El grid de resultados del SQL Editor usa virtual scroll** — no renderiza todas las filas a la vez. Para extraer resultados grandes, usar `string_agg(col, ', ')` para concatenar en una sola celda, o el botón "Export".
+- **Duplicados conceptuales detectados pero no resueltos** (a decidir cuando se construyan los módulos): `bank_movements` vs `movimientos_bancarios`, `payment_milestones` vs `hitos_cobro`/`cobranza_seguimiento`, `work_reports` vs `work_report_items`.
+
+**Decisiones tomadas:**
+- **NO eliminar tablas huérfanas** hasta que Elias termine todos los módulos. Muchas son andamios planeados (payroll, planeación semanal, fiscal v2, contabilidad completa, etc.) — destruirlas perdería trabajo de diseño.
+- Estrategia futura: al terminar todos los módulos, hacer **auditoría general con DB vaciada** y eliminar lo que no esté conectado ni sea módulo planeado activamente.
+- Cuando se construya un módulo que tenga duplicado conceptual, **decidir primero cuál versión gana** (la que tenga datos = candidata fuerte) y borrar la otra. **Nunca construir dos implementaciones paralelas.**
 
 ### (agregar siguiente sesión aquí)
 
