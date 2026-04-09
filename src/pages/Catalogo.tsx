@@ -5,6 +5,7 @@ import { F, PHASE_CONFIG } from '../lib/utils'
 import { ANTHROPIC_API_KEY } from '../lib/config'
 import { Package, Plus, Search, Edit, X, Tag, Layers, Upload, Loader2, Sparkles } from 'lucide-react'
 import { PurchasePhase } from '../types'
+import ImageUpload from '../components/ImageUpload'
 
 interface Supplier { id: string; name: string }
 
@@ -33,6 +34,7 @@ interface Product {
   tipo_cambio: number
   marca: string
   modelo: string
+  image_url: string | null
 }
 
 const SYSTEMS = ['Electrico', 'CCTV', 'Audio', 'Control de acceso', 'Redes', 'Iluminacion', 'Control de iluminacion', 'Cortinas', 'General']
@@ -218,6 +220,7 @@ export default function Catalogo() {
       category: form.category || 'general', sku: form.sku || null, is_active: form.is_active !== false,
       moneda: form.moneda || 'MXN', costo_usd: form.costo_usd || 0, tipo_cambio: form.tipo_cambio || 0, marca: form.marca || null, modelo: form.modelo || null,
       supplier_id: form.supplier_id || null, purchase_phase: form.purchase_phase || 'inicio',
+      image_url: form.image_url || null,
     }
     if (editId) {
       await supabase.from('catalog_products').update(row).eq('id', editId)
@@ -342,6 +345,7 @@ export default function Catalogo() {
 
       <Table>
         <thead><tr>
+          <Th>{' '}</Th>
           <Th>Producto</Th>
           {filterSpecialty === 'esp' && <><Th>Sistema</Th><Th>Marca</Th><Th>Modelo</Th></>}
           {filterSpecialty === 'ilum' && <><Th>Marca</Th><Th>Modelo</Th><Th right>W</Th><Th right>Lúmenes</Th><Th right>CCT</Th><Th right>CRI</Th><Th>IP</Th><Th>Montaje</Th></>}
@@ -354,9 +358,16 @@ export default function Catalogo() {
           <Th>{' '}</Th>
         </tr></thead>
         <tbody>
-          {filtered.length === 0 && <tr><Td colSpan={9} muted>Sin productos. Agrega tu primer producto al catalogo.</Td></tr>}
+          {filtered.length === 0 && <tr><Td colSpan={10} muted>Sin productos. Agrega tu primer producto al catalogo.</Td></tr>}
           {filtered.map(p => (
             <tr key={p.id} style={{ cursor: 'pointer' }} onClick={() => setSelectedProduct(p)}>
+              <Td>
+                {p.image_url ? (
+                  <img src={p.image_url} alt="" style={{ width: 32, height: 32, objectFit: 'contain', borderRadius: 4, background: '#fff', border: '1px solid #2a2a2a' }} />
+                ) : (
+                  <div style={{ width: 32, height: 32, borderRadius: 4, border: '1px dashed #2a2a2a', background: '#0e0e0e' }} />
+                )}
+              </Td>
               <Td><div style={{fontWeight: 600, color:'#fff'}}>{p.name}</div>{p.description && <div style={{fontSize:10, color:'#555', marginTop:2}}>{p.description.substring(0,50)}</div>}</Td>
               {filterSpecialty === 'esp' && <>
                 <Td muted style={{fontSize:11}}>{p.system || '--'}</Td>
@@ -440,8 +451,24 @@ export default function Catalogo() {
               </div>
             </div>
             {aiError && <div style={{ background: '#3a1a1a', border: '1px solid #5a2a2a', borderRadius: 8, padding: 10, color: '#f87171', fontSize: 12, marginBottom: 12 }}>{aiError} <button onClick={() => setAiError(null)} style={{float:'right',background:'none',border:'none',color:'#f87171',cursor:'pointer'}}>×</button></div>}
+            <div style={{ display: 'flex', gap: 16, marginBottom: 14, alignItems: 'flex-start' }}>
+              <div style={{ flexShrink: 0 }}>
+                <div style={{ fontSize: 10, color: '#666', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Foto</div>
+                <ImageUpload
+                  value={form.image_url || null}
+                  onChange={url => setForm({ ...form, image_url: url })}
+                  size="md"
+                  label="Subir foto"
+                  folder="products"
+                />
+              </div>
+              <div style={{ flex: 1, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <Fld label="Nombre *" span><input style={iS} value={form.name || ''} onChange={e => setForm({...form, name: e.target.value})} placeholder="Cable THW calibre 12" /></Fld>
+                <Fld label="Marca"><input style={iS} value={form.marca || ''} onChange={e => setForm({...form, marca: e.target.value})} placeholder="Lutron, Hikvision..." /></Fld>
+                <Fld label="Modelo"><input style={iS} value={form.modelo || ''} onChange={e => setForm({...form, modelo: e.target.value})} placeholder="Modelo del producto" /></Fld>
+              </div>
+            </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
-              <Fld label="Nombre *" span><input style={iS} value={form.name || ''} onChange={e => setForm({...form, name: e.target.value})} placeholder="Cable THW calibre 12" /></Fld>
               <Fld label="Descripcion" span><input style={iS} value={form.description || ''} onChange={e => setForm({...form, description: e.target.value})} placeholder="Descripcion detallada del producto" /></Fld>
               <Fld label="Clave SAT (ClaveProdServ)"><input style={iS} value={form.clave_prod_serv || ''} onChange={e => setForm({...form, clave_prod_serv: e.target.value})} placeholder="26121600" /></Fld>
               <Fld label="SKU"><input style={iS} value={form.sku || ''} onChange={e => setForm({...form, sku: e.target.value})} placeholder="CAB-THW-12" /></Fld>
@@ -451,8 +478,6 @@ export default function Catalogo() {
               <Fld label="Proveedor (marca)"><input style={iS} value={form.provider || ''} onChange={e => setForm({...form, provider: e.target.value})} placeholder="Lutron, Hikvision..." /></Fld>
               <Fld label="Distribuidor"><select style={iS} value={form.supplier_id || ''} onChange={e => setForm({...form, supplier_id: e.target.value})}><option value="">-- Sin distribuidor --</option>{suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></Fld>
               <Fld label="Fase de compra"><select style={iS} value={form.purchase_phase || 'inicio'} onChange={e => setForm({...form, purchase_phase: e.target.value})}>{Object.entries(PHASE_CONFIG).map(([k,v]) => <option key={k} value={k}>{v.label}</option>)}</select></Fld>
-              <Fld label="Marca"><input style={iS} value={form.marca || ''} onChange={e => setForm({...form, marca: e.target.value})} placeholder="Lutron, Hikvision..." /></Fld>
-              <Fld label="Modelo"><input style={iS} value={form.modelo || ''} onChange={e => setForm({...form, modelo: e.target.value})} placeholder="Modelo del producto" /></Fld>
             </div>
             <div style={{ fontSize: 13, fontWeight: 600, color: '#888', marginTop: 12, marginBottom: 10 }}>Precios</div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 10 }}>

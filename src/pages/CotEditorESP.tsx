@@ -4,6 +4,7 @@ import { F, STAGE_CONFIG } from '../lib/utils'
 import { Badge, Btn, Loading } from '../components/layout/UI'
 import { ANTHROPIC_API_KEY } from '../lib/config'
 import { Plus, ChevronLeft, ChevronRight, ChevronDown, X, Trash2, Image as ImageIcon, Search, RefreshCw, Sparkles, Upload, Loader2, FileText } from 'lucide-react'
+import ImageUpload from '../components/ImageUpload'
 
 // ═══════════════════════════════════════════════════════════════════
 // TYPES
@@ -980,6 +981,7 @@ function CreateProductModal({ onClose, onCreate, systemName }: {
   const [form, setForm] = useState({
     name: '', description: '', system: systemName, cost: 0, markup: 30, provider: '', unit: 'pza',
     marca: '', modelo: '', sku: '', clave_prod_serv: '', clave_unidad: 'H87', moneda: 'USD', purchase_phase: 'inicio',
+    image_url: null as string | null,
   })
   const [saving, setSaving] = useState(false)
   const [aiQuery, setAiQuery] = useState('')
@@ -1097,6 +1099,7 @@ IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
       iva_rate: 0.16,
       is_active: true,
       purchase_phase: form.purchase_phase || 'inicio',
+      image_url: form.image_url || null,
     }).select().single()
     if (error) {
       console.error('Error creating product:', error)
@@ -1140,8 +1143,22 @@ IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
 
         {/* Form fields */}
         <div style={{ display: 'grid', gap: 10 }}>
-          {inp('Nombre', form.name, 'name')}
-          {inp('Descripción', form.description, 'description')}
+          <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+            <div style={{ flexShrink: 0 }}>
+              <div style={{ fontSize: 10, color: '#555', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Foto</div>
+              <ImageUpload
+                value={form.image_url}
+                onChange={url => setForm(f => ({ ...f, image_url: url }))}
+                size="md"
+                label="Subir foto"
+                folder="products"
+              />
+            </div>
+            <div style={{ flex: 1, display: 'grid', gap: 10 }}>
+              {inp('Nombre', form.name, 'name')}
+              {inp('Descripción', form.description, 'description')}
+            </div>
+          </div>
 
           {/* Marca, Modelo, SKU */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
