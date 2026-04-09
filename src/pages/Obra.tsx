@@ -472,9 +472,77 @@ function ObraDetail({ obra, instaladores, onBack, updateObra }: {
   onBack: () => void
   updateObra: (updater: (o: ObraData) => ObraData) => void
 }) {
-  const [subTab, setSubTab] = useState<'actividades' | 'reportes' | 'entrega' | 'equipo' | 'materiales'>('actividades')
+  const [subTab, setSubTab] = useState<'actividades' | 'reportes' | 'entrega' | 'equipo' | 'documentacion' | 'extras' | 'bloqueos' | 'materiales'>('actividades')
   const [showNewAct, setShowNewAct] = useState(false)
   const [showNewReporte, setShowNewReporte] = useState(false)
+  const [hydrated, setHydrated] = useState(false)
+  const [syncError, setSyncError] = useState<string | null>(null)
+
+  // Hidratación inicial: cargar subtablas reales desde Supabase (Commit 2)
+  useEffect(() => {
+    let cancelled = false
+    async function hydrate() {
+      try {
+        const [actsRes, repsRes, docsRes] = await Promise.all([
+          supabase.from('obra_actividades').select('*').eq('obra_id', obra.id).order('order_index'),
+          supabase.from('obra_reportes').select('*').eq('obra_id', obra.id).order('fecha', { ascending: false }),
+          supabase.from('obra_entrega_docs').select('*').eq('obra_id', obra.id).order('order_index'),
+        ])
+        if (cancelled) return
+        // Mapear actividades al tipo Actividad
+        const acts: Actividad[] = (actsRes.data || []).map((a: any) => ({
+          id: a.id, obra_id: a.obra_id, sistema: a.sistema as Sistema, area: a.area || undefined,
+          descripcion: a.descripcion, status: a.status as ActividadStatus,
+          instalador_id: a.instalador_id || undefined,
+          fecha_inicio: a.fecha_inicio || undefined,
+          fecha_fin_plan: a.fecha_fin_plan || undefined,
+          fecha_fin_real: a.fecha_fin_real || undefined,
+          bloqueo: undefined, // bloqueos ahora viven en obra_bloqueos
+          notas: a.notas || undefined,
+          porcentaje: a.porcentaje || 0,
+        }))
+        const reps: ReporteObra[] = (repsRes.data || []).map((r: any) => ({
+          id: r.id, obra_id: r.obra_id, instalador_id: r.instalador_id || '',
+          fecha: r.fecha, texto_raw: r.texto_raw || '',
+          fotos: r.fotos || [],
+          ai_resumen: r.ai_resumen || undefined,
+          ai_avances: r.ai_avances || undefined,
+          ai_faltantes: r.ai_faltantes || undefined,
+          ai_bloqueos: r.ai_bloqueos || undefined,
+          procesado: r.procesado || false,
+        }))
+        // Si hay docs en DB, úsalos; si no, arranca con la lista default (DOCS_ENTREGA)
+        let docs: EntregaDocumento[]
+        if (docsRes.data && docsRes.data.length > 0) {
+          docs = docsRes.data.map((d: any) => ({ nombre: d.nombre, recibido: d.recibido || false }))
+        } else {
+          docs = DOCS_ENTREGA.map(d => ({ nombre: d, recibido: false }))
+        }
+        // También cargar instaladores asignados de la tabla pivote
+        const { data: instRes } = await supabase.from('obra_instaladores').select('employee_id').eq('obra_id', obra.id)
+        const instaladoresIds = (instRes || []).map((i: any) => i.employee_id)
+        if (!cancelled) {
+          updateObra(o => ({
+            ...o,
+            actividades: acts,
+            reportes: reps,
+            entrega_docs: docs,
+            instaladores_ids: instaladoresIds,
+          }))
+          setHydrated(true)
+        }
+      } catch (err: any) {
+        if (!cancelled) {
+          console.error('Error hidratando obra:', err)
+          setSyncError('Error al cargar datos de la obra: ' + (err?.message || String(err)))
+          setHydrated(true)
+        }
+      }
+    }
+    hydrate()
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [obra.id])
 
   const st = STATUS_CONFIG[obra.status]
   const completadas = obra.actividades.filter(a => a.status === 'completada').length
@@ -494,7 +562,11 @@ function ObraDetail({ obra, instaladores, onBack, updateObra }: {
           <h2 style={{ fontSize: 20, fontWeight: 700, color: '#fff', margin: 0 }}>{obra.nombre}</h2>
           <Badge label={st.label} color={st.color} />
           {obra.status === 'entrega_pendiente' && (
-            <Btn size="sm" variant="primary" onClick={() => updateObra(o => ({ ...o, status: 'en_ejecucion' }))}>
+            <Btn size="sm" variant="primary" onClick={async () => {
+              updateObra(o => ({ ...o, status: 'en_ejecucion' }))
+              const { error } = await supabase.from('obras').update({ status: 'en_ejecucion' }).eq('id', obra.id)
+              if (error) setSyncError('Error al cambiar estado: ' + error.message)
+            }}>
               <CheckCircle size={11} /> Marcar entrega completa
             </Btn>
           )}
@@ -504,6 +576,13 @@ function ObraDetail({ obra, instaladores, onBack, updateObra }: {
           {obra.cotizacion_ref && <> · Cot: {obra.cotizacion_ref}</>}
         </div>
       </div>
+
+      {syncError && (
+        <div style={{ marginBottom: 16, padding: '10px 12px', background: '#2a1414', border: '1px solid #5a2828', borderRadius: 8, color: '#f87171', fontSize: 12, display: 'flex', gap: 8 }}>
+          <span>⚠</span><span>{syncError}</span>
+        </div>
+      )}
+      {!hydrated && <div style={{ marginBottom: 16 }}><Loading /></div>}
 
       {/* KPIs */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12, marginBottom: 20 }}>
@@ -515,11 +594,14 @@ function ObraDetail({ obra, instaladores, onBack, updateObra }: {
       </div>
 
       {/* Sub-tabs */}
-      <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid #222', marginBottom: 20 }}>
+      <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid #222', marginBottom: 20, flexWrap: 'wrap' }}>
         {([
           { key: 'actividades' as const, label: 'Actividades', icon: ClipboardList },
           { key: 'reportes' as const, label: `Reportes (${obra.reportes.length})`, icon: MessageSquare },
-          { key: 'entrega' as const, label: 'Entrega formal', icon: FileText },
+          { key: 'bloqueos' as const, label: 'Bloqueos', icon: AlertTriangle },
+          { key: 'extras' as const, label: 'Extras / Adendum', icon: Plus },
+          { key: 'documentacion' as const, label: 'Documentación', icon: FileText },
+          { key: 'entrega' as const, label: 'Entrega formal', icon: CheckCircle },
           { key: 'equipo' as const, label: `Equipo (${obraInstaladores.length})`, icon: Users },
           { key: 'materiales' as const, label: 'Materiales', icon: Package },
         ]).map(({ key, label, icon: Icon }) => {
@@ -557,6 +639,9 @@ function ObraDetail({ obra, instaladores, onBack, updateObra }: {
           setShowNew={setShowNewReporte}
         />
       )}
+      {subTab === 'bloqueos' && <SubBloqueos obra={obra} instaladores={instaladores} />}
+      {subTab === 'extras' && <SubExtras obra={obra} />}
+      {subTab === 'documentacion' && <SubDocumentacion obra={obra} />}
       {subTab === 'entrega' && <SubEntrega obra={obra} updateObra={updateObra} />}
       {subTab === 'equipo' && <SubEquipo obra={obra} instaladores={instaladores} obraInstaladores={obraInstaladores} updateObra={updateObra} />}
       {subTab === 'materiales' && <SubMateriales obra={obra} />}
@@ -577,30 +662,66 @@ function SubActividades({ obra, instaladores, updateObra, showNew, setShowNew }:
   const [generating, setGenerating] = useState(false)
   const [genStatus, setGenStatus] = useState('')
 
-  const addActividad = () => {
+  const addActividad = async () => {
     if (!newAct.descripcion.trim()) return
-    const act: Actividad = {
-      id: 'a' + Date.now(), obra_id: obra.id, sistema: newAct.sistema,
-      descripcion: newAct.descripcion.trim(), status: 'pendiente',
-      instalador_id: newAct.instalador_id || undefined,
-      fecha_fin_plan: newAct.fecha_fin_plan || undefined,
-      area: newAct.area || undefined,
+    const payload: any = {
+      obra_id: obra.id,
+      sistema: newAct.sistema,
+      descripcion: newAct.descripcion.trim(),
+      status: 'pendiente',
+      instalador_id: newAct.instalador_id || null,
+      fecha_fin_plan: newAct.fecha_fin_plan || null,
+      area: newAct.area || null,
       porcentaje: 0,
+      origen: 'manual',
+      order_index: obra.actividades.length,
     }
-    updateObra(o => ({ ...o, actividades: [...o.actividades, act] }))
+    const { data, error } = await supabase.from('obra_actividades').insert(payload).select().single()
+    if (error) {
+      console.error('Error creando actividad:', error)
+      alert('Error al crear actividad: ' + error.message)
+      return
+    }
+    if (data) {
+      const act: Actividad = {
+        id: data.id, obra_id: data.obra_id, sistema: data.sistema as Sistema,
+        descripcion: data.descripcion, status: data.status as ActividadStatus,
+        instalador_id: data.instalador_id || undefined,
+        fecha_fin_plan: data.fecha_fin_plan || undefined,
+        area: data.area || undefined,
+        porcentaje: data.porcentaje || 0,
+      }
+      updateObra(o => ({ ...o, actividades: [...o.actividades, act] }))
+    }
     setNewAct({ sistema: 'CCTV', descripcion: '', instalador_id: '', fecha_fin_plan: '', area: '' })
     setShowNew(false)
   }
 
-  const updateActividad = (actId: string, updates: Partial<Actividad>) => {
-    updateObra(o => ({
-      ...o,
-      actividades: o.actividades.map(a => a.id === actId ? { ...a, ...updates } : a),
-      avance_global: Math.round(
-        o.actividades.map(a => a.id === actId ? { ...a, ...updates } : a)
-          .reduce((s, a) => s + a.porcentaje, 0) / (o.actividades.length || 1)
-      ),
-    }))
+  const updateActividad = async (actId: string, updates: Partial<Actividad>) => {
+    // Map to DB columns
+    const dbUpdates: any = {}
+    if (updates.status !== undefined) dbUpdates.status = updates.status
+    if (updates.porcentaje !== undefined) dbUpdates.porcentaje = updates.porcentaje
+    if (updates.instalador_id !== undefined) dbUpdates.instalador_id = updates.instalador_id || null
+    if (updates.fecha_fin_plan !== undefined) dbUpdates.fecha_fin_plan = updates.fecha_fin_plan || null
+    if (updates.fecha_fin_real !== undefined) dbUpdates.fecha_fin_real = updates.fecha_fin_real || null
+    if (updates.descripcion !== undefined) dbUpdates.descripcion = updates.descripcion
+    if (updates.notas !== undefined) dbUpdates.notas = updates.notas
+    // Optimistic update
+    updateObra(o => {
+      const nuevasActs = o.actividades.map(a => a.id === actId ? { ...a, ...updates } : a)
+      const avance = Math.round(nuevasActs.reduce((s, a) => s + a.porcentaje, 0) / (nuevasActs.length || 1))
+      return { ...o, actividades: nuevasActs, avance_global: avance }
+    })
+    const { error } = await supabase.from('obra_actividades').update(dbUpdates).eq('id', actId)
+    if (error) {
+      console.error('Error actualizando actividad:', error)
+      alert('Error al actualizar: ' + error.message)
+    }
+    // Persist avance_global recalculated
+    const nuevasActs = obra.actividades.map(a => a.id === actId ? { ...a, ...updates } : a)
+    const avance = Math.round(nuevasActs.reduce((s, a) => s + a.porcentaje, 0) / (nuevasActs.length || 1))
+    await supabase.from('obras').update({ avance_global: avance }).eq('id', obra.id)
   }
 
   /* --- AI Autogenerate from quotation --- */
@@ -686,10 +807,9 @@ Devuelve SOLO un JSON array, sin markdown:
         const parsed = JSON.parse(jsonMatch[0].replace(/```json|```/g, '').trim())
         if (Array.isArray(parsed) && parsed.length > 0) {
           const validSistemas = ['CCTV', 'Audio', 'Redes', 'Control', 'Acceso', 'Electrico']
-          const newActs: Actividad[] = parsed.map((t: any, i: number) => {
+          const payloads = parsed.map((t: any, i: number) => {
             let sistema = t.sistema || 'Redes'
             if (!validSistemas.includes(sistema)) {
-              // Try to match
               const lower = sistema.toLowerCase()
               if (lower.includes('audio')) sistema = 'Audio'
               else if (lower.includes('red') || lower.includes('network')) sistema = 'Redes'
@@ -700,17 +820,31 @@ Devuelve SOLO un JSON array, sin markdown:
               else sistema = 'Redes'
             }
             return {
-              id: 'a' + Date.now() + i,
               obra_id: obra.id,
-              sistema: sistema as Sistema,
-              area: t.area || '',
+              sistema,
+              area: t.area || null,
               descripcion: t.descripcion || '',
-              status: 'pendiente' as ActividadStatus,
+              status: 'pendiente',
               porcentaje: 0,
+              origen: 'cotizacion',
+              order_index: obra.actividades.length + i,
             }
           })
-          updateObra(o => ({ ...o, actividades: [...o.actividades, ...newActs] }))
-          setGenStatus(`✓ ${newActs.length} tareas generadas desde cotización`)
+          const { data: inserted, error: insertErr } = await supabase.from('obra_actividades').insert(payloads).select()
+          if (insertErr) {
+            setGenStatus('Error al guardar actividades: ' + insertErr.message)
+          } else if (inserted) {
+            const newActs: Actividad[] = inserted.map((a: any) => ({
+              id: a.id, obra_id: a.obra_id, sistema: a.sistema as Sistema,
+              descripcion: a.descripcion, status: a.status as ActividadStatus,
+              instalador_id: a.instalador_id || undefined,
+              fecha_fin_plan: a.fecha_fin_plan || undefined,
+              area: a.area || undefined,
+              porcentaje: a.porcentaje || 0,
+            }))
+            updateObra(o => ({ ...o, actividades: [...o.actividades, ...newActs] }))
+            setGenStatus(`✓ ${newActs.length} tareas generadas desde cotización`)
+          }
         } else {
           setGenStatus('No se generaron tareas')
         }
@@ -910,17 +1044,21 @@ function SubReportes({ obra, instaladores, updateObra, showNew, setShowNew }: {
   const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files
     if (!files) return
-    const newFotos: string[] = []
+    const newUrls: string[] = []
     for (let i = 0; i < Math.min(files.length, 5); i++) {
-      const b64 = await new Promise<string>((res, rej) => {
-        const r = new FileReader()
-        r.onload = () => res(r.result as string)
-        r.onerror = () => rej(new Error('Error'))
-        r.readAsDataURL(files[i])
-      })
-      newFotos.push(b64)
+      const file = files[i]
+      const ext = file.name.split('.').pop() || 'jpg'
+      const fileName = `${obra.id}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`
+      const { error } = await supabase.storage.from('obra-evidencias').upload(fileName, file, { cacheControl: '31536000' })
+      if (error) {
+        console.error('Error subiendo foto:', error)
+        alert('Error al subir foto: ' + error.message)
+        continue
+      }
+      const { data: urlData } = supabase.storage.from('obra-evidencias').getPublicUrl(fileName)
+      if (urlData?.publicUrl) newUrls.push(urlData.publicUrl)
     }
-    setNewReporte(r => ({ ...r, fotos: [...r.fotos, ...newFotos].slice(0, 5) }))
+    setNewReporte(r => ({ ...r, fotos: [...r.fotos, ...newUrls].slice(0, 5) }))
     if (fileRef.current) fileRef.current.value = ''
   }
 
@@ -928,63 +1066,58 @@ function SubReportes({ obra, instaladores, updateObra, showNew, setShowNew }: {
     if (!newReporte.texto.trim() && newReporte.fotos.length === 0) return
     setProcessing(true)
 
-    const reporte: ReporteObra = {
-      id: 'r' + Date.now(), obra_id: obra.id,
-      instalador_id: newReporte.instalador_id || obra.instaladores_ids[0] || '',
+    // 1. Insertar reporte inicial en Supabase (sin procesar)
+    const payload: any = {
+      obra_id: obra.id,
+      instalador_id: newReporte.instalador_id || obra.instaladores_ids[0] || null,
       fecha: new Date().toISOString().substring(0, 10),
       texto_raw: newReporte.texto.trim(),
       fotos: newReporte.fotos,
       procesado: false,
     }
+    const { data: inserted, error: insErr } = await supabase.from('obra_reportes').insert(payload).select().single()
+    if (insErr) {
+      console.error('Error creando reporte:', insErr)
+      alert('Error al crear reporte: ' + insErr.message)
+      setProcessing(false)
+      return
+    }
+    const reporte: ReporteObra = {
+      id: inserted.id, obra_id: inserted.obra_id,
+      instalador_id: inserted.instalador_id || '',
+      fecha: inserted.fecha,
+      texto_raw: inserted.texto_raw || '',
+      fotos: inserted.fotos || [],
+      procesado: false,
+    }
 
-    // Process with AI
+    // 2. Procesar con AI (llama al Edge Function /api/process-obra-report)
     try {
-      const systemPrompt = `Eres coordinador de obra experto en instalaciones especiales (CCTV, audio, redes, control de iluminación, control de acceso, eléctrico).
-
-Analiza el reporte de campo del instalador y devuelve SOLO un JSON, sin markdown:
-{
-  "resumen": "resumen ejecutivo en 1-2 oraciones",
-  "avances": ["lista de avances concretos realizados"],
-  "faltantes": ["materiales o equipos que se necesitan"],
-  "bloqueos": ["factores externos que están frenando el avance"]
-}
-
-Contexto de la obra: ${obra.nombre}
-Sistemas: ${obra.sistemas.join(', ')}
-El instalador reporta desde campo. Extrae información accionable.`
-
-      const userContent: any[] = []
-      // Add photos if any
-      for (const foto of newReporte.fotos.slice(0, 3)) {
-        const parts = foto.split(',')
-        const mediaMatch = foto.match(/data:([^;]+);/)
-        if (parts[1] && mediaMatch) {
-          userContent.push({ type: 'image', source: { type: 'base64', media_type: mediaMatch[1], data: parts[1] } })
-        }
-      }
-      userContent.push({ type: 'text', text: `Reporte del instalador:\n${newReporte.texto}` })
-
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
+      const procResponse = await fetch('/api/process-obra-report', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'anthropic-dangerous-direct-browser-access': 'true', 'anthropic-version': '2023-06-01', 'x-api-key': ANTHROPIC_API_KEY },
-        body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 2000, system: systemPrompt, messages: [{ role: 'user', content: userContent }] }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          reporte_id: inserted.id,
+          obra_id: obra.id,
+          obra_nombre: obra.nombre,
+          obra_sistemas: obra.sistemas,
+          texto: newReporte.texto,
+          fotos: newReporte.fotos,
+        }),
       })
-
-      if (response.ok) {
-        const data = await response.json()
-        const text = (data.content || []).filter((b: any) => b.type === 'text').map((b: any) => b.text).join('')
-        const jsonMatch = text.match(/\{[\s\S]*\}/)
-        if (jsonMatch) {
-          const parsed = JSON.parse(jsonMatch[0].replace(/```json|```/g, '').trim())
-          reporte.ai_resumen = parsed.resumen || ''
-          reporte.ai_avances = parsed.avances || []
-          reporte.ai_faltantes = parsed.faltantes || []
-          reporte.ai_bloqueos = parsed.bloqueos || []
+      if (procResponse.ok) {
+        const procData = await procResponse.json()
+        if (procData.ok) {
+          reporte.ai_resumen = procData.resumen || ''
+          reporte.ai_avances = procData.avances || []
+          reporte.ai_faltantes = procData.faltantes || []
+          reporte.ai_bloqueos = procData.bloqueos || []
           reporte.procesado = true
         }
       }
     } catch (err) {
-      console.error('AI processing error:', err)
+      console.error('Error procesando reporte con AI:', err)
+      // Si falla, el reporte queda con procesado=false — se puede reintentar después
     }
 
     updateObra(o => ({ ...o, reportes: [reporte, ...o.reportes] }))
@@ -1129,11 +1262,31 @@ El instalador reporta desde campo. Extrae información accionable.`
    ═══════════════════════════════════════════════════════════════════ */
 
 function SubEntrega({ obra, updateObra }: { obra: ObraData; updateObra: (fn: (o: ObraData) => ObraData) => void }) {
-  const toggleDoc = (idx: number) => {
+  const toggleDoc = async (idx: number) => {
+    const current = obra.entrega_docs[idx]
+    const newReceived = !current.recibido
+    // Optimistic update
     updateObra(o => ({
       ...o,
-      entrega_docs: o.entrega_docs.map((d, i) => i === idx ? { ...d, recibido: !d.recibido } : d),
+      entrega_docs: o.entrega_docs.map((d, i) => i === idx ? { ...d, recibido: newReceived } : d),
     }))
+    // Persistir: busca el doc por nombre + obra_id. Si no existe lo inserta.
+    try {
+      const { data: existing } = await supabase.from('obra_entrega_docs').select('id').eq('obra_id', obra.id).eq('nombre', current.nombre).maybeSingle()
+      if (existing?.id) {
+        await supabase.from('obra_entrega_docs').update({ recibido: newReceived, fecha: newReceived ? new Date().toISOString().substring(0, 10) : null }).eq('id', existing.id)
+      } else {
+        await supabase.from('obra_entrega_docs').insert({
+          obra_id: obra.id,
+          nombre: current.nombre,
+          recibido: newReceived,
+          fecha: newReceived ? new Date().toISOString().substring(0, 10) : null,
+          order_index: idx,
+        })
+      }
+    } catch (err) {
+      console.error('Error persistiendo entrega doc:', err)
+    }
   }
 
   const allReceived = obra.entrega_docs.every(d => d.recibido)
@@ -1176,7 +1329,10 @@ function SubEntrega({ obra, updateObra }: { obra: ObraData; updateObra: (fn: (o:
       {allReceived && obra.status === 'entrega_pendiente' && (
         <div style={{ padding: 16, background: 'rgba(87,255,154,0.05)', border: '1px solid rgba(87,255,154,0.15)', borderRadius: 10, textAlign: 'center' }}>
           <div style={{ fontSize: 13, color: '#57FF9A', fontWeight: 600, marginBottom: 8 }}>Todos los documentos recibidos</div>
-          <Btn size="sm" variant="primary" onClick={() => updateObra(o => ({ ...o, status: 'en_ejecucion' }))}>
+          <Btn size="sm" variant="primary" onClick={async () => {
+            updateObra(o => ({ ...o, status: 'en_ejecucion' }))
+            await supabase.from('obras').update({ status: 'en_ejecucion' }).eq('id', obra.id)
+          }}>
             <CheckCircle size={12} /> Iniciar ejecución de obra
           </Btn>
         </div>
@@ -1195,11 +1351,15 @@ function SubEquipo({ obra, instaladores, obraInstaladores, updateObra }: {
   const [showAdd, setShowAdd] = useState(false)
   const disponibles = instaladores.filter(i => !obra.instaladores_ids.includes(i.id) && i.disponible)
 
-  const addInstalador = (id: string) => {
+  const addInstalador = async (id: string) => {
     updateObra(o => ({ ...o, instaladores_ids: [...o.instaladores_ids, id] }))
+    const { error } = await supabase.from('obra_instaladores').insert({ obra_id: obra.id, employee_id: id, rol: 'instalador' })
+    if (error) console.error('Error asignando instalador:', error)
   }
-  const removeInstalador = (id: string) => {
+  const removeInstalador = async (id: string) => {
     updateObra(o => ({ ...o, instaladores_ids: o.instaladores_ids.filter(x => x !== id) }))
+    const { error } = await supabase.from('obra_instaladores').delete().eq('obra_id', obra.id).eq('employee_id', id)
+    if (error) console.error('Error removiendo instalador:', error)
   }
 
   return (
@@ -1894,6 +2054,562 @@ function NuevoInstaladorModal({ onClose, onSubmit, onCreated }: {
           <Btn size="sm" variant="primary" onClick={crear} disabled={saving}>{saving ? 'Guardando...' : 'Crear instalador'}</Btn>
         </div>
       </div>
+    </div>
+  )
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   SUB: BLOQUEOS — mini sistema de tickets
+   ═══════════════════════════════════════════════════════════════════ */
+
+interface BloqueoDB {
+  id: string
+  obra_id: string
+  actividad_id: string | null
+  tipo: string
+  descripcion: string
+  severidad: 'baja' | 'media' | 'alta' | 'critica'
+  status: 'abierto' | 'en_atencion' | 'resuelto'
+  reportado_por_id: string | null
+  asignado_a_id: string | null
+  fecha_reporte: string
+  fecha_resolucion: string | null
+  notificado_residente: boolean
+  notas_resolucion: string | null
+}
+
+const BLOQUEO_TIPO_LABEL: Record<string, string> = {
+  falta_material: 'Falta material',
+  falta_acceso: 'Falta acceso',
+  cliente: 'Cliente',
+  diseno: 'Diseño',
+  clima: 'Clima',
+  otro: 'Otro',
+}
+const SEVERIDAD_COLOR: Record<string, string> = {
+  baja: '#57FF9A',
+  media: '#F59E0B',
+  alta: '#EF4444',
+  critica: '#C026D3',
+}
+
+function SubBloqueos({ obra, instaladores }: { obra: ObraData; instaladores: Instalador[] }) {
+  const [bloqueos, setBloqueos] = useState<BloqueoDB[]>([])
+  const [loading, setLoading] = useState(true)
+  const [showNew, setShowNew] = useState(false)
+  const [newForm, setNewForm] = useState({ tipo: 'falta_material', descripcion: '', severidad: 'media', asignado_a_id: '' })
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    supabase.from('obra_bloqueos').select('*').eq('obra_id', obra.id).order('fecha_reporte', { ascending: false })
+      .then(({ data, error }) => {
+        if (error) console.error('Error cargando bloqueos:', error)
+        setBloqueos((data || []) as BloqueoDB[])
+        setLoading(false)
+      })
+  }, [obra.id])
+
+  async function crear() {
+    if (!newForm.descripcion.trim()) { setSaveError('La descripción es obligatoria'); return }
+    setSaveError(null)
+    setSaving(true)
+    const payload: any = {
+      obra_id: obra.id,
+      tipo: newForm.tipo,
+      descripcion: newForm.descripcion.trim(),
+      severidad: newForm.severidad,
+      status: 'abierto',
+      asignado_a_id: newForm.asignado_a_id || null,
+    }
+    const { data, error } = await supabase.from('obra_bloqueos').insert(payload).select().single()
+    setSaving(false)
+    if (error) {
+      setSaveError('Error al crear bloqueo: ' + error.message)
+      return
+    }
+    if (data) {
+      setBloqueos(prev => [data as BloqueoDB, ...prev])
+      setNewForm({ tipo: 'falta_material', descripcion: '', severidad: 'media', asignado_a_id: '' })
+      setShowNew(false)
+    }
+  }
+
+  async function resolver(id: string, notas: string) {
+    const { error } = await supabase.from('obra_bloqueos').update({
+      status: 'resuelto', fecha_resolucion: new Date().toISOString(), notas_resolucion: notas || null,
+    }).eq('id', id)
+    if (error) { alert('Error al resolver: ' + error.message); return }
+    setBloqueos(prev => prev.map(b => b.id === id ? { ...b, status: 'resuelto', fecha_resolucion: new Date().toISOString(), notas_resolucion: notas || null } : b))
+  }
+
+  async function toggleNotifResidente(id: string, current: boolean) {
+    const { error } = await supabase.from('obra_bloqueos').update({ notificado_residente: !current }).eq('id', id)
+    if (error) return
+    setBloqueos(prev => prev.map(b => b.id === id ? { ...b, notificado_residente: !current } : b))
+  }
+
+  const abiertos = bloqueos.filter(b => b.status !== 'resuelto')
+  const resueltos = bloqueos.filter(b => b.status === 'resuelto')
+
+  if (loading) return <Loading />
+
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 600, color: '#fff' }}>Bloqueos de obra</div>
+          <div style={{ fontSize: 11, color: '#666' }}>Tickets abiertos: {abiertos.length} · Resueltos: {resueltos.length}</div>
+        </div>
+        <Btn size="sm" variant="primary" onClick={() => setShowNew(true)}><Plus size={12} /> Nuevo bloqueo</Btn>
+      </div>
+
+      {showNew && (
+        <div style={{ ...cardStyle, borderColor: '#EF444433', marginBottom: 12 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: '#fff', marginBottom: 10 }}>Nuevo bloqueo</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 8 }}>
+            <div>
+              <div style={labelStyle}>Tipo</div>
+              <select value={newForm.tipo} onChange={e => setNewForm(f => ({ ...f, tipo: e.target.value }))} style={inputStyle}>
+                {Object.entries(BLOQUEO_TIPO_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+              </select>
+            </div>
+            <div>
+              <div style={labelStyle}>Severidad</div>
+              <select value={newForm.severidad} onChange={e => setNewForm(f => ({ ...f, severidad: e.target.value }))} style={inputStyle}>
+                <option value="baja">Baja</option>
+                <option value="media">Media</option>
+                <option value="alta">Alta</option>
+                <option value="critica">Crítica</option>
+              </select>
+            </div>
+            <div>
+              <div style={labelStyle}>Asignar a</div>
+              <select value={newForm.asignado_a_id} onChange={e => setNewForm(f => ({ ...f, asignado_a_id: e.target.value }))} style={inputStyle}>
+                <option value="">— Sin asignar —</option>
+                {instaladores.map(i => <option key={i.id} value={i.id}>{i.nombre}</option>)}
+              </select>
+            </div>
+          </div>
+          <div>
+            <div style={labelStyle}>Descripción *</div>
+            <textarea value={newForm.descripcion} onChange={e => setNewForm(f => ({ ...f, descripcion: e.target.value }))} rows={3} style={{ ...inputStyle, resize: 'vertical' }} placeholder="Qué está frenando el avance..." />
+          </div>
+          {saveError && (
+            <div style={{ marginTop: 10, padding: '8px 12px', background: '#2a1414', border: '1px solid #5a2828', borderRadius: 6, color: '#f87171', fontSize: 11 }}>⚠ {saveError}</div>
+          )}
+          <div style={{ display: 'flex', gap: 8, marginTop: 10, justifyContent: 'flex-end' }}>
+            <Btn size="sm" variant="default" onClick={() => { setShowNew(false); setSaveError(null) }}>Cancelar</Btn>
+            <Btn size="sm" variant="primary" onClick={crear} disabled={saving}>{saving ? 'Guardando...' : 'Crear'}</Btn>
+          </div>
+        </div>
+      )}
+
+      {abiertos.length === 0 && resueltos.length === 0 && <EmptyState message="Sin bloqueos registrados en esta obra" />}
+
+      {abiertos.length > 0 && (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 11, color: '#EF4444', fontWeight: 600, textTransform: 'uppercase', marginBottom: 8 }}>Abiertos ({abiertos.length})</div>
+          {abiertos.map(b => (
+            <div key={b.id} style={{ ...cardStyle, borderLeft: `3px solid ${SEVERIDAD_COLOR[b.severidad]}`, marginBottom: 8 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <Badge label={BLOQUEO_TIPO_LABEL[b.tipo] || b.tipo} color={SEVERIDAD_COLOR[b.severidad]} />
+                  <Badge label={b.severidad} color={SEVERIDAD_COLOR[b.severidad]} />
+                  {b.status === 'en_atencion' && <Badge label="En atención" color="#F59E0B" />}
+                </div>
+                <div style={{ fontSize: 10, color: '#555' }}>{new Date(b.fecha_reporte).toLocaleDateString('es-MX')}</div>
+              </div>
+              <div style={{ fontSize: 12, color: '#ccc', marginBottom: 8 }}>{b.descripcion}</div>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <label style={{ fontSize: 10, color: '#888', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <input type="checkbox" checked={b.notificado_residente} onChange={() => toggleNotifResidente(b.id, b.notificado_residente)} />
+                  Residente notificado
+                </label>
+                <button onClick={() => {
+                  const notas = prompt('Notas de resolución (opcional):') || ''
+                  resolver(b.id, notas)
+                }} style={{ marginLeft: 'auto', padding: '4px 10px', fontSize: 10, background: 'rgba(87,255,154,0.1)', border: '1px solid rgba(87,255,154,0.3)', borderRadius: 4, color: '#57FF9A', cursor: 'pointer', fontFamily: 'inherit' }}>
+                  Resolver
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {resueltos.length > 0 && (
+        <div>
+          <div style={{ fontSize: 11, color: '#57FF9A', fontWeight: 600, textTransform: 'uppercase', marginBottom: 8 }}>Resueltos ({resueltos.length})</div>
+          {resueltos.slice(0, 10).map(b => (
+            <div key={b.id} style={{ ...cardStyle, opacity: 0.6, marginBottom: 6, padding: 10 }}>
+              <div style={{ fontSize: 11, color: '#888' }}>
+                <Badge label={BLOQUEO_TIPO_LABEL[b.tipo] || b.tipo} color="#555" /> {b.descripcion}
+              </div>
+              {b.notas_resolucion && <div style={{ fontSize: 10, color: '#666', marginTop: 4 }}>Resuelto: {b.notas_resolucion}</div>}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   SUB: EXTRAS — bandeja de extras detectados por AI
+   ═══════════════════════════════════════════════════════════════════ */
+
+interface ExtraDB {
+  id: string
+  obra_id: string
+  reporte_id: string | null
+  tipo: 'actividad' | 'material' | 'cambio_scope'
+  descripcion: string
+  cantidad: number
+  unidad: string
+  sistema: string | null
+  area: string | null
+  catalog_product_id: string | null
+  match_confianza: number | null
+  precio_estimado: number
+  moneda: string
+  status: 'pendiente_revision' | 'aprobado_interno' | 'pendiente_cotizar' | 'cotizado' | 'rechazado' | 'absorbido_arquitecto'
+  actividad_id: string | null
+  cotizacion_adendum_id: string | null
+  quotation_item_id: string | null
+  detectado_at: string
+  detectado_por: string
+  texto_original: string | null
+}
+
+const EXTRA_STATUS_LABEL: Record<string, string> = {
+  pendiente_revision: 'Pendiente',
+  aprobado_interno: 'Aprobado interno',
+  pendiente_cotizar: 'Pendiente cotizar',
+  cotizado: 'Cotizado',
+  rechazado: 'Rechazado',
+  absorbido_arquitecto: 'Absorbido por arquitecto',
+}
+
+function SubExtras({ obra }: { obra: ObraData }) {
+  const [extras, setExtras] = useState<ExtraDB[]>([])
+  const [loading, setLoading] = useState(true)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [generating, setGenerating] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    supabase.from('obra_extras').select('*').eq('obra_id', obra.id).order('detectado_at', { ascending: false })
+      .then(({ data, error: err }) => {
+        if (err) console.error('Error cargando extras:', err)
+        setExtras((data || []) as ExtraDB[])
+        setLoading(false)
+      })
+  }, [obra.id])
+
+  const toggleSel = (id: string) => {
+    setSelected(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  async function aprobarInterno(id: string) {
+    const { error: err } = await supabase.from('obra_extras').update({ status: 'aprobado_interno', revisado_at: new Date().toISOString() }).eq('id', id)
+    if (err) { alert('Error: ' + err.message); return }
+    setExtras(prev => prev.map(e => e.id === id ? { ...e, status: 'aprobado_interno' } : e))
+  }
+
+  async function rechazar(id: string) {
+    const { error: err } = await supabase.from('obra_extras').update({ status: 'rechazado', revisado_at: new Date().toISOString() }).eq('id', id)
+    if (err) { alert('Error: ' + err.message); return }
+    setExtras(prev => prev.map(e => e.id === id ? { ...e, status: 'rechazado' } : e))
+  }
+
+  async function generarAdendum() {
+    const selectedExtras = extras.filter(e => selected.has(e.id) && e.status === 'pendiente_revision')
+    if (selectedExtras.length === 0) { setError('No hay extras seleccionados'); return }
+    setGenerating(true)
+    setError(null)
+
+    try {
+      // 1. Crear cotización adendum
+      const { data: cot, error: cotErr } = await supabase.from('quotations').insert({
+        name: `Adendum: ${obra.nombre}`,
+        client_name: obra.cliente,
+        specialty: 'esp',
+        stage: 'oportunidad',
+        tipo_cotizacion: 'adendum',
+        parent_obra_id: obra.id,
+        total: 0,
+        notes: JSON.stringify({ currency: 'MXN', systems: obra.sistemas, fromObraExtras: true }),
+      }).select().single()
+      if (cotErr) throw cotErr
+      const cotizacionId = cot.id
+
+      // 2. Crear área default
+      const { data: area, error: areaErr } = await supabase.from('quotation_areas').insert({
+        quotation_id: cotizacionId, name: 'Extras detectados', order_index: 0, subtotal: 0,
+      }).select().single()
+      if (areaErr) throw areaErr
+      const areaId = area.id
+
+      // 3. Por cada extra: crear quotation_item y actualizar el extra
+      let totalAdendum = 0
+      for (let i = 0; i < selectedExtras.length; i++) {
+        const ex = selectedExtras[i]
+        const precio = ex.precio_estimado || 0
+        const itemTotal = precio * ex.cantidad
+        totalAdendum += itemTotal
+        const { data: item, error: itemErr } = await supabase.from('quotation_items').insert({
+          quotation_id: cotizacionId,
+          area_id: areaId,
+          catalog_product_id: ex.catalog_product_id,
+          name: ex.descripcion,
+          description: ex.texto_original,
+          system: ex.sistema,
+          type: ex.tipo === 'actividad' ? 'labor' : 'material',
+          quantity: ex.cantidad,
+          cost: precio,
+          markup: 0,
+          price: precio,
+          total: itemTotal,
+          installation_cost: 0,
+          order_index: i,
+        }).select().single()
+        if (itemErr) throw itemErr
+        // Update extra
+        await supabase.from('obra_extras').update({
+          status: 'cotizado',
+          cotizacion_adendum_id: cotizacionId,
+          quotation_item_id: item.id,
+          revisado_at: new Date().toISOString(),
+        }).eq('id', ex.id)
+      }
+
+      // 4. Update cotizacion total
+      await supabase.from('quotations').update({ total: totalAdendum }).eq('id', cotizacionId)
+
+      // 5. Refresh local state
+      setExtras(prev => prev.map(e => selected.has(e.id) ? { ...e, status: 'cotizado', cotizacion_adendum_id: cotizacionId } : e))
+      setSelected(new Set())
+      alert(`Cotización adendum creada con ${selectedExtras.length} items. Total: $${totalAdendum.toFixed(2)}. Puedes editarla desde el módulo de Cotizaciones.`)
+    } catch (err: any) {
+      console.error('Error generando adendum:', err)
+      setError('Error al generar adendum: ' + (err?.message || String(err)))
+    }
+    setGenerating(false)
+  }
+
+  if (loading) return <Loading />
+
+  const pendientes = extras.filter(e => e.status === 'pendiente_revision')
+  const revisados = extras.filter(e => e.status !== 'pendiente_revision')
+
+  // Alerta de escalación: pendientes con > 7 días
+  const ahora = Date.now()
+  const SIETE_DIAS = 7 * 24 * 60 * 60 * 1000
+  const escalados = pendientes.filter(e => ahora - new Date(e.detectado_at).getTime() > SIETE_DIAS)
+
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 600, color: '#fff' }}>Bandeja de extras</div>
+          <div style={{ fontSize: 11, color: '#666' }}>Pendientes: {pendientes.length} · Revisados: {revisados.length} {escalados.length > 0 && <span style={{ color: '#C026D3', fontWeight: 600 }}>· {escalados.length} críticos (&gt; 7 días)</span>}</div>
+        </div>
+      </div>
+
+      {error && (
+        <div style={{ marginBottom: 12, padding: '10px 12px', background: '#2a1414', border: '1px solid #5a2828', borderRadius: 8, color: '#f87171', fontSize: 12 }}>⚠ {error}</div>
+      )}
+
+      {pendientes.length === 0 && revisados.length === 0 && <EmptyState message="No hay extras detectados. Los extras se generan automáticamente al procesar reportes de campo con AI." />}
+
+      {pendientes.length > 0 && (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+            <div style={{ fontSize: 11, color: '#F59E0B', fontWeight: 600, textTransform: 'uppercase' }}>Pendientes de revisión ({pendientes.length})</div>
+            {selected.size > 0 && (
+              <Btn size="sm" variant="primary" onClick={generarAdendum} disabled={generating}>
+                {generating ? 'Generando...' : `✨ Generar cotización adendum (${selected.size})`}
+              </Btn>
+            )}
+          </div>
+          {pendientes.map(ex => {
+            const diasEspera = Math.floor((ahora - new Date(ex.detectado_at).getTime()) / (24 * 60 * 60 * 1000))
+            const critico = diasEspera > 7
+            return (
+              <div key={ex.id} style={{ ...cardStyle, marginBottom: 8, borderLeft: critico ? '3px solid #C026D3' : '3px solid #F59E0B' }}>
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <input type="checkbox" checked={selected.has(ex.id)} onChange={() => toggleSel(ex.id)} style={{ marginTop: 4 }} />
+                  <div style={{ flex: 1 }}>
+                    <div style={{ display: 'flex', gap: 6, marginBottom: 4 }}>
+                      <Badge label={ex.tipo} color={ex.tipo === 'actividad' ? '#8B5CF6' : '#06B6D4'} />
+                      {ex.sistema && <Badge label={ex.sistema} color="#3B82F6" />}
+                      <Badge label={`${ex.cantidad} ${ex.unidad}`} color="#555" />
+                      {critico && <Badge label={`⚠ ${diasEspera}d`} color="#C026D3" />}
+                      {ex.catalog_product_id && ex.match_confianza !== null && ex.match_confianza > 0.8 && <Badge label={`Match ${Math.round(ex.match_confianza * 100)}%`} color="#57FF9A" />}
+                    </div>
+                    <div style={{ fontSize: 12, color: '#ccc', marginBottom: 4 }}>{ex.descripcion}</div>
+                    {ex.texto_original && <div style={{ fontSize: 10, color: '#666', fontStyle: 'italic', marginBottom: 6 }}>"{ex.texto_original}"</div>}
+                    {ex.precio_estimado > 0 && <div style={{ fontSize: 11, color: '#57FF9A' }}>Precio estimado: ${ex.precio_estimado.toFixed(2)} {ex.moneda}</div>}
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <button onClick={() => aprobarInterno(ex.id)} style={{ padding: '3px 8px', fontSize: 9, background: 'rgba(87,255,154,0.1)', border: '1px solid rgba(87,255,154,0.3)', borderRadius: 4, color: '#57FF9A', cursor: 'pointer', fontFamily: 'inherit' }}>Aprobar interno</button>
+                    <button onClick={() => rechazar(ex.id)} style={{ padding: '3px 8px', fontSize: 9, background: '#1a1a1a', border: '1px solid #333', borderRadius: 4, color: '#666', cursor: 'pointer', fontFamily: 'inherit' }}>Rechazar</button>
+                  </div>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {revisados.length > 0 && (
+        <div>
+          <div style={{ fontSize: 11, color: '#666', fontWeight: 600, textTransform: 'uppercase', marginBottom: 8 }}>Revisados ({revisados.length})</div>
+          {revisados.slice(0, 20).map(ex => (
+            <div key={ex.id} style={{ ...cardStyle, marginBottom: 6, padding: 10, opacity: 0.65 }}>
+              <div style={{ display: 'flex', gap: 6, marginBottom: 4 }}>
+                <Badge label={ex.tipo} color="#555" />
+                <Badge label={EXTRA_STATUS_LABEL[ex.status]} color={ex.status === 'cotizado' ? '#57FF9A' : ex.status === 'rechazado' ? '#EF4444' : '#888'} />
+              </div>
+              <div style={{ fontSize: 11, color: '#888' }}>{ex.descripcion}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   SUB: DOCUMENTACION — vista de docs técnicos del proyecto ligado
+   ═══════════════════════════════════════════════════════════════════ */
+
+interface DocDB {
+  id: string
+  project_id: string | null
+  obra_id: string | null
+  nombre: string
+  tipo: string
+  sistema: string | null
+  drive_url: string
+  drive_thumbnail_url: string | null
+  version: string | null
+  fecha_subida: string
+  notas: string | null
+}
+
+const DOC_TIPO_LABEL: Record<string, string> = {
+  plano: 'Plano',
+  ficha_tecnica: 'Ficha técnica',
+  diagrama: 'Diagrama',
+  render: 'Render',
+  memoria_calculo: 'Memoria de cálculo',
+  manual: 'Manual',
+  otro: 'Otro',
+}
+
+function SubDocumentacion({ obra }: { obra: ObraData }) {
+  const [docs, setDocs] = useState<DocDB[]>([])
+  const [loading, setLoading] = useState(true)
+  const [projectId, setProjectId] = useState<string | null>(null)
+  const [filterTipo, setFilterTipo] = useState<string>('')
+  const [filterSistema, setFilterSistema] = useState<string>('')
+
+  useEffect(() => {
+    async function load() {
+      setLoading(true)
+      // Get project_id from the obra's quotation
+      let pId: string | null = null
+      if (obra.cotizacion_id) {
+        const { data: cot } = await supabase.from('quotations').select('project_id').eq('id', obra.cotizacion_id).maybeSingle()
+        pId = cot?.project_id || null
+      }
+      setProjectId(pId)
+      // Fetch docs either from project_id or directly obra_id
+      const queries: Promise<any>[] = []
+      if (pId) {
+        queries.push(Promise.resolve(supabase.from('obra_documentos').select('*').eq('project_id', pId)))
+      }
+      queries.push(Promise.resolve(supabase.from('obra_documentos').select('*').eq('obra_id', obra.id)))
+      const results = await Promise.all(queries)
+      const allDocs: DocDB[] = []
+      const seen = new Set<string>()
+      for (const r of results) {
+        for (const d of (r.data || [])) {
+          if (!seen.has(d.id)) { allDocs.push(d); seen.add(d.id) }
+        }
+      }
+      setDocs(allDocs)
+      setLoading(false)
+    }
+    load()
+  }, [obra.id, obra.cotizacion_id])
+
+  const filtered = docs.filter(d =>
+    (!filterTipo || d.tipo === filterTipo) &&
+    (!filterSistema || d.sistema === filterSistema)
+  )
+
+  const sistemasPresentes = Array.from(new Set(docs.map(d => d.sistema).filter(Boolean))) as string[]
+
+  if (loading) return <Loading />
+
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16, alignItems: 'flex-start' }}>
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 600, color: '#fff' }}>Documentación técnica</div>
+          <div style={{ fontSize: 11, color: '#666' }}>
+            {projectId ? 'Ligada al proyecto desde la cotización.' : 'Esta obra no tiene proyecto ligado — muestra solo documentos directos.'}
+            {' '}Para agregar documentos, ve al módulo de <strong>Proyectos</strong>.
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <select value={filterTipo} onChange={e => setFilterTipo(e.target.value)} style={{ ...inputStyle, width: 130, padding: '5px 8px' }}>
+            <option value="">Todo tipo</option>
+            {Object.entries(DOC_TIPO_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+          </select>
+          {sistemasPresentes.length > 0 && (
+            <select value={filterSistema} onChange={e => setFilterSistema(e.target.value)} style={{ ...inputStyle, width: 130, padding: '5px 8px' }}>
+              <option value="">Todo sistema</option>
+              {sistemasPresentes.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+          )}
+        </div>
+      </div>
+
+      {filtered.length === 0 ? (
+        <EmptyState message={docs.length === 0 ? "No hay documentos técnicos para esta obra" : "Sin resultados con los filtros aplicados"} />
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 12 }}>
+          {filtered.map(d => (
+            <a key={d.id} href={d.drive_url} target="_blank" rel="noopener noreferrer" style={{
+              ...cardStyle, textDecoration: 'none', display: 'block', transition: 'border-color 0.12s',
+            }}
+              onMouseEnter={e => (e.currentTarget.style.borderColor = '#57FF9A44')}
+              onMouseLeave={e => (e.currentTarget.style.borderColor = '#222')}
+            >
+              {d.drive_thumbnail_url && (
+                <img src={d.drive_thumbnail_url} alt={d.nombre} style={{ width: '100%', height: 120, objectFit: 'cover', borderRadius: 6, marginBottom: 8 }} />
+              )}
+              <div style={{ display: 'flex', gap: 6, marginBottom: 4, flexWrap: 'wrap' }}>
+                <Badge label={DOC_TIPO_LABEL[d.tipo] || d.tipo} color="#3B82F6" />
+                {d.sistema && <Badge label={d.sistema} color="#8B5CF6" />}
+                {d.version && <Badge label={d.version} color="#555" />}
+              </div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 4 }}>{d.nombre}</div>
+              {d.notas && <div style={{ fontSize: 10, color: '#666' }}>{d.notas}</div>}
+              <div style={{ fontSize: 9, color: '#444', marginTop: 6 }}>↗ Abrir en Drive</div>
+            </a>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
