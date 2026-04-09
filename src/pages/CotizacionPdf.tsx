@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { F } from '../lib/utils'
+import { FCUR } from '../lib/utils'
+import { OMNIIOUS_LOGO } from '../assets/logo'
 import { Printer, Loader2, Settings } from 'lucide-react'
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -56,6 +57,7 @@ interface ItemRow {
   marca?: string | null
   modelo?: string | null
   sku?: string | null
+  image_url?: string | null
 }
 
 interface QuotationFull {
@@ -79,8 +81,6 @@ function formatDate(iso: string): string {
 function getCurrency(cot: QuotationFull): 'USD' | 'MXN' {
   try { const m = JSON.parse(cot.notes || '{}'); return (m.currency || 'USD') as 'USD' | 'MXN' } catch { return 'USD' }
 }
-
-function curSymbol(cur: string): string { return cur === 'USD' ? 'US$' : '$' }
 
 function shortId(id: string): string { return id.substring(0, 8).toUpperCase() }
 
@@ -185,7 +185,6 @@ export default function CotizacionPdf() {
 
   // ── Cálculos derivados ──────────────────────────────────────────────────
   const currency = getCurrency(cot)
-  const sym = curSymbol(currency)
   const materialItems = items.filter(i => i.type !== 'labor')
   const laborItems = items.filter(i => i.type === 'labor')
 
@@ -382,10 +381,9 @@ export default function CotizacionPdf() {
 
         {/* HEADER */}
         <div style={{ borderBottom: '2px solid #111', paddingBottom: 16, marginBottom: 20 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-            <div>
-              <div style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em' }}>OMM</div>
-              <div style={{ fontSize: 9, color: '#666', letterSpacing: '0.1em', textTransform: 'uppercase', marginTop: 2 }}>Technologies</div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 20 }}>
+            <div style={{ display: 'flex', alignItems: 'center' }}>
+              <img src={OMNIIOUS_LOGO} alt="OMNIIOUS" style={{ height: 72, width: 'auto', objectFit: 'contain' }} />
             </div>
             <div style={{ textAlign: 'right', fontSize: 9, color: '#555', lineHeight: 1.6 }}>
               <div style={{ fontWeight: 600, color: '#111', fontSize: 11 }}>{omm.razonSocial}</div>
@@ -459,23 +457,23 @@ export default function CotizacionPdf() {
                 <tr key={sys}>
                   <td style={{ fontWeight: 500 }}>{sys}</td>
                   <td style={{ textAlign: 'center' }}>{data.count}</td>
-                  <td style={{ textAlign: 'right', fontWeight: 500 }}>{sym}{F(data.subtotal)}</td>
+                  <td style={{ textAlign: 'right', fontWeight: 500 }}>{FCUR(data.subtotal, currency)}</td>
                 </tr>
               ))}
               <tr style={{ borderTop: '2px solid #111' }}>
                 <td style={{ fontWeight: 700, paddingTop: 8 }}>Total materiales e instalación</td>
                 <td></td>
-                <td style={{ textAlign: 'right', fontWeight: 700, paddingTop: 8 }}>{sym}{F(subtotal)}</td>
+                <td style={{ textAlign: 'right', fontWeight: 700, paddingTop: 8 }}>{FCUR(subtotal, currency)}</td>
               </tr>
               <tr>
                 <td style={{ color: '#888' }}>IVA 16%</td>
                 <td></td>
-                <td style={{ textAlign: 'right', color: '#888' }}>{sym}{F(iva)}</td>
+                <td style={{ textAlign: 'right', color: '#888' }}>{FCUR(iva, currency)}</td>
               </tr>
               <tr>
                 <td style={{ fontWeight: 700, fontSize: 12, color: '#111' }}>Total con IVA</td>
                 <td></td>
-                <td style={{ textAlign: 'right', fontWeight: 700, fontSize: 12, color: '#111' }}>{sym}{F(totalCon)}</td>
+                <td style={{ textAlign: 'right', fontWeight: 700, fontSize: 12, color: '#111' }}>{FCUR(totalCon, currency)}</td>
               </tr>
             </tbody>
           </table>
@@ -505,24 +503,34 @@ export default function CotizacionPdf() {
           <table className="pdf-table">
             <thead>
               <tr>
-                <th>Producto</th>
-                <th style={{ width: 80 }}>Sistema</th>
-                <th style={{ textAlign: 'center', width: 50 }}>Cant</th>
+                <th style={{ width: 52 }}></th>
+                <th style={{ width: 90 }}>Marca</th>
+                <th style={{ width: 110 }}>Modelo</th>
+                <th>Descripción</th>
+                <th style={{ width: 72 }}>Sistema</th>
+                <th style={{ textAlign: 'center', width: 42 }}>Cant</th>
                 <th style={{ textAlign: 'right', width: 90 }}>P. unit.</th>
-                <th style={{ textAlign: 'right', width: 100 }}>Total</th>
               </tr>
             </thead>
             <tbody>
               {materialItems.map(it => (
                 <tr key={it.id}>
+                  <td style={{ textAlign: 'center' }}>
+                    {it.image_url ? (
+                      <img src={it.image_url} alt="" style={{ width: 42, height: 42, objectFit: 'contain', border: '1px solid #eee', borderRadius: 3, background: '#fff' }} />
+                    ) : (
+                      <div style={{ width: 42, height: 42, border: '1px dashed #ddd', borderRadius: 3, background: '#fafafa' }}></div>
+                    )}
+                  </td>
+                  <td style={{ fontSize: 10, fontWeight: 500 }}>{it.marca || '—'}</td>
+                  <td style={{ fontSize: 10 }}>{it.modelo || '—'}</td>
                   <td>
-                    <div style={{ fontWeight: 500 }}>{it.name}</div>
-                    {(it.marca || it.modelo) && <div style={{ fontSize: 9, color: '#888' }}>{it.marca} {it.modelo}</div>}
+                    <div style={{ fontWeight: 500, fontSize: 10 }}>{it.name}</div>
+                    {it.description && <div style={{ fontSize: 9, color: '#888', marginTop: 2, lineHeight: 1.4 }}>{it.description}</div>}
                   </td>
                   <td style={{ fontSize: 9, color: '#666' }}>{it.system || '—'}</td>
                   <td style={{ textAlign: 'center' }}>{it.quantity}</td>
-                  <td style={{ textAlign: 'right' }}>{sym}{F(it.price)}</td>
-                  <td style={{ textAlign: 'right', fontWeight: 500 }}>{sym}{F(it.price * it.quantity)}</td>
+                  <td style={{ textAlign: 'right', fontWeight: 500 }}>{FCUR(it.price, currency)}</td>
                 </tr>
               ))}
             </tbody>
@@ -535,7 +543,7 @@ export default function CotizacionPdf() {
               <div key={area.name} style={{ marginBottom: 18, breakInside: 'avoid' as any }}>
                 <div style={{ background: '#f5f5f5', padding: '8px 12px', marginBottom: 6, borderLeft: '3px solid #111', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <h3 style={{ fontSize: 12, color: '#111' }}>{idx + 1}. {area.name}</h3>
-                  <div style={{ fontSize: 11, fontWeight: 600 }}>{sym}{F(areaTotal)}</div>
+                  <div style={{ fontSize: 11, fontWeight: 600 }}>{FCUR(areaTotal, currency)}</div>
                 </div>
                 {Object.entries(area.systems).map(([sys, sysItems]) => {
                   const sysTotal = sysItems.reduce((s, i) => s + (i.price * i.quantity), 0)
@@ -543,27 +551,38 @@ export default function CotizacionPdf() {
                     <div key={sys} style={{ marginLeft: 10, marginBottom: 10 }}>
                       <div style={{ fontSize: 10, fontWeight: 600, color: '#666', textTransform: 'uppercase', letterSpacing: '0.04em', padding: '4px 0', display: 'flex', justifyContent: 'space-between' }}>
                         <span>{sys}</span>
-                        <span>{sym}{F(sysTotal)}</span>
+                        <span>{FCUR(sysTotal, currency)}</span>
                       </div>
                       <table className="pdf-table">
                         <thead>
                           <tr>
-                            <th>Producto</th>
-                            {mostrarCostosInternos && <th style={{ width: 100 }}>SKU / Proveedor</th>}
-                            <th style={{ textAlign: 'center', width: 40 }}>Cant</th>
+                            {mostrarCostosInternos && <th style={{ width: 52 }}></th>}
+                            {!mostrarCostosInternos && <th style={{ width: 52 }}></th>}
+                            <th style={{ width: 90 }}>Marca</th>
+                            <th style={{ width: 110 }}>Modelo</th>
+                            <th>Descripción</th>
+                            {mostrarCostosInternos && <th style={{ width: 90 }}>SKU / Proveedor</th>}
                             {mostrarCostosInternos && <th style={{ textAlign: 'right', width: 70 }}>Costo</th>}
-                            {mostrarCostosInternos && <th style={{ textAlign: 'center', width: 40 }}>MUp</th>}
-                            <th style={{ textAlign: 'right', width: 80 }}>P. unit.</th>
-                            <th style={{ textAlign: 'right', width: 90 }}>Total</th>
+                            {mostrarCostosInternos && <th style={{ textAlign: 'center', width: 42 }}>MUp</th>}
+                            <th style={{ textAlign: 'center', width: 42 }}>Cant</th>
+                            <th style={{ textAlign: 'right', width: 90 }}>P. unit.</th>
                           </tr>
                         </thead>
                         <tbody>
                           {sysItems.map(it => (
                             <tr key={it.id}>
+                              <td style={{ textAlign: 'center' }}>
+                                {it.image_url ? (
+                                  <img src={it.image_url} alt="" style={{ width: 42, height: 42, objectFit: 'contain', border: '1px solid #eee', borderRadius: 3, background: '#fff' }} />
+                                ) : (
+                                  <div style={{ width: 42, height: 42, border: '1px dashed #ddd', borderRadius: 3, background: '#fafafa' }}></div>
+                                )}
+                              </td>
+                              <td style={{ fontSize: 10, fontWeight: 500 }}>{it.marca || '—'}</td>
+                              <td style={{ fontSize: 10 }}>{it.modelo || '—'}</td>
                               <td>
-                                <div style={{ fontWeight: 500 }}>{it.name}</div>
-                                {(it.marca || it.modelo) && <div style={{ fontSize: 9, color: '#888' }}>{it.marca} {it.modelo}</div>}
-                                {mostrarCostosInternos && it.description && <div style={{ fontSize: 9, color: '#aaa', marginTop: 2 }}>{it.description}</div>}
+                                <div style={{ fontWeight: 500, fontSize: 10 }}>{it.name}</div>
+                                {it.description && <div style={{ fontSize: 9, color: '#888', marginTop: 2, lineHeight: 1.4 }}>{it.description}</div>}
                               </td>
                               {mostrarCostosInternos && (
                                 <td style={{ fontSize: 9, color: '#666' }}>
@@ -572,11 +591,10 @@ export default function CotizacionPdf() {
                                   {it.purchase_phase && <div style={{ fontSize: 8, color: '#999' }}>Fase: {it.purchase_phase}</div>}
                                 </td>
                               )}
-                              <td style={{ textAlign: 'center' }}>{it.quantity}</td>
-                              {mostrarCostosInternos && <td style={{ textAlign: 'right', color: '#888' }}>{sym}{F(it.cost || 0)}</td>}
+                              {mostrarCostosInternos && <td style={{ textAlign: 'right', color: '#888' }}>{FCUR(it.cost || 0, currency)}</td>}
                               {mostrarCostosInternos && <td style={{ textAlign: 'center', color: '#888', fontSize: 9 }}>{it.markup || 0}%</td>}
-                              <td style={{ textAlign: 'right' }}>{sym}{F(it.price)}</td>
-                              <td style={{ textAlign: 'right', fontWeight: 500 }}>{sym}{F(it.price * it.quantity)}</td>
+                              <td style={{ textAlign: 'center' }}>{it.quantity}</td>
+                              <td style={{ textAlign: 'right', fontWeight: 500 }}>{FCUR(it.price, currency)}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -595,31 +613,31 @@ export default function CotizacionPdf() {
             <tbody>
               <tr>
                 <td style={{ padding: '4px 0', color: '#666' }}>Subtotal materiales</td>
-                <td style={{ padding: '4px 0', textAlign: 'right' }}>{sym}{F(subtotalItems)}</td>
+                <td style={{ padding: '4px 0', textAlign: 'right' }}>{FCUR(subtotalItems, currency)}</td>
               </tr>
               {subtotalInstalacion > 0 && (
                 <tr>
                   <td style={{ padding: '4px 0', color: '#666' }}>Mano de obra de instalación</td>
-                  <td style={{ padding: '4px 0', textAlign: 'right' }}>{sym}{F(subtotalInstalacion)}</td>
+                  <td style={{ padding: '4px 0', textAlign: 'right' }}>{FCUR(subtotalInstalacion, currency)}</td>
                 </tr>
               )}
               {subtotalManoObra > 0 && (
                 <tr>
                   <td style={{ padding: '4px 0', color: '#666' }}>Servicios adicionales</td>
-                  <td style={{ padding: '4px 0', textAlign: 'right' }}>{sym}{F(subtotalManoObra)}</td>
+                  <td style={{ padding: '4px 0', textAlign: 'right' }}>{FCUR(subtotalManoObra, currency)}</td>
                 </tr>
               )}
               <tr style={{ borderTop: '1px solid #ddd' }}>
                 <td style={{ padding: '6px 0 4px 0', fontWeight: 600 }}>Subtotal</td>
-                <td style={{ padding: '6px 0 4px 0', textAlign: 'right', fontWeight: 600 }}>{sym}{F(subtotal)}</td>
+                <td style={{ padding: '6px 0 4px 0', textAlign: 'right', fontWeight: 600 }}>{FCUR(subtotal, currency)}</td>
               </tr>
               <tr>
                 <td style={{ padding: '4px 0', color: '#888' }}>IVA 16%</td>
-                <td style={{ padding: '4px 0', textAlign: 'right', color: '#888' }}>{sym}{F(iva)}</td>
+                <td style={{ padding: '4px 0', textAlign: 'right', color: '#888' }}>{FCUR(iva, currency)}</td>
               </tr>
               <tr>
                 <td style={{ padding: '8px 0 4px 0', fontWeight: 700, fontSize: 14, color: '#111', borderTop: '1px solid #111' }}>TOTAL</td>
-                <td style={{ padding: '8px 0 4px 0', textAlign: 'right', fontWeight: 700, fontSize: 14, color: '#111', borderTop: '1px solid #111' }}>{sym}{F(totalCon)}</td>
+                <td style={{ padding: '8px 0 4px 0', textAlign: 'right', fontWeight: 700, fontSize: 14, color: '#111', borderTop: '1px solid #111' }}>{FCUR(totalCon, currency)}</td>
               </tr>
             </tbody>
           </table>
