@@ -309,6 +309,7 @@ Todas las `VITE_*` están en el bundle JS. **No poner secretos reales ahí.**
 | CRM (leads) | ✅ Funcional | CRM.tsx | Dropdown de cliente fiscal OK después del fix `clientes` |
 | Cotizador ESP | ✅ Funcional | CotEditorESP.tsx | 10 sistemas internos, pricing rules por proveedor, dual currency USD/MXN |
 | AI Importer de cotizaciones | ✅ Funcional | CotEditorESP.tsx (AIImportModal) + api/extract.ts | Parseo directo para formato D-Tools (Manufacturer/Model/Room/System), fallback a Claude API. SheetJS via CDN. |
+| **Cotizar con AI** (generación) | ✅ Funcional | Cotizaciones.tsx (AIGenerateModal) + api/generate-quote.ts | Cuestionario guiado o scope libre → genera cotización completa con áreas+items. Usa 3 cotizaciones previas como precedentes + catálogo filtrado. Productos sugeridos se crean en catalog_products con prefijo `[AI Suggested]`. |
 | Catálogo de productos | ✅ Funcional | Catalogo.tsx + CotEditorESP (CreateProductModal con búsqueda AI) | |
 | Compras (OC) | ✅ Funcional | Compras.tsx | Agrupación proveedor × fase, cotejo de precios, recepción parcial |
 | Clientes | ✅ Funcional (tras fix 2026-04-08) | Clientes.tsx | Tabla es `clientes`, no `clientes_fiscales` |
@@ -474,6 +475,46 @@ Cotizaciones son per-quotation en USD o MXN, guardado en `quotations.notes` JSON
 - **NO eliminar tablas huérfanas** hasta que Elias termine todos los módulos. Muchas son andamios planeados (payroll, planeación semanal, fiscal v2, contabilidad completa, etc.) — destruirlas perdería trabajo de diseño.
 - Estrategia futura: al terminar todos los módulos, hacer **auditoría general con DB vaciada** y eliminar lo que no esté conectado ni sea módulo planeado activamente.
 - Cuando se construya un módulo que tenga duplicado conceptual, **decidir primero cuál versión gana** (la que tenga datos = candidata fuerte) y borrar la otra. **Nunca construir dos implementaciones paralelas.**
+
+### 2026-04-08 (continuación 2 — sesión nocturna)
+
+- `7d8a154` · feat(cotizaciones): Cotizar con AI - genera cotización completa desde scope estructurado · `api/generate-quote.ts` (nuevo), `src/pages/Cotizaciones.tsx`
+- `(pendiente)` · docs: actualizar CLAUDE.md con feature de Cotizar con AI
+
+**Nueva feature: Cotizar con AI**
+
+Arquitectura:
+- **Edge Function `api/generate-quote.ts`**: recibe scope + catálogo filtrado + precedentes, llama a Claude server-side con ANTHROPIC_KEY, devuelve JSON con areas/items sanitizados (valida catalog_product_id contra lista real).
+- **Componente `AIGenerateModal`** en Cotizaciones.tsx (755 líneas): modal multi-step con states `mode → questionnaire|freetext → generating → preview`. Preview editable con stats (✓ del catálogo, ⚡ AI Suggested).
+- **Botón "✨ Cotizar con AI"** en la página de Cotizaciones al lado del botón "Nueva cotización".
+
+Flujo del cuestionario (6-8 campos):
+1. Tipo de proyecto (residencial/corporativo/hotelería/retail/industrial)
+2. Nombre + cliente
+3. Tamaño m² + habitaciones/oficinas + ubicación
+4. Nivel (básico/medio/alto/premium) — sugerido, afecta marcas
+5. Sistemas a incluir (multi-select de los 10 ESP)
+6. Áreas específicas (textarea libre opcional, "si el arquitecto ya te pasó la lista")
+7. Notas y restricciones
+
+Al confirmar el preview:
+- Crea `quotation` con `specialty='esp'`, `stage='oportunidad'`
+- Crea `quotation_areas` en orden
+- Para cada item: si hay catalog_product_id válido, usa datos reales del catálogo. Si no, crea un producto nuevo en `catalog_products` con `name='[AI Suggested] ...'`, `provider='AI Suggested'`, `cost=0` (para que el ingeniero lo llene después)
+- Inserta `quotation_items` con pricing básico (el editor ESP recalcula después)
+- Navega directo al editor ESP sobre la nueva cotización
+
+Usa los 3 precedentes más recientes con `specialty='esp'` y `total > 0` como contexto. Hoy esos son: Ventanas Sacal, Casa Salame - Especiales (x2). La idea es que conforme se acumulen más cotizaciones reales, el sistema aprende progresivamente el estilo OMM sin tocar código.
+
+**Decisiones tomadas:**
+- Productos sugeridos se crean con `is_active=true` y prefijo `[AI Suggested]` en el nombre (opción 3 del cuestionario): el ingeniero los identifica fácil después para corregir/reemplazar. No se usa `is_active=false` porque perderían visibilidad en el catálogo del editor ESP.
+- La AI NO inventa marcas específicas fuera del catálogo. Si no encuentra match, usa descripciones genéricas tipo "Access Point WiFi 6", "Switch PoE 24 puertos", "Cámara IP domo 4MP exterior".
+- El modo "texto libre" actualmente manda el texto directo al generador sin un paso intermedio de "extraer scope estructurado". En v2 se podría agregar ese paso si hace falta más precisión.
+- `tsc --noEmit` pasó al primer intento esta vez, sin necesidad de fixes. El patrón de validación local antes del push ya está internalizado.
+
+**Descubrimientos importantes:**
+- Solo hay **3 cotizaciones reales** en Supabase (Ventanas Sacal + 2 Casa Salame). Las otras 7 son vacías/de prueba. Para que la AI aprenda de precedentes, necesita más volumen — pero v1 ya es útil con lo que hay.
+- El catálogo tiene solo 8 productos (según auditoría). Esto significa que en los primeros usos la AI va a crear muchos productos sugeridos. Es esperado y es parte del plan: el feature también sirve como herramienta para **descubrir los huecos del catálogo** que falta poblar.
 
 ### (agregar siguiente sesión aquí)
 
