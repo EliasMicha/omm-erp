@@ -1000,10 +1000,10 @@ const AI_ALL_SYSTEMS = [
   { id: 'cctv', name: 'CCTV', color: '#3B82F6', enumValue: 'CCTV' },
   { id: 'control_acceso', name: 'Control de Acceso', color: '#F59E0B', enumValue: 'Acceso' },
   { id: 'control_iluminacion', name: 'Control de Iluminación', color: '#C084FC', enumValue: 'Iluminacion' },
-  { id: 'deteccion_humo', name: 'Detección de Humo', color: '#EF4444', enumValue: null },
-  { id: 'bms', name: 'BMS', color: '#10B981', enumValue: null },
-  { id: 'telefonia', name: 'Telefonía', color: '#F97316', enumValue: null },
-  { id: 'red_celular', name: 'Red Celular', color: '#EC4899', enumValue: null },
+  { id: 'deteccion_humo', name: 'Detección de Humo', color: '#EF4444', enumValue: 'Humo' },
+  { id: 'bms', name: 'BMS', color: '#10B981', enumValue: 'BMS' },
+  { id: 'telefonia', name: 'Telefonía', color: '#F97316', enumValue: 'Telefonia' },
+  { id: 'red_celular', name: 'Red Celular', color: '#EC4899', enumValue: 'Celular' },
 ]
 
 function aiGenUid(): string { return Math.random().toString(36).slice(2, 10) }
