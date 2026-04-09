@@ -122,6 +122,31 @@ Cuando Elias construya el módulo de contabilidad o el de cobranza, **decidir pr
 - ~~`clientes_fiscales`~~ → usar `clientes` (fix aplicado en commit `2561ea9`)
 - ~~`obras`~~ → **no existe**. Todo el módulo `Obra.tsx` usa mock data (`MOCK_OBRAS`). **Próximo gran trabajo pendiente** — ver deuda técnica.
 
+### 🪣 Supabase Storage
+
+Bucket activo: **`product-images`** (creado 2026-04-09)
+- Público, 5 MB máximo por archivo
+- Tipos MIME permitidos: `image/jpeg, image/jpg, image/png, image/webp, image/gif`
+- 4 RLS policies: lectura pública + INSERT/UPDATE/DELETE con anon key
+- Estructura de carpetas: `product-images/products/{timestamp}-{random}.{ext}`
+- Usado por: `ImageUpload` component en `src/components/ImageUpload.tsx`
+- Referenciado desde: `catalog_products.image_url` (text nullable)
+
+Para crear nuevos buckets desde SQL (sin tocar el dashboard):
+
+```sql
+INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+VALUES ('nombre-bucket', 'nombre-bucket', true, 5242880,
+  ARRAY['image/jpeg','image/png','image/webp'])
+ON CONFLICT (id) DO NOTHING;
+
+-- Policies mínimas (adaptar según necesidades de permisos):
+CREATE POLICY "Public read nombre-bucket" ON storage.objects
+  FOR SELECT USING (bucket_id = 'nombre-bucket');
+CREATE POLICY "Anon upload nombre-bucket" ON storage.objects
+  FOR INSERT WITH CHECK (bucket_id = 'nombre-bucket');
+```
+
 ### Antes de asumir que una tabla existe
 
 ```js
@@ -343,16 +368,24 @@ Todas las `VITE_*` están en el bundle JS. **No poner secretos reales ahí.**
 | Feature | Estado | Archivo | Notas |
 |---|---|---|---|
 | CRM (leads) | ✅ Funcional | CRM.tsx | Dropdown de cliente fiscal OK después del fix `clientes` |
-| Cotizador ESP | ✅ Funcional | CotEditorESP.tsx | 10 sistemas internos, pricing rules por proveedor, dual currency USD/MXN |
+| Cotizador ESP | ✅ Funcional | CotEditorESP.tsx | 9 sistemas (cortinas es especialidad aparte), pricing rules por proveedor, dual currency USD/MXN |
 | AI Importer de cotizaciones | ✅ Funcional | CotEditorESP.tsx (AIImportModal) + api/extract.ts | Parseo directo para formato D-Tools (Manufacturer/Model/Room/System), fallback a Claude API. SheetJS via CDN. |
 | **Cotizar con AI** (generación) | ✅ Funcional | Cotizaciones.tsx (AIGenerateModal) + api/generate-quote.ts | Cuestionario guiado o scope libre → genera cotización completa con áreas+items. Usa 3 cotizaciones previas como precedentes + catálogo filtrado. Productos sugeridos se crean en catalog_products con prefijo `[AI Suggested]`. |
-| Catálogo de productos | ✅ Funcional | Catalogo.tsx + CotEditorESP (CreateProductModal con búsqueda AI) | |
+| **Dashboard Cotizaciones** (búsqueda + arquitecto + KPIs) | ✅ Funcional | Cotizaciones.tsx | Barra de búsqueda en memoria, columna arquitecto (desde `leads.company`), KPIs por etapa y por especialidad con USD/MXN separados. |
+| **Export PDF de cotizaciones** | ✅ Funcional | CotizacionPdf.tsx + ruta fuera de layout | 3 formatos: ejecutivo/técnico/lista. Logo OMNIIOUS embebido en base64. Datos OMM y términos editables via localStorage. Tipo de cambio USD/MXN cuando aplica. Sin dependencias externas (usa diálogo nativo del navegador). |
+| Catálogo de productos | ✅ Funcional | Catalogo.tsx + CotEditorESP (CreateProductModal con búsqueda AI) | **Fotos de producto** via ImageUpload → Supabase Storage bucket `product-images`. Thumbnail en listado. Se propaga automáticamente al PDF. |
 | Compras (OC) | ✅ Funcional | Compras.tsx | Agrupación proveedor × fase, cotejo de precios, recepción parcial |
 | Clientes | ✅ Funcional (tras fix 2026-04-08) | Clientes.tsx | Tabla es `clientes`, no `clientes_fiscales` |
 | Facturación CFDI | ✅ Funcional | Facturacion.tsx + api/facturapi.ts | FacturAPI sandbox phase 1 integrado |
 | Contabilidad | 🟡 En desarrollo | Contabilidad.tsx | Bank statement upload con AI extraction en progreso |
 | Obras (tab Materiales) | ✅ Funcional | Obra.tsx (SubMateriales) | Lee quotation_items vía obra.cotizacion_id, agrupado por Área → Sistema |
 | Obras (resto) | 🔴 Mock data | Obra.tsx | Ver deuda técnica |
+
+### Patrones reutilizables nuevos
+
+- **`ImageUpload`** (`src/components/ImageUpload.tsx`): componente reutilizable para subir imágenes a Supabase Storage. Props: `value`, `onChange`, `bucket`, `folder`, `maxSizeMB`, `label`, `size`. Uso actual: fotos de productos en Catálogo y CotEditorESP. Futuro: fotos de obras, avatares de empleados, logos de clientes, comprobantes de pago, etc. Nombres únicos con timestamp+random para evitar colisiones.
+- **Datos editables en localStorage**: patrón usado en `CotizacionPdf.tsx` para datos OMM y términos comerciales. Funciona para datos que son de configuración pero no críticos de sincronizar entre dispositivos. Para v2 mover a tabla Supabase.
+- **Rutas sin sidebar**: patrón de dos árboles de rutas en `App.tsx` — uno wrappa con sidebar + layout oscuro, otro renderiza standalone (PDF, presentaciones, vistas de impresión).
 
 ---
 
@@ -449,6 +482,10 @@ Cotizaciones son per-quotation en USD o MXN, guardado en `quotations.notes` JSON
 - **Flete de luminarias importadas** = siempre calcular sobre transporte aéreo, peso volumétrico, tarifas por kg aéreo
 - **Automatización directa en Odoo/Supabase**, sin Make como intermediario
 - **Coordinador AI** centraliza operativo vía ChatGPT/WhatsApp/Odoo directamente, resumen diario en PDF por WhatsApp a las 9pm, planeación semanal los miércoles
+- **Branding: OMNIIOUS vs OMM Technologies.** OMNIIOUS es el nombre comercial (aparece en documentos hacia el cliente — logos de PDFs, presentaciones). OMM Technologies SA de CV es la razón social legal (aparece en datos fiscales, RFC, sidebar del ERP, CLAUDE.md, footers). **NO mezclar.** Solo el logo visual del header del PDF es OMNIIOUS, todo lo demás del ERP es OMM Technologies.
+- **USD y MXN NUNCA se suman.** Ninguna vista del ERP debe hacer `totalUSD + totalMXN`. Siempre mostrar ambos por separado en KPIs, dashboards, PDFs, reportes. Si una cotización está en USD, mostrar `US$X`, si está en MXN mostrar `$X`, nunca mezclar. El helper correcto es `FCUR(n, currency)` de `lib/utils.ts` que ya incluye el símbolo apropiado.
+- **Cortinas y persianas** son especialidad separada. No aparecen en el cotizador ESP. Tienen su propio `id: 'cortinas'` en `Proyectos.tsx` para cuando se construya su cotizador.
+- **Terminología proyecto vs obra.** "Proyecto" = trabajo de oficina (planos, presentaciones, cotizaciones, diagramas). "Obra" = ejecución en sitio. Esta distinción debe mantenerse consistentemente en todo el código y la UI.
 
 ---
 
@@ -581,6 +618,221 @@ Los 4 valores nuevos (`BMS`, `Humo`, `Telefonia`, `Celular`) se agregaron con `A
 - ✅ Los 9 sistemas ESP ahora pueden filtrar catálogo correctamente
 - ✅ Cero error 400 al generar con cualquier combinación de sistemas
 - 🟡 Pendiente de prueba real con el flujo completo desde el cuestionario
+
+### 2026-04-09 (sesión larga — UX de Cotizaciones + PDF exportable + fotos de producto)
+
+Cinco commits significativos en una sola sesión, cubriendo mejoras de UX, un feature grande (PDF export), y el primer módulo de Storage del proyecto.
+
+- `fe77032` · feat(cotizaciones): barra búsqueda + columna arquitecto + KPIs por especialidad
+- `de053fe` · feat(cotizaciones): exportar a PDF con 3 formatos y datos editables
+- `5358a6d` · fix(pdf): doble símbolo de moneda + nuevas columnas desglose + logo OMNIIOUS
+- `433167a` · feat(pdf): agregar tipo de cambio USD/MXN en header, totales y términos
+- `117f53f` · feat(catalogo): fotos de producto con Supabase Storage + ImageUpload
+
+#### Cambios en dashboard de Cotizaciones (`fe77032`)
+
+- **Nueva columna "Arquitecto"** en la tabla — se obtiene de `leads.company` (el despacho) a través del `lead_id` guardado en `quotations.notes` JSON. Carga en paralelo con Promise.all, `leadsMap` indexado por id para lookup O(1). Color rosa pastel `#F9A8D4`.
+- **Barra de búsqueda** arriba de la tabla. Filtra en memoria por: nombre cotización, cliente, arquitecto, lead. Icon `Search` de lucide, botón X para limpiar.
+- **Nueva fila de KPIs por especialidad** (5 cards: ESP, ELEC, ILUM, CORT, PROY). USD y MXN **separados visualmente** (refuerzo del principio de nunca sumar monedas distintas). Cada card con border-left del color de la especialidad, icon y label.
+- **Subtitle del header** con separadores más limpios: `N cotizaciones · USD X · MXN Y` en vez de pipes.
+- Columna "Cotizacion" renombrada a "Cotización" (con tilde).
+
+Importante para la nomenclatura:
+- **Lead** = nombre del proyecto/lead (ej. "Casa Salame")
+- **Cliente** = `quotations.client_name` (el cliente final fiscal)
+- **Arquitecto** = `leads.company` (el despacho cuando aplica)
+
+Los datos existentes tienen cierta mezcla histórica entre `client_name` y arquitecto, pero las cotizaciones nuevas creadas desde el CRM con lead bien ligado van a quedar limpias.
+
+#### Feature grande: Export PDF de cotizaciones (`de053fe`)
+
+**Nuevo componente:** `src/pages/CotizacionPdf.tsx` (~681 líneas al principio, ahora ~750). Vista HTML optimizada para impresión, **sin dependencias externas** — usa el diálogo nativo del navegador para guardar como PDF.
+
+**3 formatos disponibles:**
+1. **Ejecutivo** — Para cliente final. Sin costos internos ni markups. Diseño formal.
+2. **Técnico detallado** — Para ingeniería. Incluye SKUs, proveedores, fases, costos, markups.
+3. **Lista de precios** — Tabla plana sin agrupar, rápida comparación.
+
+**Estructura del PDF (los 3 formatos comparten header y cierre):**
+- Header: logo OMNIIOUS + datos fiscales OMM completos + datos del cliente (folio, fecha, vigencia, arquitecto, moneda, proyecto)
+- Sección 1: Resumen por sistema (tabla con componentes y subtotal)
+- Sección 2: Alcance del proyecto (párrafo breve automático por sistema con marcas detectadas)
+- Page break
+- Sección 3: Desglose (formato varía según tipo elegido)
+- Totales finales con subtotal + mano de obra + IVA + TOTAL
+- Page break
+- Sección 4: Términos comerciales (vigencia, condiciones de pago, garantía, exclusiones, observaciones, tipo de cambio si aplica)
+- Firma del responsable
+- Footer con datos fiscales
+
+**Datos OMM y términos son EDITABLES** desde un modal "Editar datos y términos" (botón en la barra flotante, oculta al imprimir). Se guardan en `localStorage` del navegador para persistir entre sesiones. Campos editables:
+- Razón social, RFC, domicilio fiscal, CP, ciudad, régimen fiscal
+- Teléfono, email, web
+- Nombre y puesto del firmante
+- Vigencia en días, porcentajes de pago (anticipo/avance/entrega), garantía, exclusiones, observaciones
+
+**Arquitectura técnica:**
+- Nueva ruta `/cotizacion/:id/pdf/:format` **fuera del layout con sidebar** — se restructuró `App.tsx` para tener 2 árboles de rutas (una para la vista PDF sin sidebar, otra para el resto del ERP con sidebar)
+- La vista PDF abre en **pestaña nueva** via `window.open()`
+- `@media print` oculta la barra flotante y usa background blanco
+- Cero dependencias nuevas (sin jsPDF, sin html2pdf, sin Puppeteer)
+
+**UX desde el editor ESP:**
+- Nuevo botón "📄 Exportar PDF" azul al lado de "✨ Importar con AI" en la barra superior
+- Click → modal con 3 cards grandes (ejecutivo/técnico/lista)
+- Click en una card → abre la vista PDF en pestaña nueva
+- Usuario ajusta datos/términos si es primera vez, después click "🖨 Imprimir / Guardar PDF"
+
+#### Fixes importantes del PDF (`5358a6d`)
+
+**1. Bug de doble símbolo de moneda.** Mostraba `$$9,339` y `US$$4,705`. Causa raíz: el helper `F()` de `lib/utils.ts` ya usa `Intl.NumberFormat` con `style: 'currency', currency: 'MXN'`, que **ya incluye el símbolo**. Yo estaba concatenando `{sym}{F(x)}` encima, generando dos. Fix: uso `FCUR(x, currency)` que usa el helper correcto según la moneda. 17 reemplazos limpios, `sym` y `curSymbol` eliminados del archivo.
+
+**2. Nuevas columnas en el desglose** (según feedback de Elias):
+- Antes: `Producto | Cant | P.unit | Total`
+- Ahora: `[foto 42x42] | Marca | Modelo | Descripción | Cant | P.unit`
+- Foto: thumbnail condicional si el producto tiene `image_url`, placeholder punteado si no
+- Marca y Modelo separados en columnas propias (antes iban mezclados en el subtitle)
+- Descripción tiene el nombre como título y la description del catálogo como subtítulo
+- Quitada la columna Total de línea (confundía al cliente viendo precio por línea, el total está en los totales finales)
+- Técnico agrega: SKU/Proveedor, Costo, Markup a la derecha
+
+**3. Logo OMNIIOUS en el header del PDF** (reemplaza el texto "OMM"). El logo original (871×756 JPEG, 194 KB) se optimizó a 400×347 JPEG 85% = 22 KB y se embebió como base64 data URI en `src/assets/logo.ts` (~30 KB). No requiere hosting externo, funciona offline, portable entre hostings.
+
+**4. Interfaz `ItemRow` preparada con `image_url?: string | null`** — deja listo el render de fotos en el PDF para cuando el schema tuviera el campo.
+
+#### Branding clarificado
+
+**OMNIIOUS** es el nombre comercial de **OMM Technologies SA de CV**. Coexisten:
+- **OMNIIOUS** → aparece en documentos hacia el cliente (logos en PDFs, presentaciones)
+- **OMM Technologies** → razón social legal, aparece en datos fiscales, RFC, contratos, el sidebar del ERP
+
+**NO mezclar.** El sidebar del ERP, CLAUDE.md, datos fiscales del footer del PDF siguen diciendo "OMM Technologies SA de CV". Solo el logo visual del header del PDF es OMNIIOUS.
+
+#### Tipo de cambio USD/MXN en el PDF (`433167a`)
+
+Cuando la cotización está en USD y tiene `tipoCambio` registrado en `quotations.notes`, ahora aparece en **3 lugares del PDF**:
+
+1. **Header** — celda "Moneda" ampliada: `USD · TC $20.50 MXN`
+2. **Totales finales** — fila italica pequeña debajo del TOTAL: `Equivalente en MXN (TC $20.50)    $1,339,101`. Facilita al cliente ver cuánto son en pesos sin sacar calculadora.
+3. **Términos comerciales** — nueva subsección "Tipo de cambio" con texto legal: *"Los montos en esta cotización están expresados en Dólares Americanos (USD). Para referencia de facturación en Pesos Mexicanos (MXN), se utiliza un tipo de cambio de $X.XX MXN por USD, calculado a la fecha de emisión. El tipo de cambio aplicable al momento del pago será el publicado por el Banco de México (DOF) en la fecha efectiva de cada abono."*
+
+Texto legal importante: fija el TC de referencia pero **no amarra** a OMM a ese TC al momento del cobro. Si el dólar sube entre firma y último pago, se cobra al TC de ese día.
+
+**Helper nuevo:** `getTipoCambio(cot): number | null` que parsea `notes.tipoCambio` y devuelve null si no es un número positivo.
+
+**🚨 Descubrimiento al verificar datos:** las 4 cotizaciones existentes en producción (Ventanas Sacal, Casa Salame × 3) **ninguna tiene `tipoCambio` guardado**. El feature funciona correctamente (solo muestra TC cuando existe), pero para que aparezca en cotizaciones viejas hay que entrar una por una al editor ESP y guardarles el TC. **Deuda técnica relacionada:** en v2 del editor ESP hay que hacer que el campo de tipo de cambio sea **obligatorio** cuando la moneda es USD, para evitar que sigan saliendo cotizaciones sin él.
+
+#### Fotos de producto con Supabase Storage (`117f53f`)
+
+Primer uso de **Supabase Storage** en el proyecto. Schema y bucket creados via SQL Editor (con truco del Monaco directo):
+
+```sql
+ALTER TABLE catalog_products ADD COLUMN IF NOT EXISTS image_url text;
+
+INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+VALUES ('product-images', 'product-images', true, 5242880,
+  ARRAY['image/jpeg','image/jpg','image/png','image/webp','image/gif'])
+ON CONFLICT (id) DO NOTHING;
+
+-- 4 policies: lectura pública + INSERT/UPDATE/DELETE anon
+```
+
+Supabase Studio mostró un warning de "destructive operations" por los `DROP POLICY IF EXISTS` — son seguros, solo borro policies que quizás no existen antes de recrearlas. Click en "Run this query" para confirmar.
+
+**Componente nuevo reutilizable:** `src/components/ImageUpload.tsx` (~183 líneas).
+
+```tsx
+<ImageUpload
+  value={form.image_url}
+  onChange={url => setForm({...form, image_url: url})}
+  size="md"           // 'sm' (60x60) | 'md' (100x100) | 'lg' (160x160)
+  label="Subir foto"
+  folder="products"   // sub-carpeta dentro del bucket
+  bucket="product-images"  // default
+  maxSizeMB={5}       // default
+/>
+```
+
+- Nombres únicos: `timestamp-random.ext` para evitar colisiones
+- Cache-Control: `31536000` (1 año) porque las URLs son únicas por archivo
+- Validaciones: tipo `image/*`, tamaño máximo
+- Estados visuales: idle (icon + label), uploading (spinner), filled (preview con X para eliminar), error (texto rojo)
+- Preview con `object-fit: contain` sobre fondo blanco (se ve bien con logos de fabricantes que son transparentes)
+
+**Integrado en 2 lugares:**
+
+1. **`src/pages/Catalogo.tsx`** — form Nuevo/Editar Producto:
+   - Layout flex con ImageUpload (md) a la izquierda + Nombre/Marca/Modelo a la derecha
+   - Marca y Modelo se quitaron del grid inferior para evitar duplicados
+   - Nueva columna de thumbnail 32×32 al inicio de la tabla del listado (con placeholder punteado si no hay foto)
+   - `image_url: string | null` agregado a la interfaz Product y al payload de `guardar()`
+   - `colSpan` del EmptyState de 9 a 10
+
+2. **`src/pages/CotEditorESP.tsx`** — `CreateProductModal` inline:
+   - ImageUpload dentro del form, layout flex con Nombre/Descripción
+   - `image_url` agregado al state inicial y al payload del insert
+
+**Propagación automática al PDF:** el commit `5358a6d` ya había preparado `CotizacionPdf.tsx` para mostrar `image_url` si existe (interfaz `ItemRow` con el campo opcional, tag `<img>` condicional con placeholder punteado). Ahora cuando subas una foto a un producto del catálogo y ese producto esté en una cotización, la foto **aparece automáticamente en el PDF exportado** sin tocar nada más.
+
+**Flujo completo del feature:**
+1. Elias crea/edita producto en Catálogo → click en el cuadro de foto → file picker → selecciona imagen
+2. ImageUpload sube a `product-images/products/{timestamp}-{random}.{ext}`
+3. Supabase Storage devuelve URL pública permanente
+4. La URL se guarda en `catalog_products.image_url` al guardar el producto
+5. Al exportar PDF de una cotización que usa ese producto, la foto aparece en la tabla de desglose
+
+#### Descubrimientos técnicos importantes de esta sesión
+
+**1. Monaco editor directo en Supabase SQL Editor** (ya documentado en sesión anterior pero usado intensivamente hoy):
+
+```javascript
+const ed = window.monaco.editor.getEditors()[0];
+ed.setValue("ALTER TYPE ...");
+ed.focus();
+// después: cmd+Return via tool de browser
+```
+
+Es **mucho más confiable** que `cmd+a` + `type` que a veces selecciona la sidebar. Se usó para confirmar el estado del enum `product_system`, correr la migración de fotos, y verificar resultados de queries. En esta sesión se usó una decena de veces sin fallar.
+
+**2. Para leer resultados de queries SQL en Supabase:**
+
+```javascript
+[...document.querySelectorAll('[role="gridcell"]')]
+  .map(c => c.textContent || '')
+  .filter(t => t.length > 0)
+```
+
+Devuelve array plano de celdas. Sirve para verificar estado del schema/datos sin necesidad de screenshot.
+
+**3. Helpers de formateo de moneda — usar siempre `FCUR`:**
+
+`F()` y `FUSD()` ya incluyen el símbolo de moneda porque usan `Intl.NumberFormat` con `style: 'currency'`. **Nunca** anteponer un símbolo manualmente como `{sym}{F(x)}` — causa doble símbolo. Usar `FCUR(n, currency)` que elige el helper correcto y devuelve el string completo formateado.
+
+**4. Embeber imágenes pequeñas como base64 en TS** es una buena solución para assets críticos del branding (logos, iconos) que deben estar siempre disponibles sin dependencias de red. Para el logo OMNIIOUS: redimensionado a 400px, JPEG 85%, resulta en ~30 KB base64 — aceptable para un bundle que se carga una sola vez. Para imágenes de usuario (fotos de productos), usar Supabase Storage.
+
+#### Reglas de negocio reforzadas
+
+- **USD y MXN NUNCA se suman** — refuerzo explícito en todos los KPIs del dashboard de Cotizaciones y en todos los totales del PDF. Siempre mostrar ambos separados o solo el que aplica a la cotización específica.
+- **Cortinas y persianas** siguen siendo especialidad separada (fuera del cotizador ESP). Confirmado y documentado desde hace 2 commits.
+- **Terminología**: "Proyecto" = trabajo de oficina (planos, cotizaciones). "Obra" = ejecución en sitio. No mezclar.
+
+#### Estado de features al cierre de la sesión
+
+| Feature | Estado |
+|---|---|
+| Dashboard de Cotizaciones con búsqueda + arquitecto + KPIs especialidad | ✅ Listo |
+| Export PDF ejecutivo/técnico/lista con datos editables | ✅ Listo |
+| Tipo de cambio USD/MXN en PDF | ✅ Listo (pendiente: hacer obligatorio en editor ESP) |
+| Fotos de producto con Supabase Storage | ✅ Listo |
+| Render automático de fotos en PDF | ✅ Listo (requiere subir fotos a cada producto) |
+
+#### Deuda técnica nueva identificada
+
+1. **Tipo de cambio no obligatorio** en editor ESP cuando moneda es USD. Las 4 cotizaciones existentes no lo tienen. En v2 hacer el campo `tipoCambio` required cuando `currency='USD'` en el editor, y correr un script de fixup para las cotizaciones viejas.
+
+2. **localStorage para datos OMM del PDF**: los datos fiscales y términos se guardan en `localStorage` del navegador. Si Elias cambia de computadora o navegador, tiene que volver a llenarlos. **Migración futura a v2**: mover a tabla `omm_settings` en Supabase para que sean globales.
+
+3. **Alcance por sistema es automático** (genérico). El texto dice cosas como "Incluye 4 componentes del sistema de Audio. Marcas principales: Sonos, Lutron." Si Elias quiere textos descriptivos ricos ("Sistema multizona con 4 zonas distribuidas, control desde app móvil..."), se puede: (a) pre-generar con AI al abrir el PDF, o (b) campo editable en `quotations.notes`.
 
 ### (agregar siguiente sesión aquí)
 
