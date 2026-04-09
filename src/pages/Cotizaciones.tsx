@@ -731,6 +731,10 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
       price: calcItemPrice(prod.cost, prod.markup),
       total: calcItemTotal(prod.cost, prod.markup, 1),
       installation_cost: 0, order_index: items.filter(i => i.area_id === areaActiva).length,
+      marca: (prod as any).marca || null,
+      modelo: (prod as any).modelo || null,
+      sku: (prod as any).sku || null,
+      image_url: (prod as any).image_url || null,
     }
     const { data } = await supabase.from('quotation_items').insert(item).select().single()
     if (data) setItems(prev => [...prev, data])
@@ -1035,6 +1039,7 @@ interface AIGenItem {
   quantity: number
   notes: string
   _rowId: string
+  sku?: string | null
 }
 
 interface AIGenScope {
@@ -1437,6 +1442,10 @@ Devuelve SOLO el JSON, sin markdown.`
             total: (price + installationCost) * it.quantity,
             installation_cost: installationCost,
             order_index: orderIdx++,
+            marca: it.marca || productData?.marca || null,
+            modelo: it.modelo || productData?.modelo || null,
+            sku: it.sku || (productData as any)?.sku || null,
+            image_url: (productData as any)?.image_url || null,
           })
           if (iErr) {
             console.error('Error insertando item:', iErr, it)

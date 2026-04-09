@@ -17,7 +17,7 @@ interface EspProduct {
 }
 interface EspArea { id: string; name: string; collapsed: boolean; order: number }
 interface EspSystemDef { id: string; name: string; color: string }
-interface CatProduct { id: string; name: string; description: string; system: string; cost: number; markup: number; provider: string; unit: string; moneda?: string }
+interface CatProduct { id: string; name: string; description: string; system: string; cost: number; markup: number; provider: string; unit: string; moneda?: string; marca?: string | null; modelo?: string | null; sku?: string | null; image_url?: string | null }
 interface EspQuoteConfig { currency: string; ivaRate: number; programacion: number; tipoCambio: number; paymentSchedule: Array<{ label: string; percentage: number }>; version: string }
 
 const ALL_SYSTEMS: EspSystemDef[] = [
@@ -251,6 +251,7 @@ interface AIExtractedItem {
   notas: string
   match_status: 'exact' | 'partial' | 'none'
   catalog_product_id: string | null
+  sku?: string | null
 }
 
 function AIImportModal({ cotId, areas, activeSysIds, currency, tipoCambio, onClose, onImported }: {
@@ -663,13 +664,18 @@ function AIImportModal({ cotId, areas, activeSysIds, currency, tipoCambio, onClo
         } else {
           const { data: existing } = await supabase
             .from('catalog_products')
-            .select('cost, moneda, provider, markup')
+            .select('cost, moneda, provider, markup, marca, modelo, sku, image_url')
             .eq('id', catalogProductId)
             .single()
           if (existing) {
             prodCost = Number(existing.cost) || 0
             prodMoneda = existing.moneda || 'USD'
             if (existing.provider) prodProvider = existing.provider
+            // Heredar snapshot fields del catálogo si el item del Excel no los trae
+            if (!it.marca && existing.marca) it.marca = existing.marca
+            if (!it.modelo && existing.modelo) it.modelo = existing.modelo
+            if (!it.sku && (existing as any).sku) it.sku = (existing as any).sku
+            ;(it as any).image_url = (existing as any).image_url || null
           }
         }
 
@@ -707,6 +713,10 @@ function AIImportModal({ cotId, areas, activeSysIds, currency, tipoCambio, onClo
           total: (precio + laborCost) * it.cantidad,
           installation_cost: laborCost,
           order_index: inserted,
+          marca: it.marca || null,
+          modelo: it.modelo || null,
+          sku: it.sku || null,
+          image_url: (it as any).image_url || null,
         })
         if (itemErr) {
           console.error('Error insertando item:', itemErr, it)
@@ -1382,7 +1392,7 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
       setProducts(qItems.map((it: any) => ({
         id: it.id, areaId: it.area_id, systemId: (it.system || '').toLowerCase().replace(/ /g, '_'),
         catalogId: it.catalog_product_id || null, name: it.name, description: it.description || '',
-        imageUrl: null, quantity: it.quantity, price: it.price || 0,
+        imageUrl: it.image_url || null, quantity: it.quantity, price: it.price || 0,
         laborCost: it.installation_cost || 0, margin: it.markup || 30, order: it.order_index || 0,
         monedaOrigen: it.provider_currency || 'USD',
       })))
@@ -1498,11 +1508,15 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
       type: 'material', quantity: 1, cost: catProd.cost, markup: margin, price: precio,
       total: precio + laborCost, installation_cost: laborCost,
       order_index: products.filter(p => p.areaId === addingTo.areaId && p.systemId === addingTo.systemId).length,
+      marca: catProd.marca || null,
+      modelo: catProd.modelo || null,
+      sku: catProd.sku || null,
+      image_url: catProd.image_url || null,
     }).select().single()
     if (data) {
       setProducts(p => [...p, {
         id: data.id, areaId: addingTo.areaId, systemId: addingTo.systemId, catalogId: catProd.id || null,
-        name: catProd.name, description: catProd.description || '', imageUrl: null,
+        name: catProd.name, description: catProd.description || '', imageUrl: catProd.image_url || null,
         quantity: 1, price: precio, laborCost, margin, order: products.length,
         monedaOrigen: prodMoneda,
       }])
@@ -1527,11 +1541,15 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
       type: 'material', quantity: 1, cost: catProd.cost, markup: margin, price: precio,
       total: precio + laborCost, installation_cost: laborCost,
       order_index: products.filter(p => p.areaId === addingTo.areaId && p.systemId === addingTo.systemId).length,
+      marca: catProd.marca || null,
+      modelo: catProd.modelo || null,
+      sku: catProd.sku || null,
+      image_url: catProd.image_url || null,
     }).select().single()
     if (data) {
       setProducts(p => [...p, {
         id: data.id, areaId: addingTo.areaId, systemId: addingTo.systemId, catalogId: catProd.id || null,
-        name: catProd.name, description: catProd.description || '', imageUrl: null,
+        name: catProd.name, description: catProd.description || '', imageUrl: catProd.image_url || null,
         quantity: 1, price: precio, laborCost, margin, order: products.length,
         monedaOrigen: prodMoneda,
       }])
