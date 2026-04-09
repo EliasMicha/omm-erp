@@ -82,6 +82,14 @@ function getCurrency(cot: QuotationFull): 'USD' | 'MXN' {
   try { const m = JSON.parse(cot.notes || '{}'); return (m.currency || 'USD') as 'USD' | 'MXN' } catch { return 'USD' }
 }
 
+function getTipoCambio(cot: QuotationFull): number | null {
+  try {
+    const m = JSON.parse(cot.notes || '{}')
+    const tc = Number(m.tipoCambio)
+    return tc > 0 ? tc : null
+  } catch { return null }
+}
+
 function shortId(id: string): string { return id.substring(0, 8).toUpperCase() }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -185,6 +193,7 @@ export default function CotizacionPdf() {
 
   // ── Cálculos derivados ──────────────────────────────────────────────────
   const currency = getCurrency(cot)
+  const tipoCambio = getTipoCambio(cot)
   const materialItems = items.filter(i => i.type !== 'labor')
   const laborItems = items.filter(i => i.type === 'labor')
 
@@ -229,6 +238,11 @@ export default function CotizacionPdf() {
   // Vigencia calculada
   const vigenciaHasta = new Date(Date.now() + terminos.vigenciaDias * 24 * 60 * 60 * 1000)
     .toLocaleDateString('es-MX', { year: 'numeric', month: 'long', day: 'numeric' })
+
+  // Texto del tipo de cambio — solo se muestra si es USD y hay TC registrado
+  const monedaLabel = currency === 'USD' && tipoCambio
+    ? `USD · TC $${tipoCambio.toFixed(2)} MXN`
+    : currency
 
   // Texto de alcance por sistema (automático, corto)
   function alcanceTextoPorSistema(sys: string, data: { items: ItemRow[]; count: number }): string {
@@ -419,14 +433,13 @@ export default function CotizacionPdf() {
                   <td style={{ padding: '3px 12px 3px 0', color: '#888' }}>Arquitecto</td>
                   <td style={{ padding: '3px 0' }}>{architect}</td>
                   <td style={{ padding: '3px 12px 3px 0', color: '#888' }}>Moneda</td>
-                  <td style={{ padding: '3px 0' }}>{currency}</td>
+                  <td style={{ padding: '3px 0' }}>{monedaLabel}</td>
                 </tr>
               )}
               {!architect && (
                 <tr>
                   <td style={{ padding: '3px 12px 3px 0', color: '#888' }}>Moneda</td>
-                  <td style={{ padding: '3px 0' }}>{currency}</td>
-                  <td colSpan={2}></td>
+                  <td colSpan={3} style={{ padding: '3px 0' }}>{monedaLabel}</td>
                 </tr>
               )}
               {leadName && (
@@ -639,6 +652,12 @@ export default function CotizacionPdf() {
                 <td style={{ padding: '8px 0 4px 0', fontWeight: 700, fontSize: 14, color: '#111', borderTop: '1px solid #111' }}>TOTAL</td>
                 <td style={{ padding: '8px 0 4px 0', textAlign: 'right', fontWeight: 700, fontSize: 14, color: '#111', borderTop: '1px solid #111' }}>{FCUR(totalCon, currency)}</td>
               </tr>
+              {currency === 'USD' && tipoCambio && (
+                <tr>
+                  <td style={{ padding: '2px 0', fontSize: 10, color: '#888', fontStyle: 'italic' }}>Equivalente en MXN (TC ${tipoCambio.toFixed(2)})</td>
+                  <td style={{ padding: '2px 0', textAlign: 'right', fontSize: 10, color: '#888', fontStyle: 'italic' }}>{FCUR(totalCon * tipoCambio, 'MXN')}</td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
@@ -663,6 +682,15 @@ export default function CotizacionPdf() {
               Esta propuesta tiene una vigencia de {terminos.vigenciaDias} días naturales a partir de la fecha de emisión ({formatDate(cot.created_at)}), válida hasta el {vigenciaHasta}.
             </div>
           </div>
+
+          {currency === 'USD' && tipoCambio && (
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontSize: 10, fontWeight: 600, color: '#111', marginBottom: 4 }}>Tipo de cambio</div>
+              <div style={{ fontSize: 10, color: '#555', lineHeight: 1.6 }}>
+                Los montos en esta cotización están expresados en Dólares Americanos (USD). Para referencia de facturación en Pesos Mexicanos (MXN), se utiliza un tipo de cambio de <strong>${tipoCambio.toFixed(2)} MXN por USD</strong>, calculado a la fecha de emisión. El tipo de cambio aplicable al momento del pago será el publicado por el Banco de México (DOF) en la fecha efectiva de cada abono.
+              </div>
+            </div>
+          )}
 
           <div style={{ marginBottom: 12 }}>
             <div style={{ fontSize: 10, fontWeight: 600, color: '#111', marginBottom: 4 }}>Garantía</div>
