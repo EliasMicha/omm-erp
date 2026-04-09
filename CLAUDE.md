@@ -834,7 +834,198 @@ Devuelve array plano de celdas. Sirve para verificar estado del schema/datos sin
 
 3. **Alcance por sistema es automático** (genérico). El texto dice cosas como "Incluye 4 componentes del sistema de Audio. Marcas principales: Sonos, Lutron." Si Elias quiere textos descriptivos ricos ("Sistema multizona con 4 zonas distribuidas, control desde app móvil..."), se puede: (a) pre-generar con AI al abrir el PDF, o (b) campo editable en `quotations.notes`.
 
+#### Fix tardío de la sesión: snapshot completo en quotation_items (`8b4038b`)
+
+Elias reportó después de probar el feature de fotos: *"cuando actualizas el producto en catálogo sí se queda, pero no sale en cotizaciones ni en el PDF"*.
+
+**Causa raíz:** la tabla `quotation_items` **no tenía** columnas `marca`, `modelo`, `sku`, ni `image_url`. El editor ESP al agregar un producto del catálogo solo copiaba `name/description/price/cost/etc` — los campos nuevos (incluida la foto) nunca llegaban al snapshot. El PDF lee intencionalmente de `quotation_items` (no hace JOIN con `catalog_products`) porque una cotización es un documento legal fijo — si después cambias la foto del producto, la cotización vieja debe mantener la original.
+
+**Migración ejecutada en esta sesión** (via Monaco directo):
+
+```sql
+ALTER TABLE quotation_items ADD COLUMN IF NOT EXISTS marca text;
+ALTER TABLE quotation_items ADD COLUMN IF NOT EXISTS modelo text;
+ALTER TABLE quotation_items ADD COLUMN IF NOT EXISTS sku text;
+ALTER TABLE quotation_items ADD COLUMN IF NOT EXISTS image_url text;
+
+-- Backfill para items existentes ligados al catalogo
+UPDATE quotation_items qi
+SET marca = cp.marca, modelo = cp.modelo,
+    sku = cp.sku, image_url = cp.image_url
+FROM catalog_products cp
+WHERE qi.catalog_product_id = cp.id
+  AND (qi.marca IS NULL OR qi.modelo IS NULL
+    OR qi.sku IS NULL OR qi.image_url IS NULL);
+```
+
+**Resultado verificado:** 18 items totales, todos con `catalog_product_id`, 9 recibieron `image_url` del backfill, 11 con marca y modelo.
+
+**Código modificado — 5 INSERTs en `quotation_items` ahora copian los 4 campos nuevos como snapshot:**
+
+1. `CotEditorESP.tsx:700` — `AIImportModal` onImported
+2. `CotEditorESP.tsx:1504` — `addFromCatalog`
+3. `CotEditorESP.tsx:1537` — `handleCreateAndAdd`
+4. `Cotizaciones.tsx:739` — `addFromCatalog` (editor inline legacy)
+5. `Cotizaciones.tsx:1427` — `AIGenerator` crea items
+
+**Interfaces TypeScript actualizadas** para aceptar `sku?: string | null`:
+- `AIExtractedItem` (CotEditorESP.tsx línea 240)
+- `AIGenItem` (Cotizaciones.tsx línea 1032)
+
+**Principio reforzado: snapshot vs live-join**
+
+Una cotización es un documento legal con fecha y folio. Los datos del producto (precio, marca, modelo, foto) que mandaste al cliente deben **quedar fijos para siempre**. Si después cambias la foto del producto en el catálogo, la cotización vieja mantiene la foto original del momento de la firma. Esto es por qué `price` y `cost` ya se copiaban al item (nunca se hacía JOIN con el catálogo al leer) — el fix extiende ese mismo principio a marca/modelo/sku/image_url.
+
+**Efecto práctico para el usuario:**
+- Cotizaciones NUEVAS: al agregar producto del catálogo, foto y metadatos se copian automáticamente
+- Cotizaciones EXISTENTES: el backfill ya les puso las fotos disponibles en el catálogo
+- Cambios futuros en fotos del catálogo: **NO** se propagan a cotizaciones viejas (comportamiento deseado)
+- Para actualizar manualmente una cotización vieja con fotos nuevas: correr UPDATE con filtro por `quotation_id`
+
+#### Reflexión sobre estrategia de migración inicial (conversación al cierre)
+
+Elias preguntó cómo hacer la primera carga de datos al ERP antes de arrancar en operaciones reales. Decisión tomada: **estrategia híbrida** con Claude cargando masa de datos estables y Elias/equipo cargando manualmente los flujos vivos. Detalles en la sección nueva "📋 Plan de migración inicial" abajo.
+
+#### Estado final de features al cierre (9 de abril, noche)
+
+| Feature | Estado | Notas |
+|---|---|---|
+| Dashboard Cotizaciones (búsqueda + arquitecto + KPIs) | ✅ Listo | USD/MXN separados siempre |
+| Export PDF ejecutivo/técnico/lista con datos editables | ✅ Listo | Logo OMNIIOUS embebido, términos editables en localStorage |
+| Tipo de cambio USD/MXN en PDF | ✅ Listo | Header, totales y términos legales |
+| Fotos de producto con Supabase Storage | ✅ Listo | Bucket público, ImageUpload reutilizable |
+| Snapshot de marca/modelo/sku/image_url en quotation_items | ✅ Listo | Los 5 INSERTs copian, backfill ejecutado |
+| Propagación automática foto catálogo → PDF | ✅ Listo | Verificado end-to-end con las cotizaciones reales |
+
+**Commits totales de la sesión: 7** (fe77032, de053fe, 5358a6d, 433167a, 117f53f, 7aef0e8, 8b4038b) — una de las sesiones más productivas del proyecto.
+
 ### (agregar siguiente sesión aquí)
+
+---
+
+## 📋 Plan de migración inicial (decidido 2026-04-09, no ejecutado aún)
+
+Al cerrar la sesión del 9 de abril, Elias preguntó cómo hacer la primera carga de datos reales al ERP antes de arrancar en operaciones. La decisión fue **estrategia híbrida** — Claude carga en masa los datos estables y verificables, Elias/equipo carga manualmente los flujos vivos.
+
+### Qué migrar y quién lo hace
+
+| Dato | Estrategia | Razón |
+|---|---|---|
+| **Catálogo de productos** | Claude en bulk | Cientos/miles de SKUs. Fabricantes mandan Excels en batch. Alto valor de automatización. |
+| **Clientes fiscales** | Claude en bulk | Datos duros (RFC, razón social, dirección). Cero subjetividad. |
+| **Proveedores / distribuidores** | Claude en bulk | Lista cerrada y estable. |
+| **Empleados** | Elias manual | Son pocos (~30), tienen matices de rol/jerarquía que deben validarse uno por uno. |
+| **Leads activos** | Elias manual | Fuerza familiaridad con la UI del CRM. |
+| **Primeras 3-5 cotizaciones reales** | Elias manual | Detecta bugs, incomodidades del flujo, cosas que faltan. |
+| **Obras en ejecución** | Elias manual | Pocas, tienen estado vivo. Captura manual forzando el flujo real. |
+| **Cotizaciones históricas pasadas** | ❌ NO migrar | Documentos cerrados, precios obsoletos, contaminan los dashboards con ruido histórico. Quedan en sus PDFs/Excels originales. |
+| **Contabilidad histórica** | ❌ NO migrar | Vive en el sistema de facturación actual. Arranca del corte. |
+| **Gastos/movimientos bancarios antiguos** | ❌ NO migrar | Misma lógica. Arranca en fecha de corte. |
+
+### Principios clave de la migración
+
+1. **La carga masiva debe ser reproducible.** Si cargamos 800 productos y después encuentras 20 errores, debe ser posible re-correr el script con una versión corregida del Excel, no parchar manualmente. Los scripts deben:
+   - Leer de un archivo fuente (Excel/CSV en GitHub o Storage)
+   - Ser idempotentes (correr N veces con los mismos datos → mismo resultado)
+   - Tener dry-run ("te muestro qué haría antes de hacerlo")
+   - Loggear qué se insertó, qué se actualizó, qué falló
+
+2. **Fecha de corte.** El ERP arranca fresco en una fecha específica. Todo lo previo vive en los sistemas anteriores. Esto mantiene los dashboards limpios y las métricas reales.
+
+3. **No migrar documentos cerrados.** Las cotizaciones de hace 1-2 años no aportan valor operativo, solo son archivo. Archivar en PDFs, no en BD.
+
+### Fases propuestas
+
+**Fase 1 — Datos maestros (Claude en bulk):**
+1. Proveedores y distribuidores
+2. Clientes fiscales
+3. Catálogo de productos con fotos (el más importante)
+
+**Fase 2 — Flujos vivos (Elias y equipo):**
+4. Primer lead del mes → primera cotización → primera OC → primera obra → primera factura
+5. Iterar sobre bugs/incomodidades encontrados
+6. A partir del mes siguiente: todo nuevo entra al ERP directo
+
+**Fase 3 — Dejar viejo afuera:**
+Lo previo a la fecha de corte vive en sistemas anteriores. ERP arranca fresco.
+
+### Preguntas pendientes antes de arrancar fase 1
+
+Elias aún no respondió estas 3 preguntas (se va a retomar en otra sesión):
+
+1. **¿Qué fuente tienes hoy para el catálogo?** (Excels por proveedor / Excel maestro único / Odoo export / nada estructurado / mezcla)
+2. **¿Cuántos productos estimas para el catálogo inicial?** (<100 / 100-500 / 500-2000 / 2000+ / decidimos juntos)
+3. **¿Fotos automáticas vs manuales?** (AI busca con web search / Elias sube manual / mixto / sin fotos v1)
+
+Cuando Elias retome la migración, las respuestas a estas 3 preguntas determinan el diseño del script de import.
+
+### Lo que aún NO sabemos del contexto de Elias (hay que preguntar)
+
+- Fecha de corte propuesta para arrancar
+- Si tiene exports de su Odoo actual que podamos aprovechar
+- Qué sistemas externos actuales reemplaza el ERP (¿todo Odoo? ¿Excels dispersos? ¿combinación?)
+- Si hay datos fiscales sensibles que no deban cargarse via Claude por política de seguridad
+
+### Script de carga masiva — diseño técnico (cuando llegue el momento)
+
+Plantilla esperada para scripts de import:
+
+```typescript
+// Ejemplo: scripts/import-catalog.ts
+import { supabase } from '../src/lib/supabase'
+import * as XLSX from 'xlsx'
+import { readFileSync } from 'fs'
+
+interface ImportRow {
+  name: string
+  marca: string
+  modelo: string
+  sku?: string
+  provider: string
+  cost: number
+  markup: number
+  system: string
+  image_url?: string
+}
+
+async function importCatalog(filePath: string, dryRun = true) {
+  const wb = XLSX.readFile(filePath)
+  const rows: ImportRow[] = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]])
+
+  console.log(`Leidos ${rows.length} productos del Excel`)
+
+  // Validación
+  const errores = rows.filter(r => !r.name || !r.marca || r.cost < 0)
+  if (errores.length > 0) {
+    console.error(`${errores.length} filas con errores:`, errores.slice(0, 5))
+    return
+  }
+
+  if (dryRun) {
+    console.log('DRY RUN — no se insertó nada. Primeros 3:')
+    console.log(rows.slice(0, 3))
+    return
+  }
+
+  // Upsert por SKU o nombre+marca+modelo como key
+  const { data, error } = await supabase
+    .from('catalog_products')
+    .upsert(rows, { onConflict: 'sku', ignoreDuplicates: false })
+    .select()
+
+  if (error) {
+    console.error('Error:', error)
+  } else {
+    console.log(`Insertados/actualizados ${data?.length} productos`)
+  }
+}
+
+// Uso:
+// npx tsx scripts/import-catalog.ts --file=catalogo-lutron.xlsx --dry-run
+// npx tsx scripts/import-catalog.ts --file=catalogo-lutron.xlsx --commit
+```
+
+Este script vive en `/scripts/` del repo y se corre localmente o desde CI. **Nunca corre en producción** directamente — siempre dry-run primero.
 
 ---
 
