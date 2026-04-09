@@ -4,43 +4,81 @@ import { ANTHROPIC_API_KEY } from '../lib/config'
 import { Quotation, QuotationArea, QuotationItem, CatalogProduct, Project, ProjectLine, PurchasePhase } from '../types'
 import { F, SPECIALTY_CONFIG, STAGE_CONFIG, PHASE_CONFIG, calcItemPrice, calcItemTotal } from '../lib/utils'
 import { Badge, Btn, Table, Th, Td, Loading, SectionHeader, EmptyState } from '../components/layout/UI'
-import { Plus, ChevronLeft, X, Zap, Loader2 } from 'lucide-react'
+import { Plus, ChevronLeft, X, Zap, Loader2, Search } from 'lucide-react'
 import CotEditorESP from './CotEditorESP'
 
 interface Supplier { id: string; name: string }
 
+interface LeadInfo { id: string; name: string; company: string }
+
 function CotDashboard({ onOpen }: { onOpen: (id: string, specialty?: string) => void }) {
   const [cots, setCots] = useState<Quotation[]>([])
+  const [leadsMap, setLeadsMap] = useState<Record<string, LeadInfo>>({})
   const [filtro, setFiltro] = useState<string>('todas')
+  const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
   const [showNew, setShowNew] = useState(false)
   const [showAIGen, setShowAIGen] = useState(false)
 
-  const loadCots = () => {
+  const loadCots = async () => {
     setLoading(true)
-    supabase.from('quotations').select('*,project:projects(name,client_name)').order('updated_at',{ascending:false})
-      .then(({ data }) => { setCots(data||[]); setLoading(false) })
+    const [{ data: cotsData }, { data: leadsData }] = await Promise.all([
+      supabase.from('quotations').select('*,project:projects(name,client_name)').order('updated_at', { ascending: false }),
+      supabase.from('leads').select('id,name,company'),
+    ])
+    setCots(cotsData || [])
+    const map: Record<string, LeadInfo> = {}
+    ;(leadsData || []).forEach((l: any) => { map[l.id] = l })
+    setLeadsMap(map)
+    setLoading(false)
   }
 
   useEffect(() => { loadCots() }, [])
 
-  const lista = filtro === 'todas' ? cots : cots.filter(c => c.specialty === filtro)
-
   function getCur(c: any): string {
     try { const m = JSON.parse(c.notes || '{}'); return m.currency || 'USD' } catch { return 'USD' }
   }
+  function getLeadId(c: any): string {
+    try { const m = JSON.parse(c.notes || '{}'); return m.lead_id || '' } catch { return '' }
+  }
   function getLeadName(c: any): string {
+    const leadId = getLeadId(c)
+    if (leadId && leadsMap[leadId]) return leadsMap[leadId].name
     try { const m = JSON.parse(c.notes || '{}'); return m.lead_name || '' } catch { return '' }
   }
+  function getArchitect(c: any): string {
+    // Arquitecto = company del lead asociado (despacho/firma)
+    const leadId = getLeadId(c)
+    if (leadId && leadsMap[leadId]) return leadsMap[leadId].company || ''
+    return ''
+  }
 
-  const byStageAndCur = (s: string, cur: string) => cots.filter(c => c.stage === s && getCur(c) === cur).reduce((a,c) => a+c.total, 0)
-  const totalUSD = cots.filter(c => getCur(c) === 'USD').reduce((s,c) => s+c.total, 0)
-  const totalMXN = cots.filter(c => getCur(c) === 'MXN').reduce((s,c) => s+c.total, 0)
+  // Filtro por especialidad + búsqueda de texto
+  const lista = cots.filter(c => {
+    if (filtro !== 'todas' && c.specialty !== filtro) return false
+    if (search.trim()) {
+      const q = search.toLowerCase().trim()
+      const hay =
+        (c.name || '').toLowerCase().includes(q) ||
+        (c.client_name || '').toLowerCase().includes(q) ||
+        getLeadName(c).toLowerCase().includes(q) ||
+        getArchitect(c).toLowerCase().includes(q)
+      if (!hay) return false
+    }
+    return true
+  })
+
+  // KPIs por etapa (USD y MXN separados)
+  const byStageAndCur = (s: string, cur: string) => cots.filter(c => c.stage === s && getCur(c) === cur).reduce((a, c) => a + c.total, 0)
+  // KPIs por especialidad (USD y MXN separados) — solo stages activos (no oportunidad descartada)
+  const bySpecAndCur = (spec: string, cur: string) => cots.filter(c => c.specialty === spec && getCur(c) === cur).reduce((a, c) => a + c.total, 0)
+  const totalUSD = cots.filter(c => getCur(c) === 'USD').reduce((s, c) => s + c.total, 0)
+  const totalMXN = cots.filter(c => getCur(c) === 'MXN').reduce((s, c) => s + c.total, 0)
 
   return (
     <div style={{padding:'24px 28px'}}>
       <SectionHeader title="Cotizaciones"
-        subtitle={`${cots.length} cotizaciones | USD: ${F(totalUSD)} | MXN: ${F(totalMXN)}`}
+        subtitle={`${cots.length} cotizaciones · USD ${F(totalUSD)} · MXN ${F(totalMXN)}`}
         action={<div style={{display:'flex',gap:8}}>
           <Btn onClick={() => setShowAIGen(true)} style={{border:'1px solid #57FF9A44', color:'#57FF9A', display:'inline-flex', alignItems:'center', gap:4}}><Zap size={14}/> Cotizar con AI</Btn>
           <Btn variant="primary" onClick={() => setShowNew(true)}><Plus size={14}/> Nueva cotizacion</Btn>
@@ -60,6 +98,45 @@ function CotDashboard({ onOpen }: { onOpen: (id: string, specialty?: string) => 
             </div>
           )
         })}
+      </div>
+
+      {/* KPIs por especialidad — USD y MXN separados */}
+      <div style={{display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:10,marginBottom:20}}>
+        {(['esp','elec','ilum','cort','proy'] as const).map(spec => {
+          const cfg = SPECIALTY_CONFIG[spec]
+          const usd = bySpecAndCur(spec, 'USD')
+          const mxn = bySpecAndCur(spec, 'MXN')
+          return (
+            <div key={spec} style={{background:'#141414',border:'1px solid #222',borderRadius:10,padding:'12px 14px',borderLeft:`2px solid ${cfg.color}`}}>
+              <div style={{fontSize:10,color:'#555',textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:4,display:'flex',alignItems:'center',gap:4}}>
+                <span style={{color:cfg.color}}>{cfg.icon}</span> {cfg.label}
+              </div>
+              {usd > 0 && <div style={{fontSize:13,fontWeight:700,color:'#fff'}}>USD {F(usd)}</div>}
+              {mxn > 0 && <div style={{fontSize:12,fontWeight:600,color:'#ccc'}}>MXN {F(mxn)}</div>}
+              {usd === 0 && mxn === 0 && <div style={{fontSize:13,fontWeight:700,color:'#333'}}>$0</div>}
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Barra de búsqueda */}
+      <div style={{marginBottom:14,position:'relative'}}>
+        <Search size={14} style={{position:'absolute',left:12,top:'50%',transform:'translateY(-50%)',color:'#555',pointerEvents:'none'}}/>
+        <input
+          type="text"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          placeholder="Buscar por cotización, cliente, arquitecto o lead..."
+          style={{
+            width:'100%',padding:'10px 12px 10px 36px',background:'#141414',border:'1px solid #222',
+            borderRadius:10,color:'#fff',fontSize:13,fontFamily:'inherit',boxSizing:'border-box',
+          }}
+        />
+        {search && (
+          <button onClick={() => setSearch('')} style={{position:'absolute',right:10,top:'50%',transform:'translateY(-50%)',background:'none',border:'none',color:'#666',cursor:'pointer',padding:4}}>
+            <X size={14}/>
+          </button>
+        )}
       </div>
 
       <div style={{display:'flex',gap:6,marginBottom:16,flexWrap:'wrap'}}>
@@ -82,18 +159,20 @@ function CotDashboard({ onOpen }: { onOpen: (id: string, specialty?: string) => 
       {loading ? <Loading/> : (
         <Table>
           <thead><tr>
-            <Th>Cotizacion</Th><Th>Lead</Th><Th>Cliente</Th><Th>Especialidad</Th><Th>Etapa</Th><Th>Moneda</Th><Th right>Total</Th><Th></Th>
+            <Th>Cotización</Th><Th>Lead</Th><Th>Arquitecto</Th><Th>Cliente</Th><Th>Especialidad</Th><Th>Etapa</Th><Th>Moneda</Th><Th right>Total</Th><Th></Th>
           </tr></thead>
           <tbody>
-            {lista.length === 0 && (<tr><td colSpan={8}><EmptyState message="Sin cotizaciones - crea la primera"/></td></tr>)}
+            {lista.length === 0 && (<tr><td colSpan={9}><EmptyState message={search || filtro !== "todas" ? "No se encontraron cotizaciones con estos filtros" : "Sin cotizaciones - crea la primera"}/></td></tr>)}
             {lista.map(c => {
               const esp = SPECIALTY_CONFIG[c.specialty]; const stage = STAGE_CONFIG[c.stage]
               const cur = getCur(c)
               const leadName = getLeadName(c)
+              const architect = getArchitect(c)
               return (
                 <tr key={c.id} style={{cursor:'pointer'}} onClick={() => onOpen(c.id, c.specialty)}>
-                  <Td><span style={{fontWeight:500,color:'#fff'}}>{c.name}</span></Td>
+                  <Td><span style={{fontWeight:500,color:'#fff'}}>{c.name || '--'}</span></Td>
                   <Td><span style={{color: leadName ? '#C084FC' : '#333'}}>{leadName || '--'}</span></Td>
+                  <Td><span style={{color: architect ? '#F9A8D4' : '#333', fontSize: 12}}>{architect || '--'}</span></Td>
                   <Td muted>{c.client_name || '--'}</Td>
                   <Td><Badge label={esp.icon+' '+esp.label} color={esp.color}/></Td>
                   <Td>
