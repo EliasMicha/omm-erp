@@ -82,7 +82,7 @@ export default function Clientes() {
 
   useEffect(() => {
     const load = async () => {
-      const { data } = await supabase.from('clientes_fiscales').select('*').order('created_at', { ascending: false })
+      const { data } = await supabase.from('clientes').select('*').order('created_at', { ascending: false })
       if (data) setClientes(data.map((c: any) => ({ ...c, activo: c.activo !== false })))
     }
     load()
@@ -148,7 +148,7 @@ export default function Clientes() {
     }
     try {
       if (editId) {
-        const { data, error } = await supabase.from('clientes_fiscales')
+        const { data, error } = await supabase.from('clientes')
           .update(payload).eq('id', editId).select().single()
         if (error) {
           console.error('Error actualizando cliente:', error)
@@ -160,7 +160,7 @@ export default function Clientes() {
           setClientes(clientes.map(c => c.id === editId ? { ...c, ...data, activo: data.activo !== false } : c))
         }
       } else {
-        const { data, error } = await supabase.from('clientes_fiscales')
+        const { data, error } = await supabase.from('clientes')
           .insert(payload).select().single()
         if (error) {
           console.error('Error creando cliente:', error)

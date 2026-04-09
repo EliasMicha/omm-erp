@@ -1673,7 +1673,7 @@ function EditCotModal({ cotId, name, clientName, projectId, onClose, onSaved }: 
     Promise.all([
       supabase.from('projects').select('id,name,client_name').eq('status', 'activo'),
       supabase.from('leads').select('id,name,company').order('name'),
-      supabase.from('clientes_fiscales').select('id,razon_social,rfc').eq('activo', true).order('razon_social'),
+      supabase.from('clientes').select('id,razon_social,rfc').eq('activo', true).order('razon_social'),
       supabase.from('quotations').select('notes').eq('id', cotId).single(),
     ]).then(([{ data: p }, { data: l }, { data: c }, { data: q }]) => {
       setProjects(p || []); setLeads(l || []); setClientes(c || [])

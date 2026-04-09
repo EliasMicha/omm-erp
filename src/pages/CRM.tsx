@@ -112,7 +112,7 @@ function NuevoLeadModal({ onClose, onCreated }: { onClose: () => void; onCreated
   const [newClientRfc, setNewClientRfc] = useState('')
 
   useEffect(() => {
-    supabase.from('clientes_fiscales').select('id,razon_social,rfc').neq('activo', false).order('razon_social')
+    supabase.from('clientes').select('id,razon_social,rfc').neq('activo', false).order('razon_social')
       .then(({ data }) => setClientes(data || []))
   }, [])
 
@@ -126,7 +126,7 @@ function NuevoLeadModal({ onClose, onCreated }: { onClose: () => void; onCreated
 
   async function crearClienteInline() {
     if (!newClientName.trim()) return
-    const { data } = await supabase.from('clientes_fiscales').insert({
+    const { data } = await supabase.from('clientes').insert({
       razon_social: newClientName.trim(), rfc: newClientRfc.trim() || 'XAXX010101000',
       regimen_fiscal: '601', regimen_fiscal_clave: '601', codigo_postal: '00000',
       uso_cfdi: 'G03', uso_cfdi_clave: 'G03', tipo_persona: 'moral', activo: true,

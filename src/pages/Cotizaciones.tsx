@@ -168,7 +168,7 @@ function NuevaCoModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
   useEffect(() => {
     Promise.all([
       supabase.from('projects').select('*').eq('status', 'activo'),
-      supabase.from('clientes_fiscales').select('id,razon_social,rfc').eq('activo', true).order('razon_social'),
+      supabase.from('clientes').select('id,razon_social,rfc').eq('activo', true).order('razon_social'),
       supabase.from('leads').select('id,name,company,contact_name').order('created_at', { ascending: false }).limit(50),
     ]).then(([{ data: p }, { data: c }, { data: l }]) => {
       setProjects(p || [])
