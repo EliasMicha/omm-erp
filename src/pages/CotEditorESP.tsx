@@ -29,7 +29,6 @@ const ALL_SYSTEMS: EspSystemDef[] = [
   { id: 'bms', name: 'BMS', color: '#10B981' },
   { id: 'telefonia', name: 'Telefonía', color: '#F97316' },
   { id: 'red_celular', name: 'Red Celular', color: '#EC4899' },
-  { id: 'cortinas_ctrl', name: 'Cortinas y Persianas', color: '#67E8F9' },
 ]
 
 function uid(): string { return Math.random().toString(36).slice(2, 10) }
@@ -320,7 +319,6 @@ function AIImportModal({ cotId, areas, activeSysIds, currency, tipoCambio, onClo
     if (s.includes('bms') || s.includes('automatiz')) return 'bms'
     if (s.includes('telefon')) return 'telefonia'
     if (s.includes('celular') || s.includes('das')) return 'red_celular'
-    if (s.includes('cortina') || s.includes('persiana') || s.includes('shade')) return 'cortinas_ctrl'
     return 'audio'
   }
 

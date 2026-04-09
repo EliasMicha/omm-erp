@@ -12,7 +12,7 @@ Tu tarea es extraer TODOS los productos del documento adjunto y devolver un JSON
   "items": [
     {
       "area": "nombre del área/zona/recámara/cuarto si aparece, o '' si no aparece",
-      "systemId": "uno de: audio, redes, cctv, control_acceso, control_iluminacion, deteccion_humo, bms, telefonia, red_celular, cortinas_ctrl",
+      "systemId": "uno de: audio, redes, cctv, control_acceso, control_iluminacion, deteccion_humo, bms, telefonia, red_celular",
       "marca": "marca/fabricante",
       "modelo": "número de modelo o SKU exacto",
       "descripcion": "descripción corta",

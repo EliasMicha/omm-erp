@@ -150,7 +150,6 @@ const SYSTEM_PRESETS = [
   { id: 'bms', name: 'BMS', color: '#10B981' },
   { id: 'telefonia', name: 'Telefonía', color: '#F97316' },
   { id: 'red_celular', name: 'Red Celular', color: '#EC4899' },
-  { id: 'cortinas_ctrl', name: 'Cortinas y Persianas', color: '#67E8F9' },
 ]
 
 interface ClienteSimple { id: string; razon_social: string; rfc: string }
@@ -1005,7 +1004,6 @@ const AI_ALL_SYSTEMS = [
   { id: 'bms', name: 'BMS', color: '#10B981', enumValue: null },
   { id: 'telefonia', name: 'Telefonía', color: '#F97316', enumValue: null },
   { id: 'red_celular', name: 'Red Celular', color: '#EC4899', enumValue: null },
-  { id: 'cortinas_ctrl', name: 'Cortinas y Persianas', color: '#67E8F9', enumValue: 'Cortinas' },
 ]
 
 function aiGenUid(): string { return Math.random().toString(36).slice(2, 10) }
@@ -1066,7 +1064,7 @@ function AIGenerateModal({ onClose, onCreated }: {
   "habitaciones": número o null (recámaras/oficinas/habitaciones de hotel),
   "ubicacion": "cdmx|resto_mx|internacional",
   "nivel": "basico|medio|alto|premium",
-  "sistemas": ["audio","redes","cctv","control_acceso","control_iluminacion","deteccion_humo","bms","telefonia","red_celular","cortinas_ctrl"],
+  "sistemas": ["audio","redes","cctv","control_acceso","control_iluminacion","deteccion_humo","bms","telefonia","red_celular"],
   "areas_detectadas": "lista de áreas que se mencionan explícitamente, separadas por comas",
   "notas": "cualquier otra información relevante"
 }

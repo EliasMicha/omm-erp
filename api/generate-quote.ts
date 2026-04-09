@@ -12,7 +12,7 @@ REGLAS CRÍTICAS:
 3. Usa los PRECEDENTES (cotizaciones previas similares) como guía para elegir qué productos usar, qué cantidades típicas, y qué áreas considerar.
 4. Organiza por ÁREAS. Los nombres de áreas deben ser específicos al tipo de proyecto (residencial: "Sala", "Recámara Principal", "Cocina", "Oficina"; hotel: "Lobby", "Habitación Tipo A", "Restaurante"; corporativo: "Sala de Juntas", "Open Office", "Recepción"). Siempre incluye "SITE" para equipos de cuarto técnico (switches, UPS, rack).
 5. Sé CONSERVADOR en cantidades. Un access point cubre ~80 m², una cámara por acceso/perímetro, un keypad de iluminación por área.
-6. Los nombres de sistemas DEBEN ser uno de: "Audio", "Redes", "CCTV", "Control de Acceso", "Control de Iluminación", "Detección de Humo", "BMS", "Telefonía", "Red Celular", "Cortinas y Persianas".
+6. Los nombres de sistemas DEBEN ser uno de: "Audio", "Redes", "CCTV", "Control de Acceso", "Control de Iluminación", "Detección de Humo", "BMS", "Telefonía", "Red Celular".
 
 FORMATO DE RESPUESTA — JSON estricto, sin markdown, sin texto extra:
 {
