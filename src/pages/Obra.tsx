@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react'
-import { SectionHeader, KpiCard, Table, Th, Td, Badge, Btn, EmptyState, ProgressBar } from '../components/layout/UI'
+import { SectionHeader, KpiCard, Table, Th, Td, Badge, Btn, EmptyState, ProgressBar, Loading } from '../components/layout/UI'
 import { F, formatDate } from '../lib/utils'
 import { ANTHROPIC_API_KEY } from '../lib/config'
 import { supabase } from '../lib/supabase'
