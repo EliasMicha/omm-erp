@@ -128,79 +128,53 @@ const DOCS_ENTREGA: string[] = [
 ]
 
 /* ═══════════════════════════════════════════════════════════════════
-   MOCK DATA
+   DATA LOADERS — Supabase (commit 1)
+   Las subtablas (actividades, reportes, entrega_docs) siguen en memoria
+   por compatibilidad con los Sub* — se persisten en Commit 2.
    ═══════════════════════════════════════════════════════════════════ */
 
-const MOCK_INSTALADORES: Instalador[] = [
-  { id: 'i1', nombre: 'Carlos Méndez', telefono: '5512340001', habilidades: ['CCTV', 'Redes', 'Acceso'], nivel: 'senior', obras_activas: ['o1', 'o2'], disponible: true, calificacion: 4.8, notas: '10 años de experiencia, certificado Hikvision' },
-  { id: 'i2', nombre: 'Miguel Ángel Torres', telefono: '5512340002', habilidades: ['Audio', 'Control', 'Redes'], nivel: 'senior', obras_activas: ['o1'], disponible: true, calificacion: 4.5, notas: 'Especialista Lutron, certificado Sonos' },
-  { id: 'i3', nombre: 'Roberto Sánchez', telefono: '5512340003', habilidades: ['Electrico', 'Redes'], nivel: 'medio', obras_activas: ['o2'], disponible: true, calificacion: 4.0 },
-  { id: 'i4', nombre: 'José Luis Ramírez', telefono: '5512340004', habilidades: ['CCTV', 'Acceso', 'Electrico'], nivel: 'medio', obras_activas: [], disponible: true, calificacion: 3.8 },
-  { id: 'i5', nombre: 'Fernando García', telefono: '5512340005', habilidades: ['Audio', 'Control'], nivel: 'junior', obras_activas: ['o1'], disponible: false, calificacion: 3.5, notas: 'En capacitación Lutron' },
-]
+// Mapea un row de employees al tipo Instalador (compat layer hasta refactor de Sub*)
+function rowToInstalador(e: any): Instalador {
+  const nivelMap: Record<string, 'senior' | 'medio' | 'junior'> = {
+    oro: 'senior', plata: 'medio', bronce: 'junior', sin_nivel: 'junior',
+  }
+  return {
+    id: e.id,
+    nombre: e.name || '',
+    telefono: e.phone || '',
+    habilidades: (e.skills || []) as Sistema[],
+    nivel: nivelMap[e.level] || 'medio',
+    obras_activas: [], // se llena en cliente con un join post-load si hace falta
+    disponible: e.disponible !== false,
+    foto_url: e.foto_url || undefined,
+    notas: e.notes || undefined,
+    calificacion: e.calificacion || 0,
+  }
+}
 
-const MOCK_OBRAS: ObraData[] = [
-  {
-    id: 'o1', nombre: 'Oasis 6 - Torre B', cliente: 'Alex Niz', direccion: 'Av. Oasis 600, Interlomas',
-    status: 'en_ejecucion', cotizacion_ref: 'COT-ESP-2026-012', coordinador: 'Alfredo Rosas',
-    sistemas: ['CCTV', 'Audio', 'Redes', 'Control', 'Acceso'], instaladores_ids: ['i1', 'i2', 'i5'],
-    fecha_inicio: '2026-02-15', fecha_fin_plan: '2026-06-30', avance_global: 42, valor_contrato: 1850000,
-    entrega_docs: DOCS_ENTREGA.map((d, i) => ({ nombre: d, recibido: i < 6 })),
-    actividades: [
-      { id: 'a1', obra_id: 'o1', sistema: 'Redes', descripcion: 'Cableado estructurado pisos 1-5', status: 'completada', instalador_id: 'i1', fecha_inicio: '2026-02-20', fecha_fin_plan: '2026-03-15', fecha_fin_real: '2026-03-12', porcentaje: 100 },
-      { id: 'a2', obra_id: 'o1', sistema: 'CCTV', descripcion: 'Instalación cámaras perímetro', status: 'en_progreso', instalador_id: 'i1', fecha_inicio: '2026-03-15', fecha_fin_plan: '2026-04-15', porcentaje: 60 },
-      { id: 'a3', obra_id: 'o1', sistema: 'Audio', descripcion: 'Pre-cableado audio zonas comunes', status: 'en_progreso', instalador_id: 'i2', fecha_inicio: '2026-03-10', fecha_fin_plan: '2026-04-20', porcentaje: 35 },
-      { id: 'a4', obra_id: 'o1', sistema: 'Control', descripcion: 'Instalación procesadores Lutron', status: 'pendiente', instalador_id: 'i2', fecha_fin_plan: '2026-05-01', porcentaje: 0 },
-      { id: 'a5', obra_id: 'o1', sistema: 'Acceso', descripcion: 'Lectores acceso lobby + estacionamiento', status: 'bloqueada', instalador_id: 'i1', fecha_fin_plan: '2026-04-30', porcentaje: 10, bloqueo: 'Esperando entrega de lectores HID (proveedor con retraso 2 semanas)' },
-      { id: 'a6', obra_id: 'o1', sistema: 'Control', descripcion: 'Programación escenas Lutron', status: 'pendiente', instalador_id: 'i5', fecha_fin_plan: '2026-06-01', porcentaje: 0 },
-    ],
-    reportes: [
-      {
-        id: 'r1', obra_id: 'o1', instalador_id: 'i1', fecha: '2026-04-04',
-        texto_raw: 'Hoy avanzamos con las cámaras del estacionamiento nivel -2. Instalamos 4 domo Hikvision DS-2CD2147G2 en las esquinas. Falta canalizar el último tramo de 15m porque el plafón aún no está terminado por el contratista general. Los lectores HID siguen sin llegar, hablé con el proveedor y dice que la próxima semana.',
-        fotos: [], procesado: true,
-        ai_resumen: 'Avance en CCTV estacionamiento N-2: 4 cámaras domo Hikvision instaladas. Pendiente canalización 15m por plafón incompleto (dep. contratista general). Lectores HID sin entregar, ETA próxima semana.',
-        ai_avances: ['4 cámaras domo Hikvision DS-2CD2147G2 instaladas en estacionamiento N-2'],
-        ai_faltantes: ['Canalización 15m pendiente (plafón sin terminar)', 'Lectores HID pendientes de entrega'],
-        ai_bloqueos: ['Plafón estacionamiento N-2 no terminado por contratista general', 'Retraso proveedor lectores HID (~1 semana)'],
-      },
-      {
-        id: 'r2', obra_id: 'o1', instalador_id: 'i2', fecha: '2026-04-04',
-        texto_raw: 'Terminé el tendido de cable de audio en zona de alberca y terraza. 6 bocinas Sonos Outdoor ya están montadas. Mañana empiezo con el vestíbulo. Necesito que me manden 3 cajas más de cable Genesis 1602 porque se me acabó.',
-        fotos: [], procesado: true,
-        ai_resumen: 'Audio: completado tendido cable + montaje 6 bocinas Sonos Outdoor en alberca/terraza. Siguiente: vestíbulo. Solicita 3 cajas cable Genesis 1602.',
-        ai_avances: ['Tendido cable audio alberca y terraza completado', '6 bocinas Sonos Outdoor montadas'],
-        ai_faltantes: ['3 cajas cable Genesis 1602 requeridas'],
-        ai_bloqueos: [],
-      },
-    ],
-    notas: 'Obra de alta prioridad. Cliente visita cada viernes.',
-  },
-  {
-    id: 'o2', nombre: 'Reforma 222 - PH', cliente: 'Grupo Inmobiliario', direccion: 'Reforma 222, Juárez, CDMX',
-    status: 'en_ejecucion', cotizacion_ref: 'COT-ESP-2025-038', coordinador: 'Alfredo Rosas',
-    sistemas: ['CCTV', 'Redes', 'Electrico'], instaladores_ids: ['i1', 'i3'],
-    fecha_inicio: '2026-03-01', fecha_fin_plan: '2026-05-15', avance_global: 25, valor_contrato: 650000,
-    entrega_docs: DOCS_ENTREGA.map((d, i) => ({ nombre: d, recibido: i < 4 })),
-    actividades: [
-      { id: 'a7', obra_id: 'o2', sistema: 'Redes', descripcion: 'Cableado Cat6A departamento completo', status: 'en_progreso', instalador_id: 'i3', fecha_inicio: '2026-03-05', fecha_fin_plan: '2026-04-10', porcentaje: 70 },
-      { id: 'a8', obra_id: 'o2', sistema: 'CCTV', descripcion: 'Instalación NVR + 8 cámaras', status: 'pendiente', instalador_id: 'i1', fecha_fin_plan: '2026-04-25', porcentaje: 0 },
-      { id: 'a9', obra_id: 'o2', sistema: 'Electrico', descripcion: 'Canalizaciones y registros eléctricos', status: 'en_progreso', instalador_id: 'i3', fecha_inicio: '2026-03-01', fecha_fin_plan: '2026-04-15', porcentaje: 45 },
-    ],
-    reportes: [],
-    notas: '',
-  },
-  {
-    id: 'o3', nombre: 'Pachuca - Residencial Los Arcos', cliente: 'Desarrollos Pachuca', direccion: 'Blvd. Colosio 500, Pachuca',
-    status: 'entrega_pendiente', cotizacion_ref: 'COT-ESP-2026-020', coordinador: 'Ricardo Flores',
-    sistemas: ['CCTV', 'Redes', 'Audio', 'Acceso'], instaladores_ids: [],
-    fecha_fin_plan: '2026-08-30', avance_global: 0, valor_contrato: 420000,
-    entrega_docs: DOCS_ENTREGA.map((d, i) => ({ nombre: d, recibido: i < 2 })),
-    actividades: [],
-    reportes: [],
-    notas: 'Contrato recién firmado. Pendiente entrega formal y asignación de instaladores.',
-  },
-]
+// Mapea un row de obras (con joins) al tipo ObraData
+function rowToObra(o: any, coordinadorName: string): ObraData {
+  return {
+    id: o.id,
+    nombre: o.nombre || '',
+    cliente: o.cliente || '',
+    direccion: o.direccion || '',
+    status: (o.status || 'entrega_pendiente') as ObraStatus,
+    cotizacion_id: o.quotation_id || undefined,
+    cotizacion_ref: o.quotation_id ? '' : undefined, // se hidrata si hace falta
+    coordinador: coordinadorName,
+    sistemas: (o.sistemas || []) as Sistema[],
+    instaladores_ids: (o.instaladores_ids || []) as string[],
+    fecha_inicio: o.fecha_inicio || undefined,
+    fecha_fin_plan: o.fecha_fin_plan || undefined,
+    avance_global: o.avance_global || 0,
+    actividades: [], // mock por ahora — Commit 2 carga de obra_actividades
+    reportes: [],    // mock por ahora — Commit 2 carga de obra_reportes
+    entrega_docs: DOCS_ENTREGA.map(d => ({ nombre: d, recibido: false })), // mock — Commit 2
+    notas: o.notas || undefined,
+    valor_contrato: o.valor_contrato || 0,
+  }
+}
 
 /* ═══════════════════════════════════════════════════════════════════
    STYLES
@@ -221,16 +195,141 @@ const cardStyle: React.CSSProperties = {
 
 export default function Obra() {
   const [tab, setTab] = useState<Tab>('obras')
-  const [obras, setObras] = useState<ObraData[]>(MOCK_OBRAS)
-  const [instaladores, setInstaladores] = useState<Instalador[]>(MOCK_INSTALADORES)
+  const [obras, setObras] = useState<ObraData[]>([])
+  const [instaladores, setInstaladores] = useState<Instalador[]>([])
+  const [coordinadores, setCoordinadores] = useState<Array<{ id: string; name: string }>>([])
   const [selectedObra, setSelectedObra] = useState<string | null>(null)
   const [showNewObra, setShowNewObra] = useState(false)
   const [showNewInstalador, setShowNewInstalador] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
+
+  // Carga inicial: obras + employees (instaladores + coordinadores)
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      setLoadError(null)
+      try {
+        const [obrasRes, empRes] = await Promise.all([
+          supabase.from('obras').select('*').order('created_at', { ascending: false }),
+          supabase.from('employees').select('id,name,phone,role,level,skills,disponible,foto_url,calificacion,notes,is_active').eq('is_active', true).order('name'),
+        ])
+        if (cancelled) return
+        if (obrasRes.error) {
+          console.error('Error cargando obras:', obrasRes.error)
+          setLoadError('Error al cargar obras: ' + obrasRes.error.message)
+          setLoading(false)
+          return
+        }
+        if (empRes.error) {
+          console.error('Error cargando employees:', empRes.error)
+          setLoadError('Error al cargar empleados: ' + empRes.error.message)
+          setLoading(false)
+          return
+        }
+        const empleados = empRes.data || []
+        // Instaladores = role 'instalador'
+        const insts = empleados.filter((e: any) => e.role === 'instalador').map(rowToInstalador)
+        // Coordinadores = role 'coordinador' o 'dg'
+        const coords = empleados.filter((e: any) => e.role === 'coordinador' || e.role === 'dg').map((e: any) => ({ id: e.id, name: e.name || '' }))
+        // Mapa id -> name para resolver coordinador_id en obras
+        const coordMap = new Map<string, string>()
+        empleados.forEach((e: any) => coordMap.set(e.id, e.name || ''))
+        const obrasMapped = (obrasRes.data || []).map((o: any) => rowToObra(o, coordMap.get(o.coordinador_id || '') || ''))
+        setInstaladores(insts)
+        setCoordinadores(coords)
+        setObras(obrasMapped)
+        setLoading(false)
+      } catch (err: any) {
+        if (cancelled) return
+        console.error('Excepción cargando obras:', err)
+        setLoadError('Error inesperado: ' + (err?.message || String(err)))
+        setLoading(false)
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [])
 
   const obra = selectedObra ? obras.find(o => o.id === selectedObra) : null
 
   const updateObra = (id: string, updater: (o: ObraData) => ObraData) => {
     setObras(prev => prev.map(o => o.id === id ? updater(o) : o))
+  }
+
+  // Persiste una obra nueva en Supabase + agrega al state
+  async function crearObraEnDB(form: {
+    nombre: string; cliente: string; direccion: string; coordinador_id: string;
+    cotizacion_id: string; valor_contrato: number; sistemas: Sistema[]; fecha_fin_plan: string;
+  }): Promise<{ ok: true; obra: ObraData } | { ok: false; error: string }> {
+    try {
+      // Resolver project_id desde la cotización si hay
+      let project_id: string | null = null
+      if (form.cotizacion_id) {
+        const { data: cot } = await supabase.from('quotations').select('project_id').eq('id', form.cotizacion_id).single()
+        if (cot) project_id = cot.project_id || null
+      }
+      const payload: any = {
+        nombre: form.nombre,
+        cliente: form.cliente || null,
+        direccion: form.direccion || null,
+        status: 'entrega_pendiente',
+        quotation_id: form.cotizacion_id || null,
+        project_id,
+        coordinador_id: form.coordinador_id || null,
+        sistemas: form.sistemas,
+        fecha_fin_plan: form.fecha_fin_plan || null,
+        avance_global: 0,
+        valor_contrato: form.valor_contrato || 0,
+        moneda: 'MXN',
+      }
+      const { data, error } = await supabase.from('obras').insert(payload).select().single()
+      if (error) {
+        console.error('Error creando obra:', error)
+        return { ok: false, error: error.message }
+      }
+      const coordName = coordinadores.find(c => c.id === form.coordinador_id)?.name || ''
+      const nuevaObra = rowToObra(data, coordName)
+      setObras(prev => [nuevaObra, ...prev])
+      return { ok: true, obra: nuevaObra }
+    } catch (err: any) {
+      console.error('Excepción creando obra:', err)
+      return { ok: false, error: err?.message || String(err) }
+    }
+  }
+
+  // Persiste un nuevo instalador (employee con role='instalador')
+  async function crearInstaladorEnDB(form: {
+    nombre: string; telefono: string; nivel: 'senior' | 'medio' | 'junior';
+    habilidades: Sistema[]; notas: string;
+  }): Promise<{ ok: true; instalador: Instalador } | { ok: false; error: string }> {
+    try {
+      const nivelToLevel: Record<'senior' | 'medio' | 'junior', string> = {
+        senior: 'oro', medio: 'plata', junior: 'bronce',
+      }
+      const payload: any = {
+        name: form.nombre,
+        phone: form.telefono || null,
+        role: 'instalador',
+        level: nivelToLevel[form.nivel],
+        skills: form.habilidades,
+        notes: form.notas || null,
+        is_active: true,
+        disponible: true,
+      }
+      const { data, error } = await supabase.from('employees').insert(payload).select().single()
+      if (error) {
+        console.error('Error creando instalador:', error)
+        return { ok: false, error: error.message }
+      }
+      const inst = rowToInstalador(data)
+      setInstaladores(prev => [inst, ...prev])
+      return { ok: true, instalador: inst }
+    } catch (err: any) {
+      console.error('Excepción creando instalador:', err)
+      return { ok: false, error: err?.message || String(err) }
+    }
   }
 
   // KPIs
@@ -256,6 +355,14 @@ export default function Obra() {
           {tab === 'instaladores' && <Btn size="sm" variant="primary" onClick={() => setShowNewInstalador(true)}><Plus size={12} /> Nuevo instalador</Btn>}
         </div>
       } />
+
+      {loadError && (
+        <div style={{ marginBottom: 16, padding: '10px 12px', background: '#2a1414', border: '1px solid #5a2828', borderRadius: 8, color: '#f87171', fontSize: 12, display: 'flex', gap: 8 }}>
+          <span>⚠</span><span>{loadError}</span>
+        </div>
+      )}
+
+      {loading && <div style={{ marginBottom: 16 }}><Loading /></div>}
 
       {/* KPIs */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
@@ -289,7 +396,7 @@ export default function Obra() {
 
       {tab === 'obras' && (
         <div>
-          {obras.length === 0 ? <EmptyState message="No hay obras registradas" /> : (
+          {obras.length === 0 && !loading ? <EmptyState message="No hay obras registradas" /> : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {obras.map(o => {
                 const st = STATUS_CONFIG[o.status]
@@ -337,11 +444,20 @@ export default function Obra() {
 
       {tab === 'planeacion' && <TabPlaneacion obras={obras} instaladores={instaladores} />}
 
-      {/* Modal nueva obra */}
-      {showNewObra && <NuevaObraModal onClose={() => setShowNewObra(false)} onCreate={(o) => { setObras([o, ...obras]); setShowNewObra(false) }} />}
+      {/* Modal nueva obra — usa crearObraEnDB */}
+      {showNewObra && <NuevaObraModal
+        coordinadores={coordinadores}
+        onClose={() => setShowNewObra(false)}
+        onSubmit={crearObraEnDB}
+        onCreated={() => setShowNewObra(false)}
+      />}
 
-      {/* Modal nuevo instalador */}
-      {showNewInstalador && <NuevoInstaladorModal onClose={() => setShowNewInstalador(false)} onCreate={(inst) => { setInstaladores([inst, ...instaladores]); setShowNewInstalador(false) }} />}
+      {/* Modal nuevo instalador — usa crearInstaladorEnDB */}
+      {showNewInstalador && <NuevoInstaladorModal
+        onClose={() => setShowNewInstalador(false)}
+        onSubmit={crearInstaladorEnDB}
+        onCreated={() => setShowNewInstalador(false)}
+      />}
     </div>
   )
 }
@@ -1512,14 +1628,31 @@ Responde SOLO con un JSON, sin markdown, sin explicación:
    MODAL: NUEVA OBRA
    ═══════════════════════════════════════════════════════════════════ */
 
-function NuevaObraModal({ onClose, onCreate }: { onClose: () => void; onCreate: (o: ObraData) => void }) {
+function NuevaObraModal({ coordinadores, onClose, onSubmit, onCreated }: {
+  coordinadores: Array<{ id: string; name: string }>
+  onClose: () => void
+  onSubmit: (form: {
+    nombre: string; cliente: string; direccion: string; coordinador_id: string;
+    cotizacion_id: string; valor_contrato: number; sistemas: Sistema[]; fecha_fin_plan: string;
+  }) => Promise<{ ok: true; obra: ObraData } | { ok: false; error: string }>
+  onCreated: () => void
+}) {
   const [form, setForm] = useState({
-    nombre: '', cliente: '', direccion: '', coordinador: 'Alfredo Rosas',
-    cotizacion_ref: '', cotizacion_id: '', valor_contrato: '', sistemas: [] as Sistema[],
+    nombre: '', cliente: '', direccion: '', coordinador_id: '',
+    cotizacion_id: '', valor_contrato: '', sistemas: [] as Sistema[],
     fecha_fin_plan: '',
   })
   const [cotizaciones, setCotizaciones] = useState<Array<{ id: string; name: string; total: number; project_name?: string; client_name?: string }>>([])
   const [loadingCots, setLoadingCots] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
+
+  // Default coordinador: el primero "coordinador" si existe
+  React.useEffect(() => {
+    if (!form.coordinador_id && coordinadores.length > 0) {
+      setForm(f => ({ ...f, coordinador_id: coordinadores[0].id }))
+    }
+  }, [coordinadores])
 
   // Load cotizaciones on mount
   React.useEffect(() => {
@@ -1541,13 +1674,13 @@ function NuevaObraModal({ onClose, onCreate }: { onClose: () => void; onCreate: 
     const cot = cotizaciones.find(c => c.id === cotId)
     if (cot) {
       setForm(f => ({
-        ...f, cotizacion_id: cotId, cotizacion_ref: cot.name,
+        ...f, cotizacion_id: cotId,
         valor_contrato: String(cot.total || f.valor_contrato),
         cliente: f.cliente || cot.client_name || '',
         nombre: f.nombre || cot.project_name || cot.name || '',
       }))
     } else {
-      setForm(f => ({ ...f, cotizacion_id: '', cotizacion_ref: '' }))
+      setForm(f => ({ ...f, cotizacion_id: '' }))
     }
   }
 
@@ -1555,20 +1688,29 @@ function NuevaObraModal({ onClose, onCreate }: { onClose: () => void; onCreate: 
     setForm(f => ({ ...f, sistemas: f.sistemas.includes(s) ? f.sistemas.filter(x => x !== s) : [...f.sistemas, s] }))
   }
 
-  const crear = () => {
-    if (!form.nombre.trim()) return
-    const obra: ObraData = {
-      id: 'o' + Date.now(), nombre: form.nombre.trim(), cliente: form.cliente.trim(),
-      direccion: form.direccion.trim(), status: 'entrega_pendiente',
-      cotizacion_ref: form.cotizacion_ref.trim(), cotizacion_id: form.cotizacion_id || undefined,
-      coordinador: form.coordinador.trim(),
-      sistemas: form.sistemas, instaladores_ids: [],
-      fecha_fin_plan: form.fecha_fin_plan || undefined,
-      avance_global: 0, actividades: [], reportes: [],
-      entrega_docs: DOCS_ENTREGA.map(d => ({ nombre: d, recibido: false })),
-      valor_contrato: parseFloat(form.valor_contrato) || 0,
+  async function crear() {
+    if (!form.nombre.trim()) {
+      setSaveError('El nombre es obligatorio')
+      return
     }
-    onCreate(obra)
+    setSaveError(null)
+    setSaving(true)
+    const result = await onSubmit({
+      nombre: form.nombre.trim(),
+      cliente: form.cliente.trim(),
+      direccion: form.direccion.trim(),
+      coordinador_id: form.coordinador_id,
+      cotizacion_id: form.cotizacion_id,
+      valor_contrato: parseFloat(form.valor_contrato) || 0,
+      sistemas: form.sistemas,
+      fecha_fin_plan: form.fecha_fin_plan,
+    })
+    setSaving(false)
+    if (result.ok) {
+      onCreated()
+    } else {
+      setSaveError('Error al crear obra: ' + result.error)
+    }
   }
 
   return (
@@ -1592,7 +1734,10 @@ function NuevaObraModal({ onClose, onCreate }: { onClose: () => void; onCreate: 
             </div>
             <div>
               <div style={labelStyle}>Coordinador</div>
-              <input value={form.coordinador} onChange={e => setForm(f => ({ ...f, coordinador: e.target.value }))} style={inputStyle} />
+              <select value={form.coordinador_id} onChange={e => setForm(f => ({ ...f, coordinador_id: e.target.value }))} style={inputStyle}>
+                <option value="">— Sin asignar —</option>
+                {coordinadores.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
             </div>
           </div>
           <div>
@@ -1633,9 +1778,14 @@ function NuevaObraModal({ onClose, onCreate }: { onClose: () => void; onCreate: 
             </div>
           </div>
         </div>
+        {saveError && (
+          <div style={{ marginTop: 16, padding: '10px 12px', background: '#2a1414', border: '1px solid #5a2828', borderRadius: 8, color: '#f87171', fontSize: 12, display: 'flex', gap: 8 }}>
+            <span>⚠</span><span>{saveError}</span>
+          </div>
+        )}
         <div style={{ display: 'flex', gap: 8, marginTop: 16, justifyContent: 'flex-end' }}>
           <Btn size="sm" variant="default" onClick={onClose}>Cancelar</Btn>
-          <Btn size="sm" variant="primary" onClick={crear}>Crear obra</Btn>
+          <Btn size="sm" variant="primary" onClick={crear} disabled={saving}>{saving ? 'Guardando...' : 'Crear obra'}</Btn>
         </div>
       </div>
     </div>
@@ -1646,24 +1796,45 @@ function NuevaObraModal({ onClose, onCreate }: { onClose: () => void; onCreate: 
    MODAL: NUEVO INSTALADOR
    ═══════════════════════════════════════════════════════════════════ */
 
-function NuevoInstaladorModal({ onClose, onCreate }: { onClose: () => void; onCreate: (i: Instalador) => void }) {
+function NuevoInstaladorModal({ onClose, onSubmit, onCreated }: {
+  onClose: () => void
+  onSubmit: (form: {
+    nombre: string; telefono: string; nivel: 'senior' | 'medio' | 'junior';
+    habilidades: Sistema[]; notas: string;
+  }) => Promise<{ ok: true; instalador: Instalador } | { ok: false; error: string }>
+  onCreated: () => void
+}) {
   const [form, setForm] = useState({
     nombre: '', telefono: '', nivel: 'medio' as 'senior' | 'medio' | 'junior',
     habilidades: [] as Sistema[], notas: '',
   })
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
 
   const toggleHab = (s: Sistema) => {
     setForm(f => ({ ...f, habilidades: f.habilidades.includes(s) ? f.habilidades.filter(x => x !== s) : [...f.habilidades, s] }))
   }
 
-  const crear = () => {
-    if (!form.nombre.trim()) return
-    const inst: Instalador = {
-      id: 'i' + Date.now(), nombre: form.nombre.trim(), telefono: form.telefono.trim(),
-      habilidades: form.habilidades, nivel: form.nivel,
-      obras_activas: [], disponible: true, calificacion: 3.0, notas: form.notas.trim() || undefined,
+  async function crear() {
+    if (!form.nombre.trim()) {
+      setSaveError('El nombre es obligatorio')
+      return
     }
-    onCreate(inst)
+    setSaveError(null)
+    setSaving(true)
+    const result = await onSubmit({
+      nombre: form.nombre.trim(),
+      telefono: form.telefono.trim(),
+      nivel: form.nivel,
+      habilidades: form.habilidades,
+      notas: form.notas.trim(),
+    })
+    setSaving(false)
+    if (result.ok) {
+      onCreated()
+    } else {
+      setSaveError('Error al crear instalador: ' + result.error)
+    }
   }
 
   return (
@@ -1713,9 +1884,14 @@ function NuevoInstaladorModal({ onClose, onCreate }: { onClose: () => void; onCr
             <textarea value={form.notas} onChange={e => setForm(f => ({ ...f, notas: e.target.value }))} rows={2} style={{ ...inputStyle, resize: 'vertical' }} />
           </div>
         </div>
+        {saveError && (
+          <div style={{ marginTop: 16, padding: '10px 12px', background: '#2a1414', border: '1px solid #5a2828', borderRadius: 8, color: '#f87171', fontSize: 12, display: 'flex', gap: 8 }}>
+            <span>⚠</span><span>{saveError}</span>
+          </div>
+        )}
         <div style={{ display: 'flex', gap: 8, marginTop: 16, justifyContent: 'flex-end' }}>
           <Btn size="sm" variant="default" onClick={onClose}>Cancelar</Btn>
-          <Btn size="sm" variant="primary" onClick={crear}>Crear instalador</Btn>
+          <Btn size="sm" variant="primary" onClick={crear} disabled={saving}>{saving ? 'Guardando...' : 'Crear instalador'}</Btn>
         </div>
       </div>
     </div>

@@ -899,6 +899,108 @@ Elias preguntó cómo hacer la primera carga de datos al ERP antes de arrancar e
 
 **Commits totales de la sesión: 7** (fe77032, de053fe, 5358a6d, 433167a, 117f53f, 7aef0e8, 8b4038b) — una de las sesiones más productivas del proyecto.
 
+### 2026-04-09 (continuación nocturna — Módulo de Obras: infraestructura + Commit 1)
+
+Sesión grande dedicada al módulo de Obras (la deuda técnica #1 del proyecto). Se ejecutó la migración SQL completa y el primer commit del refactor del frontend.
+
+#### Migración SQL ejecutada en Supabase
+
+8 tablas nuevas, 8 enums nuevos, columnas extras a `employees` y `quotations`, y un bucket nuevo de Storage:
+
+**Tablas nuevas:**
+- `obras` — datos principales con FK a `clientes`, `quotations`, `projects`, `employees` (coordinador)
+- `obra_instaladores` — pivote M:N entre obras y employees con role 'instalador'
+- `obra_actividades` — actividades por obra con estado, instalador asignado, % avance, origen ('manual'|'cotizacion'|'ai_reporte'|'adendum')
+- `obra_reportes` — reportes diarios con fotos en Storage, campos `ai_*` para procesamiento, `procesado` boolean y `procesamiento_error` text
+- `obra_entrega_docs` — checklist de documentos de entrega
+- `obra_bloqueos` — mini sistema de tickets de bloqueos con tipo, severidad, status, asignación, escalación al residente
+- `obra_extras` — bandeja del coordinador para extras detectados por AI; soporta selección múltiple y agrupación en cotización adendum
+- `obra_documentos` — links a Drive (planos, fichas técnicas, etc), pertenecen al `project_id` y se consumen desde la obra ligada
+
+**Enums nuevos:** `obra_status`, `actividad_status`, `bloqueo_tipo`, `bloqueo_severidad`, `bloqueo_status`, `doc_tipo`, `extra_tipo`, `extra_status`
+
+**Columnas nuevas en `employees`:** `disponible boolean`, `foto_url text`, `calificacion numeric(2,1)`. **NO se creó tabla `instaladores` separada** — los instaladores son `employees` con `role='instalador'`. Los coordinadores son `employees` con `role IN ('coordinador','dg')`. Esto integra obras con el futuro módulo de RH/payroll.
+
+**Columnas nuevas en `quotations`:** `parent_obra_id uuid REFERENCES obras(id)`, `tipo_cotizacion text` (`'original'|'adendum'|'revision'`). Permite que las cotizaciones adendum generadas desde la bandeja de extras estén ligadas a su obra padre.
+
+**Bucket nuevo en Storage:** `obra-evidencias` (privado, 10 MB max, imágenes). Para fotos de reportes diarios. Privado con anon-RLS porque las fotos son sensibles (interiores de propiedades de cliente, caras de empleados).
+
+**Columnas que el SQL agregó al diseño durante la conversación:**
+- `obras.margen_acordado numeric(5,2) DEFAULT 33.00` — % default para cotizaciones adendum (consistente con DEFAULT_RULE del cotizador ESP)
+- `obra_extras.match_confianza numeric(3,2)` — para que la AI auto-asigne `catalog_product_id` solo si confianza > 0.8
+- `obra_extras.precio_estimado` + `obra_extras.moneda` — soporte para pricing inicial sugerido por AI o coordinador
+- `obra_actividades.origen` — distingue actividades manuales vs detectadas por AI vs heredadas de cotización vs adendum
+
+#### Decisiones de negocio importantes registradas
+
+**Bloqueos como mini-tickets, no como campo simple.** El campo `bloqueo: text` del módulo viejo se reemplazó por la tabla `obra_bloqueos` con tipo, severidad, asignación a coordinador, flag `notificado_residente`, y notas de resolución. Permite escalación y KPIs futuros (tiempo medio de resolución por tipo).
+
+**Documentación técnica vive en Drive, no en Storage de Supabase.** Los planos y fichas técnicas son archivos grandes (5-50 MB cada uno, sets de 30-80 docs por obra). Se decidió que solo metadatos + links a Drive viven en `obra_documentos`. El equipo de ingeniería sigue trabajando en Drive nativo y solo agrega los docs "finales" como links al ERP. Beneficios: no infla la BD, no duplica trabajo de versionado, respeta los permisos de Drive ya configurados, mantiene Drive como source of truth.
+
+**Tab Documentación: gestión en Proyectos, vista en Obras.** Los ingenieros suben los links desde el módulo Proyectos (CRUD completo). En cada Obra el tab solo muestra los documentos del proyecto ligado vía `obra.project_id`. Sin duplicación.
+
+**Procesamiento de reportes con AI — Nivel 2 (recomendación adoptada).** Decisión clave de negocio:
+- La AI detecta actividad/material extra en reportes y los registra en `obra_extras` con `status='pendiente_revision'`. **Nada llega al cliente sin revisión humana del coordinador.**
+- Para actividades extras: se crea `obra_actividades` nueva con `origen='ai_reporte'`, marcada como pendiente de revisión.
+- Para materiales extras: se crea `obra_bloqueos` con tipo `falta_material`, severidad según contexto.
+- El coordinador en su bandeja decide: aprobar interno (lo absorbe OMM), cotizar al cliente (genera adendum), rechazar (falsa alarma), o absorber arquitecto.
+- **Nivel 3 (auto-cotización al cliente sin revisión) descartado** por riesgo legal/comercial.
+
+**Bandeja de extras como herramienta de trabajo activa:**
+- Vista solo dentro de cada obra (no global). Las alertas sí son transversales (badge en sidebar).
+- Coordinador selecciona items con checkbox y click "Generar cotización adendum"
+- Se crea `quotation` nueva con `tipo_cotizacion='adendum'`, `parent_obra_id=obra.id`, prellenada con los items seleccionados
+- Margen heredado de `obra.margen_acordado`. Excepción: items de servicio puro (instalación de equipo dado por cliente) se cotizan con precio manual.
+- **Auto-procesamiento siempre**: cada vez que se guarda un reporte, se dispara el Edge Function automáticamente
+- **Escalación a 7 días**: extras `pendiente_revision` con `detectado_at < now() - 7 days` se promueven a severidad crítica con alerta máxima
+
+#### Commit 1 del refactor — Capa base
+
+Refactor de la página `Obra.tsx` para que use las tablas reales en vez de `MOCK_OBRAS` y `MOCK_INSTALADORES`. Estrategia: minimizar el blast radius en este commit para no romper subviews que aún usan datos en memoria. Las subtablas (actividades, reportes, entrega_docs, extras, bloqueos) siguen como mocks por ahora — Commit 2 las refactoriza.
+
+**Cambios en `src/pages/Obra.tsx`:**
+
+- **Eliminadas constantes `MOCK_OBRAS` y `MOCK_INSTALADORES`** (~70 líneas de datos demo)
+- **Helpers nuevos `rowToInstalador` y `rowToObra`** que mapean rows de Supabase a los tipos `Instalador` y `ObraData` del frontend, manteniendo compat con todos los Sub* downstream
+- **Carga inicial real**: `useEffect` con `Promise.all` que jala obras de `obras` table + employees activos. Filtra por role para separar instaladores (`role='instalador'`) de coordinadores (`role IN ('coordinador','dg')`)
+- **Manejo de errores con banner visible**: estados `loading` y `loadError`. Si falla la carga, banner rojo arriba de los KPIs
+- **Helper async `crearObraEnDB`**: persiste a Supabase con manejo completo de error (try/catch + return tipado `{ok:true,obra}|{ok:false,error}`). Resuelve `project_id` automáticamente si la obra se crea desde una cotización (lookup en `quotations.project_id`).
+- **Helper async `crearInstaladorEnDB`**: persiste a `employees` con `role='instalador'`. Mapea el `nivel` del frontend (`senior/medio/junior`) al enum `user_level` de Supabase (`oro/plata/bronce`).
+- **`NuevaObraModal` refactorizado**: ahora recibe `coordinadores` array como prop, `onSubmit` (helper async) y `onCreated` (callback). El campo coordinador pasó de input text libre a `<select>` que jala de la lista real de employees. Banner de error visible dentro del modal antes de los botones. Estado `saving` para deshabilitar botón.
+- **`NuevoInstaladorModal` refactorizado**: misma estructura. `onSubmit` async, banner de error, estado `saving`.
+
+**Patrón canónico de error handling reforzado en este commit** — sigue exactamente el patrón documentado en este CLAUDE.md sección "Manejo de errores en operaciones de Supabase":
+- Helpers retornan `{ok:true, ...} | {ok:false, error:string}` discriminated union
+- Modales setean `saveError` y muestran banner antes de los botones
+- `disabled={saving}` en el botón primary
+- Try/catch envuelve toda la operación
+
+**Lo que NO se tocó en Commit 1 (queda para Commit 2):**
+- `SubActividades` — sigue usando `obra.actividades` en memoria
+- `SubReportes` — sigue usando `obra.reportes` en memoria
+- `SubEntrega` — sigue usando `obra.entrega_docs` en memoria
+- `SubEquipo` — sigue manejando `instaladores_ids` en memoria
+- `SubMateriales` — ya estaba conectado a Supabase desde antes, sin cambios
+- Tab `Planeacion` — sigue usando AI con datos en memoria
+- Sub-tabs nuevos: Bandeja de Extras, Documentación, Bloqueos — no existen aún
+
+**`tsc --noEmit` pasó al primer intento.** Sin errores de tipos.
+
+#### Pendiente para Commit 2 (próximo en esta sesión)
+- SubActividades persiste a `obra_actividades`
+- SubReportes persiste a `obra_reportes` con upload de fotos al bucket `obra-evidencias`
+- SubEntrega persiste a `obra_entrega_docs`
+- Sub-tab nuevo Bloqueos
+- Tab nuevo Documentación (vista solo lectura con jala automático del proyecto)
+
+#### Pendiente para Commit 3 (próximo en esta sesión)
+- Bandeja de Extras dentro de cada obra
+- Botón "Generar cotización adendum" desde extras seleccionados
+- Edge Function `/api/process-obra-report.ts` con Claude para procesamiento real
+- Auto-procesamiento al guardar reporte
+- CRUD de Documentación en `Proyectos.tsx`
+- Sidebar/Layout: badge de alertas transversales
+
 ### (agregar siguiente sesión aquí)
 
 ---
