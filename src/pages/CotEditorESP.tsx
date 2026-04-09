@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase'
 import { F, STAGE_CONFIG } from '../lib/utils'
 import { Badge, Btn, Loading } from '../components/layout/UI'
 import { ANTHROPIC_API_KEY } from '../lib/config'
-import { Plus, ChevronLeft, ChevronRight, ChevronDown, X, Trash2, Image as ImageIcon, Search, RefreshCw, Sparkles, Upload, Loader2 } from 'lucide-react'
+import { Plus, ChevronLeft, ChevronRight, ChevronDown, X, Trash2, Image as ImageIcon, Search, RefreshCw, Sparkles, Upload, Loader2, FileText } from 'lucide-react'
 
 // ═══════════════════════════════════════════════════════════════════
 // TYPES
@@ -1336,6 +1336,7 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
   const [creatingProduct, setCreatingProduct] = useState(false)
   const [showEditCot, setShowEditCot] = useState(false)
   const [showAIImport, setShowAIImport] = useState(false)
+  const [showPdfPicker, setShowPdfPicker] = useState(false)
   const [projectId, setProjectId] = useState<string | null>(null)
   const [projectName, setProjectName] = useState('')
 
@@ -1545,6 +1546,7 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
             }}>{cfg.label}</button>
           ))}
           <button onClick={() => setShowAIImport(true)} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #57FF9A44', background: 'transparent', color: '#57FF9A', marginLeft: 8, display: 'inline-flex', alignItems: 'center', gap: 4 }}><Sparkles size={11} /> Importar con AI</button>
+          <button onClick={() => setShowPdfPicker(true)} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #06B6D444', background: 'transparent', color: '#06B6D4', display: 'inline-flex', alignItems: 'center', gap: 4 }}><FileText size={11} /> Exportar PDF</button>
           <button onClick={() => setShowSystemPicker(true)} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #57FF9A44', background: 'transparent', color: '#57FF9A' }}>⚙ Sistemas ({activeSysIds.length})</button>
           <button onClick={() => setShowInt(!showInt)} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid ' + (showInt ? '#F59E0B' : '#333'), background: showInt ? '#F59E0B22' : 'transparent', color: showInt ? '#F59E0B' : '#555' }}>{showInt ? '👁 Interno' : '👁 Cliente'}</button>
           <span style={{ fontSize: 15, fontWeight: 700, color: '#57FF9A', marginLeft: 10 }}>{config.currency === 'MXN' ? '$' : 'US$'}{total.toFixed(2)}</span>
@@ -1599,6 +1601,51 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
           systemName={ALL_SYSTEMS.find(s => s.id === addingTo.systemId)?.name || addingTo.systemId}
           onClose={() => setCreatingProduct(false)}
           onCreate={handleCreateAndAdd} />
+      )}
+
+      {/* PDF format picker */}
+      {showPdfPicker && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 1030, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ background: '#141414', border: '1px solid #333', borderRadius: 16, padding: 24, width: 620, maxWidth: '92vw' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+              <div style={{ fontSize: 15, fontWeight: 600, color: '#fff', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <FileText size={16} color="#06B6D4" /> Exportar a PDF
+              </div>
+              <button onClick={() => setShowPdfPicker(false)} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer' }}><X size={18} /></button>
+            </div>
+            <div style={{ fontSize: 11, color: '#555', marginBottom: 18 }}>
+              Elige el formato. Cada uno abre en una pestaña nueva con vista previa imprimible.
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 10 }}>
+              {([
+                { id: 'ejecutivo', icon: '📄', title: 'Ejecutivo', desc: 'Para cliente final. Diseño formal, sin costos internos ni markups. La versión que mandas por email.' },
+                { id: 'tecnico', icon: '🔧', title: 'Técnico detallado', desc: 'Para ingeniería. Incluye SKUs, proveedores, fases de compra, costos internos y markups. Uso interno o cliente técnico.' },
+                { id: 'lista', icon: '📋', title: 'Lista de precios', desc: 'Tabla simple sin agrupar. Ideal para comparar precios rápido.' },
+              ] as const).map(opt => (
+                <button
+                  key={opt.id}
+                  onClick={() => {
+                    window.open('/cotizacion/' + cotId + '/pdf/' + opt.id, '_blank')
+                    setShowPdfPicker(false)
+                  }}
+                  style={{
+                    padding: '14px 16px', background: '#0e0e0e', border: '1px solid #2a2a2a',
+                    borderRadius: 10, cursor: 'pointer', textAlign: 'left', color: '#ddd',
+                    fontFamily: 'inherit', display: 'flex', gap: 12, alignItems: 'center',
+                  }}
+                  onMouseEnter={e => { e.currentTarget.style.borderColor = '#06B6D4'; e.currentTarget.style.background = '#0e1419' }}
+                  onMouseLeave={e => { e.currentTarget.style.borderColor = '#2a2a2a'; e.currentTarget.style.background = '#0e0e0e' }}
+                >
+                  <div style={{ fontSize: 24 }}>{opt.icon}</div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: '#fff', marginBottom: 2 }}>{opt.title}</div>
+                    <div style={{ fontSize: 11, color: '#888', lineHeight: 1.4 }}>{opt.desc}</div>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
       )}
 
       {/* AI Import modal */}

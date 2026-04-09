@@ -11,6 +11,7 @@ import Catalogo from './pages/Catalogo'
 import Compras from './pages/Compras'
 import Obra from './pages/Obra'
 import Facturacion from './pages/Facturacion'
+import CotizacionPdf from './pages/CotizacionPdf'
 
 const Cobranza = () => <OtrosModulos title="Cobranza" />
 const Nomina = () => <OtrosModulos title="Nomina" />
@@ -20,27 +21,34 @@ const Empleados = () => <OtrosModulos title="Empleados" />
 export default function App() {
   return (
     <BrowserRouter>
-      <div style={{ display: 'flex', background: '#0a0a0a', color: '#ccc', minHeight: '100vh', fontFamily: "'Inter', system-ui, sans-serif" }}>
-        <Sidebar />
-        <main style={{ flex: 1, overflowY: 'auto', minHeight: '100vh' }}>
-          <Routes>
-            <Route path="/" element={<Dashboard />} />
-            <Route path="/crm" element={<CRM />} />
-            <Route path="/cotizaciones" element={<Cotizaciones />} />
-            <Route path="/compras" element={<Compras />} />
-            <Route path="/proyectos" element={<Proyectos />} />
-            <Route path="/contabilidad" element={<Contabilidad />} />
-            <Route path="/facturacion" element={<Facturacion />} />
-            <Route path="/obra" element={<Obra />} />
-            <Route path="/nomina" element={<Nomina />} />
-            <Route path="/entregas" element={<Entregas />} />
-            <Route path="/empleados" element={<Empleados />} />
-            <Route path="/cobranza" element={<Cobranza />} />
-            <Route path="/clientes" element={<Clientes />} />
-            <Route path="/catalogo" element={<Catalogo />} />
-          </Routes>
-        </main>
-      </div>
+      <Routes>
+        {/* Vista PDF — sin sidebar ni layout oscuro, abre en pestaña propia */}
+        <Route path="/cotizacion/:id/pdf/:format" element={<CotizacionPdf />} />
+        {/* Layout principal con sidebar para el resto */}
+        <Route path="/*" element={
+          <div style={{ display: 'flex', background: '#0a0a0a', color: '#ccc', minHeight: '100vh', fontFamily: "'Inter', system-ui, sans-serif" }}>
+            <Sidebar />
+            <main style={{ flex: 1, overflowY: 'auto', minHeight: '100vh' }}>
+              <Routes>
+                <Route path="/" element={<Dashboard />} />
+                <Route path="/crm" element={<CRM />} />
+                <Route path="/cotizaciones" element={<Cotizaciones />} />
+                <Route path="/compras" element={<Compras />} />
+                <Route path="/proyectos" element={<Proyectos />} />
+                <Route path="/contabilidad" element={<Contabilidad />} />
+                <Route path="/facturacion" element={<Facturacion />} />
+                <Route path="/obra" element={<Obra />} />
+                <Route path="/nomina" element={<Nomina />} />
+                <Route path="/entregas" element={<Entregas />} />
+                <Route path="/empleados" element={<Empleados />} />
+                <Route path="/cobranza" element={<Cobranza />} />
+                <Route path="/clientes" element={<Clientes />} />
+                <Route path="/catalogo" element={<Catalogo />} />
+              </Routes>
+            </main>
+          </div>
+        } />
+      </Routes>
     </BrowserRouter>
   )
 }
