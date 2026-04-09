@@ -94,6 +94,8 @@ export default function Clientes() {
   const [form, setForm] = useState<Partial<ClienteFiscal>>({
     tipo_persona: 'moral', regimen_fiscal_clave: '601', uso_cfdi_clave: 'G03', activo: true,
   })
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
 
   const filtered = clientes.filter(c =>
     c.razon_social.toLowerCase().includes(search.toLowerCase()) ||
@@ -102,22 +104,28 @@ export default function Clientes() {
 
   const openNew = () => {
     setEditId(null)
+    setSaveError(null)
     setForm({ tipo_persona: 'moral', regimen_fiscal_clave: '601', uso_cfdi_clave: 'G03', activo: true })
     setShowForm(true)
   }
 
   const openEdit = (c: ClienteFiscal) => {
     setEditId(c.id)
+    setSaveError(null)
     setForm({ ...c })
     setShowForm(true)
   }
 
   const save = async () => {
-    if (!form.rfc || !form.razon_social || !form.codigo_postal) return
+    setSaveError(null)
+    if (!form.rfc || !form.razon_social || !form.codigo_postal) {
+      setSaveError('RFC, Razón Social y Código Postal son obligatorios')
+      return
+    }
+    setSaving(true)
     const reg = REGIMENES.find(r => r.clave === form.regimen_fiscal_clave)
     const uso = USOS_CFDI.find(u => u.clave === form.uso_cfdi_clave)
-    const full: ClienteFiscal = {
-      id: editId || String(Date.now()),
+    const payload = {
       rfc: (form.rfc || '').toUpperCase(),
       razon_social: form.razon_social || '',
       regimen_fiscal: reg?.desc || '',
@@ -138,30 +146,39 @@ export default function Clientes() {
       telefono: form.telefono || '',
       activo: form.activo !== false,
     }
-    if (editId) {
-      await supabase.from('clientes_fiscales').update({
-        rfc: full.rfc, razon_social: full.razon_social, regimen_fiscal: full.regimen_fiscal,
-        regimen_fiscal_clave: full.regimen_fiscal_clave, codigo_postal: full.codigo_postal,
-        uso_cfdi: full.uso_cfdi, uso_cfdi_clave: full.uso_cfdi_clave, curp: full.curp,
-        calle: full.calle, num_exterior: full.num_exterior, num_interior: full.num_interior,
-        colonia: full.colonia, localidad: full.localidad, municipio: full.municipio,
-        estado: full.estado, tipo_persona: full.tipo_persona, email: full.email,
-        telefono: full.telefono, activo: full.activo,
-      }).eq('id', editId)
-      setClientes(clientes.map(c => c.id === editId ? full : c))
-    } else {
-      const { data } = await supabase.from('clientes_fiscales').insert({
-        rfc: full.rfc, razon_social: full.razon_social, regimen_fiscal: full.regimen_fiscal,
-        regimen_fiscal_clave: full.regimen_fiscal_clave, codigo_postal: full.codigo_postal,
-        uso_cfdi: full.uso_cfdi, uso_cfdi_clave: full.uso_cfdi_clave, curp: full.curp,
-        calle: full.calle, num_exterior: full.num_exterior, num_interior: full.num_interior,
-        colonia: full.colonia, localidad: full.localidad, municipio: full.municipio,
-        estado: full.estado, tipo_persona: full.tipo_persona, email: full.email,
-        telefono: full.telefono, activo: full.activo,
-      }).select().single()
-      setClientes([{...full, id: data?.id || full.id}, ...clientes])
+    try {
+      if (editId) {
+        const { data, error } = await supabase.from('clientes_fiscales')
+          .update(payload).eq('id', editId).select().single()
+        if (error) {
+          console.error('Error actualizando cliente:', error)
+          setSaveError('Error al actualizar: ' + error.message)
+          setSaving(false)
+          return
+        }
+        if (data) {
+          setClientes(clientes.map(c => c.id === editId ? { ...c, ...data, activo: data.activo !== false } : c))
+        }
+      } else {
+        const { data, error } = await supabase.from('clientes_fiscales')
+          .insert(payload).select().single()
+        if (error) {
+          console.error('Error creando cliente:', error)
+          setSaveError('Error al guardar: ' + error.message)
+          setSaving(false)
+          return
+        }
+        if (data) {
+          setClientes([{ ...data, activo: data.activo !== false }, ...clientes])
+        }
+      }
+      setShowForm(false)
+    } catch (err: any) {
+      console.error('Excepción al guardar cliente:', err)
+      setSaveError('Error inesperado: ' + (err?.message || String(err)))
+    } finally {
+      setSaving(false)
     }
-    setShowForm(false)
   }
 
   async function handleCSFUpload(e: React.ChangeEvent<HTMLInputElement>) {
@@ -308,9 +325,18 @@ export default function Clientes() {
               <Fld label="Telefono"><input style={iS} value={form.telefono || ''} onChange={e => setForm({...form, telefono: e.target.value})} /></Fld>
             </div>
 
+            {saveError && (
+              <div style={{ marginTop: 16, padding: '10px 12px', background: '#2a1414', border: '1px solid #5a2828', borderRadius: 8, color: '#f87171', fontSize: 12, display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                <span style={{ fontSize: 14, flexShrink: 0 }}>⚠</span>
+                <span>{saveError}</span>
+              </div>
+            )}
+
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 20 }}>
               <Btn size="sm" variant="default" onClick={() => setShowForm(false)}>Cancelar</Btn>
-              <Btn size="sm" variant="primary" onClick={save}>{editId ? 'Guardar cambios' : 'Crear cliente'}</Btn>
+              <Btn size="sm" variant="primary" onClick={save} disabled={saving}>
+                {saving ? 'Guardando...' : (editId ? 'Guardar cambios' : 'Crear cliente')}
+              </Btn>
             </div>
           </div>
         </div>
