@@ -1,7 +1,7 @@
 # CLAUDE.md — Contexto del proyecto OMM ERP
 
 > **Lee este archivo antes de tocar cualquier código.** Se actualiza al final de cada sesión con lo aprendido.
-> Última actualización: 2026-04-08
+> Última actualización: 2026-04-08 (continuación 3)
 
 ---
 
@@ -277,6 +277,42 @@ El PAT se pide al usuario por chat cada sesión — **nunca está en memoria**. 
 5. `git add -A && git commit -m "..." && git push origin main`
 6. Verificar deploy en Vercel: https://vercel.com/eliasmichas-projects/omm-erp/deployments
 
+### 🗄️ Operar SQL en Supabase desde el navegador
+
+El SQL Editor de Supabase usa **Monaco editor**. La forma más confiable de interactuar con él desde automatización es acceder directo al Monaco API vía JavaScript. **No pelear con clicks + `cmd+a` + `type`** — con cierta frecuencia el `cmd+a` selecciona el sidebar en vez del editor, o el `type` no modifica el texto.
+
+**Patrón canónico:**
+
+```js
+// 1. Setear el query desde JS (confiable, no depende de focus ni clicks)
+window.monaco.editor.getEditors()[0].setValue("SELECT ...");
+window.monaco.editor.getEditors()[0].focus();
+```
+
+```
+// 2. Disparar la ejecución con cmd+Return (después del focus)
+computer → key → cmd+Return
+```
+
+```js
+// 3. Leer el resultado del grid
+[...document.querySelectorAll('[role="gridcell"]')]
+  .map(c => c.textContent || '')
+  .filter(t => t.length > 0)
+```
+
+**Truco para resultados grandes:** el grid del SQL Editor usa virtual scroll y solo renderiza ~12 filas a la vez. Si necesitas extraer muchas filas, **concaténalas en una sola celda** con `string_agg()` en la propia query:
+
+```sql
+SELECT string_agg(table_name, ', ' ORDER BY table_name) FROM ...;
+```
+
+Así el resultado completo cabe en una celda única y se lee en un solo `querySelectorAll`.
+
+**Limitaciones conocidas:**
+- El anon key de Supabase NO puede listar tablas via `/rest/v1/` OpenAPI (requiere `service_role`). Para listar tablas, usar SQL contra `information_schema.tables`.
+- `ALTER TYPE ... ADD VALUE` **debe correrse una sentencia a la vez** — Postgres no permite agregar múltiples valores en una sola transacción.
+
 ### ❌ NO hacer
 
 - **Nunca usar github.dev o el editor web de GitHub** — corrompe los tags de cierre JSX.
@@ -515,6 +551,36 @@ Usa los 3 precedentes más recientes con `specialty='esp'` y `total > 0` como co
 **Descubrimientos importantes:**
 - Solo hay **3 cotizaciones reales** en Supabase (Ventanas Sacal + 2 Casa Salame). Las otras 7 son vacías/de prueba. Para que la AI aprenda de precedentes, necesita más volumen — pero v1 ya es útil con lo que hay.
 - El catálogo tiene solo 8 productos (según auditoría). Esto significa que en los primeros usos la AI va a crear muchos productos sugeridos. Es esperado y es parte del plan: el feature también sirve como herramienta para **descubrir los huecos del catálogo** que falta poblar.
+
+### 2026-04-08 (continuación 3 — cierre del loop del enum product_system)
+
+- `38e7da8` · fix(cotizaciones): mapear sistemas al enum real product_system (parcial, 5 de 9 sistemas con enumValue, los otros 4 `enumValue: null`)
+- `7079880` · refactor(esp): cortinas y persianas fuera del cotizador ESP (son especialidad separada)
+- `226883b` · fix(cotizaciones): mapear los 4 sistemas faltantes al enum product_system (cierre del loop)
+
+**Enum `product_system` actualizado en Supabase** — 14 valores finales:
+```
+Redes, CCTV, Audio, Lutron, Acceso, Somfy, Electrico, Iluminacion,
+Cortinas, General, BMS, Humo, Telefonia, Celular
+```
+
+Los 4 valores nuevos (`BMS`, `Humo`, `Telefonia`, `Celular`) se agregaron con `ALTER TYPE product_system ADD VALUE IF NOT EXISTS ...` uno por uno (Postgres no permite múltiples en una transacción).
+
+**Refactor importante: Cortinas y Persianas fuera del cotizador ESP.** Son especialidad separada (existe el id `cortinas` en `Proyectos.tsx` para cuando se construya su cotizador). Removido de 5 puntos: `AI_ALL_SYSTEMS`, `SYSTEM_PRESETS`, `ALL_SYSTEMS` del editor ESP, detector automático del importer de Excel, prompts de ambos Edge Functions. El cotizador ESP ahora maneja exactamente **9 sistemas**: Audio, Redes, CCTV, Control de Acceso, Control de Iluminación, Detección de Humo, BMS, Telefonía, Red Celular.
+
+**Descubrimiento técnico clave: Monaco editor directo.** Ver la sección nueva "🗄️ Operar SQL en Supabase desde el navegador". El método `window.monaco.editor.getEditors()[0].setValue()` es mucho más confiable que pelear con `cmd+a` + `type` que a veces selecciona el sidebar del explorer en vez del editor. Esto va a ahorrar tiempo considerable en futuras sesiones donde haya que correr SQL.
+
+**Bug del enum original (contexto):** Cotizar con AI fallaba con `invalid input value for enum product_system: "Control de Acceso"` porque el código filtraba `.in('system', [...nombres bonitos...])` pero el enum usa valores cortos sin espacios ni tildes (`Acceso`, `Iluminacion`). El fix requirió (1) agregar un campo `enumValue` a `AI_ALL_SYSTEMS` con el valor exacto del enum, (2) agregar los 4 valores faltantes al enum en Supabase, (3) actualizar los 4 mapeos en el código.
+
+**Decisiones tomadas:**
+- Valores del enum sin tildes ni espacios (`Humo` en vez de "Detección de Humo", `Telefonia` sin tilde, `Celular` en vez de "Red Celular") — consistente con el patrón ya existente (`Acceso` sin "Control de", `Iluminacion` sin tilde). Los labels bonitos viven solo en el frontend via `name` y el mapeo `enumValue` hace el puente.
+- `systemsWithoutCatalog` en `Cotizaciones.tsx` queda como código defensivo aunque ahora sea siempre `[]`. No estorba y protege si en el futuro se agrega un sistema sin enumValue.
+- **NO tocar `Lutron`, `Somfy`, `Cortinas`, `General`, `Electrico` del enum** por ahora. Son valores legacy que pueden tener productos asociados. Se limpian cuando se haga la auditoría general con DB vacía al terminar todos los módulos (ver ritual planeado en auditoría del schema).
+
+**Estado final de Cotizar con AI:**
+- ✅ Los 9 sistemas ESP ahora pueden filtrar catálogo correctamente
+- ✅ Cero error 400 al generar con cualquier combinación de sistemas
+- 🟡 Pendiente de prueba real con el flujo completo desde el cuestionario
 
 ### (agregar siguiente sesión aquí)
 
