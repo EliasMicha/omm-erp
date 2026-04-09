@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react'
+import React, { useState, useRef, useEffect } from 'react'
 import { SectionHeader, KpiCard, Table, Th, Td, Badge, Btn, EmptyState, ProgressBar } from '../components/layout/UI'
 import { F, formatDate } from '../lib/utils'
 import { ANTHROPIC_API_KEY } from '../lib/config'
@@ -7,7 +7,7 @@ import {
   HardHat, Users, ClipboardList, Calendar, AlertTriangle, CheckCircle,
   Clock, ChevronRight, ArrowLeft, Plus, Upload, Camera, X, Eye,
   Wrench, Wifi, Volume2, Shield, Sun, MapPin, FileText, TrendingUp,
-  Loader2, MessageSquare, Lock, ChevronDown
+  Loader2, MessageSquare, Lock, ChevronDown, Package
 } from 'lucide-react'
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -356,7 +356,7 @@ function ObraDetail({ obra, instaladores, onBack, updateObra }: {
   onBack: () => void
   updateObra: (updater: (o: ObraData) => ObraData) => void
 }) {
-  const [subTab, setSubTab] = useState<'actividades' | 'reportes' | 'entrega' | 'equipo'>('actividades')
+  const [subTab, setSubTab] = useState<'actividades' | 'reportes' | 'entrega' | 'equipo' | 'materiales'>('actividades')
   const [showNewAct, setShowNewAct] = useState(false)
   const [showNewReporte, setShowNewReporte] = useState(false)
 
@@ -405,6 +405,7 @@ function ObraDetail({ obra, instaladores, onBack, updateObra }: {
           { key: 'reportes' as const, label: `Reportes (${obra.reportes.length})`, icon: MessageSquare },
           { key: 'entrega' as const, label: 'Entrega formal', icon: FileText },
           { key: 'equipo' as const, label: `Equipo (${obraInstaladores.length})`, icon: Users },
+          { key: 'materiales' as const, label: 'Materiales', icon: Package },
         ]).map(({ key, label, icon: Icon }) => {
           const active = subTab === key
           return (
@@ -442,6 +443,7 @@ function ObraDetail({ obra, instaladores, onBack, updateObra }: {
       )}
       {subTab === 'entrega' && <SubEntrega obra={obra} updateObra={updateObra} />}
       {subTab === 'equipo' && <SubEquipo obra={obra} instaladores={instaladores} obraInstaladores={obraInstaladores} updateObra={updateObra} />}
+      {subTab === 'materiales' && <SubMateriales obra={obra} />}
     </div>
   )
 }
@@ -1716,6 +1718,253 @@ function NuevoInstaladorModal({ onClose, onCreate }: { onClose: () => void; onCr
           <Btn size="sm" variant="primary" onClick={crear}>Crear instalador</Btn>
         </div>
       </div>
+    </div>
+  )
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   SUB: MATERIALES — Resumen de materiales de la obra agrupado por área
+   ═══════════════════════════════════════════════════════════════════ */
+
+interface MatArea { id: string; name: string; order_index: number }
+interface MatItem {
+  id: string
+  area_id: string
+  name: string
+  description: string | null
+  system: string | null
+  provider: string | null
+  purchase_phase: string | null
+  quantity: number
+  price: number
+  total: number
+  type: string
+}
+
+function SubMateriales({ obra }: { obra: ObraData }) {
+  const [loading, setLoading] = useState(true)
+  const [areas, setAreas] = useState<MatArea[]>([])
+  const [items, setItems] = useState<MatItem[]>([])
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
+  const [filterSystem, setFilterSystem] = useState<string>('')
+  const [search, setSearch] = useState('')
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!obra.cotizacion_id) {
+      setError('Esta obra no tiene cotización vinculada')
+      setLoading(false)
+      return
+    }
+    setLoading(true)
+    setError(null)
+    Promise.all([
+      supabase.from('quotation_areas').select('id, name, order_index').eq('quotation_id', obra.cotizacion_id).order('order_index'),
+      supabase.from('quotation_items').select('id, area_id, name, description, system, provider, purchase_phase, quantity, price, total, type').eq('quotation_id', obra.cotizacion_id).order('order_index'),
+    ]).then(([areasRes, itemsRes]) => {
+      if (areasRes.error) setError('Error cargando áreas: ' + areasRes.error.message)
+      if (itemsRes.error) setError('Error cargando materiales: ' + itemsRes.error.message)
+      setAreas((areasRes.data || []) as MatArea[])
+      // Solo materiales (no mano de obra)
+      const materialItems = ((itemsRes.data || []) as MatItem[]).filter(it => it.type !== 'labor')
+      setItems(materialItems)
+      setLoading(false)
+    })
+  }, [obra.cotizacion_id])
+
+  if (loading) return <Loading />
+
+  if (error) {
+    return (
+      <div style={{ padding: 20, background: '#2a1414', border: '1px solid #3a2020', borderRadius: 10, color: '#f87171', fontSize: 13 }}>
+        <AlertTriangle size={14} style={{ verticalAlign: 'middle', marginRight: 6 }} />
+        {error}
+      </div>
+    )
+  }
+
+  if (items.length === 0) {
+    return <EmptyState message="Esta cotización no tiene materiales registrados" />
+  }
+
+  // Filtrar
+  const filteredItems = items.filter(it => {
+    if (filterSystem && it.system !== filterSystem) return false
+    if (search) {
+      const q = search.toLowerCase()
+      if (!it.name.toLowerCase().includes(q) &&
+          !(it.description || '').toLowerCase().includes(q) &&
+          !(it.provider || '').toLowerCase().includes(q)) return false
+    }
+    return true
+  })
+
+  // Sistemas únicos para el filtro
+  const uniqueSystems: string[] = Array.from(new Set(items.map(it => it.system || '').filter(Boolean))).sort()
+
+  // KPIs
+  const totalItems = filteredItems.length
+  const totalPiezas = filteredItems.reduce((s, it) => s + (it.quantity || 0), 0)
+  const totalValor = filteredItems.reduce((s, it) => s + (Number(it.total) || (Number(it.price) || 0) * (Number(it.quantity) || 0)), 0)
+  const totalAreas = new Set(filteredItems.map(it => it.area_id)).size
+
+  // Agrupar por área
+  const areasWithItems = areas
+    .map(a => ({ area: a, items: filteredItems.filter(it => it.area_id === a.id) }))
+    .filter(g => g.items.length > 0)
+
+  // Items sin área (huérfanos)
+  const orphanItems = filteredItems.filter(it => !areas.some(a => a.id === it.area_id))
+  if (orphanItems.length > 0) {
+    areasWithItems.push({
+      area: { id: '__orphan__', name: 'Sin área asignada', order_index: 9999 },
+      items: orphanItems,
+    })
+  }
+
+  function toggleArea(id: string) {
+    setCollapsed(p => ({ ...p, [id]: !p[id] }))
+  }
+
+  function expandAll() { setCollapsed({}) }
+  function collapseAll() {
+    const all: Record<string, boolean> = {}
+    areasWithItems.forEach(g => { all[g.area.id] = true })
+    setCollapsed(all)
+  }
+
+  const inputStyle: React.CSSProperties = {
+    padding: '6px 10px', background: '#0e0e0e', border: '1px solid #2a2a2a',
+    borderRadius: 6, color: '#ccc', fontSize: 12, fontFamily: 'inherit', outline: 'none',
+  }
+
+  return (
+    <div>
+      {/* KPIs */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 16 }}>
+        <KpiCard label="Áreas" value={String(totalAreas)} icon={<MapPin size={16} />} />
+        <KpiCard label="Items distintos" value={String(totalItems)} color="#3B82F6" icon={<Package size={16} />} />
+        <KpiCard label="Piezas totales" value={String(totalPiezas)} color="#C084FC" icon={<ClipboardList size={16} />} />
+        <KpiCard label="Valor materiales" value={F(totalValor)} color="#57FF9A" icon={<TrendingUp size={16} />} />
+      </div>
+
+      {/* Controles */}
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 14, flexWrap: 'wrap' }}>
+        <input
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          placeholder="Buscar por nombre, descripción, proveedor..."
+          style={{ ...inputStyle, width: 280 }}
+        />
+        <select
+          value={filterSystem}
+          onChange={e => setFilterSystem(e.target.value)}
+          style={{ ...inputStyle, width: 180 }}
+        >
+          <option value="">Todos los sistemas</option>
+          {uniqueSystems.map(s => <option key={s} value={s}>{s}</option>)}
+        </select>
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+          <Btn size="sm" variant="default" onClick={expandAll}>Expandir todo</Btn>
+          <Btn size="sm" variant="default" onClick={collapseAll}>Colapsar todo</Btn>
+        </div>
+      </div>
+
+      {/* Áreas */}
+      {areasWithItems.length === 0 && (
+        <EmptyState message="Sin resultados con los filtros aplicados" />
+      )}
+
+      {areasWithItems.map(({ area, items: areaItems }) => {
+        const areaTotal = areaItems.reduce((s, it) => s + (Number(it.total) || (Number(it.price) || 0) * (Number(it.quantity) || 0)), 0)
+        const areaPiezas = areaItems.reduce((s, it) => s + (Number(it.quantity) || 0), 0)
+        const isCollapsed = collapsed[area.id] || false
+
+        // Agrupar items por sistema dentro del área
+        const bySystem: Record<string, MatItem[]> = {}
+        areaItems.forEach(it => {
+          const sys = it.system || 'Sin sistema'
+          if (!bySystem[sys]) bySystem[sys] = []
+          bySystem[sys].push(it)
+        })
+        const systemOrder = Object.keys(bySystem).sort()
+
+        return (
+          <div key={area.id} style={{ marginBottom: 12, background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 10, overflow: 'hidden' }}>
+            {/* Header del área */}
+            <div
+              onClick={() => toggleArea(area.id)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px',
+                cursor: 'pointer', background: '#141414', borderLeft: '3px solid #57FF9A',
+              }}
+            >
+              {isCollapsed ? <ChevronRight size={14} color="#57FF9A" /> : <ChevronDown size={14} color="#57FF9A" />}
+              <span style={{ fontSize: 13, fontWeight: 700, color: '#fff', flex: 1, textTransform: 'uppercase' as const }}>
+                {area.name}
+              </span>
+              <span style={{ fontSize: 10, color: '#666' }}>{areaItems.length} items · {areaPiezas} pz</span>
+              <span style={{ fontSize: 13, fontWeight: 700, color: '#57FF9A' }}>{F(areaTotal)}</span>
+            </div>
+
+            {/* Items agrupados por sistema */}
+            {!isCollapsed && (
+              <div style={{ padding: '8px 14px 14px' }}>
+                {systemOrder.map(sysName => {
+                  const sysItems = bySystem[sysName]
+                  const sysColor = SISTEMAS_CONFIG[sysName as Sistema]?.color || '#888'
+                  return (
+                    <div key={sysName} style={{ marginTop: 10 }}>
+                      <div style={{
+                        fontSize: 10, fontWeight: 700, color: sysColor, textTransform: 'uppercase' as const,
+                        letterSpacing: '0.06em', marginBottom: 6, paddingBottom: 4, borderBottom: '1px solid #1a1a1a',
+                        display: 'flex', alignItems: 'center', gap: 6,
+                      }}>
+                        <span style={{ width: 6, height: 6, borderRadius: '50%', background: sysColor }} />
+                        {sysName}
+                        <span style={{ color: '#555', marginLeft: 'auto', fontWeight: 400 }}>
+                          {sysItems.length} items
+                        </span>
+                      </div>
+                      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                        <thead>
+                          <tr>
+                            <th style={{ textAlign: 'center', fontSize: 9, color: '#444', fontWeight: 600, padding: '4px 6px', textTransform: 'uppercase' as const, letterSpacing: '0.06em', width: 50 }}>Cant</th>
+                            <th style={{ textAlign: 'left', fontSize: 9, color: '#444', fontWeight: 600, padding: '4px 6px', textTransform: 'uppercase' as const, letterSpacing: '0.06em' }}>Producto</th>
+                            <th style={{ textAlign: 'left', fontSize: 9, color: '#444', fontWeight: 600, padding: '4px 6px', textTransform: 'uppercase' as const, letterSpacing: '0.06em', width: 150 }}>Proveedor</th>
+                            <th style={{ textAlign: 'left', fontSize: 9, color: '#444', fontWeight: 600, padding: '4px 6px', textTransform: 'uppercase' as const, letterSpacing: '0.06em', width: 100 }}>Fase</th>
+                            <th style={{ textAlign: 'right', fontSize: 9, color: '#444', fontWeight: 600, padding: '4px 6px', textTransform: 'uppercase' as const, letterSpacing: '0.06em', width: 100 }}>P. Unit</th>
+                            <th style={{ textAlign: 'right', fontSize: 9, color: '#444', fontWeight: 600, padding: '4px 6px', textTransform: 'uppercase' as const, letterSpacing: '0.06em', width: 110 }}>Total</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {sysItems.map(it => (
+                            <tr key={it.id} style={{ borderTop: '1px solid #141414' }}>
+                              <td style={{ textAlign: 'center', fontSize: 12, color: '#fff', fontWeight: 600, padding: '6px' }}>{it.quantity}</td>
+                              <td style={{ fontSize: 12, color: '#ddd', padding: '6px' }}>
+                                <div style={{ fontWeight: 500 }}>{it.name}</div>
+                                {it.description && <div style={{ fontSize: 10, color: '#555', marginTop: 1 }}>{it.description}</div>}
+                              </td>
+                              <td style={{ fontSize: 11, color: '#888', padding: '6px' }}>{it.provider || '—'}</td>
+                              <td style={{ fontSize: 11, color: '#888', padding: '6px' }}>{it.purchase_phase || '—'}</td>
+                              <td style={{ textAlign: 'right', fontSize: 11, color: '#888', padding: '6px', fontVariantNumeric: 'tabular-nums' as const }}>
+                                {F(Number(it.price) || 0)}
+                              </td>
+                              <td style={{ textAlign: 'right', fontSize: 12, color: '#57FF9A', fontWeight: 600, padding: '6px', fontVariantNumeric: 'tabular-nums' as const }}>
+                                {F(Number(it.total) || (Number(it.price) || 0) * (Number(it.quantity) || 0))}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        )
+      })}
     </div>
   )
 }
