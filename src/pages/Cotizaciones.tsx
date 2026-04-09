@@ -996,16 +996,16 @@ const LOCATIONS = [
 ]
 
 const AI_ALL_SYSTEMS = [
-  { id: 'audio', name: 'Audio', color: '#8B5CF6' },
-  { id: 'redes', name: 'Redes', color: '#06B6D4' },
-  { id: 'cctv', name: 'CCTV', color: '#3B82F6' },
-  { id: 'control_acceso', name: 'Control de Acceso', color: '#F59E0B' },
-  { id: 'control_iluminacion', name: 'Control de Iluminación', color: '#C084FC' },
-  { id: 'deteccion_humo', name: 'Detección de Humo', color: '#EF4444' },
-  { id: 'bms', name: 'BMS', color: '#10B981' },
-  { id: 'telefonia', name: 'Telefonía', color: '#F97316' },
-  { id: 'red_celular', name: 'Red Celular', color: '#EC4899' },
-  { id: 'cortinas_ctrl', name: 'Cortinas y Persianas', color: '#67E8F9' },
+  { id: 'audio', name: 'Audio', color: '#8B5CF6', enumValue: 'Audio' },
+  { id: 'redes', name: 'Redes', color: '#06B6D4', enumValue: 'Redes' },
+  { id: 'cctv', name: 'CCTV', color: '#3B82F6', enumValue: 'CCTV' },
+  { id: 'control_acceso', name: 'Control de Acceso', color: '#F59E0B', enumValue: 'Acceso' },
+  { id: 'control_iluminacion', name: 'Control de Iluminación', color: '#C084FC', enumValue: 'Iluminacion' },
+  { id: 'deteccion_humo', name: 'Detección de Humo', color: '#EF4444', enumValue: null },
+  { id: 'bms', name: 'BMS', color: '#10B981', enumValue: null },
+  { id: 'telefonia', name: 'Telefonía', color: '#F97316', enumValue: null },
+  { id: 'red_celular', name: 'Red Celular', color: '#EC4899', enumValue: null },
+  { id: 'cortinas_ctrl', name: 'Cortinas y Persianas', color: '#67E8F9', enumValue: 'Cortinas' },
 ]
 
 function aiGenUid(): string { return Math.random().toString(36).slice(2, 10) }
@@ -1103,19 +1103,28 @@ Devuelve SOLO el JSON, sin markdown.`
     setStep('generating')
     try {
       // 1. Traer catálogo filtrado por sistemas seleccionados
+      // Solo filtramos por los sistemas que tienen enumValue (los que existen en el enum product_system)
+      // Los sistemas con enumValue=null no tienen productos en catálogo todavía — Claude los sugerirá genéricos
       setProgress('Leyendo catálogo...')
-      const systemNames = scopeData.sistemas
-        .map(id => AI_ALL_SYSTEMS.find(s => s.id === id)?.name)
-        .filter(Boolean) as string[]
+      const enumValues = scopeData.sistemas
+        .map(id => AI_ALL_SYSTEMS.find(s => s.id === id)?.enumValue)
+        .filter((v): v is string => !!v)
       let catalogQuery = supabase
         .from('catalog_products')
         .select('id, name, description, system, marca, modelo, provider, cost, moneda')
         .eq('is_active', true)
-      if (systemNames.length > 0) {
-        catalogQuery = catalogQuery.in('system', systemNames)
+      if (enumValues.length > 0) {
+        catalogQuery = catalogQuery.in('system', enumValues)
       }
       const { data: catalog, error: catErr } = await catalogQuery
       if (catErr) throw new Error('Error leyendo catálogo: ' + catErr.message)
+
+      // Nota: los sistemas sin enumValue no tienen productos en catálogo.
+      // Los pasamos al scope para que Claude sepa que debe proponerlos como sugerencias genéricas.
+      const systemsWithoutCatalog = scopeData.sistemas
+        .map(id => AI_ALL_SYSTEMS.find(s => s.id === id))
+        .filter((s): s is typeof AI_ALL_SYSTEMS[0] => !!s && !s.enumValue)
+        .map(s => s.name)
 
       // 2. Buscar cotizaciones previas similares
       setProgress('Buscando cotizaciones similares...')
@@ -1148,10 +1157,11 @@ Devuelve SOLO el JSON, sin markdown.`
 
       // 3. Llamar Edge Function
       setProgress('Proponiendo áreas y productos con AI...')
+      const enrichedScope = { ...scopeData, systemsWithoutCatalog }
       const r = await fetch('/api/generate-quote', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ scope: scopeData, catalog: catalog || [], precedents }),
+        body: JSON.stringify({ scope: enrichedScope, catalog: catalog || [], precedents }),
       })
       const data = await r.json()
       if (!r.ok || !data.ok) {
