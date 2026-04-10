@@ -4,7 +4,6 @@ import type { ClienteFiscal } from './Clientes'
 import { supabase } from '../lib/supabase'
 import { SectionHeader, KpiCard, Table, Th, Td, Badge, Btn, EmptyState } from '../components/layout/UI'
 import { F, formatDate } from '../lib/utils'
-import { ANTHROPIC_API_KEY } from '../lib/config'
 import {
   FileText, Building2, ArrowLeftRight, ShieldCheck,
   Banknote, Users, TrendingUp, Plus, Upload, Search,
@@ -98,6 +97,7 @@ interface BankMovement {
   monto: number; tipo: 'cargo' | 'abono'; saldo: number
   categoria_sugerida?: string; proyecto_sugerido?: string; conciliado: boolean
   beneficiario?: string; factura_match_id?: string; factura_match_info?: string
+  rfc_contraparte?: string; proyecto_codigo?: string; banco?: string; cuenta?: string
 }
 
 /* --------- Config --------------------------------------------------------------------------------------------------------------------------------------------------------------------- */
@@ -125,20 +125,6 @@ const CFDI_TYPE_LABELS: Record<CfdiType, string> = {
 }
 
 const PROYECTOS = ['Oasis', 'Oasis 6', 'Reforma 222', 'Pachuca', 'Chapultepec Uno', 'Casa Luce', 'NULED', 'OMM - Gastos generales']
-
-async function askClaude(prompt: string): Promise<string> {
-  try {
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 4000, messages: [{ role: 'user', content: prompt }] }),
-    })
-    const data = await response.json()
-    return data.content?.[0]?.text || 'Sin respuesta'
-  } catch (e) {
-    return 'Error: ' + (e as Error).message
-  }
-}
 
 function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   return (
@@ -212,6 +198,7 @@ export default function Contabilidad() {
   const [activeTab, setActiveTab] = useState<Tab>('facturacion')
   const [invoices, setInvoices] = useState<Invoice[]>(MOCK_INVOICES)
   const [bankMovements, setBankMovements] = useState<BankMovement[]>([])
+  const [projectNames, setProjectNames] = useState<string[]>([])
 
   // Load bank movements from Supabase
   useEffect(() => {
@@ -231,7 +218,20 @@ export default function Contabilidad() {
           conciliado: m.conciliado || false,
           factura_match_id: m.factura_match_id || undefined,
           factura_match_info: m.factura_match_info || '',
+          rfc_contraparte: m.rfc_contraparte || '',
+          proyecto_codigo: m.proyecto_codigo || '',
+          banco: m.banco || '',
+          cuenta: m.cuenta || '',
         })))
+      }
+    })
+  }, [])
+
+  // Load real project names from Supabase (para el dropdown de manual entry)
+  useEffect(() => {
+    supabase.from('projects').select('name').order('name').then(({ data }) => {
+      if (data && data.length > 0) {
+        setProjectNames(data.map((p: any) => p.name).filter(Boolean))
       }
     })
   }, [])
@@ -318,7 +318,7 @@ export default function Contabilidad() {
 
       {/* Tab content */}
       {activeTab === 'facturacion' && <TabFacturacion invoices={invoices} setInvoices={setInvoices} />}
-      {activeTab === 'conciliacion' && <TabConciliacion bankMovements={bankMovements} setBankMovements={setBankMovements} invoices={invoices} />}
+      {activeTab === 'conciliacion' && <TabConciliacion bankMovements={bankMovements} setBankMovements={setBankMovements} invoices={invoices} projectNames={projectNames} />}
       {activeTab === 'supervision' && <TabSupervision invoices={invoices} />}
       {activeTab === 'efectivo' && <TabEfectivo />}
       {activeTab === 'cobranza' && <TabCobranza />}
@@ -775,9 +775,10 @@ function TabFacturacion({ invoices, setInvoices }: { invoices: Invoice[]; setInv
 
 /* --------- Tab 2: Conciliaci--n Bancaria --------------------------------------------------------------------------------------------------- */
 
-function TabConciliacion({ bankMovements, setBankMovements, invoices }: { bankMovements: BankMovement[]; setBankMovements: (m: BankMovement[]) => void; invoices: Invoice[] }) {
+function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNames }: { bankMovements: BankMovement[]; setBankMovements: (m: BankMovement[]) => void; invoices: Invoice[]; projectNames: string[] }) {
   const [processing, setProcessing] = useState(false)
   const [status, setStatus] = useState('')
+  const [lastCheck, setLastCheck] = useState<any>(null)
   const [filtro, setFiltro] = useState<'todos' | 'pendientes' | 'conciliados'>('todos')
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [expandedId, setExpandedId] = useState<string | null>(null)
@@ -792,6 +793,8 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices }: { bankMo
     categoria: m.categoria_sugerida || 'otro', proyecto: m.proyecto_sugerido || '',
     beneficiario: m.beneficiario || '', conciliado: m.conciliado,
     factura_match_id: m.factura_match_id || null, factura_match_info: m.factura_match_info || '',
+    rfc_contraparte: m.rfc_contraparte || null, proyecto_codigo: m.proyecto_codigo || null,
+    banco: m.banco || null, cuenta: m.cuenta || null,
   })
 
   const dbInsertMany = async (movements: BankMovement[]) => {
@@ -839,139 +842,167 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices }: { bankMo
     setShowManual(false)
   }
 
-  /* --- Auto-match movements with invoices --- */
-  const findMatch = (m: BankMovement): { id: string; info: string } | null => {
+  /* --- Auto-match movements with invoices ---
+     Orden de prioridad:
+     1. RFC exacto + monto con tolerancia 0.5%
+     2. RFC exacto (sin importar monto — útil si es pago parcial)
+     3. Monto exacto + dirección coherente (abono↔emitida, cargo↔recibida)
+     4. Nombre similar + monto tolerancia 2%
+     Devuelve el mejor match con un score del 0-100 para debugging. */
+  const normalizeRfc = (s?: string) => (s || '').toUpperCase().replace(/[^A-Z0-9]/g, '').trim()
+
+  const findMatch = (m: BankMovement): { id: string; info: string; score: number } | null => {
     if (!invoices || invoices.length === 0) return null
-    const tolerance = 0.02 // 2%
-    const candidates = invoices.filter(inv => {
-      const montoMatch = Math.abs(inv.total - m.monto) / Math.max(inv.total, 1) <= tolerance
-      if (!montoMatch) return false
-      // For abonos match emitidas (cobros), for cargos match recibidas (pagos)
-      if (m.tipo === 'abono' && inv.direccion === 'emitida') return true
-      if (m.tipo === 'cargo' && inv.direccion === 'recibida') return true
+
+    const movRfc = normalizeRfc(m.rfc_contraparte)
+    const benefLower = (m.beneficiario || m.concepto || '').toLowerCase()
+
+    // Filtrar por dirección coherente primero
+    const coherent = invoices.filter(inv => {
+      if (m.tipo === 'abono' && inv.direccion === 'emitida') return true // cobro recibido = factura emitida
+      if (m.tipo === 'cargo' && inv.direccion === 'recibida') return true // pago enviado = factura recibida
       return false
     })
-    if (candidates.length === 0) return null
-    // Prefer name match
-    const benefLower = (m.beneficiario || m.concepto || '').toLowerCase()
-    const nameMatch = candidates.find(c => {
-      const invName = (c.direccion === 'emitida' ? c.receptor_nombre : c.emisor_nombre).toLowerCase()
-      return benefLower.includes(invName) || invName.includes(benefLower.split(' ')[0])
+    if (coherent.length === 0) return null
+
+    type Scored = { inv: Invoice; score: number }
+    const scored: Scored[] = coherent.map(inv => {
+      let score = 0
+      // RFC match (peso alto)
+      const invRfc = normalizeRfc(m.tipo === 'abono' ? inv.receptor_rfc : inv.emisor_rfc)
+      if (movRfc && invRfc && movRfc === invRfc) score += 60
+
+      // Monto exacto (tolerancia 0.5%)
+      const montoDiff = Math.abs(inv.total - m.monto) / Math.max(inv.total, 1)
+      if (montoDiff <= 0.005) score += 30
+      else if (montoDiff <= 0.02) score += 15
+
+      // Ventana de fecha ±7 días
+      if (inv.fecha_emision && m.fecha) {
+        const dMov = new Date(m.fecha).getTime()
+        const dInv = new Date(inv.fecha_emision).getTime()
+        const daysDiff = Math.abs(dMov - dInv) / (1000 * 60 * 60 * 24)
+        if (daysDiff <= 7) score += 10
+        else if (daysDiff <= 30) score += 5
+      }
+
+      // Nombre similar (fallback sin RFC)
+      if (!movRfc && benefLower) {
+        const invName = (inv.direccion === 'emitida' ? inv.receptor_nombre : inv.emisor_nombre || '').toLowerCase()
+        if (invName && (benefLower.includes(invName) || (benefLower.split(' ')[0] && invName.includes(benefLower.split(' ')[0])))) {
+          score += 20
+        }
+      }
+
+      // Factura ya conciliada pesa menos (evita conflictos)
+      if (inv.conciliada) score -= 5
+
+      return { inv, score }
     })
-    const best = nameMatch || candidates[0]
-    const who = best.direccion === 'emitida' ? best.receptor_nombre : best.emisor_nombre
-    return { id: best.id, info: `${best.serie || ''}${best.serie ? '-' : ''}${best.folio} · ${who} · ${F(best.total)} · ${best.proyecto_nombre || 'Sin proyecto'}` }
+
+    // Ordenar por score descendente
+    scored.sort((a, b) => b.score - a.score)
+    const best = scored[0]
+
+    // Umbral mínimo: 30 (significa al menos un hit significativo)
+    if (!best || best.score < 30) return null
+
+    const inv = best.inv
+    const who = inv.direccion === 'emitida' ? inv.receptor_nombre : inv.emisor_nombre
+    return {
+      id: inv.id,
+      info: `${inv.serie || ''}${inv.serie ? '-' : ''}${inv.folio} · ${who} · ${F(inv.total)} · ${inv.proyecto_nombre || 'Sin proyecto'}`,
+      score: best.score,
+    }
   }
 
-  /* --- Upload handler --- */
+  /* --- Upload handler — usa edge function server-side /api/extract-bank-statement --- */
   const handleBankUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]; if (!file) return
     setProcessing(true); setStatus('Leyendo archivo...')
     const ext = file.name.split('.').pop()?.toLowerCase()
 
     try {
-      const systemPrompt = `Eres un experto contable mexicano. Extrae TODOS los movimientos bancarios del estado de cuenta PDF de BBVA.
-
-REGLAS CRITICAS DE EXTRACCION BBVA:
-- El PDF tiene columnas: Fecha | Concepto/Referencia | Cargos | Abonos | Saldo
-- SOLO usa las columnas "Cargos" y "Abonos" para el monto. IGNORA cualquier numero en columnas de "Operacion" o "Liquidacion" o "Saldo"
-- Si un movimiento tiene monto en "Cargos" → tipo "cargo"
-- Si un movimiento tiene monto en "Abonos" → tipo "abono"
-- El concepto puede ocupar multiples lineas, concatenalas
-
-EXTRACCION DE PROYECTO/OBRA del concepto:
-- Busca codigos de proyecto como: E101, E402, E501, E601, etc.
-- Busca nombres de obra: Oasis, Piano C5C, Arcos Bosques, Reforma, Chapultepec, Pachuca, Casa Luce, NULED, Tere Metta
-- Si el concepto menciona alguno, ponlo en "proyecto"
-- Si dice PAGO NOMINA o nombre de persona sin referencia a obra = proyecto "OMM - Gastos generales"
-
-Devuelve SOLO un JSON array, sin markdown, sin explicaciones:
-[{"fecha":"YYYY-MM-DD","concepto":"descripcion completa","referencia":"num ref si existe","monto":0,"tipo":"cargo"|"abono","beneficiario":"persona o empresa","proyecto":"nombre proyecto o vacio","categoria":"nomina"|"proveedor"|"cobro_cliente"|"impuestos"|"comision"|"traspaso"|"prestamo"|"suscripcion"|"otro"}]
-
-REGLAS DE CATEGORIA:
-- PAGO DE NOMINA, TRANSF SPEI con nombre de persona sin empresa = "nomina"
-- Cualquier concepto con nombre de persona = "nomina" (cualquier gasto con nombre de persona en el concepto es salario)
-- SPEI RECIBIDO de empresa / DEPOSITO DE TERCERO = "cobro_cliente"
-- PAGO CUENTA DE TERCERO a proveedor/empresa = "proveedor"
-- SAT, IMSS, INFONAVIT, ISN, CDMX, gobierno = "impuestos"
-- COMISION, IVA COM, SISTEMAS Y SERVICIOS = "comision"
-- TRASPASO ENTRE CUENTAS PROPIAS = "traspaso"
-- DISPOSICION CREDITO, PAGO CREDITO = "prestamo"
-- STRIPE, UBER, CLAUDE, SPOTIFY, suscripciones digitales = "suscripcion"
-- MONTO siempre positivo
-- Fecha formato YYYY-MM-DD (inferir año del encabezado, si dice MAR = marzo)`
-
-      let messages: any[]
+      let kind: 'pdf' | 'text'
+      let payload: string
 
       if (ext === 'pdf') {
         setStatus('Procesando PDF con AI...')
-        const base64 = await new Promise<string>((res, rej) => {
+        kind = 'pdf'
+        payload = await new Promise<string>((res, rej) => {
           const r = new FileReader()
           r.onload = () => res((r.result as string).split(',')[1])
           r.onerror = () => rej(new Error('Error leyendo PDF'))
           r.readAsDataURL(file)
         })
-        messages = [{ role: 'user', content: [
-          { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64 } },
-          { type: 'text', text: systemPrompt }
-        ] }]
       } else {
         setStatus('Procesando archivo con AI...')
-        const text = await file.text()
-        messages = [{ role: 'user', content: systemPrompt + '\n\nESTADO DE CUENTA:\n' + text.substring(0, 15000) }]
+        kind = 'text'
+        payload = await file.text()
       }
 
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
+      const response = await fetch('/api/extract-bank-statement', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'anthropic-dangerous-direct-browser-access': 'true', 'anthropic-version': '2023-06-01', 'x-api-key': ANTHROPIC_API_KEY },
-        body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 8000, messages }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kind, payload }),
       })
 
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}))
-        setStatus('Error API: ' + (errData.error?.message || response.status))
+        setStatus('Error: ' + (errData.error || response.status))
         setProcessing(false); return
       }
 
       const data = await response.json()
-      const text = (data.content || []).filter((b: any) => b.type === 'text').map((b: any) => b.text).join('')
-      const jsonMatch = text.match(/\[[\s\S]*\]/)
-
-      if (jsonMatch) {
-        const parsed = JSON.parse(jsonMatch[0].replace(/```json|```/g, '').trim())
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          const newMovs: BankMovement[] = parsed.map((m: any) => ({
-            id: crypto.randomUUID(),
-            fecha: m.fecha || '',
-            concepto: m.concepto || '',
-            referencia: m.referencia || '',
-            monto: Math.abs(m.monto || 0),
-            tipo: m.tipo || 'cargo',
-            saldo: 0,
-            categoria_sugerida: m.categoria || 'otro',
-            proyecto_sugerido: m.proyecto || '',
-            beneficiario: m.beneficiario || '',
-            conciliado: false,
-          }))
-          // Deduplicate: skip if same fecha+monto+tipo+concepto already exists
-          const existing = bankMovements
-          const deduped = newMovs.filter(n => !existing.some(e =>
-            e.fecha === n.fecha && Math.abs(e.monto - n.monto) < 0.01 && e.tipo === n.tipo && e.concepto === n.concepto
-          ))
-          if (deduped.length < newMovs.length) {
-            setStatus(`✓ ${deduped.length} nuevos (${newMovs.length - deduped.length} duplicados omitidos)`)
-          } else {
-            setStatus(`✓ ${deduped.length} movimientos extraídos`)
-          }
-          setBankMovements([...deduped, ...existing])
-          dbInsertMany(deduped)
-          setSelected(new Set())
-        } else {
-          setStatus('No se encontraron movimientos')
-        }
-      } else {
-        setStatus('Error: no se pudo parsear la respuesta')
+      if (!data.ok) {
+        setStatus('Error: ' + (data.error || 'sin respuesta'))
+        setProcessing(false); return
       }
+
+      // Guarda el resultado del check de cuadre para mostrarlo al usuario
+      setLastCheck(data.totals_check || null)
+
+      const movements: any[] = Array.isArray(data.movements) ? data.movements : []
+      if (movements.length === 0) {
+        setStatus('No se encontraron movimientos')
+        setProcessing(false); return
+      }
+
+      const banco = data.banco || ''
+      const cuenta = data.cuenta || ''
+
+      const newMovs: BankMovement[] = movements.map((m: any) => ({
+        id: crypto.randomUUID(),
+        fecha: m.fecha || '',
+        concepto: m.concepto || '',
+        referencia: m.referencia || '',
+        monto: Math.abs(Number(m.monto) || 0),
+        tipo: m.tipo === 'abono' ? 'abono' : 'cargo',
+        saldo: 0,
+        categoria_sugerida: m.categoria || 'otro',
+        proyecto_sugerido: m.proyecto_nombre || '',
+        beneficiario: m.beneficiario || '',
+        rfc_contraparte: m.rfc_contraparte || '',
+        proyecto_codigo: m.proyecto_codigo || '',
+        banco,
+        cuenta,
+        conciliado: false,
+      }))
+
+      // Deduplicate: skip if same fecha+monto+tipo+concepto already exists
+      const existing = bankMovements
+      const deduped = newMovs.filter(n => !existing.some(e =>
+        e.fecha === n.fecha && Math.abs(e.monto - n.monto) < 0.01 && e.tipo === n.tipo && e.concepto === n.concepto
+      ))
+      const warningsMsg = (data.warnings && data.warnings.length > 0) ? ` · ${data.warnings.length} warning(s)` : ''
+      if (deduped.length < newMovs.length) {
+        setStatus(`✓ ${deduped.length} nuevos (${newMovs.length - deduped.length} duplicados)${warningsMsg}`)
+      } else {
+        setStatus(`✓ ${deduped.length} movimientos extraídos${warningsMsg}`)
+      }
+      setBankMovements([...deduped, ...existing])
+      dbInsertMany(deduped)
+      setSelected(new Set())
     } catch (err) {
       setStatus('Error: ' + (err as Error).message)
     }
@@ -1072,6 +1103,33 @@ REGLAS DE CATEGORIA:
         {status && <span style={{ fontSize: 11, color: status.startsWith('✓') ? '#57FF9A' : status.startsWith('Error') ? '#EF4444' : '#888' }}>{status}</span>}
       </div>
 
+      {/* Banner de cuadre de totales (aparece después de upload con expected_totals del PDF) */}
+      {lastCheck && lastCheck.expected && (
+        <div style={{
+          padding: '10px 14px', marginBottom: 16, borderRadius: 8, fontSize: 11,
+          background: lastCheck.cuadra ? 'rgba(87,255,154,0.06)' : 'rgba(239,68,68,0.06)',
+          border: `1px solid ${lastCheck.cuadra ? 'rgba(87,255,154,0.2)' : 'rgba(239,68,68,0.25)'}`,
+          color: lastCheck.cuadra ? '#57FF9A' : '#f87171',
+          display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap',
+        }}>
+          <strong>{lastCheck.cuadra ? '✓ Extracción cuadra con el PDF' : '⚠ Extracción NO cuadra con los totales del PDF'}</strong>
+          <span style={{ color: '#888' }}>
+            Cargos: <strong style={{ color: lastCheck.cargos_sum_ok ? '#57FF9A' : '#f87171' }}>{F(lastCheck.sum_cargos_extraido)}</strong>
+            {' / esperado '}{F(lastCheck.expected.cargos_total)}
+            {' ('}{lastCheck.count_cargos_extraido}/{lastCheck.expected.cargos_count} mov{')'}
+          </span>
+          <span style={{ color: '#888' }}>
+            Abonos: <strong style={{ color: lastCheck.abonos_sum_ok ? '#57FF9A' : '#f87171' }}>{F(lastCheck.sum_abonos_extraido)}</strong>
+            {' / esperado '}{F(lastCheck.expected.abonos_total)}
+            {' ('}{lastCheck.count_abonos_extraido}/{lastCheck.expected.abonos_count} mov{')'}
+          </span>
+          <button
+            onClick={() => setLastCheck(null)}
+            style={{ marginLeft: 'auto', fontSize: 10, color: '#666', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit' }}
+          >Ocultar</button>
+        </div>
+      )}
+
       {/* Manual entry form */}
       {showManual && (
         <div style={{ background: '#141414', border: '1px solid #222', borderRadius: 10, padding: 16, marginBottom: 16 }}>
@@ -1112,7 +1170,7 @@ REGLAS DE CATEGORIA:
               <div style={{ fontSize: 10, color: '#666', marginBottom: 4 }}>Proyecto</div>
               <select value={manual.proyecto} onChange={e => setManual(m => ({ ...m, proyecto: e.target.value }))} style={{ width: '100%', padding: '6px 8px', fontSize: 12, background: '#0a0a0a', border: '1px solid #333', borderRadius: 6, color: '#fff', fontFamily: 'inherit' }}>
                 <option value="">Sin proyecto</option>
-                {PROYECTOS.map(p => <option key={p} value={p}>{p}</option>)}
+                {projectNames.map(p => <option key={p} value={p}>{p}</option>)}
               </select>
             </div>
             <div style={{ display: 'flex', gap: 6 }}>
@@ -1171,7 +1229,22 @@ REGLAS DE CATEGORIA:
                       </span>
                     </Td>
                     <Td muted>{m.beneficiario || '—'}</Td>
-                    <Td>{m.proyecto_sugerido ? <Badge label={m.proyecto_sugerido} color="#3B82F6" /> : <span style={{ color: '#444' }}>—</span>}</Td>
+                    <Td>
+                      {(m.proyecto_codigo || m.proyecto_sugerido) ? (
+                        <span style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}>
+                          {m.proyecto_codigo && (
+                            <span style={{
+                              fontSize: 9, fontWeight: 700, padding: '2px 5px', borderRadius: 4,
+                              background: 'rgba(87,255,154,0.12)', border: '1px solid rgba(87,255,154,0.3)',
+                              color: '#57FF9A', fontFamily: 'monospace', letterSpacing: 0.3,
+                            }}>{m.proyecto_codigo}</span>
+                          )}
+                          {m.proyecto_sugerido && <Badge label={m.proyecto_sugerido} color="#3B82F6" />}
+                        </span>
+                      ) : (
+                        <span style={{ color: '#444' }}>—</span>
+                      )}
+                    </Td>
                     <Td><Badge label={m.categoria_sugerida || 'otro'} color={catColors[m.categoria_sugerida || 'otro'] || '#555'} /></Td>
                     <Td right>{m.tipo === 'cargo' ? <span style={{ color: '#EF4444' }}>{F(m.monto)}</span> : ''}</Td>
                     <Td right>{m.tipo === 'abono' ? <span style={{ color: '#57FF9A' }}>{F(m.monto)}</span> : ''}</Td>
@@ -1203,6 +1276,8 @@ REGLAS DE CATEGORIA:
                       <td colSpan={10} style={{ padding: '8px 16px', background: '#0d0d0d', borderBottom: '1px solid #1a1a1a' }}>
                         <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}><strong style={{ color: '#aaa' }}>Concepto completo:</strong> {m.concepto}</div>
                         {m.referencia && <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}><strong style={{ color: '#aaa' }}>Referencia:</strong> {m.referencia}</div>}
+                        {m.rfc_contraparte && <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}><strong style={{ color: '#aaa' }}>RFC:</strong> <span style={{ fontFamily: 'monospace' }}>{m.rfc_contraparte}</span></div>}
+                        {(m.banco || m.cuenta) && <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}><strong style={{ color: '#aaa' }}>Banco/Cuenta:</strong> {m.banco} {m.cuenta && `· ${m.cuenta}`}</div>}
                         {match && (
                           <div style={{ fontSize: 11, color: '#3B82F6', marginTop: 6, padding: '6px 10px', background: 'rgba(59,130,246,0.06)', borderRadius: 6, border: '1px solid rgba(59,130,246,0.15)' }}>
                             <strong>Match sugerido:</strong> {match.info}
