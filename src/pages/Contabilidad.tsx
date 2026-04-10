@@ -124,8 +124,6 @@ const CFDI_TYPE_LABELS: Record<CfdiType, string> = {
   I: 'Ingreso', E: 'Egreso', T: 'Traslado', P: 'Pago', N: 'Nomina'
 }
 
-const PROYECTOS = ['Oasis', 'Oasis 6', 'Reforma 222', 'Pachuca', 'Chapultepec Uno', 'Casa Luce', 'NULED', 'OMM - Gastos generales']
-
 function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   return (
     <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }} onClick={onClose}>
@@ -317,7 +315,7 @@ export default function Contabilidad() {
       </div>
 
       {/* Tab content */}
-      {activeTab === 'facturacion' && <TabFacturacion invoices={invoices} setInvoices={setInvoices} />}
+      {activeTab === 'facturacion' && <TabFacturacion invoices={invoices} setInvoices={setInvoices} bankMovements={bankMovements} projectNames={projectNames} />}
       {activeTab === 'conciliacion' && <TabConciliacion bankMovements={bankMovements} setBankMovements={setBankMovements} invoices={invoices} projectNames={projectNames} />}
       {activeTab === 'supervision' && <TabSupervision invoices={invoices} />}
       {activeTab === 'efectivo' && <TabEfectivo />}
@@ -329,8 +327,10 @@ export default function Contabilidad() {
 
 /* --------- Tab 1: Facturaci--n --------------------------------------------------------------------------------------------------------------------------------- */
 
-function TabFacturacion({ invoices, setInvoices }: { invoices: Invoice[]; setInvoices: (i: Invoice[]) => void }) {
+function TabFacturacion({ invoices, setInvoices, bankMovements, projectNames }: { invoices: Invoice[]; setInvoices: (i: Invoice[]) => void; bankMovements: BankMovement[]; projectNames: string[] }) {
   const [filter, setFilter] = useState<'todas' | 'emitidas' | 'recibidas'>('todas')
+  const [search, setSearch] = useState('')
+  const [monthOffset, setMonthOffset] = useState(0) // 0 = mes actual, -1 = mes pasado, +1 = siguiente
   const [showNewForm, setShowNewForm] = useState(false)
   const [xmlProcessing, setXmlProcessing] = useState(false)
   const [xmlResult, setXmlResult] = useState<string | null>(null)
@@ -506,25 +506,111 @@ function TabFacturacion({ invoices, setInvoices }: { invoices: Invoice[]; setInv
     setShowNewForm(false)
   }
 
-  const filtered = invoices.filter(i =>
-    filter === 'todas' ? true : filter === 'emitidas' ? i.direccion === 'emitida' : i.direccion === 'recibida'
-  )
+  // Mes seleccionado por navegación
+  const now = new Date()
+  const monthDate = new Date(now.getFullYear(), now.getMonth() + monthOffset, 1)
+  const monthStart = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1)
+  const monthEnd = new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 0, 23, 59, 59, 999)
+  const monthLabel = monthDate.toLocaleDateString('es-MX', { month: 'long', year: 'numeric' })
+  const monthLabelCapitalized = monthLabel.charAt(0).toUpperCase() + monthLabel.slice(1)
 
-  const emitidas = MOCK_INVOICES.filter(i => i.direccion === 'emitida')
-  const recibidas = MOCK_INVOICES.filter(i => i.direccion === 'recibida')
-  const totalEmitido = emitidas.reduce((s, i) => s + (i.tipo_comprobante === 'I' ? i.total : 0), 0)
-  const totalRecibido = recibidas.reduce((s, i) => s + i.total, 0)
+  // Filtra por si una fecha cae en el mes seleccionado
+  const inSelectedMonth = (fechaStr: string | undefined) => {
+    if (!fechaStr) return false
+    const d = new Date(fechaStr)
+    if (isNaN(d.getTime())) return false
+    return d >= monthStart && d <= monthEnd
+  }
+
+  // Facturas y movimientos del mes seleccionado
+  const monthInvoices = invoices.filter(inv => inSelectedMonth(inv.fecha_emision))
+  const monthMovements = bankMovements.filter(m => inSelectedMonth(m.fecha))
+
+  // KPIs del mes
+  const monthEmitidas = monthInvoices.filter(i => i.direccion === 'emitida')
+  const monthRecibidas = monthInvoices.filter(i => i.direccion === 'recibida')
+  const totalFacturado = monthEmitidas.reduce((s, i) => s + (i.total || 0), 0)
+  const totalRecibido = monthRecibidas.reduce((s, i) => s + (i.total || 0), 0)
+
+  // IVA por pagar = IVA cobrado (emitidas conciliadas) - IVA pagado (recibidas conciliadas)
+  // Solo cuenta facturas conciliadas porque el IVA se causa con el flujo de efectivo.
+  const ivaCobrado = monthEmitidas.filter(i => i.conciliada).reduce((s, i) => s + (i.iva || 0), 0)
+  const ivaPagado = monthRecibidas.filter(i => i.conciliada).reduce((s, i) => s + (i.iva || 0), 0)
+  const ivaPorPagar = ivaCobrado - ivaPagado
+
+  // Ingresos sin factura: abonos del mes categorizados como cobro_cliente (o sin categoría clara)
+  // que NO tienen factura_match_id asociado.
+  const movimientosSinFactura = monthMovements.filter(m =>
+    m.tipo === 'abono' &&
+    (m.categoria_sugerida === 'cobro_cliente' || !m.categoria_sugerida || m.categoria_sugerida === 'otro') &&
+    !m.factura_match_id
+  )
+  const ingresosSinFactura = movimientosSinFactura.reduce((s, m) => s + (m.monto || 0), 0)
+
+  // Filtros aplicados a las facturas del mes: dirección + búsqueda
+  const searchLower = search.trim().toLowerCase()
+  const filtered = monthInvoices
+    .filter(i =>
+      filter === 'todas' ? true : filter === 'emitidas' ? i.direccion === 'emitida' : i.direccion === 'recibida'
+    )
+    .filter(i => {
+      if (!searchLower) return true
+      const haystack = [
+        i.serie, i.folio, i.receptor_nombre, i.emisor_nombre,
+        i.emisor_rfc, i.receptor_rfc, i.proyecto_nombre, i.uuid,
+        i.receptor_uso_cfdi, i.metodo_pago,
+      ].filter(Boolean).join(' ').toLowerCase()
+      return haystack.includes(searchLower)
+    })
+    // Más nuevas primero
+    .sort((a, b) => (b.fecha_emision || '').localeCompare(a.fecha_emision || ''))
 
   return (
     <div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
-        <KpiCard label="Emitidas" value={emitidas.length} icon={<FileText size={16} />} />
-        <KpiCard label="Facturado" value={F(totalEmitido)} color="#3B82F6" icon={<DollarSign size={16} />} />
-        <KpiCard label="Recibidas" value={recibidas.length} color="#F59E0B" icon={<FileText size={16} />} />
-        <KpiCard label="Por pagar" value={F(totalRecibido)} color="#EF4444" icon={<DollarSign size={16} />} />
+      {/* Month navigation */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, padding: '10px 14px', background: '#141414', border: '1px solid #222', borderRadius: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <button
+            onClick={() => setMonthOffset(monthOffset - 1)}
+            style={{ padding: '6px 10px', fontSize: 12, background: '#1a1a1a', border: '1px solid #333', borderRadius: 6, color: '#ccc', cursor: 'pointer', fontFamily: 'inherit' }}
+          >◀ Mes anterior</button>
+          <span style={{ fontSize: 14, fontWeight: 600, color: '#fff', minWidth: 160, textAlign: 'center' }}>{monthLabelCapitalized}</span>
+          <button
+            onClick={() => setMonthOffset(monthOffset + 1)}
+            style={{ padding: '6px 10px', fontSize: 12, background: '#1a1a1a', border: '1px solid #333', borderRadius: 6, color: '#ccc', cursor: 'pointer', fontFamily: 'inherit' }}
+          >Mes siguiente ▶</button>
+          {monthOffset !== 0 && (
+            <button
+              onClick={() => setMonthOffset(0)}
+              style={{ padding: '6px 10px', fontSize: 11, background: 'rgba(87,255,154,0.08)', border: '1px solid rgba(87,255,154,0.3)', borderRadius: 6, color: '#57FF9A', cursor: 'pointer', fontFamily: 'inherit' }}
+            >Hoy</button>
+          )}
+        </div>
+        <div style={{ fontSize: 11, color: '#666' }}>
+          {monthInvoices.length} factura{monthInvoices.length !== 1 ? 's' : ''} · {monthMovements.length} movimiento{monthMovements.length !== 1 ? 's' : ''} bancario{monthMovements.length !== 1 ? 's' : ''}
+        </div>
       </div>
 
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+      {/* KPIs */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
+        <KpiCard label="Total Facturado" value={F(totalFacturado)} color="#3B82F6" icon={<DollarSign size={16} />} />
+        <KpiCard label="Total Recibido" value={F(totalRecibido)} color="#F59E0B" icon={<DollarSign size={16} />} />
+        <KpiCard
+          label="IVA por pagar"
+          value={F(ivaPorPagar)}
+          color={ivaPorPagar >= 0 ? '#EF4444' : '#57FF9A'}
+          icon={<ShieldCheck size={16} />}
+        />
+        <KpiCard
+          label="Ingresos sin factura"
+          value={F(ingresosSinFactura)}
+          color={ingresosSinFactura > 0 ? '#F59E0B' : '#57FF9A'}
+          icon={<AlertTriangle size={16} />}
+        />
+      </div>
+
+      {/* Toolbar: filtros + busqueda + acciones */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, gap: 12, flexWrap: 'wrap' }}>
         <div style={{ display: 'flex', gap: 6 }}>
           {(['todas', 'emitidas', 'recibidas'] as const).map(f => (
             <Btn key={f} size="sm" variant={filter === f ? 'primary' : 'default'} onClick={() => setFilter(f)}>
@@ -532,60 +618,111 @@ function TabFacturacion({ invoices, setInvoices }: { invoices: Invoice[]; setInv
             </Btn>
           ))}
         </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: '1 1 260px', maxWidth: 400, minWidth: 200 }}>
+          <div style={{ position: 'relative', flex: 1 }}>
+            <Search size={12} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#555' }} />
+            <input
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Buscar folio, cliente, RFC, proyecto, UUID..."
+              style={{
+                width: '100%', padding: '7px 10px 7px 30px', fontSize: 12,
+                background: '#0a0a0a', border: '1px solid #333', borderRadius: 8,
+                color: '#fff', fontFamily: 'inherit',
+              }}
+            />
+            {search && (
+              <button
+                onClick={() => setSearch('')}
+                style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#555', cursor: 'pointer', padding: 0, display: 'flex' }}
+              ><X size={12} /></button>
+            )}
+          </div>
+        </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <Btn size="sm" variant="default" onClick={() => xmlInputRef.current?.click()}>{xmlProcessing ? 'Procesando...' : <><Upload size={12} /> Subir XML</>}</Btn>
           <Btn size="sm" variant="primary" onClick={() => setShowNewForm(true)}><Plus size={12} /> Nueva factura</Btn>
         </div>
       </div>
 
-      <Table>
-        <thead>
-          <tr>
-            <Th>Folio</Th>
-            <Th>Dir.</Th>
-            <Th>Tipo</Th>
-            <Th>Cliente / Proveedor</Th>
-            <Th>Proyecto</Th>
-            <Th right>Total</Th>
-            <Th>Estado</Th>
-            <Th>Fecha</Th>
-          </tr>
-        </thead>
-        <tbody>
-          {invoices.length === 0 && <tr><Td colSpan={8} muted>Sin facturas</Td></tr>}
-          {invoices.map(inv => {
-            const cfg = INVOICE_STATUS_CONFIG[inv.estado]
-            return (
-              <tr key={inv.id} style={{cursor:'pointer'}} onClick={() => setSelectedInv(inv)}>
-                <Td>
-                  <span style={{ fontWeight: 600, color: '#fff' }}>
-                    {inv.serie ? `${inv.serie}-${inv.folio}` : inv.folio}
-                  </span>
-                </Td>
-                <Td>
-                  <span style={{
-                    fontSize: 10, fontWeight: 600, padding: '2px 6px', borderRadius: 4,
-                    background: inv.direccion === 'emitida' ? '#3B82F622' : '#F59E0B22',
-                    color: inv.direccion === 'emitida' ? '#3B82F6' : '#F59E0B',
-                  }}>
-                    {inv.direccion === 'emitida' ? 'EMI' : 'REC'}
-                  </span>
-                </Td>
-                <Td muted>{CFDI_TYPE_LABELS[inv.tipo_comprobante]}</Td>
-                <Td>
-                  <span style={{ color: '#ccc' }}>
-                    {inv.direccion === 'emitida' ? inv.receptor_nombre : inv.emisor_nombre}
-                  </span>
-                </Td>
-                <Td muted>{inv.proyecto_nombre || 'â'}</Td>
-                <Td right style={{ fontWeight: 600, color: '#fff' }}>{F(inv.total)}</Td>
-                <Td><Badge label={cfg.label} color={cfg.color} /></Td>
-                <Td muted>{formatDate(inv.fecha_emision)}</Td>
-              </tr>
-            )
-          })}
-        </tbody>
-      </Table>
+      {/* Tabla con scroll */}
+      <div style={{ maxHeight: 'calc(100vh - 360px)', minHeight: 300, overflowY: 'auto', border: '1px solid #222', borderRadius: 10, background: '#0d0d0d' }}>
+        <Table>
+          <thead style={{ position: 'sticky', top: 0, background: '#141414', zIndex: 1 }}>
+            <tr>
+              <Th>Folio</Th>
+              <Th>Dir.</Th>
+              <Th>Tipo</Th>
+              <Th>Cliente / Proveedor</Th>
+              <Th>Uso CFDI</Th>
+              <Th>Proyecto</Th>
+              <Th right>Ingreso</Th>
+              <Th right>Egreso</Th>
+              <Th>Estado</Th>
+              <Th>Fecha</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.length === 0 && (
+              <tr><Td colSpan={10} muted>
+                {monthInvoices.length === 0
+                  ? `Sin facturas en ${monthLabelCapitalized}`
+                  : 'Sin resultados para los filtros aplicados'}
+              </Td></tr>
+            )}
+            {filtered.map(inv => {
+              const cfg = INVOICE_STATUS_CONFIG[inv.estado]
+              const isIngreso = inv.direccion === 'emitida'
+              return (
+                <tr key={inv.id} style={{cursor:'pointer'}} onClick={() => setSelectedInv(inv)}>
+                  <Td>
+                    <span style={{ fontWeight: 600, color: '#fff' }}>
+                      {inv.serie ? `${inv.serie}-${inv.folio}` : inv.folio}
+                    </span>
+                  </Td>
+                  <Td>
+                    <span style={{
+                      fontSize: 10, fontWeight: 600, padding: '2px 6px', borderRadius: 4,
+                      background: isIngreso ? '#3B82F622' : '#F59E0B22',
+                      color: isIngreso ? '#3B82F6' : '#F59E0B',
+                    }}>
+                      {isIngreso ? 'EMI' : 'REC'}
+                    </span>
+                  </Td>
+                  <Td muted>{CFDI_TYPE_LABELS[inv.tipo_comprobante]}</Td>
+                  <Td>
+                    <span style={{ color: '#ccc' }}>
+                      {isIngreso ? inv.receptor_nombre : inv.emisor_nombre}
+                    </span>
+                  </Td>
+                  <Td>
+                    {inv.receptor_uso_cfdi ? (
+                      <span style={{
+                        fontSize: 10, fontWeight: 600, padding: '2px 6px', borderRadius: 4,
+                        background: '#1a1a1a', border: '1px solid #333',
+                        color: '#aaa', fontFamily: 'monospace',
+                      }}>{inv.receptor_uso_cfdi}</span>
+                    ) : <span style={{ color: '#444' }}>—</span>}
+                  </Td>
+                  <Td muted>{inv.proyecto_nombre || '—'}</Td>
+                  <Td right>
+                    {isIngreso
+                      ? <span style={{ color: '#57FF9A', fontWeight: 600 }}>{F(inv.total)}</span>
+                      : <span style={{ color: '#444' }}>—</span>}
+                  </Td>
+                  <Td right>
+                    {!isIngreso
+                      ? <span style={{ color: '#EF4444', fontWeight: 600 }}>{F(inv.total)}</span>
+                      : <span style={{ color: '#444' }}>—</span>}
+                  </Td>
+                  <Td><Badge label={cfg.label} color={cfg.color} /></Td>
+                  <Td muted>{formatDate(inv.fecha_emision)}</Td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </Table>
+      </div>
 
       <input type="file" ref={xmlInputRef} accept=".xml" style={{ display: 'none' }} onChange={handleXml} />
 
@@ -626,7 +763,7 @@ function TabFacturacion({ invoices, setInvoices }: { invoices: Invoice[]; setInv
             <Field label="Folio *"><input style={inputStyle} value={newInv.folio} onChange={e => setNewInv({...newInv, folio: e.target.value})} placeholder="003" /></Field>
             <Field label="Total *"><input style={inputStyle} type="number" value={newInv.total} onChange={e => setNewInv({...newInv, total: e.target.value})} placeholder="0.00" /></Field>
             <Field label="Fecha"><input style={inputStyle} type="date" value={newInv.fecha_emision} onChange={e => setNewInv({...newInv, fecha_emision: e.target.value})} /></Field>
-            <Field label="Proyecto"><select style={selectStyle} value={newInv.proyecto_nombre} onChange={e => setNewInv({...newInv, proyecto_nombre: e.target.value})}><option value="">Sin proyecto</option>{PROYECTOS.map(p => <option key={p} value={p}>{p}</option>)}</select></Field>
+            <Field label="Proyecto"><select style={selectStyle} value={newInv.proyecto_nombre} onChange={e => setNewInv({...newInv, proyecto_nombre: e.target.value})}><option value="">Sin proyecto</option>{projectNames.map(p => <option key={p} value={p}>{p}</option>)}</select></Field>
             <Field label="Metodo pago"><select style={selectStyle} value={newInv.metodo_pago} onChange={e => setNewInv({...newInv, metodo_pago: e.target.value})}><option value="PUE">PUE</option><option value="PPD">PPD</option></select></Field>
           </div>
           <div style={{ borderTop: '1px solid #222', paddingTop: 16, marginTop: 16 }}>
@@ -1396,7 +1533,7 @@ function TabEfectivo() {
               </Td>
               <Td><span style={{ color: '#fff', fontWeight: 500 }}>{m.persona}</span></Td>
               <Td muted>{m.concepto}</Td>
-              <Td muted>{m.proyecto_nombre || 'â'}</Td>
+              <Td muted>{m.proyecto_nombre || '—'}</Td>
               <Td right style={{
                 fontWeight: 600,
                 color: m.direccion === 'ingreso' ? '#57FF9A' : '#ccc',
@@ -1564,12 +1701,12 @@ function TabFlujo() {
                 </Td>
               </tr>
               <tr>
-                <Td><span style={{ color: '#666' }}>OMM â Gastos generales</span></Td>
-                <Td right muted>â</Td>
-                <Td right muted>â</Td>
+                <Td><span style={{ color: '#666' }}>OMM — Gastos generales</span></Td>
+                <Td right muted>—</Td>
+                <Td right muted>—</Td>
                 <Td right style={{ color: '#F59E0B' }}>{F(gastosFijos)}</Td>
                 <Td right style={{ fontWeight: 700, color: '#EF4444' }}>-{F(gastosFijos)}</Td>
-                <Td right muted>â</Td>
+                <Td right muted>—</Td>
               </tr>
               <tr style={{ background: '#1a1a1a', borderTop: '2px solid #333' }}>
                 <Td><span style={{ fontWeight: 700, color: '#fff', fontSize: 13 }}>TOTAL EMPRESA</span></Td>

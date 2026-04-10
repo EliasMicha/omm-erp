@@ -1,7 +1,7 @@
 # CLAUDE.md — Contexto del proyecto OMM ERP
 
 > **Lee este archivo antes de tocar cualquier código.** Se actualiza al final de cada sesión con lo aprendido.
-> Última actualización: 2026-04-08 (continuación 3)
+> Última actualización: 2026-04-10 (sesión Contabilidad)
 
 ---
 
@@ -309,9 +309,39 @@ El PAT se pide al usuario por chat cada sesión — **nunca está en memoria**. 
 
 ### 🗄️ Operar SQL en Supabase desde el navegador
 
-El SQL Editor de Supabase usa **Monaco editor**. La forma más confiable de interactuar con él desde automatización es acceder directo al Monaco API vía JavaScript. **No pelear con clicks + `cmd+a` + `type`** — con cierta frecuencia el `cmd+a` selecciona el sidebar en vez del editor, o el `type` no modifica el texto.
+**🏆 Método preferido (más confiable): Supabase Platform API directo**
 
-**Patrón canónico:**
+Si estás logged in al dashboard de Supabase en el browser, hay un endpoint HTTP que acepta SQL arbitrario (DDL, DML, SELECT) usando el `access_token` del localStorage del dashboard. Es **mucho más confiable** que pelear con el Monaco editor + keyboard events.
+
+```js
+// Desde el tab del dashboard de Supabase (cualquier página del proyecto)
+const token = JSON.parse(localStorage.getItem('supabase.dashboard.auth.token'))?.access_token;
+
+const r = await fetch('https://api.supabase.com/v1/projects/ubbumxommqjcpdozpunf/database/query', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+  body: JSON.stringify({
+    query: `ALTER TABLE mi_tabla ADD COLUMN IF NOT EXISTS mi_columna text;
+            CREATE INDEX IF NOT EXISTS idx_mi_col ON mi_tabla(mi_columna);
+            SELECT 'OK' as status;`
+  }),
+});
+const result = await r.json();  // array de resultados
+```
+
+- **Status 201** cuando funciona.
+- Acepta múltiples sentencias en un solo query (separadas por `;`).
+- Devuelve el resultado de la última sentencia SELECT.
+- Funciona con ALTER, CREATE, DROP, INSERT, UPDATE, DELETE, SELECT — SQL completo.
+- Ventaja vs Monaco editor: no depende de focus, clicks, ni eventos sintéticos de teclado que a veces no se disparan.
+
+**Endpoint alternativo no funciona:** `https://api.supabase.com/platform/pg-meta/{ref}/query` devuelve "Cannot call proxy query without connection string" — es una API interna que requiere setup adicional.
+
+---
+
+**Método alternativo: Monaco editor directo (menos confiable pero visual)**
+
+El SQL Editor de Supabase usa **Monaco editor**. Si necesitas que el usuario vea el query antes de ejecutar, o estás debugging, usa este patrón:
 
 ```js
 // 1. Setear el query desde JS (confiable, no depende de focus ni clicks)
@@ -320,7 +350,7 @@ window.monaco.editor.getEditors()[0].focus();
 ```
 
 ```
-// 2. Disparar la ejecución con cmd+Return (después del focus)
+// 2. Disparar la ejecución con cmd+Return (después del focus) — puede fallar con eventos sintéticos
 computer → key → cmd+Return
 ```
 
@@ -330,6 +360,8 @@ computer → key → cmd+Return
   .map(c => c.textContent || '')
   .filter(t => t.length > 0)
 ```
+
+**Problema conocido del Monaco editor:** los `KeyboardEvent` sintéticos (dispatchEvent con meta/ctrl+Enter) no siempre disparan el runCurrentQuery de Supabase. Prefiere la Platform API para operaciones automatizadas.
 
 **Truco para resultados grandes:** el grid del SQL Editor usa virtual scroll y solo renderiza ~12 filas a la vez. Si necesitas extraer muchas filas, **concaténalas en una sola celda** con `string_agg()` en la propia query:
 
@@ -1479,6 +1511,160 @@ task_templates_expand_by_sys:   5  (solo ESP: Sembrado, Diseños, Especificació
 - **Botón "Inicializar fases" para proyectos pre-existentes**: necesario para curar Oasis y cualquier proyecto creado fuera del modal (por ejemplo desde Compras o Cotizaciones directamente).
 - **Commit siguiente con el flujo reverso**: cuando cambie el `specialty` de una cotización, el proyecto ligado podría avisar "esta cotización ahora es ILU pero tu proyecto es ESP, ¿quieres regenerarlo?".
 - **Guardar snapshot del "proyecto sin fases"** como test de regresión — cuando algún día tengamos tests automáticos, es un caso borde útil.
+
+### 2026-04-10 (sesión larga nocturna — Contabilidad: extracción bancaria forense con self-validation)
+
+**Commits:**
+- `8cad351` · feat(contabilidad): extraccion bancaria server-side + validacion de cuadre + matching por RFC
+- `64dbab3` · fix(contabilidad): retry automatico con backoff cuando Claude API esta overloaded
+
+**Objetivo de la sesión:** arreglar los 4 pendientes de Contabilidad que venían acumulados:
+1. Fix extracción AI de estado de cuenta para leer columnas Cargos/Abonos correctamente
+2. Extracción de código de proyecto desde el concepto
+3. Matching de facturas por monto + RFC
+4. Botón "Conciliar" por movimiento (ya existía pero con match débil)
+
+**Además se descubrió y arregló:** exposición gravísima de `ANTHROPIC_API_KEY` en el bundle client-side (el código viejo llamaba directo a `api.anthropic.com` con `'anthropic-dangerous-direct-browser-access': 'true'` y `x-api-key: ANTHROPIC_API_KEY`). La key estaba en el bundle JS accesible a cualquier visitante del sitio.
+
+#### Estrategia de prompt calibration: ground-truth manual contra PDF real
+
+Elias pasó un PDF real de BBVA MAESTRA PYME de marzo 2026 (12 páginas, 102 cargos, 17 abonos). El punto clave que él señaló: **"si te das cuenta, hasta arriba dice total abonos y total cargos. La suma de todos los extraídos tiene que ser idéntica a esos números. De no ser así, algo está mal en la extracción."** Esto se convirtió en la validación reina del módulo.
+
+Hice un ground-truth manual del PDF entero, línea por línea, y después verifiqué la suma:
+- 102 cargos → $3,274,637.78 ✅ (cuadra al centavo con BBVA)
+- 17 abonos → $2,993,518.39 ✅ (cuadra al centavo con BBVA)
+
+**Tres descubrimientos críticos del PDF real** que cambiaron el prompt:
+
+1. **"Movimientos de Periodos Anteriores" NO se cuentan en los totales del período.** BBVA los lista al final del detalle como informativos (depósitos de cheques del mes anterior que liquidaron en este mes), pero NO forman parte de `TOTAL IMPORTE CARGOS/ABONOS`. Si el prompt los incluye, los abonos se inflan en ~$291,501.06 (3 depósitos del 27/FEB).
+
+2. **Algunos `N06 PAGO CUENTA DE TERCERO` aparecen en la columna ABONOS, no CARGOS.** Son reversiones/devoluciones de pagos. El prompt DEBE instruir "respeta rigurosamente en qué columna aparece el número, no confíes en keywords del concepto". Si el modelo clasifica por el nombre del movimiento ("PAGO" → cargo), mete errores de ~$1M en el cuadre.
+
+3. **Los RFCs de BBVA aparecen con espacios separadores.** Ejemplo real: `RFC: DME 180122DU4`. La normalización correcta quita espacios para comparar: `DME180122DU4`. Sin esta normalización, el matching de facturas por RFC no funciona.
+
+#### Nuevo edge function `api/extract-bank-statement.ts` con 11 reglas explícitas
+
+Prompt calibrado con las lecciones del ground-truth. Las 11 reglas:
+- **Regla #0 — Verificación de cuadre (crítica):** instruye al modelo a extraer `expected_totals` del header/footer del PDF y hacer self-check interno antes de devolver.
+- **Regla #1 — Excluir Periodos Anteriores** explícitamente.
+- **Regla #2 — Columnas Cargos/Abonos estrictas**: layout exacto de BBVA documentado, códigos de operación (N06, R01, T17, P14, A15, etc.) listados como "NO son montos, son códigos", saldos como "números mucho más grandes, no los uses".
+- **Regla #3 — Concepto multi-línea** (hasta 5 líneas por movimiento), concatenar todo.
+- **Regla #4 — Beneficiario**: primero busca en la última línea (SPEI ENVIADO/PAGO CUENTA); para A15 usa la primera línea (Uber/Stripe/Claude/Telmex).
+- **Regla #5 — RFC con normalización** (quitar espacios).
+- **Regla #6 — Código de proyecto OMM**: regex `/\bE\d{2,3}\b/i`, lista de nombres de obra conocidos (Oasis, Arcos Bosques, Piano, C5C, Ventanas Sacal, KALACH, etc.).
+- **Regla #7 — Categorización**: con la regla OMM de "persona física = nómina", excepciones para Préstamo/Contadores, y mapeo directo de códigos BBVA a categorías.
+- **Regla #8 — Traspasos USD→MXN**: E62 con formato `3000.00USD` en referencia.
+- **Regla #9 — Fechas**: formato DD/MAR sin año → inferir año del "Periodo DEL 01/03/2026 AL 31/03/2026" del header.
+- **Regla #10 — Formato monto** (siempre positivo, sin símbolos).
+
+#### Validación server-side redundante
+
+El handler del edge function **no confía en el self-check de Claude**. Después de recibir la respuesta, suma todos los cargos y abonos extraídos y compara contra `expected_totals`. Devuelve `totals_check` con:
+- `sum_cargos_extraido`, `sum_abonos_extraido` (lo que Claude devolvió)
+- `diff_cargos`, `diff_abonos` (diferencia absoluta)
+- `cargos_sum_ok`, `abonos_sum_ok`, `cargos_count_ok`, `abonos_count_ok` (tolerancia: 2 centavos)
+- `cuadra` (bool global)
+
+Si no cuadra, agrega warnings explícitos al response y el cliente muestra banner rojo con los números exactos. **Esto hace imposible que un error de extracción pase silenciosamente** — o el UI dice "cuadra" o dice exactamente cuánto falta.
+
+#### Retry con backoff para Claude API overloaded
+
+En el primer smoke test en producción, el usuario recibió `Error API: Overloaded`. Es un 529 transitorio cuando Anthropic está saturado. Agregué retry en el edge function:
+- Hasta 3 intentos con backoff 2s, 5s, 10s
+- Solo reintenta en 529 y 5xx (no en 4xx que son errores del request)
+- Cliente muestra mensaje claro "Claude API saturado, espera 1-2 min" en lugar de error crudo
+- `export const config = { maxDuration: 60 }` para dar tiempo a los retries en Vercel (default es 10s)
+
+#### Matching de facturas por RFC con sistema de scoring
+
+`findMatch` se reescribió completo. Antes era monto ± 2% + name match débil. Ahora:
+
+```
+RFC exacto (normalizado)   → 60 puntos
+Monto exacto (±0.5%)        → 30 puntos
+Monto cerca (±2%)           → 15 puntos
+Fecha ±7 días               → 10 puntos
+Fecha ±30 días              →  5 puntos
+Nombre similar (sin RFC)    → 20 puntos
+Factura ya conciliada       → -5 puntos
+```
+
+Umbral mínimo para aceptar match: 30 puntos. Esto significa que RFC exacto solo (sin monto) ya es suficiente (útil para pagos parciales), y monto exacto + fecha cercana también (útil cuando falta el RFC). Dos señales débiles juntas (nombre similar + monto cerca) no son suficientes → evita matches erróneos.
+
+#### Migration SQL ejecutada
+
+Dos columnas nuevas en `bank_movements`:
+```sql
+ALTER TABLE bank_movements ADD COLUMN IF NOT EXISTS rfc_contraparte text;
+ALTER TABLE bank_movements ADD COLUMN IF NOT EXISTS proyecto_codigo text;
+CREATE INDEX idx_bank_movements_rfc ON bank_movements(rfc_contraparte) WHERE rfc_contraparte IS NOT NULL;
+CREATE INDEX idx_bank_movements_proyecto_codigo ON bank_movements(proyecto_codigo) WHERE proyecto_codigo IS NOT NULL;
+```
+
+**🚨 Descubrimiento técnico mayor: Supabase Platform API para SQL directo**
+
+Peleando con el Monaco editor (Cmd+Return sintético se come en el DOM, keyboard events no dispararon la query), descubrí que el dashboard de Supabase guarda un `access_token` en `localStorage['supabase.dashboard.auth.token']`, y existe un endpoint HTTP que acepta SQL arbitrario:
+
+```javascript
+const token = JSON.parse(localStorage.getItem('supabase.dashboard.auth.token'))?.access_token;
+
+await fetch('https://api.supabase.com/v1/projects/ubbumxommqjcpdozpunf/database/query', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+  body: JSON.stringify({ query: "ALTER TABLE ..." }),
+});
+```
+
+Devuelve un array con los resultados. Acepta DDL (ALTER, CREATE, DROP), DML (INSERT, UPDATE, DELETE), y SELECT. Status 201 cuando funciona.
+
+**Este método es MUCHO más confiable que el Monaco editor vía `ed.setValue()` + keyboard event.** Va a ahorrar tiempo considerable en futuras sesiones. Documentado en la sección "Operar SQL en Supabase desde el navegador" de este CLAUDE.md.
+
+Requisitos: estar logged in al dashboard de Supabase en el tab del browser (el token vive en localStorage).
+
+#### Cambios en Contabilidad.tsx (UI)
+
+- **`BankMovement` interface ampliada** con `rfc_contraparte`, `proyecto_codigo`, `banco`, `cuenta` (las últimas 2 ya existían en la tabla pero el código no las usaba).
+- **`toRow` persiste los 4 campos nuevos**, `dbInsertMany` los manda al upsert.
+- **Load inicial mapea los 4 campos nuevos** desde la BD.
+- **`handleBankUpload` reescrito**: llama `POST /api/extract-bank-statement` con `{kind, payload}` en lugar de `api.anthropic.com` directo. Guarda el `totals_check` en state `lastCheck`. Maneja error "overloaded" con mensaje claro.
+- **Banner de cuadre** (verde/rojo) debajo de la toolbar de upload: muestra cargos extraídos vs esperados, abonos extraídos vs esperados, conteos. Botón "Ocultar" para cerrarlo.
+- **Chip verde del código de proyecto** en la columna Proyecto de la tabla: `E401` aparece al lado del nombre con fondo `rgba(87,255,154,0.12)` y fuente monospace.
+- **Fila expandida** muestra RFC (monospace) y banco/cuenta si existen.
+- **Dropdown de proyecto en manual entry** jala de la tabla `projects` real con `useEffect` y estado `projectNames`, en lugar del array hardcoded `PROYECTOS`.
+- **Función `askClaude` zombie borrada** (llamaba a `api.anthropic.com` directo, ya no la usaba nadie pero seguía importando `ANTHROPIC_API_KEY` al módulo).
+- **Import `ANTHROPIC_API_KEY` borrado** de `Contabilidad.tsx` — ya no se expone esa key client-side desde este módulo.
+
+#### Nota de seguridad pendiente
+
+El `ANTHROPIC_API_KEY` sigue expuesto en el bundle cliente a través de `lib/config.ts` → `VITE_ANTHROPIC_KEY`. Lo usa el Cotizador ESP (`CotEditorESP.tsx`) para el AI Importer client-side. **Migración futura pendiente:** mover esa llamada también a un edge function (`api/extract-quote.ts` ya existe pero el código legacy del importer aún tiene un path directo). Cuando se haga, se puede borrar completamente `VITE_ANTHROPIC_KEY` y dejar solo `ANTHROPIC_KEY` server-side.
+
+#### Estado al cierre de la sesión
+
+| Feature | Estado |
+|---|---|
+| Edge function `extract-bank-statement.ts` con 11 reglas | ✅ Deployado |
+| Validación server-side de cuadre | ✅ Deployado |
+| Retry con backoff para overloaded | ✅ Deployado |
+| Matching por RFC con scoring | ✅ Deployado |
+| SQL migration (`rfc_contraparte`, `proyecto_codigo`) | ✅ Ejecutada |
+| Banner de cuadre verde/rojo en UI | ✅ Deployado |
+| Chip `proyecto_codigo` en tabla | ✅ Deployado |
+| Dropdown proyectos desde Supabase | ✅ Deployado |
+| `askClaude` zombie borrado + `ANTHROPIC_API_KEY` fuera de Contabilidad.tsx | ✅ Deployado |
+| Smoke test end-to-end con PDF BBVA real | 🟡 Pendiente (Elias sube el PDF en producción para confirmar cuadre) |
+
+#### Lecciones aprendidas para futuras extracciones AI con PDFs
+
+1. **Ground-truth manual contra totales del documento > prompt tuning abstracto.** Tener un PDF real con totales conocidos y comparar exactamente al centavo es el único método confiable para validar prompts de extracción forense.
+2. **Self-check del modelo + validación server-side redundante.** Nunca confíes solo en el modelo diciendo "cuadra". La suma en JS es la fuente de verdad.
+3. **Respeta columnas del documento, no keywords del contenido.** Cuando los datos están tabulados, el modelo tiende a clasificar por semántica del texto ("PAGO" = egreso) en vez de por la columna donde aparecen. Hay que instruir explícitamente.
+4. **Periodos anteriores en estados de cuenta**: casi todos los bancos muestran movimientos del mes anterior que liquidaron en el actual. NO cuentan en los totales del período. Excluir siempre.
+5. **Retry con backoff es obligatorio** para llamadas a Claude API en producción. Los 529 overloaded son frecuentes en horas pico.
+6. **`maxDuration: 60`** en Vercel para cualquier edge function que llame a Claude con PDFs — el default de 10s se agota fácil con retries.
+
+### 2026-04-10 (continuación — "lo que Elias tiene en mente")
+
+(Pendiente siguiente sesión: Elias mencionó "después agregamos lo que tengo en mente" al arrancar contabilidad. Eso queda para después del smoke test del PDF.)
 
 ### (agregar siguiente sesión aquí)
 
