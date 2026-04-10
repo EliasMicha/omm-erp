@@ -4,6 +4,11 @@
 
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 
+// Permitir hasta 60s de ejecución (default de Vercel es 10s, insuficiente con retries + PDF grande)
+export const config = {
+  maxDuration: 60,
+}
+
 const SYSTEM_PROMPT = `Eres un experto contable mexicano especializado en estados de cuenta de BBVA, Banorte, Santander, HSBC y Banamex. Extraes movimientos con precisión forense — cada centavo debe cuadrar.
 
 ═══════════════════════════════════════════════
@@ -238,23 +243,49 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(400).json({ ok: false, error: 'kind inválido (pdf|text)' })
     }
 
-    const r = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 16000,
-        messages: [{ role: 'user', content }],
-      }),
-    })
+    // Retry con backoff exponencial cuando Anthropic devuelve 529/overloaded o 5xx
+    const sleep = (ms: number) => new Promise<void>(res => setTimeout(res, ms))
+    const MAX_RETRIES = 3
+    let r: Response | null = null
+    let lastErr = ''
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      r = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 16000,
+          messages: [{ role: 'user', content }],
+        }),
+      })
+      if (r.ok) break
+      // 529 = overloaded, 500-504 = server errors → reintentar
+      if (r.status === 529 || (r.status >= 500 && r.status < 600)) {
+        lastErr = await r.text().catch(() => '')
+        if (attempt < MAX_RETRIES) {
+          // Backoff: 2s, 5s, 10s
+          const delay = attempt === 1 ? 2000 : attempt === 2 ? 5000 : 10000
+          await sleep(delay)
+          continue
+        }
+      }
+      // Otros errores (400, 401, etc) no se reintentan
+      break
+    }
 
-    if (!r.ok) {
-      const errText = await r.text()
-      return res.status(r.status).json({ ok: false, error: 'Claude API: ' + errText.substring(0, 500) })
+    if (!r || !r.ok) {
+      const errText = lastErr || (r ? await r.text() : 'no response')
+      const isOverloaded = r?.status === 529 || errText.includes('overloaded')
+      return res.status(r?.status || 500).json({
+        ok: false,
+        error: isOverloaded
+          ? 'Claude API saturado (overloaded). Intenté 3 veces con backoff pero sigue saturado. Vuelve a intentar en 1-2 minutos.'
+          : 'Claude API: ' + errText.substring(0, 500),
+      })
     }
 
     const data = await r.json()

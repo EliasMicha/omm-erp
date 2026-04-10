@@ -949,7 +949,11 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
 
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}))
-        setStatus('Error: ' + (errData.error || response.status))
+        const errMsg = errData.error || String(response.status)
+        const isOverloaded = response.status === 529 || errMsg.toLowerCase().includes('overloaded') || errMsg.toLowerCase().includes('saturado')
+        setStatus(isOverloaded
+          ? '⚠ Claude API saturado. Espera 1-2 min y vuelve a subir el archivo.'
+          : 'Error: ' + errMsg)
         setProcessing(false); return
       }
 
