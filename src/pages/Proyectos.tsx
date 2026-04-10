@@ -410,6 +410,7 @@ function ProjectDetail({ project, employees, onBack }: {
   const [hydrateError, setHydrateError] = useState<string | null>(null)
   const [tab, setTab] = useState<'tareas' | 'documentos'>('tareas')
   const [hasContractedQuote, setHasContractedQuote] = useState(false)
+  const [activePhaseId, setActivePhaseId] = useState<string | null>(null)
 
   async function hydrate() {
     setHydrated(false)
@@ -503,7 +504,13 @@ function ProjectDetail({ project, employees, onBack }: {
 
       {hydrated && (
         <>
-          <PhaseTimeline phases={phases} tasks={tasks} hasContract={hasContractedQuote} />
+          <PhaseTimeline
+            phases={phases}
+            tasks={tasks}
+            hasContract={hasContractedQuote}
+            activePhaseId={activePhaseId}
+            onPhaseClick={setActivePhaseId}
+          />
 
           <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid #222', marginBottom: 16, marginTop: 20 }}>
             {[
@@ -533,6 +540,7 @@ function ProjectDetail({ project, employees, onBack }: {
               subtasks={subtasks}
               employees={employees}
               onChange={hydrate}
+              activePhaseId={activePhaseId}
             />
           )}
 
@@ -544,41 +552,166 @@ function ProjectDetail({ project, employees, onBack }: {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// PHASE TIMELINE
+// PHASE TIMELINE — diseño grande con circulos conectados estilo mock
 // ═══════════════════════════════════════════════════════════════════
 
-function PhaseTimeline({ phases, tasks, hasContract }: { phases: PhaseRow[]; tasks: TaskRow[]; hasContract: boolean }) {
+function PhaseTimeline({ phases, tasks, hasContract, activePhaseId, onPhaseClick }: {
+  phases: PhaseRow[]
+  tasks: TaskRow[]
+  hasContract: boolean
+  activePhaseId: string | null
+  onPhaseClick: (phaseId: string | null) => void
+}) {
   const sorted = [...phases].sort((a, b) => a.order_index - b.order_index)
-  return (
-    <div>
-      <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
-        {sorted.map(p => {
-          const ptasks = tasks.filter(t => t.phase_id === p.id)
-          const prog = calcPhaseProgress(ptasks)
-          const locked = !p.is_unlocked
-          const color = locked ? '#333' : prog >= 100 ? '#57FF9A' : prog > 0 ? '#3B82F6' : '#6B7280'
-          return (
-            <div key={p.id} style={{
-              padding: '6px 12px', borderRadius: 8, fontSize: 11, fontFamily: 'inherit',
-              background: locked ? '#0a0a0a' : color + '15',
-              border: `1px solid ${locked ? '#222' : color + '55'}`,
-              color: locked ? '#444' : color,
-              display: 'flex', alignItems: 'center', gap: 6,
-              opacity: locked ? 0.6 : 1,
-            }}>
-              {locked && <Lock size={10} />}
-              <span style={{ fontWeight: 600 }}>{p.name}</span>
-              {!locked && (
-                <span style={{ fontSize: 9, padding: '1px 5px', background: color + '22', borderRadius: 4 }}>{prog}%</span>
-              )}
-              {p.is_post_sale && !locked && <span style={{ fontSize: 8 }}>●</span>}
-            </div>
-          )
-        })}
+  const preventa = sorted.filter(p => !p.is_post_sale)
+  const postventa = sorted.filter(p => p.is_post_sale)
+
+  function phaseState(p: PhaseRow) {
+    const ptasks = tasks.filter(t => t.phase_id === p.id)
+    const prog = calcPhaseProgress(ptasks)
+    const locked = !p.is_unlocked
+    const state: 'locked' | 'completed' | 'in_progress' | 'pending' =
+      locked ? 'locked' :
+      prog >= 100 ? 'completed' :
+      prog > 0 ? 'in_progress' :
+      'pending'
+    const color =
+      state === 'locked' ? '#333' :
+      state === 'completed' ? '#57FF9A' :
+      state === 'in_progress' ? '#3B82F6' :
+      '#6B7280'
+    return { prog, locked, state, color, tasksCount: ptasks.length }
+  }
+
+  function renderPhaseCircle(p: PhaseRow, idx: number, total: number, isPostventa: boolean) {
+    const { prog, locked, state, color, tasksCount } = phaseState(p)
+    const isActive = activePhaseId === p.id
+    const isLast = idx === total - 1
+    const num = isPostventa ? idx + 1 : p.order_index
+
+    return (
+      <div key={p.id} style={{
+        display: 'flex', flexDirection: 'column', alignItems: 'center',
+        flex: 1, minWidth: 90, position: 'relative',
+      }}>
+        {/* Línea conectora hacia la siguiente fase */}
+        {!isLast && (
+          <div style={{
+            position: 'absolute', top: 23, left: '50%', width: '100%', height: 2,
+            background: state === 'completed' ? '#57FF9A55' : '#2a2a2a',
+            zIndex: 0,
+          }} />
+        )}
+
+        {/* Círculo */}
+        <button
+          onClick={() => !locked && onPhaseClick(isActive ? null : p.id)}
+          disabled={locked}
+          style={{
+            width: 48, height: 48, borderRadius: '50%', position: 'relative', zIndex: 1,
+            background: locked ? '#0a0a0a' : isActive ? color : color + '18',
+            border: `2px solid ${isActive ? color : locked ? '#222' : color + '66'}`,
+            color: isActive && !locked ? '#000' : color,
+            cursor: locked ? 'not-allowed' : 'pointer', fontFamily: 'inherit', fontWeight: 700, fontSize: 15,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0,
+            boxShadow: isActive && !locked ? `0 0 0 4px ${color}22` : 'none',
+            transition: 'all 0.15s',
+          }}
+        >
+          {state === 'locked' ? (
+            <Lock size={16} />
+          ) : state === 'completed' ? (
+            <Check size={18} strokeWidth={3} />
+          ) : (
+            num
+          )}
+        </button>
+
+        {/* Nombre de la fase */}
+        <div style={{
+          fontSize: 11, marginTop: 8, fontWeight: isActive ? 700 : 500,
+          color: locked ? '#444' : isActive ? color : '#bbb',
+          textAlign: 'center', maxWidth: 110, lineHeight: 1.25,
+        }}>
+          {p.name}
+        </div>
+
+        {/* Badge de progreso y tareas */}
+        <div style={{ marginTop: 4, fontSize: 9, color: locked ? '#333' : '#666', textAlign: 'center' }}>
+          {!locked && (
+            <>
+              <span style={{ color, fontWeight: 600 }}>{prog}%</span>
+              <span style={{ margin: '0 4px', color: '#333' }}>·</span>
+              <span>{tasksCount} tarea{tasksCount !== 1 ? 's' : ''}</span>
+            </>
+          )}
+          {locked && <span>Bloqueada</span>}
+        </div>
       </div>
-      {!hasContract && phases.some(p => p.is_post_sale && !p.is_unlocked) && (
-        <div style={{ fontSize: 10, color: '#555', marginBottom: 6, padding: '6px 10px', background: '#0a0a0a', border: '1px solid #222', borderRadius: 6, display: 'inline-block' }}>
-          <Lock size={9} style={{ verticalAlign: 'middle' }} /> Las fases de postventa se activan automáticamente cuando una cotización ligada al proyecto pasa a "contrato"
+    )
+  }
+
+  return (
+    <div style={{
+      background: '#0d0d0d', border: '1px solid #1e1e1e', borderRadius: 12,
+      padding: '20px 24px 18px 24px', marginBottom: 8,
+    }}>
+      {/* Pre-venta */}
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 0, marginBottom: postventa.length > 0 ? 20 : 0 }}>
+        {preventa.map((p, idx) => renderPhaseCircle(p, idx, preventa.length, false))}
+      </div>
+
+      {/* Separador con label */}
+      {postventa.length > 0 && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14,
+          paddingTop: 4,
+        }}>
+          <div style={{ flex: 1, height: 1, background: '#1e1e1e' }} />
+          <div style={{
+            fontSize: 9, color: hasContract ? '#57FF9A' : '#555', fontWeight: 700,
+            letterSpacing: '0.1em', textTransform: 'uppercase',
+            padding: '3px 10px', borderRadius: 10,
+            background: hasContract ? '#57FF9A11' : '#0a0a0a',
+            border: `1px solid ${hasContract ? '#57FF9A44' : '#222'}`,
+          }}>
+            {hasContract ? '● Post-venta activa' : <><Lock size={9} style={{ verticalAlign: 'middle', marginRight: 4 }} />Post-venta bloqueada</>}
+          </div>
+          <div style={{ flex: 1, height: 1, background: '#1e1e1e' }} />
+        </div>
+      )}
+
+      {/* Post-venta */}
+      {postventa.length > 0 && (
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 0 }}>
+          {postventa.map((p, idx) => renderPhaseCircle(p, idx, postventa.length, true))}
+        </div>
+      )}
+
+      {/* Mensaje si hay post-venta bloqueada */}
+      {!hasContract && postventa.length > 0 && (
+        <div style={{
+          fontSize: 10, color: '#666', marginTop: 14, padding: '8px 12px',
+          background: '#0a0a0a', border: '1px dashed #333', borderRadius: 6, textAlign: 'center',
+        }}>
+          Las fases de post-venta se desbloquean automáticamente cuando la cotización ligada al proyecto pasa a estado <strong style={{ color: '#888' }}>"contrato"</strong>
+        </div>
+      )}
+
+      {/* Filtro activo */}
+      {activePhaseId && (
+        <div style={{
+          fontSize: 10, color: '#57FF9A', marginTop: 12, padding: '6px 12px',
+          background: '#57FF9A11', border: '1px solid #57FF9A33', borderRadius: 6,
+          display: 'inline-flex', alignItems: 'center', gap: 8,
+        }}>
+          <span>Filtrando por fase: <strong>{phases.find(p => p.id === activePhaseId)?.name}</strong></span>
+          <button
+            onClick={() => onPhaseClick(null)}
+            style={{ background: 'none', border: 'none', color: '#57FF9A', cursor: 'pointer', padding: 0, display: 'flex' }}
+          >
+            <X size={11} />
+          </button>
         </div>
       )}
     </div>
@@ -589,20 +722,24 @@ function PhaseTimeline({ phases, tasks, hasContract }: { phases: PhaseRow[]; tas
 // TASK TABLE — vista plana agrupada por fase
 // ═══════════════════════════════════════════════════════════════════
 
-function TaskTable({ project, phases, tasks, subtasks, employees, onChange }: {
+function TaskTable({ project, phases, tasks, subtasks, employees, onChange, activePhaseId }: {
   project: ProjectRow
   phases: PhaseRow[]
   tasks: TaskRow[]
   subtasks: SubtaskRow[]
   employees: EmployeeRow[]
   onChange: () => void
+  activePhaseId: string | null
 }) {
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null)
   const [showNewTaskInPhase, setShowNewTaskInPhase] = useState<string | null>(null)
   const [newTask, setNewTask] = useState({ name: '', assignee_id: '', priority: 0, due_date: '' })
   const isESP = project.specialty === 'esp'
 
-  const sortedPhases = [...phases].sort((a, b) => a.order_index - b.order_index)
+  const sortedPhases = useMemo(() => {
+    const s = [...phases].sort((a, b) => a.order_index - b.order_index)
+    return activePhaseId ? s.filter(p => p.id === activePhaseId) : s
+  }, [phases, activePhaseId])
 
   async function toggleSubtask(sub: SubtaskRow) {
     const newCompleted = !sub.completed
