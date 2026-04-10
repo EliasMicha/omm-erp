@@ -1,7 +1,8 @@
-import { useState, useMemo } from 'react'
-import { Badge, ProgressBar, Btn, SectionHeader, EmptyState, Table, Th, Td } from '../components/layout/UI'
-import { X, ChevronRight, ChevronDown, Check, Clock, Lock, Users, Calendar, Settings, ArrowLeft } from 'lucide-react'
+import { useState, useMemo, useEffect } from 'react'
+import { Badge, ProgressBar, Btn, SectionHeader, EmptyState, Table, Th, Td, Loading } from '../components/layout/UI'
+import { X, ChevronRight, ChevronDown, Check, Clock, Lock, Users, Calendar, Settings, ArrowLeft, FileText, Plus, ExternalLink, Trash2 } from 'lucide-react'
 import { formatDate } from '../lib/utils'
+import { supabase } from '../lib/supabase'
 
 // ═══════════════════════════════════════════════════════════════════
 // TYPES (local — no generics to avoid Vite build issues)
@@ -371,6 +372,7 @@ function ProjectDetail({ project, onBack, onUpdate }: {
 }) {
   const [activePhaseId, setActivePhaseId] = useState<EngPhaseId>(getActivePhase(project).id)
   const [assigningDel, setAssigningDel] = useState<string | null>(null)
+  const [tab, setTab] = useState<'fases' | 'documentos'>('fases')
 
   const currentPhase = project.phases.find(p => p.id === activePhaseId)
   const totalProgress = calcProjectProgress(project)
@@ -438,7 +440,28 @@ function ProjectDetail({ project, onBack, onUpdate }: {
 
       <PhaseTimeline phases={project.phases} activePhaseId={activePhaseId} onPhaseClick={setActivePhaseId} project={project} />
 
-      {currentPhase && (
+      {/* Tabs */}
+      <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid #222', marginBottom: 16, marginTop: 16 }}>
+        {([
+          { key: 'fases' as const, label: 'Entregables por fase', icon: Settings },
+          { key: 'documentos' as const, label: 'Documentación técnica', icon: FileText },
+        ]).map(({ key, label, icon: Icon }) => {
+          const active = tab === key
+          return (
+            <button key={key} onClick={() => setTab(key)} style={{
+              padding: '8px 14px', fontSize: 12, fontWeight: active ? 600 : 400,
+              color: active ? '#57FF9A' : '#666',
+              background: active ? 'rgba(87,255,154,0.08)' : 'transparent',
+              border: 'none', borderBottom: active ? '2px solid #57FF9A' : '2px solid transparent',
+              cursor: 'pointer', fontFamily: 'inherit', borderRadius: '8px 8px 0 0',
+            }}>
+              <Icon size={13} style={{ marginRight: 6 }} />{label}
+            </button>
+          )
+        })}
+      </div>
+
+      {tab === 'fases' && currentPhase && (
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
             <div style={{ fontSize: 11, fontWeight: 600, color: '#555', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
@@ -458,6 +481,8 @@ function ProjectDetail({ project, onBack, onUpdate }: {
           ))}
         </div>
       )}
+
+      {tab === 'documentos' && <ProjectDocumentosTab projectId={project.id} projectName={project.name} />}
 
       {assigningDel && (
         <AssignModal onClose={() => setAssigningDel(null)} onSelect={handleAssign} />
@@ -702,6 +727,202 @@ export default function Proyectos() {
           onBack={() => setView('list')}
           onUpdate={handleProjectUpdate}
         />
+      )}
+    </div>
+  )
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   PROJECT DOCUMENTOS TAB — CRUD de obra_documentos ligados al proyecto
+   Los documentos viven como LINKS a Drive (no archivos en Supabase)
+   ═══════════════════════════════════════════════════════════════════ */
+
+interface ProyectoDocDB {
+  id: string
+  project_id: string | null
+  nombre: string
+  tipo: string
+  sistema: string | null
+  drive_url: string
+  drive_thumbnail_url: string | null
+  version: string | null
+  fecha_subida: string
+  notas: string | null
+}
+
+const DOC_TIPO_LABEL: Record<string, string> = {
+  plano: 'Plano',
+  ficha_tecnica: 'Ficha técnica',
+  diagrama: 'Diagrama',
+  render: 'Render',
+  memoria_calculo: 'Memoria de cálculo',
+  manual: 'Manual',
+  otro: 'Otro',
+}
+
+const SISTEMAS_PROYECTO = ['CCTV', 'Audio', 'Redes', 'Control', 'Acceso', 'Electrico', 'Humo', 'BMS', 'Telefonia', 'Celular']
+
+function ProjectDocumentosTab({ projectId, projectName }: { projectId: string; projectName: string }) {
+  const [docs, setDocs] = useState<ProyectoDocDB[]>([])
+  const [loading, setLoading] = useState(true)
+  const [showNew, setShowNew] = useState(false)
+  const [form, setForm] = useState({
+    nombre: '', tipo: 'plano', sistema: '', drive_url: '', drive_thumbnail_url: '', version: '', notas: '',
+  })
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
+
+  useEffect(() => {
+    setLoading(true)
+    supabase.from('obra_documentos').select('*').eq('project_id', projectId).order('fecha_subida', { ascending: false })
+      .then(({ data, error }) => {
+        if (error) console.error('Error cargando documentos:', error)
+        setDocs((data || []) as ProyectoDocDB[])
+        setLoading(false)
+      })
+  }, [projectId])
+
+  async function crear() {
+    if (!form.nombre.trim() || !form.drive_url.trim()) {
+      setSaveError('Nombre y URL de Drive son obligatorios')
+      return
+    }
+    if (!form.drive_url.startsWith('http')) {
+      setSaveError('La URL debe empezar con http o https')
+      return
+    }
+    setSaveError(null)
+    setSaving(true)
+    const payload: any = {
+      project_id: projectId,
+      nombre: form.nombre.trim(),
+      tipo: form.tipo,
+      sistema: form.sistema || null,
+      drive_url: form.drive_url.trim(),
+      drive_thumbnail_url: form.drive_thumbnail_url.trim() || null,
+      version: form.version.trim() || null,
+      notas: form.notas.trim() || null,
+    }
+    const { data, error } = await supabase.from('obra_documentos').insert(payload).select().single()
+    setSaving(false)
+    if (error) {
+      setSaveError('Error al crear: ' + error.message)
+      return
+    }
+    if (data) {
+      setDocs(prev => [data as ProyectoDocDB, ...prev])
+      setForm({ nombre: '', tipo: 'plano', sistema: '', drive_url: '', drive_thumbnail_url: '', version: '', notas: '' })
+      setShowNew(false)
+    }
+  }
+
+  async function eliminar(id: string) {
+    if (!confirm('¿Eliminar este documento? Solo se borra el link en el ERP, el archivo en Drive permanece.')) return
+    const { error } = await supabase.from('obra_documentos').delete().eq('id', id)
+    if (error) {
+      alert('Error al eliminar: ' + error.message)
+      return
+    }
+    setDocs(prev => prev.filter(d => d.id !== id))
+  }
+
+  if (loading) return <Loading />
+
+  const inputS: React.CSSProperties = {
+    width: '100%', padding: '7px 10px', fontSize: 12, background: '#0a0a0a',
+    border: '1px solid #333', borderRadius: 6, color: '#fff', fontFamily: 'inherit',
+  }
+  const labelS: React.CSSProperties = { fontSize: 10, color: '#666', marginBottom: 4 }
+
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 600, color: '#fff' }}>Documentación técnica del proyecto</div>
+          <div style={{ fontSize: 11, color: '#666' }}>Planos, fichas técnicas y diagramas. Los archivos viven en Drive — aquí guardas los links.</div>
+        </div>
+        <Btn size="sm" variant="primary" onClick={() => setShowNew(true)}><Plus size={12} /> Agregar documento</Btn>
+      </div>
+
+      {showNew && (
+        <div style={{ background: '#141414', border: '1px solid #57FF9A33', borderRadius: 10, padding: 16, marginBottom: 16 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: '#fff', marginBottom: 12 }}>Nuevo documento — {projectName}</div>
+          <div style={{ display: 'grid', gap: 10 }}>
+            <div>
+              <div style={labelS}>Nombre *</div>
+              <input value={form.nombre} onChange={e => setForm(f => ({ ...f, nombre: e.target.value }))} placeholder="Ej: Plano CCTV Planta Baja Rev 3" style={inputS} />
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+              <div>
+                <div style={labelS}>Tipo</div>
+                <select value={form.tipo} onChange={e => setForm(f => ({ ...f, tipo: e.target.value }))} style={inputS}>
+                  {Object.entries(DOC_TIPO_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                </select>
+              </div>
+              <div>
+                <div style={labelS}>Sistema</div>
+                <select value={form.sistema} onChange={e => setForm(f => ({ ...f, sistema: e.target.value }))} style={inputS}>
+                  <option value="">— Sin sistema —</option>
+                  {SISTEMAS_PROYECTO.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+              <div>
+                <div style={labelS}>Versión / Rev</div>
+                <input value={form.version} onChange={e => setForm(f => ({ ...f, version: e.target.value }))} placeholder="Rev 3" style={inputS} />
+              </div>
+            </div>
+            <div>
+              <div style={labelS}>URL de Drive *</div>
+              <input value={form.drive_url} onChange={e => setForm(f => ({ ...f, drive_url: e.target.value }))} placeholder="https://drive.google.com/file/d/..." style={inputS} />
+            </div>
+            <div>
+              <div style={labelS}>URL de thumbnail (opcional)</div>
+              <input value={form.drive_thumbnail_url} onChange={e => setForm(f => ({ ...f, drive_thumbnail_url: e.target.value }))} placeholder="URL de la imagen preview" style={inputS} />
+            </div>
+            <div>
+              <div style={labelS}>Notas (opcional)</div>
+              <textarea value={form.notas} onChange={e => setForm(f => ({ ...f, notas: e.target.value }))} rows={2} style={{ ...inputS, resize: 'vertical' }} />
+            </div>
+          </div>
+          {saveError && (
+            <div style={{ marginTop: 10, padding: '8px 12px', background: '#2a1414', border: '1px solid #5a2828', borderRadius: 6, color: '#f87171', fontSize: 11 }}>⚠ {saveError}</div>
+          )}
+          <div style={{ display: 'flex', gap: 8, marginTop: 12, justifyContent: 'flex-end' }}>
+            <Btn size="sm" variant="default" onClick={() => { setShowNew(false); setSaveError(null) }}>Cancelar</Btn>
+            <Btn size="sm" variant="primary" onClick={crear} disabled={saving}>{saving ? 'Guardando...' : 'Agregar'}</Btn>
+          </div>
+        </div>
+      )}
+
+      {docs.length === 0 ? (
+        <EmptyState message="No hay documentos técnicos registrados. Click en 'Agregar documento' para vincular un link de Drive." />
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12 }}>
+          {docs.map(d => (
+            <div key={d.id} style={{
+              background: '#141414', border: '1px solid #222', borderRadius: 10, padding: 14, position: 'relative',
+            }}>
+              <button onClick={() => eliminar(d.id)} style={{
+                position: 'absolute', top: 8, right: 8, background: 'none', border: 'none', color: '#555', cursor: 'pointer', padding: 4,
+              }} title="Eliminar link"><Trash2 size={12} /></button>
+              {d.drive_thumbnail_url && (
+                <img src={d.drive_thumbnail_url} alt={d.nombre} style={{ width: '100%', height: 110, objectFit: 'cover', borderRadius: 6, marginBottom: 8 }} />
+              )}
+              <div style={{ display: 'flex', gap: 6, marginBottom: 4, flexWrap: 'wrap' }}>
+                <Badge label={DOC_TIPO_LABEL[d.tipo] || d.tipo} color="#3B82F6" />
+                {d.sistema && <Badge label={d.sistema} color="#8B5CF6" />}
+                {d.version && <Badge label={d.version} color="#555" />}
+              </div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 4, paddingRight: 20 }}>{d.nombre}</div>
+              {d.notas && <div style={{ fontSize: 10, color: '#666', marginBottom: 6 }}>{d.notas}</div>}
+              <a href={d.drive_url} target="_blank" rel="noopener noreferrer" style={{
+                display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, color: '#57FF9A', textDecoration: 'none',
+              }}>
+                <ExternalLink size={10} /> Abrir en Drive
+              </a>
+            </div>
+          ))}
+        </div>
       )}
     </div>
   )

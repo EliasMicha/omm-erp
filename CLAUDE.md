@@ -1001,6 +1001,107 @@ Refactor de la página `Obra.tsx` para que use las tablas reales en vez de `MOCK
 - CRUD de Documentación en `Proyectos.tsx`
 - Sidebar/Layout: badge de alertas transversales
 
+#### Commit 2 del refactor — Subtablas persistentes + sub-tabs nuevos
+
+`577ec75` · feat(obras): subtablas persistentes + sub-tabs nuevos · `src/pages/Obra.tsx`, `api/process-obra-report.ts` (nuevo)
+
+Refactor completo de `ObraDetail` y todos los `Sub*` para que persistan a Supabase, más 3 sub-tabs nuevos (Bloqueos, Extras, Documentación) y el Edge Function de procesamiento de reportes con AI.
+
+**`ObraDetail` hidratación:**
+- `useEffect` con `Promise.all` que carga al abrir cualquier obra: `obra_actividades`, `obra_reportes`, `obra_entrega_docs`, `obra_instaladores` (pivote)
+- Los datos reemplazan las props en memoria vía `updateObra`, así los Sub* existentes siguen funcionando sin cambios en su código de lectura
+- Banner `syncError` si la hidratación falla
+- Estado `hydrated` con `Loading` mientras carga
+
+**`SubActividades` — persistencia completa:**
+- `addActividad` hace `INSERT` a `obra_actividades` con `origen='manual'` y usa el `id` devuelto por la BD (no `'a' + Date.now()` como antes)
+- `updateActividad` hace `UPDATE` con optimistic update, mapea los campos del frontend a las columnas reales (`laborCost→installation_cost`, etc.). También actualiza `obras.avance_global` en cascada.
+- El bulk del autogenerar-con-AI pasa por `insert(payloads).select()` con `origen='cotizacion'`, recibe los IDs reales y los mapea
+
+**`SubReportes` — fotos en Storage + procesamiento AI real:**
+- Las fotos **ya no son base64**. `handlePhotoUpload` sube cada archivo al bucket `obra-evidencias` con path `{obra_id}/{timestamp}-{random}.{ext}` y guarda las URLs públicas en el state
+- `submitReporte` hace dos pasos: (1) inserta el reporte con `procesado=false` en `obra_reportes`, (2) llama al Edge Function `/api/process-obra-report` que procesa con Claude y actualiza el mismo reporte con los campos `ai_*`
+- Si el Edge Function falla, el reporte queda con `procesamiento_error` + `procesado=false` — el coordinador puede reintentar manualmente después
+- Eliminada la llamada directa a `api.anthropic.com` que había antes (eso era un anti-patrón: exponía la API key del cliente)
+
+**`SubEntrega` — checklist persistente:**
+- `toggleDoc` hace upsert por `(obra_id, nombre)`: busca si existe el doc en `obra_entrega_docs`, si sí lo actualiza, si no lo inserta con `order_index=idx`
+- Al marcar todos + click en "Iniciar ejecución", actualiza `obras.status='en_ejecucion'`
+
+**`SubEquipo` — asignación persistente:**
+- `addInstalador` inserta a `obra_instaladores` (pivote M:N)
+- `removeInstalador` hace `DELETE` con filtros `obra_id + employee_id`
+
+**Nuevo `SubBloqueos`:**
+- Sub-componente completo con CRUD de `obra_bloqueos`
+- Carga inicial con `useEffect`
+- Modal nuevo para crear bloqueo con: tipo (falta_material/falta_acceso/cliente/diseno/clima/otro), severidad (baja/media/alta/critica), descripción, asignación a empleado
+- Cada bloqueo abierto muestra severidad con color, fecha, toggle "Residente notificado", botón "Resolver" con prompt de notas
+- Sección aparte de resueltos con opacidad reducida
+
+**Nuevo `SubExtras` — la bandeja del coordinador:**
+- Lista todos los `obra_extras` de la obra, separados en "Pendientes" y "Revisados"
+- Cada extra muestra: checkbox de selección, tipo (actividad/material/cambio_scope), sistema, cantidad/unidad, descripción, el `texto_original` del reporte que lo detectó, precio estimado si hay, badge de confianza de match si es > 0.8
+- **Alerta de escalación visual:** extras con `detectado_at` > 7 días aparecen con borde `#C026D3` (crítico) y badge `⚠ Xd` — consistente con la regla de negocio documentada
+- Acciones por extra: "Aprobar interno", "Rechazar"
+- Acción agregada sobre seleccionados: **"Generar cotización adendum"** — botón que solo aparece cuando hay items seleccionados. Al hacer click:
+  1. Crea un `quotations` nuevo con `tipo_cotizacion='adendum'`, `parent_obra_id=obra.id`, `specialty='esp'`, `stage='oportunidad'`, `name='Adendum: ...'`
+  2. Crea una `quotation_areas` llamada "Extras detectados"
+  3. Por cada extra seleccionado, inserta un `quotation_items` con precio + descripción + sistema. Tipo `labor` para actividades, `material` para lo demás.
+  4. Actualiza cada `obra_extras` con `status='cotizado'`, `cotizacion_adendum_id`, `quotation_item_id`
+  5. Actualiza el `total` de la cotización
+  6. Muestra alert de confirmación y limpia selección
+
+**Nuevo `SubDocumentacion`:**
+- Vista solo lectura de `obra_documentos`
+- Lógica de resolución: primero consulta `obra.cotizacion_id → quotations.project_id` para obtener el proyecto ligado, luego hace dos queries en `Promise.all`: `obra_documentos WHERE project_id = X` + `obra_documentos WHERE obra_id = obra.id`, y deduplica por id
+- Filtros por tipo (plano/ficha técnica/diagrama/render/memoria cálculo/manual) y por sistema
+- Cards con thumbnail opcional + badges + link que abre Drive en pestaña nueva
+- Mensaje explícito "Para agregar documentos, ve al módulo de Proyectos" porque la gestión es allí
+
+**Nuevo Edge Function `api/process-obra-report.ts`:**
+- Recibe `{reporte_id, obra_id, obra_nombre, obra_sistemas, texto, fotos}`
+- Llama a Claude con un system prompt específico que distingue 4 categorías de información: avances, faltantes, bloqueos, y **extras** (la categoría clave de negocio)
+- El prompt tiene reglas explícitas para la detección de extras: palabras clave ("el residente pidió", "adicional", etc.), distinción entre faltante (error de cálculo) vs extra (scope creep), cómo clasificar tipo (actividad/material/cambio_scope)
+- Persistencia automática:
+  1. Actualiza el `obra_reportes` con `ai_resumen`, `ai_avances`, `ai_faltantes`, `ai_bloqueos`, `procesado=true`
+  2. Por cada extra detectado, inserta a `obra_extras` con `status='pendiente_revision'`, `detectado_por='ai'`, respetando `match_confianza`
+  3. Por cada bloqueo detectado, inserta a `obra_bloqueos` con `tipo='otro'` y `severidad='media'` (el coordinador ajusta después)
+- Manejo de errores: si Claude falla, escribe `procesamiento_error` en el reporte
+- Usa `VITE_SUPABASE_URL` + `VITE_SUPABASE_ANON_KEY` del server-side env. Las policies RLS del ERP están abiertas con anon, así que funciona.
+- Nota: en esta versión v1, las fotos NO se envían a Claude (aunque el parámetro las recibe). Se envía solo el texto. Para análisis visual de fotos, v2 debe fetchearlas desde Storage, convertirlas a base64, y mandarlas como content blocks de imagen.
+
+#### Commit 3 del refactor — CRUD de Documentación en Proyectos
+
+`(pendiente commit)` · feat(proyectos): tab Documentación técnica con CRUD de obra_documentos · `src/pages/Proyectos.tsx`
+
+- `ProjectDetail` ahora tiene dos tabs: "Entregables por fase" (el existente) y "Documentación técnica" (nuevo)
+- Componente nuevo `ProjectDocumentosTab` con CRUD completo:
+  - Carga documentos con `project_id = project.id` (el ID del mock funciona consistente entre sesiones)
+  - Modal para agregar documento nuevo con: nombre, tipo, sistema, URL de Drive, URL de thumbnail opcional, versión, notas
+  - Validación: nombre y URL obligatorios, URL debe empezar con http
+  - Grid de cards con thumbnail + badges + link que abre Drive en pestaña nueva
+  - Botón de eliminar por card (solo borra el link en el ERP, el archivo en Drive permanece)
+- El flujo operativo queda completo: ingeniero sube doc a Drive → entra a Proyectos → tab Documentación → pega link → guarda. Luego en cada obra ligada al proyecto, el tab Documentación del lado de Obras muestra los docs automáticamente solo lectura.
+
+**Deuda técnica relacionada pendiente:** `Proyectos.tsx` sigue usando `INITIAL_PROJECTS` mock como fuente de proyectos. Los documentos técnicos ya son reales (persisten en Supabase), pero el proyecto padre sigue en memoria. Cuando se haga la migración de `Proyectos.tsx` a Supabase, los documentos seguirán funcionando porque los `project_id` son strings consistentes — solo hay que mantener esos IDs al crear la tabla `projects` real (probablemente insertando los mismos IDs del mock como fila inicial).
+
+#### Lo que NO se hizo en esta sesión (queda pendiente)
+
+- **Sidebar con badge de alertas transversales**: requiere tocar el layout global. Opté por no hacerlo para cerrar limpio. Es ~50 líneas más + query agregada que cuenta `obra_extras WHERE status='pendiente_revision'` y `obra_bloqueos WHERE status='abierto' AND severidad IN ('alta','critica')` en todas las obras.
+- **Variables de entorno en Vercel**: hay que verificar que `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` y `ANTHROPIC_KEY` estén configuradas en el server-side de Vercel para que el Edge Function `/api/process-obra-report` funcione. Si no, los reportes se guardan pero el procesamiento AI falla silenciosamente.
+- **Smoke test de generación de adendum**: la lógica está, pero no se ha probado end-to-end con una obra real y extras reales. La primera vez que Elias lo use, probablemente haya que ajustar detalles del mapeo quotation_items.
+- **Migración de Proyectos.tsx a Supabase**: mencionado arriba. Los documentos técnicos ya usan Supabase pero los proyectos padre siguen mock.
+- **Análisis visual de fotos en el Edge Function**: v1 solo manda texto del reporte a Claude. Las fotos se suben a Storage pero no se analizan. Para v2: fetchear las URLs, convertir a base64, mandar como content blocks de imagen.
+
+#### Notas operativas para arrancar a usar el módulo
+
+1. **Dar de alta empleados primero.** Antes de crear obras, ve al módulo Obras → tab "Equipo de instalación" → "Nuevo instalador". El modal guarda a `employees` con `role='instalador'`. Para coordinadores, hay que dar de alta directo en Supabase por ahora (hasta que haya una pantalla de RH), con `role='coordinador'` o `role='dg'`.
+2. **El dropdown de coordinador en "Nueva obra"** jala todos los employees con role `coordinador` o `dg` que estén `is_active`.
+3. **Los reportes se procesan con AI automáticamente** al guardarlos, siempre que Vercel tenga `ANTHROPIC_KEY` configurada.
+4. **La bandeja de extras solo se llena desde el AI** en esta v1. Si quieres agregar extras manualmente (sin un reporte que los dispare), hay que hacerlo directo en Supabase por ahora. Flag para Commit siguiente: botón "Agregar extra manual" en SubExtras.
+5. **Generación de adendum** crea una cotización nueva que vas a ver en el módulo Cotizaciones con el badge `tipo_cotizacion='adendum'`. Puedes abrirla desde Cotizaciones y ajustar precios como cualquier otra.
+
 ### (agregar siguiente sesión aquí)
 
 ---
