@@ -64,6 +64,7 @@ interface SubtaskRow {
   text: string
   completed: boolean
   order_index: number
+  system: string | null
 }
 
 interface EmployeeRow {
@@ -844,23 +845,92 @@ function TaskTable({ project, phases, tasks, subtasks, employees, onChange }: {
                         </div>
                       </div>
 
-                      <div style={{ fontSize: 10, color: '#666', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Subtareas / Checklist</div>
-                      {taskSubs.map(sub => (
-                        <div key={sub.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0' }}>
-                          <button onClick={() => toggleSubtask(sub)} style={{
-                            background: sub.completed ? '#57FF9A' : 'transparent', border: '1.5px solid ' + (sub.completed ? '#57FF9A' : '#444'),
-                            borderRadius: 3, width: 14, height: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0,
-                          }}>
-                            {sub.completed && <Check size={9} color="#000" strokeWidth={3} />}
-                          </button>
-                          <span style={{ fontSize: 11, color: sub.completed ? '#555' : '#bbb', textDecoration: sub.completed ? 'line-through' : 'none', flex: 1 }}>
-                            {sub.text}
-                          </span>
-                          <button onClick={() => deleteSubtask(sub.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, color: '#444' }}>
-                            <X size={10} />
-                          </button>
-                        </div>
-                      ))}
+                      {(() => {
+                        // Agrupa subtareas por sistema si tienen system seteado (caso ESP con expand_by_system)
+                        const subsWithSystem = taskSubs.filter(s => s.system)
+                        const subsFlat = taskSubs.filter(s => !s.system)
+                        const systemGroups = subsWithSystem.reduce<Record<string, SubtaskRow[]>>((acc, s) => {
+                          const sys = s.system || 'Sin sistema'
+                          if (!acc[sys]) acc[sys] = []
+                          acc[sys].push(s)
+                          return acc
+                        }, {})
+                        const systemNames = Object.keys(systemGroups).sort()
+
+                        return (
+                          <>
+                            {/* Checklist plano (sin sistema) */}
+                            {subsFlat.length > 0 && (
+                              <>
+                                <div style={{ fontSize: 10, color: '#666', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Subtareas / Checklist</div>
+                                {subsFlat.map(sub => (
+                                  <div key={sub.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0' }}>
+                                    <button onClick={() => toggleSubtask(sub)} style={{
+                                      background: sub.completed ? '#57FF9A' : 'transparent', border: '1.5px solid ' + (sub.completed ? '#57FF9A' : '#444'),
+                                      borderRadius: 3, width: 14, height: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0,
+                                    }}>
+                                      {sub.completed && <Check size={9} color="#000" strokeWidth={3} />}
+                                    </button>
+                                    <span style={{ fontSize: 11, color: sub.completed ? '#555' : '#bbb', textDecoration: sub.completed ? 'line-through' : 'none', flex: 1 }}>
+                                      {sub.text}
+                                    </span>
+                                    <button onClick={() => deleteSubtask(sub.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, color: '#444' }}>
+                                      <X size={10} />
+                                    </button>
+                                  </div>
+                                ))}
+                              </>
+                            )}
+
+                            {/* Subtareas agrupadas por sistema (caso ESP) */}
+                            {systemNames.length > 0 && (
+                              <>
+                                <div style={{ fontSize: 10, color: '#666', marginBottom: 6, marginTop: subsFlat.length > 0 ? 12 : 0, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                  Por sistema ({systemNames.length})
+                                </div>
+                                {systemNames.map(sys => {
+                                  const sysColor = SYSTEM_COLORS[sys] || '#888'
+                                  const sysSubs = systemGroups[sys]
+                                  const done = sysSubs.filter(s => s.completed).length
+                                  return (
+                                    <div key={sys} style={{ marginBottom: 8, border: `1px solid ${sysColor}33`, borderRadius: 6, overflow: 'hidden' }}>
+                                      <div style={{
+                                        padding: '5px 10px', fontSize: 10, fontWeight: 700, color: sysColor,
+                                        background: sysColor + '15', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                                      }}>
+                                        <span>{sys}</span>
+                                        <span style={{ fontSize: 9, opacity: 0.7 }}>{done}/{sysSubs.length}</span>
+                                      </div>
+                                      <div style={{ padding: '6px 10px', background: '#0a0a0a' }}>
+                                        {sysSubs.map(sub => (
+                                          <div key={sub.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '3px 0' }}>
+                                            <button onClick={() => toggleSubtask(sub)} style={{
+                                              background: sub.completed ? sysColor : 'transparent', border: '1.5px solid ' + (sub.completed ? sysColor : '#444'),
+                                              borderRadius: 3, width: 13, height: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0,
+                                            }}>
+                                              {sub.completed && <Check size={8} color="#000" strokeWidth={3} />}
+                                            </button>
+                                            <span style={{ fontSize: 11, color: sub.completed ? '#555' : '#bbb', textDecoration: sub.completed ? 'line-through' : 'none', flex: 1 }}>
+                                              {sub.text}
+                                            </span>
+                                            <button onClick={() => deleteSubtask(sub.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, color: '#444' }}>
+                                              <X size={9} />
+                                            </button>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )
+                                })}
+                              </>
+                            )}
+
+                            {taskSubs.length === 0 && (
+                              <div style={{ fontSize: 10, color: '#555', padding: '4px 0' }}>Sin subtareas. Agrega una abajo.</div>
+                            )}
+                          </>
+                        )
+                      })()}
                       <input
                         placeholder="+ Agregar subtarea (Enter)"
                         onKeyDown={e => {
@@ -887,50 +957,217 @@ function TaskTable({ project, phases, tasks, subtasks, employees, onChange }: {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// NEW PROJECT MODAL
+// NEW PROJECT MODAL — flujo Lead → Cotización → Especialidad
 // ═══════════════════════════════════════════════════════════════════
+
+interface LeadRow {
+  id: string
+  name: string
+  company: string | null
+  contact_name: string | null
+  status: string
+}
+
+interface QuotationRow {
+  id: string
+  name: string
+  specialty: Specialty
+  stage: string
+  project_id: string | null
+  notes: string | null
+  client_name: string | null
+  total: number
+}
+
+interface QuotationItemRow {
+  id: string
+  quotation_id: string
+  system: string | null
+  name: string
+}
+
+interface PhaseTemplateFull {
+  id: string
+  specialty: string
+  name: string
+  order_index: number
+  is_post_sale: boolean
+}
+
+interface TaskTemplateFull {
+  id: string
+  specialty: string
+  name: string
+  start_phase_order: number
+  end_phase_order: number
+  expands_by_system: boolean
+  default_subtasks: string[]
+  order_index: number
+}
+
+function parseLeadIdFromNotes(notes: string | null): string | null {
+  if (!notes) return null
+  try {
+    const parsed = JSON.parse(notes)
+    return parsed.lead_id || null
+  } catch {
+    return null
+  }
+}
 
 function NewProjectModal({ employees, onClose, onCreated }: {
   employees: EmployeeRow[]; onClose: () => void; onCreated: () => void
 }) {
-  const [form, setForm] = useState({
-    name: '', client_name: '', specialty: 'esp' as Specialty, area_lead_id: '', cotizacion_id: '',
-  })
-  const [cotizaciones, setCotizaciones] = useState<Array<{ id: string; name: string }>>([])
+  // Data
+  const [leads, setLeads] = useState<LeadRow[]>([])
+  const [allQuotations, setAllQuotations] = useState<QuotationRow[]>([])
+  const [allQuotationItems, setAllQuotationItems] = useState<QuotationItemRow[]>([])
+  const [loadingData, setLoadingData] = useState(true)
+
+  // Form state
+  const [selectedLeadId, setSelectedLeadId] = useState<string>('')
+  const [selectedQuotationId, setSelectedQuotationId] = useState<string>('')
+  const [specialty, setSpecialty] = useState<Specialty>('esp')
+  const [projectName, setProjectName] = useState<string>('')
+  const [areaLead, setAreaLead] = useState<string>('')
+
+  // Status
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // Carga inicial de leads, cotizaciones, y items
   useEffect(() => {
-    supabase.from('quotations').select('id,name').eq('specialty', form.specialty).order('created_at', { ascending: false })
-      .then(({ data }) => setCotizaciones(data || []))
-  }, [form.specialty])
+    let cancelled = false
+    async function loadAll() {
+      setLoadingData(true)
+      try {
+        const [leadRes, quoteRes] = await Promise.all([
+          supabase.from('leads').select('id,name,company,contact_name,status')
+            .not('status', 'in', '("perdido","ganado")')
+            .order('updated_at', { ascending: false }),
+          supabase.from('quotations').select('id,name,specialty,stage,project_id,notes,client_name,total')
+            .order('created_at', { ascending: false }),
+        ])
+        if (cancelled) return
+        if (leadRes.error) throw new Error('leads: ' + leadRes.error.message)
+        if (quoteRes.error) throw new Error('quotations: ' + quoteRes.error.message)
+
+        const quoteList = (quoteRes.data || []) as QuotationRow[]
+        // Filtrar cotizaciones vacías (sin name)
+        const validQuotes = quoteList.filter(q => q.name && q.name.trim() !== '')
+        setAllQuotations(validQuotes)
+        setLeads((leadRes.data || []) as LeadRow[])
+
+        // Cargar items de las cotizaciones válidas
+        if (validQuotes.length > 0) {
+          const quoteIds = validQuotes.map(q => q.id)
+          const { data: itemsData, error: itemsErr } = await supabase
+            .from('quotation_items')
+            .select('id,quotation_id,system,name')
+            .in('quotation_id', quoteIds)
+          if (cancelled) return
+          if (itemsErr) throw new Error('quotation_items: ' + itemsErr.message)
+          setAllQuotationItems((itemsData || []) as QuotationItemRow[])
+        }
+      } catch (err: any) {
+        if (!cancelled) setError(err?.message || String(err))
+      }
+      if (!cancelled) setLoadingData(false)
+    }
+    loadAll()
+    return () => { cancelled = true }
+  }, [])
+
+  // Lead seleccionado
+  const selectedLead = useMemo(() => leads.find(l => l.id === selectedLeadId) || null, [leads, selectedLeadId])
+
+  // Cotizaciones del lead seleccionado (filtro por lead_id dentro de quotations.notes JSON + también
+  // incluir las que tengan el mismo project_id si el lead tiene uno asociado)
+  const leadQuotations = useMemo(() => {
+    if (!selectedLeadId) return []
+    return allQuotations.filter(q => parseLeadIdFromNotes(q.notes) === selectedLeadId)
+  }, [allQuotations, selectedLeadId])
+
+  // Cotización seleccionada
+  const selectedQuotation = useMemo(
+    () => allQuotations.find(q => q.id === selectedQuotationId) || null,
+    [allQuotations, selectedQuotationId]
+  )
+
+  // Sistemas detectados en los items de la cotización seleccionada
+  const detectedSystems = useMemo(() => {
+    if (!selectedQuotationId) return [] as string[]
+    const items = allQuotationItems.filter(i => i.quotation_id === selectedQuotationId)
+    return [...new Set(items.map(i => i.system).filter((s): s is string => !!s))]
+  }, [allQuotationItems, selectedQuotationId])
+
+  // Cuando cambia el lead, reseteo cotización y autogenero nombre
+  useEffect(() => {
+    setSelectedQuotationId('')
+    if (selectedLead) {
+      const specLabel = SPECIALTY_CONFIG[specialty].label
+      setProjectName(`${selectedLead.name} — ${specLabel}`)
+    } else {
+      setProjectName('')
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedLeadId])
+
+  // Cuando cambia la cotización, si su specialty difiere, adopta esa specialty
+  useEffect(() => {
+    if (selectedQuotation && selectedQuotation.specialty !== specialty) {
+      setSpecialty(selectedQuotation.specialty)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedQuotationId])
+
+  // Cuando cambia specialty, regenero el nombre del proyecto si el lead existe
+  useEffect(() => {
+    if (selectedLead) {
+      const specLabel = SPECIALTY_CONFIG[specialty].label
+      setProjectName(`${selectedLead.name} — ${specLabel}`)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [specialty])
+
+  const canSubmit = !!selectedLeadId && !!projectName.trim() && !saving
 
   async function crear() {
-    if (!form.name.trim() || !form.client_name.trim()) {
-      setError('Nombre y cliente son obligatorios')
+    if (!canSubmit || !selectedLead) {
+      setError('Debes seleccionar un lead')
       return
     }
     setError(null)
     setSaving(true)
     try {
+      // 1. Crear el proyecto
+      const clientFinal = selectedLead.contact_name || selectedLead.company || selectedLead.name
       const { data: proj, error: projErr } = await supabase.from('projects').insert({
-        name: form.name.trim(),
-        client_name: form.client_name.trim(),
-        specialty: form.specialty,
-        lines: [form.specialty],
+        name: projectName.trim(),
+        client_name: clientFinal,
+        specialty,
+        lines: [specialty],
         status: 'activo',
-        contract_value: 0,
+        contract_value: selectedQuotation?.total || 0,
         advance_pct: 0,
-        area_lead_id: form.area_lead_id || null,
-        cotizacion_id: form.cotizacion_id || null,
+        area_lead_id: areaLead || null,
+        cotizacion_id: selectedQuotationId || null,
+        lead_id: selectedLeadId,
       }).select().single()
-      if (projErr) throw projErr
+      if (projErr) throw new Error('Creando proyecto: ' + projErr.message)
+      if (!proj) throw new Error('No se pudo crear el proyecto')
 
-      const { data: phaseTemplates, error: ptErr } = await supabase.from('project_phase_templates')
-        .select('*').in('specialty', [form.specialty, 'postventa']).order('order_index')
-      if (ptErr) throw ptErr
+      // 2. Cargar phase templates de la especialidad + postventa
+      const { data: phaseTemplatesData, error: ptErr } = await supabase
+        .from('project_phase_templates')
+        .select('*')
+        .in('specialty', [specialty, 'postventa'])
+        .order('order_index')
+      if (ptErr) throw new Error('Cargando phase templates: ' + ptErr.message)
+      const phaseTemplates = (phaseTemplatesData || []) as PhaseTemplateFull[]
 
-      const phaseInserts = (phaseTemplates || []).map((pt: any) => ({
+      // 3. Insertar fases del proyecto (pre-venta is_unlocked=true, postventa=false)
+      const phaseInserts = phaseTemplates.map(pt => ({
         project_id: proj.id,
         template_id: pt.id,
         name: pt.name,
@@ -939,53 +1176,100 @@ function NewProjectModal({ employees, onClose, onCreated }: {
         is_unlocked: !pt.is_post_sale,
         status: 'pendiente' as const,
       }))
-      const { data: insertedPhases, error: phErr } = await supabase.from('project_phases').insert(phaseInserts).select()
-      if (phErr) throw phErr
+      const { data: insertedPhasesData, error: phErr } = await supabase
+        .from('project_phases').insert(phaseInserts).select()
+      if (phErr) throw new Error('Creando fases: ' + phErr.message)
+      const insertedPhases = (insertedPhasesData || []) as Array<{
+        id: string; template_id: string; order_index: number; is_post_sale: boolean; name: string
+      }>
 
-      const phaseTemplateIds = (phaseTemplates || []).map((pt: any) => pt.id)
-      const { data: taskTemplates, error: ttErr } = await supabase.from('project_task_templates')
-        .select('*').in('phase_template_id', phaseTemplateIds).order('order_index')
-      if (ttErr) throw ttErr
-
-      const taskInserts: any[] = []
-      for (const tt of (taskTemplates || [])) {
-        const phase = (insertedPhases || []).find((p: any) => p.template_id === tt.phase_template_id)
-        if (!phase) continue
-        taskInserts.push({
-          project_id: proj.id,
-          phase_id: phase.id,
-          template_id: tt.id,
-          name: tt.name,
-          order_index: tt.order_index,
-          status: 'pendiente',
-          progress: 0,
-          priority: 0,
-        })
+      // Helper: buscar phase_id por order_index
+      function phaseByOrder(orderIndex: number) {
+        return insertedPhases.find(p => p.order_index === orderIndex)
       }
+
+      // 4. Cargar task templates de la especialidad + postventa
+      const { data: taskTemplatesData, error: ttErr } = await supabase
+        .from('project_task_templates')
+        .select('*')
+        .in('specialty', [specialty, 'postventa'])
+        .order('order_index')
+      if (ttErr) throw new Error('Cargando task templates: ' + ttErr.message)
+      const taskTemplates = (taskTemplatesData || []) as TaskTemplateFull[]
+
+      // 5. Instanciar tareas: cada task template se clona en cada fase del rango
+      //    [start_phase_order, end_phase_order]
+      const taskInserts: any[] = []
+      for (const tt of taskTemplates) {
+        for (let ord = tt.start_phase_order; ord <= tt.end_phase_order; ord++) {
+          const ph = phaseByOrder(ord)
+          if (!ph) continue
+          taskInserts.push({
+            project_id: proj.id,
+            phase_id: ph.id,
+            template_id: tt.id,
+            name: tt.name,
+            order_index: tt.order_index,
+            status: 'pendiente',
+            progress: 0,
+            priority: 0,
+          })
+        }
+      }
+
       let insertedTasks: any[] = []
       if (taskInserts.length > 0) {
         const { data: tdata, error: tErr } = await supabase.from('project_tasks').insert(taskInserts).select()
-        if (tErr) throw tErr
+        if (tErr) throw new Error('Creando tareas: ' + tErr.message)
         insertedTasks = tdata || []
       }
 
-      const subInserts: any[] = []
-      for (const tt of (taskTemplates || [])) {
-        if (!tt.default_subtasks || tt.default_subtasks.length === 0) continue
-        const insertedTask = insertedTasks.find(it => it.template_id === tt.id)
-        if (!insertedTask) continue
-        tt.default_subtasks.forEach((text: string, idx: number) => {
-          subInserts.push({
-            task_id: insertedTask.id,
-            text,
-            completed: false,
-            order_index: idx,
+      // 6. Instanciar subtareas
+      //    - Si el template tiene expands_by_system=true Y hay sistemas detectados:
+      //      por cada sistema presente en la cotización, por cada item del default_subtasks,
+      //      se crea una subtask con system=X y text="[item]" (agrupadas en UI por sistema)
+      //    - Si expands_by_system=false: plain default_subtasks sin system
+      const subtaskInserts: any[] = []
+      for (const task of insertedTasks) {
+        const tt = taskTemplates.find(t => t.id === task.template_id)
+        if (!tt || !tt.default_subtasks || tt.default_subtasks.length === 0) continue
+
+        if (tt.expands_by_system && detectedSystems.length > 0) {
+          // Expand: N sistemas × M subtasks = N*M rows
+          let idx = 0
+          for (const sys of detectedSystems) {
+            for (const subText of tt.default_subtasks) {
+              subtaskInserts.push({
+                task_id: task.id,
+                text: subText,
+                completed: false,
+                order_index: idx++,
+                system: sys,
+              })
+            }
+          }
+        } else {
+          // Plain checklist
+          tt.default_subtasks.forEach((text, idx) => {
+            subtaskInserts.push({
+              task_id: task.id,
+              text,
+              completed: false,
+              order_index: idx,
+              system: null,
+            })
           })
-        })
+        }
       }
-      if (subInserts.length > 0) {
-        const { error: sErr } = await supabase.from('project_task_subtasks').insert(subInserts)
-        if (sErr) throw sErr
+
+      if (subtaskInserts.length > 0) {
+        // Insertar en batches de 500 para evitar límites
+        const batchSize = 500
+        for (let i = 0; i < subtaskInserts.length; i += batchSize) {
+          const batch = subtaskInserts.slice(i, i + batchSize)
+          const { error: sErr } = await supabase.from('project_task_subtasks').insert(batch)
+          if (sErr) throw new Error('Creando subtareas: ' + sErr.message)
+        }
       }
 
       onCreated()
@@ -996,79 +1280,179 @@ function NewProjectModal({ employees, onClose, onCreated }: {
   }
 
   const inputS: React.CSSProperties = {
-    width: '100%', padding: '7px 10px', fontSize: 12, background: '#0a0a0a',
+    width: '100%', padding: '8px 12px', fontSize: 13, background: '#0a0a0a',
     border: '1px solid #333', borderRadius: 6, color: '#fff', fontFamily: 'inherit',
+    boxSizing: 'border-box',
   }
-  const labelS: React.CSSProperties = { fontSize: 10, color: '#666', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.05em' }
+  const labelS: React.CSSProperties = {
+    fontSize: 10, color: '#666', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 600,
+  }
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-      <div style={{ width: 560, maxWidth: '90vw', background: '#0d0d0d', border: '1px solid #333', borderRadius: 14, padding: 24 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-          <div style={{ fontSize: 16, fontWeight: 700, color: '#fff' }}>Nuevo proyecto</div>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+      <div style={{ width: 640, maxWidth: '92vw', maxHeight: '90vh', overflowY: 'auto', background: '#0d0d0d', border: '1px solid #333', borderRadius: 14, padding: 24 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
+          <div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: '#fff' }}>Nuevo proyecto</div>
+            <div style={{ fontSize: 10, color: '#666', marginTop: 2 }}>Todo proyecto debe partir de un lead y su cotización</div>
+          </div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer' }}><X size={18} /></button>
         </div>
 
-        <div style={{ display: 'grid', gap: 12 }}>
-          <div>
-            <div style={labelS}>Nombre del proyecto *</div>
-            <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Ej: Reforma 222 - Iluminación" style={inputS} autoFocus />
-          </div>
-
-          <div>
-            <div style={labelS}>Cliente *</div>
-            <input value={form.client_name} onChange={e => setForm(f => ({ ...f, client_name: e.target.value }))} placeholder="Ej: Inmobiliaria Reforma" style={inputS} />
-          </div>
-
-          <div>
-            <div style={labelS}>Especialidad</div>
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              {(['esp', 'ilum', 'elec'] as const).map(s => {
-                const cfg = SPECIALTY_CONFIG[s]
-                const on = form.specialty === s
-                return (
-                  <button key={s} onClick={() => setForm(f => ({ ...f, specialty: s }))} style={{
-                    padding: '8px 14px', borderRadius: 8, fontSize: 12, cursor: 'pointer', fontFamily: 'inherit',
-                    background: on ? cfg.color + '22' : '#0a0a0a',
-                    border: `1px solid ${on ? cfg.color + '88' : '#333'}`,
-                    color: on ? cfg.color : '#666',
-                    fontWeight: on ? 600 : 400,
-                  }}>
-                    {cfg.icon} {cfg.label}
-                    {cfg.leader && <span style={{ fontSize: 9, marginLeft: 6, color: on ? cfg.color : '#444' }}>({cfg.leader})</span>}
-                  </button>
-                )
-              })}
+        {loadingData ? (
+          <Loading />
+        ) : (
+          <div style={{ display: 'grid', gap: 16 }}>
+            {/* Paso 1 — Lead */}
+            <div>
+              <div style={labelS}>1. Lead * (obligatorio)</div>
+              <select
+                value={selectedLeadId}
+                onChange={e => setSelectedLeadId(e.target.value)}
+                style={{ ...inputS, borderColor: selectedLeadId ? '#57FF9A66' : '#EF444466' }}
+              >
+                <option value="">— Selecciona un lead —</option>
+                {leads.map(l => (
+                  <option key={l.id} value={l.id}>
+                    {l.name}{l.company ? ` · ${l.company}` : ''}
+                  </option>
+                ))}
+              </select>
+              {leads.length === 0 && (
+                <div style={{ fontSize: 10, color: '#EF4444', marginTop: 4 }}>
+                  No hay leads activos. Crea un lead en el CRM primero.
+                </div>
+              )}
+              {selectedLead && (
+                <div style={{ fontSize: 11, color: '#888', marginTop: 6, padding: '6px 10px', background: '#0a0a0a', borderRadius: 6, border: '1px solid #1e1e1e' }}>
+                  <span style={{ color: '#57FF9A' }}>●</span> {selectedLead.name}
+                  {selectedLead.company && <span> · {selectedLead.company}</span>}
+                  {selectedLead.contact_name && <span> · {selectedLead.contact_name}</span>}
+                </div>
+              )}
             </div>
-          </div>
 
-          <div>
-            <div style={labelS}>Líder del proyecto (opcional)</div>
-            <select value={form.area_lead_id} onChange={e => setForm(f => ({ ...f, area_lead_id: e.target.value }))} style={inputS}>
-              <option value="">— Sin asignar —</option>
-              {employees.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
-            </select>
-          </div>
+            {/* Paso 2 — Cotización del lead */}
+            {selectedLeadId && (
+              <div>
+                <div style={labelS}>2. Cotización del lead (opcional)</div>
+                {leadQuotations.length === 0 ? (
+                  <div style={{ fontSize: 11, color: '#888', padding: '8px 12px', background: '#0a0a0a', borderRadius: 6, border: '1px dashed #333' }}>
+                    Este lead no tiene cotizaciones vinculadas. Puedes continuar sin cotización, pero en ESP las tareas transversales no se expandirán por sistema.
+                  </div>
+                ) : (
+                  <>
+                    <select
+                      value={selectedQuotationId}
+                      onChange={e => setSelectedQuotationId(e.target.value)}
+                      style={inputS}
+                    >
+                      <option value="">— Sin cotización —</option>
+                      {leadQuotations.map(q => {
+                        const specCfg = SPECIALTY_CONFIG[q.specialty as Specialty]
+                        const label = `${specCfg?.short || q.specialty.toUpperCase()} · ${q.name} · ${q.stage}`
+                        return <option key={q.id} value={q.id}>{label}</option>
+                      })}
+                    </select>
+                    {selectedQuotation && (
+                      <div style={{ marginTop: 8, padding: '10px 12px', background: '#0a0a0a', border: '1px solid #1e1e1e', borderRadius: 6 }}>
+                        <div style={{ fontSize: 11, color: '#aaa', marginBottom: 6 }}>
+                          <strong style={{ color: '#57FF9A' }}>{selectedQuotation.name}</strong>
+                          <span style={{ color: '#555', marginLeft: 6 }}>· Estado: {selectedQuotation.stage}</span>
+                          {selectedQuotation.total > 0 && <span style={{ color: '#555', marginLeft: 6 }}>· ${selectedQuotation.total.toLocaleString('es-MX')}</span>}
+                        </div>
+                        {detectedSystems.length > 0 ? (
+                          <div>
+                            <div style={{ fontSize: 10, color: '#666', marginBottom: 4 }}>
+                              Sistemas detectados ({detectedSystems.length}) — las tareas transversales de ESP se expandirán por sistema:
+                            </div>
+                            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                              {detectedSystems.map(sys => (
+                                <span key={sys} style={{
+                                  fontSize: 9, padding: '3px 8px', borderRadius: 4,
+                                  background: (SYSTEM_COLORS[sys] || '#555') + '22',
+                                  border: `1px solid ${(SYSTEM_COLORS[sys] || '#555')}55`,
+                                  color: SYSTEM_COLORS[sys] || '#999', fontWeight: 600,
+                                }}>{sys}</span>
+                              ))}
+                            </div>
+                          </div>
+                        ) : (
+                          <div style={{ fontSize: 10, color: '#888' }}>
+                            Esta cotización no tiene items con sistema asignado.
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
 
-          <div>
-            <div style={labelS}>Cotización ligada (opcional)</div>
-            <select value={form.cotizacion_id} onChange={e => setForm(f => ({ ...f, cotizacion_id: e.target.value }))} style={inputS}>
-              <option value="">— Sin cotización —</option>
-              {cotizaciones.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
-            <div style={{ fontSize: 10, color: '#555', marginTop: 4 }}>
-              Cuando esta cotización pase a estado "contrato", las fases de postventa se activarán automáticamente.
-            </div>
+            {/* Paso 3 — Especialidad */}
+            {selectedLeadId && (
+              <div>
+                <div style={labelS}>3. Especialidad del proyecto</div>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  {(['esp', 'ilum', 'elec'] as const).map(s => {
+                    const cfg = SPECIALTY_CONFIG[s]
+                    const on = specialty === s
+                    return (
+                      <button key={s} onClick={() => setSpecialty(s)} style={{
+                        padding: '10px 16px', borderRadius: 8, fontSize: 12, cursor: 'pointer', fontFamily: 'inherit',
+                        background: on ? cfg.color + '22' : '#0a0a0a',
+                        border: `1px solid ${on ? cfg.color + '88' : '#333'}`,
+                        color: on ? cfg.color : '#888',
+                        fontWeight: on ? 700 : 400,
+                      }}>
+                        {cfg.icon} {cfg.label}
+                        {cfg.leader && <span style={{ fontSize: 9, marginLeft: 6, color: on ? cfg.color : '#555' }}>({cfg.leader})</span>}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Paso 4 — Nombre del proyecto + líder */}
+            {selectedLeadId && (
+              <>
+                <div>
+                  <div style={labelS}>4. Nombre del proyecto *</div>
+                  <input
+                    value={projectName}
+                    onChange={e => setProjectName(e.target.value)}
+                    style={inputS}
+                  />
+                  <div style={{ fontSize: 10, color: '#555', marginTop: 4 }}>
+                    Auto-generado con el nombre del lead + especialidad. Editable.
+                  </div>
+                </div>
+
+                <div>
+                  <div style={labelS}>Líder del proyecto (opcional)</div>
+                  <select value={areaLead} onChange={e => setAreaLead(e.target.value)} style={inputS}>
+                    <option value="">— Sin asignar —</option>
+                    {employees.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+                  </select>
+                </div>
+              </>
+            )}
           </div>
-        </div>
+        )}
 
         {error && (
           <div style={{ marginTop: 14, padding: '10px 12px', background: '#2a1414', border: '1px solid #5a2828', borderRadius: 6, color: '#f87171', fontSize: 11 }}>⚠ {error}</div>
         )}
 
-        <div style={{ display: 'flex', gap: 8, marginTop: 18, justifyContent: 'flex-end' }}>
+        <div style={{ display: 'flex', gap: 8, marginTop: 20, justifyContent: 'flex-end', alignItems: 'center' }}>
+          {!selectedLeadId && (
+            <span style={{ fontSize: 10, color: '#EF4444', marginRight: 'auto' }}>⚠ Sin lead no hay proyecto</span>
+          )}
           <Btn onClick={onClose}>Cancelar</Btn>
-          <Btn variant="primary" onClick={crear} disabled={saving}>{saving ? 'Creando...' : 'Crear proyecto'}</Btn>
+          <Btn variant="primary" onClick={crear} disabled={!canSubmit}>
+            {saving ? 'Creando...' : 'Crear proyecto'}
+          </Btn>
         </div>
       </div>
     </div>
