@@ -68,7 +68,7 @@ Hay **38 tablas totales** en `public`. Auditoría verificada contra `information
 |---|---:|---|---|
 | `clientes` | 2 | Clientes, CRM, Cotizaciones, CotEditorESP, Facturacion | **NO es `clientes_fiscales`**. Columnas: id, rfc, razon_social, regimen_fiscal, regimen_fiscal_clave, codigo_postal, uso_cfdi, uso_cfdi_clave, curp, calle, num_exterior, num_interior, colonia, localidad, municipio, estado, tipo_persona, email, telefono, activo, facturapi_customer_id, created_at |
 | `leads` | 1 | CRM | id, name, company, ... |
-| `projects` | 1 | Proyectos, Compras, Obras | id, name, client_name, status |
+| `projects` | 1 | Proyectos, Compras, Obras | id, name, client_name, status, lines (TEXT[]), specialty (TEXT: esp/ilum/elec/cort/proy), lead_id (FK leads), cotizacion_id (FK quotations), area_lead_id (FK employees), contract_value, advance_pct, start_date, end_date_planned, end_date_real, notes. **Reglas del refactor 2026-04-10**: `specialty` singular es la fuente de verdad (derivada de `lines[0]`); `lead_id` es obligatorio desde la UI (aunque nullable en schema); un proyecto = una especialidad (lines siempre tiene 1 elemento) |
 | `quotations` | 10 | Cotizaciones, CotEditorESP | id, name, client_name, project_id, specialty, stage, total, notes (JSON con systems/currency/tipoCambio/lead_id/lead_name), created_at |
 | `quotation_areas` | 35 | CotEditorESP, Compras, Obra (SubMateriales) | id, quotation_id, name, order_index, subtotal |
 | `quotation_items` | 8 | CotEditorESP, Compras, Obra (SubMateriales) | id, quotation_id, area_id, catalog_product_id, name, description, system, type ('material'\|'labor'), provider, supplier_id, purchase_phase, quantity, cost, markup, price, total, installation_cost, order_index |
@@ -83,6 +83,11 @@ Hay **38 tablas totales** en `public`. Auditoría verificada contra `information
 | `bank_movements` | 1 | Contabilidad | Movimientos bancarios |
 | `employees` | 0 | (lectura en algún lugar, verificar) | Empleados |
 | `work_reports` | 0 | Obra | Reportes de trabajo |
+| `project_phase_templates` | 18 | Proyectos | Templates de fases por especialidad (5 ESP + 5 ILU + 5 ELEC + 3 postventa). Fases homologadas: Arranque, Conceptual, Diseño, Revisión, Ejecutivo + Suministro, Seguimiento de Obra, Cierre |
+| `project_task_templates` | 40 | Proyectos | Templates de tareas. Columnas clave: `specialty`, `start_phase_order`, `end_phase_order` (rango de fases donde vive la tarea, si start<end se clona en cada fase), `expands_by_system` (bool: si true, al instanciar se genera una subtask por sistema de la cotización ligada), `default_subtasks` TEXT[] |
+| `project_phases` | variable | Proyectos | Instancias de fases por proyecto. Incluye 8 fases por proyecto ESP/ILU/ELEC (5 pre + 3 post). `is_unlocked=false` para postventa hasta que una cotización ligada pase a `stage='contrato'` |
+| `project_tasks` | variable | Proyectos | Tareas instanciadas. Las tareas multi-fase (start<end) tienen **N filas**, una por cada fase del rango. Todas con el mismo `template_id` y `name`, distinta `phase_id`. Campos: assignee_id, status, progress, priority (0-3), due_date, system, notes |
+| `project_task_subtasks` | variable | Proyectos | Checklist de cada tarea. Para ESP con `expands_by_system=true`: cada subtask tiene `system` seteado (Redes/Audio/CCTV/etc) y se agrupan por sistema en la UI. Para ILU/ELEC: checklist plano con `system=null` |
 
 #### 💤 Tablas HUÉRFANAS — vacías, módulos planeados (21, NO ELIMINAR)
 
@@ -1238,6 +1243,242 @@ Verificado en producción con captura de screenshot:
 - **Drag & drop de tareas entre fases** (estilo kanban). Útil para el workflow original de Juan Pablo donde "movía" una tarea de fase en fase.
 - **Filtro/vista por asignado**: mostrar "mis tareas" filtrando por `assignee_id = usuario_actual`. Requiere saber quién es el usuario, que hoy no está implementado.
 - **Notificaciones de tareas vencidas**: el KPI ya las cuenta, pero no hay alertas. Podría ser un badge en el sidebar.
+
+### 2026-04-10 (sesión larga — Proyectos refactor v2: modelo con tareas multi-fase + flujo Lead obligatorio + PhaseTimeline grande)
+
+**Commits de esta sesión:**
+- `ab7af90` · feat(proyectos): SQL migration 2.0 — modelo unificado con tareas multi-fase
+- `72961fd` · feat(proyectos): NewProjectModal con flujo Lead→Cotización→Especialidad + instanciación multi-fase
+- `1d0c751` · feat(proyectos): PhaseTimeline grande estilo mock con círculos conectados
+
+**Contexto:** después de la sesión anterior (commits `8415f02` + `39326ec` que crearon la v1 del refactor), Elias revisó el resultado en producción y rechazó dos cosas:
+
+1. **La vista ESP perdía seguimiento granular**: el modelo "ESP plano con tag de sistema" (Opción B de la sesión anterior) no permitía ver "el sembrado ejecutivo de CCTV está al 100% pero el de Audio va al 40%" en un solo vistazo. Él necesitaba ver los sistemas **como sub-cards dentro de cada entregable transversal**, agrupados por sistema, cada uno con su propio checklist.
+2. **El modal "Nuevo proyecto" pedía nombre y cliente a mano**: en la operación real, los proyectos siempre nacen de un Lead y su Cotización. El modal debía forzar ese flujo: sin lead no hay proyecto.
+
+**Y introdujo un concepto nuevo que no estaba en v1: tareas multi-fase.** Elias explicó que en el workflow de sus equipos, una tarea como "Sembrado de iluminación" no vive en una sola fase — arranca como boceto en Conceptual, se refina en Diseño, y termina definitivo en Ejecutivo. **Es la misma tarea evolucionando a través de fases.** Otras tareas sí viven en una sola fase (ej: "Cotización de luminarias" solo existe en Ejecutivo).
+
+Después de 3 rondas de aclaraciones (mi primera interpretación fue "milestones reales" que era overkill, la segunda fue "una sola fase por tarea" que era demasiado estricta), llegamos al modelo final: **cada template de tarea tiene `start_phase_order` y `end_phase_order`. Al instanciar, la tarea se CLONA en cada fase del rango** (Opción Z — filas separadas en `project_tasks`, no milestones reales).
+
+Este es el modelo ganador y reemplaza parcialmente las decisiones arquitectónicas de la sesión anterior. La decisión "ESP plano con tag de sistema" se invirtió: ahora ESP tiene subtareas agrupadas por sistema dentro de cada tarea transversal.
+
+#### Decisiones arquitectónicas finales (v2)
+
+**1. Fases homologadas a 5 para las 3 especialidades.** La sesión anterior tenía 5 ESP / 6 ILU / 4 ELEC. Elias dijo "homologuemos todos a ILU simplificada: Arranque, Conceptual, Diseño, Revisión, Ejecutivo". Ahora los 3 equipos comparten las mismas 5 fases pre-venta + 3 postventa universales. Total: 8 fases por proyecto.
+
+**2. Tareas con rango `[start_phase_order, end_phase_order]`.** Si start==end, la tarea vive en una sola fase. Si start<end, se clona en cada fase del rango al instanciar. Cada instancia tiene su propio `progress`, `status`, `assignee_id`, `due_date`. El usuario las percibe como "la misma tarea en múltiples fases", pero en BD son filas independientes.
+
+**3. ESP con subtareas agrupadas por sistema.** Algunos templates tienen `expands_by_system=true`. Al instanciar, si hay sistemas detectados en la cotización ligada, las subtareas se multiplican: **por cada sistema × cada default_subtask = N subtasks** con el campo `system` seteado. La UI las agrupa en mini-cards con el color del sistema (SYSTEM_COLORS). Si `expands_by_system=false`, son checklists planas con `system=null`.
+
+**4. Lead obligatorio para crear proyecto.** El modal no permite crear sin lead. Nombre del proyecto auto-generado: `"{lead.name} — {specialty.label}"`, editable. Cliente auto-rellenado desde `lead.company || lead.contact_name`. Cotización opcional pero recomendada (si no hay cotización en ESP, las tareas `expands_by_system` caen al modo plano).
+
+**5. Un proyecto = una especialidad, siempre.** Sigue igual que v1. `lines` array se llena con 1 solo elemento. `specialty` singular es la fuente de verdad.
+
+#### Templates finales (seeds en migration 2.0)
+
+**ESP (10 tareas, 4 multi-fase + 1 single-phase con expand_by_system):**
+| Tarea | Start | End | expand_by_system |
+|---|---|---|---|
+| Definición de Sistemas y Alcances | Arranque | Arranque | no |
+| Recopilación de Planos | Arranque | Arranque | no |
+| **Sembrado** | **Conceptual** | **Ejecutivo** | **sí** |
+| **Diseños (diagramas unifilares, topología, bloques)** | **Conceptual** | **Ejecutivo** | **sí** |
+| Entrega Conceptual al Cliente | Revisión | Revisión | no |
+| Cotización | Diseño | Diseño | no |
+| **Especificación de Equipos** | **Diseño** | **Ejecutivo** | **sí** |
+| **Memoria Técnica** | **Diseño** | **Ejecutivo** | **sí** |
+| **Carpeta de Fichas Técnicas** | Ejecutivo | Ejecutivo | **sí** |
+| Entrega Ejecutiva | Ejecutivo | Ejecutivo | no |
+
+**ILU (11 tareas, 2 multi-fase):**
+| Tarea | Start | End |
+|---|---|---|
+| Presentación | Arranque | Arranque |
+| **Sembrado de iluminación** | **Conceptual** | **Ejecutivo** |
+| Entrega conceptual | Revisión | Revisión |
+| **Sembrado de control** | **Diseño** | **Ejecutivo** |
+| Sembrado de Bajo Voltaje | Ejecutivo | Ejecutivo |
+| Plano de colocación | Ejecutivo | Ejecutivo |
+| Carpeta de Fichas técnicas | Ejecutivo | Ejecutivo |
+| Propuesta de Decorativas | Ejecutivo | Ejecutivo |
+| Cotización de luminarias | Ejecutivo | Ejecutivo |
+| Entrega Ejecutiva | Ejecutivo | Ejecutivo |
+| Entrega física | Ejecutivo | Ejecutivo |
+
+**ELEC (10 tareas, 6 multi-fase — los diseños):**
+| Tarea | Start | End |
+|---|---|---|
+| Recopilación de Planos de Proyecto | Arranque | Arranque |
+| Plano de Referencia, Plano Base y Tabla de Cálculos | Arranque | Arranque |
+| **Diseño Instalación Eléctrica de Iluminación** | **Diseño** | **Ejecutivo** |
+| **Diseño Instalación Eléctrica de Contactos** | **Diseño** | **Ejecutivo** |
+| **Diseño Instalación Eléctrica de HVAC** | **Diseño** | **Ejecutivo** |
+| **Diseño de Subestación Eléctrica en Media / Baja Tensión** | **Diseño** | **Ejecutivo** |
+| **Diseño de Sistema Fotovoltaico** | **Diseño** | **Ejecutivo** |
+| **Diseño de Sistema de Emergencia** | **Diseño** | **Ejecutivo** |
+| Revisión de Planos con Cliente | Revisión | Revisión |
+| Entrega de Planos | Ejecutivo | Ejecutivo |
+
+**POSTVENTA (9 tareas, universales sin multi-fase):**
+- **Suministro** (100): Órdenes de Compra, Entregas a Obra
+- **Seguimiento de Obra** (101): Visitas de Obra, Seguimiento de Cambios y Adendums, Reporte de Avance de Obra
+- **Cierre** (102): Entrega Formal, As-Built, Pruebas y Certificación, Liberación de Pagos Finales
+
+**Total seeds:** 18 phase templates + 40 task templates + 12 tareas multi-fase + 5 tareas con `expands_by_system`.
+
+#### SQL Migration 2.0 (`ab7af90`)
+
+Archivo: `supabase_proyectos_migration.sql` (reemplaza el de la v1).
+
+**Cambios de schema respecto a v1:**
+- `project_task_templates`: **DROP y recreate**. Ya no es `phase_template_id` (FK) + `phase_template tiene order_index`, ahora es `specialty` (string) + `start_phase_order INT` + `end_phase_order INT` + `expands_by_system BOOLEAN`. El template ya no está anclado a una fase única; define su rango por order_index.
+- `project_task_subtasks`: **ALTER ADD COLUMN `system TEXT`**. Para agrupar subtasks por sistema en la UI de ESP.
+- `projects`: **ALTER ADD COLUMN `lead_id UUID REFERENCES leads(id)`**. Obligatorio desde UI, nullable en schema para permitir edge cases futuros.
+
+**Limpieza destructiva incluida**: la migration borra `project_task_subtasks`, `project_tasks`, `project_phases` porque el modelo cambió. Los proyectos creados con la v1 se quedan sin fases/tareas — están en la BD pero huecos. En esta sesión se borraron varios proyectos huérfanos con DELETE directo (ver más abajo).
+
+**Ejecución:** se cargó con el patrón habitual de `fetch` del raw de GitHub + `monaco.editor.setValue()` en el SQL Editor de Supabase, luego Cmd+Return + confirmación del warning destructivo.
+
+#### NewProjectModal rewritten (`72961fd`)
+
+El componente `NewProjectModal` se reescribió completo (~400 líneas nuevas dentro de `Proyectos.tsx`). Flujo:
+
+1. **Paso 1 — Lead (obligatorio)**: dropdown de `leads` activos (filtrando status `perdido` y `ganado`). Borde rojo hasta seleccionar, mensaje "⚠ Sin lead no hay proyecto". Al seleccionar, muestra preview chip con nombre + company + contact_name.
+2. **Paso 2 — Cotización del lead (opcional)**: dropdown de `quotations` del lead, filtrado **parseando `quotations.notes` JSON** por `lead_id` dentro. Si el lead no tiene cotizaciones, muestra un mensaje informativo. Al seleccionar una cotización, muestra un info-box con:
+   - Nombre + stage + total formateado en MXN
+   - **Preview de sistemas detectados** con badges de color del sistema (Redes cyan, Audio morado, CCTV azul, etc.)
+   - Texto "las tareas transversales de ESP se expandirán por sistema" si la especialidad es ESP
+3. **Paso 3 — Especialidad**: 3 botones (ESP/ILU/ELEC) con ícono, label y nombre del líder (Alfredo/Juan Pablo/Ricardo). Si se eligió una cotización, el specialty se auto-ajusta al de la cotización. Cambiar manualmente el specialty regenera el nombre auto-generado.
+4. **Paso 4 — Nombre del proyecto**: auto-generado como `"{lead.name} — {specialty.label}"`, editable. + dropdown de "Líder del proyecto" (opcional) con employees activos.
+
+**Lógica de instanciación** (al hacer click en "Crear proyecto"):
+
+```typescript
+1. INSERT into projects con lead_id, cotizacion_id, specialty, client_name del lead
+2. SELECT project_phase_templates WHERE specialty IN (spec, 'postventa') ORDER BY order_index
+3. INSERT phases: todas con is_unlocked = !is_post_sale (postventa bloqueada)
+4. SELECT project_task_templates WHERE specialty IN (spec, 'postventa')
+5. Para cada template:
+   FOR ord FROM start_phase_order TO end_phase_order:
+     Buscar la phase de ese ord en insertedPhases
+     Push a taskInserts con phase_id correspondiente
+6. INSERT all tasks in one call
+7. Para cada task instanciada, buscar su template:
+   IF template.expands_by_system && detectedSystems.length > 0:
+     FOR each system in detectedSystems:
+       FOR each subText in template.default_subtasks:
+         Push subtask con system=X
+   ELSE:
+     Push subtasks planas con system=null
+8. INSERT subtasks en batches de 500
+```
+
+**Garantía de integridad**: todo el proceso está en try/catch. Si cualquier paso falla, se muestra error en el modal. El proyecto sí queda creado aunque las fases/tareas fallen — potencial bug si alguien falla a mitad, pero mejor que rollback parcial manual.
+
+**Edge case identificado** (no arreglado en esta sesión): durante el smoke test se crearon 3 proyectos duplicados "Casa Salame — Especialidades" porque hice doble-click en "Crear proyecto" antes de que el state `saving=true` se propagara. El modal usa `disabled={!canSubmit}` donde `canSubmit = !saving && ...`, pero React puede demorar un tick en re-renderizar. **Fix sugerido**: marcar `saving=true` ANTES del primer await, no depender de que la UI se actualice instantáneamente.
+
+#### TaskTable — agrupación por sistema en ESP (`72961fd`)
+
+Antes: `taskSubs.map(sub => <checkbox>)` — render plano.
+
+Ahora: IIFE que separa `subsFlat` (sin system) y `subsWithSystem` (con system). Las primeras se renderizan como antes. Las segundas se agrupan con `reduce` en `systemGroups: Record<string, SubtaskRow[]>` y se renderizan como **mini-cards con borde de color del sistema**:
+
+```
+┌─── Audio (morado) · 0/3 ─────────┐
+│ ☐ Ubicación de equipos en plano   │
+│ ☐ Validar cobertura               │
+│ ☐ Ajustar según restricciones     │
+└───────────────────────────────────┘
+┌─── CCTV (azul) · 0/3 ─────────────┐
+│ ...                                │
+```
+
+Cada sub-card tiene su propio contador de progreso (done/total). Los colores vienen de `SYSTEM_COLORS` al principio del archivo. El `toggleSubtask` y `deleteSubtask` siguen funcionando igual, solo cambia el rendering.
+
+#### PhaseTimeline grande estilo mock (`1d0c751`)
+
+Rediseño completo. Antes eran badges chiquitos en fila. Ahora es el formato que Elias pidió desde hace varios mensajes:
+
+- **Círculos de 48px** con borde de color según estado
+- **Líneas conectoras** horizontales entre círculos (verdes cuando la fase está completada, grises cuando no)
+- **Íconos contextuales** dentro del círculo:
+  - `<Lock>` si está bloqueada
+  - `<Check>` si está al 100%
+  - Número de fase (1-5 pre-venta, 1-3 post-venta) en otros casos
+- **Nombre de la fase** debajo del círculo (color se resalta cuando está activa)
+- **Badge de progreso** debajo: `{prog}% · {n} tareas`
+- **Separación visual clara** entre pre-venta y post-venta con un divisor horizontal + label "● Post-venta activa" (verde) o "🔒 Post-venta bloqueada" (gris)
+- **Click en fase** → selecciona la fase activa, filtra `TaskTable` a solo esa fase
+- **Badge de filtro activo** abajo con botón X para limpiar
+- Las fases bloqueadas no se pueden seleccionar (cursor: not-allowed)
+
+`ProjectDetail` ahora mantiene `activePhaseId` en state y se lo pasa a `PhaseTimeline` y a `TaskTable`. `TaskTable` filtra `sortedPhases` con `useMemo` basado en `activePhaseId`.
+
+#### Smoke test end-to-end (2026-04-10)
+
+Creé un proyecto de prueba desde cero usando el modal nuevo:
+- **Lead**: Casa Salame · Niz+Chauvet Arquitectos
+- **Cotización**: Casa Salame - Especiales (stage `contrato`, $5,150.61 MXN)
+- **Sistemas detectados en items**: Redes, Audio, CCTV
+- **Especialidad**: ESP
+
+Resultado en BD verificado via REST API:
+- 8 fases creadas (5 pre-venta + 3 post-venta)
+- **29 tareas** instanciadas (20 ESP + 9 postventa)
+- **203 subtasks** (156 con sistema + 47 planas)
+- 3 sistemas encontrados en subtasks: Redes, Audio, CCTV ✅
+- Multi-fase tasks confirmadas:
+  - `Sembrado` → 4 instancias (Conceptual, Diseño, Revisión, Ejecutivo) ✅
+  - `Diseños` → 4 instancias ✅
+  - `Especificación de Equipos` → 3 instancias (Diseño, Revisión, Ejecutivo) ✅
+  - `Memoria Técnica` → 3 instancias ✅
+
+**Validación visual en la UI**: abrí el ProjectDetail, expandí la tarea "Sembrado" en Conceptual, y confirmé que las subtareas están agrupadas en 3 mini-cards con los colores correctos de Audio (morado), CCTV (azul) y Redes (cyan). Cada card tiene su checklist de 3 default_subtasks (= 9 subs por task = 3 sistemas × 3 subtasks).
+
+**Post-venta auto-desbloqueo confirmado**: la cotización ligada está en stage `contrato`, así que al abrir el ProjectDetail, las 3 fases de postventa se marcaron `is_unlocked=true` automáticamente.
+
+#### Limpieza de datos en BD
+
+Durante el refactor quedaron proyectos basura en la BD. Se borraron via REST API (`DELETE /rest/v1/projects?id=eq.X`):
+
+| Proyecto borrado | Razón |
+|---|---|
+| 2× duplicados `Casa Salame — Especialidades` | Smoke test con doble-click |
+| `Reforma 222 Especiales` | Huérfano pre-refactor, sin lead, sin fases |
+| `Reforma 222` (ILU) | Huérfano pre-refactor |
+| `Oasis` | Intento de borrar → **409 Conflict** por FK desde otra tabla (probablemente payment_milestones o purchase_orders). **Se quedó en BD**. Sirve como test case del estado "proyecto sin fases" en la UI. |
+
+Estado final de la BD después de limpieza:
+- 3 proyectos (Casa Salame, Ventanas Sacal, Oasis)
+- 16 fases (2 proyectos válidos × 8)
+- 58 tareas (2 × 29)
+- 302 subtasks (2 × 151 aprox)
+
+#### Verificación y conteos pre-instanciación (post-migration 2.0)
+
+```
+phase_templates:       18  (5 esp + 5 ilum + 5 elec + 3 postventa)
+task_templates:        40  (10 esp + 11 ilum + 10 elec + 9 postventa)
+task_templates_multi_fase:     12  (4 esp + 2 ilum + 6 elec)
+task_templates_expand_by_sys:   5  (solo ESP: Sembrado, Diseños, Especificación, Memoria, Carpeta de Fichas)
+```
+
+#### Bugs/pendientes detectados en esta sesión
+
+1. **Doble-click en "Crear proyecto" crea duplicados** (edge case reproducible). Fix: marcar `saving=true` ANTES del await, no depender del re-render.
+2. **"Oasis" no se puede borrar por FK desde otra tabla** (409 Conflict). Hay que identificar qué tabla tiene la FK y o borrar la dependencia primero, o hacer la columna `ON DELETE SET NULL`.
+3. **Los proyectos pre-existentes sin lead_id siguen apareciendo en la vista** (Oasis). No tienen fases, muestran "Sin fases" en la card. Habría que un botón "Inicializar fases" o filtrar de la lista por `lead_id IS NOT NULL`.
+4. **El `client_name` del proyecto se llena con `lead.contact_name || lead.company || lead.name`**, pero lo ideal sería que si el lead tiene un `client_final` en su JSON notes (convención del CRM), usar ese como prioridad. Mejora menor.
+5. **Duplicados de proyectos con mismo nombre no se previenen**. La BD no tiene unique constraint. Podría ser deseable: "ya existe un proyecto 'Casa Salame — Especialidades' con el mismo lead + cotización, ¿quieres continuar?".
+
+#### Notas para futuras sesiones
+
+- **CORT y PROY**: siguen sin templates. Si Elias pide construir proyectos de cortinas o "proyecto genérico", habrá que definir sus fases/tareas con los equipos responsables.
+- **Editor de templates desde UI**: sigue pendiente de v1. Ahora con más datos reales tiene más sentido construirlo.
+- **Integración con Cotizaciones**: cuando se crea una cotización desde el módulo Cotizaciones, opcionalmente crear el proyecto ligado en un solo paso. Hoy es un flujo de 2 pasos separados.
+- **Botón "Inicializar fases" para proyectos pre-existentes**: necesario para curar Oasis y cualquier proyecto creado fuera del modal (por ejemplo desde Compras o Cotizaciones directamente).
+- **Commit siguiente con el flujo reverso**: cuando cambie el `specialty` de una cotización, el proyecto ligado podría avisar "esta cotización ahora es ILU pero tu proyecto es ESP, ¿quieres regenerarlo?".
+- **Guardar snapshot del "proyecto sin fases"** como test de regresión — cuando algún día tengamos tests automáticos, es un caso borde útil.
 
 ### (agregar siguiente sesión aquí)
 
