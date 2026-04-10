@@ -7,7 +7,8 @@ import {
   HardHat, Users, ClipboardList, Calendar, AlertTriangle, CheckCircle,
   Clock, ChevronRight, ArrowLeft, Plus, Upload, Camera, X, Eye,
   Wrench, Wifi, Volume2, Shield, Sun, MapPin, FileText, TrendingUp,
-  Loader2, MessageSquare, Lock, ChevronDown, Package
+  Loader2, MessageSquare, Lock, ChevronDown, Package,
+  Flame, Server, Phone, Radio, Blinds
 } from 'lucide-react'
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -16,7 +17,7 @@ import {
 
 type ObraStatus = 'entrega_pendiente' | 'en_ejecucion' | 'pausada' | 'completada'
 type ActividadStatus = 'pendiente' | 'en_progreso' | 'bloqueada' | 'completada'
-type Sistema = 'CCTV' | 'Audio' | 'Redes' | 'Control' | 'Acceso' | 'Electrico'
+type Sistema = 'CCTV' | 'Audio' | 'Redes' | 'Control' | 'Acceso' | 'Electrico' | 'Humo' | 'BMS' | 'Telefonia' | 'Celular' | 'Persianas'
 type Tab = 'obras' | 'instaladores' | 'planeacion'
 
 interface Instalador {
@@ -93,12 +94,17 @@ interface ObraData {
    ═══════════════════════════════════════════════════════════════════ */
 
 const SISTEMAS_CONFIG: Record<Sistema, { label: string; color: string; icon: typeof Wifi }> = {
-  CCTV:      { label: 'CCTV',          color: '#EF4444', icon: Shield },
-  Audio:     { label: 'Audio',         color: '#C084FC', icon: Volume2 },
-  Redes:     { label: 'Redes',         color: '#3B82F6', icon: Wifi },
-  Control:   { label: 'Control (Lutron)', color: '#F59E0B', icon: Sun },
-  Acceso:    { label: 'Control Acceso', color: '#06B6D4', icon: Lock },
-  Electrico: { label: 'Eléctrico',     color: '#FF6B35', icon: Wrench },
+  CCTV:       { label: 'CCTV',             color: '#EF4444', icon: Shield },
+  Audio:      { label: 'Audio',            color: '#C084FC', icon: Volume2 },
+  Redes:      { label: 'Redes',            color: '#3B82F6', icon: Wifi },
+  Control:    { label: 'Control (Lutron)', color: '#F59E0B', icon: Sun },
+  Acceso:     { label: 'Control Acceso',   color: '#06B6D4', icon: Lock },
+  Electrico:  { label: 'Eléctrico',        color: '#FF6B35', icon: Wrench },
+  Humo:       { label: 'Detección Humo',   color: '#DC2626', icon: Flame },
+  BMS:        { label: 'BMS',              color: '#14B8A6', icon: Server },
+  Telefonia:  { label: 'Telefonía',        color: '#8B5CF6', icon: Phone },
+  Celular:    { label: 'Red Celular',      color: '#EC4899', icon: Radio },
+  Persianas:  { label: 'Cortinas/Persianas', color: '#A855F7', icon: Blinds },
 }
 
 const STATUS_CONFIG: Record<ObraStatus, { label: string; color: string }> = {
@@ -806,7 +812,7 @@ Devuelve SOLO un JSON array, sin markdown:
       if (jsonMatch) {
         const parsed = JSON.parse(jsonMatch[0].replace(/```json|```/g, '').trim())
         if (Array.isArray(parsed) && parsed.length > 0) {
-          const validSistemas = ['CCTV', 'Audio', 'Redes', 'Control', 'Acceso', 'Electrico']
+          const validSistemas = ['CCTV', 'Audio', 'Redes', 'Control', 'Acceso', 'Electrico', 'Humo', 'BMS', 'Telefonia', 'Celular', 'Persianas']
           const payloads = parsed.map((t: any, i: number) => {
             let sistema = t.sistema || 'Redes'
             if (!validSistemas.includes(sistema)) {
