@@ -1102,6 +1102,143 @@ Refactor completo de `ObraDetail` y todos los `Sub*` para que persistan a Supaba
 4. **La bandeja de extras solo se llena desde el AI** en esta v1. Si quieres agregar extras manualmente (sin un reporte que los dispare), hay que hacerlo directo en Supabase por ahora. Flag para Commit siguiente: botón "Agregar extra manual" en SubExtras.
 5. **Generación de adendum** crea una cotización nueva que vas a ver en el módulo Cotizaciones con el badge `tipo_cotizacion='adendum'`. Puedes abrirla desde Cotizaciones y ajustar precios como cualquier otra.
 
+### Sesión Proyectos — Refactor completo a Supabase con modelo unificado por especialidad
+
+**Commits de esta sesión:**
+- `31eb2cb` · feat(obras): agregar sistemas faltantes Humo/BMS/Telefonia/Celular/Persianas
+- `8415f02` · feat(proyectos): SQL migration — tablas, enums, 18 fases template, 41 tareas template
+- `39326ec` · feat(proyectos): refactor completo a Supabase con modelo unificado
+
+**Problema que resolvió:** `Proyectos.tsx` era 100% mock data (`INITIAL_PROJECTS` hardcodeado con 5 proyectos). La tabla `projects` ya existía en Supabase y era usada por Cotizaciones/Compras/Dashboard, pero Proyectos la ignoraba. Además, los 3 equipos de diseño (Alfredo ESP / Juan Pablo ILU / Ricardo ELEC) tenían workflows completamente distintos que el mock forzaba al modelo ESP con sub-especialidades — razón por la cual Juan Pablo y Ricardo nunca usaron el ERP y hacían su seguimiento en herramientas externas.
+
+**Decisión arquitectónica clave: modelo unificado con templates por especialidad.** Todas las especialidades comparten la misma estructura de datos (`project_phases` + `project_tasks` + `project_task_subtasks`), pero cada una tiene su propio **catálogo de templates** (`project_phase_templates` + `project_task_templates`) que define sus fases y tareas default. Al crear un proyecto, se instancian los templates de su especialidad. Las **3 fases de postventa** (Suministro, Seguimiento de Obra, Cierre) son **universales** para los 3 equipos y se agregan a todos los proyectos con `is_unlocked=false` hasta que una cotización ligada al proyecto pasa a `stage='contrato'`, momento en que se desbloquean automáticamente.
+
+**Otra decisión crítica: un proyecto = una especialidad.** Aunque el schema de `projects` tiene `lines: text[]` (array), en la práctica siempre se usa con un solo elemento + se agregó columna `specialty` singular para queries más limpias. Un proyecto multi-línea (ej. "Reforma 222 ESP+ILU+ELEC") se modela como 3 proyectos separados con el mismo nombre base, porque los workflows son tan distintos que forzarlos en uno solo era inmanejable.
+
+**Tercera decisión: ESP plano con tag de sistema (Opción B).** El modelo viejo tenía "deliverables con sub-especialidades anidadas" (cada entregable de ESP se expandía en CCTV/Audio/Redes/etc. como sub-tareas), generando 30-50 checkboxes por proyecto. Lo eliminamos. Ahora los sistemas son un **tag por tarea** — cuando el proyecto es ESP aparece una columna adicional "Sistema" en la tabla donde asignas el sistema a cada tarea. Para ILU/ELEC esa columna no aparece porque no aplica.
+
+#### SQL Migration — archivo `supabase_proyectos_migration.sql` en el repo
+
+**3 columnas nuevas en `projects`:**
+- `specialty TEXT CHECK IN ('esp','elec','ilum','cort','proy')`
+- `area_lead_id UUID REFERENCES employees(id)` — líder del proyecto
+- `cotizacion_id UUID REFERENCES quotations(id)` — cotización principal ligada (para detectar contrato)
+- Backfill: `UPDATE projects SET specialty = lines[1]` para proyectos existentes
+
+**5 tablas nuevas:**
+1. `project_phase_templates` — catálogo de fases por especialidad. Columnas: `specialty` (esp/ilum/elec/cort/proy/**postventa**), `name`, `order_index`, `is_post_sale`, `activation_rule` (`'always'` o `'on_contract'`)
+2. `project_task_templates` — catálogo de tareas por fase. FK a `phase_template_id`, con `default_subtasks TEXT[]` que lista los checks pre-poblados
+3. `project_phases` — instancias por proyecto. FK a `project_id` y `template_id`. Campos `is_post_sale`, `is_unlocked` (false por default en postventa), `unlocked_at`
+4. `project_tasks` — tareas planas con `assignee_id`, `status` (pendiente/en_progreso/bloqueada/completada), `priority` (0-3), `progress` (0-100), `due_date`, `system` (nullable, solo ESP usa), `area` (sub-área del proyecto), `notes`
+5. `project_task_subtasks` — checklist por tarea con `text` y `completed`
+
+**Seed data — 18 fases template y 41 tareas template:**
+- **ESP** (5 fases, 10 tareas): Conceptual (3: Definición sistemas/Sembrado conceptual/Diseños conceptuales con 17 subtareas), Revisión Interna (1: Cotización), Revisión con Cliente (1: Entrega conceptual), Diseño Ejecutivo (4: Especificación/Sembrado ejecutivo/Memoria técnica/Carpeta fichas), Revisión Final (1: Entrega ejecutivo)
+- **ILU** (6 fases, 12 tareas — exactas del workflow de Juan Pablo): Conceptual (2: Presentación/Sembrado de iluminación), Revisión (1: Entrega conceptual), Diseño (1: Sembrado de control), Revisión 2 (1: Entrega de diseño), Ejecutivo (5: Sembrado BV/Plano colocación/Carpeta fichas técnicas/Propuesta decorativas/Cotización luminarias), Revisión 3 (2: Entrega Ejecutiva/Entrega física)
+- **ELEC** (4 fases, 10 tareas — exactas del workflow de Ricardo): Arranque de Proyecto (2: Recopilación planos/Plano referencia+base+tabla cálculos), Diseño de Instalaciones (6: Eléctrica Iluminación/Eléctrica Contactos/HVAC/Subestación MT-BT/Fotovoltaico/Emergencia), Revisión con Cliente (1: Revisión de planos), Entrega de Proyecto Ejecutivo (1: Entrega de planos)
+- **POSTVENTA** universal (3 fases, 9 tareas): Suministro (2: Órdenes de Compra/Entregas a Obra), Seguimiento de Obra (3: Visitas de Obra/Seguimiento de Cambios y Adendums/Reporte de Avance), Cierre (4: Entrega Formal/As-Built/Pruebas y Certificación/Liberación de Pagos Finales)
+
+**RLS abierto con anon** (consistente con resto del ERP). Índices en `project_id`, `phase_id`, `assignee_id`, `status`, `due_date`.
+
+**Cómo se ejecutó la migration:** desde la herramienta Claude in Chrome, fetch del raw de GitHub directamente al Monaco editor de Supabase SQL Editor, Cmd+Enter, confirmación del warning "destructive operations" (por los `DROP POLICY` y `DELETE FROM`). Verificación final con query que devuelve count de cada tabla: 18 phase_templates, 41 task_templates, 0 project_phases (vacía hasta crear proyectos), 0 project_tasks, 0 project_task_subtasks, 1 projects con specialty (el backfill).
+
+#### Refactor completo de `Proyectos.tsx` (~1270 líneas)
+
+El rewrite eliminó `INITIAL_PROJECTS` y reemplazó con carga real desde Supabase. 6 componentes principales:
+
+**1. `Proyectos` (main export):**
+- `useEffect` con `Promise.all` de 4 queries paralelas al montar: `projects`, `employees` (activos), `project_phases` (todas), `project_tasks` (solo columnas mínimas para calcular progreso)
+- Manejo de `loadError` con banner rojo visible
+- `useMemo` para `stats`: itera sobre las phases+tasks cargadas en memoria para calcular avance promedio, proyectos activos, tareas vencidas
+- Tabs de especialidad (TODAS/ESP/ILU/ELEC) con contador por cada una
+- 4 KpiBoxes
+- Filtro secundario de status (todos/activo/pausado/completado)
+- Grid de `ProjectCard` o `EmptyState` si está vacío
+
+**2. `ProjectCard`:**
+- Recibe `phases` y `tasks` del proyecto específico ya filtradas desde el parent
+- Calcula avance con `calcProjectProgress` (ignora fases bloqueadas y post-sale para el % visible)
+- Badge de especialidad a la izquierda del nombre
+- Muestra fase activa con `getActivePhase` (la primera no-100% de las desbloqueadas)
+- Si tiene postventa activa, badge verde pequeño "● Postventa"
+
+**3. `ProjectDetail`:**
+- `hydrate` async con `Promise.all` de phases + tasks, luego `in(task_ids)` para subtasks
+- Verifica cotización ligada: prioriza `project.cotizacion_id`, fallback a buscar en `quotations WHERE project_id = ...`
+- `useEffect` separado que detecta `hasContractedQuote === true` + fases postventa bloqueadas → llama a `unlockPostSale` que hace `update({is_unlocked: true}).in('id', lockedIds)`
+- Tabs: Tareas por fase / Documentación técnica
+- Header con badge de especialidad, nombre, líder del área, progreso total, status
+
+**4. `PhaseTimeline`:**
+- Render horizontal de todas las fases ordenadas
+- Fases desbloqueadas en color (verde si 100%, azul si >0%, gris si 0%)
+- Fases bloqueadas con icono de candado, opacidad 0.6, fondo gris oscuro
+- Badge % en cada fase desbloqueada
+- Mensaje informativo abajo si hay fases postventa bloqueadas: "Las fases de postventa se activan automáticamente cuando una cotización ligada al proyecto pasa a 'contrato'"
+
+**5. `TaskTable` (vista plana estilo Juan Pablo/Ricardo):**
+- Agrupa tareas por fase. Cada grupo tiene header con nombre de la fase + contador de tareas + % avance + botón "+ Tarea"
+- Fases bloqueadas aparecen con opacity 0.5 y no permiten crear tareas
+- Cada fila de tarea: ChevronDown para expandir, nombre + badge AlertCircle si está vencida, contador de subtareas, fecha límite, dropdown de sistema (**solo ESP**), dropdown de asignado, 3 estrellas de prioridad, barra de progreso + %, dropdown de status, botón delete
+- Expand muestra: input de fecha límite + lista de subtareas con checkbox (toggle actualiza progress de la tarea automáticamente y status en cascada) + delete por subtarea + input inline para agregar nueva con Enter
+- Crear nueva tarea con formulario inline de 5 columnas en el header de la fase
+- Todos los cambios (status, asignee, priority, due_date, system) hacen update inmediato a Supabase vía `supabase.from('project_tasks').update(...)`
+- Subtask toggle recalcula progress = (done/total*100) y ajusta status automáticamente: pendiente si 0%, en_progreso si 1-99%, completada si 100%
+
+**6. `NewProjectModal`:**
+- Campos: nombre, cliente, especialidad (botones visuales ESP/ILU/ELEC con nombre del líder), líder del proyecto (opcional, dropdown de employees), cotización ligada (opcional, filtrada por especialidad)
+- Al crear: ejecuta 4-5 queries secuenciales:
+  1. Insert en `projects` con `specialty` + `lines: [specialty]` + `area_lead_id` + `cotizacion_id`
+  2. Fetch `project_phase_templates` WHERE specialty IN (seleccionada, 'postventa')
+  3. Insert bulk en `project_phases` mapeando cada template → fase del proyecto con `is_unlocked = !is_post_sale`
+  4. Fetch `project_task_templates` WHERE phase_template_id IN (templates cargados)
+  5. Insert bulk en `project_tasks` mapeando cada template a la fase recién creada (vía template_id)
+  6. Insert bulk en `project_task_subtasks` con los `default_subtasks` de cada template
+
+**7. `ProjectDocumentosTab`:**
+- Heredado del commit anterior, sin cambios funcionales. CRUD de `obra_documentos` filtrado por `project_id`.
+
+**Helpers de cálculo:**
+- `calcPhaseProgress(tasks)`: promedio del `progress` de las tareas de esa fase
+- `calcProjectProgress(phases, tasks)`: promedio de las fases **desbloqueadas y no post-sale** (para no contar las fases bloqueadas en el 0%)
+- `getActivePhase(phases, tasks)`: la primera fase desbloqueada con progress < 100%
+
+**Decisiones de diseño:**
+- **Sin migración del mock viejo.** Los 5 proyectos de `INITIAL_PROJECTS` (Oasis 6, Reforma 222, etc.) no se preservan. Empiezas con base limpia y creas los reales con el modal.
+- **Retrocompatibilidad con Cotizaciones/Compras**: como `lines` sigue existiendo como array, los módulos que la usan (Cotizaciones con `eq('status', 'activo')`, Compras con `order('name')`) siguen funcionando sin cambios.
+- **Sin botón manual de activación de postventa**: el trigger es automático vía `useEffect` al detectar `hasContractedQuote`. Si en el futuro hay edge cases (ej. activación forzada sin contrato), se puede agregar un botón manual.
+- **`system` en ESP es editable post-creación**: las tareas template se crean sin sistema asignado, el usuario elige cuál sistema le corresponde a cada tarea desde la UI con el dropdown.
+
+#### Smoke test funcional
+
+Verificado en producción con captura de screenshot:
+- ✅ `/proyectos` renderiza sin errores
+- ✅ KPIs cargados con datos reales (2 proyectos activos)
+- ✅ 2 proyectos visibles: "Reforma 222" (ILU) y "Oasis" (ESP — el que había existido antes del rewrite)
+- ✅ Click en "Reforma 222" abre ProjectDetail con:
+  - Header correcto: badge ILU, título, "Niz+Chauvet · Creado 9 abr 2026 · Líder: Juan Pablo"
+  - 9 fases en la timeline: **las 6 de ILU activas** (Conceptual/Revisión/Diseño/Revisión 2/Ejecutivo/Revisión 3) + **3 postventa con candado** (Suministro/Seguimiento de Obra/Cierre)
+  - Banner informativo de postventa visible
+  - Tabs funcionando
+  - TaskTable con las 12 tareas template instanciadas correctamente, agrupadas por fase:
+    - Conceptual (2): Presentación + Sembrado de iluminación
+    - Revisión (1): Entrega conceptual
+    - Diseño (1): Sembrado de control
+    - Revisión 2, Ejecutivo, Revisión 3 también presentes con sus respectivas tareas
+  - Cada tarea muestra contador de subtareas ("0/3", "0/2"), dropdowns de sistema/asignado/estado, 3 estrellas de prioridad, barra de progreso
+
+**El proyecto "Oasis" mostraba "Sin fases"** porque fue creado ANTES del refactor (desde el módulo Cotizaciones que llama a `supabase.from('projects').insert(...)` sin instanciar templates). Es el comportamiento esperado — solo los proyectos creados con el nuevo modal de Proyectos tienen fases/tareas auto-instanciadas. Para "curar" proyectos pre-existentes habría que agregar un botón "Inicializar fases" que ejecute la lógica del modal sobre un projecto existente — futura sesión si es necesario.
+
+#### Pendientes para futuras sesiones
+
+- **Botón "Inicializar fases" para proyectos pre-existentes** sin fases (como "Oasis")
+- **CORT y PROY**: las 2 especialidades faltantes. Necesitan brain-dump de entregables de los equipos responsables antes de definir sus templates.
+- **Editor de templates desde UI**: el botón "Templates" existía en el mock pero no estaba conectado. Ahora con datos reales, se puede construir una pantalla que permita editar `project_phase_templates` y `project_task_templates` desde la UI en vez de SQL.
+- **Integración con el cotizador**: cuando una cotización ESP/ILU/ELEC se crea desde Cotizaciones, debería opcionalmente crear también un proyecto ligado (con un checkbox en el modal de Cotizaciones "Crear proyecto en Proyectos"). Hoy tienes que crear las 2 cosas por separado.
+- **Drag & drop de tareas entre fases** (estilo kanban). Útil para el workflow original de Juan Pablo donde "movía" una tarea de fase en fase.
+- **Filtro/vista por asignado**: mostrar "mis tareas" filtrando por `assignee_id = usuario_actual`. Requiere saber quién es el usuario, que hoy no está implementado.
+- **Notificaciones de tareas vencidas**: el KPI ya las cuenta, pero no hay alertas. Podría ser un badge en el sidebar.
+
 ### (agregar siguiente sesión aquí)
 
 ---
