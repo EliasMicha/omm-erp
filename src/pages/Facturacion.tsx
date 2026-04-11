@@ -386,6 +386,8 @@ function ListaTodas() {
   const [syncProgress, setSyncProgress] = useState<string>('')
   const [search, setSearch] = useState('')
   const [detalleFactura, setDetalleFactura] = useState<Factura | null>(null)
+  const [detalleConceptos, setDetalleConceptos] = useState<any[]>([])
+  const [loadingDetalle, setLoadingDetalle] = useState(false)
   // Navegacion mensual
   const [monthOffset, setMonthOffset] = useState(0)
   const now = new Date()
@@ -406,6 +408,27 @@ function ListaTodas() {
     const { data } = await supabase.from('facturas').select('*').order('fecha_emision', { ascending: false }).limit(2000)
     setFacturas((data as Factura[]) || [])
     setLoading(false)
+  }
+
+  async function abrirDetalle(f: Factura) {
+    setDetalleFactura(f)
+    setLoadingDetalle(true)
+    setDetalleConceptos([])
+    const { data } = await supabase.from('factura_conceptos').select('*').eq('factura_id', f.id).order('order_index', { ascending: true })
+    setDetalleConceptos((data as any[]) || [])
+    setLoadingDetalle(false)
+  }
+
+  function descargarPdf(f: Factura) {
+    if (!f.facturapi_id) { alert('Sin ID FacturAPI'); return }
+    const m = (f as any).sandbox ? 'test' : 'live'
+    window.open('/api/facturapi?action=download_pdf&mode=' + m + '&id=' + encodeURIComponent(f.facturapi_id), '_blank')
+  }
+
+  function descargarXml(f: Factura) {
+    if (!f.facturapi_id) { alert('Sin ID FacturAPI'); return }
+    const m = (f as any).sandbox ? 'test' : 'live'
+    window.open('/api/facturapi?action=download_xml&mode=' + m + '&id=' + encodeURIComponent(f.facturapi_id), '_blank')
   }
 
   useEffect(() => { load() }, [])
@@ -612,7 +635,7 @@ function ListaTodas() {
                 const contraparte = isEmit ? f.receptor_nombre : f.emisor_nombre
                 const contraparteRfc = isEmit ? f.receptor_rfc : f.emisor_rfc
                 return (
-                  <tr key={f.id} onClick={() => setDetalleFactura(f)} style={{ borderBottom: '1px solid #1a1a1a', cursor: 'pointer' }}>
+                  <tr key={f.id} onClick={() => abrirDetalle(f)} style={{ borderBottom: '1px solid #1a1a1a', cursor: 'pointer' }}>
                     <td style={{ padding: '10px 14px' }}>
                       <span style={{ padding: '2px 8px', borderRadius: 4, fontSize: 9, fontWeight: 700, letterSpacing: '0.05em', background: isEmit ? 'rgba(87,255,154,0.15)' : 'rgba(251,191,36,0.12)', color: isEmit ? '#57FF9A' : '#fcd34d' }}>{isEmit ? 'EMI' : 'REC'}</span>
                     </td>
@@ -632,17 +655,68 @@ function ListaTodas() {
         </div>
       )}
 
-      {detalleFactura ? <DetalleModal factura={detalleFactura} onClose={() => setDetalleFactura(null)} /> : null}
+      {detalleFactura ? (
+        <DetalleModal
+          factura={detalleFactura}
+          conceptos={detalleConceptos}
+          loading={loadingDetalle}
+          onClose={() => setDetalleFactura(null)}
+          onPdf={() => descargarPdf(detalleFactura)}
+          onXml={() => descargarXml(detalleFactura)}
+        />
+      ) : null}
     </div>
   )
 }
 
-// Modal MINIMO
-function DetalleModal(props: { factura: Factura; onClose: () => void }) {
+function DetalleModal(props: { factura: Factura; conceptos: any[]; loading: boolean; onClose: () => void; onPdf: () => void; onXml: () => void }) {
+  const f = props.factura
+  const fAny = f as any
+  const isEmit = f.direccion === 'emitida'
+  const dirLabel = isEmit ? 'EMITIDA' : 'RECIBIDA'
+  const dirColor = isEmit ? '#57FF9A' : '#fcd34d'
+  const subtotalNum = Number(f.subtotal) || 0
+  const totalNum = Number(f.total) || 0
+  const ivaNum = Number(fAny.iva) || 0
+  const hasFacturapiId = !!f.facturapi_id
   return (
-    <div onClick={props.onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 }}>
-      <div style={{ background: '#0a0a0a', padding: 20, borderRadius: 8, color: '#fff' }}>
-        Factura: {props.factura.folio || props.factura.uuid_fiscal}
+    <div onClick={props.onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: 40, zIndex: 100, overflowY: 'auto' as const }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: '#0a0a0a', border: '1px solid #2a2a2a', borderRadius: 12, maxWidth: 900, width: '100%', padding: 24, color: '#ddd' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <div>
+            <span style={{ padding: '3px 10px', borderRadius: 4, fontSize: 10, fontWeight: 700, background: '#1e1e1e', color: dirColor }}>{dirLabel}</span>
+            <span style={{ marginLeft: 8, fontSize: 14, color: '#fff' }}>{f.serie || ''}{f.folio || '--'}</span>
+          </div>
+          <button onClick={props.onClose} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', fontSize: 20 }}>X</button>
+        </div>
+        <div style={{ marginBottom: 16, fontSize: 12 }}>
+          <div style={{ color: '#888' }}>UUID: <span style={{ fontFamily: 'monospace', color: '#ccc' }}>{f.uuid_fiscal || '--'}</span></div>
+          <div style={{ marginTop: 6, color: '#888' }}>Emisor: <span style={{ color: '#fff' }}>{f.emisor_nombre}</span> ({f.emisor_rfc})</div>
+          <div style={{ color: '#888' }}>Receptor: <span style={{ color: '#fff' }}>{f.receptor_nombre}</span> ({f.receptor_rfc})</div>
+        </div>
+        <div style={{ background: '#0e0e0e', padding: 12, borderRadius: 8, marginBottom: 16, fontSize: 12 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', color: '#888' }}>
+            <span>Subtotal:</span>
+            <span>${subtotalNum.toLocaleString('es-MX', { minimumFractionDigits: 2 })} {f.moneda}</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', color: '#888' }}>
+            <span>IVA:</span>
+            <span>${ivaNum.toLocaleString('es-MX', { minimumFractionDigits: 2 })} {f.moneda}</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', color: '#fff', fontWeight: 700, marginTop: 6, paddingTop: 6, borderTop: '1px solid #1e1e1e' }}>
+            <span>Total:</span>
+            <span style={{ color: dirColor }}>${totalNum.toLocaleString('es-MX', { minimumFractionDigits: 2 })} {f.moneda}</span>
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          {hasFacturapiId ? (
+            <button onClick={props.onPdf} style={{ padding: '8px 14px', background: '#1e1e1e', border: '1px solid #2a2a2a', borderRadius: 8, color: '#a78bfa', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>Descargar PDF</button>
+          ) : null}
+          {hasFacturapiId ? (
+            <button onClick={props.onXml} style={{ padding: '8px 14px', background: '#1e1e1e', border: '1px solid #2a2a2a', borderRadius: 8, color: '#60a5fa', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>Descargar XML</button>
+          ) : null}
+          <button onClick={props.onClose} style={{ padding: '8px 14px', background: '#57FF9A', border: 'none', borderRadius: 8, color: '#000', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>Cerrar</button>
+        </div>
       </div>
     </div>
   )
