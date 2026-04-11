@@ -143,7 +143,7 @@ async function callFacturapi(action: string, opts: { method?: string; query?: Re
 // Componente principal
 // ============================================================
 export default function Facturacion() {
-  const [view, setView] = useState<'lista' | 'nueva' | 'recibidas'>('lista')
+  const [view, setView] = useState<'todas' | 'lista' | 'nueva' | 'recibidas'>('todas')
   const [pingStatus, setPingStatus] = useState<'idle' | 'ok' | 'error'>('idle')
   // FacturAPI mode (Sesion B)
   const [facturapiMode, setFacturapiMode] = useState<'test' | 'live'>('live')
@@ -250,21 +250,268 @@ export default function Facturacion() {
       )}
 
       <div style={{ display: 'flex', gap: 6, marginBottom: 20, borderBottom: '1px solid #1e1e1e' }}>
-        {(['lista', 'recibidas'] as const).map(v => (
+        {(['todas', 'lista', 'recibidas'] as const).map(v => (
           <button key={v} onClick={() => setView(v)} style={{
             padding: '10px 18px', background: 'transparent',
             border: 'none', borderBottom: `2px solid ${view === v ? '#57FF9A' : 'transparent'}`,
             color: view === v ? '#fff' : '#666', fontSize: 13, fontWeight: 600,
             cursor: 'pointer', fontFamily: 'inherit'
           }}>
-            {v === 'lista' ? 'Emitidas' : 'Recibidas'}
+            {v === 'todas' ? 'Todas' : v === 'lista' ? 'Emitidas' : 'Recibidas'}
           </button>
         ))}
       </div>
 
+      {view === 'todas' && <ListaTodas />}
       {view === 'lista' && <ListaEmitidas onNueva={() => setView('nueva')} />}
       {view === 'nueva' && <NuevaFactura onCancel={() => setView('lista')} onCreated={() => setView('lista')} />}
       {view === 'recibidas' && <ListaRecibidas />}
+    </div>
+  )
+}
+
+// ============================================================
+// Lista de TODAS las facturas (emitidas + recibidas) con sync unificado
+// ============================================================
+function ListaTodas() {
+  const [facturas, setFacturas] = useState<Factura[]>([])
+  const [loading, setLoading] = useState(true)
+  const [syncing, setSyncing] = useState(false)
+  const [syncProgress, setSyncProgress] = useState<string>('')
+  const [search, setSearch] = useState('')
+  // Navegacion mensual
+  const [monthOffset, setMonthOffset] = useState(0)
+  const now = new Date()
+  const monthDate = new Date(now.getFullYear(), now.getMonth() + monthOffset, 1)
+  const monthStart = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1)
+  const monthEnd = new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 0, 23, 59, 59, 999)
+  const monthLabel = monthDate.toLocaleDateString('es-MX', { month: 'long', year: 'numeric' })
+  const monthLabelCapitalized = monthLabel.charAt(0).toUpperCase() + monthLabel.slice(1)
+  const inSelectedMonth = (fechaStr: string | null | undefined) => {
+    if (!fechaStr) return false
+    const d = new Date(fechaStr)
+    if (isNaN(d.getTime())) return false
+    return d >= monthStart && d <= monthEnd
+  }
+
+  async function load() {
+    setLoading(true)
+    const { data } = await supabase.from('facturas').select('*').order('fecha_emision', { ascending: false }).limit(2000)
+    setFacturas((data as Factura[]) || [])
+    setLoading(false)
+  }
+
+  useEffect(() => { load() }, [])
+
+  // SYNC UNIFICADO: emitidas + recibidas en serie, con paginacion completa
+  async function sincronizarTodo() {
+    setSyncing(true)
+    let totalEmit = 0, errEmit = 0, totalRec = 0, errRec = 0
+    const maxPages = 60
+
+    // PASO 1: Emitidas (sin filtro issuer_type = default issuing)
+    setSyncProgress('Sincronizando emitidas... pagina 1')
+    let page = 1
+    while (page <= maxPages) {
+      setSyncProgress('Sincronizando emitidas... pagina ' + page)
+      const r = await callFacturapi('list_invoices', { query: { limit: '50', page: String(page) } })
+      if (!r.ok || !r.data?.data || r.data.data.length === 0) break
+      for (const inv of r.data.data) {
+        const amounts = computeAmounts(inv)
+        const payload: any = {
+          direccion: 'emitida',
+          facturapi_id: inv.id,
+          uuid_fiscal: inv.uuid || null,
+          serie: inv.series || null,
+          folio: inv.folio_number ? String(inv.folio_number) : null,
+          status: inv.status === 'valid' ? 'timbrada' : inv.status === 'canceled' ? 'cancelada' : 'borrador',
+          fecha_emision: inv.date || null,
+          fecha_timbrado: inv.stamp?.date || null,
+          emisor_rfc: 'OTE210910PW5',
+          emisor_nombre: 'OMM Technologies SA de CV',
+          emisor_regimen_fiscal: '601',
+          receptor_rfc: inv.customer?.tax_id || null,
+          receptor_nombre: inv.customer?.legal_name || null,
+          receptor_regimen_fiscal: inv.customer?.tax_system || null,
+          receptor_codigo_postal: inv.customer?.address?.zip || null,
+          receptor_uso_cfdi: inv.use || null,
+          subtotal: amounts.subtotal,
+          iva: amounts.iva,
+          total: amounts.total,
+          moneda: inv.currency || 'MXN',
+          forma_pago: inv.payment_form || null,
+          metodo_pago: inv.payment_method || null,
+          tipo_comprobante: inv.type || 'I',
+          sandbox: getCurrentFacturapiMode() === 'test',
+        }
+        try {
+          const { data: existing } = await supabase.from('facturas').select('id').eq('facturapi_id', inv.id).maybeSingle()
+          if (existing) {
+            const { error } = await supabase.from('facturas').update(payload).eq('id', (existing as any).id)
+            if (error) errEmit++; else totalEmit++
+          } else {
+            const { error } = await supabase.from('facturas').insert(payload)
+            if (error) errEmit++; else totalEmit++
+          }
+        } catch { errEmit++ }
+      }
+      if (r.data.data.length < 50) break
+      page++
+    }
+
+    // PASO 2: Recibidas (issuer_type=receiving)
+    setSyncProgress('Sincronizando recibidas... pagina 1')
+    page = 1
+    while (page <= maxPages) {
+      setSyncProgress('Sincronizando recibidas... pagina ' + page)
+      const r = await callFacturapi('list_invoices', { query: { limit: '50', page: String(page), issuer_type: 'receiving' } })
+      if (!r.ok || !r.data?.data || r.data.data.length === 0) break
+      for (const inv of r.data.data) {
+        const amounts = computeAmounts(inv)
+        const payload: any = {
+          direccion: 'recibida',
+          facturapi_id: inv.id,
+          uuid_fiscal: inv.uuid || null,
+          serie: inv.series || null,
+          folio: inv.folio_number ? String(inv.folio_number) : null,
+          status: inv.status === 'valid' ? 'timbrada' : inv.status === 'canceled' ? 'cancelada' : 'borrador',
+          fecha_emision: inv.date || null,
+          fecha_timbrado: inv.stamp?.date || null,
+          emisor_rfc: inv.issuer_info?.tax_id || 'XAXX010101000',
+          emisor_nombre: inv.issuer_info?.legal_name || 'Sin nombre',
+          emisor_regimen_fiscal: inv.issuer_info?.tax_system || null,
+          receptor_rfc: inv.customer?.tax_id || 'OTE210910PW5',
+          receptor_nombre: inv.customer?.legal_name || 'OMM Technologies SA de CV',
+          receptor_regimen_fiscal: inv.customer?.tax_system || null,
+          receptor_uso_cfdi: inv.use || null,
+          receptor_codigo_postal: inv.customer?.address?.zip || inv.address?.zip || null,
+          subtotal: amounts.subtotal,
+          iva: amounts.iva,
+          total: amounts.total,
+          moneda: inv.currency || 'MXN',
+          forma_pago: inv.payment_form || null,
+          metodo_pago: inv.payment_method || null,
+          tipo_comprobante: inv.type || 'I',
+          sandbox: getCurrentFacturapiMode() === 'test',
+        }
+        try {
+          const { data: existing } = await supabase.from('facturas').select('id').eq('facturapi_id', inv.id).maybeSingle()
+          if (existing) {
+            const { error } = await supabase.from('facturas').update(payload).eq('id', (existing as any).id)
+            if (error) errRec++; else totalRec++
+          } else {
+            const { error } = await supabase.from('facturas').insert(payload)
+            if (error) errRec++; else totalRec++
+          }
+        } catch { errRec++ }
+      }
+      if (r.data.data.length < 50) break
+      page++
+    }
+
+    setSyncProgress('')
+    await load()
+    setSyncing(false)
+    const errMsg = (errEmit + errRec) > 0 ? ' (' + (errEmit + errRec) + ' errores)' : ''
+    alert('Sincronizacion completa: ' + totalEmit + ' emitidas + ' + totalRec + ' recibidas = ' + (totalEmit + totalRec) + ' facturas' + errMsg)
+  }
+
+  // Filtrar por mes y luego por busqueda
+  const facturasMes = facturas.filter(f => inSelectedMonth(f.fecha_emision))
+  const cntEmit = facturasMes.filter(f => f.direccion === 'emitida').length
+  const cntRec = facturasMes.filter(f => f.direccion === 'recibida').length
+  const filtered = facturasMes.filter(f => {
+    if (!search) return true
+    const q = search.toLowerCase()
+    const contraparte = f.direccion === 'emitida' ? f.receptor_nombre : f.emisor_nombre
+    const contraparteRfc = f.direccion === 'emitida' ? f.receptor_rfc : f.emisor_rfc
+    return (contraparte || '').toLowerCase().includes(q) ||
+      (contraparteRfc || '').toLowerCase().includes(q) ||
+      (f.uuid_fiscal || '').toLowerCase().includes(q) ||
+      (f.folio || '').toLowerCase().includes(q)
+  })
+
+  return (
+    <div>
+      {/* Navegador mensual con contador desglosado */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, padding: '10px 14px', background: '#141414', border: '1px solid #222', borderRadius: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <button onClick={() => setMonthOffset(monthOffset - 1)} style={{ padding: '6px 10px', fontSize: 12, background: '#1a1a1a', border: '1px solid #333', borderRadius: 6, color: '#ccc', cursor: 'pointer', fontFamily: 'inherit' }}>◀ Mes anterior</button>
+          <span style={{ fontSize: 14, fontWeight: 600, color: '#fff', minWidth: 160, textAlign: 'center' as const }}>{monthLabelCapitalized}</span>
+          <button onClick={() => setMonthOffset(monthOffset + 1)} style={{ padding: '6px 10px', fontSize: 12, background: '#1a1a1a', border: '1px solid #333', borderRadius: 6, color: '#ccc', cursor: 'pointer', fontFamily: 'inherit' }}>Mes siguiente ▶</button>
+          {monthOffset !== 0 && (
+            <button onClick={() => setMonthOffset(0)} style={{ padding: '6px 10px', fontSize: 11, background: 'rgba(87,255,154,0.08)', border: '1px solid rgba(87,255,154,0.3)', borderRadius: 6, color: '#57FF9A', cursor: 'pointer', fontFamily: 'inherit' }}>Hoy</button>
+          )}
+        </div>
+        <div style={{ fontSize: 11, color: '#888' }}>
+          <span style={{ color: '#ccc', fontWeight: 600 }}>{facturasMes.length}</span> factura{facturasMes.length !== 1 ? 's' : ''} en {monthLabelCapitalized}
+          <span style={{ color: '#666' }}> ({cntEmit} emit + {cntRec} rec)</span>
+        </div>
+      </div>
+
+      {/* Search bar + boton sync unificado */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16, alignItems: 'center' }}>
+        <div style={{ position: 'relative', flex: 1, maxWidth: 360 }}>
+          <Search size={14} style={{ position: 'absolute', left: 10, top: 10, color: '#555' }} />
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar por contraparte, RFC, UUID o folio..." style={{ width: '100%', padding: '8px 12px 8px 32px', background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 8, color: '#fff', fontSize: 13, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' as const }} />
+        </div>
+        <button onClick={sincronizarTodo} disabled={syncing} style={{ padding: '10px 16px', background: syncing ? '#1e1e1e' : '#57FF9A', color: syncing ? '#888' : '#000', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: syncing ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'inherit' }}>
+          {syncing ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <RefreshCw size={13} />}
+          {syncing ? 'Sincronizando...' : 'Sincronizar TODO con FacturAPI'}
+        </button>
+      </div>
+
+      {/* Barra de progreso del sync */}
+      {syncing && syncProgress && (
+        <div style={{ marginBottom: 16, padding: '10px 14px', background: 'rgba(87,255,154,0.06)', border: '1px solid rgba(87,255,154,0.3)', borderRadius: 8, fontSize: 12, color: '#57FF9A', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} />
+          {syncProgress}
+        </div>
+      )}
+
+      {loading ? (
+        <div style={{ padding: 40, textAlign: 'center' as const, color: '#555' }}>Cargando...</div>
+      ) : filtered.length === 0 ? (
+        <div style={{ padding: 60, textAlign: 'center' as const, color: '#555', background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 12 }}>
+          <FileText size={32} style={{ color: '#333', marginBottom: 12 }} />
+          <div style={{ fontSize: 14, marginBottom: 6 }}>{search ? 'Sin resultados' : 'No hay facturas en ' + monthLabelCapitalized}</div>
+          <div style={{ fontSize: 12, color: '#444' }}>Da click en "Sincronizar TODO con FacturAPI" para traer las facturas del SAT</div>
+        </div>
+      ) : (
+        <div style={{ background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 12, overflow: 'hidden' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse' as const }}>
+            <thead>
+              <tr style={{ background: '#141414', borderBottom: '1px solid #1e1e1e' }}>
+                {['Dir', 'Folio', 'Fecha', 'Contraparte', 'RFC', 'Total', 'Status'].map(h => (
+                  <th key={h} style={{ padding: '10px 14px', fontSize: 10, fontWeight: 600, color: '#666', textTransform: 'uppercase' as const, letterSpacing: '0.06em', textAlign: 'left' as const }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map(f => {
+                const isEmit = f.direccion === 'emitida'
+                const contraparte = isEmit ? f.receptor_nombre : f.emisor_nombre
+                const contraparteRfc = isEmit ? f.receptor_rfc : f.emisor_rfc
+                return (
+                  <tr key={f.id} style={{ borderBottom: '1px solid #1a1a1a' }}>
+                    <td style={{ padding: '10px 14px' }}>
+                      <span style={{ padding: '2px 8px', borderRadius: 4, fontSize: 9, fontWeight: 700, letterSpacing: '0.05em', background: isEmit ? 'rgba(87,255,154,0.15)' : 'rgba(251,191,36,0.12)', color: isEmit ? '#57FF9A' : '#fcd34d' }}>{isEmit ? 'EMI' : 'REC'}</span>
+                    </td>
+                    <td style={{ padding: '10px 14px', fontSize: 12, color: '#ccc', fontFamily: 'monospace' }}>{f.serie || ''}{f.folio || '--'}</td>
+                    <td style={{ padding: '10px 14px', fontSize: 11, color: '#888' }}>{f.fecha_emision ? new Date(f.fecha_emision).toLocaleDateString() : '--'}</td>
+                    <td style={{ padding: '10px 14px', fontSize: 12, color: '#ddd' }}>{contraparte || '--'}</td>
+                    <td style={{ padding: '10px 14px', fontSize: 11, color: '#888', fontFamily: 'monospace' }}>{contraparteRfc || '--'}</td>
+                    <td style={{ padding: '10px 14px', fontSize: 12, color: isEmit ? '#57FF9A' : '#fcd34d', fontWeight: 600, textAlign: 'right' as const }}>${(f.total || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })} {f.moneda}</td>
+                    <td style={{ padding: '10px 14px' }}>
+                      <span style={{ padding: '2px 8px', borderRadius: 10, fontSize: 10, fontWeight: 600, background: f.status === 'timbrada' ? '#57FF9A22' : f.status === 'cancelada' ? '#EF444422' : '#F59E0B22', color: f.status === 'timbrada' ? '#57FF9A' : f.status === 'cancelada' ? '#EF4444' : '#F59E0B' }}>{f.status}</span>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   )
 }
@@ -310,8 +557,12 @@ function ListaEmitidas({ onNueva }: { onNueva: () => void }) {
 
   async function sincronizar() {
     setSyncing(true)
-    const r = await callFacturapi('list_invoices', { query: { limit: '50' } })
-    if (r.ok && r.data?.data) {
+    let totalImported = 0, totalErrors = 0
+    let page = 1
+    const maxPages = 60
+    while (page <= maxPages) {
+      const r = await callFacturapi('list_invoices', { query: { limit: '50', page: String(page) } })
+      if (!r.ok || !r.data?.data || r.data.data.length === 0) break
       for (const inv of r.data.data) {
         const amounts = computeAmounts(inv)
         const payload: any = {
@@ -342,18 +593,27 @@ function ListaEmitidas({ onNueva }: { onNueva: () => void }) {
           tipo_comprobante: inv.type || 'I',
           sandbox: getCurrentFacturapiMode() === 'test',
         }
-        const { data: existing } = await supabase.from('facturas').select('id').eq('facturapi_id', inv.id).maybeSingle()
-        if (existing) {
-          await supabase.from('facturas').update(payload).eq('id', (existing as any).id)
-        } else {
-          await supabase.from('facturas').insert(payload)
-        }
+        try {
+          const { data: existing } = await supabase.from('facturas').select('id').eq('facturapi_id', inv.id).maybeSingle()
+          if (existing) {
+            const { error } = await supabase.from('facturas').update(payload).eq('id', (existing as any).id)
+            if (error) totalErrors++; else totalImported++
+          } else {
+            const { error } = await supabase.from('facturas').insert(payload)
+            if (error) totalErrors++; else totalImported++
+          }
+        } catch { totalErrors++ }
       }
-      await load()
-    } else {
-      alert('Error al sincronizar: ' + (r.data?.message || 'desconocido'))
+      if (r.data.data.length < 50) break
+      page++
     }
+    await load()
     setSyncing(false)
+    if (totalErrors > 0) {
+      alert('Sincronizacion completada: ' + totalImported + ' facturas, ' + totalErrors + ' errores')
+    } else if (totalImported > 0) {
+      alert('Sincronizacion completada: ' + totalImported + ' facturas emitidas importadas')
+    }
   }
 
   async function eliminarLocal(f: Factura) {
