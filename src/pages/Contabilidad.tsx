@@ -1176,6 +1176,13 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
     if (fileRef.current) fileRef.current.value = ''
   }
 
+  /* --- Conciliacion v2: filtros y derivados por cuenta activa (tiene que ir ANTES de filtered) --- */
+  const activeAcc = ACCOUNTS[activeAccount]
+  const movsCuenta = bankMovements.filter(m => m.banco === activeAcc.banco && (m.moneda || 'MXN') === activeAcc.moneda)
+  const cargosCuenta = movsCuenta.filter(m => m.tipo === 'cargo').reduce((s, m) => s + m.monto, 0)
+  const abonosCuenta = movsCuenta.filter(m => m.tipo === 'abono').reduce((s, m) => s + m.monto, 0)
+  const conciliadosCuenta = movsCuenta.filter(m => m.conciliado).length
+
   /* --- Selection helpers --- */
   // Conciliacion v2: filtrar PRIMERO por cuenta activa, luego por estado
   const filtered = bankMovements
@@ -1325,13 +1332,6 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
 
   const catColors: Record<string, string> = { nomina: '#C084FC', proveedor: '#F59E0B', cobro_cliente: '#57FF9A', impuestos: '#EF4444', comision: '#6B7280', traspaso: '#3B82F6', prestamo: '#06B6D4', suscripcion: '#EC4899', otro: '#555' }
   const chkStyle: React.CSSProperties = { width: 15, height: 15, accentColor: '#57FF9A', cursor: 'pointer' }
-
-  // Filtro por cuenta activa
-  const activeAcc = ACCOUNTS[activeAccount]
-  const movsCuenta = bankMovements.filter(m => m.banco === activeAcc.banco && (m.moneda || 'MXN') === activeAcc.moneda)
-  const cargosCuenta = movsCuenta.filter(m => m.tipo === 'cargo').reduce((s, m) => s + m.monto, 0)
-  const abonosCuenta = movsCuenta.filter(m => m.tipo === 'abono').reduce((s, m) => s + m.monto, 0)
-  const conciliadosCuenta = movsCuenta.filter(m => m.conciliado).length
 
   return (
     <div>
