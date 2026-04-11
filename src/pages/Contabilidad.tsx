@@ -931,6 +931,7 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
   const [showManual, setShowManual] = useState(false)
   const [manual, setManual] = useState({ fecha: new Date().toISOString().substring(0, 10), concepto: '', beneficiario: '', monto: '', tipo: 'cargo' as 'cargo' | 'abono', categoria: 'otro', proyecto: '' })
   const fileRef = useRef<HTMLInputElement>(null)
+  const [monthOffset, setMonthOffset] = useState(0)
   // Conciliacion v2 - 3 cuentas
   const [activeAccount, setActiveAccount] = useState<'bbva-mxn' | 'bbva-usd' | 'banorte-mxn'>('bbva-mxn')
   const [showTxtModal, setShowTxtModal] = useState<null | 'bbva-mxn' | 'bbva-usd'>(null)
@@ -1176,6 +1177,20 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
     if (fileRef.current) fileRef.current.value = ''
   }
 
+  /* --- Navegacion mensual (Conciliacion v2) --- */
+  const now = new Date()
+  const monthDate = new Date(now.getFullYear(), now.getMonth() + monthOffset, 1)
+  const monthStart = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1)
+  const monthEnd = new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 0, 23, 59, 59, 999)
+  const monthLabel = monthDate.toLocaleDateString('es-MX', { month: 'long', year: 'numeric' })
+  const monthLabelCapitalized = monthLabel.charAt(0).toUpperCase() + monthLabel.slice(1)
+  const inSelectedMonth = (fechaStr: string | undefined) => {
+    if (!fechaStr) return false
+    const d = new Date(fechaStr)
+    if (isNaN(d.getTime())) return false
+    return d >= monthStart && d <= monthEnd
+  }
+
   /* --- Conciliacion v2: configuracion de cuentas --- */
   const ACCOUNTS = {
     'bbva-mxn':    { banco: 'BBVA',    moneda: 'MXN' as const, cuenta: '0118270236', label: 'BBVA MXN',    color: '#3B82F6' },
@@ -1270,9 +1285,12 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
     setTxtSummary(null)
   }
 
-  /* --- Conciliacion v2: filtros y derivados por cuenta activa (tiene que ir ANTES de filtered) --- */
+  /* --- Conciliacion v2: filtros y derivados por cuenta activa + mes seleccionado --- */
   const activeAcc = ACCOUNTS[activeAccount]
-  const movsCuenta = bankMovements.filter(m => m.banco === activeAcc.banco && (m.moneda || 'MXN') === activeAcc.moneda)
+  // TOTAL por cuenta (sin filtro de mes, para el contador del tab selector)
+  const movsCuentaTotal = bankMovements.filter(m => m.banco === activeAcc.banco && (m.moneda || 'MXN') === activeAcc.moneda)
+  // FILTRADOS por cuenta + mes seleccionado (para KPIs y tabla)
+  const movsCuenta = movsCuentaTotal.filter(m => inSelectedMonth(m.fecha))
   const cargosCuenta = movsCuenta.filter(m => m.tipo === 'cargo').reduce((s, m) => s + m.monto, 0)
   const abonosCuenta = movsCuenta.filter(m => m.tipo === 'abono').reduce((s, m) => s + m.monto, 0)
   const conciliadosCuenta = movsCuenta.filter(m => m.conciliado).length
@@ -1337,6 +1355,30 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
 
   return (
     <div>
+      {/* Navegacion mensual (Conciliacion v2) */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, padding: '10px 14px', background: '#141414', border: '1px solid #222', borderRadius: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <button
+            onClick={() => setMonthOffset(monthOffset - 1)}
+            style={{ padding: '6px 10px', fontSize: 12, background: '#1a1a1a', border: '1px solid #333', borderRadius: 6, color: '#ccc', cursor: 'pointer', fontFamily: 'inherit' }}
+          >◀ Mes anterior</button>
+          <span style={{ fontSize: 14, fontWeight: 600, color: '#fff', minWidth: 160, textAlign: 'center' as const }}>{monthLabelCapitalized}</span>
+          <button
+            onClick={() => setMonthOffset(monthOffset + 1)}
+            style={{ padding: '6px 10px', fontSize: 12, background: '#1a1a1a', border: '1px solid #333', borderRadius: 6, color: '#ccc', cursor: 'pointer', fontFamily: 'inherit' }}
+          >Mes siguiente ▶</button>
+          {monthOffset !== 0 && (
+            <button
+              onClick={() => setMonthOffset(0)}
+              style={{ padding: '6px 10px', fontSize: 11, background: 'rgba(87,255,154,0.08)', border: '1px solid rgba(87,255,154,0.3)', borderRadius: 6, color: '#57FF9A', cursor: 'pointer', fontFamily: 'inherit' }}
+            >Hoy</button>
+          )}
+        </div>
+        <div style={{ fontSize: 11, color: '#666' }}>
+          {movsCuenta.length} movimiento{movsCuenta.length !== 1 ? 's' : ''} en {activeAcc.label}
+        </div>
+      </div>
+
       {/* Selector de cuenta (Conciliacion v2) */}
       <div style={{ display: 'flex', gap: 4, marginBottom: 16, background: '#0f0f0f', borderRadius: 10, padding: 4, border: '1px solid #1f1f1f' }}>
         {(Object.keys(ACCOUNTS) as AccountId[]).map(accId => {
