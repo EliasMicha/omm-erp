@@ -344,6 +344,15 @@ function TabFacturacion({ invoices, setInvoices, bankMovements, projectNames }: 
   const [facturapiMode, setFacturapiMode] = useState<'test' | 'live'>('test')
   const [facturapiConfig, setFacturapiConfig] = useState<{ hasLive: boolean; hasTest: boolean; defaultMode: 'test' | 'live' | null } | null>(null)
   const [facturapiPing, setFacturapiPing] = useState<{ ok: boolean; livemode: boolean; message: string } | null>(null)
+  // Clientes desde Supabase (Sesion B)
+  const [clientesDB, setClientesDB] = useState<any[]>([])
+  // Estado de timbrado
+  const [timbrando, setTimbrando] = useState(false)
+  const [timbradoError, setTimbradoError] = useState<string | null>(null)
+  // Modal de cancelacion
+  const [cancelInvoice, setCancelInvoice] = useState<any | null>(null)
+  const [cancelMotive, setCancelMotive] = useState<'01' | '02' | '03' | '04'>('02')
+  const [cancelando, setCancelando] = useState(false)
   const [showNewForm, setShowNewForm] = useState(false)
   const [xmlProcessing, setXmlProcessing] = useState(false)
   const [xmlResult, setXmlResult] = useState<string | null>(null)
@@ -382,6 +391,13 @@ function TabFacturacion({ invoices, setInvoices, bankMovements, projectNames }: 
         loadFacturapiPing(initialMode)
       } catch (e) {
         if (!cancelled) setFacturapiConfig({ hasLive: false, hasTest: false, defaultMode: null })
+      }
+      // Cargar clientes desde Supabase
+      try {
+        const { data: cls } = await supabase.from('clientes').select('*').eq('activo', true).order('razon_social')
+        if (!cancelled && cls) setClientesDB(cls)
+      } catch (e) {
+        // Ignorar - el modal usara mock como fallback
       }
     })()
     return () => { cancelled = true }
@@ -522,35 +538,175 @@ function TabFacturacion({ invoices, setInvoices, bankMovements, projectNames }: 
   }
 
   const handleNew = async () => {
-    if (!newInv.folio) return
-    const finalTotal = newConceptos.length > 0 ? conceptosTotal : parseFloat(newInv.total) || 0
-    const finalSubtotal = newConceptos.length > 0 ? conceptosSubtotal : 0
-    const finalIva = newConceptos.length > 0 ? conceptosIva : 0
-    // Save to Supabase
-    const { data: saved } = await supabase.from('facturas').insert({
+    setTimbradoError(null)
+    // Validaciones previas al timbrado
+    if (!newInv.rfc_receptor) { setTimbradoError('Debes seleccionar un cliente con RFC fiscal'); return }
+    if (!newInv.regimen_receptor) { setTimbradoError('Cliente sin regimen fiscal — actualiza en Clientes'); return }
+    if (!newInv.cp_receptor) { setTimbradoError('Cliente sin codigo postal — actualiza en Clientes'); return }
+    if (!newInv.uso_cfdi) { setTimbradoError('Cliente sin uso CFDI — actualiza en Clientes'); return }
+    if (newConceptos.length === 0) { setTimbradoError('Agrega al menos un concepto a la factura'); return }
+    if (newConceptos.some(cp => !cp.clave_prod_serv || !cp.descripcion || cp.cantidad <= 0 || cp.valor_unitario <= 0)) {
+      setTimbradoError('Todos los conceptos requieren clave SAT, descripcion, cantidad y precio')
+      return
+    }
+
+    setTimbrando(true)
+    const finalTotal = conceptosTotal
+    const finalSubtotal = conceptosSubtotal
+    const finalIva = conceptosIva
+    const livemodeFlag = facturapiMode === 'live'
+    const sandboxFlag = !livemodeFlag
+
+    // Step 1: Insert a Supabase como borrador (con todos los datos fiscales)
+    const { data: saved, error: insertErr } = await supabase.from('facturas').insert({
       direccion: newInv.direccion,
-      serie: newInv.serie,
+      serie: newInv.serie || 'F',
       folio: newInv.folio,
       tipo_comprobante: newInv.tipo_comprobante,
+      emisor_rfc: 'OTE210910PW5',
+      emisor_nombre: 'OMM Technologies SA de CV',
+      emisor_regimen_fiscal: '601',
+      receptor_rfc: newInv.rfc_receptor,
       receptor_nombre: newInv.receptor_nombre,
-      emisor_nombre: newInv.emisor_nombre,
+      receptor_regimen_fiscal: newInv.regimen_receptor,
+      receptor_codigo_postal: newInv.cp_receptor,
+      receptor_uso_cfdi: newInv.uso_cfdi,
       total: finalTotal,
-      subtotal: finalSubtotal || null,
-      iva: finalIva || null,
+      subtotal: finalSubtotal,
+      iva: finalIva,
       estado: 'borrador',
+      status: 'borrador',
+      sandbox: sandboxFlag,
       fecha_emision: newInv.fecha_emision,
       metodo_pago: newInv.metodo_pago,
-      proyecto_nombre: newInv.proyecto_nombre || null,
+      forma_pago: '03',
+      moneda: 'MXN',
+      cliente_id: newInv.cliente_id || null,
     }).select().single()
-    // Save conceptos to Supabase
-    if (saved && newConceptos.length > 0) {
+
+    if (insertErr || !saved) {
+      setTimbradoError('Error guardando borrador: ' + (insertErr?.message || 'desconocido'))
+      setTimbrando(false)
+      return
+    }
+
+    // Insert conceptos
+    if (newConceptos.length > 0) {
       await supabase.from('factura_conceptos').insert(
         newConceptos.map(cp => ({ factura_id: saved.id, clave_prod_serv: cp.clave_prod_serv, cantidad: cp.cantidad, clave_unidad: cp.clave_unidad, unidad: cp.unidad, descripcion: cp.descripcion, valor_unitario: cp.valor_unitario, importe: cp.importe }))
       )
     }
-    setInvoices([{ id: saved?.id || String(Date.now()), ...newInv, total: finalTotal, subtotal: finalSubtotal, iva: finalIva, estado: 'borrador', conciliada: false, conceptos: newConceptos } as Invoice, ...invoices])
-    setNewConceptos([])
-    setShowNewForm(false)
+
+    // Step 2: Construir payload de FacturAPI y timbrar
+    const payload = {
+      customer: {
+        legal_name: newInv.receptor_nombre,
+        tax_id: newInv.rfc_receptor,
+        tax_system: newInv.regimen_receptor,
+        address: { zip: newInv.cp_receptor },
+      },
+      items: newConceptos.map(cp => ({
+        quantity: cp.cantidad,
+        product: {
+          description: cp.descripcion,
+          product_key: cp.clave_prod_serv,
+          price: cp.valor_unitario,
+          unit_key: cp.clave_unidad || 'E48',
+          unit_name: cp.unidad || 'Servicio',
+          taxes: [{ type: 'IVA', rate: 0.16 }],
+        },
+      })),
+      payment_form: '03',
+      payment_method: newInv.metodo_pago || 'PUE',
+      use: newInv.uso_cfdi,
+      type: newInv.tipo_comprobante,
+      currency: 'MXN',
+    }
+
+    try {
+      const r = await fetch('/api/facturapi?action=create_invoice&mode=' + facturapiMode, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ payload }),
+      })
+      const result = await r.json()
+
+      if (r.ok && result.id && result.uuid) {
+        // Timbrado exitoso - update fila
+        await supabase.from('facturas').update({
+          facturapi_id: result.id,
+          uuid_fiscal: result.uuid,
+          fecha_timbrado: result.date || new Date().toISOString(),
+          serie: result.series || newInv.serie || 'F',
+          folio: result.folio_number?.toString() || newInv.folio,
+          xml_url: '/api/facturapi?action=download_xml&mode=' + facturapiMode + '&id=' + result.id,
+          pdf_url: '/api/facturapi?action=download_pdf&mode=' + facturapiMode + '&id=' + result.id,
+          estado: 'timbrada',
+          status: 'timbrada',
+          facturapi_status: result.status || 'valid',
+        }).eq('id', saved.id)
+
+        // Actualizar state local
+        setInvoices([
+          { id: saved.id, ...newInv, total: finalTotal, subtotal: finalSubtotal, iva: finalIva, estado: 'timbrada', uuid: result.uuid, facturapi_id: result.id, sandbox: sandboxFlag, conciliada: false, conceptos: newConceptos } as any,
+          ...invoices,
+        ])
+        setNewConceptos([])
+        setShowNewForm(false)
+        setTimbrando(false)
+      } else {
+        // Error de timbrado - update fila con error
+        const errMsg = result.message || result.error || JSON.stringify(result).slice(0, 200)
+        await supabase.from('facturas').update({
+          estado: 'error',
+          status: 'error',
+          error_mensaje: errMsg,
+        }).eq('id', saved.id)
+        setTimbradoError('FacturAPI rechazo el timbrado: ' + errMsg)
+        setTimbrando(false)
+      }
+    } catch (e: any) {
+      await supabase.from('facturas').update({
+        estado: 'error',
+        status: 'error',
+        error_mensaje: e.message || 'Network error',
+      }).eq('id', saved.id)
+      setTimbradoError('Error de red al timbrar: ' + (e.message || 'desconocido'))
+      setTimbrando(false)
+    }
+  }
+
+  // Cancelar factura (Sesion B Fase 5)
+  const handleCancel = async () => {
+    if (!cancelInvoice) return
+    setCancelando(true)
+    // El mode hereda del flag sandbox de la factura, NO del toggle
+    const facturaMode: 'test' | 'live' = cancelInvoice.sandbox ? 'test' : 'live'
+    try {
+      const r = await fetch('/api/facturapi?action=cancel_invoice&mode=' + facturaMode, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: cancelInvoice.facturapi_id, motive: cancelMotive }),
+      })
+      const result = await r.json()
+      if (r.ok && (result.status === 'canceled' || result.id)) {
+        await supabase.from('facturas').update({
+          estado: 'cancelada',
+          status: 'cancelada',
+          fecha_cancelacion: new Date().toISOString(),
+          motivo_cancelacion: cancelMotive,
+          facturapi_status: result.status || 'canceled',
+        }).eq('id', cancelInvoice.id)
+        setInvoices(invoices.map(inv => inv.id === cancelInvoice.id ? { ...inv, estado: 'cancelada' } as any : inv))
+        setCancelInvoice(null)
+      } else {
+        alert('Error cancelando: ' + (result.message || result.error || JSON.stringify(result).slice(0, 200)))
+      }
+    } catch (e: any) {
+      alert('Error de red: ' + (e.message || 'desconocido'))
+    } finally {
+      setCancelando(false)
+    }
   }
 
   // Mes seleccionado por navegación
@@ -833,11 +989,12 @@ function TabFacturacion({ invoices, setInvoices, bankMovements, projectNames }: 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <Field label="Cliente *">
               <select style={selectStyle} onChange={e => {
-                const cl = MOCK_CLIENTES.find(c => c.id === e.target.value)
+                const list = clientesDB.length > 0 ? clientesDB : MOCK_CLIENTES
+                const cl: any = list.find((c: any) => c.id === e.target.value)
                 if (cl) setNewInv({...newInv, receptor_nombre: cl.razon_social, emisor_nombre: 'OMM Technologies SA de CV', cliente_id: cl.id, rfc_receptor: cl.rfc, regimen_receptor: cl.regimen_fiscal_clave, cp_receptor: cl.codigo_postal, uso_cfdi: cl.uso_cfdi_clave})
               }}>
                 <option value="">-- Seleccionar cliente --</option>
-                {MOCK_CLIENTES.filter(cl => cl.activo).map(cl => <option key={cl.id} value={cl.id}>{cl.rfc} - {cl.razon_social}</option>)}
+                {(clientesDB.length > 0 ? clientesDB : MOCK_CLIENTES.filter((cl: any) => cl.activo)).map((cl: any) => <option key={cl.id} value={cl.id}>{cl.rfc} - {cl.razon_social}</option>)}
               </select>
             </Field>
             {newInv.receptor_nombre && (
@@ -910,9 +1067,21 @@ function TabFacturacion({ invoices, setInvoices, bankMovements, projectNames }: 
               </>
             )}
           </div>
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 20 }}>
-            <Btn size="sm" variant="default" onClick={() => setShowNewForm(false)}>Cancelar</Btn>
-            <Btn size="sm" variant="primary" onClick={handleNew}>Crear factura</Btn>
+          {timbradoError && (
+            <div style={{ marginTop: 12, padding: '10px 14px', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.4)', borderRadius: 8, color: '#fca5a5', fontSize: 11 }}>
+              ⚠ {timbradoError}
+            </div>
+          )}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginTop: 16 }}>
+            <div style={{ fontSize: 11, color: facturapiMode === 'live' ? '#fca5a5' : '#fcd34d' }}>
+              {facturapiMode === 'live' ? '⚠️ Modo LIVE: timbra real' : '🧪 Modo TEST: no timbra real'}
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <Btn size="sm" variant="default" onClick={() => { setShowNewForm(false); setTimbradoError(null) }} disabled={timbrando}>Cancelar</Btn>
+              <Btn size="sm" variant="primary" onClick={handleNew} disabled={timbrando}>
+                {timbrando ? '⏳ Timbrando...' : 'Crear y timbrar factura'}
+              </Btn>
+            </div>
           </div>
         </Modal>
       )}
@@ -935,7 +1104,26 @@ function TabFacturacion({ invoices, setInvoices, bankMovements, projectNames }: 
             <div style={{ fontSize: 13, fontWeight: 600, color: '#888', marginBottom: 10 }}>Conceptos</div>
             <div style={{ fontSize: 11, color: '#555', textAlign: 'center', padding: 20 }}>Los conceptos se mostraran al cargar desde XML o generar via Facturapi</div>
           </div>
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 12 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginTop: 12, paddingTop: 12, borderTop: '1px solid #222' }}>
+            <div style={{ display: 'flex', gap: 6 }}>
+              {selectedInv.facturapi_id && (
+                <>
+                  <Btn size="sm" variant="default" onClick={() => {
+                    const m = (selectedInv as any).sandbox === false ? 'live' : 'test'
+                    window.open('/api/facturapi?action=download_pdf&mode=' + m + '&id=' + (selectedInv as any).facturapi_id, '_blank')
+                  }}>📄 Ver PDF</Btn>
+                  <Btn size="sm" variant="default" onClick={() => {
+                    const m = (selectedInv as any).sandbox === false ? 'live' : 'test'
+                    window.location.href = '/api/facturapi?action=download_xml&mode=' + m + '&id=' + (selectedInv as any).facturapi_id
+                  }}>⬇ XML</Btn>
+                  {selectedInv.estado === 'timbrada' && (
+                    <Btn size="sm" variant="default" onClick={() => { setCancelInvoice(selectedInv); setCancelMotive('02') }}>
+                      <span style={{ color: '#fca5a5' }}>✗ Cancelar</span>
+                    </Btn>
+                  )}
+                </>
+              )}
+            </div>
             <Btn size="sm" variant="default" onClick={() => setSelectedInv(null)}>Cerrar</Btn>
           </div>
         </Modal>
@@ -1008,6 +1196,38 @@ function TabFacturacion({ invoices, setInvoices, bankMovements, projectNames }: 
           </div>
         </Modal>
       )}
+      {/* Modal de cancelacion de factura (Sesion B Fase 5) */}
+      {cancelInvoice && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100, padding: 20 }} onClick={() => { if (!cancelando) setCancelInvoice(null) }}>
+          <div style={{ background: '#141414', border: '1px solid #2a2a2a', borderRadius: 14, padding: 24, width: '100%', maxWidth: 540 }} onClick={e => e.stopPropagation()}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: '#fff', marginBottom: 8 }}>Cancelar factura</div>
+            <div style={{ fontSize: 12, color: '#888', marginBottom: 16 }}>
+              {cancelInvoice.serie ? cancelInvoice.serie + '-' : ''}{cancelInvoice.folio} · {cancelInvoice.receptor_nombre}
+              {(cancelInvoice as any).sandbox === false && <span style={{ color: '#fca5a5', marginLeft: 8 }}>· LIVE</span>}
+              {(cancelInvoice as any).sandbox !== false && <span style={{ color: '#fcd34d', marginLeft: 8 }}>· TEST</span>}
+            </div>
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 11, color: '#888', marginBottom: 6 }}>Motivo de cancelacion (catalogo SAT)</div>
+              <select value={cancelMotive} onChange={e => setCancelMotive(e.target.value as any)} style={{ width: '100%', padding: '10px 12px', background: '#0a0a0a', border: '1px solid #2a2a2a', borderRadius: 8, color: '#fff', fontSize: 12, fontFamily: 'inherit' }}>
+                <option value="01">01 - Comprobante emitido con errores con relacion</option>
+                <option value="02">02 - Comprobante emitido con errores sin relacion</option>
+                <option value="03">03 - No se llevo a cabo la operacion</option>
+                <option value="04">04 - Operacion nominativa relacionada en factura global</option>
+              </select>
+            </div>
+            <div style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 8, padding: 10, marginBottom: 16, fontSize: 11, color: '#fca5a5' }}>
+              ⚠ Esta accion enviara la cancelacion al SAT a traves de FacturAPI. La cancelacion puede ser inmediata o requerir aprobacion del receptor segun el motivo elegido.
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <Btn size="sm" variant="default" onClick={() => setCancelInvoice(null)} disabled={cancelando}>Cerrar</Btn>
+              <Btn size="sm" variant="primary" onClick={handleCancel} disabled={cancelando}>
+                {cancelando ? '⏳ Cancelando...' : 'Confirmar cancelacion'}
+              </Btn>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   )
 }
