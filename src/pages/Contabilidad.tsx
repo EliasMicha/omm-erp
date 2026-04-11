@@ -1176,51 +1176,6 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
     if (fileRef.current) fileRef.current.value = ''
   }
 
-  /* --- Conciliacion v2: filtros y derivados por cuenta activa (tiene que ir ANTES de filtered) --- */
-  const activeAcc = ACCOUNTS[activeAccount]
-  const movsCuenta = bankMovements.filter(m => m.banco === activeAcc.banco && (m.moneda || 'MXN') === activeAcc.moneda)
-  const cargosCuenta = movsCuenta.filter(m => m.tipo === 'cargo').reduce((s, m) => s + m.monto, 0)
-  const abonosCuenta = movsCuenta.filter(m => m.tipo === 'abono').reduce((s, m) => s + m.monto, 0)
-  const conciliadosCuenta = movsCuenta.filter(m => m.conciliado).length
-
-  /* --- Selection helpers --- */
-  // Conciliacion v2: filtrar PRIMERO por cuenta activa, luego por estado
-  const filtered = bankMovements
-    .filter(m => m.banco === activeAcc.banco && (m.moneda || 'MXN') === activeAcc.moneda)
-    .filter(m => filtro === 'todos' ? true : filtro === 'pendientes' ? !m.conciliado : m.conciliado)
-  const allSelected = filtered.length > 0 && filtered.every(m => selected.has(m.id))
-  const toggleAll = () => {
-    if (allSelected) { setSelected(new Set()) }
-    else { setSelected(new Set(filtered.map(m => m.id))) }
-  }
-  const toggleOne = (id: string) => {
-    const next = new Set(selected)
-    next.has(id) ? next.delete(id) : next.add(id)
-    setSelected(next)
-  }
-  const deleteSelected = () => {
-    if (selected.size === 0) return
-    const ids = Array.from(selected)
-    setBankMovements(bankMovements.filter(m => !selected.has(m.id)))
-    dbDeleteMany(ids)
-    setSelected(new Set())
-  }
-  const conciliarSelected = () => {
-    if (selected.size === 0) return
-    const ids = Array.from(selected)
-    setBankMovements(bankMovements.map(m => selected.has(m.id) ? { ...m, conciliado: true } : m))
-    dbUpdateMany(ids, { conciliado: true })
-    setSelected(new Set())
-  }
-
-  /* --- Toggle conciliar one --- */
-  const toggleConciliar = (id: string) => {
-    const mov = bankMovements.find(m => m.id === id)
-    const newVal = !mov?.conciliado
-    setBankMovements(bankMovements.map(m => m.id === id ? { ...m, conciliado: newVal } : m))
-    dbUpdate(id, { conciliado: newVal })
-  }
-
   /* --- Conciliacion v2: configuracion de cuentas --- */
   const ACCOUNTS = {
     'bbva-mxn':    { banco: 'BBVA',    moneda: 'MXN' as const, cuenta: '0118270236', label: 'BBVA MXN',    color: '#3B82F6' },
@@ -1314,6 +1269,53 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
     setTxtPreview(null)
     setTxtSummary(null)
   }
+
+  /* --- Conciliacion v2: filtros y derivados por cuenta activa (tiene que ir ANTES de filtered) --- */
+  const activeAcc = ACCOUNTS[activeAccount]
+  const movsCuenta = bankMovements.filter(m => m.banco === activeAcc.banco && (m.moneda || 'MXN') === activeAcc.moneda)
+  const cargosCuenta = movsCuenta.filter(m => m.tipo === 'cargo').reduce((s, m) => s + m.monto, 0)
+  const abonosCuenta = movsCuenta.filter(m => m.tipo === 'abono').reduce((s, m) => s + m.monto, 0)
+  const conciliadosCuenta = movsCuenta.filter(m => m.conciliado).length
+
+  /* --- Selection helpers --- */
+  // Conciliacion v2: filtrar PRIMERO por cuenta activa, luego por estado
+  const filtered = bankMovements
+    .filter(m => m.banco === activeAcc.banco && (m.moneda || 'MXN') === activeAcc.moneda)
+    .filter(m => filtro === 'todos' ? true : filtro === 'pendientes' ? !m.conciliado : m.conciliado)
+  const allSelected = filtered.length > 0 && filtered.every(m => selected.has(m.id))
+  const toggleAll = () => {
+    if (allSelected) { setSelected(new Set()) }
+    else { setSelected(new Set(filtered.map(m => m.id))) }
+  }
+  const toggleOne = (id: string) => {
+    const next = new Set(selected)
+    next.has(id) ? next.delete(id) : next.add(id)
+    setSelected(next)
+  }
+  const deleteSelected = () => {
+    if (selected.size === 0) return
+    const ids = Array.from(selected)
+    setBankMovements(bankMovements.filter(m => !selected.has(m.id)))
+    dbDeleteMany(ids)
+    setSelected(new Set())
+  }
+  const conciliarSelected = () => {
+    if (selected.size === 0) return
+    const ids = Array.from(selected)
+    setBankMovements(bankMovements.map(m => selected.has(m.id) ? { ...m, conciliado: true } : m))
+    dbUpdateMany(ids, { conciliado: true })
+    setSelected(new Set())
+  }
+
+  /* --- Toggle conciliar one --- */
+  const toggleConciliar = (id: string) => {
+    const mov = bankMovements.find(m => m.id === id)
+    const newVal = !mov?.conciliado
+    setBankMovements(bankMovements.map(m => m.id === id ? { ...m, conciliado: newVal } : m))
+    dbUpdate(id, { conciliado: newVal })
+  }
+
+
 
   /* --- KPIs --- */
   const totalCargos = bankMovements.filter(m => m.tipo === 'cargo').reduce((s, m) => s + m.monto, 0)
