@@ -101,21 +101,23 @@ function computeAmounts(inv: any): { subtotal: number; iva: number; total: numbe
   const headerTotal = Number(inv.total) || 0
   const headerSubtotal = Number(inv.subtotal) || 0
 
-  // Caso especial: Complemento de Pago (REP) - es valido que sea 0/0
+  // Caso especial: Complemento de Pago (REP)
   if (tipoComprobante === 'P') {
-    // Intentar leer el monto del complemento de pago si existe
-    // FacturAPI devuelve complements como array indexado o objeto
-    let payments: any[] = []
+    // FacturAPI v2: total_payment_amount esta en el header
+    const headerPayment = Number(inv.total_payment_amount) || Number(inv.total_payment_amount_converted) || 0
+    if (headerPayment > 0) {
+      return { subtotal: headerPayment, iva: 0, total: headerPayment }
+    }
+    // Fallback: sumar de complements (estructura array indexada con type=pago)
+    let pagoTotal = 0
     if (Array.isArray(inv.complements)) {
       for (const c of inv.complements) {
-        if (Array.isArray(c?.payments)) { payments = c.payments; break }
+        if (c?.type === 'pago' && Array.isArray(c.data)) {
+          for (const p of c.data) pagoTotal += Number(p.amount) || Number(p.imp_pagado) || 0
+        } else if (Array.isArray(c?.payments)) {
+          for (const p of c.payments) pagoTotal += Number(p.amount) || 0
+        }
       }
-    } else if (Array.isArray(inv.complements?.payments)) {
-      payments = inv.complements.payments
-    }
-    let pagoTotal = 0
-    for (const p of payments) {
-      pagoTotal += Number(p.amount) || 0
     }
     return { subtotal: pagoTotal, iva: 0, total: pagoTotal }
   }
@@ -188,6 +190,45 @@ function computeAmounts(inv: any): { subtotal: number; iva: number; total: numbe
     }
   }
   return { subtotal: 0, iva: 0, total: 0 }
+}
+
+// Helper: guardar items de FacturAPI a tabla factura_conceptos
+async function saveInvoiceItems(facturaId: string, items: any[]) {
+  if (!Array.isArray(items) || items.length === 0) return
+  await supabase.from('factura_conceptos').delete().eq('factura_id', facturaId)
+  const conceptos = items.map((it: any, idx: number) => {
+    const qty = Number(it.quantity) || 1
+    const price = Number(it.product?.price) || 0
+    const discount = Number(it.discount) || 0
+    const importe = qty * price
+    let ivaTasa = 0, ivaImporte = 0, isrTasa = 0, isrImporte = 0
+    const taxes = it.product?.taxes || []
+    for (const tax of taxes) {
+      const base = Number(tax.base) || importe
+      const rate = Number(tax.rate) || 0
+      if (tax.type === 'IVA' && !tax.withholding) { ivaTasa = rate; ivaImporte = base * rate }
+      else if (tax.type === 'ISR' && tax.withholding) { isrTasa = rate; isrImporte = base * rate }
+    }
+    return {
+      factura_id: facturaId,
+      clave_prod_serv: it.product?.product_key || '01010101',
+      no_identificacion: it.product?.sku || null,
+      descripcion: it.product?.description || 'Sin descripcion',
+      clave_unidad: it.product?.unit_key || 'ACT',
+      unidad: it.product?.unit_name || null,
+      cantidad: qty,
+      valor_unitario: price,
+      importe: Math.round(importe * 100) / 100,
+      descuento: discount > 0 ? Math.round(discount * 100) / 100 : null,
+      objeto_imp: it.product?.taxability || null,
+      iva_tasa: ivaTasa || null,
+      iva_importe: ivaImporte > 0 ? Math.round(ivaImporte * 100) / 100 : null,
+      isr_retencion_tasa: isrTasa || null,
+      isr_retencion_importe: isrImporte > 0 ? Math.round(isrImporte * 100) / 100 : null,
+      order_index: idx,
+    }
+  })
+  if (conceptos.length > 0) await supabase.from('factura_conceptos').insert(conceptos)
 }
 
 async function callFacturapi(action: string, opts: { method?: string; query?: Record<string, string>; body?: any } = {}) {
@@ -344,6 +385,10 @@ function ListaTodas() {
   const [syncing, setSyncing] = useState(false)
   const [syncProgress, setSyncProgress] = useState<string>('')
   const [search, setSearch] = useState('')
+  // Modal de detalle de factura
+  const [detalleFactura, setDetalleFactura] = useState<Factura | null>(null)
+  const [detalleConceptos, setDetalleConceptos] = useState<any[]>([])
+  const [loadingDetalle, setLoadingDetalle] = useState(false)
   // Navegacion mensual
   const [monthOffset, setMonthOffset] = useState(0)
   const now = new Date()
@@ -364,6 +409,27 @@ function ListaTodas() {
     const { data } = await supabase.from('facturas').select('*').order('fecha_emision', { ascending: false }).limit(2000)
     setFacturas((data as Factura[]) || [])
     setLoading(false)
+  }
+
+  async function abrirDetalle(f: Factura) {
+    setDetalleFactura(f)
+    setLoadingDetalle(true)
+    setDetalleConceptos([])
+    const { data } = await supabase.from('factura_conceptos').select('*').eq('factura_id', f.id).order('order_index', { ascending: true })
+    setDetalleConceptos((data as any[]) || [])
+    setLoadingDetalle(false)
+  }
+
+  async function descargarPdf(f: Factura) {
+    if (!f.facturapi_id) { alert('Esta factura no tiene ID de FacturAPI'); return }
+    const mode = (f as any).sandbox ? 'test' : 'live'
+    window.open('/api/facturapi?action=download_pdf&mode=' + mode + '&id=' + encodeURIComponent(f.facturapi_id), '_blank')
+  }
+
+  async function descargarXml(f: Factura) {
+    if (!f.facturapi_id) { alert('Esta factura no tiene ID de FacturAPI'); return }
+    const mode = (f as any).sandbox ? 'test' : 'live'
+    window.open('/api/facturapi?action=download_xml&mode=' + mode + '&id=' + encodeURIComponent(f.facturapi_id), '_blank')
   }
 
   useEffect(() => { load() }, [])
@@ -411,12 +477,18 @@ function ListaTodas() {
         }
         try {
           const { data: existing } = await supabase.from('facturas').select('id').eq('facturapi_id', inv.id).maybeSingle()
+          let facturaId: string | null = null
           if (existing) {
             const { error } = await supabase.from('facturas').update(payload).eq('id', (existing as any).id)
-            if (error) errEmit++; else totalEmit++
+            if (error) errEmit++
+            else { facturaId = (existing as any).id; totalEmit++ }
           } else {
-            const { error } = await supabase.from('facturas').insert(payload)
-            if (error) errEmit++; else totalEmit++
+            const { data: ins, error } = await supabase.from('facturas').insert(payload).select('id').single()
+            if (error) errEmit++
+            else { facturaId = (ins as any)?.id; totalEmit++ }
+          }
+          if (facturaId && Array.isArray(inv.items) && inv.items.length > 0) {
+            await saveInvoiceItems(facturaId, inv.items)
           }
         } catch { errEmit++ }
       }
@@ -461,12 +533,18 @@ function ListaTodas() {
         }
         try {
           const { data: existing } = await supabase.from('facturas').select('id').eq('facturapi_id', inv.id).maybeSingle()
+          let facturaId: string | null = null
           if (existing) {
             const { error } = await supabase.from('facturas').update(payload).eq('id', (existing as any).id)
-            if (error) errRec++; else totalRec++
+            if (error) errRec++
+            else { facturaId = (existing as any).id; totalRec++ }
           } else {
-            const { error } = await supabase.from('facturas').insert(payload)
-            if (error) errRec++; else totalRec++
+            const { data: ins, error } = await supabase.from('facturas').insert(payload).select('id').single()
+            if (error) errRec++
+            else { facturaId = (ins as any)?.id; totalRec++ }
+          }
+          if (facturaId && Array.isArray(inv.items) && inv.items.length > 0) {
+            await saveInvoiceItems(facturaId, inv.items)
           }
         } catch { errRec++ }
       }
@@ -558,7 +636,7 @@ function ListaTodas() {
                 const contraparte = isEmit ? f.receptor_nombre : f.emisor_nombre
                 const contraparteRfc = isEmit ? f.receptor_rfc : f.emisor_rfc
                 return (
-                  <tr key={f.id} style={{ borderBottom: '1px solid #1a1a1a' }}>
+                  <tr key={f.id} onClick={() => abrirDetalle(f)} style={{ borderBottom: '1px solid #1a1a1a', cursor: 'pointer' }}>
                     <td style={{ padding: '10px 14px' }}>
                       <span style={{ padding: '2px 8px', borderRadius: 4, fontSize: 9, fontWeight: 700, letterSpacing: '0.05em', background: isEmit ? 'rgba(87,255,154,0.15)' : 'rgba(251,191,36,0.12)', color: isEmit ? '#57FF9A' : '#fcd34d' }}>{isEmit ? 'EMI' : 'REC'}</span>
                     </td>
@@ -575,6 +653,106 @@ function ListaTodas() {
               })}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* Modal de detalle de factura */}
+      {detalleFactura && (
+        <div onClick={() => setDetalleFactura(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: 40, zIndex: 100, overflowY: 'auto' as const }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: '#0a0a0a', border: '1px solid #2a2a2a', borderRadius: 12, maxWidth: 1000, width: '100%', padding: 24, color: '#ddd' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20, paddingBottom: 16, borderBottom: '1px solid #1e1e1e' }}>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+                  <span style={{ padding: '3px 10px', borderRadius: 4, fontSize: 10, fontWeight: 700, letterSpacing: '0.05em', background: detalleFactura.direccion === 'emitida' ? 'rgba(87,255,154,0.15)' : 'rgba(251,191,36,0.12)', color: detalleFactura.direccion === 'emitida' ? '#57FF9A' : '#fcd34d' }}>{detalleFactura.direccion === 'emitida' ? 'EMITIDA' : 'RECIBIDA'}</span>
+                  <span style={{ fontSize: 11, color: '#666' }}>Tipo: {detalleFactura.tipo_comprobante || 'I'}</span>
+                  <span style={{ padding: '3px 10px', borderRadius: 10, fontSize: 10, fontWeight: 600, background: detalleFactura.status === 'timbrada' ? '#57FF9A22' : detalleFactura.status === 'cancelada' ? '#EF444422' : '#F59E0B22', color: detalleFactura.status === 'timbrada' ? '#57FF9A' : detalleFactura.status === 'cancelada' ? '#EF4444' : '#F59E0B' }}>{detalleFactura.status}</span>
+                </div>
+                <div style={{ fontSize: 18, fontWeight: 700, color: '#fff' }}>{detalleFactura.serie || ''}{detalleFactura.folio || '--'}</div>
+                <div style={{ fontSize: 11, color: '#888', fontFamily: 'monospace', marginTop: 4 }}>{detalleFactura.uuid_fiscal || 'Sin UUID'}</div>
+              </div>
+              <button onClick={() => setDetalleFactura(null)} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', padding: 4 }}><X size={20} /></button>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 20 }}>
+              <div>
+                <div style={{ fontSize: 10, color: '#666', textTransform: 'uppercase' as const, letterSpacing: '0.06em', marginBottom: 6, fontWeight: 600 }}>Emisor</div>
+                <div style={{ fontSize: 13, color: '#fff', fontWeight: 600 }}>{detalleFactura.emisor_nombre || '--'}</div>
+                <div style={{ fontSize: 11, color: '#888', fontFamily: 'monospace', marginTop: 2 }}>{detalleFactura.emisor_rfc || '--'}</div>
+                {(detalleFactura as any).emisor_regimen_fiscal && <div style={{ fontSize: 11, color: '#666', marginTop: 2 }}>Regimen: {(detalleFactura as any).emisor_regimen_fiscal}</div>}
+              </div>
+              <div>
+                <div style={{ fontSize: 10, color: '#666', textTransform: 'uppercase' as const, letterSpacing: '0.06em', marginBottom: 6, fontWeight: 600 }}>Receptor</div>
+                <div style={{ fontSize: 13, color: '#fff', fontWeight: 600 }}>{detalleFactura.receptor_nombre || '--'}</div>
+                <div style={{ fontSize: 11, color: '#888', fontFamily: 'monospace', marginTop: 2 }}>{detalleFactura.receptor_rfc || '--'}</div>
+                {(detalleFactura as any).receptor_regimen_fiscal && <div style={{ fontSize: 11, color: '#666', marginTop: 2 }}>Regimen: {(detalleFactura as any).receptor_regimen_fiscal}</div>}
+                {(detalleFactura as any).receptor_codigo_postal && <div style={{ fontSize: 11, color: '#666', marginTop: 2 }}>CP: {(detalleFactura as any).receptor_codigo_postal}</div>}
+                {(detalleFactura as any).receptor_uso_cfdi && <div style={{ fontSize: 11, color: '#666', marginTop: 2 }}>Uso CFDI: {(detalleFactura as any).receptor_uso_cfdi}</div>}
+              </div>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20, padding: '12px 14px', background: '#0e0e0e', borderRadius: 8, border: '1px solid #1e1e1e' }}>
+              <div><div style={{ fontSize: 9, color: '#555', textTransform: 'uppercase' as const, marginBottom: 2 }}>Fecha emision</div><div style={{ fontSize: 12, color: '#ccc' }}>{detalleFactura.fecha_emision ? new Date(detalleFactura.fecha_emision).toLocaleString('es-MX') : '--'}</div></div>
+              <div><div style={{ fontSize: 9, color: '#555', textTransform: 'uppercase' as const, marginBottom: 2 }}>Fecha timbrado</div><div style={{ fontSize: 12, color: '#ccc' }}>{(detalleFactura as any).fecha_timbrado ? new Date((detalleFactura as any).fecha_timbrado).toLocaleString('es-MX') : '--'}</div></div>
+              <div><div style={{ fontSize: 9, color: '#555', textTransform: 'uppercase' as const, marginBottom: 2 }}>Forma pago</div><div style={{ fontSize: 12, color: '#ccc' }}>{(detalleFactura as any).forma_pago || '--'}</div></div>
+              <div><div style={{ fontSize: 9, color: '#555', textTransform: 'uppercase' as const, marginBottom: 2 }}>Metodo pago</div><div style={{ fontSize: 12, color: '#ccc' }}>{(detalleFactura as any).metodo_pago || '--'}</div></div>
+            </div>
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 11, color: '#888', textTransform: 'uppercase' as const, letterSpacing: '0.06em', marginBottom: 8, fontWeight: 600 }}>Conceptos {detalleConceptos.length > 0 && <span style={{ color: '#555' }}>({detalleConceptos.length})</span>}</div>
+              {loadingDetalle ? (
+                <div style={{ padding: 20, textAlign: 'center' as const, color: '#555', fontSize: 12 }}>Cargando conceptos...</div>
+              ) : detalleConceptos.length === 0 ? (
+                <div style={{ padding: 20, textAlign: 'center' as const, color: '#555', fontSize: 12, background: '#0e0e0e', borderRadius: 8, border: '1px solid #1e1e1e' }}>Sin conceptos guardados. Re-sincroniza para traerlos desde FacturAPI.</div>
+              ) : (
+                <div style={{ background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 8, overflow: 'hidden' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse' as const, fontSize: 11 }}>
+                    <thead>
+                      <tr style={{ background: '#141414', borderBottom: '1px solid #1e1e1e' }}>
+                        <th style={{ padding: '8px 10px', fontSize: 9, fontWeight: 600, color: '#666', textTransform: 'uppercase' as const, textAlign: 'left' as const }}>Descripcion</th>
+                        <th style={{ padding: '8px 10px', fontSize: 9, fontWeight: 600, color: '#666', textTransform: 'uppercase' as const, textAlign: 'left' as const }}>Clave SAT</th>
+                        <th style={{ padding: '8px 10px', fontSize: 9, fontWeight: 600, color: '#666', textTransform: 'uppercase' as const, textAlign: 'right' as const }}>Cant.</th>
+                        <th style={{ padding: '8px 10px', fontSize: 9, fontWeight: 600, color: '#666', textTransform: 'uppercase' as const, textAlign: 'left' as const }}>Unidad</th>
+                        <th style={{ padding: '8px 10px', fontSize: 9, fontWeight: 600, color: '#666', textTransform: 'uppercase' as const, textAlign: 'right' as const }}>V. unit.</th>
+                        <th style={{ padding: '8px 10px', fontSize: 9, fontWeight: 600, color: '#666', textTransform: 'uppercase' as const, textAlign: 'right' as const }}>Importe</th>
+                        <th style={{ padding: '8px 10px', fontSize: 9, fontWeight: 600, color: '#666', textTransform: 'uppercase' as const, textAlign: 'right' as const }}>IVA</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {detalleConceptos.map((c: any, i: number) => (
+                        <tr key={c.id || i} style={{ borderBottom: '1px solid #1a1a1a' }}>
+                          <td style={{ padding: '8px 10px', color: '#ddd', maxWidth: 280 }}>{c.descripcion}</td>
+                          <td style={{ padding: '8px 10px', color: '#888', fontFamily: 'monospace' }}>{c.clave_prod_serv}</td>
+                          <td style={{ padding: '8px 10px', color: '#ccc', textAlign: 'right' as const }}>{Number(c.cantidad).toLocaleString('es-MX')}</td>
+                          <td style={{ padding: '8px 10px', color: '#888' }}>{c.unidad || c.clave_unidad}</td>
+                          <td style={{ padding: '8px 10px', color: '#ccc', textAlign: 'right' as const }}>${Number(c.valor_unitario).toLocaleString('es-MX', { minimumFractionDigits: 2 })}</td>
+                          <td style={{ padding: '8px 10px', color: '#fff', fontWeight: 600, textAlign: 'right' as const }}>${Number(c.importe).toLocaleString('es-MX', { minimumFractionDigits: 2 })}</td>
+                          <td style={{ padding: '8px 10px', color: '#888', textAlign: 'right' as const }}>{c.iva_importe ? '
+
+// ============================================================
+// Lista de Facturas Emitidas
+// ============================================================
+ + Number(c.iva_importe).toLocaleString('es-MX', { minimumFractionDigits: 2 }) : '--'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 20 }}>
+              <div style={{ minWidth: 280, background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 8, padding: 14 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#888', marginBottom: 6 }}><span>Subtotal:</span><span>${Number(detalleFactura.subtotal || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })} {detalleFactura.moneda}</span></div>
+                {(detalleFactura as any).iva && Number((detalleFactura as any).iva) > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#888', marginBottom: 6 }}><span>IVA:</span><span>${Number((detalleFactura as any).iva).toLocaleString('es-MX', { minimumFractionDigits: 2 })} {detalleFactura.moneda}</span></div>}
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, color: '#fff', fontWeight: 700, paddingTop: 8, borderTop: '1px solid #1e1e1e', marginTop: 4 }}><span>Total:</span><span style={{ color: detalleFactura.direccion === 'emitida' ? '#57FF9A' : '#fcd34d' }}>${Number(detalleFactura.total || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })} {detalleFactura.moneda}</span></div>
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              {detalleFactura.facturapi_id && (
+                <>
+                  <button onClick={() => descargarPdf(detalleFactura)} style={{ padding: '8px 14px', background: '#1e1e1e', border: '1px solid #2a2a2a', borderRadius: 8, color: '#a78bfa', fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'inherit' }}><Download size={12} /> PDF</button>
+                  <button onClick={() => descargarXml(detalleFactura)} style={{ padding: '8px 14px', background: '#1e1e1e', border: '1px solid #2a2a2a', borderRadius: 8, color: '#60a5fa', fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'inherit' }}><Download size={12} /> XML</button>
+                </>
+              )}
+              <button onClick={() => setDetalleFactura(null)} style={{ padding: '8px 14px', background: '#57FF9A', border: 'none', borderRadius: 8, color: '#000', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>Cerrar</button>
+            </div>
+          </div>
         </div>
       )}
     </div>
@@ -660,12 +838,18 @@ function ListaEmitidas({ onNueva }: { onNueva: () => void }) {
         }
         try {
           const { data: existing } = await supabase.from('facturas').select('id').eq('facturapi_id', inv.id).maybeSingle()
+          let facturaId: string | null = null
           if (existing) {
             const { error } = await supabase.from('facturas').update(payload).eq('id', (existing as any).id)
-            if (error) totalErrors++; else totalImported++
+            if (error) totalErrors++
+            else { facturaId = (existing as any).id; totalImported++ }
           } else {
-            const { error } = await supabase.from('facturas').insert(payload)
-            if (error) totalErrors++; else totalImported++
+            const { data: ins, error } = await supabase.from('facturas').insert(payload).select('id').single()
+            if (error) totalErrors++
+            else { facturaId = (ins as any)?.id; totalImported++ }
+          }
+          if (facturaId && Array.isArray(inv.items) && inv.items.length > 0) {
+            await saveInvoiceItems(facturaId, inv.items)
           }
         } catch { totalErrors++ }
       }
@@ -1427,14 +1611,18 @@ function ListaRecibidas() {
         }
         try {
           const { data: existing } = await supabase.from('facturas').select('id').eq('facturapi_id', inv.id).maybeSingle()
+          let facturaId: string | null = null
           if (existing) {
             const { error } = await supabase.from('facturas').update(payload).eq('id', (existing as any).id)
             if (error) totalErrors++
-            else totalImported++
+            else { facturaId = (existing as any).id; totalImported++ }
           } else {
-            const { error } = await supabase.from('facturas').insert(payload)
+            const { data: ins, error } = await supabase.from('facturas').insert(payload).select('id').single()
             if (error) totalErrors++
-            else totalImported++
+            else { facturaId = (ins as any)?.id; totalImported++ }
+          }
+          if (facturaId && Array.isArray(inv.items) && inv.items.length > 0) {
+            await saveInvoiceItems(facturaId, inv.items)
           }
         } catch {
           totalErrors++
