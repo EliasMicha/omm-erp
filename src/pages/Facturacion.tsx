@@ -91,6 +91,40 @@ let currentFacturapiMode: 'test' | 'live' = 'live'
 export function setCurrentFacturapiMode(m: 'test' | 'live') { currentFacturapiMode = m }
 export function getCurrentFacturapiMode(): 'test' | 'live' { return currentFacturapiMode }
 
+// Helper: calcular subtotal/iva desde inv.items si no vienen en la raiz
+function computeAmounts(inv: any): { subtotal: number; iva: number; total: number } {
+  const total = Number(inv.total) || 0
+  // Si subtotal viene en la raiz, usarlo
+  if (inv.subtotal != null && Number(inv.subtotal) > 0) {
+    return { subtotal: Number(inv.subtotal), iva: total - Number(inv.subtotal), total }
+  }
+  // Si no, sumar de items
+  let subtotal = 0
+  let iva = 0
+  if (Array.isArray(inv.items)) {
+    for (const it of inv.items) {
+      const qty = Number(it.quantity) || 1
+      const price = Number(it.product?.price) || 0
+      const lineSubtotal = qty * price
+      subtotal += lineSubtotal
+      const taxes = it.product?.taxes || []
+      for (const tax of taxes) {
+        if (tax.type === 'IVA' && !tax.withholding) {
+          const base = Number(tax.base) || lineSubtotal
+          const rate = Number(tax.rate) || 0
+          iva += base * rate
+        }
+      }
+    }
+  }
+  // Fallback: si total existe pero subtotal no se pudo calcular, asumir IVA 16%
+  if (subtotal === 0 && total > 0) {
+    subtotal = total / 1.16
+    iva = total - subtotal
+  }
+  return { subtotal: Math.round(subtotal * 100) / 100, iva: Math.round(iva * 100) / 100, total }
+}
+
 async function callFacturapi(action: string, opts: { method?: string; query?: Record<string, string>; body?: any } = {}) {
   const method = opts.method || 'GET'
   const params = new URLSearchParams({ action, mode: currentFacturapiMode, ...(opts.query || {}) })
@@ -279,6 +313,7 @@ function ListaEmitidas({ onNueva }: { onNueva: () => void }) {
     const r = await callFacturapi('list_invoices', { query: { limit: '50' } })
     if (r.ok && r.data?.data) {
       for (const inv of r.data.data) {
+        const amounts = computeAmounts(inv)
         const payload: any = {
           direccion: 'emitida',
           facturapi_id: inv.id,
@@ -288,18 +323,19 @@ function ListaEmitidas({ onNueva }: { onNueva: () => void }) {
           status: inv.status === 'valid' ? 'timbrada' : inv.status === 'canceled' ? 'cancelada' : 'borrador',
           fecha_emision: inv.date || null,
           fecha_timbrado: inv.stamp?.date || null,
-          // Emisor: campos NOT NULL en facturas, default a OMM Technologies
-          emisor_rfc: inv.organization?.tax_id || inv.organization?.legal?.legal_name || 'OTE210910PW5',
-          emisor_nombre: inv.organization?.legal_name || inv.organization?.name || 'OMM Technologies SA de CV',
-          emisor_regimen_fiscal: inv.organization?.tax_system || '601',
-          // Receptor
+          // Emisor: SOMOS NOSOTROS para emitidas. NOT NULL en facturas.
+          emisor_rfc: 'OTE210910PW5',
+          emisor_nombre: 'OMM Technologies SA de CV',
+          emisor_regimen_fiscal: '601',
+          // Receptor (cliente al que le facturamos)
           receptor_rfc: inv.customer?.tax_id || null,
           receptor_nombre: inv.customer?.legal_name || null,
           receptor_regimen_fiscal: inv.customer?.tax_system || null,
           receptor_codigo_postal: inv.customer?.address?.zip || null,
           receptor_uso_cfdi: inv.use || null,
-          subtotal: inv.subtotal || 0,
-          total: inv.total || 0,
+          subtotal: amounts.subtotal,
+          iva: amounts.iva,
+          total: amounts.total,
           moneda: inv.currency || 'MXN',
           forma_pago: inv.payment_form || null,
           metodo_pago: inv.payment_method || null,
@@ -1030,11 +1066,12 @@ function ListaRecibidas() {
     let totalImported = 0
     let totalErrors = 0
     let page = 1
-    const maxPages = 20 // tope de seguridad
+    const maxPages = 60 // tope de seguridad (3000 facturas)
     while (page <= maxPages) {
-      const r = await callFacturapi('list_invoices', { query: { limit: '50', page: String(page), issuer_type: 'received' } })
+      const r = await callFacturapi('list_invoices', { query: { limit: '50', page: String(page), issuer_type: 'receiving' } })
       if (!r.ok || !r.data?.data || r.data.data.length === 0) break
       for (const inv of r.data.data) {
+        const amounts = computeAmounts(inv)
         const payload: any = {
           direccion: 'recibida',
           facturapi_id: inv.id,
@@ -1044,17 +1081,19 @@ function ListaRecibidas() {
           status: inv.status === 'valid' ? 'timbrada' : inv.status === 'canceled' ? 'cancelada' : 'borrador',
           fecha_emision: inv.date || null,
           fecha_timbrado: inv.stamp?.date || null,
-          // Emisor (proveedor que nos facturo) - obligatorio NOT NULL
-          emisor_rfc: inv.issuer?.tax_id || inv.organization?.tax_id || 'XXX010101000',
-          emisor_nombre: inv.issuer?.legal_name || inv.organization?.legal_name || 'Sin nombre',
-          emisor_regimen_fiscal: inv.issuer?.tax_system || null,
+          // Emisor (proveedor que nos facturo) - usa issuer_info de FacturAPI v2
+          emisor_rfc: inv.issuer_info?.tax_id || 'XAXX010101000',
+          emisor_nombre: inv.issuer_info?.legal_name || 'Sin nombre',
+          emisor_regimen_fiscal: inv.issuer_info?.tax_system || null,
           // Receptor (somos nosotros - OMM)
           receptor_rfc: inv.customer?.tax_id || 'OTE210910PW5',
           receptor_nombre: inv.customer?.legal_name || 'OMM Technologies SA de CV',
+          receptor_regimen_fiscal: inv.customer?.tax_system || null,
           receptor_uso_cfdi: inv.use || null,
-          receptor_codigo_postal: inv.customer?.address?.zip || null,
-          subtotal: inv.subtotal || 0,
-          total: inv.total || 0,
+          receptor_codigo_postal: inv.customer?.address?.zip || inv.address?.zip || null,
+          subtotal: amounts.subtotal,
+          iva: amounts.iva,
+          total: amounts.total,
           moneda: inv.currency || 'MXN',
           forma_pago: inv.payment_form || null,
           metodo_pago: inv.payment_method || null,
