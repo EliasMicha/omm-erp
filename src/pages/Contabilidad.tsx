@@ -98,6 +98,15 @@ interface BankMovement {
   categoria_sugerida?: string; proyecto_sugerido?: string; conciliado: boolean
   beneficiario?: string; factura_match_id?: string; factura_match_info?: string
   rfc_contraparte?: string; proyecto_codigo?: string; banco?: string; cuenta?: string
+  // Conciliación v2 - campos nuevos
+  moneda?: 'MXN' | 'USD'
+  saldo_posterior?: number
+  proveedor?: string; cliente?: string
+  uuid_factura?: string; folio_serie?: string; uso_cfdi?: string; observaciones?: string
+  confianza_autodetect?: 'alta' | 'media' | 'baja' | 'manual'
+  traspaso_usd_monto?: number; traspaso_pair_id?: string
+  folio_spei?: string; clabe_contraparte?: string
+  source?: 'pdf-monthly' | 'txt-tabular' | 'manual' | 'excel-import'
 }
 
 /* --------- Config --------------------------------------------------------------------------------------------------------------------------------------------------------------------- */
@@ -922,6 +931,12 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
   const [showManual, setShowManual] = useState(false)
   const [manual, setManual] = useState({ fecha: new Date().toISOString().substring(0, 10), concepto: '', beneficiario: '', monto: '', tipo: 'cargo' as 'cargo' | 'abono', categoria: 'otro', proyecto: '' })
   const fileRef = useRef<HTMLInputElement>(null)
+  // Conciliacion v2 - 3 cuentas
+  const [activeAccount, setActiveAccount] = useState<'bbva-mxn' | 'bbva-usd' | 'banorte-mxn'>('bbva-mxn')
+  const [showTxtModal, setShowTxtModal] = useState<null | 'bbva-mxn' | 'bbva-usd'>(null)
+  const [txtPayload, setTxtPayload] = useState('')
+  const [txtPreview, setTxtPreview] = useState<any[] | null>(null)
+  const [txtSummary, setTxtSummary] = useState<any | null>(null)
 
   /* --- Supabase sync helpers --- */
   const toRow = (m: BankMovement) => ({
@@ -932,6 +947,16 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
     factura_match_id: m.factura_match_id || null, factura_match_info: m.factura_match_info || '',
     rfc_contraparte: m.rfc_contraparte || null, proyecto_codigo: m.proyecto_codigo || null,
     banco: m.banco || null, cuenta: m.cuenta || null,
+    moneda: m.moneda || 'MXN',
+    saldo_posterior: m.saldo_posterior ?? null,
+    proveedor: m.proveedor || null, cliente: m.cliente || null,
+    uuid_factura: m.uuid_factura || null, folio_serie: m.folio_serie || null,
+    uso_cfdi: m.uso_cfdi || null, observaciones: m.observaciones || null,
+    confianza_autodetect: m.confianza_autodetect || null,
+    traspaso_usd_monto: m.traspaso_usd_monto ?? null,
+    traspaso_pair_id: m.traspaso_pair_id || null,
+    folio_spei: m.folio_spei || null, clabe_contraparte: m.clabe_contraparte || null,
+    source: m.source || 'manual',
   })
 
   const dbInsertMany = async (movements: BankMovement[]) => {
@@ -1152,9 +1177,10 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
   }
 
   /* --- Selection helpers --- */
-  const filtered = bankMovements.filter(m =>
-    filtro === 'todos' ? true : filtro === 'pendientes' ? !m.conciliado : m.conciliado
-  )
+  // Conciliacion v2: filtrar PRIMERO por cuenta activa, luego por estado
+  const filtered = bankMovements
+    .filter(m => m.banco === activeAcc.banco && (m.moneda || 'MXN') === activeAcc.moneda)
+    .filter(m => filtro === 'todos' ? true : filtro === 'pendientes' ? !m.conciliado : m.conciliado)
   const allSelected = filtered.length > 0 && filtered.every(m => selected.has(m.id))
   const toggleAll = () => {
     if (allSelected) { setSelected(new Set()) }
@@ -1188,6 +1214,100 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
     dbUpdate(id, { conciliado: newVal })
   }
 
+  /* --- Conciliacion v2: configuracion de cuentas --- */
+  const ACCOUNTS = {
+    'bbva-mxn':    { banco: 'BBVA',    moneda: 'MXN' as const, cuenta: '0118270236', label: 'BBVA MXN',    color: '#3B82F6' },
+    'bbva-usd':    { banco: 'BBVA',    moneda: 'USD' as const, cuenta: '0119196919', label: 'BBVA USD',    color: '#10B981' },
+    'banorte-mxn': { banco: 'Banorte', moneda: 'MXN' as const, cuenta: '1263311182', label: 'Banorte MXN', color: '#EF4444' },
+  }
+  type AccountId = keyof typeof ACCOUNTS
+
+  /* --- Helper: ultima fecha importada por cuenta --- */
+  const getUltimaFechaCuenta = (accountId: AccountId): string | null => {
+    const acc = ACCOUNTS[accountId]
+    const movs = bankMovements.filter(m => m.banco === acc.banco && (m.moneda || 'MXN') === acc.moneda)
+    if (movs.length === 0) return null
+    const sorted = [...movs].sort((a, b) => b.fecha.localeCompare(a.fecha))
+    return sorted[0].fecha
+  }
+
+  /* --- Conciliacion v2: procesar TXT pegado --- */
+  const handleTxtProcess = async () => {
+    if (!showTxtModal) return
+    if (!txtPayload.trim()) { setStatus('Pega el TXT antes de procesar'); return }
+    const accountId = showTxtModal as AccountId
+    const acc = ACCOUNTS[accountId]
+    const ultimaFecha = getUltimaFechaCuenta(accountId)
+    setProcessing(true); setStatus('Procesando TXT con AI...')
+    try {
+      const response = await fetch('/api/extract-bank-statement', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          kind: 'txt-tabular',
+          payload: txtPayload,
+          ultima_fecha_importada: ultimaFecha,
+        }),
+      })
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}))
+        setStatus('Error: ' + (errData.error || String(response.status)))
+        setProcessing(false); return
+      }
+      const data = await response.json()
+      if (!data.ok) { setStatus('Error: ' + (data.error || 'sin respuesta')); setProcessing(false); return }
+      setLastCheck(data.totals_check || null)
+      const movements: any[] = Array.isArray(data.movements) ? data.movements : []
+      if (movements.length === 0) { setStatus('No se encontraron movimientos nuevos'); setProcessing(false); return }
+      // Preview antes de insertar
+      setTxtPreview(movements)
+      setTxtSummary({ totals_check: data.totals_check, warnings: data.warnings, periodo: data.periodo })
+      setStatus('Preview listo: ' + movements.length + ' movimientos')
+    } catch (err) {
+      setStatus('Error: ' + (err as Error).message)
+    }
+    setProcessing(false)
+  }
+
+  /* --- Conciliacion v2: confirmar importacion del TXT --- */
+  const handleTxtConfirm = async () => {
+    if (!showTxtModal || !txtPreview) return
+    const accountId = showTxtModal as AccountId
+    const acc = ACCOUNTS[accountId]
+    const batchId = crypto.randomUUID()
+    const newMovs: BankMovement[] = txtPreview.map((m: any) => ({
+      id: crypto.randomUUID(),
+      fecha: m.fecha || '',
+      concepto: m.concepto || '',
+      referencia: '',
+      monto: Math.abs(Number(m.monto) || 0),
+      tipo: m.tipo === 'abono' ? 'abono' : 'cargo',
+      saldo: 0,
+      saldo_posterior: Number(m.saldo_posterior) || undefined,
+      categoria_sugerida: m.categoria || 'otro',
+      proyecto_sugerido: m.proyecto_nombre || '',
+      beneficiario: m.beneficiario || '',
+      rfc_contraparte: m.rfc_contraparte || '',
+      proyecto_codigo: m.proyecto_codigo || '',
+      banco: acc.banco,
+      cuenta: acc.cuenta,
+      moneda: acc.moneda,
+      confianza_autodetect: m.confianza_autodetect || 'media',
+      traspaso_usd_monto: Number(m.traspaso_usd_monto) || undefined,
+      folio_spei: m.folio_spei || '',
+      clabe_contraparte: m.clabe_contraparte || '',
+      source: 'txt-tabular',
+      conciliado: false,
+    }))
+    setBankMovements([...newMovs, ...bankMovements])
+    await dbInsertMany(newMovs)
+    setStatus('Importados ' + newMovs.length + ' movimientos a ' + acc.label)
+    setShowTxtModal(null)
+    setTxtPayload('')
+    setTxtPreview(null)
+    setTxtSummary(null)
+  }
+
   /* --- KPIs --- */
   const totalCargos = bankMovements.filter(m => m.tipo === 'cargo').reduce((s, m) => s + m.monto, 0)
   const totalAbonos = bankMovements.filter(m => m.tipo === 'abono').reduce((s, m) => s + m.monto, 0)
@@ -1206,26 +1326,73 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
   const catColors: Record<string, string> = { nomina: '#C084FC', proveedor: '#F59E0B', cobro_cliente: '#57FF9A', impuestos: '#EF4444', comision: '#6B7280', traspaso: '#3B82F6', prestamo: '#06B6D4', suscripcion: '#EC4899', otro: '#555' }
   const chkStyle: React.CSSProperties = { width: 15, height: 15, accentColor: '#57FF9A', cursor: 'pointer' }
 
+  // Filtro por cuenta activa
+  const activeAcc = ACCOUNTS[activeAccount]
+  const movsCuenta = bankMovements.filter(m => m.banco === activeAcc.banco && (m.moneda || 'MXN') === activeAcc.moneda)
+  const cargosCuenta = movsCuenta.filter(m => m.tipo === 'cargo').reduce((s, m) => s + m.monto, 0)
+  const abonosCuenta = movsCuenta.filter(m => m.tipo === 'abono').reduce((s, m) => s + m.monto, 0)
+  const conciliadosCuenta = movsCuenta.filter(m => m.conciliado).length
+
   return (
     <div>
-      {/* KPIs */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
-        <KpiCard label="Movimientos" value={bankMovements.length} icon={<ArrowLeftRight size={16} />} />
-        <KpiCard label="Cargos" value={F(totalCargos)} color="#EF4444" icon={<TrendingUp size={16} />} />
-        <KpiCard label="Abonos" value={F(totalAbonos)} color="#57FF9A" icon={<Banknote size={16} />} />
-        <KpiCard label="Conciliados" value={`${conciliados}/${bankMovements.length}`} color="#3B82F6" icon={<CheckCircle size={16} />} />
+      {/* Selector de cuenta (Conciliacion v2) */}
+      <div style={{ display: 'flex', gap: 4, marginBottom: 16, background: '#0f0f0f', borderRadius: 10, padding: 4, border: '1px solid #1f1f1f' }}>
+        {(Object.keys(ACCOUNTS) as AccountId[]).map(accId => {
+          const acc = ACCOUNTS[accId]
+          const count = bankMovements.filter(m => m.banco === acc.banco && (m.moneda || 'MXN') === acc.moneda).length
+          const isActive = activeAccount === accId
+          return (
+            <button key={accId} onClick={() => setActiveAccount(accId)} style={{
+              flex: 1, background: isActive ? '#1a1a1a' : 'transparent',
+              border: isActive ? '1px solid ' + acc.color : '1px solid transparent',
+              borderRadius: 8, padding: '10px 14px', cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10,
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div style={{ width: 8, height: 8, borderRadius: '50%', background: acc.color }} />
+                <div style={{ textAlign: 'left' }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: isActive ? '#fff' : '#aaa' }}>{acc.label}</div>
+                  <div style={{ fontSize: 9, color: '#666' }}>{acc.cuenta}</div>
+                </div>
+              </div>
+              <div style={{ fontSize: 11, color: isActive ? acc.color : '#555', fontWeight: 700 }}>{count}</div>
+            </button>
+          )
+        })}
       </div>
 
-      {/* Toolbar */}
+      {/* KPIs filtrados por cuenta activa */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
+        <KpiCard label="Movimientos" value={movsCuenta.length} icon={<ArrowLeftRight size={16} />} />
+        <KpiCard label="Cargos" value={F(cargosCuenta)} color="#EF4444" icon={<TrendingUp size={16} />} />
+        <KpiCard label="Abonos" value={F(abonosCuenta)} color="#57FF9A" icon={<Banknote size={16} />} />
+        <KpiCard label="Conciliados" value={`${conciliadosCuenta}/${movsCuenta.length}`} color="#3B82F6" icon={<CheckCircle size={16} />} />
+      </div>
+
+      {/* Toolbar — Conciliacion v2 con botones contextuales por cuenta */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 16, alignItems: 'center', flexWrap: 'wrap' }}>
         <input type="file" ref={fileRef} accept=".pdf,.csv,.xlsx,.xls,.txt" style={{ display: 'none' }} onChange={handleBankUpload} />
-        <Btn size="sm" variant="primary" onClick={() => fileRef.current?.click()}>
-          {processing ? '⏳ Procesando...' : <><Upload size={12} /> Subir estado de cuenta</>}
-        </Btn>
+        {(activeAccount === 'bbva-mxn' || activeAccount === 'bbva-usd') && (
+          <Btn size="sm" variant="primary" onClick={() => { setShowTxtModal(activeAccount); setTxtPayload(''); setTxtPreview(null); setTxtSummary(null); }}>
+            {processing ? '⏳ Procesando...' : <><Upload size={12} /> Pegar TXT {activeAcc.label}</>}
+          </Btn>
+        )}
+        {activeAccount === 'banorte-mxn' && (
+          <Btn size="sm" variant="primary" onClick={() => fileRef.current?.click()}>
+            {processing ? '⏳ Procesando...' : <><Upload size={12} /> Subir PDF Banorte</>}
+          </Btn>
+        )}
         <Btn size="sm" variant="default" onClick={() => setShowManual(!showManual)}>
           <Plus size={12} /> Manual
         </Btn>
-        <span style={{ fontSize: 10, color: '#555' }}>PDF (BBVA/Banorte) · CSV · Excel · TXT</span>
+        {(() => {
+          const ultima = getUltimaFechaCuenta(activeAccount)
+          return ultima ? (
+            <span style={{ fontSize: 10, color: '#888', marginLeft: 4 }}>Última: {ultima}</span>
+          ) : (
+            <span style={{ fontSize: 10, color: '#555', marginLeft: 4 }}>Sin movimientos previos</span>
+          )
+        })()}
 
         {/* Filtro */}
         {bankMovements.length > 0 && (
@@ -1432,6 +1599,132 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
             })}
           </tbody>
         </Table>
+      )}
+
+      {/* Modal TXT — Conciliacion v2 */}
+      {showTxtModal && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 20 }} onClick={() => { if (!processing) { setShowTxtModal(null); setTxtPayload(''); setTxtPreview(null); setTxtSummary(null); } }}>
+          <div style={{ background: '#141414', border: '1px solid #2a2a2a', borderRadius: 14, padding: 24, width: '100%', maxWidth: 1100, maxHeight: '90vh', overflowY: 'auto' as const }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: '#fff' }}>Ingesta TXT — {ACCOUNTS[showTxtModal].label}</div>
+                <div style={{ fontSize: 11, color: '#777', marginTop: 2 }}>Cuenta {ACCOUNTS[showTxtModal].cuenta}</div>
+              </div>
+              <button onClick={() => { setShowTxtModal(null); setTxtPayload(''); setTxtPreview(null); setTxtSummary(null); }} disabled={processing} style={{ background: 'none', border: 'none', color: '#666', cursor: processing ? 'not-allowed' : 'pointer', fontSize: 20 }}>×</button>
+            </div>
+
+            {(() => {
+              const ultima = getUltimaFechaCuenta(showTxtModal)
+              return (
+                <div style={{ background: ultima ? '#0e1f2b' : '#1f1a0e', border: '1px solid ' + (ultima ? '#1e3a5f' : '#3a2d1e'), borderRadius: 8, padding: 10, marginBottom: 14, fontSize: 11, color: ultima ? '#7dd3fc' : '#fbbf24' }}>
+                  {ultima
+                    ? <>📅 Última transacción registrada: <b>{ultima}</b>. Se ignorarán movimientos con fecha ≤ a esta.</>
+                    : <>⚠️ Primera importación para esta cuenta. Se importarán todos los movimientos del TXT.</>}
+                </div>
+              )
+            })()}
+
+            {!txtPreview && (
+              <>
+                <div style={{ fontSize: 11, color: '#888', marginBottom: 6 }}>Pega el TSV del portal BBVA (Día ⇥ Concepto ⇥ cargo ⇥ Abono ⇥ Saldo):</div>
+                <textarea
+                  value={txtPayload}
+                  onChange={e => setTxtPayload(e.target.value)}
+                  disabled={processing}
+                  placeholder={'Día\tConcepto / Referencia\tcargo\tAbono\tSaldo\n31-03-2026\tUBER RIDE/...\t129.95\t\t385,811.65\n...'}
+                  style={{ width: '100%', minHeight: 280, background: '#0a0a0a', border: '1px solid #2a2a2a', borderRadius: 8, padding: 12, color: '#ddd', fontSize: 11, fontFamily: 'monospace', resize: 'vertical' as const }}
+                />
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 12 }}>
+                  <div style={{ fontSize: 10, color: '#666' }}>{txtPayload.length} caracteres · ~{txtPayload.split('\n').filter(l => l.trim()).length - 1} filas</div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <Btn size="sm" variant="default" onClick={() => { setShowTxtModal(null); setTxtPayload(''); }} disabled={processing}>Cancelar</Btn>
+                    <Btn size="sm" variant="primary" onClick={handleTxtProcess} disabled={processing || !txtPayload.trim()}>
+                      {processing ? '⏳ Procesando...' : 'Procesar con AI'}
+                    </Btn>
+                  </div>
+                </div>
+                {status && <div style={{ fontSize: 11, color: status.startsWith('Error') ? '#ef4444' : '#888', marginTop: 10 }}>{status}</div>}
+              </>
+            )}
+
+            {txtPreview && (
+              <>
+                {/* Banner de cuadre */}
+                {txtSummary?.totals_check && (
+                  <div style={{ background: txtSummary.totals_check.cuadra ? '#0e2a1a' : '#2a1a1a', border: '1px solid ' + (txtSummary.totals_check.cuadra ? '#1e5a3a' : '#5a2a2a'), borderRadius: 8, padding: 12, marginBottom: 12, fontSize: 11, color: txtSummary.totals_check.cuadra ? '#86efac' : '#fca5a5' }}>
+                    {txtSummary.totals_check.cuadra ? '✓ ' : '⚠ '}
+                    Cuadre por delta de saldo: esperado {txtSummary.totals_check.delta_esperado}, calculado {txtSummary.totals_check.delta_calculado}
+                    {txtSummary.totals_check.delta_diff != null && !txtSummary.totals_check.cuadra && ' · diff ' + txtSummary.totals_check.delta_diff}
+                  </div>
+                )}
+
+                {/* Warnings */}
+                {txtSummary?.warnings && txtSummary.warnings.length > 0 && (
+                  <div style={{ background: '#2a1f0e', border: '1px solid #5a3a1e', borderRadius: 8, padding: 10, marginBottom: 12, fontSize: 10, color: '#fcd34d' }}>
+                    {txtSummary.warnings.map((w: string, i: number) => <div key={i}>⚠ {w}</div>)}
+                  </div>
+                )}
+
+                {/* Stats confianza */}
+                <div style={{ display: 'flex', gap: 8, marginBottom: 12, fontSize: 11 }}>
+                  <div style={{ background: '#0e2a1a', border: '1px solid #1e5a3a', color: '#86efac', padding: '6px 10px', borderRadius: 6 }}>
+                    🟢 Alta: {txtPreview.filter((m: any) => m.confianza_autodetect === 'alta').length}
+                  </div>
+                  <div style={{ background: '#2a250e', border: '1px solid #5a4e1e', color: '#fcd34d', padding: '6px 10px', borderRadius: 6 }}>
+                    🟡 Media: {txtPreview.filter((m: any) => m.confianza_autodetect === 'media').length}
+                  </div>
+                  <div style={{ background: '#2a1a1a', border: '1px solid #5a2a2a', color: '#fca5a5', padding: '6px 10px', borderRadius: 6 }}>
+                    🔴 Baja: {txtPreview.filter((m: any) => m.confianza_autodetect === 'baja').length}
+                  </div>
+                  <div style={{ marginLeft: 'auto', color: '#888', padding: '6px 0' }}>Total: {txtPreview.length} movimientos</div>
+                </div>
+
+                {/* Tabla preview */}
+                <div style={{ maxHeight: 380, overflowY: 'auto' as const, border: '1px solid #2a2a2a', borderRadius: 8, marginBottom: 12 }}>
+                  <table style={{ width: '100%', fontSize: 10, color: '#ccc', borderCollapse: 'collapse' as const }}>
+                    <thead style={{ position: 'sticky' as const, top: 0, background: '#1a1a1a' }}>
+                      <tr>
+                        <th style={{ padding: 8, textAlign: 'left' as const, borderBottom: '1px solid #2a2a2a' }}>Fecha</th>
+                        <th style={{ padding: 8, textAlign: 'left' as const, borderBottom: '1px solid #2a2a2a' }}>Concepto</th>
+                        <th style={{ padding: 8, textAlign: 'left' as const, borderBottom: '1px solid #2a2a2a' }}>Beneficiario</th>
+                        <th style={{ padding: 8, textAlign: 'left' as const, borderBottom: '1px solid #2a2a2a' }}>Proy</th>
+                        <th style={{ padding: 8, textAlign: 'left' as const, borderBottom: '1px solid #2a2a2a' }}>Categoría</th>
+                        <th style={{ padding: 8, textAlign: 'right' as const, borderBottom: '1px solid #2a2a2a' }}>Cargo</th>
+                        <th style={{ padding: 8, textAlign: 'right' as const, borderBottom: '1px solid #2a2a2a' }}>Abono</th>
+                        <th style={{ padding: 8, textAlign: 'center' as const, borderBottom: '1px solid #2a2a2a' }}>Conf.</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {txtPreview.map((m: any, i: number) => (
+                        <tr key={i} style={{ borderBottom: '1px solid #1a1a1a' }}>
+                          <td style={{ padding: 8 }}>{m.fecha}</td>
+                          <td style={{ padding: 8, maxWidth: 280, overflow: 'hidden' as const, textOverflow: 'ellipsis' as const, whiteSpace: 'nowrap' as const }}>{m.concepto}</td>
+                          <td style={{ padding: 8, color: '#aaa' }}>{m.beneficiario || '—'}</td>
+                          <td style={{ padding: 8 }}>{m.proyecto_codigo || m.proyecto_nombre || '—'}</td>
+                          <td style={{ padding: 8, color: '#888' }}>{m.categoria || '—'}</td>
+                          <td style={{ padding: 8, textAlign: 'right' as const, color: '#fca5a5' }}>{m.tipo === 'cargo' ? F(m.monto) : ''}</td>
+                          <td style={{ padding: 8, textAlign: 'right' as const, color: '#86efac' }}>{m.tipo === 'abono' ? F(m.monto) : ''}</td>
+                          <td style={{ padding: 8, textAlign: 'center' as const }}>
+                            {m.confianza_autodetect === 'alta' ? '🟢' : m.confianza_autodetect === 'media' ? '🟡' : '🔴'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Actions */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Btn size="sm" variant="default" onClick={() => { setTxtPreview(null); setTxtSummary(null); }}>← Volver a editar</Btn>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <Btn size="sm" variant="default" onClick={() => { setShowTxtModal(null); setTxtPayload(''); setTxtPreview(null); setTxtSummary(null); }}>Cancelar</Btn>
+                    <Btn size="sm" variant="primary" onClick={handleTxtConfirm}>✓ Importar {txtPreview.length} movimientos</Btn>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
       )}
     </div>
   )
