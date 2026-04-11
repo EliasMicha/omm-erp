@@ -434,17 +434,21 @@ function ListaTodas() {
   useEffect(() => { load() }, [])
 
   // SYNC UNIFICADO: emitidas + recibidas en serie, con paginacion completa
-  async function sincronizarTodo() {
+  async function sincronizarMes() {
     setSyncing(true)
     let totalEmit = 0, errEmit = 0, totalRec = 0, errRec = 0
+    let recheckedCount = 0, statusChangedCount = 0
     const maxPages = 60
+    // Calcular fechas del mes activo en formato ISO (YYYY-MM-DD)
+    const dateGte = monthStart.toISOString().slice(0, 10)
+    const dateLte = monthEnd.toISOString().slice(0, 10)
 
-    // PASO 1: Emitidas (sin filtro issuer_type = default issuing)
-    setSyncProgress('Sincronizando emitidas... pagina 1')
+    // PASO 1: Emitidas del mes seleccionado (con filtro de fecha)
+    setSyncProgress('Sincronizando emitidas de ' + monthLabelCapitalized + '... pagina 1')
     let page = 1
     while (page <= maxPages) {
-      setSyncProgress('Sincronizando emitidas... pagina ' + page)
-      const r = await callFacturapi('list_invoices', { query: { limit: '50', page: String(page) } })
+      setSyncProgress('Sincronizando emitidas de ' + monthLabelCapitalized + '... pagina ' + page)
+      const r = await callFacturapi('list_invoices', { query: { limit: '50', page: String(page), date_gte: dateGte, date_lte: dateLte } })
       if (!r.ok || !r.data?.data || r.data.data.length === 0) break
       for (const inv of r.data.data) {
         const amounts = computeAmounts(inv)
@@ -495,12 +499,12 @@ function ListaTodas() {
       page++
     }
 
-    // PASO 2: Recibidas (issuer_type=receiving)
-    setSyncProgress('Sincronizando recibidas... pagina 1')
+    // PASO 2: Recibidas del mes (issuer_type=receiving + filtro de fecha)
+    setSyncProgress('Sincronizando recibidas de ' + monthLabelCapitalized + '... pagina 1')
     page = 1
     while (page <= maxPages) {
-      setSyncProgress('Sincronizando recibidas... pagina ' + page)
-      const r = await callFacturapi('list_invoices', { query: { limit: '50', page: String(page), issuer_type: 'receiving' } })
+      setSyncProgress('Sincronizando recibidas de ' + monthLabelCapitalized + '... pagina ' + page)
+      const r = await callFacturapi('list_invoices', { query: { limit: '50', page: String(page), issuer_type: 'receiving', date_gte: dateGte, date_lte: dateLte } })
       if (!r.ok || !r.data?.data || r.data.data.length === 0) break
       for (const inv of r.data.data) {
         const amounts = computeAmounts(inv)
@@ -551,11 +555,31 @@ function ListaTodas() {
       page++
     }
 
+    // PASO 3: Re-check de status de TODAS las facturas locales del mes
+    // (para detectar cancelaciones/cambios de estado en facturas existentes)
+    const facturasMesLocal = facturas.filter(f => f.facturapi_id && inSelectedMonth(f.fecha_emision))
+    setSyncProgress('Verificando status de ' + facturasMesLocal.length + ' facturas locales...')
+    for (let i = 0; i < facturasMesLocal.length; i++) {
+      const f = facturasMesLocal[i]
+      setSyncProgress('Verificando status... ' + (i + 1) + '/' + facturasMesLocal.length)
+      try {
+        const r = await callFacturapi('get_invoice', { query: { id: f.facturapi_id } })
+        if (!r.ok || !r.data) continue
+        recheckedCount++
+        const remoteStatus = r.data.status === 'valid' ? 'timbrada' : r.data.status === 'canceled' ? 'cancelada' : 'borrador'
+        if (remoteStatus !== f.status) {
+          await supabase.from('facturas').update({ status: remoteStatus }).eq('id', f.id)
+          statusChangedCount++
+        }
+      } catch { /* skip */ }
+    }
+
     setSyncProgress('')
     await load()
     setSyncing(false)
     const errMsg = (errEmit + errRec) > 0 ? ' (' + (errEmit + errRec) + ' errores)' : ''
-    alert('Sincronizacion completa: ' + totalEmit + ' emitidas + ' + totalRec + ' recibidas = ' + (totalEmit + totalRec) + ' facturas' + errMsg)
+    const changesMsg = statusChangedCount > 0 ? '\n' + statusChangedCount + ' cambios de status detectados' : ''
+    alert('Sincronizacion de ' + monthLabelCapitalized + ' completa:\n' + totalEmit + ' emitidas + ' + totalRec + ' recibidas = ' + (totalEmit + totalRec) + ' facturas\n' + recheckedCount + ' verificadas' + changesMsg + errMsg)
   }
 
   // Filtrar por mes y luego por busqueda
@@ -597,9 +621,9 @@ function ListaTodas() {
           <Search size={14} style={{ position: 'absolute', left: 10, top: 10, color: '#555' }} />
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar por contraparte, RFC, UUID o folio..." style={{ width: '100%', padding: '8px 12px 8px 32px', background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 8, color: '#fff', fontSize: 13, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' as const }} />
         </div>
-        <button onClick={sincronizarTodo} disabled={syncing} style={{ padding: '10px 16px', background: syncing ? '#1e1e1e' : '#57FF9A', color: syncing ? '#888' : '#000', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: syncing ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'inherit' }}>
+        <button onClick={sincronizarMes} disabled={syncing} style={{ padding: '10px 16px', background: syncing ? '#1e1e1e' : '#57FF9A', color: syncing ? '#888' : '#000', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: syncing ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'inherit' }}>
           {syncing ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <RefreshCw size={13} />}
-          {syncing ? 'Sincronizando...' : 'Sincronizar TODO con FacturAPI'}
+          {syncing ? (syncProgress || 'Sincronizando...') : 'Sincronizar ' + monthLabelCapitalized}
         </button>
       </div>
 
