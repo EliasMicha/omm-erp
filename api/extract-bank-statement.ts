@@ -9,6 +9,121 @@ export const config = {
   maxDuration: 60,
 }
 
+const TXT_TABULAR_PROMPT = `Eres un experto contable mexicano especializado en estados de cuenta BBVA.
+
+Recibirás un TSV (tab-separated values) copy-pasted del portal web de BBVA con 5 columnas:
+Día | Concepto / Referencia | cargo | Abono | Saldo
+
+REGLAS DE PARSEO:
+1. La PRIMERA fila es header, IGNÓRALA.
+2. Cada fila restante es UN movimiento bancario.
+3. Si la columna 'cargo' tiene valor → tipo = 'cargo'. Si 'Abono' tiene valor → tipo = 'abono'. Nunca ambos al mismo tiempo.
+4. Normaliza la fecha de DD-MM-YYYY a YYYY-MM-DD.
+5. Parsea montos removiendo comas: '1,492.44' → 1492.44. Siempre positivo.
+6. Parsea el saldo también (informativo).
+7. Si el usuario indica una ULTIMA_FECHA_IMPORTADA, IGNORA todos los movimientos con fecha <= a esa fecha.
+
+EXTRACCIÓN DE METADATOS DEL CONCEPTO (auto-detección agresiva):
+Para cada movimiento, analiza el campo concepto y extrae:
+
+- beneficiario: el actor externo de la transacción. Ejemplos:
+  • 'UBER RIDE/...' → 'Uber'
+  • 'DLO*TDA UBER RIDES/...' → 'Uber'
+  • 'STRIPE *AMAZONPRIMESUB/...' → 'Amazon Prime'
+  • 'STR*SYSCOM MX/...' → 'Syscom'
+  • 'CLAUDE.AI SUBSCRIPTION/...' → 'Anthropic (Claude)'
+  • 'APP TELMEX/...' → 'Telmex'
+  • 'BBVA SEGUROS MEXICO/...' → 'BBVA Seguros'
+  • 'SAT/GUIA:...' → 'SAT'
+  • 'IMSS/INF/AFORE/...' → 'IMSS/INFONAVIT'
+  • 'SISTEMAS Y SERVICIOS/GUIA:...' → 'Sistemas y Servicios (SAT)'
+  • 'PAGO CUENTA DE TERCERO/...': extraer la referencia libre al final (ej. 'LUMIN 1106', 'Bocinas E401', 'Finiquito Carlos')
+  • 'SPEI ENVIADO BANAMEX/...Finiquito Carlos Alberto' → 'Carlos Alberto' (o lo que sea la referencia)
+  • 'PAGO DE NOMINA/IN ... OMM TECHNOLOGIES' → 'Nómina OMM'
+  • 'TRANSF SPEI BANAMEX/...' → 'SPEI nómina'
+  • 'DEPOSITO DE TERCERO/REF...BMRCASH' → 'Depósito cliente'
+  • 'PAGO TARJETA DE CREDITO/...' → 'TDC BBVA'
+
+- rfc_contraparte: si el concepto contiene 'RFC: XXX NNNNNNXXX', extraerlo normalizado SIN espacios.
+  Ejemplo: 'RFC: DME 180122DU4' → 'DME180122DU4'
+
+- proyecto_codigo: buscar /\\bE\\d{2,3}\\b/i en el concepto.
+  Ejemplos: 'Bocinas E401' → 'E401', 'Material E402' → 'E402', 'Apagadores E101' → 'E101'.
+  Si no hay código, null.
+
+- proyecto_nombre: si el concepto contiene nombres de obra conocidos:
+  • 'ARCOS', 'ARCOS Bosques', 'ARCOS N' → 'Arcos Bosques'
+  • 'C5C', 'PIANO C5C', 'Piano Bar C5C' → 'Cero5Cien'
+  • 'KALACH' → 'KALACH'
+  • 'NAUKA' → 'NAUKA'
+  • 'RESERVA' → 'Reserva'
+  • 'CASALUCE', 'CASA LUCE' → 'Casa Luce'
+  • 'Ventanas SAC', 'VENT SAC', 'SIER VENT' → 'Ventanas Sacal'
+  • 'Tabachines' → 'Tabachines'
+  • 'Olivos 511' → 'Olivos'
+  • 'La Punta' → 'La Punta'
+  • 'NULED' → 'NULED'
+
+- categoria: inferir tipo de transacción:
+  • 'PAGO DE NOMINA', 'TRANSF SPEI ... NOMINA' → 'nomina'
+  • 'IMSS/INF/AFORE' → 'impuestos_nomina'
+  • 'SAT/GUIA', 'SISTEMAS Y SERVICIOS' → 'impuestos'
+  • 'PAGO CUENTA DE TERCERO' con nombre de obra o proyecto → 'proveedor_obra'
+  • 'PAGO CUENTA DE TERCERO' con 'Finiquito' → 'nomina'
+  • 'PAGO CUENTA DE TERCERO' con 'Prestamo' → 'prestamo'
+  • 'SPEI ENVIADO' + 'Anticipo' → 'anticipo_proveedor'
+  • 'DEPOSITO DE TERCERO', 'SPEI RECIBIDO' → 'cobro_cliente'
+  • 'TRASPASO ENTRE CUENTAS' → 'traspaso_interno'
+  • 'UBER', 'STRIPE', 'CLAUDE.AI', 'APP TELMEX', 'BBVA SEGUROS' → 'gasto_operativo'
+  • 'SERV BANCA INTERNET', 'IVA COM SERV BCA', 'ADMON RENTA', 'COMPENSACION', 'IVA REP TARJ', 'REP TARJ TIT' → 'comision_bancaria'
+  • 'PAGO TARJETA DE CREDITO' → 'pago_tdc'
+  • 'RECIBO NO./P0Q...' → 'servicio'
+  • otro → 'otro'
+
+- traspaso_usd_monto: si el concepto es 'TRASPASO ENTRE CUENTAS' y termina con un número seguido de 'USD'
+  (ej. '5000.00USD'), extraer ese número como float. Si no, null.
+
+- folio_spei: si hay 'FOLIO: NNNNNNN' en el concepto, extraer ese número.
+
+- clabe_contraparte: si el SPEI tiene formato '/NNNNNNNNNN  NNN', extraer la primera CLABE (10 dígitos).
+
+- confianza_autodetect: evalúa tu propia confianza en la auto-detección:
+  • 'alta' si detectaste beneficiario + (proyecto_codigo o proyecto_nombre) + categoria distinta de 'otro'
+  • 'media' si detectaste beneficiario + categoria pero sin proyecto
+  • 'baja' si solo detectaste categoria o solo beneficiario genérico
+
+RESPUESTA (JSON únicamente, sin markdown fences):
+{
+  "movements": [
+    {
+      "fecha": "2026-03-31",
+      "concepto": "texto completo del concepto original",
+      "beneficiario": "Anthropic (Claude)",
+      "rfc_contraparte": null,
+      "proyecto_codigo": null,
+      "proyecto_nombre": null,
+      "categoria": "gasto_operativo",
+      "monto": 1492.44,
+      "tipo": "cargo",
+      "saldo_posterior": 104822.21,
+      "traspaso_usd_monto": null,
+      "folio_spei": null,
+      "clabe_contraparte": null,
+      "confianza_autodetect": "media"
+    }
+  ],
+  "periodo": { "desde": "2026-03-02", "hasta": "2026-03-31" },
+  "saldo_inicial_estimado": 385811.65,
+  "saldo_final": 104822.21,
+  "warnings": []
+}
+
+IMPORTANTE:
+- Extrae TODOS los movimientos. No omitas ninguno.
+- 'saldo_inicial_estimado' es el saldo ANTES del primer movimiento (calcúlalo: si el primer movimiento tiene saldo S y tipo T con monto M, entonces saldo_inicial = S + M si es cargo, o S - M si es abono).
+- 'saldo_final' es el saldo de la última fila del TXT.
+`;
+
 const SYSTEM_PROMPT = `Eres un experto contable mexicano especializado en estados de cuenta de BBVA, Banorte, Santander, HSBC y Banamex. Extraes movimientos con precisión forense — cada centavo debe cuadrar.
 
 ═══════════════════════════════════════════════
@@ -228,7 +343,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!apiKey) return res.status(500).json({ ok: false, error: 'ANTHROPIC_KEY no configurada en el servidor' })
 
   try {
-    const { kind, payload } = req.body as { kind: string; payload: string }
+    const { kind, payload, ultima_fecha_importada } = req.body as { kind: string; payload: string; ultima_fecha_importada?: string }
     if (!kind || !payload) return res.status(400).json({ ok: false, error: 'Faltan parámetros kind/payload' })
 
     let content: any[]
@@ -237,10 +352,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: payload } },
         { type: 'text', text: SYSTEM_PROMPT },
       ]
+    } else if (kind === 'txt-tabular') {
+      const ultimaFechaStr = ultima_fecha_importada ? '\n\nULTIMA_FECHA_IMPORTADA: ' + ultima_fecha_importada + ' (ignora movimientos con fecha <= a esta)' : ''
+      content = [{ type: 'text', text: TXT_TABULAR_PROMPT + ultimaFechaStr + '\n\nTSV A PROCESAR:\n' + payload.substring(0, 80000) }]
     } else if (kind === 'text') {
       content = [{ type: 'text', text: SYSTEM_PROMPT + '\n\nESTADO DE CUENTA:\n' + payload.substring(0, 60000) }]
     } else {
-      return res.status(400).json({ ok: false, error: 'kind inválido (pdf|text)' })
+      return res.status(400).json({ ok: false, error: 'kind inválido (pdf|text|txt-tabular)' })
     }
 
     // Retry con backoff exponencial cuando Anthropic devuelve 529/overloaded o 5xx
@@ -346,8 +464,26 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (!abonosSumOk) warnings.push(`Abonos no cuadran: extraído ${round2(sumAbonos)}, esperado ${expAbonosTotal} (diff ${diffAbonos})`)
       if (!cargosCountOk) warnings.push(`Conteo cargos: extraído ${countCargos}, esperado ${expCargosCount}`)
       if (!abonosCountOk) warnings.push(`Conteo abonos: extraído ${countAbonos}, esperado ${expAbonosCount}`)
+    } else if (parsed.saldo_inicial_estimado != null && parsed.saldo_final != null) {
+      // Validación por delta de saldo (modo txt-tabular)
+      const saldoInicial = Number(parsed.saldo_inicial_estimado) || 0
+      const saldoFinal = Number(parsed.saldo_final) || 0
+      const deltaEsperado = round2(saldoFinal - saldoInicial)
+      const deltaCalculado = round2(sumAbonos - sumCargos)
+      const diffDelta = round2(Math.abs(deltaEsperado - deltaCalculado))
+      const deltaOk = diffDelta < 0.05
+      totalsCheck.saldo_inicial = saldoInicial
+      totalsCheck.saldo_final = saldoFinal
+      totalsCheck.delta_esperado = deltaEsperado
+      totalsCheck.delta_calculado = deltaCalculado
+      totalsCheck.delta_diff = diffDelta
+      totalsCheck.delta_ok = deltaOk
+      totalsCheck.cuadra = deltaOk
+      if (!deltaOk) {
+        warnings.push('Cuadre por delta de saldo falló: esperado ' + deltaEsperado + ', calculado ' + deltaCalculado + ' (diff ' + diffDelta + ')')
+      }
     } else {
-      warnings.push('El PDF no incluía totales esperados, no se pudo validar cuadre')
+      warnings.push('El estado de cuenta no incluía totales esperados ni saldo inicial/final, no se pudo validar cuadre')
     }
 
     return res.status(200).json({
