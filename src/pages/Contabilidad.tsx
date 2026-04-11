@@ -340,6 +340,10 @@ function TabFacturacion({ invoices, setInvoices, bankMovements, projectNames }: 
   const [filter, setFilter] = useState<'todas' | 'emitidas' | 'recibidas'>('todas')
   const [search, setSearch] = useState('')
   const [monthOffset, setMonthOffset] = useState(0) // 0 = mes actual, -1 = mes pasado, +1 = siguiente
+  // FacturAPI mode (Sesion B)
+  const [facturapiMode, setFacturapiMode] = useState<'test' | 'live'>('test')
+  const [facturapiConfig, setFacturapiConfig] = useState<{ hasLive: boolean; hasTest: boolean; defaultMode: 'test' | 'live' | null } | null>(null)
+  const [facturapiPing, setFacturapiPing] = useState<{ ok: boolean; livemode: boolean; message: string } | null>(null)
   const [showNewForm, setShowNewForm] = useState(false)
   const [xmlProcessing, setXmlProcessing] = useState(false)
   const [xmlResult, setXmlResult] = useState<string | null>(null)
@@ -354,6 +358,40 @@ function TabFacturacion({ invoices, setInvoices, bankMovements, projectNames }: 
     setNewConceptos(updated)
   }
   const removeConcepto = (i: number) => setNewConceptos(newConceptos.filter((_, idx) => idx !== i))
+
+  // FacturAPI: cargar config + ping al montar (Sesion B)
+  const loadFacturapiPing = async (mode: 'test' | 'live') => {
+    try {
+      const r = await fetch('/api/facturapi?action=ping&mode=' + mode)
+      const data = await r.json()
+      setFacturapiPing({ ok: !!data.ok, livemode: !!data.livemode, message: data.message || '' })
+    } catch (e: any) {
+      setFacturapiPing({ ok: false, livemode: false, message: 'Error: ' + (e.message || 'desconocido') })
+    }
+  }
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const r = await fetch('/api/facturapi?action=get_config')
+        const cfg = await r.json()
+        if (cancelled) return
+        setFacturapiConfig(cfg)
+        const initialMode: 'test' | 'live' = cfg.hasTest ? 'test' : (cfg.hasLive ? 'live' : 'test')
+        setFacturapiMode(initialMode)
+        loadFacturapiPing(initialMode)
+      } catch (e) {
+        if (!cancelled) setFacturapiConfig({ hasLive: false, hasTest: false, defaultMode: null })
+      }
+    })()
+    return () => { cancelled = true }
+  }, [])
+  // Cuando cambia el modo, re-pinguear
+  const switchFacturapiMode = (newMode: 'test' | 'live') => {
+    setFacturapiMode(newMode)
+    setFacturapiPing(null)
+    loadFacturapiPing(newMode)
+  }
   const conceptosSubtotal = newConceptos.reduce((s, cp) => s + cp.importe, 0)
   const conceptosIva = Math.round(conceptosSubtotal * 0.16 * 100) / 100
   const conceptosTotal = conceptosSubtotal + conceptosIva
@@ -576,6 +614,61 @@ function TabFacturacion({ invoices, setInvoices, bankMovements, projectNames }: 
 
   return (
     <div>
+      {/* FacturAPI mode banner (Sesion B) */}
+      {facturapiConfig && (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, padding: '10px 14px', borderRadius: 10, background: facturapiMode === 'live' ? 'rgba(239,68,68,0.1)' : 'rgba(251,191,36,0.08)', border: '1px solid ' + (facturapiMode === 'live' ? 'rgba(239,68,68,0.4)' : 'rgba(251,191,36,0.3)') }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 16 }}>{facturapiMode === 'live' ? '⚠️' : '🧪'}</span>
+              <span style={{ fontSize: 13, fontWeight: 700, color: facturapiMode === 'live' ? '#fca5a5' : '#fcd34d', letterSpacing: '0.5px' }}>
+                FacturAPI: {facturapiMode === 'live' ? 'MODO LIVE (timbra CFDIs reales)' : 'MODO TEST (no timbra)'}
+              </span>
+            </div>
+            {facturapiPing && (
+              <span style={{ fontSize: 11, color: facturapiPing.ok ? '#86efac' : '#fca5a5' }}>
+                {facturapiPing.ok ? '✓ ' + facturapiPing.message : '✗ ' + facturapiPing.message}
+              </span>
+            )}
+          </div>
+          <div style={{ display: 'flex', gap: 4, background: '#0a0a0a', borderRadius: 6, padding: 3, border: '1px solid #2a2a2a' }}>
+            <button
+              onClick={() => switchFacturapiMode('test')}
+              disabled={!facturapiConfig.hasTest}
+              style={{
+                padding: '5px 12px',
+                fontSize: 11,
+                fontWeight: 700,
+                background: facturapiMode === 'test' ? 'rgba(251,191,36,0.2)' : 'transparent',
+                border: 'none',
+                borderRadius: 4,
+                color: facturapiMode === 'test' ? '#fcd34d' : '#666',
+                cursor: facturapiConfig.hasTest ? 'pointer' : 'not-allowed',
+                fontFamily: 'inherit',
+              }}
+            >TEST</button>
+            <button
+              onClick={() => {
+                if (window.confirm('Cambiar a modo LIVE? Las facturas que crees se TIMBRARAN realmente con efectos fiscales.')) {
+                  switchFacturapiMode('live')
+                }
+              }}
+              disabled={!facturapiConfig.hasLive}
+              style={{
+                padding: '5px 12px',
+                fontSize: 11,
+                fontWeight: 700,
+                background: facturapiMode === 'live' ? 'rgba(239,68,68,0.2)' : 'transparent',
+                border: 'none',
+                borderRadius: 4,
+                color: facturapiMode === 'live' ? '#fca5a5' : '#666',
+                cursor: facturapiConfig.hasLive ? 'pointer' : 'not-allowed',
+                fontFamily: 'inherit',
+              }}
+            >LIVE</button>
+          </div>
+        </div>
+      )}
+
       {/* Month navigation */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, padding: '10px 14px', background: '#141414', border: '1px solid #222', borderRadius: 10 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
