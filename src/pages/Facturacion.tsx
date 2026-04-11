@@ -82,11 +82,18 @@ interface QuotationItemLite {
 }
 
 // ============================================================
-// API Helper
+// API Helper + FacturAPI mode (Sesion B - dual test/live)
 // ============================================================
+// Variable de modulo: el modo actual de FacturAPI (test o live)
+// Default 'live' porque esta pagina trabaja con datos reales de produccion.
+// Se cambia con setCurrentFacturapiMode() desde el toggle del UI.
+let currentFacturapiMode: 'test' | 'live' = 'live'
+export function setCurrentFacturapiMode(m: 'test' | 'live') { currentFacturapiMode = m }
+export function getCurrentFacturapiMode(): 'test' | 'live' { return currentFacturapiMode }
+
 async function callFacturapi(action: string, opts: { method?: string; query?: Record<string, string>; body?: any } = {}) {
   const method = opts.method || 'GET'
-  const params = new URLSearchParams({ action, ...(opts.query || {}) })
+  const params = new URLSearchParams({ action, mode: currentFacturapiMode, ...(opts.query || {}) })
   const url = '/api/facturapi?' + params.toString()
   const init: RequestInit = {
     method,
@@ -104,12 +111,53 @@ async function callFacturapi(action: string, opts: { method?: string; query?: Re
 export default function Facturacion() {
   const [view, setView] = useState<'lista' | 'nueva' | 'recibidas'>('lista')
   const [pingStatus, setPingStatus] = useState<'idle' | 'ok' | 'error'>('idle')
+  // FacturAPI mode (Sesion B)
+  const [facturapiMode, setFacturapiMode] = useState<'test' | 'live'>('live')
+  const [facturapiConfig, setFacturapiConfig] = useState<{ hasLive: boolean; hasTest: boolean; defaultMode: 'test' | 'live' | null } | null>(null)
+  const [facturapiPing, setFacturapiPing] = useState<{ ok: boolean; livemode: boolean; message: string } | null>(null)
 
+  // Carga config y modo inicial
   useEffect(() => {
-    callFacturapi('ping').then(r => {
-      setPingStatus(r.ok && r.data?.ok ? 'ok' : 'error')
-    })
+    let cancelled = false
+    ;(async () => {
+      try {
+        const r = await fetch('/api/facturapi?action=get_config')
+        const cfg = await r.json()
+        if (cancelled) return
+        setFacturapiConfig(cfg)
+        // Default LIVE para esta pagina (datos reales de produccion)
+        const initialMode: 'test' | 'live' = cfg.hasLive ? 'live' : (cfg.hasTest ? 'test' : 'live')
+        setFacturapiMode(initialMode)
+        setCurrentFacturapiMode(initialMode)
+        // Hacer el ping inicial
+        const pr = await fetch('/api/facturapi?action=ping&mode=' + initialMode)
+        const pd = await pr.json()
+        if (!cancelled) {
+          setFacturapiPing({ ok: !!pd.ok, livemode: !!pd.livemode, message: pd.message || '' })
+          setPingStatus(pd.ok ? 'ok' : 'error')
+        }
+      } catch (e) {
+        if (!cancelled) { setFacturapiConfig({ hasLive: false, hasTest: false, defaultMode: null }); setPingStatus('error') }
+      }
+    })()
+    return () => { cancelled = true }
   }, [])
+
+  // Handler para cambiar de modo (test/live)
+  const switchMode = async (newMode: 'test' | 'live') => {
+    setFacturapiMode(newMode)
+    setCurrentFacturapiMode(newMode)
+    setFacturapiPing(null)
+    setPingStatus('idle')
+    try {
+      const pr = await fetch('/api/facturapi?action=ping&mode=' + newMode)
+      const pd = await pr.json()
+      setFacturapiPing({ ok: !!pd.ok, livemode: !!pd.livemode, message: pd.message || '' })
+      setPingStatus(pd.ok ? 'ok' : 'error')
+    } catch {
+      setPingStatus('error')
+    }
+  }
 
   return (
     <div style={{ padding: '24px 28px', minHeight: '100vh' }}>
@@ -117,7 +165,7 @@ export default function Facturacion() {
         <div>
           <h1 style={{ fontSize: 22, fontWeight: 700, color: '#fff', margin: 0 }}>Facturacion</h1>
           <div style={{ fontSize: 12, color: '#666', marginTop: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
-            FacturAPI Sandbox
+            FacturAPI {facturapiMode === 'live' ? 'LIVE' : 'TEST'}
             {pingStatus === 'ok' && <CheckCircle2 size={12} style={{ color: '#57FF9A' }} />}
             {pingStatus === 'error' && <AlertCircle size={12} style={{ color: '#EF4444' }} />}
           </div>
@@ -131,6 +179,41 @@ export default function Facturacion() {
           </button>
         </div>
       </div>
+
+      {/* Banner FacturAPI mode (Sesion B) */}
+      {facturapiConfig && (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, padding: '10px 14px', borderRadius: 10, background: facturapiMode === 'live' ? 'rgba(239,68,68,0.1)' : 'rgba(251,191,36,0.08)', border: '1px solid ' + (facturapiMode === 'live' ? 'rgba(239,68,68,0.4)' : 'rgba(251,191,36,0.3)') }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 16 }}>{facturapiMode === 'live' ? '⚠️' : '🧪'}</span>
+              <span style={{ fontSize: 13, fontWeight: 700, color: facturapiMode === 'live' ? '#fca5a5' : '#fcd34d', letterSpacing: '0.5px' }}>
+                FacturAPI: {facturapiMode === 'live' ? 'MODO LIVE (timbra y lee CFDIs reales)' : 'MODO TEST (no timbra)'}
+              </span>
+            </div>
+            {facturapiPing && (
+              <span style={{ fontSize: 11, color: facturapiPing.ok ? '#86efac' : '#fca5a5' }}>
+                {facturapiPing.ok ? '✓ ' + facturapiPing.message : '✗ ' + facturapiPing.message}
+              </span>
+            )}
+          </div>
+          <div style={{ display: 'flex', gap: 4, background: '#0a0a0a', borderRadius: 6, padding: 3, border: '1px solid #2a2a2a' }}>
+            <button
+              onClick={() => switchMode('test')}
+              disabled={!facturapiConfig.hasTest}
+              style={{ padding: '5px 12px', fontSize: 11, fontWeight: 700, background: facturapiMode === 'test' ? 'rgba(251,191,36,0.2)' : 'transparent', border: 'none', borderRadius: 4, color: facturapiMode === 'test' ? '#fcd34d' : '#666', cursor: facturapiConfig.hasTest ? 'pointer' : 'not-allowed', fontFamily: 'inherit' }}
+            >TEST</button>
+            <button
+              onClick={() => {
+                if (window.confirm('Cambiar a modo LIVE? Se leeran y crearan facturas reales con efectos fiscales.')) {
+                  switchMode('live')
+                }
+              }}
+              disabled={!facturapiConfig.hasLive}
+              style={{ padding: '5px 12px', fontSize: 11, fontWeight: 700, background: facturapiMode === 'live' ? 'rgba(239,68,68,0.2)' : 'transparent', border: 'none', borderRadius: 4, color: facturapiMode === 'live' ? '#fca5a5' : '#666', cursor: facturapiConfig.hasLive ? 'pointer' : 'not-allowed', fontFamily: 'inherit' }}
+            >LIVE</button>
+          </div>
+        </div>
+      )}
 
       <div style={{ display: 'flex', gap: 6, marginBottom: 20, borderBottom: '1px solid #1e1e1e' }}>
         {(['lista', 'recibidas'] as const).map(v => (
@@ -162,6 +245,20 @@ function ListaEmitidas({ onNueva }: { onNueva: () => void }) {
   const [search, setSearch] = useState('')
   const [cancelando, setCancelando] = useState<string | null>(null)
   const [showCancelModal, setShowCancelModal] = useState<Factura | null>(null)
+  // Navegacion mensual (Sesion B)
+  const [monthOffset, setMonthOffset] = useState(0)
+  const now = new Date()
+  const monthDate = new Date(now.getFullYear(), now.getMonth() + monthOffset, 1)
+  const monthStart = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1)
+  const monthEnd = new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 0, 23, 59, 59, 999)
+  const monthLabel = monthDate.toLocaleDateString('es-MX', { month: 'long', year: 'numeric' })
+  const monthLabelCapitalized = monthLabel.charAt(0).toUpperCase() + monthLabel.slice(1)
+  const inSelectedMonth = (fechaStr: string | null | undefined) => {
+    if (!fechaStr) return false
+    const d = new Date(fechaStr)
+    if (isNaN(d.getTime())) return false
+    return d >= monthStart && d <= monthEnd
+  }
 
   async function load() {
     setLoading(true)
@@ -199,7 +296,7 @@ function ListaEmitidas({ onNueva }: { onNueva: () => void }) {
           forma_pago: inv.payment_form || null,
           metodo_pago: inv.payment_method || null,
           tipo_comprobante: inv.type || 'I',
-          sandbox: true,
+          sandbox: getCurrentFacturapiMode() === 'test',
         }
         const { data: existing } = await supabase.from('facturas').select('id').eq('facturapi_id', inv.id).maybeSingle()
         if (existing) {
@@ -242,7 +339,9 @@ function ListaEmitidas({ onNueva }: { onNueva: () => void }) {
     setCancelando(null)
   }
 
-  const filtered = facturas.filter(f => {
+  // Filtrar por mes seleccionado primero, luego por busqueda
+  const facturasMes = facturas.filter(f => inSelectedMonth(f.fecha_emision))
+  const filtered = facturasMes.filter(f => {
     if (!search) return true
     const q = search.toLowerCase()
     return (f.receptor_nombre || '').toLowerCase().includes(q) ||
@@ -253,6 +352,21 @@ function ListaEmitidas({ onNueva }: { onNueva: () => void }) {
 
   return (
     <div>
+      {/* Navegador mensual (Sesion B) */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, padding: '10px 14px', background: '#141414', border: '1px solid #222', borderRadius: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <button onClick={() => setMonthOffset(monthOffset - 1)} style={{ padding: '6px 10px', fontSize: 12, background: '#1a1a1a', border: '1px solid #333', borderRadius: 6, color: '#ccc', cursor: 'pointer', fontFamily: 'inherit' }}>◀ Mes anterior</button>
+          <span style={{ fontSize: 14, fontWeight: 600, color: '#fff', minWidth: 160, textAlign: 'center' as const }}>{monthLabelCapitalized}</span>
+          <button onClick={() => setMonthOffset(monthOffset + 1)} style={{ padding: '6px 10px', fontSize: 12, background: '#1a1a1a', border: '1px solid #333', borderRadius: 6, color: '#ccc', cursor: 'pointer', fontFamily: 'inherit' }}>Mes siguiente ▶</button>
+          {monthOffset !== 0 && (
+            <button onClick={() => setMonthOffset(0)} style={{ padding: '6px 10px', fontSize: 11, background: 'rgba(87,255,154,0.08)', border: '1px solid rgba(87,255,154,0.3)', borderRadius: 6, color: '#57FF9A', cursor: 'pointer', fontFamily: 'inherit' }}>Hoy</button>
+          )}
+        </div>
+        <div style={{ fontSize: 11, color: '#666' }}>
+          {facturasMes.length} factura{facturasMes.length !== 1 ? 's' : ''} en {monthLabelCapitalized}
+        </div>
+      </div>
+
       <div style={{ display: 'flex', gap: 8, marginBottom: 16, alignItems: 'center' }}>
         <div style={{ position: 'relative', flex: 1, maxWidth: 360 }}>
           <Search size={14} style={{ position: 'absolute', left: 10, top: 10, color: '#555' }} />
@@ -576,7 +690,7 @@ function NuevaFactura({ onCancel, onCreated }: { onCancel: () => void; onCreated
         metodo_pago: metodoPago,
         quotation_id: cotizacionId || null,
         notas: notas || null,
-        sandbox: true,
+        sandbox: getCurrentFacturapiMode() === 'test',
       }
 
       const { data: created, error: insErr } = await supabase.from('facturas').insert(facturaSupabase).select().single()
