@@ -120,8 +120,10 @@ RESPUESTA (JSON únicamente, sin markdown fences):
 
 IMPORTANTE:
 - Extrae TODOS los movimientos. No omitas ninguno.
-- 'saldo_inicial_estimado' es el saldo ANTES del primer movimiento (calcúlalo: si el primer movimiento tiene saldo S y tipo T con monto M, entonces saldo_inicial = S + M si es cargo, o S - M si es abono).
-- 'saldo_final' es el saldo de la última fila del TXT.
+- ORDENA mentalmente los movimientos por fecha ASCENDENTE (más antigua primero) antes de calcular saldos.
+- 'saldo_inicial_estimado' es el saldo ANTES del movimiento con fecha más antigua del TXT. Para calcularlo: toma el saldo_posterior de ese primer movimiento cronológico y REVIERTE su efecto (si es cargo suma el monto, si es abono resta el monto).
+- 'saldo_final' es el saldo_posterior del movimiento con fecha más reciente del TXT.
+- El array 'movements' en la respuesta puede estar en cualquier orden, pero saldo_inicial_estimado y saldo_final deben corresponder a los extremos cronológicos reales.
 `;
 
 const SYSTEM_PROMPT = `Eres un experto contable mexicano especializado en estados de cuenta de BBVA, Banorte, Santander, HSBC y Banamex. Extraes movimientos con precisión forense — cada centavo debe cuadrar.
