@@ -121,9 +121,13 @@ export default async function handler(req: any, res: any) {
       const page = req.query.page || 1
       const q = req.query.q || ''
       const issuer_type = req.query.issuer_type || ''
+      const date_gte = req.query.date_gte || ''
+      const date_lte = req.query.date_lte || ''
       let path = `/invoices?limit=${limit}&page=${page}`
       if (q) path += `&q=${encodeURIComponent(q.toString())}`
       if (issuer_type) path += `&issuer_type=${issuer_type}`
+      if (date_gte) path += `&date%5Bgte%5D=${encodeURIComponent(date_gte.toString())}`
+      if (date_lte) path += `&date%5Blte%5D=${encodeURIComponent(date_lte.toString())}`
       const r = await facturapi('GET', path, mode)
       res.status(r.status).json(r.data)
       return
