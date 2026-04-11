@@ -729,17 +729,24 @@ function TabFacturacion({ invoices, setInvoices, bankMovements, projectNames }: 
   const monthInvoices = invoices.filter(inv => inSelectedMonth(inv.fecha_emision))
   const monthMovements = bankMovements.filter(m => inSelectedMonth(m.fecha))
 
-  // KPIs del mes
+  // KPIs del mes (separados por moneda MXN / USD)
   const monthEmitidas = monthInvoices.filter(i => i.direccion === 'emitida')
   const monthRecibidas = monthInvoices.filter(i => i.direccion === 'recibida')
-  const totalFacturado = monthEmitidas.reduce((s, i) => s + (i.total || 0), 0)
-  const totalRecibido = monthRecibidas.reduce((s, i) => s + (i.total || 0), 0)
+  const isMxn = (i: any) => (i.moneda || 'MXN') === 'MXN'
+  const isUsd = (i: any) => (i.moneda || 'MXN') === 'USD'
+  const totalFacturadoMxn = monthEmitidas.filter(isMxn).reduce((s, i) => s + (i.total || 0), 0)
+  const totalFacturadoUsd = monthEmitidas.filter(isUsd).reduce((s, i) => s + (i.total || 0), 0)
+  const totalRecibidoMxn = monthRecibidas.filter(isMxn).reduce((s, i) => s + (i.total || 0), 0)
+  const totalRecibidoUsd = monthRecibidas.filter(isUsd).reduce((s, i) => s + (i.total || 0), 0)
 
   // IVA por pagar = IVA cobrado (emitidas conciliadas) - IVA pagado (recibidas conciliadas)
   // Solo cuenta facturas conciliadas porque el IVA se causa con el flujo de efectivo.
-  const ivaCobrado = monthEmitidas.filter(i => i.conciliada).reduce((s, i) => s + (i.iva || 0), 0)
-  const ivaPagado = monthRecibidas.filter(i => i.conciliada).reduce((s, i) => s + (i.iva || 0), 0)
-  const ivaPorPagar = ivaCobrado - ivaPagado
+  const ivaCobradoMxn = monthEmitidas.filter(i => i.conciliada && isMxn(i)).reduce((s, i) => s + (i.iva || 0), 0)
+  const ivaPagadoMxn = monthRecibidas.filter(i => i.conciliada && isMxn(i)).reduce((s, i) => s + (i.iva || 0), 0)
+  const ivaPorPagarMxn = ivaCobradoMxn - ivaPagadoMxn
+  const ivaCobradoUsd = monthEmitidas.filter(i => i.conciliada && isUsd(i)).reduce((s, i) => s + (i.iva || 0), 0)
+  const ivaPagadoUsd = monthRecibidas.filter(i => i.conciliada && isUsd(i)).reduce((s, i) => s + (i.iva || 0), 0)
+  const ivaPorPagarUsd = ivaCobradoUsd - ivaPagadoUsd
 
   // Ingresos sin factura: abonos del mes categorizados como cobro_cliente (o sin categoría clara)
   // que NO tienen factura_match_id asociado.
@@ -849,20 +856,37 @@ function TabFacturacion({ invoices, setInvoices, bankMovements, projectNames }: 
         </div>
       </div>
 
-      {/* KPIs */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
-        <KpiCard label="Total Facturado" value={F(totalFacturado)} color="#3B82F6" icon={<DollarSign size={16} />} />
-        <KpiCard label="Total Recibido" value={F(totalRecibido)} color="#F59E0B" icon={<DollarSign size={16} />} />
+      {/* KPIs - Fila MXN */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 12 }}>
+        <KpiCard label="Total Facturado MXN" value={F(totalFacturadoMxn) + ' MXN'} color="#3B82F6" icon={<DollarSign size={16} />} />
+        <KpiCard label="Total Recibido MXN" value={F(totalRecibidoMxn) + ' MXN'} color="#F59E0B" icon={<DollarSign size={16} />} />
         <KpiCard
-          label="IVA por pagar"
-          value={F(ivaPorPagar)}
-          color={ivaPorPagar >= 0 ? '#EF4444' : '#57FF9A'}
+          label="IVA por pagar MXN"
+          value={F(ivaPorPagarMxn) + ' MXN'}
+          color={ivaPorPagarMxn >= 0 ? '#EF4444' : '#57FF9A'}
           icon={<ShieldCheck size={16} />}
         />
         <KpiCard
           label="Ingresos sin factura"
-          value={F(ingresosSinFactura)}
+          value={F(ingresosSinFactura) + ' MXN'}
           color={ingresosSinFactura > 0 ? '#F59E0B' : '#57FF9A'}
+          icon={<AlertTriangle size={16} />}
+        />
+      </div>
+      {/* KPIs - Fila USD */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
+        <KpiCard label="Total Facturado USD" value={F(totalFacturadoUsd) + ' USD'} color="#10B981" icon={<DollarSign size={16} />} />
+        <KpiCard label="Total Recibido USD" value={F(totalRecibidoUsd) + ' USD'} color="#10B981" icon={<DollarSign size={16} />} />
+        <KpiCard
+          label="IVA por pagar USD"
+          value={F(ivaPorPagarUsd) + ' USD'}
+          color={ivaPorPagarUsd >= 0 ? '#EF4444' : '#57FF9A'}
+          icon={<ShieldCheck size={16} />}
+        />
+        <KpiCard
+          label="(Solo MXN aplica)"
+          value="—"
+          color="#444"
           icon={<AlertTriangle size={16} />}
         />
       </div>
@@ -911,6 +935,7 @@ function TabFacturacion({ invoices, setInvoices, bankMovements, projectNames }: 
               <Th>Folio</Th>
               <Th>Dir.</Th>
               <Th>Tipo</Th>
+              <Th>Mon.</Th>
               <Th>Cliente / Proveedor</Th>
               <Th>Uso CFDI</Th>
               <Th>Proyecto</Th>
@@ -922,7 +947,7 @@ function TabFacturacion({ invoices, setInvoices, bankMovements, projectNames }: 
           </thead>
           <tbody>
             {filtered.length === 0 && (
-              <tr><Td colSpan={10} muted>
+              <tr><Td colSpan={11} muted>
                 {monthInvoices.length === 0
                   ? `Sin facturas en ${monthLabelCapitalized}`
                   : 'Sin resultados para los filtros aplicados'}
@@ -948,6 +973,14 @@ function TabFacturacion({ invoices, setInvoices, bankMovements, projectNames }: 
                     </span>
                   </Td>
                   <Td muted>{CFDI_TYPE_LABELS[inv.tipo_comprobante]}</Td>
+                  <Td>
+                    <span style={{
+                      fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 4,
+                      background: (inv.moneda || 'MXN') === 'USD' ? '#10B98122' : '#3B82F622',
+                      color: (inv.moneda || 'MXN') === 'USD' ? '#10B981' : '#3B82F6',
+                      fontFamily: 'monospace',
+                    }}>{inv.moneda || 'MXN'}</span>
+                  </Td>
                   <Td>
                     <span style={{ color: '#ccc' }}>
                       {isIngreso ? inv.receptor_nombre : inv.emisor_nombre}
