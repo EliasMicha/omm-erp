@@ -104,7 +104,15 @@ function computeAmounts(inv: any): { subtotal: number; iva: number; total: numbe
   // Caso especial: Complemento de Pago (REP) - es valido que sea 0/0
   if (tipoComprobante === 'P') {
     // Intentar leer el monto del complemento de pago si existe
-    const payments = inv.complements?.payments || []
+    // FacturAPI devuelve complements como array indexado o objeto
+    let payments: any[] = []
+    if (Array.isArray(inv.complements)) {
+      for (const c of inv.complements) {
+        if (Array.isArray(c?.payments)) { payments = c.payments; break }
+      }
+    } else if (Array.isArray(inv.complements?.payments)) {
+      payments = inv.complements.payments
+    }
     let pagoTotal = 0
     for (const p of payments) {
       pagoTotal += Number(p.amount) || 0
@@ -119,7 +127,8 @@ function computeAmounts(inv: any): { subtotal: number; iva: number; total: numbe
     for (const it of inv.items) {
       const qty = Number(it.quantity) || 1
       const price = Number(it.product?.price) || 0
-      const lineSubtotal = qty * price
+      const discount = Number(it.discount) || 0
+      const lineSubtotal = (qty * price) - discount
       subtotalItems += lineSubtotal
       const taxes = it.product?.taxes || []
       for (const tax of taxes) {
@@ -136,7 +145,17 @@ function computeAmounts(inv: any): { subtotal: number; iva: number; total: numbe
   // pero las percepciones brutas estan en items[]. Usar el subtotal calculado como total.
   if (tipoComprobante === 'N') {
     // Tambien intentar leer del complemento payroll si existe
-    const payroll = inv.complements?.payroll || inv.complement?.payroll
+    // FacturAPI devuelve complements como array indexado [{ payroll: {...} }] o objeto { payroll: {...} }
+    let payroll: any = null
+    if (Array.isArray(inv.complements)) {
+      for (const c of inv.complements) {
+        if (c?.payroll) { payroll = c.payroll; break }
+      }
+    } else if (inv.complements?.payroll) {
+      payroll = inv.complements.payroll
+    } else if (inv.complement?.payroll) {
+      payroll = inv.complement.payroll
+    }
     const payrollTotal = Number(payroll?.total_payment) || Number(payroll?.total_perceptions) || 0
     const finalTotal = payrollTotal || subtotalItems || headerSubtotal
     return {
