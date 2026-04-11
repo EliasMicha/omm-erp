@@ -91,38 +91,84 @@ let currentFacturapiMode: 'test' | 'live' = 'live'
 export function setCurrentFacturapiMode(m: 'test' | 'live') { currentFacturapiMode = m }
 export function getCurrentFacturapiMode(): 'test' | 'live' { return currentFacturapiMode }
 
-// Helper: calcular subtotal/iva desde inv.items si no vienen en la raiz
+// Helper: calcular subtotal/iva/total desde inv.items + manejo de tipo_comprobante
+// Casos especiales:
+//  - Tipo N (Nomina): total del header viene 0, el monto real es la suma de percepciones (subtotal)
+//  - Tipo P (Pago/REP): legitimamente viene 0/0/XXX porque el monto va en el complemento
+//  - Tipo I (Ingreso): caso normal, usar subtotal y total directamente
 function computeAmounts(inv: any): { subtotal: number; iva: number; total: number } {
-  const total = Number(inv.total) || 0
-  // Si subtotal viene en la raiz, usarlo
-  if (inv.subtotal != null && Number(inv.subtotal) > 0) {
-    return { subtotal: Number(inv.subtotal), iva: total - Number(inv.subtotal), total }
+  const tipoComprobante = inv.type || 'I'
+  const headerTotal = Number(inv.total) || 0
+  const headerSubtotal = Number(inv.subtotal) || 0
+
+  // Caso especial: Complemento de Pago (REP) - es valido que sea 0/0
+  if (tipoComprobante === 'P') {
+    // Intentar leer el monto del complemento de pago si existe
+    const payments = inv.complements?.payments || []
+    let pagoTotal = 0
+    for (const p of payments) {
+      pagoTotal += Number(p.amount) || 0
+    }
+    return { subtotal: pagoTotal, iva: 0, total: pagoTotal }
   }
-  // Si no, sumar de items
-  let subtotal = 0
-  let iva = 0
+
+  // Calcular subtotal/iva desde items (igual que antes)
+  let subtotalItems = 0
+  let ivaItems = 0
   if (Array.isArray(inv.items)) {
     for (const it of inv.items) {
       const qty = Number(it.quantity) || 1
       const price = Number(it.product?.price) || 0
       const lineSubtotal = qty * price
-      subtotal += lineSubtotal
+      subtotalItems += lineSubtotal
       const taxes = it.product?.taxes || []
       for (const tax of taxes) {
         if (tax.type === 'IVA' && !tax.withholding) {
           const base = Number(tax.base) || lineSubtotal
           const rate = Number(tax.rate) || 0
-          iva += base * rate
+          ivaItems += base * rate
         }
       }
     }
   }
-  // Fallback: si total existe pero subtotal no se pudo calcular, asumir IVA 16%
-  if (subtotal === 0 && total > 0) {
-    subtotal = total / 1.16
-    iva = total - subtotal
+
+  // Caso especial: Nomina (tipo N) - el header SAT viene con total=0
+  // pero las percepciones brutas estan en items[]. Usar el subtotal calculado como total.
+  if (tipoComprobante === 'N') {
+    // Tambien intentar leer del complemento payroll si existe
+    const payroll = inv.complements?.payroll || inv.complement?.payroll
+    const payrollTotal = Number(payroll?.total_payment) || Number(payroll?.total_perceptions) || 0
+    const finalTotal = payrollTotal || subtotalItems || headerSubtotal
+    return {
+      subtotal: Math.round((subtotalItems || headerSubtotal) * 100) / 100,
+      iva: 0,
+      total: Math.round(finalTotal * 100) / 100,
+    }
   }
-  return { subtotal: Math.round(subtotal * 100) / 100, iva: Math.round(iva * 100) / 100, total }
+
+  // Caso normal (tipo I = Ingreso, E = Egreso, T = Traslado)
+  // Si subtotal viene en raiz, usarlo
+  if (headerSubtotal > 0) {
+    return { subtotal: headerSubtotal, iva: headerTotal - headerSubtotal, total: headerTotal }
+  }
+  // Si no hay subtotal pero hay items con calculo
+  if (subtotalItems > 0) {
+    return {
+      subtotal: Math.round(subtotalItems * 100) / 100,
+      iva: Math.round(ivaItems * 100) / 100,
+      total: headerTotal || Math.round((subtotalItems + ivaItems) * 100) / 100,
+    }
+  }
+  // Fallback: si total existe pero no se pudo calcular subtotal, asumir IVA 16%
+  if (headerTotal > 0) {
+    const sub = headerTotal / 1.16
+    return {
+      subtotal: Math.round(sub * 100) / 100,
+      iva: Math.round((headerTotal - sub) * 100) / 100,
+      total: headerTotal,
+    }
+  }
+  return { subtotal: 0, iva: 0, total: 0 }
 }
 
 async function callFacturapi(action: string, opts: { method?: string; query?: Record<string, string>; body?: any } = {}) {
