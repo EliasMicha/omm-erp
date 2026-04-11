@@ -288,8 +288,16 @@ function ListaEmitidas({ onNueva }: { onNueva: () => void }) {
           status: inv.status === 'valid' ? 'timbrada' : inv.status === 'canceled' ? 'cancelada' : 'borrador',
           fecha_emision: inv.date || null,
           fecha_timbrado: inv.stamp?.date || null,
+          // Emisor: campos NOT NULL en facturas, default a OMM Technologies
+          emisor_rfc: inv.organization?.tax_id || inv.organization?.legal?.legal_name || 'OTE210910PW5',
+          emisor_nombre: inv.organization?.legal_name || inv.organization?.name || 'OMM Technologies SA de CV',
+          emisor_regimen_fiscal: inv.organization?.tax_system || '601',
+          // Receptor
           receptor_rfc: inv.customer?.tax_id || null,
           receptor_nombre: inv.customer?.legal_name || null,
+          receptor_regimen_fiscal: inv.customer?.tax_system || null,
+          receptor_codigo_postal: inv.customer?.address?.zip || null,
+          receptor_uso_cfdi: inv.use || null,
           subtotal: inv.subtotal || 0,
           total: inv.total || 0,
           moneda: inv.currency || 'MXN',
@@ -990,37 +998,170 @@ function NuevaFactura({ onCancel, onCreated }: { onCancel: () => void; onCreated
 function ListaRecibidas() {
   const [recibidas, setRecibidas] = useState<Factura[]>([])
   const [loading, setLoading] = useState(true)
+  const [syncing, setSyncing] = useState(false)
+  const [search, setSearch] = useState('')
+  // Navegacion mensual
+  const [monthOffset, setMonthOffset] = useState(0)
+  const now = new Date()
+  const monthDate = new Date(now.getFullYear(), now.getMonth() + monthOffset, 1)
+  const monthStart = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1)
+  const monthEnd = new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 0, 23, 59, 59, 999)
+  const monthLabel = monthDate.toLocaleDateString('es-MX', { month: 'long', year: 'numeric' })
+  const monthLabelCapitalized = monthLabel.charAt(0).toUpperCase() + monthLabel.slice(1)
+  const inSelectedMonth = (fechaStr: string | null | undefined) => {
+    if (!fechaStr) return false
+    const d = new Date(fechaStr)
+    if (isNaN(d.getTime())) return false
+    return d >= monthStart && d <= monthEnd
+  }
 
-  useEffect(() => {
-    supabase.from('facturas').select('*').eq('direccion', 'recibida').order('created_at', { ascending: false }).limit(100).then(({ data }) => {
-      setRecibidas((data as Factura[]) || [])
-      setLoading(false)
-    })
-  }, [])
+  async function load() {
+    setLoading(true)
+    const { data } = await supabase.from('facturas').select('*').eq('direccion', 'recibida').order('fecha_emision', { ascending: false }).limit(500)
+    setRecibidas((data as Factura[]) || [])
+    setLoading(false)
+  }
 
-  if (loading) return <div style={{ padding: 40, textAlign: 'center', color: '#555' }}>Cargando...</div>
+  useEffect(() => { load() }, [])
+
+  // Sincronizar facturas RECIBIDAS desde FacturAPI con issuer_type=received
+  async function sincronizar() {
+    setSyncing(true)
+    let totalImported = 0
+    let totalErrors = 0
+    let page = 1
+    const maxPages = 20 // tope de seguridad
+    while (page <= maxPages) {
+      const r = await callFacturapi('list_invoices', { query: { limit: '50', page: String(page), issuer_type: 'received' } })
+      if (!r.ok || !r.data?.data || r.data.data.length === 0) break
+      for (const inv of r.data.data) {
+        const payload: any = {
+          direccion: 'recibida',
+          facturapi_id: inv.id,
+          uuid_fiscal: inv.uuid || null,
+          serie: inv.series || null,
+          folio: inv.folio_number ? String(inv.folio_number) : null,
+          status: inv.status === 'valid' ? 'timbrada' : inv.status === 'canceled' ? 'cancelada' : 'borrador',
+          fecha_emision: inv.date || null,
+          fecha_timbrado: inv.stamp?.date || null,
+          // Emisor (proveedor que nos facturo) - obligatorio NOT NULL
+          emisor_rfc: inv.issuer?.tax_id || inv.organization?.tax_id || 'XXX010101000',
+          emisor_nombre: inv.issuer?.legal_name || inv.organization?.legal_name || 'Sin nombre',
+          emisor_regimen_fiscal: inv.issuer?.tax_system || null,
+          // Receptor (somos nosotros - OMM)
+          receptor_rfc: inv.customer?.tax_id || 'OTE210910PW5',
+          receptor_nombre: inv.customer?.legal_name || 'OMM Technologies SA de CV',
+          receptor_uso_cfdi: inv.use || null,
+          receptor_codigo_postal: inv.customer?.address?.zip || null,
+          subtotal: inv.subtotal || 0,
+          total: inv.total || 0,
+          moneda: inv.currency || 'MXN',
+          forma_pago: inv.payment_form || null,
+          metodo_pago: inv.payment_method || null,
+          tipo_comprobante: inv.type || 'I',
+          sandbox: getCurrentFacturapiMode() === 'test',
+        }
+        try {
+          const { data: existing } = await supabase.from('facturas').select('id').eq('facturapi_id', inv.id).maybeSingle()
+          if (existing) {
+            const { error } = await supabase.from('facturas').update(payload).eq('id', (existing as any).id)
+            if (error) totalErrors++
+            else totalImported++
+          } else {
+            const { error } = await supabase.from('facturas').insert(payload)
+            if (error) totalErrors++
+            else totalImported++
+          }
+        } catch {
+          totalErrors++
+        }
+      }
+      // Si la pagina no estaba llena, ya terminamos
+      if (r.data.data.length < 50) break
+      page++
+    }
+    await load()
+    setSyncing(false)
+    if (totalErrors > 0) {
+      alert('Sincronizacion completada: ' + totalImported + ' facturas, ' + totalErrors + ' errores')
+    } else {
+      alert('Sincronizacion completada: ' + totalImported + ' facturas recibidas importadas')
+    }
+  }
+
+  // Filtrar por mes y luego por busqueda
+  const recibidasMes = recibidas.filter(f => inSelectedMonth(f.fecha_emision))
+  const filtered = recibidasMes.filter(f => {
+    if (!search) return true
+    const q = search.toLowerCase()
+    return (f.emisor_nombre || '').toLowerCase().includes(q) ||
+      (f.emisor_rfc || '').toLowerCase().includes(q) ||
+      (f.uuid_fiscal || '').toLowerCase().includes(q) ||
+      (f.folio || '').toLowerCase().includes(q)
+  })
 
   return (
     <div>
-      <div style={{ background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 12, padding: 24, marginBottom: 16 }}>
-        <div style={{ fontSize: 13, color: '#aaa', marginBottom: 6, fontWeight: 600 }}>Buzon de facturas recibidas</div>
-        <div style={{ fontSize: 11, color: '#666', lineHeight: 1.6 }}>
-          Aqui apareceran las facturas que tus proveedores te emitan. Por ahora puedes subirlas manualmente desde el modulo Contabilidad.
-          La sincronizacion automatica via email forwarding y webhook se implementara en una siguiente fase.
+      {/* Navegador mensual */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, padding: '10px 14px', background: '#141414', border: '1px solid #222', borderRadius: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <button onClick={() => setMonthOffset(monthOffset - 1)} style={{ padding: '6px 10px', fontSize: 12, background: '#1a1a1a', border: '1px solid #333', borderRadius: 6, color: '#ccc', cursor: 'pointer', fontFamily: 'inherit' }}>◀ Mes anterior</button>
+          <span style={{ fontSize: 14, fontWeight: 600, color: '#fff', minWidth: 160, textAlign: 'center' as const }}>{monthLabelCapitalized}</span>
+          <button onClick={() => setMonthOffset(monthOffset + 1)} style={{ padding: '6px 10px', fontSize: 12, background: '#1a1a1a', border: '1px solid #333', borderRadius: 6, color: '#ccc', cursor: 'pointer', fontFamily: 'inherit' }}>Mes siguiente ▶</button>
+          {monthOffset !== 0 && (
+            <button onClick={() => setMonthOffset(0)} style={{ padding: '6px 10px', fontSize: 11, background: 'rgba(87,255,154,0.08)', border: '1px solid rgba(87,255,154,0.3)', borderRadius: 6, color: '#57FF9A', cursor: 'pointer', fontFamily: 'inherit' }}>Hoy</button>
+          )}
+        </div>
+        <div style={{ fontSize: 11, color: '#666' }}>
+          {recibidasMes.length} factura{recibidasMes.length !== 1 ? 's' : ''} en {monthLabelCapitalized}
         </div>
       </div>
-      {recibidas.length === 0 ? (
-        <div style={{ padding: 60, textAlign: 'center', color: '#555', background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 12 }}>
+
+      {/* Search bar + sync */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16, alignItems: 'center' }}>
+        <div style={{ position: 'relative', flex: 1, maxWidth: 360 }}>
+          <Search size={14} style={{ position: 'absolute', left: 10, top: 10, color: '#555' }} />
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar por proveedor, RFC, UUID o folio..." style={{ width: '100%', padding: '8px 12px 8px 32px', background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 8, color: '#fff', fontSize: 13, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' as const }} />
+        </div>
+        <button onClick={sincronizar} disabled={syncing} style={{ padding: '8px 14px', background: '#1e1e1e', color: '#ccc', border: '1px solid #2a2a2a', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: syncing ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'inherit' }}>
+          {syncing ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <RefreshCw size={12} />}
+          {syncing ? 'Sincronizando...' : 'Sincronizar con FacturAPI'}
+        </button>
+      </div>
+
+      {loading ? (
+        <div style={{ padding: 40, textAlign: 'center' as const, color: '#555' }}>Cargando...</div>
+      ) : filtered.length === 0 ? (
+        <div style={{ padding: 60, textAlign: 'center' as const, color: '#555', background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 12 }}>
           <FileText size={32} style={{ color: '#333', marginBottom: 12 }} />
-          <div style={{ fontSize: 13 }}>No hay facturas recibidas</div>
+          <div style={{ fontSize: 14, marginBottom: 6 }}>{search ? 'Sin resultados' : 'No hay facturas recibidas en ' + monthLabelCapitalized}</div>
+          <div style={{ fontSize: 12, color: '#444' }}>Da click en "Sincronizar con FacturAPI" para traer las facturas del SAT</div>
         </div>
       ) : (
-        <div style={{ background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 12, padding: 16 }}>
-          {recibidas.map(f => (
-            <div key={f.id} style={{ padding: '8px 0', borderBottom: '1px solid #1a1a1a', fontSize: 12, color: '#ccc' }}>
-              {f.emisor_nombre} - {f.uuid_fiscal} - {(f.total || 0).toLocaleString('es-MX')} {f.moneda}
-            </div>
-          ))}
+        <div style={{ background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 12, overflow: 'hidden' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse' as const }}>
+            <thead>
+              <tr style={{ background: '#141414', borderBottom: '1px solid #1e1e1e' }}>
+                {['Folio', 'Fecha', 'Proveedor', 'RFC', 'Total', 'Status'].map(h => (
+                  <th key={h} style={{ padding: '10px 14px', fontSize: 10, fontWeight: 600, color: '#666', textTransform: 'uppercase' as const, letterSpacing: '0.06em', textAlign: 'left' as const }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map(f => (
+                <tr key={f.id} style={{ borderBottom: '1px solid #1a1a1a' }}>
+                  <td style={{ padding: '10px 14px', fontSize: 12, color: '#ccc', fontFamily: 'monospace' }}>{f.serie || ''}{f.folio || '--'}</td>
+                  <td style={{ padding: '10px 14px', fontSize: 11, color: '#888' }}>{f.fecha_emision ? new Date(f.fecha_emision).toLocaleDateString() : '--'}</td>
+                  <td style={{ padding: '10px 14px', fontSize: 12, color: '#ddd' }}>{f.emisor_nombre || '--'}</td>
+                  <td style={{ padding: '10px 14px', fontSize: 11, color: '#888', fontFamily: 'monospace' }}>{f.emisor_rfc || '--'}</td>
+                  <td style={{ padding: '10px 14px', fontSize: 12, color: '#F59E0B', fontWeight: 600, textAlign: 'right' as const }}>${(f.total || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })} {f.moneda}</td>
+                  <td style={{ padding: '10px 14px' }}>
+                    <span style={{ padding: '2px 8px', borderRadius: 10, fontSize: 10, fontWeight: 600, background: f.status === 'timbrada' ? '#57FF9A22' : f.status === 'cancelada' ? '#EF444422' : '#F59E0B22', color: f.status === 'timbrada' ? '#57FF9A' : f.status === 'cancelada' ? '#EF4444' : '#F59E0B' }}>{f.status}</span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
     </div>
