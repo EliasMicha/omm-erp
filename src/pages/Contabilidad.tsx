@@ -1410,10 +1410,7 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
   const findMatch = (m: BankMovement): { id: string; info: string; score: number } | null => {
     if (!invoices || invoices.length === 0) return null
 
-    const movRfc = normalizeRfc(m.rfc_contraparte)
-    const benefRaw = (m.beneficiario || m.concepto || '').toLowerCase()
-
-    /* Filtro 1: dirección compatible con tipo de movimiento (abono->emitida, cargo->recibida) */
+    /* Filtro 1: dirección compatible (abono->emitida, cargo->recibida), no cancelada, no ya conciliada */
     const coherent = invoices.filter(inv => {
       if (inv.estado === 'cancelada') return false
       if (inv.conciliada) return false
@@ -1423,64 +1420,26 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
     })
     if (coherent.length === 0) return null
 
-    /* HARD REQUIREMENT 1: monto exacto al centavo (1 centavo de tolerancia para float) */
+    /* HARD REQUIREMENT: monto exacto al centavo (1 centavo de tolerancia para float) */
     const sameAmount = coherent.filter(inv => Math.abs(inv.total - m.monto) < 0.01)
     if (sameAmount.length === 0) return null
 
-    /* HARD REQUIREMENT 2: RFC exacto OR razon social con score >= 0.7 */
-    const nameScore = (a: string, b: string): number => {
-      if (!a || !b) return 0
-      const A = a.toLowerCase().replace(/[^a-z0-9 ]/g, '').trim()
-      const B = b.toLowerCase().replace(/[^a-z0-9 ]/g, '').trim()
-      if (!A || !B) return 0
-      if (A === B) return 1
-      if (A.includes(B) || B.includes(A)) return 0.85
-      const wordsA = new Set(A.split(/\s+/).filter(w => w.length >= 3))
-      const wordsB = new Set(B.split(/\s+/).filter(w => w.length >= 3))
-      if (wordsA.size === 0 || wordsB.size === 0) return 0
-      let common = 0
-      wordsA.forEach(w => { if (wordsB.has(w)) common++ })
-      return common / Math.min(wordsA.size, wordsB.size)
-    }
-
-    type Scored = { inv: Invoice; score: number; matchedBy: string }
-    const validated: Scored[] = []
-
-    for (const inv of sameAmount) {
-      const invRfc = normalizeRfc(m.tipo === 'abono' ? inv.receptor_rfc : inv.emisor_rfc)
-      const invName = (m.tipo === 'abono' ? inv.receptor_nombre : inv.emisor_nombre) || ''
-
-      const rfcMatch = !!(movRfc && invRfc && movRfc === invRfc)
-      const ns = nameScore(benefRaw, invName)
-      const nameMatch = ns >= 0.7
-
-      if (!rfcMatch && !nameMatch) continue
-
-      /* Score solo para desempate entre candidatos válidos */
-      let score = 100 // base por cumplir los 3 hard requirements
-      if (rfcMatch) score += 30
-      if (nameMatch) score += Math.round(ns * 20)
-      // Cercanía de fecha como tie-breaker
-      if (inv.fecha_emision && m.fecha) {
-        const daysDiff = Math.abs((new Date(m.fecha).getTime() - new Date(inv.fecha_emision).getTime()) / 86400000)
-        if (daysDiff <= 1) score += 10
-        else if (daysDiff <= 7) score += 5
-        else if (daysDiff > 60) score -= 10
+    /* 1 candidato: automatch directo */
+    if (sameAmount.length === 1) {
+      const inv = sameAmount[0]
+      const who = inv.direccion === 'emitida' ? inv.receptor_nombre : inv.emisor_nombre
+      return {
+        id: inv.id,
+        info: `${inv.serie}-${inv.folio} | ${who} | ${F(inv.total)}`,
+        score: 100,
       }
-
-      validated.push({ inv, score, matchedBy: rfcMatch ? 'RFC' : 'NOMBRE' })
     }
 
-    if (validated.length === 0) return null
-
-    validated.sort((a, b) => b.score - a.score)
-    const best = validated[0]
-    const inv = best.inv
-    const who = inv.direccion === 'emitida' ? inv.receptor_nombre : inv.emisor_nombre
+    /* 2+ candidatos: ambigüedad - NO autoseleccionar, devolver info para que el usuario elija */
     return {
-      id: inv.id,
-      info: `${inv.serie}-${inv.folio} | ${who} | ${F(inv.total)} | match: ${best.matchedBy}`,
-      score: best.score,
+      id: '',
+      info: `${sameAmount.length} facturas con monto ${F(m.monto)} - elige una`,
+      score: 50,
     }
   }
 
