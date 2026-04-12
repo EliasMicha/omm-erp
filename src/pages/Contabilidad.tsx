@@ -113,6 +113,9 @@ interface BankMovement {
   lead_id?: string
   quotation_id?: string
   purchase_order_id?: string
+  // Datos detectados del concepto bancario para auto-conciliacion por cuenta
+  cuenta_destino_detectada?: string
+  bnet_codigo_detectado?: string
 }
 
 /* --------- Config --------------------------------------------------------------------------------------------------------------------------------------------------------------------- */
@@ -239,6 +242,8 @@ export default function Contabilidad() {
           lead_id: m.lead_id || undefined,
           quotation_id: m.quotation_id || undefined,
           purchase_order_id: m.purchase_order_id || undefined,
+          cuenta_destino_detectada: m.cuenta_destino_detectada || undefined,
+          bnet_codigo_detectado: m.bnet_codigo_detectado || undefined,
         })))
       }
     })
@@ -1286,19 +1291,46 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
   const [assignLeads, setAssignLeads] = useState<{ id: string; name: string; company?: string }[]>([])
   const [assignQuotations, setAssignQuotations] = useState<{ id: string; name: string; lead_id: string; specialty?: string; total?: number; currency?: string }[]>([])
   const [assignPOs, setAssignPOs] = useState<{ id: string; po_number: string; quotation_id?: string; project_id?: string; supplier_id?: string; total?: number; currency?: string; purchase_phase?: string; status?: string }[]>([])
+  const [assignSuppliers, setAssignSuppliers] = useState<{ id: string; name: string; rfc?: string; clabe?: string; cuenta_bancaria?: string; banco?: string; bnet_codigo?: string }[]>([])
   const [savingAssign, setSavingAssign] = useState<string | null>(null)
+  const [savingMatch, setSavingMatch] = useState<string | null>(null)
   
   useEffect(() => {
     Promise.all([
       supabase.from('leads').select('id,name,company').order('name'),
       supabase.from('quotations').select('id,name,lead_id,specialty,total,currency').order('name'),
       supabase.from('purchase_orders').select('id,po_number,quotation_id,project_id,supplier_id,total,currency,purchase_phase,status').order('po_number', { ascending: false }),
-    ]).then(([lRes, qRes, pRes]) => {
+      supabase.from('suppliers').select('id,name,rfc,clabe,cuenta_bancaria,banco,bnet_codigo').order('name'),
+    ]).then(([lRes, qRes, pRes, sRes]) => {
       setAssignLeads((lRes.data as any[]) || [])
       setAssignQuotations((qRes.data as any[]) || [])
       setAssignPOs((pRes.data as any[]) || [])
+      setAssignSuppliers((sRes.data as any[]) || [])
     })
   }, [])
+  
+  // Helper para asignar un match manual de factura a un movimiento
+  const applyManualMatch = async (mov: BankMovement, invId: string | null) => {
+    setSavingMatch(mov.id)
+    try {
+      let updates: any
+      if (invId === null) {
+        updates = { conciliado: false, factura_match_id: null, factura_match_info: null }
+      } else {
+        const inv = invoices.find(i => i.id === invId)
+        if (!inv) { alert('Factura no encontrada'); return }
+        const who = inv.direccion === 'emitida' ? inv.receptor_nombre : inv.emisor_nombre
+        const isNomina = inv.tipo_comprobante === 'N'
+        const info = `${inv.serie}-${inv.folio} | ${who} | ${F(inv.total)}${isNomina ? ' | NOMINA' : ''} | manual`
+        updates = { conciliado: true, factura_match_id: invId, factura_match_info: info }
+      }
+      const { error } = await supabase.from('bank_movements').update(updates).eq('id', mov.id)
+      if (error) { console.error('[manual-match] error:', error); alert('Error: ' + error.message); return }
+      setBankMovements(bankMovements.map(x => x.id === mov.id ? { ...x, ...updates } : x))
+    } finally {
+      setSavingMatch(null)
+    }
+  }
   
   // Helper para asignar/actualizar lead/quotation/PO en un movimiento
   const updateAssignment = async (movId: string, field: 'lead_id' | 'quotation_id' | 'purchase_order_id', value: string | null) => {
@@ -1410,37 +1442,62 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
   const findMatch = (m: BankMovement): { id: string; info: string; score: number } | null => {
     if (!invoices || invoices.length === 0) return null
 
-    /* Filtro 1: dirección compatible (abono->emitida, cargo->recibida), no cancelada, no ya conciliada */
+    /* Filtro 1: dirección compatible. Excepción: recibos de nómina (tipo N) son emitidos pero el banco lo ve como cargo */
     const coherent = invoices.filter(inv => {
       if (inv.estado === 'cancelada') return false
       if (inv.conciliada) return false
       if (m.tipo === 'abono' && inv.direccion !== 'emitida') return false
-      if (m.tipo === 'cargo' && inv.direccion !== 'recibida') return false
+      if (m.tipo === 'cargo' && inv.direccion !== 'recibida' && inv.tipo_comprobante !== 'N') return false
       return true
     })
     if (coherent.length === 0) return null
 
-    /* HARD REQUIREMENT: monto exacto al centavo (1 centavo de tolerancia para float) */
+    /* HARD REQUIREMENT: monto exacto al centavo */
     const sameAmount = coherent.filter(inv => Math.abs(inv.total - m.monto) < 0.01)
-    if (sameAmount.length === 0) return null
 
-    /* 1 candidato: automatch directo */
+    /* 1 candidato exacto: automatch directo */
     if (sameAmount.length === 1) {
       const inv = sameAmount[0]
       const who = inv.direccion === 'emitida' ? inv.receptor_nombre : inv.emisor_nombre
+      const isNomina = inv.tipo_comprobante === 'N'
       return {
         id: inv.id,
-        info: `${inv.serie}-${inv.folio} | ${who} | ${F(inv.total)}`,
+        info: `${inv.serie}-${inv.folio} | ${who} | ${F(inv.total)}${isNomina ? ' | NOMINA' : ''}`,
         score: 100,
       }
     }
 
-    /* 2+ candidatos: ambigüedad - NO autoseleccionar, devolver info para que el usuario elija */
-    return {
-      id: '',
-      info: `${sameAmount.length} facturas con monto ${F(m.monto)} - elige una`,
-      score: 50,
+    /* 2+ candidatos exactos: ambigüedad - alertar al usuario */
+    if (sameAmount.length > 1) {
+      return {
+        id: '',
+        info: `${sameAmount.length} facturas con monto ${F(m.monto)} - elige una`,
+        score: 50,
+      }
     }
+
+    /* 0 candidatos por monto: intentar match secundario por cuenta bancaria del proveedor */
+    if (assignSuppliers && assignSuppliers.length > 0 && (m.bnet_codigo_detectado || m.cuenta_destino_detectada)) {
+      const matchedSupplier = assignSuppliers.find(s => {
+        if (m.bnet_codigo_detectado && s.bnet_codigo && s.bnet_codigo === m.bnet_codigo_detectado) return true
+        if (m.cuenta_destino_detectada && s.clabe && s.clabe === m.cuenta_destino_detectada) return true
+        if (m.cuenta_destino_detectada && s.cuenta_bancaria && s.cuenta_bancaria === m.cuenta_destino_detectada) return true
+        return false
+      })
+      if (matchedSupplier && matchedSupplier.rfc) {
+        const supplierRfc = normalizeRfc(matchedSupplier.rfc)
+        const supplierInvs = coherent.filter(inv => normalizeRfc(inv.emisor_rfc) === supplierRfc)
+        if (supplierInvs.length > 0) {
+          return {
+            id: '',
+            info: `Cuenta de ${matchedSupplier.name} (${supplierInvs.length} facturas pendientes) - elige una`,
+            score: 30,
+          }
+        }
+      }
+    }
+
+    return null
   }
 
   /* --- Upload handler — usa edge function server-side /api/extract-bank-statement --- */
@@ -2027,6 +2084,75 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
                   {isExpanded && (
                     <tr>
                       <td colSpan={10} style={{ padding: '8px 16px', background: '#0d0d0d', borderBottom: '1px solid #1a1a1a' }}>
+                      {/* Match manual de factura */}
+                      {(() => {
+                        const isSavingMatch = savingMatch === m.id
+                        // Filter invoices by direction (with nomina exception for cargo)
+                        const candidateInvoices = invoices.filter(inv => {
+                          if (inv.estado === 'cancelada') return false
+                          // already conciliada with another movement? Allow current one
+                          if (inv.conciliada && inv.id !== m.factura_match_id) return false
+                          if (m.tipo === 'abono' && inv.direccion !== 'emitida') return false
+                          if (m.tipo === 'cargo' && inv.direccion !== 'recibida' && inv.tipo_comprobante !== 'N') return false
+                          return true
+                        })
+                        // Sort: exact amount matches first, then by date desc
+                        const sorted = [...candidateInvoices].sort((a, b) => {
+                          const aExact = Math.abs(a.total - m.monto) < 0.01
+                          const bExact = Math.abs(b.total - m.monto) < 0.01
+                          if (aExact && !bExact) return -1
+                          if (!aExact && bExact) return 1
+                          return (b.fecha_emision || '').localeCompare(a.fecha_emision || '')
+                        })
+                        return (
+                          <div style={{ background: '#141414', border: '1px solid #1f1f1f', borderRadius: 6, padding: '8px 10px', marginBottom: 8 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                              <span style={{ fontSize: 10, color: '#888', textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 600 }}>Match con factura</span>
+                              {m.conciliado && m.factura_match_info && (
+                                <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 3, background: '#22c55e22', color: '#22c55e', fontWeight: 600 }}>Conciliado</span>
+                              )}
+                              {isSavingMatch && <span style={{ fontSize: 10, color: '#888' }}>guardando...</span>}
+                            </div>
+                            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                              <select
+                                value={m.factura_match_id || ''}
+                                onChange={e => applyManualMatch(m, e.target.value || null)}
+                                disabled={isSavingMatch}
+                                style={{
+                                  background: '#1a1a1a', color: '#fff', border: '1px solid #2a2a2a',
+                                  borderRadius: 4, padding: '4px 6px', fontSize: 11, fontFamily: 'inherit',
+                                  flex: 1, minWidth: 0,
+                                }}
+                              >
+                                <option value="">-- Sin factura asignada --</option>
+                                {sorted.map(inv => {
+                                  const exact = Math.abs(inv.total - m.monto) < 0.01
+                                  const who = inv.direccion === 'emitida' ? inv.receptor_nombre : inv.emisor_nombre
+                                  const nomTag = inv.tipo_comprobante === 'N' ? ' [NOMINA]' : ''
+                                  return (
+                                    <option key={inv.id} value={inv.id}>
+                                      {exact ? '✓ ' : ''}{inv.serie}-{inv.folio} | {who} | {F(inv.total)} | {inv.fecha_emision}{nomTag}
+                                    </option>
+                                  )
+                                })}
+                              </select>
+                              {m.factura_match_id && (
+                                <button
+                                  onClick={() => applyManualMatch(m, null)}
+                                  disabled={isSavingMatch}
+                                  style={{ background: '#2a1a1a', color: '#ef4444', border: '1px solid #4a2a2a', borderRadius: 4, padding: '4px 10px', fontSize: 11, cursor: 'pointer' }}
+                                >
+                                  Quitar
+                                </button>
+                              )}
+                            </div>
+                            {sorted.length === 0 && (
+                              <div style={{ fontSize: 10, color: '#666', marginTop: 4 }}>No hay facturas disponibles para este movimiento</div>
+                            )}
+                          </div>
+                        )
+                      })()}
+                      
                       {/* Asignacion en cascada Lead -> Cotizacion -> OC */}
                       {(() => {
                         const filteredQuotes = m.lead_id ? assignQuotations.filter(q => q.lead_id === m.lead_id) : []
