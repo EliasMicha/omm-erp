@@ -109,6 +109,8 @@ RESPUESTA (JSON únicamente, sin markdown fences):
       "traspaso_usd_monto": null,
       "folio_spei": null,
       "clabe_contraparte": null,
+      "cuenta_destino_detectada": "0044088053",
+      "bnet_codigo_detectado": "0119282653",
       "confianza_autodetect": "media"
     }
   ],
