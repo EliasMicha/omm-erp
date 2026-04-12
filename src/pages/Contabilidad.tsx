@@ -1574,6 +1574,8 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
         proyecto_codigo: m.proyecto_codigo || '',
         banco,
         cuenta,
+        cuenta_destino_detectada: m.cuenta_destino_detectada || null,
+        bnet_codigo_detectado: m.bnet_codigo_detectado || null,
         conciliado: false,
       }))
 
