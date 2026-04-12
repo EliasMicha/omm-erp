@@ -23,6 +23,11 @@ interface Supplier {
   notes?: string
   is_active: boolean
   systems: string[]
+  // Datos bancarios para auto-conciliacion
+  clabe?: string
+  cuenta_bancaria?: string
+  banco?: string
+  bnet_codigo?: string
 }
 
 interface PurchaseOrder {
@@ -2117,6 +2122,8 @@ function SupplierDetail({ supplierId, onBack }: { supplierId: string; onBack: ()
       contact_phone: supplier.contact_phone || null, contact_email: supplier.contact_email || null,
       rfc: supplier.rfc || null, address: supplier.address || null,
       payment_terms: supplier.payment_terms, notes: supplier.notes || null,
+      clabe: supplier.clabe || null, cuenta_bancaria: supplier.cuenta_bancaria || null,
+      banco: supplier.banco || null, bnet_codigo: supplier.bnet_codigo || null,
       systems: supplier.systems, is_active: supplier.is_active,
     }).eq('id', supplier.id)
     setSaving(false); setDirty(false)
@@ -2163,6 +2170,13 @@ function SupplierDetail({ supplierId, onBack }: { supplierId: string; onBack: ()
             <Field label="RFC" value={supplier.rfc || ''} onChange={v => upd('rfc', v)} />
           </div>
           <Field label="Dirección" value={supplier.address || ''} onChange={v => upd('address', v)} />
+          <div style={{ marginTop: 8, padding: '8px 10px', background: '#0f0f0f', border: '1px solid #1f1f1f', borderRadius: 6 }}>
+            <div style={{ fontSize: 10, color: '#888', textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 600, marginBottom: 8 }}>Datos bancarios (para auto-conciliacion)</div>
+            <Field label="CLABE" value={supplier.clabe || ''} onChange={v => upd('clabe', v)} />
+            <Field label="Cuenta bancaria" value={supplier.cuenta_bancaria || ''} onChange={v => upd('cuenta_bancaria', v)} />
+            <Field label="Banco" value={supplier.banco || ''} onChange={v => upd('banco', v)} />
+            <Field label="Código BNET (BBVA)" value={supplier.bnet_codigo || ''} onChange={v => upd('bnet_codigo', v)} />
+          </div>
           <SelectField label="Condiciones de pago" value={supplier.payment_terms}
             onChange={v => upd('payment_terms', v)}
             options={Object.entries(PAYMENT_TERMS_CFG).map(([k, v]) => ({ value: k, label: v }))} />
