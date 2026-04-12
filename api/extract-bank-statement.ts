@@ -280,10 +280,14 @@ El número USD es el monto transferido; el monto en MXN es lo debitado de esta c
 REGLA #9 — FECHAS
 ═══════════════════════════════════════════════
 - Formato de salida SIEMPRE: "YYYY-MM-DD"
-- Usa FECHA OPER (primera columna), NO la de Liquidación
-- En BBVA aparecen como "02/MAR", "15/MAR" sin año
-- Infiere el año del encabezado "Periodo DEL 01/03/2026 AL 31/03/2026"
-- Meses abreviados: ENE, FEB, MAR, ABR, MAY, JUN, JUL, AGO, SEP, OCT, NOV, DIC
+- Usa FECHA OPER (primera columna), NO la de Liquidación.
+- En BBVA aparecen como "02/MAR", "15/MAR" sin año.
+- Infiere el año y mes del encabezado del estado de cuenta. Busca patrones como "Periodo DEL 01/03/2026 AL 31/03/2026" o "Del 01 de marzo de 2026 al 31 de marzo de 2026" o "Marzo 2026" o "MES: MARZO 2026".
+- ⚠ CRITICO: NUNCA uses la fecha de hoy ni la fecha actual. SIEMPRE usa la fecha que aparece literalmente en el renglón del movimiento dentro del TXT.
+- ⚠ CRITICO: Si todos tus movimientos terminan con la misma fecha, ESTAS MAL. Cada movimiento tiene su propia FECHA OPER distinta. Vuelve a leer el TXT renglón por renglón.
+- ⚠ CRITICO: Si el TXT no tiene encabezado de periodo legible, NO inventes un año. Asume el año del periodo del cuerpo del TXT — si los movimientos van del "01/MAR" al "31/MAR" y la fecha actual es 2026, usa 2026. Pero si el TXT es claramente de un mes pasado (ej. los movimientos son de ENE pero hoy es ABR), usa el año del cierre fiscal más cercano que tenga sentido cronológico.
+- Meses abreviados BBVA: ENE=01, FEB=02, MAR=03, ABR=04, MAY=05, JUN=06, JUL=07, AGO=08, SEP=09, OCT=10, NOV=11, DIC=12.
+- Una vez que infieres año + mes + día, formatea como YYYY-MM-DD. Ejemplo: "15/MAR" en periodo de marzo 2026 → "2026-03-15".
 
 ═══════════════════════════════════════════════
 REGLA #10 — FORMATO DEL MONTO
