@@ -11,10 +11,10 @@ import Catalogo from './pages/Catalogo'
 import Compras from './pages/Compras'
 import Obra from './pages/Obra'
 import Facturacion from './pages/Facturacion'
+import Nomina from './pages/Nomina'
 import CotizacionPdf from './pages/CotizacionPdf'
 
 const Cobranza = () => <OtrosModulos title="Cobranza" />
-const Nomina = () => <OtrosModulos title="Nomina" />
 const Entregas = () => <OtrosModulos title="Entregas" />
 const Empleados = () => <OtrosModulos title="Empleados" />
 
