@@ -1561,13 +1561,41 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
         conciliado: false,
       }))
 
-      // Deduplicate: skip if same fecha+monto+tipo+concepto already exists
-      const existing = bankMovements
+      // Validate amounts first
       const newMovs2 = newMovs.filter(n => isFinite(n.monto) && n.monto > 0)
       if (newMovs2.length < newMovs.length) { console.warn('[bank-parse] dropped', newMovs.length - newMovs2.length, 'movs with invalid monto') }
-      const deduped = newMovs2.filter(n => !existing.some(e =>
-        e.fecha === n.fecha && Math.abs(e.monto - n.monto) < 0.01 && e.tipo === n.tipo && e.concepto === n.concepto
-      ))
+
+      // Deduplicate against DB: query bank_movements for the date range of incoming movs
+      let dbExisting: any[] = []
+      if (newMovs2.length > 0) {
+        const fechas = newMovs2.map(n => n.fecha).filter(Boolean).sort()
+        const minFecha = fechas[0]
+        const maxFecha = fechas[fechas.length - 1]
+        const dbRes = await supabase
+          .from('bank_movements')
+          .select('id,fecha,monto,tipo,concepto,banco,cuenta')
+          .gte('fecha', minFecha)
+          .lte('fecha', maxFecha)
+        if (dbRes.error) { console.error('[bank-parse] dedupe query error:', dbRes.error) }
+        dbExisting = (dbRes.data as any[]) || []
+        console.log('[bank-parse] dedupe: querying DB returned', dbExisting.length, 'existing movs in range', minFecha, '..', maxFecha)
+      }
+
+      // Helper: normalize concepto (collapse whitespace, uppercase) for safer comparison
+      const normConcepto = (s: string) => (s || '').replace(/\s+/g, ' ').trim().toUpperCase()
+
+      const deduped = newMovs2.filter(n => {
+        const nKey = normConcepto(n.concepto)
+        return !dbExisting.some(e =>
+          e.fecha === n.fecha &&
+          Math.abs(Number(e.monto) - n.monto) < 0.01 &&
+          e.tipo === n.tipo &&
+          normConcepto(e.concepto) === nKey
+        )
+      })
+
+      const skipped = newMovs2.length - deduped.length
+      if (skipped > 0) { console.warn('[bank-parse] skipped', skipped, 'duplicate movs already in DB') }
       const warningsMsg = (data.warnings && data.warnings.length > 0) ? ` · ${data.warnings.length} warning(s)` : ''
       if (deduped.length < newMovs.length) {
         setStatus(`✓ ${deduped.length} nuevos (${newMovs.length - deduped.length} duplicados)${warningsMsg}`)
