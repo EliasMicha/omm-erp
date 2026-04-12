@@ -1370,63 +1370,75 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
     if (!invoices || invoices.length === 0) return null
 
     const movRfc = normalizeRfc(m.rfc_contraparte)
-    const benefLower = (m.beneficiario || m.concepto || '').toLowerCase()
+    const benefRaw = (m.beneficiario || m.concepto || '').toLowerCase()
 
-    // Filtrar por dirección coherente primero
+    /* Filtro 1: dirección compatible con tipo de movimiento (abono->emitida, cargo->recibida) */
     const coherent = invoices.filter(inv => {
-      if (m.tipo === 'abono' && inv.direccion === 'emitida') return true // cobro recibido = factura emitida
-      if (m.tipo === 'cargo' && inv.direccion === 'recibida') return true // pago enviado = factura recibida
-      return false
+      if (inv.estado === 'cancelada') return false
+      if (inv.conciliada) return false
+      if (m.tipo === 'abono' && inv.direccion !== 'emitida') return false
+      if (m.tipo === 'cargo' && inv.direccion !== 'recibida') return false
+      return true
     })
     if (coherent.length === 0) return null
 
-    type Scored = { inv: Invoice; score: number }
-    const scored: Scored[] = coherent.map(inv => {
-      let score = 0
-      // RFC match (peso alto)
+    /* HARD REQUIREMENT 1: monto exacto al centavo (1 centavo de tolerancia para float) */
+    const sameAmount = coherent.filter(inv => Math.abs(inv.total - m.monto) < 0.01)
+    if (sameAmount.length === 0) return null
+
+    /* HARD REQUIREMENT 2: RFC exacto OR razon social con score >= 0.7 */
+    const nameScore = (a: string, b: string): number => {
+      if (!a || !b) return 0
+      const A = a.toLowerCase().replace(/[^a-z0-9 ]/g, '').trim()
+      const B = b.toLowerCase().replace(/[^a-z0-9 ]/g, '').trim()
+      if (!A || !B) return 0
+      if (A === B) return 1
+      if (A.includes(B) || B.includes(A)) return 0.85
+      const wordsA = new Set(A.split(/\s+/).filter(w => w.length >= 3))
+      const wordsB = new Set(B.split(/\s+/).filter(w => w.length >= 3))
+      if (wordsA.size === 0 || wordsB.size === 0) return 0
+      let common = 0
+      wordsA.forEach(w => { if (wordsB.has(w)) common++ })
+      return common / Math.min(wordsA.size, wordsB.size)
+    }
+
+    type Scored = { inv: Invoice; score: number; matchedBy: string }
+    const validated: Scored[] = []
+
+    for (const inv of sameAmount) {
       const invRfc = normalizeRfc(m.tipo === 'abono' ? inv.receptor_rfc : inv.emisor_rfc)
-      if (movRfc && invRfc && movRfc === invRfc) score += 60
+      const invName = (m.tipo === 'abono' ? inv.receptor_nombre : inv.emisor_nombre) || ''
 
-      // Monto exacto (tolerancia 0.5%)
-      const montoDiff = Math.abs(inv.total - m.monto) / Math.max(inv.total, 1)
-      if (montoDiff <= 0.005) score += 30
-      else if (montoDiff <= 0.02) score += 15
+      const rfcMatch = !!(movRfc && invRfc && movRfc === invRfc)
+      const ns = nameScore(benefRaw, invName)
+      const nameMatch = ns >= 0.7
 
-      // Ventana de fecha ±7 días
+      if (!rfcMatch && !nameMatch) continue
+
+      /* Score solo para desempate entre candidatos válidos */
+      let score = 100 // base por cumplir los 3 hard requirements
+      if (rfcMatch) score += 30
+      if (nameMatch) score += Math.round(ns * 20)
+      // Cercanía de fecha como tie-breaker
       if (inv.fecha_emision && m.fecha) {
-        const dMov = new Date(m.fecha).getTime()
-        const dInv = new Date(inv.fecha_emision).getTime()
-        const daysDiff = Math.abs(dMov - dInv) / (1000 * 60 * 60 * 24)
-        if (daysDiff <= 7) score += 10
-        else if (daysDiff <= 30) score += 5
+        const daysDiff = Math.abs((new Date(m.fecha).getTime() - new Date(inv.fecha_emision).getTime()) / 86400000)
+        if (daysDiff <= 1) score += 10
+        else if (daysDiff <= 7) score += 5
+        else if (daysDiff > 60) score -= 10
       }
 
-      // Nombre similar (fallback sin RFC)
-      if (!movRfc && benefLower) {
-        const invName = (inv.direccion === 'emitida' ? inv.receptor_nombre : inv.emisor_nombre || '').toLowerCase()
-        if (invName && (benefLower.includes(invName) || (benefLower.split(' ')[0] && invName.includes(benefLower.split(' ')[0])))) {
-          score += 20
-        }
-      }
+      validated.push({ inv, score, matchedBy: rfcMatch ? 'RFC' : 'NOMBRE' })
+    }
 
-      // Factura ya conciliada pesa menos (evita conflictos)
-      if (inv.conciliada) score -= 5
+    if (validated.length === 0) return null
 
-      return { inv, score }
-    })
-
-    // Ordenar por score descendente
-    scored.sort((a, b) => b.score - a.score)
-    const best = scored[0]
-
-    // Umbral mínimo: 30 (significa al menos un hit significativo)
-    if (!best || best.score < 30) return null
-
+    validated.sort((a, b) => b.score - a.score)
+    const best = validated[0]
     const inv = best.inv
     const who = inv.direccion === 'emitida' ? inv.receptor_nombre : inv.emisor_nombre
     return {
       id: inv.id,
-      info: `${inv.serie || ''}${inv.serie ? '-' : ''}${inv.folio} · ${who} · ${F(inv.total)} · ${inv.proyecto_nombre || 'Sin proyecto'}`,
+      info: `${inv.serie}-${inv.folio} | ${who} | ${F(inv.total)} | match: ${best.matchedBy}`,
       score: best.score,
     }
   }
@@ -1495,7 +1507,7 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
         fecha: m.fecha || '',
         concepto: m.concepto || '',
         referencia: m.referencia || '',
-        monto: Math.abs(Number(m.monto) || 0),
+        monto: ((): number => { const v = m.monto; if (typeof v === 'number' && isFinite(v)) return Math.abs(v); if (typeof v === 'string') { let s = v.replace(/[\s$\u00a0]/g, ''); const lastDot = s.lastIndexOf('.'); const lastComma = s.lastIndexOf(','); if (lastDot >= 0 && lastComma >= 0) { if (lastDot > lastComma) { s = s.replace(/,/g, ''); } else { s = s.replace(/\./g, '').replace(',', '.'); } } else if (lastComma >= 0 && lastDot < 0) { const after = s.length - lastComma - 1; if (after === 2) { s = s.replace(',', '.'); } else { s = s.replace(/,/g, ''); } } const n = parseFloat(s); if (isFinite(n)) return Math.abs(n); } console.warn('[bank-parse] invalid monto:', v); return NaN; })(),
         tipo: m.tipo === 'abono' ? 'abono' : 'cargo',
         saldo: 0,
         categoria_sugerida: m.categoria || 'otro',
@@ -1510,7 +1522,9 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
 
       // Deduplicate: skip if same fecha+monto+tipo+concepto already exists
       const existing = bankMovements
-      const deduped = newMovs.filter(n => !existing.some(e =>
+      const newMovs2 = newMovs.filter(n => isFinite(n.monto) && n.monto > 0)
+      if (newMovs2.length < newMovs.length) { console.warn('[bank-parse] dropped', newMovs.length - newMovs2.length, 'movs with invalid monto') }
+      const deduped = newMovs2.filter(n => !existing.some(e =>
         e.fecha === n.fecha && Math.abs(e.monto - n.monto) < 0.01 && e.tipo === n.tipo && e.concepto === n.concepto
       ))
       const warningsMsg = (data.warnings && data.warnings.length > 0) ? ` · ${data.warnings.length} warning(s)` : ''
@@ -1609,7 +1623,7 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
       fecha: m.fecha || '',
       concepto: m.concepto || '',
       referencia: '',
-      monto: Math.abs(Number(m.monto) || 0),
+      monto: ((): number => { const v = m.monto; if (typeof v === 'number' && isFinite(v)) return Math.abs(v); if (typeof v === 'string') { let s = v.replace(/[\s$\u00a0]/g, ''); const lastDot = s.lastIndexOf('.'); const lastComma = s.lastIndexOf(','); if (lastDot >= 0 && lastComma >= 0) { if (lastDot > lastComma) { s = s.replace(/,/g, ''); } else { s = s.replace(/\./g, '').replace(',', '.'); } } else if (lastComma >= 0 && lastDot < 0) { const after = s.length - lastComma - 1; if (after === 2) { s = s.replace(',', '.'); } else { s = s.replace(/,/g, ''); } } const n = parseFloat(s); if (isFinite(n)) return Math.abs(n); } console.warn('[bank-parse] invalid monto:', v); return NaN; })(),
       tipo: m.tipo === 'abono' ? 'abono' : 'cargo',
       saldo: 0,
       saldo_posterior: Number(m.saldo_posterior) || undefined,
