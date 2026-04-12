@@ -1,10 +1,10 @@
 import { ProjectLine, QuoteStage, ProjectStatus, DeliveryStatus, PaymentStatus, PayrollStatus, UserRole, UserLevel, PurchasePhase } from '../types'
 
 export const F = (n: number) =>
-  new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 }).format(n)
+  new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n)
 
 export const FUSD = (n: number) =>
-  new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
+  new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n)
 
 export const FCUR = (n: number, currency?: string | null) =>
   (currency === 'USD' ? FUSD : F)(n)
