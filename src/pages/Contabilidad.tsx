@@ -100,7 +100,7 @@ interface BankMovement {
   categoria_sugerida?: string; proyecto_sugerido?: string; conciliado: boolean
   beneficiario?: string; factura_match_id?: string; factura_match_info?: string
   rfc_contraparte?: string; proyecto_codigo?: string; banco?: string; cuenta?: string
-  // ConciliaciÃ³n v2 - campos nuevos
+  // ConciliaciÃÂ³n v2 - campos nuevos
   moneda?: 'MXN' | 'USD'
   saldo_posterior?: number
   proveedor?: string; cliente?: string
@@ -547,9 +547,9 @@ function TabFacturacion({ invoices, setInvoices, bankMovements, projectNames }: 
     setTimbradoError(null)
     // Validaciones previas al timbrado
     if (!newInv.rfc_receptor) { setTimbradoError('Debes seleccionar un cliente con RFC fiscal'); return }
-    if (!newInv.regimen_receptor) { setTimbradoError('Cliente sin regimen fiscal â actualiza en Clientes'); return }
-    if (!newInv.cp_receptor) { setTimbradoError('Cliente sin codigo postal â actualiza en Clientes'); return }
-    if (!newInv.uso_cfdi) { setTimbradoError('Cliente sin uso CFDI â actualiza en Clientes'); return }
+    if (!newInv.regimen_receptor) { setTimbradoError('Cliente sin regimen fiscal Ã¢ÂÂ actualiza en Clientes'); return }
+    if (!newInv.cp_receptor) { setTimbradoError('Cliente sin codigo postal Ã¢ÂÂ actualiza en Clientes'); return }
+    if (!newInv.uso_cfdi) { setTimbradoError('Cliente sin uso CFDI Ã¢ÂÂ actualiza en Clientes'); return }
     if (newConceptos.length === 0) { setTimbradoError('Agrega al menos un concepto a la factura'); return }
     if (newConceptos.some(cp => !cp.clave_prod_serv || !cp.descripcion || cp.cantidad <= 0 || cp.valor_unitario <= 0)) {
       setTimbradoError('Todos los conceptos requieren clave SAT, descripcion, cantidad y precio')
@@ -715,7 +715,7 @@ function TabFacturacion({ invoices, setInvoices, bankMovements, projectNames }: 
     }
   }
 
-  // Mes seleccionado por navegaciÃ³n
+  // Mes seleccionado por navegaciÃÂ³n
   const now = new Date()
   const monthDate = new Date(now.getFullYear(), now.getMonth() + monthOffset, 1)
   const monthStart = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1)
@@ -754,7 +754,7 @@ function TabFacturacion({ invoices, setInvoices, bankMovements, projectNames }: 
   const ivaPagadoUsd = monthRecibidas.filter(i => i.conciliada && isUsd(i)).reduce((s, i) => s + (i.iva || 0), 0)
   const ivaPorPagarUsd = ivaCobradoUsd - ivaPagadoUsd
 
-  // Ingresos sin factura: abonos del mes categorizados como cobro_cliente (o sin categorÃ­a clara)
+  // Ingresos sin factura: abonos del mes categorizados como cobro_cliente (o sin categorÃÂ­a clara)
   // que NO tienen factura_match_id asociado.
   const movimientosSinFactura = monthMovements.filter(m =>
     m.tipo === 'abono' &&
@@ -763,7 +763,7 @@ function TabFacturacion({ invoices, setInvoices, bankMovements, projectNames }: 
   )
   const ingresosSinFactura = movimientosSinFactura.reduce((s, m) => s + (m.monto || 0), 0)
 
-  // Filtros aplicados a las facturas del mes: direcciÃ³n + bÃºsqueda
+  // Filtros aplicados a las facturas del mes: direcciÃÂ³n + bÃÂºsqueda
   const searchLower = search.trim().toLowerCase()
   const filtered = monthInvoices
     .filter(i =>
@@ -778,7 +778,7 @@ function TabFacturacion({ invoices, setInvoices, bankMovements, projectNames }: 
       ].filter(Boolean).join(' ').toLowerCase()
       return haystack.includes(searchLower)
     })
-    // MÃ¡s nuevas primero
+    // MÃÂ¡s nuevas primero
     .sort((a, b) => (b.fecha_emision || '').localeCompare(a.fecha_emision || ''))
 
   return (
@@ -788,14 +788,14 @@ function TabFacturacion({ invoices, setInvoices, bankMovements, projectNames }: 
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, padding: '10px 14px', borderRadius: 10, background: facturapiMode === 'live' ? 'rgba(239,68,68,0.1)' : 'rgba(251,191,36,0.08)', border: '1px solid ' + (facturapiMode === 'live' ? 'rgba(239,68,68,0.4)' : 'rgba(251,191,36,0.3)') }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontSize: 16 }}>{facturapiMode === 'live' ? 'â ï¸' : 'ð§ª'}</span>
+              <span style={{ fontSize: 16 }}>{facturapiMode === 'live' ? 'Ã¢ÂÂ Ã¯Â¸Â' : 'Ã°ÂÂ§Âª'}</span>
               <span style={{ fontSize: 13, fontWeight: 700, color: facturapiMode === 'live' ? '#fca5a5' : '#fcd34d', letterSpacing: '0.5px' }}>
                 FacturAPI: {facturapiMode === 'live' ? 'MODO LIVE (timbra CFDIs reales)' : 'MODO TEST (no timbra)'}
               </span>
             </div>
             {facturapiPing && (
               <span style={{ fontSize: 11, color: facturapiPing.ok ? '#86efac' : '#fca5a5' }}>
-                {facturapiPing.ok ? 'â ' + facturapiPing.message : 'â ' + facturapiPing.message}
+                {facturapiPing.ok ? 'Ã¢ÂÂ ' + facturapiPing.message : 'Ã¢ÂÂ ' + facturapiPing.message}
               </span>
             )}
           </div>
@@ -844,12 +844,12 @@ function TabFacturacion({ invoices, setInvoices, bankMovements, projectNames }: 
           <button
             onClick={() => setMonthOffset(monthOffset - 1)}
             style={{ padding: '6px 10px', fontSize: 12, background: '#1a1a1a', border: '1px solid #333', borderRadius: 6, color: '#ccc', cursor: 'pointer', fontFamily: 'inherit' }}
-          >â Mes anterior</button>
+          >Ã¢ÂÂ Mes anterior</button>
           <span style={{ fontSize: 14, fontWeight: 600, color: '#fff', minWidth: 160, textAlign: 'center' }}>{monthLabelCapitalized}</span>
           <button
             onClick={() => setMonthOffset(monthOffset + 1)}
             style={{ padding: '6px 10px', fontSize: 12, background: '#1a1a1a', border: '1px solid #333', borderRadius: 6, color: '#ccc', cursor: 'pointer', fontFamily: 'inherit' }}
-          >Mes siguiente â¶</button>
+          >Mes siguiente Ã¢ÂÂ¶</button>
           {monthOffset !== 0 && (
             <button
               onClick={() => setMonthOffset(0)}
@@ -858,7 +858,7 @@ function TabFacturacion({ invoices, setInvoices, bankMovements, projectNames }: 
           )}
         </div>
         <div style={{ fontSize: 11, color: '#666' }}>
-          {monthInvoices.length} factura{monthInvoices.length !== 1 ? 's' : ''} Â· {monthMovements.length} movimiento{monthMovements.length !== 1 ? 's' : ''} bancario{monthMovements.length !== 1 ? 's' : ''}
+          {monthInvoices.length} factura{monthInvoices.length !== 1 ? 's' : ''} ÃÂ· {monthMovements.length} movimiento{monthMovements.length !== 1 ? 's' : ''} bancario{monthMovements.length !== 1 ? 's' : ''}
         </div>
       </div>
 
@@ -891,7 +891,7 @@ function TabFacturacion({ invoices, setInvoices, bankMovements, projectNames }: 
         />
         <KpiCard
           label="(Solo MXN aplica)"
-          value="â"
+          value="Ã¢ÂÂ"
           color="#444"
           icon={<AlertTriangle size={16} />}
         />
@@ -999,18 +999,18 @@ function TabFacturacion({ invoices, setInvoices, bankMovements, projectNames }: 
                         background: '#1a1a1a', border: '1px solid #333',
                         color: '#aaa', fontFamily: 'monospace',
                       }}>{inv.receptor_uso_cfdi}</span>
-                    ) : <span style={{ color: '#444' }}>â</span>}
+                    ) : <span style={{ color: '#444' }}>Ã¢ÂÂ</span>}
                   </Td>
-                  <Td muted>{inv.proyecto_nombre || 'â'}</Td>
+                  <Td muted>{inv.proyecto_nombre || 'Ã¢ÂÂ'}</Td>
                   <Td right>
                     {isIngreso
                       ? <span style={{ color: '#57FF9A', fontWeight: 600 }}>{F(inv.total)}</span>
-                      : <span style={{ color: '#444' }}>â</span>}
+                      : <span style={{ color: '#444' }}>Ã¢ÂÂ</span>}
                   </Td>
                   <Td right>
                     {!isIngreso
                       ? <span style={{ color: '#EF4444', fontWeight: 600 }}>{F(inv.total)}</span>
-                      : <span style={{ color: '#444' }}>â</span>}
+                      : <span style={{ color: '#444' }}>Ã¢ÂÂ</span>}
                   </Td>
                   <Td><Badge label={cfg.label} color={cfg.color} /></Td>
                   <Td muted>{formatDate(inv.fecha_emision)}</Td>
@@ -1108,17 +1108,17 @@ function TabFacturacion({ invoices, setInvoices, bankMovements, projectNames }: 
           </div>
           {timbradoError && (
             <div style={{ marginTop: 12, padding: '10px 14px', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.4)', borderRadius: 8, color: '#fca5a5', fontSize: 11 }}>
-              â  {timbradoError}
+              Ã¢ÂÂ  {timbradoError}
             </div>
           )}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginTop: 16 }}>
             <div style={{ fontSize: 11, color: facturapiMode === 'live' ? '#fca5a5' : '#fcd34d' }}>
-              {facturapiMode === 'live' ? 'â ï¸ Modo LIVE: timbra real' : 'ð§ª Modo TEST: no timbra real'}
+              {facturapiMode === 'live' ? 'Ã¢ÂÂ Ã¯Â¸Â Modo LIVE: timbra real' : 'Ã°ÂÂ§Âª Modo TEST: no timbra real'}
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
               <Btn size="sm" variant="default" onClick={() => { setShowNewForm(false); setTimbradoError(null) }} disabled={timbrando}>Cancelar</Btn>
               <Btn size="sm" variant="primary" onClick={handleNew} disabled={timbrando}>
-                {timbrando ? 'â³ Timbrando...' : 'Crear y timbrar factura'}
+                {timbrando ? 'Ã¢ÂÂ³ Timbrando...' : 'Crear y timbrar factura'}
               </Btn>
             </div>
           </div>
@@ -1150,14 +1150,14 @@ function TabFacturacion({ invoices, setInvoices, bankMovements, projectNames }: 
                   <Btn size="sm" variant="default" onClick={() => {
                     const m = (selectedInv as any).sandbox === false ? 'live' : 'test'
                     window.open('/api/facturapi?action=download_pdf&mode=' + m + '&id=' + (selectedInv as any).facturapi_id, '_blank')
-                  }}>ð Ver PDF</Btn>
+                  }}>Ã°ÂÂÂ Ver PDF</Btn>
                   <Btn size="sm" variant="default" onClick={() => {
                     const m = (selectedInv as any).sandbox === false ? 'live' : 'test'
                     window.location.href = '/api/facturapi?action=download_xml&mode=' + m + '&id=' + (selectedInv as any).facturapi_id
-                  }}>â¬ XML</Btn>
+                  }}>Ã¢Â¬Â XML</Btn>
                   {selectedInv.estado === 'timbrada' && (
                     <Btn size="sm" variant="default" onClick={() => { setCancelInvoice(selectedInv); setCancelMotive('02') }}>
-                      <span style={{ color: '#fca5a5' }}>â Cancelar</span>
+                      <span style={{ color: '#fca5a5' }}>Ã¢ÂÂ Cancelar</span>
                     </Btn>
                   )}
                 </>
@@ -1241,9 +1241,9 @@ function TabFacturacion({ invoices, setInvoices, bankMovements, projectNames }: 
           <div style={{ background: '#141414', border: '1px solid #2a2a2a', borderRadius: 14, padding: 24, width: '100%', maxWidth: 540 }} onClick={e => e.stopPropagation()}>
             <div style={{ fontSize: 16, fontWeight: 700, color: '#fff', marginBottom: 8 }}>Cancelar factura</div>
             <div style={{ fontSize: 12, color: '#888', marginBottom: 16 }}>
-              {cancelInvoice.serie ? cancelInvoice.serie + '-' : ''}{cancelInvoice.folio} Â· {cancelInvoice.receptor_nombre}
-              {(cancelInvoice as any).sandbox === false && <span style={{ color: '#fca5a5', marginLeft: 8 }}>Â· LIVE</span>}
-              {(cancelInvoice as any).sandbox !== false && <span style={{ color: '#fcd34d', marginLeft: 8 }}>Â· TEST</span>}
+              {cancelInvoice.serie ? cancelInvoice.serie + '-' : ''}{cancelInvoice.folio} ÃÂ· {cancelInvoice.receptor_nombre}
+              {(cancelInvoice as any).sandbox === false && <span style={{ color: '#fca5a5', marginLeft: 8 }}>ÃÂ· LIVE</span>}
+              {(cancelInvoice as any).sandbox !== false && <span style={{ color: '#fcd34d', marginLeft: 8 }}>ÃÂ· TEST</span>}
             </div>
             <div style={{ marginBottom: 16 }}>
               <div style={{ fontSize: 11, color: '#888', marginBottom: 6 }}>Motivo de cancelacion (catalogo SAT)</div>
@@ -1255,12 +1255,12 @@ function TabFacturacion({ invoices, setInvoices, bankMovements, projectNames }: 
               </select>
             </div>
             <div style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 8, padding: 10, marginBottom: 16, fontSize: 11, color: '#fca5a5' }}>
-              â  Esta accion enviara la cancelacion al SAT a traves de FacturAPI. La cancelacion puede ser inmediata o requerir aprobacion del receptor segun el motivo elegido.
+              Ã¢ÂÂ  Esta accion enviara la cancelacion al SAT a traves de FacturAPI. La cancelacion puede ser inmediata o requerir aprobacion del receptor segun el motivo elegido.
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
               <Btn size="sm" variant="default" onClick={() => setCancelInvoice(null)} disabled={cancelando}>Cerrar</Btn>
               <Btn size="sm" variant="primary" onClick={handleCancel} disabled={cancelando}>
-                {cancelando ? 'â³ Cancelando...' : 'Confirmar cancelacion'}
+                {cancelando ? 'Ã¢ÂÂ³ Cancelando...' : 'Confirmar cancelacion'}
               </Btn>
             </div>
           </div>
@@ -1360,8 +1360,8 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
   /* --- Auto-match movements with invoices ---
      Orden de prioridad:
      1. RFC exacto + monto con tolerancia 0.5%
-     2. RFC exacto (sin importar monto â Ãºtil si es pago parcial)
-     3. Monto exacto + direcciÃ³n coherente (abonoâemitida, cargoârecibida)
+     2. RFC exacto (sin importar monto Ã¢ÂÂ ÃÂºtil si es pago parcial)
+     3. Monto exacto + direcciÃÂ³n coherente (abonoÃ¢ÂÂemitida, cargoÃ¢ÂÂrecibida)
      4. Nombre similar + monto tolerancia 2%
      Devuelve el mejor match con un score del 0-100 para debugging. */
   const normalizeRfc = (s?: string) => (s || '').toUpperCase().replace(/[^A-Z0-9]/g, '').trim()
@@ -1372,7 +1372,7 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
     const movRfc = normalizeRfc(m.rfc_contraparte)
     const benefLower = (m.beneficiario || m.concepto || '').toLowerCase()
 
-    // Filtrar por direcciÃ³n coherente primero
+    // Filtrar por direcciÃÂ³n coherente primero
     const coherent = invoices.filter(inv => {
       if (m.tipo === 'abono' && inv.direccion === 'emitida') return true // cobro recibido = factura emitida
       if (m.tipo === 'cargo' && inv.direccion === 'recibida') return true // pago enviado = factura recibida
@@ -1392,7 +1392,7 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
       if (montoDiff <= 0.005) score += 30
       else if (montoDiff <= 0.02) score += 15
 
-      // Ventana de fecha Â±7 dÃ­as
+      // Ventana de fecha ÃÂ±7 dÃÂ­as
       if (inv.fecha_emision && m.fecha) {
         const dMov = new Date(m.fecha).getTime()
         const dInv = new Date(inv.fecha_emision).getTime()
@@ -1419,19 +1419,19 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
     scored.sort((a, b) => b.score - a.score)
     const best = scored[0]
 
-    // Umbral mÃ­nimo: 30 (significa al menos un hit significativo)
+    // Umbral mÃÂ­nimo: 30 (significa al menos un hit significativo)
     if (!best || best.score < 30) return null
 
     const inv = best.inv
     const who = inv.direccion === 'emitida' ? inv.receptor_nombre : inv.emisor_nombre
     return {
       id: inv.id,
-      info: `${inv.serie || ''}${inv.serie ? '-' : ''}${inv.folio} Â· ${who} Â· ${F(inv.total)} Â· ${inv.proyecto_nombre || 'Sin proyecto'}`,
+      info: `${inv.serie || ''}${inv.serie ? '-' : ''}${inv.folio} ÃÂ· ${who} ÃÂ· ${F(inv.total)} ÃÂ· ${inv.proyecto_nombre || 'Sin proyecto'}`,
       score: best.score,
     }
   }
 
-  /* --- Upload handler â usa edge function server-side /api/extract-bank-statement --- */
+  /* --- Upload handler Ã¢ÂÂ usa edge function server-side /api/extract-bank-statement --- */
   const handleBankUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]; if (!file) return
     setProcessing(true); setStatus('Leyendo archivo...')
@@ -1467,7 +1467,7 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
         const errMsg = errData.error || String(response.status)
         const isOverloaded = response.status === 529 || errMsg.toLowerCase().includes('overloaded') || errMsg.toLowerCase().includes('saturado')
         setStatus(isOverloaded
-          ? 'â  Claude API saturado. Espera 1-2 min y vuelve a subir el archivo.'
+          ? 'Ã¢ÂÂ  Claude API saturado. Espera 1-2 min y vuelve a subir el archivo.'
           : 'Error: ' + errMsg)
         setProcessing(false); return
       }
@@ -1513,11 +1513,11 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
       const deduped = newMovs.filter(n => !existing.some(e =>
         e.fecha === n.fecha && Math.abs(e.monto - n.monto) < 0.01 && e.tipo === n.tipo && e.concepto === n.concepto
       ))
-      const warningsMsg = (data.warnings && data.warnings.length > 0) ? ` Â· ${data.warnings.length} warning(s)` : ''
+      const warningsMsg = (data.warnings && data.warnings.length > 0) ? ` ÃÂ· ${data.warnings.length} warning(s)` : ''
       if (deduped.length < newMovs.length) {
-        setStatus(`â ${deduped.length} nuevos (${newMovs.length - deduped.length} duplicados)${warningsMsg}`)
+        setStatus(`Ã¢ÂÂ ${deduped.length} nuevos (${newMovs.length - deduped.length} duplicados)${warningsMsg}`)
       } else {
-        setStatus(`â ${deduped.length} movimientos extraÃ­dos${warningsMsg}`)
+        setStatus(`Ã¢ÂÂ ${deduped.length} movimientos extraÃÂ­dos${warningsMsg}`)
       }
       setBankMovements([...deduped, ...existing])
       dbInsertMany(deduped)
@@ -1713,12 +1713,12 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
           <button
             onClick={() => setMonthOffset(monthOffset - 1)}
             style={{ padding: '6px 10px', fontSize: 12, background: '#1a1a1a', border: '1px solid #333', borderRadius: 6, color: '#ccc', cursor: 'pointer', fontFamily: 'inherit' }}
-          >â Mes anterior</button>
+          >Ã¢ÂÂ Mes anterior</button>
           <span style={{ fontSize: 14, fontWeight: 600, color: '#fff', minWidth: 160, textAlign: 'center' as const }}>{monthLabelCapitalized}</span>
           <button
             onClick={() => setMonthOffset(monthOffset + 1)}
             style={{ padding: '6px 10px', fontSize: 12, background: '#1a1a1a', border: '1px solid #333', borderRadius: 6, color: '#ccc', cursor: 'pointer', fontFamily: 'inherit' }}
-          >Mes siguiente â¶</button>
+          >Mes siguiente Ã¢ÂÂ¶</button>
           {monthOffset !== 0 && (
             <button
               onClick={() => setMonthOffset(0)}
@@ -1765,17 +1765,17 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
         <KpiCard label="Conciliados" value={`${conciliadosCuenta}/${movsCuenta.length}`} color="#3B82F6" icon={<CheckCircle size={16} />} />
       </div>
 
-      {/* Toolbar â Conciliacion v2 con botones contextuales por cuenta */}
+      {/* Toolbar Ã¢ÂÂ Conciliacion v2 con botones contextuales por cuenta */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 16, alignItems: 'center', flexWrap: 'wrap' }}>
         <input type="file" ref={fileRef} accept=".pdf,.csv,.xlsx,.xls,.txt" style={{ display: 'none' }} onChange={handleBankUpload} />
         {(activeAccount === 'bbva-mxn' || activeAccount === 'bbva-usd') && (
           <Btn size="sm" variant="primary" onClick={() => { setShowTxtModal(activeAccount); setTxtPayload(''); setTxtPreview(null); setTxtSummary(null); }}>
-            {processing ? 'â³ Procesando...' : <><Upload size={12} /> Pegar TXT {activeAcc.label}</>}
+            {processing ? 'Ã¢ÂÂ³ Procesando...' : <><Upload size={12} /> Pegar TXT {activeAcc.label}</>}
           </Btn>
         )}
         {activeAccount === 'banorte-mxn' && (
           <Btn size="sm" variant="primary" onClick={() => fileRef.current?.click()}>
-            {processing ? 'â³ Procesando...' : <><Upload size={12} /> Subir PDF Banorte</>}
+            {processing ? 'Ã¢ÂÂ³ Procesando...' : <><Upload size={12} /> Subir PDF Banorte</>}
           </Btn>
         )}
         <Btn size="sm" variant="default" onClick={() => setShowManual(!showManual)}>
@@ -1784,7 +1784,7 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
         {(() => {
           const ultima = getUltimaFechaCuenta(activeAccount)
           return ultima ? (
-            <span style={{ fontSize: 10, color: '#888', marginLeft: 4 }}>Ãltima: {ultima}</span>
+            <span style={{ fontSize: 10, color: '#888', marginLeft: 4 }}>ÃÂltima: {ultima}</span>
           ) : (
             <span style={{ fontSize: 10, color: '#555', marginLeft: 4 }}>Sin movimientos previos</span>
           )
@@ -1804,10 +1804,10 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
           </div>
         )}
 
-        {status && <span style={{ fontSize: 11, color: status.startsWith('â') ? '#57FF9A' : status.startsWith('Error') ? '#EF4444' : '#888' }}>{status}</span>}
+        {status && <span style={{ fontSize: 11, color: status.startsWith('Ã¢ÂÂ') ? '#57FF9A' : status.startsWith('Error') ? '#EF4444' : '#888' }}>{status}</span>}
       </div>
 
-      {/* Banner de cuadre de totales (aparece despuÃ©s de upload con expected_totals del PDF) */}
+      {/* Banner de cuadre de totales (aparece despuÃÂ©s de upload con expected_totals del PDF) */}
       {lastCheck && lastCheck.expected && (
         <div style={{
           padding: '10px 14px', marginBottom: 16, borderRadius: 8, fontSize: 11,
@@ -1816,7 +1816,7 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
           color: lastCheck.cuadra ? '#57FF9A' : '#f87171',
           display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap',
         }}>
-          <strong>{lastCheck.cuadra ? 'â ExtracciÃ³n cuadra con el PDF' : 'â  ExtracciÃ³n NO cuadra con los totales del PDF'}</strong>
+          <strong>{lastCheck.cuadra ? 'Ã¢ÂÂ ExtracciÃÂ³n cuadra con el PDF' : 'Ã¢ÂÂ  ExtracciÃÂ³n NO cuadra con los totales del PDF'}</strong>
           <span style={{ color: '#888' }}>
             Cargos: <strong style={{ color: lastCheck.cargos_sum_ok ? '#57FF9A' : '#f87171' }}>{F(lastCheck.sum_cargos_extraido)}</strong>
             {' / esperado '}{F(lastCheck.expected.cargos_total)}
@@ -1845,7 +1845,7 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
             </div>
             <div>
               <div style={{ fontSize: 10, color: '#666', marginBottom: 4 }}>Concepto</div>
-              <input value={manual.concepto} onChange={e => setManual(m => ({ ...m, concepto: e.target.value }))} placeholder="DescripciÃ³n del movimiento" style={{ width: '100%', padding: '6px 8px', fontSize: 12, background: '#0a0a0a', border: '1px solid #333', borderRadius: 6, color: '#fff', fontFamily: 'inherit' }} />
+              <input value={manual.concepto} onChange={e => setManual(m => ({ ...m, concepto: e.target.value }))} placeholder="DescripciÃÂ³n del movimiento" style={{ width: '100%', padding: '6px 8px', fontSize: 12, background: '#0a0a0a', border: '1px solid #333', borderRadius: 6, color: '#fff', fontFamily: 'inherit' }} />
             </div>
             <div>
               <div style={{ fontSize: 10, color: '#666', marginBottom: 4 }}>Beneficiario</div>
@@ -1865,7 +1865,7 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 8, alignItems: 'end' }}>
             <div>
-              <div style={{ fontSize: 10, color: '#666', marginBottom: 4 }}>CategorÃ­a</div>
+              <div style={{ fontSize: 10, color: '#666', marginBottom: 4 }}>CategorÃÂ­a</div>
               <select value={manual.categoria} onChange={e => setManual(m => ({ ...m, categoria: e.target.value }))} style={{ width: '100%', padding: '6px 8px', fontSize: 12, background: '#0a0a0a', border: '1px solid #333', borderRadius: 6, color: '#fff', fontFamily: 'inherit' }}>
                 {['nomina', 'proveedor', 'cobro_cliente', 'impuestos', 'comision', 'traspaso', 'prestamo', 'suscripcion', 'otro'].map(c => <option key={c} value={c}>{c}</option>)}
               </select>
@@ -1911,12 +1911,12 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
 
       {/* Table */}
       {bankMovements.length === 0 ? (
-        <EmptyState message="Sube un estado de cuenta (PDF de BBVA/Banorte, CSV o Excel) para iniciar la conciliaciÃ³n automÃ¡tica" />
+        <EmptyState message="Sube un estado de cuenta (PDF de BBVA/Banorte, CSV o Excel) para iniciar la conciliaciÃÂ³n automÃÂ¡tica" />
       ) : (
         <Table>
           <thead><tr>
             <Th><input type="checkbox" checked={allSelected} onChange={toggleAll} style={chkStyle} /></Th>
-            <Th>Fecha</Th><Th>Concepto</Th><Th>Beneficiario</Th><Th>Proyecto</Th><Th>CategorÃ­a</Th><Th right>Cargo</Th><Th right>Abono</Th><Th>Match</Th><Th></Th>
+            <Th>Fecha</Th><Th>Concepto</Th><Th>Beneficiario</Th><Th>Proyecto</Th><Th>CategorÃÂ­a</Th><Th right>Cargo</Th><Th right>Abono</Th><Th>Match</Th><Th></Th>
           </tr></thead>
           <tbody>
             {filtered.map(m => {
@@ -1932,7 +1932,7 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
                         {m.concepto.length > 40 ? m.concepto.substring(0, 40) + '...' : m.concepto}
                       </span>
                     </Td>
-                    <Td muted>{m.beneficiario || 'â'}</Td>
+                    <Td muted>{m.beneficiario || 'Ã¢ÂÂ'}</Td>
                     <Td>
                       {(m.proyecto_codigo || m.proyecto_sugerido) ? (
                         <span style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}>
@@ -1946,13 +1946,13 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
                           {m.proyecto_sugerido && <Badge label={m.proyecto_sugerido} color="#3B82F6" />}
                         </span>
                       ) : (
-                        <span style={{ color: '#444' }}>â</span>
+                        <span style={{ color: '#444' }}>Ã¢ÂÂ</span>
                       )}
                     </Td>
                     <Td><Badge label={m.categoria_sugerida || 'otro'} color={catColors[m.categoria_sugerida || 'otro'] || '#555'} /></Td>
                     <Td right>{m.tipo === 'cargo' ? <span style={{ color: '#EF4444' }}>{F(m.monto)}</span> : ''}</Td>
                     <Td right>{m.tipo === 'abono' ? <span style={{ color: '#57FF9A' }}>{F(m.monto)}</span> : ''}</Td>
-                    <Td>{match ? <span style={{ fontSize: 10, color: '#3B82F6', cursor: 'pointer' }} onClick={() => setExpandedId(isExpanded ? null : m.id)}>ð Ver</span> : <span style={{ fontSize: 10, color: '#444' }}>â</span>}</Td>
+                    <Td>{match ? <span style={{ fontSize: 10, color: '#3B82F6', cursor: 'pointer' }} onClick={() => setExpandedId(isExpanded ? null : m.id)}>Ã°ÂÂÂ Ver</span> : <span style={{ fontSize: 10, color: '#444' }}>Ã¢ÂÂ</span>}</Td>
                     <Td>
                       <button
                         onClick={() => {
@@ -1970,7 +1970,7 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
                           color: m.conciliado ? '#666' : '#57FF9A', fontFamily: 'inherit',
                         }}
                       >
-                        {m.conciliado ? 'Desconciliar' : 'Conciliar â'}
+                        {m.conciliado ? 'Desconciliar' : 'Conciliar Ã¢ÂÂ'}
                       </button>
                     </Td>
                   </tr>
@@ -1981,7 +1981,7 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
                         <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}><strong style={{ color: '#aaa' }}>Concepto completo:</strong> {m.concepto}</div>
                         {m.referencia && <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}><strong style={{ color: '#aaa' }}>Referencia:</strong> {m.referencia}</div>}
                         {m.rfc_contraparte && <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}><strong style={{ color: '#aaa' }}>RFC:</strong> <span style={{ fontFamily: 'monospace' }}>{m.rfc_contraparte}</span></div>}
-                        {(m.banco || m.cuenta) && <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}><strong style={{ color: '#aaa' }}>Banco/Cuenta:</strong> {m.banco} {m.cuenta && `Â· ${m.cuenta}`}</div>}
+                        {(m.banco || m.cuenta) && <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}><strong style={{ color: '#aaa' }}>Banco/Cuenta:</strong> {m.banco} {m.cuenta && `ÃÂ· ${m.cuenta}`}</div>}
                         {match && (
                           <div style={{ fontSize: 11, color: '#3B82F6', marginTop: 6, padding: '6px 10px', background: 'rgba(59,130,246,0.06)', borderRadius: 6, border: '1px solid rgba(59,130,246,0.15)' }}>
                             <strong>Match sugerido:</strong> {match.info}
@@ -1997,16 +1997,16 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
         </Table>
       )}
 
-      {/* Modal TXT â Conciliacion v2 */}
+      {/* Modal TXT Ã¢ÂÂ Conciliacion v2 */}
       {showTxtModal && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 20 }} onClick={() => { if (!processing) { setShowTxtModal(null); setTxtPayload(''); setTxtPreview(null); setTxtSummary(null); } }}>
           <div style={{ background: '#141414', border: '1px solid #2a2a2a', borderRadius: 14, padding: 24, width: '100%', maxWidth: 1100, maxHeight: '90vh', overflowY: 'auto' as const }} onClick={e => e.stopPropagation()}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
               <div>
-                <div style={{ fontSize: 16, fontWeight: 700, color: '#fff' }}>Ingesta TXT â {ACCOUNTS[showTxtModal].label}</div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: '#fff' }}>Ingesta TXT Ã¢ÂÂ {ACCOUNTS[showTxtModal].label}</div>
                 <div style={{ fontSize: 11, color: '#777', marginTop: 2 }}>Cuenta {ACCOUNTS[showTxtModal].cuenta}</div>
               </div>
-              <button onClick={() => { setShowTxtModal(null); setTxtPayload(''); setTxtPreview(null); setTxtSummary(null); }} disabled={processing} style={{ background: 'none', border: 'none', color: '#666', cursor: processing ? 'not-allowed' : 'pointer', fontSize: 20 }}>Ã</button>
+              <button onClick={() => { setShowTxtModal(null); setTxtPayload(''); setTxtPreview(null); setTxtSummary(null); }} disabled={processing} style={{ background: 'none', border: 'none', color: '#666', cursor: processing ? 'not-allowed' : 'pointer', fontSize: 20 }}>ÃÂ</button>
             </div>
 
             {(() => {
@@ -2014,28 +2014,28 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
               return (
                 <div style={{ background: ultima ? '#0e1f2b' : '#1f1a0e', border: '1px solid ' + (ultima ? '#1e3a5f' : '#3a2d1e'), borderRadius: 8, padding: 10, marginBottom: 14, fontSize: 11, color: ultima ? '#7dd3fc' : '#fbbf24' }}>
                   {ultima
-                    ? <>ð Ãltima transacciÃ³n registrada: <b>{ultima}</b>. Se ignorarÃ¡n movimientos con fecha â¤ a esta.</>
-                    : <>â ï¸ Primera importaciÃ³n para esta cuenta. Se importarÃ¡n todos los movimientos del TXT.</>}
+                    ? <>Ã°ÂÂÂ ÃÂltima transacciÃÂ³n registrada: <b>{ultima}</b>. Se ignorarÃÂ¡n movimientos con fecha Ã¢ÂÂ¤ a esta.</>
+                    : <>Ã¢ÂÂ Ã¯Â¸Â Primera importaciÃÂ³n para esta cuenta. Se importarÃÂ¡n todos los movimientos del TXT.</>}
                 </div>
               )
             })()}
 
             {!txtPreview && (
               <>
-                <div style={{ fontSize: 11, color: '#888', marginBottom: 6 }}>Pega el TSV del portal BBVA (DÃ­a â¥ Concepto â¥ cargo â¥ Abono â¥ Saldo):</div>
+                <div style={{ fontSize: 11, color: '#888', marginBottom: 6 }}>Pega el TSV del portal BBVA (DÃÂ­a Ã¢ÂÂ¥ Concepto Ã¢ÂÂ¥ cargo Ã¢ÂÂ¥ Abono Ã¢ÂÂ¥ Saldo):</div>
                 <textarea
                   value={txtPayload}
                   onChange={e => setTxtPayload(e.target.value)}
                   disabled={processing}
-                  placeholder={'DÃ­a\tConcepto / Referencia\tcargo\tAbono\tSaldo\n31-03-2026\tUBER RIDE/...\t129.95\t\t385,811.65\n...'}
+                  placeholder={'DÃÂ­a\tConcepto / Referencia\tcargo\tAbono\tSaldo\n31-03-2026\tUBER RIDE/...\t129.95\t\t385,811.65\n...'}
                   style={{ width: '100%', minHeight: 280, background: '#0a0a0a', border: '1px solid #2a2a2a', borderRadius: 8, padding: 12, color: '#ddd', fontSize: 11, fontFamily: 'monospace', resize: 'vertical' as const }}
                 />
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 12 }}>
-                  <div style={{ fontSize: 10, color: '#666' }}>{txtPayload.length} caracteres Â· ~{txtPayload.split('\n').filter(l => l.trim()).length - 1} filas</div>
+                  <div style={{ fontSize: 10, color: '#666' }}>{txtPayload.length} caracteres ÃÂ· ~{txtPayload.split('\n').filter(l => l.trim()).length - 1} filas</div>
                   <div style={{ display: 'flex', gap: 8 }}>
                     <Btn size="sm" variant="default" onClick={() => { setShowTxtModal(null); setTxtPayload(''); }} disabled={processing}>Cancelar</Btn>
                     <Btn size="sm" variant="primary" onClick={handleTxtProcess} disabled={processing || !txtPayload.trim()}>
-                      {processing ? 'â³ Procesando...' : 'Procesar con AI'}
+                      {processing ? 'Ã¢ÂÂ³ Procesando...' : 'Procesar con AI'}
                     </Btn>
                   </div>
                 </div>
@@ -2048,29 +2048,29 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
                 {/* Banner de cuadre */}
                 {txtSummary?.totals_check && (
                   <div style={{ background: txtSummary.totals_check.cuadra ? '#0e2a1a' : '#2a1a1a', border: '1px solid ' + (txtSummary.totals_check.cuadra ? '#1e5a3a' : '#5a2a2a'), borderRadius: 8, padding: 12, marginBottom: 12, fontSize: 11, color: txtSummary.totals_check.cuadra ? '#86efac' : '#fca5a5' }}>
-                    {txtSummary.totals_check.cuadra ? 'â ' : 'â  '}
+                    {txtSummary.totals_check.cuadra ? 'Ã¢ÂÂ ' : 'Ã¢ÂÂ  '}
                     Cuadre por delta de saldo: esperado {txtSummary.totals_check.delta_esperado}, calculado {txtSummary.totals_check.delta_calculado}
-                    {txtSummary.totals_check.delta_diff != null && !txtSummary.totals_check.cuadra && ' Â· diff ' + txtSummary.totals_check.delta_diff}
+                    {txtSummary.totals_check.delta_diff != null && !txtSummary.totals_check.cuadra && ' ÃÂ· diff ' + txtSummary.totals_check.delta_diff}
                   </div>
                 )}
 
                 {/* Warnings */}
                 {txtSummary?.warnings && txtSummary.warnings.length > 0 && (
                   <div style={{ background: '#2a1f0e', border: '1px solid #5a3a1e', borderRadius: 8, padding: 10, marginBottom: 12, fontSize: 10, color: '#fcd34d' }}>
-                    {txtSummary.warnings.map((w: string, i: number) => <div key={i}>â  {w}</div>)}
+                    {txtSummary.warnings.map((w: string, i: number) => <div key={i}>Ã¢ÂÂ  {w}</div>)}
                   </div>
                 )}
 
                 {/* Stats confianza */}
                 <div style={{ display: 'flex', gap: 8, marginBottom: 12, fontSize: 11 }}>
                   <div style={{ background: '#0e2a1a', border: '1px solid #1e5a3a', color: '#86efac', padding: '6px 10px', borderRadius: 6 }}>
-                    ð¢ Alta: {txtPreview.filter((m: any) => m.confianza_autodetect === 'alta').length}
+                    Ã°ÂÂÂ¢ Alta: {txtPreview.filter((m: any) => m.confianza_autodetect === 'alta').length}
                   </div>
                   <div style={{ background: '#2a250e', border: '1px solid #5a4e1e', color: '#fcd34d', padding: '6px 10px', borderRadius: 6 }}>
-                    ð¡ Media: {txtPreview.filter((m: any) => m.confianza_autodetect === 'media').length}
+                    Ã°ÂÂÂ¡ Media: {txtPreview.filter((m: any) => m.confianza_autodetect === 'media').length}
                   </div>
                   <div style={{ background: '#2a1a1a', border: '1px solid #5a2a2a', color: '#fca5a5', padding: '6px 10px', borderRadius: 6 }}>
-                    ð´ Baja: {txtPreview.filter((m: any) => m.confianza_autodetect === 'baja').length}
+                    Ã°ÂÂÂ´ Baja: {txtPreview.filter((m: any) => m.confianza_autodetect === 'baja').length}
                   </div>
                   <div style={{ marginLeft: 'auto', color: '#888', padding: '6px 0' }}>Total: {txtPreview.length} movimientos</div>
                 </div>
@@ -2084,7 +2084,7 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
                         <th style={{ padding: 8, textAlign: 'left' as const, borderBottom: '1px solid #2a2a2a' }}>Concepto</th>
                         <th style={{ padding: 8, textAlign: 'left' as const, borderBottom: '1px solid #2a2a2a' }}>Beneficiario</th>
                         <th style={{ padding: 8, textAlign: 'left' as const, borderBottom: '1px solid #2a2a2a' }}>Proy</th>
-                        <th style={{ padding: 8, textAlign: 'left' as const, borderBottom: '1px solid #2a2a2a' }}>CategorÃ­a</th>
+                        <th style={{ padding: 8, textAlign: 'left' as const, borderBottom: '1px solid #2a2a2a' }}>CategorÃÂ­a</th>
                         <th style={{ padding: 8, textAlign: 'right' as const, borderBottom: '1px solid #2a2a2a' }}>Cargo</th>
                         <th style={{ padding: 8, textAlign: 'right' as const, borderBottom: '1px solid #2a2a2a' }}>Abono</th>
                         <th style={{ padding: 8, textAlign: 'center' as const, borderBottom: '1px solid #2a2a2a' }}>Conf.</th>
@@ -2095,13 +2095,13 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
                         <tr key={i} style={{ borderBottom: '1px solid #1a1a1a' }}>
                           <td style={{ padding: 8 }}>{m.fecha}</td>
                           <td style={{ padding: 8, maxWidth: 280, overflow: 'hidden' as const, textOverflow: 'ellipsis' as const, whiteSpace: 'nowrap' as const }}>{m.concepto}</td>
-                          <td style={{ padding: 8, color: '#aaa' }}>{m.beneficiario || 'â'}</td>
-                          <td style={{ padding: 8 }}>{m.proyecto_codigo || m.proyecto_nombre || 'â'}</td>
-                          <td style={{ padding: 8, color: '#888' }}>{m.categoria || 'â'}</td>
+                          <td style={{ padding: 8, color: '#aaa' }}>{m.beneficiario || 'Ã¢ÂÂ'}</td>
+                          <td style={{ padding: 8 }}>{m.proyecto_codigo || m.proyecto_nombre || 'Ã¢ÂÂ'}</td>
+                          <td style={{ padding: 8, color: '#888' }}>{m.categoria || 'Ã¢ÂÂ'}</td>
                           <td style={{ padding: 8, textAlign: 'right' as const, color: '#fca5a5' }}>{m.tipo === 'cargo' ? F(m.monto) : ''}</td>
                           <td style={{ padding: 8, textAlign: 'right' as const, color: '#86efac' }}>{m.tipo === 'abono' ? F(m.monto) : ''}</td>
                           <td style={{ padding: 8, textAlign: 'center' as const }}>
-                            {m.confianza_autodetect === 'alta' ? 'ð¢' : m.confianza_autodetect === 'media' ? 'ð¡' : 'ð´'}
+                            {m.confianza_autodetect === 'alta' ? 'Ã°ÂÂÂ¢' : m.confianza_autodetect === 'media' ? 'Ã°ÂÂÂ¡' : 'Ã°ÂÂÂ´'}
                           </td>
                         </tr>
                       ))}
@@ -2111,10 +2111,10 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
 
                 {/* Actions */}
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Btn size="sm" variant="default" onClick={() => { setTxtPreview(null); setTxtSummary(null); }}>â Volver a editar</Btn>
+                  <Btn size="sm" variant="default" onClick={() => { setTxtPreview(null); setTxtSummary(null); }}>Ã¢ÂÂ Volver a editar</Btn>
                   <div style={{ display: 'flex', gap: 8 }}>
                     <Btn size="sm" variant="default" onClick={() => { setShowTxtModal(null); setTxtPayload(''); setTxtPreview(null); setTxtSummary(null); }}>Cancelar</Btn>
-                    <Btn size="sm" variant="primary" onClick={handleTxtConfirm}>â Importar {txtPreview.length} movimientos</Btn>
+                    <Btn size="sm" variant="primary" onClick={handleTxtConfirm}>Ã¢ÂÂ Importar {txtPreview.length} movimientos</Btn>
                   </div>
                 </div>
               </>
@@ -2156,7 +2156,7 @@ function TabSupervision({ invoices }: { invoices: Invoice[] }) {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div>
                 <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 2 }}>
-                  Ã¢ÂÂ Ã¯Â¸Â {a.title}
+                  ÃÂ¢ÃÂÃÂ ÃÂ¯ÃÂ¸ÃÂ {a.title}
                 </div>
                 <div style={{ fontSize: 11, color: '#666' }}>{a.desc}</div>
               </div>
@@ -2222,7 +2222,7 @@ function TabEfectivo() {
               </Td>
               <Td><span style={{ color: '#fff', fontWeight: 500 }}>{m.persona}</span></Td>
               <Td muted>{m.concepto}</Td>
-              <Td muted>{m.proyecto_nombre || 'â'}</Td>
+              <Td muted>{m.proyecto_nombre || 'Ã¢ÂÂ'}</Td>
               <Td right style={{
                 fontWeight: 600,
                 color: m.direccion === 'ingreso' ? '#57FF9A' : '#ccc',
@@ -2390,12 +2390,12 @@ function TabFlujo() {
                 </Td>
               </tr>
               <tr>
-                <Td><span style={{ color: '#666' }}>OMM â Gastos generales</span></Td>
-                <Td right muted>â</Td>
-                <Td right muted>â</Td>
+                <Td><span style={{ color: '#666' }}>OMM Ã¢ÂÂ Gastos generales</span></Td>
+                <Td right muted>Ã¢ÂÂ</Td>
+                <Td right muted>Ã¢ÂÂ</Td>
                 <Td right style={{ color: '#F59E0B' }}>{F(gastosFijos)}</Td>
                 <Td right style={{ fontWeight: 700, color: '#EF4444' }}>-{F(gastosFijos)}</Td>
-                <Td right muted>â</Td>
+                <Td right muted>Ã¢ÂÂ</Td>
               </tr>
               <tr style={{ background: '#1a1a1a', borderTop: '2px solid #333' }}>
                 <Td><span style={{ fontWeight: 700, color: '#fff', fontSize: 13 }}>TOTAL EMPRESA</span></Td>
@@ -2416,7 +2416,7 @@ function TabFlujo() {
               <div style={{ fontSize: 14, fontWeight: 600, color: '#EF4444', marginBottom: 12 }}>Debo pagar</div>
               {[
                 { label: 'Gastos fijos', value: gastosFijos },
-                { label: 'OÂrdenes de compra', value: oc },
+                { label: 'OÃÂrdenes de compra', value: oc },
                 { label: 'Facturas por pagar', value: factPorPagar },
               ].map((item, i) => (
                 <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid #1a1a1a' }}>
@@ -2499,20 +2499,18 @@ function TabAnticipos({ invoices }: { invoices: Invoice[] }) {
 
   const dirInvoices = invoices.filter(inv => inv.direccion === direction)
 
-  // Detect anticipos: tipo_comprobante I + (clave SAT 84111506 in conceptos OR descripcion contains anticipo)
   const isAnticipo = (inv: Invoice): boolean => {
     if (inv.tipo_comprobante !== 'I') return false
-    if (inv.conceptos && inv.conceptos.some(c => c.clave_prod_serv === '84111506')) return true
-    if (inv.conceptos && inv.conceptos.some(c => c.descripcion && c.descripcion.toLowerCase().includes('anticipo'))) return true
+    if (inv.estado === 'cancelada') return false
+    if (inv.conceptos && inv.conceptos.some(cp => cp.clave_prod_serv === '84111506')) return true
+    if (inv.conceptos && inv.conceptos.some(cp => cp.descripcion && cp.descripcion.toLowerCase().includes('anticipo'))) return true
     return false
   }
 
-  // Build anticipo groups
   const groups: AnticipoGroup[] = dirInvoices.filter(isAnticipo).map(anticipo => {
     const anticipoUuid = (anticipo.uuid || '').toUpperCase()
     if (!anticipoUuid) return null
 
-    // Find facturas producto that reference this anticipo via tipo_relacion 07
     const facturasProducto = dirInvoices.filter(inv => {
       if (inv.id === anticipo.id) return false
       if (inv.tipo_comprobante !== 'I') return false
@@ -2521,7 +2519,6 @@ function TabAnticipos({ invoices }: { invoices: Invoice[] }) {
       return uuids.includes(anticipoUuid)
     })
 
-    // Find notas de credito (tipo E) that reference each factura producto
     const notasCredito = dirInvoices.filter(inv => {
       if (inv.tipo_comprobante !== 'E') return false
       if (inv.tipo_relacion !== '07') return false
@@ -2532,12 +2529,10 @@ function TabAnticipos({ invoices }: { invoices: Invoice[] }) {
     const montoAnticipo = anticipo.total
     const montoFacturado = facturasProducto.reduce((s, fp) => s + fp.total, 0)
     const montoNC = notasCredito.reduce((s, nc) => s + nc.total, 0)
-
     const diasActivo = Math.floor((Date.now() - new Date(anticipo.fecha_emision).getTime()) / 86400000)
 
-    // Determine status
     let status: AnticipoStatus = 'en_progreso'
-    const ncMatchesProducts = facturasProducto.every(fp => {
+    const ncMatchesProducts = facturasProducto.length > 0 && facturasProducto.every(fp => {
       const fpUuid = (fp.uuid || '').toUpperCase()
       return notasCredito.some(nc => {
         const ncUuids = (nc.uuids_relacionados || []).map(u => u.toUpperCase())
@@ -2545,39 +2540,42 @@ function TabAnticipos({ invoices }: { invoices: Invoice[] }) {
       })
     })
 
-    if (Math.abs(montoFacturado - montoAnticipo) < 0.01 && ncMatchesProducts && facturasProducto.length > 0) {
+    if (Math.abs(montoFacturado - montoAnticipo) < 0.01 && ncMatchesProducts) {
       status = 'cerrado'
     } else if (montoFacturado > montoAnticipo + 0.01) {
       status = 'descuadrado'
     } else if (facturasProducto.length > 0 && !ncMatchesProducts) {
       status = 'alerta_nc'
-    } else if (diasActivo > 60 && status !== 'cerrado') {
+    }
+    if (diasActivo > 60 && status !== 'cerrado') {
       status = 'vencido'
     }
 
     return { anticipo, facturasProducto, notasCredito, status, montoAnticipo, montoFacturado, montoNC, diasActivo }
   }).filter(Boolean) as AnticipoGroup[]
 
-  // KPIs
   const vivos = groups.filter(g => g.status !== 'cerrado')
   const anticiposVivos = vivos.reduce((s, g) => s + g.montoAnticipo, 0)
   const cantidadPendientes = vivos.length
   const riesgoFiscal = groups.filter(g => g.status === 'vencido' || g.status === 'descuadrado').reduce((s, g) => s + g.montoAnticipo, 0)
   const masAntiguoDias = vivos.length > 0 ? Math.max(...vivos.map(g => g.diasActivo)) : 0
 
-  const statusConfig: Record<AnticipoStatus, { label: string; color: string; emoji: string }> = {
-    cerrado: { label: 'Cerrado', color: '#22c55e', emoji: '\u{1F7E2}' },
-    en_progreso: { label: 'En progreso', color: '#eab308', emoji: '\u{1F7E1}' },
-    alerta_nc: { label: 'NC faltante', color: '#f97316', emoji: '\u{1F7E0}' },
-    descuadrado: { label: 'Descuadrado', color: '#ef4444', emoji: '\u{1F534}' },
-    vencido: { label: 'Vencido >60d', color: '#ef4444', emoji: '\u{1F534}' },
+  const statusConfig: Record<AnticipoStatus, { label: string; color: string }> = {
+    cerrado: { label: 'Cerrado', color: '#22c55e' },
+    en_progreso: { label: 'En progreso', color: '#eab308' },
+    alerta_nc: { label: 'NC faltante', color: '#f97316' },
+    descuadrado: { label: 'Descuadrado', color: '#ef4444' },
+    vencido: { label: 'Vencido >60d', color: '#ef4444' },
   }
 
   const toggleExpand = (id: string) => setExpanded(prev => ({ ...prev, [id]: !prev[id] }))
 
+  const LBL = ({ children, w }: { children: React.ReactNode; w?: number }) => (
+    <span style={{ fontSize: 11, color: '#888', minWidth: w || 'auto' }}>{children}</span>
+  )
+
   return (
     <div style={{ padding: '20px 0' }}>
-      {/* Direction toggle */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
         {(['emitida', 'recibida'] as const).map(d => (
           <button key={d} onClick={() => setDirection(d)} style={{
@@ -2590,7 +2588,6 @@ function TabAnticipos({ invoices }: { invoices: Invoice[] }) {
         ))}
       </div>
 
-      {/* KPIs */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
         <KpiCard label="Anticipos vivos $" value={F(anticiposVivos)} color="#eab308" icon={<DollarSign size={16} />} />
         <KpiCard label="Pendientes" value={String(cantidadPendientes)} color="#3B82F6" icon={<Clock size={16} />} />
@@ -2608,79 +2605,114 @@ function TabAnticipos({ invoices }: { invoices: Invoice[] }) {
           }).map(g => {
             const sc = statusConfig[g.status]
             const isOpen = expanded[g.anticipo.id]
+            const cliente = direction === 'emitida' ? g.anticipo.receptor_nombre : g.anticipo.emisor_nombre
+            const rfc = direction === 'emitida' ? (g.anticipo.receptor_rfc || '') : (g.anticipo.emisor_rfc || '')
             return (
               <div key={g.anticipo.id} style={{
                 background: '#111', border: '1px solid #222', borderRadius: 8,
                 borderLeft: `3px solid ${sc.color}`,
               }}>
-                {/* Header row */}
                 <div onClick={() => toggleExpand(g.anticipo.id)} style={{
-                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  display: 'grid', gridTemplateColumns: '14px auto 1fr auto', alignItems: 'center', gap: 10,
                   padding: '10px 14px', cursor: 'pointer',
                 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1 }}>
-                    <ChevronRight size={14} style={{ color: '#666', transform: isOpen ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }} />
+                  <ChevronRight size={14} style={{ color: '#666', transform: isOpen ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }} />
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                     <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 4, background: `${sc.color}22`, color: sc.color, fontWeight: 600 }}>{sc.label}</span>
                     <span style={{ fontSize: 13, color: '#fff', fontWeight: 600 }}>{g.anticipo.serie}-{g.anticipo.folio}</span>
-                    <span style={{ fontSize: 11, color: '#888' }}>{g.anticipo.receptor_nombre}</span>
+                    <span style={{ fontSize: 12, color: '#aaa' }}>{cliente}</span>
+                    <span style={{ fontSize: 11, color: '#666' }}>{rfc}</span>
+                    <span style={{ fontSize: 11, color: '#555' }}>{g.anticipo.fecha_emision}</span>
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-                    <span style={{ fontSize: 12, color: '#aaa' }}>{g.anticipo.moneda || 'MXN'}</span>
-                    <span style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>{F(g.montoAnticipo)}</span>
-                    <span style={{ fontSize: 11, color: '#888' }}>Fact: {F(g.montoFacturado)} | NC: {F(g.montoNC)}</span>
-                    <span style={{ fontSize: 11, color: g.diasActivo > 60 ? '#ef4444' : '#888' }}>{g.diasActivo}d</span>
+                  <div />
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 14, whiteSpace: 'nowrap' }}>
+                    <span style={{ fontSize: 11, color: '#888' }}>{g.anticipo.moneda || 'MXN'}</span>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: '#fff' }}>{F(g.montoAnticipo)}</span>
+                    <span style={{ fontSize: 11, color: '#57FF9A' }}>Fact: {F(g.montoFacturado)}</span>
+                    <span style={{ fontSize: 11, color: '#ef4444' }}>NC: -{F(g.montoNC)}</span>
+                    <span style={{ fontSize: 11, fontWeight: 600, color: g.diasActivo > 60 ? '#ef4444' : g.diasActivo > 30 ? '#eab308' : '#888' }}>{g.diasActivo}d</span>
                   </div>
                 </div>
 
-                {/* Expanded detail */}
                 {isOpen && (
-                  <div style={{ padding: '0 14px 14px 38px', borderTop: '1px solid #222' }}>
-                    {/* Anticipo row */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0', fontSize: 12 }}>
-                      <span style={{ color: '#3B82F6', fontWeight: 600, width: 90 }}>ANTICIPO</span>
-                      <span style={{ color: '#fff' }}>{g.anticipo.serie}-{g.anticipo.folio}</span>
-                      <span style={{ color: '#888', fontSize: 11 }}>{g.anticipo.fecha_emision}</span>
-                      <span style={{ color: '#888', fontSize: 11 }}>UUID: {(g.anticipo.uuid || '').substring(0, 8)}...</span>
-                      <span style={{ color: '#57FF9A', fontWeight: 600, marginLeft: 'auto' }}>{F(g.montoAnticipo)}</span>
+                  <div style={{ padding: '0 14px 14px', borderTop: '1px solid #222' }}>
+                    {/* Anticipo detail */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '90px 1fr', gap: '4px 12px', padding: '10px 0 8px', fontSize: 12 }}>
+                      <LBL>Folio</LBL><span style={{ color: '#fff' }}>{g.anticipo.serie}-{g.anticipo.folio}</span>
+                      <LBL>Cliente/Prov</LBL><span style={{ color: '#fff' }}>{cliente} <span style={{ color: '#666' }}>({rfc})</span></span>
+                      <LBL>UUID</LBL><span style={{ color: '#3B82F6', fontSize: 11, fontFamily: 'monospace' }}>{g.anticipo.uuid || 'N/A'}</span>
+                      <LBL>Fecha</LBL><span style={{ color: '#ccc' }}>{g.anticipo.fecha_emision}</span>
+                      <LBL>Moneda</LBL><span style={{ color: '#ccc' }}>{g.anticipo.moneda || 'MXN'}</span>
+                      <LBL>Metodo pago</LBL><span style={{ color: '#ccc' }}>{g.anticipo.metodo_pago || '-'}</span>
+                      <LBL>Forma pago</LBL><span style={{ color: '#ccc' }}>{g.anticipo.forma_pago || '-'}</span>
+                      <LBL>Uso CFDI</LBL><span style={{ color: '#ccc' }}>{g.anticipo.receptor_uso_cfdi || '-'}</span>
+                      <LBL>Clave SAT</LBL><span style={{ color: '#ccc' }}>{g.anticipo.conceptos && g.anticipo.conceptos.length > 0 ? g.anticipo.conceptos.map(cp => cp.clave_prod_serv).join(', ') : '-'}</span>
+                      <LBL>Monto</LBL><span style={{ color: '#57FF9A', fontWeight: 700 }}>{F(g.montoAnticipo)} {g.anticipo.moneda || 'MXN'}</span>
                     </div>
 
-                    {g.facturasProducto.length === 0 ? (
-                      <div style={{ fontSize: 12, color: '#f97316', padding: '6px 0' }}>Sin facturas de producto asociadas</div>
-                    ) : (
-                      g.facturasProducto.map(fp => {
-                        const matchingNC = g.notasCredito.find(nc => {
-                          const ncUuids = (nc.uuids_relacionados || []).map(u => u.toUpperCase())
-                          return ncUuids.includes((fp.uuid || '').toUpperCase())
-                        })
-                        return (
-                          <div key={fp.id}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', fontSize: 12, borderTop: '1px solid #1a1a1a' }}>
-                              <span style={{ color: '#eab308', fontWeight: 600, width: 90 }}>FACTURA</span>
-                              <span style={{ color: '#fff' }}>{fp.serie}-{fp.folio}</span>
-                              <span style={{ color: '#888', fontSize: 11 }}>{fp.fecha_emision}</span>
-                              <span style={{ color: '#888', fontSize: 11 }}>Rel 07 \u2192 Anticipo</span>
-                              <span style={{ color: '#fff', fontWeight: 600, marginLeft: 'auto' }}>{F(fp.total)}</span>
-                            </div>
-                            {matchingNC ? (
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0 6px 20px', fontSize: 12 }}>
-                                <span style={{ color: '#ef4444', fontWeight: 600, width: 70 }}>NC</span>
-                                <span style={{ color: '#ccc' }}>{matchingNC.serie}-{matchingNC.folio}</span>
-                                <span style={{ color: '#888', fontSize: 11 }}>{matchingNC.fecha_emision}</span>
-                                <span style={{ color: '#ef4444', fontWeight: 600, marginLeft: 'auto' }}>-{F(matchingNC.total)}</span>
-                              </div>
-                            ) : (
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0 6px 20px', fontSize: 12 }}>
-                                <span style={{ color: '#f97316', fontWeight: 600 }}>\u26A0 NC faltante para esta factura</span>
-                              </div>
-                            )}
-                          </div>
-                        )
-                      })
-                    )}
+                    {/* Cadena: facturas producto + NCs */}
+                    <div style={{ marginTop: 4 }}>
+                      <div style={{ fontSize: 11, color: '#666', fontWeight: 600, marginBottom: 6, textTransform: 'uppercase', letterSpacing: 1 }}>Cadena de documentos</div>
+                      
+                      {g.facturasProducto.length === 0 ? (
+                        <div style={{ fontSize: 12, color: '#f97316', padding: '6px 8px', background: 'rgba(249,115,22,0.08)', borderRadius: 4 }}>Sin facturas de producto vinculadas a este anticipo</div>
+                      ) : (
+                        <Table>
+                          <thead>
+                            <tr>
+                              <Th>Tipo</Th><Th>Folio</Th><Th>Cliente / Prov</Th><Th>RFC</Th><Th>Fecha</Th><Th>Relacion</Th><Th>UUID</Th><Th style={{ textAlign: 'right' }}>Monto</Th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {g.facturasProducto.map(fp => {
+                              const matchingNC = g.notasCredito.find(nc => {
+                                const ncUuids = (nc.uuids_relacionados || []).map(u => u.toUpperCase())
+                                return ncUuids.includes((fp.uuid || '').toUpperCase())
+                              })
+                              const fpCliente = direction === 'emitida' ? fp.receptor_nombre : fp.emisor_nombre
+                              const fpRfc = direction === 'emitida' ? (fp.receptor_rfc || '') : (fp.emisor_rfc || '')
+                              return (
+                                <React.Fragment key={fp.id}>
+                                  <tr>
+                                    <Td><Badge color="#3B82F6">Factura I</Badge></Td>
+                                    <Td style={{ fontWeight: 600 }}>{fp.serie}-{fp.folio}</Td>
+                                    <Td>{fpCliente}</Td>
+                                    <Td style={{ fontSize: 11, color: '#888' }}>{fpRfc}</Td>
+                                    <Td>{fp.fecha_emision}</Td>
+                                    <Td><span style={{ fontSize: 10, color: '#eab308' }}>07 &rarr; Anticipo</span></Td>
+                                    <Td style={{ fontSize: 10, fontFamily: 'monospace', color: '#666' }}>{(fp.uuid || '').substring(0, 8)}...</Td>
+                                    <Td style={{ textAlign: 'right', fontWeight: 600 }}>{F(fp.total)}</Td>
+                                  </tr>
+                                  {matchingNC ? (
+                                    <tr style={{ background: 'rgba(239,68,68,0.04)' }}>
+                                      <Td><Badge color="#ef4444">NC Egreso</Badge></Td>
+                                      <Td>{matchingNC.serie}-{matchingNC.folio}</Td>
+                                      <Td>{direction === 'emitida' ? matchingNC.receptor_nombre : matchingNC.emisor_nombre}</Td>
+                                      <Td style={{ fontSize: 11, color: '#888' }}>{direction === 'emitida' ? (matchingNC.receptor_rfc || '') : (matchingNC.emisor_rfc || '')}</Td>
+                                      <Td>{matchingNC.fecha_emision}</Td>
+                                      <Td><span style={{ fontSize: 10, color: '#ef4444' }}>07 &rarr; Factura</span></Td>
+                                      <Td style={{ fontSize: 10, fontFamily: 'monospace', color: '#666' }}>{(matchingNC.uuid || '').substring(0, 8)}...</Td>
+                                      <Td style={{ textAlign: 'right', fontWeight: 600, color: '#ef4444' }}>-{F(matchingNC.total)}</Td>
+                                    </tr>
+                                  ) : (
+                                    <tr style={{ background: 'rgba(249,115,22,0.06)' }}>
+                                      <Td colSpan={8}><span style={{ color: '#f97316', fontSize: 12, fontWeight: 600 }}>&#x26A0; Nota de credito faltante para {fp.serie}-{fp.folio}</span></Td>
+                                    </tr>
+                                  )}
+                                </React.Fragment>
+                              )
+                            })}
+                          </tbody>
+                        </Table>
+                      )}
+                    </div>
 
-                    {/* Summary row */}
-                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 16, padding: '8px 0 0', borderTop: '1px solid #333', fontSize: 12 }}>
-                      <span style={{ color: '#888' }}>Saldo neto: <span style={{ color: Math.abs(g.montoAnticipo - g.montoFacturado) < 0.01 ? '#22c55e' : '#eab308', fontWeight: 700 }}>{F(g.montoAnticipo - g.montoFacturado)}</span></span>
+                    {/* Summary */}
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 20, padding: '10px 0 0', borderTop: '1px solid #222', marginTop: 8, fontSize: 12 }}>
+                      <span style={{ color: '#888' }}>Anticipo: <span style={{ color: '#fff', fontWeight: 600 }}>{F(g.montoAnticipo)}</span></span>
+                      <span style={{ color: '#888' }}>Facturado: <span style={{ color: '#57FF9A', fontWeight: 600 }}>{F(g.montoFacturado)}</span></span>
+                      <span style={{ color: '#888' }}>NCs: <span style={{ color: '#ef4444', fontWeight: 600 }}>-{F(g.montoNC)}</span></span>
+                      <span style={{ color: '#888' }}>Saldo: <span style={{ color: Math.abs(g.montoAnticipo - g.montoFacturado) < 0.01 ? '#22c55e' : '#eab308', fontWeight: 700 }}>{F(g.montoAnticipo - g.montoFacturado)}</span></span>
                     </div>
                   </div>
                 )}
