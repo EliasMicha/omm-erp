@@ -109,6 +109,10 @@ interface BankMovement {
   traspaso_usd_monto?: number; traspaso_pair_id?: string
   folio_spei?: string; clabe_contraparte?: string
   source?: 'pdf-monthly' | 'txt-tabular' | 'manual' | 'excel-import'
+  // Asignacion en cascada Lead -> Cotizacion -> OC
+  lead_id?: string
+  quotation_id?: string
+  purchase_order_id?: string
 }
 
 /* --------- Config --------------------------------------------------------------------------------------------------------------------------------------------------------------------- */
@@ -232,6 +236,9 @@ export default function Contabilidad() {
           proyecto_codigo: m.proyecto_codigo || '',
           banco: m.banco || '',
           cuenta: m.cuenta || '',
+          lead_id: m.lead_id || undefined,
+          quotation_id: m.quotation_id || undefined,
+          purchase_order_id: m.purchase_order_id || undefined,
         })))
       }
     })
@@ -1275,6 +1282,40 @@ function TabFacturacion({ invoices, setInvoices, bankMovements, projectNames }: 
 
 function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNames }: { bankMovements: BankMovement[]; setBankMovements: (m: BankMovement[]) => void; invoices: Invoice[]; projectNames: string[] }) {
   const [processing, setProcessing] = useState(false)
+  // Asignacion en cascada Lead -> Cotizacion -> OC
+  const [assignLeads, setAssignLeads] = useState<{ id: string; name: string; company?: string }[]>([])
+  const [assignQuotations, setAssignQuotations] = useState<{ id: string; name: string; lead_id: string; specialty?: string; total?: number; currency?: string }[]>([])
+  const [assignPOs, setAssignPOs] = useState<{ id: string; po_number: string; quotation_id?: string; project_id?: string; supplier_id?: string; total?: number; currency?: string; purchase_phase?: string; status?: string }[]>([])
+  const [savingAssign, setSavingAssign] = useState<string | null>(null)
+  
+  useEffect(() => {
+    Promise.all([
+      supabase.from('leads').select('id,name,company').order('name'),
+      supabase.from('quotations').select('id,name,lead_id,specialty,total,currency').order('name'),
+      supabase.from('purchase_orders').select('id,po_number,quotation_id,project_id,supplier_id,total,currency,purchase_phase,status').order('po_number', { ascending: false }),
+    ]).then(([lRes, qRes, pRes]) => {
+      setAssignLeads((lRes.data as any[]) || [])
+      setAssignQuotations((qRes.data as any[]) || [])
+      setAssignPOs((pRes.data as any[]) || [])
+    })
+  }, [])
+  
+  // Helper para asignar/actualizar lead/quotation/PO en un movimiento
+  const updateAssignment = async (movId: string, field: 'lead_id' | 'quotation_id' | 'purchase_order_id', value: string | null) => {
+    setSavingAssign(movId)
+    try {
+      // Si cambia el lead, limpiar quotation y PO. Si cambia quotation, limpiar PO.
+      const updates: any = { [field]: value }
+      if (field === 'lead_id') { updates.quotation_id = null; updates.purchase_order_id = null }
+      if (field === 'quotation_id') { updates.purchase_order_id = null }
+      const { error } = await supabase.from('bank_movements').update(updates).eq('id', movId)
+      if (error) { console.error('[assign] error:', error); alert('Error al guardar: ' + error.message); return }
+      // Actualizar el state local
+      setBankMovements(bankMovements.map(bm => bm.id === movId ? { ...bm, ...updates } : bm))
+    } finally {
+      setSavingAssign(null)
+    }
+  }
   const [status, setStatus] = useState('')
   const [lastCheck, setLastCheck] = useState<any>(null)
   const [filtro, setFiltro] = useState<'todos' | 'pendientes' | 'conciliados'>('todos')
@@ -1948,6 +1989,13 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
                     </Td>
                     <Td muted>{m.beneficiario || '—'}</Td>
                     <Td>
+                      {(() => {
+                        const filled = (m.lead_id ? 1 : 0) + (m.quotation_id ? 1 : 0) + (m.purchase_order_id ? 1 : 0)
+                        if (filled === 0) return null
+                        const color = filled === 3 ? '#22c55e' : '#eab308'
+                        const title = filled === 3 ? 'Asignacion completa (Lead + Cot + OC)' : `Asignacion parcial (${filled}/3)`
+                        return <span title={title} style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: color, marginRight: 6, verticalAlign: 'middle' }} />
+                      })()}
                       {(m.proyecto_codigo || m.proyecto_sugerido) ? (
                         <span style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}>
                           {m.proyecto_codigo && (
@@ -1992,6 +2040,60 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
                   {isExpanded && (
                     <tr>
                       <td colSpan={10} style={{ padding: '8px 16px', background: '#0d0d0d', borderBottom: '1px solid #1a1a1a' }}>
+                      {/* Asignacion en cascada Lead -> Cotizacion -> OC */}
+                      {(() => {
+                        const filteredQuotes = m.lead_id ? assignQuotations.filter(q => q.lead_id === m.lead_id) : []
+                        const filteredPOs = m.quotation_id ? assignPOs.filter(p => p.quotation_id === m.quotation_id) : []
+                        const filledCount = (m.lead_id ? 1 : 0) + (m.quotation_id ? 1 : 0) + (m.purchase_order_id ? 1 : 0)
+                        const statusColor = filledCount === 3 ? '#22c55e' : filledCount > 0 ? '#eab308' : '#ef4444'
+                        const statusLabel = filledCount === 3 ? 'Completo' : filledCount > 0 ? `Parcial (${filledCount}/3)` : 'Sin asignar'
+                        const isSaving = savingAssign === m.id
+                        const selStyle: React.CSSProperties = {
+                          background: '#1a1a1a', color: '#fff', border: '1px solid #2a2a2a',
+                          borderRadius: 4, padding: '4px 6px', fontSize: 11, fontFamily: 'inherit',
+                          minWidth: 0, flex: 1, maxWidth: 240,
+                        }
+                        const labelStyle: React.CSSProperties = { fontSize: 10, color: '#666', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 }
+                        return (
+                          <div style={{ background: '#141414', border: '1px solid #1f1f1f', borderRadius: 6, padding: '8px 10px', marginBottom: 8 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                              <span style={{ fontSize: 10, color: '#888', textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 600 }}>Asignacion del cargo</span>
+                              <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 3, background: `${statusColor}22`, color: statusColor, fontWeight: 600 }}>{statusLabel}</span>
+                              {isSaving && <span style={{ fontSize: 10, color: '#888' }}>guardando...</span>}
+                            </div>
+                            <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                              <div style={{ display: 'flex', flexDirection: 'column', flex: '1 1 220px' }}>
+                                <label style={labelStyle}>1. Proyecto / Lead</label>
+                                <select value={m.lead_id || ''} onChange={e => updateAssignment(m.id, 'lead_id', e.target.value || null)} disabled={isSaving} style={selStyle}>
+                                  <option value="">-- Seleccionar lead --</option>
+                                  {assignLeads.map(l => (
+                                    <option key={l.id} value={l.id}>{l.name}{l.company ? ` - ${l.company}` : ''}</option>
+                                  ))}
+                                </select>
+                              </div>
+                              <div style={{ display: 'flex', flexDirection: 'column', flex: '1 1 220px' }}>
+                                <label style={labelStyle}>2. Cotizacion</label>
+                                <select value={m.quotation_id || ''} onChange={e => updateAssignment(m.id, 'quotation_id', e.target.value || null)} disabled={isSaving || !m.lead_id} style={{ ...selStyle, opacity: m.lead_id ? 1 : 0.4 }}>
+                                  <option value="">{m.lead_id ? (filteredQuotes.length === 0 ? '-- Sin cotizaciones --' : '-- Seleccionar cotizacion --') : '-- Selecciona lead primero --'}</option>
+                                  {filteredQuotes.map(q => (
+                                    <option key={q.id} value={q.id}>{q.name}{q.specialty ? ` (${q.specialty})` : ''}{q.total ? ` - ${F(q.total)} ${q.currency || ''}` : ''}</option>
+                                  ))}
+                                </select>
+                              </div>
+                              <div style={{ display: 'flex', flexDirection: 'column', flex: '1 1 220px' }}>
+                                <label style={labelStyle}>3. Orden de Compra</label>
+                                <select value={m.purchase_order_id || ''} onChange={e => updateAssignment(m.id, 'purchase_order_id', e.target.value || null)} disabled={isSaving || !m.quotation_id} style={{ ...selStyle, opacity: m.quotation_id ? 1 : 0.4 }}>
+                                  <option value="">{m.quotation_id ? (filteredPOs.length === 0 ? '-- Sin OCs --' : '-- Seleccionar OC --') : '-- Selecciona cotizacion primero --'}</option>
+                                  {filteredPOs.map(p => (
+                                    <option key={p.id} value={p.id}>{p.po_number}{p.purchase_phase ? ` [${p.purchase_phase}]` : ''}{p.total ? ` - ${F(p.total)} ${p.currency || ''}` : ''}</option>
+                                  ))}
+                                </select>
+                              </div>
+                            </div>
+                          </div>
+                        )
+                      })()}
+                      
                         <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}><strong style={{ color: '#aaa' }}>Concepto completo:</strong> {m.concepto}</div>
                         {m.referencia && <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}><strong style={{ color: '#aaa' }}>Referencia:</strong> {m.referencia}</div>}
                         {m.rfc_contraparte && <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}><strong style={{ color: '#aaa' }}>RFC:</strong> <span style={{ fontFamily: 'monospace' }}>{m.rfc_contraparte}</span></div>}
