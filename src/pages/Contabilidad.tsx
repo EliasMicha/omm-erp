@@ -1583,29 +1583,26 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
       const newMovs2 = newMovs.filter(n => isFinite(n.monto) && n.monto > 0)
       if (newMovs2.length < newMovs.length) { console.warn('[bank-parse] dropped', newMovs.length - newMovs2.length, 'movs with invalid monto') }
 
-      // Deduplicate against DB: query bank_movements for the date range of incoming movs
+      // Deduplicate against DB: query bank_movements for THIS bank+account (ignore fecha to catch movements with shifted dates)
       let dbExisting: any[] = []
       if (newMovs2.length > 0) {
-        const fechas = newMovs2.map(n => n.fecha).filter(Boolean).sort()
-        const minFecha = fechas[0]
-        const maxFecha = fechas[fechas.length - 1]
         const dbRes = await supabase
           .from('bank_movements')
           .select('id,fecha,monto,tipo,concepto,banco,cuenta')
-          .gte('fecha', minFecha)
-          .lte('fecha', maxFecha)
+          .eq('banco', banco)
+          .eq('cuenta', cuenta)
         if (dbRes.error) { console.error('[bank-parse] dedupe query error:', dbRes.error) }
         dbExisting = (dbRes.data as any[]) || []
-        console.log('[bank-parse] dedupe: querying DB returned', dbExisting.length, 'existing movs in range', minFecha, '..', maxFecha)
+        console.log('[bank-parse] dedupe: querying DB returned', dbExisting.length, 'existing movs for', banco, cuenta)
       }
 
       // Helper: normalize concepto (collapse whitespace, uppercase) for safer comparison
       const normConcepto = (s: string) => (s || '').replace(/\s+/g, ' ').trim().toUpperCase()
 
+      // Match key: monto + tipo + concepto normalizado (sin fecha, porque el TXT a veces cambia la fecha del mismo movimiento)
       const deduped = newMovs2.filter(n => {
         const nKey = normConcepto(n.concepto)
         return !dbExisting.some(e =>
-          e.fecha === n.fecha &&
           Math.abs(Number(e.monto) - n.monto) < 0.01 &&
           e.tipo === n.tipo &&
           normConcepto(e.concepto) === nKey
@@ -1740,6 +1737,13 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
 
   /* --- Conciliacion v2: filtros y derivados por cuenta activa + mes seleccionado --- */
   const activeAcc = ACCOUNTS[activeAccount]
+  // Calcular rango de fechas del mes seleccionado para filtrar movimientos
+  const _today = new Date()
+  const _monthDate = new Date(_today.getFullYear(), _today.getMonth() + monthOffset, 1)
+  const _monthStartStr = `${_monthDate.getFullYear()}-${String(_monthDate.getMonth() + 1).padStart(2, '0')}-01`
+  const _nextMonth = new Date(_monthDate.getFullYear(), _monthDate.getMonth() + 1, 1)
+  const _monthEndStr = `${_nextMonth.getFullYear()}-${String(_nextMonth.getMonth() + 1).padStart(2, '0')}-01`
+  const inSelectedMonth = (fecha: string) => fecha >= _monthStartStr && fecha < _monthEndStr
   // TOTAL por cuenta (sin filtro de mes, para el contador del tab selector)
   const movsCuentaTotal = bankMovements.filter(m => m.banco === activeAcc.banco && (m.moneda || 'MXN') === activeAcc.moneda)
   // FILTRADOS por cuenta + mes seleccionado (para KPIs y tabla)
@@ -1752,6 +1756,7 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
   // Conciliacion v2: filtrar PRIMERO por cuenta activa, luego por estado
   const filtered = bankMovements
     .filter(m => m.banco === activeAcc.banco && (m.moneda || 'MXN') === activeAcc.moneda)
+    .filter(m => inSelectedMonth(m.fecha))
     .filter(m => filtro === 'todos' ? true : filtro === 'pendientes' ? !m.conciliado : m.conciliado)
   const allSelected = filtered.length > 0 && filtered.every(m => selected.has(m.id))
   const toggleAll = () => {
