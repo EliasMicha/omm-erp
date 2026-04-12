@@ -1737,13 +1737,6 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
 
   /* --- Conciliacion v2: filtros y derivados por cuenta activa + mes seleccionado --- */
   const activeAcc = ACCOUNTS[activeAccount]
-  // Calcular rango de fechas del mes seleccionado para filtrar movimientos
-  const _today = new Date()
-  const _monthDate = new Date(_today.getFullYear(), _today.getMonth() + monthOffset, 1)
-  const _monthStartStr = `${_monthDate.getFullYear()}-${String(_monthDate.getMonth() + 1).padStart(2, '0')}-01`
-  const _nextMonth = new Date(_monthDate.getFullYear(), _monthDate.getMonth() + 1, 1)
-  const _monthEndStr = `${_nextMonth.getFullYear()}-${String(_nextMonth.getMonth() + 1).padStart(2, '0')}-01`
-  const inSelectedMonth = (fecha: string) => fecha >= _monthStartStr && fecha < _monthEndStr
   // TOTAL por cuenta (sin filtro de mes, para el contador del tab selector)
   const movsCuentaTotal = bankMovements.filter(m => m.banco === activeAcc.banco && (m.moneda || 'MXN') === activeAcc.moneda)
   // FILTRADOS por cuenta + mes seleccionado (para KPIs y tabla)
