@@ -3,9 +3,10 @@ import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { ArrowLeft, Calendar, MapPin, AlertCircle, Loader2 } from 'lucide-react'
 
-interface Project {
+interface Obra {
   id: string
-  name: string
+  nombre: string
+  direccion: string | null
   direccion_completa: string | null
 }
 interface Assignment {
@@ -13,7 +14,7 @@ interface Assignment {
   day_of_week: number
   tareas: string | null
   urgencia: string
-  projects: Project | null
+  obras: Obra | null
 }
 
 const DAYS = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb']
@@ -58,7 +59,7 @@ export default function MiSemanaPage({ employeeId }: { employeeId: string }) {
 
     const { data: asns } = await supabase
       .from('weekly_plan_assignments')
-      .select('id, day_of_week, tareas, urgencia, projects(id, name, direccion_completa)')
+      .select('id, day_of_week, tareas, urgencia, obras(id, nombre, direccion, direccion_completa)')
       .eq('plan_id', plan.id)
       .eq('employee_id', employeeId)
       .order('day_of_week')
@@ -197,10 +198,10 @@ export default function MiSemanaPage({ employeeId }: { employeeId: string }) {
                     </div>
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    {assignment?.projects ? (
+                    {assignment?.obras ? (
                       <>
                         <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                          {assignment.projects.name}
+                          {assignment.obras.nombre}
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                           {assignment.urgencia !== 'normal' && (
@@ -231,10 +232,10 @@ export default function MiSemanaPage({ employeeId }: { employeeId: string }) {
                 {/* Expanded content */}
                 {expanded && assignment && (
                   <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid #1f2a1f' }}>
-                    {assignment.projects?.direccion_completa && (
+                    {(assignment.obras?.direccion_completa || assignment.obras?.direccion) && (
                       <div style={{ display: 'flex', gap: 6, fontSize: 12, color: '#888', marginBottom: 8 }}>
                         <MapPin size={13} style={{ flexShrink: 0, marginTop: 1 }} />
-                        <span>{assignment.projects.direccion_completa}</span>
+                        <span>{(assignment.obras?.direccion_completa || assignment.obras?.direccion)}</span>
                       </div>
                     )}
                     {assignment.tareas && (
