@@ -5,7 +5,7 @@ import { Btn, Loading, Badge } from '../components/layout/UI'
 import {
   ArrowLeft, Save, Trash2, Upload, FileText, Download, X,
   User, Briefcase, FileSignature, DollarSign, CreditCard,
-  Award, Folder, History, AlertCircle
+  Award, Folder, History, AlertCircle, Sparkles, CheckCircle2
 } from 'lucide-react'
 
 interface Employee {
@@ -289,7 +289,7 @@ export default function EmpleadoExpediente() {
         </nav>
 
         <div style={{ background: '#0a0a0a', border: '1px solid #1f1f1f', borderRadius: 10, padding: 24, minHeight: 500 }}>
-          {section === 'identidad' && <SectionIdentidad form={form} set={set} />}
+          {section === 'identidad' && <SectionIdentidad form={form} set={set} employeeId={employee.id} />}
           {section === 'puesto' && <SectionPuesto form={form} set={set} allEmployees={allEmployees} currentId={employee.id} />}
           {section === 'contrato' && <SectionContrato form={form} set={set} />}
           {section === 'sueldo' && <SectionSueldo form={form} set={set} />}
@@ -366,10 +366,23 @@ function Avatar({ employee, onUpload }: { employee: Employee; onUpload: () => vo
   )
 }
 
-function SectionIdentidad({ form, set }: { form: Partial<Employee>; set: any }) {
+function SectionIdentidad({ form, set, employeeId }: { form: Partial<Employee>; set: any; employeeId: string }) {
+  const applyExtractedFields = (fields: Record<string, any>) => {
+    const allowed = [
+      'nombre','fecha_nacimiento','genero','curp','rfc','ine_numero',
+      'direccion_calle','direccion_numero','direccion_colonia','direccion_cp',
+      'direccion_ciudad','direccion_estado'
+    ]
+    for (const k of Object.keys(fields)) {
+      if (allowed.includes(k) && fields[k] != null && fields[k] !== '') {
+        set(k as any, fields[k])
+      }
+    }
+  }
   return (
     <>
       <SectionTitle icon={User} title="Identidad y contacto" />
+      <AIExtractor employeeId={employeeId} onExtracted={applyExtractedFields} />
       <Grid>
         <Field label="Nombre completo" full>
           <Input value={form.nombre || ''} onChange={v => set('nombre', v)} />
@@ -1000,6 +1013,220 @@ function TagInput({ value, onChange, placeholder }: {
         placeholder={placeholder}
         style={inputCss}
       />
+    </div>
+  )
+}
+
+// ─── AI Extractor ─────────────────────────────────────────────────────────────
+const AI_DOC_TYPES: { value: string; label: string }[] = [
+  { value: 'ine', label: 'INE (credencial)' },
+  { value: 'constancia_situacion_fiscal', label: 'Constancia de Situación Fiscal' },
+  { value: 'curp', label: 'CURP' },
+  { value: 'comprobante_domicilio', label: 'Comprobante de domicilio' },
+  { value: 'acta_nacimiento', label: 'Acta de nacimiento' },
+]
+
+const FIELD_LABELS: Record<string, string> = {
+  nombre: 'Nombre',
+  fecha_nacimiento: 'Fecha nacimiento',
+  genero: 'Género',
+  curp: 'CURP',
+  rfc: 'RFC',
+  ine_numero: 'No. INE',
+  direccion_calle: 'Calle',
+  direccion_numero: 'Número',
+  direccion_colonia: 'Colonia',
+  direccion_cp: 'C.P.',
+  direccion_ciudad: 'Ciudad',
+  direccion_estado: 'Estado',
+}
+
+function AIExtractor({ employeeId, onExtracted }: {
+  employeeId: string
+  onExtracted: (fields: Record<string, any>) => void
+}) {
+  const [docType, setDocType] = useState('ine')
+  const [file, setFile] = useState<File | null>(null)
+  const [status, setStatus] = useState<'idle' | 'uploading' | 'extracting' | 'done' | 'error'>('idle')
+  const [errorMsg, setErrorMsg] = useState('')
+  const [extracted, setExtracted] = useState<Record<string, any> | null>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0]
+    if (!f) return
+    setFile(f)
+    setStatus('idle')
+    setExtracted(null)
+    setErrorMsg('')
+  }
+
+  const handleExtract = async () => {
+    if (!file) { alert('Selecciona un archivo'); return }
+    try {
+      // 1. Upload to storage
+      setStatus('uploading')
+      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
+      const path = `${employeeId}/${docType}_${Date.now()}_${safeName}`
+      const { error: upErr } = await supabase.storage.from('employee-documents').upload(path, file)
+      if (upErr) throw new Error('Error al subir: ' + upErr.message)
+
+      // 2. Save document metadata
+      const { data: urlData } = supabase.storage.from('employee-documents').getPublicUrl(path)
+      await supabase.from('employee_documents').insert({
+        employee_id: employeeId,
+        tipo: docType,
+        nombre: file.name,
+        storage_path: path,
+        url: urlData.publicUrl,
+        size_bytes: file.size,
+        mime_type: file.type,
+        notas: 'Subido para extracción con IA'
+      })
+
+      // 3. Call Edge Function
+      setStatus('extracting')
+      const { data: sessionData } = await supabase.auth.getSession()
+      const functionUrl = `${(supabase as any).supabaseUrl}/functions/v1/extract-identity`
+      const resp = await fetch(functionUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${(supabase as any).supabaseKey}`,
+          'apikey': (supabase as any).supabaseKey,
+        },
+        body: JSON.stringify({
+          employee_id: employeeId,
+          storage_path: path,
+          doc_type: docType,
+        }),
+      })
+
+      if (!resp.ok) {
+        const errBody = await resp.text()
+        throw new Error(`Error de extracción (${resp.status}): ${errBody.slice(0, 200)}`)
+      }
+
+      const result = await resp.json()
+      if (result.error) throw new Error(result.error)
+
+      setExtracted(result.extracted || {})
+      setStatus('done')
+    } catch (e: any) {
+      setErrorMsg(e.message || String(e))
+      setStatus('error')
+    }
+  }
+
+  const handleApply = () => {
+    if (!extracted) return
+    onExtracted(extracted)
+    // Reset
+    setFile(null)
+    setExtracted(null)
+    setStatus('idle')
+    if (inputRef.current) inputRef.current.value = ''
+  }
+
+  return (
+    <div style={{
+      marginBottom: 20,
+      padding: 16,
+      background: 'linear-gradient(135deg, #0f1a1a 0%, #0a1a12 100%)',
+      border: '1px solid #1f3a2a',
+      borderRadius: 10,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+        <Sparkles size={15} color="#57FF9A" />
+        <span style={{ fontSize: 13, fontWeight: 600, color: '#eee' }}>Extracción automática con IA</span>
+        <span style={{ fontSize: 10, color: '#666', marginLeft: 'auto' }}>
+          Sube un documento y los campos se llenarán solos
+        </span>
+      </div>
+
+      <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+        <select
+          value={docType}
+          onChange={e => { setDocType(e.target.value); setFile(null); setStatus('idle'); setExtracted(null) }}
+          style={{
+            background: '#0f0f0f', border: '1px solid #1f1f1f', borderRadius: 6,
+            padding: '8px 12px', color: '#ccc', fontSize: 13, minWidth: 220
+          }}
+        >
+          {AI_DOC_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+        </select>
+
+        <input
+          ref={inputRef}
+          type="file"
+          accept="image/*,application/pdf"
+          onChange={handleFileChange}
+          style={{
+            background: '#0f0f0f', border: '1px solid #1f1f1f', borderRadius: 6,
+            padding: '7px 10px', color: '#ccc', fontSize: 12, flex: 1, minWidth: 200
+          }}
+        />
+
+        <Btn
+          onClick={handleExtract}
+          disabled={!file || status === 'uploading' || status === 'extracting'}
+          variant="primary"
+        >
+          <Sparkles size={13} />
+          {status === 'uploading' ? 'Subiendo...' :
+           status === 'extracting' ? 'Extrayendo...' :
+           'Extraer datos'}
+        </Btn>
+      </div>
+
+      {status === 'error' && (
+        <div style={{ marginTop: 12, padding: 10, background: '#3a1a1a', border: '1px solid #5a2a2a', borderRadius: 6, fontSize: 12, color: '#fca5a5', display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+          <AlertCircle size={14} style={{ flexShrink: 0, marginTop: 2 }} />
+          <span>{errorMsg}</span>
+        </div>
+      )}
+
+      {status === 'done' && extracted && (
+        <div style={{ marginTop: 14 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+            <CheckCircle2 size={14} color="#57FF9A" />
+            <span style={{ fontSize: 12, color: '#57FF9A', fontWeight: 500 }}>
+              Campos extraídos · revisa antes de aplicar
+            </span>
+          </div>
+          <div style={{
+            background: '#0a0a0a', border: '1px solid #1f1f1f', borderRadius: 6,
+            padding: 12, display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '6px 16px',
+            fontSize: 12, marginBottom: 10
+          }}>
+            {Object.entries(extracted).filter(([_, v]) => v != null && v !== '').map(([k, v]) => (
+              <div key={k} style={{ display: 'flex', gap: 8, minWidth: 0 }}>
+                <span style={{ color: '#666', flexShrink: 0 }}>{FIELD_LABELS[k] || k}:</span>
+                <span style={{ color: '#ddd', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{String(v)}</span>
+              </div>
+            ))}
+            {Object.values(extracted).filter(v => v != null && v !== '').length === 0 && (
+              <div style={{ gridColumn: '1 / -1', color: '#888', textAlign: 'center', padding: 8 }}>
+                No se detectaron campos. Intenta con otra imagen más clara.
+              </div>
+            )}
+          </div>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <Btn
+              onClick={() => { setExtracted(null); setStatus('idle'); setFile(null); if (inputRef.current) inputRef.current.value = '' }}
+              variant="ghost"
+            >
+              Descartar
+            </Btn>
+            <Btn onClick={handleApply} variant="primary">
+              <CheckCircle2 size={13} /> Aplicar al formulario
+            </Btn>
+          </div>
+          <div style={{ fontSize: 10, color: '#666', marginTop: 8, textAlign: 'right' }}>
+            Recuerda presionar "Guardar cambios" arriba para persistir
+          </div>
+        </div>
+      )}
     </div>
   )
 }
