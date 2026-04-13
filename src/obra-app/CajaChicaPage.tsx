@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import { todayCDMX } from './lib/workDate'
 import {
   ArrowLeft, Plus, Receipt, Camera, X, Send,
   Loader2, CheckCircle2, AlertCircle, AlertTriangle, Sparkles
@@ -158,7 +159,7 @@ export default function CajaChicaPage({ employeeId }: { employeeId: string }) {
         .insert({
           employee_id: employeeId,
           auth_user_id: session?.user.id,
-          fecha: new Date().toISOString().slice(0, 10),
+          fecha: todayCDMX(),
           monto: parseFloat(monto),
           concepto: concepto.trim() || null,
           categoria,
