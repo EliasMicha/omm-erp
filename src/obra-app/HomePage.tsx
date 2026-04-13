@@ -4,7 +4,8 @@ import { supabase } from '../lib/supabase'
 import { getCurrentPosition, haversineDistance, formatDistance } from './lib/geolocation'
 import {
   LogOut, MapPin, AlertCircle, CheckCircle2, Clock,
-  FileText, Calendar, Package, Receipt, Loader2, Camera
+  FileText, Calendar, Package2, Receipt, Loader2,
+  TrendingUp, Plane
 } from 'lucide-react'
 
 interface Employee {
@@ -15,12 +16,13 @@ interface Employee {
   foto_url: string | null
 }
 
-interface Project {
+interface Obra {
   id: string
-  name: string
+  nombre: string
   latitude: number | null
   longitude: number | null
   direccion_completa: string | null
+  direccion: string | null
   radio_checada_metros: number | null
 }
 
@@ -29,7 +31,7 @@ interface TodayAssignment {
   fecha: string
   tareas: string | null
   urgencia: string
-  projects: Project | null
+  obras: Obra | null
 }
 
 interface AttendanceRecord {
@@ -52,16 +54,14 @@ export default function HomePage({ employee, onLogout }: { employee: Employee; o
     setLoading(true)
     const today = new Date().toISOString().slice(0, 10)
 
-    // Load today's assignment
     const { data: asn } = await supabase
       .from('installer_daily_assignment')
-      .select('id, fecha, tareas, urgencia, projects(id, name, latitude, longitude, direccion_completa, radio_checada_metros)')
+      .select('id, fecha, tareas, urgencia, obras(id, nombre, latitude, longitude, direccion_completa, direccion, radio_checada_metros)')
       .eq('employee_id', employee.id)
       .eq('fecha', today)
       .maybeSingle()
     setAssignment(asn as any)
 
-    // Load today's check-ins
     const { data: att } = await supabase
       .from('installer_attendance')
       .select('id, tipo, hora, status, distancia_obra_metros')
@@ -86,19 +86,19 @@ export default function HomePage({ employee, onLogout }: { employee: Employee; o
 
     try {
       const coords = await getCurrentPosition()
-      const project = assignment?.projects
+      const obra = assignment?.obras
       let distancia: number | null = null
       let status = 'en_sitio'
 
-      if (project?.latitude && project?.longitude) {
+      if (obra?.latitude && obra?.longitude) {
         distancia = haversineDistance(coords, {
-          latitude: Number(project.latitude),
-          longitude: Number(project.longitude),
+          latitude: Number(obra.latitude),
+          longitude: Number(obra.longitude),
         })
-        const radio = project.radio_checada_metros || 500
+        const radio = obra.radio_checada_metros || 500
         if (distancia > radio) {
           const proceed = confirm(
-            `Estás a ${formatDistance(distancia)} de ${project.name} (radio: ${radio}m).\n\n¿Registrar checada fuera de sitio?`
+            `Estás a ${formatDistance(distancia)} de ${obra.nombre} (radio: ${radio}m).\n\n¿Registrar checada fuera de sitio?`
           )
           if (!proceed) {
             setCheckInState('idle')
@@ -107,7 +107,7 @@ export default function HomePage({ employee, onLogout }: { employee: Employee; o
           }
           status = 'fuera_de_rango'
         }
-      } else if (!project) {
+      } else if (!obra) {
         status = 'sin_obra'
       }
 
@@ -126,7 +126,7 @@ export default function HomePage({ employee, onLogout }: { employee: Employee; o
         latitude: coords.latitude,
         longitude: coords.longitude,
         accuracy_meters: coords.accuracy,
-        project_id: project?.id || null,
+        obra_id: obra?.id || null,
         distancia_obra_metros: distancia,
         status,
         device_info: {
@@ -155,11 +155,12 @@ export default function HomePage({ employee, onLogout }: { employee: Employee; o
         display: 'flex', alignItems: 'center', justifyContent: 'center'
       }}>
         <Loader2 size={32} className="spin" />
+        <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } } .spin { animation: spin 1s linear infinite; }`}</style>
       </div>
     )
   }
 
-  const project = assignment?.projects
+  const obra = assignment?.obras
   const urgenciaColor =
     assignment?.urgencia === 'urgente' ? '#ef4444' :
     assignment?.urgencia === 'alta' ? '#f59e0b' :
@@ -174,6 +175,15 @@ export default function HomePage({ employee, onLogout }: { employee: Employee; o
     nextAction === 'done' ? 'JORNADA COMPLETADA' :
     nextAction === 'salida' ? 'CHECAR SALIDA' :
     'CHECAR ENTRADA'
+
+  const tiles = [
+    { icon: FileText, label: 'Reportes', hint: 'Subir nuevo', path: '/obra-app/reportes', color: '#57FF9A' },
+    { icon: Calendar, label: 'Mi semana', hint: 'Planeación', path: '/obra-app/mi-semana', color: '#3b82f6' },
+    { icon: Package2, label: 'Mis obras', hint: 'Materiales y docs', path: '/obra-app/mis-obras', color: '#a78bfa' },
+    { icon: TrendingUp, label: 'Mi asistencia', hint: 'Retardos y extras', path: '/obra-app/mi-asistencia', color: '#ec4899' },
+    { icon: Receipt, label: 'Caja chica', hint: 'Tickets', path: '/obra-app/caja-chica', color: '#f59e0b' },
+    { icon: Plane, label: 'Ausencias', hint: 'Vacaciones', path: '/obra-app/ausencias', color: '#14b8a6' },
+  ]
 
   return (
     <div style={{
@@ -220,15 +230,14 @@ export default function HomePage({ employee, onLogout }: { employee: Employee; o
         </button>
       </div>
 
-      {/* Today's assignment card */}
-      {assignment && project ? (
+      {/* Today's assignment */}
+      {assignment && obra ? (
         <div style={{
           background: 'linear-gradient(135deg, #0f1a12 0%, #0a1a15 100%)',
           border: `1px solid ${urgenciaColor}33`,
           borderRadius: 16,
           padding: 16,
           marginBottom: 20,
-          position: 'relative',
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
             <div style={{
@@ -248,12 +257,12 @@ export default function HomePage({ employee, onLogout }: { employee: Employee; o
             )}
           </div>
           <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 6 }}>
-            {project.name}
+            {obra.nombre}
           </div>
-          {project.direccion_completa && (
+          {(obra.direccion_completa || obra.direccion) && (
             <div style={{ display: 'flex', gap: 6, fontSize: 12, color: '#888', marginBottom: 10 }}>
               <MapPin size={13} style={{ flexShrink: 0, marginTop: 1 }} />
-              <span>{project.direccion_completa}</span>
+              <span>{obra.direccion_completa || obra.direccion}</span>
             </div>
           )}
           {assignment.tareas && (
@@ -281,7 +290,7 @@ export default function HomePage({ employee, onLogout }: { employee: Employee; o
         disabled={nextAction === 'done' || checkInState === 'locating' || checkInState === 'uploading'}
         style={{
           width: '100%',
-          minHeight: 180,
+          minHeight: 160,
           background: btnColor,
           color: btnTextColor,
           border: 'none',
@@ -301,19 +310,13 @@ export default function HomePage({ employee, onLogout }: { employee: Employee; o
         }}
       >
         {checkInState === 'locating' || checkInState === 'uploading'
-          ? <Loader2 size={40} className="spin" />
+          ? <Loader2 size={36} className="spin" />
           : nextAction === 'done'
-          ? <CheckCircle2 size={40} />
-          : <MapPin size={40} />}
+          ? <CheckCircle2 size={36} />
+          : <MapPin size={36} />}
         <div>{btnLabel}</div>
-        {nextAction !== 'done' && checkInState === 'idle' && (
-          <div style={{ fontSize: 11, opacity: 0.7, fontWeight: 500, letterSpacing: 0 }}>
-            Mantén tu ubicación activa
-          </div>
-        )}
       </button>
 
-      {/* Check-in state message */}
       {checkInMsg && (
         <div style={{
           padding: 12, marginBottom: 16, borderRadius: 10,
@@ -329,7 +332,6 @@ export default function HomePage({ employee, onLogout }: { employee: Employee; o
         </div>
       )}
 
-      {/* Today's check-ins list */}
       {todayAttendance.length > 0 && (
         <div style={{ marginBottom: 20 }}>
           <div style={{ fontSize: 11, color: '#666', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 1, paddingLeft: 4 }}>
@@ -358,29 +360,22 @@ export default function HomePage({ employee, onLogout }: { employee: Employee; o
         </div>
       )}
 
-      {/* Tiles grid */}
+      {/* Tiles grid 2x3 */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-        {[
-          { icon: FileText, label: 'Reportes', hint: 'Subir nuevo', path: '/obra-app/reportes', enabled: true },
-          { icon: Calendar, label: 'Mi semana', hint: 'Planeación', path: '/obra-app/mi-semana', enabled: true },
-          { icon: Package, label: 'Mis obras', hint: 'Activas', path: '/obra-app/mis-obras', enabled: true },
-          { icon: Receipt, label: 'Caja chica', hint: 'Próximamente', path: '', enabled: false },
-        ].map((t, i) => {
+        {tiles.map((t, i) => {
           const Icon = t.icon
           return (
             <button key={i}
-              onClick={() => t.enabled && navigate(t.path)}
-              disabled={!t.enabled}
+              onClick={() => navigate(t.path)}
               style={{
                 padding: 16, background: '#0f0f0f', border: '1px solid #1a1a1a',
                 borderRadius: 14, display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 8,
-                opacity: t.enabled ? 1 : 0.4,
-                cursor: t.enabled ? 'pointer' : 'not-allowed',
+                cursor: 'pointer',
                 textAlign: 'left',
                 color: '#fff',
                 fontFamily: 'inherit',
               }}>
-              <Icon size={22} color="#57FF9A" />
+              <Icon size={22} color={t.color} />
               <div style={{ fontSize: 13, fontWeight: 600 }}>{t.label}</div>
               <div style={{ fontSize: 10, color: '#666' }}>{t.hint}</div>
             </button>
