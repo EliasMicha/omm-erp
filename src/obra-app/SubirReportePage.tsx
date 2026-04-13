@@ -4,17 +4,12 @@ import { supabase } from '../lib/supabase'
 import { getCurrentPosition } from './lib/geolocation'
 import {
   ArrowLeft, Camera, Mic, Square, X, Send, Loader2,
-  CheckCircle2, AlertCircle, Play, Pause, Sparkles
+  CheckCircle2, AlertCircle, Play, Pause, Sparkles, AlertTriangle
 } from 'lucide-react'
 
-interface Project {
-  id: string
-  name: string
-}
 interface Obra {
   id: string
   nombre: string
-  project_id: string | null
 }
 
 const TIPO_OPTIONS = [
@@ -27,8 +22,8 @@ const TIPO_OPTIONS = [
 
 export default function SubirReportePage({ employeeId }: { employeeId: string }) {
   const navigate = useNavigate()
-  const [projects, setProjects] = useState<Project[]>([])
-  const [selectedProject, setSelectedProject] = useState<string>('')
+  const [obras, setObras] = useState<Obra[]>([])
+  const [selectedObra, setSelectedObra] = useState<string>('')
   const [tipoReporte, setTipoReporte] = useState('avance')
   const [texto, setTexto] = useState('')
   const [photos, setPhotos] = useState<File[]>([])
@@ -39,6 +34,7 @@ export default function SubirReportePage({ employeeId }: { employeeId: string })
   const [playing, setPlaying] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [result, setResult] = useState<{ ok: boolean; msg: string } | null>(null)
+  const [loadingObras, setLoadingObras] = useState(true)
 
   const photoInputRef = useRef<HTMLInputElement>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
@@ -46,40 +42,35 @@ export default function SubirReportePage({ employeeId }: { employeeId: string })
   const audioElRef = useRef<HTMLAudioElement | null>(null)
   const recordTimerRef = useRef<number | null>(null)
 
-
   useEffect(() => {
-    // Load projects from weekly_plan_assignments (recent) + installer_daily_assignment
-    // + obra_reportes history to build a "my projects" list
     (async () => {
-      const { data: assigned } = await supabase
-        .from('weekly_plan_assignments')
-        .select('project_id, projects(id, name)')
-        .eq('employee_id', employeeId)
-      const { data: daily } = await supabase
-        .from('installer_daily_assignment')
-        .select('project_id, projects(id, name)')
-        .eq('employee_id', employeeId)
-
-      const map = new Map<string, Project>()
-      for (const a of (assigned || [])) {
-        if (a.projects) map.set((a.projects as any).id, a.projects as any)
-      }
-      for (const a of (daily || [])) {
-        if (a.projects) map.set((a.projects as any).id, a.projects as any)
-      }
+      setLoadingObras(true)
+      // Load obras the installer has access to (plan + daily + attendance + prior reports)
+      const [plan, daily, att, rep] = await Promise.all([
+        supabase.from('weekly_plan_assignments').select('obras(id, nombre)').eq('employee_id', employeeId).not('obra_id', 'is', null),
+        supabase.from('installer_daily_assignment').select('obras(id, nombre)').eq('employee_id', employeeId).not('obra_id', 'is', null),
+        supabase.from('installer_attendance').select('obras(id, nombre)').eq('employee_id', employeeId).not('obra_id', 'is', null),
+        supabase.from('obra_reportes').select('obras(id, nombre)').eq('instalador_id', employeeId),
+      ])
+      const map = new Map<string, Obra>()
+      for (const a of (plan.data || [])) if (a.obras) map.set((a.obras as any).id, a.obras as any)
+      for (const a of (daily.data || [])) if (a.obras) map.set((a.obras as any).id, a.obras as any)
+      for (const a of (att.data || [])) if (a.obras) map.set((a.obras as any).id, a.obras as any)
+      for (const a of (rep.data || [])) if (a.obras) map.set((a.obras as any).id, a.obras as any)
       const list = Array.from(map.values())
-      setProjects(list)
+      setObras(list)
 
-      // Pre-select today's project if present
+      // Pre-select today's obra
       const today = new Date().toISOString().slice(0, 10)
       const { data: todayAsn } = await supabase
         .from('installer_daily_assignment')
-        .select('project_id')
+        .select('obra_id')
         .eq('employee_id', employeeId)
         .eq('fecha', today)
         .maybeSingle()
-      if (todayAsn?.project_id) setSelectedProject(todayAsn.project_id)
-      else if (list.length > 0) setSelectedProject(list[0].id)
+      if (todayAsn?.obra_id) setSelectedObra(todayAsn.obra_id)
+      else if (list.length > 0) setSelectedObra(list[0].id)
+      setLoadingObras(false)
     })()
   }, [employeeId])
 
@@ -143,7 +134,7 @@ export default function SubirReportePage({ employeeId }: { employeeId: string })
 
 
   const handleSubmit = async () => {
-    if (!selectedProject) {
+    if (!selectedObra) {
       alert('Selecciona una obra')
       return
     }
@@ -156,37 +147,7 @@ export default function SubirReportePage({ employeeId }: { employeeId: string })
     setResult(null)
 
     try {
-      // 1. Get or auto-create the obra linked to this project
-      let obraId: string | null = null
-      const { data: existingObra } = await supabase
-        .from('obras')
-        .select('id')
-        .eq('project_id', selectedProject)
-        .maybeSingle()
-
-      if (existingObra) {
-        obraId = existingObra.id
-      } else {
-        // Auto-create obra from project
-        const { data: proj } = await supabase
-          .from('projects')
-          .select('name, direccion_completa')
-          .eq('id', selectedProject)
-          .single()
-        const { data: newObra, error: createErr } = await supabase
-          .from('obras')
-          .insert({
-            nombre: proj?.name || 'Obra sin nombre',
-            direccion: proj?.direccion_completa || null,
-            project_id: selectedProject,
-          })
-          .select('id')
-          .single()
-        if (createErr) throw new Error('Error creando obra: ' + createErr.message)
-        obraId = newObra.id
-      }
-
-      // 2. Try to get GPS (optional, don't fail if denied)
+      // Get GPS (optional)
       let lat: number | null = null
       let lng: number | null = null
       try {
@@ -195,7 +156,7 @@ export default function SubirReportePage({ employeeId }: { employeeId: string })
         lng = coords.longitude
       } catch (_) { /* ignore */ }
 
-      // 3. Upload photos
+      // Upload photos
       const photoPaths: string[] = []
       for (let i = 0; i < photos.length; i++) {
         const p = photos[i]
@@ -208,7 +169,7 @@ export default function SubirReportePage({ employeeId }: { employeeId: string })
         photoPaths.push(path)
       }
 
-      // 4. Upload audio if present
+      // Upload audio
       let audioPath: string | null = null
       let audioPublicUrl: string | null = null
       if (audioBlob) {
@@ -222,11 +183,11 @@ export default function SubirReportePage({ employeeId }: { employeeId: string })
         audioPublicUrl = urlData.publicUrl
       }
 
-      // 5. Insert obra_reporte
+      // Insert reporte using obra_id directly (no auto-create)
       const { data: reporte, error: insErr } = await supabase
         .from('obra_reportes')
         .insert({
-          obra_id: obraId,
+          obra_id: selectedObra,
           instalador_id: employeeId,
           fecha: new Date().toISOString().slice(0, 10),
           texto_raw: texto.trim() || null,
@@ -242,8 +203,7 @@ export default function SubirReportePage({ employeeId }: { employeeId: string })
         .single()
       if (insErr) throw new Error('Error insertando reporte: ' + insErr.message)
 
-      // 6. Trigger AI processing (don't await, fire-and-forget)
-      const { data: sessionData } = await supabase.auth.getSession()
+      // Trigger AI processing (fire-and-forget)
       const apiKey = (supabase as any).supabaseKey
       fetch(`${(supabase as any).supabaseUrl}/functions/v1/process-obra-report`, {
         method: 'POST',
@@ -263,8 +223,48 @@ export default function SubirReportePage({ employeeId }: { employeeId: string })
     }
   }
 
-
   const fmtTime = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
+
+
+  // No obras → block the form
+  if (!loadingObras && obras.length === 0) {
+    return (
+      <div style={{
+        minHeight: '100vh',
+        background: 'linear-gradient(180deg, #0a0a0a 0%, #0f1a12 40%, #0a0a0a 100%)',
+        color: '#fff',
+        paddingTop: 'max(env(safe-area-inset-top), 20px)',
+        paddingBottom: 40,
+        paddingLeft: 16,
+        paddingRight: 16,
+        maxWidth: 480,
+        margin: '0 auto',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
+          <button
+            onClick={() => navigate('/obra-app')}
+            style={{ background: 'transparent', border: '1px solid #1f1f1f', borderRadius: 10, padding: 10, cursor: 'pointer', color: '#fff' }}
+          >
+            <ArrowLeft size={18} />
+          </button>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 18, fontWeight: 700 }}>Nuevo reporte</div>
+          </div>
+        </div>
+        <div style={{
+          padding: 32, textAlign: 'center',
+          background: '#2a1f0f', border: '1px solid #5a3a1f',
+          borderRadius: 16, color: '#fcd34d',
+        }}>
+          <AlertTriangle size={32} style={{ marginBottom: 12, opacity: 0.8 }} />
+          <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 6 }}>Sin obras asignadas</div>
+          <div style={{ fontSize: 12, color: '#a89060', lineHeight: 1.5 }}>
+            No puedes subir reportes porque no tienes obras asignadas. Contacta a tu coordinador para que te asigne a una obra.
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div style={{
@@ -281,10 +281,7 @@ export default function SubirReportePage({ employeeId }: { employeeId: string })
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
         <button
           onClick={() => navigate('/obra-app')}
-          style={{
-            background: 'transparent', border: '1px solid #1f1f1f',
-            borderRadius: 10, padding: 10, cursor: 'pointer', color: '#fff',
-          }}
+          style={{ background: 'transparent', border: '1px solid #1f1f1f', borderRadius: 10, padding: 10, cursor: 'pointer', color: '#fff' }}
         >
           <ArrowLeft size={18} />
         </button>
@@ -294,13 +291,10 @@ export default function SubirReportePage({ employeeId }: { employeeId: string })
         </div>
       </div>
 
-      {/* Project selector */}
-      <label style={{ display: 'block', fontSize: 11, color: '#666', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 1 }}>
-        Obra
-      </label>
+      <label style={{ display: 'block', fontSize: 11, color: '#666', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 1 }}>Obra</label>
       <select
-        value={selectedProject}
-        onChange={e => setSelectedProject(e.target.value)}
+        value={selectedObra}
+        onChange={e => setSelectedObra(e.target.value)}
         style={{
           width: '100%', padding: '14px 16px', marginBottom: 16,
           background: '#0f0f0f', border: '1px solid #1f1f1f',
@@ -309,13 +303,10 @@ export default function SubirReportePage({ employeeId }: { employeeId: string })
         }}
       >
         <option value="" disabled>Selecciona obra...</option>
-        {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+        {obras.map(o => <option key={o.id} value={o.id}>{o.nombre}</option>)}
       </select>
 
-      {/* Tipo de reporte */}
-      <label style={{ display: 'block', fontSize: 11, color: '#666', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 1 }}>
-        Tipo
-      </label>
+      <label style={{ display: 'block', fontSize: 11, color: '#666', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 1 }}>Tipo</label>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 6, marginBottom: 16 }}>
         {TIPO_OPTIONS.map(t => (
           <button
@@ -335,10 +326,7 @@ export default function SubirReportePage({ employeeId }: { employeeId: string })
         ))}
       </div>
 
-      {/* Text */}
-      <label style={{ display: 'block', fontSize: 11, color: '#666', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 1 }}>
-        Descripción
-      </label>
+      <label style={{ display: 'block', fontSize: 11, color: '#666', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 1 }}>Descripción</label>
       <textarea
         value={texto}
         onChange={e => setTexto(e.target.value)}
@@ -353,7 +341,6 @@ export default function SubirReportePage({ employeeId }: { employeeId: string })
         }}
       />
 
-      {/* Photos */}
       <label style={{ display: 'block', fontSize: 11, color: '#666', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 1 }}>
         Fotos ({photos.length}/5)
       </label>
@@ -400,7 +387,6 @@ export default function SubirReportePage({ employeeId }: { employeeId: string })
         </div>
       )}
 
-      {/* Audio recording */}
       <label style={{ display: 'block', fontSize: 11, color: '#666', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 1 }}>
         Nota de voz (transcripción automática)
       </label>
@@ -468,7 +454,6 @@ export default function SubirReportePage({ employeeId }: { employeeId: string })
         </div>
       )}
 
-      {/* Result message */}
       {result && (
         <div style={{
           padding: 14, marginBottom: 16, borderRadius: 10,
@@ -482,7 +467,6 @@ export default function SubirReportePage({ employeeId }: { employeeId: string })
         </div>
       )}
 
-      {/* Submit */}
       <button
         onClick={handleSubmit}
         disabled={submitting || recording}
