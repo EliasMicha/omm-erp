@@ -12,6 +12,7 @@ import Compras from './pages/Compras'
 import Obra from './pages/Obra'
 import Facturacion from './pages/Facturacion'
 import Nomina from './pages/Nomina'
+import EmpleadoExpediente from './pages/EmpleadoExpediente'
 import CotizacionPdf from './pages/CotizacionPdf'
 
 const Cobranza = () => <OtrosModulos title="Cobranza" />
@@ -39,6 +40,7 @@ export default function App() {
                 <Route path="/facturacion" element={<Facturacion />} />
                 <Route path="/obra" element={<Obra />} />
                 <Route path="/nomina" element={<Nomina />} />
+        <Route path="/nomina/empleado/:id" element={<EmpleadoExpediente />} />
                 <Route path="/entregas" element={<Entregas />} />
                 <Route path="/empleados" element={<Empleados />} />
                 <Route path="/cobranza" element={<Cobranza />} />
