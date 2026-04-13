@@ -119,7 +119,7 @@ export default function TabAsistencia() {
   // KPIs: group by day+empleado to detect: trabajados, retardos total, extras total, sin_salida, fuera_rango pendientes
   const kpis = useMemo(() => {
     // Group by employee+day
-    const days = new Map<string, { entrada: Attendance | null; salida: Attendance | null }>()
+    const days: Map<string, { entrada: Attendance | null; salida: Attendance | null }> = new Map()
     for (const a of attendance) {
       const key = `${a.employee_id}|${a.fecha}`
       if (!days.has(key)) days.set(key, { entrada: null, salida: null })
