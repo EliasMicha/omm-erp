@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { getCurrentPosition, haversineDistance, formatDistance } from './lib/geolocation'
+import { getWorkDate } from './lib/workDate'
 import {
   LogOut, MapPin, AlertCircle, CheckCircle2, Clock,
   FileText, Calendar, Package2, Receipt, Loader2,
@@ -52,7 +53,7 @@ export default function HomePage({ employee, onLogout }: { employee: Employee; o
 
   const loadData = async () => {
     setLoading(true)
-    const today = new Date().toISOString().slice(0, 10)
+    const today = getWorkDate()
 
     const { data: asn } = await supabase
       .from('installer_daily_assignment')
@@ -114,7 +115,7 @@ export default function HomePage({ employee, onLogout }: { employee: Employee; o
       setCheckInState('uploading')
       setCheckInMsg(`Registrando ${nextAction}...`)
 
-      const today = new Date().toISOString().slice(0, 10)
+      const today = getWorkDate()
       const { data: { session } } = await supabase.auth.getSession()
 
       const { error: insErr } = await supabase.from('installer_attendance').insert({
