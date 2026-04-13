@@ -6,8 +6,12 @@ import LoginPage from './LoginPage'
 import HomePage from './HomePage'
 import MiSemanaPage from './MiSemanaPage'
 import MisObrasPage from './MisObrasPage'
+import DetalleObraPage from './DetalleObraPage'
 import ReportesPage from './ReportesPage'
 import SubirReportePage from './SubirReportePage'
+import MiAsistenciaPage from './MiAsistenciaPage'
+import CajaChicaPage from './CajaChicaPage'
+import AusenciasPage from './AusenciasPage'
 import { Loader2 } from 'lucide-react'
 
 interface Employee {
@@ -85,8 +89,12 @@ export default function ObraApp() {
       <Route path="/" element={<HomePage employee={employee} onLogout={handleLogout} />} />
       <Route path="/mi-semana" element={<MiSemanaPage employeeId={employee.id} />} />
       <Route path="/mis-obras" element={<MisObrasPage employeeId={employee.id} />} />
+      <Route path="/mis-obras/:obraId" element={<DetalleObraPage />} />
       <Route path="/reportes" element={<ReportesPage employeeId={employee.id} />} />
       <Route path="/reportes/nuevo" element={<SubirReportePage employeeId={employee.id} />} />
+      <Route path="/mi-asistencia" element={<MiAsistenciaPage employeeId={employee.id} />} />
+      <Route path="/caja-chica" element={<CajaChicaPage employeeId={employee.id} />} />
+      <Route path="/ausencias" element={<AusenciasPage employeeId={employee.id} />} />
       <Route path="*" element={<Navigate to="/obra-app" replace />} />
     </Routes>
   )
