@@ -1,8 +1,13 @@
 import { useEffect, useState } from 'react'
+import { Routes, Route, Navigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import type { Session } from '@supabase/supabase-js'
 import LoginPage from './LoginPage'
 import HomePage from './HomePage'
+import MiSemanaPage from './MiSemanaPage'
+import MisObrasPage from './MisObrasPage'
+import ReportesPage from './ReportesPage'
+import SubirReportePage from './SubirReportePage'
 import { Loader2 } from 'lucide-react'
 
 interface Employee {
@@ -44,11 +49,8 @@ export default function ObraApp() {
     refreshSession()
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, s) => {
       setSession(s)
-      if (s?.user?.id) {
-        loadEmployee(s.user.id)
-      } else {
-        setEmployee(null)
-      }
+      if (s?.user?.id) loadEmployee(s.user.id)
+      else setEmployee(null)
     })
     return () => subscription.unsubscribe()
   }, [])
@@ -78,5 +80,14 @@ export default function ObraApp() {
     return <LoginPage onLogin={refreshSession} />
   }
 
-  return <HomePage employee={employee} onLogout={handleLogout} />
+  return (
+    <Routes>
+      <Route path="/" element={<HomePage employee={employee} onLogout={handleLogout} />} />
+      <Route path="/mi-semana" element={<MiSemanaPage employeeId={employee.id} />} />
+      <Route path="/mis-obras" element={<MisObrasPage employeeId={employee.id} />} />
+      <Route path="/reportes" element={<ReportesPage employeeId={employee.id} />} />
+      <Route path="/reportes/nuevo" element={<SubirReportePage employeeId={employee.id} />} />
+      <Route path="*" element={<Navigate to="/obra-app" replace />} />
+    </Routes>
+  )
 }
