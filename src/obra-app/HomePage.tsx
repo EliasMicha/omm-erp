@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { getCurrentPosition, haversineDistance, formatDistance } from './lib/geolocation'
 import {
@@ -40,6 +41,7 @@ interface AttendanceRecord {
 }
 
 export default function HomePage({ employee, onLogout }: { employee: Employee; onLogout: () => void }) {
+  const navigate = useNavigate()
   const [assignment, setAssignment] = useState<TodayAssignment | null>(null)
   const [todayAttendance, setTodayAttendance] = useState<AttendanceRecord[]>([])
   const [loading, setLoading] = useState(true)
@@ -178,7 +180,10 @@ export default function HomePage({ employee, onLogout }: { employee: Employee; o
       minHeight: '100vh',
       background: 'linear-gradient(180deg, #0a0a0a 0%, #0f1a12 40%, #0a0a0a 100%)',
       color: '#fff',
-      padding: '20px 16px 40px',
+      paddingTop: 'max(env(safe-area-inset-top), 20px)',
+      paddingBottom: 40,
+      paddingLeft: 16,
+      paddingRight: 16,
       maxWidth: 480,
       margin: '0 auto',
     }}>
@@ -353,25 +358,32 @@ export default function HomePage({ employee, onLogout }: { employee: Employee; o
         </div>
       )}
 
-      {/* Tiles grid (disabled in v1) */}
+      {/* Tiles grid */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
         {[
-          { icon: FileText, label: 'Reportes', hint: 'Próximamente' },
-          { icon: Calendar, label: 'Mi semana', hint: 'Próximamente' },
-          { icon: Package, label: 'Materiales', hint: 'Próximamente' },
-          { icon: Receipt, label: 'Caja chica', hint: 'Próximamente' },
+          { icon: FileText, label: 'Reportes', hint: 'Subir nuevo', path: '/obra-app/reportes', enabled: true },
+          { icon: Calendar, label: 'Mi semana', hint: 'Planeación', path: '/obra-app/mi-semana', enabled: true },
+          { icon: Package, label: 'Mis obras', hint: 'Activas', path: '/obra-app/mis-obras', enabled: true },
+          { icon: Receipt, label: 'Caja chica', hint: 'Próximamente', path: '', enabled: false },
         ].map((t, i) => {
           const Icon = t.icon
           return (
-            <div key={i} style={{
-              padding: 16, background: '#0f0f0f', border: '1px solid #1a1a1a',
-              borderRadius: 14, display: 'flex', flexDirection: 'column', gap: 8,
-              opacity: 0.4,
-            }}>
+            <button key={i}
+              onClick={() => t.enabled && navigate(t.path)}
+              disabled={!t.enabled}
+              style={{
+                padding: 16, background: '#0f0f0f', border: '1px solid #1a1a1a',
+                borderRadius: 14, display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 8,
+                opacity: t.enabled ? 1 : 0.4,
+                cursor: t.enabled ? 'pointer' : 'not-allowed',
+                textAlign: 'left',
+                color: '#fff',
+                fontFamily: 'inherit',
+              }}>
               <Icon size={22} color="#57FF9A" />
               <div style={{ fontSize: 13, fontWeight: 600 }}>{t.label}</div>
               <div style={{ fontSize: 10, color: '#666' }}>{t.hint}</div>
-            </div>
+            </button>
           )
         })}
       </div>
