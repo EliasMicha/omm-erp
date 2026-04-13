@@ -4,6 +4,8 @@ import { F } from '../lib/utils'
 import { Btn, Table, Th, Td, Loading, KpiCard, SectionHeader, EmptyState, Badge } from '../components/layout/UI'
 import { Users2, Calendar, Receipt, ClipboardList, BarChart3, Plus, Search } from 'lucide-react'
 import TabCajaChica from './nomina/TabCajaChica'
+import TabAsistencia from './nomina/TabAsistencia'
+import TabReportes from './nomina/TabReportes'
 
 type TipoAlta = 'SEMANAL' | 'QUINCENAL'
 
@@ -65,8 +67,8 @@ export default function Nomina() {
       {tab === 'empleados' && <TabEmpleados />}
       {tab === 'periodos' && <PlaceholderTab title="Períodos de pago" />}
       {tab === 'caja_chica' && <TabCajaChica />}
-      {tab === 'asistencia' && <PlaceholderTab title="Asistencia" />}
-      {tab === 'reportes' && <PlaceholderTab title="Reportes" />}
+      {tab === 'asistencia' && <TabAsistencia />}
+      {tab === 'reportes' && <TabReportes />}
     </div>
   )
 }
