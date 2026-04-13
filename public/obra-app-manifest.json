@@ -1,0 +1,25 @@
+{
+  "name": "OMM Obra",
+  "short_name": "OMM Obra",
+  "description": "App móvil para instaladores de OMM Technologies",
+  "start_url": "/obra-app",
+  "scope": "/obra-app",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0a0a0a",
+  "theme_color": "#57FF9A",
+  "icons": [
+    {
+      "src": "/obra-app-icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/obra-app-icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
