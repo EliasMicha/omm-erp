@@ -14,6 +14,7 @@ import Facturacion from './pages/Facturacion'
 import Nomina from './pages/Nomina'
 import EmpleadoExpediente from './pages/EmpleadoExpediente'
 import CotizacionPdf from './pages/CotizacionPdf'
+import ObraApp from './obra-app/ObraApp'
 
 const Cobranza = () => <OtrosModulos title="Cobranza" />
 const Entregas = () => <OtrosModulos title="Entregas" />
@@ -25,6 +26,8 @@ export default function App() {
       <Routes>
         {/* Vista PDF — sin sidebar ni layout oscuro, abre en pestaña propia */}
         <Route path="/cotizacion/:id/pdf/:format" element={<CotizacionPdf />} />
+        {/* App móvil para instaladores — sin sidebar */}
+        <Route path="/obra-app/*" element={<ObraApp />} />
         {/* Layout principal con sidebar para el resto */}
         <Route path="/*" element={
           <div style={{ display: 'flex', background: '#0a0a0a', color: '#ccc', minHeight: '100vh', fontFamily: "'Inter', system-ui, sans-serif" }}>
