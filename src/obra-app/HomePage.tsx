@@ -273,6 +273,23 @@ export default function HomePage({ employee, onLogout }: { employee: Employee; o
               {assignment.tareas}
             </div>
           )}
+          <button
+            onClick={() => navigate(`/obra-app/mis-obras/${obra.id}?tab=materiales`)}
+            style={{
+              marginTop: 12, width: '100%',
+              padding: '10px 12px',
+              background: 'transparent',
+              border: `1px solid ${urgenciaColor}55`,
+              borderRadius: 10,
+              color: urgenciaColor,
+              fontSize: 12, fontWeight: 600,
+              cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+              fontFamily: 'inherit',
+            }}
+          >
+            <Package2 size={13} /> Ver pendientes de esta obra
+          </button>
         </div>
       ) : (
         <div style={{
