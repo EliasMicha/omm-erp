@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import { todayCDMX } from './lib/workDate'
 import { getCurrentPosition } from './lib/geolocation'
 import {
   ArrowLeft, Camera, Mic, Square, X, Send, Loader2,
@@ -61,7 +62,7 @@ export default function SubirReportePage({ employeeId }: { employeeId: string })
       setObras(list)
 
       // Pre-select today's obra
-      const today = new Date().toISOString().slice(0, 10)
+      const today = todayCDMX()
       const { data: todayAsn } = await supabase
         .from('installer_daily_assignment')
         .select('obra_id')
@@ -189,7 +190,7 @@ export default function SubirReportePage({ employeeId }: { employeeId: string })
         .insert({
           obra_id: selectedObra,
           instalador_id: employeeId,
-          fecha: new Date().toISOString().slice(0, 10),
+          fecha: todayCDMX(),
           texto_raw: texto.trim() || null,
           fotos: photoPaths,
           audio_path: audioPath,
