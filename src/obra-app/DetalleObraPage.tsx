@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import {
   ArrowLeft, MapPin, Info, Package2, FileText, ClipboardList,
@@ -73,7 +73,11 @@ const SISTEMA_EMOJI: Record<string, string> = {
 export default function DetalleObraPage() {
   const { obraId } = useParams<{ obraId: string }>()
   const navigate = useNavigate()
-  const [tab, setTab] = useState<Tab>('info')
+  const [searchParams] = useSearchParams()
+  const initialTab = (searchParams.get('tab') as Tab) || 'info'
+  const [tab, setTab] = useState<Tab>(
+    ['info', 'materiales', 'documentos', 'reportes'].includes(initialTab) ? initialTab : 'info'
+  )
   const [obra, setObra] = useState<Obra | null>(null)
   const [actividades, setActividades] = useState<Actividad[]>([])
   const [documentos, setDocumentos] = useState<Documento[]>([])
