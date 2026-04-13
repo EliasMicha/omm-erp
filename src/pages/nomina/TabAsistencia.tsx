@@ -3,7 +3,7 @@ import { supabase } from '../../lib/supabase'
 import { Btn, Table, Th, Td, Loading, KpiCard, SectionHeader, EmptyState, Badge } from '../../components/layout/UI'
 import {
   Clock, MapPin, AlertTriangle, CheckCircle2, TrendingUp, Users,
-  Filter, X, ThumbsUp, XCircle, Calendar, Map
+  Filter, X, ThumbsUp, XCircle, Calendar, Map as MapIcon
 } from 'lucide-react'
 
 interface Attendance {
@@ -487,7 +487,7 @@ export default function TabAsistencia() {
                       marginTop: 4,
                     }}
                   >
-                    <Map size={11} /> Ver en Google Maps
+                    <MapIcon size={11} /> Ver en Google Maps
                   </a>
                 </div>
               )}
