@@ -23,7 +23,7 @@ function CotDashboard({ onOpen }: { onOpen: (id: string, specialty?: string) => 
   const loadCots = async () => {
     setLoading(true)
     const [{ data: cotsData }, { data: leadsData }] = await Promise.all([
-      supabase.from('quotations').select('*,project:projects(name,client_name)').order('updated_at', { ascending: false }),
+      supabase.from('quotations').select('*,project:projects!quotations_project_id_fkey(name,client_name)').order('updated_at', { ascending: false }),
       supabase.from('leads').select('id,name,company'),
     ])
     setCots(cotsData || [])
@@ -519,7 +519,7 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
   useEffect(() => {
     async function load() {
       const [{ data: c },{ data: as_ },{ data: it },{ data: cat },{ data: sups }] = await Promise.all([
-        supabase.from('quotations').select('*,project:projects(name,client_name)').eq('id',cotId).single(),
+        supabase.from('quotations').select('*,project:projects!quotations_project_id_fkey(name,client_name)').eq('id',cotId).single(),
         supabase.from('quotation_areas').select('*').eq('quotation_id',cotId).order('order_index'),
         supabase.from('quotation_items').select('*').eq('quotation_id',cotId),
         supabase.from('catalog_products').select('*').eq('is_active',true).order('name'),
