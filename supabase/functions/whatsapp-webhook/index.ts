@@ -14,6 +14,17 @@ const supabase = createClient(
 
 const HISTORY_LIMIT = 20; // últimos N mensajes que mandamos a Claude
 
+// Meta manda números mexicanos con un '1' extra después del 52 (ej. 5215555011014).
+// Para RESPONDER, Meta exige el formato sin ese '1' (ej. 525555011014).
+// Esta función normaliza el número antes de mandarlo.
+function toReplyPhone(fromRaw: string): string {
+  // fromRaw viene sin '+', ej. "5215555011014"
+  if (fromRaw.startsWith('521') && fromRaw.length === 13) {
+    return '52' + fromRaw.slice(3); // "525555011014"
+  }
+  return fromRaw;
+}
+
 Deno.serve(async (req) => {
   const url = new URL(req.url);
 
@@ -77,7 +88,7 @@ async function processMessage(msg: any, value: any) {
   if (!contact) {
     console.log(`Unauthorized contact: ${fromPhone}`);
     // Opcional: responder con mensaje de rechazo suave
-    await sendText(msg.from, 'Este número no está autorizado para usar el asistente de OMM. Contacta a Elias si necesitas acceso.');
+    await sendText(toReplyPhone(msg.from), 'Este número no está autorizado para usar el asistente de OMM. Contacta a Elias si necesitas acceso.');
     return;
   }
 
@@ -107,7 +118,7 @@ async function processMessage(msg: any, value: any) {
   // 4. Construir bloques de contenido según tipo de mensaje
   const userBlocks = await buildContentBlocks(msg, conversation.id);
   if (userBlocks.length === 0) {
-    await sendText(msg.from, 'Recibí tu mensaje pero no pude procesarlo. ¿Puedes mandarlo como texto?');
+    await sendText(toReplyPhone(msg.from), 'Recibí tu mensaje pero no pude procesarlo. ¿Puedes mandarlo como texto?');
     return;
   }
 
@@ -126,7 +137,7 @@ async function processMessage(msg: any, value: any) {
     });
   } catch (e) {
     console.error('Agent error:', e);
-    await sendText(msg.from, '⚠️ Tuve un error procesando tu mensaje. Ya estoy notificando al equipo.');
+    await sendText(toReplyPhone(msg.from), '⚠️ Tuve un error procesando tu mensaje. Ya estoy notificando al equipo.');
     return;
   }
 
@@ -150,7 +161,7 @@ async function processMessage(msg: any, value: any) {
 
   // 8. Enviar respuesta por WhatsApp
   if (result.finalText) {
-    await sendText(msg.from, result.finalText);
+    await sendText(toReplyPhone(msg.from), result.finalText);
   }
 }
 

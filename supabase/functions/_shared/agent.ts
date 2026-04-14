@@ -113,7 +113,13 @@ ${activeContextLines.length > 0 ? '\n' + activeContextLines.join('\n') : '\n(Sin
     totalInputTokens += response.usage.input_tokens;
     totalOutputTokens += response.usage.output_tokens;
 
-    const assistantContent = response.content as ContentBlock[];
+    // Sanitizar blocks del assistant — remover campos extra como `cache_control`
+    // que Claude puede devolver pero que NO se aceptan cuando los mandamos de vuelta.
+    const assistantContent = (response.content as any[]).map((b: any) => {
+      if (b.type === 'text') return { type: 'text', text: b.text };
+      if (b.type === 'tool_use') return { type: 'tool_use', id: b.id, name: b.name, input: b.input };
+      return b;
+    }) as ContentBlock[];
     messages.push({ role: 'assistant', content: assistantContent });
     allNewMessages.push({ role: 'assistant', content: assistantContent });
 
@@ -164,12 +170,15 @@ ${activeContextLines.length > 0 ? '\n' + activeContextLines.join('\n') : '\n(Sin
           }
         }
 
-        return {
-          type: 'tool_result' as const,
+        const resultBlock: any = {
+          type: 'tool_result',
           tool_use_id: tu.id,
           content: JSON.stringify(result.success ? (result.data ?? {}) : { error: result.error }),
-          is_error: !result.success,
         };
+        if (!result.success) {
+          resultBlock.is_error = true;
+        }
+        return resultBlock;
       }),
     );
 
