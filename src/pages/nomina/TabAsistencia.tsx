@@ -3,7 +3,7 @@ import { supabase } from '../../lib/supabase'
 import { Btn, Table, Th, Td, Loading, KpiCard, SectionHeader, EmptyState, Badge } from '../../components/layout/UI'
 import {
   Clock, MapPin, AlertTriangle, CheckCircle2, TrendingUp, Users,
-  Filter, X, ThumbsUp, XCircle, Calendar, Map as MapIcon as MapIcon
+  Filter, X, ThumbsUp, XCircle, Calendar, Map as MapIcon
 } from 'lucide-react'
 
 interface Attendance {
