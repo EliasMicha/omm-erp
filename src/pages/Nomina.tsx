@@ -6,6 +6,7 @@ import { Users2, Calendar, Receipt, ClipboardList, BarChart3, Plus, Search } fro
 import TabCajaChica from './nomina/TabCajaChica'
 import TabAsistencia from './nomina/TabAsistencia'
 import TabReportes from './nomina/TabReportes'
+import TabAusencias from './nomina/TabAusencias'
 
 type TipoAlta = 'SEMANAL' | 'QUINCENAL'
 
@@ -27,7 +28,7 @@ interface Employee {
   foto_url?: string | null
 }
 
-type Tab = 'empleados' | 'periodos' | 'caja_chica' | 'asistencia' | 'reportes'
+type Tab = 'empleados' | 'periodos' | 'caja_chica' | 'asistencia' | 'reportes' | 'ausencias'
 
 const TABS: { id: Tab; label: string; icon: any }[] = [
   { id: 'empleados', label: 'Empleados', icon: Users2 },
@@ -35,6 +36,7 @@ const TABS: { id: Tab; label: string; icon: any }[] = [
   { id: 'caja_chica', label: 'Caja Chica', icon: Receipt },
   { id: 'asistencia', label: 'Asistencia', icon: ClipboardList },
   { id: 'reportes', label: 'Reportes', icon: BarChart3 },
+  { id: 'ausencias', label: 'Ausencias', icon: Calendar },
 ]
 
 export default function Nomina() {
@@ -69,6 +71,7 @@ export default function Nomina() {
       {tab === 'caja_chica' && <TabCajaChica />}
       {tab === 'asistencia' && <TabAsistencia />}
       {tab === 'reportes' && <TabReportes />}
+      {tab === 'ausencias' && <TabAusencias />}
     </div>
   )
 }
