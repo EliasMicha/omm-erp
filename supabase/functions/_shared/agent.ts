@@ -113,6 +113,9 @@ ${activeContextLines.length > 0 ? '\n' + activeContextLines.join('\n') : '\n(Sin
     totalInputTokens += response.usage.input_tokens;
     totalOutputTokens += response.usage.output_tokens;
 
+    // DEBUG: log what Claude returned
+    console.log('Claude raw content:', JSON.stringify(response.content));
+
     // Sanitizar blocks del assistant — remover campos extra como `cache_control`
     // que Claude puede devolver pero que NO se aceptan cuando los mandamos de vuelta.
     const assistantContent = (response.content as any[]).map((b: any) => {
@@ -120,6 +123,7 @@ ${activeContextLines.length > 0 ? '\n' + activeContextLines.join('\n') : '\n(Sin
       if (b.type === 'tool_use') return { type: 'tool_use', id: b.id, name: b.name, input: b.input };
       return b;
     }) as ContentBlock[];
+    console.log('Sanitized assistant content:', JSON.stringify(assistantContent));
     messages.push({ role: 'assistant', content: assistantContent });
     allNewMessages.push({ role: 'assistant', content: assistantContent });
 
