@@ -29,8 +29,8 @@ const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
   en_sitio: { label: 'EN SITIO', color: '#57FF9A' },
   fuera_de_rango: { label: 'FUERA DE RANGO', color: '#f59e0b' },
   sin_obra: { label: 'SIN OBRA', color: '#a78bfa' },
-  aprobado_admin: { label: 'APROBADO', color: '#3b82f6' },
-  rechazado: { label: 'RECHAZADO', color: '#ef4444' },
+  aprobada: { label: 'APROBADA', color: '#3b82f6' },
+  rechazada: { label: 'RECHAZADA', color: '#ef4444' },
 }
 
 function isLateEntrada(hora: string): number {
@@ -150,12 +150,11 @@ export default function TabAsistencia() {
   }, [attendance])
 
   const handleAprobar = async (att: Attendance) => {
-    if (!confirm(`¿Aprobar checada fuera de rango de ${att.empleado?.nombre}?`)) return
-    setActionLoading(true)
+        setActionLoading(true)
     const { error } = await supabase
       .from('installer_attendance')
       .update({
-        status: 'aprobado_admin',
+        status: 'aprobada',
         aprobado_at: new Date().toISOString(),
       })
       .eq('id', att.id)
@@ -174,7 +173,7 @@ export default function TabAsistencia() {
     const { error } = await supabase
       .from('installer_attendance')
       .update({
-        status: 'rechazado',
+        status: 'rechazada',
         notas: motivo.trim(),
         aprobado_at: new Date().toISOString(),
       })
@@ -301,8 +300,8 @@ export default function TabAsistencia() {
           <option value="en_sitio">En sitio</option>
           <option value="fuera_de_rango">Fuera de rango</option>
           <option value="sin_obra">Sin obra</option>
-          <option value="aprobado_admin">Aprobado admin</option>
-          <option value="rechazado">Rechazado</option>
+          <option value="aprobada">Aprobada</option>
+          <option value="rechazada">Rechazada</option>
         </select>
         <div style={{ flex: 1 }} />
         <div style={{ fontSize: 11, color: '#888' }}>
