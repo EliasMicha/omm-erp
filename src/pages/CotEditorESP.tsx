@@ -21,15 +21,20 @@ interface CatProduct { id: string; name: string; description: string; system: st
 interface EspQuoteConfig { currency: string; ivaRate: number; programacion: number; tipoCambio: number; paymentSchedule: Array<{ label: string; percentage: number }>; version: string }
 
 const ALL_SYSTEMS: EspSystemDef[] = [
-  { id: 'audio', name: 'Audio', color: '#8B5CF6' },
-  { id: 'redes', name: 'Redes', color: '#06B6D4' },
-  { id: 'cctv', name: 'CCTV', color: '#3B82F6' },
-  { id: 'control_acceso', name: 'Control de Acceso', color: '#F59E0B' },
-  { id: 'control_iluminacion', name: 'Control de Iluminación', color: '#C084FC' },
-  { id: 'deteccion_humo', name: 'Detección de Humo', color: '#EF4444' },
-  { id: 'bms', name: 'BMS', color: '#10B981' },
-  { id: 'telefonia', name: 'Telefonía', color: '#F97316' },
-  { id: 'red_celular', name: 'Red Celular', color: '#EC4899' },
+  { id: 'audio',               name: 'Audio',       color: '#8B5CF6' },
+  { id: 'redes',               name: 'Redes',       color: '#06B6D4' },
+  { id: 'cctv',                name: 'CCTV',        color: '#3B82F6' },
+  { id: 'control_acceso',      name: 'Acceso',      color: '#F59E0B' },
+  { id: 'control_iluminacion', name: 'Iluminacion', color: '#C084FC' },
+  { id: 'deteccion_humo',      name: 'Humo',        color: '#EF4444' },
+  { id: 'bms',                 name: 'BMS',         color: '#10B981' },
+  { id: 'telefonia',           name: 'Telefonia',   color: '#F97316' },
+  { id: 'red_celular',         name: 'Celular',     color: '#EC4899' },
+  { id: 'lutron',              name: 'Lutron',      color: '#A855F7' },
+  { id: 'somfy',               name: 'Somfy',       color: '#14B8A6' },
+  { id: 'electrico',           name: 'Electrico',   color: '#EAB308' },
+  { id: 'cortinas',            name: 'Cortinas',    color: '#6366F1' },
+  { id: 'general',             name: 'General',     color: '#64748B' },
 ]
 
 function uid(): string { return Math.random().toString(36).slice(2, 10) }
@@ -911,11 +916,14 @@ function CatalogModal({ onClose, onSelect, onCreateNew, systemName }: {
   const [catalog, setCatalog] = useState<CatProduct[]>([])
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
+  const [showAll, setShowAll] = useState(false)
 
   useEffect(() => {
-    supabase.from('catalog_products').select('*').eq('is_active', true).order('name')
-      .then(({ data }) => { setCatalog(data || []); setLoading(false) })
-  }, [])
+    setLoading(true)
+    let q = supabase.from('catalog_products').select('*').eq('is_active', true).order('name')
+    if (!showAll) q = q.eq('specialty', 'esp')
+    q.then(({ data }) => { setCatalog(data || []); setLoading(false) })
+  }, [showAll])
 
   const filtered = search.length >= 2
     ? catalog.filter(p => p.name.toLowerCase().includes(search.toLowerCase()) || (p.description || '').toLowerCase().includes(search.toLowerCase()))
@@ -938,6 +946,10 @@ function CatalogModal({ onClose, onSelect, onCreateNew, systemName }: {
             <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar producto..."
               style={{ width: '100%', padding: '8px 10px 8px 30px', background: '#1e1e1e', border: '1px solid #333', borderRadius: 8, color: '#fff', fontSize: 13, fontFamily: 'inherit' }} autoFocus />
           </div>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '0 10px', color: '#aaa', fontSize: 12, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+            <input type="checkbox" checked={showAll} onChange={e => setShowAll(e.target.checked)} style={{ cursor: 'pointer' }} />
+            Ver todo el catálogo
+          </label>
           <Btn variant="primary" onClick={onCreateNew}><Plus size={14} /> Crear nuevo</Btn>
         </div>
 
@@ -1108,6 +1120,7 @@ IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
       moneda: form.moneda || 'USD',
       iva_rate: 0.16,
       is_active: true,
+      specialty: 'esp',
       purchase_phase: form.purchase_phase || 'inicio',
       image_url: form.image_url || null,
     }).select().single()
@@ -1502,7 +1515,7 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
     const margin = rule.precioPublico ? (catProd.markup > 0 ? Math.round(catProd.markup / (100 + catProd.markup) * 100) : 30) : rule.margen
     const laborCost = calcLaborFromPrice(precio, rule)
     const sysName = ALL_SYSTEMS.find(s => s.id === addingTo.systemId)?.name || addingTo.systemId
-    const { data } = await supabase.from('quotation_items').insert({
+    const { data, error: itemErr } = await supabase.from('quotation_items').insert({
       quotation_id: cotId, area_id: addingTo.areaId, catalog_product_id: catProd.id || null,
       name: catProd.name, description: catProd.description || null, system: sysName,
       type: 'material', quantity: 1, cost: catProd.cost, markup: margin, price: precio,
@@ -1513,6 +1526,7 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
       sku: catProd.sku || null,
       image_url: catProd.image_url || null,
     }).select().single()
+    if (itemErr) { alert('Error al guardar producto: ' + itemErr.message); return }
     if (data) {
       setProducts(p => [...p, {
         id: data.id, areaId: addingTo.areaId, systemId: addingTo.systemId, catalogId: catProd.id || null,
@@ -1535,7 +1549,7 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
     const margin = rule.precioPublico ? (catProd.markup > 0 ? Math.round(catProd.markup / (100 + catProd.markup) * 100) : 30) : rule.margen
     const laborCost = calcLaborFromPrice(precio, rule)
     const sysName = ALL_SYSTEMS.find(s => s.id === addingTo.systemId)?.name || addingTo.systemId
-    const { data } = await supabase.from('quotation_items').insert({
+    const { data, error: itemErr } = await supabase.from('quotation_items').insert({
       quotation_id: cotId, area_id: addingTo.areaId, catalog_product_id: catProd.id || null,
       name: catProd.name, description: catProd.description || null, system: sysName,
       type: 'material', quantity: 1, cost: catProd.cost, markup: margin, price: precio,
@@ -1546,6 +1560,7 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
       sku: catProd.sku || null,
       image_url: catProd.image_url || null,
     }).select().single()
+    if (itemErr) { alert('Error al guardar producto: ' + itemErr.message); return }
     if (data) {
       setProducts(p => [...p, {
         id: data.id, areaId: addingTo.areaId, systemId: addingTo.systemId, catalogId: catProd.id || null,
