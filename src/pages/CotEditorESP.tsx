@@ -920,9 +920,9 @@ function CatalogModal({ onClose, onSelect, onCreateNew, systemName }: {
 
   useEffect(() => {
     setLoading(true)
-    let q = supabase.from('catalog_products').select('*').eq('is_active', true).order('name')
+    let q: any = supabase.from('catalog_products').select('*').eq('is_active', true)
     if (!showAll) q = q.eq('specialty', 'esp')
-    q.then(({ data }) => { setCatalog(data || []); setLoading(false) })
+    q.order('name').then(({ data }: any) => { setCatalog(data || []); setLoading(false) })
   }, [showAll])
 
   const filtered = search.length >= 2
