@@ -1382,7 +1382,7 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
 
   async function load() {
     const [{ data: cot }, { data: qAreas }, { data: qItems }] = await Promise.all([
-      supabase.from('quotations').select('*,project:projects(name,client_name)').eq('id', cotId).single(),
+      supabase.from('quotations').select('*,project:projects!quotations_project_id_fkey(name,client_name)').eq('id', cotId).single(),
       supabase.from('quotation_areas').select('*').eq('quotation_id', cotId).order('order_index'),
       supabase.from('quotation_items').select('*').eq('quotation_id', cotId).order('order_index'),
     ])
