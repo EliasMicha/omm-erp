@@ -1,5 +1,180 @@
 # CLAUDE.md — OMM ERP Context Document
-## Last updated: 2026-04-14 (Sesión Cotizador)
+## Last updated: 2026-04-14 (Sesión Facturación REP + CFDI Relacionado)
+
+---
+
+## 🔥 Sesión 2026-04-14 (tarde) — Facturación: CFDI Relacionado + REP (tipo P)
+
+### Resumen
+Se agregaron dos features grandes al módulo de Facturación, ambas en el mismo modal `NuevaFactura`:
+
+**Feature A — CFDI Relacionado en tipo I** (commit `f8f80cc`)
+Relacionar la factura que se emite con facturas previas del mismo cliente, con dropdown de los 7 tipos de relación SAT (Anexo 20, Apéndice 6) y multi-select de UUIDs.
+
+**Feature B — Emisión de REP (tipo P) completo** (commit `473964e`)
+Toggle `I / P` dentro del mismo modal. En modo P reconfigura el formulario para capturar un Complemento de Pagos 2.0 con validaciones matemáticas estrictas.
+
+### Componente compartido nuevo: `<SelectorFacturasRelacionadas>`
+
+Reusable entre Feature A (CFDI relacionado) y Feature B (facturas PPD dentro del complemento de pago).
+
+**Props**:
+- `rfcCliente` — filtra el listado por `receptor_rfc` (tu respuesta en la sesión: "emitidas filtradas además por el mismo cliente del receptor")
+- `tipoRelacion` + `onTipoRelacionChange` — para Feature A
+- `uuidsSeleccionados` + `onUuidsChange` — multi-select con chips
+- `filtroExtra: 'ppd' | 'any'` — cuando es `'ppd'` limita a `tipo_comprobante='I' AND metodo_pago='PPD'` (para REP)
+- `ocultarTipoRelacion: boolean` — para el REP que no usa tipo relación a nivel header
+
+**Query base**:
+```ts
+supabase.from('facturas')
+  .select('id,facturapi_id,uuid_fiscal,serie,folio,fecha_emision,total,moneda,tipo_comprobante,metodo_pago,receptor_rfc,receptor_nombre')
+  .eq('direccion', 'emitida')
+  .eq('receptor_rfc', rfcCliente)
+  .not('uuid_fiscal', 'is', null)
+  .order('fecha_emision', { ascending: false })
+  .limit(200)
+```
+
+Constante `TIPOS_RELACION_SAT` con los 7 tipos (01–07), el 07 con hint explícito "Usado para facturas que aplican un anticipo previo".
+
+### Feature A — Integración en NuevaFactura
+
+State: `tipoRelacion: string` + `uuidsRelacionados: string[]`.
+
+Validaciones cruzadas en `emitir()` (evitan que FacturAPI rechace):
+- `tipoRelacion && uuidsRelacionados.length === 0` → error "tipo sin UUIDs"
+- `!tipoRelacion && uuidsRelacionados.length > 0` → error "UUIDs sin tipo"
+
+Payload a FacturAPI:
+```ts
+invoicePayload.related_documents = [{
+  relationship: tipoRelacion,
+  documents: uuidsRelacionados,
+}]
+```
+
+Persistencia: `facturas.tipo_relacion` + `facturas.uuids_relacionados` (columnas ya existían).
+
+`useEffect` que limpia `uuidsRelacionados` cuando cambia `clienteId` (porque el listado se re-filtra).
+
+### Feature B — REP (tipo P) completo
+
+**Toggle al inicio del modal**: botones `Factura (tipo I — Ingreso)` / `Comprobante de Pago (tipo P — REP)`. El título del modal cambia, el grid del cliente colapsa a 1 columna en modo P, el select "Cotización (opcional)" se oculta.
+
+**Interface nueva**: `DocRelacionadoPago` con 13 campos del complemento de pagos 2.0:
+```ts
+{
+  factura_local_id, uuid, serie, folio,
+  moneda_doc, total_doc,
+  equivalencia_dr,          // TC vs moneda del pago
+  num_parcialidad,          // 1, 2, 3...
+  imp_saldo_anterior,       // editable
+  imp_pagado,               // editable (el importante)
+  imp_saldo_insoluto,       // auto = anterior - pagado
+  objeto_imp,               // '01'/'02'/'03'
+  iva_tasa,                 // 0.16 default
+  iva_trasladado            // auto desde imp_pagado si objeto='02'
+}
+```
+
+**State del modo P**:
+```
+tipoComprobante: 'I' | 'P'
+fechaPago: string             // datetime-local, default now
+formaPagoREP: string          // '03' (transferencia) default
+monedaPago: string            // 'MXN' default
+tipoCambioPago: string
+montoPago: string
+numOperacion: string
+docsPago: DocRelacionadoPago[]
+mostrarSelectorPPD: boolean
+uuidsPPDTemporales: string[]  // staging antes de confirmar "agregar N facturas"
+```
+
+**Helpers**:
+- `agregarDocsPago()` — carga facturas PPD desde Supabase por UUID, mapea a `DocRelacionadoPago` con defaults sensatos (saldo_anterior = total, imp_pagado = 0, IVA tasa 0.16)
+- `updateDocPago(idx, field, value)` — auto-recalcula `imp_saldo_insoluto` y `iva_trasladado` cuando cambia `imp_pagado`, `imp_saldo_anterior`, `iva_tasa` u `objeto_imp`. Para IVA: `base = imp_pagado / (1 + tasa)`, `iva = imp_pagado - base`
+- `removeDocPago(idx)`
+
+**Totales reactivos**:
+- `sumaDocsEnMonedaPago = Σ(imp_pagado × equivalencia_dr)`
+- `diferenciaPago = montoPagoNum - sumaDocsEnMonedaPago`
+- Indicador visual verde/rojo con tolerancia ±0.01
+
+**Validaciones al emitir REP**:
+1. `docsPago.length >= 1`
+2. `montoPagoNum > 0`
+3. `|diferenciaPago| < 0.01` — la suma debe cuadrar con el monto declarado
+4. `d.imp_pagado > 0` en todos los docs
+5. `d.imp_pagado <= d.imp_saldo_anterior + 0.01` en todos los docs
+
+**Payload FacturAPI tipo P**:
+```ts
+{
+  customer: facturapiCustomerId,
+  type: 'P',
+  items: [{ quantity: 1, product: {
+    description: 'Pago', product_key: '84111506',
+    price: 0, unit_key: 'ACT', unit_name: 'Actividad',
+    tax_included: false, taxes: []
+  }}],
+  use: 'CP01',             // Pagos — uso CFDI obligatorio para REP
+  payment_form: '99',      // a nivel header
+  payment_method: 'PUE',   // a nivel header
+  currency: 'XXX',         // moneda neutra — la real va en el complemento
+  complements: [{
+    type: 'pago',
+    data: [{
+      payment_form, date, currency, exchange, amount,
+      num_operation?,
+      related_documents: [{
+        uuid, folio?, series?, currency,
+        exchange: equivalencia_dr,
+        payment_number, previous_balance, amount_paid, balance,
+        taxability: objeto_imp,
+        taxes?: [{ type:'IVA', rate, base, amount, withholding: false }]  // solo si objeto='02'
+      }]
+    }]
+  }]
+}
+```
+
+**Persistencia ramificada en `facturas`**:
+- `tipo_comprobante = 'P'`
+- `receptor_uso_cfdi = 'CP01'`
+- `forma_pago = formaPagoREP` (la del complemento)
+- `metodo_pago = 'PUE'`
+- **`total = montoPagoNum`** (importante: no se deja en 0 como viene del header SAT, porque los KPIs y `computeAmounts()` del sync esperan el monto aquí)
+- `subtotal = montoPagoNum`, `iva = 0`
+- `moneda = monedaPago`
+- `uuids_relacionados = docsPago.map(d => d.uuid)` — útil para Monitor de Anticipos y queries de cobranza
+- **Skip** `factura_conceptos` insert (REP no tiene conceptos facturables reales, solo el item dummy)
+
+### ⚠️ Fase 1 del Monitor de Anticipos YA ESTABA IMPLEMENTADA
+
+El CLAUDE.md anterior decía "FASE 1 NOT DONE" pero revisando `Facturacion.tsx` líneas 1625–1629 (dentro del `sincronizar()` de `ListaRecibidas`), el sync desde FacturAPI **sí puebla** `tipo_relacion` y `uuids_relacionados` desde `inv.related_documents`:
+
+```ts
+tipo_relacion: Array.isArray(inv.related_documents) && inv.related_documents.length > 0
+  ? (inv.related_documents[0].relationship || null) : null,
+uuids_relacionados: Array.isArray(inv.related_documents) && inv.related_documents.length > 0
+  ? inv.related_documents.flatMap((rd) => Array.isArray(rd.documents) ? rd.documents : [])
+  : null,
+```
+
+**Pendiente real de Fase 1**: replicar el mismo patrón en `sincronizar()` de `ListaEmitidas` y en `sincronizarMes()` de `ListaTodas` (que también hace sync), para asegurar cobertura completa. Y re-sincronizar todos los meses históricos para poblar retroactivamente. **Después de Commit 2**, emisiones nuevas vía UI también pueblan las columnas directamente.
+
+### Sesión anterior había código zombi de CFDI Relacionado
+
+Durante Commit 1 descubrí que existía un `useEffect` huérfano llamando a un `setFacturasRelacionadas([])` y 3 bloques de validación referenciando un `facturasRelacionadas: any[]` que nunca fue declarado. Alguna sesión previa empezó la feature y la dejó a medias — compilaba solo porque el repo tiene `"build": "vite build"` sin `tsc` (technical debt conocido). Rescaté las validaciones (tipo sin UUIDs / UUIDs sin tipo) adaptándolas a mi implementación con `uuidsRelacionados: string[]`, y borré el resto.
+
+### Próximos pasos sugeridos para facturación
+1. **Fase 2 Monitor de Anticipos** — sub-tab "Anticipos" en `Contabilidad.tsx` (detección por clave 84111506, grupos por `uuids_relacionados`, estados 🟢🟡🟠🔴, 4 KPIs, tabla expandible)
+2. **Corrección de KPIs de doble conteo** — descontar tipo E con `tipo_relacion IN ('01','03','07')` en los totales de Contabilidad
+3. **Testeo del REP con caso real** — probar en sandbox primero: cliente con factura PPD previa, registrar pago parcial, verificar que el complemento cuaje con SAT
+4. **Mejora futura del REP**: autocálculo del `imp_saldo_anterior` leyendo REPs previos (requiere que todos los REPs históricos tengan `uuids_relacionados` poblado — viable después de re-sincronizar)
+5. **Sync en ListaEmitidas y ListaRecibidas** — hoy solo ListaTodas tiene `sincronizarMes()`; portarlo a las otras dos tabs
 
 ---
 
@@ -252,19 +427,15 @@ Mexican fiscal law (SAT Apéndice 6, Anexo 20, Procedimiento A) requires a chain
 ### Implementation status
 **DONE**:
 - Schema: `tipo_relacion` (text) and `uuids_relacionados` (jsonb) columns exist in `facturas` table with index
+- **FASE 1 parcial (2026-04-14 tarde)**:
+  - `ListaRecibidas.sincronizar()` ya puebla `tipo_relacion` + `uuids_relacionados` desde `inv.related_documents` en el sync desde FacturAPI (líneas ~1625-1629)
+  - **Emisión nueva desde UI** (`NuevaFactura.emitir()`) puebla ambas columnas tanto en tipo I (Feature A — CFDI Relacionado) como en tipo P (Feature B — REP, con los UUIDs de las facturas PPD pagadas)
 
-**NOT DONE (3 phases)**:
+**NOT DONE (partially)**:
 
-#### FASE 1 — Sync with relationships
-- Modify `Facturacion.tsx` sync payloads (both emit + rec) to populate:
-  ```ts
-  tipo_relacion: Array.isArray(inv.related_documents) && inv.related_documents.length > 0
-    ? (inv.related_documents[0].relationship || null) : null,
-  uuids_relacionados: Array.isArray(inv.related_documents) && inv.related_documents.length > 0
-    ? inv.related_documents.flatMap((rd) => Array.isArray(rd.documents) ? rd.documents : [])
-    : null,
-  ```
-- Push + deploy + re-sync month to populate
+#### FASE 1 — Sync with relationships (resto)
+- Replicar el patrón de `related_documents → tipo_relacion/uuids_relacionados` en `ListaEmitidas.sincronizar()` y `ListaTodas.sincronizarMes()` (hoy solo `ListaRecibidas` lo hace)
+- Re-sincronizar meses históricos para poblar retroactivamente las facturas emitidas antes de la sesión
 
 #### FASE 2 — Anticipos view in Contabilidad.tsx
 - New sub-tab "Anticipos" with toggle Recibidos/Emitidos
@@ -337,6 +508,8 @@ banorte-mxn: Banorte MXN  1263311182
 | a792f8d | proxy: date_gte/date_lte support | ✅ |
 | c0dda0a | sync incremental por mes + re-check status | ✅ |
 | 61b4edf | contabilidad: KPIs MXN/USD + columna Mon. | ✅ |
+| **f8f80cc** | **feat: CFDI relacionado en NuevaFactura (Feature A)** | ✅ |
+| **473964e** | **feat: emitir REP tipo P completo (Feature B)** | ✅ |
 
 ## Sync Stats (verified 2026-04-11)
 ```
