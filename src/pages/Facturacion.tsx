@@ -1060,6 +1060,194 @@ function CancelarModal({ factura, onClose, onConfirm, loading }: { factura: Fact
 }
 
 // ============================================================
+// SAT: Tipos de relacion (Anexo 20, Apendice 6)
+// ============================================================
+const TIPOS_RELACION_SAT: { value: string; label: string; hint?: string }[] = [
+  { value: '01', label: '01 - Nota de credito de los documentos relacionados' },
+  { value: '02', label: '02 - Nota de debito de los documentos relacionados' },
+  { value: '03', label: '03 - Devolucion de mercancia sobre facturas o traslados previos' },
+  { value: '04', label: '04 - Sustitucion de los CFDI previos' },
+  { value: '05', label: '05 - Traslados de mercancias facturados previamente' },
+  { value: '06', label: '06 - Factura generada por los traslados previos' },
+  { value: '07', label: '07 - CFDI por aplicacion de anticipo', hint: 'Usado para facturas que aplican un anticipo previo' },
+]
+
+// Factura ligera para el selector de relaciones (subset de la tabla facturas)
+interface FacturaLite {
+  id: string
+  facturapi_id: string | null
+  uuid_fiscal: string
+  serie: string | null
+  folio: string | null
+  fecha_emision: string | null
+  total: number | null
+  moneda: string
+  tipo_comprobante: string | null
+  metodo_pago: string | null
+  receptor_rfc: string | null
+  receptor_nombre: string | null
+}
+
+// ============================================================
+// Selector de facturas relacionadas (compartido entre Feature A y REP)
+// ============================================================
+function SelectorFacturasRelacionadas(props: {
+  rfcCliente: string | null
+  tipoRelacion: string
+  onTipoRelacionChange: (t: string) => void
+  uuidsSeleccionados: string[]
+  onUuidsChange: (uuids: string[]) => void
+  filtroExtra?: 'ppd' | 'any'
+  titulo?: string
+  ocultarTipoRelacion?: boolean
+}) {
+  const { rfcCliente, tipoRelacion, onTipoRelacionChange, uuidsSeleccionados, onUuidsChange } = props
+  const filtroExtra = props.filtroExtra || 'any'
+  const titulo = props.titulo || 'Facturas relacionadas'
+  const ocultarTipoRelacion = !!props.ocultarTipoRelacion
+
+  const [facturas, setFacturas] = useState<FacturaLite[]>([])
+  const [loading, setLoading] = useState(false)
+  const [busqueda, setBusqueda] = useState('')
+
+  useEffect(() => {
+    if (!rfcCliente) { setFacturas([]); return }
+    setLoading(true)
+    let q = supabase
+      .from('facturas')
+      .select('id,facturapi_id,uuid_fiscal,serie,folio,fecha_emision,total,moneda,tipo_comprobante,metodo_pago,receptor_rfc,receptor_nombre')
+      .eq('direccion', 'emitida')
+      .eq('receptor_rfc', rfcCliente)
+      .not('uuid_fiscal', 'is', null)
+      .order('fecha_emision', { ascending: false })
+      .limit(200)
+    if (filtroExtra === 'ppd') {
+      q = q.eq('tipo_comprobante', 'I').eq('metodo_pago', 'PPD')
+    }
+    q.then(({ data }) => {
+      setFacturas((data as FacturaLite[]) || [])
+      setLoading(false)
+    })
+  }, [rfcCliente, filtroExtra])
+
+  function toggleUuid(uuid: string) {
+    if (uuidsSeleccionados.includes(uuid)) {
+      onUuidsChange(uuidsSeleccionados.filter(u => u !== uuid))
+    } else {
+      onUuidsChange([...uuidsSeleccionados, uuid])
+    }
+  }
+
+  const facturasFiltradas = facturas.filter(f => {
+    if (!busqueda) return true
+    const b = busqueda.toLowerCase()
+    return (
+      (f.uuid_fiscal || '').toLowerCase().includes(b) ||
+      (f.folio || '').toLowerCase().includes(b) ||
+      (f.serie || '').toLowerCase().includes(b)
+    )
+  })
+
+  const inpStyle: React.CSSProperties = { width: '100%', padding: '8px 12px', background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 8, color: '#fff', fontSize: 13, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }
+  const lblStyle: React.CSSProperties = { fontSize: 11, color: '#666', textTransform: 'uppercase' as const, letterSpacing: '0.06em', fontWeight: 600, marginBottom: 4, display: 'block' }
+
+  const mostrarListado = ocultarTipoRelacion || !!tipoRelacion
+
+  return (
+    <div style={{ background: '#0a0a0a', border: '1px solid #1a1a1a', borderRadius: 8, padding: 14 }}>
+      <div style={{ fontSize: 13, fontWeight: 600, color: '#888', marginBottom: 10 }}>{titulo}</div>
+
+      {!ocultarTipoRelacion && (
+        <div style={{ marginBottom: 10 }}>
+          <label style={lblStyle}>Tipo de relacion SAT</label>
+          <select value={tipoRelacion} onChange={e => onTipoRelacionChange(e.target.value)} style={inpStyle}>
+            <option value="">-- Sin relacion --</option>
+            {TIPOS_RELACION_SAT.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+          </select>
+          {tipoRelacion && (() => {
+            const t = TIPOS_RELACION_SAT.find(x => x.value === tipoRelacion)
+            return t?.hint ? <div style={{ fontSize: 10, color: '#666', marginTop: 4, fontStyle: 'italic' }}>{t.hint}</div> : null
+          })()}
+        </div>
+      )}
+
+      {mostrarListado && !rfcCliente && (
+        <div style={{ fontSize: 11, color: '#f87171', fontStyle: 'italic', padding: 8 }}>
+          Selecciona primero un cliente para poder listar sus facturas previas.
+        </div>
+      )}
+
+      {mostrarListado && rfcCliente && (
+        <>
+          {uuidsSeleccionados.length > 0 && (
+            <div style={{ marginBottom: 10 }}>
+              <label style={lblStyle}>UUIDs seleccionados ({uuidsSeleccionados.length})</label>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {uuidsSeleccionados.map(uuid => {
+                  const f = facturas.find(x => x.uuid_fiscal === uuid)
+                  const label = f ? `${f.serie || ''}${f.folio || ''} - ${uuid.slice(0, 8)}...` : `${uuid.slice(0, 8)}...`
+                  return (
+                    <div key={uuid} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 8px', background: '#A78BFA22', border: '1px solid #A78BFA44', borderRadius: 6, fontSize: 11, color: '#C084FC', fontFamily: 'monospace' }}>
+                      <span>{label}</span>
+                      <button onClick={() => toggleUuid(uuid)} style={{ background: 'none', border: 'none', color: '#C084FC', cursor: 'pointer', padding: 0, display: 'flex' }}><X size={11} /></button>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          <div style={{ marginBottom: 8 }}>
+            <label style={lblStyle}>Buscar factura por UUID, folio o serie</label>
+            <input value={busqueda} onChange={e => setBusqueda(e.target.value)} placeholder="Filtrar..." style={inpStyle} />
+          </div>
+
+          <div style={{ maxHeight: 240, overflowY: 'auto', border: '1px solid #1a1a1a', borderRadius: 6, background: '#050505' }}>
+            {loading && <div style={{ padding: 12, fontSize: 11, color: '#666', textAlign: 'center' }}>Cargando facturas...</div>}
+            {!loading && facturasFiltradas.length === 0 && (
+              <div style={{ padding: 12, fontSize: 11, color: '#666', textAlign: 'center', fontStyle: 'italic' }}>
+                {facturas.length === 0 ? 'No hay facturas emitidas previas a este cliente.' : 'Sin resultados para la busqueda.'}
+              </div>
+            )}
+            {!loading && facturasFiltradas.map(f => {
+              const seleccionada = uuidsSeleccionados.includes(f.uuid_fiscal)
+              const fecha = f.fecha_emision ? new Date(f.fecha_emision).toLocaleDateString('es-MX') : '-'
+              return (
+                <div
+                  key={f.id}
+                  onClick={() => toggleUuid(f.uuid_fiscal)}
+                  style={{
+                    padding: '8px 12px',
+                    borderBottom: '1px solid #151515',
+                    cursor: 'pointer',
+                    background: seleccionada ? '#A78BFA18' : 'transparent',
+                    display: 'grid',
+                    gridTemplateColumns: '20px 1fr 100px 110px 70px',
+                    gap: 8,
+                    alignItems: 'center',
+                    fontSize: 11,
+                  }}
+                >
+                  <div style={{ color: seleccionada ? '#C084FC' : '#333' }}>
+                    {seleccionada ? <CheckCircle2 size={14} /> : <div style={{ width: 14, height: 14, border: '1px solid #333', borderRadius: 3 }} />}
+                  </div>
+                  <div style={{ fontFamily: 'monospace', color: seleccionada ? '#C084FC' : '#888', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {f.uuid_fiscal}
+                  </div>
+                  <div style={{ color: '#888' }}>{f.serie || ''}{f.folio || '-'}</div>
+                  <div style={{ color: '#ccc', textAlign: 'right' }}>{(f.total || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })} {f.moneda}</div>
+                  <div style={{ color: '#666', fontSize: 10, textAlign: 'right' }}>{fecha}</div>
+                </div>
+              )
+            })}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+// ============================================================
 // Nueva Factura — form
 // ============================================================
 function NuevaFactura({ onCancel, onCreated }: { onCancel: () => void; onCreated: () => void }) {
@@ -1082,12 +1270,21 @@ function NuevaFactura({ onCancel, onCreated }: { onCancel: () => void; onCreated
   const [error, setError] = useState<string | null>(null)
   const [resultado, setResultado] = useState<any>(null)
 
+  // Feature A: Relacionar facturas (CFDI Relacionado)
+  const [tipoRelacion, setTipoRelacion] = useState('')
+  const [uuidsRelacionados, setUuidsRelacionados] = useState<string[]>([])
+
   // Pre-llenar uso CFDI cuando se selecciona un cliente con preferencia
   useEffect(() => {
     if (!clienteId) return
     const c = clientes.find(x => x.id === clienteId)
     if (c?.uso_cfdi_clave) setUsoCfdi(c.uso_cfdi_clave)
   }, [clienteId, clientes])
+
+  // Al cambiar de cliente, limpiar los UUIDs relacionados (son per-cliente)
+  useEffect(() => {
+    setUuidsRelacionados([])
+  }, [clienteId])
 
   useEffect(() => {
     Promise.all([
@@ -1210,6 +1407,24 @@ function NuevaFactura({ onCancel, onCreated }: { onCancel: () => void; onCreated
       }
       if (moneda !== 'MXN') invoicePayload.exchange = parseFloat(tipoCambio) || 1
 
+      // Feature A: CFDIs relacionados (con validaciones cruzadas)
+      if (tipoRelacion && uuidsRelacionados.length === 0) {
+        setError('Seleccionaste un tipo de relacion pero no agregaste facturas a relacionar')
+        setEmitting(false)
+        return
+      }
+      if (!tipoRelacion && uuidsRelacionados.length > 0) {
+        setError('Agregaste facturas a relacionar pero no seleccionaste un tipo de relacion SAT')
+        setEmitting(false)
+        return
+      }
+      if (tipoRelacion && uuidsRelacionados.length > 0) {
+        invoicePayload.related_documents = [{
+          relationship: tipoRelacion,
+          documents: uuidsRelacionados,
+        }]
+      }
+
       const ir = await callFacturapi('create_invoice', { method: 'POST', body: { payload: invoicePayload } })
       if (!ir.ok) {
         setError('Error al emitir: ' + (ir.data?.message || JSON.stringify(ir.data).slice(0, 300)))
@@ -1245,6 +1460,8 @@ function NuevaFactura({ onCancel, onCreated }: { onCancel: () => void; onCreated
         metodo_pago: metodoPago,
         quotation_id: cotizacionId || null,
         notas: notas || null,
+        tipo_relacion: tipoRelacion || null,
+        uuids_relacionados: uuidsRelacionados.length > 0 ? uuidsRelacionados : null,
         sandbox: getCurrentFacturapiMode() === 'test',
       }
 
@@ -1379,6 +1596,18 @@ function NuevaFactura({ onCancel, onCreated }: { onCancel: () => void; onCreated
             </div>
           )
         })()}
+      </div>
+
+      {/* Feature A: Relacionar facturas (CFDI Relacionado) */}
+      <div style={{ marginBottom: 20 }}>
+        <SelectorFacturasRelacionadas
+          rfcCliente={clienteId ? (clientes.find(c => c.id === clienteId)?.rfc || null) : null}
+          tipoRelacion={tipoRelacion}
+          onTipoRelacionChange={setTipoRelacion}
+          uuidsSeleccionados={uuidsRelacionados}
+          onUuidsChange={setUuidsRelacionados}
+          titulo="Relacionar con facturas previas (opcional)"
+        />
       </div>
 
       {/* Toggle modo conceptos */}
