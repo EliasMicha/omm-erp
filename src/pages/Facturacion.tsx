@@ -81,6 +81,24 @@ interface QuotationItemLite {
   catalog_product_id?: string
 }
 
+// REP: Documento relacionado dentro del complemento de pagos 2.0
+interface DocRelacionadoPago {
+  factura_local_id: string        // id de la factura en nuestra tabla facturas
+  uuid: string                    // UUID fiscal de la factura pagada
+  serie: string | null
+  folio: string | null
+  moneda_doc: string              // moneda de la factura original (DR)
+  total_doc: number               // total original de la factura (para referencia visual)
+  equivalencia_dr: number         // tipo cambio DR vs moneda del pago (1 si iguales)
+  num_parcialidad: number         // 1, 2, 3...
+  imp_saldo_anterior: number      // saldo antes de este pago
+  imp_pagado: number              // monto que este REP liquida sobre esta factura
+  imp_saldo_insoluto: number      // anterior - pagado (auto)
+  objeto_imp: string              // '01' no objeto / '02' si objeto / '03' si objeto y no obligado
+  iva_tasa: number                // tasa aplicable (0.16 default) - solo si objeto '02'
+  iva_trasladado: number          // monto IVA del pago sobre esta factura (auto o editable)
+}
+
 // ============================================================
 // API Helper + FacturAPI mode (Sesion B - dual test/live)
 // ============================================================
@@ -1274,6 +1292,22 @@ function NuevaFactura({ onCancel, onCreated }: { onCancel: () => void; onCreated
   const [tipoRelacion, setTipoRelacion] = useState('')
   const [uuidsRelacionados, setUuidsRelacionados] = useState<string[]>([])
 
+  // Feature B: REP (Comprobante de Pago, tipo P)
+  const [tipoComprobante, setTipoComprobante] = useState<'I' | 'P'>('I')
+  const [fechaPago, setFechaPago] = useState(() => {
+    const d = new Date()
+    const pad = (n: number) => String(n).padStart(2, '0')
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+  })
+  const [formaPagoREP, setFormaPagoREP] = useState('03')
+  const [monedaPago, setMonedaPago] = useState('MXN')
+  const [tipoCambioPago, setTipoCambioPago] = useState('1')
+  const [montoPago, setMontoPago] = useState('0')
+  const [numOperacion, setNumOperacion] = useState('')
+  const [docsPago, setDocsPago] = useState<DocRelacionadoPago[]>([])
+  const [mostrarSelectorPPD, setMostrarSelectorPPD] = useState(false)
+  const [uuidsPPDTemporales, setUuidsPPDTemporales] = useState<string[]>([])
+
   // Pre-llenar uso CFDI cuando se selecciona un cliente con preferencia
   useEffect(() => {
     if (!clienteId) return
@@ -1352,14 +1386,100 @@ function NuevaFactura({ onCancel, onCreated }: { onCancel: () => void; onCreated
   const iva = conceptos.reduce((s, c) => s + (c.cantidad * c.valor_unitario * c.iva_tasa), 0)
   const total = subtotal + iva
 
+  // REP: helpers para manejar documentos relacionados en el complemento de pagos
+  async function agregarDocsPago() {
+    // Cargar datos completos de las facturas PPD seleccionadas desde Supabase
+    if (uuidsPPDTemporales.length === 0) return
+    const { data, error: err } = await supabase
+      .from('facturas')
+      .select('id,uuid_fiscal,serie,folio,moneda,total')
+      .in('uuid_fiscal', uuidsPPDTemporales)
+    if (err || !data) {
+      setError('Error al cargar facturas PPD: ' + (err?.message || 'desconocido'))
+      return
+    }
+    // Agregar solo las que no estan ya en docsPago
+    const uuidsYa = new Set(docsPago.map(d => d.uuid))
+    const nuevos: DocRelacionadoPago[] = (data as any[])
+      .filter(f => !uuidsYa.has(f.uuid_fiscal))
+      .map(f => ({
+        factura_local_id: f.id,
+        uuid: f.uuid_fiscal,
+        serie: f.serie,
+        folio: f.folio,
+        moneda_doc: f.moneda || 'MXN',
+        total_doc: Number(f.total) || 0,
+        equivalencia_dr: f.moneda === monedaPago ? 1 : 1, // default 1 — usuario edita
+        num_parcialidad: 1,
+        imp_saldo_anterior: Number(f.total) || 0, // default = total — usuario edita si ya hay pagos previos
+        imp_pagado: 0,
+        imp_saldo_insoluto: Number(f.total) || 0,
+        objeto_imp: '02',
+        iva_tasa: 0.16,
+        iva_trasladado: 0,
+      }))
+    setDocsPago([...docsPago, ...nuevos])
+    setUuidsPPDTemporales([])
+    setMostrarSelectorPPD(false)
+  }
+
+  function updateDocPago(idx: number, field: keyof DocRelacionadoPago, value: any) {
+    const next = [...docsPago]
+    ;(next[idx] as any)[field] = value
+    // Recalcular saldo insoluto y IVA trasladado cuando cambia imp_pagado o saldo_anterior
+    if (field === 'imp_pagado' || field === 'imp_saldo_anterior') {
+      next[idx].imp_saldo_insoluto = Math.round((next[idx].imp_saldo_anterior - next[idx].imp_pagado) * 100) / 100
+    }
+    if (field === 'imp_pagado' || field === 'iva_tasa' || field === 'objeto_imp') {
+      if (next[idx].objeto_imp === '02') {
+        // base para IVA del pago: imp_pagado / (1 + iva_tasa), IVA = base * iva_tasa
+        const base = next[idx].imp_pagado / (1 + next[idx].iva_tasa)
+        next[idx].iva_trasladado = Math.round((next[idx].imp_pagado - base) * 100) / 100
+      } else {
+        next[idx].iva_trasladado = 0
+      }
+    }
+    setDocsPago(next)
+  }
+
+  function removeDocPago(idx: number) {
+    setDocsPago(docsPago.filter((_, i) => i !== idx))
+  }
+
+  // Suma de imp_pagado × equivalencia_dr (debe matchear monto pago)
+  const sumaDocsEnMonedaPago = docsPago.reduce((s, d) => s + (d.imp_pagado * d.equivalencia_dr), 0)
+  const montoPagoNum = parseFloat(montoPago) || 0
+  const diferenciaPago = Math.round((montoPagoNum - sumaDocsEnMonedaPago) * 100) / 100
+
   async function emitir() {
     setError(null)
     if (!clienteId) { setError('Selecciona un cliente'); return }
-    if (conceptos.length === 0) { setError('Agrega al menos un concepto'); return }
-    if (conceptos.some(c => !c.descripcion || c.cantidad <= 0 || c.valor_unitario <= 0)) {
-      setError('Completa todos los conceptos: descripcion, cantidad y valor unitario')
-      return
+
+    // Validaciones segun tipo de comprobante
+    if (tipoComprobante === 'I') {
+      if (conceptos.length === 0) { setError('Agrega al menos un concepto'); return }
+      if (conceptos.some(c => !c.descripcion || c.cantidad <= 0 || c.valor_unitario <= 0)) {
+        setError('Completa todos los conceptos: descripcion, cantidad y valor unitario')
+        return
+      }
+    } else {
+      // tipoComprobante === 'P' — REP
+      if (docsPago.length === 0) { setError('Agrega al menos una factura PPD al pago'); return }
+      if (montoPagoNum <= 0) { setError('El monto del pago debe ser mayor a 0'); return }
+      if (Math.abs(diferenciaPago) > 0.01) {
+        setError(`La suma de imp_pagado × equivalencia (${sumaDocsEnMonedaPago.toFixed(2)}) no coincide con el monto del pago (${montoPagoNum.toFixed(2)}). Diferencia: ${diferenciaPago.toFixed(2)}`)
+        return
+      }
+      if (docsPago.some(d => d.imp_pagado <= 0)) {
+        setError('Todos los documentos relacionados deben tener imp_pagado > 0')
+        return
+      }
+      if (docsPago.some(d => d.imp_pagado > d.imp_saldo_anterior + 0.01)) {
+        setError('Imp. pagado no puede ser mayor al saldo anterior en ninguna factura')
+        return
+      }
     }
+
     const cliente = clientes.find(c => c.id === clienteId)
     if (!cliente) { setError('Cliente no encontrado'); return }
 
@@ -1386,43 +1506,98 @@ function NuevaFactura({ onCancel, onCreated }: { onCancel: () => void; onCreated
         await supabase.from('clientes').update({ facturapi_customer_id: facturapiCustomerId }).eq('id', clienteId)
       }
 
-      const invoicePayload: any = {
-        customer: facturapiCustomerId,
-        items: conceptos.map(c => ({
-          quantity: c.cantidad,
-          product: {
-            description: c.descripcion,
-            product_key: c.clave_prod_serv,
-            price: c.valor_unitario,
-            unit_key: c.clave_unidad,
-            unit_name: c.unidad,
-            tax_included: false,
-            taxes: [{ type: 'IVA', rate: c.iva_tasa }]
-          }
-        })),
-        use: usoCfdi,
-        payment_form: formaPago,
-        payment_method: metodoPago,
-        currency: moneda,
-      }
-      if (moneda !== 'MXN') invoicePayload.exchange = parseFloat(tipoCambio) || 1
+      // Construir payload segun tipo de comprobante
+      let invoicePayload: any
+      if (tipoComprobante === 'I') {
+        invoicePayload = {
+          customer: facturapiCustomerId,
+          items: conceptos.map(c => ({
+            quantity: c.cantidad,
+            product: {
+              description: c.descripcion,
+              product_key: c.clave_prod_serv,
+              price: c.valor_unitario,
+              unit_key: c.clave_unidad,
+              unit_name: c.unidad,
+              tax_included: false,
+              taxes: [{ type: 'IVA', rate: c.iva_tasa }]
+            }
+          })),
+          use: usoCfdi,
+          payment_form: formaPago,
+          payment_method: metodoPago,
+          currency: moneda,
+        }
+        if (moneda !== 'MXN') invoicePayload.exchange = parseFloat(tipoCambio) || 1
 
-      // Feature A: CFDIs relacionados (con validaciones cruzadas)
-      if (tipoRelacion && uuidsRelacionados.length === 0) {
-        setError('Seleccionaste un tipo de relacion pero no agregaste facturas a relacionar')
-        setEmitting(false)
-        return
-      }
-      if (!tipoRelacion && uuidsRelacionados.length > 0) {
-        setError('Agregaste facturas a relacionar pero no seleccionaste un tipo de relacion SAT')
-        setEmitting(false)
-        return
-      }
-      if (tipoRelacion && uuidsRelacionados.length > 0) {
-        invoicePayload.related_documents = [{
-          relationship: tipoRelacion,
-          documents: uuidsRelacionados,
-        }]
+        // Feature A: CFDIs relacionados (con validaciones cruzadas) — solo para tipo I
+        if (tipoRelacion && uuidsRelacionados.length === 0) {
+          setError('Seleccionaste un tipo de relacion pero no agregaste facturas a relacionar')
+          setEmitting(false)
+          return
+        }
+        if (!tipoRelacion && uuidsRelacionados.length > 0) {
+          setError('Agregaste facturas a relacionar pero no seleccionaste un tipo de relacion SAT')
+          setEmitting(false)
+          return
+        }
+        if (tipoRelacion && uuidsRelacionados.length > 0) {
+          invoicePayload.related_documents = [{
+            relationship: tipoRelacion,
+            documents: uuidsRelacionados,
+          }]
+        }
+      } else {
+        // REP (tipo P) — Complemento de Pagos 2.0
+        // Header: 1 item generico con clave SAT 84111506, price=0, sin impuestos
+        // Uso CFDI obligatorio: CP01 (Pagos)
+        // Forma pago header: 99 (por definir), Metodo: PUE
+        invoicePayload = {
+          customer: facturapiCustomerId,
+          type: 'P',
+          items: [{
+            quantity: 1,
+            product: {
+              description: 'Pago',
+              product_key: '84111506',
+              price: 0,
+              unit_key: 'ACT',
+              unit_name: 'Actividad',
+              tax_included: false,
+              taxes: [],
+            }
+          }],
+          use: 'CP01',
+          payment_form: '99',
+          payment_method: 'PUE',
+          currency: 'XXX',
+          complements: [{
+            type: 'pago',
+            data: [{
+              payment_form: formaPagoREP,
+              date: fechaPago,
+              currency: monedaPago,
+              exchange: monedaPago !== 'MXN' ? (parseFloat(tipoCambioPago) || 1) : undefined,
+              amount: montoPagoNum,
+              ...(numOperacion ? { num_operation: numOperacion } : {}),
+              related_documents: docsPago.map(d => ({
+                uuid: d.uuid,
+                folio: d.folio || undefined,
+                series: d.serie || undefined,
+                currency: d.moneda_doc,
+                exchange: d.equivalencia_dr,
+                payment_number: d.num_parcialidad,
+                previous_balance: d.imp_saldo_anterior,
+                amount_paid: d.imp_pagado,
+                balance: d.imp_saldo_insoluto,
+                taxability: d.objeto_imp,
+                ...(d.objeto_imp === '02' && d.iva_trasladado > 0 ? {
+                  taxes: [{ type: 'IVA', rate: d.iva_tasa, base: d.imp_pagado - d.iva_trasladado, amount: d.iva_trasladado, withholding: false }]
+                } : {}),
+              })),
+            }]
+          }],
+        }
       }
 
       const ir = await callFacturapi('create_invoice', { method: 'POST', body: { payload: invoicePayload } })
@@ -1434,7 +1609,7 @@ function NuevaFactura({ onCancel, onCreated }: { onCancel: () => void; onCreated
 
       const invoice = ir.data
 
-      const facturaSupabase: any = {
+      const facturaSupabase: any = tipoComprobante === 'I' ? {
         direccion: 'emitida',
         cliente_id: clienteId,
         facturapi_id: invoice.id,
@@ -1463,6 +1638,38 @@ function NuevaFactura({ onCancel, onCreated }: { onCancel: () => void; onCreated
         tipo_relacion: tipoRelacion || null,
         uuids_relacionados: uuidsRelacionados.length > 0 ? uuidsRelacionados : null,
         sandbox: getCurrentFacturapiMode() === 'test',
+      } : {
+        // REP (tipo P) — Comprobante de Pago
+        direccion: 'emitida',
+        cliente_id: clienteId,
+        facturapi_id: invoice.id,
+        facturapi_customer_id: facturapiCustomerId,
+        uuid_fiscal: invoice.uuid || null,
+        serie: invoice.series || null,
+        folio: invoice.folio_number ? String(invoice.folio_number) : null,
+        tipo_comprobante: 'P',
+        fecha_emision: invoice.date || new Date().toISOString(),
+        fecha_timbrado: invoice.stamp?.date || null,
+        status: invoice.status === 'valid' ? 'timbrada' : 'borrador',
+        receptor_rfc: cliente.rfc,
+        receptor_nombre: cliente.razon_social,
+        receptor_uso_cfdi: 'CP01',
+        receptor_regimen_fiscal: cliente.regimen_fiscal_clave || cliente.regimen_fiscal,
+        receptor_codigo_postal: cliente.codigo_postal,
+        // En REP el header SAT va en 0; el monto real es el del complemento de pago.
+        // Guardamos el monto en `total` para que computeAmounts() y los KPIs lo usen.
+        subtotal: montoPagoNum,
+        iva: 0,
+        total: montoPagoNum,
+        moneda: monedaPago,
+        tipo_cambio: monedaPago !== 'MXN' ? (parseFloat(tipoCambioPago) || 1) : null,
+        forma_pago: formaPagoREP,
+        metodo_pago: 'PUE',
+        notas: notas || null,
+        // uuids_relacionados = union de todos los UUIDs de documentos pagados
+        // (util para el Monitor de Anticipos y queries de cobranza)
+        uuids_relacionados: docsPago.map(d => d.uuid),
+        sandbox: getCurrentFacturapiMode() === 'test',
       }
 
       const { data: created, error: insErr } = await supabase.from('facturas').insert(facturaSupabase).select().single()
@@ -1472,7 +1679,7 @@ function NuevaFactura({ onCancel, onCreated }: { onCancel: () => void; onCreated
         return
       }
 
-      if (created) {
+      if (created && tipoComprobante === 'I') {
         const conceptoInserts = conceptos.map((c, i) => ({
           factura_id: (created as any).id,
           descripcion: c.descripcion,
@@ -1531,15 +1738,42 @@ function NuevaFactura({ onCancel, onCreated }: { onCancel: () => void; onCreated
   return (
     <div style={{ background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 12, padding: 24 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-        <div style={{ fontSize: 16, fontWeight: 700, color: '#fff' }}>Nueva factura</div>
+        <div style={{ fontSize: 16, fontWeight: 700, color: '#fff' }}>
+          {tipoComprobante === 'I' ? 'Nueva factura' : 'Nuevo comprobante de pago (REP)'}
+        </div>
         <button onClick={onCancel} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer' }}><X size={18} /></button>
       </div>
 
       {error && <div style={{ background: '#3a1a1a', border: '1px solid #5a2a2a', borderRadius: 8, padding: 12, color: '#f87171', fontSize: 12, marginBottom: 16 }}>{error}</div>}
 
+      {/* Toggle tipo de comprobante */}
+      <div style={{ marginBottom: 20 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: '#888', marginBottom: 10 }}>Tipo de comprobante</div>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <button onClick={() => setTipoComprobante('I')} style={{
+            padding: '10px 20px', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+            border: `1px solid ${tipoComprobante === 'I' ? '#57FF9A' : '#2a2a2a'}`,
+            background: tipoComprobante === 'I' ? '#57FF9A18' : 'transparent',
+            color: tipoComprobante === 'I' ? '#57FF9A' : '#888',
+          }}>Factura (tipo I — Ingreso)</button>
+          <button onClick={() => setTipoComprobante('P')} style={{
+            padding: '10px 20px', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+            border: `1px solid ${tipoComprobante === 'P' ? '#A78BFA' : '#2a2a2a'}`,
+            background: tipoComprobante === 'P' ? '#A78BFA18' : 'transparent',
+            color: tipoComprobante === 'P' ? '#C084FC' : '#888',
+          }}>Comprobante de Pago (tipo P — REP)</button>
+        </div>
+        {tipoComprobante === 'P' && (
+          <div style={{ marginTop: 8, fontSize: 10, color: '#666', fontStyle: 'italic' }}>
+            Complemento de Pagos 2.0 — para registrar pagos recibidos sobre facturas PPD previamente emitidas.
+            Los totales fiscales del header van en 0; el monto real va en el complemento.
+          </div>
+        )}
+      </div>
+
       <div style={{ marginBottom: 20 }}>
         <div style={{ fontSize: 13, fontWeight: 600, color: '#888', marginBottom: 10 }}>Cliente y vinculacion</div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: tipoComprobante === 'I' ? '1fr 1fr' : '1fr', gap: 12 }}>
           <div>
             <label style={lblStyle}>Cliente *</label>
             <select value={clienteId} onChange={e => setClienteId(e.target.value)} style={inpStyle}>
@@ -1547,13 +1781,15 @@ function NuevaFactura({ onCancel, onCreated }: { onCancel: () => void; onCreated
               {clientes.map(c => <option key={c.id} value={c.id}>{c.razon_social} ({c.rfc})</option>)}
             </select>
           </div>
-          <div>
-            <label style={lblStyle}>Cotizacion (opcional)</label>
-            <select value={cotizacionId} onChange={e => setCotizacionId(e.target.value)} style={inpStyle}>
-              <option value="">-- Sin vinculacion --</option>
-              {cotizaciones.map(c => <option key={c.id} value={c.id}>{c.name} - {c.client_name}</option>)}
-            </select>
-          </div>
+          {tipoComprobante === 'I' && (
+            <div>
+              <label style={lblStyle}>Cotizacion (opcional)</label>
+              <select value={cotizacionId} onChange={e => setCotizacionId(e.target.value)} style={inpStyle}>
+                <option value="">-- Sin vinculacion --</option>
+                {cotizaciones.map(c => <option key={c.id} value={c.id}>{c.name} - {c.client_name}</option>)}
+              </select>
+            </div>
+          )}
         </div>
         {clienteId && (() => {
           const c = clientes.find(x => x.id === clienteId)
@@ -1598,6 +1834,7 @@ function NuevaFactura({ onCancel, onCreated }: { onCancel: () => void; onCreated
         })()}
       </div>
 
+      {tipoComprobante === 'I' && <>
       {/* Feature A: Relacionar facturas (CFDI Relacionado) */}
       <div style={{ marginBottom: 20 }}>
         <SelectorFacturasRelacionadas
@@ -1757,11 +1994,187 @@ function NuevaFactura({ onCancel, onCreated }: { onCancel: () => void; onCreated
           <span>Total</span><span>{total.toLocaleString('es-MX', { minimumFractionDigits: 2 })} {moneda}</span>
         </div>
       </div>
+      </>}
+
+      {tipoComprobante === 'P' && <>
+        {/* Datos del pago (cabecera del complemento) */}
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: '#888', marginBottom: 10 }}>Datos del pago</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 12 }}>
+            <div>
+              <label style={lblStyle}>Fecha y hora del pago *</label>
+              <input type="datetime-local" value={fechaPago} onChange={e => setFechaPago(e.target.value)} style={inpStyle} />
+            </div>
+            <div>
+              <label style={lblStyle}>Forma de pago *</label>
+              <select value={formaPagoREP} onChange={e => setFormaPagoREP(e.target.value)} style={inpStyle}>
+                <option value="01">01 - Efectivo</option>
+                <option value="02">02 - Cheque nominativo</option>
+                <option value="03">03 - Transferencia</option>
+                <option value="04">04 - Tarjeta de credito</option>
+                <option value="28">28 - Tarjeta de debito</option>
+                <option value="99">99 - Por definir</option>
+              </select>
+            </div>
+            <div>
+              <label style={lblStyle}>Num operacion (opcional)</label>
+              <input value={numOperacion} onChange={e => setNumOperacion(e.target.value)} placeholder="Ref, cheque..." style={inpStyle} />
+            </div>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+            <div>
+              <label style={lblStyle}>Moneda del pago *</label>
+              <select value={monedaPago} onChange={e => setMonedaPago(e.target.value)} style={inpStyle}>
+                <option value="MXN">MXN</option>
+                <option value="USD">USD</option>
+                <option value="EUR">EUR</option>
+              </select>
+            </div>
+            <div>
+              <label style={lblStyle}>Tipo de cambio del pago</label>
+              <input type="number" value={tipoCambioPago} onChange={e => setTipoCambioPago(e.target.value)} disabled={monedaPago === 'MXN'} style={{ ...inpStyle, opacity: monedaPago === 'MXN' ? 0.4 : 1 }} />
+            </div>
+            <div>
+              <label style={lblStyle}>Monto del pago * ({monedaPago})</label>
+              <input type="number" value={montoPago} onChange={e => setMontoPago(e.target.value)} style={inpStyle} />
+            </div>
+          </div>
+        </div>
+
+        {/* Facturas PPD relacionadas */}
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#888' }}>Facturas PPD pagadas ({docsPago.length})</div>
+            {clienteId && (
+              <button onClick={() => setMostrarSelectorPPD(!mostrarSelectorPPD)} style={{
+                padding: '6px 12px', background: '#1e1e1e', color: '#A78BFA', border: '1px solid #A78BFA44', borderRadius: 6,
+                fontSize: 11, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6
+              }}>
+                <Plus size={12} /> {mostrarSelectorPPD ? 'Cerrar selector' : 'Agregar factura PPD'}
+              </button>
+            )}
+          </div>
+
+          {!clienteId && (
+            <div style={{ padding: 14, background: '#0a0a0a', border: '1px solid #1a1a1a', borderRadius: 8, fontSize: 11, color: '#666', fontStyle: 'italic' }}>
+              Selecciona primero un cliente para poder agregar sus facturas PPD.
+            </div>
+          )}
+
+          {mostrarSelectorPPD && clienteId && (
+            <div style={{ marginBottom: 12 }}>
+              <SelectorFacturasRelacionadas
+                rfcCliente={clientes.find(c => c.id === clienteId)?.rfc || null}
+                tipoRelacion=""
+                onTipoRelacionChange={() => {}}
+                uuidsSeleccionados={uuidsPPDTemporales}
+                onUuidsChange={setUuidsPPDTemporales}
+                filtroExtra="ppd"
+                titulo="Seleccionar facturas PPD a pagar"
+                ocultarTipoRelacion={true}
+              />
+              <div style={{ marginTop: 8, display: 'flex', justifyContent: 'flex-end', gap: 6 }}>
+                <button onClick={() => { setUuidsPPDTemporales([]); setMostrarSelectorPPD(false) }} style={{ padding: '6px 12px', background: '#1e1e1e', color: '#888', border: '1px solid #2a2a2a', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>Cancelar</button>
+                <button onClick={agregarDocsPago} disabled={uuidsPPDTemporales.length === 0} style={{ padding: '6px 12px', background: uuidsPPDTemporales.length > 0 ? '#A78BFA' : '#333', color: uuidsPPDTemporales.length > 0 ? '#000' : '#666', border: 'none', borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: uuidsPPDTemporales.length > 0 ? 'pointer' : 'not-allowed' }}>Agregar {uuidsPPDTemporales.length} factura(s)</button>
+              </div>
+            </div>
+          )}
+
+          {docsPago.length === 0 && !mostrarSelectorPPD && clienteId && (
+            <div style={{ padding: 14, background: '#0a0a0a', border: '1px dashed #2a2a2a', borderRadius: 8, fontSize: 11, color: '#666', fontStyle: 'italic', textAlign: 'center' }}>
+              No hay facturas PPD agregadas. Haz clic en "Agregar factura PPD" para seleccionarlas del listado.
+            </div>
+          )}
+
+          {docsPago.map((d, idx) => (
+            <div key={d.uuid} style={{ background: '#0a0a0a', border: '1px solid #1a1a1a', borderRadius: 8, padding: 14, marginBottom: 10 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                <div style={{ fontSize: 11, color: '#C084FC', fontFamily: 'monospace' }}>
+                  {d.serie || ''}{d.folio || '-'} — {d.uuid.slice(0, 8)}... <span style={{ color: '#666' }}>({d.total_doc.toLocaleString('es-MX', { minimumFractionDigits: 2 })} {d.moneda_doc})</span>
+                </div>
+                <button onClick={() => removeDocPago(idx)} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', padding: 0 }}><Trash2 size={12} /></button>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 8, marginBottom: 8 }}>
+                <div>
+                  <label style={lblStyle}>Equiv. DR</label>
+                  <input type="number" step="0.0001" value={d.equivalencia_dr} onChange={e => updateDocPago(idx, 'equivalencia_dr', parseFloat(e.target.value) || 1)} style={inpStyle} />
+                </div>
+                <div>
+                  <label style={lblStyle}>Parcialidad #</label>
+                  <input type="number" value={d.num_parcialidad} onChange={e => updateDocPago(idx, 'num_parcialidad', parseInt(e.target.value) || 1)} style={inpStyle} />
+                </div>
+                <div>
+                  <label style={lblStyle}>Saldo anterior</label>
+                  <input type="number" step="0.01" value={d.imp_saldo_anterior} onChange={e => updateDocPago(idx, 'imp_saldo_anterior', parseFloat(e.target.value) || 0)} style={inpStyle} />
+                </div>
+                <div>
+                  <label style={lblStyle}>Imp. pagado *</label>
+                  <input type="number" step="0.01" value={d.imp_pagado} onChange={e => updateDocPago(idx, 'imp_pagado', parseFloat(e.target.value) || 0)} style={{ ...inpStyle, borderColor: '#A78BFA44' }} />
+                </div>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 8 }}>
+                <div>
+                  <label style={lblStyle}>Saldo insoluto</label>
+                  <input type="number" value={d.imp_saldo_insoluto.toFixed(2)} disabled style={{ ...inpStyle, opacity: 0.6 }} />
+                </div>
+                <div>
+                  <label style={lblStyle}>Objeto imp.</label>
+                  <select value={d.objeto_imp} onChange={e => updateDocPago(idx, 'objeto_imp', e.target.value)} style={inpStyle}>
+                    <option value="01">01 - No objeto</option>
+                    <option value="02">02 - Si objeto</option>
+                    <option value="03">03 - Si objeto y no obligado</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={lblStyle}>IVA tasa</label>
+                  <select value={d.iva_tasa} onChange={e => updateDocPago(idx, 'iva_tasa', parseFloat(e.target.value))} disabled={d.objeto_imp !== '02'} style={{ ...inpStyle, opacity: d.objeto_imp !== '02' ? 0.4 : 1 }}>
+                    <option value="0.16">16%</option>
+                    <option value="0.08">8%</option>
+                    <option value="0">0%</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={lblStyle}>IVA trasladado</label>
+                  <input type="number" value={d.iva_trasladado.toFixed(2)} disabled style={{ ...inpStyle, opacity: 0.6 }} />
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Notas REP */}
+        <div style={{ marginBottom: 20 }}>
+          <label style={lblStyle}>Notas internas</label>
+          <textarea value={notas} onChange={e => setNotas(e.target.value)} style={{ ...inpStyle, minHeight: 50, fontFamily: 'inherit', resize: 'vertical' }} />
+        </div>
+
+        {/* Validacion visual: suma docs vs monto pago */}
+        <div style={{ background: Math.abs(diferenciaPago) < 0.01 ? '#0a1f0e' : '#3a1a1a', border: '1px solid ' + (Math.abs(diferenciaPago) < 0.01 ? '#1a3a1f' : '#5a2a2a'), borderRadius: 8, padding: 14, marginBottom: 20 }}>
+          <div style={{ fontSize: 11, color: '#888', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 600 }}>Validacion del complemento</div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#888', marginBottom: 4 }}>
+            <span>Σ (Imp. pagado × Equiv. DR)</span>
+            <span style={{ fontFamily: 'monospace' }}>{sumaDocsEnMonedaPago.toLocaleString('es-MX', { minimumFractionDigits: 2 })} {monedaPago}</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#888', marginBottom: 4 }}>
+            <span>Monto del pago declarado</span>
+            <span style={{ fontFamily: 'monospace' }}>{montoPagoNum.toLocaleString('es-MX', { minimumFractionDigits: 2 })} {monedaPago}</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, fontWeight: 700, marginTop: 8, color: Math.abs(diferenciaPago) < 0.01 ? '#57FF9A' : '#f87171' }}>
+            <span>Diferencia</span>
+            <span style={{ fontFamily: 'monospace' }}>{diferenciaPago.toLocaleString('es-MX', { minimumFractionDigits: 2 })} {monedaPago}</span>
+          </div>
+          {Math.abs(diferenciaPago) >= 0.01 && (
+            <div style={{ fontSize: 10, color: '#f87171', fontStyle: 'italic', marginTop: 6 }}>
+              La suma de imp_pagado × equivalencia debe ser igual al monto del pago (tolerancia ±0.01).
+            </div>
+          )}
+        </div>
+      </>}
 
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
         <button onClick={onCancel} style={{ padding: '10px 20px', background: '#1e1e1e', color: '#ccc', border: '1px solid #2a2a2a', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Cancelar</button>
-        <button onClick={emitir} disabled={emitting} style={{ padding: '10px 20px', background: emitting ? '#444' : '#57FF9A', color: '#000', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: emitting ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
-          {emitting ? <><Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Emitiendo...</> : 'Emitir factura'}
+        <button onClick={emitir} disabled={emitting} style={{ padding: '10px 20px', background: emitting ? '#444' : (tipoComprobante === 'P' ? '#A78BFA' : '#57FF9A'), color: '#000', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: emitting ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+          {emitting ? <><Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Emitiendo...</> : (tipoComprobante === 'P' ? 'Emitir REP' : 'Emitir factura')}
         </button>
       </div>
     </div>
