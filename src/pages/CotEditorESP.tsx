@@ -6,14 +6,14 @@ import { ANTHROPIC_API_KEY } from '../lib/config'
 import { Plus, ChevronLeft, ChevronRight, ChevronDown, X, Trash2, Image as ImageIcon, Search, RefreshCw, Sparkles, Upload, Loader2, FileText } from 'lucide-react'
 import ImageUpload from '../components/ImageUpload'
 
-// âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+// ═══════════════════════════════════════════════════════════════════
 // TYPES
-// âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+// ═══════════════════════════════════════════════════════════════════
 interface EspProduct {
   id: string; areaId: string; systemId: string; catalogId: string | null
   name: string; description: string; imageUrl: string | null
   quantity: number; price: number; laborCost: number; margin: number; order: number
-  monedaOrigen: string // USD or MXN â the currency of the catalog product
+  monedaOrigen: string // USD or MXN — the currency of the catalog product
 }
 interface EspArea { id: string; name: string; collapsed: boolean; order: number }
 interface EspSystemDef { id: string; name: string; color: string }
@@ -56,14 +56,14 @@ const S = {
   tdM: { padding: '6px 8px', fontSize: 12, fontWeight: 600, color: '#fff', borderBottom: '1px solid #1a1a1a', textAlign: 'right' as const },
 }
 
-// âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+// ═══════════════════════════════════════════════════════════════════
 // TABULADOR DE PRECIOS POR PROVEEDOR
 // costoMult: multiplicador sobre costo de lista (1.05 = +5% overhead)
 // margen: % de margen sobre precio de venta
-// instPct: % de instalaciÃ³n y programaciÃ³n sobre precio de venta
-// descMax: descuento mÃ¡ximo permitido
-// precioPublico: true = usar precio pÃºblico directo, no calcular
-// âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+// instPct: % de instalación y programación sobre precio de venta
+// descMax: descuento máximo permitido
+// precioPublico: true = usar precio público directo, no calcular
+// ═══════════════════════════════════════════════════════════════════
 interface PricingRule {
   costoMult: number
   margen: number
@@ -104,18 +104,19 @@ function calcLaborFromPrice(price: number, rule: PricingRule): number {
   return Math.round(price * (rule.instPct / 100) * 100) / 100
 }
 
-// âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+// ═══════════════════════════════════════════════════════════════════
 // PRODUCT ROW
-// âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+// ═══════════════════════════════════════════════════════════════════
 function ProductRow({ p, onUpdate, onRemove, onUpdateAll, showInt, duplicateCount, onCopyTo }: {
   p: EspProduct; onUpdate: (id: string, f: string, v: number | string) => void; onRemove: (id: string) => void
-  onUpdateAll: (catalogId: string, field: string, value: number) => void; showInt: boolean; duplicateCount: number; onCopyTo?: (id: string) => void
+  onUpdateAll: (catalogId: string, field: string, value: number) => void; showInt: boolean; duplicateCount: number
+  onCopyTo?: (id: string) => void
 }) {
   const { precioAmp, moAmp, total, costReal, utilidad } = calcLine(p)
   const handleBlur = (field: string, value: number) => {
     onUpdate(p.id, field, value)
     if (duplicateCount > 1 && p.catalogId && (field === 'price' || field === 'laborCost' || field === 'margin')) {
-      if (confirm('Este producto aparece ' + duplicateCount + ' veces. Â¿Actualizar ' + field + ' en todos?')) {
+      if (confirm('Este producto aparece ' + duplicateCount + ' veces. ¿Actualizar ' + field + ' en todos?')) {
         onUpdateAll(p.catalogId, field, value)
       }
     }
@@ -132,7 +133,7 @@ function ProductRow({ p, onUpdate, onRemove, onUpdateAll, showInt, duplicateCoun
       <td style={{ ...S.td, minWidth: 180 }}>
         <div style={{ fontSize: 12, fontWeight: 500, color: '#ddd' }}>{p.name}</div>
         {p.description && <div style={{ fontSize: 10, color: '#555', marginTop: 1 }}>{p.description}</div>}
-        {duplicateCount > 1 && <span style={{ fontSize: 9, color: '#F59E0B', background: '#F59E0B18', padding: '1px 5px', borderRadius: 4 }}>Ã{duplicateCount}</span>}
+        {duplicateCount > 1 && <span style={{ fontSize: 9, color: '#F59E0B', background: '#F59E0B18', padding: '1px 5px', borderRadius: 4 }}>×{duplicateCount}</span>}
       </td>
       <td style={S.tdR}><input type="number" defaultValue={p.price} step={0.01} onBlur={e => handleBlur('price', parseFloat(e.target.value) || 0)} style={S.input} /></td>
       <td style={S.tdM}>${precioAmp.toFixed(2)}</td>
@@ -143,19 +144,19 @@ function ProductRow({ p, onUpdate, onRemove, onUpdateAll, showInt, duplicateCoun
         <td style={S.tdR}><input type="number" defaultValue={p.margin} step={1} onBlur={e => handleBlur('margin', parseFloat(e.target.value) || 0)} style={{ ...S.input, width: 40, color: p.margin >= 25 ? '#57FF9A' : p.margin >= 15 ? '#F59E0B' : '#EF4444' }} /></td>
         <td style={{ ...S.tdR, fontSize: 10, color: utilidad >= 0 ? '#57FF9A' : '#EF4444' }}>${utilidad.toFixed(2)}</td>
       </>)}
-      {onCopyTo && <td style={{ ...S.td, width: 28 }}><button onClick={() => onCopyTo(p.id)} title="Copiar a otras areas" style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px', fontSize: 11, opacity: 0.6 }}>{String.fromCodePoint(0x1F4CB)}</button></td>}
-      <td style={{ ...S.td, width: 28 }}><button onClick={() => onRemove(p.id)} style={{ background: 'none', border: 'none', color: '#444', cursor: 'pointer' }}><Trash2 size={12} /></button></td>
+      <td style={{ ...S.td, width: 28 }}>{onCopyTo && <button onClick={() => onCopyTo(p.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, padding: 0, opacity: 0.5 }} title="Copiar a otras areas">{String.fromCodePoint(0x1F4CB)}</button>}</td><td style={{ ...S.td, width: 28 }}><button onClick={() => onRemove(p.id)} style={{ background: 'none', border: 'none', color: '#444', cursor: 'pointer' }}><Trash2 size={12} /></button></td>
     </tr>
   )
 }
 
-// âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+// ═══════════════════════════════════════════════════════════════════
 // SYSTEM BLOCK
-// âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+// ═══════════════════════════════════════════════════════════════════
 function SystemBlock({ sysDef, products, collapsed, onToggle, onUpdate, onRemove, onUpdateAll, onAdd, showInt, allProducts, onCopyTo }: {
   sysDef: EspSystemDef; products: EspProduct[]; collapsed: boolean; onToggle: () => void
   onUpdate: (id: string, f: string, v: number | string) => void; onRemove: (id: string) => void
-  onUpdateAll: (catalogId: string, field: string, value: number) => void; onAdd: () => void; showInt: boolean; allProducts: EspProduct[]; onCopyTo?: (id: string) => void
+  onUpdateAll: (catalogId: string, field: string, value: number) => void; onAdd: () => void; showInt: boolean; allProducts: EspProduct[]
+  onCopyTo?: (id: string) => void
 }) {
   const sysTotal = products.reduce((s, p) => s + calcLine(p).total, 0)
   return (
@@ -171,7 +172,7 @@ function SystemBlock({ sysDef, products, collapsed, onToggle, onUpdate, onRemove
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead><tr style={{ background: '#0e0e0e' }}>
             <th style={{ ...S.th, textAlign: 'center' }}>IMG</th><th style={{ ...S.th, textAlign: 'center' }}>CANT.</th>
-            <th style={S.th}>DESCRIPCIÃN</th><th style={{ ...S.th, textAlign: 'right' }}>PRECIO</th>
+            <th style={S.th}>DESCRIPCIÓN</th><th style={{ ...S.th, textAlign: 'right' }}>PRECIO</th>
             <th style={{ ...S.th, textAlign: 'right' }}>P. AMP.</th><th style={{ ...S.th, textAlign: 'right' }}>M.O.</th>
             <th style={{ ...S.th, textAlign: 'right' }}>TOTAL</th>
             {showInt && (<><th style={{ ...S.th, textAlign: 'right', color: '#555' }}>COSTO</th><th style={{ ...S.th, textAlign: 'right', color: '#555' }}>MG%</th><th style={{ ...S.th, textAlign: 'right', color: '#555' }}>UTIL.</th></>)}
@@ -193,15 +194,15 @@ function SystemBlock({ sysDef, products, collapsed, onToggle, onUpdate, onRemove
   )
 }
 
-// âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+// ═══════════════════════════════════════════════════════════════════
 // AREA BLOCK
-// âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
-function AreaBlock({ area, activeSystems, products, allProducts, collapsedSys, onToggleArea, onToggleSys, onUpdateProd, onRemoveProd, onUpdateAll, onAddProd, onCopyTo, showInt }: {
+// ═══════════════════════════════════════════════════════════════════
+function AreaBlock({ area, activeSystems, products, allProducts, collapsedSys, onToggleArea, onToggleSys, onUpdateProd, onRemoveProd, onUpdateAll, onAddProd, showInt }: {
   area: EspArea; activeSystems: EspSystemDef[]; products: EspProduct[]; allProducts: EspProduct[]
   collapsedSys: Record<string, boolean>; onToggleArea: () => void; onToggleSys: (k: string) => void
   onUpdateProd: (id: string, f: string, v: number | string) => void; onRemoveProd: (id: string) => void
   onUpdateAll: (catalogId: string, field: string, value: number) => void
-  onAddProd: (sysId: string) => void; onCopyTo?: (id: string) => void; showInt: boolean
+  onAddProd: (sysId: string) => void; showInt: boolean
 }) {
   const areaProds = products.filter(p => p.areaId === area.id)
   const areaTotal = areaProds.reduce((s, p) => s + calcLine(p).total, 0)
@@ -222,7 +223,7 @@ function AreaBlock({ area, activeSystems, products, allProducts, collapsedSys, o
             <SystemBlock key={sys.id} sysDef={sys} products={areaProds.filter(p => p.systemId === sys.id)}
               collapsed={collapsedSys[area.id + '_' + sys.id] || false} onToggle={() => onToggleSys(area.id + '_' + sys.id)}
               onUpdate={onUpdateProd} onRemove={onRemoveProd} onUpdateAll={onUpdateAll}
-              onAdd={() => onAddProd(sys.id)} showInt={showInt} allProducts={allProducts} onCopyTo={onCopyTo} />
+              onAdd={() => onAddProd(sys.id)} showInt={showInt} allProducts={allProducts}  onCopyTo={onCopyTo} />
           ))}
           {sysEmpty.length > 0 && (
             <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', padding: '4px 0' }}>
@@ -241,9 +242,9 @@ function AreaBlock({ area, activeSystems, products, allProducts, collapsedSys, o
   )
 }
 
-// âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
-// AI IMPORT MODAL â Importar listado de productos con AI
-// âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+// ═══════════════════════════════════════════════════════════════════
+// AI IMPORT MODAL — Importar listado de productos con AI
+// ═══════════════════════════════════════════════════════════════════
 interface AIExtractedItem {
   _rowId: string
   area: string
@@ -301,7 +302,7 @@ function AIImportModal({ cotId, areas, activeSysIds, currency, tipoCambio, onClo
     return { items: data.items || [], confidence: data.confidence || 'medium', warnings: data.warnings || [] }
   }
 
-  // Carga SheetJS dinÃ¡micamente desde CDN si no estÃ¡ cargado ya
+  // Carga SheetJS dinámicamente desde CDN si no está cargado ya
   async function loadXLSX(): Promise<any> {
     if ((window as any).XLSX) return (window as any).XLSX
     await new Promise<void>((resolve, reject) => {
@@ -315,7 +316,7 @@ function AIImportModal({ cotId, areas, activeSysIds, currency, tipoCambio, onClo
     return (window as any).XLSX
   }
 
-  // Mapeo de sistemas del archivo (D-Tools usa nombres en espaÃ±ol) al systemId interno
+  // Mapeo de sistemas del archivo (D-Tools usa nombres en español) al systemId interno
   function mapSystemToId(systemName: string): string {
     const s = (systemName || '').toLowerCase().trim()
     if (!s) return 'audio'
@@ -350,7 +351,7 @@ function AIImportModal({ cotId, areas, activeSysIds, currency, tipoCambio, onClo
     const keys = Object.keys(firstRow).map(k => k.toLowerCase())
     const hasModel = keys.some(k => k === 'model' || k === 'modelo' || k === 'part number' || k === 'sku')
     const hasSystem = keys.some(k => k === 'system' || k === 'sistema')
-    const hasRoom = keys.some(k => k === 'room' || k === 'area' || k === 'Ã¡rea' || k === 'zona')
+    const hasRoom = keys.some(k => k === 'room' || k === 'area' || k === 'área' || k === 'zona')
     if (!hasModel || !hasSystem) return null // no es formato estructurado reconocible
 
     const items: any[] = []
@@ -364,9 +365,9 @@ function AIImportModal({ cotId, areas, activeSysIds, currency, tipoCambio, onClo
       }
       const manufacturer = findCol(row, ['Manufacturer', 'Marca', 'Brand', 'Fabricante']) || ''
       const vendor = findCol(row, ['Vendor', 'Proveedor', 'Supplier', 'Distribuidor']) || ''
-      const room = findCol(row, ['Room', 'Area', 'Ãrea', 'Zona', 'UbicaciÃ³n', 'Location']) || ''
+      const room = findCol(row, ['Room', 'Area', 'Área', 'Zona', 'Ubicación', 'Location']) || ''
       const system = findCol(row, ['System', 'Sistema']) || ''
-      const description = findCol(row, ['Short Description', 'Description', 'DescripciÃ³n', 'Descripcion', 'Product Description']) || ''
+      const description = findCol(row, ['Short Description', 'Description', 'Descripción', 'Descripcion', 'Product Description']) || ''
       const qtyRaw = findCol(row, ['Item Ext Qty', 'Item Unit Qty', 'Qty', 'Quantity', 'Cantidad', 'Cant'])
       const qty = qtyRaw != null ? parseFloat(String(qtyRaw)) : 1
       const priceRaw = findCol(row, ['Unit Price', 'Precio Unitario', 'Price', 'Precio', 'Unit Cost', 'Cost'])
@@ -395,7 +396,7 @@ function AIImportModal({ cotId, areas, activeSysIds, currency, tipoCambio, onClo
     if (items.length === 0) return null
     const skipped = rows.length - items.length
     if (skipped > 0) warnings.push(skipped + ' fila(s) sin modelo fueron omitidas')
-    warnings.push('Parseado directamente del Excel (' + items.length + ' items) â sin usar AI')
+    warnings.push('Parseado directamente del Excel (' + items.length + ' items) — sin usar AI')
     return { items, confidence: 'high', warnings }
   }
 
@@ -447,7 +448,7 @@ function AIImportModal({ cotId, areas, activeSysIds, currency, tipoCambio, onClo
 
       if (['csv', 'tsv', 'txt'].includes(ext)) {
         const text = await file.text()
-        // Intentar detectar formato D-Tools en CSV tambiÃ©n
+        // Intentar detectar formato D-Tools en CSV también
         const dtResult = tryParseStructured(text)
         if (dtResult) {
           extracted = dtResult
@@ -460,14 +461,14 @@ function AIImportModal({ cotId, areas, activeSysIds, currency, tipoCambio, onClo
         const XLSX = await loadXLSX()
         const buf = await file.arrayBuffer()
         const wb = XLSX.read(buf, { type: 'array' })
-        // Tomar la primera hoja con datos â detectando automÃ¡ticamente la fila de headers
+        // Tomar la primera hoja con datos — detectando automáticamente la fila de headers
         let rows: any[] = []
         for (const sheetName of wb.SheetNames) {
           const sheet = wb.Sheets[sheetName]
-          // Obtener datos como matriz 2D para detectar dÃ³nde estÃ¡n los headers
+          // Obtener datos como matriz 2D para detectar dónde están los headers
           const matrix: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null, raw: false })
           if (matrix.length === 0) continue
-          // Buscar la primera fila que tenga al menos 3 celdas con headers tÃ­picos
+          // Buscar la primera fila que tenga al menos 3 celdas con headers típicos
           const headerKeywords = ['model', 'modelo', 'system', 'sistema', 'room', 'area', 'manufacturer', 'marca', 'part number', 'quantity', 'cantidad', 'description', 'descripcion', 'price', 'precio']
           let headerRowIdx = 0
           for (let i = 0; i < Math.min(matrix.length, 10); i++) {
@@ -520,7 +521,7 @@ function AIImportModal({ cotId, areas, activeSysIds, currency, tipoCambio, onClo
         throw new Error('Formato no soportado: .' + ext + ' (usa Excel, CSV, PDF o imagen)')
       }
 
-      setProgress('Verificando catÃ¡logo...')
+      setProgress('Verificando catálogo...')
       const matched = await matchCatalog(extracted.items)
       setItems(matched)
       setWarnings(extracted.warnings || [])
@@ -601,8 +602,8 @@ function AIImportModal({ cotId, areas, activeSysIds, currency, tipoCambio, onClo
     setError(null)
     setInsertedCount(0)
     try {
-      // 1) Sincronizar Ã¡reas â crear las que falten
-      setProgress('Sincronizando Ã¡reas...')
+      // 1) Sincronizar áreas — crear las que falten
+      setProgress('Sincronizando áreas...')
       const areaCache: Record<string, string> = {}
       areas.forEach(a => { areaCache[a.name.toLowerCase().trim()] = a.id })
       const uniqueAreaNames = Array.from(new Set(items.map(it => (it.area || 'General').trim()).filter(Boolean)))
@@ -615,7 +616,7 @@ function AIImportModal({ cotId, areas, activeSysIds, currency, tipoCambio, onClo
           .insert({ quotation_id: cotId, name, order_index: nextOrder++, subtotal: 0 })
           .select()
           .single()
-        if (areaErr) throw new Error('Error creando Ã¡rea "' + name + '": ' + areaErr.message)
+        if (areaErr) throw new Error('Error creando área "' + name + '": ' + areaErr.message)
         if (newArea) areaCache[key] = newArea.id
       }
 
@@ -630,7 +631,7 @@ function AIImportModal({ cotId, areas, activeSysIds, currency, tipoCambio, onClo
         let prodProvider = it.provider || it.marca || ''
 
         if (!catalogProductId) {
-          // Crear producto en catÃ¡logo
+          // Crear producto en catálogo
           const sysName = ALL_SYSTEMS.find(s => s.id === it.systemId)?.name || 'Audio'
           const newProductCost = it.precio_unitario || 0
           const newProductMoneda = it.moneda || 'USD'
@@ -678,7 +679,7 @@ function AIImportModal({ cotId, areas, activeSysIds, currency, tipoCambio, onClo
             prodCost = Number(existing.cost) || 0
             prodMoneda = existing.moneda || 'USD'
             if (existing.provider) prodProvider = existing.provider
-            // Heredar snapshot fields del catÃ¡logo si el item del Excel no los trae
+            // Heredar snapshot fields del catálogo si el item del Excel no los trae
             if (!it.marca && existing.marca) it.marca = existing.marca
             if (!it.modelo && existing.modelo) it.modelo = existing.modelo
             if (!it.sku && (existing as any).sku) it.sku = (existing as any).sku
@@ -700,7 +701,7 @@ function AIImportModal({ cotId, areas, activeSysIds, currency, tipoCambio, onClo
         const sysName = ALL_SYSTEMS.find(s => s.id === it.systemId)?.name || 'Audio'
         const areaId = areaCache[(it.area || 'General').toLowerCase().trim()]
         if (!areaId) {
-          console.warn('Sin Ã¡rea para item', it)
+          console.warn('Sin área para item', it)
           continue
         }
         const itemName = it.descripcion || ((it.marca + ' ' + it.modelo).trim())
@@ -747,7 +748,7 @@ function AIImportModal({ cotId, areas, activeSysIds, currency, tipoCambio, onClo
       onImported()
       onClose()
     } catch (err: any) {
-      setError(err.message || 'Error en la importaciÃ³n')
+      setError(err.message || 'Error en la importación')
       setStep('review')
     }
   }
@@ -764,7 +765,7 @@ function AIImportModal({ cotId, areas, activeSysIds, currency, tipoCambio, onClo
             <div style={{ fontSize: 14, fontWeight: 600, color: '#fff', display: 'flex', alignItems: 'center', gap: 8 }}>
               <Sparkles size={14} color="#57FF9A" /> Importar con AI
             </div>
-            <div style={{ fontSize: 11, color: '#555' }}>Sube un listado en Excel, CSV, PDF o imagen â la AI extrae los productos</div>
+            <div style={{ fontSize: 11, color: '#555' }}>Sube un listado en Excel, CSV, PDF o imagen — la AI extrae los productos</div>
           </div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer' }}><X size={18} /></button>
         </div>
@@ -813,7 +814,7 @@ function AIImportModal({ cotId, areas, activeSysIds, currency, tipoCambio, onClo
             <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 10, fontSize: 11 }}>
               <span style={{ color: '#888' }}>Confianza: <span style={{ color: confidence === 'high' ? '#57FF9A' : confidence === 'medium' ? '#F59E0B' : '#EF4444', fontWeight: 600 }}>{confidence}</span></span>
               <span style={{ color: '#888' }}>{items.length} items detectados</span>
-              <span style={{ color: '#57FF9A' }}>â {exactCount} en catÃ¡logo</span>
+              <span style={{ color: '#57FF9A' }}>✓ {exactCount} en catálogo</span>
               <span style={{ color: '#F59E0B' }}>~ {partialCount} parciales</span>
               <span style={{ color: '#06B6D4' }}>+ {noneCount} nuevos</span>
             </div>
@@ -821,7 +822,7 @@ function AIImportModal({ cotId, areas, activeSysIds, currency, tipoCambio, onClo
             {warnings.length > 0 && (
               <div style={{ background: '#2a200a', border: '1px solid #3a2e10', borderRadius: 8, padding: 10, marginBottom: 10 }}>
                 <div style={{ fontSize: 11, color: '#F59E0B', fontWeight: 600, marginBottom: 4 }}>Advertencias:</div>
-                {warnings.map((w, i) => <div key={i} style={{ fontSize: 11, color: '#aaa' }}>â¢ {w}</div>)}
+                {warnings.map((w, i) => <div key={i} style={{ fontSize: 11, color: '#aaa' }}>• {w}</div>)}
               </div>
             )}
 
@@ -830,11 +831,11 @@ function AIImportModal({ cotId, areas, activeSysIds, currency, tipoCambio, onClo
                 <thead style={{ position: 'sticky', top: 0, background: '#1a1a1a' }}>
                   <tr>
                     <th style={S.th}></th>
-                    <th style={{ ...S.th, textAlign: 'left' }}>Ãrea</th>
+                    <th style={{ ...S.th, textAlign: 'left' }}>Área</th>
                     <th style={{ ...S.th, textAlign: 'left' }}>Sistema</th>
                     <th style={{ ...S.th, textAlign: 'left' }}>Marca</th>
                     <th style={{ ...S.th, textAlign: 'left' }}>Modelo</th>
-                    <th style={{ ...S.th, textAlign: 'left' }}>DescripciÃ³n</th>
+                    <th style={{ ...S.th, textAlign: 'left' }}>Descripción</th>
                     <th style={{ ...S.th, textAlign: 'right' }}>Cant</th>
                     <th style={{ ...S.th, textAlign: 'right' }}>Precio</th>
                     <th style={S.th}>Mon</th>
@@ -845,9 +846,9 @@ function AIImportModal({ cotId, areas, activeSysIds, currency, tipoCambio, onClo
                   {items.map(it => (
                     <tr key={it._rowId}>
                       <td style={{ ...S.td, textAlign: 'center', width: 28 }}>
-                        {it.match_status === 'exact' && <span title="En catÃ¡logo" style={{ color: '#57FF9A' }}>â</span>}
+                        {it.match_status === 'exact' && <span title="En catálogo" style={{ color: '#57FF9A' }}>✓</span>}
                         {it.match_status === 'partial' && <span title="Match parcial" style={{ color: '#F59E0B' }}>~</span>}
-                        {it.match_status === 'none' && <span title="Se crearÃ¡ nuevo" style={{ color: '#06B6D4' }}>+</span>}
+                        {it.match_status === 'none' && <span title="Se creará nuevo" style={{ color: '#06B6D4' }}>+</span>}
                       </td>
                       <td style={S.td}>
                         <input value={it.area} onChange={e => updateRow(it._rowId, 'area', e.target.value)}
@@ -882,7 +883,7 @@ function AIImportModal({ cotId, areas, activeSysIds, currency, tipoCambio, onClo
                       <td style={S.td}>
                         <select value={it.moneda || ''} onChange={e => updateRow(it._rowId, 'moneda', (e.target.value || null) as any)}
                           style={{ padding: '4px 6px', background: '#1e1e1e', border: '1px solid #333', borderRadius: 4, color: '#ccc', fontSize: 11, fontFamily: 'inherit' }}>
-                          <option value="">â</option>
+                          <option value="">—</option>
                           <option value="USD">USD</option>
                           <option value="MXN">MXN</option>
                         </select>
@@ -899,7 +900,7 @@ function AIImportModal({ cotId, areas, activeSysIds, currency, tipoCambio, onClo
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 14 }}>
               <Btn onClick={onClose}>Cancelar</Btn>
               <Btn variant="primary" onClick={handleConfirm} disabled={items.length === 0}>
-                Importar {items.length} items a la cotizaciÃ³n
+                Importar {items.length} items a la cotización
               </Btn>
             </div>
           </>
@@ -909,9 +910,9 @@ function AIImportModal({ cotId, areas, activeSysIds, currency, tipoCambio, onClo
   )
 }
 
-// âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+// ═══════════════════════════════════════════════════════════════════
 // CATALOG SEARCH + CREATE PRODUCT MODAL
-// âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+// ═══════════════════════════════════════════════════════════════════
 function CatalogModal({ onClose, onSelect, onCreateNew, systemName }: {
   onClose: () => void; onSelect: (p: CatProduct) => void; onCreateNew: () => void; systemName: string
 }) {
@@ -936,8 +937,8 @@ function CatalogModal({ onClose, onSelect, onCreateNew, systemName }: {
       <div style={{ background: '#141414', border: '1px solid #333', borderRadius: 16, padding: 20, width: 700, maxHeight: '80vh', display: 'flex', flexDirection: 'column' as const }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
           <div>
-            <div style={{ fontSize: 14, fontWeight: 600, color: '#fff' }}>Agregar producto â {systemName}</div>
-            <div style={{ fontSize: 11, color: '#555' }}>Busca en el catÃ¡logo o crea uno nuevo</div>
+            <div style={{ fontSize: 14, fontWeight: 600, color: '#fff' }}>Agregar producto — {systemName}</div>
+            <div style={{ fontSize: 11, color: '#555' }}>Busca en el catálogo o crea uno nuevo</div>
           </div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer' }}><X size={18} /></button>
         </div>
@@ -950,7 +951,7 @@ function CatalogModal({ onClose, onSelect, onCreateNew, systemName }: {
           </div>
           <label style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '0 10px', color: '#aaa', fontSize: 12, cursor: 'pointer', whiteSpace: 'nowrap' }}>
             <input type="checkbox" checked={showAll} onChange={e => setShowAll(e.target.checked)} style={{ cursor: 'pointer' }} />
-            Ver todo el catÃ¡logo
+            Ver todo el catálogo
           </label>
           <Btn variant="primary" onClick={onCreateNew}><Plus size={14} /> Crear nuevo</Btn>
         </div>
@@ -958,7 +959,7 @@ function CatalogModal({ onClose, onSelect, onCreateNew, systemName }: {
         <div style={{ flex: 1, overflowY: 'auto' }}>
           {loading ? <Loading /> : filtered.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '30px 20px', color: '#444', fontSize: 13 }}>
-              {search ? 'Sin resultados â ' : 'CatÃ¡logo vacÃ­o â '}
+              {search ? 'Sin resultados — ' : 'Catálogo vacío — '}
               <button onClick={onCreateNew} style={{ background: 'none', border: 'none', color: '#57FF9A', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, textDecoration: 'underline' }}>Crear producto nuevo</button>
             </div>
           ) : (
@@ -996,9 +997,9 @@ function CatalogModal({ onClose, onSelect, onCreateNew, systemName }: {
   )
 }
 
-// âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+// ═══════════════════════════════════════════════════════════════════
 // CREATE NEW PRODUCT WITH AI SEARCH
-// âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+// ═══════════════════════════════════════════════════════════════════
 function CreateProductModal({ onClose, onCreate, systemName }: {
   onClose: () => void; onCreate: (p: CatProduct) => void; systemName: string
 }) {
@@ -1022,7 +1023,7 @@ function CreateProductModal({ onClose, onCreate, systemName }: {
     const query = aiQuery || form.name
     if (!query.trim()) return
     setAiLoading(true)
-    setAiStatus('Buscando informaciÃ³n del producto...')
+    setAiStatus('Buscando información del producto...')
 
     try {
       const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -1051,7 +1052,7 @@ Return this exact JSON format:
   "modelo": "Model number/name",
   "sku": "SKU or part number if found",
   "clave_prod_serv": "Mexican SAT product code (6-8 digits). Use these common ones: 43222600 for networking/WiFi, 46171600 for CCTV/cameras, 52161500 for audio/speakers, 39121700 for lighting control, 46171500 for access control, 43222500 for switches/routers",
-  "system": "One of: Audio, Redes, CCTV, Control de Acceso, Control de IluminaciÃ³n"
+  "system": "One of: Audio, Redes, CCTV, Control de Acceso, Control de Iluminación"
 }
 
 IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
@@ -1089,12 +1090,12 @@ IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
           sku: parsed.sku || f.sku,
           clave_prod_serv: parsed.clave_prod_serv || f.clave_prod_serv,
         }))
-        setAiStatus('â Producto encontrado')
+        setAiStatus('✓ Producto encontrado')
       } else {
-        setAiStatus('No se encontrÃ³ informaciÃ³n estructurada')
+        setAiStatus('No se encontró información estructurada')
       }
     } catch (err) {
-      setAiStatus('Error en la bÃºsqueda â llena manualmente')
+      setAiStatus('Error en la búsqueda — llena manualmente')
     }
     setAiLoading(false)
   }
@@ -1149,21 +1150,39 @@ IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1010 }}>
       <div style={{ background: '#141414', border: '1px solid #333', borderRadius: 16, padding: 24, width: 600, maxHeight: '90vh', overflowY: 'auto' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-          <div style={{ fontSize: 14, fontWeight: 600, color: '#fff' }}>Nuevo producto â {systemName}</div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer' }}><X size={16} /></button>
+          <div style={{ fontSize: 14, fontWeight: 600, color: '#fff' }}>Nuevo producto — {systemName}</div>
+          {copyingProduct && (() => {
+        const src = products.find(p => p.id === copyingProduct);
+        if (!src) return null;
+        const otherAreas = areas.filter(a => a.id !== src.areaId);
+        return <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ background: '#1a1a1a', border: '1px solid #333', borderRadius: 12, padding: 24, minWidth: 400, maxWidth: 500 }}>
+            <h3 style={{ margin: '0 0 8px', color: '#fff', fontSize: 16 }}>Copiar producto a otras areas</h3>
+            <p style={{ color: '#57FF9A', fontSize: 13, margin: '0 0 16px' }}>{src.name} (de {areas.find(a => a.id === src.areaId)?.name})</p>
+            {otherAreas.map(a => <label key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderBottom: '1px solid #222', cursor: 'pointer', color: '#ccc', fontSize: 14 }}>
+              <input type="checkbox" id={'cp_' + a.id} /> {a.name}
+            </label>)}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
+              <button onClick={() => setCopyingProduct(null)} style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid #333', background: '#222', color: '#ccc', cursor: 'pointer' }}>Cancelar</button>
+              <button onClick={() => { const sel = otherAreas.filter(a => (document.getElementById('cp_' + a.id) as HTMLInputElement)?.checked).map(a => a.id); if (sel.length) copyProductToAreas(copyingProduct, sel); }} style={{ padding: '8px 16px', borderRadius: 8, border: 'none', background: '#57FF9A', color: '#000', fontWeight: 600, cursor: 'pointer' }}>Copiar a areas seleccionadas</button>
+            </div>
+          </div>
+        </div>;
+      })()}
+      <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer' }}><X size={16} /></button>
         </div>
 
         {/* AI Search bar */}
         <div style={{ background: '#0e0e0e', border: '1px solid #222', borderRadius: 10, padding: 12, marginBottom: 14 }}>
-          <div style={{ fontSize: 10, color: '#888', marginBottom: 6, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' }}>ð BÃºsqueda con AI</div>
+          <div style={{ fontSize: 10, color: '#888', marginBottom: 6, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' }}>🔍 Búsqueda con AI</div>
           <div style={{ display: 'flex', gap: 8 }}>
             <input value={aiQuery} onChange={e => setAiQuery(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && searchWithAI()}
               placeholder="Escribe modelo o nombre del producto..."
               style={{ flex: 1, padding: '8px 10px', background: '#1a1a1a', border: '1px solid #333', borderRadius: 8, color: '#fff', fontSize: 13, fontFamily: 'inherit' }} />
-            <Btn variant="primary" onClick={searchWithAI} disabled={aiLoading}>{aiLoading ? 'â³ Buscando...' : 'ð Buscar'}</Btn>
+            <Btn variant="primary" onClick={searchWithAI} disabled={aiLoading}>{aiLoading ? '⏳ Buscando...' : '🔍 Buscar'}</Btn>
           </div>
-          {aiStatus && <div style={{ marginTop: 6, fontSize: 11, color: aiStatus.startsWith('â') ? '#57FF9A' : aiStatus.startsWith('Error') ? '#EF4444' : '#888' }}>{aiStatus}</div>}
+          {aiStatus && <div style={{ marginTop: 6, fontSize: 11, color: aiStatus.startsWith('✓') ? '#57FF9A' : aiStatus.startsWith('Error') ? '#EF4444' : '#888' }}>{aiStatus}</div>}
         </div>
 
         {/* Form fields */}
@@ -1181,7 +1200,7 @@ IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
             </div>
             <div style={{ flex: 1, display: 'grid', gap: 10 }}>
               {inp('Nombre', form.name, 'name')}
-              {inp('DescripciÃ³n', form.description, 'description')}
+              {inp('Descripción', form.description, 'description')}
             </div>
           </div>
 
@@ -1241,10 +1260,10 @@ IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
             const rule = getPricingRule(form.provider)
             return (
               <div style={{ background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 8, padding: '8px 12px', display: 'flex', gap: 16, fontSize: 10, color: '#666' }}>
-                <span>Costo: Ã{rule.costoMult}</span>
-                <span>Margen: {rule.precioPublico ? 'Precio pÃºblico' : rule.margen + '%'}</span>
+                <span>Costo: ×{rule.costoMult}</span>
+                <span>Margen: {rule.precioPublico ? 'Precio público' : rule.margen + '%'}</span>
                 <span>Inst: {rule.instPct}%</span>
-                <span>Desc mÃ¡x: {rule.descMax}%</span>
+                <span>Desc máx: {rule.descMax}%</span>
               </div>
             )
           })()}
@@ -1265,7 +1284,7 @@ IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
               <div style={{ background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 8, padding: '10px 12px' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, fontSize: 11 }}>
                   <div><span style={{ color: '#555' }}>Costo real</span><br /><span style={{ color: '#ccc', fontWeight: 600 }}>${costoReal.toFixed(2)}</span></div>
-                  <div><span style={{ color: '#555' }}>Precio venta</span><br /><span style={{ color: '#57FF9A', fontWeight: 700, fontSize: 14 }}>{rule.precioPublico ? 'Precio pÃºblico' : '$' + precioVenta.toFixed(2)}</span></div>
+                  <div><span style={{ color: '#555' }}>Precio venta</span><br /><span style={{ color: '#57FF9A', fontWeight: 700, fontSize: 14 }}>{rule.precioPublico ? 'Precio público' : '$' + precioVenta.toFixed(2)}</span></div>
                   <div><span style={{ color: '#555' }}>Inst + Prog ({rule.instPct}%)</span><br /><span style={{ color: '#ccc', fontWeight: 600 }}>${labor.toFixed(2)}</span></div>
                 </div>
               </div>
@@ -1282,9 +1301,9 @@ IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
   )
 }
 
-// âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+// ═══════════════════════════════════════════════════════════════════
 // SUMMARY PANEL
-// âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+// ═══════════════════════════════════════════════════════════════════
 function SummaryPanel({ products, areas, config, activeSystems, showInt, onConfigChange }: {
   products: EspProduct[]; areas: EspArea[]; config: EspQuoteConfig; activeSystems: EspSystemDef[]; showInt: boolean
   onConfigChange: (f: string, v: number) => void
@@ -1297,8 +1316,8 @@ function SummaryPanel({ products, areas, config, activeSystems, showInt, onConfi
   const total = sub + iva
 
   const rows = [
-    { l: 'EQUIPO TOTAL', v: eqTotal, b: true }, { l: 'INSTALACIÃN', v: inst },
-    { l: 'PROGRAMACIÃN', v: config.programacion, ed: true }, { l: 'MANO DE OBRA TOTAL', v: moTotal, b: true },
+    { l: 'EQUIPO TOTAL', v: eqTotal, b: true }, { l: 'INSTALACIÓN', v: inst },
+    { l: 'PROGRAMACIÓN', v: config.programacion, ed: true }, { l: 'MANO DE OBRA TOTAL', v: moTotal, b: true },
     { l: 'SUBTOTAL', v: sub, b: true }, { l: 'TOTAL IVA', v: iva },
     { l: 'TOTAL DEL PROYECTO', v: total, b: true, h: true },
   ]
@@ -1324,7 +1343,7 @@ function SummaryPanel({ products, areas, config, activeSystems, showInt, onConfi
         </div>
       </div>
       <div style={{ background: '#141414', border: '1px solid #222', borderRadius: 12, padding: 14, marginBottom: 10 }}>
-        <div style={{ fontSize: 10, fontWeight: 600, color: '#555', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Por Ãrea</div>
+        <div style={{ fontSize: 10, fontWeight: 600, color: '#555', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Por Área</div>
         {areas.map(a => {
           const t = products.filter(p => p.areaId === a.id).reduce((s, p) => s + calcLine(p).total, 0)
           return <div key={a.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}><span style={{ color: '#888' }}>{a.name}</span><span style={{ color: '#ccc', fontWeight: 500 }}>${t.toFixed(2)}</span></div>
@@ -1339,7 +1358,7 @@ function SummaryPanel({ products, areas, config, activeSystems, showInt, onConfi
       </div>
       {showInt && (
         <div style={{ background: '#1a1414', border: '1px solid #332222', borderRadius: 12, padding: 14 }}>
-          <div style={{ fontSize: 10, fontWeight: 600, color: '#F59E0B', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>AnÃ¡lisis Interno</div>
+          <div style={{ fontSize: 10, fontWeight: 600, color: '#F59E0B', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Análisis Interno</div>
           {(() => {
             let vt = 0, ct = 0; products.forEach(p => { vt += p.price * p.quantity; ct += p.price * (1 - p.margin / 100) * p.quantity })
             const mg = vt > 0 ? Math.round((vt - ct) / vt * 100) : 0
@@ -1359,15 +1378,15 @@ function SummaryPanel({ products, areas, config, activeSystems, showInt, onConfi
   )
 }
 
-// âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+// ═══════════════════════════════════════════════════════════════════
 // MAIN COMPONENT
-// âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+// ═══════════════════════════════════════════════════════════════════
 export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack: () => void }) {
   const [areas, setAreas] = useState<EspArea[]>([])
   const [activeSysIds, setActiveSysIds] = useState<string[]>([])
   const [products, setProducts] = useState<EspProduct[]>([])
   const [loading, setLoading] = useState(true)
-  const [config, setConfig] = useState<EspQuoteConfig>({ currency: 'USD', ivaRate: 16, programacion: 0, tipoCambio: 20.5, paymentSchedule: [{ label: 'Anticipo', percentage: 80 }, { label: 'Entrega de equipos', percentage: 10 }, { label: 'FinalizaciÃ³n de Obra', percentage: 10 }], version: '1.0' })
+  const [config, setConfig] = useState<EspQuoteConfig>({ currency: 'USD', ivaRate: 16, programacion: 0, tipoCambio: 20.5, paymentSchedule: [{ label: 'Anticipo', percentage: 80 }, { label: 'Entrega de equipos', percentage: 10 }, { label: 'Finalización de Obra', percentage: 10 }], version: '1.0' })
   const [showInt, setShowInt] = useState(true)
   const [stage, setStage] = useState('oportunidad')
   const [collapsedSys, setCollapsedSys] = useState<Record<string, boolean>>({})
@@ -1437,7 +1456,7 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
 
   function toggleArea(id: string) { setAreas(p => p.map(a => a.id === id ? { ...a, collapsed: !a.collapsed } : a)) }
   function toggleSys(k: string) { setCollapsedSys(p => ({ ...p, [k]: !p[k] })) }
-  function addArea() { const n = prompt('Nombre del Ã¡rea:'); if (n) setAreas(p => [...p, { id: uid(), name: n, collapsed: false, order: p.length }]) }
+  function addArea() { const n = prompt('Nombre del área:'); if (n) setAreas(p => [...p, { id: uid(), name: n, collapsed: false, order: p.length }]) }
 
   function saveNotes(overrides?: Partial<{ systems: string[]; currency: string; tipoCambio: number }>) {
     const data = { systems: overrides?.systems ?? activeSysIds, currency: overrides?.currency ?? config.currency, tipoCambio: overrides?.tipoCambio ?? config.tipoCambio }
@@ -1502,7 +1521,6 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
     const source = products.find(p => p.id === productId)
     if (!source) return
     const sysName = ALL_SYSTEMS.find(s => s.id === source.systemId)?.name || source.systemId
-    const rule = getPricingRule(sysName)
     const newProducts: EspProduct[] = []
     for (const areaId of targetAreaIds) {
       const { data, error } = await supabase.from('quotation_items').insert({
@@ -1541,7 +1559,7 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
     if (!addingTo) return
     const rule = getPricingRule(catProd.provider || '')
     const prodMoneda = catProd.moneda || 'USD'
-    // Margen: catálogo dicta, PRICING_RULES como fallback
+    // Margen: catalogo dicta, PRICING_RULES como fallback
     const margin = catProd.markup > 0 ? catProd.markup : rule.margen
     let precioOrigen = rule.precioPublico
       ? Math.round(catProd.cost * (1 + catProd.markup / 100))
@@ -1577,7 +1595,7 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
     if (!addingTo) return
     const rule = getPricingRule(catProd.provider || '')
     const prodMoneda = catProd.moneda || 'USD'
-    // Margen: catálogo dicta, PRICING_RULES como fallback
+    // Margen: catalogo dicta, PRICING_RULES como fallback
     const margin = catProd.markup > 0 ? catProd.markup : rule.margen
     let precioOrigen = rule.precioPublico
       ? (catProd.cost > 0 ? Math.round(catProd.cost * (1 + catProd.markup / 100)) : 0)
@@ -1619,11 +1637,11 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
       <div style={{ padding: '7px 16px', borderBottom: '1px solid #222', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0, background: '#111' }}>
         <button onClick={onBack} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, fontSize: 12 }}><ChevronLeft size={14} /> Cotizaciones</button>
         <span style={{ color: '#333' }}>/</span>
-        <span style={{ fontSize: 12, fontWeight: 500, color: '#57FF9A', cursor: 'pointer' }} onClick={() => setShowEditCot(true)}>â {cotName || 'CotizaciÃ³n ESP'}</span>
+        <span style={{ fontSize: 12, fontWeight: 500, color: '#57FF9A', cursor: 'pointer' }} onClick={() => setShowEditCot(true)}>◈ {cotName || 'Cotización ESP'}</span>
         <Badge label="ESP" color="#57FF9A" />
         {clientName && <span style={{ fontSize: 11, color: '#888' }}>{clientName}</span>}
         {projectName && <span style={{ fontSize: 10, color: '#555' }}>| {projectName}</span>}
-        <button onClick={() => setShowEditCot(true)} style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer', fontSize: 10 }}>âï¸</button>
+        <button onClick={() => setShowEditCot(true)} style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer', fontSize: 10 }}>✏️</button>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 4, alignItems: 'center' }}>
           {(Object.entries(STAGE_CONFIG) as Array<[string, { label: string; color: string }]>).map(([s, cfg]) => (
             <button key={s} onClick={() => { setStage(s); supabase.from('quotations').update({ stage: s }).eq('id', cotId) }} style={{
@@ -1633,8 +1651,8 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
           ))}
           <button onClick={() => setShowAIImport(true)} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #57FF9A44', background: 'transparent', color: '#57FF9A', marginLeft: 8, display: 'inline-flex', alignItems: 'center', gap: 4 }}><Sparkles size={11} /> Importar con AI</button>
           <button onClick={() => setShowPdfPicker(true)} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #06B6D444', background: 'transparent', color: '#06B6D4', display: 'inline-flex', alignItems: 'center', gap: 4 }}><FileText size={11} /> Exportar PDF</button>
-          <button onClick={() => setShowSystemPicker(true)} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #57FF9A44', background: 'transparent', color: '#57FF9A' }}>â Sistemas ({activeSysIds.length})</button>
-          <button onClick={() => setShowInt(!showInt)} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid ' + (showInt ? '#F59E0B' : '#333'), background: showInt ? '#F59E0B22' : 'transparent', color: showInt ? '#F59E0B' : '#555' }}>{showInt ? 'ð Interno' : 'ð Cliente'}</button>
+          <button onClick={() => setShowSystemPicker(true)} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #57FF9A44', background: 'transparent', color: '#57FF9A' }}>⚙ Sistemas ({activeSysIds.length})</button>
+          <button onClick={() => setShowInt(!showInt)} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid ' + (showInt ? '#F59E0B' : '#333'), background: showInt ? '#F59E0B22' : 'transparent', color: showInt ? '#F59E0B' : '#555' }}>{showInt ? '👁 Interno' : '👁 Cliente'}</button>
           <span style={{ fontSize: 15, fontWeight: 700, color: '#57FF9A', marginLeft: 10 }}>{config.currency === 'MXN' ? '$' : 'US$'}{total.toFixed(2)}</span>
         </div>
       </div>
@@ -1642,7 +1660,7 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
       {/* Systems bar + Currency */}
       <div style={{ padding: '5px 16px', borderBottom: '1px solid #1e1e1e', display: 'flex', gap: 5, alignItems: 'center', background: '#0e0e0e', flexShrink: 0 }}>
         <span style={{ fontSize: 9, color: '#444', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.1em', marginRight: 6 }}>Sistemas:</span>
-        {activeSystems.length === 0 && <span style={{ fontSize: 10, color: '#444' }}>Ninguno â usa â para agregar</span>}
+        {activeSystems.length === 0 && <span style={{ fontSize: 10, color: '#444' }}>Ninguno — usa ⚙ para agregar</span>}
         {activeSystems.map(sys => {
           const st = products.filter(p => p.systemId === sys.id).reduce((s, p) => s + calcLine(p).total, 0)
           return <span key={sys.id} style={{ padding: '2px 7px', borderRadius: 5, fontSize: 10, fontWeight: 600, background: sys.color + '18', color: sys.color, border: '1px solid ' + sys.color + '33' }}>{sys.name} {config.currency === 'MXN' ? '$' : 'US$'}{st.toFixed(0)}</span>
@@ -1663,43 +1681,9 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
             <AreaBlock key={area.id} area={area} activeSystems={activeSystems} products={products} allProducts={products}
               collapsedSys={collapsedSys} onToggleArea={() => toggleArea(area.id)} onToggleSys={toggleSys}
               onUpdateProd={updateProduct} onRemoveProd={removeProduct} onUpdateAll={updateAllByCatalogId}
-              onAddProd={(sysId) => openAddProduct(area.id, sysId)} onCopyTo={(productId) => setCopyingProduct(productId)} showInt={showInt} />
+              onAddProd={(sysId) => openAddProduct(area.id, sysId)} showInt={showInt}  onCopyTo={(id) => setCopyingProduct(id)} />
           ))}
-          {/* Copy to Areas Modal */}
-          {copyingProduct && (() => {
-            const sourceProduct = products.find(p => p.id === copyingProduct)
-            if (!sourceProduct) return null
-            const sourceArea = areas.find(a => a.id === sourceProduct.areaId)
-            const otherAreas = areas.filter(a => a.id !== sourceProduct.areaId)
-            return (
-              <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.7)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setCopyingProduct(null)}>
-                <div style={{ background: '#1a1a2e', borderRadius: 12, padding: 24, minWidth: 350, maxWidth: 500, border: '1px solid #333' }} onClick={e => e.stopPropagation()}>
-                  <div style={{ fontSize: 16, fontWeight: 600, color: '#ddd', marginBottom: 4 }}>Copiar producto a otras areas</div>
-                  <div style={{ fontSize: 12, color: '#57FF9A', marginBottom: 16 }}>{sourceProduct.name} (de {sourceArea?.name || 'Sin area'})</div>
-                  <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 8, marginBottom: 20 }}>
-                    {otherAreas.map(a => (
-                      <label key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', padding: '6px 8px', borderRadius: 6, background: '#222' }}>
-                        <input type="checkbox" id={'copy-' + a.id} style={{ accentColor: '#57FF9A' }} />
-                        <span style={{ color: '#ccc', fontSize: 13 }}>{a.name}</span>
-                      </label>
-                    ))}
-                  </div>
-                  <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-                    <button onClick={() => setCopyingProduct(null)} style={{ padding: '6px 16px', background: '#333', color: '#aaa', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>Cancelar</button>
-                    <button onClick={() => {
-                      const selected = otherAreas.filter(a => {
-                        const cb = document.getElementById('copy-' + a.id) as HTMLInputElement
-                        return cb && cb.checked
-                      }).map(a => a.id)
-                      if (selected.length === 0) { alert('Selecciona al menos un area'); return }
-                      copyProductToAreas(copyingProduct, selected)
-                    }} style={{ padding: '6px 16px', background: '#57FF9A', color: '#000', border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 600, fontSize: 12 }}>Copiar a {otherAreas.length > 0 ? 'areas seleccionadas' : ''}</button>
-                  </div>
-                </div>
-              </div>
-            )
-          })()}
-          <div onClick={addArea} style={{ padding: '12px', border: '1px dashed #333', borderRadius: 10, textAlign: 'center', cursor: 'pointer', color: '#444', fontSize: 12 }}>+ Agregar Ã¡rea</div>
+          <div onClick={addArea} style={{ padding: '12px', border: '1px dashed #333', borderRadius: 10, textAlign: 'center', cursor: 'pointer', color: '#444', fontSize: 12 }}>+ Agregar área</div>
         </div>
         <div style={{ borderLeft: '1px solid #222', overflowY: 'auto', padding: '14px 10px', background: '#0e0e0e' }}>
           <SummaryPanel products={products} areas={areas} config={config} activeSystems={activeSystems} showInt={showInt} onConfigChange={updateConfig} />
@@ -1734,13 +1718,13 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
               <button onClick={() => setShowPdfPicker(false)} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer' }}><X size={18} /></button>
             </div>
             <div style={{ fontSize: 11, color: '#555', marginBottom: 18 }}>
-              Elige el formato. Cada uno abre en una pestaÃ±a nueva con vista previa imprimible.
+              Elige el formato. Cada uno abre en una pestaña nueva con vista previa imprimible.
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 10 }}>
               {([
-                { id: 'ejecutivo', icon: 'ð', title: 'Ejecutivo', desc: 'Para cliente final. DiseÃ±o formal, sin costos internos ni markups. La versiÃ³n que mandas por email.' },
-                { id: 'tecnico', icon: 'ð§', title: 'TÃ©cnico detallado', desc: 'Para ingenierÃ­a. Incluye SKUs, proveedores, fases de compra, costos internos y markups. Uso interno o cliente tÃ©cnico.' },
-                { id: 'lista', icon: 'ð', title: 'Lista de precios', desc: 'Tabla simple sin agrupar. Ideal para comparar precios rÃ¡pido.' },
+                { id: 'ejecutivo', icon: '📄', title: 'Ejecutivo', desc: 'Para cliente final. Diseño formal, sin costos internos ni markups. La versión que mandas por email.' },
+                { id: 'tecnico', icon: '🔧', title: 'Técnico detallado', desc: 'Para ingeniería. Incluye SKUs, proveedores, fases de compra, costos internos y markups. Uso interno o cliente técnico.' },
+                { id: 'lista', icon: '📋', title: 'Lista de precios', desc: 'Tabla simple sin agrupar. Ideal para comparar precios rápido.' },
               ] as const).map(opt => (
                 <button
                   key={opt.id}
@@ -1786,10 +1770,10 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
           <div style={{ background: '#141414', border: '1px solid #333', borderRadius: 16, padding: 24, width: 380 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-              <div style={{ fontSize: 14, fontWeight: 600, color: '#fff' }}>Sistemas de la cotizaciÃ³n</div>
+              <div style={{ fontSize: 14, fontWeight: 600, color: '#fff' }}>Sistemas de la cotización</div>
               <button onClick={() => setShowSystemPicker(false)} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer' }}><X size={16} /></button>
             </div>
-            <div style={{ fontSize: 11, color: '#555', marginBottom: 10 }}>Aplican para todas las Ã¡reas.</div>
+            <div style={{ fontSize: 11, color: '#555', marginBottom: 10 }}>Aplican para todas las áreas.</div>
             <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 5 }}>
               {ALL_SYSTEMS.map(sys => {
                 const on = activeSysIds.includes(sys.id)
@@ -1802,7 +1786,7 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
                     <span style={{ width: 8, height: 8, borderRadius: '50%', background: on ? sys.color : '#333' }} />
                     <span style={{ flex: 1 }}>{sys.name}</span>
                     {cnt > 0 && <span style={{ fontSize: 10, color: '#555' }}>{cnt}</span>}
-                    <span style={{ fontSize: 14, color: on ? sys.color : '#333' }}>{on ? 'â' : 'â'}</span>
+                    <span style={{ fontSize: 14, color: on ? sys.color : '#333' }}>{on ? '✓' : '○'}</span>
                   </button>
                 )
               })}
@@ -1811,7 +1795,7 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
         </div>
       )}
 
-      {/* Edit cotizaciÃ³n modal */}
+      {/* Edit cotización modal */}
       {showEditCot && <EditCotModal cotId={cotId} name={cotName} clientName={clientName} projectId={projectId}
         onClose={() => setShowEditCot(false)}
         onSaved={(n, cl, pId, pName) => { setCotName(n); setClientName(cl); setProjectId(pId); setProjectName(pName); setShowEditCot(false) }} />}
@@ -1819,9 +1803,9 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
   )
 }
 
-// âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
-// EDIT COTIZACIÃN MODAL
-// âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+// ═══════════════════════════════════════════════════════════════════
+// EDIT COTIZACIÓN MODAL
+// ═══════════════════════════════════════════════════════════════════
 function EditCotModal({ cotId, name, clientName, projectId, onClose, onSaved }: {
   cotId: string; name: string; clientName: string; projectId: string | null
   onClose: () => void; onSaved: (name: string, client: string, projId: string | null, projName: string) => void
@@ -1876,13 +1860,13 @@ function EditCotModal({ cotId, name, clientName, projectId, onClose, onSaved }: 
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1020 }}>
       <div style={{ background: '#141414', border: '1px solid #333', borderRadius: 16, padding: 24, width: 480 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-          <div style={{ fontSize: 14, fontWeight: 600, color: '#fff' }}>Editar cotizaciÃ³n</div>
+          <div style={{ fontSize: 14, fontWeight: 600, color: '#fff' }}>Editar cotización</div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer' }}><X size={16} /></button>
         </div>
         <div style={{ display: 'grid', gap: 12 }}>
           <label style={labelStyle}>Nombre<input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} style={inputStyle} /></label>
 
-          {/* Lead â the master entity */}
+          {/* Lead — the master entity */}
           <label style={labelStyle}>
             Lead
             <select value={form.lead_id} onChange={e => {
@@ -1917,7 +1901,7 @@ function EditCotModal({ cotId, name, clientName, projectId, onClose, onSaved }: 
 
           {/* Proyecto */}
           <label style={labelStyle}>
-            Proyecto (opcional â se asigna despuÃ©s)
+            Proyecto (opcional — se asigna después)
             <select value={form.project_id} onChange={e => setForm(f => ({ ...f, project_id: e.target.value }))} style={inputStyle}>
               <option value="">-- Sin proyecto --</option>
               {projects.map(p => <option key={p.id} value={p.id}>{p.name} | {p.client_name}</option>)}
