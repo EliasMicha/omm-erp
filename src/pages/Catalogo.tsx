@@ -91,12 +91,12 @@ export default function Catalogo() {
 
     const productQuery = [marca, modelo].filter(Boolean).join(' ') || name
     const specialty = filterSpecialty
-    const specialtyHint = specialty === 'ilum' ? 'iluminación arquitectónica (luminaria, foco, driver)' :
-      specialty === 'elec' ? 'producto eléctrico (cable, interruptor, breaker, conduit)' :
-      specialty === 'esp' ? 'instalación especial (audio, video, CCTV, redes, control)' :
+    const specialtyHint = specialty === 'ilum' ? 'iluminaciÃ³n arquitectÃ³nica (luminaria, foco, driver)' :
+      specialty === 'elec' ? 'producto elÃ©ctrico (cable, interruptor, breaker, conduit)' :
+      specialty === 'esp' ? 'instalaciÃ³n especial (audio, video, CCTV, redes, control)' :
       'servicio profesional o producto'
 
-    const prompt = `Busca en internet las especificaciones técnicas oficiales del siguiente producto y devuelve SOLO un JSON válido con los campos que encuentres. NO inventes datos, solo incluye lo que confirmes en datasheets oficiales del fabricante.\n\nProducto: ${productQuery}\nCategoría: ${specialtyHint}\n\nDevuelve un JSON con este formato exacto (omite campos que no encuentres con certeza):\n{\n  "description": "descripción técnica corta del producto en español",\n  "marca": "marca/fabricante",\n  "modelo": "código de modelo exacto del fabricante",\n  "watts": número de watts (solo número, sin unidad),\n  "lumens": número de lúmenes (solo número),\n  "cct": temperatura de color en Kelvin (solo número, ej. 3000),\n  "cri": índice de reproducción cromática (solo número, ej. 90),\n  "ip_rating": "IP20, IP65, etc.",\n  "mounting_type": "empotrado, suspendido, sobreponer, riel, etc.",\n  "system": "Iluminacion / Audio / Video / CCTV / Redes / Control / Electrico",\n  "unit": "pza / m / kg / rollo / etc.",\n  "clave_prod_serv": "clave SAT mexicana de 8 dígitos si la sabes"\n}\n\nIMPORTANTE: Devuelve SOLO el JSON, sin texto antes ni después, sin markdown, sin backticks. Si no encuentras información confiable del producto, devuelve {} (objeto vacío).`
+    const prompt = `Busca en internet las especificaciones tÃ©cnicas oficiales del siguiente producto y devuelve SOLO un JSON vÃ¡lido con los campos que encuentres. NO inventes datos, solo incluye lo que confirmes en datasheets oficiales del fabricante.\n\nProducto: ${productQuery}\nCategorÃ­a: ${specialtyHint}\n\nDevuelve un JSON con este formato exacto (omite campos que no encuentres con certeza):\n{\n  "description": "descripciÃ³n tÃ©cnica corta del producto en espaÃ±ol",\n  "marca": "marca/fabricante",\n  "modelo": "cÃ³digo de modelo exacto del fabricante",\n  "watts": nÃºmero de watts (solo nÃºmero, sin unidad),\n  "lumens": nÃºmero de lÃºmenes (solo nÃºmero),\n  "cct": temperatura de color en Kelvin (solo nÃºmero, ej. 3000),\n  "cri": Ã­ndice de reproducciÃ³n cromÃ¡tica (solo nÃºmero, ej. 90),\n  "ip_rating": "IP20, IP65, etc.",\n  "mounting_type": "empotrado, suspendido, sobreponer, riel, etc.",\n  "system": "Iluminacion / Audio / Video / CCTV / Redes / Control / Electrico",\n  "unit": "pza / m / kg / rollo / etc.",\n  "clave_prod_serv": "clave SAT mexicana de 8 dÃ­gitos si la sabes"\n}\n\nIMPORTANTE: Devuelve SOLO el JSON, sin texto antes ni despuÃ©s, sin markdown, sin backticks. Si no encuentras informaciÃ³n confiable del producto, devuelve {} (objeto vacÃ­o).`
 
     try {
       const res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -129,16 +129,16 @@ export default function Catalogo() {
         const jsonMatch = cleaned.match(/\{[\s\S]*\}/)
         if (jsonMatch) parsed = JSON.parse(jsonMatch[0])
       } catch (e) {
-        setAiError('No se pudo parsear la respuesta. Intenta con marca y modelo más específicos.')
+        setAiError('No se pudo parsear la respuesta. Intenta con marca y modelo mÃ¡s especÃ­ficos.')
         setAiSearching(false)
         return
       }
       if (!parsed || Object.keys(parsed).length === 0) {
-        setAiError('No se encontró información del producto. Verifica marca y modelo.')
+        setAiError('No se encontrÃ³ informaciÃ³n del producto. Verifica marca y modelo.')
         setAiSearching(false)
         return
       }
-      // Auto-llenar SOLO campos vacíos (no sobreescribir lo que ya pusiste)
+      // Auto-llenar SOLO campos vacÃ­os (no sobreescribir lo que ya pusiste)
       const updates: any = {}
       const f: any = form
       if (parsed.description && !f.description) updates.description = parsed.description
@@ -188,10 +188,10 @@ export default function Catalogo() {
     proy: products.filter(p => p.is_active !== false && p.specialty === 'proy').length,
   }
   const SPECIALTY_TABS: Array<{ key: 'esp' | 'ilum' | 'elec' | 'proy'; label: string; icon: string }> = [
-    { key: 'esp',  label: 'Especiales',   icon: '◈' },
-    { key: 'ilum', label: 'Iluminación',  icon: '◇' },
-    { key: 'elec', label: 'Eléctrico',    icon: '◉' },
-    { key: 'proy', label: 'Proyecto',     icon: '▲' },
+    { key: 'esp',  label: 'Especiales',   icon: 'â' },
+    { key: 'ilum', label: 'IluminaciÃ³n',  icon: 'â' },
+    { key: 'elec', label: 'ElÃ©ctrico',    icon: 'â' },
+    { key: 'proy', label: 'Proyecto',     icon: 'â²' },
   ]
 
   const openNew = () => {
@@ -206,7 +206,7 @@ export default function Catalogo() {
     setShowForm(true)
   }
 
-  const calcPrecioVenta = (cost: number, markup: number) => Math.round(cost * (1 + markup / 100) * 100) / 100
+  const calcPrecioVenta = (cost: number, margen: number) => margen >= 100 ? 0 : Math.round(cost / (1 - margen / 100) * 100) / 100
 
   const save = async () => {
     if (!form.name) return
@@ -348,8 +348,8 @@ export default function Catalogo() {
           <Th>{' '}</Th>
           <Th>Producto</Th>
           {filterSpecialty === 'esp' && <><Th>Sistema</Th><Th>Marca</Th><Th>Modelo</Th></>}
-          {filterSpecialty === 'ilum' && <><Th>Marca</Th><Th>Modelo</Th><Th right>W</Th><Th right>Lúmenes</Th><Th right>CCT</Th><Th right>CRI</Th><Th>IP</Th><Th>Montaje</Th></>}
-          {filterSpecialty === 'elec' && <><Th>Categoría</Th><Th>Unidad</Th></>}
+          {filterSpecialty === 'ilum' && <><Th>Marca</Th><Th>Modelo</Th><Th right>W</Th><Th right>LÃºmenes</Th><Th right>CCT</Th><Th right>CRI</Th><Th>IP</Th><Th>Montaje</Th></>}
+          {filterSpecialty === 'elec' && <><Th>CategorÃ­a</Th><Th>Unidad</Th></>}
           {filterSpecialty === 'proy' && <><Th>Unidad</Th></>}
           <Th>Proveedor</Th>
           <Th>Fase</Th>
@@ -423,7 +423,7 @@ export default function Catalogo() {
               <div><span style={{color:'#555'}}>Modelo:</span> <span style={{color:'#ccc'}}>{selectedProduct.modelo || '--'}</span></div>
               <div><span style={{color:'#555'}}>Moneda:</span> <span style={{color: selectedProduct.moneda === 'USD' ? '#3B82F6' : '#57FF9A'}}>{selectedProduct.moneda || 'MXN'}</span></div>
               <div><span style={{color:'#555'}}>Costo:</span> <span style={{color:'#F59E0B', fontWeight:600}}>{F(selectedProduct.cost)}</span></div>
-              <div><span style={{color:'#555'}}>Markup:</span> <span style={{color:'#ccc'}}>{selectedProduct.markup}%</span></div>
+              <div><span style={{color:'#555'}}>Margen:</span> <span style={{color:'#ccc'}}>{selectedProduct.markup}%</span></div>
               <div><span style={{color:'#555'}}>Precio Venta:</span> <span style={{color:'#57FF9A', fontWeight:700}}>{F(selectedProduct.precio_venta || calcPrecioVenta(selectedProduct.cost, selectedProduct.markup))}</span></div>
               <div><span style={{color:'#555'}}>IVA:</span> <span style={{color:'#ccc'}}>{(selectedProduct.iva_rate * 100)}%</span></div>
               <div><span style={{color:'#555'}}>Categoria:</span> <span style={{color:'#ccc'}}>{selectedProduct.category || '--'}</span></div>
@@ -450,7 +450,7 @@ export default function Catalogo() {
                 <button onClick={() => setShowForm(false)} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer' }}><X size={18} /></button>
               </div>
             </div>
-            {aiError && <div style={{ background: '#3a1a1a', border: '1px solid #5a2a2a', borderRadius: 8, padding: 10, color: '#f87171', fontSize: 12, marginBottom: 12 }}>{aiError} <button onClick={() => setAiError(null)} style={{float:'right',background:'none',border:'none',color:'#f87171',cursor:'pointer'}}>×</button></div>}
+            {aiError && <div style={{ background: '#3a1a1a', border: '1px solid #5a2a2a', borderRadius: 8, padding: 10, color: '#f87171', fontSize: 12, marginBottom: 12 }}>{aiError} <button onClick={() => setAiError(null)} style={{float:'right',background:'none',border:'none',color:'#f87171',cursor:'pointer'}}>Ã</button></div>}
             <div style={{ display: 'flex', gap: 16, marginBottom: 14, alignItems: 'flex-start' }}>
               <div style={{ flexShrink: 0 }}>
                 <div style={{ fontSize: 10, color: '#666', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Foto</div>
@@ -483,17 +483,17 @@ export default function Catalogo() {
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 10 }}>
               <Fld label="Moneda"><select style={iS} value={form.moneda || 'MXN'} onChange={e => setForm({...form, moneda: e.target.value})}><option value="MXN">MXN (Pesos)</option><option value="USD">USD (Dolares)</option></select></Fld>
               <Fld label="Costo"><input style={iS} type="number" value={form.cost || ''} onChange={e => { const c = parseFloat(e.target.value)||0; setForm({...form, cost: c, precio_venta: calcPrecioVenta(c, form.markup||35)}) }} placeholder="0.00" /></Fld>
-              <Fld label="Markup %"><input style={iS} type="number" value={form.markup || ''} onChange={e => { const m = parseFloat(e.target.value)||0; setForm({...form, markup: m, precio_venta: calcPrecioVenta(form.cost||0, m)}) }} placeholder="35" /></Fld>
+              <Fld label="Margen %"><input style={iS} type="number" value={form.markup || ''} onChange={e => { const m = parseFloat(e.target.value)||0; setForm({...form, markup: m, precio_venta: calcPrecioVenta(form.cost||0, m)}) }} placeholder="35" /></Fld>
               <Fld label="Precio Venta"><input style={iS} type="number" value={form.precio_venta || ''} onChange={e => setForm({...form, precio_venta: parseFloat(e.target.value)||0})} placeholder="0.00" /></Fld>
               <Fld label="Tipo Cambio"><input style={iS} type="number" value={form.tipo_cambio || ''} onChange={e => setForm({...form, tipo_cambio: parseFloat(e.target.value)||0})} placeholder="20.50" /></Fld>
               <Fld label="IVA %"><select style={iS} value={String(form.iva_rate ?? 0.16)} onChange={e => setForm({...form, iva_rate: parseFloat(e.target.value)})}><option value="0.16">16%</option><option value="0.08">8% (frontera)</option><option value="0">0% (exento)</option></select></Fld>
             </div>
 
-            {/* Especificaciones técnicas (Iluminación arquitectónica) */}
-            <div style={{ fontSize: 13, fontWeight: 600, color: '#888', marginTop: 12, marginBottom: 10 }}>Especificaciones técnicas (Iluminación)</div>
+            {/* Especificaciones tÃ©cnicas (IluminaciÃ³n arquitectÃ³nica) */}
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#888', marginTop: 12, marginBottom: 10 }}>Especificaciones tÃ©cnicas (IluminaciÃ³n)</div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
               <Fld label="Watts (W)"><input style={iS} type="number" value={(form as any).watts || ''} onChange={e => setForm({...form, watts: parseFloat(e.target.value) || null} as any)} placeholder="9" /></Fld>
-              <Fld label="Lúmenes"><input style={iS} type="number" value={(form as any).lumens || ''} onChange={e => setForm({...form, lumens: parseInt(e.target.value) || null} as any)} placeholder="800" /></Fld>
+              <Fld label="LÃºmenes"><input style={iS} type="number" value={(form as any).lumens || ''} onChange={e => setForm({...form, lumens: parseInt(e.target.value) || null} as any)} placeholder="800" /></Fld>
               <Fld label="CCT (K)"><input style={iS} type="number" value={(form as any).cct || ''} onChange={e => setForm({...form, cct: parseInt(e.target.value) || null} as any)} placeholder="3000" /></Fld>
               <Fld label="CRI"><input style={iS} type="number" value={(form as any).cri || ''} onChange={e => setForm({...form, cri: parseInt(e.target.value) || null} as any)} placeholder="90" /></Fld>
               <Fld label="IP Rating"><input style={iS} value={(form as any).ip_rating || ''} onChange={e => setForm({...form, ip_rating: e.target.value} as any)} placeholder="IP65" /></Fld>
@@ -513,9 +513,9 @@ export default function Catalogo() {
   )
 }
 
-/* ═══════════════════════════════════════════════════════════════════
+/* âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
    TAB PROVEEDORES
-   ═══════════════════════════════════════════════════════════════════ */
+   âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ */
 
 interface SupplierFull {
   id: string; name: string; rfc?: string; contacto?: string; telefono?: string; email?: string
@@ -561,12 +561,12 @@ function TabProveedores({ suppliers, setSuppliers }: { suppliers: Supplier[]; se
           model: 'claude-sonnet-4-20250514', max_tokens: 2000,
           messages: [{ role: 'user', content: [
             { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64 } },
-            { type: 'text', text: `Extrae los datos del proveedor de este documento (puede ser una Constancia de Situación Fiscal CSF, una factura CFDI, o cualquier documento fiscal mexicano).
+            { type: 'text', text: `Extrae los datos del proveedor de este documento (puede ser una Constancia de SituaciÃ³n Fiscal CSF, una factura CFDI, o cualquier documento fiscal mexicano).
 
 Devuelve SOLO un JSON sin markdown:
-{"nombre":"razón social completa","rfc":"RFC del proveedor","contacto":"nombre de contacto si aparece","telefono":"teléfono si aparece","email":"email si aparece","direccion":"dirección fiscal completa","sistemas":["sistemas que podría proveer basándote en los productos/servicios mencionados: CCTV, Audio, Redes, Control de iluminacion, Control de acceso, Electrico, Iluminacion, Cortinas, General"]}
+{"nombre":"razÃ³n social completa","rfc":"RFC del proveedor","contacto":"nombre de contacto si aparece","telefono":"telÃ©fono si aparece","email":"email si aparece","direccion":"direcciÃ³n fiscal completa","sistemas":["sistemas que podrÃ­a proveer basÃ¡ndote en los productos/servicios mencionados: CCTV, Audio, Redes, Control de iluminacion, Control de acceso, Electrico, Iluminacion, Cortinas, General"]}
 
-Si un campo no aparece, déjalo como string vacío. Para sistemas, infiere del giro o productos mencionados.` }
+Si un campo no aparece, dÃ©jalo como string vacÃ­o. Para sistemas, infiere del giro o productos mencionados.` }
           ] }],
         }),
       })
@@ -586,7 +586,7 @@ Si un campo no aparece, déjalo como string vacío. Para sistemas, infiere del g
             direccion: parsed.direccion || f.direccion,
             sistemas: parsed.sistemas?.length > 0 ? parsed.sistemas : f.sistemas,
           }))
-          setExtractStatus('✓ Datos extraídos')
+          setExtractStatus('â Datos extraÃ­dos')
         } else { setExtractStatus('No se pudieron extraer datos') }
       } else { setExtractStatus('Error API') }
     } catch (err) { setExtractStatus('Error: ' + (err as Error).message) }
@@ -653,16 +653,16 @@ Si un campo no aparece, déjalo como string vacío. Para sistemas, infiere del g
       {filtered.length === 0 ? <EmptyState message="No hay proveedores registrados" /> : (
         <Table>
           <thead><tr>
-            <Th>Proveedor</Th><Th>RFC</Th><Th>Contacto</Th><Th>Teléfono</Th><Th>Email</Th><Th>Sistemas</Th><Th>Estado</Th><Th></Th>
+            <Th>Proveedor</Th><Th>RFC</Th><Th>Contacto</Th><Th>TelÃ©fono</Th><Th>Email</Th><Th>Sistemas</Th><Th>Estado</Th><Th></Th>
           </tr></thead>
           <tbody>
             {filtered.map(p => (
               <tr key={p.id}>
                 <Td><span style={{ fontWeight: 600, color: '#fff' }}>{p.name}</span></Td>
-                <Td muted>{p.rfc || '—'}</Td>
-                <Td muted>{p.contacto || '—'}</Td>
-                <Td muted>{p.telefono || '—'}</Td>
-                <Td muted>{p.email || '—'}</Td>
+                <Td muted>{p.rfc || 'â'}</Td>
+                <Td muted>{p.contacto || 'â'}</Td>
+                <Td muted>{p.telefono || 'â'}</Td>
+                <Td muted>{p.email || 'â'}</Td>
                 <Td>
                   <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
                     {(p.sistemas || []).map(s => <Badge key={s} label={s.length > 10 ? s.substring(0, 8) + '..' : s} color="#3B82F6" />)}
@@ -690,16 +690,16 @@ Si un campo no aparece, déjalo como string vacío. Para sistemas, infiere del g
               <Btn size="sm" variant="default" onClick={() => pdfRef.current?.click()} disabled={extracting}>
                 {extracting ? <><Loader2 size={12} /> Extrayendo...</> : <><Upload size={12} /> Subir CSF o factura PDF</>}
               </Btn>
-              <span style={{ fontSize: 10, color: '#555' }}>Extrae datos automáticamente con AI</span>
-              {extractStatus && <span style={{ fontSize: 10, color: extractStatus.startsWith('✓') ? '#57FF9A' : '#888', marginLeft: 'auto' }}>{extractStatus}</span>}
+              <span style={{ fontSize: 10, color: '#555' }}>Extrae datos automÃ¡ticamente con AI</span>
+              {extractStatus && <span style={{ fontSize: 10, color: extractStatus.startsWith('â') ? '#57FF9A' : '#888', marginLeft: 'auto' }}>{extractStatus}</span>}
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
               <Fld label="Nombre *"><input style={fS} value={form.name || ''} onChange={e => setForm({ ...form, name: e.target.value })} /></Fld>
               <Fld label="RFC"><input style={fS} value={form.rfc || ''} onChange={e => setForm({ ...form, rfc: e.target.value.toUpperCase() })} placeholder="XAXX010101000" /></Fld>
               <Fld label="Contacto"><input style={fS} value={form.contacto || ''} onChange={e => setForm({ ...form, contacto: e.target.value })} /></Fld>
-              <Fld label="Teléfono"><input style={fS} value={form.telefono || ''} onChange={e => setForm({ ...form, telefono: e.target.value })} /></Fld>
+              <Fld label="TelÃ©fono"><input style={fS} value={form.telefono || ''} onChange={e => setForm({ ...form, telefono: e.target.value })} /></Fld>
               <Fld label="Email" span><input type="email" style={fS} value={form.email || ''} onChange={e => setForm({ ...form, email: e.target.value })} /></Fld>
-              <Fld label="Dirección" span><input style={fS} value={form.direccion || ''} onChange={e => setForm({ ...form, direccion: e.target.value })} /></Fld>
+              <Fld label="DirecciÃ³n" span><input style={fS} value={form.direccion || ''} onChange={e => setForm({ ...form, direccion: e.target.value })} /></Fld>
               <Fld label="Sistemas que provee" span>
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                   {SYSTEMS.map(s => {
