@@ -4,14 +4,15 @@ import { ANTHROPIC_API_KEY } from '../lib/config'
 import { Quotation, QuotationArea, QuotationItem, CatalogProduct, Project, ProjectLine, PurchasePhase } from '../types'
 import { F, SPECIALTY_CONFIG, STAGE_CONFIG, PHASE_CONFIG, calcItemPrice, calcItemTotal } from '../lib/utils'
 import { Badge, Btn, Table, Th, Td, Loading, SectionHeader, EmptyState } from '../components/layout/UI'
-import { Plus, ChevronLeft, X, Zap, Loader2, Search } from 'lucide-react'
+import { Plus, ChevronLeft, X, Zap, Loader2, Search, FileText } from 'lucide-react'
 import CotEditorESP from './CotEditorESP'
+import PlanAnalyzer from './PlanAnalyzer'
 
 interface Supplier { id: string; name: string }
 
 interface LeadInfo { id: string; name: string; company: string }
 
-function CotDashboard({ onOpen }: { onOpen: (id: string, specialty?: string) => void }) {
+function CotDashboard({ onOpen, onOpenPlanAnalyzer }: { onOpen: (id: string, specialty?: string) => void; onOpenPlanAnalyzer: () => void }) {
   const [cots, setCots] = useState<Quotation[]>([])
   const [leadsMap, setLeadsMap] = useState<Record<string, LeadInfo>>({})
   const [filtro, setFiltro] = useState<string>('todas')
@@ -80,6 +81,7 @@ function CotDashboard({ onOpen }: { onOpen: (id: string, specialty?: string) => 
       <SectionHeader title="Cotizaciones"
         subtitle={`${cots.length} cotizaciones · USD ${F(totalUSD)} · MXN ${F(totalMXN)}`}
         action={<div style={{display:'flex',gap:8}}>
+          <Btn onClick={onOpenPlanAnalyzer} style={{border:'1px solid #3B82F644', color:'#3B82F6', display:'inline-flex', alignItems:'center', gap:4}}><FileText size={14}/> Analizar Plano</Btn>
           <Btn onClick={() => setShowAIGen(true)} style={{border:'1px solid #57FF9A44', color:'#57FF9A', display:'inline-flex', alignItems:'center', gap:4}}><Zap size={14}/> Cotizar con AI</Btn>
           <Btn variant="primary" onClick={() => setShowNew(true)}><Plus size={14}/> Nueva cotizacion</Btn>
         </div>}/>
@@ -1006,6 +1008,7 @@ export default function Cotizaciones() {
   const initial = parseHash()
   const [openId, setOpenId] = useState<string|null>(initial.id)
   const [openSpecialty, setOpenSpecialty] = useState<string|null>(initial.spec)
+  const [showPlanAnalyzer, setShowPlanAnalyzer] = useState(false)
 
   const open = (id: string, specialty?: string) => {
     setOpenId(id); setOpenSpecialty(specialty || null)
@@ -1013,12 +1016,14 @@ export default function Cotizaciones() {
   }
   const close = () => {
     setOpenId(null); setOpenSpecialty(null)
+    setShowPlanAnalyzer(false)
     window.location.hash = ''
   }
 
+  if (showPlanAnalyzer) return <PlanAnalyzer onBack={close}/>
   if (openId && openSpecialty === 'esp') return <CotEditorESP cotId={openId} onBack={close}/>
   if (openId) return <CotEditor cotId={openId} onBack={close}/>
-  return <CotDashboard onOpen={open}/>
+  return <CotDashboard onOpen={open} onOpenPlanAnalyzer={() => setShowPlanAnalyzer(true)}/>
 }
 // ═══════════════════════════════════════════════════════════════════
 // AI GENERATE MODAL — Cotizar con AI desde scope
