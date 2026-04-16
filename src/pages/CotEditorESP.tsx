@@ -142,7 +142,8 @@ function ProductRow({ p, onUpdate, onRemove, onUpdateAll, showInt, duplicateCoun
         <td style={S.tdR}><input type="number" defaultValue={p.margin} step={1} onBlur={e => handleBlur('margin', parseFloat(e.target.value) || 0)} style={{ ...S.input, width: 40, color: p.margin >= 25 ? '#57FF9A' : p.margin >= 15 ? '#F59E0B' : '#EF4444' }} /></td>
         <td style={{ ...S.tdR, fontSize: 10, color: utilidad >= 0 ? '#57FF9A' : '#EF4444' }}>${utilidad.toFixed(2)}</td>
       </>)}
-      <td style={{ ...S.td, width: 56, display: 'flex', gap: 2 }}>{onCopyTo && <button onClick={() => onCopyTo(p.id)} title="Copiar a otra area" style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px', fontSize: 12, opacity: 0.5 }}>\u{1F4CB}</button>}<button onClick={() => onRemove(p.id)} style={{ background: 'none', border: 'none', color: '#444', cursor: 'pointer' }}><Trash2 size={12} /></button></td>
+      {onCopyTo && <td style={{ ...S.td, width: 28 }}><button onClick={() => onCopyTo(p.id)} title="Copiar a otras areas" style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px', fontSize: 11, opacity: 0.6 }}>{String.fromCodePoint(0x1F4CB)}</button></td>}
+      <td style={{ ...S.td, width: 28 }}><button onClick={() => onRemove(p.id)} style={{ background: 'none', border: 'none', color: '#444', cursor: 'pointer' }}><Trash2 size={12} /></button></td>
     </tr>
   )
 }
