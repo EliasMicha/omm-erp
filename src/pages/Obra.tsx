@@ -4,10 +4,10 @@ import { F, formatDate } from '../lib/utils'
 import { ANTHROPIC_API_KEY } from '../lib/config'
 import { supabase } from '../lib/supabase'
 import {
-  HardHat, Users, ClipboardList, Calendar, AlertTriangle, CheckCircle,
+  HardHat, Users, ClipboardList, Calendar, AlertTriangle, CheckCircle, CheckCircle2,
   Clock, ChevronRight, ArrowLeft, Plus, Upload, Camera, X, Eye,
   Wrench, Wifi, Volume2, Shield, Sun, MapPin, FileText, TrendingUp,
-  Loader2, MessageSquare, Lock, ChevronDown, Package,
+  Loader2, MessageSquare, Lock, ChevronDown, Package, Truck, ShoppingCart,
   Flame, Server, Phone, Radio, Blinds
 } from 'lucide-react'
 
@@ -76,6 +76,7 @@ interface ObraData {
   status: ObraStatus
   cotizacion_ref?: string
   cotizacion_id?: string
+  project_id?: string
   coordinador: string
   sistemas: Sistema[]
   instaladores_ids: string[]
@@ -168,6 +169,7 @@ function rowToObra(o: any, coordinadorName: string): ObraData {
     status: (o.status || 'entrega_pendiente') as ObraStatus,
     cotizacion_id: o.quotation_id || undefined,
     cotizacion_ref: o.quotation_id ? '' : undefined, // se hidrata si hace falta
+    project_id: o.project_id || undefined,
     coordinador: coordinadorName,
     sistemas: (o.sistemas || []) as Sistema[],
     instaladores_ids: (o.instaladores_ids || []) as string[],
@@ -2637,14 +2639,47 @@ interface MatItem {
   price: number
   total: number
   type: string
+  catalog_product_id: string | null
+}
+interface MatPOItem {
+  id: string
+  purchase_order_id: string
+  catalog_product_id: string | null
+  name: string
+  quantity: number
+  po_status: string | null
+  po_project_id: string | null
+}
+interface MatDelItem {
+  id: string
+  po_item_id: string | null
+  product_id: string | null
+  description: string
+  qty: number
+  direction: 'in_bodega' | 'in_obra' | 'out_bodega_to_obra'
+  obra_id: string | null
+  po_id: string | null
+  po_project_id: string | null
+}
+
+// Bucket key for matching quotation_items ↔ po_items ↔ delivery_items.
+// Prefer catalog_product_id (strict match); fallback to normalized name.
+function matBucket(it: { catalog_product_id?: string | null; product_id?: string | null; name?: string; description?: string }): string {
+  const cpId = it.catalog_product_id || it.product_id
+  if (cpId) return `cat:${cpId}`
+  const label = (it.name || it.description || '').trim().toLowerCase()
+  return label ? `name:${label}` : '__unknown__'
 }
 
 function SubMateriales({ obra }: { obra: ObraData }) {
   const [loading, setLoading] = useState(true)
   const [areas, setAreas] = useState<MatArea[]>([])
   const [items, setItems] = useState<MatItem[]>([])
+  const [poItems, setPoItems] = useState<MatPOItem[]>([])
+  const [delItems, setDelItems] = useState<MatDelItem[]>([])
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const [filterSystem, setFilterSystem] = useState<string>('')
+  const [filterStatus, setFilterStatus] = useState<'' | 'falta_pedir' | 'falta_recibir' | 'falta_entregar' | 'completo'>('')
   const [search, setSearch] = useState('')
   const [error, setError] = useState<string | null>(null)
 
@@ -2656,19 +2691,61 @@ function SubMateriales({ obra }: { obra: ObraData }) {
     }
     setLoading(true)
     setError(null)
+
+    const projectId = obra.project_id || null
+    const obraId = obra.id
+
     Promise.all([
       supabase.from('quotation_areas').select('id, name, order_index').eq('quotation_id', obra.cotizacion_id).order('order_index'),
-      supabase.from('quotation_items').select('id, area_id, name, description, system, provider, purchase_phase, quantity, price, total, type').eq('quotation_id', obra.cotizacion_id).order('order_index'),
-    ]).then(([areasRes, itemsRes]) => {
+      supabase.from('quotation_items').select('id, area_id, name, description, system, provider, purchase_phase, quantity, price, total, type, catalog_product_id').eq('quotation_id', obra.cotizacion_id).order('order_index'),
+      // po_items: filtramos por POs del proyecto (si existe). Si no hay project_id, no podemos filtrar — traemos vacío.
+      projectId
+        ? supabase.from('po_items').select('id, purchase_order_id, catalog_product_id, name, quantity, purchase_orders!inner(id, status, project_id)').eq('purchase_orders.project_id', projectId)
+        : Promise.resolve({ data: [], error: null }),
+      // delivery_items: los que son para esta obra (entregado) + los cuyo PO sea de este proyecto (recibido en bodega por OMM para este proyecto)
+      projectId
+        ? supabase.from('delivery_items').select('id, po_item_id, product_id, description, qty, direction, obra_id, po_id, purchase_orders:po_id(id, project_id)').or(`obra_id.eq.${obraId},purchase_orders.project_id.eq.${projectId}`)
+        : supabase.from('delivery_items').select('id, po_item_id, product_id, description, qty, direction, obra_id, po_id').eq('obra_id', obraId),
+    ]).then(([areasRes, itemsRes, poRes, delRes]: any[]) => {
       if (areasRes.error) setError('Error cargando áreas: ' + areasRes.error.message)
       if (itemsRes.error) setError('Error cargando materiales: ' + itemsRes.error.message)
+      if (poRes.error) console.warn('Error cargando po_items:', poRes.error)
+      if (delRes.error) console.warn('Error cargando delivery_items:', delRes.error)
+
       setAreas((areasRes.data || []) as MatArea[])
       // Solo materiales (no mano de obra)
       const materialItems = ((itemsRes.data || []) as MatItem[]).filter(it => it.type !== 'labor')
       setItems(materialItems)
+
+      // Normalizar po_items (aplanamos el embed de purchase_orders)
+      const poNorm: MatPOItem[] = ((poRes.data || []) as any[]).map(p => ({
+        id: p.id,
+        purchase_order_id: p.purchase_order_id,
+        catalog_product_id: p.catalog_product_id || null,
+        name: p.name || '',
+        quantity: Number(p.quantity) || 0,
+        po_status: p.purchase_orders?.status || null,
+        po_project_id: p.purchase_orders?.project_id || null,
+      }))
+      setPoItems(poNorm)
+
+      // Normalizar delivery_items
+      const delNorm: MatDelItem[] = ((delRes.data || []) as any[]).map(d => ({
+        id: d.id,
+        po_item_id: d.po_item_id || null,
+        product_id: d.product_id || null,
+        description: d.description || '',
+        qty: Number(d.qty) || 0,
+        direction: d.direction,
+        obra_id: d.obra_id || null,
+        po_id: d.po_id || null,
+        po_project_id: d.purchase_orders?.project_id || null,
+      }))
+      setDelItems(delNorm)
+
       setLoading(false)
     })
-  }, [obra.cotizacion_id])
+  }, [obra.cotizacion_id, obra.project_id, obra.id])
 
   if (loading) return <Loading />
 
@@ -2685,9 +2762,51 @@ function SubMateriales({ obra }: { obra: ObraData }) {
     return <EmptyState message="Esta cotización no tiene materiales registrados" />
   }
 
-  // Filtrar
+  // ═══════════════ AGREGACIONES POR BUCKET ═══════════════
+  // Sumas totales de pedido / recibido / entregado agrupadas por bucket key
+  // (catalog_product_id si existe, si no por nombre normalizado).
+  const pedidoByBucket: Record<string, number> = {}
+  poItems.forEach(p => {
+    // Excluir POs canceladas o en borrador — las demás cuentan como "pedido"
+    if (p.po_status === 'cancelada') return
+    const k = matBucket({ catalog_product_id: p.catalog_product_id, name: p.name })
+    pedidoByBucket[k] = (pedidoByBucket[k] || 0) + p.quantity
+  })
+
+  // Recibido: llegó al inventario OMM para este proyecto (bodega o directo a obra)
+  //   direction IN ('in_bodega', 'in_obra')
+  const recibidoByBucket: Record<string, number> = {}
+  // Entregado: físicamente está en ESTA obra
+  //   direction IN ('in_obra', 'out_bodega_to_obra') AND obra_id = obra.id
+  const entregadoByBucket: Record<string, number> = {}
+
+  delItems.forEach(d => {
+    const k = matBucket({ product_id: d.product_id, description: d.description })
+    if (d.direction === 'in_bodega' || d.direction === 'in_obra') {
+      recibidoByBucket[k] = (recibidoByBucket[k] || 0) + d.qty
+    }
+    if ((d.direction === 'in_obra' || d.direction === 'out_bodega_to_obra') && d.obra_id === obra.id) {
+      entregadoByBucket[k] = (entregadoByBucket[k] || 0) + d.qty
+    }
+  })
+
+  // Helper: estado por item
+  function getItemStatus(it: MatItem): 'falta_pedir' | 'falta_recibir' | 'falta_entregar' | 'completo' {
+    const k = matBucket({ catalog_product_id: it.catalog_product_id, name: it.name })
+    const cot = Number(it.quantity) || 0
+    const ped = pedidoByBucket[k] || 0
+    const rec = recibidoByBucket[k] || 0
+    const ent = entregadoByBucket[k] || 0
+    if (ent >= cot && cot > 0) return 'completo'
+    if (rec >= cot && cot > 0) return 'falta_entregar'
+    if (ped >= cot && cot > 0) return 'falta_recibir'
+    return 'falta_pedir'
+  }
+
+  // ═══════════════ FILTROS ═══════════════
   const filteredItems = items.filter(it => {
     if (filterSystem && it.system !== filterSystem) return false
+    if (filterStatus && getItemStatus(it) !== filterStatus) return false
     if (search) {
       const q = search.toLowerCase()
       if (!it.name.toLowerCase().includes(q) &&
@@ -2700,11 +2819,19 @@ function SubMateriales({ obra }: { obra: ObraData }) {
   // Sistemas únicos para el filtro
   const uniqueSystems: string[] = Array.from(new Set(items.map(it => it.system || '').filter(Boolean))).sort()
 
-  // KPIs
-  const totalItems = filteredItems.length
-  const totalPiezas = filteredItems.reduce((s, it) => s + (it.quantity || 0), 0)
-  const totalValor = filteredItems.reduce((s, it) => s + (Number(it.total) || (Number(it.price) || 0) * (Number(it.quantity) || 0)), 0)
-  const totalAreas = new Set(filteredItems.map(it => it.area_id)).size
+  // ═══════════════ KPIs ═══════════════
+  // Conteo por estado (sobre todos los items, no solo filtrados)
+  let kpiCompletos = 0
+  let kpiFaltaPedir = 0
+  let kpiFaltaRecibir = 0
+  let kpiFaltaEntregar = 0
+  items.forEach(it => {
+    const st = getItemStatus(it)
+    if (st === 'completo') kpiCompletos++
+    else if (st === 'falta_pedir') kpiFaltaPedir++
+    else if (st === 'falta_recibir') kpiFaltaRecibir++
+    else if (st === 'falta_entregar') kpiFaltaEntregar++
+  })
 
   // Agrupar por área
   const areasWithItems = areas
@@ -2738,12 +2865,12 @@ function SubMateriales({ obra }: { obra: ObraData }) {
 
   return (
     <div>
-      {/* KPIs */}
+      {/* KPIs por estado — matriz 4 estados */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 16 }}>
-        <KpiCard label="Áreas" value={String(totalAreas)} icon={<MapPin size={16} />} />
-        <KpiCard label="Items distintos" value={String(totalItems)} color="#3B82F6" icon={<Package size={16} />} />
-        <KpiCard label="Piezas totales" value={String(totalPiezas)} color="#C084FC" icon={<ClipboardList size={16} />} />
-        <KpiCard label="Valor materiales" value={F(totalValor)} color="#57FF9A" icon={<TrendingUp size={16} />} />
+        <KpiCard label="Falta pedir"     value={String(kpiFaltaPedir)}     color="#F87171" icon={<AlertTriangle size={16} />} />
+        <KpiCard label="Falta recibir"   value={String(kpiFaltaRecibir)}   color="#F59E0B" icon={<ShoppingCart size={16} />} />
+        <KpiCard label="Falta entregar"  value={String(kpiFaltaEntregar)}  color="#3B82F6" icon={<Truck size={16} />} />
+        <KpiCard label="Completos"       value={String(kpiCompletos)}      color="#57FF9A" icon={<CheckCircle2 size={16} />} />
       </div>
 
       {/* Controles */}
@@ -2752,15 +2879,26 @@ function SubMateriales({ obra }: { obra: ObraData }) {
           value={search}
           onChange={e => setSearch(e.target.value)}
           placeholder="Buscar por nombre, descripción, proveedor..."
-          style={{ ...inputStyle, width: 280 }}
+          style={{ ...inputStyle, width: 260 }}
         />
         <select
           value={filterSystem}
           onChange={e => setFilterSystem(e.target.value)}
-          style={{ ...inputStyle, width: 180 }}
+          style={{ ...inputStyle, width: 150 }}
         >
           <option value="">Todos los sistemas</option>
           {uniqueSystems.map(s => <option key={s} value={s}>{s}</option>)}
+        </select>
+        <select
+          value={filterStatus}
+          onChange={e => setFilterStatus(e.target.value as any)}
+          style={{ ...inputStyle, width: 170 }}
+        >
+          <option value="">Todos los estados</option>
+          <option value="falta_pedir">Falta pedir</option>
+          <option value="falta_recibir">Falta recibir</option>
+          <option value="falta_entregar">Falta entregar</option>
+          <option value="completo">Completos</option>
         </select>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
           <Btn size="sm" variant="default" onClick={expandAll}>Expandir todo</Btn>
@@ -2774,8 +2912,16 @@ function SubMateriales({ obra }: { obra: ObraData }) {
       )}
 
       {areasWithItems.map(({ area, items: areaItems }) => {
-        const areaTotal = areaItems.reduce((s, it) => s + (Number(it.total) || (Number(it.price) || 0) * (Number(it.quantity) || 0)), 0)
-        const areaPiezas = areaItems.reduce((s, it) => s + (Number(it.quantity) || 0), 0)
+        // Resúmenes del área: contador por estado
+        let areaFaltaPedir = 0, areaFaltaRecibir = 0, areaFaltaEntregar = 0, areaCompletos = 0
+        areaItems.forEach(it => {
+          const st = getItemStatus(it)
+          if (st === 'falta_pedir') areaFaltaPedir++
+          else if (st === 'falta_recibir') areaFaltaRecibir++
+          else if (st === 'falta_entregar') areaFaltaEntregar++
+          else if (st === 'completo') areaCompletos++
+        })
+        const areaPiezasCot = areaItems.reduce((s, it) => s + (Number(it.quantity) || 0), 0)
         const isCollapsed = collapsed[area.id] || false
 
         // Agrupar items por sistema dentro del área
@@ -2801,8 +2947,14 @@ function SubMateriales({ obra }: { obra: ObraData }) {
               <span style={{ fontSize: 13, fontWeight: 700, color: '#fff', flex: 1, textTransform: 'uppercase' as const }}>
                 {area.name}
               </span>
-              <span style={{ fontSize: 10, color: '#666' }}>{areaItems.length} items · {areaPiezas} pz</span>
-              <span style={{ fontSize: 13, fontWeight: 700, color: '#57FF9A' }}>{F(areaTotal)}</span>
+              <span style={{ fontSize: 10, color: '#666' }}>{areaItems.length} items · {areaPiezasCot} pz cot.</span>
+              {/* Mini-contadores de estado por área */}
+              <span style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 10, fontFamily: 'monospace' }}>
+                {areaFaltaPedir > 0    && <span style={{ color: '#F87171' }} title="Falta pedir">●{areaFaltaPedir}</span>}
+                {areaFaltaRecibir > 0  && <span style={{ color: '#FBBF24' }} title="Falta recibir">●{areaFaltaRecibir}</span>}
+                {areaFaltaEntregar > 0 && <span style={{ color: '#60A5FA' }} title="Falta entregar">●{areaFaltaEntregar}</span>}
+                {areaCompletos > 0     && <span style={{ color: '#57FF9A' }} title="Completos">✓{areaCompletos}</span>}
+              </span>
             </div>
 
             {/* Items agrupados por sistema */}
@@ -2827,32 +2979,58 @@ function SubMateriales({ obra }: { obra: ObraData }) {
                       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                         <thead>
                           <tr>
-                            <th style={{ textAlign: 'center', fontSize: 9, color: '#444', fontWeight: 600, padding: '4px 6px', textTransform: 'uppercase' as const, letterSpacing: '0.06em', width: 50 }}>Cant</th>
-                            <th style={{ textAlign: 'left', fontSize: 9, color: '#444', fontWeight: 600, padding: '4px 6px', textTransform: 'uppercase' as const, letterSpacing: '0.06em' }}>Producto</th>
-                            <th style={{ textAlign: 'left', fontSize: 9, color: '#444', fontWeight: 600, padding: '4px 6px', textTransform: 'uppercase' as const, letterSpacing: '0.06em', width: 150 }}>Proveedor</th>
-                            <th style={{ textAlign: 'left', fontSize: 9, color: '#444', fontWeight: 600, padding: '4px 6px', textTransform: 'uppercase' as const, letterSpacing: '0.06em', width: 100 }}>Fase</th>
-                            <th style={{ textAlign: 'right', fontSize: 9, color: '#444', fontWeight: 600, padding: '4px 6px', textTransform: 'uppercase' as const, letterSpacing: '0.06em', width: 100 }}>P. Unit</th>
-                            <th style={{ textAlign: 'right', fontSize: 9, color: '#444', fontWeight: 600, padding: '4px 6px', textTransform: 'uppercase' as const, letterSpacing: '0.06em', width: 110 }}>Total</th>
+                            <th style={{ textAlign: 'left',   fontSize: 9, color: '#444', fontWeight: 600, padding: '4px 6px', textTransform: 'uppercase' as const, letterSpacing: '0.06em' }}>Producto</th>
+                            <th style={{ textAlign: 'left',   fontSize: 9, color: '#444', fontWeight: 600, padding: '4px 6px', textTransform: 'uppercase' as const, letterSpacing: '0.06em', width: 130 }}>Proveedor</th>
+                            <th style={{ textAlign: 'center', fontSize: 9, color: '#F87171', fontWeight: 700, padding: '4px 6px', textTransform: 'uppercase' as const, letterSpacing: '0.06em', width: 80 }}>Cotizado</th>
+                            <th style={{ textAlign: 'center', fontSize: 9, color: '#FBBF24', fontWeight: 700, padding: '4px 6px', textTransform: 'uppercase' as const, letterSpacing: '0.06em', width: 80 }}>Pedido</th>
+                            <th style={{ textAlign: 'center', fontSize: 9, color: '#60A5FA', fontWeight: 700, padding: '4px 6px', textTransform: 'uppercase' as const, letterSpacing: '0.06em', width: 80 }}>Recibido</th>
+                            <th style={{ textAlign: 'center', fontSize: 9, color: '#57FF9A', fontWeight: 700, padding: '4px 6px', textTransform: 'uppercase' as const, letterSpacing: '0.06em', width: 80 }}>Entregado</th>
+                            <th style={{ textAlign: 'center', fontSize: 9, color: '#444', fontWeight: 600, padding: '4px 6px', textTransform: 'uppercase' as const, letterSpacing: '0.06em', width: 60 }}>Estado</th>
                           </tr>
                         </thead>
                         <tbody>
-                          {sysItems.map(it => (
-                            <tr key={it.id} style={{ borderTop: '1px solid #141414' }}>
-                              <td style={{ textAlign: 'center', fontSize: 12, color: '#fff', fontWeight: 600, padding: '6px' }}>{it.quantity}</td>
-                              <td style={{ fontSize: 12, color: '#ddd', padding: '6px' }}>
-                                <div style={{ fontWeight: 500 }}>{it.name}</div>
-                                {it.description && <div style={{ fontSize: 10, color: '#555', marginTop: 1 }}>{it.description}</div>}
-                              </td>
-                              <td style={{ fontSize: 11, color: '#888', padding: '6px' }}>{it.provider || '—'}</td>
-                              <td style={{ fontSize: 11, color: '#888', padding: '6px' }}>{it.purchase_phase || '—'}</td>
-                              <td style={{ textAlign: 'right', fontSize: 11, color: '#888', padding: '6px', fontVariantNumeric: 'tabular-nums' as const }}>
-                                {F(Number(it.price) || 0)}
-                              </td>
-                              <td style={{ textAlign: 'right', fontSize: 12, color: '#57FF9A', fontWeight: 600, padding: '6px', fontVariantNumeric: 'tabular-nums' as const }}>
-                                {F(Number(it.total) || (Number(it.price) || 0) * (Number(it.quantity) || 0))}
-                              </td>
-                            </tr>
-                          ))}
+                          {sysItems.map(it => {
+                            const k = matBucket({ catalog_product_id: it.catalog_product_id, name: it.name })
+                            const cot = Number(it.quantity) || 0
+                            const ped = pedidoByBucket[k] || 0
+                            const rec = recibidoByBucket[k] || 0
+                            const ent = entregadoByBucket[k] || 0
+                            const st = getItemStatus(it)
+                            const stCfg = {
+                              falta_pedir:     { color: '#F87171', label: '●', title: 'Falta pedir' },
+                              falta_recibir:   { color: '#FBBF24', label: '●', title: 'Falta recibir' },
+                              falta_entregar:  { color: '#60A5FA', label: '●', title: 'Falta entregar' },
+                              completo:        { color: '#57FF9A', label: '✓', title: 'Completo' },
+                            }[st]
+                            // Helpers de color por comparación con cotizado
+                            const pedColor = ped >= cot ? '#FBBF24' : (ped > 0 ? '#fbbf2480' : '#3a3a3a')
+                            const recColor = rec >= cot ? '#60A5FA' : (rec > 0 ? '#60a5fa80' : '#3a3a3a')
+                            const entColor = ent >= cot ? '#57FF9A' : (ent > 0 ? '#57ff9a80' : '#3a3a3a')
+                            return (
+                              <tr key={it.id} style={{ borderTop: '1px solid #141414' }}>
+                                <td style={{ fontSize: 12, color: '#ddd', padding: '6px' }}>
+                                  <div style={{ fontWeight: 500 }}>{it.name}</div>
+                                  {it.description && <div style={{ fontSize: 10, color: '#555', marginTop: 1 }}>{it.description}</div>}
+                                </td>
+                                <td style={{ fontSize: 11, color: '#888', padding: '6px' }}>{it.provider || '—'}</td>
+                                <td style={{ textAlign: 'center', fontSize: 12, color: '#fff', fontWeight: 600, padding: '6px', fontVariantNumeric: 'tabular-nums' as const }}>
+                                  {cot}
+                                </td>
+                                <td style={{ textAlign: 'center', fontSize: 12, color: pedColor, fontWeight: 600, padding: '6px', fontVariantNumeric: 'tabular-nums' as const }}>
+                                  {ped}
+                                </td>
+                                <td style={{ textAlign: 'center', fontSize: 12, color: recColor, fontWeight: 600, padding: '6px', fontVariantNumeric: 'tabular-nums' as const }}>
+                                  {rec}
+                                </td>
+                                <td style={{ textAlign: 'center', fontSize: 12, color: entColor, fontWeight: 600, padding: '6px', fontVariantNumeric: 'tabular-nums' as const }}>
+                                  {ent}
+                                </td>
+                                <td style={{ textAlign: 'center', padding: '6px' }} title={stCfg.title}>
+                                  <span style={{ color: stCfg.color, fontSize: 14, fontWeight: 700 }}>{stCfg.label}</span>
+                                </td>
+                              </tr>
+                            )
+                          })}
                         </tbody>
                       </table>
                     </div>
