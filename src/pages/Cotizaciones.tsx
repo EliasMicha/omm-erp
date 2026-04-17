@@ -443,7 +443,7 @@ function NuevaCoModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
           </label>
 
           {/* === PROY-SPECIFIC: m² de construcción === */}
-          {form.specialty === 'proy' && (
+          {(form.specialty === 'proy' || form.specialty === 'ilum') && (
             <label style={labelStyle}>
               m² de construcción
               <div style={{ fontSize: 10, color: '#444', marginTop: 2, marginBottom: 6, fontStyle: 'italic', textTransform: 'none' as const }}>
@@ -1059,7 +1059,8 @@ export default function Cotizaciones() {
 
   if (openId && openSpecialty === 'esp') return <CotEditorESP cotId={openId} onBack={close}/>
   if (openId && openSpecialty === 'cort') return <CotEditorCortinas cotId={openId} onBack={close}/>
-  if (openId && openSpecialty === 'proy') return <CotEditorProyecto cotId={openId} onBack={close}/>
+  if (openId && openSpecialty === 'proy') return <CotEditorProyecto cotId={openId} onBack={close} specialty="proy"/>
+  if (openId && openSpecialty === 'ilum') return <CotEditorProyecto cotId={openId} onBack={close} specialty="ilum"/>
   if (openId) return <CotEditor cotId={openId} onBack={close}/>
   return <CotDashboard onOpen={open}/>
 }

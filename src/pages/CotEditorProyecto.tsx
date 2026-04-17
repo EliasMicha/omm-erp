@@ -185,7 +185,7 @@ const PROYECTO_SYSTEMS: ProySystem[] = [
   {
     id: 'diseno_iluminacion',
     name: 'Diseño de Iluminación',
-    defaultPrecioM2: 10,
+    defaultPrecioM2: 60,
     defaultDesc: 'Proyecto de Diseño de Iluminación',
     entregables: [
       'Sembrado de luminarias',
@@ -195,6 +195,205 @@ const PROYECTO_SYSTEMS: ProySystem[] = [
     ]
   },
 ]
+
+// ═══════════════════════════════════════════════════════════════════
+// ILUMINACIÓN SYSTEMS (specialty: 'ilum')
+// ═══════════════════════════════════════════════════════════════════
+
+const ILUM_SYSTEMS: ProySystem[] = [
+  {
+    id: 'ilum_residencial',
+    name: 'Iluminación Residencial',
+    defaultPrecioM2: 60,
+    defaultDesc: 'Proyecto de Iluminación Residencial',
+    entregables: [
+      'Elaboración de Concepto Lumínico: Desarrollo de un concepto integral de iluminación acorde con las necesidades del espacio y los requerimientos estéticos y funcionales del proyecto',
+      'Propuesta de diseño basada en tendencias actuales y normativas aplicables, buscando optimizar el rendimiento energético y la experiencia visual',
+      'Presentación de Luminarias: Selección cuidadosa de luminarias específicas para el proyecto, considerando estética, funcionalidad y eficiencia energética',
+      'Creación de una presentación profesional para mostrar las opciones seleccionadas, incluyendo imágenes, especificaciones clave y beneficios',
+      'Catálogo de Fichas Técnicas: Compilación de un catálogo detallado que incluya las fichas técnicas de todas las luminarias propuestas',
+      'Información técnica completa para cada luminaria, incluyendo dimensiones, potencia, flujo luminoso, temperaturas de color y acabados',
+      'Sembrado Ejecutivo: Creación de planos ejecutivos de iluminación que indiquen la ubicación exacta de cada luminaria en el espacio',
+      'Coordinación con otras disciplinas del proyecto para garantizar la correcta implementación en sitio',
+      'Propuesta de Luminarias Decorativas: Desarrollo de una propuesta especializada en luminarias decorativas que complementen el diseño interior y aporten valor estético al espacio',
+      'Selección de luminarias decorativas que armonicen con el concepto lumínico general y la arquitectura del proyecto',
+      'Detalles Constructivos: Preparación de detalles constructivos específicos para la instalación de luminarias, asegurando una correcta ejecución en sitio',
+      'Inclusión de instrucciones claras para soportes, conexiones eléctricas y acabados, en coordinación con el equipo de obra',
+    ]
+  },
+  {
+    id: 'ilum_comercial',
+    name: 'Iluminación Comercial',
+    defaultPrecioM2: 50,
+    defaultDesc: 'Proyecto de Iluminación Comercial',
+    entregables: [
+      'Elaboración de Concepto Lumínico para espacios comerciales',
+      'Propuesta de diseño orientada a la experiencia del usuario y eficiencia energética',
+      'Presentación de Luminarias: Selección de luminarias para espacios comerciales',
+      'Catálogo de Fichas Técnicas de luminarias propuestas',
+      'Sembrado Ejecutivo: Planos ejecutivos de iluminación',
+      'Coordinación con arquitectura e interiorismo',
+      'Cálculos luminotécnicos conforme a normativa',
+      'Detalles Constructivos para instalación',
+    ]
+  },
+  {
+    id: 'ilum_exterior',
+    name: 'Iluminación Exterior / Paisaje',
+    defaultPrecioM2: 45,
+    defaultDesc: 'Proyecto de Iluminación Exterior',
+    entregables: [
+      'Concepto lumínico para áreas exteriores y paisaje',
+      'Selección de luminarias IP65+ para exteriores',
+      'Sembrado ejecutivo en planos de paisaje',
+      'Criterios de instalación y protección contra intemperie',
+      'Detalles constructivos para montaje exterior',
+    ]
+  },
+]
+
+// Iluminación-specific PDF conditions
+// Proyecto (instalaciones especiales) PDF conditions
+const PROY_PDF_CONDITIONS = `
+  <div class="section-title">Alcance del Proyecto</div>
+  <div class="section-text">
+    El alcance del proyecto comprende exclusivamente el <strong>desarrollo de ingeniería y documentación técnica</strong>, sin considerar bajo ninguna circunstancia la ejecución física en obra.
+  </div>
+  <div class="section-text">
+    <strong><u>No están incluidos</u></strong>, salvo que se indique expresamente en esta cotización:
+  </div>
+  <div class="section-text" style="padding-left: 20px;">
+    • Suministro de equipos y materiales.<br/>
+    • Instalación, canalizaciones o cableado.<br/>
+    • Programación, configuración o integración de sistemas.<br/>
+    • Pruebas, puesta en marcha o capacitación.<br/>
+    • Supervisión de obra o dirección técnica en sitio.
+  </div>
+
+  <div class="section-title">Información Base del Cliente</div>
+  <div class="section-text">
+    Las ingenierías se desarrollan con base en la información proporcionada por el cliente, incluyendo planos arquitectónicos, ingenierías base y criterios definidos al inicio del proyecto.
+  </div>
+  <div class="section-text">
+    Cualquier modificación posterior en:
+  </div>
+  <div class="section-text" style="padding-left: 20px;">
+    • Arquitectura.<br/>
+    • Layout.<br/>
+    • Uso de áreas.<br/>
+    • Criterios operativos.<br/>
+    • Alcances originalmente definidos.
+  </div>
+  <div class="section-text">
+    Será considerada <strong>un cambio de alcance</strong> y podrá generar ajustes en costo, tiempos y entregables.
+  </div>
+
+  <div class="section-title">Cambios y Ajustes de Alcance</div>
+  <div class="section-text">
+    La cotización incluye <strong>una ronda de ajustes razonables</strong> derivada de observaciones del cliente sobre la ingeniería presentada.
+  </div>
+  <div class="section-text">
+    Cambios adicionales, o modificaciones que impliquen:
+  </div>
+  <div class="section-text" style="padding-left: 20px;">
+    • Rehacer sembrados.<br/>
+    • Cambiar rutas de tubería.<br/>
+    • Ajustar criterios técnicos.<br/>
+    • Modificar sistemas ya desarrollados.
+  </div>
+  <div class="section-text">
+    Se cotizarán de manera independiente previo a su ejecución.
+  </div>
+
+  <div class="section-title">Coordinación con Otras Ingenierías</div>
+  <div class="section-text">
+    El alcance contempla <strong>coordinación técnica a nivel de proyecto</strong>, con las ingenierías involucradas (arquitectura, eléctrica, HVAC, etc.), únicamente para compatibilizar la información contenida en los planos.
+  </div>
+  <div class="section-text">
+    No se incluye:
+  </div>
+  <div class="section-text" style="padding-left: 20px;">
+    • Resolución de conflictos en obra.<br/>
+    • Ajustes derivados de errores de terceros.<br/>
+    • Supervisión de ejecución en campo.
+  </div>
+
+  <div class="section-title">Condiciones de Pago</div>
+  <div class="section-text">
+    Para el inicio del desarrollo de las <strong>Ingenierías Ejecutivas de Instalaciones Especiales</strong>, se establecen las siguientes condiciones de pago:
+  </div>
+  <div class="section-text" style="padding-left: 20px;">
+    • <strong>50% de anticipo</strong> al momento de la aceptación de la cotización, requerido para iniciar los trabajos de ingeniería.<br/><br/>
+    • <strong>50% restante</strong> contra entrega de la ingeniería ejecutiva completa.
+  </div>
+  <div class="section-text">
+    En caso de que el cliente decida <strong>ejecutar la obra completa</strong> de los sistemas de instalaciones especiales con <strong>nuestro equipo</strong>, el monto pagado por concepto de ingeniería ejecutiva será <strong>acreditado como descuento</strong> en el siguiente pago correspondiente a la etapa de ejecución de obra, de acuerdo con el esquema de contratación acordado.
+  </div>
+  <div class="section-text">
+    En caso de que el cliente decida <strong>ejecutar la obra con un proveedor distinto</strong>, el <strong>100% del monto</strong> correspondiente a la ingeniería ejecutiva deberá quedar liquidado, sin excepción, conforme a los términos de esta cotización.
+  </div>
+  <div class="section-text">
+    El inicio de cualquier etapa posterior (suministro, instalación, programación o puesta en marcha) estará sujeto a la liquidación de los montos correspondientes y a la firma de los acuerdos contractuales aplicables.
+  </div>
+
+  <div class="section-title">Vigencia</div>
+  <div class="section-text">
+    Esta cotización tiene validez de 30 días calendario a partir de su emisión. Sujeta a disponibilidad de personal y confirmación de calendario.
+  </div>
+`
+
+const ILUM_PDF_CONDITIONS = `
+  <div class="section-title">ALCANCES GENERALES</div>
+
+  <div class="section-text"><strong>Elaboración de Concepto Lumínico:</strong></div>
+  <div class="section-text" style="padding-left: 20px;">
+    A) Desarrollo de un concepto integral de iluminación acorde con las necesidades del espacio y los requerimientos estéticos y funcionales del proyecto.<br/><br/>
+    B) Propuesta de diseño basada en tendencias actuales y normativas aplicables, buscando optimizar el rendimiento energético y la experiencia visual.
+  </div>
+
+  <div class="section-text"><strong>Presentación de Luminarias:</strong></div>
+  <div class="section-text" style="padding-left: 20px;">
+    A) Selección cuidadosa de luminarias específicas para el proyecto, considerando estética, funcionalidad y eficiencia energética.<br/><br/>
+    B) Creación de una presentación profesional para mostrar las opciones seleccionadas, incluyendo imágenes, especificaciones clave y beneficios.
+  </div>
+
+  <div class="section-text"><strong>Catálogo de Fichas Técnicas:</strong></div>
+  <div class="section-text" style="padding-left: 20px;">
+    A) Compilación de un catálogo detallado que incluya las fichas técnicas de todas las luminarias propuestas.<br/><br/>
+    B) Información técnica completa para cada luminaria, incluyendo dimensiones, potencia, flujo luminoso, temperaturas de color y acabados.
+  </div>
+
+  <div class="section-text"><strong>Sembrado Ejecutivo:</strong></div>
+  <div class="section-text" style="padding-left: 20px;">
+    A) Creación de planos ejecutivos de iluminación que indiquen la ubicación exacta de cada luminaria en el espacio.<br/><br/>
+    B) Coordinación con otras disciplinas del proyecto para garantizar la correcta implementación en sitio.
+  </div>
+
+  <div class="section-text"><strong>Propuesta de Luminarias Decorativas:</strong></div>
+  <div class="section-text" style="padding-left: 20px;">
+    A) Desarrollo de una propuesta especializada en luminarias decorativas que complementen el diseño interior y aporten valor estético al espacio.<br/><br/>
+    B) Selección de luminarias decorativas que armonicen con el concepto lumínico general y la arquitectura del proyecto.
+  </div>
+
+  <div class="section-text"><strong>Detalles Constructivos:</strong></div>
+  <div class="section-text" style="padding-left: 20px;">
+    A) Preparación de detalles constructivos específicos para la instalación de luminarias, asegurando una correcta ejecución en sitio.<br/><br/>
+    B) Inclusión de instrucciones claras para soportes, conexiones eléctricas y acabados, en coordinación con el equipo de obra.
+  </div>
+
+  <div class="section-title">TÉRMINOS GENERALES</div>
+  <div class="section-text" style="padding-left: 20px;">
+    1) Se requiere un anticipo del <strong>70% del costo total</strong> para dar inicio al proyecto. El <strong>30% restante</strong> deberá liquidarse al momento de la entrega final.<br/><br/>
+    2) La fecha de entrega del proyecto será acordada directamente con el cliente.<br/><br/>
+    3) Cualquier cambio o ajuste en los alcances del proyecto estará sujeto a una cotización adicional.<br/><br/>
+    4) En caso de que la ejecución del proyecto sea realizada por OMM Technologies SA de CV, se podrá otorgar un <strong>crédito del 50% del costo total</strong> del proyecto.
+  </div>
+
+  <div class="section-title">Vigencia</div>
+  <div class="section-text">
+    Esta cotización tiene validez de 30 días calendario a partir de su emisión.
+  </div>
+`
 
 // ═══════════════════════════════════════════════════════════════════
 // STYLES
@@ -258,8 +457,8 @@ function uid(): string {
   return Math.random().toString(36).slice(2, 10)
 }
 
-function defaultItem(systemId: string, order: number): ProyItem {
-  const system = PROYECTO_SYSTEMS.find(s => s.id === systemId)!
+function defaultItem(systemId: string, order: number, systems: ProySystem[] = PROYECTO_SYSTEMS): ProyItem {
+  const system = systems.find(s => s.id === systemId)!
   return {
     id: uid(),
     systemId,
@@ -283,6 +482,8 @@ function ProyPdfModal({
   clientName,
   projectName,
   onClose,
+  systems,
+  specialty,
 }: {
   items: ProyItem[]
   config: ProyConfig
@@ -290,8 +491,10 @@ function ProyPdfModal({
   clientName: string
   projectName: string
   onClose: () => void
+  systems: ProySystem[]
+  specialty: string
 }) {
-  const systemsMap = new Map(PROYECTO_SYSTEMS.map(s => [s.id, s]))
+  const systemsMap = new Map(systems.map(s => [s.id, s]))
 
   const includedItems = items.filter(it => it.included)
   const subtotal = includedItems.reduce((sum, it) => sum + it.m2 * it.precioM2, 0)
@@ -431,91 +634,7 @@ function ProyPdfModal({
 
         <!-- PAGE 3+: SCOPE & TERMS -->
         <div class="page">
-          <div class="section-title">Alcance del Proyecto</div>
-          <div class="section-text">
-            El alcance del proyecto comprende exclusivamente el <strong>desarrollo de ingeniería y documentación técnica</strong>, sin considerar bajo ninguna circunstancia la ejecución física en obra.
-          </div>
-          <div class="section-text">
-            <strong><u>No están incluidos</u></strong>, salvo que se indique expresamente en esta cotización:
-          </div>
-          <div class="section-text" style="padding-left: 20px;">
-            • Suministro de equipos y materiales.<br/>
-            • Instalación, canalizaciones o cableado.<br/>
-            • Programación, configuración o integración de sistemas.<br/>
-            • Pruebas, puesta en marcha o capacitación.<br/>
-            • Supervisión de obra o dirección técnica en sitio.
-          </div>
-
-          <div class="section-title">Información Base del Cliente</div>
-          <div class="section-text">
-            Las ingenierías se desarrollan con base en la información proporcionada por el cliente, incluyendo planos arquitectónicos, ingenierías base y criterios definidos al inicio del proyecto.
-          </div>
-          <div class="section-text">
-            Cualquier modificación posterior en:
-          </div>
-          <div class="section-text" style="padding-left: 20px;">
-            • Arquitectura.<br/>
-            • Layout.<br/>
-            • Uso de áreas.<br/>
-            • Criterios operativos.<br/>
-            • Alcances originalmente definidos.
-          </div>
-          <div class="section-text">
-            Será considerada <strong>un cambio de alcance</strong> y podrá generar ajustes en costo, tiempos y entregables.
-          </div>
-
-          <div class="section-title">Cambios y Ajustes de Alcance</div>
-          <div class="section-text">
-            La cotización incluye <strong>una ronda de ajustes razonables</strong> derivada de observaciones del cliente sobre la ingeniería presentada.
-          </div>
-          <div class="section-text">
-            Cambios adicionales, o modificaciones que impliquen:
-          </div>
-          <div class="section-text" style="padding-left: 20px;">
-            • Rehacer sembrados.<br/>
-            • Cambiar rutas de tubería.<br/>
-            • Ajustar criterios técnicos.<br/>
-            • Modificar sistemas ya desarrollados.
-          </div>
-          <div class="section-text">
-            Se cotizarán de manera independiente previo a su ejecución.
-          </div>
-
-          <div class="section-title">Coordinación con Otras Ingenierías</div>
-          <div class="section-text">
-            El alcance contempla <strong>coordinación técnica a nivel de proyecto</strong>, con las ingenierías involucradas (arquitectura, eléctrica, HVAC, etc.), únicamente para compatibilizar la información contenida en los planos.
-          </div>
-          <div class="section-text">
-            No se incluye:
-          </div>
-          <div class="section-text" style="padding-left: 20px;">
-            • Resolución de conflictos en obra.<br/>
-            • Ajustes derivados de errores de terceros.<br/>
-            • Supervisión de ejecución en campo.
-          </div>
-
-          <div class="section-title">Condiciones de Pago</div>
-          <div class="section-text">
-            Para el inicio del desarrollo de las <strong>Ingenierías Ejecutivas de Instalaciones Especiales</strong>, se establecen las siguientes condiciones de pago:
-          </div>
-          <div class="section-text" style="padding-left: 20px;">
-            • <strong>50% de anticipo</strong> al momento de la aceptación de la cotización, requerido para iniciar los trabajos de ingeniería.<br/><br/>
-            • <strong>50% restante</strong> contra entrega de la ingeniería ejecutiva completa.
-          </div>
-          <div class="section-text">
-            En caso de que el cliente decida <strong>ejecutar la obra completa</strong> de los sistemas de instalaciones especiales con <strong>nuestro equipo</strong>, el monto pagado por concepto de ingeniería ejecutiva será <strong>acreditado como descuento</strong> en el siguiente pago correspondiente a la etapa de ejecución de obra, de acuerdo con el esquema de contratación acordado.
-          </div>
-          <div class="section-text">
-            En caso de que el cliente decida <strong>ejecutar la obra con un proveedor distinto</strong>, el <strong>100% del monto</strong> correspondiente a la ingeniería ejecutiva deberá quedar liquidado, sin excepción, conforme a los términos de esta cotización.
-          </div>
-          <div class="section-text">
-            El inicio de cualquier etapa posterior (suministro, instalación, programación o puesta en marcha) estará sujeto a la liquidación de los montos correspondientes y a la firma de los acuerdos contractuales aplicables.
-          </div>
-
-          <div class="section-title">Vigencia</div>
-          <div class="section-text">
-            Esta cotización tiene validez de 30 días calendario a partir de su emisión. Sujeta a disponibilidad de personal y confirmación de calendario.
-          </div>
+          ${specialty === 'ilum' ? ILUM_PDF_CONDITIONS : PROY_PDF_CONDITIONS}
         </div>
       </body>
     </html>
@@ -829,7 +948,7 @@ function ProySummary({
         </div>
         <div style={{ display: 'grid', gap: 4 }}>
           {includedItems.map(it => {
-            const system = PROYECTO_SYSTEMS.find(s => s.id === it.systemId)
+            const system = SYSTEMS.find(s => s.id === it.systemId)
             const importe = it.m2 * it.precioM2
             return (
               <div key={it.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10 }}>
@@ -890,7 +1009,11 @@ function ProySummary({
 // MAIN COMPONENT
 // ═══════════════════════════════════════════════════════════════════
 
-export default function CotEditorProyecto({ cotId, onBack }: { cotId: string; onBack: () => void }) {
+export default function CotEditorProyecto({ cotId, onBack, specialty = 'proy' }: { cotId: string; onBack: () => void; specialty?: string }) {
+  const SYSTEMS = specialty === 'ilum' ? ILUM_SYSTEMS : PROYECTO_SYSTEMS
+  const BADGE_LABEL = specialty === 'ilum' ? 'ILUM' : 'PROY'
+  const BADGE_COLOR = specialty === 'ilum' ? '#C084FC' : '#F9A8D4'
+  const TITLE_PREFIX = specialty === 'ilum' ? 'DISEÑO DE ILUMINACIÓN' : 'PROYECTO DE INGENIERÍA'
   const [items, setItems] = useState<ProyItem[]>([])
   const [loading, setLoading] = useState(true)
   const [config, setConfig] = useState<ProyConfig>({
@@ -960,7 +1083,7 @@ export default function CotEditorProyecto({ cotId, onBack }: { cotId: string; on
         const meta = JSON.parse(cot?.notes || '{}')
         if (meta.m2Construccion && meta.m2Construccion > 0) initialM2 = meta.m2Construccion
       } catch {}
-      const newItems = PROYECTO_SYSTEMS.map((sys, i) => ({ ...defaultItem(sys.id, i), m2: initialM2 }))
+      const newItems = SYSTEMS.map((sys, i) => ({ ...defaultItem(sys.id, i, SYSTEMS), m2: initialM2 }))
       setItems(newItems)
       // Insert them into DB
       for (const item of newItems) {
@@ -1103,10 +1226,10 @@ export default function CotEditorProyecto({ cotId, onBack }: { cotId: string; on
           <ChevronLeft size={14} /> Cotizaciones
         </button>
         <span style={{ color: '#333' }}>/</span>
-        <span style={{ fontSize: 12, fontWeight: 500, color: '#F9A8D4' }}>
-          {String.fromCodePoint(0x25A6)} {cotName || 'Cotización Proyecto'}
+        <span style={{ fontSize: 12, fontWeight: 500, color: BADGE_COLOR }}>
+          {String.fromCodePoint(0x25A6)} {cotName || (specialty === 'ilum' ? 'Cotización Iluminación' : 'Cotización Proyecto')}
         </span>
-        <Badge label="PROY" color="#F9A8D4" />
+        <Badge label={BADGE_LABEL} color={BADGE_COLOR} />
         {clientName && <span style={{ fontSize: 11, color: '#888' }}>{clientName}</span>}
         {projectName && <span style={{ fontSize: 10, color: '#555' }}>| {projectName}</span>}
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 4, alignItems: 'center' }}>
@@ -1141,9 +1264,9 @@ export default function CotEditorProyecto({ cotId, onBack }: { cotId: string; on
               fontWeight: 600,
               cursor: 'pointer',
               fontFamily: 'inherit',
-              border: '1px solid #F9A8D4',
-              background: '#F9A8D422',
-              color: '#F9A8D4',
+              border: `1px solid ${BADGE_COLOR}`,
+              background: BADGE_COLOR + '22',
+              color: BADGE_COLOR,
               marginLeft: 4,
               display: 'flex',
               alignItems: 'center',
@@ -1152,7 +1275,7 @@ export default function CotEditorProyecto({ cotId, onBack }: { cotId: string; on
           >
             <Printer size={12} /> Propuesta
           </button>
-          <span style={{ fontSize: 15, fontWeight: 700, color: '#F9A8D4', marginLeft: 10 }}>
+          <span style={{ fontSize: 15, fontWeight: 700, color: BADGE_COLOR, marginLeft: 10 }}>
             ${grandTotal.toFixed(2)}
           </span>
           <div style={{ position: 'relative', marginLeft: 8 }}>
@@ -1249,7 +1372,7 @@ export default function CotEditorProyecto({ cotId, onBack }: { cotId: string; on
             </thead>
             <tbody>
               {items.map(item => {
-                const system = PROYECTO_SYSTEMS.find(s => s.id === item.systemId)!
+                const system = SYSTEMS.find(s => s.id === item.systemId)!
                 return (
                   <ProyItemRow
                     key={item.id}
@@ -1278,6 +1401,8 @@ export default function CotEditorProyecto({ cotId, onBack }: { cotId: string; on
           clientName={clientName}
           projectName={projectName}
           onClose={() => setShowPdf(false)}
+          systems={SYSTEMS}
+          specialty={specialty}
         />
       )}
     </div>
