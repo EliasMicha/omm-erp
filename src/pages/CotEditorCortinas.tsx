@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react'
+import React, { useState, useMemo, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { F, STAGE_CONFIG } from '../lib/utils'
 import { Badge, Btn, Loading } from '../components/layout/UI'
@@ -279,6 +279,8 @@ function CortPdfModal({ items, areas, config, cotName, clientName, projectName, 
   cotName: string; clientName: string; projectName: string
   onClose: () => void
 }) {
+  const pdfRef = useRef<HTMLDivElement>(null)
+
   // Calculate totals
   let telaCost = 0, confCost = 0, motorCost = 0
   items.forEach(item => {
@@ -300,124 +302,196 @@ function CortPdfModal({ items, areas, config, cotName, clientName, projectName, 
   const manualCount = items.filter(i => i.tipoCierre === 'MANUAL').reduce((s, i) => s + i.cantidad, 0)
   const motorCount = items.filter(i => i.tipoCierre === 'MOTORIZADO').reduce((s, i) => s + i.cantidad, 0)
 
+  function handlePrint() {
+    const content = pdfRef.current
+    if (!content) return
+    const w = window.open('', '_blank', 'width=900,height=700')
+    if (!w) return
+    w.document.write(`<!DOCTYPE html><html><head><title>Propuesta Cortinas - ${cotName}</title><style>
+      body { font-family: Arial, sans-serif; margin: 0; padding: 20px; }
+      table { border-collapse: collapse; width: 100%; }
+      @media print { body { margin: 0; padding: 16px; } }
+    </style></head><body>${content.innerHTML}</body></html>`)
+    w.document.close()
+    setTimeout(() => { w.print() }, 300)
+  }
+
   return (
     <div className="cort-pdf-overlay" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 1040, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <div style={{ background: '#fff', borderRadius: 8, padding: 32, width: '8.5in', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 20px 50px rgba(0,0,0,0.3)' }}>
-        {/* Print styles */}
-        <style>{`
-          @media print {
-            body > *:not(.cort-pdf-overlay) { display: none !important; }
-            .cort-pdf-overlay { position: static !important; background: white !important; }
-            .cort-pdf-overlay > div { box-shadow: none !important; max-height: none !important; overflow: visible !important; }
-            .cort-pdf-no-print { display: none !important; }
-          }
-        `}</style>
-
-        {/* Header */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 }}>
-          <div>
-            <div style={{ fontSize: 18, fontWeight: 700, color: '#000', marginBottom: 4 }}>PROPUESTA CORTINAS Y PERSIANAS</div>
-            <div style={{ fontSize: 11, color: '#555' }}>OMM Technologies SA de CV</div>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-            <div style={{ textAlign: 'right', fontSize: 10, color: '#666' }}>
-              <div style={{ marginBottom: 4 }}>Fecha: {new Date().toLocaleDateString('es-MX', { year: 'numeric', month: 'long', day: 'numeric' })}</div>
-              <div>Vigencia: 1 mes</div>
+      <div style={{ background: '#fff', borderRadius: 8, overflow: 'hidden', width: '8.5in', maxHeight: '90vh', boxShadow: '0 20px 50px rgba(0,0,0,0.3)' }}>
+        <div style={{ overflowY: 'auto', maxHeight: '90vh' }}>
+          <div ref={pdfRef} style={{ padding: 32 }}>
+            {/* Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 }}>
+              <div>
+                <div style={{ fontSize: 18, fontWeight: 700, color: '#000', marginBottom: 4 }}>PROPUESTA CORTINAS Y PERSIANAS</div>
+                <div style={{ fontSize: 11, color: '#555' }}>OMM Technologies SA de CV</div>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                <div style={{ textAlign: 'right', fontSize: 10, color: '#666' }}>
+                  <div style={{ marginBottom: 4 }}>Fecha: {new Date().toLocaleDateString('es-MX', { year: 'numeric', month: 'long', day: 'numeric' })}</div>
+                  <div>Vigencia: 1 mes</div>
+                </div>
+                {OMNIIOUS_LOGO && <img src={OMNIIOUS_LOGO} alt="OMM" style={{ height: 36, objectFit: 'contain' }} />}
+              </div>
             </div>
-            {OMNIIOUS_LOGO && <img src={OMNIIOUS_LOGO} alt="OMM" style={{ height: 36, objectFit: 'contain' }} />}
-          </div>
-        </div>
 
-        {/* Project info */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 20, fontSize: 10, borderBottom: '1px solid #ddd', paddingBottom: 12 }}>
-          <div><span style={{ fontWeight: 600, color: '#000' }}>Proyecto:</span> <span style={{ color: '#444' }}>{projectName || '---'}</span></div>
-          <div><span style={{ fontWeight: 600, color: '#000' }}>Cliente:</span> <span style={{ color: '#444' }}>{clientName || '---'}</span></div>
-          <div><span style={{ fontWeight: 600, color: '#000' }}>Total:</span> <span style={{ color: '#000', fontWeight: 700 }}>${total.toFixed(2)}</span></div>
-          <div><span style={{ fontWeight: 600, color: '#000' }}>Ubicación:</span> <span style={{ color: '#444' }}>---</span></div>
-        </div>
+            {/* Project info */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 20, fontSize: 10, borderBottom: '1px solid #ddd', paddingBottom: 12 }}>
+              <div><span style={{ fontWeight: 600, color: '#000' }}>Proyecto:</span> <span style={{ color: '#444' }}>{projectName || '---'}</span></div>
+              <div><span style={{ fontWeight: 600, color: '#000' }}>Cliente:</span> <span style={{ color: '#444' }}>{clientName || '---'}</span></div>
+              <div><span style={{ fontWeight: 600, color: '#000' }}>Total:</span> <span style={{ color: '#000', fontWeight: 700 }}>${total.toFixed(2)}</span></div>
+              <div><span style={{ fontWeight: 600, color: '#000' }}>Ubicación:</span> <span style={{ color: '#444' }}>---</span></div>
+            </div>
 
-        {/* Items table */}
-        <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 20, fontSize: 9 }}>
-          <thead>
-            <tr style={{ background: '#f3f3f3', borderBottom: '2px solid #000' }}>
-              <th style={{ textAlign: 'right', padding: '6px 4px', fontWeight: 600, color: '#000' }}>Ancho</th>
-              <th style={{ textAlign: 'right', padding: '6px 4px', fontWeight: 600, color: '#000' }}>Alto</th>
-              <th style={{ textAlign: 'right', padding: '6px 4px', fontWeight: 600, color: '#000' }}>Cant</th>
-              <th style={{ textAlign: 'left', padding: '6px 4px', fontWeight: 600, color: '#000' }}>Motor / Tipo</th>
-              <th style={{ textAlign: 'left', padding: '6px 4px', fontWeight: 600, color: '#000' }}>Tipo Tela</th>
-              <th style={{ textAlign: 'left', padding: '6px 4px', fontWeight: 600, color: '#000' }}>Pliegue</th>
-              <th style={{ textAlign: 'right', padding: '6px 4px', fontWeight: 600, color: '#000' }}>Confección</th>
-              <th style={{ textAlign: 'right', padding: '6px 4px', fontWeight: 600, color: '#000' }}>Tela</th>
-              <th style={{ textAlign: 'right', padding: '6px 4px', fontWeight: 600, color: '#000' }}>Motor</th>
-              <th style={{ textAlign: 'right', padding: '6px 4px', fontWeight: 600, color: '#000' }}>Total</th>
-              <th style={{ textAlign: 'right', padding: '6px 4px', fontWeight: 600, color: '#000', fontSize: 8 }}>Mon.</th>
-            </tr>
-          </thead>
-          <tbody>
-            {items.map((item, i) => {
-              const itemFabricCost = calcFabricCost(item)
-              const itemConfCost = calcConfeccionCost(item)
-              const itemMotorCost = item.tipoCierre === 'MOTORIZADO' ? (item.motorBrand === 'SOMFY' ? calcSomfyTotal(item) * item.cantidad : item.precioMotor * item.cantidad) : 0
-              // Apply margins for client-facing PDF
-              const mT = config.margenTela > 0 ? 1 / (1 - config.margenTela / 100) : 1
-              const mM = config.margenMotor > 0 ? 1 / (1 - config.margenMotor / 100) : 1
-              const itemTelaVenta = Math.round(itemFabricCost * mT * 100) / 100
-              const itemConfVenta = Math.round(itemConfCost * mT * 100) / 100
-              const itemMotorVenta = Math.round(itemMotorCost * mM * 100) / 100
-              const itemTotalVenta = itemTelaVenta + itemConfVenta + itemMotorVenta
-              const moneda = item.motorBrand === 'LUTRON' ? 'USD' : 'MXN'
-              return (
-                <tr key={item.id} style={{ borderBottom: '1px solid #e0e0e0' }}>
-                  <td style={{ textAlign: 'right', padding: '4px', color: '#444' }}>{item.ancho.toFixed(2)}</td>
-                  <td style={{ textAlign: 'right', padding: '4px', color: '#444' }}>{item.alto.toFixed(2)}</td>
-                  <td style={{ textAlign: 'right', padding: '4px', color: '#444' }}>{item.cantidad}</td>
-                  <td style={{ textAlign: 'left', padding: '4px', color: '#444' }}>{item.tipoCierre === 'MANUAL' ? 'Manual' : item.motorSystem || 'Motorizado'}</td>
-                  <td style={{ textAlign: 'left', padding: '4px', color: '#444' }}>{item.tipoTela}</td>
-                  <td style={{ textAlign: 'left', padding: '4px', color: '#444' }}>{item.tipoPliegue}</td>
-                  <td style={{ textAlign: 'right', padding: '4px', color: '#000' }}>${itemConfVenta.toFixed(2)}</td>
-                  <td style={{ textAlign: 'right', padding: '4px', color: item.telaIncluida ? '#999' : '#000', fontStyle: item.telaIncluida ? 'italic' : 'normal' }}>{item.telaIncluida ? 'CLIENTE' : '$' + itemTelaVenta.toFixed(2)}</td>
-                  <td style={{ textAlign: 'right', padding: '4px', color: '#000' }}>{itemMotorCost > 0 ? '$' + itemMotorVenta.toFixed(2) : '---'}</td>
-                  <td style={{ textAlign: 'right', padding: '4px', color: '#000', fontWeight: 700 }}>${itemTotalVenta.toFixed(2)}</td>
-                  <td style={{ textAlign: 'right', padding: '4px', color: '#888', fontSize: 8 }}>{moneda}</td>
+            {/* Items table grouped by area */}
+            <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 20, fontSize: 9 }}>
+              <thead>
+                <tr style={{ background: '#f3f3f3', borderBottom: '2px solid #000' }}>
+                  <th style={{ textAlign: 'right', padding: '6px 4px', fontWeight: 600, color: '#000' }}>Ancho</th>
+                  <th style={{ textAlign: 'right', padding: '6px 4px', fontWeight: 600, color: '#000' }}>Alto</th>
+                  <th style={{ textAlign: 'right', padding: '6px 4px', fontWeight: 600, color: '#000' }}>Cant</th>
+                  <th style={{ textAlign: 'left', padding: '6px 4px', fontWeight: 600, color: '#000' }}>Motor / Tipo</th>
+                  <th style={{ textAlign: 'left', padding: '6px 4px', fontWeight: 600, color: '#000' }}>Tipo Tela</th>
+                  <th style={{ textAlign: 'left', padding: '6px 4px', fontWeight: 600, color: '#000' }}>Pliegue</th>
+                  <th style={{ textAlign: 'right', padding: '6px 4px', fontWeight: 600, color: '#000' }}>Confección</th>
+                  <th style={{ textAlign: 'right', padding: '6px 4px', fontWeight: 600, color: '#000' }}>Tela</th>
+                  <th style={{ textAlign: 'right', padding: '6px 4px', fontWeight: 600, color: '#000' }}>Motor</th>
+                  <th style={{ textAlign: 'right', padding: '6px 4px', fontWeight: 600, color: '#000' }}>Total</th>
+                  <th style={{ textAlign: 'right', padding: '6px 4px', fontWeight: 600, color: '#000', fontSize: 8 }}>Mon.</th>
                 </tr>
-              )
-            })}
-          </tbody>
-        </table>
+              </thead>
+              <tbody>
+                {areas.map(area => {
+                  const areaItems = items.filter(i => i.areaId === area.id)
+                  if (areaItems.length === 0) return null
+                  return (
+                    <React.Fragment key={area.id}>
+                      <tr><td colSpan={11} style={{ padding: '8px 4px 4px', fontWeight: 700, color: '#000', fontSize: 10, background: '#f8f8f8', borderBottom: '1px solid #ccc', textTransform: 'uppercase' }}>{area.name}</td></tr>
+                      {areaItems.map((item) => {
+                        const itemFabricCost = calcFabricCost(item)
+                        const itemConfCost = calcConfeccionCost(item)
+                        const itemMotorCost = item.tipoCierre === 'MOTORIZADO' ? (item.motorBrand === 'SOMFY' ? calcSomfyTotal(item) * item.cantidad : item.precioMotor * item.cantidad) : 0
+                        // Apply margins for client-facing PDF
+                        const mT = config.margenTela > 0 ? 1 / (1 - config.margenTela / 100) : 1
+                        const mM = config.margenMotor > 0 ? 1 / (1 - config.margenMotor / 100) : 1
+                        const itemTelaVenta = Math.round(itemFabricCost * mT * 100) / 100
+                        const itemConfVenta = Math.round(itemConfCost * mT * 100) / 100
+                        const itemMotorVenta = Math.round(itemMotorCost * mM * 100) / 100
+                        const itemTotalVenta = itemTelaVenta + itemConfVenta + itemMotorVenta
+                        const moneda = item.motorBrand === 'LUTRON' ? 'USD' : 'MXN'
+                        return (
+                          <tr key={item.id} style={{ borderBottom: '1px solid #e0e0e0' }}>
+                            <td style={{ textAlign: 'right', padding: '4px', color: '#444' }}>{item.ancho.toFixed(2)}</td>
+                            <td style={{ textAlign: 'right', padding: '4px', color: '#444' }}>{item.alto.toFixed(2)}</td>
+                            <td style={{ textAlign: 'right', padding: '4px', color: '#444' }}>{item.cantidad}</td>
+                            <td style={{ textAlign: 'left', padding: '4px', color: '#444' }}>{item.tipoCierre === 'MANUAL' ? 'Manual' : item.motorSystem || 'Motorizado'}</td>
+                            <td style={{ textAlign: 'left', padding: '4px', color: '#444' }}>{item.tipoTela}</td>
+                            <td style={{ textAlign: 'left', padding: '4px', color: '#444' }}>{item.tipoPliegue}</td>
+                            <td style={{ textAlign: 'right', padding: '4px', color: '#000' }}>${itemConfVenta.toFixed(2)}</td>
+                            <td style={{ textAlign: 'right', padding: '4px', color: item.telaIncluida ? '#999' : '#000', fontStyle: item.telaIncluida ? 'italic' : 'normal' }}>{item.telaIncluida ? 'CLIENTE' : '$' + itemTelaVenta.toFixed(2)}</td>
+                            <td style={{ textAlign: 'right', padding: '4px', color: '#000' }}>{itemMotorCost > 0 ? '$' + itemMotorVenta.toFixed(2) : '---'}</td>
+                            <td style={{ textAlign: 'right', padding: '4px', color: '#000', fontWeight: 700 }}>${itemTotalVenta.toFixed(2)}</td>
+                            <td style={{ textAlign: 'right', padding: '4px', color: '#888', fontSize: 8 }}>{moneda}</td>
+                          </tr>
+                        )
+                      })}
+                    </React.Fragment>
+                  )
+                })}
+              </tbody>
+            </table>
 
-        {/* Summary */}
-        <div style={{ marginBottom: 20 }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 150px', gap: 8, fontSize: 10 }}>
-            <div style={{ textAlign: 'right', color: '#555' }}>Persianas Manuales:</div>
-            <div style={{ textAlign: 'right', fontWeight: 600, color: '#000' }}>{manualCount}</div>
-            <div style={{ textAlign: 'right', color: '#555' }}>Total Motorización:</div>
-            <div style={{ textAlign: 'right', fontWeight: 600, color: '#000' }}>${motorVenta.toFixed(2)}</div>
-            <div style={{ textAlign: 'right', color: '#555' }}>Instalación ({config.instPct}%):</div>
-            <div style={{ textAlign: 'right', fontWeight: 600, color: '#000' }}>${instalacion.toFixed(2)}</div>
-            <div style={{ textAlign: 'right', color: '#555', borderTop: '1px solid #000', paddingTop: 4 }}>Subtotal:</div>
-            <div style={{ textAlign: 'right', fontWeight: 600, color: '#000', borderTop: '1px solid #000', paddingTop: 4 }}>${subtotalVenta.toFixed(2)}</div>
-            <div style={{ textAlign: 'right', color: '#555' }}>IVA ({config.ivaRate}%):</div>
-            <div style={{ textAlign: 'right', fontWeight: 600, color: '#000' }}>${iva.toFixed(2)}</div>
-            <div style={{ textAlign: 'right', fontWeight: 700, color: '#000', fontSize: 11, borderTop: '2px solid #000', paddingTop: 6 }}>TOTAL FINAL:</div>
-            <div style={{ textAlign: 'right', fontWeight: 700, color: '#000', fontSize: 11, borderTop: '2px solid #000', paddingTop: 6 }}>${total.toFixed(2)}</div>
+            {/* Summary */}
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 150px', gap: 8, fontSize: 10 }}>
+                <div style={{ textAlign: 'right', color: '#555' }}>Persianas Manuales:</div>
+                <div style={{ textAlign: 'right', fontWeight: 600, color: '#000' }}>{manualCount}</div>
+                <div style={{ textAlign: 'right', color: '#555' }}>Total Motorización:</div>
+                <div style={{ textAlign: 'right', fontWeight: 600, color: '#000' }}>${motorVenta.toFixed(2)}</div>
+                <div style={{ textAlign: 'right', color: '#555' }}>Instalación ({config.instPct}%):</div>
+                <div style={{ textAlign: 'right', fontWeight: 600, color: '#000' }}>${instalacion.toFixed(2)}</div>
+                <div style={{ textAlign: 'right', color: '#555', borderTop: '1px solid #000', paddingTop: 4 }}>Subtotal:</div>
+                <div style={{ textAlign: 'right', fontWeight: 600, color: '#000', borderTop: '1px solid #000', paddingTop: 4 }}>${subtotalVenta.toFixed(2)}</div>
+                <div style={{ textAlign: 'right', color: '#555' }}>IVA ({config.ivaRate}%):</div>
+                <div style={{ textAlign: 'right', fontWeight: 600, color: '#000' }}>${iva.toFixed(2)}</div>
+                <div style={{ textAlign: 'right', fontWeight: 700, color: '#000', fontSize: 11, borderTop: '2px solid #000', paddingTop: 6 }}>TOTAL FINAL:</div>
+                <div style={{ textAlign: 'right', fontWeight: 700, color: '#000', fontSize: 11, borderTop: '2px solid #000', paddingTop: 6 }}>${total.toFixed(2)}</div>
+              </div>
+            </div>
+
+            {/* Conditions */}
+            <div style={{ fontSize: 8, color: '#666', borderTop: '1px solid #ddd', paddingTop: 12 }}>
+              <div style={{ fontWeight: 600, color: '#333', marginBottom: 6, fontSize: 9, textTransform: 'uppercase' }}>Condiciones Generales</div>
+              <div style={{ marginBottom: 3 }}>• Presupuesto sujeto a condiciones de entrega y disponibilidad de materiales.</div>
+              <div style={{ marginBottom: 3 }}>• Vigencia de 1 mes a partir de la fecha de emisión.</div>
+              <div style={{ marginBottom: 3 }}>• Tela y confección en MXN. Motores Somfy en MXN. Motores Lutron en USD (TC ${config.tipoCambio.toFixed(2)}).</div>
+              {items.some(i => i.telaIncluida) && <div style={{ marginBottom: 3 }}>• Las partidas marcadas "CLIENTE" indican que la tela es suministrada por el cliente. Solo se cobra confección e instalación.</div>}
+              <div style={{ marginBottom: 3 }}>• Instalación incluida ({config.instPct}% sobre subtotal).</div>
+              <div>• Precios más IVA ({config.ivaRate}%).</div>
+            </div>
           </div>
         </div>
 
-        {/* Conditions */}
-        <div style={{ fontSize: 8, color: '#666', borderTop: '1px solid #ddd', paddingTop: 12 }}>
-          <div style={{ fontWeight: 600, color: '#333', marginBottom: 6, fontSize: 9, textTransform: 'uppercase' }}>Condiciones Generales</div>
-          <div style={{ marginBottom: 3 }}>• Presupuesto sujeto a condiciones de entrega y disponibilidad de materiales.</div>
-          <div style={{ marginBottom: 3 }}>• Vigencia de 1 mes a partir de la fecha de emisión.</div>
-          <div style={{ marginBottom: 3 }}>• Tela y confección en MXN. Motores Somfy en MXN. Motores Lutron en USD (TC ${config.tipoCambio.toFixed(2)}).</div>
-          {items.some(i => i.telaIncluida) && <div style={{ marginBottom: 3 }}>• Las partidas marcadas "CLIENTE" indican que la tela es suministrada por el cliente. Solo se cobra confección e instalación.</div>}
-          <div style={{ marginBottom: 3 }}>• Instalación incluida ({config.instPct}% sobre subtotal).</div>
-          <div>• Precios más IVA ({config.ivaRate}%).</div>
+        {/* Footer buttons - outside ref */}
+        <div className="cort-pdf-no-print" style={{ display: 'flex', gap: 10, padding: 16, justifyContent: 'center', borderTop: '1px solid #ddd', background: '#f9f9f9' }}>
+          <button onClick={handlePrint} style={{ padding: '8px 16px', background: '#000', color: '#fff', border: 'none', borderRadius: 4, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>Imprimir / Guardar PDF</button>
+          <button onClick={onClose} style={{ padding: '8px 16px', background: '#eee', color: '#000', border: 'none', borderRadius: 4, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>Cerrar</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// AREA PICKER MODAL
+// ═══════════════════════════════════════════════════════════════════
+const AREA_PRESETS = [
+  'Recámara Principal', 'Recámara 2', 'Recámara 3', 'Recámara Niños',
+  'Sala', 'Comedor', 'Sala / Comedor', 'Cocina', 'Estudio',
+  'Baño Principal', 'Baño Servicio', 'Vestidor', 'Pasillo',
+  'Terraza', 'Jardín', 'Consultorio', 'Oficina', 'Gimnasio',
+  'Cuarto de Servicio', 'Fuentes', 'Sala TV',
+]
+
+function AreaPickerModal({ existingNames, onSelect, onClose }: {
+  existingNames: string[]
+  onSelect: (name: string) => void
+  onClose: () => void
+}) {
+  const [custom, setCustom] = useState('')
+  const available = AREA_PRESETS.filter(n => !existingNames.includes(n))
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 1030, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ background: '#141414', border: '1px solid #333', borderRadius: 16, padding: 24, width: 420, maxHeight: '70vh', overflowY: 'auto' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <div style={{ fontSize: 15, fontWeight: 600, color: '#fff' }}>Agregar Área</div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer' }}><X size={18} /></button>
         </div>
 
-        {/* Footer buttons */}
-        <div className="cort-pdf-no-print" style={{ display: 'flex', gap: 10, marginTop: 16, justifyContent: 'center' }}>
-          <button onClick={() => window.print()} style={{ padding: '8px 16px', background: '#000', color: '#fff', border: 'none', borderRadius: 4, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>Imprimir / Guardar PDF</button>
-          <button onClick={onClose} style={{ padding: '8px 16px', background: '#eee', color: '#000', border: 'none', borderRadius: 4, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>Cerrar</button>
+        {/* Preset grid */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 16 }}>
+          {available.map(name => (
+            <button key={name} onClick={() => onSelect(name)} style={{
+              padding: '6px 12px', borderRadius: 8, fontSize: 11, cursor: 'pointer', fontFamily: 'inherit',
+              border: '1px solid #333', background: '#1a1a1a', color: '#ccc',
+            }}
+            onMouseEnter={e => { e.currentTarget.style.borderColor = '#67E8F9'; e.currentTarget.style.color = '#67E8F9' }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = '#333'; e.currentTarget.style.color = '#ccc' }}
+            >{name}</button>
+          ))}
+        </div>
+
+        {/* Custom input */}
+        <div style={{ display: 'flex', gap: 8 }}>
+          <input value={custom} onChange={e => setCustom(e.target.value)} placeholder="Nombre personalizado..."
+            onKeyDown={e => { if (e.key === 'Enter' && custom.trim()) { onSelect(custom.trim()); } }}
+            style={{ flex: 1, padding: '8px 10px', background: '#1e1e1e', border: '1px solid #333', borderRadius: 8, color: '#fff', fontSize: 12, fontFamily: 'inherit' }} />
+          <button onClick={() => { if (custom.trim()) onSelect(custom.trim()) }} disabled={!custom.trim()}
+            style={{ padding: '8px 14px', borderRadius: 8, fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #67E8F9', background: '#67E8F922', color: '#67E8F9', opacity: custom.trim() ? 1 : 0.4 }}>
+            Agregar
+          </button>
         </div>
       </div>
     </div>
@@ -427,11 +501,12 @@ function CortPdfModal({ items, areas, config, cotName, clientName, projectName, 
 // ═══════════════════════════════════════════════════════════════════
 // CURTAIN ROW
 // ═══════════════════════════════════════════════════════════════════
-function CortRow({ item, config, onUpdate, onRemove, onShowSomfy, showInt }: {
+function CortRow({ item, config, onUpdate, onRemove, onShowSomfy, onCopy, showInt }: {
   item: CortItem; config: CortConfig
   onUpdate: (id: string, field: string, value: any) => void
   onRemove: (id: string) => void
   onShowSomfy: (item: CortItem) => void
+  onCopy: (item: CortItem) => void
   showInt: boolean
 }) {
   const fabricML = calcFabricML(item)
@@ -599,8 +674,9 @@ function CortRow({ item, config, onUpdate, onRemove, onShowSomfy, showInt }: {
           ${totalConMargen.toFixed(2)}
         </td>
       )}
-      <td style={{ ...S.td, width: 28 }}>
-        <button onClick={() => onRemove(item.id)} style={{ background: 'none', border: 'none', color: '#444', cursor: 'pointer' }}><Trash2 size={12} /></button>
+      <td style={{ ...S.td, width: 28, display: 'flex', gap: 4 }}>
+        <button onClick={() => onCopy(item)} title="Copiar a otra área" style={{ background: 'none', border: 'none', color: '#444', cursor: 'pointer' }}><Copy size={12} /></button>
+        <button onClick={() => onRemove(item.id)} title="Eliminar" style={{ background: 'none', border: 'none', color: '#444', cursor: 'pointer' }}><Trash2 size={12} /></button>
       </td>
     </tr>
   )
@@ -609,13 +685,14 @@ function CortRow({ item, config, onUpdate, onRemove, onShowSomfy, showInt }: {
 // ═══════════════════════════════════════════════════════════════════
 // AREA BLOCK (Room)
 // ═══════════════════════════════════════════════════════════════════
-function CortAreaBlock({ area, items, config, onToggle, onUpdate, onRemove, onAdd, onShowSomfy, showInt }: {
+function CortAreaBlock({ area, items, config, onToggle, onUpdate, onRemove, onAdd, onShowSomfy, onCopy, showInt }: {
   area: CortArea; items: CortItem[]; config: CortConfig
   onToggle: () => void
   onUpdate: (id: string, field: string, value: any) => void
   onRemove: (id: string) => void
   onAdd: () => void
   onShowSomfy: (item: CortItem) => void
+  onCopy: (item: CortItem) => void
   showInt: boolean
 }) {
   const areaItems = items.filter(i => i.areaId === area.id)
@@ -671,7 +748,7 @@ function CortAreaBlock({ area, items, config, onToggle, onUpdate, onRemove, onAd
               </tr></thead>
               <tbody>
                 {areaItems.map(item => (
-                  <CortRow key={item.id} item={item} config={config} onUpdate={onUpdate} onRemove={onRemove} onShowSomfy={onShowSomfy} showInt={showInt} />
+                  <CortRow key={item.id} item={item} config={config} onUpdate={onUpdate} onRemove={onRemove} onShowSomfy={onShowSomfy} onCopy={onCopy} showInt={showInt} />
                 ))}
               </tbody>
             </table>
@@ -874,6 +951,8 @@ export default function CotEditorCortinas({ cotId, onBack }: { cotId: string; on
   const [projectName, setProjectName] = useState('')
   const [somfyDetail, setSomfyDetail] = useState<CortItem | null>(null)
   const [showPdf, setShowPdf] = useState(false)
+  const [showAreaPicker, setShowAreaPicker] = useState(false)
+  const [copyingItem, setCopyingItem] = useState<CortItem | null>(null)
 
   // ── Load from DB ──
   async function load() {
@@ -1045,15 +1124,13 @@ export default function CotEditorCortinas({ cotId, onBack }: { cotId: string; on
     setAreas(prev => prev.map(a => a.id === id ? { ...a, collapsed: !a.collapsed } : a))
   }
 
-  async function addArea() {
-    const n = prompt('Nombre del area (ej: Recamara Principal):')
-    if (!n) return
+  async function addAreaByName(name: string) {
     const { data, error } = await supabase.from('quotation_areas').insert({
-      quotation_id: cotId, name: n, order_index: areas.length,
+      quotation_id: cotId, name, order_index: areas.length,
     }).select().single()
     if (error) { alert('Error: ' + error.message); return }
     if (data) {
-      setAreas(prev => [...prev, { id: data.id, name: n, collapsed: false, order: prev.length }])
+      setAreas(prev => [...prev, { id: data.id, name, collapsed: false, order: prev.length }])
     }
   }
 
@@ -1105,9 +1182,10 @@ export default function CotEditorCortinas({ cotId, onBack }: { cotId: string; on
               onUpdate={updateItem} onRemove={removeItem}
               onAdd={() => addItem(area.id)}
               onShowSomfy={setSomfyDetail}
+              onCopy={setCopyingItem}
               showInt={showInt} />
           ))}
-          <div onClick={addArea} style={{ padding: '12px', border: '1px dashed #333', borderRadius: 10, textAlign: 'center', cursor: 'pointer', color: '#444', fontSize: 12 }}>+ Agregar area</div>
+          <div onClick={() => setShowAreaPicker(true)} style={{ padding: '12px', border: '1px dashed #333', borderRadius: 10, textAlign: 'center', cursor: 'pointer', color: '#444', fontSize: 12 }}>+ Agregar area</div>
         </div>
         <div style={{ borderLeft: '1px solid #222', overflowY: 'auto', padding: '14px 10px', background: '#0e0e0e' }}>
           <CortSummary items={items} areas={areas} config={config} showInt={showInt} onConfigChange={updateConfig} />
@@ -1119,6 +1197,41 @@ export default function CotEditorCortinas({ cotId, onBack }: { cotId: string; on
 
       {/* PDF proposal modal */}
       {showPdf && <CortPdfModal items={items} areas={areas} config={config} cotName={cotName} clientName={clientName} projectName={projectName} onClose={() => setShowPdf(false)} />}
+
+      {/* Area picker modal */}
+      {showAreaPicker && <AreaPickerModal existingNames={areas.map(a => a.name)} onSelect={name => { addAreaByName(name); setShowAreaPicker(false) }} onClose={() => setShowAreaPicker(false)} />}
+
+      {/* Copy to area modal */}
+      {copyingItem && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 1030, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ background: '#141414', border: '1px solid #333', borderRadius: 16, padding: 24, width: 340 }}>
+            <div style={{ fontSize: 14, fontWeight: 600, color: '#fff', marginBottom: 12 }}>Copiar cortina a:</div>
+            <div style={{ display: 'grid', gap: 6 }}>
+              {areas.filter(a => a.id !== copyingItem.areaId).map(a => (
+                <button key={a.id} onClick={async () => {
+                  const order = items.filter(i => i.areaId === a.id).length
+                  const newItem = { ...copyingItem, id: uid(), areaId: a.id, order }
+                  const { data, error } = await supabase.from('quotation_items').insert({
+                    quotation_id: cotId, area_id: a.id,
+                    name: '', system: 'Cortinas', type: 'material',
+                    quantity: newItem.cantidad, cost: 0, price: 0, total: calcItemTotal(newItem), markup: 0,
+                    installation_cost: 0, order_index: order,
+                    notes: itemToDbNotes(newItem),
+                  }).select().single()
+                  if (data) {
+                    setItems(prev => [...prev, { ...newItem, id: data.id }])
+                  }
+                  setCopyingItem(null)
+                }} style={{
+                  padding: '8px 12px', borderRadius: 8, fontSize: 12, cursor: 'pointer', fontFamily: 'inherit',
+                  border: '1px solid #333', background: '#1a1a1a', color: '#ccc', textAlign: 'left',
+                }}>{a.name}</button>
+              ))}
+            </div>
+            <button onClick={() => setCopyingItem(null)} style={{ marginTop: 12, padding: '6px 12px', background: 'none', border: '1px solid #333', borderRadius: 8, color: '#666', fontSize: 11, cursor: 'pointer', fontFamily: 'inherit', width: '100%' }}>Cancelar</button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
