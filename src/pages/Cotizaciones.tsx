@@ -270,6 +270,7 @@ function NuevaCoModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
     systems: ['audio', 'redes'] as string[],
     areas: ['Recámara Principal', 'Sala/Comedor', 'Cocina', 'Site'] as string[],
     m2Construccion: 0,
+    tipoProyecto: 'especiales' as 'especiales' | 'electrica' | 'iluminacion',
   })
   const [saving, setSaving] = useState(false)
   const [customArea, setCustomArea] = useState('')
@@ -322,13 +323,23 @@ function NuevaCoModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
   async function crear() {
     if (!form.name) return
     setSaving(true)
+    // For proy specialty, always use 'proy' in DB (ilum is now a tipoProyecto)
+    const dbSpecialty = form.specialty
+    const isProy = dbSpecialty === 'proy'
+    const notesObj: any = {
+      systems: isEsp ? form.systems : [],
+      currency: form.currency,
+      lead_id: form.lead_id || null,
+      lead_name: form.lead_id ? (leads.find(l => l.id === form.lead_id)?.name || '') : '',
+      ...(isProy ? { m2Construccion: form.m2Construccion, tipoProyecto: form.tipoProyecto } : {}),
+    }
     const { data } = await supabase.from('quotations').insert({
       project_id: form.project_id || null, name: form.name,
-      specialty: form.specialty, client_name: form.client_name, stage: 'oportunidad',
-      notes: JSON.stringify({ systems: isEsp ? form.systems : [], currency: form.currency, lead_id: form.lead_id || null, lead_name: form.lead_id ? (leads.find(l => l.id === form.lead_id)?.name || '') : '', ...(form.specialty === 'proy' ? { m2Construccion: form.m2Construccion } : {}) }),
+      specialty: dbSpecialty, client_name: form.client_name, stage: 'oportunidad',
+      notes: JSON.stringify(notesObj),
     }).select().single()
     if (data) {
-      // Create areas — solo aplica para Especiales. Iluminación/otros usan General invisible
+      // Create areas — solo aplica para Especiales (ESP). Proyecto/otros usan General invisible
       const useFormAreas = form.specialty === 'esp'
       const areaInserts = useFormAreas ? form.areas.map((name, i) => ({ quotation_id: data.id, name, order_index: i })) : []
       if (areaInserts.length > 0) {
@@ -336,7 +347,7 @@ function NuevaCoModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
       } else {
         await supabase.from('quotation_areas').insert({ quotation_id: data.id, name: 'General', order_index: 0 })
       }
-      onCreated(data.id, form.specialty)
+      onCreated(data.id, dbSpecialty)
     }
     setSaving(false)
   }
@@ -358,7 +369,7 @@ function NuevaCoModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
           <label style={labelStyle}>
             Especialidad
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
-              {Object.entries(SPECIALTY_CONFIG).map(([k, v]) => (
+              {Object.entries(SPECIALTY_CONFIG).filter(([k]) => k !== 'ilum').map(([k, v]) => (
                 <button key={k} onClick={() => setForm(f => ({ ...f, specialty: k, ...(k === 'proy' || k === 'cort' ? { currency: 'MXN' as const } : {}) }))}
                   style={{
                     padding: '5px 12px', borderRadius: 20, fontSize: 11, cursor: 'pointer', fontFamily: 'inherit', fontWeight: 600,
@@ -371,6 +382,30 @@ function NuevaCoModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
               ))}
             </div>
           </label>
+
+          {/* Tipo de Proyecto (sub-selector cuando es Proyecto) */}
+          {form.specialty === 'proy' && (
+            <label style={labelStyle}>
+              Tipo de Proyecto
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
+                {([
+                  { id: 'especiales' as const, label: 'Ingenierías Especiales', icon: '⚡', color: '#F9A8D4' },
+                  { id: 'electrica' as const, label: 'Ingeniería Eléctrica', icon: '🔌', color: '#F59E0B' },
+                  { id: 'iluminacion' as const, label: 'Diseño de Iluminación', icon: '💡', color: '#C084FC' },
+                ]).map(t => (
+                  <button key={t.id} onClick={() => setForm(f => ({ ...f, tipoProyecto: t.id }))}
+                    style={{
+                      padding: '5px 12px', borderRadius: 20, fontSize: 11, cursor: 'pointer', fontFamily: 'inherit', fontWeight: 600,
+                      border: '1px solid ' + (form.tipoProyecto === t.id ? t.color : '#333'),
+                      background: form.tipoProyecto === t.id ? t.color + '22' : 'transparent',
+                      color: form.tipoProyecto === t.id ? t.color : '#666',
+                    }}>
+                    {t.icon} {t.label}
+                  </button>
+                ))}
+              </div>
+            </label>
+          )}
 
           {/* Nombre + Moneda */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 10 }}>
@@ -443,7 +478,7 @@ function NuevaCoModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
           </label>
 
           {/* === PROY-SPECIFIC: m² de construcción === */}
-          {(form.specialty === 'proy' || form.specialty === 'ilum') && (
+          {form.specialty === 'proy' && (
             <label style={labelStyle}>
               m² de construcción
               <div style={{ fontSize: 10, color: '#444', marginTop: 2, marginBottom: 6, fontStyle: 'italic', textTransform: 'none' as const }}>

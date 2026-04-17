@@ -197,6 +197,87 @@ const PROYECTO_SYSTEMS: ProySystem[] = [
 ]
 
 // ═══════════════════════════════════════════════════════════════════
+// INGENIERÍA ELÉCTRICA SYSTEMS
+// ═══════════════════════════════════════════════════════════════════
+
+const ELECTRICA_SYSTEMS: ProySystem[] = [
+  {
+    id: 'unifilar',
+    name: 'Diagrama Unifilar y Cuadro de Cargas',
+    defaultPrecioM2: 12,
+    defaultDesc: 'Diagrama Unifilar y Cuadro de Cargas',
+    entregables: [
+      'Diagrama unifilar general del proyecto',
+      'Cuadro de cargas detallado por tablero',
+      'Especificación de protecciones (interruptores, fusibles)',
+      'Coordinación de protecciones',
+      'Diagrama de alimentadores principales',
+    ]
+  },
+  {
+    id: 'canalizacion_electrica',
+    name: 'Canalización y Circuitos',
+    defaultPrecioM2: 10,
+    defaultDesc: 'Canalización y Circuitos Eléctricos',
+    entregables: [
+      'Rutas de canalización eléctrica (charolas, tubería, ductos)',
+      'Planos de circuitos derivados',
+      'Especificación de cables y conductores',
+      'Detalle de acometida y medición',
+      'Criterios de instalación y simbología',
+    ]
+  },
+  {
+    id: 'alumbrado',
+    name: 'Alumbrado',
+    defaultPrecioM2: 10,
+    defaultDesc: 'Planos de Alumbrado',
+    entregables: [
+      'Planta de alumbrado interior',
+      'Planta de alumbrado exterior (si aplica)',
+      'Circuitos de alumbrado y apagadores',
+      'Criterios y niveles de iluminación por área',
+    ]
+  },
+  {
+    id: 'contactos',
+    name: 'Contactos y Salidas de Fuerza',
+    defaultPrecioM2: 8,
+    defaultDesc: 'Contactos y Salidas de Fuerza',
+    entregables: [
+      'Planta de contactos normales y regulados',
+      'Salidas de fuerza para equipos especiales',
+      'Circuitos de contactos por tablero',
+      'Criterios de instalación y alturas',
+    ]
+  },
+  {
+    id: 'tierras',
+    name: 'Sistema de Tierras y Pararrayos',
+    defaultPrecioM2: 5,
+    defaultDesc: 'Sistema de Tierras y Pararrayos',
+    entregables: [
+      'Diseño de malla o red de tierras',
+      'Sistema de pararrayos (si aplica)',
+      'Especificaciones de electrodos y conductores de tierra',
+      'Detalle de conexiones a tierra de equipos',
+    ]
+  },
+  {
+    id: 'memoria_electrica',
+    name: 'Memoria Técnica y Especificaciones',
+    defaultPrecioM2: 0,
+    defaultDesc: 'Documentación Técnica Eléctrica',
+    entregables: [
+      'Memoria técnica descriptiva del proyecto eléctrico',
+      'Especificaciones de materiales y equipos',
+      'Notas y criterios generales de construcción',
+      'Lista de planos del proyecto',
+    ]
+  },
+]
+
+// ═══════════════════════════════════════════════════════════════════
 // ILUMINACIÓN SYSTEMS (specialty: 'ilum')
 // ═══════════════════════════════════════════════════════════════════
 
@@ -395,6 +476,106 @@ const ILUM_PDF_CONDITIONS = `
   </div>
 `
 
+// Ingeniería Eléctrica PDF conditions
+const ELECTRICA_PDF_CONDITIONS = `
+  <div class="section-title">Alcance del Proyecto</div>
+  <div class="section-text">
+    El alcance del proyecto comprende exclusivamente el <strong>desarrollo de ingeniería eléctrica y documentación técnica</strong>, sin considerar bajo ninguna circunstancia la ejecución física en obra.
+  </div>
+  <div class="section-text">
+    <strong><u>No están incluidos</u></strong>, salvo que se indique expresamente en esta cotización:
+  </div>
+  <div class="section-text" style="padding-left: 20px;">
+    • Suministro de materiales, tableros o equipos eléctricos.<br/>
+    • Instalación, canalización o cableado.<br/>
+    • Trámites ante CFE u organismos reguladores.<br/>
+    • Pruebas, puesta en marcha o certificaciones.<br/>
+    • Supervisión de obra o dirección técnica en sitio.
+  </div>
+
+  <div class="section-title">Información Base del Cliente</div>
+  <div class="section-text">
+    La ingeniería eléctrica se desarrolla con base en la información proporcionada por el cliente, incluyendo planos arquitectónicos, ingenierías base y criterios definidos al inicio del proyecto.
+  </div>
+  <div class="section-text">
+    Cualquier modificación posterior en arquitectura, layout, uso de áreas, criterios operativos o alcances originalmente definidos será considerada <strong>un cambio de alcance</strong> y podrá generar ajustes en costo, tiempos y entregables.
+  </div>
+
+  <div class="section-title">Cambios y Ajustes de Alcance</div>
+  <div class="section-text">
+    La cotización incluye <strong>una ronda de ajustes razonables</strong> derivada de observaciones del cliente sobre la ingeniería presentada.
+  </div>
+  <div class="section-text">
+    Cambios adicionales o modificaciones que impliquen rehacer diagramas, recalcular cargas, cambiar rutas de canalización o modificar criterios de diseño se cotizarán de manera independiente previo a su ejecución.
+  </div>
+
+  <div class="section-title">Coordinación con Otras Ingenierías</div>
+  <div class="section-text">
+    El alcance contempla <strong>coordinación técnica a nivel de proyecto</strong> con las ingenierías involucradas (arquitectura, instalaciones especiales, HVAC, etc.), únicamente para compatibilizar la información contenida en los planos.
+  </div>
+  <div class="section-text">
+    No se incluye resolución de conflictos en obra, ajustes derivados de errores de terceros ni supervisión de ejecución en campo.
+  </div>
+
+  <div class="section-title">Condiciones de Pago</div>
+  <div class="section-text" style="padding-left: 20px;">
+    • <strong>50% de anticipo</strong> al momento de la aceptación de la cotización, requerido para iniciar los trabajos de ingeniería.<br/><br/>
+    • <strong>50% restante</strong> contra entrega de la ingeniería eléctrica completa.
+  </div>
+  <div class="section-text">
+    En caso de que el cliente decida <strong>ejecutar la obra eléctrica completa</strong> con <strong>nuestro equipo</strong>, el monto pagado por concepto de ingeniería será <strong>acreditado como descuento</strong> en el siguiente pago de la etapa de ejecución.
+  </div>
+
+  <div class="section-title">Vigencia</div>
+  <div class="section-text">
+    Esta cotización tiene validez de 30 días calendario a partir de su emisión. Sujeta a disponibilidad de personal y confirmación de calendario.
+  </div>
+`
+
+// ═══════════════════════════════════════════════════════════════════
+// TIPO PROYECTO CONFIG
+// ═══════════════════════════════════════════════════════════════════
+
+type TipoProyecto = 'especiales' | 'electrica' | 'iluminacion'
+
+const TIPO_PROYECTO_CONFIG: Record<TipoProyecto, {
+  label: string
+  icon: string
+  color: string
+  systems: ProySystem[]
+  conditions: string
+  badgeLabel: string
+  titlePrefix: string
+}> = {
+  especiales: {
+    label: 'Ingenierías Especiales',
+    icon: '⚡',
+    color: '#F9A8D4',
+    systems: PROYECTO_SYSTEMS,
+    conditions: PROY_PDF_CONDITIONS,
+    badgeLabel: 'PROY',
+    titlePrefix: 'PROYECTO DE INGENIERÍA',
+  },
+  electrica: {
+    label: 'Ingeniería Eléctrica',
+    icon: '🔌',
+    color: '#F59E0B',
+    systems: ELECTRICA_SYSTEMS,
+    conditions: ELECTRICA_PDF_CONDITIONS,
+    badgeLabel: 'ELEC',
+    titlePrefix: 'INGENIERÍA ELÉCTRICA',
+  },
+  iluminacion: {
+    label: 'Diseño de Iluminación',
+    icon: '💡',
+    color: '#C084FC',
+    systems: ILUM_SYSTEMS,
+    conditions: ILUM_PDF_CONDITIONS,
+    badgeLabel: 'ILUM',
+    titlePrefix: 'DISEÑO DE ILUMINACIÓN',
+  },
+}
+
 // ═══════════════════════════════════════════════════════════════════
 // STYLES
 // ═══════════════════════════════════════════════════════════════════
@@ -483,7 +664,7 @@ function ProyPdfModal({
   projectName,
   onClose,
   systems,
-  specialty,
+  tipoProyecto,
 }: {
   items: ProyItem[]
   config: ProyConfig
@@ -492,7 +673,7 @@ function ProyPdfModal({
   projectName: string
   onClose: () => void
   systems: ProySystem[]
-  specialty: string
+  tipoProyecto: TipoProyecto
 }) {
   const systemsMap = new Map(systems.map(s => [s.id, s]))
 
@@ -634,7 +815,7 @@ function ProyPdfModal({
 
         <!-- PAGE 3+: SCOPE & TERMS -->
         <div class="page">
-          ${specialty === 'ilum' ? ILUM_PDF_CONDITIONS : PROY_PDF_CONDITIONS}
+          ${TIPO_PROYECTO_CONFIG[tipoProyecto].conditions}
         </div>
       </body>
     </html>
@@ -1012,10 +1193,17 @@ function ProySummary({
 // ═══════════════════════════════════════════════════════════════════
 
 export default function CotEditorProyecto({ cotId, onBack, specialty = 'proy' }: { cotId: string; onBack: () => void; specialty?: string }) {
-  const SYSTEMS = specialty === 'ilum' ? ILUM_SYSTEMS : PROYECTO_SYSTEMS
-  const BADGE_LABEL = specialty === 'ilum' ? 'ILUM' : 'PROY'
-  const BADGE_COLOR = specialty === 'ilum' ? '#C084FC' : '#F9A8D4'
-  const TITLE_PREFIX = specialty === 'ilum' ? 'DISEÑO DE ILUMINACIÓN' : 'PROYECTO DE INGENIERÍA'
+  // tipoProyecto drives everything: systems, conditions, badge, etc.
+  // Backward compat: old 'ilum' specialty → 'iluminacion', old 'proy' → 'especiales'
+  const fallbackTipo: TipoProyecto = specialty === 'ilum' ? 'iluminacion' : 'especiales'
+  const [tipoProyecto, setTipoProyecto] = useState<TipoProyecto>(fallbackTipo)
+
+  const tipoCfg = TIPO_PROYECTO_CONFIG[tipoProyecto]
+  const SYSTEMS = tipoCfg.systems
+  const BADGE_LABEL = tipoCfg.badgeLabel
+  const BADGE_COLOR = tipoCfg.color
+  const TITLE_PREFIX = tipoCfg.titlePrefix
+
   const [items, setItems] = useState<ProyItem[]>([])
   const [loading, setLoading] = useState(true)
   const [config, setConfig] = useState<ProyConfig>({
@@ -1057,8 +1245,22 @@ export default function CotEditorProyecto({ cotId, onBack, specialty = 'proy' }:
         if (meta.m2Construccion && meta.m2Construccion > 0) {
           setGlobalM2(meta.m2Construccion)
         }
+        // Read tipoProyecto from notes (backward compat: fall back to specialty prop)
+        if (meta.tipoProyecto && TIPO_PROYECTO_CONFIG[meta.tipoProyecto as TipoProyecto]) {
+          setTipoProyecto(meta.tipoProyecto as TipoProyecto)
+        }
       } catch {}
     }
+
+    // Resolve systems based on tipoProyecto from notes (or fallback)
+    let resolvedTipo: TipoProyecto = fallbackTipo
+    try {
+      const meta2 = JSON.parse(cot?.notes || '{}')
+      if (meta2.tipoProyecto && TIPO_PROYECTO_CONFIG[meta2.tipoProyecto as TipoProyecto]) {
+        resolvedTipo = meta2.tipoProyecto as TipoProyecto
+      }
+    } catch {}
+    const resolvedSystems = TIPO_PROYECTO_CONFIG[resolvedTipo].systems
 
     if (qItems && qItems.length > 0) {
       const loaded = qItems.map((it: any) => {
@@ -1085,7 +1287,7 @@ export default function CotEditorProyecto({ cotId, onBack, specialty = 'proy' }:
         const meta = JSON.parse(cot?.notes || '{}')
         if (meta.m2Construccion && meta.m2Construccion > 0) initialM2 = meta.m2Construccion
       } catch {}
-      const newItems = SYSTEMS.map((sys, i) => ({ ...defaultItem(sys.id, i, SYSTEMS), m2: initialM2 }))
+      const newItems = resolvedSystems.map((sys, i) => ({ ...defaultItem(sys.id, i, resolvedSystems), m2: initialM2 }))
       setItems(newItems)
       // Insert them into DB
       for (const item of newItems) {
@@ -1138,12 +1340,16 @@ export default function CotEditorProyecto({ cotId, onBack, specialty = 'proy' }:
     }
   }, [grandTotal, loading, cotId])
 
-  function updateConfig(field: string, value: any) {
+  async function updateConfig(field: string, value: any) {
     const next = { ...config, [field]: value }
     setConfig(next)
+    // Preserve existing notes metadata (tipoProyecto, m2Construccion, lead_id, etc.)
+    const { data: cot } = await supabase.from('quotations').select('notes').eq('id', cotId).single()
+    let existingNotes: any = {}
+    try { existingNotes = JSON.parse(cot?.notes || '{}') } catch {}
     supabase
       .from('quotations')
-      .update({ notes: JSON.stringify({ proyConfig: next }) })
+      .update({ notes: JSON.stringify({ ...existingNotes, proyConfig: next }) })
       .eq('id', cotId)
   }
 
@@ -1229,7 +1435,7 @@ export default function CotEditorProyecto({ cotId, onBack, specialty = 'proy' }:
         </button>
         <span style={{ color: '#333' }}>/</span>
         <span style={{ fontSize: 12, fontWeight: 500, color: BADGE_COLOR }}>
-          {String.fromCodePoint(0x25A6)} {cotName || (specialty === 'ilum' ? 'Cotización Iluminación' : 'Cotización Proyecto')}
+          {String.fromCodePoint(0x25A6)} {cotName || `Cotización ${tipoCfg.label}`}
         </span>
         <Badge label={BADGE_LABEL} color={BADGE_COLOR} />
         {clientName && <span style={{ fontSize: 11, color: '#888' }}>{clientName}</span>}
@@ -1404,7 +1610,7 @@ export default function CotEditorProyecto({ cotId, onBack, specialty = 'proy' }:
           projectName={projectName}
           onClose={() => setShowPdf(false)}
           systems={SYSTEMS}
-          specialty={specialty}
+          tipoProyecto={tipoProyecto}
         />
       )}
     </div>
