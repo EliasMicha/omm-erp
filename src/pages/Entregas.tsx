@@ -904,8 +904,51 @@ function EntregaEditor({ deliveryId, prefill, onBack }: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [d.obra_id, d.delivery_date])
 
+  // ─── Validación ───
+  // Regresa null si todo ok, o un mensaje de error si no pasa.
+  // strict=true aplica las reglas que solo deben correr al marcar 'entregado'
+  // o al imprimir remisión (firma completa, items presentes, etc.).
+  function validate(strict: boolean): string | null {
+    if (!d.delivery_date) return 'La fecha de entrega es requerida.'
+
+    if (d.type === 'entrega' && !d.obra_id) {
+      return 'Las entregas a obra requieren seleccionar la obra destino.'
+    }
+    if (d.type === 'recoleccion_directa' && !d.obra_id) {
+      return 'Recolección directa requiere seleccionar la obra destino.'
+    }
+    if ((d.type === 'recoleccion' || d.type === 'recoleccion_directa') && !d.po_id && strict) {
+      return 'Las recolecciones deben estar vinculadas a una orden de compra (PO).'
+    }
+
+    if (!strict) return null
+
+    // ─── Reglas estrictas (al imprimir remisión o marcar entregado) ───
+    if (items.length === 0) {
+      return 'Debe agregar al menos un item en la entrega.'
+    }
+    const badItem = items.find(it => !it.description?.trim() || !(Number(it.qty) > 0))
+    if (badItem) {
+      return 'Todos los items deben tener descripción y cantidad mayor a cero.'
+    }
+    const needsObra = items.some(it =>
+      (it.direction === 'in_obra' || it.direction === 'out_bodega_to_obra') &&
+      !it.obra_id && !d.obra_id
+    )
+    if (needsObra) {
+      return 'Hay items dirigidos a obra sin obra destino definida.'
+    }
+    if (!d.driver_id) {
+      return 'El chofer es requerido antes de marcar como entregado o imprimir remisión.'
+    }
+    return null
+  }
+
   // ─── Save ───
   async function save(): Promise<string | null> {
+    // Validación básica (no-estricta). Si falla, no guardamos.
+    const err = validate(false)
+    if (err) { alert(err); return null }
     setSaving(true)
     try {
       const payload: Record<string, unknown> = {
@@ -1063,6 +1106,9 @@ function EntregaEditor({ deliveryId, prefill, onBack }: {
   }
 
   async function handlePrintRemision() {
+    // Validación estricta antes de imprimir
+    const err = validate(true)
+    if (err) { alert(err); return }
     const id = await saveAndUpload()
     if (!id) return
     const { data } = await supabase.from('deliveries')
@@ -1070,6 +1116,20 @@ function EntregaEditor({ deliveryId, prefill, onBack }: {
       .eq('id', id).single()
     const { data: its } = await supabase.from('delivery_items').select('*').eq('delivery_id', id).order('created_at')
     if (data) openRemisionPdf(data as Delivery, (its || []) as unknown as DeliveryItemRow[])
+  }
+
+  async function handleMarcarEntregado() {
+    // Validación estricta + firmas
+    const err = validate(true)
+    if (err) { alert(err); return }
+    if (!d.signature_driver_url && !d.signature_receiver_url) {
+      if (!confirm('No hay firmas capturadas. ¿Marcar como entregado de todas formas?')) return
+    }
+    update({ status: 'entregado' })
+    // guardar con el nuevo status explícito (evita race con setState)
+    const merged: Delivery = { ...d, status: 'entregado' }
+    setD(merged)
+    await saveWithState(merged)
   }
 
   if (loading) return <div style={{ padding: 24 }}><Loading /></div>
@@ -1093,6 +1153,11 @@ function EntregaEditor({ deliveryId, prefill, onBack }: {
         <div style={{ display: 'flex', gap: 8 }}>
           {d.id && <Btn variant="danger" size="sm" onClick={handleDelete}><Trash2 size={12} /> Eliminar</Btn>}
           <Btn size="sm" onClick={handlePrintRemision}><FileText size={12} /> Imprimir remisión</Btn>
+          {d.id && d.status !== 'entregado' && (
+            <Btn variant="primary" size="sm" onClick={handleMarcarEntregado} disabled={saving}>
+              <CheckCircle2 size={12} /> Marcar entregado
+            </Btn>
+          )}
           <Btn variant="primary" size="sm" onClick={saveAndUpload} disabled={saving}>
             <Save size={12} /> {saving ? 'Guardando...' : 'Guardar'}
           </Btn>
@@ -1453,10 +1518,17 @@ function openRemisionPdf(d: Delivery, items: DeliveryItemRow[]) {
   </div>
   ${items.length > 0 ? `
   <div class="section">
-    <div style="font-size:12px;font-weight:700;margin-bottom:6px;">MATERIAL</div>
+    <div style="font-size:12px;font-weight:700;margin-bottom:6px;">MATERIAL (${items.length} ${items.length === 1 ? 'item' : 'items'})</div>
     <table>
       <thead><tr><th style="width:30px;">#</th><th>Descripción</th><th style="width:60px;text-align:right;">Cant.</th><th style="width:60px;text-align:center;">Unidad</th><th style="width:90px;text-align:center;">Flujo</th></tr></thead>
       <tbody>${itemsHTML}</tbody>
+      <tfoot>
+        <tr>
+          <td colspan="2" style="text-align:right;font-weight:700;font-size:10px;background:#f9f9f9;">TOTAL</td>
+          <td style="text-align:right;font-weight:700;background:#f9f9f9;">${items.reduce((s, it) => s + (Number(it.qty) || 0), 0)}</td>
+          <td colspan="2" style="background:#f9f9f9;"></td>
+        </tr>
+      </tfoot>
     </table>
   </div>` : ''}
   ${d.material_description ? `<div class="section"><div style="font-size:12px;font-weight:700;margin-bottom:4px;">DESCRIPCIÓN GENERAL</div><div style="font-size:11px;color:#444;white-space:pre-wrap;">${escapeHtml(d.material_description)}</div></div>` : ''}
