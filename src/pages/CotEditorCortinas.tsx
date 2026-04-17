@@ -340,7 +340,6 @@ function CortPdfModal({ items, areas, config, cotName, clientName, projectName, 
         <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 20, fontSize: 9 }}>
           <thead>
             <tr style={{ background: '#f3f3f3', borderBottom: '2px solid #000' }}>
-              <th style={{ textAlign: 'left', padding: '6px 4px', fontWeight: 600, color: '#000' }}>Ubicación</th>
               <th style={{ textAlign: 'right', padding: '6px 4px', fontWeight: 600, color: '#000' }}>Ancho</th>
               <th style={{ textAlign: 'right', padding: '6px 4px', fontWeight: 600, color: '#000' }}>Alto</th>
               <th style={{ textAlign: 'right', padding: '6px 4px', fontWeight: 600, color: '#000' }}>Cant</th>
@@ -369,7 +368,6 @@ function CortPdfModal({ items, areas, config, cotName, clientName, projectName, 
               const moneda = item.motorBrand === 'LUTRON' ? 'USD' : 'MXN'
               return (
                 <tr key={item.id} style={{ borderBottom: '1px solid #e0e0e0' }}>
-                  <td style={{ textAlign: 'left', padding: '4px', color: '#000' }}>{item.ubicacion}</td>
                   <td style={{ textAlign: 'right', padding: '4px', color: '#444' }}>{item.ancho.toFixed(2)}</td>
                   <td style={{ textAlign: 'right', padding: '4px', color: '#444' }}>{item.alto.toFixed(2)}</td>
                   <td style={{ textAlign: 'right', padding: '4px', color: '#444' }}>{item.cantidad}</td>
@@ -466,10 +464,6 @@ function CortRow({ item, config, onUpdate, onRemove, onShowSomfy, showInt }: {
 
   return (
     <tr>
-      <td style={{ ...S.td, minWidth: 130 }}>
-        <input value={item.ubicacion} onChange={e => onUpdate(item.id, 'ubicacion', e.target.value)}
-          placeholder="Ubicacion..." style={{ ...S.input, textAlign: 'left', width: '100%' }} />
-      </td>
       <td style={S.td}>
         <input type="number" defaultValue={item.ancho} step={0.01} min={0}
           onBlur={e => onUpdate(item.id, 'ancho', parseFloat(e.target.value) || 0)}
@@ -655,7 +649,6 @@ function CortAreaBlock({ area, items, config, onToggle, onUpdate, onRemove, onAd
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1200 }}>
               <thead><tr style={{ background: '#0e0e0e' }}>
-                <th style={{ ...S.th, textAlign: 'left' }}>Ubicacion</th>
                 <th style={{ ...S.th, textAlign: 'right' }}>Ancho</th>
                 <th style={{ ...S.th, textAlign: 'right' }}>Alto</th>
                 <th style={{ ...S.th, textAlign: 'right' }}>Cant</th>
