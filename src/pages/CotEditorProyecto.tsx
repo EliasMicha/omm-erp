@@ -870,6 +870,9 @@ export default function CotEditorProyecto({ cotId, onBack }: { cotId: string; on
         if (meta.proyConfig) {
           setConfig(c => ({ ...c, ...meta.proyConfig }))
         }
+        if (meta.m2Construccion && meta.m2Construccion > 0) {
+          setGlobalM2(meta.m2Construccion)
+        }
       } catch {}
     }
 
@@ -892,8 +895,13 @@ export default function CotEditorProyecto({ cotId, onBack }: { cotId: string; on
       })
       setItems(loaded)
     } else {
-      // Auto-populate with all systems
-      const newItems = PROYECTO_SYSTEMS.map((sys, i) => defaultItem(sys.id, i))
+      // Auto-populate with all systems — use m2Construccion from notes if available
+      let initialM2 = 0
+      try {
+        const meta = JSON.parse(cot?.notes || '{}')
+        if (meta.m2Construccion && meta.m2Construccion > 0) initialM2 = meta.m2Construccion
+      } catch {}
+      const newItems = PROYECTO_SYSTEMS.map((sys, i) => ({ ...defaultItem(sys.id, i), m2: initialM2 }))
       setItems(newItems)
       // Insert them into DB
       for (const item of newItems) {

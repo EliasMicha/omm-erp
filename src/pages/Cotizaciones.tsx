@@ -269,6 +269,7 @@ function NuevaCoModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
     project_id: '', name: '', specialty: 'esp', client_name: '', client_id: '', lead_id: '', currency: 'USD' as 'USD' | 'MXN',
     systems: ['audio', 'redes'] as string[],
     areas: ['Recámara Principal', 'Sala/Comedor', 'Cocina', 'Site'] as string[],
+    m2Construccion: 0,
   })
   const [saving, setSaving] = useState(false)
   const [customArea, setCustomArea] = useState('')
@@ -324,7 +325,7 @@ function NuevaCoModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
     const { data } = await supabase.from('quotations').insert({
       project_id: form.project_id || null, name: form.name,
       specialty: form.specialty, client_name: form.client_name, stage: 'oportunidad',
-      notes: JSON.stringify({ systems: isEsp ? form.systems : [], currency: form.currency, lead_id: form.lead_id || null, lead_name: form.lead_id ? (leads.find(l => l.id === form.lead_id)?.name || '') : '' }),
+      notes: JSON.stringify({ systems: isEsp ? form.systems : [], currency: form.currency, lead_id: form.lead_id || null, lead_name: form.lead_id ? (leads.find(l => l.id === form.lead_id)?.name || '') : '', ...(form.specialty === 'proy' ? { m2Construccion: form.m2Construccion } : {}) }),
     }).select().single()
     if (data) {
       // Create areas — solo aplica para Especiales. Iluminación/otros usan General invisible
@@ -358,7 +359,7 @@ function NuevaCoModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
             Especialidad
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
               {Object.entries(SPECIALTY_CONFIG).map(([k, v]) => (
-                <button key={k} onClick={() => setForm(f => ({ ...f, specialty: k }))}
+                <button key={k} onClick={() => setForm(f => ({ ...f, specialty: k, ...(k === 'proy' || k === 'cort' ? { currency: 'MXN' as const } : {}) }))}
                   style={{
                     padding: '5px 12px', borderRadius: 20, fontSize: 11, cursor: 'pointer', fontFamily: 'inherit', fontWeight: 600,
                     border: '1px solid ' + (form.specialty === k ? v.color : '#333'),
@@ -440,6 +441,19 @@ function NuevaCoModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
               {projects.map(p => <option key={p.id} value={p.id}>{p.name} | {p.client_name}</option>)}
             </select>
           </label>
+
+          {/* === PROY-SPECIFIC: m² de construcción === */}
+          {form.specialty === 'proy' && (
+            <label style={labelStyle}>
+              m² de construcción
+              <div style={{ fontSize: 10, color: '#444', marginTop: 2, marginBottom: 6, fontStyle: 'italic', textTransform: 'none' as const }}>
+                Se aplicará como m² global a todos los sistemas. Podrás editar cada uno después.
+              </div>
+              <input type="number" value={form.m2Construccion || ''} onChange={e => setForm(f => ({ ...f, m2Construccion: parseFloat(e.target.value) || 0 }))}
+                placeholder="ej. 4300" min={0} step={100}
+                style={{ ...inputStyle, width: 200 }} />
+            </label>
+          )}
 
           {/* === ESP-SPECIFIC: Sistemas === */}
           {isEsp && (
