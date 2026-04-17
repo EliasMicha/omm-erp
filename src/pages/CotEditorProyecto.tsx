@@ -170,30 +170,6 @@ const PROYECTO_SYSTEMS: ProySystem[] = [
       'Alcance, criterios de diseño y notas para construcción'
     ]
   },
-  {
-    id: 'ing_electrica',
-    name: 'Ingeniería Eléctrica',
-    defaultPrecioM2: 10,
-    defaultDesc: 'Proyecto de Ingeniería Eléctrica',
-    entregables: [
-      'Diagrama unifilar',
-      'Cuadro de cargas',
-      'Canalización y circuitos',
-      'Especificaciones técnicas'
-    ]
-  },
-  {
-    id: 'diseno_iluminacion',
-    name: 'Diseño de Iluminación',
-    defaultPrecioM2: 60,
-    defaultDesc: 'Proyecto de Diseño de Iluminación',
-    entregables: [
-      'Sembrado de luminarias',
-      'Cálculos luminotécnicos',
-      'Especificaciones de luminarias',
-      'Criterios de diseño'
-    ]
-  },
 ]
 
 // ═══════════════════════════════════════════════════════════════════
