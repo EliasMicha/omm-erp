@@ -10,6 +10,7 @@ import Clientes from './pages/Clientes'
 import Catalogo from './pages/Catalogo'
 import Compras from './pages/Compras'
 import Obra from './pages/Obra'
+import Entregas from './pages/Entregas'
 import Facturacion from './pages/Facturacion'
 import DesignRules from './pages/DesignRules'
 import Nomina from './pages/Nomina'
@@ -18,7 +19,6 @@ import CotizacionPdf from './pages/CotizacionPdf'
 import ObraApp from './obra-app/ObraApp'
 
 const Cobranza = () => <OtrosModulos title="Cobranza" />
-const Entregas = () => <OtrosModulos title="Entregas" />
 const Empleados = () => <OtrosModulos title="Empleados" />
 
 export default function App() {
