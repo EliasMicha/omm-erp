@@ -1,10 +1,37 @@
-// Vercel serverless function — analiza plano PDF con AI para generar propuesta de sembrado
-// Input: { plan (base64 PDF/image), mediaType, scope, catalog, precedents }
-// Output: { ok, areas: [{name, description, items:[...]}], rationale, warnings }
+// Vercel serverless — multi-turn AI chat for OMM quote generation
+// Supports: scope-only, scope+plan, and follow-up conversation
+// The AI can ask clarifying questions OR produce a final JSON proposal
 
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 
-const SYSTEM_PROMPT = `Eres un ingeniero de diseño de OMM Technologies (CDMX), empresa de instalaciones especiales para proyectos residenciales y comerciales. Tu tarea es analizar un PLANO ARQUITECTÓNICO y generar una propuesta de sembrado (equipos por área) basada en el scope del cliente, el catálogo de productos y cotizaciones previas como referencia.
+const SYSTEM_PROMPT = `Eres un ingeniero de diseño de OMM Technologies (CDMX), empresa de instalaciones especiales para proyectos residenciales y comerciales.
+
+Tu trabajo es ayudar a generar una propuesta de sembrado (equipos por área) basándote en:
+1. El SCOPE del cliente (tipo de proyecto, sistemas, nivel, notas).
+2. Un PLANO ARQUITECTÓNICO si se adjunta (analízalo visualmente para identificar áreas).
+3. El CATÁLOGO real de productos de OMM.
+4. COTIZACIONES PREVIAS como referencia.
+
+═══════════════════════════════════════════════════
+FLUJO DE CONVERSACIÓN
+═══════════════════════════════════════════════════
+
+PASO 1 — ANÁLISIS INICIAL:
+Cuando recibas el scope (y opcionalmente un plano), analiza todo y responde con:
+- Un resumen de lo que entendiste del proyecto.
+- Preguntas específicas si hay ambigüedades o información faltante.
+- Si tienes suficiente información, produce la propuesta directamente.
+
+PASO 2 — PREGUNTAS Y RESPUESTAS:
+Si haces preguntas, el usuario responderá. Incorpora las respuestas y:
+- Haz más preguntas si necesitas, O
+- Produce la propuesta final.
+
+PASO 3 — PROPUESTA FINAL:
+Cuando estés listo, produce la propuesta en el formato JSON especificado abajo.
+
+IMPORTANTE: Cuando estés CONVERSANDO (haciendo preguntas, dando resumen), responde en texto normal en español.
+Cuando produzcas la PROPUESTA FINAL, responde SOLO con un bloque JSON que empiece con {"areas": y siga el formato exacto.
 
 ═══════════════════════════════════════════════════
 PROCESO DE ANÁLISIS (así trabaja OMM)
@@ -21,9 +48,10 @@ NIVEL DEL PROYECTO
 ═══════════════════════════════════════════════════
 
 El nivel lo define el arquitecto/scope del proyecto:
-- HIGH-END: Lutron Homeworks, equipos premium en todo.
+- HIGH-END / PREMIUM: Lutron Homeworks, equipos premium en todo.
+- ALTO: Lutron RadioRA 3 con buenos acabados.
 - MEDIO: Lutron RadioRA 3, buenos equipos pero optimizando.
-- BAJO/ECONÓMICO: Lutron Caseta, equipos funcionales al menor costo.
+- BAJO/ECONÓMICO / BÁSICO: Lutron Caseta, equipos funcionales al menor costo.
 
 Si el scope no indica nivel, asume MEDIO.
 
@@ -61,6 +89,7 @@ ACCESORIOS DE RED (incluir SIEMPRE):
 SWITCH PoE:
 - Dimensionar al TOTAL de puertos necesarios: todos los UTP del patch panel + APs + cámaras si hay CCTV + margen.
 - Ejemplo: 4 TVs × 4 UTP = 16 puertos + 4 APs PoE = switch de 24 puertos mínimo.
+- Para proyectos grandes: preferir 2× switches de 24 en vez de 1× de 48 (redundancia).
 - Switch va en el SITE/rack.
 
 GATEWAY:
@@ -106,7 +135,7 @@ FAMILY ROOM / MEDIA ROOM — regla especial:
 
 LÍNEA SEGÚN NIVEL DEL PROYECTO:
 
-  ▸ HIGH-END: Lutron Homeworks QS
+  ▸ HIGH-END / PREMIUM: Lutron Homeworks QS
     Procesador: HQP7-2
     Botoneras: Palladiom HQWT-U-P4W-SN (4 botones) en cada punto de transición
     Módulos dimmer/switch (serie LQSE, 4 zonas por módulo):
@@ -131,13 +160,13 @@ LÍNEA SEGÚN NIVEL DEL PROYECTO:
       - LQSE-2DAL-120 solo si el plano indica explícitamente cargas DALI (ojo: 2 zonas por módulo, no 4)
       Ejemplo 23 módulos: 10× LQSE-4A5-120 + 10× LQSE-4A1-D + 3× LQSE-4S8-120
 
-  ▸ MEDIO: Lutron RadioRA 3
+  ▸ MEDIO / ALTO: Lutron RadioRA 3
     Procesador: RA3 (procesador RadioRA 3)
     Keypads: Sunnata y/o Pico remotes
     Dimmers: in-wall RadioRA 3 dimmers/switches (1 por circuito, instalados en caja de pared)
     No usa paneles centralizados — cada dimmer va distribuido en la pared de su área.
 
-  ▸ BAJO/ECONÓMICO: Lutron Caseta
+  ▸ BAJO/ECONÓMICO / BÁSICO: Lutron Caseta
     Bridge: Smart Bridge Pro
     Dimmers: Caseta in-wall dimmers (1 por circuito)
     Remotes: Pico (controles inalámbricos pequeños para puntos secundarios)
@@ -184,7 +213,6 @@ SIZING:
 - Recámaras y sociales: × 2 motores por ventana (translúcida + blackout).
 - Otras áreas (cocina, baños): solo si el scope lo indica, generalmente 1 cortinero.
 - En Homeworks QS, las cortinas Sivoia se controlan desde el mismo procesador HQP7 — los motores se conectan al QS link.
-- Incluir módulos de shade QS si se requieren para el control centralizado.
 
 ── DETECCIÓN DE HUMO / INCENDIO ──
 - SOLO se incluye cuando el scope lo pide explícitamente.
@@ -196,12 +224,10 @@ SIZING:
 - Nunca proponerlo si el scope no lo menciona.
 
 ── TELEFONÍA ──
-- SOLO si el scope lo solicita.
-- Ya es muy poco común en residencial.
+- SOLO si el scope lo solicita. Ya es muy poco común en residencial.
 
 ── RED CELULAR (DAS) ──
-- SOLO si el scope lo solicita.
-- Relevante en sótanos, edificios con mala recepción.
+- SOLO si el scope lo solicita. Relevante en sótanos, edificios con mala recepción.
 
 ═══════════════════════════════════════════════════
 SITE / CUARTO TÉCNICO
@@ -224,17 +250,18 @@ REGLAS DE CATÁLOGO Y PRODUCTOS
 - Si el plano tiene múltiples niveles/plantas, organiza las áreas por nivel.
 
 ═══════════════════════════════════════════════════
-FORMATO DE RESPUESTA
+FORMATO DE PROPUESTA FINAL (JSON)
 ═══════════════════════════════════════════════════
 
-JSON estricto, sin markdown, sin texto extra:
+Cuando tengas TODA la información necesaria y estés listo para proponer, responde con un JSON que empiece exactamente con {"areas": — sin texto antes ni después, sin markdown:
+
 {
   "areas": [
     {
       "name": "Nombre del área",
       "level": "PB|PA|Nivel 2|Sótano|Exterior|etc.",
       "estimated_m2": 25,
-      "description": "Breve descripción del espacio según el plano",
+      "description": "Breve descripción del espacio",
       "items": [
         {
           "catalog_product_id": "uuid-del-catalogo-o-null",
@@ -242,17 +269,19 @@ JSON estricto, sin markdown, sin texto extra:
           "marca": "marca exacta del catálogo o genérica",
           "modelo": "modelo exacto del catálogo o descripción genérica",
           "system": "Audio|Redes|CCTV|...",
-          "description": "descripción corta del producto y su función en esta área",
+          "description": "descripción corta del producto y su función",
           "quantity": 1,
-          "notes": "justificación: por qué este producto, por qué esta cantidad, en qué punto exacto del área"
+          "notes": "justificación"
         }
       ]
     }
   ],
-  "plan_summary": "Descripción del proyecto: tipo de inmueble, niveles, m² totales estimados, distribución general, número de recámaras/baños/áreas sociales.",
-  "rationale": "Lógica general: nivel del proyecto asumido, qué precedentes influyeron, qué supuestos se hicieron para áreas ambiguas del plano.",
-  "warnings": ["Áreas del plano difíciles de leer, productos no encontrados en catálogo, supuestos que necesitan confirmación del cliente, etc."]
-}`
+  "plan_summary": "Descripción del proyecto",
+  "rationale": "Lógica general de la propuesta",
+  "warnings": ["Advertencias o supuestos"]
+}
+
+Si estás CONVERSANDO (preguntas, resumen, comentarios), responde en texto normal en español. NUNCA mezcles texto y JSON en la misma respuesta.`
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Access-Control-Allow-Origin', '*')
@@ -265,47 +294,37 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!apiKey) return res.status(500).json({ ok: false, error: 'ANTHROPIC_KEY no configurada en el servidor' })
 
   try {
-    const { plan, mediaType, scope, catalog, precedents } = req.body as {
-      plan: string
-      mediaType?: string
-      scope: { projectType: string; systems: string[]; notes: string; clientName?: string }
+    const { messages, scope, plan, planMediaType, catalog, precedents } = req.body as {
+      messages: { role: 'user' | 'assistant'; content: string }[]
+      scope: {
+        tipo: string
+        nombre: string
+        cliente: string
+        tamano_m2: number | null
+        habitaciones: number | null
+        ubicacion: string
+        nivel: string
+        sistemas: string[]
+        areas_custom: string
+        notas: string
+        freetext?: string
+      }
+      plan?: string // base64
+      planMediaType?: string
       catalog: { id: string; name: string; marca?: string; modelo?: string; system?: string; provider?: string; moneda?: string; cost?: number; description?: string }[]
       precedents: { name: string; specialty: string; total: number; items: { area_name: string; name: string; system: string; quantity: number; marca?: string; modelo?: string }[] }[]
     }
 
-    if (!plan) return res.status(400).json({ ok: false, error: 'Falta el plano (plan)' })
-    if (!scope) return res.status(400).json({ ok: false, error: 'Falta el scope' })
-
-    // Detectar si es PDF o imagen por el mediaType o por el contenido base64
-    const isPdf = (mediaType || '').includes('pdf') || plan.substring(0, 10).includes('JVBER')
-    const isImage = (mediaType || '').startsWith('image/')
-
-    // Construir el documento visual para Claude
-    let planContent: Record<string, unknown>
-    if (isPdf) {
-      planContent = {
-        type: 'document',
-        source: { type: 'base64', media_type: 'application/pdf', data: plan },
-      }
-    } else if (isImage) {
-      planContent = {
-        type: 'image',
-        source: { type: 'base64', media_type: mediaType || 'image/png', data: plan },
-      }
-    } else {
-      // Intentar como PDF por defecto
-      planContent = {
-        type: 'document',
-        source: { type: 'base64', media_type: 'application/pdf', data: plan },
-      }
+    if (!messages || messages.length === 0) {
+      return res.status(400).json({ ok: false, error: 'Falta messages[]' })
     }
 
-    // Compactar catálogo para no exceder tokens
+    // Build catalog compact
     const catalogCompact = (catalog || [])
       .map((p) => `${p.id} | ${p.marca || '-'} ${p.modelo || ''} | ${p.name} | ${p.system || '-'} | ${p.provider || '-'} | ${p.moneda || 'USD'} ${p.cost || 0}`)
       .join('\n')
 
-    // Compactar precedentes
+    // Build precedents compact
     const precedentsCompact = (precedents || [])
       .map((p) => {
         const header = `=== ${p.name} (${p.specialty}, total: $${p.total}) ===`
@@ -316,32 +335,69 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       })
       .join('\n\n')
 
-    const userMessage = `PLANO ARQUITECTÓNICO: (adjunto como documento visual — analiza todas las áreas, niveles y distribución)
+    // Build the context block that goes into the first user message
+    const scopeBlock = scope.freetext
+      ? `SCOPE (texto libre del cliente/arquitecto):\n${scope.freetext}`
+      : `SCOPE DEL PROYECTO:
+- Tipo: ${scope.tipo || 'No especificado'}
+- Nombre: ${scope.nombre || 'No especificado'}
+- Cliente: ${scope.cliente || 'No especificado'}
+- Tamaño: ${scope.tamano_m2 ? scope.tamano_m2 + ' m²' : 'No especificado'}
+- Recámaras/habitaciones: ${scope.habitaciones || 'No especificado'}
+- Ubicación: ${scope.ubicacion || 'No especificada'}
+- Nivel: ${scope.nivel || 'medio'}
+- Sistemas: ${scope.sistemas?.join(', ') || 'No especificados'}
+- Áreas específicas: ${scope.areas_custom || 'No especificadas'}
+- Notas: ${scope.notas || 'Ninguna'}`
 
-SCOPE DEL CLIENTE:
-- Tipo de proyecto: ${scope.projectType}
-- Sistemas solicitados: ${scope.systems.join(', ')}
-- Cliente: ${scope.clientName || 'No especificado'}
-- Notas adicionales: ${scope.notes || 'Ninguna'}
+    const contextBlock = `${scopeBlock}
 
 CATÁLOGO DISPONIBLE (${catalog?.length || 0} productos):
 id | marca modelo | nombre | sistema | proveedor | moneda costo
 ${catalogCompact || '(catálogo vacío)'}
 
-PRECEDENTES (${precedents?.length || 0} cotizaciones previas similares):
-${precedentsCompact || '(sin precedentes)'}
+PRECEDENTES (${precedents?.length || 0} cotizaciones previas):
+${precedentsCompact || '(sin precedentes)'}`
 
-Analiza el plano, identifica todas las áreas, y genera la propuesta completa de sembrado en JSON según el formato especificado.`
+    // Build Claude messages array
+    // First message always includes the context + plan
+    const claudeMessages: any[] = []
 
-    const messages = [
-      {
-        role: 'user',
-        content: [
-          planContent,
-          { type: 'text', text: userMessage },
-        ],
-      },
-    ]
+    for (let i = 0; i < messages.length; i++) {
+      const msg = messages[i]
+
+      if (i === 0 && msg.role === 'user') {
+        // First user message: inject context + optional plan
+        const content: any[] = []
+
+        // Add plan document if exists
+        if (plan) {
+          const isPdf = (planMediaType || '').includes('pdf') || plan.substring(0, 10).includes('JVBER')
+          if (isPdf) {
+            content.push({
+              type: 'document',
+              source: { type: 'base64', media_type: 'application/pdf', data: plan },
+            })
+          } else {
+            content.push({
+              type: 'image',
+              source: { type: 'base64', media_type: planMediaType || 'image/png', data: plan },
+            })
+          }
+        }
+
+        // Add context + user message
+        content.push({
+          type: 'text',
+          text: `${contextBlock}\n\n${plan ? 'PLANO ARQUITECTÓNICO: adjunto arriba — analiza todas las áreas, niveles y distribución.\n\n' : ''}${msg.content}`,
+        })
+
+        claudeMessages.push({ role: 'user', content })
+      } else {
+        // Subsequent messages: plain text
+        claudeMessages.push({ role: msg.role, content: msg.content })
+      }
+    }
 
     const r = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -354,7 +410,7 @@ Analiza el plano, identifica todas las áreas, y genera la propuesta completa de
         model: 'claude-sonnet-4-20250514',
         max_tokens: 12000,
         system: SYSTEM_PROMPT,
-        messages,
+        messages: claudeMessages,
       }),
     })
 
@@ -368,57 +424,65 @@ Analiza el plano, identifica todas las áreas, y genera la propuesta completa de
       .filter((b: Record<string, unknown>) => b.type === 'text')
       .map((b: Record<string, unknown>) => b.text)
       .join('\n')
-    const cleaned = textBlocks.replace(/```json|```/g, '').trim()
-    const jsonMatch = cleaned.match(/\{[\s\S]*\}/)
-    if (!jsonMatch) {
-      return res.status(500).json({ ok: false, error: 'Claude no devolvió JSON parseable', raw: cleaned.substring(0, 500) })
-    }
 
-    let parsed: Record<string, unknown>
-    try {
-      parsed = JSON.parse(jsonMatch[0])
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : 'parse error'
-      return res.status(500).json({ ok: false, error: 'JSON inválido: ' + msg, raw: jsonMatch[0].substring(0, 500) })
-    }
+    // Detect if the response is a JSON proposal or a conversational message
+    const trimmed = textBlocks.trim()
+    const jsonMatch = trimmed.match(/^\s*\{[\s\S]*"areas"\s*:\s*\[[\s\S]*\}\s*$/)
 
-    // Validar y sanitizar áreas
-    const areas = Array.isArray(parsed.areas) ? parsed.areas : []
-    const catalogIds = new Set((catalog || []).map((p) => p.id))
+    if (jsonMatch) {
+      // It's a proposal — parse and validate
+      try {
+        const parsed = JSON.parse(trimmed.replace(/```json|```/g, '').trim())
+        const catalogIds = new Set((catalog || []).map((p) => p.id))
 
-    const sanitizedAreas = areas.map((a: Record<string, unknown>, ai: number) => ({
-      name: String(a.name || 'Área ' + (ai + 1)).trim(),
-      level: String(a.level || '').trim(),
-      estimated_m2: Number(a.estimated_m2) || null,
-      description: String(a.description || '').trim(),
-      items: (Array.isArray(a.items) ? a.items : [])
-        .map((it: Record<string, unknown>) => {
-          const catId = it.catalog_product_id && catalogIds.has(String(it.catalog_product_id))
-            ? String(it.catalog_product_id)
-            : null
-          return {
-            catalog_product_id: catId,
-            is_new_suggestion: !!it.is_new_suggestion || !catId,
-            marca: String(it.marca || '').trim(),
-            modelo: String(it.modelo || '').trim(),
-            system: String(it.system || '').trim(),
-            description: String(it.description || '').trim(),
-            quantity: Math.max(1, Math.round(Number(it.quantity) || 1)),
-            notes: String(it.notes || '').trim(),
-          }
+        const sanitizedAreas = (parsed.areas || []).map((a: any, ai: number) => ({
+          name: String(a.name || 'Área ' + (ai + 1)).trim(),
+          level: String(a.level || '').trim(),
+          estimated_m2: Number(a.estimated_m2) || null,
+          description: String(a.description || '').trim(),
+          items: (Array.isArray(a.items) ? a.items : []).map((it: any) => {
+            const catId = it.catalog_product_id && catalogIds.has(String(it.catalog_product_id))
+              ? String(it.catalog_product_id)
+              : null
+            return {
+              catalog_product_id: catId,
+              is_new_suggestion: !!it.is_new_suggestion || !catId,
+              marca: String(it.marca || '').trim(),
+              modelo: String(it.modelo || '').trim(),
+              system: String(it.system || '').trim(),
+              description: String(it.description || '').trim(),
+              quantity: Math.max(1, parseInt(String(it.quantity)) || 1),
+              notes: String(it.notes || '').trim(),
+            }
+          }),
+        }))
+
+        return res.status(200).json({
+          ok: true,
+          type: 'proposal',
+          text: trimmed,
+          areas: sanitizedAreas,
+          plan_summary: parsed.plan_summary || '',
+          rationale: parsed.rationale || '',
+          warnings: parsed.warnings || [],
         })
-        .filter((it: Record<string, unknown>) => it.marca || it.modelo || it.description),
-    })).filter((a: Record<string, unknown>) => Array.isArray(a.items) && (a.items as unknown[]).length > 0)
-
-    return res.status(200).json({
-      ok: true,
-      areas: sanitizedAreas,
-      plan_summary: String(parsed.plan_summary || '').trim(),
-      rationale: String(parsed.rationale || '').trim(),
-      warnings: Array.isArray(parsed.warnings) ? parsed.warnings : [],
-    })
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : 'Error interno'
-    return res.status(500).json({ ok: false, error: msg })
+      } catch {
+        // Failed to parse as JSON — treat as conversation
+        return res.status(200).json({
+          ok: true,
+          type: 'message',
+          text: trimmed,
+        })
+      }
+    } else {
+      // It's a conversational message
+      return res.status(200).json({
+        ok: true,
+        type: 'message',
+        text: trimmed,
+      })
+    }
+  } catch (err: any) {
+    return res.status(500).json({ ok: false, error: err.message || 'Error interno' })
   }
 }
