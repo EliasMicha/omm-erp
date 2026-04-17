@@ -880,10 +880,12 @@ function ProySummary({
   items,
   config,
   onConfigChange,
+  systems,
 }: {
   items: ProyItem[]
   config: ProyConfig
   onConfigChange: (field: string, value: any) => void
+  systems: ProySystem[]
 }) {
   const includedItems = items.filter(it => it.included)
   const subtotal = includedItems.reduce((sum, it) => sum + it.m2 * it.precioM2, 0)
@@ -948,7 +950,7 @@ function ProySummary({
         </div>
         <div style={{ display: 'grid', gap: 4 }}>
           {includedItems.map(it => {
-            const system = SYSTEMS.find(s => s.id === it.systemId)
+            const system = systems.find(s => s.id === it.systemId)
             const importe = it.m2 * it.precioM2
             return (
               <div key={it.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10 }}>
@@ -1388,7 +1390,7 @@ export default function CotEditorProyecto({ cotId, onBack, specialty = 'proy' }:
           </table>
         </div>
         <div style={{ borderLeft: '1px solid #222', overflowY: 'auto', padding: '14px 10px', background: '#0e0e0e' }}>
-          <ProySummary items={items} config={config} onConfigChange={updateConfig} />
+          <ProySummary items={items} config={config} onConfigChange={updateConfig} systems={SYSTEMS} />
         </div>
       </div>
 
