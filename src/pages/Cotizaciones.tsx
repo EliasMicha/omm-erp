@@ -4,7 +4,7 @@ import { ANTHROPIC_API_KEY } from '../lib/config'
 import { Quotation, QuotationArea, QuotationItem, CatalogProduct, Project, ProjectLine, PurchasePhase } from '../types'
 import { F, SPECIALTY_CONFIG, STAGE_CONFIG, PHASE_CONFIG, calcItemPrice, calcItemTotal } from '../lib/utils'
 import { Badge, Btn, Table, Th, Td, Loading, SectionHeader, EmptyState } from '../components/layout/UI'
-import { Plus, ChevronLeft, X, Zap, Loader2, Search } from 'lucide-react'
+import { Plus, ChevronLeft, X, Zap, Loader2, Search, Trash2 } from 'lucide-react'
 import CotEditorESP from './CotEditorESP'
 import AIQuoteChat from './AIQuoteChat'
 import CotEditorCortinas from './CotEditorCortinas'
@@ -53,6 +53,15 @@ function CotDashboard({ onOpen }: { onOpen: (id: string, specialty?: string) => 
     const leadId = getLeadId(c)
     if (leadId && leadsMap[leadId]) return leadsMap[leadId].company || ''
     return ''
+  }
+
+  async function deleteQuotation(id: string, name: string) {
+    if (!confirm(`¿Eliminar la cotización "${name || 'Sin nombre'}"?\n\nEsta acción no se puede deshacer.`)) return
+    // Cascade: delete items → areas → quotation
+    await supabase.from('quotation_items').delete().eq('quotation_id', id)
+    await supabase.from('quotation_areas').delete().eq('quotation_id', id)
+    await supabase.from('quotations').delete().eq('id', id)
+    setCots(prev => prev.filter(q => q.id !== id))
   }
 
   // Filtro por especialidad + búsqueda de texto
@@ -199,7 +208,22 @@ function CotDashboard({ onOpen }: { onOpen: (id: string, specialty?: string) => 
                   </Td>
                   <Td><span style={{fontSize:11,fontWeight:600,color: cur === 'USD' ? '#06B6D4' : '#F59E0B'}}>{cur}</span></Td>
                   <Td right><span style={{fontWeight:600,color:'#57FF9A'}}>{cur === 'MXN' ? '$' : 'US$'}{c.total.toLocaleString()}</span></Td>
-                  <Td><Btn size="sm" onClick={e => { e?.stopPropagation(); onOpen(c.id, c.specialty) }}>Abrir</Btn></Td>
+                  <Td>
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                      <Btn size="sm" onClick={e => { e?.stopPropagation(); onOpen(c.id, c.specialty) }}>Abrir</Btn>
+                      {c.stage === 'oportunidad' && (
+                        <button
+                          onClick={e => { e.stopPropagation(); deleteQuotation(c.id, c.name) }}
+                          title="Eliminar cotización (solo en etapa Oportunidad)"
+                          style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer', padding: 4, borderRadius: 4, display: 'flex', alignItems: 'center' }}
+                          onMouseEnter={e => (e.currentTarget.style.color = '#EF4444')}
+                          onMouseLeave={e => (e.currentTarget.style.color = '#555')}
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      )}
+                    </div>
+                  </Td>
                 </tr>
               )
             })}
