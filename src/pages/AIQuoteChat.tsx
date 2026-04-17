@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { supabase } from '../lib/supabase'
-// Utils not needed — pricing happens on confirm
+import { downloadSembradoPdf, SembradoData } from '../lib/sembradoPdf'
 import { Btn } from '../components/layout/UI'
-import { X, Zap, Loader2, Upload, Send, ChevronLeft, CheckCircle, Plus, Minus, Trash2, AlertTriangle, FileText, MessageSquare } from 'lucide-react'
+import { X, Zap, Loader2, Upload, Send, ChevronLeft, CheckCircle, Plus, Minus, Trash2, AlertTriangle, FileText, MessageSquare, Download } from 'lucide-react'
 
 /* ═══════════════════════════════════════════════════════════
    TYPES
@@ -331,6 +331,90 @@ export default function AIQuoteChat({ onClose, onCreated }: {
   const backToChat = () => {
     setStep('chat')
     setAreas([])
+  }
+
+  /* ─── Download Sembrado PDF ─── */
+  const [downloadingSembrado, setDownloadingSembrado] = useState(false)
+
+  const downloadSembrado = () => {
+    setDownloadingSembrado(true)
+    try {
+      // Symbol type inference from system + description keywords
+      const inferSymbol = (system: string, desc: string): string => {
+        const d = desc.toLowerCase()
+        if (d.includes('bocina') && d.includes('plafón')) return 'speaker_ceiling'
+        if (d.includes('bocina') && (d.includes('pared') || d.includes('empotar'))) return 'speaker_wall'
+        if (d.includes('subwoofer') || d.includes('sub')) return 'subwoofer'
+        if (d.includes('amplificador') || d.includes('amp')) return 'amplifier'
+        if (d.includes('proyector') || d.includes('elevador')) return 'projector'
+        if (d.includes('pantalla de proyección')) return 'projection_screen'
+        if (d.includes('cámara') || d.includes('camera') || d.includes('cam')) return 'camera_wifi'
+        if (d.includes('biométrico') || d.includes('lector')) return 'biometric_reader'
+        if (d.includes('chapa') || d.includes('magnética') || d.includes('cerradura')) return 'magnetic_lock'
+        if (d.includes('botón') || d.includes('liberador')) return 'release_button'
+        if (d.includes('botonera') && d.includes('inalámbrica')) return 'keypad_wireless'
+        if (d.includes('botonera') || d.includes('keypad') || d.includes('teclado')) return 'keypad'
+        if (d.includes('detector') && d.includes('humo')) return 'smoke_detector'
+        if (d.includes('detector') && d.includes('gas')) return 'gas_detector'
+        if (d.includes('detector') && d.includes('temperatura')) return 'temperature_detector'
+        if (d.includes('base sonora') || d.includes('sirena')) return 'horn_strobe'
+        if (d.includes('panel') && (d.includes('detección') || d.includes('incendio'))) return 'fire_panel'
+        if (d.includes('estación manual')) return 'manual_station'
+        if (d.includes('nodo') && (d.includes('red') || d.includes('datos'))) return 'network_node'
+        if (d.includes('teléfono')) return 'phone'
+        if (d.includes('tablero') && d.includes('acceso')) return 'access_panel'
+        if (d.includes('persiana') || d.includes('cortina')) return 'blind_node'
+        if (d.includes('módulo') || d.includes('repetidor')) return 'control_module'
+        if (d.includes('rack') || d.includes('nvr') || d.includes('switch')) return 'rack'
+        const sysMap: Record<string, string> = {
+          'Audio': 'speaker_ceiling', 'CCTV': 'camera_wifi', 'Redes': 'network_node',
+          'Control de acceso': 'biometric_reader', 'Acceso': 'biometric_reader',
+          'Iluminacion': 'keypad', 'Cortinas': 'blind_node', 'Humo': 'smoke_detector',
+        }
+        return sysMap[system] || 'network_node'
+      }
+
+      // Build systems grouped from proposal areas
+      const systemsMap: Record<string, { devices: SembradoData['systems'][string]['devices'], conduit_schedule: SembradoData['systems'][string]['conduit_schedule'] }> = {}
+
+      for (const area of areas) {
+        for (const item of area.items) {
+          const sysName = item.system || 'General'
+          if (!systemsMap[sysName]) systemsMap[sysName] = { devices: [], conduit_schedule: [] }
+          systemsMap[sysName].devices.push({
+            nomenclature: `${sysName.substring(0, 3).toUpperCase()}-${String(systemsMap[sysName].devices.length + 1).padStart(2, '0')}`,
+            name: item.description || `${item.marca} ${item.modelo}`,
+            brand: item.marca,
+            model: item.modelo,
+            area: area.name,
+            quantity: item.quantity,
+            install_height: '',
+            requirements: item.notes || '',
+            symbol_type: inferSymbol(item.system, `${item.description} ${item.marca} ${item.modelo}`),
+          })
+        }
+      }
+
+      const sembradoData: SembradoData = {
+        project: {
+          name: scope.nombre || 'Proyecto OMM',
+          prefix: (scope.nombre || 'OMM').substring(0, 4).toUpperCase(),
+          location: scope.ubicacion === 'cdmx' ? 'CDMX' : scope.ubicacion,
+          date: new Date().toLocaleDateString('es-MX'),
+          drawn_by: 'AI OMM Agent',
+          reviewed_by: 'Elias Graneroinchu Cohen',
+          scale: 'S/E',
+        },
+        systems: systemsMap,
+      }
+
+      downloadSembradoPdf(sembradoData, `Sembrado_${scope.nombre || 'OMM'}.pdf`)
+    } catch (err) {
+      console.error('Sembrado error:', err)
+      alert('Error al generar el sembrado: ' + (err instanceof Error ? err.message : 'Error'))
+    } finally {
+      setDownloadingSembrado(false)
+    }
   }
 
   /* ─── Create quotation ─── */
@@ -864,9 +948,15 @@ export default function AIQuoteChat({ onClose, onCreated }: {
             {/* Footer */}
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginTop: 14, paddingTop: 14, borderTop: '1px solid #222', flexShrink: 0 }}>
               <Btn onClick={backToChat}><ChevronLeft size={14} /> Volver al chat</Btn>
-              <Btn variant="primary" onClick={handleConfirm}>
-                <CheckCircle size={14} /> Crear cotización
-              </Btn>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <Btn onClick={downloadSembrado} disabled={downloadingSembrado} style={{ background: '#0e1a12', color: '#57FF9A', border: '1px solid #57FF9A44' }}>
+                  {downloadingSembrado ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Download size={14} />}
+                  {downloadingSembrado ? 'Generando...' : 'Sembrado PDF'}
+                </Btn>
+                <Btn variant="primary" onClick={handleConfirm}>
+                  <CheckCircle size={14} /> Crear cotización
+                </Btn>
+              </div>
             </div>
           </div>
         )}
