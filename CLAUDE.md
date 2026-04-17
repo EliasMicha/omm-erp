@@ -1,5 +1,100 @@
 # CLAUDE.md — OMM ERP Context Document
-## Last updated: 2026-04-14 (Sesión Facturación REP + CFDI Relacionado)
+## Last updated: 2026-04-16 (Sesión Cotizador Cortinas completo)
+
+---
+
+## 🔥 Sesión 2026-04-16 — Cotizador de Cortinas y Persianas (CotEditorCortinas)
+
+### Resumen
+Se construyó y refinó el cotizador especializado para cortinas (`CotEditorCortinas.tsx`). Es un componente standalone (~1200 líneas) que se activa cuando `specialty: 'cort'` en la tabla `quotations`. Incluye cálculo automático de BOM Somfy, entrada manual Lutron en USD, generación de PDF de propuesta, y gestión por áreas.
+
+### Archivo principal: `src/pages/CotEditorCortinas.tsx`
+
+**Interfaces clave:**
+```typescript
+interface CortConfig {
+  currency: 'USD' | 'MXN'; tipoCambio: number; ivaRate: number;
+  instPct: number; margenTela: number; margenMotor: number;
+}
+interface CortItem {
+  id: string; areaId: string; ubicacion: string;
+  ancho: number; alto: number; cantidad: number;
+  tipoCierre: 'MANUAL' | 'MOTORIZADO';
+  motorBrand: 'SOMFY' | 'LUTRON' | 'NINGUNO';
+  motorSystem: string;
+  somfyHojas: 1 | 2; somfyPliegue: 'TRADICIONAL' | 'ONDULADO';
+  somfyAbundancia: number; somfySoportePared: boolean;
+  somfyAmrado: boolean; somfyCurveado: boolean;
+  tipoTela: string; anchoTela: number; tipoPliegue: string;
+  precioTelaPorML: number;    // COSTO tela por metro lineal (MXN)
+  precioConfeccion: number;   // COSTO confección por cortina (MXN)
+  telaIncluida: boolean;      // true = cliente provee su tela
+  precioMotor: number;        // Somfy: auto-calc MXN | Lutron: manual USD
+  order: number;
+}
+```
+
+**Lógica de moneda (IMPORTANTE):**
+- Tela y confección → siempre capturados en **MXN**
+- Somfy motors → siempre **MXN** (auto-calculado con BOM)
+- Lutron motors → siempre capturados en **USD**, convertidos a MXN con `tipoCambio`
+- Funciones helper centralizadas:
+  - `calcMotorCostMXN(item, tipoCambio)` — costo en MXN (convierte Lutron)
+  - `calcMotorCostRaw(item)` — costo en moneda nativa (USD para Lutron)
+  - `calcFabricML(item)` — metros lineales: `(alto × 2.5 × ancho) / anchoTela`
+  - `calcFabricCost(item)` — costo tela total: `ML × precioTelaPorML × cantidad`
+  - `calcConfeccionCost(item)` — `precioConfeccion × cantidad`
+  - `calcSomfyBOM(item)` / `calcSomfyTotal(item)` — BOM automático Somfy
+
+**Somfy BOM auto-calculation:**
+- Familias: MOVELITE (35KG, Batería, 50RTS) y GLYDEA (35WT, 60WT)
+- Calcula riel, cinta, soportes, motores, bola/tope, plus opcionales (amrado, curveado, soporte pared)
+- Para 2 hojas: doble motor, riel dividido, más soportes
+- Precios extraídos de "cotizadores Elias OMM Noviembre 2026.xlsx"
+
+**Componentes internos:**
+- `SomfyDetailModal` — muestra BOM desglosado de Somfy
+- `CortRow` — fila de cortina con todos los inputs
+- `CortAreaBlock` — bloque colapsable por área con tabla y totales
+- `CortSummary` — panel resumen con desglose por área y totales finales
+- `CortPdfModal` — genera PDF de propuesta en nueva ventana
+- `AreaPickerModal` — modal con 20 presets de áreas + input custom
+- `CopyToAreaModal` — copiar cortina a otra área
+
+**PDF de propuesta:**
+- Se genera con `window.open()` + `document.write()` (no `window.print()`)
+- Header con logo OMM, nombre cotización, cliente, fecha
+- Tabla subdividida por área con subheaders
+- Muestra precios CON margen (precio de venta, no costo)
+- Totales: subtotal + instalación + IVA
+- Para Lutron: nota "(USD→MXN)" en columna motor
+
+**Persistencia:**
+- Áreas en `quotation_areas` (name, order, quotation_id)
+- Items en `quotation_items` con metadata en columna `notes` (JSON con todos los campos de CortItem)
+- La columna `notes` fue agregada con `ALTER TABLE quotation_items ADD COLUMN IF NOT EXISTS notes text`
+
+### Cambios en `src/pages/Cotizaciones.tsx`
+- Routing: `specialty === 'cort'` → `<CotEditorCortinas cotId={id} onBack={close}/>`
+- **Botón eliminar cotización** (commit `ee0f7b5`):
+  - Icono Trash2 solo visible cuando `stage === 'oportunidad'`
+  - Protege cotizaciones en estimación/propuesta/contrato contra borrado accidental
+  - Cascade delete: `quotation_items` → `quotation_areas` → `quotations`
+  - Confirmación con `confirm()` antes de borrar
+
+### Commits de esta sesión
+| Commit | Description |
+|--------|-------------|
+| `e68e9ba` | feat: cotizador de cortinas con confección separada y generador de PDF |
+| `4371fe3` | fix: quitar columna Ubicación redundante con Área |
+| `cf3832a` | feat: PDF nueva ventana, subdivisión por área, modal de áreas y copiar cortina |
+| `1ce8061` | fix: etiquetas COSTO, moneda correcta — tela/conf MXN, Lutron USD con tipo de cambio |
+| `ee0f7b5` | feat: botón eliminar cotización solo en etapa Oportunidad |
+
+### Pendiente para próxima sesión
+1. **Cotización con IA desde planos arquitectónicos** — subir plano, extraer medidas con visión, auto-generar items de cortinas. Documentado pero no implementado.
+2. **Rollback ALL_SYSTEMS en CotEditorESP** — restaurar nombres bonitos + agregar campo `dbValue` (ver sección anterior)
+3. **Auditar embeds PGRST201 ambiguos** en otros archivos del repo
 
 ---
 
