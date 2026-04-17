@@ -433,29 +433,88 @@ function ProyPdfModal({
         <div class="page">
           <div class="section-title">Alcance del Proyecto</div>
           <div class="section-text">
-            El presente presupuesto incluye la ingeniería ejecutiva de los sistemas conforme se detalla en la tabla anterior.
-            La ingeniería ejecutiva comprende el desarrollo de los planos, diagramas, especificaciones técnicas y criterios
-            de diseño necesarios para la instalación de los sistemas de automatización, seguridad, comunicaciones y control
-            indicados. No incluye suministro de equipos, materiales, instalación, puesta en marcha ni capacitación, a menos
-            que se indique explícitamente en las líneas de la cotización.
+            El alcance del proyecto comprende exclusivamente el <strong>desarrollo de ingeniería y documentación técnica</strong>, sin considerar bajo ninguna circunstancia la ejecución física en obra.
+          </div>
+          <div class="section-text">
+            <strong><u>No están incluidos</u></strong>, salvo que se indique expresamente en esta cotización:
+          </div>
+          <div class="section-text" style="padding-left: 20px;">
+            • Suministro de equipos y materiales.<br/>
+            • Instalación, canalizaciones o cableado.<br/>
+            • Programación, configuración o integración de sistemas.<br/>
+            • Pruebas, puesta en marcha o capacitación.<br/>
+            • Supervisión de obra o dirección técnica en sitio.
+          </div>
+
+          <div class="section-title">Información Base del Cliente</div>
+          <div class="section-text">
+            Las ingenierías se desarrollan con base en la información proporcionada por el cliente, incluyendo planos arquitectónicos, ingenierías base y criterios definidos al inicio del proyecto.
+          </div>
+          <div class="section-text">
+            Cualquier modificación posterior en:
+          </div>
+          <div class="section-text" style="padding-left: 20px;">
+            • Arquitectura.<br/>
+            • Layout.<br/>
+            • Uso de áreas.<br/>
+            • Criterios operativos.<br/>
+            • Alcances originalmente definidos.
+          </div>
+          <div class="section-text">
+            Será considerada <strong>un cambio de alcance</strong> y podrá generar ajustes en costo, tiempos y entregables.
+          </div>
+
+          <div class="section-title">Cambios y Ajustes de Alcance</div>
+          <div class="section-text">
+            La cotización incluye <strong>una ronda de ajustes razonables</strong> derivada de observaciones del cliente sobre la ingeniería presentada.
+          </div>
+          <div class="section-text">
+            Cambios adicionales, o modificaciones que impliquen:
+          </div>
+          <div class="section-text" style="padding-left: 20px;">
+            • Rehacer sembrados.<br/>
+            • Cambiar rutas de tubería.<br/>
+            • Ajustar criterios técnicos.<br/>
+            • Modificar sistemas ya desarrollados.
+          </div>
+          <div class="section-text">
+            Se cotizarán de manera independiente previo a su ejecución.
+          </div>
+
+          <div class="section-title">Coordinación con Otras Ingenierías</div>
+          <div class="section-text">
+            El alcance contempla <strong>coordinación técnica a nivel de proyecto</strong>, con las ingenierías involucradas (arquitectura, eléctrica, HVAC, etc.), únicamente para compatibilizar la información contenida en los planos.
+          </div>
+          <div class="section-text">
+            No se incluye:
+          </div>
+          <div class="section-text" style="padding-left: 20px;">
+            • Resolución de conflictos en obra.<br/>
+            • Ajustes derivados de errores de terceros.<br/>
+            • Supervisión de ejecución en campo.
           </div>
 
           <div class="section-title">Condiciones de Pago</div>
           <div class="section-text">
-            • 50% Anticipo (al contrato)<br/>
-            • 50% Contra entrega de documentación completa y aprobación del cliente
+            Para el inicio del desarrollo de las <strong>Ingenierías Ejecutivas de Instalaciones Especiales</strong>, se establecen las siguientes condiciones de pago:
+          </div>
+          <div class="section-text" style="padding-left: 20px;">
+            • <strong>50% de anticipo</strong> al momento de la aceptación de la cotización, requerido para iniciar los trabajos de ingeniería.<br/><br/>
+            • <strong>50% restante</strong> contra entrega de la ingeniería ejecutiva completa.
+          </div>
+          <div class="section-text">
+            En caso de que el cliente decida <strong>ejecutar la obra completa</strong> de los sistemas de instalaciones especiales con <strong>nuestro equipo</strong>, el monto pagado por concepto de ingeniería ejecutiva será <strong>acreditado como descuento</strong> en el siguiente pago correspondiente a la etapa de ejecución de obra, de acuerdo con el esquema de contratación acordado.
+          </div>
+          <div class="section-text">
+            En caso de que el cliente decida <strong>ejecutar la obra con un proveedor distinto</strong>, el <strong>100% del monto</strong> correspondiente a la ingeniería ejecutiva deberá quedar liquidado, sin excepción, conforme a los términos de esta cotización.
+          </div>
+          <div class="section-text">
+            El inicio de cualquier etapa posterior (suministro, instalación, programación o puesta en marcha) estará sujeto a la liquidación de los montos correspondientes y a la firma de los acuerdos contractuales aplicables.
           </div>
 
           <div class="section-title">Vigencia</div>
           <div class="section-text">
-            Esta cotización tiene validez de 15 días calendario a partir de su emisión. Sujeta a disponibilidad de personal
-            y confirmación de calendario.
-          </div>
-
-          <div class="section-title">Contacto</div>
-          <div class="section-text">
-            OMM Soluciones Inteligentes<br/>
-            Para consultas, contacto@omm.mx
+            Esta cotización tiene validez de 30 días calendario a partir de su emisión. Sujeta a disponibilidad de personal y confirmación de calendario.
           </div>
         </div>
       </body>
