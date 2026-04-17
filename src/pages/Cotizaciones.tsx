@@ -7,6 +7,7 @@ import { Badge, Btn, Table, Th, Td, Loading, SectionHeader, EmptyState } from '.
 import { Plus, ChevronLeft, X, Zap, Loader2, Search } from 'lucide-react'
 import CotEditorESP from './CotEditorESP'
 import AIQuoteChat from './AIQuoteChat'
+import CotEditorCortinas from './CotEditorCortinas'
 
 interface Supplier { id: string; name: string }
 
@@ -1018,6 +1019,7 @@ export default function Cotizaciones() {
   }
 
   if (openId && openSpecialty === 'esp') return <CotEditorESP cotId={openId} onBack={close}/>
+  if (openId && openSpecialty === 'cort') return <CotEditorCortinas cotId={openId} onBack={close}/>
   if (openId) return <CotEditor cotId={openId} onBack={close}/>
   return <CotDashboard onOpen={open}/>
 }
