@@ -9,6 +9,9 @@ import { Plus, ChevronLeft, X, Search, Trash2, Save, ShoppingCart, Truck, Packag
 // ─── Types ────────────────────────────────────────────────────────────────────
 type POStatus = 'borrador' | 'aprobada' | 'pedida' | 'recibida_parcial' | 'recibida' | 'cancelada'
 type PaymentTerms = 'contado' | 'credito_15' | 'credito_30' | 'credito_60' | 'anticipo_50'
+type LogisticsMode = 'pending' | 'pickup_to_bodega' | 'pickup_to_obra' | 'supplier_to_bodega' | 'supplier_to_obra'
+
+interface Obra { id: string; nombre: string; project_id?: string }
 
 interface Supplier {
   id: string
@@ -28,6 +31,8 @@ interface Supplier {
   cuenta_bancaria?: string
   banco?: string
   bnet_codigo?: string
+  // Logística (default para POs de este proveedor — Entregas v2)
+  default_logistics_mode?: LogisticsMode | null
 }
 
 interface PurchaseOrder {
@@ -54,6 +59,10 @@ interface PurchaseOrder {
   delivered_at?: string
   project?: Project
   supplier?: Supplier
+  // Logística (Entregas v2)
+  logistics_mode?: LogisticsMode
+  logistics_target_obra_id?: string | null
+  logistics_target_obra?: Obra
 }
 
 interface POItem {
@@ -113,6 +122,15 @@ const PAYMENT_TERMS_CFG: Record<PaymentTerms, string> = {
 }
 
 const SYSTEM_OPTIONS = ['Redes', 'CCTV', 'Audio', 'Lutron', 'Acceso', 'Somfy', 'Electrico', 'Iluminacion', 'Cortinas', 'General']
+
+// Modo logístico — cómo llega el material de una PO
+const LOGISTICS_CFG: Record<LogisticsMode, { label: string; short: string; color: string; needsObra: boolean; description: string }> = {
+  pending:            { label: 'Por decidir',              short: 'Pendiente',     color: '#6B7280', needsObra: false, description: 'Aún no se decide cómo llega' },
+  pickup_to_bodega:   { label: 'Recolectar → bodega',      short: 'Recol→Bodega',  color: '#3B82F6', needsObra: false, description: 'OMM va por ella y la lleva a bodega' },
+  pickup_to_obra:     { label: 'Recolectar → directo a obra', short: 'Recol→Obra', color: '#F59E0B', needsObra: true,  description: 'OMM va por ella y la lleva directo a la obra' },
+  supplier_to_bodega: { label: 'Proveedor → bodega',       short: 'Prov→Bodega',   color: '#8B5CF6', needsObra: false, description: 'Proveedor envía a bodega OMM' },
+  supplier_to_obra:   { label: 'Proveedor → directo a obra', short: 'Prov→Obra',   color: '#EC4899', needsObra: true,  description: 'Proveedor envía directo a la obra' },
+}
 
 // ─── Reusable Field ───────────────────────────────────────────────────────────
 function Field({ label, value, onChange, placeholder = '', type = 'text', disabled = false }: {
@@ -1226,6 +1244,7 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
   const [catalog, setCatalog] = useState<CatalogProduct[]>([])
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
   const [projects, setProjects] = useState<Project[]>([])
+  const [obras, setObras] = useState<Obra[]>([])
   const [loading, setLoading] = useState(true)
   const [dirty, setDirty] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -1240,12 +1259,14 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
       supabase.from('catalog_products').select('*').eq('is_active', true).order('name'),
       supabase.from('suppliers').select('*').eq('is_active', true).order('name'),
       supabase.from('projects').select('*').eq('status', 'activo').order('name'),
-    ]).then(([poRes, itemsRes, catRes, supRes, projRes]) => {
+      supabase.from('obras').select('id,nombre,project_id').order('nombre'),
+    ]).then(([poRes, itemsRes, catRes, supRes, projRes, obrRes]) => {
       setPO(poRes.data)
       setItems(itemsRes.data || [])
       setCatalog(catRes.data || [])
       setSuppliers(supRes.data || [])
       setProjects(projRes.data || [])
+      setObras(obrRes.data || [])
       setLoading(false)
     })
   }
@@ -1283,6 +1304,8 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
       notes: po.notes || null,
       supplier_doc_number: po.supplier_doc_number || null,
       expected_delivery: po.expected_delivery || null,
+      logistics_mode: po.logistics_mode || 'pending',
+      logistics_target_obra_id: po.logistics_target_obra_id || null,
       updated_at: new Date().toISOString(),
     }).eq('id', po.id)
     setSaving(false); setDirty(false)
@@ -1441,8 +1464,21 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
       </div>
 
       {/* PO info row */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 12, marginBottom: 20 }}>
-        <SelectField label="Proveedor" value={po.supplier_id || ''} onChange={v => { setPO(p => p ? { ...p, supplier_id: v } : p); setDirty(true) }}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 12, marginBottom: 12 }}>
+        <SelectField label="Proveedor" value={po.supplier_id || ''}
+          onChange={v => {
+            setPO(p => {
+              if (!p) return p
+              // Si la PO está en 'pending', precargar el default logístico del proveedor elegido
+              const next: PurchaseOrder = { ...p, supplier_id: v }
+              if ((!p.logistics_mode || p.logistics_mode === 'pending') && v) {
+                const sup = suppliers.find(s => s.id === v)
+                if (sup?.default_logistics_mode) next.logistics_mode = sup.default_logistics_mode
+              }
+              return next
+            })
+            setDirty(true)
+          }}
           options={suppliers.map(s => ({ value: s.id, label: s.name }))} placeholder="-- Seleccionar --" />
         <SelectField label="Proyecto" value={po.project_id || ''} onChange={v => { setPO(p => p ? { ...p, project_id: v } : p); setDirty(true) }}
           options={projects.map(p => ({ value: p.id, label: p.name }))} placeholder="-- Sin proyecto --" />
@@ -1457,6 +1493,53 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
               {(po.supplier as Supplier).payment_terms && <div style={{ color: '#57FF9A' }}>{PAYMENT_TERMS_CFG[(po.supplier as Supplier).payment_terms]}</div>}
             </div>
           ) : <div style={{ fontSize: 11, color: '#444' }}>Sin proveedor asignado</div>}
+        </div>
+      </div>
+
+      {/* Logística row (Entregas v2) */}
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: LOGISTICS_CFG[(po.logistics_mode || 'pending') as LogisticsMode].needsObra ? '1fr 1fr 2fr' : '1fr 3fr',
+        gap: 12, marginBottom: 20, padding: '12px 14px',
+        background: '#0f0f0f', border: '1px solid #1f1f1f', borderRadius: 10,
+      }}>
+        <SelectField label="Modo logístico"
+          value={po.logistics_mode || 'pending'}
+          onChange={v => {
+            const nextMode = v as LogisticsMode
+            setPO(p => {
+              if (!p) return p
+              const next: PurchaseOrder = { ...p, logistics_mode: nextMode }
+              // Si el modo nuevo no requiere obra destino, limpiarla
+              if (!LOGISTICS_CFG[nextMode].needsObra) next.logistics_target_obra_id = null
+              return next
+            })
+            setDirty(true)
+          }}
+          options={(Object.keys(LOGISTICS_CFG) as LogisticsMode[]).map(k => ({
+            value: k, label: LOGISTICS_CFG[k].label,
+          }))}
+        />
+        {LOGISTICS_CFG[(po.logistics_mode || 'pending') as LogisticsMode].needsObra && (
+          <SelectField label="Obra destino"
+            value={po.logistics_target_obra_id || ''}
+            onChange={v => { setPO(p => p ? { ...p, logistics_target_obra_id: v || null } : p); setDirty(true) }}
+            options={obras.map(o => ({ value: o.id, label: o.nombre }))}
+            placeholder="-- Seleccionar obra --"
+          />
+        )}
+        <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+          <div style={{ fontSize: 10, color: '#555', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Qué significa</div>
+          <div style={{ fontSize: 11, color: '#999', lineHeight: 1.4 }}>
+            {LOGISTICS_CFG[(po.logistics_mode || 'pending') as LogisticsMode].description}
+            {(po.logistics_mode || 'pending') === 'pending' && po.supplier_id && (() => {
+              const sup = suppliers.find(s => s.id === po.supplier_id)
+              if (sup?.default_logistics_mode) {
+                return <div style={{ color: '#666', fontSize: 10, marginTop: 2 }}>Default del proveedor: {LOGISTICS_CFG[sup.default_logistics_mode].short}</div>
+              }
+              return null
+            })()}
+          </div>
         </div>
       </div>
 
@@ -2117,14 +2200,20 @@ function SupplierDetail({ supplierId, onBack }: { supplierId: string; onBack: ()
   async function guardar() {
     if (!supplier) return
     setSaving(true)
+    // NOTA: la tabla suppliers en DB usa nombres en español (contacto, telefono,
+    // email, direccion, notas, sistemas) y NO tiene payment_terms. La UI de este
+    // editor lee/escribe nombres en inglés, por lo que hay un bug pre-existente
+    // donde varios campos no persisten. Aquí salvo SOLO las columnas que sí
+    // existen en DB para evitar que la llamada entera falle.
     await supabase.from('suppliers').update({
-      name: supplier.name, contact_name: supplier.contact_name || null,
-      contact_phone: supplier.contact_phone || null, contact_email: supplier.contact_email || null,
-      rfc: supplier.rfc || null, address: supplier.address || null,
-      payment_terms: supplier.payment_terms, notes: supplier.notes || null,
-      clabe: supplier.clabe || null, cuenta_bancaria: supplier.cuenta_bancaria || null,
-      banco: supplier.banco || null, bnet_codigo: supplier.bnet_codigo || null,
-      systems: supplier.systems, is_active: supplier.is_active,
+      name: supplier.name,
+      rfc: supplier.rfc || null,
+      clabe: supplier.clabe || null,
+      cuenta_bancaria: supplier.cuenta_bancaria || null,
+      banco: supplier.banco || null,
+      bnet_codigo: supplier.bnet_codigo || null,
+      is_active: supplier.is_active,
+      default_logistics_mode: supplier.default_logistics_mode || null,
     }).eq('id', supplier.id)
     setSaving(false); setDirty(false)
   }
@@ -2180,6 +2269,13 @@ function SupplierDetail({ supplierId, onBack }: { supplierId: string; onBack: ()
           <SelectField label="Condiciones de pago" value={supplier.payment_terms}
             onChange={v => upd('payment_terms', v)}
             options={Object.entries(PAYMENT_TERMS_CFG).map(([k, v]) => ({ value: k, label: v }))} />
+          <SelectField label="Default logístico (se precarga en POs nuevas)"
+            value={supplier.default_logistics_mode || ''}
+            onChange={v => upd('default_logistics_mode', v || null)}
+            options={(Object.keys(LOGISTICS_CFG) as LogisticsMode[])
+              .filter(k => k !== 'pending')
+              .map(k => ({ value: k, label: LOGISTICS_CFG[k].label }))}
+            placeholder="-- Sin default (PO queda en Pendiente) --" />
           <label style={{ fontSize: 11, color: '#555', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
             Sistemas
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
