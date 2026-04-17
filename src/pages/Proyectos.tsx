@@ -1267,11 +1267,17 @@ function NewProjectModal({ employees, onClose, onCreated }: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [specialty])
 
-  const canSubmit = !!selectedLeadId && !!projectName.trim() && !saving
+  // Validate: quotation must be in 'contrato' stage to create project
+  const quotationIsContrato = selectedQuotation?.stage === 'contrato'
+  const canSubmit = !!selectedLeadId && !!projectName.trim() && !saving && quotationIsContrato
 
   async function crear() {
-    if (!canSubmit || !selectedLead) {
+    if (!selectedLeadId || !selectedLead) {
       setError('Debes seleccionar un lead')
+      return
+    }
+    if (!selectedQuotationId || !quotationIsContrato) {
+      setError('Se requiere una cotización en etapa Contrato para crear un proyecto')
       return
     }
     setError(null)
@@ -1491,10 +1497,15 @@ function NewProjectModal({ employees, onClose, onCreated }: {
                         return <option key={q.id} value={q.id}>{label}</option>
                       })}
                     </select>
+                    {selectedQuotation && !quotationIsContrato && (
+                      <div style={{ marginTop: 6, padding: '8px 10px', background: '#EF444411', border: '1px solid #EF444433', borderRadius: 6, fontSize: 11, color: '#EF4444' }}>
+                        ⚠️ La cotización debe estar en etapa <strong>Contrato</strong> para poder crear el proyecto. Etapa actual: <strong>{selectedQuotation.stage}</strong>
+                      </div>
+                    )}
                     {selectedQuotation && (
                       <div style={{ marginTop: 8, padding: '10px 12px', background: '#0a0a0a', border: '1px solid #1e1e1e', borderRadius: 6 }}>
                         <div style={{ fontSize: 11, color: '#aaa', marginBottom: 6 }}>
-                          <strong style={{ color: '#57FF9A' }}>{selectedQuotation.name}</strong>
+                          <strong style={{ color: quotationIsContrato ? '#57FF9A' : '#F59E0B' }}>{selectedQuotation.name}</strong>
                           <span style={{ color: '#555', marginLeft: 6 }}>· Estado: {selectedQuotation.stage}</span>
                           {selectedQuotation.total > 0 && <span style={{ color: '#555', marginLeft: 6 }}>· ${selectedQuotation.total.toLocaleString('es-MX')}</span>}
                         </div>

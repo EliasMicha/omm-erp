@@ -9,6 +9,7 @@ import CotEditorESP from './CotEditorESP'
 import AIQuoteChat from './AIQuoteChat'
 import CotEditorCortinas from './CotEditorCortinas'
 import CotEditorProyecto from './CotEditorProyecto'
+import { autoCreateProjectFromQuotation } from '../lib/projectUtils'
 
 interface Supplier { id: string; name: string }
 
@@ -191,10 +192,15 @@ function CotDashboard({ onOpen }: { onOpen: (id: string, specialty?: string) => 
                     <select
                       value={c.stage}
                       onClick={e => e.stopPropagation()}
-                      onChange={e => {
+                      onChange={async e => {
                         const newStage = e.target.value
-                        supabase.from('quotations').update({ stage: newStage }).eq('id', c.id).then(() => {})
+                        await supabase.from('quotations').update({ stage: newStage }).eq('id', c.id)
                         setCots(prev => prev.map(q => q.id === c.id ? { ...q, stage: newStage as any } : q))
+                        // Auto-create project when proy quotation moves to contrato
+                        if (newStage === 'contrato' && c.specialty === 'proy') {
+                          const projId = await autoCreateProjectFromQuotation(c.id)
+                          if (projId) alert('✅ Proyecto creado automáticamente en la sección de Proyectos.')
+                        }
                       }}
                       style={{
                         padding: '3px 8px', fontSize: 10, fontWeight: 600, borderRadius: 6,

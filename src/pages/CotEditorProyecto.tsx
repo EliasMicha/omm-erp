@@ -4,6 +4,7 @@ import { F, STAGE_CONFIG } from '../lib/utils'
 import { Badge, Btn, Loading } from '../components/layout/UI'
 import { ChevronLeft, ChevronDown, ChevronRight, Settings, X, Printer } from 'lucide-react'
 import { OMNIIOUS_LOGO } from '../assets/logo'
+import { autoCreateProjectFromQuotation } from '../lib/projectUtils'
 
 // ═══════════════════════════════════════════════════════════════════
 // TYPES
@@ -1420,9 +1421,16 @@ export default function CotEditorProyecto({ cotId, onBack, specialty = 'proy' }:
           {(Object.entries(STAGE_CONFIG) as Array<[string, { label: string; color: string }]>).map(([s, cfg]) => (
             <button
               key={s}
-              onClick={() => {
+              onClick={async () => {
                 setStage(s)
-                supabase.from('quotations').update({ stage: s }).eq('id', cotId)
+                await supabase.from('quotations').update({ stage: s }).eq('id', cotId)
+                // Auto-create project when moving to 'contrato'
+                if (s === 'contrato') {
+                  const projId = await autoCreateProjectFromQuotation(cotId)
+                  if (projId) {
+                    alert('✅ Proyecto creado automáticamente en la sección de Proyectos.')
+                  }
+                }
               }}
               style={{
                 padding: '3px 10px',
