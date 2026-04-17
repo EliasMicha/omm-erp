@@ -36,6 +36,20 @@ Si haces preguntas, el usuario responderá. Incorpora las respuestas y:
 PASO 3 — PROPUESTA FINAL:
 Cuando estés listo, produce la propuesta en el formato JSON especificado abajo.
 
+PASO 4 — SEMBRADO (POSICIONAMIENTO EN PLANO):
+Si el usuario adjuntó un plano arquitectónico, DEBES incluir coordenadas de posición para cada dispositivo.
+Analiza el plano con mucho cuidado:
+- Identifica las paredes, puertas, ventanas, y mobiliario de cada habitación.
+- Para BOCINAS DE PLAFÓN: colócalas centradas en el techo de cada habitación, distribuidas uniformemente. Si son 2, ponlas a 1/3 y 2/3 del largo. Si son 4, distribúyelas en cuadrícula.
+- Para CÁMARAS: en esquinas con mejor ángulo de visión, apuntando hacia accesos/áreas críticas.
+- Para DETECTORES DE HUMO: centrados en el plafón de cada habitación.
+- Para BOTONERAS/KEYPADS: junto a la puerta de entrada de cada habitación, del lado del picaporte (generalmente a 10-15cm del marco).
+- Para LECTORES BIOMÉTRICOS/ACCESO: junto a puertas de acceso controlado.
+- Para NODOS DE RED: en muros cerca de donde irá el escritorio/TV/mueble multimedia.
+- Para PERSIANAS: sobre el dintel de cada ventana que tenga persiana.
+- Para EQUIPOS DE RACK: todos en el cuarto técnico/rack.
+Las coordenadas son PORCENTAJES (0-100) relativas al plano completo: x=0 es borde izquierdo, x=100 borde derecho, y=0 es borde superior, y=100 borde inferior.
+
 IMPORTANTE: Cuando estés CONVERSANDO (haciendo preguntas, dando resumen), responde en texto normal en español.
 Cuando produzcas la PROPUESTA FINAL, responde SOLO con un bloque JSON que empiece con {"areas": y siga el formato exacto.
 
@@ -94,7 +108,10 @@ Cuando tengas TODA la información necesaria y estés listo para proponer, respo
           "system": "Audio|Redes|CCTV|...",
           "description": "descripción corta del producto y su función",
           "quantity": 1,
-          "notes": "justificación"
+          "notes": "justificación",
+          "positions": [
+            {"x": 35.2, "y": 22.8, "label": "NPS-BCN.01", "height": "Plafón"}
+          ]
         }
       ]
     }
@@ -103,6 +120,15 @@ Cuando tengas TODA la información necesaria y estés listo para proponer, respo
   "rationale": "Lógica general de la propuesta",
   "warnings": ["Advertencias o supuestos"]
 }
+
+NOTA SOBRE POSITIONS:
+- El campo "positions" es un ARRAY. Debe tener tantas entradas como indica "quantity".
+  Ejemplo: si quantity=4, positions debe tener 4 objetos {x, y, label, height}.
+- "x" e "y" son porcentajes (0-100) de la posición en el plano. ANALIZA EL PLANO con precisión.
+- "label" es el código de nomenclatura que se mostrará junto al símbolo (e.g., "NPS-BCN.01").
+- "height" es la altura de instalación (e.g., "Plafón", "1.10m", "Muro", "0.30 MTS").
+- Si NO hay plano adjunto, omite el campo "positions" completamente.
+- Si SÍ hay plano, SIEMPRE incluye "positions" con coordenadas precisas para TODOS los dispositivos.
 
 Si estás CONVERSANDO (preguntas, resumen, comentarios), responde en texto normal en español. NUNCA mezcles texto y JSON en la misma respuesta.`
 

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { supabase } from '../lib/supabase'
-import { downloadSembradoPdf, SembradoData } from '../lib/sembradoPdf'
+import { downloadSembradoPdf, type SembradoData, type DevicePosition as SembradoDevicePosition } from '../lib/sembradoPdf'
 import { Btn } from '../components/layout/UI'
 import { X, Zap, Loader2, Upload, Send, ChevronLeft, CheckCircle, Plus, Minus, Trash2, AlertTriangle, FileText, MessageSquare, Download } from 'lucide-react'
 
@@ -14,6 +14,13 @@ interface ChatMessage {
   timestamp: Date
 }
 
+interface DevicePosition {
+  x: number
+  y: number
+  label: string
+  height: string
+}
+
 interface AreaItem {
   catalog_product_id: string | null
   is_new_suggestion: boolean
@@ -23,6 +30,7 @@ interface AreaItem {
   description: string
   quantity: number
   notes: string
+  positions?: DevicePosition[]
   _rowId: string
 }
 
@@ -381,6 +389,14 @@ export default function AIQuoteChat({ onClose, onCreated }: {
         for (const item of area.items) {
           const sysName = item.system || 'General'
           if (!systemsMap[sysName]) systemsMap[sysName] = { devices: [], conduit_schedule: [] }
+          // Map positions from AI response if available
+          const positions: SembradoDevicePosition[] | undefined = item.positions?.map(p => ({
+            x: p.x,
+            y: p.y,
+            label: p.label || `${sysName.substring(0, 3).toUpperCase()}-${String(systemsMap[sysName].devices.length + 1).padStart(2, '0')}`,
+            height: p.height || '',
+          }))
+
           systemsMap[sysName].devices.push({
             nomenclature: `${sysName.substring(0, 3).toUpperCase()}-${String(systemsMap[sysName].devices.length + 1).padStart(2, '0')}`,
             name: item.description || `${item.marca} ${item.modelo}`,
@@ -391,6 +407,7 @@ export default function AIQuoteChat({ onClose, onCreated }: {
             install_height: '',
             requirements: item.notes || '',
             symbol_type: inferSymbol(item.system, `${item.description} ${item.marca} ${item.modelo}`),
+            positions,
           })
         }
       }
@@ -403,9 +420,12 @@ export default function AIQuoteChat({ onClose, onCreated }: {
           date: new Date().toLocaleDateString('es-MX'),
           drawn_by: 'AI OMM Agent',
           reviewed_by: 'Elias Graneroinchu Cohen',
-          scale: 'S/E',
+          scale: planBase64 ? '1:60' : 'S/E',
         },
         systems: systemsMap,
+        // Include the uploaded plan image for overlay
+        planImageBase64: planBase64 || undefined,
+        planImageType: planMediaType || undefined,
       }
 
       downloadSembradoPdf(sembradoData, `Sembrado_${scope.nombre || 'OMM'}.pdf`)
