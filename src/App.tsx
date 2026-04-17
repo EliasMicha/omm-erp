@@ -11,6 +11,7 @@ import Catalogo from './pages/Catalogo'
 import Compras from './pages/Compras'
 import Obra from './pages/Obra'
 import Facturacion from './pages/Facturacion'
+import DesignRules from './pages/DesignRules'
 import Nomina from './pages/Nomina'
 import EmpleadoExpediente from './pages/EmpleadoExpediente'
 import CotizacionPdf from './pages/CotizacionPdf'
@@ -49,6 +50,7 @@ export default function App() {
                 <Route path="/cobranza" element={<Cobranza />} />
                 <Route path="/clientes" element={<Clientes />} />
                 <Route path="/catalogo" element={<Catalogo />} />
+                <Route path="/design-rules" element={<DesignRules />} />
               </Routes>
             </main>
           </div>
