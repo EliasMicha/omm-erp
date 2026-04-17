@@ -197,6 +197,22 @@ function calcConfeccionCost(item: CortItem): number {
   return Math.round(item.precioConfeccion * item.cantidad * 100) / 100
 }
 
+// Motor cost in MXN — Somfy is already MXN, Lutron is USD * tipoCambio
+function calcMotorCostMXN(item: CortItem, tipoCambio: number): number {
+  if (item.tipoCierre !== 'MOTORIZADO') return 0
+  if (item.motorBrand === 'SOMFY') return calcSomfyTotal(item) * item.cantidad
+  if (item.motorBrand === 'LUTRON') return item.precioMotor * item.cantidad * tipoCambio
+  return 0
+}
+
+// Motor cost in native currency (USD for Lutron, MXN for Somfy)
+function calcMotorCostRaw(item: CortItem): number {
+  if (item.tipoCierre !== 'MOTORIZADO') return 0
+  if (item.motorBrand === 'SOMFY') return calcSomfyTotal(item) * item.cantidad
+  if (item.motorBrand === 'LUTRON') return item.precioMotor * item.cantidad
+  return 0
+}
+
 // ═══════════════════════════════════════════════════════════════════
 // STYLES
 // ═══════════════════════════════════════════════════════════════════
@@ -281,14 +297,12 @@ function CortPdfModal({ items, areas, config, cotName, clientName, projectName, 
 }) {
   const pdfRef = useRef<HTMLDivElement>(null)
 
-  // Calculate totals
+  // Calculate totals (all in MXN)
   let telaCost = 0, confCost = 0, motorCost = 0
   items.forEach(item => {
     telaCost += calcFabricCost(item)
     confCost += calcConfeccionCost(item)
-    if (item.tipoCierre === 'MOTORIZADO') {
-      motorCost += item.motorBrand === 'SOMFY' ? calcSomfyTotal(item) * item.cantidad : item.precioMotor * item.cantidad
-    }
+    motorCost += calcMotorCostMXN(item, config.tipoCambio)
   })
   const telaVenta = config.margenTela > 0 ? Math.round(telaCost / (1 - config.margenTela / 100) * 100) / 100 : telaCost
   const confVenta = config.margenTela > 0 ? Math.round(confCost / (1 - config.margenTela / 100) * 100) / 100 : confCost
@@ -357,8 +371,7 @@ function CortPdfModal({ items, areas, config, cotName, clientName, projectName, 
                   <th style={{ textAlign: 'right', padding: '6px 4px', fontWeight: 600, color: '#000' }}>Confección</th>
                   <th style={{ textAlign: 'right', padding: '6px 4px', fontWeight: 600, color: '#000' }}>Tela</th>
                   <th style={{ textAlign: 'right', padding: '6px 4px', fontWeight: 600, color: '#000' }}>Motor</th>
-                  <th style={{ textAlign: 'right', padding: '6px 4px', fontWeight: 600, color: '#000' }}>Total</th>
-                  <th style={{ textAlign: 'right', padding: '6px 4px', fontWeight: 600, color: '#000', fontSize: 8 }}>Mon.</th>
+                  <th style={{ textAlign: 'right', padding: '6px 4px', fontWeight: 600, color: '#000' }}>Total MXN</th>
                 </tr>
               </thead>
               <tbody>
@@ -367,19 +380,18 @@ function CortPdfModal({ items, areas, config, cotName, clientName, projectName, 
                   if (areaItems.length === 0) return null
                   return (
                     <React.Fragment key={area.id}>
-                      <tr><td colSpan={11} style={{ padding: '8px 4px 4px', fontWeight: 700, color: '#000', fontSize: 10, background: '#f8f8f8', borderBottom: '1px solid #ccc', textTransform: 'uppercase' }}>{area.name}</td></tr>
+                      <tr><td colSpan={10} style={{ padding: '8px 4px 4px', fontWeight: 700, color: '#000', fontSize: 10, background: '#f8f8f8', borderBottom: '1px solid #ccc', textTransform: 'uppercase' }}>{area.name}</td></tr>
                       {areaItems.map((item) => {
                         const itemFabricCost = calcFabricCost(item)
                         const itemConfCost = calcConfeccionCost(item)
-                        const itemMotorCost = item.tipoCierre === 'MOTORIZADO' ? (item.motorBrand === 'SOMFY' ? calcSomfyTotal(item) * item.cantidad : item.precioMotor * item.cantidad) : 0
-                        // Apply margins for client-facing PDF
+                        const itemMotorCostMXN = calcMotorCostMXN(item, config.tipoCambio)
+                        // Apply margins for client-facing PDF (all in MXN)
                         const mT = config.margenTela > 0 ? 1 / (1 - config.margenTela / 100) : 1
                         const mM = config.margenMotor > 0 ? 1 / (1 - config.margenMotor / 100) : 1
                         const itemTelaVenta = Math.round(itemFabricCost * mT * 100) / 100
                         const itemConfVenta = Math.round(itemConfCost * mT * 100) / 100
-                        const itemMotorVenta = Math.round(itemMotorCost * mM * 100) / 100
+                        const itemMotorVenta = Math.round(itemMotorCostMXN * mM * 100) / 100
                         const itemTotalVenta = itemTelaVenta + itemConfVenta + itemMotorVenta
-                        const moneda = item.motorBrand === 'LUTRON' ? 'USD' : 'MXN'
                         return (
                           <tr key={item.id} style={{ borderBottom: '1px solid #e0e0e0' }}>
                             <td style={{ textAlign: 'right', padding: '4px', color: '#444' }}>{item.ancho.toFixed(2)}</td>
@@ -390,9 +402,8 @@ function CortPdfModal({ items, areas, config, cotName, clientName, projectName, 
                             <td style={{ textAlign: 'left', padding: '4px', color: '#444' }}>{item.tipoPliegue}</td>
                             <td style={{ textAlign: 'right', padding: '4px', color: '#000' }}>${itemConfVenta.toFixed(2)}</td>
                             <td style={{ textAlign: 'right', padding: '4px', color: item.telaIncluida ? '#999' : '#000', fontStyle: item.telaIncluida ? 'italic' : 'normal' }}>{item.telaIncluida ? 'CLIENTE' : '$' + itemTelaVenta.toFixed(2)}</td>
-                            <td style={{ textAlign: 'right', padding: '4px', color: '#000' }}>{itemMotorCost > 0 ? '$' + itemMotorVenta.toFixed(2) : '---'}</td>
+                            <td style={{ textAlign: 'right', padding: '4px', color: '#000' }}>{itemMotorCostMXN > 0 ? '$' + itemMotorVenta.toFixed(2) : '---'}{item.motorBrand === 'LUTRON' && itemMotorCostMXN > 0 ? <span style={{ fontSize: 7, color: '#888' }}> (USD→MXN)</span> : ''}</td>
                             <td style={{ textAlign: 'right', padding: '4px', color: '#000', fontWeight: 700 }}>${itemTotalVenta.toFixed(2)}</td>
-                            <td style={{ textAlign: 'right', padding: '4px', color: '#888', fontSize: 8 }}>{moneda}</td>
                           </tr>
                         )
                       })}
@@ -513,22 +524,16 @@ function CortRow({ item, config, onUpdate, onRemove, onShowSomfy, onCopy, showIn
   const fabricCost = calcFabricCost(item)
   const confeccionCost = calcConfeccionCost(item)
 
-  // Motor cost
-  let motorCost = 0
-  if (item.tipoCierre === 'MOTORIZADO') {
-    if (item.motorBrand === 'SOMFY') {
-      motorCost = calcSomfyTotal(item) * item.cantidad
-    } else {
-      motorCost = item.precioMotor * item.cantidad
-    }
-  }
+  // Motor cost — use helper functions
+  const motorCostRaw = calcMotorCostRaw(item)   // native currency (MXN for Somfy, USD for Lutron)
+  const motorCostMXN = calcMotorCostMXN(item, config.tipoCambio)  // always MXN
 
-  const totalTela = fabricCost
-  const totalConf = confeccionCost
-  const totalMotor = motorCost
-  const totalLinea = totalTela + totalConf + totalMotor
+  const totalTela = fabricCost       // MXN
+  const totalConf = confeccionCost   // MXN
+  const totalMotor = motorCostMXN    // MXN (converted if Lutron)
+  const totalLinea = totalTela + totalConf + totalMotor  // all MXN
 
-  // With margin
+  // With margin (all in MXN)
   const precioTelaConMargen = config.margenTela > 0 ? Math.round(totalTela / (1 - config.margenTela / 100) * 100) / 100 : totalTela
   const precioConfConMargen = config.margenTela > 0 ? Math.round(totalConf / (1 - config.margenTela / 100) * 100) / 100 : totalConf
   const precioMotorConMargen = config.margenMotor > 0 ? Math.round(totalMotor / (1 - config.margenMotor / 100) * 100) / 100 : totalMotor
@@ -659,11 +664,14 @@ function CortRow({ item, config, onUpdate, onRemove, onShowSomfy, onCopy, showIn
       <td style={S.tdM}>${confeccionCost.toFixed(2)}</td>
       <td style={S.td}>
         {item.tipoCierre === 'MOTORIZADO' && item.motorBrand === 'LUTRON' ? (
-          <input type="number" defaultValue={item.precioMotor} step={1} min={0}
-            onBlur={e => onUpdate(item.id, 'precioMotor', parseFloat(e.target.value) || 0)}
-            style={{ ...S.input, width: 70 }} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+            <span style={{ fontSize: 9, color: '#F59E0B', fontWeight: 600 }}>USD</span>
+            <input type="number" defaultValue={item.precioMotor} step={1} min={0}
+              onBlur={e => onUpdate(item.id, 'precioMotor', parseFloat(e.target.value) || 0)}
+              style={{ ...S.input, width: 65 }} />
+          </div>
         ) : item.tipoCierre === 'MOTORIZADO' && item.motorBrand === 'SOMFY' ? (
-          <span style={{ color: '#14B8A6', fontWeight: 600, fontSize: 12 }}>${(calcSomfyTotal(item) * item.cantidad).toFixed(2)}</span>
+          <span style={{ color: '#14B8A6', fontWeight: 600, fontSize: 12 }}>${motorCostRaw.toFixed(2)} <span style={{ fontSize: 8, color: '#555' }}>MXN</span></span>
         ) : <span style={{ color: '#444' }}>--</span>}
       </td>
       <td style={{ ...S.tdM, color: '#57FF9A' }}>
@@ -697,14 +705,12 @@ function CortAreaBlock({ area, items, config, onToggle, onUpdate, onRemove, onAd
 }) {
   const areaItems = items.filter(i => i.areaId === area.id)
 
-  // Totals
+  // Totals (all MXN — Lutron motors converted via tipoCambio)
   let telaCost = 0, confCost = 0, motorCost = 0
   areaItems.forEach(item => {
     telaCost += calcFabricCost(item)
     confCost += calcConfeccionCost(item)
-    if (item.tipoCierre === 'MOTORIZADO') {
-      motorCost += item.motorBrand === 'SOMFY' ? calcSomfyTotal(item) * item.cantidad : item.precioMotor * item.cantidad
-    }
+    motorCost += calcMotorCostMXN(item, config.tipoCambio)
   })
   const areaTotal = telaCost + confCost + motorCost
   // With margin
@@ -735,13 +741,13 @@ function CortAreaBlock({ area, items, config, onToggle, onUpdate, onRemove, onAd
                 <th style={S.th}>Tela</th>
                 <th style={S.th}>Pliegue</th>
                 <th style={{ ...S.th, textAlign: 'right' }}>Ancho Tela</th>
-                <th style={{ ...S.th, textAlign: 'right' }}>$/ML</th>
+                <th style={{ ...S.th, textAlign: 'right' }}>Costo/ML<br/><span style={{ fontSize: 8, color: '#555' }}>MXN</span></th>
                 <th style={S.th}>Tela Inc.</th>
                 <th style={{ ...S.th, textAlign: 'right' }}>ML</th>
-                <th style={{ ...S.th, textAlign: 'right' }}>$ Tela</th>
-                <th style={{ ...S.th, textAlign: 'right' }}>$/Conf</th>
-                <th style={{ ...S.th, textAlign: 'right' }}>$ Conf</th>
-                <th style={{ ...S.th, textAlign: 'right' }}>$ Motor</th>
+                <th style={{ ...S.th, textAlign: 'right' }}>$ Tela<br/><span style={{ fontSize: 8, color: '#555' }}>MXN</span></th>
+                <th style={{ ...S.th, textAlign: 'right' }}>Costo Conf<br/><span style={{ fontSize: 8, color: '#555' }}>MXN</span></th>
+                <th style={{ ...S.th, textAlign: 'right' }}>$ Conf<br/><span style={{ fontSize: 8, color: '#555' }}>MXN</span></th>
+                <th style={{ ...S.th, textAlign: 'right' }}>Costo Motor</th>
                 <th style={{ ...S.th, textAlign: 'right', color: '#57FF9A' }}>{showInt ? 'Costo' : 'Total'}</th>
                 {showInt && <th style={{ ...S.th, textAlign: 'right', color: '#67E8F9' }}>Venta</th>}
                 <th style={S.th}></th>
@@ -756,13 +762,13 @@ function CortAreaBlock({ area, items, config, onToggle, onUpdate, onRemove, onAd
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 8px', marginTop: 4 }}>
             <Btn size="sm" onClick={onAdd}><Plus size={12} /> Cortina</Btn>
             <div style={{ fontSize: 10, color: '#555' }}>
-              Tela: <span style={{ color: '#ccc', fontWeight: 600 }}>${(showInt ? telaCost : telaConMargen).toFixed(2)}</span>
+              Tela <span style={{ fontSize: 8, color: '#444' }}>MXN</span>: <span style={{ color: '#ccc', fontWeight: 600 }}>${(showInt ? telaCost : telaConMargen).toFixed(2)}</span>
               <span style={{ margin: '0 6px' }}>|</span>
-              Conf: <span style={{ color: '#ccc', fontWeight: 600 }}>${(showInt ? confCost : confConMargen).toFixed(2)}</span>
+              Conf <span style={{ fontSize: 8, color: '#444' }}>MXN</span>: <span style={{ color: '#ccc', fontWeight: 600 }}>${(showInt ? confCost : confConMargen).toFixed(2)}</span>
               <span style={{ margin: '0 6px' }}>|</span>
-              Motor: <span style={{ color: '#14B8A6', fontWeight: 600 }}>${(showInt ? motorCost : motorConMargen).toFixed(2)}</span>
+              Motor <span style={{ fontSize: 8, color: '#444' }}>MXN</span>: <span style={{ color: '#14B8A6', fontWeight: 600 }}>${(showInt ? motorCost : motorConMargen).toFixed(2)}</span>
               <span style={{ margin: '0 6px' }}>|</span>
-              <span style={{ fontWeight: 700, color: '#67E8F9' }}>${(showInt ? areaTotal : areaTotalVenta).toFixed(2)}</span>
+              <span style={{ fontWeight: 700, color: '#67E8F9' }}>${(showInt ? areaTotal : areaTotalVenta).toFixed(2)} MXN</span>
             </div>
           </div>
         </div>
@@ -782,9 +788,7 @@ function CortSummary({ items, areas, config, showInt, onConfigChange }: {
   items.forEach(item => {
     telaCost += calcFabricCost(item)
     confCost += calcConfeccionCost(item)
-    if (item.tipoCierre === 'MOTORIZADO') {
-      motorCost += item.motorBrand === 'SOMFY' ? calcSomfyTotal(item) * item.cantidad : item.precioMotor * item.cantidad
-    }
+    motorCost += calcMotorCostMXN(item, config.tipoCambio)
   })
 
   const telaVenta = config.margenTela > 0 ? Math.round(telaCost / (1 - config.margenTela / 100) * 100) / 100 : telaCost
@@ -895,7 +899,7 @@ function CortSummary({ items, areas, config, showInt, onConfigChange }: {
           aItems.forEach(item => {
             t += calcFabricCost(item)
             c += calcConfeccionCost(item)
-            if (item.tipoCierre === 'MOTORIZADO') m += item.motorBrand === 'SOMFY' ? calcSomfyTotal(item) * item.cantidad : item.precioMotor * item.cantidad
+            m += calcMotorCostMXN(item, config.tipoCambio)
           })
           const tv = config.margenTela > 0 ? Math.round(t / (1 - config.margenTela / 100) * 100) / 100 : t
           const cv = config.margenTela > 0 ? Math.round(c / (1 - config.margenTela / 100) * 100) / 100 : c
@@ -1038,11 +1042,7 @@ export default function CotEditorCortinas({ cotId, onBack }: { cotId: string; on
   }
 
   function calcItemTotal(item: CortItem): number {
-    let t = calcFabricCost(item) + calcConfeccionCost(item)
-    if (item.tipoCierre === 'MOTORIZADO') {
-      t += item.motorBrand === 'SOMFY' ? calcSomfyTotal(item) * item.cantidad : item.precioMotor * item.cantidad
-    }
-    return t
+    return calcFabricCost(item) + calcConfeccionCost(item) + calcMotorCostMXN(item, config.tipoCambio)
   }
 
   // ── Total for header ──
@@ -1051,9 +1051,7 @@ export default function CotEditorCortinas({ cotId, onBack }: { cotId: string; on
     items.forEach(item => {
       telaCost += calcFabricCost(item)
       confCost += calcConfeccionCost(item)
-      if (item.tipoCierre === 'MOTORIZADO') {
-        motorCost += item.motorBrand === 'SOMFY' ? calcSomfyTotal(item) * item.cantidad : item.precioMotor * item.cantidad
-      }
+      motorCost += calcMotorCostMXN(item, config.tipoCambio)
     })
     const telaVenta = config.margenTela > 0 ? Math.round(telaCost / (1 - config.margenTela / 100) * 100) / 100 : telaCost
     const confVenta = config.margenTela > 0 ? Math.round(confCost / (1 - config.margenTela / 100) * 100) / 100 : confCost
