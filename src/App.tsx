@@ -14,12 +14,12 @@ import Entregas from './pages/Entregas'
 import Facturacion from './pages/Facturacion'
 import DesignRules from './pages/DesignRules'
 import Nomina from './pages/Nomina'
+import Empleados from './pages/Empleados'
 import EmpleadoExpediente from './pages/EmpleadoExpediente'
 import CotizacionPdf from './pages/CotizacionPdf'
 import ObraApp from './obra-app/ObraApp'
 
 const Cobranza = () => <OtrosModulos title="Cobranza" />
-const Empleados = () => <OtrosModulos title="Empleados" />
 
 export default function App() {
   return (
