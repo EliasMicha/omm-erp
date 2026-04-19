@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom'
-import { LayoutDashboard, FileText, ClipboardList, Users, Truck, FolderOpen, Users2, BookOpen, ShoppingCart, CreditCard, Building2, Package, Receipt, BrainCircuit } from 'lucide-react'
+import { LayoutDashboard, FileText, ClipboardList, Users, Truck, FolderOpen, Users2, BookOpen, ShoppingCart, TrendingUp, Building2, Package, Receipt, BrainCircuit } from 'lucide-react'
 
 const NAV = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
@@ -8,7 +8,7 @@ const NAV = [
   { to: '/proyectos', icon: FolderOpen, label: 'Proyectos' },
   { to: '/compras', icon: ShoppingCart, label: 'Compras' },
   { to: '/obra', icon: ClipboardList, label: 'Obra' },
-  { to: '/cobranza', icon: CreditCard, label: 'Cobranza' },
+  { to: '/finanzas', icon: TrendingUp, label: 'Finanzas' },
   { to: '/nomina', icon: Users, label: 'Nomina' },
   { to: '/entregas', icon: Truck, label: 'Entregas' },
   { to: '/empleados', icon: BookOpen, label: 'Empleados' },

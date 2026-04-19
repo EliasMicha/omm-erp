@@ -14,12 +14,12 @@ import Entregas from './pages/Entregas'
 import Facturacion from './pages/Facturacion'
 import DesignRules from './pages/DesignRules'
 import Nomina from './pages/Nomina'
+import Finanzas from './pages/Finanzas'
 import Empleados from './pages/Empleados'
 import EmpleadoExpediente from './pages/EmpleadoExpediente'
 import CotizacionPdf from './pages/CotizacionPdf'
 import ObraApp from './obra-app/ObraApp'
 
-const Cobranza = () => <OtrosModulos title="Cobranza" />
 
 export default function App() {
   return (
@@ -47,7 +47,7 @@ export default function App() {
         <Route path="/nomina/empleado/:id" element={<EmpleadoExpediente />} />
                 <Route path="/entregas" element={<Entregas />} />
                 <Route path="/empleados" element={<Empleados />} />
-                <Route path="/cobranza" element={<Cobranza />} />
+                <Route path="/finanzas" element={<Finanzas />} />
                 <Route path="/clientes" element={<Clientes />} />
                 <Route path="/catalogo" element={<Catalogo />} />
                 <Route path="/design-rules" element={<DesignRules />} />
