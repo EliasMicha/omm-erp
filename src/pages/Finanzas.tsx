@@ -272,8 +272,9 @@ export default function Finanzas() {
   // Agrupa por Lead: todas sus cotizaciones, proyectos, compras, cobros
   const leadsFinancieros = useMemo(() => {
     return leads.map(lead => {
-      // Cotizaciones de este lead (lead_id guardado en notes JSON — puede ser string o parsed)
+      // Solo cotizaciones en etapa "contrato" de este lead (ventas cerradas)
       const leadQuots = quotations.filter(q => {
+        if (q.stage !== 'contrato') return false
         try {
           const n = typeof q.notes === 'string' ? JSON.parse(q.notes) : q.notes
           return n && n.lead_id === lead.id
@@ -281,7 +282,7 @@ export default function Finanzas() {
       })
       const quotIds = new Set(leadQuots.map(q => q.id))
 
-      // Proyectos ligados a las cotizaciones de este lead
+      // Proyectos ligados a las cotizaciones aprobadas de este lead
       const leadProjects = projects.filter(p => p.cotizacion_id && quotIds.has(p.cotizacion_id))
       const projIds = new Set(leadProjects.map(p => p.id))
 
