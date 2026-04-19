@@ -4,8 +4,9 @@ import { F } from '../../lib/utils'
 import { Btn, Table, Th, Td, Loading, KpiCard, EmptyState, Badge } from '../../components/layout/UI'
 import {
   Calendar, DollarSign, Banknote, Clock, Plus, ChevronLeft, ChevronRight,
-  Save, RefreshCw, Lock, AlertCircle, CheckCircle2, Gift
+  Save, RefreshCw, Lock, AlertCircle, CheckCircle2, Gift, Upload, FileText
 } from 'lucide-react'
+import { parseSFacilNominaPDF, matchEmployeeByName } from '../../lib/nominaPdfParser'
 
 /* ─────────────── Types ─────────────── */
 
@@ -360,6 +361,63 @@ export default function TabPeriodos() {
     await loadPeriod()
   }
 
+  // PDF Import
+  const [importStatus, setImportStatus] = useState<{
+    show: boolean
+    parsing: boolean
+    results: { pdfName: string; dbName: string | null; neto: number; matched: boolean }[]
+    applied: boolean
+  }>({ show: false, parsing: false, results: [], applied: false })
+
+  const handlePdfImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    e.target.value = '' // reset input
+
+    setImportStatus({ show: true, parsing: true, results: [], applied: false })
+
+    try {
+      const parsed = await parseSFacilNominaPDF(file)
+
+      // Match PDF employees to DB employees
+      const dbEmps = employees.map(e => ({ id: e.id, nombre: e.nombre }))
+      const results = parsed.empleados.map(pdfEmp => {
+        const match = matchEmployeeByName(pdfEmp.nombre, dbEmps)
+        return {
+          pdfName: pdfEmp.nombre,
+          dbName: match?.nombre || null,
+          dbId: match?.id || null,
+          neto: pdfEmp.netoAPagar,
+          matched: !!match,
+          score: match?.score || 0,
+        }
+      })
+
+      setImportStatus({ show: true, parsing: false, results, applied: false })
+    } catch (err: any) {
+      alert('Error al parsear PDF: ' + (err.message || err))
+      setImportStatus({ show: false, parsing: false, results: [], applied: false })
+    }
+  }
+
+  const applyPdfImport = () => {
+    const results = importStatus.results as any[]
+    const newDirty = { ...dirty }
+
+    for (const r of results) {
+      if (!r.matched || !r.dbId) continue
+      const item = items.find(i => i.employee_id === r.dbId)
+      if (!item) continue
+      newDirty[item.id] = {
+        ...newDirty[item.id],
+        neto_a_pagar_cfdi: r.neto,
+      }
+    }
+
+    setDirty(newDirty)
+    setImportStatus(prev => ({ ...prev, applied: true }))
+  }
+
   // Merged items (item + dirty overrides)
   const mergedItems = useMemo(() => {
     return items.map(item => {
@@ -498,6 +556,17 @@ export default function TabPeriodos() {
 
             {!isClosed && (
               <>
+                {/* PDF Import */}
+                <label style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 6,
+                  padding: '6px 14px', fontSize: 12, fontWeight: 500,
+                  background: '#1a1a2e', border: '1px solid #60a5fa40', borderRadius: 6,
+                  color: '#60a5fa', cursor: 'pointer', transition: 'background 0.15s',
+                }}>
+                  <Upload size={13} /> Importar PDF nómina
+                  <input type="file" accept=".pdf" onChange={handlePdfImport} style={{ display: 'none' }} />
+                </label>
+
                 <Btn onClick={() => loadPeriod()} variant="ghost" style={{ fontSize: 12 }}>
                   <RefreshCw size={13} /> Recalcular
                 </Btn>
@@ -682,6 +751,91 @@ export default function TabPeriodos() {
             <span style={{ color: '#fff' }}>Total efectivo</span> = Efectivo base + Cajas chicas + Hrs extra + Bonos
           </div>
         </>
+      )}
+
+      {/* PDF Import Results Modal */}
+      {importStatus.show && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
+        }} onClick={() => setImportStatus(prev => ({ ...prev, show: false }))}>
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              background: '#111', border: '1px solid #222', borderRadius: 12,
+              padding: 24, width: 680, maxHeight: '80vh', overflow: 'auto',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+              <FileText size={20} style={{ color: '#60a5fa' }} />
+              <span style={{ fontSize: 16, fontWeight: 600, color: '#eee' }}>
+                Importar PDF de Nómina
+              </span>
+            </div>
+
+            {importStatus.parsing ? (
+              <div style={{ textAlign: 'center', padding: 40, color: '#888' }}>
+                <Loading />
+                <div style={{ marginTop: 12 }}>Analizando PDF...</div>
+              </div>
+            ) : (
+              <>
+                <div style={{ fontSize: 12, color: '#888', marginBottom: 16 }}>
+                  {importStatus.results.filter((r: any) => r.matched).length} de {importStatus.results.length} empleados identificados.
+                  Los montos de "Neto a Pagar" se cargarán en la columna "Neto transferido".
+                </div>
+
+                <Table>
+                  <thead>
+                    <tr>
+                      <Th>{'Empleado (PDF)'}</Th>
+                      <Th>{'Empleado (Sistema)'}</Th>
+                      <Th right>{'Neto a Pagar'}</Th>
+                      <Th>{'Match'}</Th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {importStatus.results.map((r: any, i: number) => (
+                      <tr key={i} style={{ borderBottom: '1px solid #1a1a1a' }}>
+                        <Td><span style={{ fontSize: 12 }}>{r.pdfName}</span></Td>
+                        <Td>
+                          {r.matched ? (
+                            <span style={{ color: '#57FF9A', fontSize: 12 }}>{r.dbName}</span>
+                          ) : (
+                            <span style={{ color: '#ef4444', fontSize: 12 }}>No encontrado</span>
+                          )}
+                        </Td>
+                        <Td right><span style={{ color: '#60a5fa', fontWeight: 500 }}>{F(r.neto)}</span></Td>
+                        <Td>
+                          {r.matched ? (
+                            <CheckCircle2 size={14} style={{ color: '#57FF9A' }} />
+                          ) : (
+                            <AlertCircle size={14} style={{ color: '#ef4444' }} />
+                          )}
+                        </Td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </Table>
+
+                <div style={{ display: 'flex', gap: 8, marginTop: 16, justifyContent: 'flex-end' }}>
+                  <Btn variant="ghost" onClick={() => setImportStatus(prev => ({ ...prev, show: false }))}>
+                    Cancelar
+                  </Btn>
+                  {!importStatus.applied ? (
+                    <Btn variant="primary" onClick={applyPdfImport}>
+                      <CheckCircle2 size={14} /> Aplicar {importStatus.results.filter((r: any) => r.matched).length} montos
+                    </Btn>
+                  ) : (
+                    <Btn variant="primary" onClick={() => setImportStatus(prev => ({ ...prev, show: false }))}>
+                      <CheckCircle2 size={14} /> Listo — Guardar cambios para confirmar
+                    </Btn>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
       )}
     </div>
   )
