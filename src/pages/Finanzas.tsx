@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { supabase } from '../lib/supabase'
 import { KpiCard, Table, Th, Td, Badge, Loading, SectionHeader, ProgressBar } from '../components/layout/UI'
-import { DollarSign, TrendingUp, TrendingDown, AlertTriangle, Receipt, Users, ShoppingCart, PieChart, ArrowUpRight, ArrowDownRight, Calendar, ChevronLeft, ChevronRight } from 'lucide-react'
+import { DollarSign, TrendingUp, TrendingDown, AlertTriangle, Receipt, Users, ShoppingCart, PieChart, ArrowUpRight, ArrowDownRight, Calendar, ChevronLeft, ChevronRight, BarChart3 } from 'lucide-react'
 
 const F = (n: number) => '$' + n.toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 0 })
 const F2 = (n: number) => '$' + n.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -357,6 +357,116 @@ export default function Finanzas() {
     .sort((a, b) => b.totalVendidoMXN - a.totalVendidoMXN)
   }, [leads, quotations, projects, milestones, allPurchaseOrders, quotationCosts, tipoCambio])
 
+  // ── REDITUABILIDAD POR ÁREA ──────────────────────────────────────
+  // Mapeo correcto:
+  //   ilum  → Suministro de Luminarias (sin nómina directa, costo = POs)
+  //   esp   → Instalaciones Especiales (nómina INSTALACIONES ESPECIALES + POs)
+  //   elec  → Instalaciones Eléctricas (nómina ELECTRICO + POs)
+  //   proy + "Especiales" en nombre → Ing. Especiales (nómina INGENIERIAS ESPECIALES)
+  //   proy + "Eléctric" en nombre  → Ing. Eléctricas (nómina INGENIERIAS ELECTRICAS)
+  //   proy + "Iluminac" en nombre  → Diseño de Iluminación (nómina ILUMINACION)
+
+  const AREAS_NEGOCIO = [
+    { key: 'proy_esp', label: 'Proyecto Ing. Especiales', payrollAreas: ['INGENIERIAS ESPECIALES'], tipo: 'proyecto' as const, color: '#57FF9A' },
+    { key: 'proy_elec', label: 'Proyecto Ing. Eléctricas', payrollAreas: ['INGENIERIAS ELECTRICAS'], tipo: 'proyecto' as const, color: '#34D399' },
+    { key: 'proy_ilum', label: 'Diseño de Iluminación', payrollAreas: ['ILUMINACION'], tipo: 'proyecto' as const, color: '#C084FC' },
+    { key: 'ilum', label: 'Suministro de Luminarias', payrollAreas: [] as string[], tipo: 'suministro' as const, color: '#F59E0B' },
+    { key: 'esp', label: 'Instalaciones Especiales', payrollAreas: ['INSTALACIONES ESPECIALES'], tipo: 'ejecucion' as const, color: '#3B82F6' },
+    { key: 'elec', label: 'Instalaciones Eléctricas', payrollAreas: ['ELECTRICO'], tipo: 'ejecucion' as const, color: '#FFB347' },
+  ]
+
+  // Classify a proy quotation by its name into the 3 engineering subtypes
+  function classifyProy(name: string): 'proy_esp' | 'proy_elec' | 'proy_ilum' {
+    const n = (name || '').toUpperCase()
+    if (n.includes('ELECTRIC') || n.includes('ELÉCTRIC')) return 'proy_elec'
+    if (n.includes('ILUMINAC') || n.includes('ILUMINACIÓN')) return 'proy_ilum'
+    return 'proy_esp' // default: Especiales
+  }
+
+  // Map specialty+name to area key
+  function quotToAreaKey(q: any): string {
+    if (q.specialty === 'proy') return classifyProy(q.name)
+    if (q.specialty === 'ilum') return 'ilum'
+    if (q.specialty === 'esp') return 'esp'
+    if (q.specialty === 'elec') return 'elec'
+    if (q.specialty === 'cort') return 'ilum' // cortesía = suministro luminarias
+    return 'esp' // fallback
+  }
+
+  // Map project specialty to its execution area key (for POs)
+  function projToExecAreaKey(p: any): string {
+    if (p.specialty === 'ilum') return 'ilum'
+    if (p.specialty === 'esp') return 'esp'
+    if (p.specialty === 'elec') return 'elec'
+    return 'esp'
+  }
+
+  const areasNegocio = useMemo(() => {
+    const contratoQuots = quotations.filter(q => q.stage === 'contrato')
+
+    // Overhead pool: admin payroll + gastos generales + servicios from facturas
+    const adminEmpIds = new Set(employees.filter((e: any) => e.area === 'ADMINISTRACION').map((e: any) => e.id))
+    const adminPayroll = monthPayrollItems
+      .filter((pi: any) => adminEmpIds.has(pi.employee_id))
+      .reduce((s: number, pi: any) => s + (pi.sueldo_neto_pactado || 0), 0)
+    const adminPayrollEst = employees.filter((e: any) => e.area === 'ADMINISTRACION').reduce((s: number, e: any) => s + (e.neto_mensual || 0), 0)
+    const overheadPool = (adminPayroll > 0 ? adminPayroll : adminPayrollEst)
+      + gastosPorCategoria.gastos_generales + gastosPorCategoria.servicios
+
+    // Build per-area metrics
+    let totalRevenueAll = 0
+
+    const raw = AREAS_NEGOCIO.map(area => {
+      // ─── VENTAS ───
+      // Each contrato quotation maps to an area via quotToAreaKey
+      let ventas = 0
+      contratoQuots.filter(q => quotToAreaKey(q) === area.key).forEach(q => {
+        const proj = projects.find((p: any) => p.cotizacion_id === q.id)
+        const amount = proj ? (proj.contract_value || 0) : (q.total || 0)
+        const curr = getQuotCurrency(q)
+        ventas += curr === 'USD' ? amount * tipoCambio : amount
+      })
+
+      // ─── NÓMINA ───
+      const areaEmpIds = new Set(employees.filter((e: any) => area.payrollAreas.includes(e.area)).map((e: any) => e.id))
+      const nomina = monthPayrollItems
+        .filter((pi: any) => areaEmpIds.has(pi.employee_id))
+        .reduce((s: number, pi: any) => s + (pi.sueldo_neto_pactado || 0), 0)
+      const nominaEst = employees
+        .filter((e: any) => area.payrollAreas.includes(e.area))
+        .reduce((s: number, e: any) => s + (e.neto_mensual || 0), 0)
+      const costoNomina = nomina > 0 ? nomina : nominaEst
+
+      // ─── COMPRAS (POs) — for ejecución and suministro areas ───
+      let compras = 0
+      if (area.tipo === 'ejecucion' || area.tipo === 'suministro') {
+        // POs linked to projects whose execution area matches this area
+        allPurchaseOrders.forEach((po: any) => {
+          const proj = projects.find((p: any) => p.id === po.project_id)
+          if (proj && projToExecAreaKey(proj) === area.key) {
+            const t = po.total || 0
+            compras += (po.currency === 'USD') ? t * tipoCambio : t
+          }
+        })
+      }
+
+      // ─── HEADCOUNT ───
+      const headcount = employees.filter((e: any) => area.payrollAreas.includes(e.area)).length
+
+      totalRevenueAll += ventas
+      return { ...area, ventas, costoNomina, compras, headcount }
+    })
+
+    // Prorate overhead by revenue share
+    return raw.map(r => {
+      const overhead = totalRevenueAll > 0 ? (r.ventas / totalRevenueAll) * overheadPool : 0
+      const costoTotal = r.costoNomina + r.compras + overhead
+      const margen = r.ventas - costoTotal
+      const pctMargen = r.ventas > 0 ? margen / r.ventas : (costoTotal > 0 ? -1 : 0)
+      return { ...r, overhead, costoTotal, margen, pctMargen, totalRevenueAll }
+    })
+  }, [quotations, projects, employees, monthPayrollItems, allPurchaseOrders, gastosPorCategoria, tipoCambio])
+
   // ── NAV ───────────────────────────────────────────────────────────
   const prevMonth = () => setMes(m => m.month === 0 ? { year: m.year - 1, month: 11 } : { year: m.year, month: m.month - 1 })
   const nextMonth = () => setMes(m => m.month === 11 ? { year: m.year + 1, month: 0 } : { year: m.year, month: m.month + 1 })
@@ -633,6 +743,132 @@ export default function Finanzas() {
             </>
           )}
         </Card>
+      </div>
+
+      {/* ── REDITUABILIDAD POR ÁREA ─────────────────────────────── */}
+      <div style={{ background: '#0f0f0f', border: '1px solid #1a1a1a', borderRadius: 12, padding: '16px 18px', marginBottom: 28 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 14, color: '#888', fontSize: 13, fontWeight: 600 }}>
+          <BarChart3 size={14} />
+          Redituabilidad por área de negocio
+        </div>
+
+        {(() => {
+          const totalRevenue = areasNegocio.reduce((s, a) => s + a.ventas, 0)
+          const totalCost = areasNegocio.reduce((s, a) => s + a.costoTotal, 0)
+          const totalMargen = totalRevenue - totalCost
+          return (
+            <>
+              {/* Summary KPIs */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 16 }}>
+                <MiniStat label="Ventas totales (contratos)" value={F(totalRevenue)} accent="#57FF9A" />
+                <MiniStat label="Costo total operativo" value={F(totalCost)} accent="#EF4444" />
+                <MiniStat label="Margen operativo" value={F(totalMargen)} accent={totalMargen >= 0 ? '#57FF9A' : '#EF4444'} />
+                <MiniStat label="% Margen" value={totalRevenue > 0 ? PCT(totalMargen / totalRevenue) : '—'} accent={totalMargen >= 0 ? '#57FF9A' : '#EF4444'} />
+              </div>
+
+              {/* Revenue share bar */}
+              {totalRevenue > 0 && (
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 11, color: '#555', marginBottom: 6 }}>Distribución de ventas por área</div>
+                  <div style={{ display: 'flex', height: 20, borderRadius: 6, overflow: 'hidden' }}>
+                    {areasNegocio.filter(a => a.ventas > 0).map(a => (
+                      <div key={a.key} style={{ width: `${(a.ventas / totalRevenue) * 100}%`, background: a.color, transition: 'width 0.3s', minWidth: 2 }}
+                        title={`${a.label}: ${F(a.ventas)} (${PCT(a.ventas / totalRevenue)})`} />
+                    ))}
+                  </div>
+                  <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 6 }}>
+                    {areasNegocio.filter(a => a.ventas > 0).map(a => (
+                      <div key={a.key} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, color: '#888' }}>
+                        <div style={{ width: 8, height: 8, borderRadius: 2, background: a.color }} />
+                        {a.label} ({PCT(a.ventas / totalRevenue)})
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Detail table */}
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid #333' }}>
+                      <th style={thS}>Área</th>
+                      <th style={{ ...thS, textAlign: 'center' }}>Tipo</th>
+                      <th style={{ ...thS, textAlign: 'center' }}>HC</th>
+                      <th style={{ ...thS, ...thRight }}>Ventas</th>
+                      <th style={{ ...thS, ...thRight }}>Nómina</th>
+                      <th style={{ ...thS, ...thRight }}>Compras</th>
+                      <th style={{ ...thS, ...thRight }}>Overhead</th>
+                      <th style={{ ...thS, ...thRight }}>Costo Total</th>
+                      <th style={{ ...thS, ...thRight }}>Margen</th>
+                      <th style={{ ...thS, textAlign: 'center' }}>% Margen</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {areasNegocio.map(a => {
+                      const tipoLabel = a.tipo === 'proyecto' ? 'Proyecto' : a.tipo === 'suministro' ? 'Suministro' : 'Ejecución'
+                      const tipoColor = a.tipo === 'proyecto' ? '#C084FC' : a.tipo === 'suministro' ? '#F59E0B' : '#3B82F6'
+                      return (
+                        <tr key={a.key} style={{ borderBottom: '1px solid #1a1a1a' }}>
+                          <td style={tdS}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <div style={{ width: 4, height: 24, borderRadius: 2, background: a.color }} />
+                              <span style={{ fontWeight: 500, color: '#fff' }}>{a.label}</span>
+                            </div>
+                          </td>
+                          <td style={{ ...tdS, textAlign: 'center' }}>
+                            <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 4, fontWeight: 600, background: `${tipoColor}20`, color: tipoColor }}>{tipoLabel}</span>
+                          </td>
+                          <td style={{ ...tdS, textAlign: 'center', color: '#888' }}>{a.headcount || '—'}</td>
+                          <td style={{ ...tdS, ...tdRight, color: a.ventas > 0 ? '#57FF9A' : '#444', fontWeight: a.ventas > 0 ? 600 : 400 }}>{a.ventas > 0 ? F(a.ventas) : '—'}</td>
+                          <td style={{ ...tdS, ...tdRight, color: a.costoNomina > 0 ? '#C084FC' : '#444' }}>{a.costoNomina > 0 ? F(a.costoNomina) : '—'}</td>
+                          <td style={{ ...tdS, ...tdRight, color: a.compras > 0 ? '#F59E0B' : '#444' }}>{a.compras > 0 ? F(a.compras) : '—'}</td>
+                          <td style={{ ...tdS, ...tdRight, color: a.overhead > 0 ? '#888' : '#444' }}>{a.overhead > 0 ? F(a.overhead) : '—'}</td>
+                          <td style={{ ...tdS, ...tdRight, color: a.costoTotal > 0 ? '#EF4444' : '#444', fontWeight: 500 }}>{a.costoTotal > 0 ? F(a.costoTotal) : '—'}</td>
+                          <td style={{ ...tdS, ...tdRight, fontWeight: 600, color: a.margen > 0 ? '#57FF9A' : a.margen < 0 ? '#EF4444' : '#444' }}>
+                            {a.ventas > 0 || a.costoTotal > 0 ? F(a.margen) : '—'}
+                          </td>
+                          <td style={{ ...tdS, textAlign: 'center' }}>
+                            {a.ventas > 0 ? (
+                              <span style={{ fontSize: 12, fontWeight: 600, color: a.pctMargen >= 0.2 ? '#57FF9A' : a.pctMargen >= 0 ? '#F59E0B' : '#EF4444' }}>
+                                {PCT(a.pctMargen)}
+                              </span>
+                            ) : a.costoTotal > 0 ? (
+                              <span style={{ fontSize: 10, color: '#EF4444' }}>sin ventas</span>
+                            ) : '—'}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                    {/* Totals row */}
+                    <tr style={{ borderTop: '2px solid #333' }}>
+                      <td style={{ ...tdS, fontWeight: 600, color: '#888' }}>TOTAL</td>
+                      <td style={tdS} />
+                      <td style={{ ...tdS, textAlign: 'center', fontWeight: 600, color: '#888' }}>{areasNegocio.reduce((s, a) => s + a.headcount, 0)}</td>
+                      <td style={{ ...tdS, ...tdRight, fontWeight: 700, color: '#57FF9A' }}>{F(totalRevenue)}</td>
+                      <td style={{ ...tdS, ...tdRight, fontWeight: 600, color: '#C084FC' }}>{F(areasNegocio.reduce((s, a) => s + a.costoNomina, 0))}</td>
+                      <td style={{ ...tdS, ...tdRight, fontWeight: 600, color: '#F59E0B' }}>{F(areasNegocio.reduce((s, a) => s + a.compras, 0))}</td>
+                      <td style={{ ...tdS, ...tdRight, fontWeight: 600, color: '#888' }}>{F(areasNegocio.reduce((s, a) => s + a.overhead, 0))}</td>
+                      <td style={{ ...tdS, ...tdRight, fontWeight: 700, color: '#EF4444' }}>{F(totalCost)}</td>
+                      <td style={{ ...tdS, ...tdRight, fontWeight: 700, color: totalMargen >= 0 ? '#57FF9A' : '#EF4444' }}>{F(totalMargen)}</td>
+                      <td style={{ ...tdS, textAlign: 'center', fontWeight: 700, color: totalRevenue > 0 && totalMargen >= 0 ? '#57FF9A' : '#EF4444' }}>
+                        {totalRevenue > 0 ? PCT(totalMargen / totalRevenue) : '—'}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Note about overhead */}
+              <div style={{ marginTop: 12, padding: '8px 12px', background: '#111', borderRadius: 6, border: '1px solid #1a1a1a', fontSize: 10, color: '#555' }}>
+                Overhead = nómina administración + gastos generales + servicios, prorrateado por % de ventas de cada área.
+                {areasNegocio.some(a => a.costoTotal > 0 && a.ventas === 0) && (
+                  <span style={{ color: '#F59E0B' }}> Áreas sin ventas registradas muestran solo sus costos de nómina.</span>
+                )}
+              </div>
+            </>
+          )
+        })()}
       </div>
 
       {/* ── LEAD FINANCIERO: tabla comparativa ───────────────────── */}
