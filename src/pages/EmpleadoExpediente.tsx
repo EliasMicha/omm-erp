@@ -682,21 +682,24 @@ function SectionObraApp({ form, set, employeeId }: { form: Partial<Employee>; se
   const isActive = !!form.app_activo
 
   const createAccount = async () => {
-    const email = form.obra_app_email?.trim()
+    const phone = form.obra_app_phone?.trim()
     const password = form.obra_app_password?.trim()
-    if (!email || !password) {
-      alert('Primero llena el email y contraseña, luego guarda, y después crea la cuenta.')
+    if (!phone || !password) {
+      alert('Primero llena el celular y contraseña, luego guarda, y después crea la cuenta.')
       return
     }
     if (password.length < 6) {
       alert('La contraseña debe tener al menos 6 caracteres.')
       return
     }
+    // Normalize phone to E.164 format for Supabase Auth
+    let phoneE164 = phone.replace(/[\s\-\(\)]/g, '')
+    if (!phoneE164.startsWith('+')) phoneE164 = '+52' + phoneE164 // Default Mexico
     setCreating(true)
     try {
-      // Create Supabase Auth user via admin API (edge function or direct)
+      // Create Supabase Auth user with phone + password
       const { data, error } = await supabase.auth.signUp({
-        email,
+        phone: phoneE164,
         password,
         options: { data: { employee_id: employeeId, nombre: form.nombre } },
       })
@@ -762,9 +765,9 @@ function SectionObraApp({ form, set, employeeId }: { form: Partial<Employee>; se
       </div>
 
       <Grid>
-        <Field label="Email de acceso">
-          <Input value={form.obra_app_email || ''} onChange={v => set('obra_app_email', v)}
-            placeholder="ej: nombre.instalador@omm.com" />
+        <Field label="Celular">
+          <Input value={form.obra_app_phone || ''} onChange={v => set('obra_app_phone', v)}
+            placeholder="ej: 33 1234 5678" />
         </Field>
         <Field label="Contraseña">
           <div style={{ position: 'relative' }}>
@@ -801,7 +804,7 @@ function SectionObraApp({ form, set, employeeId }: { form: Partial<Employee>; se
       {!hasAuth && (
         <div style={{ marginTop: 20, padding: 16, background: '#0f0f0f', borderRadius: 10, border: '1px solid #1a1a1a' }}>
           <div style={{ fontSize: 13, color: '#888', marginBottom: 12 }}>
-            Para que el empleado pueda usar la app de Obra, primero guarda el email y contraseña arriba, y después crea la cuenta:
+            Para que el empleado pueda usar la app de Obra, primero guarda el celular y contraseña arriba, y después crea la cuenta:
           </div>
           <Btn onClick={createAccount} variant="primary" disabled={creating}>
             <Smartphone size={14} /> {creating ? 'Creando...' : 'Crear cuenta de App Obra'}
