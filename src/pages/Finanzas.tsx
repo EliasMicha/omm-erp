@@ -360,6 +360,7 @@ export default function Finanzas() {
   // ── REDITUABILIDAD POR ÁREA ──────────────────────────────────────
   // Mapeo correcto:
   //   ilum  → Suministro de Luminarias (sin nómina directa, costo = POs)
+  //   cort  → Cortinas y Persianas (sin nómina directa, costo = POs)
   //   esp   → Instalaciones Especiales (nómina INSTALACIONES ESPECIALES + POs)
   //   elec  → Instalaciones Eléctricas (nómina ELECTRICO + POs)
   //   proy + "Especiales" en nombre → Ing. Especiales (nómina INGENIERIAS ESPECIALES)
@@ -371,6 +372,7 @@ export default function Finanzas() {
     { key: 'proy_elec', label: 'Proyecto Ing. Eléctricas', payrollAreas: ['INGENIERIAS ELECTRICAS'], tipo: 'proyecto' as const, color: '#34D399' },
     { key: 'proy_ilum', label: 'Diseño de Iluminación', payrollAreas: ['ILUMINACION'], tipo: 'proyecto' as const, color: '#C084FC' },
     { key: 'ilum', label: 'Suministro de Luminarias', payrollAreas: [] as string[], tipo: 'suministro' as const, color: '#F59E0B' },
+    { key: 'cort', label: 'Cortinas y Persianas', payrollAreas: [] as string[], tipo: 'suministro' as const, color: '#EC4899' },
     { key: 'esp', label: 'Instalaciones Especiales', payrollAreas: ['INSTALACIONES ESPECIALES'], tipo: 'ejecucion' as const, color: '#3B82F6' },
     { key: 'elec', label: 'Instalaciones Eléctricas', payrollAreas: ['ELECTRICO'], tipo: 'ejecucion' as const, color: '#FFB347' },
   ]
@@ -389,7 +391,7 @@ export default function Finanzas() {
     if (q.specialty === 'ilum') return 'ilum'
     if (q.specialty === 'esp') return 'esp'
     if (q.specialty === 'elec') return 'elec'
-    if (q.specialty === 'cort') return 'ilum' // cortesía = suministro luminarias
+    if (q.specialty === 'cort') return 'cort' // cortinas y persianas
     return 'esp' // fallback
   }
 
@@ -398,6 +400,7 @@ export default function Finanzas() {
     if (p.specialty === 'ilum') return 'ilum'
     if (p.specialty === 'esp') return 'esp'
     if (p.specialty === 'elec') return 'elec'
+    if (p.specialty === 'cort') return 'cort'
     return 'esp'
   }
 
