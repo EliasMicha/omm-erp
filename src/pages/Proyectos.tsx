@@ -74,14 +74,13 @@ interface EmployeeRow {
   area: string | null
 }
 
-// Mapeo specialty del proyecto → áreas de empleados que pueden asignarse
-// Proyectos = equipo de ingeniería, NO cuadrillas de obra/instalación
+// Mapeo specialty del proyecto → área de empleados que pueden asignarse
 const SPECIALTY_AREAS: Record<string, string[]> = {
-  esp:  ['INGENIERIAS ESPECIALES', 'DIRECCION GENERAL', 'ADMINISTRACION'],
-  elec: ['INGENIERIAS ELECTRICAS', 'DIRECCION GENERAL', 'ADMINISTRACION'],
-  ilum: ['ILUMINACION', 'DIRECCION GENERAL', 'ADMINISTRACION'],
-  cort: ['ILUMINACION', 'DIRECCION GENERAL', 'ADMINISTRACION'],
-  proy: ['INGENIERIAS ESPECIALES', 'INGENIERIAS ELECTRICAS', 'ILUMINACION', 'DIRECCION GENERAL', 'ADMINISTRACION'],
+  esp:  ['INGENIERIAS ESPECIALES'],
+  elec: ['INGENIERIAS ELECTRICAS'],
+  ilum: ['ILUMINACION'],
+  cort: ['ILUMINACION'],
+  proy: ['INGENIERIAS ESPECIALES', 'INGENIERIAS ELECTRICAS', 'ILUMINACION'],
 }
 
 // ═══════════════════════════════════════════════════════════════════
