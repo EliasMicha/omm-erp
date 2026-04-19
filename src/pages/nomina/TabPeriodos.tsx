@@ -18,6 +18,7 @@ interface Employee {
   sueldo_neto_quincenal: number | null
   puesto: string | null
   area: string | null
+  rfc: string | null
 }
 
 interface PayrollPeriod {
@@ -149,7 +150,7 @@ export default function TabPeriodos() {
       const freq = viewMode === 'semanal' ? 'SEMANAL' : 'QUINCENAL'
       const { data } = await supabase
         .from('employees')
-        .select('id,nombre,tipo_alta,sueldo_neto_semanal,sueldo_neto_quincenal,puesto,area')
+        .select('id,nombre,tipo_alta,sueldo_neto_semanal,sueldo_neto_quincenal,puesto,area,rfc')
         .eq('activo', true)
         .eq('tipo_alta', freq)
         .order('nombre')
@@ -379,12 +380,18 @@ export default function TabPeriodos() {
     try {
       const parsed = await parseSFacilNominaPDF(file)
 
-      // Match PDF employees to DB employees
-      const dbEmps = employees.map(e => ({ id: e.id, nombre: e.nombre }))
+      console.log('[NominaPDF] Parsed result:', parsed.empleados.map(e => e.nombre))
+
+      // Match PDF employees to DB employees (pass RFC too)
+      const dbEmps = employees.map(e => ({ id: e.id, nombre: e.nombre, rfc: e.rfc }))
       const results = parsed.empleados.map(pdfEmp => {
-        const match = matchEmployeeByName(pdfEmp.nombre, dbEmps)
+        const match = matchEmployeeByName(
+          { nombre: pdfEmp.nombre, rfc: pdfEmp.rfc },
+          dbEmps
+        )
         return {
           pdfName: pdfEmp.nombre,
+          pdfRfc: pdfEmp.rfc,
           dbName: match?.nombre || null,
           dbId: match?.id || null,
           neto: pdfEmp.netoAPagar,
@@ -393,8 +400,13 @@ export default function TabPeriodos() {
         }
       })
 
+      console.log('[NominaPDF] Match results:', results.map(r =>
+        `${r.pdfName} → ${r.matched ? r.dbName : 'NO MATCH'} (${(r.score * 100).toFixed(0)}%)`
+      ))
+
       setImportStatus({ show: true, parsing: false, results, applied: false })
     } catch (err: any) {
+      console.error('[NominaPDF] Parse error:', err)
       alert('Error al parsear PDF: ' + (err.message || err))
       setImportStatus({ show: false, parsing: false, results: [], applied: false })
     }
