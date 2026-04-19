@@ -1,12 +1,7 @@
 /**
  * Parser for SFacil NOMINAS PDF documents
- * Extracts per-employee payroll data: name, RFC, percepciones, deducciones, neto a pagar
+ * Loads pdf.js dynamically from CDN to avoid Vercel build issues
  */
-
-import * as pdfjsLib from 'pdfjs-dist'
-
-// Use bundled worker
-pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf.worker.min.mjs`
 
 export interface NominaEmpleadoPDF {
   nombre: string
@@ -15,14 +10,11 @@ export interface NominaEmpleadoPDF {
   percepciones: number
   deducciones: number
   netoAPagar: number
-  isr: number
-  cuotasImss: number
-  infonavit: number
 }
 
 export interface NominaPDFResult {
   frequency: 'semanal' | 'quincenal'
-  periodStart: string // YYYY-MM-DD
+  periodStart: string
   periodEnd: string
   numeroPeriodo: number
   empleados: NominaEmpleadoPDF[]
@@ -31,10 +23,35 @@ export interface NominaPDFResult {
   totalNeto: number
 }
 
-/**
- * Parse a SFacil NOMINAS PDF file and extract employee payroll data
- */
+/* ── Dynamic pdf.js loader ── */
+
+let pdfjsLoaded: any = null
+
+async function loadPdfJs(): Promise<any> {
+  if (pdfjsLoaded) return pdfjsLoaded
+
+  // Load pdf.js from CDN dynamically
+  return new Promise((resolve, reject) => {
+    const script = document.createElement('script')
+    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js'
+    script.onload = () => {
+      const lib = (window as any).pdfjsLib
+      if (!lib) { reject(new Error('pdfjsLib not found')); return }
+      lib.GlobalWorkerOptions.workerSrc =
+        'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'
+      pdfjsLoaded = lib
+      resolve(lib)
+    }
+    script.onerror = () => reject(new Error('Failed to load pdf.js from CDN'))
+    document.head.appendChild(script)
+  })
+}
+
+/* ── Main parser ── */
+
 export async function parseSFacilNominaPDF(file: File): Promise<NominaPDFResult> {
+  const pdfjsLib = await loadPdfJs()
+
   const arrayBuffer = await file.arrayBuffer()
   const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise
 
@@ -50,7 +67,7 @@ export async function parseSFacilNominaPDF(file: File): Promise<NominaPDFResult>
 
   // Extract period info
   const freqMatch = fullText.match(/NOMINA\s+(SEMANAL|QUINCENAL)/)
-  const frequency = freqMatch?.[1]?.toLowerCase() as 'semanal' | 'quincenal' || 'semanal'
+  const frequency = (freqMatch?.[1]?.toLowerCase() || 'semanal') as 'semanal' | 'quincenal'
 
   const periodoMatch = fullText.match(/PERIODO\s+NO\.\s*(\d+)/)
   const numeroPeriodo = periodoMatch ? parseInt(periodoMatch[1]) : 0
@@ -63,20 +80,12 @@ export async function parseSFacilNominaPDF(file: File): Promise<NominaPDFResult>
     periodEnd = `${dateMatch[6]}-${dateMatch[5]}-${dateMatch[4]}`
   }
 
-  // Parse employee blocks using RFC as anchor
-  // RFCs appear as: RFC: XXXX######XXX
-  const rfcPattern = /RFC:\s*([A-Z]{3,4}\d{6}[A-Z0-9]{2,3})/g
-  const rfcs: string[] = []
-  let m
-  while ((m = rfcPattern.exec(fullText)) !== null) {
-    rfcs.push(m[1])
-  }
-
-  // Extract names — they appear after employee number like: 000001 NAME NAME NAME
+  // Extract names — appear after 6-digit employee number: 000001 NAME NAME NAME
   const namePattern = /\d{6}\s+([A-ZÁÉÍÓÚÑ][A-ZÁÉÍÓÚÑ ]+?)(?:\s+RFC:|\s+Puesto:)/g
   const names: string[] = []
+  let m
   while ((m = namePattern.exec(fullText)) !== null) {
-    names.push(m[1].trim())
+    names.push(m[1].replace(/\s*RFC\s*$/, '').trim())
   }
 
   // Extract SDI values
@@ -112,40 +121,14 @@ export async function parseSFacilNominaPDF(file: File): Promise<NominaPDFResult>
   const empleados: NominaEmpleadoPDF[] = []
 
   for (let i = 0; i < count; i++) {
-    // Clean name — remove trailing "RFC" if present
-    let nombre = names[i]?.replace(/\s*RFC\s*$/, '').trim() || ''
-
     empleados.push({
-      nombre,
-      rfc: rfcs[i] || '',
+      nombre: names[i] || '',
+      rfc: '',
       sdi: sdis[i] || 0,
       percepciones: percepciones[i] || 0,
       deducciones: deducciones[i] || 0,
       netoAPagar: netos[i] || 0,
-      isr: 0, // Could parse individually but summary is enough
-      cuotasImss: 0,
-      infonavit: 0,
     })
-  }
-
-  // Parse individual deductions from text blocks
-  // Look for ISR, Cuotas IMSS, D.INFONAVIT per employee
-  const isrPattern = /ISR\s+([\d,]+\.\d{2})/g
-  const isrValues: number[] = []
-  while ((m = isrPattern.exec(fullText)) !== null) {
-    isrValues.push(parseFloat(m[1].replace(',', '')))
-  }
-
-  const imssPattern = /Cuotas IMSS\s+([\d,]+\.\d{2})/g
-  const imssValues: number[] = []
-  while ((m = imssPattern.exec(fullText)) !== null) {
-    imssValues.push(parseFloat(m[1].replace(',', '')))
-  }
-
-  const infonavitPattern = /D\.?INFONAVIT\s+([\d,]+\.\d{2})/g
-  const infonavitValues: number[] = []
-  while ((m = infonavitPattern.exec(fullText)) !== null) {
-    infonavitValues.push(parseFloat(m[1].replace(',', '')))
   }
 
   return {
@@ -160,11 +143,8 @@ export async function parseSFacilNominaPDF(file: File): Promise<NominaPDFResult>
   }
 }
 
-/**
- * Fuzzy match a PDF employee name to DB employees.
- * PDF names are "LASTNAME LASTNAME FIRSTNAME" while DB might be "FIRSTNAME LASTNAME LASTNAME"
- * Strategy: compare word sets (case-insensitive), pick best overlap
- */
+/* ── Fuzzy name matching ── */
+
 export function matchEmployeeByName(
   pdfName: string,
   dbEmployees: { id: string; nombre: string }[],
@@ -176,7 +156,6 @@ export function matchEmployeeByName(
   for (const emp of dbEmployees) {
     const dbWords = normalizeWords(emp.nombre)
 
-    // Count matching words
     let matches = 0
     for (const pw of pdfWords) {
       for (const dw of dbWords) {
@@ -187,7 +166,6 @@ export function matchEmployeeByName(
       }
     }
 
-    // Score: matches / max(pdfWords, dbWords)
     const maxLen = Math.max(pdfWords.length, dbWords.length)
     const score = maxLen > 0 ? matches / maxLen : 0
 
@@ -202,9 +180,9 @@ export function matchEmployeeByName(
 function normalizeWords(name: string): string[] {
   return name
     .toUpperCase()
-    .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // remove accents
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
     .split(/\s+/)
-    .filter(w => w.length > 1) // skip single letters
+    .filter(w => w.length > 1)
 }
 
 function levenshtein(a: string, b: string): number {
