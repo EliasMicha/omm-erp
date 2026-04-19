@@ -5,7 +5,8 @@ import { Btn, Loading, Badge } from '../components/layout/UI'
 import {
   ArrowLeft, Save, Trash2, Upload, FileText, Download, X,
   User, Briefcase, FileSignature, DollarSign, CreditCard,
-  Award, Folder, History, AlertCircle, Sparkles, CheckCircle2
+  Award, Folder, History, AlertCircle, Sparkles, CheckCircle2,
+  Smartphone, Eye, EyeOff
 } from 'lucide-react'
 
 interface Employee {
@@ -92,7 +93,7 @@ interface EmployeeDocument {
   uploaded_at: string
 }
 
-type Section = 'identidad' | 'puesto' | 'contrato' | 'sueldo' | 'banco' | 'habilidades' | 'documentos' | 'historial'
+type Section = 'identidad' | 'puesto' | 'contrato' | 'sueldo' | 'banco' | 'obra_app' | 'habilidades' | 'documentos' | 'historial'
 
 const SECTIONS: { id: Section; label: string; icon: any }[] = [
   { id: 'identidad', label: 'Identidad y contacto', icon: User },
@@ -100,6 +101,7 @@ const SECTIONS: { id: Section; label: string; icon: any }[] = [
   { id: 'contrato', label: 'Contrato', icon: FileSignature },
   { id: 'sueldo', label: 'Sueldo y nómina', icon: DollarSign },
   { id: 'banco', label: 'Datos bancarios', icon: CreditCard },
+  { id: 'obra_app', label: 'App Obra', icon: Smartphone },
   { id: 'habilidades', label: 'Habilidades', icon: Award },
   { id: 'documentos', label: 'Documentos', icon: Folder },
   { id: 'historial', label: 'Historial', icon: History },
@@ -294,6 +296,7 @@ export default function EmpleadoExpediente() {
           {section === 'contrato' && <SectionContrato form={form} set={set} />}
           {section === 'sueldo' && <SectionSueldo form={form} set={set} />}
           {section === 'banco' && <SectionBanco form={form} set={set} />}
+          {section === 'obra_app' && <SectionObraApp form={form} set={set} employeeId={employee.id} />}
           {section === 'habilidades' && <SectionHabilidades form={form} set={set} />}
           {section === 'documentos' && <SectionDocumentos employeeId={employee.id} />}
           {section === 'historial' && <SectionHistorial />}
@@ -667,6 +670,144 @@ function SectionBanco({ form, set }: { form: Partial<Employee>; set: any }) {
           <Textarea value={form.comentarios || ''} onChange={v => set('comentarios', v)} rows={3} />
         </Field>
       </Grid>
+    </>
+  )
+}
+
+function SectionObraApp({ form, set, employeeId }: { form: Partial<Employee>; set: any; employeeId: string }) {
+  const [showPw, setShowPw] = useState(false)
+  const [creating, setCreating] = useState(false)
+
+  const hasAuth = !!form.auth_user_id
+  const isActive = !!form.app_activo
+
+  const createAccount = async () => {
+    const email = form.obra_app_email?.trim()
+    const password = form.obra_app_password?.trim()
+    if (!email || !password) {
+      alert('Primero llena el email y contraseña, luego guarda, y después crea la cuenta.')
+      return
+    }
+    if (password.length < 6) {
+      alert('La contraseña debe tener al menos 6 caracteres.')
+      return
+    }
+    setCreating(true)
+    try {
+      // Create Supabase Auth user via admin API (edge function or direct)
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: { data: { employee_id: employeeId, nombre: form.nombre } },
+      })
+      if (error) throw error
+      if (data.user) {
+        // Link auth user to employee
+        await supabase.from('employees').update({
+          auth_user_id: data.user.id,
+          app_activo: true,
+        }).eq('id', employeeId)
+        set('auth_user_id', data.user.id)
+        set('app_activo', true)
+        alert('✅ Cuenta creada exitosamente. El empleado ya puede entrar a la App de Obra.')
+      }
+    } catch (err: any) {
+      alert('Error creando cuenta: ' + (err.message || err))
+    }
+    setCreating(false)
+  }
+
+  return (
+    <>
+      <SectionTitle icon={Smartphone} title="Acceso App de Obra" />
+
+      {/* Status banner */}
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 12, padding: 16, marginBottom: 20,
+        background: hasAuth && isActive ? 'rgba(87, 255, 154, 0.08)' : 'rgba(239, 68, 68, 0.08)',
+        border: `1px solid ${hasAuth && isActive ? '#57FF9A30' : '#ef444430'}`,
+        borderRadius: 10,
+      }}>
+        <div style={{
+          width: 40, height: 40, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+          background: hasAuth && isActive ? '#57FF9A20' : '#ef444420',
+        }}>
+          <Smartphone size={18} style={{ color: hasAuth && isActive ? '#57FF9A' : '#ef4444' }} />
+        </div>
+        <div>
+          <div style={{ fontWeight: 600, color: '#eee', fontSize: 14 }}>
+            {hasAuth && isActive ? 'Cuenta activa' : hasAuth ? 'Cuenta desactivada' : 'Sin cuenta'}
+          </div>
+          <div style={{ fontSize: 12, color: '#888' }}>
+            {hasAuth && isActive
+              ? 'El empleado tiene acceso a la app móvil de Obra'
+              : hasAuth
+              ? 'La cuenta existe pero el acceso está desactivado'
+              : 'Este empleado no tiene cuenta para la app de Obra'}
+          </div>
+        </div>
+        <div style={{ flex: 1 }} />
+        {hasAuth && (
+          <div
+            onClick={() => set('app_activo', !isActive)}
+            style={{
+              padding: '6px 16px', borderRadius: 20, cursor: 'pointer', fontSize: 12, fontWeight: 600,
+              background: isActive ? '#57FF9A' : '#333', color: isActive ? '#000' : '#888',
+              transition: 'all 0.2s',
+            }}
+          >
+            {isActive ? 'Activo' : 'Inactivo'}
+          </div>
+        )}
+      </div>
+
+      <Grid>
+        <Field label="Email de acceso">
+          <Input value={form.obra_app_email || ''} onChange={v => set('obra_app_email', v)}
+            placeholder="ej: nombre.instalador@omm.com" />
+        </Field>
+        <Field label="Contraseña">
+          <div style={{ position: 'relative' }}>
+            <Input
+              value={form.obra_app_password || ''}
+              onChange={v => set('obra_app_password', v)}
+              placeholder="Contraseña para la app"
+              type={showPw ? 'text' : 'password'}
+            />
+            <button
+              type="button"
+              onClick={() => setShowPw(!showPw)}
+              style={{
+                position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)',
+                background: 'none', border: 'none', cursor: 'pointer', color: '#666', padding: 4,
+              }}
+            >
+              {showPw ? <EyeOff size={14} /> : <Eye size={14} />}
+            </button>
+          </div>
+        </Field>
+        <Field label="Rol en la app">
+          <Select value={form.app_role || 'instalador'} onChange={v => set('app_role', v)}
+            options={['instalador', 'supervisor', 'admin']} />
+        </Field>
+        {hasAuth && (
+          <Field label="Auth User ID">
+            <Input value={form.auth_user_id || ''} onChange={() => {}} placeholder="(automático)" />
+          </Field>
+        )}
+      </Grid>
+
+      {/* Create account button */}
+      {!hasAuth && (
+        <div style={{ marginTop: 20, padding: 16, background: '#0f0f0f', borderRadius: 10, border: '1px solid #1a1a1a' }}>
+          <div style={{ fontSize: 13, color: '#888', marginBottom: 12 }}>
+            Para que el empleado pueda usar la app de Obra, primero guarda el email y contraseña arriba, y después crea la cuenta:
+          </div>
+          <Btn onClick={createAccount} variant="primary" disabled={creating}>
+            <Smartphone size={14} /> {creating ? 'Creando...' : 'Crear cuenta de App Obra'}
+          </Btn>
+        </div>
+      )}
     </>
   )
 }
