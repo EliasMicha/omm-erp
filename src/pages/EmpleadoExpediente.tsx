@@ -692,16 +692,16 @@ function SectionObraApp({ form, set, employeeId }: { form: Partial<Employee>; se
       alert('La contraseña debe tener al menos 6 caracteres.')
       return
     }
-    // Normalize phone to E.164 format for Supabase Auth
-    let phoneE164 = phone.replace(/[\s\-\(\)]/g, '')
-    if (!phoneE164.startsWith('+')) phoneE164 = '+52' + phoneE164 // Default Mexico
+    // Derive a synthetic email from the phone number for Supabase Auth
+    // The installer logs in with their phone + password; the app converts internally
+    const phoneClean = phone.replace(/[\s\-\(\)\.+]/g, '')
+    const syntheticEmail = `${phoneClean}@obra.omm.app`
     setCreating(true)
     try {
-      // Create Supabase Auth user with phone + password
       const { data, error } = await supabase.auth.signUp({
-        phone: phoneE164,
+        email: syntheticEmail,
         password,
-        options: { data: { employee_id: employeeId, nombre: form.nombre } },
+        options: { data: { employee_id: employeeId, nombre: form.nombre, phone: phoneClean } },
       })
       if (error) throw error
       if (data.user) {
