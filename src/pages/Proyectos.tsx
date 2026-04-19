@@ -71,6 +71,16 @@ interface EmployeeRow {
   id: string
   name: string
   role: string
+  area: string | null
+}
+
+// Mapeo specialty del proyecto → áreas de empleados que pueden asignarse
+const SPECIALTY_AREAS: Record<string, string[]> = {
+  esp:  ['INSTALACIONES ESPECIALES', 'DIRECCION GENERAL', 'INGENIERIAS'],
+  elec: ['ELECTRICO', 'DIRECCION GENERAL', 'INGENIERIAS'],
+  ilum: ['ILUMINACION', 'DIRECCION GENERAL', 'INGENIERIAS'],
+  cort: ['ILUMINACION', 'DIRECCION GENERAL', 'INGENIERIAS'], // cortinas comparte con iluminación
+  proy: ['INGENIERIAS', 'DIRECCION GENERAL', 'INSTALACIONES ESPECIALES', 'ELECTRICO', 'ILUMINACION'],
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -162,7 +172,7 @@ export default function Proyectos() {
     try {
       const [projRes, empRes, phasesRes, tasksRes] = await Promise.all([
         supabase.from('projects').select('*').order('created_at', { ascending: false }),
-        supabase.from('employees').select('id,name,role').eq('is_active', true),
+        supabase.from('employees').select('id,name,role,area').eq('is_active', true),
         supabase.from('project_phases').select('*'),
         supabase.from('project_tasks').select('id,project_id,phase_id,template_id,name,description,assignee_id,status,priority,progress,due_date,system,area,order_index,notes'),
       ])
@@ -736,6 +746,13 @@ function TaskTable({ project, phases, tasks, subtasks, employees, onChange, acti
   const [newTask, setNewTask] = useState({ name: '', assignee_id: '', priority: 0, due_date: '' })
   const isESP = project.specialty === 'esp'
 
+  // Filtrar empleados por áreas relevantes al tipo de proyecto
+  const filteredEmployees = useMemo(() => {
+    const allowedAreas = project.specialty ? SPECIALTY_AREAS[project.specialty] : null
+    if (!allowedAreas) return employees
+    return employees.filter(e => e.area && allowedAreas.includes(e.area))
+  }, [employees, project.specialty])
+
   const sortedPhases = useMemo(() => {
     const s = [...phases].sort((a, b) => a.order_index - b.order_index)
     return activePhaseId ? s.filter(p => p.id === activePhaseId) : s
@@ -867,7 +884,7 @@ function TaskTable({ project, phases, tasks, subtasks, employees, onChange, acti
                       style={{ width: '100%', padding: '6px 10px', fontSize: 12, background: '#0a0a0a', border: '1px solid #333', borderRadius: 6, color: '#fff', fontFamily: 'inherit' }}
                     >
                       <option value="">— Sin asignar —</option>
-                      {employees.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+                      {filteredEmployees.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
                     </select>
                   </div>
                   <div>
@@ -941,7 +958,7 @@ function TaskTable({ project, phases, tasks, subtasks, employees, onChange, acti
                       style={{ padding: '4px 8px', fontSize: 10, background: '#0a0a0a', border: '1px solid #333', borderRadius: 5, color: assignee ? '#57FF9A' : '#666', fontFamily: 'inherit', minWidth: 100 }}
                     >
                       <option value="">— Sin —</option>
-                      {employees.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+                      {filteredEmployees.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
                     </select>
 
                     <div style={{ display: 'flex', gap: 1 }}>

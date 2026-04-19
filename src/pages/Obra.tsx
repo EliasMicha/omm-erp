@@ -221,7 +221,7 @@ export default function Obra() {
       try {
         const [obrasRes, empRes] = await Promise.all([
           supabase.from('obras').select('*').order('created_at', { ascending: false }),
-          supabase.from('employees').select('id,name,phone,role,level,skills,disponible,foto_url,calificacion,notes,is_active').eq('is_active', true).order('name'),
+          supabase.from('employees').select('id,name,phone,role,level,skills,disponible,foto_url,calificacion,notes,is_active,tipo_trabajo,area').eq('is_active', true).order('name'),
         ])
         if (cancelled) return
         if (obrasRes.error) {
@@ -237,8 +237,10 @@ export default function Obra() {
           return
         }
         const empleados = empRes.data || []
-        // Instaladores = role 'instalador'
-        const insts = empleados.filter((e: any) => e.role === 'instalador').map(rowToInstalador)
+        // Instaladores = empleados de campo (OBRA o MIXTO) — excluye oficina
+        const insts = empleados.filter((e: any) =>
+          e.tipo_trabajo === 'OBRA' || e.tipo_trabajo === 'MIXTO'
+        ).map(rowToInstalador)
         // Coordinadores = role 'coordinador' o 'dg'
         const coords = empleados.filter((e: any) => e.role === 'coordinador' || e.role === 'dg').map((e: any) => ({ id: e.id, name: e.name || '' }))
         // Mapa id -> name para resolver coordinador_id en obras
