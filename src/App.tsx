@@ -18,6 +18,7 @@ import Finanzas from './pages/Finanzas'
 import Empleados from './pages/Empleados'
 import EmpleadoExpediente from './pages/EmpleadoExpediente'
 import CotizacionPdf from './pages/CotizacionPdf'
+import LeadDashboard from './pages/LeadDashboard'
 import ObraApp from './obra-app/ObraApp'
 
 
@@ -37,6 +38,7 @@ export default function App() {
               <Routes>
                 <Route path="/" element={<Dashboard />} />
                 <Route path="/crm" element={<CRM />} />
+                <Route path="/crm/:id" element={<LeadDashboard />} />
                 <Route path="/cotizaciones" element={<Cotizaciones />} />
                 <Route path="/compras" element={<Compras />} />
                 <Route path="/proyectos" element={<Proyectos />} />

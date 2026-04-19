@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { Badge, Btn, Table, Th, Td, Loading, SectionHeader, EmptyState } from '../components/layout/UI'
 import { Plus, X, Search, Trash2, Save, Sparkles } from 'lucide-react'
@@ -506,6 +507,7 @@ function ListView({ leads, onOpen, quoteTotals, displayCur, tc }: { leads: Lead[
 
 // ─── CRM Principal ─────────────────────────────────────────────────────────
 export default function CRM() {
+  const nav = useNavigate()
   const [leads, setLeads] = useState<Lead[]>([])
   const [loading, setLoading] = useState(true)
   const [showNew, setShowNew] = useState(false)
@@ -702,8 +704,8 @@ Devuelve solo el JSON, sin explicaciones. Si no hay filtro para un campo, omitel
       {/* Contenido */}
       {loading ? <Loading /> : (
         viewMode === 'kanban'
-          ? <KanbanView leads={filtered} onOpen={setSelected} />
-          : <ListView leads={filtered} onOpen={setSelected} quoteTotals={quoteTotals} displayCur={displayCur} tc={tc} />
+          ? <KanbanView leads={filtered} onOpen={(l) => nav(`/crm/${l.id}`)} />
+          : <ListView leads={filtered} onOpen={(l) => nav(`/crm/${l.id}`)} quoteTotals={quoteTotals} displayCur={displayCur} tc={tc} />
       )}
 
       {/* Seccion ganados/perdidos/pausados en kanban */}
@@ -716,7 +718,7 @@ Devuelve solo el JSON, sin explicaciones. Si no hay filtro para un campo, omitel
             })}
           </div>
           {leads.filter(l => ['ganado', 'perdido', 'pausado'].includes(l.status)).length > 0 && (
-            <ListView leads={leads.filter(l => ['ganado', 'perdido', 'pausado'].includes(l.status))} onOpen={setSelected} quoteTotals={quoteTotals} displayCur={displayCur} tc={tc} />
+            <ListView leads={leads.filter(l => ['ganado', 'perdido', 'pausado'].includes(l.status))} onOpen={(l) => nav(`/crm/${l.id}`)} quoteTotals={quoteTotals} displayCur={displayCur} tc={tc} />
           )}
         </div>
       )}
