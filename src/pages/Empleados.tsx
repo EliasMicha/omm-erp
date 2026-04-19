@@ -32,7 +32,8 @@ const NIVEL_CONFIG: Record<Nivel, { label: string; color: string; icon: string }
 const AREAS = [
   { id: 'DIRECCION GENERAL', label: 'Dirección General', color: '#F9A8D4' },
   { id: 'ADMINISTRACION', label: 'Administración', color: '#6B7280' },
-  { id: 'INGENIERIAS', label: 'Ingenierías (Proyecto)', color: '#57FF9A' },
+  { id: 'INGENIERIAS ESPECIALES', label: 'Ing. Especiales (Proyecto)', color: '#57FF9A' },
+  { id: 'INGENIERIAS ELECTRICAS', label: 'Ing. Eléctrica (Proyecto)', color: '#34D399' },
   { id: 'ILUMINACION', label: 'Iluminación', color: '#C084FC' },
   { id: 'INSTALACIONES ESPECIALES', label: 'Obra — Especiales', color: '#3B82F6' },
   { id: 'ELECTRICO', label: 'Obra — Eléctrico', color: '#FFB347' },

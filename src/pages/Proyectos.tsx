@@ -75,14 +75,13 @@ interface EmployeeRow {
 }
 
 // Mapeo specialty del proyecto → áreas de empleados que pueden asignarse
-// Proyectos = equipo de ingeniería (INGENIERIAS), NO cuadrillas de obra
-// ILUMINACION tiene su propio equipo de proyecto
+// Proyectos = equipo de ingeniería, NO cuadrillas de obra/instalación
 const SPECIALTY_AREAS: Record<string, string[]> = {
-  esp:  ['INGENIERIAS', 'DIRECCION GENERAL'],
-  elec: ['INGENIERIAS', 'DIRECCION GENERAL'],
-  ilum: ['ILUMINACION', 'INGENIERIAS', 'DIRECCION GENERAL'],
-  cort: ['ILUMINACION', 'INGENIERIAS', 'DIRECCION GENERAL'],
-  proy: ['INGENIERIAS', 'DIRECCION GENERAL'],
+  esp:  ['INGENIERIAS ESPECIALES', 'DIRECCION GENERAL', 'ADMINISTRACION'],
+  elec: ['INGENIERIAS ELECTRICAS', 'DIRECCION GENERAL', 'ADMINISTRACION'],
+  ilum: ['ILUMINACION', 'DIRECCION GENERAL', 'ADMINISTRACION'],
+  cort: ['ILUMINACION', 'DIRECCION GENERAL', 'ADMINISTRACION'],
+  proy: ['INGENIERIAS ESPECIALES', 'INGENIERIAS ELECTRICAS', 'ILUMINACION', 'DIRECCION GENERAL', 'ADMINISTRACION'],
 }
 
 // ═══════════════════════════════════════════════════════════════════
