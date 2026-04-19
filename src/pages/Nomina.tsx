@@ -7,6 +7,7 @@ import TabCajaChica from './nomina/TabCajaChica'
 import TabAsistencia from './nomina/TabAsistencia'
 import TabReportes from './nomina/TabReportes'
 import TabAusencias from './nomina/TabAusencias'
+import TabPeriodos from './nomina/TabPeriodos'
 
 type TipoAlta = 'SEMANAL' | 'QUINCENAL'
 
@@ -67,7 +68,7 @@ export default function Nomina() {
         })}
       </div>
       {tab === 'empleados' && <TabEmpleados />}
-      {tab === 'periodos' && <PlaceholderTab title="Períodos de pago" />}
+      {tab === 'periodos' && <TabPeriodos />}
       {tab === 'caja_chica' && <TabCajaChica />}
       {tab === 'asistencia' && <TabAsistencia />}
       {tab === 'reportes' && <TabReportes />}
