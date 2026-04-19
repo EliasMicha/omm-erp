@@ -407,14 +407,17 @@ export default function Finanzas() {
   const areasNegocio = useMemo(() => {
     const contratoQuots = quotations.filter(q => q.stage === 'contrato')
 
-    // Overhead pool: admin payroll + gastos generales + servicios from facturas
+    // Overhead % = (Gastos fijos + Gastos generales) / Ventas totales
+    // Gastos fijos: nómina admin, servicios (renta, luz, tel), impuestos patronales
+    // Gastos generales: todo lo que no es material directo ni nómina de área
     const adminEmpIds = new Set(employees.filter((e: any) => e.area === 'ADMINISTRACION').map((e: any) => e.id))
     const adminPayroll = monthPayrollItems
       .filter((pi: any) => adminEmpIds.has(pi.employee_id))
       .reduce((s: number, pi: any) => s + (pi.sueldo_neto_pactado || 0), 0)
     const adminPayrollEst = employees.filter((e: any) => e.area === 'ADMINISTRACION').reduce((s: number, e: any) => s + (e.neto_mensual || 0), 0)
-    const overheadPool = (adminPayroll > 0 ? adminPayroll : adminPayrollEst)
-      + gastosPorCategoria.gastos_generales + gastosPorCategoria.servicios
+    const gastosFijos = (adminPayroll > 0 ? adminPayroll : adminPayrollEst) + gastosPorCategoria.servicios
+    const gastosGenerales = gastosPorCategoria.gastos_generales + gastosPorCategoria.impuestos_gobierno
+    const overheadPool = gastosFijos + gastosGenerales
 
     // Build per-area metrics
     let totalRevenueAll = 0
@@ -460,13 +463,16 @@ export default function Finanzas() {
       return { ...area, ventas, costoNomina, compras, headcount }
     })
 
-    // Prorate overhead by revenue share
+    // Overhead % = overheadPool / totalRevenueAll
+    // Cada área absorbe: sus ventas × overhead%
+    const overheadPct = totalRevenueAll > 0 ? overheadPool / totalRevenueAll : 0
+
     return raw.map(r => {
-      const overhead = totalRevenueAll > 0 ? (r.ventas / totalRevenueAll) * overheadPool : 0
+      const overhead = r.ventas * overheadPct // proporcional a sus ventas
       const costoTotal = r.costoNomina + r.compras + overhead
       const margen = r.ventas - costoTotal
       const pctMargen = r.ventas > 0 ? margen / r.ventas : (costoTotal > 0 ? -1 : 0)
-      return { ...r, overhead, costoTotal, margen, pctMargen, totalRevenueAll }
+      return { ...r, overhead, costoTotal, margen, pctMargen, totalRevenueAll, overheadPct, gastosFijos, gastosGenerales, overheadPool }
     })
   }, [quotations, projects, employees, monthPayrollItems, allPurchaseOrders, gastosPorCategoria, tipoCambio])
 
@@ -762,12 +768,19 @@ export default function Finanzas() {
           return (
             <>
               {/* Summary KPIs */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 16 }}>
-                <MiniStat label="Ventas totales (contratos)" value={F(totalRevenue)} accent="#57FF9A" />
-                <MiniStat label="Costo total operativo" value={F(totalCost)} accent="#EF4444" />
-                <MiniStat label="Margen operativo" value={F(totalMargen)} accent={totalMargen >= 0 ? '#57FF9A' : '#EF4444'} />
-                <MiniStat label="% Margen" value={totalRevenue > 0 ? PCT(totalMargen / totalRevenue) : '—'} accent={totalMargen >= 0 ? '#57FF9A' : '#EF4444'} />
-              </div>
+              {(() => {
+                const oh = areasNegocio[0] // all rows carry the same overhead info
+                const overheadPctVal = oh?.overheadPct || 0
+                return (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12, marginBottom: 16 }}>
+                    <MiniStat label="Ventas totales (contratos)" value={F(totalRevenue)} accent="#57FF9A" />
+                    <MiniStat label="Gastos fijos" value={F(oh?.gastosFijos || 0)} accent="#F59E0B" />
+                    <MiniStat label="Gastos generales" value={F(oh?.gastosGenerales || 0)} accent="#EF4444" />
+                    <MiniStat label="Overhead %" value={overheadPctVal > 0 ? PCT(overheadPctVal) : '—'} accent={overheadPctVal <= 0.25 ? '#57FF9A' : overheadPctVal <= 0.4 ? '#F59E0B' : '#EF4444'} />
+                    <MiniStat label="Margen operativo" value={F(totalMargen)} accent={totalMargen >= 0 ? '#57FF9A' : '#EF4444'} />
+                  </div>
+                )
+              })()}
 
               {/* Revenue share bar */}
               {totalRevenue > 0 && (
@@ -864,9 +877,10 @@ export default function Finanzas() {
 
               {/* Note about overhead */}
               <div style={{ marginTop: 12, padding: '8px 12px', background: '#111', borderRadius: 6, border: '1px solid #1a1a1a', fontSize: 10, color: '#555' }}>
-                Overhead = nómina administración + gastos generales + servicios, prorrateado por % de ventas de cada área.
+                Overhead % = (Gastos fijos + Gastos generales) / Ventas totales → prorrateado proporcionalmente por ventas de cada área.
+                <br />Gastos fijos = nómina admin + servicios (renta, luz, tel). Gastos generales = otros gastos + impuestos patronales.
                 {areasNegocio.some(a => a.costoTotal > 0 && a.ventas === 0) && (
-                  <span style={{ color: '#F59E0B' }}> Áreas sin ventas registradas muestran solo sus costos de nómina.</span>
+                  <span style={{ color: '#F59E0B' }}> Áreas sin ventas absorben $0 de overhead (solo muestran costos directos).</span>
                 )}
               </div>
             </>
