@@ -78,6 +78,7 @@ export default function Finanzas() {
     const now = new Date()
     return { year: now.getFullYear(), month: now.getMonth() } // 0-indexed
   })
+  const [tipoCambio, setTipoCambio] = useState(20.50) // USD → MXN
 
   // Raw data
   const [facturasEmitidas, setFacturasEmitidas] = useState<any[]>([])
@@ -135,7 +136,7 @@ export default function Finanzas() {
       // Payment milestones (all)
       supabase.from('payment_milestones').select('id,name,amount,due_date,status,project_id,paid_at'),
       // ALL purchase orders (for project totals, not filtered by month)
-      supabase.from('purchase_orders').select('id,total,status,project_id').neq('status', 'cancelada'),
+      supabase.from('purchase_orders').select('id,total,status,project_id,currency').neq('status', 'cancelada'),
       // Quotation items costs (for "Total Compras" = what needs to be purchased)
       supabase.from('quotation_items').select('id,quotation_id,cost,quantity,type'),
       // Leads (active)
@@ -269,27 +270,44 @@ export default function Finanzas() {
   }, [facturasRecibidas])
 
   // ── LEAD FINANCIERO ─────────────────────────────────────────────
-  // Agrupa por Lead: todas sus cotizaciones, proyectos, compras, cobros
+  // Helper: parse notes, get currency
+  const getQuotCurrency = (q: any): 'USD' | 'MXN' => {
+    try {
+      const n = typeof q.notes === 'string' ? JSON.parse(q.notes) : q.notes
+      return n?.currency === 'MXN' ? 'MXN' : 'USD'
+    } catch { return 'USD' }
+  }
+  const getQuotLeadId = (q: any): string | null => {
+    try {
+      const n = typeof q.notes === 'string' ? JSON.parse(q.notes) : q.notes
+      return n?.lead_id || null
+    } catch { return null }
+  }
+
+  // Agrupa por Lead: todas sus cotizaciones en contrato, proyectos, compras, cobros
   const leadsFinancieros = useMemo(() => {
     return leads.map(lead => {
-      // Solo cotizaciones en etapa "contrato" de este lead (ventas cerradas)
-      const leadQuots = quotations.filter(q => {
-        if (q.stage !== 'contrato') return false
-        try {
-          const n = typeof q.notes === 'string' ? JSON.parse(q.notes) : q.notes
-          return n && n.lead_id === lead.id
-        } catch { return false }
-      })
+      // Solo cotizaciones en etapa "contrato" de este lead
+      const leadQuots = quotations.filter(q =>
+        q.stage === 'contrato' && getQuotLeadId(q) === lead.id
+      )
       const quotIds = new Set(leadQuots.map(q => q.id))
 
-      // Proyectos ligados a las cotizaciones aprobadas de este lead
+      // Proyectos ligados a las cotizaciones aprobadas
       const leadProjects = projects.filter(p => p.cotizacion_id && quotIds.has(p.cotizacion_id))
       const projIds = new Set(leadProjects.map(p => p.id))
 
-      // 1. Total Vendido = sum contract_value de todos los proyectos del lead
-      const totalVendido = leadProjects.reduce((s, p) => s + (p.contract_value || 0), 0)
+      // Moneda dominante del lead (de la primera cotización)
+      const moneda = leadQuots.length > 0 ? getQuotCurrency(leadQuots[0]) : 'MXN'
 
-      // 2. Total Cobrado = milestones cobrados de proyectos del lead
+      // 1. Total Vendido = contract_value de proyectos, o total de cotización si no hay proyecto
+      let totalVendido = 0
+      leadQuots.forEach(q => {
+        const proj = leadProjects.find(p => p.cotizacion_id === q.id)
+        totalVendido += proj ? (proj.contract_value || 0) : (q.total || 0)
+      })
+
+      // 2. Total Cobrado = milestones cobrados
       const totalCobrado = milestones
         .filter(m => projIds.has(m.project_id) && m.status === 'cobrado')
         .reduce((s, m) => s + (m.amount || 0), 0)
@@ -297,51 +315,47 @@ export default function Finanzas() {
       // 3. % Avance cobro
       const pctCobro = totalVendido > 0 ? totalCobrado / totalVendido : 0
 
-      // 4. Total Compras = costo de materiales en las cotizaciones del lead
-      //    (lo que se necesita comprar en total)
+      // 4. Total Compras = costo materiales de cotizaciones (lo que hay que comprar)
       const totalCompras = quotationCosts
         .filter(qi => quotIds.has(qi.quotation_id))
         .reduce((s, qi) => s + ((qi.cost || 0) * (qi.quantity || 0)), 0)
 
-      // 5. Total Comprado = POs ejercidas de proyectos del lead
-      const totalComprado = allPurchaseOrders
-        .filter(po => projIds.has(po.project_id))
-        .reduce((s, po) => s + (po.total || 0), 0)
+      // 5. Total Comprado = POs ejercidas (convertidas a moneda del lead)
+      let totalComprado = 0
+      allPurchaseOrders.filter(po => projIds.has(po.project_id)).forEach(po => {
+        const poTotal = po.total || 0
+        const poCurr = po.currency || 'MXN'
+        // Convertir a moneda del lead si difiere
+        if (moneda === 'USD' && poCurr === 'MXN') totalComprado += poTotal / tipoCambio
+        else if (moneda === 'MXN' && poCurr === 'USD') totalComprado += poTotal * tipoCambio
+        else totalComprado += poTotal
+      })
 
       // 6. % Avance compras
       const pctCompras = totalCompras > 0 ? totalComprado / totalCompras : 0
 
-      // 7. Por Comprar = total compras - comprado
+      // 7. Por Comprar
       const porComprar = Math.max(0, totalCompras - totalComprado)
 
-      // 8. Por Cobrar = vendido - cobrado
+      // 8. Por Cobrar
       const porCobrar = Math.max(0, totalVendido - totalCobrado)
 
-      // Avance promedio de proyectos
-      const avancePromedio = leadProjects.length > 0
-        ? leadProjects.reduce((s, p) => s + (p.advance_pct || 0), 0) / leadProjects.length : 0
-
       return {
-        id: lead.id,
-        name: lead.name,
-        company: lead.company,
-        status: lead.status,
-        projectCount: leadProjects.length,
-        quotCount: leadQuots.length,
-        totalVendido,
-        totalCobrado,
-        pctCobro,
-        totalCompras,
-        totalComprado,
-        pctCompras,
-        porComprar,
-        porCobrar,
-        avancePromedio,
+        id: lead.id, name: lead.name, company: lead.company, status: lead.status,
+        moneda,
+        projectCount: leadProjects.length, quotCount: leadQuots.length,
+        totalVendido, totalCobrado, pctCobro,
+        totalCompras, totalComprado, pctCompras,
+        porComprar, porCobrar,
+        // Equivalentes en MXN para totales
+        totalVendidoMXN: moneda === 'USD' ? totalVendido * tipoCambio : totalVendido,
+        porCobrarMXN: moneda === 'USD' ? porCobrar * tipoCambio : porCobrar,
+        porComprarMXN: moneda === 'USD' ? porComprar * tipoCambio : porComprar,
       }
     })
-    .filter(l => l.totalVendido > 0 || l.quotCount > 0) // Solo leads con actividad
-    .sort((a, b) => b.totalVendido - a.totalVendido)
-  }, [leads, quotations, projects, milestones, allPurchaseOrders, quotationCosts])
+    .filter(l => l.totalVendido > 0 || l.quotCount > 0)
+    .sort((a, b) => b.totalVendidoMXN - a.totalVendidoMXN)
+  }, [leads, quotations, projects, milestones, allPurchaseOrders, quotationCosts, tipoCambio])
 
   // ── NAV ───────────────────────────────────────────────────────────
   const prevMonth = () => setMes(m => m.month === 0 ? { year: m.year - 1, month: 11 } : { year: m.year, month: m.month - 1 })
@@ -622,15 +636,30 @@ export default function Finanzas() {
       </div>
 
       {/* ── LEAD FINANCIERO: tabla comparativa ───────────────────── */}
-      <Card title="Comparativa financiera por proyecto (Lead)" icon={<TrendingUp size={14} />}>
+      <div style={{ background: '#0f0f0f', border: '1px solid #1a1a1a', borderRadius: 12, padding: '16px 18px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#888', fontSize: 13, fontWeight: 600 }}>
+            <TrendingUp size={14} />
+            Comparativa financiera por proyecto
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 11, color: '#666' }}>TC USD→MXN:</span>
+            <input
+              type="number" step="0.1" value={tipoCambio}
+              onChange={e => setTipoCambio(Number(e.target.value) || 20)}
+              style={{ width: 70, padding: '4px 8px', fontSize: 12, background: '#0a0a0a', border: '1px solid #333', borderRadius: 6, color: '#57FF9A', fontWeight: 600, textAlign: 'center', fontFamily: 'inherit' }}
+            />
+          </div>
+        </div>
         {leadsFinancieros.length === 0 ? (
-          <div style={{ padding: 20, textAlign: 'center', color: '#555', fontSize: 13 }}>Sin leads con actividad financiera</div>
+          <div style={{ padding: 20, textAlign: 'center', color: '#555', fontSize: 13 }}>Sin contratos cerrados</div>
         ) : (
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
               <thead>
                 <tr style={{ borderBottom: '1px solid #333' }}>
                   <th style={thS}>Proyecto</th>
+                  <th style={{ ...thS, textAlign: 'center', width: 40 }}>$</th>
                   <th style={{ ...thS, ...thRight }}>Total Vendido</th>
                   <th style={{ ...thS, ...thRight }}>Total Cobrado</th>
                   <th style={{ ...thS, textAlign: 'center' }}>% Cobro</th>
@@ -642,43 +671,53 @@ export default function Finanzas() {
                 </tr>
               </thead>
               <tbody>
-                {leadsFinancieros.map(l => (
-                  <tr key={l.id} style={{ borderBottom: '1px solid #1a1a1a' }}>
-                    <td style={tdS}>
-                      <div style={{ fontWeight: 500, color: '#fff' }}>{l.name}</div>
-                      <div style={{ fontSize: 10, color: '#555' }}>{l.company} · {l.projectCount} proy · {l.quotCount} cot</div>
-                    </td>
-                    <td style={{ ...tdS, ...tdRight, color: '#57FF9A', fontWeight: 600 }}>{F(l.totalVendido)}</td>
-                    <td style={{ ...tdS, ...tdRight, color: l.totalCobrado > 0 ? '#57FF9A' : '#555' }}>{F(l.totalCobrado)}</td>
-                    <td style={{ ...tdS, textAlign: 'center' }}>
-                      <MiniProgress pct={l.pctCobro} color="#57FF9A" />
-                    </td>
-                    <td style={{ ...tdS, ...tdRight, color: l.totalCompras > 0 ? '#3B82F6' : '#555' }}>{F(l.totalCompras)}</td>
-                    <td style={{ ...tdS, ...tdRight, color: l.totalComprado > 0 ? '#F59E0B' : '#555' }}>{F(l.totalComprado)}</td>
-                    <td style={{ ...tdS, textAlign: 'center' }}>
-                      <MiniProgress pct={l.pctCompras} color="#3B82F6" />
-                    </td>
-                    <td style={{ ...tdS, ...tdRight, color: l.porComprar > 0 ? '#F59E0B' : '#555' }}>{F(l.porComprar)}</td>
-                    <td style={{ ...tdS, ...tdRight, color: l.porCobrar > 0 ? '#EF4444' : '#57FF9A', fontWeight: l.porCobrar > 0 ? 600 : 400 }}>{F(l.porCobrar)}</td>
-                  </tr>
-                ))}
-                {/* Totals row */}
+                {leadsFinancieros.map(l => {
+                  const sym = l.moneda === 'USD' ? 'US$' : '$'
+                  const Fm = (n: number) => sym + n.toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 0 })
+                  return (
+                    <tr key={l.id} style={{ borderBottom: '1px solid #1a1a1a' }}>
+                      <td style={tdS}>
+                        <div style={{ fontWeight: 500, color: '#fff' }}>{l.name}</div>
+                        <div style={{ fontSize: 10, color: '#555' }}>{l.company} · {l.projectCount} proy · {l.quotCount} cot</div>
+                      </td>
+                      <td style={{ ...tdS, textAlign: 'center' }}>
+                        <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 4, fontWeight: 600, background: l.moneda === 'USD' ? '#3B82F620' : '#57FF9A20', color: l.moneda === 'USD' ? '#3B82F6' : '#57FF9A' }}>{l.moneda}</span>
+                      </td>
+                      <td style={{ ...tdS, ...tdRight, color: '#57FF9A', fontWeight: 600 }}>{Fm(l.totalVendido)}</td>
+                      <td style={{ ...tdS, ...tdRight, color: l.totalCobrado > 0 ? '#57FF9A' : '#555' }}>{Fm(l.totalCobrado)}</td>
+                      <td style={{ ...tdS, textAlign: 'center' }}>
+                        <MiniProgress pct={l.pctCobro} color="#57FF9A" />
+                      </td>
+                      <td style={{ ...tdS, ...tdRight, color: l.totalCompras > 0 ? '#3B82F6' : '#555' }}>{Fm(l.totalCompras)}</td>
+                      <td style={{ ...tdS, ...tdRight, color: l.totalComprado > 0 ? '#F59E0B' : '#555' }}>{Fm(l.totalComprado)}</td>
+                      <td style={{ ...tdS, textAlign: 'center' }}>
+                        <MiniProgress pct={l.pctCompras} color="#3B82F6" />
+                      </td>
+                      <td style={{ ...tdS, ...tdRight, color: l.porComprar > 0 ? '#F59E0B' : '#555' }}>{Fm(l.porComprar)}</td>
+                      <td style={{ ...tdS, ...tdRight, color: l.porCobrar > 0 ? '#EF4444' : '#57FF9A', fontWeight: l.porCobrar > 0 ? 600 : 400 }}>{Fm(l.porCobrar)}</td>
+                    </tr>
+                  )
+                })}
+                {/* Totals row — consolidated in MXN */}
                 <tr style={{ borderTop: '2px solid #333' }}>
-                  <td style={{ ...tdS, fontWeight: 600, color: '#888' }}>TOTAL</td>
-                  <td style={{ ...tdS, ...tdRight, fontWeight: 700, color: '#57FF9A' }}>{F(leadsFinancieros.reduce((s, l) => s + l.totalVendido, 0))}</td>
-                  <td style={{ ...tdS, ...tdRight, fontWeight: 600, color: '#57FF9A' }}>{F(leadsFinancieros.reduce((s, l) => s + l.totalCobrado, 0))}</td>
+                  <td style={{ ...tdS, fontWeight: 600, color: '#888' }}>TOTAL (MXN)</td>
+                  <td style={{ ...tdS, textAlign: 'center' }}>
+                    <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 4, fontWeight: 600, background: '#57FF9A20', color: '#57FF9A' }}>MXN</span>
+                  </td>
+                  <td style={{ ...tdS, ...tdRight, fontWeight: 700, color: '#57FF9A' }}>{F(leadsFinancieros.reduce((s, l) => s + l.totalVendidoMXN, 0))}</td>
+                  <td style={{ ...tdS, ...tdRight, fontWeight: 600, color: '#57FF9A' }}>{F(leadsFinancieros.reduce((s, l) => s + (l.moneda === 'USD' ? l.totalCobrado * tipoCambio : l.totalCobrado), 0))}</td>
                   <td style={tdS}>{' '}</td>
-                  <td style={{ ...tdS, ...tdRight, fontWeight: 600, color: '#3B82F6' }}>{F(leadsFinancieros.reduce((s, l) => s + l.totalCompras, 0))}</td>
-                  <td style={{ ...tdS, ...tdRight, fontWeight: 600, color: '#F59E0B' }}>{F(leadsFinancieros.reduce((s, l) => s + l.totalComprado, 0))}</td>
+                  <td style={{ ...tdS, ...tdRight, fontWeight: 600, color: '#3B82F6' }}>{F(leadsFinancieros.reduce((s, l) => s + (l.moneda === 'USD' ? l.totalCompras * tipoCambio : l.totalCompras), 0))}</td>
+                  <td style={{ ...tdS, ...tdRight, fontWeight: 600, color: '#F59E0B' }}>{F(leadsFinancieros.reduce((s, l) => s + (l.moneda === 'USD' ? l.totalComprado * tipoCambio : l.totalComprado), 0))}</td>
                   <td style={tdS}>{' '}</td>
-                  <td style={{ ...tdS, ...tdRight, fontWeight: 600, color: '#F59E0B' }}>{F(leadsFinancieros.reduce((s, l) => s + l.porComprar, 0))}</td>
-                  <td style={{ ...tdS, ...tdRight, fontWeight: 700, color: '#EF4444' }}>{F(leadsFinancieros.reduce((s, l) => s + l.porCobrar, 0))}</td>
+                  <td style={{ ...tdS, ...tdRight, fontWeight: 600, color: '#F59E0B' }}>{F(leadsFinancieros.reduce((s, l) => s + l.porComprarMXN, 0))}</td>
+                  <td style={{ ...tdS, ...tdRight, fontWeight: 700, color: '#EF4444' }}>{F(leadsFinancieros.reduce((s, l) => s + l.porCobrarMXN, 0))}</td>
                 </tr>
               </tbody>
             </table>
           </div>
         )}
-      </Card>
+      </div>
     </div>
   )
 }
