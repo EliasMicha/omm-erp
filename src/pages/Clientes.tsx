@@ -362,11 +362,24 @@ export default function Clientes() {
               </div>
             )}
 
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 20 }}>
-              <Btn size="sm" variant="default" onClick={() => setShowForm(false)}>Cancelar</Btn>
-              <Btn size="sm" variant="primary" onClick={save} disabled={saving}>
-                {saving ? 'Guardando...' : (editId ? 'Guardar cambios' : 'Crear cliente')}
-              </Btn>
+            <div style={{ display: 'flex', justifyContent: editId ? 'space-between' : 'flex-end', gap: 8, marginTop: 20 }}>
+              {editId && (
+                <Btn size="sm" variant="default" onClick={async () => {
+                  if (!confirm('¿Estás seguro de eliminar este cliente? Esta acción no se puede deshacer.')) return
+                  const { error } = await supabase.from('clients_fiscal').delete().eq('id', editId)
+                  if (error) { setSaveError('Error al eliminar: ' + error.message); return }
+                  setClientes(clientes.filter(c => c.id !== editId))
+                  setShowForm(false)
+                }} style={{ color: '#f87171', borderColor: '#5a2828' }}>
+                  <Trash2 size={14} style={{ marginRight: 4 }} />Eliminar
+                </Btn>
+              )}
+              <div style={{ display: 'flex', gap: 8 }}>
+                <Btn size="sm" variant="default" onClick={() => setShowForm(false)}>Cancelar</Btn>
+                <Btn size="sm" variant="primary" onClick={save} disabled={saving}>
+                  {saving ? 'Guardando...' : (editId ? 'Guardar cambios' : 'Crear cliente')}
+                </Btn>
+              </div>
             </div>
           </div>
         </div>
