@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { Badge, Btn, Table, Th, Td, Loading, SectionHeader, EmptyState } from '../components/layout/UI'
-import { Plus, X, Search, Trash2, Save, Sparkles, ArrowUpDown, ArrowUp, ArrowDown, Flame } from 'lucide-react'
+import { Plus, X, Search, Trash2, Save, Sparkles, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
 import { SPECIALTY_CONFIG } from '../lib/utils'
 import { ProjectLine } from '../types'
 
@@ -24,7 +24,10 @@ interface Lead {
   notes?: string
   estimated_value?: number
   lost_reason?: string
+  priority: Priority
 }
+
+type Priority = 'alta' | 'media' | 'baja' | 'fria'
 
 const STATUS_CFG: Record<LeadStatus, { label: string; color: string; order: number }> = {
   nuevo:       { label: 'Nuevo',       color: '#6B7280', order: 0 },
@@ -264,6 +267,7 @@ function LeadModal({ lead, onClose, onUpdated, onDeleted }: {
       contact_email: lead.contact_email || '', origin: lead.origin, status: lead.status,
       needs: lead.needs || [] as ProjectLine[], notes: lead.notes || '',
       estimated_value: lead.estimated_value?.toString() || '', lost_reason: lead.lost_reason || '',
+      priority: lead.priority || 'media' as Priority,
     }
   })
   const [saving, setSaving] = useState(false)
@@ -297,7 +301,8 @@ function LeadModal({ lead, onClose, onUpdated, onDeleted }: {
       contact_email: form.contact_email || null, origin: form.origin, status: form.status,
       needs: form.needs, notes: notesValue || null,
       estimated_value: parseFloat(form.estimated_value) || null,
-      lost_reason: form.lost_reason || null, updated_at: new Date().toISOString(),
+      lost_reason: form.lost_reason || null, priority: form.priority,
+      updated_at: new Date().toISOString(),
     }).eq('id', lead.id)
     setSaving(false)
     setDirty(false)
@@ -331,17 +336,37 @@ function LeadModal({ lead, onClose, onUpdated, onDeleted }: {
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer', padding: 4, marginLeft: 4 }}><X size={18} /></button>
         </div>
 
-        {/* Estatus rapido */}
-        <div style={{ padding: '10px 22px', borderBottom: '1px solid #1a1a1a', display: 'flex', gap: 6, flexWrap: 'wrap' as const }}>
-          {(Object.entries(STATUS_CFG) as [LeadStatus, typeof STATUS_CFG[LeadStatus]][]).map(([k, v]) => (
-            <button key={k} onClick={() => setStatus(k)} style={{
-              padding: '3px 10px', borderRadius: 20, fontSize: 11, cursor: 'pointer', fontFamily: 'inherit',
-              fontWeight: form.status === k ? 700 : 400,
-              border: `1px solid ${form.status === k ? v.color : '#2a2a2a'}`,
-              background: form.status === k ? v.color + '25' : 'transparent',
-              color: form.status === k ? v.color : '#555'
-            }}>{v.label}</button>
-          ))}
+        {/* Estatus + Prioridad rapido */}
+        <div style={{ padding: '10px 22px', borderBottom: '1px solid #1a1a1a', display: 'flex', gap: 16, flexWrap: 'wrap' as const, alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' as const, alignItems: 'center' }}>
+            <span style={{ fontSize: 9, color: '#444', textTransform: 'uppercase' as const, letterSpacing: '0.08em', fontWeight: 600 }}>Estatus</span>
+            {(Object.entries(STATUS_CFG) as [LeadStatus, typeof STATUS_CFG[LeadStatus]][]).map(([k, v]) => (
+              <button key={k} onClick={() => setStatus(k)} style={{
+                padding: '3px 10px', borderRadius: 20, fontSize: 11, cursor: 'pointer', fontFamily: 'inherit',
+                fontWeight: form.status === k ? 700 : 400,
+                border: `1px solid ${form.status === k ? v.color : '#2a2a2a'}`,
+                background: form.status === k ? v.color + '25' : 'transparent',
+                color: form.status === k ? v.color : '#555'
+              }}>{v.label}</button>
+            ))}
+          </div>
+          <div style={{ width: 1, height: 20, background: '#222' }} />
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            <span style={{ fontSize: 9, color: '#444', textTransform: 'uppercase' as const, letterSpacing: '0.08em', fontWeight: 600 }}>Prioridad</span>
+            {(Object.entries(PRIORITY_CFG) as [Priority, typeof PRIORITY_CFG[Priority]][]).map(([k, v]) => (
+              <button key={k} onClick={() => { setForm(f => ({ ...f, priority: k })); setDirty(true) }} style={{
+                padding: '3px 10px', borderRadius: 20, fontSize: 11, cursor: 'pointer', fontFamily: 'inherit',
+                fontWeight: form.priority === k ? 700 : 400,
+                border: `1px solid ${form.priority === k ? v.color : '#2a2a2a'}`,
+                background: form.priority === k ? v.color + '25' : 'transparent',
+                color: form.priority === k ? v.color : '#555',
+                display: 'inline-flex', alignItems: 'center', gap: 4,
+              }}>
+                <div style={{ width: 6, height: 6, borderRadius: '50%', background: form.priority === k ? v.color : '#333' }} />
+                {v.label}
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* Body */}
@@ -448,41 +473,14 @@ function KanbanView({ leads, onOpen }: { leads: Lead[]; onOpen: (l: Lead) => voi
   )
 }
 
-// ─── Prioridad calculada ──────────────────────────────────────────────────
-type Priority = 'alta' | 'media' | 'baja' | 'fria'
-const PRIORITY_CFG: Record<Priority, { label: string; color: string; icon: string; order: number }> = {
-  alta:  { label: 'Alta',  color: '#EF4444', icon: '🔴', order: 0 },
-  media: { label: 'Media', color: '#F59E0B', icon: '🟡', order: 1 },
-  baja:  { label: 'Baja',  color: '#3B82F6', icon: '🔵', order: 2 },
-  fria:  { label: 'Fría',  color: '#4B5563', icon: '⚪', order: 3 },
+// ─── Prioridad manual ─────────────────────────────────────────────────────
+const PRIORITY_CFG: Record<Priority, { label: string; color: string; order: number }> = {
+  alta:  { label: 'Alta',  color: '#EF4444', order: 0 },
+  media: { label: 'Media', color: '#F59E0B', order: 1 },
+  baja:  { label: 'Baja',  color: '#3B82F6', order: 2 },
+  fria:  { label: 'Fría',  color: '#4B5563', order: 3 },
 }
-
-function calcPriority(lead: Lead, qt?: { cotizado: number; vendido: number }): Priority {
-  let score = 0
-  // Valor estimado (0-40 pts)
-  const v = lead.estimated_value || 0
-  if (v >= 3000000) score += 40
-  else if (v >= 1000000) score += 30
-  else if (v >= 500000) score += 20
-  else if (v > 0) score += 10
-  // Etapa del pipeline (0-30 pts) — más avanzado = más prioridad
-  const stageScore: Record<string, number> = { cotizando: 30, diagnostico: 25, contactado: 15, nuevo: 5, ganado: 0, perdido: 0, pausado: 0 }
-  score += stageScore[lead.status] || 0
-  // Ya tiene cotización = +15
-  if (qt?.cotizado) score += 15
-  // Días sin actividad — penaliza inactividad (0-15 pts)
-  const daysSince = Math.floor((Date.now() - new Date(lead.updated_at).getTime()) / 86400000)
-  if (daysSince <= 7) score += 15
-  else if (daysSince <= 14) score += 10
-  else if (daysSince <= 30) score += 5
-  // Si está perdido/pausado siempre es fría
-  if (lead.status === 'perdido' || lead.status === 'pausado') return 'fria'
-  if (lead.status === 'ganado') return 'baja'
-  if (score >= 60) return 'alta'
-  if (score >= 35) return 'media'
-  if (score >= 15) return 'baja'
-  return 'fria'
-}
+const PRIORITY_CYCLE: Priority[] = ['alta', 'media', 'baja', 'fria']
 
 // ─── Sortable header ──────────────────────────────────────────────────────
 type SortKey = 'name' | 'company' | 'status' | 'estimated' | 'cotizado' | 'vendido' | 'priority'
@@ -508,7 +506,10 @@ function SortTh({ label, sortKey, currentKey, currentDir, onSort, right: isRight
 }
 
 // ─── Lista ─────────────────────────────────────────────────────────────────
-function ListView({ leads, onOpen, quoteTotals, displayCur, tc }: { leads: Lead[]; onOpen: (l: Lead) => void; quoteTotals: Record<string, { cotizado: number; vendido: number; cotCurrency: string }>; displayCur: string; tc: number }) {
+function ListView({ leads, onOpen, onEdit, onPriorityChange, quoteTotals, displayCur, tc }: {
+  leads: Lead[]; onOpen: (l: Lead) => void; onEdit: (l: Lead) => void; onPriorityChange: (id: string, p: Priority) => void
+  quoteTotals: Record<string, { cotizado: number; vendido: number; cotCurrency: string }>; displayCur: string; tc: number
+}) {
   const [sortKey, setSortKey] = useState<SortKey | null>('priority')
   const [sortDir, setSortDir] = useState<SortDir>('asc')
 
@@ -529,7 +530,6 @@ function ListView({ leads, onOpen, quoteTotals, displayCur, tc }: { leads: Lead[
     else { setSortKey(key); setSortDir(key === 'estimated' || key === 'cotizado' || key === 'vendido' ? 'desc' : 'asc') }
   }
 
-  // Sort leads
   const sorted = [...leads].sort((a, b) => {
     if (!sortKey) return 0
     const dir = sortDir === 'asc' ? 1 : -1
@@ -541,8 +541,8 @@ function ListView({ leads, onOpen, quoteTotals, displayCur, tc }: { leads: Lead[
       case 'cotizado': return dir * ((quoteTotals[a.id]?.cotizado || 0) - (quoteTotals[b.id]?.cotizado || 0))
       case 'vendido': return dir * ((quoteTotals[a.id]?.vendido || 0) - (quoteTotals[b.id]?.vendido || 0))
       case 'priority': {
-        const pa = PRIORITY_CFG[calcPriority(a, quoteTotals[a.id])].order
-        const pb = PRIORITY_CFG[calcPriority(b, quoteTotals[b.id])].order
+        const pa = PRIORITY_CFG[a.priority || 'media'].order
+        const pb = PRIORITY_CFG[b.priority || 'media'].order
         return dir * (pa - pb)
       }
       default: return 0
@@ -562,27 +562,28 @@ function ListView({ leads, onOpen, quoteTotals, displayCur, tc }: { leads: Lead[
           <SortTh label="Estimado" sortKey="estimated" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} right />
           <SortTh label="Cotizado" sortKey="cotizado" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} right />
           <SortTh label="Vendido" sortKey="vendido" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} right />
+          <Th>{' '}</Th>
         </tr>
       </thead>
       <tbody>
         {sorted.map(lead => {
           const sCfg = STATUS_CFG[lead.status]
           const qt = quoteTotals[lead.id]
-          const priority = calcPriority(lead, qt)
-          const pCfg = PRIORITY_CFG[priority]
+          const pCfg = PRIORITY_CFG[lead.priority || 'media']
           let clientFinal = ''
           try { const m = JSON.parse(lead.notes || '{}'); clientFinal = m.client_final || '' } catch {}
-          const daysSince = Math.floor((Date.now() - new Date(lead.updated_at).getTime()) / 86400000)
           return (
             <tr key={lead.id} onClick={() => onOpen(lead)} style={{ cursor: 'pointer' }}
               onMouseEnter={e => (e.currentTarget.style.background = '#1a1a1a')}
               onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
               <Td>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <div style={{ width: 8, height: 8, borderRadius: '50%', background: pCfg.color, flexShrink: 0 }} />
+                <button
+                  onClick={e => { e.stopPropagation(); const cur = lead.priority || 'media'; const idx = PRIORITY_CYCLE.indexOf(cur); const next = PRIORITY_CYCLE[(idx + 1) % PRIORITY_CYCLE.length]; onPriorityChange(lead.id, next) }}
+                  title="Click para cambiar prioridad"
+                  style={{ background: pCfg.color + '18', border: `1px solid ${pCfg.color}55`, borderRadius: 12, padding: '3px 10px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                  <div style={{ width: 7, height: 7, borderRadius: '50%', background: pCfg.color }} />
                   <span style={{ fontSize: 10, color: pCfg.color, fontWeight: 600 }}>{pCfg.label}</span>
-                </div>
-                {daysSince > 14 && <div style={{ fontSize: 9, color: '#EF444488', marginTop: 2 }}>{daysSince}d sin actividad</div>}
+                </button>
               </Td>
               <Td>
                 <div style={{ fontWeight: 600, color: '#e8e8e8' }}>{lead.name}</div>
@@ -598,6 +599,14 @@ function ListView({ leads, onOpen, quoteTotals, displayCur, tc }: { leads: Lead[
               <Td right><span style={{ fontWeight: 500, color: '#888' }}>{toDisplay(lead.estimated_value || 0, 'MXN')}</span></Td>
               <Td right><span style={{ fontWeight: 600, color: '#C084FC' }}>{qt?.cotizado ? toDisplay(qt.cotizado, qt.cotCurrency || 'USD') : '—'}</span></Td>
               <Td right><span style={{ fontWeight: 700, color: '#57FF9A' }}>{qt?.vendido ? toDisplay(qt.vendido, qt.cotCurrency || 'USD') : '—'}</span></Td>
+              <Td>
+                <button onClick={e => { e.stopPropagation(); onEdit(lead) }} title="Editar lead"
+                  style={{ background: 'none', border: '1px solid #2a2a2a', borderRadius: 6, padding: '4px 8px', cursor: 'pointer', color: '#555', display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10 }}
+                  onMouseEnter={e => { e.currentTarget.style.borderColor = '#57FF9A'; e.currentTarget.style.color = '#57FF9A' }}
+                  onMouseLeave={e => { e.currentTarget.style.borderColor = '#2a2a2a'; e.currentTarget.style.color = '#555' }}>
+                  <Save size={10} /> Editar
+                </button>
+              </Td>
             </tr>
           )
         })}
@@ -654,6 +663,11 @@ export default function CRM() {
   }
 
   useEffect(() => { load() }, [])
+
+  async function changePriority(id: string, p: Priority) {
+    setLeads(prev => prev.map(l => l.id === id ? { ...l, priority: p } : l))
+    await supabase.from('leads').update({ priority: p, updated_at: new Date().toISOString() }).eq('id', id)
+  }
 
   // Busqueda con AI
   async function buscarConAI() {
@@ -806,7 +820,7 @@ Devuelve solo el JSON, sin explicaciones. Si no hay filtro para un campo, omitel
       {loading ? <Loading /> : (
         viewMode === 'kanban'
           ? <KanbanView leads={filtered} onOpen={(l) => nav(`/crm/${l.id}`)} />
-          : <ListView leads={filtered} onOpen={(l) => nav(`/crm/${l.id}`)} quoteTotals={quoteTotals} displayCur={displayCur} tc={tc} />
+          : <ListView leads={filtered} onOpen={(l) => nav(`/crm/${l.id}`)} onEdit={setSelected} onPriorityChange={changePriority} quoteTotals={quoteTotals} displayCur={displayCur} tc={tc} />
       )}
 
       {/* Seccion ganados/perdidos/pausados en kanban */}
@@ -819,7 +833,7 @@ Devuelve solo el JSON, sin explicaciones. Si no hay filtro para un campo, omitel
             })}
           </div>
           {leads.filter(l => ['ganado', 'perdido', 'pausado'].includes(l.status)).length > 0 && (
-            <ListView leads={leads.filter(l => ['ganado', 'perdido', 'pausado'].includes(l.status))} onOpen={(l) => nav(`/crm/${l.id}`)} quoteTotals={quoteTotals} displayCur={displayCur} tc={tc} />
+            <ListView leads={leads.filter(l => ['ganado', 'perdido', 'pausado'].includes(l.status))} onOpen={(l) => nav(`/crm/${l.id}`)} onEdit={setSelected} onPriorityChange={changePriority} quoteTotals={quoteTotals} displayCur={displayCur} tc={tc} />
           )}
         </div>
       )}
