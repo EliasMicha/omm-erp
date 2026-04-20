@@ -103,7 +103,7 @@ function Chips({ label, options, value, onChange, colorMap }: {
 // ─── Modal Nuevo Lead ──────────────────────────────────────────────────────
 function NuevoLeadModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
   const [form, setForm] = useState({
-    name: '', company: '', client_final: '', contact_name: '', contact_phone: '', contact_email: '',
+    name: '', company: '', client_final: '', client_id: '', contact_name: '', contact_phone: '', contact_email: '',
     origin: 'inbound' as LeadOrigin, needs: [] as ProjectLine[], notes: '', estimated_value: ''
   })
   const [saving, setSaving] = useState(false)
@@ -137,7 +137,7 @@ function NuevoLeadModal({ onClose, onCreated }: { onClose: () => void; onCreated
     }).select().single()
     if (data) {
       setClientes(prev => [...prev, data])
-      setForm(f => ({ ...f, company: data.razon_social }))
+      setForm(f => ({ ...f, client_final: data.razon_social, client_id: data.id }))
       setClientSearch(data.razon_social)
     }
     setShowNewClient(false); setNewClientName(''); setNewClientRfc('')
@@ -147,7 +147,7 @@ function NuevoLeadModal({ onClose, onCreated }: { onClose: () => void; onCreated
     if (!form.name.trim()) { setError('El nombre es requerido'); return }
     setSaving(true); setError('')
     const notesData = form.notes || ''
-    const notesWithClient = form.client_final ? JSON.stringify({ client_final: form.client_final, text: notesData }) : notesData
+    const notesWithClient = (form.client_final || form.client_id) ? JSON.stringify({ client_final: form.client_final, client_id: form.client_id || '', text: notesData }) : notesData
     const { error: err } = await supabase.from('leads').insert({
       name: form.name.trim(), company: form.company || null,
       contact_name: form.contact_name || null, contact_phone: form.contact_phone || null,
@@ -183,7 +183,7 @@ function NuevoLeadModal({ onClose, onCreated }: { onClose: () => void; onCreated
             Cliente Final (quien paga / factura)
             <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
               <div style={{ position: 'relative' as const, flex: 1 }}>
-                <input value={clientSearch} onChange={e => { setClientSearch(e.target.value); setForm(f => ({ ...f, client_final: e.target.value })) }}
+                <input value={clientSearch} onChange={e => { setClientSearch(e.target.value); setForm(f => ({ ...f, client_final: e.target.value, client_id: '' })) }}
                   onFocus={() => setShowClientDrop(true)}
                   onBlur={() => setTimeout(() => setShowClientDrop(false), 200)}
                   placeholder="Buscar cliente fiscal..."
@@ -194,7 +194,7 @@ function NuevoLeadModal({ onClose, onCreated }: { onClose: () => void; onCreated
                       <div style={{ padding: '10px', fontSize: 11, color: '#555', textAlign: 'center' }}>Sin resultados — usa "+ Nuevo" para crear</div>
                     ) : filteredClientes.map(c => (
                       <div key={c.id} onMouseDown={e => e.preventDefault()}
-                        onClick={() => { setForm(f => ({ ...f, company: c.razon_social })); setClientSearch(c.razon_social); setShowClientDrop(false) }}
+                        onClick={() => { setForm(f => ({ ...f, client_final: c.razon_social, client_id: c.id })); setClientSearch(c.razon_social); setShowClientDrop(false) }}
                         style={{ padding: '8px 10px', cursor: 'pointer', fontSize: 12, color: '#ccc', borderBottom: '1px solid #222' }}
                         onMouseEnter={e => { e.currentTarget.style.background = '#222' }}
                         onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}>
@@ -259,10 +259,10 @@ function LeadModal({ lead, onClose, onUpdated, onDeleted }: {
   lead: Lead; onClose: () => void; onUpdated: () => void; onDeleted: () => void
 }) {
   const [form, setForm] = useState(() => {
-    let client_final = ''
-    try { const m = JSON.parse(lead.notes || '{}'); client_final = m.client_final || '' } catch {}
+    let client_final = '', client_id = ''
+    try { const m = JSON.parse(lead.notes || '{}'); client_final = m.client_final || ''; client_id = m.client_id || '' } catch {}
     return {
-      name: lead.name, company: lead.company || '', client_final,
+      name: lead.name, company: lead.company || '', client_final, client_id,
       contact_name: lead.contact_name || '', contact_phone: lead.contact_phone || '',
       contact_email: lead.contact_email || '', origin: lead.origin, status: lead.status,
       needs: lead.needs || [] as ProjectLine[], notes: lead.notes || '',
@@ -274,6 +274,37 @@ function LeadModal({ lead, onClose, onUpdated, onDeleted }: {
   const [deleting, setDeleting] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [dirty, setDirty] = useState(false)
+  const [clientes, setClientes] = useState<Array<{ id: string; razon_social: string; rfc: string }>>([])
+  const [clientSearch, setClientSearch] = useState(form.client_final || '')
+  const [showClientDrop, setShowClientDrop] = useState(false)
+  const [showNewClient, setShowNewClient] = useState(false)
+  const [newClientName, setNewClientName] = useState('')
+  const [newClientRfc, setNewClientRfc] = useState('')
+
+  useEffect(() => {
+    supabase.from('clientes').select('id,razon_social,rfc').neq('activo', false).order('razon_social')
+      .then(({ data }) => setClientes(data || []))
+  }, [])
+
+  const filteredClientes = clientSearch.length >= 1
+    ? clientes.filter(c => c.razon_social.toLowerCase().includes(clientSearch.toLowerCase()) || c.rfc.toLowerCase().includes(clientSearch.toLowerCase())).slice(0, 10)
+    : clientes.slice(0, 10)
+
+  async function crearClienteInline() {
+    if (!newClientName.trim()) return
+    const { data } = await supabase.from('clientes').insert({
+      razon_social: newClientName.trim(), rfc: newClientRfc.trim() || 'XAXX010101000',
+      regimen_fiscal: '601', regimen_fiscal_clave: '601', codigo_postal: '00000',
+      uso_cfdi: 'G03', uso_cfdi_clave: 'G03', tipo_persona: 'moral', activo: true,
+    }).select().single()
+    if (data) {
+      setClientes(prev => [...prev, data])
+      setForm(f => ({ ...f, client_final: data.razon_social, client_id: data.id }))
+      setClientSearch(data.razon_social)
+      setDirty(true)
+    }
+    setShowNewClient(false); setNewClientName(''); setNewClientRfc('')
+  }
 
   const s = (k: string) => (v: string) => { setForm(f => ({ ...f, [k]: v })); setDirty(true) }
   const toggleNeed = (n: ProjectLine) => {
@@ -284,16 +315,15 @@ function LeadModal({ lead, onClose, onUpdated, onDeleted }: {
 
   async function guardar() {
     setSaving(true)
-    // Merge client_final into notes
+    // Merge client_final + client_id into notes
     let notesValue = form.notes || ''
-    if (form.client_final) {
-      try {
-        const existing = JSON.parse(notesValue || '{}')
-        existing.client_final = form.client_final
-        notesValue = JSON.stringify(existing)
-      } catch {
-        notesValue = JSON.stringify({ client_final: form.client_final, text: notesValue })
-      }
+    try {
+      const existing = JSON.parse(notesValue || '{}')
+      if (form.client_final) existing.client_final = form.client_final
+      if (form.client_id) existing.client_id = form.client_id
+      notesValue = JSON.stringify(existing)
+    } catch {
+      notesValue = JSON.stringify({ client_final: form.client_final || '', client_id: form.client_id || '', text: notesValue })
     }
     await supabase.from('leads').update({
       name: form.name, company: form.company || null,
@@ -374,7 +404,55 @@ function LeadModal({ lead, onClose, onUpdated, onDeleted }: {
           <div style={{ display: 'grid', gap: 14 }}>
             <Field label="Nombre / Proyecto" value={form.name} onChange={s('name')} />
             <Field label="Arquitecto / Despacho" value={form.company} onChange={s('company')} placeholder="ej. Niz+Chauvet Arquitectos" />
-            <Field label="Cliente Final (quien paga)" value={form.client_final || ''} onChange={s('client_final')} placeholder="ej. Grupo Desarrollador XYZ" />
+            {/* Cliente Final (quien paga/factura) with dropdown */}
+            <label style={{ fontSize: 11, color: '#555', textTransform: 'uppercase' as const, letterSpacing: '0.06em' }}>
+              Cliente Final (quien paga / factura)
+              <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
+                <div style={{ position: 'relative' as const, flex: 1 }}>
+                  <input value={clientSearch} onChange={e => { setClientSearch(e.target.value); setForm(f => ({ ...f, client_final: e.target.value, client_id: '' })); setDirty(true) }}
+                    onFocus={() => setShowClientDrop(true)}
+                    onBlur={() => setTimeout(() => setShowClientDrop(false), 200)}
+                    placeholder="Buscar cliente fiscal..."
+                    style={{ width: '100%', padding: '8px 10px', background: '#1e1e1e', border: '1px solid ' + (showClientDrop ? '#57FF9A' : '#333'), borderRadius: 8, color: '#fff', fontSize: 13, fontFamily: 'inherit', boxSizing: 'border-box' as const }} />
+                  {showClientDrop && (
+                    <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#1a1a1a', border: '1px solid #333', borderRadius: 8, marginTop: 2, maxHeight: 180, overflowY: 'auto', zIndex: 10 }}>
+                      {filteredClientes.length === 0 ? (
+                        <div style={{ padding: '10px', fontSize: 11, color: '#555', textAlign: 'center' }}>Sin resultados — usa "+ Nuevo" para crear</div>
+                      ) : filteredClientes.map(c => (
+                        <div key={c.id} onMouseDown={e => e.preventDefault()}
+                          onClick={() => { setForm(f => ({ ...f, client_final: c.razon_social, client_id: c.id })); setClientSearch(c.razon_social); setShowClientDrop(false); setDirty(true) }}
+                          style={{ padding: '8px 10px', cursor: 'pointer', fontSize: 12, color: '#ccc', borderBottom: '1px solid #222' }}
+                          onMouseEnter={e => { e.currentTarget.style.background = '#222' }}
+                          onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}>
+                          <div style={{ fontWeight: 500 }}>{c.razon_social}</div>
+                          <div style={{ fontSize: 10, color: '#555' }}>{c.rfc}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <Btn size="sm" onClick={() => setShowNewClient(true)}>+ Nuevo</Btn>
+              </div>
+              {showNewClient && (
+                <div style={{ marginTop: 8, padding: 10, background: '#0e0e0e', border: '1px solid #222', borderRadius: 8 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 8 }}>
+                    <input value={newClientName} onChange={e => setNewClientName(e.target.value)} placeholder="Razón social"
+                      style={{ padding: '6px 8px', background: '#1a1a1a', border: '1px solid #333', borderRadius: 6, color: '#fff', fontSize: 12, fontFamily: 'inherit' }} />
+                    <input value={newClientRfc} onChange={e => setNewClientRfc(e.target.value)} placeholder="RFC"
+                      style={{ padding: '6px 8px', background: '#1a1a1a', border: '1px solid #333', borderRadius: 6, color: '#fff', fontSize: 12, fontFamily: 'inherit' }} />
+                  </div>
+                  <div style={{ display: 'flex', gap: 6, marginTop: 6, justifyContent: 'flex-end' }}>
+                    <Btn size="sm" onClick={() => setShowNewClient(false)}>Cancelar</Btn>
+                    <Btn size="sm" variant="primary" onClick={crearClienteInline}>Crear cliente</Btn>
+                  </div>
+                </div>
+              )}
+              {form.client_id && (
+                <div style={{ marginTop: 6, padding: '6px 10px', background: '#0e1a0e', border: '1px solid #1a3a1a', borderRadius: 6, fontSize: 11, color: '#57FF9A', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <CheckCircle size={12} /> Vinculado a cliente fiscal
+                </div>
+              )}
+            </label>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               <Field label="Contacto" value={form.contact_name} onChange={s('contact_name')} />
               <Field label="Telefono" value={form.contact_phone} onChange={s('contact_phone')} />
