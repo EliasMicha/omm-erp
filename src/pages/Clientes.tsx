@@ -366,7 +366,7 @@ export default function Clientes() {
               {editId && (
                 <Btn size="sm" variant="default" onClick={async () => {
                   if (!confirm('¿Estás seguro de eliminar este cliente? Esta acción no se puede deshacer.')) return
-                  const { error } = await supabase.from('clients_fiscal').delete().eq('id', editId)
+                  const { error } = await supabase.from('clientes').delete().eq('id', editId)
                   if (error) { setSaveError('Error al eliminar: ' + error.message); return }
                   setClientes(clientes.filter(c => c.id !== editId))
                   setShowForm(false)
