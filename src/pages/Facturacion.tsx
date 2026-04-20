@@ -518,7 +518,9 @@ function ListaTodas() {
           }
         } catch { errEmit++ }
       }
-      if (r.data.data.length < 50) break
+      // Use total_pages from API response for reliable pagination
+      const totalPages = r.data.total_pages || 1
+      if (page >= totalPages) break
       page++
     }
 
@@ -579,7 +581,8 @@ function ListaTodas() {
           }
         } catch { errRec++ }
       }
-      if (r.data.data.length < 50) break
+      const totalPagesRec = r.data.total_pages || 1
+      if (page >= totalPagesRec) break
       page++
     }
 
@@ -873,7 +876,8 @@ function ListaEmitidas({ onNueva }: { onNueva: () => void }) {
           }
         } catch { totalErrors++ }
       }
-      if (r.data.data.length < 50) break
+      const tp = r.data.total_pages || 1
+      if (page >= tp) break
       page++
     }
     await load()
@@ -2277,8 +2281,9 @@ function ListaRecibidas() {
           totalErrors++
         }
       }
-      // Si la pagina no estaba llena, ya terminamos
-      if (r.data.data.length < 50) break
+      // Use total_pages for reliable pagination
+      const tpR = r.data.total_pages || 1
+      if (page >= tpR) break
       page++
     }
     await load()
