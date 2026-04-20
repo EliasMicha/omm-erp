@@ -463,6 +463,41 @@ export default function TabPeriodos() {
     return { totalSueldo, totalTransf, totalEfectivo, totalCaja, totalHE, totalBonos }
   }, [mergedItems])
 
+  /* ── Toggle efectivo pagado → auto-insert/delete cash_movement ── */
+  async function toggleEfectivoPagado(item: any) {
+    const newVal = !item.efectivo_pagado
+    const empName = item._emp?.nombre || 'Empleado'
+    const periodLabel = period ? `${viewMode === 'semanal' ? 'Semana' : 'Quincena'} ${fmtDateLabel(range.start)}` : 'Nómina'
+
+    // Update payroll_items
+    await supabase.from('payroll_items').update({ efectivo_pagado: newVal }).eq('id', item.id)
+
+    if (newVal) {
+      // Insert cash_movement
+      await supabase.from('cash_movements').insert({
+        tipo: 'nomina_efectivo',
+        direccion: 'egreso',
+        persona: empName,
+        concepto: `${periodLabel} - efectivo`,
+        monto: item._totalEfectivo,
+        fecha: new Date().toISOString().slice(0, 10),
+        payroll_item_id: item.id,
+      })
+    } else {
+      // Remove cash_movement
+      await supabase.from('cash_movements').delete().eq('payroll_item_id', item.id)
+    }
+
+    // Refresh local state
+    setItems(prev => prev.map(i => i.id === item.id ? { ...i, efectivo_pagado: newVal } : i))
+  }
+
+  async function toggleTransferencia(item: any) {
+    const newVal = !item.conciliado_transferencia
+    await supabase.from('payroll_items').update({ conciliado_transferencia: newVal }).eq('id', item.id)
+    setItems(prev => prev.map(i => i.id === item.id ? { ...i, conciliado_transferencia: newVal } : i))
+  }
+
   const isClosed = period?.estatus === 'cerrado'
   const hasDirty = Object.keys(dirty).length > 0
   const isCurrentPeriod = fmtDate(range.start) <= fmtDate(new Date()) && fmtDate(new Date()) <= fmtDate(range.end)
@@ -706,18 +741,21 @@ export default function TabPeriodos() {
                         </Td>
                         <Td>
                           <div style={{ display: 'flex', gap: 4 }}>
-                            {item.conciliado_transferencia && (
-                              <span title="Transferencia conciliada" style={{ color: '#60a5fa' }}>
-                                <CheckCircle2 size={14} />
+                            {item.neto_a_pagar_cfdi > 0 && (
+                              <span title="Transferencia conciliada" style={{ color: item.conciliado_transferencia ? '#60a5fa' : '#444', cursor: 'pointer' }}
+                                onClick={() => toggleTransferencia(item)}>
+                                <Banknote size={14} />
                               </span>
                             )}
-                            {item.efectivo_pagado && (
-                              <span title="Efectivo pagado" style={{ color: '#57FF9A' }}>
-                                <CheckCircle2 size={14} />
+                            {item._totalEfectivo > 0 && (
+                              <span title={item.efectivo_pagado ? 'Efectivo pagado ✓' : 'Marcar efectivo como pagado'}
+                                style={{ color: item.efectivo_pagado ? '#57FF9A' : '#444', cursor: 'pointer' }}
+                                onClick={() => toggleEfectivoPagado(item)}>
+                                <DollarSign size={14} />
                               </span>
                             )}
-                            {!item.conciliado_transferencia && !item.efectivo_pagado && (
-                              <span title="Pendiente" style={{ color: '#666' }}>
+                            {!item.conciliado_transferencia && !item.efectivo_pagado && item.neto_a_pagar_cfdi === 0 && item._totalEfectivo === 0 && (
+                              <span title="Sin montos" style={{ color: '#333' }}>
                                 <AlertCircle size={14} />
                               </span>
                             )}

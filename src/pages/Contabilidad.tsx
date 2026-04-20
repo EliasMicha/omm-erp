@@ -184,14 +184,7 @@ const MOCK_INVOICES: Invoice[] = [
   { id: '6', direccion: 'recibida', serie: '', folio: 'B-892', tipo_comprobante: 'I', receptor_nombre: 'OMM Technologies', emisor_nombre: 'Ferreteria Diaz', total: 8200, estado: 'timbrada', fecha_emision: '2026-03-30', proyecto_nombre: 'Pachuca', conciliada: false },
 ]
 
-const MOCK_CASH: CashMovement[] = [
-  { id: '1', tipo: 'cobro_cliente', direccion: 'ingreso', persona: 'Alex Niz', concepto: 'Pago parcial obra Oasis', monto: 50000, fecha: '2026-03-29', proyecto_nombre: 'Oasis' },
-  { id: '2', tipo: 'cobro_cliente', direccion: 'ingreso', persona: 'Grupo Inmobiliario', concepto: 'Adelanto Reforma', monto: 85000, fecha: '2026-04-01', proyecto_nombre: 'Reforma 222' },
-  { id: '3', tipo: 'pago_proveedor', direccion: 'egreso', persona: 'Ferreteria Diaz', concepto: 'Material menor', monto: 8500, fecha: '2026-04-01', proyecto_nombre: 'Pachuca' },
-  { id: '4', tipo: 'nomina_efectivo', direccion: 'egreso', persona: 'Ricardo Flores', concepto: 'Semana 14 efectivo', monto: 12000, fecha: '2026-04-02' },
-  { id: '5', tipo: 'nomina_efectivo', direccion: 'egreso', persona: 'Juan Pablo', concepto: 'Semana 14 efectivo', monto: 12000, fecha: '2026-04-02' },
-  { id: '6', tipo: 'nomina_efectivo', direccion: 'egreso', persona: 'Alfredo Rosas', concepto: 'Semana 14 efectivo', monto: 12000, fecha: '2026-03-31' },
-]
+// cash_movements now loaded from Supabase in TabEfectivo
 
 const MOCK_SALES: Sale[] = [
   { id: '1', referencia: 'COT-2024-045', cliente_nombre: 'Alex Niz', proyecto_nombre: 'Oasis', monto_total: 490000, monto_cobrado_total: 200000, monto_facturado: 290000, monto_pendiente: 290000, porcentaje_cobrado: 41 },
@@ -2434,13 +2427,30 @@ function TabSupervision({ invoices }: { invoices: Invoice[] }) {
 /* --------- Tab 4: Movimientos de Efectivo --------------------------------------------------------------------------------------------- */
 
 function TabEfectivo() {
-  const cobros = MOCK_CASH.filter(m => m.tipo === 'cobro_cliente')
-  const pagos = MOCK_CASH.filter(m => m.tipo === 'pago_proveedor')
-  const nomina = MOCK_CASH.filter(m => m.tipo === 'nomina_efectivo')
+  const [movements, setMovements] = useState<CashMovement[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    async function load() {
+      const { data } = await supabase.from('cash_movements').select('*').order('fecha', { ascending: false })
+      setMovements((data || []).map((m: any) => ({
+        id: m.id, tipo: m.tipo, direccion: m.direccion, persona: m.persona,
+        concepto: m.concepto, monto: Number(m.monto), fecha: m.fecha, proyecto_nombre: m.proyecto_nombre,
+      })))
+      setLoading(false)
+    }
+    load()
+  }, [])
+
+  const cobros = movements.filter(m => m.tipo === 'cobro_cliente')
+  const pagos = movements.filter(m => m.tipo === 'pago_proveedor')
+  const nomina = movements.filter(m => m.tipo === 'nomina_efectivo')
 
   const totalCobros = cobros.reduce((s, m) => s + m.monto, 0)
   const totalPagos = pagos.reduce((s, m) => s + m.monto, 0)
   const totalNomina = nomina.reduce((s, m) => s + m.monto, 0)
+
+  if (loading) return <div style={{ textAlign: 'center', padding: 40, color: '#666' }}>Cargando movimientos...</div>
 
   return (
     <div>
@@ -2459,40 +2469,44 @@ function TabEfectivo() {
         <Btn size="sm" variant="primary"><Plus size={12} /> Registrar movimiento</Btn>
       </div>
 
-      <Table>
-        <thead>
-          <tr>
-            <Th>Fecha</Th>
-            <Th>Tipo</Th>
-            <Th>Persona</Th>
-            <Th>Concepto</Th>
-            <Th>Proyecto</Th>
-            <Th right>Monto</Th>
-          </tr>
-        </thead>
-        <tbody>
-          {MOCK_CASH.map(m => (
-            <tr key={m.id}>
-              <Td muted>{formatDate(m.fecha)}</Td>
-              <Td>
-                <Badge
-                  label={m.tipo === 'cobro_cliente' ? 'Cobro' : m.tipo === 'pago_proveedor' ? 'Pago' : 'Nomina'}
-                  color={m.tipo === 'cobro_cliente' ? '#57FF9A' : m.tipo === 'pago_proveedor' ? '#F59E0B' : '#C084FC'}
-                />
-              </Td>
-              <Td><span style={{ color: '#fff', fontWeight: 500 }}>{m.persona}</span></Td>
-              <Td muted>{m.concepto}</Td>
-              <Td muted>{m.proyecto_nombre || '—'}</Td>
-              <Td right style={{
-                fontWeight: 600,
-                color: m.direccion === 'ingreso' ? '#57FF9A' : '#ccc',
-              }}>
-                {m.direccion === 'ingreso' ? '+' : '-'}{F(m.monto)}
-              </Td>
+      {movements.length === 0 ? (
+        <EmptyState message="Sin movimientos de efectivo. Marca pagos de nómina como pagados para verlos aquí." />
+      ) : (
+        <Table>
+          <thead>
+            <tr>
+              <Th>Fecha</Th>
+              <Th>Tipo</Th>
+              <Th>Persona</Th>
+              <Th>Concepto</Th>
+              <Th>Proyecto</Th>
+              <Th right>Monto</Th>
             </tr>
-          ))}
-        </tbody>
-      </Table>
+          </thead>
+          <tbody>
+            {movements.map(m => (
+              <tr key={m.id}>
+                <Td muted>{formatDate(m.fecha)}</Td>
+                <Td>
+                  <Badge
+                    label={m.tipo === 'cobro_cliente' ? 'Cobro' : m.tipo === 'pago_proveedor' ? 'Pago' : 'Nomina'}
+                    color={m.tipo === 'cobro_cliente' ? '#57FF9A' : m.tipo === 'pago_proveedor' ? '#F59E0B' : '#C084FC'}
+                  />
+                </Td>
+                <Td><span style={{ color: '#fff', fontWeight: 500 }}>{m.persona}</span></Td>
+                <Td muted>{m.concepto}</Td>
+                <Td muted>{m.proyecto_nombre || '—'}</Td>
+                <Td right style={{
+                  fontWeight: 600,
+                  color: m.direccion === 'ingreso' ? '#57FF9A' : '#ccc',
+                }}>
+                  {m.direccion === 'ingreso' ? '+' : '-'}{F(m.monto)}
+                </Td>
+              </tr>
+            ))}
+          </tbody>
+        </Table>
+      )}
     </div>
   )
 }
