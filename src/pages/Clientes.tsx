@@ -8,6 +8,7 @@ import { ANTHROPIC_API_KEY } from '../lib/config'
 interface ClienteFiscal {
   id: string
   rfc: string
+  nombre_comercial: string
   razon_social: string
   regimen_fiscal: string
   regimen_fiscal_clave: string
@@ -99,7 +100,8 @@ export default function Clientes() {
 
   const filtered = clientes.filter(c =>
     c.razon_social.toLowerCase().includes(search.toLowerCase()) ||
-    c.rfc.toLowerCase().includes(search.toLowerCase())
+    c.rfc.toLowerCase().includes(search.toLowerCase()) ||
+    (c.nombre_comercial || '').toLowerCase().includes(search.toLowerCase())
   )
 
   const openNew = () => {
@@ -127,6 +129,7 @@ export default function Clientes() {
     const uso = USOS_CFDI.find(u => u.clave === form.uso_cfdi_clave)
     const payload = {
       rfc: (form.rfc || '').toUpperCase(),
+      nombre_comercial: form.nombre_comercial || '',
       razon_social: form.razon_social || '',
       regimen_fiscal: reg?.desc || '',
       regimen_fiscal_clave: form.regimen_fiscal_clave || '601',
@@ -275,12 +278,13 @@ export default function Clientes() {
       </div>
 
       <Table>
-        <thead><tr><Th>RFC</Th><Th>Razon Social</Th><Th>Regimen</Th><Th>C.P.</Th><Th>Uso CFDI</Th><Th>Tipo</Th><Th>{' '}</Th></tr></thead>
+        <thead><tr><Th>RFC</Th><Th>Nombre Comercial</Th><Th>Razon Social</Th><Th>Regimen</Th><Th>C.P.</Th><Th>Uso CFDI</Th><Th>Tipo</Th><Th>{' '}</Th></tr></thead>
         <tbody>
-          {filtered.length === 0 && <tr><Td colSpan={7} muted>Sin clientes</Td></tr>}
+          {filtered.length === 0 && <tr><Td colSpan={8} muted>Sin clientes</Td></tr>}
           {filtered.map(c => (
             <tr key={c.id} style={{ cursor: 'pointer' }} onClick={() => openEdit(c)}>
               <Td><span style={{ fontWeight: 600, color: '#fff', fontFamily: 'monospace', fontSize: 12 }}>{c.rfc}</span></Td>
+              <Td><span style={{ color: '#57FF9A', fontWeight: 500 }}>{c.nombre_comercial || '—'}</span></Td>
               <Td><span style={{ color: '#ccc' }}>{c.razon_social}</span></Td>
               <Td muted style={{ fontSize: 11 }}>{c.regimen_fiscal_clave ? `${c.regimen_fiscal_clave} - ${(c.regimen_fiscal || '').substring(0, 30)}` : '—'}</Td>
               <Td muted>{c.codigo_postal || '—'}</Td>
@@ -300,7 +304,9 @@ export default function Clientes() {
               <button onClick={() => setShowForm(false)} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer' }}><X size={18} /></button>
             </div>
 
-            <div style={{ fontSize: 13, fontWeight: 600, color: '#57FF9A', marginBottom: 12 }}>Datos Fiscales (Constancia de Situacion Fiscal)</div>
+            <Fld label="Nombre Comercial"><input style={iS} value={form.nombre_comercial || ''} onChange={e => setForm({...form, nombre_comercial: e.target.value})} placeholder="ej. Grupo Salsa, Arktres, etc." /></Fld>
+
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#57FF9A', marginTop: 16, marginBottom: 12 }}>Datos Fiscales (Constancia de Situacion Fiscal)</div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
               <Fld label="RFC *"><input style={iS} value={form.rfc || ''} onChange={e => setForm({...form, rfc: e.target.value.toUpperCase()})} placeholder="XAXX010101000" maxLength={13} /></Fld>
