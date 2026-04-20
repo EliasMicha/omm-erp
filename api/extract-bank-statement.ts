@@ -6,7 +6,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node'
 
 // Permitir hasta 60s de ejecución (default de Vercel es 10s, insuficiente con retries + PDF grande)
 export const config = {
-  maxDuration: 60,
+  maxDuration: 120,
 }
 
 const TXT_TABULAR_PROMPT = `Eres un experto contable mexicano especializado en estados de cuenta BBVA.
@@ -362,7 +362,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       ]
     } else if (kind === 'txt-tabular') {
       const ultimaFechaStr = ultima_fecha_importada ? '\n\nULTIMA_FECHA_IMPORTADA: ' + ultima_fecha_importada + ' (ignora movimientos con fecha <= a esta)' : ''
-      content = [{ type: 'text', text: TXT_TABULAR_PROMPT + ultimaFechaStr + '\n\nTSV A PROCESAR:\n' + payload.substring(0, 80000) }]
+      content = [{ type: 'text', text: TXT_TABULAR_PROMPT + ultimaFechaStr + '\n\nTSV A PROCESAR:\n' + payload.substring(0, 120000) }]
     } else if (kind === 'text') {
       content = [{ type: 'text', text: SYSTEM_PROMPT + '\n\nESTADO DE CUENTA:\n' + payload.substring(0, 60000) }]
     } else {

@@ -1658,41 +1658,72 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
     return sorted[0].fecha
   }
 
-  /* --- Conciliacion v2: procesar TXT pegado --- */
+  /* --- Conciliacion v2: procesar TXT pegado (con chunking) --- */
   const handleTxtProcess = async () => {
     if (!showTxtModal) return
     if (!txtPayload.trim()) { setStatus('Pega el TXT antes de procesar'); return }
     const accountId = showTxtModal as AccountId
     const acc = ACCOUNTS[accountId]
     const ultimaFecha = getUltimaFechaCuenta(accountId)
-    setProcessing(true); setStatus('Procesando TXT con AI...')
-    try {
-      const response = await fetch('/api/extract-bank-statement', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          kind: 'txt-tabular',
-          payload: txtPayload,
-          ultima_fecha_importada: ultimaFecha,
-        }),
-      })
-      if (!response.ok) {
-        const errData = await response.json().catch(() => ({}))
-        setStatus('Error: ' + (errData.error || String(response.status)))
+    setProcessing(true)
+
+    // Split into lines and chunk to avoid 504 timeouts
+    const allLines = txtPayload.trim().split('\n')
+    // Detect if first line is a header (contains "Día" or "Concepto" or "Saldo")
+    const firstLine = allLines[0] || ''
+    const hasHeader = /d[ií]a|concepto|saldo/i.test(firstLine)
+    const header = hasHeader ? allLines[0] : ''
+    const dataLines = hasHeader ? allLines.slice(1) : allLines
+
+    const CHUNK_SIZE = 120 // lines per chunk — safe for <30s processing
+    const chunks: string[][] = []
+    for (let i = 0; i < dataLines.length; i += CHUNK_SIZE) {
+      chunks.push(dataLines.slice(i, i + CHUNK_SIZE))
+    }
+
+    if (chunks.length === 0) { setStatus('No hay datos para procesar'); setProcessing(false); return }
+
+    let allMovements: any[] = []
+    let allWarnings: string[] = []
+    let lastTotals: any = null
+    let lastPeriodo: any = null
+
+    for (let ci = 0; ci < chunks.length; ci++) {
+      setStatus(`Procesando bloque ${ci + 1} de ${chunks.length}...`)
+      const chunkText = (header ? header + '\n' : '') + chunks[ci].join('\n')
+      try {
+        const response = await fetch('/api/extract-bank-statement', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            kind: 'txt-tabular',
+            payload: chunkText,
+            ultima_fecha_importada: ultimaFecha,
+          }),
+        })
+        if (!response.ok) {
+          const errData = await response.json().catch(() => ({}))
+          setStatus(`Error en bloque ${ci + 1}: ` + (errData.error || String(response.status)))
+          setProcessing(false); return
+        }
+        const data = await response.json()
+        if (!data.ok) { setStatus(`Error en bloque ${ci + 1}: ` + (data.error || 'sin respuesta')); setProcessing(false); return }
+        const movs: any[] = Array.isArray(data.movements) ? data.movements : []
+        allMovements = allMovements.concat(movs)
+        if (data.warnings) allWarnings = allWarnings.concat(data.warnings)
+        if (data.totals_check) lastTotals = data.totals_check
+        if (data.periodo) lastPeriodo = data.periodo
+      } catch (err) {
+        setStatus(`Error en bloque ${ci + 1}: ` + (err as Error).message)
         setProcessing(false); return
       }
-      const data = await response.json()
-      if (!data.ok) { setStatus('Error: ' + (data.error || 'sin respuesta')); setProcessing(false); return }
-      setLastCheck(data.totals_check || null)
-      const movements: any[] = Array.isArray(data.movements) ? data.movements : []
-      if (movements.length === 0) { setStatus('No se encontraron movimientos nuevos'); setProcessing(false); return }
-      // Preview antes de insertar
-      setTxtPreview(movements)
-      setTxtSummary({ totals_check: data.totals_check, warnings: data.warnings, periodo: data.periodo })
-      setStatus('Preview listo: ' + movements.length + ' movimientos')
-    } catch (err) {
-      setStatus('Error: ' + (err as Error).message)
     }
+
+    if (allMovements.length === 0) { setStatus('No se encontraron movimientos nuevos'); setProcessing(false); return }
+    setLastCheck(lastTotals)
+    setTxtPreview(allMovements)
+    setTxtSummary({ totals_check: lastTotals, warnings: allWarnings.length > 0 ? allWarnings : undefined, periodo: lastPeriodo })
+    setStatus('Preview listo: ' + allMovements.length + ' movimientos (' + chunks.length + ' bloques procesados)')
     setProcessing(false)
   }
 
