@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { Badge, Btn, Table, Th, Td, Loading, SectionHeader, EmptyState } from '../components/layout/UI'
-import { Plus, X, Search, Trash2, Save, Sparkles } from 'lucide-react'
+import { Plus, X, Search, Trash2, Save, Sparkles, ArrowUpDown, ArrowUp, ArrowDown, Flame } from 'lucide-react'
 import { SPECIALTY_CONFIG } from '../lib/utils'
 import { ProjectLine } from '../types'
 
@@ -448,12 +448,72 @@ function KanbanView({ leads, onOpen }: { leads: Lead[]; onOpen: (l: Lead) => voi
   )
 }
 
+// ─── Prioridad calculada ──────────────────────────────────────────────────
+type Priority = 'alta' | 'media' | 'baja' | 'fria'
+const PRIORITY_CFG: Record<Priority, { label: string; color: string; icon: string; order: number }> = {
+  alta:  { label: 'Alta',  color: '#EF4444', icon: '🔴', order: 0 },
+  media: { label: 'Media', color: '#F59E0B', icon: '🟡', order: 1 },
+  baja:  { label: 'Baja',  color: '#3B82F6', icon: '🔵', order: 2 },
+  fria:  { label: 'Fría',  color: '#4B5563', icon: '⚪', order: 3 },
+}
+
+function calcPriority(lead: Lead, qt?: { cotizado: number; vendido: number }): Priority {
+  let score = 0
+  // Valor estimado (0-40 pts)
+  const v = lead.estimated_value || 0
+  if (v >= 3000000) score += 40
+  else if (v >= 1000000) score += 30
+  else if (v >= 500000) score += 20
+  else if (v > 0) score += 10
+  // Etapa del pipeline (0-30 pts) — más avanzado = más prioridad
+  const stageScore: Record<string, number> = { cotizando: 30, diagnostico: 25, contactado: 15, nuevo: 5, ganado: 0, perdido: 0, pausado: 0 }
+  score += stageScore[lead.status] || 0
+  // Ya tiene cotización = +15
+  if (qt?.cotizado) score += 15
+  // Días sin actividad — penaliza inactividad (0-15 pts)
+  const daysSince = Math.floor((Date.now() - new Date(lead.updated_at).getTime()) / 86400000)
+  if (daysSince <= 7) score += 15
+  else if (daysSince <= 14) score += 10
+  else if (daysSince <= 30) score += 5
+  // Si está perdido/pausado siempre es fría
+  if (lead.status === 'perdido' || lead.status === 'pausado') return 'fria'
+  if (lead.status === 'ganado') return 'baja'
+  if (score >= 60) return 'alta'
+  if (score >= 35) return 'media'
+  if (score >= 15) return 'baja'
+  return 'fria'
+}
+
+// ─── Sortable header ──────────────────────────────────────────────────────
+type SortKey = 'name' | 'company' | 'status' | 'estimated' | 'cotizado' | 'vendido' | 'priority'
+type SortDir = 'asc' | 'desc'
+
+function SortTh({ label, sortKey, currentKey, currentDir, onSort, right: isRight }: {
+  label: string; sortKey: SortKey; currentKey: SortKey | null; currentDir: SortDir; onSort: (k: SortKey) => void; right?: boolean
+}) {
+  const active = currentKey === sortKey
+  return (
+    <Th right={isRight}>
+      <button onClick={() => onSort(sortKey)} style={{
+        background: 'none', border: 'none', color: active ? '#57FF9A' : '#666',
+        cursor: 'pointer', fontFamily: 'inherit', fontSize: 10, fontWeight: 600,
+        textTransform: 'uppercase' as const, letterSpacing: '0.06em', padding: 0,
+        display: 'inline-flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' as const,
+      }}>
+        {label}
+        {active ? (currentDir === 'asc' ? <ArrowUp size={10} /> : <ArrowDown size={10} />) : <ArrowUpDown size={10} style={{ opacity: 0.3 }} />}
+      </button>
+    </Th>
+  )
+}
+
 // ─── Lista ─────────────────────────────────────────────────────────────────
 function ListView({ leads, onOpen, quoteTotals, displayCur, tc }: { leads: Lead[]; onOpen: (l: Lead) => void; quoteTotals: Record<string, { cotizado: number; vendido: number; cotCurrency: string }>; displayCur: string; tc: number }) {
+  const [sortKey, setSortKey] = useState<SortKey | null>('priority')
+  const [sortDir, setSortDir] = useState<SortDir>('asc')
+
   if (leads.length === 0) return <EmptyState message="Sin leads en este filtro" />
 
-  // Convert value to display currency
-  // estimated_value is always MXN, cotizado/vendido are in USD (from quotes)
   function toDisplay(amount: number, fromCur: string): string {
     if (!amount) return '—'
     let converted = amount
@@ -464,25 +524,66 @@ function ListView({ leads, onOpen, quoteTotals, displayCur, tc }: { leads: Lead[
     return prefix + Math.round(converted).toLocaleString()
   }
 
+  function handleSort(key: SortKey) {
+    if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setSortKey(key); setSortDir(key === 'estimated' || key === 'cotizado' || key === 'vendido' ? 'desc' : 'asc') }
+  }
+
+  // Sort leads
+  const sorted = [...leads].sort((a, b) => {
+    if (!sortKey) return 0
+    const dir = sortDir === 'asc' ? 1 : -1
+    switch (sortKey) {
+      case 'name': return dir * a.name.localeCompare(b.name)
+      case 'company': return dir * (a.company || '').localeCompare(b.company || '')
+      case 'status': return dir * ((STATUS_CFG[a.status]?.order || 0) - (STATUS_CFG[b.status]?.order || 0))
+      case 'estimated': return dir * ((a.estimated_value || 0) - (b.estimated_value || 0))
+      case 'cotizado': return dir * ((quoteTotals[a.id]?.cotizado || 0) - (quoteTotals[b.id]?.cotizado || 0))
+      case 'vendido': return dir * ((quoteTotals[a.id]?.vendido || 0) - (quoteTotals[b.id]?.vendido || 0))
+      case 'priority': {
+        const pa = PRIORITY_CFG[calcPriority(a, quoteTotals[a.id])].order
+        const pb = PRIORITY_CFG[calcPriority(b, quoteTotals[b.id])].order
+        return dir * (pa - pb)
+      }
+      default: return 0
+    }
+  })
+
   return (
     <Table>
       <thead>
         <tr>
-          <Th>Lead / Proyecto</Th><Th>Arquitecto</Th><Th>Cliente Final</Th>
-          <Th>Especialidades</Th><Th>Estatus</Th><Th right>Estimado</Th><Th right>Cotizado</Th><Th right>Vendido</Th>
+          <SortTh label="Prioridad" sortKey="priority" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+          <SortTh label="Lead / Proyecto" sortKey="name" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+          <SortTh label="Arquitecto" sortKey="company" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+          <Th>Cliente Final</Th>
+          <Th>Especialidades</Th>
+          <SortTh label="Estatus" sortKey="status" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+          <SortTh label="Estimado" sortKey="estimated" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} right />
+          <SortTh label="Cotizado" sortKey="cotizado" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} right />
+          <SortTh label="Vendido" sortKey="vendido" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} right />
         </tr>
       </thead>
       <tbody>
-        {leads.map(lead => {
+        {sorted.map(lead => {
           const sCfg = STATUS_CFG[lead.status]
           const qt = quoteTotals[lead.id]
-          // Extract client_final from notes JSON
+          const priority = calcPriority(lead, qt)
+          const pCfg = PRIORITY_CFG[priority]
           let clientFinal = ''
           try { const m = JSON.parse(lead.notes || '{}'); clientFinal = m.client_final || '' } catch {}
+          const daysSince = Math.floor((Date.now() - new Date(lead.updated_at).getTime()) / 86400000)
           return (
             <tr key={lead.id} onClick={() => onOpen(lead)} style={{ cursor: 'pointer' }}
               onMouseEnter={e => (e.currentTarget.style.background = '#1a1a1a')}
               onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
+              <Td>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <div style={{ width: 8, height: 8, borderRadius: '50%', background: pCfg.color, flexShrink: 0 }} />
+                  <span style={{ fontSize: 10, color: pCfg.color, fontWeight: 600 }}>{pCfg.label}</span>
+                </div>
+                {daysSince > 14 && <div style={{ fontSize: 9, color: '#EF444488', marginTop: 2 }}>{daysSince}d sin actividad</div>}
+              </Td>
               <Td>
                 <div style={{ fontWeight: 600, color: '#e8e8e8' }}>{lead.name}</div>
               </Td>
