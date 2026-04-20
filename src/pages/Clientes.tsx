@@ -282,9 +282,9 @@ export default function Clientes() {
             <tr key={c.id} style={{ cursor: 'pointer' }} onClick={() => openEdit(c)}>
               <Td><span style={{ fontWeight: 600, color: '#fff', fontFamily: 'monospace', fontSize: 12 }}>{c.rfc}</span></Td>
               <Td><span style={{ color: '#ccc' }}>{c.razon_social}</span></Td>
-              <Td muted style={{ fontSize: 11 }}>{c.regimen_fiscal_clave} - {c.regimen_fiscal.substring(0, 30)}</Td>
-              <Td muted>{c.codigo_postal}</Td>
-              <Td muted style={{ fontSize: 11 }}>{c.uso_cfdi_clave}</Td>
+              <Td muted style={{ fontSize: 11 }}>{c.regimen_fiscal_clave ? `${c.regimen_fiscal_clave} - ${(c.regimen_fiscal || '').substring(0, 30)}` : '—'}</Td>
+              <Td muted>{c.codigo_postal || '—'}</Td>
+              <Td muted style={{ fontSize: 11 }}>{c.uso_cfdi_clave || '—'}</Td>
               <Td><Badge label={c.tipo_persona === 'moral' ? 'Moral' : 'Fisica'} color={c.tipo_persona === 'moral' ? '#3B82F6' : '#C084FC'} /></Td>
               <Td><Edit size={12} style={{ color: '#555' }} /></Td>
             </tr>
