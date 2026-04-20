@@ -321,7 +321,37 @@ export default function Clientes() {
               <Fld label="Colonia"><input style={iS} value={form.colonia || ''} onChange={e => setForm({...form, colonia: e.target.value})} /></Fld>
               <Fld label="Municipio / Delegacion"><input style={iS} value={form.municipio || ''} onChange={e => setForm({...form, municipio: e.target.value})} /></Fld>
               <Fld label="Estado"><input style={iS} value={form.estado || ''} onChange={e => setForm({...form, estado: e.target.value})} /></Fld>
-              <Fld label="Email"><input style={iS} type="email" value={form.email || ''} onChange={e => setForm({...form, email: e.target.value})} /></Fld>
+              <Fld label="Emails (para envío de facturas)">
+                <div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: (form.email || '').trim() ? 6 : 0 }}>
+                    {(form.email || '').split(',').filter(e => e.trim()).map((em, i) => (
+                      <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: '#1a2a1a', border: '1px solid #2a4a2a', borderRadius: 12, padding: '2px 8px 2px 10px', fontSize: 12, color: '#57FF9A' }}>
+                        {em.trim()}
+                        <button onClick={() => {
+                          const emails = (form.email || '').split(',').filter(e => e.trim())
+                          emails.splice(i, 1)
+                          setForm({...form, email: emails.join(', ')})
+                        }} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', fontSize: 14, padding: 0, lineHeight: 1 }}>×</button>
+                      </span>
+                    ))}
+                  </div>
+                  <input style={iS} type="email" placeholder="Agrega email y presiona Enter"
+                    onKeyDown={e => {
+                      if (e.key === 'Enter' || e.key === ',') {
+                        e.preventDefault()
+                        const val = (e.target as HTMLInputElement).value.trim().replace(/,$/, '')
+                        if (val && val.includes('@')) {
+                          const current = (form.email || '').split(',').filter(em => em.trim())
+                          if (!current.some(em => em.trim().toLowerCase() === val.toLowerCase())) {
+                            setForm({...form, email: [...current, val].join(', ')})
+                          }
+                          ;(e.target as HTMLInputElement).value = ''
+                        }
+                      }
+                    }}
+                  />
+                </div>
+              </Fld>
               <Fld label="Telefono"><input style={iS} value={form.telefono || ''} onChange={e => setForm({...form, telefono: e.target.value})} /></Fld>
             </div>
 
