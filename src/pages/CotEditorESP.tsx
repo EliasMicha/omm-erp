@@ -1395,13 +1395,21 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
       setProjectId(cot.project_id || null)
       const proj = cot.project as any
       setProjectName(proj?.name || '')
+      let noteMeta: any = {}
       try {
-        const meta = JSON.parse(cot.notes || '{}')
-        if (meta.systems) setActiveSysIds(meta.systems)
-        if (meta.currency || meta.tipoCambio) {
-          setConfig(c => ({ ...c, currency: meta.currency || c.currency, tipoCambio: meta.tipoCambio || c.tipoCambio }))
+        noteMeta = JSON.parse(cot.notes || '{}')
+        if (noteMeta.systems) setActiveSysIds(noteMeta.systems)
+        if (noteMeta.currency || noteMeta.tipoCambio) {
+          setConfig(c => ({ ...c, currency: noteMeta.currency || c.currency, tipoCambio: noteMeta.tipoCambio || c.tipoCambio }))
         }
       } catch (e) { /* ignore */ }
+      // Auto-detect active systems from items if notes doesn't have them
+      if (!noteMeta.systems && qItems && qItems.length > 0) {
+        const detected = [...new Set(qItems.map((it: any) =>
+          ALL_SYSTEMS.find(s => s.name.toLowerCase() === (it.system || '').toLowerCase())?.id
+        ).filter(Boolean))] as string[]
+        if (detected.length > 0) setActiveSysIds(detected)
+      }
     }
     if (qAreas && qAreas.length > 0) setAreas(qAreas.map((a: any, i: number) => ({ id: a.id, name: a.name, collapsed: false, order: i })))
     else setAreas([])
@@ -1440,9 +1448,15 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
   function toggleSys(k: string) { setCollapsedSys(p => ({ ...p, [k]: !p[k] })) }
   function addArea() { const n = prompt('Nombre del área:'); if (n) setAreas(p => [...p, { id: uid(), name: n, collapsed: false, order: p.length }]) }
 
-  function saveNotes(overrides?: Partial<{ systems: string[]; currency: string; tipoCambio: number }>) {
-    const data = { systems: overrides?.systems ?? activeSysIds, currency: overrides?.currency ?? config.currency, tipoCambio: overrides?.tipoCambio ?? config.tipoCambio }
-    supabase.from('quotations').update({ notes: JSON.stringify(data) }).eq('id', cotId)
+  async function saveNotes(overrides?: Partial<{ systems: string[]; currency: string; tipoCambio: number }>) {
+    // Preserve existing notes fields (lead_id, source, etc.)
+    let existing: any = {}
+    try {
+      const { data: q } = await supabase.from('quotations').select('notes').eq('id', cotId).single()
+      if (q?.notes) existing = JSON.parse(q.notes)
+    } catch (_) { /* ignore */ }
+    const merged = { ...existing, systems: overrides?.systems ?? activeSysIds, currency: overrides?.currency ?? config.currency, tipoCambio: overrides?.tipoCambio ?? config.tipoCambio }
+    await supabase.from('quotations').update({ notes: JSON.stringify(merged) }).eq('id', cotId)
   }
 
   function toggleGlobalSystem(sysId: string) {
