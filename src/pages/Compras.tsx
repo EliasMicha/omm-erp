@@ -1027,9 +1027,16 @@ function POFromQuoteModal({ onClose, onCreated }: { onClose: () => void; onCreat
     })
   }, [])
 
-  // Filter quotations by lead
+  // Filter quotations by lead (check notes.lead_id first, fallback to name match)
   const filteredQuotes = selectedLead
-    ? quotations.filter(q => q.client_name?.toLowerCase().includes(leads.find(l => l.id === selectedLead)?.name?.toLowerCase() || ''))
+    ? quotations.filter(q => {
+        try {
+          const meta = JSON.parse(q.notes || '{}')
+          if (meta.lead_id === selectedLead) return true
+        } catch {}
+        const leadName = leads.find(l => l.id === selectedLead)?.name?.toLowerCase() || ''
+        return leadName && (q.client_name?.toLowerCase().includes(leadName) || q.name?.toLowerCase().includes(leadName))
+      })
     : quotations
 
   // Load preview items when quote + supplier + phase are selected
