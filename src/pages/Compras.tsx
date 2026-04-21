@@ -1113,41 +1113,40 @@ function POFromQuoteModal({ onClose, onCreated }: { onClose: () => void; onCreat
       let query = supabase.from('quotation_items').select('*').in('area_id', areaIds).eq('type', 'material')
       const { data } = await query.order('order_index')
       let items = data || []
-      // Filter by phase in JS (column may not exist in DB)
-      if (selectedPhase) {
-        const phaseFiltered = items.filter(it => it.purchase_phase === selectedPhase)
-        if (phaseFiltered.length > 0) items = phaseFiltered
-        // If no items match the phase, show all (phase column might not exist)
+
+      // Enrich items with catalog data (provider + moneda) for filtering
+      const catIds = [...new Set(items.map(it => it.catalog_product_id).filter(Boolean))]
+      let catMap = new Map<string, { provider: string; moneda: string }>()
+      if (catIds.length > 0) {
+        const { data: catProducts } = await supabase.from('catalog_products').select('id, provider, moneda').in('id', catIds)
+        ;(catProducts || []).forEach((p: any) => catMap.set(p.id, { provider: p.provider || '', moneda: p.moneda || 'USD' }))
       }
-      // Filter by supplier if selected
+      items = items.map((it: any) => {
+        const cat = it.catalog_product_id ? catMap.get(it.catalog_product_id) : null
+        return { ...it, _provider: it.provider || cat?.provider || '', _moneda: cat?.moneda || 'USD' }
+      })
+
+      // Filter by phase — strict filter
+      if (selectedPhase) {
+        items = items.filter(it => it.purchase_phase === selectedPhase)
+      }
+      // Filter by supplier — strict, using enriched _provider from catalog
       if (selectedSupplier) {
         const sup = suppliers.find(s => s.id === selectedSupplier)
         if (sup) {
           const supLower = sup.name.toLowerCase()
-          const filtered = items.filter(it => {
+          items = items.filter(it => {
             if (it.supplier_id === selectedSupplier) return true
-            const provLower = (it.provider || '').toLowerCase()
-            // Match if provider name is contained in supplier name or vice versa
-            if (provLower && (supLower.includes(provLower) || provLower.includes(supLower))) return true
-            // Match first word (brand name like "Hikvision" in "Hikvision Mexico SA de CV")
+            const provLower = (it._provider || '').toLowerCase()
+            if (!provLower) return false
+            if (supLower.includes(provLower) || provLower.includes(supLower)) return true
             const supFirst = supLower.split(' ')[0]
             const provFirst = provLower.split(' ')[0]
             if (provFirst.length > 2 && supFirst.includes(provFirst)) return true
             if (supFirst.length > 2 && provFirst.includes(supFirst)) return true
             return false
           })
-          // Only apply filter if it matches something; otherwise show all
-          if (filtered.length > 0) items = filtered
         }
-      }
-      // Enrich items with currency from catalog_products
-      const catIds = items.map(it => it.catalog_product_id).filter(Boolean)
-      if (catIds.length > 0) {
-        const { data: catProducts } = await supabase.from('catalog_products').select('id, moneda').in('id', catIds)
-        const monedaMap = new Map((catProducts || []).map((p: any) => [p.id, p.moneda || 'USD']))
-        items = items.map((it: any) => ({ ...it, _moneda: it.catalog_product_id ? (monedaMap.get(it.catalog_product_id) || 'USD') : 'USD' }))
-      } else {
-        items = items.map((it: any) => ({ ...it, _moneda: 'USD' }))
       }
       setPreviewItems(items)
     }
