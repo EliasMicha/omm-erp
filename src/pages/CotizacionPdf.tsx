@@ -256,13 +256,66 @@ export default function CotizacionPdf() {
     ? `USD · TC $${tipoCambio.toFixed(2)} MXN`
     : currency
 
-  // Texto de alcance por sistema (automático, corto)
-  function alcanceTextoPorSistema(sys: string, data: { items: ItemRow[]; count: number }): string {
+  // Descripciones comerciales por sistema — orientadas a ventas, no técnicas
+  function descripcionSistema(sys: string, data: { items: ItemRow[]; count: number }): string {
     const marcasSet = new Set<string>()
-    data.items.forEach(i => { if (i.marca) marcasSet.add(i.marca) })
-    const marcas = Array.from(marcasSet).slice(0, 3)
-    const marcasStr = marcas.length > 0 ? ` Marcas principales: ${marcas.join(', ')}.` : ''
-    return `Incluye ${data.count} equipos/componentes del sistema de ${sys}.${marcasStr}`
+    const allAreas = new Set<string>()
+    data.items.forEach(i => {
+      if (i.marca) marcasSet.add(i.marca)
+      const areaName = areas.find(a => a.id === i.area_id)?.name
+      if (areaName) allAreas.add(areaName)
+    })
+    const marca = Array.from(marcasSet)[0] || ''
+    const numAreas = allAreas.size
+    const areasText = numAreas > 0 ? ` en ${numAreas} ${numAreas === 1 ? 'área' : 'áreas'} del proyecto` : ''
+    const sysLow = sys.toLowerCase()
+
+    if (sysLow.includes('iluminacion') || sysLow.includes('iluminación') || sysLow.includes('lutron')) {
+      const brand = marca || 'Lutron'
+      return `Sistema de iluminación inteligente ${brand} para control total de la iluminación${areasText}. Permite creación de escenas personalizadas, control desde app móvil, integración con asistentes de voz y automatización por horarios.`
+    }
+    if (sysLow.includes('redes') || sysLow.includes('red')) {
+      const brand = marca || ''
+      return `Infraestructura de red y conectividad${brand ? ' ' + brand : ''} de alto rendimiento${areasText}. Cobertura WiFi profesional de última generación con conectividad estable en todo el inmueble, diseñada para streaming, videoconferencias y dispositivos inteligentes.`
+    }
+    if (sysLow.includes('audio')) {
+      const brand = marca || ''
+      return `Sistema de audio distribuido${brand ? ' ' + brand : ''}${areasText}. Sonido ambiental y entretenimiento de alta fidelidad con control independiente por zona, streaming inalámbrico y diseño arquitectónico discreto.`
+    }
+    if (sysLow.includes('cctv') || sysLow.includes('video') || sysLow.includes('vigilancia')) {
+      const brand = marca || ''
+      return `Sistema de videovigilancia${brand ? ' ' + brand : ''} con cámaras de alta definición${areasText}. Monitoreo en tiempo real desde cualquier dispositivo, grabación continua, detección inteligente de movimiento y almacenamiento seguro.`
+    }
+    if (sysLow.includes('acceso') || sysLow.includes('control_acceso')) {
+      const brand = marca || ''
+      return `Sistema de control de acceso${brand ? ' ' + brand : ''}${areasText}. Gestión segura de entradas con tecnología de proximidad, registro de eventos, acceso por app móvil y administración remota de usuarios.`
+    }
+    if (sysLow.includes('humo') || sysLow.includes('deteccion') || sysLow.includes('incendio')) {
+      const brand = marca || ''
+      return `Sistema de detección de humo y protección contra incendios${brand ? ' ' + brand : ''}${areasText}. Detección temprana con sensores inteligentes, alertas inmediatas y cumplimiento de normativas de seguridad.`
+    }
+    if (sysLow.includes('bms') || sysLow.includes('automatizacion') || sysLow.includes('automatización')) {
+      const brand = marca || ''
+      return `Sistema de automatización y gestión inteligente del edificio${brand ? ' ' + brand : ''}${areasText}. Control centralizado de clima, iluminación y energía para maximizar el confort y la eficiencia operativa.`
+    }
+    if (sysLow.includes('telefon')) {
+      const brand = marca || ''
+      return `Sistema de telefonía${brand ? ' ' + brand : ''}${areasText}. Comunicación de voz profesional con líneas internas, extensiones y conectividad moderna para las necesidades del hogar u oficina.`
+    }
+    if (sysLow.includes('celular') || sysLow.includes('red_celular')) {
+      const brand = marca || ''
+      return `Sistema de amplificación de señal celular${brand ? ' ' + brand : ''}${areasText}. Cobertura celular óptima en interiores, eliminando zonas sin señal para todas las operadoras principales.`
+    }
+    if (sysLow.includes('somfy') || sysLow.includes('cortina') || sysLow.includes('persiana')) {
+      const brand = marca || 'Somfy'
+      return `Sistema de cortinas y persianas motorizadas ${brand}${areasText}. Control automático de luz natural con programación por horarios, escenas integradas y operación silenciosa desde app o control remoto.`
+    }
+    if (sysLow.includes('electrico') || sysLow.includes('eléctrico')) {
+      return `Infraestructura eléctrica especializada${areasText}. Suministro eléctrico dedicado, protecciones y cableado para la correcta operación de todos los sistemas tecnológicos del proyecto.`
+    }
+    // General / fallback
+    const brand = marca ? ` ${marca}` : ''
+    return `Sistema${brand} de ${sys.toLowerCase()}${areasText}. Solución profesional diseñada para integrarse de forma armónica con el resto de los sistemas del proyecto.`
   }
 
   const tituloFormato = {
@@ -478,37 +531,22 @@ export default function CotizacionPdf() {
               </tr>
             </thead>
             <tbody>
-              {systemsOrdered.map(([sys, data]) => {
-                // Marcas principales del sistema
-                const marcasSet = new Set<string>()
-                const allAreas = new Set<string>()
-                data.items.forEach(it => {
-                  if (it.marca) marcasSet.add(it.marca)
-                  const areaName = areas.find(a => a.id === it.area_id)?.name
-                  if (areaName) allAreas.add(areaName)
-                })
-                const marcas = Array.from(marcasSet).slice(0, 3).join(', ')
-                const areasList = Array.from(allAreas)
-                const areasStr = areasList.length > 5
-                  ? areasList.slice(0, 5).join(', ') + ` y ${areasList.length - 5} más`
-                  : areasList.join(', ')
-                return (
-                  <>
-                    <tr key={sys}>
-                      <td style={{ fontWeight: 600, paddingBottom: 0 }}>{sys}</td>
-                      <td style={{ textAlign: 'center', fontWeight: 500 }}>{data.count}</td>
-                      <td style={{ textAlign: 'right', fontWeight: 600 }}>{FCUR(data.subtotal, currency)}</td>
-                    </tr>
-                    <tr key={sys + '-desc'}>
-                      <td colSpan={3} style={{ paddingTop: 2, paddingBottom: 10, paddingLeft: 0 }}>
-                        <div style={{ fontSize: 9, color: '#888', lineHeight: 1.5 }}>
-                          {marcas && <>{marcas} · </>}{data.count} componentes · {areasStr}
-                        </div>
-                      </td>
-                    </tr>
-                  </>
-                )
-              })}
+              {systemsOrdered.map(([sys, data]) => (
+                <>
+                  <tr key={sys}>
+                    <td style={{ fontWeight: 600, paddingBottom: 0 }}>{sys}</td>
+                    <td style={{ textAlign: 'center', fontWeight: 500 }}>{data.count}</td>
+                    <td style={{ textAlign: 'right', fontWeight: 600 }}>{FCUR(data.subtotal, currency)}</td>
+                  </tr>
+                  <tr key={sys + '-desc'}>
+                    <td colSpan={3} style={{ paddingTop: 2, paddingBottom: 10 }}>
+                      <div style={{ fontSize: 9, color: '#666', lineHeight: 1.6, maxWidth: 600 }}>
+                        {descripcionSistema(sys, data)}
+                      </div>
+                    </td>
+                  </tr>
+                </>
+              ))}
               <tr style={{ borderTop: '2px solid #111' }}>
                 <td style={{ fontWeight: 700, paddingTop: 8 }}>Total materiales e instalación</td>
                 <td></td>
@@ -550,7 +588,7 @@ export default function CotizacionPdf() {
           {systemsOrdered.map(([sys, data]) => (
             <div key={sys} style={{ marginBottom: 8, fontSize: 10, lineHeight: 1.6 }}>
               <span style={{ fontWeight: 600, color: '#111' }}>{sys}: </span>
-              <span style={{ color: '#555' }}>{alcanceTextoPorSistema(sys, data)}</span>
+              <span style={{ color: '#555' }}>{descripcionSistema(sys, data)}</span>
             </div>
           ))}
         </div>
