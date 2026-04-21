@@ -1712,15 +1712,17 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
         const otherAreas = areas.filter(a => a.id !== src.areaId)
         return (
           <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <div style={{ background: '#1a1a1a', border: '1px solid #333', borderRadius: 12, padding: 24, minWidth: 400, maxWidth: 500 }}>
-              <h3 style={{ margin: '0 0 8px', color: '#fff', fontSize: 16 }}>Copiar producto a otras áreas</h3>
-              <p style={{ color: '#57FF9A', fontSize: 13, margin: '0 0 16px' }}>{src.name} (de {areas.find(a => a.id === src.areaId)?.name})</p>
-              {otherAreas.map(a => (
-                <label key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderBottom: '1px solid #222', cursor: 'pointer', color: '#ccc', fontSize: 14 }}>
-                  <input type="checkbox" id={'cp_' + a.id} /> {a.name}
-                </label>
-              ))}
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
+            <div style={{ background: '#1a1a1a', border: '1px solid #333', borderRadius: 12, padding: 24, minWidth: 400, maxWidth: 500, maxHeight: '80vh', display: 'flex', flexDirection: 'column' as const }}>
+              <h3 style={{ margin: '0 0 8px', color: '#fff', fontSize: 16, flexShrink: 0 }}>Copiar producto a otras áreas</h3>
+              <p style={{ color: '#57FF9A', fontSize: 13, margin: '0 0 16px', flexShrink: 0 }}>{src.name} (de {areas.find(a => a.id === src.areaId)?.name})</p>
+              <div style={{ overflowY: 'auto' as const, flex: 1 }}>
+                {otherAreas.map(a => (
+                  <label key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderBottom: '1px solid #222', cursor: 'pointer', color: '#ccc', fontSize: 14 }}>
+                    <input type="checkbox" id={'cp_' + a.id} /> {a.name}
+                  </label>
+                ))}
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16, flexShrink: 0 }}>
                 <button onClick={() => setCopyingProduct(null)} style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid #333', background: '#222', color: '#ccc', cursor: 'pointer' }}>Cancelar</button>
                 <button onClick={() => { const sel = otherAreas.filter(a => (document.getElementById('cp_' + a.id) as HTMLInputElement)?.checked).map(a => a.id); if (sel.length) copyProductToAreas(copyingProduct, sel); }} style={{ padding: '8px 16px', borderRadius: 8, border: 'none', background: '#57FF9A', color: '#000', fontWeight: 600, cursor: 'pointer' }}>Copiar a áreas seleccionadas</button>
               </div>
