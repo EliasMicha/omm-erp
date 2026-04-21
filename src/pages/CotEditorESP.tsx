@@ -974,7 +974,7 @@ function CatalogModal({ onClose, onSelect, onCreateNew, systemName }: {
               </tr></thead>
               <tbody>
                 {filtered.slice(0, 50).map(p => {
-                  const precio = Math.round(p.cost * (1 + p.markup / 100))
+                  const precio = p.precio_venta > 0 ? p.precio_venta : Math.round(p.cost / (1 - p.markup / 100) * 100) / 100
                   return (
                     <tr key={p.id} style={{ cursor: 'pointer' }} onClick={() => onSelect(p)}
                       onMouseEnter={e => { e.currentTarget.style.background = '#1a1a1a' }}
