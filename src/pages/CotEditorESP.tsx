@@ -1557,8 +1557,9 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
     const prodMoneda = catProd.moneda || 'USD'
     // Margen: catalogo dicta, PRICING_RULES como fallback
     const margin = catProd.markup > 0 ? catProd.markup : rule.margen
-    let precioOrigen = rule.precioPublico
-      ? (catProd.precio_venta > 0 ? catProd.precio_venta : catProd.cost)
+    // Siempre priorizar precio_venta del catálogo si existe
+    let precioOrigen = catProd.precio_venta > 0
+      ? catProd.precio_venta
       : calcPriceFromCost(catProd.cost, rule, margin)
     // Convert to quote currency
     const precio = convertToQuoteCurrency(precioOrigen, prodMoneda)
@@ -1593,8 +1594,9 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
     const prodMoneda = catProd.moneda || 'USD'
     // Margen: catalogo dicta, PRICING_RULES como fallback
     const margin = catProd.markup > 0 ? catProd.markup : rule.margen
-    let precioOrigen = rule.precioPublico
-      ? (catProd.precio_venta > 0 ? catProd.precio_venta : catProd.cost)
+    // Siempre priorizar precio_venta del catálogo si existe
+    let precioOrigen = catProd.precio_venta > 0
+      ? catProd.precio_venta
       : calcPriceFromCost(catProd.cost, rule, margin)
     const precio = convertToQuoteCurrency(precioOrigen, prodMoneda)
     const laborCost = calcLaborFromPrice(precio, rule)
