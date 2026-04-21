@@ -673,6 +673,7 @@ function SubActividades({ obra, instaladores, updateObra, showNew, setShowNew }:
   const [groupBy, setGroupBy] = useState<'sistema' | 'area'>('sistema')
   const [generating, setGenerating] = useState(false)
   const [genStatus, setGenStatus] = useState('')
+  const [showWizard, setShowWizard] = useState(false)
 
   const addActividad = async () => {
     if (!newAct.descripcion.trim()) return
@@ -736,137 +737,13 @@ function SubActividades({ obra, instaladores, updateObra, showNew, setShowNew }:
     await supabase.from('obras').update({ avance_global: avance }).eq('id', obra.id)
   }
 
-  /* --- AI Autogenerate from quotation --- */
-  const autogenerarConAI = async () => {
+  /* --- AI Autogenerate: open wizard --- */
+  const handleAutogenerar = () => {
     if (!obra.cotizacion_id) {
       setGenStatus('No hay cotización vinculada a esta obra')
       return
     }
-    setGenerating(true)
-    setGenStatus('Leyendo cotización de Supabase...')
-
-    try {
-      // Fetch quotation areas and items
-      const [areasRes, itemsRes] = await Promise.all([
-        supabase.from('quotation_areas').select('*').eq('quotation_id', obra.cotizacion_id).order('order_index'),
-        supabase.from('quotation_items').select('*').eq('quotation_id', obra.cotizacion_id).order('order_index'),
-      ])
-
-      const areas = areasRes.data || []
-      const items = itemsRes.data || []
-
-      if (items.length === 0) {
-        setGenStatus('La cotización no tiene productos')
-        setGenerating(false)
-        return
-      }
-
-      setGenStatus(`${items.length} productos en ${areas.length} áreas. Generando tareas con AI...`)
-
-      // Build context for AI
-      const cotContext = areas.map(area => {
-        const areaItems = items.filter((it: any) => it.area_id === area.id)
-        return `ÁREA: ${area.name}\n${areaItems.map((it: any) => `  - ${it.quantity}x ${it.name} [${it.system || 'General'}]`).join('\n')}`
-      }).join('\n\n')
-
-      const systemMap = `Mapeo de sistemas de cotización a sistemas de obra:
-Audio, Sonos, bocina, speaker, amplificador = "Audio"
-Redes, access point, switch, patch panel, Cat6, rack, UPS = "Redes"
-CCTV, cámara, NVR, DVR, Hikvision = "CCTV"
-Control de Iluminación, Lutron, dimmer, keypad, procesador, Caseta, Pico = "Control"
-Control de Acceso, lector, HID, cerradura, chapa = "Acceso"
-Eléctrico, canalización, registro, contacto, apagador, centro de carga = "Electrico"`
-
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'anthropic-dangerous-direct-browser-access': 'true', 'anthropic-version': '2023-06-01', 'x-api-key': ANTHROPIC_API_KEY },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514', max_tokens: 8000,
-          system: `Eres coordinador de obra de instalaciones especiales. A partir de la cotización, genera las TAREAS DE INSTALACIÓN en campo.
-
-REGLAS:
-1. Cada producto en cada área genera una tarea. El formato es: "[Acción] de [producto] - [área]"
-   Ejemplo: "Colocación de access point - Recámara Principal"
-   Ejemplo: "Instalación de cámara domo Hikvision - Estacionamiento N-2"
-   Ejemplo: "Tendido de cable Cat6 (3 corridas) - Sala"
-   Ejemplo: "Montaje de bocina Sonos Outdoor - Terraza"
-   Ejemplo: "Programación de procesador Lutron - General"
-2. Si un producto tiene quantity > 1, menciona la cantidad: "Colocación de 4 access points - Recámara Principal"
-3. Agrupa cables/canalizaciones del mismo tipo en la misma área en UNA sola tarea
-4. Agrega tareas de infraestructura implícitas: canalización, cableado, montaje de rack, pruebas
-5. Agrega tarea de programación/configuración por sistema al final (área "General")
-6. Agrega tarea de pruebas y puesta en marcha por sistema (área "General")
-
-${systemMap}
-
-Devuelve SOLO un JSON array, sin markdown:
-[{"descripcion":"texto de la tarea","sistema":"Audio|Redes|CCTV|Control|Acceso|Electrico","area":"nombre del área"}]`,
-          messages: [{ role: 'user', content: `Cotización de obra: ${obra.nombre}\n\n${cotContext}` }],
-        }),
-      })
-
-      if (!response.ok) {
-        setGenStatus('Error API: ' + response.status)
-        setGenerating(false)
-        return
-      }
-
-      const data = await response.json()
-      const text = (data.content || []).filter((b: any) => b.type === 'text').map((b: any) => b.text).join('')
-      const jsonMatch = text.match(/\[[\s\S]*\]/)
-
-      if (jsonMatch) {
-        const parsed = JSON.parse(jsonMatch[0].replace(/```json|```/g, '').trim())
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          const validSistemas = ['CCTV', 'Audio', 'Redes', 'Control', 'Acceso', 'Electrico', 'Humo', 'BMS', 'Telefonia', 'Celular', 'Persianas']
-          const payloads = parsed.map((t: any, i: number) => {
-            let sistema = t.sistema || 'Redes'
-            if (!validSistemas.includes(sistema)) {
-              const lower = sistema.toLowerCase()
-              if (lower.includes('audio')) sistema = 'Audio'
-              else if (lower.includes('red') || lower.includes('network')) sistema = 'Redes'
-              else if (lower.includes('cctv') || lower.includes('cam')) sistema = 'CCTV'
-              else if (lower.includes('control') && lower.includes('acc')) sistema = 'Acceso'
-              else if (lower.includes('control') || lower.includes('lutron')) sistema = 'Control'
-              else if (lower.includes('elec')) sistema = 'Electrico'
-              else sistema = 'Redes'
-            }
-            return {
-              obra_id: obra.id,
-              sistema,
-              area: t.area || null,
-              descripcion: t.descripcion || '',
-              status: 'pendiente',
-              porcentaje: 0,
-              origen: 'cotizacion',
-              order_index: obra.actividades.length + i,
-            }
-          })
-          const { data: inserted, error: insertErr } = await supabase.from('obra_actividades').insert(payloads).select()
-          if (insertErr) {
-            setGenStatus('Error al guardar actividades: ' + insertErr.message)
-          } else if (inserted) {
-            const newActs: Actividad[] = inserted.map((a: any) => ({
-              id: a.id, obra_id: a.obra_id, sistema: a.sistema as Sistema,
-              descripcion: a.descripcion, status: a.status as ActividadStatus,
-              instalador_id: a.instalador_id || undefined,
-              fecha_fin_plan: a.fecha_fin_plan || undefined,
-              area: a.area || undefined,
-              porcentaje: a.porcentaje || 0,
-            }))
-            updateObra(o => ({ ...o, actividades: [...o.actividades, ...newActs] }))
-            setGenStatus(`✓ ${newActs.length} tareas generadas desde cotización`)
-          }
-        } else {
-          setGenStatus('No se generaron tareas')
-        }
-      } else {
-        setGenStatus('Error al parsear respuesta AI')
-      }
-    } catch (err) {
-      setGenStatus('Error: ' + (err as Error).message)
-    }
-    setGenerating(false)
+    setShowWizard(true)
   }
 
   // Group activities
@@ -901,7 +778,7 @@ Devuelve SOLO un JSON array, sin markdown:
         <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
           {genStatus && <span style={{ fontSize: 10, color: genStatus.startsWith('✓') ? '#57FF9A' : genStatus.startsWith('Error') ? '#EF4444' : '#888' }}>{genStatus}</span>}
           {obra.cotizacion_id && (
-            <Btn size="sm" variant="default" onClick={autogenerarConAI} disabled={generating}>
+            <Btn size="sm" variant="default" onClick={handleAutogenerar} disabled={generating}>
               {generating ? <><Loader2 size={12} /> Generando...</> : <>🤖 Autogenerar desde cotización</>}
             </Btn>
           )}
@@ -953,7 +830,7 @@ Devuelve SOLO un JSON array, sin markdown:
           <EmptyState message="No hay actividades registradas." />
           {obra.cotizacion_id && (
             <div style={{ textAlign: 'center', marginTop: 12 }}>
-              <Btn size="sm" variant="primary" onClick={autogenerarConAI} disabled={generating}>
+              <Btn size="sm" variant="primary" onClick={handleAutogenerar} disabled={generating}>
                 {generating ? <><Loader2 size={12} /> Generando...</> : <>🤖 Autogenerar tareas desde cotización</>}
               </Btn>
               <div style={{ fontSize: 10, color: '#555', marginTop: 6 }}>Lee la cotización y genera las tareas de instalación por área y sistema</div>
@@ -967,6 +844,7 @@ Devuelve SOLO un JSON array, sin markdown:
         </div>
       ) : (
         Array.from(grouped.entries()).sort((a, b) => a[0].localeCompare(b[0])).map(([groupKey, acts]) => {
+
           const isSystemGroup = groupBy === 'sistema'
           const cfg = isSystemGroup ? SISTEMAS_CONFIG[groupKey as Sistema] : null
           const Icon = cfg?.icon || ClipboardList
@@ -1036,6 +914,435 @@ Devuelve SOLO un JSON array, sin markdown:
           )
         })
       )}
+
+      {/* Wizard AI modal */}
+      {showWizard && (
+        <AutogenWizard
+          obra={obra}
+          instaladores={instaladores}
+          onClose={() => setShowWizard(false)}
+          onTasksCreated={(newActs) => {
+            updateObra(o => ({ ...o, actividades: [...o.actividades, ...newActs] }))
+            setGenStatus(`✓ ${newActs.length} tareas generadas`)
+            setShowWizard(false)
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   WIZARD: AUTOGENERAR TAREAS CON AI (conversacional)
+   ═══════════════════════════════════════════════════════════════════ */
+
+interface WizardMsg { role: 'ai' | 'user'; text: string }
+
+function AutogenWizard({ obra, instaladores, onClose, onTasksCreated }: {
+  obra: ObraData
+  instaladores: Instalador[]
+  onClose: () => void
+  onTasksCreated: (acts: Actividad[]) => void
+}) {
+  const [messages, setMessages] = useState<WizardMsg[]>([])
+  const [input, setInput] = useState('')
+  const [phase, setPhase] = useState<'loading' | 'dates' | 'team' | 'confirm' | 'generating' | 'done'>('loading')
+  const [cotContext, setCotContext] = useState('')
+  const [phaseDates, setPhaseDates] = useState({ roughin: '', acabados: '', cierre: '' })
+  const [selectedInstaladores, setSelectedInstaladores] = useState<string[]>([])
+  const [pendingTasks, setPendingTasks] = useState<any[]>([])
+  const chatEndRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
+
+  // Step 1: Load cotización on mount
+  useEffect(() => {
+    async function loadCot() {
+      if (!obra.cotizacion_id) return
+      const [areasRes, itemsRes] = await Promise.all([
+        supabase.from('quotation_areas').select('*').eq('quotation_id', obra.cotizacion_id).order('order_index'),
+        supabase.from('quotation_items').select('*').eq('quotation_id', obra.cotizacion_id).order('order_index'),
+      ])
+      const areas = areasRes.data || []
+      const items = itemsRes.data || []
+      if (items.length === 0) {
+        addAI('La cotización no tiene productos. No puedo generar tareas.')
+        return
+      }
+      const ctx = areas.map(area => {
+        const areaItems = items.filter((it: any) => it.area_id === area.id)
+        return `ÁREA: ${area.name}\n${areaItems.map((it: any) => `  - ${it.quantity}x ${it.name} [${it.system || 'General'}]`).join('\n')}`
+      }).join('\n\n')
+      setCotContext(ctx)
+
+      // Detect systems in this quote
+      const systems = new Set(items.map((it: any) => it.system || '').filter(Boolean))
+      const systemsList = Array.from(systems).join(', ')
+
+      addAI(`Leí la cotización: ${items.length} productos en ${areas.length} áreas.\nSistemas detectados: ${systemsList || 'General'}.\n\nPara asignar fechas a cada tarea, necesito saber las fechas aproximadas de las fases de obra:\n\n• **Roughin** (primera fijación, canalización, cableado)\n• **Acabados** (colocación de equipos, montaje)\n• **Cierre** (programación, pruebas, puesta en marcha)\n\nPuedes escribirlas abajo o seleccionar directamente:`)
+      setPhase('dates')
+    }
+    loadCot()
+  }, [])
+
+  function addAI(text: string) {
+    setMessages(prev => [...prev, { role: 'ai', text }])
+  }
+  function addUser(text: string) {
+    setMessages(prev => [...prev, { role: 'user', text }])
+  }
+
+  const handleDatesNext = () => {
+    if (!phaseDates.roughin && !phaseDates.acabados && !phaseDates.cierre) {
+      addUser('Sin fechas por ahora, generar sin fechas')
+    } else {
+      const parts: string[] = []
+      if (phaseDates.roughin) parts.push(`Roughin: ${phaseDates.roughin}`)
+      if (phaseDates.acabados) parts.push(`Acabados: ${phaseDates.acabados}`)
+      if (phaseDates.cierre) parts.push(`Cierre: ${phaseDates.cierre}`)
+      addUser(parts.join(' · '))
+    }
+
+    // Move to team selection
+    const availableInst = instaladores.filter(i =>
+      i.disponible && obra.sistemas.some(s => i.habilidades.includes(s))
+    )
+    if (availableInst.length > 0) {
+      addAI(`¿Quiénes estarán asignados a esta obra?\n\nTe muestro los instaladores disponibles con habilidades relevantes. Selecciona los que participarán:`)
+      setPhase('team')
+    } else {
+      addAI(`No encontré instaladores disponibles con habilidades en los sistemas de esta obra. Puedes asignarlos después.\n\n¿Genero las tareas?`)
+      setPhase('confirm')
+    }
+  }
+
+  const handleTeamNext = () => {
+    const names = selectedInstaladores.map(id => instaladores.find(i => i.id === id)?.nombre || '').filter(Boolean)
+    if (names.length > 0) {
+      addUser(`Equipo: ${names.join(', ')}`)
+    } else {
+      addUser('Sin equipo asignado por ahora')
+    }
+    addAI(`Listo. Voy a generar las tareas de instalación con:\n• Fechas por fase: ${phaseDates.roughin || phaseDates.acabados || phaseDates.cierre ? 'Sí' : 'Sin fechas'}\n• Equipo: ${names.length > 0 ? names.join(', ') : 'Sin asignar'}\n\n¿Confirmas para generar?`)
+    setPhase('confirm')
+  }
+
+  const handleGenerate = async () => {
+    addUser('Generar tareas')
+    setPhase('generating')
+    addAI('Generando tareas con AI... esto toma unos segundos.')
+
+    try {
+      const systemMap = `Mapeo de sistemas de cotización a sistemas de obra:
+Audio, Sonos, bocina, speaker, amplificador = "Audio"
+Redes, access point, switch, patch panel, Cat6, rack, UPS = "Redes"
+CCTV, cámara, NVR, DVR, Hikvision = "CCTV"
+Control de Iluminación, Lutron, dimmer, keypad, procesador, Caseta, Pico = "Control"
+Control de Acceso, lector, HID, cerradura, chapa = "Acceso"
+Eléctrico, canalización, registro, contacto, apagador, centro de carga = "Electrico"`
+
+      // Build date context for AI
+      let dateInstruction = ''
+      if (phaseDates.roughin || phaseDates.acabados || phaseDates.cierre) {
+        dateInstruction = `\n\nFECHAS DE FASE (asigna fecha_fin_plan a cada tarea según su fase):
+${phaseDates.roughin ? `- Roughin (canalización, cableado, primera fijación): fecha límite ${phaseDates.roughin}` : ''}
+${phaseDates.acabados ? `- Acabados (colocación de equipos, montaje final): fecha límite ${phaseDates.acabados}` : ''}
+${phaseDates.cierre ? `- Cierre (programación, pruebas, puesta en marcha): fecha límite ${phaseDates.cierre}` : ''}
+Decide a qué fase pertenece cada tarea y asigna la fecha correspondiente como "fecha_fin_plan" en formato YYYY-MM-DD.`
+      }
+
+      // Build team context
+      let teamInstruction = ''
+      if (selectedInstaladores.length > 0) {
+        const teamInfo = selectedInstaladores.map(id => {
+          const inst = instaladores.find(i => i.id === id)
+          if (!inst) return null
+          return { id: inst.id, nombre: inst.nombre, habilidades: inst.habilidades, nivel: inst.nivel }
+        }).filter(Boolean)
+        teamInstruction = `\n\nEQUIPO ASIGNADO (asigna instalador_id a cada tarea según habilidades):
+${teamInfo.map((t: any) => `- ${t.nombre} (id: "${t.id}") — Habilidades: ${t.habilidades.join(', ')} — Nivel: ${t.nivel}`).join('\n')}
+Asigna cada tarea al instalador más apropiado según el sistema de la tarea y las habilidades del instalador.`
+      }
+
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'anthropic-dangerous-direct-browser-access': 'true', 'anthropic-version': '2023-06-01', 'x-api-key': ANTHROPIC_API_KEY },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-20250514', max_tokens: 8000,
+          system: `Eres coordinador de obra de instalaciones especiales. A partir de la cotización, genera las TAREAS DE INSTALACIÓN en campo.
+
+REGLAS:
+1. Cada producto en cada área genera una tarea. El formato es: "[Acción] de [producto] - [área]"
+   Ejemplo: "Colocación de access point - Recámara Principal"
+   Ejemplo: "Instalación de cámara domo Hikvision - Estacionamiento N-2"
+   Ejemplo: "Tendido de cable Cat6 (3 corridas) - Sala"
+2. Si un producto tiene quantity > 1, menciona la cantidad: "Colocación de 4 access points - Recámara Principal"
+3. Agrupa cables/canalizaciones del mismo tipo en la misma área en UNA sola tarea
+4. Agrega tareas de infraestructura implícitas: canalización, cableado, montaje de rack, pruebas
+5. Agrega tarea de programación/configuración por sistema al final (área "General")
+6. Agrega tarea de pruebas y puesta en marcha por sistema (área "General")
+
+${systemMap}
+${dateInstruction}
+${teamInstruction}
+
+Devuelve SOLO un JSON array, sin markdown:
+[{"descripcion":"texto","sistema":"Audio|Redes|CCTV|Control|Acceso|Electrico","area":"nombre del área","fase":"roughin|acabados|cierre"${phaseDates.roughin || phaseDates.acabados || phaseDates.cierre ? ',"fecha_fin_plan":"YYYY-MM-DD"' : ''}${selectedInstaladores.length > 0 ? ',"instalador_id":"uuid-del-instalador"' : ''}}]`,
+          messages: [{ role: 'user', content: `Cotización de obra: ${obra.nombre}\n\n${cotContext}` }],
+        }),
+      })
+
+      if (!response.ok) {
+        addAI(`Error de API: ${response.status}. Intenta de nuevo.`)
+        setPhase('confirm')
+        return
+      }
+
+      const data = await response.json()
+      const text = (data.content || []).filter((b: any) => b.type === 'text').map((b: any) => b.text).join('')
+      const jsonMatch = text.match(/\[[\s\S]*\]/)
+
+      if (!jsonMatch) {
+        addAI('No pude parsear la respuesta. Intenta de nuevo.')
+        setPhase('confirm')
+        return
+      }
+
+      const parsed = JSON.parse(jsonMatch[0].replace(/```json|```/g, '').trim())
+      if (!Array.isArray(parsed) || parsed.length === 0) {
+        addAI('No se generaron tareas.')
+        setPhase('confirm')
+        return
+      }
+
+      const validSistemas = ['CCTV', 'Audio', 'Redes', 'Control', 'Acceso', 'Electrico', 'Humo', 'BMS', 'Telefonia', 'Celular', 'Persianas']
+      const validInstIds = new Set(instaladores.map(i => i.id))
+
+      const payloads = parsed.map((t: any, i: number) => {
+        let sistema = t.sistema || 'Redes'
+        if (!validSistemas.includes(sistema)) {
+          const lower = sistema.toLowerCase()
+          if (lower.includes('audio')) sistema = 'Audio'
+          else if (lower.includes('red') || lower.includes('network')) sistema = 'Redes'
+          else if (lower.includes('cctv') || lower.includes('cam')) sistema = 'CCTV'
+          else if (lower.includes('control') && lower.includes('acc')) sistema = 'Acceso'
+          else if (lower.includes('control') || lower.includes('lutron')) sistema = 'Control'
+          else if (lower.includes('elec')) sistema = 'Electrico'
+          else sistema = 'Redes'
+        }
+        const instId = t.instalador_id && validInstIds.has(t.instalador_id) ? t.instalador_id : null
+        return {
+          obra_id: obra.id,
+          sistema,
+          area: t.area || null,
+          descripcion: t.descripcion || '',
+          status: 'pendiente',
+          porcentaje: 0,
+          origen: 'cotizacion',
+          order_index: obra.actividades.length + i,
+          fecha_fin_plan: t.fecha_fin_plan || null,
+          instalador_id: instId,
+        }
+      })
+
+      const { data: inserted, error: insertErr } = await supabase.from('obra_actividades').insert(payloads).select()
+      if (insertErr) {
+        addAI('Error al guardar: ' + insertErr.message)
+        setPhase('confirm')
+        return
+      }
+
+      const newActs: Actividad[] = (inserted || []).map((a: any) => ({
+        id: a.id, obra_id: a.obra_id, sistema: a.sistema as Sistema,
+        descripcion: a.descripcion, status: a.status as ActividadStatus,
+        instalador_id: a.instalador_id || undefined,
+        fecha_fin_plan: a.fecha_fin_plan || undefined,
+        area: a.area || undefined,
+        porcentaje: a.porcentaje || 0,
+      }))
+
+      // Count by phase
+      const byFase = { roughin: 0, acabados: 0, cierre: 0 }
+      parsed.forEach((t: any) => { if (t.fase && byFase[t.fase as keyof typeof byFase] !== undefined) byFase[t.fase as keyof typeof byFase]++ })
+      const assigned = newActs.filter(a => a.instalador_id).length
+
+      addAI(`✅ ${newActs.length} tareas creadas exitosamente.\n\n• Roughin: ${byFase.roughin} tareas\n• Acabados: ${byFase.acabados} tareas\n• Cierre: ${byFase.cierre} tareas\n• Con instalador asignado: ${assigned}/${newActs.length}\n\nCerrando en 2 segundos...`)
+      setPhase('done')
+      setTimeout(() => onTasksCreated(newActs), 2000)
+
+    } catch (err) {
+      addAI('Error: ' + (err as Error).message)
+      setPhase('confirm')
+    }
+  }
+
+  // Handle free-text input (for chat-like interaction)
+  const handleSend = () => {
+    if (!input.trim()) return
+    addUser(input.trim())
+
+    // Parse dates from free text
+    if (phase === 'dates') {
+      // Try to extract dates from user message
+      const dateRegex = /(\d{1,2})[\/\-](\d{1,2})(?:[\/\-](\d{2,4}))?/g
+      const found: string[] = []
+      let match
+      while ((match = dateRegex.exec(input)) !== null) {
+        const y = match[3] ? (match[3].length === 2 ? '20' + match[3] : match[3]) : new Date().getFullYear().toString()
+        found.push(`${y}-${match[2].padStart(2, '0')}-${match[1].padStart(2, '0')}`)
+      }
+      if (found.length >= 3) {
+        setPhaseDates({ roughin: found[0], acabados: found[1], cierre: found[2] })
+        addAI(`Entendido:\n• Roughin: ${found[0]}\n• Acabados: ${found[1]}\n• Cierre: ${found[2]}\n\nPasemos al equipo.`)
+        setTimeout(() => handleDatesNext(), 100)
+      } else {
+        addAI('Puedo entender fechas como "15/05, 30/06, 15/08" o usa los campos de fecha abajo.')
+      }
+    }
+    setInput('')
+  }
+
+  const toggleInst = (id: string) => {
+    setSelectedInstaladores(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
+  }
+
+  // Available instaladores for this obra's systems
+  const relevantInstaladores = instaladores.filter(i => i.disponible)
+
+  const modalBg: React.CSSProperties = {
+    position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 1000,
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+  }
+  const modalBox: React.CSSProperties = {
+    background: '#111', border: '1px solid #222', borderRadius: 16, width: 580,
+    maxHeight: '85vh', display: 'flex', flexDirection: 'column', overflow: 'hidden',
+  }
+
+  return (
+    <div style={modalBg} onClick={onClose}>
+      <div style={modalBox} onClick={e => e.stopPropagation()}>
+        {/* Header */}
+        <div style={{ padding: '16px 20px', borderBottom: '1px solid #222', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: '#fff' }}>🤖 Asistente de Tareas</div>
+            <div style={{ fontSize: 10, color: '#555' }}>{obra.nombre}</div>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer' }}><X size={16} /></button>
+        </div>
+
+        {/* Chat messages */}
+        <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {messages.map((m, i) => (
+            <div key={i} style={{
+              alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start',
+              maxWidth: '85%',
+              padding: '10px 14px',
+              borderRadius: m.role === 'user' ? '14px 14px 4px 14px' : '14px 14px 14px 4px',
+              background: m.role === 'user' ? 'rgba(87,255,154,0.12)' : '#1a1a1a',
+              border: m.role === 'user' ? '1px solid rgba(87,255,154,0.2)' : '1px solid #252525',
+              fontSize: 12, color: m.role === 'user' ? '#57FF9A' : '#ccc',
+              lineHeight: 1.5, whiteSpace: 'pre-wrap',
+            }}>
+              {m.text}
+            </div>
+          ))}
+
+          {/* Phase-specific UI */}
+          {phase === 'loading' && (
+            <div style={{ textAlign: 'center', padding: 20 }}>
+              <Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} color="#57FF9A" />
+              <div style={{ fontSize: 11, color: '#555', marginTop: 8 }}>Leyendo cotización...</div>
+            </div>
+          )}
+
+          {phase === 'dates' && (
+            <div style={{ background: '#0a0a0a', border: '1px solid #222', borderRadius: 12, padding: 16 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: '#888', marginBottom: 10, textTransform: 'uppercase' as const, letterSpacing: '0.05em' }}>Fechas por fase</div>
+              <div style={{ display: 'grid', gap: 8 }}>
+                {[
+                  { key: 'roughin' as const, label: 'Roughin', desc: 'Canalización, cableado, primera fijación' },
+                  { key: 'acabados' as const, label: 'Acabados', desc: 'Colocación de equipos, montaje final' },
+                  { key: 'cierre' as const, label: 'Cierre', desc: 'Programación, pruebas, puesta en marcha' },
+                ].map(p => (
+                  <div key={p.key} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: '#fff' }}>{p.label}</div>
+                      <div style={{ fontSize: 10, color: '#555' }}>{p.desc}</div>
+                    </div>
+                    <input type="date" value={phaseDates[p.key]}
+                      onChange={e => setPhaseDates(d => ({ ...d, [p.key]: e.target.value }))}
+                      style={{ ...inputStyle, width: 150, fontSize: 11 }} />
+                  </div>
+                ))}
+              </div>
+              <div style={{ display: 'flex', gap: 8, marginTop: 12, justifyContent: 'flex-end' }}>
+                <Btn size="sm" variant="default" onClick={() => { addUser('Sin fechas por ahora'); handleDatesNext() }}>Omitir</Btn>
+                <Btn size="sm" variant="primary" onClick={handleDatesNext}>Continuar</Btn>
+              </div>
+            </div>
+          )}
+
+          {phase === 'team' && (
+            <div style={{ background: '#0a0a0a', border: '1px solid #222', borderRadius: 12, padding: 16 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: '#888', marginBottom: 10, textTransform: 'uppercase' as const, letterSpacing: '0.05em' }}>Equipo de obra</div>
+              <div style={{ maxHeight: 200, overflowY: 'auto', display: 'grid', gap: 4 }}>
+                {relevantInstaladores.map(inst => {
+                  const checked = selectedInstaladores.includes(inst.id)
+                  const nivelCfg = NIVEL_CONFIG[inst.nivel]
+                  return (
+                    <label key={inst.id} style={{
+                      display: 'flex', alignItems: 'center', gap: 10, padding: '6px 10px', cursor: 'pointer',
+                      background: checked ? 'rgba(87,255,154,0.06)' : 'transparent',
+                      borderRadius: 6, border: checked ? '1px solid rgba(87,255,154,0.15)' : '1px solid transparent',
+                    }}>
+                      <input type="checkbox" checked={checked} onChange={() => toggleInst(inst.id)} style={{ accentColor: '#57FF9A' }} />
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 12, color: checked ? '#fff' : '#ccc' }}>{inst.nombre}</div>
+                        <div style={{ fontSize: 10, color: '#555' }}>{inst.habilidades.join(', ')}</div>
+                      </div>
+                      <span style={{ fontSize: 9, padding: '2px 6px', borderRadius: 4, background: `${nivelCfg?.color || '#666'}20`, color: nivelCfg?.color || '#666' }}>
+                        {nivelCfg?.label || inst.nivel}
+                      </span>
+                    </label>
+                  )
+                })}
+                {relevantInstaladores.length === 0 && <div style={{ fontSize: 11, color: '#555', textAlign: 'center', padding: 10 }}>No hay instaladores disponibles</div>}
+              </div>
+              <div style={{ display: 'flex', gap: 8, marginTop: 12, justifyContent: 'flex-end' }}>
+                <Btn size="sm" variant="default" onClick={() => { setSelectedInstaladores([]); handleTeamNext() }}>Omitir</Btn>
+                <Btn size="sm" variant="primary" onClick={handleTeamNext}>Continuar ({selectedInstaladores.length})</Btn>
+              </div>
+            </div>
+          )}
+
+          {phase === 'confirm' && (
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'center', padding: 8 }}>
+              <Btn size="sm" variant="default" onClick={onClose}>Cancelar</Btn>
+              <Btn size="sm" variant="primary" onClick={handleGenerate}>🤖 Generar tareas</Btn>
+            </div>
+          )}
+
+          {phase === 'generating' && (
+            <div style={{ textAlign: 'center', padding: 12 }}>
+              <Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} color="#57FF9A" />
+            </div>
+          )}
+
+          <div ref={chatEndRef} />
+        </div>
+
+        {/* Input bar (for free-text chat) */}
+        {(phase === 'dates' || phase === 'team') && (
+          <div style={{ padding: '12px 20px', borderTop: '1px solid #222', display: 'flex', gap: 8 }}>
+            <input ref={inputRef} value={input} onChange={e => setInput(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') handleSend() }}
+              placeholder="Escribe fechas o instrucciones adicionales..."
+              style={{ flex: 1, padding: '8px 12px', background: '#0a0a0a', border: '1px solid #333', borderRadius: 8, color: '#fff', fontSize: 12, fontFamily: 'inherit', outline: 'none' }} />
+            <Btn size="sm" variant="primary" onClick={handleSend}>Enviar</Btn>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
