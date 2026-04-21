@@ -479,34 +479,31 @@ export default function CotizacionPdf() {
             </thead>
             <tbody>
               {systemsOrdered.map(([sys, data]) => {
-                // Agrupar productos por nombre dentro del sistema
-                const byProduct: Record<string, { qty: number; areas: Set<string> }> = {}
+                // Marcas principales del sistema
+                const marcasSet = new Set<string>()
+                const allAreas = new Set<string>()
                 data.items.forEach(it => {
-                  const key = it.name
-                  if (!byProduct[key]) byProduct[key] = { qty: 0, areas: new Set() }
-                  byProduct[key].qty += it.quantity
+                  if (it.marca) marcasSet.add(it.marca)
                   const areaName = areas.find(a => a.id === it.area_id)?.name
-                  if (areaName) byProduct[key].areas.add(areaName)
+                  if (areaName) allAreas.add(areaName)
                 })
-                const productLines = Object.entries(byProduct)
-                  .sort((a, b) => b[1].qty - a[1].qty)
+                const marcas = Array.from(marcasSet).slice(0, 3).join(', ')
+                const areasList = Array.from(allAreas)
+                const areasStr = areasList.length > 5
+                  ? areasList.slice(0, 5).join(', ') + ` y ${areasList.length - 5} más`
+                  : areasList.join(', ')
                 return (
                   <>
                     <tr key={sys}>
-                      <td style={{ fontWeight: 600, paddingBottom: 2 }}>{sys}</td>
+                      <td style={{ fontWeight: 600, paddingBottom: 0 }}>{sys}</td>
                       <td style={{ textAlign: 'center', fontWeight: 500 }}>{data.count}</td>
                       <td style={{ textAlign: 'right', fontWeight: 600 }}>{FCUR(data.subtotal, currency)}</td>
                     </tr>
-                    <tr key={sys + '-detail'}>
-                      <td colSpan={3} style={{ paddingTop: 0, paddingBottom: 8, paddingLeft: 16 }}>
-                        {productLines.map(([name, info], pi) => (
-                          <div key={pi} style={{ fontSize: 9, color: '#666', lineHeight: 1.6 }}>
-                            {info.qty}x {name}
-                            {info.areas.size > 0 && (
-                              <span style={{ color: '#999' }}> — {Array.from(info.areas).join(', ')}</span>
-                            )}
-                          </div>
-                        ))}
+                    <tr key={sys + '-desc'}>
+                      <td colSpan={3} style={{ paddingTop: 2, paddingBottom: 10, paddingLeft: 0 }}>
+                        <div style={{ fontSize: 9, color: '#888', lineHeight: 1.5 }}>
+                          {marcas && <>{marcas} · </>}{data.count} componentes · {areasStr}
+                        </div>
                       </td>
                     </tr>
                   </>
