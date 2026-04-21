@@ -545,7 +545,6 @@ export default function CotizacionPdf() {
             <thead>
               <tr>
                 <th>Sistema</th>
-                <th style={{ textAlign: 'center', width: 90 }}>Componentes</th>
                 <th style={{ textAlign: 'right', width: 140 }}>Subtotal</th>
               </tr>
             </thead>
@@ -554,11 +553,10 @@ export default function CotizacionPdf() {
                 <>
                   <tr key={sys}>
                     <td style={{ fontWeight: 600, paddingBottom: 0 }}>{sys}</td>
-                    <td style={{ textAlign: 'center', fontWeight: 500 }}>{data.count}</td>
                     <td style={{ textAlign: 'right', fontWeight: 600 }}>{FCUR(data.subtotal, currency)}</td>
                   </tr>
                   <tr key={sys + '-desc'}>
-                    <td colSpan={3} style={{ paddingTop: 2, paddingBottom: 10 }}>
+                    <td colSpan={2} style={{ paddingTop: 2, paddingBottom: 10 }}>
                       <div style={{ fontSize: 9, color: '#666', lineHeight: 1.6, maxWidth: 600 }}>
                         {descripcionSistema(sys, data)}
                       </div>
@@ -567,49 +565,33 @@ export default function CotizacionPdf() {
                 </>
               ))}
               <tr style={{ borderTop: '2px solid #111' }}>
-                <td style={{ fontWeight: 700, paddingTop: 8 }}>Total materiales e instalación</td>
-                <td></td>
-                <td style={{ textAlign: 'right', fontWeight: 700, paddingTop: 8 }}>{FCUR(subtotal, currency)}</td>
+                <td style={{ paddingTop: 8, color: '#666' }}>Total equipos</td>
+                <td style={{ textAlign: 'right', paddingTop: 8 }}>{FCUR(subtotalItems, currency)}</td>
+              </tr>
+              <tr>
+                <td style={{ color: '#666' }}>Instalación y programación</td>
+                <td style={{ textAlign: 'right' }}>{FCUR(subtotalInstalacion + programacion, currency)}</td>
+              </tr>
+              <tr style={{ borderTop: '1px solid #ddd' }}>
+                <td style={{ fontWeight: 700, paddingTop: 6 }}>Subtotal</td>
+                <td style={{ textAlign: 'right', fontWeight: 700, paddingTop: 6 }}>{FCUR(subtotal, currency)}</td>
               </tr>
               {descuentoPct > 0 && (
                 <tr>
                   <td style={{ color: '#c00' }}>Descuento ({descuentoPct}%)</td>
-                  <td></td>
                   <td style={{ textAlign: 'right', color: '#c00' }}>-{FCUR(descuentoAmt, currency)}</td>
-                </tr>
-              )}
-              {descuentoPct > 0 && (
-                <tr>
-                  <td style={{ fontWeight: 600, paddingTop: 4 }}>Subtotal con descuento</td>
-                  <td></td>
-                  <td style={{ textAlign: 'right', fontWeight: 600, paddingTop: 4 }}>{FCUR(subtotalConDesc, currency)}</td>
                 </tr>
               )}
               <tr>
                 <td style={{ color: '#888' }}>IVA 16%</td>
-                <td></td>
                 <td style={{ textAlign: 'right', color: '#888' }}>{FCUR(iva, currency)}</td>
               </tr>
-              <tr>
-                <td style={{ fontWeight: 700, fontSize: 12, color: '#111' }}>Total con IVA</td>
-                <td></td>
-                <td style={{ textAlign: 'right', fontWeight: 700, fontSize: 12, color: '#111' }}>{FCUR(totalCon, currency)}</td>
+              <tr style={{ borderTop: '1px solid #111' }}>
+                <td style={{ fontWeight: 700, fontSize: 12, color: '#111', paddingTop: 6 }}>Total</td>
+                <td style={{ textAlign: 'right', fontWeight: 700, fontSize: 12, color: '#111', paddingTop: 6 }}>{FCUR(totalCon, currency)}</td>
               </tr>
             </tbody>
           </table>
-        </div>
-
-        {/* SECCIÓN 2: ALCANCE BREVE */}
-        <div style={{ marginBottom: 22 }}>
-          <h2 style={{ fontSize: 13, color: '#111', marginBottom: 8, paddingBottom: 4, borderBottom: '1px solid #ddd' }}>
-            Alcance del proyecto
-          </h2>
-          {systemsOrdered.map(([sys, data]) => (
-            <div key={sys} style={{ marginBottom: 8, fontSize: 10, lineHeight: 1.6 }}>
-              <span style={{ fontWeight: 600, color: '#111' }}>{sys}: </span>
-              <span style={{ color: '#555' }}>{descripcionSistema(sys, data)}</span>
-            </div>
-          ))}
         </div>
 
         {/* SECCIÓN 3: DESGLOSE */}
