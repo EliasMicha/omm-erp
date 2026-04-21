@@ -90,6 +90,14 @@ function getTipoCambio(cot: QuotationFull): number | null {
   } catch { return null }
 }
 
+function getDescuento(cot: QuotationFull): number {
+  try { const m = JSON.parse(cot.notes || '{}'); return Number(m.descuento) || 0 } catch { return 0 }
+}
+
+function getProgramacion(cot: QuotationFull): number {
+  try { const m = JSON.parse(cot.notes || '{}'); return Number(m.programacion) || 0 } catch { return 0 }
+}
+
 function shortId(id: string): string { return id.substring(0, 8).toUpperCase() }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -194,18 +202,22 @@ export default function CotizacionPdf() {
   // ── Cálculos derivados ──────────────────────────────────────────────────
   const currency = getCurrency(cot)
   const tipoCambio = getTipoCambio(cot)
+  const descuentoPct = getDescuento(cot)
+  const programacion = getProgramacion(cot)
   const materialItems = items.filter(i => i.type !== 'labor')
   const laborItems = items.filter(i => i.type === 'labor')
 
   // Subtotal de items (precio unitario × cantidad, sin mano de obra)
   const subtotalItems = materialItems.reduce((s, i) => s + (i.price * i.quantity), 0)
-  // Mano de obra instalación (installation_cost × cantidad del item)
+  // Mano de obra instalación y programación (installation_cost × cantidad del item)
   const subtotalInstalacion = materialItems.reduce((s, i) => s + ((i.installation_cost || 0) * i.quantity), 0)
   // Mano de obra explícita (items type='labor')
   const subtotalManoObra = laborItems.reduce((s, i) => s + (i.total || (i.price * i.quantity)), 0)
-  const subtotal = subtotalItems + subtotalInstalacion + subtotalManoObra
-  const iva = subtotal * 0.16
-  const totalCon = subtotal + iva
+  const subtotal = subtotalItems + subtotalInstalacion + subtotalManoObra + programacion
+  const descuentoAmt = subtotal * descuentoPct / 100
+  const subtotalConDesc = subtotal - descuentoAmt
+  const iva = subtotalConDesc * 0.16
+  const totalCon = subtotalConDesc + iva
 
   // Agrupar por sistema (resumen + alcance)
   const bySystem: Record<string, { items: ItemRow[]; subtotal: number; count: number }> = {}
@@ -466,18 +478,59 @@ export default function CotizacionPdf() {
               </tr>
             </thead>
             <tbody>
-              {systemsOrdered.map(([sys, data]) => (
-                <tr key={sys}>
-                  <td style={{ fontWeight: 500 }}>{sys}</td>
-                  <td style={{ textAlign: 'center' }}>{data.count}</td>
-                  <td style={{ textAlign: 'right', fontWeight: 500 }}>{FCUR(data.subtotal, currency)}</td>
-                </tr>
-              ))}
+              {systemsOrdered.map(([sys, data]) => {
+                // Agrupar productos por nombre dentro del sistema
+                const byProduct: Record<string, { qty: number; areas: Set<string> }> = {}
+                data.items.forEach(it => {
+                  const key = it.name
+                  if (!byProduct[key]) byProduct[key] = { qty: 0, areas: new Set() }
+                  byProduct[key].qty += it.quantity
+                  const areaName = areas.find(a => a.id === it.area_id)?.name
+                  if (areaName) byProduct[key].areas.add(areaName)
+                })
+                const productLines = Object.entries(byProduct)
+                  .sort((a, b) => b[1].qty - a[1].qty)
+                return (
+                  <>
+                    <tr key={sys}>
+                      <td style={{ fontWeight: 600, paddingBottom: 2 }}>{sys}</td>
+                      <td style={{ textAlign: 'center', fontWeight: 500 }}>{data.count}</td>
+                      <td style={{ textAlign: 'right', fontWeight: 600 }}>{FCUR(data.subtotal, currency)}</td>
+                    </tr>
+                    <tr key={sys + '-detail'}>
+                      <td colSpan={3} style={{ paddingTop: 0, paddingBottom: 8, paddingLeft: 16 }}>
+                        {productLines.map(([name, info], pi) => (
+                          <div key={pi} style={{ fontSize: 9, color: '#666', lineHeight: 1.6 }}>
+                            {info.qty}x {name}
+                            {info.areas.size > 0 && (
+                              <span style={{ color: '#999' }}> — {Array.from(info.areas).join(', ')}</span>
+                            )}
+                          </div>
+                        ))}
+                      </td>
+                    </tr>
+                  </>
+                )
+              })}
               <tr style={{ borderTop: '2px solid #111' }}>
                 <td style={{ fontWeight: 700, paddingTop: 8 }}>Total materiales e instalación</td>
                 <td></td>
                 <td style={{ textAlign: 'right', fontWeight: 700, paddingTop: 8 }}>{FCUR(subtotal, currency)}</td>
               </tr>
+              {descuentoPct > 0 && (
+                <tr>
+                  <td style={{ color: '#c00' }}>Descuento ({descuentoPct}%)</td>
+                  <td></td>
+                  <td style={{ textAlign: 'right', color: '#c00' }}>-{FCUR(descuentoAmt, currency)}</td>
+                </tr>
+              )}
+              {descuentoPct > 0 && (
+                <tr>
+                  <td style={{ fontWeight: 600, paddingTop: 4 }}>Subtotal con descuento</td>
+                  <td></td>
+                  <td style={{ textAlign: 'right', fontWeight: 600, paddingTop: 4 }}>{FCUR(subtotalConDesc, currency)}</td>
+                </tr>
+              )}
               <tr>
                 <td style={{ color: '#888' }}>IVA 16%</td>
                 <td></td>
@@ -554,9 +607,9 @@ export default function CotizacionPdf() {
             const areaTotal = Object.values(area.systems).flat().reduce((s, i) => s + (i.price * i.quantity), 0)
             return (
               <div key={area.name} style={{ marginBottom: 18, breakInside: 'avoid' as any }}>
-                <div style={{ background: '#f5f5f5', padding: '8px 12px', marginBottom: 6, borderLeft: '3px solid #111', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <h3 style={{ fontSize: 12, color: '#111' }}>{idx + 1}. {area.name}</h3>
-                  <div style={{ fontSize: 11, fontWeight: 600 }}>{FCUR(areaTotal, currency)}</div>
+                <div style={{ background: '#2a2a2a', padding: '8px 12px', marginBottom: 6, borderLeft: '3px solid #111', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderRadius: 2 }}>
+                  <h3 style={{ fontSize: 12, color: '#fff' }}>{idx + 1}. {area.name}</h3>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: '#fff' }}>{FCUR(areaTotal, currency)}</div>
                 </div>
                 {Object.entries(area.systems).map(([sys, sysItems]) => {
                   const sysTotal = sysItems.reduce((s, i) => s + (i.price * i.quantity), 0)
@@ -630,8 +683,14 @@ export default function CotizacionPdf() {
               </tr>
               {subtotalInstalacion > 0 && (
                 <tr>
-                  <td style={{ padding: '4px 0', color: '#666' }}>Mano de obra de instalación</td>
+                  <td style={{ padding: '4px 0', color: '#666' }}>Instalación y programación</td>
                   <td style={{ padding: '4px 0', textAlign: 'right' }}>{FCUR(subtotalInstalacion, currency)}</td>
+                </tr>
+              )}
+              {programacion > 0 && (
+                <tr>
+                  <td style={{ padding: '4px 0', color: '#666' }}>Programación adicional</td>
+                  <td style={{ padding: '4px 0', textAlign: 'right' }}>{FCUR(programacion, currency)}</td>
                 </tr>
               )}
               {subtotalManoObra > 0 && (
@@ -644,6 +703,18 @@ export default function CotizacionPdf() {
                 <td style={{ padding: '6px 0 4px 0', fontWeight: 600 }}>Subtotal</td>
                 <td style={{ padding: '6px 0 4px 0', textAlign: 'right', fontWeight: 600 }}>{FCUR(subtotal, currency)}</td>
               </tr>
+              {descuentoPct > 0 && (
+                <tr>
+                  <td style={{ padding: '4px 0', color: '#c00' }}>Descuento ({descuentoPct}%)</td>
+                  <td style={{ padding: '4px 0', textAlign: 'right', color: '#c00' }}>-{FCUR(descuentoAmt, currency)}</td>
+                </tr>
+              )}
+              {descuentoPct > 0 && (
+                <tr style={{ borderTop: '1px solid #ddd' }}>
+                  <td style={{ padding: '6px 0 4px 0', fontWeight: 600 }}>Subtotal con descuento</td>
+                  <td style={{ padding: '6px 0 4px 0', textAlign: 'right', fontWeight: 600 }}>{FCUR(subtotalConDesc, currency)}</td>
+                </tr>
+              )}
               <tr>
                 <td style={{ padding: '4px 0', color: '#888' }}>IVA 16%</td>
                 <td style={{ padding: '4px 0', textAlign: 'right', color: '#888' }}>{FCUR(iva, currency)}</td>
