@@ -181,11 +181,12 @@ export default function AIQuoteChat({ onClose, onCreated }: {
     setShowNewClient(false); setNewClientName(''); setNewClientRazon(''); setNewClientRfc('')
   }
 
-  // Plan upload
-  const [planFile, setPlanFile] = useState<File | null>(null)
-  const [planBase64, setPlanBase64] = useState('')
-  const [planMediaType, setPlanMediaType] = useState('')
-  const [planPreview, setPlanPreview] = useState('')
+  // Plan upload (multiple)
+  const [planFiles, setPlanFiles] = useState<Array<{ file: File; base64: string; mediaType: string; preview: string }>>([])
+  // Compat aliases for first plan
+  const planFile = planFiles[0]?.file || null
+  const planBase64 = planFiles[0]?.base64 || ''
+  const planMediaType = planFiles[0]?.mediaType || ''
 
   // Chat
   const [messages, setMessages] = useState<ChatMessage[]>([])
@@ -266,14 +267,22 @@ export default function AIQuoteChat({ onClose, onCreated }: {
     const valid = ['application/pdf', 'image/png', 'image/jpeg', 'image/webp']
     if (!valid.includes(file.type)) { setError('Formato no soportado. Usa PDF, PNG, JPG o WebP.'); return }
     if (file.size > 20 * 1024 * 1024) { setError('Archivo demasiado grande. Max 20MB.'); return }
-    setPlanFile(file)
-    setPlanMediaType(file.type)
     setError(null)
-    if (file.type.startsWith('image/')) setPlanPreview(URL.createObjectURL(file))
-    else setPlanPreview('')
+    const preview = file.type.startsWith('image/') ? URL.createObjectURL(file) : ''
     const reader = new FileReader()
-    reader.onload = () => { setPlanBase64((reader.result as string).split(',')[1] || '') }
+    reader.onload = () => {
+      const base64 = (reader.result as string).split(',')[1] || ''
+      setPlanFiles(prev => [...prev, { file, base64, mediaType: file.type, preview }])
+    }
     reader.readAsDataURL(file)
+  }, [])
+
+  const handleFiles = useCallback((files: FileList | File[]) => {
+    Array.from(files).forEach(f => handleFile(f))
+  }, [handleFile])
+
+  const removePlan = useCallback((idx: number) => {
+    setPlanFiles(prev => prev.filter((_, i) => i !== idx))
   }, [])
 
   const toggleSystem = (id: string) => {
@@ -308,10 +317,13 @@ export default function AIQuoteChat({ onClose, onCreated }: {
         precedents,
       }
 
-      // Only send plan on first message
-      if (isInitial && planBase64) {
-        body.plan = planBase64
-        body.planMediaType = planMediaType
+      // Only send plans on first message
+      if (isInitial && planFiles.length > 0) {
+        body.plan = planFiles[0].base64
+        body.planMediaType = planFiles[0].mediaType
+        if (planFiles.length > 1) {
+          body.additionalPlans = planFiles.slice(1).map(p => ({ base64: p.base64, mediaType: p.mediaType }))
+        }
       }
 
       const r = await fetch('/api/ai-chat', {
@@ -353,7 +365,7 @@ export default function AIQuoteChat({ onClose, onCreated }: {
     setStep('chat')
     const initial = scope.mode === 'freetext'
       ? `Analiza este scope y propón el sembrado de equipos:\n\n${scope.freetext}`
-      : `Analiza este proyecto y propón el sembrado de equipos.${planBase64 ? ' Te adjunto el plano arquitectónico.' : ''} Revisa el scope, haz preguntas si necesitas aclarar algo, y cuando estés listo genera la propuesta.`
+      : `Analiza este proyecto y propón el sembrado de equipos.${planFiles.length > 0 ? ` Te adjunto ${planFiles.length} plano${planFiles.length > 1 ? 's' : ''} arquitectónico${planFiles.length > 1 ? 's' : ''}.` : ''} Revisa el scope, haz preguntas si necesitas aclarar algo, y cuando estés listo genera la propuesta.`
     sendToAI(initial, true)
   }
 
@@ -458,12 +470,12 @@ export default function AIQuoteChat({ onClose, onCreated }: {
           date: new Date().toLocaleDateString('es-MX'),
           drawn_by: 'AI OMM Agent',
           reviewed_by: 'Elias Graneroinchu Cohen',
-          scale: planBase64 ? '1:60' : 'S/E',
+          scale: planFiles.length > 0 ? '1:60' : 'S/E',
         },
         systems: systemsMap,
         // Include the uploaded plan image for overlay
-        planImageBase64: planBase64 || undefined,
-        planImageType: planMediaType || undefined,
+        planImageBase64: planFiles[0]?.base64 || undefined,
+        planImageType: planFiles[0]?.mediaType || undefined,
       }
 
       downloadSembradoPdf(sembradoData, `Sembrado_${scope.nombre || 'OMM'}.pdf`)
@@ -490,7 +502,8 @@ export default function AIQuoteChat({ onClose, onCreated }: {
         ai_scope: scope,
         ai_rationale: rationale,
         plan_summary: planSummary,
-        has_plan: !!planBase64,
+        has_plan: planFiles.length > 0,
+        plan_count: planFiles.length,
       }
 
       const { data: quot, error: qErr } = await supabase.from('quotations').insert({
@@ -634,7 +647,7 @@ export default function AIQuoteChat({ onClose, onCreated }: {
           <div>
             <div style={{ fontSize: 15, fontWeight: 600, color: '#fff', display: 'flex', alignItems: 'center', gap: 8 }}>
               <Zap size={15} color="#57FF9A" /> Cotizar con AI
-              {planFile && <span style={{ background: '#3B82F620', color: '#3B82F6', border: '1px solid #3B82F644', fontSize: 9, padding: '2px 6px', borderRadius: 4 }}>+ Plano</span>}
+              {planFiles.length > 0 && <span style={{ background: '#3B82F620', color: '#3B82F6', border: '1px solid #3B82F644', fontSize: 9, padding: '2px 6px', borderRadius: 4 }}>+ {planFiles.length} plano{planFiles.length > 1 ? 's' : ''}</span>}
             </div>
             <div style={{ fontSize: 11, color: '#555', marginTop: 2 }}>
               {step === 'mode' && 'Elige cómo darle contexto al sistema'}
@@ -810,35 +823,36 @@ export default function AIQuoteChat({ onClose, onCreated }: {
                 </div>
               </div>
 
-              {/* Plan upload */}
+              {/* Plan upload (multiple) */}
               <div>
-                <label style={sLabel}>Plano arquitectónico (opcional)</label>
+                <label style={sLabel}>Planos arquitectónicos (opcional)</label>
+                {planFiles.length > 0 && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 8 }}>
+                    {planFiles.map((p, i) => (
+                      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: 'rgba(87,255,154,0.03)', border: '1px solid #57FF9A44', borderRadius: 8 }}>
+                        <FileText size={16} color="#57FF9A" />
+                        <div style={{ flex: 1, textAlign: 'left' }}>
+                          <div style={{ fontSize: 12, fontWeight: 600, color: '#fff' }}>{p.file.name}</div>
+                          <div style={{ fontSize: 10, color: '#888' }}>{(p.file.size / 1024 / 1024).toFixed(1)} MB</div>
+                        </div>
+                        <button onClick={e => { e.stopPropagation(); removePlan(i) }}
+                          style={{ background: 'none', border: '1px solid #333', borderRadius: 6, padding: '3px 7px', color: '#666', cursor: 'pointer', fontSize: 10 }}>
+                          ✕
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 <div
-                  onDrop={e => { e.preventDefault(); if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]) }}
+                  onDrop={e => { e.preventDefault(); if (e.dataTransfer.files.length) handleFiles(e.dataTransfer.files) }}
                   onDragOver={e => e.preventDefault()}
                   onClick={() => document.getElementById('plan-input-unified')?.click()}
-                  style={{ border: '2px dashed ' + (planFile ? '#57FF9A44' : '#333'), borderRadius: 10, padding: planFile ? '12px 16px' : '24px 16px', textAlign: 'center', cursor: 'pointer', background: planFile ? 'rgba(87,255,154,0.03)' : 'transparent', transition: 'all 0.2s' }}
+                  style={{ border: '2px dashed #333', borderRadius: 10, padding: '18px 16px', textAlign: 'center', cursor: 'pointer', transition: 'all 0.2s' }}
                 >
-                  <input id="plan-input-unified" type="file" accept=".pdf,.png,.jpg,.jpeg,.webp" style={{ display: 'none' }}
-                    onChange={e => { if (e.target.files?.[0]) handleFile(e.target.files[0]) }} />
-                  {planFile ? (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                      <FileText size={20} color="#57FF9A" />
-                      <div style={{ textAlign: 'left', flex: 1 }}>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: '#fff' }}>{planFile.name}</div>
-                        <div style={{ fontSize: 11, color: '#888' }}>{(planFile.size / 1024 / 1024).toFixed(1)} MB</div>
-                      </div>
-                      <button onClick={e => { e.stopPropagation(); setPlanFile(null); setPlanBase64(''); setPlanPreview('') }}
-                        style={{ background: 'none', border: '1px solid #333', borderRadius: 6, padding: '4px 8px', color: '#666', cursor: 'pointer', fontSize: 10 }}>
-                        Quitar
-                      </button>
-                    </div>
-                  ) : (
-                    <div>
-                      <Upload size={20} color="#555" style={{ marginBottom: 6 }} />
-                      <div style={{ fontSize: 12, color: '#888' }}>Arrastra un plano o haz click · PDF, PNG, JPG</div>
-                    </div>
-                  )}
+                  <input id="plan-input-unified" type="file" accept=".pdf,.png,.jpg,.jpeg,.webp" multiple style={{ display: 'none' }}
+                    onChange={e => { if (e.target.files?.length) { handleFiles(e.target.files); e.target.value = '' } }} />
+                  <Upload size={18} color="#555" style={{ marginBottom: 4 }} />
+                  <div style={{ fontSize: 12, color: '#888' }}>{planFiles.length > 0 ? 'Agregar más planos' : 'Arrastra planos o haz click'} · PDF, PNG, JPG</div>
                 </div>
               </div>
 
@@ -884,16 +898,26 @@ export default function AIQuoteChat({ onClose, onCreated }: {
 
             {/* Optional plan upload in freetext mode too */}
             <div style={{ marginTop: 12 }}>
-              <label style={sLabel}>Plano arquitectónico (opcional)</label>
+              <label style={sLabel}>Planos arquitectónicos (opcional)</label>
+              {planFiles.length > 0 && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 6 }}>
+                  {planFiles.map((p, i) => (
+                    <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: '#0e1a0e', border: '1px solid #1a3a1a', borderRadius: 6, padding: '3px 8px', fontSize: 11, color: '#57FF9A' }}>
+                      <FileText size={10} /> {p.file.name}
+                      <button onClick={() => removePlan(i)} style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer', fontSize: 10, padding: 0 }}>✕</button>
+                    </span>
+                  ))}
+                </div>
+              )}
               <div
-                onDrop={e => { e.preventDefault(); if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]) }}
+                onDrop={e => { e.preventDefault(); if (e.dataTransfer.files.length) handleFiles(e.dataTransfer.files) }}
                 onDragOver={e => e.preventDefault()}
                 onClick={() => document.getElementById('plan-input-ft')?.click()}
                 style={{ border: '1px dashed #333', borderRadius: 8, padding: '10px 16px', textAlign: 'center', cursor: 'pointer', fontSize: 12, color: '#666' }}
               >
-                <input id="plan-input-ft" type="file" accept=".pdf,.png,.jpg,.jpeg,.webp" style={{ display: 'none' }}
-                  onChange={e => { if (e.target.files?.[0]) handleFile(e.target.files[0]) }} />
-                {planFile ? <span style={{ color: '#57FF9A' }}>{planFile.name}</span> : <span><Upload size={12} /> Subir plano</span>}
+                <input id="plan-input-ft" type="file" accept=".pdf,.png,.jpg,.jpeg,.webp" multiple style={{ display: 'none' }}
+                  onChange={e => { if (e.target.files?.length) { handleFiles(e.target.files); e.target.value = '' } }} />
+                <span><Upload size={12} /> {planFiles.length > 0 ? 'Agregar más planos' : 'Subir planos'}</span>
               </div>
             </div>
 
