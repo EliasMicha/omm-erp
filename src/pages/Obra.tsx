@@ -1810,12 +1810,23 @@ function NuevaObraModal({ coordinadores, onClose, onSubmit, onCreated }: {
   const [form, setForm] = useState({
     nombre: '', cliente: '', direccion: '', coordinador_id: '',
     cotizacion_id: '', valor_contrato: '', sistemas: [] as Sistema[],
-    fecha_fin_plan: '',
+    fecha_fin_plan: '', lead_id: '',
   })
-  const [cotizaciones, setCotizaciones] = useState<Array<{ id: string; name: string; total: number; project_name?: string; client_name?: string }>>([])
+  const [leads, setLeads] = useState<Array<{ id: string; name: string; company: string; address?: string }>>([])
+  const [cotizaciones, setCotizaciones] = useState<Array<{ id: string; name: string; total: number; project_name?: string; client_name?: string; notes?: string }>>([])
   const [loadingCots, setLoadingCots] = useState(false)
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
+  const [leadSearch, setLeadSearch] = useState('')
+  const [leadOpen, setLeadOpen] = useState(false)
+  const leadRef = useRef<HTMLDivElement>(null)
+
+  // Close lead dropdown on outside click
+  React.useEffect(() => {
+    function handleClick(e: MouseEvent) { if (leadRef.current && !leadRef.current.contains(e.target as Node)) setLeadOpen(false) }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [])
 
   // Default coordinador: el primero "coordinador" si existe
   React.useEffect(() => {
@@ -1824,21 +1835,50 @@ function NuevaObraModal({ coordinadores, onClose, onSubmit, onCreated }: {
     }
   }, [coordinadores])
 
-  // Load cotizaciones on mount
+  // Load leads + cotizaciones on mount
   React.useEffect(() => {
     setLoadingCots(true)
-    supabase.from('quotations').select('id, name, total, project_id, client_name, projects(name)')
-      .eq('specialty', 'esp').order('created_at', { ascending: false })
-      .then(({ data }) => {
-        if (data) {
-          setCotizaciones(data.map((q: any) => ({
-            id: q.id, name: q.name, total: q.total || 0,
-            project_name: q.projects?.name || '', client_name: q.client_name || '',
-          })))
-        }
-        setLoadingCots(false)
-      })
+    Promise.all([
+      supabase.from('leads').select('id,name,company').order('name'),
+      supabase.from('quotations').select('id, name, total, project_id, client_name, notes, projects(name)')
+        .eq('specialty', 'esp').order('created_at', { ascending: false }),
+    ]).then(([lRes, qRes]) => {
+      setLeads((lRes.data || []) as any)
+      if (qRes.data) {
+        setCotizaciones(qRes.data.map((q: any) => ({
+          id: q.id, name: q.name, total: q.total || 0,
+          project_name: q.projects?.name || '', client_name: q.client_name || '',
+          notes: q.notes || '',
+        })))
+      }
+      setLoadingCots(false)
+    })
   }, [])
+
+  const filteredLeads = leadSearch
+    ? leads.filter(l => `${l.name} ${l.company}`.toLowerCase().includes(leadSearch.toLowerCase()))
+    : leads
+
+  // Cotizaciones filtered by selected lead
+  const filteredCots = form.lead_id
+    ? cotizaciones.filter(c => {
+        try { const m = JSON.parse(c.notes || '{}'); if (m.lead_id === form.lead_id) return true } catch {}
+        const leadName = leads.find(l => l.id === form.lead_id)?.name?.toLowerCase() || ''
+        return leadName && (c.client_name?.toLowerCase().includes(leadName) || c.name?.toLowerCase().includes(leadName))
+      })
+    : cotizaciones
+
+  const handleLeadSelect = (leadId: string) => {
+    const lead = leads.find(l => l.id === leadId)
+    setForm(f => ({
+      ...f, lead_id: leadId,
+      cliente: lead?.company || lead?.name || f.cliente,
+      nombre: f.nombre || lead?.name || '',
+      cotizacion_id: '', // Reset cotización when lead changes
+    }))
+    setLeadOpen(false)
+    setLeadSearch('')
+  }
 
   const handleCotSelect = (cotId: string) => {
     const cot = cotizaciones.find(c => c.id === cotId)
@@ -1893,6 +1933,40 @@ function NuevaObraModal({ coordinadores, onClose, onSubmit, onCreated }: {
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer' }}><X size={16} /></button>
         </div>
         <div style={{ display: 'grid', gap: 10 }}>
+          {/* Lead selector con búsqueda */}
+          <div ref={leadRef} style={{ position: 'relative' }}>
+            <div style={labelStyle}>Lead / Proyecto</div>
+            <div
+              onClick={() => { setLeadOpen(true); setLeadSearch('') }}
+              style={{
+                ...inputStyle, cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                borderColor: leadOpen ? '#57FF9A' : '#333',
+              }}>
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: form.lead_id ? '#fff' : '#666' }}>
+                {form.lead_id ? (() => { const l = leads.find(x => x.id === form.lead_id); return l ? `${l.name}${l.company ? ' | ' + l.company : ''}` : 'Seleccionar...' })() : '— Seleccionar lead —'}
+              </span>
+              {form.lead_id && <button onClick={e => { e.stopPropagation(); setForm(f => ({ ...f, lead_id: '', cotizacion_id: '' })) }} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', padding: 0 }}><X size={12} /></button>}
+            </div>
+            {leadOpen && (
+              <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 50, background: '#1e1e1e', border: '1px solid #444', borderRadius: 8, marginTop: 2, maxHeight: 220, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+                <div style={{ padding: '6px 8px', borderBottom: '1px solid #333' }}>
+                  <input autoFocus value={leadSearch} onChange={e => setLeadSearch(e.target.value)} placeholder="Buscar lead..."
+                    style={{ width: '100%', padding: '6px 8px', background: '#141414', border: '1px solid #333', borderRadius: 6, color: '#fff', fontSize: 12, fontFamily: 'inherit', boxSizing: 'border-box' as const, outline: 'none' }} />
+                </div>
+                <div style={{ overflowY: 'auto', flex: 1 }}>
+                  {filteredLeads.map(l => (
+                    <div key={l.id} onClick={() => handleLeadSelect(l.id)}
+                      style={{ padding: '7px 10px', fontSize: 12, color: l.id === form.lead_id ? '#57FF9A' : '#ccc', cursor: 'pointer', background: l.id === form.lead_id ? 'rgba(87,255,154,0.08)' : 'transparent' }}
+                      onMouseEnter={e => { if (l.id !== form.lead_id) e.currentTarget.style.background = '#252525' }}
+                      onMouseLeave={e => { if (l.id !== form.lead_id) e.currentTarget.style.background = 'transparent' }}>
+                      {l.name}{l.company ? <span style={{ color: '#666' }}> | {l.company}</span> : ''}
+                    </div>
+                  ))}
+                  {filteredLeads.length === 0 && <div style={{ padding: 10, fontSize: 11, color: '#555', textAlign: 'center' }}>Sin resultados</div>}
+                </div>
+              </div>
+            )}
+          </div>
           <div>
             <div style={labelStyle}>Nombre de obra *</div>
             <input value={form.nombre} onChange={e => setForm(f => ({ ...f, nombre: e.target.value }))} placeholder="Ej: Oasis 6 - Torre B" style={inputStyle} />
@@ -1919,7 +1993,7 @@ function NuevaObraModal({ coordinadores, onClose, onSubmit, onCreated }: {
               <div style={labelStyle}>Cotización ESP {loadingCots && '(cargando...)'}</div>
               <select value={form.cotizacion_id} onChange={e => handleCotSelect(e.target.value)} style={inputStyle}>
                 <option value="">Sin cotización</option>
-                {cotizaciones.map(c => <option key={c.id} value={c.id}>{c.name} — {F(c.total)}</option>)}
+                {filteredCots.map(c => <option key={c.id} value={c.id}>{c.name} — {F(c.total)}</option>)}
               </select>
             </div>
             <div>
