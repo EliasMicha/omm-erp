@@ -241,8 +241,8 @@ export default function Obra() {
         const insts = empleados.filter((e: any) =>
           e.tipo_trabajo === 'OBRA' || e.tipo_trabajo === 'MIXTO'
         ).map(rowToInstalador)
-        // Coordinadores = role 'coordinador' o 'dg'
-        const coords = empleados.filter((e: any) => e.role === 'coordinador' || e.role === 'dg').map((e: any) => ({ id: e.id, name: e.name || '' }))
+        // Coordinadores = todos los empleados activos (cualquiera puede coordinar)
+        const coords = empleados.map((e: any) => ({ id: e.id, name: e.name || '' }))
         // Mapa id -> name para resolver coordinador_id en obras
         const coordMap = new Map<string, string>()
         empleados.forEach((e: any) => coordMap.set(e.id, e.name || ''))
@@ -271,13 +271,14 @@ export default function Obra() {
   // Persiste una obra nueva en Supabase + agrega al state
   async function crearObraEnDB(form: {
     nombre: string; cliente: string; direccion: string; coordinador_id: string;
-    cotizacion_id: string; valor_contrato: number; sistemas: Sistema[]; fecha_fin_plan: string;
+    cotizacion_ids: string[]; valor_contrato: number; sistemas: Sistema[]; fecha_fin_plan: string;
   }): Promise<{ ok: true; obra: ObraData } | { ok: false; error: string }> {
     try {
-      // Resolver project_id desde la cotización si hay
+      // Resolver project_id desde la primera cotización si hay
       let project_id: string | null = null
-      if (form.cotizacion_id) {
-        const { data: cot } = await supabase.from('quotations').select('project_id').eq('id', form.cotizacion_id).single()
+      const firstCotId = form.cotizacion_ids[0] || null
+      if (firstCotId) {
+        const { data: cot } = await supabase.from('quotations').select('project_id').eq('id', firstCotId).single()
         if (cot) project_id = cot.project_id || null
       }
       const payload: any = {
@@ -285,7 +286,8 @@ export default function Obra() {
         cliente: form.cliente || null,
         direccion: form.direccion || null,
         status: 'entrega_pendiente',
-        quotation_id: form.cotizacion_id || null,
+        quotation_id: firstCotId,
+        quotation_ids: form.cotizacion_ids,
         project_id,
         coordinador_id: form.coordinador_id || null,
         sistemas: form.sistemas,
@@ -1803,17 +1805,17 @@ function NuevaObraModal({ coordinadores, onClose, onSubmit, onCreated }: {
   onClose: () => void
   onSubmit: (form: {
     nombre: string; cliente: string; direccion: string; coordinador_id: string;
-    cotizacion_id: string; valor_contrato: number; sistemas: Sistema[]; fecha_fin_plan: string;
+    cotizacion_ids: string[]; valor_contrato: number; sistemas: Sistema[]; fecha_fin_plan: string;
   }) => Promise<{ ok: true; obra: ObraData } | { ok: false; error: string }>
   onCreated: () => void
 }) {
   const [form, setForm] = useState({
     nombre: '', cliente: '', direccion: '', coordinador_id: '',
-    cotizacion_id: '', valor_contrato: '', sistemas: [] as Sistema[],
+    cotizacion_ids: [] as string[], valor_contrato: '', sistemas: [] as Sistema[],
     fecha_fin_plan: '', lead_id: '',
   })
   const [leads, setLeads] = useState<Array<{ id: string; name: string; company: string; address?: string }>>([])
-  const [cotizaciones, setCotizaciones] = useState<Array<{ id: string; name: string; total: number; project_name?: string; client_name?: string; notes?: string }>>([])
+  const [cotizaciones, setCotizaciones] = useState<Array<{ id: string; name: string; total: number; project_name?: string; client_name?: string; notes?: string; stage?: string }>>([])
   const [loadingCots, setLoadingCots] = useState(false)
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
@@ -1840,8 +1842,8 @@ function NuevaObraModal({ coordinadores, onClose, onSubmit, onCreated }: {
     setLoadingCots(true)
     Promise.all([
       supabase.from('leads').select('id,name,company').order('name'),
-      supabase.from('quotations').select('id, name, total, project_id, client_name, notes, projects(name)')
-        .eq('specialty', 'esp').order('created_at', { ascending: false }),
+      supabase.from('quotations').select('id, name, total, project_id, client_name, notes, stage, projects:projects!quotations_project_id_fkey(name)')
+        .in('stage', ['propuesta', 'contrato']).order('created_at', { ascending: false }),
     ]).then(([lRes, qRes]) => {
       setLeads((lRes.data || []) as any)
       if (qRes.data) {
@@ -1874,24 +1876,31 @@ function NuevaObraModal({ coordinadores, onClose, onSubmit, onCreated }: {
       ...f, lead_id: leadId,
       cliente: lead?.company || lead?.name || f.cliente,
       nombre: f.nombre || lead?.name || '',
-      cotizacion_id: '', // Reset cotización when lead changes
+      cotizacion_ids: [], // Reset cotizaciones when lead changes
+      valor_contrato: '',
     }))
     setLeadOpen(false)
     setLeadSearch('')
   }
 
-  const handleCotSelect = (cotId: string) => {
-    const cot = cotizaciones.find(c => c.id === cotId)
-    if (cot) {
-      setForm(f => ({
-        ...f, cotizacion_id: cotId,
-        valor_contrato: String(cot.total || f.valor_contrato),
-        cliente: f.cliente || cot.client_name || '',
-        nombre: f.nombre || cot.project_name || cot.name || '',
-      }))
-    } else {
-      setForm(f => ({ ...f, cotizacion_id: '' }))
-    }
+  const toggleCot = (cotId: string) => {
+    setForm(f => {
+      const ids = f.cotizacion_ids.includes(cotId)
+        ? f.cotizacion_ids.filter(id => id !== cotId)
+        : [...f.cotizacion_ids, cotId]
+      // Recalculate total from all selected cotizaciones
+      const totalVal = ids.reduce((s, id) => {
+        const c = cotizaciones.find(x => x.id === id)
+        return s + (c?.total || 0)
+      }, 0)
+      const firstCot = cotizaciones.find(c => c.id === (ids[0] || ''))
+      return {
+        ...f, cotizacion_ids: ids,
+        valor_contrato: totalVal > 0 ? String(totalVal) : f.valor_contrato,
+        cliente: f.cliente || firstCot?.client_name || '',
+        nombre: f.nombre || firstCot?.project_name || firstCot?.name || '',
+      }
+    })
   }
 
   const toggleSistema = (s: Sistema) => {
@@ -1910,7 +1919,7 @@ function NuevaObraModal({ coordinadores, onClose, onSubmit, onCreated }: {
       cliente: form.cliente.trim(),
       direccion: form.direccion.trim(),
       coordinador_id: form.coordinador_id,
-      cotizacion_id: form.cotizacion_id,
+      cotizacion_ids: form.cotizacion_ids,
       valor_contrato: parseFloat(form.valor_contrato) || 0,
       sistemas: form.sistemas,
       fecha_fin_plan: form.fecha_fin_plan,
@@ -1945,7 +1954,7 @@ function NuevaObraModal({ coordinadores, onClose, onSubmit, onCreated }: {
               <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: form.lead_id ? '#fff' : '#666' }}>
                 {form.lead_id ? (() => { const l = leads.find(x => x.id === form.lead_id); return l ? `${l.name}${l.company ? ' | ' + l.company : ''}` : 'Seleccionar...' })() : '— Seleccionar lead —'}
               </span>
-              {form.lead_id && <button onClick={e => { e.stopPropagation(); setForm(f => ({ ...f, lead_id: '', cotizacion_id: '' })) }} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', padding: 0 }}><X size={12} /></button>}
+              {form.lead_id && <button onClick={e => { e.stopPropagation(); setForm(f => ({ ...f, lead_id: '', cotizacion_ids: [], valor_contrato: '' })) }} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', padding: 0 }}><X size={12} /></button>}
             </div>
             {leadOpen && (
               <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 50, background: '#1e1e1e', border: '1px solid #444', borderRadius: 8, marginTop: 2, maxHeight: 220, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
@@ -1988,14 +1997,30 @@ function NuevaObraModal({ coordinadores, onClose, onSubmit, onCreated }: {
             <div style={labelStyle}>Dirección</div>
             <input value={form.direccion} onChange={e => setForm(f => ({ ...f, direccion: e.target.value }))} style={inputStyle} />
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
-            <div>
-              <div style={labelStyle}>Cotización ESP {loadingCots && '(cargando...)'}</div>
-              <select value={form.cotizacion_id} onChange={e => handleCotSelect(e.target.value)} style={inputStyle}>
-                <option value="">Sin cotización</option>
-                {filteredCots.map(c => <option key={c.id} value={c.id}>{c.name} — {F(c.total)}</option>)}
-              </select>
+          <div>
+            <div style={labelStyle}>Cotizaciones {loadingCots && '(cargando...)'} {form.cotizacion_ids.length > 0 && <span style={{ color: '#57FF9A', fontWeight: 600 }}>({form.cotizacion_ids.length})</span>}</div>
+            <div style={{ border: '1px solid #333', borderRadius: 8, maxHeight: 140, overflowY: 'auto', background: '#0a0a0a' }}>
+              {filteredCots.length === 0 && <div style={{ padding: 10, fontSize: 11, color: '#555', textAlign: 'center' as const }}>{form.lead_id ? 'Sin cotizaciones para este lead' : 'Selecciona un lead primero'}</div>}
+              {filteredCots.map(c => {
+                const checked = form.cotizacion_ids.includes(c.id)
+                return (
+                  <label key={c.id} style={{
+                    display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', cursor: 'pointer',
+                    background: checked ? 'rgba(87,255,154,0.06)' : 'transparent',
+                    borderBottom: '1px solid #1a1a1a', fontSize: 12,
+                  }}
+                    onMouseEnter={e => { if (!checked) e.currentTarget.style.background = '#151515' }}
+                    onMouseLeave={e => { if (!checked) e.currentTarget.style.background = 'transparent' }}>
+                    <input type="checkbox" checked={checked} onChange={() => toggleCot(c.id)}
+                      style={{ accentColor: '#57FF9A' }} />
+                    <span style={{ color: checked ? '#57FF9A' : '#ccc', flex: 1 }}>{c.name}</span>
+                    <span style={{ color: '#666', fontSize: 11 }}>{F(c.total)}</span>
+                  </label>
+                )
+              })}
             </div>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
             <div>
               <div style={labelStyle}>Valor contrato</div>
               <input type="number" value={form.valor_contrato} onChange={e => setForm(f => ({ ...f, valor_contrato: e.target.value }))} style={inputStyle} />
