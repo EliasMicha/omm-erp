@@ -675,6 +675,8 @@ function SubActividades({ obra, instaladores, updateObra, showNew, setShowNew }:
   const [generating, setGenerating] = useState(false)
   const [genStatus, setGenStatus] = useState('')
   const [showWizard, setShowWizard] = useState(false)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [deleting, setDeleting] = useState(false)
 
   const addActividad = async () => {
     if (!newAct.descripcion.trim()) return
@@ -809,6 +811,40 @@ function SubActividades({ obra, instaladores, updateObra, showNew, setShowNew }:
               {f.label} ({f.count})
             </button>
           ))}
+          {/* Select all / bulk actions */}
+          {filteredActs.length > 0 && (
+            <div style={{ marginLeft: 'auto', display: 'flex', gap: 6, alignItems: 'center' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', fontSize: 10, color: '#666' }}>
+                <input type="checkbox"
+                  checked={selected.size === filteredActs.length && filteredActs.length > 0}
+                  onChange={() => {
+                    if (selected.size === filteredActs.length) setSelected(new Set())
+                    else setSelected(new Set(filteredActs.map(a => a.id)))
+                  }}
+                  style={{ accentColor: '#57FF9A' }} />
+                Sel. todo ({filteredActs.length})
+              </label>
+              {selected.size > 0 && (
+                <Btn size="sm" variant="default" disabled={deleting} onClick={async () => {
+                  if (!confirm(`¿Eliminar ${selected.size} tarea${selected.size > 1 ? 's' : ''}?`)) return
+                  setDeleting(true)
+                  const ids = Array.from(selected)
+                  const { error } = await supabase.from('obra_actividades').delete().in('id', ids)
+                  if (error) { alert('Error: ' + error.message); setDeleting(false); return }
+                  updateObra(o => {
+                    const nuevas = o.actividades.filter(a => !ids.includes(a.id))
+                    const avance = nuevas.length > 0 ? Math.round(nuevas.reduce((s, a) => s + a.porcentaje, 0) / nuevas.length) : 0
+                    return { ...o, actividades: nuevas, avance_global: avance }
+                  })
+                  supabase.from('obras').update({ avance_global: Math.round(obra.actividades.filter(a => !ids.includes(a.id)).reduce((s, a) => s + a.porcentaje, 0) / (obra.actividades.filter(a => !ids.includes(a.id)).length || 1)) }).eq('id', obra.id)
+                  setSelected(new Set())
+                  setDeleting(false)
+                }}>
+                  {deleting ? <Loader2 size={10} /> : <X size={10} />} Eliminar ({selected.size})
+                </Btn>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -888,8 +924,11 @@ function SubActividades({ obra, instaladores, updateObra, showNew, setShowNew }:
                 const inst = instaladores.find(i => i.id === a.instalador_id)
                 const aSistCfg = SISTEMAS_CONFIG[a.sistema]
                 return (
-                  <div key={a.id} style={{ ...cardStyle, padding: 12, marginBottom: 6, borderLeft: `3px solid ${actSt.color}` }}>
+                  <div key={a.id} style={{ ...cardStyle, padding: 12, marginBottom: 6, borderLeft: `3px solid ${actSt.color}`, background: selected.has(a.id) ? 'rgba(87,255,154,0.04)' : undefined }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <input type="checkbox" checked={selected.has(a.id)}
+                        onChange={() => setSelected(prev => { const n = new Set(prev); n.has(a.id) ? n.delete(a.id) : n.add(a.id); return n })}
+                        style={{ accentColor: '#57FF9A', flexShrink: 0 }} />
                       <div style={{ flex: 1 }}>
                         <div style={{ fontSize: 12, color: '#ccc', marginBottom: 2 }}>{a.descripcion}</div>
                         <div style={{ fontSize: 10, color: '#555', display: 'flex', gap: 12, flexWrap: 'wrap' }}>
