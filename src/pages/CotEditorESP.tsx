@@ -39,6 +39,9 @@ const ALL_SYSTEMS: EspSystemDef[] = [
 
 function uid(): string { return Math.random().toString(36).slice(2, 10) }
 
+/** Format number with commas and 2 decimals: 54448.22 → "54,448.22" */
+function fmt(n: number): string { return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }
+
 function calcLine(p: EspProduct) {
   const precioAmp = p.price * p.quantity
   const moAmp = p.laborCost * p.quantity
@@ -136,13 +139,13 @@ function ProductRow({ p, onUpdate, onRemove, onUpdateAll, showInt, duplicateCoun
         {duplicateCount > 1 && <span style={{ fontSize: 9, color: '#F59E0B', background: '#F59E0B18', padding: '1px 5px', borderRadius: 4 }}>×{duplicateCount}</span>}
       </td>
       <td style={S.tdR}><input type="number" defaultValue={p.price} step={0.01} onBlur={e => handleBlur('price', parseFloat(e.target.value) || 0)} style={S.input} /></td>
-      <td style={S.tdM}>${precioAmp.toFixed(2)}</td>
+      <td style={S.tdM}>${fmt(precioAmp)}</td>
       <td style={S.tdR}><input type="number" defaultValue={p.laborCost} step={0.01} onBlur={e => handleBlur('laborCost', parseFloat(e.target.value) || 0)} style={S.input} /></td>
-      <td style={{ ...S.tdM, color: '#57FF9A' }}>${total.toFixed(2)}</td>
+      <td style={{ ...S.tdM, color: '#57FF9A' }}>${fmt(total)}</td>
       {showInt && (<>
-        <td style={{ ...S.tdR, color: '#555', fontSize: 10 }}>${costReal.toFixed(2)}</td>
+        <td style={{ ...S.tdR, color: '#555', fontSize: 10 }}>${fmt(costReal)}</td>
         <td style={S.tdR}><input type="number" defaultValue={p.margin} step={1} onBlur={e => handleBlur('margin', parseFloat(e.target.value) || 0)} style={{ ...S.input, width: 40, color: p.margin >= 25 ? '#57FF9A' : p.margin >= 15 ? '#F59E0B' : '#EF4444' }} /></td>
-        <td style={{ ...S.tdR, fontSize: 10, color: utilidad >= 0 ? '#57FF9A' : '#EF4444' }}>${utilidad.toFixed(2)}</td>
+        <td style={{ ...S.tdR, fontSize: 10, color: utilidad >= 0 ? '#57FF9A' : '#EF4444' }}>${fmt(utilidad)}</td>
       </>)}
       <td style={{ ...S.td, width: 28 }}>{onCopyTo && <button onClick={() => onCopyTo(p.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, padding: 0, opacity: 0.5 }} title="Copiar a otras areas">{String.fromCodePoint(0x1F4CB)}</button>}</td><td style={{ ...S.td, width: 28 }}><button onClick={() => onRemove(p.id)} style={{ background: 'none', border: 'none', color: '#444', cursor: 'pointer' }}><Trash2 size={12} /></button></td>
     </tr>
@@ -166,7 +169,7 @@ function SystemBlock({ sysDef, products, collapsed, onToggle, onUpdate, onRemove
         <span style={{ width: 7, height: 7, borderRadius: '50%', background: sysDef.color, flexShrink: 0 }} />
         <span style={{ fontSize: 12, fontWeight: 700, color: sysDef.color, textTransform: 'uppercase' as const, letterSpacing: '0.04em' }}>{sysDef.name}</span>
         <span style={{ marginLeft: 'auto', fontSize: 10, color: '#666' }}>{products.length}</span>
-        <span style={{ fontSize: 12, fontWeight: 700, color: '#fff' }}>${sysTotal.toFixed(2)}</span>
+        <span style={{ fontSize: 12, fontWeight: 700, color: '#fff' }}>${fmt(sysTotal)}</span>
       </div>
       {!collapsed && (<>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -187,7 +190,7 @@ function SystemBlock({ sysDef, products, collapsed, onToggle, onUpdate, onRemove
         </table>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 8px' }}>
           <Btn size="sm" onClick={onAdd}><Plus size={12} /> Producto</Btn>
-          <span style={{ fontSize: 10, color: '#555' }}>{sysDef.name.toUpperCase()} TOTAL <span style={{ fontWeight: 700, color: '#fff', marginLeft: 6 }}>${sysTotal.toFixed(2)}</span></span>
+          <span style={{ fontSize: 10, color: '#555' }}>{sysDef.name.toUpperCase()} TOTAL <span style={{ fontWeight: 700, color: '#fff', marginLeft: 6 }}>${fmt(sysTotal)}</span></span>
         </div>
       </>)}
     </div>
@@ -215,7 +218,7 @@ function AreaBlock({ area, activeSystems, products, allProducts, collapsedSys, o
         {area.collapsed ? <ChevronRight size={16} color="#57FF9A" /> : <ChevronDown size={16} color="#57FF9A" />}
         <span style={{ fontSize: 14, fontWeight: 700, color: '#fff', flex: 1, textTransform: 'uppercase' as const }}>{area.name}</span>
         <span style={{ fontSize: 10, color: '#555' }}>{sysWithProds.length} sistemas</span>
-        <span style={{ fontSize: 14, fontWeight: 700, color: '#57FF9A' }}>${areaTotal.toFixed(2)}</span>
+        <span style={{ fontSize: 14, fontWeight: 700, color: '#57FF9A' }}>${fmt(areaTotal)}</span>
       </div>
       {!area.collapsed && (
         <div style={{ paddingLeft: 14, paddingTop: 6 }}>
@@ -234,7 +237,7 @@ function AreaBlock({ area, activeSystems, products, allProducts, collapsedSys, o
           )}
           <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '6px 12px', borderTop: '1px solid #1e1e1e', marginTop: 6 }}>
             <span style={{ fontSize: 11, fontWeight: 700, color: '#555', marginRight: 12 }}>{area.name.toUpperCase()} TOTAL</span>
-            <span style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>${areaTotal.toFixed(2)}</span>
+            <span style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>${fmt(areaTotal)}</span>
           </div>
         </div>
       )}
@@ -982,7 +985,7 @@ function CatalogModal({ onClose, onSelect, onCreateNew, systemName }: {
                       <td style={{ ...S.td }}><div style={{ fontWeight: 500, color: '#ddd' }}>{p.name}</div>{p.description && <div style={{ fontSize: 10, color: '#555' }}>{p.description}</div>}</td>
                       <td style={{ ...S.td, fontSize: 10, color: '#666' }}>{p.system || '--'}</td>
                       <td style={{ ...S.td, fontSize: 10, color: '#666' }}>{p.provider || '--'}</td>
-                      <td style={{ ...S.tdR, fontSize: 10, color: '#555' }}>${p.cost.toFixed(2)}</td>
+                      <td style={{ ...S.tdR, fontSize: 10, color: '#555' }}>${fmt(p.cost)}</td>
                       <td style={{ ...S.tdR, fontWeight: 600, color: '#57FF9A' }}>${precio}</td>
                       <td style={S.td}><Btn size="sm" variant="primary">+ Agregar</Btn></td>
                     </tr>
@@ -1265,9 +1268,9 @@ IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
             return (
               <div style={{ background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 8, padding: '10px 12px' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, fontSize: 11 }}>
-                  <div><span style={{ color: '#555' }}>Costo real</span><br /><span style={{ color: '#ccc', fontWeight: 600 }}>${costoReal.toFixed(2)}</span></div>
-                  <div><span style={{ color: '#555' }}>Precio venta</span><br /><span style={{ color: '#57FF9A', fontWeight: 700, fontSize: 14 }}>{rule.precioPublico ? 'Precio público' : '$' + precioVenta.toFixed(2)}</span></div>
-                  <div><span style={{ color: '#555' }}>Inst + Prog ({rule.instPct}%)</span><br /><span style={{ color: '#ccc', fontWeight: 600 }}>${labor.toFixed(2)}</span></div>
+                  <div><span style={{ color: '#555' }}>Costo real</span><br /><span style={{ color: '#ccc', fontWeight: 600 }}>${fmt(costoReal)}</span></div>
+                  <div><span style={{ color: '#555' }}>Precio venta</span><br /><span style={{ color: '#57FF9A', fontWeight: 700, fontSize: 14 }}>{rule.precioPublico ? 'Precio público' : '$' + fmt(precioVenta)}</span></div>
+                  <div><span style={{ color: '#555' }}>Inst + Prog ({rule.instPct}%)</span><br /><span style={{ color: '#ccc', fontWeight: 600 }}>${fmt(labor)}</span></div>
                 </div>
               </div>
             )
@@ -1325,7 +1328,7 @@ function SummaryPanel({ products, areas, config, activeSystems, showInt, onConfi
           <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '3px 0', borderTop: r.b ? '1px solid #222' : 'none' }}>
             <span style={{ fontSize: 10, color: r.b ? '#ccc' : '#555', fontWeight: r.b ? 700 : 400 }}>{r.l}</span>
             {r.ed ? <input type="number" value={r.v} step={10} onChange={e => onConfigChange(r.ed!, parseFloat(e.target.value) || 0)} style={{ ...S.input, width: 70, fontSize: 11, fontWeight: 600 }} />
-              : <span style={{ fontSize: 11, fontWeight: r.b ? 700 : 400, color: '#fff' }}>${r.v.toFixed(2)}</span>}
+              : <span style={{ fontSize: 11, fontWeight: r.b ? 700 : 400, color: '#fff' }}>${fmt(r.v)}</span>}
           </div>
         ))}
         {/* Discount row */}
@@ -1335,7 +1338,7 @@ function SummaryPanel({ products, areas, config, activeSystems, showInt, onConfi
             <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
               <input type="number" value={r.v} step={1} min={0} max={100} onChange={e => onConfigChange('descuento', Math.min(100, Math.max(0, parseFloat(e.target.value) || 0)))} style={{ ...S.input, width: 50, fontSize: 11, fontWeight: 600 }} />
               <span style={{ fontSize: 10, color: '#555' }}>%</span>
-              {config.descuento > 0 && <span style={{ fontSize: 10, color: '#EF4444', marginLeft: 4 }}>-${descuentoAmt.toFixed(2)}</span>}
+              {config.descuento > 0 && <span style={{ fontSize: 10, color: '#EF4444', marginLeft: 4 }}>-${fmt(descuentoAmt)}</span>}
             </div>
           </div>
         ))}
@@ -1343,7 +1346,7 @@ function SummaryPanel({ products, areas, config, activeSystems, showInt, onConfi
         {afterDiscountRows.map((r, i) => (
           <div key={'a' + i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '3px 0', borderTop: r.b ? '1px solid #222' : 'none' }}>
             <span style={{ fontSize: 10, color: r.h ? '#57FF9A' : r.b ? '#ccc' : '#555', fontWeight: r.b ? 700 : 400 }}>{r.l}</span>
-            <span style={{ fontSize: r.h ? 15 : 11, fontWeight: r.b ? 700 : 400, color: r.h ? '#57FF9A' : '#fff' }}>${r.v.toFixed(2)}</span>
+            <span style={{ fontSize: r.h ? 15 : 11, fontWeight: r.b ? 700 : 400, color: r.h ? '#57FF9A' : '#fff' }}>${fmt(r.v)}</span>
           </div>
         ))}
         <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px solid #222' }}>
@@ -1351,7 +1354,7 @@ function SummaryPanel({ products, areas, config, activeSystems, showInt, onConfi
           {config.paymentSchedule.map((ps, i) => (
             <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}>
               <span style={{ color: '#666' }}>{ps.percentage}% {ps.label}</span>
-              <span style={{ color: '#aaa' }}>${(total * ps.percentage / 100).toFixed(2)}</span>
+              <span style={{ color: '#aaa' }}>${fmt((total * ps.percentage / 100))}</span>
             </div>
           ))}
         </div>
@@ -1360,14 +1363,14 @@ function SummaryPanel({ products, areas, config, activeSystems, showInt, onConfi
         <div style={{ fontSize: 10, fontWeight: 600, color: '#555', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Por Área</div>
         {areas.map(a => {
           const t = products.filter(p => p.areaId === a.id).reduce((s, p) => s + calcLine(p).total, 0)
-          return <div key={a.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}><span style={{ color: '#888' }}>{a.name}</span><span style={{ color: '#ccc', fontWeight: 500 }}>${t.toFixed(2)}</span></div>
+          return <div key={a.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}><span style={{ color: '#888' }}>{a.name}</span><span style={{ color: '#ccc', fontWeight: 500 }}>${fmt(t)}</span></div>
         })}
       </div>
       <div style={{ background: '#141414', border: '1px solid #222', borderRadius: 12, padding: 14, marginBottom: 10 }}>
         <div style={{ fontSize: 10, fontWeight: 600, color: '#555', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Por Sistema</div>
         {activeSystems.map(sys => {
           const t = products.filter(p => p.systemId === sys.id).reduce((s, p) => s + calcLine(p).total, 0)
-          return <div key={sys.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}><span style={{ color: sys.color }}>{sys.name}</span><span style={{ color: '#ccc', fontWeight: 500 }}>${t.toFixed(2)}</span></div>
+          return <div key={sys.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}><span style={{ color: sys.color }}>{sys.name}</span><span style={{ color: '#ccc', fontWeight: 500 }}>${fmt(t)}</span></div>
         })}
       </div>
       {showInt && (
@@ -1377,13 +1380,13 @@ function SummaryPanel({ products, areas, config, activeSystems, showInt, onConfi
             let vt = 0, ct = 0; products.forEach(p => { vt += p.price * p.quantity; ct += p.price * (1 - p.margin / 100) * p.quantity })
             const mg = vt > 0 ? Math.round((vt - ct) / vt * 100) : 0
             return (<>
-              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}><span style={{ color: '#888' }}>Venta</span><span style={{ color: '#fff', fontWeight: 600 }}>${vt.toFixed(2)}</span></div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}><span style={{ color: '#888' }}>Costo</span><span style={{ color: '#ccc' }}>${ct.toFixed(2)}</span></div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}><span style={{ color: '#888' }}>Venta</span><span style={{ color: '#fff', fontWeight: 600 }}>${fmt(vt)}</span></div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}><span style={{ color: '#888' }}>Costo</span><span style={{ color: '#ccc' }}>${fmt(ct)}</span></div>
               <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10, borderTop: '1px solid #332222', marginTop: 3, paddingTop: 5 }}>
                 <span style={{ color: '#F59E0B', fontWeight: 600 }}>Margen</span>
                 <span style={{ color: mg >= 25 ? '#57FF9A' : mg >= 15 ? '#F59E0B' : '#EF4444', fontWeight: 700, fontSize: 13 }}>{mg}%</span>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}><span style={{ color: '#888' }}>Utilidad</span><span style={{ color: '#57FF9A', fontWeight: 600 }}>${(vt - ct).toFixed(2)}</span></div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}><span style={{ color: '#888' }}>Utilidad</span><span style={{ color: '#57FF9A', fontWeight: 600 }}>${fmt((vt - ct))}</span></div>
             </>)
           })()}
         </div>
@@ -1696,7 +1699,7 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
           <button onClick={() => setShowPdfPicker(true)} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #06B6D444', background: 'transparent', color: '#06B6D4', display: 'inline-flex', alignItems: 'center', gap: 4 }}><FileText size={11} /> Exportar PDF</button>
           <button onClick={() => setShowSystemPicker(true)} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #57FF9A44', background: 'transparent', color: '#57FF9A' }}>⚙ Sistemas ({activeSysIds.length})</button>
           <button onClick={() => setShowInt(!showInt)} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid ' + (showInt ? '#F59E0B' : '#333'), background: showInt ? '#F59E0B22' : 'transparent', color: showInt ? '#F59E0B' : '#555' }}>{showInt ? '👁 Interno' : '👁 Cliente'}</button>
-          <span style={{ fontSize: 15, fontWeight: 700, color: '#57FF9A', marginLeft: 10 }}>{config.currency === 'MXN' ? '$' : 'US$'}{total.toFixed(2)}</span>
+          <span style={{ fontSize: 15, fontWeight: 700, color: '#57FF9A', marginLeft: 10 }}>{config.currency === 'MXN' ? '$' : 'US$'}{fmt(total)}</span>
         </div>
       </div>
 
