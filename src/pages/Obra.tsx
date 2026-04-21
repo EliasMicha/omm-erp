@@ -1516,125 +1516,291 @@ function ReporteClienteModal({ obra, instaladores, onClose }: {
     setExcludedActs(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
   }
 
+  // Helper: format date for display
+  const fd = (d: string) => { try { return new Date(d + 'T12:00:00').toLocaleDateString('es-MX', { day: 'numeric', month: 'long', year: 'numeric' }) } catch { return d } }
+
   const generateReport = async () => {
     setGenerating(true)
 
-    // Build the AI prompt to generate a professional client report
-    const reportData: any = { obra: obra.nombre, cliente: obra.cliente, periodo: `${dateFrom} al ${dateTo}`, avanceGlobal: obra.avance_global }
-
-    if (sections.avancePorSistema) {
-      const bySystem = new Map<string, { total: number; done: number; pct: number }>()
-      obra.actividades.forEach(a => {
-        const s = bySystem.get(a.sistema) || { total: 0, done: 0, pct: 0 }
-        s.total++
-        if (a.status === 'completada') s.done++
-        s.pct = Math.round(obra.actividades.filter(x => x.sistema === a.sistema).reduce((sum, x) => sum + x.porcentaje, 0) / obra.actividades.filter(x => x.sistema === a.sistema).length)
-        bySystem.set(a.sistema, s)
-      })
-      reportData.avancePorSistema = Object.fromEntries(bySystem)
-    }
-
-    if (sections.actividadesCompletadas) {
-      reportData.completadas = completadasInRange.filter(a => !excludedActs.has(a.id)).map(a => ({
-        desc: a.descripcion, sistema: a.sistema, area: a.area || '',
-      }))
-    }
-
-    if (sections.actividadesEnProgreso) {
-      reportData.enProgreso = enProgreso.filter(a => !excludedActs.has(a.id)).map(a => ({
-        desc: a.descripcion, sistema: a.sistema, area: a.area || '', pct: a.porcentaje,
-      }))
-    }
-
-    if (sections.bloqueos) {
-      reportData.bloqueos = [
-        ...bloqueadas.map(a => a.bloqueo || a.descripcion),
-        ...allBloqueos,
-      ]
-    }
-
-    if (sections.faltantes) {
-      reportData.faltantes = allFaltantes
-    }
-
-    if (sections.inventario && invItems.length > 0) {
-      reportData.inventario = invItems.map(i => ({
-        equipo: i.name,
-        sistema: i.system,
-        cotizado: i.qty_cotizado,
-        pedido: i.qty_pedido,
-        entregadoEnObra: i.qty_entregado,
-      }))
-    }
-
-    if (sections.reportesCampo) {
-      reportData.reportes = reportesInRange.filter(r => !excludedReportes.has(r.id)).map(r => ({
-        fecha: r.fecha,
-        instalador: instaladores.find(i => i.id === r.instalador_id)?.nombre || '',
-        resumen: r.ai_resumen || r.texto_raw,
-        avances: r.ai_avances || [],
-      }))
-    }
-
+    // ── Compute all data upfront ──
+    const bySystem = new Map<string, { total: number; done: number; pct: number }>()
+    obra.actividades.forEach(a => {
+      const s = bySystem.get(a.sistema) || { total: 0, done: 0, pct: 0 }
+      s.total++
+      if (a.status === 'completada') s.done++
+      s.pct = Math.round(obra.actividades.filter(x => x.sistema === a.sistema).reduce((sum, x) => sum + x.porcentaje, 0) / obra.actividades.filter(x => x.sistema === a.sistema).length)
+      bySystem.set(a.sistema, s)
+    })
+    const completadas = completadasInRange.filter(a => !excludedActs.has(a.id))
+    const progreso = enProgreso.filter(a => !excludedActs.has(a.id))
+    const bloqueosList = [...bloqueadas.map(a => a.bloqueo || a.descripcion), ...allBloqueos]
+    const reportesFiltered = reportesInRange.filter(r => !excludedReportes.has(r.id))
     const fotos = sections.evidenciaFotos ? fotosInRange.slice(0, 20) : []
 
+    // ── Call AI only for summary text + next steps ──
+    let aiResumen = ''
+    let aiProximosPasos = ''
     try {
-      // Use AI to generate a clean, professional report in HTML
+      const ctx = {
+        obra: obra.nombre, cliente: obra.cliente, avance: obra.avance_global,
+        completadas: completadas.length, enProgreso: progreso.length, bloqueadas: bloqueadas.length,
+        bloqueos: bloqueosList.slice(0, 5),
+        faltantes: allFaltantes.slice(0, 5),
+        sistemas: Array.from(bySystem.entries()).map(([k, v]) => `${k}: ${v.pct}%`),
+      }
       const response = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'anthropic-dangerous-direct-browser-access': 'true', 'anthropic-version': '2023-06-01', 'x-api-key': ANTHROPIC_API_KEY },
         body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514', max_tokens: 8000,
-          system: `Eres el generador de reportes de avance de obra para OMM Technologies (empresa de instalaciones especiales: iluminación, audio, CCTV, redes, control de acceso, eléctrico).
-
-Genera un REPORTE DE AVANCE DE OBRA profesional en HTML para enviar al residente/arquitecto/cliente.
-
-REGLAS:
-- Lenguaje profesional pero accesible, no técnico interno
-- Usa español
-- Estructura clara con secciones
-- Tono positivo y proactivo: "Se completaron", "Se avanzó en", "Se requiere apoyo del residente para..."
-- Para bloqueos, enmárcalos como "Puntos que requieren atención" o "Coordinación necesaria"
-- Si hay datos de inventario, incluye una tabla con: Equipo, Sistema, Cotizado, Pedido, Entregado en obra. Agrupa por sistema. Muestra subtotales por estado (equipos entregados vs pendientes). Si hay equipos con qty entregada < cotizada, ponlo en una sección "Equipos pendientes de entrega"
-- No incluyas datos internos de costos ni nombres de instaladores individuales
-- El reporte es para impresión: usa CSS print-friendly, fuentes legibles, márgenes amplios
-- Agrega el logo placeholder: <div style="text-align:center;margin-bottom:20px"><div style="font-size:24px;font-weight:700"><span style="color:#57FF9A">OMM</span> Technologies</div><div style="font-size:11px;color:#888;letter-spacing:0.1em">INSTALACIONES ESPECIALES</div></div>
-- Ancho máximo 800px centrado, fondo blanco
-- Incluye header con: nombre de obra, cliente, periodo, fecha de emisión
-- Al final: "Próximos pasos" con bullet points de lo que viene
-- El HTML debe ser completo y auto-contenido (con <html>, <head>, <style>, <body>)
-- contenteditable="true" en el body para que sea editable antes de imprimir
-- Agrega un botón de "Imprimir / Guardar PDF" que llame window.print() (oculto en @media print)
-
-FOTOS: Si te paso URLs de fotos, incorpóralas como <img src="URL" style="width:200px; border-radius:8px; margin:4px"> en una sección de "Evidencia fotográfica"
-
-Devuelve SOLO el HTML completo, sin explicaciones ni markdown.`,
-          messages: [{ role: 'user', content: `Genera el reporte de avance de obra con estos datos:\n\n${JSON.stringify(reportData, null, 2)}\n\nFotos:\n${fotos.map(f => f.url).join('\n')}` }],
+          model: 'claude-sonnet-4-20250514', max_tokens: 2000,
+          system: `Eres redactor de reportes de avance de obra para OMM Technologies (instalaciones especiales).
+Genera DOS textos en español, profesional, orientado al cliente/residente/arquitecto:
+1. "resumen": 2-3 oraciones resumiendo el avance del periodo. Tono positivo y proactivo.
+2. "proximos_pasos": 3-5 bullet points de lo que viene a continuación.
+Para bloqueos usa "Se requiere coordinación para..." o "Punto de atención:..."
+NO incluyas costos ni nombres internos.
+Devuelve SOLO un JSON: {"resumen":"...","proximos_pasos":["...","..."]}`,
+          messages: [{ role: 'user', content: JSON.stringify(ctx) }],
         }),
       })
-
-      if (!response.ok) {
-        alert('Error API: ' + response.status)
-        setGenerating(false)
-        return
+      if (response.ok) {
+        const data = await response.json()
+        const text = (data.content || []).filter((b: any) => b.type === 'text').map((b: any) => b.text).join('')
+        try {
+          const parsed = JSON.parse(text.replace(/```json|```/g, '').trim())
+          aiResumen = parsed.resumen || ''
+          aiProximosPasos = (parsed.proximos_pasos || []).map((p: string) => `<li>${p}</li>`).join('')
+        } catch { aiResumen = 'Reporte de avance de obra.' }
       }
+    } catch { aiResumen = 'Reporte de avance de obra del periodo.' }
 
-      const data = await response.json()
-      const html = (data.content || []).filter((b: any) => b.type === 'text').map((b: any) => b.text).join('')
+    // ── Build fixed HTML template ──
+    const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
-      // Open in new window
-      const w = window.open('', '_blank', 'width=900,height=700')
-      if (w) {
-        w.document.write(html)
-        w.document.close()
-      }
+    // System progress rows
+    const systemRows = Array.from(bySystem.entries()).map(([sys, d]) => {
+      const cfg = SISTEMAS_CONFIG[sys as Sistema]
+      const color = cfg?.color || '#888'
+      const barW = Math.max(d.pct, 2)
+      return `<tr>
+        <td style="padding:8px 12px;border-bottom:1px solid #eee"><span style="color:${color};font-weight:600">${cfg?.label || sys}</span></td>
+        <td style="padding:8px 12px;border-bottom:1px solid #eee;text-align:center">${d.done}/${d.total}</td>
+        <td style="padding:8px 12px;border-bottom:1px solid #eee;width:200px">
+          <div style="background:#f0f0f0;border-radius:4px;height:18px;position:relative;overflow:hidden">
+            <div style="background:${color};height:100%;width:${barW}%;border-radius:4px;transition:width 0.3s"></div>
+            <span style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;color:#333">${d.pct}%</span>
+          </div>
+        </td>
+      </tr>`
+    }).join('')
 
-      setGenerating(false)
-      onClose()
-    } catch (err) {
-      alert('Error: ' + (err as Error).message)
-      setGenerating(false)
+    // Completed activities
+    const completadasHTML = completadas.map(a => `<tr>
+      <td style="padding:6px 12px;border-bottom:1px solid #f0f0f0;font-size:12px">${esc(a.descripcion)}</td>
+      <td style="padding:6px 12px;border-bottom:1px solid #f0f0f0;font-size:11px;color:#666">${a.sistema}</td>
+      <td style="padding:6px 12px;border-bottom:1px solid #f0f0f0;font-size:11px;color:#666">${a.area || ''}</td>
+    </tr>`).join('')
+
+    // In-progress activities
+    const progresoHTML = progreso.map(a => `<tr>
+      <td style="padding:6px 12px;border-bottom:1px solid #f0f0f0;font-size:12px">${esc(a.descripcion)}</td>
+      <td style="padding:6px 12px;border-bottom:1px solid #f0f0f0;font-size:11px;color:#666">${a.sistema}</td>
+      <td style="padding:6px 12px;border-bottom:1px solid #f0f0f0;font-size:11px;color:#666">${a.porcentaje}%</td>
+    </tr>`).join('')
+
+    // Bloqueos
+    const bloqueosHTML = bloqueosList.map(b => `<li style="margin-bottom:6px">${esc(b)}</li>`).join('')
+
+    // Faltantes
+    const faltantesHTML = allFaltantes.map(f => `<li style="margin-bottom:6px">${esc(f)}</li>`).join('')
+
+    // Inventory table
+    const invBySystem = new Map<string, typeof invItems>()
+    invItems.forEach(i => { const arr = invBySystem.get(i.system) || []; arr.push(i); invBySystem.set(i.system, arr) })
+    const inventarioHTML = Array.from(invBySystem.entries()).map(([sys, items]) => {
+      const rows = items.map(i => {
+        const pending = i.qty_cotizado - i.qty_entregado
+        return `<tr>
+          <td style="padding:5px 10px;border-bottom:1px solid #f0f0f0;font-size:11px">${esc(i.name)}</td>
+          <td style="padding:5px 10px;border-bottom:1px solid #f0f0f0;font-size:11px;text-align:center">${i.qty_cotizado}</td>
+          <td style="padding:5px 10px;border-bottom:1px solid #f0f0f0;font-size:11px;text-align:center">${i.qty_pedido}</td>
+          <td style="padding:5px 10px;border-bottom:1px solid #f0f0f0;font-size:11px;text-align:center">${i.qty_entregado}</td>
+          <td style="padding:5px 10px;border-bottom:1px solid #f0f0f0;font-size:11px;text-align:center;${pending > 0 ? 'color:#c00;font-weight:600' : 'color:#080'}">${pending > 0 ? pending + ' pend.' : '✓'}</td>
+        </tr>`
+      }).join('')
+      return `<tr><td colspan="5" style="padding:8px 10px;background:#f8f8f8;font-weight:600;font-size:12px;border-bottom:1px solid #ddd">${sys}</td></tr>${rows}`
+    }).join('')
+
+    // Reportes de campo
+    const reportesHTML = reportesFiltered.map(r => {
+      const resumen = r.ai_resumen || r.texto_raw
+      const avances = (r.ai_avances || []).map(a => `<li style="font-size:11px;margin-bottom:3px">${esc(a)}</li>`).join('')
+      return `<div style="margin-bottom:12px;padding:10px 14px;background:#fafafa;border-radius:8px;border:1px solid #eee">
+        <div style="font-size:11px;color:#888;margin-bottom:4px">${fd(r.fecha)}</div>
+        <div style="font-size:12px;color:#333;margin-bottom:6px">${esc(resumen)}</div>
+        ${avances ? `<ul style="margin:0;padding-left:18px;color:#555">${avances}</ul>` : ''}
+      </div>`
+    }).join('')
+
+    // Photos grid
+    const fotosHTML = fotos.map(f => `<img src="${f.url}" style="width:180px;height:135px;object-fit:cover;border-radius:8px;border:1px solid #ddd;margin:4px" />`).join('')
+
+    const html = `<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Reporte de Avance — ${esc(obra.nombre)}</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #222; background: #fff; max-width: 800px; margin: 0 auto; padding: 40px 32px; line-height: 1.5; }
+  h2 { font-size: 15px; font-weight: 700; color: #111; margin: 28px 0 12px; padding-bottom: 6px; border-bottom: 2px solid #111; text-transform: uppercase; letter-spacing: 0.04em; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 16px; }
+  th { padding: 8px 12px; background: #f5f5f5; border-bottom: 2px solid #ddd; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: #555; text-align: left; }
+  .print-btn { position: fixed; bottom: 20px; right: 20px; padding: 10px 20px; background: #111; color: #fff; border: none; border-radius: 8px; font-size: 13px; cursor: pointer; font-family: inherit; z-index: 100; box-shadow: 0 2px 12px rgba(0,0,0,0.2); }
+  .print-btn:hover { background: #333; }
+  @media print {
+    .print-btn { display: none !important; }
+    body { padding: 20px; }
+    h2 { break-after: avoid; }
+    tr { break-inside: avoid; }
+  }
+</style>
+</head>
+<body contenteditable="true">
+<button class="print-btn" contenteditable="false" onclick="window.print()">Imprimir / Guardar PDF</button>
+
+<!-- HEADER -->
+<div style="text-align:center;margin-bottom:30px">
+  <div style="font-size:26px;font-weight:800;letter-spacing:-0.02em"><span style="color:#2a9d5c">OMM</span> Technologies</div>
+  <div style="font-size:10px;color:#999;letter-spacing:0.15em;text-transform:uppercase;margin-top:2px">Instalaciones Especiales</div>
+</div>
+
+<div style="text-align:center;margin-bottom:24px">
+  <div style="font-size:20px;font-weight:700;color:#111;margin-bottom:4px">Reporte de Avance de Obra</div>
+  <div style="font-size:13px;color:#555">${esc(obra.nombre)}</div>
+</div>
+
+<table style="margin-bottom:24px">
+  <tr>
+    <td style="padding:6px 0;font-size:12px;color:#888;width:120px">Cliente</td>
+    <td style="padding:6px 0;font-size:12px;font-weight:600">${esc(obra.cliente)}</td>
+    <td style="padding:6px 0;font-size:12px;color:#888;width:120px">Periodo</td>
+    <td style="padding:6px 0;font-size:12px;font-weight:600">${fd(dateFrom)} — ${fd(dateTo)}</td>
+  </tr>
+  <tr>
+    <td style="padding:6px 0;font-size:12px;color:#888">Dirección</td>
+    <td style="padding:6px 0;font-size:12px">${esc(obra.direccion || '')}</td>
+    <td style="padding:6px 0;font-size:12px;color:#888">Fecha de emisión</td>
+    <td style="padding:6px 0;font-size:12px;font-weight:600">${fd(today)}</td>
+  </tr>
+</table>
+
+<!-- RESUMEN AI -->
+<div style="padding:14px 18px;background:#f0faf4;border:1px solid #c3e6d1;border-radius:8px;margin-bottom:24px;font-size:13px;color:#1a5632;line-height:1.6">
+  ${aiResumen || 'Reporte de avance de obra del periodo.'}
+</div>
+
+${sections.avanceGlobal ? `
+<!-- AVANCE GLOBAL -->
+<h2>Avance Global</h2>
+<div style="margin-bottom:20px">
+  <div style="display:flex;align-items:center;gap:16px">
+    <div style="font-size:36px;font-weight:800;color:#111">${obra.avance_global}%</div>
+    <div style="flex:1;background:#f0f0f0;border-radius:6px;height:24px;overflow:hidden">
+      <div style="background:linear-gradient(90deg,#2a9d5c,#57FF9A);height:100%;width:${Math.max(obra.avance_global, 1)}%;border-radius:6px"></div>
+    </div>
+  </div>
+  <div style="font-size:11px;color:#888;margin-top:4px">${obra.actividades.filter(a => a.status === 'completada').length} de ${obra.actividades.length} actividades completadas</div>
+</div>
+` : ''}
+
+${sections.avancePorSistema && bySystem.size > 0 ? `
+<!-- AVANCE POR SISTEMA -->
+<h2>Avance por Sistema</h2>
+<table>
+  <thead><tr>
+    <th>Sistema</th>
+    <th style="text-align:center">Completadas</th>
+    <th>Avance</th>
+  </tr></thead>
+  <tbody>${systemRows}</tbody>
+</table>
+` : ''}
+
+${sections.actividadesCompletadas && completadas.length > 0 ? `
+<!-- ACTIVIDADES COMPLETADAS -->
+<h2>Actividades Completadas en Periodo</h2>
+<table>
+  <thead><tr><th>Actividad</th><th>Sistema</th><th>Área</th></tr></thead>
+  <tbody>${completadasHTML}</tbody>
+</table>
+` : ''}
+
+${sections.actividadesEnProgreso && progreso.length > 0 ? `
+<!-- EN PROGRESO -->
+<h2>Actividades en Progreso</h2>
+<table>
+  <thead><tr><th>Actividad</th><th>Sistema</th><th>Avance</th></tr></thead>
+  <tbody>${progresoHTML}</tbody>
+</table>
+` : ''}
+
+${sections.bloqueos && bloqueosList.length > 0 ? `
+<!-- BLOQUEOS -->
+<h2>Puntos que Requieren Atención</h2>
+<ul style="padding-left:20px;font-size:12px;color:#333;margin-bottom:20px">${bloqueosHTML}</ul>
+` : ''}
+
+${sections.faltantes && allFaltantes.length > 0 ? `
+<!-- FALTANTES -->
+<h2>Elementos Pendientes</h2>
+<ul style="padding-left:20px;font-size:12px;color:#333;margin-bottom:20px">${faltantesHTML}</ul>
+` : ''}
+
+${sections.inventario && invItems.length > 0 ? `
+<!-- INVENTARIO -->
+<h2>Estado de Equipos</h2>
+<table>
+  <thead><tr><th>Equipo</th><th style="text-align:center">Cotizado</th><th style="text-align:center">Pedido</th><th style="text-align:center">En obra</th><th style="text-align:center">Pendiente</th></tr></thead>
+  <tbody>${inventarioHTML}</tbody>
+</table>
+` : ''}
+
+${sections.reportesCampo && reportesFiltered.length > 0 ? `
+<!-- REPORTES DE CAMPO -->
+<h2>Reportes de Campo</h2>
+${reportesHTML}
+` : ''}
+
+${sections.evidenciaFotos && fotos.length > 0 ? `
+<!-- EVIDENCIA FOTOGRÁFICA -->
+<h2>Evidencia Fotográfica</h2>
+<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:20px">${fotosHTML}</div>
+` : ''}
+
+<!-- PRÓXIMOS PASOS -->
+<h2>Próximos Pasos</h2>
+<ul style="padding-left:20px;font-size:12px;color:#333;margin-bottom:30px;line-height:1.8">
+  ${aiProximosPasos || '<li>Continuar con las actividades programadas</li><li>Dar seguimiento a los puntos de atención señalados</li>'}
+</ul>
+
+<div style="margin-top:40px;padding-top:16px;border-top:1px solid #ddd;text-align:center;font-size:10px;color:#aaa">
+  OMM Technologies SA de CV · Instalaciones Especiales · Reporte generado el ${fd(today)}
+</div>
+
+</body>
+</html>`
+
+    // Open in new window
+    const w = window.open('', '_blank', 'width=900,height=700')
+    if (w) {
+      w.document.write(html)
+      w.document.close()
     }
+
+    setGenerating(false)
+    onClose()
   }
 
   const sectionItems: Array<{ key: keyof typeof sections; label: string; count?: number }> = [
