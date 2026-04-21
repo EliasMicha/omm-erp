@@ -184,6 +184,8 @@ async function buildSystemPrompt(nivel?: string): Promise<string> {
   return PROMPT_FRAMEWORK_TOP + dynamicRules + PROMPT_FRAMEWORK_BOTTOM
 }
 
+export const config = { maxDuration: 120 }
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Access-Control-Allow-Origin', '*')
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
@@ -195,7 +197,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!apiKey) return res.status(500).json({ ok: false, error: 'ANTHROPIC_KEY no configurada en el servidor' })
 
   try {
-    const { messages, scope, plan, planMediaType, catalog, precedents } = req.body as {
+    const { messages, scope, plan, planMediaType, additionalPlans, catalog, precedents } = req.body as {
       messages: { role: 'user' | 'assistant'; content: string }[]
       scope: {
         tipo: string
@@ -212,6 +214,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
       plan?: string // base64
       planMediaType?: string
+      additionalPlans?: { base64: string; mediaType: string }[]
       catalog: { id: string; name: string; marca?: string; modelo?: string; system?: string; provider?: string; moneda?: string; cost?: number; description?: string }[]
       precedents: { name: string; specialty: string; total: number; items: { area_name: string; name: string; system: string; quantity: number; marca?: string; modelo?: string }[] }[]
     }
@@ -287,10 +290,23 @@ ${precedentsCompact || '(sin precedentes)'}`
           }
         }
 
+        // Add additional plans if any
+        if (additionalPlans && additionalPlans.length > 0) {
+          for (const ap of additionalPlans) {
+            const isApPdf = (ap.mediaType || '').includes('pdf') || ap.base64.substring(0, 10).includes('JVBER')
+            if (isApPdf) {
+              content.push({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: ap.base64 } })
+            } else {
+              content.push({ type: 'image', source: { type: 'base64', media_type: ap.mediaType || 'image/png', data: ap.base64 } })
+            }
+          }
+        }
+
         // Add context + user message
+        const planCount = (plan ? 1 : 0) + (additionalPlans?.length || 0)
         content.push({
           type: 'text',
-          text: `${contextBlock}\n\n${plan ? 'PLANO ARQUITECTÓNICO: adjunto arriba — analiza todas las áreas, niveles y distribución.\n\n' : ''}${msg.content}`,
+          text: `${contextBlock}\n\n${planCount > 0 ? `PLANO${planCount > 1 ? 'S' : ''} ARQUITECTÓNICO${planCount > 1 ? 'S' : ''} (${planCount}): adjunto${planCount > 1 ? 's' : ''} arriba — analiza todas las áreas, niveles y distribución.\n\n` : ''}${msg.content}`,
         })
 
         claudeMessages.push({ role: 'user', content })
@@ -331,12 +347,14 @@ ${precedentsCompact || '(sin precedentes)'}`
 
     // Detect if the response is a JSON proposal or a conversational message
     const trimmed = textBlocks.trim()
-    const jsonMatch = trimmed.match(/^\s*\{[\s\S]*"areas"\s*:\s*\[[\s\S]*\}\s*$/)
+    // Strip markdown code fences if present
+    const cleaned = trimmed.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '').trim()
+    const jsonMatch = cleaned.match(/^\s*\{[\s\S]*"areas"\s*:\s*\[[\s\S]*\}\s*$/)
 
     if (jsonMatch) {
       // It's a proposal — parse and validate
       try {
-        const parsed = JSON.parse(trimmed.replace(/```json|```/g, '').trim())
+        const parsed = JSON.parse(cleaned)
         const catalogIds = new Set((catalog || []).map((p) => p.id))
 
         const sanitizedAreas = (parsed.areas || []).map((a: any, ai: number) => ({
