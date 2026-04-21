@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { ANTHROPIC_API_KEY } from '../lib/config'
 import { Project, CatalogProduct, ProjectLine, PurchasePhase } from '../types'
@@ -169,6 +169,70 @@ function SelectField({ label, value, onChange, options, placeholder }: {
         {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
       </select>
     </label>
+  )
+}
+
+function SearchableSelect({ label, value, onChange, options, placeholder }: {
+  label: string; value: string; onChange: (v: string) => void
+  options: { value: string; label: string }[]; placeholder?: string
+}) {
+  const [search, setSearch] = useState('')
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  const selected = options.find(o => o.value === value)
+  const filtered = search ? options.filter(o => o.label.toLowerCase().includes(search.toLowerCase())) : options
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false) }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [])
+
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <div style={{ fontSize: 11, color: '#555', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>{label}</div>
+      <div
+        onClick={() => { setOpen(true); setSearch('') }}
+        style={{
+          padding: '8px 10px', background: '#1e1e1e', border: '1px solid ' + (open ? '#57FF9A' : '#333'),
+          borderRadius: 8, color: selected ? '#fff' : '#666', fontSize: 13, cursor: 'pointer',
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+        }}>
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{selected?.label || placeholder || 'Seleccionar...'}</span>
+        {value && <button onClick={e => { e.stopPropagation(); onChange(''); setSearch('') }} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', padding: 0, marginLeft: 6 }}><X size={12} /></button>}
+      </div>
+      {open && (
+        <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 50, background: '#1e1e1e', border: '1px solid #444', borderRadius: 8, marginTop: 2, maxHeight: 220, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+          <div style={{ padding: '6px 8px', borderBottom: '1px solid #333' }}>
+            <input
+              autoFocus
+              value={search} onChange={e => setSearch(e.target.value)}
+              placeholder="Buscar..."
+              style={{ width: '100%', padding: '6px 8px', background: '#141414', border: '1px solid #333', borderRadius: 6, color: '#fff', fontSize: 12, fontFamily: 'inherit', boxSizing: 'border-box' as const, outline: 'none' }}
+            />
+          </div>
+          <div style={{ overflowY: 'auto', flex: 1 }}>
+            {placeholder && (
+              <div onClick={() => { onChange(''); setOpen(false) }}
+                style={{ padding: '7px 10px', fontSize: 12, color: '#666', cursor: 'pointer', borderBottom: '1px solid #222' }}
+                onMouseEnter={e => (e.currentTarget.style.background = '#252525')}
+                onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
+                {placeholder}
+              </div>
+            )}
+            {filtered.map(o => (
+              <div key={o.value} onClick={() => { onChange(o.value); setOpen(false); setSearch('') }}
+                style={{ padding: '7px 10px', fontSize: 12, color: o.value === value ? '#57FF9A' : '#ccc', cursor: 'pointer', background: o.value === value ? 'rgba(87,255,154,0.08)' : 'transparent' }}
+                onMouseEnter={e => { if (o.value !== value) e.currentTarget.style.background = '#252525' }}
+                onMouseLeave={e => { if (o.value !== value) e.currentTarget.style.background = 'transparent' }}>
+                {o.label}
+              </div>
+            ))}
+            {filtered.length === 0 && <div style={{ padding: '10px', fontSize: 11, color: '#555', textAlign: 'center' }}>Sin resultados</div>}
+          </div>
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -1017,7 +1081,7 @@ function POFromQuoteModal({ onClose, onCreated }: { onClose: () => void; onCreat
   useEffect(() => {
     Promise.all([
       supabase.from('leads').select('id,name,company').order('name'),
-      supabase.from('quotations').select('*,project:projects(name,client_name)').in('stage', ['propuesta', 'contrato']).order('updated_at', { ascending: false }),
+      supabase.from('quotations').select('*,project:projects!quotations_project_id_fkey(name,client_name)').in('stage', ['propuesta', 'contrato']).order('updated_at', { ascending: false }),
       supabase.from('suppliers').select('*').eq('is_active', true).order('name'),
     ]).then(([lRes, qRes, sRes]) => {
       setLeads(lRes.data || [])
@@ -1180,13 +1244,13 @@ function POFromQuoteModal({ onClose, onCreated }: { onClose: () => void; onCreat
         </div>
         <div style={{ display: 'grid', gap: 14 }}>
           {/* Lead filter */}
-          <SelectField label="Lead (opcional — filtra cotizaciones)" value={selectedLead}
+          <SearchableSelect label="Lead (opcional — filtra cotizaciones)" value={selectedLead}
             onChange={v => { setSelectedLead(v); setSelectedQuote('') }}
             options={leads.map(l => ({ value: l.id, label: `${l.name}${l.company ? ' | ' + l.company : ''}` }))}
             placeholder="-- Todos los leads --" />
 
           {/* Cotización */}
-          <SelectField label="Cotización (propuesta o contrato)" value={selectedQuote}
+          <SearchableSelect label="Cotización (propuesta o contrato)" value={selectedQuote}
             onChange={v => setSelectedQuote(v)}
             options={filteredQuotes.map(q => ({
               value: q.id,
