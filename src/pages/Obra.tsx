@@ -1395,6 +1395,334 @@ Devuelve SOLO un JSON array, sin markdown:
 }
 
 /* ═══════════════════════════════════════════════════════════════════
+   MODAL: REPORTE PARA CLIENTE / RESIDENTE / ARQUITECTO
+   ═══════════════════════════════════════════════════════════════════ */
+
+function ReporteClienteModal({ obra, instaladores, onClose }: {
+  obra: ObraData; instaladores: Instalador[]; onClose: () => void
+}) {
+  const today = new Date().toISOString().substring(0, 10)
+  const oneWeekAgo = new Date(Date.now() - 7 * 86400000).toISOString().substring(0, 10)
+  const [dateFrom, setDateFrom] = useState(oneWeekAgo)
+  const [dateTo, setDateTo] = useState(today)
+  const [generating, setGenerating] = useState(false)
+
+  // Sections toggle
+  const [sections, setSections] = useState({
+    avanceGlobal: true,
+    avancePorSistema: true,
+    actividadesCompletadas: true,
+    actividadesEnProgreso: true,
+    bloqueos: true,
+    faltantes: true,
+    inventario: true,
+    reportesCampo: true,
+    evidenciaFotos: true,
+  })
+  const toggleSection = (key: keyof typeof sections) => setSections(s => ({ ...s, [key]: !s[key] }))
+
+  // Exclude specific items
+  const [excludedReportes, setExcludedReportes] = useState<Set<string>>(new Set())
+  const [excludedActs, setExcludedActs] = useState<Set<string>>(new Set())
+
+  // Inventory data
+  const [invItems, setInvItems] = useState<Array<{ name: string; system: string; qty_cotizado: number; qty_pedido: number; qty_entregado: number; qty_colocado: number }>>([])
+  const [invLoading, setInvLoading] = useState(false)
+
+  useEffect(() => {
+    if (!obra.cotizacion_id) return
+    setInvLoading(true)
+    const projectId = obra.project_id || null
+    Promise.all([
+      supabase.from('quotation_items').select('id, name, system, quantity, type, catalog_product_id').eq('quotation_id', obra.cotizacion_id),
+      projectId
+        ? supabase.from('po_items').select('id, catalog_product_id, name, quantity, purchase_orders!inner(id, status, project_id)').eq('purchase_orders.project_id', projectId)
+        : Promise.resolve({ data: [], error: null }),
+      supabase.from('delivery_items').select('id, product_id, description, qty, direction, obra_id').eq('obra_id', obra.id),
+    ]).then(([qRes, poRes, delRes]: any[]) => {
+      const cotItems = ((qRes.data || []) as any[]).filter((it: any) => it.type !== 'labor')
+      const poItems = (poRes.data || []) as any[]
+      const delItemsData = (delRes.data || []) as any[]
+
+      const result = cotItems.map((ci: any) => {
+        const pedido = poItems.filter((p: any) => p.catalog_product_id === ci.catalog_product_id).reduce((s: number, p: any) => s + (Number(p.quantity) || 0), 0)
+        const entregado = delItemsData.filter((d: any) => d.product_id === ci.catalog_product_id && (d.direction === 'in_obra' || d.direction === 'out_bodega_to_obra')).reduce((s: number, d: any) => s + (Number(d.qty) || 0), 0)
+        // "Colocado" = actividades completadas que mencionan este producto (approximate)
+        const colocado = 0 // Will be estimated by AI from reportes
+        return { name: ci.name, system: ci.system || 'General', qty_cotizado: ci.quantity, qty_pedido: pedido, qty_entregado: entregado, qty_colocado: colocado }
+      })
+      setInvItems(result)
+      setInvLoading(false)
+    })
+  }, [obra.cotizacion_id, obra.project_id, obra.id])
+
+  // Filter data by date range
+  const reportesInRange = obra.reportes.filter(r => r.fecha >= dateFrom && r.fecha <= dateTo)
+  const fotosInRange = reportesInRange.flatMap(r => r.fotos.map(f => ({ url: f, fecha: r.fecha, instalador: instaladores.find(i => i.id === r.instalador_id)?.nombre || '' })))
+
+  // Activities completed in period (by fecha_fin_real)
+  const completadasInRange = obra.actividades.filter(a => a.status === 'completada' && a.fecha_fin_real && a.fecha_fin_real >= dateFrom && a.fecha_fin_real <= dateTo)
+  const enProgreso = obra.actividades.filter(a => a.status === 'en_progreso')
+  const bloqueadas = obra.actividades.filter(a => a.status === 'bloqueada')
+
+  // All AI data from reportes in range
+  const allAvances = reportesInRange.flatMap(r => r.ai_avances || [])
+  const allFaltantes = reportesInRange.flatMap(r => r.ai_faltantes || [])
+  const allBloqueos = reportesInRange.flatMap(r => r.ai_bloqueos || [])
+
+  const toggleReporte = (id: string) => {
+    setExcludedReportes(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
+  }
+  const toggleAct = (id: string) => {
+    setExcludedActs(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
+  }
+
+  const generateReport = async () => {
+    setGenerating(true)
+
+    // Build the AI prompt to generate a professional client report
+    const reportData: any = { obra: obra.nombre, cliente: obra.cliente, periodo: `${dateFrom} al ${dateTo}`, avanceGlobal: obra.avance_global }
+
+    if (sections.avancePorSistema) {
+      const bySystem = new Map<string, { total: number; done: number; pct: number }>()
+      obra.actividades.forEach(a => {
+        const s = bySystem.get(a.sistema) || { total: 0, done: 0, pct: 0 }
+        s.total++
+        if (a.status === 'completada') s.done++
+        s.pct = Math.round(obra.actividades.filter(x => x.sistema === a.sistema).reduce((sum, x) => sum + x.porcentaje, 0) / obra.actividades.filter(x => x.sistema === a.sistema).length)
+        bySystem.set(a.sistema, s)
+      })
+      reportData.avancePorSistema = Object.fromEntries(bySystem)
+    }
+
+    if (sections.actividadesCompletadas) {
+      reportData.completadas = completadasInRange.filter(a => !excludedActs.has(a.id)).map(a => ({
+        desc: a.descripcion, sistema: a.sistema, area: a.area || '',
+      }))
+    }
+
+    if (sections.actividadesEnProgreso) {
+      reportData.enProgreso = enProgreso.filter(a => !excludedActs.has(a.id)).map(a => ({
+        desc: a.descripcion, sistema: a.sistema, area: a.area || '', pct: a.porcentaje,
+      }))
+    }
+
+    if (sections.bloqueos) {
+      reportData.bloqueos = [
+        ...bloqueadas.map(a => a.bloqueo || a.descripcion),
+        ...allBloqueos,
+      ]
+    }
+
+    if (sections.faltantes) {
+      reportData.faltantes = allFaltantes
+    }
+
+    if (sections.inventario && invItems.length > 0) {
+      reportData.inventario = invItems.map(i => ({
+        equipo: i.name,
+        sistema: i.system,
+        cotizado: i.qty_cotizado,
+        pedido: i.qty_pedido,
+        entregadoEnObra: i.qty_entregado,
+      }))
+    }
+
+    if (sections.reportesCampo) {
+      reportData.reportes = reportesInRange.filter(r => !excludedReportes.has(r.id)).map(r => ({
+        fecha: r.fecha,
+        instalador: instaladores.find(i => i.id === r.instalador_id)?.nombre || '',
+        resumen: r.ai_resumen || r.texto_raw,
+        avances: r.ai_avances || [],
+      }))
+    }
+
+    const fotos = sections.evidenciaFotos ? fotosInRange.slice(0, 20) : []
+
+    try {
+      // Use AI to generate a clean, professional report in HTML
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'anthropic-dangerous-direct-browser-access': 'true', 'anthropic-version': '2023-06-01', 'x-api-key': ANTHROPIC_API_KEY },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-20250514', max_tokens: 8000,
+          system: `Eres el generador de reportes de avance de obra para OMM Technologies (empresa de instalaciones especiales: iluminación, audio, CCTV, redes, control de acceso, eléctrico).
+
+Genera un REPORTE DE AVANCE DE OBRA profesional en HTML para enviar al residente/arquitecto/cliente.
+
+REGLAS:
+- Lenguaje profesional pero accesible, no técnico interno
+- Usa español
+- Estructura clara con secciones
+- Tono positivo y proactivo: "Se completaron", "Se avanzó en", "Se requiere apoyo del residente para..."
+- Para bloqueos, enmárcalos como "Puntos que requieren atención" o "Coordinación necesaria"
+- Si hay datos de inventario, incluye una tabla con: Equipo, Sistema, Cotizado, Pedido, Entregado en obra. Agrupa por sistema. Muestra subtotales por estado (equipos entregados vs pendientes). Si hay equipos con qty entregada < cotizada, ponlo en una sección "Equipos pendientes de entrega"
+- No incluyas datos internos de costos ni nombres de instaladores individuales
+- El reporte es para impresión: usa CSS print-friendly, fuentes legibles, márgenes amplios
+- Agrega el logo placeholder: <div style="text-align:center;margin-bottom:20px"><div style="font-size:24px;font-weight:700"><span style="color:#57FF9A">OMM</span> Technologies</div><div style="font-size:11px;color:#888;letter-spacing:0.1em">INSTALACIONES ESPECIALES</div></div>
+- Ancho máximo 800px centrado, fondo blanco
+- Incluye header con: nombre de obra, cliente, periodo, fecha de emisión
+- Al final: "Próximos pasos" con bullet points de lo que viene
+- El HTML debe ser completo y auto-contenido (con <html>, <head>, <style>, <body>)
+- contenteditable="true" en el body para que sea editable antes de imprimir
+- Agrega un botón de "Imprimir / Guardar PDF" que llame window.print() (oculto en @media print)
+
+FOTOS: Si te paso URLs de fotos, incorpóralas como <img src="URL" style="width:200px; border-radius:8px; margin:4px"> en una sección de "Evidencia fotográfica"
+
+Devuelve SOLO el HTML completo, sin explicaciones ni markdown.`,
+          messages: [{ role: 'user', content: `Genera el reporte de avance de obra con estos datos:\n\n${JSON.stringify(reportData, null, 2)}\n\nFotos:\n${fotos.map(f => f.url).join('\n')}` }],
+        }),
+      })
+
+      if (!response.ok) {
+        alert('Error API: ' + response.status)
+        setGenerating(false)
+        return
+      }
+
+      const data = await response.json()
+      const html = (data.content || []).filter((b: any) => b.type === 'text').map((b: any) => b.text).join('')
+
+      // Open in new window
+      const w = window.open('', '_blank', 'width=900,height=700')
+      if (w) {
+        w.document.write(html)
+        w.document.close()
+      }
+
+      setGenerating(false)
+      onClose()
+    } catch (err) {
+      alert('Error: ' + (err as Error).message)
+      setGenerating(false)
+    }
+  }
+
+  const sectionItems: Array<{ key: keyof typeof sections; label: string; count?: number }> = [
+    { key: 'avanceGlobal', label: 'Avance global de obra' },
+    { key: 'avancePorSistema', label: 'Avance por sistema' },
+    { key: 'actividadesCompletadas', label: 'Actividades completadas en periodo', count: completadasInRange.length },
+    { key: 'actividadesEnProgreso', label: 'Actividades en progreso', count: enProgreso.length },
+    { key: 'bloqueos', label: 'Bloqueos / Puntos de atención', count: bloqueadas.length + allBloqueos.length },
+    { key: 'faltantes', label: 'Faltantes reportados', count: allFaltantes.length },
+    { key: 'inventario', label: 'Inventario de equipos', count: invItems.length },
+    { key: 'reportesCampo', label: 'Resúmenes de reportes de campo', count: reportesInRange.length },
+    { key: 'evidenciaFotos', label: 'Evidencia fotográfica', count: fotosInRange.length },
+  ]
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+      onClick={onClose}>
+      <div style={{ background: '#111', border: '1px solid #222', borderRadius: 16, width: 620, maxHeight: '85vh', display: 'flex', flexDirection: 'column' as const, overflow: 'hidden' }}
+        onClick={e => e.stopPropagation()}>
+        {/* Header */}
+        <div style={{ padding: '16px 20px', borderBottom: '1px solid #222', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: '#fff' }}>Reporte para cliente / residente</div>
+            <div style={{ fontSize: 10, color: '#555' }}>{obra.nombre} · {obra.cliente}</div>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer' }}><X size={16} /></button>
+        </div>
+
+        {/* Content */}
+        <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px' }}>
+          {/* Date range */}
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: '#888', marginBottom: 8, textTransform: 'uppercase' as const, letterSpacing: '0.05em' }}>Periodo del reporte</div>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+              <div>
+                <div style={labelStyle}>Desde</div>
+                <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} style={{ ...inputStyle, width: 150 }} />
+              </div>
+              <div>
+                <div style={labelStyle}>Hasta</div>
+                <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} style={{ ...inputStyle, width: 150 }} />
+              </div>
+              <div style={{ marginTop: 16, display: 'flex', gap: 4 }}>
+                {[
+                  { label: '1 sem', days: 7 },
+                  { label: '2 sem', days: 14 },
+                  { label: '1 mes', days: 30 },
+                ].map(p => (
+                  <button key={p.days} onClick={() => setDateFrom(new Date(Date.now() - p.days * 86400000).toISOString().substring(0, 10))}
+                    style={{ padding: '3px 8px', fontSize: 9, background: '#0a0a0a', border: '1px solid #333', borderRadius: 4, color: '#888', cursor: 'pointer', fontFamily: 'inherit' }}>
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Sections toggle */}
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: '#888', marginBottom: 8, textTransform: 'uppercase' as const, letterSpacing: '0.05em' }}>Secciones a incluir</div>
+            <div style={{ display: 'grid', gap: 4 }}>
+              {sectionItems.map(s => (
+                <label key={s.key} style={{
+                  display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', cursor: 'pointer',
+                  background: sections[s.key] ? 'rgba(87,255,154,0.04)' : 'transparent',
+                  borderRadius: 6, border: sections[s.key] ? '1px solid rgba(87,255,154,0.12)' : '1px solid #1a1a1a',
+                }}>
+                  <input type="checkbox" checked={sections[s.key]} onChange={() => toggleSection(s.key)} style={{ accentColor: '#57FF9A' }} />
+                  <span style={{ fontSize: 12, color: sections[s.key] ? '#ccc' : '#555', flex: 1 }}>{s.label}</span>
+                  {s.count !== undefined && <span style={{ fontSize: 10, color: '#555' }}>{s.count}</span>}
+                </label>
+              ))}
+            </div>
+          </div>
+
+          {/* Exclude specific reportes */}
+          {sections.reportesCampo && reportesInRange.length > 0 && (
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: '#888', marginBottom: 8, textTransform: 'uppercase' as const, letterSpacing: '0.05em' }}>
+                Reportes incluidos <span style={{ color: '#555', fontWeight: 400 }}>(desmarca los que quieras omitir)</span>
+              </div>
+              <div style={{ maxHeight: 140, overflowY: 'auto', border: '1px solid #1a1a1a', borderRadius: 8, background: '#0a0a0a' }}>
+                {reportesInRange.map(r => {
+                  const inst = instaladores.find(i => i.id === r.instalador_id)
+                  const excluded = excludedReportes.has(r.id)
+                  return (
+                    <label key={r.id} style={{
+                      display: 'flex', alignItems: 'center', gap: 8, padding: '5px 10px', cursor: 'pointer',
+                      borderBottom: '1px solid #151515', opacity: excluded ? 0.4 : 1,
+                    }}>
+                      <input type="checkbox" checked={!excluded} onChange={() => toggleReporte(r.id)} style={{ accentColor: '#57FF9A' }} />
+                      <span style={{ fontSize: 11, color: '#ccc', flex: 1 }}>{formatDate(r.fecha)} — {inst?.nombre || 'Instalador'}</span>
+                      <span style={{ fontSize: 10, color: '#555' }}>{r.fotos.length > 0 ? `${r.fotos.length} fotos` : ''}</span>
+                    </label>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Preview summary */}
+          <div style={{ padding: 12, background: '#0a0a0a', border: '1px solid #222', borderRadius: 8, marginBottom: 8 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: '#888', marginBottom: 6 }}>Resumen del reporte</div>
+            <div style={{ fontSize: 11, color: '#666', lineHeight: 1.6 }}>
+              Periodo: {dateFrom} → {dateTo}<br />
+              Avance global: {obra.avance_global}%<br />
+              Actividades completadas en periodo: {completadasInRange.filter(a => !excludedActs.has(a.id)).length}<br />
+              En progreso: {enProgreso.length} · Bloqueadas: {bloqueadas.length}<br />
+              Reportes de campo: {reportesInRange.filter(r => !excludedReportes.has(r.id)).length}<br />
+              Fotos: {fotosInRange.length}
+            </div>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div style={{ padding: '12px 20px', borderTop: '1px solid #222', display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <Btn size="sm" variant="default" onClick={onClose}>Cancelar</Btn>
+          <Btn size="sm" variant="primary" onClick={generateReport} disabled={generating}>
+            {generating ? <><Loader2 size={12} /> Generando...</> : <><FileText size={12} /> Generar reporte</>}
+          </Btn>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/* ═══════════════════════════════════════════════════════════════════
    SUB: REPORTES DE OBRA (con AI)
    ═══════════════════════════════════════════════════════════════════ */
 
@@ -1405,6 +1733,7 @@ function SubReportes({ obra, instaladores, updateObra, showNew, setShowNew }: {
   const [newReporte, setNewReporte] = useState({ instalador_id: '', texto: '', fotos: [] as string[] })
   const [processing, setProcessing] = useState(false)
   const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [showClientReport, setShowClientReport] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
   const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1496,8 +1825,22 @@ function SubReportes({ obra, instaladores, updateObra, showNew, setShowNew }: {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
         <div style={{ fontSize: 13, fontWeight: 600, color: '#fff' }}>Reportes de campo</div>
-        <Btn size="sm" variant="primary" onClick={() => setShowNew(true)}><Plus size={12} /> Nuevo reporte</Btn>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <Btn size="sm" variant="default" onClick={() => setShowClientReport(true)}>
+            <FileText size={12} /> Reporte para cliente
+          </Btn>
+          <Btn size="sm" variant="primary" onClick={() => setShowNew(true)}><Plus size={12} /> Nuevo reporte</Btn>
+        </div>
       </div>
+
+      {/* Modal reporte para cliente */}
+      {showClientReport && (
+        <ReporteClienteModal
+          obra={obra}
+          instaladores={instaladores}
+          onClose={() => setShowClientReport(false)}
+        />
+      )}
 
       {/* New report form */}
       {showNew && (
