@@ -671,6 +671,7 @@ function SubActividades({ obra, instaladores, updateObra, showNew, setShowNew }:
 }) {
   const [newAct, setNewAct] = useState({ sistema: 'CCTV' as Sistema, descripcion: '', instalador_id: '', fecha_fin_plan: '', area: '' })
   const [groupBy, setGroupBy] = useState<'sistema' | 'area'>('sistema')
+  const [statusFilter, setStatusFilter] = useState<'all' | ActividadStatus>('all')
   const [generating, setGenerating] = useState(false)
   const [genStatus, setGenStatus] = useState('')
   const [showWizard, setShowWizard] = useState(false)
@@ -746,9 +747,10 @@ function SubActividades({ obra, instaladores, updateObra, showNew, setShowNew }:
     setShowWizard(true)
   }
 
-  // Group activities
+  // Filter + Group activities
+  const filteredActs = statusFilter === 'all' ? obra.actividades : obra.actividades.filter(a => a.status === statusFilter)
   const grouped = new Map<string, Actividad[]>()
-  obra.actividades.forEach(a => {
+  filteredActs.forEach(a => {
     const key = groupBy === 'sistema' ? a.sistema : (a.area || 'Sin área')
     const arr = grouped.get(key) || []
     arr.push(a)
@@ -785,6 +787,30 @@ function SubActividades({ obra, instaladores, updateObra, showNew, setShowNew }:
           <Btn size="sm" variant="primary" onClick={() => setShowNew(true)}><Plus size={12} /> Nueva actividad</Btn>
         </div>
       </div>
+
+      {/* Status filter */}
+      {obra.actividades.length > 0 && (
+        <div style={{ display: 'flex', gap: 4, marginBottom: 12, flexWrap: 'wrap' }}>
+          {([
+            { key: 'all' as const, label: 'Todas', color: '#888', count: obra.actividades.length },
+            { key: 'pendiente' as const, label: 'Pendientes', color: ACT_STATUS_CONFIG.pendiente.color, count: obra.actividades.filter(a => a.status === 'pendiente').length },
+            { key: 'en_progreso' as const, label: 'En progreso', color: ACT_STATUS_CONFIG.en_progreso.color, count: obra.actividades.filter(a => a.status === 'en_progreso').length },
+            { key: 'bloqueada' as const, label: 'Bloqueadas', color: ACT_STATUS_CONFIG.bloqueada.color, count: obra.actividades.filter(a => a.status === 'bloqueada').length },
+            { key: 'completada' as const, label: 'Completadas', color: ACT_STATUS_CONFIG.completada.color, count: obra.actividades.filter(a => a.status === 'completada').length },
+          ]).map(f => (
+            <button key={f.key} onClick={() => setStatusFilter(f.key)}
+              style={{
+                padding: '4px 10px', fontSize: 10, borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit',
+                background: statusFilter === f.key ? `${f.color}18` : 'transparent',
+                border: statusFilter === f.key ? `1px solid ${f.color}40` : '1px solid #222',
+                color: statusFilter === f.key ? f.color : '#555',
+                fontWeight: statusFilter === f.key ? 600 : 400,
+              }}>
+              {f.label} ({f.count})
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* New activity form */}
       {showNew && (
@@ -878,10 +904,18 @@ function SubActividades({ obra, instaladores, updateObra, showNew, setShowNew }:
                           </div>
                         )}
                       </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 220 }}>
-                        <div style={{ width: 60 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 320, flexWrap: 'wrap' }}>
+                        <select value={a.instalador_id || ''}
+                          onChange={e => updateActividad(a.id, { instalador_id: e.target.value || undefined } as any)}
+                          title="Asignar instalador"
+                          style={{ padding: '3px 6px', fontSize: 10, background: '#0a0a0a', border: '1px solid #333', borderRadius: 4, color: a.instalador_id ? '#57FF9A' : '#555', fontFamily: 'inherit', maxWidth: 110 }}
+                        >
+                          <option value="">Sin asignar</option>
+                          {instaladores.map(i => <option key={i.id} value={i.id}>{i.nombre}</option>)}
+                        </select>
+                        <div style={{ width: 50 }}>
                           <ProgressBar pct={a.porcentaje} color={actSt.color} />
-                          <div style={{ fontSize: 10, color: '#666', textAlign: 'center', marginTop: 2 }}>{a.porcentaje}%</div>
+                          <div style={{ fontSize: 9, color: '#666', textAlign: 'center', marginTop: 1 }}>{a.porcentaje}%</div>
                         </div>
                         <input type="range" min={0} max={100} step={5} value={a.porcentaje}
                           onChange={e => updateActividad(a.id, {
@@ -889,7 +923,7 @@ function SubActividades({ obra, instaladores, updateObra, showNew, setShowNew }:
                             status: Number(e.target.value) >= 100 ? 'completada' : Number(e.target.value) > 0 ? 'en_progreso' : 'pendiente',
                             fecha_fin_real: Number(e.target.value) >= 100 ? new Date().toISOString().substring(0, 10) : undefined,
                           })}
-                          style={{ width: 80, accentColor: actSt.color }}
+                          style={{ width: 70, accentColor: actSt.color }}
                         />
                         <select value={a.status}
                           onChange={e => updateActividad(a.id, { status: e.target.value as ActividadStatus })}
@@ -897,6 +931,19 @@ function SubActividades({ obra, instaladores, updateObra, showNew, setShowNew }:
                         >
                           {Object.entries(ACT_STATUS_CONFIG).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
                         </select>
+                        <button title="Eliminar tarea" onClick={async () => {
+                          if (!confirm('¿Eliminar esta tarea?')) return
+                          const { error } = await supabase.from('obra_actividades').delete().eq('id', a.id)
+                          if (error) { alert('Error: ' + error.message); return }
+                          updateObra(o => {
+                            const nuevas = o.actividades.filter(x => x.id !== a.id)
+                            const avance = nuevas.length > 0 ? Math.round(nuevas.reduce((s, x) => s + x.porcentaje, 0) / nuevas.length) : 0
+                            return { ...o, actividades: nuevas, avance_global: avance }
+                          })
+                          supabase.from('obras').update({ avance_global: Math.round(obra.actividades.filter(x => x.id !== a.id).reduce((s, x) => s + x.porcentaje, 0) / (obra.actividades.filter(x => x.id !== a.id).length || 1)) }).eq('id', obra.id)
+                        }} style={{ background: 'none', border: 'none', color: '#444', cursor: 'pointer', padding: 2 }}>
+                          <X size={12} />
+                        </button>
                       </div>
                     </div>
                     {a.status === 'bloqueada' && !a.bloqueo && (
