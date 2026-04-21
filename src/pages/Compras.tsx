@@ -1114,17 +1114,32 @@ function POFromQuoteModal({ onClose, onCreated }: { onClose: () => void; onCreat
       const { data } = await query.order('order_index')
       let items = data || []
 
-      // Enrich items with catalog data (provider + moneda) for filtering
+      // Enrich items with catalog data (provider, moneda, cost) for filtering and correct pricing
       const catIds = [...new Set(items.map(it => it.catalog_product_id).filter(Boolean))]
-      let catMap = new Map<string, { provider: string; moneda: string }>()
+      let catMap = new Map<string, { provider: string; moneda: string; cost: number }>()
       if (catIds.length > 0) {
-        const { data: catProducts } = await supabase.from('catalog_products').select('id, provider, moneda').in('id', catIds)
-        ;(catProducts || []).forEach((p: any) => catMap.set(p.id, { provider: p.provider || '', moneda: p.moneda || 'USD' }))
+        const { data: catProducts } = await supabase.from('catalog_products').select('id, provider, moneda, cost').in('id', catIds)
+        ;(catProducts || []).forEach((p: any) => catMap.set(p.id, { provider: p.provider || '', moneda: p.moneda || 'USD', cost: Number(p.cost) || 0 }))
       }
       items = items.map((it: any) => {
         const cat = it.catalog_product_id ? catMap.get(it.catalog_product_id) : null
-        return { ...it, _provider: it.provider || cat?.provider || '', _moneda: cat?.moneda || 'USD' }
+        // Always use catalog cost if available (quotation_items.cost can be wrong — sometimes has precio_venta)
+        const realCost = cat?.cost || Number(it.cost) || 0
+        return { ...it, cost: realCost, _provider: it.provider || cat?.provider || '', _moneda: cat?.moneda || 'USD' }
       })
+
+      // Consolidate duplicate products (same catalog_product_id or same name) — sum quantities
+      const consolidated = new Map<string, any>()
+      items.forEach((it: any) => {
+        const key = it.catalog_product_id || it.name
+        if (consolidated.has(key)) {
+          const existing = consolidated.get(key)
+          existing.quantity = Number(existing.quantity) + Number(it.quantity)
+        } else {
+          consolidated.set(key, { ...it, quantity: Number(it.quantity) })
+        }
+      })
+      items = Array.from(consolidated.values())
 
       // Filter by phase — strict filter
       if (selectedPhase) {
