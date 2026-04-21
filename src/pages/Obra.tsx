@@ -1578,92 +1578,91 @@ Devuelve SOLO un JSON: {"resumen":"...","proximos_pasos":["...","..."]}`,
     const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
     // System progress rows
+    // ── Build HTML rows ──
     const systemRows = Array.from(bySystem.entries()).map(([sys, d]) => {
       const cfg = SISTEMAS_CONFIG[sys as Sistema]
-      const color = cfg?.color || '#888'
       const barW = Math.max(d.pct, 2)
       return `<tr>
-        <td style="padding:8px 12px;border-bottom:1px solid #eee"><span style="color:${color};font-weight:600">${cfg?.label || sys}</span></td>
-        <td style="padding:8px 12px;border-bottom:1px solid #eee;text-align:center">${d.done}/${d.total}</td>
-        <td style="padding:8px 12px;border-bottom:1px solid #eee;width:200px">
-          <div style="background:#f0f0f0;border-radius:4px;height:18px;position:relative;overflow:hidden">
-            <div style="background:${color};height:100%;width:${barW}%;border-radius:4px;transition:width 0.3s"></div>
-            <span style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;color:#333">${d.pct}%</span>
-          </div>
-        </td>
+        <td class="tc">${cfg?.label || sys}</td>
+        <td class="tc" style="text-align:center">${d.done}/${d.total}</td>
+        <td class="tc" style="width:180px"><div class="bar-bg"><div class="bar-fill" style="width:${barW}%"></div><span class="bar-label">${d.pct}%</span></div></td>
       </tr>`
     }).join('')
 
-    // Completed activities
-    const completadasHTML = completadas.map(a => `<tr>
-      <td style="padding:6px 12px;border-bottom:1px solid #f0f0f0;font-size:12px">${esc(a.descripcion)}</td>
-      <td style="padding:6px 12px;border-bottom:1px solid #f0f0f0;font-size:11px;color:#666">${a.sistema}</td>
-      <td style="padding:6px 12px;border-bottom:1px solid #f0f0f0;font-size:11px;color:#666">${a.area || ''}</td>
-    </tr>`).join('')
+    const completadasHTML = completadas.map(a => `<tr><td class="tc">${esc(a.descripcion)}</td><td class="tc">${a.sistema}</td><td class="tc">${a.area || ''}</td></tr>`).join('')
+    const progresoHTML = progreso.map(a => `<tr><td class="tc">${esc(a.descripcion)}</td><td class="tc">${a.sistema}</td><td class="tc">${a.porcentaje}%</td></tr>`).join('')
+    const bloqueosHTML = bloqueosList.map(b => `<li>${esc(b)}</li>`).join('')
+    const faltantesHTML = allFaltantes.map(f => `<li>${esc(f)}</li>`).join('')
 
-    // In-progress activities
-    const progresoHTML = progreso.map(a => `<tr>
-      <td style="padding:6px 12px;border-bottom:1px solid #f0f0f0;font-size:12px">${esc(a.descripcion)}</td>
-      <td style="padding:6px 12px;border-bottom:1px solid #f0f0f0;font-size:11px;color:#666">${a.sistema}</td>
-      <td style="padding:6px 12px;border-bottom:1px solid #f0f0f0;font-size:11px;color:#666">${a.porcentaje}%</td>
-    </tr>`).join('')
-
-    // Bloqueos
-    const bloqueosHTML = bloqueosList.map(b => `<li style="margin-bottom:6px">${esc(b)}</li>`).join('')
-
-    // Faltantes
-    const faltantesHTML = allFaltantes.map(f => `<li style="margin-bottom:6px">${esc(f)}</li>`).join('')
-
-    // Inventory table
     const invBySystem = new Map<string, typeof invItems>()
     invItems.forEach(i => { const arr = invBySystem.get(i.system) || []; arr.push(i); invBySystem.set(i.system, arr) })
     const inventarioHTML = Array.from(invBySystem.entries()).map(([sys, items]) => {
       const rows = items.map(i => {
         const pending = i.qty_cotizado - i.qty_entregado
         return `<tr>
-          <td style="padding:5px 10px;border-bottom:1px solid #f0f0f0;font-size:11px">${esc(i.name)}</td>
-          <td style="padding:5px 10px;border-bottom:1px solid #f0f0f0;font-size:11px;text-align:center">${i.qty_cotizado}</td>
-          <td style="padding:5px 10px;border-bottom:1px solid #f0f0f0;font-size:11px;text-align:center">${i.qty_pedido}</td>
-          <td style="padding:5px 10px;border-bottom:1px solid #f0f0f0;font-size:11px;text-align:center">${i.qty_entregado}</td>
-          <td style="padding:5px 10px;border-bottom:1px solid #f0f0f0;font-size:11px;text-align:center;${pending > 0 ? 'color:#c00;font-weight:600' : 'color:#080'}">${pending > 0 ? pending + ' pend.' : '✓'}</td>
+          <td class="tc">${esc(i.name)}</td>
+          <td class="tc" style="text-align:center">${i.qty_cotizado}</td>
+          <td class="tc" style="text-align:center">${i.qty_pedido}</td>
+          <td class="tc" style="text-align:center">${i.qty_entregado}</td>
+          <td class="tc" style="text-align:center;${pending > 0 ? 'color:#b91c1c;font-weight:600' : 'color:#15803d'}">${pending > 0 ? pending + ' pend.' : 'Completo'}</td>
         </tr>`
       }).join('')
-      return `<tr><td colspan="5" style="padding:8px 10px;background:#f8f8f8;font-weight:600;font-size:12px;border-bottom:1px solid #ddd">${sys}</td></tr>${rows}`
+      return `<tr><td colspan="5" class="group-header">${sys}</td></tr>${rows}`
     }).join('')
 
-    // Reportes de campo
     const reportesHTML = reportesFiltered.map(r => {
       const resumen = r.ai_resumen || r.texto_raw
-      const avances = (r.ai_avances || []).map(a => `<li style="font-size:11px;margin-bottom:3px">${esc(a)}</li>`).join('')
-      return `<div style="margin-bottom:12px;padding:10px 14px;background:#fafafa;border-radius:8px;border:1px solid #eee">
-        <div style="font-size:11px;color:#888;margin-bottom:4px">${fd(r.fecha)}</div>
-        <div style="font-size:12px;color:#333;margin-bottom:6px">${esc(resumen)}</div>
-        ${avances ? `<ul style="margin:0;padding-left:18px;color:#555">${avances}</ul>` : ''}
+      const avances = (r.ai_avances || []).map(a => `<li>${esc(a)}</li>`).join('')
+      return `<div class="report-card">
+        <div class="report-date">${fd(r.fecha)}</div>
+        <div class="report-text">${esc(resumen)}</div>
+        ${avances ? `<ul class="report-list">${avances}</ul>` : ''}
       </div>`
     }).join('')
 
-    // Photos grid
-    const fotosHTML = fotos.map(f => `<img src="${f.url}" style="width:180px;height:135px;object-fit:cover;border-radius:8px;border:1px solid #ddd;margin:4px" />`).join('')
+    const fotosHTML = fotos.map(f => `<img src="${f.url}" class="photo" />`).join('')
 
     const html = `<!DOCTYPE html>
 <html lang="es">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Reporte de Avance — ${esc(obra.nombre)}</title>
+<title>Reporte — ${esc(obra.nombre)}</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #222; background: #fff; max-width: 800px; margin: 0 auto; padding: 40px 32px; line-height: 1.5; }
-  h2 { font-size: 15px; font-weight: 700; color: #111; margin: 28px 0 12px; padding-bottom: 6px; border-bottom: 2px solid #111; text-transform: uppercase; letter-spacing: 0.04em; }
-  table { width: 100%; border-collapse: collapse; margin-bottom: 16px; }
-  th { padding: 8px 12px; background: #f5f5f5; border-bottom: 2px solid #ddd; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: #555; text-align: left; }
-  .print-btn { position: fixed; bottom: 20px; right: 20px; padding: 10px 20px; background: #111; color: #fff; border: none; border-radius: 8px; font-size: 13px; cursor: pointer; font-family: inherit; z-index: 100; box-shadow: 0 2px 12px rgba(0,0,0,0.2); }
-  .print-btn:hover { background: #333; }
+  body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #1f2937; background: #fff; max-width: 760px; margin: 0 auto; padding: 32px 28px; font-size: 10px; line-height: 1.45; }
+  h2 { font-size: 10px; font-weight: 700; color: #1e293b; margin: 20px 0 8px; padding: 5px 10px; background: #1e293b; color: #fff; text-transform: uppercase; letter-spacing: 0.08em; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
+  th { padding: 5px 8px; background: #f1f5f9; border-bottom: 1px solid #cbd5e1; font-size: 8px; text-transform: uppercase; letter-spacing: 0.06em; color: #64748b; text-align: left; font-weight: 600; }
+  .tc { padding: 4px 8px; border-bottom: 1px solid #f1f5f9; font-size: 9px; color: #374151; }
+  .group-header { padding: 5px 8px; background: #f8fafc; font-weight: 700; font-size: 9px; color: #1e293b; border-bottom: 1px solid #e2e8f0; }
+  .bar-bg { background: #e5e7eb; border-radius: 3px; height: 14px; position: relative; overflow: hidden; }
+  .bar-fill { background: #1e293b; height: 100%; border-radius: 3px; }
+  .bar-label { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: 700; color: #fff; mix-blend-mode: difference; }
+  .info-table td { padding: 3px 0; font-size: 9px; }
+  .info-label { color: #94a3b8; width: 90px; }
+  .info-value { color: #1e293b; font-weight: 600; }
+  .summary-box { padding: 10px 14px; background: #f8fafc; border-left: 3px solid #1e293b; margin-bottom: 18px; font-size: 10px; color: #334155; line-height: 1.5; }
+  .kpi-row { display: flex; gap: 12px; margin-bottom: 16px; }
+  .kpi { flex: 1; padding: 10px; border: 1px solid #e2e8f0; border-radius: 6px; text-align: center; }
+  .kpi-val { font-size: 20px; font-weight: 800; color: #1e293b; }
+  .kpi-label { font-size: 8px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.06em; margin-top: 2px; }
+  .report-card { margin-bottom: 8px; padding: 8px 10px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 4px; }
+  .report-date { font-size: 8px; color: #94a3b8; margin-bottom: 3px; }
+  .report-text { font-size: 9px; color: #334155; margin-bottom: 4px; }
+  .report-list { margin: 0; padding-left: 14px; font-size: 9px; color: #64748b; }
+  .report-list li { margin-bottom: 2px; }
+  ul.items { padding-left: 16px; font-size: 9px; color: #334155; margin-bottom: 14px; }
+  ul.items li { margin-bottom: 4px; }
+  .photo { width: 150px; height: 112px; object-fit: cover; border-radius: 4px; border: 1px solid #e2e8f0; margin: 3px; }
+  .print-btn { position: fixed; bottom: 16px; right: 16px; padding: 8px 16px; background: #1e293b; color: #fff; border: none; border-radius: 6px; font-size: 10px; cursor: pointer; font-family: inherit; z-index: 100; box-shadow: 0 2px 8px rgba(0,0,0,0.15); }
+  .print-btn:hover { background: #334155; }
   @media print {
     .print-btn { display: none !important; }
-    body { padding: 20px; }
+    body { padding: 16px; font-size: 9px; }
     h2 { break-after: avoid; }
     tr { break-inside: avoid; }
+    .photo { width: 120px; height: 90px; }
   }
 </style>
 </head>
@@ -1671,122 +1670,96 @@ Devuelve SOLO un JSON: {"resumen":"...","proximos_pasos":["...","..."]}`,
 <button class="print-btn" contenteditable="false" onclick="window.print()">Imprimir / Guardar PDF</button>
 
 <!-- HEADER -->
-<div style="text-align:center;margin-bottom:30px">
-  <div style="font-size:26px;font-weight:800;letter-spacing:-0.02em"><span style="color:#2a9d5c">OMM</span> Technologies</div>
-  <div style="font-size:10px;color:#999;letter-spacing:0.15em;text-transform:uppercase;margin-top:2px">Instalaciones Especiales</div>
+<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;padding-bottom:14px;border-bottom:2px solid #1e293b">
+  <div>
+    <div style="font-size:16px;font-weight:800;letter-spacing:-0.02em;color:#1e293b">OMM Technologies</div>
+    <div style="font-size:7px;color:#94a3b8;letter-spacing:0.12em;text-transform:uppercase;margin-top:1px">Instalaciones Especiales</div>
+  </div>
+  <div style="text-align:right">
+    <div style="font-size:11px;font-weight:700;color:#1e293b">Reporte de Avance</div>
+    <div style="font-size:8px;color:#64748b">${fd(today)}</div>
+  </div>
 </div>
 
-<div style="text-align:center;margin-bottom:24px">
-  <div style="font-size:20px;font-weight:700;color:#111;margin-bottom:4px">Reporte de Avance de Obra</div>
-  <div style="font-size:13px;color:#555">${esc(obra.nombre)}</div>
-</div>
-
-<table style="margin-bottom:24px">
-  <tr>
-    <td style="padding:6px 0;font-size:12px;color:#888;width:120px">Cliente</td>
-    <td style="padding:6px 0;font-size:12px;font-weight:600">${esc(obra.cliente)}</td>
-    <td style="padding:6px 0;font-size:12px;color:#888;width:120px">Periodo</td>
-    <td style="padding:6px 0;font-size:12px;font-weight:600">${fd(dateFrom)} — ${fd(dateTo)}</td>
-  </tr>
-  <tr>
-    <td style="padding:6px 0;font-size:12px;color:#888">Dirección</td>
-    <td style="padding:6px 0;font-size:12px">${esc(obra.direccion || '')}</td>
-    <td style="padding:6px 0;font-size:12px;color:#888">Fecha de emisión</td>
-    <td style="padding:6px 0;font-size:12px;font-weight:600">${fd(today)}</td>
-  </tr>
+<!-- INFO -->
+<table class="info-table" style="margin-bottom:16px">
+  <tr><td class="info-label">Obra</td><td class="info-value">${esc(obra.nombre)}</td><td class="info-label">Cliente</td><td class="info-value">${esc(obra.cliente)}</td></tr>
+  <tr><td class="info-label">Dirección</td><td style="font-size:9px;color:#475569">${esc(obra.direccion || '—')}</td><td class="info-label">Periodo</td><td class="info-value">${fd(dateFrom)} — ${fd(dateTo)}</td></tr>
 </table>
 
-<!-- RESUMEN AI -->
-<div style="padding:14px 18px;background:#f0faf4;border:1px solid #c3e6d1;border-radius:8px;margin-bottom:24px;font-size:13px;color:#1a5632;line-height:1.6">
-  ${aiResumen || 'Reporte de avance de obra del periodo.'}
-</div>
+<!-- RESUMEN -->
+<div class="summary-box">${aiResumen || 'Reporte de avance de obra del periodo.'}</div>
 
 ${sections.avanceGlobal ? `
-<!-- AVANCE GLOBAL -->
-<h2>Avance Global</h2>
-<div style="margin-bottom:20px">
-  <div style="display:flex;align-items:center;gap:16px">
-    <div style="font-size:36px;font-weight:800;color:#111">${obra.avance_global}%</div>
-    <div style="flex:1;background:#f0f0f0;border-radius:6px;height:24px;overflow:hidden">
-      <div style="background:linear-gradient(90deg,#2a9d5c,#57FF9A);height:100%;width:${Math.max(obra.avance_global, 1)}%;border-radius:6px"></div>
-    </div>
+<!-- KPIs -->
+<div class="kpi-row">
+  <div class="kpi">
+    <div class="kpi-val">${obra.avance_global}%</div>
+    <div class="kpi-label">Avance global</div>
   </div>
-  <div style="font-size:11px;color:#888;margin-top:4px">${obra.actividades.filter(a => a.status === 'completada').length} de ${obra.actividades.length} actividades completadas</div>
+  <div class="kpi">
+    <div class="kpi-val">${obra.actividades.filter(a => a.status === 'completada').length}/${obra.actividades.length}</div>
+    <div class="kpi-label">Completadas</div>
+  </div>
+  <div class="kpi">
+    <div class="kpi-val">${progreso.length}</div>
+    <div class="kpi-label">En progreso</div>
+  </div>
+  <div class="kpi">
+    <div class="kpi-val" ${bloqueadas.length > 0 ? 'style="color:#b91c1c"' : ''}>${bloqueadas.length}</div>
+    <div class="kpi-label">Bloqueadas</div>
+  </div>
 </div>
 ` : ''}
 
 ${sections.avancePorSistema && bySystem.size > 0 ? `
-<!-- AVANCE POR SISTEMA -->
 <h2>Avance por Sistema</h2>
-<table>
-  <thead><tr>
-    <th>Sistema</th>
-    <th style="text-align:center">Completadas</th>
-    <th>Avance</th>
-  </tr></thead>
-  <tbody>${systemRows}</tbody>
-</table>
+<table><thead><tr><th>Sistema</th><th style="text-align:center">Completadas</th><th>Avance</th></tr></thead><tbody>${systemRows}</tbody></table>
 ` : ''}
 
 ${sections.actividadesCompletadas && completadas.length > 0 ? `
-<!-- ACTIVIDADES COMPLETADAS -->
 <h2>Actividades Completadas en Periodo</h2>
-<table>
-  <thead><tr><th>Actividad</th><th>Sistema</th><th>Área</th></tr></thead>
-  <tbody>${completadasHTML}</tbody>
-</table>
+<table><thead><tr><th>Actividad</th><th>Sistema</th><th>Área</th></tr></thead><tbody>${completadasHTML}</tbody></table>
 ` : ''}
 
 ${sections.actividadesEnProgreso && progreso.length > 0 ? `
-<!-- EN PROGRESO -->
 <h2>Actividades en Progreso</h2>
-<table>
-  <thead><tr><th>Actividad</th><th>Sistema</th><th>Avance</th></tr></thead>
-  <tbody>${progresoHTML}</tbody>
-</table>
+<table><thead><tr><th>Actividad</th><th>Sistema</th><th>Avance</th></tr></thead><tbody>${progresoHTML}</tbody></table>
 ` : ''}
 
 ${sections.bloqueos && bloqueosList.length > 0 ? `
-<!-- BLOQUEOS -->
 <h2>Puntos que Requieren Atención</h2>
-<ul style="padding-left:20px;font-size:12px;color:#333;margin-bottom:20px">${bloqueosHTML}</ul>
+<ul class="items">${bloqueosHTML}</ul>
 ` : ''}
 
 ${sections.faltantes && allFaltantes.length > 0 ? `
-<!-- FALTANTES -->
 <h2>Elementos Pendientes</h2>
-<ul style="padding-left:20px;font-size:12px;color:#333;margin-bottom:20px">${faltantesHTML}</ul>
+<ul class="items">${faltantesHTML}</ul>
 ` : ''}
 
 ${sections.inventario && invItems.length > 0 ? `
-<!-- INVENTARIO -->
 <h2>Estado de Equipos</h2>
-<table>
-  <thead><tr><th>Equipo</th><th style="text-align:center">Cotizado</th><th style="text-align:center">Pedido</th><th style="text-align:center">En obra</th><th style="text-align:center">Pendiente</th></tr></thead>
-  <tbody>${inventarioHTML}</tbody>
-</table>
+<table><thead><tr><th>Equipo</th><th style="text-align:center">Cotizado</th><th style="text-align:center">Pedido</th><th style="text-align:center">En obra</th><th style="text-align:center">Estado</th></tr></thead><tbody>${inventarioHTML}</tbody></table>
 ` : ''}
 
 ${sections.reportesCampo && reportesFiltered.length > 0 ? `
-<!-- REPORTES DE CAMPO -->
 <h2>Reportes de Campo</h2>
 ${reportesHTML}
 ` : ''}
 
 ${sections.evidenciaFotos && fotos.length > 0 ? `
-<!-- EVIDENCIA FOTOGRÁFICA -->
 <h2>Evidencia Fotográfica</h2>
-<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:20px">${fotosHTML}</div>
+<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px">${fotosHTML}</div>
 ` : ''}
 
-<!-- PRÓXIMOS PASOS -->
 <h2>Próximos Pasos</h2>
-<ul style="padding-left:20px;font-size:12px;color:#333;margin-bottom:30px;line-height:1.8">
-  ${aiProximosPasos || '<li>Continuar con las actividades programadas</li><li>Dar seguimiento a los puntos de atención señalados</li>'}
+<ul class="items" style="line-height:1.6">
+  ${aiProximosPasos || '<li>Continuar con las actividades programadas del siguiente periodo.</li><li>Dar seguimiento a los puntos de atención señalados.</li>'}
 </ul>
 
-<div style="margin-top:40px;padding-top:16px;border-top:1px solid #ddd;text-align:center;font-size:10px;color:#aaa">
-  OMM Technologies SA de CV · Instalaciones Especiales · Reporte generado el ${fd(today)}
+<div style="margin-top:30px;padding-top:10px;border-top:1px solid #e2e8f0;display:flex;justify-content:space-between;font-size:7px;color:#94a3b8">
+  <span>OMM Technologies SA de CV</span>
+  <span>Documento confidencial — Uso exclusivo del proyecto</span>
 </div>
 
 </body>
