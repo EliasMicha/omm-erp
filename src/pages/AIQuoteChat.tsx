@@ -143,6 +143,44 @@ export default function AIQuoteChat({ onClose, onCreated }: {
     notas: '',
   })
 
+  // Client selector
+  const [clientes, setClientes] = useState<Array<{ id: string; nombre_comercial: string; razon_social: string; rfc: string; regimen_fiscal: string; codigo_postal: string; uso_cfdi_clave: string; email: string }>>([])
+  const [clientSearch, setClientSearch] = useState(scope.cliente || '')
+  const [showClientDrop, setShowClientDrop] = useState(false)
+  const [clientId, setClientId] = useState('')
+  const [showNewClient, setShowNewClient] = useState(false)
+  const [newClientName, setNewClientName] = useState('')
+  const [newClientRazon, setNewClientRazon] = useState('')
+  const [newClientRfc, setNewClientRfc] = useState('')
+
+  useEffect(() => {
+    supabase.from('clientes').select('id,nombre_comercial,razon_social,rfc,regimen_fiscal,codigo_postal,uso_cfdi_clave,email').neq('activo', false).order('razon_social')
+      .then(({ data }) => setClientes(data || []))
+  }, [])
+
+  const filteredClientes = clientSearch.length >= 1
+    ? clientes.filter(c => (c.nombre_comercial || '').toLowerCase().includes(clientSearch.toLowerCase()) || c.razon_social.toLowerCase().includes(clientSearch.toLowerCase()) || c.rfc.toLowerCase().includes(clientSearch.toLowerCase())).slice(0, 10)
+    : clientes.slice(0, 10)
+
+  const selectedClient = clientId ? clientes.find(c => c.id === clientId) : null
+
+  async function crearClienteInline() {
+    if (!newClientName.trim()) return
+    const { data } = await supabase.from('clientes').insert({
+      nombre_comercial: newClientName.trim(), razon_social: newClientRazon.trim() || newClientName.trim(),
+      rfc: newClientRfc.trim() || 'XAXX010101000',
+      regimen_fiscal: '601', regimen_fiscal_clave: '601', codigo_postal: '00000',
+      uso_cfdi: 'G03', uso_cfdi_clave: 'G03', tipo_persona: 'moral', activo: true,
+    }).select().single()
+    if (data) {
+      setClientes(prev => [...prev, data])
+      setScope(s => ({ ...s, cliente: data.nombre_comercial || data.razon_social }))
+      setClientSearch(data.nombre_comercial || data.razon_social)
+      setClientId(data.id)
+    }
+    setShowNewClient(false); setNewClientName(''); setNewClientRazon(''); setNewClientRfc('')
+  }
+
   // Plan upload
   const [planFile, setPlanFile] = useState<File | null>(null)
   const [planBase64, setPlanBase64] = useState('')
@@ -460,7 +498,7 @@ export default function AIQuoteChat({ onClose, onCreated }: {
         specialty: 'esp',
         stage: 'oportunidad',
         client_name: scope.cliente || '',
-        notes: JSON.stringify(notesMeta),
+        notes: JSON.stringify({ ...notesMeta, client_id: clientId || '' }),
       }).select().single()
       if (qErr) throw new Error('Error creando cotización: ' + qErr.message)
       if (!quot) throw new Error('Cotización no creada')
@@ -670,7 +708,58 @@ export default function AIQuoteChat({ onClose, onCreated }: {
                 </div>
                 <div>
                   <label style={sLabel}>Cliente</label>
-                  <input value={scope.cliente} onChange={e => setScope(s => ({ ...s, cliente: e.target.value }))} placeholder="Ej. Artek" style={inputS} />
+                  <div style={{ position: 'relative' as const }}>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <input value={clientSearch} onChange={e => { setClientSearch(e.target.value); setScope(s => ({ ...s, cliente: e.target.value })); setClientId('') }}
+                        onFocus={() => setShowClientDrop(true)}
+                        onBlur={() => setTimeout(() => setShowClientDrop(false), 200)}
+                        placeholder="Buscar por nombre comercial..." style={inputS} />
+                      <button onClick={() => setShowNewClient(v => !v)}
+                        style={{ padding: '6px 10px', background: '#1a1a1a', border: '1px solid #333', borderRadius: 8, color: '#888', cursor: 'pointer', fontSize: 11, fontFamily: 'inherit', whiteSpace: 'nowrap' }}>+ Nuevo</button>
+                    </div>
+                    {showClientDrop && (
+                      <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#1a1a1a', border: '1px solid #333', borderRadius: 8, marginTop: 2, maxHeight: 200, overflowY: 'auto', zIndex: 20 }}>
+                        {filteredClientes.length === 0 ? (
+                          <div style={{ padding: '10px', fontSize: 11, color: '#555', textAlign: 'center' }}>Sin resultados</div>
+                        ) : filteredClientes.map(c => (
+                          <div key={c.id} onMouseDown={e => e.preventDefault()}
+                            onClick={() => { setScope(s => ({ ...s, cliente: c.nombre_comercial || c.razon_social })); setClientSearch(c.nombre_comercial || c.razon_social); setClientId(c.id); setShowClientDrop(false) }}
+                            style={{ padding: '8px 10px', cursor: 'pointer', fontSize: 12, color: '#ccc', borderBottom: '1px solid #222' }}
+                            onMouseEnter={e => { e.currentTarget.style.background = '#222' }}
+                            onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}>
+                            <div style={{ fontWeight: 600, color: '#57FF9A' }}>{c.nombre_comercial || c.razon_social}</div>
+                            <div style={{ fontSize: 10, color: '#777' }}>{c.razon_social} · {c.rfc}</div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  {showNewClient && (
+                    <div style={{ marginTop: 8, padding: 10, background: '#0e0e0e', border: '1px solid #222', borderRadius: 8 }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+                        <input value={newClientName} onChange={e => setNewClientName(e.target.value)} placeholder="Nombre comercial"
+                          style={{ padding: '6px 8px', background: '#1a1a1a', border: '1px solid #333', borderRadius: 6, color: '#fff', fontSize: 12, fontFamily: 'inherit' }} />
+                        <input value={newClientRazon} onChange={e => setNewClientRazon(e.target.value)} placeholder="Razón social"
+                          style={{ padding: '6px 8px', background: '#1a1a1a', border: '1px solid #333', borderRadius: 6, color: '#fff', fontSize: 12, fontFamily: 'inherit' }} />
+                        <input value={newClientRfc} onChange={e => setNewClientRfc(e.target.value)} placeholder="RFC"
+                          style={{ padding: '6px 8px', background: '#1a1a1a', border: '1px solid #333', borderRadius: 6, color: '#fff', fontSize: 12, fontFamily: 'inherit' }} />
+                      </div>
+                      <div style={{ display: 'flex', gap: 6, marginTop: 6, justifyContent: 'flex-end' }}>
+                        <Btn size="sm" onClick={() => setShowNewClient(false)}>Cancelar</Btn>
+                        <Btn size="sm" variant="primary" onClick={crearClienteInline}>Crear</Btn>
+                      </div>
+                    </div>
+                  )}
+                  {selectedClient && (
+                    <div style={{ marginTop: 6, padding: '6px 10px', background: '#0e1a0e', border: '1px solid #1a3a1a', borderRadius: 6, fontSize: 10, color: '#aaa', lineHeight: 1.6 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ color: '#57FF9A', fontWeight: 600, fontSize: 11 }}>Datos de facturación</span>
+                        <button onClick={() => { setScope(s => ({ ...s, cliente: '' })); setClientSearch(''); setClientId('') }}
+                          style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer', fontSize: 10 }}>✕</button>
+                      </div>
+                      <div>{selectedClient.razon_social} · <span style={{ fontFamily: 'monospace' }}>{selectedClient.rfc}</span> · {selectedClient.regimen_fiscal || '—'} · CP {selectedClient.codigo_postal || '—'}</div>
+                    </div>
+                  )}
                 </div>
               </div>
 
