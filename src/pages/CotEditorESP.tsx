@@ -18,7 +18,7 @@ interface EspProduct {
 interface EspArea { id: string; name: string; collapsed: boolean; order: number }
 interface EspSystemDef { id: string; name: string; color: string }
 interface CatProduct { id: string; name: string; description: string; system: string; cost: number; markup: number; precio_venta: number; provider: string; unit: string; moneda?: string; marca?: string | null; modelo?: string | null; sku?: string | null; image_url?: string | null }
-interface EspQuoteConfig { currency: string; ivaRate: number; programacion: number; tipoCambio: number; paymentSchedule: Array<{ label: string; percentage: number }>; version: string }
+interface EspQuoteConfig { currency: string; ivaRate: number; programacion: number; descuento: number; tipoCambio: number; paymentSchedule: Array<{ label: string; percentage: number }>; version: string }
 
 const ALL_SYSTEMS: EspSystemDef[] = [
   { id: 'audio',               name: 'Audio',       color: '#8B5CF6' },
@@ -1294,24 +1294,56 @@ function SummaryPanel({ products, areas, config, activeSystems, showInt, onConfi
   products.forEach(p => { eqTotal += p.price * p.quantity; inst += p.laborCost * p.quantity })
   const moTotal = inst + config.programacion
   const sub = eqTotal + moTotal
-  const iva = sub * (config.ivaRate / 100)
-  const total = sub + iva
+  const descuentoAmt = sub * config.descuento / 100
+  const subConDesc = sub - descuentoAmt
+  const iva = subConDesc * (config.ivaRate / 100)
+  const total = subConDesc + iva
 
-  const rows = [
-    { l: 'EQUIPO TOTAL', v: eqTotal, b: true }, { l: 'INSTALACIÓN', v: inst },
-    { l: 'PROGRAMACIÓN', v: config.programacion, ed: true }, { l: 'MANO DE OBRA TOTAL', v: moTotal, b: true },
-    { l: 'SUBTOTAL', v: sub, b: true }, { l: 'TOTAL IVA', v: iva },
-    { l: 'TOTAL DEL PROYECTO', v: total, b: true, h: true },
+  const rows: Array<{ l: string; v: number; b?: boolean; h?: boolean; ed?: string }> = [
+    { l: 'EQUIPO TOTAL', v: eqTotal, b: true },
+    { l: 'INSTALACIÓN Y PROGRAMACIÓN', v: inst },
+    { l: 'PROGRAMACIÓN ADICIONAL', v: config.programacion, ed: 'programacion' },
+    { l: 'MANO DE OBRA TOTAL', v: moTotal, b: true },
+    { l: 'SUBTOTAL', v: sub, b: true },
   ]
+  // Discount row (always show so user can edit)
+  const discountRows: Array<{ l: string; v: number; b?: boolean; h?: boolean; ed?: string; pct?: boolean }> = [
+    { l: 'DESCUENTO', v: config.descuento, ed: 'descuento', pct: true },
+  ]
+  const afterDiscountRows: Array<{ l: string; v: number; b?: boolean; h?: boolean }> = []
+  if (config.descuento > 0) {
+    afterDiscountRows.push({ l: 'SUBTOTAL CON DESCUENTO', v: subConDesc, b: true })
+  }
+  afterDiscountRows.push({ l: 'TOTAL IVA', v: iva })
+  afterDiscountRows.push({ l: 'TOTAL DEL PROYECTO', v: total, b: true, h: true })
+
   return (
     <div>
       <div style={{ background: '#141414', border: '1px solid #222', borderRadius: 12, padding: 14, marginBottom: 10 }}>
         <div style={{ fontSize: 10, fontWeight: 600, color: '#555', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Resumen</div>
         {rows.map((r, i) => (
           <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '3px 0', borderTop: r.b ? '1px solid #222' : 'none' }}>
+            <span style={{ fontSize: 10, color: r.b ? '#ccc' : '#555', fontWeight: r.b ? 700 : 400 }}>{r.l}</span>
+            {r.ed ? <input type="number" value={r.v} step={10} onChange={e => onConfigChange(r.ed!, parseFloat(e.target.value) || 0)} style={{ ...S.input, width: 70, fontSize: 11, fontWeight: 600 }} />
+              : <span style={{ fontSize: 11, fontWeight: r.b ? 700 : 400, color: '#fff' }}>${r.v.toFixed(2)}</span>}
+          </div>
+        ))}
+        {/* Discount row */}
+        {discountRows.map((r, i) => (
+          <div key={'d' + i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '3px 0', borderTop: '1px solid #222', background: config.descuento > 0 ? 'rgba(239,68,68,0.05)' : 'transparent', borderRadius: 4, paddingLeft: 4, paddingRight: 4 }}>
+            <span style={{ fontSize: 10, color: config.descuento > 0 ? '#EF4444' : '#555', fontWeight: 400 }}>{r.l}</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <input type="number" value={r.v} step={1} min={0} max={100} onChange={e => onConfigChange('descuento', Math.min(100, Math.max(0, parseFloat(e.target.value) || 0)))} style={{ ...S.input, width: 50, fontSize: 11, fontWeight: 600 }} />
+              <span style={{ fontSize: 10, color: '#555' }}>%</span>
+              {config.descuento > 0 && <span style={{ fontSize: 10, color: '#EF4444', marginLeft: 4 }}>-${descuentoAmt.toFixed(2)}</span>}
+            </div>
+          </div>
+        ))}
+        {/* After discount rows */}
+        {afterDiscountRows.map((r, i) => (
+          <div key={'a' + i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '3px 0', borderTop: r.b ? '1px solid #222' : 'none' }}>
             <span style={{ fontSize: 10, color: r.h ? '#57FF9A' : r.b ? '#ccc' : '#555', fontWeight: r.b ? 700 : 400 }}>{r.l}</span>
-            {r.ed ? <input type="number" value={r.v} step={10} onChange={e => onConfigChange('programacion', parseFloat(e.target.value) || 0)} style={{ ...S.input, width: 70, fontSize: 11, fontWeight: 600 }} />
-              : <span style={{ fontSize: r.h ? 15 : 11, fontWeight: r.b ? 700 : 400, color: r.h ? '#57FF9A' : '#fff' }}>${r.v.toFixed(2)}</span>}
+            <span style={{ fontSize: r.h ? 15 : 11, fontWeight: r.b ? 700 : 400, color: r.h ? '#57FF9A' : '#fff' }}>${r.v.toFixed(2)}</span>
           </div>
         ))}
         <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px solid #222' }}>
@@ -1368,7 +1400,7 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
   const [activeSysIds, setActiveSysIds] = useState<string[]>([])
   const [products, setProducts] = useState<EspProduct[]>([])
   const [loading, setLoading] = useState(true)
-  const [config, setConfig] = useState<EspQuoteConfig>({ currency: 'USD', ivaRate: 16, programacion: 0, tipoCambio: 20.5, paymentSchedule: [{ label: 'Anticipo', percentage: 80 }, { label: 'Entrega de equipos', percentage: 10 }, { label: 'Finalización de Obra', percentage: 10 }], version: '1.0' })
+  const [config, setConfig] = useState<EspQuoteConfig>({ currency: 'USD', ivaRate: 16, programacion: 0, descuento: 0, tipoCambio: 20.5, paymentSchedule: [{ label: 'Anticipo', percentage: 80 }, { label: 'Entrega de equipos', percentage: 10 }, { label: 'Finalización de Obra', percentage: 10 }], version: '1.0' })
   const [showInt, setShowInt] = useState(true)
   const [stage, setStage] = useState('oportunidad')
   const [collapsedSys, setCollapsedSys] = useState<Record<string, boolean>>({})
@@ -1399,8 +1431,8 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
       try {
         noteMeta = JSON.parse(cot.notes || '{}')
         if (noteMeta.systems) setActiveSysIds(noteMeta.systems)
-        if (noteMeta.currency || noteMeta.tipoCambio) {
-          setConfig(c => ({ ...c, currency: noteMeta.currency || c.currency, tipoCambio: noteMeta.tipoCambio || c.tipoCambio }))
+        if (noteMeta.currency || noteMeta.tipoCambio || noteMeta.descuento !== undefined || noteMeta.programacion !== undefined) {
+          setConfig(c => ({ ...c, currency: noteMeta.currency || c.currency, tipoCambio: noteMeta.tipoCambio || c.tipoCambio, descuento: noteMeta.descuento ?? c.descuento, programacion: noteMeta.programacion ?? c.programacion }))
         }
       } catch (e) { /* ignore */ }
       // Auto-detect active systems from items if notes doesn't have them
@@ -1434,7 +1466,10 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
   const activeSystems = useMemo(() => ALL_SYSTEMS.filter(s => activeSysIds.includes(s.id)), [activeSysIds])
   const total = useMemo(() => {
     let eq = 0, mo = 0; products.forEach(p => { eq += p.price * p.quantity; mo += p.laborCost * p.quantity })
-    const sub = eq + mo + config.programacion; return sub + sub * config.ivaRate / 100
+    const sub = eq + mo + config.programacion;
+    const descuentoAmt = sub * config.descuento / 100;
+    const subConDesc = sub - descuentoAmt;
+    return subConDesc + subConDesc * config.ivaRate / 100
   }, [products, config])
 
   // Sync total to quotations table whenever it changes
@@ -1446,16 +1481,24 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
 
   function toggleArea(id: string) { setAreas(p => p.map(a => a.id === id ? { ...a, collapsed: !a.collapsed } : a)) }
   function toggleSys(k: string) { setCollapsedSys(p => ({ ...p, [k]: !p[k] })) }
-  function addArea() { const n = prompt('Nombre del área:'); if (n) setAreas(p => [...p, { id: uid(), name: n, collapsed: false, order: p.length }]) }
+  async function addArea() {
+    const n = prompt('Nombre del área:');
+    if (!n) return;
+    const { data, error } = await supabase.from('quotation_areas')
+      .insert({ quotation_id: cotId, name: n, order_index: areas.length, subtotal: 0 })
+      .select().single();
+    if (error) { alert('Error al crear área: ' + error.message); return; }
+    if (data) setAreas(p => [...p, { id: data.id, name: n, collapsed: false, order: p.length }]);
+  }
 
-  async function saveNotes(overrides?: Partial<{ systems: string[]; currency: string; tipoCambio: number }>) {
+  async function saveNotes(overrides?: Partial<{ systems: string[]; currency: string; tipoCambio: number; descuento: number; programacion: number }>) {
     // Preserve existing notes fields (lead_id, source, etc.)
     let existing: any = {}
     try {
       const { data: q } = await supabase.from('quotations').select('notes').eq('id', cotId).single()
       if (q?.notes) existing = JSON.parse(q.notes)
     } catch (_) { /* ignore */ }
-    const merged = { ...existing, systems: overrides?.systems ?? activeSysIds, currency: overrides?.currency ?? config.currency, tipoCambio: overrides?.tipoCambio ?? config.tipoCambio }
+    const merged = { ...existing, systems: overrides?.systems ?? activeSysIds, currency: overrides?.currency ?? config.currency, tipoCambio: overrides?.tipoCambio ?? config.tipoCambio, descuento: overrides?.descuento ?? config.descuento, programacion: overrides?.programacion ?? config.programacion }
     await supabase.from('quotations').update({ notes: JSON.stringify(merged) }).eq('id', cotId)
   }
 
@@ -1468,6 +1511,8 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
   function updateConfig(field: string, value: number) {
     setConfig(prev => ({ ...prev, [field]: value }))
     if (field === 'tipoCambio') saveNotes({ tipoCambio: value })
+    if (field === 'descuento') saveNotes({ descuento: value })
+    if (field === 'programacion') saveNotes({ programacion: value })
   }
 
   // Map EspProduct field to quotation_items column
