@@ -258,14 +258,30 @@ export default function CotizacionPdf() {
 
   // Descripciones comerciales por sistema — orientadas a ventas, no técnicas
   function descripcionSistema(sys: string, data: { items: ItemRow[]; count: number }): string {
-    const marcasSet = new Set<string>()
+    // Analizar marca dominante por valor total (subtotal), no solo por primera aparición
+    // Tambien detectar marca desde el nombre del producto si marca está vacía
+    const knownBrands = ['Lutron', 'UniFi', 'Ubiquiti', 'Sonos', 'Bose', 'Shure', 'Hikvision', 'Dahua', 'Axis', 'Panduit', 'Cisco', 'Meraki', 'Somfy', 'Control4', 'Crestron', 'Savant', 'CyberPower', 'Honeywell', 'DSC', 'Bosch', 'Epcom', 'Syscom', 'Liberty']
+    const marcasByValue: Record<string, number> = {}
     const allAreas = new Set<string>()
     data.items.forEach(i => {
-      if (i.marca) marcasSet.add(i.marca)
+      let brandKey = (i.marca || '').trim()
+      // Si no hay marca, intentar detectar del nombre del producto
+      if (!brandKey) {
+        const nameLow = (i.name || '').toLowerCase()
+        for (const kb of knownBrands) {
+          if (nameLow.includes(kb.toLowerCase())) { brandKey = kb; break }
+        }
+      }
+      if (brandKey) {
+        const itemValue = (i.price * i.quantity) + ((i.installation_cost || 0) * i.quantity)
+        marcasByValue[brandKey] = (marcasByValue[brandKey] || 0) + itemValue
+      }
       const areaName = areas.find(a => a.id === i.area_id)?.name
       if (areaName) allAreas.add(areaName)
     })
-    const marca = Array.from(marcasSet)[0] || ''
+    // Marca dominante = la que representa mayor valor en el sistema
+    const marcasSorted = Object.entries(marcasByValue).sort((a, b) => b[1] - a[1])
+    const marca = marcasSorted.length > 0 ? marcasSorted[0][0] : ''
     const numAreas = allAreas.size
     const areasText = numAreas > 0 ? ` en ${numAreas} ${numAreas === 1 ? 'área' : 'áreas'} del proyecto` : ''
     const sysLow = sys.toLowerCase()
@@ -275,8 +291,11 @@ export default function CotizacionPdf() {
       return `Sistema de iluminación inteligente ${brand} para control total de la iluminación${areasText}. Permite creación de escenas personalizadas, control desde app móvil, integración con asistentes de voz y automatización por horarios.`
     }
     if (sysLow.includes('redes') || sysLow.includes('red')) {
-      const brand = marca || ''
-      return `Infraestructura de red y conectividad${brand ? ' ' + brand : ''} de alto rendimiento${areasText}. Cobertura WiFi profesional de última generación con conectividad estable en todo el inmueble, diseñada para streaming, videoconferencias y dispositivos inteligentes.`
+      // Para redes, la marca dominante por valor es la que define el sistema (ej. UniFi/Ubiquiti, no el cableado)
+      const brandLow = marca.toLowerCase()
+      const brandDisplay = brandLow.includes('ubiquiti') || brandLow.includes('unifi') ? 'UniFi (Ubiquiti)'
+        : brandLow.includes('cisco') ? 'Cisco' : brandLow.includes('meraki') ? 'Meraki' : marca || ''
+      return `Infraestructura de red y conectividad${brandDisplay ? ' ' + brandDisplay : ''} de alto rendimiento${areasText}. Cobertura WiFi profesional de última generación con conectividad estable en todo el inmueble, diseñada para streaming, videoconferencias y dispositivos inteligentes.`
     }
     if (sysLow.includes('audio')) {
       const brand = marca || ''
