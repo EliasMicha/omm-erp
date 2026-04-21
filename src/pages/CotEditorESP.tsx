@@ -17,7 +17,7 @@ interface EspProduct {
 }
 interface EspArea { id: string; name: string; collapsed: boolean; order: number }
 interface EspSystemDef { id: string; name: string; color: string }
-interface CatProduct { id: string; name: string; description: string; system: string; cost: number; markup: number; provider: string; unit: string; moneda?: string; marca?: string | null; modelo?: string | null; sku?: string | null; image_url?: string | null }
+interface CatProduct { id: string; name: string; description: string; system: string; cost: number; markup: number; precio_venta: number; provider: string; unit: string; moneda?: string; marca?: string | null; modelo?: string | null; sku?: string | null; image_url?: string | null }
 interface EspQuoteConfig { currency: string; ivaRate: number; programacion: number; tipoCambio: number; paymentSchedule: Array<{ label: string; percentage: number }>; version: string }
 
 const ALL_SYSTEMS: EspSystemDef[] = [
@@ -1558,7 +1558,7 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
     // Margen: catalogo dicta, PRICING_RULES como fallback
     const margin = catProd.markup > 0 ? catProd.markup : rule.margen
     let precioOrigen = rule.precioPublico
-      ? Math.round(catProd.cost * (1 + catProd.markup / 100))
+      ? (catProd.precio_venta > 0 ? catProd.precio_venta : catProd.cost)
       : calcPriceFromCost(catProd.cost, rule, margin)
     // Convert to quote currency
     const precio = convertToQuoteCurrency(precioOrigen, prodMoneda)
@@ -1594,7 +1594,7 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
     // Margen: catalogo dicta, PRICING_RULES como fallback
     const margin = catProd.markup > 0 ? catProd.markup : rule.margen
     let precioOrigen = rule.precioPublico
-      ? (catProd.cost > 0 ? Math.round(catProd.cost * (1 + catProd.markup / 100)) : 0)
+      ? (catProd.precio_venta > 0 ? catProd.precio_venta : catProd.cost)
       : calcPriceFromCost(catProd.cost, rule, margin)
     const precio = convertToQuoteCurrency(precioOrigen, prodMoneda)
     const laborCost = calcLaborFromPrice(precio, rule)
