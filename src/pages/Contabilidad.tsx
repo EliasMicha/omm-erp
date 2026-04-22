@@ -980,13 +980,19 @@ function TabFacturacion({ invoices, setInvoices, bankMovements, projectNames }: 
                     </span>
                   </Td>
                   <Td>
-                    <span style={{
-                      fontSize: 10, fontWeight: 600, padding: '2px 6px', borderRadius: 4,
-                      background: isIngreso ? '#3B82F622' : '#F59E0B22',
-                      color: isIngreso ? '#3B82F6' : '#F59E0B',
-                    }}>
-                      {isIngreso ? 'EMI' : 'REC'}
-                    </span>
+                    {(() => {
+                      const isEmitida = inv.direccion === 'emitida'
+                      const isNom = inv.tipo_comprobante === 'N'
+                      return (
+                        <span style={{
+                          fontSize: 10, fontWeight: 600, padding: '2px 6px', borderRadius: 4,
+                          background: isNom ? '#A855F722' : isEmitida ? '#3B82F622' : '#F59E0B22',
+                          color: isNom ? '#A855F7' : isEmitida ? '#3B82F6' : '#F59E0B',
+                        }}>
+                          {isEmitida ? 'EMI' : 'REC'}
+                        </span>
+                      )
+                    })()}
                   </Td>
                   <Td muted>{CFDI_TYPE_LABELS[inv.tipo_comprobante]}</Td>
                   <Td>
@@ -999,7 +1005,7 @@ function TabFacturacion({ invoices, setInvoices, bankMovements, projectNames }: 
                   </Td>
                   <Td>
                     <span style={{ color: '#ccc' }}>
-                      {isIngreso ? inv.receptor_nombre : inv.emisor_nombre}
+                      {inv.direccion === 'emitida' ? inv.receptor_nombre : inv.emisor_nombre}
                     </span>
                   </Td>
                   <Td>
