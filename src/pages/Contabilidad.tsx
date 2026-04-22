@@ -743,8 +743,10 @@ function TabFacturacion({ invoices, setInvoices, bankMovements, projectNames }: 
   const monthMovements = bankMovements.filter(m => inSelectedMonth(m.fecha))
 
   // KPIs del mes (separados por moneda MXN / USD)
-  const monthEmitidas = monthInvoices.filter(i => i.direccion === 'emitida')
-  const monthRecibidas = monthInvoices.filter(i => i.direccion === 'recibida')
+  // Nómina se emite pero contablemente es egreso, así que va con "recibidas" para KPIs
+  const isEgresoContable = (i: Invoice) => i.direccion === 'recibida' || i.tipo_comprobante === 'N'
+  const monthEmitidas = monthInvoices.filter(i => i.direccion === 'emitida' && i.tipo_comprobante !== 'N')
+  const monthRecibidas = monthInvoices.filter(i => isEgresoContable(i))
   const isMxn = (i: any) => (i.moneda || 'MXN') === 'MXN'
   const isUsd = (i: any) => (i.moneda || 'MXN') === 'USD'
   const totalFacturadoMxn = monthEmitidas.filter(isMxn).reduce((s, i) => s + (i.total || 0), 0)
@@ -968,7 +970,8 @@ function TabFacturacion({ invoices, setInvoices, bankMovements, projectNames }: 
             )}
             {filtered.map(inv => {
               const cfg = INVOICE_STATUS_CONFIG[inv.estado]
-              const isIngreso = inv.direccion === 'emitida'
+              // Nómina se emite pero es egreso contable
+              const isIngreso = inv.direccion === 'emitida' && inv.tipo_comprobante !== 'N'
               return (
                 <tr key={inv.id} style={{cursor:'pointer'}} onClick={() => setSelectedInv(inv)}>
                   <Td>
