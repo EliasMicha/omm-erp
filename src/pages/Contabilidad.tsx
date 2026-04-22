@@ -2367,8 +2367,28 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
                         )
                       })()}
                       
-                      {/* Asignacion en cascada Lead -> Cotizacion -> OC */}
+                      {/* Asignacion en cascada Lead -> Cotizacion -> OC (NO aplica para nómina) */}
                       {(() => {
+                        // Detectar si este movimiento es nómina
+                        const movLnks = getLinksForMov(m.id)
+                        const isNomina = movLnks.some(l => { const inv = invoices.find(i => i.id === l.invoice_id); return inv?.tipo_comprobante === 'N' })
+                          || (match && match.info.includes('Nómina'))
+                          || (match && match.info.includes('NOMINA'))
+                          || m.categoria_sugerida === 'nomina'
+                        if (isNomina) {
+                          // Buscar empleado vinculado por cuenta
+                          const cuentaDet = m.cuenta_destino_detectada || m.clabe_contraparte || ''
+                          const emp = cuentaDet ? assignEmpleados.find(e => (e.clabe && e.clabe === cuentaDet) || (e.cuenta && e.cuenta === cuentaDet)) : null
+                          return (
+                            <div style={{ background: '#141414', border: '1px solid #1f1f1f', borderRadius: 6, padding: '8px 10px', marginBottom: 8 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                <span style={{ fontSize: 10, color: '#888', textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 600 }}>Tipo de movimiento</span>
+                                <span style={{ fontSize: 11, padding: '2px 10px', borderRadius: 3, background: '#a855f722', color: '#a855f7', fontWeight: 600 }}>💰 Nómina</span>
+                                {emp && <span style={{ fontSize: 11, color: '#ccc' }}>{emp.name}</span>}
+                              </div>
+                            </div>
+                          )
+                        }
                         const filteredQuotes = m.lead_id ? assignQuotations.filter(q => q.lead_id === m.lead_id) : []
                         const filteredPOs = m.quotation_id ? assignPOs.filter(p => p.quotation_id === m.quotation_id) : []
                         const filledCount = (m.lead_id ? 1 : 0) + (m.quotation_id ? 1 : 0) + (m.purchase_order_id ? 1 : 0)
