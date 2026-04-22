@@ -838,7 +838,9 @@ function TabFacturacion({ invoices, setInvoices, bankMovements, projectNames }: 
   // Filtra por si una fecha cae en el mes seleccionado
   const inSelectedMonth = (fechaStr: string | undefined) => {
     if (!fechaStr) return false
-    const d = new Date(fechaStr)
+    // Forzar interpretación local: "2026-04-01" → "2026-04-01T00:00:00" (evita UTC shift)
+    const s = fechaStr.length === 10 ? fechaStr + 'T00:00:00' : fechaStr.includes('T') ? fechaStr : fechaStr + 'T00:00:00'
+    const d = new Date(s)
     if (isNaN(d.getTime())) return false
     return d >= monthStart && d <= monthEnd
   }
@@ -1867,7 +1869,9 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
   const monthLabelCapitalized = monthLabel.charAt(0).toUpperCase() + monthLabel.slice(1)
   const inSelectedMonth = (fechaStr: string | undefined) => {
     if (!fechaStr) return false
-    const d = new Date(fechaStr)
+    // Forzar interpretación local: "2026-04-01" → "2026-04-01T00:00:00" (evita UTC shift)
+    const s = fechaStr.length === 10 ? fechaStr + 'T00:00:00' : fechaStr.includes('T') ? fechaStr : fechaStr + 'T00:00:00'
+    const d = new Date(s)
     if (isNaN(d.getTime())) return false
     return d >= monthStart && d <= monthEnd
   }
@@ -2728,7 +2732,8 @@ function TabSupervision({ invoices, bankMovements }: { invoices: Invoice[]; bank
   const monthLabelCap = monthLabel.charAt(0).toUpperCase() + monthLabel.slice(1)
   const inMonth = (f: string | undefined) => {
     if (!f) return false
-    const d = new Date(f)
+    const s = f.length === 10 ? f + 'T00:00:00' : f.includes('T') ? f : f + 'T00:00:00'
+    const d = new Date(s)
     return !isNaN(d.getTime()) && d >= monthStart && d <= monthEnd
   }
 
