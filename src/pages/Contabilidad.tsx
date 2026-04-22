@@ -145,6 +145,72 @@ const CFDI_TYPE_LABELS: Record<CfdiType, string> = {
   I: 'Ingreso', E: 'Egreso', T: 'Traslado', P: 'Pago', N: 'Nomina'
 }
 
+function SearchSelect({ value, options, placeholder, disabled, onChange }: {
+  value: string; options: { id: string; label: string }[]; placeholder?: string; disabled?: boolean; onChange: (val: string) => void
+}) {
+  const [query, setQuery] = useState('')
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  const selected = options.find(o => o.id === value)
+  const filtered = query ? options.filter(o => o.label.toLowerCase().includes(query.toLowerCase())) : options
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false) }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  const inputStyle: React.CSSProperties = {
+    background: '#1a1a1a', color: '#fff', border: '1px solid #2a2a2a',
+    borderRadius: 4, padding: '4px 6px', fontSize: 11, fontFamily: 'inherit',
+    width: '100%', outline: 'none', opacity: disabled ? 0.4 : 1,
+  }
+
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <input
+        style={inputStyle}
+        placeholder={placeholder || 'Buscar...'}
+        disabled={disabled}
+        value={open ? query : (selected?.label || '')}
+        onChange={e => { setQuery(e.target.value); if (!open) setOpen(true) }}
+        onFocus={() => { setOpen(true); setQuery('') }}
+      />
+      {value && !open && (
+        <span
+          onClick={() => { onChange(''); setQuery('') }}
+          style={{ position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)', color: '#666', cursor: 'pointer', fontSize: 12, lineHeight: 1 }}
+        >✕</span>
+      )}
+      {open && !disabled && (
+        <div style={{
+          position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 50,
+          background: '#111', border: '1px solid #2a2a2a', borderRadius: 4,
+          maxHeight: 200, overflowY: 'auto', marginTop: 2,
+        }}>
+          {filtered.length === 0 ? (
+            <div style={{ padding: 8, fontSize: 10, color: '#555', textAlign: 'center' }}>Sin resultados</div>
+          ) : filtered.slice(0, 50).map(o => (
+            <div
+              key={o.id}
+              onClick={() => { onChange(o.id); setOpen(false); setQuery('') }}
+              style={{
+                padding: '5px 8px', fontSize: 11, cursor: 'pointer', color: o.id === value ? '#57FF9A' : '#ccc',
+                background: o.id === value ? 'rgba(87,255,154,0.06)' : 'transparent',
+                borderBottom: '1px solid #1a1a1a',
+              }}
+              onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.05)')}
+              onMouseLeave={e => (e.currentTarget.style.background = o.id === value ? 'rgba(87,255,154,0.06)' : 'transparent')}
+            >
+              {o.label}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   return (
     <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }} onClick={onClose}>
@@ -2459,30 +2525,33 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
                             <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap' }}>
                               <div style={{ display: 'flex', flexDirection: 'column', flex: '1 1 220px' }}>
                                 <label style={labelStyle}>1. Proyecto / Lead</label>
-                                <select value={m.lead_id || ''} onChange={e => updateAssignment(m.id, 'lead_id', e.target.value || null)} disabled={isSaving} style={selStyle}>
-                                  <option value="">-- Seleccionar lead --</option>
-                                  {assignLeads.map(l => (
-                                    <option key={l.id} value={l.id}>{l.name}{l.company ? ` - ${l.company}` : ''}</option>
-                                  ))}
-                                </select>
+                                <SearchSelect
+                                  value={m.lead_id || ''}
+                                  options={assignLeads.map(l => ({ id: l.id, label: `${l.name}${l.company ? ` - ${l.company}` : ''}` }))}
+                                  placeholder="Buscar lead..."
+                                  disabled={isSaving}
+                                  onChange={val => updateAssignment(m.id, 'lead_id', val || null)}
+                                />
                               </div>
                               <div style={{ display: 'flex', flexDirection: 'column', flex: '1 1 220px' }}>
                                 <label style={labelStyle}>2. Cotizacion</label>
-                                <select value={m.quotation_id || ''} onChange={e => updateAssignment(m.id, 'quotation_id', e.target.value || null)} disabled={isSaving || !m.lead_id} style={{ ...selStyle, opacity: m.lead_id ? 1 : 0.4 }}>
-                                  <option value="">{m.lead_id ? (filteredQuotes.length === 0 ? '-- Sin cotizaciones --' : '-- Seleccionar cotizacion --') : '-- Selecciona lead primero --'}</option>
-                                  {filteredQuotes.map(q => (
-                                    <option key={q.id} value={q.id}>{q.name}{q.specialty ? ` (${q.specialty})` : ''}{q.total ? ` - ${F(q.total)} ${q.currency || ''}` : ''}</option>
-                                  ))}
-                                </select>
+                                <SearchSelect
+                                  value={m.quotation_id || ''}
+                                  options={filteredQuotes.map(q => ({ id: q.id, label: `${q.name}${q.specialty ? ` (${q.specialty})` : ''}${q.total ? ` - ${F(q.total)} ${q.currency || ''}` : ''}` }))}
+                                  placeholder={m.lead_id ? (filteredQuotes.length === 0 ? 'Sin cotizaciones' : 'Buscar cotización...') : 'Selecciona lead primero'}
+                                  disabled={isSaving || !m.lead_id}
+                                  onChange={val => updateAssignment(m.id, 'quotation_id', val || null)}
+                                />
                               </div>
                               <div style={{ display: 'flex', flexDirection: 'column', flex: '1 1 220px' }}>
                                 <label style={labelStyle}>3. Orden de Compra</label>
-                                <select value={m.purchase_order_id || ''} onChange={e => updateAssignment(m.id, 'purchase_order_id', e.target.value || null)} disabled={isSaving || !m.quotation_id} style={{ ...selStyle, opacity: m.quotation_id ? 1 : 0.4 }}>
-                                  <option value="">{m.quotation_id ? (filteredPOs.length === 0 ? '-- Sin OCs --' : '-- Seleccionar OC --') : '-- Selecciona cotizacion primero --'}</option>
-                                  {filteredPOs.map(p => (
-                                    <option key={p.id} value={p.id}>{p.po_number}{p.purchase_phase ? ` [${p.purchase_phase}]` : ''}{p.total ? ` - ${F(p.total)} ${p.currency || ''}` : ''}</option>
-                                  ))}
-                                </select>
+                                <SearchSelect
+                                  value={m.purchase_order_id || ''}
+                                  options={filteredPOs.map(p => ({ id: p.id, label: `${p.po_number}${p.purchase_phase ? ` [${p.purchase_phase}]` : ''}${p.total ? ` - ${F(p.total)} ${p.currency || ''}` : ''}` }))}
+                                  placeholder={m.quotation_id ? (filteredPOs.length === 0 ? 'Sin OCs' : 'Buscar OC...') : 'Selecciona cotización primero'}
+                                  disabled={isSaving || !m.quotation_id}
+                                  onChange={val => updateAssignment(m.id, 'purchase_order_id', val || null)}
+                                />
                               </div>
                             </div>
                           </div>
