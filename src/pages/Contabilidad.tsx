@@ -253,12 +253,23 @@ export default function Contabilidad() {
     })
   }, [])
 
-  // Load facturas from Supabase
+  // Load facturas from Supabase (sin conceptos para evitar payload enorme)
+  // Conceptos se cargan bajo demanda al abrir el detalle
   useEffect(() => {
     const loadFacturas = async () => {
-      const { data } = await supabase.from('facturas').select('*, factura_conceptos(*)').order('created_at', { ascending: false }).range(0, 4999)
-      if (data && data.length > 0) {
-        setInvoices(data.map((f: any) => ({
+      // Paginar para traer todas las facturas (Supabase default = 1000)
+      let all: any[] = []
+      let from = 0
+      const PAGE = 1000
+      while (true) {
+        const { data } = await supabase.from('facturas').select('*').order('created_at', { ascending: false }).range(from, from + PAGE - 1)
+        if (!data || data.length === 0) break
+        all = all.concat(data)
+        if (data.length < PAGE) break
+        from += PAGE
+      }
+      if (all.length > 0) {
+        setInvoices(all.map((f: any) => ({
           id: f.id,
           direccion: f.direccion || 'emitida',
           serie: f.serie || '',
@@ -285,7 +296,19 @@ export default function Contabilidad() {
           receptor_cp: f.receptor_domicilio_fiscal || '',
           tipo_relacion: f.tipo_relacion || null,
           uuids_relacionados: f.uuids_relacionados || null,
-          conceptos: (f.factura_conceptos || []).map((cp: any) => ({
+          facturapi_id: f.facturapi_id || undefined,
+          sandbox: f.sandbox ?? undefined,
+          conceptos: [], // se cargan bajo demanda
+        })))
+      }
+      // Cargar conceptos en segundo plano
+      const { data: conceptos } = await supabase.from('factura_conceptos').select('*').range(0, 9999)
+      if (conceptos && conceptos.length > 0) {
+        const byFactura: Record<string, Concepto[]> = {}
+        conceptos.forEach((cp: any) => {
+          const fid = cp.factura_id
+          if (!byFactura[fid]) byFactura[fid] = []
+          byFactura[fid].push({
             clave_prod_serv: cp.clave_prod_serv || '',
             cantidad: Number(cp.cantidad) || 0,
             clave_unidad: cp.clave_unidad || '',
@@ -293,8 +316,9 @@ export default function Contabilidad() {
             descripcion: cp.descripcion || '',
             valor_unitario: Number(cp.valor_unitario) || 0,
             importe: Number(cp.importe) || 0,
-          })),
-        })))
+          })
+        })
+        setInvoices(prev => prev.map(inv => ({ ...inv, conceptos: byFactura[inv.id] || [] })))
       }
     }
     loadFacturas()
