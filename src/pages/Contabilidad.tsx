@@ -214,7 +214,7 @@ export default function Contabilidad() {
 
   // Load bank movements from Supabase
   useEffect(() => {
-    supabase.from('bank_movements').select('*').order('fecha', { ascending: false }).then(({ data }) => {
+    supabase.from('bank_movements').select('*').order('fecha', { ascending: false }).range(0, 4999).then(({ data }) => {
       if (data && data.length > 0) {
         setBankMovements(data.map((m: any) => ({
           id: m.id,
@@ -256,7 +256,7 @@ export default function Contabilidad() {
   // Load facturas from Supabase
   useEffect(() => {
     const loadFacturas = async () => {
-      const { data } = await supabase.from('facturas').select('*, factura_conceptos(*)').order('created_at', { ascending: false })
+      const { data } = await supabase.from('facturas').select('*, factura_conceptos(*)').order('created_at', { ascending: false }).range(0, 4999)
       if (data && data.length > 0) {
         setInvoices(data.map((f: any) => ({
           id: f.id,
