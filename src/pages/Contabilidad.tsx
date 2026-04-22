@@ -58,6 +58,8 @@ interface Invoice {
   conceptos?: Concepto[]
   tipo_relacion?: string
   uuids_relacionados?: string[]
+  facturapi_id?: string
+  sandbox?: boolean
 }
 
 interface CashMovement {
@@ -1153,8 +1155,8 @@ function TabFacturacion({ invoices, setInvoices, bankMovements, projectNames }: 
               {selectedInv.facturapi_id && (
                 <>
                   <Btn size="sm" variant="default" onClick={() => {
-                    const m = (selectedInv as any).sandbox === false ? 'live' : 'test'
-                    window.open('/api/facturapi?action=download_pdf&mode=' + m + '&id=' + (selectedInv as any).facturapi_id, '_blank')
+                    const m = selectedInv.sandbox === false ? 'live' : 'test'
+                    window.open('/api/facturapi?action=download_pdf&mode=' + m + '&id=' + selectedInv.facturapi_id, '_blank')
                   }}>📄 Ver PDF</Btn>
                   <Btn size="sm" variant="default" onClick={() => {
                     const m = (selectedInv as any).sandbox === false ? 'live' : 'test'
@@ -1285,20 +1287,26 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
   const [assignQuotations, setAssignQuotations] = useState<{ id: string; name: string; lead_id: string; specialty?: string; total?: number; currency?: string }[]>([])
   const [assignPOs, setAssignPOs] = useState<{ id: string; po_number: string; quotation_id?: string; project_id?: string; supplier_id?: string; total?: number; currency?: string; purchase_phase?: string; status?: string }[]>([])
   const [assignSuppliers, setAssignSuppliers] = useState<{ id: string; name: string; rfc?: string; clabe?: string; cuenta_bancaria?: string; banco?: string; bnet_codigo?: string }[]>([])
+  const [assignClientes, setAssignClientes] = useState<{ id: string; razon_social: string; nombre_comercial?: string; rfc?: string; clabe?: string; cuenta_bancaria?: string; banco?: string }[]>([])
+  const [assignEmpleados, setAssignEmpleados] = useState<{ id: string; name: string; rfc?: string; clabe?: string; cuenta?: string; banco?: string }[]>([])
   const [savingAssign, setSavingAssign] = useState<string | null>(null)
   const [savingMatch, setSavingMatch] = useState<string | null>(null)
-  
+
   useEffect(() => {
     Promise.all([
       supabase.from('leads').select('id,name,company').order('name'),
       supabase.from('quotations').select('id,name,lead_id,specialty,total,currency').order('name'),
       supabase.from('purchase_orders').select('id,po_number,quotation_id,project_id,supplier_id,total,currency,purchase_phase,status').order('po_number', { ascending: false }),
       supabase.from('suppliers').select('id,name,rfc,clabe,cuenta_bancaria,banco,bnet_codigo').order('name'),
-    ]).then(([lRes, qRes, pRes, sRes]) => {
+      supabase.from('clientes').select('id,razon_social,nombre_comercial,rfc,clabe,cuenta_bancaria,banco').eq('activo', true).order('razon_social'),
+      supabase.from('employees').select('id,name,rfc,clabe,cuenta,banco').eq('is_active', true).order('name'),
+    ]).then(([lRes, qRes, pRes, sRes, cRes, eRes]) => {
       setAssignLeads((lRes.data as any[]) || [])
       setAssignQuotations((qRes.data as any[]) || [])
       setAssignPOs((pRes.data as any[]) || [])
       setAssignSuppliers((sRes.data as any[]) || [])
+      setAssignClientes((cRes.data as any[]) || [])
+      setAssignEmpleados((eRes.data as any[]) || [])
     })
   }, [])
   
@@ -1469,23 +1477,83 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
       }
     }
 
-    /* 0 candidatos por monto: intentar match secundario por cuenta bancaria del proveedor */
-    if (assignSuppliers && assignSuppliers.length > 0 && (m.bnet_codigo_detectado || m.cuenta_destino_detectada)) {
+    /* 0 candidatos por monto: intentar match secundario por cuenta bancaria */
+    const cuentaDetectada = m.cuenta_destino_detectada || m.clabe_contraparte || ''
+
+    // Match por proveedor (cargos — pagos a proveedores)
+    if (m.tipo === 'cargo' && assignSuppliers.length > 0 && (m.bnet_codigo_detectado || cuentaDetectada)) {
       const matchedSupplier = assignSuppliers.find(s => {
         if (m.bnet_codigo_detectado && s.bnet_codigo && s.bnet_codigo === m.bnet_codigo_detectado) return true
-        if (m.cuenta_destino_detectada && s.clabe && s.clabe === m.cuenta_destino_detectada) return true
-        if (m.cuenta_destino_detectada && s.cuenta_bancaria && s.cuenta_bancaria === m.cuenta_destino_detectada) return true
+        if (cuentaDetectada && s.clabe && s.clabe === cuentaDetectada) return true
+        if (cuentaDetectada && s.cuenta_bancaria && s.cuenta_bancaria === cuentaDetectada) return true
         return false
       })
-      if (matchedSupplier && matchedSupplier.rfc) {
-        const supplierRfc = normalizeRfc(matchedSupplier.rfc)
-        const supplierInvs = coherent.filter(inv => normalizeRfc(inv.emisor_rfc) === supplierRfc)
-        if (supplierInvs.length > 0) {
+      if (matchedSupplier) {
+        const supplierInvs = matchedSupplier.rfc
+          ? coherent.filter(inv => normalizeRfc(inv.emisor_rfc) === normalizeRfc(matchedSupplier.rfc!))
+          : []
+        return {
+          id: '',
+          info: `🏢 Proveedor: ${matchedSupplier.name}${supplierInvs.length > 0 ? ` (${supplierInvs.length} facturas)` : ''} - elige factura`,
+          score: 30,
+        }
+      }
+    }
+
+    // Match por cliente (abonos — depósitos de clientes)
+    if (m.tipo === 'abono' && assignClientes.length > 0 && cuentaDetectada) {
+      const matchedCliente = assignClientes.find(c => {
+        if (cuentaDetectada && c.clabe && c.clabe === cuentaDetectada) return true
+        if (cuentaDetectada && c.cuenta_bancaria && c.cuenta_bancaria === cuentaDetectada) return true
+        return false
+      })
+      if (matchedCliente) {
+        const clienteName = matchedCliente.nombre_comercial || matchedCliente.razon_social
+        const clienteInvs = matchedCliente.rfc
+          ? coherent.filter(inv => normalizeRfc(inv.receptor_rfc) === normalizeRfc(matchedCliente.rfc!))
+          : []
+        return {
+          id: '',
+          info: `👤 Cliente: ${clienteName}${clienteInvs.length > 0 ? ` (${clienteInvs.length} facturas)` : ''} - elige factura`,
+          score: 30,
+        }
+      }
+    }
+
+    // Match por empleado (cargos — transferencias de nómina)
+    if (m.tipo === 'cargo' && assignEmpleados.length > 0 && cuentaDetectada) {
+      const matchedEmp = assignEmpleados.find(e => {
+        if (cuentaDetectada && e.clabe && e.clabe === cuentaDetectada) return true
+        if (cuentaDetectada && e.cuenta && e.cuenta === cuentaDetectada) return true
+        return false
+      })
+      if (matchedEmp) {
+        // Check for nómina invoices matching this employee
+        const nomInvs = invoices.filter(inv => inv.tipo_comprobante === 'N' && !inv.conciliada && Math.abs(inv.total - m.monto) < 0.01)
+        if (nomInvs.length === 1) {
+          const inv = nomInvs[0]
           return {
-            id: '',
-            info: `Cuenta de ${matchedSupplier.name} (${supplierInvs.length} facturas pendientes) - elige una`,
-            score: 30,
+            id: inv.id,
+            info: `💰 Nómina: ${matchedEmp.name} | ${inv.serie}-${inv.folio} | ${F(inv.total)}`,
+            score: 90,
           }
+        }
+        return {
+          id: '',
+          info: `💰 Nómina: ${matchedEmp.name} | ${F(m.monto)}${nomInvs.length > 0 ? ` (${nomInvs.length} recibos)` : ''} - elige factura`,
+          score: 40,
+        }
+      }
+    }
+
+    // Match genérico por concepto (busca nombre de proveedor/cliente/empleado en concepto del movimiento)
+    if (m.concepto) {
+      const conceptoLower = m.concepto.toLowerCase()
+      // Buscar nombre de empleado en concepto (nómina por nombre)
+      if (m.tipo === 'cargo') {
+        const empByName = assignEmpleados.find(e => e.name && conceptoLower.includes(e.name.toLowerCase().split(' ')[0]))
+        if (empByName) {
+          return { id: '', info: `💰 Posible nómina: ${empByName.name} (por nombre en concepto)`, score: 20 }
         }
       }
     }
@@ -1610,7 +1678,7 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
       } else {
         setStatus(`✓ ${deduped.length} movimientos extraídos${warningsMsg}`)
       }
-      setBankMovements([...deduped, ...existing])
+      setBankMovements([...deduped, ...dbExisting])
       dbInsertMany(deduped)
       setSelected(new Set())
     } catch (err) {
@@ -2934,7 +3002,7 @@ function TabAnticipos({ invoices }: { invoices: Invoice[] }) {
                         <Table>
                           <thead>
                             <tr>
-                              <Th>Tipo</Th><Th>Folio</Th><Th>Cliente / Prov</Th><Th>RFC</Th><Th>Fecha</Th><Th>Relacion</Th><Th>UUID</Th><Th style={{ textAlign: 'right' }}>Monto</Th>
+                              <Th>Tipo</Th><Th>Folio</Th><Th>Cliente / Prov</Th><Th>RFC</Th><Th>Fecha</Th><Th>Relacion</Th><Th>UUID</Th><Th right>Monto</Th>
                             </tr>
                           </thead>
                           <tbody>
@@ -2948,7 +3016,7 @@ function TabAnticipos({ invoices }: { invoices: Invoice[] }) {
                               return (
                                 <React.Fragment key={fp.id}>
                                   <tr>
-                                    <Td><Badge color="#3B82F6">Factura I</Badge></Td>
+                                    <Td><Badge label="Factura I" color="#3B82F6" /></Td>
                                     <Td style={{ fontWeight: 600 }}>{fp.serie}-{fp.folio}</Td>
                                     <Td>{fpCliente}</Td>
                                     <Td style={{ fontSize: 11, color: '#888' }}>{fpRfc}</Td>
@@ -2959,7 +3027,7 @@ function TabAnticipos({ invoices }: { invoices: Invoice[] }) {
                                   </tr>
                                   {matchingNC ? (
                                     <tr style={{ background: 'rgba(239,68,68,0.04)' }}>
-                                      <Td><Badge color="#ef4444">NC Egreso</Badge></Td>
+                                      <Td><Badge label="NC Egreso" color="#ef4444" /></Td>
                                       <Td>{matchingNC.serie}-{matchingNC.folio}</Td>
                                       <Td>{direction === 'emitida' ? matchingNC.receptor_nombre : matchingNC.emisor_nombre}</Td>
                                       <Td style={{ fontSize: 11, color: '#888' }}>{direction === 'emitida' ? (matchingNC.receptor_rfc || '') : (matchingNC.emisor_rfc || '')}</Td>
