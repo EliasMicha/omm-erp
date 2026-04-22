@@ -269,7 +269,22 @@ export default function Contabilidad() {
         from += PAGE
       }
       if (all.length > 0) {
-        setInvoices(all.map((f: any) => ({
+        // Deduplicar por uuid_fiscal: si hay duplicados, quedarse con el que tenga facturapi_id o mejor estado
+        const seen = new Map<string, any>()
+        for (const f of all) {
+          const uuid = f.uuid_fiscal
+          if (uuid && seen.has(uuid)) {
+            const existing = seen.get(uuid)
+            // Preferir el que tenga facturapi_id, o el de mejor estado
+            const existingScore = (existing.facturapi_id ? 10 : 0) + (existing.estado === 'timbrada' || existing.status === 'timbrada' ? 5 : 0)
+            const newScore = (f.facturapi_id ? 10 : 0) + (f.estado === 'timbrada' || f.status === 'timbrada' ? 5 : 0)
+            if (newScore > existingScore) seen.set(uuid, f)
+          } else {
+            seen.set(uuid || f.id, f)
+          }
+        }
+        const deduped = Array.from(seen.values())
+        setInvoices(deduped.map((f: any) => ({
           id: f.id,
           direccion: f.direccion || 'emitida',
           serie: f.serie || '',
