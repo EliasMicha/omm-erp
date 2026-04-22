@@ -443,7 +443,7 @@ export default function Contabilidad() {
       {/* Tab content */}
       {activeTab === 'facturacion' && <TabFacturacion invoices={invoices} setInvoices={setInvoices} bankMovements={bankMovements} projectNames={projectNames} />}
       {activeTab === 'conciliacion' && <TabConciliacion bankMovements={bankMovements} setBankMovements={setBankMovements} invoices={invoices} projectNames={projectNames} />}
-      {activeTab === 'supervision' && <TabSupervision invoices={invoices} />}
+      {activeTab === 'supervision' && <TabSupervision invoices={invoices} bankMovements={bankMovements} />}
       {activeTab === 'efectivo' && <TabEfectivo />}
       {activeTab === 'cobranza' && <TabCobranza />}
       {activeTab === 'flujo' && <TabFlujo />}
@@ -2708,45 +2708,205 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
 
 /* --------- Tab 3: Supervisi--n Fiscal ------------------------------------------------------------------------------------------------------------ */
 
-function TabSupervision({ invoices }: { invoices: Invoice[] }) {
-  const vigentes = invoices.filter(i => i.estado !== 'cancelada').length
-  const canceladas = invoices.filter(i => i.estado === 'cancelada').length
+function TabSupervision({ invoices, bankMovements }: { invoices: Invoice[]; bankMovements: BankMovement[] }) {
+  const [concLinks, setConcLinks] = useState<{ id: string; bank_movement_id: string; invoice_id: string; monto_aplicado: number }[]>([])
+  const [monthOffset, setMonthOffset] = useState(0)
+  const [vista, setVista] = useState<'facturas' | 'pagos'>('facturas')
+
+  useEffect(() => {
+    supabase.from('conciliacion_links').select('*').then(({ data }) => {
+      if (data) setConcLinks(data as any[])
+    })
+  }, [])
+
+  // Mes
+  const now = new Date()
+  const monthDate = new Date(now.getFullYear(), now.getMonth() + monthOffset, 1)
+  const monthStart = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1)
+  const monthEnd = new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 0, 23, 59, 59, 999)
+  const monthLabel = monthDate.toLocaleDateString('es-MX', { month: 'long', year: 'numeric' })
+  const monthLabelCap = monthLabel.charAt(0).toUpperCase() + monthLabel.slice(1)
+  const inMonth = (f: string | undefined) => {
+    if (!f) return false
+    const d = new Date(f)
+    return !isNaN(d.getTime()) && d >= monthStart && d <= monthEnd
+  }
+
+  const monthInvoices = invoices.filter(i => inMonth(i.fecha_emision) && i.estado !== 'cancelada')
+  const monthMovements = bankMovements.filter(m => inMonth(m.fecha))
+
+  // Sets de IDs vinculados
+  const linkedInvIds = new Set(concLinks.map(l => l.invoice_id))
+  const linkedMovIds = new Set(concLinks.map(l => l.bank_movement_id))
+  // También considerar factura_match_id legacy
+  const legacyLinkedInvIds = new Set(bankMovements.filter(m => m.factura_match_id).map(m => m.factura_match_id!))
+
+  // Facturas relacionadas con otras (anticipos, NC, complementos de pago)
+  const relatedUuids = new Set<string>()
+  monthInvoices.forEach(inv => {
+    if (inv.uuid_relacionado) relatedUuids.add(inv.uuid_relacionado.toUpperCase())
+    if (inv.uuids_relacionados) inv.uuids_relacionados.forEach(u => relatedUuids.add(u.toUpperCase()))
+  })
+
+  // 1. FACTURAS SIN CONCILIAR: no tienen link en conciliacion_links, ni factura_match_id legacy, ni están referenciadas por otra factura
+  const facturasSinConciliar = monthInvoices.filter(inv => {
+    if (inv.conciliada) return false
+    if (linkedInvIds.has(inv.id)) return false
+    if (legacyLinkedInvIds.has(inv.id)) return false
+    // Si su UUID está referenciado por otra factura (anticipo, NC), tampoco cuenta
+    if (inv.uuid && relatedUuids.has(inv.uuid.toUpperCase())) return false
+    // Si tiene tipo_relacion (es complemento, NC, etc.), no entra
+    if (inv.tipo_relacion) return false
+    return true
+  })
+
+  // 2. PAGOS SIN FACTURA: movimientos bancarios sin link ni factura_match_id
+  const pagosSinFactura = monthMovements.filter(m => {
+    if (m.conciliado) return false
+    if (linkedMovIds.has(m.id)) return false
+    if (m.factura_match_id) return false
+    return true
+  })
+
+  // Totales
+  const totalFacturasSC = facturasSinConciliar.reduce((s, i) => s + i.total, 0)
+  const totalPagosSF = pagosSinFactura.reduce((s, m) => s + m.monto, 0)
+  const totalCargosSF = pagosSinFactura.filter(m => m.tipo === 'cargo').reduce((s, m) => s + m.monto, 0)
+  const totalAbonosSF = pagosSinFactura.filter(m => m.tipo === 'abono').reduce((s, m) => s + m.monto, 0)
+
+  const tdStyle: React.CSSProperties = { padding: '6px 10px', fontSize: 11, borderBottom: '1px solid #1a1a1a' }
 
   return (
     <div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
-        <KpiCard label="CFDIs vigentes" value={vigentes} icon={<CheckCircle size={16} />} />
-        <KpiCard label="Cancelados" value={canceladas} color="#EF4444" icon={<ShieldCheck size={16} />} />
-        <KpiCard label="Con complemento pago" value="1" color="#3B82F6" icon={<FileText size={16} />} />
-        <KpiCard label="Alertas activas" value="2" color="#F59E0B" icon={<AlertTriangle size={16} />} />
+      {/* Navegación mensual */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
+        <button onClick={() => setMonthOffset(monthOffset - 1)} style={{ background: '#141414', border: '1px solid #333', borderRadius: 6, padding: '4px 12px', color: '#ccc', cursor: 'pointer', fontSize: 12 }}>◀ Mes anterior</button>
+        <span style={{ fontSize: 15, fontWeight: 700, color: '#fff' }}>{monthLabelCap}</span>
+        <button onClick={() => setMonthOffset(monthOffset + 1)} style={{ background: '#141414', border: '1px solid #333', borderRadius: 6, padding: '4px 12px', color: '#ccc', cursor: 'pointer', fontSize: 12 }}>Mes siguiente ▶</button>
       </div>
 
-      {/* Alerts */}
-      <div style={{ marginBottom: 20 }}>
-        <div style={{ fontSize: 14, fontWeight: 600, color: '#fff', marginBottom: 10 }}>Alertas activas</div>
-        {[
-          { title: 'FAC-001: Anticipo sin egreso de aplicacion', desc: 'Riesgo de deducibilidad si no se aplica el anticipo', severity: 'alta', action: 'Crear egreso' },
-          { title: '2 facturas recibidas sin validar contra SAT', desc: 'Verificar UUID de facturas de proveedores', severity: 'media', action: 'Validar' },
-        ].map((a, i) => (
-          <div key={i} style={{
-            background: '#141414', border: '1px solid #222', borderRadius: 10,
-            padding: '12px 16px', marginBottom: 8,
-            borderLeft: `3px solid ${a.severity === 'alta' ? '#EF4444' : '#F59E0B'}`,
+      {/* KPIs */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
+        <KpiCard label="Facturas sin conciliar" value={facturasSinConciliar.length} color="#EF4444" icon={<FileText size={16} />} />
+        <KpiCard label="Monto sin conciliar" value={F(totalFacturasSC)} color="#EF4444" icon={<DollarSign size={16} />} />
+        <KpiCard label="Pagos sin factura" value={pagosSinFactura.length} color="#F59E0B" icon={<AlertTriangle size={16} />} />
+        <KpiCard label="Monto pagos s/fact" value={F(totalPagosSF)} color="#F59E0B" icon={<DollarSign size={16} />} />
+      </div>
+
+      {/* Toggle vista */}
+      <div style={{ display: 'flex', gap: 4, marginBottom: 16 }}>
+        {(['facturas', 'pagos'] as const).map(v => (
+          <button key={v} onClick={() => setVista(v)} style={{
+            padding: '6px 16px', fontSize: 12, fontWeight: vista === v ? 600 : 400,
+            background: vista === v ? 'rgba(87,255,154,0.08)' : '#141414',
+            border: vista === v ? '1px solid rgba(87,255,154,0.3)' : '1px solid #333',
+            borderRadius: 6, color: vista === v ? '#57FF9A' : '#888', cursor: 'pointer',
           }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>
-                <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 2 }}>
-                  ⚠️ {a.title}
-                </div>
-                <div style={{ fontSize: 11, color: '#666' }}>{a.desc}</div>
-              </div>
-              <Btn size="sm" variant="default">{a.action}</Btn>
-            </div>
-          </div>
+            {v === 'facturas' ? `Facturas sin conciliar (${facturasSinConciliar.length})` : `Pagos sin factura (${pagosSinFactura.length})`}
+          </button>
         ))}
       </div>
 
-      <EmptyState message="Las cadenas de documentos relacionados apareceran conforme se registren facturas con relaciones CFDI" />
+      {/* Tabla: Facturas sin conciliar */}
+      {vista === 'facturas' && (
+        <div>
+          {facturasSinConciliar.length === 0 ? (
+            <div style={{ padding: 40, textAlign: 'center', color: '#555', fontSize: 13 }}>Todas las facturas de {monthLabelCap} están conciliadas o relacionadas</div>
+          ) : (
+            <Table>
+              <thead>
+                <tr>
+                  <Th>Folio</Th><Th>Dir</Th><Th>Tipo</Th><Th>Cliente / Proveedor</Th><Th>RFC</Th><Th>Fecha</Th><Th right>Total</Th><Th>Estado</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {facturasSinConciliar
+                  .sort((a, b) => b.total - a.total)
+                  .map(inv => {
+                    const isEmitida = inv.direccion === 'emitida'
+                    const isNom = inv.tipo_comprobante === 'N'
+                    const who = isEmitida ? inv.receptor_nombre : inv.emisor_nombre
+                    const rfc = isEmitida ? (inv.receptor_rfc || '') : (inv.emisor_rfc || '')
+                    return (
+                      <tr key={inv.id}>
+                        <td style={{ ...tdStyle, fontWeight: 600, color: '#fff' }}>{inv.serie ? `${inv.serie}-${inv.folio}` : inv.folio}</td>
+                        <td style={tdStyle}>
+                          <span style={{
+                            fontSize: 10, fontWeight: 600, padding: '2px 6px', borderRadius: 4,
+                            background: isNom ? '#A855F722' : isEmitida ? '#3B82F622' : '#F59E0B22',
+                            color: isNom ? '#A855F7' : isEmitida ? '#3B82F6' : '#F59E0B',
+                          }}>{isEmitida ? 'EMI' : 'REC'}</span>
+                        </td>
+                        <td style={{ ...tdStyle, color: '#888' }}>{CFDI_TYPE_LABELS[inv.tipo_comprobante]}</td>
+                        <td style={{ ...tdStyle, color: '#ccc' }}>{who}</td>
+                        <td style={{ ...tdStyle, fontSize: 10, color: '#666', fontFamily: 'monospace' }}>{rfc}</td>
+                        <td style={{ ...tdStyle, color: '#888' }}>{formatDate(inv.fecha_emision)}</td>
+                        <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 600, color: isEmitida && !isNom ? '#57FF9A' : '#EF4444' }}>{F(inv.total)}</td>
+                        <td style={tdStyle}><Badge label={INVOICE_STATUS_CONFIG[inv.estado]?.label || inv.estado} color={INVOICE_STATUS_CONFIG[inv.estado]?.color || '#555'} /></td>
+                      </tr>
+                    )
+                  })}
+              </tbody>
+              <tfoot>
+                <tr>
+                  <td colSpan={6} style={{ ...tdStyle, fontWeight: 600, color: '#888', textAlign: 'right', borderTop: '1px solid #333' }}>Total</td>
+                  <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 700, color: '#fff', borderTop: '1px solid #333' }}>{F(totalFacturasSC)}</td>
+                  <td style={{ ...tdStyle, borderTop: '1px solid #333' }} />
+                </tr>
+              </tfoot>
+            </Table>
+          )}
+        </div>
+      )}
+
+      {/* Tabla: Pagos sin factura */}
+      {vista === 'pagos' && (
+        <div>
+          {pagosSinFactura.length === 0 ? (
+            <div style={{ padding: 40, textAlign: 'center', color: '#555', fontSize: 13 }}>Todos los movimientos bancarios de {monthLabelCap} tienen factura vinculada</div>
+          ) : (
+            <>
+              <div style={{ display: 'flex', gap: 12, marginBottom: 12 }}>
+                <span style={{ fontSize: 11, color: '#888' }}>Cargos sin factura: <span style={{ color: '#EF4444', fontWeight: 600 }}>{F(totalCargosSF)}</span></span>
+                <span style={{ fontSize: 11, color: '#888' }}>Abonos sin factura: <span style={{ color: '#57FF9A', fontWeight: 600 }}>{F(totalAbonosSF)}</span></span>
+              </div>
+              <Table>
+                <thead>
+                  <tr>
+                    <Th>Fecha</Th><Th>Concepto</Th><Th>Beneficiario</Th><Th>Categoría</Th><Th right>Cargo</Th><Th right>Abono</Th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pagosSinFactura
+                    .sort((a, b) => b.monto - a.monto)
+                    .map(m => (
+                      <tr key={m.id}>
+                        <td style={{ ...tdStyle, color: '#888' }}>{formatDate(m.fecha)}</td>
+                        <td style={{ ...tdStyle, color: '#ccc', maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.concepto}</td>
+                        <td style={{ ...tdStyle, color: '#aaa' }}>{m.beneficiario || '—'}</td>
+                        <td style={tdStyle}><Badge label={m.categoria_sugerida || 'otro'} color={
+                          m.categoria_sugerida === 'nomina' ? '#C084FC' :
+                          m.categoria_sugerida === 'proveedor' ? '#F59E0B' :
+                          m.categoria_sugerida === 'cobro_cliente' ? '#57FF9A' :
+                          m.categoria_sugerida === 'traspaso' ? '#3B82F6' : '#555'
+                        } /></td>
+                        <td style={{ ...tdStyle, textAlign: 'right' }}>{m.tipo === 'cargo' ? <span style={{ color: '#EF4444', fontWeight: 600 }}>{F(m.monto)}</span> : <span style={{ color: '#444' }}>—</span>}</td>
+                        <td style={{ ...tdStyle, textAlign: 'right' }}>{m.tipo === 'abono' ? <span style={{ color: '#57FF9A', fontWeight: 600 }}>{F(m.monto)}</span> : <span style={{ color: '#444' }}>—</span>}</td>
+                      </tr>
+                    ))}
+                </tbody>
+                <tfoot>
+                  <tr>
+                    <td colSpan={4} style={{ ...tdStyle, fontWeight: 600, color: '#888', textAlign: 'right', borderTop: '1px solid #333' }}>Total</td>
+                    <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 700, color: '#EF4444', borderTop: '1px solid #333' }}>{F(totalCargosSF)}</td>
+                    <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 700, color: '#57FF9A', borderTop: '1px solid #333' }}>{F(totalAbonosSF)}</td>
+                  </tr>
+                </tfoot>
+              </Table>
+            </>
+          )}
+        </div>
+      )}
     </div>
   )
 }
