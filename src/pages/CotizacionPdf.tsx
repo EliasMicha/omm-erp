@@ -375,26 +375,27 @@ function CotizacionPdfInner() {
   const mostrarTablaPlana = formato === 'lista'
 
   // ─── Estilos print-optimized ─────────────────────────────────────────────
+  // ─── Estilos — usar min-height en px, NO vh (Safari print bug) ──────────
   const pageStyle: React.CSSProperties = {
     background: '#fff', color: '#111',
     fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
-    minHeight: '100vh',
     padding: '32px 48px',
     maxWidth: 860, margin: '0 auto',
     fontSize: 11, lineHeight: 1.5,
   }
 
   return (
-    <>
+    <div id="pdf-root">
       <style>{`
         @page { size: A4; margin: 15mm 12mm; }
+        #pdf-root { min-height: 100vh; background: #eee; }
         @media print {
           .no-print { display: none !important; }
           .page-break { page-break-before: always; }
-          body { background: #fff !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-          * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          #pdf-root { min-height: auto !important; background: none !important; }
+          html, body { background: #fff !important; margin: 0 !important; padding: 0 !important; }
+          * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
         }
-        body { background: #eee; margin: 0; }
         table.pdf-table { width: 100%; border-collapse: collapse; }
         table.pdf-table th { background: #f5f5f5; padding: 6px 8px; text-align: left; font-size: 9px; text-transform: uppercase; letter-spacing: 0.04em; color: #666; font-weight: 600; border-bottom: 1px solid #ddd; }
         table.pdf-table td { padding: 5px 8px; border-bottom: 1px solid #eee; font-size: 10px; vertical-align: top; }
@@ -858,6 +859,6 @@ function CotizacionPdfInner() {
           {omm.razonSocial} · {omm.rfc} · {omm.web} · Cotización {shortId(cot.id)}
         </div>
       </div>
-    </>
+    </div>
   )
 }
