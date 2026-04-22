@@ -1292,6 +1292,20 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
   const [savingAssign, setSavingAssign] = useState<string | null>(null)
   const [savingMatch, setSavingMatch] = useState<string | null>(null)
 
+  // Many-to-many conciliation links
+  interface ConcLink { id: string; bank_movement_id: string; invoice_id: string; monto_aplicado: number; nota?: string }
+  const [concLinks, setConcLinks] = useState<ConcLink[]>([])
+  const getLinksForMov = (movId: string) => concLinks.filter(l => l.bank_movement_id === movId)
+  const getLinksForInv = (invId: string) => concLinks.filter(l => l.invoice_id === invId)
+  const totalLinkedForMov = (movId: string) => getLinksForMov(movId).reduce((s, l) => s + l.monto_aplicado, 0)
+  const totalLinkedForInv = (invId: string) => getLinksForInv(invId).reduce((s, l) => s + l.monto_aplicado, 0)
+
+  useEffect(() => {
+    supabase.from('conciliacion_links').select('*').then(({ data }) => {
+      if (data) setConcLinks(data as ConcLink[])
+    })
+  }, [])
+
   useEffect(() => {
     Promise.all([
       supabase.from('leads').select('id,name,company').order('name'),
@@ -1310,26 +1324,68 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
     })
   }, [])
   
-  // Helper para asignar un match manual de factura a un movimiento
-  const applyManualMatch = async (mov: BankMovement, invId: string | null) => {
+  // --- Many-to-many link helpers ---
+  const addLink = async (mov: BankMovement, invId: string, montoAplicado?: number) => {
     setSavingMatch(mov.id)
     try {
-      let updates: any
-      if (invId === null) {
-        updates = { conciliado: false, factura_match_id: null, factura_match_info: null }
-      } else {
-        const inv = invoices.find(i => i.id === invId)
-        if (!inv) { alert('Factura no encontrada'); return }
-        const who = inv.direccion === 'emitida' ? inv.receptor_nombre : inv.emisor_nombre
-        const isNomina = inv.tipo_comprobante === 'N'
-        const info = `${inv.serie}-${inv.folio} | ${who} | ${F(inv.total)}${isNomina ? ' | NOMINA' : ''} | manual`
-        updates = { conciliado: true, factura_match_id: invId, factura_match_info: info }
+      const inv = invoices.find(i => i.id === invId)
+      if (!inv) return
+      const monto = montoAplicado ?? Math.min(inv.total - totalLinkedForInv(invId), mov.monto - totalLinkedForMov(mov.id))
+      const finalMonto = Math.max(0, Math.round(monto * 100) / 100)
+      const { data, error } = await supabase.from('conciliacion_links').insert({ bank_movement_id: mov.id, invoice_id: invId, monto_aplicado: finalMonto }).select().single()
+      if (error) { console.error('[add-link]', error); alert('Error: ' + error.message); return }
+      const newLinks = [...concLinks, data as ConcLink]
+      setConcLinks(newLinks)
+      // Auto-conciliar si el total vinculado cubre el movimiento
+      const totalNow = newLinks.filter(l => l.bank_movement_id === mov.id).reduce((s, l) => s + l.monto_aplicado, 0)
+      const shouldConc = totalNow >= mov.monto - 0.01
+      if (shouldConc && !mov.conciliado) {
+        await supabase.from('bank_movements').update({ conciliado: true }).eq('id', mov.id)
+        setBankMovements(bankMovements.map(x => x.id === mov.id ? { ...x, conciliado: true } : x))
       }
-      const { error } = await supabase.from('bank_movements').update(updates).eq('id', mov.id)
-      if (error) { console.error('[manual-match] error:', error); alert('Error: ' + error.message); return }
-      setBankMovements(bankMovements.map(x => x.id === mov.id ? { ...x, ...updates } : x))
-    } finally {
-      setSavingMatch(null)
+    } finally { setSavingMatch(null) }
+  }
+
+  const removeLink = async (mov: BankMovement, linkId: string) => {
+    setSavingMatch(mov.id)
+    try {
+      const { error } = await supabase.from('conciliacion_links').delete().eq('id', linkId)
+      if (error) { console.error('[rm-link]', error); alert('Error: ' + error.message); return }
+      const newLinks = concLinks.filter(l => l.id !== linkId)
+      setConcLinks(newLinks)
+      // Si ya no cubre, desconciliar
+      const totalNow = newLinks.filter(l => l.bank_movement_id === mov.id).reduce((s, l) => s + l.monto_aplicado, 0)
+      if (totalNow < mov.monto - 0.01 && mov.conciliado) {
+        await supabase.from('bank_movements').update({ conciliado: false }).eq('id', mov.id)
+        setBankMovements(bankMovements.map(x => x.id === mov.id ? { ...x, conciliado: false } : x))
+      }
+    } finally { setSavingMatch(null) }
+  }
+
+  const updateLinkMonto = async (linkId: string, newMonto: number) => {
+    const link = concLinks.find(l => l.id === linkId)
+    if (!link) return
+    const { error } = await supabase.from('conciliacion_links').update({ monto_aplicado: newMonto }).eq('id', linkId)
+    if (error) { console.error('[upd-link]', error); return }
+    setConcLinks(concLinks.map(l => l.id === linkId ? { ...l, monto_aplicado: newMonto } : l))
+  }
+
+  // Legacy compat: old applyManualMatch for single auto-match
+  const applyManualMatch = async (mov: BankMovement, invId: string | null) => {
+    if (invId === null) {
+      // Remove all links for this movement
+      setSavingMatch(mov.id)
+      try {
+        const movLinks = getLinksForMov(mov.id)
+        if (movLinks.length > 0) {
+          await supabase.from('conciliacion_links').delete().eq('bank_movement_id', mov.id)
+          setConcLinks(concLinks.filter(l => l.bank_movement_id !== mov.id))
+        }
+        await supabase.from('bank_movements').update({ conciliado: false, factura_match_id: null, factura_match_info: null }).eq('id', mov.id)
+        setBankMovements(bankMovements.map(x => x.id === mov.id ? { ...x, conciliado: false, factura_match_id: undefined, factura_match_info: undefined } : x))
+      } finally { setSavingMatch(null) }
+    } else {
+      await addLink(mov, invId)
     }
   }
   
@@ -2150,13 +2206,18 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
                     <Td><Badge label={m.categoria_sugerida || 'otro'} color={catColors[m.categoria_sugerida || 'otro'] || '#555'} /></Td>
                     <Td right>{m.tipo === 'cargo' ? <span style={{ color: '#EF4444' }}>{F(m.monto)}</span> : ''}</Td>
                     <Td right>{m.tipo === 'abono' ? <span style={{ color: '#57FF9A' }}>{F(m.monto)}</span> : ''}</Td>
-                    <Td>{match ? <span style={{ fontSize: 10, color: '#3B82F6', cursor: 'pointer' }} onClick={() => setExpandedId(isExpanded ? null : m.id)}>🔗 Ver</span> : <span style={{ fontSize: 10, color: '#444' }}>—</span>}</Td>
+                    <Td>{(() => {
+                      const lnkCount = getLinksForMov(m.id).length
+                      if (lnkCount > 0) return <span style={{ fontSize: 10, color: '#22c55e', cursor: 'pointer', fontWeight: 600 }} onClick={() => setExpandedId(isExpanded ? null : m.id)}>🔗 {lnkCount} fact.</span>
+                      if (match) return <span style={{ fontSize: 10, color: '#3B82F6', cursor: 'pointer' }} onClick={() => setExpandedId(isExpanded ? null : m.id)}>🔗 Ver</span>
+                      return <span style={{ fontSize: 10, color: '#444', cursor: 'pointer' }} onClick={() => setExpandedId(isExpanded ? null : m.id)}>+ Vincular</span>
+                    })()}</Td>
                     <Td>
                       <button
-                        onClick={() => {
-                          if (!m.conciliado && match) {
-                            setBankMovements(bankMovements.map(x => x.id === m.id ? { ...x, conciliado: true, factura_match_id: match.id, factura_match_info: match.info } : x))
-                            dbUpdate(m.id, { conciliado: true, factura_match_id: match.id, factura_match_info: match.info })
+                        onClick={async () => {
+                          if (!m.conciliado && match && match.id) {
+                            // Auto-link via the new system
+                            await addLink(m, match.id)
                           } else {
                             toggleConciliar(m.id)
                           }
@@ -2176,70 +2237,131 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
                   {isExpanded && (
                     <tr>
                       <td colSpan={10} style={{ padding: '8px 16px', background: '#0d0d0d', borderBottom: '1px solid #1a1a1a' }}>
-                      {/* Match manual de factura */}
+                      {/* Match múltiple de facturas (many-to-many) */}
                       {(() => {
                         const isSavingMatch = savingMatch === m.id
-                        // Filter invoices by direction (with nomina exception for cargo)
+                        const movLinks = getLinksForMov(m.id)
+                        const totalLinked = movLinks.reduce((s, l) => s + l.monto_aplicado, 0)
+                        const remaining = m.monto - totalLinked
+                        const pct = m.monto > 0 ? Math.min(100, (totalLinked / m.monto) * 100) : 0
+                        const fullyLinked = remaining < 0.01
+
+                        // Filter candidate invoices
                         const candidateInvoices = invoices.filter(inv => {
                           if (inv.estado === 'cancelada') return false
-                          // already conciliada with another movement? Allow current one
-                          if (inv.conciliada && inv.id !== m.factura_match_id) return false
                           if (m.tipo === 'abono' && inv.direccion !== 'emitida') return false
                           if (m.tipo === 'cargo' && inv.direccion !== 'recibida' && inv.tipo_comprobante !== 'N') return false
+                          // Already linked to THIS movement? Don't show in candidates
+                          if (movLinks.some(l => l.invoice_id === inv.id)) return false
                           return true
                         })
-                        // Sort: exact amount matches first, then by date desc
                         const sorted = [...candidateInvoices].sort((a, b) => {
-                          const aExact = Math.abs(a.total - m.monto) < 0.01
-                          const bExact = Math.abs(b.total - m.monto) < 0.01
+                          const aExact = Math.abs(a.total - m.monto) < 0.01 || Math.abs(a.total - remaining) < 0.01
+                          const bExact = Math.abs(b.total - m.monto) < 0.01 || Math.abs(b.total - remaining) < 0.01
                           if (aExact && !bExact) return -1
                           if (!aExact && bExact) return 1
                           return (b.fecha_emision || '').localeCompare(a.fecha_emision || '')
                         })
+
                         return (
                           <div style={{ background: '#141414', border: '1px solid #1f1f1f', borderRadius: 6, padding: '8px 10px', marginBottom: 8 }}>
+                            {/* Header with progress bar */}
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                              <span style={{ fontSize: 10, color: '#888', textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 600 }}>Match con factura</span>
-                              {m.conciliado && m.factura_match_info && (
-                                <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 3, background: '#22c55e22', color: '#22c55e', fontWeight: 600 }}>Conciliado</span>
-                              )}
+                              <span style={{ fontSize: 10, color: '#888', textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 600 }}>Facturas vinculadas</span>
+                              {fullyLinked && <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 3, background: '#22c55e22', color: '#22c55e', fontWeight: 600 }}>Cubierto</span>}
+                              {!fullyLinked && movLinks.length > 0 && <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 3, background: '#eab30822', color: '#eab308', fontWeight: 600 }}>Parcial</span>}
                               {isSavingMatch && <span style={{ fontSize: 10, color: '#888' }}>guardando...</span>}
+                              <span style={{ marginLeft: 'auto', fontSize: 11, fontWeight: 600, color: fullyLinked ? '#22c55e' : '#ccc', fontFamily: 'monospace' }}>
+                                {F(totalLinked)} / {F(m.monto)}
+                              </span>
                             </div>
-                            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                              <select
-                                value={m.factura_match_id || ''}
-                                onChange={e => applyManualMatch(m, e.target.value || null)}
-                                disabled={isSavingMatch}
-                                style={{
-                                  background: '#1a1a1a', color: '#fff', border: '1px solid #2a2a2a',
-                                  borderRadius: 4, padding: '4px 6px', fontSize: 11, fontFamily: 'inherit',
-                                  flex: 1, minWidth: 0,
-                                }}
-                              >
-                                <option value="">-- Sin factura asignada --</option>
-                                {sorted.map(inv => {
-                                  const exact = Math.abs(inv.total - m.monto) < 0.01
+                            {/* Progress bar */}
+                            <div style={{ height: 4, background: '#1a1a1a', borderRadius: 2, marginBottom: 8, overflow: 'hidden' }}>
+                              <div style={{ height: '100%', width: `${pct}%`, background: fullyLinked ? '#22c55e' : pct > 0 ? '#eab308' : 'transparent', borderRadius: 2, transition: 'width 0.3s' }} />
+                            </div>
+
+                            {/* Linked invoices list */}
+                            {movLinks.length > 0 && (
+                              <div style={{ marginBottom: 8, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                                {movLinks.map(link => {
+                                  const inv = invoices.find(i => i.id === link.invoice_id)
+                                  if (!inv) return null
                                   const who = inv.direccion === 'emitida' ? inv.receptor_nombre : inv.emisor_nombre
-                                  const nomTag = inv.tipo_comprobante === 'N' ? ' [NOMINA]' : ''
+                                  const nomTag = inv.tipo_comprobante === 'N' ? ' [NOM]' : ''
                                   return (
-                                    <option key={inv.id} value={inv.id}>
-                                      {exact ? '✓ ' : ''}{inv.serie}-{inv.folio} | {who} | {F(inv.total)} | {inv.fecha_emision}{nomTag}
-                                    </option>
+                                    <div key={link.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 8px', background: '#1a1a1a', borderRadius: 4, border: '1px solid #252525' }}>
+                                      <span style={{ fontSize: 11, color: '#3B82F6', fontWeight: 600 }}>{inv.serie}-{inv.folio}</span>
+                                      <span style={{ fontSize: 10, color: '#888', flex: 1 }}>{who}{nomTag} · Total: {F(inv.total)}</span>
+                                      <input
+                                        type="number"
+                                        value={link.monto_aplicado}
+                                        onChange={e => updateLinkMonto(link.id, parseFloat(e.target.value) || 0)}
+                                        style={{ width: 90, background: '#111', color: '#fff', border: '1px solid #333', borderRadius: 3, padding: '2px 6px', fontSize: 11, fontFamily: 'monospace', textAlign: 'right' }}
+                                      />
+                                      <button
+                                        onClick={() => removeLink(m, link.id)}
+                                        disabled={isSavingMatch}
+                                        style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: 13, padding: '0 4px', lineHeight: 1 }}
+                                      >✕</button>
+                                    </div>
                                   )
                                 })}
-                              </select>
-                              {m.factura_match_id && (
+                              </div>
+                            )}
+
+                            {/* Add invoice - searchable list with checkboxes */}
+                            {!fullyLinked && (
+                              <div>
+                                <div style={{ fontSize: 10, color: '#666', marginBottom: 4 }}>
+                                  Restante: <span style={{ color: '#eab308', fontWeight: 600, fontFamily: 'monospace' }}>{F(remaining)}</span> — selecciona facturas:
+                                </div>
+                                <div style={{ maxHeight: 180, overflowY: 'auto', border: '1px solid #1f1f1f', borderRadius: 4, background: '#111' }}>
+                                  {sorted.length === 0 ? (
+                                    <div style={{ fontSize: 10, color: '#555', padding: 8, textAlign: 'center' }}>Sin facturas disponibles</div>
+                                  ) : sorted.slice(0, 30).map(inv => {
+                                    const who = inv.direccion === 'emitida' ? inv.receptor_nombre : inv.emisor_nombre
+                                    const exactMov = Math.abs(inv.total - m.monto) < 0.01
+                                    const exactRem = Math.abs(inv.total - remaining) < 0.01
+                                    const nomTag = inv.tipo_comprobante === 'N' ? ' [NOM]' : ''
+                                    const invLinkedElsewhere = totalLinkedForInv(inv.id)
+                                    return (
+                                      <div
+                                        key={inv.id}
+                                        onClick={() => !isSavingMatch && addLink(m, inv.id)}
+                                        style={{
+                                          display: 'flex', alignItems: 'center', gap: 6, padding: '4px 8px', cursor: isSavingMatch ? 'wait' : 'pointer',
+                                          borderBottom: '1px solid #1a1a1a', fontSize: 11,
+                                          background: exactMov || exactRem ? 'rgba(34,197,94,0.04)' : 'transparent',
+                                        }}
+                                      >
+                                        <span style={{ color: '#3B82F6', fontWeight: 600, minWidth: 70 }}>{inv.serie}-{inv.folio}</span>
+                                        <span style={{ color: '#888', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{who}{nomTag}</span>
+                                        <span style={{ color: '#888', fontSize: 10 }}>{inv.fecha_emision}</span>
+                                        <span style={{ fontFamily: 'monospace', fontWeight: 600, color: exactMov || exactRem ? '#22c55e' : '#ccc', minWidth: 80, textAlign: 'right' }}>
+                                          {exactMov ? '✓ ' : exactRem ? '≈ ' : ''}{F(inv.total)}
+                                        </span>
+                                        {invLinkedElsewhere > 0 && (
+                                          <span style={{ fontSize: 9, color: '#eab308', background: '#eab30815', padding: '1px 4px', borderRadius: 3 }}>
+                                            {F(invLinkedElsewhere)} aplicado
+                                          </span>
+                                        )}
+                                        <span style={{ color: '#3B82F6', fontSize: 13, fontWeight: 700, padding: '0 2px' }}>+</span>
+                                      </div>
+                                    )
+                                  })}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Quitar todo */}
+                            {movLinks.length > 0 && (
+                              <div style={{ marginTop: 6, display: 'flex', justifyContent: 'flex-end' }}>
                                 <button
                                   onClick={() => applyManualMatch(m, null)}
                                   disabled={isSavingMatch}
-                                  style={{ background: '#2a1a1a', color: '#ef4444', border: '1px solid #4a2a2a', borderRadius: 4, padding: '4px 10px', fontSize: 11, cursor: 'pointer' }}
-                                >
-                                  Quitar
-                                </button>
-                              )}
-                            </div>
-                            {sorted.length === 0 && (
-                              <div style={{ fontSize: 10, color: '#666', marginTop: 4 }}>No hay facturas disponibles para este movimiento</div>
+                                  style={{ background: '#2a1a1a', color: '#ef4444', border: '1px solid #4a2a2a', borderRadius: 4, padding: '3px 10px', fontSize: 10, cursor: 'pointer' }}
+                                >Desvincular todo</button>
+                              </div>
                             )}
                           </div>
                         )
