@@ -278,7 +278,7 @@ export default function Contabilidad() {
           receptor_nombre: f.receptor_nombre || '',
           emisor_nombre: f.emisor_nombre || '',
           total: Number(f.total) || 0,
-          estado: f.estado || 'borrador',
+          estado: (f.estado && f.estado !== 'borrador' ? f.estado : f.status) || 'borrador',
           fecha_emision: f.fecha_emision ? f.fecha_emision.substring(0,10) : '',
           proyecto_nombre: f.proyecto_nombre || '',
           conciliada: f.conciliada || false,
