@@ -81,5 +81,8 @@ export const calcItemPrice = (cost: number, markup: number) =>
 export const calcItemTotal = (cost: number, markup: number, qty: number) =>
   Math.round(qty * calcItemPrice(cost, markup))
 
-export const formatDate = (d: string) =>
-  new Date(d).toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: 'numeric' })
+export const formatDate = (d: string) => {
+  // Forzar interpretación local para fechas sin hora (evita UTC shift)
+  const s = d.length === 10 ? d + 'T00:00:00' : d
+  return new Date(s).toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: 'numeric' })
+}

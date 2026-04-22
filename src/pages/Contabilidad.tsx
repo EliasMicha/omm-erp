@@ -2821,7 +2821,7 @@ function TabSupervision({ invoices, bankMovements }: { invoices: Invoice[]; bank
             <Table>
               <thead>
                 <tr>
-                  <Th>Folio</Th><Th>Dir</Th><Th>Tipo</Th><Th>Cliente / Proveedor</Th><Th>RFC</Th><Th>Fecha</Th><Th right>Total</Th><Th>Estado</Th>
+                  <Th>Folio</Th><Th>Dir</Th><Th>Tipo</Th><Th>Mon.</Th><Th>Cliente / Proveedor</Th><Th>RFC</Th><Th>Fecha</Th><Th right>Total</Th><Th>Estado</Th>
                 </tr>
               </thead>
               <tbody>
@@ -2832,6 +2832,7 @@ function TabSupervision({ invoices, bankMovements }: { invoices: Invoice[]; bank
                     const isNom = inv.tipo_comprobante === 'N'
                     const who = isEmitida ? inv.receptor_nombre : inv.emisor_nombre
                     const rfc = isEmitida ? (inv.receptor_rfc || '') : (inv.emisor_rfc || '')
+                    const mon = inv.moneda || 'MXN'
                     return (
                       <tr key={inv.id}>
                         <td style={{ ...tdStyle, fontWeight: 600, color: '#fff' }}>{inv.serie ? `${inv.serie}-${inv.folio}` : inv.folio}</td>
@@ -2843,6 +2844,9 @@ function TabSupervision({ invoices, bankMovements }: { invoices: Invoice[]; bank
                           }}>{isEmitida ? 'EMI' : 'REC'}</span>
                         </td>
                         <td style={{ ...tdStyle, color: '#888' }}>{CFDI_TYPE_LABELS[inv.tipo_comprobante]}</td>
+                        <td style={tdStyle}>
+                          <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 4, background: mon === 'USD' ? '#10B98122' : '#3B82F622', color: mon === 'USD' ? '#10B981' : '#3B82F6', fontFamily: 'monospace' }}>{mon}</span>
+                        </td>
                         <td style={{ ...tdStyle, color: '#ccc' }}>{who}</td>
                         <td style={{ ...tdStyle, fontSize: 10, color: '#666', fontFamily: 'monospace' }}>{rfc}</td>
                         <td style={{ ...tdStyle, color: '#888' }}>{formatDate(inv.fecha_emision)}</td>
@@ -2854,7 +2858,7 @@ function TabSupervision({ invoices, bankMovements }: { invoices: Invoice[]; bank
               </tbody>
               <tfoot>
                 <tr>
-                  <td colSpan={6} style={{ ...tdStyle, fontWeight: 600, color: '#888', textAlign: 'right', borderTop: '1px solid #333' }}>Total</td>
+                  <td colSpan={7} style={{ ...tdStyle, fontWeight: 600, color: '#888', textAlign: 'right', borderTop: '1px solid #333' }}>Total</td>
                   <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 700, color: '#fff', borderTop: '1px solid #333' }}>{F(totalFacturasSC)}</td>
                   <td style={{ ...tdStyle, borderTop: '1px solid #333' }} />
                 </tr>
@@ -2878,31 +2882,41 @@ function TabSupervision({ invoices, bankMovements }: { invoices: Invoice[]; bank
               <Table>
                 <thead>
                   <tr>
-                    <Th>Fecha</Th><Th>Concepto</Th><Th>Beneficiario</Th><Th>Categoría</Th><Th right>Cargo</Th><Th right>Abono</Th>
+                    <Th>Fecha</Th><Th>Concepto</Th><Th>Beneficiario</Th><Th>Proveedor / Cliente</Th><Th>Categoría</Th><Th>Mon.</Th><Th right>Cargo</Th><Th right>Abono</Th>
                   </tr>
                 </thead>
                 <tbody>
                   {pagosSinFactura
                     .sort((a, b) => b.monto - a.monto)
-                    .map(m => (
-                      <tr key={m.id}>
-                        <td style={{ ...tdStyle, color: '#888' }}>{formatDate(m.fecha)}</td>
-                        <td style={{ ...tdStyle, color: '#ccc', maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.concepto}</td>
-                        <td style={{ ...tdStyle, color: '#aaa' }}>{m.beneficiario || '—'}</td>
-                        <td style={tdStyle}><Badge label={m.categoria_sugerida || 'otro'} color={
-                          m.categoria_sugerida === 'nomina' ? '#C084FC' :
-                          m.categoria_sugerida === 'proveedor' ? '#F59E0B' :
-                          m.categoria_sugerida === 'cobro_cliente' ? '#57FF9A' :
-                          m.categoria_sugerida === 'traspaso' ? '#3B82F6' : '#555'
-                        } /></td>
-                        <td style={{ ...tdStyle, textAlign: 'right' }}>{m.tipo === 'cargo' ? <span style={{ color: '#EF4444', fontWeight: 600 }}>{F(m.monto)}</span> : <span style={{ color: '#444' }}>—</span>}</td>
-                        <td style={{ ...tdStyle, textAlign: 'right' }}>{m.tipo === 'abono' ? <span style={{ color: '#57FF9A', fontWeight: 600 }}>{F(m.monto)}</span> : <span style={{ color: '#444' }}>—</span>}</td>
-                      </tr>
-                    ))}
+                    .map(m => {
+                      const entity = m.proveedor || m.cliente || '—'
+                      const entityIcon = m.proveedor ? '🏢' : m.cliente ? '👤' : ''
+                      const mon = m.moneda || 'MXN'
+                      return (
+                        <tr key={m.id}>
+                          <td style={{ ...tdStyle, color: '#888' }}>{formatDate(m.fecha)}</td>
+                          <td style={{ ...tdStyle, color: '#ccc', maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.concepto}</td>
+                          <td style={{ ...tdStyle, color: '#aaa' }}>{m.beneficiario || '—'}</td>
+                          <td style={{ ...tdStyle, color: '#ccc' }}>{entityIcon} {entity}</td>
+                          <td style={tdStyle}><Badge label={m.categoria_sugerida || 'otro'} color={
+                            m.categoria_sugerida === 'nomina' ? '#C084FC' :
+                            m.categoria_sugerida === 'proveedor' || m.categoria_sugerida === 'proveedor_obra' ? '#F59E0B' :
+                            m.categoria_sugerida === 'cobro_cliente' ? '#57FF9A' :
+                            m.categoria_sugerida === 'traspaso' || m.categoria_sugerida === 'traspaso_interno' ? '#3B82F6' :
+                            m.categoria_sugerida === 'gasto_operativo' ? '#6B7280' : '#555'
+                          } /></td>
+                          <td style={tdStyle}>
+                            <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 4, background: mon === 'USD' ? '#10B98122' : '#3B82F622', color: mon === 'USD' ? '#10B981' : '#3B82F6', fontFamily: 'monospace' }}>{mon}</span>
+                          </td>
+                          <td style={{ ...tdStyle, textAlign: 'right' }}>{m.tipo === 'cargo' ? <span style={{ color: '#EF4444', fontWeight: 600 }}>{F(m.monto)}</span> : <span style={{ color: '#444' }}>—</span>}</td>
+                          <td style={{ ...tdStyle, textAlign: 'right' }}>{m.tipo === 'abono' ? <span style={{ color: '#57FF9A', fontWeight: 600 }}>{F(m.monto)}</span> : <span style={{ color: '#444' }}>—</span>}</td>
+                        </tr>
+                      )
+                    })}
                 </tbody>
                 <tfoot>
                   <tr>
-                    <td colSpan={4} style={{ ...tdStyle, fontWeight: 600, color: '#888', textAlign: 'right', borderTop: '1px solid #333' }}>Total</td>
+                    <td colSpan={6} style={{ ...tdStyle, fontWeight: 600, color: '#888', textAlign: 'right', borderTop: '1px solid #333' }}>Total</td>
                     <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 700, color: '#EF4444', borderTop: '1px solid #333' }}>{F(totalCargosSF)}</td>
                     <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 700, color: '#57FF9A', borderTop: '1px solid #333' }}>{F(totalAbonosSF)}</td>
                   </tr>
