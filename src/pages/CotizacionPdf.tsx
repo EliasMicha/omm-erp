@@ -1,9 +1,11 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useRef } from 'react'
 import { useParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { FCUR } from '../lib/utils'
 import { OMNIIOUS_LOGO } from '../assets/logo'
-import { Printer, Loader2, Settings } from 'lucide-react'
+import { Download, Loader2, Settings } from 'lucide-react'
+import html2canvas from 'html2canvas'
+import jsPDF from 'jspdf'
 
 // ═══════════════════════════════════════════════════════════════════════════
 // DATOS OMM — EDITABLES POR EL USUARIO (pueden ajustarse desde el panel)
@@ -135,6 +137,8 @@ function CotizacionPdfInner() {
   const [leadName, setLeadName] = useState('')
   const [architect, setArchitect] = useState('')
   const [showSettings, setShowSettings] = useState(false)
+  const [generating, setGenerating] = useState(false)
+  const contentRef = useRef<HTMLDivElement>(null)
 
   // Configuración editable (se guarda en localStorage para que Elias no tenga que retocar cada vez)
   const [omm, setOmm] = useState(OMM_DEFAULTS)
@@ -211,6 +215,76 @@ function CotizacionPdfInner() {
       localStorage.removeItem('omm_pdf_header')
       localStorage.removeItem('omm_pdf_terminos')
     } catch (e) { /* ignore */ }
+  }
+
+  async function generatePdf() {
+    if (!contentRef.current || !cot) return
+    setGenerating(true)
+    try {
+      // Ocultar botones antes de capturar
+      const noPrintEls = contentRef.current.querySelectorAll('.no-print') as NodeListOf<HTMLElement>
+      noPrintEls.forEach(el => el.style.display = 'none')
+
+      const canvas = await html2canvas(contentRef.current, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: '#ffffff',
+        logging: false,
+        windowWidth: 860,
+      })
+
+      // Restaurar botones
+      noPrintEls.forEach(el => el.style.display = '')
+
+      // A4 dimensions in mm
+      const pageW = 210
+      const pageH = 297
+      const marginX = 0
+      const marginY = 0
+      const contentW = pageW - 2 * marginX
+      const contentH = pageH - 2 * marginY
+
+      const imgW = canvas.width
+      const imgH = canvas.height
+      const ratio = contentW / imgW
+      const scaledH = imgH * ratio
+
+      const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
+
+      // Paginar: cortar la imagen en secciones que quepan en una página
+      let yOffset = 0
+      let page = 0
+      const pageHeightPx = contentH / ratio // px del canvas que caben en una página
+
+      while (yOffset < imgH) {
+        if (page > 0) doc.addPage()
+        const sliceH = Math.min(pageHeightPx, imgH - yOffset)
+
+        // Crear canvas parcial para esta página
+        const pageCanvas = document.createElement('canvas')
+        pageCanvas.width = imgW
+        pageCanvas.height = sliceH
+        const ctx = pageCanvas.getContext('2d')!
+        ctx.fillStyle = '#ffffff'
+        ctx.fillRect(0, 0, imgW, sliceH)
+        ctx.drawImage(canvas, 0, yOffset, imgW, sliceH, 0, 0, imgW, sliceH)
+
+        const pageImgData = pageCanvas.toDataURL('image/jpeg', 0.95)
+        const sliceHmm = sliceH * ratio
+        doc.addImage(pageImgData, 'JPEG', marginX, marginY, contentW, sliceHmm)
+
+        yOffset += sliceH
+        page++
+      }
+
+      const fileName = `${(cot.name || 'Cotizacion').replace(/[^a-zA-Z0-9áéíóúñÁÉÍÓÚÑ .-]/g, '')}_${formato}.pdf`
+      doc.save(fileName)
+    } catch (err) {
+      console.error('Error generando PDF:', err)
+      alert('Error al generar PDF. Intenta de nuevo.')
+    } finally {
+      setGenerating(false)
+    }
   }
 
   if (loading) return (
@@ -418,11 +492,11 @@ function CotizacionPdfInner() {
             borderRadius: 8, cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontSize: 12,
             display: 'inline-flex', alignItems: 'center', gap: 6,
           }}><Settings size={14} /> Editar datos y términos</button>
-          <button onClick={() => window.print()} style={{
-            padding: '8px 16px', background: '#57FF9A', border: 'none', color: '#000',
-            borderRadius: 8, cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontSize: 12, fontWeight: 600,
-            display: 'inline-flex', alignItems: 'center', gap: 6,
-          }}><Printer size={14} /> Imprimir / Guardar PDF</button>
+          <button onClick={generatePdf} disabled={generating} style={{
+            padding: '8px 16px', background: generating ? '#888' : '#57FF9A', border: 'none', color: '#000',
+            borderRadius: 8, cursor: generating ? 'wait' : 'pointer', fontFamily: 'Inter, sans-serif', fontSize: 12, fontWeight: 600,
+            display: 'inline-flex', alignItems: 'center', gap: 6, opacity: generating ? 0.7 : 1,
+          }}>{generating ? <><Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Generando...</> : <><Download size={14} /> Descargar PDF</>}</button>
         </div>
       </div>
 
@@ -505,7 +579,7 @@ function CotizacionPdfInner() {
       )}
 
       {/* ═══════════ DOCUMENTO PDF ═══════════ */}
-      <div style={pageStyle}>
+      <div ref={contentRef} style={pageStyle}>
 
         {/* HEADER */}
         <div style={{ borderBottom: '2px solid #111', paddingBottom: 16, marginBottom: 20 }}>
