@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { FCUR } from '../lib/utils'
@@ -104,7 +104,26 @@ function shortId(id: string): string { return id.substring(0, 8).toUpperCase() }
 // COMPONENTE PRINCIPAL
 // ═══════════════════════════════════════════════════════════════════════════
 
+class PdfErrorBoundary extends React.Component<{ children: React.ReactNode }, { error: string | null }> {
+  state = { error: null as string | null }
+  static getDerivedStateFromError(err: Error) { return { error: err.message || 'Error desconocido' } }
+  render() {
+    if (this.state.error) return (
+      <div style={{ padding: 60, textAlign: 'center', color: '#c00', fontFamily: 'Inter, sans-serif' }}>
+        <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 8 }}>Error al renderizar PDF</div>
+        <div style={{ fontSize: 12 }}>{this.state.error}</div>
+        <button onClick={() => window.location.reload()} style={{ marginTop: 16, padding: '8px 16px', background: '#111', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' }}>Reintentar</button>
+      </div>
+    )
+    return this.props.children
+  }
+}
+
 export default function CotizacionPdf() {
+  return <PdfErrorBoundary><CotizacionPdfInner /></PdfErrorBoundary>
+}
+
+function CotizacionPdfInner() {
   const { id, format } = useParams<{ id: string; format: string }>()
   const formato = (format || 'ejecutivo') as 'ejecutivo' | 'tecnico' | 'lista'
 
@@ -142,7 +161,16 @@ export default function CotizacionPdf() {
         if (cotErr || !cotData) throw new Error('No se encontró la cotización')
         setCot(cotData as QuotationFull)
         setAreas((areasData || []) as AreaRow[])
-        setItems((itemsData || []) as ItemRow[])
+        // Supabase returns numeric columns as strings — convert explicitly
+        setItems((itemsData || []).map((it: any) => ({
+          ...it,
+          quantity: Number(it.quantity) || 0,
+          cost: Number(it.cost) || 0,
+          markup: Number(it.markup) || 0,
+          price: Number(it.price) || 0,
+          total: Number(it.total) || 0,
+          installation_cost: Number(it.installation_cost) || 0,
+        })) as ItemRow[])
 
         // Cargar lead + arquitecto
         try {
@@ -363,9 +391,10 @@ export default function CotizacionPdf() {
         @media print {
           .no-print { display: none !important; }
           .page-break { page-break-before: always; }
-          body { background: #fff !important; }
+          body { background: #fff !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
         }
-        body { background: #eee; }
+        body { background: #eee; margin: 0; }
         table.pdf-table { width: 100%; border-collapse: collapse; }
         table.pdf-table th { background: #f5f5f5; padding: 6px 8px; text-align: left; font-size: 9px; text-transform: uppercase; letter-spacing: 0.04em; color: #666; font-weight: 600; border-bottom: 1px solid #ddd; }
         table.pdf-table td { padding: 5px 8px; border-bottom: 1px solid #eee; font-size: 10px; vertical-align: top; }
@@ -550,19 +579,19 @@ export default function CotizacionPdf() {
             </thead>
             <tbody>
               {systemsOrdered.map(([sys, data]) => (
-                <>
-                  <tr key={sys}>
+                <React.Fragment key={sys}>
+                  <tr>
                     <td style={{ fontWeight: 600, paddingBottom: 0 }}>{sys}</td>
                     <td style={{ textAlign: 'right', fontWeight: 600 }}>{FCUR(data.subtotal, currency)}</td>
                   </tr>
-                  <tr key={sys + '-desc'}>
+                  <tr>
                     <td colSpan={2} style={{ paddingTop: 2, paddingBottom: 10 }}>
                       <div style={{ fontSize: 9, color: '#666', lineHeight: 1.6, maxWidth: 600 }}>
                         {descripcionSistema(sys, data)}
                       </div>
                     </td>
                   </tr>
-                </>
+                </React.Fragment>
               ))}
               <tr style={{ borderTop: '2px solid #111' }}>
                 <td style={{ paddingTop: 8, color: '#666' }}>Total equipos</td>
@@ -643,9 +672,9 @@ export default function CotizacionPdf() {
             const areaTotal = Object.values(area.systems).flat().reduce((s, i) => s + (i.price * i.quantity), 0)
             return (
               <div key={area.name} style={{ marginBottom: 18, breakInside: 'avoid' as any }}>
-                <div style={{ background: '#2a2a2a', padding: '8px 12px', marginBottom: 6, borderLeft: '3px solid #111', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderRadius: 2 }}>
-                  <h3 style={{ fontSize: 12, color: '#fff' }}>{idx + 1}. {area.name}</h3>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: '#fff' }}>{FCUR(areaTotal, currency)}</div>
+                <div style={{ background: '#f0f0f0', padding: '8px 12px', marginBottom: 6, borderLeft: '3px solid #111', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderRadius: 2 }}>
+                  <h3 style={{ fontSize: 12, color: '#111' }}>{idx + 1}. {area.name}</h3>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: '#111' }}>{FCUR(areaTotal, currency)}</div>
                 </div>
                 {Object.entries(area.systems).map(([sys, sysItems]) => {
                   const sysTotal = sysItems.reduce((s, i) => s + (i.price * i.quantity), 0)
