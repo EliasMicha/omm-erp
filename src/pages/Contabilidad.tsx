@@ -8,7 +8,7 @@ import {
   FileText, Building2, ArrowLeftRight, ShieldCheck,
   Banknote, Users, TrendingUp, Plus, Upload, Search,
   ChevronRight, AlertTriangle, CheckCircle, Clock,
-  DollarSign, FolderOpen, Eye, X, Loader2
+  DollarSign, X, Loader2
 } from 'lucide-react'
 
 /* --------- Types ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ */
@@ -73,28 +73,6 @@ interface CashMovement {
   proyecto_nombre?: string
 }
 
-interface Sale {
-  id: string
-  referencia: string
-  cliente_nombre: string
-  proyecto_nombre: string
-  monto_total: number
-  monto_cobrado_total: number
-  monto_facturado: number
-  monto_pendiente: number
-  porcentaje_cobrado: number
-}
-
-interface ProjectAccount {
-  proyecto_nombre: string
-  venta_total: number
-  ingreso_total: number
-  egreso_total: number
-  utilidad: number
-  margen: number
-  por_cobrar: number
-  por_pagar: number
-}
 
 interface BankMovement {
   id: string; fecha: string; concepto: string; referencia: string
@@ -243,38 +221,12 @@ const selectStyle: React.CSSProperties = { ...inputStyle }
 
 /* --------- Mock Data ------------------------------------------------------------------------------------------------------------------------------------------------------------ */
 
-const MOCK_INVOICES: Invoice[] = [
-  { id: '1', direccion: 'emitida', serie: 'FAC', folio: '001', tipo_comprobante: 'I', receptor_nombre: 'Alex Niz', emisor_nombre: 'OMM Technologies', total: 116000, estado: 'timbrada', fecha_emision: '2026-04-03', proyecto_nombre: 'Oasis', conciliada: false, metodo_pago: 'PPD' },
-  { id: '2', direccion: 'emitida', serie: 'FAC', folio: '002', tipo_comprobante: 'I', receptor_nombre: 'Grupo Inmobiliario', emisor_nombre: 'OMM Technologies', total: 290000, estado: 'pagada', fecha_emision: '2026-04-01', proyecto_nombre: 'Reforma 222', conciliada: true, metodo_pago: 'PUE' },
-  { id: '3', direccion: 'emitida', serie: 'NC', folio: '001', tipo_comprobante: 'E', receptor_nombre: 'Alex Niz', emisor_nombre: 'OMM Technologies', total: 16000, estado: 'timbrada', fecha_emision: '2026-04-02', proyecto_nombre: 'Oasis', conciliada: false },
-  { id: '4', direccion: 'emitida', serie: 'PAG', folio: '001', tipo_comprobante: 'P', receptor_nombre: 'Oasis SA', emisor_nombre: 'OMM Technologies', total: 145000, estado: 'timbrada', fecha_emision: '2026-03-28', proyecto_nombre: 'Oasis', conciliada: true },
-  { id: '5', direccion: 'recibida', serie: '', folio: 'A-4521', tipo_comprobante: 'I', receptor_nombre: 'OMM Technologies', emisor_nombre: 'Electricos del Centro', total: 23456, estado: 'timbrada', fecha_emision: '2026-04-01', proyecto_nombre: 'Oasis', conciliada: false },
-  { id: '6', direccion: 'recibida', serie: '', folio: 'B-892', tipo_comprobante: 'I', receptor_nombre: 'OMM Technologies', emisor_nombre: 'Ferreteria Diaz', total: 8200, estado: 'timbrada', fecha_emision: '2026-03-30', proyecto_nombre: 'Pachuca', conciliada: false },
-]
-
-// cash_movements now loaded from Supabase in TabEfectivo
-
-const MOCK_SALES: Sale[] = [
-  { id: '1', referencia: 'COT-2024-045', cliente_nombre: 'Alex Niz', proyecto_nombre: 'Oasis', monto_total: 490000, monto_cobrado_total: 200000, monto_facturado: 290000, monto_pendiente: 290000, porcentaje_cobrado: 41 },
-  { id: '2', referencia: 'COT-2024-038', cliente_nombre: 'Grupo Inmobiliario', proyecto_nombre: 'Reforma 222', monto_total: 850000, monto_cobrado_total: 600000, monto_facturado: 600000, monto_pendiente: 250000, porcentaje_cobrado: 71 },
-  { id: '3', referencia: 'COT-2024-051', cliente_nombre: 'Desarrollos Pachuca', proyecto_nombre: 'Pachuca', monto_total: 320000, monto_cobrado_total: 80000, monto_facturado: 160000, monto_pendiente: 240000, porcentaje_cobrado: 25 },
-  { id: '4', referencia: 'COT-2024-033', cliente_nombre: 'Chapultepec Desarrollo', proyecto_nombre: 'Chapultepec Uno', monto_total: 680000, monto_cobrado_total: 400000, monto_facturado: 680000, monto_pendiente: 280000, porcentaje_cobrado: 59 },
-  { id: '5', referencia: 'COT-2025-002', cliente_nombre: 'Alex Niz', proyecto_nombre: 'Oasis 6', monto_total: 500000, monto_cobrado_total: 320000, monto_facturado: 0, monto_pendiente: 180000, porcentaje_cobrado: 64 },
-]
-
-const MOCK_PROJECT_ACCOUNTS: ProjectAccount[] = [
-  { proyecto_nombre: 'Oasis', venta_total: 490000, ingreso_total: 200000, egreso_total: 145000, utilidad: 55000, margen: 28, por_cobrar: 290000, por_pagar: 46200 },
-  { proyecto_nombre: 'Reforma 222', venta_total: 850000, ingreso_total: 600000, egreso_total: 380000, utilidad: 220000, margen: 37, por_cobrar: 250000, por_pagar: 32000 },
-  { proyecto_nombre: 'Pachuca', venta_total: 320000, ingreso_total: 80000, egreso_total: 95000, utilidad: -15000, margen: -19, por_cobrar: 240000, por_pagar: 18000 },
-  { proyecto_nombre: 'Chapultepec Uno', venta_total: 680000, ingreso_total: 400000, egreso_total: 310000, utilidad: 90000, margen: 23, por_cobrar: 280000, por_pagar: 0 },
-  { proyecto_nombre: 'Oasis 6', venta_total: 500000, ingreso_total: 320000, egreso_total: 48000, utilidad: 272000, margen: 85, por_cobrar: 180000, por_pagar: 12000 },
-]
 
 /* --------- Main Page ------------------------------------------------------------------------------------------------------------------------------------------------------------ */
 
 export default function Contabilidad() {
   const [activeTab, setActiveTab] = useState<Tab>('facturacion')
-  const [invoices, setInvoices] = useState<Invoice[]>(MOCK_INVOICES)
+  const [invoices, setInvoices] = useState<Invoice[]>([])
   const [bankMovements, setBankMovements] = useState<BankMovement[]>([])
   const [projectNames, setProjectNames] = useState<string[]>([])
 
@@ -349,7 +301,7 @@ export default function Contabilidad() {
             seen.set(uuid || f.id, f)
           }
         }
-        const deduped = Array.from(seen.values())
+        const deduped = Array.from(seen.values()).filter((f: any) => !f.sandbox)
         setInvoices(deduped.map((f: any) => ({
           id: f.id,
           direccion: f.direccion || 'emitida',
@@ -3020,240 +2972,16 @@ function TabEfectivo() {
 /* --------- Tab 5: Cobranza ------------------------------------------------------------------------------------------------------------------------------------------ */
 
 function TabCobranza() {
-  const totalVendido = MOCK_SALES.reduce((s, v) => s + v.monto_total, 0)
-  const totalCobrado = MOCK_SALES.reduce((s, v) => s + v.monto_cobrado_total, 0)
-  const totalPendiente = MOCK_SALES.reduce((s, v) => s + v.monto_pendiente, 0)
-
   return (
-    <div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 20 }}>
-        <KpiCard label="Vendido (confirmado)" value={F(totalVendido)} icon={<FolderOpen size={16} />} />
-        <KpiCard label="Cobrado (real)" value={F(totalCobrado)} color="#57FF9A" icon={<CheckCircle size={16} />} />
-        <KpiCard label="Pendiente (deben)" value={F(totalPendiente)} color="#EF4444" icon={<AlertTriangle size={16} />} />
-      </div>
-
-      <div style={{ fontSize: 14, fontWeight: 600, color: '#fff', marginBottom: 12 }}>Por venta / proyecto</div>
-
-      <Table>
-        <thead>
-          <tr>
-            <Th>Proyecto</Th>
-            <Th right>Venta</Th>
-            <Th right>Facturado</Th>
-            <Th right>Cobrado</Th>
-            <Th right>Pendiente</Th>
-            <Th>Avance</Th>
-          </tr>
-        </thead>
-        <tbody>
-          {MOCK_SALES.map(s => (
-            <tr key={s.id} style={{ cursor: 'pointer' }}>
-              <Td>
-                <div style={{ fontWeight: 600, color: '#fff' }}>{s.proyecto_nombre}</div>
-                <div style={{ fontSize: 10, color: '#555' }}>{s.cliente_nombre}</div>
-              </Td>
-              <Td right muted>{F(s.monto_total)}</Td>
-              <Td right muted>{F(s.monto_facturado)}</Td>
-              <Td right style={{ color: '#57FF9A', fontWeight: 600 }}>{F(s.monto_cobrado_total)}</Td>
-              <Td right style={{ color: '#EF4444', fontWeight: 600 }}>{F(s.monto_pendiente)}</Td>
-              <Td>
-                {/* Stacked bar */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 140 }}>
-                  <div style={{ flex: 1, height: 8, background: '#2a2a2a', borderRadius: 4, overflow: 'hidden', display: 'flex' }}>
-                    {/* Cobrado banco */}
-                    <div style={{
-                      width: `${Math.min(100, (s.monto_cobrado_total / s.monto_total) * 100)}%`,
-                      height: '100%', background: '#1D9E75',
-                    }} />
-                    {/* Facturado sin cobrar */}
-                    <div style={{
-                      width: `${Math.max(0, ((s.monto_facturado - s.monto_cobrado_total) / s.monto_total) * 100)}%`,
-                      height: '100%', background: '#EF9F27', opacity: 0.6,
-                    }} />
-                  </div>
-                  <span style={{ fontSize: 11, color: '#666', minWidth: 30 }}>{s.porcentaje_cobrado}%</span>
-                </div>
-              </Td>
-            </tr>
-          ))}
-          <tr style={{ background: '#1a1a1a' }}>
-            <Td><span style={{ fontWeight: 700, color: '#666', fontSize: 11 }}>TOTAL</span></Td>
-            <Td right style={{ fontWeight: 700, color: '#fff' }}>{F(totalVendido)}</Td>
-            <Td right muted>{F(MOCK_SALES.reduce((s, v) => s + v.monto_facturado, 0))}</Td>
-            <Td right style={{ fontWeight: 700, color: '#57FF9A' }}>{F(totalCobrado)}</Td>
-            <Td right style={{ fontWeight: 700, color: '#EF4444' }}>{F(totalPendiente)}</Td>
-            <Td>
-              <span style={{ fontSize: 12, fontWeight: 700, color: '#57FF9A' }}>
-                {Math.round((totalCobrado / totalVendido) * 100)}%
-              </span>
-            </Td>
-          </tr>
-        </tbody>
-      </Table>
-    </div>
+    <EmptyState message="Cobranza se conectara con datos reales proximamente." />
   )
 }
 
 /* --------- Tab 6: Flujo de Efectivo --------------------------------------------------------------------------------------------------------------- */
 
 function TabFlujo() {
-  const [view, setView] = useState<'proyecto' | 'mensual'>('proyecto')
-
-  const gastosFijos = 362000
-  const oc = 216456
-  const factPorPagar = 24000
-  const totalEgresos = gastosFijos + oc + factPorPagar
-
-  const hitosCobro = 320000
-  const factPorCobrar = 201000
-  const efectivoEsperado = 50000
-  const totalIngresos = hitosCobro + factPorCobrar + efectivoEsperado
-
-  const gap = totalIngresos - totalEgresos
-  const saldoBancario = 584567
-
-  const subtotalObra = MOCK_PROJECT_ACCOUNTS.reduce((s, p) => s + p.utilidad, 0)
-
   return (
-    <div>
-      <div style={{ display: 'flex', gap: 6, marginBottom: 20 }}>
-        <Btn size="sm" variant={view === 'proyecto' ? 'primary' : 'default'} onClick={() => setView('proyecto')}>
-          <FolderOpen size={12} /> Por proyecto
-        </Btn>
-        <Btn size="sm" variant={view === 'mensual' ? 'primary' : 'default'} onClick={() => setView('mensual')}>
-          <TrendingUp size={12} /> Mensual
-        </Btn>
-      </div>
-
-      {view === 'proyecto' ? (
-        <>
-          <div style={{ fontSize: 14, fontWeight: 600, color: '#fff', marginBottom: 12 }}>Estado de cuenta por proyecto</div>
-          <Table>
-            <thead>
-              <tr>
-                <Th>Proyecto</Th>
-                <Th right>Venta</Th>
-                <Th right>Cobrado</Th>
-                <Th right>Gastado</Th>
-                <Th right>Utilidad</Th>
-                <Th right>Margen</Th>
-              </tr>
-            </thead>
-            <tbody>
-              {MOCK_PROJECT_ACCOUNTS.map((p, i) => (
-                <tr key={i} style={{ cursor: 'pointer' }}>
-                  <Td><span style={{ fontWeight: 600, color: '#fff' }}>{p.proyecto_nombre}</span></Td>
-                  <Td right muted>{F(p.venta_total)}</Td>
-                  <Td right style={{ color: '#57FF9A' }}>{F(p.ingreso_total)}</Td>
-                  <Td right style={{ color: '#F59E0B' }}>{F(p.egreso_total)}</Td>
-                  <Td right style={{ fontWeight: 700, color: p.utilidad >= 0 ? '#57FF9A' : '#EF4444' }}>
-                    {p.utilidad >= 0 ? '+' : ''}{F(p.utilidad)}
-                  </Td>
-                  <Td right>
-                    <span style={{
-                      fontSize: 12, fontWeight: 700,
-                      color: p.margen >= 30 ? '#57FF9A' : p.margen >= 0 ? '#F59E0B' : '#EF4444',
-                    }}>
-                      {p.margen >= 0 ? '' : ''}{p.margen}%
-                    </span>
-                  </Td>
-                </tr>
-              ))}
-              <tr style={{ background: '#1a1a1a' }}>
-                <Td><span style={{ fontWeight: 700, color: '#666', fontSize: 11 }}>SUBTOTAL OBRAS</span></Td>
-                <Td right style={{ fontWeight: 700, color: '#fff' }}>{F(MOCK_PROJECT_ACCOUNTS.reduce((s, p) => s + p.venta_total, 0))}</Td>
-                <Td right style={{ fontWeight: 700, color: '#57FF9A' }}>{F(MOCK_PROJECT_ACCOUNTS.reduce((s, p) => s + p.ingreso_total, 0))}</Td>
-                <Td right style={{ fontWeight: 700, color: '#F59E0B' }}>{F(MOCK_PROJECT_ACCOUNTS.reduce((s, p) => s + p.egreso_total, 0))}</Td>
-                <Td right style={{ fontWeight: 700, color: '#57FF9A' }}>+{F(subtotalObra)}</Td>
-                <Td right style={{ fontWeight: 700, color: '#57FF9A' }}>
-                  {Math.round((subtotalObra / MOCK_PROJECT_ACCOUNTS.reduce((s, p) => s + p.ingreso_total, 0)) * 100)}%
-                </Td>
-              </tr>
-              <tr>
-                <Td><span style={{ color: '#666' }}>OMM — Gastos generales</span></Td>
-                <Td right muted>—</Td>
-                <Td right muted>—</Td>
-                <Td right style={{ color: '#F59E0B' }}>{F(gastosFijos)}</Td>
-                <Td right style={{ fontWeight: 700, color: '#EF4444' }}>-{F(gastosFijos)}</Td>
-                <Td right muted>—</Td>
-              </tr>
-              <tr style={{ background: '#1a1a1a', borderTop: '2px solid #333' }}>
-                <Td><span style={{ fontWeight: 700, color: '#fff', fontSize: 13 }}>TOTAL EMPRESA</span></Td>
-                <Td right colSpan={3}>{' '}</Td>
-                <Td right style={{ fontSize: 16, fontWeight: 700, color: subtotalObra - gastosFijos >= 0 ? '#57FF9A' : '#EF4444' }}>
-                  {subtotalObra - gastosFijos >= 0 ? '+' : ''}{F(subtotalObra - gastosFijos)}
-                </Td>
-                <Td right>{' '}</Td>
-              </tr>
-            </tbody>
-          </Table>
-        </>
-      ) : (
-        <>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', gap: 20, marginBottom: 24 }}>
-            {/* Egresos */}
-            <div style={{ background: '#141414', border: '1px solid #222', borderRadius: 12, padding: 16 }}>
-              <div style={{ fontSize: 14, fontWeight: 600, color: '#EF4444', marginBottom: 12 }}>Debo pagar</div>
-              {[
-                { label: 'Gastos fijos', value: gastosFijos },
-                { label: 'Ordenes de compra', value: oc },
-                { label: 'Facturas por pagar', value: factPorPagar },
-              ].map((item, i) => (
-                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid #1a1a1a' }}>
-                  <span style={{ fontSize: 12, color: '#888' }}>{item.label}</span>
-                  <span style={{ fontSize: 12, color: '#ccc', fontWeight: 500 }}>{F(item.value)}</span>
-                </div>
-              ))}
-              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', marginTop: 4 }}>
-                <span style={{ fontSize: 13, fontWeight: 700, color: '#EF4444' }}>Total</span>
-                <span style={{ fontSize: 13, fontWeight: 700, color: '#EF4444' }}>{F(totalEgresos)}</span>
-              </div>
-            </div>
-
-            {/* Gap */}
-            <div style={{
-              display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-              background: gap >= 0 ? '#57FF9A11' : '#EF444411',
-              border: `1px solid ${gap >= 0 ? '#57FF9A33' : '#EF444433'}`,
-              borderRadius: 12, padding: '16px 24px', minWidth: 140,
-            }}>
-              <div style={{ fontSize: 11, color: '#666', marginBottom: 4 }}>GAP DEL MES</div>
-              <div style={{ fontSize: 22, fontWeight: 700, color: gap >= 0 ? '#57FF9A' : '#EF4444' }}>
-                {gap >= 0 ? '+' : ''}{F(gap)}
-              </div>
-              <div style={{ fontSize: 10, color: '#555', marginTop: 4 }}>Abril 2026</div>
-            </div>
-
-            {/* Ingresos */}
-            <div style={{ background: '#141414', border: '1px solid #222', borderRadius: 12, padding: 16 }}>
-              <div style={{ fontSize: 14, fontWeight: 600, color: '#57FF9A', marginBottom: 12 }}>Debo cobrar</div>
-              {[
-                { label: 'Hitos de cobro', value: hitosCobro },
-                { label: 'Facturas pendientes', value: factPorCobrar },
-                { label: 'Efectivo esperado', value: efectivoEsperado },
-              ].map((item, i) => (
-                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid #1a1a1a' }}>
-                  <span style={{ fontSize: 12, color: '#888' }}>{item.label}</span>
-                  <span style={{ fontSize: 12, color: '#ccc', fontWeight: 500 }}>{F(item.value)}</span>
-                </div>
-              ))}
-              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', marginTop: 4 }}>
-                <span style={{ fontSize: 13, fontWeight: 700, color: '#57FF9A' }}>Total</span>
-                <span style={{ fontSize: 13, fontWeight: 700, color: '#57FF9A' }}>{F(totalIngresos)}</span>
-              </div>
-            </div>
-          </div>
-
-          <div style={{
-            background: '#141414', border: '1px solid #222', borderRadius: 12, padding: '12px 16px',
-            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-          }}>
-            <span style={{ fontSize: 12, color: '#666' }}>Saldo actual en bancos: <span style={{ color: '#fff', fontWeight: 600 }}>{F(saldoBancario)}</span></span>
-            <span style={{ fontSize: 12, color: '#666' }}>Saldo proyectado al cierre: <span style={{ color: '#57FF9A', fontWeight: 700 }}>{F(saldoBancario + gap)}</span></span>
-          </div>
-        </>
-      )}
-    </div>
+    <EmptyState message="Flujo de efectivo se conectara con datos reales proximamente." />
   )
 }
 
