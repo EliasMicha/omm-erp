@@ -360,7 +360,7 @@ export default function Contabilidad() {
           emisor_nombre: f.emisor_nombre || '',
           total: Number(f.total) || 0,
           estado: (f.estado && f.estado !== 'borrador' ? f.estado : f.status) || 'borrador',
-          fecha_emision: f.fecha_emision ? f.fecha_emision.substring(0,10) : '',
+          fecha_emision: f.fecha_emision ? (() => { const dt = new Date(f.fecha_emision); return isNaN(dt.getTime()) ? '' : `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}` })() : '',
           proyecto_nombre: f.proyecto_nombre || '',
           conciliada: f.conciliada || false,
           metodo_pago: f.metodo_pago || '',
