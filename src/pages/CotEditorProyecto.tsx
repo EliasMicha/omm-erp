@@ -1352,18 +1352,20 @@ export default function CotEditorProyecto({ cotId, onBack, specialty = 'proy' }:
         if (meta.m2Construccion && meta.m2Construccion > 0) initialM2 = meta.m2Construccion
       } catch {}
       const newItems = resolvedSystems.map((sys, i) => ({ ...defaultItem(sys.id, i, resolvedSystems), m2: initialM2 }))
-      setItems(newItems)
-      // Insert them into DB
+      // Insert into DB and get real IDs back
+      const itemsWithDbIds: ProyItem[] = []
       for (const item of newItems) {
-        await insertItem(item)
+        const dbId = await insertItem(item)
+        itemsWithDbIds.push({ ...item, id: dbId || item.id })
       }
+      setItems(itemsWithDbIds)
     }
 
     setLoading(false)
   }
 
-  async function insertItem(item: ProyItem) {
-    await supabase.from('quotation_items').insert({
+  async function insertItem(item: ProyItem): Promise<string | null> {
+    const { data, error } = await supabase.from('quotation_items').insert({
       quotation_id: cotId,
       system: 'Proyecto',
       type: 'material',
@@ -1383,7 +1385,9 @@ export default function CotEditorProyecto({ cotId, onBack, specialty = 'proy' }:
         entregablesActivos: item.entregablesActivos,
         included: item.included,
       }),
-    })
+    }).select('id').single()
+    if (error) console.error('Insert item error:', error)
+    return data?.id || null
   }
 
   useEffect(() => {
@@ -1400,7 +1404,7 @@ export default function CotEditorProyecto({ cotId, onBack, specialty = 'proy' }:
   // Sync total to DB
   useEffect(() => {
     if (!loading && cotId) {
-      supabase.from('quotations').update({ total: Math.round(grandTotal * 100) / 100 }).eq('id', cotId)
+      supabase.from('quotations').update({ total: Math.round(grandTotal * 100) / 100 }).eq('id', cotId).then()
     }
   }, [grandTotal, loading, cotId])
 
@@ -1411,7 +1415,7 @@ export default function CotEditorProyecto({ cotId, onBack, specialty = 'proy' }:
     const { data: cot } = await supabase.from('quotations').select('notes').eq('id', cotId).single()
     let existingNotes: any = {}
     try { existingNotes = JSON.parse(cot?.notes || '{}') } catch {}
-    supabase
+    await supabase
       .from('quotations')
       .update({ notes: JSON.stringify({ ...existingNotes, proyConfig: next }) })
       .eq('id', cotId)
@@ -1442,6 +1446,7 @@ export default function CotEditorProyecto({ cotId, onBack, specialty = 'proy' }:
             }),
           })
           .eq('id', id)
+          .then(({ error }) => { if (error) console.error('Update item error:', error) })
       }
       return next
     })
@@ -1449,9 +1454,30 @@ export default function CotEditorProyecto({ cotId, onBack, specialty = 'proy' }:
 
   function setGlobalM2Value(val: number) {
     setGlobalM2(val)
-    setItems(prev =>
-      prev.map(it => ({ ...it, m2: val }))
-    )
+    setItems(prev => {
+      const updated = prev.map(it => ({ ...it, m2: val }))
+      // Persist each item's m2 to DB
+      for (const it of updated) {
+        const importe = val * it.precioM2
+        supabase
+          .from('quotation_items')
+          .update({
+            quantity: val,
+            total: importe,
+            notes: JSON.stringify({
+              systemId: it.systemId,
+              m2: val,
+              precioM2: it.precioM2,
+              descripcion: it.descripcion,
+              entregablesActivos: it.entregablesActivos,
+              included: it.included,
+            }),
+          })
+          .eq('id', it.id)
+          .then(({ error }) => { if (error) console.error('Global m2 update error:', error) })
+      }
+      return updated
+    })
   }
 
   function toggleExpanded(id: string) {
