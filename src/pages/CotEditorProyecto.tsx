@@ -1,10 +1,12 @@
-import React, { useState, useMemo, useEffect } from 'react'
+import React, { useState, useMemo, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { F, STAGE_CONFIG } from '../lib/utils'
 import { Badge, Btn, Loading } from '../components/layout/UI'
-import { ChevronLeft, ChevronDown, ChevronRight, Settings, X, Printer } from 'lucide-react'
+import { ChevronLeft, ChevronDown, ChevronRight, Settings, X, Printer, Download } from 'lucide-react'
 import { OMNIIOUS_LOGO } from '../assets/logo'
 import { autoCreateProjectFromQuotation } from '../lib/projectUtils'
+import html2canvas from 'html2canvas'
+import jsPDF from 'jspdf'
 
 // ═══════════════════════════════════════════════════════════════════
 // TYPES
@@ -652,6 +654,8 @@ function ProyPdfModal({
   systems: ProySystem[]
   tipoProyecto: TipoProyecto
 }) {
+  const pdfContainerRef = useRef<HTMLDivElement>(null)
+  const [generating, setGenerating] = useState(false)
   const systemsMap = new Map(systems.map(s => [s.id, s]))
 
   const includedItems = items.filter(it => it.included)
@@ -661,142 +665,58 @@ function ProyPdfModal({
 
   const now = new Date()
   const dateStr = `${now.getDate()}/${now.getMonth() + 1}/${now.getFullYear()}`
+  const fileName = `${cotName || 'Cotizacion'}_Proyecto.pdf`
 
-  const pdf = `
-    <html>
-      <head>
-        <title>Cotización Proyecto</title>
-        <style>
-          body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background: #fff; color: #333; }
-          .page { page-break-after: always; margin-bottom: 40px; }
-          .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 2px solid #333; padding-bottom: 10px; }
-          .logo { font-weight: bold; font-size: 18px; }
-          .header-info { text-align: right; font-size: 12px; }
-          table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
-          thead { background: #f0f0f0; }
-          th { text-align: left; padding: 8px; font-weight: bold; border-bottom: 1px solid #999; font-size: 11px; }
-          td { padding: 8px; border-bottom: 1px solid #ddd; font-size: 11px; }
-          .text-right { text-align: right; }
-          .text-bold { font-weight: bold; }
-          .summary { display: flex; justify-content: flex-end; margin-top: 20px; }
-          .summary-table { width: 200px; }
-          .summary-row { display: flex; justify-content: space-between; padding: 6px 0; font-size: 12px; }
-          .summary-total { display: flex; justify-content: space-between; padding: 8px 0; font-weight: bold; font-size: 13px; border-top: 2px solid #333; }
-          h2 { font-size: 14px; margin-top: 30px; margin-bottom: 15px; border-bottom: 1px solid #999; padding-bottom: 8px; }
-          .entregables-table { width: 100%; border-collapse: collapse; }
-          .entregables-table th { background: #f0f0f0; padding: 8px; text-align: left; font-weight: bold; border: 1px solid #999; font-size: 10px; }
-          .entregables-table td { padding: 8px; border: 1px solid #ddd; font-size: 10px; }
-          .section-title { font-weight: bold; margin-top: 20px; margin-bottom: 10px; font-size: 12px; }
-          .section-text { font-size: 11px; line-height: 1.6; margin-bottom: 12px; }
-        </style>
-      </head>
-      <body>
-        <!-- PAGE 1: QUOTATION -->
-        <div class="page">
-          <div class="header">
-            <div class="logo">OMM</div>
-            <div class="header-info">
-              <div><strong>Cotización</strong></div>
-              <div>${cotName}</div>
-              <div>${dateStr}</div>
-            </div>
-          </div>
-          <div style="margin-bottom: 20px;">
-            <div><strong>Cliente:</strong> ${clientName || '---'}</div>
-            <div><strong>Proyecto:</strong> ${projectName || '---'}</div>
-          </div>
-          <table>
-            <thead>
-              <tr>
-                <th>DESCRIPCIÓN</th>
-                <th class="text-right">CANTIDAD (m²)</th>
-                <th class="text-right">PRECIO UNITARIO</th>
-                <th class="text-right">IMPUESTOS</th>
-                <th class="text-right">IMPORTE</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${includedItems
-                .map(it => {
-                  const system = systemsMap.get(it.systemId)
-                  const importe = it.m2 * it.precioM2
-                  const impuesto = Math.round(importe * config.ivaRate / 100 * 100) / 100
-                  return `
-                    <tr>
-                      <td>${system?.name || 'Sistema'}</td>
-                      <td class="text-right">${it.m2.toFixed(2)}</td>
-                      <td class="text-right">$${it.precioM2.toFixed(2)}</td>
-                      <td class="text-right">$${impuesto.toFixed(2)}</td>
-                      <td class="text-right">$${(importe + impuesto).toFixed(2)}</td>
-                    </tr>
-                  `
-                })
-                .join('')}
-            </tbody>
-          </table>
-          <div class="summary">
-            <div class="summary-table">
-              <div class="summary-row">
-                <span>Subtotal</span>
-                <span>$${subtotal.toFixed(2)}</span>
-              </div>
-              <div class="summary-row">
-                <span>IVA ${config.ivaRate}%</span>
-                <span>$${iva.toFixed(2)}</span>
-              </div>
-              <div class="summary-total">
-                <span>TOTAL</span>
-                <span>$${total.toFixed(2)}</span>
-              </div>
-            </div>
-          </div>
-        </div>
+  const tipoCfg = TIPO_PROYECTO_CONFIG[tipoProyecto]
 
-        <!-- PAGE 2+: ENTREGABLES -->
-        ${
-          includedItems.some(it => systemsMap.get(it.systemId)?.entregables.length)
-            ? `
-          <div class="page">
-            <h2>Entregables de Proyecto (Ingeniería Ejecutiva)</h2>
-            <p style="font-size: 11px; color: #666; margin-bottom: 15px;">Solamente artículos solicitados en cotización</p>
-            <table class="entregables-table">
-              <thead>
-                <tr>
-                  <th>SISTEMA</th>
-                  <th>ENTREGABLES INCLUIDOS EN INGENIERÍA EJECUTIVA</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${includedItems
-                  .filter(it => systemsMap.get(it.systemId)?.entregables.length)
-                  .map(it => {
-                    const system = systemsMap.get(it.systemId)!
-                    const activeEntregables = it.entregablesActivos
-                      .filter(e => system.entregables.includes(e))
-                      .map(e => `• ${e}`)
-                      .join('<br/>')
-                    return `
-                      <tr>
-                        <td><strong>${system.name}</strong></td>
-                        <td>${activeEntregables || '(ninguno)'}</td>
-                      </tr>
-                    `
-                  })
-                  .join('')}
-              </tbody>
-            </table>
-          </div>
-            `
-            : ''
-        }
+  async function generatePdf() {
+    if (!pdfContainerRef.current) return
+    setGenerating(true)
+    try {
+      const canvas = await html2canvas(pdfContainerRef.current, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: '#ffffff',
+        logging: false,
+        windowWidth: 860,
+      })
+      const pageW = 210
+      const pageH = 297
+      const contentW = pageW
+      const imgW = canvas.width
+      const imgH = canvas.height
+      const ratio = contentW / imgW
+      const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
+      let yOffset = 0
+      let page = 0
+      const pageHeightPx = pageH / ratio
 
-        <!-- PAGE 3+: SCOPE & TERMS -->
-        <div class="page">
-          ${TIPO_PROYECTO_CONFIG[tipoProyecto].conditions}
-        </div>
-      </body>
-    </html>
-  `
+      while (yOffset < imgH) {
+        if (page > 0) doc.addPage()
+        const sliceH = Math.min(pageHeightPx, imgH - yOffset)
+        const pageCanvas = document.createElement('canvas')
+        pageCanvas.width = imgW
+        pageCanvas.height = sliceH
+        const ctx = pageCanvas.getContext('2d')!
+        ctx.fillStyle = '#ffffff'
+        ctx.fillRect(0, 0, imgW, sliceH)
+        ctx.drawImage(canvas, 0, yOffset, imgW, sliceH, 0, 0, imgW, sliceH)
+        const pageImgData = pageCanvas.toDataURL('image/jpeg', 0.95)
+        doc.addImage(pageImgData, 'JPEG', 0, 0, contentW, sliceH * ratio)
+        yOffset += sliceH
+        page++
+      }
+      doc.save(fileName)
+    } catch (err) {
+      console.error('PDF generation error:', err)
+      alert('Error al generar PDF.')
+    } finally {
+      setGenerating(false)
+    }
+  }
+
+  // Build entregables rows
+  const hasEntregables = includedItems.some(it => systemsMap.get(it.systemId)?.entregables.length)
 
   return (
     <div
@@ -831,7 +751,7 @@ function ProyPdfModal({
         >
           <div>
             <div style={{ fontSize: 15, fontWeight: 600, color: '#fff' }}>Propuesta PDF</div>
-            <div style={{ fontSize: 11, color: '#F9A8D4' }}>
+            <div style={{ fontSize: 11, color: tipoCfg.color }}>
               {includedItems.length} sistema(s) | ${total.toFixed(2)} MXN
             </div>
           </div>
@@ -844,28 +764,24 @@ function ProyPdfModal({
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <button
-            onClick={() => {
-              const win = window.open()
-              if (win) {
-                win.document.write(pdf)
-                win.document.close()
-              }
-            }}
+            onClick={generatePdf}
+            disabled={generating}
             style={{
               flex: 1,
               padding: '10px 16px',
               borderRadius: 8,
               fontSize: 12,
               fontWeight: 600,
-              cursor: 'pointer',
+              cursor: generating ? 'wait' : 'pointer',
               fontFamily: 'inherit',
-              border: '1px solid #F9A8D4',
-              background: '#F9A8D422',
-              color: '#F9A8D4',
+              border: `1px solid ${tipoCfg.color}`,
+              background: tipoCfg.color + '22',
+              color: tipoCfg.color,
+              opacity: generating ? 0.6 : 1,
             }}
           >
-            <Printer size={12} style={{ marginRight: 6, verticalAlign: 'middle' }} />
-            Ver PDF
+            <Download size={12} style={{ marginRight: 6, verticalAlign: 'middle' }} />
+            {generating ? 'Generando...' : 'Descargar PDF'}
           </button>
           <button
             onClick={onClose}
@@ -882,6 +798,177 @@ function ProyPdfModal({
           >
             Cerrar
           </button>
+        </div>
+      </div>
+
+      {/* ── Hidden container rendered off-screen for html2canvas ── */}
+      <div
+        ref={pdfContainerRef}
+        style={{
+          position: 'fixed',
+          left: '-9999px',
+          top: 0,
+          width: 860,
+          background: '#ffffff',
+          color: '#111',
+          fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
+          padding: '32px 48px',
+          fontSize: 11,
+          lineHeight: 1.5,
+        }}
+      >
+        {/* ── HEADER with logo + company info ── */}
+        <div style={{ borderBottom: '2px solid #111', paddingBottom: 16, marginBottom: 20 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 20 }}>
+            <div style={{ display: 'flex', alignItems: 'center' }}>
+              <img src={OMNIIOUS_LOGO} alt="OMNIIOUS" style={{ height: 72, width: 'auto', objectFit: 'contain' }} />
+            </div>
+            <div style={{ textAlign: 'right', fontSize: 9, color: '#555', lineHeight: 1.6 }}>
+              <div style={{ fontWeight: 600, color: '#111', fontSize: 11 }}>OMM Technologies SA de CV</div>
+              <div>contacto@ommtechnologies.mx</div>
+              <div>www.ommtechnologies.mx</div>
+            </div>
+          </div>
+        </div>
+
+        {/* ── TÍTULO + DATOS PROYECTO ── */}
+        <div style={{ marginBottom: 18 }}>
+          <div style={{ fontSize: 9, color: '#999', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 3 }}>
+            Propuesta de {tipoCfg.label}
+          </div>
+          <h1 style={{ fontSize: 18, color: '#111', marginBottom: 10, fontWeight: 600 }}>
+            {cotName || `Cotización ${tipoCfg.label}`}
+          </h1>
+          <table style={{ width: '100%', fontSize: 10 }}>
+            <tbody>
+              <tr>
+                <td style={{ padding: '3px 12px 3px 0', color: '#888', width: 120 }}>Fecha</td>
+                <td style={{ padding: '3px 0' }}>{dateStr}</td>
+                <td style={{ padding: '3px 12px 3px 0', color: '#888', width: 120 }}>Moneda</td>
+                <td style={{ padding: '3px 0' }}>MXN</td>
+              </tr>
+              <tr>
+                <td style={{ padding: '3px 12px 3px 0', color: '#888' }}>Cliente</td>
+                <td style={{ padding: '3px 0', fontWeight: 600 }}>{clientName || '—'}</td>
+                <td style={{ padding: '3px 12px 3px 0', color: '#888' }}>Vigencia</td>
+                <td style={{ padding: '3px 0' }}>30 días</td>
+              </tr>
+              {projectName && (
+                <tr>
+                  <td style={{ padding: '3px 12px 3px 0', color: '#888' }}>Proyecto</td>
+                  <td colSpan={3} style={{ padding: '3px 0' }}>{projectName}</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* ── RESUMEN POR SISTEMA ── */}
+        <div style={{ marginBottom: 18 }}>
+          <h2 style={{ fontSize: 13, color: '#111', marginBottom: 8, paddingBottom: 4, borderBottom: '1px solid #ddd', fontWeight: 600 }}>
+            Resumen por sistema
+          </h2>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr>
+                <th style={{ background: '#f5f5f5', padding: '6px 8px', textAlign: 'left', fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#666', fontWeight: 600, borderBottom: '1px solid #ddd' }}>Sistema</th>
+                <th style={{ background: '#f5f5f5', padding: '6px 8px', textAlign: 'right', fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#666', fontWeight: 600, borderBottom: '1px solid #ddd', width: 80 }}>m²</th>
+                <th style={{ background: '#f5f5f5', padding: '6px 8px', textAlign: 'right', fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#666', fontWeight: 600, borderBottom: '1px solid #ddd', width: 100 }}>Precio / m²</th>
+                <th style={{ background: '#f5f5f5', padding: '6px 8px', textAlign: 'right', fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#666', fontWeight: 600, borderBottom: '1px solid #ddd', width: 120 }}>Subtotal</th>
+              </tr>
+            </thead>
+            <tbody>
+              {includedItems.map(it => {
+                const system = systemsMap.get(it.systemId)
+                const importe = it.m2 * it.precioM2
+                return (
+                  <tr key={it.id}>
+                    <td style={{ padding: '5px 8px', borderBottom: '1px solid #eee', fontSize: 10, fontWeight: 600, verticalAlign: 'top' }}>{system?.name || 'Sistema'}</td>
+                    <td style={{ padding: '5px 8px', borderBottom: '1px solid #eee', fontSize: 10, textAlign: 'right', verticalAlign: 'top' }}>{it.m2.toFixed(2)}</td>
+                    <td style={{ padding: '5px 8px', borderBottom: '1px solid #eee', fontSize: 10, textAlign: 'right', verticalAlign: 'top' }}>${it.precioM2.toFixed(2)}</td>
+                    <td style={{ padding: '5px 8px', borderBottom: '1px solid #eee', fontSize: 10, textAlign: 'right', fontWeight: 500, verticalAlign: 'top' }}>${importe.toFixed(2)}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        {/* ── TOTALES ── */}
+        <div style={{ marginTop: 20, marginBottom: 22, padding: '14px 0', borderTop: '2px solid #111' }}>
+          <table style={{ width: '100%', fontSize: 11 }}>
+            <tbody>
+              <tr>
+                <td style={{ padding: '4px 0', color: '#666' }}>Subtotal</td>
+                <td style={{ padding: '4px 0', textAlign: 'right' }}>${subtotal.toFixed(2)}</td>
+              </tr>
+              <tr>
+                <td style={{ padding: '4px 0', color: '#888' }}>IVA {config.ivaRate}%</td>
+                <td style={{ padding: '4px 0', textAlign: 'right', color: '#888' }}>${iva.toFixed(2)}</td>
+              </tr>
+              <tr>
+                <td style={{ padding: '8px 0 4px 0', fontWeight: 700, fontSize: 14, color: '#111', borderTop: '1px solid #111' }}>TOTAL</td>
+                <td style={{ padding: '8px 0 4px 0', textAlign: 'right', fontWeight: 700, fontSize: 14, color: '#111', borderTop: '1px solid #111' }}>${total.toFixed(2)} MXN</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        {/* ── ENTREGABLES ── */}
+        {hasEntregables && (
+          <div style={{ marginBottom: 22 }}>
+            <h2 style={{ fontSize: 13, color: '#111', marginBottom: 8, paddingBottom: 4, borderBottom: '1px solid #ddd', fontWeight: 600 }}>
+              Entregables de Ingeniería Ejecutiva
+            </h2>
+            <div style={{ fontSize: 9, color: '#888', marginBottom: 12 }}>Solamente artículos incluidos en esta cotización</div>
+            {includedItems
+              .filter(it => systemsMap.get(it.systemId)?.entregables.length)
+              .map(it => {
+                const system = systemsMap.get(it.systemId)!
+                const activeEntregables = it.entregablesActivos.filter(e => system.entregables.includes(e))
+                if (activeEntregables.length === 0) return null
+                return (
+                  <div key={it.id} style={{ marginBottom: 14 }}>
+                    <div style={{ background: '#f0f0f0', padding: '6px 12px', marginBottom: 4, borderLeft: '3px solid #111', borderRadius: 2 }}>
+                      <span style={{ fontSize: 11, fontWeight: 600, color: '#111' }}>{system.name}</span>
+                    </div>
+                    <div style={{ paddingLeft: 16 }}>
+                      {activeEntregables.map((e, i) => (
+                        <div key={i} style={{ fontSize: 10, color: '#555', lineHeight: 1.8, paddingLeft: 8, position: 'relative' }}>
+                          <span style={{ position: 'absolute', left: 0 }}>•</span>
+                          {e}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })}
+          </div>
+        )}
+
+        {/* ── CONDICIONES Y TÉRMINOS ── */}
+        <div style={{ marginBottom: 20 }}>
+          <h2 style={{ fontSize: 13, color: '#111', marginBottom: 10, paddingBottom: 4, borderBottom: '1px solid #ddd', fontWeight: 600 }}>
+            Términos y condiciones
+          </h2>
+          <div
+            style={{ fontSize: 10, color: '#555', lineHeight: 1.6 }}
+            dangerouslySetInnerHTML={{ __html: tipoCfg.conditions }}
+          />
+        </div>
+
+        {/* ── FIRMA ── */}
+        <div style={{ marginTop: 40, marginBottom: 20 }}>
+          <div style={{ borderTop: '1px solid #111', paddingTop: 6, width: 260, fontSize: 10 }}>
+            <div style={{ fontWeight: 700, color: '#111' }}>Elias Gabriel Micha Cohen</div>
+            <div style={{ color: '#666' }}>Director General</div>
+            <div style={{ color: '#666' }}>OMM Technologies SA de CV</div>
+          </div>
+        </div>
+
+        {/* ── FOOTER ── */}
+        <div style={{ marginTop: 24, paddingTop: 10, borderTop: '1px solid #ddd', fontSize: 8, color: '#999', textAlign: 'center' }}>
+          OMM Technologies SA de CV · www.ommtechnologies.mx
         </div>
       </div>
     </div>
