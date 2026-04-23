@@ -1,8 +1,8 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react'
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 import { F, STAGE_CONFIG } from '../lib/utils'
 import { Badge, Btn, Loading } from '../components/layout/UI'
-import { ChevronLeft, ChevronDown, ChevronRight, Settings, X, Printer, Download } from 'lucide-react'
+import { ChevronLeft, ChevronDown, ChevronRight, Settings, X, Printer, Download, Save, Check } from 'lucide-react'
 import { OMNIIOUS_LOGO } from '../assets/logo'
 import { autoCreateProjectFromQuotation } from '../lib/projectUtils'
 import html2canvas from 'html2canvas'
@@ -1270,6 +1270,9 @@ export default function CotEditorProyecto({ cotId, onBack, specialty = 'proy' }:
 
   const [items, setItems] = useState<ProyItem[]>([])
   const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [dirty, setDirty] = useState(false)
+  const [lastSaved, setLastSaved] = useState<string | null>(null)
   const [config, setConfig] = useState<ProyConfig>({
     currency: 'MXN',
     tipoCambio: 20.5,
@@ -1309,14 +1312,12 @@ export default function CotEditorProyecto({ cotId, onBack, specialty = 'proy' }:
         if (meta.m2Construccion && meta.m2Construccion > 0) {
           setGlobalM2(meta.m2Construccion)
         }
-        // Read tipoProyecto from notes (backward compat: fall back to specialty prop)
         if (meta.tipoProyecto && TIPO_PROYECTO_CONFIG[meta.tipoProyecto as TipoProyecto]) {
           setTipoProyecto(meta.tipoProyecto as TipoProyecto)
         }
       } catch {}
     }
 
-    // Resolve systems based on tipoProyecto from notes (or fallback)
     let resolvedTipo: TipoProyecto = fallbackTipo
     try {
       const meta2 = JSON.parse(cot?.notes || '{}')
@@ -1345,49 +1346,43 @@ export default function CotEditorProyecto({ cotId, onBack, specialty = 'proy' }:
       })
       setItems(loaded)
     } else {
-      // Auto-populate with all systems — use m2Construccion from notes if available
       let initialM2 = 0
       try {
         const meta = JSON.parse(cot?.notes || '{}')
         if (meta.m2Construccion && meta.m2Construccion > 0) initialM2 = meta.m2Construccion
       } catch {}
       const newItems = resolvedSystems.map((sys, i) => ({ ...defaultItem(sys.id, i, resolvedSystems), m2: initialM2 }))
-      // Insert into DB and get real IDs back
       const itemsWithDbIds: ProyItem[] = []
       for (const item of newItems) {
-        const dbId = await insertItem(item)
-        itemsWithDbIds.push({ ...item, id: dbId || item.id })
+        const { data, error } = await supabase.from('quotation_items').insert({
+          quotation_id: cotId,
+          system: 'Proyecto',
+          type: 'material',
+          name: item.descripcion,
+          quantity: item.m2,
+          cost: 0,
+          price: item.precioM2,
+          total: item.m2 * item.precioM2,
+          markup: 0,
+          installation_cost: 0,
+          order_index: item.order,
+          notes: JSON.stringify({
+            systemId: item.systemId,
+            m2: item.m2,
+            precioM2: item.precioM2,
+            descripcion: item.descripcion,
+            entregablesActivos: item.entregablesActivos,
+            included: item.included,
+          }),
+        }).select('id').single()
+        if (error) console.error('Insert item error:', error)
+        itemsWithDbIds.push({ ...item, id: data?.id || item.id })
       }
       setItems(itemsWithDbIds)
     }
 
     setLoading(false)
-  }
-
-  async function insertItem(item: ProyItem): Promise<string | null> {
-    const { data, error } = await supabase.from('quotation_items').insert({
-      quotation_id: cotId,
-      system: 'Proyecto',
-      type: 'material',
-      name: item.descripcion,
-      quantity: item.m2,
-      cost: 0,
-      price: item.precioM2,
-      total: item.m2 * item.precioM2,
-      markup: 0,
-      installation_cost: 0,
-      order_index: item.order,
-      notes: JSON.stringify({
-        systemId: item.systemId,
-        m2: item.m2,
-        precioM2: item.precioM2,
-        descripcion: item.descripcion,
-        entregablesActivos: item.entregablesActivos,
-        included: item.included,
-      }),
-    }).select('id').single()
-    if (error) console.error('Insert item error:', error)
-    return data?.id || null
+    setDirty(false)
   }
 
   useEffect(() => {
@@ -1401,72 +1396,24 @@ export default function CotEditorProyecto({ cotId, onBack, specialty = 'proy' }:
     return subtotal + iva
   }, [items, config])
 
-  // Sync total to DB
-  useEffect(() => {
-    if (!loading && cotId) {
-      supabase.from('quotations').update({ total: Math.round(grandTotal * 100) / 100 }).eq('id', cotId).then()
-    }
-  }, [grandTotal, loading, cotId])
-
-  async function updateConfig(field: string, value: any) {
-    const next = { ...config, [field]: value }
-    setConfig(next)
-    // Preserve existing notes metadata (tipoProyecto, m2Construccion, lead_id, etc.)
-    const { data: cot } = await supabase.from('quotations').select('notes').eq('id', cotId).single()
-    let existingNotes: any = {}
-    try { existingNotes = JSON.parse(cot?.notes || '{}') } catch {}
-    await supabase
-      .from('quotations')
-      .update({ notes: JSON.stringify({ ...existingNotes, proyConfig: next }) })
-      .eq('id', cotId)
-  }
-
-  function updateItem(id: string, field: string, value: any) {
-    setItems(prev => {
-      const next = prev.map(it =>
-        it.id === id ? { ...it, [field]: value } : it
-      )
-      const updated = next.find(it => it.id === id)
-      if (updated) {
-        const importe = updated.m2 * updated.precioM2
-        supabase
+  // ── GUARDAR TODO ── botón explícito que persiste items + config + total
+  const saveAll = useCallback(async () => {
+    setSaving(true)
+    try {
+      // 1. Save each item to DB
+      const promises = items.map(it => {
+        const importe = it.m2 * it.precioM2
+        return supabase
           .from('quotation_items')
           .update({
-            name: updated.descripcion,
-            quantity: updated.m2,
-            price: updated.precioM2,
+            name: it.descripcion,
+            quantity: it.m2,
+            price: it.precioM2,
             total: importe,
-            notes: JSON.stringify({
-              systemId: updated.systemId,
-              m2: updated.m2,
-              precioM2: updated.precioM2,
-              descripcion: updated.descripcion,
-              entregablesActivos: updated.entregablesActivos,
-              included: updated.included,
-            }),
-          })
-          .eq('id', id)
-          .then(({ error }) => { if (error) console.error('Update item error:', error) })
-      }
-      return next
-    })
-  }
-
-  function setGlobalM2Value(val: number) {
-    setGlobalM2(val)
-    setItems(prev => {
-      const updated = prev.map(it => ({ ...it, m2: val }))
-      // Persist each item's m2 to DB
-      for (const it of updated) {
-        const importe = val * it.precioM2
-        supabase
-          .from('quotation_items')
-          .update({
-            quantity: val,
-            total: importe,
+            order_index: it.order,
             notes: JSON.stringify({
               systemId: it.systemId,
-              m2: val,
+              m2: it.m2,
               precioM2: it.precioM2,
               descripcion: it.descripcion,
               entregablesActivos: it.entregablesActivos,
@@ -1474,10 +1421,64 @@ export default function CotEditorProyecto({ cotId, onBack, specialty = 'proy' }:
             }),
           })
           .eq('id', it.id)
-          .then(({ error }) => { if (error) console.error('Global m2 update error:', error) })
+      })
+
+      // 2. Save quotation config + total
+      const { data: cotData } = await supabase.from('quotations').select('notes').eq('id', cotId).single()
+      let existingNotes: any = {}
+      try { existingNotes = JSON.parse(cotData?.notes || '{}') } catch {}
+      const quotationPromise = supabase
+        .from('quotations')
+        .update({
+          total: Math.round(grandTotal * 100) / 100,
+          notes: JSON.stringify({ ...existingNotes, proyConfig: config }),
+        })
+        .eq('id', cotId)
+
+      // Execute all in parallel
+      const results = await Promise.all([...promises, quotationPromise])
+      const errors = results.filter(r => r.error)
+      if (errors.length > 0) {
+        console.error('Save errors:', errors.map(r => r.error))
+        alert(`Error al guardar: ${errors.length} error(es)`)
+      } else {
+        setDirty(false)
+        setLastSaved(new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' }))
       }
-      return updated
-    })
+    } catch (err) {
+      console.error('Save error:', err)
+      alert('Error al guardar')
+    } finally {
+      setSaving(false)
+    }
+  }, [items, config, cotId, grandTotal])
+
+  // Keyboard shortcut: Cmd/Ctrl + S
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+        e.preventDefault()
+        saveAll()
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [saveAll])
+
+  function updateConfig(field: string, value: any) {
+    setConfig(prev => ({ ...prev, [field]: value }))
+    setDirty(true)
+  }
+
+  function updateItem(id: string, field: string, value: any) {
+    setItems(prev => prev.map(it => it.id === id ? { ...it, [field]: value } : it))
+    setDirty(true)
+  }
+
+  function setGlobalM2Value(val: number) {
+    setGlobalM2(val)
+    setItems(prev => prev.map(it => ({ ...it, m2: val })))
+    setDirty(true)
   }
 
   function toggleExpanded(id: string) {
@@ -1561,7 +1562,39 @@ export default function CotEditorProyecto({ cotId, onBack, specialty = 'proy' }:
             </button>
           ))}
           <button
-            onClick={() => setShowPdf(true)}
+            onClick={saveAll}
+            disabled={saving}
+            style={{
+              padding: '3px 12px',
+              borderRadius: 20,
+              fontSize: 10,
+              fontWeight: 600,
+              cursor: saving ? 'wait' : 'pointer',
+              fontFamily: 'inherit',
+              border: dirty ? '1px solid #57FF9A' : '1px solid #333',
+              background: dirty ? '#57FF9A22' : 'transparent',
+              color: dirty ? '#57FF9A' : '#555',
+              marginLeft: 4,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 4,
+              opacity: saving ? 0.6 : 1,
+              transition: 'all 0.2s',
+            }}
+          >
+            {saving ? (
+              <><Save size={12} /> Guardando...</>
+            ) : dirty ? (
+              <><Save size={12} /> Guardar</>
+            ) : (
+              <><Check size={12} /> Guardado</>
+            )}
+          </button>
+          {lastSaved && !dirty && (
+            <span style={{ fontSize: 9, color: '#555' }}>{lastSaved}</span>
+          )}
+          <button
+            onClick={() => { if (dirty) { saveAll().then(() => setShowPdf(true)) } else { setShowPdf(true) } }}
             style={{
               padding: '3px 10px',
               borderRadius: 20,
