@@ -36,7 +36,7 @@ Para cada movimiento, analiza el campo concepto y extrae:
   • 'BBVA SEGUROS MEXICO/...' → 'BBVA Seguros'
   • 'SAT/GUIA:...' → 'SAT'
   • 'IMSS/INF/AFORE/...' → 'IMSS/INFONAVIT'
-  • 'SISTEMAS Y SERVICIOS/GUIA:...' → 'Sistemas y Servicios (SAT)'
+  • 'SISTEMAS Y SERVICIOS/GUIA:...' → 'SYSCOM'
   • 'PAGO CUENTA DE TERCERO/...': extraer la referencia libre al final (ej. 'LUMIN 1106', 'Bocinas E401', 'Finiquito Carlos')
   • 'SPEI ENVIADO BANAMEX/...Finiquito Carlos Alberto' → 'Carlos Alberto' (o lo que sea la referencia)
   • 'PAGO DE NOMINA/IN ... OMM TECHNOLOGIES' → 'Nómina OMM'
@@ -67,7 +67,8 @@ Para cada movimiento, analiza el campo concepto y extrae:
 - categoria: inferir tipo de transacción:
   • 'PAGO DE NOMINA', 'TRANSF SPEI ... NOMINA' → 'nomina'
   • 'IMSS/INF/AFORE' → 'impuestos_nomina'
-  • 'SAT/GUIA', 'SISTEMAS Y SERVICIOS' → 'impuestos'
+  • 'SAT/GUIA' → 'impuestos'
+  • 'SISTEMAS Y SERVICIOS' → 'proveedor' (es SYSCOM, NO es SAT)
   • 'PAGO CUENTA DE TERCERO' con nombre de obra o proyecto → 'proveedor_obra'
   • 'PAGO CUENTA DE TERCERO' con 'Finiquito' → 'nomina'
   • 'PAGO CUENTA DE TERCERO' con 'Prestamo' → 'prestamo'
@@ -213,6 +214,7 @@ Para movimientos A15 (tarjeta de débito): el comercio está en la línea 1:
 - "A15 STR*SYSCOM MX" → beneficiario="SYSCOM"
 
 Para SAT/gobierno: beneficiario="SAT", "IMSS", "INFONAVIT", "CDMX" etc.
+Para "SISTEMAS Y SERVICIOS": beneficiario="SYSCOM" (es el proveedor SYSCOM, NO confundir con SAT).
 
 ═══════════════════════════════════════════════
 REGLA #5 — RFC (CRÍTICO para conciliación)
@@ -262,8 +264,9 @@ Categorías válidas:
 - "nomina"        → PAGO NOMINA, R01, BT3 TRANSF SPEI NOMINA, SPEI ENVIADO a persona física
 - "proveedor"     → N06 PAGO CUENTA DE TERCERO a empresas, STR*SYSCOM, Boxdeal, SOMFY
 - "cobro_cliente" → T20 SPEI RECIBIDO, W02 DEPOSITO DE TERCERO, C07 DEP.CHEQUES DE OTRO BANCO, AA7 DEPOSITO EFECTIVO
-- "impuestos"     → SAT, IMSS, INFONAVIT, ISN, CDMX, X01 IMSS/INF/AFORE, P14 CDMX, P14 SAT
-- "comision"      → P14 SISTEMAS Y SERVICIOS, S39 SERV BANCA INTERNET, S40 IVA COM, G30 RECIBO NO., A16/A17 REP TARJ, Y45 COMPENSACION
+- "impuestos"     → SAT, IMSS, INFONAVIT, ISN, CDMX, X01 IMSS/INF/AFORE, P14 CDMX, P14 SAT (⚠️ "SISTEMAS Y SERVICIOS" NO es SAT, es SYSCOM proveedor)
+- "proveedor"     → INCLUYE "SISTEMAS Y SERVICIOS" (es SYSCOM, proveedor de material eléctrico)
+- "comision"      → S39 SERV BANCA INTERNET, S40 IVA COM, G30 RECIBO NO., A16/A17 REP TARJ, Y45 COMPENSACION
 - "traspaso"      → E62 TRASPASO ENTRE CUENTAS (mismo titular), T17 SPEI "Trans entre ctas"
 - "prestamo"      → N02 PAGO TARJETA DE CREDITO, "Prestamo" en concepto
 - "suscripcion"   → A15 con STRIPE, UBER, CLAUDE.AI, ODOO, TELMEX, SPOTIFY
