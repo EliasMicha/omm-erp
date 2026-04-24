@@ -1534,12 +1534,35 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
     source: m.source || 'manual',
   })
 
+  // Dedup key: cuenta+fecha+concepto+monto+tipo (matches DB unique index)
+  const dedupKey = (m: { cuenta?: string; fecha: string; concepto: string; monto: number; tipo: string }) =>
+    `${m.cuenta || ''}|${m.fecha}|${m.concepto}|${Math.round(m.monto * 100)}|${m.tipo}`
+
+  const deduplicateAgainstExisting = (newMovs: BankMovement[]): BankMovement[] => {
+    const existingKeys = new Set(bankMovements.map(m => dedupKey(m)))
+    // Also dedup within the batch itself
+    const seen = new Set<string>()
+    return newMovs.filter(m => {
+      const key = dedupKey(m)
+      if (existingKeys.has(key) || seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+  }
+
   const dbInsertMany = async (movements: BankMovement[]) => {
     if (movements.length === 0) return
     const rows = movements.map(toRow)
-    // Batch in chunks of 50
+    // Batch in chunks of 50, use ignoreDuplicates to skip DB-level dupes
     for (let i = 0; i < rows.length; i += 50) {
-      await supabase.from('bank_movements').upsert(rows.slice(i, i + 50), { onConflict: 'id' })
+      const chunk = rows.slice(i, i + 50)
+      const { error } = await supabase.from('bank_movements').insert(chunk)
+      // If unique constraint violation, fall back to one-by-one insert ignoring dupes
+      if (error && error.code === '23505') {
+        for (const row of chunk) {
+          await supabase.from('bank_movements').insert(row).then(() => {}) // ignore individual dupe errors
+        }
+      }
     }
   }
 
@@ -1968,9 +1991,17 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
       source: 'txt-tabular',
       conciliado: false,
     }))
-    setBankMovements([...newMovs, ...bankMovements])
-    await dbInsertMany(newMovs)
-    setStatus('Importados ' + newMovs.length + ' movimientos a ' + acc.label)
+    // Dedup against existing movements before inserting
+    const deduped = deduplicateAgainstExisting(newMovs)
+    const skipped = newMovs.length - deduped.length
+    if (deduped.length === 0) {
+      setStatus(`Todos los ${newMovs.length} movimientos ya existían — no se importó nada`)
+      setShowTxtModal(null); setTxtPayload(''); setTxtPreview(null); setTxtSummary(null)
+      return
+    }
+    setBankMovements([...deduped, ...bankMovements])
+    await dbInsertMany(deduped)
+    setStatus(`Importados ${deduped.length} movimientos a ${acc.label}` + (skipped > 0 ? ` (${skipped} duplicados omitidos)` : ''))
     setShowTxtModal(null)
     setTxtPayload('')
     setTxtPreview(null)
