@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react'
 import { MOCK_CLIENTES } from './Clientes'
 import type { ClienteFiscal } from './Clientes'
 import { supabase } from '../lib/supabase'
-import { SectionHeader, KpiCard, Table, Th, Td, Badge, Btn, EmptyState } from '../components/layout/UI'
+import { SectionHeader, KpiCard, Table, Th, Td, ThFilter, useColumnFilters, Badge, Btn, EmptyState } from '../components/layout/UI'
 import { F, formatDate } from '../lib/utils'
 import {
   FileText, Building2, ArrowLeftRight, ShieldCheck,
@@ -410,6 +410,7 @@ function TabFacturacion({ invoices, setInvoices, bankMovements, projectNames }: 
   const [filter, setFilter] = useState<'todas' | 'emitidas' | 'recibidas'>('todas')
   const [search, setSearch] = useState('')
   const [monthOffset, setMonthOffset] = useState(0) // 0 = mes actual, -1 = mes pasado, +1 = siguiente
+  const colFilters = useColumnFilters()
   // FacturAPI mode (Sesion B)
   const [facturapiMode, setFacturapiMode] = useState<'test' | 'live'>('test')
   const [facturapiConfig, setFacturapiConfig] = useState<{ hasLive: boolean; hasTest: boolean; defaultMode: 'test' | 'live' | null } | null>(null)
@@ -833,21 +834,43 @@ function TabFacturacion({ invoices, setInvoices, bankMovements, projectNames }: 
 
   // Filtros aplicados a las facturas del mes: dirección + búsqueda
   const searchLower = search.trim().toLowerCase()
-  const filtered = monthInvoices
-    .filter(i =>
-      filter === 'todas' ? true : filter === 'emitidas' ? i.direccion === 'emitida' : i.direccion === 'recibida'
-    )
-    .filter(i => {
-      if (!searchLower) return true
-      const haystack = [
-        i.serie, i.folio, i.receptor_nombre, i.emisor_nombre,
-        i.emisor_rfc, i.receptor_rfc, i.proyecto_nombre, i.uuid,
-        i.receptor_uso_cfdi, i.metodo_pago,
-      ].filter(Boolean).join(' ').toLowerCase()
-      return haystack.includes(searchLower)
-    })
-    // Más nuevas primero
-    .sort((a, b) => (b.fecha_emision || '').localeCompare(a.fecha_emision || ''))
+  // Helper para obtener valor de columna para filtrado
+  const getInvColValue = (inv: Invoice, col: string): string => {
+    switch (col) {
+      case 'dir': return inv.direccion === 'emitida' ? (inv.tipo_comprobante === 'N' ? 'Nómina' : 'Emitida') : 'Recibida'
+      case 'tipo': return CFDI_TYPE_LABELS[inv.tipo_comprobante] || inv.tipo_comprobante
+      case 'moneda': return inv.moneda || 'MXN'
+      case 'cliente': return inv.direccion === 'emitida' ? (inv.receptor_nombre || '') : (inv.emisor_nombre || '')
+      case 'uso_cfdi': return inv.receptor_uso_cfdi || ''
+      case 'proyecto': return inv.proyecto_nombre || ''
+      case 'estado': return INVOICE_STATUS_CONFIG[inv.estado]?.label || inv.estado
+      default: return ''
+    }
+  }
+
+  const filtered = colFilters.applyFilters(
+    monthInvoices
+      .filter(i =>
+        filter === 'todas' ? true : filter === 'emitidas' ? i.direccion === 'emitida' : i.direccion === 'recibida'
+      )
+      .filter(i => {
+        if (!searchLower) return true
+        const haystack = [
+          i.serie, i.folio, i.receptor_nombre, i.emisor_nombre,
+          i.emisor_rfc, i.receptor_rfc, i.proyecto_nombre, i.uuid,
+          i.receptor_uso_cfdi, i.metodo_pago,
+        ].filter(Boolean).join(' ').toLowerCase()
+        return haystack.includes(searchLower)
+      })
+      // Más nuevas primero
+      .sort((a, b) => (b.fecha_emision || '').localeCompare(a.fecha_emision || '')),
+    getInvColValue
+  )
+
+  // Valores para los filtros de columna (basados en las facturas del mes, pre-filtrado de columna)
+  const preFilteredInvoices = monthInvoices
+    .filter(i => filter === 'todas' ? true : filter === 'emitidas' ? i.direccion === 'emitida' : i.direccion === 'recibida')
+    .filter(i => { if (!searchLower) return true; const h = [i.serie,i.folio,i.receptor_nombre,i.emisor_nombre,i.emisor_rfc,i.receptor_rfc,i.proyecto_nombre].filter(Boolean).join(' ').toLowerCase(); return h.includes(searchLower) })
 
   return (
     <div>
@@ -1004,18 +1027,18 @@ function TabFacturacion({ invoices, setInvoices, bankMovements, projectNames }: 
       {/* Tabla con scroll */}
       <div style={{ maxHeight: 'calc(100vh - 360px)', minHeight: 300, overflowY: 'auto', border: '1px solid #222', borderRadius: 10, background: '#0d0d0d' }}>
         <Table>
-          <thead style={{ position: 'sticky', top: 0, background: '#141414', zIndex: 1 }}>
+          <thead style={{ position: 'sticky', top: 0, background: '#141414', zIndex: 10 }}>
             <tr>
               <Th>Folio</Th>
-              <Th>Dir.</Th>
-              <Th>Tipo</Th>
-              <Th>Mon.</Th>
-              <Th>Cliente / Proveedor</Th>
-              <Th>Uso CFDI</Th>
-              <Th>Proyecto</Th>
+              <ThFilter label="Dir." values={preFilteredInvoices.map(i => getInvColValue(i, 'dir'))} activeFilters={colFilters.getFilter('dir')} onFilterChange={s => colFilters.setFilter('dir', s)} />
+              <ThFilter label="Tipo" values={preFilteredInvoices.map(i => getInvColValue(i, 'tipo'))} activeFilters={colFilters.getFilter('tipo')} onFilterChange={s => colFilters.setFilter('tipo', s)} />
+              <ThFilter label="Mon." values={preFilteredInvoices.map(i => getInvColValue(i, 'moneda'))} activeFilters={colFilters.getFilter('moneda')} onFilterChange={s => colFilters.setFilter('moneda', s)} />
+              <ThFilter label="Cliente / Proveedor" values={preFilteredInvoices.map(i => getInvColValue(i, 'cliente'))} activeFilters={colFilters.getFilter('cliente')} onFilterChange={s => colFilters.setFilter('cliente', s)} />
+              <ThFilter label="Uso CFDI" values={preFilteredInvoices.map(i => getInvColValue(i, 'uso_cfdi'))} activeFilters={colFilters.getFilter('uso_cfdi')} onFilterChange={s => colFilters.setFilter('uso_cfdi', s)} />
+              <ThFilter label="Proyecto" values={preFilteredInvoices.map(i => getInvColValue(i, 'proyecto'))} activeFilters={colFilters.getFilter('proyecto')} onFilterChange={s => colFilters.setFilter('proyecto', s)} />
               <Th right>Ingreso</Th>
               <Th right>Egreso</Th>
-              <Th>Estado</Th>
+              <ThFilter label="Estado" values={preFilteredInvoices.map(i => getInvColValue(i, 'estado'))} activeFilters={colFilters.getFilter('estado')} onFilterChange={s => colFilters.setFilter('estado', s)} />
               <Th>Fecha</Th>
             </tr>
           </thead>
@@ -1350,6 +1373,7 @@ function TabFacturacion({ invoices, setInvoices, bankMovements, projectNames }: 
 
 function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNames }: { bankMovements: BankMovement[]; setBankMovements: (m: BankMovement[]) => void; invoices: Invoice[]; projectNames: string[] }) {
   const [processing, setProcessing] = useState(false)
+  const concColFilters = useColumnFilters()
   // Asignacion en cascada Lead -> Cotizacion -> OC
   const [assignLeads, setAssignLeads] = useState<{ id: string; name: string; company?: string }[]>([])
   const [assignQuotations, setAssignQuotations] = useState<{ id: string; name: string; lead_id: string; specialty?: string; total?: number; currency?: string }[]>([])
@@ -1965,10 +1989,22 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
 
   /* --- Selection helpers --- */
   // Conciliacion v2: filtrar PRIMERO por cuenta activa, luego por estado
-  const filtered = bankMovements
+  const getMovColValue = (m: BankMovement, col: string): string => {
+    switch (col) {
+      case 'beneficiario': return m.beneficiario || ''
+      case 'proyecto': return m.proyecto_sugerido || m.proyecto_codigo || ''
+      case 'categoria': return m.categoria_sugerida || 'otro'
+      case 'tipo': return m.tipo === 'cargo' ? 'Cargo' : 'Abono'
+      default: return ''
+    }
+  }
+
+  const preFilteredMovs = bankMovements
     .filter(m => m.banco === activeAcc.banco && (m.moneda || 'MXN') === activeAcc.moneda)
     .filter(m => inSelectedMonth(m.fecha))
     .filter(m => filtro === 'todos' ? true : filtro === 'pendientes' ? !m.conciliado : m.conciliado)
+
+  const filtered = concColFilters.applyFilters(preFilteredMovs, getMovColValue)
   const allSelected = filtered.length > 0 && filtered.every(m => selected.has(m.id))
   const toggleAll = () => {
     if (allSelected) { setSelected(new Set()) }
@@ -2233,7 +2269,14 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
         <Table>
           <thead><tr>
             <Th><input type="checkbox" checked={allSelected} onChange={toggleAll} style={chkStyle} /></Th>
-            <Th>Fecha</Th><Th>Concepto</Th><Th>Beneficiario</Th><Th>Proyecto</Th><Th>Categoría</Th><Th right>Cargo</Th><Th right>Abono</Th><Th>Match</Th><Th></Th>
+            <Th>Fecha</Th>
+            <Th>Concepto</Th>
+            <ThFilter label="Beneficiario" values={preFilteredMovs.map(m => getMovColValue(m, 'beneficiario'))} activeFilters={concColFilters.getFilter('beneficiario')} onFilterChange={s => concColFilters.setFilter('beneficiario', s)} />
+            <ThFilter label="Proyecto" values={preFilteredMovs.map(m => getMovColValue(m, 'proyecto'))} activeFilters={concColFilters.getFilter('proyecto')} onFilterChange={s => concColFilters.setFilter('proyecto', s)} />
+            <ThFilter label="Categoría" values={preFilteredMovs.map(m => getMovColValue(m, 'categoria'))} activeFilters={concColFilters.getFilter('categoria')} onFilterChange={s => concColFilters.setFilter('categoria', s)} />
+            <ThFilter label="Cargo" right values={preFilteredMovs.map(m => getMovColValue(m, 'tipo'))} activeFilters={concColFilters.getFilter('tipo')} onFilterChange={s => concColFilters.setFilter('tipo', s)} />
+            <Th right>Abono</Th>
+            <Th>Match</Th><Th></Th>
           </tr></thead>
           <tbody>
             {filtered.map(m => {
@@ -2668,6 +2711,8 @@ function TabSupervision({ invoices, bankMovements }: { invoices: Invoice[]; bank
   const [concLinks, setConcLinks] = useState<{ id: string; bank_movement_id: string; invoice_id: string; monto_aplicado: number }[]>([])
   const [monthOffset, setMonthOffset] = useState(0)
   const [vista, setVista] = useState<'facturas' | 'pagos'>('facturas')
+  const supFactFilters = useColumnFilters()
+  const supPagFilters = useColumnFilters()
 
   useEffect(() => {
     supabase.from('conciliacion_links').select('*').then(({ data }) => {
@@ -2733,6 +2778,33 @@ function TabSupervision({ invoices, bankMovements }: { invoices: Invoice[]; bank
 
   const tdStyle: React.CSSProperties = { padding: '6px 10px', fontSize: 11, borderBottom: '1px solid #1a1a1a' }
 
+  // Column value getters for filters
+  const getSupFactCol = (inv: Invoice, col: string): string => {
+    const isEmitida = inv.direccion === 'emitida'
+    switch (col) {
+      case 'dir': return isEmitida ? 'EMI' : 'REC'
+      case 'tipo': return CFDI_TYPE_LABELS[inv.tipo_comprobante] || inv.tipo_comprobante
+      case 'mon': return inv.moneda || 'MXN'
+      case 'cliente': return isEmitida ? (inv.receptor_nombre || '') : (inv.emisor_nombre || '')
+      case 'estado': return INVOICE_STATUS_CONFIG[inv.estado]?.label || inv.estado
+      default: return ''
+    }
+  }
+
+  const getSupPagCol = (m: BankMovement, col: string): string => {
+    switch (col) {
+      case 'beneficiario': return m.beneficiario || '—'
+      case 'proveedor': return m.proveedor || m.cliente || '—'
+      case 'categoria': return m.categoria_sugerida || 'otro'
+      case 'mon': return m.moneda || 'MXN'
+      case 'tipo': return m.tipo || ''
+      default: return ''
+    }
+  }
+
+  const filteredFacturasSC = supFactFilters.applyFilters(facturasSinConciliar, getSupFactCol)
+  const filteredPagosSF = supPagFilters.applyFilters(pagosSinFactura, getSupPagCol)
+
   return (
     <div>
       {/* Navegación mensual */}
@@ -2773,11 +2845,17 @@ function TabSupervision({ invoices, bankMovements }: { invoices: Invoice[]; bank
             <Table>
               <thead>
                 <tr>
-                  <Th>Folio</Th><Th>Dir</Th><Th>Tipo</Th><Th>Mon.</Th><Th>Cliente / Proveedor</Th><Th>RFC</Th><Th>Fecha</Th><Th right>Total</Th><Th>Estado</Th>
+                  <Th>Folio</Th>
+                  <ThFilter label="Dir" values={facturasSinConciliar.map(i => getSupFactCol(i, 'dir'))} activeFilters={supFactFilters.getFilter('dir')} onFilterChange={s => supFactFilters.setFilter('dir', s)} />
+                  <ThFilter label="Tipo" values={facturasSinConciliar.map(i => getSupFactCol(i, 'tipo'))} activeFilters={supFactFilters.getFilter('tipo')} onFilterChange={s => supFactFilters.setFilter('tipo', s)} />
+                  <ThFilter label="Mon." values={facturasSinConciliar.map(i => getSupFactCol(i, 'mon'))} activeFilters={supFactFilters.getFilter('mon')} onFilterChange={s => supFactFilters.setFilter('mon', s)} />
+                  <ThFilter label="Cliente / Proveedor" values={facturasSinConciliar.map(i => getSupFactCol(i, 'cliente'))} activeFilters={supFactFilters.getFilter('cliente')} onFilterChange={s => supFactFilters.setFilter('cliente', s)} />
+                  <Th>RFC</Th><Th>Fecha</Th><Th right>Total</Th>
+                  <ThFilter label="Estado" values={facturasSinConciliar.map(i => getSupFactCol(i, 'estado'))} activeFilters={supFactFilters.getFilter('estado')} onFilterChange={s => supFactFilters.setFilter('estado', s)} />
                 </tr>
               </thead>
               <tbody>
-                {facturasSinConciliar
+                {filteredFacturasSC
                   .sort((a, b) => b.total - a.total)
                   .map(inv => {
                     const isEmitida = inv.direccion === 'emitida'
@@ -2834,11 +2912,16 @@ function TabSupervision({ invoices, bankMovements }: { invoices: Invoice[]; bank
               <Table>
                 <thead>
                   <tr>
-                    <Th>Fecha</Th><Th>Concepto</Th><Th>Beneficiario</Th><Th>Proveedor / Cliente</Th><Th>Categoría</Th><Th>Mon.</Th><Th right>Cargo</Th><Th right>Abono</Th>
+                    <Th>Fecha</Th><Th>Concepto</Th>
+                    <ThFilter label="Beneficiario" values={pagosSinFactura.map(m => getSupPagCol(m, 'beneficiario'))} activeFilters={supPagFilters.getFilter('beneficiario')} onFilterChange={s => supPagFilters.setFilter('beneficiario', s)} />
+                    <ThFilter label="Proveedor / Cliente" values={pagosSinFactura.map(m => getSupPagCol(m, 'proveedor'))} activeFilters={supPagFilters.getFilter('proveedor')} onFilterChange={s => supPagFilters.setFilter('proveedor', s)} />
+                    <ThFilter label="Categoría" values={pagosSinFactura.map(m => getSupPagCol(m, 'categoria'))} activeFilters={supPagFilters.getFilter('categoria')} onFilterChange={s => supPagFilters.setFilter('categoria', s)} />
+                    <ThFilter label="Mon." values={pagosSinFactura.map(m => getSupPagCol(m, 'mon'))} activeFilters={supPagFilters.getFilter('mon')} onFilterChange={s => supPagFilters.setFilter('mon', s)} />
+                    <Th right>Cargo</Th><Th right>Abono</Th>
                   </tr>
                 </thead>
                 <tbody>
-                  {pagosSinFactura
+                  {filteredPagosSF
                     .sort((a, b) => b.monto - a.monto)
                     .map(m => {
                       const entity = m.proveedor || m.cliente || '—'
@@ -2887,6 +2970,7 @@ function TabSupervision({ invoices, bankMovements }: { invoices: Invoice[]; bank
 function TabEfectivo() {
   const [movements, setMovements] = useState<CashMovement[]>([])
   const [loading, setLoading] = useState(true)
+  const efColFilters = useColumnFilters()
 
   useEffect(() => {
     async function load() {
@@ -2907,6 +2991,18 @@ function TabEfectivo() {
   const totalCobros = cobros.reduce((s, m) => s + m.monto, 0)
   const totalPagos = pagos.reduce((s, m) => s + m.monto, 0)
   const totalNomina = nomina.reduce((s, m) => s + m.monto, 0)
+
+  const getEfCol = (m: CashMovement, col: string): string => {
+    switch (col) {
+      case 'tipo': return m.tipo === 'cobro_cliente' ? 'Cobro' : m.tipo === 'pago_proveedor' ? 'Pago' : 'Nomina'
+      case 'persona': return m.persona || ''
+      case 'proyecto': return m.proyecto_nombre || '—'
+      case 'direccion': return m.direccion || ''
+      default: return ''
+    }
+  }
+
+  const filteredMovements = efColFilters.applyFilters(movements, getEfCol)
 
   if (loading) return <div style={{ textAlign: 'center', padding: 40, color: '#666' }}>Cargando movimientos...</div>
 
@@ -2934,15 +3030,15 @@ function TabEfectivo() {
           <thead>
             <tr>
               <Th>Fecha</Th>
-              <Th>Tipo</Th>
-              <Th>Persona</Th>
+              <ThFilter label="Tipo" values={movements.map(m => getEfCol(m, 'tipo'))} activeFilters={efColFilters.getFilter('tipo')} onFilterChange={s => efColFilters.setFilter('tipo', s)} />
+              <ThFilter label="Persona" values={movements.map(m => getEfCol(m, 'persona'))} activeFilters={efColFilters.getFilter('persona')} onFilterChange={s => efColFilters.setFilter('persona', s)} />
               <Th>Concepto</Th>
-              <Th>Proyecto</Th>
+              <ThFilter label="Proyecto" values={movements.map(m => getEfCol(m, 'proyecto'))} activeFilters={efColFilters.getFilter('proyecto')} onFilterChange={s => efColFilters.setFilter('proyecto', s)} />
               <Th right>Monto</Th>
             </tr>
           </thead>
           <tbody>
-            {movements.map(m => (
+            {filteredMovements.map(m => (
               <tr key={m.id}>
                 <Td muted>{formatDate(m.fecha)}</Td>
                 <Td>
