@@ -255,6 +255,7 @@ export default function Contabilidad() {
           lead_id: m.lead_id || undefined,
           quotation_id: m.quotation_id || undefined,
           purchase_order_id: m.purchase_order_id || undefined,
+          moneda: m.moneda || 'MXN',
           cuenta_destino_detectada: m.cuenta_destino_detectada || undefined,
           bnet_codigo_detectado: m.bnet_codigo_detectado || undefined,
         })))
