@@ -221,7 +221,7 @@ IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
 
   const openNew = () => {
     setEditId(null)
-    setForm({ type: 'material', unit: 'pza', clave_unidad: 'H87', markup: 35, iva_rate: 0.16, is_active: true, system: 'Electrico', purchase_phase: 'inicio', supplier_id: '' })
+    setForm({ type: 'material', unit: 'pza', clave_unidad: 'H87', markup: 35, iva_rate: 0.16, is_active: true, system: 'Electrico', purchase_phase: 'inicio', supplier_id: '', specialty: filterSpecialty })
     setShowForm(true)
   }
 
@@ -388,7 +388,7 @@ IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
           {filterSpecialty === 'elec' && <><Th>Código</Th><Th>Subdescripción</Th><Th>Marca</Th><Th>Unidad</Th><Th right>Costo MO</Th></>}
           {filterSpecialty === 'proy' && <><Th>Unidad</Th></>}
           {filterSpecialty !== 'elec' && <><Th>Proveedor</Th><Th>Fase</Th></>}
-          <Th right>{filterSpecialty === 'elec' ? 'Costo Material' : 'Costo'}</Th>
+          <Th right>{(form.specialty === 'elec' || filterSpecialty === 'elec') ? 'Costo Material' : 'Costo'}</Th>
           <Th right>Precio Venta</Th>
           <Th>{' '}</Th>
         </tr></thead>
@@ -522,7 +522,7 @@ IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
               <Fld label="Fase de compra"><select style={iS} value={form.purchase_phase || 'inicio'} onChange={e => setForm({...form, purchase_phase: e.target.value})}>{Object.entries(PHASE_CONFIG).map(([k,v]) => <option key={k} value={k}>{v.label}</option>)}</select></Fld>
             </div>
             {/* Campos eléctrico */}
-            {filterSpecialty === 'elec' && (
+            {(form.specialty === 'elec' || filterSpecialty === 'elec') && (
               <>
                 <div style={{ fontSize: 13, fontWeight: 600, color: '#888', marginTop: 12, marginBottom: 10 }}>Eléctrico</div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
@@ -535,9 +535,9 @@ IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
             <div style={{ fontSize: 13, fontWeight: 600, color: '#888', marginTop: 12, marginBottom: 10 }}>Precios</div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 10 }}>
               <Fld label="Moneda"><select style={iS} value={form.moneda || 'MXN'} onChange={e => setForm({...form, moneda: e.target.value})}><option value="MXN">MXN (Pesos)</option><option value="USD">USD (Dolares)</option></select></Fld>
-              <Fld label={filterSpecialty === 'elec' ? 'Costo Material' : 'Costo'}><input style={iS} type="number" value={form.cost || ''} onChange={e => { const c = parseFloat(e.target.value)||0; const base = filterSpecialty === 'elec' ? c + (form.costo_mano_obra||0) : c; setForm({...form, cost: c, precio_venta: calcPrecioVenta(base, form.markup||35)}) }} placeholder="0.00" /></Fld>
-              {filterSpecialty === 'elec' && <Fld label="Costo Mano de Obra"><input style={iS} type="number" value={form.costo_mano_obra || ''} onChange={e => { const mo = parseFloat(e.target.value)||0; const base = (form.cost||0) + mo; setForm({...form, costo_mano_obra: mo, precio_venta: calcPrecioVenta(base, form.markup||35)}) }} placeholder="0.00" /></Fld>}
-              <Fld label="Margen %"><input style={iS} type="number" value={form.markup || ''} onChange={e => { const m = parseFloat(e.target.value)||0; const base = filterSpecialty === 'elec' ? (form.cost||0) + (form.costo_mano_obra||0) : (form.cost||0); setForm({...form, markup: m, precio_venta: calcPrecioVenta(base, m)}) }} placeholder="35" /></Fld>
+              <Fld label={(form.specialty === 'elec' || filterSpecialty === 'elec') ? 'Costo Material' : 'Costo'}><input style={iS} type="number" value={form.cost || ''} onChange={e => { const c = parseFloat(e.target.value)||0; const isElec = form.specialty === 'elec' || filterSpecialty === 'elec'; const base = isElec ? c + (form.costo_mano_obra||0) : c; setForm({...form, cost: c, precio_venta: calcPrecioVenta(base, form.markup||35)}) }} placeholder="0.00" /></Fld>
+              {(form.specialty === 'elec' || filterSpecialty === 'elec') && <Fld label="Costo Mano de Obra"><input style={iS} type="number" value={form.costo_mano_obra || ''} onChange={e => { const mo = parseFloat(e.target.value)||0; const base = (form.cost||0) + mo; setForm({...form, costo_mano_obra: mo, precio_venta: calcPrecioVenta(base, form.markup||35)}) }} placeholder="0.00" /></Fld>}
+              <Fld label="Margen %"><input style={iS} type="number" value={form.markup || ''} onChange={e => { const m = parseFloat(e.target.value)||0; const isElec = form.specialty === 'elec' || filterSpecialty === 'elec'; const base = isElec ? (form.cost||0) + (form.costo_mano_obra||0) : (form.cost||0); setForm({...form, markup: m, precio_venta: calcPrecioVenta(base, m)}) }} placeholder="35" /></Fld>
               <Fld label="Precio Venta"><input style={iS} type="number" value={form.precio_venta || ''} onChange={e => setForm({...form, precio_venta: parseFloat(e.target.value)||0})} placeholder="0.00" /></Fld>
               <Fld label="Tipo Cambio"><input style={iS} type="number" value={form.tipo_cambio || ''} onChange={e => setForm({...form, tipo_cambio: parseFloat(e.target.value)||0})} placeholder="20.50" /></Fld>
               <Fld label="IVA %"><select style={iS} value={String(form.iva_rate ?? 0.16)} onChange={e => setForm({...form, iva_rate: parseFloat(e.target.value)})}><option value="0.16">16%</option><option value="0.08">8% (frontera)</option><option value="0">0% (exento)</option></select></Fld>
