@@ -4,7 +4,7 @@ import { ANTHROPIC_API_KEY } from '../lib/config'
 import { Quotation, QuotationArea, QuotationItem, CatalogProduct, Project, ProjectLine, PurchasePhase } from '../types'
 import { F, SPECIALTY_CONFIG, STAGE_CONFIG, PHASE_CONFIG, calcItemPrice, calcItemTotal } from '../lib/utils'
 import { Badge, Btn, Table, Th, Td, Loading, SectionHeader, EmptyState } from '../components/layout/UI'
-import { Plus, ChevronLeft, X, Zap, Loader2, Search, Trash2, Upload } from 'lucide-react'
+import { Plus, ChevronLeft, X, Zap, Loader2, Search, Trash2, Upload, RefreshCw } from 'lucide-react'
 import CotEditorESP from './CotEditorESP'
 import AIQuoteChat from './AIQuoteChat'
 import CotEditorCortinas from './CotEditorCortinas'
@@ -862,6 +862,33 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
     setItems(prev => prev.map(i => i.id === id ? updated : i))
   }
 
+  // ─── SYNC PRICES FROM CATALOG ─────────────────────────────────────────
+  const [syncing, setSyncing] = useState(false)
+  async function syncPricesFromCatalog() {
+    if (!confirm('¿Actualizar costos y precios de todos los productos desde el catálogo?')) return
+    setSyncing(true)
+    let updated = 0
+    for (const item of items) {
+      if (!item.catalog_product_id) continue
+      const prod = catalog.find(p => p.id === item.catalog_product_id)
+      if (!prod) continue
+      // Check if anything changed
+      if (item.cost === prod.cost && item.markup === prod.markup) continue
+      const price = calcItemPrice(prod.cost, prod.markup)
+      const total = calcItemTotal(prod.cost, prod.markup, item.quantity)
+      await supabase.from('quotation_items').update({
+        cost: prod.cost, markup: prod.markup, price, total,
+        provider: prod.provider || item.provider,
+        supplier_id: prod.supplier_id || item.supplier_id,
+        purchase_phase: prod.purchase_phase || item.purchase_phase,
+      }).eq('id', item.id)
+      setItems(prev => prev.map(i => i.id === item.id ? { ...i, cost: prod.cost, markup: prod.markup, price, total, provider: prod.provider || i.provider, supplier_id: prod.supplier_id || i.supplier_id, purchase_phase: prod.purchase_phase || i.purchase_phase } : i))
+      updated++
+    }
+    setSyncing(false)
+    alert(updated > 0 ? `Se actualizaron ${updated} producto${updated > 1 ? 's' : ''} con precios del catálogo.` : 'Todos los precios ya están al día.')
+  }
+
   // ─── AI IMPORT HELPERS ────────────────────────────────────────────────
   function fileToBase64(file: File): Promise<string> {
     return new Promise((resolve, reject) => {
@@ -1119,6 +1146,9 @@ Devuelve SOLO un JSON array válido sin markdown:
           <input type="file" ref={aiImportRef} accept=".csv,.txt,.xlsx,.pdf,.png,.jpg,.jpeg,.webp,.gif" style={{display:'none'}} onChange={handleAIImport} />
           <Btn size="sm" onClick={() => aiImportRef.current?.click()} disabled={aiImporting} style={{marginLeft:4}}>
             {aiImporting ? <><Loader2 size={12} style={{animation:'spin 1s linear infinite'}}/> Importando...</> : <><Upload size={12}/> Importar con IA</>}
+          </Btn>
+          <Btn size="sm" onClick={syncPricesFromCatalog} disabled={syncing} style={{marginLeft:4}}>
+            {syncing ? <><Loader2 size={12} style={{animation:'spin 1s linear infinite'}}/> Actualizando...</> : <><RefreshCw size={12}/> Sync Catálogo</>}
           </Btn>
           {cot.stage === 'contrato' && (
             <Btn size="sm" onClick={generatePurchaseOrders} disabled={generating} style={{marginLeft:4}}>
