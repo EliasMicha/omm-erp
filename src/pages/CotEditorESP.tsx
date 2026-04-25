@@ -1289,9 +1289,10 @@ IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
 // ═══════════════════════════════════════════════════════════════════
 // SUMMARY PANEL
 // ═══════════════════════════════════════════════════════════════════
-function SummaryPanel({ products, areas, config, activeSystems, showInt, onConfigChange }: {
+function SummaryPanel({ products, areas, config, activeSystems, showInt, onConfigChange, onSystemClick }: {
   products: EspProduct[]; areas: EspArea[]; config: EspQuoteConfig; activeSystems: EspSystemDef[]; showInt: boolean
   onConfigChange: (f: string, v: number) => void
+  onSystemClick?: (sysId: string) => void
 }) {
   let eqTotal = 0, inst = 0
   products.forEach(p => { eqTotal += p.price * p.quantity; inst += p.laborCost * p.quantity })
@@ -1370,7 +1371,7 @@ function SummaryPanel({ products, areas, config, activeSystems, showInt, onConfi
         <div style={{ fontSize: 10, fontWeight: 600, color: '#555', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Por Sistema</div>
         {activeSystems.map(sys => {
           const t = products.filter(p => p.systemId === sys.id).reduce((s, p) => s + calcLine(p).total, 0)
-          return <div key={sys.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}><span style={{ color: sys.color }}>{sys.name}</span><span style={{ color: '#ccc', fontWeight: 500 }}>${fmt(t)}</span></div>
+          return <div key={sys.id} onClick={() => onSystemClick?.(sys.id)} style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 4px', fontSize: 10, cursor: 'pointer', borderRadius: 4, transition: 'background 0.1s' }} onMouseEnter={e => (e.currentTarget.style.background = '#1e1e1e')} onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}><span style={{ color: sys.color }}>{sys.name}</span><span style={{ color: '#ccc', fontWeight: 500 }}>${fmt(t)}</span></div>
         })}
       </div>
       {showInt && (
@@ -1396,6 +1397,109 @@ function SummaryPanel({ products, areas, config, activeSystems, showInt, onConfi
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// SYSTEM OVERVIEW MODAL — "All Rooms" view for a single system
+// ═══════════════════════════════════════════════════════════════════
+function SystemOverviewModal({ systemDef, products, areas, config, onClose }: {
+  systemDef: EspSystemDef
+  products: EspProduct[]
+  areas: EspArea[]
+  config: EspQuoteConfig
+  onClose: () => void
+}) {
+  // Filter products for this system, sorted by area
+  const rows = useMemo(() => {
+    const areaMap = new Map(areas.map(a => [a.id, a.name]))
+    return products
+      .filter(p => p.systemId === systemDef.id)
+      .map(p => ({
+        ...p,
+        areaName: areaMap.get(p.areaId) || '—',
+        costoUnit: p.price * (1 - p.margin / 100),
+      }))
+      .sort((a, b) => a.areaName.localeCompare(b.areaName, 'es'))
+  }, [products, areas, systemDef.id])
+
+  const totals = useMemo(() => {
+    let qty = 0, costo = 0, venta = 0
+    rows.forEach(r => {
+      qty += r.quantity
+      costo += r.costoUnit * r.quantity
+      venta += r.price * r.quantity
+    })
+    return { qty, costo, venta }
+  }, [rows])
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} style={{ background: '#141414', border: '1px solid #333', borderRadius: 14, width: 900, maxWidth: '94vw', maxHeight: '85vh', display: 'flex', flexDirection: 'column' }}>
+        {/* Header */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 20px', borderBottom: '1px solid #222', flexShrink: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{ width: 10, height: 10, borderRadius: '50%', background: systemDef.color }} />
+            <span style={{ fontSize: 16, fontWeight: 600, color: '#fff' }}>{systemDef.name}</span>
+            <span style={{ fontSize: 11, color: '#555' }}>— {rows.length} producto{rows.length !== 1 ? 's' : ''} en {new Set(rows.map(r => r.areaName)).size} área{new Set(rows.map(r => r.areaName)).size !== 1 ? 's' : ''}</span>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', padding: 4 }}><X size={18} /></button>
+        </div>
+
+        {/* Table */}
+        <div style={{ flex: 1, overflowY: 'auto', padding: '0 4px' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr>
+                <th style={{ ...S.th, textAlign: 'left', paddingLeft: 16 }}>Descripción</th>
+                <th style={{ ...S.th, textAlign: 'left' }}>Modelo</th>
+                <th style={{ ...S.th, textAlign: 'right' }}>Costo</th>
+                <th style={{ ...S.th, textAlign: 'right' }}>Precio Venta</th>
+                <th style={{ ...S.th, textAlign: 'center' }}>Cant</th>
+                <th style={{ ...S.th, textAlign: 'right' }}>Subtotal</th>
+                <th style={{ ...S.th, textAlign: 'left' }}>Área</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r, i) => {
+                const sub = r.price * r.quantity
+                return (
+                  <tr key={r.id} style={{ background: i % 2 === 0 ? 'transparent' : '#1a1a1a' }}>
+                    <td style={{ ...S.td, paddingLeft: 16, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {r.name}
+                      {r.description && <div style={{ fontSize: 10, color: '#555', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.description}</div>}
+                    </td>
+                    <td style={{ ...S.td, fontSize: 11, color: '#888' }}>{(r as any).modelo || '—'}</td>
+                    <td style={{ ...S.td, textAlign: 'right', color: '#888' }}>${fmt(r.costoUnit)}</td>
+                    <td style={{ ...S.td, textAlign: 'right' }}>${fmt(r.price)}</td>
+                    <td style={{ ...S.td, textAlign: 'center', fontWeight: 600 }}>{r.quantity}</td>
+                    <td style={{ ...S.td, textAlign: 'right', fontWeight: 600, color: '#fff' }}>${fmt(sub)}</td>
+                    <td style={{ ...S.td }}>
+                      <span style={{ background: '#222', padding: '2px 8px', borderRadius: 10, fontSize: 10, color: '#aaa' }}>{r.areaName}</span>
+                    </td>
+                  </tr>
+                )
+              })}
+              {rows.length === 0 && (
+                <tr><td colSpan={7} style={{ padding: 30, textAlign: 'center', color: '#444', fontSize: 13 }}>No hay productos en este sistema</td></tr>
+              )}
+            </tbody>
+            {rows.length > 0 && (
+              <tfoot>
+                <tr style={{ borderTop: '2px solid #333' }}>
+                  <td colSpan={2} style={{ ...S.td, fontWeight: 600, color: '#fff', paddingLeft: 16 }}>TOTAL</td>
+                  <td style={{ ...S.td, textAlign: 'right', fontWeight: 600, color: '#F59E0B' }}>${fmt(totals.costo)}</td>
+                  <td style={{ ...S.td, textAlign: 'right', fontWeight: 600, color: '#fff' }}>${fmt(totals.venta)}</td>
+                  <td style={{ ...S.td, textAlign: 'center', fontWeight: 700, color: '#fff' }}>{totals.qty}</td>
+                  <td style={{ ...S.td, textAlign: 'right', fontWeight: 700, color: '#57FF9A' }}>${fmt(totals.venta)}</td>
+                  <td style={S.td} />
+                </tr>
+              </tfoot>
+            )}
+          </table>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // MAIN COMPONENT
 // ═══════════════════════════════════════════════════════════════════
 export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack: () => void }) {
@@ -1416,6 +1520,7 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
   const [showAIImport, setShowAIImport] = useState(false)
   const [copyingProduct, setCopyingProduct] = useState<string | null>(null)
   const [showPdfPicker, setShowPdfPicker] = useState(false)
+  const [viewSystemId, setViewSystemId] = useState<string | null>(null)
   const [projectId, setProjectId] = useState<string | null>(null)
   const [projectName, setProjectName] = useState('')
 
@@ -1732,7 +1837,7 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
           <div onClick={addArea} style={{ padding: '12px', border: '1px dashed #333', borderRadius: 10, textAlign: 'center', cursor: 'pointer', color: '#444', fontSize: 12 }}>+ Agregar área</div>
         </div>
         <div style={{ borderLeft: '1px solid #222', overflowY: 'auto', padding: '14px 10px', background: '#0e0e0e' }}>
-          <SummaryPanel products={products} areas={areas} config={config} activeSystems={activeSystems} showInt={showInt} onConfigChange={updateConfig} />
+          <SummaryPanel products={products} areas={areas} config={config} activeSystems={activeSystems} showInt={showInt} onConfigChange={updateConfig} onSystemClick={setViewSystemId} />
         </div>
       </div>
 
@@ -1777,6 +1882,13 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
             </div>
           </div>
         )
+      })()}
+
+      {/* System overview modal — "All Rooms" */}
+      {viewSystemId && (() => {
+        const sysDef = ALL_SYSTEMS.find(s => s.id === viewSystemId)
+        if (!sysDef) return null
+        return <SystemOverviewModal systemDef={sysDef} products={products} areas={areas} config={config} onClose={() => setViewSystemId(null)} />
       })()}
 
       {/* PDF format picker */}
