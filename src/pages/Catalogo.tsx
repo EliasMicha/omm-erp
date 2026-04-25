@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase'
 import { SectionHeader, KpiCard, Table, Th, Td, Badge, Btn, EmptyState } from '../components/layout/UI'
 import { F, PHASE_CONFIG } from '../lib/utils'
 import { ANTHROPIC_API_KEY } from '../lib/config'
-import { Package, Plus, Search, Edit, X, Tag, Layers, Upload, Loader2, Sparkles } from 'lucide-react'
+import { Package, Plus, Search, Edit, X, Tag, Layers, Upload, Loader2, Sparkles, BoxesIcon, Trash2 } from 'lucide-react'
 import { PurchasePhase } from '../types'
 import ImageUpload from '../components/ImageUpload'
 
@@ -58,7 +58,7 @@ function Fld({ label, children, span }: { label: string; children: React.ReactNo
 }
 
 export default function Catalogo() {
-  const [tab, setTab] = useState<'productos' | 'proveedores'>('productos')
+  const [tab, setTab] = useState<'productos' | 'proveedores' | 'bundles'>('productos')
   const [products, setProducts] = useState<Product[]>([])
   const [showForm, setShowForm] = useState(false)
   const [editId, setEditId] = useState<string | null>(null)
@@ -319,6 +319,7 @@ IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
       <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid #222', marginBottom: 20 }}>
         {([
           { key: 'productos' as const, label: 'Productos' },
+          { key: 'bundles' as const, label: 'Bundles' },
           { key: 'proveedores' as const, label: 'Proveedores' },
         ]).map(({ key, label }) => {
           const active = tab === key
@@ -334,6 +335,7 @@ IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
         })}
       </div>
 
+      {tab === 'bundles' && <TabBundles products={products} />}
       {tab === 'proveedores' && <TabProveedores suppliers={suppliers} setSuppliers={setSuppliers} />}
 
       {tab === 'productos' && (<>
@@ -754,6 +756,367 @@ Si un campo no aparece, déjalo como string vacío. Para sistemas, infiere del g
             <div style={{ display: 'flex', gap: 8, marginTop: 16, justifyContent: 'flex-end' }}>
               <Btn size="sm" variant="default" onClick={() => setShowForm(false)}>Cancelar</Btn>
               <Btn size="sm" variant="primary" onClick={save}>{editId ? 'Guardar' : 'Crear proveedor'}</Btn>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* --------- Tab Bundles ------------------------------------------------------------------------------------------------ */
+
+interface Bundle {
+  id: string
+  name: string
+  description: string
+  system: string
+  specialty: string
+  is_active: boolean
+  items: BundleItem[]
+}
+
+interface BundleItem {
+  id: string
+  product_id: string
+  quantity: number
+  product?: Product
+}
+
+function TabBundles({ products }: { products: Product[] }) {
+  const [bundles, setBundles] = useState<Bundle[]>([])
+  const [loading, setLoading] = useState(true)
+  const [showForm, setShowForm] = useState(false)
+  const [editId, setEditId] = useState<string | null>(null)
+  const [search, setSearch] = useState('')
+  const [expandedId, setExpandedId] = useState<string | null>(null)
+
+  // Form state
+  const [formName, setFormName] = useState('')
+  const [formDesc, setFormDesc] = useState('')
+  const [formSystem, setFormSystem] = useState('')
+  const [formSpecialty, setFormSpecialty] = useState('esp')
+  const [formItems, setFormItems] = useState<{ product_id: string; quantity: number }[]>([])
+  const [productSearch, setProductSearch] = useState('')
+
+  const SYSTEMS = ['Electrico', 'CCTV', 'Audio', 'Control de acceso', 'Redes', 'Iluminacion', 'Control de iluminacion', 'Cortinas', 'General']
+
+  useEffect(() => {
+    loadBundles()
+  }, [])
+
+  const loadBundles = async () => {
+    const { data: bundleRows } = await supabase.from('catalog_bundles').select('*').order('name')
+    const { data: itemRows } = await supabase.from('catalog_bundle_items').select('*')
+    if (bundleRows) {
+      const items = (itemRows || []) as any[]
+      setBundles(bundleRows.map((b: any) => ({
+        id: b.id, name: b.name, description: b.description || '', system: b.system || '',
+        specialty: b.specialty || 'esp', is_active: b.is_active !== false,
+        items: items.filter(i => i.bundle_id === b.id).map(i => ({
+          id: i.id, product_id: i.product_id, quantity: Number(i.quantity) || 1,
+          product: products.find(p => p.id === i.product_id),
+        })),
+      })))
+    }
+    setLoading(false)
+  }
+
+  // Reload when products change (for product lookups)
+  useEffect(() => { if (!loading) loadBundles() }, [products.length])
+
+  const getBundleTotal = (items: { product_id: string; quantity: number }[]) =>
+    items.reduce((sum, item) => {
+      const prod = products.find(p => p.id === item.product_id)
+      return sum + (prod ? prod.precio_venta * item.quantity : 0)
+    }, 0)
+
+  const getBundleCost = (items: { product_id: string; quantity: number }[]) =>
+    items.reduce((sum, item) => {
+      const prod = products.find(p => p.id === item.product_id)
+      return sum + (prod ? prod.cost * item.quantity : 0)
+    }, 0)
+
+  const openNew = () => {
+    setEditId(null); setFormName(''); setFormDesc(''); setFormSystem(''); setFormSpecialty('esp'); setFormItems([])
+    setShowForm(true)
+  }
+
+  const openEdit = (b: Bundle) => {
+    setEditId(b.id); setFormName(b.name); setFormDesc(b.description); setFormSystem(b.system); setFormSpecialty(b.specialty)
+    setFormItems(b.items.map(i => ({ product_id: i.product_id, quantity: i.quantity })))
+    setShowForm(true)
+  }
+
+  const addProduct = (productId: string) => {
+    if (formItems.some(i => i.product_id === productId)) return
+    setFormItems([...formItems, { product_id: productId, quantity: 1 }])
+    setProductSearch('')
+  }
+
+  const updateQuantity = (productId: string, qty: number) => {
+    setFormItems(formItems.map(i => i.product_id === productId ? { ...i, quantity: Math.max(0.01, qty) } : i))
+  }
+
+  const removeItem = (productId: string) => {
+    setFormItems(formItems.filter(i => i.product_id !== productId))
+  }
+
+  const save = async () => {
+    if (!formName.trim() || formItems.length === 0) { alert('El bundle necesita nombre y al menos 1 producto'); return }
+    const bundleRow = { name: formName.trim(), description: formDesc || null, system: formSystem || null, specialty: formSpecialty || 'esp', is_active: true }
+    try {
+      let bundleId = editId
+      if (editId) {
+        const { error } = await supabase.from('catalog_bundles').update(bundleRow).eq('id', editId)
+        if (error) { alert('Error al guardar bundle: ' + error.message); return }
+        // Delete existing items and re-insert
+        await supabase.from('catalog_bundle_items').delete().eq('bundle_id', editId)
+      } else {
+        const { data, error } = await supabase.from('catalog_bundles').insert(bundleRow).select('id').single()
+        if (error || !data) { alert('Error al crear bundle: ' + (error?.message || 'sin respuesta')); return }
+        bundleId = data.id
+      }
+      // Insert items
+      const itemRows = formItems.map(i => ({ bundle_id: bundleId!, product_id: i.product_id, quantity: i.quantity }))
+      const { error: itemsError } = await supabase.from('catalog_bundle_items').insert(itemRows)
+      if (itemsError) { alert('Error al guardar componentes: ' + itemsError.message); return }
+      await loadBundles()
+      setShowForm(false)
+    } catch (err) {
+      alert('Error: ' + (err as Error).message)
+    }
+  }
+
+  const deleteBundle = async (id: string) => {
+    if (!confirm('¿Eliminar este bundle?')) return
+    const { error } = await supabase.from('catalog_bundles').delete().eq('id', id)
+    if (error) { alert('Error: ' + error.message); return }
+    setBundles(bundles.filter(b => b.id !== id))
+  }
+
+  const filteredBundles = bundles.filter(b => {
+    if (search && !b.name.toLowerCase().includes(search.toLowerCase()) && !b.description.toLowerCase().includes(search.toLowerCase())) return false
+    return true
+  })
+
+  const filteredProducts = products.filter(p => {
+    if (!productSearch) return false
+    const q = productSearch.toLowerCase()
+    return (p.name?.toLowerCase().includes(q) || p.sku?.toLowerCase().includes(q) || p.marca?.toLowerCase().includes(q))
+      && !formItems.some(i => i.product_id === p.id)
+  }).slice(0, 8)
+
+  const iS: React.CSSProperties = { width: '100%', padding: '7px 10px', background: '#111', border: '1px solid #333', borderRadius: 6, color: '#fff', fontSize: 12, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' as const }
+
+  if (loading) return <EmptyState message="Cargando bundles..." />
+
+  return (
+    <div>
+      {/* Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <div style={{ position: 'relative' }}>
+            <Search size={14} style={{ position: 'absolute', left: 10, top: 9, color: '#555' }} />
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar bundles..." style={{ ...iS, paddingLeft: 30, width: 250 }} />
+          </div>
+          <span style={{ fontSize: 11, color: '#555' }}>{filteredBundles.length} bundles</span>
+        </div>
+        <Btn variant="primary" onClick={openNew}><Plus size={12} /> Nuevo Bundle</Btn>
+      </div>
+
+      {/* Bundle list */}
+      {filteredBundles.length === 0 ? (
+        <EmptyState message="No hay bundles. Crea uno para agrupar productos que siempre van juntos." />
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {filteredBundles.map(b => {
+            const isOpen = expandedId === b.id
+            const totalVenta = getBundleTotal(b.items)
+            const totalCosto = getBundleCost(b.items)
+            return (
+              <div key={b.id} style={{ background: '#111', border: '1px solid #222', borderRadius: 10, overflow: 'visible' }}>
+                <div onClick={() => setExpandedId(isOpen ? null : b.id)} style={{
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                  padding: '12px 16px', cursor: 'pointer',
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <BoxesIcon size={16} style={{ color: '#57FF9A', opacity: 0.7 }} />
+                    <div>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: '#fff' }}>{b.name}</div>
+                      {b.description && <div style={{ fontSize: 11, color: '#555', marginTop: 1 }}>{b.description}</div>}
+                    </div>
+                    {b.system && <Badge label={b.system} color="#3B82F6" />}
+                    <span style={{ fontSize: 11, color: '#555' }}>{b.items.length} componentes</span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: '#57FF9A' }}>{F(totalVenta)}</div>
+                      <div style={{ fontSize: 10, color: '#555' }}>Costo: {F(totalCosto)}</div>
+                    </div>
+                    <button onClick={e => { e.stopPropagation(); openEdit(b) }} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', padding: 4 }}>
+                      <Edit size={14} />
+                    </button>
+                    <button onClick={e => { e.stopPropagation(); deleteBundle(b.id) }} style={{ background: 'none', border: 'none', color: '#444', cursor: 'pointer', padding: 4 }}>
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                </div>
+                {isOpen && (
+                  <div style={{ borderTop: '1px solid #1e1e1e', padding: '0 16px 12px' }}>
+                    <Table>
+                      <thead>
+                        <tr><Th>Producto</Th><Th>Sistema</Th><Th right>Cant.</Th><Th right>P. Unit.</Th><Th right>Subtotal</Th></tr>
+                      </thead>
+                      <tbody>
+                        {b.items.map(item => {
+                          const prod = item.product || products.find(p => p.id === item.product_id)
+                          return (
+                            <tr key={item.id}>
+                              <Td>
+                                <div style={{ fontWeight: 500, color: '#fff' }}>{prod?.name || 'Producto eliminado'}</div>
+                                {prod?.marca && <span style={{ fontSize: 10, color: '#555' }}>{prod.marca} {prod.modelo || ''}</span>}
+                              </Td>
+                              <Td muted>{prod?.system || '—'}</Td>
+                              <Td right>{item.quantity}</Td>
+                              <Td right muted>{prod ? F(prod.precio_venta) : '—'}</Td>
+                              <Td right style={{ fontWeight: 600, color: '#57FF9A' }}>{prod ? F(prod.precio_venta * item.quantity) : '—'}</Td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                      <tfoot>
+                        <tr>
+                          <td colSpan={4} style={{ padding: '8px 12px', fontSize: 12, fontWeight: 600, color: '#888', textAlign: 'right', borderTop: '1px solid #333' }}>Total Bundle</td>
+                          <td style={{ padding: '8px 12px', fontSize: 14, fontWeight: 700, color: '#57FF9A', textAlign: 'right', borderTop: '1px solid #333' }}>{F(totalVenta)}</td>
+                        </tr>
+                      </tfoot>
+                    </Table>
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {/* Form modal */}
+      {showForm && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 999, display: 'flex', justifyContent: 'center', alignItems: 'flex-start', paddingTop: 60, overflow: 'auto' }}>
+          <div style={{ background: '#111', border: '1px solid #333', borderRadius: 12, width: 700, maxHeight: '85vh', overflow: 'auto', padding: 24 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+              <div style={{ fontSize: 18, fontWeight: 700, color: '#fff' }}>{editId ? 'Editar Bundle' : 'Nuevo Bundle'}</div>
+              <button onClick={() => setShowForm(false)} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer' }}><X size={18} /></button>
+            </div>
+
+            {/* Basic info */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 20 }}>
+              <div>
+                <label style={{ fontSize: 10, color: '#666', textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>Nombre del bundle *</label>
+                <input value={formName} onChange={e => setFormName(e.target.value)} placeholder="Ej: Kit Rack de Red" style={iS} />
+              </div>
+              <div>
+                <label style={{ fontSize: 10, color: '#666', textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>Sistema</label>
+                <select value={formSystem} onChange={e => setFormSystem(e.target.value)} style={iS}>
+                  <option value="">--</option>
+                  {SYSTEMS.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+              <div style={{ gridColumn: '1 / -1' }}>
+                <label style={{ fontSize: 10, color: '#666', textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>Descripción</label>
+                <input value={formDesc} onChange={e => setFormDesc(e.target.value)} placeholder="Descripción opcional" style={iS} />
+              </div>
+            </div>
+
+            {/* Product search */}
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ fontSize: 10, color: '#666', textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>Agregar productos al bundle</label>
+              <div style={{ position: 'relative' }}>
+                <Search size={14} style={{ position: 'absolute', left: 10, top: 9, color: '#555' }} />
+                <input value={productSearch} onChange={e => setProductSearch(e.target.value)} placeholder="Buscar producto por nombre, SKU o marca..." style={{ ...iS, paddingLeft: 30 }} />
+                {filteredProducts.length > 0 && (
+                  <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#1a1a1a', border: '1px solid #333', borderRadius: 8, maxHeight: 200, overflowY: 'auto', zIndex: 10, boxShadow: '0 8px 24px rgba(0,0,0,0.5)' }}>
+                    {filteredProducts.map(p => (
+                      <div key={p.id} onClick={() => addProduct(p.id)} style={{
+                        padding: '8px 12px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                        borderBottom: '1px solid #222', fontSize: 12,
+                      }}
+                        onMouseEnter={e => (e.currentTarget.style.background = '#222')}
+                        onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                      >
+                        <div>
+                          <span style={{ color: '#fff', fontWeight: 500 }}>{p.name}</span>
+                          {p.marca && <span style={{ color: '#555', marginLeft: 6, fontSize: 10 }}>{p.marca}</span>}
+                        </div>
+                        <span style={{ color: '#57FF9A', fontWeight: 600 }}>{F(p.precio_venta)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Items table */}
+            {formItems.length > 0 && (
+              <div style={{ marginBottom: 20 }}>
+                <Table>
+                  <thead>
+                    <tr><Th>Producto</Th><Th right>P. Venta</Th><Th right>Cantidad</Th><Th right>Subtotal</Th><Th></Th></tr>
+                  </thead>
+                  <tbody>
+                    {formItems.map(item => {
+                      const prod = products.find(p => p.id === item.product_id)
+                      return (
+                        <tr key={item.product_id}>
+                          <Td>
+                            <span style={{ color: '#fff', fontWeight: 500 }}>{prod?.name || '???'}</span>
+                            {prod?.marca && <span style={{ color: '#555', marginLeft: 6, fontSize: 10 }}>{prod.marca}</span>}
+                          </Td>
+                          <Td right muted>{prod ? F(prod.precio_venta) : '—'}</Td>
+                          <Td right>
+                            <input type="number" min="0.01" step="1" value={item.quantity}
+                              onChange={e => updateQuantity(item.product_id, parseFloat(e.target.value) || 1)}
+                              style={{ ...iS, width: 70, textAlign: 'right', padding: '4px 6px' }}
+                            />
+                          </Td>
+                          <Td right style={{ fontWeight: 600, color: '#57FF9A' }}>{prod ? F(prod.precio_venta * item.quantity) : '—'}</Td>
+                          <Td>
+                            <button onClick={() => removeItem(item.product_id)} style={{ background: 'none', border: 'none', color: '#EF4444', cursor: 'pointer', padding: 2 }}>
+                              <Trash2 size={13} />
+                            </button>
+                          </Td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                  <tfoot>
+                    <tr>
+                      <td colSpan={3} style={{ padding: '10px 12px', fontSize: 12, fontWeight: 600, color: '#888', textAlign: 'right', borderTop: '1px solid #333' }}>Total Bundle</td>
+                      <td style={{ padding: '10px 12px', fontSize: 16, fontWeight: 700, color: '#57FF9A', textAlign: 'right', borderTop: '1px solid #333' }}>{F(getBundleTotal(formItems))}</td>
+                      <td style={{ borderTop: '1px solid #333' }} />
+                    </tr>
+                    <tr>
+                      <td colSpan={3} style={{ padding: '4px 12px', fontSize: 11, color: '#555', textAlign: 'right' }}>Costo total</td>
+                      <td style={{ padding: '4px 12px', fontSize: 12, color: '#888', textAlign: 'right' }}>{F(getBundleCost(formItems))}</td>
+                      <td />
+                    </tr>
+                  </tfoot>
+                </Table>
+              </div>
+            )}
+
+            {formItems.length === 0 && (
+              <div style={{ padding: '30px 20px', textAlign: 'center', color: '#444', fontSize: 13, border: '1px dashed #333', borderRadius: 8, marginBottom: 20 }}>
+                Busca y agrega productos arriba para armar el bundle
+              </div>
+            )}
+
+            {/* Actions */}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <Btn variant="ghost" onClick={() => setShowForm(false)}>Cancelar</Btn>
+              <Btn variant="primary" onClick={save} disabled={!formName.trim() || formItems.length === 0}>
+                {editId ? 'Guardar cambios' : 'Crear Bundle'}
+              </Btn>
             </div>
           </div>
         </div>
