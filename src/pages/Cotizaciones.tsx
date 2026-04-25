@@ -129,6 +129,13 @@ function CotDashboard({ onOpen }: { onOpen: (id: string, specialty?: string) => 
   function getCur(c: any): string {
     try { const m = JSON.parse(c.notes || '{}'); return m.currency || 'USD' } catch { return 'USD' }
   }
+  function getIvaRate(c: any): number {
+    try { const m = JSON.parse(c.notes || '{}'); return m.proyConfig?.ivaRate || 16 } catch { return 16 }
+  }
+  function getTotalConIva(c: any): number {
+    const iva = getIvaRate(c)
+    return c.total * (1 + iva / 100)
+  }
   function getLeadId(c: any): string {
     try { const m = JSON.parse(c.notes || '{}'); return m.lead_id || '' } catch { return '' }
   }
@@ -168,12 +175,12 @@ function CotDashboard({ onOpen }: { onOpen: (id: string, specialty?: string) => 
     return true
   })
 
-  // KPIs por etapa (USD y MXN separados)
-  const byStageAndCur = (s: string, cur: string) => cots.filter(c => c.stage === s && getCur(c) === cur).reduce((a, c) => a + c.total, 0)
-  // KPIs por especialidad (USD y MXN separados) — solo stages activos (no oportunidad descartada)
-  const bySpecAndCur = (spec: string, cur: string) => cots.filter(c => c.specialty === spec && getCur(c) === cur).reduce((a, c) => a + c.total, 0)
-  const totalUSD = cots.filter(c => getCur(c) === 'USD').reduce((s, c) => s + c.total, 0)
-  const totalMXN = cots.filter(c => getCur(c) === 'MXN').reduce((s, c) => s + c.total, 0)
+  // KPIs por etapa (USD y MXN separados) — con IVA
+  const byStageAndCur = (s: string, cur: string) => cots.filter(c => c.stage === s && getCur(c) === cur).reduce((a, c) => a + getTotalConIva(c), 0)
+  // KPIs por especialidad (USD y MXN separados) — con IVA
+  const bySpecAndCur = (spec: string, cur: string) => cots.filter(c => c.specialty === spec && getCur(c) === cur).reduce((a, c) => a + getTotalConIva(c), 0)
+  const totalUSD = cots.filter(c => getCur(c) === 'USD').reduce((s, c) => s + getTotalConIva(c), 0)
+  const totalMXN = cots.filter(c => getCur(c) === 'MXN').reduce((s, c) => s + getTotalConIva(c), 0)
 
   return (
     <div style={{padding:'24px 28px'}}>
@@ -318,7 +325,7 @@ function CotDashboard({ onOpen }: { onOpen: (id: string, specialty?: string) => 
                     </select>
                   </Td>
                   <Td><span style={{fontSize:11,fontWeight:600,color: cur === 'USD' ? '#06B6D4' : '#F59E0B'}}>{cur}</span></Td>
-                  <Td right><span style={{fontWeight:600,color:'#57FF9A'}}>{cur === 'MXN' ? '$' : 'US$'}{c.total.toLocaleString()}</span></Td>
+                  <Td right><span style={{fontWeight:600,color:'#57FF9A'}}>{cur === 'MXN' ? '$' : 'US$'}{F(getTotalConIva(c))}</span></Td>
                   <Td>
                     <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                       <Btn size="sm" onClick={e => { e?.stopPropagation(); onOpen(c.id, c.specialty) }}>Abrir</Btn>
