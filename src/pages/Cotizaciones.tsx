@@ -282,6 +282,8 @@ function NuevaCoModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
   const [customArea, setCustomArea] = useState('')
   const [clientSearch, setClientSearch] = useState('')
   const [showClientDrop, setShowClientDrop] = useState(false)
+  const [leadSearch, setLeadSearch] = useState('')
+  const [showLeadDrop, setShowLeadDrop] = useState(false)
 
   useEffect(() => {
     Promise.all([
@@ -325,6 +327,10 @@ function NuevaCoModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
   const filteredClientes = clientSearch.length >= 2
     ? clientes.filter(c => c.razon_social.toLowerCase().includes(clientSearch.toLowerCase()) || c.rfc.toLowerCase().includes(clientSearch.toLowerCase()))
     : clientes.slice(0, 8)
+
+  const filteredLeads = leadSearch.length >= 1
+    ? leads.filter(l => l.name.toLowerCase().includes(leadSearch.toLowerCase()) || (l.company || '').toLowerCase().includes(leadSearch.toLowerCase()))
+    : leads.slice(0, 10)
 
   async function crear() {
     if (!form.name) return
@@ -435,19 +441,39 @@ function NuevaCoModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
           </div>
 
           {/* Lead */}
-          {leads.length > 0 && (
-            <label style={labelStyle}>
-              Lead (opcional)
-              <select value={form.lead_id} onChange={e => {
-                const lead = leads.find(l => l.id === e.target.value)
-                if (lead) selectLead(lead)
-                else setForm(f => ({ ...f, lead_id: '' }))
-              }} style={inputStyle}>
-                <option value="">-- Seleccionar lead --</option>
-                {leads.map(l => <option key={l.id} value={l.id}>{l.name}{l.company ? ' | ' + l.company : ''}</option>)}
-              </select>
-            </label>
-          )}
+          <label style={labelStyle}>
+            Lead (opcional)
+            <div style={{ position: 'relative' }}>
+              <input
+                value={leadSearch || (form.lead_id ? (leads.find(l => l.id === form.lead_id)?.name || '') : '')}
+                onChange={e => {
+                  setLeadSearch(e.target.value)
+                  if (!e.target.value) setForm(f => ({ ...f, lead_id: '' }))
+                  setShowLeadDrop(true)
+                }}
+                onFocus={() => setShowLeadDrop(true)}
+                placeholder="Buscar lead por nombre o empresa..."
+                style={inputStyle}
+              />
+              {form.lead_id && (
+                <button onClick={() => { setForm(f => ({ ...f, lead_id: '' })); setLeadSearch('') }}
+                  style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#555', cursor: 'pointer', fontSize: 14 }}>×</button>
+              )}
+              {showLeadDrop && filteredLeads.length > 0 && (
+                <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#1a1a1a', border: '1px solid #333', borderRadius: 8, marginTop: 2, maxHeight: 180, overflowY: 'auto', zIndex: 10 }}>
+                  {filteredLeads.map(l => (
+                    <div key={l.id} onClick={() => { selectLead(l); setLeadSearch(l.name); setShowLeadDrop(false) }}
+                      style={{ padding: '8px 10px', cursor: 'pointer', fontSize: 12, color: '#ccc', borderBottom: '1px solid #222' }}
+                      onMouseEnter={e => { e.currentTarget.style.background = '#222' }}
+                      onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}>
+                      <div style={{ fontWeight: 500 }}>{l.name}</div>
+                      {l.company && <div style={{ fontSize: 10, color: '#555' }}>{l.company}</div>}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </label>
 
           {/* Cliente */}
           <label style={labelStyle}>
