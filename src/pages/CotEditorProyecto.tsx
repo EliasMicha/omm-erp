@@ -1352,11 +1352,15 @@ export default function CotEditorProyecto({ cotId, onBack, specialty = 'proy' }:
         if (meta.m2Construccion && meta.m2Construccion > 0) initialM2 = meta.m2Construccion
       } catch {}
       const newItems = resolvedSystems.map((sys, i) => ({ ...defaultItem(sys.id, i, resolvedSystems), m2: initialM2 }))
+      // Get area_id for this quotation (use the first/General area)
+      const { data: areaRow } = await supabase.from('quotation_areas').select('id').eq('quotation_id', cotId).limit(1).single()
+      const areaId = areaRow?.id || null
       const itemsWithDbIds: ProyItem[] = []
       for (const item of newItems) {
         const { data, error } = await supabase.from('quotation_items').insert({
           quotation_id: cotId,
-          system: 'Proyecto',
+          area_id: areaId || null,
+          system: 'General',
           type: 'material',
           name: item.descripcion,
           quantity: item.m2,
