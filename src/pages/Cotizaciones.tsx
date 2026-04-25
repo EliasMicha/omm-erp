@@ -968,8 +968,8 @@ Devuelve SOLO un JSON array válido sin markdown:
           'anthropic-dangerous-direct-browser-access': 'true'
         },
         body: JSON.stringify({
-          model: 'claude-opus-4-1-20250805',
-          max_tokens: 2000,
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 8000,
           messages: [{ role: 'user', content }]
         })
       })
