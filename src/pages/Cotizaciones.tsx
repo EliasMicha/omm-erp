@@ -4,8 +4,9 @@ import { ANTHROPIC_API_KEY } from '../lib/config'
 import { Quotation, QuotationArea, QuotationItem, CatalogProduct, Project, ProjectLine, PurchasePhase } from '../types'
 import { F, SPECIALTY_CONFIG, STAGE_CONFIG, PHASE_CONFIG, calcItemPrice, calcItemTotal } from '../lib/utils'
 import { Badge, Btn, Table, Th, Td, Loading, SectionHeader, EmptyState } from '../components/layout/UI'
-import { Plus, ChevronLeft, X, Zap, Loader2, Search, Trash2, Upload, RefreshCw } from 'lucide-react'
+import { Plus, ChevronLeft, X, Zap, Loader2, Search, Trash2, Upload, RefreshCw, FileText, GitBranch, BarChart3 } from 'lucide-react'
 import CotEditorESP from './CotEditorESP'
+import ChangeOrdersTab, { ObraRealTab } from './ChangeOrders'
 import AIQuoteChat from './AIQuoteChat'
 import CotEditorCortinas from './CotEditorCortinas'
 import CotEditorProyecto from './CotEditorProyecto'
@@ -626,6 +627,8 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
   const [aiImporting, setAiImporting] = useState(false)
   const [aiImportResult, setAiImportResult] = useState<Array<{catalog_id: string|null, name: string, quantity: number}> | null>(null)
   const aiImportRef = useRef<HTMLInputElement>(null)
+  const [activeTab, setActiveTab] = useState<'cotizacion' | 'cambios' | 'obra_real'>('cotizacion')
+  const [changeOrders, setChangeOrders] = useState<any[]>([])
 
   useEffect(() => {
     async function load() {
@@ -638,6 +641,13 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
       ])
       setCot(c); setAreas(as_||[]); setItems(it||[]); setCatalog(cat||[]); setSuppliers(sups||[])
       if (as_ && as_.length > 0) setAreaActiva(as_[0].id)
+      // Load change orders for Obra Real tab
+      const { data: coData } = await supabase
+        .from('change_orders')
+        .select('*, items:change_order_items(*)')
+        .eq('quotation_id', cotId)
+        .order('numero')
+      setChangeOrders(coData || [])
       setLoading(false)
     }
     load()
@@ -1131,6 +1141,26 @@ Devuelve SOLO un JSON array válido sin markdown:
         <span style={{color:'#333'}}>/</span>
         <span style={{fontSize:12,fontWeight:500,color:esp.color}}>{esp.icon} {cot.name}</span>
         {proj && <span style={{fontSize:11,color:'#555'}}> {proj.client_name}</span>}
+
+        {/* Tabs */}
+        <div style={{display:'flex',gap:2,marginLeft:16,background:'#0a0a0a',borderRadius:8,padding:2}}>
+          {([
+            { key: 'cotizacion', label: 'Cotizacion', icon: <FileText size={12}/> },
+            { key: 'cambios', label: 'Cambios', icon: <GitBranch size={12}/> },
+            { key: 'obra_real', label: 'Obra Real', icon: <BarChart3 size={12}/> },
+          ] as const).map(tab => (
+            <button key={tab.key} onClick={() => setActiveTab(tab.key)}
+              style={{
+                display:'flex',alignItems:'center',gap:4,padding:'4px 12px',borderRadius:6,fontSize:11,fontWeight:600,
+                cursor:'pointer',fontFamily:'inherit',border:'none',
+                background: activeTab === tab.key ? '#222' : 'transparent',
+                color: activeTab === tab.key ? '#fff' : '#555',
+              }}>
+              {tab.icon} {tab.label}
+            </button>
+          ))}
+        </div>
+
         <div style={{marginLeft:'auto',display:'flex',gap:4,alignItems:'center'}}>
           {(Object.entries(STAGE_CONFIG) as any[]).map(([s,cfg]) => (
             <button key={s} onClick={()=>setStage(s)} style={{
@@ -1140,21 +1170,23 @@ Devuelve SOLO un JSON array válido sin markdown:
               color:cot.stage===s?cfg.color:'#555',
             }}>{cfg.label}</button>
           ))}
-          <Btn size="sm" variant="primary" onClick={()=>setShowCat(true)} style={{marginLeft:8}}>
-            <Plus size={12}/> Producto
-          </Btn>
-          <input type="file" ref={aiImportRef} accept=".csv,.txt,.xlsx,.pdf,.png,.jpg,.jpeg,.webp,.gif" style={{display:'none'}} onChange={handleAIImport} />
-          <Btn size="sm" onClick={() => aiImportRef.current?.click()} disabled={aiImporting} style={{marginLeft:4}}>
-            {aiImporting ? <><Loader2 size={12} style={{animation:'spin 1s linear infinite'}}/> Importando...</> : <><Upload size={12}/> Importar con IA</>}
-          </Btn>
-          <Btn size="sm" onClick={syncPricesFromCatalog} disabled={syncing} style={{marginLeft:4}}>
-            {syncing ? <><Loader2 size={12} style={{animation:'spin 1s linear infinite'}}/> Actualizando...</> : <><RefreshCw size={12}/> Sync Catálogo</>}
-          </Btn>
-          {cot.stage === 'contrato' && (
-            <Btn size="sm" onClick={generatePurchaseOrders} disabled={generating} style={{marginLeft:4}}>
-              <Zap size={12}/> {generating ? 'Generando...' : 'Regenerar OC'}
+          {activeTab === 'cotizacion' && <>
+            <Btn size="sm" variant="primary" onClick={()=>setShowCat(true)} style={{marginLeft:8}}>
+              <Plus size={12}/> Producto
             </Btn>
-          )}
+            <input type="file" ref={aiImportRef} accept=".csv,.txt,.xlsx,.pdf,.png,.jpg,.jpeg,.webp,.gif" style={{display:'none'}} onChange={handleAIImport} />
+            <Btn size="sm" onClick={() => aiImportRef.current?.click()} disabled={aiImporting} style={{marginLeft:4}}>
+              {aiImporting ? <><Loader2 size={12} style={{animation:'spin 1s linear infinite'}}/> Importando...</> : <><Upload size={12}/> Importar con IA</>}
+            </Btn>
+            <Btn size="sm" onClick={syncPricesFromCatalog} disabled={syncing} style={{marginLeft:4}}>
+              {syncing ? <><Loader2 size={12} style={{animation:'spin 1s linear infinite'}}/> Actualizando...</> : <><RefreshCw size={12}/> Sync Catálogo</>}
+            </Btn>
+            {cot.stage === 'contrato' && (
+              <Btn size="sm" onClick={generatePurchaseOrders} disabled={generating} style={{marginLeft:4}}>
+                <Zap size={12}/> {generating ? 'Generando...' : 'Regenerar OC'}
+              </Btn>
+            )}
+          </>}
           <span style={{fontSize:14,fontWeight:700,color:'#57FF9A',marginLeft:8}}>{F(cotTotal)}</span>
         </div>
       </div>
@@ -1168,7 +1200,22 @@ Devuelve SOLO un JSON array válido sin markdown:
         </div>
       )}
 
-      <div style={{display:'grid',gridTemplateColumns: isIlum ? '1fr' : '175px 1fr',flex:1,overflow:'hidden'}}>
+      {/* Tab: Cambios */}
+      {activeTab === 'cambios' && (
+        <div style={{flex:1,overflow:'hidden'}}>
+          <ChangeOrdersTab cotId={cotId} items={items} areas={areas} catalog={catalog} specialty={cot.specialty} />
+        </div>
+      )}
+
+      {/* Tab: Obra Real */}
+      {activeTab === 'obra_real' && (
+        <div style={{flex:1,overflow:'hidden'}}>
+          <ObraRealTab items={items} orders={changeOrders} areas={areas} />
+        </div>
+      )}
+
+      {/* Tab: Cotizacion (original content) */}
+      {activeTab === 'cotizacion' && <div style={{display:'grid',gridTemplateColumns: isIlum ? '1fr' : '175px 1fr',flex:1,overflow:'hidden'}}>
         {!isIlum && <div style={{borderRight:'1px solid #222',overflowY:'auto',background:'#0e0e0e'}}>
           <div style={{padding:'8px 8px 4px',fontSize:9,fontWeight:600,color:'#444',textTransform:'uppercase',letterSpacing:'0.1em'}}>Areas</div>
           {areas.map(a => {
@@ -1262,7 +1309,7 @@ Devuelve SOLO un JSON array válido sin markdown:
             </div>
           </div>
         </div>
-      </div>
+      </div>}
 
       {showCat && (
         <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.8)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000}}>

@@ -12,6 +12,8 @@ export type DeliveryStatus = 'pendiente' | 'en_ruta' | 'entregado' | 'cancelado'
 export type DeliveryType = 'entrega' | 'recoleccion'
 export type PaymentStatus = 'pendiente' | 'vigente' | 'vencido' | 'cobrado'
 export type PurchasePhase = 'inicio' | 'roughin' | 'acabados' | 'cierre'
+export type ChangeOrderEstado = 'borrador' | 'pendiente' | 'aprobada' | 'rechazada'
+export type ChangeOrderAccion = 'agregar' | 'quitar' | 'swap' | 'qty'
 
 export interface Employee {
   id: string
@@ -190,4 +192,44 @@ export interface PaymentMilestone {
   payment_method?: string
   notes?: string
   project?: Project
+}
+
+export interface ChangeOrder {
+  id: string
+  created_at: string
+  updated_at: string
+  quotation_id: string
+  numero: number
+  motivo: string
+  descripcion?: string
+  estado: ChangeOrderEstado
+  delta_costo: number
+  requiere_aprobacion: boolean
+  aprobado_por?: string
+  aprobado_at?: string
+  created_by?: string
+  items?: ChangeOrderItem[]
+}
+
+export interface ChangeOrderItem {
+  id: string
+  created_at: string
+  change_order_id: string
+  accion: ChangeOrderAccion
+  original_item_id?: string
+  catalog_product_id?: string
+  nombre: string
+  descripcion?: string
+  marca?: string
+  modelo?: string
+  unidad?: string
+  area_id?: string
+  system_name?: string
+  cantidad_original: number
+  cantidad_nueva: number
+  costo: number
+  markup: number
+  precio: number
+  subtotal: number
+  notas?: string
 }
