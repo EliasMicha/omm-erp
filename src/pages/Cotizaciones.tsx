@@ -17,6 +17,90 @@ interface Supplier { id: string; name: string }
 
 interface LeadInfo { id: string; name: string; company: string }
 
+// ─── LEAD CELL: clickable inline lead selector ─────────────────────────
+function LeadCell({ cotId, currentLeadId, currentLeadName, leads, notes, onUpdate }: {
+  cotId: string
+  currentLeadId: string
+  currentLeadName: string
+  leads: LeadInfo[]
+  notes: string
+  onUpdate: (leadId: string, leadName: string, company: string) => void
+}) {
+  const [editing, setEditing] = useState(false)
+  const [search, setSearch] = useState('')
+
+  const filtered = search.length >= 1
+    ? leads.filter(l => l.name.toLowerCase().includes(search.toLowerCase()) || (l.company || '').toLowerCase().includes(search.toLowerCase()))
+    : leads.slice(0, 10)
+
+  async function selectLead(l: LeadInfo) {
+    let meta: any = {}
+    try { meta = JSON.parse(notes) } catch {}
+    meta.lead_id = l.id
+    meta.lead_name = l.name
+    await supabase.from('quotations').update({
+      notes: JSON.stringify(meta),
+      client_name: l.company || l.name,
+    }).eq('id', cotId)
+    onUpdate(l.id, l.name, l.company || l.name)
+    setEditing(false)
+    setSearch('')
+  }
+
+  async function clearLead() {
+    let meta: any = {}
+    try { meta = JSON.parse(notes) } catch {}
+    meta.lead_id = ''
+    meta.lead_name = ''
+    await supabase.from('quotations').update({ notes: JSON.stringify(meta) }).eq('id', cotId)
+    onUpdate('', '', '')
+    setEditing(false)
+    setSearch('')
+  }
+
+  if (!editing) {
+    return (
+      <span
+        onClick={e => { e.stopPropagation(); setEditing(true) }}
+        style={{ color: currentLeadName ? '#C084FC' : '#333', cursor: 'pointer' }}
+        title="Click para cambiar lead"
+      >
+        {currentLeadName || '--'}
+      </span>
+    )
+  }
+
+  return (
+    <div onClick={e => e.stopPropagation()} style={{ position: 'relative', minWidth: 160 }}>
+      <input
+        value={search}
+        onChange={e => setSearch(e.target.value)}
+        placeholder="Buscar lead..."
+        autoFocus
+        onBlur={() => setTimeout(() => setEditing(false), 200)}
+        style={{ width: '100%', padding: '4px 8px', background: '#1a1a1a', border: '1px solid #444', borderRadius: 6, color: '#fff', fontSize: 11, fontFamily: 'inherit', outline: 'none' }}
+      />
+      <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#1a1a1a', border: '1px solid #333', borderRadius: 6, marginTop: 2, maxHeight: 160, overflowY: 'auto', zIndex: 20, boxShadow: '0 4px 12px rgba(0,0,0,0.5)' }}>
+        {currentLeadId && (
+          <div onMouseDown={clearLead} style={{ padding: '6px 8px', cursor: 'pointer', fontSize: 11, color: '#ef4444', borderBottom: '1px solid #222' }}>
+            × Quitar lead
+          </div>
+        )}
+        {filtered.map(l => (
+          <div key={l.id} onMouseDown={() => selectLead(l)}
+            style={{ padding: '6px 8px', cursor: 'pointer', fontSize: 11, color: l.id === currentLeadId ? '#C084FC' : '#ccc', borderBottom: '1px solid #222' }}
+            onMouseEnter={e => { e.currentTarget.style.background = '#222' }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}>
+            <div style={{ fontWeight: 500 }}>{l.name}</div>
+            {l.company && <div style={{ fontSize: 10, color: '#555' }}>{l.company}</div>}
+          </div>
+        ))}
+        {filtered.length === 0 && <div style={{ padding: '8px', fontSize: 11, color: '#555', textAlign: 'center' }}>Sin resultados</div>}
+      </div>
+    </div>
+  )
+}
+
 function CotDashboard({ onOpen }: { onOpen: (id: string, specialty?: string) => void }) {
   const [cots, setCots] = useState<Quotation[]>([])
   const [leadsMap, setLeadsMap] = useState<Record<string, LeadInfo>>({})
@@ -188,7 +272,23 @@ function CotDashboard({ onOpen }: { onOpen: (id: string, specialty?: string) => 
               return (
                 <tr key={c.id} style={{cursor:'pointer'}} onClick={() => onOpen(c.id, c.specialty)}>
                   <Td><span style={{fontWeight:500,color:'#fff'}}>{c.name || '--'}</span></Td>
-                  <Td><span style={{color: leadName ? '#C084FC' : '#333'}}>{leadName || '--'}</span></Td>
+                  <Td>
+                    <LeadCell
+                      cotId={c.id}
+                      currentLeadId={getLeadId(c)}
+                      currentLeadName={leadName}
+                      leads={Object.values(leadsMap)}
+                      notes={c.notes || '{}'}
+                      onUpdate={(leadId, leadName, company) => {
+                        setCots(prev => prev.map(q => {
+                          if (q.id !== c.id) return q
+                          let meta: any = {}; try { meta = JSON.parse(q.notes || '{}') } catch {}
+                          meta.lead_id = leadId; meta.lead_name = leadName
+                          return { ...q, client_name: company || q.client_name, notes: JSON.stringify(meta) }
+                        }))
+                      }}
+                    />
+                  </Td>
                   <Td><span style={{color: architect ? '#F9A8D4' : '#333', fontSize: 12}}>{architect || '--'}</span></Td>
                   <Td muted>{c.client_name || '--'}</Td>
                   <Td><Badge label={esp.icon+' '+esp.label} color={esp.color}/></Td>
