@@ -862,8 +862,19 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
       image_url: (prod as any).image_url || null,
     }
     const { data } = await supabase.from('quotation_items').insert(item).select().single()
-    if (data) setItems(prev => [...prev, data])
+    if (data) {
+      const newItems = [...items, data]
+      setItems(newItems)
+      syncQuotationTotal(newItems)
+    }
     setShowCat(false)
+  }
+
+  // Sync quotation total to DB whenever items change
+  async function syncQuotationTotal(updatedItems: QuotationItem[]) {
+    const newTotal = updatedItems.reduce((s, i) => s + i.total, 0)
+    await supabase.from('quotations').update({ total: newTotal }).eq('id', cotId)
+    setCot(c => c ? { ...c, total: newTotal } : c)
   }
 
   async function updateItem(id: string, campo: string, val: number) {
@@ -873,7 +884,9 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
     updated.price = calcItemPrice(updated.cost, updated.markup)
     updated.total = calcItemTotal(updated.cost, updated.markup, updated.quantity)
     await supabase.from('quotation_items').update({ [campo]: val, price: updated.price, total: updated.total }).eq('id', id)
-    setItems(prev => prev.map(i => i.id === id ? updated : i))
+    const newItems = items.map(i => i.id === id ? updated : i)
+    setItems(newItems)
+    syncQuotationTotal(newItems)
   }
 
   // ─── SYNC PRICES FROM CATALOG ─────────────────────────────────────────
@@ -898,6 +911,12 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
       }).eq('id', item.id)
       setItems(prev => prev.map(i => i.id === item.id ? { ...i, cost: prod.cost, markup: prod.markup, price, total, provider: prod.provider || i.provider, supplier_id: prod.supplier_id || i.supplier_id, purchase_phase: prod.purchase_phase || i.purchase_phase } : i))
       updated++
+    }
+    // Sync quotation total after price changes
+    if (updated > 0) {
+      const freshTotal = items.reduce((s, i) => s + i.total, 0)
+      await supabase.from('quotations').update({ total: freshTotal }).eq('id', cotId)
+      setCot(c => c ? { ...c, total: freshTotal } : c)
     }
     setSyncing(false)
     alert(updated > 0 ? `Se actualizaron ${updated} producto${updated > 1 ? 's' : ''} con precios del catálogo.` : 'Todos los precios ya están al día.')
@@ -1116,12 +1135,21 @@ Devuelve SOLO un JSON array válido sin markdown:
       }
     }
 
+    // Sync total after bulk import
+    if (insertedCount > 0) {
+      const allItems = await supabase.from('quotation_items').select('total').eq('quotation_id', cotId)
+      const newTotal = (allItems.data || []).reduce((s: number, i: any) => s + (i.total || 0), 0)
+      await supabase.from('quotations').update({ total: newTotal }).eq('id', cotId)
+      setCot(c => c ? { ...c, total: newTotal } : c)
+    }
     setAiImportResult(null)
   }
 
   async function removeItem(id: string) {
     await supabase.from('quotation_items').delete().eq('id', id)
-    setItems(prev => prev.filter(i => i.id !== id))
+    const newItems = items.filter(i => i.id !== id)
+    setItems(newItems)
+    syncQuotationTotal(newItems)
   }
 
   if (loading||!cot) return <Loading/>
