@@ -965,7 +965,7 @@ Devuelve SOLO un JSON array válido sin markdown:
         headers: {
           'Content-Type': 'application/json',
           'x-api-key': ANTHROPIC_API_KEY,
-          'anthropic-version': '2023-06-01',
+          'anthropic-version': '2025-01-01',
           'anthropic-dangerous-direct-browser-access': 'true'
         },
         body: JSON.stringify({
@@ -976,9 +976,10 @@ Devuelve SOLO un JSON array válido sin markdown:
       })
 
       const data = await res.json()
+      console.log('[AI Import] stop_reason:', data.stop_reason, 'content blocks:', data.content?.length)
       if (data.error) {
         setAiImporting(false)
-        alert('Error API: ' + (data.error.message || 'Unknown error'))
+        alert('Error API: ' + (data.error.message || JSON.stringify(data.error)))
         return
       }
 
@@ -987,15 +988,18 @@ Devuelve SOLO un JSON array válido sin markdown:
         .map((b: any) => b.text)
         .join('\n')
 
+      console.log('[AI Import] raw response length:', textBlocks.length, 'first 500 chars:', textBlocks.substring(0, 500))
+
       let parsed: any[] = []
       try {
         let cleaned = textBlocks.replace(/```json|```/g, '').trim()
         // Find the JSON array
         const start = cleaned.indexOf('[')
-        if (start === -1) throw new Error('No JSON array found')
+        if (start === -1) throw new Error('No JSON array found in response: ' + cleaned.substring(0, 200))
         let jsonStr = cleaned.slice(start)
         // If truncated (no closing bracket), try to fix it
         if (!jsonStr.trimEnd().endsWith(']')) {
+          console.log('[AI Import] JSON truncated, attempting fix...')
           // Find last complete object (ending with })
           const lastBrace = jsonStr.lastIndexOf('}')
           if (lastBrace > 0) {
@@ -1004,6 +1008,7 @@ Devuelve SOLO un JSON array válido sin markdown:
         }
         parsed = JSON.parse(jsonStr)
       } catch (e) {
+        console.error('[AI Import] parse error:', e, 'textBlocks:', textBlocks.substring(0, 1000))
         setAiImporting(false)
         alert('No se pudo parsear respuesta: ' + (e instanceof Error ? e.message : 'Error desconocido'))
         return
