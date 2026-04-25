@@ -7,6 +7,7 @@ import { Badge, Btn, Table, Th, Td, Loading, SectionHeader, EmptyState } from '.
 import { Plus, ChevronLeft, X, Zap, Loader2, Search, Trash2, Upload, RefreshCw, FileText, GitBranch, BarChart3 } from 'lucide-react'
 import CotEditorESP from './CotEditorESP'
 import ChangeOrdersTab, { ObraRealTab } from './ChangeOrders'
+import ImportCotizaciones from './ImportCotizaciones'
 import AIQuoteChat from './AIQuoteChat'
 import CotEditorCortinas from './CotEditorCortinas'
 import CotEditorProyecto from './CotEditorProyecto'
@@ -24,6 +25,7 @@ function CotDashboard({ onOpen }: { onOpen: (id: string, specialty?: string) => 
   const [loading, setLoading] = useState(true)
   const [showNew, setShowNew] = useState(false)
   const [showAIGen, setShowAIGen] = useState(false)
+  const [showImport, setShowImport] = useState(false)
 
   const loadCots = async () => {
     setLoading(true)
@@ -94,6 +96,7 @@ function CotDashboard({ onOpen }: { onOpen: (id: string, specialty?: string) => 
       <SectionHeader title="Cotizaciones"
         subtitle={`${cots.length} cotizaciones · USD ${F(totalUSD)} · MXN ${F(totalMXN)}`}
         action={<div style={{display:'flex',gap:8}}>
+          <Btn onClick={() => setShowImport(true)} style={{border:'1px solid #3b82f644', color:'#3b82f6', display:'inline-flex', alignItems:'center', gap:4}}><Upload size={14}/> Importar</Btn>
           <Btn onClick={() => setShowAIGen(true)} style={{border:'1px solid #57FF9A44', color:'#57FF9A', display:'inline-flex', alignItems:'center', gap:4}}><Zap size={14}/> Cotizar con AI</Btn>
           <Btn variant="primary" onClick={() => setShowNew(true)}><Plus size={14}/> Nueva cotizacion</Btn>
         </div>}/>
@@ -241,6 +244,7 @@ function CotDashboard({ onOpen }: { onOpen: (id: string, specialty?: string) => 
 
       {showNew && <NuevaCoModal onClose={() => setShowNew(false)} onCreated={(id, spec) => { setShowNew(false); onOpen(id, spec) }}/>}
       {showAIGen && <AIQuoteChat onClose={() => setShowAIGen(false)} onCreated={(id, spec) => { setShowAIGen(false); onOpen(id, spec) }}/>}
+      {showImport && <ImportCotizaciones onClose={() => { setShowImport(false); loadCots() }} onImported={(id, spec) => { setShowImport(false); loadCots(); onOpen(id, spec) }}/>}
     </div>
   )
 }
