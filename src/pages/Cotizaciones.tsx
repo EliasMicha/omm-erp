@@ -289,7 +289,7 @@ function NuevaCoModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
     Promise.all([
       supabase.from('projects').select('*').eq('status', 'activo'),
       supabase.from('clientes').select('id,razon_social,rfc').eq('activo', true).order('razon_social'),
-      supabase.from('leads').select('id,name,company,contact_name').order('created_at', { ascending: false }).limit(50),
+      supabase.from('leads').select('id,name,company,contact_name').order('name'),
     ]).then(([{ data: p }, { data: c }, { data: l }]) => {
       setProjects(p || [])
       setClientes(c || [])
