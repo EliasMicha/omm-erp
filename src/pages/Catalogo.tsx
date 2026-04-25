@@ -35,6 +35,9 @@ interface Product {
   marca: string
   modelo: string
   image_url: string | null
+  codigo_interno: string
+  subdescripcion: string
+  costo_mano_obra: number
 }
 
 const SYSTEMS = ['Electrico', 'CCTV', 'Audio', 'Control de acceso', 'Redes', 'Iluminacion', 'Control de iluminacion', 'Cortinas', 'General']
@@ -243,6 +246,8 @@ IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
       moneda: form.moneda || 'MXN', costo_usd: form.costo_usd || 0, tipo_cambio: form.tipo_cambio || 0, marca: form.marca || null, modelo: form.modelo || null,
       supplier_id: form.supplier_id || null, purchase_phase: form.purchase_phase || 'inicio',
       image_url: form.image_url || null,
+      codigo_interno: form.codigo_interno || null, subdescripcion: form.subdescripcion || null,
+      costo_mano_obra: form.costo_mano_obra || 0,
     }
     try {
       if (editId) {
@@ -376,15 +381,14 @@ IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
 
       <Table>
         <thead><tr>
-          <Th>{' '}</Th>
-          <Th>Producto</Th>
+          {filterSpecialty !== 'elec' && <Th>{' '}</Th>}
+          <Th>{filterSpecialty === 'elec' ? 'Descripción' : 'Producto'}</Th>
           {filterSpecialty === 'esp' && <><Th>Sistema</Th><Th>Marca</Th><Th>Modelo</Th></>}
           {filterSpecialty === 'ilum' && <><Th>Marca</Th><Th>Modelo</Th><Th right>W</Th><Th right>Lúmenes</Th><Th right>CCT</Th><Th right>CRI</Th><Th>IP</Th><Th>Montaje</Th></>}
-          {filterSpecialty === 'elec' && <><Th>Categoría</Th><Th>Unidad</Th></>}
+          {filterSpecialty === 'elec' && <><Th>Código</Th><Th>Subdescripción</Th><Th>Marca</Th><Th>Unidad</Th><Th right>Costo MO</Th></>}
           {filterSpecialty === 'proy' && <><Th>Unidad</Th></>}
-          <Th>Proveedor</Th>
-          <Th>Fase</Th>
-          <Th right>Costo</Th>
+          {filterSpecialty !== 'elec' && <><Th>Proveedor</Th><Th>Fase</Th></>}
+          <Th right>{filterSpecialty === 'elec' ? 'Costo Material' : 'Costo'}</Th>
           <Th right>Precio Venta</Th>
           <Th>{' '}</Th>
         </tr></thead>
@@ -392,14 +396,16 @@ IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
           {filtered.length === 0 && <tr><Td colSpan={10} muted>Sin productos. Agrega tu primer producto al catalogo.</Td></tr>}
           {filtered.map(p => (
             <tr key={p.id} style={{ cursor: 'pointer' }} onClick={() => setSelectedProduct(p)}>
-              <Td>
-                {p.image_url ? (
-                  <img src={p.image_url} alt="" style={{ width: 32, height: 32, objectFit: 'contain', borderRadius: 4, background: '#fff', border: '1px solid #2a2a2a' }} />
-                ) : (
-                  <div style={{ width: 32, height: 32, borderRadius: 4, border: '1px dashed #2a2a2a', background: '#0e0e0e' }} />
-                )}
-              </Td>
-              <Td><div style={{fontWeight: 600, color:'#fff'}}>{p.name}</div>{p.description && <div style={{fontSize:10, color:'#555', marginTop:2}}>{p.description.substring(0,50)}</div>}</Td>
+              {filterSpecialty !== 'elec' && (
+                <Td>
+                  {p.image_url ? (
+                    <img src={p.image_url} alt="" style={{ width: 32, height: 32, objectFit: 'contain', borderRadius: 4, background: '#fff', border: '1px solid #2a2a2a' }} />
+                  ) : (
+                    <div style={{ width: 32, height: 32, borderRadius: 4, border: '1px dashed #2a2a2a', background: '#0e0e0e' }} />
+                  )}
+                </Td>
+              )}
+              <Td><div style={{fontWeight: 600, color:'#fff'}}>{p.name}</div>{filterSpecialty !== 'elec' && p.description && <div style={{fontSize:10, color:'#555', marginTop:2}}>{p.description.substring(0,50)}</div>}</Td>
               {filterSpecialty === 'esp' && <>
                 <Td muted style={{fontSize:11}}>{p.system || '--'}</Td>
                 <Td muted style={{fontSize:11}}>{(p as any).marca || p.provider || '--'}</Td>
@@ -416,14 +422,19 @@ IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
                 <Td muted style={{fontSize:11}}>{(p as any).mounting_type || '--'}</Td>
               </>}
               {filterSpecialty === 'elec' && <>
-                <Td muted style={{fontSize:11}}>{p.category || p.system || '--'}</Td>
-                <Td muted style={{fontSize:11}}>{p.clave_unidad} ({p.unit})</Td>
+                <Td muted style={{fontSize:11}}>{p.codigo_interno || '--'}</Td>
+                <Td muted style={{fontSize:11}}>{p.subdescripcion || '--'}</Td>
+                <Td muted style={{fontSize:11}}>{p.marca || p.provider || '--'}</Td>
+                <Td muted style={{fontSize:11}}>{p.unit || 'pza'}</Td>
+                <Td right muted style={{fontSize:11}}>{F(p.costo_mano_obra || 0)}</Td>
               </>}
               {filterSpecialty === 'proy' && <>
                 <Td muted style={{fontSize:11}}>{p.unit || 'pza'}</Td>
               </>}
-              <Td muted style={{fontSize:11}}>{suppliers.find(s => s.id === p.supplier_id)?.name || p.provider || '--'}</Td>
-              <Td>{p.purchase_phase ? <Badge label={PHASE_CONFIG[p.purchase_phase as PurchasePhase]?.label || p.purchase_phase} color={PHASE_CONFIG[p.purchase_phase as PurchasePhase]?.color || '#555'} /> : <span style={{color:'#555',fontSize:11}}>--</span>}</Td>
+              {filterSpecialty !== 'elec' && <>
+                <Td muted style={{fontSize:11}}>{suppliers.find(s => s.id === p.supplier_id)?.name || p.provider || '--'}</Td>
+                <Td>{p.purchase_phase ? <Badge label={PHASE_CONFIG[p.purchase_phase as PurchasePhase]?.label || p.purchase_phase} color={PHASE_CONFIG[p.purchase_phase as PurchasePhase]?.color || '#555'} /> : <span style={{color:'#555',fontSize:11}}>--</span>}</Td>
+              </>}
               <Td right muted><span style={{fontSize:9,color:'#555'}}>{p.moneda||'MXN'}</span> {F(p.cost)}</Td>
               <Td right style={{fontWeight: 600, color:'#57FF9A'}}>{F(p.precio_venta || calcPrecioVenta(p.cost, p.markup))}</Td>
               <Td><Edit size={12} style={{ color: '#555' }} onClick={(e: React.MouseEvent) => { e.stopPropagation(); openEdit(p) }} /></Td>
@@ -510,10 +521,22 @@ IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
               <Fld label="Distribuidor"><select style={iS} value={form.supplier_id || ''} onChange={e => setForm({...form, supplier_id: e.target.value})}><option value="">-- Sin distribuidor --</option>{suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></Fld>
               <Fld label="Fase de compra"><select style={iS} value={form.purchase_phase || 'inicio'} onChange={e => setForm({...form, purchase_phase: e.target.value})}>{Object.entries(PHASE_CONFIG).map(([k,v]) => <option key={k} value={k}>{v.label}</option>)}</select></Fld>
             </div>
+            {/* Campos eléctrico */}
+            {filterSpecialty === 'elec' && (
+              <>
+                <div style={{ fontSize: 13, fontWeight: 600, color: '#888', marginTop: 12, marginBottom: 10 }}>Eléctrico</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                  <Fld label="Código interno"><input style={iS} value={form.codigo_interno || ''} onChange={e => setForm({...form, codigo_interno: e.target.value})} placeholder="OMM-E001" /></Fld>
+                  <Fld label="Subdescripción"><input style={iS} value={form.subdescripcion || ''} onChange={e => setForm({...form, subdescripcion: e.target.value})} placeholder="Omniious | Incluye Herramienta y Mano de Obra" /></Fld>
+                </div>
+              </>
+            )}
+
             <div style={{ fontSize: 13, fontWeight: 600, color: '#888', marginTop: 12, marginBottom: 10 }}>Precios</div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 10 }}>
               <Fld label="Moneda"><select style={iS} value={form.moneda || 'MXN'} onChange={e => setForm({...form, moneda: e.target.value})}><option value="MXN">MXN (Pesos)</option><option value="USD">USD (Dolares)</option></select></Fld>
-              <Fld label="Costo"><input style={iS} type="number" value={form.cost || ''} onChange={e => { const c = parseFloat(e.target.value)||0; setForm({...form, cost: c, precio_venta: calcPrecioVenta(c, form.markup||35)}) }} placeholder="0.00" /></Fld>
+              <Fld label={filterSpecialty === 'elec' ? 'Costo Material' : 'Costo'}><input style={iS} type="number" value={form.cost || ''} onChange={e => { const c = parseFloat(e.target.value)||0; setForm({...form, cost: c, precio_venta: calcPrecioVenta(c, form.markup||35)}) }} placeholder="0.00" /></Fld>
+              {filterSpecialty === 'elec' && <Fld label="Costo Mano de Obra"><input style={iS} type="number" value={form.costo_mano_obra || ''} onChange={e => setForm({...form, costo_mano_obra: parseFloat(e.target.value)||0})} placeholder="0.00" /></Fld>}
               <Fld label="Margen %"><input style={iS} type="number" value={form.markup || ''} onChange={e => { const m = parseFloat(e.target.value)||0; setForm({...form, markup: m, precio_venta: calcPrecioVenta(form.cost||0, m)}) }} placeholder="35" /></Fld>
               <Fld label="Precio Venta"><input style={iS} type="number" value={form.precio_venta || ''} onChange={e => setForm({...form, precio_venta: parseFloat(e.target.value)||0})} placeholder="0.00" /></Fld>
               <Fld label="Tipo Cambio"><input style={iS} type="number" value={form.tipo_cambio || ''} onChange={e => setForm({...form, tipo_cambio: parseFloat(e.target.value)||0})} placeholder="20.50" /></Fld>
