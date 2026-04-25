@@ -244,14 +244,20 @@ IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
       supplier_id: form.supplier_id || null, purchase_phase: form.purchase_phase || 'inicio',
       image_url: form.image_url || null,
     }
-    if (editId) {
-      await supabase.from('catalog_products').update(row).eq('id', editId)
-      setProducts(products.map(p => p.id === editId ? {...p, ...row, id: editId, precio_venta: pv} as Product : p))
-    } else {
-      const { data } = await supabase.from('catalog_products').insert(row).select().single()
-      if (data) setProducts([{...data, cost: Number(data.cost), markup: Number(data.markup), precio_venta: Number(data.precio_venta), iva_rate: Number(data.iva_rate)} as Product, ...products])
+    try {
+      if (editId) {
+        const { error } = await supabase.from('catalog_products').update(row).eq('id', editId)
+        if (error) { console.error('[catalog] update error:', error); alert('Error al guardar: ' + error.message); return }
+        setProducts(products.map(p => p.id === editId ? {...p, ...row, id: editId, precio_venta: pv} as Product : p))
+      } else {
+        const { data, error } = await supabase.from('catalog_products').insert(row).select().single()
+        if (error) { console.error('[catalog] insert error:', error); alert('Error al crear producto: ' + error.message); return }
+        if (data) setProducts([{...data, cost: Number(data.cost), markup: Number(data.markup), precio_venta: Number(data.precio_venta), iva_rate: Number(data.iva_rate)} as Product, ...products])
+      }
+      setShowForm(false)
+    } catch (err) {
+      console.error('[catalog] save error:', err); alert('Error inesperado: ' + (err as Error).message)
     }
-    setShowForm(false)
   }
 
 
@@ -275,13 +281,14 @@ IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
         for (const p of parsed) {
           const existing = products.find(ep => ep.sku === p.sku || ep.name?.toLowerCase() === p.name?.toLowerCase())
           if (!existing) {
-            const { data: saved } = await supabase.from('catalog_products').insert({
+            const { data: saved, error: insErr } = await supabase.from('catalog_products').insert({
               name: p.name, description: p.description || null, clave_prod_serv: p.clave_prod_serv || null,
               clave_unidad: p.clave_unidad || 'H87', unit: p.unit || 'pza', cost: p.cost || 0,
               precio_venta: p.precio_venta || 0, markup: p.markup || 35, moneda: p.moneda || 'MXN',
               marca: p.marca || null, modelo: p.modelo || null, system: p.system || null,
               type: p.type || 'material', sku: p.sku || null, iva_rate: 0.16, is_active: true,
             }).select().single()
+            if (insErr) { console.error('[catalog-import] insert error for', p.name, insErr); continue }
             if (saved) { setProducts(prev => [{...saved, cost:Number(saved.cost), markup:Number(saved.markup), precio_venta:Number(saved.precio_venta), iva_rate:Number(saved.iva_rate), costo_usd:Number(saved.costo_usd)||0, tipo_cambio:Number(saved.tipo_cambio)||0} as Product, ...prev]); added++ }
           }
         }
@@ -646,17 +653,23 @@ Si un campo no aparece, déjalo como string vacío. Para sistemas, infiere del g
       telefono: form.telefono || '', email: form.email || '', direccion: form.direccion || '',
       notas: form.notas || '', is_active: dbRow.is_active, sistemas: dbRow.sistemas,
     }
-    if (editId) {
-      await supabase.from('suppliers').update(dbRow).eq('id', editId)
-      setProveedores(prev => prev.map(p => p.id === editId ? { ...stateRow, id: editId } : p))
-    } else {
-      const { data } = await supabase.from('suppliers').insert(dbRow).select().single()
-      if (data) {
-        setProveedores(prev => [{ ...stateRow, id: data.id }, ...prev])
-        setSuppliers([...suppliers, { id: data.id, name: dbRow.name }])
+    try {
+      if (editId) {
+        const { error } = await supabase.from('suppliers').update(dbRow).eq('id', editId)
+        if (error) { console.error('[suppliers] update error:', error); alert('Error al guardar proveedor: ' + error.message); return }
+        setProveedores(prev => prev.map(p => p.id === editId ? { ...stateRow, id: editId } : p))
+      } else {
+        const { data, error } = await supabase.from('suppliers').insert(dbRow).select().single()
+        if (error) { console.error('[suppliers] insert error:', error); alert('Error al crear proveedor: ' + error.message); return }
+        if (data) {
+          setProveedores(prev => [{ ...stateRow, id: data.id }, ...prev])
+          setSuppliers([...suppliers, { id: data.id, name: dbRow.name }])
+        }
       }
+      setShowForm(false)
+    } catch (err) {
+      console.error('[suppliers] save error:', err); alert('Error inesperado: ' + (err as Error).message)
     }
-    setShowForm(false)
   }
 
   const SYSTEMS = ['CCTV', 'Audio', 'Redes', 'Control de iluminacion', 'Control de acceso', 'Electrico', 'Iluminacion', 'Cortinas', 'General']
