@@ -884,8 +884,9 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
     try {
       const specialty = cot?.specialty || 'esp'
       const relevantCatalog = catalog.filter(p => (p.specialty || 'esp') === specialty)
+      // Use short numeric index instead of UUID to save tokens
       const catalogList = relevantCatalog
-        .map(p => `- ID: ${p.id} | ${p.name} | ${p.unit} | $${p.precio_venta || p.cost}`)
+        .map((p, i) => `${i}: ${p.name}`)
         .join('\n')
 
       const ext = file.name.split('.').pop()?.toLowerCase()
@@ -902,12 +903,12 @@ ${catalogList}
 
 IMPORTANTE:
 - Haz match por nombre/descripción similar, no tiene que ser exacto
-- Si un concepto no tiene match en el catálogo, usa catalog_id: null y pon el nombre original
-- Extrae la CANTIDAD de cada partida del documento
+- Si un concepto no tiene match en el catálogo, usa idx: -1
+- Extrae la CANTIDAD de cada partida
 - Ignora subtotales, IVA, totales
 
-Devuelve SOLO un JSON array válido sin markdown:
-[{"catalog_id": "uuid-or-null", "name": "nombre del producto", "quantity": 123}]`
+Devuelve SOLO un JSON array sin markdown ni explicacion:
+[{"idx":0,"name":"nombre corto","qty":434},{"idx":2,"name":"otro","qty":13}]`
 
         content = [
           { type: 'image', source: { type: 'base64', media_type: file.type, data: b64 } },
@@ -924,12 +925,12 @@ ${catalogList}
 
 IMPORTANTE:
 - Haz match por nombre/descripción similar, no tiene que ser exacto
-- Si un concepto no tiene match en el catálogo, usa catalog_id: null y pon el nombre original
-- Extrae la CANTIDAD de cada partida del documento
+- Si un concepto no tiene match en el catálogo, usa idx: -1
+- Extrae la CANTIDAD de cada partida
 - Ignora subtotales, IVA, totales
 
-Devuelve SOLO un JSON array válido sin markdown:
-[{"catalog_id": "uuid-or-null", "name": "nombre del producto", "quantity": 123}]`
+Devuelve SOLO un JSON array sin markdown ni explicacion:
+[{"idx":0,"name":"nombre corto","qty":434},{"idx":2,"name":"otro","qty":13}]`
 
         content = [
           { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: b64 } },
@@ -988,9 +989,20 @@ Devuelve SOLO un JSON array válido sin markdown:
 
       let parsed: any[] = []
       try {
-        const cleaned = textBlocks.replace(/```json|```/g, '').trim()
-        const m = cleaned.match(/\[[\s\S]*\]/)
-        if (m) parsed = JSON.parse(m[0])
+        let cleaned = textBlocks.replace(/```json|```/g, '').trim()
+        // Find the JSON array
+        const start = cleaned.indexOf('[')
+        if (start === -1) throw new Error('No JSON array found')
+        let jsonStr = cleaned.slice(start)
+        // If truncated (no closing bracket), try to fix it
+        if (!jsonStr.trimEnd().endsWith(']')) {
+          // Find last complete object (ending with })
+          const lastBrace = jsonStr.lastIndexOf('}')
+          if (lastBrace > 0) {
+            jsonStr = jsonStr.slice(0, lastBrace + 1) + ']'
+          }
+        }
+        parsed = JSON.parse(jsonStr)
       } catch (e) {
         setAiImporting(false)
         alert('No se pudo parsear respuesta: ' + (e instanceof Error ? e.message : 'Error desconocido'))
@@ -1003,7 +1015,14 @@ Devuelve SOLO un JSON array válido sin markdown:
         return
       }
 
-      setAiImportResult(parsed)
+      // Map idx back to catalog_id
+      const mapped = parsed.map((r: any) => ({
+        catalog_id: r.idx >= 0 && r.idx < relevantCatalog.length ? relevantCatalog[r.idx].id : null,
+        name: r.name || 'Desconocido',
+        quantity: r.qty || r.quantity || 1,
+      }))
+
+      setAiImportResult(mapped)
       setAiImporting(false)
     } catch (err: any) {
       setAiImporting(false)
