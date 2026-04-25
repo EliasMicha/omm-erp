@@ -1,10 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { ANTHROPIC_API_KEY } from '../lib/config'
 import { Quotation, QuotationArea, QuotationItem, CatalogProduct, Project, ProjectLine, PurchasePhase } from '../types'
 import { F, SPECIALTY_CONFIG, STAGE_CONFIG, PHASE_CONFIG, calcItemPrice, calcItemTotal } from '../lib/utils'
 import { Badge, Btn, Table, Th, Td, Loading, SectionHeader, EmptyState } from '../components/layout/UI'
-import { Plus, ChevronLeft, X, Zap, Loader2, Search, Trash2 } from 'lucide-react'
+import { Plus, ChevronLeft, X, Zap, Loader2, Search, Trash2, Upload } from 'lucide-react'
 import CotEditorESP from './CotEditorESP'
 import AIQuoteChat from './AIQuoteChat'
 import CotEditorCortinas from './CotEditorCortinas'
@@ -623,6 +623,9 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
   const [loading, setLoading] = useState(true)
   const [generating, setGenerating] = useState(false)
   const [genResult, setGenResult] = useState<string|null>(null)
+  const [aiImporting, setAiImporting] = useState(false)
+  const [aiImportResult, setAiImportResult] = useState<Array<{catalog_id: string|null, name: string, quantity: number}> | null>(null)
+  const aiImportRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     async function load() {
@@ -859,6 +862,198 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
     setItems(prev => prev.map(i => i.id === id ? updated : i))
   }
 
+  // ─── AI IMPORT HELPERS ────────────────────────────────────────────────
+  function fileToBase64(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => {
+        const result = reader.result as string
+        resolve(result.split(',')[1] || '')
+      }
+      reader.onerror = reject
+      reader.readAsDataURL(file)
+    })
+  }
+
+  async function handleAIImport(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file || !areaActiva) return
+    e.target.value = ''
+    setAiImporting(true)
+
+    try {
+      const specialty = cot?.specialty || 'esp'
+      const relevantCatalog = catalog.filter(p => (p.specialty || 'esp') === specialty)
+      const catalogList = relevantCatalog
+        .map(p => `- ID: ${p.id} | ${p.name} | ${p.unit} | $${p.precio_venta || p.cost}`)
+        .join('\n')
+
+      const ext = file.name.split('.').pop()?.toLowerCase()
+      let content: any[] = []
+
+      if (['png', 'jpg', 'jpeg', 'webp', 'gif'].includes(ext || '')) {
+        const b64 = await fileToBase64(file)
+        const promptText = `Analiza este documento de cuantificación eléctrica. Extrae todos los conceptos/partidas con sus cantidades.
+
+Para cada concepto, busca el producto más similar en este catálogo y devuelve su ID:
+
+CATÁLOGO:
+${catalogList}
+
+IMPORTANTE:
+- Haz match por nombre/descripción similar, no tiene que ser exacto
+- Si un concepto no tiene match en el catálogo, usa catalog_id: null y pon el nombre original
+- Extrae la CANTIDAD de cada partida del documento
+- Ignora subtotales, IVA, totales
+
+Devuelve SOLO un JSON array válido sin markdown:
+[{"catalog_id": "uuid-or-null", "name": "nombre del producto", "quantity": 123}]`
+
+        content = [
+          { type: 'image', source: { type: 'base64', media_type: file.type, data: b64 } },
+          { type: 'text', text: promptText }
+        ]
+      } else if (['pdf'].includes(ext || '')) {
+        const b64 = await fileToBase64(file)
+        const promptText = `Analiza este documento de cuantificación eléctrica. Extrae todos los conceptos/partidas con sus cantidades.
+
+Para cada concepto, busca el producto más similar en este catálogo y devuelve su ID:
+
+CATÁLOGO:
+${catalogList}
+
+IMPORTANTE:
+- Haz match por nombre/descripción similar, no tiene que ser exacto
+- Si un concepto no tiene match en el catálogo, usa catalog_id: null y pon el nombre original
+- Extrae la CANTIDAD de cada partida del documento
+- Ignora subtotales, IVA, totales
+
+Devuelve SOLO un JSON array válido sin markdown:
+[{"catalog_id": "uuid-or-null", "name": "nombre del producto", "quantity": 123}]`
+
+        content = [
+          { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: b64 } },
+          { type: 'text', text: promptText }
+        ]
+      } else {
+        const text = await file.text()
+        const promptText = `Analiza este documento de cuantificación eléctrica. Extrae todos los conceptos/partidas con sus cantidades.
+
+Para cada concepto, busca el producto más similar en este catálogo y devuelve su ID:
+
+CATÁLOGO:
+${catalogList}
+
+IMPORTANTE:
+- Haz match por nombre/descripción similar, no tiene que ser exacto
+- Si un concepto no tiene match en el catálogo, usa catalog_id: null y pon el nombre original
+- Extrae la CANTIDAD de cada partida del documento
+- Ignora subtotales, IVA, totales
+
+Archivo (${file.name}):
+${text}
+
+Devuelve SOLO un JSON array válido sin markdown:
+[{"catalog_id": "uuid-or-null", "name": "nombre del producto", "quantity": 123}]`
+
+        content = [{ type: 'text', text: promptText }]
+      }
+
+      const res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': ANTHROPIC_API_KEY,
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true'
+        },
+        body: JSON.stringify({
+          model: 'claude-opus-4-1-20250805',
+          max_tokens: 2000,
+          messages: [{ role: 'user', content }]
+        })
+      })
+
+      const data = await res.json()
+      if (data.error) {
+        setAiImporting(false)
+        alert('Error API: ' + (data.error.message || 'Unknown error'))
+        return
+      }
+
+      const textBlocks = (data.content || [])
+        .filter((b: any) => b.type === 'text')
+        .map((b: any) => b.text)
+        .join('\n')
+
+      let parsed: any[] = []
+      try {
+        const cleaned = textBlocks.replace(/```json|```/g, '').trim()
+        const m = cleaned.match(/\[[\s\S]*\]/)
+        if (m) parsed = JSON.parse(m[0])
+      } catch (e) {
+        setAiImporting(false)
+        alert('No se pudo parsear respuesta: ' + (e instanceof Error ? e.message : 'Error desconocido'))
+        return
+      }
+
+      if (!Array.isArray(parsed) || parsed.length === 0) {
+        setAiImporting(false)
+        alert('No se encontraron items en el documento')
+        return
+      }
+
+      setAiImportResult(parsed)
+      setAiImporting(false)
+    } catch (err: any) {
+      setAiImporting(false)
+      alert('Error: ' + (err.message || 'No se pudo conectar'))
+    }
+  }
+
+  async function confirmAIImport() {
+    if (!aiImportResult || !areaActiva) return
+    const matched = aiImportResult.filter(r => r.catalog_id)
+    let insertedCount = 0
+
+    for (const r of matched) {
+      const prod = catalog.find(p => p.id === r.catalog_id)
+      if (!prod) continue
+
+      const item = {
+        area_id: areaActiva,
+        quotation_id: cotId,
+        catalog_product_id: prod.id,
+        name: prod.name,
+        description: prod.description,
+        system: prod.system,
+        type: prod.type,
+        provider: prod.provider,
+        quantity: r.quantity,
+        cost: prod.cost,
+        markup: prod.markup,
+        supplier_id: prod.supplier_id || null,
+        purchase_phase: prod.purchase_phase || 'inicio',
+        price: calcItemPrice(prod.cost, prod.markup),
+        total: calcItemTotal(prod.cost, prod.markup, r.quantity),
+        installation_cost: 0,
+        order_index: items.filter(i => i.area_id === areaActiva).length + insertedCount,
+        marca: (prod as any).marca || null,
+        modelo: (prod as any).modelo || null,
+        sku: (prod as any).sku || null,
+        image_url: (prod as any).image_url || null,
+      }
+
+      const { data } = await supabase.from('quotation_items').insert(item).select().single()
+      if (data) {
+        setItems(prev => [...prev, data])
+        insertedCount++
+      }
+    }
+
+    setAiImportResult(null)
+  }
+
   async function removeItem(id: string) {
     await supabase.from('quotation_items').delete().eq('id', id)
     setItems(prev => prev.filter(i => i.id !== id))
@@ -896,6 +1091,10 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
           ))}
           <Btn size="sm" variant="primary" onClick={()=>setShowCat(true)} style={{marginLeft:8}}>
             <Plus size={12}/> Producto
+          </Btn>
+          <input type="file" ref={aiImportRef} accept=".csv,.txt,.xlsx,.pdf,.png,.jpg,.jpeg,.webp,.gif" style={{display:'none'}} onChange={handleAIImport} />
+          <Btn size="sm" onClick={() => aiImportRef.current?.click()} disabled={aiImporting} style={{marginLeft:4}}>
+            {aiImporting ? <><Loader2 size={12} style={{animation:'spin 1s linear infinite'}}/> Importando...</> : <><Upload size={12}/> Importar con IA</>}
           </Btn>
           {cot.stage === 'contrato' && (
             <Btn size="sm" onClick={generatePurchaseOrders} disabled={generating} style={{marginLeft:4}}>
@@ -1096,6 +1295,60 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
                 </tbody>
               </Table>
             </div>}
+          </div>
+        </div>
+      )}
+
+      {aiImportResult && (
+        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.8)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000}}>
+          <div style={{background:'#141414',border:'1px solid #333',borderRadius:16,padding:20,width:800,maxHeight:'85vh',overflow:'hidden',display:'flex',flexDirection:'column'}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}>
+              <div style={{fontSize:15,fontWeight:600,color:'#fff'}}>Vista previa de importacion ({aiImportResult.length} items)</div>
+              <button onClick={()=>setAiImportResult(null)} style={{background:'none',border:'none',color:'#666',cursor:'pointer'}}><X size={18}/></button>
+            </div>
+            <div style={{overflowY:'auto',flex:1,marginBottom:14}}>
+              <table style={{width:'100%',borderCollapse:'collapse'}}>
+                <thead>
+                  <tr style={{background:'#1a1a1a'}}>
+                    <th style={{padding:'8px 12px',fontSize:11,fontWeight:600,color:'#666',textAlign:'left',textTransform:'uppercase',letterSpacing:'0.06em',borderBottom:'1px solid #222'}}>Producto</th>
+                    <th style={{padding:'8px 12px',fontSize:11,fontWeight:600,color:'#666',textAlign:'right',textTransform:'uppercase',letterSpacing:'0.06em',borderBottom:'1px solid #222'}}>Cantidad</th>
+                    <th style={{padding:'8px 12px',fontSize:11,fontWeight:600,color:'#666',textAlign:'right',textTransform:'uppercase',letterSpacing:'0.06em',borderBottom:'1px solid #222'}}>Precio Unit.</th>
+                    <th style={{padding:'8px 12px',fontSize:11,fontWeight:600,color:'#666',textAlign:'right',textTransform:'uppercase',letterSpacing:'0.06em',borderBottom:'1px solid #222'}}>Subtotal</th>
+                    <th style={{padding:'8px 12px',fontSize:11,fontWeight:600,color:'#666',textAlign:'center',textTransform:'uppercase',letterSpacing:'0.06em',borderBottom:'1px solid #222'}}>Estado</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {aiImportResult.map((r, i) => {
+                    const prod = r.catalog_id ? catalog.find(p => p.id === r.catalog_id) : null
+                    const isMatched = !!prod
+                    const unitPrice = prod ? calcItemPrice(prod.cost, prod.markup) : 0
+                    const subtotal = unitPrice * r.quantity
+                    return (
+                      <tr key={i} style={{borderBottom:'1px solid #222'}}>
+                        <td style={{padding:'10px 12px',fontSize:12,color:'#ddd'}}>
+                          <div style={{fontWeight:500}}>{r.name}</div>
+                          {isMatched && <div style={{fontSize:10,color:'#666'}}>{prod.name}</div>}
+                        </td>
+                        <td style={{padding:'10px 12px',fontSize:12,color:'#ddd',textAlign:'right'}}>{r.quantity}</td>
+                        <td style={{padding:'10px 12px',fontSize:12,color:'#ddd',textAlign:'right'}}>{isMatched ? `${F(unitPrice)}` : '--'}</td>
+                        <td style={{padding:'10px 12px',fontSize:12,color:'#ddd',textAlign:'right'}}>{isMatched ? `${F(subtotal)}` : '--'}</td>
+                        <td style={{padding:'10px 12px',fontSize:12,textAlign:'center'}}>
+                          <div style={{display:'inline-block',padding:'2px 8px',borderRadius:4,fontSize:10,fontWeight:600,background:isMatched?'#22c55e22':'#f59e0b22',color:isMatched?'#22c55e':'#f59e0b'}}>
+                            {isMatched ? 'Coincidencia' : 'Sin match'}
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <div style={{display:'flex',justifyContent:'space-between',gap:8}}>
+              <Btn size="sm" onClick={()=>setAiImportResult(null)}>Cancelar</Btn>
+              <Btn size="sm" variant="primary" onClick={confirmAIImport} style={{display:'flex',alignItems:'center',gap:4}}>
+                <Plus size={12}/> Importar {aiImportResult.filter(r => r.catalog_id).length} productos
+              </Btn>
+            </div>
           </div>
         </div>
       )}
