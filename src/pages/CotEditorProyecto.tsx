@@ -2,7 +2,8 @@ import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 import { F, STAGE_CONFIG } from '../lib/utils'
 import { Badge, Btn, Loading } from '../components/layout/UI'
-import { ChevronLeft, ChevronDown, ChevronRight, Settings, X, Printer, Download, Save, Check } from 'lucide-react'
+import { ChevronLeft, ChevronDown, ChevronRight, Settings, X, Printer, Download, Save, Check, Pencil } from 'lucide-react'
+import EditCotInfoModal from '../components/EditCotInfoModal'
 import { OMNIIOUS_LOGO } from '../assets/logo'
 import { autoCreateProjectFromQuotation } from '../lib/projectUtils'
 import html2canvas from 'html2canvas'
@@ -1286,6 +1287,8 @@ export default function CotEditorProyecto({ cotId, onBack, specialty = 'proy' }:
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set())
   const [globalM2, setGlobalM2] = useState(0)
   const [showConfigGear, setShowConfigGear] = useState(false)
+  const [showEditInfo, setShowEditInfo] = useState(false)
+  const [projectId, setProjectId] = useState<string | null>(null)
 
   // ── Load from DB ──
   async function load() {
@@ -1302,6 +1305,7 @@ export default function CotEditorProyecto({ cotId, onBack, specialty = 'proy' }:
       setCotName(cot.name || '')
       setClientName(cot.client_name || '')
       setStage(cot.stage || 'oportunidad')
+      setProjectId(cot.project_id || null)
       const proj = cot.project as any
       setProjectName(proj?.name || '')
       try {
@@ -1535,6 +1539,7 @@ export default function CotEditorProyecto({ cotId, onBack, specialty = 'proy' }:
         <Badge label={BADGE_LABEL} color={BADGE_COLOR} />
         {clientName && <span style={{ fontSize: 11, color: '#888' }}>{clientName}</span>}
         {projectName && <span style={{ fontSize: 10, color: '#555' }}>| {projectName}</span>}
+        <button onClick={() => setShowEditInfo(true)} style={{background:'none',border:'none',color:'#555',cursor:'pointer',padding:2,display:'flex',alignItems:'center'}} title="Editar info"><Pencil size={12}/></button>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 4, alignItems: 'center' }}>
           {(Object.entries(STAGE_CONFIG) as Array<[string, { label: string; color: string }]>).map(([s, cfg]) => (
             <button
@@ -1745,6 +1750,22 @@ export default function CotEditorProyecto({ cotId, onBack, specialty = 'proy' }:
           onClose={() => setShowPdf(false)}
           systems={SYSTEMS}
           tipoProyecto={tipoProyecto}
+        />
+      )}
+      {showEditInfo && (
+        <EditCotInfoModal
+          cotId={cotId}
+          name={cotName}
+          clientName={clientName}
+          projectId={projectId}
+          onClose={() => setShowEditInfo(false)}
+          onSaved={(name, client, projId, projName) => {
+            setCotName(name)
+            setClientName(client)
+            setProjectId(projId)
+            setProjectName(projName)
+            setShowEditInfo(false)
+          }}
         />
       )}
     </div>

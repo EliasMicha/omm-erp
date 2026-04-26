@@ -4,7 +4,8 @@ import { ANTHROPIC_API_KEY } from '../lib/config'
 import { Quotation, QuotationArea, QuotationItem, CatalogProduct, Project, ProjectLine, PurchasePhase } from '../types'
 import { F, FCUR, SPECIALTY_CONFIG, STAGE_CONFIG, PHASE_CONFIG, calcItemPrice, calcItemTotal } from '../lib/utils'
 import { Badge, Btn, Table, Th, Td, Loading, SectionHeader, EmptyState } from '../components/layout/UI'
-import { Plus, ChevronLeft, X, Zap, Loader2, Search, Trash2, Upload, RefreshCw, FileText, GitBranch, BarChart3 } from 'lucide-react'
+import { Plus, ChevronLeft, X, Zap, Loader2, Search, Trash2, Upload, RefreshCw, FileText, GitBranch, BarChart3, Pencil } from 'lucide-react'
+import EditCotInfoModal from '../components/EditCotInfoModal'
 import CotEditorESP from './CotEditorESP'
 import ChangeOrdersTab, { ObraRealTab } from './ChangeOrders'
 import ImportCotizaciones from './ImportCotizaciones'
@@ -740,6 +741,7 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
   const aiImportRef = useRef<HTMLInputElement>(null)
   const [activeTab, setActiveTab] = useState<'cotizacion' | 'cambios' | 'obra_real'>('cotizacion')
   const [changeOrders, setChangeOrders] = useState<any[]>([])
+  const [showEditInfo, setShowEditInfo] = useState(false)
 
   useEffect(() => {
     async function load() {
@@ -1280,6 +1282,7 @@ Devuelve SOLO un JSON array válido sin markdown:
         <span style={{color:'#333'}}>/</span>
         <span style={{fontSize:12,fontWeight:500,color:esp.color}}>{esp.icon} {cot.name}</span>
         {proj && <span style={{fontSize:11,color:'#555'}}> {proj.client_name}</span>}
+        <button onClick={() => setShowEditInfo(true)} style={{background:'none',border:'none',color:'#555',cursor:'pointer',padding:2,display:'flex',alignItems:'center'}} title="Editar info"><Pencil size={12}/></button>
 
         {/* Tabs */}
         <div style={{display:'flex',gap:2,marginLeft:16,background:'#0a0a0a',borderRadius:8,padding:2}}>
@@ -1591,6 +1594,20 @@ Devuelve SOLO un JSON array válido sin markdown:
             </div>
           </div>
         </div>
+      )}
+
+      {showEditInfo && cot && (
+        <EditCotInfoModal
+          cotId={cotId}
+          name={cot.name}
+          clientName={cot.client_name || ''}
+          projectId={cot.project_id || null}
+          onClose={() => setShowEditInfo(false)}
+          onSaved={(name, client, projId, projName) => {
+            setCot(c => c ? { ...c, name, client_name: client, project_id: projId || '' } : c)
+            setShowEditInfo(false)
+          }}
+        />
       )}
     </div>
   )

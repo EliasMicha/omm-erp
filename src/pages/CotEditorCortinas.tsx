@@ -2,7 +2,8 @@ import React, { useState, useMemo, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { F, STAGE_CONFIG } from '../lib/utils'
 import { Badge, Btn, Loading } from '../components/layout/UI'
-import { Plus, ChevronLeft, ChevronDown, ChevronRight, X, Trash2, Settings, Copy, Printer } from 'lucide-react'
+import { Plus, ChevronLeft, ChevronDown, ChevronRight, X, Trash2, Settings, Copy, Printer, Pencil } from 'lucide-react'
+import EditCotInfoModal from '../components/EditCotInfoModal'
 import { OMNIIOUS_LOGO } from '../assets/logo'
 
 // ═══════════════════════════════════════════════════════════════════
@@ -957,6 +958,8 @@ export default function CotEditorCortinas({ cotId, onBack }: { cotId: string; on
   const [showPdf, setShowPdf] = useState(false)
   const [showAreaPicker, setShowAreaPicker] = useState(false)
   const [copyingItem, setCopyingItem] = useState<CortItem | null>(null)
+  const [showEditInfo, setShowEditInfo] = useState(false)
+  const [projectId, setProjectId] = useState<string | null>(null)
 
   // ── Load from DB ──
   async function load() {
@@ -967,6 +970,7 @@ export default function CotEditorCortinas({ cotId, onBack }: { cotId: string; on
     ])
     if (cot) {
       setCotName(cot.name || ''); setClientName(cot.client_name || ''); setStage(cot.stage || 'oportunidad')
+      setProjectId(cot.project_id || null)
       const proj = cot.project as any
       setProjectName(proj?.name || '')
       try {
@@ -1144,6 +1148,7 @@ export default function CotEditorCortinas({ cotId, onBack }: { cotId: string; on
         <Badge label="CORT" color="#67E8F9" />
         {clientName && <span style={{ fontSize: 11, color: '#888' }}>{clientName}</span>}
         {projectName && <span style={{ fontSize: 10, color: '#555' }}>| {projectName}</span>}
+        <button onClick={() => setShowEditInfo(true)} style={{background:'none',border:'none',color:'#555',cursor:'pointer',padding:2,display:'flex',alignItems:'center'}} title="Editar info"><Pencil size={12}/></button>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 4, alignItems: 'center' }}>
           {(Object.entries(STAGE_CONFIG) as Array<[string, { label: string; color: string }]>).map(([s, cfg]) => (
             <button key={s} onClick={() => { setStage(s); supabase.from('quotations').update({ stage: s }).eq('id', cotId) }} style={{
@@ -1229,6 +1234,22 @@ export default function CotEditorCortinas({ cotId, onBack }: { cotId: string; on
             <button onClick={() => setCopyingItem(null)} style={{ marginTop: 12, padding: '6px 12px', background: 'none', border: '1px solid #333', borderRadius: 8, color: '#666', fontSize: 11, cursor: 'pointer', fontFamily: 'inherit', width: '100%' }}>Cancelar</button>
           </div>
         </div>
+      )}
+      {showEditInfo && (
+        <EditCotInfoModal
+          cotId={cotId}
+          name={cotName}
+          clientName={clientName}
+          projectId={projectId}
+          onClose={() => setShowEditInfo(false)}
+          onSaved={(name, client, projId, projName) => {
+            setCotName(name)
+            setClientName(client)
+            setProjectId(projId)
+            setProjectName(projName)
+            setShowEditInfo(false)
+          }}
+        />
       )}
     </div>
   )
