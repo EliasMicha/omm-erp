@@ -2,7 +2,7 @@ import { useEffect, useState, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { ANTHROPIC_API_KEY } from '../lib/config'
 import { Quotation, QuotationArea, QuotationItem, CatalogProduct, Project, ProjectLine, PurchasePhase } from '../types'
-import { F, SPECIALTY_CONFIG, STAGE_CONFIG, PHASE_CONFIG, calcItemPrice, calcItemTotal } from '../lib/utils'
+import { F, FCUR, SPECIALTY_CONFIG, STAGE_CONFIG, PHASE_CONFIG, calcItemPrice, calcItemTotal } from '../lib/utils'
 import { Badge, Btn, Table, Th, Td, Loading, SectionHeader, EmptyState } from '../components/layout/UI'
 import { Plus, ChevronLeft, X, Zap, Loader2, Search, Trash2, Upload, RefreshCw, FileText, GitBranch, BarChart3 } from 'lucide-react'
 import CotEditorESP from './CotEditorESP'
@@ -185,7 +185,7 @@ function CotDashboard({ onOpen }: { onOpen: (id: string, specialty?: string) => 
   return (
     <div style={{padding:'24px 28px'}}>
       <SectionHeader title="Cotizaciones"
-        subtitle={`${cots.length} cotizaciones · USD ${F(totalUSD)} · MXN ${F(totalMXN)}`}
+        subtitle={`${cots.length} cotizaciones · ${FCUR(totalUSD, 'USD')} · ${FCUR(totalMXN, 'MXN')}`}
         action={<div style={{display:'flex',gap:8}}>
           <Btn onClick={() => setShowImport(true)} style={{border:'1px solid #3b82f644', color:'#3b82f6', display:'inline-flex', alignItems:'center', gap:4}}><Upload size={14}/> Importar</Btn>
           <Btn onClick={() => setShowAIGen(true)} style={{border:'1px solid #57FF9A44', color:'#57FF9A', display:'inline-flex', alignItems:'center', gap:4}}><Zap size={14}/> Cotizar con AI</Btn>
@@ -325,7 +325,7 @@ function CotDashboard({ onOpen }: { onOpen: (id: string, specialty?: string) => 
                     </select>
                   </Td>
                   <Td><span style={{fontSize:11,fontWeight:600,color: cur === 'USD' ? '#06B6D4' : '#F59E0B'}}>{cur}</span></Td>
-                  <Td right><span style={{fontWeight:600,color:'#57FF9A'}}>{cur === 'MXN' ? '$' : 'US$'}{F(getTotalConIva(c))}</span></Td>
+                  <Td right><span style={{fontWeight:600,color:'#57FF9A'}}>{FCUR(getTotalConIva(c), cur)}</span></Td>
                   <Td>
                     <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                       <Btn size="sm" onClick={e => { e?.stopPropagation(); onOpen(c.id, c.specialty) }}>Abrir</Btn>
