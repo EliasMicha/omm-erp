@@ -656,7 +656,7 @@ function ObraDetail({ obra, instaladores, onBack, updateObra }: {
       {subTab === 'documentacion' && <SubDocumentacion obra={obra} />}
       {subTab === 'entrega' && <SubEntrega obra={obra} updateObra={updateObra} />}
       {subTab === 'equipo' && <SubEquipo obra={obra} instaladores={instaladores} obraInstaladores={obraInstaladores} updateObra={updateObra} />}
-      {subTab === 'materiales' && <SubMateriales obra={obra} />}
+      {subTab === 'materiales' && <SubMateriales obra={obra} onLinked={(cotId) => updateObra(o => ({ ...o, cotizacion_id: cotId }))} />}
     </div>
   )
 }
@@ -2690,7 +2690,7 @@ function NuevaObraModal({ coordinadores, onClose, onSubmit, onCreated }: {
     fecha_fin_plan: '', lead_id: '',
   })
   const [leads, setLeads] = useState<Array<{ id: string; name: string; company: string; address?: string }>>([])
-  const [cotizaciones, setCotizaciones] = useState<Array<{ id: string; name: string; total: number; project_name?: string; client_name?: string; notes?: string; stage?: string }>>([])
+  const [cotizaciones, setCotizaciones] = useState<Array<{ id: string; name: string; total: number; project_name?: string; client_name?: string; notes?: string; stage?: string; specialty?: string }>>([])
   const [loadingCots, setLoadingCots] = useState(false)
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
@@ -2717,15 +2717,15 @@ function NuevaObraModal({ coordinadores, onClose, onSubmit, onCreated }: {
     setLoadingCots(true)
     Promise.all([
       supabase.from('leads').select('id,name,company').order('name'),
-      supabase.from('quotations').select('id, name, total, project_id, client_name, notes, stage, projects:projects!quotations_project_id_fkey(name)')
-        .in('stage', ['propuesta', 'contrato']).order('created_at', { ascending: false }),
+      supabase.from('quotations').select('id, name, total, project_id, client_name, notes, stage, specialty, projects:projects!quotations_project_id_fkey(name)')
+        .order('created_at', { ascending: false }),
     ]).then(([lRes, qRes]) => {
       setLeads((lRes.data || []) as any)
       if (qRes.data) {
         setCotizaciones(qRes.data.map((q: any) => ({
           id: q.id, name: q.name, total: q.total || 0,
           project_name: q.projects?.name || '', client_name: q.client_name || '',
-          notes: q.notes || '',
+          notes: q.notes || '', stage: q.stage || '', specialty: q.specialty || '',
         })))
       }
       setLoadingCots(false)
@@ -2889,6 +2889,8 @@ function NuevaObraModal({ coordinadores, onClose, onSubmit, onCreated }: {
                     <input type="checkbox" checked={checked} onChange={() => toggleCot(c.id)}
                       style={{ accentColor: '#57FF9A' }} />
                     <span style={{ color: checked ? '#57FF9A' : '#ccc', flex: 1 }}>{c.name}</span>
+                    {c.specialty && <span style={{ fontSize: 9, color: '#888', background: '#222', padding: '1px 5px', borderRadius: 4, textTransform: 'uppercase' }}>{c.specialty}</span>}
+                    {c.stage && <span style={{ fontSize: 9, color: c.stage === 'contrato' ? '#57FF9A' : c.stage === 'propuesta' ? '#F59E0B' : '#666', background: '#1a1a1a', padding: '1px 5px', borderRadius: 4 }}>{c.stage}</span>}
                     <span style={{ color: '#666', fontSize: 11 }}>{F(c.total)}</span>
                   </label>
                 )
@@ -3647,7 +3649,7 @@ function matBucket(it: { catalog_product_id?: string | null; product_id?: string
   return label ? `name:${label}` : '__unknown__'
 }
 
-function SubMateriales({ obra }: { obra: ObraData }) {
+function SubMateriales({ obra, onLinked }: { obra: ObraData; onLinked?: (cotId: string) => void }) {
   const [loading, setLoading] = useState(true)
   const [areas, setAreas] = useState<MatArea[]>([])
   const [items, setItems] = useState<MatItem[]>([])
@@ -3658,11 +3660,15 @@ function SubMateriales({ obra }: { obra: ObraData }) {
   const [filterStatus, setFilterStatus] = useState<'' | 'falta_pedir' | 'falta_recibir' | 'falta_entregar' | 'completo'>('')
   const [search, setSearch] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [availableCots, setAvailableCots] = useState<Array<{ id: string; name: string; specialty: string; total: number }>>([])
+  const [linking, setLinking] = useState(false)
 
   useEffect(() => {
     if (!obra.cotizacion_id) {
+      // Load available quotations so user can link one
+      supabase.from('quotations').select('id,name,specialty,total').order('updated_at', { ascending: false })
+        .then(({ data }) => { setAvailableCots(data || []); setLoading(false) })
       setError('Esta obra no tiene cotización vinculada')
-      setLoading(false)
       return
     }
     setLoading(true)
@@ -3724,6 +3730,44 @@ function SubMateriales({ obra }: { obra: ObraData }) {
   }, [obra.cotizacion_id, obra.project_id, obra.id])
 
   if (loading) return <Loading />
+
+  if (error && !obra.cotizacion_id) {
+    return (
+      <div style={{ padding: 20, background: '#2a1414', border: '1px solid #3a2020', borderRadius: 10, fontSize: 13 }}>
+        <div style={{ color: '#f87171', marginBottom: 12 }}>
+          <AlertTriangle size={14} style={{ verticalAlign: 'middle', marginRight: 6 }} />
+          {error}
+        </div>
+        {availableCots.length > 0 && (
+          <div>
+            <div style={{ fontSize: 11, color: '#888', marginBottom: 8 }}>Selecciona una cotización para vincular a esta obra:</div>
+            <select
+              disabled={linking}
+              onChange={async e => {
+                const cotId = e.target.value
+                if (!cotId) return
+                setLinking(true)
+                await supabase.from('obras').update({ quotation_id: cotId }).eq('id', obra.id)
+                onLinked?.(cotId)
+                setLinking(false)
+              }}
+              style={{
+                width: '100%', padding: '8px 10px', background: '#1e1e1e', border: '1px solid #333',
+                borderRadius: 8, color: '#fff', fontSize: 12, fontFamily: 'inherit',
+              }}
+            >
+              <option value="">-- Seleccionar cotización --</option>
+              {availableCots.map(c => (
+                <option key={c.id} value={c.id}>
+                  {c.name} ({c.specialty?.toUpperCase()}) — ${(c.total || 0).toLocaleString()}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+      </div>
+    )
+  }
 
   if (error) {
     return (
