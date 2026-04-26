@@ -11,6 +11,28 @@ import TabPeriodos from './nomina/TabPeriodos'
 
 type TipoAlta = 'SEMANAL' | 'QUINCENAL'
 
+/** Count how many Fridays (payday) fall in a given month */
+function fridaysInMonth(year: number, month: number): number {
+  let count = 0
+  const d = new Date(year, month, 1)
+  while (d.getMonth() === month) {
+    if (d.getDay() === 5) count++ // 5 = Friday
+    d.setDate(d.getDate() + 1)
+  }
+  return count
+}
+
+/** Calculate real monthly net based on tipo_alta and current month */
+function calcNetoMensual(e: { tipo_alta?: string | null; sueldo_neto_semanal?: number | null; sueldo_neto_quincenal?: number | null }): number {
+  const now = new Date()
+  if (e.tipo_alta === 'SEMANAL') {
+    const weeks = fridaysInMonth(now.getFullYear(), now.getMonth())
+    return (Number(e.sueldo_neto_semanal) || 0) * weeks
+  }
+  // Quincenal: always 2 payments per month
+  return (Number(e.sueldo_neto_quincenal) || 0) * 2
+}
+
 interface Employee {
   id: string
   numero_excel?: number | null
@@ -133,7 +155,7 @@ function TabEmpleados() {
     const total = filtered.length
     const semanales = filtered.filter(e => e.tipo_alta === 'SEMANAL').length
     const quincenales = filtered.filter(e => e.tipo_alta === 'QUINCENAL').length
-    const totalNetoMensual = filtered.reduce((sum, e) => sum + (Number(e.neto_mensual) || 0), 0)
+    const totalNetoMensual = filtered.reduce((sum, e) => sum + calcNetoMensual(e), 0)
     return { total, semanales, quincenales, totalNetoMensual }
   }, [filtered])
 
@@ -155,7 +177,7 @@ function TabEmpleados() {
         <KpiCard label="Empleados activos" value={kpis.total.toString()} />
         <KpiCard label="Quincenales" value={kpis.quincenales.toString()} color="#60a5fa" />
         <KpiCard label="Semanales" value={kpis.semanales.toString()} color="#f59e0b" />
-        <KpiCard label="Neto mensual total" value={F(kpis.totalNetoMensual)} />
+        <KpiCard label={`Neto mensual (${new Date().toLocaleString('es-MX',{month:'short'})} · ${fridaysInMonth(new Date().getFullYear(), new Date().getMonth())} viernes)`} value={F(kpis.totalNetoMensual)} />
       </div>
 
       <div style={{ display: 'flex', gap: 12, marginBottom: 16, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -247,7 +269,7 @@ function TabEmpleados() {
                   </Td>
                   <Td muted>{e.banco || '—'}</Td>
                   <Td right>{sueldoBase ? F(Number(sueldoBase)) : '—'}</Td>
-                  <Td right muted>{e.neto_mensual ? F(Number(e.neto_mensual)) : '—'}</Td>
+                  <Td right muted>{F(calcNetoMensual(e))}</Td>
                 </tr>
               )
             })}
