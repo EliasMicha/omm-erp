@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, useMemo } from 'react'
 import { supabase } from '../lib/supabase'
 import { ANTHROPIC_API_KEY } from '../lib/config'
 import { Quotation, QuotationArea, QuotationItem, CatalogProduct, Project, ProjectLine, PurchasePhase } from '../types'
@@ -106,6 +106,7 @@ function CotDashboard({ onOpen }: { onOpen: (id: string, specialty?: string) => 
   const [cots, setCots] = useState<Quotation[]>([])
   const [leadsMap, setLeadsMap] = useState<Record<string, LeadInfo>>({})
   const [filtro, setFiltro] = useState<string>('todas')
+  const [filtroYear, setFiltroYear] = useState<string>(String(new Date().getFullYear()))
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
   const [showNew, setShowNew] = useState(false)
@@ -161,8 +162,20 @@ function CotDashboard({ onOpen }: { onOpen: (id: string, specialty?: string) => 
     setCots(prev => prev.filter(q => q.id !== id))
   }
 
+  // Available years from quotations
+  const availableYears = useMemo(() => {
+    const yrs = new Set<string>()
+    cots.forEach(c => { if (c.created_at) yrs.add(c.created_at.slice(0, 4)) })
+    return ['todos', ...Array.from(yrs).sort().reverse()]
+  }, [cots])
+
+  function getYear(c: any): string { return (c.created_at || '').slice(0, 4) }
+
+  // Base set filtered by year
+  const cotsYear = filtroYear === 'todos' ? cots : cots.filter(c => getYear(c) === filtroYear)
+
   // Filtro por especialidad + búsqueda de texto
-  const lista = cots.filter(c => {
+  const lista = cotsYear.filter(c => {
     if (filtro !== 'todas' && c.specialty !== filtro) return false
     if (search.trim()) {
       const q = search.toLowerCase().trim()
@@ -176,17 +189,17 @@ function CotDashboard({ onOpen }: { onOpen: (id: string, specialty?: string) => 
     return true
   })
 
-  // KPIs por etapa (USD y MXN separados) — con IVA
-  const byStageAndCur = (s: string, cur: string) => cots.filter(c => c.stage === s && getCur(c) === cur).reduce((a, c) => a + getTotalConIva(c), 0)
+  // KPIs por etapa (USD y MXN separados) — con IVA — filtered by year
+  const byStageAndCur = (s: string, cur: string) => cotsYear.filter(c => c.stage === s && getCur(c) === cur).reduce((a, c) => a + getTotalConIva(c), 0)
   // KPIs por especialidad (USD y MXN separados) — con IVA
-  const bySpecAndCur = (spec: string, cur: string) => cots.filter(c => c.specialty === spec && getCur(c) === cur).reduce((a, c) => a + getTotalConIva(c), 0)
-  const totalUSD = cots.filter(c => getCur(c) === 'USD').reduce((s, c) => s + getTotalConIva(c), 0)
-  const totalMXN = cots.filter(c => getCur(c) === 'MXN').reduce((s, c) => s + getTotalConIva(c), 0)
+  const bySpecAndCur = (spec: string, cur: string) => cotsYear.filter(c => c.specialty === spec && getCur(c) === cur).reduce((a, c) => a + getTotalConIva(c), 0)
+  const totalUSD = cotsYear.filter(c => getCur(c) === 'USD').reduce((s, c) => s + getTotalConIva(c), 0)
+  const totalMXN = cotsYear.filter(c => getCur(c) === 'MXN').reduce((s, c) => s + getTotalConIva(c), 0)
 
   return (
     <div style={{padding:'24px 28px'}}>
       <SectionHeader title="Cotizaciones"
-        subtitle={`${cots.length} cotizaciones · ${FCUR(totalUSD, 'USD')} · ${FCUR(totalMXN, 'MXN')}`}
+        subtitle={`${cotsYear.length} cotizaciones${filtroYear !== 'todos' ? ' ('+filtroYear+')' : ''} · ${FCUR(totalUSD, 'USD')} · ${FCUR(totalMXN, 'MXN')}`}
         action={<div style={{display:'flex',gap:8}}>
           <Btn onClick={() => setShowImport(true)} style={{border:'1px solid #3b82f644', color:'#3b82f6', display:'inline-flex', alignItems:'center', gap:4}}><Upload size={14}/> Importar</Btn>
           <Btn onClick={() => setShowAIGen(true)} style={{border:'1px solid #57FF9A44', color:'#57FF9A', display:'inline-flex', alignItems:'center', gap:4}}><Zap size={14}/> Cotizar con AI</Btn>
@@ -248,7 +261,7 @@ function CotDashboard({ onOpen }: { onOpen: (id: string, specialty?: string) => 
         )}
       </div>
 
-      <div style={{display:'flex',gap:6,marginBottom:16,flexWrap:'wrap'}}>
+      <div style={{display:'flex',gap:6,marginBottom:16,flexWrap:'wrap',alignItems:'center'}}>
         {['todas','esp','elec','ilum','cort','proy'].map(f => {
           const on = filtro === f
           const cfg = f !== 'todas' ? SPECIALTY_CONFIG[f as ProjectLine] : null
@@ -263,15 +276,29 @@ function CotDashboard({ onOpen }: { onOpen: (id: string, specialty?: string) => 
             </button>
           )
         })}
+        <span style={{width:1,height:18,background:'#333',margin:'0 4px'}}/>
+        {availableYears.map(y => {
+          const on = filtroYear === y
+          return (
+            <button key={y} onClick={() => setFiltroYear(y)} style={{
+              padding:'5px 10px',borderRadius:20,fontSize:11,cursor:'pointer',fontFamily:'inherit',
+              border:`1px solid ${on?'#A78BFA':'#333'}`,
+              background:on?'#A78BFA22':'transparent',
+              color:on?'#A78BFA':'#666',fontWeight:on?600:400,
+            }}>
+              {y === 'todos' ? 'Todos' : y}
+            </button>
+          )
+        })}
       </div>
 
       {loading ? <Loading/> : (
         <Table>
           <thead><tr>
-            <Th>Cotización</Th><Th>Lead</Th><Th>Arquitecto</Th><Th>Cliente</Th><Th>Especialidad</Th><Th>Etapa</Th><Th>Moneda</Th><Th right>Total</Th><Th></Th>
+            <Th>Cotización</Th><Th>Lead</Th><Th>Arquitecto</Th><Th>Cliente</Th><Th>Especialidad</Th><Th>Etapa</Th><Th>Fecha</Th><Th>Moneda</Th><Th right>Total</Th><Th></Th>
           </tr></thead>
           <tbody>
-            {lista.length === 0 && (<tr><td colSpan={9}><EmptyState message={search || filtro !== "todas" ? "No se encontraron cotizaciones con estos filtros" : "Sin cotizaciones - crea la primera"}/></td></tr>)}
+            {lista.length === 0 && (<tr><td colSpan={10}><EmptyState message={search || filtro !== "todas" ? "No se encontraron cotizaciones con estos filtros" : "Sin cotizaciones - crea la primera"}/></td></tr>)}
             {lista.map(c => {
               const esp = SPECIALTY_CONFIG[c.specialty]; const stage = STAGE_CONFIG[c.stage]
               const cur = getCur(c)
@@ -325,6 +352,7 @@ function CotDashboard({ onOpen }: { onOpen: (id: string, specialty?: string) => 
                       ))}
                     </select>
                   </Td>
+                  <Td><span style={{fontSize:11,color:'#888'}}>{c.created_at ? new Date(c.created_at).toLocaleDateString('es-MX',{day:'2-digit',month:'short',year:'numeric'}) : '--'}</span></Td>
                   <Td><span style={{fontSize:11,fontWeight:600,color: cur === 'USD' ? '#06B6D4' : '#F59E0B'}}>{cur}</span></Td>
                   <Td right><span style={{fontWeight:600,color:'#57FF9A'}}>{FCUR(getTotalConIva(c), cur)}</span></Td>
                   <Td>
