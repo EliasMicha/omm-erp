@@ -765,7 +765,7 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
   const [generating, setGenerating] = useState(false)
   const [genResult, setGenResult] = useState<string|null>(null)
   const [aiImporting, setAiImporting] = useState(false)
-  const [aiImportResult, setAiImportResult] = useState<Array<{catalog_id: string|null, name: string, quantity: number}> | null>(null)
+  const [aiImportResult, setAiImportResult] = useState<Array<{catalog_id: string|null, name: string, quantity: number, cost?: number, provider?: string}> | null>(null)
   const aiImportRef = useRef<HTMLInputElement>(null)
   const [activeTab, setActiveTab] = useState<'cotizacion' | 'cambios' | 'obra_real'>('cotizacion')
   const [changeOrders, setChangeOrders] = useState<any[]>([])
@@ -1091,9 +1091,9 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
 
       if (['png', 'jpg', 'jpeg', 'webp', 'gif'].includes(ext || '')) {
         const b64 = await fileToBase64(file)
-        const promptText = `Analiza este documento de cuantificación eléctrica. Extrae todos los conceptos/partidas con sus cantidades.
+        const aiPrompt = `Analiza este documento de cuantificación. Extrae todos los conceptos/partidas con sus cantidades, costos unitarios y proveedor/marca.
 
-Para cada concepto, busca el producto más similar en este catálogo y devuelve su ID:
+Para cada concepto, busca el producto más similar en este catálogo y devuelve su índice:
 
 CATÁLOGO:
 ${catalogList}
@@ -1102,20 +1102,23 @@ IMPORTANTE:
 - Haz match por nombre/descripción similar, no tiene que ser exacto
 - Si un concepto no tiene match en el catálogo, usa idx: -1
 - Extrae la CANTIDAD de cada partida
+- Extrae el COSTO UNITARIO (precio unitario, P.U., costo) si aparece en el documento
+- Extrae el PROVEEDOR o MARCA si aparece (ej: Lutron, Honeywell, Leviton, Hubbell, etc.)
 - Ignora subtotales, IVA, totales
+- Si no encuentras costo o proveedor, usa null
 
 Devuelve SOLO un JSON array sin markdown ni explicacion:
-[{"idx":0,"name":"nombre corto","qty":434},{"idx":2,"name":"otro","qty":13}]`
+[{"idx":0,"name":"nombre corto","qty":434,"cost":150.50,"provider":"Lutron"},{"idx":-1,"name":"otro","qty":13,"cost":null,"provider":null}]`
 
         content = [
           { type: 'image', source: { type: 'base64', media_type: file.type, data: b64 } },
-          { type: 'text', text: promptText }
+          { type: 'text', text: aiPrompt }
         ]
       } else if (['pdf'].includes(ext || '')) {
         const b64 = await fileToBase64(file)
-        const promptText = `Analiza este documento de cuantificación eléctrica. Extrae todos los conceptos/partidas con sus cantidades.
+        const aiPrompt = `Analiza este documento de cuantificación. Extrae todos los conceptos/partidas con sus cantidades, costos unitarios y proveedor/marca.
 
-Para cada concepto, busca el producto más similar en este catálogo y devuelve su ID:
+Para cada concepto, busca el producto más similar en este catálogo y devuelve su índice:
 
 CATÁLOGO:
 ${catalogList}
@@ -1124,37 +1127,43 @@ IMPORTANTE:
 - Haz match por nombre/descripción similar, no tiene que ser exacto
 - Si un concepto no tiene match en el catálogo, usa idx: -1
 - Extrae la CANTIDAD de cada partida
+- Extrae el COSTO UNITARIO (precio unitario, P.U., costo) si aparece en el documento
+- Extrae el PROVEEDOR o MARCA si aparece (ej: Lutron, Honeywell, Leviton, Hubbell, etc.)
 - Ignora subtotales, IVA, totales
+- Si no encuentras costo o proveedor, usa null
 
 Devuelve SOLO un JSON array sin markdown ni explicacion:
-[{"idx":0,"name":"nombre corto","qty":434},{"idx":2,"name":"otro","qty":13}]`
+[{"idx":0,"name":"nombre corto","qty":434,"cost":150.50,"provider":"Lutron"},{"idx":-1,"name":"otro","qty":13,"cost":null,"provider":null}]`
 
         content = [
           { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: b64 } },
-          { type: 'text', text: promptText }
+          { type: 'text', text: aiPrompt }
         ]
       } else {
         const text = await file.text()
-        const promptText = `Analiza este documento de cuantificación eléctrica. Extrae todos los conceptos/partidas con sus cantidades.
+        const aiPrompt = `Analiza este documento de cuantificación. Extrae todos los conceptos/partidas con sus cantidades, costos unitarios y proveedor/marca.
 
-Para cada concepto, busca el producto más similar en este catálogo y devuelve su ID:
+Para cada concepto, busca el producto más similar en este catálogo y devuelve su índice:
 
 CATÁLOGO:
 ${catalogList}
 
 IMPORTANTE:
 - Haz match por nombre/descripción similar, no tiene que ser exacto
-- Si un concepto no tiene match en el catálogo, usa catalog_id: null y pon el nombre original
-- Extrae la CANTIDAD de cada partida del documento
+- Si un concepto no tiene match en el catálogo, usa idx: -1
+- Extrae la CANTIDAD de cada partida
+- Extrae el COSTO UNITARIO (precio unitario, P.U., costo) si aparece en el documento
+- Extrae el PROVEEDOR o MARCA si aparece (ej: Lutron, Honeywell, Leviton, Hubbell, etc.)
 - Ignora subtotales, IVA, totales
+- Si no encuentras costo o proveedor, usa null
 
 Archivo (${file.name}):
 ${text}
 
-Devuelve SOLO un JSON array válido sin markdown:
-[{"catalog_id": "uuid-or-null", "name": "nombre del producto", "quantity": 123}]`
+Devuelve SOLO un JSON array sin markdown ni explicacion:
+[{"idx":0,"name":"nombre corto","qty":434,"cost":150.50,"provider":"Lutron"},{"idx":-1,"name":"otro","qty":13,"cost":null,"provider":null}]`
 
-        content = [{ type: 'text', text: promptText }]
+        content = [{ type: 'text', text: aiPrompt }]
       }
 
       const res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -1217,11 +1226,13 @@ Devuelve SOLO un JSON array válido sin markdown:
         return
       }
 
-      // Map idx back to catalog_id
+      // Map idx back to catalog_id, keep cost and provider
       const mapped = parsed.map((r: any) => ({
         catalog_id: r.idx >= 0 && r.idx < relevantCatalog.length ? relevantCatalog[r.idx].id : null,
         name: r.name || 'Desconocido',
         quantity: r.qty || r.quantity || 1,
+        cost: r.cost && r.cost > 0 ? r.cost : undefined,
+        provider: r.provider || r.marca || undefined,
       }))
 
       setAiImportResult(mapped)
@@ -1234,35 +1245,38 @@ Devuelve SOLO un JSON array válido sin markdown:
 
   async function confirmAIImport() {
     if (!aiImportResult || !areaActiva) return
-    const matched = aiImportResult.filter(r => r.catalog_id)
     let insertedCount = 0
 
-    for (const r of matched) {
-      const prod = catalog.find(p => p.id === r.catalog_id)
-      if (!prod) continue
+    for (const r of aiImportResult) {
+      const prod = r.catalog_id ? catalog.find(p => p.id === r.catalog_id) : null
+
+      // Use catalog data when matched, AI-extracted data as fallback
+      const itemCost = prod?.cost || r.cost || 0
+      const itemMarkup = prod?.markup || 30
+      const itemProvider = prod?.provider || r.provider || ''
 
       const item = {
         area_id: areaActiva,
         quotation_id: cotId,
-        catalog_product_id: prod.id,
-        name: prod.name,
-        description: prod.description,
-        system: prod.system,
-        type: prod.type,
-        provider: prod.provider,
+        catalog_product_id: prod?.id || null,
+        name: prod?.name || r.name,
+        description: prod?.description || '',
+        system: prod?.system || null,
+        type: prod?.type || 'material',
+        provider: itemProvider,
         quantity: r.quantity,
-        cost: prod.cost,
-        markup: prod.markup,
-        supplier_id: prod.supplier_id || null,
-        purchase_phase: prod.purchase_phase || 'inicio',
-        price: calcItemPrice(prod.cost, prod.markup),
-        total: calcItemTotal(prod.cost, prod.markup, r.quantity),
+        cost: itemCost,
+        markup: prod ? prod.markup : itemMarkup,
+        supplier_id: prod?.supplier_id || null,
+        purchase_phase: prod?.purchase_phase || 'inicio',
+        price: calcItemPrice(itemCost, prod ? prod.markup : itemMarkup),
+        total: calcItemTotal(itemCost, prod ? prod.markup : itemMarkup, r.quantity),
         installation_cost: 0,
         order_index: items.filter(i => i.area_id === areaActiva).length + insertedCount,
-        marca: (prod as any).marca || null,
-        modelo: (prod as any).modelo || null,
-        sku: (prod as any).sku || null,
-        image_url: (prod as any).image_url || null,
+        marca: (prod as any)?.marca || r.provider || null,
+        modelo: (prod as any)?.modelo || null,
+        sku: (prod as any)?.sku || null,
+        image_url: (prod as any)?.image_url || null,
       }
 
       const { data } = await supabase.from('quotation_items').insert(item).select().single()
@@ -1581,31 +1595,43 @@ Devuelve SOLO un JSON array válido sin markdown:
               <table style={{width:'100%',borderCollapse:'collapse'}}>
                 <thead>
                   <tr style={{background:'#1a1a1a'}}>
-                    <th style={{padding:'8px 12px',fontSize:11,fontWeight:600,color:'#666',textAlign:'left',textTransform:'uppercase',letterSpacing:'0.06em',borderBottom:'1px solid #222'}}>Producto</th>
-                    <th style={{padding:'8px 12px',fontSize:11,fontWeight:600,color:'#666',textAlign:'right',textTransform:'uppercase',letterSpacing:'0.06em',borderBottom:'1px solid #222'}}>Cantidad</th>
-                    <th style={{padding:'8px 12px',fontSize:11,fontWeight:600,color:'#666',textAlign:'right',textTransform:'uppercase',letterSpacing:'0.06em',borderBottom:'1px solid #222'}}>Precio Unit.</th>
-                    <th style={{padding:'8px 12px',fontSize:11,fontWeight:600,color:'#666',textAlign:'right',textTransform:'uppercase',letterSpacing:'0.06em',borderBottom:'1px solid #222'}}>Subtotal</th>
-                    <th style={{padding:'8px 12px',fontSize:11,fontWeight:600,color:'#666',textAlign:'center',textTransform:'uppercase',letterSpacing:'0.06em',borderBottom:'1px solid #222'}}>Estado</th>
+                    <th style={{padding:'8px 10px',fontSize:10,fontWeight:600,color:'#666',textAlign:'left',textTransform:'uppercase',letterSpacing:'0.06em',borderBottom:'1px solid #222'}}>Producto</th>
+                    <th style={{padding:'8px 10px',fontSize:10,fontWeight:600,color:'#666',textAlign:'left',textTransform:'uppercase',letterSpacing:'0.06em',borderBottom:'1px solid #222'}}>Proveedor</th>
+                    <th style={{padding:'8px 10px',fontSize:10,fontWeight:600,color:'#666',textAlign:'right',textTransform:'uppercase',letterSpacing:'0.06em',borderBottom:'1px solid #222'}}>Cant.</th>
+                    <th style={{padding:'8px 10px',fontSize:10,fontWeight:600,color:'#666',textAlign:'right',textTransform:'uppercase',letterSpacing:'0.06em',borderBottom:'1px solid #222'}}>Costo</th>
+                    <th style={{padding:'8px 10px',fontSize:10,fontWeight:600,color:'#666',textAlign:'right',textTransform:'uppercase',letterSpacing:'0.06em',borderBottom:'1px solid #222'}}>P. Venta</th>
+                    <th style={{padding:'8px 10px',fontSize:10,fontWeight:600,color:'#666',textAlign:'center',textTransform:'uppercase',letterSpacing:'0.06em',borderBottom:'1px solid #222'}}>Estado</th>
                   </tr>
                 </thead>
                 <tbody>
                   {aiImportResult.map((r, i) => {
                     const prod = r.catalog_id ? catalog.find(p => p.id === r.catalog_id) : null
                     const isMatched = !!prod
-                    const unitPrice = prod ? calcItemPrice(prod.cost, prod.markup) : 0
-                    const subtotal = unitPrice * r.quantity
+                    const itemCost = prod?.cost || r.cost || 0
+                    const itemMarkup = prod?.markup || 30
+                    const unitPrice = calcItemPrice(itemCost, itemMarkup)
+                    const providerDisplay = prod?.provider || r.provider || ''
                     return (
                       <tr key={i} style={{borderBottom:'1px solid #222'}}>
-                        <td style={{padding:'10px 12px',fontSize:12,color:'#ddd'}}>
+                        <td style={{padding:'8px 10px',fontSize:12,color:'#ddd'}}>
                           <div style={{fontWeight:500}}>{r.name}</div>
-                          {isMatched && <div style={{fontSize:10,color:'#666'}}>{prod.name}</div>}
+                          {isMatched && prod.name !== r.name && <div style={{fontSize:10,color:'#666'}}>→ {prod.name}</div>}
                         </td>
-                        <td style={{padding:'10px 12px',fontSize:12,color:'#ddd',textAlign:'right'}}>{r.quantity}</td>
-                        <td style={{padding:'10px 12px',fontSize:12,color:'#ddd',textAlign:'right'}}>{isMatched ? `${F(unitPrice)}` : '--'}</td>
-                        <td style={{padding:'10px 12px',fontSize:12,color:'#ddd',textAlign:'right'}}>{isMatched ? `${F(subtotal)}` : '--'}</td>
-                        <td style={{padding:'10px 12px',fontSize:12,textAlign:'center'}}>
-                          <div style={{display:'inline-block',padding:'2px 8px',borderRadius:4,fontSize:10,fontWeight:600,background:isMatched?'#22c55e22':'#f59e0b22',color:isMatched?'#22c55e':'#f59e0b'}}>
-                            {isMatched ? 'Coincidencia' : 'Sin match'}
+                        <td style={{padding:'8px 10px',fontSize:11,color: providerDisplay ? '#3B82F6' : '#555'}}>
+                          {providerDisplay || '—'}
+                          {r.provider && prod?.provider && r.provider !== prod.provider && <div style={{fontSize:9,color:'#666'}}>doc: {r.provider}</div>}
+                        </td>
+                        <td style={{padding:'8px 10px',fontSize:12,color:'#ddd',textAlign:'right'}}>{r.quantity}</td>
+                        <td style={{padding:'8px 10px',fontSize:12,textAlign:'right',color: itemCost > 0 ? '#F59E0B' : '#555'}}>
+                          {itemCost > 0 ? F(itemCost) : '—'}
+                          {r.cost && prod?.cost && r.cost !== prod.cost && <div style={{fontSize:9,color:'#666'}}>doc: {F(r.cost)}</div>}
+                        </td>
+                        <td style={{padding:'8px 10px',fontSize:12,color:'#ddd',textAlign:'right'}}>{itemCost > 0 ? F(unitPrice) : '—'}</td>
+                        <td style={{padding:'8px 10px',fontSize:12,textAlign:'center'}}>
+                          <div style={{display:'inline-block',padding:'2px 8px',borderRadius:4,fontSize:10,fontWeight:600,
+                            background: isMatched ? '#22c55e22' : (r.cost ? '#3b82f622' : '#f59e0b22'),
+                            color: isMatched ? '#22c55e' : (r.cost ? '#3b82f6' : '#f59e0b')}}>
+                            {isMatched ? 'Catálogo' : (r.cost ? 'Nuevo + costo' : 'Sin match')}
                           </div>
                         </td>
                       </tr>
@@ -1617,7 +1643,7 @@ Devuelve SOLO un JSON array válido sin markdown:
             <div style={{display:'flex',justifyContent:'space-between',gap:8}}>
               <Btn size="sm" onClick={()=>setAiImportResult(null)}>Cancelar</Btn>
               <Btn size="sm" variant="primary" onClick={confirmAIImport} style={{display:'flex',alignItems:'center',gap:4}}>
-                <Plus size={12}/> Importar {aiImportResult.filter(r => r.catalog_id).length} productos
+                <Plus size={12}/> Importar {aiImportResult.length} productos
               </Btn>
             </div>
           </div>
