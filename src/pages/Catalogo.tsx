@@ -79,6 +79,10 @@ export default function Catalogo() {
     type: 'material', unit: 'pza', clave_unidad: 'H87', markup: 35, iva_rate: 0.16, is_active: true, system: 'Electrico', moneda: 'MXN', purchase_phase: 'inicio', supplier_id: '',
   })
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
+  const [filterMarca, setFilterMarca] = useState('')
+  const [filterProvider, setFilterProvider] = useState('')
+  const [filterPhase, setFilterPhase] = useState('')
+  const [filterMoneda, setFilterMoneda] = useState('')
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [bulkField, setBulkField] = useState<string>('')
   const [bulkValue, setBulkValue] = useState<string>('')
@@ -255,11 +259,21 @@ IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
   }, [])
 
   const filtered = products.filter(p => {
-    const matchSearch = !search || p.name?.toLowerCase().includes(search.toLowerCase()) || p.description?.toLowerCase().includes(search.toLowerCase()) || p.clave_prod_serv?.includes(search) || p.sku?.toLowerCase().includes(search.toLowerCase())
+    const matchSearch = !search || p.name?.toLowerCase().includes(search.toLowerCase()) || p.description?.toLowerCase().includes(search.toLowerCase()) || p.clave_prod_serv?.includes(search) || p.sku?.toLowerCase().includes(search.toLowerCase()) || p.modelo?.toLowerCase().includes(search.toLowerCase())
     const matchSystem = !filterSystem || p.system === filterSystem
     const matchSpecialty = (p.specialty || 'esp') === filterSpecialty
-    return matchSearch && matchSystem && matchSpecialty
+    const matchMarca = !filterMarca || (p.marca || '') === filterMarca
+    const matchProvider = !filterProvider || p.provider === filterProvider || suppliers.find(s => s.id === p.supplier_id)?.name === filterProvider
+    const matchPhase = !filterPhase || p.purchase_phase === filterPhase
+    const matchMoneda = !filterMoneda || (p.moneda || 'MXN') === filterMoneda
+    return matchSearch && matchSystem && matchSpecialty && matchMarca && matchProvider && matchPhase && matchMoneda
   })
+
+  // Valores únicos para filtros (de productos de la especialidad actual)
+  const specProducts = products.filter(p => (p.specialty || 'esp') === filterSpecialty)
+  const uniqueMarcas = Array.from(new Set(specProducts.map(p => p.marca).filter(Boolean))).sort()
+  const uniqueProviders = Array.from(new Set(specProducts.map(p => suppliers.find(s => s.id === p.supplier_id)?.name || p.provider).filter(Boolean))).sort()
+  const activeFiltersCount = [filterSystem, filterMarca, filterProvider, filterPhase, filterMoneda].filter(Boolean).length
 
   // Conteos por especialidad para los tabs
   const specialtyCounts = {
@@ -437,10 +451,11 @@ IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
             <Search size={14} style={{ position: 'absolute', left: 10, top: 9, color: '#555' }} />
             <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar por nombre, SKU, clave SAT..." style={{ ...iS, width: 280, paddingLeft: 32 }} />
           </div>
-          <select value={filterSystem} onChange={e => setFilterSystem(e.target.value)} style={{ ...iS, width: 160 }}>
-            <option value="">Todos los sistemas</option>
-            {SYSTEMS.map(s => <option key={s} value={s}>{s}</option>)}
-          </select>
+          {activeFiltersCount > 0 && (
+            <button onClick={() => { setFilterSystem(''); setFilterMarca(''); setFilterProvider(''); setFilterPhase(''); setFilterMoneda('') }} style={{ padding: '6px 12px', background: '#1a1a1a', border: '1px solid #333', borderRadius: 8, color: '#F59E0B', fontSize: 11, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 4 }}>
+              <X size={10} /> {activeFiltersCount} filtro{activeFiltersCount > 1 ? 's' : ''} activo{activeFiltersCount > 1 ? 's' : ''}
+            </button>
+          )}
         </div>
         <input type="file" ref={importRef} accept=".csv,.txt,.xlsx,.tsv" style={{ display: 'none' }} onChange={handleAIImport} />
         <Btn size="sm" variant="default" onClick={() => importRef.current?.click()}>{importing ? <><Loader2 size={12} style={{animation:'spin 1s linear infinite'}} /> Procesando con IA...</> : <><Upload size={12} /> Importar con IA</>}</Btn>
@@ -513,7 +528,78 @@ IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
           <Th right>{(form.specialty === 'elec' || filterSpecialty === 'elec') ? 'Costo Material' : 'Costo'}</Th>
           <Th right>Precio Venta</Th>
           <Th>{' '}</Th>
-        </tr></thead>
+        </tr>
+        {/* Filter row */}
+        <tr style={{ background: '#0a0a0a' }}>
+          <th></th>
+          {filterSpecialty !== 'elec' && <th></th>}
+          <th></th>
+          {filterSpecialty === 'esp' && <>
+            <th style={{ padding: '4px 6px' }}>
+              <select value={filterSystem} onChange={e => setFilterSystem(e.target.value)} style={{ width: '100%', padding: '3px 4px', background: '#1a1a1a', border: '1px solid #333', borderRadius: 4, color: '#aaa', fontSize: 10, fontFamily: 'inherit' }}>
+                <option value="">Todos</option>
+                {SYSTEMS.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </th>
+            <th style={{ padding: '4px 6px' }}>
+              <select value={filterMarca} onChange={e => setFilterMarca(e.target.value)} style={{ width: '100%', padding: '3px 4px', background: '#1a1a1a', border: '1px solid #333', borderRadius: 4, color: '#aaa', fontSize: 10, fontFamily: 'inherit' }}>
+                <option value="">Todas</option>
+                {uniqueMarcas.map(m => <option key={m} value={m!}>{m}</option>)}
+              </select>
+            </th>
+            <th></th>
+          </>}
+          {filterSpecialty === 'ilum' && <>
+            <th style={{ padding: '4px 6px' }}>
+              <select value={filterMarca} onChange={e => setFilterMarca(e.target.value)} style={{ width: '100%', padding: '3px 4px', background: '#1a1a1a', border: '1px solid #333', borderRadius: 4, color: '#aaa', fontSize: 10, fontFamily: 'inherit' }}>
+                <option value="">Todas</option>
+                {uniqueMarcas.map(m => <option key={m} value={m!}>{m}</option>)}
+              </select>
+            </th>
+            <th></th><th></th><th></th><th></th><th></th><th></th><th></th>
+          </>}
+          {filterSpecialty === 'elec' && <>
+            <th></th><th></th>
+            <th style={{ padding: '4px 6px' }}>
+              <select value={filterMarca} onChange={e => setFilterMarca(e.target.value)} style={{ width: '100%', padding: '3px 4px', background: '#1a1a1a', border: '1px solid #333', borderRadius: 4, color: '#aaa', fontSize: 10, fontFamily: 'inherit' }}>
+                <option value="">Todas</option>
+                {uniqueMarcas.map(m => <option key={m} value={m!}>{m}</option>)}
+              </select>
+            </th>
+            <th></th><th></th>
+          </>}
+          {filterSpecialty === 'proy' && <th></th>}
+          {filterSpecialty !== 'elec' && <>
+            <th style={{ padding: '4px 6px' }}>
+              <select value={filterProvider} onChange={e => setFilterProvider(e.target.value)} style={{ width: '100%', padding: '3px 4px', background: '#1a1a1a', border: '1px solid #333', borderRadius: 4, color: '#aaa', fontSize: 10, fontFamily: 'inherit' }}>
+                <option value="">Todos</option>
+                {uniqueProviders.map(p => <option key={p} value={p!}>{p}</option>)}
+              </select>
+            </th>
+            <th style={{ padding: '4px 6px' }}>
+              <select value={filterPhase} onChange={e => setFilterPhase(e.target.value)} style={{ width: '100%', padding: '3px 4px', background: '#1a1a1a', border: '1px solid #333', borderRadius: 4, color: '#aaa', fontSize: 10, fontFamily: 'inherit' }}>
+                <option value="">Todas</option>
+                {Object.entries(PHASE_CONFIG).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+              </select>
+            </th>
+          </>}
+          <th style={{ padding: '4px 6px' }}>
+            <select value={filterMoneda} onChange={e => setFilterMoneda(e.target.value)} style={{ width: '100%', padding: '3px 4px', background: '#1a1a1a', border: '1px solid #333', borderRadius: 4, color: '#aaa', fontSize: 10, fontFamily: 'inherit' }}>
+              <option value="">$</option>
+              <option value="USD">USD</option>
+              <option value="MXN">MXN</option>
+            </select>
+          </th>
+          <th></th>
+          <th style={{ padding: '4px 6px' }}>
+            {activeFiltersCount > 0 && (
+              <button onClick={() => { setFilterSystem(''); setFilterMarca(''); setFilterProvider(''); setFilterPhase(''); setFilterMoneda('') }} style={{ background: 'none', border: 'none', color: '#EF4444', cursor: 'pointer', fontSize: 10, padding: 0 }}>
+                <X size={12} />
+              </button>
+            )}
+          </th>
+        </tr>
+        </thead>
         <tbody>
           {filtered.length === 0 && <tr><Td colSpan={10} muted>Sin productos. Agrega tu primer producto al catalogo.</Td></tr>}
           {filtered.map(p => (
