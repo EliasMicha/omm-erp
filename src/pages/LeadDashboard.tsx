@@ -63,6 +63,10 @@ export default function LeadDashboard() {
   const [quotItems, setQuotItems] = useState<any[]>([])
   const [bankMovements, setBankMovements] = useState<any[]>([])
   const [tipoCambio, setTipoCambio] = useState(20.50)
+  const saveTipoCambioRef = async (tc: number) => {
+    setTipoCambio(tc)
+    if (id) await supabase.from('leads').update({ tipo_cambio_ref: tc }).eq('id', id)
+  }
   const [showNewMilestone, setShowNewMilestone] = useState(false)
   const [cobrarModal, setCobrarModal] = useState<any>(null) // milestone being marked as cobrado
 
@@ -80,6 +84,7 @@ export default function LeadDashboard() {
     const { data: leadData } = await supabase.from('leads').select('*').eq('id', id!).single()
     setLead(leadData)
     if (!leadData) { setLoading(false); return }
+    if (leadData.tipo_cambio_ref) setTipoCambio(leadData.tipo_cambio_ref)
 
     // 2. All quotations — filter by lead_id in notes JSON
     const { data: allQuots } = await supabase.from('quotations').select('*')
@@ -461,8 +466,8 @@ export default function LeadDashboard() {
           <span style={{ fontSize: 11, color: '#888', whiteSpace: 'nowrap' }}>T.C. referencia</span>
           <input
             type="number" step="0.01" min="1"
-            value={tipoCambio}
-            onChange={e => { const v = parseFloat(e.target.value); if (v > 0) setTipoCambio(v) }}
+            defaultValue={tipoCambio}
+            onBlur={e => { const v = parseFloat(e.target.value); if (v > 0) saveTipoCambioRef(v) }}
             style={{ width: 65, background: '#0a0a0a', border: '1px solid #444', borderRadius: 4, padding: '4px 6px', fontSize: 13, fontWeight: 700, color: '#fff', textAlign: 'center', fontFamily: 'inherit' }}
           />
         </div>
