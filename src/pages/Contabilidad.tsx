@@ -1402,14 +1402,21 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
   useEffect(() => {
     Promise.all([
       supabase.from('leads').select('id,name,company').order('name'),
-      supabase.from('quotations').select('id,name,lead_id,specialty,total,currency').order('name'),
+      supabase.from('quotations').select('id,name,notes,specialty,total,currency').order('name'),
       supabase.from('purchase_orders').select('id,po_number,quotation_id,project_id,supplier_id,total,currency,purchase_phase,status').order('po_number', { ascending: false }),
       supabase.from('suppliers').select('id,name,rfc,clabe,cuenta_bancaria,banco,bnet_codigo').order('name'),
       supabase.from('clientes').select('id,razon_social,nombre_comercial,rfc,clabe,cuenta_bancaria,banco').eq('activo', true).order('razon_social'),
       supabase.from('employees').select('id,name,rfc,clabe,cuenta,banco').eq('is_active', true).order('name'),
     ]).then(([lRes, qRes, pRes, sRes, cRes, eRes]) => {
       setAssignLeads((lRes.data as any[]) || [])
-      setAssignQuotations((qRes.data as any[]) || [])
+      setAssignQuotations(((qRes.data as any[]) || []).map(q => {
+        let lead_id = ''
+        try {
+          const n = typeof q.notes === 'string' ? JSON.parse(q.notes) : q.notes
+          if (n?.lead_id) lead_id = n.lead_id
+        } catch {}
+        return { ...q, lead_id }
+      }))
       setAssignPOs((pRes.data as any[]) || [])
       setAssignSuppliers((sRes.data as any[]) || [])
       setAssignClientes((cRes.data as any[]) || [])
