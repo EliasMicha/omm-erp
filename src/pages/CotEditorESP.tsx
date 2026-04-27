@@ -367,13 +367,13 @@ function AIImportModal({ cotId, areas, activeSysIds, currency, tipoCambio, onClo
         continue
       }
       const manufacturer = findCol(row, ['Manufacturer', 'Marca', 'Brand', 'Fabricante']) || ''
-      const vendor = findCol(row, ['Vendor', 'Proveedor', 'Supplier', 'Distribuidor']) || ''
+      const vendor = findCol(row, ['Vendor', 'Proveedor', 'Supplier', 'Distribuidor', 'Dealer', 'Vendor Name']) || ''
       const room = findCol(row, ['Room', 'Area', 'Área', 'Zona', 'Ubicación', 'Location']) || ''
       const system = findCol(row, ['System', 'Sistema']) || ''
       const description = findCol(row, ['Short Description', 'Description', 'Descripción', 'Descripcion', 'Product Description']) || ''
       const qtyRaw = findCol(row, ['Item Ext Qty', 'Item Unit Qty', 'Qty', 'Quantity', 'Cantidad', 'Cant'])
       const qty = qtyRaw != null ? parseFloat(String(qtyRaw)) : 1
-      const priceRaw = findCol(row, ['Unit Price', 'Precio Unitario', 'Price', 'Precio', 'Unit Cost', 'Cost'])
+      const priceRaw = findCol(row, ['Unit Price', 'Precio Unitario', 'Price', 'Precio', 'Unit Cost', 'Cost', 'Costo', 'Costo Unitario', 'P.U.', 'PU', 'Item Unit Price', 'Item Sell Price', 'Sell Price', 'MSRP'])
       const price = priceRaw != null ? parseFloat(String(priceRaw).replace(/[$,]/g, '')) : null
       const currency = findCol(row, ['Selling Currency', 'Cost Currency', 'Currency', 'Moneda'])
       let moneda: 'USD' | 'MXN' | null = null
@@ -634,7 +634,7 @@ function AIImportModal({ cotId, areas, activeSysIds, currency, tipoCambio, onClo
         let prodProvider = it.provider || it.marca || ''
 
         if (!catalogProductId) {
-          // Crear producto en catálogo
+          // Crear producto en catálogo — con costo y proveedor del Excel
           const sysName = ALL_SYSTEMS.find(s => s.id === it.systemId)?.name || 'Audio'
           const newProductCost = it.precio_unitario || 0
           const newProductMoneda = it.moneda || 'USD'
@@ -672,6 +672,15 @@ function AIImportModal({ cotId, areas, activeSysIds, currency, tipoCambio, onClo
             prodCost = newProductCost
             prodMoneda = newProductMoneda
           }
+        // Producto existente — actualizar costo y proveedor si viene del Excel
+        } else if (it.precio_unitario && it.precio_unitario > 0) {
+          const updates: any = { cost: it.precio_unitario }
+          if (it.moneda) updates.moneda = it.moneda
+          if (it.provider) updates.provider = it.provider
+          await supabase.from('catalog_products').update(updates).eq('id', catalogProductId)
+          prodCost = it.precio_unitario
+          if (it.moneda) prodMoneda = it.moneda
+          if (it.provider) prodProvider = it.provider
         } else {
           const { data: existing } = await supabase
             .from('catalog_products')
