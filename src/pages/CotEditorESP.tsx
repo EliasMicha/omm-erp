@@ -393,7 +393,8 @@ interface AIExtractedItem {
   modelo: string
   descripcion: string
   cantidad: number
-  precio_unitario: number | null
+  precio_unitario: number | null  // precio de VENTA (selling price)
+  costo: number | null            // costo real de compra
   moneda: 'USD' | 'MXN' | null
   provider: string
   notas: string
@@ -510,8 +511,12 @@ function AIImportModal({ cotId, areas, activeSysIds, currency, tipoCambio, onClo
       const description = findCol(row, ['Short Description', 'Description', 'Descripción', 'Descripcion', 'Product Description']) || ''
       const qtyRaw = findCol(row, ['Item Ext Qty', 'Item Unit Qty', 'Qty', 'Quantity', 'Cantidad', 'Cant'])
       const qty = qtyRaw != null ? parseFloat(String(qtyRaw)) : 1
-      const priceRaw = findCol(row, ['Unit Price', 'Precio Unitario', 'Price', 'Precio', 'Unit Cost', 'Cost', 'Costo', 'Costo Unitario', 'P.U.', 'PU', 'Item Unit Price', 'Item Sell Price', 'Sell Price', 'MSRP'])
+      // Precio de venta (selling price)
+      const priceRaw = findCol(row, ['Unit Price', 'Precio Unitario', 'Price', 'Precio', 'Item Unit Price', 'Item Sell Price', 'Sell Price', 'MSRP', 'P.U.', 'PU'])
       const price = priceRaw != null ? parseFloat(String(priceRaw).replace(/[$,]/g, '')) : null
+      // Costo real de compra (separate from selling price)
+      const costRaw = findCol(row, ['costo', 'Costo', 'Costo Unitario', 'Unit Cost', 'Cost', 'Dealer Cost', 'Net Cost', 'Costo Neto'])
+      const costVal = costRaw != null ? parseFloat(String(costRaw).replace(/[$,]/g, '')) : null
       const currency = findCol(row, ['Selling Currency', 'Cost Currency', 'Currency', 'Moneda'])
       let moneda: 'USD' | 'MXN' | null = null
       if (currency) {
@@ -528,6 +533,7 @@ function AIImportModal({ cotId, areas, activeSysIds, currency, tipoCambio, onClo
         descripcion: String(description).trim(),
         cantidad: isNaN(qty) ? 1 : Math.max(1, Math.round(qty)),
         precio_unitario: price != null && !isNaN(price) ? price : null,
+        costo: costVal != null && !isNaN(costVal) ? costVal : null,
         moneda,
         provider: String(vendor).trim() || String(manufacturer).trim(),
         notas: '',
@@ -685,6 +691,7 @@ function AIImportModal({ cotId, areas, activeSysIds, currency, tipoCambio, onClo
         descripcion: it.descripcion || '',
         cantidad: parseInt(it.cantidad) || 1,
         precio_unitario: it.precio_unitario != null ? Number(it.precio_unitario) : null,
+        costo: it.costo != null ? Number(it.costo) : null,
         moneda: it.moneda === 'USD' || it.moneda === 'MXN' ? it.moneda : null,
         provider: it.provider || it.marca || '',
         notas: it.notas || '',
@@ -771,13 +778,17 @@ function AIImportModal({ cotId, areas, activeSysIds, currency, tipoCambio, onClo
         let prodProvider = it.provider || it.marca || ''
 
         if (!catalogProductId) {
-          // Crear producto en catálogo — con costo y proveedor del Excel
+          // NUEVO: Crear producto en catálogo con datos del Excel
           const sysName = ALL_SYSTEMS.find(s => s.id === it.systemId)?.name || 'Audio'
-          const newProductCost = it.precio_unitario || 0
+          const newProductCost = it.costo || it.precio_unitario || 0
           const newProductMoneda = it.moneda || 'USD'
           const ruleNew = getPricingRule(prodProvider)
-          const precioVenta = ruleNew.precioPublico ? newProductCost : calcPriceFromCost(newProductCost, ruleNew)
+          // Si el Excel trae precio de venta, usarlo directamente; si no, calcular
+          const precioVenta = it.precio_unitario || (newProductCost > 0 ? calcPriceFromCost(newProductCost, ruleNew) : 0)
           const productName = it.descripcion || ((it.marca + ' ' + it.modelo).trim())
+          const computedMarkup = newProductCost > 0 && precioVenta > 0
+            ? Math.round((1 - newProductCost / precioVenta) * 100)
+            : ruleNew.margen
           const { data: newProd, error: prodErr } = await supabase
             .from('catalog_products')
             .insert({
@@ -787,7 +798,7 @@ function AIImportModal({ cotId, areas, activeSysIds, currency, tipoCambio, onClo
               type: 'material',
               unit: 'pza',
               cost: newProductCost,
-              markup: ruleNew.precioPublico ? 0 : ruleNew.margen,
+              markup: computedMarkup,
               precio_venta: precioVenta,
               provider: prodProvider || null,
               marca: it.marca || null,
@@ -809,24 +820,17 @@ function AIImportModal({ cotId, areas, activeSysIds, currency, tipoCambio, onClo
             prodCost = newProductCost
             prodMoneda = newProductMoneda
           }
-        // Producto existente — actualizar costo y proveedor si viene del Excel
-        } else if (it.precio_unitario && it.precio_unitario > 0) {
-          const updates: any = { cost: it.precio_unitario }
-          if (it.moneda) updates.moneda = it.moneda
-          if (it.provider) updates.provider = it.provider
-          await supabase.from('catalog_products').update(updates).eq('id', catalogProductId)
-          prodCost = it.precio_unitario
-          if (it.moneda) prodMoneda = it.moneda
-          if (it.provider) prodProvider = it.provider
         } else {
+          // Producto EXISTENTE — NO modificar catálogo, solo cargar atributos
           const { data: existing } = await supabase
             .from('catalog_products')
             .select('cost, moneda, provider, markup, marca, modelo, sku, image_url')
             .eq('id', catalogProductId)
             .single()
           if (existing) {
-            prodCost = Number(existing.cost) || 0
-            prodMoneda = existing.moneda || 'USD'
+            // Usar costo del Excel si viene, si no del catálogo
+            prodCost = it.costo || Number(existing.cost) || 0
+            prodMoneda = it.moneda || existing.moneda || 'USD'
             if (existing.provider) prodProvider = existing.provider
             // Heredar snapshot fields del catálogo si el item del Excel no los trae
             if (!it.marca && existing.marca) it.marca = existing.marca
@@ -836,16 +840,23 @@ function AIImportModal({ cotId, areas, activeSysIds, currency, tipoCambio, onClo
           }
         }
 
-        // Calcular precio aplicando pricing rule
+        // Calcular precio de venta para la cotización
         const rule = getPricingRule(prodProvider)
         let precioOrigen: number
-        if (rule.precioPublico) {
-          precioOrigen = it.precio_unitario || (prodCost > 0 ? Math.round(prodCost * 1.30) : 0)
+        if (it.precio_unitario && it.precio_unitario > 0) {
+          // Si el Excel trae precio de venta, usarlo directamente
+          precioOrigen = it.precio_unitario
+        } else if (prodCost > 0) {
+          // Si no, calcular desde el costo
+          precioOrigen = rule.precioPublico ? Math.round(prodCost * 1.30) : calcPriceFromCost(prodCost, rule)
         } else {
-          precioOrigen = calcPriceFromCost(prodCost || it.precio_unitario || 0, rule)
+          precioOrigen = 0
         }
         const precio = convertToQuoteCurrency(precioOrigen, prodMoneda)
-        const margin = rule.precioPublico ? 30 : rule.margen
+        // Margen real = (precio - costo) / precio
+        const margin = prodCost > 0 && precioOrigen > 0
+          ? Math.round((1 - prodCost / precioOrigen) * 100)
+          : rule.margen || 30
         const laborCost = calcLaborFromPrice(precio, rule)
         const sysName = ALL_SYSTEMS.find(s => s.id === it.systemId)?.name || 'Audio'
         const areaId = areaCache[(it.area || 'General').toLowerCase().trim()]
@@ -987,7 +998,8 @@ function AIImportModal({ cotId, areas, activeSysIds, currency, tipoCambio, onClo
                     <th style={{ ...S.th, textAlign: 'left' }}>Modelo</th>
                     <th style={{ ...S.th, textAlign: 'left' }}>Descripción</th>
                     <th style={{ ...S.th, textAlign: 'right' }}>Cant</th>
-                    <th style={{ ...S.th, textAlign: 'right' }}>Precio</th>
+                    <th style={{ ...S.th, textAlign: 'right' }}>Costo</th>
+                    <th style={{ ...S.th, textAlign: 'right' }}>P. Venta</th>
                     <th style={S.th}>Mon</th>
                     <th style={S.th}></th>
                   </tr>
@@ -1027,8 +1039,12 @@ function AIImportModal({ cotId, areas, activeSysIds, currency, tipoCambio, onClo
                           style={{ width: 50, padding: '4px 6px', background: '#1e1e1e', border: '1px solid #333', borderRadius: 4, color: '#ccc', fontSize: 11, fontFamily: 'inherit', textAlign: 'right' }} />
                       </td>
                       <td style={S.tdR}>
+                        <input type="number" step={0.01} value={it.costo ?? ''} onChange={e => updateRow(it._rowId, 'costo', e.target.value ? parseFloat(e.target.value) : null)}
+                          style={{ width: 70, padding: '4px 6px', background: '#1e1e1e', border: '1px solid #333', borderRadius: 4, color: '#F59E0B', fontSize: 11, fontFamily: 'inherit', textAlign: 'right' }} />
+                      </td>
+                      <td style={S.tdR}>
                         <input type="number" step={0.01} value={it.precio_unitario ?? ''} onChange={e => updateRow(it._rowId, 'precio_unitario', e.target.value ? parseFloat(e.target.value) : null)}
-                          style={{ width: 75, padding: '4px 6px', background: '#1e1e1e', border: '1px solid #333', borderRadius: 4, color: '#ccc', fontSize: 11, fontFamily: 'inherit', textAlign: 'right' }} />
+                          style={{ width: 70, padding: '4px 6px', background: '#1e1e1e', border: '1px solid #333', borderRadius: 4, color: '#ccc', fontSize: 11, fontFamily: 'inherit', textAlign: 'right' }} />
                       </td>
                       <td style={S.td}>
                         <select value={it.moneda || ''} onChange={e => updateRow(it._rowId, 'moneda', (e.target.value || null) as any)}
