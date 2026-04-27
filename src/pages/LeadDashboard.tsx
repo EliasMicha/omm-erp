@@ -62,7 +62,7 @@ export default function LeadDashboard() {
   const [employees, setEmployees] = useState<any[]>([])
   const [quotItems, setQuotItems] = useState<any[]>([])
   const [bankMovements, setBankMovements] = useState<any[]>([])
-  const [tipoCambio] = useState(20.50)
+  const [tipoCambio, setTipoCambio] = useState(20.50)
   const [showNewMilestone, setShowNewMilestone] = useState(false)
   const [cobrarModal, setCobrarModal] = useState<any>(null) // milestone being marked as cobrado
 
@@ -446,7 +446,28 @@ export default function LeadDashboard() {
         </div>
       </div>
 
-      {/* KPI strip — dual currency */}
+      {/* Tipo de cambio + KPI strip */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#111', border: '1px solid #333', borderRadius: 8, padding: '6px 12px' }}>
+          <span style={{ fontSize: 11, color: '#888', whiteSpace: 'nowrap' }}>Tipo de cambio</span>
+          <span style={{ fontSize: 11, color: '#06B6D4' }}>USD →</span>
+          <input
+            type="number" step="0.01" min="1"
+            value={tipoCambio}
+            onChange={e => { const v = parseFloat(e.target.value); if (v > 0) setTipoCambio(v) }}
+            style={{ width: 70, background: '#0a0a0a', border: '1px solid #444', borderRadius: 4, padding: '4px 6px', fontSize: 13, fontWeight: 700, color: '#fff', textAlign: 'center', fontFamily: 'inherit' }}
+          />
+          <span style={{ fontSize: 11, color: '#A78BFA' }}>MXN</span>
+        </div>
+        <div style={{ flex: 1 }} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16, fontSize: 12 }}>
+          <span style={{ color: '#888' }}>Equivalente MXN:</span>
+          <span style={{ color: '#57FF9A', fontWeight: 600 }}>Vendido {F(financials.totalVendido)}</span>
+          <span style={{ color: '#34D399', fontWeight: 600 }}>Cobrado {F(financials.totalCobrado)}</span>
+          <span style={{ color: '#F59E0B', fontWeight: 600 }}>Por cobrar {F(financials.porCobrar)}</span>
+          <span style={{ color: '#3B82F6', fontWeight: 600 }}>{financials.totalVendido > 0 ? PCT(financials.totalCobrado / financials.totalVendido) : '—'}</span>
+        </div>
+      </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 10, marginBottom: 24 }}>
         <KpiDual label="Total Vendido" usd={financials.byCur.USD.vendido} mxn={financials.byCur.MXN.vendido} color="#57FF9A" />
         <KpiDual label="Cobrado" usd={financials.byCur.USD.cobrado} mxn={financials.byCur.MXN.cobrado} color="#34D399" />
