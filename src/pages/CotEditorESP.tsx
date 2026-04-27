@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase'
 import { F, STAGE_CONFIG } from '../lib/utils'
 import { Badge, Btn, Loading } from '../components/layout/UI'
 import { ANTHROPIC_API_KEY } from '../lib/config'
-import { Plus, ChevronLeft, ChevronRight, ChevronDown, X, Trash2, Image as ImageIcon, Search, RefreshCw, Sparkles, Upload, Loader2, FileText } from 'lucide-react'
+import { Plus, ChevronLeft, ChevronRight, ChevronDown, X, Trash2, Image as ImageIcon, Search, RefreshCw, Sparkles, Upload, Loader2, FileText, Package } from 'lucide-react'
 import ImageUpload from '../components/ImageUpload'
 
 // ═══════════════════════════════════════════════════════════════════
@@ -15,7 +15,10 @@ interface EspProduct {
   quantity: number; cost: number; price: number; laborCost: number; margin: number; order: number
   monedaOrigen: string // USD or MXN — the currency of the catalog product
   marca?: string | null; modelo?: string | null; sku?: string | null; provider?: string | null
+  bundleId?: string | null; bundleInstanceId?: string | null; bundleName?: string | null
 }
+interface CatBundle { id: string; name: string; description: string | null; system: string | null; items: CatBundleItem[] }
+interface CatBundleItem { id: string; product_id: string; quantity: number; product: CatProduct }
 interface EspArea { id: string; name: string; collapsed: boolean; order: number }
 interface EspSystemDef { id: string; name: string; color: string }
 interface CatProduct { id: string; name: string; description: string; system: string; cost: number; markup: number; precio_venta: number; provider: string; unit: string; moneda?: string; marca?: string | null; modelo?: string | null; sku?: string | null; image_url?: string | null }
@@ -144,7 +147,10 @@ function ProductRow({ p, onUpdate, onRemove, onUpdateAll, showInt, duplicateCoun
       <td style={{ ...S.td, minWidth: 180, cursor: 'pointer' }} onClick={() => onDetail?.(p)}>
         <div style={{ fontSize: 12, fontWeight: 500, color: '#ddd' }}>{p.name}</div>
         {p.description && <div style={{ fontSize: 10, color: '#555', marginTop: 1 }}>{p.description}</div>}
-        {duplicateCount > 1 && <span style={{ fontSize: 9, color: '#F59E0B', background: '#F59E0B18', padding: '1px 5px', borderRadius: 4 }}>×{duplicateCount}</span>}
+        <div style={{ display: 'flex', gap: 4, alignItems: 'center', marginTop: 1, flexWrap: 'wrap' }}>
+          {p.bundleName && <span style={{ fontSize: 9, color: '#A855F7', background: '#A855F718', padding: '1px 5px', borderRadius: 4, display: 'inline-flex', alignItems: 'center', gap: 2 }}><Package size={8} /> {p.bundleName}</span>}
+          {duplicateCount > 1 && <span style={{ fontSize: 9, color: '#F59E0B', background: '#F59E0B18', padding: '1px 5px', borderRadius: 4 }}>×{duplicateCount}</span>}
+        </div>
       </td>
       <td style={S.tdR}><input type="number" defaultValue={p.price} step={0.01} onBlur={e => handleBlur('price', parseFloat(e.target.value) || 0)} style={S.input} /></td>
       <td style={S.tdM}>${fmt(precioAmp)}</td>
@@ -1141,13 +1147,17 @@ function AIImportModal({ cotId, areas, activeSysIds, currency, tipoCambio, onClo
 // ═══════════════════════════════════════════════════════════════════
 // CATALOG SEARCH + CREATE PRODUCT MODAL
 // ═══════════════════════════════════════════════════════════════════
-function CatalogModal({ onClose, onSelect, onCreateNew, systemName }: {
+function CatalogModal({ onClose, onSelect, onCreateNew, onSelectBundle, systemName }: {
   onClose: () => void; onSelect: (p: CatProduct) => void; onCreateNew: () => void; systemName: string
+  onSelectBundle?: (bundle: CatBundle) => void
 }) {
   const [catalog, setCatalog] = useState<CatProduct[]>([])
+  const [bundles, setBundles] = useState<CatBundle[]>([])
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
   const [showAll, setShowAll] = useState(false)
+  const [tab, setTab] = useState<'products' | 'bundles'>('products')
+  const [expandedBundle, setExpandedBundle] = useState<string | null>(null)
 
   useEffect(() => {
     setLoading(true)
@@ -1156,9 +1166,32 @@ function CatalogModal({ onClose, onSelect, onCreateNew, systemName }: {
     q.order('name').then(({ data }: any) => { setCatalog(data || []); setLoading(false) })
   }, [showAll])
 
+  useEffect(() => {
+    supabase.from('catalog_bundles').select('*').eq('is_active', true).order('name')
+      .then(async ({ data: bundlesData }) => {
+        if (!bundlesData || bundlesData.length === 0) { setBundles([]); return }
+        const { data: items } = await supabase.from('catalog_bundle_items').select('*, product:catalog_products(*)').in('bundle_id', bundlesData.map((b: any) => b.id))
+        const bundlesWithItems = bundlesData.map((b: any) => ({
+          ...b,
+          items: (items || []).filter((i: any) => i.bundle_id === b.id).map((i: any) => ({ id: i.id, product_id: i.product_id, quantity: Number(i.quantity), product: i.product }))
+        }))
+        setBundles(bundlesWithItems)
+      })
+  }, [])
+
   const filtered = search.length >= 2
     ? catalog.filter(p => p.name.toLowerCase().includes(search.toLowerCase()) || (p.description || '').toLowerCase().includes(search.toLowerCase()))
     : catalog
+
+  const filteredBundles = search.length >= 2
+    ? bundles.filter(b => b.name.toLowerCase().includes(search.toLowerCase()) || (b.description || '').toLowerCase().includes(search.toLowerCase()))
+    : bundles
+
+  const tabStyle = (active: boolean): React.CSSProperties => ({
+    padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+    background: active ? '#57FF9A22' : 'transparent', color: active ? '#57FF9A' : '#666',
+    border: active ? '1px solid #57FF9A44' : '1px solid transparent',
+  })
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
@@ -1171,53 +1204,129 @@ function CatalogModal({ onClose, onSelect, onCreateNew, systemName }: {
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer' }}><X size={18} /></button>
         </div>
 
+        {/* Tabs */}
+        <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
+          <button onClick={() => setTab('products')} style={tabStyle(tab === 'products')}>Productos</button>
+          <button onClick={() => setTab('bundles')} style={tabStyle(tab === 'bundles')}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Package size={12} /> Bundles {bundles.length > 0 && <span style={{ fontSize: 10, opacity: 0.6 }}>({bundles.length})</span>}</span>
+          </button>
+        </div>
+
         <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
           <div style={{ flex: 1, position: 'relative' }}>
             <Search size={14} style={{ position: 'absolute', left: 10, top: 10, color: '#444' }} />
-            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar producto..."
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder={tab === 'products' ? 'Buscar producto...' : 'Buscar bundle...'}
               style={{ width: '100%', padding: '8px 10px 8px 30px', background: '#1e1e1e', border: '1px solid #333', borderRadius: 8, color: '#fff', fontSize: 13, fontFamily: 'inherit' }} autoFocus />
           </div>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '0 10px', color: '#aaa', fontSize: 12, cursor: 'pointer', whiteSpace: 'nowrap' }}>
-            <input type="checkbox" checked={showAll} onChange={e => setShowAll(e.target.checked)} style={{ cursor: 'pointer' }} />
-            Ver todo el catálogo
-          </label>
-          <Btn variant="primary" onClick={onCreateNew}><Plus size={14} /> Crear nuevo</Btn>
+          {tab === 'products' && (
+            <>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '0 10px', color: '#aaa', fontSize: 12, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                <input type="checkbox" checked={showAll} onChange={e => setShowAll(e.target.checked)} style={{ cursor: 'pointer' }} />
+                Ver todo el catálogo
+              </label>
+              <Btn variant="primary" onClick={onCreateNew}><Plus size={14} /> Crear nuevo</Btn>
+            </>
+          )}
         </div>
 
         <div style={{ flex: 1, overflowY: 'auto' }}>
-          {loading ? <Loading /> : filtered.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '30px 20px', color: '#444', fontSize: 13 }}>
-              {search ? 'Sin resultados — ' : 'Catálogo vacío — '}
-              <button onClick={onCreateNew} style={{ background: 'none', border: 'none', color: '#57FF9A', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, textDecoration: 'underline' }}>Crear producto nuevo</button>
-            </div>
+          {tab === 'products' ? (
+            /* ─── Products tab ─── */
+            loading ? <Loading /> : filtered.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '30px 20px', color: '#444', fontSize: 13 }}>
+                {search ? 'Sin resultados — ' : 'Catálogo vacío — '}
+                <button onClick={onCreateNew} style={{ background: 'none', border: 'none', color: '#57FF9A', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, textDecoration: 'underline' }}>Crear producto nuevo</button>
+              </div>
+            ) : (
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead><tr style={{ background: '#1a1a1a' }}>
+                  <th style={{ ...S.th, textAlign: 'left' }}>Producto</th>
+                  <th style={{ ...S.th }}>Sistema</th>
+                  <th style={{ ...S.th }}>Proveedor</th>
+                  <th style={{ ...S.th, textAlign: 'right' }}>Costo</th>
+                  <th style={{ ...S.th, textAlign: 'right' }}>Precio</th>
+                  <th style={S.th}></th>
+                </tr></thead>
+                <tbody>
+                  {filtered.slice(0, 50).map(p => {
+                    const precio = p.precio_venta > 0 ? p.precio_venta : Math.round(p.cost / (1 - p.markup / 100) * 100) / 100
+                    return (
+                      <tr key={p.id} style={{ cursor: 'pointer' }} onClick={() => onSelect(p)}
+                        onMouseEnter={e => { e.currentTarget.style.background = '#1a1a1a' }}
+                        onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}>
+                        <td style={{ ...S.td }}><div style={{ fontWeight: 500, color: '#ddd' }}>{p.name}</div>{p.description && <div style={{ fontSize: 10, color: '#555' }}>{p.description}</div>}</td>
+                        <td style={{ ...S.td, fontSize: 10, color: '#666' }}>{p.system || '--'}</td>
+                        <td style={{ ...S.td, fontSize: 10, color: '#666' }}>{p.provider || '--'}</td>
+                        <td style={{ ...S.tdR, fontSize: 10, color: '#555' }}>${fmt(p.cost)}</td>
+                        <td style={{ ...S.tdR, fontWeight: 600, color: '#57FF9A' }}>${precio}</td>
+                        <td style={S.td}><Btn size="sm" variant="primary">+ Agregar</Btn></td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            )
           ) : (
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead><tr style={{ background: '#1a1a1a' }}>
-                <th style={{ ...S.th, textAlign: 'left' }}>Producto</th>
-                <th style={{ ...S.th }}>Sistema</th>
-                <th style={{ ...S.th }}>Proveedor</th>
-                <th style={{ ...S.th, textAlign: 'right' }}>Costo</th>
-                <th style={{ ...S.th, textAlign: 'right' }}>Precio</th>
-                <th style={S.th}></th>
-              </tr></thead>
-              <tbody>
-                {filtered.slice(0, 50).map(p => {
-                  const precio = p.precio_venta > 0 ? p.precio_venta : Math.round(p.cost / (1 - p.markup / 100) * 100) / 100
+            /* ─── Bundles tab ─── */
+            filteredBundles.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '30px 20px', color: '#444', fontSize: 13 }}>
+                {search ? 'Sin bundles que coincidan' : 'No hay bundles en el catálogo'}
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {filteredBundles.map(b => {
+                  const isExpanded = expandedBundle === b.id
+                  const totalCost = b.items.reduce((s, i) => s + (i.product?.cost || 0) * i.quantity, 0)
+                  const totalPrice = b.items.reduce((s, i) => {
+                    const p = i.product
+                    if (!p) return s
+                    const precio = p.precio_venta > 0 ? p.precio_venta : Math.round(p.cost / (1 - (p.markup || 30) / 100) * 100) / 100
+                    return s + precio * i.quantity
+                  }, 0)
                   return (
-                    <tr key={p.id} style={{ cursor: 'pointer' }} onClick={() => onSelect(p)}
-                      onMouseEnter={e => { e.currentTarget.style.background = '#1a1a1a' }}
-                      onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}>
-                      <td style={{ ...S.td }}><div style={{ fontWeight: 500, color: '#ddd' }}>{p.name}</div>{p.description && <div style={{ fontSize: 10, color: '#555' }}>{p.description}</div>}</td>
-                      <td style={{ ...S.td, fontSize: 10, color: '#666' }}>{p.system || '--'}</td>
-                      <td style={{ ...S.td, fontSize: 10, color: '#666' }}>{p.provider || '--'}</td>
-                      <td style={{ ...S.tdR, fontSize: 10, color: '#555' }}>${fmt(p.cost)}</td>
-                      <td style={{ ...S.tdR, fontWeight: 600, color: '#57FF9A' }}>${precio}</td>
-                      <td style={S.td}><Btn size="sm" variant="primary">+ Agregar</Btn></td>
-                    </tr>
+                    <div key={b.id} style={{ border: '1px solid #2a2a2a', borderRadius: 10, overflow: 'hidden' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: '#1a1a1a', cursor: 'pointer' }}
+                        onClick={() => setExpandedBundle(isExpanded ? null : b.id)}>
+                        <Package size={16} color="#A855F7" />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 13, fontWeight: 600, color: '#fff' }}>{b.name}</div>
+                          {b.description && <div style={{ fontSize: 10, color: '#555' }}>{b.description}</div>}
+                        </div>
+                        <span style={{ fontSize: 10, color: '#666' }}>{b.items.length} productos</span>
+                        <span style={{ fontSize: 10, color: '#555' }}>${fmt(totalCost)}</span>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: '#57FF9A' }}>${fmt(totalPrice)}</span>
+                        <Btn size="sm" variant="primary" onClick={(e: React.MouseEvent) => { e.stopPropagation(); onSelectBundle?.(b) }}>+ Bundle</Btn>
+                        {isExpanded ? <ChevronDown size={14} color="#555" /> : <ChevronRight size={14} color="#555" />}
+                      </div>
+                      {isExpanded && (
+                        <div style={{ padding: '0 14px 10px', background: '#141414' }}>
+                          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                            <tbody>
+                              {b.items.map(item => {
+                                const p = item.product
+                                if (!p) return null
+                                const precio = p.precio_venta > 0 ? p.precio_venta : Math.round(p.cost / (1 - (p.markup || 30) / 100) * 100) / 100
+                                return (
+                                  <tr key={item.id}>
+                                    <td style={{ ...S.td, paddingLeft: 28 }}>
+                                      <div style={{ fontSize: 11, color: '#ccc' }}>{p.name}</div>
+                                      {p.marca && <span style={{ fontSize: 9, color: '#555' }}>{p.marca} {p.modelo || ''}</span>}
+                                    </td>
+                                    <td style={{ ...S.td, fontSize: 10, color: '#666', textAlign: 'center' }}>×{item.quantity}</td>
+                                    <td style={{ ...S.tdR, fontSize: 10, color: '#555' }}>${fmt(p.cost)}</td>
+                                    <td style={{ ...S.tdR, fontSize: 11, fontWeight: 600, color: '#ddd' }}>${fmt(precio)}</td>
+                                  </tr>
+                                )
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
                   )
                 })}
-              </tbody>
-            </table>
+              </div>
+            )
           )}
         </div>
       </div>
@@ -1790,7 +1899,17 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
         laborCost: it.installation_cost || 0, margin: it.markup || 30, order: it.order_index || 0,
         monedaOrigen: it.provider_currency || 'USD',
         marca: it.marca || null, modelo: it.modelo || null, sku: it.sku || null, provider: it.provider || null,
+        bundleId: it.bundle_id || null, bundleInstanceId: it.bundle_instance_id || null, bundleName: null,
       })))
+      // Load bundle names for products that have bundle_id
+      const bundleIds = [...new Set(qItems.filter((it: any) => it.bundle_id).map((it: any) => it.bundle_id))]
+      if (bundleIds.length > 0) {
+        const { data: bundleData } = await supabase.from('catalog_bundles').select('id,name').in('id', bundleIds)
+        if (bundleData) {
+          const nameMap = new Map(bundleData.map((b: any) => [b.id, b.name]))
+          setProducts(prev => prev.map(p => p.bundleId ? { ...p, bundleName: nameMap.get(p.bundleId) || null } : p))
+        }
+      }
     } else {
       setProducts([])
     }
@@ -2084,6 +2203,49 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
     setAddingTo(null)
   }
 
+  async function handleAddBundle(bundle: CatBundle) {
+    if (!addingTo) return
+    const instanceId = uid() + uid() // unique instance id for this bundle insertion
+    const sysName = ALL_SYSTEMS.find(s => s.id === addingTo.systemId)?.name || addingTo.systemId
+    const newProds: EspProduct[] = []
+
+    for (const item of bundle.items) {
+      const catProd = item.product
+      if (!catProd) continue
+      const rule = getPricingRule(catProd.provider || '')
+      const prodMoneda = catProd.moneda || 'USD'
+      const margin = catProd.markup > 0 ? catProd.markup : rule.margen
+      let precioOrigen = catProd.precio_venta > 0 ? catProd.precio_venta : calcPriceFromCost(catProd.cost, rule, margin)
+      const precio = convertToQuoteCurrency(precioOrigen, prodMoneda)
+      const laborCost = calcLaborFromPrice(precio, rule)
+
+      const { data, error } = await supabase.from('quotation_items').insert({
+        quotation_id: cotId, area_id: addingTo.areaId, catalog_product_id: catProd.id || null,
+        name: catProd.name, description: catProd.description || null, system: sysName,
+        type: 'material', quantity: item.quantity, cost: catProd.cost, markup: margin, price: precio,
+        total: (precio + laborCost) * item.quantity, installation_cost: laborCost,
+        order_index: products.length + newProds.length,
+        marca: catProd.marca || null, modelo: catProd.modelo || null, sku: catProd.sku || null,
+        image_url: catProd.image_url || null, provider: catProd.provider || null,
+        bundle_id: bundle.id, bundle_instance_id: instanceId,
+      }).select().single()
+
+      if (data) {
+        newProds.push({
+          id: data.id, areaId: addingTo.areaId, systemId: addingTo.systemId, catalogId: catProd.id || null,
+          name: catProd.name, description: catProd.description || '', imageUrl: catProd.image_url || null,
+          quantity: item.quantity, cost: catProd.cost || 0, price: precio, laborCost, margin,
+          order: products.length + newProds.length, monedaOrigen: prodMoneda,
+          marca: catProd.marca || null, modelo: catProd.modelo || null, sku: catProd.sku || null, provider: catProd.provider || null,
+          bundleId: bundle.id, bundleInstanceId: instanceId, bundleName: bundle.name,
+        })
+      }
+    }
+
+    if (newProds.length > 0) setProducts(p => [...p, ...newProds])
+    setAddingTo(null)
+  }
+
   async function handleCreateAndAdd(catProd: CatProduct) {
     if (!addingTo) return
     const rule = getPricingRule(catProd.provider || '')
@@ -2233,6 +2395,7 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
           systemName={ALL_SYSTEMS.find(s => s.id === addingTo.systemId)?.name || addingTo.systemId}
           onClose={() => setAddingTo(null)}
           onSelect={handleAddFromCatalog}
+          onSelectBundle={handleAddBundle}
           onCreateNew={() => setCreatingProduct(true)} />
       )}
 
