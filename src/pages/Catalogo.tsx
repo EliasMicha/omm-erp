@@ -103,6 +103,11 @@ export default function Catalogo() {
     setBulkSaving(true)
     const ids = Array.from(selectedIds)
     const update: any = { [bulkField]: bulkValue }
+    // Si cambian proveedor, actualizar también supplier_id
+    if (bulkField === 'provider') {
+      const sup = suppliers.find(s => s.name === bulkValue)
+      if (sup) update.supplier_id = sup.id
+    }
     const { error } = await supabase.from('catalog_products').update(update).in('id', ids)
     if (error) {
       alert('Error: ' + error.message)
@@ -212,7 +217,7 @@ IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
           const updates: any = {}
           if (parsed.name && !fa.name) updates.name = parsed.name
           if (parsed.description && !fa.description) updates.description = parsed.description
-          if (parsed.provider && !fa.provider) updates.provider = parsed.provider
+          if (parsed.provider && !fa.marca) updates.marca = parsed.provider
           if (parsed.marca && !fa.marca) updates.marca = parsed.marca
           if (parsed.modelo && !fa.modelo) updates.modelo = parsed.modelo
           if (parsed.sku && !fa.sku) updates.sku = parsed.sku
@@ -278,7 +283,13 @@ IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
 
   const openEdit = (p: Product) => {
     setEditId(p.id)
-    setForm({ ...p })
+    // Si tiene provider pero no supplier_id, intentar matchear con la lista de proveedores
+    let fixedSupplier = p.supplier_id
+    if (!fixedSupplier && p.provider) {
+      const match = suppliers.find(s => s.name.toLowerCase() === p.provider.toLowerCase())
+      if (match) fixedSupplier = match.id
+    }
+    setForm({ ...p, supplier_id: fixedSupplier || '' })
     setShowForm(true)
   }
 
@@ -570,8 +581,7 @@ IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
               <div><span style={{color:'#555'}}>Sistema:</span> <span style={{color:'#ccc'}}>{selectedProduct.system || '--'}</span></div>
               <div><span style={{color:'#555'}}>Tipo:</span> <Badge label={selectedProduct.type} color="#3B82F6" /></div>
               <div><span style={{color:'#555'}}>Unidad:</span> <span style={{color:'#ccc'}}>{selectedProduct.clave_unidad} ({selectedProduct.unit})</span></div>
-              <div><span style={{color:'#555'}}>Proveedor:</span> <span style={{color:'#ccc'}}>{selectedProduct.provider || '--'}</span></div>
-              <div><span style={{color:'#555'}}>Distribuidor:</span> <span style={{color:'#ccc'}}>{suppliers.find(s => s.id === selectedProduct.supplier_id)?.name || '--'}</span></div>
+              <div><span style={{color:'#555'}}>Proveedor:</span> <span style={{color:'#ccc'}}>{suppliers.find(s => s.id === selectedProduct.supplier_id)?.name || selectedProduct.provider || '--'}</span></div>
               <div><span style={{color:'#555'}}>Fase compra:</span> {selectedProduct.purchase_phase ? <Badge label={PHASE_CONFIG[selectedProduct.purchase_phase as PurchasePhase]?.label || selectedProduct.purchase_phase} color={PHASE_CONFIG[selectedProduct.purchase_phase as PurchasePhase]?.color || '#555'} /> : <span style={{color:'#555'}}>--</span>}</div>
               <div><span style={{color:'#555'}}>Marca:</span> <span style={{color:'#ccc'}}>{selectedProduct.marca || '--'}</span></div>
               <div><span style={{color:'#555'}}>Modelo:</span> <span style={{color:'#ccc'}}>{selectedProduct.modelo || '--'}</span></div>
@@ -629,8 +639,7 @@ IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
               <Fld label="Sistema"><select style={iS} value={form.system || ''} onChange={e => setForm({...form, system: e.target.value})}><option value="">--</option>{SYSTEMS.map(s => <option key={s} value={s}>{s}</option>)}</select></Fld>
               <Fld label="Tipo"><select style={iS} value={form.type || 'material'} onChange={e => setForm({...form, type: e.target.value})}>{TYPES.map(t => <option key={t} value={t}>{t === 'mano_de_obra' ? 'Mano de obra' : t.charAt(0).toUpperCase() + t.slice(1)}</option>)}</select></Fld>
               <Fld label="Unidad SAT"><select style={iS} value={form.clave_unidad || 'H87'} onChange={e => { const u = UNITS.find(u => u.clave === e.target.value); setForm({...form, clave_unidad: e.target.value, unit: u?.label.split(' (')[0] || ''}) }}>{UNITS.map(u => <option key={u.clave} value={u.clave}>{u.label}</option>)}</select></Fld>
-              <Fld label="Proveedor (marca)"><input style={iS} value={form.provider || ''} onChange={e => setForm({...form, provider: e.target.value})} placeholder="Lutron, Hikvision..." /></Fld>
-              <Fld label="Distribuidor"><select style={iS} value={form.supplier_id || ''} onChange={e => setForm({...form, supplier_id: e.target.value})}><option value="">-- Sin distribuidor --</option>{suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></Fld>
+              <Fld label="Proveedor"><select style={iS} value={form.supplier_id || ''} onChange={e => { const sup = suppliers.find(s => s.id === e.target.value); setForm({...form, supplier_id: e.target.value, provider: sup?.name || ''}) }}><option value="">-- Sin proveedor --</option>{suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></Fld>
               <Fld label="Fase de compra"><select style={iS} value={form.purchase_phase || 'inicio'} onChange={e => setForm({...form, purchase_phase: e.target.value})}>{Object.entries(PHASE_CONFIG).map(([k,v]) => <option key={k} value={k}>{v.label}</option>)}</select></Fld>
             </div>
             {/* Campos eléctrico */}
