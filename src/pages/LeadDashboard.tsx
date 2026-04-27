@@ -245,37 +245,38 @@ export default function LeadDashboard() {
       // Table header
       doc.setFontSize(8); doc.setFont('helvetica', 'bold'); doc.setTextColor(80)
       doc.text('Fecha', 18, y)
-      doc.text('Concepto', 50, y)
-      doc.text('Referencia', 120, y)
-      doc.text('Moneda', 155, y)
-      doc.text('Monto', W - 18, y, { align: 'right' })
+      doc.text('Concepto', 48, y)
+      doc.text('Moneda', 118, y)
+      doc.text('Monto', 148, y, { align: 'right' })
+      doc.text('T.C.', 162, y, { align: 'right' })
+      doc.text('Equiv. USD', W - 18, y, { align: 'right' })
       doc.setTextColor(0)
       y += 2; doc.setDrawColor(180); doc.line(15, y, W - 15, y); y += 4
 
       doc.setFont('helvetica', 'normal'); doc.setFontSize(9)
+      let totalEquivUSD = 0
       ingresos.forEach(m => {
         checkPage(6)
         const cur = m.moneda || 'MXN'
+        const isMxn = cur !== 'USD'
+        const equivUsd = isMxn && m.tipo_cambio > 0 ? (m.monto || 0) / m.tipo_cambio : (isMxn ? 0 : (m.monto || 0))
+        totalEquivUSD += equivUsd
         doc.text(m.fecha || '—', 18, y)
-        doc.text((m.concepto || '—').substring(0, 35), 50, y)
-        doc.text((m.referencia || '—').substring(0, 18), 120, y)
-        doc.text(cur, 155, y)
-        doc.text(fmtPDF(m.monto || 0, cur), W - 18, y, { align: 'right' })
+        doc.text((m.concepto || '—').substring(0, 35), 48, y)
+        doc.text(cur, 118, y)
+        doc.text(fmtPDF(m.monto || 0, cur), 148, y, { align: 'right' })
+        doc.text(isMxn && m.tipo_cambio ? String(m.tipo_cambio) : '—', 162, y, { align: 'right' })
+        doc.text(equivUsd > 0 ? fmtPDF(Math.round(equivUsd), 'USD') : '—', W - 18, y, { align: 'right' })
         y += 5.5
       })
 
-      // Subtotals by currency
-      y += 3; checkPage(12)
+      // Total equiv USD
+      y += 3; checkPage(10)
       doc.setDrawColor(180); doc.line(120, y, W - 15, y); y += 4
       doc.setFont('helvetica', 'bold')
-      const totalIngUSD = ingresos.filter(m => m.moneda === 'USD').reduce((s, m) => s + (m.monto || 0), 0)
-      const totalIngMXN = ingresos.filter(m => m.moneda !== 'USD').reduce((s, m) => s + (m.monto || 0), 0)
-      if (totalIngUSD > 0) {
-        doc.text('Total USD', 120, y); doc.text(fmtPDF(totalIngUSD, 'USD'), W - 18, y, { align: 'right' }); y += 5
-      }
-      if (totalIngMXN > 0) {
-        doc.text('Total MXN', 120, y); doc.text(fmtPDF(totalIngMXN, 'MXN'), W - 18, y, { align: 'right' }); y += 5
-      }
+      doc.text('Total cobrado equiv.', 120, y)
+      doc.text(fmtPDF(Math.round(totalEquivUSD), 'USD'), W - 18, y, { align: 'right' })
+      y += 5
     }
 
     // ── Footer ──
@@ -314,9 +315,15 @@ export default function LeadDashboard() {
     })
 
     // Cobrado: bank_movements (abonos) asignados al lead en contabilidad
+    // Si un pago MXN tiene tipo_cambio, se convierte a USD equivalente
     bankMovements.filter(m => m.tipo === 'abono').forEach(m => {
       const cur: 'USD' | 'MXN' = m.moneda === 'USD' ? 'USD' : 'MXN'
-      byCur[cur].cobrado += (m.monto || 0)
+      if (cur === 'MXN' && m.tipo_cambio && m.tipo_cambio > 0) {
+        // Pago en MXN con TC → contar como cobro USD equivalente
+        byCur.USD.cobrado += (m.monto || 0) / m.tipo_cambio
+      } else {
+        byCur[cur].cobrado += (m.monto || 0)
+      }
     })
 
     // Comprado: POs
@@ -446,22 +453,18 @@ export default function LeadDashboard() {
         </div>
       </div>
 
-      {/* Tipo de cambio + KPI strip */}
+      {/* T.C. referencia + equivalente MXN */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#111', border: '1px solid #333', borderRadius: 8, padding: '6px 12px' }}>
-          <span style={{ fontSize: 11, color: '#888', whiteSpace: 'nowrap' }}>Tipo de cambio</span>
-          <span style={{ fontSize: 11, color: '#06B6D4' }}>USD →</span>
+          <span style={{ fontSize: 11, color: '#888', whiteSpace: 'nowrap' }}>T.C. referencia</span>
           <input
             type="number" step="0.01" min="1"
             value={tipoCambio}
             onChange={e => { const v = parseFloat(e.target.value); if (v > 0) setTipoCambio(v) }}
-            style={{ width: 70, background: '#0a0a0a', border: '1px solid #444', borderRadius: 4, padding: '4px 6px', fontSize: 13, fontWeight: 700, color: '#fff', textAlign: 'center', fontFamily: 'inherit' }}
+            style={{ width: 65, background: '#0a0a0a', border: '1px solid #444', borderRadius: 4, padding: '4px 6px', fontSize: 13, fontWeight: 700, color: '#fff', textAlign: 'center', fontFamily: 'inherit' }}
           />
-          <span style={{ fontSize: 11, color: '#A78BFA' }}>MXN</span>
         </div>
-        <div style={{ flex: 1 }} />
         <div style={{ display: 'flex', alignItems: 'center', gap: 16, fontSize: 12 }}>
-          <span style={{ color: '#888' }}>Equivalente MXN:</span>
           <span style={{ color: '#57FF9A', fontWeight: 600 }}>Vendido {F(financials.totalVendido)}</span>
           <span style={{ color: '#34D399', fontWeight: 600 }}>Cobrado {F(financials.totalCobrado)}</span>
           <span style={{ color: '#F59E0B', fontWeight: 600 }}>Por cobrar {F(financials.porCobrar)}</span>
@@ -545,29 +548,58 @@ export default function LeadDashboard() {
         {(() => {
           const ingresos = bankMovements.filter(m => m.tipo === 'abono')
           if (ingresos.length === 0) return <Empty text="Sin ingresos registrados — asigna movimientos bancarios a este lead en Contabilidad" />
+
+          const saveTc = async (movId: string, tc: number | null) => {
+            setBankMovements(prev => prev.map(m => m.id === movId ? { ...m, tipo_cambio: tc } : m))
+            await supabase.from('bank_movements').update({ tipo_cambio: tc }).eq('id', movId)
+          }
+
           return (
             <table style={tblS}>
               <thead>
                 <tr style={trHeadS}>
                   <th style={thS}>Fecha</th>
                   <th style={thS}>Concepto</th>
-                  <th style={thS}>Referencia</th>
-                  <th style={thS}>Banco</th>
                   <th style={thS}>Moneda</th>
                   <th style={{ ...thS, textAlign: 'right' }}>Monto</th>
+                  <th style={{ ...thS, textAlign: 'center' }}>T.C.</th>
+                  <th style={{ ...thS, textAlign: 'right' }}>Equiv. USD</th>
                 </tr>
               </thead>
               <tbody>
-                {ingresos.map(m => (
-                  <tr key={m.id} style={trS}>
-                    <td style={{ ...tdS, color: '#888' }}>{m.fecha || '—'}</td>
-                    <td style={tdS}><span style={{ color: '#fff', fontWeight: 500 }}>{(m.concepto || '—').substring(0, 50)}</span></td>
-                    <td style={{ ...tdS, color: '#666', fontSize: 11 }}>{m.referencia || '—'}</td>
-                    <td style={{ ...tdS, color: '#666', fontSize: 11 }}>{m.banco || '—'}</td>
-                    <td style={tdS}><Badge label={m.moneda || 'MXN'} color={m.moneda === 'USD' ? '#06B6D4' : '#A78BFA'} /></td>
-                    <td style={{ ...tdS, textAlign: 'right', fontWeight: 600, color: '#57FF9A' }}>{FCUR(m.monto || 0, m.moneda || 'MXN')}</td>
-                  </tr>
-                ))}
+                {ingresos.map(m => {
+                  const cur = m.moneda || 'MXN'
+                  const isMxn = cur !== 'USD'
+                  const equivUsd = isMxn && m.tipo_cambio > 0 ? (m.monto || 0) / m.tipo_cambio : null
+                  return (
+                    <tr key={m.id} style={trS}>
+                      <td style={{ ...tdS, color: '#888' }}>{m.fecha || '—'}</td>
+                      <td style={tdS}>
+                        <span style={{ color: '#fff', fontWeight: 500 }}>{(m.concepto || '—').substring(0, 45)}</span>
+                        {m.referencia && <span style={{ color: '#555', fontSize: 10, marginLeft: 6 }}>{m.referencia}</span>}
+                      </td>
+                      <td style={tdS}><Badge label={cur} color={cur === 'USD' ? '#06B6D4' : '#A78BFA'} /></td>
+                      <td style={{ ...tdS, textAlign: 'right', fontWeight: 600, color: '#57FF9A' }}>{FCUR(m.monto || 0, cur)}</td>
+                      <td style={{ ...tdS, textAlign: 'center' }}>
+                        {isMxn ? (
+                          <input
+                            type="number" step="0.01" min="1"
+                            placeholder="T.C."
+                            defaultValue={m.tipo_cambio || ''}
+                            onBlur={e => {
+                              const v = parseFloat(e.target.value)
+                              saveTc(m.id, v > 0 ? v : null)
+                            }}
+                            style={{ width: 65, background: '#0a0a0a', border: '1px solid #333', borderRadius: 4, padding: '3px 5px', fontSize: 11, color: '#fff', textAlign: 'center', fontFamily: 'inherit' }}
+                          />
+                        ) : <span style={{ color: '#555', fontSize: 10 }}>—</span>}
+                      </td>
+                      <td style={{ ...tdS, textAlign: 'right', fontSize: 11, color: equivUsd ? '#06B6D4' : '#555' }}>
+                        {equivUsd ? FUSD(Math.round(equivUsd)) : isMxn ? 'sin T.C.' : FUSD(m.monto || 0)}
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           )
