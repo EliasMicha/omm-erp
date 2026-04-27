@@ -79,6 +79,55 @@ export default function Catalogo() {
     type: 'material', unit: 'pza', clave_unidad: 'H87', markup: 35, iva_rate: 0.16, is_active: true, system: 'Electrico', moneda: 'MXN', purchase_phase: 'inicio', supplier_id: '',
   })
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [bulkField, setBulkField] = useState<string>('')
+  const [bulkValue, setBulkValue] = useState<string>('')
+  const [bulkSaving, setBulkSaving] = useState(false)
+
+  function toggleSelect(id: string) {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      return next
+    })
+  }
+  function toggleSelectAll() {
+    if (selectedIds.size === filtered.length) {
+      setSelectedIds(new Set())
+    } else {
+      setSelectedIds(new Set(filtered.map(p => p.id)))
+    }
+  }
+  async function applyBulkEdit() {
+    if (!bulkField || !bulkValue || selectedIds.size === 0) return
+    setBulkSaving(true)
+    const ids = Array.from(selectedIds)
+    const update: any = { [bulkField]: bulkValue }
+    const { error } = await supabase.from('catalog_products').update(update).in('id', ids)
+    if (error) {
+      alert('Error: ' + error.message)
+    } else {
+      setProducts(prev => prev.map(p => ids.includes(p.id) ? { ...p, ...update } : p))
+      setSelectedIds(new Set())
+      setBulkField('')
+      setBulkValue('')
+    }
+    setBulkSaving(false)
+  }
+  async function bulkDelete() {
+    if (selectedIds.size === 0) return
+    if (!confirm('¿Eliminar ' + selectedIds.size + ' productos del catálogo? Esta acción no se puede deshacer.')) return
+    setBulkSaving(true)
+    const ids = Array.from(selectedIds)
+    const { error } = await supabase.from('catalog_products').delete().in('id', ids)
+    if (error) {
+      alert('Error: ' + error.message)
+    } else {
+      setProducts(prev => prev.filter(p => !ids.includes(p.id)))
+      setSelectedIds(new Set())
+    }
+    setBulkSaving(false)
+  }
 
   async function searchProductWithAI() {
     const marca = (form as any).marca || form.provider || ''
@@ -379,8 +428,56 @@ IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
         <Btn size="sm" variant="primary" onClick={openNew}><Plus size={12} /> Nuevo producto</Btn>
       </div>
 
+      {/* Bulk actions bar */}
+      {selectedIds.size > 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 16px', background: '#1a2a1a', border: '1px solid #2a4a2a', borderRadius: 10, marginBottom: 10 }}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: '#57FF9A' }}>{selectedIds.size} seleccionados</span>
+          <select value={bulkField} onChange={e => { setBulkField(e.target.value); setBulkValue('') }} style={{ ...iS, width: 160, fontSize: 12 }}>
+            <option value="">Cambiar campo...</option>
+            <option value="system">Sistema</option>
+            <option value="provider">Proveedor</option>
+            <option value="marca">Marca</option>
+            <option value="purchase_phase">Fase de compra</option>
+            <option value="moneda">Moneda</option>
+          </select>
+          {bulkField === 'system' && (
+            <select value={bulkValue} onChange={e => setBulkValue(e.target.value)} style={{ ...iS, width: 160, fontSize: 12 }}>
+              <option value="">Seleccionar...</option>
+              {SYSTEMS.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+          )}
+          {bulkField === 'purchase_phase' && (
+            <select value={bulkValue} onChange={e => setBulkValue(e.target.value)} style={{ ...iS, width: 160, fontSize: 12 }}>
+              <option value="">Seleccionar...</option>
+              {Object.entries(PHASE_CONFIG).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+            </select>
+          )}
+          {bulkField === 'moneda' && (
+            <select value={bulkValue} onChange={e => setBulkValue(e.target.value)} style={{ ...iS, width: 120, fontSize: 12 }}>
+              <option value="">Seleccionar...</option>
+              <option value="USD">USD</option>
+              <option value="MXN">MXN</option>
+            </select>
+          )}
+          {(bulkField === 'provider' || bulkField === 'marca') && (
+            <input value={bulkValue} onChange={e => setBulkValue(e.target.value)} placeholder={bulkField === 'provider' ? 'Nombre proveedor' : 'Nombre marca'} style={{ ...iS, width: 180, fontSize: 12 }} />
+          )}
+          {bulkField && bulkValue && (
+            <Btn size="sm" variant="primary" onClick={applyBulkEdit} disabled={bulkSaving}>
+              {bulkSaving ? 'Aplicando...' : 'Aplicar'}
+            </Btn>
+          )}
+          <div style={{ flex: 1 }} />
+          <Btn size="sm" variant="default" onClick={() => { setSelectedIds(new Set()); setBulkField(''); setBulkValue('') }}>Cancelar</Btn>
+          <button onClick={bulkDelete} disabled={bulkSaving} style={{ background: 'none', border: '1px solid #EF4444', borderRadius: 8, color: '#EF4444', padding: '5px 12px', fontSize: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
+            <Trash2 size={12} /> Eliminar
+          </button>
+        </div>
+      )}
+
       <Table>
         <thead><tr>
+          <Th><input type="checkbox" checked={filtered.length > 0 && selectedIds.size === filtered.length} onChange={toggleSelectAll} style={{ cursor: 'pointer' }} /></Th>
           {filterSpecialty !== 'elec' && <Th>{' '}</Th>}
           <Th>{filterSpecialty === 'elec' ? 'Descripción' : 'Producto'}</Th>
           {filterSpecialty === 'esp' && <><Th>Sistema</Th><Th>Marca</Th><Th>Modelo</Th></>}
@@ -395,7 +492,8 @@ IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
         <tbody>
           {filtered.length === 0 && <tr><Td colSpan={10} muted>Sin productos. Agrega tu primer producto al catalogo.</Td></tr>}
           {filtered.map(p => (
-            <tr key={p.id} style={{ cursor: 'pointer' }} onClick={() => setSelectedProduct(p)}>
+            <tr key={p.id} style={{ cursor: 'pointer', background: selectedIds.has(p.id) ? '#1a2a1a' : undefined }} onClick={() => setSelectedProduct(p)}>
+              <Td><input type="checkbox" checked={selectedIds.has(p.id)} onChange={(e) => { e.stopPropagation(); toggleSelect(p.id) }} onClick={e => e.stopPropagation()} style={{ cursor: 'pointer' }} /></Td>
               {filterSpecialty !== 'elec' && (
                 <Td>
                   {p.image_url ? (
