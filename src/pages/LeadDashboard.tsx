@@ -12,6 +12,8 @@ import {
 // TYPES
 // ═══════════════════════════════════════════════════════════════════
 const F = (n: number) => '$' + n.toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 0 })
+const FUSD = (n: number) => 'US$' + n.toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 0 })
+const FCUR = (n: number, cur: string) => cur === 'USD' ? FUSD(n) : F(n)
 const PCT = (n: number) => (n * 100).toFixed(1) + '%'
 
 const STAGE_COLORS: Record<string, string> = {
@@ -139,30 +141,48 @@ export default function LeadDashboard() {
   const toMXN = (amount: number, currency: string) =>
     currency === 'USD' ? amount * tipoCambio : amount
 
-  // Financial summary
+  // Financial summary — track USD and MXN separately
   const financials = useMemo(() => {
-    const contratos = quotations.filter(q => q.stage === 'contrato')
-    let totalVendido = 0
-    contratos.forEach(q => {
+    const byCur = { USD: { vendido: 0, cobrado: 0, comprado: 0, presupuesto: 0 }, MXN: { vendido: 0, cobrado: 0, comprado: 0, presupuesto: 0 } }
+
+    // Vendido: contratos
+    quotations.filter(q => q.stage === 'contrato').forEach(q => {
+      const cur = getQuotCurrency(q)
       const proj = projects.find(p => p.cotizacion_id === q.id)
       const amount = proj ? (proj.contract_value || 0) : (q.total || 0)
-      totalVendido += toMXN(amount, getQuotCurrency(q))
+      byCur[cur].vendido += amount
     })
 
-    const totalCobrado = milestones
-      .filter(m => m.status === 'cobrado')
-      .reduce((s, m) => s + (m.amount || 0), 0)
+    // Cobrado: milestones — detect currency from project's quotation
+    milestones.filter(m => m.status === 'cobrado').forEach(m => {
+      const proj = projects.find(p => p.id === m.project_id)
+      const quot = proj ? quotations.find(q => q.id === proj.cotizacion_id) : null
+      const cur = quot ? getQuotCurrency(quot) : 'MXN'
+      byCur[cur].cobrado += (m.amount || 0)
+    })
 
-    let totalComprado = 0
+    // Comprado: POs
     pos.filter(po => po.status !== 'cancelada').forEach(po => {
-      totalComprado += toMXN(po.total || 0, po.currency || 'MXN')
+      const cur: 'USD' | 'MXN' = po.currency === 'USD' ? 'USD' : 'MXN'
+      byCur[cur].comprado += (po.total || 0)
     })
 
-    const totalCompras = quotItems.reduce((s, qi) => s + ((qi.cost || 0) * (qi.quantity || 0)), 0)
+    // Presupuesto compras: quotation items cost — group by quotation currency
+    quotItems.forEach(qi => {
+      const quot = quotations.find(q => q.id === qi.quotation_id)
+      const cur = quot ? getQuotCurrency(quot) : 'MXN'
+      byCur[cur].presupuesto += (qi.cost || 0) * (qi.quantity || 0)
+    })
+
+    // Totals converted to MXN for backward compat (bloqueos, etc.)
+    const totalVendido = byCur.MXN.vendido + byCur.USD.vendido * tipoCambio
+    const totalCobrado = byCur.MXN.cobrado + byCur.USD.cobrado * tipoCambio
+    const totalComprado = byCur.MXN.comprado + byCur.USD.comprado * tipoCambio
+    const totalCompras = byCur.MXN.presupuesto + byCur.USD.presupuesto * tipoCambio
     const porCobrar = Math.max(0, totalVendido - totalCobrado)
     const porComprar = Math.max(0, totalCompras - totalComprado)
 
-    return { totalVendido, totalCobrado, totalComprado, totalCompras, porCobrar, porComprar }
+    return { byCur, totalVendido, totalCobrado, totalComprado, totalCompras, porCobrar, porComprar }
   }, [quotations, projects, milestones, pos, quotItems, tipoCambio])
 
   // Bloqueos automáticos
@@ -268,13 +288,13 @@ export default function LeadDashboard() {
         </div>
       </div>
 
-      {/* KPI strip */}
+      {/* KPI strip — dual currency */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 10, marginBottom: 24 }}>
-        <KpiMini label="Total Vendido" value={F(financials.totalVendido)} color="#57FF9A" />
-        <KpiMini label="Cobrado" value={F(financials.totalCobrado)} color="#34D399" />
-        <KpiMini label="Por Cobrar" value={F(financials.porCobrar)} color={financials.porCobrar > 0 ? '#F59E0B' : '#57FF9A'} />
-        <KpiMini label="Comprado" value={F(financials.totalComprado)} color="#3B82F6" />
-        <KpiMini label="Por Comprar" value={F(financials.porComprar)} color={financials.porComprar > 0 ? '#F59E0B' : '#57FF9A'} />
+        <KpiDual label="Total Vendido" usd={financials.byCur.USD.vendido} mxn={financials.byCur.MXN.vendido} color="#57FF9A" />
+        <KpiDual label="Cobrado" usd={financials.byCur.USD.cobrado} mxn={financials.byCur.MXN.cobrado} color="#34D399" />
+        <KpiDual label="Por Cobrar" usd={Math.max(0, financials.byCur.USD.vendido - financials.byCur.USD.cobrado)} mxn={Math.max(0, financials.byCur.MXN.vendido - financials.byCur.MXN.cobrado)} color="#F59E0B" />
+        <KpiDual label="Comprado" usd={financials.byCur.USD.comprado} mxn={financials.byCur.MXN.comprado} color="#3B82F6" />
+        <KpiDual label="Por Comprar" usd={Math.max(0, financials.byCur.USD.presupuesto - financials.byCur.USD.comprado)} mxn={Math.max(0, financials.byCur.MXN.presupuesto - financials.byCur.MXN.comprado)} color="#F59E0B" />
         <KpiMini label="Bloqueos" value={String(allBloqueos.length)} color={allBloqueos.length > 0 ? '#EF4444' : '#57FF9A'} />
       </div>
 
@@ -320,11 +340,11 @@ export default function LeadDashboard() {
 
       {/* ══════════ 2. ESTADO DE CUENTA ══════════ */}
       <Section title="Estado de Cuenta" icon={<DollarSign size={14} />} count={milestones.length} expanded={expanded.estado} onToggle={() => toggle('estado')}>
-        {/* Summary bar */}
+        {/* Summary bar — dual currency */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 16 }}>
-          <MiniStat label="Total vendido" value={F(financials.totalVendido)} accent="#57FF9A" />
-          <MiniStat label="Cobrado" value={F(financials.totalCobrado)} accent="#34D399" />
-          <MiniStat label="Por cobrar" value={F(financials.porCobrar)} accent="#F59E0B" />
+          <MiniStatDual label="Total vendido" usd={financials.byCur.USD.vendido} mxn={financials.byCur.MXN.vendido} accent="#57FF9A" />
+          <MiniStatDual label="Cobrado" usd={financials.byCur.USD.cobrado} mxn={financials.byCur.MXN.cobrado} accent="#34D399" />
+          <MiniStatDual label="Por cobrar" usd={Math.max(0, financials.byCur.USD.vendido - financials.byCur.USD.cobrado)} mxn={Math.max(0, financials.byCur.MXN.vendido - financials.byCur.MXN.cobrado)} accent="#F59E0B" />
           <MiniStat label="% Cobro" value={financials.totalVendido > 0 ? PCT(financials.totalCobrado / financials.totalVendido) : '—'} accent="#3B82F6" />
         </div>
         {/* Progress bar */}
@@ -352,13 +372,15 @@ export default function LeadDashboard() {
             <tbody>
               {milestones.sort((a, b) => (a.due_date || '').localeCompare(b.due_date || '')).map(m => {
                 const proj = projects.find(p => p.id === m.project_id)
+                const quot = proj ? quotations.find(q => q.id === proj.cotizacion_id) : null
+                const mCur = quot ? getQuotCurrency(quot) : 'MXN'
                 return (
                   <tr key={m.id} style={trS}>
                     <td style={tdS}><span style={{ color: '#fff', fontWeight: 500 }}>{m.name}</span></td>
                     <td style={{ ...tdS, color: '#666', fontSize: 11 }}>{proj?.name || '—'}</td>
                     <td style={{ ...tdS, color: m.status === 'vencido' ? '#EF4444' : '#888' }}>{m.due_date || '—'}</td>
                     <td style={tdS}><Badge label={m.status} color={MILESTONE_COLOR[m.status] || '#555'} /></td>
-                    <td style={{ ...tdS, textAlign: 'right', fontWeight: 600, color: m.status === 'cobrado' ? '#57FF9A' : '#fff' }}>{F(m.amount || 0)}</td>
+                    <td style={{ ...tdS, textAlign: 'right', fontWeight: 600, color: m.status === 'cobrado' ? '#57FF9A' : '#fff' }}>{FCUR(m.amount || 0, mCur)}</td>
                   </tr>
                 )
               })}
@@ -377,9 +399,9 @@ export default function LeadDashboard() {
       {/* ══════════ 3. COMPRAS FALTANTES ══════════ */}
       <Section title="Compras" icon={<ShoppingCart size={14} />} count={pos.length} expanded={expanded.compras} onToggle={() => toggle('compras')}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 16 }}>
-          <MiniStat label="Presupuesto compras" value={F(financials.totalCompras)} accent="#3B82F6" />
-          <MiniStat label="Comprado" value={F(financials.totalComprado)} accent="#F59E0B" />
-          <MiniStat label="Por comprar" value={F(financials.porComprar)} accent={financials.porComprar > 0 ? '#EF4444' : '#57FF9A'} />
+          <MiniStatDual label="Presupuesto compras" usd={financials.byCur.USD.presupuesto} mxn={financials.byCur.MXN.presupuesto} accent="#3B82F6" />
+          <MiniStatDual label="Comprado" usd={financials.byCur.USD.comprado} mxn={financials.byCur.MXN.comprado} accent="#F59E0B" />
+          <MiniStatDual label="Por comprar" usd={Math.max(0, financials.byCur.USD.presupuesto - financials.byCur.USD.comprado)} mxn={Math.max(0, financials.byCur.MXN.presupuesto - financials.byCur.MXN.comprado)} accent={financials.porComprar > 0 ? '#EF4444' : '#57FF9A'} />
           <MiniStat label="% Avance" value={financials.totalCompras > 0 ? PCT(financials.totalComprado / financials.totalCompras) : '—'} accent="#3B82F6" />
         </div>
         {pos.length === 0 ? (
@@ -437,7 +459,7 @@ export default function LeadDashboard() {
                     <div>
                       <div style={{ fontSize: 14, fontWeight: 600, color: '#fff' }}>{proj.name}</div>
                       <div style={{ fontSize: 11, color: '#555' }}>
-                        {proj.specialty?.toUpperCase()} · {proj.status} · {F(proj.contract_value || 0)}
+                        {proj.specialty?.toUpperCase()} · {proj.status} · {(() => { const q = quotations.find(x => x.id === proj.cotizacion_id); return FCUR(proj.contract_value || 0, q ? getQuotCurrency(q) : 'MXN') })()}
                       </div>
                     </div>
                     <div style={{ textAlign: 'right' }}>
@@ -600,11 +622,34 @@ function KpiMini({ label, value, color }: { label: string; value: string; color:
   )
 }
 
+/** KPI that shows USD and MXN on separate lines */
+function KpiDual({ label, usd, mxn, color }: { label: string; usd: number; mxn: number; color: string }) {
+  return (
+    <div style={{ background: '#0f0f0f', border: '1px solid #1a1a1a', borderRadius: 8, padding: '10px 12px' }}>
+      <div style={{ fontSize: 10, color: '#555', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>{label}</div>
+      {usd > 0 && <div style={{ fontSize: 15, fontWeight: 700, color: '#06B6D4', fontVariantNumeric: 'tabular-nums' }}>{FUSD(usd)}</div>}
+      {mxn > 0 && <div style={{ fontSize: usd > 0 ? 13 : 15, fontWeight: 600, color, fontVariantNumeric: 'tabular-nums' }}>{F(mxn)}</div>}
+      {usd === 0 && mxn === 0 && <div style={{ fontSize: 16, fontWeight: 700, color: '#333' }}>$0</div>}
+    </div>
+  )
+}
+
 function MiniStat({ label, value, accent }: { label: string; value: string; accent: string }) {
   return (
     <div style={{ padding: '8px 10px', background: '#111', borderRadius: 8, border: '1px solid #1a1a1a' }}>
       <div style={{ fontSize: 10, color: '#555', marginBottom: 2 }}>{label}</div>
       <div style={{ fontSize: 14, fontWeight: 600, color: accent, fontVariantNumeric: 'tabular-nums' }}>{value}</div>
+    </div>
+  )
+}
+
+function MiniStatDual({ label, usd, mxn, accent }: { label: string; usd: number; mxn: number; accent: string }) {
+  return (
+    <div style={{ padding: '8px 10px', background: '#111', borderRadius: 8, border: '1px solid #1a1a1a' }}>
+      <div style={{ fontSize: 10, color: '#555', marginBottom: 2 }}>{label}</div>
+      {usd > 0 && <div style={{ fontSize: 14, fontWeight: 600, color: '#06B6D4', fontVariantNumeric: 'tabular-nums' }}>{FUSD(usd)}</div>}
+      {mxn > 0 && <div style={{ fontSize: usd > 0 ? 12 : 14, fontWeight: 600, color: accent, fontVariantNumeric: 'tabular-nums' }}>{F(mxn)}</div>}
+      {usd === 0 && mxn === 0 && <div style={{ fontSize: 14, fontWeight: 600, color: '#333' }}>$0</div>}
     </div>
   )
 }
