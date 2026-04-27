@@ -40,7 +40,7 @@ interface Product {
   costo_mano_obra: number
 }
 
-const SYSTEMS = ['Electrico', 'CCTV', 'Audio', 'Control de acceso', 'Redes', 'Iluminacion', 'Control de iluminacion', 'Cortinas', 'General']
+const SYSTEMS = ['Electrico', 'CCTV', 'Audio', 'Control de acceso', 'Redes', 'Iluminacion', 'Control de iluminacion', 'Deteccion de Incendio', 'Telefonia', 'Señal Celular', 'Cortinas', 'General']
 const TYPES = ['material', 'mano_de_obra', 'servicio', 'equipo']
 const UNITS = [
   { clave: 'E48', label: 'Servicio (E48)' },
@@ -825,7 +825,7 @@ function TabProveedores({ suppliers, setSuppliers }: { suppliers: Supplier[]; se
             { type: 'text', text: `Extrae los datos del proveedor de este documento (puede ser una Constancia de Situación Fiscal CSF, una factura CFDI, o cualquier documento fiscal mexicano).
 
 Devuelve SOLO un JSON sin markdown:
-{"nombre":"razón social completa","rfc":"RFC del proveedor","contacto":"nombre de contacto si aparece","telefono":"teléfono si aparece","email":"email si aparece","direccion":"dirección fiscal completa","sistemas":["sistemas que podría proveer basándote en los productos/servicios mencionados: CCTV, Audio, Redes, Control de iluminacion, Control de acceso, Electrico, Iluminacion, Cortinas, General"]}
+{"nombre":"razón social completa","rfc":"RFC del proveedor","contacto":"nombre de contacto si aparece","telefono":"teléfono si aparece","email":"email si aparece","direccion":"dirección fiscal completa","sistemas":["sistemas que podría proveer basándote en los productos/servicios mencionados: CCTV, Audio, Redes, Control de iluminacion, Control de acceso, Electrico, Iluminacion, Deteccion de Incendio, Telefonia, Señal Celular, Cortinas, General"]}
 
 Si un campo no aparece, déjalo como string vacío. Para sistemas, infiere del giro o productos mencionados.` }
           ] }],
@@ -904,7 +904,7 @@ Si un campo no aparece, déjalo como string vacío. Para sistemas, infiere del g
     }
   }
 
-  const SYSTEMS = ['CCTV', 'Audio', 'Redes', 'Control de iluminacion', 'Control de acceso', 'Electrico', 'Iluminacion', 'Cortinas', 'General']
+  const SYSTEMS = ['CCTV', 'Audio', 'Redes', 'Control de iluminacion', 'Control de acceso', 'Electrico', 'Iluminacion', 'Deteccion de Incendio', 'Telefonia', 'Señal Celular', 'Cortinas', 'General']
   const fS: React.CSSProperties = { width: '100%', padding: '8px 12px', background: '#111', border: '1px solid #333', borderRadius: 8, color: '#fff', fontSize: 13, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' as const }
 
   return (
@@ -1029,7 +1029,7 @@ function TabBundles({ products }: { products: Product[] }) {
   const [formItems, setFormItems] = useState<{ product_id: string; quantity: number }[]>([])
   const [productSearch, setProductSearch] = useState('')
 
-  const SYSTEMS = ['Electrico', 'CCTV', 'Audio', 'Control de acceso', 'Redes', 'Iluminacion', 'Control de iluminacion', 'Cortinas', 'General']
+  const SYSTEMS = ['Electrico', 'CCTV', 'Audio', 'Control de acceso', 'Redes', 'Iluminacion', 'Control de iluminacion', 'Deteccion de Incendio', 'Telefonia', 'Señal Celular', 'Cortinas', 'General']
 
   useEffect(() => {
     loadBundles()
