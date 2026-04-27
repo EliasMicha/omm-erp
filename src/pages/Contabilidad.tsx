@@ -1490,19 +1490,21 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
       const updates: any = { [field]: value }
       if (field === 'lead_id') { updates.quotation_id = null; updates.purchase_order_id = null }
       if (field === 'quotation_id') { updates.purchase_order_id = null }
-      // Cuando se asigna/cambia el lead, actualizar proyecto_sugerido con el nombre del lead
+      // Cuando se asigna/cambia el lead, actualizar proyecto con el nombre del lead
       if (field === 'lead_id') {
         if (value) {
           const lead = assignLeads.find(l => l.id === value)
-          if (lead) updates.proyecto_sugerido = lead.name
+          if (lead) updates.proyecto = lead.name
         } else {
-          updates.proyecto_sugerido = ''
+          updates.proyecto = ''
         }
       }
       const { error } = await supabase.from('bank_movements').update(updates).eq('id', movId)
       if (error) { console.error('[assign] error:', error); alert('Error al guardar: ' + error.message); return }
-      // Actualizar el state local
-      setBankMovements(bankMovements.map(bm => bm.id === movId ? { ...bm, ...updates } : bm))
+      // Actualizar el state local — sync proyecto_sugerido alias
+      const localUpdates = { ...updates }
+      if ('proyecto' in localUpdates) localUpdates.proyecto_sugerido = localUpdates.proyecto
+      setBankMovements(bankMovements.map(bm => bm.id === movId ? { ...bm, ...localUpdates } : bm))
     } finally {
       setSavingAssign(null)
     }

@@ -5,8 +5,9 @@ import { Loading, Badge, SectionHeader } from '../components/layout/UI'
 import {
   ArrowLeft, FileText, DollarSign, ShoppingCart, Briefcase,
   HardHat, AlertTriangle, ChevronDown, ChevronRight, ExternalLink,
-  CheckCircle2, Clock, XCircle, TrendingUp, Package, BarChart3, Plus, X
+  CheckCircle2, Clock, XCircle, TrendingUp, Package, BarChart3, Plus, X, Download
 } from 'lucide-react'
+import jsPDF from 'jspdf'
 
 // ═══════════════════════════════════════════════════════════════════
 // TYPES
@@ -60,6 +61,7 @@ export default function LeadDashboard() {
   const [phases, setPhases] = useState<any[]>([])
   const [employees, setEmployees] = useState<any[]>([])
   const [quotItems, setQuotItems] = useState<any[]>([])
+  const [bankMovements, setBankMovements] = useState<any[]>([])
   const [tipoCambio] = useState(20.50)
   const [showNewMilestone, setShowNewMilestone] = useState(false)
   const [cobrarModal, setCobrarModal] = useState<any>(null) // milestone being marked as cobrado
@@ -98,8 +100,8 @@ export default function LeadDashboard() {
     setProjects(leadProjects)
     const projIds = new Set(leadProjects.map(p => p.id))
 
-    // 4. Parallel: POs, milestones, obras, tasks, phases, employees, quotation items
-    const [posRes, msRes, obrasRes, tasksRes, phasesRes, empRes, qiRes] = await Promise.all([
+    // 4. Parallel: POs, milestones, obras, tasks, phases, employees, quotation items, bank movements
+    const [posRes, msRes, obrasRes, tasksRes, phasesRes, empRes, qiRes, bmRes] = await Promise.all([
       supabase.from('purchase_orders').select('*').in('project_id', [...projIds]),
       supabase.from('payment_milestones').select('*,currency,amount_paid_mxn,tipo_cambio_pago').in('project_id', [...projIds]),
       supabase.from('obras').select('*').in('project_id', [...projIds]),
@@ -107,6 +109,7 @@ export default function LeadDashboard() {
       supabase.from('project_phases').select('*').in('project_id', [...projIds]),
       supabase.from('employees').select('id,nombre,area').eq('activo', true),
       supabase.from('quotation_items').select('*').in('quotation_id', [...quotIds]),
+      supabase.from('bank_movements').select('*').eq('lead_id', id!).order('fecha', { ascending: false }),
     ])
     setPos(posRes.data || [])
     setMilestones(msRes.data || [])
@@ -114,6 +117,7 @@ export default function LeadDashboard() {
     setQuotItems(qiRes.data || [])
     setTasks(tasksRes.data || [])
     setPhases(phasesRes.data || [])
+    setBankMovements(bmRes.data || [])
 
     const obrasList = obrasRes.data || []
     setObras(obrasList)
@@ -130,6 +134,160 @@ export default function LeadDashboard() {
     }
 
     setLoading(false)
+  }
+
+  // ── EXPORT ESTADO DE CUENTA PDF ──────────────────────────────
+  function exportEstadoCuenta() {
+    if (!lead) return
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'letter' })
+    const W = doc.internal.pageSize.getWidth()
+    let y = 20
+
+    const addPage = () => { doc.addPage(); y = 20 }
+    const checkPage = (need: number) => { if (y + need > 260) addPage() }
+
+    // ── Header ──
+    doc.setFontSize(18)
+    doc.setFont('helvetica', 'bold')
+    doc.text('Estado de Cuenta', 15, y)
+    y += 8
+    doc.setFontSize(11)
+    doc.setFont('helvetica', 'normal')
+    doc.text(lead.name || 'Sin nombre', 15, y)
+    y += 5
+    if (lead.company) { doc.text(lead.company, 15, y); y += 5 }
+    doc.setFontSize(9)
+    doc.setTextColor(120)
+    doc.text(`Generado: ${new Date().toLocaleDateString('es-MX', { day: '2-digit', month: 'long', year: 'numeric' })}`, 15, y)
+    doc.setTextColor(0)
+    y += 10
+
+    // ── Resumen financiero ──
+    doc.setFontSize(12)
+    doc.setFont('helvetica', 'bold')
+    doc.text('Resumen Financiero', 15, y); y += 7
+
+    const fmtPDF = (n: number, cur: string) => cur === 'USD' ? `US$${n.toLocaleString('es-MX')}` : `$${n.toLocaleString('es-MX')}`
+    const byCur = financials.byCur
+
+    const summaryRows: [string, string, string][] = []
+    if (byCur.USD.vendido > 0 || byCur.USD.cobrado > 0) {
+      summaryRows.push(['Total Vendido USD', fmtPDF(byCur.USD.vendido, 'USD'), ''])
+      summaryRows.push(['Cobrado USD', fmtPDF(byCur.USD.cobrado, 'USD'), ''])
+      summaryRows.push(['Por Cobrar USD', fmtPDF(Math.max(0, byCur.USD.vendido - byCur.USD.cobrado), 'USD'), ''])
+    }
+    if (byCur.MXN.vendido > 0 || byCur.MXN.cobrado > 0) {
+      summaryRows.push(['Total Vendido MXN', fmtPDF(byCur.MXN.vendido, 'MXN'), ''])
+      summaryRows.push(['Cobrado MXN', fmtPDF(byCur.MXN.cobrado, 'MXN'), ''])
+      summaryRows.push(['Por Cobrar MXN', fmtPDF(Math.max(0, byCur.MXN.vendido - byCur.MXN.cobrado), 'MXN'), ''])
+    }
+
+    doc.setFontSize(9)
+    doc.setFont('helvetica', 'normal')
+    summaryRows.forEach(([label, val]) => {
+      checkPage(5)
+      doc.text(label, 18, y)
+      doc.text(val, W - 18, y, { align: 'right' })
+      y += 5
+    })
+    y += 6
+
+    // ── Separator ──
+    doc.setDrawColor(200); doc.line(15, y, W - 15, y); y += 8
+
+    // ── Cotizaciones Cerradas (Contratos) ──
+    const contratos = quotations.filter(q => q.stage === 'contrato')
+    doc.setFontSize(12)
+    doc.setFont('helvetica', 'bold')
+    doc.text('Cotizaciones Cerradas', 15, y); y += 7
+
+    if (contratos.length === 0) {
+      doc.setFontSize(9); doc.setFont('helvetica', 'italic'); doc.setTextColor(120)
+      doc.text('Sin cotizaciones cerradas', 18, y); doc.setTextColor(0); y += 8
+    } else {
+      // Table header
+      doc.setFontSize(8); doc.setFont('helvetica', 'bold'); doc.setTextColor(80)
+      doc.text('Nombre', 18, y)
+      doc.text('Especialidad', 90, y)
+      doc.text('Moneda', 135, y)
+      doc.text('Total', W - 18, y, { align: 'right' })
+      doc.setTextColor(0)
+      y += 2; doc.setDrawColor(180); doc.line(15, y, W - 15, y); y += 4
+
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(9)
+      contratos.forEach(q => {
+        checkPage(6)
+        const cur = getQuotCurrency(q)
+        const proj = projects.find(p => p.cotizacion_id === q.id)
+        const amount = proj ? (proj.contract_value || 0) : (q.total || 0)
+        doc.text((q.name || '—').substring(0, 40), 18, y)
+        doc.text((q.specialty || '—').toUpperCase(), 90, y)
+        doc.text(cur, 135, y)
+        doc.text(fmtPDF(amount, cur), W - 18, y, { align: 'right' })
+        y += 5.5
+      })
+      y += 4
+    }
+
+    // ── Separator ──
+    doc.setDrawColor(200); doc.line(15, y, W - 15, y); y += 8
+
+    // ── Ingresos Registrados (bank_movements abonos) ──
+    const ingresos = bankMovements.filter(m => m.tipo === 'abono')
+    doc.setFontSize(12)
+    doc.setFont('helvetica', 'bold')
+    doc.text('Ingresos Registrados', 15, y); y += 7
+
+    if (ingresos.length === 0) {
+      doc.setFontSize(9); doc.setFont('helvetica', 'italic'); doc.setTextColor(120)
+      doc.text('Sin ingresos registrados', 18, y); doc.setTextColor(0); y += 8
+    } else {
+      // Table header
+      doc.setFontSize(8); doc.setFont('helvetica', 'bold'); doc.setTextColor(80)
+      doc.text('Fecha', 18, y)
+      doc.text('Concepto', 50, y)
+      doc.text('Referencia', 120, y)
+      doc.text('Moneda', 155, y)
+      doc.text('Monto', W - 18, y, { align: 'right' })
+      doc.setTextColor(0)
+      y += 2; doc.setDrawColor(180); doc.line(15, y, W - 15, y); y += 4
+
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(9)
+      ingresos.forEach(m => {
+        checkPage(6)
+        const cur = m.moneda || 'MXN'
+        doc.text(m.fecha || '—', 18, y)
+        doc.text((m.concepto || '—').substring(0, 35), 50, y)
+        doc.text((m.referencia || '—').substring(0, 18), 120, y)
+        doc.text(cur, 155, y)
+        doc.text(fmtPDF(m.monto || 0, cur), W - 18, y, { align: 'right' })
+        y += 5.5
+      })
+
+      // Subtotals by currency
+      y += 3; checkPage(12)
+      doc.setDrawColor(180); doc.line(120, y, W - 15, y); y += 4
+      doc.setFont('helvetica', 'bold')
+      const totalIngUSD = ingresos.filter(m => m.moneda === 'USD').reduce((s, m) => s + (m.monto || 0), 0)
+      const totalIngMXN = ingresos.filter(m => m.moneda !== 'USD').reduce((s, m) => s + (m.monto || 0), 0)
+      if (totalIngUSD > 0) {
+        doc.text('Total USD', 120, y); doc.text(fmtPDF(totalIngUSD, 'USD'), W - 18, y, { align: 'right' }); y += 5
+      }
+      if (totalIngMXN > 0) {
+        doc.text('Total MXN', 120, y); doc.text(fmtPDF(totalIngMXN, 'MXN'), W - 18, y, { align: 'right' }); y += 5
+      }
+    }
+
+    // ── Footer ──
+    const pageCount = doc.getNumberOfPages()
+    for (let i = 1; i <= pageCount; i++) {
+      doc.setPage(i)
+      doc.setFontSize(7); doc.setTextColor(150)
+      doc.text(`OMM ERP — Estado de Cuenta — ${lead.name}`, 15, 272)
+      doc.text(`Pág. ${i}/${pageCount}`, W - 15, 272, { align: 'right' })
+    }
+
+    doc.save(`Estado_de_Cuenta_${(lead.name || 'Lead').replace(/\s+/g, '_')}.pdf`)
   }
 
   // ── COMPUTED ──────────────────────────────────────────────────
@@ -155,16 +313,10 @@ export default function LeadDashboard() {
       byCur[cur].vendido += amount
     })
 
-    // Cobrado: milestones — use milestone's own currency field, or detect from quotation
-    milestones.filter(m => m.status === 'cobrado').forEach(m => {
-      const proj = projects.find(p => p.id === m.project_id)
-      const quot = proj ? quotations.find(q => q.id === proj.cotizacion_id) : null
-      const mileCur: 'USD' | 'MXN' = m.currency === 'USD' ? 'USD' : (quot ? getQuotCurrency(quot) : 'MXN')
-      byCur[mileCur].cobrado += (m.amount || 0)
-      // If USD milestone was paid in MXN, also track the actual MXN received
-      if (mileCur === 'USD' && m.amount_paid_mxn) {
-        // amount_paid_mxn is the real cash received — tracked for reference
-      }
+    // Cobrado: bank_movements (abonos) asignados al lead en contabilidad
+    bankMovements.filter(m => m.tipo === 'abono').forEach(m => {
+      const cur: 'USD' | 'MXN' = m.moneda === 'USD' ? 'USD' : 'MXN'
+      byCur[cur].cobrado += (m.monto || 0)
     })
 
     // Comprado: POs
@@ -189,7 +341,7 @@ export default function LeadDashboard() {
     const porComprar = Math.max(0, totalCompras - totalComprado)
 
     return { byCur, totalVendido, totalCobrado, totalComprado, totalCompras, porCobrar, porComprar }
-  }, [quotations, projects, milestones, pos, quotItems, tipoCambio])
+  }, [quotations, projects, bankMovements, pos, quotItems, tipoCambio])
 
   // Bloqueos automáticos
   const autoBloqueos = useMemo(() => {
@@ -345,7 +497,7 @@ export default function LeadDashboard() {
       </Section>
 
       {/* ══════════ 2. ESTADO DE CUENTA ══════════ */}
-      <Section title="Estado de Cuenta" icon={<DollarSign size={14} />} count={milestones.length} expanded={expanded.estado} onToggle={() => toggle('estado')}>
+      <Section title="Estado de Cuenta" icon={<DollarSign size={14} />} count={bankMovements.filter(m => m.tipo === 'abono').length} expanded={expanded.estado} onToggle={() => toggle('estado')}>
         {/* Summary bar — dual currency */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 16 }}>
           <MiniStatDual label="Total vendido" usd={financials.byCur.USD.vendido} mxn={financials.byCur.MXN.vendido} accent="#57FF9A" />
@@ -361,8 +513,48 @@ export default function LeadDashboard() {
             </div>
           </div>
         )}
-        {/* Milestones table + add button */}
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
+
+        {/* ── Ingresos registrados (bank movements — real cobrado) ── */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+          <span style={{ fontSize: 11, fontWeight: 600, color: '#888', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Ingresos Registrados</span>
+          <button onClick={exportEstadoCuenta} style={{ ...linkBtnS, padding: '4px 10px', fontSize: 11, gap: 4, color: '#3B82F6', borderColor: '#3B82F644' }}>
+            <Download size={12} /> Exportar PDF
+          </button>
+        </div>
+        {(() => {
+          const ingresos = bankMovements.filter(m => m.tipo === 'abono')
+          if (ingresos.length === 0) return <Empty text="Sin ingresos registrados — asigna movimientos bancarios a este lead en Contabilidad" />
+          return (
+            <table style={tblS}>
+              <thead>
+                <tr style={trHeadS}>
+                  <th style={thS}>Fecha</th>
+                  <th style={thS}>Concepto</th>
+                  <th style={thS}>Referencia</th>
+                  <th style={thS}>Banco</th>
+                  <th style={thS}>Moneda</th>
+                  <th style={{ ...thS, textAlign: 'right' }}>Monto</th>
+                </tr>
+              </thead>
+              <tbody>
+                {ingresos.map(m => (
+                  <tr key={m.id} style={trS}>
+                    <td style={{ ...tdS, color: '#888' }}>{m.fecha || '—'}</td>
+                    <td style={tdS}><span style={{ color: '#fff', fontWeight: 500 }}>{(m.concepto || '—').substring(0, 50)}</span></td>
+                    <td style={{ ...tdS, color: '#666', fontSize: 11 }}>{m.referencia || '—'}</td>
+                    <td style={{ ...tdS, color: '#666', fontSize: 11 }}>{m.banco || '—'}</td>
+                    <td style={tdS}><Badge label={m.moneda || 'MXN'} color={m.moneda === 'USD' ? '#06B6D4' : '#A78BFA'} /></td>
+                    <td style={{ ...tdS, textAlign: 'right', fontWeight: 600, color: '#57FF9A' }}>{FCUR(m.monto || 0, m.moneda || 'MXN')}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )
+        })()}
+
+        {/* ── Hitos de cobro (planning) ── */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 20, marginBottom: 8 }}>
+          <span style={{ fontSize: 11, fontWeight: 600, color: '#888', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Hitos de Cobro</span>
           <button onClick={() => setShowNewMilestone(true)} style={{ ...linkBtnS, padding: '4px 10px', fontSize: 11, gap: 4, color: '#57FF9A', borderColor: '#57FF9A44' }}>
             <Plus size={12} /> Nuevo hito
           </button>
@@ -378,8 +570,6 @@ export default function LeadDashboard() {
                 <th style={thS}>Vencimiento</th>
                 <th style={thS}>Estado</th>
                 <th style={{ ...thS, textAlign: 'right' }}>Monto</th>
-                <th style={{ ...thS, textAlign: 'right' }}>Pagado MXN</th>
-                <th style={thS}></th>
               </tr>
             </thead>
             <tbody>
@@ -394,20 +584,6 @@ export default function LeadDashboard() {
                     <td style={{ ...tdS, color: m.status === 'vencido' ? '#EF4444' : '#888' }}>{m.due_date || '—'}</td>
                     <td style={tdS}><Badge label={m.status} color={MILESTONE_COLOR[m.status] || '#555'} /></td>
                     <td style={{ ...tdS, textAlign: 'right', fontWeight: 600, color: m.status === 'cobrado' ? '#57FF9A' : '#fff' }}>{FCUR(m.amount || 0, mCur)}</td>
-                    <td style={{ ...tdS, textAlign: 'right', fontSize: 11, color: '#888' }}>
-                      {m.status === 'cobrado' && mCur === 'USD' && m.amount_paid_mxn
-                        ? <span>{F(m.amount_paid_mxn)} <span style={{ fontSize: 9, color: '#555' }}>@{m.tipo_cambio_pago}</span></span>
-                        : m.status === 'cobrado' && mCur === 'MXN' ? <span style={{ color: '#555' }}>—</span>
-                        : ''}
-                    </td>
-                    <td style={{ ...tdS, textAlign: 'right' }}>
-                      {m.status !== 'cobrado' && (
-                        <button onClick={e => { e.stopPropagation(); setCobrarModal({ ...m, _cur: mCur }) }}
-                          style={{ ...linkBtnS, padding: '3px 8px', fontSize: 10, color: '#57FF9A', borderColor: '#57FF9A44' }}>
-                          Cobrar
-                        </button>
-                      )}
-                    </td>
                   </tr>
                 )
               })}
@@ -422,17 +598,6 @@ export default function LeadDashboard() {
           getQuotCurrency={getQuotCurrency}
           onClose={() => setShowNewMilestone(false)}
           onCreated={(m: any) => { setMilestones(prev => [...prev, m]); setShowNewMilestone(false) }}
-        />}
-
-        {/* ── Cobrar modal ── */}
-        {cobrarModal && <CobrarModal
-          milestone={cobrarModal}
-          tipoCambioDefault={tipoCambio}
-          onClose={() => setCobrarModal(null)}
-          onCobrado={(updated: any) => {
-            setMilestones(prev => prev.map(m => m.id === updated.id ? updated : m))
-            setCobrarModal(null)
-          }}
         />}
         {/* Alerta: cobrado < comprado */}
         {financials.totalCobrado < financials.totalComprado && financials.totalComprado > 0 && (
