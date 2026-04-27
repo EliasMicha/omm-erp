@@ -5,7 +5,7 @@ import { Loading, Badge, SectionHeader } from '../components/layout/UI'
 import {
   ArrowLeft, FileText, DollarSign, ShoppingCart, Briefcase,
   HardHat, AlertTriangle, ChevronDown, ChevronRight, ExternalLink,
-  CheckCircle2, Clock, XCircle, TrendingUp, Package, BarChart3
+  CheckCircle2, Clock, XCircle, TrendingUp, Package, BarChart3, Plus, X
 } from 'lucide-react'
 
 // ═══════════════════════════════════════════════════════════════════
@@ -61,6 +61,8 @@ export default function LeadDashboard() {
   const [employees, setEmployees] = useState<any[]>([])
   const [quotItems, setQuotItems] = useState<any[]>([])
   const [tipoCambio] = useState(20.50)
+  const [showNewMilestone, setShowNewMilestone] = useState(false)
+  const [cobrarModal, setCobrarModal] = useState<any>(null) // milestone being marked as cobrado
 
   // Collapsible sections
   const [expanded, setExpanded] = useState<Record<string, boolean>>({
@@ -99,7 +101,7 @@ export default function LeadDashboard() {
     // 4. Parallel: POs, milestones, obras, tasks, phases, employees, quotation items
     const [posRes, msRes, obrasRes, tasksRes, phasesRes, empRes, qiRes] = await Promise.all([
       supabase.from('purchase_orders').select('*').in('project_id', [...projIds]),
-      supabase.from('payment_milestones').select('*').in('project_id', [...projIds]),
+      supabase.from('payment_milestones').select('*,currency,amount_paid_mxn,tipo_cambio_pago').in('project_id', [...projIds]),
       supabase.from('obras').select('*').in('project_id', [...projIds]),
       supabase.from('project_tasks').select('*').in('project_id', [...projIds]),
       supabase.from('project_phases').select('*').in('project_id', [...projIds]),
@@ -153,12 +155,16 @@ export default function LeadDashboard() {
       byCur[cur].vendido += amount
     })
 
-    // Cobrado: milestones — detect currency from project's quotation
+    // Cobrado: milestones — use milestone's own currency field, or detect from quotation
     milestones.filter(m => m.status === 'cobrado').forEach(m => {
       const proj = projects.find(p => p.id === m.project_id)
       const quot = proj ? quotations.find(q => q.id === proj.cotizacion_id) : null
-      const cur = quot ? getQuotCurrency(quot) : 'MXN'
-      byCur[cur].cobrado += (m.amount || 0)
+      const mileCur: 'USD' | 'MXN' = m.currency === 'USD' ? 'USD' : (quot ? getQuotCurrency(quot) : 'MXN')
+      byCur[mileCur].cobrado += (m.amount || 0)
+      // If USD milestone was paid in MXN, also track the actual MXN received
+      if (mileCur === 'USD' && m.amount_paid_mxn) {
+        // amount_paid_mxn is the real cash received — tracked for reference
+      }
     })
 
     // Comprado: POs
@@ -355,7 +361,12 @@ export default function LeadDashboard() {
             </div>
           </div>
         )}
-        {/* Milestones table */}
+        {/* Milestones table + add button */}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
+          <button onClick={() => setShowNewMilestone(true)} style={{ ...linkBtnS, padding: '4px 10px', fontSize: 11, gap: 4, color: '#57FF9A', borderColor: '#57FF9A44' }}>
+            <Plus size={12} /> Nuevo hito
+          </button>
+        </div>
         {milestones.length === 0 ? (
           <Empty text="Sin hitos de cobro registrados" />
         ) : (
@@ -367,13 +378,15 @@ export default function LeadDashboard() {
                 <th style={thS}>Vencimiento</th>
                 <th style={thS}>Estado</th>
                 <th style={{ ...thS, textAlign: 'right' }}>Monto</th>
+                <th style={{ ...thS, textAlign: 'right' }}>Pagado MXN</th>
+                <th style={thS}></th>
               </tr>
             </thead>
             <tbody>
               {milestones.sort((a, b) => (a.due_date || '').localeCompare(b.due_date || '')).map(m => {
                 const proj = projects.find(p => p.id === m.project_id)
                 const quot = proj ? quotations.find(q => q.id === proj.cotizacion_id) : null
-                const mCur = quot ? getQuotCurrency(quot) : 'MXN'
+                const mCur = m.currency || (quot ? getQuotCurrency(quot) : 'MXN')
                 return (
                   <tr key={m.id} style={trS}>
                     <td style={tdS}><span style={{ color: '#fff', fontWeight: 500 }}>{m.name}</span></td>
@@ -381,12 +394,46 @@ export default function LeadDashboard() {
                     <td style={{ ...tdS, color: m.status === 'vencido' ? '#EF4444' : '#888' }}>{m.due_date || '—'}</td>
                     <td style={tdS}><Badge label={m.status} color={MILESTONE_COLOR[m.status] || '#555'} /></td>
                     <td style={{ ...tdS, textAlign: 'right', fontWeight: 600, color: m.status === 'cobrado' ? '#57FF9A' : '#fff' }}>{FCUR(m.amount || 0, mCur)}</td>
+                    <td style={{ ...tdS, textAlign: 'right', fontSize: 11, color: '#888' }}>
+                      {m.status === 'cobrado' && mCur === 'USD' && m.amount_paid_mxn
+                        ? <span>{F(m.amount_paid_mxn)} <span style={{ fontSize: 9, color: '#555' }}>@{m.tipo_cambio_pago}</span></span>
+                        : m.status === 'cobrado' && mCur === 'MXN' ? <span style={{ color: '#555' }}>—</span>
+                        : ''}
+                    </td>
+                    <td style={{ ...tdS, textAlign: 'right' }}>
+                      {m.status !== 'cobrado' && (
+                        <button onClick={e => { e.stopPropagation(); setCobrarModal({ ...m, _cur: mCur }) }}
+                          style={{ ...linkBtnS, padding: '3px 8px', fontSize: 10, color: '#57FF9A', borderColor: '#57FF9A44' }}>
+                          Cobrar
+                        </button>
+                      )}
+                    </td>
                   </tr>
                 )
               })}
             </tbody>
           </table>
         )}
+
+        {/* ── New milestone form ── */}
+        {showNewMilestone && <NewMilestoneForm
+          projects={projects}
+          quotations={quotations}
+          getQuotCurrency={getQuotCurrency}
+          onClose={() => setShowNewMilestone(false)}
+          onCreated={(m: any) => { setMilestones(prev => [...prev, m]); setShowNewMilestone(false) }}
+        />}
+
+        {/* ── Cobrar modal ── */}
+        {cobrarModal && <CobrarModal
+          milestone={cobrarModal}
+          tipoCambioDefault={tipoCambio}
+          onClose={() => setCobrarModal(null)}
+          onCobrado={(updated: any) => {
+            setMilestones(prev => prev.map(m => m.id === updated.id ? updated : m))
+            setCobrarModal(null)
+          }}
+        />}
         {/* Alerta: cobrado < comprado */}
         {financials.totalCobrado < financials.totalComprado && financials.totalComprado > 0 && (
           <div style={{ marginTop: 12, padding: '10px 14px', background: '#EF444410', border: '1px solid #EF444440', borderRadius: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -586,6 +633,173 @@ export default function LeadDashboard() {
           </div>
         )}
       </Section>
+    </div>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// MILESTONE FORMS
+// ═══════════════════════════════════════════════════════════════════
+
+const formInputS: React.CSSProperties = { width: '100%', padding: '7px 10px', background: '#1e1e1e', border: '1px solid #333', borderRadius: 6, color: '#fff', fontSize: 12, fontFamily: 'inherit', boxSizing: 'border-box' }
+const formLabelS: React.CSSProperties = { fontSize: 10, color: '#555', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 3, display: 'block' }
+
+function NewMilestoneForm({ projects, quotations, getQuotCurrency, onClose, onCreated }: {
+  projects: any[]; quotations: any[]; getQuotCurrency: (q: any) => 'USD' | 'MXN'
+  onClose: () => void; onCreated: (m: any) => void
+}) {
+  const [form, setForm] = useState({ name: '', project_id: '', amount: '', due_date: '', currency: 'MXN' })
+  const [saving, setSaving] = useState(false)
+
+  // Auto-detect currency from project's quotation
+  const handleProjectChange = (projId: string) => {
+    const proj = projects.find(p => p.id === projId)
+    const quot = proj ? quotations.find(q => q.id === proj.cotizacion_id) : null
+    const cur = quot ? getQuotCurrency(quot) : 'MXN'
+    setForm(f => ({ ...f, project_id: projId, currency: cur }))
+  }
+
+  const save = async () => {
+    if (!form.name || !form.amount || !form.project_id) return
+    setSaving(true)
+    const { data, error } = await supabase.from('payment_milestones').insert({
+      name: form.name, project_id: form.project_id,
+      amount: parseFloat(form.amount), due_date: form.due_date || null,
+      currency: form.currency, status: 'pendiente',
+    }).select().single()
+    setSaving(false)
+    if (error) { alert('Error: ' + error.message); return }
+    onCreated(data)
+  }
+
+  return (
+    <div style={{ marginTop: 12, padding: 16, background: '#111', border: '1px solid #57FF9A33', borderRadius: 10 }}>
+      <div style={{ fontSize: 13, fontWeight: 600, color: '#fff', marginBottom: 12 }}>Nuevo hito de cobro</div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 180px 120px 130px 90px', gap: 8, alignItems: 'end' }}>
+        <div>
+          <label style={formLabelS}>Nombre</label>
+          <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Ej: Anticipo 50%" style={formInputS} />
+        </div>
+        <div>
+          <label style={formLabelS}>Proyecto</label>
+          <select value={form.project_id} onChange={e => handleProjectChange(e.target.value)} style={formInputS}>
+            <option value="">Seleccionar...</option>
+            {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+        </div>
+        <div>
+          <label style={formLabelS}>Monto ({form.currency})</label>
+          <input type="number" value={form.amount} onChange={e => setForm(f => ({ ...f, amount: e.target.value }))} style={formInputS} />
+        </div>
+        <div>
+          <label style={formLabelS}>Vencimiento</label>
+          <input type="date" value={form.due_date} onChange={e => setForm(f => ({ ...f, due_date: e.target.value }))} style={formInputS} />
+        </div>
+        <div>
+          <label style={formLabelS}>Moneda</label>
+          <select value={form.currency} onChange={e => setForm(f => ({ ...f, currency: e.target.value }))} style={formInputS}>
+            <option value="MXN">MXN</option>
+            <option value="USD">USD</option>
+          </select>
+        </div>
+      </div>
+      <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
+        <button onClick={save} disabled={saving || !form.name || !form.amount || !form.project_id}
+          style={{ ...linkBtnS, padding: '5px 12px', fontSize: 11, color: '#57FF9A', borderColor: '#57FF9A44', opacity: (!form.name || !form.amount || !form.project_id) ? 0.4 : 1 }}>
+          {saving ? 'Guardando...' : 'Crear hito'}
+        </button>
+        <button onClick={onClose} style={{ ...linkBtnS, padding: '5px 12px', fontSize: 11 }}>Cancelar</button>
+      </div>
+    </div>
+  )
+}
+
+function CobrarModal({ milestone, tipoCambioDefault, onClose, onCobrado }: {
+  milestone: any; tipoCambioDefault: number; onClose: () => void; onCobrado: (m: any) => void
+}) {
+  const isUSD = milestone._cur === 'USD' || milestone.currency === 'USD'
+  const [pagoEn, setPagoEn] = useState<'USD' | 'MXN'>(isUSD ? 'MXN' : 'MXN') // default: pagado en MXN
+  const [tc, setTc] = useState(String(tipoCambioDefault))
+  const [montoMxn, setMontoMxn] = useState(String(Math.round((milestone.amount || 0) * tipoCambioDefault)))
+  const [saving, setSaving] = useState(false)
+
+  // When TC changes, recalculate MXN
+  const handleTcChange = (val: string) => {
+    setTc(val)
+    const rate = parseFloat(val) || 0
+    if (rate > 0) setMontoMxn(String(Math.round((milestone.amount || 0) * rate)))
+  }
+
+  const save = async () => {
+    setSaving(true)
+    const update: any = { status: 'cobrado', paid_at: new Date().toISOString() }
+    if (isUSD && pagoEn === 'MXN') {
+      update.amount_paid_mxn = parseFloat(montoMxn) || 0
+      update.tipo_cambio_pago = parseFloat(tc) || 0
+    }
+    const { data, error } = await supabase.from('payment_milestones').update(update).eq('id', milestone.id).select().single()
+    setSaving(false)
+    if (error) { alert('Error: ' + error.message); return }
+    onCobrado(data)
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 1020, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={onClose}>
+      <div style={{ background: '#141414', border: '1px solid #333', borderRadius: 12, padding: 24, width: 420 }} onClick={e => e.stopPropagation()}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: '#fff' }}>Registrar cobro</div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer' }}><X size={16} /></button>
+        </div>
+
+        <div style={{ padding: 12, background: '#0a0a0a', borderRadius: 8, marginBottom: 16, border: '1px solid #222' }}>
+          <div style={{ fontSize: 12, color: '#ccc', fontWeight: 500 }}>{milestone.name}</div>
+          <div style={{ fontSize: 18, fontWeight: 700, color: isUSD ? '#06B6D4' : '#57FF9A', marginTop: 4 }}>
+            {FCUR(milestone.amount || 0, milestone._cur || milestone.currency || 'MXN')}
+          </div>
+        </div>
+
+        {isUSD && (
+          <>
+            <div style={{ marginBottom: 12 }}>
+              <label style={formLabelS}>¿En qué moneda te pagaron?</label>
+              <div style={{ display: 'flex', gap: 6 }}>
+                {(['MXN', 'USD'] as const).map(c => (
+                  <button key={c} onClick={() => setPagoEn(c)} style={{
+                    flex: 1, padding: '8px', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                    fontFamily: 'inherit',
+                    background: pagoEn === c ? (c === 'USD' ? '#06B6D420' : '#57FF9A20') : '#1a1a1a',
+                    border: `1px solid ${pagoEn === c ? (c === 'USD' ? '#06B6D4' : '#57FF9A') : '#333'}`,
+                    color: pagoEn === c ? (c === 'USD' ? '#06B6D4' : '#57FF9A') : '#666',
+                  }}>{c === 'MXN' ? 'Pesos (MXN)' : 'Dólares (USD)'}</button>
+                ))}
+              </div>
+            </div>
+
+            {pagoEn === 'MXN' && (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
+                <div>
+                  <label style={formLabelS}>Tipo de cambio</label>
+                  <input type="number" step="0.01" value={tc} onChange={e => handleTcChange(e.target.value)} style={formInputS} />
+                </div>
+                <div>
+                  <label style={formLabelS}>Monto recibido (MXN)</label>
+                  <input type="number" value={montoMxn} onChange={e => setMontoMxn(e.target.value)} style={formInputS} />
+                </div>
+              </div>
+            )}
+          </>
+        )}
+
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <button onClick={onClose} style={{ ...linkBtnS, padding: '6px 14px', fontSize: 12 }}>Cancelar</button>
+          <button onClick={save} disabled={saving} style={{
+            ...linkBtnS, padding: '6px 14px', fontSize: 12, fontWeight: 600,
+            color: '#57FF9A', borderColor: '#57FF9A44', background: '#57FF9A10',
+          }}>
+            {saving ? 'Guardando...' : '✓ Marcar como cobrado'}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
