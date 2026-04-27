@@ -25,20 +25,21 @@ interface CatProduct { id: string; name: string; description: string; system: st
 interface EspQuoteConfig { currency: string; ivaRate: number; programacion: number; descuento: number; tipoCambio: number; paymentSchedule: Array<{ label: string; percentage: number }>; version: string }
 
 const ALL_SYSTEMS: EspSystemDef[] = [
-  { id: 'audio',               name: 'Audio',       color: '#8B5CF6' },
-  { id: 'redes',               name: 'Redes',       color: '#06B6D4' },
-  { id: 'cctv',                name: 'CCTV',        color: '#3B82F6' },
-  { id: 'control_acceso',      name: 'Acceso',      color: '#F59E0B' },
-  { id: 'control_iluminacion', name: 'Iluminacion', color: '#C084FC' },
-  { id: 'deteccion_incendio',   name: 'Deteccion de Incendio', color: '#EF4444' },
-  { id: 'bms',                 name: 'BMS',         color: '#10B981' },
-  { id: 'telefonia',           name: 'Telefonia',   color: '#F97316' },
-  { id: 'senal_celular',        name: 'Señal Celular', color: '#EC4899' },
-  { id: 'lutron',              name: 'Lutron',      color: '#A855F7' },
-  { id: 'somfy',               name: 'Somfy',       color: '#14B8A6' },
-  { id: 'electrico',           name: 'Electrico',   color: '#EAB308' },
-  { id: 'cortinas',            name: 'Cortinas',    color: '#6366F1' },
-  { id: 'general',             name: 'General',     color: '#64748B' },
+  { id: 'audio',               name: 'Audio',                color: '#8B5CF6' },
+  { id: 'redes',               name: 'Redes',                color: '#06B6D4' },
+  { id: 'cctv',                name: 'CCTV',                 color: '#3B82F6' },
+  { id: 'control_acceso',      name: 'Control de Acceso',    color: '#F59E0B' },
+  { id: 'control_iluminacion', name: 'Control de Iluminación', color: '#C084FC' },
+  { id: 'iluminacion',         name: 'Iluminación',          color: '#FDE68A' },
+  { id: 'deteccion_humo',      name: 'Detección de Incendio', color: '#EF4444' },
+  { id: 'bms',                 name: 'BMS',                  color: '#10B981' },
+  { id: 'telefonia',           name: 'Telefonía',            color: '#F97316' },
+  { id: 'red_celular',         name: 'Señal Celular',        color: '#EC4899' },
+  { id: 'lutron',              name: 'Lutron',               color: '#A855F7' },
+  { id: 'somfy',               name: 'Somfy',                color: '#14B8A6' },
+  { id: 'electrico',           name: 'Eléctrico',            color: '#EAB308' },
+  { id: 'cortinas',            name: 'Cortinas',             color: '#6366F1' },
+  { id: 'general',             name: 'General',              color: '#64748B' },
 ]
 
 function uid(): string { return Math.random().toString(36).slice(2, 10) }

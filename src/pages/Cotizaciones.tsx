@@ -399,10 +399,11 @@ const SYSTEM_PRESETS = [
   { id: 'cctv', name: 'CCTV', color: '#3B82F6' },
   { id: 'control_acceso', name: 'Control de Acceso', color: '#F59E0B' },
   { id: 'control_iluminacion', name: 'Control de Iluminación', color: '#C084FC' },
-  { id: 'deteccion_humo', name: 'Detección de Humo', color: '#EF4444' },
+  { id: 'iluminacion', name: 'Iluminación', color: '#FDE68A' },
+  { id: 'deteccion_humo', name: 'Detección de Incendio', color: '#EF4444' },
   { id: 'bms', name: 'BMS', color: '#10B981' },
   { id: 'telefonia', name: 'Telefonía', color: '#F97316' },
-  { id: 'red_celular', name: 'Red Celular', color: '#EC4899' },
+  { id: 'red_celular', name: 'Señal Celular', color: '#EC4899' },
 ]
 
 interface ClienteSimple { id: string; razon_social: string; rfc: string }
