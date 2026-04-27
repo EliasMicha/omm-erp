@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase'
 import { F, STAGE_CONFIG } from '../lib/utils'
 import { Badge, Btn, Loading } from '../components/layout/UI'
 import { ANTHROPIC_API_KEY } from '../lib/config'
-import { Plus, ChevronLeft, ChevronRight, ChevronDown, X, Trash2, Image as ImageIcon, Search, RefreshCw, Sparkles, Upload, Loader2, FileText, Package } from 'lucide-react'
+import { Plus, ChevronLeft, ChevronRight, ChevronDown, X, Trash2, Image as ImageIcon, Search, RefreshCw, Sparkles, Upload, Loader2, FileText, Package, ArrowLeftRight } from 'lucide-react'
 import ImageUpload from '../components/ImageUpload'
 
 // ═══════════════════════════════════════════════════════════════════
@@ -115,11 +115,11 @@ function calcLaborFromPrice(price: number, rule: PricingRule): number {
 // ═══════════════════════════════════════════════════════════════════
 // PRODUCT ROW
 // ═══════════════════════════════════════════════════════════════════
-function ProductRow({ p, onUpdate, onRemove, onUpdateAll, showInt, duplicateCount, onCopyTo, onDetail, selected, onToggleSelect }: {
+function ProductRow({ p, onUpdate, onRemove, onUpdateAll, showInt, duplicateCount, onCopyTo, onDetail, selected, onToggleSelect, onSubstitute }: {
   p: EspProduct; onUpdate: (id: string, f: string, v: number | string) => void; onRemove: (id: string) => void
   onUpdateAll: (catalogId: string, field: string, value: number) => void; showInt: boolean; duplicateCount: number
   onCopyTo?: (id: string) => void; onDetail?: (p: EspProduct) => void
-  selected?: boolean; onToggleSelect?: (id: string) => void
+  selected?: boolean; onToggleSelect?: (id: string) => void; onSubstitute?: (p: EspProduct) => void
 }) {
   const { precioAmp, moAmp, total, costReal, utilidad } = calcLine(p)
   const handleBlur = (field: string, value: number) => {
@@ -161,6 +161,7 @@ function ProductRow({ p, onUpdate, onRemove, onUpdateAll, showInt, duplicateCoun
         <td style={S.tdR}><input type="number" defaultValue={p.margin} step={1} onBlur={e => handleBlur('margin', parseFloat(e.target.value) || 0)} style={{ ...S.input, width: 40, color: p.margin >= 25 ? '#57FF9A' : p.margin >= 15 ? '#F59E0B' : '#EF4444' }} /></td>
         <td style={{ ...S.tdR, fontSize: 10, color: utilidad >= 0 ? '#57FF9A' : '#EF4444' }}>${fmt(utilidad)}</td>
       </>)}
+      <td style={{ ...S.td, width: 28 }}>{onSubstitute && p.catalogId && <button onClick={() => onSubstitute(p)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, opacity: 0.5 }} title="Sustituir en todo el proyecto"><ArrowLeftRight size={12} color="#3B82F6" /></button>}</td>
       <td style={{ ...S.td, width: 28 }}>{onCopyTo && <button onClick={() => onCopyTo(p.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, padding: 0, opacity: 0.5 }} title="Copiar a otras areas">{String.fromCodePoint(0x1F4CB)}</button>}</td><td style={{ ...S.td, width: 28 }}><button onClick={() => onRemove(p.id)} style={{ background: 'none', border: 'none', color: '#444', cursor: 'pointer' }}><Trash2 size={12} /></button></td>
     </tr>
   )
@@ -304,12 +305,12 @@ function ProductDetailModal({ product, onClose, onUpdate }: {
 // ═══════════════════════════════════════════════════════════════════
 // SYSTEM BLOCK
 // ═══════════════════════════════════════════════════════════════════
-function SystemBlock({ sysDef, products, collapsed, onToggle, onUpdate, onRemove, onUpdateAll, onAdd, showInt, allProducts, onCopyTo, onDetail, selectedIds, onToggleSelect }: {
+function SystemBlock({ sysDef, products, collapsed, onToggle, onUpdate, onRemove, onUpdateAll, onAdd, showInt, allProducts, onCopyTo, onDetail, selectedIds, onToggleSelect, onSubstitute }: {
   sysDef: EspSystemDef; products: EspProduct[]; collapsed: boolean; onToggle: () => void
   onUpdate: (id: string, f: string, v: number | string) => void; onRemove: (id: string) => void
   onUpdateAll: (catalogId: string, field: string, value: number) => void; onAdd: () => void; showInt: boolean; allProducts: EspProduct[]
   onCopyTo?: (id: string) => void; onDetail?: (p: EspProduct) => void
-  selectedIds?: Set<string>; onToggleSelect?: (id: string) => void
+  selectedIds?: Set<string>; onToggleSelect?: (id: string) => void; onSubstitute?: (p: EspProduct) => void
 }) {
   const sysTotal = products.reduce((s, p) => s + calcLine(p).total, 0)
   return (
@@ -349,7 +350,7 @@ function SystemBlock({ sysDef, products, collapsed, onToggle, onUpdate, onRemove
           <tbody>
             {products.map(p => {
               const dupCount = p.catalogId ? allProducts.filter(ap => ap.catalogId === p.catalogId).length : 0
-              return <ProductRow key={p.id} p={p} onUpdate={onUpdate} onRemove={onRemove} onUpdateAll={onUpdateAll} showInt={showInt} duplicateCount={dupCount} onCopyTo={onCopyTo} onDetail={onDetail} selected={selectedIds?.has(p.id)} onToggleSelect={onToggleSelect} />
+              return <ProductRow key={p.id} p={p} onUpdate={onUpdate} onRemove={onRemove} onUpdateAll={onUpdateAll} showInt={showInt} duplicateCount={dupCount} onCopyTo={onCopyTo} onDetail={onDetail} selected={selectedIds?.has(p.id)} onToggleSelect={onToggleSelect} onSubstitute={onSubstitute} />
             })}
           </tbody>
         </table>
@@ -365,13 +366,13 @@ function SystemBlock({ sysDef, products, collapsed, onToggle, onUpdate, onRemove
 // ═══════════════════════════════════════════════════════════════════
 // AREA BLOCK
 // ═══════════════════════════════════════════════════════════════════
-function AreaBlock({ area, activeSystems, products, allProducts, collapsedSys, onToggleArea, onToggleSys, onUpdateProd, onRemoveProd, onUpdateAll, onAddProd, showInt, onCopyTo, onDetail, selectedIds, onToggleSelect }: {
+function AreaBlock({ area, activeSystems, products, allProducts, collapsedSys, onToggleArea, onToggleSys, onUpdateProd, onRemoveProd, onUpdateAll, onAddProd, showInt, onCopyTo, onDetail, selectedIds, onToggleSelect, onSubstitute }: {
   area: EspArea; activeSystems: EspSystemDef[]; products: EspProduct[]; allProducts: EspProduct[]
   collapsedSys: Record<string, boolean>; onToggleArea: () => void; onToggleSys: (k: string) => void
   onUpdateProd: (id: string, f: string, v: number | string) => void; onRemoveProd: (id: string) => void
   onUpdateAll: (catalogId: string, field: string, value: number) => void
   onAddProd: (sysId: string) => void; showInt: boolean; onCopyTo?: (id: string) => void; onDetail?: (p: EspProduct) => void
-  selectedIds?: Set<string>; onToggleSelect?: (id: string) => void
+  selectedIds?: Set<string>; onToggleSelect?: (id: string) => void; onSubstitute?: (p: EspProduct) => void
 }) {
   const areaProds = products.filter(p => p.areaId === area.id)
   const areaTotal = areaProds.reduce((s, p) => s + calcLine(p).total, 0)
@@ -393,7 +394,7 @@ function AreaBlock({ area, activeSystems, products, allProducts, collapsedSys, o
               collapsed={collapsedSys[area.id + '_' + sys.id] || false} onToggle={() => onToggleSys(area.id + '_' + sys.id)}
               onUpdate={onUpdateProd} onRemove={onRemoveProd} onUpdateAll={onUpdateAll}
               onAdd={() => onAddProd(sys.id)} showInt={showInt} allProducts={allProducts}  onCopyTo={onCopyTo} onDetail={onDetail}
-              selectedIds={selectedIds} onToggleSelect={onToggleSelect} />
+              selectedIds={selectedIds} onToggleSelect={onToggleSelect} onSubstitute={onSubstitute} />
           ))}
           {sysEmpty.length > 0 && (
             <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', padding: '4px 0' }}>
@@ -1857,6 +1858,7 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
   const [bulkTarget, setBulkTarget] = useState('')
   const [copyingProduct, setCopyingProduct] = useState<string | null>(null)
   const [detailProduct, setDetailProduct] = useState<EspProduct | null>(null)
+  const [substitutingProduct, setSubstitutingProduct] = useState<EspProduct | null>(null)
   const [showPdfPicker, setShowPdfPicker] = useState(false)
   const [viewSystemId, setViewSystemId] = useState<string | null>(null)
   const [projectId, setProjectId] = useState<string | null>(null)
@@ -2126,6 +2128,48 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
     alert(`${updates.length} producto(s) sincronizado(s) con catálogo.`)
   }
 
+  async function substituteProduct(oldProduct: EspProduct, newCatProd: CatProduct) {
+    if (!oldProduct.catalogId) return
+    const oldCatalogId = oldProduct.catalogId
+    const affectedProducts = products.filter(p => p.catalogId === oldCatalogId)
+    const count = affectedProducts.length
+    if (!confirm(`¿Sustituir "${oldProduct.name}" por "${newCatProd.name}" en ${count} ubicación(es) del proyecto?`)) return
+
+    const rule = getPricingRule(newCatProd.provider || '')
+    const prodMoneda = newCatProd.moneda || 'USD'
+    const margin = newCatProd.markup > 0 ? newCatProd.markup : rule.margen
+    let precioOrigen = newCatProd.precio_venta > 0 ? newCatProd.precio_venta : calcPriceFromCost(newCatProd.cost, rule, margin)
+    const precio = convertToQuoteCurrency(precioOrigen, prodMoneda)
+    const laborCost = calcLaborFromPrice(precio, rule)
+
+    // Update all affected products in state
+    setProducts(prev => prev.map(p => {
+      if (p.catalogId !== oldCatalogId) return p
+      return {
+        ...p,
+        catalogId: newCatProd.id, name: newCatProd.name, description: newCatProd.description || '',
+        imageUrl: newCatProd.image_url || null, cost: newCatProd.cost || 0, price: precio,
+        laborCost, margin, monedaOrigen: prodMoneda,
+        marca: newCatProd.marca || null, modelo: newCatProd.modelo || null,
+        sku: newCatProd.sku || null, provider: newCatProd.provider || null,
+      }
+    }))
+
+    // Update all in DB
+    for (const p of affectedProducts) {
+      await supabase.from('quotation_items').update({
+        catalog_product_id: newCatProd.id, name: newCatProd.name, description: newCatProd.description || null,
+        image_url: newCatProd.image_url || null, cost: newCatProd.cost || 0, price: precio,
+        installation_cost: laborCost, markup: margin,
+        total: (precio + laborCost) * p.quantity,
+        marca: newCatProd.marca || null, modelo: newCatProd.modelo || null,
+        sku: newCatProd.sku || null, provider: newCatProd.provider || null,
+      }).eq('id', p.id)
+    }
+    setSubstitutingProduct(null)
+    alert(`${count} producto(s) sustituido(s) exitosamente.`)
+  }
+
   async function copyProductToAreas(productId: string, targetAreaIds: string[]) {
     const source = products.find(p => p.id === productId)
     if (!source) return
@@ -2380,7 +2424,7 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
               collapsedSys={collapsedSys} onToggleArea={() => toggleArea(area.id)} onToggleSys={toggleSys}
               onUpdateProd={updateProduct} onRemoveProd={removeProduct} onUpdateAll={updateAllByCatalogId}
               onAddProd={(sysId) => openAddProduct(area.id, sysId)} showInt={showInt}  onCopyTo={(id) => setCopyingProduct(id)} onDetail={(p) => setDetailProduct(p)}
-              selectedIds={selectedProdIds} onToggleSelect={toggleProdSelect} />
+              selectedIds={selectedProdIds} onToggleSelect={toggleProdSelect} onSubstitute={(p) => setSubstitutingProduct(p)} />
           ))}
           <div onClick={addArea} style={{ padding: '12px', border: '1px dashed #333', borderRadius: 10, textAlign: 'center', cursor: 'pointer', color: '#444', fontSize: 12 }}>+ Agregar área</div>
         </div>
@@ -2488,6 +2532,15 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
       {/* Product detail modal */}
       {detailProduct && (
         <ProductDetailModal product={detailProduct} onClose={() => setDetailProduct(null)} onUpdate={updateProduct} />
+      )}
+
+      {/* Substitute product modal — reuses CatalogModal */}
+      {substitutingProduct && (
+        <CatalogModal
+          systemName={`Sustituir: ${substitutingProduct.name} (${products.filter(p => p.catalogId === substitutingProduct.catalogId).length} ubicaciones)`}
+          onClose={() => setSubstitutingProduct(null)}
+          onSelect={(catProd) => substituteProduct(substitutingProduct, catProd)}
+          onCreateNew={() => {}} />
       )}
 
       {/* AI Import modal */}

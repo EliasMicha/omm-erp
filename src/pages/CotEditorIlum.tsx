@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react'
 import { supabase } from '../lib/supabase'
 import { F, STAGE_CONFIG } from '../lib/utils'
 import { Btn, Loading } from '../components/layout/UI'
-import { Plus, ChevronDown, ChevronRight, X, Trash2, Image as ImageIcon, Search } from 'lucide-react'
+import { Plus, ChevronDown, ChevronRight, X, Trash2, Image as ImageIcon, Search, ArrowLeftRight } from 'lucide-react'
 
 // ═══════════════════════════════════════════════════════════════════
 // TYPES
@@ -52,9 +52,9 @@ const S = {
 // ═══════════════════════════════════════════════════════════════════
 // PRODUCT ROW
 // ═══════════════════════════════════════════════════════════════════
-function ProductRow({ p, onUpdate, onRemove, selected, onToggleSelect }: {
+function ProductRow({ p, onUpdate, onRemove, selected, onToggleSelect, onSubstitute }: {
   p: IlumProduct; onUpdate: (id: string, f: string, v: number | string) => void; onRemove: (id: string) => void
-  selected?: boolean; onToggleSelect?: (id: string) => void
+  selected?: boolean; onToggleSelect?: (id: string) => void; onSubstitute?: (p: IlumProduct) => void
 }) {
   const { total, costReal, utilidad } = calcLine(p)
   return (
@@ -82,6 +82,7 @@ function ProductRow({ p, onUpdate, onRemove, selected, onToggleSelect }: {
       <td style={S.tdR}><input type="number" defaultValue={p.markup} step={1} onBlur={e => onUpdate(p.id, 'markup', parseFloat(e.target.value) || 0)} style={{ ...S.input, width: 45, color: p.markup >= 25 ? '#57FF9A' : p.markup >= 15 ? '#F59E0B' : '#EF4444' }} /></td>
       <td style={S.tdR}><input type="number" defaultValue={p.price} step={0.01} onBlur={e => onUpdate(p.id, 'price', parseFloat(e.target.value) || 0)} style={S.input} /></td>
       <td style={{ ...S.tdM, color: '#57FF9A' }}>${fmt(total)}</td>
+      <td style={{ ...S.td, width: 28 }}>{onSubstitute && p.catalogId && <button onClick={() => onSubstitute(p)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, opacity: 0.5 }} title="Sustituir en todo el proyecto"><ArrowLeftRight size={12} color="#3B82F6" /></button>}</td>
       <td style={{ ...S.td, width: 28 }}><button onClick={() => onRemove(p.id)} style={{ background: 'none', border: 'none', color: '#444', cursor: 'pointer' }}><Trash2 size={12} /></button></td>
     </tr>
   )
@@ -171,11 +172,11 @@ function IlumCatalogModal({ onClose, onSelect, subsectionName }: {
 // ═══════════════════════════════════════════════════════════════════
 // SUBSECTION BLOCK
 // ═══════════════════════════════════════════════════════════════════
-function SubsectionBlock({ subsection, products, onToggle, onUpdate, onRemove, onAdd, allProducts, selectedIds, onToggleSelect }: {
+function SubsectionBlock({ subsection, products, onToggle, onUpdate, onRemove, onAdd, allProducts, selectedIds, onToggleSelect, onSubstitute }: {
   subsection: IlumSubsection; products: IlumProduct[]; onToggle: () => void
   onUpdate: (id: string, f: string, v: number | string) => void; onRemove: (id: string) => void
   onAdd: () => void; allProducts: IlumProduct[]
-  selectedIds?: Set<string>; onToggleSelect?: (id: string) => void
+  selectedIds?: Set<string>; onToggleSelect?: (id: string) => void; onSubstitute?: (p: IlumProduct) => void
 }) {
   const subTotal = products.reduce((s, p) => s + calcLine(p).total, 0)
   return (
@@ -214,11 +215,11 @@ function SubsectionBlock({ subsection, products, onToggle, onUpdate, onRemove, o
             <th style={{ ...S.th, textAlign: 'right' }}>MG%</th>
             <th style={{ ...S.th, textAlign: 'right' }}>PRECIO</th>
             <th style={{ ...S.th, textAlign: 'right' }}>TOTAL</th>
-            <th style={S.th}></th>
+            <th style={S.th}></th><th style={S.th}></th>
           </tr></thead>
           <tbody>
             {products.map(p => (
-              <ProductRow key={p.id} p={p} onUpdate={onUpdate} onRemove={onRemove} selected={selectedIds?.has(p.id)} onToggleSelect={onToggleSelect} />
+              <ProductRow key={p.id} p={p} onUpdate={onUpdate} onRemove={onRemove} selected={selectedIds?.has(p.id)} onToggleSelect={onToggleSelect} onSubstitute={onSubstitute} />
             ))}
           </tbody>
         </table>
@@ -242,6 +243,7 @@ export default function CotEditorIlum({ cotId, onBack }: { cotId: string; onBack
   const [customSubInput, setCustomSubInput] = useState('')
   const [catalogModal, setCatalogModal] = useState<{ open: boolean; subsectionId: string } | null>(null)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [substitutingProduct, setSubstitutingProduct] = useState<IlumProduct | null>(null)
 
   // Load quotation, subsections, and products
   useEffect(() => {
@@ -361,6 +363,34 @@ export default function CotEditorIlum({ cotId, onBack }: { cotId: string; onBack
     setCatalogModal(null)
   }
 
+  // Substitute product globally
+  async function substituteProduct(oldProduct: IlumProduct, newCatProd: CatProduct) {
+    if (!oldProduct.catalogId) return
+    const oldCatalogId = oldProduct.catalogId
+    const affected = products.filter(p => p.catalogId === oldCatalogId)
+    const count = affected.length
+    if (!confirm(`¿Sustituir "${oldProduct.name}" por "${newCatProd.name}" en ${count} ubicación(es)?`)) return
+
+    const markup = newCatProd.markup || 35
+    const price = newCatProd.precio_venta > 0 ? newCatProd.precio_venta : (newCatProd.cost > 0 && markup < 100 ? Math.round(newCatProd.cost / (1 - markup / 100) * 100) / 100 : 0)
+
+    setProducts(prev => prev.map(p => {
+      if (p.catalogId !== oldCatalogId) return p
+      return { ...p, catalogId: newCatProd.id, name: newCatProd.name, description: newCatProd.description || '', imageUrl: newCatProd.image_url || null, cost: newCatProd.cost || 0, markup, price, marca: newCatProd.marca || null, modelo: newCatProd.modelo || null, sku: newCatProd.sku || null, watts: newCatProd.watts, lumens: newCatProd.lumens, cct: newCatProd.cct }
+    }))
+
+    for (const p of affected) {
+      await supabase.from('quotation_items').update({
+        catalog_product_id: newCatProd.id, name: newCatProd.name, description: newCatProd.description || null,
+        image_url: newCatProd.image_url || null, cost: newCatProd.cost || 0, markup, price,
+        total: price * p.quantity, marca: newCatProd.marca || null, modelo: newCatProd.modelo || null, sku: newCatProd.sku || null,
+        notes: JSON.stringify({ watts: newCatProd.watts, lumens: newCatProd.lumens, cct: newCatProd.cct }),
+      }).eq('id', p.id)
+    }
+    setSubstitutingProduct(null)
+    alert(`${count} producto(s) sustituido(s).`)
+  }
+
   // Update quotation name
   async function updateQuoteName(name: string) {
     if (!quote) return
@@ -469,6 +499,7 @@ export default function CotEditorIlum({ cotId, onBack }: { cotId: string; onBack
                 allProducts={products}
                 selectedIds={selectedIds}
                 onToggleSelect={toggleProductSelect}
+                onSubstitute={(p) => setSubstitutingProduct(p)}
               />
               <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '4px 8px', gap: 20 }}>
                 <button
@@ -500,6 +531,15 @@ export default function CotEditorIlum({ cotId, onBack }: { cotId: string; onBack
           onClose={() => setCatalogModal(null)}
           onSelect={p => addProductFromCatalog(catalogModal.subsectionId, p)}
           subsectionName={subsections.find(s => s.id === catalogModal.subsectionId)?.name || ''}
+        />
+      )}
+
+      {/* Substitute Modal */}
+      {substitutingProduct && (
+        <IlumCatalogModal
+          onClose={() => setSubstitutingProduct(null)}
+          onSelect={p => substituteProduct(substitutingProduct, p)}
+          subsectionName={`Sustituir: ${substitutingProduct.name} (${products.filter(p => p.catalogId === substitutingProduct.catalogId).length} ubicaciones)`}
         />
       )}
     </div>
