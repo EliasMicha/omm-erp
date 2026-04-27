@@ -779,7 +779,7 @@ function AIImportModal({ cotId, areas, activeSysIds, currency, tipoCambio, onClo
         let prodMoneda: string = it.moneda || 'USD'
         let prodProvider = it.provider || it.marca || ''
 
-        // Si no tiene match en catálogo, checar si ya lo creamos en este mismo import
+        // Si no tiene match en catálogo, checar cache local o buscar por modelo en DB
         if (!catalogProductId) {
           const cacheKey = it.modelo.toLowerCase().trim()
           if (createdProducts[cacheKey]) {
@@ -787,6 +787,24 @@ function AIImportModal({ cotId, areas, activeSysIds, currency, tipoCambio, onClo
             prodCost = createdProducts[cacheKey].cost
             prodMoneda = createdProducts[cacheKey].moneda
             prodProvider = createdProducts[cacheKey].provider
+          } else {
+            // Buscar en DB por modelo exacto (unique constraint)
+            const { data: existingByModelo } = await supabase
+              .from('catalog_products')
+              .select('id, cost, moneda, provider, marca, modelo, sku, image_url, markup')
+              .eq('modelo', it.modelo)
+              .limit(1)
+              .single()
+            if (existingByModelo) {
+              catalogProductId = existingByModelo.id
+              prodCost = it.costo || Number(existingByModelo.cost) || 0
+              prodMoneda = it.moneda || existingByModelo.moneda || 'USD'
+              if (existingByModelo.provider) prodProvider = existingByModelo.provider
+              if (!it.marca && existingByModelo.marca) it.marca = existingByModelo.marca
+              if (!it.sku && existingByModelo.sku) it.sku = existingByModelo.sku
+              ;(it as any).image_url = existingByModelo.image_url || null
+              createdProducts[cacheKey] = { id: existingByModelo.id, cost: prodCost, moneda: prodMoneda, provider: prodProvider }
+            }
           }
         }
 
@@ -825,8 +843,13 @@ function AIImportModal({ cotId, areas, activeSysIds, currency, tipoCambio, onClo
             .select()
             .single()
           if (prodErr) {
-            console.error('Error creando producto:', prodErr, it)
-            continue
+            // Si falla por unique constraint, buscar el existente
+            if (prodErr.code === '23505') {
+              const { data: dup } = await supabase.from('catalog_products').select('id').eq('modelo', it.modelo).single()
+              if (dup) { catalogProductId = dup.id; prodCost = newProductCost; prodMoneda = newProductMoneda
+                createdProducts[it.modelo.toLowerCase().trim()] = { id: dup.id, cost: newProductCost, moneda: newProductMoneda, provider: prodProvider }
+              } else { console.error('Error creando producto:', prodErr, it); continue }
+            } else { console.error('Error creando producto:', prodErr, it); continue }
           }
           if (newProd) {
             catalogProductId = newProd.id
