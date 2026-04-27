@@ -254,13 +254,34 @@ export default function CotEditorIlum({ cotId, onBack }: { cotId: string; onBack
       if (subsData) setSubsections(subsData.map(s => ({ ...s, collapsed: false })))
 
       const { data: prodData } = await supabase.from('quotation_items').select('*').eq('quotation_id', cotId).order('order_index')
-      if (prodData) setProducts(prodData.map(p => ({
-        id: p.id, subsectionId: p.area_id, catalogId: p.catalog_product_id,
-        name: p.name, description: p.description, imageUrl: p.image_url,
-        quantity: p.quantity || 1, cost: p.cost || 0, markup: p.markup || 0, price: p.price || 0, order: p.order_index || 0,
-        marca: p.marca, modelo: p.modelo, sku: p.sku,
-        watts: p.watts, lumens: p.lumens, cct: p.cct,
-      })))
+      if (prodData) {
+        const prods = prodData.map((p: any) => {
+          let notes: any = {}
+          try { notes = JSON.parse(p.notes || '{}') } catch {}
+          return {
+            id: p.id, subsectionId: p.area_id, catalogId: p.catalog_product_id,
+            name: p.name, description: p.description || '', imageUrl: p.image_url,
+            quantity: p.quantity || 1, cost: p.cost || 0, markup: p.markup || 0, price: p.price || 0, order: p.order_index || 0,
+            marca: p.marca, modelo: p.modelo, sku: p.sku,
+            watts: notes.watts || null, lumens: notes.lumens || null, cct: notes.cct || null,
+          }
+        })
+        // Enrich with catalog data for watts/lumens/cct if missing
+        const catalogIds = [...new Set(prods.filter((p: any) => p.catalogId && !p.watts).map((p: any) => p.catalogId))]
+        if (catalogIds.length > 0) {
+          const { data: catData } = await supabase.from('catalog_products').select('id,watts,lumens,cct').in('id', catalogIds)
+          if (catData) {
+            const catMap = new Map(catData.map((c: any) => [c.id, c]))
+            prods.forEach((p: any) => {
+              if (p.catalogId && !p.watts) {
+                const cat = catMap.get(p.catalogId)
+                if (cat) { p.watts = cat.watts; p.lumens = cat.lumens; p.cct = cat.cct }
+              }
+            })
+          }
+        }
+        setProducts(prods)
+      }
 
       setLoading(false)
     }
@@ -270,11 +291,10 @@ export default function CotEditorIlum({ cotId, onBack }: { cotId: string; onBack
   // Add subsection (preset or custom)
   async function addSubsection(name: string) {
     if (!name.trim() || subsections.some(s => s.name === name)) return
-    const newSub: IlumSubsection = { id: uid(), name: name.trim(), collapsed: false, order: subsections.length }
     const { data } = await supabase.from('quotation_areas').insert({
-      id: newSub.id, quotation_id: cotId, name: newSub.name, order_index: newSub.order,
+      quotation_id: cotId, name: name.trim(), order_index: subsections.length,
     }).select().single()
-    if (data) setSubsections([...subsections, newSub])
+    if (data) setSubsections([...subsections, { id: data.id, name: data.name, collapsed: false, order: data.order_index }])
     setCustomSubInput('')
   }
 
@@ -297,15 +317,11 @@ export default function CotEditorIlum({ cotId, onBack }: { cotId: string; onBack
     if (!p) return
     const updated = { ...p, [field]: value }
     setProducts(products.map(x => x.id === id ? updated : x))
-    const payload: any = { [field]: value }
-    if (field === 'quantity') payload.quantity = value
-    if (field === 'cost') payload.cost = value
-    if (field === 'markup') payload.markup = value
-    if (field === 'price') payload.price = value
-    if (field === 'price' || field === 'cost' || field === 'markup') {
-      const { costReal, total } = calcLine(updated)
-      payload.total = total
-    }
+    const dbField = field === 'quantity' ? 'quantity' : field === 'cost' ? 'cost' : field === 'markup' ? 'markup' : field === 'price' ? 'price' : field
+    const payload: any = { [dbField]: value }
+    // Always recalculate total
+    const { total } = calcLine(updated)
+    payload.total = total
     await supabase.from('quotation_items').update(payload).eq('id', id)
   }
 
@@ -318,24 +334,30 @@ export default function CotEditorIlum({ cotId, onBack }: { cotId: string; onBack
 
   // Add product from catalog
   async function addProductFromCatalog(subsectionId: string, catProduct: CatProduct) {
-    const newProd: IlumProduct = {
-      id: uid(), subsectionId, catalogId: catProduct.id,
-      name: catProduct.name, description: catProduct.description,
-      imageUrl: catProduct.image_url || null,
-      quantity: 1, cost: catProduct.cost, markup: catProduct.markup, price: catProduct.precio_venta > 0 ? catProduct.precio_venta : Math.round(catProduct.cost / (1 - catProduct.markup / 100) * 100) / 100,
-      order: products.filter(p => p.subsectionId === subsectionId).length,
-      marca: catProduct.marca, modelo: catProduct.modelo, sku: catProduct.sku,
-      watts: catProduct.watts, lumens: catProduct.lumens, cct: catProduct.cct,
+    const markup = catProduct.markup || 35
+    const price = catProduct.precio_venta > 0 ? catProduct.precio_venta : (catProduct.cost > 0 && markup < 100 ? Math.round(catProduct.cost / (1 - markup / 100) * 100) / 100 : 0)
+    const total = price * 1
+    const { data, error } = await supabase.from('quotation_items').insert({
+      quotation_id: cotId, area_id: subsectionId, catalog_product_id: catProduct.id,
+      name: catProduct.name, description: catProduct.description || null, image_url: catProduct.image_url || null,
+      quantity: 1, cost: catProduct.cost || 0, markup, price,
+      total, order_index: products.filter(p => p.subsectionId === subsectionId).length,
+      system: 'Iluminacion', type: 'material',
+      marca: catProduct.marca || null, modelo: catProduct.modelo || null, sku: catProduct.sku || null,
+      notes: JSON.stringify({ watts: catProduct.watts, lumens: catProduct.lumens, cct: catProduct.cct }),
+    }).select().single()
+    if (error) { alert('Error: ' + error.message); return }
+    if (data) {
+      setProducts(prev => [...prev, {
+        id: data.id, subsectionId, catalogId: catProduct.id,
+        name: catProduct.name, description: catProduct.description || '',
+        imageUrl: catProduct.image_url || null,
+        quantity: 1, cost: catProduct.cost || 0, markup, price,
+        order: products.filter(p => p.subsectionId === subsectionId).length,
+        marca: catProduct.marca, modelo: catProduct.modelo, sku: catProduct.sku,
+        watts: catProduct.watts, lumens: catProduct.lumens, cct: catProduct.cct,
+      }])
     }
-    const { costReal, total } = calcLine(newProd)
-    await supabase.from('quotation_items').insert({
-      id: newProd.id, quotation_id: cotId, area_id: subsectionId, catalog_product_id: catProduct.id,
-      name: newProd.name, description: newProd.description, image_url: newProd.imageUrl,
-      quantity: newProd.quantity, cost: newProd.cost, markup: newProd.markup, price: newProd.price,
-      total: total, order_index: newProd.order, system: subsectionId,
-      marca: newProd.marca, modelo: newProd.modelo, sku: newProd.sku, watts: newProd.watts,
-    })
-    setProducts([...products, newProd])
     setCatalogModal(null)
   }
 
@@ -382,15 +404,15 @@ export default function CotEditorIlum({ cotId, onBack }: { cotId: string; onBack
             />
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
-            {STAGE_CONFIG.map(s => (
+            {Object.entries(STAGE_CONFIG).map(([id, s]) => (
               <button
-                key={s.id}
-                onClick={() => quote && supabase.from('quotations').update({ stage: s.id }).eq('id', cotId).then(() => setQuote({ ...quote, stage: s.id }))}
+                key={id}
+                onClick={() => quote && supabase.from('quotations').update({ stage: id }).eq('id', cotId).then(() => setQuote({ ...quote, stage: id }))}
                 style={{
                   padding: '6px 12px', borderRadius: 6, fontSize: 11, fontWeight: 600, fontFamily: 'inherit',
-                  background: quote?.stage === s.id ? s.color + '33' : 'transparent',
-                  border: quote?.stage === s.id ? '1px solid ' + s.color : '1px solid #333',
-                  color: quote?.stage === s.id ? s.color : '#666', cursor: 'pointer',
+                  background: quote?.stage === id ? s.color + '33' : 'transparent',
+                  border: quote?.stage === id ? '1px solid ' + s.color : '1px solid #333',
+                  color: quote?.stage === id ? s.color : '#666', cursor: 'pointer',
                 }}
               >
                 {s.label}
