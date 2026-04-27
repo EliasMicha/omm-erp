@@ -1,8 +1,8 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { F, STAGE_CONFIG } from '../lib/utils'
 import { Btn, Loading } from '../components/layout/UI'
-import { Plus, ChevronDown, ChevronRight, X, Trash2, Image as ImageIcon, Search, ArrowLeftRight } from 'lucide-react'
+import { Plus, ChevronDown, ChevronRight, X, Trash2, Image as ImageIcon, Search, ArrowLeftRight, Sparkles, Upload, Loader2, FileText } from 'lucide-react'
 
 // ═══════════════════════════════════════════════════════════════════
 // TYPES
@@ -233,6 +233,502 @@ function SubsectionBlock({ subsection, products, onToggle, onUpdate, onRemove, o
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// AI IMPORT MODAL — Importar listado de productos con AI (Iluminación)
+// ═══════════════════════════════════════════════════════════════════
+interface AIExtractedItemIlum {
+  _rowId: string
+  subsection: string
+  marca: string
+  modelo: string
+  descripcion: string
+  cantidad: number
+  precio_unitario: number | null
+  costo: number | null
+  moneda: 'USD' | 'MXN' | null
+  provider: string
+  watts: number | null
+  lumens: number | null
+  cct: string | null
+  notas: string
+  match_status: 'exact' | 'partial' | 'none'
+  catalog_product_id: string | null
+  sku?: string | null
+}
+
+function AIImportModalIlum({ cotId, subsections, onClose, onImported }: {
+  cotId: string
+  subsections: IlumSubsection[]
+  onClose: () => void
+  onImported: () => void
+}) {
+  const [step, setStep] = useState<'upload' | 'processing' | 'review' | 'inserting'>('upload')
+  const [items, setItems] = useState<AIExtractedItemIlum[]>([])
+  const [warnings, setWarnings] = useState<string[]>([])
+  const [confidence, setConfidence] = useState<string>('')
+  const [error, setError] = useState<string | null>(null)
+  const [progress, setProgress] = useState<string>('')
+  const [insertedCount, setInsertedCount] = useState(0)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  function fileToBase64(file: File): Promise<string> {
+    return new Promise((res, rej) => {
+      const r = new FileReader()
+      r.onload = () => res((r.result as string).split(',')[1])
+      r.onerror = () => rej(new Error('Error leyendo archivo'))
+      r.readAsDataURL(file)
+    })
+  }
+
+  async function callExtractAPI(body: any): Promise<{ items: any[]; confidence: string; warnings: string[] }> {
+    const r = await fetch('/api/extract', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...body, context: 'iluminacion', subsections: subsections.map(s => s.name) }),
+    })
+    const data = await r.json()
+    if (!r.ok || !data.ok) throw new Error(data.error || 'Error en /api/extract (' + r.status + ')')
+    return { items: data.items || [], confidence: data.confidence || 'medium', warnings: data.warnings || [] }
+  }
+
+  async function loadXLSX(): Promise<any> {
+    if ((window as any).XLSX) return (window as any).XLSX
+    await new Promise<void>((resolve, reject) => {
+      const script = document.createElement('script')
+      script.src = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js'
+      script.onload = () => resolve()
+      script.onerror = () => reject(new Error('No se pudo cargar SheetJS desde CDN'))
+      document.head.appendChild(script)
+    })
+    if (!(window as any).XLSX) throw new Error('SheetJS cargado pero no disponible en window')
+    return (window as any).XLSX
+  }
+
+  function mapSubsection(name: string): string {
+    const s = (name || '').toLowerCase().trim()
+    if (!s) return subsections[0]?.name || 'Luminarias'
+    if (s.includes('luminaria') || s.includes('lamp') || s.includes('light') || s.includes('downlight') || s.includes('spot')) return 'Luminarias'
+    if (s.includes('fuente') || s.includes('power') || s.includes('supply')) return 'Fuentes de Poder'
+    if (s.includes('perfil') || s.includes('profile') || s.includes('channel')) return 'Perfiles'
+    if (s.includes('driver') || s.includes('ballast') || s.includes('transformador')) return 'Drivers'
+    if (s.includes('accesorio') || s.includes('accessor') || s.includes('mounting') || s.includes('bracket')) return 'Accesorios'
+    if (s.includes('control') || s.includes('dimmer') || s.includes('switch') || s.includes('sensor')) return 'Control'
+    return subsections[0]?.name || 'Luminarias'
+  }
+
+  function findCol(row: any, candidates: string[]): any {
+    const keys = Object.keys(row)
+    for (const cand of candidates) {
+      const hit = keys.find(k => k.toLowerCase().trim() === cand.toLowerCase().trim())
+      if (hit && row[hit] != null && String(row[hit]).trim() !== '') return row[hit]
+    }
+    return null
+  }
+
+  function tryParseStructuredRows(rows: any[]): { items: any[]; confidence: string; warnings: string[] } | null {
+    if (!rows || rows.length === 0) return null
+    const firstRow = rows[0]
+    if (!firstRow || typeof firstRow !== 'object') return null
+    const keys = Object.keys(firstRow).map(k => k.toLowerCase())
+    const hasModel = keys.some(k => k === 'model' || k === 'modelo' || k === 'part number' || k === 'sku')
+    if (!hasModel) return null
+
+    const items: any[] = []
+    const warnings: string[] = []
+    for (const row of rows) {
+      const model = findCol(row, ['Model', 'Modelo', 'Part Number', 'SKU'])
+      if (!model) continue
+      const manufacturer = findCol(row, ['Manufacturer', 'Marca', 'Brand', 'Fabricante']) || ''
+      const category = findCol(row, ['Category', 'Categoría', 'Categoria', 'Subsección', 'Subseccion', 'System', 'Sistema', 'Type', 'Tipo']) || ''
+      const description = findCol(row, ['Short Description', 'Description', 'Descripción', 'Descripcion', 'Product Description']) || ''
+      const qtyRaw = findCol(row, ['Item Ext Qty', 'Item Unit Qty', 'Qty', 'Quantity', 'Cantidad', 'Cant'])
+      const qty = qtyRaw != null ? parseFloat(String(qtyRaw)) : 1
+      const priceRaw = findCol(row, ['Unit Price', 'Precio Unitario', 'Price', 'Precio', 'Item Unit Price', 'Sell Price', 'MSRP', 'P.U.', 'PU'])
+      const price = priceRaw != null ? parseFloat(String(priceRaw).replace(/[$,]/g, '')) : null
+      const costRaw = findCol(row, ['costo', 'Costo', 'Costo Unitario', 'Unit Cost', 'Cost', 'Dealer Cost', 'Net Cost'])
+      const costVal = costRaw != null ? parseFloat(String(costRaw).replace(/[$,]/g, '')) : null
+      const wattsRaw = findCol(row, ['Watts', 'W', 'Potencia', 'Wattage'])
+      const lumensRaw = findCol(row, ['Lumens', 'Lm', 'Lúmenes', 'Lumenes', 'Flujo'])
+      const cctRaw = findCol(row, ['CCT', 'Color Temp', 'Temperatura', 'Kelvin', 'K'])
+      const currency = findCol(row, ['Selling Currency', 'Cost Currency', 'Currency', 'Moneda'])
+      let moneda: 'USD' | 'MXN' | null = null
+      if (currency) {
+        const c = String(currency).toUpperCase()
+        if (c.includes('USD') || c.includes('DLL') || c === 'US$') moneda = 'USD'
+        else if (c.includes('MXN') || c.includes('PESO') || c === 'MX$') moneda = 'MXN'
+      }
+
+      items.push({
+        subsection: mapSubsection(String(category)),
+        marca: String(manufacturer).trim(),
+        modelo: String(model).trim(),
+        descripcion: String(description).trim(),
+        cantidad: isNaN(qty) ? 1 : Math.max(1, Math.round(qty)),
+        precio_unitario: price != null && !isNaN(price) ? price : null,
+        costo: costVal != null && !isNaN(costVal) ? costVal : null,
+        watts: wattsRaw ? parseFloat(String(wattsRaw)) || null : null,
+        lumens: lumensRaw ? parseFloat(String(lumensRaw)) || null : null,
+        cct: cctRaw ? String(cctRaw).trim() : null,
+        moneda,
+        provider: findCol(row, ['Vendor', 'Proveedor', 'Supplier', 'Distribuidor']) || String(manufacturer).trim(),
+        notas: '',
+      })
+    }
+    if (items.length === 0) return null
+    const skipped = rows.length - items.length
+    if (skipped > 0) warnings.push(skipped + ' fila(s) sin modelo fueron omitidas')
+    warnings.push('Parseado directamente del Excel (' + items.length + ' items) — sin usar AI')
+    return { items, confidence: 'high', warnings }
+  }
+
+  function tryParseStructured(text: string): { items: any[]; confidence: string; warnings: string[] } | null {
+    if (!text || text.length < 50) return null
+    const firstLine = text.split('\n')[0]
+    const sep = firstLine.includes('\t') ? '\t' : ','
+    const lines = text.split('\n').filter(l => l.trim().length > 0)
+    if (lines.length < 2) return null
+    function splitCSV(line: string): string[] {
+      const out: string[] = []; let cur = ''; let inQ = false
+      for (let i = 0; i < line.length; i++) {
+        const c = line[i]
+        if (c === '"' && (i === 0 || line[i-1] !== '\\')) { inQ = !inQ } else if (c === sep && !inQ) { out.push(cur); cur = '' } else { cur += c }
+      }
+      out.push(cur)
+      return out.map(s => s.trim().replace(/^"|"$/g, ''))
+    }
+    const headers = splitCSV(lines[0])
+    const rows: any[] = []
+    for (let i = 1; i < lines.length; i++) {
+      const cells = splitCSV(lines[i]); const row: any = {}
+      headers.forEach((h, idx) => { row[h] = cells[idx] || null })
+      rows.push(row)
+    }
+    return tryParseStructuredRows(rows)
+  }
+
+  async function handleFile(file: File) {
+    setError(null); setStep('processing'); setProgress('Leyendo archivo...')
+    try {
+      const ext = (file.name.split('.').pop() || '').toLowerCase()
+      let extracted: { items: any[]; confidence: string; warnings: string[] }
+
+      if (['csv', 'tsv', 'txt'].includes(ext)) {
+        const text = await file.text()
+        const dtResult = tryParseStructured(text)
+        if (dtResult) { extracted = dtResult } else {
+          setProgress('Analizando con AI...'); extracted = await callExtractAPI({ kind: 'text', payload: text })
+        }
+      } else if (['xlsx', 'xls'].includes(ext)) {
+        setProgress('Cargando parser de Excel...')
+        const XLSX = await loadXLSX()
+        const buf = await file.arrayBuffer()
+        const wb = XLSX.read(buf, { type: 'array' })
+        let rows: any[] = []
+        for (const sheetName of wb.SheetNames) {
+          const sheet = wb.Sheets[sheetName]
+          const matrix: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null, raw: false })
+          if (matrix.length === 0) continue
+          const headerKeywords = ['model', 'modelo', 'part number', 'marca', 'quantity', 'cantidad', 'description', 'descripcion', 'price', 'precio', 'watts', 'costo', 'sku']
+          let headerRowIdx = 0
+          for (let i = 0; i < Math.min(matrix.length, 10); i++) {
+            const cells = (matrix[i] || []).map((c: any) => String(c || '').toLowerCase().trim())
+            const matches = cells.filter((c: string) => headerKeywords.some(kw => c === kw || c.includes(kw))).length
+            if (matches >= 2) { headerRowIdx = i; break }
+          }
+          const headers = (matrix[headerRowIdx] || []).map((h: any, idx: number) => String(h || '').trim() || ('col_' + idx))
+          const dataRows: any[] = []
+          for (let i = headerRowIdx + 1; i < matrix.length; i++) {
+            const row: any = {}; const cells = matrix[i] || []; let hasData = false
+            headers.forEach((h: string, idx: number) => { const v = cells[idx]; row[h] = v != null && v !== '' ? v : null; if (v != null && String(v).trim() !== '') hasData = true })
+            if (hasData) dataRows.push(row)
+          }
+          if (dataRows.length > rows.length) rows = dataRows
+        }
+        setProgress('Detectando formato...')
+        const structured = tryParseStructuredRows(rows)
+        if (structured) { extracted = structured } else {
+          setProgress('Analizando con AI...')
+          let text = ''; for (const name of wb.SheetNames) { text += '\n=== Hoja: ' + name + ' ===\n'; text += XLSX.utils.sheet_to_csv(wb.Sheets[name]) }
+          extracted = await callExtractAPI({ kind: 'text', payload: text })
+        }
+      } else if (ext === 'pdf') {
+        setProgress('Codificando PDF...'); const base64 = await fileToBase64(file)
+        setProgress('Analizando PDF con AI...'); extracted = await callExtractAPI({ kind: 'pdf', payload: base64 })
+      } else if (['jpg', 'jpeg', 'png', 'webp', 'gif'].includes(ext)) {
+        setProgress('Codificando imagen...'); const base64 = await fileToBase64(file)
+        const mediaType = 'image/' + (ext === 'jpg' ? 'jpeg' : ext)
+        setProgress('Analizando imagen con AI...'); extracted = await callExtractAPI({ kind: 'image', payload: base64, mediaType })
+      } else {
+        throw new Error('Formato no soportado: .' + ext + ' (usa Excel, CSV, PDF o imagen)')
+      }
+
+      setProgress('Verificando catálogo...')
+      const matched = await matchCatalog(extracted.items)
+      setItems(matched); setWarnings(extracted.warnings || []); setConfidence(extracted.confidence || 'medium'); setStep('review')
+    } catch (err: any) { setError(err.message || 'Error procesando archivo'); setStep('upload') }
+  }
+
+  async function matchCatalog(rawItems: any[]): Promise<AIExtractedItemIlum[]> {
+    const result: AIExtractedItemIlum[] = []
+    for (const it of rawItems) {
+      const row: AIExtractedItemIlum = {
+        _rowId: uid(), subsection: it.subsection || subsections[0]?.name || 'Luminarias',
+        marca: it.marca || '', modelo: it.modelo || '', descripcion: it.descripcion || '',
+        cantidad: parseInt(it.cantidad) || 1, precio_unitario: it.precio_unitario != null ? Number(it.precio_unitario) : null,
+        costo: it.costo != null ? Number(it.costo) : null, moneda: it.moneda === 'USD' || it.moneda === 'MXN' ? it.moneda : null,
+        provider: it.provider || it.marca || '', watts: it.watts || null, lumens: it.lumens || null, cct: it.cct || null,
+        notas: it.notas || '', match_status: 'none', catalog_product_id: null,
+      }
+      if (!row.modelo) { result.push(row); continue }
+      const { data: exact } = await supabase.from('catalog_products').select('id, name, modelo').eq('modelo', row.modelo).eq('specialty', 'ilum').limit(5)
+      if (exact && exact.length === 1) { row.match_status = 'exact'; row.catalog_product_id = exact[0].id }
+      else if (exact && exact.length > 1) { row.match_status = 'partial'; row.catalog_product_id = exact[0].id }
+      else {
+        const { data: fuzzy } = await supabase.from('catalog_products').select('id, name, modelo').ilike('modelo', '%' + row.modelo + '%').eq('specialty', 'ilum').limit(5)
+        if (fuzzy && fuzzy.length > 0) { row.match_status = 'partial'; row.catalog_product_id = fuzzy[0].id }
+      }
+      result.push(row)
+    }
+    return result
+  }
+
+  function updateRow(rowId: string, field: keyof AIExtractedItemIlum, value: any) {
+    setItems(prev => prev.map(it => it._rowId === rowId ? { ...it, [field]: value } : it))
+  }
+
+  function removeRow(rowId: string) { setItems(prev => prev.filter(it => it._rowId !== rowId)) }
+
+  async function handleConfirm() {
+    setStep('inserting'); setError(null); setInsertedCount(0)
+    try {
+      // 1) Ensure subsections exist
+      setProgress('Sincronizando subsecciones...')
+      const subCache: Record<string, string> = {}
+      subsections.forEach(s => { subCache[s.name.toLowerCase().trim()] = s.id })
+      const uniqueSubNames = Array.from(new Set(items.map(it => (it.subsection || 'Luminarias').trim()).filter(Boolean)))
+      for (const name of uniqueSubNames) {
+        const key = name.toLowerCase()
+        if (subCache[key]) continue
+        const { data: newSub, error: subErr } = await supabase.from('quotation_areas').insert({
+          quotation_id: cotId, name: name.trim(), order_index: Object.keys(subCache).length,
+        }).select().single()
+        if (subErr) throw new Error('Error creando subsección "' + name + '": ' + subErr.message)
+        if (newSub) subCache[key] = newSub.id
+      }
+
+      // 2) Process each item
+      setProgress('Procesando productos...')
+      let inserted = 0
+      const createdProducts: Record<string, { id: string; cost: number; moneda: string }> = {}
+      for (const it of items) {
+        if (!it.modelo) continue
+        let catalogProductId = it.catalog_product_id
+        let prodCost = it.costo || 0
+        let prodMoneda: string = it.moneda || 'USD'
+
+        if (!catalogProductId) {
+          const cacheKey = it.modelo.toLowerCase().trim()
+          if (createdProducts[cacheKey]) {
+            catalogProductId = createdProducts[cacheKey].id
+            prodCost = it.costo || createdProducts[cacheKey].cost
+            prodMoneda = it.moneda || createdProducts[cacheKey].moneda
+          } else {
+            const { data: existingByModelo } = await supabase.from('catalog_products').select('id, cost, moneda, provider, marca, modelo, sku, image_url, markup').eq('modelo', it.modelo).limit(1).single()
+            if (existingByModelo) {
+              catalogProductId = existingByModelo.id
+              prodCost = it.costo || Number(existingByModelo.cost) || 0
+              prodMoneda = it.moneda || existingByModelo.moneda || 'USD'
+              createdProducts[cacheKey] = { id: existingByModelo.id, cost: prodCost, moneda: prodMoneda }
+            }
+          }
+        }
+
+        if (!catalogProductId) {
+          const newProductCost = it.costo || it.precio_unitario || 0
+          const newProductMoneda = it.moneda || 'USD'
+          const defaultMarkup = 35
+          const precioVenta = it.precio_unitario || (newProductCost > 0 ? Math.round(newProductCost / (1 - defaultMarkup / 100) * 100) / 100 : 0)
+          const productName = it.descripcion || ((it.marca + ' ' + it.modelo).trim())
+          const computedMarkup = newProductCost > 0 && precioVenta > 0 ? Math.round((1 - newProductCost / precioVenta) * 100) : defaultMarkup
+          const { data: newProd, error: prodErr } = await supabase.from('catalog_products').insert({
+            name: productName, description: it.descripcion || null, system: 'Iluminacion', specialty: 'ilum',
+            type: 'material', unit: 'pza', cost: newProductCost, markup: computedMarkup, precio_venta: precioVenta,
+            provider: it.provider || null, marca: it.marca || null, modelo: it.modelo, moneda: newProductMoneda,
+            watts: it.watts || null, lumens: it.lumens || null, cct: it.cct || null,
+            clave_unidad: 'H87', iva_rate: 0.16, is_active: true,
+          }).select().single()
+          if (prodErr) {
+            if (prodErr.code === '23505') {
+              const { data: dup } = await supabase.from('catalog_products').select('id').eq('modelo', it.modelo).single()
+              if (dup) { catalogProductId = dup.id; prodCost = newProductCost; prodMoneda = newProductMoneda; createdProducts[it.modelo.toLowerCase().trim()] = { id: dup.id, cost: newProductCost, moneda: newProductMoneda } }
+              else { console.error('Error creando producto:', prodErr, it); continue }
+            } else { console.error('Error creando producto:', prodErr, it); continue }
+          }
+          if (newProd) { catalogProductId = newProd.id; prodCost = newProductCost; prodMoneda = newProductMoneda; createdProducts[it.modelo.toLowerCase().trim()] = { id: newProd.id, cost: newProductCost, moneda: newProductMoneda } }
+        } else {
+          const { data: existing } = await supabase.from('catalog_products').select('cost, moneda, provider, markup, marca, modelo, sku, image_url, watts, lumens, cct').eq('id', catalogProductId).single()
+          if (existing) {
+            prodCost = it.costo || Number(existing.cost) || 0
+            prodMoneda = it.moneda || existing.moneda || 'USD'
+            if (!it.marca && existing.marca) it.marca = existing.marca
+            if (!it.modelo && existing.modelo) it.modelo = existing.modelo
+            if (!it.sku && (existing as any).sku) it.sku = (existing as any).sku
+            if (!it.watts && existing.watts) it.watts = existing.watts
+            if (!it.lumens && existing.lumens) it.lumens = existing.lumens
+            if (!it.cct && existing.cct) it.cct = existing.cct
+          }
+        }
+
+        const defaultMarkup = 35
+        let precio: number
+        if (it.precio_unitario && it.precio_unitario > 0) { precio = it.precio_unitario }
+        else if (prodCost > 0) { precio = Math.round(prodCost / (1 - defaultMarkup / 100) * 100) / 100 }
+        else { precio = 0 }
+        const margin = prodCost > 0 && precio > 0 ? Math.round((1 - prodCost / precio) * 100) : defaultMarkup
+
+        const subId = subCache[(it.subsection || 'Luminarias').toLowerCase().trim()]
+        if (!subId) { console.warn('Sin subsección para item', it); continue }
+        const itemName = it.descripcion || ((it.marca + ' ' + it.modelo).trim())
+
+        const { error: itemErr } = await supabase.from('quotation_items').insert({
+          quotation_id: cotId, area_id: subId, catalog_product_id: catalogProductId,
+          name: itemName, description: it.descripcion || null, system: 'Iluminacion', type: 'material',
+          quantity: it.cantidad, cost: prodCost, markup: margin, price: precio, total: precio * it.cantidad,
+          installation_cost: 0, order_index: inserted,
+          marca: it.marca || null, modelo: it.modelo || null, sku: it.sku || null,
+          notes: JSON.stringify({ watts: it.watts, lumens: it.lumens, cct: it.cct }),
+        })
+        if (itemErr) { console.error('Error insertando item:', itemErr, it); continue }
+        inserted++; setInsertedCount(inserted)
+      }
+
+      onImported(); onClose()
+    } catch (err: any) { setError(err.message || 'Error en la importación'); setStep('review') }
+  }
+
+  const exactCount = items.filter(i => i.match_status === 'exact').length
+  const partialCount = items.filter(i => i.match_status === 'partial').length
+  const noneCount = items.filter(i => i.match_status === 'none').length
+  const allSubNames = Array.from(new Set([...subsections.map(s => s.name), ...SUBSECTION_PRESETS]))
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1030 }}>
+      <div style={{ background: '#141414', border: '1px solid #333', borderRadius: 16, padding: 20, width: '92vw', maxWidth: 1200, maxHeight: '92vh', display: 'flex', flexDirection: 'column' as const }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 600, color: '#fff', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Sparkles size={14} color="#57FF9A" /> Importar con AI — Iluminación
+            </div>
+            <div style={{ fontSize: 11, color: '#555' }}>Sube un listado en Excel, CSV, PDF o imagen — la AI extrae los productos de iluminación</div>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer' }}><X size={18} /></button>
+        </div>
+
+        {error && <div style={{ background: '#3a1a1a', border: '1px solid #5a2a2a', borderRadius: 8, padding: 10, color: '#f87171', fontSize: 12, marginBottom: 12 }}>{error}</div>}
+
+        {step === 'upload' && (
+          <div onClick={() => fileInputRef.current?.click()} onDrop={e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) handleFile(f) }} onDragOver={e => e.preventDefault()}
+            style={{ border: '2px dashed #333', borderRadius: 12, padding: '60px 20px', textAlign: 'center', cursor: 'pointer', color: '#666' }}>
+            <Upload size={36} color="#444" style={{ marginBottom: 12 }} />
+            <div style={{ fontSize: 14, fontWeight: 600, color: '#ccc', marginBottom: 6 }}>Arrastra un archivo o haz clic</div>
+            <div style={{ fontSize: 11, color: '#555' }}>Excel (.xlsx, .csv, .tsv), PDF, imagen (JPG, PNG, WEBP)</div>
+            <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv,.tsv,.txt,.pdf,.jpg,.jpeg,.png,.webp,.gif" style={{ display: 'none' }}
+              onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f) }} />
+          </div>
+        )}
+
+        {step === 'processing' && (
+          <div style={{ padding: '60px 20px', textAlign: 'center' }}>
+            <Loader2 size={32} color="#57FF9A" style={{ animation: 'spin 1s linear infinite', marginBottom: 12 }} />
+            <div style={{ fontSize: 13, color: '#ccc' }}>{progress}</div>
+          </div>
+        )}
+
+        {step === 'inserting' && (
+          <div style={{ padding: '60px 20px', textAlign: 'center' }}>
+            <Loader2 size={32} color="#57FF9A" style={{ animation: 'spin 1s linear infinite', marginBottom: 12 }} />
+            <div style={{ fontSize: 13, color: '#ccc' }}>{progress}</div>
+            <div style={{ fontSize: 11, color: '#555', marginTop: 8 }}>Insertados: {insertedCount} / {items.length}</div>
+          </div>
+        )}
+
+        {step === 'review' && (<>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 10, fontSize: 11 }}>
+            <span style={{ color: '#888' }}>Confianza: <span style={{ color: confidence === 'high' ? '#57FF9A' : confidence === 'medium' ? '#F59E0B' : '#EF4444', fontWeight: 600 }}>{confidence}</span></span>
+            <span style={{ color: '#888' }}>{items.length} items detectados</span>
+            <span style={{ color: '#57FF9A' }}>✓ {exactCount} en catálogo</span>
+            <span style={{ color: '#F59E0B' }}>~ {partialCount} parciales</span>
+            <span style={{ color: '#06B6D4' }}>+ {noneCount} nuevos</span>
+          </div>
+
+          {warnings.length > 0 && (
+            <div style={{ background: '#2a200a', border: '1px solid #3a2e10', borderRadius: 8, padding: 10, marginBottom: 10 }}>
+              <div style={{ fontSize: 11, color: '#F59E0B', fontWeight: 600, marginBottom: 4 }}>Advertencias:</div>
+              {warnings.map((w, i) => <div key={i} style={{ fontSize: 11, color: '#aaa' }}>• {w}</div>)}
+            </div>
+          )}
+
+          <div style={{ flex: 1, overflowY: 'auto', border: '1px solid #222', borderRadius: 8 }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+              <thead style={{ position: 'sticky', top: 0, background: '#1a1a1a' }}>
+                <tr>
+                  <th style={S.th}></th>
+                  <th style={{ ...S.th, textAlign: 'left' }}>Subsección</th>
+                  <th style={{ ...S.th, textAlign: 'left' }}>Marca</th>
+                  <th style={{ ...S.th, textAlign: 'left' }}>Modelo</th>
+                  <th style={{ ...S.th, textAlign: 'left' }}>Descripción</th>
+                  <th style={{ ...S.th, textAlign: 'right' }}>W</th>
+                  <th style={{ ...S.th, textAlign: 'right' }}>Cant</th>
+                  <th style={{ ...S.th, textAlign: 'right' }}>Costo</th>
+                  <th style={{ ...S.th, textAlign: 'right' }}>P. Venta</th>
+                  <th style={S.th}>Mon</th>
+                  <th style={S.th}></th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.map(it => (
+                  <tr key={it._rowId}>
+                    <td style={{ ...S.td, textAlign: 'center', width: 28 }}>
+                      {it.match_status === 'exact' && <span title="En catálogo" style={{ color: '#57FF9A' }}>✓</span>}
+                      {it.match_status === 'partial' && <span title="Match parcial" style={{ color: '#F59E0B' }}>~</span>}
+                      {it.match_status === 'none' && <span title="Se creará nuevo" style={{ color: '#06B6D4' }}>+</span>}
+                    </td>
+                    <td style={S.td}>
+                      <select value={it.subsection} onChange={e => updateRow(it._rowId, 'subsection', e.target.value)}
+                        style={{ padding: '4px 6px', background: '#1e1e1e', border: '1px solid #333', borderRadius: 4, color: '#ccc', fontSize: 11, fontFamily: 'inherit' }}>
+                        {allSubNames.map(s => <option key={s} value={s}>{s}</option>)}
+                      </select>
+                    </td>
+                    <td style={S.td}><input value={it.marca} onChange={e => updateRow(it._rowId, 'marca', e.target.value)} style={{ width: 90, padding: '4px 6px', background: '#1e1e1e', border: '1px solid #333', borderRadius: 4, color: '#ccc', fontSize: 11, fontFamily: 'inherit' }} /></td>
+                    <td style={S.td}><input value={it.modelo} onChange={e => updateRow(it._rowId, 'modelo', e.target.value)} style={{ width: 110, padding: '4px 6px', background: '#1e1e1e', border: '1px solid #333', borderRadius: 4, color: '#ccc', fontSize: 11, fontFamily: 'inherit' }} /></td>
+                    <td style={S.td}><input value={it.descripcion} onChange={e => updateRow(it._rowId, 'descripcion', e.target.value)} style={{ width: 180, padding: '4px 6px', background: '#1e1e1e', border: '1px solid #333', borderRadius: 4, color: '#ccc', fontSize: 11, fontFamily: 'inherit' }} /></td>
+                    <td style={S.tdR}><input type="number" value={it.watts ?? ''} onChange={e => updateRow(it._rowId, 'watts', e.target.value ? parseFloat(e.target.value) : null)} style={{ width: 50, padding: '4px 6px', background: '#1e1e1e', border: '1px solid #333', borderRadius: 4, color: '#ccc', fontSize: 11, fontFamily: 'inherit', textAlign: 'right' }} /></td>
+                    <td style={S.tdR}><input type="number" value={it.cantidad} onChange={e => updateRow(it._rowId, 'cantidad', parseInt(e.target.value) || 1)} style={{ width: 50, padding: '4px 6px', background: '#1e1e1e', border: '1px solid #333', borderRadius: 4, color: '#ccc', fontSize: 11, fontFamily: 'inherit', textAlign: 'right' }} /></td>
+                    <td style={S.tdR}><input type="number" step={0.01} value={it.costo ?? ''} onChange={e => updateRow(it._rowId, 'costo', e.target.value ? parseFloat(e.target.value) : null)} style={{ width: 70, padding: '4px 6px', background: '#1e1e1e', border: '1px solid #333', borderRadius: 4, color: '#F59E0B', fontSize: 11, fontFamily: 'inherit', textAlign: 'right' }} /></td>
+                    <td style={S.tdR}><input type="number" step={0.01} value={it.precio_unitario ?? ''} onChange={e => updateRow(it._rowId, 'precio_unitario', e.target.value ? parseFloat(e.target.value) : null)} style={{ width: 70, padding: '4px 6px', background: '#1e1e1e', border: '1px solid #333', borderRadius: 4, color: '#ccc', fontSize: 11, fontFamily: 'inherit', textAlign: 'right' }} /></td>
+                    <td style={S.td}>
+                      <select value={it.moneda || ''} onChange={e => updateRow(it._rowId, 'moneda', (e.target.value || null) as any)}
+                        style={{ padding: '4px 6px', background: '#1e1e1e', border: '1px solid #333', borderRadius: 4, color: '#ccc', fontSize: 11, fontFamily: 'inherit' }}>
+                        <option value="">—</option><option value="USD">USD</option><option value="MXN">MXN</option>
+                      </select>
+                    </td>
+                    <td style={{ ...S.td, width: 28 }}><button onClick={() => removeRow(it._rowId)} style={{ background: 'none', border: 'none', color: '#444', cursor: 'pointer' }}><X size={12} /></button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 14 }}>
+            <Btn onClick={onClose}>Cancelar</Btn>
+            <Btn variant="primary" onClick={handleConfirm} disabled={items.length === 0}>Importar {items.length} items a la cotización</Btn>
+          </div>
+        </>)}
+      </div>
+    </div>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // MAIN COMPONENT
 // ═══════════════════════════════════════════════════════════════════
 export default function CotEditorIlum({ cotId, onBack }: { cotId: string; onBack: () => void }) {
@@ -244,6 +740,8 @@ export default function CotEditorIlum({ cotId, onBack }: { cotId: string; onBack
   const [catalogModal, setCatalogModal] = useState<{ open: boolean; subsectionId: string } | null>(null)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [substitutingProduct, setSubstitutingProduct] = useState<IlumProduct | null>(null)
+  const [showAIImport, setShowAIImport] = useState(false)
+  const [showPdfPicker, setShowPdfPicker] = useState(false)
 
   // Load quotation, subsections, and products
   useEffect(() => {
@@ -449,6 +947,8 @@ export default function CotEditorIlum({ cotId, onBack }: { cotId: string; onBack
               </button>
             ))}
           </div>
+          <button onClick={() => setShowAIImport(true)} style={{ padding: '6px 12px', borderRadius: 20, fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #57FF9A44', background: 'transparent', color: '#57FF9A', display: 'inline-flex', alignItems: 'center', gap: 4 }}><Sparkles size={12} /> Importar con AI</button>
+          <button onClick={() => setShowPdfPicker(true)} style={{ padding: '6px 12px', borderRadius: 20, fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #06B6D444', background: 'transparent', color: '#06B6D4', display: 'inline-flex', alignItems: 'center', gap: 4 }}><FileText size={12} /> Exportar PDF</button>
           <div style={{ fontSize: 16, fontWeight: 700, color: '#57FF9A' }}>${fmt(grandTotal)}</div>
         </div>
 
@@ -541,6 +1041,64 @@ export default function CotEditorIlum({ cotId, onBack }: { cotId: string; onBack
           onSelect={p => substituteProduct(substitutingProduct, p)}
           subsectionName={`Sustituir: ${substitutingProduct.name} (${products.filter(p => p.catalogId === substitutingProduct.catalogId).length} ubicaciones)`}
         />
+      )}
+
+      {/* AI Import Modal */}
+      {showAIImport && (
+        <AIImportModalIlum
+          cotId={cotId}
+          subsections={subsections}
+          onClose={() => setShowAIImport(false)}
+          onImported={() => {
+            // Reload data
+            async function reload() {
+              const { data: subsData } = await supabase.from('quotation_areas').select('*').eq('quotation_id', cotId).order('order_index')
+              if (subsData) setSubsections(subsData.map((s: any) => ({ ...s, collapsed: false })))
+              const { data: prodData } = await supabase.from('quotation_items').select('*').eq('quotation_id', cotId).order('order_index')
+              if (prodData) {
+                const prods = prodData.map((p: any) => {
+                  let notes: any = {}; try { notes = JSON.parse(p.notes || '{}') } catch {}
+                  return { id: p.id, subsectionId: p.area_id, catalogId: p.catalog_product_id, name: p.name, description: p.description || '', imageUrl: p.image_url, quantity: p.quantity || 1, cost: p.cost || 0, markup: p.markup || 0, price: p.price || 0, order: p.order_index || 0, marca: p.marca, modelo: p.modelo, sku: p.sku, watts: notes.watts || null, lumens: notes.lumens || null, cct: notes.cct || null }
+                })
+                setProducts(prods)
+              }
+            }
+            reload()
+          }}
+        />
+      )}
+
+      {/* PDF format picker */}
+      {showPdfPicker && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 1030, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ background: '#141414', border: '1px solid #333', borderRadius: 16, padding: 24, width: 620, maxWidth: '92vw' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+              <div style={{ fontSize: 15, fontWeight: 600, color: '#fff', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <FileText size={16} color="#06B6D4" /> Exportar a PDF — Iluminación
+              </div>
+              <button onClick={() => setShowPdfPicker(false)} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer' }}><X size={18} /></button>
+            </div>
+            <div style={{ fontSize: 11, color: '#555', marginBottom: 18 }}>Elige el formato. Cada uno abre en una pestaña nueva con vista previa imprimible.</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 10 }}>
+              {([
+                { id: 'ejecutivo', icon: '📄', title: 'Ejecutivo', desc: 'Para cliente final. Diseño formal, sin costos internos ni markups. La versión que mandas por email.' },
+                { id: 'tecnico', icon: '🔧', title: 'Técnico detallado', desc: 'Para ingeniería. Incluye SKUs, proveedores, costos internos y markups. Uso interno o cliente técnico.' },
+                { id: 'lista', icon: '📋', title: 'Lista de precios', desc: 'Tabla simple sin agrupar. Ideal para comparar precios rápido.' },
+              ] as const).map(opt => (
+                <button key={opt.id} onClick={() => { window.open('/cotizacion/' + cotId + '/pdf/' + opt.id, '_blank'); setShowPdfPicker(false) }}
+                  style={{ padding: '14px 16px', background: '#0e0e0e', border: '1px solid #2a2a2a', borderRadius: 10, cursor: 'pointer', textAlign: 'left', color: '#ddd', fontFamily: 'inherit', display: 'flex', gap: 12, alignItems: 'center' }}
+                  onMouseEnter={e => { e.currentTarget.style.borderColor = '#06B6D4'; e.currentTarget.style.background = '#0e1419' }}
+                  onMouseLeave={e => { e.currentTarget.style.borderColor = '#2a2a2a'; e.currentTarget.style.background = '#0e0e0e' }}>
+                  <div style={{ fontSize: 24 }}>{opt.icon}</div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: '#fff', marginBottom: 2 }}>{opt.title}</div>
+                    <div style={{ fontSize: 11, color: '#888', lineHeight: 1.4 }}>{opt.desc}</div>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )
