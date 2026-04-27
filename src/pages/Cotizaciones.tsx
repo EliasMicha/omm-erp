@@ -522,7 +522,7 @@ function NuevaCoModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
           <label style={labelStyle}>
             Especialidad
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
-              {Object.entries(SPECIALTY_CONFIG).filter(([k]) => k !== 'ilum').map(([k, v]) => (
+              {Object.entries(SPECIALTY_CONFIG).map(([k, v]) => (
                 <button key={k} onClick={() => setForm(f => ({ ...f, specialty: k, ...(k === 'proy' || k === 'cort' ? { currency: 'MXN' as const } : {}) }))}
                   style={{
                     padding: '5px 12px', borderRadius: 20, fontSize: 11, cursor: 'pointer', fontFamily: 'inherit', fontWeight: 600,
