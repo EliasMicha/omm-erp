@@ -219,11 +219,12 @@ export default function LeadDashboard() {
         checkPage(6)
         const cur = getQuotCurrency(q)
         const proj = projects.find(p => p.cotizacion_id === q.id)
-        const amount = proj ? (proj.contract_value || 0) : (q.total || 0)
+        const base = proj ? (proj.contract_value || 0) : (q.total || 0)
+        const amount = base * 1.16
         doc.text((q.name || '—').substring(0, 40), 18, y)
         doc.text((q.specialty || '—').toUpperCase(), 90, y)
         doc.text(cur, 135, y)
-        doc.text(fmtPDF(amount, cur), W - 18, y, { align: 'right' })
+        doc.text(fmtPDF(Math.round(amount), cur), W - 18, y, { align: 'right' })
         y += 5.5
       })
       y += 4
@@ -306,11 +307,12 @@ export default function LeadDashboard() {
   const financials = useMemo(() => {
     const byCur = { USD: { vendido: 0, cobrado: 0, comprado: 0, presupuesto: 0 }, MXN: { vendido: 0, cobrado: 0, comprado: 0, presupuesto: 0 } }
 
-    // Vendido: contratos
+    // Vendido: contratos (con IVA 16%)
     quotations.filter(q => q.stage === 'contrato').forEach(q => {
       const cur = getQuotCurrency(q)
       const proj = projects.find(p => p.cotizacion_id === q.id)
-      const amount = proj ? (proj.contract_value || 0) : (q.total || 0)
+      const base = proj ? (proj.contract_value || 0) : (q.total || 0)
+      const amount = base * 1.16 // IVA 16%
       byCur[cur].vendido += amount
     })
 
@@ -506,7 +508,8 @@ export default function LeadDashboard() {
                     <td style={tdS}><Badge label={q.specialty?.toUpperCase() || '—'} color="#555" /></td>
                     <td style={tdS}><Badge label={STAGE_LABELS[q.stage] || q.stage} color={STAGE_COLORS[q.stage] || '#555'} /></td>
                     <td style={{ ...tdS, textAlign: 'right', fontWeight: 600, color: q.stage === 'contrato' ? '#57FF9A' : '#888' }}>
-                      {sym}{(q.total || 0).toLocaleString('es-MX', { minimumFractionDigits: 0 })}
+                      {sym}{((q.total || 0) * 1.16).toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                      <span style={{ fontSize: 9, color: '#555', marginLeft: 4 }}>c/IVA</span>
                     </td>
                     <td style={tdS}>
                       <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 4, fontWeight: 600, background: curr === 'USD' ? '#3B82F620' : '#57FF9A20', color: curr === 'USD' ? '#3B82F6' : '#57FF9A' }}>{curr}</span>
@@ -602,6 +605,60 @@ export default function LeadDashboard() {
                 })}
               </tbody>
             </table>
+          )
+        })()}
+
+        {/* ── Egresos registrados (cargos del lead) ── */}
+        {(() => {
+          const egresos = bankMovements.filter(m => m.tipo === 'cargo')
+          if (egresos.length === 0) return null
+          const totalEgr = egresos.reduce((s, m) => s + (m.monto || 0), 0)
+          return (
+            <>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 20, marginBottom: 8 }}>
+                <span style={{ fontSize: 11, fontWeight: 600, color: '#888', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Egresos Registrados</span>
+                <span style={{ fontSize: 11, color: '#EF4444', fontWeight: 600 }}>{F(totalEgr)}</span>
+              </div>
+              <table style={tblS}>
+                <thead>
+                  <tr style={trHeadS}>
+                    <th style={thS}>Fecha</th>
+                    <th style={thS}>Concepto</th>
+                    <th style={thS}>Beneficiario</th>
+                    <th style={thS}>Moneda</th>
+                    <th style={{ ...thS, textAlign: 'right' }}>Monto</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {egresos.map(m => (
+                    <tr key={m.id} style={trS}>
+                      <td style={{ ...tdS, color: '#888' }}>{m.fecha || '—'}</td>
+                      <td style={tdS}><span style={{ color: '#fff', fontWeight: 500 }}>{(m.concepto || '—').substring(0, 45)}</span></td>
+                      <td style={{ ...tdS, color: '#666', fontSize: 11 }}>{m.beneficiario || m.proveedor || '—'}</td>
+                      <td style={tdS}><Badge label={m.moneda || 'MXN'} color={m.moneda === 'USD' ? '#06B6D4' : '#A78BFA'} /></td>
+                      <td style={{ ...tdS, textAlign: 'right', fontWeight: 600, color: '#EF4444' }}>-{FCUR(m.monto || 0, m.moneda || 'MXN')}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </>
+          )
+        })()}
+
+        {/* ── Flujo neto ── */}
+        {bankMovements.length > 0 && (() => {
+          const ingresos = bankMovements.filter(m => m.tipo === 'abono').reduce((s, m) => s + (m.monto || 0), 0)
+          const egresos = bankMovements.filter(m => m.tipo === 'cargo').reduce((s, m) => s + (m.monto || 0), 0)
+          const neto = ingresos - egresos
+          return (
+            <div style={{ display: 'flex', gap: 16, marginTop: 16, padding: '10px 14px', background: '#111', borderRadius: 8, border: '1px solid #222', fontSize: 12 }}>
+              <span style={{ color: '#888' }}>Flujo neto:</span>
+              <span style={{ color: '#57FF9A', fontWeight: 600 }}>Ingresos {F(ingresos)}</span>
+              <span style={{ color: '#666' }}>—</span>
+              <span style={{ color: '#EF4444', fontWeight: 600 }}>Egresos {F(egresos)}</span>
+              <span style={{ color: '#666' }}>=</span>
+              <span style={{ color: neto >= 0 ? '#57FF9A' : '#EF4444', fontWeight: 700 }}>{F(neto)}</span>
+            </div>
           )
         })()}
 
