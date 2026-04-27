@@ -12,8 +12,9 @@ import ImageUpload from '../components/ImageUpload'
 interface EspProduct {
   id: string; areaId: string; systemId: string; catalogId: string | null
   name: string; description: string; imageUrl: string | null
-  quantity: number; price: number; laborCost: number; margin: number; order: number
+  quantity: number; cost: number; price: number; laborCost: number; margin: number; order: number
   monedaOrigen: string // USD or MXN — the currency of the catalog product
+  marca?: string | null; modelo?: string | null; sku?: string | null; provider?: string | null
 }
 interface EspArea { id: string; name: string; collapsed: boolean; order: number }
 interface EspSystemDef { id: string; name: string; color: string }
@@ -46,7 +47,8 @@ function calcLine(p: EspProduct) {
   const precioAmp = p.price * p.quantity
   const moAmp = p.laborCost * p.quantity
   const total = precioAmp + moAmp
-  const costReal = p.price * (1 - p.margin / 100)
+  // Usar costo real almacenado, no back-calculate del margen
+  const costReal = p.cost > 0 ? p.cost : p.price * (1 - p.margin / 100)
   const utilidad = p.price - costReal
   return { precioAmp, moAmp, total, costReal, utilidad }
 }
@@ -110,10 +112,10 @@ function calcLaborFromPrice(price: number, rule: PricingRule): number {
 // ═══════════════════════════════════════════════════════════════════
 // PRODUCT ROW
 // ═══════════════════════════════════════════════════════════════════
-function ProductRow({ p, onUpdate, onRemove, onUpdateAll, showInt, duplicateCount, onCopyTo }: {
+function ProductRow({ p, onUpdate, onRemove, onUpdateAll, showInt, duplicateCount, onCopyTo, onDetail }: {
   p: EspProduct; onUpdate: (id: string, f: string, v: number | string) => void; onRemove: (id: string) => void
   onUpdateAll: (catalogId: string, field: string, value: number) => void; showInt: boolean; duplicateCount: number
-  onCopyTo?: (id: string) => void
+  onCopyTo?: (id: string) => void; onDetail?: (p: EspProduct) => void
 }) {
   const { precioAmp, moAmp, total, costReal, utilidad } = calcLine(p)
   const handleBlur = (field: string, value: number) => {
@@ -133,7 +135,7 @@ function ProductRow({ p, onUpdate, onRemove, onUpdateAll, showInt, duplicateCoun
       <td style={{ ...S.td, width: 45 }}>
         <input type="number" defaultValue={p.quantity} min={1} onBlur={e => onUpdate(p.id, 'quantity', parseInt(e.target.value) || 1)} style={{ ...S.input, width: 40 }} />
       </td>
-      <td style={{ ...S.td, minWidth: 180 }}>
+      <td style={{ ...S.td, minWidth: 180, cursor: 'pointer' }} onClick={() => onDetail?.(p)}>
         <div style={{ fontSize: 12, fontWeight: 500, color: '#ddd' }}>{p.name}</div>
         {p.description && <div style={{ fontSize: 10, color: '#555', marginTop: 1 }}>{p.description}</div>}
         {duplicateCount > 1 && <span style={{ fontSize: 9, color: '#F59E0B', background: '#F59E0B18', padding: '1px 5px', borderRadius: 4 }}>×{duplicateCount}</span>}
@@ -153,13 +155,148 @@ function ProductRow({ p, onUpdate, onRemove, onUpdateAll, showInt, duplicateCoun
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// PRODUCT DETAIL MODAL
+// ═══════════════════════════════════════════════════════════════════
+function ProductDetailModal({ product, onClose, onUpdate }: {
+  product: EspProduct; onClose: () => void
+  onUpdate: (id: string, field: string, value: number | string) => void
+}) {
+  const [catalogData, setCatalogData] = useState<any>(null)
+  const [loading, setLoading] = useState(false)
+  const { costReal, utilidad, precioAmp, moAmp, total } = calcLine(product)
+
+  useEffect(() => {
+    if (product.catalogId) {
+      setLoading(true)
+      supabase.from('catalog_products').select('*').eq('id', product.catalogId).single()
+        .then(({ data }) => { setCatalogData(data); setLoading(false) })
+    }
+  }, [product.catalogId])
+
+  const provider = product.provider || catalogData?.provider || '—'
+  const marca = product.marca || catalogData?.marca || '—'
+  const modelo = product.modelo || catalogData?.modelo || '—'
+  const sku = product.sku || catalogData?.sku || '—'
+  const imageUrl = product.imageUrl || catalogData?.image_url || null
+  const catCost = catalogData?.cost || 0
+  const catMoneda = catalogData?.moneda || 'USD'
+
+  const labelStyle: React.CSSProperties = { fontSize: 10, color: '#666', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 2 }
+  const valueStyle: React.CSSProperties = { fontSize: 13, color: '#ddd', fontWeight: 500 }
+  const cellStyle: React.CSSProperties = { padding: '8px 0', borderBottom: '1px solid #222' }
+  const gridCell: React.CSSProperties = { ...cellStyle, flex: 1, minWidth: 0 }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1050 }} onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} style={{ background: '#111', borderRadius: 14, width: 520, maxHeight: '85vh', overflow: 'auto', border: '1px solid #333' }}>
+        {/* Header */}
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14, padding: '18px 20px 14px', borderBottom: '1px solid #222' }}>
+          {imageUrl ? (
+            <img src={imageUrl} alt="" style={{ width: 64, height: 64, objectFit: 'contain', borderRadius: 8, background: '#1a1a1a', flexShrink: 0 }} />
+          ) : (
+            <div style={{ width: 64, height: 64, background: '#1a1a1a', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <ImageIcon size={24} color="#333" />
+            </div>
+          )}
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: '#fff', marginBottom: 4 }}>{product.name}</div>
+            {product.description && <div style={{ fontSize: 11, color: '#666', lineHeight: 1.4 }}>{product.description}</div>}
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, flexShrink: 0 }}><X size={16} color="#555" /></button>
+        </div>
+
+        <div style={{ padding: '12px 20px 20px' }}>
+          {/* Product Info */}
+          <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 4 }}>
+            <div style={gridCell}><div style={labelStyle}>Proveedor</div><div style={valueStyle}>{provider}</div></div>
+            <div style={gridCell}><div style={labelStyle}>Marca</div><div style={valueStyle}>{marca}</div></div>
+          </div>
+          <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 4 }}>
+            <div style={gridCell}><div style={labelStyle}>Modelo</div><div style={valueStyle}>{modelo}</div></div>
+            <div style={gridCell}><div style={labelStyle}>SKU</div><div style={valueStyle}>{sku}</div></div>
+          </div>
+          <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 4 }}>
+            <div style={gridCell}><div style={labelStyle}>Sistema</div><div style={valueStyle}>{ALL_SYSTEMS.find(s => s.id === product.systemId)?.name || product.systemId}</div></div>
+            <div style={gridCell}><div style={labelStyle}>Moneda Origen</div><div style={valueStyle}>{product.monedaOrigen}</div></div>
+          </div>
+
+          {/* Separator */}
+          <div style={{ height: 1, background: '#333', margin: '12px 0' }} />
+
+          {/* Pricing */}
+          <div style={{ fontSize: 11, fontWeight: 700, color: '#57FF9A', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>Pricing</div>
+          <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 4 }}>
+            <div style={gridCell}>
+              <div style={labelStyle}>Costo Real</div>
+              <div style={{ ...valueStyle, color: '#F59E0B' }}>${fmt(product.cost || costReal)}</div>
+            </div>
+            <div style={gridCell}>
+              <div style={labelStyle}>Precio Venta</div>
+              <div style={valueStyle}>${fmt(product.price)}</div>
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 4 }}>
+            <div style={gridCell}>
+              <div style={labelStyle}>Margen %</div>
+              <div style={{ ...valueStyle, color: product.margin >= 25 ? '#57FF9A' : product.margin >= 15 ? '#F59E0B' : '#EF4444' }}>{product.margin}%</div>
+            </div>
+            <div style={gridCell}>
+              <div style={labelStyle}>Utilidad Unitaria</div>
+              <div style={{ ...valueStyle, color: utilidad >= 0 ? '#57FF9A' : '#EF4444' }}>${fmt(utilidad)}</div>
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 4 }}>
+            <div style={gridCell}>
+              <div style={labelStyle}>M.O. Unitaria</div>
+              <div style={valueStyle}>${fmt(product.laborCost)}</div>
+            </div>
+            <div style={gridCell}>
+              <div style={labelStyle}>Cantidad</div>
+              <div style={valueStyle}>{product.quantity}</div>
+            </div>
+          </div>
+
+          {/* Separator */}
+          <div style={{ height: 1, background: '#333', margin: '12px 0' }} />
+
+          {/* Totals */}
+          <div style={{ fontSize: 11, fontWeight: 700, color: '#57FF9A', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>Totales</div>
+          <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 4 }}>
+            <div style={gridCell}>
+              <div style={labelStyle}>Precio Ampliado</div>
+              <div style={valueStyle}>${fmt(precioAmp)}</div>
+            </div>
+            <div style={gridCell}>
+              <div style={labelStyle}>M.O. Ampliada</div>
+              <div style={valueStyle}>${fmt(moAmp)}</div>
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 16 }}>
+            <div style={gridCell}>
+              <div style={labelStyle}>Total (Precio + M.O.)</div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: '#57FF9A' }}>${fmt(total)}</div>
+            </div>
+            {catCost > 0 && (
+              <div style={gridCell}>
+                <div style={labelStyle}>Costo Catálogo ({catMoneda})</div>
+                <div style={{ ...valueStyle, color: '#888' }}>${fmt(catCost)}</div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // SYSTEM BLOCK
 // ═══════════════════════════════════════════════════════════════════
-function SystemBlock({ sysDef, products, collapsed, onToggle, onUpdate, onRemove, onUpdateAll, onAdd, showInt, allProducts, onCopyTo }: {
+function SystemBlock({ sysDef, products, collapsed, onToggle, onUpdate, onRemove, onUpdateAll, onAdd, showInt, allProducts, onCopyTo, onDetail }: {
   sysDef: EspSystemDef; products: EspProduct[]; collapsed: boolean; onToggle: () => void
   onUpdate: (id: string, f: string, v: number | string) => void; onRemove: (id: string) => void
   onUpdateAll: (catalogId: string, field: string, value: number) => void; onAdd: () => void; showInt: boolean; allProducts: EspProduct[]
-  onCopyTo?: (id: string) => void
+  onCopyTo?: (id: string) => void; onDetail?: (p: EspProduct) => void
 }) {
   const sysTotal = products.reduce((s, p) => s + calcLine(p).total, 0)
   return (
@@ -184,7 +321,7 @@ function SystemBlock({ sysDef, products, collapsed, onToggle, onUpdate, onRemove
           <tbody>
             {products.map(p => {
               const dupCount = p.catalogId ? allProducts.filter(ap => ap.catalogId === p.catalogId).length : 0
-              return <ProductRow key={p.id} p={p} onUpdate={onUpdate} onRemove={onRemove} onUpdateAll={onUpdateAll} showInt={showInt} duplicateCount={dupCount} onCopyTo={onCopyTo} />
+              return <ProductRow key={p.id} p={p} onUpdate={onUpdate} onRemove={onRemove} onUpdateAll={onUpdateAll} showInt={showInt} duplicateCount={dupCount} onCopyTo={onCopyTo} onDetail={onDetail} />
             })}
           </tbody>
         </table>
@@ -200,12 +337,12 @@ function SystemBlock({ sysDef, products, collapsed, onToggle, onUpdate, onRemove
 // ═══════════════════════════════════════════════════════════════════
 // AREA BLOCK
 // ═══════════════════════════════════════════════════════════════════
-function AreaBlock({ area, activeSystems, products, allProducts, collapsedSys, onToggleArea, onToggleSys, onUpdateProd, onRemoveProd, onUpdateAll, onAddProd, showInt, onCopyTo }: {
+function AreaBlock({ area, activeSystems, products, allProducts, collapsedSys, onToggleArea, onToggleSys, onUpdateProd, onRemoveProd, onUpdateAll, onAddProd, showInt, onCopyTo, onDetail }: {
   area: EspArea; activeSystems: EspSystemDef[]; products: EspProduct[]; allProducts: EspProduct[]
   collapsedSys: Record<string, boolean>; onToggleArea: () => void; onToggleSys: (k: string) => void
   onUpdateProd: (id: string, f: string, v: number | string) => void; onRemoveProd: (id: string) => void
   onUpdateAll: (catalogId: string, field: string, value: number) => void
-  onAddProd: (sysId: string) => void; showInt: boolean; onCopyTo?: (id: string) => void
+  onAddProd: (sysId: string) => void; showInt: boolean; onCopyTo?: (id: string) => void; onDetail?: (p: EspProduct) => void
 }) {
   const areaProds = products.filter(p => p.areaId === area.id)
   const areaTotal = areaProds.reduce((s, p) => s + calcLine(p).total, 0)
@@ -226,7 +363,7 @@ function AreaBlock({ area, activeSystems, products, allProducts, collapsedSys, o
             <SystemBlock key={sys.id} sysDef={sys} products={areaProds.filter(p => p.systemId === sys.id)}
               collapsed={collapsedSys[area.id + '_' + sys.id] || false} onToggle={() => onToggleSys(area.id + '_' + sys.id)}
               onUpdate={onUpdateProd} onRemove={onRemoveProd} onUpdateAll={onUpdateAll}
-              onAdd={() => onAddProd(sys.id)} showInt={showInt} allProducts={allProducts}  onCopyTo={onCopyTo} />
+              onAdd={() => onAddProd(sys.id)} showInt={showInt} allProducts={allProducts}  onCopyTo={onCopyTo} onDetail={onDetail} />
           ))}
           {sysEmpty.length > 0 && (
             <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', padding: '4px 0' }}>
@@ -737,6 +874,7 @@ function AIImportModal({ cotId, areas, activeSysIds, currency, tipoCambio, onClo
           modelo: it.modelo || null,
           sku: it.sku || null,
           image_url: (it as any).image_url || null,
+          provider: prodProvider || null,
         })
         if (itemErr) {
           console.error('Error insertando item:', itemErr, it)
@@ -1528,6 +1666,7 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
   const [showEditCot, setShowEditCot] = useState(false)
   const [showAIImport, setShowAIImport] = useState(false)
   const [copyingProduct, setCopyingProduct] = useState<string | null>(null)
+  const [detailProduct, setDetailProduct] = useState<EspProduct | null>(null)
   const [showPdfPicker, setShowPdfPicker] = useState(false)
   const [viewSystemId, setViewSystemId] = useState<string | null>(null)
   const [projectId, setProjectId] = useState<string | null>(null)
@@ -1566,9 +1705,10 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
       setProducts(qItems.map((it: any) => ({
         id: it.id, areaId: it.area_id, systemId: ALL_SYSTEMS.find(s => s.name.toLowerCase() === (it.system || '').toLowerCase())?.id || (it.system || '').toLowerCase().replace(/ /g, '_'),
         catalogId: it.catalog_product_id || null, name: it.name, description: it.description || '',
-        imageUrl: it.image_url || null, quantity: it.quantity, price: it.price || 0,
+        imageUrl: it.image_url || null, quantity: it.quantity, cost: it.cost || 0, price: it.price || 0,
         laborCost: it.installation_cost || 0, margin: it.markup || 30, order: it.order_index || 0,
         monedaOrigen: it.provider_currency || 'USD',
+        marca: it.marca || null, modelo: it.modelo || null, sku: it.sku || null, provider: it.provider || null,
       })))
     } else {
       setProducts([])
@@ -1695,9 +1835,10 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
         newProducts.push({
           id: data.id, areaId, systemId: source.systemId, catalogId: source.catalogId,
           name: source.name, description: source.description, imageUrl: source.imageUrl,
-          quantity: source.quantity, price: source.price, laborCost: source.laborCost,
+          quantity: source.quantity, cost: source.cost || 0, price: source.price, laborCost: source.laborCost,
           margin: source.margin, order: products.length + newProducts.length,
           monedaOrigen: source.monedaOrigen,
+          marca: source.marca || null, modelo: source.modelo || null, sku: source.sku || null, provider: source.provider || null,
         })
       }
     }
@@ -1743,8 +1884,9 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
       setProducts(p => [...p, {
         id: data.id, areaId: addingTo.areaId, systemId: addingTo.systemId, catalogId: catProd.id || null,
         name: catProd.name, description: catProd.description || '', imageUrl: catProd.image_url || null,
-        quantity: 1, price: precio, laborCost, margin, order: products.length,
+        quantity: 1, cost: catProd.cost || 0, price: precio, laborCost, margin, order: products.length,
         monedaOrigen: prodMoneda,
+        marca: catProd.marca || null, modelo: catProd.modelo || null, sku: catProd.sku || null, provider: catProd.provider || null,
       }])
     }
     setAddingTo(null)
@@ -1779,8 +1921,9 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
       setProducts(p => [...p, {
         id: data.id, areaId: addingTo.areaId, systemId: addingTo.systemId, catalogId: catProd.id || null,
         name: catProd.name, description: catProd.description || '', imageUrl: catProd.image_url || null,
-        quantity: 1, price: precio, laborCost, margin, order: products.length,
+        quantity: 1, cost: catProd.cost || 0, price: precio, laborCost, margin, order: products.length,
         monedaOrigen: prodMoneda,
+        marca: catProd.marca || null, modelo: catProd.modelo || null, sku: catProd.sku || null, provider: catProd.provider || null,
       }])
     }
     setCreatingProduct(false)
@@ -1841,7 +1984,7 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
             <AreaBlock key={area.id} area={area} activeSystems={activeSystems} products={products} allProducts={products}
               collapsedSys={collapsedSys} onToggleArea={() => toggleArea(area.id)} onToggleSys={toggleSys}
               onUpdateProd={updateProduct} onRemoveProd={removeProduct} onUpdateAll={updateAllByCatalogId}
-              onAddProd={(sysId) => openAddProduct(area.id, sysId)} showInt={showInt}  onCopyTo={(id) => setCopyingProduct(id)} />
+              onAddProd={(sysId) => openAddProduct(area.id, sysId)} showInt={showInt}  onCopyTo={(id) => setCopyingProduct(id)} onDetail={(p) => setDetailProduct(p)} />
           ))}
           <div onClick={addArea} style={{ padding: '12px', border: '1px dashed #333', borderRadius: 10, textAlign: 'center', cursor: 'pointer', color: '#444', fontSize: 12 }}>+ Agregar área</div>
         </div>
@@ -1943,6 +2086,11 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
             </div>
           </div>
         </div>
+      )}
+
+      {/* Product detail modal */}
+      {detailProduct && (
+        <ProductDetailModal product={detailProduct} onClose={() => setDetailProduct(null)} onUpdate={updateProduct} />
       )}
 
       {/* AI Import modal */}
