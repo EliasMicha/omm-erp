@@ -112,10 +112,11 @@ function calcLaborFromPrice(price: number, rule: PricingRule): number {
 // ═══════════════════════════════════════════════════════════════════
 // PRODUCT ROW
 // ═══════════════════════════════════════════════════════════════════
-function ProductRow({ p, onUpdate, onRemove, onUpdateAll, showInt, duplicateCount, onCopyTo, onDetail }: {
+function ProductRow({ p, onUpdate, onRemove, onUpdateAll, showInt, duplicateCount, onCopyTo, onDetail, selected, onToggleSelect }: {
   p: EspProduct; onUpdate: (id: string, f: string, v: number | string) => void; onRemove: (id: string) => void
   onUpdateAll: (catalogId: string, field: string, value: number) => void; showInt: boolean; duplicateCount: number
   onCopyTo?: (id: string) => void; onDetail?: (p: EspProduct) => void
+  selected?: boolean; onToggleSelect?: (id: string) => void
 }) {
   const { precioAmp, moAmp, total, costReal, utilidad } = calcLine(p)
   const handleBlur = (field: string, value: number) => {
@@ -127,7 +128,12 @@ function ProductRow({ p, onUpdate, onRemove, onUpdateAll, showInt, duplicateCoun
     }
   }
   return (
-    <tr>
+    <tr style={{ background: selected ? '#57FF9A0D' : undefined }}>
+      {onToggleSelect && (
+        <td style={{ ...S.td, width: 28, textAlign: 'center', padding: '6px 4px' }}>
+          <input type="checkbox" checked={!!selected} onChange={() => onToggleSelect(p.id)} style={{ accentColor: '#57FF9A', cursor: 'pointer' }} />
+        </td>
+      )}
       <td style={{ ...S.td, width: 44, textAlign: 'center' }}>
         {p.imageUrl ? <img src={p.imageUrl} alt="" style={{ width: 36, height: 36, objectFit: 'contain', borderRadius: 4 }} />
           : <div style={{ width: 36, height: 36, background: '#1a1a1a', borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto' }}><ImageIcon size={12} color="#333" /></div>}
@@ -292,11 +298,12 @@ function ProductDetailModal({ product, onClose, onUpdate }: {
 // ═══════════════════════════════════════════════════════════════════
 // SYSTEM BLOCK
 // ═══════════════════════════════════════════════════════════════════
-function SystemBlock({ sysDef, products, collapsed, onToggle, onUpdate, onRemove, onUpdateAll, onAdd, showInt, allProducts, onCopyTo, onDetail }: {
+function SystemBlock({ sysDef, products, collapsed, onToggle, onUpdate, onRemove, onUpdateAll, onAdd, showInt, allProducts, onCopyTo, onDetail, selectedIds, onToggleSelect }: {
   sysDef: EspSystemDef; products: EspProduct[]; collapsed: boolean; onToggle: () => void
   onUpdate: (id: string, f: string, v: number | string) => void; onRemove: (id: string) => void
   onUpdateAll: (catalogId: string, field: string, value: number) => void; onAdd: () => void; showInt: boolean; allProducts: EspProduct[]
   onCopyTo?: (id: string) => void; onDetail?: (p: EspProduct) => void
+  selectedIds?: Set<string>; onToggleSelect?: (id: string) => void
 }) {
   const sysTotal = products.reduce((s, p) => s + calcLine(p).total, 0)
   return (
@@ -311,6 +318,21 @@ function SystemBlock({ sysDef, products, collapsed, onToggle, onUpdate, onRemove
       {!collapsed && (<>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead><tr style={{ background: '#0e0e0e' }}>
+            {onToggleSelect && (
+              <th style={{ ...S.th, width: 28, textAlign: 'center', padding: '6px 4px' }}>
+                <input type="checkbox"
+                  checked={products.length > 0 && products.every(p => selectedIds?.has(p.id))}
+                  onChange={() => {
+                    const allSelected = products.every(p => selectedIds?.has(p.id))
+                    products.forEach(p => {
+                      const isSelected = selectedIds?.has(p.id)
+                      if (allSelected && isSelected) onToggleSelect(p.id)        // deselect all
+                      else if (!allSelected && !isSelected) onToggleSelect(p.id)  // select missing
+                    })
+                  }}
+                  style={{ accentColor: '#57FF9A', cursor: 'pointer' }} />
+              </th>
+            )}
             <th style={{ ...S.th, textAlign: 'center' }}>IMG</th><th style={{ ...S.th, textAlign: 'center' }}>CANT.</th>
             <th style={S.th}>DESCRIPCIÓN</th><th style={{ ...S.th, textAlign: 'right' }}>PRECIO</th>
             <th style={{ ...S.th, textAlign: 'right' }}>P. AMP.</th><th style={{ ...S.th, textAlign: 'right' }}>M.O.</th>
@@ -321,7 +343,7 @@ function SystemBlock({ sysDef, products, collapsed, onToggle, onUpdate, onRemove
           <tbody>
             {products.map(p => {
               const dupCount = p.catalogId ? allProducts.filter(ap => ap.catalogId === p.catalogId).length : 0
-              return <ProductRow key={p.id} p={p} onUpdate={onUpdate} onRemove={onRemove} onUpdateAll={onUpdateAll} showInt={showInt} duplicateCount={dupCount} onCopyTo={onCopyTo} onDetail={onDetail} />
+              return <ProductRow key={p.id} p={p} onUpdate={onUpdate} onRemove={onRemove} onUpdateAll={onUpdateAll} showInt={showInt} duplicateCount={dupCount} onCopyTo={onCopyTo} onDetail={onDetail} selected={selectedIds?.has(p.id)} onToggleSelect={onToggleSelect} />
             })}
           </tbody>
         </table>
@@ -337,12 +359,13 @@ function SystemBlock({ sysDef, products, collapsed, onToggle, onUpdate, onRemove
 // ═══════════════════════════════════════════════════════════════════
 // AREA BLOCK
 // ═══════════════════════════════════════════════════════════════════
-function AreaBlock({ area, activeSystems, products, allProducts, collapsedSys, onToggleArea, onToggleSys, onUpdateProd, onRemoveProd, onUpdateAll, onAddProd, showInt, onCopyTo, onDetail }: {
+function AreaBlock({ area, activeSystems, products, allProducts, collapsedSys, onToggleArea, onToggleSys, onUpdateProd, onRemoveProd, onUpdateAll, onAddProd, showInt, onCopyTo, onDetail, selectedIds, onToggleSelect }: {
   area: EspArea; activeSystems: EspSystemDef[]; products: EspProduct[]; allProducts: EspProduct[]
   collapsedSys: Record<string, boolean>; onToggleArea: () => void; onToggleSys: (k: string) => void
   onUpdateProd: (id: string, f: string, v: number | string) => void; onRemoveProd: (id: string) => void
   onUpdateAll: (catalogId: string, field: string, value: number) => void
   onAddProd: (sysId: string) => void; showInt: boolean; onCopyTo?: (id: string) => void; onDetail?: (p: EspProduct) => void
+  selectedIds?: Set<string>; onToggleSelect?: (id: string) => void
 }) {
   const areaProds = products.filter(p => p.areaId === area.id)
   const areaTotal = areaProds.reduce((s, p) => s + calcLine(p).total, 0)
@@ -363,7 +386,8 @@ function AreaBlock({ area, activeSystems, products, allProducts, collapsedSys, o
             <SystemBlock key={sys.id} sysDef={sys} products={areaProds.filter(p => p.systemId === sys.id)}
               collapsed={collapsedSys[area.id + '_' + sys.id] || false} onToggle={() => onToggleSys(area.id + '_' + sys.id)}
               onUpdate={onUpdateProd} onRemove={onRemoveProd} onUpdateAll={onUpdateAll}
-              onAdd={() => onAddProd(sys.id)} showInt={showInt} allProducts={allProducts}  onCopyTo={onCopyTo} onDetail={onDetail} />
+              onAdd={() => onAddProd(sys.id)} showInt={showInt} allProducts={allProducts}  onCopyTo={onCopyTo} onDetail={onDetail}
+              selectedIds={selectedIds} onToggleSelect={onToggleSelect} />
           ))}
           {sysEmpty.length > 0 && (
             <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', padding: '4px 0' }}>
@@ -1719,6 +1743,9 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
   const [creatingProduct, setCreatingProduct] = useState(false)
   const [showEditCot, setShowEditCot] = useState(false)
   const [showAIImport, setShowAIImport] = useState(false)
+  const [selectedProdIds, setSelectedProdIds] = useState<Set<string>>(new Set())
+  const [bulkAction, setBulkAction] = useState<'' | 'moveSystem' | 'moveArea' | 'copy'>('')
+  const [bulkTarget, setBulkTarget] = useState('')
   const [copyingProduct, setCopyingProduct] = useState<string | null>(null)
   const [detailProduct, setDetailProduct] = useState<EspProduct | null>(null)
   const [showPdfPicker, setShowPdfPicker] = useState(false)
@@ -1867,6 +1894,117 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
   function removeProduct(id: string) {
     setProducts(p => p.filter(pr => pr.id !== id))
     supabase.from('quotation_items').delete().eq('id', id).then(() => {})
+  }
+
+  function toggleProdSelect(id: string) {
+    setSelectedProdIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      return next
+    })
+  }
+
+  async function bulkMoveSystem(targetSystemId: string) {
+    const ids = Array.from(selectedProdIds)
+    const sysName = ALL_SYSTEMS.find(s => s.id === targetSystemId)?.name || targetSystemId
+    setProducts(p => p.map(pr => ids.includes(pr.id) ? { ...pr, systemId: targetSystemId } : pr))
+    for (const id of ids) {
+      await supabase.from('quotation_items').update({ system: sysName }).eq('id', id)
+    }
+    setSelectedProdIds(new Set())
+    setBulkAction('')
+  }
+
+  async function bulkMoveArea(targetAreaId: string) {
+    const ids = Array.from(selectedProdIds)
+    setProducts(p => p.map(pr => ids.includes(pr.id) ? { ...pr, areaId: targetAreaId } : pr))
+    for (const id of ids) {
+      await supabase.from('quotation_items').update({ area_id: targetAreaId }).eq('id', id)
+    }
+    setSelectedProdIds(new Set())
+    setBulkAction('')
+  }
+
+  async function bulkCopyToArea(targetAreaId: string) {
+    const ids = Array.from(selectedProdIds)
+    const newProds: EspProduct[] = []
+    for (const id of ids) {
+      const source = products.find(p => p.id === id)
+      if (!source) continue
+      const sysName = ALL_SYSTEMS.find(s => s.id === source.systemId)?.name || source.systemId
+      const { data, error } = await supabase.from('quotation_items').insert({
+        quotation_id: cotId, area_id: targetAreaId, catalog_product_id: source.catalogId || null,
+        name: source.name, description: source.description || null, system: sysName,
+        type: 'material', quantity: source.quantity, cost: source.cost, markup: source.margin,
+        price: source.price, total: (source.price + source.laborCost) * source.quantity,
+        installation_cost: source.laborCost,
+        order_index: products.length + newProds.length,
+        image_url: source.imageUrl || null, provider: source.provider || null,
+        marca: source.marca || null, modelo: source.modelo || null, sku: source.sku || null,
+      }).select().single()
+      if (data) {
+        newProds.push({
+          ...source, id: data.id, areaId: targetAreaId,
+          order: products.length + newProds.length,
+        })
+      }
+    }
+    if (newProds.length > 0) setProducts(p => [...p, ...newProds])
+    setSelectedProdIds(new Set())
+    setBulkAction('')
+  }
+
+  function bulkRemove() {
+    const ids = Array.from(selectedProdIds)
+    if (!confirm('¿Eliminar ' + ids.length + ' productos de la cotización?')) return
+    setProducts(p => p.filter(pr => !ids.includes(pr.id)))
+    ids.forEach(id => supabase.from('quotation_items').delete().eq('id', id).then(() => {}))
+    setSelectedProdIds(new Set())
+  }
+
+  async function syncSelectedWithCatalog() {
+    const ids = Array.from(selectedProdIds)
+    const toSync = products.filter(p => ids.includes(p.id) && p.catalogId)
+    if (toSync.length === 0) { alert('Ninguno de los productos seleccionados tiene catálogo vinculado.'); return }
+    if (!confirm(`¿Sincronizar ${toSync.length} producto(s) con su catálogo? Esto actualizará costo, precio, margen y M.O. según las reglas del proveedor.`)) return
+
+    const catalogIds = [...new Set(toSync.map(p => p.catalogId!).filter(Boolean))]
+    const { data: catProds } = await supabase.from('catalog_products').select('*').in('id', catalogIds)
+    if (!catProds || catProds.length === 0) { alert('No se encontraron productos en catálogo.'); return }
+
+    const catMap = new Map(catProds.map(c => [c.id, c]))
+    const updates: EspProduct[] = []
+
+    for (const p of toSync) {
+      const cat = catMap.get(p.catalogId!)
+      if (!cat) continue
+      const rule = getPricingRule(cat.provider || p.provider || '')
+      const cost = (cat.cost || 0) * rule.costoMult
+      let price: number
+      if (rule.precioPublico) {
+        price = cat.precio_venta || cat.cost || 0
+      } else {
+        price = cost / (1 - rule.margen / 100)
+      }
+      const laborCost = price * rule.instPct / 100
+      const margin = price > 0 ? ((price - cost) / price) * 100 : 0
+
+      updates.push({ ...p, cost, price: Math.round(price * 100) / 100, laborCost: Math.round(laborCost * 100) / 100, margin: Math.round(margin * 100) / 100, imageUrl: cat.image_url || p.imageUrl, marca: cat.marca || p.marca, modelo: cat.modelo || p.modelo, sku: cat.sku || p.sku, provider: cat.provider || p.provider })
+
+      await supabase.from('quotation_items').update({
+        cost, price: Math.round(price * 100) / 100, installation_cost: Math.round(laborCost * 100) / 100,
+        markup: Math.round(margin * 100) / 100, image_url: cat.image_url || p.imageUrl,
+        marca: cat.marca || p.marca, modelo: cat.modelo || p.modelo, sku: cat.sku || p.sku, provider: cat.provider || p.provider,
+        total: (Math.round(price * 100) / 100 + Math.round(laborCost * 100) / 100) * p.quantity,
+      }).eq('id', p.id)
+    }
+
+    setProducts(prev => prev.map(p => {
+      const upd = updates.find(u => u.id === p.id)
+      return upd || p
+    }))
+    setSelectedProdIds(new Set())
+    alert(`${updates.length} producto(s) sincronizado(s) con catálogo.`)
   }
 
   async function copyProductToAreas(productId: string, targetAreaIds: string[]) {
@@ -2034,11 +2172,53 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
       {/* Content */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 260px', flex: 1, overflow: 'hidden' }}>
         <div style={{ overflowY: 'auto', padding: '14px 18px' }}>
+          {/* Bulk action bar */}
+          {selectedProdIds.size > 0 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px', marginBottom: 10, background: '#57FF9A12', border: '1px solid #57FF9A33', borderRadius: 10, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: '#57FF9A' }}>{selectedProdIds.size} seleccionado{selectedProdIds.size > 1 ? 's' : ''}</span>
+              <span style={{ width: 1, height: 16, background: '#333' }} />
+
+              {/* Move to system */}
+              <select value="" onChange={e => { if (e.target.value) bulkMoveSystem(e.target.value) }}
+                style={{ padding: '4px 8px', borderRadius: 6, fontSize: 11, background: '#1a1a1a', border: '1px solid #333', color: '#ccc', fontFamily: 'inherit', cursor: 'pointer' }}>
+                <option value="">Mover a sistema...</option>
+                {ALL_SYSTEMS.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+
+              {/* Move to area */}
+              <select value="" onChange={e => { if (e.target.value) bulkMoveArea(e.target.value) }}
+                style={{ padding: '4px 8px', borderRadius: 6, fontSize: 11, background: '#1a1a1a', border: '1px solid #333', color: '#ccc', fontFamily: 'inherit', cursor: 'pointer' }}>
+                <option value="">Mover a área...</option>
+                {areas.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+              </select>
+
+              {/* Copy to area */}
+              <select value="" onChange={e => { if (e.target.value) bulkCopyToArea(e.target.value) }}
+                style={{ padding: '4px 8px', borderRadius: 6, fontSize: 11, background: '#1a1a1a', border: '1px solid #333', color: '#ccc', fontFamily: 'inherit', cursor: 'pointer' }}>
+                <option value="">Copiar a área...</option>
+                {areas.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+              </select>
+
+              {/* Delete */}
+              <button onClick={bulkRemove} style={{ padding: '4px 10px', borderRadius: 6, fontSize: 11, background: '#EF444422', border: '1px solid #EF444444', color: '#EF4444', cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 4 }}>
+                <Trash2 size={11} /> Eliminar
+              </button>
+
+              {/* Sync with catalogue */}
+              <button onClick={syncSelectedWithCatalog} style={{ padding: '4px 10px', borderRadius: 6, fontSize: 11, background: '#3B82F622', border: '1px solid #3B82F644', color: '#3B82F6', cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 4 }}>
+                <RefreshCw size={11} /> Sync catálogo
+              </button>
+
+              <button onClick={() => setSelectedProdIds(new Set())} style={{ marginLeft: 'auto', background: 'none', border: 'none', color: '#555', cursor: 'pointer', fontSize: 11, fontFamily: 'inherit' }}>Deseleccionar</button>
+            </div>
+          )}
+
           {areas.map(area => (
             <AreaBlock key={area.id} area={area} activeSystems={activeSystems} products={products} allProducts={products}
               collapsedSys={collapsedSys} onToggleArea={() => toggleArea(area.id)} onToggleSys={toggleSys}
               onUpdateProd={updateProduct} onRemoveProd={removeProduct} onUpdateAll={updateAllByCatalogId}
-              onAddProd={(sysId) => openAddProduct(area.id, sysId)} showInt={showInt}  onCopyTo={(id) => setCopyingProduct(id)} onDetail={(p) => setDetailProduct(p)} />
+              onAddProd={(sysId) => openAddProduct(area.id, sysId)} showInt={showInt}  onCopyTo={(id) => setCopyingProduct(id)} onDetail={(p) => setDetailProduct(p)}
+              selectedIds={selectedProdIds} onToggleSelect={toggleProdSelect} />
           ))}
           <div onClick={addArea} style={{ padding: '12px', border: '1px dashed #333', borderRadius: 10, textAlign: 'center', cursor: 'pointer', color: '#444', fontSize: 12 }}>+ Agregar área</div>
         </div>
