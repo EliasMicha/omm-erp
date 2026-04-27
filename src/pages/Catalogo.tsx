@@ -459,8 +459,14 @@ IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
               <option value="MXN">MXN</option>
             </select>
           )}
-          {(bulkField === 'provider' || bulkField === 'marca') && (
-            <input value={bulkValue} onChange={e => setBulkValue(e.target.value)} placeholder={bulkField === 'provider' ? 'Nombre proveedor' : 'Nombre marca'} style={{ ...iS, width: 180, fontSize: 12 }} />
+          {bulkField === 'provider' && (
+            <select value={bulkValue} onChange={e => setBulkValue(e.target.value)} style={{ ...iS, width: 200, fontSize: 12 }}>
+              <option value="">Seleccionar...</option>
+              {suppliers.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+            </select>
+          )}
+          {bulkField === 'marca' && (
+            <input value={bulkValue} onChange={e => setBulkValue(e.target.value)} placeholder="Nombre marca" style={{ ...iS, width: 180, fontSize: 12 }} />
           )}
           {bulkField && bulkValue && (
             <Btn size="sm" variant="primary" onClick={applyBulkEdit} disabled={bulkSaving}>
