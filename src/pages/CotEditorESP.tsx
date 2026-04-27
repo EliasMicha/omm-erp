@@ -770,12 +770,25 @@ function AIImportModal({ cotId, areas, activeSysIds, currency, tipoCambio, onClo
       // 2) Procesar cada item
       setProgress('Procesando productos...')
       let inserted = 0
+      // Cache de productos creados en esta sesión para evitar duplicados
+      const createdProducts: Record<string, { id: string; cost: number; moneda: string; provider: string }> = {}
       for (const it of items) {
         if (!it.modelo) continue
         let catalogProductId = it.catalog_product_id
         let prodCost = 0
         let prodMoneda: string = it.moneda || 'USD'
         let prodProvider = it.provider || it.marca || ''
+
+        // Si no tiene match en catálogo, checar si ya lo creamos en este mismo import
+        if (!catalogProductId) {
+          const cacheKey = it.modelo.toLowerCase().trim()
+          if (createdProducts[cacheKey]) {
+            catalogProductId = createdProducts[cacheKey].id
+            prodCost = createdProducts[cacheKey].cost
+            prodMoneda = createdProducts[cacheKey].moneda
+            prodProvider = createdProducts[cacheKey].provider
+          }
+        }
 
         if (!catalogProductId) {
           // NUEVO: Crear producto en catálogo con datos del Excel
@@ -819,6 +832,8 @@ function AIImportModal({ cotId, areas, activeSysIds, currency, tipoCambio, onClo
             catalogProductId = newProd.id
             prodCost = newProductCost
             prodMoneda = newProductMoneda
+            // Guardar en cache para no duplicar si viene otra fila con mismo modelo
+            createdProducts[it.modelo.toLowerCase().trim()] = { id: newProd.id, cost: newProductCost, moneda: newProductMoneda, provider: prodProvider }
           }
         } else {
           // Producto EXISTENTE — NO modificar catálogo, solo cargar atributos
