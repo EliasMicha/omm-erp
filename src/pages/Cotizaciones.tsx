@@ -11,6 +11,7 @@ import ChangeOrdersTab, { ObraRealTab } from './ChangeOrders'
 import ImportCotizaciones from './ImportCotizaciones'
 import AIQuoteChat from './AIQuoteChat'
 import CotEditorCortinas from './CotEditorCortinas'
+import CotEditorIlum from './CotEditorIlum'
 import CotEditorProyecto from './CotEditorProyecto'
 import { autoCreateProjectFromQuotation } from '../lib/projectUtils'
 
@@ -1691,7 +1692,7 @@ export default function Cotizaciones() {
   if (openId && openSpecialty === 'esp') return <CotEditorESP cotId={openId} onBack={close}/>
   if (openId && openSpecialty === 'cort') return <CotEditorCortinas cotId={openId} onBack={close}/>
   if (openId && openSpecialty === 'proy') return <CotEditorProyecto cotId={openId} onBack={close} specialty="proy"/>
-  if (openId && openSpecialty === 'ilum') return <CotEditor cotId={openId} onBack={close}/>
+  if (openId && openSpecialty === 'ilum') return <CotEditorIlum cotId={openId} onBack={close}/>
   if (openId) return <CotEditor cotId={openId} onBack={close}/>
   return <CotDashboard onOpen={open}/>
 }
