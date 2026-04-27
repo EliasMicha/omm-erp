@@ -303,11 +303,17 @@ IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
     try {
       if (editId) {
         const { error } = await supabase.from('catalog_products').update(row).eq('id', editId)
-        if (error) { console.error('[catalog] update error:', error); alert('Error al guardar: ' + error.message); return }
+        if (error) {
+          if (error.code === '23505') { alert('Ya existe otro producto con el modelo "' + (form.modelo || '') + '". Cada modelo debe ser único.'); return }
+          console.error('[catalog] update error:', error); alert('Error al guardar: ' + error.message); return
+        }
         setProducts(products.map(p => p.id === editId ? {...p, ...row, id: editId, precio_venta: pv} as Product : p))
       } else {
         const { data, error } = await supabase.from('catalog_products').insert(row).select().single()
-        if (error) { console.error('[catalog] insert error:', error); alert('Error al crear producto: ' + error.message); return }
+        if (error) {
+          if (error.code === '23505') { alert('Ya existe un producto con el modelo "' + (form.modelo || '') + '". Cada modelo debe ser único.'); return }
+          console.error('[catalog] insert error:', error); alert('Error al crear producto: ' + error.message); return
+        }
         if (data) setProducts([{...data, cost: Number(data.cost), markup: Number(data.markup), precio_venta: Number(data.precio_venta), iva_rate: Number(data.iva_rate)} as Product, ...products])
       }
       setShowForm(false)
