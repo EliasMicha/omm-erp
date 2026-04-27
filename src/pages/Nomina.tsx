@@ -156,7 +156,20 @@ function TabEmpleados() {
     const semanales = filtered.filter(e => e.tipo_alta === 'SEMANAL').length
     const quincenales = filtered.filter(e => e.tipo_alta === 'QUINCENAL').length
     const totalNetoMensual = filtered.reduce((sum, e) => sum + calcNetoMensual(e), 0)
-    return { total, semanales, quincenales, totalNetoMensual }
+    // By area
+    const byArea: Record<string, { count: number; neto: number }> = {}
+    filtered.forEach(e => {
+      const a = e.area || 'Sin área'
+      if (!byArea[a]) byArea[a] = { count: 0, neto: 0 }
+      byArea[a].count++
+      byArea[a].neto += calcNetoMensual(e)
+    })
+    // By tipo_trabajo
+    const costoOficina = filtered.filter(e => e.tipo_trabajo === 'OFICINA').reduce((s, e) => s + calcNetoMensual(e), 0)
+    const costoObra = filtered.filter(e => e.tipo_trabajo === 'OBRA').reduce((s, e) => s + calcNetoMensual(e), 0)
+    const costoMixto = filtered.filter(e => e.tipo_trabajo === 'MIXTO').reduce((s, e) => s + calcNetoMensual(e), 0)
+    const promedioMensual = total > 0 ? totalNetoMensual / total : 0
+    return { total, semanales, quincenales, totalNetoMensual, byArea, costoOficina, costoObra, costoMixto, promedioMensual }
   }, [filtered])
 
   const handleCreate = async () => {
@@ -173,11 +186,66 @@ function TabEmpleados() {
 
   return (
     <div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
+      {/* Row 1: Main KPIs */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10, marginBottom: 12 }}>
         <KpiCard label="Empleados activos" value={kpis.total.toString()} />
         <KpiCard label="Quincenales" value={kpis.quincenales.toString()} color="#60a5fa" />
         <KpiCard label="Semanales" value={kpis.semanales.toString()} color="#f59e0b" />
         <KpiCard label={`Neto mensual (${new Date().toLocaleString('es-MX',{month:'short'})} · ${fridaysInMonth(new Date().getFullYear(), new Date().getMonth())} viernes)`} value={F(kpis.totalNetoMensual)} />
+        <KpiCard label="Promedio mensual / emp" value={F(kpis.promedioMensual)} color="#a78bfa" />
+      </div>
+
+      {/* Row 2: Cost by tipo_trabajo + breakdown by area */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 10, marginBottom: 20 }}>
+        {/* Oficina / Obra / Mixto split */}
+        <div style={{ background: '#141414', border: '1px solid #222', borderRadius: 10, padding: '14px 16px' }}>
+          <div style={{ fontSize: 10, color: '#555', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10 }}>Costo por tipo de trabajo</div>
+          {([
+            { label: 'Oficina', value: kpis.costoOficina, color: '#60a5fa' },
+            { label: 'Obra', value: kpis.costoObra, color: '#f59e0b' },
+            { label: 'Mixto', value: kpis.costoMixto, color: '#a78bfa' },
+          ] as const).map(t => (
+            <div key={t.label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ width: 8, height: 8, borderRadius: 2, background: t.color, display: 'inline-block' }} />
+                <span style={{ fontSize: 12, color: '#ccc' }}>{t.label}</span>
+              </div>
+              <span style={{ fontSize: 13, fontWeight: 600, color: '#fff' }}>{F(t.value)}</span>
+            </div>
+          ))}
+          {/* Bar */}
+          {kpis.totalNetoMensual > 0 && (
+            <div style={{ display: 'flex', height: 6, borderRadius: 3, overflow: 'hidden', marginTop: 8, background: '#222' }}>
+              <div style={{ width: `${(kpis.costoOficina / kpis.totalNetoMensual) * 100}%`, background: '#60a5fa' }} />
+              <div style={{ width: `${(kpis.costoObra / kpis.totalNetoMensual) * 100}%`, background: '#f59e0b' }} />
+              <div style={{ width: `${(kpis.costoMixto / kpis.totalNetoMensual) * 100}%`, background: '#a78bfa' }} />
+            </div>
+          )}
+        </div>
+
+        {/* By area */}
+        <div style={{ background: '#141414', border: '1px solid #222', borderRadius: 10, padding: '14px 16px' }}>
+          <div style={{ fontSize: 10, color: '#555', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10 }}>Costo mensual por área</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 6 }}>
+            {Object.entries(kpis.byArea)
+              .sort((a, b) => b[1].neto - a[1].neto)
+              .map(([area, d]) => {
+                const pct = kpis.totalNetoMensual > 0 ? (d.neto / kpis.totalNetoMensual) * 100 : 0
+                return (
+                  <div key={area} style={{ position: 'relative', padding: '8px 10px', borderRadius: 6, overflow: 'hidden', border: '1px solid #1e1e1e' }}>
+                    <div style={{ position: 'absolute', inset: 0, background: '#57FF9A', opacity: 0.06, width: `${pct}%` }} />
+                    <div style={{ position: 'relative', display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                      <div>
+                        <span style={{ fontSize: 12, color: '#ccc', fontWeight: 500 }}>{area}</span>
+                        <span style={{ fontSize: 10, color: '#555', marginLeft: 6 }}>{d.count} emp</span>
+                      </div>
+                      <span style={{ fontSize: 12, fontWeight: 600, color: '#57FF9A' }}>{F(d.neto)}</span>
+                    </div>
+                  </div>
+                )
+              })}
+          </div>
+        </div>
       </div>
 
       <div style={{ display: 'flex', gap: 12, marginBottom: 16, alignItems: 'center', flexWrap: 'wrap' }}>
