@@ -153,9 +153,17 @@ export default function AIQuoteChat({ onClose, onCreated }: {
   const [newClientRazon, setNewClientRazon] = useState('')
   const [newClientRfc, setNewClientRfc] = useState('')
 
+  // Lead selector
+  const [leads, setLeads] = useState<Array<{ id: string; name: string; company: string }>>([])
+  const [leadSearch, setLeadSearch] = useState('')
+  const [showLeadDrop, setShowLeadDrop] = useState(false)
+  const [selectedLeadId, setSelectedLeadId] = useState('')
+
   useEffect(() => {
     supabase.from('clientes').select('id,nombre_comercial,razon_social,rfc,regimen_fiscal,codigo_postal,uso_cfdi_clave,email').neq('activo', false).order('razon_social')
       .then(({ data }) => setClientes(data || []))
+    supabase.from('leads').select('id,name,company').order('name')
+      .then(({ data }) => setLeads((data || []).map((l: any) => ({ id: l.id, name: l.name || '', company: l.company || '' }))))
   }, [])
 
   const filteredClientes = clientSearch.length >= 1
@@ -163,6 +171,12 @@ export default function AIQuoteChat({ onClose, onCreated }: {
     : clientes.slice(0, 10)
 
   const selectedClient = clientId ? clientes.find(c => c.id === clientId) : null
+
+  const filteredLeads = leadSearch.length >= 1
+    ? leads.filter(l => l.name.toLowerCase().includes(leadSearch.toLowerCase()) || (l.company || '').toLowerCase().includes(leadSearch.toLowerCase())).slice(0, 10)
+    : leads.slice(0, 10)
+
+  const selectedLead = selectedLeadId ? leads.find(l => l.id === selectedLeadId) : null
 
   async function crearClienteInline() {
     if (!newClientName.trim()) return
@@ -510,8 +524,8 @@ export default function AIQuoteChat({ onClose, onCreated }: {
         name: quotName,
         specialty: 'esp',
         stage: 'oportunidad',
-        client_name: scope.cliente || '',
-        notes: JSON.stringify({ ...notesMeta, client_id: clientId || '' }),
+        client_name: scope.cliente || selectedLead?.company || selectedLead?.name || '',
+        notes: JSON.stringify({ ...notesMeta, client_id: clientId || '', lead_id: selectedLeadId || '', lead_name: selectedLead?.name || '' }),
       }).select().single()
       if (qErr) throw new Error('Error creando cotización: ' + qErr.message)
       if (!quot) throw new Error('Cotización no creada')
@@ -713,11 +727,42 @@ export default function AIQuoteChat({ onClose, onCreated }: {
                 </div>
               </div>
 
-              {/* Nombre + Cliente */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              {/* Nombre + Lead + Cliente */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
                 <div>
                   <label style={sLabel}>Nombre del proyecto</label>
                   <input value={scope.nombre} onChange={e => setScope(s => ({ ...s, nombre: e.target.value }))} placeholder="Ej. Casa Roma 142" style={inputS} />
+                </div>
+                <div>
+                  <label style={sLabel}>Lead</label>
+                  <div style={{ position: 'relative' as const }}>
+                    <input value={leadSearch} onChange={e => { setLeadSearch(e.target.value); setSelectedLeadId('') }}
+                      onFocus={() => setShowLeadDrop(true)}
+                      onBlur={() => setTimeout(() => setShowLeadDrop(false), 200)}
+                      placeholder="Buscar lead..." style={inputS} />
+                    {showLeadDrop && (
+                      <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#1a1a1a', border: '1px solid #333', borderRadius: 8, marginTop: 2, maxHeight: 200, overflowY: 'auto', zIndex: 20 }}>
+                        {filteredLeads.length === 0 ? (
+                          <div style={{ padding: '10px', fontSize: 11, color: '#555', textAlign: 'center' }}>Sin resultados</div>
+                        ) : filteredLeads.map(l => (
+                          <div key={l.id} onMouseDown={e => e.preventDefault()}
+                            onClick={() => { setLeadSearch(l.name); setSelectedLeadId(l.id); setShowLeadDrop(false) }}
+                            style={{ padding: '8px 10px', cursor: 'pointer', fontSize: 12, color: '#ccc', borderBottom: '1px solid #222' }}
+                            onMouseEnter={e => { e.currentTarget.style.background = '#222' }}
+                            onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}>
+                            <div style={{ fontWeight: 600, color: '#C084FC' }}>{l.name}</div>
+                            {l.company && <div style={{ fontSize: 10, color: '#777' }}>{l.company}</div>}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  {selectedLead && (
+                    <div style={{ marginTop: 6, padding: '6px 10px', background: '#120e1a', border: '1px solid #2a1a3a', borderRadius: 6, fontSize: 10, color: '#aaa', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span><span style={{ color: '#C084FC', fontWeight: 600, fontSize: 11 }}>{selectedLead.name}</span>{selectedLead.company ? ' · ' + selectedLead.company : ''}</span>
+                      <button onClick={() => { setLeadSearch(''); setSelectedLeadId('') }} style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer', fontSize: 10 }}>✕</button>
+                    </div>
+                  )}
                 </div>
                 <div>
                   <label style={sLabel}>Cliente</label>
