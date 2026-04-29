@@ -283,12 +283,7 @@ export default function AIQuoteLive({
     }
   }, [currentStep])
 
-  /* ─── Load items when moving to a system step ─── */
-  useEffect(() => {
-    if (currentStep !== 'zones' && currentStep !== 'review' && !currentStep.startsWith('rack') && zones.length > 0 && !completedSteps.has(currentStep)) {
-      loadItems(currentStep)
-    }
-  }, [currentStep, zones, completedSteps])
+  /* ─── Auto-load removed: user must use chat or catalog to add items (saves tokens) ─── */
 
   const loadZones = async () => {
     setLoadingZones(true)
@@ -479,11 +474,12 @@ La lista de items debe ser COMPLETA (incluye los existentes si no cambiaron). Us
   // Save current step's items (called on confirm AND on navigation away)
   const saveCurrentStepItems = useCallback(() => {
     const systemEnum = SYSTEM_ENUM[currentStep]
-    if (!systemEnum) return
-    if (editingItems.length === 0) return
+    if (!systemEnum) { console.log('[AIQuoteLive] saveCurrentStepItems: no systemEnum for', currentStep); return }
+    if (editingItems.length === 0) { console.log('[AIQuoteLive] saveCurrentStepItems: no items for', currentStep); return }
+    console.log('[AIQuoteLive] SAVING', editingItems.length, 'items for', systemEnum, 'from step', currentStep)
     setConfirmedItems(prev => ({
       ...prev,
-      [systemEnum]: editingItems,
+      [systemEnum]: [...editingItems],
     }))
   }, [currentStep, editingItems])
 
@@ -519,6 +515,22 @@ La lista de items debe ser COMPLETA (incluye los existentes si no cambiaron). Us
     setInserting(true)
     setInsertProgress('Creando cotización...')
 
+    // Debug: log what we're about to create
+    const totalSystems = Object.keys(confirmedItems).filter(k => confirmedItems[k]?.length > 0)
+    const totalItemCount = Object.values(confirmedItems).reduce((s, items) => s + items.length, 0)
+    console.log('[AIQuoteLive] handleConfirm START:', {
+      confirmedItemsKeys: Object.keys(confirmedItems),
+      totalSystems: totalSystems.length,
+      totalItems: totalItemCount,
+      detail: Object.entries(confirmedItems).map(([k, v]) => `${k}: ${v.length} items`),
+    })
+
+    if (totalItemCount === 0) {
+      setError('No hay items confirmados. Regresa a los pasos de sistemas y agrega productos.')
+      setInserting(false)
+      return
+    }
+
     try {
       const quotName =
         scope.nombre ||
@@ -534,6 +546,8 @@ La lista de items debe ser COMPLETA (incluye los existentes si no cambiaron). Us
         zones: zones.map(z => z.name),
         has_plan: planFiles.length > 0,
         plan_count: planFiles.length,
+        confirmedSystems: totalSystems,
+        confirmedItemCount: totalItemCount,
       }
 
       const { data: quot, error: qErr } = await supabase
@@ -555,6 +569,7 @@ La lista de items debe ser COMPLETA (incluye los existentes si no cambiaron). Us
 
       if (qErr) throw new Error('Error creando cotización: ' + qErr.message)
       if (!quot) throw new Error('Cotización no creada')
+      console.log('[AIQuoteLive] Quotation created:', quot.id)
 
       // Create areas
       setInsertProgress('Creando áreas...')
@@ -670,7 +685,7 @@ La lista de items debe ser COMPLETA (incluye los existentes si no cambiaron). Us
           const price = cost > 0 ? Math.round((cost / (1 - markup / 100)) * 100) / 100 : 0
           const installationCost = Math.round(price * 0.22 * 100) / 100
 
-          await supabase.from('quotation_items').insert({
+          const itemPayload = {
             quotation_id: quot.id,
             area_id: zoneId,
             catalog_product_id: catalogId,
@@ -689,9 +704,15 @@ La lista de items debe ser COMPLETA (incluye los existentes si no cambiaron). Us
             order_index: orderIdx++,
             marca: it.marca || productData?.marca || null,
             modelo: it.modelo || productData?.modelo || null,
-          })
+          }
+          console.log('[AIQuoteLive] Inserting item:', itemPayload.name, 'zone:', it.zone, '→', zoneId, 'system:', systemEnum)
+          const { error: itemErr } = await supabase.from('quotation_items').insert(itemPayload)
+          if (itemErr) {
+            console.error('[AIQuoteLive] ITEM INSERT ERROR:', itemErr, itemPayload)
+          }
         }
       }
+      console.log('[AIQuoteLive] Total items inserted:', orderIdx)
 
       onCreated(quot.id, 'esp')
       onClose()
