@@ -353,13 +353,35 @@ export default function AIQuoteChat({ onClose, onCreated }: {
         }
       }
 
-      const r = await fetch('/api/ai-chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      })
+      // DEBUG: log body size and plan info
+      let bodyStr: string
+      try {
+        bodyStr = JSON.stringify(body)
+        console.log(`[AIQuoteChat] Body size: ${(bodyStr.length / 1024).toFixed(1)} KB, plans: ${body.planUrls?.length || 0}, planUrls:`, body.planUrls?.map((p: any) => p.url))
+      } catch (strErr: any) {
+        throw new Error(`[STRINGIFY] ${strErr.message}`)
+      }
 
-      const data = await r.json()
+      let r: Response
+      try {
+        r = await fetch('/api/ai-chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: bodyStr,
+        })
+      } catch (fetchErr: any) {
+        throw new Error(`[FETCH] ${fetchErr.message}`)
+      }
+
+      let data: any
+      try {
+        const responseText = await r.text()
+        console.log(`[AIQuoteChat] Response status: ${r.status}, body preview: ${responseText.substring(0, 200)}`)
+        data = JSON.parse(responseText)
+      } catch (parseErr: any) {
+        throw new Error(`[PARSE] Status ${r.status} — ${parseErr.message}`)
+      }
+
       if (!r.ok || !data.ok) {
         throw new Error(data.error || 'Error de comunicación con AI')
       }
