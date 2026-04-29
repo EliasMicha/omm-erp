@@ -197,7 +197,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!apiKey) return res.status(500).json({ ok: false, error: 'ANTHROPIC_KEY no configurada en el servidor' })
 
   try {
-    const { messages, scope, plan, planMediaType, additionalPlans, catalog, precedents } = req.body as {
+    const { messages, scope, plan, planMediaType, additionalPlans, planUrls, catalog, precedents } = req.body as {
       messages: { role: 'user' | 'assistant'; content: string }[]
       scope: {
         tipo: string
@@ -212,9 +212,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         notas: string
         freetext?: string
       }
-      plan?: string // base64
+      plan?: string // base64 (legacy)
       planMediaType?: string
-      additionalPlans?: { base64: string; mediaType: string }[]
+      additionalPlans?: { base64: string; mediaType: string }[] // legacy
+      planUrls?: { url: string; mediaType: string }[] // NEW: Supabase Storage URLs
       catalog: { id: string; name: string; marca?: string; modelo?: string; system?: string; provider?: string; moneda?: string; cost?: number; description?: string }[]
       precedents: { name: string; specialty: string; total: number; items: { area_name: string; name: string; system: string; quantity: number; marca?: string; modelo?: string }[] }[]
     }
@@ -273,9 +274,23 @@ ${precedentsCompact || '(sin precedentes)'}`
       if (i === 0 && msg.role === 'user') {
         // First user message: inject context + optional plan
         const content: any[] = []
+        let planCount = 0
 
-        // Add plan document if exists
-        if (plan) {
+        // NEW: Add plans via URL (from Supabase Storage) — keeps body small
+        if (planUrls && planUrls.length > 0) {
+          for (const pu of planUrls) {
+            const isPdf = (pu.mediaType || '').includes('pdf')
+            if (isPdf) {
+              content.push({ type: 'document', source: { type: 'url', url: pu.url } })
+            } else {
+              content.push({ type: 'image', source: { type: 'url', url: pu.url } })
+            }
+            planCount++
+          }
+        }
+
+        // LEGACY: Add plan document via base64 if exists (for backward compat)
+        if (!planUrls && plan) {
           const isPdf = (planMediaType || '').includes('pdf') || plan.substring(0, 10).includes('JVBER')
           if (isPdf) {
             content.push({
@@ -288,22 +303,23 @@ ${precedentsCompact || '(sin precedentes)'}`
               source: { type: 'base64', media_type: planMediaType || 'image/png', data: plan },
             })
           }
-        }
+          planCount++
 
-        // Add additional plans if any
-        if (additionalPlans && additionalPlans.length > 0) {
-          for (const ap of additionalPlans) {
-            const isApPdf = (ap.mediaType || '').includes('pdf') || ap.base64.substring(0, 10).includes('JVBER')
-            if (isApPdf) {
-              content.push({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: ap.base64 } })
-            } else {
-              content.push({ type: 'image', source: { type: 'base64', media_type: ap.mediaType || 'image/png', data: ap.base64 } })
+          // Add additional plans if any (legacy base64)
+          if (additionalPlans && additionalPlans.length > 0) {
+            for (const ap of additionalPlans) {
+              const isApPdf = (ap.mediaType || '').includes('pdf') || ap.base64.substring(0, 10).includes('JVBER')
+              if (isApPdf) {
+                content.push({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: ap.base64 } })
+              } else {
+                content.push({ type: 'image', source: { type: 'base64', media_type: ap.mediaType || 'image/png', data: ap.base64 } })
+              }
+              planCount++
             }
           }
         }
 
         // Add context + user message
-        const planCount = (plan ? 1 : 0) + (additionalPlans?.length || 0)
         content.push({
           type: 'text',
           text: `${contextBlock}\n\n${planCount > 0 ? `PLANO${planCount > 1 ? 'S' : ''} ARQUITECTÓNICO${planCount > 1 ? 'S' : ''} (${planCount}): adjunto${planCount > 1 ? 's' : ''} arriba — analiza todas las áreas, niveles y distribución.\n\n` : ''}${msg.content}`,

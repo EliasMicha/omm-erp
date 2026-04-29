@@ -195,12 +195,10 @@ export default function AIQuoteChat({ onClose, onCreated }: {
     setShowNewClient(false); setNewClientName(''); setNewClientRazon(''); setNewClientRfc('')
   }
 
-  // Plan upload (multiple)
-  const [planFiles, setPlanFiles] = useState<Array<{ file: File; base64: string; mediaType: string; preview: string }>>([])
+  // Plan upload (multiple) — files are uploaded to Supabase Storage
+  const [planFiles, setPlanFiles] = useState<Array<{ file: File; url: string; mediaType: string; preview: string; uploading: boolean }>>([])
   // Compat aliases for first plan
   const planFile = planFiles[0]?.file || null
-  const planBase64 = planFiles[0]?.base64 || ''
-  const planMediaType = planFiles[0]?.mediaType || ''
 
   // Chat
   const [messages, setMessages] = useState<ChatMessage[]>([])
@@ -276,23 +274,39 @@ export default function AIQuoteChat({ onClose, onCreated }: {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, sending])
 
-  // File upload handler
-  const handleFile = useCallback((file: File) => {
+  // File upload handler — uploads to Supabase Storage for URL-based access
+  const handleFile = useCallback(async (file: File) => {
     const valid = ['application/pdf', 'image/png', 'image/jpeg', 'image/webp']
     if (!valid.includes(file.type)) { setError('Formato no soportado. Usa PDF, PNG, JPG o WebP.'); return }
-    if (file.size > 20 * 1024 * 1024) { setError('Archivo demasiado grande. Max 20MB.'); return }
+    if (file.size > 25 * 1024 * 1024) { setError('Archivo demasiado grande. Max 25MB.'); return }
     setError(null)
     const preview = file.type.startsWith('image/') ? URL.createObjectURL(file) : ''
-    const reader = new FileReader()
-    reader.onload = () => {
-      const base64 = (reader.result as string).split(',')[1] || ''
-      setPlanFiles(prev => [...prev, { file, base64, mediaType: file.type, preview }])
+    // Add a placeholder while uploading
+    const tempId = Math.random().toString(36).slice(2, 10)
+    const ext = file.name.split('.').pop() || 'pdf'
+    const storagePath = `ai-quotes/${Date.now()}-${tempId}.${ext}`
+    setPlanFiles(prev => [...prev, { file, url: '', mediaType: file.type, preview, uploading: true }])
+    try {
+      const { error: uploadErr } = await supabase.storage.from('plan-uploads').upload(storagePath, file, {
+        contentType: file.type,
+        upsert: false,
+      })
+      if (uploadErr) throw uploadErr
+      const { data: urlData } = supabase.storage.from('plan-uploads').getPublicUrl(storagePath)
+      const publicUrl = urlData?.publicUrl || ''
+      if (!publicUrl) throw new Error('No se pudo obtener URL pública')
+      // Update the placeholder with the real URL
+      setPlanFiles(prev => prev.map(p => p.file === file && p.uploading ? { ...p, url: publicUrl, uploading: false } : p))
+    } catch (err: any) {
+      console.error('Upload error:', err)
+      setError('Error subiendo archivo: ' + (err.message || 'Error desconocido'))
+      // Remove the failed placeholder
+      setPlanFiles(prev => prev.filter(p => !(p.file === file && p.uploading)))
     }
-    reader.readAsDataURL(file)
   }, [])
 
   const handleFiles = useCallback((files: FileList | File[]) => {
-    Array.from(files).forEach(f => handleFile(f))
+    Array.from(files).forEach(f => { handleFile(f) })
   }, [handleFile])
 
   const removePlan = useCallback((idx: number) => {
@@ -331,12 +345,11 @@ export default function AIQuoteChat({ onClose, onCreated }: {
         precedents,
       }
 
-      // Only send plans on first message
+      // Only send plan URLs on first message (files are already in Supabase Storage)
       if (isInitial && planFiles.length > 0) {
-        body.plan = planFiles[0].base64
-        body.planMediaType = planFiles[0].mediaType
-        if (planFiles.length > 1) {
-          body.additionalPlans = planFiles.slice(1).map(p => ({ base64: p.base64, mediaType: p.mediaType }))
+        const readyPlans = planFiles.filter(p => p.url && !p.uploading)
+        if (readyPlans.length > 0) {
+          body.planUrls = readyPlans.map(p => ({ url: p.url, mediaType: p.mediaType }))
         }
       }
 
@@ -408,9 +421,22 @@ export default function AIQuoteChat({ onClose, onCreated }: {
   /* ─── Download Sembrado PDF ─── */
   const [downloadingSembrado, setDownloadingSembrado] = useState(false)
 
-  const downloadSembrado = () => {
+  const downloadSembrado = async () => {
     setDownloadingSembrado(true)
     try {
+      // Fetch plan image base64 from URL if available
+      let planImageBase64: string | undefined
+      if (planFiles[0]?.url) {
+        try {
+          const resp = await fetch(planFiles[0].url)
+          const blob = await resp.blob()
+          const reader = new FileReader()
+          planImageBase64 = await new Promise<string>((resolve) => {
+            reader.onload = () => resolve((reader.result as string).split(',')[1] || '')
+            reader.readAsDataURL(blob)
+          })
+        } catch { /* skip plan overlay if fetch fails */ }
+      }
       // Symbol type inference from system + description keywords
       const inferSymbol = (system: string, desc: string): string => {
         const d = desc.toLowerCase()
@@ -488,7 +514,7 @@ export default function AIQuoteChat({ onClose, onCreated }: {
         },
         systems: systemsMap,
         // Include the uploaded plan image for overlay
-        planImageBase64: planFiles[0]?.base64 || undefined,
+        planImageBase64: planImageBase64,
         planImageType: planFiles[0]?.mediaType || undefined,
       }
 
@@ -878,7 +904,9 @@ export default function AIQuoteChat({ onClose, onCreated }: {
                         <FileText size={16} color="#57FF9A" />
                         <div style={{ flex: 1, textAlign: 'left' }}>
                           <div style={{ fontSize: 12, fontWeight: 600, color: '#fff' }}>{p.file.name}</div>
-                          <div style={{ fontSize: 10, color: '#888' }}>{(p.file.size / 1024 / 1024).toFixed(1)} MB</div>
+                          <div style={{ fontSize: 10, color: p.uploading ? '#F59E0B' : '#888' }}>
+                            {p.uploading ? 'Subiendo...' : `${(p.file.size / 1024 / 1024).toFixed(1)} MB`}
+                          </div>
                         </div>
                         <button onClick={e => { e.stopPropagation(); removePlan(i) }}
                           style={{ background: 'none', border: '1px solid #333', borderRadius: 6, padding: '3px 7px', color: '#666', cursor: 'pointer', fontSize: 10 }}>
@@ -925,8 +953,8 @@ export default function AIQuoteChat({ onClose, onCreated }: {
             {/* Footer */}
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginTop: 16, paddingTop: 14, borderTop: '1px solid #222' }}>
               <Btn onClick={() => setStep('mode')}>← Atrás</Btn>
-              <Btn variant="primary" onClick={startChat} disabled={scope.sistemas.length === 0 || loadingData}>
-                <MessageSquare size={14} /> Iniciar con AI →
+              <Btn variant="primary" onClick={startChat} disabled={scope.sistemas.length === 0 || loadingData || planFiles.some(p => p.uploading)}>
+                <MessageSquare size={14} /> {planFiles.some(p => p.uploading) ? 'Subiendo planos...' : 'Iniciar con AI →'}
               </Btn>
             </div>
           </div>
@@ -968,8 +996,8 @@ export default function AIQuoteChat({ onClose, onCreated }: {
 
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginTop: 14, paddingTop: 14, borderTop: '1px solid #222' }}>
               <Btn onClick={() => setStep('mode')}>← Atrás</Btn>
-              <Btn variant="primary" onClick={startChat} disabled={!scope.freetext.trim() || loadingData}>
-                <MessageSquare size={14} /> Iniciar con AI →
+              <Btn variant="primary" onClick={startChat} disabled={!scope.freetext.trim() || loadingData || planFiles.some(p => p.uploading)}>
+                <MessageSquare size={14} /> {planFiles.some(p => p.uploading) ? 'Subiendo planos...' : 'Iniciar con AI →'}
               </Btn>
             </div>
           </div>
