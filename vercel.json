@@ -1,3 +1,14 @@
 {
-  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
+  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }],
+  "functions": {
+    "api/ai-chat.ts": {
+      "maxDuration": 120
+    },
+    "api/chatbot.ts": {
+      "maxDuration": 60
+    },
+    "api/generate-quote.ts": {
+      "maxDuration": 120
+    }
+  }
 }
