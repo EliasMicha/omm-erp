@@ -324,7 +324,7 @@ ${precedentsCompact || '(sin precedentes)'}`
       headers: {
         'Content-Type': 'application/json',
         'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
+        'anthropic-version': '2025-04-14',
       },
       body: JSON.stringify({
         model: 'claude-sonnet-4-6',
@@ -336,7 +336,8 @@ ${precedentsCompact || '(sin precedentes)'}`
 
     if (!r.ok) {
       const errText = await r.text()
-      return res.status(r.status).json({ ok: false, error: 'Claude API: ' + errText.substring(0, 500) })
+      console.error('Claude API error:', r.status, errText.substring(0, 1000))
+      return res.status(r.status).json({ ok: false, error: 'Claude API (' + r.status + '): ' + errText.substring(0, 500) })
     }
 
     const data = await r.json()
@@ -405,6 +406,7 @@ ${precedentsCompact || '(sin precedentes)'}`
       })
     }
   } catch (err: any) {
-    return res.status(500).json({ ok: false, error: err.message || 'Error interno' })
+    console.error('ai-chat error:', err)
+    return res.status(500).json({ ok: false, error: err.message || 'Error interno del servidor' })
   }
 }

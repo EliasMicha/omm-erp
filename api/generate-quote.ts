@@ -93,7 +93,7 @@ Genera la cotización completa en JSON según el formato especificado.`
       headers: {
         'Content-Type': 'application/json',
         'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
+        'anthropic-version': '2025-04-14',
       },
       body: JSON.stringify({
         model: 'claude-sonnet-4-6',

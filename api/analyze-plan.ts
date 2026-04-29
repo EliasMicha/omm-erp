@@ -348,7 +348,7 @@ Analiza el plano, identifica todas las áreas, y genera la propuesta completa de
       headers: {
         'Content-Type': 'application/json',
         'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
+        'anthropic-version': '2025-04-14',
       },
       body: JSON.stringify({
         model: 'claude-sonnet-4-6',
