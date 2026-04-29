@@ -103,7 +103,7 @@ const SYSTEM_ENUM: Record<string, string> = {
 // Some DB products use alternate system names — this maps extras to the same step
 const SYSTEM_ALIASES: Record<string, string[]> = {
   'control_acceso': ['Control de acceso', 'Acceso'],
-  'control_iluminacion': ['Control de iluminacion', 'Iluminacion', 'Lutron'],
+  'control_iluminacion': ['Control de iluminacion', 'Lutron'],
   'deteccion_humo': ['Humo'],
   'red_celular': ['Celular'],
   'telefonia': ['Telefonia'],

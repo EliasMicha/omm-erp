@@ -241,7 +241,7 @@ export default function AIQuoteChat({ onClose, onCreated }: {
           'redes': ['Redes'],
           'cctv': ['CCTV'],
           'control_acceso': ['Control de acceso', 'Acceso'],
-          'control_iluminacion': ['Control de iluminacion', 'Iluminacion', 'Lutron'],
+          'control_iluminacion': ['Control de iluminacion', 'Lutron'],
           'deteccion_humo': ['Humo'],
           'bms': ['BMS'],
           'telefonia': ['Telefonia'],
