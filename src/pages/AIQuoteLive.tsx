@@ -4,7 +4,7 @@ import { Btn } from '../components/layout/UI'
 import { useIsMobile } from '../lib/useIsMobile'
 import {
   X, Zap, Loader2, AlertTriangle, CheckCircle2, Trash2, Plus, Minus,
-  ChevronRight, ChevronLeft, GripVertical,
+  ChevronRight, ChevronLeft, GripVertical, Search, Package,
 } from 'lucide-react'
 
 /* ═══════════════════════════════════════════════════════════
@@ -242,6 +242,10 @@ export default function AIQuoteLive({
 
   // Editing current items
   const [editingItems, setEditingItems] = useState<ConfirmedItem[]>([])
+
+  // Catalog search
+  const [showCatalogSearch, setShowCatalogSearch] = useState(false)
+  const [catalogSearch, setCatalogSearch] = useState('')
 
   // Create quotation
   const [inserting, setInserting] = useState(false)
@@ -1000,35 +1004,141 @@ RESPONDE ÚNICAMENTE con JSON válido, sin texto adicional:
                   </div>
                 )}
 
-                <button
-                  onClick={() => {
-                    const newItem: ConfirmedItem = {
-                      zone: zones[0]?.name || 'Indefinida',
-                      marca: '',
-                      modelo: '',
-                      description: '',
-                      quantity: 1,
-                      notes: '',
-                    }
-                    setEditingItems(prev => [...prev, newItem])
-                  }}
-                  style={{
-                    padding: '10px 12px',
-                    background: '#0e1a0e',
-                    border: '1px solid #57FF9A44',
-                    borderRadius: 8,
-                    color: '#57FF9A',
-                    cursor: 'pointer',
-                    fontSize: 12,
-                    fontFamily: 'inherit',
-                    fontWeight: 600,
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 6,
-                  }}
-                >
-                  <Plus size={14} /> Agregar item
-                </button>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button
+                    onClick={() => {
+                      const newItem: ConfirmedItem = {
+                        zone: zones[0]?.name || 'Indefinida',
+                        marca: '',
+                        modelo: '',
+                        description: '',
+                        quantity: 1,
+                        notes: '',
+                      }
+                      setEditingItems(prev => [...prev, newItem])
+                    }}
+                    style={{
+                      padding: '10px 12px',
+                      background: '#0e1a0e',
+                      border: '1px solid #57FF9A44',
+                      borderRadius: 8,
+                      color: '#57FF9A',
+                      cursor: 'pointer',
+                      fontSize: 12,
+                      fontFamily: 'inherit',
+                      fontWeight: 600,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                    }}
+                  >
+                    <Plus size={14} /> Manual
+                  </button>
+                  <button
+                    onClick={() => { setShowCatalogSearch(true); setCatalogSearch('') }}
+                    style={{
+                      padding: '10px 12px',
+                      background: '#0e0e1a',
+                      border: '1px solid #3B82F644',
+                      borderRadius: 8,
+                      color: '#3B82F6',
+                      cursor: 'pointer',
+                      fontSize: 12,
+                      fontFamily: 'inherit',
+                      fontWeight: 600,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                    }}
+                  >
+                    <Package size={14} /> Desde catálogo
+                  </button>
+                </div>
+
+                {/* Catalog search panel */}
+                {showCatalogSearch && (() => {
+                  const systemEnum = SYSTEM_ENUM[currentStep]
+                  const filteredCat = catalog.filter(p => {
+                    if (systemEnum && p.system !== systemEnum) return false
+                    if (!catalogSearch.trim()) return true
+                    const q = catalogSearch.toLowerCase()
+                    return (p.name || '').toLowerCase().includes(q)
+                      || (p.marca || '').toLowerCase().includes(q)
+                      || (p.modelo || '').toLowerCase().includes(q)
+                      || (p.description || '').toLowerCase().includes(q)
+                  }).slice(0, 20)
+
+                  return (
+                    <div style={{
+                      marginTop: 10,
+                      padding: 12,
+                      background: '#0a0a14',
+                      border: '1px solid #3B82F644',
+                      borderRadius: 10,
+                    }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                        <span style={{ fontSize: 11, fontWeight: 600, color: '#3B82F6', textTransform: 'uppercase' }}>
+                          Buscar en catálogo {systemEnum ? `(${systemEnum})` : ''}
+                        </span>
+                        <button onClick={() => setShowCatalogSearch(false)}
+                          style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', fontSize: 14 }}>✕</button>
+                      </div>
+                      <div style={{ position: 'relative', marginBottom: 8 }}>
+                        <Search size={13} style={{ position: 'absolute', left: 10, top: 9, color: '#555' }} />
+                        <input
+                          value={catalogSearch}
+                          onChange={e => setCatalogSearch(e.target.value)}
+                          placeholder="Buscar por nombre, marca, modelo..."
+                          autoFocus
+                          style={{ ...inputS, paddingLeft: 30 }}
+                        />
+                      </div>
+                      <div style={{ maxHeight: 200, overflowY: 'auto' }}>
+                        {filteredCat.length === 0 ? (
+                          <div style={{ fontSize: 11, color: '#555', padding: 8, textAlign: 'center' }}>Sin resultados</div>
+                        ) : filteredCat.map(p => (
+                          <button
+                            key={p.id}
+                            onClick={() => {
+                              setEditingItems(prev => [...prev, {
+                                zone: zones[0]?.name || 'Indefinida',
+                                marca: p.marca || '',
+                                modelo: p.modelo || '',
+                                description: p.description || p.name || '',
+                                quantity: 1,
+                                notes: '',
+                                catalog_product_id: p.id,
+                              }])
+                              setShowCatalogSearch(false)
+                            }}
+                            style={{
+                              width: '100%',
+                              padding: '8px 10px',
+                              background: 'transparent',
+                              border: 'none',
+                              borderBottom: '1px solid #1a1a2a',
+                              cursor: 'pointer',
+                              textAlign: 'left',
+                              color: '#ccc',
+                              fontFamily: 'inherit',
+                              fontSize: 11,
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: 2,
+                            }}
+                            onMouseEnter={e => { e.currentTarget.style.background = '#3B82F610' }}
+                            onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}
+                          >
+                            <div style={{ fontWeight: 600, color: '#ddd' }}>{p.marca} {p.modelo}</div>
+                            <div style={{ fontSize: 10, color: '#888' }}>
+                              {p.name}{p.cost > 0 ? ` · $${p.cost} ${p.moneda}` : ''}
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )
+                })()}
               </div>
             )}
 
