@@ -383,7 +383,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         headers: {
           'Content-Type': 'application/json',
           'x-api-key': apiKey,
-          'anthropic-version': '2025-04-14',
+          'anthropic-version': '2023-06-01',
         },
         body: JSON.stringify({
           model: 'claude-sonnet-4-6',
