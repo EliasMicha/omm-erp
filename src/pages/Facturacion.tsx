@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { Plus, X, FileText, RefreshCw, Download, Trash2, Search, Loader2, CheckCircle2, AlertCircle, Ban } from 'lucide-react'
+import { useIsMobile } from '../lib/useIsMobile'
 
 // ============================================================
 // Tipos
@@ -267,6 +268,7 @@ async function callFacturapi(action: string, opts: { method?: string; query?: Re
 // Componente principal
 // ============================================================
 export default function Facturacion() {
+  const isMobile = useIsMobile()
   const [view, setView] = useState<'todas' | 'lista' | 'nueva' | 'recibidas'>('todas')
   const [pingStatus, setPingStatus] = useState<'idle' | 'ok' | 'error'>('idle')
   // FacturAPI mode (Sesion B)
@@ -318,17 +320,17 @@ export default function Facturacion() {
   }
 
   return (
-    <div style={{ padding: '24px 28px', minHeight: '100vh' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
+    <div style={{ padding: isMobile ? '12px 16px' : '24px 28px', minHeight: '100vh' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: isMobile ? 'flex-start' : 'center', marginBottom: 24, flexWrap: 'wrap', gap: isMobile ? 12 : 0 }}>
         <div>
-          <h1 style={{ fontSize: 22, fontWeight: 700, color: '#fff', margin: 0 }}>Facturacion</h1>
-          <div style={{ fontSize: 12, color: '#666', marginTop: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
+          <h1 style={{ fontSize: isMobile ? 18 : 22, fontWeight: 700, color: '#fff', margin: 0 }}>Facturacion</h1>
+          <div style={{ fontSize: 12, color: '#666', marginTop: 4, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
             FacturAPI {facturapiMode === 'live' ? 'LIVE' : 'TEST'}
             {pingStatus === 'ok' && <CheckCircle2 size={12} style={{ color: '#57FF9A' }} />}
             {pingStatus === 'error' && <AlertCircle size={12} style={{ color: '#EF4444' }} />}
           </div>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 8, flex: isMobile ? '1 1 100%' : 'initial', flexWrap: 'wrap', justifyContent: isMobile ? 'flex-end' : 'flex-start' }}>
           <button onClick={() => setView('nueva')} style={{
             padding: '8px 16px', background: '#57FF9A', color: '#000', border: 'none', borderRadius: 8,
             fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6
@@ -340,8 +342,8 @@ export default function Facturacion() {
 
       {/* Banner FacturAPI mode (Sesion B) */}
       {facturapiConfig && (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, padding: '10px 14px', borderRadius: 10, background: facturapiMode === 'live' ? 'rgba(239,68,68,0.1)' : 'rgba(251,191,36,0.08)', border: '1px solid ' + (facturapiMode === 'live' ? 'rgba(239,68,68,0.4)' : 'rgba(251,191,36,0.3)') }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: isMobile ? 'flex-start' : 'center', justifyContent: 'space-between', marginBottom: 16, padding: '10px 14px', borderRadius: 10, background: facturapiMode === 'live' ? 'rgba(239,68,68,0.1)' : 'rgba(251,191,36,0.08)', border: '1px solid ' + (facturapiMode === 'live' ? 'rgba(239,68,68,0.4)' : 'rgba(251,191,36,0.3)'), flexWrap: isMobile ? 'wrap' : 'nowrap', gap: isMobile ? 8 : 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: isMobile ? '1 1 100%' : 'initial', flexWrap: 'wrap' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <span style={{ fontSize: 16 }}>{facturapiMode === 'live' ? '⚠️' : 'ð§ª'}</span>
               <span style={{ fontSize: 13, fontWeight: 700, color: facturapiMode === 'live' ? '#fca5a5' : '#fcd34d', letterSpacing: '0.5px' }}>
@@ -734,9 +736,10 @@ function DetalleModal(props: { factura: Factura; conceptos: any[]; loading: bool
   const totalNum = Number(f.total) || 0
   const ivaNum = Number(fAny.iva) || 0
   const hasFacturapiId = !!f.facturapi_id
+  const isMobile = useIsMobile()
   return (
-    <div onClick={props.onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: 40, zIndex: 100, overflowY: 'auto' as const }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ background: '#0a0a0a', border: '1px solid #2a2a2a', borderRadius: 12, maxWidth: 900, width: '100%', padding: 24, color: '#ddd' }}>
+    <div onClick={props.onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: isMobile ? 'flex-start' : 'flex-start', justifyContent: 'center', padding: isMobile ? 0 : 40, zIndex: 100, overflowY: 'auto' as const }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: '#0a0a0a', border: isMobile ? 'none' : '1px solid #2a2a2a', borderRadius: isMobile ? 0 : 12, maxWidth: isMobile ? '100vw' : 900, width: isMobile ? '100vw' : '100%', padding: isMobile ? 16 : 24, color: '#ddd', maxHeight: isMobile ? '100vh' : 'auto', overflowY: isMobile ? 'auto' : 'visible' as const, marginTop: isMobile ? 0 : 'auto' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
           <div>
             <span style={{ padding: '3px 10px', borderRadius: 4, fontSize: 10, fontWeight: 700, background: '#1e1e1e', color: dirColor }}>{dirLabel}</span>
@@ -1038,12 +1041,13 @@ function ListaEmitidas({ onNueva }: { onNueva: () => void }) {
 // Modal de cancelacion
 // ============================================================
 function CancelarModal({ factura, onClose, onConfirm, loading }: { factura: Factura; onClose: () => void; onConfirm: (motivo: string, sustitucion: string) => void; loading: boolean }) {
+  const isMobile = useIsMobile()
   const [motivo, setMotivo] = useState('02')
   const [sustitucion, setSustitucion] = useState('')
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100 }}>
-      <div style={{ background: '#141414', border: '1px solid #2a2a2a', borderRadius: 16, padding: 24, width: 480 }}>
+      <div style={{ background: '#141414', border: isMobile ? 'none' : '1px solid #2a2a2a', borderRadius: isMobile ? 0 : 16, padding: isMobile ? 16 : 24, width: isMobile ? '100vw' : 480, height: isMobile ? '100vh' : 'auto', maxHeight: isMobile ? '100vh' : 'auto', overflowY: isMobile ? 'auto' : 'visible' as const }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
           <div style={{ fontSize: 16, fontWeight: 700, color: '#fff' }}>Cancelar CFDI</div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer' }}><X size={18} /></button>

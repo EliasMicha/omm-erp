@@ -5,6 +5,7 @@ import {
   Plus, ChevronLeft, X, Trash2, Save, Truck, Calendar, Camera, FileText,
   PenTool, Upload, CheckCircle2, Clock, Package, ArrowRight, Warehouse, MapPin, Sparkles,
 } from 'lucide-react'
+import { useIsMobile } from '../lib/useIsMobile'
 
 // ═══════════════════════════════════════════════════════════════════════════════
 //  TYPES
@@ -184,8 +185,10 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 }
 
 function Grid({ cols, children }: { cols: number; children: React.ReactNode }) {
+  const isMobile = useIsMobile()
+  const colCount = isMobile ? 1 : cols
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: `repeat(${cols}, 1fr)`, gap: 12 }}>
+    <div style={{ display: 'grid', gridTemplateColumns: `repeat(${colCount}, 1fr)`, gap: 12 }}>
       {children}
     </div>
   )
@@ -360,6 +363,7 @@ function PhotoUploader({ urls, onChange, deliveryId }: {
 type TabKey = 'dashboard' | 'recolecciones' | 'entregas' | 'historial'
 
 export default function Entregas() {
+  const isMobile = useIsMobile()
   const [view, setView] = useState<TabKey>('dashboard')
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editorPrefill, setEditorPrefill] = useState<Partial<Delivery> | null>(null)
@@ -395,8 +399,8 @@ export default function Entregas() {
   ]
 
   return (
-    <div style={{ padding: '24px 28px' }}>
-      <div style={{ display: 'flex', gap: 4, marginBottom: 20, borderBottom: '1px solid #222', paddingBottom: 8 }}>
+    <div style={{ padding: isMobile ? '12px 16px' : '24px 28px' }}>
+      <div style={{ display: 'flex', gap: 4, marginBottom: 20, borderBottom: '1px solid #222', paddingBottom: 8, flexWrap: 'wrap' }}>
         {tabs.map(({ key, label, icon: Icon }) => (
           <button key={key} onClick={() => setView(key)}
             style={{

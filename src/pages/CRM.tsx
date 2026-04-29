@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { Badge, Btn, Table, Th, Td, Loading, SectionHeader, EmptyState } from '../components/layout/UI'
+import { useIsMobile } from '../lib/useIsMobile'
 import { Plus, X, Search, Trash2, Save, Sparkles, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
 import { SPECIALTY_CONFIG } from '../lib/utils'
 import { ProjectLine } from '../types'
@@ -102,6 +103,7 @@ function Chips({ label, options, value, onChange, colorMap }: {
 
 // ─── Modal Nuevo Lead ──────────────────────────────────────────────────────
 function NuevoLeadModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+  const isMobile = useIsMobile()
   const [form, setForm] = useState({
     name: '', company: '', client_final: '', client_id: '', contact_name: '', contact_phone: '', contact_email: '',
     origin: 'inbound' as LeadOrigin, needs: [] as ProjectLine[], notes: '', estimated_value: ''
@@ -166,7 +168,7 @@ function NuevoLeadModal({ onClose, onCreated }: { onClose: () => void; onCreated
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-      <div style={{ background: '#141414', border: '1px solid #2a2a2a', borderRadius: 16, padding: 24, width: 560, maxHeight: '90vh', overflowY: 'auto' as const }}>
+      <div style={{ background: '#141414', border: '1px solid #2a2a2a', borderRadius: isMobile ? 0 : 16, padding: isMobile ? 16 : 24, width: isMobile ? '100vw' : 560, maxHeight: isMobile ? '100vh' : '90vh', overflowY: 'auto' as const }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
           <div style={{ fontSize: 16, fontWeight: 600, color: '#fff' }}>Nuevo lead</div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer', padding: 4 }}><X size={18} /></button>
@@ -213,7 +215,7 @@ function NuevoLeadModal({ onClose, onCreated }: { onClose: () => void; onCreated
             </div>
             {showNewClient && (
               <div style={{ marginTop: 8, padding: 10, background: '#0e0e0e', border: '1px solid #222', borderRadius: 8 }}>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr 1fr', gap: 8 }}>
                   <input value={newClientName} onChange={e => setNewClientName(e.target.value)} placeholder="Nombre comercial"
                     style={{ padding: '6px 8px', background: '#1a1a1a', border: '1px solid #333', borderRadius: 6, color: '#fff', fontSize: 12, fontFamily: 'inherit' }} />
                   <input value={newClientRazon} onChange={e => setNewClientRazon(e.target.value)} placeholder="Razón social"
@@ -244,11 +246,11 @@ function NuevoLeadModal({ onClose, onCreated }: { onClose: () => void; onCreated
             )}
           </label>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12 }}>
             <Field label="Contacto" value={form.contact_name} onChange={s('contact_name')} />
             <Field label="Telefono" value={form.contact_phone} onChange={s('contact_phone')} placeholder="+52 55..." />
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12 }}>
             <Field label="Email" value={form.contact_email} onChange={s('contact_email')} placeholder="correo@ejemplo.com" />
             <Field label="Valor estimado (MXN)" value={form.estimated_value} onChange={s('estimated_value')} type="number" placeholder="0" />
           </div>
@@ -278,6 +280,7 @@ function NuevoLeadModal({ onClose, onCreated }: { onClose: () => void; onCreated
 function LeadModal({ lead, onClose, onUpdated, onDeleted }: {
   lead: Lead; onClose: () => void; onUpdated: () => void; onDeleted: () => void
 }) {
+  const isMobile = useIsMobile()
   const [form, setForm] = useState(() => {
     let client_final = '', client_id = ''
     try { const m = JSON.parse(lead.notes || '{}'); client_final = m.client_final || ''; client_id = m.client_id || '' } catch {}
@@ -374,7 +377,7 @@ function LeadModal({ lead, onClose, onUpdated, onDeleted }: {
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.88)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-      <div style={{ background: '#141414', border: '1px solid #2a2a2a', borderRadius: 16, width: 640, maxHeight: '92vh', display: 'flex', flexDirection: 'column' as const }}>
+      <div style={{ background: '#141414', border: '1px solid #2a2a2a', borderRadius: isMobile ? 0 : 16, width: isMobile ? '100vw' : 640, height: isMobile ? '100vh' : 'auto', maxHeight: isMobile ? '100vh' : '92vh', display: 'flex', flexDirection: 'column' as const }}>
 
         {/* Header */}
         <div style={{ padding: '18px 22px 14px', borderBottom: '1px solid #222', display: 'flex', alignItems: 'flex-start', gap: 12 }}>
@@ -459,7 +462,7 @@ function LeadModal({ lead, onClose, onUpdated, onDeleted }: {
               </div>
               {showNewClient && (
                 <div style={{ marginTop: 8, padding: 10, background: '#0e0e0e', border: '1px solid #222', borderRadius: 8 }}>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr 1fr', gap: 8 }}>
                     <input value={newClientName} onChange={e => setNewClientName(e.target.value)} placeholder="Nombre comercial"
                       style={{ padding: '6px 8px', background: '#1a1a1a', border: '1px solid #333', borderRadius: 6, color: '#fff', fontSize: 12, fontFamily: 'inherit' }} />
                     <input value={newClientRazon} onChange={e => setNewClientRazon(e.target.value)} placeholder="Razón social"
@@ -489,11 +492,11 @@ function LeadModal({ lead, onClose, onUpdated, onDeleted }: {
                 </div>
               )}
             </label>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12 }}>
               <Field label="Contacto" value={form.contact_name} onChange={s('contact_name')} />
               <Field label="Telefono" value={form.contact_phone} onChange={s('contact_phone')} />
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12 }}>
               <Field label="Email" value={form.contact_email} onChange={s('contact_email')} />
               <Field label="Valor estimado (MXN)" value={form.estimated_value} onChange={s('estimated_value')} type="number" />
             </div>
@@ -541,8 +544,9 @@ function LeadModal({ lead, onClose, onUpdated, onDeleted }: {
 
 // ─── Kanban ────────────────────────────────────────────────────────────────
 function KanbanView({ leads, onOpen }: { leads: Lead[]; onOpen: (l: Lead) => void }) {
+  const isMobile = useIsMobile()
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+    <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(4, 1fr)', gap: 12 }}>
       {PIPELINE_STAGES.map(stage => {
         const cfg = STATUS_CFG[stage]
         const cols = leads.filter(l => l.status === stage)
@@ -624,6 +628,7 @@ function ListView({ leads, onOpen, onEdit, onPriorityChange, quoteTotals, displa
   leads: Lead[]; onOpen: (l: Lead) => void; onEdit: (l: Lead) => void; onPriorityChange: (id: string, p: Priority) => void
   quoteTotals: Record<string, { cotizado: number; vendido: number; cotCurrency: string }>; displayCur: string; tc: number
 }) {
+  const isMobile = useIsMobile()
   const [sortKey, setSortKey] = useState<SortKey | null>('priority')
   const [sortDir, setSortDir] = useState<SortDir>('asc')
 
@@ -664,9 +669,10 @@ function ListView({ leads, onOpen, onEdit, onPriorityChange, quoteTotals, displa
   })
 
   return (
-    <Table>
-      <thead>
-        <tr>
+    <div style={{ overflowX: 'auto' }}>
+      <Table>
+        <thead>
+          <tr>
           <SortTh label="Prioridad" sortKey="priority" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
           <SortTh label="Lead / Proyecto" sortKey="name" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
           <SortTh label="Arquitecto" sortKey="company" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
@@ -724,13 +730,15 @@ function ListView({ leads, onOpen, onEdit, onPriorityChange, quoteTotals, displa
             </tr>
           )
         })}
-      </tbody>
-    </Table>
+        </tbody>
+      </Table>
+    </div>
   )
 }
 
 // ─── CRM Principal ─────────────────────────────────────────────────────────
 export default function CRM() {
+  const isMobile = useIsMobile()
   const nav = useNavigate()
   const [leads, setLeads] = useState<Lead[]>([])
   const [loading, setLoading] = useState(true)
@@ -840,7 +848,7 @@ Devuelve solo el JSON, sin explicaciones. Si no hay filtro para un campo, omitel
   const tasaCierre = (ganados + perdidos) > 0 ? Math.round(ganados / (ganados + perdidos) * 100) : 0
 
   return (
-    <div style={{ padding: '24px 28px' }}>
+    <div style={{ padding: isMobile ? '16px 12px' : '24px 28px' }}>
       <SectionHeader
         title="CRM y Ventas"
         subtitle={`${leads.length} leads · ${activePipeline.length} en pipeline activo`}
@@ -848,7 +856,7 @@ Devuelve solo el JSON, sin explicaciones. Si no hay filtro para un campo, omitel
       />
 
       {/* KPIs */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4, 1fr)', gap: 10, marginBottom: 12 }}>
         {[
           { label: 'Pipeline activo', value: activePipeline.length.toString(), sub: F(pipelineValue), color: '#3B82F6' },
           { label: 'Ganados', value: ganados.toString(), sub: 'total historico', color: '#57FF9A' },
@@ -864,7 +872,7 @@ Devuelve solo el JSON, sin explicaciones. Si no hay filtro para un campo, omitel
       </div>
 
       {/* Currency toggle */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16, padding: '8px 12px', background: '#0e0e0e', borderRadius: 8, border: '1px solid #1e1e1e' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16, padding: '8px 12px', background: '#0e0e0e', borderRadius: 8, border: '1px solid #1e1e1e', flexWrap: 'wrap' }}>
         <span style={{ fontSize: 10, color: '#555', fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: '0.06em' }}>Ver en:</span>
         {(['MXN', 'USD'] as const).map(cur => (
           <button key={cur} onClick={() => setDisplayCur(cur)} style={{
@@ -881,13 +889,13 @@ Devuelve solo el JSON, sin explicaciones. Si no hay filtro para un campo, omitel
       </div>
 
       {/* Busqueda normal + AI */}
-      <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-        <div style={{ position: 'relative' as const, flex: 1 }}>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: isMobile ? 'wrap' : 'nowrap' }}>
+        <div style={{ position: 'relative' as const, flex: isMobile ? '1 1 100%' : 1 }}>
           <Search size={14} style={{ position: 'absolute' as const, left: 10, top: '50%', transform: 'translateY(-50%)', color: '#555', pointerEvents: 'none' as const }} />
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar por nombre, empresa, contacto..."
             style={{ width: '100%', padding: '8px 10px 8px 32px', background: '#141414', border: '1px solid #2a2a2a', borderRadius: 8, color: '#ccc', fontSize: 13, fontFamily: 'inherit', boxSizing: 'border-box' as const }} />
         </div>
-        <div style={{ display: 'flex', gap: 6, flex: 2 }}>
+        <div style={{ display: 'flex', gap: 6, flex: isMobile ? '1 1 100%' : 2 }}>
           <div style={{ position: 'relative' as const, flex: 1 }}>
             <Sparkles size={14} style={{ position: 'absolute' as const, left: 10, top: '50%', transform: 'translateY(-50%)', color: aiFilter ? '#57FF9A' : '#555', pointerEvents: 'none' as const }} />
             <input value={aiQuery} onChange={e => setAiQuery(e.target.value)}
@@ -901,7 +909,7 @@ Devuelve solo el JSON, sin explicaciones. Si no hay filtro para un campo, omitel
       </div>
 
       {/* Filtros estatus + toggle vista */}
-      <div style={{ display: 'flex', gap: 8, marginBottom: 16, alignItems: 'center', flexWrap: 'wrap' as const }}>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16, alignItems: 'center', flexWrap: 'wrap' as const, justifyContent: isMobile ? 'space-between' : 'flex-start' }}>
         <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' as const }}>
           {(['todos', ...Object.keys(STATUS_CFG)] as (LeadStatus | 'todos')[]).map(k => {
             const v = k === 'todos' ? { label: 'Todos', color: '#57FF9A' } : STATUS_CFG[k as LeadStatus]
@@ -915,7 +923,7 @@ Devuelve solo el JSON, sin explicaciones. Si no hay filtro para un campo, omitel
             )
           })}
         </div>
-        <div style={{ marginLeft: 'auto', display: 'flex', border: '1px solid #2a2a2a', borderRadius: 8, overflow: 'hidden' }}>
+        <div style={{ marginLeft: isMobile ? 0 : 'auto', display: 'flex', border: '1px solid #2a2a2a', borderRadius: 8, overflow: 'hidden', order: isMobile ? -1 : 0 }}>
           {(['kanban', 'lista'] as const).map(m => (
             <button key={m} onClick={() => setViewMode(m)} style={{
               padding: '5px 14px', fontSize: 11, cursor: 'pointer', fontFamily: 'inherit',

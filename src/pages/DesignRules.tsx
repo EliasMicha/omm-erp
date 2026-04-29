@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { SectionHeader, Table, Th, Td, Badge, Btn, EmptyState } from '../components/layout/UI'
 import { Plus, Search, Edit, X, Trash2, BookOpen, ChevronDown, ChevronUp, Copy } from 'lucide-react'
+import { useIsMobile } from '../lib/useIsMobile'
 
 interface DesignRule {
   id: string
@@ -55,6 +56,7 @@ const emptyForm: Partial<DesignRule> = {
 }
 
 export default function DesignRules() {
+  const isMobile = useIsMobile()
   const [rules, setRules] = useState<DesignRule[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
@@ -168,7 +170,7 @@ export default function DesignRules() {
       />
 
       {/* KPI row */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10, marginBottom: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10, marginBottom: 20 }}>
         {Object.entries(systemCounts).sort((a, b) => a[0].localeCompare(b[0])).map(([sys, count]) => (
           <div
             key={sys}
@@ -186,21 +188,21 @@ export default function DesignRules() {
       </div>
 
       {/* Filters */}
-      <div style={{ display: 'flex', gap: 10, marginBottom: 16, alignItems: 'center', flexWrap: 'wrap' }}>
-        <div style={{ position: 'relative', flex: 1, minWidth: 200 }}>
+      <div style={{ display: 'flex', gap: 10, marginBottom: 16, alignItems: 'center', flexWrap: 'wrap', flexDirection: isMobile ? 'column' : 'row' }}>
+        <div style={{ position: 'relative', flex: 1, minWidth: isMobile ? '100%' : 200, width: isMobile ? '100%' : 'auto' }}>
           <Search size={14} style={{ position: 'absolute', left: 10, top: 10, color: '#555' }} />
           <input
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder="Buscar reglas..."
-            style={{ ...iS, paddingLeft: 30 }}
+            style={{ ...iS, paddingLeft: 30, width: '100%' }}
           />
         </div>
-        <select value={filterSystem} onChange={e => setFilterSystem(e.target.value)} style={{ ...iS, width: 180 }}>
+        <select value={filterSystem} onChange={e => setFilterSystem(e.target.value)} style={{ ...iS, width: isMobile ? '100%' : 180 }}>
           <option value="">Todos los sistemas</option>
           {SYSTEMS.map(s => <option key={s} value={s}>{s}</option>)}
         </select>
-        <select value={filterCategory} onChange={e => setFilterCategory(e.target.value)} style={{ ...iS, width: 160 }}>
+        <select value={filterCategory} onChange={e => setFilterCategory(e.target.value)} style={{ ...iS, width: isMobile ? '100%' : 160 }}>
           <option value="">Todas las categorías</option>
           {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
         </select>
@@ -217,7 +219,8 @@ export default function DesignRules() {
       ) : filtered.length === 0 ? (
         <EmptyState message="No hay reglas que coincidan con los filtros" />
       ) : (
-        <Table>
+        <div style={{ overflowX: 'auto' }}>
+          <Table>
           <thead>
             <tr>
               <Th>Sistema</Th>
@@ -291,7 +294,8 @@ export default function DesignRules() {
               </>
             ))}
           </tbody>
-        </Table>
+          </Table>
+        </div>
       )}
 
       {/* Form Modal */}
@@ -302,8 +306,8 @@ export default function DesignRules() {
         }} onClick={() => setShowForm(false)}>
           <div
             style={{
-              background: '#1a1a1a', border: '1px solid #333', borderRadius: 16,
-              padding: 28, width: 620, maxHeight: '85vh', overflowY: 'auto',
+              background: '#1a1a1a', border: isMobile ? 'none' : '1px solid #333', borderRadius: isMobile ? 0 : 16,
+              padding: isMobile ? 16 : 28, width: isMobile ? '100vw' : 620, height: isMobile ? '100vh' : 'auto', maxHeight: isMobile ? '100vh' : '85vh', overflowY: 'auto',
             }}
             onClick={e => e.stopPropagation()}
           >
@@ -315,7 +319,7 @@ export default function DesignRules() {
               <Btn variant="ghost" size="sm" onClick={() => setShowForm(false)}><X size={14} /></Btn>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: isMobile ? 0 : '0 16px' }}>
               <Fld label="Sistema">
                 <select value={form.system || ''} onChange={e => setForm({ ...form, system: e.target.value })} style={iS}>
                   {SYSTEMS.map(s => <option key={s} value={s}>{s}</option>)}
@@ -326,7 +330,7 @@ export default function DesignRules() {
                   {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
                 </select>
               </Fld>
-              <Fld label="Título de la Regla" span>
+              <Fld label="Título de la Regla" span={!isMobile}>
                 <input
                   value={form.rule_title || ''}
                   onChange={e => setForm({ ...form, rule_title: e.target.value })}
@@ -334,7 +338,7 @@ export default function DesignRules() {
                   style={iS}
                 />
               </Fld>
-              <Fld label="Texto de la Regla (lo que lee el AI)" span>
+              <Fld label="Texto de la Regla (lo que lee el AI)" span={!isMobile}>
                 <textarea
                   value={form.rule_text || ''}
                   onChange={e => setForm({ ...form, rule_text: e.target.value })}

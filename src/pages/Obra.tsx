@@ -3,6 +3,7 @@ import { SectionHeader, KpiCard, Table, Th, Td, Badge, Btn, EmptyState, Progress
 import { F, formatDate } from '../lib/utils'
 import { ANTHROPIC_API_KEY } from '../lib/config'
 import { supabase } from '../lib/supabase'
+import { useIsMobile } from '../lib/useIsMobile'
 import {
   HardHat, Users, ClipboardList, Calendar, AlertTriangle, CheckCircle, CheckCircle2,
   Clock, ChevronRight, ArrowLeft, Plus, Upload, Camera, X, Eye,
@@ -202,6 +203,7 @@ const cardStyle: React.CSSProperties = {
    ═══════════════════════════════════════════════════════════════════ */
 
 export default function Obra() {
+  const isMobile = useIsMobile()
   const [tab, setTab] = useState<Tab>('obras')
   const [obras, setObras] = useState<ObraData[]>([])
   const [instaladores, setInstaladores] = useState<Instalador[]>([])
@@ -377,7 +379,7 @@ export default function Obra() {
       {loading && <div style={{ marginBottom: 16 }}><Loading /></div>}
 
       {/* KPIs */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
         <KpiCard label="Obras activas" value={activas} icon={<HardHat size={16} />} />
         <KpiCard label="Entrega pendiente" value={pendientesEntrega} color="#F59E0B" icon={<FileText size={16} />} />
         <KpiCard label="Actividades bloqueadas" value={bloqueadas} color="#EF4444" icon={<AlertTriangle size={16} />} />
@@ -484,6 +486,7 @@ function ObraDetail({ obra, instaladores, onBack, updateObra }: {
   onBack: () => void
   updateObra: (updater: (o: ObraData) => ObraData) => void
 }) {
+  const isMobile = useIsMobile()
   const [subTab, setSubTab] = useState<'actividades' | 'reportes' | 'entrega' | 'equipo' | 'documentacion' | 'extras' | 'bloqueos' | 'materiales'>('actividades')
   const [showNewAct, setShowNewAct] = useState(false)
   const [showNewReporte, setShowNewReporte] = useState(false)
@@ -597,7 +600,7 @@ function ObraDetail({ obra, instaladores, onBack, updateObra }: {
       {!hydrated && <div style={{ marginBottom: 16 }}><Loading /></div>}
 
       {/* KPIs */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12, marginBottom: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(5, 1fr)', gap: 12, marginBottom: 20 }}>
         <KpiCard label="Avance global" value={`${obra.avance_global}%`} icon={<TrendingUp size={16} />} />
         <KpiCard label="Actividades" value={`${completadas}/${obra.actividades.length}`} color="#3B82F6" icon={<ClipboardList size={16} />} />
         <KpiCard label="Bloqueadas" value={bloqueadas} color={bloqueadas > 0 ? '#EF4444' : '#57FF9A'} icon={<AlertTriangle size={16} />} />
@@ -1030,6 +1033,7 @@ function AutogenWizard({ obra, instaladores, onClose, onTasksCreated }: {
   onClose: () => void
   onTasksCreated: (acts: Actividad[]) => void
 }) {
+  const isMobile = useIsMobile()
   const [messages, setMessages] = useState<WizardMsg[]>([])
   const [input, setInput] = useState('')
   const [phase, setPhase] = useState<'loading' | 'dates' | 'team' | 'confirm' | 'generating' | 'done'>('loading')
@@ -1301,8 +1305,8 @@ Devuelve SOLO un JSON array, sin markdown:
     display: 'flex', alignItems: 'center', justifyContent: 'center',
   }
   const modalBox: React.CSSProperties = {
-    background: '#111', border: '1px solid #222', borderRadius: 16, width: 580,
-    maxHeight: '85vh', display: 'flex', flexDirection: 'column', overflow: 'hidden',
+    background: '#111', border: '1px solid #222', borderRadius: isMobile ? 0 : 16, width: isMobile ? '100vw' : 580,
+    height: isMobile ? '100vh' : 'auto', maxHeight: isMobile ? '100vh' : '85vh', display: 'flex', flexDirection: 'column', overflow: 'hidden',
   }
 
   return (
@@ -2684,6 +2688,7 @@ function NuevaObraModal({ coordinadores, onClose, onSubmit, onCreated }: {
   }) => Promise<{ ok: true; obra: ObraData } | { ok: false; error: string }>
   onCreated: () => void
 }) {
+  const isMobile = useIsMobile()
   const [form, setForm] = useState({
     nombre: '', cliente: '', direccion: '', coordinador_id: '',
     cotizacion_ids: [] as string[], valor_contrato: '', sistemas: [] as Sistema[],
@@ -2810,7 +2815,7 @@ function NuevaObraModal({ coordinadores, onClose, onSubmit, onCreated }: {
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
       onClick={onClose}>
-      <div style={{ background: '#141414', border: '1px solid #222', borderRadius: 12, padding: 24, width: 520, maxHeight: '80vh', overflowY: 'auto' }}
+      <div style={{ background: '#141414', border: '1px solid #222', borderRadius: isMobile ? 0 : 12, padding: isMobile ? 16 : 24, width: isMobile ? '100vw' : 520, height: isMobile ? '100vh' : 'auto', maxHeight: isMobile ? '100vh' : '80vh', overflowY: 'auto' }}
         onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
           <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#fff' }}>Nueva obra</h3>
@@ -2855,7 +2860,7 @@ function NuevaObraModal({ coordinadores, onClose, onSubmit, onCreated }: {
             <div style={labelStyle}>Nombre de obra *</div>
             <input value={form.nombre} onChange={e => setForm(f => ({ ...f, nombre: e.target.value }))} placeholder="Ej: Oasis 6 - Torre B" style={inputStyle} />
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 8 }}>
             <div>
               <div style={labelStyle}>Cliente</div>
               <input value={form.cliente} onChange={e => setForm(f => ({ ...f, cliente: e.target.value }))} style={inputStyle} />
@@ -2950,6 +2955,7 @@ function NuevoInstaladorModal({ onClose, onSubmit, onCreated }: {
   }) => Promise<{ ok: true; instalador: Instalador } | { ok: false; error: string }>
   onCreated: () => void
 }) {
+  const isMobile = useIsMobile()
   const [form, setForm] = useState({
     nombre: '', telefono: '', nivel: 'medio' as 'senior' | 'medio' | 'junior',
     habilidades: [] as Sistema[], notas: '',
@@ -2986,14 +2992,14 @@ function NuevoInstaladorModal({ onClose, onSubmit, onCreated }: {
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
       onClick={onClose}>
-      <div style={{ background: '#141414', border: '1px solid #222', borderRadius: 12, padding: 24, width: 460 }}
+      <div style={{ background: '#141414', border: '1px solid #222', borderRadius: isMobile ? 0 : 12, padding: isMobile ? 16 : 24, width: isMobile ? '100vw' : 460, height: isMobile ? '100vh' : 'auto', maxHeight: isMobile ? '100vh' : '85vh', overflowY: 'auto' }}
         onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
           <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#fff' }}>Nuevo instalador</h3>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer' }}><X size={16} /></button>
         </div>
         <div style={{ display: 'grid', gap: 10 }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 8 }}>
             <div>
               <div style={labelStyle}>Nombre *</div>
               <input value={form.nombre} onChange={e => setForm(f => ({ ...f, nombre: e.target.value }))} style={inputStyle} />

@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase'
 import { F, STAGE_CONFIG } from '../lib/utils'
 import { Btn, Loading } from '../components/layout/UI'
 import { Plus, ChevronDown, ChevronRight, X, Trash2, Image as ImageIcon, Search, ArrowLeftRight, Sparkles, Upload, Loader2, FileText } from 'lucide-react'
+import { useIsMobile } from '../lib/useIsMobile'
 
 // ═══════════════════════════════════════════════════════════════════
 // TYPES
@@ -94,6 +95,7 @@ function ProductRow({ p, onUpdate, onRemove, selected, onToggleSelect, onSubstit
 function IlumCatalogModal({ onClose, onSelect, subsectionName }: {
   onClose: () => void; onSelect: (p: CatProduct) => void; subsectionName: string
 }) {
+  const isMobile = useIsMobile()
   const [catalog, setCatalog] = useState<CatProduct[]>([])
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
@@ -110,7 +112,7 @@ function IlumCatalogModal({ onClose, onSelect, subsectionName }: {
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-      <div style={{ background: '#141414', border: '1px solid #333', borderRadius: 16, padding: 20, width: 700, maxHeight: '80vh', display: 'flex', flexDirection: 'column' as const }}>
+      <div style={{ background: '#141414', border: '1px solid #333', borderRadius: isMobile ? 0 : 16, padding: isMobile ? 12 : 20, width: isMobile ? '100vw' : 700, height: isMobile ? '100vh' : 'auto', maxHeight: isMobile ? '100vh' : '80vh', display: 'flex', flexDirection: 'column' as const, margin: 0 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
           <div>
             <div style={{ fontSize: 14, fontWeight: 600, color: '#fff' }}>Agregar producto — {subsectionName}</div>
@@ -127,12 +129,13 @@ function IlumCatalogModal({ onClose, onSelect, subsectionName }: {
           </div>
         </div>
 
-        <div style={{ flex: 1, overflowY: 'auto' }}>
+        <div style={{ flex: 1, overflowY: 'auto', overflowX: isMobile ? 'auto' : 'visible' }}>
           {loading ? <Loading /> : filtered.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '30px 20px', color: '#444', fontSize: 13 }}>
               {search ? 'Sin resultados' : 'Catálogo vacío'}
             </div>
           ) : (
+            <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead><tr style={{ background: '#1a1a1a' }}>
                 <th style={{ ...S.th, textAlign: 'left' }}>Producto</th>
@@ -162,6 +165,7 @@ function IlumCatalogModal({ onClose, onSelect, subsectionName }: {
                 })}
               </tbody>
             </table>
+            </div>
           )}
         </div>
       </div>
@@ -261,6 +265,7 @@ function AIImportModalIlum({ cotId, subsections, onClose, onImported }: {
   onClose: () => void
   onImported: () => void
 }) {
+  const isMobile = useIsMobile()
   const [step, setStep] = useState<'upload' | 'processing' | 'review' | 'inserting'>('upload')
   const [items, setItems] = useState<AIExtractedItemIlum[]>([])
   const [warnings, setWarnings] = useState<string[]>([])
@@ -612,7 +617,7 @@ function AIImportModalIlum({ cotId, subsections, onClose, onImported }: {
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1030 }}>
-      <div style={{ background: '#141414', border: '1px solid #333', borderRadius: 16, padding: 20, width: '92vw', maxWidth: 1200, maxHeight: '92vh', display: 'flex', flexDirection: 'column' as const }}>
+      <div style={{ background: '#141414', border: '1px solid #333', borderRadius: isMobile ? 0 : 16, padding: isMobile ? 12 : 20, width: isMobile ? '100vw' : '92vw', maxWidth: isMobile ? 'none' : 1200, height: isMobile ? '100vh' : 'auto', maxHeight: isMobile ? '100vh' : '92vh', display: 'flex', flexDirection: 'column' as const, margin: 0 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
           <div>
             <div style={{ fontSize: 14, fontWeight: 600, color: '#fff', display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -667,7 +672,7 @@ function AIImportModalIlum({ cotId, subsections, onClose, onImported }: {
             </div>
           )}
 
-          <div style={{ flex: 1, overflowY: 'auto', border: '1px solid #222', borderRadius: 8 }}>
+          <div style={{ flex: 1, overflowY: 'auto', overflowX: 'auto', border: '1px solid #222', borderRadius: 8 }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
               <thead style={{ position: 'sticky', top: 0, background: '#1a1a1a' }}>
                 <tr>
@@ -732,6 +737,7 @@ function AIImportModalIlum({ cotId, subsections, onClose, onImported }: {
 // MAIN COMPONENT
 // ═══════════════════════════════════════════════════════════════════
 export default function CotEditorIlum({ cotId, onBack }: { cotId: string; onBack: () => void }) {
+  const isMobile = useIsMobile()
   const [quote, setQuote] = useState<IlumQuote | null>(null)
   const [subsections, setSubsections] = useState<IlumSubsection[]>([])
   const [products, setProducts] = useState<IlumProduct[]>([])
@@ -917,10 +923,10 @@ export default function CotEditorIlum({ cotId, onBack }: { cotId: string; onBack
   if (loading) return <Loading />
 
   return (
-    <div style={{ background: '#0e0e0e', minHeight: '100vh', padding: '20px', color: '#ccc' }}>
+    <div style={{ background: '#0e0e0e', minHeight: '100vh', padding: isMobile ? '12px' : '20px', color: '#ccc' }}>
       <div style={{ maxWidth: 1200, margin: '0 auto' }}>
         {/* Header */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 20, marginBottom: 24, paddingBottom: 16, borderBottom: '1px solid #222' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 8 : 20, marginBottom: 24, paddingBottom: 16, borderBottom: '1px solid #222', flexWrap: 'wrap' }}>
           <button onClick={onBack} style={{ background: 'none', border: 'none', color: '#57FF9A', cursor: 'pointer', fontSize: 14, fontWeight: 600, fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 4 }}>
             {'<'} Cotizaciones
           </button>
@@ -931,13 +937,13 @@ export default function CotEditorIlum({ cotId, onBack }: { cotId: string; onBack
               style={{ background: 'transparent', border: 'none', fontSize: 20, fontWeight: 700, color: '#fff', width: '100%', fontFamily: 'inherit' }}
             />
           </div>
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             {Object.entries(STAGE_CONFIG).map(([id, s]) => (
               <button
                 key={id}
                 onClick={() => quote && supabase.from('quotations').update({ stage: id }).eq('id', cotId).then(() => setQuote({ ...quote, stage: id }))}
                 style={{
-                  padding: '6px 12px', borderRadius: 6, fontSize: 11, fontWeight: 600, fontFamily: 'inherit',
+                  padding: '6px 12px', borderRadius: 6, fontSize: isMobile ? 10 : 11, fontWeight: 600, fontFamily: 'inherit',
                   background: quote?.stage === id ? s.color + '33' : 'transparent',
                   border: quote?.stage === id ? '1px solid ' + s.color : '1px solid #333',
                   color: quote?.stage === id ? s.color : '#666', cursor: 'pointer',
@@ -947,14 +953,14 @@ export default function CotEditorIlum({ cotId, onBack }: { cotId: string; onBack
               </button>
             ))}
           </div>
-          <button onClick={() => setShowAIImport(true)} style={{ padding: '6px 12px', borderRadius: 20, fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #57FF9A44', background: 'transparent', color: '#57FF9A', display: 'inline-flex', alignItems: 'center', gap: 4 }}><Sparkles size={12} /> Importar con AI</button>
-          <button onClick={() => setShowPdfPicker(true)} style={{ padding: '6px 12px', borderRadius: 20, fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #06B6D444', background: 'transparent', color: '#06B6D4', display: 'inline-flex', alignItems: 'center', gap: 4 }}><FileText size={12} /> Exportar PDF</button>
-          <div style={{ fontSize: 16, fontWeight: 700, color: '#57FF9A' }}>${fmt(grandTotal)}</div>
+          <button onClick={() => setShowAIImport(true)} style={{ padding: '6px 12px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #57FF9A44', background: 'transparent', color: '#57FF9A', display: 'inline-flex', alignItems: 'center', gap: 4 }}><Sparkles size={12} /> {isMobile ? 'AI' : 'Importar con AI'}</button>
+          <button onClick={() => setShowPdfPicker(true)} style={{ padding: '6px 12px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #06B6D444', background: 'transparent', color: '#06B6D4', display: 'inline-flex', alignItems: 'center', gap: 4 }}><FileText size={12} /> {isMobile ? 'PDF' : 'Exportar PDF'}</button>
+          <div style={{ fontSize: isMobile ? 14 : 16, fontWeight: 700, color: '#57FF9A' }}>${fmt(grandTotal)}</div>
         </div>
 
         {/* Subsection Presets */}
         <div style={{ marginBottom: 20 }}>
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
+          <div style={{ display: 'flex', gap: isMobile ? 4 : 6, flexWrap: 'wrap', marginBottom: 10 }}>
             {SUBSECTION_PRESETS.map(preset => {
               const exists = subsections.some(s => s.name === preset)
               return (
@@ -963,7 +969,7 @@ export default function CotEditorIlum({ cotId, onBack }: { cotId: string; onBack
                   onClick={() => !exists && addSubsection(preset)}
                   disabled={exists}
                   style={{
-                    padding: '6px 12px', borderRadius: 6, fontSize: 11, fontWeight: 600, fontFamily: 'inherit',
+                    padding: '6px 12px', borderRadius: 6, fontSize: isMobile ? 10 : 11, fontWeight: 600, fontFamily: 'inherit',
                     background: exists ? '#57FF9A33' : '#1a1a1a', border: exists ? '1px solid #57FF9A' : '1px solid #333',
                     color: exists ? '#57FF9A' : '#666', cursor: exists ? 'default' : 'pointer', opacity: exists ? 1 : 0.6,
                   }}
@@ -1071,7 +1077,7 @@ export default function CotEditorIlum({ cotId, onBack }: { cotId: string; onBack
       {/* PDF format picker */}
       {showPdfPicker && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 1030, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ background: '#141414', border: '1px solid #333', borderRadius: 16, padding: 24, width: 620, maxWidth: '92vw' }}>
+          <div style={{ background: '#141414', border: '1px solid #333', borderRadius: isMobile ? 0 : 16, padding: isMobile ? 12 : 24, width: isMobile ? '100vw' : 620, maxWidth: isMobile ? 'none' : '92vw', height: isMobile ? '100vh' : 'auto', margin: 0 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
               <div style={{ fontSize: 15, fontWeight: 600, color: '#fff', display: 'flex', alignItems: 'center', gap: 8 }}>
                 <FileText size={16} color="#06B6D4" /> Exportar a PDF — Iluminación

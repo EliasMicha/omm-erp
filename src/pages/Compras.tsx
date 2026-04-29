@@ -4,6 +4,7 @@ import { ANTHROPIC_API_KEY } from '../lib/config'
 import { Project, CatalogProduct, ProjectLine, PurchasePhase } from '../types'
 import { F, FUSD, FCUR, SPECIALTY_CONFIG, PHASE_CONFIG, formatDate } from '../lib/utils'
 import { Badge, Btn, KpiCard, Table, Th, Td, Loading, SectionHeader, EmptyState } from '../components/layout/UI'
+import { useIsMobile } from '../lib/useIsMobile'
 import { Plus, ChevronLeft, X, Search, Trash2, Save, ShoppingCart, Truck, Package, Users2, FileText, Copy, Sparkles, Upload } from 'lucide-react'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -240,6 +241,7 @@ function SearchableSelect({ label, value, onChange, options, placeholder }: {
 //  MAIN COMPONENT
 // ═══════════════════════════════════════════════════════════════════════════════
 export default function Compras() {
+  const isMobile = useIsMobile()
   const [view, setView] = useState<'dashboard' | 'lista' | 'proveedores'>('dashboard')
   const [editingPO, setEditingPO] = useState<string | null>(null)
   const [editingSupplier, setEditingSupplier] = useState<string | null>(null)
@@ -248,9 +250,9 @@ export default function Compras() {
   if (editingSupplier) return <SupplierDetail supplierId={editingSupplier} onBack={() => { setEditingSupplier(null); setView('proveedores') }} />
 
   return (
-    <div style={{ padding: '24px 28px' }}>
+    <div style={{ padding: isMobile ? '16px 12px' : '24px 28px' }}>
       {/* Tab navigation */}
-      <div style={{ display: 'flex', gap: 4, marginBottom: 20, borderBottom: '1px solid #222', paddingBottom: 8 }}>
+      <div style={{ display: 'flex', gap: isMobile ? 2 : 4, marginBottom: 20, borderBottom: '1px solid #222', paddingBottom: 8, flexWrap: 'wrap' }}>
         {([
           { key: 'dashboard', label: 'Dashboard', icon: ShoppingCart },
           { key: 'lista', label: 'Órdenes de compra', icon: FileText },
@@ -281,6 +283,7 @@ export default function Compras() {
 //  DASHBOARD
 // ═══════════════════════════════════════════════════════════════════════════════
 function ComprasDashboard({ onOpenPO, onGoToList }: { onOpenPO: (id: string) => void; onGoToList: () => void }) {
+  const isMobile = useIsMobile()
   const [orders, setOrders] = useState<PurchaseOrder[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -331,7 +334,7 @@ function ComprasDashboard({ onOpenPO, onGoToList }: { onOpenPO: (id: string) => 
         action={<Btn variant="primary" onClick={onGoToList}><Plus size={14} /> Nueva OC</Btn>} />
 
       {/* KPIs */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 24 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4,1fr)', gap: 12, marginBottom: 24 }}>
         <KpiCard label="OC Activas" value={active.length} color="#3B82F6" icon={<FileText size={16} />} />
         <KpiCard label="Pendiente MXN" value={F(totalPendienteMXN)} color="#F59E0B" icon={<ShoppingCart size={16} />} />
         <KpiCard label="Pendiente USD" value={FUSD(totalPendienteUSD)} color="#F59E0B" icon={<ShoppingCart size={16} />} />
@@ -428,6 +431,7 @@ function ComprasDashboard({ onOpenPO, onGoToList }: { onOpenPO: (id: string) => 
 //  PO LIST
 // ═══════════════════════════════════════════════════════════════════════════════
 function POList({ onOpen }: { onOpen: (id: string) => void }) {
+  const isMobile = useIsMobile()
   const [orders, setOrders] = useState<PurchaseOrder[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
@@ -473,8 +477,8 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
         } />
 
       {/* Search + filters */}
-      <div style={{ display: 'flex', gap: 10, marginBottom: 16, alignItems: 'center', flexWrap: 'wrap' }}>
-        <div style={{ position: 'relative', flex: '0 0 220px' }}>
+      <div style={{ display: 'flex', gap: 10, marginBottom: 16, alignItems: 'center', flexWrap: 'wrap', fontSize: isMobile ? 11 : 12 }}>
+        <div style={{ position: 'relative', flex: isMobile ? '1 1 100%' : '0 0 220px' }}>
           <Search size={14} style={{ position: 'absolute', left: 10, top: 9, color: '#555' }} />
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar OC, proveedor, proyecto..."
             style={{
@@ -514,9 +518,10 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
       </div>
 
       {loading ? <Loading /> : (
-        <Table>
-          <thead><tr>
-            <Th>OC #</Th><Th>Proveedor</Th><Th>Proyecto</Th><Th>Especialidad</Th><Th>Fase</Th><Th>Estado</Th><Th>Fecha</Th><Th right>Total MXN</Th><Th right>Total USD</Th><Th></Th>
+        <div style={{ overflowX: 'auto' }}>
+          <Table>
+            <thead><tr>
+              <Th>OC #</Th><Th>Proveedor</Th><Th>Proyecto</Th><Th>Especialidad</Th><Th>Fase</Th><Th>Estado</Th><Th>Fecha</Th><Th right>Total MXN</Th><Th right>Total USD</Th><Th></Th>
           </tr></thead>
           <tbody>
             {lista.length === 0 && <tr><td colSpan={9}><EmptyState message="Sin órdenes de compra" /></td></tr>}
@@ -539,8 +544,9 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
                 </tr>
               )
             })}
-          </tbody>
-        </Table>
+            </tbody>
+          </Table>
+        </div>
       )}
 
       {showNew && <NuevaPOModal onClose={() => setShowNew(false)} onCreated={id => { setShowNew(false); onOpen(id) }} />}
@@ -2102,6 +2108,7 @@ function RegistrarPagoModal({ poId, poCurrency, poTotal, totalPaid, poStatus, on
 //  SUPPLIER LIST
 // ═══════════════════════════════════════════════════════════════════════════════
 function SupplierList({ onOpen }: { onOpen: (id: string) => void }) {
+  const isMobile = useIsMobile()
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
@@ -2123,7 +2130,7 @@ function SupplierList({ onOpen }: { onOpen: (id: string) => void }) {
       <SectionHeader title="Proveedores" subtitle={`${suppliers.length} proveedores`}
         action={<Btn variant="primary" onClick={() => setShowNew(true)}><Plus size={14} /> Nuevo proveedor</Btn>} />
 
-      <div style={{ marginBottom: 16, position: 'relative', maxWidth: 300 }}>
+      <div style={{ marginBottom: 16, position: 'relative', maxWidth: isMobile ? '100%' : 300 }}>
         <Search size={14} style={{ position: 'absolute', left: 10, top: 9, color: '#555' }} />
         <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar proveedor..."
           style={{
@@ -2133,9 +2140,10 @@ function SupplierList({ onOpen }: { onOpen: (id: string) => void }) {
       </div>
 
       {loading ? <Loading /> : (
-        <Table>
-          <thead><tr>
-            <Th>Proveedor</Th><Th>Contacto</Th><Th>Teléfono</Th><Th>RFC</Th><Th>Condiciones</Th><Th>Sistemas</Th><Th>Estado</Th><Th></Th>
+        <div style={{ overflowX: 'auto' }}>
+          <Table>
+            <thead><tr>
+              <Th>Proveedor</Th><Th>Contacto</Th><Th>Teléfono</Th><Th>RFC</Th><Th>Condiciones</Th><Th>Sistemas</Th><Th>Estado</Th><Th></Th>
           </tr></thead>
           <tbody>
             {lista.length === 0 && <tr><td colSpan={8}><EmptyState message="Sin proveedores" /></td></tr>}
@@ -2158,8 +2166,9 @@ function SupplierList({ onOpen }: { onOpen: (id: string) => void }) {
                 <Td><Btn size="sm" onClick={e => { e?.stopPropagation(); onOpen(s.id) }}>Ver</Btn></Td>
               </tr>
             ))}
-          </tbody>
-        </Table>
+            </tbody>
+          </Table>
+        </div>
       )}
 
       {showNew && <NuevoSupplierModal onClose={() => setShowNew(false)} onCreated={() => { setShowNew(false); load() }} />}

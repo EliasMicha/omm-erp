@@ -2,6 +2,7 @@ import { useEffect, useState, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { Loading, Badge, SectionHeader } from '../components/layout/UI'
+import { useIsMobile } from '../lib/useIsMobile'
 import {
   ArrowLeft, FileText, DollarSign, ShoppingCart, Briefcase,
   HardHat, AlertTriangle, ChevronDown, ChevronRight, ExternalLink,
@@ -46,6 +47,7 @@ const BLOQUEO_SEV_COLOR: Record<string, string> = {
 // COMPONENT
 // ═══════════════════════════════════════════════════════════════════
 export default function LeadDashboard() {
+  const isMobile = useIsMobile()
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const [loading, setLoading] = useState(true)
@@ -444,9 +446,9 @@ export default function LeadDashboard() {
   )
 
   return (
-    <div style={{ padding: '24px 28px', maxWidth: 1400 }}>
+    <div style={{ padding: isMobile ? '16px 12px' : '24px 28px', maxWidth: 1400 }}>
       {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20, flexWrap: isMobile ? 'wrap' : 'nowrap' }}>
         <button onClick={() => navigate('/crm')} style={{ ...linkBtnS, padding: '6px 10px' }}>
           <ArrowLeft size={16} />
         </button>
@@ -461,7 +463,7 @@ export default function LeadDashboard() {
       </div>
 
       {/* T.C. referencia + equivalente MXN */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10, flexWrap: isMobile ? 'wrap' : 'nowrap', fontSize: isMobile ? 11 : 12 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#111', border: '1px solid #333', borderRadius: 8, padding: '6px 12px' }}>
           <span style={{ fontSize: 11, color: '#888', whiteSpace: 'nowrap' }}>T.C. referencia</span>
           <input
@@ -478,7 +480,7 @@ export default function LeadDashboard() {
           <span style={{ color: '#3B82F6', fontWeight: 600 }}>{financials.totalVendido > 0 ? PCT(financials.totalCobrado / financials.totalVendido) : '—'}</span>
         </div>
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 10, marginBottom: 24 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(6, 1fr)', gap: 10, marginBottom: 24 }}>
         <KpiDual label="Total Vendido" usd={financials.byCur.USD.vendido} mxn={financials.byCur.MXN.vendido} color="#57FF9A" />
         <KpiDual label="Cobrado" usd={financials.byCur.USD.cobrado} mxn={financials.byCur.MXN.cobrado} color="#34D399" />
         <KpiDual label="Por Cobrar" usd={Math.max(0, financials.byCur.USD.vendido - financials.byCur.USD.cobrado)} mxn={Math.max(0, financials.byCur.MXN.vendido - financials.byCur.MXN.cobrado)} color="#F59E0B" />
@@ -492,7 +494,8 @@ export default function LeadDashboard() {
         {quotations.length === 0 ? (
           <Empty text="Sin cotizaciones vinculadas" />
         ) : (
-          <table style={tblS}>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={tblS}>
             <thead>
               <tr style={trHeadS}>
                 <th style={thS}>Nombre</th>
@@ -524,14 +527,15 @@ export default function LeadDashboard() {
                 )
               })}
             </tbody>
-          </table>
+            </table>
+          </div>
         )}
       </Section>
 
       {/* ══════════ 2. ESTADO DE CUENTA ══════════ */}
       <Section title="Estado de Cuenta" icon={<DollarSign size={14} />} count={bankMovements.filter(m => m.tipo === 'abono').length} expanded={expanded.estado} onToggle={() => toggle('estado')}>
         {/* Summary bar — dual currency */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 16 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4, 1fr)', gap: 10, marginBottom: 16 }}>
           <MiniStatDual label="Total vendido" usd={financials.byCur.USD.vendido} mxn={financials.byCur.MXN.vendido} accent="#57FF9A" />
           <MiniStatDual label="Cobrado" usd={financials.byCur.USD.cobrado} mxn={financials.byCur.MXN.cobrado} accent="#34D399" />
           <MiniStatDual label="Por cobrar" usd={Math.max(0, financials.byCur.USD.vendido - financials.byCur.USD.cobrado)} mxn={Math.max(0, financials.byCur.MXN.vendido - financials.byCur.MXN.cobrado)} accent="#F59E0B" />
@@ -563,17 +567,18 @@ export default function LeadDashboard() {
           }
 
           return (
-            <table style={tblS}>
-              <thead>
-                <tr style={trHeadS}>
-                  <th style={thS}>Fecha</th>
-                  <th style={thS}>Concepto</th>
-                  <th style={thS}>Moneda</th>
-                  <th style={{ ...thS, textAlign: 'right' }}>Monto</th>
-                  <th style={{ ...thS, textAlign: 'center' }}>T.C.</th>
-                  <th style={{ ...thS, textAlign: 'right' }}>Equiv. USD</th>
-                </tr>
-              </thead>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={tblS}>
+                <thead>
+                  <tr style={trHeadS}>
+                    <th style={thS}>Fecha</th>
+                    <th style={thS}>Concepto</th>
+                    <th style={thS}>Moneda</th>
+                    <th style={{ ...thS, textAlign: 'right' }}>Monto</th>
+                    <th style={{ ...thS, textAlign: 'center' }}>T.C.</th>
+                    <th style={{ ...thS, textAlign: 'right' }}>Equiv. USD</th>
+                  </tr>
+                </thead>
               <tbody>
                 {ingresos.map(m => {
                   const cur = m.moneda || 'MXN'
@@ -609,7 +614,8 @@ export default function LeadDashboard() {
                   )
                 })}
               </tbody>
-            </table>
+              </table>
+            </div>
           )
         })()}
 
@@ -620,11 +626,12 @@ export default function LeadDashboard() {
           const totalEgr = egresos.reduce((s, m) => s + (m.monto || 0), 0)
           return (
             <>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 20, marginBottom: 8 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 20, marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
                 <span style={{ fontSize: 11, fontWeight: 600, color: '#888', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Egresos Registrados</span>
                 <span style={{ fontSize: 11, color: '#EF4444', fontWeight: 600 }}>{F(totalEgr)}</span>
               </div>
-              <table style={tblS}>
+              <div style={{ overflowX: 'auto' }}>
+                <table style={tblS}>
                 <thead>
                   <tr style={trHeadS}>
                     <th style={thS}>Fecha</th>
@@ -645,7 +652,8 @@ export default function LeadDashboard() {
                     </tr>
                   ))}
                 </tbody>
-              </table>
+                </table>
+              </div>
             </>
           )
         })()}
@@ -677,7 +685,8 @@ export default function LeadDashboard() {
         {milestones.length === 0 ? (
           <Empty text="Sin hitos de cobro registrados" />
         ) : (
-          <table style={tblS}>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={tblS}>
             <thead>
               <tr style={trHeadS}>
                 <th style={thS}>Hito</th>
@@ -703,7 +712,8 @@ export default function LeadDashboard() {
                 )
               })}
             </tbody>
-          </table>
+            </table>
+          </div>
         )}
 
         {/* ── New milestone form ── */}
@@ -725,7 +735,7 @@ export default function LeadDashboard() {
 
       {/* ══════════ 3. COMPRAS FALTANTES ══════════ */}
       <Section title="Compras" icon={<ShoppingCart size={14} />} count={pos.length} expanded={expanded.compras} onToggle={() => toggle('compras')}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 16 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4, 1fr)', gap: 10, marginBottom: 16 }}>
           <MiniStatDual label="Presupuesto compras" usd={financials.byCur.USD.presupuesto} mxn={financials.byCur.MXN.presupuesto} accent="#3B82F6" />
           <MiniStatDual label="Comprado" usd={financials.byCur.USD.comprado} mxn={financials.byCur.MXN.comprado} accent="#F59E0B" />
           <MiniStatDual label="Por comprar" usd={Math.max(0, financials.byCur.USD.presupuesto - financials.byCur.USD.comprado)} mxn={Math.max(0, financials.byCur.MXN.presupuesto - financials.byCur.MXN.comprado)} accent={financials.porComprar > 0 ? '#EF4444' : '#57FF9A'} />
@@ -734,7 +744,8 @@ export default function LeadDashboard() {
         {pos.length === 0 ? (
           <Empty text="Sin órdenes de compra" />
         ) : (
-          <table style={tblS}>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={tblS}>
             <thead>
               <tr style={trHeadS}>
                 <th style={thS}>OC #</th>
@@ -763,7 +774,8 @@ export default function LeadDashboard() {
                 )
               })}
             </tbody>
-          </table>
+            </table>
+          </div>
         )}
       </Section>
 

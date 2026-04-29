@@ -5,6 +5,7 @@ import { Badge, Btn, Loading } from '../components/layout/UI'
 import { Plus, ChevronLeft, ChevronDown, ChevronRight, X, Trash2, Settings, Copy, Printer, Pencil } from 'lucide-react'
 import EditCotInfoModal from '../components/EditCotInfoModal'
 import { OMNIIOUS_LOGO } from '../assets/logo'
+import { useIsMobile } from '../lib/useIsMobile'
 
 // ═══════════════════════════════════════════════════════════════════
 // TYPES
@@ -244,11 +245,12 @@ function defaultItem(areaId: string, order: number): CortItem {
 // SOMFY DETAIL MODAL
 // ═══════════════════════════════════════════════════════════════════
 function SomfyDetailModal({ item, onClose }: { item: CortItem; onClose: () => void }) {
+  const isMobile = useIsMobile()
   const bom = calcSomfyBOM(item)
   const total = bom.reduce((s, l) => s + l.total, 0)
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 1030, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <div style={{ background: '#141414', border: '1px solid #333', borderRadius: 16, padding: 24, width: 550, maxHeight: '80vh', overflowY: 'auto' }}>
+      <div style={{ background: '#141414', border: '1px solid #333', borderRadius: isMobile ? 0 : 16, padding: isMobile ? 12 : 24, width: isMobile ? '100vw' : 550, height: isMobile ? '100vh' : 'auto', maxHeight: isMobile ? '100vh' : '80vh', overflowY: 'auto', margin: 0 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
           <div>
             <div style={{ fontSize: 15, fontWeight: 600, color: '#fff' }}>Desglose Somfy</div>
@@ -256,6 +258,7 @@ function SomfyDetailModal({ item, onClose }: { item: CortItem; onClose: () => vo
           </div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer' }}><X size={18} /></button>
         </div>
+        <div style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead><tr style={{ background: '#0e0e0e' }}>
             <th style={{ ...S.th, textAlign: 'left' }}>Concepto</th>
@@ -280,6 +283,7 @@ function SomfyDetailModal({ item, onClose }: { item: CortItem; onClose: () => vo
             </tr>
           </tfoot>
         </table>
+        </div>
         <div style={{ marginTop: 12, fontSize: 10, color: '#555' }}>
           Config: {item.somfyHojas} hoja(s) | {item.somfyPliegue} | Soporte pared: {item.somfySoportePared ? 'Si' : 'No'}
         </div>
@@ -296,6 +300,7 @@ function CortPdfModal({ items, areas, config, cotName, clientName, projectName, 
   cotName: string; clientName: string; projectName: string
   onClose: () => void
 }) {
+  const isMobile = useIsMobile()
   const pdfRef = useRef<HTMLDivElement>(null)
 
   // Calculate totals (all in MXN)
@@ -333,7 +338,7 @@ function CortPdfModal({ items, areas, config, cotName, clientName, projectName, 
 
   return (
     <div className="cort-pdf-overlay" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 1040, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <div style={{ background: '#fff', borderRadius: 8, overflow: 'hidden', width: '8.5in', maxHeight: '90vh', boxShadow: '0 20px 50px rgba(0,0,0,0.3)' }}>
+      <div style={{ background: '#fff', borderRadius: isMobile ? 0 : 8, overflow: 'hidden', width: isMobile ? '100vw' : '8.5in', height: isMobile ? '100vh' : 'auto', maxHeight: isMobile ? '100vh' : '90vh', boxShadow: isMobile ? 'none' : '0 20px 50px rgba(0,0,0,0.3)' }}>
         <div style={{ overflowY: 'auto', maxHeight: '90vh' }}>
           <div ref={pdfRef} style={{ padding: 32 }}>
             {/* Header */}
@@ -360,6 +365,7 @@ function CortPdfModal({ items, areas, config, cotName, clientName, projectName, 
             </div>
 
             {/* Items table grouped by area */}
+            <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 20, fontSize: 9 }}>
               <thead>
                 <tr style={{ background: '#f3f3f3', borderBottom: '2px solid #000' }}>
@@ -413,6 +419,7 @@ function CortPdfModal({ items, areas, config, cotName, clientName, projectName, 
                 })}
               </tbody>
             </table>
+            </div>
 
             {/* Summary */}
             <div style={{ marginBottom: 20 }}>
@@ -471,19 +478,20 @@ function AreaPickerModal({ existingNames, onSelect, onClose }: {
   onSelect: (name: string) => void
   onClose: () => void
 }) {
+  const isMobile = useIsMobile()
   const [custom, setCustom] = useState('')
   const available = AREA_PRESETS.filter(n => !existingNames.includes(n))
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 1030, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <div style={{ background: '#141414', border: '1px solid #333', borderRadius: 16, padding: 24, width: 420, maxHeight: '70vh', overflowY: 'auto' }}>
+      <div style={{ background: '#141414', border: '1px solid #333', borderRadius: isMobile ? 0 : 16, padding: isMobile ? 12 : 24, width: isMobile ? '100vw' : 420, height: isMobile ? '100vh' : 'auto', maxHeight: isMobile ? '100vh' : '70vh', overflowY: 'auto', margin: 0 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
           <div style={{ fontSize: 15, fontWeight: 600, color: '#fff' }}>Agregar Área</div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer' }}><X size={18} /></button>
         </div>
 
         {/* Preset grid */}
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 16 }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: isMobile ? 4 : 6, marginBottom: 16 }}>
           {available.map(name => (
             <button key={name} onClick={() => onSelect(name)} style={{
               padding: '6px 12px', borderRadius: 8, fontSize: 11, cursor: 'pointer', fontFamily: 'inherit',
@@ -942,6 +950,7 @@ function CortSummary({ items, areas, config, showInt, onConfigChange }: {
 // MAIN COMPONENT
 // ═══════════════════════════════════════════════════════════════════
 export default function CotEditorCortinas({ cotId, onBack }: { cotId: string; onBack: () => void }) {
+  const isMobile = useIsMobile()
   const [areas, setAreas] = useState<CortArea[]>([])
   const [items, setItems] = useState<CortItem[]>([])
   const [loading, setLoading] = useState(true)
@@ -1141,7 +1150,7 @@ export default function CotEditorCortinas({ cotId, onBack }: { cotId: string; on
   return (
     <div style={{ display: 'flex', flexDirection: 'column' as const, height: '100vh', overflow: 'hidden' }}>
       {/* Top bar */}
-      <div style={{ padding: '7px 16px', borderBottom: '1px solid #222', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0, background: '#111' }}>
+      <div style={{ padding: isMobile ? '7px 8px' : '7px 16px', borderBottom: '1px solid #222', display: 'flex', alignItems: 'center', gap: isMobile ? 6 : 10, flexShrink: 0, background: '#111', flexWrap: 'wrap' }}>
         <button onClick={onBack} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, fontSize: 12 }}><ChevronLeft size={14} /> Cotizaciones</button>
         <span style={{ color: '#333' }}>/</span>
         <span style={{ fontSize: 12, fontWeight: 500, color: '#67E8F9' }}>{String.fromCodePoint(0x25A6)} {cotName || 'Cotizacion Cortinas'}</span>
@@ -1163,7 +1172,7 @@ export default function CotEditorCortinas({ cotId, onBack }: { cotId: string; on
       </div>
 
       {/* Currency bar */}
-      <div style={{ padding: '5px 16px', borderBottom: '1px solid #1e1e1e', display: 'flex', gap: 8, alignItems: 'center', background: '#0e0e0e', flexShrink: 0 }}>
+      <div style={{ padding: isMobile ? '5px 8px' : '5px 16px', borderBottom: '1px solid #1e1e1e', display: 'flex', gap: isMobile ? 4 : 8, alignItems: 'center', background: '#0e0e0e', flexShrink: 0, flexWrap: 'wrap' }}>
         <span style={{ fontSize: 9, color: '#444', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.1em' }}>Cortinas y Persianas</span>
         <span style={{ fontSize: 10, color: '#14B8A6', background: '#14B8A622', padding: '2px 8px', borderRadius: 5 }}>Somfy auto-BOM</span>
         <span style={{ fontSize: 10, color: '#A855F7', background: '#A855F722', padding: '2px 8px', borderRadius: 5 }}>Lutron manual</span>
@@ -1177,8 +1186,8 @@ export default function CotEditorCortinas({ cotId, onBack }: { cotId: string; on
       </div>
 
       {/* Content */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 280px', flex: 1, overflow: 'hidden' }}>
-        <div style={{ overflowY: 'auto', padding: '14px 18px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 280px', flex: 1, overflow: 'hidden' }}>
+        <div style={{ overflowY: 'auto', overflowX: 'auto', padding: isMobile ? '10px 8px' : '14px 18px' }}>
           {areas.map(area => (
             <CortAreaBlock key={area.id} area={area} items={items} config={config}
               onToggle={() => toggleArea(area.id)}

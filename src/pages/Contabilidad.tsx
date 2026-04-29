@@ -4,6 +4,7 @@ import type { ClienteFiscal } from './Clientes'
 import { supabase } from '../lib/supabase'
 import { SectionHeader, KpiCard, Table, Th, Td, ThFilter, useColumnFilters, Badge, Btn, EmptyState } from '../components/layout/UI'
 import { F, formatDate } from '../lib/utils'
+import { useIsMobile } from '../lib/useIsMobile'
 import {
   FileText, Building2, ArrowLeftRight, ShieldCheck,
   Banknote, Users, TrendingUp, Plus, Upload, Search,
@@ -190,9 +191,10 @@ function SearchSelect({ value, options, placeholder, disabled, onChange }: {
 }
 
 function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+  const isMobile = useIsMobile()
   return (
     <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }} onClick={onClose}>
-      <div style={{ background: '#1a1a1a', border: '1px solid #333', borderRadius: 16, padding: 24, minWidth: 500, maxWidth: 700, maxHeight: '80vh', overflowY: 'auto' as const }} onClick={e => e.stopPropagation()}>
+      <div style={{ background: '#1a1a1a', border: isMobile ? 'none' : '1px solid #333', borderRadius: isMobile ? 0 : 16, padding: isMobile ? 16 : 24, width: isMobile ? '100vw' : 'auto', minWidth: isMobile ? '100vw' : 500, maxWidth: isMobile ? '100vw' : 700, height: isMobile ? '100vh' : 'auto', maxHeight: isMobile ? '100vh' : '80vh', overflowY: 'auto' as const }} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
           <div style={{ fontSize: 16, fontWeight: 700, color: '#fff' }}>{title}</div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer' }}><X size={18} /></button>
@@ -225,6 +227,7 @@ const selectStyle: React.CSSProperties = { ...inputStyle }
 /* --------- Main Page ------------------------------------------------------------------------------------------------------------------------------------------------------------ */
 
 export default function Contabilidad() {
+  const isMobile = useIsMobile()
   const [activeTab, setActiveTab] = useState<Tab>('facturacion')
   const [invoices, setInvoices] = useState<Invoice[]>([])
   const [bankMovements, setBankMovements] = useState<BankMovement[]>([])
@@ -359,7 +362,7 @@ export default function Contabilidad() {
   }, [])
 
   return (
-    <div style={{ padding: '24px 28px', maxWidth: 1200 }}>
+    <div style={{ padding: isMobile ? '12px 16px' : '24px 28px', maxWidth: isMobile ? '100%' : 1200 }}>
       <SectionHeader
         title="Contabilidad"
         subtitle="Facturacion, conciliacion, cobranza y flujo de efectivo"
@@ -369,6 +372,7 @@ export default function Contabilidad() {
       <div style={{
         display: 'flex', gap: 4, marginBottom: 24,
         borderBottom: '1px solid #222', paddingBottom: 0,
+        overflowX: 'auto', flexWrap: 'nowrap',
       }}>
         {TABS.map(({ key, label, icon: Icon }) => {
           const active = activeTab === key
@@ -931,8 +935,8 @@ function TabFacturacion({ invoices, setInvoices, bankMovements, projectNames }: 
       )}
 
       {/* Month navigation */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, padding: '10px 14px', background: '#141414', border: '1px solid #222', borderRadius: 10 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, padding: '10px 14px', background: '#141414', border: '1px solid #222', borderRadius: 10, flexWrap: 'wrap', gap: isMobile ? 8 : 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 6 : 10, flex: isMobile ? '1 1 100%' : 'initial' }}>
           <button
             onClick={() => setMonthOffset(monthOffset - 1)}
             style={{ padding: '6px 10px', fontSize: 12, background: '#1a1a1a', border: '1px solid #333', borderRadius: 6, color: '#ccc', cursor: 'pointer', fontFamily: 'inherit' }}
@@ -955,7 +959,7 @@ function TabFacturacion({ invoices, setInvoices, bankMovements, projectNames }: 
       </div>
 
       {/* KPIs - Fila MXN */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)', gap: 12, marginBottom: 12 }}>
         <KpiCard label="Total Facturado MXN" value={F(totalFacturadoMxn) + ' MXN'} color="#3B82F6" icon={<DollarSign size={16} />} />
         <KpiCard label="Total Recibido MXN" value={F(totalRecibidoMxn) + ' MXN'} color="#F59E0B" icon={<DollarSign size={16} />} />
         <KpiCard
@@ -972,7 +976,7 @@ function TabFacturacion({ invoices, setInvoices, bankMovements, projectNames }: 
         />
       </div>
       {/* KPIs - Fila USD */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
         <KpiCard label="Total Facturado USD" value={F(totalFacturadoUsd) + ' USD'} color="#10B981" icon={<DollarSign size={16} />} />
         <KpiCard label="Total Recibido USD" value={F(totalRecibidoUsd) + ' USD'} color="#10B981" icon={<DollarSign size={16} />} />
         <KpiCard
@@ -1336,8 +1340,8 @@ function TabFacturacion({ invoices, setInvoices, bankMovements, projectNames }: 
       )}
       {/* Modal de cancelacion de factura (Sesion B Fase 5) */}
       {cancelInvoice && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100, padding: 20 }} onClick={() => { if (!cancelando) setCancelInvoice(null) }}>
-          <div style={{ background: '#141414', border: '1px solid #2a2a2a', borderRadius: 14, padding: 24, width: '100%', maxWidth: 540 }} onClick={e => e.stopPropagation()}>
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100, padding: isMobile ? 0 : 20 }} onClick={() => { if (!cancelando) setCancelInvoice(null) }}>
+          <div style={{ background: '#141414', border: isMobile ? 'none' : '1px solid #2a2a2a', borderRadius: isMobile ? 0 : 14, padding: isMobile ? 16 : 24, width: isMobile ? '100vw' : '100%', height: isMobile ? '100vh' : 'auto', maxWidth: isMobile ? '100vw' : 540, maxHeight: isMobile ? '100vh' : 'auto', overflowY: isMobile ? 'auto' : 'visible' as const }} onClick={e => e.stopPropagation()}>
             <div style={{ fontSize: 16, fontWeight: 700, color: '#fff', marginBottom: 8 }}>Cancelar factura</div>
             <div style={{ fontSize: 12, color: '#888', marginBottom: 16 }}>
               {cancelInvoice.serie ? cancelInvoice.serie + '-' : ''}{cancelInvoice.folio} · {cancelInvoice.receptor_nombre}
@@ -2111,8 +2115,8 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
   return (
     <div>
       {/* Navegacion mensual (Conciliacion v2) */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, padding: '10px 14px', background: '#141414', border: '1px solid #222', borderRadius: 10 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, padding: '10px 14px', background: '#141414', border: '1px solid #222', borderRadius: 10, flexWrap: 'wrap', gap: isMobile ? 8 : 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 6 : 10, flex: isMobile ? '1 1 100%' : 'initial' }}>
           <button
             onClick={() => setMonthOffset(monthOffset - 1)}
             style={{ padding: '6px 10px', fontSize: 12, background: '#1a1a1a', border: '1px solid #333', borderRadius: 6, color: '#ccc', cursor: 'pointer', fontFamily: 'inherit' }}
@@ -2161,7 +2165,7 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
       </div>
 
       {/* KPIs filtrados por cuenta activa */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
         <KpiCard label="Movimientos" value={movsCuenta.length} icon={<ArrowLeftRight size={16} />} />
         <KpiCard label="Cargos" value={F(cargosCuenta)} color="#EF4444" icon={<TrendingUp size={16} />} />
         <KpiCard label="Abonos" value={F(abonosCuenta)} color="#57FF9A" icon={<Banknote size={16} />} />
@@ -2628,8 +2632,8 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
 
       {/* Modal TXT — Conciliacion v2 */}
       {showTxtModal && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 20 }} onClick={() => { if (!processing) { setShowTxtModal(null); setTxtPayload(''); setTxtPreview(null); setTxtSummary(null); } }}>
-          <div style={{ background: '#141414', border: '1px solid #2a2a2a', borderRadius: 14, padding: 24, width: '100%', maxWidth: 1100, maxHeight: '90vh', overflowY: 'auto' as const }} onClick={e => e.stopPropagation()}>
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: isMobile ? 0 : 20 }} onClick={() => { if (!processing) { setShowTxtModal(null); setTxtPayload(''); setTxtPreview(null); setTxtSummary(null); } }}>
+          <div style={{ background: '#141414', border: isMobile ? 'none' : '1px solid #2a2a2a', borderRadius: isMobile ? 0 : 14, padding: isMobile ? 16 : 24, width: isMobile ? '100vw' : '100%', height: isMobile ? '100vh' : 'auto', maxWidth: isMobile ? '100vw' : 1100, maxHeight: isMobile ? '100vh' : '90vh', overflowY: 'auto' as const }} onClick={e => e.stopPropagation()}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
               <div>
                 <div style={{ fontSize: 16, fontWeight: 700, color: '#fff' }}>Ingesta TXT — {ACCOUNTS[showTxtModal].label}</div>
@@ -2865,7 +2869,7 @@ function TabSupervision({ invoices, bankMovements }: { invoices: Invoice[]; bank
       </div>
 
       {/* KPIs */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
         <KpiCard label="Facturas sin conciliar" value={facturasSinConciliar.length} color="#EF4444" icon={<FileText size={16} />} />
         <KpiCard label="Monto sin conciliar" value={F(totalFacturasSC)} color="#EF4444" icon={<DollarSign size={16} />} />
         <KpiCard label="Pagos sin factura" value={pagosSinFactura.length} color="#F59E0B" icon={<AlertTriangle size={16} />} />
@@ -3058,19 +3062,19 @@ function TabEfectivo() {
 
   return (
     <div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, 1fr)', gap: 12, marginBottom: 20 }}>
         <KpiCard label="Cobros cash (clientes)" value={F(totalCobros)} color="#57FF9A" icon={<DollarSign size={16} />} />
         <KpiCard label="Pagos cash (proveedores)" value={F(totalPagos)} color="#F59E0B" icon={<Banknote size={16} />} />
         <KpiCard label="Nomina cash" value={F(totalNomina)} color="#C084FC" icon={<Users size={16} />} />
       </div>
 
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <div style={{ fontSize: 13, color: '#666' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: isMobile ? 'stretch' : 'center', marginBottom: 16, flexWrap: 'wrap', gap: isMobile ? 8 : 0 }}>
+        <div style={{ fontSize: 13, color: '#666', flex: isMobile ? '1 1 100%' : 'initial' }}>
           Efectivo neto del mes: <span style={{ color: totalCobros - totalPagos - totalNomina >= 0 ? '#57FF9A' : '#EF4444', fontWeight: 700 }}>
             {F(totalCobros - totalPagos - totalNomina)}
           </span>
         </div>
-        <Btn size="sm" variant="primary"><Plus size={12} /> Registrar movimiento</Btn>
+        <Btn size="sm" variant="primary" style={{ width: isMobile ? '100%' : 'auto' }}><Plus size={12} /> Registrar movimiento</Btn>
       </div>
 
       {movements.length === 0 ? (
@@ -3242,7 +3246,7 @@ function TabAnticipos({ invoices }: { invoices: Invoice[] }) {
         ))}
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
         <KpiCard label="Anticipos vivos $" value={F(anticiposVivos)} color="#eab308" icon={<DollarSign size={16} />} />
         <KpiCard label="Pendientes" value={String(cantidadPendientes)} color="#3B82F6" icon={<Clock size={16} />} />
         <KpiCard label="Riesgo fiscal $" value={F(riesgoFiscal)} color="#ef4444" icon={<AlertTriangle size={16} />} />

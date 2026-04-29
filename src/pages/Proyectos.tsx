@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect } from 'react'
 import { Badge, ProgressBar, Btn, SectionHeader, EmptyState, Loading } from '../components/layout/UI'
+import { useIsMobile } from '../lib/useIsMobile'
 import { X, ChevronDown, Check, Clock, Lock, Calendar, ArrowLeft, FileText, Plus, ExternalLink, Trash2, Star, AlertCircle, Filter } from 'lucide-react'
 import { formatDate } from '../lib/utils'
 import { supabase } from '../lib/supabase'
@@ -153,6 +154,7 @@ function getActivePhase(phases: PhaseRow[], tasks: TaskRow[]): PhaseRow | null {
 // ═══════════════════════════════════════════════════════════════════
 
 export default function Proyectos() {
+  const isMobile = useIsMobile()
   const [projects, setProjects] = useState<ProjectRow[]>([])
   const [employees, setEmployees] = useState<EmployeeRow[]>([])
   const [loading, setLoading] = useState(true)
@@ -232,7 +234,7 @@ export default function Proyectos() {
   if (loading) return <div style={{ padding: 32 }}><Loading /></div>
 
   return (
-    <div style={{ padding: '24px 28px' }}>
+    <div style={{ padding: isMobile ? '16px 12px' : '24px 28px' }}>
       {loadError && (
         <div style={{ marginBottom: 16, padding: '12px 14px', background: '#2a1414', border: '1px solid #5a2828', borderRadius: 8, color: '#f87171', fontSize: 12 }}>
           <div style={{ fontWeight: 600, marginBottom: 4 }}>⚠ Error al cargar proyectos</div>
@@ -250,7 +252,7 @@ export default function Proyectos() {
             }
           />
 
-          <div style={{ display: 'flex', gap: 4, marginBottom: 16, background: '#111', borderRadius: 10, padding: 4, border: '1px solid #1e1e1e', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: isMobile ? 2 : 4, marginBottom: 16, background: '#111', borderRadius: 10, padding: 4, border: '1px solid #1e1e1e', flexWrap: 'wrap' }}>
             {(['TODAS', 'esp', 'ilum', 'elec'] as const).map(tabId => {
               const on = areaTab === tabId
               const cfg = tabId !== 'TODAS' ? SPECIALTY_CONFIG[tabId] : null
@@ -274,7 +276,7 @@ export default function Proyectos() {
             })}
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
             <KpiBox label="Proyectos activos" value={stats.active} color="#57FF9A" />
             <KpiBox label="Avance promedio" value={`${stats.avg}%`} color="#3B82F6" />
             <KpiBox label="Total proyectos" value={stats.total} color="#C084FC" />
@@ -298,7 +300,7 @@ export default function Proyectos() {
           {lista.length === 0 ? (
             <EmptyState message={projects.length === 0 ? "No hay proyectos. Click en 'Nuevo proyecto' para crear el primero." : "Sin proyectos con los filtros aplicados"} />
           ) : (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))', gap: 12 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fill, minmax(360px, 1fr))', gap: 12 }}>
               {lista.map(p => {
                 const phases = allPhases.filter(ph => ph.project_id === p.id)
                 const tasks = allTasks.filter(t => t.project_id === p.id)
@@ -1172,6 +1174,7 @@ function parseLeadIdFromNotes(notes: string | null): string | null {
 function NewProjectModal({ employees, onClose, onCreated }: {
   employees: EmployeeRow[]; onClose: () => void; onCreated: () => void
 }) {
+  const isMobile = useIsMobile()
   // Data
   const [leads, setLeads] = useState<LeadRow[]>([])
   const [allQuotations, setAllQuotations] = useState<QuotationRow[]>([])
@@ -1450,7 +1453,7 @@ function NewProjectModal({ employees, onClose, onCreated }: {
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-      <div style={{ width: 640, maxWidth: '92vw', maxHeight: '90vh', overflowY: 'auto', background: '#0d0d0d', border: '1px solid #333', borderRadius: 14, padding: 24 }}>
+      <div style={{ width: isMobile ? '100vw' : 640, maxWidth: '92vw', height: isMobile ? '100vh' : 'auto', maxHeight: isMobile ? '100vh' : '90vh', overflowY: 'auto', background: '#0d0d0d', border: '1px solid #333', borderRadius: isMobile ? 0 : 14, padding: isMobile ? 16 : 24 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
           <div>
             <div style={{ fontSize: 16, fontWeight: 700, color: '#fff' }}>Nuevo proyecto</div>

@@ -4,6 +4,7 @@ import { SectionHeader, KpiCard, Table, Th, Td, Badge, Btn, EmptyState } from '.
 import { F, formatDate } from '../lib/utils'
 import { Users2, Plus, Search, Edit, Trash2, X, CheckCircle, Building2, Upload } from 'lucide-react'
 import { ANTHROPIC_API_KEY } from '../lib/config'
+import { useIsMobile } from '../lib/useIsMobile'
 
 interface ClienteFiscal {
   id: string
@@ -78,6 +79,7 @@ function Fld({ label, children, span }: { label: string; children: React.ReactNo
 }
 
 export default function Clientes() {
+  const isMobile = useIsMobile()
   const [clientes, setClientes] = useState<ClienteFiscal[]>([])
   const [showForm, setShowForm] = useState(false)
 
@@ -251,21 +253,21 @@ export default function Clientes() {
   }
 
   return (
-    <div style={{ padding: '24px 28px', maxWidth: 1200 }}>
+    <div style={{ padding: isMobile ? '12px 16px' : '24px 28px', maxWidth: isMobile ? '100%' : 1200 }}>
       <SectionHeader title="Clientes" subtitle="Datos fiscales de clientes (Constancia de Situacion Fiscal)" />
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, 1fr)', gap: 12, marginBottom: 20 }}>
         <KpiCard label="Total clientes" value={clientes.length} icon={<Users2 size={16} />} />
         <KpiCard label="Personas morales" value={clientes.filter(c => c.tipo_persona === 'moral').length} color="#3B82F6" icon={<Building2 size={16} />} />
         <KpiCard label="Activos" value={clientes.filter(c => c.activo).length} color="#57FF9A" icon={<CheckCircle size={16} />} />
       </div>
 
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <div style={{ position: 'relative' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: isMobile ? 'stretch' : 'center', marginBottom: 16, flexWrap: 'wrap', gap: isMobile ? 8 : 0 }}>
+        <div style={{ position: 'relative', flex: isMobile ? '1 1 100%' : 'initial', minWidth: isMobile ? '100%' : 300 }}>
           <Search size={14} style={{ position: 'absolute', left: 10, top: 9, color: '#555' }} />
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar por nombre o RFC..." style={{ ...iS, width: 300, paddingLeft: 32 }} />
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar por nombre o RFC..." style={{ ...iS, width: '100%', paddingLeft: 32 }} />
         </div>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flex: isMobile ? '1 1 100%' : 'initial', flexWrap: 'wrap', justifyContent: isMobile ? 'space-between' : 'flex-end' }}>
           {csfStatus && <span style={{ fontSize: 11, color: csfStatus.startsWith('✓') ? '#57FF9A' : csfStatus.startsWith('Error') ? '#EF4444' : '#888' }}>{csfStatus}</span>}
           <label style={{ cursor: 'pointer' }}>
             <input type="file" accept=".pdf" onChange={handleCSFUpload} style={{ display: 'none' }} />
@@ -277,8 +279,9 @@ export default function Clientes() {
         </div>
       </div>
 
-      <Table>
-        <thead><tr><Th>RFC</Th><Th>Nombre Comercial</Th><Th>Razon Social</Th><Th>Regimen</Th><Th>C.P.</Th><Th>Uso CFDI</Th><Th>Tipo</Th><Th>{' '}</Th></tr></thead>
+      <div style={{ overflowX: 'auto' }}>
+        <Table>
+          <thead><tr><Th>RFC</Th><Th>Nombre Comercial</Th><Th>Razon Social</Th><Th>Regimen</Th><Th>C.P.</Th><Th>Uso CFDI</Th><Th>Tipo</Th><Th>{' '}</Th></tr></thead>
         <tbody>
           {filtered.length === 0 && <tr><Td colSpan={8} muted>Sin clientes</Td></tr>}
           {filtered.map(c => (
@@ -294,11 +297,12 @@ export default function Clientes() {
             </tr>
           ))}
         </tbody>
-      </Table>
+        </Table>
+      </div>
 
       {showForm && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }} onClick={() => setShowForm(false)}>
-          <div style={{ background: '#1a1a1a', border: '1px solid #333', borderRadius: 16, padding: 24, width: 700, maxHeight: '85vh', overflowY: 'auto' as const }} onClick={e => e.stopPropagation()}>
+          <div style={{ background: '#1a1a1a', border: isMobile ? 'none' : '1px solid #333', borderRadius: isMobile ? 0 : 16, padding: isMobile ? 16 : 24, width: isMobile ? '100vw' : 700, height: isMobile ? '100vh' : 'auto', maxHeight: isMobile ? '100vh' : '85vh', overflowY: 'auto' as const }} onClick={e => e.stopPropagation()}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
               <div style={{ fontSize: 16, fontWeight: 700, color: '#fff' }}>{editId ? 'Editar Cliente' : 'Nuevo Cliente'}</div>
               <button onClick={() => setShowForm(false)} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer' }}><X size={18} /></button>
@@ -308,7 +312,7 @@ export default function Clientes() {
 
             <div style={{ fontSize: 13, fontWeight: 600, color: '#57FF9A', marginTop: 16, marginBottom: 12 }}>Datos Fiscales (Constancia de Situacion Fiscal)</div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr 1fr', gap: 10 }}>
               <Fld label="RFC *"><input style={iS} value={form.rfc || ''} onChange={e => setForm({...form, rfc: e.target.value.toUpperCase()})} placeholder="XAXX010101000" maxLength={13} /></Fld>
               <Fld label="Tipo persona"><select style={iS} value={form.tipo_persona} onChange={e => setForm({...form, tipo_persona: e.target.value as any})}><option value="moral">Persona Moral</option><option value="fisica">Persona Fisica</option></select></Fld>
               <Fld label="CURP (fisica)"><input style={iS} value={form.curp || ''} onChange={e => setForm({...form, curp: e.target.value.toUpperCase()})} placeholder="Solo personas fisicas" maxLength={18} /></Fld>
@@ -319,7 +323,7 @@ export default function Clientes() {
 
             <div style={{ fontSize: 13, fontWeight: 600, color: '#888', marginTop: 16, marginBottom: 12 }}>Domicilio Fiscal</div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr 1fr', gap: 10 }}>
               <Fld label="Codigo Postal *"><input style={iS} value={form.codigo_postal || ''} onChange={e => setForm({...form, codigo_postal: e.target.value})} placeholder="06600" maxLength={5} /></Fld>
               <Fld label="Calle"><input style={iS} value={form.calle || ''} onChange={e => setForm({...form, calle: e.target.value})} /></Fld>
               <Fld label="No. Exterior"><input style={iS} value={form.num_exterior || ''} onChange={e => setForm({...form, num_exterior: e.target.value})} /></Fld>

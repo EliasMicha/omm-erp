@@ -5,6 +5,7 @@ import { Badge, Btn, Loading } from '../components/layout/UI'
 import { ANTHROPIC_API_KEY } from '../lib/config'
 import { Plus, ChevronLeft, ChevronRight, ChevronDown, X, Trash2, Image as ImageIcon, Search, RefreshCw, Sparkles, Upload, Loader2, FileText, Package, ArrowLeftRight } from 'lucide-react'
 import ImageUpload from '../components/ImageUpload'
+import { useIsMobile } from '../lib/useIsMobile'
 
 // ═══════════════════════════════════════════════════════════════════
 // TYPES
@@ -174,6 +175,7 @@ function ProductDetailModal({ product, onClose, onUpdate }: {
   product: EspProduct; onClose: () => void
   onUpdate: (id: string, field: string, value: number | string) => void
 }) {
+  const isMobile = useIsMobile()
   const [catalogData, setCatalogData] = useState<any>(null)
   const [loading, setLoading] = useState(false)
   const { costReal, utilidad, precioAmp, moAmp, total } = calcLine(product)
@@ -201,9 +203,9 @@ function ProductDetailModal({ product, onClose, onUpdate }: {
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1050 }} onClick={onClose}>
-      <div onClick={e => e.stopPropagation()} style={{ background: '#111', borderRadius: 14, width: 520, maxHeight: '85vh', overflow: 'auto', border: '1px solid #333' }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: '#111', borderRadius: isMobile ? 0 : 14, width: isMobile ? '100vw' : 520, maxHeight: isMobile ? '100vh' : '85vh', height: isMobile ? '100vh' : 'auto', overflow: 'auto', border: '1px solid #333', margin: 0 }}>
         {/* Header */}
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14, padding: '18px 20px 14px', borderBottom: '1px solid #222' }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: isMobile ? 10 : 14, padding: isMobile ? '14px 14px 10px' : '18px 20px 14px', borderBottom: '1px solid #222' }}>
           {imageUrl ? (
             <img src={imageUrl} alt="" style={{ width: 64, height: 64, objectFit: 'contain', borderRadius: 8, background: '#1a1a1a', flexShrink: 0 }} />
           ) : (
@@ -443,6 +445,7 @@ function AIImportModal({ cotId, areas, activeSysIds, currency, tipoCambio, onClo
   onClose: () => void
   onImported: () => void
 }) {
+  const isMobile = useIsMobile()
   const [step, setStep] = useState<'upload' | 'processing' | 'review' | 'inserting'>('upload')
   const [items, setItems] = useState<AIExtractedItem[]>([])
   const [warnings, setWarnings] = useState<string[]>([])
@@ -989,15 +992,15 @@ function AIImportModal({ cotId, areas, activeSysIds, currency, tipoCambio, onClo
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1030 }}>
-      <div style={{ background: '#141414', border: '1px solid #333', borderRadius: 16, padding: 20, width: '92vw', maxWidth: 1200, maxHeight: '92vh', display: 'flex', flexDirection: 'column' as const }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+      <div style={{ background: '#141414', border: '1px solid #333', borderRadius: isMobile ? 0 : 16, padding: isMobile ? 16 : 20, width: isMobile ? '100vw' : '92vw', maxWidth: isMobile ? '100vw' : 1200, maxHeight: isMobile ? '100vh' : '92vh', height: isMobile ? '100vh' : 'auto', display: 'flex', flexDirection: 'column' as const, margin: 0, overflow: 'auto' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, flexShrink: 0 }}>
           <div>
-            <div style={{ fontSize: 14, fontWeight: 600, color: '#fff', display: 'flex', alignItems: 'center', gap: 8 }}>
-              <Sparkles size={14} color="#57FF9A" /> Importar con AI
+            <div style={{ fontSize: isMobile ? 13 : 14, fontWeight: 600, color: '#fff', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Sparkles size={isMobile ? 12 : 14} color="#57FF9A" /> Importar con AI
             </div>
-            <div style={{ fontSize: 11, color: '#555' }}>Sube un listado en Excel, CSV, PDF o imagen — la AI extrae los productos</div>
+            {!isMobile && <div style={{ fontSize: 11, color: '#555' }}>Sube un listado en Excel, CSV, PDF o imagen — la AI extrae los productos</div>}
           </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer' }}><X size={18} /></button>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', flexShrink: 0 }}><X size={isMobile ? 16 : 18} /></button>
         </div>
 
         {error && (
@@ -1009,11 +1012,11 @@ function AIImportModal({ cotId, areas, activeSysIds, currency, tipoCambio, onClo
             onClick={() => fileInputRef.current?.click()}
             onDrop={e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) handleFile(f) }}
             onDragOver={e => e.preventDefault()}
-            style={{ border: '2px dashed #333', borderRadius: 12, padding: '60px 20px', textAlign: 'center', cursor: 'pointer', color: '#666' }}
+            style={{ border: '2px dashed #333', borderRadius: 12, padding: isMobile ? '40px 16px' : '60px 20px', textAlign: 'center', cursor: 'pointer', color: '#666', flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}
           >
-            <Upload size={36} color="#444" style={{ marginBottom: 12 }} />
-            <div style={{ fontSize: 14, fontWeight: 600, color: '#ccc', marginBottom: 6 }}>Arrastra un archivo o haz clic</div>
-            <div style={{ fontSize: 11, color: '#555' }}>Excel (.xlsx, .csv, .tsv), PDF, imagen (JPG, PNG, WEBP)</div>
+            <Upload size={isMobile ? 28 : 36} color="#444" style={{ marginBottom: 12 }} />
+            <div style={{ fontSize: isMobile ? 12 : 14, fontWeight: 600, color: '#ccc', marginBottom: 6 }}>Arrastra un archivo o haz clic</div>
+            <div style={{ fontSize: isMobile ? 10 : 11, color: '#555' }}>Excel (.xlsx, .csv, .tsv), PDF, imagen (JPG, PNG, WEBP)</div>
             <input
               ref={fileInputRef}
               type="file"
@@ -1056,8 +1059,8 @@ function AIImportModal({ cotId, areas, activeSysIds, currency, tipoCambio, onClo
               </div>
             )}
 
-            <div style={{ flex: 1, overflowY: 'auto', border: '1px solid #222', borderRadius: 8 }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+            <div style={{ flex: 1, overflowY: 'auto', overflowX: isMobile ? 'auto' : 'hidden', border: '1px solid #222', borderRadius: 8 }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: isMobile ? 10 : 11, minWidth: isMobile ? 900 : 'auto' }}>
                 <thead style={{ position: 'sticky', top: 0, background: '#1a1a1a' }}>
                   <tr>
                     <th style={S.th}></th>
@@ -1152,6 +1155,7 @@ function CatalogModal({ onClose, onSelect, onCreateNew, onSelectBundle, systemNa
   onClose: () => void; onSelect: (p: CatProduct) => void; onCreateNew: () => void; systemName: string
   onSelectBundle?: (bundle: CatBundle) => void
 }) {
+  const isMobile = useIsMobile()
   const [catalog, setCatalog] = useState<CatProduct[]>([])
   const [bundles, setBundles] = useState<CatBundle[]>([])
   const [search, setSearch] = useState('')
@@ -1196,13 +1200,13 @@ function CatalogModal({ onClose, onSelect, onCreateNew, onSelectBundle, systemNa
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-      <div style={{ background: '#141414', border: '1px solid #333', borderRadius: 16, padding: 20, width: 700, maxHeight: '80vh', display: 'flex', flexDirection: 'column' as const }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+      <div style={{ background: '#141414', border: '1px solid #333', borderRadius: isMobile ? 0 : 16, padding: isMobile ? 16 : 20, width: isMobile ? '100vw' : 700, height: isMobile ? '100vh' : 'auto', maxHeight: isMobile ? '100vh' : '80vh', display: 'flex', flexDirection: 'column' as const, margin: 0, overflow: 'auto' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexShrink: 0 }}>
           <div>
-            <div style={{ fontSize: 14, fontWeight: 600, color: '#fff' }}>Agregar producto — {systemName}</div>
-            <div style={{ fontSize: 11, color: '#555' }}>Busca en el catálogo o crea uno nuevo</div>
+            <div style={{ fontSize: isMobile ? 13 : 14, fontWeight: 600, color: '#fff' }}>Agregar producto — {isMobile ? systemName.slice(0, 10) : systemName}</div>
+            {!isMobile && <div style={{ fontSize: 11, color: '#555' }}>Busca en el catálogo o crea uno nuevo</div>}
           </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer' }}><X size={18} /></button>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', flexShrink: 0 }}><X size={isMobile ? 16 : 18} /></button>
         </div>
 
         {/* Tabs */}
@@ -1341,6 +1345,7 @@ function CatalogModal({ onClose, onSelect, onCreateNew, onSelectBundle, systemNa
 function CreateProductModal({ onClose, onCreate, systemName }: {
   onClose: () => void; onCreate: (p: CatProduct) => void; systemName: string
 }) {
+  const isMobile = useIsMobile()
   const [form, setForm] = useState({
     name: '', description: '', system: systemName, cost: 0, markup: 30, provider: '', unit: 'pza',
     marca: '', modelo: '', sku: '', clave_prod_serv: '', clave_unidad: 'H87', moneda: 'USD', purchase_phase: 'inicio',
@@ -1486,10 +1491,10 @@ IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1010 }}>
-      <div style={{ background: '#141414', border: '1px solid #333', borderRadius: 16, padding: 24, width: 600, maxHeight: '90vh', overflowY: 'auto' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-          <div style={{ fontSize: 14, fontWeight: 600, color: '#fff' }}>Nuevo producto — {systemName}</div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer' }}><X size={16} /></button>
+      <div style={{ background: '#141414', border: '1px solid #333', borderRadius: isMobile ? 0 : 16, padding: isMobile ? 16 : 24, width: isMobile ? '100vw' : 600, height: isMobile ? '100vh' : 'auto', maxHeight: isMobile ? '100vh' : '90vh', overflowY: 'auto', margin: 0 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexShrink: 0 }}>
+          <div style={{ fontSize: isMobile ? 13 : 14, fontWeight: 600, color: '#fff' }}>Nuevo producto — {isMobile ? systemName.slice(0, 10) : systemName}</div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', flexShrink: 0 }}><X size={isMobile ? 14 : 16} /></button>
         </div>
 
         {/* AI Search bar */}
@@ -1525,14 +1530,14 @@ IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
           </div>
 
           {/* Marca, Modelo, SKU */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr 1fr', gap: 10 }}>
             {inp('Marca', form.marca, 'marca')}
             {inp('Modelo', form.modelo, 'modelo')}
             {inp('SKU', form.sku, 'sku')}
           </div>
 
           {/* Clave SAT, Unidad SAT, Fase */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr 1fr', gap: 10 }}>
             {inp('Clave SAT (ClaveProdServ)', form.clave_prod_serv, 'clave_prod_serv')}
             <label style={{ fontSize: 10, color: '#555', textTransform: 'uppercase' as const, letterSpacing: '0.06em', display: 'block' }}>
               Unidad SAT
@@ -1555,7 +1560,7 @@ IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
           </div>
 
           {/* Proveedor y Sistema */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 10 }}>
             <label style={{ fontSize: 10, color: '#555', textTransform: 'uppercase' as const, letterSpacing: '0.06em', display: 'block' }}>
               Proveedor
               <select value={form.provider} onChange={e => {
@@ -1741,6 +1746,7 @@ function SystemOverviewModal({ systemDef, products, areas, config, onClose }: {
   config: EspQuoteConfig
   onClose: () => void
 }) {
+  const isMobile = useIsMobile()
   // Filter products for this system, sorted by area
   const rows = useMemo(() => {
     const areaMap = new Map(areas.map(a => [a.id, a.name]))
@@ -1766,20 +1772,20 @@ function SystemOverviewModal({ systemDef, products, areas, config, onClose }: {
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={onClose}>
-      <div onClick={e => e.stopPropagation()} style={{ background: '#141414', border: '1px solid #333', borderRadius: 14, width: 900, maxWidth: '94vw', maxHeight: '85vh', display: 'flex', flexDirection: 'column' }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: '#141414', border: '1px solid #333', borderRadius: isMobile ? 0 : 14, width: isMobile ? '100vw' : 900, maxWidth: isMobile ? '100vw' : '94vw', maxHeight: isMobile ? '100vh' : '85vh', height: isMobile ? '100vh' : 'auto', display: 'flex', flexDirection: 'column', margin: 0 }}>
         {/* Header */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 20px', borderBottom: '1px solid #222', flexShrink: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: isMobile ? '12px 14px' : '16px 20px', borderBottom: '1px solid #222', flexShrink: 0, flexWrap: 'wrap', gap: isMobile ? 4 : 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 6 : 10 }}>
             <div style={{ width: 10, height: 10, borderRadius: '50%', background: systemDef.color }} />
-            <span style={{ fontSize: 16, fontWeight: 600, color: '#fff' }}>{systemDef.name}</span>
-            <span style={{ fontSize: 11, color: '#555' }}>— {rows.length} producto{rows.length !== 1 ? 's' : ''} en {new Set(rows.map(r => r.areaName)).size} área{new Set(rows.map(r => r.areaName)).size !== 1 ? 's' : ''}</span>
+            <span style={{ fontSize: isMobile ? 13 : 16, fontWeight: 600, color: '#fff' }}>{systemDef.name}</span>
+            {!isMobile && <span style={{ fontSize: 11, color: '#555' }}>— {rows.length} producto{rows.length !== 1 ? 's' : ''} en {new Set(rows.map(r => r.areaName)).size} área{new Set(rows.map(r => r.areaName)).size !== 1 ? 's' : ''}</span>}
           </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', padding: 4 }}><X size={18} /></button>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', padding: 4, flexShrink: 0 }}><X size={isMobile ? 16 : 18} /></button>
         </div>
 
         {/* Table */}
-        <div style={{ flex: 1, overflowY: 'auto', padding: '0 4px' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <div style={{ flex: 1, overflowY: 'auto', overflowX: isMobile ? 'auto' : 'hidden', padding: isMobile ? '0 4px' : '0 4px' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: isMobile ? 600 : 'auto' }}>
             <thead>
               <tr>
                 <th style={{ ...S.th, textAlign: 'left', paddingLeft: 16 }}>Descripción</th>
@@ -1838,6 +1844,7 @@ function SystemOverviewModal({ systemDef, products, areas, config, onClose }: {
 // MAIN COMPONENT
 // ═══════════════════════════════════════════════════════════════════
 export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack: () => void }) {
+  const isMobile = useIsMobile()
   const [areas, setAreas] = useState<EspArea[]>([])
   const [activeSysIds, setActiveSysIds] = useState<string[]>([])
   const [products, setProducts] = useState<EspProduct[]>([])
@@ -2335,87 +2342,91 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
   return (
     <div style={{ display: 'flex', flexDirection: 'column' as const, height: '100vh', overflow: 'hidden' }}>
       {/* Top bar */}
-      <div style={{ padding: '7px 16px', borderBottom: '1px solid #222', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0, background: '#111' }}>
-        <button onClick={onBack} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, fontSize: 12 }}><ChevronLeft size={14} /> Cotizaciones</button>
-        <span style={{ color: '#333' }}>/</span>
-        <span style={{ fontSize: 12, fontWeight: 500, color: '#57FF9A', cursor: 'pointer' }} onClick={() => setShowEditCot(true)}>◈ {cotName || 'Cotización ESP'}</span>
+      <div style={{ padding: isMobile ? '7px 12px' : '7px 16px', borderBottom: '1px solid #222', display: 'flex', alignItems: 'center', gap: isMobile ? 6 : 10, flexShrink: 0, background: '#111', flexWrap: 'wrap' }}>
+        <button onClick={onBack} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, fontSize: isMobile ? 10 : 12 }}><ChevronLeft size={isMobile ? 12 : 14} /> {isMobile ? '' : 'Cotizaciones'}</button>
+        {!isMobile && <span style={{ color: '#333' }}>/</span>}
+        <span style={{ fontSize: isMobile ? 10 : 12, fontWeight: 500, color: '#57FF9A', cursor: 'pointer' }} onClick={() => setShowEditCot(true)}>◈ {isMobile ? (cotName || 'Cot').slice(0, 10) : (cotName || 'Cotización ESP')}</span>
         <Badge label="ESP" color="#57FF9A" />
-        {clientName && <span style={{ fontSize: 11, color: '#888' }}>{clientName}</span>}
-        {projectName && <span style={{ fontSize: 10, color: '#555' }}>| {projectName}</span>}
+        {!isMobile && clientName && <span style={{ fontSize: 11, color: '#888' }}>{clientName}</span>}
+        {!isMobile && projectName && <span style={{ fontSize: 10, color: '#555' }}>| {projectName}</span>}
         <button onClick={() => setShowEditCot(true)} style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer', fontSize: 10 }}>✏️</button>
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 4, alignItems: 'center' }}>
+        <div style={{ marginLeft: isMobile ? 0 : 'auto', display: 'flex', gap: isMobile ? 2 : 4, alignItems: 'center', flexWrap: 'wrap', width: isMobile ? '100%' : 'auto' }}>
           {(Object.entries(STAGE_CONFIG) as Array<[string, { label: string; color: string }]>).map(([s, cfg]) => (
             <button key={s} onClick={() => { setStage(s); supabase.from('quotations').update({ stage: s }).eq('id', cotId) }} style={{
-              padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+              padding: isMobile ? '2px 6px' : '3px 10px', borderRadius: 20, fontSize: isMobile ? 8 : 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
               border: '1px solid ' + (stage === s ? cfg.color : '#333'), background: stage === s ? cfg.color + '22' : 'transparent', color: stage === s ? cfg.color : '#555',
-            }}>{cfg.label}</button>
+            }}>{isMobile ? cfg.label.slice(0, 3) : cfg.label}</button>
           ))}
-          <button onClick={() => setShowAIImport(true)} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #57FF9A44', background: 'transparent', color: '#57FF9A', marginLeft: 8, display: 'inline-flex', alignItems: 'center', gap: 4 }}><Sparkles size={11} /> Importar con AI</button>
-          <button onClick={() => setShowPdfPicker(true)} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #06B6D444', background: 'transparent', color: '#06B6D4', display: 'inline-flex', alignItems: 'center', gap: 4 }}><FileText size={11} /> Exportar PDF</button>
-          <button onClick={() => setShowSystemPicker(true)} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #57FF9A44', background: 'transparent', color: '#57FF9A' }}>⚙ Sistemas ({activeSysIds.length})</button>
-          <button onClick={() => setShowInt(!showInt)} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid ' + (showInt ? '#F59E0B' : '#333'), background: showInt ? '#F59E0B22' : 'transparent', color: showInt ? '#F59E0B' : '#555' }}>{showInt ? '👁 Interno' : '👁 Cliente'}</button>
-          <span style={{ fontSize: 15, fontWeight: 700, color: '#57FF9A', marginLeft: 10 }}>{config.currency === 'MXN' ? '$' : 'US$'}{fmt(total)}</span>
+          {!isMobile && (
+            <>
+              <button onClick={() => setShowAIImport(true)} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #57FF9A44', background: 'transparent', color: '#57FF9A', marginLeft: 8, display: 'inline-flex', alignItems: 'center', gap: 4 }}><Sparkles size={11} /> Importar con AI</button>
+              <button onClick={() => setShowPdfPicker(true)} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #06B6D444', background: 'transparent', color: '#06B6D4', display: 'inline-flex', alignItems: 'center', gap: 4 }}><FileText size={11} /> Exportar PDF</button>
+              <button onClick={() => setShowSystemPicker(true)} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #57FF9A44', background: 'transparent', color: '#57FF9A' }}>⚙ Sistemas ({activeSysIds.length})</button>
+              <button onClick={() => setShowInt(!showInt)} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid ' + (showInt ? '#F59E0B' : '#333'), background: showInt ? '#F59E0B22' : 'transparent', color: showInt ? '#F59E0B' : '#555' }}>{showInt ? '👁 Interno' : '👁 Cliente'}</button>
+            </>
+          )}
+          <span style={{ fontSize: isMobile ? 12 : 15, fontWeight: 700, color: '#57FF9A', marginLeft: isMobile ? 'auto' : 10 }}>{config.currency === 'MXN' ? '$' : 'US$'}{isMobile ? fmt(total).slice(0, 6) : fmt(total)}</span>
         </div>
       </div>
 
       {/* Systems bar + Currency */}
-      <div style={{ padding: '5px 16px', borderBottom: '1px solid #1e1e1e', display: 'flex', gap: 5, alignItems: 'center', background: '#0e0e0e', flexShrink: 0 }}>
-        <span style={{ fontSize: 9, color: '#444', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.1em', marginRight: 6 }}>Sistemas:</span>
-        {activeSystems.length === 0 && <span style={{ fontSize: 10, color: '#444' }}>Ninguno — usa ⚙ para agregar</span>}
+      <div style={{ padding: isMobile ? '5px 12px' : '5px 16px', borderBottom: '1px solid #1e1e1e', display: 'flex', gap: isMobile ? 4 : 5, alignItems: 'center', background: '#0e0e0e', flexShrink: 0, flexWrap: 'wrap' }}>
+        {!isMobile && <span style={{ fontSize: 9, color: '#444', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.1em', marginRight: 6 }}>Sistemas:</span>}
+        {activeSystems.length === 0 && <span style={{ fontSize: isMobile ? 8 : 10, color: '#444' }}>{isMobile ? 'Sin sist.' : 'Ninguno — usa ⚙ para agregar'}</span>}
         {activeSystems.map(sys => {
           const st = products.filter(p => p.systemId === sys.id).reduce((s, p) => s + calcLine(p).total, 0)
-          return <span key={sys.id} onClick={() => setViewSystemId(sys.id)} style={{ padding: '2px 7px', borderRadius: 5, fontSize: 10, fontWeight: 600, background: sys.color + '18', color: sys.color, border: '1px solid ' + sys.color + '33', cursor: 'pointer', transition: 'opacity 0.1s' }} onMouseEnter={e => (e.currentTarget.style.opacity = '0.8')} onMouseLeave={e => (e.currentTarget.style.opacity = '1')}>{sys.name} {config.currency === 'MXN' ? '$' : 'US$'}{st.toFixed(0)}</span>
+          return <span key={sys.id} onClick={() => setViewSystemId(sys.id)} style={{ padding: isMobile ? '1px 4px' : '2px 7px', borderRadius: 5, fontSize: isMobile ? 8 : 10, fontWeight: 600, background: sys.color + '18', color: sys.color, border: '1px solid ' + sys.color + '33', cursor: 'pointer', transition: 'opacity 0.1s', whiteSpace: 'nowrap' }} onMouseEnter={e => (e.currentTarget.style.opacity = '0.8')} onMouseLeave={e => (e.currentTarget.style.opacity = '1')}>{isMobile ? sys.name.slice(0, 4) : sys.name} {isMobile ? st.toFixed(0) : (config.currency === 'MXN' ? '$' : 'US$') + st.toFixed(0)}</span>
         })}
-        <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span style={{ fontSize: 10, fontWeight: 600, color: config.currency === 'USD' ? '#06B6D4' : '#F59E0B', background: config.currency === 'USD' ? '#06B6D422' : '#F59E0B22', padding: '2px 8px', borderRadius: 5 }}>{config.currency}</span>
-          <span style={{ fontSize: 9, color: '#555' }}>TC:</span>
+        <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: isMobile ? 3 : 6, flexWrap: isMobile ? 'wrap' : 'nowrap' }}>
+          <span style={{ fontSize: isMobile ? 8 : 10, fontWeight: 600, color: config.currency === 'USD' ? '#06B6D4' : '#F59E0B', background: config.currency === 'USD' ? '#06B6D422' : '#F59E0B22', padding: isMobile ? '1px 4px' : '2px 8px', borderRadius: 5 }}>{config.currency}</span>
+          {!isMobile && <span style={{ fontSize: 9, color: '#555' }}>TC:</span>}
           <input type="number" value={config.tipoCambio} step={0.1}
             onChange={e => updateConfig('tipoCambio', parseFloat(e.target.value) || 20)}
-            style={{ width: 55, padding: '2px 6px', background: '#1a1a1a', border: '1px solid #333', borderRadius: 4, color: '#ccc', fontSize: 11, fontFamily: 'inherit', textAlign: 'right' }} />
+            style={{ width: isMobile ? 45 : 55, padding: '2px 6px', background: '#1a1a1a', border: '1px solid #333', borderRadius: 4, color: '#ccc', fontSize: 10, fontFamily: 'inherit', textAlign: 'right' }} />
         </span>
       </div>
 
       {/* Content */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 260px', flex: 1, overflow: 'hidden' }}>
-        <div style={{ overflowY: 'auto', padding: '14px 18px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 260px', flex: 1, overflow: 'hidden' }}>
+        <div style={{ overflowY: 'auto', padding: isMobile ? '12px 12px' : '14px 18px' }}>
           {/* Bulk action bar */}
           {selectedProdIds.size > 0 && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px', marginBottom: 10, background: '#57FF9A12', border: '1px solid #57FF9A33', borderRadius: 10, flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 12, fontWeight: 700, color: '#57FF9A' }}>{selectedProdIds.size} seleccionado{selectedProdIds.size > 1 ? 's' : ''}</span>
-              <span style={{ width: 1, height: 16, background: '#333' }} />
+            <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 4 : 8, padding: isMobile ? '6px 10px' : '8px 14px', marginBottom: 10, background: '#57FF9A12', border: '1px solid #57FF9A33', borderRadius: 10, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: isMobile ? 10 : 12, fontWeight: 700, color: '#57FF9A' }}>{selectedProdIds.size} sel.</span>
+              {!isMobile && <span style={{ width: 1, height: 16, background: '#333' }} />}
 
               {/* Move to system */}
-              <select value="" onChange={e => { if (e.target.value) bulkMoveSystem(e.target.value) }}
+              {!isMobile && <select value="" onChange={e => { if (e.target.value) bulkMoveSystem(e.target.value) }}
                 style={{ padding: '4px 8px', borderRadius: 6, fontSize: 11, background: '#1a1a1a', border: '1px solid #333', color: '#ccc', fontFamily: 'inherit', cursor: 'pointer' }}>
                 <option value="">Mover a sistema...</option>
                 {ALL_SYSTEMS.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-              </select>
+              </select>}
 
               {/* Move to area */}
-              <select value="" onChange={e => { if (e.target.value) bulkMoveArea(e.target.value) }}
+              {!isMobile && <select value="" onChange={e => { if (e.target.value) bulkMoveArea(e.target.value) }}
                 style={{ padding: '4px 8px', borderRadius: 6, fontSize: 11, background: '#1a1a1a', border: '1px solid #333', color: '#ccc', fontFamily: 'inherit', cursor: 'pointer' }}>
                 <option value="">Mover a área...</option>
                 {areas.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-              </select>
+              </select>}
 
               {/* Copy to area */}
-              <select value="" onChange={e => { if (e.target.value) bulkCopyToArea(e.target.value) }}
+              {!isMobile && <select value="" onChange={e => { if (e.target.value) bulkCopyToArea(e.target.value) }}
                 style={{ padding: '4px 8px', borderRadius: 6, fontSize: 11, background: '#1a1a1a', border: '1px solid #333', color: '#ccc', fontFamily: 'inherit', cursor: 'pointer' }}>
                 <option value="">Copiar a área...</option>
                 {areas.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-              </select>
+              </select>}
 
               {/* Delete */}
-              <button onClick={bulkRemove} style={{ padding: '4px 10px', borderRadius: 6, fontSize: 11, background: '#EF444422', border: '1px solid #EF444444', color: '#EF4444', cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 4 }}>
-                <Trash2 size={11} /> Eliminar
+              <button onClick={bulkRemove} style={{ padding: isMobile ? '3px 6px' : '4px 10px', borderRadius: 6, fontSize: isMobile ? 9 : 11, background: '#EF444422', border: '1px solid #EF444444', color: '#EF4444', cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 2 }}>
+                <Trash2 size={isMobile ? 9 : 11} /> {isMobile ? 'Del' : 'Eliminar'}
               </button>
 
               {/* Sync with catalogue */}
-              <button onClick={syncSelectedWithCatalog} style={{ padding: '4px 10px', borderRadius: 6, fontSize: 11, background: '#3B82F622', border: '1px solid #3B82F644', color: '#3B82F6', cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 4 }}>
+              {!isMobile && <button onClick={syncSelectedWithCatalog} style={{ padding: '4px 10px', borderRadius: 6, fontSize: 11, background: '#3B82F622', border: '1px solid #3B82F644', color: '#3B82F6', cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 4 }}>
                 <RefreshCw size={11} /> Sync catálogo
-              </button>
+              </button>}
 
-              <button onClick={() => setSelectedProdIds(new Set())} style={{ marginLeft: 'auto', background: 'none', border: 'none', color: '#555', cursor: 'pointer', fontSize: 11, fontFamily: 'inherit' }}>Deseleccionar</button>
+              <button onClick={() => setSelectedProdIds(new Set())} style={{ marginLeft: 'auto', background: 'none', border: 'none', color: '#555', cursor: 'pointer', fontSize: isMobile ? 9 : 11, fontFamily: 'inherit' }}>{isMobile ? 'X' : 'Deseleccionar'}</button>
             </div>
           )}
 
@@ -2428,9 +2439,9 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
           ))}
           <div onClick={addArea} style={{ padding: '12px', border: '1px dashed #333', borderRadius: 10, textAlign: 'center', cursor: 'pointer', color: '#444', fontSize: 12 }}>+ Agregar área</div>
         </div>
-        <div style={{ borderLeft: '1px solid #222', overflowY: 'auto', padding: '14px 10px', background: '#0e0e0e' }}>
+        {!isMobile && <div style={{ borderLeft: '1px solid #222', overflowY: 'auto', padding: '14px 10px', background: '#0e0e0e' }}>
           <SummaryPanel products={products} areas={areas} config={config} activeSystems={activeSystems} showInt={showInt} onConfigChange={updateConfig} onSystemClick={setViewSystemId} />
-        </div>
+        </div>}
       </div>
 
       {/* Catalog modal */}
@@ -2458,19 +2469,19 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
         const otherAreas = areas.filter(a => a.id !== src.areaId)
         return (
           <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <div style={{ background: '#1a1a1a', border: '1px solid #333', borderRadius: 12, padding: 24, minWidth: 400, maxWidth: 500, maxHeight: '80vh', display: 'flex', flexDirection: 'column' as const }}>
-              <h3 style={{ margin: '0 0 8px', color: '#fff', fontSize: 16, flexShrink: 0 }}>Copiar producto a otras áreas</h3>
-              <p style={{ color: '#57FF9A', fontSize: 13, margin: '0 0 16px', flexShrink: 0 }}>{src.name} (de {areas.find(a => a.id === src.areaId)?.name})</p>
+            <div style={{ background: '#1a1a1a', border: '1px solid #333', borderRadius: isMobile ? 0 : 12, padding: isMobile ? 16 : 24, minWidth: isMobile ? 'auto' : 400, width: isMobile ? '100vw' : 'auto', maxWidth: isMobile ? '100vw' : 500, maxHeight: isMobile ? '100vh' : '80vh', height: isMobile ? '100vh' : 'auto', display: 'flex', flexDirection: 'column' as const, margin: 0 }}>
+              <h3 style={{ margin: '0 0 8px', color: '#fff', fontSize: isMobile ? 14 : 16, flexShrink: 0 }}>Copiar producto a otras áreas</h3>
+              <p style={{ color: '#57FF9A', fontSize: isMobile ? 12 : 13, margin: '0 0 16px', flexShrink: 0 }}>{src.name} (de {areas.find(a => a.id === src.areaId)?.name})</p>
               <div style={{ overflowY: 'auto' as const, flex: 1 }}>
                 {otherAreas.map(a => (
-                  <label key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderBottom: '1px solid #222', cursor: 'pointer', color: '#ccc', fontSize: 14 }}>
+                  <label key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderBottom: '1px solid #222', cursor: 'pointer', color: '#ccc', fontSize: isMobile ? 12 : 14 }}>
                     <input type="checkbox" id={'cp_' + a.id} /> {a.name}
                   </label>
                 ))}
               </div>
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16, flexShrink: 0 }}>
-                <button onClick={() => setCopyingProduct(null)} style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid #333', background: '#222', color: '#ccc', cursor: 'pointer' }}>Cancelar</button>
-                <button onClick={() => { const sel = otherAreas.filter(a => (document.getElementById('cp_' + a.id) as HTMLInputElement)?.checked).map(a => a.id); if (sel.length) copyProductToAreas(copyingProduct, sel); }} style={{ padding: '8px 16px', borderRadius: 8, border: 'none', background: '#57FF9A', color: '#000', fontWeight: 600, cursor: 'pointer' }}>Copiar a áreas seleccionadas</button>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16, flexShrink: 0, flexWrap: isMobile ? 'wrap' : 'nowrap' }}>
+                <button onClick={() => setCopyingProduct(null)} style={{ padding: isMobile ? '8px 12px' : '8px 16px', borderRadius: 8, border: '1px solid #333', background: '#222', color: '#ccc', cursor: 'pointer', fontSize: isMobile ? 12 : 14, flex: isMobile ? 1 : 'auto' }}>Cancelar</button>
+                <button onClick={() => { const sel = otherAreas.filter(a => (document.getElementById('cp_' + a.id) as HTMLInputElement)?.checked).map(a => a.id); if (sel.length) copyProductToAreas(copyingProduct, sel); }} style={{ padding: isMobile ? '8px 12px' : '8px 16px', borderRadius: 8, border: 'none', background: '#57FF9A', color: '#000', fontWeight: 600, cursor: 'pointer', fontSize: isMobile ? 12 : 14, flex: isMobile ? 1 : 'auto' }}>Copiar</button>
               </div>
             </div>
           </div>
@@ -2487,17 +2498,17 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
       {/* PDF format picker */}
       {showPdfPicker && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 1030, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ background: '#141414', border: '1px solid #333', borderRadius: 16, padding: 24, width: 620, maxWidth: '92vw' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-              <div style={{ fontSize: 15, fontWeight: 600, color: '#fff', display: 'flex', alignItems: 'center', gap: 8 }}>
-                <FileText size={16} color="#06B6D4" /> Exportar a PDF
+          <div style={{ background: '#141414', border: '1px solid #333', borderRadius: isMobile ? 0 : 16, padding: isMobile ? 16 : 24, width: isMobile ? '100vw' : 620, maxWidth: isMobile ? '100vw' : '92vw', height: isMobile ? '100vh' : 'auto', maxHeight: isMobile ? '100vh' : 'auto', margin: 0, display: 'flex', flexDirection: 'column', overflow: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexShrink: 0 }}>
+              <div style={{ fontSize: isMobile ? 13 : 15, fontWeight: 600, color: '#fff', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <FileText size={isMobile ? 14 : 16} color="#06B6D4" /> Exportar a PDF
               </div>
-              <button onClick={() => setShowPdfPicker(false)} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer' }}><X size={18} /></button>
+              <button onClick={() => setShowPdfPicker(false)} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer' }}><X size={isMobile ? 16 : 18} /></button>
             </div>
-            <div style={{ fontSize: 11, color: '#555', marginBottom: 18 }}>
+            <div style={{ fontSize: isMobile ? 10 : 11, color: '#555', marginBottom: 18 }}>
               Elige el formato. Cada uno abre en una pestaña nueva con vista previa imprimible.
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 10 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 10, flex: 1 }}>
               {([
                 { id: 'ejecutivo', icon: '📄', title: 'Ejecutivo', desc: 'Para cliente final. Diseño formal, sin costos internos ni markups. La versión que mandas por email.' },
                 { id: 'tecnico', icon: '🔧', title: 'Técnico detallado', desc: 'Para ingeniería. Incluye SKUs, proveedores, fases de compra, costos internos y markups. Uso interno o cliente técnico.' },
@@ -2559,12 +2570,12 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
       {/* System picker */}
       {showSystemPicker && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-          <div style={{ background: '#141414', border: '1px solid #333', borderRadius: 16, padding: 24, width: 380 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-              <div style={{ fontSize: 14, fontWeight: 600, color: '#fff' }}>Sistemas de la cotización</div>
-              <button onClick={() => setShowSystemPicker(false)} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer' }}><X size={16} /></button>
+          <div style={{ background: '#141414', border: '1px solid #333', borderRadius: isMobile ? 0 : 16, padding: isMobile ? 16 : 24, width: isMobile ? '100vw' : 380, maxHeight: isMobile ? '100vh' : 'auto', height: isMobile ? '100vh' : 'auto', margin: 0, display: 'flex', flexDirection: 'column', overflow: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, flexShrink: 0 }}>
+              <div style={{ fontSize: isMobile ? 13 : 14, fontWeight: 600, color: '#fff' }}>Sistemas de la cotización</div>
+              <button onClick={() => setShowSystemPicker(false)} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer' }}><X size={isMobile ? 14 : 16} /></button>
             </div>
-            <div style={{ fontSize: 11, color: '#555', marginBottom: 10 }}>Aplican para todas las áreas.</div>
+            <div style={{ fontSize: isMobile ? 10 : 11, color: '#555', marginBottom: 10 }}>Aplican para todas las áreas.</div>
             <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 5 }}>
               {ALL_SYSTEMS.map(sys => {
                 const on = activeSysIds.includes(sys.id)
@@ -2601,6 +2612,7 @@ function EditCotModal({ cotId, name, clientName, projectId, onClose, onSaved }: 
   cotId: string; name: string; clientName: string; projectId: string | null
   onClose: () => void; onSaved: (name: string, client: string, projId: string | null, projName: string) => void
 }) {
+  const isMobile = useIsMobile()
   const [form, setForm] = useState({ name, client_name: clientName, project_id: projectId || '', lead_id: '' })
   const [projects, setProjects] = useState<Array<{ id: string; name: string; client_name: string }>>([])
   const [leads, setLeads] = useState<Array<{ id: string; name: string; company: string }>>([])
@@ -2649,10 +2661,10 @@ function EditCotModal({ cotId, name, clientName, projectId, onClose, onSaved }: 
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1020 }}>
-      <div style={{ background: '#141414', border: '1px solid #333', borderRadius: 16, padding: 24, width: 480 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-          <div style={{ fontSize: 14, fontWeight: 600, color: '#fff' }}>Editar cotización</div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer' }}><X size={16} /></button>
+      <div style={{ background: '#141414', border: '1px solid #333', borderRadius: isMobile ? 0 : 16, padding: isMobile ? 16 : 24, width: isMobile ? '100vw' : 480, height: isMobile ? '100vh' : 'auto', maxHeight: isMobile ? '100vh' : 'auto', overflowY: isMobile ? 'auto' : 'visible', margin: 0 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexShrink: 0 }}>
+          <div style={{ fontSize: isMobile ? 13 : 14, fontWeight: 600, color: '#fff' }}>Editar cotización</div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', flexShrink: 0 }}><X size={isMobile ? 14 : 16} /></button>
         </div>
         <div style={{ display: 'grid', gap: 12 }}>
           <label style={labelStyle}>Nombre<input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} style={inputStyle} /></label>

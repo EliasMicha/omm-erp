@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase'
 import { F } from '../lib/utils'
 import { Btn, Table, Th, Td, Loading, KpiCard, SectionHeader, EmptyState, Badge } from '../components/layout/UI'
 import { Users2, Calendar, Receipt, ClipboardList, BarChart3, Plus, Search } from 'lucide-react'
+import { useIsMobile } from '../lib/useIsMobile'
 import TabCajaChica from './nomina/TabCajaChica'
 import TabAsistencia from './nomina/TabAsistencia'
 import TabReportes from './nomina/TabReportes'
@@ -63,11 +64,12 @@ const TABS: { id: Tab; label: string; icon: any }[] = [
 ]
 
 export default function Nomina() {
+  const isMobile = useIsMobile()
   const [tab, setTab] = useState<Tab>('empleados')
   return (
-    <div style={{ padding: '24px 32px', maxWidth: 1600, margin: '0 auto' }}>
+    <div style={{ padding: isMobile ? '12px 16px' : '24px 32px', maxWidth: 1600, margin: '0 auto' }}>
       <SectionHeader title="Nómina" subtitle="Gestión de empleados, periodos de pago, caja chica y asistencia" />
-      <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid #1f1f1f', marginBottom: 24 }}>
+      <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid #1f1f1f', marginBottom: 24, flexWrap: 'wrap' }}>
         {TABS.map(t => {
           const Icon = t.icon
           const active = tab === t.id

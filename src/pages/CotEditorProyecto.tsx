@@ -6,6 +6,7 @@ import { ChevronLeft, ChevronDown, ChevronRight, Settings, X, Printer, Download,
 import EditCotInfoModal from '../components/EditCotInfoModal'
 import { OMNIIOUS_LOGO } from '../assets/logo'
 import { autoCreateProjectFromQuotation } from '../lib/projectUtils'
+import { useIsMobile } from '../lib/useIsMobile'
 import html2canvas from 'html2canvas'
 import jsPDF from 'jspdf'
 
@@ -655,6 +656,7 @@ function ProyPdfModal({
   systems: ProySystem[]
   tipoProyecto: TipoProyecto
 }) {
+  const isMobile = useIsMobile()
   const pdfContainerRef = useRef<HTMLDivElement>(null)
   const [generating, setGenerating] = useState(false)
   const systemsMap = new Map(systems.map(s => [s.id, s]))
@@ -735,11 +737,13 @@ function ProyPdfModal({
         style={{
           background: '#141414',
           border: '1px solid #333',
-          borderRadius: 16,
-          padding: 24,
-          width: 500,
-          maxHeight: '80vh',
+          borderRadius: isMobile ? 0 : 16,
+          padding: isMobile ? 12 : 24,
+          width: isMobile ? '100vw' : 500,
+          height: isMobile ? '100vh' : 'auto',
+          maxHeight: isMobile ? '100vh' : '80vh',
           overflowY: 'auto',
+          margin: 0,
         }}
       >
         <div
@@ -1258,6 +1262,7 @@ function ProySummary({
 // ═══════════════════════════════════════════════════════════════════
 
 export default function CotEditorProyecto({ cotId, onBack, specialty = 'proy' }: { cotId: string; onBack: () => void; specialty?: string }) {
+  const isMobile = useIsMobile()
   // tipoProyecto drives everything: systems, conditions, badge, etc.
   // Backward compat: old 'ilum' specialty → 'iluminacion', old 'proy' → 'especiales'
   const fallbackTipo: TipoProyecto = specialty === 'ilum' ? 'iluminacion' : 'especiales'
@@ -1508,13 +1513,14 @@ export default function CotEditorProyecto({ cotId, onBack, specialty = 'proy' }:
       {/* Top bar */}
       <div
         style={{
-          padding: '7px 16px',
+          padding: isMobile ? '7px 8px' : '7px 16px',
           borderBottom: '1px solid #222',
           display: 'flex',
           alignItems: 'center',
-          gap: 10,
+          gap: isMobile ? 6 : 10,
           flexShrink: 0,
           background: '#111',
+          flexWrap: 'wrap',
         }}
       >
         <button
@@ -1679,13 +1685,14 @@ export default function CotEditorProyecto({ cotId, onBack, specialty = 'proy' }:
       {/* Global m² bar */}
       <div
         style={{
-          padding: '8px 16px',
+          padding: isMobile ? '8px 8px' : '8px 16px',
           borderBottom: '1px solid #1e1e1e',
           display: 'flex',
           alignItems: 'center',
-          gap: 8,
+          gap: isMobile ? 4 : 8,
           background: '#0e0e0e',
           flexShrink: 0,
+          flexWrap: 'wrap',
         }}
       >
         <span style={{ fontSize: 10, color: '#888', fontWeight: 600 }}>m² Global (aplica a todos):</span>
@@ -1704,8 +1711,8 @@ export default function CotEditorProyecto({ cotId, onBack, specialty = 'proy' }:
       </div>
 
       {/* Content */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 280px', flex: 1, overflow: 'hidden' }}>
-        <div style={{ overflowY: 'auto', overflowX: 'auto', padding: '14px 18px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 280px', flex: 1, overflow: 'hidden' }}>
+        <div style={{ overflowY: 'auto', overflowX: 'auto', padding: isMobile ? '10px 8px' : '14px 18px' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 900 }}>
             <thead>
               <tr style={{ background: '#0e0e0e' }}>
@@ -1734,9 +1741,9 @@ export default function CotEditorProyecto({ cotId, onBack, specialty = 'proy' }:
             </tbody>
           </table>
         </div>
-        <div style={{ borderLeft: '1px solid #222', overflowY: 'auto', padding: '14px 10px', background: '#0e0e0e' }}>
+        {!isMobile && <div style={{ borderLeft: '1px solid #222', overflowY: 'auto', padding: '14px 10px', background: '#0e0e0e' }}>
           <ProySummary items={items} config={config} onConfigChange={updateConfig} systems={SYSTEMS} />
-        </div>
+        </div>}
       </div>
 
       {/* PDF modal */}

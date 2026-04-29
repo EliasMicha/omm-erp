@@ -4,6 +4,7 @@ import { ANTHROPIC_API_KEY } from '../lib/config'
 import { Quotation, QuotationArea, QuotationItem, CatalogProduct, Project, ProjectLine, PurchasePhase } from '../types'
 import { F, FCUR, SPECIALTY_CONFIG, STAGE_CONFIG, PHASE_CONFIG, calcItemPrice, calcItemTotal } from '../lib/utils'
 import { Badge, Btn, Table, Th, Td, Loading, SectionHeader, EmptyState } from '../components/layout/UI'
+import { useIsMobile } from '../lib/useIsMobile'
 import { Plus, ChevronLeft, X, Zap, Loader2, Search, Trash2, Upload, RefreshCw, FileText, GitBranch, BarChart3, Pencil } from 'lucide-react'
 import EditCotInfoModal from '../components/EditCotInfoModal'
 import CotEditorESP from './CotEditorESP'
@@ -104,6 +105,7 @@ function LeadCell({ cotId, currentLeadId, currentLeadName, leads, notes, onUpdat
 }
 
 function CotDashboard({ onOpen }: { onOpen: (id: string, specialty?: string) => void }) {
+  const isMobile = useIsMobile()
   const [cots, setCots] = useState<Quotation[]>([])
   const [leadsMap, setLeadsMap] = useState<Record<string, LeadInfo>>({})
   const [filtro, setFiltro] = useState<string>('todas')
@@ -198,45 +200,45 @@ function CotDashboard({ onOpen }: { onOpen: (id: string, specialty?: string) => 
   const totalMXN = cotsYear.filter(c => getCur(c) === 'MXN').reduce((s, c) => s + getTotalConIva(c), 0)
 
   return (
-    <div style={{padding:'24px 28px'}}>
+    <div style={{padding: isMobile ? '16px 12px' : '24px 28px'}}>
       <SectionHeader title="Cotizaciones"
         subtitle={`${cotsYear.length} cotizaciones${filtroYear !== 'todos' ? ' ('+filtroYear+')' : ''} · ${FCUR(totalUSD, 'USD')} · ${FCUR(totalMXN, 'MXN')}`}
-        action={<div style={{display:'flex',gap:8}}>
-          <Btn onClick={() => setShowImport(true)} style={{border:'1px solid #3b82f644', color:'#3b82f6', display:'inline-flex', alignItems:'center', gap:4}}><Upload size={14}/> Importar</Btn>
-          <Btn onClick={() => setShowAIGen(true)} style={{border:'1px solid #57FF9A44', color:'#57FF9A', display:'inline-flex', alignItems:'center', gap:4}}><Zap size={14}/> Cotizar con AI</Btn>
-          <Btn variant="primary" onClick={() => setShowNew(true)}><Plus size={14}/> Nueva cotizacion</Btn>
+        action={<div style={{display:'flex',gap:8,flexWrap: isMobile ? 'wrap' : 'nowrap'}}>
+          <Btn onClick={() => setShowImport(true)} style={{border:'1px solid #3b82f644', color:'#3b82f6', display:'inline-flex', alignItems:'center', gap:4, flex: isMobile ? '1 1 calc(50% - 4px)' : 'auto'}}><Upload size={14}/> {isMobile ? 'Imp.' : 'Importar'}</Btn>
+          <Btn onClick={() => setShowAIGen(true)} style={{border:'1px solid #57FF9A44', color:'#57FF9A', display:'inline-flex', alignItems:'center', gap:4, flex: isMobile ? '1 1 calc(50% - 4px)' : 'auto'}}><Zap size={14}/> {isMobile ? 'AI' : 'Cotizar con AI'}</Btn>
+          <Btn variant="primary" onClick={() => setShowNew(true)} style={{flex: isMobile ? '1 1 100%' : 'auto'}}><Plus size={14}/> {isMobile ? 'Nueva' : 'Nueva cotizacion'}</Btn>
         </div>}/>
 
-      <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:10,marginBottom:20}}>
+      <div style={{display:'grid',gridTemplateColumns: isMobile ? 'repeat(2,1fr)' : 'repeat(4,1fr)',gap:10,marginBottom:20}}>
         {(['contrato','propuesta','estimacion','oportunidad'] as const).map(s => {
           const cfg = STAGE_CONFIG[s]
           const usd = byStageAndCur(s, 'USD')
           const mxn = byStageAndCur(s, 'MXN')
           return (
             <div key={s} style={{background:'#141414',border:'1px solid #222',borderRadius:10,padding:'12px 14px',borderTop:`2px solid ${cfg.color}`}}>
-              <div style={{fontSize:10,color:'#555',textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:4}}>{cfg.label}</div>
-              {usd > 0 && <div style={{fontSize:16,fontWeight:700,color:'#fff'}}>USD {F(usd)}</div>}
-              {mxn > 0 && <div style={{fontSize:14,fontWeight:600,color:'#ccc'}}>MXN {F(mxn)}</div>}
-              {usd === 0 && mxn === 0 && <div style={{fontSize:16,fontWeight:700,color:'#333'}}>$0</div>}
+              <div style={{fontSize: isMobile ? 9 : 10,color:'#555',textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:4}}>{cfg.label}</div>
+              {usd > 0 && <div style={{fontSize: isMobile ? 13 : 16,fontWeight:700,color:'#fff'}}>USD {F(usd)}</div>}
+              {mxn > 0 && <div style={{fontSize: isMobile ? 12 : 14,fontWeight:600,color:'#ccc'}}>MXN {F(mxn)}</div>}
+              {usd === 0 && mxn === 0 && <div style={{fontSize: isMobile ? 13 : 16,fontWeight:700,color:'#333'}}>$0</div>}
             </div>
           )
         })}
       </div>
 
       {/* KPIs por especialidad — USD y MXN separados */}
-      <div style={{display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:10,marginBottom:20}}>
+      <div style={{display:'grid',gridTemplateColumns: isMobile ? 'repeat(2,1fr)' : 'repeat(5,1fr)',gap:10,marginBottom:20}}>
         {(['esp','elec','ilum','cort','proy'] as const).map(spec => {
           const cfg = SPECIALTY_CONFIG[spec]
           const usd = bySpecAndCur(spec, 'USD')
           const mxn = bySpecAndCur(spec, 'MXN')
           return (
             <div key={spec} style={{background:'#141414',border:'1px solid #222',borderRadius:10,padding:'12px 14px',borderLeft:`2px solid ${cfg.color}`}}>
-              <div style={{fontSize:10,color:'#555',textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:4,display:'flex',alignItems:'center',gap:4}}>
-                <span style={{color:cfg.color}}>{cfg.icon}</span> {cfg.label}
+              <div style={{fontSize: isMobile ? 9 : 10,color:'#555',textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:4,display:'flex',alignItems:'center',gap:4}}>
+                <span style={{color:cfg.color,fontSize: isMobile ? 10 : 14}}>{cfg.icon}</span> {isMobile ? '' : cfg.label}
               </div>
-              {usd > 0 && <div style={{fontSize:13,fontWeight:700,color:'#fff'}}>USD {F(usd)}</div>}
-              {mxn > 0 && <div style={{fontSize:12,fontWeight:600,color:'#ccc'}}>MXN {F(mxn)}</div>}
-              {usd === 0 && mxn === 0 && <div style={{fontSize:13,fontWeight:700,color:'#333'}}>$0</div>}
+              {usd > 0 && <div style={{fontSize: isMobile ? 11 : 13,fontWeight:700,color:'#fff'}}>USD {F(usd)}</div>}
+              {mxn > 0 && <div style={{fontSize: isMobile ? 10 : 12,fontWeight:600,color:'#ccc'}}>MXN {F(mxn)}</div>}
+              {usd === 0 && mxn === 0 && <div style={{fontSize: isMobile ? 11 : 13,fontWeight:700,color:'#333'}}>$0</div>}
             </div>
           )
         })}
@@ -249,10 +251,10 @@ function CotDashboard({ onOpen }: { onOpen: (id: string, specialty?: string) => 
           type="text"
           value={search}
           onChange={e => setSearch(e.target.value)}
-          placeholder="Buscar por cotización, cliente, arquitecto o lead..."
+          placeholder={isMobile ? "Buscar..." : "Buscar por cotización, cliente, arquitecto o lead..."}
           style={{
             width:'100%',padding:'10px 12px 10px 36px',background:'#141414',border:'1px solid #222',
-            borderRadius:10,color:'#fff',fontSize:13,fontFamily:'inherit',boxSizing:'border-box',
+            borderRadius:10,color:'#fff',fontSize: isMobile ? 12 : 13,fontFamily:'inherit',boxSizing:'border-box',
           }}
         />
         {search && (
@@ -262,30 +264,32 @@ function CotDashboard({ onOpen }: { onOpen: (id: string, specialty?: string) => 
         )}
       </div>
 
-      <div style={{display:'flex',gap:6,marginBottom:16,flexWrap:'wrap',alignItems:'center'}}>
+      <div style={{display:'flex',gap:6,marginBottom:16,flexWrap:'wrap',alignItems:'center',overflowX: isMobile ? 'auto' : 'visible',overflowY: 'hidden',paddingBottom: isMobile ? 4 : 0}}>
         {['todas','esp','elec','ilum','cort','proy'].map(f => {
           const on = filtro === f
           const cfg = f !== 'todas' ? SPECIALTY_CONFIG[f as ProjectLine] : null
           return (
             <button key={f} onClick={() => setFiltro(f)} style={{
-              padding:'5px 12px',borderRadius:20,fontSize:11,cursor:'pointer',fontFamily:'inherit',
+              padding:'5px 12px',borderRadius:20,fontSize: isMobile ? 10 : 11,cursor:'pointer',fontFamily:'inherit',
               border:`1px solid ${on?(cfg?.color||'#57FF9A'):'#333'}`,
               background:on?(cfg?.color||'#57FF9A')+'22':'transparent',
               color:on?(cfg?.color||'#57FF9A'):'#666',fontWeight:on?600:400,
+              whiteSpace: 'nowrap',
             }}>
-              {f === 'todas' ? 'Todas' : cfg?.icon+' '+cfg?.label}
+              {f === 'todas' ? 'Todas' : isMobile ? cfg?.icon : (cfg?.icon+' '+cfg?.label)}
             </button>
           )
         })}
-        <span style={{width:1,height:18,background:'#333',margin:'0 4px'}}/>
+        {!isMobile && <span style={{width:1,height:18,background:'#333',margin:'0 4px'}}/>}
         {availableYears.map(y => {
           const on = filtroYear === y
           return (
             <button key={y} onClick={() => setFiltroYear(y)} style={{
-              padding:'5px 10px',borderRadius:20,fontSize:11,cursor:'pointer',fontFamily:'inherit',
+              padding:'5px 10px',borderRadius:20,fontSize: isMobile ? 10 : 11,cursor:'pointer',fontFamily:'inherit',
               border:`1px solid ${on?'#A78BFA':'#333'}`,
               background:on?'#A78BFA22':'transparent',
               color:on?'#A78BFA':'#666',fontWeight:on?600:400,
+              whiteSpace: 'nowrap',
             }}>
               {y === 'todos' ? 'Todos' : y}
             </button>
@@ -294,9 +298,10 @@ function CotDashboard({ onOpen }: { onOpen: (id: string, specialty?: string) => 
       </div>
 
       {loading ? <Loading/> : (
+        <div style={{overflowX: 'auto'}}>
         <Table>
           <thead><tr>
-            <Th>Cotización</Th><Th>Lead</Th><Th>Arquitecto</Th><Th>Cliente</Th><Th>Especialidad</Th><Th>Etapa</Th><Th>Fecha</Th><Th>Moneda</Th><Th right>Total</Th><Th></Th>
+            <Th>Cotización</Th>{!isMobile && <Th>Lead</Th>}{!isMobile && <Th>Arquitecto</Th>}<Th>Cliente</Th><Th>Especialidad</Th><Th>Etapa</Th><Th>Fecha</Th><Th>Moneda</Th><Th right>Total</Th><Th></Th>
           </tr></thead>
           <tbody>
             {lista.length === 0 && (<tr><td colSpan={10}><EmptyState message={search || filtro !== "todas" ? "No se encontraron cotizaciones con estos filtros" : "Sin cotizaciones - crea la primera"}/></td></tr>)}
@@ -307,8 +312,8 @@ function CotDashboard({ onOpen }: { onOpen: (id: string, specialty?: string) => 
               const architect = getArchitect(c)
               return (
                 <tr key={c.id} style={{cursor:'pointer'}} onClick={() => onOpen(c.id, c.specialty)}>
-                  <Td><span style={{fontWeight:500,color:'#fff'}}>{c.name || '--'}</span></Td>
-                  <Td>
+                  <Td><span style={{fontWeight:500,color:'#fff',fontSize: isMobile ? 12 : 'inherit'}}>{isMobile ? (c.name || '--').substring(0, 20) + (c.name && c.name.length > 20 ? '...' : '') : (c.name || '--')}</span></Td>
+                  {!isMobile && <Td>
                     <LeadCell
                       cotId={c.id}
                       currentLeadId={getLeadId(c)}
@@ -324,9 +329,9 @@ function CotDashboard({ onOpen }: { onOpen: (id: string, specialty?: string) => 
                         }))
                       }}
                     />
-                  </Td>
-                  <Td><span style={{color: architect ? '#F9A8D4' : '#333', fontSize: 12}}>{architect || '--'}</span></Td>
-                  <Td muted>{c.client_name || '--'}</Td>
+                  </Td>}
+                  {!isMobile && <Td><span style={{color: architect ? '#F9A8D4' : '#333', fontSize: 12}}>{architect || '--'}</span></Td>}
+                  <Td muted>{isMobile ? (c.client_name || '--').substring(0, 20) + (c.client_name && c.client_name.length > 20 ? '...' : '') : (c.client_name || '--')}</Td>
                   <Td><Badge label={esp.icon+' '+esp.label} color={esp.color}/></Td>
                   <Td>
                     <select
@@ -377,6 +382,7 @@ function CotDashboard({ onOpen }: { onOpen: (id: string, specialty?: string) => 
             })}
           </tbody>
         </Table>
+        </div>
       )}
 
       {showNew && <NuevaCoModal onClose={() => setShowNew(false)} onCreated={(id, spec) => { setShowNew(false); onOpen(id, spec) }}/>}
@@ -410,6 +416,7 @@ interface ClienteSimple { id: string; razon_social: string; rfc: string }
 interface LeadSimple { id: string; name: string; company: string; contact_name: string }
 
 function NuevaCoModal({ onClose, onCreated }: { onClose: () => void; onCreated: (id: string, specialty: string) => void }) {
+  const isMobile = useIsMobile()
   const [projects, setProjects] = useState<Project[]>([])
   const [clientes, setClientes] = useState<ClienteSimple[]>([])
   const [leads, setLeads] = useState<LeadSimple[]>([])
@@ -512,7 +519,7 @@ function NuevaCoModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-      <div style={{ background: '#141414', border: '1px solid #333', borderRadius: 16, padding: 24, width: 560, maxHeight: '90vh', overflowY: 'auto' }}>
+      <div style={{ background: '#141414', border: isMobile ? 'none' : '1px solid #333', borderRadius: isMobile ? 0 : 16, padding: isMobile ? 16 : 24, width: isMobile ? '100vw' : 560, height: isMobile ? '100vh' : 'auto', maxHeight: isMobile ? '100vh' : '90vh', maxWidth: isMobile ? '100vw' : 560, overflowY: 'auto' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
           <div style={{ fontSize: 15, fontWeight: 600, color: '#fff' }}>Nueva cotización</div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer' }}><X size={18} /></button>

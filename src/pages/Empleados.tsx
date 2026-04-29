@@ -2,6 +2,7 @@ import { useEffect, useState, useMemo } from 'react'
 import { supabase } from '../lib/supabase'
 import { SectionHeader, Badge, Loading, EmptyState } from '../components/layout/UI'
 import { Search, X, Users, ChevronDown, ChevronRight } from 'lucide-react'
+import { useIsMobile } from '../lib/useIsMobile'
 
 // ═══════════════════════════════════════════════════════════════════
 // TYPES & CONFIG
@@ -54,6 +55,7 @@ function areaLabel(area: string | null): string {
 // ═══════════════════════════════════════════════════════════════════
 
 export default function Empleados() {
+  const isMobile = useIsMobile()
   const [emps, setEmps] = useState<Emp[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
@@ -110,7 +112,7 @@ export default function Empleados() {
   }
 
   return (
-    <div style={{ padding: '24px 28px' }}>
+    <div style={{ padding: isMobile ? '12px 16px' : '24px 28px' }}>
       <SectionHeader
         title="Empleados"
         subtitle={`${totalActivos} empleados activos · ${areasUnicas} áreas`}
@@ -136,7 +138,7 @@ export default function Empleados() {
       />
 
       {/* KPIs */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 10, marginBottom: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(4,1fr)', gap: 10, marginBottom: 20 }}>
         {[
           { label: 'Dirección', value: directores, color: NIVEL_CONFIG.direccion.color },
           { label: 'Coordinación', value: coordinadores, color: NIVEL_CONFIG.coordinacion.color },

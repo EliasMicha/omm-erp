@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react'
 import { supabase } from '../lib/supabase'
 import { KpiCard, Table, Th, Td, Badge, Loading, SectionHeader, ProgressBar } from '../components/layout/UI'
 import { DollarSign, TrendingUp, TrendingDown, AlertTriangle, Receipt, Users, ShoppingCart, PieChart, ArrowUpRight, ArrowDownRight, Calendar, ChevronLeft, ChevronRight, BarChart3 } from 'lucide-react'
+import { useIsMobile } from '../lib/useIsMobile'
 
 const F = (n: number) => '$' + n.toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 0 })
 const F2 = (n: number) => '$' + n.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -73,6 +74,7 @@ function bankCatColor(cat: string): string {
 // COMPONENT
 // ═══════════════════════════════════════════════════════════════════
 export default function Finanzas() {
+  const isMobile = useIsMobile()
   const [loading, setLoading] = useState(true)
   const [mes, setMes] = useState(() => {
     const now = new Date()
@@ -498,7 +500,7 @@ export default function Finanzas() {
       </div>
 
       {/* ── KPI ROW ─────────────────────────────────────────────── */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12, marginBottom: 24 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(5, 1fr)', gap: 12, marginBottom: 24 }}>
         <KpiCard
           label="Ingresos facturados"
           value={F(ingresosFacturados)}
@@ -532,7 +534,7 @@ export default function Finanzas() {
       </div>
 
       {/* ── SECOND ROW: IVA + Saldo bancario + Cobranza pendiente ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 28 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)', gap: 12, marginBottom: 28 }}>
         <SmallKpi label="IVA cobrado" value={F(ivaEmitido)} color="#57FF9A" />
         <SmallKpi label="IVA pagado" value={F(ivaRecibido)} color="#EF4444" />
         <SmallKpi label="Saldo bancario" value={F2(bankSaldo)} color="#3B82F6" />
@@ -540,7 +542,7 @@ export default function Finanzas() {
       </div>
 
       {/* ── MAIN GRID ───────────────────────────────────────────── */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 28 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 20, marginBottom: 28 }}>
 
         {/* LEFT: Categorización de gastos */}
         <Card title="Categorización de gastos" icon={<PieChart size={14} />}>
@@ -587,7 +589,7 @@ export default function Finanzas() {
             <div style={{ padding: 20, textAlign: 'center', color: '#555', fontSize: 13 }}>Sin datos de nómina este mes</div>
           ) : (
             <>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12, marginBottom: 16 }}>
                 <MiniStat label="Neto pactado total" value={F(nominaBruta > 0 ? nominaBruta : nominaMensualEstimada)} accent="#fff" />
                 <MiniStat label="Transferencia (fiscal)" value={F(nominaFiscal)} accent="#57FF9A" />
                 <MiniStat label="Efectivo" value={F(nominaEfectivo)} accent="#F59E0B" />

@@ -8,6 +8,7 @@ import {
   Award, Folder, History, AlertCircle, Sparkles, CheckCircle2,
   Smartphone, Eye, EyeOff
 } from 'lucide-react'
+import { useIsMobile } from '../lib/useIsMobile'
 
 interface Employee {
   id: string
@@ -126,6 +127,7 @@ const DOC_TYPES: { value: string; label: string }[] = [
 ]
 
 export default function EmpleadoExpediente() {
+  const isMobile = useIsMobile()
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
 
@@ -203,8 +205,8 @@ export default function EmpleadoExpediente() {
   const edad = computeEdad(employee.fecha_nacimiento)
 
   return (
-    <div style={{ padding: '24px 32px', maxWidth: 1500, margin: '0 auto' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
+    <div style={{ padding: isMobile ? '12px 16px' : '24px 32px', maxWidth: 1500, margin: '0 auto' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
         <Link to="/nomina" style={{ color: '#888', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
           <ArrowLeft size={14} /> Volver a nómina
         </Link>
@@ -218,9 +220,9 @@ export default function EmpleadoExpediente() {
       </div>
 
       <div style={{
-        display: 'flex', gap: 20, padding: 20,
+        display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: 20, padding: 20,
         background: '#0f0f0f', border: '1px solid #1f1f1f', borderRadius: 10,
-        marginBottom: 20, alignItems: 'center'
+        marginBottom: 20, alignItems: isMobile ? 'stretch' : 'center'
       }}>
         <Avatar employee={employee} onUpload={load} />
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -253,8 +255,8 @@ export default function EmpleadoExpediente() {
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: 20 }}>
-        <nav style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '220px 1fr', gap: 20 }}>
+        <nav style={{ display: 'flex', flexDirection: isMobile ? 'row' : 'column', gap: isMobile ? 4 : 2, overflowX: isMobile ? 'auto' : 'visible', paddingBottom: isMobile ? 8 : 0 }}>
           {SECTIONS.map(s => {
             const Icon = s.icon
             const active = section === s.id
