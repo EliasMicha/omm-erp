@@ -317,8 +317,8 @@ export default function AIQuoteChat({ onClose, onCreated }: {
     setScope(s => ({ ...s, sistemas: s.sistemas.includes(id) ? s.sistemas.filter(x => x !== id) : [...s.sistemas, id] }))
   }
 
-  /* ─── Send message to AI ─── */
-  const sendToAI = async (userText: string, isInitial = false) => {
+  /* ─── Send message to AI (with retry) ─── */
+  const sendToAI = async (userText: string, _isInitial = false) => {
     setSending(true)
     setError(null)
 
@@ -327,86 +327,111 @@ export default function AIQuoteChat({ onClose, onCreated }: {
     setMessages(updatedMessages)
     setChatInput('')
 
+    // Build request body once
+    const apiMessages = updatedMessages.map(m => ({ role: m.role, content: m.content }))
+    const catalogForApi = catalog.map(p => ({
+      id: p.id, name: p.name, marca: p.marca, modelo: p.modelo,
+      system: p.system, provider: p.provider, moneda: p.moneda,
+      cost: p.cost, description: p.description,
+    }))
+    const body: any = { messages: apiMessages, scope, catalog: catalogForApi, precedents }
+
+    // Always include plan URLs so the server can fetch and attach them to every request
+    const readyPlans = planFiles.filter(p => p.url && !p.uploading)
+    if (readyPlans.length > 0) {
+      body.planUrls = readyPlans.map(p => ({ url: p.url, mediaType: p.mediaType }))
+    }
+
+    let bodyStr: string
     try {
-      // Build messages for API (just role + content)
-      const apiMessages = updatedMessages.map(m => ({ role: m.role, content: m.content }))
+      bodyStr = JSON.stringify(body)
+    } catch (strErr: any) {
+      setError(`Error preparando datos: ${strErr.message}`)
+      setMessages(messages)
+      setSending(false)
+      return
+    }
 
-      // Prepare catalog compact for API
-      const catalogForApi = catalog.map(p => ({
-        id: p.id, name: p.name, marca: p.marca, modelo: p.modelo,
-        system: p.system, provider: p.provider, moneda: p.moneda,
-        cost: p.cost, description: p.description,
-      }))
+    console.log(`[AIQuoteChat] Sending: ${(bodyStr.length / 1024).toFixed(1)} KB, ${apiMessages.length} msgs, ${readyPlans.length} plans`)
 
-      const body: any = {
-        messages: apiMessages,
-        scope,
-        catalog: catalogForApi,
-        precedents,
-      }
-
-      // Always send plan URLs so Claude can reference the plans on follow-up messages too
-      if (planFiles.length > 0) {
-        const readyPlans = planFiles.filter(p => p.url && !p.uploading)
-        if (readyPlans.length > 0) {
-          body.planUrls = readyPlans.map(p => ({ url: p.url, mediaType: p.mediaType }))
-        }
-      }
-
-      // DEBUG: log body size and plan info
-      let bodyStr: string
+    // Retry up to 2 times on transient failures
+    const MAX_RETRIES = 2
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
       try {
-        bodyStr = JSON.stringify(body)
-        console.log(`[AIQuoteChat] Body size: ${(bodyStr.length / 1024).toFixed(1)} KB, plans: ${body.planUrls?.length || 0}, planUrls:`, body.planUrls?.map((p: any) => p.url))
-      } catch (strErr: any) {
-        throw new Error(`[STRINGIFY] ${strErr.message}`)
-      }
+        const controller = new AbortController()
+        const timeout = setTimeout(() => controller.abort(), 115000) // 115s client timeout (server has 120s)
 
-      let r: Response
-      try {
-        r = await fetch('/api/ai-chat', {
+        const r = await fetch('/api/ai-chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: bodyStr,
+          signal: controller.signal,
         })
-      } catch (fetchErr: any) {
-        throw new Error(`[FETCH] ${fetchErr.message}`)
-      }
+        clearTimeout(timeout)
 
-      let data: any
-      try {
+        // Read response as text first for robustness
         const responseText = await r.text()
-        console.log(`[AIQuoteChat] Response status: ${r.status}, body preview: ${responseText.substring(0, 200)}`)
-        data = JSON.parse(responseText)
-      } catch (parseErr: any) {
-        throw new Error(`[PARSE] Status ${r.status} — ${parseErr.message}`)
-      }
 
-      if (!r.ok || !data.ok) {
-        throw new Error(data.error || 'Error de comunicación con AI')
-      }
+        let data: any
+        try {
+          data = JSON.parse(responseText)
+        } catch {
+          // Non-JSON response — likely Vercel error page or timeout
+          const preview = responseText.substring(0, 150).replace(/<[^>]+>/g, '').trim()
+          if (r.status === 504 || r.status === 502) {
+            throw new Error(`Timeout del servidor (${r.status}). La solicitud es muy compleja — intenta con menos planos o simplifica.`)
+          }
+          throw new Error(`Respuesta inválida (${r.status}): ${preview || 'sin contenido'}`)
+        }
 
-      const assistantMsg: ChatMessage = { role: 'assistant', content: data.text, timestamp: new Date() }
-      setMessages([...updatedMessages, assistantMsg])
+        if (!r.ok || !data.ok) {
+          const errMsg = data.error || `Error ${r.status}`
+          // Don't retry on 4xx client errors
+          if (r.status >= 400 && r.status < 500) {
+            setError(errMsg)
+            setMessages(messages)
+            setSending(false)
+            return
+          }
+          throw new Error(errMsg)
+        }
 
-      if (data.type === 'proposal') {
-        // AI produced a final proposal
-        const areasWithIds = (data.areas || []).map((a: any) => ({
-          ...a,
-          items: (a.items || []).map((it: any) => ({ ...it, _rowId: uid() })),
-        }))
-        setAreas(areasWithIds)
-        setRationale(data.rationale || '')
-        setWarnings(data.warnings || [])
-        setPlanSummary(data.plan_summary || '')
-        setStep('proposal')
+        // ── Success ──
+        const assistantMsg: ChatMessage = { role: 'assistant', content: data.text, timestamp: new Date() }
+        setMessages([...updatedMessages, assistantMsg])
+
+        if (data.type === 'proposal') {
+          const areasWithIds = (data.areas || []).map((a: any) => ({
+            ...a,
+            items: (a.items || []).map((it: any) => ({ ...it, _rowId: uid() })),
+          }))
+          setAreas(areasWithIds)
+          setRationale(data.rationale || '')
+          setWarnings(data.warnings || [])
+          setPlanSummary(data.plan_summary || '')
+          setStep('proposal')
+        }
+        setSending(false)
+        return // success — exit retry loop
+
+      } catch (err: any) {
+        const isAbort = err.name === 'AbortError'
+        const isRetryable = isAbort || err.message?.includes('Timeout') || err.message?.includes('fetch')
+        console.warn(`[AIQuoteChat] Attempt ${attempt + 1}/${MAX_RETRIES + 1} failed:`, err.message)
+
+        if (attempt < MAX_RETRIES && isRetryable) {
+          // Wait before retry
+          await new Promise(resolve => setTimeout(resolve, 2000))
+          continue
+        }
+
+        // Final failure
+        setError(isAbort ? 'La solicitud tardó demasiado. Intenta con "Generar propuesta" para que el AI produzca el resultado directamente.' : (err.message || 'Error desconocido'))
+        setMessages(messages)
+        setSending(false)
+        return
       }
-    } catch (err: any) {
-      setError(err.message || 'Error')
-      // Remove the user message on failure
-      setMessages(messages)
     }
-    setSending(false)
   }
 
   /* ─── Start chat from scope ─── */

@@ -184,6 +184,16 @@ async function buildSystemPrompt(nivel?: string): Promise<string> {
   return PROMPT_FRAMEWORK_TOP + dynamicRules + PROMPT_FRAMEWORK_BOTTOM
 }
 
+// Fetch a file from URL and return as base64 string
+async function fetchAsBase64(url: string): Promise<{ base64: string; mediaType: string }> {
+  const r = await fetch(url)
+  if (!r.ok) throw new Error(`Failed to fetch ${url}: ${r.status}`)
+  const contentType = r.headers.get('content-type') || 'application/pdf'
+  const arrayBuf = await r.arrayBuffer()
+  const base64 = Buffer.from(arrayBuf).toString('base64')
+  return { base64, mediaType: contentType }
+}
+
 export const config = { maxDuration: 120 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -197,7 +207,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!apiKey) return res.status(500).json({ ok: false, error: 'ANTHROPIC_KEY no configurada en el servidor' })
 
   try {
-    const { messages, scope, plan, planMediaType, additionalPlans, planUrls, catalog, precedents } = req.body as {
+    const { messages, scope, planUrls, catalog, precedents } = req.body as {
       messages: { role: 'user' | 'assistant'; content: string }[]
       scope: {
         tipo: string
@@ -212,16 +222,32 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         notas: string
         freetext?: string
       }
-      plan?: string // base64 (legacy)
-      planMediaType?: string
-      additionalPlans?: { base64: string; mediaType: string }[] // legacy
-      planUrls?: { url: string; mediaType: string }[] // NEW: Supabase Storage URLs
+      planUrls?: { url: string; mediaType: string }[]
       catalog: { id: string; name: string; marca?: string; modelo?: string; system?: string; provider?: string; moneda?: string; cost?: number; description?: string }[]
       precedents: { name: string; specialty: string; total: number; items: { area_name: string; name: string; system: string; quantity: number; marca?: string; modelo?: string }[] }[]
     }
 
     if (!messages || messages.length === 0) {
       return res.status(400).json({ ok: false, error: 'Falta messages[]' })
+    }
+
+    console.log(`[ai-chat] Request: ${messages.length} messages, ${planUrls?.length || 0} plans, ${catalog?.length || 0} catalog items`)
+
+    // ── Fetch plan files from Supabase Storage (server-side) ──
+    // This keeps the client→Vercel body small, while giving Anthropic the full base64 data
+    const planDocuments: { base64: string; mediaType: string }[] = []
+    if (planUrls && planUrls.length > 0) {
+      for (const pu of planUrls) {
+        try {
+          console.log(`[ai-chat] Fetching plan: ${pu.url.substring(0, 100)}...`)
+          const fetched = await fetchAsBase64(pu.url)
+          planDocuments.push(fetched)
+          console.log(`[ai-chat] Fetched plan: ${(fetched.base64.length / 1024 / 1024).toFixed(2)} MB`)
+        } catch (err: any) {
+          console.error(`[ai-chat] Failed to fetch plan: ${err.message}`)
+          // Continue without this plan rather than failing entirely
+        }
+      }
     }
 
     // Build catalog compact
@@ -264,62 +290,26 @@ ${catalogCompact || '(catálogo vacío)'}
 PRECEDENTES (${precedents?.length || 0} cotizaciones previas):
 ${precedentsCompact || '(sin precedentes)'}`
 
-    // Build Claude messages array
-    // First message always includes the context + plan
+    // ── Build Claude messages array ──
     const claudeMessages: any[] = []
 
     for (let i = 0; i < messages.length; i++) {
       const msg = messages[i]
 
       if (i === 0 && msg.role === 'user') {
-        // First user message: inject context + optional plan
+        // First user message: inject context + plan documents (as base64 fetched server-side)
         const content: any[] = []
-        let planCount = 0
 
-        // NEW: Add plans via URL (from Supabase Storage) — keeps body small
-        if (planUrls && planUrls.length > 0) {
-          for (const pu of planUrls) {
-            const isPdf = (pu.mediaType || '').includes('pdf')
-            if (isPdf) {
-              content.push({ type: 'document', source: { type: 'url', url: pu.url } })
-            } else {
-              content.push({ type: 'image', source: { type: 'url', url: pu.url } })
-            }
-            planCount++
-          }
-        }
-
-        // LEGACY: Add plan document via base64 if exists (for backward compat)
-        if (!planUrls && plan) {
-          const isPdf = (planMediaType || '').includes('pdf') || plan.substring(0, 10).includes('JVBER')
+        for (const doc of planDocuments) {
+          const isPdf = doc.mediaType.includes('pdf')
           if (isPdf) {
-            content.push({
-              type: 'document',
-              source: { type: 'base64', media_type: 'application/pdf', data: plan },
-            })
+            content.push({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: doc.base64 } })
           } else {
-            content.push({
-              type: 'image',
-              source: { type: 'base64', media_type: planMediaType || 'image/png', data: plan },
-            })
-          }
-          planCount++
-
-          // Add additional plans if any (legacy base64)
-          if (additionalPlans && additionalPlans.length > 0) {
-            for (const ap of additionalPlans) {
-              const isApPdf = (ap.mediaType || '').includes('pdf') || ap.base64.substring(0, 10).includes('JVBER')
-              if (isApPdf) {
-                content.push({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: ap.base64 } })
-              } else {
-                content.push({ type: 'image', source: { type: 'base64', media_type: ap.mediaType || 'image/png', data: ap.base64 } })
-              }
-              planCount++
-            }
+            content.push({ type: 'image', source: { type: 'base64', media_type: doc.mediaType, data: doc.base64 } })
           }
         }
 
-        // Add context + user message
+        const planCount = planDocuments.length
         content.push({
           type: 'text',
           text: `${contextBlock}\n\n${planCount > 0 ? `PLANO${planCount > 1 ? 'S' : ''} ARQUITECTÓNICO${planCount > 1 ? 'S' : ''} (${planCount}): adjunto${planCount > 1 ? 's' : ''} arriba — analiza todas las áreas, niveles y distribución.\n\n` : ''}${msg.content}`,
@@ -327,7 +317,6 @@ ${precedentsCompact || '(sin precedentes)'}`
 
         claudeMessages.push({ role: 'user', content })
       } else {
-        // Subsequent messages: plain text
         claudeMessages.push({ role: msg.role, content: msg.content })
       }
     }
@@ -335,37 +324,26 @@ ${precedentsCompact || '(sin precedentes)'}`
     // Build system prompt with dynamic rules from Supabase
     const systemPrompt = await buildSystemPrompt(scope?.nivel)
 
-    // Log payload size for debugging
     const apiBody = {
       model: 'claude-sonnet-4-6',
-      max_tokens: 12000,
+      max_tokens: 16000,
       system: systemPrompt,
       messages: claudeMessages,
     }
-    let bodyStr: string
-    try {
-      bodyStr = JSON.stringify(apiBody)
-      console.log(`[ai-chat] Payload size: ${(bodyStr.length / 1024 / 1024).toFixed(2)} MB, messages: ${claudeMessages.length}, content blocks: ${JSON.stringify(claudeMessages[0]?.content?.length || 'text')}`)
-    } catch (serErr: any) {
-      console.error('[ai-chat] JSON.stringify failed:', serErr.message)
-      return res.status(400).json({ ok: false, error: `Error serializando payload (${serErr.message}). Los archivos pueden ser demasiado grandes.` })
-    }
 
-    let r: Response
-    try {
-      r = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01',
-        },
-        body: bodyStr,
-      })
-    } catch (fetchErr: any) {
-      console.error('[ai-chat] fetch() threw:', fetchErr.message)
-      return res.status(502).json({ ok: false, error: `Error conectando con Claude API: ${fetchErr.message}` })
-    }
+    // Log sizes
+    const bodyStr = JSON.stringify(apiBody)
+    console.log(`[ai-chat] Anthropic payload: ${(bodyStr.length / 1024 / 1024).toFixed(2)} MB, messages: ${claudeMessages.length}`)
+
+    const r = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: bodyStr,
+    })
 
     if (!r.ok) {
       const errText = await r.text()
@@ -381,12 +359,10 @@ ${precedentsCompact || '(sin precedentes)'}`
 
     // Detect if the response is a JSON proposal or a conversational message
     const trimmed = textBlocks.trim()
-    // Strip markdown code fences if present
     const cleaned = trimmed.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '').trim()
     const jsonMatch = cleaned.match(/^\s*\{[\s\S]*"areas"\s*:\s*\[[\s\S]*\}\s*$/)
 
     if (jsonMatch) {
-      // It's a proposal — parse and validate
       try {
         const parsed = JSON.parse(cleaned)
         const catalogIds = new Set((catalog || []).map((p) => p.id))
@@ -409,6 +385,7 @@ ${precedentsCompact || '(sin precedentes)'}`
               description: String(it.description || '').trim(),
               quantity: Math.max(1, parseInt(String(it.quantity)) || 1),
               notes: String(it.notes || '').trim(),
+              positions: Array.isArray(it.positions) ? it.positions : undefined,
             }
           }),
         }))
@@ -423,20 +400,10 @@ ${precedentsCompact || '(sin precedentes)'}`
           warnings: parsed.warnings || [],
         })
       } catch {
-        // Failed to parse as JSON — treat as conversation
-        return res.status(200).json({
-          ok: true,
-          type: 'message',
-          text: trimmed,
-        })
+        return res.status(200).json({ ok: true, type: 'message', text: trimmed })
       }
     } else {
-      // It's a conversational message
-      return res.status(200).json({
-        ok: true,
-        type: 'message',
-        text: trimmed,
-      })
+      return res.status(200).json({ ok: true, type: 'message', text: trimmed })
     }
   } catch (err: any) {
     console.error('ai-chat error:', err)
