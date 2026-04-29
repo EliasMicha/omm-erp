@@ -405,25 +405,22 @@ RESPONDE ÚNICAMENTE con JSON válido, sin texto adicional:
 
     try {
       const zoneList = zones.map(z => `${z.name} (${z.level}, ${z.estimated_m2}m²)`).join(', ')
-      const systemPrompt = `Proyecto: ${scope.tipo}, ${scope.tamano_m2 || '?'}m², nivel ${scope.nivel}.
-Zonas: ${zoneList}
-Sistema actual: ${systemName}
-Items actuales en este sistema:
-${currentItemsSummary}
+      const context = `[CONTEXTO: Proyecto ${scope.tipo}, ${scope.tamano_m2 || '?'}m², nivel ${scope.nivel}. Zonas: ${zoneList}. Sistema: ${systemName}. Items actuales: ${currentItemsSummary}]
 
-El usuario te pide un cambio. Responde con un JSON que tenga:
-- "reply": texto corto confirmando qué hiciste (1-2 oraciones, en español)
-- "items": la lista COMPLETA actualizada de items para este sistema (incluyendo los que ya existían si no cambiaron)
+Instrucción del usuario: ${msg}
 
-Formato items: [{"zone": "...", "marca": "...", "modelo": "...", "description": "...", "quantity": 1, "notes": ""}]
-Usa productos del catálogo si hay coincidencias. RESPONDE SOLO JSON.`
+Responde con JSON: {"reply": "texto corto confirmando qué hiciste", "items": [{"zone": "NombreZona", "marca": "...", "modelo": "...", "description": "...", "quantity": 1, "notes": ""}]}
+La lista de items debe ser COMPLETA (incluye los existentes si no cambiaron). Usa catálogo si hay coincidencias. SOLO JSON.`
+
+      // Build conversation history as alternating user/assistant, with context in latest user msg
+      const chatHistory: { role: string; content: string }[] = []
+      for (const m of stepChatMessages) {
+        chatHistory.push({ role: m.role, content: m.content })
+      }
+      chatHistory.push({ role: 'user', content: context })
 
       const result = await callAI(
-        [
-          { role: 'system', content: systemPrompt },
-          ...stepChatMessages.map(m => ({ role: m.role, content: m.content })),
-          { role: 'user', content: msg },
-        ],
+        chatHistory,
         scope,
         [],
         filteredCatalog,
