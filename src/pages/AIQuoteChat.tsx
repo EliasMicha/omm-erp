@@ -235,9 +235,21 @@ export default function AIQuoteChat({ onClose, onCreated }: {
   useEffect(() => {
     const load = async () => {
       try {
+        // Map system IDs to all possible DB system values (including aliases)
+        const SYSTEM_DB_VALUES: Record<string, string[]> = {
+          'audio': ['Audio'],
+          'redes': ['Redes'],
+          'cctv': ['CCTV'],
+          'control_acceso': ['Control de acceso', 'Acceso'],
+          'control_iluminacion': ['Control de iluminacion', 'Iluminacion', 'Lutron'],
+          'deteccion_humo': ['Humo'],
+          'bms': ['BMS'],
+          'telefonia': ['Telefonia'],
+          'red_celular': ['Celular'],
+          'cortinas': ['Cortinas'],
+        }
         const enumValues = scope.sistemas
-          .map(id => AI_ALL_SYSTEMS.find(s => s.id === id)?.enumValue)
-          .filter((v): v is string => !!v)
+          .flatMap(id => SYSTEM_DB_VALUES[id] || [AI_ALL_SYSTEMS.find(s => s.id === id)?.enumValue].filter(Boolean))
 
         let catQ = supabase.from('catalog_products')
           .select('id,name,description,system,marca,modelo,provider,cost,moneda,markup')

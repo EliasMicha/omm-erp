@@ -86,17 +86,27 @@ const SYSTEM_STEPS: Record<string, { name: string; color: string }> = {
   'red_celular': { name: 'Celular', color: '#EC4899' },
 }
 
+// Maps step IDs → DB system values (must match catalog_products.system exactly)
 const SYSTEM_ENUM: Record<string, string> = {
   'audio': 'Audio',
   'redes': 'Redes',
   'cctv': 'CCTV',
-  'control_acceso': 'Control de Acceso',
-  'control_iluminacion': 'Control de Iluminación',
-  'deteccion_humo': 'Detección de Humo',
+  'control_acceso': 'Control de acceso',
+  'control_iluminacion': 'Control de iluminacion',
+  'deteccion_humo': 'Humo',
   'bms': 'BMS',
-  'telefonia': 'Telefonía',
-  'red_celular': 'Red Celular',
+  'telefonia': 'Telefonia',
+  'red_celular': 'Celular',
   'cortinas': 'Cortinas',
+}
+
+// Some DB products use alternate system names — this maps extras to the same step
+const SYSTEM_ALIASES: Record<string, string[]> = {
+  'control_acceso': ['Control de acceso', 'Acceso'],
+  'control_iluminacion': ['Control de iluminacion', 'Iluminacion', 'Lutron'],
+  'deteccion_humo': ['Humo'],
+  'red_celular': ['Celular'],
+  'telefonia': ['Telefonia'],
 }
 
 // Order of systems in the flow
@@ -336,7 +346,9 @@ export default function AIQuoteLive({
     try {
       const systemEnum = SYSTEM_ENUM[systemId]
       const systemName = SYSTEM_STEPS[systemId]?.name || systemId
-      const filteredCatalog = catalog.filter(p => p.system === systemEnum)
+      const aliases = SYSTEM_ALIASES[systemId] || [systemEnum]
+      const allSystemNames = [systemEnum, ...aliases]
+      const filteredCatalog = catalog.filter(p => allSystemNames.includes(p.system))
 
       const zoneList = zones.map(z => `- ${z.name} (${z.level}, ${z.estimated_m2}m²)`).join('\n')
       const msg = `Proyecto: ${scope.tipo}, ${scope.tamano_m2 || '?'}m², nivel ${scope.nivel}.
@@ -392,7 +404,11 @@ RESPONDE ÚNICAMENTE con JSON válido, sin texto adicional:
 
     const systemEnum = SYSTEM_ENUM[currentStep]
     const systemName = SYSTEM_STEPS[currentStep]?.name || currentStep
-    const filteredCatalog = catalog.filter(p => systemEnum ? p.system === systemEnum : true)
+    const aliases = SYSTEM_ALIASES[currentStep] || [systemEnum]
+    const allSystemNames = systemEnum ? [systemEnum, ...aliases] : []
+    const filteredCatalog = allSystemNames.length > 0
+      ? catalog.filter(p => allSystemNames.includes(p.system))
+      : catalog
 
     // Build current items context
     const currentItemsSummary = editingItems.length > 0
@@ -1160,9 +1176,11 @@ La lista de items debe ser COMPLETA (incluye los existentes si no cambiaron). Us
 
                 {/* Catalog search panel */}
                 {showCatalogSearch && (() => {
-                  const systemEnum = SYSTEM_ENUM[currentStep]
+                  const sysEnum = SYSTEM_ENUM[currentStep]
+                  const sysAliases = SYSTEM_ALIASES[currentStep] || [sysEnum]
+                  const allSysNames = sysEnum ? [sysEnum, ...sysAliases] : []
                   const filteredCat = catalog.filter(p => {
-                    if (systemEnum && p.system !== systemEnum) return false
+                    if (allSysNames.length > 0 && !allSysNames.includes(p.system)) return false
                     if (!catalogSearch.trim()) return true
                     const q = catalogSearch.toLowerCase()
                     return (p.name || '').toLowerCase().includes(q)
@@ -1181,7 +1199,7 @@ La lista de items debe ser COMPLETA (incluye los existentes si no cambiaron). Us
                     }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                         <span style={{ fontSize: 11, fontWeight: 600, color: '#3B82F6', textTransform: 'uppercase' }}>
-                          Buscar en catálogo {systemEnum ? `(${systemEnum})` : ''}
+                          Buscar en catálogo {sysEnum ? `(${SYSTEM_STEPS[currentStep]?.name || sysEnum})` : ''}
                         </span>
                         <button onClick={() => setShowCatalogSearch(false)}
                           style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', fontSize: 14 }}>✕</button>
