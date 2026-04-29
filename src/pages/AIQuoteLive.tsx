@@ -179,7 +179,7 @@ async function callAI(
   precedents: any[]
 ): Promise<{ ok: boolean; text: string; type: string; zones?: Zone[]; items?: any[] }> {
   const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), 60000)
+  const timeout = setTimeout(() => controller.abort(), 180000) // 3 min — system calls need time
 
   try {
     const r = await fetch('/api/ai-chat', {
@@ -328,12 +328,18 @@ export default function AIQuoteLive({
       const systemName = SYSTEM_STEPS[systemId]?.name || systemId
       const filteredCatalog = catalog.filter(p => p.system === systemEnum)
 
-      const zoneNames = zones.map(z => z.name).join(', ')
-      const msg = `Para el sistema ${systemName}, propón equipos para cada zona. Usa el catálogo si hay coincidencias. RESPONDE SOLO CON JSON: {"items": [{"zone": "Sala", "marca": "...", "modelo": "...", "description": "...", "quantity": 1, "notes": "..."}]}`
+      const zoneList = zones.map(z => `- ${z.name} (${z.level}, ${z.estimated_m2}m²)`).join('\n')
+      const msg = `Proyecto: ${scope.tipo}, ${scope.tamano_m2 || '?'}m², nivel ${scope.nivel}.
+Zonas confirmadas:
+${zoneList}
+
+Para el sistema "${systemName}", propón los equipos necesarios por zona. Prioriza productos del catálogo.
+RESPONDE ÚNICAMENTE con JSON válido, sin texto adicional:
+{"items": [{"zone": "NombreZona", "marca": "...", "modelo": "...", "description": "breve", "quantity": 1, "notes": ""}]}`
 
       const result = await callAI(
         [{ role: 'user', content: msg }],
-        { ...scope, zones: zoneNames },
+        scope,
         [],
         filteredCatalog,
         precedents
