@@ -319,24 +319,41 @@ ${precedentsCompact || '(sin precedentes)'}`
     // Build system prompt with dynamic rules from Supabase
     const systemPrompt = await buildSystemPrompt(scope?.nivel)
 
-    const r = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 12000,
-        system: systemPrompt,
-        messages: claudeMessages,
-      }),
-    })
+    // Log payload size for debugging
+    const apiBody = {
+      model: 'claude-sonnet-4-6',
+      max_tokens: 12000,
+      system: systemPrompt,
+      messages: claudeMessages,
+    }
+    let bodyStr: string
+    try {
+      bodyStr = JSON.stringify(apiBody)
+      console.log(`[ai-chat] Payload size: ${(bodyStr.length / 1024 / 1024).toFixed(2)} MB, messages: ${claudeMessages.length}, content blocks: ${JSON.stringify(claudeMessages[0]?.content?.length || 'text')}`)
+    } catch (serErr: any) {
+      console.error('[ai-chat] JSON.stringify failed:', serErr.message)
+      return res.status(400).json({ ok: false, error: `Error serializando payload (${serErr.message}). Los archivos pueden ser demasiado grandes.` })
+    }
+
+    let r: Response
+    try {
+      r = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+        },
+        body: bodyStr,
+      })
+    } catch (fetchErr: any) {
+      console.error('[ai-chat] fetch() threw:', fetchErr.message)
+      return res.status(502).json({ ok: false, error: `Error conectando con Claude API: ${fetchErr.message}` })
+    }
 
     if (!r.ok) {
       const errText = await r.text()
-      console.error('Claude API error:', r.status, errText.substring(0, 1000))
+      console.error('[ai-chat] Claude API error:', r.status, errText.substring(0, 1000))
       return res.status(r.status).json({ ok: false, error: 'Claude API (' + r.status + '): ' + errText.substring(0, 500) })
     }
 
