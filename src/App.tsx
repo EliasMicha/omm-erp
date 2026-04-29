@@ -34,7 +34,7 @@ export default function App() {
         <Route path="/*" element={
           <div style={{ display: 'flex', background: '#0a0a0a', color: '#ccc', minHeight: '100vh', fontFamily: "'Inter', system-ui, sans-serif" }}>
             <Sidebar />
-            <main style={{ flex: 1, overflowY: 'auto', minHeight: '100vh' }}>
+            <main style={{ flex: 1, overflowX: 'hidden', overflowY: 'auto', minHeight: '100vh', width: 0 }}>
               <Routes>
                 <Route path="/" element={<Dashboard />} />
                 <Route path="/crm" element={<CRM />} />

@@ -41,3 +41,74 @@ button { cursor: pointer; font-family: inherit; }
 table tr:last-child td { border-bottom: none; }
 
 ::selection { background: #57FF9A33; color: #57FF9A; }
+
+/* ═══════════════════════════════════════════════════════════
+   RESPONSIVE / MOBILE
+   ═══════════════════════════════════════════════════════════ */
+
+/* Tables: horizontal scroll on small screens */
+@media (max-width: 767px) {
+  /* Force horizontal scroll on tables */
+  .table-responsive { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+  /* Modals: full-screen on mobile */
+  .modal-overlay > div,
+  div[style*="position: fixed"] > div[style*="borderRadius: 16"] {
+    width: 100vw !important;
+    max-width: 100vw !important;
+    height: 100vh !important;
+    max-height: 100vh !important;
+    border-radius: 0 !important;
+    margin: 0 !important;
+  }
+
+  /* KPI grids: 2 cols on mobile */
+  .kpi-grid { grid-template-columns: 1fr 1fr !important; }
+
+  /* General stacking */
+  .mobile-stack { flex-direction: column !important; }
+  .mobile-stack > * { width: 100% !important; }
+
+  /* Hide on mobile */
+  .desktop-only { display: none !important; }
+
+  /* Full width on mobile */
+  .mobile-full { width: 100% !important; max-width: 100% !important; }
+
+  /* Shrink padding */
+  main { padding: 10px !important; }
+  main > div[style*="padding"] { padding: 10px !important; }
+
+  /* Input fields bigger touch targets */
+  input, select, textarea {
+    font-size: 16px !important; /* prevents iOS zoom */
+    padding: 10px 12px !important;
+    min-height: 44px;
+  }
+
+  /* Buttons bigger touch targets */
+  button {
+    min-height: 36px;
+  }
+}
+
+/* Small tweaks for tablet range */
+@media (min-width: 768px) and (max-width: 1024px) {
+  .kpi-grid { grid-template-columns: repeat(3, 1fr) !important; }
+}
+
+/* Mobile-only visible */
+@media (min-width: 768px) {
+  .mobile-only { display: none !important; }
+}
+
+/* Animations */
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes slideIn {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(0); }
+}

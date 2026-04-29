@@ -6,6 +6,7 @@ import { ANTHROPIC_API_KEY } from '../lib/config'
 import { Package, Plus, Search, Edit, X, Tag, Layers, Upload, Loader2, Sparkles, BoxesIcon, Trash2 } from 'lucide-react'
 import { PurchasePhase } from '../types'
 import ImageUpload from '../components/ImageUpload'
+import { useIsMobile } from '../lib/useIsMobile'
 
 interface Supplier { id: string; name: string }
 
@@ -61,6 +62,7 @@ function Fld({ label, children, span }: { label: string; children: React.ReactNo
 }
 
 export default function Catalogo() {
+  const isMobile = useIsMobile()
   const [tab, setTab] = useState<'productos' | 'proveedores' | 'bundles'>('productos')
   const [products, setProducts] = useState<Product[]>([])
   const [showForm, setShowForm] = useState(false)
@@ -393,10 +395,10 @@ IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
   const activeProducts = products.filter(p => p.is_active).length
 
   return (
-    <div style={{ padding: '24px 28px', maxWidth: 1200 }}>
+    <div style={{ padding: isMobile ? '16px 12px' : '24px 28px', maxWidth: 1200 }}>
       <SectionHeader title="Catalogo de Productos" subtitle="Productos, servicios y materiales con claves SAT" />
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, 1fr)', gap: 12, marginBottom: 20 }}>
         <KpiCard label="Total productos" value={totalProducts} icon={<Package size={16} />} />
         <KpiCard label="Activos" value={activeProducts} color="#57FF9A" icon={<Layers size={16} />} />
         <KpiCard label="Proveedores" value={suppliers.length} color="#3B82F6" icon={<Tag size={16} />} />
@@ -434,7 +436,7 @@ IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
         </div>
       )}
       {/* Tabs por especialidad */}
-      <div style={{ display: 'flex', gap: 6, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center', borderBottom: '1px solid #1e1e1e', paddingBottom: 12 }}>
+      <div style={{ display: 'flex', gap: isMobile ? 4 : 6, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center', borderBottom: '1px solid #1e1e1e', paddingBottom: 12, overflow: 'auto' }}>
         {SPECIALTY_TABS.map(t => {
           const active = filterSpecialty === t.key
           return (
@@ -445,26 +447,28 @@ IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
         })}
       </div>
 
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, gap: 12 }}>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <div style={{ position: 'relative' }}>
+      <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', justifyContent: 'space-between', alignItems: isMobile ? 'stretch' : 'center', marginBottom: 16, gap: 12 }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexDirection: isMobile ? 'column' : 'row' }}>
+          <div style={{ position: 'relative', width: isMobile ? '100%' : 280 }}>
             <Search size={14} style={{ position: 'absolute', left: 10, top: 9, color: '#555' }} />
-            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar por nombre, SKU, clave SAT..." style={{ ...iS, width: 280, paddingLeft: 32 }} />
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar por nombre, SKU, clave SAT..." style={{ ...iS, width: '100%', paddingLeft: 32 }} />
           </div>
           {activeFiltersCount > 0 && (
-            <button onClick={() => { setFilterSystem(''); setFilterMarca(''); setFilterProvider(''); setFilterPhase(''); setFilterMoneda('') }} style={{ padding: '6px 12px', background: '#1a1a1a', border: '1px solid #333', borderRadius: 8, color: '#F59E0B', fontSize: 11, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 4 }}>
+            <button onClick={() => { setFilterSystem(''); setFilterMarca(''); setFilterProvider(''); setFilterPhase(''); setFilterMoneda('') }} style={{ padding: '6px 12px', background: '#1a1a1a', border: '1px solid #333', borderRadius: 8, color: '#F59E0B', fontSize: 11, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}>
               <X size={10} /> {activeFiltersCount} filtro{activeFiltersCount > 1 ? 's' : ''} activo{activeFiltersCount > 1 ? 's' : ''}
             </button>
           )}
         </div>
-        <input type="file" ref={importRef} accept=".csv,.txt,.xlsx,.tsv" style={{ display: 'none' }} onChange={handleAIImport} />
-        <Btn size="sm" variant="default" onClick={() => importRef.current?.click()}>{importing ? <><Loader2 size={12} style={{animation:'spin 1s linear infinite'}} /> Procesando con IA...</> : <><Upload size={12} /> Importar con IA</>}</Btn>
-        <Btn size="sm" variant="primary" onClick={openNew}><Plus size={12} /> Nuevo producto</Btn>
+        <div style={{ display: 'flex', gap: 8, flexDirection: isMobile ? 'column' : 'row' }}>
+          <input type="file" ref={importRef} accept=".csv,.txt,.xlsx,.tsv" style={{ display: 'none' }} onChange={handleAIImport} />
+          <Btn size="sm" variant="default" onClick={() => importRef.current?.click()}>{importing ? <><Loader2 size={12} style={{animation:'spin 1s linear infinite'}} /> Procesando con IA...</> : <><Upload size={12} /> Importar con IA</>}</Btn>
+          <Btn size="sm" variant="primary" onClick={openNew}><Plus size={12} /> Nuevo producto</Btn>
+        </div>
       </div>
 
       {/* Bulk actions bar */}
       {selectedIds.size > 0 && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 16px', background: '#1a2a1a', border: '1px solid #2a4a2a', borderRadius: 10, marginBottom: 10 }}>
+        <div style={{ display: 'flex', alignItems: isMobile ? 'stretch' : 'center', gap: 12, padding: '10px 16px', background: '#1a2a1a', border: '1px solid #2a4a2a', borderRadius: 10, marginBottom: 10, flexWrap: isMobile ? 'wrap' : 'nowrap', flexDirection: isMobile ? 'column' : 'row' }}>
           <span style={{ fontSize: 13, fontWeight: 600, color: '#57FF9A' }}>{selectedIds.size} seleccionados</span>
           <select value={bulkField} onChange={e => { setBulkField(e.target.value); setBulkValue('') }} style={{ ...iS, width: 160, fontSize: 12 }}>
             <option value="">Cambiar campo...</option>
@@ -515,21 +519,23 @@ IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
         </div>
       )}
 
+      <div style={{ overflowX: 'auto', borderRadius: 8 }}>
       <Table>
         <thead><tr>
           <Th><input type="checkbox" checked={filtered.length > 0 && selectedIds.size === filtered.length} onChange={toggleSelectAll} style={{ cursor: 'pointer' }} /></Th>
-          {filterSpecialty !== 'elec' && <Th>{' '}</Th>}
+          {filterSpecialty !== 'elec' && !isMobile && <Th>{' '}</Th>}
           <Th>{filterSpecialty === 'elec' ? 'Descripción' : 'Producto'}</Th>
-          {filterSpecialty === 'esp' && <><Th>Sistema</Th><Th>Marca</Th><Th>Modelo</Th></>}
-          {filterSpecialty === 'ilum' && <><Th>Marca</Th><Th>Modelo</Th><Th right>W</Th><Th right>Lúmenes</Th><Th right>CCT</Th><Th right>CRI</Th><Th>IP</Th><Th>Montaje</Th></>}
-          {filterSpecialty === 'elec' && <><Th>Código</Th><Th>Subdescripción</Th><Th>Marca</Th><Th>Unidad</Th><Th right>Costo MO</Th></>}
-          {filterSpecialty === 'proy' && <><Th>Unidad</Th></>}
-          {filterSpecialty !== 'elec' && <><Th>Proveedor</Th><Th>Fase</Th></>}
+          {filterSpecialty === 'esp' && !isMobile && <><Th>Sistema</Th><Th>Marca</Th><Th>Modelo</Th></>}
+          {filterSpecialty === 'ilum' && !isMobile && <><Th>Marca</Th><Th>Modelo</Th><Th right>W</Th><Th right>Lúmenes</Th><Th right>CCT</Th><Th right>CRI</Th><Th>IP</Th><Th>Montaje</Th></>}
+          {filterSpecialty === 'elec' && !isMobile && <><Th>Código</Th><Th>Subdescripción</Th><Th>Marca</Th><Th>Unidad</Th><Th right>Costo MO</Th></>}
+          {filterSpecialty === 'proy' && !isMobile && <><Th>Unidad</Th></>}
+          {filterSpecialty !== 'elec' && !isMobile && <><Th>Proveedor</Th><Th>Fase</Th></>}
           <Th right>{(form.specialty === 'elec' || filterSpecialty === 'elec') ? 'Costo Material' : 'Costo'}</Th>
           <Th right>Precio Venta</Th>
           <Th>{' '}</Th>
         </tr>
-        {/* Filter row */}
+        {/* Filter row - hide on mobile */}
+        {!isMobile && (
         <tr style={{ background: '#0a0a0a' }}>
           <th></th>
           {filterSpecialty !== 'elec' && <th></th>}
@@ -599,13 +605,14 @@ IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
             )}
           </th>
         </tr>
+        )}
         </thead>
         <tbody>
           {filtered.length === 0 && <tr><Td colSpan={10} muted>Sin productos. Agrega tu primer producto al catalogo.</Td></tr>}
           {filtered.map(p => (
             <tr key={p.id} style={{ cursor: 'pointer', background: selectedIds.has(p.id) ? '#1a2a1a' : undefined }} onClick={() => setSelectedProduct(p)}>
               <Td><input type="checkbox" checked={selectedIds.has(p.id)} onChange={(e) => { e.stopPropagation(); toggleSelect(p.id) }} onClick={e => e.stopPropagation()} style={{ cursor: 'pointer' }} /></Td>
-              {filterSpecialty !== 'elec' && (
+              {filterSpecialty !== 'elec' && !isMobile && (
                 <Td>
                   {p.image_url ? (
                     <img src={p.image_url} alt="" style={{ width: 32, height: 32, objectFit: 'contain', borderRadius: 4, background: '#fff', border: '1px solid #2a2a2a' }} />
@@ -614,13 +621,13 @@ IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
                   )}
                 </Td>
               )}
-              <Td><div style={{fontWeight: 600, color:'#fff'}}>{p.name}</div>{filterSpecialty !== 'elec' && p.description && <div style={{fontSize:10, color:'#555', marginTop:2}}>{p.description.substring(0,50)}</div>}</Td>
-              {filterSpecialty === 'esp' && <>
+              <Td><div style={{fontWeight: 600, color:'#fff'}}>{p.name}</div>{filterSpecialty !== 'elec' && p.description && !isMobile && <div style={{fontSize:10, color:'#555', marginTop:2}}>{p.description.substring(0,50)}</div>}</Td>
+              {filterSpecialty === 'esp' && !isMobile && <>
                 <Td muted style={{fontSize:11}}>{p.system || '--'}</Td>
                 <Td muted style={{fontSize:11}}>{(p as any).marca || p.provider || '--'}</Td>
                 <Td muted style={{fontSize:11}}>{(p as any).modelo || '--'}</Td>
               </>}
-              {filterSpecialty === 'ilum' && <>
+              {filterSpecialty === 'ilum' && !isMobile && <>
                 <Td muted style={{fontSize:11}}>{(p as any).marca || p.provider || '--'}</Td>
                 <Td muted style={{fontSize:11}}>{(p as any).modelo || '--'}</Td>
                 <Td right muted style={{fontSize:11}}>{(p as any).watts || '--'}</Td>
@@ -630,17 +637,17 @@ IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
                 <Td muted style={{fontSize:11}}>{(p as any).ip_rating || '--'}</Td>
                 <Td muted style={{fontSize:11}}>{(p as any).mounting_type || '--'}</Td>
               </>}
-              {filterSpecialty === 'elec' && <>
+              {filterSpecialty === 'elec' && !isMobile && <>
                 <Td muted style={{fontSize:11}}>{p.codigo_interno || '--'}</Td>
                 <Td muted style={{fontSize:11}}>{p.subdescripcion || '--'}</Td>
                 <Td muted style={{fontSize:11}}>{p.marca || p.provider || '--'}</Td>
                 <Td muted style={{fontSize:11}}>{p.unit || 'pza'}</Td>
                 <Td right muted style={{fontSize:11}}>{F(p.costo_mano_obra || 0)}</Td>
               </>}
-              {filterSpecialty === 'proy' && <>
+              {filterSpecialty === 'proy' && !isMobile && <>
                 <Td muted style={{fontSize:11}}>{p.unit || 'pza'}</Td>
               </>}
-              {filterSpecialty !== 'elec' && <>
+              {filterSpecialty !== 'elec' && !isMobile && <>
                 <Td muted style={{fontSize:11}}>{suppliers.find(s => s.id === p.supplier_id)?.name || p.provider || '--'}</Td>
                 <Td>{p.purchase_phase ? <Badge label={PHASE_CONFIG[p.purchase_phase as PurchasePhase]?.label || p.purchase_phase} color={PHASE_CONFIG[p.purchase_phase as PurchasePhase]?.color || '#555'} /> : <span style={{color:'#555',fontSize:11}}>--</span>}</Td>
               </>}
@@ -651,17 +658,18 @@ IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
           ))}
         </tbody>
       </Table>
+      </div>
 
       {/* Product Detail Modal */}
       {selectedProduct && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }} onClick={() => setSelectedProduct(null)}>
-          <div style={{ background: '#1a1a1a', border: '1px solid #333', borderRadius: 16, padding: 24, width: 600, maxHeight: '80vh', overflowY: 'auto' as const }} onClick={e => e.stopPropagation()}>
+          <div style={{ background: '#1a1a1a', border: '1px solid #333', borderRadius: isMobile ? 0 : 16, padding: isMobile ? 16 : 24, width: isMobile ? '100vw' : 600, height: isMobile ? '100vh' : undefined, maxWidth: isMobile ? '100vw' : undefined, maxHeight: isMobile ? '100vh' : '80vh', overflowY: 'auto' as const }} onClick={e => e.stopPropagation()}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
               <div style={{ fontSize: 16, fontWeight: 700, color: '#fff' }}>{selectedProduct.name}</div>
               <button onClick={() => setSelectedProduct(null)} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer' }}><X size={18} /></button>
             </div>
             {selectedProduct.description && <div style={{ fontSize: 12, color: '#888', marginBottom: 16 }}>{selectedProduct.description}</div>}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px 16px', fontSize: 12 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : '1fr 1fr 1fr', gap: '8px 16px', fontSize: 12 }}>
               <div><span style={{color:'#555'}}>Clave SAT:</span> <span style={{color:'#fff', fontFamily:'monospace'}}>{selectedProduct.clave_prod_serv || '--'}</span></div>
               <div><span style={{color:'#555'}}>SKU:</span> <span style={{color:'#ccc'}}>{selectedProduct.sku || '--'}</span></div>
               <div><span style={{color:'#555'}}>Sistema:</span> <span style={{color:'#ccc'}}>{selectedProduct.system || '--'}</span></div>
@@ -690,7 +698,7 @@ IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
       {/* New/Edit Product Form */}
       {showForm && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }} onClick={() => setShowForm(false)}>
-          <div style={{ background: '#1a1a1a', border: '1px solid #333', borderRadius: 16, padding: 24, width: 700, maxHeight: '85vh', overflowY: 'auto' as const }} onClick={e => e.stopPropagation()}>
+          <div style={{ background: '#1a1a1a', border: '1px solid #333', borderRadius: isMobile ? 0 : 16, padding: isMobile ? 16 : 24, width: isMobile ? '100vw' : 700, height: isMobile ? '100vh' : undefined, maxWidth: isMobile ? '100vw' : undefined, maxHeight: isMobile ? '100vh' : '85vh', overflowY: 'auto' as const }} onClick={e => e.stopPropagation()}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
               <div style={{ fontSize: 16, fontWeight: 700, color: '#fff' }}>{editId ? 'Editar Producto' : 'Nuevo Producto'}</div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -701,7 +709,7 @@ IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
               </div>
             </div>
             {aiError && <div style={{ background: '#3a1a1a', border: '1px solid #5a2a2a', borderRadius: 8, padding: 10, color: '#f87171', fontSize: 12, marginBottom: 12 }}>{aiError} <button onClick={() => setAiError(null)} style={{float:'right',background:'none',border:'none',color:'#f87171',cursor:'pointer'}}>×</button></div>}
-            <div style={{ display: 'flex', gap: 16, marginBottom: 14, alignItems: 'flex-start' }}>
+            <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: 16, marginBottom: 14, alignItems: 'flex-start' }}>
               <div style={{ flexShrink: 0 }}>
                 <div style={{ fontSize: 10, color: '#666', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Foto</div>
                 <ImageUpload
@@ -712,13 +720,13 @@ IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
                   folder="products"
                 />
               </div>
-              <div style={{ flex: 1, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <div style={{ flex: 1, display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 10, width: isMobile ? '100%' : undefined }}>
                 <Fld label="Nombre *" span><input style={iS} value={form.name || ''} onChange={e => setForm({...form, name: e.target.value})} placeholder="Cable THW calibre 12" /></Fld>
                 <Fld label="Marca"><input style={iS} value={form.marca || ''} onChange={e => setForm({...form, marca: e.target.value})} placeholder="Lutron, Hikvision..." /></Fld>
                 <Fld label="Modelo"><input style={iS} value={form.modelo || ''} onChange={e => setForm({...form, modelo: e.target.value})} placeholder="Modelo del producto" /></Fld>
               </div>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr 1fr', gap: 10 }}>
               <Fld label="Descripcion" span><input style={iS} value={form.description || ''} onChange={e => setForm({...form, description: e.target.value})} placeholder="Descripcion detallada del producto" /></Fld>
               <Fld label="Clave SAT (ClaveProdServ)"><input style={iS} value={form.clave_prod_serv || ''} onChange={e => setForm({...form, clave_prod_serv: e.target.value})} placeholder="26121600" /></Fld>
               <Fld label="SKU"><input style={iS} value={form.sku || ''} onChange={e => setForm({...form, sku: e.target.value})} placeholder="CAB-THW-12" /></Fld>
@@ -740,7 +748,7 @@ IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
             )}
 
             <div style={{ fontSize: 13, fontWeight: 600, color: '#888', marginTop: 12, marginBottom: 10 }}>Precios</div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 10 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : '1fr 1fr 1fr 1fr', gap: 10 }}>
               <Fld label="Moneda"><select style={iS} value={form.moneda || 'MXN'} onChange={e => setForm({...form, moneda: e.target.value})}><option value="MXN">MXN (Pesos)</option><option value="USD">USD (Dolares)</option></select></Fld>
               <Fld label={(form.specialty === 'elec' || filterSpecialty === 'elec') ? 'Costo Material' : 'Costo'}><input style={iS} type="number" value={form.cost || ''} onChange={e => { const c = parseFloat(e.target.value)||0; const isElec = form.specialty === 'elec' || filterSpecialty === 'elec'; const base = isElec ? c + (form.costo_mano_obra||0) : c; setForm({...form, cost: c, precio_venta: calcPrecioVenta(base, form.markup||35)}) }} placeholder="0.00" /></Fld>
               {(form.specialty === 'elec' || filterSpecialty === 'elec') && <Fld label="Costo Mano de Obra"><input style={iS} type="number" value={form.costo_mano_obra || ''} onChange={e => { const mo = parseFloat(e.target.value)||0; const base = (form.cost||0) + mo; setForm({...form, costo_mano_obra: mo, precio_venta: calcPrecioVenta(base, form.markup||35)}) }} placeholder="0.00" /></Fld>}
@@ -752,7 +760,7 @@ IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
 
             {/* Especificaciones técnicas (Iluminación arquitectónica) */}
             <div style={{ fontSize: 13, fontWeight: 600, color: '#888', marginTop: 12, marginBottom: 10 }}>Especificaciones técnicas (Iluminación)</div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : '1fr 1fr 1fr', gap: 10 }}>
               <Fld label="Watts (W)"><input style={iS} type="number" value={(form as any).watts || ''} onChange={e => setForm({...form, watts: parseFloat(e.target.value) || null} as any)} placeholder="9" /></Fld>
               <Fld label="Lúmenes"><input style={iS} type="number" value={(form as any).lumens || ''} onChange={e => setForm({...form, lumens: parseInt(e.target.value) || null} as any)} placeholder="800" /></Fld>
               <Fld label="CCT (K)"><input style={iS} type="number" value={(form as any).cct || ''} onChange={e => setForm({...form, cct: parseInt(e.target.value) || null} as any)} placeholder="3000" /></Fld>
@@ -784,6 +792,7 @@ interface SupplierFull {
 }
 
 function TabProveedores({ suppliers, setSuppliers }: { suppliers: Supplier[]; setSuppliers: (s: Supplier[]) => void }) {
+  const isMobile = useIsMobile()
   const [proveedores, setProveedores] = useState<SupplierFull[]>([])
   const [showForm, setShowForm] = useState(false)
   const [editId, setEditId] = useState<string | null>(null)
@@ -946,7 +955,7 @@ Si un campo no aparece, déjalo como string vacío. Para sistemas, infiere del g
       {/* Form modal */}
       {showForm && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setShowForm(false)}>
-          <div style={{ background: '#141414', border: '1px solid #222', borderRadius: 12, padding: 24, width: 520, maxHeight: '80vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
+          <div style={{ background: '#141414', border: '1px solid #222', borderRadius: isMobile ? 0 : 12, padding: isMobile ? 16 : 24, width: isMobile ? '100vw' : 520, height: isMobile ? '100vh' : undefined, maxWidth: isMobile ? '100vw' : undefined, maxHeight: isMobile ? '100vh' : '80vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
               <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#fff' }}>{editId ? 'Editar proveedor' : 'Nuevo proveedor'}</h3>
               <button onClick={() => setShowForm(false)} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer' }}><X size={16} /></button>
@@ -1014,6 +1023,7 @@ interface BundleItem {
 }
 
 function TabBundles({ products }: { products: Product[] }) {
+  const isMobile = useIsMobile()
   const [bundles, setBundles] = useState<Bundle[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
@@ -1144,13 +1154,13 @@ function TabBundles({ products }: { products: Product[] }) {
   return (
     <div>
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+      <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', justifyContent: 'space-between', alignItems: isMobile ? 'stretch' : 'center', marginBottom: 16, gap: 8 }}>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <div style={{ position: 'relative' }}>
+          <div style={{ position: 'relative', flex: 1 }}>
             <Search size={14} style={{ position: 'absolute', left: 10, top: 9, color: '#555' }} />
-            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar bundles..." style={{ ...iS, paddingLeft: 30, width: 250 }} />
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar bundles..." style={{ ...iS, paddingLeft: 30, width: isMobile ? '100%' : 250 }} />
           </div>
-          <span style={{ fontSize: 11, color: '#555' }}>{filteredBundles.length} bundles</span>
+          <span style={{ fontSize: 11, color: '#555', whiteSpace: 'nowrap' }}>{filteredBundles.length} bundles</span>
         </div>
         <Btn variant="primary" onClick={openNew}><Plus size={12} /> Nuevo Bundle</Btn>
       </div>
@@ -1233,7 +1243,7 @@ function TabBundles({ products }: { products: Product[] }) {
       {/* Form modal */}
       {showForm && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 999, display: 'flex', justifyContent: 'center', alignItems: 'flex-start', paddingTop: 60, overflow: 'auto' }}>
-          <div style={{ background: '#111', border: '1px solid #333', borderRadius: 12, width: 700, maxHeight: '85vh', overflow: 'auto', padding: 24 }}>
+          <div style={{ background: '#111', border: '1px solid #333', borderRadius: isMobile ? 0 : 12, width: isMobile ? '100vw' : 700, height: isMobile ? '100vh' : undefined, maxWidth: isMobile ? '100vw' : undefined, maxHeight: isMobile ? '100vh' : '85vh', overflow: 'auto', padding: isMobile ? 16 : 24 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
               <div style={{ fontSize: 18, fontWeight: 700, color: '#fff' }}>{editId ? 'Editar Bundle' : 'Nuevo Bundle'}</div>
               <button onClick={() => setShowForm(false)} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer' }}><X size={18} /></button>
