@@ -336,10 +336,15 @@ export default function AIQuoteChat({ onClose, onCreated }: {
     }))
     const body: any = { messages: apiMessages, scope, catalog: catalogForApi, precedents }
 
-    // Always include plan URLs so the server can fetch and attach them to every request
-    const readyPlans = planFiles.filter(p => p.url && !p.uploading)
-    if (readyPlans.length > 0) {
-      body.planUrls = readyPlans.map(p => ({ url: p.url, mediaType: p.mediaType }))
+    // Only send plan URLs on the first message — on follow-ups, Claude already
+    // analyzed the plans and has context from the conversation history.
+    // Re-sending plans causes the server to re-fetch 3+ large PDFs, wasting ~15s.
+    const isFirstMsg = apiMessages.length === 1
+    if (isFirstMsg) {
+      const readyPlans = planFiles.filter(p => p.url && !p.uploading)
+      if (readyPlans.length > 0) {
+        body.planUrls = readyPlans.map(p => ({ url: p.url, mediaType: p.mediaType }))
+      }
     }
 
     let bodyStr: string

@@ -231,12 +231,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(400).json({ ok: false, error: 'Falta messages[]' })
     }
 
-    console.log(`[ai-chat] Request: ${messages.length} messages, ${planUrls?.length || 0} plans, ${catalog?.length || 0} catalog items`)
+    // Only fetch plans for the FIRST message (messages.length === 1).
+    // On follow-ups, Claude already has the plan analysis from conversation history.
+    // Re-fetching 3 PDFs on every follow-up wastes ~15s and risks exceeding the 120s timeout.
+    const isFirstMessage = messages.length === 1
+    console.log(`[ai-chat] Request: ${messages.length} messages, ${planUrls?.length || 0} plans, first=${isFirstMessage}, ${catalog?.length || 0} catalog items`)
 
-    // ── Fetch plan files from Supabase Storage (server-side) ──
-    // This keeps the client→Vercel body small, while giving Anthropic the full base64 data
     const planDocuments: { base64: string; mediaType: string }[] = []
-    if (planUrls && planUrls.length > 0) {
+    if (isFirstMessage && planUrls && planUrls.length > 0) {
       for (const pu of planUrls) {
         try {
           console.log(`[ai-chat] Fetching plan: ${pu.url.substring(0, 100)}...`)
@@ -245,9 +247,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           console.log(`[ai-chat] Fetched plan: ${(fetched.base64.length / 1024 / 1024).toFixed(2)} MB`)
         } catch (err: any) {
           console.error(`[ai-chat] Failed to fetch plan: ${err.message}`)
-          // Continue without this plan rather than failing entirely
         }
       }
+    } else if (!isFirstMessage) {
+      console.log(`[ai-chat] Follow-up message — skipping plan fetch (Claude has context from conversation)`)
     }
 
     // Build catalog compact
