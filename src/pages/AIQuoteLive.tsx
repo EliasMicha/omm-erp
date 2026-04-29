@@ -476,15 +476,19 @@ La lista de items debe ser COMPLETA (incluye los existentes si no cambiaron). Us
     }
   }
 
-  const confirmItems = () => {
+  // Save current step's items (called on confirm AND on navigation away)
+  const saveCurrentStepItems = useCallback(() => {
     const systemEnum = SYSTEM_ENUM[currentStep]
     if (!systemEnum) return
-
+    if (editingItems.length === 0) return
     setConfirmedItems(prev => ({
       ...prev,
       [systemEnum]: editingItems,
     }))
+  }, [currentStep, editingItems])
 
+  const confirmItems = () => {
+    saveCurrentStepItems()
     setCompletedSteps(prev => new Set([...prev, currentStep]))
 
     // Find next system
@@ -496,6 +500,18 @@ La lista de items debe ser COMPLETA (incluye los existentes si no cambiaron). Us
     } else {
       setCurrentStep('rack')
     }
+  }
+
+  // Auto-save items when navigating away from a system step (stepper clicks, back button)
+  const navigateToStep = (targetStep: string) => {
+    // Save current items before leaving
+    if (currentStep !== 'zones' && currentStep !== 'review' && !currentStep.startsWith('rack')) {
+      saveCurrentStepItems()
+      if (editingItems.length > 0) {
+        setCompletedSteps(prev => new Set([...prev, currentStep]))
+      }
+    }
+    setCurrentStep(targetStep)
   }
 
   const handleConfirm = async () => {
@@ -560,12 +576,29 @@ La lista de items debe ser COMPLETA (incluye los existentes si no cambiaron). Us
       const catalogCache: Record<string, any> = {}
       let orderIdx = 0
 
+      // Fuzzy zone matching: if exact match fails, try partial/contains match
+      const findZoneId = (zoneName: string): string | null => {
+        if (areaIdByName[zoneName]) return areaIdByName[zoneName]
+        // Try case-insensitive match
+        const lower = zoneName.toLowerCase().trim()
+        for (const [name, id] of Object.entries(areaIdByName)) {
+          if (name.toLowerCase().trim() === lower) return id
+          // Partial match: "Sala" matches "Sala de TV / Family Room"
+          if (name.toLowerCase().includes(lower) || lower.includes(name.toLowerCase())) return id
+        }
+        // Fallback: first zone
+        const firstZone = Object.values(areaIdByName)[0]
+        console.warn(`[AIQuoteLive] Zone "${zoneName}" not found, using fallback`)
+        return firstZone || null
+      }
+
       // Iterate through all confirmed items
       for (const [systemEnum, items] of Object.entries(confirmedItems)) {
+        setInsertProgress(`Procesando ${systemEnum}... (${items.length} items)`)
         for (const it of items) {
           if (it.quantity <= 0) continue
 
-          const zoneId = areaIdByName[it.zone]
+          const zoneId = findZoneId(it.zone)
           if (!zoneId) continue
 
           let catalogId = it.catalog_product_id
@@ -742,7 +775,7 @@ La lista de items debe ser COMPLETA (incluye los existentes si no cambiaron). Us
             return (
               <div key={step} style={{ display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}>
                 <button
-                  onClick={() => setCurrentStep(step)}
+                  onClick={() => navigateToStep(step)}
                   style={{
                     padding: '6px 10px',
                     borderRadius: 6,
@@ -1362,18 +1395,92 @@ La lista de items debe ser COMPLETA (incluye los existentes si no cambiaron). Us
                     <div style={{ fontSize: 9, color: '#555', textTransform: 'uppercase' }}>Items</div>
                     <div style={{ fontSize: 18, fontWeight: 700, color: '#fff' }}>{getTotalItems()}</div>
                   </div>
-                  <div
-                    style={{
-                      padding: '10px 12px',
-                      background: '#0e1a0e',
-                      border: '1px solid #57FF9A33',
-                      borderRadius: 8,
-                    }}
-                  >
+                  <div style={{ padding: '10px 12px', background: '#0e1a0e', border: '1px solid #57FF9A33', borderRadius: 8 }}>
                     <div style={{ fontSize: 9, color: '#57FF9A', textTransform: 'uppercase' }}>Sistemas</div>
-                    <div style={{ fontSize: 18, fontWeight: 700, color: '#57FF9A' }}>{scope.sistemas.length}</div>
+                    <div style={{ fontSize: 18, fontWeight: 700, color: '#57FF9A' }}>
+                      {Object.keys(confirmedItems).filter(k => confirmedItems[k].length > 0).length} / {scope.sistemas.length}
+                    </div>
                   </div>
                 </div>
+
+                {/* Detailed system breakdown */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
+                  {scope.sistemas.map(sysId => {
+                    const sysEnum = SYSTEM_ENUM[sysId]
+                    const sysName = SYSTEM_STEPS[sysId]?.name || sysId
+                    const sysColor = SYSTEM_STEPS[sysId]?.color || '#888'
+                    const items = sysEnum ? (confirmedItems[sysEnum] || []) : []
+                    const totalQty = items.reduce((s, it) => s + it.quantity, 0)
+                    const hasItems = items.length > 0
+
+                    return (
+                      <div key={sysId} style={{
+                        padding: '10px 12px',
+                        background: hasItems ? '#0e0e0e' : '#1a0e0e',
+                        border: `1px solid ${hasItems ? sysColor + '44' : '#5a282844'}`,
+                        borderRadius: 8,
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <div style={{ width: 8, height: 8, borderRadius: '50%', background: hasItems ? sysColor : '#5a2828' }} />
+                          <span style={{ fontSize: 12, fontWeight: 600, color: hasItems ? '#ddd' : '#f87171' }}>{sysName}</span>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          {hasItems ? (
+                            <span style={{ fontSize: 11, color: '#888' }}>{items.length} items · {totalQty} uds</span>
+                          ) : (
+                            <span style={{ fontSize: 11, color: '#f87171', fontWeight: 600 }}>SIN ITEMS</span>
+                          )}
+                          <button
+                            onClick={() => navigateToStep(sysId)}
+                            style={{
+                              padding: '3px 8px',
+                              background: 'none',
+                              border: `1px solid ${hasItems ? '#333' : '#5a2828'}`,
+                              borderRadius: 4,
+                              color: hasItems ? '#888' : '#f87171',
+                              cursor: 'pointer',
+                              fontSize: 10,
+                              fontFamily: 'inherit',
+                            }}
+                          >
+                            {hasItems ? 'Editar' : 'Agregar'}
+                          </button>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+
+                {/* Warning if systems are missing */}
+                {(() => {
+                  const missingSystems = scope.sistemas.filter(sysId => {
+                    const sysEnum = SYSTEM_ENUM[sysId]
+                    return !sysEnum || !(confirmedItems[sysEnum]?.length > 0)
+                  })
+                  if (missingSystems.length > 0) {
+                    return (
+                      <div style={{
+                        padding: '10px 12px',
+                        background: '#2a1a10',
+                        border: '1px solid #F59E0B44',
+                        borderRadius: 8,
+                        color: '#F59E0B',
+                        fontSize: 12,
+                        marginBottom: 12,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 8,
+                      }}>
+                        <AlertTriangle size={14} />
+                        <span>{missingSystems.length} sistema{missingSystems.length > 1 ? 's' : ''} sin items. Puedes continuar o regresar a completarlos.</span>
+                      </div>
+                    )
+                  }
+                  return null
+                })()}
               </div>
             )}
           </div>
@@ -1474,7 +1581,7 @@ La lista de items debe ser COMPLETA (incluye los existentes si no cambiaron). Us
                 onClick={() => {
                   const currentIdx = allSteps.indexOf(currentStep)
                   if (currentIdx > 0) {
-                    setCurrentStep(allSteps[currentIdx - 1])
+                    navigateToStep(allSteps[currentIdx - 1])
                   }
                 }}
               >
