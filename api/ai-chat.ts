@@ -194,7 +194,7 @@ async function fetchAsBase64(url: string): Promise<{ base64: string; mediaType: 
   return { base64, mediaType: contentType }
 }
 
-export const config = { maxDuration: 120 }
+export const config = { maxDuration: 300 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Access-Control-Allow-Origin', '*')

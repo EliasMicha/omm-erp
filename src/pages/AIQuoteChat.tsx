@@ -217,6 +217,14 @@ export default function AIQuoteChat({ onClose, onCreated }: {
   const [precedents, setPrecedents] = useState<Precedent[]>([])
   const [loadingData, setLoadingData] = useState(true)
 
+  // Sending timer (shows elapsed time while waiting for AI)
+  const [sendingSeconds, setSendingSeconds] = useState(0)
+  useEffect(() => {
+    if (!sending) { setSendingSeconds(0); return }
+    const interval = setInterval(() => setSendingSeconds(s => s + 1), 1000)
+    return () => clearInterval(interval)
+  }, [sending])
+
   // Create quotation
   const [inserting, setInserting] = useState(false)
   const [insertProgress, setInsertProgress] = useState('')
@@ -364,7 +372,7 @@ export default function AIQuoteChat({ onClose, onCreated }: {
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
       try {
         const controller = new AbortController()
-        const timeout = setTimeout(() => controller.abort(), 115000) // 115s client timeout (server has 120s)
+        const timeout = setTimeout(() => controller.abort(), 290000) // 290s client timeout (server has 300s)
 
         const r = await fetch('/api/ai-chat', {
           method: 'POST',
@@ -1083,7 +1091,15 @@ export default function AIQuoteChat({ onClose, onCreated }: {
                 <div style={{ display: 'flex', justifyContent: 'flex-start', marginBottom: 16 }}>
                   <div style={{ padding: '12px 16px', borderRadius: 12, background: '#1a1a1a', border: '1px solid #2a2a2a' }}>
                     <div style={{ fontSize: 9, color: '#57FF9A', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>OMM AI</div>
-                    <Loader2 size={16} color="#57FF9A" style={{ animation: 'spin 1s linear infinite' }} />
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <Loader2 size={16} color="#57FF9A" style={{ animation: 'spin 1s linear infinite' }} />
+                      <span style={{ fontSize: 11, color: '#666' }}>
+                        {sendingSeconds < 5 ? 'Procesando...' :
+                         sendingSeconds < 30 ? 'Analizando proyecto...' :
+                         sendingSeconds < 90 ? `Generando propuesta... (${sendingSeconds}s)` :
+                         `Casi listo — propuesta compleja... (${sendingSeconds}s)`}
+                      </span>
+                    </div>
                   </div>
                 </div>
               )}
