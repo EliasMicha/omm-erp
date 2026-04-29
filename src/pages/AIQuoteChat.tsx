@@ -345,8 +345,8 @@ export default function AIQuoteChat({ onClose, onCreated }: {
         precedents,
       }
 
-      // Only send plan URLs on first message (files are already in Supabase Storage)
-      if (isInitial && planFiles.length > 0) {
+      // Always send plan URLs so Claude can reference the plans on follow-up messages too
+      if (planFiles.length > 0) {
         const readyPlans = planFiles.filter(p => p.url && !p.uploading)
         if (readyPlans.length > 0) {
           body.planUrls = readyPlans.map(p => ({ url: p.url, mediaType: p.mediaType }))
