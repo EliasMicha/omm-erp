@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase'
 import { downloadSembradoPdf, type SembradoData, type DevicePosition as SembradoDevicePosition } from '../lib/sembradoPdf'
 import { Btn } from '../components/layout/UI'
 import { X, Zap, Loader2, Upload, Send, ChevronLeft, CheckCircle, Plus, Minus, Trash2, AlertTriangle, FileText, MessageSquare, Download } from 'lucide-react'
+import AIQuoteLive from './AIQuoteLive'
 
 /* ═══════════════════════════════════════════════════════════
    TYPES
@@ -124,8 +125,8 @@ export default function AIQuoteChat({ onClose, onCreated }: {
   onClose: () => void
   onCreated: (quotationId: string, specialty: string) => void
 }) {
-  // Steps: 'mode' | 'questionnaire' | 'freetext' | 'chat' | 'proposal'
-  const [step, setStep] = useState<'mode' | 'questionnaire' | 'freetext' | 'chat' | 'proposal'>('mode')
+  // Steps: 'mode' | 'questionnaire' | 'freetext' | 'chat' | 'proposal' | 'live-setup' | 'live'
+  const [step, setStep] = useState<'mode' | 'questionnaire' | 'freetext' | 'chat' | 'proposal' | 'live-setup' | 'live'>('mode')
 
   // Scope
   const [scope, setScope] = useState<Scope>({
@@ -365,7 +366,7 @@ export default function AIQuoteChat({ onClose, onCreated }: {
       return
     }
 
-    console.log(`[AIQuoteChat] Sending: ${(bodyStr.length / 1024).toFixed(1)} KB, ${apiMessages.length} msgs, ${readyPlans.length} plans`)
+    console.log(`[AIQuoteChat] Sending: ${(bodyStr.length / 1024).toFixed(1)} KB, ${apiMessages.length} msgs, ${body.planUrls?.length || 0} plans`)
 
     // Retry up to 2 times on transient failures
     const MAX_RETRIES = 2
@@ -755,6 +756,8 @@ export default function AIQuoteChat({ onClose, onCreated }: {
               {step === 'freetext' && 'Pega el scope del proyecto'}
               {step === 'chat' && 'Conversación con AI — refina la propuesta'}
               {step === 'proposal' && 'Revisa y edita antes de crear la cotización'}
+              {step === 'live-setup' && 'Configura el proyecto para construir en vivo'}
+              {step === 'live' && 'Construyendo cotización paso a paso'}
             </div>
           </div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer' }}><X size={18} /></button>
@@ -770,7 +773,7 @@ export default function AIQuoteChat({ onClose, onCreated }: {
         {/* ─── STEP: MODE ─── */}
         {step === 'mode' && (
           <div style={{ flex: 1, padding: 20, overflowY: 'auto' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 10 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginTop: 10 }}>
               <button
                 onClick={() => { setScope(s => ({ ...s, mode: 'questionnaire' })); setStep('questionnaire') }}
                 style={{ padding: '24px 18px', background: '#0e0e0e', border: '1px solid #2a2a2a', borderRadius: 12, cursor: 'pointer', textAlign: 'left', color: '#ddd', fontFamily: 'inherit', transition: 'all 0.15s' }}
@@ -790,6 +793,16 @@ export default function AIQuoteChat({ onClose, onCreated }: {
                 <div style={{ fontSize: 20, marginBottom: 8 }}>📝</div>
                 <div style={{ fontSize: 14, fontWeight: 600, color: '#fff', marginBottom: 4 }}>Pegar scope libre</div>
                 <div style={{ fontSize: 11, color: '#888', lineHeight: 1.5 }}>Pega el brief del cliente o arquitecto. La AI extrae lo importante y genera propuesta.</div>
+              </button>
+              <button
+                onClick={() => { setScope(s => ({ ...s, mode: 'questionnaire' })); setStep('live-setup') }}
+                style={{ padding: '24px 18px', background: '#0e0e0e', border: '1px solid #2a2a2a', borderRadius: 12, cursor: 'pointer', textAlign: 'left', color: '#ddd', fontFamily: 'inherit', transition: 'all 0.15s' }}
+                onMouseEnter={e => { e.currentTarget.style.borderColor = '#C084FC'; e.currentTarget.style.background = '#140e1a' }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor = '#2a2a2a'; e.currentTarget.style.background = '#0e0e0e' }}
+              >
+                <div style={{ fontSize: 20, marginBottom: 8 }}>⚡</div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: '#fff', marginBottom: 4 }}>Construir en Vivo</div>
+                <div style={{ fontSize: 11, color: '#888', lineHeight: 1.5 }}>Arma la cotización paso a paso: zonas, luego sistema por sistema. Ideal para proyectos grandes.</div>
               </button>
             </div>
           </div>
@@ -1061,6 +1074,170 @@ export default function AIQuoteChat({ onClose, onCreated }: {
               </Btn>
             </div>
           </div>
+        )}
+
+        {/* ─── STEP: LIVE-SETUP (same questionnaire, but leads to live builder) ─── */}
+        {step === 'live-setup' && (
+          <div style={{ flex: 1, padding: 20, overflowY: 'auto' }}>
+            <div style={{ display: 'grid', gap: 16 }}>
+              {/* Tipo de proyecto */}
+              <div>
+                <label style={sLabel}>Tipo de proyecto *</label>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 6 }}>
+                  {PROJECT_TYPES.map(t => (
+                    <button key={t.id} onClick={() => setScope(s => ({ ...s, tipo: t.id }))}
+                      style={{ padding: '10px 8px', background: scope.tipo === t.id ? '#C084FC15' : '#0e0e0e', border: '1px solid ' + (scope.tipo === t.id ? '#C084FC' : '#2a2a2a'), borderRadius: 8, cursor: 'pointer', color: scope.tipo === t.id ? '#C084FC' : '#888', fontFamily: 'inherit', fontSize: 11, textAlign: 'center' }}>
+                      <div style={{ fontWeight: 600 }}>{t.label}</div>
+                      <div style={{ fontSize: 9, color: '#555', marginTop: 2 }}>{t.desc}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Nombre + Lead + Cliente */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+                <div>
+                  <label style={sLabel}>Nombre del proyecto</label>
+                  <input value={scope.nombre} onChange={e => setScope(s => ({ ...s, nombre: e.target.value }))} placeholder="Casa Bosques, etc." style={inputS} />
+                </div>
+                <div style={{ position: 'relative' }}>
+                  <label style={sLabel}>Lead (oportunidad)</label>
+                  <input value={leadSearch} onChange={e => { setLeadSearch(e.target.value); setShowLeadDrop(true) }} onFocus={() => setShowLeadDrop(true)} placeholder="Buscar lead..." style={inputS} />
+                  {selectedLead && <span style={{ fontSize: 9, color: '#57FF9A', marginTop: 2, display: 'block' }}>{selectedLead.name}{selectedLead.company ? ` · ${selectedLead.company}` : ''}</span>}
+                  {showLeadDrop && (
+                    <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, maxHeight: 150, overflowY: 'auto', background: '#1e1e1e', border: '1px solid #333', borderRadius: 8, zIndex: 10, marginTop: 4 }}>
+                      {filteredLeads.map(l => (
+                        <div key={l.id} onClick={() => { setSelectedLeadId(l.id); setLeadSearch(l.name); setShowLeadDrop(false); if (!scope.cliente && l.company) { setScope(s => ({ ...s, cliente: l.company })); setClientSearch(l.company) } }}
+                          style={{ padding: '6px 10px', cursor: 'pointer', fontSize: 11, color: '#ccc', borderBottom: '1px solid #2a2a2a' }}>
+                          <div>{l.name}</div>{l.company && <div style={{ fontSize: 9, color: '#666' }}>{l.company}</div>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div style={{ position: 'relative' }}>
+                  <label style={sLabel}>Cliente facturación</label>
+                  <input value={clientSearch} onChange={e => { setClientSearch(e.target.value); setShowClientDrop(true) }} onFocus={() => setShowClientDrop(true)} placeholder="Buscar cliente..." style={inputS} />
+                  {selectedClient && <span style={{ fontSize: 9, color: '#57FF9A', marginTop: 2, display: 'block' }}>{selectedClient.razon_social} · {selectedClient.rfc}</span>}
+                  {showClientDrop && (
+                    <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, maxHeight: 150, overflowY: 'auto', background: '#1e1e1e', border: '1px solid #333', borderRadius: 8, zIndex: 10, marginTop: 4 }}>
+                      {filteredClientes.map(c => (
+                        <div key={c.id} onClick={() => { setClientId(c.id); setScope(s => ({ ...s, cliente: c.nombre_comercial || c.razon_social })); setClientSearch(c.nombre_comercial || c.razon_social); setShowClientDrop(false) }}
+                          style={{ padding: '6px 10px', cursor: 'pointer', fontSize: 11, color: '#ccc', borderBottom: '1px solid #2a2a2a' }}>
+                          <div>{c.nombre_comercial || c.razon_social}</div><div style={{ fontSize: 9, color: '#666' }}>{c.rfc}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Tamaño + habitaciones + ubicación + nivel */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 12 }}>
+                <div>
+                  <label style={sLabel}>Tamaño m²</label>
+                  <input type="number" value={scope.tamano_m2 ?? ''} onChange={e => setScope(s => ({ ...s, tamano_m2: e.target.value ? parseInt(e.target.value) : null }))} style={inputS} />
+                </div>
+                <div>
+                  <label style={sLabel}>Habitaciones</label>
+                  <input type="number" value={scope.habitaciones ?? ''} onChange={e => setScope(s => ({ ...s, habitaciones: e.target.value ? parseInt(e.target.value) : null }))} style={inputS} />
+                </div>
+                <div>
+                  <label style={sLabel}>Ubicación</label>
+                  <select value={scope.ubicacion} onChange={e => setScope(s => ({ ...s, ubicacion: e.target.value }))} style={inputS}>
+                    {LOCATIONS.map(l => <option key={l.id} value={l.id}>{l.label}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label style={sLabel}>Nivel</label>
+                  <select value={scope.nivel} onChange={e => setScope(s => ({ ...s, nivel: e.target.value }))} style={inputS}>
+                    {LEVELS.map(l => <option key={l.id} value={l.id}>{l.label}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              {/* Sistemas */}
+              <div>
+                <label style={sLabel}>Sistemas a incluir *</label>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 6 }}>
+                  {AI_ALL_SYSTEMS.map(s => {
+                    const active = scope.sistemas.includes(s.id)
+                    return (
+                      <button key={s.id} onClick={() => setScope(prev => ({ ...prev, sistemas: active ? prev.sistemas.filter(x => x !== s.id) : [...prev.sistemas, s.id] }))}
+                        style={{ padding: '8px 6px', background: active ? s.color + '15' : '#0e0e0e', border: '1px solid ' + (active ? s.color : '#2a2a2a'), borderRadius: 8, cursor: 'pointer', color: active ? s.color : '#666', fontFamily: 'inherit', fontSize: 10, textAlign: 'center', fontWeight: active ? 600 : 400 }}>
+                        {s.name}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+
+              {/* Plan upload */}
+              <div>
+                <label style={sLabel}>Planos arquitectónicos (opcional)</label>
+                {planFiles.length > 0 && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 6 }}>
+                    {planFiles.map((p, i) => (
+                      <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: '#0e1a0e', border: '1px solid #1a3a1a', borderRadius: 6, padding: '3px 8px', fontSize: 11, color: '#57FF9A' }}>
+                        <FileText size={10} /> {p.file.name}
+                        {p.uploading && <Loader2 size={10} style={{ animation: 'spin 1s linear infinite' }} />}
+                        <button onClick={() => removePlan(i)} style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer', fontSize: 10, padding: 0 }}>✕</button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <div
+                  onDrop={e => { e.preventDefault(); if (e.dataTransfer.files.length) handleFiles(e.dataTransfer.files) }}
+                  onDragOver={e => e.preventDefault()}
+                  onClick={() => document.getElementById('plan-input-live')?.click()}
+                  style={{ border: '1px dashed #333', borderRadius: 8, padding: '14px 16px', textAlign: 'center', cursor: 'pointer' }}
+                >
+                  <input id="plan-input-live" type="file" accept=".pdf,.png,.jpg,.jpeg,.webp" multiple style={{ display: 'none' }}
+                    onChange={e => { if (e.target.files?.length) { handleFiles(e.target.files); e.target.value = '' } }} />
+                  <Upload size={18} color="#555" style={{ marginBottom: 4 }} />
+                  <div style={{ fontSize: 12, color: '#888' }}>{planFiles.length > 0 ? 'Agregar más planos' : 'Arrastra planos o haz click'} · PDF, PNG, JPG</div>
+                </div>
+              </div>
+
+              {/* Notas */}
+              <div>
+                <label style={sLabel}>Notas y restricciones</label>
+                <textarea value={scope.notas} onChange={e => setScope(s => ({ ...s, notas: e.target.value }))}
+                  placeholder="Ej: Sonos en sociales, Lutron RadioRA3, presupuesto ~$2M MXN..."
+                  rows={2} style={{ ...inputS, resize: 'vertical', fontFamily: 'inherit' }} />
+              </div>
+            </div>
+
+            {/* Data info */}
+            <div style={{ display: 'flex', gap: 16, fontSize: 11, color: '#666', marginTop: 16, padding: '10px 12px', background: '#0e0e0e', borderRadius: 8, border: '1px solid #1e1e1e' }}>
+              {loadingData ? <span><Loader2 size={11} style={{ animation: 'spin 1s linear infinite' }} /> Cargando...</span>
+                : <><span style={{ color: '#C084FC' }}>{catalog.length} productos</span><span style={{ color: '#3B82F6' }}>{precedents.length} precedentes</span></>}
+            </div>
+
+            {/* Footer */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginTop: 16, paddingTop: 14, borderTop: '1px solid #222' }}>
+              <Btn onClick={() => setStep('mode')}>← Atrás</Btn>
+              <Btn variant="primary" onClick={() => setStep('live')} disabled={scope.sistemas.length === 0 || loadingData || planFiles.some(p => p.uploading)}
+                style={{ background: '#C084FC', borderColor: '#C084FC' }}>
+                <Zap size={14} /> {planFiles.some(p => p.uploading) ? 'Subiendo planos...' : 'Construir en Vivo →'}
+              </Btn>
+            </div>
+          </div>
+        )}
+
+        {/* ─── STEP: LIVE (renders AIQuoteLive component) ─── */}
+        {step === 'live' && (
+          <AIQuoteLive
+            scope={scope}
+            planFiles={planFiles}
+            catalog={catalog}
+            precedents={precedents}
+            onClose={onClose}
+            onCreated={onCreated}
+            clientId={clientId}
+            selectedLeadId={selectedLeadId}
+            selectedLead={selectedLead || undefined}
+          />
         )}
 
         {/* ─── STEP: CHAT ─── */}
