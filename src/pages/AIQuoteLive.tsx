@@ -247,6 +247,12 @@ export default function AIQuoteLive({
   const [showCatalogSearch, setShowCatalogSearch] = useState(false)
   const [catalogSearch, setCatalogSearch] = useState('')
 
+  // Step chat — mini conversation per system step
+  const [stepChatInput, setStepChatInput] = useState('')
+  const [stepChatMessages, setStepChatMessages] = useState<Array<{ role: 'user' | 'assistant'; content: string }>>([])
+  const [stepChatLoading, setStepChatLoading] = useState(false)
+  const stepChatRef = useRef<HTMLDivElement>(null)
+
   // Create quotation
   const [inserting, setInserting] = useState(false)
   const [insertProgress, setInsertProgress] = useState('')
@@ -365,6 +371,85 @@ RESPONDE ÚNICAMENTE con JSON válido, sin texto adicional:
       setProposedItems([])
     } finally {
       setLoadingItems(false)
+    }
+  }
+
+  // Reset step chat when changing steps
+  useEffect(() => {
+    setStepChatMessages([])
+    setStepChatInput('')
+    setShowCatalogSearch(false)
+  }, [currentStep])
+
+  // Auto-scroll step chat
+  useEffect(() => {
+    stepChatRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [stepChatMessages, stepChatLoading])
+
+  const sendStepChat = async () => {
+    const msg = stepChatInput.trim()
+    if (!msg || stepChatLoading) return
+
+    const systemEnum = SYSTEM_ENUM[currentStep]
+    const systemName = SYSTEM_STEPS[currentStep]?.name || currentStep
+    const filteredCatalog = catalog.filter(p => systemEnum ? p.system === systemEnum : true)
+
+    // Build current items context
+    const currentItemsSummary = editingItems.length > 0
+      ? editingItems.map(it => `- ${it.zone}: ${it.marca} ${it.modelo} x${it.quantity} (${it.description})`).join('\n')
+      : '(ninguno aún)'
+
+    setStepChatMessages(prev => [...prev, { role: 'user', content: msg }])
+    setStepChatInput('')
+    setStepChatLoading(true)
+
+    try {
+      const zoneList = zones.map(z => `${z.name} (${z.level}, ${z.estimated_m2}m²)`).join(', ')
+      const systemPrompt = `Proyecto: ${scope.tipo}, ${scope.tamano_m2 || '?'}m², nivel ${scope.nivel}.
+Zonas: ${zoneList}
+Sistema actual: ${systemName}
+Items actuales en este sistema:
+${currentItemsSummary}
+
+El usuario te pide un cambio. Responde con un JSON que tenga:
+- "reply": texto corto confirmando qué hiciste (1-2 oraciones, en español)
+- "items": la lista COMPLETA actualizada de items para este sistema (incluyendo los que ya existían si no cambiaron)
+
+Formato items: [{"zone": "...", "marca": "...", "modelo": "...", "description": "...", "quantity": 1, "notes": ""}]
+Usa productos del catálogo si hay coincidencias. RESPONDE SOLO JSON.`
+
+      const result = await callAI(
+        [
+          { role: 'system', content: systemPrompt },
+          ...stepChatMessages.map(m => ({ role: m.role, content: m.content })),
+          { role: 'user', content: msg },
+        ],
+        scope,
+        [],
+        filteredCatalog,
+        precedents
+      )
+
+      const parsed = parseJSON(result.text)
+      const reply = parsed.reply || 'Listo, actualizado.'
+      const newItems: ConfirmedItem[] = (parsed.items || []).map((it: any) => ({
+        zone: it.zone || 'Indefinida',
+        marca: it.marca || '',
+        modelo: it.modelo || '',
+        description: it.description || '',
+        quantity: Math.max(1, parseInt(it.quantity) || 1),
+        notes: it.notes || '',
+        catalog_product_id: it.catalog_product_id || undefined,
+      }))
+
+      setStepChatMessages(prev => [...prev, { role: 'assistant', content: reply }])
+      if (newItems.length > 0) {
+        setEditingItems(newItems)
+      }
+    } catch (err: any) {
+      setStepChatMessages(prev => [...prev, { role: 'assistant', content: `Error: ${err.message}` }])
+    } finally {
+      setStepChatLoading(false)
     }
   }
 
@@ -845,9 +930,30 @@ RESPONDE ÚNICAMENTE con JSON válido, sin texto adicional:
                       color: '#f87171',
                       fontSize: 12,
                       marginBottom: 12,
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
                     }}
                   >
-                    {itemsError}
+                    <span>{itemsError}</span>
+                    <button
+                      onClick={() => { setItemsError(null); loadItems(currentStep) }}
+                      style={{
+                        padding: '4px 10px',
+                        background: '#5a2828',
+                        border: 'none',
+                        borderRadius: 6,
+                        color: '#f87171',
+                        cursor: 'pointer',
+                        fontSize: 11,
+                        fontFamily: 'inherit',
+                        fontWeight: 600,
+                        whiteSpace: 'nowrap',
+                        marginLeft: 8,
+                      }}
+                    >
+                      Reintentar
+                    </button>
                   </div>
                 )}
 
@@ -1139,6 +1245,76 @@ RESPONDE ÚNICAMENTE con JSON válido, sin texto adicional:
                     </div>
                   )
                 })()}
+
+                {/* ─── Step Chat ─── */}
+                <div style={{
+                  marginTop: 16,
+                  padding: 12,
+                  background: '#0a0a0a',
+                  border: '1px solid #222',
+                  borderRadius: 10,
+                }}>
+                  <div style={{ fontSize: 10, fontWeight: 600, color: '#555', textTransform: 'uppercase', marginBottom: 8 }}>
+                    Chat — {SYSTEM_STEPS[currentStep]?.name || currentStep}
+                  </div>
+
+                  {/* Chat messages */}
+                  {stepChatMessages.length > 0 && (
+                    <div style={{ maxHeight: 160, overflowY: 'auto', marginBottom: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      {stepChatMessages.map((m, i) => (
+                        <div key={i} style={{
+                          padding: '6px 10px',
+                          borderRadius: 8,
+                          fontSize: 12,
+                          lineHeight: 1.5,
+                          maxWidth: '85%',
+                          alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start',
+                          background: m.role === 'user' ? '#1a2a1a' : '#1a1a2a',
+                          color: m.role === 'user' ? '#57FF9A' : '#8B9FFF',
+                          border: `1px solid ${m.role === 'user' ? '#57FF9A22' : '#8B9FFF22'}`,
+                        }}>
+                          {m.content}
+                        </div>
+                      ))}
+                      {stepChatLoading && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#666', fontSize: 11 }}>
+                          <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> Procesando...
+                        </div>
+                      )}
+                      <div ref={stepChatRef} />
+                    </div>
+                  )}
+
+                  {/* Chat input */}
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <input
+                      value={stepChatInput}
+                      onChange={e => setStepChatInput(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendStepChat() } }}
+                      placeholder={`Ej: "Agrega keypads Lutron en sala y comedor", "Usa Sonos para audio multizona"...`}
+                      disabled={stepChatLoading}
+                      style={{ ...inputS, flex: 1, fontSize: 12 }}
+                    />
+                    <button
+                      onClick={sendStepChat}
+                      disabled={!stepChatInput.trim() || stepChatLoading}
+                      style={{
+                        padding: '8px 14px',
+                        background: stepChatInput.trim() ? '#57FF9A' : '#333',
+                        border: 'none',
+                        borderRadius: 8,
+                        color: stepChatInput.trim() ? '#000' : '#666',
+                        cursor: stepChatInput.trim() ? 'pointer' : 'default',
+                        fontWeight: 600,
+                        fontSize: 12,
+                        fontFamily: 'inherit',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {stepChatLoading ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : 'Enviar'}
+                    </button>
+                  </div>
+                </div>
               </div>
             )}
 
