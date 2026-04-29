@@ -89,7 +89,8 @@ const tools = [
         properties: {
           status: {
             type: 'string',
-            description: 'Filtrar por estado (pendiente, en_progreso, completado)',
+            enum: ['pendiente', 'en_progreso', 'completado', 'cancelado'],
+            description: 'Filtrar por estado',
           },
           assigned_to: { type: 'string', description: 'Filtrar por usuario asignado' },
         },
@@ -156,13 +157,12 @@ const tools = [
     type: 'function',
     function: {
       name: 'search_clients',
-      description: 'Busca clientes por nombre o empresa',
+      description: 'Busca clientes por razón social, nombre comercial, RFC o email. Sin query trae los más recientes.',
       parameters: {
         type: 'object',
         properties: {
-          query: { type: 'string', description: 'Búsqueda por nombre o empresa' },
+          query: { type: 'string', description: 'Búsqueda por razón social, nombre comercial, RFC o email (opcional)' },
         },
-        required: ['query'],
       },
     },
   },
@@ -177,7 +177,8 @@ const tools = [
           query: { type: 'string', description: 'Búsqueda por nombre o empresa' },
           status: {
             type: 'string',
-            description: 'Filtrar por estado (contacto, interesado, negociación, ganado, perdido)',
+            enum: ['nuevo', 'contactado', 'cotizando', 'ganado', 'perdido', 'pausado'],
+            description: 'Filtrar por estado del lead',
           },
         },
       },
@@ -212,6 +213,108 @@ const tools = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'create_client',
+      description: 'Crea un nuevo cliente (para facturación). Requiere al menos razón social y RFC.',
+      parameters: {
+        type: 'object',
+        properties: {
+          razon_social: { type: 'string', description: 'Razón social del cliente' },
+          rfc: { type: 'string', description: 'RFC del cliente (13 caracteres persona física, 12 moral)' },
+          nombre_comercial: { type: 'string', description: 'Nombre comercial (opcional)' },
+          email: { type: 'string', description: 'Email de contacto' },
+          telefono: { type: 'string', description: 'Teléfono de contacto' },
+          codigo_postal: { type: 'string', description: 'Código postal' },
+          tipo_persona: { type: 'string', enum: ['moral', 'fisica'], description: 'Tipo de persona' },
+          regimen_fiscal: { type: 'string', description: 'Régimen fiscal' },
+          calle: { type: 'string', description: 'Calle' },
+          colonia: { type: 'string', description: 'Colonia' },
+          municipio: { type: 'string', description: 'Municipio/Alcaldía' },
+          estado: { type: 'string', description: 'Estado' },
+        },
+        required: ['razon_social', 'rfc'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'create_lead',
+      description: 'Crea un nuevo lead/prospecto en el CRM',
+      parameters: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', description: 'Nombre del proyecto o prospecto' },
+          company: { type: 'string', description: 'Empresa o despacho' },
+          contact_name: { type: 'string', description: 'Nombre de la persona de contacto' },
+          contact_phone: { type: 'string', description: 'Teléfono de contacto' },
+          contact_email: { type: 'string', description: 'Email de contacto' },
+          origin: { type: 'string', enum: ['inbound', 'outbound', 'referido', 'web', 'otro'], description: 'Origen del lead' },
+          needs: { type: 'array', items: { type: 'string' }, description: 'Necesidades/sistemas (ej: ["Audio", "CCTV", "Redes"])' },
+          notes: { type: 'string', description: 'Notas adicionales' },
+          estimated_value: { type: 'number', description: 'Valor estimado del proyecto' },
+          priority: { type: 'string', enum: ['alta', 'media', 'baja'], description: 'Prioridad' },
+        },
+        required: ['name'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'update_lead',
+      description: 'Actualiza un lead existente (cambiar status, agregar notas, etc.)',
+      parameters: {
+        type: 'object',
+        properties: {
+          lead_id: { type: 'string', description: 'ID del lead a actualizar' },
+          status: { type: 'string', enum: ['nuevo', 'contactado', 'cotizando', 'ganado', 'perdido', 'pausado'], description: 'Nuevo status' },
+          notes: { type: 'string', description: 'Notas a agregar/reemplazar' },
+          estimated_value: { type: 'number', description: 'Valor estimado actualizado' },
+          priority: { type: 'string', enum: ['alta', 'media', 'baja'], description: 'Prioridad' },
+          contact_name: { type: 'string', description: 'Nombre de contacto' },
+          contact_phone: { type: 'string', description: 'Teléfono' },
+          contact_email: { type: 'string', description: 'Email' },
+          lost_reason: { type: 'string', description: 'Razón de pérdida (si status=perdido)' },
+        },
+        required: ['lead_id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'create_quotation',
+      description: 'Crea una nueva cotización vacía (sin items) asociada a un cliente y especialidad',
+      parameters: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', description: 'Nombre de la cotización (ej: "Casa García - Audio y CCTV")' },
+          client_name: { type: 'string', description: 'Nombre del cliente' },
+          specialty: { type: 'string', enum: ['esp', 'elec', 'ilum', 'cort', 'proy'], description: 'Especialidad: esp=especiales, elec=eléctrica, ilum=iluminación, cort=cortinas, proy=proyecto' },
+          currency: { type: 'string', enum: ['USD', 'MXN'], description: 'Moneda' },
+          notes: { type: 'string', description: 'Notas de la cotización' },
+        },
+        required: ['name', 'client_name', 'specialty'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'delete_todo',
+      description: 'Elimina o cancela un pendiente',
+      parameters: {
+        type: 'object',
+        properties: {
+          todo_id: { type: 'string', description: 'ID del pendiente a eliminar' },
+        },
+        required: ['todo_id'],
+      },
+    },
+  },
 ]
 
 async function supabaseQuery(
@@ -240,8 +343,8 @@ async function executeFunction(name: string, args: any): Promise<string> {
   try {
     switch (name) {
       case 'search_quotations': {
-        const { query, specialty, stage, limit = 10 } = args
-        let filters = `limit=${limit}`
+        const { query, specialty, stage, limit = 20 } = args
+        let filters = `order=created_at.desc&limit=${limit}`
         if (query) filters += `&or=(name.ilike.%${query}%,client_name.ilike.%${query}%)`
         if (specialty) filters += `&specialty=eq.${encodeURIComponent(specialty)}`
         if (stage) filters += `&stage=eq.${encodeURIComponent(stage)}`
@@ -433,18 +536,17 @@ async function executeFunction(name: string, args: any): Promise<string> {
 
       case 'search_clients': {
         const { query } = args
-        const result = await supabaseQuery(
-          'clientes',
-          `or=(name.ilike.%${query}%,company.ilike.%${query}%)`,
-        )
+        let filters = 'order=created_at.desc&limit=50'
+        if (query) filters += `&or=(razon_social.ilike.%${query}%,nombre_comercial.ilike.%${query}%,rfc.ilike.%${query}%,email.ilike.%${query}%)`
+        const result = await supabaseQuery('clientes', filters)
         return JSON.stringify(result)
       }
 
       case 'search_leads': {
         const { query, status } = args
-        let filters = ''
-        if (query) filters = `or=(name.ilike.%${query}%,company.ilike.%${query}%)`
-        if (status) filters += (filters ? '&' : '') + `status=eq.${encodeURIComponent(status)}`
+        let filters = 'order=priority.asc,created_at.desc&limit=50'
+        if (query) filters += `&or=(name.ilike.%${query}%,company.ilike.%${query}%,contact_name.ilike.%${query}%)`
+        if (status) filters += `&status=eq.${encodeURIComponent(status)}`
         const result = await supabaseQuery('leads', filters)
         return JSON.stringify(result)
       }
@@ -483,6 +585,156 @@ async function executeFunction(name: string, args: any): Promise<string> {
           total_quotations: quotations.length,
           total_obras: obras.length,
         })
+      }
+
+      case 'create_client': {
+        const { razon_social, rfc, nombre_comercial, email, telefono, codigo_postal, tipo_persona, regimen_fiscal, calle, colonia, municipio, estado } = args
+        const url = `${SUPABASE_URL}/rest/v1/clientes`
+        const body: any = { razon_social, rfc, codigo_postal: codigo_postal || '' }
+        if (nombre_comercial) body.nombre_comercial = nombre_comercial
+        if (email) body.email = email
+        if (telefono) body.telefono = telefono
+        if (tipo_persona) body.tipo_persona = tipo_persona
+        if (regimen_fiscal) body.regimen_fiscal = regimen_fiscal
+        if (calle) body.calle = calle
+        if (colonia) body.colonia = colonia
+        if (municipio) body.municipio = municipio
+        if (estado) body.estado = estado
+
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            apikey: SUPABASE_KEY,
+            Authorization: `Bearer ${SUPABASE_KEY}`,
+            Prefer: 'return=representation',
+          },
+          body: JSON.stringify(body),
+        })
+
+        if (!response.ok) {
+          const error = await response.text()
+          return JSON.stringify({ error: `No se pudo crear el cliente: ${error}` })
+        }
+
+        const created = await response.json()
+        return JSON.stringify({ success: true, client: created[0] || created, message: `Cliente "${razon_social}" creado exitosamente` })
+      }
+
+      case 'create_lead': {
+        const { name: leadName, company, contact_name, contact_phone, contact_email, origin, needs, notes, estimated_value, priority } = args
+        const url = `${SUPABASE_URL}/rest/v1/leads`
+        const body: any = { name: leadName }
+        if (company) body.company = company
+        if (contact_name) body.contact_name = contact_name
+        if (contact_phone) body.contact_phone = contact_phone
+        if (contact_email) body.contact_email = contact_email
+        if (origin) body.origin = origin
+        if (needs) body.needs = needs
+        if (notes) body.notes = notes
+        if (estimated_value) body.estimated_value = estimated_value
+        if (priority) body.priority = priority
+
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            apikey: SUPABASE_KEY,
+            Authorization: `Bearer ${SUPABASE_KEY}`,
+            Prefer: 'return=representation',
+          },
+          body: JSON.stringify(body),
+        })
+
+        if (!response.ok) {
+          const error = await response.text()
+          return JSON.stringify({ error: `No se pudo crear el lead: ${error}` })
+        }
+
+        const created = await response.json()
+        return JSON.stringify({ success: true, lead: created[0] || created, message: `Lead "${leadName}" creado exitosamente` })
+      }
+
+      case 'update_lead': {
+        const { lead_id, ...updates } = args
+        const url = `${SUPABASE_URL}/rest/v1/leads?id=eq.${lead_id}`
+        const body: any = { updated_at: new Date().toISOString() }
+        for (const [key, val] of Object.entries(updates)) {
+          if (val !== undefined && val !== null) body[key] = val
+        }
+
+        const response = await fetch(url, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            apikey: SUPABASE_KEY,
+            Authorization: `Bearer ${SUPABASE_KEY}`,
+            Prefer: 'return=representation',
+          },
+          body: JSON.stringify(body),
+        })
+
+        if (!response.ok) {
+          const error = await response.text()
+          return JSON.stringify({ error: `No se pudo actualizar el lead: ${error}` })
+        }
+
+        const updated = await response.json()
+        return JSON.stringify({ success: true, lead: updated[0] || updated, message: 'Lead actualizado exitosamente' })
+      }
+
+      case 'create_quotation': {
+        const { name: quoteName, client_name, specialty, currency = 'USD', notes: qNotes } = args
+        const url = `${SUPABASE_URL}/rest/v1/quotations`
+        const body: any = {
+          name: quoteName,
+          client_name,
+          specialty,
+          currency,
+          stage: 'borrador',
+          total: 0,
+        }
+        if (qNotes) body.notes = JSON.stringify({ notes: qNotes })
+
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            apikey: SUPABASE_KEY,
+            Authorization: `Bearer ${SUPABASE_KEY}`,
+            Prefer: 'return=representation',
+          },
+          body: JSON.stringify(body),
+        })
+
+        if (!response.ok) {
+          const error = await response.text()
+          return JSON.stringify({ error: `No se pudo crear la cotización: ${error}` })
+        }
+
+        const created = await response.json()
+        return JSON.stringify({ success: true, quotation: created[0] || created, message: `Cotización "${quoteName}" creada exitosamente` })
+      }
+
+      case 'delete_todo': {
+        const { todo_id } = args
+        const url = `${SUPABASE_URL}/rest/v1/todos?id=eq.${todo_id}`
+        const response = await fetch(url, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            apikey: SUPABASE_KEY,
+            Authorization: `Bearer ${SUPABASE_KEY}`,
+          },
+          body: JSON.stringify({ status: 'cancelado' }),
+        })
+
+        if (!response.ok) {
+          const error = await response.text()
+          return JSON.stringify({ error: `No se pudo eliminar: ${error}` })
+        }
+
+        return JSON.stringify({ success: true, message: 'Pendiente cancelado' })
       }
 
       default:
@@ -575,7 +827,29 @@ export default async function handler(
       return
     }
 
-    const systemPrompt = `Eres OMM Bot, el asistente inteligente de OMM Technologies — una empresa de instalaciones especiales en CDMX. Ayudas al equipo a gestionar cotizaciones, pendientes, reportes, clientes, leads y productos del catálogo. Responde siempre en español, de manera concisa y profesional. Usa emojis moderadamente. Cuando el usuario pida algo, usa las herramientas disponibles para ejecutar la acción. Si no puedes hacer algo, explícalo claramente.`
+    const systemPrompt = `Eres OMM Bot, el asistente inteligente de OMM Technologies — una empresa de instalaciones especiales (audio, redes, CCTV, control de acceso, iluminación, detección de humo, cortinas motorizadas) en CDMX.
+
+REGLAS:
+- Responde siempre en español, conciso y profesional. Usa emojis moderadamente.
+- Cuando el usuario pida algo, USA LAS HERRAMIENTAS disponibles para ejecutar la acción. No digas que no puedes si tienes una herramienta para ello.
+- Si el usuario pide información, SIEMPRE llama la herramienta primero y luego responde con los datos reales.
+- Si una búsqueda no tiene resultados con un filtro, intenta sin filtro o con filtro más amplio antes de decir que no hay datos.
+- Para listar leads con más prioridad: usa search_leads sin filtro de status (trae todos) y ordénalos tú por priority.
+
+BASE DE DATOS — VALORES REALES:
+- leads.status: "nuevo", "contactado", "cotizando", "ganado", "perdido", "pausado"
+- leads.priority: "alta", "media", "fria"
+- leads campos: id, name, company, contact_name, contact_phone, contact_email, origin, status, needs (array), notes, estimated_value, priority, created_at
+- quotations.stage: "oportunidad", "contrato" (y posibles: "borrador", "enviada", "ganada", "perdida")
+- quotations.specialty: "esp" (especiales), "elec" (eléctrica), "ilum" (iluminación), "proy" (proyecto)
+- quotations campos: id, name, client_name, specialty, stage, total, currency, notes (jsonb), created_at
+- clientes campos: id, rfc, razon_social, nombre_comercial, email, telefono, codigo_postal, tipo_persona, regimen_fiscal, calle, colonia, municipio, estado, activo
+- catalog_products campos: id, name, marca, modelo, system, provider, cost, moneda, description, specialty
+- todos campos: id, title, description, status ("pendiente","en_progreso","completado","cancelado"), priority ("alta","media","baja"), due_date, assigned_to, tags, created_at, completed_at
+- obras campos: id, name, status, project_id, created_at
+- employees campos: id, name, role, is_active
+
+IMPORTANTE: Cuando busques leads, clientes o cotizaciones, si el usuario no especifica filtro, trae todos y presenta los más relevantes. No inventes datos — siempre consulta la base de datos.`
 
     // Build messages array
     let messages: any[] = [
