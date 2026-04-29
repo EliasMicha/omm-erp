@@ -20,6 +20,7 @@ import EmpleadoExpediente from './pages/EmpleadoExpediente'
 import CotizacionPdf from './pages/CotizacionPdf'
 import LeadDashboard from './pages/LeadDashboard'
 import ObraApp from './obra-app/ObraApp'
+import ChatBot from './components/ChatBot'
 
 
 export default function App() {
@@ -55,6 +56,7 @@ export default function App() {
                 <Route path="/design-rules" element={<DesignRules />} />
               </Routes>
             </main>
+            <ChatBot />
           </div>
         } />
       </Routes>
