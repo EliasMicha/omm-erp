@@ -18,6 +18,7 @@ interface ProyConfig {
   currency: 'USD' | 'MXN'
   tipoCambio: number
   ivaRate: number
+  descuento: number // percentage discount
 }
 
 interface ProyItem {
@@ -663,8 +664,10 @@ function ProyPdfModal({
 
   const includedItems = items.filter(it => it.included)
   const subtotal = includedItems.reduce((sum, it) => sum + it.m2 * it.precioM2, 0)
-  const iva = Math.round(subtotal * config.ivaRate / 100 * 100) / 100
-  const total = subtotal + iva
+  const descuentoAmt = Math.round(subtotal * (config.descuento || 0) / 100 * 100) / 100
+  const subtotalDesc = subtotal - descuentoAmt
+  const iva = Math.round(subtotalDesc * config.ivaRate / 100 * 100) / 100
+  const total = subtotalDesc + iva
 
   const now = new Date()
   const dateStr = `${now.getDate()}/${now.getMonth() + 1}/${now.getFullYear()}`
@@ -907,6 +910,12 @@ function ProyPdfModal({
                 <td style={{ padding: '4px 0', color: '#666' }}>Subtotal</td>
                 <td style={{ padding: '4px 0', textAlign: 'right' }}>${subtotal.toFixed(2)}</td>
               </tr>
+              {(config.descuento || 0) > 0 && (
+                <tr>
+                  <td style={{ padding: '4px 0', color: '#B45309' }}>Descuento {config.descuento}%</td>
+                  <td style={{ padding: '4px 0', textAlign: 'right', color: '#B45309' }}>-${descuentoAmt.toFixed(2)}</td>
+                </tr>
+              )}
               <tr>
                 <td style={{ padding: '4px 0', color: '#888' }}>IVA {config.ivaRate}%</td>
                 <td style={{ padding: '4px 0', textAlign: 'right', color: '#888' }}>${iva.toFixed(2)}</td>
@@ -1139,8 +1148,10 @@ function ProySummary({
 }) {
   const includedItems = items.filter(it => it.included)
   const subtotal = includedItems.reduce((sum, it) => sum + it.m2 * it.precioM2, 0)
-  const iva = Math.round(subtotal * config.ivaRate / 100 * 100) / 100
-  const total = subtotal + iva
+  const descuentoAmt = Math.round(subtotal * (config.descuento || 0) / 100 * 100) / 100
+  const subtotalDesc = subtotal - descuentoAmt
+  const iva = Math.round(subtotalDesc * config.ivaRate / 100 * 100) / 100
+  const total = subtotalDesc + iva
 
   const inputS = { ...S.input, width: 55, fontSize: 11 }
 
@@ -1178,6 +1189,18 @@ function ProySummary({
               value={config.tipoCambio}
               step={0.1}
               onChange={e => onConfigChange('tipoCambio', parseFloat(e.target.value) || 20.5)}
+              style={inputS}
+            />
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: 10, color: '#888' }}>Descuento %</span>
+            <input
+              type="number"
+              value={config.descuento || 0}
+              step={1}
+              min={0}
+              max={100}
+              onChange={e => onConfigChange('descuento', parseFloat(e.target.value) || 0)}
               style={inputS}
             />
           </div>
@@ -1226,6 +1249,20 @@ function ProySummary({
           <span style={{ color: '#888' }}>Subtotal</span>
           <span style={{ color: '#ccc' }}>${subtotal.toFixed(2)}</span>
         </div>
+        {(config.descuento || 0) > 0 && (
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              padding: '2px 0',
+              fontSize: 11,
+              marginBottom: 6,
+            }}
+          >
+            <span style={{ color: '#F59E0B' }}>Descuento {config.descuento}%</span>
+            <span style={{ color: '#F59E0B' }}>-${descuentoAmt.toFixed(2)}</span>
+          </div>
+        )}
         <div
           style={{
             display: 'flex',
@@ -1283,6 +1320,7 @@ export default function CotEditorProyecto({ cotId, onBack, specialty = 'proy' }:
     currency: 'MXN',
     tipoCambio: 20.5,
     ivaRate: 16,
+    descuento: 0,
   })
   const [stage, setStage] = useState('oportunidad')
   const [cotName, setCotName] = useState('')
@@ -1405,8 +1443,10 @@ export default function CotEditorProyecto({ cotId, onBack, specialty = 'proy' }:
   const grandTotal = useMemo(() => {
     const included = items.filter(it => it.included)
     const subtotal = included.reduce((sum, it) => sum + it.m2 * it.precioM2, 0)
-    const iva = subtotal * config.ivaRate / 100
-    return subtotal + iva
+    const descuentoAmt = subtotal * (config.descuento || 0) / 100
+    const subtotalDesc = subtotal - descuentoAmt
+    const iva = subtotalDesc * config.ivaRate / 100
+    return subtotalDesc + iva
   }, [items, config])
 
   // ── GUARDAR TODO ── botón explícito que persiste items + config + total
