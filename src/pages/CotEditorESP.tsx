@@ -2044,21 +2044,23 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
 
   async function bulkMoveSystem(targetSystemId: string) {
     const ids = Array.from(selectedProdIds)
+    if (ids.length === 0) return
     const sysName = ALL_SYSTEMS.find(s => s.id === targetSystemId)?.name || targetSystemId
+    // Update DB first, then local state
+    const { error } = await supabase.from('quotation_items').update({ system: sysName }).in('id', ids)
+    if (error) { console.error('bulkMoveSystem error:', error); alert('Error al mover sistema: ' + error.message); return }
     setProducts(p => p.map(pr => ids.includes(pr.id) ? { ...pr, systemId: targetSystemId } : pr))
-    for (const id of ids) {
-      await supabase.from('quotation_items').update({ system: sysName }).eq('id', id)
-    }
     setSelectedProdIds(new Set())
     setBulkAction('')
   }
 
   async function bulkMoveArea(targetAreaId: string) {
     const ids = Array.from(selectedProdIds)
+    if (ids.length === 0) return
+    // Update DB first, then local state
+    const { error } = await supabase.from('quotation_items').update({ area_id: targetAreaId }).in('id', ids)
+    if (error) { console.error('bulkMoveArea error:', error); alert('Error al mover área: ' + error.message); return }
     setProducts(p => p.map(pr => ids.includes(pr.id) ? { ...pr, areaId: targetAreaId } : pr))
-    for (const id of ids) {
-      await supabase.from('quotation_items').update({ area_id: targetAreaId }).eq('id', id)
-    }
     setSelectedProdIds(new Set())
     setBulkAction('')
   }
