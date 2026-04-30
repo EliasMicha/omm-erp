@@ -43,6 +43,42 @@ const ALL_SYSTEMS: EspSystemDef[] = [
   { id: 'general',             name: 'General',              color: '#64748B' },
 ]
 
+// Map system id → DB enum value (the enum uses lowercase/no-accent values)
+const SYSTEM_DB_NAME: Record<string, string> = {
+  'audio': 'Audio',
+  'redes': 'Redes',
+  'cctv': 'CCTV',
+  'control_acceso': 'Control de acceso',
+  'control_iluminacion': 'Control de iluminacion',
+  'deteccion_humo': 'Humo',
+  'bms': 'BMS',
+  'telefonia': 'Telefonia',
+  'red_celular': 'Celular',
+  'lutron_hwqs': 'Lutron',
+  'lutron': 'Lutron',
+  'somfy': 'Somfy',
+  'electrico': 'Electrico',
+  'cortinas': 'Cortinas',
+  'general': 'General',
+}
+function sysDbName(systemId: string): string {
+  return SYSTEM_DB_NAME[systemId] || ALL_SYSTEMS.find(s => s.id === systemId)?.name || systemId
+}
+// Reverse: DB enum value → system id
+const DB_NAME_TO_ID: Record<string, string> = Object.fromEntries(
+  Object.entries(SYSTEM_DB_NAME).map(([id, dbVal]) => [dbVal.toLowerCase(), id])
+)
+function dbNameToSysId(dbName: string): string {
+  const lower = (dbName || '').toLowerCase()
+  // Try reverse map first (handles Humo → deteccion_humo, etc.)
+  if (DB_NAME_TO_ID[lower]) return DB_NAME_TO_ID[lower]
+  // Try matching display name
+  const byName = ALL_SYSTEMS.find(s => s.name.toLowerCase() === lower)
+  if (byName) return byName.id
+  // Fallback
+  return lower.replace(/ /g, '_')
+}
+
 function uid(): string { return Math.random().toString(36).slice(2, 10) }
 
 /** Format number with commas and 2 decimals: 54448.22 → "54,448.22" */
@@ -854,7 +890,7 @@ function AIImportModal({ cotId, areas, activeSysIds, currency, tipoCambio, onClo
 
         if (!catalogProductId) {
           // NUEVO: Crear producto en catálogo con datos del Excel
-          const sysName = ALL_SYSTEMS.find(s => s.id === it.systemId)?.name || 'Audio'
+          const sysName = sysDbName(it.systemId)
           const newProductCost = it.costo || it.precio_unitario || 0
           const newProductMoneda = it.moneda || 'USD'
           const ruleNew = getPricingRule(prodProvider)
@@ -940,7 +976,7 @@ function AIImportModal({ cotId, areas, activeSysIds, currency, tipoCambio, onClo
           ? Math.round((1 - prodCost / precioOrigen) * 100)
           : rule.margen || 30
         const laborCost = calcLaborFromPrice(precio, rule)
-        const sysName = ALL_SYSTEMS.find(s => s.id === it.systemId)?.name || 'Audio'
+        const sysName = sysDbName(it.systemId)
         const areaId = areaCache[(it.area || 'General').toLowerCase().trim()]
         if (!areaId) {
           console.warn('Sin área para item', it)
@@ -1912,7 +1948,7 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
     else setAreas([])
     if (qItems && qItems.length > 0) {
       setProducts(qItems.map((it: any) => ({
-        id: it.id, areaId: it.area_id, systemId: ALL_SYSTEMS.find(s => s.name.toLowerCase() === (it.system || '').toLowerCase())?.id || (it.system || '').toLowerCase().replace(/ /g, '_'),
+        id: it.id, areaId: it.area_id, systemId: dbNameToSysId(it.system),
         catalogId: it.catalog_product_id || null, name: it.name, description: it.description || '',
         imageUrl: it.image_url || null, quantity: it.quantity, cost: it.cost || 0, price: it.price || 0,
         laborCost: it.installation_cost || 0, margin: it.markup || 30, order: it.order_index || 0,
@@ -2045,9 +2081,8 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
   async function bulkMoveSystem(targetSystemId: string) {
     const ids = Array.from(selectedProdIds)
     if (ids.length === 0) return
-    const sysName = ALL_SYSTEMS.find(s => s.id === targetSystemId)?.name || targetSystemId
-    // Update DB first, then local state
-    const { error } = await supabase.from('quotation_items').update({ system: sysName }).in('id', ids)
+    // Update DB first, then local state — use DB enum value, not display name
+    const { error } = await supabase.from('quotation_items').update({ system: sysDbName(targetSystemId) }).in('id', ids)
     if (error) { console.error('bulkMoveSystem error:', error); alert('Error al mover sistema: ' + error.message); return }
     setProducts(p => p.map(pr => ids.includes(pr.id) ? { ...pr, systemId: targetSystemId } : pr))
     setSelectedProdIds(new Set())
@@ -2071,7 +2106,7 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
     for (const id of ids) {
       const source = products.find(p => p.id === id)
       if (!source) continue
-      const sysName = ALL_SYSTEMS.find(s => s.id === source.systemId)?.name || source.systemId
+      const sysName = sysDbName(source.systemId)
       const { data, error } = await supabase.from('quotation_items').insert({
         quotation_id: cotId, area_id: targetAreaId, catalog_product_id: source.catalogId || null,
         name: source.name, description: source.description || null, system: sysName,
@@ -2192,7 +2227,7 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
   async function copyProductToAreas(productId: string, targetAreaIds: string[]) {
     const source = products.find(p => p.id === productId)
     if (!source) return
-    const sysName = ALL_SYSTEMS.find(s => s.id === source.systemId)?.name || source.systemId
+    const sysName = sysDbName(source.systemId)
     const newProducts: EspProduct[] = []
     for (const areaId of targetAreaIds) {
       const { data, error } = await supabase.from('quotation_items').insert({
@@ -2241,7 +2276,7 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
     // Convert to quote currency
     const precio = convertToQuoteCurrency(precioOrigen, prodMoneda)
     const laborCost = calcLaborFromPrice(precio, rule)
-    const sysName = ALL_SYSTEMS.find(s => s.id === addingTo.systemId)?.name || addingTo.systemId
+    const sysName = sysDbName(addingTo.systemId)
     const { data, error: itemErr } = await supabase.from('quotation_items').insert({
       quotation_id: cotId, area_id: addingTo.areaId, catalog_product_id: catProd.id || null,
       name: catProd.name, description: catProd.description || null, system: sysName,
@@ -2269,7 +2304,7 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
   async function handleAddBundle(bundle: CatBundle) {
     if (!addingTo) return
     const instanceId = uid() + uid() // unique instance id for this bundle insertion
-    const sysName = ALL_SYSTEMS.find(s => s.id === addingTo.systemId)?.name || addingTo.systemId
+    const sysName = sysDbName(addingTo.systemId)
     const newProds: EspProduct[] = []
 
     for (const item of bundle.items) {
@@ -2321,7 +2356,7 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
       : calcPriceFromCost(catProd.cost, rule, margin)
     const precio = convertToQuoteCurrency(precioOrigen, prodMoneda)
     const laborCost = calcLaborFromPrice(precio, rule)
-    const sysName = ALL_SYSTEMS.find(s => s.id === addingTo.systemId)?.name || addingTo.systemId
+    const sysName = sysDbName(addingTo.systemId)
     const { data, error: itemErr } = await supabase.from('quotation_items').insert({
       quotation_id: cotId, area_id: addingTo.areaId, catalog_product_id: catProd.id || null,
       name: catProd.name, description: catProd.description || null, system: sysName,
