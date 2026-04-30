@@ -410,6 +410,12 @@ const SYSTEM_PRESETS = [
   { id: 'bms', name: 'BMS', color: '#10B981' },
   { id: 'telefonia', name: 'Telefonía', color: '#F97316' },
   { id: 'red_celular', name: 'Señal Celular', color: '#EC4899' },
+  { id: 'lutron_hwqs', name: 'Lutron HW QS', color: '#A855F7' },
+  { id: 'lutron', name: 'Lutron', color: '#9333EA' },
+  { id: 'somfy', name: 'Somfy', color: '#14B8A6' },
+  { id: 'electrico', name: 'Eléctrico', color: '#EAB308' },
+  { id: 'cortinas', name: 'Cortinas', color: '#6366F1' },
+  { id: 'general', name: 'General', color: '#64748B' },
 ]
 
 interface ClienteSimple { id: string; razon_social: string; rfc: string }
