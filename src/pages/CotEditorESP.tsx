@@ -35,7 +35,8 @@ const ALL_SYSTEMS: EspSystemDef[] = [
   { id: 'bms',                 name: 'BMS',                  color: '#10B981' },
   { id: 'telefonia',           name: 'Telefonía',            color: '#F97316' },
   { id: 'red_celular',         name: 'Señal Celular',        color: '#EC4899' },
-  { id: 'lutron',              name: 'Lutron',               color: '#A855F7' },
+  { id: 'lutron_hwqs',          name: 'Lutron HW QS',         color: '#A855F7' },
+  { id: 'lutron',              name: 'Lutron',               color: '#9333EA' },
   { id: 'somfy',               name: 'Somfy',                color: '#14B8A6' },
   { id: 'electrico',           name: 'Eléctrico',            color: '#EAB308' },
   { id: 'cortinas',            name: 'Cortinas',             color: '#6366F1' },
@@ -495,8 +496,13 @@ function AIImportModal({ cotId, areas, activeSysIds, currency, tipoCambio, onClo
   function mapSystemToId(systemName: string): string {
     const s = (systemName || '').toLowerCase().trim()
     if (!s) return 'audio'
+    // Lutron HW QS must come before generic lutron check
+    if (s.includes('homeworks') || s.includes('hw qs') || s.includes('hwqs')) return 'lutron_hwqs'
+    if (s.includes('lutron')) return 'lutron'
+    if (s.includes('somfy')) return 'somfy'
+    if (s.includes('cortina')) return 'cortinas'
     if (s.includes('audio')) return 'audio'
-    if (s.includes('red')) return 'redes'
+    if (s.includes('red') && !s.includes('incendio')) return 'redes'
     if (s.includes('cctv') || s.includes('camara') || s.includes('video vigilancia')) return 'cctv'
     if (s.includes('acceso')) return 'control_acceso'
     if (s.includes('ilumin')) return 'control_iluminacion'
@@ -504,7 +510,11 @@ function AIImportModal({ cotId, areas, activeSysIds, currency, tipoCambio, onClo
     if (s.includes('bms') || s.includes('automatiz')) return 'bms'
     if (s.includes('telefon')) return 'telefonia'
     if (s.includes('celular') || s.includes('das')) return 'red_celular'
-    return 'audio'
+    if (s.includes('electri')) return 'electrico'
+    if (s.includes('general')) return 'general'
+    // Try exact match against ALL_SYSTEMS
+    const exact = ALL_SYSTEMS.find(sys => sys.name.toLowerCase() === s || sys.id === s)
+    return exact?.id || 'audio'
   }
 
   // Busca una columna por posibles nombres (case-insensitive, primer match gana)
