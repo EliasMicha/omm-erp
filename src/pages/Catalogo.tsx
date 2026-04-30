@@ -127,12 +127,10 @@ export default function Catalogo() {
   }
   async function bulkDelete() {
     if (selectedIds.size === 0) return
-    if (!confirm('¿Eliminar ' + selectedIds.size + ' productos del catálogo? Las cotizaciones que los usen mantendrán sus datos pero se desvinculan del catálogo.')) return
+    if (!confirm('¿Desactivar ' + selectedIds.size + ' productos del catálogo? No se borran, se marcan como inactivos.')) return
     setBulkSaving(true)
     const ids = Array.from(selectedIds)
-    // Desvincular referencias en quotation_items antes de eliminar
-    await supabase.from('quotation_items').update({ catalog_product_id: null }).in('catalog_product_id', ids)
-    const { error } = await supabase.from('catalog_products').delete().in('id', ids)
+    const { error } = await supabase.from('catalog_products').update({ is_active: false }).in('id', ids)
     if (error) {
       alert('Error: ' + error.message)
     } else {
