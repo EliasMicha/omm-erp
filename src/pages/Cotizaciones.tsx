@@ -784,6 +784,9 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
   const [activeTab, setActiveTab] = useState<'cotizacion' | 'cambios' | 'obra_real'>('cotizacion')
   const [changeOrders, setChangeOrders] = useState<any[]>([])
   const [showEditInfo, setShowEditInfo] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [bulkAction, setBulkAction] = useState<'' | 'moveArea' | 'moveSystem'>('')
+  const [bulkTarget, setBulkTarget] = useState('')
 
   useEffect(() => {
     async function load() {
@@ -1317,6 +1320,39 @@ Devuelve SOLO un JSON array sin markdown ni explicacion:
     syncQuotationTotal(newItems)
   }
 
+  function toggleSelect(id: string) {
+    setSelectedIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
+  }
+  function toggleSelectAll() {
+    if (selectedIds.size === displayItems.length) { setSelectedIds(new Set()); return }
+    setSelectedIds(new Set(displayItems.map(i => i.id)))
+  }
+  async function bulkRemove() {
+    if (!selectedIds.size || !confirm(`¿Eliminar ${selectedIds.size} producto(s)?`)) return
+    const ids = Array.from(selectedIds)
+    await supabase.from('quotation_items').delete().in('id', ids)
+    const newItems = items.filter(i => !selectedIds.has(i.id))
+    setItems(newItems)
+    syncQuotationTotal(newItems)
+    setSelectedIds(new Set())
+  }
+  async function bulkMoveArea(targetAreaId: string) {
+    if (!selectedIds.size || !targetAreaId) return
+    const ids = Array.from(selectedIds)
+    await supabase.from('quotation_items').update({ area_id: targetAreaId }).in('id', ids)
+    setItems(prev => prev.map(i => ids.includes(i.id) ? { ...i, area_id: targetAreaId } : i))
+    setSelectedIds(new Set())
+    setBulkAction(''); setBulkTarget('')
+  }
+  async function bulkMoveSystem(targetSystem: string) {
+    if (!selectedIds.size || !targetSystem) return
+    const ids = Array.from(selectedIds)
+    await supabase.from('quotation_items').update({ system: targetSystem }).in('id', ids)
+    setItems(prev => prev.map(i => ids.includes(i.id) ? { ...i, system: targetSystem } : i))
+    setSelectedIds(new Set())
+    setBulkAction(''); setBulkTarget('')
+  }
+
   if (loading||!cot) return <Loading/>
 
   const areaItems = items.filter(i => i.area_id === areaActiva)
@@ -1440,10 +1476,38 @@ Devuelve SOLO un JSON array sin markdown ni explicacion:
             <span style={{marginLeft:'auto',fontSize:13,fontWeight:700,color:esp.color}}>{F(displayTotal)}</span>
           </div>
 
+          {selectedIds.size > 0 && (
+            <div style={{padding:'6px 14px',background:'#1a2a1a',borderBottom:'1px solid #333',display:'flex',alignItems:'center',gap:10,flexShrink:0,flexWrap:'wrap'}}>
+              <span style={{fontSize:11,color:'#57FF9A',fontWeight:600}}>{selectedIds.size} seleccionado{selectedIds.size > 1 ? 's' : ''}</span>
+              <select value={bulkAction} onChange={e => { setBulkAction(e.target.value as any); setBulkTarget('') }} style={{fontSize:11,background:'#222',color:'#ccc',border:'1px solid #444',borderRadius:6,padding:'3px 8px',fontFamily:'inherit'}}>
+                <option value="">Acción...</option>
+                <option value="moveArea">Mover a área</option>
+                <option value="moveSystem">Cambiar sistema</option>
+              </select>
+              {bulkAction === 'moveArea' && (
+                <select value={bulkTarget} onChange={e => { if (e.target.value) bulkMoveArea(e.target.value) }} style={{fontSize:11,background:'#222',color:'#ccc',border:'1px solid #444',borderRadius:6,padding:'3px 8px',fontFamily:'inherit'}}>
+                  <option value="">Selecciona área...</option>
+                  {areas.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                </select>
+              )}
+              {bulkAction === 'moveSystem' && (
+                <select value={bulkTarget} onChange={e => { if (e.target.value) bulkMoveSystem(e.target.value) }} style={{fontSize:11,background:'#222',color:'#ccc',border:'1px solid #444',borderRadius:6,padding:'3px 8px',fontFamily:'inherit'}}>
+                  <option value="">Selecciona sistema...</option>
+                  {[...new Set(items.map(i => i.system).filter(Boolean))].map(s => <option key={s} value={s!}>{s}</option>)}
+                </select>
+              )}
+              <button onClick={bulkRemove} style={{fontSize:11,background:'#3a1a1a',color:'#EF4444',border:'1px solid #EF444444',borderRadius:6,padding:'3px 10px',cursor:'pointer',fontFamily:'inherit',fontWeight:600}}>Eliminar</button>
+              <button onClick={() => setSelectedIds(new Set())} style={{fontSize:11,background:'transparent',color:'#666',border:'1px solid #333',borderRadius:6,padding:'3px 10px',cursor:'pointer',fontFamily:'inherit'}}>Deseleccionar</button>
+            </div>
+          )}
+
           <div style={{flex:1,overflowY:'auto'}}>
             <table style={{width:'100%',borderCollapse:'collapse'}}>
               <thead>
                 <tr style={{background:'#1a1a1a',position:'sticky',top:0,zIndex:1}}>
+                  <th style={{padding:'6px 4px',borderBottom:'1px solid #222',width:28,textAlign:'center'}}>
+                    <input type="checkbox" checked={displayItems.length > 0 && selectedIds.size === displayItems.length} onChange={toggleSelectAll} style={{cursor:'pointer',accentColor:'#57FF9A'}} />
+                  </th>
                   {(isIlum ? ['Producto','Marca','Modelo','W','Cant.','Costo','Markup%','Precio','Total',''] : ['Producto','Sistema','Fase','Distrib.','Tipo','Cant.','Costo','Markup%','Precio','Total','']).map((h,i) => (
                     <th key={h} style={{padding:'6px 8px',fontSize:10,fontWeight:600,color:'#444',textAlign:(isIlum ? i>=4 : i>=5)?'right':'left',textTransform:'uppercase',letterSpacing:'0.06em',borderBottom:'1px solid #222',whiteSpace:'nowrap'}}>{h}</th>
                   ))}
@@ -1455,7 +1519,10 @@ Devuelve SOLO un JSON array sin markdown ni explicacion:
                   const supplierName = item.supplier_id ? suppliers.find(s => s.id === item.supplier_id)?.name : null
                   const catProd = catalog.find(c => c.id === item.catalog_product_id) as any
                   return (
-                  <tr key={item.id}>
+                  <tr key={item.id} style={{background: selectedIds.has(item.id) ? '#1a2a1a' : 'transparent'}}>
+                    <td style={{padding:'4px 4px',borderBottom:'1px solid #1a1a1a',textAlign:'center',width:28}}>
+                      <input type="checkbox" checked={selectedIds.has(item.id)} onChange={()=>toggleSelect(item.id)} style={{cursor:'pointer',accentColor:'#57FF9A'}} />
+                    </td>
                     <td style={{padding:'7px 8px',fontSize:12,fontWeight:500,color:'#ddd',borderBottom:'1px solid #1a1a1a'}}>{item.name}</td>
                     {!isIlum && <td style={{padding:'7px 8px',borderBottom:'1px solid #1a1a1a'}}>{item.system&&<Badge label={item.system} color="#555"/>}</td>}
                     {!isIlum && <td style={{padding:'7px 8px',borderBottom:'1px solid #1a1a1a'}}>{phaseCfg ? <Badge label={phaseCfg.label} color={phaseCfg.color}/> : <span style={{color:'#444',fontSize:10}}>--</span>}</td>}
@@ -1480,7 +1547,7 @@ Devuelve SOLO un JSON array sin markdown ni explicacion:
                   )
                 })}
                 <tr>
-                  <td colSpan={isIlum ? 10 : 11} style={{padding:'6px 8px'}}>
+                  <td colSpan={isIlum ? 11 : 12} style={{padding:'6px 8px'}}>
                     <Btn size="sm" onClick={()=>setShowCat(true)}><Plus size={12}/> Agregar producto</Btn>
                   </td>
                 </tr>
