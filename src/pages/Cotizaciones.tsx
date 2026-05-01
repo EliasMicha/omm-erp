@@ -782,7 +782,8 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
   const [aiImportProgress, setAiImportProgress] = useState('')
   const [aiImportResult, setAiImportResult] = useState<Array<{
     area?: string, systemId?: string, marca?: string, modelo?: string, descripcion?: string,
-    cantidad: number, precio_unitario?: number | null, costo?: number | null, moneda?: string | null,
+    cantidad: number, precio_unitario?: number | null, costo?: number | null, costo_mano_obra?: number | null,
+    unidad?: string, moneda?: string | null,
     provider?: string, catalog_product_id?: string | null, match_status?: 'exact' | 'partial' | 'none'
   }> | null>(null)
   const aiImportRef = useRef<HTMLInputElement>(null)
@@ -1123,23 +1124,32 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
     if (!firstRow || typeof firstRow !== 'object') return null
     const keys = Object.keys(firstRow).map(k => k.toLowerCase())
     const hasModel = keys.some(k => ['model','modelo','part number','sku'].includes(k))
-    if (!hasModel) return null
+    const hasName = keys.some(k => ['nombre','name','producto','concepto','partida','descripción','descripcion','short description'].includes(k))
+    const hasQty = keys.some(k => ['cantidad','cant','qty','quantity','item ext qty','item unit qty'].includes(k))
+    if (!hasModel && !hasName) return null
+    if (!hasModel && !hasQty) return null // need at least name + qty
 
     const items: any[] = []
     for (const row of rows) {
+      // Try modelo first, fall back to name/descripcion
       const model = findCol(row, ['Model', 'Modelo', 'Part Number', 'SKU'])
-      if (!model) continue
+      const name = findCol(row, ['Nombre', 'Name', 'Producto', 'Concepto', 'Partida', 'Descripción', 'Descripcion', 'Short Description', 'Description', 'Product Description'])
+      if (!model && !name) continue
       const manufacturer = findCol(row, ['Manufacturer', 'Marca', 'Brand', 'Fabricante']) || ''
       const vendor = findCol(row, ['Vendor', 'Proveedor', 'Supplier', 'Distribuidor', 'Dealer', 'Vendor Name']) || ''
       const room = findCol(row, ['Room', 'Area', 'Área', 'Zona', 'Ubicación', 'Location']) || ''
       const system = findCol(row, ['System', 'Sistema']) || ''
-      const description = findCol(row, ['Short Description', 'Description', 'Descripción', 'Descripcion', 'Product Description']) || ''
+      const unit = findCol(row, ['Unidad', 'Unit', 'UOM', 'U.M.']) || 'pza'
       const qtyRaw = findCol(row, ['Item Ext Qty', 'Item Unit Qty', 'Qty', 'Quantity', 'Cantidad', 'Cant'])
       const qty = qtyRaw != null ? parseFloat(String(qtyRaw)) : 1
-      const priceRaw = findCol(row, ['Unit Price', 'Precio Unitario', 'Price', 'Precio', 'Item Unit Price', 'Item Sell Price', 'Sell Price', 'MSRP', 'P.U.', 'PU'])
+      const priceRaw = findCol(row, ['Precio unitario', 'Unit Price', 'Precio Unitario', 'Price', 'Precio', 'Item Unit Price', 'Item Sell Price', 'Sell Price', 'MSRP', 'P.U.', 'PU'])
       const price = priceRaw != null ? parseFloat(String(priceRaw).replace(/[$,]/g, '')) : null
-      const costRaw = findCol(row, ['costo', 'Costo', 'Costo Unitario', 'Unit Cost', 'Cost', 'Dealer Cost', 'Net Cost', 'Costo Neto'])
+      // Costo material
+      const costRaw = findCol(row, ['COSTO MATERIAL', 'Costo Material', 'costo', 'Costo', 'Costo Unitario', 'Unit Cost', 'Cost', 'Dealer Cost', 'Net Cost', 'Costo Neto'])
       const costVal = costRaw != null ? parseFloat(String(costRaw).replace(/[$,]/g, '')) : null
+      // Costo mano de obra (installation cost)
+      const laborRaw = findCol(row, ['COSTO MANO DE OBRA', 'Costo Mano de Obra', 'Mano de Obra', 'Labor Cost', 'Installation Cost', 'Instalación'])
+      const laborVal = laborRaw != null ? parseFloat(String(laborRaw).replace(/[$,]/g, '')) : null
       const currencyRaw = findCol(row, ['Selling Currency', 'Cost Currency', 'Currency', 'Moneda'])
       let moneda: string | null = null
       if (currencyRaw) {
@@ -1152,11 +1162,13 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
         area: String(room).trim(),
         systemId: system || null,
         marca: String(manufacturer).trim(),
-        modelo: String(model).trim(),
-        descripcion: String(description).trim(),
+        modelo: model ? String(model).trim() : '',
+        descripcion: name ? String(name).trim() : (model ? String(model).trim() : ''),
         cantidad: isNaN(qty) ? 1 : Math.max(1, Math.round(qty)),
         precio_unitario: price != null && !isNaN(price) ? price : null,
         costo: costVal != null && !isNaN(costVal) ? costVal : null,
+        costo_mano_obra: laborVal != null && !isNaN(laborVal) ? laborVal : null,
+        unidad: String(unit).trim(),
         moneda,
         provider: String(vendor).trim() || String(manufacturer).trim(),
       })
@@ -1391,10 +1403,14 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
         }
       }
 
-      // Calculate price
+      // Calculate price — use precio_unitario from file if available
+      const installCost = it.costo_mano_obra || 0
       const price = it.precio_unitario || calcItemPrice(prodCost, prodMarkup)
-      const total = calcItemTotal(prodCost, prodMarkup, it.cantidad)
-      const finalTotal = it.precio_unitario ? it.precio_unitario * it.cantidad : total
+      const finalTotal = it.precio_unitario
+        ? it.precio_unitario * it.cantidad
+        : (price + installCost) * it.cantidad
+      // Determine type: if no material cost but has labor cost, it's a service
+      const itemType = (prodCost === 0 && installCost > 0) ? 'servicio' : 'material'
 
       const { data } = await supabase.from('quotation_items').insert({
         area_id: areaActiva,
@@ -1403,14 +1419,14 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
         name: itemName,
         description: it.descripcion || null,
         system: it.systemId || null,
-        type: 'material',
+        type: itemType,
         provider: prodProvider || null,
         quantity: it.cantidad,
         cost: prodCost,
         markup: prodMarkup,
         price: price,
         total: finalTotal,
-        installation_cost: 0,
+        installation_cost: installCost,
         order_index: items.filter(i => i.area_id === areaActiva).length + insertedCount,
         marca: it.marca || null,
         modelo: it.modelo || null,
@@ -1806,8 +1822,8 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
               <table style={{width:'100%',borderCollapse:'collapse'}}>
                 <thead>
                   <tr style={{background:'#1a1a1a'}}>
-                    {['Producto','Marca','Modelo','Cant.','Costo','Precio','Estado'].map(h => (
-                      <th key={h} style={{padding:'8px 10px',fontSize:10,fontWeight:600,color:'#666',textAlign: ['Cant.','Costo','Precio'].includes(h) ? 'right' : h === 'Estado' ? 'center' : 'left',textTransform:'uppercase',letterSpacing:'0.06em',borderBottom:'1px solid #222'}}>{h}</th>
+                    {['Producto','Cant.','Costo Mat.','Costo M.O.','P. Unitario','Estado'].map(h => (
+                      <th key={h} style={{padding:'8px 10px',fontSize:10,fontWeight:600,color:'#666',textAlign: ['Cant.','Costo Mat.','Costo M.O.','P. Unitario'].includes(h) ? 'right' : h === 'Estado' ? 'center' : 'left',textTransform:'uppercase',letterSpacing:'0.06em',borderBottom:'1px solid #222'}}>{h}</th>
                     ))}
                   </tr>
                 </thead>
@@ -1816,17 +1832,19 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
                     const matched = r.catalog_product_id ? catalog.find(p => p.id === r.catalog_product_id) : null
                     const displayName = r.descripcion || ((r.marca || '') + ' ' + (r.modelo || '')).trim() || 'Sin nombre'
                     const cost = r.costo || (matched?.cost) || 0
+                    const laborCost = r.costo_mano_obra || 0
                     const price = r.precio_unitario || (cost > 0 ? calcItemPrice(cost, matched?.markup || 30) : 0)
                     return (
                       <tr key={i} style={{borderBottom:'1px solid #222'}}>
-                        <td style={{padding:'8px 10px',fontSize:12,color:'#ddd',maxWidth:250}}>
+                        <td style={{padding:'8px 10px',fontSize:12,color:'#ddd',maxWidth:300}}>
                           <div style={{fontWeight:500,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{displayName}</div>
                           {matched && <div style={{fontSize:10,color:'#666'}}>→ {matched.name}</div>}
+                          {r.marca && <span style={{fontSize:9,color:'#888',marginRight:4}}>{r.marca}</span>}
+                          {r.modelo && <span style={{fontSize:9,color:'#666'}}>{r.modelo}</span>}
                         </td>
-                        <td style={{padding:'8px 10px',fontSize:11,color:'#aaa'}}>{r.marca || '—'}</td>
-                        <td style={{padding:'8px 10px',fontSize:11,color:'#aaa'}}>{r.modelo || '—'}</td>
                         <td style={{padding:'8px 10px',fontSize:12,color:'#ddd',textAlign:'right'}}>{r.cantidad}</td>
                         <td style={{padding:'8px 10px',fontSize:12,textAlign:'right',color: cost > 0 ? '#F59E0B' : '#555'}}>{cost > 0 ? F(cost) : '—'}</td>
+                        <td style={{padding:'8px 10px',fontSize:12,textAlign:'right',color: laborCost > 0 ? '#06B6D4' : '#555'}}>{laborCost > 0 ? F(laborCost) : '—'}</td>
                         <td style={{padding:'8px 10px',fontSize:12,color:'#ddd',textAlign:'right'}}>{price > 0 ? F(price) : '—'}</td>
                         <td style={{padding:'8px 10px',fontSize:12,textAlign:'center'}}>
                           <div style={{display:'inline-block',padding:'2px 8px',borderRadius:4,fontSize:10,fontWeight:600,
