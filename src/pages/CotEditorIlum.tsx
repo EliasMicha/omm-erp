@@ -176,11 +176,11 @@ function IlumCatalogModal({ onClose, onSelect, subsectionName }: {
 // ═══════════════════════════════════════════════════════════════════
 // SUBSECTION BLOCK
 // ═══════════════════════════════════════════════════════════════════
-function SubsectionBlock({ subsection, products, onToggle, onUpdate, onRemove, onAdd, allProducts, selectedIds, onToggleSelect, onSubstitute }: {
+function SubsectionBlock({ subsection, products, onToggle, onUpdate, onRemove, onAdd, allProducts, selectedIds, onToggleSelect, onSelectAll, onSubstitute }: {
   subsection: IlumSubsection; products: IlumProduct[]; onToggle: () => void
   onUpdate: (id: string, f: string, v: number | string) => void; onRemove: (id: string) => void
   onAdd: () => void; allProducts: IlumProduct[]
-  selectedIds?: Set<string>; onToggleSelect?: (id: string) => void; onSubstitute?: (p: IlumProduct) => void
+  selectedIds?: Set<string>; onToggleSelect?: (id: string) => void; onSelectAll?: (ids: string[], select: boolean) => void; onSubstitute?: (p: IlumProduct) => void
 }) {
   const subTotal = products.reduce((s, p) => s + calcLine(p).total, 0)
   return (
@@ -199,12 +199,9 @@ function SubsectionBlock({ subsection, products, onToggle, onUpdate, onRemove, o
                 <input type="checkbox"
                   checked={products.length > 0 && products.every(p => selectedIds?.has(p.id))}
                   onChange={() => {
-                    const allSelected = products.every(p => selectedIds?.has(p.id))
-                    products.forEach(p => {
-                      const isSelected = selectedIds?.has(p.id)
-                      if (allSelected && isSelected) onToggleSelect(p.id)
-                      else if (!allSelected && !isSelected) onToggleSelect(p.id)
-                    })
+                    const allSelected = products.length > 0 && products.every(p => selectedIds?.has(p.id))
+                    const ids = products.map(p => p.id)
+                    if (onSelectAll) onSelectAll(ids, !allSelected)
                   }}
                   style={{ accentColor: '#57FF9A', cursor: 'pointer' }} />
               </th>
@@ -917,6 +914,13 @@ export default function CotEditorIlum({ cotId, onBack }: { cotId: string; onBack
     setSelectedIds(newIds)
   }
 
+  function selectAllProducts(ids: string[], select: boolean) {
+    const newSet = new Set(selectedIds)
+    if (select) ids.forEach(id => newSet.add(id))
+    else ids.forEach(id => newSet.delete(id))
+    setSelectedIds(newSet)
+  }
+
   async function syncSelectedWithCatalog() {
     const ids = Array.from(selectedIds)
     const toSync = products.filter(p => ids.includes(p.id) && p.catalogId)
@@ -1142,6 +1146,7 @@ export default function CotEditorIlum({ cotId, onBack }: { cotId: string; onBack
                 allProducts={products}
                 selectedIds={selectedIds}
                 onToggleSelect={toggleProductSelect}
+                onSelectAll={selectAllProducts}
                 onSubstitute={(p) => setSubstitutingProduct(p)}
               />
               <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '4px 8px', gap: 20 }}>
