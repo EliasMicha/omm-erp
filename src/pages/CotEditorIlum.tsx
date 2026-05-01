@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { F, STAGE_CONFIG } from '../lib/utils'
 import { Btn, Loading } from '../components/layout/UI'
-import { Plus, ChevronDown, ChevronRight, X, Trash2, Image as ImageIcon, Search, ArrowLeftRight, Sparkles, Upload, Loader2, FileText, RefreshCw } from 'lucide-react'
+import { Plus, ChevronDown, ChevronRight, X, Trash2, Image as ImageIcon, Search, ArrowLeftRight, Sparkles, Upload, Loader2, FileText, RefreshCw, BookOpen } from 'lucide-react'
 import { useIsMobile } from '../lib/useIsMobile'
 
 // ═══════════════════════════════════════════════════════════════════
@@ -1075,6 +1075,9 @@ export default function CotEditorIlum({ cotId, onBack }: { cotId: string; onBack
           <button onClick={() => setShowAIImport(true)} style={{ padding: '6px 12px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #57FF9A44', background: 'transparent', color: '#57FF9A', display: 'inline-flex', alignItems: 'center', gap: 4 }}><Sparkles size={12} /> {isMobile ? 'AI' : 'Importar con AI'}</button>
           <button onClick={syncAllWithCatalog} style={{ padding: '6px 12px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #3B82F644', background: 'transparent', color: '#3B82F6', display: 'inline-flex', alignItems: 'center', gap: 4 }}><RefreshCw size={12} /> {isMobile ? 'Sync' : 'Sync catálogo'}</button>
           <button onClick={() => setShowPdfPicker(true)} style={{ padding: '6px 12px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #06B6D444', background: 'transparent', color: '#06B6D4', display: 'inline-flex', alignItems: 'center', gap: 4 }}><FileText size={12} /> {isMobile ? 'PDF' : 'Exportar PDF'}</button>
+          {quote && (quote.stage === 'contrato' || quote.stage === 'propuesta') && (
+            <button onClick={() => window.open(`/cotizacion/${cotId}/memoria-tecnica`, '_blank')} style={{ padding: '6px 12px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #F59E0B44', background: 'transparent', color: '#F59E0B', display: 'inline-flex', alignItems: 'center', gap: 4 }}><BookOpen size={12} /> {isMobile ? 'Memoria' : 'Memoria Técnica'}</button>
+          )}
           <div style={{ fontSize: isMobile ? 14 : 16, fontWeight: 700, color: '#57FF9A' }}>${fmt(grandTotal)}</div>
         </div>
 

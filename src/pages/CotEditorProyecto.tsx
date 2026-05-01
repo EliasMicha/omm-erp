@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 import { F, STAGE_CONFIG } from '../lib/utils'
 import { Badge, Btn, Loading } from '../components/layout/UI'
-import { ChevronLeft, ChevronDown, ChevronRight, Settings, X, Printer, Download, Save, Check, Pencil } from 'lucide-react'
+import { ChevronLeft, ChevronDown, ChevronRight, Settings, X, Printer, Download, Save, Check, Pencil, BookOpen } from 'lucide-react'
 import EditCotInfoModal from '../components/EditCotInfoModal'
 import { OMNIIOUS_LOGO } from '../assets/logo'
 import { autoCreateProjectFromQuotation } from '../lib/projectUtils'
@@ -1668,6 +1668,19 @@ export default function CotEditorProyecto({ cotId, onBack, specialty = 'proy' }:
           >
             <Printer size={12} /> Propuesta
           </button>
+          {(stage === 'contrato' || stage === 'propuesta') && (
+            <button
+              onClick={() => window.open(`/cotizacion/${cotId}/memoria-tecnica`, '_blank')}
+              style={{
+                padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600,
+                cursor: 'pointer', fontFamily: 'inherit',
+                border: '1px solid #F59E0B44', background: 'transparent', color: '#F59E0B',
+                display: 'flex', alignItems: 'center', gap: 4,
+              }}
+            >
+              <BookOpen size={12} /> Memoria Técnica
+            </button>
+          )}
           <span style={{ fontSize: 15, fontWeight: 700, color: BADGE_COLOR, marginLeft: 10 }}>
             ${grandTotal.toFixed(2)}
           </span>

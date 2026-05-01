@@ -93,11 +93,27 @@ function getTipoCambio(cot: QuotationFull): number | null {
 }
 
 function getDescuento(cot: QuotationFull): number {
-  try { const m = JSON.parse(cot.notes || '{}'); return Number(m.descuento) || 0 } catch { return 0 }
+  try {
+    const m = JSON.parse(cot.notes || '{}')
+    // Check ilumConfig.descuento, proyConfig.descuento, or top-level descuento
+    if (m.ilumConfig && typeof m.ilumConfig.descuento === 'number') return m.ilumConfig.descuento
+    if (m.proyConfig && typeof m.proyConfig.descuento === 'number') return m.proyConfig.descuento
+    return Number(m.descuento) || 0
+  } catch { return 0 }
 }
 
 function getProgramacion(cot: QuotationFull): number {
   try { const m = JSON.parse(cot.notes || '{}'); return Number(m.programacion) || 0 } catch { return 0 }
+}
+
+function getIvaRate(cot: QuotationFull): number {
+  try {
+    const m = JSON.parse(cot.notes || '{}')
+    // ilumConfig (iluminación) or proyConfig (proyecto) may override IVA rate
+    if (m.ilumConfig && typeof m.ilumConfig.ivaRate === 'number') return m.ilumConfig.ivaRate
+    if (m.proyConfig && typeof m.proyConfig.ivaRate === 'number') return m.proyConfig.ivaRate
+    return 16
+  } catch { return 16 }
 }
 
 function shortId(id: string): string { return id.substring(0, 8).toUpperCase() }
@@ -305,6 +321,7 @@ function CotizacionPdfInner() {
   const currency = getCurrency(cot)
   const tipoCambio = getTipoCambio(cot)
   const descuentoPct = getDescuento(cot)
+  const ivaRate = getIvaRate(cot)
   const programacion = getProgramacion(cot)
   const materialItems = items.filter(i => i.type !== 'labor')
   const laborItems = items.filter(i => i.type === 'labor')
@@ -318,7 +335,7 @@ function CotizacionPdfInner() {
   const subtotal = subtotalItems + subtotalInstalacion + subtotalManoObra + programacion
   const descuentoAmt = subtotal * descuentoPct / 100
   const subtotalConDesc = subtotal - descuentoAmt
-  const iva = subtotalConDesc * 0.16
+  const iva = subtotalConDesc * ivaRate / 100
   const totalCon = subtotalConDesc + iva
 
   // Agrupar por sistema (resumen + alcance)
@@ -687,7 +704,7 @@ function CotizacionPdfInner() {
                 </tr>
               )}
               <tr>
-                <td style={{ color: '#888' }}>IVA 16%</td>
+                <td style={{ color: '#888' }}>IVA {ivaRate}%</td>
                 <td style={{ textAlign: 'right', color: '#888' }}>{FCUR(iva, currency)}</td>
               </tr>
               <tr style={{ borderTop: '1px solid #111' }}>
@@ -716,6 +733,7 @@ function CotizacionPdfInner() {
                 <th style={{ width: 72 }}>Sistema</th>
                 <th style={{ textAlign: 'center', width: 42 }}>Cant</th>
                 <th style={{ textAlign: 'right', width: 90 }}>P. unit.</th>
+                <th style={{ textAlign: 'right', width: 90 }}>Total</th>
               </tr>
             </thead>
             <tbody>
@@ -737,6 +755,7 @@ function CotizacionPdfInner() {
                   <td style={{ fontSize: 9, color: '#666' }}>{it.system || '—'}</td>
                   <td style={{ textAlign: 'center' }}>{it.quantity}</td>
                   <td style={{ textAlign: 'right', fontWeight: 500 }}>{FCUR(it.price, currency)}</td>
+                  <td style={{ textAlign: 'right', fontWeight: 600 }}>{FCUR(it.price * it.quantity, currency)}</td>
                 </tr>
               ))}
             </tbody>
@@ -772,6 +791,7 @@ function CotizacionPdfInner() {
                             {mostrarCostosInternos && <th style={{ textAlign: 'center', width: 42 }}>MUp</th>}
                             <th style={{ textAlign: 'center', width: 42 }}>Cant</th>
                             <th style={{ textAlign: 'right', width: 90 }}>P. unit.</th>
+                            <th style={{ textAlign: 'right', width: 90 }}>Total</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -801,6 +821,7 @@ function CotizacionPdfInner() {
                               {mostrarCostosInternos && <td style={{ textAlign: 'center', color: '#888', fontSize: 9 }}>{it.markup || 0}%</td>}
                               <td style={{ textAlign: 'center' }}>{it.quantity}</td>
                               <td style={{ textAlign: 'right', fontWeight: 500 }}>{FCUR(it.price, currency)}</td>
+                              <td style={{ textAlign: 'right', fontWeight: 600 }}>{FCUR(it.price * it.quantity, currency)}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -856,7 +877,7 @@ function CotizacionPdfInner() {
                 </tr>
               )}
               <tr>
-                <td style={{ padding: '4px 0', color: '#888' }}>IVA 16%</td>
+                <td style={{ padding: '4px 0', color: '#888' }}>IVA {ivaRate}%</td>
                 <td style={{ padding: '4px 0', textAlign: 'right', color: '#888' }}>{FCUR(iva, currency)}</td>
               </tr>
               <tr>

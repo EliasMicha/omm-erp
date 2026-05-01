@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase'
 import { F, STAGE_CONFIG } from '../lib/utils'
 import { Badge, Btn, Loading } from '../components/layout/UI'
 import { ANTHROPIC_API_KEY } from '../lib/config'
-import { Plus, ChevronLeft, ChevronRight, ChevronDown, X, Trash2, Image as ImageIcon, Search, RefreshCw, Sparkles, Upload, Loader2, FileText, Package, ArrowLeftRight } from 'lucide-react'
+import { Plus, ChevronLeft, ChevronRight, ChevronDown, X, Trash2, Image as ImageIcon, Search, RefreshCw, Sparkles, Upload, Loader2, FileText, Package, ArrowLeftRight, BookOpen } from 'lucide-react'
 import ImageUpload from '../components/ImageUpload'
 import { useIsMobile } from '../lib/useIsMobile'
 
@@ -2415,6 +2415,9 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
             <>
               <button onClick={() => setShowAIImport(true)} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #57FF9A44', background: 'transparent', color: '#57FF9A', marginLeft: 8, display: 'inline-flex', alignItems: 'center', gap: 4 }}><Sparkles size={11} /> Importar con AI</button>
               <button onClick={() => setShowPdfPicker(true)} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #06B6D444', background: 'transparent', color: '#06B6D4', display: 'inline-flex', alignItems: 'center', gap: 4 }}><FileText size={11} /> Exportar PDF</button>
+              {(stage === 'contrato' || stage === 'propuesta') && (
+                <button onClick={() => window.open(`/cotizacion/${cotId}/memoria-tecnica`, '_blank')} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #F59E0B44', background: 'transparent', color: '#F59E0B', display: 'inline-flex', alignItems: 'center', gap: 4 }}><BookOpen size={11} /> Memoria Técnica</button>
+              )}
               <button onClick={() => setShowSystemPicker(true)} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #57FF9A44', background: 'transparent', color: '#57FF9A' }}>⚙ Sistemas ({activeSysIds.length})</button>
               <button onClick={() => setShowInt(!showInt)} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid ' + (showInt ? '#F59E0B' : '#333'), background: showInt ? '#F59E0B22' : 'transparent', color: showInt ? '#F59E0B' : '#555' }}>{showInt ? '👁 Interno' : '👁 Cliente'}</button>
             </>

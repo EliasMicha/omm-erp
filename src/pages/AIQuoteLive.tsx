@@ -276,11 +276,37 @@ export default function AIQuoteLive({
     setEditingItems(proposedItems.map(item => ({ ...item })))
   }, [proposedItems])
 
-  /* ─── Load zones on mount ─── */
+  /* ─── Reset step state when currentStep changes ─── */
   useEffect(() => {
-    if (currentStep === 'zones' && zones.length === 0) {
-      loadZones()
+    if (currentStep === 'zones') {
+      if (zones.length === 0) loadZones()
+      return
     }
+
+    const systemEnum = SYSTEM_ENUM[currentStep]
+    if (!systemEnum) {
+      // Non-system step (rack, review, done) — clear items
+      setProposedItems([])
+      setEditingItems([])
+      setStepChatMessages([])
+      setStepChatInput('')
+      return
+    }
+
+    // System step — restore previously confirmed items, or start fresh
+    const savedItems = confirmedItems[systemEnum]
+    if (savedItems && savedItems.length > 0) {
+      setProposedItems(savedItems.map(item => ({ ...item })))
+      // editingItems will be set by the useEffect above
+    } else {
+      setProposedItems([])
+      setEditingItems([])
+    }
+
+    // Clear chat for this step
+    setStepChatMessages([])
+    setStepChatInput('')
+    setItemsError(null)
   }, [currentStep])
 
   /* ─── Auto-load removed: user must use chat or catalog to add items (saves tokens) ─── */
@@ -346,13 +372,20 @@ export default function AIQuoteLive({
       const filteredCatalog = catalog.filter(p => allSystemNames.includes(p.system))
 
       const zoneList = zones.map(z => `- ${z.name} (${z.level}, ${z.estimated_m2}m²)`).join('\n')
+      const catalogCompact = filteredCatalog.slice(0, 80).map(p =>
+        `  ${p.id} | ${p.marca || '-'} | ${p.modelo || '-'} | ${p.name} | $${p.cost || 0}`
+      ).join('\n')
       const msg = `Proyecto: ${scope.tipo}, ${scope.tamano_m2 || '?'}m², nivel ${scope.nivel}.
 Zonas confirmadas:
 ${zoneList}
 
-Para el sistema "${systemName}", propón los equipos necesarios por zona. Prioriza productos del catálogo.
+Catálogo disponible para "${systemName}":
+${catalogCompact || '(vacío)'}
+
+Para el sistema "${systemName}", propón los equipos necesarios para TODAS las zonas. Asigna equipos a CADA zona que lo requiera.
+PRIORIZA productos del catálogo — cuando uses uno, incluye su catalog_product_id exacto.
 RESPONDE ÚNICAMENTE con JSON válido, sin texto adicional:
-{"items": [{"zone": "NombreZona", "marca": "...", "modelo": "...", "description": "breve", "quantity": 1, "notes": ""}]}`
+{"items": [{"zone": "NombreZona", "catalog_product_id": "uuid-o-null", "marca": "...", "modelo": "...", "description": "breve", "quantity": 1, "notes": "justificación"}]}`
 
       const result = await callAI(
         [{ role: 'user', content: msg }],
@@ -381,10 +414,8 @@ RESPONDE ÚNICAMENTE con JSON válido, sin texto adicional:
     }
   }
 
-  // Reset step chat when changing steps
+  // Close catalog search when changing steps (chat reset is in main step useEffect above)
   useEffect(() => {
-    setStepChatMessages([])
-    setStepChatInput('')
     setShowCatalogSearch(false)
   }, [currentStep])
 
@@ -416,12 +447,18 @@ RESPONDE ÚNICAMENTE con JSON válido, sin texto adicional:
 
     try {
       const zoneList = zones.map(z => `${z.name} (${z.level}, ${z.estimated_m2}m²)`).join(', ')
+      const catalogCompact = filteredCatalog.slice(0, 80).map(p =>
+        `  ${p.id} | ${p.marca || '-'} | ${p.modelo || '-'} | ${p.name} | $${p.cost || 0}`
+      ).join('\n')
       const context = `[CONTEXTO: Proyecto ${scope.tipo}, ${scope.tamano_m2 || '?'}m², nivel ${scope.nivel}. Zonas: ${zoneList}. Sistema: ${systemName}. Items actuales: ${currentItemsSummary}]
+
+Catálogo disponible:
+${catalogCompact || '(vacío)'}
 
 Instrucción del usuario: ${msg}
 
-Responde con JSON: {"reply": "texto corto confirmando qué hiciste", "items": [{"zone": "NombreZona", "marca": "...", "modelo": "...", "description": "...", "quantity": 1, "notes": ""}]}
-La lista de items debe ser COMPLETA (incluye los existentes si no cambiaron). Usa catálogo si hay coincidencias. SOLO JSON.`
+Responde con JSON: {"reply": "texto corto confirmando qué hiciste", "items": [{"zone": "NombreZona", "catalog_product_id": "uuid-del-catalogo-o-null", "marca": "...", "modelo": "...", "description": "...", "quantity": 1, "notes": ""}]}
+La lista de items debe ser COMPLETA para TODAS las zonas que necesiten este sistema (incluye los existentes si no cambiaron). Cuando uses un producto del catálogo, incluye su catalog_product_id. SOLO JSON.`
 
       // Build conversation history as alternating user/assistant, with context in latest user msg
       const chatHistory: { role: string; content: string }[] = []
@@ -644,7 +681,24 @@ La lista de items debe ser COMPLETA (incluye los existentes si no cambiaron). Us
                 if (cp) catalogCache[catalogId!] = cp
               }
               productData = catalogCache[catalogId!]
-            } else {
+            } else if (it.marca && it.modelo) {
+              // Try to find existing catalog product by marca+modelo before creating new
+              const { data: existingProd } = await supabase
+                .from('catalog_products')
+                .select('id,name,description,cost,markup,provider,moneda,system')
+                .ilike('marca', it.marca.trim())
+                .ilike('modelo', it.modelo.trim())
+                .limit(1)
+                .single()
+              if (existingProd) {
+                catalogId = existingProd.id
+                catalogCache[existingProd.id] = existingProd
+                createdProducts[cacheKey] = existingProd.id
+                productData = existingProd
+                console.log('[AIQuoteLive] Found existing catalog product:', existingProd.id, it.marca, it.modelo)
+              }
+            }
+            if (!catalogId || !productData) {
               const productName =
                 '[AI Suggested] ' + (it.description || ((it.marca + ' ' + it.modelo).trim() || 'Producto'))
               const { data: newProd, error: pErr } = await supabase

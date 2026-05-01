@@ -18,6 +18,7 @@ import Finanzas from './pages/Finanzas'
 import Empleados from './pages/Empleados'
 import EmpleadoExpediente from './pages/EmpleadoExpediente'
 import CotizacionPdf from './pages/CotizacionPdf'
+import MemoriaTecnica from './pages/MemoriaTecnica'
 import LeadDashboard from './pages/LeadDashboard'
 import ObraApp from './obra-app/ObraApp'
 import ChatBot from './components/ChatBot'
@@ -29,6 +30,7 @@ export default function App() {
       <Routes>
         {/* Vista PDF — sin sidebar ni layout oscuro, abre en pestaña propia */}
         <Route path="/cotizacion/:id/pdf/:format" element={<CotizacionPdf />} />
+        <Route path="/cotizacion/:id/memoria-tecnica" element={<MemoriaTecnica />} />
         {/* App móvil para instaladores — sin sidebar */}
         <Route path="/obra-app/*" element={<ObraApp />} />
         {/* Layout principal con sidebar para el resto */}
