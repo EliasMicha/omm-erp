@@ -6,7 +6,8 @@ import { useIsMobile } from '../lib/useIsMobile'
 import {
   ArrowLeft, FileText, DollarSign, ShoppingCart, Briefcase,
   HardHat, AlertTriangle, ChevronDown, ChevronRight, ExternalLink,
-  CheckCircle2, Clock, XCircle, TrendingUp, Package, BarChart3, Plus, X, Download
+  CheckCircle2, Clock, XCircle, TrendingUp, Package, BarChart3, Plus, X, Download,
+  Sparkles, Loader2,
 } from 'lucide-react'
 import jsPDF from 'jspdf'
 
@@ -72,6 +73,11 @@ export default function LeadDashboard() {
   const [showNewMilestone, setShowNewMilestone] = useState(false)
   const [cobrarModal, setCobrarModal] = useState<any>(null) // milestone being marked as cobrado
 
+  // AI Quotation Summary
+  const [aiSummary, setAiSummary] = useState<any>(null)
+  const [aiSummaryLoading, setAiSummaryLoading] = useState(false)
+  const [aiSummaryError, setAiSummaryError] = useState<string | null>(null)
+
   // Collapsible sections
   const [expanded, setExpanded] = useState<Record<string, boolean>>({
     cotizaciones: true, estado: true, compras: true, proyectos: true, obra: true, bloqueos: true,
@@ -108,7 +114,7 @@ export default function LeadDashboard() {
     const projIds = new Set(leadProjects.map(p => p.id))
 
     // 4. Parallel: POs, milestones, obras, tasks, phases, employees, quotation items, bank movements
-    const [posRes, msRes, obrasRes, tasksRes, phasesRes, empRes, qiRes, bmRes] = await Promise.all([
+    const [posRes, msRes, obrasRes, tasksRes, phasesRes, empRes, qiRes, bmRes, areasRes] = await Promise.all([
       supabase.from('purchase_orders').select('*').in('project_id', [...projIds]),
       supabase.from('payment_milestones').select('*,currency,amount_paid_mxn,tipo_cambio_pago').in('project_id', [...projIds]),
       supabase.from('obras').select('*').in('project_id', [...projIds]),
@@ -117,11 +123,15 @@ export default function LeadDashboard() {
       supabase.from('employees').select('id,nombre,area').eq('activo', true),
       supabase.from('quotation_items').select('*').in('quotation_id', [...quotIds]),
       supabase.from('bank_movements').select('*').eq('lead_id', id!).order('fecha', { ascending: false }),
+      supabase.from('quotation_areas').select('id,name,quotation_id').in('quotation_id', [...quotIds]),
     ])
     setPos(posRes.data || [])
     setMilestones(msRes.data || [])
     setEmployees(empRes.data || [])
-    setQuotItems(qiRes.data || [])
+    // Enrich quotation items with area names
+    const areaMap: Record<string, string> = {}
+    ;(areasRes.data || []).forEach((a: any) => { areaMap[a.id] = a.name })
+    setQuotItems((qiRes.data || []).map((qi: any) => ({ ...qi, area_name: areaMap[qi.area_id] || 'Sin área' })))
     setTasks(tasksRes.data || [])
     setPhases(phasesRes.data || [])
     setBankMovements(bmRes.data || [])
@@ -141,6 +151,34 @@ export default function LeadDashboard() {
     }
 
     setLoading(false)
+  }
+
+  // ── AI QUOTATION SUMMARY ──────────────────────────────
+  async function generateAiSummary() {
+    if (quotations.length < 2 || aiSummaryLoading) return
+    setAiSummaryLoading(true)
+    setAiSummaryError(null)
+    try {
+      const resp = await fetch('/api/resumen-cotizaciones', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          quotations,
+          items: quotItems,
+          leadName: lead?.name || '',
+        }),
+      })
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({ error: 'Error ' + resp.status }))
+        throw new Error(err.error || 'Error generando resumen')
+      }
+      const data = await resp.json()
+      setAiSummary(data)
+    } catch (err: any) {
+      setAiSummaryError(err.message || 'Error generando resumen')
+    } finally {
+      setAiSummaryLoading(false)
+    }
   }
 
   // ── EXPORT ESTADO DE CUENTA PDF ──────────────────────────────
@@ -530,7 +568,139 @@ export default function LeadDashboard() {
             </table>
           </div>
         )}
-      </Section>
+
+        {/* AI Summary Button — only when 2+ quotations */}
+          {quotations.length >= 2 && (
+            <div style={{ marginTop: 16 }}>
+              {!aiSummary && !aiSummaryLoading && (
+                <button
+                  onClick={generateAiSummary}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 8,
+                    padding: '10px 18px', background: 'linear-gradient(135deg, #7C3AED22, #C084FC22)',
+                    border: '1px solid #7C3AED44', borderRadius: 10, color: '#C084FC',
+                    cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, fontWeight: 600,
+                    transition: 'all 0.2s',
+                  }}
+                  onMouseEnter={e => { (e.target as HTMLElement).style.background = 'linear-gradient(135deg, #7C3AED33, #C084FC33)' }}
+                  onMouseLeave={e => { (e.target as HTMLElement).style.background = 'linear-gradient(135deg, #7C3AED22, #C084FC22)' }}
+                >
+                  <Sparkles size={14} /> Generar resumen comparativo con IA
+                </button>
+              )}
+
+              {aiSummaryLoading && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 14, background: '#141414', border: '1px solid #222', borderRadius: 10, color: '#888', fontSize: 12 }}>
+                  <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} />
+                  Analizando {quotations.length} cotizaciones...
+                </div>
+              )}
+
+              {aiSummaryError && (
+                <div style={{ padding: 12, background: '#2a1414', border: '1px solid #5a282844', borderRadius: 10, color: '#f87171', fontSize: 12, marginTop: 8 }}>
+                  {aiSummaryError}
+                  <button onClick={generateAiSummary} style={{ marginLeft: 12, color: '#C084FC', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 600, fontSize: 11 }}>
+                    Reintentar
+                  </button>
+                </div>
+              )}
+
+              {aiSummary && (
+                <div style={{ background: '#0e0e0e', border: '1px solid #7C3AED33', borderRadius: 12, overflow: 'hidden' }}>
+                  {/* Header */}
+                  <div style={{ padding: '12px 16px', background: '#7C3AED11', borderBottom: '1px solid #7C3AED22', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#C084FC', fontSize: 12, fontWeight: 600 }}>
+                      <Sparkles size={14} /> Resumen Comparativo IA
+                    </div>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button onClick={generateAiSummary} style={{ padding: '3px 10px', background: 'none', border: '1px solid #333', borderRadius: 6, color: '#888', cursor: 'pointer', fontSize: 10, fontFamily: 'inherit' }}>
+                        Regenerar
+                      </button>
+                      <button onClick={() => setAiSummary(null)} style={{ padding: '3px 10px', background: 'none', border: '1px solid #333', borderRadius: 6, color: '#888', cursor: 'pointer', fontSize: 10, fontFamily: 'inherit' }}>
+                        Cerrar
+                      </button>
+                    </div>
+                  </div>
+
+                  <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 16 }}>
+                    {/* Resumen Ejecutivo */}
+                    {aiSummary.resumen_ejecutivo && (
+                      <div>
+                        <div style={{ fontSize: 11, fontWeight: 600, color: '#C084FC', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Resumen Ejecutivo</div>
+                        <div style={{ fontSize: 12, color: '#bbb', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{aiSummary.resumen_ejecutivo}</div>
+                      </div>
+                    )}
+
+                    {/* Per-quotation cards */}
+                    {aiSummary.cotizaciones?.length > 0 && (
+                      <div>
+                        <div style={{ fontSize: 11, fontWeight: 600, color: '#C084FC', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Por Cotización</div>
+                        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : `repeat(${Math.min(aiSummary.cotizaciones.length, 3)}, 1fr)`, gap: 10 }}>
+                          {aiSummary.cotizaciones.map((cot: any, i: number) => (
+                            <div key={i} style={{ padding: 12, background: '#141414', border: '1px solid #222', borderRadius: 8 }}>
+                              <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 6 }}>{cot.nombre}</div>
+                              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
+                                <Badge label={cot.especialidad?.toUpperCase()} color="#555" />
+                                <Badge label={STAGE_LABELS[cot.etapa] || cot.etapa} color={STAGE_COLORS[cot.etapa] || '#555'} />
+                              </div>
+                              <div style={{ fontSize: 18, fontWeight: 700, color: '#57FF9A', marginBottom: 8 }}>
+                                {cot.moneda === 'USD' ? 'US$' : '$'}{(cot.total_con_iva || 0).toLocaleString('es-MX', { maximumFractionDigits: 0 })}
+                                <span style={{ fontSize: 9, color: '#555', marginLeft: 4, fontWeight: 400 }}>c/IVA</span>
+                              </div>
+                              <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>
+                                {cot.areas_count} áreas · {cot.items_count} items
+                              </div>
+                              {cot.sistemas?.length > 0 && (
+                                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 6 }}>
+                                  {cot.sistemas.map((s: string) => (
+                                    <span key={s} style={{ fontSize: 9, padding: '2px 6px', background: '#C084FC15', border: '1px solid #C084FC33', borderRadius: 4, color: '#C084FC' }}>{s}</span>
+                                  ))}
+                                </div>
+                              )}
+                              {cot.marcas_destacadas?.length > 0 && (
+                                <div style={{ fontSize: 10, color: '#666' }}>Marcas: {cot.marcas_destacadas.join(', ')}</div>
+                              )}
+                              {cot.observaciones && (
+                                <div style={{ fontSize: 11, color: '#999', marginTop: 6, fontStyle: 'italic' }}>{cot.observaciones}</div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Comparativa */}
+                    {aiSummary.comparativa && (
+                      <div>
+                        <div style={{ fontSize: 11, fontWeight: 600, color: '#C084FC', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Comparativa</div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                          {aiSummary.comparativa.diferencias_clave?.map((d: string, i: number) => (
+                            <div key={i} style={{ padding: '8px 12px', background: '#141414', border: '1px solid #222', borderRadius: 6, fontSize: 12, color: '#bbb', display: 'flex', gap: 8 }}>
+                              <span style={{ color: '#F59E0B', flexShrink: 0 }}>▸</span> {d}
+                            </div>
+                          ))}
+                          {aiSummary.comparativa.productos_diferentes?.map((d: string, i: number) => (
+                            <div key={'p' + i} style={{ padding: '8px 12px', background: '#141414', border: '1px solid #222', borderRadius: 6, fontSize: 12, color: '#bbb', display: 'flex', gap: 8 }}>
+                              <span style={{ color: '#3B82F6', flexShrink: 0 }}>◆</span> {d}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Recomendación */}
+                    {aiSummary.recomendacion && (
+                      <div style={{ padding: 14, background: '#0a1a0a', border: '1px solid #57FF9A22', borderRadius: 8 }}>
+                        <div style={{ fontSize: 11, fontWeight: 600, color: '#57FF9A', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Recomendación</div>
+                        <div style={{ fontSize: 12, color: '#bbb', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{aiSummary.recomendacion}</div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </Section>
 
       {/* ══════════ 2. ESTADO DE CUENTA ══════════ */}
       <Section title="Estado de Cuenta" icon={<DollarSign size={14} />} count={bankMovements.filter(m => m.tipo === 'abono').length} expanded={expanded.estado} onToggle={() => toggle('estado')}>
