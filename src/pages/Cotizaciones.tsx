@@ -789,6 +789,7 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
   const aiImportRef = useRef<HTMLInputElement>(null)
   const [activeTab, setActiveTab] = useState<'cotizacion' | 'cambios' | 'obra_real'>('cotizacion')
   const [changeOrders, setChangeOrders] = useState<any[]>([])
+  const [showPdfPicker, setShowPdfPicker] = useState(false)
   const [showEditInfo, setShowEditInfo] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [bulkAction, setBulkAction] = useState<'' | 'moveArea' | 'moveSystem'>('')
@@ -1506,6 +1507,15 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
   const displayTotal = isIlum ? cotTotal : areaTotal
   const proj = cot.project as any
 
+  // KPIs globales
+  const kpiMaterialItems = items.filter(i => i.type === 'material' || i.type === 'servicio')
+  const kpiCostoMaterial = items.reduce((s, i) => s + (i.cost || 0) * (i.quantity || 1), 0)
+  const kpiCostoManoObra = items.reduce((s, i) => s + (i.installation_cost || 0) * (i.quantity || 1), 0)
+  const kpiCostoTotal = kpiCostoMaterial + kpiCostoManoObra
+  const kpiVenta = cotTotal
+  const kpiUtilidad = kpiVenta - kpiCostoTotal
+  const kpiMargen = kpiVenta > 0 ? Math.round(kpiUtilidad / kpiVenta * 100) : 0
+
   return (
     <div style={{display:'flex',flexDirection:'column',height:'100vh',overflow:'hidden'}}>
       <div style={{padding:'8px 16px',borderBottom:'1px solid #222',display:'flex',alignItems:'center',gap:10,flexShrink:0,background:'#111'}}>
@@ -1555,6 +1565,9 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
             </Btn>
             <Btn size="sm" onClick={syncPricesFromCatalog} disabled={syncing} style={{marginLeft:4}}>
               {syncing ? <><Loader2 size={12} style={{animation:'spin 1s linear infinite'}}/> Actualizando...</> : <><RefreshCw size={12}/> Sync Catálogo</>}
+            </Btn>
+            <Btn size="sm" onClick={() => setShowPdfPicker(true)} style={{marginLeft:4}}>
+              <FileText size={12}/> Exportar PDF
             </Btn>
             {cot.stage === 'contrato' && (
               <Btn size="sm" onClick={generatePurchaseOrders} disabled={generating} style={{marginLeft:4}}>
@@ -1696,21 +1709,25 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
             </table>
           </div>
 
-          <div style={{borderTop:'1px solid #222',padding:'10px 14px',display:'flex',gap:24,flexShrink:0,background:'#0e0e0e',fontSize:11}}>
-            {(['material','labor'] as const).map(tipo => {
-              const its = areaItems.filter(i=>i.type===tipo)
-              const venta = its.reduce((s,i)=>s+i.total,0)
-              const costo = its.reduce((s,i)=>s+i.quantity*i.cost,0)
-              const mg = venta>0?Math.round((venta-costo)/venta*100):0
-              return (
-                <div key={tipo}>
-                  <span style={{color:'#555',fontWeight:600}}>{tipo==='material'?'Equipo':'Labor'}: </span>
-                  <span style={{color:mg>=30?'#57FF9A':mg>=15?'#F59E0B':'#EF4444',fontWeight:600}}>{mg}% | {F(venta)}</span>
-                </div>
-              )
-            })}
+          <div style={{borderTop:'1px solid #222',padding:'10px 14px',display:'flex',gap:16,flexShrink:0,background:'#0e0e0e',fontSize:11,flexWrap:'wrap',alignItems:'center'}}>
+            <div>
+              <span style={{color:'#555',fontWeight:600}}>Costo Material: </span>
+              <span style={{color:'#F59E0B',fontWeight:600}}>{F(kpiCostoMaterial)}</span>
+            </div>
+            <div>
+              <span style={{color:'#555',fontWeight:600}}>Costo M.O.: </span>
+              <span style={{color:'#06B6D4',fontWeight:600}}>{F(kpiCostoManoObra)}</span>
+            </div>
+            <div>
+              <span style={{color:'#555',fontWeight:600}}>Costo Total: </span>
+              <span style={{color:'#ccc',fontWeight:600}}>{F(kpiCostoTotal)}</span>
+            </div>
+            <div style={{borderLeft:'1px solid #333',paddingLeft:12}}>
+              <span style={{color:'#555',fontWeight:600}}>Utilidad: </span>
+              <span style={{color:kpiMargen>=30?'#57FF9A':kpiMargen>=15?'#F59E0B':'#EF4444',fontWeight:600}}>{F(kpiUtilidad)} ({kpiMargen}%)</span>
+            </div>
             <div style={{marginLeft:'auto'}}>
-              <span style={{color:'#555'}}>Total cotizacion: </span>
+              <span style={{color:'#555'}}>Total cotización: </span>
               <span style={{color:'#57FF9A',fontWeight:700,fontSize:14}}>{F(cotTotal)}</span>
             </div>
           </div>
@@ -1869,6 +1886,51 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
                   <Plus size={12}/> Importar {aiImportResult.length} productos
                 </Btn>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* PDF format picker */}
+      {showPdfPicker && (
+        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.85)',zIndex:1030,display:'flex',alignItems:'center',justifyContent:'center'}}>
+          <div style={{background:'#141414',border:'1px solid #333',borderRadius:16,padding:24,width:620,maxWidth:'92vw'}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
+              <div style={{fontSize:15,fontWeight:600,color:'#fff',display:'flex',alignItems:'center',gap:8}}>
+                <FileText size={16} color="#06B6D4" /> Exportar a PDF
+              </div>
+              <button onClick={() => setShowPdfPicker(false)} style={{background:'none',border:'none',color:'#666',cursor:'pointer'}}><X size={18}/></button>
+            </div>
+            <div style={{fontSize:11,color:'#555',marginBottom:18}}>
+              Elige el formato. Cada uno abre en una pestaña nueva con vista previa imprimible.
+            </div>
+            <div style={{display:'grid',gridTemplateColumns:'1fr',gap:10}}>
+              {([
+                { id: 'ejecutivo', icon: '📄', title: 'Ejecutivo (Propuesta)', desc: 'Para cliente final. Diseño formal, sin costos internos ni markups. La versión que mandas por email.' },
+                { id: 'tecnico', icon: '🔧', title: 'Técnico detallado', desc: 'Para ingeniería. Incluye costos internos, markups, márgenes. Uso interno.' },
+                { id: 'lista', icon: '📋', title: 'Lista de precios', desc: 'Tabla simple sin agrupar. Ideal para comparar precios rápido.' },
+              ] as const).map(opt => (
+                <button
+                  key={opt.id}
+                  onClick={() => {
+                    window.open('/cotizacion/' + cotId + '/pdf/' + opt.id, '_blank')
+                    setShowPdfPicker(false)
+                  }}
+                  style={{
+                    padding:'14px 16px',background:'#0e0e0e',border:'1px solid #2a2a2a',
+                    borderRadius:10,cursor:'pointer',textAlign:'left',color:'#ddd',
+                    fontFamily:'inherit',display:'flex',gap:12,alignItems:'center',
+                  }}
+                  onMouseEnter={e => { e.currentTarget.style.borderColor = '#06B6D4'; e.currentTarget.style.background = '#0e1419' }}
+                  onMouseLeave={e => { e.currentTarget.style.borderColor = '#2a2a2a'; e.currentTarget.style.background = '#0e0e0e' }}
+                >
+                  <div style={{fontSize:24}}>{opt.icon}</div>
+                  <div style={{flex:1}}>
+                    <div style={{fontSize:13,fontWeight:600,color:'#fff',marginBottom:2}}>{opt.title}</div>
+                    <div style={{fontSize:11,color:'#888',lineHeight:1.4}}>{opt.desc}</div>
+                  </div>
+                </button>
+              ))}
             </div>
           </div>
         </div>
