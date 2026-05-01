@@ -324,6 +324,8 @@ IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
       image_url: form.image_url || null,
       codigo_interno: form.codigo_interno || null, subdescripcion: form.subdescripcion || null,
       costo_mano_obra: form.costo_mano_obra || 0,
+      watts: (form as any).watts || null, lumens: (form as any).lumens || null, cct: (form as any).cct || null,
+      cri: (form as any).cri || null, ip_rating: (form as any).ip_rating || null, mounting_type: (form as any).mounting_type || null,
     }
     try {
       if (editId) {
