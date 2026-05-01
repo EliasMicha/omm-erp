@@ -235,6 +235,7 @@ export default function AIQuoteLive({
 
   // Step tracking: 'zones', 'audio', 'redes', ..., 'rack', 'review', 'done'
   const [currentStep, setCurrentStep] = useState<string>('zones')
+  const currentStepRef = useRef<string>('zones')
   const [completedSteps, setCompletedSteps] = useState<Set<string>>(new Set())
 
   // Zones
@@ -242,8 +243,9 @@ export default function AIQuoteLive({
   const [loadingZones, setLoadingZones] = useState(false)
   const [zonesError, setZonesError] = useState<string | null>(null)
 
-  // Confirmed items by system
+  // Confirmed items by system — state for rendering, ref for reliable reads in callbacks
   const [confirmedItems, setConfirmedItems] = useState<Record<string, ConfirmedItem[]>>({})
+  const confirmedItemsRef = useRef<Record<string, ConfirmedItem[]>>({})
 
   // Current step's proposed items (from AI)
   const [proposedItems, setProposedItems] = useState<ConfirmedItem[]>([])
@@ -278,6 +280,8 @@ export default function AIQuoteLive({
 
   /* ─── Reset step state when currentStep changes ─── */
   useEffect(() => {
+    currentStepRef.current = currentStep
+
     if (currentStep === 'zones') {
       if (zones.length === 0) loadZones()
       return
@@ -293,12 +297,14 @@ export default function AIQuoteLive({
       return
     }
 
-    // System step — restore previously confirmed items, or start fresh
-    const savedItems = confirmedItems[systemEnum]
+    // System step — restore previously confirmed items from ref (always latest), or start fresh
+    const savedItems = confirmedItemsRef.current[systemEnum]
     if (savedItems && savedItems.length > 0) {
+      console.log('[AIQuoteLive] Restoring', savedItems.length, 'items for', systemEnum)
       setProposedItems(savedItems.map(item => ({ ...item })))
-      // editingItems will be set by the useEffect above
+      setEditingItems(savedItems.map(item => ({ ...item })))
     } else {
+      console.log('[AIQuoteLive] No saved items for', systemEnum, '— clearing')
       setProposedItems([])
       setEditingItems([])
     }
@@ -307,7 +313,7 @@ export default function AIQuoteLive({
     setStepChatMessages([])
     setStepChatInput('')
     setItemsError(null)
-  }, [currentStep])
+  }, [currentStep]) // Only currentStep — read confirmedItems from ref
 
   /* ─── Auto-load removed: user must use chat or catalog to add items (saves tokens) ─── */
 
@@ -360,6 +366,7 @@ export default function AIQuoteLive({
   }
 
   const loadItems = async (systemId: string) => {
+    const stepAtStart = currentStepRef.current
     setLoadingItems(true)
     setItemsError(null)
     setProposedItems([])
@@ -405,12 +412,15 @@ RESPONDE ÚNICAMENTE con JSON válido, sin texto adicional:
         notes: it.notes || '',
       }))
 
+      // Guard: only apply if still on same step
+      if (currentStepRef.current !== stepAtStart) return
       setProposedItems(items)
     } catch (err: any) {
+      if (currentStepRef.current !== stepAtStart) return
       setItemsError(err.message || 'Error al cargar items')
       setProposedItems([])
     } finally {
-      setLoadingItems(false)
+      if (currentStepRef.current === stepAtStart) setLoadingItems(false)
     }
   }
 
@@ -428,6 +438,7 @@ RESPONDE ÚNICAMENTE con JSON válido, sin texto adicional:
     const msg = stepChatInput.trim()
     if (!msg || stepChatLoading) return
 
+    const stepAtStart = currentStep // guard against step change during async
     const systemEnum = SYSTEM_ENUM[currentStep]
     const systemName = SYSTEM_STEPS[currentStep]?.name || currentStep
     const aliases = SYSTEM_ALIASES[currentStep] || [systemEnum]
@@ -487,6 +498,9 @@ La lista de items debe ser COMPLETA para TODAS las zonas que necesiten este sist
         catalog_product_id: it.catalog_product_id || undefined,
       }))
 
+      // Guard: only apply results if we're still on the same step
+      if (currentStepRef.current !== stepAtStart) return
+
       setStepChatMessages(prev => [...prev, { role: 'assistant', content: reply }])
       if (newItems.length > 0) {
         setEditingItems(newItems)
@@ -514,15 +528,34 @@ La lista de items debe ser COMPLETA para TODAS las zonas que necesiten este sist
     if (!systemEnum) { console.log('[AIQuoteLive] saveCurrentStepItems: no systemEnum for', currentStep); return }
     if (editingItems.length === 0) { console.log('[AIQuoteLive] saveCurrentStepItems: no items for', currentStep); return }
     console.log('[AIQuoteLive] SAVING', editingItems.length, 'items for', systemEnum, 'from step', currentStep)
-    setConfirmedItems(prev => ({
-      ...prev,
-      [systemEnum]: [...editingItems],
-    }))
+    const itemsCopy = editingItems.map(it => ({ ...it }))
+    // Update ref immediately (synchronous, always latest)
+    confirmedItemsRef.current = { ...confirmedItemsRef.current, [systemEnum]: itemsCopy }
+    // Update state for re-render
+    setConfirmedItems(prev => {
+      const next = { ...prev, [systemEnum]: itemsCopy }
+      console.log('[AIQuoteLive] confirmedItems updated:', Object.entries(next).map(([k, v]) => `${k}: ${v.length}`).join(', '))
+      return next
+    })
   }, [currentStep, editingItems])
 
   const confirmItems = () => {
-    saveCurrentStepItems()
+    // Save items FIRST using ref to ensure no stale closures
+    const systemEnum = SYSTEM_ENUM[currentStep]
+    if (systemEnum && editingItems.length > 0) {
+      const itemsCopy = editingItems.map(it => ({ ...it }))
+      confirmedItemsRef.current = { ...confirmedItemsRef.current, [systemEnum]: itemsCopy }
+      setConfirmedItems(prev => ({ ...prev, [systemEnum]: itemsCopy }))
+      console.log('[AIQuoteLive] confirmItems: saved', itemsCopy.length, 'items for', systemEnum)
+    }
     setCompletedSteps(prev => new Set([...prev, currentStep]))
+
+    // Clear items BEFORE changing step
+    setProposedItems([])
+    setEditingItems([])
+    setStepChatMessages([])
+    setStepChatInput('')
+    setItemsError(null)
 
     // Find next system
     const currentIdx = SYSTEM_ORDER.findIndex(s => s === currentStep)
@@ -537,13 +570,23 @@ La lista de items debe ser COMPLETA para TODAS las zonas que necesiten este sist
 
   // Auto-save items when navigating away from a system step (stepper clicks, back button)
   const navigateToStep = (targetStep: string) => {
-    // Save current items before leaving
+    // Save current items before leaving — use direct ref update for reliability
     if (currentStep !== 'zones' && currentStep !== 'review' && !currentStep.startsWith('rack')) {
-      saveCurrentStepItems()
-      if (editingItems.length > 0) {
+      const systemEnum = SYSTEM_ENUM[currentStep]
+      if (systemEnum && editingItems.length > 0) {
+        const itemsCopy = editingItems.map(it => ({ ...it }))
+        confirmedItemsRef.current = { ...confirmedItemsRef.current, [systemEnum]: itemsCopy }
+        setConfirmedItems(prev => ({ ...prev, [systemEnum]: itemsCopy }))
         setCompletedSteps(prev => new Set([...prev, currentStep]))
+        console.log('[AIQuoteLive] navigateToStep: saved', itemsCopy.length, 'items for', systemEnum)
       }
     }
+    // Clear items BEFORE changing step
+    setProposedItems([])
+    setEditingItems([])
+    setStepChatMessages([])
+    setStepChatInput('')
+    setItemsError(null)
     setCurrentStep(targetStep)
   }
 
@@ -552,14 +595,17 @@ La lista de items debe ser COMPLETA para TODAS las zonas que necesiten este sist
     setInserting(true)
     setInsertProgress('Creando cotización...')
 
+    // USE REF for reliability — state may have stale closures
+    const allConfirmed = confirmedItemsRef.current
+
     // Debug: log what we're about to create
-    const totalSystems = Object.keys(confirmedItems).filter(k => confirmedItems[k]?.length > 0)
-    const totalItemCount = Object.values(confirmedItems).reduce((s, items) => s + items.length, 0)
+    const totalSystems = Object.keys(allConfirmed).filter(k => allConfirmed[k]?.length > 0)
+    const totalItemCount = Object.values(allConfirmed).reduce((s, items) => s + items.length, 0)
     console.log('[AIQuoteLive] handleConfirm START:', {
-      confirmedItemsKeys: Object.keys(confirmedItems),
+      confirmedItemsKeys: Object.keys(allConfirmed),
       totalSystems: totalSystems.length,
       totalItems: totalItemCount,
-      detail: Object.entries(confirmedItems).map(([k, v]) => `${k}: ${v.length} items`),
+      detail: Object.entries(allConfirmed).map(([k, v]) => `${k}: ${v.length} items`),
     })
 
     if (totalItemCount === 0) {
@@ -644,8 +690,8 @@ La lista de items debe ser COMPLETA para TODAS las zonas que necesiten este sist
         return firstZone || null
       }
 
-      // Iterate through all confirmed items
-      for (const [systemEnum, items] of Object.entries(confirmedItems)) {
+      // Iterate through all confirmed items (from ref, not state)
+      for (const [systemEnum, items] of Object.entries(allConfirmed)) {
         setInsertProgress(`Procesando ${systemEnum}... (${items.length} items)`)
         for (const it of items) {
           if (it.quantity <= 0) continue
