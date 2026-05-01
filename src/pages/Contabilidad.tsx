@@ -412,6 +412,7 @@ export default function Contabilidad() {
 /* --------- Tab 1: Facturaci--n --------------------------------------------------------------------------------------------------------------------------------- */
 
 function TabFacturacion({ invoices, setInvoices, bankMovements, projectNames }: { invoices: Invoice[]; setInvoices: (i: Invoice[]) => void; bankMovements: BankMovement[]; projectNames: string[] }) {
+  const isMobile = useIsMobile()
   const [filter, setFilter] = useState<'todas' | 'emitidas' | 'recibidas'>('todas')
   const [search, setSearch] = useState('')
   const [monthOffset, setMonthOffset] = useState(0) // 0 = mes actual, -1 = mes pasado, +1 = siguiente
@@ -1377,6 +1378,7 @@ function TabFacturacion({ invoices, setInvoices, bankMovements, projectNames }: 
 /* --------- Tab 2: Conciliaci--n Bancaria --------------------------------------------------------------------------------------------------- */
 
 function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNames }: { bankMovements: BankMovement[]; setBankMovements: (m: BankMovement[]) => void; invoices: Invoice[]; projectNames: string[] }) {
+  const isMobile = useIsMobile()
   const [processing, setProcessing] = useState(false)
   const concColFilters = useColumnFilters()
   // Asignacion en cascada Lead -> Cotizacion -> OC
@@ -2762,6 +2764,7 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
 /* --------- Tab 3: Supervisi--n Fiscal ------------------------------------------------------------------------------------------------------------ */
 
 function TabSupervision({ invoices, bankMovements }: { invoices: Invoice[]; bankMovements: BankMovement[] }) {
+  const isMobile = useIsMobile()
   const [concLinks, setConcLinks] = useState<{ id: string; bank_movement_id: string; invoice_id: string; monto_aplicado: number }[]>([])
   const [monthOffset, setMonthOffset] = useState(0)
   const [vista, setVista] = useState<'facturas' | 'pagos'>('facturas')
@@ -3022,6 +3025,7 @@ function TabSupervision({ invoices, bankMovements }: { invoices: Invoice[]; bank
 /* --------- Tab 4: Movimientos de Efectivo --------------------------------------------------------------------------------------------- */
 
 function TabEfectivo() {
+  const isMobile = useIsMobile()
   const [movements, setMovements] = useState<CashMovement[]>([])
   const [loading, setLoading] = useState(true)
   const efColFilters = useColumnFilters()
@@ -3152,6 +3156,7 @@ interface AnticipoGroup {
 }
 
 function TabAnticipos({ invoices }: { invoices: Invoice[] }) {
+  const isMobile = useIsMobile()
   const [direction, setDirection] = useState<'emitida' | 'recibida'>('emitida')
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
 
