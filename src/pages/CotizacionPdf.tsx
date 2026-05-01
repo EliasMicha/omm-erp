@@ -487,9 +487,9 @@ function CotizacionPdfInner() {
           html, body { background: #fff !important; margin: 0 !important; padding: 0 !important; }
           * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
         }
-        table.pdf-table { width: 100%; border-collapse: collapse; }
-        table.pdf-table th { background: #f5f5f5; padding: 6px 8px; text-align: left; font-size: 9px; text-transform: uppercase; letter-spacing: 0.04em; color: #666; font-weight: 600; border-bottom: 1px solid #ddd; }
-        table.pdf-table td { padding: 5px 8px; border-bottom: 1px solid #eee; font-size: 10px; vertical-align: top; }
+        table.pdf-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+        table.pdf-table th { background: #f5f5f5; padding: 6px 8px; text-align: left; font-size: 9px; text-transform: uppercase; letter-spacing: 0.04em; color: #666; font-weight: 600; border-bottom: 1px solid #ddd; overflow: hidden; }
+        table.pdf-table td { padding: 5px 8px; border-bottom: 1px solid #eee; font-size: 10px; vertical-align: top; overflow: hidden; word-wrap: break-word; }
         table.pdf-table tr:last-child td { border-bottom: none; }
         h1, h2, h3 { margin: 0; font-weight: 600; }
         @keyframes spin { from { transform: rotate(0deg) } to { transform: rotate(360deg) } }
@@ -726,14 +726,14 @@ function CotizacionPdfInner() {
           <table className="pdf-table">
             <thead>
               <tr>
-                <th style={{ width: 52 }}></th>
-                <th style={{ width: 90 }}>Marca</th>
-                <th style={{ width: 110 }}>Modelo</th>
+                <th style={{ width: 46 }}></th>
+                <th style={{ width: 70 }}>Marca</th>
+                <th style={{ width: 95 }}>Modelo</th>
                 <th>Descripción</th>
-                <th style={{ width: 72 }}>Sistema</th>
-                <th style={{ textAlign: 'center', width: 42 }}>Cant</th>
-                <th style={{ textAlign: 'right', width: 90 }}>P. unit.</th>
-                <th style={{ textAlign: 'right', width: 90 }}>Total</th>
+                <th style={{ width: 60 }}>Sistema</th>
+                <th style={{ textAlign: 'center', width: 36 }}>Cant</th>
+                <th style={{ textAlign: 'right', width: 70 }}>P. unit.</th>
+                <th style={{ textAlign: 'right', width: 70 }}>Total</th>
               </tr>
             </thead>
             <tbody>
@@ -741,13 +741,13 @@ function CotizacionPdfInner() {
                 <tr key={it.id}>
                   <td style={{ textAlign: 'center' }}>
                     {it.image_url ? (
-                      <img src={it.image_url} alt="" style={{ width: 42, height: 42, objectFit: 'contain', border: '1px solid #eee', borderRadius: 3, background: '#fff' }} />
+                      <img src={it.image_url} alt="" style={{ width: 36, height: 36, objectFit: 'contain', border: '1px solid #eee', borderRadius: 3, background: '#fff' }} />
                     ) : (
-                      <div style={{ width: 42, height: 42, border: '1px dashed #ddd', borderRadius: 3, background: '#fafafa' }}></div>
+                      <div style={{ width: 36, height: 36, border: '1px dashed #ddd', borderRadius: 3, background: '#fafafa' }}></div>
                     )}
                   </td>
-                  <td style={{ fontSize: 10, fontWeight: 500 }}>{it.marca || '—'}</td>
-                  <td style={{ fontSize: 10 }}>{it.modelo || '—'}</td>
+                  <td style={{ fontSize: 9, fontWeight: 500 }}>{it.marca || '—'}</td>
+                  <td style={{ fontSize: 9 }}>{it.modelo || '—'}</td>
                   <td>
                     <div style={{ fontWeight: 500, fontSize: 10 }}>{it.name}</div>
                     {it.description && <div style={{ fontSize: 9, color: '#888', marginTop: 2, lineHeight: 1.4 }}>{it.description}</div>}
@@ -781,17 +781,16 @@ function CotizacionPdfInner() {
                       <table className="pdf-table">
                         <thead>
                           <tr>
-                            {mostrarCostosInternos && <th style={{ width: 52 }}></th>}
-                            {!mostrarCostosInternos && <th style={{ width: 52 }}></th>}
-                            <th style={{ width: 90 }}>Marca</th>
-                            <th style={{ width: 110 }}>Modelo</th>
+                            <th style={{ width: 46 }}></th>
+                            <th style={{ width: 70 }}>Marca</th>
+                            <th style={{ width: 95 }}>Modelo</th>
                             <th>Descripción</th>
-                            {mostrarCostosInternos && <th style={{ width: 90 }}>SKU / Proveedor</th>}
-                            {mostrarCostosInternos && <th style={{ textAlign: 'right', width: 70 }}>Costo</th>}
-                            {mostrarCostosInternos && <th style={{ textAlign: 'center', width: 42 }}>MUp</th>}
-                            <th style={{ textAlign: 'center', width: 42 }}>Cant</th>
-                            <th style={{ textAlign: 'right', width: 90 }}>P. unit.</th>
-                            <th style={{ textAlign: 'right', width: 90 }}>Total</th>
+                            {mostrarCostosInternos && <th style={{ width: 80 }}>SKU / Prov.</th>}
+                            {mostrarCostosInternos && <th style={{ textAlign: 'right', width: 60 }}>Costo</th>}
+                            {mostrarCostosInternos && <th style={{ textAlign: 'center', width: 36 }}>MUp</th>}
+                            <th style={{ textAlign: 'center', width: 36 }}>Cant</th>
+                            <th style={{ textAlign: 'right', width: 70 }}>P. unit.</th>
+                            <th style={{ textAlign: 'right', width: 70 }}>Total</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -799,13 +798,13 @@ function CotizacionPdfInner() {
                             <tr key={it.id}>
                               <td style={{ textAlign: 'center' }}>
                                 {it.image_url ? (
-                                  <img src={it.image_url} alt="" style={{ width: 42, height: 42, objectFit: 'contain', border: '1px solid #eee', borderRadius: 3, background: '#fff' }} />
+                                  <img src={it.image_url} alt="" style={{ width: 36, height: 36, objectFit: 'contain', border: '1px solid #eee', borderRadius: 3, background: '#fff' }} />
                                 ) : (
-                                  <div style={{ width: 42, height: 42, border: '1px dashed #ddd', borderRadius: 3, background: '#fafafa' }}></div>
+                                  <div style={{ width: 36, height: 36, border: '1px dashed #ddd', borderRadius: 3, background: '#fafafa' }}></div>
                                 )}
                               </td>
-                              <td style={{ fontSize: 10, fontWeight: 500 }}>{it.marca || '—'}</td>
-                              <td style={{ fontSize: 10 }}>{it.modelo || '—'}</td>
+                              <td style={{ fontSize: 9, fontWeight: 500 }}>{it.marca || '—'}</td>
+                              <td style={{ fontSize: 9 }}>{it.modelo || '—'}</td>
                               <td>
                                 <div style={{ fontWeight: 500, fontSize: 10 }}>{it.name}</div>
                                 {it.description && <div style={{ fontSize: 9, color: '#888', marginTop: 2, lineHeight: 1.4 }}>{it.description}</div>}
