@@ -2116,6 +2116,7 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
         order_index: products.length + newProds.length,
         image_url: source.imageUrl || null, provider: source.provider || null,
         marca: source.marca || null, modelo: source.modelo || null, sku: source.sku || null,
+        provider_currency: source.monedaOrigen || 'USD',
       }).select().single()
       if (data) {
         newProds.push({
@@ -2218,6 +2219,7 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
         total: (precio + laborCost) * p.quantity,
         marca: newCatProd.marca || null, modelo: newCatProd.modelo || null,
         sku: newCatProd.sku || null, provider: newCatProd.provider || null,
+        provider_currency: prodMoneda,
       }).eq('id', p.id)
     }
     setSubstitutingProduct(null)
@@ -2233,11 +2235,13 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
       const { data, error } = await supabase.from('quotation_items').insert({
         quotation_id: cotId, area_id: areaId, catalog_product_id: source.catalogId || null,
         name: source.name, description: source.description || null, system: sysName,
-        type: 'material', quantity: source.quantity, cost: source.price, markup: source.margin,
-        price: source.price, total: source.price + source.laborCost,
+        type: 'material', quantity: source.quantity, cost: source.cost, markup: source.margin,
+        price: source.price, total: (source.price + source.laborCost) * source.quantity,
         installation_cost: source.laborCost,
         order_index: products.filter(p => p.areaId === areaId && p.systemId === source.systemId).length + newProducts.filter(p => p.areaId === areaId).length,
         image_url: source.imageUrl || null,
+        provider_currency: source.monedaOrigen || 'USD',
+        marca: source.marca || null, modelo: source.modelo || null, sku: source.sku || null, provider: source.provider || null,
       }).select().single()
       if (error) { alert('Error al copiar: ' + error.message); continue }
       if (data) {
@@ -2287,6 +2291,7 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
       modelo: catProd.modelo || null,
       sku: catProd.sku || null,
       image_url: catProd.image_url || null,
+      provider_currency: prodMoneda,
     }).select().single()
     if (itemErr) { alert('Error al guardar producto: ' + itemErr.message); return }
     if (data) {
@@ -2325,6 +2330,7 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
         order_index: products.length + newProds.length,
         marca: catProd.marca || null, modelo: catProd.modelo || null, sku: catProd.sku || null,
         image_url: catProd.image_url || null, provider: catProd.provider || null,
+        provider_currency: prodMoneda,
         bundle_id: bundle.id, bundle_instance_id: instanceId,
       }).select().single()
 
@@ -2367,6 +2373,7 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
       modelo: catProd.modelo || null,
       sku: catProd.sku || null,
       image_url: catProd.image_url || null,
+      provider_currency: prodMoneda,
     }).select().single()
     if (itemErr) { alert('Error al guardar producto: ' + itemErr.message); return }
     if (data) {
