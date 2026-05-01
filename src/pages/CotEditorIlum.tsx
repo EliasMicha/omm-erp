@@ -748,13 +748,20 @@ export default function CotEditorIlum({ cotId, onBack }: { cotId: string; onBack
   const [substitutingProduct, setSubstitutingProduct] = useState<IlumProduct | null>(null)
   const [showAIImport, setShowAIImport] = useState(false)
   const [showPdfPicker, setShowPdfPicker] = useState(false)
+  const [ilumConfig, setIlumConfig] = useState({ ivaRate: 16, descuento: 0 })
 
   // Load quotation, subsections, and products
   useEffect(() => {
     async function load() {
       setLoading(true)
       const { data: quoteData } = await supabase.from('quotations').select('*').eq('id', cotId).single()
-      if (quoteData) setQuote(quoteData)
+      if (quoteData) {
+        setQuote(quoteData)
+        try {
+          const n = typeof quoteData.notes === 'string' ? JSON.parse(quoteData.notes) : (quoteData.notes || {})
+          if (n.ilumConfig) setIlumConfig(c => ({ ...c, ...n.ilumConfig }))
+        } catch {}
+      }
 
       const { data: subsData } = await supabase.from('quotation_areas').select('*').eq('quotation_id', cotId).order('order_index')
       if (subsData) setSubsections(subsData.map(s => ({ ...s, collapsed: false })))
@@ -960,8 +967,30 @@ export default function CotEditorIlum({ cotId, onBack }: { cotId: string; onBack
     setSelectedIds(new Set())
   }
 
+  async function updateIlumConfig(field: string, value: number) {
+    const next = { ...ilumConfig, [field]: value }
+    setIlumConfig(next)
+    // Persist to quotation notes
+    const { data: cotData } = await supabase.from('quotations').select('notes').eq('id', cotId).single()
+    let existingNotes: any = {}
+    try { existingNotes = typeof cotData?.notes === 'string' ? JSON.parse(cotData.notes) : (cotData?.notes || {}) } catch {}
+    await supabase.from('quotations').update({ notes: JSON.stringify({ ...existingNotes, ilumConfig: next }) }).eq('id', cotId)
+  }
+
   // Calculate totals
-  const grandTotal = useMemo(() => products.reduce((s, p) => s + calcLine(p).total, 0), [products])
+  const subtotal = useMemo(() => products.reduce((s, p) => s + calcLine(p).total, 0), [products])
+  const descuentoAmt = Math.round(subtotal * (ilumConfig.descuento || 0) / 100 * 100) / 100
+  const subtotalDesc = subtotal - descuentoAmt
+  const ivaAmt = Math.round(subtotalDesc * ilumConfig.ivaRate / 100 * 100) / 100
+  const grandTotal = subtotalDesc + ivaAmt
+
+  // Sync total to quotation record
+  useEffect(() => {
+    if (!loading && grandTotal >= 0) {
+      supabase.from('quotations').update({ total: Math.round(grandTotal * 100) / 100 }).eq('id', cotId).then(() => {})
+    }
+  }, [grandTotal, loading, cotId])
+
   const subsectionTotals = useMemo(() => {
     const map: Record<string, number> = {}
     subsections.forEach(s => {
@@ -1093,10 +1122,42 @@ export default function CotEditorIlum({ cotId, onBack }: { cotId: string; onBack
 
         {/* Summary Footer */}
         <div style={{ marginTop: 30, padding: '20px', background: '#111', borderRadius: 10, borderTop: '2px solid #57FF9A' }}>
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 40 }}>
-            <div>
-              <div style={{ fontSize: 11, color: '#555', marginBottom: 4 }}>TOTAL</div>
-              <div style={{ fontSize: 24, fontWeight: 700, color: '#57FF9A' }}>${fmt(grandTotal)}</div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: isMobile ? 20 : 40, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+            {/* Config inputs */}
+            <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+              <label style={{ fontSize: 10, color: '#555', display: 'flex', alignItems: 'center', gap: 4 }}>
+                IVA %
+                <input type="number" value={ilumConfig.ivaRate} step={1} min={0}
+                  onChange={e => updateIlumConfig('ivaRate', parseFloat(e.target.value) || 0)}
+                  style={{ width: 50, padding: '4px 6px', background: '#1a1a1a', border: '1px solid #333', borderRadius: 6, color: '#fff', fontSize: 12, fontFamily: 'inherit', textAlign: 'right' }} />
+              </label>
+              <label style={{ fontSize: 10, color: '#555', display: 'flex', alignItems: 'center', gap: 4 }}>
+                Desc %
+                <input type="number" value={ilumConfig.descuento} step={1} min={0} max={100}
+                  onChange={e => updateIlumConfig('descuento', parseFloat(e.target.value) || 0)}
+                  style={{ width: 50, padding: '4px 6px', background: '#1a1a1a', border: '1px solid #333', borderRadius: 6, color: '#fff', fontSize: 12, fontFamily: 'inherit', textAlign: 'right' }} />
+              </label>
+            </div>
+            {/* Breakdown */}
+            <div style={{ minWidth: 200 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#888', marginBottom: 4 }}>
+                <span>Subtotal</span>
+                <span style={{ color: '#ccc' }}>${fmt(subtotal)}</span>
+              </div>
+              {(ilumConfig.descuento || 0) > 0 && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#F59E0B', marginBottom: 4 }}>
+                  <span>Descuento {ilumConfig.descuento}%</span>
+                  <span>-${fmt(descuentoAmt)}</span>
+                </div>
+              )}
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#888', marginBottom: 8 }}>
+                <span>IVA {ilumConfig.ivaRate}%</span>
+                <span style={{ color: '#ccc' }}>${fmt(ivaAmt)}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 16, fontWeight: 700, borderTop: '1px solid #333', paddingTop: 8 }}>
+                <span style={{ color: '#57FF9A' }}>TOTAL</span>
+                <span style={{ color: '#57FF9A' }}>${fmt(grandTotal)}</span>
+              </div>
             </div>
           </div>
         </div>
