@@ -1405,13 +1405,16 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
       }
 
       // Calculate price — use precio_unitario from file if available
-      const installCost = it.costo_mano_obra || 0
+      const rawLaborCost = it.costo_mano_obra || 0
       const price = it.precio_unitario || calcItemPrice(prodCost, prodMarkup)
+      // When precio_unitario exists, it already includes everything (material + labor)
+      // so don't store installation_cost separately (avoids double-counting in PDF)
+      const installCost = it.precio_unitario ? 0 : rawLaborCost
       const finalTotal = it.precio_unitario
         ? it.precio_unitario * it.cantidad
         : (price + installCost) * it.cantidad
       // Determine type: if no material cost but has labor cost, it's a service
-      const itemType = (prodCost === 0 && installCost > 0) ? 'servicio' : 'material'
+      const itemType = (prodCost === 0 && rawLaborCost > 0) ? 'servicio' : 'material'
 
       const { data } = await supabase.from('quotation_items').insert({
         area_id: areaActiva,

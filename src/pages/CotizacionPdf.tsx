@@ -730,10 +730,12 @@ function CotizacionPdfInner() {
                 <td style={{ paddingTop: 8, color: '#666' }}>Total equipos</td>
                 <td style={{ textAlign: 'right', paddingTop: 8 }}>{FCUR(subtotalItems, currency)}</td>
               </tr>
+              {(subtotalInstalacion + programacion) > 0 && (
               <tr>
                 <td style={{ color: '#666' }}>Instalación y programación</td>
                 <td style={{ textAlign: 'right' }}>{FCUR(subtotalInstalacion + programacion, currency)}</td>
               </tr>
+              )}
               <tr style={{ borderTop: '1px solid #ddd' }}>
                 <td style={{ fontWeight: 700, paddingTop: 6 }}>Subtotal</td>
                 <td style={{ textAlign: 'right', fontWeight: 700, paddingTop: 6 }}>{FCUR(subtotal, currency)}</td>
