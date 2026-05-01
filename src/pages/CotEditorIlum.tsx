@@ -956,6 +956,42 @@ export default function CotEditorIlum({ cotId, onBack }: { cotId: string; onBack
     alert(`${synced} producto(s) sincronizado(s) con catálogo.`)
   }
 
+  async function syncAllWithCatalog() {
+    const toSync = products.filter(p => p.catalogId)
+    if (toSync.length === 0) { alert('No hay productos vinculados a catálogo.'); return }
+    if (!confirm(`¿Sincronizar ${toSync.length} producto(s) con su catálogo? Esto actualizará costo, precio y margen.`)) return
+
+    const catalogIds = [...new Set(toSync.map(p => p.catalogId!).filter(Boolean))]
+    const { data: catProds } = await supabase.from('catalog_products').select('*').in('id', catalogIds)
+    if (!catProds || catProds.length === 0) { alert('No se encontraron productos en catálogo.'); return }
+
+    const catMap = new Map(catProds.map((c: any) => [c.id, c]))
+    let synced = 0
+
+    for (const p of toSync) {
+      const cat = catMap.get(p.catalogId!)
+      if (!cat) continue
+      const markup = cat.markup > 0 ? cat.markup : (p.markup || 35)
+      const price = cat.precio_venta > 0 ? cat.precio_venta : (cat.cost > 0 && markup < 100 ? Math.round(cat.cost / (1 - markup / 100) * 100) / 100 : 0)
+      const total = price * p.quantity
+
+      setProducts(prev => prev.map(pr => pr.id === p.id ? {
+        ...pr, cost: cat.cost || 0, price, markup,
+        imageUrl: cat.image_url || pr.imageUrl,
+        marca: cat.marca || pr.marca, modelo: cat.modelo || pr.modelo, sku: cat.sku || pr.sku,
+        watts: cat.watts ?? pr.watts, lumens: cat.lumens ?? pr.lumens, cct: cat.cct || pr.cct,
+      } : pr))
+
+      await supabase.from('quotation_items').update({
+        cost: cat.cost || 0, price, markup, total,
+        image_url: cat.image_url || null,
+        marca: cat.marca || null, modelo: cat.modelo || null, sku: cat.sku || null,
+      }).eq('id', p.id)
+      synced++
+    }
+    alert(`${synced} producto(s) sincronizado(s) con catálogo.`)
+  }
+
   async function bulkDeleteSelected() {
     const ids = Array.from(selectedIds)
     if (ids.length === 0) return
@@ -1033,6 +1069,7 @@ export default function CotEditorIlum({ cotId, onBack }: { cotId: string; onBack
             ))}
           </div>
           <button onClick={() => setShowAIImport(true)} style={{ padding: '6px 12px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #57FF9A44', background: 'transparent', color: '#57FF9A', display: 'inline-flex', alignItems: 'center', gap: 4 }}><Sparkles size={12} /> {isMobile ? 'AI' : 'Importar con AI'}</button>
+          <button onClick={syncAllWithCatalog} style={{ padding: '6px 12px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #3B82F644', background: 'transparent', color: '#3B82F6', display: 'inline-flex', alignItems: 'center', gap: 4 }}><RefreshCw size={12} /> {isMobile ? 'Sync' : 'Sync catálogo'}</button>
           <button onClick={() => setShowPdfPicker(true)} style={{ padding: '6px 12px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #06B6D444', background: 'transparent', color: '#06B6D4', display: 'inline-flex', alignItems: 'center', gap: 4 }}><FileText size={12} /> {isMobile ? 'PDF' : 'Exportar PDF'}</button>
           <div style={{ fontSize: isMobile ? 14 : 16, fontWeight: 700, color: '#57FF9A' }}>${fmt(grandTotal)}</div>
         </div>
