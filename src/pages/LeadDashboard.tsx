@@ -7,7 +7,6 @@ import {
   ArrowLeft, FileText, DollarSign, ShoppingCart, Briefcase,
   HardHat, AlertTriangle, ChevronDown, ChevronRight, ExternalLink,
   CheckCircle2, Clock, XCircle, TrendingUp, Package, BarChart3, Plus, X, Download,
-  Sparkles, Loader2,
 } from 'lucide-react'
 import jsPDF from 'jspdf'
 
@@ -73,10 +72,7 @@ export default function LeadDashboard() {
   const [showNewMilestone, setShowNewMilestone] = useState(false)
   const [cobrarModal, setCobrarModal] = useState<any>(null) // milestone being marked as cobrado
 
-  // AI Quotation Summary
-  const [aiSummary, setAiSummary] = useState<any>(null)
-  const [aiSummaryLoading, setAiSummaryLoading] = useState(false)
-  const [aiSummaryError, setAiSummaryError] = useState<string | null>(null)
+  // (AI summary removed — replaced with computed consolidation)
 
   // Collapsible sections
   const [expanded, setExpanded] = useState<Record<string, boolean>>({
@@ -151,34 +147,6 @@ export default function LeadDashboard() {
     }
 
     setLoading(false)
-  }
-
-  // ── AI QUOTATION SUMMARY ──────────────────────────────
-  async function generateAiSummary() {
-    if (quotations.length < 2 || aiSummaryLoading) return
-    setAiSummaryLoading(true)
-    setAiSummaryError(null)
-    try {
-      const resp = await fetch('/api/resumen-cotizaciones', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          quotations,
-          items: quotItems,
-          leadName: lead?.name || '',
-        }),
-      })
-      if (!resp.ok) {
-        const err = await resp.json().catch(() => ({ error: 'Error ' + resp.status }))
-        throw new Error(err.error || 'Error generando resumen')
-      }
-      const data = await resp.json()
-      setAiSummary(data)
-    } catch (err: any) {
-      setAiSummaryError(err.message || 'Error generando resumen')
-    } finally {
-      setAiSummaryLoading(false)
-    }
   }
 
   // ── EXPORT ESTADO DE CUENTA PDF ──────────────────────────────
@@ -397,6 +365,73 @@ export default function LeadDashboard() {
     return { byCur, totalVendido, totalCobrado, totalComprado, totalCompras, porCobrar, porComprar }
   }, [quotations, projects, bankMovements, pos, quotItems, tipoCambio])
 
+  // Consolidated quotation summary (for client-facing total)
+  const quotSummary = useMemo(() => {
+    if (quotations.length < 2) return null
+
+    // Group items by system across all quotations
+    const systemTotals: Record<string, { subtotal: number; items: number; moneda: string }> = {}
+    let grandSubtotal = 0
+
+    // Determine dominant currency
+    const currencies = quotations.map(q => getQuotCurrency(q))
+    const dominantCurrency = currencies.filter(c => c === 'USD').length >= currencies.length / 2 ? 'USD' : 'MXN'
+
+    quotations.forEach(q => {
+      const qCur = getQuotCurrency(q)
+      const qItems = quotItems.filter(i => i.quotation_id === q.id)
+
+      qItems.forEach(item => {
+        const sys = item.system || 'Sin sistema'
+        if (!systemTotals[sys]) systemTotals[sys] = { subtotal: 0, items: 0, moneda: dominantCurrency }
+
+        const itemTotal = Number(item.total) || 0
+        // Convert if needed
+        const converted = qCur !== dominantCurrency
+          ? (dominantCurrency === 'MXN' ? itemTotal * tipoCambio : itemTotal / tipoCambio)
+          : itemTotal
+        systemTotals[sys].subtotal += converted
+        systemTotals[sys].items += (item.quantity || 1)
+        grandSubtotal += converted
+      })
+    })
+
+    // Per-quotation subtotals
+    const perQuot = quotations.map(q => {
+      const qCur = getQuotCurrency(q)
+      const qItems = quotItems.filter(i => i.quotation_id === q.id)
+      const subtotal = qItems.reduce((s, i) => s + (Number(i.total) || 0), 0)
+      const converted = qCur !== dominantCurrency
+        ? (dominantCurrency === 'MXN' ? subtotal * tipoCambio : subtotal / tipoCambio)
+        : subtotal
+      return {
+        name: q.name,
+        specialty: q.specialty,
+        subtotal: converted,
+        subtotalIva: converted * 1.16,
+        moneda: qCur,
+        items: qItems.length,
+      }
+    })
+
+    // Read IVA rate from first quotation notes (default 16)
+    let ivaRate = 16
+    try {
+      const notes = JSON.parse(quotations[0]?.notes || '{}')
+      const cfg = notes.ilumConfig || notes.proyConfig || notes.espConfig || {}
+      if (cfg.iva) ivaRate = Number(cfg.iva)
+    } catch {}
+
+    return {
+      currency: dominantCurrency,
+      grandSubtotal,
+      grandTotal: grandSubtotal * (1 + ivaRate / 100),
+      ivaRate,
+      systems: Object.entries(systemTotals).sort((a, b) => b[1].subtotal - a[1].subtotal),
+      perQuot,
+    }
+  }, [quotations, quotItems, tipoCambio])
+
   // Bloqueos automáticos
   const autoBloqueos = useMemo(() => {
     const list: { tipo: string; descripcion: string; severidad: string; fuente: string }[] = []
@@ -569,137 +604,69 @@ export default function LeadDashboard() {
           </div>
         )}
 
-        {/* AI Summary Button — only when 2+ quotations */}
-          {quotations.length >= 2 && (
-            <div style={{ marginTop: 16 }}>
-              {!aiSummary && !aiSummaryLoading && (
-                <button
-                  onClick={generateAiSummary}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 8,
-                    padding: '10px 18px', background: 'linear-gradient(135deg, #7C3AED22, #C084FC22)',
-                    border: '1px solid #7C3AED44', borderRadius: 10, color: '#C084FC',
-                    cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, fontWeight: 600,
-                    transition: 'all 0.2s',
-                  }}
-                  onMouseEnter={e => { (e.target as HTMLElement).style.background = 'linear-gradient(135deg, #7C3AED33, #C084FC33)' }}
-                  onMouseLeave={e => { (e.target as HTMLElement).style.background = 'linear-gradient(135deg, #7C3AED22, #C084FC22)' }}
-                >
-                  <Sparkles size={14} /> Generar resumen comparativo con IA
-                </button>
-              )}
-
-              {aiSummaryLoading && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 14, background: '#141414', border: '1px solid #222', borderRadius: 10, color: '#888', fontSize: 12 }}>
-                  <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} />
-                  Analizando {quotations.length} cotizaciones...
+        {/* Consolidated summary — auto when 2+ quotations */}
+        {quotSummary && (
+          <div style={{ marginTop: 16, background: '#0a1a0a', border: '1px solid #57FF9A22', borderRadius: 12, overflow: 'hidden' }}>
+            {/* Header with grand total */}
+            <div style={{ padding: '14px 18px', background: '#57FF9A08', borderBottom: '1px solid #57FF9A15', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+              <div>
+                <div style={{ fontSize: 10, color: '#57FF9A', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600, marginBottom: 2 }}>Inversión Total del Proyecto</div>
+                <div style={{ fontSize: 26, fontWeight: 700, color: '#57FF9A' }}>
+                  {quotSummary.currency === 'USD' ? 'US$' : '$'}{quotSummary.grandTotal.toLocaleString('es-MX', { maximumFractionDigits: 0 })}
+                  <span style={{ fontSize: 11, color: '#57FF9A88', marginLeft: 6, fontWeight: 400 }}>c/IVA {quotSummary.ivaRate}%</span>
                 </div>
-              )}
-
-              {aiSummaryError && (
-                <div style={{ padding: 12, background: '#2a1414', border: '1px solid #5a282844', borderRadius: 10, color: '#f87171', fontSize: 12, marginTop: 8 }}>
-                  {aiSummaryError}
-                  <button onClick={generateAiSummary} style={{ marginLeft: 12, color: '#C084FC', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 600, fontSize: 11 }}>
-                    Reintentar
-                  </button>
+                <div style={{ fontSize: 11, color: '#888', marginTop: 2 }}>
+                  Subtotal: {quotSummary.currency === 'USD' ? 'US$' : '$'}{quotSummary.grandSubtotal.toLocaleString('es-MX', { maximumFractionDigits: 0 })}
+                  <span style={{ margin: '0 8px', color: '#333' }}>|</span>
+                  {quotations.length} cotizaciones combinadas
                 </div>
-              )}
+              </div>
+            </div>
 
-              {aiSummary && (
-                <div style={{ background: '#0e0e0e', border: '1px solid #7C3AED33', borderRadius: 12, overflow: 'hidden' }}>
-                  {/* Header */}
-                  <div style={{ padding: '12px 16px', background: '#7C3AED11', borderBottom: '1px solid #7C3AED22', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#C084FC', fontSize: 12, fontWeight: 600 }}>
-                      <Sparkles size={14} /> Resumen Comparativo IA
+            <div style={{ padding: 16 }}>
+              {/* Per-quotation breakdown */}
+              <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : `repeat(${Math.min(quotSummary.perQuot.length, 3)}, 1fr)`, gap: 10, marginBottom: 16 }}>
+                {quotSummary.perQuot.map((pq: any, i: number) => (
+                  <div key={i} style={{ padding: 12, background: '#141414', border: '1px solid #222', borderRadius: 8 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', flex: 1 }}>{pq.name}</div>
+                      <Badge label={pq.specialty?.toUpperCase()} color="#555" />
                     </div>
-                    <div style={{ display: 'flex', gap: 8 }}>
-                      <button onClick={generateAiSummary} style={{ padding: '3px 10px', background: 'none', border: '1px solid #333', borderRadius: 6, color: '#888', cursor: 'pointer', fontSize: 10, fontFamily: 'inherit' }}>
-                        Regenerar
-                      </button>
-                      <button onClick={() => setAiSummary(null)} style={{ padding: '3px 10px', background: 'none', border: '1px solid #333', borderRadius: 6, color: '#888', cursor: 'pointer', fontSize: 10, fontFamily: 'inherit' }}>
-                        Cerrar
-                      </button>
+                    <div style={{ fontSize: 18, fontWeight: 700, color: '#ccc' }}>
+                      {quotSummary.currency === 'USD' ? 'US$' : '$'}{pq.subtotalIva.toLocaleString('es-MX', { maximumFractionDigits: 0 })}
+                      <span style={{ fontSize: 9, color: '#555', marginLeft: 4, fontWeight: 400 }}>c/IVA</span>
                     </div>
+                    <div style={{ fontSize: 10, color: '#666', marginTop: 4 }}>{pq.items} items</div>
                   </div>
+                ))}
+              </div>
 
-                  <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 16 }}>
-                    {/* Resumen Ejecutivo */}
-                    {aiSummary.resumen_ejecutivo && (
-                      <div>
-                        <div style={{ fontSize: 11, fontWeight: 600, color: '#C084FC', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Resumen Ejecutivo</div>
-                        <div style={{ fontSize: 12, color: '#bbb', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{aiSummary.resumen_ejecutivo}</div>
-                      </div>
-                    )}
-
-                    {/* Per-quotation cards */}
-                    {aiSummary.cotizaciones?.length > 0 && (
-                      <div>
-                        <div style={{ fontSize: 11, fontWeight: 600, color: '#C084FC', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Por Cotización</div>
-                        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : `repeat(${Math.min(aiSummary.cotizaciones.length, 3)}, 1fr)`, gap: 10 }}>
-                          {aiSummary.cotizaciones.map((cot: any, i: number) => (
-                            <div key={i} style={{ padding: 12, background: '#141414', border: '1px solid #222', borderRadius: 8 }}>
-                              <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 6 }}>{cot.nombre}</div>
-                              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
-                                <Badge label={cot.especialidad?.toUpperCase()} color="#555" />
-                                <Badge label={STAGE_LABELS[cot.etapa] || cot.etapa} color={STAGE_COLORS[cot.etapa] || '#555'} />
-                              </div>
-                              <div style={{ fontSize: 18, fontWeight: 700, color: '#57FF9A', marginBottom: 8 }}>
-                                {cot.moneda === 'USD' ? 'US$' : '$'}{(cot.total_con_iva || 0).toLocaleString('es-MX', { maximumFractionDigits: 0 })}
-                                <span style={{ fontSize: 9, color: '#555', marginLeft: 4, fontWeight: 400 }}>c/IVA</span>
-                              </div>
-                              <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>
-                                {cot.areas_count} áreas · {cot.items_count} items
-                              </div>
-                              {cot.sistemas?.length > 0 && (
-                                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 6 }}>
-                                  {cot.sistemas.map((s: string) => (
-                                    <span key={s} style={{ fontSize: 9, padding: '2px 6px', background: '#C084FC15', border: '1px solid #C084FC33', borderRadius: 4, color: '#C084FC' }}>{s}</span>
-                                  ))}
-                                </div>
-                              )}
-                              {cot.marcas_destacadas?.length > 0 && (
-                                <div style={{ fontSize: 10, color: '#666' }}>Marcas: {cot.marcas_destacadas.join(', ')}</div>
-                              )}
-                              {cot.observaciones && (
-                                <div style={{ fontSize: 11, color: '#999', marginTop: 6, fontStyle: 'italic' }}>{cot.observaciones}</div>
-                              )}
-                            </div>
-                          ))}
+              {/* System breakdown */}
+              {quotSummary.systems.length > 0 && (
+                <div>
+                  <div style={{ fontSize: 10, fontWeight: 600, color: '#888', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Desglose por Sistema</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    {quotSummary.systems.map(([sys, data]: [string, any]) => {
+                      const pct = quotSummary.grandSubtotal > 0 ? (data.subtotal / quotSummary.grandSubtotal) * 100 : 0
+                      return (
+                        <div key={sys} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 10px', background: '#0e0e0e', borderRadius: 6 }}>
+                          <div style={{ flex: 1, fontSize: 12, color: '#ccc', fontWeight: 500 }}>{sys}</div>
+                          <div style={{ width: isMobile ? 80 : 140, height: 6, background: '#1a1a1a', borderRadius: 3, overflow: 'hidden' }}>
+                            <div style={{ width: `${Math.min(pct, 100)}%`, height: '100%', background: '#57FF9A', borderRadius: 3, transition: 'width 0.3s' }} />
+                          </div>
+                          <div style={{ fontSize: 11, color: '#888', minWidth: 50, textAlign: 'right' }}>{pct.toFixed(0)}%</div>
+                          <div style={{ fontSize: 12, color: '#fff', fontWeight: 600, minWidth: 90, textAlign: 'right' }}>
+                            {quotSummary.currency === 'USD' ? 'US$' : '$'}{data.subtotal.toLocaleString('es-MX', { maximumFractionDigits: 0 })}
+                          </div>
                         </div>
-                      </div>
-                    )}
-
-                    {/* Comparativa */}
-                    {aiSummary.comparativa && (
-                      <div>
-                        <div style={{ fontSize: 11, fontWeight: 600, color: '#C084FC', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Comparativa</div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                          {aiSummary.comparativa.diferencias_clave?.map((d: string, i: number) => (
-                            <div key={i} style={{ padding: '8px 12px', background: '#141414', border: '1px solid #222', borderRadius: 6, fontSize: 12, color: '#bbb', display: 'flex', gap: 8 }}>
-                              <span style={{ color: '#F59E0B', flexShrink: 0 }}>▸</span> {d}
-                            </div>
-                          ))}
-                          {aiSummary.comparativa.productos_diferentes?.map((d: string, i: number) => (
-                            <div key={'p' + i} style={{ padding: '8px 12px', background: '#141414', border: '1px solid #222', borderRadius: 6, fontSize: 12, color: '#bbb', display: 'flex', gap: 8 }}>
-                              <span style={{ color: '#3B82F6', flexShrink: 0 }}>◆</span> {d}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Recomendación */}
-                    {aiSummary.recomendacion && (
-                      <div style={{ padding: 14, background: '#0a1a0a', border: '1px solid #57FF9A22', borderRadius: 8 }}>
-                        <div style={{ fontSize: 11, fontWeight: 600, color: '#57FF9A', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Recomendación</div>
-                        <div style={{ fontSize: 12, color: '#bbb', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{aiSummary.recomendacion}</div>
-                      </div>
-                    )}
+                      )
+                    })}
                   </div>
                 </div>
               )}
             </div>
-          )}
+          </div>
+        )}
         </Section>
 
       {/* ══════════ 2. ESTADO DE CUENTA ══════════ */}
