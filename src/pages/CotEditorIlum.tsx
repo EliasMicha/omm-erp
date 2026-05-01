@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { F, STAGE_CONFIG } from '../lib/utils'
 import { Btn, Loading } from '../components/layout/UI'
-import { Plus, ChevronDown, ChevronRight, X, Trash2, Image as ImageIcon, Search, ArrowLeftRight, Sparkles, Upload, Loader2, FileText } from 'lucide-react'
+import { Plus, ChevronDown, ChevronRight, X, Trash2, Image as ImageIcon, Search, ArrowLeftRight, Sparkles, Upload, Loader2, FileText, RefreshCw } from 'lucide-react'
 import { useIsMobile } from '../lib/useIsMobile'
 
 // ═══════════════════════════════════════════════════════════════════
@@ -910,6 +910,56 @@ export default function CotEditorIlum({ cotId, onBack }: { cotId: string; onBack
     setSelectedIds(newIds)
   }
 
+  async function syncSelectedWithCatalog() {
+    const ids = Array.from(selectedIds)
+    const toSync = products.filter(p => ids.includes(p.id) && p.catalogId)
+    if (toSync.length === 0) { alert('Ninguno de los productos seleccionados tiene catálogo vinculado.'); return }
+    if (!confirm(`¿Sincronizar ${toSync.length} producto(s) con su catálogo? Esto actualizará costo, precio y margen.`)) return
+
+    const catalogIds = [...new Set(toSync.map(p => p.catalogId!).filter(Boolean))]
+    const { data: catProds } = await supabase.from('catalog_products').select('*').in('id', catalogIds)
+    if (!catProds || catProds.length === 0) { alert('No se encontraron productos en catálogo.'); return }
+
+    const catMap = new Map(catProds.map((c: any) => [c.id, c]))
+    let synced = 0
+
+    for (const p of toSync) {
+      const cat = catMap.get(p.catalogId!)
+      if (!cat) continue
+      const markup = cat.markup > 0 ? cat.markup : (p.markup || 35)
+      const price = cat.precio_venta > 0 ? cat.precio_venta : (cat.cost > 0 && markup < 100 ? Math.round(cat.cost / (1 - markup / 100) * 100) / 100 : 0)
+      const total = price * p.quantity
+
+      setProducts(prev => prev.map(pr => pr.id === p.id ? {
+        ...pr, cost: cat.cost || 0, price, markup,
+        imageUrl: cat.image_url || pr.imageUrl,
+        marca: cat.marca || pr.marca, modelo: cat.modelo || pr.modelo, sku: cat.sku || pr.sku,
+        watts: cat.watts ?? pr.watts, lumens: cat.lumens ?? pr.lumens, cct: cat.cct || pr.cct,
+      } : pr))
+
+      await supabase.from('quotation_items').update({
+        cost: cat.cost || 0, price, markup, total,
+        image_url: cat.image_url || null,
+        marca: cat.marca || null, modelo: cat.modelo || null, sku: cat.sku || null,
+      }).eq('id', p.id)
+      synced++
+    }
+
+    setSelectedIds(new Set())
+    alert(`${synced} producto(s) sincronizado(s) con catálogo.`)
+  }
+
+  async function bulkDeleteSelected() {
+    const ids = Array.from(selectedIds)
+    if (ids.length === 0) return
+    if (!confirm(`¿Eliminar ${ids.length} producto(s)?`)) return
+    for (const id of ids) {
+      await supabase.from('quotation_items').delete().eq('id', id)
+    }
+    setProducts(prev => prev.filter(p => !ids.includes(p.id)))
+    setSelectedIds(new Set())
+  }
+
   // Calculate totals
   const grandTotal = useMemo(() => products.reduce((s, p) => s + calcLine(p).total, 0), [products])
   const subsectionTotals = useMemo(() => {
@@ -988,6 +1038,27 @@ export default function CotEditorIlum({ cotId, onBack }: { cotId: string; onBack
             <Btn size="sm" onClick={() => addSubsection(customSubInput)}>Agregar</Btn>
           </div>
         </div>
+
+        {/* Bulk Action Bar */}
+        {selectedIds.size > 0 && (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px', marginBottom: 12,
+            background: '#57FF9A11', border: '1px solid #57FF9A33', borderRadius: 10, flexWrap: 'wrap',
+          }}>
+            <span style={{ fontSize: 12, fontWeight: 700, color: '#57FF9A' }}>{selectedIds.size} sel.</span>
+            <span style={{ width: 1, height: 16, background: '#333' }} />
+            <button onClick={syncSelectedWithCatalog} style={{ padding: '4px 10px', borderRadius: 6, fontSize: 11, background: '#3B82F622', border: '1px solid #3B82F644', color: '#3B82F6', cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 4 }}>
+              <RefreshCw size={11} /> Sync catálogo
+            </button>
+            <button onClick={bulkDeleteSelected} style={{ padding: '4px 10px', borderRadius: 6, fontSize: 11, background: '#EF444422', border: '1px solid #EF444444', color: '#EF4444', cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 4 }}>
+              <Trash2 size={11} /> Eliminar
+            </button>
+            <div style={{ flex: 1 }} />
+            <button onClick={() => setSelectedIds(new Set())} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', fontSize: 11, fontFamily: 'inherit' }}>
+              Deseleccionar
+            </button>
+          </div>
+        )}
 
         {/* Subsections */}
         {subsections.length === 0 ? (
