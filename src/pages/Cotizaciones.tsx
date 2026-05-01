@@ -779,7 +779,12 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
   const [generating, setGenerating] = useState(false)
   const [genResult, setGenResult] = useState<string|null>(null)
   const [aiImporting, setAiImporting] = useState(false)
-  const [aiImportResult, setAiImportResult] = useState<Array<{catalog_id: string|null, name: string, quantity: number, cost?: number, provider?: string}> | null>(null)
+  const [aiImportProgress, setAiImportProgress] = useState('')
+  const [aiImportResult, setAiImportResult] = useState<Array<{
+    area?: string, systemId?: string, marca?: string, modelo?: string, descripcion?: string,
+    cantidad: number, precio_unitario?: number | null, costo?: number | null, moneda?: string | null,
+    provider?: string, catalog_product_id?: string | null, match_status?: 'exact' | 'partial' | 'none'
+  }> | null>(null)
   const aiImportRef = useRef<HTMLInputElement>(null)
   const [activeTab, setActiveTab] = useState<'cotizacion' | 'cambios' | 'obra_real'>('cotizacion')
   const [changeOrders, setChangeOrders] = useState<any[]>([])
@@ -1089,228 +1094,348 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
     })
   }
 
+  // ─── SheetJS loader ───────────────────────────────────────────────
+  async function loadXLSX(): Promise<any> {
+    if ((window as any).XLSX) return (window as any).XLSX
+    await new Promise<void>((resolve, reject) => {
+      const script = document.createElement('script')
+      script.src = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js'
+      script.onload = () => resolve()
+      script.onerror = () => reject(new Error('No se pudo cargar SheetJS'))
+      document.head.appendChild(script)
+    })
+    if (!(window as any).XLSX) throw new Error('SheetJS no disponible')
+    return (window as any).XLSX
+  }
+
+  function findCol(row: any, candidates: string[]): any {
+    const keys = Object.keys(row)
+    for (const cand of candidates) {
+      const hit = keys.find(k => k.toLowerCase().trim() === cand.toLowerCase().trim())
+      if (hit && row[hit] != null && String(row[hit]).trim() !== '') return row[hit]
+    }
+    return null
+  }
+
+  function tryParseStructuredRows(rows: any[]): any[] | null {
+    if (!rows || rows.length === 0) return null
+    const firstRow = rows[0]
+    if (!firstRow || typeof firstRow !== 'object') return null
+    const keys = Object.keys(firstRow).map(k => k.toLowerCase())
+    const hasModel = keys.some(k => ['model','modelo','part number','sku'].includes(k))
+    if (!hasModel) return null
+
+    const items: any[] = []
+    for (const row of rows) {
+      const model = findCol(row, ['Model', 'Modelo', 'Part Number', 'SKU'])
+      if (!model) continue
+      const manufacturer = findCol(row, ['Manufacturer', 'Marca', 'Brand', 'Fabricante']) || ''
+      const vendor = findCol(row, ['Vendor', 'Proveedor', 'Supplier', 'Distribuidor', 'Dealer', 'Vendor Name']) || ''
+      const room = findCol(row, ['Room', 'Area', 'Área', 'Zona', 'Ubicación', 'Location']) || ''
+      const system = findCol(row, ['System', 'Sistema']) || ''
+      const description = findCol(row, ['Short Description', 'Description', 'Descripción', 'Descripcion', 'Product Description']) || ''
+      const qtyRaw = findCol(row, ['Item Ext Qty', 'Item Unit Qty', 'Qty', 'Quantity', 'Cantidad', 'Cant'])
+      const qty = qtyRaw != null ? parseFloat(String(qtyRaw)) : 1
+      const priceRaw = findCol(row, ['Unit Price', 'Precio Unitario', 'Price', 'Precio', 'Item Unit Price', 'Item Sell Price', 'Sell Price', 'MSRP', 'P.U.', 'PU'])
+      const price = priceRaw != null ? parseFloat(String(priceRaw).replace(/[$,]/g, '')) : null
+      const costRaw = findCol(row, ['costo', 'Costo', 'Costo Unitario', 'Unit Cost', 'Cost', 'Dealer Cost', 'Net Cost', 'Costo Neto'])
+      const costVal = costRaw != null ? parseFloat(String(costRaw).replace(/[$,]/g, '')) : null
+      const currencyRaw = findCol(row, ['Selling Currency', 'Cost Currency', 'Currency', 'Moneda'])
+      let moneda: string | null = null
+      if (currencyRaw) {
+        const c = String(currencyRaw).toUpperCase()
+        if (c.includes('USD') || c.includes('DLL') || c === 'US$') moneda = 'USD'
+        else if (c.includes('MXN') || c.includes('PESO') || c === 'MX$') moneda = 'MXN'
+      }
+
+      items.push({
+        area: String(room).trim(),
+        systemId: system || null,
+        marca: String(manufacturer).trim(),
+        modelo: String(model).trim(),
+        descripcion: String(description).trim(),
+        cantidad: isNaN(qty) ? 1 : Math.max(1, Math.round(qty)),
+        precio_unitario: price != null && !isNaN(price) ? price : null,
+        costo: costVal != null && !isNaN(costVal) ? costVal : null,
+        moneda,
+        provider: String(vendor).trim() || String(manufacturer).trim(),
+      })
+    }
+    return items.length > 0 ? items : null
+  }
+
   async function handleAIImport(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file || !areaActiva) return
     e.target.value = ''
     setAiImporting(true)
+    setAiImportProgress('Leyendo archivo...')
 
     try {
-      const specialty = cot?.specialty || 'esp'
-      const relevantCatalog = catalog.filter(p => (p.specialty || 'esp') === specialty)
-      // Use short numeric index instead of UUID to save tokens
-      const catalogList = relevantCatalog
-        .map((p, i) => `${i}: ${p.name}`)
-        .join('\n')
+      const ext = (file.name.split('.').pop() || '').toLowerCase()
+      let extractedItems: any[] | null = null
 
-      const ext = file.name.split('.').pop()?.toLowerCase()
-      let content: any[] = []
-
-      if (['png', 'jpg', 'jpeg', 'webp', 'gif'].includes(ext || '')) {
-        const b64 = await fileToBase64(file)
-        const aiPrompt = `Analiza este documento de cuantificación. Extrae todos los conceptos/partidas con sus cantidades, costos unitarios y proveedor/marca.
-
-Para cada concepto, busca el producto más similar en este catálogo y devuelve su índice:
-
-CATÁLOGO:
-${catalogList}
-
-IMPORTANTE:
-- Haz match por nombre/descripción similar, no tiene que ser exacto
-- Si un concepto no tiene match en el catálogo, usa idx: -1
-- Extrae la CANTIDAD de cada partida
-- Extrae el COSTO UNITARIO (precio unitario, P.U., costo) si aparece en el documento
-- Extrae el PROVEEDOR o MARCA si aparece (ej: Lutron, Honeywell, Leviton, Hubbell, etc.)
-- Ignora subtotales, IVA, totales
-- Si no encuentras costo o proveedor, usa null
-
-Devuelve SOLO un JSON array sin markdown ni explicacion:
-[{"idx":0,"name":"nombre corto","qty":434,"cost":150.50,"provider":"Lutron"},{"idx":-1,"name":"otro","qty":13,"cost":null,"provider":null}]`
-
-        content = [
-          { type: 'image', source: { type: 'base64', media_type: file.type, data: b64 } },
-          { type: 'text', text: aiPrompt }
-        ]
-      } else if (['pdf'].includes(ext || '')) {
-        const b64 = await fileToBase64(file)
-        const aiPrompt = `Analiza este documento de cuantificación. Extrae todos los conceptos/partidas con sus cantidades, costos unitarios y proveedor/marca.
-
-Para cada concepto, busca el producto más similar en este catálogo y devuelve su índice:
-
-CATÁLOGO:
-${catalogList}
-
-IMPORTANTE:
-- Haz match por nombre/descripción similar, no tiene que ser exacto
-- Si un concepto no tiene match en el catálogo, usa idx: -1
-- Extrae la CANTIDAD de cada partida
-- Extrae el COSTO UNITARIO (precio unitario, P.U., costo) si aparece en el documento
-- Extrae el PROVEEDOR o MARCA si aparece (ej: Lutron, Honeywell, Leviton, Hubbell, etc.)
-- Ignora subtotales, IVA, totales
-- Si no encuentras costo o proveedor, usa null
-
-Devuelve SOLO un JSON array sin markdown ni explicacion:
-[{"idx":0,"name":"nombre corto","qty":434,"cost":150.50,"provider":"Lutron"},{"idx":-1,"name":"otro","qty":13,"cost":null,"provider":null}]`
-
-        content = [
-          { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: b64 } },
-          { type: 'text', text: aiPrompt }
-        ]
-      } else {
-        const text = await file.text()
-        const aiPrompt = `Analiza este documento de cuantificación. Extrae todos los conceptos/partidas con sus cantidades, costos unitarios y proveedor/marca.
-
-Para cada concepto, busca el producto más similar en este catálogo y devuelve su índice:
-
-CATÁLOGO:
-${catalogList}
-
-IMPORTANTE:
-- Haz match por nombre/descripción similar, no tiene que ser exacto
-- Si un concepto no tiene match en el catálogo, usa idx: -1
-- Extrae la CANTIDAD de cada partida
-- Extrae el COSTO UNITARIO (precio unitario, P.U., costo) si aparece en el documento
-- Extrae el PROVEEDOR o MARCA si aparece (ej: Lutron, Honeywell, Leviton, Hubbell, etc.)
-- Ignora subtotales, IVA, totales
-- Si no encuentras costo o proveedor, usa null
-
-Archivo (${file.name}):
-${text}
-
-Devuelve SOLO un JSON array sin markdown ni explicacion:
-[{"idx":0,"name":"nombre corto","qty":434,"cost":150.50,"provider":"Lutron"},{"idx":-1,"name":"otro","qty":13,"cost":null,"provider":null}]`
-
-        content = [{ type: 'text', text: aiPrompt }]
-      }
-
-      const res = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': ANTHROPIC_API_KEY,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true'
-        },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514',
-          max_tokens: 8000,
-          messages: [{ role: 'user', content }]
-        })
-      })
-
-      const data = await res.json()
-      console.log('[AI Import] stop_reason:', data.stop_reason, 'content blocks:', data.content?.length)
-      if (data.error) {
-        setAiImporting(false)
-        alert('Error API: ' + (data.error.message || JSON.stringify(data.error)))
-        return
-      }
-
-      const textBlocks = (data.content || [])
-        .filter((b: any) => b.type === 'text')
-        .map((b: any) => b.text)
-        .join('\n')
-
-      console.log('[AI Import] raw response length:', textBlocks.length, 'first 500 chars:', textBlocks.substring(0, 500))
-
-      let parsed: any[] = []
-      try {
-        let cleaned = textBlocks.replace(/```json|```/g, '').trim()
-        // Find the JSON array
-        const start = cleaned.indexOf('[')
-        if (start === -1) throw new Error('No JSON array found in response: ' + cleaned.substring(0, 200))
-        let jsonStr = cleaned.slice(start)
-        // If truncated (no closing bracket), try to fix it
-        if (!jsonStr.trimEnd().endsWith(']')) {
-          console.log('[AI Import] JSON truncated, attempting fix...')
-          // Find last complete object (ending with })
-          const lastBrace = jsonStr.lastIndexOf('}')
-          if (lastBrace > 0) {
-            jsonStr = jsonStr.slice(0, lastBrace + 1) + ']'
+      // Try structured parsing first (Excel/CSV) — no AI needed
+      if (['xlsx', 'xls'].includes(ext)) {
+        setAiImportProgress('Cargando parser de Excel...')
+        const XLSX = await loadXLSX()
+        const buf = await file.arrayBuffer()
+        const wb = XLSX.read(buf, { type: 'array' })
+        for (const name of wb.SheetNames) {
+          const sheet = wb.Sheets[name]
+          const rows: any[] = XLSX.utils.sheet_to_json(sheet, { defval: null, raw: false })
+          if (rows.length > 0) {
+            extractedItems = tryParseStructuredRows(rows)
+            if (extractedItems) break
           }
         }
-        parsed = JSON.parse(jsonStr)
-      } catch (e) {
-        console.error('[AI Import] parse error:', e, 'textBlocks:', textBlocks.substring(0, 1000))
-        setAiImporting(false)
-        alert('No se pudo parsear respuesta: ' + (e instanceof Error ? e.message : 'Error desconocido'))
-        return
+        // If structured parsing failed, convert to text and use AI
+        if (!extractedItems) {
+          setAiImportProgress('Extrayendo con IA...')
+          let text = ''
+          for (const name of wb.SheetNames) {
+            text += XLSX.utils.sheet_to_csv(wb.Sheets[name])
+          }
+          const res = await fetch('/api/extract', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ kind: 'text', payload: text.substring(0, 30000) }),
+          })
+          const data = await res.json()
+          if (data.ok && data.items?.length) extractedItems = data.items
+          else throw new Error(data.error || 'No se encontraron items')
+        }
+      } else if (['csv', 'tsv', 'txt'].includes(ext)) {
+        const text = await file.text()
+        // Try structured first
+        const sep = text.split('\n')[0]?.includes('\t') ? '\t' : ','
+        const lines = text.split('\n').filter(l => l.trim())
+        if (lines.length >= 2) {
+          const headers = lines[0].split(sep).map(h => h.trim().replace(/^"|"$/g, ''))
+          const rows = lines.slice(1).map(line => {
+            const cells = line.split(sep).map(c => c.trim().replace(/^"|"$/g, ''))
+            const row: any = {}
+            headers.forEach((h, i) => { row[h] = cells[i] || null })
+            return row
+          })
+          extractedItems = tryParseStructuredRows(rows)
+        }
+        if (!extractedItems) {
+          setAiImportProgress('Extrayendo con IA...')
+          const res = await fetch('/api/extract', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ kind: 'text', payload: text.substring(0, 30000) }),
+          })
+          const data = await res.json()
+          if (data.ok && data.items?.length) extractedItems = data.items
+          else throw new Error(data.error || 'No se encontraron items')
+        }
+      } else if (ext === 'pdf') {
+        setAiImportProgress('Extrayendo con IA...')
+        const b64 = await fileToBase64(file)
+        const res = await fetch('/api/extract', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ kind: 'pdf', payload: b64 }),
+        })
+        const data = await res.json()
+        if (data.ok && data.items?.length) extractedItems = data.items
+        else throw new Error(data.error || 'No se encontraron items')
+      } else if (['png', 'jpg', 'jpeg', 'webp', 'gif'].includes(ext)) {
+        setAiImportProgress('Extrayendo con IA...')
+        const b64 = await fileToBase64(file)
+        const res = await fetch('/api/extract', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ kind: 'image', payload: b64, mediaType: file.type }),
+        })
+        const data = await res.json()
+        if (data.ok && data.items?.length) extractedItems = data.items
+        else throw new Error(data.error || 'No se encontraron items')
+      } else {
+        throw new Error('Formato no soportado: .' + ext)
       }
 
-      if (!Array.isArray(parsed) || parsed.length === 0) {
-        setAiImporting(false)
-        alert('No se encontraron items en el documento')
-        return
+      if (!extractedItems || extractedItems.length === 0) {
+        throw new Error('No se encontraron items en el documento')
       }
 
-      // Map idx back to catalog_id, keep cost and provider
-      const mapped = parsed.map((r: any) => ({
-        catalog_id: r.idx >= 0 && r.idx < relevantCatalog.length ? relevantCatalog[r.idx].id : null,
-        name: r.name || 'Desconocido',
-        quantity: r.qty || r.quantity || 1,
-        cost: r.cost && r.cost > 0 ? r.cost : undefined,
-        provider: r.provider || r.marca || undefined,
-      }))
+      // Match items against catalog by modelo
+      setAiImportProgress('Buscando en catálogo...')
+      for (const it of extractedItems) {
+        if (it.modelo) {
+          const match = catalog.find(c =>
+            (c as any).modelo && (c as any).modelo.toLowerCase().trim() === it.modelo.toLowerCase().trim()
+          )
+          if (match) {
+            it.catalog_product_id = match.id
+            it.match_status = 'exact'
+          } else {
+            // Try partial match by name
+            const nameMatch = catalog.find(c =>
+              c.name.toLowerCase().includes(it.modelo.toLowerCase()) ||
+              (it.descripcion && c.name.toLowerCase().includes(it.descripcion.toLowerCase().substring(0, 20)))
+            )
+            if (nameMatch) {
+              it.catalog_product_id = nameMatch.id
+              it.match_status = 'partial'
+            } else {
+              it.catalog_product_id = null
+              it.match_status = 'none'
+            }
+          }
+        } else {
+          it.catalog_product_id = null
+          it.match_status = 'none'
+        }
+      }
 
-      setAiImportResult(mapped)
+      setAiImportResult(extractedItems)
       setAiImporting(false)
     } catch (err: any) {
       setAiImporting(false)
-      alert('Error: ' + (err.message || 'No se pudo conectar'))
+      alert('Error: ' + (err.message || 'No se pudo importar'))
     }
   }
 
   async function confirmAIImport() {
     if (!aiImportResult || !areaActiva) return
+    setAiImporting(true)
+    setAiImportProgress('Insertando productos...')
     let insertedCount = 0
+    const createdProducts: Record<string, string> = {} // modelo -> catalog id
 
-    for (const r of aiImportResult) {
-      const prod = r.catalog_id ? catalog.find(p => p.id === r.catalog_id) : null
+    for (const it of aiImportResult) {
+      let catalogProductId = it.catalog_product_id || null
+      let prodCost = it.costo || 0
+      let prodMarkup = 30
+      let prodProvider = it.provider || it.marca || ''
+      let itemName = it.descripcion || ((it.marca || '') + ' ' + (it.modelo || '')).trim() || 'Producto importado'
 
-      // Use catalog data when matched, AI-extracted data as fallback
-      const itemCost = prod?.cost || r.cost || 0
-      const itemMarkup = prod?.markup || 30
-      const itemProvider = prod?.provider || r.provider || ''
+      // If matched in catalog, use catalog data
+      if (catalogProductId) {
+        const prod = catalog.find(p => p.id === catalogProductId)
+        if (prod) {
+          itemName = prod.name
+          prodCost = it.costo || prod.cost || 0
+          prodMarkup = prod.markup || 30
+          prodProvider = prod.provider || prodProvider
+        }
+      } else if (it.modelo) {
+        // Try to find or create catalog product by modelo
+        const cacheKey = it.modelo.toLowerCase().trim()
+        if (createdProducts[cacheKey]) {
+          catalogProductId = createdProducts[cacheKey]
+        } else {
+          // Search DB by modelo
+          const { data: existing } = await supabase
+            .from('catalog_products')
+            .select('id, cost, markup, provider, marca, modelo')
+            .eq('modelo', it.modelo)
+            .limit(1)
+            .single()
 
-      const item = {
-        area_id: areaActiva,
-        quotation_id: cotId,
-        catalog_product_id: prod?.id || null,
-        name: prod?.name || r.name,
-        description: prod?.description || '',
-        system: prod?.system || null,
-        type: prod?.type || 'material',
-        provider: itemProvider,
-        quantity: r.quantity,
-        cost: itemCost,
-        markup: prod ? prod.markup : itemMarkup,
-        supplier_id: prod?.supplier_id || null,
-        purchase_phase: prod?.purchase_phase || 'inicio',
-        price: calcItemPrice(itemCost, prod ? prod.markup : itemMarkup),
-        total: calcItemTotal(itemCost, prod ? prod.markup : itemMarkup, r.quantity),
-        installation_cost: 0,
-        order_index: items.filter(i => i.area_id === areaActiva).length + insertedCount,
-        marca: (prod as any)?.marca || r.provider || null,
-        modelo: (prod as any)?.modelo || null,
-        sku: (prod as any)?.sku || null,
-        image_url: (prod as any)?.image_url || null,
+          if (existing) {
+            catalogProductId = existing.id
+            prodCost = it.costo || Number(existing.cost) || 0
+            prodMarkup = existing.markup || 30
+            if (existing.provider) prodProvider = existing.provider
+            createdProducts[cacheKey] = existing.id
+          } else {
+            // Create new catalog product
+            const newCost = it.costo || it.precio_unitario || 0
+            const precioVenta = it.precio_unitario || (newCost > 0 ? Math.round(newCost / (1 - 30/100) * 100) / 100 : 0)
+            const computedMarkup = newCost > 0 && precioVenta > 0
+              ? Math.round((1 - newCost / precioVenta) * 100)
+              : 30
+
+            const { data: newProd, error: prodErr } = await supabase
+              .from('catalog_products')
+              .insert({
+                name: itemName,
+                description: it.descripcion || null,
+                system: it.systemId || 'Electrico',
+                type: 'material',
+                unit: 'pza',
+                cost: newCost,
+                markup: computedMarkup,
+                precio_venta: precioVenta,
+                provider: prodProvider || null,
+                marca: it.marca || null,
+                modelo: it.modelo,
+                moneda: it.moneda || 'MXN',
+                clave_unidad: 'H87',
+                iva_rate: 0.16,
+                is_active: true,
+                specialty: cot?.specialty || 'elec',
+                purchase_phase: 'inicio',
+              })
+              .select()
+              .single()
+
+            if (prodErr) {
+              if (prodErr.code === '23505') {
+                const { data: dup } = await supabase.from('catalog_products').select('id').eq('modelo', it.modelo).single()
+                if (dup) { catalogProductId = dup.id; createdProducts[cacheKey] = dup.id }
+              } else {
+                console.error('Error creando producto:', prodErr)
+              }
+            } else if (newProd) {
+              catalogProductId = newProd.id
+              prodCost = newCost
+              prodMarkup = computedMarkup
+              createdProducts[cacheKey] = newProd.id
+            }
+          }
+        }
       }
 
-      const { data } = await supabase.from('quotation_items').insert(item).select().single()
+      // Calculate price
+      const price = it.precio_unitario || calcItemPrice(prodCost, prodMarkup)
+      const total = calcItemTotal(prodCost, prodMarkup, it.cantidad)
+      const finalTotal = it.precio_unitario ? it.precio_unitario * it.cantidad : total
+
+      const { data } = await supabase.from('quotation_items').insert({
+        area_id: areaActiva,
+        quotation_id: cotId,
+        catalog_product_id: catalogProductId,
+        name: itemName,
+        description: it.descripcion || null,
+        system: it.systemId || null,
+        type: 'material',
+        provider: prodProvider || null,
+        quantity: it.cantidad,
+        cost: prodCost,
+        markup: prodMarkup,
+        price: price,
+        total: finalTotal,
+        installation_cost: 0,
+        order_index: items.filter(i => i.area_id === areaActiva).length + insertedCount,
+        marca: it.marca || null,
+        modelo: it.modelo || null,
+        purchase_phase: 'inicio',
+      }).select().single()
+
       if (data) {
         setItems(prev => [...prev, data])
         insertedCount++
+        setAiImportProgress(`Insertando... ${insertedCount}/${aiImportResult.length}`)
       }
     }
 
-    // Sync total after bulk import
+    // Sync total
     if (insertedCount > 0) {
       const allItems = await supabase.from('quotation_items').select('total').eq('quotation_id', cotId)
       const newTotal = (allItems.data || []).reduce((s: number, i: any) => s + (i.total || 0), 0)
       await supabase.from('quotations').update({ total: newTotal }).eq('id', cotId)
       setCot(c => c ? { ...c, total: newTotal } : c)
+      // Refresh catalog in memory
+      const { data: freshCat } = await supabase.from('catalog_products').select('*').eq('is_active', true).order('name')
+      if (freshCat) setCatalog(freshCat)
     }
     setAiImportResult(null)
+    setAiImporting(false)
   }
 
   async function removeItem(id: string) {
@@ -1410,7 +1535,7 @@ Devuelve SOLO un JSON array sin markdown ni explicacion:
             </Btn>
             <input type="file" ref={aiImportRef} accept=".csv,.txt,.xlsx,.pdf,.png,.jpg,.jpeg,.webp,.gif" style={{display:'none'}} onChange={handleAIImport} />
             <Btn size="sm" onClick={() => aiImportRef.current?.click()} disabled={aiImporting} style={{marginLeft:4}}>
-              {aiImporting ? <><Loader2 size={12} style={{animation:'spin 1s linear infinite'}}/> Importando...</> : <><Upload size={12}/> Importar con IA</>}
+              {aiImporting ? <><Loader2 size={12} style={{animation:'spin 1s linear infinite'}}/> {aiImportProgress || 'Importando...'}</> : <><Upload size={12}/> Importar con IA</>}
             </Btn>
             <Btn size="sm" onClick={syncPricesFromCatalog} disabled={syncing} style={{marginLeft:4}}>
               {syncing ? <><Loader2 size={12} style={{animation:'spin 1s linear infinite'}}/> Actualizando...</> : <><RefreshCw size={12}/> Sync Catálogo</>}
@@ -1667,52 +1792,47 @@ Devuelve SOLO un JSON array sin markdown ni explicacion:
 
       {aiImportResult && (
         <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.8)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000}}>
-          <div style={{background:'#141414',border:'1px solid #333',borderRadius:16,padding:20,width:800,maxHeight:'85vh',overflow:'hidden',display:'flex',flexDirection:'column'}}>
+          <div style={{background:'#141414',border:'1px solid #333',borderRadius:16,padding:20,width:900,maxWidth:'95vw',maxHeight:'85vh',overflow:'hidden',display:'flex',flexDirection:'column'}}>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}>
-              <div style={{fontSize:15,fontWeight:600,color:'#fff'}}>Vista previa de importacion ({aiImportResult.length} items)</div>
+              <div style={{fontSize:15,fontWeight:600,color:'#fff'}}>
+                Vista previa de importación ({aiImportResult.length} items)
+                <span style={{fontSize:11,color:'#888',marginLeft:8}}>
+                  {aiImportResult.filter(r => r.match_status === 'exact').length} catálogo · {aiImportResult.filter(r => r.match_status === 'none').length} nuevos
+                </span>
+              </div>
               <button onClick={()=>setAiImportResult(null)} style={{background:'none',border:'none',color:'#666',cursor:'pointer'}}><X size={18}/></button>
             </div>
             <div style={{overflowY:'auto',flex:1,marginBottom:14}}>
               <table style={{width:'100%',borderCollapse:'collapse'}}>
                 <thead>
                   <tr style={{background:'#1a1a1a'}}>
-                    <th style={{padding:'8px 10px',fontSize:10,fontWeight:600,color:'#666',textAlign:'left',textTransform:'uppercase',letterSpacing:'0.06em',borderBottom:'1px solid #222'}}>Producto</th>
-                    <th style={{padding:'8px 10px',fontSize:10,fontWeight:600,color:'#666',textAlign:'left',textTransform:'uppercase',letterSpacing:'0.06em',borderBottom:'1px solid #222'}}>Proveedor</th>
-                    <th style={{padding:'8px 10px',fontSize:10,fontWeight:600,color:'#666',textAlign:'right',textTransform:'uppercase',letterSpacing:'0.06em',borderBottom:'1px solid #222'}}>Cant.</th>
-                    <th style={{padding:'8px 10px',fontSize:10,fontWeight:600,color:'#666',textAlign:'right',textTransform:'uppercase',letterSpacing:'0.06em',borderBottom:'1px solid #222'}}>Costo</th>
-                    <th style={{padding:'8px 10px',fontSize:10,fontWeight:600,color:'#666',textAlign:'right',textTransform:'uppercase',letterSpacing:'0.06em',borderBottom:'1px solid #222'}}>P. Venta</th>
-                    <th style={{padding:'8px 10px',fontSize:10,fontWeight:600,color:'#666',textAlign:'center',textTransform:'uppercase',letterSpacing:'0.06em',borderBottom:'1px solid #222'}}>Estado</th>
+                    {['Producto','Marca','Modelo','Cant.','Costo','Precio','Estado'].map(h => (
+                      <th key={h} style={{padding:'8px 10px',fontSize:10,fontWeight:600,color:'#666',textAlign: ['Cant.','Costo','Precio'].includes(h) ? 'right' : h === 'Estado' ? 'center' : 'left',textTransform:'uppercase',letterSpacing:'0.06em',borderBottom:'1px solid #222'}}>{h}</th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody>
                   {aiImportResult.map((r, i) => {
-                    const prod = r.catalog_id ? catalog.find(p => p.id === r.catalog_id) : null
-                    const isMatched = !!prod
-                    const itemCost = prod?.cost || r.cost || 0
-                    const itemMarkup = prod?.markup || 30
-                    const unitPrice = calcItemPrice(itemCost, itemMarkup)
-                    const providerDisplay = prod?.provider || r.provider || ''
+                    const matched = r.catalog_product_id ? catalog.find(p => p.id === r.catalog_product_id) : null
+                    const displayName = r.descripcion || ((r.marca || '') + ' ' + (r.modelo || '')).trim() || 'Sin nombre'
+                    const cost = r.costo || (matched?.cost) || 0
+                    const price = r.precio_unitario || (cost > 0 ? calcItemPrice(cost, matched?.markup || 30) : 0)
                     return (
                       <tr key={i} style={{borderBottom:'1px solid #222'}}>
-                        <td style={{padding:'8px 10px',fontSize:12,color:'#ddd'}}>
-                          <div style={{fontWeight:500}}>{r.name}</div>
-                          {isMatched && prod.name !== r.name && <div style={{fontSize:10,color:'#666'}}>→ {prod.name}</div>}
+                        <td style={{padding:'8px 10px',fontSize:12,color:'#ddd',maxWidth:250}}>
+                          <div style={{fontWeight:500,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{displayName}</div>
+                          {matched && <div style={{fontSize:10,color:'#666'}}>→ {matched.name}</div>}
                         </td>
-                        <td style={{padding:'8px 10px',fontSize:11,color: providerDisplay ? '#3B82F6' : '#555'}}>
-                          {providerDisplay || '—'}
-                          {r.provider && prod?.provider && r.provider !== prod.provider && <div style={{fontSize:9,color:'#666'}}>doc: {r.provider}</div>}
-                        </td>
-                        <td style={{padding:'8px 10px',fontSize:12,color:'#ddd',textAlign:'right'}}>{r.quantity}</td>
-                        <td style={{padding:'8px 10px',fontSize:12,textAlign:'right',color: itemCost > 0 ? '#F59E0B' : '#555'}}>
-                          {itemCost > 0 ? F(itemCost) : '—'}
-                          {r.cost && prod?.cost && r.cost !== prod.cost && <div style={{fontSize:9,color:'#666'}}>doc: {F(r.cost)}</div>}
-                        </td>
-                        <td style={{padding:'8px 10px',fontSize:12,color:'#ddd',textAlign:'right'}}>{itemCost > 0 ? F(unitPrice) : '—'}</td>
+                        <td style={{padding:'8px 10px',fontSize:11,color:'#aaa'}}>{r.marca || '—'}</td>
+                        <td style={{padding:'8px 10px',fontSize:11,color:'#aaa'}}>{r.modelo || '—'}</td>
+                        <td style={{padding:'8px 10px',fontSize:12,color:'#ddd',textAlign:'right'}}>{r.cantidad}</td>
+                        <td style={{padding:'8px 10px',fontSize:12,textAlign:'right',color: cost > 0 ? '#F59E0B' : '#555'}}>{cost > 0 ? F(cost) : '—'}</td>
+                        <td style={{padding:'8px 10px',fontSize:12,color:'#ddd',textAlign:'right'}}>{price > 0 ? F(price) : '—'}</td>
                         <td style={{padding:'8px 10px',fontSize:12,textAlign:'center'}}>
                           <div style={{display:'inline-block',padding:'2px 8px',borderRadius:4,fontSize:10,fontWeight:600,
-                            background: isMatched ? '#22c55e22' : (r.cost ? '#3b82f622' : '#f59e0b22'),
-                            color: isMatched ? '#22c55e' : (r.cost ? '#3b82f6' : '#f59e0b')}}>
-                            {isMatched ? 'Catálogo' : (r.cost ? 'Nuevo + costo' : 'Sin match')}
+                            background: r.match_status === 'exact' ? '#22c55e22' : r.match_status === 'partial' ? '#3b82f622' : (r.costo ? '#f59e0b22' : '#ef444422'),
+                            color: r.match_status === 'exact' ? '#22c55e' : r.match_status === 'partial' ? '#3b82f6' : (r.costo ? '#f59e0b' : '#ef4444')}}>
+                            {r.match_status === 'exact' ? 'Catálogo' : r.match_status === 'partial' ? 'Parcial' : (r.costo ? 'Nuevo + costo' : 'Nuevo')}
                           </div>
                         </td>
                       </tr>
@@ -1721,11 +1841,16 @@ Devuelve SOLO un JSON array sin markdown ni explicacion:
                 </tbody>
               </table>
             </div>
-            <div style={{display:'flex',justifyContent:'space-between',gap:8}}>
-              <Btn size="sm" onClick={()=>setAiImportResult(null)}>Cancelar</Btn>
-              <Btn size="sm" variant="primary" onClick={confirmAIImport} style={{display:'flex',alignItems:'center',gap:4}}>
-                <Plus size={12}/> Importar {aiImportResult.length} productos
-              </Btn>
+            <div style={{display:'flex',justifyContent:'space-between',gap:8,alignItems:'center'}}>
+              <div style={{fontSize:11,color:'#888'}}>
+                Los productos nuevos se agregarán al catálogo automáticamente.
+              </div>
+              <div style={{display:'flex',gap:8}}>
+                <Btn size="sm" onClick={()=>setAiImportResult(null)}>Cancelar</Btn>
+                <Btn size="sm" variant="primary" onClick={confirmAIImport} style={{display:'flex',alignItems:'center',gap:4}}>
+                  <Plus size={12}/> Importar {aiImportResult.length} productos
+                </Btn>
+              </div>
             </div>
           </div>
         </div>
