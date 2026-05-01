@@ -106,6 +106,33 @@ function getProgramacion(cot: QuotationFull): number {
   try { const m = JSON.parse(cot.notes || '{}'); return Number(m.programacion) || 0 } catch { return 0 }
 }
 
+// Map system IDs (stored in notes.systems) → DB enum values used in quotation_items.system
+const SYSTEM_ID_TO_DB: Record<string, string> = {
+  'audio': 'Audio',
+  'redes': 'Redes',
+  'cctv': 'CCTV',
+  'control_acceso': 'Control de acceso',
+  'control_iluminacion': 'Control de iluminacion',
+  'deteccion_humo': 'Humo',
+  'bms': 'BMS',
+  'telefonia': 'Telefonia',
+  'red_celular': 'Celular',
+  'lutron_hwqs': 'Lutron',
+  'lutron': 'Lutron',
+  'somfy': 'Somfy',
+  'electrico': 'Electrico',
+  'cortinas': 'Cortinas',
+  'general': 'General',
+}
+
+function getActiveSystems(cot: QuotationFull): string[] | null {
+  try {
+    const m = JSON.parse(cot.notes || '{}')
+    if (Array.isArray(m.systems) && m.systems.length > 0) return m.systems
+    return null // null = show all (backwards compat)
+  } catch { return null }
+}
+
 function getIvaRate(cot: QuotationFull): number {
   try {
     const m = JSON.parse(cot.notes || '{}')
@@ -323,8 +350,22 @@ function CotizacionPdfInner() {
   const descuentoPct = getDescuento(cot)
   const ivaRate = getIvaRate(cot)
   const programacion = getProgramacion(cot)
-  const materialItems = items.filter(i => i.type !== 'labor')
-  const laborItems = items.filter(i => i.type === 'labor')
+
+  // Filter items by active systems (if toggled off in editor, exclude from PDF)
+  const activeSystemIds = getActiveSystems(cot)
+  const filteredItems = activeSystemIds
+    ? items.filter(i => {
+        const dbName = (i.system || '').toLowerCase()
+        // Check if any active system ID maps to this item's system value
+        return activeSystemIds.some(sysId => {
+          const mapped = (SYSTEM_ID_TO_DB[sysId] || '').toLowerCase()
+          return mapped === dbName
+        }) || !i.system // keep items without a system assigned
+      })
+    : items // null = show all (no systems config or backwards compat)
+
+  const materialItems = filteredItems.filter(i => i.type !== 'labor')
+  const laborItems = filteredItems.filter(i => i.type === 'labor')
 
   // Subtotal de items (precio unitario × cantidad, sin mano de obra)
   const subtotalItems = materialItems.reduce((s, i) => s + (i.price * i.quantity), 0)
