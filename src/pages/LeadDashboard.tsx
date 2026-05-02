@@ -150,6 +150,102 @@ export default function LeadDashboard() {
   }
 
   // ── EXPORT ESTADO DE CUENTA PDF ──────────────────────────────
+  function exportConsolidado() {
+    if (!lead || !quotSummary) return
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'letter' })
+    const W = doc.internal.pageSize.getWidth()
+    let y = 20
+
+    const addPage = () => { doc.addPage(); y = 20 }
+    const checkPage = (need: number) => { if (y + need > 260) addPage() }
+    const sym = quotSummary.currency === 'USD' ? 'US$' : '$'
+    const fmtPDF = (n: number) => sym + n.toLocaleString('es-MX', { maximumFractionDigits: 0 })
+
+    // ── Header ──
+    doc.setFontSize(18); doc.setFont('helvetica', 'bold')
+    doc.text('Resumen de Inversión', 15, y); y += 8
+    doc.setFontSize(12); doc.setFont('helvetica', 'normal')
+    doc.text(lead.name || 'Proyecto', 15, y); y += 5
+    if (lead.company) { doc.text(lead.company, 15, y); y += 5 }
+    doc.setFontSize(9); doc.setTextColor(120)
+    doc.text(`Generado: ${new Date().toLocaleDateString('es-MX', { day: '2-digit', month: 'long', year: 'numeric' })}`, 15, y)
+    doc.setTextColor(0); y += 10
+
+    // ── Grand Total box ──
+    doc.setFillColor(245, 250, 245); doc.roundedRect(15, y, W - 30, 22, 3, 3, 'F')
+    doc.setFontSize(10); doc.setFont('helvetica', 'bold'); doc.setTextColor(60)
+    doc.text('INVERSIÓN TOTAL DEL PROYECTO', 20, y + 7)
+    doc.setFontSize(16); doc.setTextColor(34, 139, 34)
+    doc.text(`${fmtPDF(Math.round(quotSummary.grandTotal))}`, 20, y + 16)
+    doc.setFontSize(8); doc.setTextColor(120)
+    doc.text(`c/IVA ${quotSummary.ivaRate}%  |  Subtotal: ${fmtPDF(Math.round(quotSummary.grandSubtotal))}  |  ${quotations.length} cotizaciones`, 80, y + 16)
+    doc.setTextColor(0); y += 28
+
+    // ── Per-quotation breakdown ──
+    doc.setFontSize(11); doc.setFont('helvetica', 'bold')
+    doc.text('Cotizaciones', 15, y); y += 6
+
+    // Table header
+    doc.setFontSize(8); doc.setFont('helvetica', 'bold'); doc.setTextColor(80)
+    doc.text('Nombre', 18, y)
+    doc.text('Especialidad', 110, y)
+    doc.text('Items', 140, y, { align: 'right' })
+    doc.text('Total c/IVA', W - 18, y, { align: 'right' })
+    doc.setTextColor(0)
+    y += 2; doc.setDrawColor(180); doc.line(15, y, W - 15, y); y += 4
+
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(9)
+    quotSummary.perQuot.forEach((pq: any) => {
+      checkPage(6)
+      doc.text((pq.name || '—').substring(0, 50), 18, y)
+      doc.text((pq.specialty || '—').toUpperCase(), 110, y)
+      doc.text(String(pq.items), 140, y, { align: 'right' })
+      doc.text(fmtPDF(Math.round(pq.subtotalIva)), W - 18, y, { align: 'right' })
+      y += 5.5
+    })
+    y += 6
+
+    // ── System breakdown ──
+    doc.setDrawColor(200); doc.line(15, y, W - 15, y); y += 8
+    doc.setFontSize(11); doc.setFont('helvetica', 'bold')
+    doc.text('Desglose por Sistema', 15, y); y += 6
+
+    // Table header
+    doc.setFontSize(8); doc.setFont('helvetica', 'bold'); doc.setTextColor(80)
+    doc.text('Sistema', 18, y)
+    doc.text('% del total', 120, y, { align: 'right' })
+    doc.text('Subtotal', W - 18, y, { align: 'right' })
+    doc.setTextColor(0)
+    y += 2; doc.setDrawColor(180); doc.line(15, y, W - 15, y); y += 4
+
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(9)
+    quotSummary.systems.forEach(([sys, data]: [string, any]) => {
+      checkPage(6)
+      const pct = quotSummary.grandSubtotal > 0 ? (data.subtotal / quotSummary.grandSubtotal) * 100 : 0
+      doc.text(sys, 18, y)
+      doc.text(`${pct.toFixed(0)}%`, 120, y, { align: 'right' })
+      doc.text(fmtPDF(Math.round(data.subtotal)), W - 18, y, { align: 'right' })
+
+      // Mini bar
+      const barX = 125; const barW = 40; const barH = 3
+      doc.setFillColor(230, 230, 230); doc.rect(barX, y - 3, barW, barH, 'F')
+      doc.setFillColor(87, 255, 154); doc.rect(barX, y - 3, barW * Math.min(pct, 100) / 100, barH, 'F')
+
+      y += 5.5
+    })
+
+    // ── Footer ──
+    const pageCount = doc.getNumberOfPages()
+    for (let i = 1; i <= pageCount; i++) {
+      doc.setPage(i)
+      doc.setFontSize(7); doc.setTextColor(150)
+      doc.text(`OMM ERP — Resumen de Inversión — ${lead.name}`, 15, 272)
+      doc.text(`Pág. ${i}/${pageCount}`, W - 15, 272, { align: 'right' })
+    }
+
+    doc.save(`Resumen_Inversion_${(lead.name || 'Lead').replace(/\s+/g, '_')}.pdf`)
+  }
+
   function exportEstadoCuenta() {
     if (!lead) return
     const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'letter' })
@@ -608,7 +704,7 @@ export default function LeadDashboard() {
         {quotSummary && (
           <div style={{ marginTop: 16, background: '#0a1a0a', border: '1px solid #57FF9A22', borderRadius: 12, overflow: 'hidden' }}>
             {/* Header with grand total */}
-            <div style={{ padding: '14px 18px', background: '#57FF9A08', borderBottom: '1px solid #57FF9A15', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+            <div style={{ padding: '14px 18px', background: '#57FF9A08', borderBottom: '1px solid #57FF9A15', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12 }}>
               <div>
                 <div style={{ fontSize: 10, color: '#57FF9A', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600, marginBottom: 2 }}>Inversión Total del Proyecto</div>
                 <div style={{ fontSize: 26, fontWeight: 700, color: '#57FF9A' }}>
@@ -621,6 +717,9 @@ export default function LeadDashboard() {
                   {quotations.length} cotizaciones combinadas
                 </div>
               </div>
+              <button onClick={exportConsolidado} style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 4, padding: '5px 12px', fontSize: 11, fontWeight: 600, color: '#57FF9A', background: '#57FF9A12', border: '1px solid #57FF9A33', borderRadius: 6, cursor: 'pointer' }}>
+                <Download size={12} /> Exportar PDF
+              </button>
             </div>
 
             <div style={{ padding: 16 }}>
