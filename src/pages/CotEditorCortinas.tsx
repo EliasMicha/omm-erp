@@ -1116,7 +1116,9 @@ export default function CotEditorCortinas({ cotId, onBack }: { cotId: string; on
   // Sync total to quotations table
   useEffect(() => {
     if (!loading && cotId) {
-      supabase.from('quotations').update({ total: Math.round(grandTotal * 100) / 100 }).eq('id', cotId)
+      const rounded = Math.round(grandTotal * 100) / 100
+      supabase.from('quotations').update({ total: rounded }).eq('id', cotId)
+        .then(({ error }) => { if (error) console.error('sync total error:', error); else console.log('synced total:', rounded) })
     }
   }, [grandTotal, loading])
 
