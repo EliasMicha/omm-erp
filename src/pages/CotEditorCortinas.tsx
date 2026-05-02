@@ -1015,6 +1015,7 @@ export default function CotEditorCortinas({ cotId, onBack }: { cotId: string; on
       setProjectName(proj?.name || '')
       try {
         const meta = JSON.parse(cot.notes || '{}')
+        existingNotesRef.current = meta
         if (meta.cortConfig) {
           setConfig(c => ({ ...c, ...meta.cortConfig }))
         }
@@ -1067,10 +1068,13 @@ export default function CotEditorCortinas({ cotId, onBack }: { cotId: string; on
   useEffect(() => { load() }, [cotId])
 
   // ── Save helpers ──
-  function saveQuotationNotes(overrides?: Partial<CortConfig>) {
+  const existingNotesRef = useRef<Record<string, any>>({})
+
+  async function saveQuotationNotes(overrides?: Partial<CortConfig>) {
     const c = { ...config, ...overrides }
-    const data = { cortConfig: c, currency: c.currency, tipoCambio: c.tipoCambio }
-    supabase.from('quotations').update({ notes: JSON.stringify(data) }).eq('id', cotId)
+    // Merge with existing notes to preserve lead_id, lead_name, systems, etc.
+    const merged = { ...existingNotesRef.current, cortConfig: c, currency: c.currency, tipoCambio: c.tipoCambio }
+    await supabase.from('quotations').update({ notes: JSON.stringify(merged) }).eq('id', cotId)
   }
 
   function itemToDbNotes(item: CortItem): string {
