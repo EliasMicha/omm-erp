@@ -44,7 +44,7 @@ interface CortItem {
   tipoPliegue: string    // e.g. "ONDA PERFECTA", "PLANO", "TABLEADO"
   // Pricing (manual or calculated)
   precioTelaPorML: number
-  precioConfeccion: number  // confection/sewing price per curtain
+  precioConfeccion: number  // confection/sewing price per ML
   telaIncluida: boolean     // true = client provides own fabric (no fabric charge)
   precioMotor: number    // manual for Lutron, auto-calculated for Somfy
   // DB tracking
@@ -196,7 +196,9 @@ function calcFabricCost(item: CortItem): number {
 }
 
 function calcConfeccionCost(item: CortItem): number {
-  return Math.round(item.precioConfeccion * item.cantidad * 100) / 100
+  // precioConfeccion is cost per ML — multiply by fabric meters
+  const ml = calcFabricML(item)
+  return Math.round(item.precioConfeccion * ml * item.cantidad * 100) / 100
 }
 
 // Motor cost in MXN — Somfy is already MXN, Lutron is USD * tipoCambio
