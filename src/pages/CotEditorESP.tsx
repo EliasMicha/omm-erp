@@ -1764,15 +1764,25 @@ function SummaryPanel({ products, areas, config, activeSystems, showInt, onConfi
       <div style={{ background: '#141414', border: '1px solid #222', borderRadius: 12, padding: 14, marginBottom: 10 }}>
         <div style={{ fontSize: 10, fontWeight: 600, color: '#555', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Por Sistema</div>
         {activeSystems.map(sys => {
-          const t = products.filter(p => p.systemId === sys.id).reduce((s, p) => s + calcLine(p).total, 0)
-          return <div key={sys.id} onClick={() => onSystemClick?.(sys.id)} style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 4px', fontSize: 10, cursor: 'pointer', borderRadius: 4, transition: 'background 0.1s' }} onMouseEnter={e => (e.currentTarget.style.background = '#1e1e1e')} onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}><span style={{ color: sys.color }}>{sys.name}</span><span style={{ color: '#ccc', fontWeight: 500 }}>${fmt(t)}</span></div>
+          const sysProds = products.filter(p => p.systemId === sys.id)
+          const t = sysProds.reduce((s, p) => s + calcLine(p).total, 0)
+          const sysCost = sysProds.reduce((s, p) => { const c = calcLine(p); return s + c.costReal * p.quantity }, 0)
+          const sysVenta = sysProds.reduce((s, p) => s + p.price * p.quantity, 0)
+          const sysMg = sysVenta > 0 ? Math.round((sysVenta - sysCost) / sysVenta * 100) : 0
+          return <div key={sys.id} onClick={() => onSystemClick?.(sys.id)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '3px 4px', fontSize: 10, cursor: 'pointer', borderRadius: 4, transition: 'background 0.1s' }} onMouseEnter={e => (e.currentTarget.style.background = '#1e1e1e')} onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
+            <span style={{ color: sys.color }}>{sys.name}</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              {showInt && <span style={{ fontSize: 9, fontWeight: 600, color: sysMg >= 25 ? '#57FF9A' : sysMg >= 15 ? '#F59E0B' : '#EF4444' }}>{sysMg}%</span>}
+              <span style={{ color: '#ccc', fontWeight: 500 }}>${fmt(t)}</span>
+            </div>
+          </div>
         })}
       </div>
       {showInt && (
         <div style={{ background: '#1a1414', border: '1px solid #332222', borderRadius: 12, padding: 14 }}>
           <div style={{ fontSize: 10, fontWeight: 600, color: '#F59E0B', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Análisis Interno</div>
           {(() => {
-            let vt = 0, ct = 0; products.forEach(p => { vt += p.price * p.quantity; ct += p.price * (1 - p.margin / 100) * p.quantity })
+            let vt = 0, ct = 0; products.forEach(p => { const c = calcLine(p); vt += p.price * p.quantity; ct += c.costReal * p.quantity })
             const mg = vt > 0 ? Math.round((vt - ct) / vt * 100) : 0
             return (<>
               <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}><span style={{ color: '#888' }}>Venta</span><span style={{ color: '#fff', fontWeight: 600 }}>${fmt(vt)}</span></div>
