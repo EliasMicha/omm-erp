@@ -421,7 +421,7 @@ export default function LeadDashboard() {
       const cur = getQuotCurrency(q)
       const proj = projects.find(p => p.cotizacion_id === q.id)
       const base = proj ? (proj.contract_value || 0) : (q.total || 0)
-      const amount = q.specialty === 'cort' ? base : base * 1.16
+      const amount = (q.specialty === 'cort' || q.specialty === 'esp' || q.specialty === 'ilum' || q.specialty === 'proy') ? base : base * 1.16
       byCur[cur].vendido += amount
     })
 
@@ -476,9 +476,9 @@ export default function LeadDashboard() {
 
     quotations.forEach(q => {
       const qCur = getQuotCurrency(q)
-      const isCort = q.specialty === 'cort'
+      const totalHasIva = q.specialty === 'cort' || q.specialty === 'esp' || q.specialty === 'ilum' || q.specialty === 'proy'
 
-      if (isCort) {
+      if (totalHasIva) {
         // Cortinas: use quotations.total directly (already includes margins, discount, IVA)
         const qTotal = Number(q.total) || 0
         const converted = qCur !== dominantCurrency
@@ -511,8 +511,8 @@ export default function LeadDashboard() {
       const qCur = getQuotCurrency(q)
       const qItems = quotItems.filter(i => i.quotation_id === q.id)
       // Cortinas: quotations.total already includes margins, discount & IVA
-      const isCort = q.specialty === 'cort'
-      const subtotal = isCort
+      const totalHasIva = q.specialty === 'cort' || q.specialty === 'esp' || q.specialty === 'ilum' || q.specialty === 'proy'
+      const subtotal = totalHasIva
         ? (Number(q.total) || 0)
         : qItems.reduce((s, i) => s + (Number(i.total) || 0), 0)
       const converted = qCur !== dominantCurrency
@@ -522,7 +522,7 @@ export default function LeadDashboard() {
         name: q.name,
         specialty: q.specialty,
         subtotal: converted,
-        subtotalIva: isCort ? converted : converted * 1.16,
+        subtotalIva: totalHasIva ? converted : converted * 1.16,
         moneda: qCur,
         items: qItems.length,
       }
@@ -706,7 +706,7 @@ export default function LeadDashboard() {
                     <td style={tdS}><Badge label={q.specialty?.toUpperCase() || '—'} color="#555" /></td>
                     <td style={tdS}><Badge label={STAGE_LABELS[q.stage] || q.stage} color={STAGE_COLORS[q.stage] || '#555'} /></td>
                     <td style={{ ...tdS, textAlign: 'right', fontWeight: 600, color: q.stage === 'contrato' ? '#57FF9A' : '#888' }}>
-                      {sym}{(q.specialty === 'cort' ? (q.total || 0) : (q.total || 0) * 1.16).toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                      {sym}{((q.specialty === 'cort' || q.specialty === 'esp' || q.specialty === 'ilum' || q.specialty === 'proy') ? (q.total || 0) : (q.total || 0) * 1.16).toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
                       <span style={{ fontSize: 9, color: '#555', marginLeft: 4 }}>c/IVA</span>
                     </td>
                     <td style={tdS}>

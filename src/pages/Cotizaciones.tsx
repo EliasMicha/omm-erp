@@ -138,8 +138,9 @@ function CotDashboard({ onOpen }: { onOpen: (id: string, specialty?: string) => 
     try { const m = JSON.parse(c.notes || '{}'); return m.proyConfig?.ivaRate || 16 } catch { return 16 }
   }
   function getTotalConIva(c: any): number {
-    // Cortinas editor already stores total WITH IVA — don't double-apply
-    if (c.specialty === 'cort') return c.total || 0
+    // ESP, Cortinas, Ilum, and Proyecto editors store total WITH IVA already — don't double-apply
+    // Only elec (generic editor) stores raw item subtotal without IVA
+    if (c.specialty === 'cort' || c.specialty === 'esp' || c.specialty === 'ilum' || c.specialty === 'proy') return c.total || 0
     const iva = getIvaRate(c)
     return c.total * (1 + iva / 100)
   }
@@ -362,7 +363,7 @@ function CotDashboard({ onOpen }: { onOpen: (id: string, specialty?: string) => 
                   </Td>
                   <Td><span style={{fontSize:11,color:'#888'}}>{c.created_at ? new Date(c.created_at).toLocaleDateString('es-MX',{day:'2-digit',month:'short',year:'numeric'}) : '--'}</span></Td>
                   <Td><span style={{fontSize:11,fontWeight:600,color: cur === 'USD' ? '#06B6D4' : '#F59E0B'}}>{cur}</span></Td>
-                  <Td right><span style={{fontWeight:600,color:'#57FF9A'}}>{FCUR(getTotalConIva(c), cur)}</span></Td>
+                  <Td right><span style={{fontWeight:600,color:'#57FF9A'}}>{FCUR(getTotalConIva(c), cur)}<span style={{fontSize:9,color:'#555',marginLeft:4,fontWeight:400}}>c/IVA</span></span></Td>
                   <Td>
                     <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                       <Btn size="sm" onClick={e => { e?.stopPropagation(); onOpen(c.id, c.specialty) }}>Abrir</Btn>
