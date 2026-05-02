@@ -512,16 +512,39 @@ export default function LeadDashboard() {
       const totalAlreadyHasIva = q.specialty === 'cort' || q.specialty === 'ilum' || q.specialty === 'proy'
 
       if (q.specialty === 'esp') {
-        // ESP: DB total is raw items sum — compute final with descuento + IVA
-        const qTotal = getEspTotal(q)
-        const converted = qCur !== dominantCurrency
-          ? (dominantCurrency === 'MXN' ? qTotal * tipoCambio : qTotal / tipoCambio)
-          : qTotal
-        const sys = q.name || 'Especiales'
-        if (!systemTotals[sys]) systemTotals[sys] = { subtotal: 0, items: 0, moneda: dominantCurrency }
-        systemTotals[sys].subtotal += converted
-        systemTotals[sys].items += quotItems.filter(i => i.quotation_id === q.id).length
-        grandTotalWithIva += converted
+        // ESP: break down by system, applying descuento + IVA proportionally
+        const espItems = quotItems.filter(i => i.quotation_id === q.id)
+        let espMeta: any = {}
+        try { espMeta = typeof q.notes === 'string' ? JSON.parse(q.notes) : (q.notes || {}) } catch {}
+        const desc = espMeta.descuento || 0
+        const prog = espMeta.programacion || 0
+        const rawTotal = espItems.reduce((s, i) => s + (Number(i.total) || 0), 0)
+        const subWithProg = rawTotal + prog
+        // Multiplier: (1 - desc%) * (1 + IVA%)
+        const multiplier = (1 - desc / 100) * 1.16
+
+        // Group items by system
+        const sysTotals: Record<string, { raw: number; count: number }> = {}
+        espItems.forEach(item => {
+          const sys = item.system || 'Sin sistema'
+          if (!sysTotals[sys]) sysTotals[sys] = { raw: 0, count: 0 }
+          sysTotals[sys].raw += Number(item.total) || 0
+          sysTotals[sys].count += 1
+        })
+
+        // Distribute programacion proportionally and apply descuento + IVA
+        Object.entries(sysTotals).forEach(([sys, data]) => {
+          const proportion = rawTotal > 0 ? data.raw / rawTotal : 0
+          const sysWithProg = data.raw + prog * proportion
+          const sysFinal = sysWithProg * multiplier
+          const converted = qCur !== dominantCurrency
+            ? (dominantCurrency === 'MXN' ? sysFinal * tipoCambio : sysFinal / tipoCambio)
+            : sysFinal
+          if (!systemTotals[sys]) systemTotals[sys] = { subtotal: 0, items: 0, moneda: dominantCurrency }
+          systemTotals[sys].subtotal += converted
+          systemTotals[sys].items += data.count
+          grandTotalWithIva += converted
+        })
       } else if (totalAlreadyHasIva) {
         // Cortinas/Ilum/Proy: quotations.total already includes margins, discount, IVA
         const qTotal = Number(q.total) || 0
