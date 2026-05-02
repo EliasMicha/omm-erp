@@ -1070,11 +1070,12 @@ export default function CotEditorCortinas({ cotId, onBack }: { cotId: string; on
   // ── Save helpers ──
   const existingNotesRef = useRef<Record<string, any>>({})
 
-  async function saveQuotationNotes(overrides?: Partial<CortConfig>) {
-    const c = { ...config, ...overrides }
+  function saveQuotationNotes(configToSave: CortConfig) {
     // Merge with existing notes to preserve lead_id, lead_name, systems, etc.
-    const merged = { ...existingNotesRef.current, cortConfig: c, currency: c.currency, tipoCambio: c.tipoCambio }
-    await supabase.from('quotations').update({ notes: JSON.stringify(merged) }).eq('id', cotId)
+    const merged = { ...existingNotesRef.current, cortConfig: configToSave, currency: configToSave.currency, tipoCambio: configToSave.tipoCambio }
+    existingNotesRef.current = merged
+    supabase.from('quotations').update({ notes: JSON.stringify(merged) }).eq('id', cotId)
+      .then(({ error }) => { if (error) console.error('saveQuotationNotes error:', error) })
   }
 
   function itemToDbNotes(item: CortItem): string {
