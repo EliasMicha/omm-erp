@@ -405,13 +405,14 @@ function SystemBlock({ sysDef, products, collapsed, onToggle, onUpdate, onRemove
 // ═══════════════════════════════════════════════════════════════════
 // AREA BLOCK
 // ═══════════════════════════════════════════════════════════════════
-function AreaBlock({ area, activeSystems, products, allProducts, collapsedSys, onToggleArea, onToggleSys, onUpdateProd, onRemoveProd, onUpdateAll, onAddProd, showInt, onCopyTo, onDetail, selectedIds, onToggleSelect, onSubstitute }: {
+function AreaBlock({ area, activeSystems, products, allProducts, collapsedSys, onToggleArea, onToggleSys, onUpdateProd, onRemoveProd, onUpdateAll, onAddProd, showInt, onCopyTo, onDetail, selectedIds, onToggleSelect, onSubstitute, onRemoveArea }: {
   area: EspArea; activeSystems: EspSystemDef[]; products: EspProduct[]; allProducts: EspProduct[]
   collapsedSys: Record<string, boolean>; onToggleArea: () => void; onToggleSys: (k: string) => void
   onUpdateProd: (id: string, f: string, v: number | string) => void; onRemoveProd: (id: string) => void
   onUpdateAll: (catalogId: string, field: string, value: number) => void
   onAddProd: (sysId: string) => void; showInt: boolean; onCopyTo?: (id: string) => void; onDetail?: (p: EspProduct) => void
   selectedIds?: Set<string>; onToggleSelect?: (id: string) => void; onSubstitute?: (p: EspProduct) => void
+  onRemoveArea?: (id: string) => void
 }) {
   const areaProds = products.filter(p => p.areaId === area.id)
   const areaTotal = areaProds.reduce((s, p) => s + calcLine(p).total, 0)
@@ -420,11 +421,18 @@ function AreaBlock({ area, activeSystems, products, allProducts, collapsedSys, o
 
   return (
     <div style={{ marginBottom: 14 }}>
-      <div onClick={onToggleArea} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 14px', cursor: 'pointer', background: '#1a1a1a', borderRadius: 10, borderLeft: '3px solid #57FF9A' }}>
-        {area.collapsed ? <ChevronRight size={16} color="#57FF9A" /> : <ChevronDown size={16} color="#57FF9A" />}
-        <span style={{ fontSize: 14, fontWeight: 700, color: '#fff', flex: 1, textTransform: 'uppercase' as const }}>{area.name}</span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 14px', cursor: 'pointer', background: '#1a1a1a', borderRadius: 10, borderLeft: '3px solid #57FF9A' }}>
+        <div onClick={onToggleArea} style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, cursor: 'pointer' }}>
+          {area.collapsed ? <ChevronRight size={16} color="#57FF9A" /> : <ChevronDown size={16} color="#57FF9A" />}
+          <span style={{ fontSize: 14, fontWeight: 700, color: '#fff', flex: 1, textTransform: 'uppercase' as const }}>{area.name}</span>
+        </div>
         <span style={{ fontSize: 10, color: '#555' }}>{sysWithProds.length} sistemas</span>
         <span style={{ fontSize: 14, fontWeight: 700, color: '#57FF9A' }}>${fmt(areaTotal)}</span>
+        {onRemoveArea && (
+          <button onClick={(e) => { e.stopPropagation(); onRemoveArea(area.id) }} style={{ background: 'none', border: 'none', color: '#444', cursor: 'pointer', padding: '2px 4px', marginLeft: 4 }} title="Eliminar área">
+            <Trash2 size={13} />
+          </button>
+        )}
       </div>
       {!area.collapsed && (
         <div style={{ paddingLeft: 14, paddingTop: 6 }}>
@@ -2003,6 +2011,20 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
     if (data) setAreas(p => [...p, { id: data.id, name: n, collapsed: false, order: p.length }]);
   }
 
+  async function removeArea(areaId: string) {
+    const areaProds = products.filter(p => p.areaId === areaId)
+    const areaName = areas.find(a => a.id === areaId)?.name || 'esta área'
+    if (areaProds.length > 0) {
+      if (!confirm(`"${areaName}" tiene ${areaProds.length} producto(s). ¿Eliminar el área y todos sus productos?`)) return
+      await supabase.from('quotation_items').delete().eq('area_id', areaId)
+      setProducts(prev => prev.filter(p => p.areaId !== areaId))
+    } else {
+      if (!confirm(`¿Eliminar el área "${areaName}"?`)) return
+    }
+    await supabase.from('quotation_areas').delete().eq('id', areaId)
+    setAreas(prev => prev.filter(a => a.id !== areaId))
+  }
+
   async function saveNotes(overrides?: Partial<{ systems: string[]; currency: string; tipoCambio: number; descuento: number; programacion: number }>) {
     // Preserve existing notes fields (lead_id, source, etc.)
     let existing: any = {}
@@ -2492,7 +2514,8 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
               collapsedSys={collapsedSys} onToggleArea={() => toggleArea(area.id)} onToggleSys={toggleSys}
               onUpdateProd={updateProduct} onRemoveProd={removeProduct} onUpdateAll={updateAllByCatalogId}
               onAddProd={(sysId) => openAddProduct(area.id, sysId)} showInt={showInt}  onCopyTo={(id) => setCopyingProduct(id)} onDetail={(p) => setDetailProduct(p)}
-              selectedIds={selectedProdIds} onToggleSelect={toggleProdSelect} onSubstitute={(p) => setSubstitutingProduct(p)} />
+              selectedIds={selectedProdIds} onToggleSelect={toggleProdSelect} onSubstitute={(p) => setSubstitutingProduct(p)}
+              onRemoveArea={removeArea} />
           ))}
           <div onClick={addArea} style={{ padding: '12px', border: '1px dashed #333', borderRadius: 10, textAlign: 'center', cursor: 'pointer', color: '#444', fontSize: 12 }}>+ Agregar área</div>
         </div>
