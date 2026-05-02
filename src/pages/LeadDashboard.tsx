@@ -467,7 +467,8 @@ export default function LeadDashboard() {
 
     // Group items by system across all quotations
     const systemTotals: Record<string, { subtotal: number; items: number; moneda: string }> = {}
-    let grandSubtotal = 0
+    let grandSubtotal = 0       // subtotal before IVA (for non-cort)
+    let grandTotalWithIva = 0   // running total for cort (already has IVA)
 
     // Determine dominant currency
     const currencies = quotations.map(q => getQuotCurrency(q))
@@ -475,28 +476,45 @@ export default function LeadDashboard() {
 
     quotations.forEach(q => {
       const qCur = getQuotCurrency(q)
-      const qItems = quotItems.filter(i => i.quotation_id === q.id)
+      const isCort = q.specialty === 'cort'
 
-      qItems.forEach(item => {
-        const sys = item.system || 'Sin sistema'
-        if (!systemTotals[sys]) systemTotals[sys] = { subtotal: 0, items: 0, moneda: dominantCurrency }
-
-        const itemTotal = Number(item.total) || 0
-        // Convert if needed
+      if (isCort) {
+        // Cortinas: use quotations.total directly (already includes margins, discount, IVA)
+        const qTotal = Number(q.total) || 0
         const converted = qCur !== dominantCurrency
-          ? (dominantCurrency === 'MXN' ? itemTotal * tipoCambio : itemTotal / tipoCambio)
-          : itemTotal
+          ? (dominantCurrency === 'MXN' ? qTotal * tipoCambio : qTotal / tipoCambio)
+          : qTotal
+        const sys = 'Cortinas'
+        if (!systemTotals[sys]) systemTotals[sys] = { subtotal: 0, items: 0, moneda: dominantCurrency }
         systemTotals[sys].subtotal += converted
-        systemTotals[sys].items += (item.quantity || 1)
-        grandSubtotal += converted
-      })
+        systemTotals[sys].items += quotItems.filter(i => i.quotation_id === q.id).length
+        grandTotalWithIva += converted
+      } else {
+        const qItems = quotItems.filter(i => i.quotation_id === q.id)
+        qItems.forEach(item => {
+          const sys = item.system || 'Sin sistema'
+          if (!systemTotals[sys]) systemTotals[sys] = { subtotal: 0, items: 0, moneda: dominantCurrency }
+
+          const itemTotal = Number(item.total) || 0
+          const converted = qCur !== dominantCurrency
+            ? (dominantCurrency === 'MXN' ? itemTotal * tipoCambio : itemTotal / tipoCambio)
+            : itemTotal
+          systemTotals[sys].subtotal += converted
+          systemTotals[sys].items += (item.quantity || 1)
+          grandSubtotal += converted
+        })
+      }
     })
 
     // Per-quotation subtotals
     const perQuot = quotations.map(q => {
       const qCur = getQuotCurrency(q)
       const qItems = quotItems.filter(i => i.quotation_id === q.id)
-      const subtotal = qItems.reduce((s, i) => s + (Number(i.total) || 0), 0)
+      // Cortinas: quotations.total already includes margins, discount & IVA
+      const isCort = q.specialty === 'cort'
+      const subtotal = isCort
+        ? (Number(q.total) || 0)
+        : qItems.reduce((s, i) => s + (Number(i.total) || 0), 0)
       const converted = qCur !== dominantCurrency
         ? (dominantCurrency === 'MXN' ? subtotal * tipoCambio : subtotal / tipoCambio)
         : subtotal
@@ -504,7 +522,7 @@ export default function LeadDashboard() {
         name: q.name,
         specialty: q.specialty,
         subtotal: converted,
-        subtotalIva: converted * 1.16,
+        subtotalIva: isCort ? converted : converted * 1.16,
         moneda: qCur,
         items: qItems.length,
       }
@@ -518,10 +536,13 @@ export default function LeadDashboard() {
       if (cfg.iva) ivaRate = Number(cfg.iva)
     } catch {}
 
+    const combinedSubtotal = grandSubtotal + grandTotalWithIva
+    const combinedTotal = grandSubtotal * (1 + ivaRate / 100) + grandTotalWithIva
+
     return {
       currency: dominantCurrency,
-      grandSubtotal,
-      grandTotal: grandSubtotal * (1 + ivaRate / 100),
+      grandSubtotal: combinedSubtotal,
+      grandTotal: combinedTotal,
       ivaRate,
       systems: Object.entries(systemTotals).sort((a, b) => b[1].subtotal - a[1].subtotal),
       perQuot,
