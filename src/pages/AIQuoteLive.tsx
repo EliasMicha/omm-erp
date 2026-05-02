@@ -177,8 +177,25 @@ const inputS: React.CSSProperties = {
 function parseJSON(text: string): any {
   const cleaned = text.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '').trim()
   const match = cleaned.match(/\{[\s\S]*\}/)
-  if (match) return JSON.parse(match[0])
-  throw new Error('No JSON found in response')
+  if (!match) throw new Error('No JSON found in response')
+  let jsonStr = match[0]
+  // Try parsing as-is first
+  try { return JSON.parse(jsonStr) } catch (_) { /* try repairs */ }
+  // Remove trailing commas before } or ]
+  jsonStr = jsonStr.replace(/,\s*([}\]])/g, '$1')
+  // Remove JS-style comments
+  jsonStr = jsonStr.replace(/\/\/[^\n]*/g, '')
+  try { return JSON.parse(jsonStr) } catch (_) { /* try bracket repair */ }
+  // Auto-close unclosed brackets/braces
+  let opens = 0, closesArr = 0
+  for (const ch of jsonStr) { if (ch === '[') opens++; if (ch === ']') closesArr++ }
+  while (closesArr < opens) { jsonStr = jsonStr.trimEnd().replace(/,\s*$/, '') + ']'; closesArr++ }
+  let openBrace = 0, closeBrace = 0
+  for (const ch of jsonStr) { if (ch === '{') openBrace++; if (ch === '}') closeBrace++ }
+  while (closeBrace < openBrace) { jsonStr = jsonStr.trimEnd().replace(/,\s*$/, '') + '}'; closeBrace++ }
+  // Final trailing comma cleanup after bracket repair
+  jsonStr = jsonStr.replace(/,\s*([}\]])/g, '$1')
+  return JSON.parse(jsonStr)
 }
 
 async function callAI(
