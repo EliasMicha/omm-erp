@@ -18,6 +18,7 @@ interface CortConfig {
   instPct: number        // installation % (default 15)
   margenTela: number     // margin on fabric (%)
   margenMotor: number    // margin on motors/hardware (%)
+  descuento: number      // discount % (default 0)
 }
 
 // Each curtain line item
@@ -318,11 +319,15 @@ function CortPdfModal({ items, areas, config, cotName, clientName, projectName, 
   const subtotalVenta = telaVenta + confVenta + motorVenta
   const instalacion = Math.round(subtotalVenta * config.instPct / 100 * 100) / 100
   const subConInst = subtotalVenta + instalacion
-  const iva = Math.round(subConInst * config.ivaRate / 100 * 100) / 100
-  const total = subConInst + iva
+  const descuentoAmt = Math.round(subConInst * (config.descuento || 0) / 100 * 100) / 100
+  const subConDesc = subConInst - descuentoAmt
+  const iva = Math.round(subConDesc * config.ivaRate / 100 * 100) / 100
+  const total = subConDesc + iva
 
   const manualCount = items.filter(i => i.tipoCierre === 'MANUAL').reduce((s, i) => s + i.cantidad, 0)
   const motorCount = items.filter(i => i.tipoCierre === 'MOTORIZADO').reduce((s, i) => s + i.cantidad, 0)
+
+  const fmtC = (n: number) => '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
   function handlePrint() {
     const content = pdfRef.current
@@ -409,10 +414,10 @@ function CortPdfModal({ items, areas, config, cotName, clientName, projectName, 
                             <td style={{ textAlign: 'left', padding: '4px', color: '#444' }}>{item.tipoCierre === 'MANUAL' ? 'Manual' : item.motorSystem || 'Motorizado'}</td>
                             <td style={{ textAlign: 'left', padding: '4px', color: '#444' }}>{item.tipoTela}</td>
                             <td style={{ textAlign: 'left', padding: '4px', color: '#444' }}>{item.tipoPliegue}</td>
-                            <td style={{ textAlign: 'right', padding: '4px', color: '#000' }}>${itemConfVenta.toFixed(2)}</td>
-                            <td style={{ textAlign: 'right', padding: '4px', color: item.telaIncluida ? '#999' : '#000', fontStyle: item.telaIncluida ? 'italic' : 'normal' }}>{item.telaIncluida ? 'CLIENTE' : '$' + itemTelaVenta.toFixed(2)}</td>
-                            <td style={{ textAlign: 'right', padding: '4px', color: '#000' }}>{itemMotorCostMXN > 0 ? '$' + itemMotorVenta.toFixed(2) : '---'}{item.motorBrand === 'LUTRON' && itemMotorCostMXN > 0 ? <span style={{ fontSize: 7, color: '#888' }}> (USD→MXN)</span> : ''}</td>
-                            <td style={{ textAlign: 'right', padding: '4px', color: '#000', fontWeight: 700 }}>${itemTotalVenta.toFixed(2)}</td>
+                            <td style={{ textAlign: 'right', padding: '4px', color: '#000' }}>{fmtC(itemConfVenta)}</td>
+                            <td style={{ textAlign: 'right', padding: '4px', color: item.telaIncluida ? '#999' : '#000', fontStyle: item.telaIncluida ? 'italic' : 'normal' }}>{item.telaIncluida ? 'CLIENTE' : fmtC(itemTelaVenta)}</td>
+                            <td style={{ textAlign: 'right', padding: '4px', color: '#000' }}>{itemMotorCostMXN > 0 ? fmtC(itemMotorVenta) : '---'}{item.motorBrand === 'LUTRON' && itemMotorCostMXN > 0 ? <span style={{ fontSize: 7, color: '#888' }}> (USD→MXN)</span> : ''}</td>
+                            <td style={{ textAlign: 'right', padding: '4px', color: '#000', fontWeight: 700 }}>{fmtC(itemTotalVenta)}</td>
                           </tr>
                         )
                       })}
@@ -428,16 +433,28 @@ function CortPdfModal({ items, areas, config, cotName, clientName, projectName, 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 150px', gap: 8, fontSize: 10 }}>
                 <div style={{ textAlign: 'right', color: '#555' }}>Persianas Manuales:</div>
                 <div style={{ textAlign: 'right', fontWeight: 600, color: '#000' }}>{manualCount}</div>
+                <div style={{ textAlign: 'right', color: '#555' }}>Total Tela:</div>
+                <div style={{ textAlign: 'right', fontWeight: 600, color: '#000' }}>{fmtC(telaVenta)}</div>
+                <div style={{ textAlign: 'right', color: '#555' }}>Total Confección:</div>
+                <div style={{ textAlign: 'right', fontWeight: 600, color: '#000' }}>{fmtC(confVenta)}</div>
+                <div style={{ textAlign: 'right', color: '#555', fontWeight: 600 }}>Total Telas Confeccionadas:</div>
+                <div style={{ textAlign: 'right', fontWeight: 700, color: '#000' }}>{fmtC(telaVenta + confVenta)}</div>
                 <div style={{ textAlign: 'right', color: '#555' }}>Total Motorización:</div>
-                <div style={{ textAlign: 'right', fontWeight: 600, color: '#000' }}>${motorVenta.toFixed(2)}</div>
+                <div style={{ textAlign: 'right', fontWeight: 600, color: '#000' }}>{fmtC(motorVenta)}</div>
                 <div style={{ textAlign: 'right', color: '#555' }}>Instalación ({config.instPct}%):</div>
-                <div style={{ textAlign: 'right', fontWeight: 600, color: '#000' }}>${instalacion.toFixed(2)}</div>
+                <div style={{ textAlign: 'right', fontWeight: 600, color: '#000' }}>{fmtC(instalacion)}</div>
                 <div style={{ textAlign: 'right', color: '#555', borderTop: '1px solid #000', paddingTop: 4 }}>Subtotal:</div>
-                <div style={{ textAlign: 'right', fontWeight: 600, color: '#000', borderTop: '1px solid #000', paddingTop: 4 }}>${subtotalVenta.toFixed(2)}</div>
+                <div style={{ textAlign: 'right', fontWeight: 600, color: '#000', borderTop: '1px solid #000', paddingTop: 4 }}>{fmtC(subConInst)}</div>
+                {(config.descuento || 0) > 0 && <>
+                  <div style={{ textAlign: 'right', color: '#c00' }}>Descuento ({config.descuento}%):</div>
+                  <div style={{ textAlign: 'right', fontWeight: 600, color: '#c00' }}>-{fmtC(descuentoAmt)}</div>
+                  <div style={{ textAlign: 'right', color: '#555' }}>Subtotal con descuento:</div>
+                  <div style={{ textAlign: 'right', fontWeight: 600, color: '#000' }}>{fmtC(subConDesc)}</div>
+                </>}
                 <div style={{ textAlign: 'right', color: '#555' }}>IVA ({config.ivaRate}%):</div>
-                <div style={{ textAlign: 'right', fontWeight: 600, color: '#000' }}>${iva.toFixed(2)}</div>
+                <div style={{ textAlign: 'right', fontWeight: 600, color: '#000' }}>{fmtC(iva)}</div>
                 <div style={{ textAlign: 'right', fontWeight: 700, color: '#000', fontSize: 11, borderTop: '2px solid #000', paddingTop: 6 }}>TOTAL FINAL:</div>
-                <div style={{ textAlign: 'right', fontWeight: 700, color: '#000', fontSize: 11, borderTop: '2px solid #000', paddingTop: 6 }}>${total.toFixed(2)}</div>
+                <div style={{ textAlign: 'right', fontWeight: 700, color: '#000', fontSize: 11, borderTop: '2px solid #000', paddingTop: 6 }}>{fmtC(total)}</div>
               </div>
             </div>
 
@@ -808,8 +825,10 @@ function CortSummary({ items, areas, config, showInt, onConfigChange }: {
   const subtotalVenta = telaVenta + confVenta + motorVenta
   const instalacion = Math.round(subtotalVenta * config.instPct / 100 * 100) / 100
   const subConInst = subtotalVenta + instalacion
-  const iva = Math.round(subConInst * config.ivaRate / 100 * 100) / 100
-  const total = subConInst + iva
+  const descuentoAmt = Math.round(subConInst * (config.descuento || 0) / 100 * 100) / 100
+  const subConDesc = subConInst - descuentoAmt
+  const iva = Math.round(subConDesc * config.ivaRate / 100 * 100) / 100
+  const total = subConDesc + iva
 
   // Cost side
   const subtotalCost = telaCost + confCost + motorCost
@@ -855,6 +874,11 @@ function CortSummary({ items, areas, config, showInt, onConfigChange }: {
               onChange={e => onConfigChange('instPct', parseFloat(e.target.value) || 0)} style={inputS} />
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: 10, color: '#888' }}>Descuento %</span>
+            <input type="number" value={config.descuento || 0} step={1} min={0} max={100}
+              onChange={e => onConfigChange('descuento', Math.min(100, Math.max(0, parseFloat(e.target.value) || 0)))} style={inputS} />
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span style={{ fontSize: 10, color: '#888' }}>IVA %</span>
             <input type="number" value={config.ivaRate} step={1}
               onChange={e => onConfigChange('ivaRate', parseFloat(e.target.value) || 0)} style={inputS} />
@@ -872,18 +896,23 @@ function CortSummary({ items, areas, config, showInt, onConfigChange }: {
           { l: 'TELA (venta)', v: telaVenta, b: true },
           { l: 'CONFECCION (costo)', v: confCost, b: false },
           { l: 'CONFECCION (venta)', v: confVenta, b: true },
+          { l: 'TELAS CONFECCIONADAS', v: telaVenta + confVenta, b: true },
           { l: 'MOTORIZACION (costo)', v: motorCost, b: false },
           { l: 'MOTORIZACION (venta)', v: motorVenta, b: true },
           { l: 'SUBTOTAL', v: subtotalVenta, b: true },
           { l: 'INSTALACION (' + config.instPct + '%)', v: instalacion },
           { l: 'SUBTOTAL + INST', v: subConInst, b: true },
+          ...((config.descuento || 0) > 0 ? [
+            { l: 'DESCUENTO (' + config.descuento + '%)', v: -descuentoAmt, b: false, disc: true },
+            { l: 'SUBTOTAL C/DESC', v: subConDesc, b: true },
+          ] : []),
           { l: 'IVA (' + config.ivaRate + '%)', v: iva },
           { l: 'TOTAL', v: total, b: true, h: true },
-        ] as const).map((r, i) => (
+        ] as Array<{ l: string; v: number; isCount?: boolean; b?: boolean; h?: boolean; disc?: boolean }>).map((r, i) => (
           <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '3px 0', borderTop: r.b ? '1px solid #222' : 'none' }}>
-            <span style={{ fontSize: 10, color: r.h ? '#67E8F9' : r.b ? '#ccc' : '#555', fontWeight: r.b ? 700 : 400 }}>{r.l}</span>
-            <span style={{ fontSize: r.h ? 15 : 11, fontWeight: r.b ? 700 : 400, color: r.h ? '#67E8F9' : '#fff' }}>
-              {r.isCount ? r.v : '$' + (r.v as number).toFixed(2)}
+            <span style={{ fontSize: 10, color: r.disc ? '#EF4444' : r.h ? '#67E8F9' : r.b ? '#ccc' : '#555', fontWeight: r.b ? 700 : 400 }}>{r.l}</span>
+            <span style={{ fontSize: r.h ? 15 : 11, fontWeight: r.b ? 700 : 400, color: r.disc ? '#EF4444' : r.h ? '#67E8F9' : '#fff' }}>
+              {r.isCount ? r.v : '$' + Math.abs(r.v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </span>
           </div>
         ))}
@@ -958,7 +987,7 @@ export default function CotEditorCortinas({ cotId, onBack }: { cotId: string; on
   const [loading, setLoading] = useState(true)
   const [config, setConfig] = useState<CortConfig>({
     currency: 'MXN', tipoCambio: 20.5, ivaRate: 16, instPct: 15,
-    margenTela: 40, margenMotor: 45,
+    margenTela: 40, margenMotor: 45, descuento: 0,
   })
   const [showInt, setShowInt] = useState(true)
   const [stage, setStage] = useState('oportunidad')
@@ -1074,7 +1103,9 @@ export default function CotEditorCortinas({ cotId, onBack }: { cotId: string; on
     const sub = telaVenta + confVenta + motorVenta
     const inst = sub * config.instPct / 100
     const subInst = sub + inst
-    return subInst + subInst * config.ivaRate / 100
+    const descAmt = subInst * (config.descuento || 0) / 100
+    const subDesc = subInst - descAmt
+    return subDesc + subDesc * config.ivaRate / 100
   }, [items, config])
 
   // Sync total to quotations table
