@@ -75,11 +75,11 @@ export const LEVEL_CONFIG: Record<UserLevel, { label: string; color: string }> =
   sin_nivel: { label: 'Sin nivel', color: '#4B5563' },
 }
 
-export const calcItemPrice = (cost: number, markup: number) =>
-  Math.round(cost * (1 + markup / 100))
+export const calcItemPrice = (cost: number, margin: number) =>
+  margin >= 100 ? cost : Math.round(cost / (1 - margin / 100) * 100) / 100
 
-export const calcItemTotal = (cost: number, markup: number, qty: number) =>
-  Math.round(qty * calcItemPrice(cost, markup))
+export const calcItemTotal = (cost: number, margin: number, qty: number) =>
+  Math.round(qty * calcItemPrice(cost, margin) * 100) / 100
 
 export const formatDate = (d: string) => {
   // Forzar interpretación local para fechas sin hora (evita UTC shift)
