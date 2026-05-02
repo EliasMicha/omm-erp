@@ -328,8 +328,16 @@ export default function LeadDashboard() {
         checkPage(6)
         const cur = getQuotCurrency(q)
         const proj = projects.find(p => p.cotizacion_id === q.id)
-        const base = proj ? (proj.contract_value || 0) : (q.total || 0)
-        const amount = base * 1.16
+        let amount: number
+        if (proj && proj.contract_value) {
+          amount = proj.contract_value
+        } else if (q.specialty === 'esp') {
+          amount = getEspTotal(q)
+        } else if (q.specialty === 'cort' || q.specialty === 'ilum' || q.specialty === 'proy') {
+          amount = q.total || 0
+        } else {
+          amount = (q.total || 0) * 1.16
+        }
         doc.text((q.name || '—').substring(0, 40), 18, y)
         doc.text((q.specialty || '—').toUpperCase(), 90, y)
         doc.text(cur, 135, y)
@@ -409,6 +417,19 @@ export default function LeadDashboard() {
     } catch { return 'USD' }
   }
 
+  // ESP: DB total is raw items sum — compute final with descuento + IVA from notes
+  const getEspTotal = (q: any): number => {
+    const raw = Number(q.total) || 0
+    try {
+      const m = typeof q.notes === 'string' ? JSON.parse(q.notes) : (q.notes || {})
+      const desc = m.descuento || 0
+      const prog = m.programacion || 0
+      const sub = raw + prog
+      const subConDesc = sub - sub * desc / 100
+      return subConDesc * 1.16  // ESP always uses 16% IVA
+    } catch { return raw * 1.16 }
+  }
+
   const toMXN = (amount: number, currency: string) =>
     currency === 'USD' ? amount * tipoCambio : amount
 
@@ -416,12 +437,24 @@ export default function LeadDashboard() {
   const financials = useMemo(() => {
     const byCur = { USD: { vendido: 0, cobrado: 0, comprado: 0, presupuesto: 0 }, MXN: { vendido: 0, cobrado: 0, comprado: 0, presupuesto: 0 } }
 
-    // Vendido: contratos (con IVA 16%) — cortinas total already includes IVA
+    // Vendido: contratos (con IVA 16%)
     quotations.filter(q => q.stage === 'contrato').forEach(q => {
       const cur = getQuotCurrency(q)
       const proj = projects.find(p => p.cotizacion_id === q.id)
-      const base = proj ? (proj.contract_value || 0) : (q.total || 0)
-      const amount = (q.specialty === 'cort' || q.specialty === 'esp' || q.specialty === 'ilum' || q.specialty === 'proy') ? base : base * 1.16
+      let amount: number
+      if (proj && proj.contract_value) {
+        // Project contract value — use directly (already final)
+        amount = proj.contract_value
+      } else if (q.specialty === 'esp') {
+        // ESP: DB total is raw items sum — compute final with descuento + IVA
+        amount = getEspTotal(q)
+      } else if (q.specialty === 'cort' || q.specialty === 'ilum' || q.specialty === 'proy') {
+        // These store total WITH IVA already
+        amount = q.total || 0
+      } else {
+        // elec: raw subtotal, add IVA
+        amount = (q.total || 0) * 1.16
+      }
       byCur[cur].vendido += amount
     })
 
@@ -476,15 +509,26 @@ export default function LeadDashboard() {
 
     quotations.forEach(q => {
       const qCur = getQuotCurrency(q)
-      const totalHasIva = q.specialty === 'cort' || q.specialty === 'esp' || q.specialty === 'ilum' || q.specialty === 'proy'
+      const totalAlreadyHasIva = q.specialty === 'cort' || q.specialty === 'ilum' || q.specialty === 'proy'
 
-      if (totalHasIva) {
-        // Cortinas: use quotations.total directly (already includes margins, discount, IVA)
+      if (q.specialty === 'esp') {
+        // ESP: DB total is raw items sum — compute final with descuento + IVA
+        const qTotal = getEspTotal(q)
+        const converted = qCur !== dominantCurrency
+          ? (dominantCurrency === 'MXN' ? qTotal * tipoCambio : qTotal / tipoCambio)
+          : qTotal
+        const sys = q.name || 'Especiales'
+        if (!systemTotals[sys]) systemTotals[sys] = { subtotal: 0, items: 0, moneda: dominantCurrency }
+        systemTotals[sys].subtotal += converted
+        systemTotals[sys].items += quotItems.filter(i => i.quotation_id === q.id).length
+        grandTotalWithIva += converted
+      } else if (totalAlreadyHasIva) {
+        // Cortinas/Ilum/Proy: quotations.total already includes margins, discount, IVA
         const qTotal = Number(q.total) || 0
         const converted = qCur !== dominantCurrency
           ? (dominantCurrency === 'MXN' ? qTotal * tipoCambio : qTotal / tipoCambio)
           : qTotal
-        const sys = 'Cortinas'
+        const sys = q.name || 'Cortinas'
         if (!systemTotals[sys]) systemTotals[sys] = { subtotal: 0, items: 0, moneda: dominantCurrency }
         systemTotals[sys].subtotal += converted
         systemTotals[sys].items += quotItems.filter(i => i.quotation_id === q.id).length
@@ -510,19 +554,29 @@ export default function LeadDashboard() {
     const perQuot = quotations.map(q => {
       const qCur = getQuotCurrency(q)
       const qItems = quotItems.filter(i => i.quotation_id === q.id)
-      // Cortinas: quotations.total already includes margins, discount & IVA
-      const totalHasIva = q.specialty === 'cort' || q.specialty === 'esp' || q.specialty === 'ilum' || q.specialty === 'proy'
-      const subtotal = totalHasIva
-        ? (Number(q.total) || 0)
-        : qItems.reduce((s, i) => s + (Number(i.total) || 0), 0)
+      // Determine the correct total based on specialty
+      const totalAlreadyHasIva = q.specialty === 'cort' || q.specialty === 'ilum' || q.specialty === 'proy'
+      let subtotal: number
+      let subtotalIva: number
+      if (q.specialty === 'esp') {
+        // ESP: DB total is raw items sum — compute with descuento + IVA
+        subtotal = getEspTotal(q)
+        subtotalIva = subtotal  // already includes IVA
+      } else if (totalAlreadyHasIva) {
+        subtotal = Number(q.total) || 0
+        subtotalIva = subtotal  // already includes IVA
+      } else {
+        subtotal = qItems.reduce((s, i) => s + (Number(i.total) || 0), 0)
+        subtotalIva = subtotal * 1.16
+      }
       const converted = qCur !== dominantCurrency
-        ? (dominantCurrency === 'MXN' ? subtotal * tipoCambio : subtotal / tipoCambio)
-        : subtotal
+        ? (dominantCurrency === 'MXN' ? subtotalIva * tipoCambio : subtotalIva / tipoCambio)
+        : subtotalIva
       return {
         name: q.name,
         specialty: q.specialty,
         subtotal: converted,
-        subtotalIva: totalHasIva ? converted : converted * 1.16,
+        subtotalIva: converted,
         moneda: qCur,
         items: qItems.length,
       }
