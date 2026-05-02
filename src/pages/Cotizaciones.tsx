@@ -1021,15 +1021,18 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
 
   async function addFromCatalog(prod: CatalogProduct) {
     if (!areaActiva) return
+    // Use precio_venta when cost/markup are zero (common for elec catalog)
+    const pv = (prod as any).precio_venta
+    const usePrecioVenta = pv && pv > 0 && (!prod.cost || prod.cost === 0)
+    const price = usePrecioVenta ? Number(pv) : calcItemPrice(prod.cost, prod.markup)
     const item = {
       area_id: areaActiva, quotation_id: cotId, catalog_product_id: prod.id,
       name: prod.name, description: prod.description, system: prod.system,
       type: prod.type, provider: prod.provider, quantity: 1,
-      cost: prod.cost, markup: prod.markup,
+      cost: prod.cost || 0, markup: prod.markup || 0,
       supplier_id: prod.supplier_id || null,
       purchase_phase: prod.purchase_phase || 'inicio',
-      price: calcItemPrice(prod.cost, prod.markup),
-      total: calcItemTotal(prod.cost, prod.markup, 1),
+      price, total: price,
       installation_cost: 0, order_index: items.filter(i => i.area_id === areaActiva).length,
       marca: (prod as any).marca || null,
       modelo: (prod as any).modelo || null,
@@ -1074,17 +1077,22 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
       if (!item.catalog_product_id) continue
       const prod = catalog.find(p => p.id === item.catalog_product_id)
       if (!prod) continue
+      // Use precio_venta when cost/markup are zero (common for elec catalog)
+      const pv = (prod as any).precio_venta
+      const usePV = pv && pv > 0 && (!prod.cost || prod.cost === 0)
+      const newCost = prod.cost || 0
+      const newMarkup = prod.markup || 0
+      const price = usePV ? Number(pv) : calcItemPrice(newCost, newMarkup)
       // Check if anything changed
-      if (item.cost === prod.cost && item.markup === prod.markup) continue
-      const price = calcItemPrice(prod.cost, prod.markup)
-      const total = calcItemTotal(prod.cost, prod.markup, item.quantity)
+      if (item.cost === newCost && item.markup === newMarkup && item.price === price) continue
+      const total = price * item.quantity
       await supabase.from('quotation_items').update({
-        cost: prod.cost, markup: prod.markup, price, total,
+        cost: newCost, markup: newMarkup, price, total,
         provider: prod.provider || item.provider,
         supplier_id: prod.supplier_id || item.supplier_id,
         purchase_phase: prod.purchase_phase || item.purchase_phase,
       }).eq('id', item.id)
-      setItems(prev => prev.map(i => i.id === item.id ? { ...i, cost: prod.cost, markup: prod.markup, price, total, provider: prod.provider || i.provider, supplier_id: prod.supplier_id || i.supplier_id, purchase_phase: prod.purchase_phase || i.purchase_phase } : i))
+      setItems(prev => prev.map(i => i.id === item.id ? { ...i, cost: newCost, markup: newMarkup, price, total, provider: prod.provider || i.provider, supplier_id: prod.supplier_id || i.supplier_id, purchase_phase: prod.purchase_phase || i.purchase_phase } : i))
       updated++
     }
     // Sync quotation total after price changes
@@ -1828,7 +1836,7 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
                         <Td><span style={{fontWeight:500,color:'#ddd'}}>{p.name}</span><br/><span style={{fontSize:10,color:'#555'}}>{p.description}</span></Td>
                         <Td muted><span style={{color:'#aaa',fontSize:11}}>{(p as any).marca || p.provider || '--'}</span><br/><span style={{fontSize:10,color:'#555'}}>{(p as any).modelo || ''}</span></Td>
                         <Td muted>{p.system||'--'}</Td>
-                        <Td right><span style={{fontWeight:600,color:'#57FF9A'}}>{(p as any).moneda === 'USD' ? '$' : ''}{F(calcItemPrice(p.cost,p.markup))}</span></Td>
+                        <Td right><span style={{fontWeight:600,color:'#57FF9A'}}>{(p as any).moneda === 'USD' ? '$' : ''}{F((p as any).precio_venta && (p as any).precio_venta > 0 && (!p.cost || p.cost === 0) ? Number((p as any).precio_venta) : calcItemPrice(p.cost,p.markup))}</span></Td>
                         <Td><Btn size="sm" variant="primary" onClick={()=>addFromCatalog(p)}>+ Agregar</Btn></Td>
                       </tr>
                     ))
