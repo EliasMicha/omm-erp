@@ -416,12 +416,12 @@ export default function LeadDashboard() {
   const financials = useMemo(() => {
     const byCur = { USD: { vendido: 0, cobrado: 0, comprado: 0, presupuesto: 0 }, MXN: { vendido: 0, cobrado: 0, comprado: 0, presupuesto: 0 } }
 
-    // Vendido: contratos (con IVA 16%)
+    // Vendido: contratos (con IVA 16%) — cortinas total already includes IVA
     quotations.filter(q => q.stage === 'contrato').forEach(q => {
       const cur = getQuotCurrency(q)
       const proj = projects.find(p => p.cotizacion_id === q.id)
       const base = proj ? (proj.contract_value || 0) : (q.total || 0)
-      const amount = base * 1.16 // IVA 16%
+      const amount = q.specialty === 'cort' ? base : base * 1.16
       byCur[cur].vendido += amount
     })
 
@@ -685,7 +685,7 @@ export default function LeadDashboard() {
                     <td style={tdS}><Badge label={q.specialty?.toUpperCase() || '—'} color="#555" /></td>
                     <td style={tdS}><Badge label={STAGE_LABELS[q.stage] || q.stage} color={STAGE_COLORS[q.stage] || '#555'} /></td>
                     <td style={{ ...tdS, textAlign: 'right', fontWeight: 600, color: q.stage === 'contrato' ? '#57FF9A' : '#888' }}>
-                      {sym}{((q.total || 0) * 1.16).toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                      {sym}{(q.specialty === 'cort' ? (q.total || 0) : (q.total || 0) * 1.16).toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
                       <span style={{ fontSize: 9, color: '#555', marginLeft: 4 }}>c/IVA</span>
                     </td>
                     <td style={tdS}>

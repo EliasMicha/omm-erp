@@ -138,6 +138,8 @@ function CotDashboard({ onOpen }: { onOpen: (id: string, specialty?: string) => 
     try { const m = JSON.parse(c.notes || '{}'); return m.proyConfig?.ivaRate || 16 } catch { return 16 }
   }
   function getTotalConIva(c: any): number {
+    // Cortinas editor already stores total WITH IVA — don't double-apply
+    if (c.specialty === 'cort') return c.total || 0
     const iva = getIvaRate(c)
     return c.total * (1 + iva / 100)
   }
