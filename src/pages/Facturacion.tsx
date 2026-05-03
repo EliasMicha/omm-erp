@@ -425,7 +425,13 @@ function ListaTodas() {
 
   async function load() {
     setLoading(true)
-    const { data } = await supabase.from('facturas').select('*').order('fecha_emision', { ascending: false }).limit(2000)
+    // Filter by month range in Supabase for performance (no client-side limit issues)
+    const gte = monthStart.toISOString()
+    const lte = monthEnd.toISOString()
+    const { data } = await supabase.from('facturas').select('*')
+      .gte('fecha_emision', gte)
+      .lte('fecha_emision', lte)
+      .order('fecha_emision', { ascending: false })
     setFacturas((data as Factura[]) || [])
     setLoading(false)
   }
@@ -451,7 +457,8 @@ function ListaTodas() {
     window.open('/api/facturapi?action=download_xml&mode=' + m + '&id=' + encodeURIComponent(f.facturapi_id), '_blank')
   }
 
-  useEffect(() => { load() }, [])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { load() }, [monthOffset])
 
   // SYNC UNIFICADO: emitidas + recibidas en serie, con paginacion completa
   async function sincronizarMes() {
@@ -807,17 +814,21 @@ function ListaEmitidas({ onNueva }: { onNueva: () => void }) {
 
   async function load() {
     setLoading(true)
+    const gte = monthStart.toISOString()
+    const lte = monthEnd.toISOString()
     const { data } = await supabase
       .from('facturas')
       .select('*')
       .eq('direccion', 'emitida')
-      .order('created_at', { ascending: false })
-      .limit(100)
+      .gte('fecha_emision', gte)
+      .lte('fecha_emision', lte)
+      .order('fecha_emision', { ascending: false })
     setFacturas((data as Factura[]) || [])
     setLoading(false)
   }
 
-  useEffect(() => { load() }, [])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { load() }, [monthOffset])
 
   async function sincronizar() {
     setSyncing(true)
@@ -2214,12 +2225,19 @@ function ListaRecibidas() {
 
   async function load() {
     setLoading(true)
-    const { data } = await supabase.from('facturas').select('*').eq('direccion', 'recibida').order('fecha_emision', { ascending: false }).limit(500)
+    const gte = monthStart.toISOString()
+    const lte = monthEnd.toISOString()
+    const { data } = await supabase.from('facturas').select('*')
+      .eq('direccion', 'recibida')
+      .gte('fecha_emision', gte)
+      .lte('fecha_emision', lte)
+      .order('fecha_emision', { ascending: false })
     setRecibidas((data as Factura[]) || [])
     setLoading(false)
   }
 
-  useEffect(() => { load() }, [])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { load() }, [monthOffset])
 
   // Sincronizar facturas RECIBIDAS desde FacturAPI con issuer_type=received
   async function sincronizar() {
