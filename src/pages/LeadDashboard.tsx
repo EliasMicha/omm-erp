@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import { SPECIALTY_CONFIG } from '../lib/utils'
 import { Loading, Badge, SectionHeader } from '../components/layout/UI'
 import { useIsMobile } from '../lib/useIsMobile'
 import {
@@ -64,6 +65,7 @@ export default function LeadDashboard() {
   const [employees, setEmployees] = useState<any[]>([])
   const [quotItems, setQuotItems] = useState<any[]>([])
   const [bankMovements, setBankMovements] = useState<any[]>([])
+  const [paymentAllocations, setPaymentAllocations] = useState<any[]>([])
   const [tipoCambio, setTipoCambio] = useState(20.50)
   const saveTipoCambioRef = async (tc: number) => {
     setTipoCambio(tc)
@@ -110,7 +112,7 @@ export default function LeadDashboard() {
     const projIds = new Set(leadProjects.map(p => p.id))
 
     // 4. Parallel: POs, milestones, obras, tasks, phases, employees, quotation items, bank movements
-    const [posRes, msRes, obrasRes, tasksRes, phasesRes, empRes, qiRes, bmRes, areasRes] = await Promise.all([
+    const [posRes, msRes, obrasRes, tasksRes, phasesRes, empRes, qiRes, bmRes, areasRes, paRes] = await Promise.all([
       supabase.from('purchase_orders').select('*').in('project_id', [...projIds]),
       supabase.from('payment_milestones').select('*,currency,amount_paid_mxn,tipo_cambio_pago').in('project_id', [...projIds]),
       supabase.from('obras').select('*').in('project_id', [...projIds]),
@@ -120,6 +122,7 @@ export default function LeadDashboard() {
       supabase.from('quotation_items').select('*').in('quotation_id', [...quotIds]),
       supabase.from('bank_movements').select('*').eq('lead_id', id!).order('fecha', { ascending: false }),
       supabase.from('quotation_areas').select('id,name,quotation_id').in('quotation_id', [...quotIds]),
+      supabase.from('payment_allocations').select('*').in('quotation_id', [...quotIds]),
     ])
     setPos(posRes.data || [])
     setMilestones(msRes.data || [])
@@ -131,6 +134,7 @@ export default function LeadDashboard() {
     setTasks(tasksRes.data || [])
     setPhases(phasesRes.data || [])
     setBankMovements(bmRes.data || [])
+    setPaymentAllocations(paRes.data || [])
 
     const obrasList = obrasRes.data || []
     setObras(obrasList)
@@ -497,7 +501,7 @@ export default function LeadDashboard() {
     const porComprar = Math.max(0, totalCompras - totalComprado)
 
     return { byCur, totalVendido, totalCobrado, totalComprado, totalCompras, porCobrar, porComprar }
-  }, [quotations, projects, bankMovements, pos, quotItems, tipoCambio])
+  }, [quotations, projects, bankMovements, paymentAllocations, pos, quotItems, tipoCambio])
 
   // Helper: compute quotation total with IVA for display
   const getQuotTotalIva = (q: any): number => {
@@ -856,21 +860,119 @@ export default function LeadDashboard() {
           </div>
         )}
 
-        {/* ── Ingresos registrados (bank movements — real cobrado) ── */}
+        {/* ── SALDO POR COTIZACIÓN ── */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-          <span style={{ fontSize: 11, fontWeight: 600, color: '#888', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Ingresos Registrados</span>
+          <span style={{ fontSize: 11, fontWeight: 600, color: '#888', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Saldo por Cotización</span>
           <button onClick={exportEstadoCuenta} style={{ ...linkBtnS, padding: '4px 10px', fontSize: 11, gap: 4, color: '#3B82F6', borderColor: '#3B82F644' }}>
             <Download size={12} /> Exportar PDF
           </button>
         </div>
         {(() => {
-          const ingresos = bankMovements.filter(m => m.tipo === 'abono')
-          if (ingresos.length === 0) return <Empty text="Sin ingresos registrados — asigna movimientos bancarios a este lead en Contabilidad" />
+          const contratos = quotations.filter(q => q.stage === 'contrato')
+          if (contratos.length === 0) return <Empty text="Sin cotizaciones en etapa contrato" />
 
-          const saveTc = async (movId: string, tc: number | null) => {
-            setBankMovements(prev => prev.map(m => m.id === movId ? { ...m, tipo_cambio: tc } : m))
-            await supabase.from('bank_movements').update({ tipo_cambio: tc }).eq('id', movId)
-          }
+          // Build per-quotation balances using payment_allocations
+          const quotBalances = contratos.map(q => {
+            const cur = getQuotCurrency(q)
+            const total = getQuotTotalIva(q)
+            // Sum allocated payments for this quotation
+            const allocations = paymentAllocations.filter(pa => pa.quotation_id === q.id)
+            const pagado = allocations.reduce((s: number, pa: any) => s + Number(pa.monto || 0), 0)
+            const pendiente = Math.max(0, total - pagado)
+            const pctPagado = total > 0 ? pagado / total : 0
+            return { q, cur, total, pagado, pendiente, pctPagado, allocations }
+          })
+
+          return (
+            <div style={{ overflowX: 'auto' }}>
+              <table style={tblS}>
+                <thead>
+                  <tr style={trHeadS}>
+                    <th style={thS}>Cotización</th>
+                    <th style={thS}>Especialidad</th>
+                    <th style={thS}>Moneda</th>
+                    <th style={{ ...thS, textAlign: 'right' }}>Total</th>
+                    <th style={{ ...thS, textAlign: 'right' }}>Pagado</th>
+                    <th style={{ ...thS, textAlign: 'right' }}>Pendiente</th>
+                    <th style={{ ...thS, textAlign: 'center', width: 80 }}>Avance</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {quotBalances.map(({ q, cur, total, pagado, pendiente, pctPagado }) => (
+                    <tr key={q.id} style={trS}>
+                      <td style={tdS}><span style={{ color: '#fff', fontWeight: 500 }}>{q.name || 'Sin nombre'}</span></td>
+                      <td style={tdS}><Badge label={SPECIALTY_CONFIG[q.specialty as keyof typeof SPECIALTY_CONFIG]?.label || q.specialty} color={SPECIALTY_CONFIG[q.specialty as keyof typeof SPECIALTY_CONFIG]?.color || '#555'} /></td>
+                      <td style={tdS}><Badge label={cur} color={cur === 'USD' ? '#06B6D4' : '#A78BFA'} /></td>
+                      <td style={{ ...tdS, textAlign: 'right', fontWeight: 600, color: '#fff' }}>{FCUR(total, cur)}</td>
+                      <td style={{ ...tdS, textAlign: 'right', fontWeight: 600, color: '#57FF9A' }}>{FCUR(pagado, cur)}</td>
+                      <td style={{ ...tdS, textAlign: 'right', fontWeight: 600, color: pendiente > 0 ? '#F59E0B' : '#57FF9A' }}>{FCUR(pendiente, cur)}</td>
+                      <td style={{ ...tdS, textAlign: 'center' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <div style={{ flex: 1, height: 6, borderRadius: 3, background: '#1a1a1a', overflow: 'hidden' }}>
+                            <div style={{ width: `${Math.min(pctPagado * 100, 100)}%`, height: '100%', background: pctPagado >= 1 ? '#57FF9A' : '#3B82F6', transition: 'width 0.3s' }} />
+                          </div>
+                          <span style={{ fontSize: 10, color: '#888', minWidth: 28 }}>{Math.round(pctPagado * 100)}%</span>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {/* Totals row */}
+              {quotBalances.length > 1 && (() => {
+                const byC = { USD: { total: 0, pagado: 0 }, MXN: { total: 0, pagado: 0 } }
+                quotBalances.forEach(({ cur, total, pagado }) => { byC[cur].total += total; byC[cur].pagado += pagado })
+                return (
+                  <div style={{ display: 'flex', gap: 16, marginTop: 8, padding: '8px 12px', background: '#111', borderRadius: 6, fontSize: 11, flexWrap: 'wrap' }}>
+                    {(['USD', 'MXN'] as const).filter(c => byC[c].total > 0).map(c => (
+                      <span key={c} style={{ color: '#aaa' }}>
+                        <Badge label={c} color={c === 'USD' ? '#06B6D4' : '#A78BFA'} />
+                        {' '}Total: <b style={{ color: '#fff' }}>{FCUR(byC[c].total, c)}</b>
+                        {' '}| Pagado: <b style={{ color: '#57FF9A' }}>{FCUR(byC[c].pagado, c)}</b>
+                        {' '}| Pendiente: <b style={{ color: '#F59E0B' }}>{FCUR(Math.max(0, byC[c].total - byC[c].pagado), c)}</b>
+                      </span>
+                    ))}
+                  </div>
+                )
+              })()}
+            </div>
+          )
+        })()}
+
+        {/* ── TIMELINE CRONOLÓGICO ── */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 20, marginBottom: 8 }}>
+          <span style={{ fontSize: 11, fontWeight: 600, color: '#888', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Timeline</span>
+        </div>
+        {(() => {
+          // Build timeline entries: contratos (cargos) + pagos (abonos)
+          type TEntry = { date: string; tipo: 'cargo' | 'abono'; desc: string; monto: number; cur: string; ref?: string }
+          const entries: TEntry[] = []
+
+          // Contratos as "cargos" (lo que se debe)
+          quotations.filter(q => q.stage === 'contrato').forEach(q => {
+            const cur = getQuotCurrency(q)
+            const total = getQuotTotalIva(q)
+            const contractDate = (() => { try { const n = typeof q.notes === 'string' ? JSON.parse(q.notes) : q.notes; return n?.fecha_contrato || q.created_at?.substring(0, 10) || '' } catch { return q.created_at?.substring(0, 10) || '' } })()
+            entries.push({ date: contractDate, tipo: 'cargo', desc: `Contrato: ${q.name || 'Sin nombre'}`, monto: total, cur })
+          })
+
+          // Abonos from bank_movements
+          bankMovements.filter(m => m.tipo === 'abono').forEach(m => {
+            entries.push({ date: m.fecha || '', tipo: 'abono', desc: m.concepto || 'Pago', monto: m.monto || 0, cur: m.moneda || 'MXN', ref: m.referencia })
+          })
+
+          entries.sort((a, b) => a.date.localeCompare(b.date))
+
+          if (entries.length === 0) return <Empty text="Sin movimientos" />
+
+          // Running balances per currency
+          const saldos: Record<string, number> = {}
+          const withSaldo = entries.map(e => {
+            if (!saldos[e.cur]) saldos[e.cur] = 0
+            if (e.tipo === 'cargo') saldos[e.cur] += e.monto
+            else saldos[e.cur] -= e.monto
+            return { ...e, saldo: saldos[e.cur] }
+          })
 
           return (
             <div style={{ overflowX: 'auto' }}>
@@ -880,52 +982,38 @@ export default function LeadDashboard() {
                     <th style={thS}>Fecha</th>
                     <th style={thS}>Concepto</th>
                     <th style={thS}>Moneda</th>
-                    <th style={{ ...thS, textAlign: 'right' }}>Monto</th>
-                    <th style={{ ...thS, textAlign: 'center' }}>T.C.</th>
-                    <th style={{ ...thS, textAlign: 'right' }}>Equiv. USD</th>
+                    <th style={{ ...thS, textAlign: 'right' }}>Cargo</th>
+                    <th style={{ ...thS, textAlign: 'right' }}>Abono</th>
+                    <th style={{ ...thS, textAlign: 'right' }}>Saldo</th>
                   </tr>
                 </thead>
-              <tbody>
-                {ingresos.map(m => {
-                  const cur = m.moneda || 'MXN'
-                  const isMxn = cur !== 'USD'
-                  const equivUsd = isMxn && m.tipo_cambio > 0 ? (m.monto || 0) / m.tipo_cambio : null
-                  return (
-                    <tr key={m.id} style={trS}>
-                      <td style={{ ...tdS, color: '#888' }}>{m.fecha || '—'}</td>
+                <tbody>
+                  {withSaldo.map((e, i) => (
+                    <tr key={i} style={trS}>
+                      <td style={{ ...tdS, color: '#888', fontSize: 11 }}>{e.date || '—'}</td>
                       <td style={tdS}>
-                        <span style={{ color: '#fff', fontWeight: 500 }}>{(m.concepto || '—').substring(0, 45)}</span>
-                        {m.referencia && <span style={{ color: '#555', fontSize: 10, marginLeft: 6 }}>{m.referencia}</span>}
+                        <span style={{ color: '#fff', fontWeight: 500 }}>{e.desc.substring(0, 50)}</span>
+                        {e.ref && <span style={{ color: '#555', fontSize: 10, marginLeft: 6 }}>{e.ref}</span>}
                       </td>
-                      <td style={tdS}><Badge label={cur} color={cur === 'USD' ? '#06B6D4' : '#A78BFA'} /></td>
-                      <td style={{ ...tdS, textAlign: 'right', fontWeight: 600, color: '#57FF9A' }}>{FCUR(m.monto || 0, cur)}</td>
-                      <td style={{ ...tdS, textAlign: 'center' }}>
-                        {isMxn ? (
-                          <input
-                            type="number" step="0.01" min="1"
-                            placeholder="T.C."
-                            defaultValue={m.tipo_cambio || ''}
-                            onBlur={e => {
-                              const v = parseFloat(e.target.value)
-                              saveTc(m.id, v > 0 ? v : null)
-                            }}
-                            style={{ width: 65, background: '#0a0a0a', border: '1px solid #333', borderRadius: 4, padding: '3px 5px', fontSize: 11, color: '#fff', textAlign: 'center', fontFamily: 'inherit' }}
-                          />
-                        ) : <span style={{ color: '#555', fontSize: 10 }}>—</span>}
+                      <td style={tdS}><Badge label={e.cur} color={e.cur === 'USD' ? '#06B6D4' : '#A78BFA'} /></td>
+                      <td style={{ ...tdS, textAlign: 'right', color: e.tipo === 'cargo' ? '#fff' : '#333' }}>
+                        {e.tipo === 'cargo' ? FCUR(e.monto, e.cur) : ''}
                       </td>
-                      <td style={{ ...tdS, textAlign: 'right', fontSize: 11, color: equivUsd ? '#06B6D4' : '#555' }}>
-                        {equivUsd ? FUSD(Math.round(equivUsd)) : isMxn ? 'sin T.C.' : FUSD(m.monto || 0)}
+                      <td style={{ ...tdS, textAlign: 'right', color: e.tipo === 'abono' ? '#57FF9A' : '#333' }}>
+                        {e.tipo === 'abono' ? FCUR(e.monto, e.cur) : ''}
+                      </td>
+                      <td style={{ ...tdS, textAlign: 'right', fontWeight: 600, color: e.saldo > 0 ? '#F59E0B' : '#57FF9A' }}>
+                        {FCUR(e.saldo, e.cur)}
                       </td>
                     </tr>
-                  )
-                })}
-              </tbody>
+                  ))}
+                </tbody>
               </table>
             </div>
           )
         })()}
 
-        {/* ── Egresos registrados (cargos del lead) ── */}
+        {/* ── Egresos registrados (cargos bancarios del lead) ── */}
         {(() => {
           const egresos = bankMovements.filter(m => m.tipo === 'cargo')
           if (egresos.length === 0) return null
@@ -970,7 +1058,7 @@ export default function LeadDashboard() {
           const egresos = bankMovements.filter(m => m.tipo === 'cargo').reduce((s, m) => s + (m.monto || 0), 0)
           const neto = ingresos - egresos
           return (
-            <div style={{ display: 'flex', gap: 16, marginTop: 16, padding: '10px 14px', background: '#111', borderRadius: 8, border: '1px solid #222', fontSize: 12 }}>
+            <div style={{ display: 'flex', gap: 16, marginTop: 16, padding: '10px 14px', background: '#111', borderRadius: 8, border: '1px solid #222', fontSize: 12, flexWrap: 'wrap' }}>
               <span style={{ color: '#888' }}>Flujo neto:</span>
               <span style={{ color: '#57FF9A', fontWeight: 600 }}>Ingresos {F(ingresos)}</span>
               <span style={{ color: '#666' }}>—</span>
