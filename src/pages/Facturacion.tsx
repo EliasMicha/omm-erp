@@ -425,13 +425,18 @@ function ListaTodas() {
 
   async function load() {
     setLoading(true)
-    // Filter by month range in Supabase for performance (no client-side limit issues)
-    const gte = monthStart.toISOString()
-    const lte = monthEnd.toISOString()
-    const { data } = await supabase.from('facturas').select('*')
+    // Use simple YYYY-MM-DD date strings for Supabase range filter (avoids timezone issues)
+    const y = monthDate.getFullYear()
+    const m = monthDate.getMonth() // 0-based
+    const gte = `${y}-${String(m + 1).padStart(2, '0')}-01`
+    const nextM = m === 11 ? 0 : m + 1
+    const nextY = m === 11 ? y + 1 : y
+    const lte = `${nextY}-${String(nextM + 1).padStart(2, '0')}-01`
+    const { data, error } = await supabase.from('facturas').select('*')
       .gte('fecha_emision', gte)
-      .lte('fecha_emision', lte)
+      .lt('fecha_emision', lte)
       .order('fecha_emision', { ascending: false })
+    if (error) console.error('Facturacion load error:', error)
     setFacturas((data as Factura[]) || [])
     setLoading(false)
   }
@@ -622,8 +627,8 @@ function ListaTodas() {
     alert('Sincronizacion de ' + monthLabelCapitalized + ' completa:\n' + totalEmit + ' emitidas + ' + totalRec + ' recibidas = ' + (totalEmit + totalRec) + ' facturas\n' + recheckedCount + ' verificadas' + changesMsg + errMsg)
   }
 
-  // Filtrar por mes y luego por busqueda
-  const facturasMes = facturas.filter(f => inSelectedMonth(f.fecha_emision))
+  // Filtrar por busqueda (el mes ya se filtra en la query de Supabase)
+  const facturasMes = facturas // already filtered by month in load()
   const cntEmit = facturasMes.filter(f => f.direccion === 'emitida').length
   const cntRec = facturasMes.filter(f => f.direccion === 'recibida').length
   const filtered = facturasMes.filter(f => {
@@ -814,14 +819,18 @@ function ListaEmitidas({ onNueva }: { onNueva: () => void }) {
 
   async function load() {
     setLoading(true)
-    const gte = monthStart.toISOString()
-    const lte = monthEnd.toISOString()
+    const y = monthDate.getFullYear()
+    const m = monthDate.getMonth()
+    const gte = `${y}-${String(m + 1).padStart(2, '0')}-01`
+    const nextM = m === 11 ? 0 : m + 1
+    const nextY = m === 11 ? y + 1 : y
+    const lte = `${nextY}-${String(nextM + 1).padStart(2, '0')}-01`
     const { data } = await supabase
       .from('facturas')
       .select('*')
       .eq('direccion', 'emitida')
       .gte('fecha_emision', gte)
-      .lte('fecha_emision', lte)
+      .lt('fecha_emision', lte)
       .order('fecha_emision', { ascending: false })
     setFacturas((data as Factura[]) || [])
     setLoading(false)
@@ -931,7 +940,7 @@ function ListaEmitidas({ onNueva }: { onNueva: () => void }) {
   }
 
   // Filtrar por mes seleccionado primero, luego por busqueda
-  const facturasMes = facturas.filter(f => inSelectedMonth(f.fecha_emision))
+  const facturasMes = facturas // already filtered by month in load()
   const filtered = facturasMes.filter(f => {
     if (!search) return true
     const q = search.toLowerCase()
@@ -2225,12 +2234,16 @@ function ListaRecibidas() {
 
   async function load() {
     setLoading(true)
-    const gte = monthStart.toISOString()
-    const lte = monthEnd.toISOString()
+    const y = monthDate.getFullYear()
+    const m = monthDate.getMonth()
+    const gte = `${y}-${String(m + 1).padStart(2, '0')}-01`
+    const nextM = m === 11 ? 0 : m + 1
+    const nextY = m === 11 ? y + 1 : y
+    const lte = `${nextY}-${String(nextM + 1).padStart(2, '0')}-01`
     const { data } = await supabase.from('facturas').select('*')
       .eq('direccion', 'recibida')
       .gte('fecha_emision', gte)
-      .lte('fecha_emision', lte)
+      .lt('fecha_emision', lte)
       .order('fecha_emision', { ascending: false })
     setRecibidas((data as Factura[]) || [])
     setLoading(false)
@@ -2318,7 +2331,7 @@ function ListaRecibidas() {
   }
 
   // Filtrar por mes y luego por busqueda
-  const recibidasMes = recibidas.filter(f => inSelectedMonth(f.fecha_emision))
+  const recibidasMes = recibidas // already filtered by month in load()
   const filtered = recibidasMes.filter(f => {
     if (!search) return true
     const q = search.toLowerCase()
