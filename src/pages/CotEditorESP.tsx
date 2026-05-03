@@ -405,7 +405,7 @@ function SystemBlock({ sysDef, products, collapsed, onToggle, onUpdate, onRemove
 // ═══════════════════════════════════════════════════════════════════
 // AREA BLOCK
 // ═══════════════════════════════════════════════════════════════════
-function AreaBlock({ area, activeSystems, products, allProducts, collapsedSys, onToggleArea, onToggleSys, onUpdateProd, onRemoveProd, onUpdateAll, onAddProd, showInt, onCopyTo, onDetail, selectedIds, onToggleSelect, onSubstitute, onRemoveArea }: {
+function AreaBlock({ area, activeSystems, products, allProducts, collapsedSys, onToggleArea, onToggleSys, onUpdateProd, onRemoveProd, onUpdateAll, onAddProd, showInt, onCopyTo, onDetail, selectedIds, onToggleSelect, onSubstitute, onRemoveArea, onMoveUp, onMoveDown }: {
   area: EspArea; activeSystems: EspSystemDef[]; products: EspProduct[]; allProducts: EspProduct[]
   collapsedSys: Record<string, boolean>; onToggleArea: () => void; onToggleSys: (k: string) => void
   onUpdateProd: (id: string, f: string, v: number | string) => void; onRemoveProd: (id: string) => void
@@ -413,6 +413,7 @@ function AreaBlock({ area, activeSystems, products, allProducts, collapsedSys, o
   onAddProd: (sysId: string) => void; showInt: boolean; onCopyTo?: (id: string) => void; onDetail?: (p: EspProduct) => void
   selectedIds?: Set<string>; onToggleSelect?: (id: string) => void; onSubstitute?: (p: EspProduct) => void
   onRemoveArea?: (id: string) => void
+  onMoveUp?: () => void; onMoveDown?: () => void
 }) {
   const areaProds = products.filter(p => p.areaId === area.id)
   const areaTotal = areaProds.reduce((s, p) => s + calcLine(p).total, 0)
@@ -428,8 +429,12 @@ function AreaBlock({ area, activeSystems, products, allProducts, collapsedSys, o
         </div>
         <span style={{ fontSize: 10, color: '#555' }}>{sysWithProds.length} sistemas</span>
         <span style={{ fontSize: 14, fontWeight: 700, color: '#57FF9A' }}>${fmt(areaTotal)}</span>
+        <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 0, marginLeft: 4 }}>
+          {onMoveUp && <button onClick={(e) => { e.stopPropagation(); onMoveUp() }} style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer', padding: '0 3px', lineHeight: 1, fontSize: 10 }} title="Mover arriba">▲</button>}
+          {onMoveDown && <button onClick={(e) => { e.stopPropagation(); onMoveDown() }} style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer', padding: '0 3px', lineHeight: 1, fontSize: 10 }} title="Mover abajo">▼</button>}
+        </div>
         {onRemoveArea && (
-          <button onClick={(e) => { e.stopPropagation(); onRemoveArea(area.id) }} style={{ background: 'none', border: 'none', color: '#444', cursor: 'pointer', padding: '2px 4px', marginLeft: 4 }} title="Eliminar área">
+          <button onClick={(e) => { e.stopPropagation(); onRemoveArea(area.id) }} style={{ background: 'none', border: 'none', color: '#444', cursor: 'pointer', padding: '2px 4px' }} title="Eliminar área">
             <Trash2 size={13} />
           </button>
         )}
@@ -2011,6 +2016,20 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
 
   function toggleArea(id: string) { setAreas(p => p.map(a => a.id === id ? { ...a, collapsed: !a.collapsed } : a)) }
   function toggleSys(k: string) { setCollapsedSys(p => ({ ...p, [k]: !p[k] })) }
+  async function moveArea(idx: number, dir: -1 | 1) {
+    const newIdx = idx + dir
+    if (newIdx < 0 || newIdx >= areas.length) return
+    const newAreas = [...areas]
+    const [moved] = newAreas.splice(idx, 1)
+    newAreas.splice(newIdx, 0, moved)
+    // Update order in state
+    const reordered = newAreas.map((a, i) => ({ ...a, order: i }))
+    setAreas(reordered)
+    // Persist new order_index to DB
+    for (let i = 0; i < reordered.length; i++) {
+      supabase.from('quotation_areas').update({ order_index: i }).eq('id', reordered[i].id).then(() => {})
+    }
+  }
   async function addArea() {
     const n = prompt('Nombre del área:');
     if (!n) return;
@@ -2519,13 +2538,15 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
             </div>
           )}
 
-          {areas.map(area => (
+          {areas.map((area, idx) => (
             <AreaBlock key={area.id} area={area} activeSystems={activeSystems} products={products} allProducts={products}
               collapsedSys={collapsedSys} onToggleArea={() => toggleArea(area.id)} onToggleSys={toggleSys}
               onUpdateProd={updateProduct} onRemoveProd={removeProduct} onUpdateAll={updateAllByCatalogId}
               onAddProd={(sysId) => openAddProduct(area.id, sysId)} showInt={showInt}  onCopyTo={(id) => setCopyingProduct(id)} onDetail={(p) => setDetailProduct(p)}
               selectedIds={selectedProdIds} onToggleSelect={toggleProdSelect} onSubstitute={(p) => setSubstitutingProduct(p)}
-              onRemoveArea={removeArea} />
+              onRemoveArea={removeArea}
+              onMoveUp={idx > 0 ? () => moveArea(idx, -1) : undefined}
+              onMoveDown={idx < areas.length - 1 ? () => moveArea(idx, 1) : undefined} />
           ))}
           <div onClick={addArea} style={{ padding: '12px', border: '1px dashed #333', borderRadius: 10, textAlign: 'center', cursor: 'pointer', color: '#444', fontSize: 12 }}>+ Agregar área</div>
         </div>
