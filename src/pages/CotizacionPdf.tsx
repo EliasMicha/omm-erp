@@ -268,8 +268,9 @@ function CotizacionPdfInner() {
       const noPrintEls = contentRef.current.querySelectorAll('.no-print') as NodeListOf<HTMLElement>
       noPrintEls.forEach(el => el.style.display = 'none')
 
+      const scale = 2
       const canvas = await html2canvas(contentRef.current, {
-        scale: 2,
+        scale,
         useCORS: true,
         backgroundColor: '#ffffff',
         logging: false,
@@ -282,42 +283,73 @@ function CotizacionPdfInner() {
       // A4 dimensions in mm
       const pageW = 210
       const pageH = 297
-      const marginX = 0
-      const marginY = 0
-      const contentW = pageW - 2 * marginX
-      const contentH = pageH - 2 * marginY
+      const marginTop = 6
+      const marginBot = 6
+      const contentW = pageW
+      const contentH = pageH - marginTop - marginBot
 
       const imgW = canvas.width
       const imgH = canvas.height
       const ratio = contentW / imgW
-      const scaledH = imgH * ratio
-
-      const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
-
-      // Paginar: cortar la imagen en secciones que quepan en una página
-      let yOffset = 0
-      let page = 0
       const pageHeightPx = contentH / ratio // px del canvas que caben en una página
 
-      while (yOffset < imgH) {
-        if (page > 0) doc.addPage()
-        const sliceH = Math.min(pageHeightPx, imgH - yOffset)
+      // ── Collect safe break points (between rows, sections, divs) ──
+      // Scan all <tr>, section <div>, and page-break elements for their bottom edges
+      const containerTop = contentRef.current.getBoundingClientRect().top
+      const breakCandidates: number[] = [0]
+      const breakEls = contentRef.current.querySelectorAll('tr, .page-break, h2, h3, div[style*="breakInside"]')
+      breakEls.forEach(el => {
+        const rect = (el as HTMLElement).getBoundingClientRect()
+        const bottomPx = (rect.bottom - containerTop) * scale
+        if (bottomPx > 0 && bottomPx < imgH) {
+          breakCandidates.push(Math.round(bottomPx))
+        }
+      })
+      // Also add the very end
+      breakCandidates.push(imgH)
+      // Sort and deduplicate
+      const breaks = [...new Set(breakCandidates)].sort((a, b) => a - b)
 
-        // Crear canvas parcial para esta página
+      // ── Build page slices using safe break points ──
+      const slices: { y: number; h: number }[] = []
+      let yOffset = 0
+      while (yOffset < imgH) {
+        const targetEnd = yOffset + pageHeightPx
+        if (targetEnd >= imgH) {
+          // Last page — take everything remaining
+          slices.push({ y: yOffset, h: imgH - yOffset })
+          break
+        }
+        // Find the largest break point that fits within this page
+        let bestBreak = yOffset // fallback: force cut at page boundary
+        for (const bp of breaks) {
+          if (bp <= yOffset) continue
+          if (bp <= targetEnd) bestBreak = bp
+          else break
+        }
+        // If no break found, force cut (shouldn't happen often)
+        if (bestBreak <= yOffset) bestBreak = Math.round(targetEnd)
+        slices.push({ y: yOffset, h: bestBreak - yOffset })
+        yOffset = bestBreak
+      }
+
+      // ── Render each slice to a PDF page ──
+      const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
+      for (let i = 0; i < slices.length; i++) {
+        if (i > 0) doc.addPage()
+        const { y, h } = slices[i]
+
         const pageCanvas = document.createElement('canvas')
         pageCanvas.width = imgW
-        pageCanvas.height = sliceH
+        pageCanvas.height = h
         const ctx = pageCanvas.getContext('2d')!
         ctx.fillStyle = '#ffffff'
-        ctx.fillRect(0, 0, imgW, sliceH)
-        ctx.drawImage(canvas, 0, yOffset, imgW, sliceH, 0, 0, imgW, sliceH)
+        ctx.fillRect(0, 0, imgW, h)
+        ctx.drawImage(canvas, 0, y, imgW, h, 0, 0, imgW, h)
 
         const pageImgData = pageCanvas.toDataURL('image/jpeg', 0.95)
-        const sliceHmm = sliceH * ratio
-        doc.addImage(pageImgData, 'JPEG', marginX, marginY, contentW, sliceHmm)
-
-        yOffset += sliceH
-        page++
+        const sliceHmm = h * ratio
+        doc.addImage(pageImgData, 'JPEG', 0, marginTop, contentW, sliceHmm)
       }
 
       const fileName = `${(cot.name || 'Cotizacion').replace(/[^a-zA-Z0-9áéíóúñÁÉÍÓÚÑ .-]/g, '')}_${formato}.pdf`
