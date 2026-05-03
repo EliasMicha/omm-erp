@@ -151,15 +151,13 @@ export default function LeadDashboard() {
 
   // ── EXPORT ESTADO DE CUENTA PDF ──────────────────────────────
   function exportConsolidado() {
-    if (!lead || !quotSummary) return
+    if (!lead) return
     const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'letter' })
     const W = doc.internal.pageSize.getWidth()
     let y = 20
 
     const addPage = () => { doc.addPage(); y = 20 }
     const checkPage = (need: number) => { if (y + need > 260) addPage() }
-    const sym = quotSummary.currency === 'USD' ? 'US$' : '$'
-    const fmtPDF = (n: number) => sym + n.toLocaleString('es-MX', { maximumFractionDigits: 0 })
 
     // ── Header ──
     doc.setFontSize(18); doc.setFont('helvetica', 'bold')
@@ -171,67 +169,74 @@ export default function LeadDashboard() {
     doc.text(`Generado: ${new Date().toLocaleDateString('es-MX', { day: '2-digit', month: 'long', year: 'numeric' })}`, 15, y)
     doc.setTextColor(0); y += 10
 
-    // ── Grand Total box ──
-    doc.setFillColor(245, 250, 245); doc.roundedRect(15, y, W - 30, 22, 3, 3, 'F')
-    doc.setFontSize(10); doc.setFont('helvetica', 'bold'); doc.setTextColor(60)
-    doc.text('INVERSIÓN TOTAL DEL PROYECTO', 20, y + 7)
-    doc.setFontSize(16); doc.setTextColor(34, 139, 34)
-    doc.text(`${fmtPDF(Math.round(quotSummary.grandTotal))}`, 20, y + 16)
-    doc.setFontSize(8); doc.setTextColor(120)
-    doc.text(`c/IVA ${quotSummary.ivaRate}%  |  Subtotal: ${fmtPDF(Math.round(quotSummary.grandSubtotal))}  |  ${quotations.length} cotizaciones`, 80, y + 16)
-    doc.setTextColor(0); y += 28
+    // ── Per currency sections ──
+    ;(['USD', 'MXN'] as const).forEach(cur => {
+      const summary = quotSummaryByCur[cur]
+      if (summary.perQuot.length === 0) return
+      const sym = cur === 'USD' ? 'US$' : '$'
+      const fmtPDF = (n: number) => sym + n.toLocaleString('es-MX', { maximumFractionDigits: 0 })
 
-    // ── Per-quotation breakdown ──
-    doc.setFontSize(11); doc.setFont('helvetica', 'bold')
-    doc.text('Cotizaciones', 15, y); y += 6
+      checkPage(30)
+      // Grand Total box
+      doc.setFillColor(245, 250, 245); doc.roundedRect(15, y, W - 30, 22, 3, 3, 'F')
+      doc.setFontSize(10); doc.setFont('helvetica', 'bold'); doc.setTextColor(60)
+      doc.text(`INVERSIÓN ${cur}`, 20, y + 7)
+      doc.setFontSize(16); doc.setTextColor(34, 139, 34)
+      doc.text(`${fmtPDF(Math.round(summary.grandTotal))}`, 20, y + 16)
+      doc.setFontSize(8); doc.setTextColor(120)
+      doc.text(`c/IVA 16%  |  ${summary.perQuot.length} cotizacion${summary.perQuot.length > 1 ? 'es' : ''}`, 80, y + 16)
+      doc.setTextColor(0); y += 28
 
-    // Table header
-    doc.setFontSize(8); doc.setFont('helvetica', 'bold'); doc.setTextColor(80)
-    doc.text('Nombre', 18, y)
-    doc.text('Especialidad', 110, y)
-    doc.text('Items', 140, y, { align: 'right' })
-    doc.text('Total c/IVA', W - 18, y, { align: 'right' })
-    doc.setTextColor(0)
-    y += 2; doc.setDrawColor(180); doc.line(15, y, W - 15, y); y += 4
+      // Per-quotation breakdown
+      doc.setFontSize(11); doc.setFont('helvetica', 'bold')
+      doc.text(`Cotizaciones ${cur}`, 15, y); y += 6
 
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(9)
-    quotSummary.perQuot.forEach((pq: any) => {
-      checkPage(6)
-      doc.text((pq.name || '—').substring(0, 50), 18, y)
-      doc.text((pq.specialty || '—').toUpperCase(), 110, y)
-      doc.text(String(pq.items), 140, y, { align: 'right' })
-      doc.text(fmtPDF(Math.round(pq.subtotalIva)), W - 18, y, { align: 'right' })
-      y += 5.5
-    })
-    y += 6
+      doc.setFontSize(8); doc.setFont('helvetica', 'bold'); doc.setTextColor(80)
+      doc.text('Nombre', 18, y)
+      doc.text('Especialidad', 110, y)
+      doc.text('Items', 140, y, { align: 'right' })
+      doc.text('Total c/IVA', W - 18, y, { align: 'right' })
+      doc.setTextColor(0)
+      y += 2; doc.setDrawColor(180); doc.line(15, y, W - 15, y); y += 4
 
-    // ── System breakdown ──
-    doc.setDrawColor(200); doc.line(15, y, W - 15, y); y += 8
-    doc.setFontSize(11); doc.setFont('helvetica', 'bold')
-    doc.text('Desglose por Sistema', 15, y); y += 6
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(9)
+      summary.perQuot.forEach((pq: any) => {
+        checkPage(6)
+        doc.text((pq.name || '—').substring(0, 50), 18, y)
+        doc.text((pq.specialty || '—').toUpperCase(), 110, y)
+        doc.text(String(pq.items), 140, y, { align: 'right' })
+        doc.text(fmtPDF(Math.round(pq.subtotalIva)), W - 18, y, { align: 'right' })
+        y += 5.5
+      })
+      y += 6
 
-    // Table header
-    doc.setFontSize(8); doc.setFont('helvetica', 'bold'); doc.setTextColor(80)
-    doc.text('Sistema', 18, y)
-    doc.text('% del total', 120, y, { align: 'right' })
-    doc.text('Subtotal', W - 18, y, { align: 'right' })
-    doc.setTextColor(0)
-    y += 2; doc.setDrawColor(180); doc.line(15, y, W - 15, y); y += 4
+      // System breakdown
+      if (summary.systems.length > 0) {
+        doc.setDrawColor(200); doc.line(15, y, W - 15, y); y += 8
+        doc.setFontSize(11); doc.setFont('helvetica', 'bold')
+        doc.text(`Desglose por Sistema (${cur})`, 15, y); y += 6
 
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(9)
-    quotSummary.systems.forEach(([sys, data]: [string, any]) => {
-      checkPage(6)
-      const pct = quotSummary.grandSubtotal > 0 ? (data.subtotal / quotSummary.grandSubtotal) * 100 : 0
-      doc.text(sys, 18, y)
-      doc.text(`${pct.toFixed(0)}%`, 120, y, { align: 'right' })
-      doc.text(fmtPDF(Math.round(data.subtotal)), W - 18, y, { align: 'right' })
+        doc.setFontSize(8); doc.setFont('helvetica', 'bold'); doc.setTextColor(80)
+        doc.text('Sistema', 18, y)
+        doc.text('% del total', 120, y, { align: 'right' })
+        doc.text('Subtotal', W - 18, y, { align: 'right' })
+        doc.setTextColor(0)
+        y += 2; doc.setDrawColor(180); doc.line(15, y, W - 15, y); y += 4
 
-      // Mini bar
-      const barX = 125; const barW = 40; const barH = 3
-      doc.setFillColor(230, 230, 230); doc.rect(barX, y - 3, barW, barH, 'F')
-      doc.setFillColor(87, 255, 154); doc.rect(barX, y - 3, barW * Math.min(pct, 100) / 100, barH, 'F')
-
-      y += 5.5
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(9)
+        summary.systems.forEach(([sys, data]: [string, any]) => {
+          checkPage(6)
+          const pct = summary.grandTotal > 0 ? (data.subtotal / summary.grandTotal) * 100 : 0
+          doc.text(sys, 18, y)
+          doc.text(`${pct.toFixed(0)}%`, 120, y, { align: 'right' })
+          doc.text(fmtPDF(Math.round(data.subtotal)), W - 18, y, { align: 'right' })
+          const barX = 125; const barW = 40; const barH = 3
+          doc.setFillColor(230, 230, 230); doc.rect(barX, y - 3, barW, barH, 'F')
+          doc.setFillColor(87, 255, 154); doc.rect(barX, y - 3, barW * Math.min(pct, 100) / 100, barH, 'F')
+          y += 5.5
+        })
+      }
+      y += 10
     })
 
     // ── Footer ──
@@ -494,137 +499,98 @@ export default function LeadDashboard() {
     return { byCur, totalVendido, totalCobrado, totalComprado, totalCompras, porCobrar, porComprar }
   }, [quotations, projects, bankMovements, pos, quotItems, tipoCambio])
 
-  // Consolidated quotation summary (for client-facing total)
-  const quotSummary = useMemo(() => {
-    if (quotations.length < 2) return null
+  // Helper: compute quotation total with IVA for display
+  const getQuotTotalIva = (q: any): number => {
+    if (q.specialty === 'esp') return getEspTotal(q)
+    if (q.specialty === 'cort' || q.specialty === 'ilum' || q.specialty === 'proy') return Number(q.total) || 0
+    return (Number(q.total) || 0) * 1.16
+  }
 
-    // Group items by system across all quotations
-    const systemTotals: Record<string, { subtotal: number; items: number; moneda: string }> = {}
-    let grandSubtotal = 0       // subtotal before IVA (for non-cort)
-    let grandTotalWithIva = 0   // running total for cort (already has IVA)
+  // Consolidated quotation summary — separated by currency
+  const quotSummaryByCur = useMemo(() => {
+    const result: Record<'USD' | 'MXN', {
+      grandTotal: number; grandSubtotal: number; ivaRate: number;
+      systems: [string, { subtotal: number; items: number }][];
+      perQuot: { name: string; specialty: string; subtotalIva: number; items: number }[];
+      quotations: any[];
+    }> = {
+      USD: { grandTotal: 0, grandSubtotal: 0, ivaRate: 16, systems: [], perQuot: [], quotations: [] },
+      MXN: { grandTotal: 0, grandSubtotal: 0, ivaRate: 16, systems: [], perQuot: [], quotations: [] },
+    }
 
-    // Determine dominant currency
-    const currencies = quotations.map(q => getQuotCurrency(q))
-    const dominantCurrency = currencies.filter(c => c === 'USD').length >= currencies.length / 2 ? 'USD' : 'MXN'
+    ;(['USD', 'MXN'] as const).forEach(cur => {
+      const curQuots = quotations.filter(q => getQuotCurrency(q) === cur)
+      if (curQuots.length === 0) return
 
-    quotations.forEach(q => {
-      const qCur = getQuotCurrency(q)
-      const totalAlreadyHasIva = q.specialty === 'cort' || q.specialty === 'ilum' || q.specialty === 'proy'
+      result[cur].quotations = curQuots
+      const systemTotals: Record<string, { subtotal: number; items: number }> = {}
+      let grandTotal = 0
 
-      if (q.specialty === 'esp') {
-        // ESP: break down by system, applying descuento + IVA proportionally
-        const espItems = quotItems.filter(i => i.quotation_id === q.id)
-        let espMeta: any = {}
-        try { espMeta = typeof q.notes === 'string' ? JSON.parse(q.notes) : (q.notes || {}) } catch {}
-        const desc = espMeta.descuento || 0
-        const prog = espMeta.programacion || 0
-        const rawTotal = espItems.reduce((s, i) => s + (Number(i.total) || 0), 0)
-        const subWithProg = rawTotal + prog
-        // Multiplier: (1 - desc%) * (1 + IVA%)
-        const multiplier = (1 - desc / 100) * 1.16
+      curQuots.forEach(q => {
+        const totalAlreadyHasIva = q.specialty === 'cort' || q.specialty === 'ilum' || q.specialty === 'proy'
 
-        // Group items by system
-        const sysTotals: Record<string, { raw: number; count: number }> = {}
-        espItems.forEach(item => {
-          const sys = item.system || 'Sin sistema'
-          if (!sysTotals[sys]) sysTotals[sys] = { raw: 0, count: 0 }
-          sysTotals[sys].raw += Number(item.total) || 0
-          sysTotals[sys].count += 1
-        })
+        if (q.specialty === 'esp') {
+          // ESP: break down by system, applying descuento + IVA proportionally
+          const espItems = quotItems.filter(i => i.quotation_id === q.id)
+          let espMeta: any = {}
+          try { espMeta = typeof q.notes === 'string' ? JSON.parse(q.notes) : (q.notes || {}) } catch {}
+          const desc = espMeta.descuento || 0
+          const prog = espMeta.programacion || 0
+          const rawTotal = espItems.reduce((s, i) => s + (Number(i.total) || 0), 0)
+          const multiplier = (1 - desc / 100) * 1.16
 
-        // Distribute programacion proportionally and apply descuento + IVA
-        Object.entries(sysTotals).forEach(([sys, data]) => {
-          const proportion = rawTotal > 0 ? data.raw / rawTotal : 0
-          const sysWithProg = data.raw + prog * proportion
-          const sysFinal = sysWithProg * multiplier
-          const converted = qCur !== dominantCurrency
-            ? (dominantCurrency === 'MXN' ? sysFinal * tipoCambio : sysFinal / tipoCambio)
-            : sysFinal
-          if (!systemTotals[sys]) systemTotals[sys] = { subtotal: 0, items: 0, moneda: dominantCurrency }
-          systemTotals[sys].subtotal += converted
-          systemTotals[sys].items += data.count
-          grandTotalWithIva += converted
-        })
-      } else if (totalAlreadyHasIva) {
-        // Cortinas/Ilum/Proy: quotations.total already includes margins, discount, IVA
-        const qTotal = Number(q.total) || 0
-        const converted = qCur !== dominantCurrency
-          ? (dominantCurrency === 'MXN' ? qTotal * tipoCambio : qTotal / tipoCambio)
-          : qTotal
-        const sys = q.name || 'Cortinas'
-        if (!systemTotals[sys]) systemTotals[sys] = { subtotal: 0, items: 0, moneda: dominantCurrency }
-        systemTotals[sys].subtotal += converted
-        systemTotals[sys].items += quotItems.filter(i => i.quotation_id === q.id).length
-        grandTotalWithIva += converted
-      } else {
-        const qItems = quotItems.filter(i => i.quotation_id === q.id)
-        qItems.forEach(item => {
-          const sys = item.system || 'Sin sistema'
-          if (!systemTotals[sys]) systemTotals[sys] = { subtotal: 0, items: 0, moneda: dominantCurrency }
+          const sysTotals: Record<string, { raw: number; count: number }> = {}
+          espItems.forEach(item => {
+            const sys = item.system || 'Sin sistema'
+            if (!sysTotals[sys]) sysTotals[sys] = { raw: 0, count: 0 }
+            sysTotals[sys].raw += Number(item.total) || 0
+            sysTotals[sys].count += 1
+          })
 
-          const itemTotal = Number(item.total) || 0
-          const converted = qCur !== dominantCurrency
-            ? (dominantCurrency === 'MXN' ? itemTotal * tipoCambio : itemTotal / tipoCambio)
-            : itemTotal
-          systemTotals[sys].subtotal += converted
-          systemTotals[sys].items += (item.quantity || 1)
-          grandSubtotal += converted
-        })
-      }
-    })
+          Object.entries(sysTotals).forEach(([sys, data]) => {
+            const proportion = rawTotal > 0 ? data.raw / rawTotal : 0
+            const sysFinal = (data.raw + prog * proportion) * multiplier
+            if (!systemTotals[sys]) systemTotals[sys] = { subtotal: 0, items: 0 }
+            systemTotals[sys].subtotal += sysFinal
+            systemTotals[sys].items += data.count
+            grandTotal += sysFinal
+          })
+        } else if (totalAlreadyHasIva) {
+          const qTotal = Number(q.total) || 0
+          const sys = q.name || q.specialty
+          if (!systemTotals[sys]) systemTotals[sys] = { subtotal: 0, items: 0 }
+          systemTotals[sys].subtotal += qTotal
+          systemTotals[sys].items += quotItems.filter(i => i.quotation_id === q.id).length
+          grandTotal += qTotal
+        } else {
+          const qItems = quotItems.filter(i => i.quotation_id === q.id)
+          qItems.forEach(item => {
+            const sys = item.system || 'Sin sistema'
+            if (!systemTotals[sys]) systemTotals[sys] = { subtotal: 0, items: 0 }
+            const itemTotal = (Number(item.total) || 0) * 1.16
+            systemTotals[sys].subtotal += itemTotal
+            systemTotals[sys].items += (item.quantity || 1)
+            grandTotal += itemTotal
+          })
+        }
+      })
 
-    // Per-quotation subtotals
-    const perQuot = quotations.map(q => {
-      const qCur = getQuotCurrency(q)
-      const qItems = quotItems.filter(i => i.quotation_id === q.id)
-      // Determine the correct total based on specialty
-      const totalAlreadyHasIva = q.specialty === 'cort' || q.specialty === 'ilum' || q.specialty === 'proy'
-      let subtotal: number
-      let subtotalIva: number
-      if (q.specialty === 'esp') {
-        // ESP: DB total is raw items sum — compute with descuento + IVA
-        subtotal = getEspTotal(q)
-        subtotalIva = subtotal  // already includes IVA
-      } else if (totalAlreadyHasIva) {
-        subtotal = Number(q.total) || 0
-        subtotalIva = subtotal  // already includes IVA
-      } else {
-        subtotal = qItems.reduce((s, i) => s + (Number(i.total) || 0), 0)
-        subtotalIva = subtotal * 1.16
-      }
-      const converted = qCur !== dominantCurrency
-        ? (dominantCurrency === 'MXN' ? subtotalIva * tipoCambio : subtotalIva / tipoCambio)
-        : subtotalIva
-      return {
+      // Per-quotation subtotals
+      const perQuot = curQuots.map(q => ({
         name: q.name,
         specialty: q.specialty,
-        subtotal: converted,
-        subtotalIva: converted,
-        moneda: qCur,
-        items: qItems.length,
-      }
+        subtotalIva: getQuotTotalIva(q),
+        items: quotItems.filter(i => i.quotation_id === q.id).length,
+      }))
+
+      result[cur].grandTotal = grandTotal
+      result[cur].grandSubtotal = grandTotal // Already includes IVA in all paths
+      result[cur].systems = Object.entries(systemTotals).sort((a, b) => b[1].subtotal - a[1].subtotal)
+      result[cur].perQuot = perQuot
     })
 
-    // Read IVA rate from first quotation notes (default 16)
-    let ivaRate = 16
-    try {
-      const notes = JSON.parse(quotations[0]?.notes || '{}')
-      const cfg = notes.ilumConfig || notes.proyConfig || notes.espConfig || {}
-      if (cfg.iva) ivaRate = Number(cfg.iva)
-    } catch {}
-
-    const combinedSubtotal = grandSubtotal + grandTotalWithIva
-    const combinedTotal = grandSubtotal * (1 + ivaRate / 100) + grandTotalWithIva
-
-    return {
-      currency: dominantCurrency,
-      grandSubtotal: combinedSubtotal,
-      grandTotal: combinedTotal,
-      ivaRate,
-      systems: Object.entries(systemTotals).sort((a, b) => b[1].subtotal - a[1].subtotal),
-      perQuot,
-    }
-  }, [quotations, quotItems, tipoCambio])
+    return result
+  }, [quotations, quotItems])
 
   // Bloqueos automáticos
   const autoBloqueos = useMemo(() => {
@@ -760,110 +726,116 @@ export default function LeadDashboard() {
       <Section title="Cotizaciones" icon={<FileText size={14} />} count={quotations.length} expanded={expanded.cotizaciones} onToggle={() => toggle('cotizaciones')}>
         {quotations.length === 0 ? (
           <Empty text="Sin cotizaciones vinculadas" />
-        ) : (
-          <div style={{ overflowX: 'auto' }}>
-            <table style={tblS}>
-            <thead>
-              <tr style={trHeadS}>
-                <th style={thS}>Nombre</th>
-                <th style={thS}>Especialidad</th>
-                <th style={thS}>Etapa</th>
-                <th style={{ ...thS, textAlign: 'right' }}>Total</th>
-                <th style={thS}>Moneda</th>
-                <th style={thS}>Fecha</th>
-              </tr>
-            </thead>
-            <tbody>
-              {quotations.map(q => {
-                const curr = getQuotCurrency(q)
-                const sym = curr === 'USD' ? 'US$' : '$'
-                return (
-                  <tr key={q.id} style={trS}>
-                    <td style={tdS}><span style={{ color: '#fff', fontWeight: 500 }}>{q.name}</span></td>
-                    <td style={tdS}><Badge label={q.specialty?.toUpperCase() || '—'} color="#555" /></td>
-                    <td style={tdS}><Badge label={STAGE_LABELS[q.stage] || q.stage} color={STAGE_COLORS[q.stage] || '#555'} /></td>
-                    <td style={{ ...tdS, textAlign: 'right', fontWeight: 600, color: q.stage === 'contrato' ? '#57FF9A' : '#888' }}>
-                      {sym}{((q.specialty === 'cort' || q.specialty === 'esp' || q.specialty === 'ilum' || q.specialty === 'proy') ? (q.total || 0) : (q.total || 0) * 1.16).toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
-                      <span style={{ fontSize: 9, color: '#555', marginLeft: 4 }}>c/IVA</span>
-                    </td>
-                    <td style={tdS}>
-                      <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 4, fontWeight: 600, background: curr === 'USD' ? '#3B82F620' : '#57FF9A20', color: curr === 'USD' ? '#3B82F6' : '#57FF9A' }}>{curr}</span>
-                    </td>
-                    <td style={{ ...tdS, color: '#555' }}>{q.created_at?.slice(0, 10)}</td>
-                  </tr>
-                )
-              })}
-            </tbody>
-            </table>
-          </div>
-        )}
+        ) : (<>
+          {/* Render separate table + summary per currency */}
+          {(['USD', 'MXN'] as const).map(cur => {
+            const curQuots = quotations.filter(q => getQuotCurrency(q) === cur)
+            if (curQuots.length === 0) return null
+            const sym = cur === 'USD' ? 'US$' : '$'
+            const summary = quotSummaryByCur[cur]
+            const accentColor = cur === 'USD' ? '#3B82F6' : '#57FF9A'
 
-        {/* Consolidated summary — auto when 2+ quotations */}
-        {quotSummary && (
-          <div style={{ marginTop: 16, background: '#0a1a0a', border: '1px solid #57FF9A22', borderRadius: 12, overflow: 'hidden' }}>
-            {/* Header with grand total */}
-            <div style={{ padding: '14px 18px', background: '#57FF9A08', borderBottom: '1px solid #57FF9A15', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12 }}>
-              <div>
-                <div style={{ fontSize: 10, color: '#57FF9A', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600, marginBottom: 2 }}>Inversión Total del Proyecto</div>
-                <div style={{ fontSize: 26, fontWeight: 700, color: '#57FF9A' }}>
-                  {quotSummary.currency === 'USD' ? 'US$' : '$'}{quotSummary.grandTotal.toLocaleString('es-MX', { maximumFractionDigits: 0 })}
-                  <span style={{ fontSize: 11, color: '#57FF9A88', marginLeft: 6, fontWeight: 400 }}>c/IVA {quotSummary.ivaRate}%</span>
+            return (
+              <div key={cur} style={{ marginBottom: 20 }}>
+                {/* Currency header */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: accentColor, padding: '2px 10px', borderRadius: 4, background: accentColor + '18', border: '1px solid ' + accentColor + '33' }}>{cur}</span>
+                  <span style={{ fontSize: 11, color: '#555' }}>{curQuots.length} cotizacion{curQuots.length > 1 ? 'es' : ''}</span>
                 </div>
-                <div style={{ fontSize: 11, color: '#888', marginTop: 2 }}>
-                  Subtotal: {quotSummary.currency === 'USD' ? 'US$' : '$'}{quotSummary.grandSubtotal.toLocaleString('es-MX', { maximumFractionDigits: 0 })}
-                  <span style={{ margin: '0 8px', color: '#333' }}>|</span>
-                  {quotations.length} cotizaciones combinadas
+
+                {/* Quotation table */}
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={tblS}>
+                  <thead>
+                    <tr style={trHeadS}>
+                      <th style={thS}>Nombre</th>
+                      <th style={thS}>Especialidad</th>
+                      <th style={thS}>Etapa</th>
+                      <th style={{ ...thS, textAlign: 'right' }}>Total c/IVA</th>
+                      <th style={thS}>Fecha</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {curQuots.map(q => (
+                      <tr key={q.id} style={trS}>
+                        <td style={tdS}><span style={{ color: '#fff', fontWeight: 500 }}>{q.name}</span></td>
+                        <td style={tdS}><Badge label={q.specialty?.toUpperCase() || '—'} color="#555" /></td>
+                        <td style={tdS}><Badge label={STAGE_LABELS[q.stage] || q.stage} color={STAGE_COLORS[q.stage] || '#555'} /></td>
+                        <td style={{ ...tdS, textAlign: 'right', fontWeight: 600, color: q.stage === 'contrato' ? '#57FF9A' : '#888' }}>
+                          {sym}{getQuotTotalIva(q).toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                        </td>
+                        <td style={{ ...tdS, color: '#555' }}>{q.created_at?.slice(0, 10)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  </table>
                 </div>
-              </div>
-              <button onClick={exportConsolidado} style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 4, padding: '5px 12px', fontSize: 11, fontWeight: 600, color: '#57FF9A', background: '#57FF9A12', border: '1px solid #57FF9A33', borderRadius: 6, cursor: 'pointer' }}>
-                <Download size={12} /> Exportar PDF
-              </button>
-            </div>
 
-            <div style={{ padding: 16 }}>
-              {/* Per-quotation breakdown */}
-              <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : `repeat(${Math.min(quotSummary.perQuot.length, 3)}, 1fr)`, gap: 10, marginBottom: 16 }}>
-                {quotSummary.perQuot.map((pq: any, i: number) => (
-                  <div key={i} style={{ padding: 12, background: '#141414', border: '1px solid #222', borderRadius: 8 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
-                      <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', flex: 1 }}>{pq.name}</div>
-                      <Badge label={pq.specialty?.toUpperCase()} color="#555" />
+                {/* Consolidated summary for this currency */}
+                {summary.perQuot.length > 0 && summary.grandTotal > 0 && (
+                  <div style={{ marginTop: 10, background: cur === 'USD' ? '#0a0a1a' : '#0a1a0a', border: '1px solid ' + accentColor + '22', borderRadius: 12, overflow: 'hidden' }}>
+                    <div style={{ padding: '14px 18px', background: accentColor + '08', borderBottom: '1px solid ' + accentColor + '15', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12 }}>
+                      <div>
+                        <div style={{ fontSize: 10, color: accentColor, textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600, marginBottom: 2 }}>Inversión {cur}</div>
+                        <div style={{ fontSize: 26, fontWeight: 700, color: accentColor }}>
+                          {sym}{summary.grandTotal.toLocaleString('es-MX', { maximumFractionDigits: 0 })}
+                          <span style={{ fontSize: 11, color: accentColor + '88', marginLeft: 6, fontWeight: 400 }}>c/IVA 16%</span>
+                        </div>
+                        <div style={{ fontSize: 11, color: '#888', marginTop: 2 }}>{summary.perQuot.length} cotizacion{summary.perQuot.length > 1 ? 'es' : ''}</div>
+                      </div>
+                      {cur === 'USD' && <button onClick={exportConsolidado} style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 4, padding: '5px 12px', fontSize: 11, fontWeight: 600, color: accentColor, background: accentColor + '12', border: '1px solid ' + accentColor + '33', borderRadius: 6, cursor: 'pointer' }}>
+                        <Download size={12} /> Exportar PDF
+                      </button>}
                     </div>
-                    <div style={{ fontSize: 18, fontWeight: 700, color: '#ccc' }}>
-                      {quotSummary.currency === 'USD' ? 'US$' : '$'}{pq.subtotalIva.toLocaleString('es-MX', { maximumFractionDigits: 0 })}
-                      <span style={{ fontSize: 9, color: '#555', marginLeft: 4, fontWeight: 400 }}>c/IVA</span>
-                    </div>
-                    <div style={{ fontSize: 10, color: '#666', marginTop: 4 }}>{pq.items} items</div>
-                  </div>
-                ))}
-              </div>
 
-              {/* System breakdown */}
-              {quotSummary.systems.length > 0 && (
-                <div>
-                  <div style={{ fontSize: 10, fontWeight: 600, color: '#888', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Desglose por Sistema</div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                    {quotSummary.systems.map(([sys, data]: [string, any]) => {
-                      const pct = quotSummary.grandSubtotal > 0 ? (data.subtotal / quotSummary.grandSubtotal) * 100 : 0
-                      return (
-                        <div key={sys} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 10px', background: '#0e0e0e', borderRadius: 6 }}>
-                          <div style={{ flex: 1, fontSize: 12, color: '#ccc', fontWeight: 500 }}>{sys}</div>
-                          <div style={{ width: isMobile ? 80 : 140, height: 6, background: '#1a1a1a', borderRadius: 3, overflow: 'hidden' }}>
-                            <div style={{ width: `${Math.min(pct, 100)}%`, height: '100%', background: '#57FF9A', borderRadius: 3, transition: 'width 0.3s' }} />
+                    <div style={{ padding: 16 }}>
+                      {/* Per-quotation breakdown */}
+                      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : `repeat(${Math.min(summary.perQuot.length, 3)}, 1fr)`, gap: 10, marginBottom: 16 }}>
+                        {summary.perQuot.map((pq: any, i: number) => (
+                          <div key={i} style={{ padding: 12, background: '#141414', border: '1px solid #222', borderRadius: 8 }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
+                              <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', flex: 1 }}>{pq.name}</div>
+                              <Badge label={pq.specialty?.toUpperCase()} color="#555" />
+                            </div>
+                            <div style={{ fontSize: 18, fontWeight: 700, color: '#ccc' }}>
+                              {sym}{pq.subtotalIva.toLocaleString('es-MX', { maximumFractionDigits: 0 })}
+                              <span style={{ fontSize: 9, color: '#555', marginLeft: 4, fontWeight: 400 }}>c/IVA</span>
+                            </div>
+                            <div style={{ fontSize: 10, color: '#666', marginTop: 4 }}>{pq.items} items</div>
                           </div>
-                          <div style={{ fontSize: 11, color: '#888', minWidth: 50, textAlign: 'right' }}>{pct.toFixed(0)}%</div>
-                          <div style={{ fontSize: 12, color: '#fff', fontWeight: 600, minWidth: 90, textAlign: 'right' }}>
-                            {quotSummary.currency === 'USD' ? 'US$' : '$'}{data.subtotal.toLocaleString('es-MX', { maximumFractionDigits: 0 })}
+                        ))}
+                      </div>
+
+                      {/* System breakdown */}
+                      {summary.systems.length > 0 && (
+                        <div>
+                          <div style={{ fontSize: 10, fontWeight: 600, color: '#888', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Desglose por Sistema</div>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                            {summary.systems.map(([sys, data]: [string, any]) => {
+                              const pct = summary.grandTotal > 0 ? (data.subtotal / summary.grandTotal) * 100 : 0
+                              return (
+                                <div key={sys} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 10px', background: '#0e0e0e', borderRadius: 6 }}>
+                                  <div style={{ flex: 1, fontSize: 12, color: '#ccc', fontWeight: 500 }}>{sys}</div>
+                                  <div style={{ width: isMobile ? 80 : 140, height: 6, background: '#1a1a1a', borderRadius: 3, overflow: 'hidden' }}>
+                                    <div style={{ width: `${Math.min(pct, 100)}%`, height: '100%', background: accentColor, borderRadius: 3, transition: 'width 0.3s' }} />
+                                  </div>
+                                  <div style={{ fontSize: 11, color: '#888', minWidth: 50, textAlign: 'right' }}>{pct.toFixed(0)}%</div>
+                                  <div style={{ fontSize: 12, color: '#fff', fontWeight: 600, minWidth: 90, textAlign: 'right' }}>
+                                    {sym}{data.subtotal.toLocaleString('es-MX', { maximumFractionDigits: 0 })}
+                                  </div>
+                                </div>
+                              )
+                            })}
                           </div>
                         </div>
-                      )
-                    })}
+                      )}
+                    </div>
                   </div>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
+                )}
+              </div>
+            )
+          })}
+        </>)}
         </Section>
 
       {/* ══════════ 2. ESTADO DE CUENTA ══════════ */}
