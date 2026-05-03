@@ -425,16 +425,13 @@ function ListaTodas() {
 
   async function load() {
     setLoading(true)
-    // Use simple YYYY-MM-DD date strings for Supabase range filter (avoids timezone issues)
-    const y = monthDate.getFullYear()
-    const m = monthDate.getMonth() // 0-based
-    const gte = `${y}-${String(m + 1).padStart(2, '0')}-01`
-    const nextM = m === 11 ? 0 : m + 1
-    const nextY = m === 11 ? y + 1 : y
-    const lte = `${nextY}-${String(nextM + 1).padStart(2, '0')}-01`
+    // Use local-time midnight boundaries converted to UTC ISO strings
+    // This ensures Apr 30 23:00 Mexico (May 1 05:00 UTC) stays in April
+    const startLocal = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1)
+    const endLocal = new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 1)
     const { data, error } = await supabase.from('facturas').select('*')
-      .gte('fecha_emision', gte)
-      .lt('fecha_emision', lte)
+      .gte('fecha_emision', startLocal.toISOString())
+      .lt('fecha_emision', endLocal.toISOString())
       .order('fecha_emision', { ascending: false })
     if (error) console.error('Facturacion load error:', error)
     setFacturas((data as Factura[]) || [])
@@ -820,17 +817,14 @@ function ListaEmitidas({ onNueva }: { onNueva: () => void }) {
   async function load() {
     setLoading(true)
     const y = monthDate.getFullYear()
-    const m = monthDate.getMonth()
-    const gte = `${y}-${String(m + 1).padStart(2, '0')}-01`
-    const nextM = m === 11 ? 0 : m + 1
-    const nextY = m === 11 ? y + 1 : y
-    const lte = `${nextY}-${String(nextM + 1).padStart(2, '0')}-01`
+    const startLocal = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1)
+    const endLocal = new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 1)
     const { data } = await supabase
       .from('facturas')
       .select('*')
       .eq('direccion', 'emitida')
-      .gte('fecha_emision', gte)
-      .lt('fecha_emision', lte)
+      .gte('fecha_emision', startLocal.toISOString())
+      .lt('fecha_emision', endLocal.toISOString())
       .order('fecha_emision', { ascending: false })
     setFacturas((data as Factura[]) || [])
     setLoading(false)
@@ -2234,16 +2228,12 @@ function ListaRecibidas() {
 
   async function load() {
     setLoading(true)
-    const y = monthDate.getFullYear()
-    const m = monthDate.getMonth()
-    const gte = `${y}-${String(m + 1).padStart(2, '0')}-01`
-    const nextM = m === 11 ? 0 : m + 1
-    const nextY = m === 11 ? y + 1 : y
-    const lte = `${nextY}-${String(nextM + 1).padStart(2, '0')}-01`
+    const startLocal = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1)
+    const endLocal = new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 1)
     const { data } = await supabase.from('facturas').select('*')
       .eq('direccion', 'recibida')
-      .gte('fecha_emision', gte)
-      .lt('fecha_emision', lte)
+      .gte('fecha_emision', startLocal.toISOString())
+      .lt('fecha_emision', endLocal.toISOString())
       .order('fecha_emision', { ascending: false })
     setRecibidas((data as Factura[]) || [])
     setLoading(false)
