@@ -23,49 +23,40 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
+/** Build profile from user_metadata — no DB query needed */
+function profileFromUser(u: User): UserProfile {
+  const meta = u.user_metadata || {}
+  return {
+    id: u.id,
+    email: u.email || '',
+    nombre: meta.nombre || u.email?.split('@')[0] || '',
+    permission_area: meta.permission_area || 'Operaciones',
+    activo: meta.activo !== false,
+  }
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [session, setSession] = useState<Session | null>(null)
   const [profile, setProfile] = useState<UserProfile | null>(null)
   const [loading, setLoading] = useState(true)
 
-  async function fetchProfile(userId: string) {
-    const { data, error } = await supabase
-      .from('user_profiles')
-      .select('*')
-      .eq('id', userId)
-      .single()
-    if (error) {
-      console.error('Error fetching profile:', error)
-      return null
-    }
-    return data as UserProfile
-  }
-
   useEffect(() => {
     let mounted = true
 
-    // onAuthStateChange fires INITIAL_SESSION on mount — no need for getSession()
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, s) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, s) => {
       if (!mounted) return
-      console.log('[Auth] event:', _event, 'session:', !!s)
       setSession(s)
       setUser(s?.user ?? null)
       if (s?.user) {
-        // Use setTimeout to avoid Supabase deadlock on initial load
-        setTimeout(async () => {
-          if (!mounted) return
-          const p = await fetchProfile(s.user.id)
-          if (mounted) setProfile(p)
-          setLoading(false)
-        }, 0)
+        setProfile(profileFromUser(s.user))
       } else {
         setProfile(null)
-        setLoading(false)
       }
+      setLoading(false)
     })
 
-    // Safety timeout — if nothing fires in 3s, stop loading
+    // Safety timeout
     const timeout = setTimeout(() => {
       if (mounted) setLoading(false)
     }, 3000)
