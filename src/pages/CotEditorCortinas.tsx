@@ -2,10 +2,12 @@ import React, { useState, useMemo, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { F, STAGE_CONFIG } from '../lib/utils'
 import { Badge, Btn, Loading } from '../components/layout/UI'
-import { Plus, ChevronLeft, ChevronDown, ChevronRight, X, Trash2, Settings, Copy, Printer, Pencil } from 'lucide-react'
+import { Plus, ChevronLeft, ChevronDown, ChevronRight, X, Trash2, Settings, Copy, Printer, Pencil, Download } from 'lucide-react'
 import EditCotInfoModal from '../components/EditCotInfoModal'
 import { OMNIIOUS_LOGO } from '../assets/logo'
 import { useIsMobile } from '../lib/useIsMobile'
+import html2canvas from 'html2canvas'
+import jsPDF from 'jspdf'
 
 // ═══════════════════════════════════════════════════════════════════
 // TYPES
@@ -329,6 +331,8 @@ function CortPdfModal({ items, areas, config, cotName, clientName, projectName, 
 
   const fmtC = (n: number) => '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
+  const [downloading, setDownloading] = useState(false)
+
   function handlePrint() {
     const content = pdfRef.current
     if (!content) return
@@ -341,6 +345,39 @@ function CortPdfModal({ items, areas, config, cotName, clientName, projectName, 
     </style></head><body>${content.innerHTML}</body></html>`)
     w.document.close()
     setTimeout(() => { w.print() }, 300)
+  }
+
+  async function handleDownloadPdf() {
+    const el = pdfRef.current
+    if (!el || downloading) return
+    setDownloading(true)
+    try {
+      const canvas = await html2canvas(el, { scale: 2, useCORS: true, backgroundColor: '#ffffff' })
+      const imgData = canvas.toDataURL('image/png')
+      const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
+      const pageW = pdf.internal.pageSize.getWidth()
+      const pageH = pdf.internal.pageSize.getHeight()
+      const margin = 10
+      const usableW = pageW - margin * 2
+      const imgW = canvas.width
+      const imgH = canvas.height
+      const ratio = usableW / imgW
+      const scaledH = imgH * ratio
+      // Multi-page support
+      let yOffset = 0
+      const usableH = pageH - margin * 2
+      while (yOffset < scaledH) {
+        if (yOffset > 0) pdf.addPage()
+        pdf.addImage(imgData, 'PNG', margin, margin - yOffset, usableW, scaledH)
+        yOffset += usableH
+      }
+      const filename = `Propuesta_Cortinas_${(cotName || 'cotizacion').replace(/[^a-zA-Z0-9_-]/g, '_')}.pdf`
+      pdf.save(filename)
+    } catch (err) {
+      console.error('PDF generation error:', err)
+    } finally {
+      setDownloading(false)
+    }
   }
 
   return (
@@ -473,7 +510,10 @@ function CortPdfModal({ items, areas, config, cotName, clientName, projectName, 
 
         {/* Footer buttons - outside ref */}
         <div className="cort-pdf-no-print" style={{ display: 'flex', gap: 10, padding: 16, justifyContent: 'center', borderTop: '1px solid #ddd', background: '#f9f9f9' }}>
-          <button onClick={handlePrint} style={{ padding: '8px 16px', background: '#000', color: '#fff', border: 'none', borderRadius: 4, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>Imprimir / Guardar PDF</button>
+          <button onClick={handleDownloadPdf} disabled={downloading} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', background: '#57FF9A', color: '#000', border: 'none', borderRadius: 4, fontSize: 12, fontWeight: 600, cursor: downloading ? 'wait' : 'pointer', opacity: downloading ? 0.6 : 1 }}>
+            <Download size={14} /> {downloading ? 'Generando...' : 'Descargar PDF'}
+          </button>
+          <button onClick={handlePrint} style={{ padding: '8px 16px', background: '#000', color: '#fff', border: 'none', borderRadius: 4, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>Imprimir</button>
           <button onClick={onClose} style={{ padding: '8px 16px', background: '#eee', color: '#000', border: 'none', borderRadius: 4, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>Cerrar</button>
         </div>
       </div>
