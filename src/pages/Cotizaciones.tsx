@@ -13,6 +13,7 @@ import ImportCotizaciones from './ImportCotizaciones'
 import AIQuoteChat from './AIQuoteChat'
 import CotEditorCortinas from './CotEditorCortinas'
 import CotEditorIlum from './CotEditorIlum'
+import { useAuth } from '../contexts/AuthContext'
 import CotEditorProyecto from './CotEditorProyecto'
 import { autoCreateProjectFromQuotation } from '../lib/projectUtils'
 
@@ -106,6 +107,8 @@ function LeadCell({ cotId, currentLeadId, currentLeadName, leads, notes, onUpdat
 
 function CotDashboard({ onOpen }: { onOpen: (id: string, specialty?: string) => void }) {
   const isMobile = useIsMobile()
+  const { user: authUser } = useAuth()
+  const showKPIs = authUser?.permission_area === 'DG' || authUser?.permission_area === 'Administracion'
   const [cots, setCots] = useState<Quotation[]>([])
   const [leadsMap, setLeadsMap] = useState<Record<string, LeadInfo>>({})
   const [filtro, setFiltro] = useState<string>('todas')
@@ -216,13 +219,14 @@ function CotDashboard({ onOpen }: { onOpen: (id: string, specialty?: string) => 
   return (
     <div style={{padding: isMobile ? '16px 12px' : '24px 28px'}}>
       <SectionHeader title="Cotizaciones"
-        subtitle={`${cotsYear.length} cotizaciones${filtroYear !== 'todos' ? ' ('+filtroYear+')' : ''} · ${FCUR(totalUSD, 'USD')} · ${FCUR(totalMXN, 'MXN')}`}
+        subtitle={showKPIs ? `${cotsYear.length} cotizaciones${filtroYear !== 'todos' ? ' ('+filtroYear+')' : ''} · ${FCUR(totalUSD, 'USD')} · ${FCUR(totalMXN, 'MXN')}` : `${cotsYear.length} cotizaciones${filtroYear !== 'todos' ? ' ('+filtroYear+')' : ''}`}
         action={<div style={{display:'flex',gap:8,flexWrap: isMobile ? 'wrap' : 'nowrap'}}>
           <Btn onClick={() => setShowImport(true)} style={{border:'1px solid #3b82f644', color:'#3b82f6', display:'inline-flex', alignItems:'center', gap:4, flex: isMobile ? '1 1 calc(50% - 4px)' : 'auto'}}><Upload size={14}/> {isMobile ? 'Imp.' : 'Importar'}</Btn>
           <Btn onClick={() => setShowAIGen(true)} style={{border:'1px solid #57FF9A44', color:'#57FF9A', display:'inline-flex', alignItems:'center', gap:4, flex: isMobile ? '1 1 calc(50% - 4px)' : 'auto'}}><Zap size={14}/> {isMobile ? 'AI' : 'Cotizar con AI'}</Btn>
           <Btn variant="primary" onClick={() => setShowNew(true)} style={{flex: isMobile ? '1 1 100%' : 'auto'}}><Plus size={14}/> {isMobile ? 'Nueva' : 'Nueva cotizacion'}</Btn>
         </div>}/>
 
+      {showKPIs && (<>
       <div style={{display:'grid',gridTemplateColumns: isMobile ? 'repeat(2,1fr)' : 'repeat(4,1fr)',gap:10,marginBottom:20}}>
         {(['contrato','propuesta','estimacion','oportunidad'] as const).map(s => {
           const cfg = STAGE_CONFIG[s]
@@ -257,6 +261,7 @@ function CotDashboard({ onOpen }: { onOpen: (id: string, specialty?: string) => 
           )
         })}
       </div>
+      </>)}
 
       {/* Barra de búsqueda */}
       <div style={{marginBottom:14,position:'relative'}}>

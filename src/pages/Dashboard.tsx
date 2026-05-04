@@ -4,10 +4,13 @@ import { Project, PaymentMilestone, WorkReport } from '../types'
 import { F, STATUS_CONFIG, formatDate } from '../lib/utils'
 import { KpiCard, Table, Th, Td, ProgressBar, Badge, Loading, SectionHeader } from '../components/layout/UI'
 import { useIsMobile } from '../lib/useIsMobile'
+import { useAuth } from '../contexts/AuthContext'
 import { FolderOpen, DollarSign, AlertTriangle, Users } from 'lucide-react'
 
 export default function Dashboard() {
   const isMobile = useIsMobile()
+  const { user: authUser } = useAuth()
+  const showKPIs = authUser?.permission_area === 'DG' || authUser?.permission_area === 'Administracion'
   const [projects, setProjects] = useState<Project[]>([])
   const [milestones, setMilestones] = useState<PaymentMilestone[]>([])
   const [reports, setReports] = useState<WorkReport[]>([])
@@ -34,10 +37,10 @@ export default function Dashboard() {
   return (
     <div style={{ padding: isMobile ? '16px 12px' : '24px 28px', maxWidth: 1200 }}>
       <SectionHeader title="Dashboard" subtitle="Vista ejecutiva — OMM Technologies" />
-      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4, 1fr)', gap: 12, marginBottom: 24 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : showKPIs ? 'repeat(4, 1fr)' : 'repeat(2, 1fr)', gap: 12, marginBottom: 24 }}>
         <KpiCard label="Proyectos activos" value={projects.length} icon={<FolderOpen size={16} />} />
-        <KpiCard label="Pipeline total" value={F(pipeline)} color="#3B82F6" icon={<DollarSign size={16} />} />
-        <KpiCard label="Cobros vencidos" value={vencidos.length} color={vencidos.length > 0 ? '#EF4444' : '#57FF9A'} icon={<AlertTriangle size={16} />} />
+        {showKPIs && <KpiCard label="Pipeline total" value={F(pipeline)} color="#3B82F6" icon={<DollarSign size={16} />} />}
+        {showKPIs && <KpiCard label="Cobros vencidos" value={vencidos.length} color={vencidos.length > 0 ? '#EF4444' : '#57FF9A'} icon={<AlertTriangle size={16} />} />}
         <KpiCard label="Empleados activos" value={empCount} color="#C084FC" icon={<Users size={16} />} />
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 20, marginBottom: 24 }}>
@@ -45,12 +48,12 @@ export default function Dashboard() {
           <SectionHeader title="Proyectos activos" />
           <div style={{ overflowX: 'auto' }}>
             <Table>
-            <thead><tr><Th>Nombre</Th><Th>Cliente</Th><Th>Avance</Th><Th>Estado</Th><Th right>Contrato</Th></tr></thead>
+            <thead><tr><Th>Nombre</Th><Th>Cliente</Th><Th>Avance</Th><Th>Estado</Th>{showKPIs && <Th right>Contrato</Th>}</tr></thead>
             <tbody>
-              {projects.length===0&&<tr><Td colSpan={5} muted>Sin proyectos activos</Td></tr>}
+              {projects.length===0&&<tr><Td colSpan={showKPIs ? 5 : 4} muted>Sin proyectos activos</Td></tr>}
               {projects.map(p => {
                 const cfg=STATUS_CONFIG[p.status]
-                return(<tr key={p.id}><Td><span style={{fontWeight:500,color:'#fff'}}>{p.name}</span></Td><Td muted>{p.client_name}</Td><Td><ProgressBar pct={p.advance_pct}/></Td><Td><Badge label={cfg.label} color={cfg.color}/></Td><Td right>{F(p.contract_value)}</Td></tr>)
+                return(<tr key={p.id}><Td><span style={{fontWeight:500,color:'#fff'}}>{p.name}</span></Td><Td muted>{p.client_name}</Td><Td><ProgressBar pct={p.advance_pct}/></Td><Td><Badge label={cfg.label} color={cfg.color}/></Td>{showKPIs && <Td right>{F(p.contract_value)}</Td>}</tr>)
               })}
             </tbody>
             </Table>
