@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase'
 import { SPECIALTY_CONFIG } from '../lib/utils'
 import { Loading, Badge, SectionHeader } from '../components/layout/UI'
 import { useIsMobile } from '../lib/useIsMobile'
+import { useAuth } from '../contexts/AuthContext'
 import {
   ArrowLeft, FileText, DollarSign, ShoppingCart, Briefcase,
   HardHat, AlertTriangle, ChevronDown, ChevronRight, ExternalLink,
@@ -49,6 +50,8 @@ const BLOQUEO_SEV_COLOR: Record<string, string> = {
 // ═══════════════════════════════════════════════════════════════════
 export default function LeadDashboard() {
   const isMobile = useIsMobile()
+  const { user: authUser } = useAuth()
+  const showFinancials = authUser?.permission_area === 'DG' || authUser?.permission_area === 'Administracion'
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const [loading, setLoading] = useState(true)
@@ -699,7 +702,8 @@ export default function LeadDashboard() {
         </div>
       </div>
 
-      {/* T.C. referencia + equivalente MXN */}
+      {/* T.C. referencia + equivalente MXN — solo DG/Admin */}
+      {showFinancials && (<>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10, flexWrap: isMobile ? 'wrap' : 'nowrap', fontSize: isMobile ? 11 : 12 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#111', border: '1px solid #333', borderRadius: 8, padding: '6px 12px' }}>
           <span style={{ fontSize: 11, color: '#888', whiteSpace: 'nowrap' }}>T.C. referencia</span>
@@ -725,6 +729,7 @@ export default function LeadDashboard() {
         <KpiDual label="Por Comprar" usd={Math.max(0, financials.byCur.USD.presupuesto - financials.byCur.USD.comprado)} mxn={Math.max(0, financials.byCur.MXN.presupuesto - financials.byCur.MXN.comprado)} color="#F59E0B" />
         <KpiMini label="Bloqueos" value={String(allBloqueos.length)} color={allBloqueos.length > 0 ? '#EF4444' : '#57FF9A'} />
       </div>
+      </>)}
 
       {/* ══════════ 1. COTIZACIONES ══════════ */}
       <Section title="Cotizaciones" icon={<FileText size={14} />} count={quotations.length} expanded={expanded.cotizaciones} onToggle={() => toggle('cotizaciones')}>
@@ -842,8 +847,8 @@ export default function LeadDashboard() {
         </>)}
         </Section>
 
-      {/* ══════════ 2. ESTADO DE CUENTA ══════════ */}
-      <Section title="Estado de Cuenta" icon={<DollarSign size={14} />} count={bankMovements.filter(m => m.tipo === 'abono').length} expanded={expanded.estado} onToggle={() => toggle('estado')}>
+      {/* ══════════ 2. ESTADO DE CUENTA (solo DG/Admin) ══════════ */}
+      {showFinancials && <Section title="Estado de Cuenta" icon={<DollarSign size={14} />} count={bankMovements.filter(m => m.tipo === 'abono').length} expanded={expanded.estado} onToggle={() => toggle('estado')}>
         {/* Summary bar — dual currency */}
         <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4, 1fr)', gap: 10, marginBottom: 16 }}>
           <MiniStatDual label="Total vendido" usd={financials.byCur.USD.vendido} mxn={financials.byCur.MXN.vendido} accent="#57FF9A" />
@@ -1125,7 +1130,7 @@ export default function LeadDashboard() {
             <span style={{ fontSize: 12, color: '#EF4444' }}>Lo cobrado es menor a lo comprado. Diferencia: {F(financials.totalComprado - financials.totalCobrado)}</span>
           </div>
         )}
-      </Section>
+      </Section>}
 
       {/* ══════════ 3. COMPRAS FALTANTES ══════════ */}
       <Section title="Compras" icon={<ShoppingCart size={14} />} count={pos.length} expanded={expanded.compras} onToggle={() => toggle('compras')}>
