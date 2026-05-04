@@ -382,8 +382,8 @@ function CortPdfModal({ items, areas, config, cotName, clientName, projectName, 
 
   return (
     <div className="cort-pdf-overlay" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 1040, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <div style={{ background: '#fff', borderRadius: isMobile ? 0 : 8, overflow: 'hidden', width: isMobile ? '100vw' : '8.5in', height: isMobile ? '100vh' : 'auto', maxHeight: isMobile ? '100vh' : '90vh', boxShadow: isMobile ? 'none' : '0 20px 50px rgba(0,0,0,0.3)' }}>
-        <div style={{ overflowY: 'auto', maxHeight: '90vh' }}>
+      <div style={{ background: '#fff', borderRadius: isMobile ? 0 : 8, overflow: 'hidden', width: isMobile ? '100vw' : '8.5in', height: isMobile ? '100vh' : 'auto', maxHeight: isMobile ? '100vh' : '90vh', boxShadow: isMobile ? 'none' : '0 20px 50px rgba(0,0,0,0.3)', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ overflowY: 'auto', flex: 1 }}>
           <div ref={pdfRef} style={{ padding: 32 }}>
             {/* Header */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 }}>
