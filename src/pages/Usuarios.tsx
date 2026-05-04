@@ -9,6 +9,17 @@ interface AppUser {
   permission_area: PermissionArea
   activo: boolean
   created_at: string
+  employee_id: string | null
+}
+
+interface Employee {
+  id: string
+  name: string
+  nombre: string | null
+  email: string | null
+  puesto: string | null
+  area: string | null
+  activo: boolean | null
 }
 
 const AREAS: { value: PermissionArea; label: string }[] = [
@@ -32,23 +43,45 @@ const btnStyle: React.CSSProperties = {
 export default function Usuarios() {
   const { user } = useAuth()
   const [users, setUsers] = useState<AppUser[]>([])
+  const [employees, setEmployees] = useState<Employee[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [editingPw, setEditingPw] = useState<string | null>(null)
   const [newPw, setNewPw] = useState('')
+  const [selectedEmployee, setSelectedEmployee] = useState<string>('')
   const [form, setForm] = useState({ email: '', password: '', nombre: '', permission_area: 'Operaciones' as PermissionArea })
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
 
   async function loadUsers() {
     setLoading(true)
-    const { data, error } = await supabase.from('app_users').select('id, email, nombre, permission_area, activo, created_at').order('created_at')
-    if (error) console.error(error)
+    const { data } = await supabase.from('app_users').select('id, email, nombre, permission_area, activo, created_at, employee_id').order('created_at')
     setUsers((data as AppUser[]) || [])
     setLoading(false)
   }
 
-  useEffect(() => { loadUsers() }, [])
+  async function loadEmployees() {
+    const { data } = await supabase.from('employees').select('id, name, nombre, email, puesto, area, activo').order('name')
+    setEmployees((data as Employee[]) || [])
+  }
+
+  useEffect(() => { loadUsers(); loadEmployees() }, [])
+
+  // Employees that don't already have a user account
+  const usedEmployeeIds = new Set(users.map(u => u.employee_id).filter(Boolean))
+  const availableEmployees = employees.filter(e => !usedEmployeeIds.has(e.id) && e.activo !== false)
+
+  function handleSelectEmployee(empId: string) {
+    setSelectedEmployee(empId)
+    const emp = employees.find(e => e.id === empId)
+    if (emp) {
+      setForm(f => ({
+        ...f,
+        nombre: emp.nombre || emp.name || '',
+        email: emp.email || '',
+      }))
+    }
+  }
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault()
@@ -56,6 +89,10 @@ export default function Usuarios() {
     setSuccess('')
     if (!form.email || !form.password || !form.nombre) {
       setError('Todos los campos son obligatorios')
+      return
+    }
+    if (form.password.length < 6) {
+      setError('La contraseña debe tener al menos 6 caracteres')
       return
     }
     const { data, error: err } = await supabase.rpc('create_app_user', {
@@ -68,8 +105,13 @@ export default function Usuarios() {
       setError(err.message.includes('unique') ? 'Ese email ya está registrado' : err.message)
       return
     }
+    // Link to employee
+    if (selectedEmployee && data) {
+      await supabase.from('app_users').update({ employee_id: selectedEmployee }).eq('id', data)
+    }
     setSuccess(`Usuario ${form.nombre} creado`)
     setForm({ email: '', password: '', nombre: '', permission_area: 'Operaciones' })
+    setSelectedEmployee('')
     setShowForm(false)
     loadUsers()
   }
@@ -99,14 +141,24 @@ export default function Usuarios() {
     setNewPw('')
   }
 
+  // Find employee name for a user
+  function getEmployeeName(empId: string | null) {
+    if (!empId) return null
+    const emp = employees.find(e => e.id === empId)
+    return emp ? (emp.nombre || emp.name) : null
+  }
+
   if (user?.permission_area !== 'DG') {
     return <div style={{ padding: 40, color: '#f66' }}>Solo Dirección General puede administrar usuarios.</div>
   }
 
   return (
-    <div style={{ padding: '32px 40px', maxWidth: 900 }}>
+    <div style={{ padding: '32px 40px', maxWidth: 1000 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
-        <h1 style={{ fontSize: 22, fontWeight: 700, color: '#fff', margin: 0 }}>Usuarios</h1>
+        <div>
+          <h1 style={{ fontSize: 22, fontWeight: 700, color: '#fff', margin: 0 }}>Usuarios del Sistema</h1>
+          <div style={{ fontSize: 13, color: '#666', marginTop: 4 }}>{users.length} usuarios · {users.filter(u => u.activo).length} activos</div>
+        </div>
         <button onClick={() => { setShowForm(!showForm); setError(''); setSuccess('') }} style={btnStyle}>
           {showForm ? 'Cancelar' : '+ Nuevo usuario'}
         </button>
@@ -126,28 +178,46 @@ export default function Usuarios() {
       {showForm && (
         <form onSubmit={handleCreate} style={{
           background: '#111', border: '1px solid #222', borderRadius: 12,
-          padding: 24, marginBottom: 24, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16,
+          padding: 24, marginBottom: 24, display: 'flex', flexDirection: 'column', gap: 16,
         }}>
+          {/* Employee selector */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <label style={{ fontSize: 12, color: '#888' }}>Nombre</label>
-            <input value={form.nombre} onChange={e => setForm({ ...form, nombre: e.target.value })} style={inputStyle} placeholder="Juan Pérez" />
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <label style={{ fontSize: 12, color: '#888' }}>Email</label>
-            <input type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} style={inputStyle} placeholder="juan@omniious.com" />
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <label style={{ fontSize: 12, color: '#888' }}>Contraseña</label>
-            <input type="text" value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} style={inputStyle} placeholder="mínimo 6 caracteres" />
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <label style={{ fontSize: 12, color: '#888' }}>Área de permiso</label>
-            <select value={form.permission_area} onChange={e => setForm({ ...form, permission_area: e.target.value as PermissionArea })}
+            <label style={{ fontSize: 12, color: '#888' }}>Empleado</label>
+            <select value={selectedEmployee} onChange={e => handleSelectEmployee(e.target.value)}
               style={{ ...inputStyle, appearance: 'auto' }}>
-              {AREAS.map(a => <option key={a.value} value={a.value}>{a.label}</option>)}
+              <option value="">— Seleccionar empleado —</option>
+              {availableEmployees.map(emp => (
+                <option key={emp.id} value={emp.id}>
+                  {emp.nombre || emp.name}{emp.puesto ? ` · ${emp.puesto}` : ''}{emp.area ? ` · ${emp.area}` : ''}
+                </option>
+              ))}
             </select>
+            <span style={{ fontSize: 11, color: '#555' }}>Solo empleados activos sin cuenta</span>
           </div>
-          <div style={{ gridColumn: '1 / -1', display: 'flex', justifyContent: 'flex-end' }}>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <label style={{ fontSize: 12, color: '#888' }}>Nombre</label>
+              <input value={form.nombre} onChange={e => setForm({ ...form, nombre: e.target.value })} style={inputStyle} placeholder="Se llena automáticamente" />
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <label style={{ fontSize: 12, color: '#888' }}>Email</label>
+              <input type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} style={inputStyle} placeholder="Se llena automáticamente" />
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <label style={{ fontSize: 12, color: '#888' }}>Contraseña</label>
+              <input type="text" value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} style={inputStyle} placeholder="mínimo 6 caracteres" />
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <label style={{ fontSize: 12, color: '#888' }}>Área de permiso</label>
+              <select value={form.permission_area} onChange={e => setForm({ ...form, permission_area: e.target.value as PermissionArea })}
+                style={{ ...inputStyle, appearance: 'auto' }}>
+                {AREAS.map(a => <option key={a.value} value={a.value}>{a.label}</option>)}
+              </select>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
             <button type="submit" style={btnStyle}>Crear usuario</button>
           </div>
         </form>
@@ -161,6 +231,7 @@ export default function Usuarios() {
             <tr style={{ borderBottom: '1px solid #333', color: '#888', textAlign: 'left' }}>
               <th style={{ padding: '10px 12px', fontWeight: 500 }}>Nombre</th>
               <th style={{ padding: '10px 12px', fontWeight: 500 }}>Email</th>
+              <th style={{ padding: '10px 12px', fontWeight: 500 }}>Empleado</th>
               <th style={{ padding: '10px 12px', fontWeight: 500 }}>Área</th>
               <th style={{ padding: '10px 12px', fontWeight: 500 }}>Estado</th>
               <th style={{ padding: '10px 12px', fontWeight: 500 }}>Acciones</th>
@@ -171,6 +242,9 @@ export default function Usuarios() {
               <tr key={u.id} style={{ borderBottom: '1px solid #1a1a1a', opacity: u.activo ? 1 : 0.5 }}>
                 <td style={{ padding: '10px 12px', color: '#fff' }}>{u.nombre}</td>
                 <td style={{ padding: '10px 12px', color: '#aaa' }}>{u.email}</td>
+                <td style={{ padding: '10px 12px', color: u.employee_id ? '#57FF9A' : '#555' }}>
+                  {u.employee_id ? getEmployeeName(u.employee_id) || 'Vinculado' : 'Sin vincular'}
+                </td>
                 <td style={{ padding: '10px 12px' }}>
                   <select value={u.permission_area} onChange={e => updateArea(u.id, e.target.value as PermissionArea)}
                     style={{ background: '#1a1a1a', border: '1px solid #333', borderRadius: 6, color: '#ccc', padding: '4px 8px', fontSize: 12 }}>
@@ -186,30 +260,32 @@ export default function Usuarios() {
                     {u.activo ? 'Activo' : 'Inactivo'}
                   </span>
                 </td>
-                <td style={{ padding: '10px 12px', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                  <button onClick={() => toggleActivo(u)}
-                    style={{ background: 'none', border: '1px solid #333', borderRadius: 6, color: u.activo ? '#f66' : '#57FF9A', padding: '4px 10px', fontSize: 11, cursor: 'pointer' }}>
-                    {u.activo ? 'Desactivar' : 'Activar'}
-                  </button>
-                  {editingPw === u.id ? (
-                    <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-                      <input type="text" value={newPw} onChange={e => setNewPw(e.target.value)} placeholder="nueva contraseña"
-                        style={{ ...inputStyle, width: 140, padding: '4px 8px', fontSize: 12 }} />
-                      <button onClick={() => handlePasswordChange(u.id)}
-                        style={{ background: '#57FF9A', color: '#000', border: 'none', borderRadius: 6, padding: '4px 10px', fontSize: 11, cursor: 'pointer', fontWeight: 600 }}>
-                        OK
-                      </button>
-                      <button onClick={() => { setEditingPw(null); setNewPw('') }}
-                        style={{ background: 'none', border: '1px solid #333', borderRadius: 6, color: '#888', padding: '4px 8px', fontSize: 11, cursor: 'pointer' }}>
-                        ✕
-                      </button>
-                    </div>
-                  ) : (
-                    <button onClick={() => { setEditingPw(u.id); setNewPw('') }}
-                      style={{ background: 'none', border: '1px solid #333', borderRadius: 6, color: '#888', padding: '4px 10px', fontSize: 11, cursor: 'pointer' }}>
-                      Cambiar contraseña
+                <td style={{ padding: '10px 12px' }}>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <button onClick={() => toggleActivo(u)}
+                      style={{ background: 'none', border: '1px solid #333', borderRadius: 6, color: u.activo ? '#f66' : '#57FF9A', padding: '4px 10px', fontSize: 11, cursor: 'pointer' }}>
+                      {u.activo ? 'Desactivar' : 'Activar'}
                     </button>
-                  )}
+                    {editingPw === u.id ? (
+                      <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                        <input type="text" value={newPw} onChange={e => setNewPw(e.target.value)} placeholder="nueva contraseña"
+                          style={{ ...inputStyle, width: 140, padding: '4px 8px', fontSize: 12 }} />
+                        <button onClick={() => handlePasswordChange(u.id)}
+                          style={{ background: '#57FF9A', color: '#000', border: 'none', borderRadius: 6, padding: '4px 10px', fontSize: 11, cursor: 'pointer', fontWeight: 600 }}>
+                          OK
+                        </button>
+                        <button onClick={() => { setEditingPw(null); setNewPw('') }}
+                          style={{ background: 'none', border: '1px solid #333', borderRadius: 6, color: '#888', padding: '4px 8px', fontSize: 11, cursor: 'pointer' }}>
+                          ✕
+                        </button>
+                      </div>
+                    ) : (
+                      <button onClick={() => { setEditingPw(u.id); setNewPw('') }}
+                        style={{ background: 'none', border: '1px solid #333', borderRadius: 6, color: '#888', padding: '4px 10px', fontSize: 11, cursor: 'pointer' }}>
+                        Contraseña
+                      </button>
+                    )}
+                  </div>
                 </td>
               </tr>
             ))}
