@@ -36,7 +36,7 @@ export default function Sidebar() {
   const [mobileOpen, setMobileOpen] = useState(false)
   const location = useLocation()
   const navigate = useNavigate()
-  const { profile, signOut } = useAuth()
+  const { user, signOut } = useAuth()
 
   // Close mobile menu on navigation
   useEffect(() => { setMobileOpen(false) }, [location.pathname])
@@ -44,9 +44,9 @@ export default function Sidebar() {
   // Filter nav based on permissions — DG sees everything
   const filteredNav = NAV.filter(item => {
     if (!item.allowedAreas) return true
-    if (!profile) return false
-    if (profile.permission_area === 'DG') return true
-    return item.allowedAreas.includes(profile.permission_area)
+    if (!user) return false
+    if (user.permission_area === 'DG') return true
+    return item.allowedAreas.includes(user.permission_area)
   })
 
   async function handleSignOut() {
@@ -122,8 +122,8 @@ export default function Sidebar() {
 
               {/* User + Sign out */}
               <div style={{ padding: '12px 16px', borderTop: '1px solid #222' }}>
-                {profile && (
-                  <div style={{ fontSize: 12, color: '#888', marginBottom: 8 }}>{profile.nombre}</div>
+                {user && (
+                  <div style={{ fontSize: 12, color: '#888', marginBottom: 8 }}>{user.nombre}</div>
                 )}
                 <button onClick={handleSignOut} style={{
                   display: 'flex', alignItems: 'center', gap: 8, background: 'none',
@@ -190,8 +190,8 @@ export default function Sidebar() {
       </nav>
       {!collapsed && (
         <div style={{ padding: '12px 16px', borderTop: '1px solid #222' }}>
-          {profile && (
-            <div style={{ fontSize: 11, color: '#888', marginBottom: 6 }}>{profile.nombre}</div>
+          {user && (
+            <div style={{ fontSize: 11, color: '#888', marginBottom: 6 }}>{user.nombre}</div>
           )}
           <button onClick={handleSignOut} style={{
             display: 'flex', alignItems: 'center', gap: 6, background: 'none',

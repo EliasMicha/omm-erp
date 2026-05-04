@@ -1,6 +1,5 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react'
 import { supabase } from '../lib/supabase'
-import type { User, Session } from '@supabase/supabase-js'
 
 export type PermissionArea = 'DG' | 'Administracion' | 'Ventas_Ingenieria' | 'Operaciones'
 
@@ -13,76 +12,72 @@ export interface UserProfile {
 }
 
 interface AuthContextType {
-  user: User | null
-  session: Session | null
-  profile: UserProfile | null
+  user: UserProfile | null
   loading: boolean
   signIn: (email: string, password: string) => Promise<{ error: string | null }>
-  signOut: () => Promise<void>
+  signOut: () => void
 }
 
+const AUTH_KEY = 'omm_user'
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
-/** Build profile from user_metadata — no DB query needed */
-function profileFromUser(u: User): UserProfile {
-  const meta = u.user_metadata || {}
-  return {
-    id: u.id,
-    email: u.email || '',
-    nombre: meta.nombre || u.email?.split('@')[0] || '',
-    permission_area: meta.permission_area || 'Operaciones',
-    activo: meta.activo !== false,
-  }
-}
-
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null)
-  const [session, setSession] = useState<Session | null>(null)
-  const [profile, setProfile] = useState<UserProfile | null>(null)
+  const [user, setUser] = useState<UserProfile | null>(null)
   const [loading, setLoading] = useState(true)
 
+  // Restore session from localStorage
   useEffect(() => {
-    let mounted = true
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, s) => {
-      if (!mounted) return
-      setSession(s)
-      setUser(s?.user ?? null)
-      if (s?.user) {
-        setProfile(profileFromUser(s.user))
-      } else {
-        setProfile(null)
+    try {
+      const stored = localStorage.getItem(AUTH_KEY)
+      if (stored) {
+        setUser(JSON.parse(stored))
       }
-      setLoading(false)
-    })
-
-    // Safety timeout
-    const timeout = setTimeout(() => {
-      if (mounted) setLoading(false)
-    }, 3000)
-
-    return () => {
-      mounted = false
-      subscription.unsubscribe()
-      clearTimeout(timeout)
+    } catch (e) {
+      console.error('Error restoring session:', e)
     }
+    setLoading(false)
   }, [])
 
   async function signIn(email: string, password: string) {
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
-    if (error) return { error: error.message }
+    // Query using pgcrypto crypt() to verify password
+    const { data, error } = await supabase.rpc('verify_login', {
+      p_email: email.toLowerCase().trim(),
+      p_password: password,
+    })
+
+    if (error) {
+      console.error('Login RPC error:', error)
+      return { error: 'Error al iniciar sesión' }
+    }
+
+    if (!data || data.length === 0) {
+      return { error: 'Email o contraseña incorrectos' }
+    }
+
+    const profile: UserProfile = {
+      id: data[0].id,
+      email: data[0].email,
+      nombre: data[0].nombre,
+      permission_area: data[0].permission_area,
+      activo: data[0].activo,
+    }
+
+    if (!profile.activo) {
+      return { error: 'Tu cuenta está desactivada' }
+    }
+
+    setUser(profile)
+    localStorage.setItem(AUTH_KEY, JSON.stringify(profile))
     return { error: null }
   }
 
-  async function signOut() {
-    await supabase.auth.signOut()
+  function signOut() {
     setUser(null)
-    setSession(null)
-    setProfile(null)
+    localStorage.removeItem(AUTH_KEY)
   }
 
   return (
-    <AuthContext.Provider value={{ user, session, profile, loading, signIn, signOut }}>
+    <AuthContext.Provider value={{ user, loading, signIn, signOut }}>
       {children}
     </AuthContext.Provider>
   )
