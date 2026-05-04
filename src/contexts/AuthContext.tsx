@@ -2,12 +2,15 @@ import { createContext, useContext, useEffect, useState, ReactNode } from 'react
 import { supabase } from '../lib/supabase'
 
 export type PermissionArea = 'DG' | 'Administracion' | 'Ventas_Ingenieria' | 'Operaciones'
+export type UserNivel = 'director' | 'ejecutor'
 
 export interface UserProfile {
   id: string
   email: string
   nombre: string
   permission_area: PermissionArea
+  nivel: UserNivel
+  employee_id: string | null
   activo: boolean
 }
 
@@ -59,6 +62,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       email: data[0].email,
       nombre: data[0].nombre,
       permission_area: data[0].permission_area,
+      nivel: data[0].nivel || 'ejecutor',
+      employee_id: data[0].employee_id || null,
       activo: data[0].activo,
     }
 

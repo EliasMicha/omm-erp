@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
-import { useAuth, PermissionArea } from '../contexts/AuthContext'
+import { useAuth, PermissionArea, UserNivel } from '../contexts/AuthContext'
 
 interface AppUser {
   id: string
   email: string
   nombre: string
   permission_area: PermissionArea
+  nivel: UserNivel | null
   activo: boolean
   created_at: string
   employee_id: string | null
@@ -49,13 +50,14 @@ export default function Usuarios() {
   const [editingPw, setEditingPw] = useState<string | null>(null)
   const [newPw, setNewPw] = useState('')
   const [selectedEmployee, setSelectedEmployee] = useState<string>('')
-  const [form, setForm] = useState({ email: '', password: '', nombre: '', permission_area: 'Operaciones' as PermissionArea })
+  const [form, setForm] = useState({ email: '', password: '', nombre: '', permission_area: 'Operaciones' as PermissionArea, nivel: 'ejecutor' as UserNivel })
+
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
 
   async function loadUsers() {
     setLoading(true)
-    const { data } = await supabase.from('app_users').select('id, email, nombre, permission_area, activo, created_at, employee_id').order('created_at')
+    const { data } = await supabase.from('app_users').select('id, email, nombre, permission_area, nivel, activo, created_at, employee_id').order('created_at', { ascending: true })
     setUsers((data as AppUser[]) || [])
     setLoading(false)
   }
@@ -105,12 +107,14 @@ export default function Usuarios() {
       setError(err.message.includes('unique') ? 'Ese email ya está registrado' : err.message)
       return
     }
-    // Link to employee
-    if (selectedEmployee && data) {
-      await supabase.from('app_users').update({ employee_id: selectedEmployee }).eq('id', data)
+    // Link to employee and set nivel
+    if (data) {
+      const updates: any = { nivel: form.nivel }
+      if (selectedEmployee) updates.employee_id = selectedEmployee
+      await supabase.from('app_users').update(updates).eq('id', data)
     }
     setSuccess(`Usuario ${form.nombre} creado`)
-    setForm({ email: '', password: '', nombre: '', permission_area: 'Operaciones' })
+    setForm({ email: '', password: '', nombre: '', permission_area: 'Operaciones', nivel: 'ejecutor' })
     setSelectedEmployee('')
     setShowForm(false)
     loadUsers()
@@ -123,6 +127,11 @@ export default function Usuarios() {
 
   async function updateArea(userId: string, area: PermissionArea) {
     await supabase.from('app_users').update({ permission_area: area }).eq('id', userId)
+    loadUsers()
+  }
+
+  async function updateNivel(userId: string, nivel: UserNivel) {
+    await supabase.from('app_users').update({ nivel }).eq('id', userId)
     loadUsers()
   }
 
@@ -215,6 +224,14 @@ export default function Usuarios() {
                 {AREAS.map(a => <option key={a.value} value={a.value}>{a.label}</option>)}
               </select>
             </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <label style={{ fontSize: 12, color: '#888' }}>Nivel</label>
+              <select value={form.nivel} onChange={e => setForm({ ...form, nivel: e.target.value as UserNivel })}
+                style={{ ...inputStyle, appearance: 'auto' }}>
+                <option value="director">Director — ve todo su área</option>
+                <option value="ejecutor">Ejecutor — solo lo asignado</option>
+              </select>
+            </div>
           </div>
 
           <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
@@ -233,6 +250,7 @@ export default function Usuarios() {
               <th style={{ padding: '10px 12px', fontWeight: 500 }}>Email</th>
               <th style={{ padding: '10px 12px', fontWeight: 500 }}>Empleado</th>
               <th style={{ padding: '10px 12px', fontWeight: 500 }}>Área</th>
+              <th style={{ padding: '10px 12px', fontWeight: 500 }}>Nivel</th>
               <th style={{ padding: '10px 12px', fontWeight: 500 }}>Estado</th>
               <th style={{ padding: '10px 12px', fontWeight: 500 }}>Acciones</th>
             </tr>
@@ -249,6 +267,13 @@ export default function Usuarios() {
                   <select value={u.permission_area} onChange={e => updateArea(u.id, e.target.value as PermissionArea)}
                     style={{ background: '#1a1a1a', border: '1px solid #333', borderRadius: 6, color: '#ccc', padding: '4px 8px', fontSize: 12 }}>
                     {AREAS.map(a => <option key={a.value} value={a.value}>{a.label}</option>)}
+                  </select>
+                </td>
+                <td style={{ padding: '10px 12px' }}>
+                  <select value={u.nivel || 'ejecutor'} onChange={e => updateNivel(u.id, e.target.value as UserNivel)}
+                    style={{ background: '#1a1a1a', border: '1px solid #333', borderRadius: 6, color: '#ccc', padding: '4px 8px', fontSize: 12 }}>
+                    <option value="director">Director</option>
+                    <option value="ejecutor">Ejecutor</option>
                   </select>
                 </td>
                 <td style={{ padding: '10px 12px' }}>

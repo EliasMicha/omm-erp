@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase'
 import { SPECIALTY_CONFIG, formatDate } from '../lib/utils'
 import { KpiCard, Table, Th, Td, ProgressBar, Badge, Loading, SectionHeader } from '../components/layout/UI'
 import { useIsMobile } from '../lib/useIsMobile'
+import { useAuth } from '../contexts/AuthContext'
 import { ClipboardList, AlertTriangle, CheckCircle, Clock, FolderOpen, FileText } from 'lucide-react'
 
 interface Task {
@@ -32,6 +33,9 @@ interface ActiveProject {
 export default function DashboardProduccion() {
   const isMobile = useIsMobile()
   const navigate = useNavigate()
+  const { user: authUser } = useAuth()
+  const isEjecutor = authUser?.nivel === 'ejecutor'
+  const myEmployeeId = authUser?.employee_id
   const [loading, setLoading] = useState(true)
   const [tasks, setTasks] = useState<Task[]>([])
   const [projects, setProjects] = useState<ActiveProject[]>([])
@@ -39,15 +43,21 @@ export default function DashboardProduccion() {
 
   useEffect(() => {
     async function load() {
+      // Build task query — ejecutores only see their assigned tasks
+      let taskQuery = supabase.from('project_tasks').select('id, name, status, priority, due_date, progress, project_id, assignee_id, project:projects(name)').neq('status', 'completada').order('due_date', { ascending: true, nullsFirst: false })
+      let allTaskQuery = supabase.from('project_tasks').select('project_id, status, assignee_id')
+      if (isEjecutor && myEmployeeId) {
+        taskQuery = taskQuery.eq('assignee_id', myEmployeeId)
+        allTaskQuery = allTaskQuery.eq('assignee_id', myEmployeeId)
+      }
+
       const [tasksRes, projRes, cotsRes, allTasksRes] = await Promise.all([
-        // Pending tasks with project name
-        supabase.from('project_tasks').select('id, name, status, priority, due_date, progress, project_id, project:projects(name)').neq('status', 'completada').order('due_date', { ascending: true, nullsFirst: false }),
+        taskQuery,
         // Active projects
         supabase.from('projects').select('id, name, client_name, specialty, advance_pct, start_date').eq('status', 'activo').order('created_at', { ascending: false }),
         // Cotizaciones in production (propuesta + contrato)
         supabase.from('quotations').select('id, client_name, stage, specialty, created_at, notes').in('stage', ['propuesta', 'contrato']).order('created_at', { ascending: false }),
-        // All tasks for counting done
-        supabase.from('project_tasks').select('project_id, status'),
+        allTaskQuery,
       ])
 
       const rawTasks = (tasksRes.data || []).map((t: any) => ({
@@ -70,16 +80,20 @@ export default function DashboardProduccion() {
       })
       setTasks(rawTasks)
 
-      // Build project stats
+      // Build project stats — ejecutores only see projects where they have tasks
       const allTasks = allTasksRes.data || []
-      const projectList = (projRes.data || []).map((p: any) => ({
-        ...p,
-        task_count: allTasks.filter((t: any) => t.project_id === p.id).length,
-        done_count: allTasks.filter((t: any) => t.project_id === p.id && t.status === 'completada').length,
-      }))
+      const myProjectIds = isEjecutor ? new Set(allTasks.map((t: any) => t.project_id)) : null
+      const projectList = (projRes.data || [])
+        .filter((p: any) => !myProjectIds || myProjectIds.has(p.id))
+        .map((p: any) => ({
+          ...p,
+          task_count: allTasks.filter((t: any) => t.project_id === p.id).length,
+          done_count: allTasks.filter((t: any) => t.project_id === p.id && t.status === 'completada').length,
+        }))
       setProjects(projectList)
 
-      setCotizaciones(cotsRes.data || [])
+      // Ejecutores don't see the cotizaciones list (they don't manage sales pipeline)
+      setCotizaciones(isEjecutor ? [] : (cotsRes.data || []))
       setLoading(false)
     }
     load()
@@ -103,7 +117,7 @@ export default function DashboardProduccion() {
 
   return (
     <div style={{ padding: isMobile ? '16px 12px' : '24px 28px', maxWidth: 1200 }}>
-      <SectionHeader title="Panel de Producción" subtitle="Pendientes, proyectos y entregables" />
+      <SectionHeader title={isEjecutor ? 'Mis Pendientes' : 'Panel de Producción'} subtitle={isEjecutor ? `Hola ${authUser?.nombre || ''} — tus tareas y proyectos asignados` : 'Pendientes, proyectos y entregables'} />
 
       {/* ── KPIs ── */}
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2,1fr)' : 'repeat(4,1fr)', gap: 12, marginBottom: 24 }}>
