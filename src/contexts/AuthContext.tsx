@@ -45,41 +45,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let mounted = true
 
-    // Get initial session
-    supabase.auth.getSession()
-      .then(async ({ data: { session: s } }) => {
-        if (!mounted) return
-        setSession(s)
-        setUser(s?.user ?? null)
-        if (s?.user) {
-          const p = await fetchProfile(s.user.id)
-          if (mounted) setProfile(p)
-        }
-      })
-      .catch((err) => {
-        console.error('getSession error:', err)
-      })
-      .finally(() => {
-        if (mounted) setLoading(false)
-      })
-
-    // Listen for auth changes
+    // onAuthStateChange fires INITIAL_SESSION on mount — no need for getSession()
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, s) => {
       if (!mounted) return
+      console.log('[Auth] event:', _event, 'session:', !!s)
       setSession(s)
       setUser(s?.user ?? null)
       if (s?.user) {
-        const p = await fetchProfile(s.user.id)
-        if (mounted) setProfile(p)
+        // Use setTimeout to avoid Supabase deadlock on initial load
+        setTimeout(async () => {
+          if (!mounted) return
+          const p = await fetchProfile(s.user.id)
+          if (mounted) setProfile(p)
+          setLoading(false)
+        }, 0)
       } else {
         setProfile(null)
+        setLoading(false)
       }
-      setLoading(false)
     })
+
+    // Safety timeout — if nothing fires in 3s, stop loading
+    const timeout = setTimeout(() => {
+      if (mounted) setLoading(false)
+    }, 3000)
 
     return () => {
       mounted = false
       subscription.unsubscribe()
+      clearTimeout(timeout)
     }
   }, [])
 
