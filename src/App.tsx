@@ -1,5 +1,8 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { AuthProvider } from './contexts/AuthContext'
+import ProtectedRoute from './components/ProtectedRoute'
 import Sidebar from './components/layout/Sidebar'
+import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import CRM from './pages/CRM'
 import Cotizaciones from './pages/Cotizaciones'
@@ -27,41 +30,71 @@ import ChatBot from './components/ChatBot'
 export default function App() {
   return (
     <BrowserRouter>
-      <Routes>
-        {/* Vista PDF — sin sidebar ni layout oscuro, abre en pestaña propia */}
-        <Route path="/cotizacion/:id/pdf/:format" element={<CotizacionPdf />} />
-        <Route path="/cotizacion/:id/memoria-tecnica" element={<MemoriaTecnica />} />
-        {/* App móvil para instaladores — sin sidebar */}
-        <Route path="/obra-app/*" element={<ObraApp />} />
-        {/* Layout principal con sidebar para el resto */}
-        <Route path="/*" element={
-          <div style={{ display: 'flex', background: '#0a0a0a', color: '#ccc', minHeight: '100vh', fontFamily: "'Inter', system-ui, sans-serif" }}>
-            <Sidebar />
-            <main style={{ flex: 1, overflowX: 'hidden', overflowY: 'auto', minHeight: '100vh', width: 0 }}>
-              <Routes>
-                <Route path="/" element={<Dashboard />} />
-                <Route path="/crm" element={<CRM />} />
-                <Route path="/crm/:id" element={<LeadDashboard />} />
-                <Route path="/cotizaciones" element={<Cotizaciones />} />
-                <Route path="/compras" element={<Compras />} />
-                <Route path="/proyectos" element={<Proyectos />} />
-                <Route path="/contabilidad" element={<Contabilidad />} />
-                <Route path="/facturacion" element={<Facturacion />} />
-                <Route path="/obra" element={<Obra />} />
-                <Route path="/nomina" element={<Nomina />} />
-        <Route path="/nomina/empleado/:id" element={<EmpleadoExpediente />} />
-                <Route path="/entregas" element={<Entregas />} />
-                <Route path="/empleados" element={<Empleados />} />
-                <Route path="/finanzas" element={<Finanzas />} />
-                <Route path="/clientes" element={<Clientes />} />
-                <Route path="/catalogo" element={<Catalogo />} />
-                <Route path="/design-rules" element={<DesignRules />} />
-              </Routes>
-            </main>
-            <ChatBot />
-          </div>
-        } />
-      </Routes>
+      <AuthProvider>
+        <Routes>
+          {/* Login — sin protección */}
+          <Route path="/login" element={<Login />} />
+          {/* Vista PDF — sin sidebar ni layout oscuro, abre en pestaña propia */}
+          <Route path="/cotizacion/:id/pdf/:format" element={<CotizacionPdf />} />
+          <Route path="/cotizacion/:id/memoria-tecnica" element={<MemoriaTecnica />} />
+          {/* App móvil para instaladores — sin sidebar */}
+          <Route path="/obra-app/*" element={<ObraApp />} />
+          {/* Layout principal con sidebar para el resto */}
+          <Route path="/*" element={
+            <ProtectedRoute>
+              <div style={{ display: 'flex', background: '#0a0a0a', color: '#ccc', minHeight: '100vh', fontFamily: "'Inter', system-ui, sans-serif" }}>
+                <Sidebar />
+                <main style={{ flex: 1, overflowX: 'hidden', overflowY: 'auto', minHeight: '100vh', width: 0 }}>
+                  <Routes>
+                    <Route path="/" element={<Dashboard />} />
+                    <Route path="/crm" element={<CRM />} />
+                    <Route path="/crm/:id" element={<LeadDashboard />} />
+                    <Route path="/cotizaciones" element={<Cotizaciones />} />
+                    <Route path="/compras" element={<Compras />} />
+                    <Route path="/proyectos" element={<Proyectos />} />
+                    <Route path="/contabilidad" element={
+                      <ProtectedRoute allowedAreas={['Administracion']}>
+                        <Contabilidad />
+                      </ProtectedRoute>
+                    } />
+                    <Route path="/facturacion" element={
+                      <ProtectedRoute allowedAreas={['Administracion']}>
+                        <Facturacion />
+                      </ProtectedRoute>
+                    } />
+                    <Route path="/obra" element={<Obra />} />
+                    <Route path="/nomina" element={
+                      <ProtectedRoute allowedAreas={['Administracion']}>
+                        <Nomina />
+                      </ProtectedRoute>
+                    } />
+                    <Route path="/nomina/empleado/:id" element={
+                      <ProtectedRoute allowedAreas={['Administracion']}>
+                        <EmpleadoExpediente />
+                      </ProtectedRoute>
+                    } />
+                    <Route path="/entregas" element={<Entregas />} />
+                    <Route path="/empleados" element={
+                      <ProtectedRoute allowedAreas={['Administracion']}>
+                        <Empleados />
+                      </ProtectedRoute>
+                    } />
+                    <Route path="/finanzas" element={
+                      <ProtectedRoute allowedAreas={['Administracion']}>
+                        <Finanzas />
+                      </ProtectedRoute>
+                    } />
+                    <Route path="/clientes" element={<Clientes />} />
+                    <Route path="/catalogo" element={<Catalogo />} />
+                    <Route path="/design-rules" element={<DesignRules />} />
+                  </Routes>
+                </main>
+                <ChatBot />
+              </div>
+            </ProtectedRoute>
+          } />
+        </Routes>
+      </AuthProvider>
     </BrowserRouter>
   )
 }

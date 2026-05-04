@@ -1,23 +1,32 @@
 import { useState, useEffect } from 'react'
-import { NavLink, useLocation } from 'react-router-dom'
-import { LayoutDashboard, FileText, ClipboardList, Users, Truck, FolderOpen, Users2, BookOpen, ShoppingCart, TrendingUp, Building2, Package, Receipt, BrainCircuit, ChevronLeft, ChevronRight, Menu, X } from 'lucide-react'
+import { NavLink, useLocation, useNavigate } from 'react-router-dom'
+import { LayoutDashboard, FileText, ClipboardList, Users, Truck, FolderOpen, Users2, BookOpen, ShoppingCart, TrendingUp, Building2, Package, Receipt, BrainCircuit, ChevronLeft, ChevronRight, Menu, X, LogOut } from 'lucide-react'
 import { useIsMobile } from '../../lib/useIsMobile'
+import { useAuth, PermissionArea } from '../../contexts/AuthContext'
 
-const NAV = [
+/* Cada ruta tiene áreas permitidas. Si no tiene allowedAreas, todos la ven. */
+interface NavItem {
+  to: string
+  icon: any
+  label: string
+  allowedAreas?: PermissionArea[]
+}
+
+const NAV: NavItem[] = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
   { to: '/crm', icon: Users2, label: 'CRM y Ventas' },
   { to: '/cotizaciones', icon: FileText, label: 'Cotizaciones' },
   { to: '/proyectos', icon: FolderOpen, label: 'Proyectos' },
   { to: '/compras', icon: ShoppingCart, label: 'Compras' },
   { to: '/obra', icon: ClipboardList, label: 'Obra' },
-  { to: '/finanzas', icon: TrendingUp, label: 'Finanzas' },
-  { to: '/nomina', icon: Users, label: 'Nomina' },
+  { to: '/finanzas', icon: TrendingUp, label: 'Finanzas', allowedAreas: ['Administracion'] },
+  { to: '/nomina', icon: Users, label: 'Nomina', allowedAreas: ['Administracion'] },
   { to: '/entregas', icon: Truck, label: 'Entregas' },
-  { to: '/empleados', icon: BookOpen, label: 'Empleados' },
+  { to: '/empleados', icon: BookOpen, label: 'Empleados', allowedAreas: ['Administracion'] },
   { to: '/catalogo', icon: Package, label: 'Catalogo' },
   { to: '/clientes', icon: Users2, label: 'Clientes' },
-  { to: '/contabilidad', icon: Building2, label: 'Contabilidad' },
-  { to: '/facturacion', icon: Receipt, label: 'Facturacion' },
+  { to: '/contabilidad', icon: Building2, label: 'Contabilidad', allowedAreas: ['Administracion'] },
+  { to: '/facturacion', icon: Receipt, label: 'Facturacion', allowedAreas: ['Administracion'] },
   { to: '/design-rules', icon: BrainCircuit, label: 'Reglas AI' },
 ]
 
@@ -26,9 +35,24 @@ export default function Sidebar() {
   const [collapsed, setCollapsed] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
   const location = useLocation()
+  const navigate = useNavigate()
+  const { profile, signOut } = useAuth()
 
   // Close mobile menu on navigation
   useEffect(() => { setMobileOpen(false) }, [location.pathname])
+
+  // Filter nav based on permissions — DG sees everything
+  const filteredNav = NAV.filter(item => {
+    if (!item.allowedAreas) return true
+    if (!profile) return false
+    if (profile.permission_area === 'DG') return true
+    return item.allowedAreas.includes(profile.permission_area)
+  })
+
+  async function handleSignOut() {
+    await signOut()
+    navigate('/login')
+  }
 
   // ─── MOBILE: hamburger + overlay ───
   if (isMobile) {
@@ -80,7 +104,7 @@ export default function Sidebar() {
 
               {/* Nav */}
               <nav style={{ flex: 1, padding: '8px 8px', overflowY: 'auto' }}>
-                {NAV.map(({ to, icon: Icon, label }) => (
+                {filteredNav.map(({ to, icon: Icon, label }) => (
                   <NavLink key={to} to={to} end={to === '/'} style={({ isActive }) => ({
                     display: 'flex', alignItems: 'center', gap: 10,
                     padding: '12px 14px', borderRadius: 8, marginBottom: 2,
@@ -96,8 +120,17 @@ export default function Sidebar() {
                 ))}
               </nav>
 
-              <div style={{ padding: '12px 16px', borderTop: '1px solid #222', fontSize: 10, color: '#444' }}>
-                OMM Technologies SA de CV
+              {/* User + Sign out */}
+              <div style={{ padding: '12px 16px', borderTop: '1px solid #222' }}>
+                {profile && (
+                  <div style={{ fontSize: 12, color: '#888', marginBottom: 8 }}>{profile.nombre}</div>
+                )}
+                <button onClick={handleSignOut} style={{
+                  display: 'flex', alignItems: 'center', gap: 8, background: 'none',
+                  border: 'none', color: '#666', cursor: 'pointer', fontSize: 12, padding: 0,
+                }}>
+                  <LogOut size={14} /> Cerrar sesión
+                </button>
               </div>
             </aside>
           </div>
@@ -140,7 +173,7 @@ export default function Sidebar() {
         </button>
       </div>
       <nav style={{ flex: 1, padding: collapsed ? '8px 4px' : '8px 8px', overflowY: 'auto' as const }}>
-        {NAV.map(({ to, icon: Icon, label }) => (
+        {filteredNav.map(({ to, icon: Icon, label }) => (
           <NavLink key={to} to={to} end={to === '/'} title={collapsed ? label : undefined} style={({ isActive }) => ({
             display: 'flex', alignItems: 'center', gap: 8,
             padding: collapsed ? '8px 0' : '7px 10px',
@@ -156,7 +189,21 @@ export default function Sidebar() {
         ))}
       </nav>
       {!collapsed && (
-        <div style={{ padding: '12px 16px', borderTop: '1px solid #222', fontSize: 10, color: '#444' }}>OMM Technologies SA de CV</div>
+        <div style={{ padding: '12px 16px', borderTop: '1px solid #222' }}>
+          {profile && (
+            <div style={{ fontSize: 11, color: '#888', marginBottom: 6 }}>{profile.nombre}</div>
+          )}
+          <button onClick={handleSignOut} style={{
+            display: 'flex', alignItems: 'center', gap: 6, background: 'none',
+            border: 'none', color: '#555', cursor: 'pointer', fontSize: 10, padding: 0,
+            transition: 'color 0.15s',
+          }}
+            onMouseEnter={e => (e.currentTarget.style.color = '#f66')}
+            onMouseLeave={e => (e.currentTarget.style.color = '#555')}
+          >
+            <LogOut size={12} /> Cerrar sesión
+          </button>
+        </div>
       )}
     </aside>
   )
