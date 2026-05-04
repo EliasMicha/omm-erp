@@ -7,12 +7,18 @@ import { KpiCard, Table, Th, Td, ProgressBar, Badge, Loading, SectionHeader } fr
 import { useIsMobile } from '../lib/useIsMobile'
 import { useAuth } from '../contexts/AuthContext'
 import { FolderOpen, DollarSign, AlertTriangle, Users, FileText, TrendingUp } from 'lucide-react'
+import DashboardProduccion from './DashboardProduccion'
 
 export default function Dashboard() {
   const isMobile = useIsMobile()
   const navigate = useNavigate()
   const { user: authUser } = useAuth()
   const area = authUser?.permission_area
+
+  // Ventas/Ingeniería y Operaciones ven el dashboard de producción
+  if (area === 'Ventas_Ingenieria' || area === 'Operaciones') {
+    return <DashboardProduccion />
+  }
   const isFinancial = area === 'DG' || area === 'Administracion'
   const isSales = area === 'Ventas_Ingenieria'
   const isOps = area === 'Operaciones'
