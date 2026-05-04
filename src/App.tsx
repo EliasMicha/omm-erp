@@ -23,6 +23,7 @@ import EmpleadoExpediente from './pages/EmpleadoExpediente'
 import CotizacionPdf from './pages/CotizacionPdf'
 import MemoriaTecnica from './pages/MemoriaTecnica'
 import LeadDashboard from './pages/LeadDashboard'
+import Usuarios from './pages/Usuarios'
 import ObraApp from './obra-app/ObraApp'
 import ChatBot from './components/ChatBot'
 
@@ -87,6 +88,11 @@ export default function App() {
                     <Route path="/clientes" element={<Clientes />} />
                     <Route path="/catalogo" element={<Catalogo />} />
                     <Route path="/design-rules" element={<DesignRules />} />
+                    <Route path="/usuarios" element={
+                      <ProtectedRoute allowedAreas={[]}>
+                        <Usuarios />
+                      </ProtectedRoute>
+                    } />
                   </Routes>
                 </main>
                 <ChatBot />
