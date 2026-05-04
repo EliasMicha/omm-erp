@@ -43,30 +43,44 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   useEffect(() => {
+    let mounted = true
+
     // Get initial session
-    supabase.auth.getSession().then(async ({ data: { session: s } }) => {
+    supabase.auth.getSession()
+      .then(async ({ data: { session: s } }) => {
+        if (!mounted) return
+        setSession(s)
+        setUser(s?.user ?? null)
+        if (s?.user) {
+          const p = await fetchProfile(s.user.id)
+          if (mounted) setProfile(p)
+        }
+      })
+      .catch((err) => {
+        console.error('getSession error:', err)
+      })
+      .finally(() => {
+        if (mounted) setLoading(false)
+      })
+
+    // Listen for auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, s) => {
+      if (!mounted) return
       setSession(s)
       setUser(s?.user ?? null)
       if (s?.user) {
         const p = await fetchProfile(s.user.id)
-        setProfile(p)
+        if (mounted) setProfile(p)
+      } else {
+        setProfile(null)
       }
       setLoading(false)
     })
 
-    // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, s) => {
-      setSession(s)
-      setUser(s?.user ?? null)
-      if (s?.user) {
-        const p = await fetchProfile(s.user.id)
-        setProfile(p)
-      } else {
-        setProfile(null)
-      }
-    })
-
-    return () => subscription.unsubscribe()
+    return () => {
+      mounted = false
+      subscription.unsubscribe()
+    }
   }, [])
 
   async function signIn(email: string, password: string) {
