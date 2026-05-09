@@ -2,12 +2,13 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { Project, PaymentMilestone, WorkReport } from '../types'
-import { F, FCUR, STATUS_CONFIG, STAGE_CONFIG, SPECIALTY_CONFIG, formatDate } from '../lib/utils'
+import { F, STATUS_CONFIG, STAGE_CONFIG, formatDate } from '../lib/utils'
 import { KpiCard, Table, Th, Td, ProgressBar, Badge, Loading, SectionHeader } from '../components/layout/UI'
 import { useIsMobile } from '../lib/useIsMobile'
 import { useAuth } from '../contexts/AuthContext'
 import { FolderOpen, DollarSign, AlertTriangle, Users, FileText, TrendingUp } from 'lucide-react'
 import DashboardProduccion from './DashboardProduccion'
+import DashboardVentasIng from './DashboardVentasIng'
 
 export default function Dashboard() {
   const isMobile = useIsMobile()
@@ -15,13 +16,16 @@ export default function Dashboard() {
   const { user: authUser } = useAuth()
   const area = authUser?.permission_area
 
-  // Ventas/Ingeniería y Operaciones ven el dashboard de producción
-  if (area === 'Ventas_Ingenieria' || area === 'Operaciones') {
+  // Ventas/Ingeniería usa su dashboard especializado
+  if (area === 'Ventas_Ingenieria') {
+    return <DashboardVentasIng />
+  }
+  // Operaciones sigue con el dashboard de producción
+  if (area === 'Operaciones') {
     return <DashboardProduccion />
   }
+  // After early returns above, area is DG or Administracion
   const isFinancial = area === 'DG' || area === 'Administracion'
-  const isSales = area === 'Ventas_Ingenieria'
-  const isOps = area === 'Operaciones'
 
   const [projects, setProjects] = useState<Project[]>([])
   const [milestones, setMilestones] = useState<PaymentMilestone[]>([])
@@ -43,8 +47,8 @@ export default function Dashboard() {
       if (isFinancial) {
         promises.push(supabase.from('payment_milestones').select('*, project:projects(name)').in('status', ['pendiente', 'vencido']).order('due_date'))
       }
-      // Load sales data for Ventas
-      if (isSales || area === 'DG') {
+      // Load sales data for DG
+      if (area === 'DG') {
         promises.push(supabase.from('quotations').select('id, stage, specialty').order('created_at', { ascending: false }))
         promises.push(supabase.from('leads').select('id, name, company, status, created_at').order('created_at', { ascending: false }).limit(10))
       }
@@ -59,7 +63,7 @@ export default function Dashboard() {
         setMilestones(results[idx]?.data || [])
         idx++
       }
-      if (isSales || area === 'DG') {
+      if (area === 'DG') {
         const cots = results[idx]?.data || []
         const stages = ['oportunidad', 'estimacion', 'propuesta', 'contrato']
         setCotStats(stages.map(s => ({ stage: s, count: cots.filter((c: any) => c.stage === s).length })))
@@ -75,10 +79,7 @@ export default function Dashboard() {
   const pipeline = projects.reduce((s, p) => s + p.contract_value, 0)
   const vencidos = milestones.filter(m => m.status === 'vencido')
 
-  const subtitle = isFinancial ? 'Vista ejecutiva — OMM Technologies'
-    : isSales ? 'Vista de ventas — OMM Technologies'
-    : isOps ? 'Vista de operaciones — OMM Technologies'
-    : 'OMM Technologies'
+  const subtitle = isFinancial ? 'Vista ejecutiva — OMM Technologies' : 'OMM Technologies'
 
   return (
     <div style={{ padding: isMobile ? '16px 12px' : '24px 28px', maxWidth: 1200 }}>
@@ -89,12 +90,12 @@ export default function Dashboard() {
         <KpiCard label="Proyectos activos" value={projects.length} icon={<FolderOpen size={16} />} />
         {isFinancial && <KpiCard label="Pipeline total" value={F(pipeline)} color="#3B82F6" icon={<DollarSign size={16} />} />}
         {isFinancial && <KpiCard label="Cobros vencidos" value={vencidos.length} color={vencidos.length > 0 ? '#EF4444' : '#57FF9A'} icon={<AlertTriangle size={16} />} />}
-        {(isSales || area === 'DG') && <KpiCard label="Leads recientes" value={recentLeads.length} color="#3B82F6" icon={<TrendingUp size={16} />} />}
-        {!isSales && <KpiCard label="Empleados activos" value={empCount} color="#C084FC" icon={<Users size={16} />} />}
+        {area === 'DG' && <KpiCard label="Leads recientes" value={recentLeads.length} color="#3B82F6" icon={<TrendingUp size={16} />} />}
+        <KpiCard label="Empleados activos" value={empCount} color="#C084FC" icon={<Users size={16} />} />
       </div>
 
       {/* ── SALES: Cotizaciones pipeline ── */}
-      {(isSales || area === 'DG') && (
+      {(area === 'DG') && (
         <div style={{ marginBottom: 24 }}>
           <SectionHeader title="Pipeline de cotizaciones" />
           <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2,1fr)' : 'repeat(4,1fr)', gap: 10 }}>
@@ -151,7 +152,7 @@ export default function Dashboard() {
               </tbody>
               </Table>
             </div>
-          </>) : (isSales || area === 'DG') ? (<>
+          </>) : (area === 'DG') ? (<>
             <SectionHeader title="Leads recientes" />
             <div style={{ overflowX: 'auto' }}>
               <Table>
