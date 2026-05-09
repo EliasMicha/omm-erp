@@ -1449,6 +1449,13 @@ export default function CotEditorProyecto({ cotId, onBack, specialty = 'proy' }:
     return subtotalDesc + iva
   }, [items, config])
 
+  // Sync total to quotations table whenever it changes
+  useEffect(() => {
+    if (!loading && cotId) {
+      supabase.from('quotations').update({ total: Math.round(grandTotal * 100) / 100 }).eq('id', cotId)
+    }
+  }, [grandTotal, loading, cotId])
+
   // ── GUARDAR TODO ── botón explícito que persiste items + config + total
   const saveAll = useCallback(async () => {
     setSaving(true)
