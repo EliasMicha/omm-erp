@@ -8,8 +8,9 @@ import { useAuth } from '../contexts/AuthContext'
 import {
   AlertTriangle, Clock, FolderOpen, FileText,
   Users, ChevronDown, ChevronRight, Target, Zap, Calendar,
-  BarChart3, CheckCircle2, Timer, UserCheck, Briefcase
+  BarChart3, CheckCircle2, Timer, UserCheck, Briefcase, ClipboardList
 } from 'lucide-react'
+import ActionItems from '../components/ActionItems'
 
 // ═══════════════════════════════════════════════════════════════
 // TYPES
@@ -211,8 +212,14 @@ export default function DashboardVentasIng() {
         setTasks(allTasks.filter(t => filteredProjectIds.has(t.project_id)))
         // Employees: only from their team areas
         setEmployees(allEmployees.filter(e => e.area && myTeamAreas.includes(e.area)))
+      } else if (isEjecutor && myTeamAreas.length > 0) {
+        // Ejecutor: tasks already filtered by assignee in query, but scope employees to area
+        setQuotations(allQuotations)
+        setTasks(allTasks)
+        setProjects(allProjects)
+        setEmployees(allEmployees.filter(e => e.area && myTeamAreas.includes(e.area)))
       } else {
-        // Ejecutor or no area match: show all
+        // Fallback: show all
         setQuotations(allQuotations)
         setTasks(allTasks)
         setProjects(allProjects)
@@ -375,6 +382,12 @@ export default function DashboardVentasIng() {
           <KpiCard label="Cotizaciones" value={myQuots.length} icon={<FileText size={16} />} />
         </div>
         {myOverdue.length > 0 && <OverdueAlert tasks={myOverdue} />}
+
+        {/* ── MIS PENDIENTES ── */}
+        <div style={{ marginBottom: 24 }}>
+          <ActionItems myEmployeeId={myEmployeeId!} myArea={myArea} teamEmployees={employees} isMobile={isMobile} />
+        </div>
+
         <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 20 }}>
           <div>
             <CollapsibleHeader title="Mis Tareas Pendientes" count={myTasks.length} expanded={expandedSections.tasks} onToggle={() => toggle('tasks')} />
@@ -439,6 +452,11 @@ export default function DashboardVentasIng() {
 
       {/* ── OVERDUE ALERT ── */}
       {overdueTasks.length > 0 && <OverdueAlert tasks={overdueTasks} empMap={empMap} />}
+
+      {/* ── PENDIENTES ── */}
+      <div style={{ marginBottom: 24 }}>
+        <ActionItems myEmployeeId={myEmployeeId!} myArea={myArea} teamEmployees={employees} isMobile={isMobile} />
+      </div>
 
       {/* ── DISTRIBUCIÓN DE TRABAJO ── */}
       <CollapsibleHeader title="Distribución de Trabajo" count={workDistribution.length} icon={<Users size={15} />} expanded={expandedSections.workload} onToggle={() => toggle('workload')} />
