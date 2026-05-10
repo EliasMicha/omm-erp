@@ -371,12 +371,12 @@ export default function DashboardVentasIng() {
     const myDueWeek = myTasks.filter(t => t.due_date && t.due_date >= now && t.due_date <= thisWeekStr)
 
     return (
-      <div style={{ padding: isMobile ? '16px 12px' : '24px 28px', maxWidth: 1100 }}>
+      <div style={{ padding: isMobile ? '16px 12px' : '24px 28px', maxWidth: 1200 }}>
         <SectionHeader
           title={`Hola, ${authUser?.nombre?.split(' ')[0] || 'Ingeniero'}`}
           subtitle="Tu panel de trabajo — cotizaciones, tareas y entregables"
         />
-        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2,1fr)' : 'repeat(4,1fr)', gap: 12, marginBottom: 24 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2,1fr)' : 'repeat(4,1fr)', gap: 12, marginBottom: 20 }}>
           <KpiCard label="Tareas pendientes" value={myTasks.length} color={myTasks.length > 8 ? '#F59E0B' : '#57FF9A'} icon={<Target size={16} />} />
           <KpiCard label="Vencidas" value={myOverdue.length} color={myOverdue.length > 0 ? '#EF4444' : '#57FF9A'} icon={<AlertTriangle size={16} />} />
           <KpiCard label="Esta semana" value={myDueWeek.length} color="#3B82F6" icon={<Calendar size={16} />} />
@@ -384,54 +384,55 @@ export default function DashboardVentasIng() {
         </div>
         {myOverdue.length > 0 && <OverdueAlert tasks={myOverdue} />}
 
-        {/* ── MIS PENDIENTES ── */}
-        <div style={{ marginBottom: 24 }}>
-          <ActionItems myEmployeeId={myEmployeeId!} myArea={myArea} teamEmployees={employees} projects={projects.map(p => ({ id: p.id, name: p.name }))} userEmail={authUser?.email || ''} isMobile={isMobile} />
+        {/* ── ROW 1: Pendientes (left) | Calendario (right) ── */}
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '3fr 2fr', gap: 20, marginBottom: 20 }}>
+          <div>
+            <ActionItems myEmployeeId={myEmployeeId!} myArea={myArea} teamEmployees={employees} projects={projects.map(p => ({ id: p.id, name: p.name }))} userEmail={authUser?.email || ''} isMobile={isMobile} />
+          </div>
+          <div>
+            <CollapsibleHeader title="Mi Calendario" icon={<Calendar size={15} />} expanded={expandedSections.calendario !== false} onToggle={() => toggle('calendario')} />
+            {expandedSections.calendario !== false && (
+              <div style={{ background: '#111', border: '1px solid #222', borderRadius: 12, padding: '12px 16px', maxHeight: 350, overflowY: 'auto' }}>
+                <CalendarWidget userEmail={authUser?.email || ''} isMobile={isMobile} />
+              </div>
+            )}
+          </div>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 20 }}>
+        {/* ── ROW 2: Tareas | Cotizaciones | Proyectos ── */}
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr 1fr', gap: 20 }}>
           <div>
-            <CollapsibleHeader title="Mis Tareas Pendientes" count={myTasks.length} expanded={expandedSections.tasks} onToggle={() => toggle('tasks')} />
+            <CollapsibleHeader title="Mis Tareas" count={myTasks.length} icon={<Target size={15} />} expanded={expandedSections.tasks} onToggle={() => toggle('tasks')} />
             {expandedSections.tasks && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 400, overflowY: 'auto' }}>
                 {myTasks.length === 0 && <EmptyState text="Sin tareas pendientes" />}
                 {myTasks.slice(0, 15).map(t => (
-                  <TaskRow key={t.id} task={t} now={now} onClick={() => navigate(`/proyectos`)} />
+                  <TaskRow key={t.id} task={t} now={now} onClick={() => navigate(`/proyectos`)} compact />
                 ))}
               </div>
             )}
           </div>
           <div>
-            <CollapsibleHeader title="Mis Cotizaciones" count={myQuots.length} expanded={expandedSections.cotizaciones} onToggle={() => toggle('cotizaciones')} />
+            <CollapsibleHeader title="Mis Cotizaciones" count={myQuots.length} icon={<Briefcase size={15} />} expanded={expandedSections.cotizaciones} onToggle={() => toggle('cotizaciones')} />
             {expandedSections.cotizaciones && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 400, overflowY: 'auto' }}>
                 {myQuots.length === 0 && <EmptyState text="Sin cotizaciones asignadas" />}
                 {myQuots.map(q => (
                   <QuotRow key={q.id} quot={q} onClick={() => navigate(`/cotizaciones#${q.id}:${q.specialty}`)} />
                 ))}
               </div>
             )}
-            <div style={{ marginTop: 20 }}>
-              <CollapsibleHeader title="Mis Proyectos" count={myProjects.length} expanded={expandedSections.projects} onToggle={() => toggle('projects')} />
-              {expandedSections.projects && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {myProjects.length === 0 && <EmptyState text="Sin proyectos activos" />}
-                  {myProjects.map(p => (
-                    <ProjectRow key={p.id} project={p} tasks={tasks.filter(t => t.project_id === p.id)} onClick={() => navigate(`/proyectos`)} />
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Calendario */}
-            <div style={{ marginTop: 20 }}>
-              <CollapsibleHeader title="Mi Calendario" icon={<Calendar size={15} />} expanded={expandedSections.calendario !== false} onToggle={() => toggle('calendario')} />
-              {expandedSections.calendario !== false && (
-                <div style={{ background: '#111', border: '1px solid #222', borderRadius: 12, padding: '12px 16px', maxHeight: 350, overflowY: 'auto' }}>
-                  <CalendarWidget userEmail={authUser?.email || ''} isMobile={isMobile} />
-                </div>
-              )}
-            </div>
+          </div>
+          <div>
+            <CollapsibleHeader title="Mis Proyectos" count={myProjects.length} icon={<FolderOpen size={15} />} expanded={expandedSections.projects} onToggle={() => toggle('projects')} />
+            {expandedSections.projects && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 400, overflowY: 'auto' }}>
+                {myProjects.length === 0 && <EmptyState text="Sin proyectos activos" />}
+                {myProjects.map(p => (
+                  <ProjectRow key={p.id} project={p} tasks={tasks.filter(t => t.project_id === p.id)} onClick={() => navigate(`/proyectos`)} />
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -446,14 +447,14 @@ export default function DashboardVentasIng() {
   const totalTeam = employees.length
 
   return (
-    <div style={{ padding: isMobile ? '16px 12px' : '24px 28px', maxWidth: 1200 }}>
+    <div style={{ padding: isMobile ? '16px 12px' : '24px 28px', maxWidth: 1300 }}>
       <SectionHeader
         title={`Panel de ${areaLabel}`}
         subtitle={`${totalTeam} personas · ${projects.length} proyecto${projects.length !== 1 ? 's' : ''} · ${tasks.length} tareas pendientes · ${activeCotizaciones.length} cotizaciones activas`}
       />
 
-      {/* ── KPI ROW — efficiency focused ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2,1fr)' : 'repeat(5,1fr)', gap: 12, marginBottom: 24 }}>
+      {/* ── KPI ROW ── */}
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2,1fr)' : 'repeat(5,1fr)', gap: 12, marginBottom: 20 }}>
         <KpiCard label="Tareas pendientes" value={tasks.length} color={tasks.length > 20 ? '#F59E0B' : '#57FF9A'} icon={<Target size={16} />} />
         <KpiCard label="Vencidas" value={overdueTasks.length} color={overdueTasks.length > 0 ? '#EF4444' : '#57FF9A'} icon={<AlertTriangle size={16} />} />
         <KpiCard label="Esta semana" value={dueThisWeek.length} color="#3B82F6" icon={<Calendar size={16} />} />
@@ -461,202 +462,197 @@ export default function DashboardVentasIng() {
         <KpiCard label="Alertas SLA" value={slaAlerts.length} color={slaAlerts.length > 0 ? '#EF4444' : '#57FF9A'} icon={<Clock size={16} />} />
       </div>
 
-      {/* ── OVERDUE ALERT ── */}
+      {/* ── OVERDUE ALERT (compact) ── */}
       {overdueTasks.length > 0 && <OverdueAlert tasks={overdueTasks} empMap={empMap} />}
 
-      {/* ── PENDIENTES ── */}
-      <div style={{ marginBottom: 24 }}>
-        <ActionItems myEmployeeId={myEmployeeId!} myArea={myArea} teamEmployees={employees} projects={projects.map(p => ({ id: p.id, name: p.name }))} userEmail={authUser?.email || ''} isMobile={isMobile} />
+      {/* ══════════════════════════════════════════════════════════
+          ROW 1: Pendientes (left ~60%) | Calendario + Alertas (right ~40%)
+         ══════════════════════════════════════════════════════════ */}
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '3fr 2fr', gap: 20, marginBottom: 20 }}>
+        {/* LEFT — Pendientes */}
+        <div>
+          <ActionItems myEmployeeId={myEmployeeId!} myArea={myArea} teamEmployees={employees} projects={projects.map(p => ({ id: p.id, name: p.name }))} userEmail={authUser?.email || ''} isMobile={isMobile} />
+        </div>
+
+        {/* RIGHT — Calendario + Requiere Acción */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {/* Calendario */}
+          <div>
+            <CollapsibleHeader title="Calendario" icon={<Calendar size={15} />} expanded={expandedSections.calendario !== false} onToggle={() => toggle('calendario')} />
+            {expandedSections.calendario !== false && (
+              <div style={{ background: '#111', border: '1px solid #222', borderRadius: 12, padding: '12px 16px', maxHeight: 300, overflowY: 'auto' }}>
+                <CalendarWidget userEmail={authUser?.email || ''} isMobile={isMobile} />
+              </div>
+            )}
+          </div>
+
+          {/* Requiere Acción — compact inline */}
+          {actionItems.length > 0 && (
+            <div>
+              <CollapsibleHeader title="Requiere Acción" count={actionItems.length} icon={<Zap size={15} />} expanded={expandedSections.alerts} onToggle={() => toggle('alerts')} color="#EF4444" />
+              {expandedSections.alerts && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 250, overflowY: 'auto' }}>
+                  {actionItems.slice(0, 8).map(item => (
+                    <div key={item.quotation.id}
+                      onClick={() => navigate(`/cotizaciones#${item.quotation.id}:${item.quotation.specialty}`)}
+                      style={{
+                        background: '#111', border: '1px solid #222', borderRadius: 8,
+                        padding: '8px 12px', cursor: 'pointer',
+                        borderLeft: `3px solid ${item.urgency >= 4 ? '#EF4444' : '#F59E0B'}`,
+                        transition: 'border-color 0.15s',
+                      }}
+                      onMouseEnter={e => e.currentTarget.style.borderColor = '#444'}
+                      onMouseLeave={e => e.currentTarget.style.borderColor = '#222'}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div style={{ minWidth: 0, flex: 1 }}>
+                          <div style={{ fontSize: 12, fontWeight: 500, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {item.quotation.name || item.quotation.client_name}
+                          </div>
+                          <div style={{ fontSize: 10, color: '#666', marginTop: 1 }}>
+                            {item.quotation.assignee_id && empMap[item.quotation.assignee_id] ? empMap[item.quotation.assignee_id] : 'Sin asignar'}
+                          </div>
+                        </div>
+                        <Badge label={item.reason} color={item.urgency >= 4 ? '#EF4444' : '#F59E0B'} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* ── DISTRIBUCIÓN DE TRABAJO ── */}
-      <CollapsibleHeader title="Distribución de Trabajo" count={workDistribution.length} icon={<Users size={15} />} expanded={expandedSections.workload} onToggle={() => toggle('workload')} />
-      {expandedSections.workload && (
-        <div style={{ marginBottom: 24 }}>
-          {workDistribution.length === 0 ? (
-            <EmptyState text="Asigna tareas y cotizaciones a tu equipo para ver la distribución" />
-          ) : (
-            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(2, 1fr)', gap: 10 }}>
-              {workDistribution.map(w => (
-                <div key={w.employee.id} style={{
-                  ...card,
-                  borderLeft: `3px solid ${w.score >= 80 ? '#57FF9A' : w.score >= 50 ? '#F59E0B' : '#EF4444'}`,
-                }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                    <div>
-                      <div style={{ fontSize: 14, fontWeight: 600, color: '#fff' }}>
-                        {w.employee.nombre || w.employee.name}
-                      </div>
-                      <div style={{ fontSize: 11, color: '#666' }}>{w.employee.puesto || w.employee.area}</div>
-                    </div>
-                    <div style={{
-                      width: 40, height: 40, borderRadius: 20,
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      fontSize: 14, fontWeight: 700,
-                      background: w.score >= 80 ? 'rgba(87,255,154,0.15)' : w.score >= 50 ? 'rgba(245,158,11,0.15)' : 'rgba(239,68,68,0.15)',
-                      color: w.score >= 80 ? '#57FF9A' : w.score >= 50 ? '#F59E0B' : '#EF4444',
-                    }}>
-                      {w.score}
-                    </div>
-                  </div>
-                  {/* Workload bar */}
-                  <div style={{ display: 'flex', gap: 4, marginBottom: 10 }}>
-                    {w.taskCount > 0 && (
-                      <div style={{
-                        flex: w.taskCount, height: 6, borderRadius: 3,
-                        background: w.overdueCount > 0 ? '#EF4444' : '#3B82F6',
-                      }} />
-                    )}
-                    {w.quotCount > 0 && (
-                      <div style={{
-                        flex: w.quotCount, height: 6, borderRadius: 3,
-                        background: w.stalledCount > 0 ? '#F59E0B' : '#57FF9A',
-                      }} />
-                    )}
-                    {w.taskCount === 0 && w.quotCount === 0 && (
-                      <div style={{ flex: 1, height: 6, borderRadius: 3, background: '#222' }} />
-                    )}
-                  </div>
-                  <div style={{ display: 'flex', gap: 14, fontSize: 12, flexWrap: 'wrap' }}>
-                    <div style={{ color: '#888' }}>
-                      <Target size={11} style={{ marginRight: 4, verticalAlign: -1 }} />
-                      {w.taskCount} tarea{w.taskCount !== 1 ? 's' : ''}
-                    </div>
-                    <div style={{ color: '#888' }}>
-                      <FileText size={11} style={{ marginRight: 4, verticalAlign: -1 }} />
-                      {w.quotCount} cot{w.quotCount !== 1 ? 's' : ''}
-                    </div>
-                    {w.overdueCount > 0 && (
-                      <div style={{ color: '#EF4444', fontWeight: 600 }}>
-                        <AlertTriangle size={11} style={{ marginRight: 4, verticalAlign: -1 }} />
-                        {w.overdueCount} vencida{w.overdueCount !== 1 ? 's' : ''}
-                      </div>
-                    )}
-                    {w.dueWeekCount > 0 && (
-                      <div style={{ color: '#3B82F6' }}>
-                        <Calendar size={11} style={{ marginRight: 4, verticalAlign: -1 }} />
-                        {w.dueWeekCount} esta sem
-                      </div>
-                    )}
-                    {w.stalledCount > 0 && (
-                      <div style={{ color: '#F59E0B', fontWeight: 600 }}>
-                        <Timer size={11} style={{ marginRight: 4, verticalAlign: -1 }} />
-                        {w.stalledCount} estancada{w.stalledCount !== 1 ? 's' : ''}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ── REQUIERE ACCIÓN ── */}
-      {actionItems.length > 0 && (
-        <>
-          <CollapsibleHeader title="Requiere Acción" count={actionItems.length} icon={<Zap size={15} />} expanded={expandedSections.alerts} onToggle={() => toggle('alerts')} color="#EF4444" />
-          {expandedSections.alerts && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 24 }}>
-              {actionItems.slice(0, 12).map(item => (
-                <div key={item.quotation.id}
-                  onClick={() => navigate(`/cotizaciones#${item.quotation.id}:${item.quotation.specialty}`)}
-                  style={{ ...card, padding: '12px 16px', cursor: 'pointer', borderLeft: `3px solid ${item.urgency >= 4 ? '#EF4444' : '#F59E0B'}` }}
-                  onMouseEnter={e => cardHover(e, true)} onMouseLeave={e => cardHover(e, false)}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div>
-                      <div style={{ fontSize: 13, fontWeight: 500, color: '#fff' }}>{item.quotation.name || item.quotation.client_name}</div>
-                      <div style={{ fontSize: 11, color: '#666', marginTop: 2 }}>
-                        {item.quotation.client_name}
-                        {item.quotation.assignee_id && empMap[item.quotation.assignee_id] && (
-                          <span> · {empMap[item.quotation.assignee_id]}</span>
-                        )}
-                      </div>
-                    </div>
-                    <Badge label={item.reason} color={item.urgency >= 4 ? '#EF4444' : '#F59E0B'} />
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </>
-      )}
-
-      {/* ── CALENDARIO + PROJECTS + COTIZACIONES ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr 1fr', gap: 20, marginBottom: 24 }}>
-        {/* Calendario */}
+      {/* ══════════════════════════════════════════════════════════
+          ROW 2: Equipo | Proyectos + Tareas | Cotizaciones
+         ══════════════════════════════════════════════════════════ */}
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr 1fr', gap: 20, marginBottom: 20 }}>
+        {/* COL 1 — Distribución de Trabajo (compact table) */}
         <div>
-          <CollapsibleHeader title="Calendario" icon={<Calendar size={15} />} expanded={expandedSections.calendario !== false} onToggle={() => toggle('calendario')} />
-          {expandedSections.calendario !== false && (
-            <div style={{ background: '#111', border: '1px solid #222', borderRadius: 12, padding: '12px 16px', maxHeight: 400, overflowY: 'auto' }}>
-              <CalendarWidget userEmail={authUser?.email || 'elias@omniious.com'} isMobile={isMobile} />
-            </div>
-          )}
-        </div>
-
-        {/* Proyectos Activos */}
-        <div>
-          <CollapsibleHeader title="Proyectos Activos" count={projects.length} icon={<FolderOpen size={15} />} expanded={expandedSections.projects} onToggle={() => toggle('projects')} />
-          {expandedSections.projects && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {projects.length === 0 && <EmptyState text="Sin proyectos activos en tu área" />}
-              {projects.map(p => (
-                <ProjectRow key={p.id} project={p} tasks={tasks.filter(t => t.project_id === p.id)} onClick={() => navigate(`/proyectos`)} empMap={empMap} />
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Cotizaciones — tracking view (no money) */}
-        <div>
-          <CollapsibleHeader title="Cotizaciones de mi Área" count={activeCotizaciones.length} icon={<Briefcase size={15} />} expanded={expandedSections.cotizaciones} onToggle={() => toggle('cotizaciones')} />
-          {expandedSections.cotizaciones && (
+          <CollapsibleHeader title="Equipo" count={workDistribution.length} icon={<Users size={15} />} expanded={expandedSections.workload} onToggle={() => toggle('workload')} />
+          {expandedSections.workload && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {workDistribution.length === 0 ? (
+                <EmptyState text="Sin datos de equipo" />
+              ) : (
+                workDistribution.map(w => (
+                  <div key={w.employee.id} style={{
+                    background: '#111', border: '1px solid #222', borderRadius: 10, padding: '10px 14px',
+                    borderLeft: `3px solid ${w.score >= 80 ? '#57FF9A' : w.score >= 50 ? '#F59E0B' : '#EF4444'}`,
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                      <div>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: '#fff' }}>
+                          {(w.employee.nombre || w.employee.name).split(' ').slice(0, 2).join(' ')}
+                        </div>
+                        <div style={{ fontSize: 10, color: '#666' }}>{w.employee.puesto || ''}</div>
+                      </div>
+                      <div style={{
+                        width: 32, height: 32, borderRadius: 16,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontSize: 12, fontWeight: 700,
+                        background: w.score >= 80 ? 'rgba(87,255,154,0.12)' : w.score >= 50 ? 'rgba(245,158,11,0.12)' : 'rgba(239,68,68,0.12)',
+                        color: w.score >= 80 ? '#57FF9A' : w.score >= 50 ? '#F59E0B' : '#EF4444',
+                      }}>
+                        {w.score}
+                      </div>
+                    </div>
+                    {/* Compact stats row */}
+                    <div style={{ display: 'flex', gap: 4, marginBottom: 6 }}>
+                      {w.taskCount > 0 && <div style={{ flex: w.taskCount, height: 4, borderRadius: 2, background: w.overdueCount > 0 ? '#EF4444' : '#3B82F6' }} />}
+                      {w.quotCount > 0 && <div style={{ flex: w.quotCount, height: 4, borderRadius: 2, background: w.stalledCount > 0 ? '#F59E0B' : '#57FF9A' }} />}
+                      {w.taskCount === 0 && w.quotCount === 0 && <div style={{ flex: 1, height: 4, borderRadius: 2, background: '#222' }} />}
+                    </div>
+                    <div style={{ display: 'flex', gap: 10, fontSize: 11, flexWrap: 'wrap' }}>
+                      <span style={{ color: '#888' }}>{w.taskCount}T</span>
+                      <span style={{ color: '#888' }}>{w.quotCount}C</span>
+                      {w.overdueCount > 0 && <span style={{ color: '#EF4444', fontWeight: 600 }}>{w.overdueCount} venc</span>}
+                      {w.stalledCount > 0 && <span style={{ color: '#F59E0B', fontWeight: 600 }}>{w.stalledCount} estanc</span>}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* COL 2 — Proyectos + Tareas */}
+        <div>
+          <CollapsibleHeader title="Proyectos" count={projects.length} icon={<FolderOpen size={15} />} expanded={expandedSections.projects} onToggle={() => toggle('projects')} />
+          {expandedSections.projects && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 450, overflowY: 'auto' }}>
+              {projects.length === 0 && <EmptyState text="Sin proyectos activos" />}
+              {projects.map(p => {
+                const pTasks = tasks.filter(t => t.project_id === p.id)
+                const pOverdue = pTasks.filter(t => t.due_date && t.due_date < now)
+                return (
+                  <div key={p.id} onClick={() => navigate(`/proyectos`)} style={{
+                    background: '#111', border: '1px solid #222', borderRadius: 10, padding: '10px 14px',
+                    cursor: 'pointer', transition: 'border-color 0.15s',
+                  }}
+                    onMouseEnter={e => e.currentTarget.style.borderColor = '#444'}
+                    onMouseLeave={e => e.currentTarget.style.borderColor = '#222'}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0 }}>
+                        {p.name}
+                      </div>
+                      <span style={{ fontSize: 11, color: '#555', flexShrink: 0, marginLeft: 8 }}>{pTasks.length}T</span>
+                    </div>
+                    <div style={{ fontSize: 11, color: '#666', marginBottom: 6 }}>
+                      {p.client_name}
+                      {empMap[p.area_lead_id || ''] && <span> · {empMap[p.area_lead_id!]}</span>}
+                    </div>
+                    <ProgressBar pct={p.advance_pct || 0} />
+                    {pOverdue.length > 0 && (
+                      <div style={{ fontSize: 10, color: '#EF4444', marginTop: 4, display: 'flex', alignItems: 'center', gap: 3 }}>
+                        <AlertTriangle size={9} /> {pOverdue.length} tarea{pOverdue.length > 1 ? 's' : ''} vencida{pOverdue.length > 1 ? 's' : ''}
+                      </div>
+                    )}
+                    {/* Inline tasks (compact, max 3) */}
+                    {pTasks.length > 0 && (
+                      <div style={{ marginTop: 6, paddingTop: 6, borderTop: '1px solid #1a1a1a' }}>
+                        {pTasks.slice(0, 3).map(t => (
+                          <div key={t.id} style={{ fontSize: 11, color: t.due_date && t.due_date < now ? '#EF4444' : '#888', padding: '2px 0', display: 'flex', justifyContent: 'space-between' }}>
+                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{t.name}</span>
+                            {t.due_date && <span style={{ flexShrink: 0, marginLeft: 8, fontSize: 10 }}>{formatDate(t.due_date)}</span>}
+                          </div>
+                        ))}
+                        {pTasks.length > 3 && <div style={{ fontSize: 10, color: '#444', paddingTop: 2 }}>+{pTasks.length - 3} más</div>}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* COL 3 — Cotizaciones */}
+        <div>
+          <CollapsibleHeader title="Cotizaciones" count={activeCotizaciones.length} icon={<Briefcase size={15} />} expanded={expandedSections.cotizaciones} onToggle={() => toggle('cotizaciones')} />
+          {expandedSections.cotizaciones && (
+            <div style={{ maxHeight: 450, overflowY: 'auto' }}>
               {activeCotizaciones.length === 0 && <EmptyState text="Sin cotizaciones activas" />}
               {/* Stage summary mini-bar */}
               {activeCotizaciones.length > 0 && (
-                <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                <div style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
                   {cotsByStage.filter(s => s.count > 0).map(s => (
-                    <div key={s.stage} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: s.color }}>
-                      <div style={{ width: 8, height: 8, borderRadius: 4, background: s.color }} />
+                    <div key={s.stage} style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 11, color: s.color }}>
+                      <div style={{ width: 6, height: 6, borderRadius: 3, background: s.color }} />
                       {s.count} {s.label}
                     </div>
                   ))}
                 </div>
               )}
-              {activeCotizaciones.map(q => (
-                <QuotRow key={q.id} quot={q} empMap={empMap} onClick={() => navigate(`/cotizaciones#${q.id}:${q.specialty}`)} />
-              ))}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {activeCotizaciones.map(q => (
+                  <QuotRow key={q.id} quot={q} empMap={empMap} onClick={() => navigate(`/cotizaciones#${q.id}:${q.specialty}`)} />
+                ))}
+              </div>
             </div>
           )}
         </div>
       </div>
-
-      {/* ── TAREAS POR PROYECTO ── */}
-      <CollapsibleHeader title="Tareas Pendientes por Proyecto" count={tasks.length} icon={<Target size={15} />} expanded={expandedSections.tasks} onToggle={() => toggle('tasks')} />
-      {expandedSections.tasks && (
-        <div style={{ marginBottom: 24 }}>
-          {tasksByProject.length === 0 && <EmptyState text="Sin tareas pendientes" />}
-          {tasksByProject.map(group => (
-            <div key={group.projectName} style={{ marginBottom: 16 }}>
-              <div style={{ fontSize: 13, fontWeight: 600, color: '#fff', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
-                <FolderOpen size={13} color="#888" /> {group.projectName}
-                <span style={{ fontSize: 11, color: '#555', fontWeight: 400 }}>({group.tasks.length})</span>
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                {group.tasks.slice(0, 10).map(t => (
-                  <TaskRow key={t.id} task={t} now={now} onClick={() => navigate(`/proyectos`)} showAssignee empMap={empMap} compact />
-                ))}
-                {group.tasks.length > 10 && (
-                  <div style={{ fontSize: 11, color: '#555', padding: '4px 0', paddingLeft: 16 }}>
-                    +{group.tasks.length - 10} tareas más
-                  </div>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
     </div>
   )
 }
