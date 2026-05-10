@@ -4,8 +4,9 @@ import { formatDate } from '../lib/utils'
 import { Badge, ProgressBar } from './layout/UI'
 import {
   Plus, Check, X, Calendar, AlertTriangle, Clock, ChevronDown, ChevronRight,
-  Circle, CheckCircle2, Trash2, Edit3, Send, User, Tag, FolderOpen
+  Circle, CheckCircle2, Trash2, Edit3, Send, User, Tag, FolderOpen, Mail
 } from 'lucide-react'
+import EmailImport from './EmailImport'
 
 // ═══════════════════════════════════════════════════════════════
 // TYPES
@@ -72,17 +73,20 @@ export default function ActionItems({
   myArea,
   teamEmployees,
   projects = [],
+  userEmail = '',
   isMobile = false,
 }: {
   myEmployeeId: string
   myArea: string
   teamEmployees: Employee[]
   projects?: SimpleProject[]
+  userEmail?: string
   isMobile?: boolean
 }) {
   const [items, setItems] = useState<ActionItem[]>([])
   const [loading, setLoading] = useState(true)
   const [showCreate, setShowCreate] = useState(false)
+  const [showEmailImport, setShowEmailImport] = useState(false)
   const [filter, setFilter] = useState<'all' | 'mine' | 'assigned'>('all')
   const [showCompleted, setShowCompleted] = useState(false)
 
@@ -262,6 +266,15 @@ export default function ActionItems({
         }}>
           <Plus size={14} /> Detallado
         </button>
+        {userEmail && (
+          <button onClick={() => setShowEmailImport(true)} style={{
+            background: '#1a1a2e', border: '1px solid #333', borderRadius: 8, padding: '8px 12px',
+            color: '#3B82F6', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, fontSize: 12,
+            whiteSpace: 'nowrap',
+          }}>
+            <Mail size={14} /> Email
+          </button>
+        )}
       </div>
 
       {/* ── CREATE FORM (expanded) ── */}
@@ -475,6 +488,19 @@ export default function ActionItems({
             )
           })}
         </div>
+      )}
+
+      {/* ── EMAIL IMPORT MODAL ── */}
+      {showEmailImport && userEmail && (
+        <EmailImport
+          userEmail={userEmail}
+          myEmployeeId={myEmployeeId}
+          myArea={myArea}
+          teamEmployees={teamEmployees}
+          projects={projects}
+          onClose={() => setShowEmailImport(false)}
+          onCreated={() => { setShowEmailImport(false); loadItems() }}
+        />
       )}
     </div>
   )

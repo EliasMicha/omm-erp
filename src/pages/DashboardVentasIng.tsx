@@ -386,7 +386,7 @@ export default function DashboardVentasIng() {
 
         {/* ── MIS PENDIENTES ── */}
         <div style={{ marginBottom: 24 }}>
-          <ActionItems myEmployeeId={myEmployeeId!} myArea={myArea} teamEmployees={employees} projects={projects.map(p => ({ id: p.id, name: p.name }))} isMobile={isMobile} />
+          <ActionItems myEmployeeId={myEmployeeId!} myArea={myArea} teamEmployees={employees} projects={projects.map(p => ({ id: p.id, name: p.name }))} userEmail={authUser?.email || ''} isMobile={isMobile} />
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 20 }}>
@@ -466,7 +466,7 @@ export default function DashboardVentasIng() {
 
       {/* ── PENDIENTES ── */}
       <div style={{ marginBottom: 24 }}>
-        <ActionItems myEmployeeId={myEmployeeId!} myArea={myArea} teamEmployees={employees} isMobile={isMobile} />
+        <ActionItems myEmployeeId={myEmployeeId!} myArea={myArea} teamEmployees={employees} projects={projects.map(p => ({ id: p.id, name: p.name }))} userEmail={authUser?.email || ''} isMobile={isMobile} />
       </div>
 
       {/* ── DISTRIBUCIÓN DE TRABAJO ── */}
