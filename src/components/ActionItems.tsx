@@ -4,7 +4,7 @@ import { formatDate } from '../lib/utils'
 import { Badge, ProgressBar } from './layout/UI'
 import {
   Plus, Check, X, Calendar, AlertTriangle, Clock, ChevronDown, ChevronRight,
-  Circle, CheckCircle2, Trash2, Edit3, Send, User, Tag
+  Circle, CheckCircle2, Trash2, Edit3, Send, User, Tag, FolderOpen
 } from 'lucide-react'
 
 // ═══════════════════════════════════════════════════════════════
@@ -31,12 +31,18 @@ export interface ActionItem {
   tags: string[]
   is_recurring: boolean
   recurrence_rule: string | null
+  project_id: string | null
 }
 
 interface Employee {
   id: string
   name: string
   nombre: string | null
+}
+
+interface SimpleProject {
+  id: string
+  name: string
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -65,11 +71,13 @@ export default function ActionItems({
   myEmployeeId,
   myArea,
   teamEmployees,
+  projects = [],
   isMobile = false,
 }: {
   myEmployeeId: string
   myArea: string
   teamEmployees: Employee[]
+  projects?: SimpleProject[]
   isMobile?: boolean
 }) {
   const [items, setItems] = useState<ActionItem[]>([])
@@ -88,6 +96,7 @@ export default function ActionItems({
     priority: 2,
     due_date: '',
     assignee_id: '',
+    project_id: '',
     tags: '' as string,
   })
 
@@ -137,6 +146,12 @@ export default function ActionItems({
     return m
   }, [teamEmployees])
 
+  const projMap = useMemo(() => {
+    const m: Record<string, string> = {}
+    projects.forEach(p => { m[p.id] = p.name })
+    return m
+  }, [projects])
+
   // ── ACTIONS ──
   async function quickAdd() {
     if (!quickTitle.trim()) return
@@ -163,10 +178,11 @@ export default function ActionItems({
       assignee_id: form.assignee_id || myEmployeeId,
       created_by: myEmployeeId,
       area: myArea,
+      project_id: form.project_id || null,
       tags: form.tags ? form.tags.split(',').map(t => t.trim()).filter(Boolean) : [],
     })
     if (!error) {
-      setForm({ title: '', description: '', priority: 2, due_date: '', assignee_id: '', tags: '' })
+      setForm({ title: '', description: '', priority: 2, due_date: '', assignee_id: '', project_id: '', tags: '' })
       setShowCreate(false)
       loadItems()
     }
@@ -272,7 +288,7 @@ export default function ActionItems({
               placeholder="Descripción o notas (opcional)"
               style={{ ...input, minHeight: 60, resize: 'vertical' as any }}
             />
-            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : '1fr 1fr 1fr 1fr', gap: 8 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(5, 1fr)', gap: 8 }}>
               {/* Priority */}
               <div>
                 <label style={{ fontSize: 10, color: '#666', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Prioridad</label>
@@ -312,6 +328,21 @@ export default function ActionItems({
                   <option value="">Yo mismo</option>
                   {teamEmployees.map(e => (
                     <option key={e.id} value={e.id}>{e.nombre || e.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Project */}
+              <div>
+                <label style={{ fontSize: 10, color: '#666', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Proyecto</label>
+                <select
+                  value={form.project_id}
+                  onChange={e => setForm(f => ({ ...f, project_id: e.target.value }))}
+                  style={{ ...select, marginTop: 4 }}
+                >
+                  <option value="">Sin proyecto</option>
+                  {projects.map(p => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
                   ))}
                 </select>
               </div>
@@ -382,6 +413,12 @@ export default function ActionItems({
                       {item.title}
                     </div>
                     <div style={{ fontSize: 11, color: '#555', marginTop: 2, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                      {/* Project */}
+                      {item.project_id && projMap[item.project_id] && (
+                        <span style={{ color: '#57FF9A', display: 'flex', alignItems: 'center', gap: 3 }}>
+                          <FolderOpen size={9} /> {projMap[item.project_id]}
+                        </span>
+                      )}
                       {/* Assignee */}
                       {item.assignee_id && item.assignee_id !== myEmployeeId && (
                         <span style={{ display: 'flex', alignItems: 'center', gap: 3 }}>

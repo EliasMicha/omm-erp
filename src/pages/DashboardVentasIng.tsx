@@ -11,6 +11,7 @@ import {
   BarChart3, CheckCircle2, Timer, UserCheck, Briefcase, ClipboardList
 } from 'lucide-react'
 import ActionItems from '../components/ActionItems'
+import CalendarWidget from '../components/CalendarWidget'
 
 // ═══════════════════════════════════════════════════════════════
 // TYPES
@@ -385,7 +386,7 @@ export default function DashboardVentasIng() {
 
         {/* ── MIS PENDIENTES ── */}
         <div style={{ marginBottom: 24 }}>
-          <ActionItems myEmployeeId={myEmployeeId!} myArea={myArea} teamEmployees={employees} isMobile={isMobile} />
+          <ActionItems myEmployeeId={myEmployeeId!} myArea={myArea} teamEmployees={employees} projects={projects.map(p => ({ id: p.id, name: p.name }))} isMobile={isMobile} />
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 20 }}>
@@ -418,6 +419,16 @@ export default function DashboardVentasIng() {
                   {myProjects.map(p => (
                     <ProjectRow key={p.id} project={p} tasks={tasks.filter(t => t.project_id === p.id)} onClick={() => navigate(`/proyectos`)} />
                   ))}
+                </div>
+              )}
+            </div>
+
+            {/* Calendario */}
+            <div style={{ marginTop: 20 }}>
+              <CollapsibleHeader title="Mi Calendario" icon={<Calendar size={15} />} expanded={expandedSections.calendario !== false} onToggle={() => toggle('calendario')} />
+              {expandedSections.calendario !== false && (
+                <div style={{ background: '#111', border: '1px solid #222', borderRadius: 12, padding: '12px 16px', maxHeight: 350, overflowY: 'auto' }}>
+                  <CalendarWidget userEmail={authUser?.email || ''} isMobile={isMobile} />
                 </div>
               )}
             </div>
@@ -571,8 +582,18 @@ export default function DashboardVentasIng() {
         </>
       )}
 
-      {/* ── BOTTOM GRID: Projects + Cotizaciones ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 20, marginBottom: 24 }}>
+      {/* ── CALENDARIO + PROJECTS + COTIZACIONES ── */}
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr 1fr', gap: 20, marginBottom: 24 }}>
+        {/* Calendario */}
+        <div>
+          <CollapsibleHeader title="Calendario" icon={<Calendar size={15} />} expanded={expandedSections.calendario !== false} onToggle={() => toggle('calendario')} />
+          {expandedSections.calendario !== false && (
+            <div style={{ background: '#111', border: '1px solid #222', borderRadius: 12, padding: '12px 16px', maxHeight: 400, overflowY: 'auto' }}>
+              <CalendarWidget userEmail={authUser?.email || 'elias@omniious.com'} isMobile={isMobile} />
+            </div>
+          )}
+        </div>
+
         {/* Proyectos Activos */}
         <div>
           <CollapsibleHeader title="Proyectos Activos" count={projects.length} icon={<FolderOpen size={15} />} expanded={expandedSections.projects} onToggle={() => toggle('projects')} />
