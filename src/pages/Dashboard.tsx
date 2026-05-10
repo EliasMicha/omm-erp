@@ -9,6 +9,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { FolderOpen, DollarSign, AlertTriangle, Users, FileText, TrendingUp } from 'lucide-react'
 import DashboardProduccion from './DashboardProduccion'
 import DashboardVentasIng from './DashboardVentasIng'
+import DashboardAdmin from './DashboardAdmin'
 
 export default function Dashboard() {
   const isMobile = useIsMobile()
@@ -24,8 +25,12 @@ export default function Dashboard() {
   if (area === 'Operaciones') {
     return <DashboardProduccion />
   }
-  // After early returns above, area is DG or Administracion
-  const isFinancial = area === 'DG' || area === 'Administracion'
+  // Administración usa su dashboard propio
+  if (area === 'Administracion') {
+    return <DashboardAdmin />
+  }
+  // After early returns above, area is DG
+  const isFinancial = area === 'DG'
 
   const [projects, setProjects] = useState<Project[]>([])
   const [milestones, setMilestones] = useState<PaymentMilestone[]>([])
