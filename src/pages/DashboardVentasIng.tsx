@@ -1,14 +1,14 @@
 import { useEffect, useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { F, SPECIALTY_CONFIG, formatDate } from '../lib/utils'
+import { SPECIALTY_CONFIG, formatDate } from '../lib/utils'
 import { KpiCard, ProgressBar, Badge, Loading, SectionHeader } from '../components/layout/UI'
 import { useIsMobile } from '../lib/useIsMobile'
 import { useAuth } from '../contexts/AuthContext'
 import {
-  AlertTriangle, Clock, FolderOpen, FileText, TrendingUp,
+  AlertTriangle, Clock, FolderOpen, FileText,
   Users, ChevronDown, ChevronRight, Target, Zap, Calendar,
-  BarChart3, ArrowRight, CheckCircle2, Circle, Timer
+  BarChart3, CheckCircle2, Timer, UserCheck, Briefcase
 } from 'lucide-react'
 
 // ═══════════════════════════════════════════════════════════════
@@ -71,6 +71,35 @@ interface SlaConfig {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// AREA → SPECIALTY MAPPING
+// ═══════════════════════════════════════════════════════════════
+
+// Maps employee area to quotation/project specialty codes
+const AREA_TO_SPECIALTY: Record<string, string[]> = {
+  'INGENIERIAS ESPECIALES': ['esp'],
+  'INSTALACIONES ESPECIALES': ['esp'],
+  'ILUMINACION': ['ilum'],
+  'INGENIERIAS ELECTRICAS': ['elec'],
+  'ELECTRICO': ['elec'],
+}
+
+// Which employee areas a director sees as "their team"
+const AREA_TEAM: Record<string, string[]> = {
+  'INGENIERIAS ESPECIALES': ['INGENIERIAS ESPECIALES', 'INSTALACIONES ESPECIALES'],
+  'ILUMINACION': ['ILUMINACION'],
+  'INGENIERIAS ELECTRICAS': ['INGENIERIAS ELECTRICAS', 'ELECTRICO'],
+  'ELECTRICO': ['INGENIERIAS ELECTRICAS', 'ELECTRICO'],
+}
+
+// Pretty names for areas
+const AREA_LABELS: Record<string, string> = {
+  'INGENIERIAS ESPECIALES': 'Ingenierías Especiales',
+  'ILUMINACION': 'Iluminación',
+  'INGENIERIAS ELECTRICAS': 'Ingenierías Eléctricas',
+  'ELECTRICO': 'Eléctrico',
+}
+
+// ═══════════════════════════════════════════════════════════════
 // STYLES
 // ═══════════════════════════════════════════════════════════════
 
@@ -92,21 +121,10 @@ const STAGE_LABELS: Record<string, string> = {
 const STAGE_COLORS: Record<string, string> = {
   oportunidad: '#888', estimacion: '#F59E0B', propuesta: '#3B82F6', contrato: '#57FF9A'
 }
-// Probability for forecast
-const STAGE_PROB: Record<string, number> = {
-  oportunidad: 0.1, estimacion: 0.3, propuesta: 0.6, contrato: 0.9
-}
 
 function daysSince(dateStr: string | null): number {
   if (!dateStr) return 0
   return Math.floor((Date.now() - new Date(dateStr).getTime()) / 86400000)
-}
-
-function getLeadId(notes: string): string {
-  try { return JSON.parse(notes || '{}').lead_id || '' } catch { return '' }
-}
-function getCurrency(notes: string): string {
-  try { return JSON.parse(notes || '{}').currency || 'USD' } catch { return 'USD' }
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -126,8 +144,9 @@ export default function DashboardVentasIng() {
   const [projects, setProjects] = useState<Project[]>([])
   const [employees, setEmployees] = useState<Employee[]>([])
   const [slaConfigs, setSlaConfigs] = useState<SlaConfig[]>([])
+  const [myArea, setMyArea] = useState<string>('')
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
-    pipeline: true, alerts: true, team: true, tasks: true, projects: true, cotizaciones: true
+    workload: true, alerts: true, projects: true, cotizaciones: true, tasks: true
   })
 
   const toggle = (key: string) => setExpandedSections(p => ({ ...p, [key]: !p[key] }))
@@ -135,6 +154,19 @@ export default function DashboardVentasIng() {
   // ── LOAD DATA ──
   useEffect(() => {
     async function load() {
+      // First get the director's employee area
+      let directorArea = ''
+      if (myEmployeeId) {
+        const { data: empData } = await supabase
+          .from('employees').select('area').eq('id', myEmployeeId).single()
+        directorArea = empData?.area || ''
+        setMyArea(directorArea)
+      }
+
+      // Determine specialties to filter by
+      const mySpecialties = AREA_TO_SPECIALTY[directorArea] || []
+      const myTeamAreas = AREA_TEAM[directorArea] || [directorArea]
+
       let taskQuery = supabase.from('project_tasks')
         .select('id, name, status, priority, due_date, progress, assignee_id, project_id, completed_at, project:projects(name, specialty)')
         .neq('status', 'completada')
@@ -155,20 +187,38 @@ export default function DashboardVentasIng() {
           .order('created_at', { ascending: false }),
         supabase.from('employees')
           .select('id, name, nombre, puesto, area')
-          .or('area.ilike.%ingenier%,area.ilike.%proyecto%,area.ilike.%diseño%,area.ilike.%venta%')
-          .eq('activo', true)
+          .eq('is_active', true)
           .order('name'),
         supabase.from('sla_config').select('entity_type, stage, max_days, alert_days'),
       ])
 
-      setQuotations((quotRes.data || []) as Quotation[])
-      setTasks((taskRes.data || []).map((t: any) => ({
+      // For directors: filter by their specialty
+      const allQuotations = (quotRes.data || []) as Quotation[]
+      const allTasks = (taskRes.data || []).map((t: any) => ({
         ...t,
         project_name: t.project?.name || 'Sin proyecto',
         project_specialty: t.project?.specialty || '',
-      })))
-      setProjects((projRes.data || []) as Project[])
-      setEmployees((empRes.data || []) as Employee[])
+      })) as ProjectTask[]
+      const allProjects = (projRes.data || []) as Project[]
+      const allEmployees = (empRes.data || []) as Employee[]
+
+      if (!isEjecutor && mySpecialties.length > 0) {
+        // Director: filter to their specialty
+        setQuotations(allQuotations.filter(q => mySpecialties.includes(q.specialty)))
+        setProjects(allProjects.filter(p => mySpecialties.includes(p.specialty)))
+        // Tasks: only from their specialty's projects
+        const filteredProjectIds = new Set(allProjects.filter(p => mySpecialties.includes(p.specialty)).map(p => p.id))
+        setTasks(allTasks.filter(t => filteredProjectIds.has(t.project_id)))
+        // Employees: only from their team areas
+        setEmployees(allEmployees.filter(e => e.area && myTeamAreas.includes(e.area)))
+      } else {
+        // Ejecutor or no area match: show all
+        setQuotations(allQuotations)
+        setTasks(allTasks)
+        setProjects(allProjects)
+        setEmployees(allEmployees)
+      }
+
       setSlaConfigs((slaRes.data || []) as SlaConfig[])
       setLoading(false)
     }
@@ -178,42 +228,6 @@ export default function DashboardVentasIng() {
   // ── COMPUTED DATA ──
 
   const now = new Date().toISOString().slice(0, 10)
-  const today = new Date()
-
-  // Pipeline by stage
-  const pipeline = useMemo(() => {
-    return STAGES.map(s => {
-      const cots = quotations.filter(q => q.stage === s)
-      return {
-        stage: s,
-        label: STAGE_LABELS[s],
-        color: STAGE_COLORS[s],
-        count: cots.length,
-        totalMXN: cots.filter(q => getCurrency(q.notes) === 'MXN').reduce((sum, q) => sum + (q.total || 0), 0),
-        totalUSD: cots.filter(q => getCurrency(q.notes) !== 'MXN').reduce((sum, q) => sum + (q.total || 0), 0),
-      }
-    })
-  }, [quotations])
-
-  // SLA alerts — cotizaciones stalled
-  const slaAlerts = useMemo(() => {
-    const alerts: { quotation: Quotation; days: number; maxDays: number; severity: 'warning' | 'danger' }[] = []
-    quotations.forEach(q => {
-      if (q.stage === 'contrato') return // contrato is "done"
-      const sla = slaConfigs.find(s => s.entity_type === 'quotation' && s.stage === q.stage)
-      if (!sla) return
-      const days = daysSince(q.stage_changed_at || q.updated_at || q.created_at)
-      if (days >= sla.alert_days) {
-        alerts.push({
-          quotation: q,
-          days,
-          maxDays: sla.max_days,
-          severity: days >= sla.max_days ? 'danger' : 'warning',
-        })
-      }
-    })
-    return alerts.sort((a, b) => b.days - a.days)
-  }, [quotations, slaConfigs])
 
   // Overdue tasks
   const overdueTasks = useMemo(() => tasks.filter(t => t.due_date && t.due_date < now), [tasks, now])
@@ -224,17 +238,20 @@ export default function DashboardVentasIng() {
   const thisWeekStr = thisWeekEnd.toISOString().slice(0, 10)
   const dueThisWeek = useMemo(() => tasks.filter(t => t.due_date && t.due_date >= now && t.due_date <= thisWeekStr), [tasks, now, thisWeekStr])
 
-  // Forecast — weighted pipeline
-  const forecast = useMemo(() => {
-    let mxn = 0, usd = 0
+  // SLA alerts — cotizaciones stalled
+  const slaAlerts = useMemo(() => {
+    const alerts: { quotation: Quotation; days: number; maxDays: number; severity: 'warning' | 'danger' }[] = []
     quotations.forEach(q => {
-      const prob = STAGE_PROB[q.stage] || 0
-      const cur = getCurrency(q.notes)
-      if (cur === 'MXN') mxn += (q.total || 0) * prob
-      else usd += (q.total || 0) * prob
+      if (q.stage === 'contrato') return
+      const sla = slaConfigs.find(s => s.entity_type === 'quotation' && s.stage === q.stage)
+      if (!sla) return
+      const days = daysSince(q.stage_changed_at || q.updated_at || q.created_at)
+      if (days >= sla.alert_days) {
+        alerts.push({ quotation: q, days, maxDays: sla.max_days, severity: days >= sla.max_days ? 'danger' : 'warning' })
+      }
     })
-    return { mxn, usd }
-  }, [quotations])
+    return alerts.sort((a, b) => b.days - a.days)
+  }, [quotations, slaConfigs])
 
   // Employee name map
   const empMap = useMemo(() => {
@@ -243,30 +260,45 @@ export default function DashboardVentasIng() {
     return m
   }, [employees])
 
-  // Team scorecard — per employee
-  const teamScorecard = useMemo(() => {
+  // Work distribution — per employee in the team
+  const workDistribution = useMemo(() => {
     return employees.map(emp => {
-      const myQuots = quotations.filter(q => q.assignee_id === emp.id)
-      const myTasks = tasks.filter(t => t.assignee_id === emp.id)
-      const myOverdue = myTasks.filter(t => t.due_date && t.due_date < now)
-      const stalledQuots = myQuots.filter(q => {
+      const empTasks = tasks.filter(t => t.assignee_id === emp.id)
+      const empOverdue = empTasks.filter(t => t.due_date && t.due_date < now)
+      const empDueWeek = empTasks.filter(t => t.due_date && t.due_date >= now && t.due_date <= thisWeekStr)
+      const empQuots = quotations.filter(q => q.assignee_id === emp.id)
+      const stalledQuots = empQuots.filter(q => {
         if (q.stage === 'contrato') return false
         const sla = slaConfigs.find(s => s.entity_type === 'quotation' && s.stage === q.stage)
         return sla && daysSince(q.stage_changed_at || q.updated_at || q.created_at) >= sla.max_days
       })
+      const score = Math.max(0, 100 - (empOverdue.length * 15) - (stalledQuots.length * 10))
       return {
         employee: emp,
-        quotCount: myQuots.length,
-        taskCount: myTasks.length,
-        overdueCount: myOverdue.length,
+        taskCount: empTasks.length,
+        overdueCount: empOverdue.length,
+        dueWeekCount: empDueWeek.length,
+        quotCount: empQuots.length,
         stalledCount: stalledQuots.length,
-        score: Math.max(0, 100 - (myOverdue.length * 15) - (stalledQuots.length * 10)),
+        score,
       }
-    }).filter(s => s.quotCount > 0 || s.taskCount > 0)
-      .sort((a, b) => b.score - a.score)
-  }, [employees, quotations, tasks, slaConfigs, now])
+    }).filter(w => w.taskCount > 0 || w.quotCount > 0)
+      .sort((a, b) => a.score - b.score) // worst first so director sees problems
+  }, [employees, tasks, quotations, slaConfigs, now, thisWeekStr])
 
-  // Cotizaciones that need action (no assignee, stalled, etc.)
+  // Unassigned cotizaciones
+  const unassignedQuots = useMemo(
+    () => quotations.filter(q => !q.assignee_id && q.stage !== 'contrato'),
+    [quotations]
+  )
+
+  // Active cotizaciones (not contrato, not old)
+  const activeCotizaciones = useMemo(
+    () => quotations.filter(q => q.stage !== 'contrato'),
+    [quotations]
+  )
+
+  // Action items (unassigned + SLA violations)
   const actionItems = useMemo(() => {
     const items: { quotation: Quotation; reason: string; urgency: number }[] = []
     quotations.forEach(q => {
@@ -282,13 +314,37 @@ export default function DashboardVentasIng() {
         items.push({ quotation: q, reason: `${days}d en ${STAGE_LABELS[q.stage]}`, urgency: 2 })
       }
     })
-    // Dedupe by quotation id, keep highest urgency
     const byId: Record<string, typeof items[0]> = {}
     items.forEach(i => {
       if (!byId[i.quotation.id] || i.urgency > byId[i.quotation.id].urgency) byId[i.quotation.id] = i
     })
     return Object.values(byId).sort((a, b) => b.urgency - a.urgency)
   }, [quotations, slaConfigs])
+
+  // Tasks grouped by project
+  const tasksByProject = useMemo(() => {
+    const grouped: Record<string, { projectName: string; tasks: ProjectTask[] }> = {}
+    tasks.forEach(t => {
+      if (!grouped[t.project_id]) grouped[t.project_id] = { projectName: t.project_name, tasks: [] }
+      grouped[t.project_id].tasks.push(t)
+    })
+    return Object.values(grouped).sort((a, b) => {
+      // Projects with overdue tasks first
+      const aOverdue = a.tasks.some(t => t.due_date && t.due_date < now) ? 0 : 1
+      const bOverdue = b.tasks.some(t => t.due_date && t.due_date < now) ? 0 : 1
+      return aOverdue - bOverdue
+    })
+  }, [tasks, now])
+
+  // Cotizaciones by stage (counts only, no money)
+  const cotsByStage = useMemo(() => {
+    return STAGES.map(s => ({
+      stage: s,
+      label: STAGE_LABELS[s],
+      color: STAGE_COLORS[s],
+      count: quotations.filter(q => q.stage === s).length,
+    }))
+  }, [quotations])
 
   if (loading) return <Loading />
 
@@ -312,20 +368,14 @@ export default function DashboardVentasIng() {
           title={`Hola, ${authUser?.nombre?.split(' ')[0] || 'Ingeniero'}`}
           subtitle="Tu panel de trabajo — cotizaciones, tareas y entregables"
         />
-
-        {/* KPIs */}
         <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2,1fr)' : 'repeat(4,1fr)', gap: 12, marginBottom: 24 }}>
           <KpiCard label="Tareas pendientes" value={myTasks.length} color={myTasks.length > 8 ? '#F59E0B' : '#57FF9A'} icon={<Target size={16} />} />
           <KpiCard label="Vencidas" value={myOverdue.length} color={myOverdue.length > 0 ? '#EF4444' : '#57FF9A'} icon={<AlertTriangle size={16} />} />
           <KpiCard label="Esta semana" value={myDueWeek.length} color="#3B82F6" icon={<Calendar size={16} />} />
           <KpiCard label="Cotizaciones" value={myQuots.length} icon={<FileText size={16} />} />
         </div>
-
-        {/* Overdue alert */}
         {myOverdue.length > 0 && <OverdueAlert tasks={myOverdue} />}
-
         <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 20 }}>
-          {/* My Tasks */}
           <div>
             <CollapsibleHeader title="Mis Tareas Pendientes" count={myTasks.length} expanded={expandedSections.tasks} onToggle={() => toggle('tasks')} />
             {expandedSections.tasks && (
@@ -337,8 +387,6 @@ export default function DashboardVentasIng() {
               </div>
             )}
           </div>
-
-          {/* My Quotations + Projects */}
           <div>
             <CollapsibleHeader title="Mis Cotizaciones" count={myQuots.length} expanded={expandedSections.cotizaciones} onToggle={() => toggle('cotizaciones')} />
             {expandedSections.cotizaciones && (
@@ -349,7 +397,6 @@ export default function DashboardVentasIng() {
                 ))}
               </div>
             )}
-
             <div style={{ marginTop: 20 }}>
               <CollapsibleHeader title="Mis Proyectos" count={myProjects.length} expanded={expandedSections.projects} onToggle={() => toggle('projects')} />
               {expandedSections.projects && (
@@ -368,134 +415,104 @@ export default function DashboardVentasIng() {
   }
 
   // ═══════════════════════════════════════════════════════════════
-  // DIRECTOR VIEW
+  // DIRECTOR VIEW — Eficiencia, urgencias, distribución de trabajo
   // ═══════════════════════════════════════════════════════════════
 
-  const totalPipelineMXN = pipeline.reduce((s, p) => s + p.totalMXN, 0)
-  const totalPipelineUSD = pipeline.reduce((s, p) => s + p.totalUSD, 0)
-  const unassignedCount = quotations.filter(q => !q.assignee_id && q.stage !== 'contrato').length
+  const areaLabel = AREA_LABELS[myArea] || myArea || 'Ingeniería'
+  const totalTeam = employees.length
 
   return (
     <div style={{ padding: isMobile ? '16px 12px' : '24px 28px', maxWidth: 1200 }}>
       <SectionHeader
-        title="Panel de Ventas e Ingeniería"
-        subtitle={`${quotations.length} cotizaciones · ${projects.length} proyectos activos · ${tasks.length} tareas pendientes`}
+        title={`Panel de ${areaLabel}`}
+        subtitle={`${totalTeam} personas · ${projects.length} proyecto${projects.length !== 1 ? 's' : ''} · ${tasks.length} tareas pendientes · ${activeCotizaciones.length} cotizaciones activas`}
       />
 
-      {/* ── KPI ROW ── */}
+      {/* ── KPI ROW — efficiency focused ── */}
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2,1fr)' : 'repeat(5,1fr)', gap: 12, marginBottom: 24 }}>
-        <KpiCard label="Pipeline MXN" value={F(totalPipelineMXN)} color="#57FF9A" icon={<TrendingUp size={16} />} />
-        <KpiCard label="Pipeline USD" value={'$' + Math.round(totalPipelineUSD).toLocaleString()} color="#3B82F6" icon={<TrendingUp size={16} />} />
-        <KpiCard label="Alertas SLA" value={slaAlerts.length} color={slaAlerts.length > 0 ? '#EF4444' : '#57FF9A'} icon={<AlertTriangle size={16} />} />
-        <KpiCard label="Sin asignar" value={unassignedCount} color={unassignedCount > 0 ? '#F59E0B' : '#57FF9A'} icon={<Users size={16} />} />
-        <KpiCard label="Tasks vencidas" value={overdueTasks.length} color={overdueTasks.length > 0 ? '#EF4444' : '#57FF9A'} icon={<Clock size={16} />} />
+        <KpiCard label="Tareas pendientes" value={tasks.length} color={tasks.length > 20 ? '#F59E0B' : '#57FF9A'} icon={<Target size={16} />} />
+        <KpiCard label="Vencidas" value={overdueTasks.length} color={overdueTasks.length > 0 ? '#EF4444' : '#57FF9A'} icon={<AlertTriangle size={16} />} />
+        <KpiCard label="Esta semana" value={dueThisWeek.length} color="#3B82F6" icon={<Calendar size={16} />} />
+        <KpiCard label="Sin asignar" value={unassignedQuots.length} color={unassignedQuots.length > 0 ? '#F59E0B' : '#57FF9A'} icon={<UserCheck size={16} />} />
+        <KpiCard label="Alertas SLA" value={slaAlerts.length} color={slaAlerts.length > 0 ? '#EF4444' : '#57FF9A'} icon={<Clock size={16} />} />
       </div>
 
-      {/* ── PIPELINE FUNNEL ── */}
-      <CollapsibleHeader title="Pipeline de Cotizaciones" icon={<BarChart3 size={15} />} expanded={expandedSections.pipeline} onToggle={() => toggle('pipeline')} />
-      {expandedSections.pipeline && (
-        <div style={{ marginBottom: 24 }}>
-          <PipelineFunnel pipeline={pipeline} />
-          {/* Forecast */}
-          <div style={{ ...card, marginTop: 12, display: 'flex', gap: 24, alignItems: 'center', flexWrap: 'wrap' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <Target size={16} color="#57FF9A" />
-              <span style={{ fontSize: 13, fontWeight: 600, color: '#fff' }}>Forecast ponderado</span>
-            </div>
-            {forecast.mxn > 0 && (
-              <div style={{ fontSize: 13, color: '#ccc' }}>
-                MXN <span style={{ color: '#57FF9A', fontWeight: 700 }}>{F(forecast.mxn)}</span>
-              </div>
-            )}
-            {forecast.usd > 0 && (
-              <div style={{ fontSize: 13, color: '#ccc' }}>
-                USD <span style={{ color: '#3B82F6', fontWeight: 700 }}>{'$' + Math.round(forecast.usd).toLocaleString()}</span>
-              </div>
-            )}
-            <div style={{ fontSize: 11, color: '#555' }}>
-              (Oport 10% · Estim 30% · Prop 60% · Contr 90%)
-            </div>
-          </div>
-        </div>
-      )}
+      {/* ── OVERDUE ALERT ── */}
+      {overdueTasks.length > 0 && <OverdueAlert tasks={overdueTasks} empMap={empMap} />}
 
-      {/* ── ALERTS / ACTION ITEMS ── */}
-      {(actionItems.length > 0 || overdueTasks.length > 0) && (
-        <>
-          <CollapsibleHeader title="Requiere Acción" count={actionItems.length + overdueTasks.length} icon={<Zap size={15} />} expanded={expandedSections.alerts} onToggle={() => toggle('alerts')} color="#EF4444" />
-          {expandedSections.alerts && (
-            <div style={{ marginBottom: 24 }}>
-              {overdueTasks.length > 0 && <OverdueAlert tasks={overdueTasks} />}
-              {actionItems.length > 0 && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: overdueTasks.length > 0 ? 12 : 0 }}>
-                  {actionItems.slice(0, 10).map(item => (
-                    <div key={item.quotation.id}
-                      onClick={() => navigate(`/cotizaciones#${item.quotation.id}:${item.quotation.specialty}`)}
-                      style={{ ...card, padding: '12px 16px', cursor: 'pointer', borderLeft: `3px solid ${item.urgency >= 4 ? '#EF4444' : '#F59E0B'}` }}
-                      onMouseEnter={e => cardHover(e, true)} onMouseLeave={e => cardHover(e, false)}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <div>
-                          <div style={{ fontSize: 13, fontWeight: 500, color: '#fff' }}>{item.quotation.name}</div>
-                          <div style={{ fontSize: 11, color: '#666', marginTop: 2 }}>
-                            {item.quotation.client_name} · {SPECIALTY_CONFIG[item.quotation.specialty as keyof typeof SPECIALTY_CONFIG]?.label || item.quotation.specialty}
-                          </div>
-                        </div>
-                        <div style={{ textAlign: 'right' }}>
-                          <Badge label={item.reason} color={item.urgency >= 4 ? '#EF4444' : '#F59E0B'} />
-                          {item.quotation.assignee_id && (
-                            <div style={{ fontSize: 10, color: '#555', marginTop: 4 }}>{empMap[item.quotation.assignee_id] || ''}</div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-        </>
-      )}
-
-      {/* ── TEAM SCORECARD ── */}
-      <CollapsibleHeader title="Equipo" count={teamScorecard.length} icon={<Users size={15} />} expanded={expandedSections.team} onToggle={() => toggle('team')} />
-      {expandedSections.team && (
+      {/* ── DISTRIBUCIÓN DE TRABAJO ── */}
+      <CollapsibleHeader title="Distribución de Trabajo" count={workDistribution.length} icon={<Users size={15} />} expanded={expandedSections.workload} onToggle={() => toggle('workload')} />
+      {expandedSections.workload && (
         <div style={{ marginBottom: 24 }}>
-          {teamScorecard.length === 0 ? (
-            <EmptyState text="Asigna cotizaciones y tareas para ver el scorecard del equipo" />
+          {workDistribution.length === 0 ? (
+            <EmptyState text="Asigna tareas y cotizaciones a tu equipo para ver la distribución" />
           ) : (
             <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(2, 1fr)', gap: 10 }}>
-              {teamScorecard.map(sc => (
-                <div key={sc.employee.id} style={{ ...card, borderLeft: `3px solid ${sc.score >= 80 ? '#57FF9A' : sc.score >= 50 ? '#F59E0B' : '#EF4444'}` }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+              {workDistribution.map(w => (
+                <div key={w.employee.id} style={{
+                  ...card,
+                  borderLeft: `3px solid ${w.score >= 80 ? '#57FF9A' : w.score >= 50 ? '#F59E0B' : '#EF4444'}`,
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
                     <div>
-                      <div style={{ fontSize: 14, fontWeight: 600, color: '#fff' }}>{sc.employee.nombre || sc.employee.name}</div>
-                      <div style={{ fontSize: 11, color: '#666' }}>{sc.employee.puesto || sc.employee.area}</div>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: '#fff' }}>
+                        {w.employee.nombre || w.employee.name}
+                      </div>
+                      <div style={{ fontSize: 11, color: '#666' }}>{w.employee.puesto || w.employee.area}</div>
                     </div>
                     <div style={{
                       width: 40, height: 40, borderRadius: 20,
                       display: 'flex', alignItems: 'center', justifyContent: 'center',
                       fontSize: 14, fontWeight: 700,
-                      background: sc.score >= 80 ? 'rgba(87,255,154,0.15)' : sc.score >= 50 ? 'rgba(245,158,11,0.15)' : 'rgba(239,68,68,0.15)',
-                      color: sc.score >= 80 ? '#57FF9A' : sc.score >= 50 ? '#F59E0B' : '#EF4444',
+                      background: w.score >= 80 ? 'rgba(87,255,154,0.15)' : w.score >= 50 ? 'rgba(245,158,11,0.15)' : 'rgba(239,68,68,0.15)',
+                      color: w.score >= 80 ? '#57FF9A' : w.score >= 50 ? '#F59E0B' : '#EF4444',
                     }}>
-                      {sc.score}
+                      {w.score}
                     </div>
                   </div>
-                  <div style={{ display: 'flex', gap: 16, fontSize: 12 }}>
+                  {/* Workload bar */}
+                  <div style={{ display: 'flex', gap: 4, marginBottom: 10 }}>
+                    {w.taskCount > 0 && (
+                      <div style={{
+                        flex: w.taskCount, height: 6, borderRadius: 3,
+                        background: w.overdueCount > 0 ? '#EF4444' : '#3B82F6',
+                      }} />
+                    )}
+                    {w.quotCount > 0 && (
+                      <div style={{
+                        flex: w.quotCount, height: 6, borderRadius: 3,
+                        background: w.stalledCount > 0 ? '#F59E0B' : '#57FF9A',
+                      }} />
+                    )}
+                    {w.taskCount === 0 && w.quotCount === 0 && (
+                      <div style={{ flex: 1, height: 6, borderRadius: 3, background: '#222' }} />
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', gap: 14, fontSize: 12, flexWrap: 'wrap' }}>
                     <div style={{ color: '#888' }}>
-                      <FileText size={11} style={{ marginRight: 4, verticalAlign: -1 }} />{sc.quotCount} cots
+                      <Target size={11} style={{ marginRight: 4, verticalAlign: -1 }} />
+                      {w.taskCount} tarea{w.taskCount !== 1 ? 's' : ''}
                     </div>
                     <div style={{ color: '#888' }}>
-                      <Target size={11} style={{ marginRight: 4, verticalAlign: -1 }} />{sc.taskCount} tasks
+                      <FileText size={11} style={{ marginRight: 4, verticalAlign: -1 }} />
+                      {w.quotCount} cot{w.quotCount !== 1 ? 's' : ''}
                     </div>
-                    {sc.overdueCount > 0 && (
-                      <div style={{ color: '#EF4444' }}>
-                        <AlertTriangle size={11} style={{ marginRight: 4, verticalAlign: -1 }} />{sc.overdueCount} vencidas
+                    {w.overdueCount > 0 && (
+                      <div style={{ color: '#EF4444', fontWeight: 600 }}>
+                        <AlertTriangle size={11} style={{ marginRight: 4, verticalAlign: -1 }} />
+                        {w.overdueCount} vencida{w.overdueCount !== 1 ? 's' : ''}
                       </div>
                     )}
-                    {sc.stalledCount > 0 && (
-                      <div style={{ color: '#F59E0B' }}>
-                        <Timer size={11} style={{ marginRight: 4, verticalAlign: -1 }} />{sc.stalledCount} estancadas
+                    {w.dueWeekCount > 0 && (
+                      <div style={{ color: '#3B82F6' }}>
+                        <Calendar size={11} style={{ marginRight: 4, verticalAlign: -1 }} />
+                        {w.dueWeekCount} esta sem
+                      </div>
+                    )}
+                    {w.stalledCount > 0 && (
+                      <div style={{ color: '#F59E0B', fontWeight: 600 }}>
+                        <Timer size={11} style={{ marginRight: 4, verticalAlign: -1 }} />
+                        {w.stalledCount} estancada{w.stalledCount !== 1 ? 's' : ''}
                       </div>
                     )}
                   </div>
@@ -506,14 +523,44 @@ export default function DashboardVentasIng() {
         </div>
       )}
 
-      {/* ── PROJECTS + TASKS ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 20 }}>
-        {/* Active Projects */}
+      {/* ── REQUIERE ACCIÓN ── */}
+      {actionItems.length > 0 && (
+        <>
+          <CollapsibleHeader title="Requiere Acción" count={actionItems.length} icon={<Zap size={15} />} expanded={expandedSections.alerts} onToggle={() => toggle('alerts')} color="#EF4444" />
+          {expandedSections.alerts && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 24 }}>
+              {actionItems.slice(0, 12).map(item => (
+                <div key={item.quotation.id}
+                  onClick={() => navigate(`/cotizaciones#${item.quotation.id}:${item.quotation.specialty}`)}
+                  style={{ ...card, padding: '12px 16px', cursor: 'pointer', borderLeft: `3px solid ${item.urgency >= 4 ? '#EF4444' : '#F59E0B'}` }}
+                  onMouseEnter={e => cardHover(e, true)} onMouseLeave={e => cardHover(e, false)}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 500, color: '#fff' }}>{item.quotation.name || item.quotation.client_name}</div>
+                      <div style={{ fontSize: 11, color: '#666', marginTop: 2 }}>
+                        {item.quotation.client_name}
+                        {item.quotation.assignee_id && empMap[item.quotation.assignee_id] && (
+                          <span> · {empMap[item.quotation.assignee_id]}</span>
+                        )}
+                      </div>
+                    </div>
+                    <Badge label={item.reason} color={item.urgency >= 4 ? '#EF4444' : '#F59E0B'} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+
+      {/* ── BOTTOM GRID: Projects + Cotizaciones ── */}
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 20, marginBottom: 24 }}>
+        {/* Proyectos Activos */}
         <div>
           <CollapsibleHeader title="Proyectos Activos" count={projects.length} icon={<FolderOpen size={15} />} expanded={expandedSections.projects} onToggle={() => toggle('projects')} />
           {expandedSections.projects && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {projects.length === 0 && <EmptyState text="Sin proyectos activos" />}
+              {projects.length === 0 && <EmptyState text="Sin proyectos activos en tu área" />}
               {projects.map(p => (
                 <ProjectRow key={p.id} project={p} tasks={tasks.filter(t => t.project_id === p.id)} onClick={() => navigate(`/proyectos`)} empMap={empMap} />
               ))}
@@ -521,24 +568,56 @@ export default function DashboardVentasIng() {
           )}
         </div>
 
-        {/* Tasks needing attention */}
+        {/* Cotizaciones — tracking view (no money) */}
         <div>
-          <CollapsibleHeader title="Tareas Pendientes" count={tasks.length} icon={<Target size={15} />} expanded={expandedSections.tasks} onToggle={() => toggle('tasks')} />
-          {expandedSections.tasks && (
+          <CollapsibleHeader title="Cotizaciones de mi Área" count={activeCotizaciones.length} icon={<Briefcase size={15} />} expanded={expandedSections.cotizaciones} onToggle={() => toggle('cotizaciones')} />
+          {expandedSections.cotizaciones && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {tasks.length === 0 && <EmptyState text="Sin tareas pendientes" />}
-              {tasks.slice(0, 15).map(t => (
-                <TaskRow key={t.id} task={t} now={now} onClick={() => navigate(`/proyectos`)} showAssignee empMap={empMap} />
-              ))}
-              {tasks.length > 15 && (
-                <div style={{ fontSize: 12, color: '#555', padding: '8px 0', textAlign: 'center' }}>
-                  +{tasks.length - 15} tareas más
+              {activeCotizaciones.length === 0 && <EmptyState text="Sin cotizaciones activas" />}
+              {/* Stage summary mini-bar */}
+              {activeCotizaciones.length > 0 && (
+                <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                  {cotsByStage.filter(s => s.count > 0).map(s => (
+                    <div key={s.stage} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: s.color }}>
+                      <div style={{ width: 8, height: 8, borderRadius: 4, background: s.color }} />
+                      {s.count} {s.label}
+                    </div>
+                  ))}
                 </div>
               )}
+              {activeCotizaciones.map(q => (
+                <QuotRow key={q.id} quot={q} empMap={empMap} onClick={() => navigate(`/cotizaciones#${q.id}:${q.specialty}`)} />
+              ))}
             </div>
           )}
         </div>
       </div>
+
+      {/* ── TAREAS POR PROYECTO ── */}
+      <CollapsibleHeader title="Tareas Pendientes por Proyecto" count={tasks.length} icon={<Target size={15} />} expanded={expandedSections.tasks} onToggle={() => toggle('tasks')} />
+      {expandedSections.tasks && (
+        <div style={{ marginBottom: 24 }}>
+          {tasksByProject.length === 0 && <EmptyState text="Sin tareas pendientes" />}
+          {tasksByProject.map(group => (
+            <div key={group.projectName} style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: '#fff', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <FolderOpen size={13} color="#888" /> {group.projectName}
+                <span style={{ fontSize: 11, color: '#555', fontWeight: 400 }}>({group.tasks.length})</span>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {group.tasks.slice(0, 10).map(t => (
+                  <TaskRow key={t.id} task={t} now={now} onClick={() => navigate(`/proyectos`)} showAssignee empMap={empMap} compact />
+                ))}
+                {group.tasks.length > 10 && (
+                  <div style={{ fontSize: 11, color: '#555', padding: '4px 0', paddingLeft: 16 }}>
+                    +{group.tasks.length - 10} tareas más
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -565,49 +644,21 @@ function CollapsibleHeader({ title, count, icon, expanded, onToggle, color }: {
   )
 }
 
-function PipelineFunnel({ pipeline }: { pipeline: { stage: string; label: string; color: string; count: number; totalMXN: number; totalUSD: number }[] }) {
-  const maxCount = Math.max(...pipeline.map(p => p.count), 1)
+function OverdueAlert({ tasks, empMap }: { tasks: ProjectTask[]; empMap?: Record<string, string> }) {
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
-      {pipeline.map((p, i) => (
-        <div key={p.stage} style={{
-          ...card, textAlign: 'center', borderTop: `3px solid ${p.color}`,
-          position: 'relative', overflow: 'hidden',
-        }}>
-          {/* Background bar */}
-          <div style={{
-            position: 'absolute', bottom: 0, left: 0, right: 0,
-            height: `${Math.max(8, (p.count / maxCount) * 60)}%`,
-            background: p.color, opacity: 0.06,
-          }} />
-          <div style={{ position: 'relative' }}>
-            <div style={{ fontSize: 28, fontWeight: 800, color: p.color, lineHeight: 1.2 }}>{p.count}</div>
-            <div style={{ fontSize: 12, fontWeight: 600, color: '#ccc', marginBottom: 8 }}>{p.label}</div>
-            {p.totalMXN > 0 && (
-              <div style={{ fontSize: 11, color: '#888' }}>MXN {F(p.totalMXN)}</div>
-            )}
-            {p.totalUSD > 0 && (
-              <div style={{ fontSize: 11, color: '#888' }}>USD ${Math.round(p.totalUSD).toLocaleString()}</div>
-            )}
-          </div>
-          {i < 3 && (
-            <ArrowRight size={14} color="#333" style={{ position: 'absolute', right: -12, top: '50%', transform: 'translateY(-50%)', zIndex: 1 }} />
-          )}
-        </div>
-      ))}
-    </div>
-  )
-}
-
-function OverdueAlert({ tasks }: { tasks: ProjectTask[] }) {
-  return (
-    <div style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: 10, padding: '14px 18px', marginBottom: 12 }}>
+    <div style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: 10, padding: '14px 18px', marginBottom: 16 }}>
       <div style={{ fontSize: 13, fontWeight: 700, color: '#EF4444', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
         <AlertTriangle size={14} /> {tasks.length} tarea{tasks.length > 1 ? 's' : ''} vencida{tasks.length > 1 ? 's' : ''}
       </div>
-      {tasks.slice(0, 5).map(t => (
+      {tasks.slice(0, 6).map(t => (
         <div key={t.id} style={{ fontSize: 12, color: '#ccc', padding: '3px 0', display: 'flex', justifyContent: 'space-between' }}>
-          <span><span style={{ fontWeight: 500, color: '#fff' }}>{t.name}</span> — {t.project_name}</span>
+          <span>
+            <span style={{ fontWeight: 500, color: '#fff' }}>{t.name}</span>
+            <span style={{ color: '#666' }}> — {t.project_name}</span>
+            {empMap && t.assignee_id && empMap[t.assignee_id] && (
+              <span style={{ color: '#888' }}> · {empMap[t.assignee_id]}</span>
+            )}
+          </span>
           <span style={{ color: '#EF4444', fontSize: 11 }}>{t.due_date ? formatDate(t.due_date) : ''}</span>
         </div>
       ))}
@@ -615,27 +666,34 @@ function OverdueAlert({ tasks }: { tasks: ProjectTask[] }) {
   )
 }
 
-function TaskRow({ task, now, onClick, showAssignee, empMap }: {
-  task: ProjectTask; now: string; onClick: () => void; showAssignee?: boolean; empMap?: Record<string, string>
+function TaskRow({ task, now, onClick, showAssignee, empMap, compact }: {
+  task: ProjectTask; now: string; onClick: () => void; showAssignee?: boolean; empMap?: Record<string, string>; compact?: boolean
 }) {
   const isOverdue = task.due_date && task.due_date < now
   return (
     <div onClick={onClick} style={{
-      ...card, padding: '10px 14px', cursor: 'pointer',
+      ...card,
+      padding: compact ? '8px 14px' : '10px 14px',
+      cursor: 'pointer',
       borderLeft: `3px solid ${isOverdue ? '#EF4444' : task.status === 'en_progreso' ? '#3B82F6' : '#333'}`,
     }}
       onMouseEnter={e => cardHover(e, true)} onMouseLeave={e => cardHover(e, false)}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 13, fontWeight: 500, color: isOverdue ? '#EF4444' : '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          <div style={{ fontSize: compact ? 12 : 13, fontWeight: 500, color: isOverdue ? '#EF4444' : '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {task.name}
           </div>
-          <div style={{ fontSize: 11, color: '#555', marginTop: 2 }}>
-            {task.project_name}
-            {showAssignee && task.assignee_id && empMap && (
-              <span style={{ color: '#666' }}> · {empMap[task.assignee_id]}</span>
-            )}
-          </div>
+          {!compact && (
+            <div style={{ fontSize: 11, color: '#555', marginTop: 2 }}>
+              {task.project_name}
+              {showAssignee && task.assignee_id && empMap && (
+                <span style={{ color: '#666' }}> · {empMap[task.assignee_id]}</span>
+              )}
+            </div>
+          )}
+          {compact && showAssignee && task.assignee_id && empMap && (
+            <span style={{ fontSize: 10, color: '#666' }}>{empMap[task.assignee_id]}</span>
+          )}
         </div>
         <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: 12 }}>
           {task.due_date && (
@@ -643,9 +701,9 @@ function TaskRow({ task, now, onClick, showAssignee, empMap }: {
               {formatDate(task.due_date)}
             </div>
           )}
-          {task.progress > 0 && (
+          {task.progress > 0 && !compact && (
             <div style={{ width: 60, marginTop: 4 }}>
-              <ProgressBar pct={task.progress} color={isOverdue ? '#EF4444' : '#57FF9A'} />
+              <ProgressBar pct={task.progress} />
             </div>
           )}
         </div>
@@ -654,23 +712,28 @@ function TaskRow({ task, now, onClick, showAssignee, empMap }: {
   )
 }
 
-function QuotRow({ quot, onClick }: { quot: Quotation; onClick: () => void }) {
+function QuotRow({ quot, empMap, onClick }: { quot: Quotation; empMap?: Record<string, string>; onClick: () => void }) {
   const days = daysSince(quot.stage_changed_at || quot.updated_at || quot.created_at)
-  const cfg = SPECIALTY_CONFIG[quot.specialty as keyof typeof SPECIALTY_CONFIG]
   return (
     <div onClick={onClick} style={{
       ...card, padding: '10px 14px', cursor: 'pointer',
-      borderLeft: cfg ? `3px solid ${cfg.color}` : '3px solid #333',
+      borderLeft: `3px solid ${STAGE_COLORS[quot.stage] || '#333'}`,
     }}
       onMouseEnter={e => cardHover(e, true)} onMouseLeave={e => cardHover(e, false)}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
-          <div style={{ fontSize: 13, fontWeight: 500, color: '#fff' }}>{quot.name}</div>
-          <div style={{ fontSize: 11, color: '#666', marginTop: 2 }}>{quot.client_name}</div>
+          <div style={{ fontSize: 13, fontWeight: 500, color: '#fff' }}>{quot.name || quot.client_name}</div>
+          <div style={{ fontSize: 11, color: '#666', marginTop: 2 }}>
+            {quot.client_name}
+            {empMap && quot.assignee_id && empMap[quot.assignee_id] && (
+              <span> · {empMap[quot.assignee_id]}</span>
+            )}
+            {!quot.assignee_id && <span style={{ color: '#F59E0B' }}> · Sin asignar</span>}
+          </div>
         </div>
         <div style={{ textAlign: 'right' }}>
           <Badge label={STAGE_LABELS[quot.stage] || quot.stage} color={STAGE_COLORS[quot.stage] || '#888'} />
-          <div style={{ fontSize: 10, color: '#555', marginTop: 4 }}>{days}d en etapa</div>
+          <div style={{ fontSize: 10, color: days > 7 ? '#F59E0B' : '#555', marginTop: 4 }}>{days}d en etapa</div>
         </div>
       </div>
     </div>
@@ -681,9 +744,9 @@ function ProjectRow({ project, tasks, onClick, empMap }: {
   project: Project; tasks: ProjectTask[]; onClick: () => void; empMap?: Record<string, string>
 }) {
   const cfg = SPECIALTY_CONFIG[project.specialty as keyof typeof SPECIALTY_CONFIG]
-  const doneCount = tasks.filter(t => t.status === 'completada').length
+  const pendingCount = tasks.filter(t => t.status !== 'completada').length
   const totalCount = tasks.length
-  const pct = totalCount > 0 ? Math.round((doneCount / totalCount) * 100) : (project.advance_pct || 0)
+  const pct = totalCount > 0 ? Math.round(((totalCount - pendingCount) / totalCount) * 100) : (project.advance_pct || 0)
 
   return (
     <div onClick={onClick} style={{
@@ -702,7 +765,7 @@ function ProjectRow({ project, tasks, onClick, empMap }: {
           </div>
         </div>
         <div style={{ textAlign: 'right' }}>
-          <div style={{ fontSize: 11, color: '#888' }}>{totalCount > 0 ? `${doneCount}/${totalCount} tareas` : `${pct}%`}</div>
+          <div style={{ fontSize: 11, color: '#888' }}>{pendingCount} pendiente{pendingCount !== 1 ? 's' : ''}</div>
           {project.end_date_planned && (
             <div style={{ fontSize: 10, color: project.end_date_planned < new Date().toISOString().slice(0, 10) ? '#EF4444' : '#555' }}>
               {formatDate(project.end_date_planned)}
