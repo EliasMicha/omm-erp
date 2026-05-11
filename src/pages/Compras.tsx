@@ -5,7 +5,8 @@ import { Project, CatalogProduct, ProjectLine, PurchasePhase } from '../types'
 import { F, FUSD, FCUR, SPECIALTY_CONFIG, PHASE_CONFIG, formatDate } from '../lib/utils'
 import { Badge, Btn, KpiCard, Table, Th, Td, Loading, SectionHeader, EmptyState } from '../components/layout/UI'
 import { useIsMobile } from '../lib/useIsMobile'
-import { Plus, ChevronLeft, X, Search, Trash2, Save, ShoppingCart, Truck, Package, Users2, FileText, Copy, Sparkles, Upload, ClipboardList, CheckCircle2, Circle, Clock } from 'lucide-react'
+import { Plus, ChevronLeft, X, Search, Trash2, Save, ShoppingCart, Truck, Package, Users2, FileText, Copy, Sparkles, Upload, ClipboardList, CheckCircle2, Circle, Clock, Download } from 'lucide-react'
+import { generatePOPdf } from '../lib/poPdf'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type POStatus = 'borrador' | 'aprobada' | 'pedida' | 'recibida_parcial' | 'recibida' | 'cancelada'
@@ -2003,6 +2004,7 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
           </div>
         </div>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          <Btn size="sm" onClick={() => generatePOPdf(po as any, items)}><Download size={14} /> PDF</Btn>
           {statusActions.map(a => (
             <div key={a.target} title={a.tooltip} style={{ display: 'inline-flex' }}>
               <Btn variant={a.variant} size="sm" disabled={a.disabled} onClick={() => changeStatus(a.target)}>{a.label}</Btn>
