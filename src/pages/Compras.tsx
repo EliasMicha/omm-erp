@@ -2036,6 +2036,15 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
             }))
             generatePOPdf(po as any, enriched)
           }}><Download size={14} /> PDF</Btn>
+          <Btn size="sm" variant="ghost" onClick={() => {
+            const catMap = new Map(catalog.map(c => [c.id, c]))
+            const enriched = items.map(it => ({
+              ...it,
+              marca: it.catalog_product_id ? (catMap.get(it.catalog_product_id) as any)?.marca || '' : '',
+              modelo: it.catalog_product_id ? (catMap.get(it.catalog_product_id) as any)?.modelo || '' : '',
+            }))
+            generatePOPdf(po as any, enriched, { sinCostos: true })
+          }}><FileText size={14} /> PDF sin costos</Btn>
           {statusActions.map(a => (
             <div key={a.target} title={a.tooltip} style={{ display: 'inline-flex' }}>
               <Btn variant={a.variant} size="sm" disabled={a.disabled} onClick={() => changeStatus(a.target)}>{a.label}</Btn>

@@ -55,7 +55,12 @@ const STATUS_LABELS: Record<string, string> = {
 
 // ─── Main export ──────────────────────────────────────────────────────────────
 
-export function generatePOPdf(po: POForPdf, items: POItemForPdf[]) {
+export interface POPdfOptions {
+  sinCostos?: boolean
+}
+
+export function generatePOPdf(po: POForPdf, items: POItemForPdf[], opts?: POPdfOptions) {
+  const sinCostos = opts?.sinCostos ?? false
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'letter' })
   const pageW = doc.internal.pageSize.getWidth()
   const margin = 18
@@ -73,7 +78,7 @@ export function generatePOPdf(po: POForPdf, items: POItemForPdf[]) {
   doc.setFontSize(16)
   doc.setFont('helvetica', 'bold')
   doc.setTextColor(30, 30, 30)
-  doc.text('Orden de Compra', pageW - margin, y + 6, { align: 'right' })
+  doc.text(sinCostos ? 'Solicitud de Cotización' : 'Orden de Compra', pageW - margin, y + 6, { align: 'right' })
 
   doc.setFontSize(20)
   doc.setTextColor(0, 120, 80)
@@ -96,14 +101,14 @@ export function generatePOPdf(po: POForPdf, items: POItemForPdf[]) {
   doc.setFont('helvetica', 'normal')
 
   // Left column — PO info
-  const infoLeft = [
-    ['Estado', STATUS_LABELS[po.status] || po.status],
+  const infoLeft: string[][] = [
     ['Fecha', fmtDate(po.created_at)],
     ['Moneda', po.currency],
     ['Especialidad', po.specialty],
   ]
+  if (!sinCostos) infoLeft.unshift(['Estado', STATUS_LABELS[po.status] || po.status])
   if (po.purchase_phase) infoLeft.push(['Fase', po.purchase_phase])
-  if (po.supplier_doc_number) infoLeft.push(['Doc proveedor', po.supplier_doc_number])
+  if (!sinCostos && po.supplier_doc_number) infoLeft.push(['Doc proveedor', po.supplier_doc_number])
   if (po.expected_delivery) infoLeft.push(['Entrega esperada', fmtDate(po.expected_delivery)])
   if (po.quotation?.name) infoLeft.push(['Cotizacion', po.quotation.name])
   if (po.project?.name) infoLeft.push(['Proyecto', po.project.name])
@@ -152,17 +157,26 @@ export function generatePOPdf(po: POForPdf, items: POItemForPdf[]) {
   y = yInfo + 6
 
   // ── Items table ──
-  const tableHead = [['#', 'Marca', 'Modelo', 'Descripción', 'Unidad', 'Cant', 'P. Unitario', 'Total']]
-  const tableBody = items.map((it, i) => [
-    String(i + 1),
-    it.marca || '--',
-    it.modelo || '--',
-    it.name || '',
-    it.unit,
-    String(it.quantity),
-    fmtMoney(it.unit_cost, po.currency),
-    fmtMoney(it.total, po.currency),
-  ])
+  const tableHead = sinCostos
+    ? [['#', 'Marca', 'Modelo', 'Descripción', 'Unidad', 'Cant', 'P. Unitario', 'Total']]
+    : [['#', 'Marca', 'Modelo', 'Descripción', 'Unidad', 'Cant', 'P. Unitario', 'Total']]
+
+  const tableBody = items.map((it, i) => {
+    const row = [
+      String(i + 1),
+      it.marca || '--',
+      it.modelo || '--',
+      it.name || '',
+      it.unit,
+      String(it.quantity),
+    ]
+    if (sinCostos) {
+      row.push('', '') // empty columns for supplier to fill in
+    } else {
+      row.push(fmtMoney(it.unit_cost, po.currency), fmtMoney(it.total, po.currency))
+    }
+    return row
+  })
 
   autoTable(doc, {
     startY: y,
@@ -203,35 +217,47 @@ export function generatePOPdf(po: POForPdf, items: POItemForPdf[]) {
     },
   })
 
-  // ── Totals ──
-  y = (doc as any).lastAutoTable?.finalY + 4 || y + 40
-  const totalsX = pageW - margin - 60
+  // ── Totals (skip for sinCostos) ──
+  if (!sinCostos) {
+    y = (doc as any).lastAutoTable?.finalY + 4 || y + 40
+    const totalsX = pageW - margin - 60
 
-  const totals = [
-    ['Subtotal', fmtMoney(po.subtotal, po.currency)],
-    ['IVA (16%)', fmtMoney(po.iva, po.currency)],
-    ['TOTAL', fmtMoney(po.total, po.currency)],
-  ]
+    const totals = [
+      ['Subtotal', fmtMoney(po.subtotal, po.currency)],
+      ['IVA (16%)', fmtMoney(po.iva, po.currency)],
+      ['TOTAL', fmtMoney(po.total, po.currency)],
+    ]
 
-  for (const [label, value] of totals) {
-    const isBold = label === 'TOTAL'
-    doc.setFontSize(isBold ? 10 : 8)
-    doc.setFont('helvetica', isBold ? 'bold' : 'normal')
-    doc.setTextColor(isBold ? 0 : 80, isBold ? 100 : 80, isBold ? 60 : 80)
-    doc.text(label, totalsX, y, { align: 'right' })
-    doc.setTextColor(isBold ? 0 : 40, isBold ? 80 : 40, isBold ? 50 : 40)
-    doc.text(value, pageW - margin, y, { align: 'right' })
-    if (isBold) {
-      doc.setDrawColor(0, 120, 80)
-      doc.setLineWidth(0.5)
-      doc.line(totalsX + 2, y + 1.5, pageW - margin, y + 1.5)
+    for (const [label, value] of totals) {
+      const isBold = label === 'TOTAL'
+      doc.setFontSize(isBold ? 10 : 8)
+      doc.setFont('helvetica', isBold ? 'bold' : 'normal')
+      doc.setTextColor(isBold ? 0 : 80, isBold ? 100 : 80, isBold ? 60 : 80)
+      doc.text(label, totalsX, y, { align: 'right' })
+      doc.setTextColor(isBold ? 0 : 40, isBold ? 80 : 40, isBold ? 50 : 40)
+      doc.text(value, pageW - margin, y, { align: 'right' })
+      if (isBold) {
+        doc.setDrawColor(0, 120, 80)
+        doc.setLineWidth(0.5)
+        doc.line(totalsX + 2, y + 1.5, pageW - margin, y + 1.5)
+      }
+      y += isBold ? 6 : 5
     }
-    y += isBold ? 6 : 5
+  } else {
+    // Add note for supplier to fill pricing
+    y = (doc as any).lastAutoTable?.finalY + 8 || y + 40
+    doc.setFontSize(9)
+    doc.setFont('helvetica', 'italic')
+    doc.setTextColor(100, 100, 100)
+    doc.text('Favor de llenar las columnas de Precio Unitario y Total.', margin, y)
+    y += 5
+    doc.text('Incluir condiciones de pago, tiempo de entrega y vigencia de cotización.', margin, y)
   }
 
   // ── Notes ──
   if (po.notes) {
-    y += 4
+    y = sinCostos ? y + 8 : y
+    if (!sinCostos) y += 4
     doc.setFontSize(8)
     doc.setFont('helvetica', 'bold')
     doc.setTextColor(100, 100, 100)
@@ -244,5 +270,6 @@ export function generatePOPdf(po: POForPdf, items: POItemForPdf[]) {
   }
 
   // ── Download ──
-  doc.save(`${po.po_number}.pdf`)
+  const suffix = sinCostos ? '_cotizar' : ''
+  doc.save(`${po.po_number}${suffix}.pdf`)
 }
