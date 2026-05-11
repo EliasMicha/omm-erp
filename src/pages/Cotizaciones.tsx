@@ -141,19 +141,8 @@ function CotDashboard({ onOpen }: { onOpen: (id: string, specialty?: string) => 
     try { const m = JSON.parse(c.notes || '{}'); return m.proyConfig?.ivaRate || 16 } catch { return 16 }
   }
   function getTotalConIva(c: any): number {
-    // ESP: DB total is raw items sum — compute final total from notes config
-    if (c.specialty === 'esp') {
-      try {
-        const m = JSON.parse(c.notes || '{}')
-        const desc = m.descuento || 0
-        const prog = m.programacion || 0
-        const sub = (c.total || 0) + prog
-        const subConDesc = sub - sub * desc / 100
-        return subConDesc * (1 + 16 / 100)  // ESP always uses 16% IVA
-      } catch { return (c.total || 0) * 1.16 }
-    }
-    // Cortinas, Ilum, and Proyecto editors store total WITH IVA already
-    if (c.specialty === 'cort' || c.specialty === 'ilum' || c.specialty === 'proy') return c.total || 0
+    // ESP, Cortinas, Ilum, and Proyecto editors all store total WITH IVA already
+    if (c.specialty === 'esp' || c.specialty === 'cort' || c.specialty === 'ilum' || c.specialty === 'proy') return c.total || 0
     // elec (generic editor) stores raw item subtotal without IVA
     const iva = getIvaRate(c)
     return c.total * (1 + iva / 100)

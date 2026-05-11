@@ -429,18 +429,8 @@ export default function LeadDashboard() {
     } catch { return 'USD' }
   }
 
-  // ESP: DB total is raw items sum — compute final with descuento + IVA from notes
-  const getEspTotal = (q: any): number => {
-    const raw = Number(q.total) || 0
-    try {
-      const m = typeof q.notes === 'string' ? JSON.parse(q.notes) : (q.notes || {})
-      const desc = m.descuento || 0
-      const prog = m.programacion || 0
-      const sub = raw + prog
-      const subConDesc = sub - sub * desc / 100
-      return subConDesc * 1.16  // ESP always uses 16% IVA
-    } catch { return raw * 1.16 }
-  }
+  // ESP editor now stores total WITH IVA+descuento already applied — use directly
+  const getEspTotal = (q: any): number => Number(q.total) || 0
 
   const toMXN = (amount: number, currency: string) =>
     currency === 'USD' ? amount * tipoCambio : amount
