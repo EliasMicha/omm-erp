@@ -5,7 +5,7 @@ import { Project, CatalogProduct, ProjectLine, PurchasePhase } from '../types'
 import { F, FUSD, FCUR, SPECIALTY_CONFIG, PHASE_CONFIG, formatDate } from '../lib/utils'
 import { Badge, Btn, KpiCard, Table, Th, Td, Loading, SectionHeader, EmptyState } from '../components/layout/UI'
 import { useIsMobile } from '../lib/useIsMobile'
-import { Plus, ChevronLeft, X, Search, Trash2, Save, ShoppingCart, Truck, Package, Users2, FileText, Copy, Sparkles, Upload } from 'lucide-react'
+import { Plus, ChevronLeft, X, Search, Trash2, Save, ShoppingCart, Truck, Package, Users2, FileText, Copy, Sparkles, Upload, ClipboardList, CheckCircle2, Circle, Clock } from 'lucide-react'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type POStatus = 'borrador' | 'aprobada' | 'pedida' | 'recibida_parcial' | 'recibida' | 'cancelada'
@@ -242,7 +242,7 @@ function SearchableSelect({ label, value, onChange, options, placeholder }: {
 // ═══════════════════════════════════════════════════════════════════════════════
 export default function Compras() {
   const isMobile = useIsMobile()
-  const [view, setView] = useState<'dashboard' | 'lista' | 'proveedores'>('dashboard')
+  const [view, setView] = useState<'dashboard' | 'lista' | 'seguimiento' | 'proveedores'>('dashboard')
   const [editingPO, setEditingPO] = useState<string | null>(null)
   const [editingSupplier, setEditingSupplier] = useState<string | null>(null)
 
@@ -256,6 +256,7 @@ export default function Compras() {
         {([
           { key: 'dashboard', label: 'Dashboard', icon: ShoppingCart },
           { key: 'lista', label: 'Órdenes de compra', icon: FileText },
+          { key: 'seguimiento', label: 'Seguimiento', icon: ClipboardList },
           { key: 'proveedores', label: 'Proveedores', icon: Users2 },
         ] as const).map(({ key, label, icon: Icon }) => (
           <button key={key} onClick={() => setView(key)}
@@ -274,6 +275,7 @@ export default function Compras() {
 
       {view === 'dashboard' && <ComprasDashboard onOpenPO={id => { setEditingPO(id) }} onGoToList={() => setView('lista')} />}
       {view === 'lista' && <POList onOpen={id => setEditingPO(id)} />}
+      {view === 'seguimiento' && <ProcurementTracker onOpenPO={id => setEditingPO(id)} />}
       {view === 'proveedores' && <SupplierList onOpen={id => setEditingSupplier(id)} />}
     </div>
   )
@@ -432,6 +434,343 @@ function ComprasDashboard({ onOpenPO, onGoToList }: { onOpenPO: (id: string) => 
             </tbody>
           </Table>
         </div>
+      )}
+    </div>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  PROCUREMENT TRACKER — Vendido → OC Generada → Pedido
+// ═══════════════════════════════════════════════════════════════════════════════
+
+type ProcStatus = 'vendido' | 'oc_generada' | 'pedido'
+const PROC_CFG: Record<ProcStatus, { label: string; color: string; icon: typeof Circle }> = {
+  vendido:     { label: 'Vendido',       color: '#F59E0B', icon: Circle },
+  oc_generada: { label: 'OC Generada',   color: '#3B82F6', icon: Clock },
+  pedido:      { label: 'Pedido',        color: '#57FF9A', icon: CheckCircle2 },
+}
+
+interface TrackedItem {
+  qi_id: string
+  qi_name: string
+  qi_quantity: number
+  qi_cost: number
+  qi_total: number
+  qi_system: string
+  qi_supplier: string
+  qi_currency: string
+  catalog_product_id: string | null
+  // PO info (if exists)
+  po_id: string | null
+  po_number: string | null
+  po_status: POStatus | null
+  po_supplier_name: string | null
+  // Derived
+  proc_status: ProcStatus
+}
+
+interface TrackedQuotation {
+  id: string
+  name: string
+  lead_name: string
+  client_name: string
+  specialty: string
+  items: TrackedItem[]
+}
+
+function ProcurementTracker({ onOpenPO }: { onOpenPO: (id: string) => void }) {
+  const isMobile = useIsMobile()
+  const [quotations, setQuotations] = useState<TrackedQuotation[]>([])
+  const [loading, setLoading] = useState(true)
+  const [filterStatus, setFilterStatus] = useState<ProcStatus | 'todas'>('todas')
+  const [expandedQuots, setExpandedQuots] = useState<Set<string>>(new Set())
+  const [search, setSearch] = useState('')
+
+  useEffect(() => {
+    async function load() {
+      // 1. Get all vendida quotations (stage = contrato)
+      const { data: quots } = await supabase
+        .from('quotations')
+        .select('id, name, client_name, notes, specialty')
+        .eq('stage', 'contrato')
+        .order('updated_at', { ascending: false })
+
+      if (!quots || quots.length === 0) { setLoading(false); return }
+
+      const quotIds = quots.map(q => q.id)
+
+      // 2. Get all quotation items (materials only — labor doesn't need procurement)
+      const { data: qItems } = await supabase
+        .from('quotation_items')
+        .select('id, quotation_id, catalog_product_id, name, quantity, cost, total, system, provider, provider_currency')
+        .in('quotation_id', quotIds)
+        .eq('type', 'material')
+        .order('order_index')
+
+      // 3. Get all POs linked to these quotations
+      const { data: pos } = await supabase
+        .from('purchase_orders')
+        .select('id, po_number, quotation_id, status, supplier:suppliers(name)')
+        .in('quotation_id', quotIds)
+
+      // 4. Get all PO items for those POs
+      const poIds = (pos || []).map(p => p.id)
+      let poItems: any[] = []
+      if (poIds.length > 0) {
+        const { data } = await supabase
+          .from('po_items')
+          .select('id, purchase_order_id, catalog_product_id, name, quantity')
+          .in('purchase_order_id', poIds)
+        poItems = data || []
+      }
+
+      // 5. Build lookup: catalog_product_id+quotation_id → PO info
+      const poLookup: Record<string, { po_id: string; po_number: string; po_status: POStatus; po_supplier_name: string }> = {}
+      for (const pi of poItems) {
+        const po = (pos || []).find(p => p.id === pi.purchase_order_id)
+        if (po && pi.catalog_product_id) {
+          const key = `${pi.catalog_product_id}__${po.quotation_id}`
+          poLookup[key] = {
+            po_id: po.id,
+            po_number: po.po_number,
+            po_status: po.status as POStatus,
+            po_supplier_name: (po.supplier as any)?.name || '',
+          }
+        }
+      }
+
+      // 6. Build tracked quotations
+      const tracked: TrackedQuotation[] = quots.map(q => {
+        const notes = typeof q.notes === 'string' ? (() => { try { return JSON.parse(q.notes) } catch { return {} } })() : (q.notes || {})
+        const items: TrackedItem[] = (qItems || [])
+          .filter(qi => qi.quotation_id === q.id)
+          .map(qi => {
+            const key = qi.catalog_product_id ? `${qi.catalog_product_id}__${q.id}` : ''
+            const poInfo = key ? poLookup[key] : null
+
+            let proc_status: ProcStatus = 'vendido'
+            if (poInfo) {
+              const paidStatuses: POStatus[] = ['pedida', 'recibida_parcial', 'recibida']
+              proc_status = paidStatuses.includes(poInfo.po_status) ? 'pedido' : 'oc_generada'
+            }
+
+            return {
+              qi_id: qi.id,
+              qi_name: qi.name,
+              qi_quantity: Number(qi.quantity),
+              qi_cost: Number(qi.cost),
+              qi_total: Number(qi.total),
+              qi_system: qi.system || '',
+              qi_supplier: qi.provider || '',
+              qi_currency: qi.provider_currency || 'MXN',
+              catalog_product_id: qi.catalog_product_id,
+              po_id: poInfo?.po_id || null,
+              po_number: poInfo?.po_number || null,
+              po_status: poInfo?.po_status || null,
+              po_supplier_name: poInfo?.po_supplier_name || null,
+              proc_status,
+            }
+          })
+        return {
+          id: q.id,
+          name: q.name,
+          lead_name: notes.lead_name || '',
+          client_name: q.client_name || '',
+          specialty: q.specialty || '',
+          items,
+        }
+      }).filter(q => q.items.length > 0)
+
+      setQuotations(tracked)
+      // Auto-expand all
+      setExpandedQuots(new Set(tracked.map(q => q.id)))
+      setLoading(false)
+    }
+    load()
+  }, [])
+
+  if (loading) return <Loading />
+
+  // Flatten all items for KPI counting
+  const allItems = quotations.flatMap(q => q.items)
+  const filteredQuots = quotations.map(q => {
+    let items = q.items
+    if (filterStatus !== 'todas') items = items.filter(i => i.proc_status === filterStatus)
+    if (search.trim()) {
+      const s = search.toLowerCase()
+      items = items.filter(i => i.qi_name.toLowerCase().includes(s) || i.qi_supplier.toLowerCase().includes(s) || (i.po_number || '').toLowerCase().includes(s))
+    }
+    return { ...q, items }
+  }).filter(q => q.items.length > 0)
+
+  const totalVendido = allItems.filter(i => i.proc_status === 'vendido').length
+  const totalOC = allItems.filter(i => i.proc_status === 'oc_generada').length
+  const totalPedido = allItems.filter(i => i.proc_status === 'pedido').length
+  const costoVendido = allItems.filter(i => i.proc_status === 'vendido').reduce((s, i) => s + i.qi_total, 0)
+  const costoOC = allItems.filter(i => i.proc_status === 'oc_generada').reduce((s, i) => s + i.qi_total, 0)
+  const costoPedido = allItems.filter(i => i.proc_status === 'pedido').reduce((s, i) => s + i.qi_total, 0)
+
+  const toggleQuot = (id: string) => setExpandedQuots(prev => {
+    const next = new Set(prev)
+    next.has(id) ? next.delete(id) : next.add(id)
+    return next
+  })
+
+  return (
+    <div>
+      <SectionHeader title="Seguimiento de compras" subtitle="Items vendidos → Órdenes de compra → Pedidos" />
+
+      {/* KPIs */}
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, 1fr)', gap: 12, marginBottom: 20 }}>
+        <div onClick={() => setFilterStatus(filterStatus === 'vendido' ? 'todas' : 'vendido')} style={{
+          background: '#141414', border: `1px solid ${filterStatus === 'vendido' ? '#F59E0B' : '#222'}`, borderRadius: 12,
+          padding: '14px 18px', cursor: 'pointer', transition: 'border-color 0.15s', borderLeft: '3px solid #F59E0B',
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div>
+              <div style={{ fontSize: 10, color: '#F59E0B', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>
+                <Circle size={10} style={{ marginRight: 4, verticalAlign: 'middle' }} />Falta generar OC
+              </div>
+              <div style={{ fontSize: 24, fontWeight: 700, color: '#fff' }}>{totalVendido}</div>
+              <div style={{ fontSize: 11, color: '#555', marginTop: 2 }}>items · {FCUR(costoVendido, 'USD')}</div>
+            </div>
+          </div>
+        </div>
+        <div onClick={() => setFilterStatus(filterStatus === 'oc_generada' ? 'todas' : 'oc_generada')} style={{
+          background: '#141414', border: `1px solid ${filterStatus === 'oc_generada' ? '#3B82F6' : '#222'}`, borderRadius: 12,
+          padding: '14px 18px', cursor: 'pointer', transition: 'border-color 0.15s', borderLeft: '3px solid #3B82F6',
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div>
+              <div style={{ fontSize: 10, color: '#3B82F6', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>
+                <Clock size={10} style={{ marginRight: 4, verticalAlign: 'middle' }} />OC generada · Falta pedir
+              </div>
+              <div style={{ fontSize: 24, fontWeight: 700, color: '#fff' }}>{totalOC}</div>
+              <div style={{ fontSize: 11, color: '#555', marginTop: 2 }}>items · {FCUR(costoOC, 'USD')}</div>
+            </div>
+          </div>
+        </div>
+        <div onClick={() => setFilterStatus(filterStatus === 'pedido' ? 'todas' : 'pedido')} style={{
+          background: '#141414', border: `1px solid ${filterStatus === 'pedido' ? '#57FF9A' : '#222'}`, borderRadius: 12,
+          padding: '14px 18px', cursor: 'pointer', transition: 'border-color 0.15s', borderLeft: '3px solid #57FF9A',
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div>
+              <div style={{ fontSize: 10, color: '#57FF9A', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>
+                <CheckCircle2 size={10} style={{ marginRight: 4, verticalAlign: 'middle' }} />Pedido
+              </div>
+              <div style={{ fontSize: 24, fontWeight: 700, color: '#fff' }}>{totalPedido}</div>
+              <div style={{ fontSize: 11, color: '#555', marginTop: 2 }}>items · {FCUR(costoPedido, 'USD')}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Search */}
+      <div style={{ position: 'relative', marginBottom: 16 }}>
+        <Search size={14} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: '#555' }} />
+        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar producto, proveedor, OC..."
+          style={{ width: '100%', background: '#111', border: '1px solid #333', borderRadius: 8, padding: '8px 12px 8px 34px', color: '#fff', fontSize: 12, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' as any }} />
+      </div>
+
+      {/* Progress bar */}
+      {allItems.length > 0 && (
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ display: 'flex', height: 8, borderRadius: 4, overflow: 'hidden', background: '#1a1a1a' }}>
+            {totalPedido > 0 && <div style={{ width: `${(totalPedido / allItems.length) * 100}%`, background: '#57FF9A', transition: 'width 0.3s' }} />}
+            {totalOC > 0 && <div style={{ width: `${(totalOC / allItems.length) * 100}%`, background: '#3B82F6', transition: 'width 0.3s' }} />}
+            {totalVendido > 0 && <div style={{ width: `${(totalVendido / allItems.length) * 100}%`, background: '#F59E0B', transition: 'width 0.3s' }} />}
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4, fontSize: 10, color: '#555' }}>
+            <span>{Math.round(((totalPedido + totalOC) / allItems.length) * 100)}% con OC</span>
+            <span>{Math.round((totalPedido / allItems.length) * 100)}% pedido</span>
+          </div>
+        </div>
+      )}
+
+      {/* Quotation groups */}
+      {filteredQuots.length === 0 ? (
+        <EmptyState message={filterStatus !== 'todas' ? 'Sin items con ese status' : 'No hay cotizaciones vendidas'} />
+      ) : (
+        filteredQuots.map(q => {
+          const expanded = expandedQuots.has(q.id)
+          const vCount = q.items.filter(i => i.proc_status === 'vendido').length
+          const ocCount = q.items.filter(i => i.proc_status === 'oc_generada').length
+          const pCount = q.items.filter(i => i.proc_status === 'pedido').length
+          const espCfg = SPECIALTY_CONFIG[q.specialty as ProjectLine]
+          return (
+            <div key={q.id} style={{ marginBottom: 12, background: '#111', border: '1px solid #222', borderRadius: 12, overflow: 'hidden' }}>
+              {/* Header */}
+              <div onClick={() => toggleQuot(q.id)} style={{
+                padding: '12px 16px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                borderBottom: expanded ? '1px solid #222' : 'none',
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: '#fff' }}>{q.lead_name || q.name}</span>
+                  {q.lead_name && <span style={{ fontSize: 11, color: '#555' }}>{q.name}</span>}
+                  {espCfg && <Badge label={espCfg.icon + ' ' + espCfg.label} color={espCfg.color} />}
+                </div>
+                <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                  {vCount > 0 && <span style={{ fontSize: 10, color: '#F59E0B', fontWeight: 600 }}>{vCount} sin OC</span>}
+                  {ocCount > 0 && <span style={{ fontSize: 10, color: '#3B82F6', fontWeight: 600 }}>{ocCount} OC</span>}
+                  {pCount > 0 && <span style={{ fontSize: 10, color: '#57FF9A', fontWeight: 600 }}>{pCount} pedido</span>}
+                  <span style={{ color: '#444', fontSize: 14, transform: expanded ? 'rotate(90deg)' : 'rotate(0)', transition: 'transform 0.15s' }}>▶</span>
+                </div>
+              </div>
+              {/* Items table */}
+              {expanded && (
+                <div style={{ overflowX: 'auto' }}>
+                  <Table>
+                    <thead><tr>
+                      <Th>Status</Th>
+                      <Th>Producto</Th>
+                      <Th>Proveedor</Th>
+                      <Th right>Cant</Th>
+                      <Th right>Costo</Th>
+                      <Th right>Total</Th>
+                      <Th>OC</Th>
+                    </tr></thead>
+                    <tbody>
+                      {q.items.map(item => {
+                        const cfg = PROC_CFG[item.proc_status]
+                        const Icon = cfg.icon
+                        return (
+                          <tr key={item.qi_id}>
+                            <Td>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <Icon size={14} color={cfg.color} />
+                                <span style={{ fontSize: 11, color: cfg.color, fontWeight: 600 }}>{cfg.label}</span>
+                              </div>
+                            </Td>
+                            <Td>
+                              <div style={{ maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12, color: '#ccc' }}>
+                                {item.qi_name}
+                              </div>
+                            </Td>
+                            <Td muted>{item.qi_supplier || '--'}</Td>
+                            <Td right>{item.qi_quantity}</Td>
+                            <Td right muted>{FCUR(item.qi_cost, item.qi_currency as any)}</Td>
+                            <Td right><span style={{ fontWeight: 600, color: '#ccc' }}>{FCUR(item.qi_total, item.qi_currency as any)}</span></Td>
+                            <Td>
+                              {item.po_number ? (
+                                <span onClick={e => { e.stopPropagation(); if (item.po_id) onOpenPO(item.po_id) }}
+                                  style={{ fontSize: 11, color: '#3B82F6', cursor: 'pointer', textDecoration: 'underline' }}>
+                                  {item.po_number}
+                                </span>
+                              ) : (
+                                <span style={{ fontSize: 11, color: '#444' }}>—</span>
+                              )}
+                            </Td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </Table>
+                </div>
+              )}
+            </div>
+          )
+        })
       )}
     </div>
   )
