@@ -896,6 +896,26 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
   }
   useEffect(load, [])
 
+  async function downloadPdf(o: PurchaseOrder) {
+    const [{ data: poFull }, { data: poItems }] = await Promise.all([
+      supabase.from('purchase_orders').select('*,supplier:suppliers(*),quotation:quotations(name)').eq('id', o.id).single(),
+      supabase.from('po_items').select('*').eq('purchase_order_id', o.id).order('order_index'),
+    ])
+    if (!poFull || !poItems) return
+    const catIds = [...new Set(poItems.map((it: any) => it.catalog_product_id).filter(Boolean))]
+    let catMap = new Map<string, any>()
+    if (catIds.length) {
+      const { data: cats } = await supabase.from('catalog_products').select('id,marca,modelo').in('id', catIds)
+      if (cats) catMap = new Map(cats.map(c => [c.id, c]))
+    }
+    const enriched = poItems.map((it: any) => ({
+      ...it,
+      marca: it.catalog_product_id ? catMap.get(it.catalog_product_id)?.marca || '' : '',
+      modelo: it.catalog_product_id ? catMap.get(it.catalog_product_id)?.modelo || '' : '',
+    }))
+    generatePOPdf(poFull as any, enriched)
+  }
+
   const getLeadName = (o: PurchaseOrder) => {
     const q = (o as any).quotation
     if (!q) return null
@@ -998,7 +1018,10 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
                   <Td muted>{formatDate(o.created_at)}</Td>
                   <Td right>{o.currency === 'MXN' ? <span style={{ fontWeight: 600, color: '#57FF9A' }}>{F(o.total)}</span> : <span style={{ color: '#333' }}>—</span>}</Td>
                   <Td right>{o.currency === 'USD' ? <span style={{ fontWeight: 600, color: '#57FF9A' }}>{FUSD(o.total)}</span> : <span style={{ color: '#333' }}>—</span>}</Td>
-                  <Td><Btn size="sm" onClick={e => { e?.stopPropagation(); onOpen(o.id) }}>Abrir</Btn></Td>
+                  <Td><div style={{ display: 'flex', gap: 4 }}>
+                    <Btn size="sm" onClick={e => { e?.stopPropagation(); downloadPdf(o) }}><Download size={13} /></Btn>
+                    <Btn size="sm" onClick={e => { e?.stopPropagation(); onOpen(o.id) }}>Abrir</Btn>
+                  </div></Td>
                 </tr>
               )
             })}
@@ -2004,7 +2027,15 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
           </div>
         </div>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-          <Btn size="sm" onClick={() => generatePOPdf(po as any, items)}><Download size={14} /> PDF</Btn>
+          <Btn size="sm" onClick={() => {
+            const catMap = new Map(catalog.map(c => [c.id, c]))
+            const enriched = items.map(it => ({
+              ...it,
+              marca: it.catalog_product_id ? (catMap.get(it.catalog_product_id) as any)?.marca || '' : '',
+              modelo: it.catalog_product_id ? (catMap.get(it.catalog_product_id) as any)?.modelo || '' : '',
+            }))
+            generatePOPdf(po as any, enriched)
+          }}><Download size={14} /> PDF</Btn>
           {statusActions.map(a => (
             <div key={a.target} title={a.tooltip} style={{ display: 'inline-flex' }}>
               <Btn variant={a.variant} size="sm" disabled={a.disabled} onClick={() => changeStatus(a.target)}>{a.label}</Btn>

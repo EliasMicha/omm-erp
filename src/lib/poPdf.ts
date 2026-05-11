@@ -30,6 +30,8 @@ interface POItemForPdf {
   quantity: number
   unit_cost: number
   total: number
+  marca?: string
+  modelo?: string
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -62,7 +64,7 @@ export function generatePOPdf(po: POForPdf, items: POItemForPdf[]) {
 
   // ── Logo ──
   try {
-    doc.addImage(OMNIIOUS_LOGO, 'JPEG', margin, y, 40, 14)
+    doc.addImage(OMNIIOUS_LOGO, 'JPEG', margin, y, 36, 10)
   } catch { /* skip if logo fails */ }
 
   // ── Title ──
@@ -148,10 +150,12 @@ export function generatePOPdf(po: POForPdf, items: POItemForPdf[]) {
   y = yInfo + 6
 
   // ── Items table ──
-  const tableHead = [['#', 'Descripcion', 'Unidad', 'Cant', 'P. Unitario', 'Total']]
+  const tableHead = [['#', 'Marca', 'Modelo', 'Descripción', 'Unidad', 'Cant', 'P. Unitario', 'Total']]
   const tableBody = items.map((it, i) => [
     String(i + 1),
-    it.name + (it.description ? `\n${it.description}` : ''),
+    it.marca || '--',
+    it.modelo || '--',
+    it.name || '',
     it.unit,
     String(it.quantity),
     fmtMoney(it.unit_cost, po.currency),
@@ -164,8 +168,8 @@ export function generatePOPdf(po: POForPdf, items: POItemForPdf[]) {
     body: tableBody,
     margin: { left: margin, right: margin },
     styles: {
-      fontSize: 8,
-      cellPadding: 2.5,
+      fontSize: 7.5,
+      cellPadding: 2,
       textColor: [40, 40, 40],
       lineColor: [220, 220, 220],
       lineWidth: 0.2,
@@ -174,15 +178,17 @@ export function generatePOPdf(po: POForPdf, items: POItemForPdf[]) {
       fillColor: [30, 30, 30],
       textColor: [255, 255, 255],
       fontStyle: 'bold',
-      fontSize: 8,
+      fontSize: 7.5,
     },
     columnStyles: {
       0: { cellWidth: 8, halign: 'center' },
-      1: { cellWidth: 'auto' },
-      2: { cellWidth: 14, halign: 'center' },
-      3: { cellWidth: 12, halign: 'center' },
-      4: { cellWidth: 28, halign: 'right' },
-      5: { cellWidth: 28, halign: 'right' },
+      1: { cellWidth: 22 },
+      2: { cellWidth: 22 },
+      3: { cellWidth: 'auto' },
+      4: { cellWidth: 14, halign: 'center' },
+      5: { cellWidth: 12, halign: 'center' },
+      6: { cellWidth: 26, halign: 'right' },
+      7: { cellWidth: 26, halign: 'right' },
     },
     alternateRowStyles: { fillColor: [248, 248, 248] },
     didDrawPage: (data: any) => {
