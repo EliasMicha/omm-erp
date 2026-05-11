@@ -245,6 +245,7 @@ export default function Compras() {
   const [view, setView] = useState<'dashboard' | 'lista' | 'seguimiento' | 'proveedores'>('dashboard')
   const [editingPO, setEditingPO] = useState<string | null>(null)
   const [editingSupplier, setEditingSupplier] = useState<string | null>(null)
+  const [seguimientoDetail, setSeguimientoDetail] = useState<string | null>(null)
 
   if (editingPO) return <POEditor poId={editingPO} onBack={() => { setEditingPO(null); setView('lista') }} />
   if (editingSupplier) return <SupplierDetail supplierId={editingSupplier} onBack={() => { setEditingSupplier(null); setView('proveedores') }} />
@@ -275,7 +276,8 @@ export default function Compras() {
 
       {view === 'dashboard' && <ComprasDashboard onOpenPO={id => { setEditingPO(id) }} onGoToList={() => setView('lista')} />}
       {view === 'lista' && <POList onOpen={id => setEditingPO(id)} />}
-      {view === 'seguimiento' && <ProcurementTracker onOpenPO={id => setEditingPO(id)} />}
+      {view === 'seguimiento' && !seguimientoDetail && <ProcurementTracker onOpenPO={id => setEditingPO(id)} onOpenDetail={id => setSeguimientoDetail(id)} />}
+      {view === 'seguimiento' && seguimientoDetail && <ProcurementDetail quotationId={seguimientoDetail} onBack={() => setSeguimientoDetail(null)} onOpenPO={id => setEditingPO(id)} />}
       {view === 'proveedores' && <SupplierList onOpen={id => setEditingSupplier(id)} />}
     </div>
   )
@@ -440,55 +442,33 @@ function ComprasDashboard({ onOpenPO, onGoToList }: { onOpenPO: (id: string) => 
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-//  PROCUREMENT TRACKER — Vendido → OC Generada → Pedido
+//  PROCUREMENT TRACKER — Cotizaciones cerradas → resumen de compras
 // ═══════════════════════════════════════════════════════════════════════════════
 
-type ProcStatus = 'vendido' | 'oc_generada' | 'pedido'
-const PROC_CFG: Record<ProcStatus, { label: string; color: string; icon: typeof Circle }> = {
-  vendido:     { label: 'Vendido',       color: '#F59E0B', icon: Circle },
-  oc_generada: { label: 'OC Generada',   color: '#3B82F6', icon: Clock },
-  pedido:      { label: 'Pedido',        color: '#57FF9A', icon: CheckCircle2 },
-}
-
-interface TrackedItem {
-  qi_id: string
-  qi_name: string
-  qi_quantity: number
-  qi_cost: number
-  qi_total: number
-  qi_system: string
-  qi_supplier: string
-  qi_currency: string
-  catalog_product_id: string | null
-  // PO info (if exists)
-  po_id: string | null
-  po_number: string | null
-  po_status: POStatus | null
-  po_supplier_name: string | null
-  // Derived
-  proc_status: ProcStatus
-}
-
-interface TrackedQuotation {
+interface QuotSummary {
   id: string
   name: string
   lead_name: string
-  client_name: string
   specialty: string
-  items: TrackedItem[]
+  totalItems: number
+  itemsConOC: number
+  itemsPedidos: number
+  itemsFaltantes: number
+  costoTotal: number
+  costoPedido: number
+  costoFaltante: number
+  currency: string
+  numOCs: number
 }
 
-function ProcurementTracker({ onOpenPO }: { onOpenPO: (id: string) => void }) {
+function ProcurementTracker({ onOpenPO, onOpenDetail }: { onOpenPO: (id: string) => void; onOpenDetail: (quotId: string) => void }) {
   const isMobile = useIsMobile()
-  const [quotations, setQuotations] = useState<TrackedQuotation[]>([])
+  const [rows, setRows] = useState<QuotSummary[]>([])
   const [loading, setLoading] = useState(true)
-  const [filterStatus, setFilterStatus] = useState<ProcStatus | 'todas'>('todas')
-  const [expandedQuots, setExpandedQuots] = useState<Set<string>>(new Set())
-  const [search, setSearch] = useState('')
 
   useEffect(() => {
     async function load() {
-      // 1. Get all vendida quotations (stage = contrato)
+      // 1. All closed quotations
       const { data: quots } = await supabase
         .from('quotations')
         .select('id, name, client_name, notes, specialty')
@@ -496,94 +476,81 @@ function ProcurementTracker({ onOpenPO }: { onOpenPO: (id: string) => void }) {
         .order('updated_at', { ascending: false })
 
       if (!quots || quots.length === 0) { setLoading(false); return }
-
       const quotIds = quots.map(q => q.id)
 
-      // 2. Get all quotation items (materials only — labor doesn't need procurement)
+      // 2. All material items
       const { data: qItems } = await supabase
         .from('quotation_items')
-        .select('id, quotation_id, catalog_product_id, name, quantity, cost, total, system, provider, provider_currency')
+        .select('id, quotation_id, catalog_product_id, cost, total, provider_currency')
         .in('quotation_id', quotIds)
         .eq('type', 'material')
-        .order('order_index')
 
-      // 3. Get all POs linked to these quotations
+      // 3. All POs linked to these quotations
       const { data: pos } = await supabase
         .from('purchase_orders')
-        .select('id, po_number, quotation_id, status, supplier:suppliers(name)')
+        .select('id, quotation_id, status')
         .in('quotation_id', quotIds)
 
-      // 4. Get all PO items for those POs
+      // 4. PO items for cross-reference
       const poIds = (pos || []).map(p => p.id)
       let poItems: any[] = []
       if (poIds.length > 0) {
         const { data } = await supabase
           .from('po_items')
-          .select('id, purchase_order_id, catalog_product_id, name, quantity')
+          .select('purchase_order_id, catalog_product_id')
           .in('purchase_order_id', poIds)
         poItems = data || []
       }
 
-      // 5. Build lookup: catalog_product_id+quotation_id → PO info
-      const poLookup: Record<string, { po_id: string; po_number: string; po_status: POStatus; po_supplier_name: string }> = {}
-      for (const pi of poItems) {
-        const po = (pos || []).find(p => p.id === pi.purchase_order_id)
-        if (po && pi.catalog_product_id) {
-          const key = `${pi.catalog_product_id}__${po.quotation_id}`
-          poLookup[key] = {
-            po_id: po.id,
-            po_number: po.po_number,
-            po_status: po.status as POStatus,
-            po_supplier_name: (po.supplier as any)?.name || '',
+      // 5. Build per-quotation summary
+      const paidStatuses: POStatus[] = ['pedida', 'recibida_parcial', 'recibida']
+
+      const summaries: QuotSummary[] = quots.map(q => {
+        const notes = typeof q.notes === 'string' ? (() => { try { return JSON.parse(q.notes) } catch { return {} } })() : (q.notes || {})
+        const items = (qItems || []).filter(qi => qi.quotation_id === q.id)
+        const quotPOs = (pos || []).filter(p => p.quotation_id === q.id)
+        const quotPOIds = new Set(quotPOs.map(p => p.id))
+
+        // Build set of catalog_product_ids that have a PO item
+        const itemsWithPO = new Set<string>()
+        const itemsPedido = new Set<string>()
+        for (const pi of poItems) {
+          if (!quotPOIds.has(pi.purchase_order_id) || !pi.catalog_product_id) continue
+          itemsWithPO.add(pi.catalog_product_id)
+          const po = quotPOs.find(p => p.id === pi.purchase_order_id)
+          if (po && paidStatuses.includes(po.status as POStatus)) {
+            itemsPedido.add(pi.catalog_product_id)
           }
         }
-      }
 
-      // 6. Build tracked quotations
-      const tracked: TrackedQuotation[] = quots.map(q => {
-        const notes = typeof q.notes === 'string' ? (() => { try { return JSON.parse(q.notes) } catch { return {} } })() : (q.notes || {})
-        const items: TrackedItem[] = (qItems || [])
-          .filter(qi => qi.quotation_id === q.id)
-          .map(qi => {
-            const key = qi.catalog_product_id ? `${qi.catalog_product_id}__${q.id}` : ''
-            const poInfo = key ? poLookup[key] : null
+        const totalItems = items.length
+        const itemsConOC = items.filter(i => i.catalog_product_id && itemsWithPO.has(i.catalog_product_id)).length
+        const itemsPedidosCount = items.filter(i => i.catalog_product_id && itemsPedido.has(i.catalog_product_id)).length
+        const itemsFaltantes = totalItems - itemsConOC
+        const currency = items[0]?.provider_currency || 'USD'
 
-            let proc_status: ProcStatus = 'vendido'
-            if (poInfo) {
-              const paidStatuses: POStatus[] = ['pedida', 'recibida_parcial', 'recibida']
-              proc_status = paidStatuses.includes(poInfo.po_status) ? 'pedido' : 'oc_generada'
-            }
+        const costoTotal = items.reduce((s, i) => s + Number(i.total), 0)
+        const costoPedido = items.filter(i => i.catalog_product_id && itemsWithPO.has(i.catalog_product_id)).reduce((s, i) => s + Number(i.total), 0)
+        const costoFaltante = costoTotal - costoPedido
 
-            return {
-              qi_id: qi.id,
-              qi_name: qi.name,
-              qi_quantity: Number(qi.quantity),
-              qi_cost: Number(qi.cost),
-              qi_total: Number(qi.total),
-              qi_system: qi.system || '',
-              qi_supplier: qi.provider || '',
-              qi_currency: qi.provider_currency || 'MXN',
-              catalog_product_id: qi.catalog_product_id,
-              po_id: poInfo?.po_id || null,
-              po_number: poInfo?.po_number || null,
-              po_status: poInfo?.po_status || null,
-              po_supplier_name: poInfo?.po_supplier_name || null,
-              proc_status,
-            }
-          })
         return {
           id: q.id,
           name: q.name,
-          lead_name: notes.lead_name || '',
-          client_name: q.client_name || '',
+          lead_name: notes.lead_name || q.client_name || '',
           specialty: q.specialty || '',
-          items,
+          totalItems,
+          itemsConOC,
+          itemsPedidos: itemsPedidosCount,
+          itemsFaltantes,
+          costoTotal,
+          costoPedido,
+          costoFaltante,
+          currency,
+          numOCs: quotPOs.length,
         }
-      }).filter(q => q.items.length > 0)
+      }).filter(q => q.totalItems > 0)
 
-      setQuotations(tracked)
-      // Auto-expand all
-      setExpandedQuots(new Set(tracked.map(q => q.id)))
+      setRows(summaries)
       setLoading(false)
     }
     load()
@@ -591,187 +558,317 @@ function ProcurementTracker({ onOpenPO }: { onOpenPO: (id: string) => void }) {
 
   if (loading) return <Loading />
 
-  // Flatten all items for KPI counting
-  const allItems = quotations.flatMap(q => q.items)
-  const filteredQuots = quotations.map(q => {
-    let items = q.items
-    if (filterStatus !== 'todas') items = items.filter(i => i.proc_status === filterStatus)
-    if (search.trim()) {
-      const s = search.toLowerCase()
-      items = items.filter(i => i.qi_name.toLowerCase().includes(s) || i.qi_supplier.toLowerCase().includes(s) || (i.po_number || '').toLowerCase().includes(s))
-    }
-    return { ...q, items }
-  }).filter(q => q.items.length > 0)
-
-  const totalVendido = allItems.filter(i => i.proc_status === 'vendido').length
-  const totalOC = allItems.filter(i => i.proc_status === 'oc_generada').length
-  const totalPedido = allItems.filter(i => i.proc_status === 'pedido').length
-  const costoVendido = allItems.filter(i => i.proc_status === 'vendido').reduce((s, i) => s + i.qi_total, 0)
-  const costoOC = allItems.filter(i => i.proc_status === 'oc_generada').reduce((s, i) => s + i.qi_total, 0)
-  const costoPedido = allItems.filter(i => i.proc_status === 'pedido').reduce((s, i) => s + i.qi_total, 0)
-
-  const toggleQuot = (id: string) => setExpandedQuots(prev => {
-    const next = new Set(prev)
-    next.has(id) ? next.delete(id) : next.add(id)
-    return next
-  })
+  // Totals
+  const totItems = rows.reduce((s, r) => s + r.totalItems, 0)
+  const totConOC = rows.reduce((s, r) => s + r.itemsConOC, 0)
+  const totFaltantes = rows.reduce((s, r) => s + r.itemsFaltantes, 0)
+  const totCosto = rows.reduce((s, r) => s + r.costoTotal, 0)
+  const totPedido = rows.reduce((s, r) => s + r.costoPedido, 0)
+  const totFaltante = rows.reduce((s, r) => s + r.costoFaltante, 0)
 
   return (
     <div>
-      <SectionHeader title="Seguimiento de compras" subtitle="Items vendidos → Órdenes de compra → Pedidos" />
-
-      {/* KPIs */}
-      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, 1fr)', gap: 12, marginBottom: 20 }}>
-        <div onClick={() => setFilterStatus(filterStatus === 'vendido' ? 'todas' : 'vendido')} style={{
-          background: '#141414', border: `1px solid ${filterStatus === 'vendido' ? '#F59E0B' : '#222'}`, borderRadius: 12,
-          padding: '14px 18px', cursor: 'pointer', transition: 'border-color 0.15s', borderLeft: '3px solid #F59E0B',
-        }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div>
-              <div style={{ fontSize: 10, color: '#F59E0B', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>
-                <Circle size={10} style={{ marginRight: 4, verticalAlign: 'middle' }} />Falta generar OC
-              </div>
-              <div style={{ fontSize: 24, fontWeight: 700, color: '#fff' }}>{totalVendido}</div>
-              <div style={{ fontSize: 11, color: '#555', marginTop: 2 }}>items · {FCUR(costoVendido, 'USD')}</div>
-            </div>
-          </div>
-        </div>
-        <div onClick={() => setFilterStatus(filterStatus === 'oc_generada' ? 'todas' : 'oc_generada')} style={{
-          background: '#141414', border: `1px solid ${filterStatus === 'oc_generada' ? '#3B82F6' : '#222'}`, borderRadius: 12,
-          padding: '14px 18px', cursor: 'pointer', transition: 'border-color 0.15s', borderLeft: '3px solid #3B82F6',
-        }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div>
-              <div style={{ fontSize: 10, color: '#3B82F6', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>
-                <Clock size={10} style={{ marginRight: 4, verticalAlign: 'middle' }} />OC generada · Falta pedir
-              </div>
-              <div style={{ fontSize: 24, fontWeight: 700, color: '#fff' }}>{totalOC}</div>
-              <div style={{ fontSize: 11, color: '#555', marginTop: 2 }}>items · {FCUR(costoOC, 'USD')}</div>
-            </div>
-          </div>
-        </div>
-        <div onClick={() => setFilterStatus(filterStatus === 'pedido' ? 'todas' : 'pedido')} style={{
-          background: '#141414', border: `1px solid ${filterStatus === 'pedido' ? '#57FF9A' : '#222'}`, borderRadius: 12,
-          padding: '14px 18px', cursor: 'pointer', transition: 'border-color 0.15s', borderLeft: '3px solid #57FF9A',
-        }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div>
-              <div style={{ fontSize: 10, color: '#57FF9A', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>
-                <CheckCircle2 size={10} style={{ marginRight: 4, verticalAlign: 'middle' }} />Pedido
-              </div>
-              <div style={{ fontSize: 24, fontWeight: 700, color: '#fff' }}>{totalPedido}</div>
-              <div style={{ fontSize: 11, color: '#555', marginTop: 2 }}>items · {FCUR(costoPedido, 'USD')}</div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Search */}
-      <div style={{ position: 'relative', marginBottom: 16 }}>
-        <Search size={14} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: '#555' }} />
-        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar producto, proveedor, OC..."
-          style={{ width: '100%', background: '#111', border: '1px solid #333', borderRadius: 8, padding: '8px 12px 8px 34px', color: '#fff', fontSize: 12, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' as any }} />
-      </div>
+      <SectionHeader title="Seguimiento de compras" subtitle={`${rows.length} cotizaciones cerradas · ${totItems} productos`} />
 
       {/* Progress bar */}
-      {allItems.length > 0 && (
+      {totItems > 0 && (
         <div style={{ marginBottom: 20 }}>
-          <div style={{ display: 'flex', height: 8, borderRadius: 4, overflow: 'hidden', background: '#1a1a1a' }}>
-            {totalPedido > 0 && <div style={{ width: `${(totalPedido / allItems.length) * 100}%`, background: '#57FF9A', transition: 'width 0.3s' }} />}
-            {totalOC > 0 && <div style={{ width: `${(totalOC / allItems.length) * 100}%`, background: '#3B82F6', transition: 'width 0.3s' }} />}
-            {totalVendido > 0 && <div style={{ width: `${(totalVendido / allItems.length) * 100}%`, background: '#F59E0B', transition: 'width 0.3s' }} />}
+          <div style={{ display: 'flex', height: 10, borderRadius: 5, overflow: 'hidden', background: '#1a1a1a' }}>
+            {totConOC > 0 && <div style={{ width: `${(totConOC / totItems) * 100}%`, background: '#3B82F6', transition: 'width 0.3s' }} />}
+            {totFaltantes > 0 && <div style={{ width: `${(totFaltantes / totItems) * 100}%`, background: '#F59E0B', transition: 'width 0.3s' }} />}
           </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4, fontSize: 10, color: '#555' }}>
-            <span>{Math.round(((totalPedido + totalOC) / allItems.length) * 100)}% con OC</span>
-            <span>{Math.round((totalPedido / allItems.length) * 100)}% pedido</span>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, fontSize: 11 }}>
+            <span style={{ color: '#3B82F6' }}>{totConOC} productos con OC ({Math.round((totConOC / totItems) * 100)}%)</span>
+            <span style={{ color: '#F59E0B' }}>{totFaltantes} productos faltantes ({Math.round((totFaltantes / totItems) * 100)}%)</span>
           </div>
         </div>
       )}
 
-      {/* Quotation groups */}
-      {filteredQuots.length === 0 ? (
-        <EmptyState message={filterStatus !== 'todas' ? 'Sin items con ese status' : 'No hay cotizaciones vendidas'} />
-      ) : (
-        filteredQuots.map(q => {
-          const expanded = expandedQuots.has(q.id)
-          const vCount = q.items.filter(i => i.proc_status === 'vendido').length
-          const ocCount = q.items.filter(i => i.proc_status === 'oc_generada').length
-          const pCount = q.items.filter(i => i.proc_status === 'pedido').length
-          const espCfg = SPECIALTY_CONFIG[q.specialty as ProjectLine]
-          return (
-            <div key={q.id} style={{ marginBottom: 12, background: '#111', border: '1px solid #222', borderRadius: 12, overflow: 'hidden' }}>
-              {/* Header */}
-              <div onClick={() => toggleQuot(q.id)} style={{
-                padding: '12px 16px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                borderBottom: expanded ? '1px solid #222' : 'none',
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <span style={{ fontSize: 13, fontWeight: 600, color: '#fff' }}>{q.lead_name || q.name}</span>
-                  {q.lead_name && <span style={{ fontSize: 11, color: '#555' }}>{q.name}</span>}
-                  {espCfg && <Badge label={espCfg.icon + ' ' + espCfg.label} color={espCfg.color} />}
-                </div>
-                <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                  {vCount > 0 && <span style={{ fontSize: 10, color: '#F59E0B', fontWeight: 600 }}>{vCount} sin OC</span>}
-                  {ocCount > 0 && <span style={{ fontSize: 10, color: '#3B82F6', fontWeight: 600 }}>{ocCount} OC</span>}
-                  {pCount > 0 && <span style={{ fontSize: 10, color: '#57FF9A', fontWeight: 600 }}>{pCount} pedido</span>}
-                  <span style={{ color: '#444', fontSize: 14, transform: expanded ? 'rotate(90deg)' : 'rotate(0)', transition: 'transform 0.15s' }}>▶</span>
-                </div>
-              </div>
-              {/* Items table */}
-              {expanded && (
-                <div style={{ overflowX: 'auto' }}>
-                  <Table>
-                    <thead><tr>
-                      <Th>Status</Th>
-                      <Th>Producto</Th>
-                      <Th>Proveedor</Th>
-                      <Th right>Cant</Th>
-                      <Th right>Costo</Th>
-                      <Th right>Total</Th>
-                      <Th>OC</Th>
-                    </tr></thead>
-                    <tbody>
-                      {q.items.map(item => {
-                        const cfg = PROC_CFG[item.proc_status]
-                        const Icon = cfg.icon
-                        return (
-                          <tr key={item.qi_id}>
-                            <Td>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                <Icon size={14} color={cfg.color} />
-                                <span style={{ fontSize: 11, color: cfg.color, fontWeight: 600 }}>{cfg.label}</span>
-                              </div>
-                            </Td>
-                            <Td>
-                              <div style={{ maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12, color: '#ccc' }}>
-                                {item.qi_name}
-                              </div>
-                            </Td>
-                            <Td muted>{item.qi_supplier || '--'}</Td>
-                            <Td right>{item.qi_quantity}</Td>
-                            <Td right muted>{FCUR(item.qi_cost, item.qi_currency as any)}</Td>
-                            <Td right><span style={{ fontWeight: 600, color: '#ccc' }}>{FCUR(item.qi_total, item.qi_currency as any)}</span></Td>
-                            <Td>
-                              {item.po_number ? (
-                                <span onClick={e => { e.stopPropagation(); if (item.po_id) onOpenPO(item.po_id) }}
-                                  style={{ fontSize: 11, color: '#3B82F6', cursor: 'pointer', textDecoration: 'underline' }}>
-                                  {item.po_number}
-                                </span>
-                              ) : (
-                                <span style={{ fontSize: 11, color: '#444' }}>—</span>
-                              )}
-                            </Td>
-                          </tr>
-                        )
-                      })}
-                    </tbody>
-                  </Table>
-                </div>
-              )}
+      {/* Summary table */}
+      <div style={{ overflowX: 'auto' }}>
+        <Table>
+          <thead><tr>
+            <Th>Lead</Th>
+            <Th>Cotización</Th>
+            <Th>Área</Th>
+            <Th right>OCs</Th>
+            <Th right>Productos</Th>
+            <Th right>Faltantes</Th>
+            <Th right>Costo total</Th>
+            <Th right>Total pedido</Th>
+            <Th right>Total faltante</Th>
+          </tr></thead>
+          <tbody>
+            {rows.length === 0 && <tr><td colSpan={9}><EmptyState message="No hay cotizaciones cerradas" /></td></tr>}
+            {rows.map(r => {
+              const espCfg = SPECIALTY_CONFIG[r.specialty as ProjectLine]
+              const pctOC = r.totalItems > 0 ? Math.round((r.itemsConOC / r.totalItems) * 100) : 0
+              return (
+                <tr key={r.id} onClick={() => onOpenDetail(r.id)} style={{ cursor: 'pointer' }}>
+                  <Td><span style={{ fontWeight: 600, color: '#fff' }}>{r.lead_name}</span></Td>
+                  <Td muted>{r.name}</Td>
+                  <Td>{espCfg ? <Badge label={espCfg.icon + ' ' + espCfg.label} color={espCfg.color} /> : <span style={{ color: '#555' }}>--</span>}</Td>
+                  <Td right>{r.numOCs > 0 ? <span style={{ color: '#3B82F6', fontWeight: 600 }}>{r.numOCs}</span> : <span style={{ color: '#444' }}>0</span>}</Td>
+                  <Td right>{r.totalItems}</Td>
+                  <Td right>
+                    {r.itemsFaltantes > 0
+                      ? <span style={{ color: '#F59E0B', fontWeight: 600 }}>{r.itemsFaltantes}</span>
+                      : <span style={{ color: '#57FF9A' }}>✓</span>}
+                  </Td>
+                  <Td right><span style={{ fontWeight: 600, color: '#ccc' }}>{FCUR(r.costoTotal, r.currency)}</span></Td>
+                  <Td right>
+                    <span style={{ color: r.costoPedido > 0 ? '#57FF9A' : '#444', fontWeight: 600 }}>
+                      {FCUR(r.costoPedido, r.currency)}
+                    </span>
+                  </Td>
+                  <Td right>
+                    <span style={{ color: r.costoFaltante > 0 ? '#F59E0B' : '#57FF9A', fontWeight: 600 }}>
+                      {r.costoFaltante > 0 ? FCUR(r.costoFaltante, r.currency) : '✓'}
+                    </span>
+                  </Td>
+                </tr>
+              )
+            })}
+            {/* Totals row */}
+            {rows.length > 1 && (
+              <tr style={{ borderTop: '2px solid #333' }}>
+                <Td><span style={{ fontWeight: 700, color: '#fff' }}>Total</span></Td>
+                <Td>{' '}</Td>
+                <Td>{' '}</Td>
+                <Td right><span style={{ fontWeight: 700, color: '#fff' }}>{rows.reduce((s, r) => s + r.numOCs, 0)}</span></Td>
+                <Td right><span style={{ fontWeight: 700, color: '#fff' }}>{totItems}</span></Td>
+                <Td right><span style={{ fontWeight: 700, color: totFaltantes > 0 ? '#F59E0B' : '#57FF9A' }}>{totFaltantes}</span></Td>
+                <Td right><span style={{ fontWeight: 700, color: '#fff' }}>{FUSD(totCosto)}</span></Td>
+                <Td right><span style={{ fontWeight: 700, color: '#57FF9A' }}>{FUSD(totPedido)}</span></Td>
+                <Td right><span style={{ fontWeight: 700, color: totFaltante > 0 ? '#F59E0B' : '#57FF9A' }}>{totFaltante > 0 ? FUSD(totFaltante) : '✓'}</span></Td>
+              </tr>
+            )}
+          </tbody>
+        </Table>
+      </div>
+    </div>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  PROCUREMENT DETAIL — Desglose producto por producto
+// ═══════════════════════════════════════════════════════════════════════════════
+
+interface DetailItem {
+  qi_id: string
+  name: string
+  quantity: number
+  cost: number
+  total: number
+  currency: string
+  supplier: string
+  system: string
+  // PO info
+  po_id: string | null
+  po_number: string | null
+  po_status: POStatus | null
+  po_supplier_name: string | null
+  supplier_doc: string | null
+  po_date: string | null
+  expected_delivery: string | null
+  delivered_at: string | null
+  // Status
+  proc_status: 'vendido' | 'oc_generada' | 'pedido'
+}
+
+function ProcurementDetail({ quotationId, onBack, onOpenPO }: { quotationId: string; onBack: () => void; onOpenPO: (id: string) => void }) {
+  const isMobile = useIsMobile()
+  const [items, setItems] = useState<DetailItem[]>([])
+  const [quotInfo, setQuotInfo] = useState<{ name: string; lead_name: string; specialty: string }>({ name: '', lead_name: '', specialty: '' })
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    async function load() {
+      // Quotation info
+      const { data: q } = await supabase
+        .from('quotations')
+        .select('name, client_name, notes, specialty')
+        .eq('id', quotationId)
+        .single()
+
+      if (q) {
+        const notes = typeof q.notes === 'string' ? (() => { try { return JSON.parse(q.notes) } catch { return {} } })() : (q.notes || {})
+        setQuotInfo({ name: q.name, lead_name: notes.lead_name || q.client_name || '', specialty: q.specialty || '' })
+      }
+
+      // Material items only
+      const { data: qItems } = await supabase
+        .from('quotation_items')
+        .select('id, catalog_product_id, name, quantity, cost, total, provider, provider_currency, system')
+        .eq('quotation_id', quotationId)
+        .eq('type', 'material')
+        .order('order_index')
+
+      // POs for this quotation
+      const { data: pos } = await supabase
+        .from('purchase_orders')
+        .select('id, po_number, status, supplier_doc_number, created_at, expected_delivery, delivered_at, supplier:suppliers(name)')
+        .eq('quotation_id', quotationId)
+
+      // PO items
+      const poIds = (pos || []).map(p => p.id)
+      let poItemsData: any[] = []
+      if (poIds.length > 0) {
+        const { data } = await supabase
+          .from('po_items')
+          .select('purchase_order_id, catalog_product_id')
+          .in('purchase_order_id', poIds)
+        poItemsData = data || []
+      }
+
+      // Build lookup
+      const paidStatuses: POStatus[] = ['pedida', 'recibida_parcial', 'recibida']
+      const poLookup: Record<string, any> = {}
+      for (const pi of poItemsData) {
+        const po = (pos || []).find(p => p.id === pi.purchase_order_id)
+        if (po && pi.catalog_product_id) {
+          poLookup[pi.catalog_product_id] = {
+            po_id: po.id,
+            po_number: po.po_number,
+            po_status: po.status,
+            po_supplier_name: (po.supplier as any)?.name || '',
+            supplier_doc: po.supplier_doc_number || null,
+            po_date: po.created_at,
+            expected_delivery: po.expected_delivery,
+            delivered_at: po.delivered_at,
+          }
+        }
+      }
+
+      const detail: DetailItem[] = (qItems || []).map(qi => {
+        const po = qi.catalog_product_id ? poLookup[qi.catalog_product_id] : null
+        let proc_status: 'vendido' | 'oc_generada' | 'pedido' = 'vendido'
+        if (po) {
+          proc_status = paidStatuses.includes(po.po_status) ? 'pedido' : 'oc_generada'
+        }
+        return {
+          qi_id: qi.id,
+          name: qi.name,
+          quantity: Number(qi.quantity),
+          cost: Number(qi.cost),
+          total: Number(qi.total),
+          currency: qi.provider_currency || 'USD',
+          supplier: qi.provider || '',
+          system: qi.system || '',
+          po_id: po?.po_id || null,
+          po_number: po?.po_number || null,
+          po_status: po?.po_status || null,
+          po_supplier_name: po?.po_supplier_name || null,
+          supplier_doc: po?.supplier_doc || null,
+          po_date: po?.po_date || null,
+          expected_delivery: po?.expected_delivery || null,
+          delivered_at: po?.delivered_at || null,
+          proc_status,
+        }
+      })
+
+      setItems(detail)
+      setLoading(false)
+    }
+    load()
+  }, [quotationId])
+
+  if (loading) return <Loading />
+
+  const espCfg = SPECIALTY_CONFIG[quotInfo.specialty as ProjectLine]
+  const statusColors: Record<string, string> = { vendido: '#F59E0B', oc_generada: '#3B82F6', pedido: '#57FF9A' }
+  const statusLabels: Record<string, string> = { vendido: 'Sin OC', oc_generada: 'OC Generada', pedido: 'Pedido' }
+
+  return (
+    <div>
+      {/* Header with back */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
+        <button onClick={onBack} style={{ background: 'none', border: '1px solid #333', borderRadius: 8, padding: '6px 12px', color: '#888', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}>
+          <ChevronLeft size={14} /> Volver
+        </button>
+        <div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: '#fff' }}>{quotInfo.lead_name}</div>
+          <div style={{ fontSize: 12, color: '#555', display: 'flex', alignItems: 'center', gap: 8 }}>
+            {quotInfo.name}
+            {espCfg && <Badge label={espCfg.icon + ' ' + espCfg.label} color={espCfg.color} />}
+          </div>
+        </div>
+      </div>
+
+      {/* Summary bar */}
+      <div style={{ display: 'flex', gap: 16, marginBottom: 16, flexWrap: 'wrap' }}>
+        {(['vendido', 'oc_generada', 'pedido'] as const).map(s => {
+          const cnt = items.filter(i => i.proc_status === s).length
+          return cnt > 0 ? (
+            <div key={s} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+              <div style={{ width: 8, height: 8, borderRadius: 4, background: statusColors[s] }} />
+              <span style={{ color: statusColors[s], fontWeight: 600 }}>{cnt}</span>
+              <span style={{ color: '#555' }}>{statusLabels[s]}</span>
             </div>
-          )
-        })
-      )}
+          ) : null
+        })}
+        <span style={{ color: '#333' }}>|</span>
+        <span style={{ fontSize: 12, color: '#888' }}>{items.length} productos total</span>
+      </div>
+
+      {/* Detail table */}
+      <div style={{ overflowX: 'auto' }}>
+        <Table>
+          <thead><tr>
+            <Th>Status</Th>
+            <Th>Producto</Th>
+            <Th>Proveedor cotizado</Th>
+            <Th right>Cant</Th>
+            <Th right>Total</Th>
+            <Th>OC Interna</Th>
+            <Th>Proveedor OC</Th>
+            <Th>Doc Proveedor</Th>
+            <Th>Fecha OC</Th>
+            <Th>Entrega esperada</Th>
+            <Th>Recibido</Th>
+          </tr></thead>
+          <tbody>
+            {items.map(item => (
+              <tr key={item.qi_id}>
+                <Td>
+                  <span style={{
+                    fontSize: 10, fontWeight: 600, color: statusColors[item.proc_status],
+                    padding: '2px 8px', borderRadius: 10,
+                    background: statusColors[item.proc_status] + '18',
+                  }}>
+                    {statusLabels[item.proc_status]}
+                  </span>
+                </Td>
+                <Td>
+                  <div style={{ maxWidth: 250, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12, color: '#ccc' }}>
+                    {item.name}
+                  </div>
+                </Td>
+                <Td muted>{item.supplier || '--'}</Td>
+                <Td right>{item.quantity}</Td>
+                <Td right><span style={{ fontWeight: 600, color: '#ccc' }}>{FCUR(item.total, item.currency)}</span></Td>
+                <Td>
+                  {item.po_number ? (
+                    <span onClick={() => { if (item.po_id) onOpenPO(item.po_id) }}
+                      style={{ fontSize: 11, color: '#3B82F6', cursor: 'pointer', textDecoration: 'underline', fontWeight: 600 }}>
+                      {item.po_number}
+                    </span>
+                  ) : <span style={{ color: '#333' }}>—</span>}
+                </Td>
+                <Td muted>{item.po_supplier_name || '--'}</Td>
+                <Td muted>{item.supplier_doc || '--'}</Td>
+                <Td muted>{item.po_date ? formatDate(item.po_date) : '--'}</Td>
+                <Td muted>{item.expected_delivery ? formatDate(item.expected_delivery) : '--'}</Td>
+                <Td>
+                  {item.delivered_at
+                    ? <span style={{ color: '#57FF9A', fontSize: 11 }}>{formatDate(item.delivered_at)}</span>
+                    : <span style={{ color: '#333' }}>—</span>}
+                </Td>
+              </tr>
+            ))}
+          </tbody>
+        </Table>
+      </div>
     </div>
   )
 }
