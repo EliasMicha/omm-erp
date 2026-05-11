@@ -288,10 +288,19 @@ function ComprasDashboard({ onOpenPO, onGoToList }: { onOpenPO: (id: string) => 
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    supabase.from('purchase_orders').select('*,project:projects(name),supplier:suppliers(name)')
+    supabase.from('purchase_orders').select('*,project:projects(name),supplier:suppliers(name),quotation:quotations(name,client_name,notes)')
       .order('created_at', { ascending: false })
       .then(({ data }) => { setOrders(data || []); setLoading(false) })
   }, [])
+
+  // Helper to extract lead name from a PO (via quotation.notes JSON or quotation.client_name)
+  const getLeadName = (o: PurchaseOrder) => {
+    const q = (o as any).quotation
+    if (!q) return null
+    try { const n = typeof q.notes === 'string' ? JSON.parse(q.notes) : q.notes; if (n?.lead_name) return n.lead_name } catch {}
+    return q.client_name || null
+  }
+  const getQuotName = (o: PurchaseOrder) => (o as any).quotation?.name || null
 
   if (loading) return <Loading />
 
@@ -318,15 +327,15 @@ function ComprasDashboard({ onOpenPO, onGoToList }: { onOpenPO: (id: string) => 
   })
   const topSuppliers = Object.values(bySupplier).sort((a: any, b: any) => (b.totalMXN + b.totalUSD) - (a.totalMXN + a.totalUSD)).slice(0, 5) as any[]
 
-  // Group by project
-  const byProject: Record<string, any> = {}
+  // Group by lead (from quotation)
+  const byLead: Record<string, any> = {}
   active.forEach(o => {
-    const pn = (o.project as any)?.name || 'Sin proyecto'
-    if (!byProject[pn]) byProject[pn] = { name: pn, totalMXN: 0, totalUSD: 0 }
-    if (o.currency === 'USD') byProject[pn].totalUSD += o.total
-    else byProject[pn].totalMXN += o.total
+    const ln = getLeadName(o) || (o.project as any)?.name || 'Sin lead'
+    if (!byLead[ln]) byLead[ln] = { name: ln, totalMXN: 0, totalUSD: 0 }
+    if (o.currency === 'USD') byLead[ln].totalUSD += o.total
+    else byLead[ln].totalMXN += o.total
   })
-  const topProjects = Object.values(byProject).sort((a: any, b: any) => (b.totalMXN + b.totalUSD) - (a.totalMXN + a.totalUSD)).slice(0, 5) as any[]
+  const topLeads = Object.values(byLead).sort((a: any, b: any) => (b.totalMXN + b.totalUSD) - (a.totalMXN + a.totalUSD)).slice(0, 5) as any[]
 
   return (
     <div>
@@ -376,11 +385,11 @@ function ComprasDashboard({ onOpenPO, onGoToList }: { onOpenPO: (id: string) => 
             ))
           }
         </div>
-        {/* By project */}
+        {/* By lead */}
         <div style={{ background: '#141414', border: '1px solid #222', borderRadius: 12, padding: 16 }}>
-          <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 12 }}>Compras por proyecto (activas)</div>
-          {topProjects.length === 0 ? <EmptyState message="Sin datos" /> :
-            topProjects.map((p, i) => (
+          <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 12 }}>Compras por lead (activas)</div>
+          {topLeads.length === 0 ? <EmptyState message="Sin datos" /> :
+            topLeads.map((p, i) => (
               <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #1e1e1e' }}>
                 <span style={{ fontSize: 12, color: '#ccc' }}>{p.name}</span>
                 <span style={{ fontSize: 12, fontWeight: 600, display: 'flex', gap: 8, alignItems: 'baseline' }}>
@@ -399,7 +408,7 @@ function ComprasDashboard({ onOpenPO, onGoToList }: { onOpenPO: (id: string) => 
           <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 10 }}>Órdenes activas recientes</div>
           <Table>
             <thead><tr>
-              <Th>OC #</Th><Th>Proveedor</Th><Th>Proyecto</Th><Th>Especialidad</Th><Th>Fase</Th><Th>Estado</Th><Th right>Total MXN</Th><Th right>Total USD</Th>
+              <Th>OC #</Th><Th>Proveedor</Th><Th>Cotización</Th><Th>Lead</Th><Th>Especialidad</Th><Th>Fase</Th><Th>Estado</Th><Th right>Total MXN</Th><Th right>Total USD</Th>
             </tr></thead>
             <tbody>
               {active.slice(0, 8).map(o => {
@@ -410,7 +419,8 @@ function ComprasDashboard({ onOpenPO, onGoToList }: { onOpenPO: (id: string) => 
                   <tr key={o.id} style={{ cursor: 'pointer' }} onClick={() => onOpenPO(o.id)}>
                     <Td><span style={{ fontWeight: 600, color: '#fff' }}>{o.po_number}</span></Td>
                     <Td>{(o.supplier as any)?.name || '--'}</Td>
-                    <Td muted>{(o.project as any)?.name || '--'}</Td>
+                    <Td muted>{getQuotName(o) || '--'}</Td>
+                    <Td muted>{getLeadName(o) || '--'}</Td>
                     <Td><Badge label={esp.icon + ' ' + esp.label} color={esp.color} /></Td>
                     <Td>{phaseCfg ? <Badge label={phaseCfg.label} color={phaseCfg.color} /> : <span style={{color:'#555',fontSize:11}}>--</span>}</Td>
                     <Td><Badge label={st.label} color={st.color} /></Td>
@@ -443,11 +453,19 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
 
   const load = () => {
     setLoading(true)
-    supabase.from('purchase_orders').select('*,project:projects(name,client_name),supplier:suppliers(name)')
+    supabase.from('purchase_orders').select('*,project:projects(name,client_name),supplier:suppliers(name),quotation:quotations(name,client_name,notes)')
       .order('created_at', { ascending: false })
       .then(({ data }) => { setOrders(data || []); setLoading(false) })
   }
   useEffect(load, [])
+
+  const getLeadName = (o: PurchaseOrder) => {
+    const q = (o as any).quotation
+    if (!q) return null
+    try { const n = typeof q.notes === 'string' ? JSON.parse(q.notes) : q.notes; if (n?.lead_name) return n.lead_name } catch {}
+    return q.client_name || null
+  }
+  const getQuotName = (o: PurchaseOrder) => (o as any).quotation?.name || null
 
   let lista = orders
   if (filterStatus !== 'todas') lista = lista.filter(o => o.status === filterStatus)
@@ -457,7 +475,9 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
     lista = lista.filter(o =>
       o.po_number.toLowerCase().includes(q) ||
       (o.supplier as any)?.name?.toLowerCase().includes(q) ||
-      (o.project as any)?.name?.toLowerCase().includes(q)
+      (o.project as any)?.name?.toLowerCase().includes(q) ||
+      (o as any).quotation?.name?.toLowerCase().includes(q) ||
+      (getLeadName(o) || '').toLowerCase().includes(q)
     )
   }
 
@@ -480,7 +500,7 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
       <div style={{ display: 'flex', gap: 10, marginBottom: 16, alignItems: 'center', flexWrap: 'wrap', fontSize: isMobile ? 11 : 12 }}>
         <div style={{ position: 'relative', flex: isMobile ? '1 1 100%' : '0 0 220px' }}>
           <Search size={14} style={{ position: 'absolute', left: 10, top: 9, color: '#555' }} />
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar OC, proveedor, proyecto..."
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar OC, proveedor, cotización, lead..."
             style={{
               width: '100%', padding: '7px 10px 7px 30px', background: '#1e1e1e',
               border: '1px solid #333', borderRadius: 8, color: '#fff', fontSize: 12, fontFamily: 'inherit',
@@ -521,10 +541,10 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
         <div style={{ overflowX: 'auto' }}>
           <Table>
             <thead><tr>
-              <Th>OC #</Th><Th>Proveedor</Th><Th>Proyecto</Th><Th>Especialidad</Th><Th>Fase</Th><Th>Estado</Th><Th>Fecha</Th><Th right>Total MXN</Th><Th right>Total USD</Th><Th></Th>
+              <Th>OC #</Th><Th>Proveedor</Th><Th>Cotización</Th><Th>Lead</Th><Th>Especialidad</Th><Th>Fase</Th><Th>Estado</Th><Th>Fecha</Th><Th right>Total MXN</Th><Th right>Total USD</Th><Th></Th>
           </tr></thead>
           <tbody>
-            {lista.length === 0 && <tr><td colSpan={9}><EmptyState message="Sin órdenes de compra" /></td></tr>}
+            {lista.length === 0 && <tr><td colSpan={11}><EmptyState message="Sin órdenes de compra" /></td></tr>}
             {lista.map(o => {
               const st = PO_STATUS_CFG[o.status]
               const esp = SPECIALTY_CONFIG[o.specialty]
@@ -533,7 +553,8 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
                 <tr key={o.id} style={{ cursor: 'pointer' }} onClick={() => onOpen(o.id)}>
                   <Td><span style={{ fontWeight: 600, color: '#fff' }}>{o.po_number}</span></Td>
                   <Td>{(o.supplier as any)?.name || <span style={{ color: '#555' }}>--</span>}</Td>
-                  <Td muted>{(o.project as any)?.name || '--'}</Td>
+                  <Td muted>{getQuotName(o) || '--'}</Td>
+                  <Td muted>{getLeadName(o) || '--'}</Td>
                   <Td><Badge label={esp.icon + ' ' + esp.label} color={esp.color} /></Td>
                   <Td>{phaseCfg ? <Badge label={phaseCfg.label} color={phaseCfg.color} /> : <span style={{color:'#555',fontSize:11}}>--</span>}</Td>
                   <Td><Badge label={st.label} color={st.color} /></Td>
