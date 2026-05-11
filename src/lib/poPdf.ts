@@ -62,9 +62,11 @@ export function generatePOPdf(po: POForPdf, items: POItemForPdf[]) {
   const contentW = pageW - margin * 2
   let y = margin
 
-  // ── Logo ──
+  // ── Logo (400×347 original → ~18×16 mm keeping aspect ratio) ──
+  const logoW = 18
+  const logoH = logoW / 1.15
   try {
-    doc.addImage(OMNIIOUS_LOGO, 'JPEG', margin, y, 36, 10)
+    doc.addImage(OMNIIOUS_LOGO, 'JPEG', margin, y, logoW, logoH)
   } catch { /* skip if logo fails */ }
 
   // ── Title ──
@@ -77,7 +79,7 @@ export function generatePOPdf(po: POForPdf, items: POItemForPdf[]) {
   doc.setTextColor(0, 120, 80)
   doc.text(po.po_number, pageW - margin, y + 14, { align: 'right' })
 
-  y += 22
+  y += Math.max(logoH + 4, 22)
 
   // ── Separator ──
   doc.setDrawColor(200, 200, 200)
