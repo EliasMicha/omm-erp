@@ -1306,6 +1306,8 @@ function NuevaFactura({ onCancel, onCreated }: { onCancel: () => void; onCreated
   const [moneda, setMoneda] = useState('MXN')
   const [tipoCambio, setTipoCambio] = useState('1')
   const [notas, setNotas] = useState('')
+  const [serie, setSerie] = useState('')
+  const [folio, setFolio] = useState('')
   const [emitting, setEmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [resultado, setResultado] = useState<any>(null)
@@ -1341,6 +1343,24 @@ function NuevaFactura({ onCancel, onCreated }: { onCancel: () => void; onCreated
   useEffect(() => {
     setUuidsRelacionados([])
   }, [clienteId])
+
+  // Auto-popular serie desde cotizacion y calcular proximo folio
+  useEffect(() => {
+    if (!cotizacionId) { setSerie(''); setFolio(''); return }
+    const cot = cotizaciones.find(c => c.id === cotizacionId)
+    if (!cot) return
+    const serieVal = cot.name || ''
+    setSerie(serieVal)
+    // Buscar max folio existente con esta serie
+    if (serieVal) {
+      supabase.from('facturas').select('folio').eq('serie', serieVal).not('folio', 'is', null)
+        .then(({ data }) => {
+          const folios = (data || []).map((f: any) => parseInt(f.folio)).filter((n: number) => !isNaN(n))
+          const nextFolio = folios.length > 0 ? Math.max(...folios) + 1 : 1
+          setFolio(String(nextFolio))
+        })
+    }
+  }, [cotizacionId, cotizaciones])
 
   useEffect(() => {
     Promise.all([
@@ -1553,6 +1573,8 @@ function NuevaFactura({ onCancel, onCreated }: { onCancel: () => void; onCreated
           payment_form: formaPago,
           payment_method: metodoPago,
           currency: moneda,
+          ...(serie ? { series: serie } : {}),
+          ...(folio ? { folio_number: parseInt(folio) || undefined } : {}),
         }
         if (tipoComprobante === 'E') invoicePayload.type = 'E'
         if (moneda !== 'MXN') invoicePayload.exchange = parseFloat(tipoCambio) || 1
@@ -1642,9 +1664,9 @@ function NuevaFactura({ onCancel, onCreated }: { onCancel: () => void; onCreated
         facturapi_id: invoice.id,
         facturapi_customer_id: facturapiCustomerId,
         uuid_fiscal: invoice.uuid || null,
-        serie: invoice.series || null,
-        folio: invoice.folio_number ? String(invoice.folio_number) : null,
-        tipo_comprobante: invoice.type || 'I',
+        serie: serie || invoice.series || null,
+        folio: folio || (invoice.folio_number ? String(invoice.folio_number) : null),
+        tipo_comprobante: invoice.type || tipoComprobante,
         fecha_emision: invoice.date || new Date().toISOString(),
         fecha_timbrado: invoice.stamp?.date || null,
         status: invoice.status === 'valid' ? 'timbrada' : 'borrador',
@@ -1830,6 +1852,18 @@ function NuevaFactura({ onCancel, onCreated }: { onCancel: () => void; onCreated
             </div>
           )}
         </div>
+        {tipoComprobante !== 'P' && (
+          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 12, marginTop: 12 }}>
+            <div>
+              <label style={lblStyle}>Serie (nombre del proyecto)</label>
+              <input value={serie} onChange={e => setSerie(e.target.value)} placeholder="Se auto-llena con la cotización" style={inpStyle} />
+            </div>
+            <div>
+              <label style={lblStyle}>Folio</label>
+              <input value={folio} onChange={e => setFolio(e.target.value)} placeholder="Auto" style={inpStyle} />
+            </div>
+          </div>
+        )}
         {clienteId && (() => {
           const c = clientes.find(x => x.id === clienteId)
           if (!c) return null
