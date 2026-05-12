@@ -108,6 +108,7 @@ interface DocRelacionadoPago {
   imp_pagado: number              // monto que este REP liquida sobre esta factura
   imp_saldo_insoluto: number      // anterior - pagado (auto)
   objeto_imp: string              // '01' no objeto / '02' si objeto / '03' si objeto y no obligado
+  base_dr: number                 // base gravable del DR (subtotal del pago sobre esta factura)
   iva_tasa: number                // tasa aplicable (0.16 default) - solo si objeto '02'
   iva_trasladado: number          // monto IVA del pago sobre esta factura (auto o editable)
 }
@@ -1060,7 +1061,7 @@ function ListaEmitidas({ onNueva }: { onNueva: () => void }) {
               currency: d.moneda_doc, exchange: d.equivalencia_dr, payment_number: d.num_parcialidad,
               previous_balance: d.imp_saldo_anterior, amount_paid: d.imp_pagado, balance: d.imp_saldo_insoluto,
               taxability: d.objeto_imp,
-              ...(d.objeto_imp === '02' && d.iva_trasladado > 0 ? { taxes: [{ type: 'IVA', rate: d.iva_tasa, base: d.imp_pagado - d.iva_trasladado, amount: d.iva_trasladado, withholding: false }] } : {}),
+              ...(d.objeto_imp === '02' && d.iva_trasladado > 0 ? { taxes: [{ type: 'IVA', rate: d.iva_tasa, base: d.base_dr || (d.imp_pagado - d.iva_trasladado), amount: d.iva_trasladado, withholding: false }] } : {}),
             })),
           }] }],
         }
@@ -1652,6 +1653,7 @@ function NuevaFactura({ onCancel, onCreated }: { onCancel: () => void; onCreated
         imp_pagado: 0,
         imp_saldo_insoluto: Number(f.total) || 0,
         objeto_imp: '02',
+        base_dr: 0,
         iva_tasa: 0.16,
         iva_trasladado: 0,
       }))
@@ -1667,12 +1669,19 @@ function NuevaFactura({ onCancel, onCreated }: { onCancel: () => void; onCreated
     if (field === 'imp_pagado' || field === 'imp_saldo_anterior') {
       next[idx].imp_saldo_insoluto = Math.round((next[idx].imp_saldo_anterior - next[idx].imp_pagado) * 100) / 100
     }
-    if (field === 'imp_pagado' || field === 'iva_tasa' || field === 'objeto_imp') {
+    if (field === 'imp_pagado' || field === 'iva_tasa' || field === 'objeto_imp' || field === 'base_dr') {
       if (next[idx].objeto_imp === '02') {
-        // base para IVA del pago: imp_pagado / (1 + iva_tasa), IVA = base * iva_tasa
-        const base = next[idx].imp_pagado / (1 + next[idx].iva_tasa)
-        next[idx].iva_trasladado = Math.round((next[idx].imp_pagado - base) * 100) / 100
+        // Auto-calcular base_dr solo si no fue editada manualmente
+        if (field !== 'base_dr') {
+          const base = Math.round((next[idx].imp_pagado / (1 + next[idx].iva_tasa)) * 100) / 100
+          next[idx].base_dr = base
+          next[idx].iva_trasladado = Math.round((next[idx].imp_pagado - base) * 100) / 100
+        } else {
+          // Si el usuario edita base_dr, recalcular IVA trasladado desde base_dr
+          next[idx].iva_trasladado = Math.round((next[idx].base_dr * next[idx].iva_tasa) * 100) / 100
+        }
       } else {
+        next[idx].base_dr = 0
         next[idx].iva_trasladado = 0
       }
     }
@@ -1919,7 +1928,7 @@ function NuevaFactura({ onCancel, onCreated }: { onCancel: () => void; onCreated
                 balance: d.imp_saldo_insoluto,
                 taxability: d.objeto_imp,
                 ...(d.objeto_imp === '02' && d.iva_trasladado > 0 ? {
-                  taxes: [{ type: 'IVA', rate: d.iva_tasa, base: d.imp_pagado - d.iva_trasladado, amount: d.iva_trasladado, withholding: false }]
+                  taxes: [{ type: 'IVA', rate: d.iva_tasa, base: d.base_dr, amount: d.iva_trasladado, withholding: false }]
                 } : {}),
               })),
             }]
@@ -2486,7 +2495,7 @@ function NuevaFactura({ onCancel, onCreated }: { onCancel: () => void; onCreated
                   <input type="number" step="0.01" value={d.imp_pagado} onChange={e => updateDocPago(idx, 'imp_pagado', parseFloat(e.target.value) || 0)} style={{ ...inpStyle, borderColor: '#A78BFA44' }} />
                 </div>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 8 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr 1fr', gap: 8 }}>
                 <div>
                   <label style={lblStyle}>Saldo insoluto</label>
                   <input type="number" value={d.imp_saldo_insoluto.toFixed(2)} disabled style={{ ...inpStyle, opacity: 0.6 }} />
@@ -2498,6 +2507,10 @@ function NuevaFactura({ onCancel, onCreated }: { onCancel: () => void; onCreated
                     <option value="02">02 - Si objeto</option>
                     <option value="03">03 - Si objeto y no obligado</option>
                   </select>
+                </div>
+                <div>
+                  <label style={lblStyle}>Base DR</label>
+                  <input type="number" step="0.01" value={d.base_dr} onChange={e => updateDocPago(idx, 'base_dr', parseFloat(e.target.value) || 0)} disabled={d.objeto_imp !== '02'} style={{ ...inpStyle, opacity: d.objeto_imp !== '02' ? 0.4 : 1 }} />
                 </div>
                 <div>
                   <label style={lblStyle}>IVA tasa</label>
