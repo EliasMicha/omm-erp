@@ -3167,18 +3167,41 @@ function TabEfectivo() {
   const [movements, setMovements] = useState<CashMovement[]>([])
   const [loading, setLoading] = useState(true)
   const efColFilters = useColumnFilters()
+  const [showForm, setShowForm] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [form, setForm] = useState({
+    tipo: 'cobro_cliente' as 'cobro_cliente' | 'pago_proveedor' | 'nomina_efectivo',
+    persona: '', concepto: '', monto: '', fecha: new Date().toISOString().substring(0, 10), proyecto_nombre: '',
+  })
 
-  useEffect(() => {
-    async function load() {
-      const { data } = await supabase.from('cash_movements').select('*').order('fecha', { ascending: false })
-      setMovements((data || []).map((m: any) => ({
-        id: m.id, tipo: m.tipo, direccion: m.direccion, persona: m.persona,
-        concepto: m.concepto, monto: Number(m.monto), fecha: m.fecha, proyecto_nombre: m.proyecto_nombre,
-      })))
-      setLoading(false)
-    }
+  const load = async () => {
+    const { data } = await supabase.from('cash_movements').select('*').order('fecha', { ascending: false })
+    setMovements((data || []).map((m: any) => ({
+      id: m.id, tipo: m.tipo, direccion: m.direccion, persona: m.persona,
+      concepto: m.concepto, monto: Number(m.monto), fecha: m.fecha, proyecto_nombre: m.proyecto_nombre,
+    })))
+    setLoading(false)
+  }
+
+  useEffect(() => { load() }, [])
+
+  const handleSave = async () => {
+    const monto = parseFloat(form.monto)
+    if (!monto || monto <= 0) { alert('Ingresa un monto válido'); return }
+    if (!form.persona.trim()) { alert('Ingresa la persona'); return }
+    setSaving(true)
+    const direccion = form.tipo === 'cobro_cliente' ? 'ingreso' : 'egreso'
+    const { error } = await supabase.from('cash_movements').insert({
+      tipo: form.tipo, direccion, persona: form.persona.trim(),
+      concepto: form.concepto.trim(), monto, fecha: form.fecha,
+      proyecto_nombre: form.proyecto_nombre.trim() || null,
+    })
+    if (error) { alert('Error: ' + error.message); setSaving(false); return }
+    setForm({ tipo: 'cobro_cliente', persona: '', concepto: '', monto: '', fecha: new Date().toISOString().substring(0, 10), proyecto_nombre: '' })
+    setShowForm(false)
+    setSaving(false)
     load()
-  }, [])
+  }
 
   const cobros = movements.filter(m => m.tipo === 'cobro_cliente')
   const pagos = movements.filter(m => m.tipo === 'pago_proveedor')
@@ -3199,6 +3222,7 @@ function TabEfectivo() {
   }
 
   const filteredMovements = efColFilters.applyFilters(movements, getEfCol)
+  const inputStyle: React.CSSProperties = { width: '100%', padding: '8px 10px', fontSize: 13, background: '#1a1a1a', border: '1px solid #333', borderRadius: 6, color: '#fff', fontFamily: 'inherit' }
 
   if (loading) return <div style={{ textAlign: 'center', padding: 40, color: '#666' }}>Cargando movimientos...</div>
 
@@ -3216,10 +3240,62 @@ function TabEfectivo() {
             {F(totalCobros - totalPagos - totalNomina)}
           </span>
         </div>
-        <Btn size="sm" variant="primary" style={{ width: isMobile ? '100%' : 'auto' }}><Plus size={12} /> Registrar movimiento</Btn>
+        <Btn size="sm" variant="primary" style={{ width: isMobile ? '100%' : 'auto' }} onClick={() => setShowForm(true)}><Plus size={12} /> Registrar movimiento</Btn>
       </div>
 
-      {movements.length === 0 ? (
+      {/* Modal de registro */}
+      {showForm && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setShowForm(false)}>
+          <div onClick={e => e.stopPropagation()} style={{ background: '#1a1a1a', border: '1px solid #333', borderRadius: 12, padding: 24, width: Math.min(440, window.innerWidth - 32), maxHeight: '90vh', overflow: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <span style={{ fontSize: 16, fontWeight: 700, color: '#fff' }}>Registrar movimiento de efectivo</span>
+              <button onClick={() => setShowForm(false)} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', fontSize: 18 }}><X size={18} /></button>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div>
+                <label style={{ fontSize: 11, color: '#888', marginBottom: 4, display: 'block' }}>Tipo</label>
+                <select value={form.tipo} onChange={e => setForm({ ...form, tipo: e.target.value as any })} style={{ ...inputStyle, cursor: 'pointer' }}>
+                  <option value="cobro_cliente">Cobro de cliente</option>
+                  <option value="pago_proveedor">Pago a proveedor</option>
+                  <option value="nomina_efectivo">Nómina efectivo</option>
+                </select>
+              </div>
+              <div>
+                <label style={{ fontSize: 11, color: '#888', marginBottom: 4, display: 'block' }}>Persona / Empresa *</label>
+                <input value={form.persona} onChange={e => setForm({ ...form, persona: e.target.value })} placeholder="Nombre del cliente, proveedor o empleado" style={inputStyle} />
+              </div>
+              <div>
+                <label style={{ fontSize: 11, color: '#888', marginBottom: 4, display: 'block' }}>Concepto</label>
+                <input value={form.concepto} onChange={e => setForm({ ...form, concepto: e.target.value })} placeholder="Descripción del pago" style={inputStyle} />
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <div>
+                  <label style={{ fontSize: 11, color: '#888', marginBottom: 4, display: 'block' }}>Monto *</label>
+                  <input type="number" value={form.monto} onChange={e => setForm({ ...form, monto: e.target.value })} placeholder="0.00" min="0" step="0.01" style={inputStyle} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 11, color: '#888', marginBottom: 4, display: 'block' }}>Fecha</label>
+                  <input type="date" value={form.fecha} onChange={e => setForm({ ...form, fecha: e.target.value })} style={inputStyle} />
+                </div>
+              </div>
+              <div>
+                <label style={{ fontSize: 11, color: '#888', marginBottom: 4, display: 'block' }}>Proyecto (opcional)</label>
+                <input value={form.proyecto_nombre} onChange={e => setForm({ ...form, proyecto_nombre: e.target.value })} placeholder="Nombre del proyecto" style={inputStyle} />
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: 8, marginTop: 20, justifyContent: 'flex-end' }}>
+              <Btn size="sm" onClick={() => setShowForm(false)}>Cancelar</Btn>
+              <Btn size="sm" variant="primary" disabled={saving} onClick={handleSave}>
+                {saving ? <><Loader2 size={12} className="spin" /> Guardando...</> : 'Guardar'}
+              </Btn>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {movements.length === 0 && !showForm ? (
         <EmptyState message="Sin movimientos de efectivo. Marca pagos de nómina como pagados para verlos aquí." />
       ) : (
         <Table>
