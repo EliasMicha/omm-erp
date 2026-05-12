@@ -760,21 +760,21 @@ function ListaTodas() {
           <div style={{ fontSize: 12, color: '#444' }}>Da click en "Sincronizar TODO con FacturAPI" para traer las facturas del SAT</div>
         </div>
       ) : (
-        <div style={{ background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 12, overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse' as const, minWidth: 900, tableLayout: 'fixed' as const }}>
+        <div style={{ background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 12, overflow: 'hidden' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse' as const, tableLayout: 'fixed' as const }}>
             <colgroup>
-              <col style={{ width: 60 }} />
-              <col style={{ width: 130 }} />
-              <col style={{ width: 90 }} />
-              <col />
-              <col style={{ width: 140 }} />
-              <col style={{ width: 140 }} />
-              <col style={{ width: 80 }} />
+              <col style={{ width: '5%' }} />
+              <col style={{ width: '12%' }} />
+              <col style={{ width: '8%' }} />
+              <col style={{ width: '30%' }} />
+              <col style={{ width: '13%' }} />
+              <col style={{ width: '14%' }} />
+              <col style={{ width: '8%' }} />
             </colgroup>
             <thead>
               <tr style={{ background: '#141414', borderBottom: '1px solid #1e1e1e' }}>
                 {['Dir', 'Folio', 'Fecha', 'Contraparte', 'RFC', 'Total', 'Status'].map(h => (
-                  <th key={h} style={{ padding: '10px 14px', fontSize: 10, fontWeight: 600, color: '#666', textTransform: 'uppercase' as const, letterSpacing: '0.06em', textAlign: 'left' as const }}>{h}</th>
+                  <th key={h} style={{ padding: '10px 10px', fontSize: 10, fontWeight: 600, color: '#666', textTransform: 'uppercase' as const, letterSpacing: '0.06em', textAlign: 'left' as const }}>{h}</th>
                 ))}
               </tr>
             </thead>
@@ -783,17 +783,18 @@ function ListaTodas() {
                 const isEmit = f.direccion === 'emitida'
                 const contraparte = isEmit ? f.receptor_nombre : f.emisor_nombre
                 const contraparteRfc = isEmit ? f.receptor_rfc : f.emisor_rfc
+                const cellEllipsis = { overflow: 'hidden' as const, textOverflow: 'ellipsis' as const, whiteSpace: 'nowrap' as const }
                 return (
                   <tr key={f.id} onClick={() => abrirDetalle(f)} style={{ borderBottom: '1px solid #1a1a1a', cursor: 'pointer' }}>
-                    <td style={{ padding: '10px 14px' }}>
-                      <span style={{ padding: '2px 8px', borderRadius: 4, fontSize: 9, fontWeight: 700, letterSpacing: '0.05em', background: isEmit ? 'rgba(87,255,154,0.15)' : 'rgba(251,191,36,0.12)', color: isEmit ? '#57FF9A' : '#fcd34d' }}>{isEmit ? 'EMI' : 'REC'}</span>
+                    <td style={{ padding: '10px 10px' }}>
+                      <span style={{ padding: '2px 6px', borderRadius: 4, fontSize: 9, fontWeight: 700, letterSpacing: '0.05em', background: isEmit ? 'rgba(87,255,154,0.15)' : 'rgba(251,191,36,0.12)', color: isEmit ? '#57FF9A' : '#fcd34d' }}>{isEmit ? 'EMI' : 'REC'}</span>
                     </td>
-                    <td style={{ padding: '10px 14px', fontSize: 12, color: '#ccc', fontFamily: 'monospace' }}>{f.serie || ''}{f.folio || '--'}</td>
-                    <td style={{ padding: '10px 14px', fontSize: 11, color: '#888' }}>{f.fecha_emision ? new Date(f.fecha_emision).toLocaleDateString() : '--'}</td>
-                    <td style={{ padding: '10px 14px', fontSize: 12, color: '#ddd' }}>{contraparte || '--'}</td>
-                    <td style={{ padding: '10px 14px', fontSize: 11, color: '#888', fontFamily: 'monospace' }}>{contraparteRfc || '--'}</td>
-                    <td style={{ padding: '10px 14px', fontSize: 12, color: isEmit ? '#57FF9A' : '#fcd34d', fontWeight: 600, textAlign: 'right' as const }}>${(f.total || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })} {f.moneda}</td>
-                    <td style={{ padding: '10px 14px' }}>
+                    <td style={{ padding: '10px 10px', fontSize: 11, color: '#ccc', fontFamily: 'monospace', ...cellEllipsis }}>{f.serie || ''}{f.folio || '--'}</td>
+                    <td style={{ padding: '10px 10px', fontSize: 11, color: '#888' }}>{f.fecha_emision ? new Date(f.fecha_emision).toLocaleDateString() : '--'}</td>
+                    <td style={{ padding: '10px 10px', fontSize: 12, color: '#ddd', ...cellEllipsis }}>{contraparte || '--'}</td>
+                    <td style={{ padding: '10px 10px', fontSize: 11, color: '#888', fontFamily: 'monospace', ...cellEllipsis }}>{contraparteRfc || '--'}</td>
+                    <td style={{ padding: '10px 10px', fontSize: 12, color: isEmit ? '#57FF9A' : '#fcd34d', fontWeight: 600, textAlign: 'right' as const, ...cellEllipsis }}>${(f.total || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })} {f.moneda}</td>
+                    <td style={{ padding: '10px 10px' }}>
                       <span style={{ padding: '2px 8px', borderRadius: 10, fontSize: 10, fontWeight: 600, background: f.status === 'timbrada' ? '#57FF9A22' : f.status === 'cancelada' ? '#EF444422' : '#F59E0B22', color: f.status === 'timbrada' ? '#57FF9A' : f.status === 'cancelada' ? '#EF4444' : '#F59E0B' }}>{f.status}</span>
                     </td>
                   </tr>
@@ -1442,21 +1443,21 @@ function ListaEmitidas({ onNueva }: { onNueva: () => void }) {
           )}
         </div>
       ) : (
-        <div style={{ background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 12, overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 900, tableLayout: 'fixed' as const }}>
+        <div style={{ background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 12, overflow: 'hidden' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' as const }}>
             <colgroup>
-              <col style={{ width: 130 }} />
-              <col style={{ width: 90 }} />
-              <col />
-              <col style={{ width: 140 }} />
-              <col style={{ width: 140 }} />
-              <col style={{ width: 80 }} />
-              <col style={{ width: 150 }} />
+              <col style={{ width: '12%' }} />
+              <col style={{ width: '8%' }} />
+              <col style={{ width: '25%' }} />
+              <col style={{ width: '13%' }} />
+              <col style={{ width: '14%' }} />
+              <col style={{ width: '8%' }} />
+              <col style={{ width: '20%' }} />
             </colgroup>
             <thead>
               <tr style={{ background: '#141414', borderBottom: '1px solid #1e1e1e' }}>
                 {['Folio', 'Fecha', 'Cliente', 'RFC', 'Total', 'Status', 'Acciones'].map(h => (
-                  <th key={h} style={{ padding: '10px 14px', fontSize: 10, fontWeight: 600, color: '#666', textTransform: 'uppercase', letterSpacing: '0.06em', textAlign: 'left' }}>{h}</th>
+                  <th key={h} style={{ padding: '10px 10px', fontSize: 10, fontWeight: 600, color: '#666', textTransform: 'uppercase', letterSpacing: '0.06em', textAlign: 'left' }}>{h}</th>
                 ))}
               </tr>
             </thead>
@@ -1464,13 +1465,14 @@ function ListaEmitidas({ onNueva }: { onNueva: () => void }) {
               {filtered.map(f => {
                 const canDelete = f.status === 'borrador' || f.status === 'cancelada' || f.status === 'error'
                 const canCancel = f.status === 'timbrada' && f.facturapi_id
+                const cellEllipsis = { overflow: 'hidden' as const, textOverflow: 'ellipsis' as const, whiteSpace: 'nowrap' as const }
                 return (
                 <tr key={f.id} style={{ borderBottom: '1px solid #1a1a1a' }}>
-                  <td style={{ padding: '10px 14px', fontSize: 12, color: '#ccc', fontFamily: 'monospace' }}>{f.serie || ''}{f.folio || '--'}</td>
-                  <td style={{ padding: '10px 14px', fontSize: 11, color: '#888' }}>{f.fecha_emision ? new Date(f.fecha_emision).toLocaleDateString() : '--'}</td>
-                  <td style={{ padding: '10px 14px', fontSize: 12, color: '#ddd' }}>{f.receptor_nombre || '--'}</td>
-                  <td style={{ padding: '10px 14px', fontSize: 11, color: '#888', fontFamily: 'monospace' }}>{f.receptor_rfc || '--'}</td>
-                  <td style={{ padding: '10px 14px', fontSize: 12, color: '#57FF9A', fontWeight: 600, textAlign: 'right' }}>${(f.total || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })} {f.moneda}</td>
+                  <td style={{ padding: '10px 10px', fontSize: 11, color: '#ccc', fontFamily: 'monospace', ...cellEllipsis }}>{f.serie || ''}{f.folio || '--'}</td>
+                  <td style={{ padding: '10px 10px', fontSize: 11, color: '#888' }}>{f.fecha_emision ? new Date(f.fecha_emision).toLocaleDateString() : '--'}</td>
+                  <td style={{ padding: '10px 10px', fontSize: 12, color: '#ddd', ...cellEllipsis }}>{f.receptor_nombre || '--'}</td>
+                  <td style={{ padding: '10px 10px', fontSize: 11, color: '#888', fontFamily: 'monospace', ...cellEllipsis }}>{f.receptor_rfc || '--'}</td>
+                  <td style={{ padding: '10px 10px', fontSize: 12, color: '#57FF9A', fontWeight: 600, textAlign: 'right', ...cellEllipsis }}>${(f.total || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })} {f.moneda}</td>
                   <td style={{ padding: '10px 14px' }}>
                     <span style={{
                       padding: '2px 8px', borderRadius: 10, fontSize: 10, fontWeight: 600,
@@ -3005,36 +3007,39 @@ function ListaRecibidas() {
           <div style={{ fontSize: 12, color: '#444' }}>Da click en "Sincronizar con FacturAPI" para traer las facturas del SAT</div>
         </div>
       ) : (
-        <div style={{ background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 12, overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse' as const, minWidth: 800, tableLayout: 'fixed' as const }}>
+        <div style={{ background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 12, overflow: 'hidden' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse' as const, tableLayout: 'fixed' as const }}>
             <colgroup>
-              <col style={{ width: 130 }} />
-              <col style={{ width: 90 }} />
-              <col />
-              <col style={{ width: 140 }} />
-              <col style={{ width: 140 }} />
-              <col style={{ width: 80 }} />
+              <col style={{ width: '14%' }} />
+              <col style={{ width: '9%' }} />
+              <col style={{ width: '32%' }} />
+              <col style={{ width: '15%' }} />
+              <col style={{ width: '16%' }} />
+              <col style={{ width: '10%' }} />
             </colgroup>
             <thead>
               <tr style={{ background: '#141414', borderBottom: '1px solid #1e1e1e' }}>
                 {['Folio', 'Fecha', 'Proveedor', 'RFC', 'Total', 'Status'].map(h => (
-                  <th key={h} style={{ padding: '10px 14px', fontSize: 10, fontWeight: 600, color: '#666', textTransform: 'uppercase' as const, letterSpacing: '0.06em', textAlign: 'left' as const }}>{h}</th>
+                  <th key={h} style={{ padding: '10px 10px', fontSize: 10, fontWeight: 600, color: '#666', textTransform: 'uppercase' as const, letterSpacing: '0.06em', textAlign: 'left' as const }}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {filtered.map(f => (
+              {filtered.map(f => {
+                const cellEllipsis = { overflow: 'hidden' as const, textOverflow: 'ellipsis' as const, whiteSpace: 'nowrap' as const }
+                return (
                 <tr key={f.id} style={{ borderBottom: '1px solid #1a1a1a' }}>
-                  <td style={{ padding: '10px 14px', fontSize: 12, color: '#ccc', fontFamily: 'monospace' }}>{f.serie || ''}{f.folio || '--'}</td>
-                  <td style={{ padding: '10px 14px', fontSize: 11, color: '#888' }}>{f.fecha_emision ? new Date(f.fecha_emision).toLocaleDateString() : '--'}</td>
-                  <td style={{ padding: '10px 14px', fontSize: 12, color: '#ddd' }}>{f.emisor_nombre || '--'}</td>
-                  <td style={{ padding: '10px 14px', fontSize: 11, color: '#888', fontFamily: 'monospace' }}>{f.emisor_rfc || '--'}</td>
-                  <td style={{ padding: '10px 14px', fontSize: 12, color: '#F59E0B', fontWeight: 600, textAlign: 'right' as const }}>${(f.total || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })} {f.moneda}</td>
-                  <td style={{ padding: '10px 14px' }}>
+                  <td style={{ padding: '10px 10px', fontSize: 11, color: '#ccc', fontFamily: 'monospace', ...cellEllipsis }}>{f.serie || ''}{f.folio || '--'}</td>
+                  <td style={{ padding: '10px 10px', fontSize: 11, color: '#888' }}>{f.fecha_emision ? new Date(f.fecha_emision).toLocaleDateString() : '--'}</td>
+                  <td style={{ padding: '10px 10px', fontSize: 12, color: '#ddd', ...cellEllipsis }}>{f.emisor_nombre || '--'}</td>
+                  <td style={{ padding: '10px 10px', fontSize: 11, color: '#888', fontFamily: 'monospace', ...cellEllipsis }}>{f.emisor_rfc || '--'}</td>
+                  <td style={{ padding: '10px 10px', fontSize: 12, color: '#F59E0B', fontWeight: 600, textAlign: 'right' as const, ...cellEllipsis }}>${(f.total || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })} {f.moneda}</td>
+                  <td style={{ padding: '10px 10px' }}>
                     <span style={{ padding: '2px 8px', borderRadius: 10, fontSize: 10, fontWeight: 600, background: f.status === 'timbrada' ? '#57FF9A22' : f.status === 'cancelada' ? '#EF444422' : '#F59E0B22', color: f.status === 'timbrada' ? '#57FF9A' : f.status === 'cancelada' ? '#EF4444' : '#F59E0B' }}>{f.status}</span>
                   </td>
                 </tr>
-              ))}
+                )
+              })}
             </tbody>
           </table>
         </div>
