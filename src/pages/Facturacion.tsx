@@ -1315,7 +1315,7 @@ function NuevaFactura({ onCancel, onCreated }: { onCancel: () => void; onCreated
   const [uuidsRelacionados, setUuidsRelacionados] = useState<string[]>([])
 
   // Feature B: REP (Comprobante de Pago, tipo P)
-  const [tipoComprobante, setTipoComprobante] = useState<'I' | 'P'>('I')
+  const [tipoComprobante, setTipoComprobante] = useState<'I' | 'P' | 'E'>('I')
   const [fechaPago, setFechaPago] = useState(() => {
     const d = new Date()
     const pad = (n: number) => String(n).padStart(2, '0')
@@ -1478,10 +1478,14 @@ function NuevaFactura({ onCancel, onCreated }: { onCancel: () => void; onCreated
     if (!clienteId) { setError('Selecciona un cliente'); return }
 
     // Validaciones segun tipo de comprobante
-    if (tipoComprobante === 'I') {
+    if (tipoComprobante === 'I' || tipoComprobante === 'E') {
       if (conceptos.length === 0) { setError('Agrega al menos un concepto'); return }
       if (conceptos.some(c => !c.descripcion || c.cantidad <= 0 || c.valor_unitario <= 0)) {
         setError('Completa todos los conceptos: descripcion, cantidad y valor unitario')
+        return
+      }
+      if (tipoComprobante === 'E' && uuidsRelacionados.length === 0) {
+        setError('Para una nota de crédito (Egreso) debes relacionar al menos una factura original')
         return
       }
     } else {
@@ -1530,7 +1534,7 @@ function NuevaFactura({ onCancel, onCreated }: { onCancel: () => void; onCreated
 
       // Construir payload segun tipo de comprobante
       let invoicePayload: any
-      if (tipoComprobante === 'I') {
+      if (tipoComprobante === 'I' || tipoComprobante === 'E') {
         invoicePayload = {
           customer: facturapiCustomerId,
           items: conceptos.map(c => ({
@@ -1550,9 +1554,10 @@ function NuevaFactura({ onCancel, onCreated }: { onCancel: () => void; onCreated
           payment_method: metodoPago,
           currency: moneda,
         }
+        if (tipoComprobante === 'E') invoicePayload.type = 'E'
         if (moneda !== 'MXN') invoicePayload.exchange = parseFloat(tipoCambio) || 1
 
-        // Feature A: CFDIs relacionados (con validaciones cruzadas) — solo para tipo I
+        // Feature A: CFDIs relacionados (con validaciones cruzadas) — para tipo I y E
         if (tipoRelacion && uuidsRelacionados.length === 0) {
           setError('Seleccionaste un tipo de relacion pero no agregaste facturas a relacionar')
           setEmitting(false)
@@ -1631,7 +1636,7 @@ function NuevaFactura({ onCancel, onCreated }: { onCancel: () => void; onCreated
 
       const invoice = ir.data
 
-      const facturaSupabase: any = tipoComprobante === 'I' ? {
+      const facturaSupabase: any = (tipoComprobante === 'I' || tipoComprobante === 'E') ? {
         direccion: 'emitida',
         cliente_id: clienteId,
         facturapi_id: invoice.id,
@@ -1701,7 +1706,7 @@ function NuevaFactura({ onCancel, onCreated }: { onCancel: () => void; onCreated
         return
       }
 
-      if (created && tipoComprobante === 'I') {
+      if (created && (tipoComprobante === 'I' || tipoComprobante === 'E')) {
         const conceptoInserts = conceptos.map((c, i) => ({
           factura_id: (created as any).id,
           descripcion: c.descripcion,
@@ -1761,7 +1766,7 @@ function NuevaFactura({ onCancel, onCreated }: { onCancel: () => void; onCreated
     <div style={{ background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 12, padding: 24 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
         <div style={{ fontSize: 16, fontWeight: 700, color: '#fff' }}>
-          {tipoComprobante === 'I' ? 'Nueva factura' : 'Nuevo comprobante de pago (REP)'}
+          {tipoComprobante === 'I' ? 'Nueva factura' : tipoComprobante === 'E' ? 'Nota de crédito (Egreso)' : 'Nuevo comprobante de pago (REP)'}
         </div>
         <button onClick={onCancel} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer' }}><X size={18} /></button>
       </div>
@@ -1784,6 +1789,12 @@ function NuevaFactura({ onCancel, onCreated }: { onCancel: () => void; onCreated
             background: tipoComprobante === 'P' ? '#A78BFA18' : 'transparent',
             color: tipoComprobante === 'P' ? '#C084FC' : '#888',
           }}>Comprobante de Pago (tipo P — REP)</button>
+          <button onClick={() => setTipoComprobante('E')} style={{
+            padding: '10px 20px', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+            border: `1px solid ${tipoComprobante === 'E' ? '#F59E0B' : '#2a2a2a'}`,
+            background: tipoComprobante === 'E' ? '#F59E0B18' : 'transparent',
+            color: tipoComprobante === 'E' ? '#F59E0B' : '#888',
+          }}>Nota de Crédito (tipo E — Egreso)</button>
         </div>
         {tipoComprobante === 'P' && (
           <div style={{ marginTop: 8, fontSize: 10, color: '#666', fontStyle: 'italic' }}>
@@ -1791,11 +1802,17 @@ function NuevaFactura({ onCancel, onCreated }: { onCancel: () => void; onCreated
             Los totales fiscales del header van en 0; el monto real va en el complemento.
           </div>
         )}
+        {tipoComprobante === 'E' && (
+          <div style={{ marginTop: 8, fontSize: 10, color: '#666', fontStyle: 'italic' }}>
+            Nota de crédito — para devoluciones, descuentos o bonificaciones sobre facturas de ingreso previamente emitidas.
+            Debes relacionar la factura original (tipo de relación 01 o 03).
+          </div>
+        )}
       </div>
 
       <div style={{ marginBottom: 20 }}>
         <div style={{ fontSize: 13, fontWeight: 600, color: '#888', marginBottom: 10 }}>Cliente y vinculacion</div>
-        <div style={{ display: 'grid', gridTemplateColumns: tipoComprobante === 'I' ? '1fr 1fr' : '1fr', gap: 12 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: tipoComprobante !== 'P' ? '1fr 1fr' : '1fr', gap: 12 }}>
           <div>
             <label style={lblStyle}>Cliente *</label>
             <select value={clienteId} onChange={e => setClienteId(e.target.value)} style={inpStyle}>
@@ -1803,7 +1820,7 @@ function NuevaFactura({ onCancel, onCreated }: { onCancel: () => void; onCreated
               {clientes.map(c => <option key={c.id} value={c.id}>{c.razon_social} ({c.rfc})</option>)}
             </select>
           </div>
-          {tipoComprobante === 'I' && (
+          {tipoComprobante !== 'P' && (
             <div>
               <label style={lblStyle}>Cotizacion (opcional)</label>
               <select value={cotizacionId} onChange={e => setCotizacionId(e.target.value)} style={inpStyle}>
@@ -1856,7 +1873,7 @@ function NuevaFactura({ onCancel, onCreated }: { onCancel: () => void; onCreated
         })()}
       </div>
 
-      {tipoComprobante === 'I' && <>
+      {(tipoComprobante === 'I' || tipoComprobante === 'E') && <>
       {/* Feature A: Relacionar facturas (CFDI Relacionado) */}
       <div style={{ marginBottom: 20 }}>
         <SelectorFacturasRelacionadas
@@ -2195,8 +2212,8 @@ function NuevaFactura({ onCancel, onCreated }: { onCancel: () => void; onCreated
 
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
         <button onClick={onCancel} style={{ padding: '10px 20px', background: '#1e1e1e', color: '#ccc', border: '1px solid #2a2a2a', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Cancelar</button>
-        <button onClick={emitir} disabled={emitting} style={{ padding: '10px 20px', background: emitting ? '#444' : (tipoComprobante === 'P' ? '#A78BFA' : '#57FF9A'), color: '#000', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: emitting ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
-          {emitting ? <><Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Emitiendo...</> : (tipoComprobante === 'P' ? 'Emitir REP' : 'Emitir factura')}
+        <button onClick={emitir} disabled={emitting} style={{ padding: '10px 20px', background: emitting ? '#444' : (tipoComprobante === 'P' ? '#A78BFA' : tipoComprobante === 'E' ? '#F59E0B' : '#57FF9A'), color: '#000', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: emitting ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+          {emitting ? <><Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Emitiendo...</> : (tipoComprobante === 'P' ? 'Emitir REP' : tipoComprobante === 'E' ? 'Emitir nota de crédito' : 'Emitir factura')}
         </button>
       </div>
     </div>
