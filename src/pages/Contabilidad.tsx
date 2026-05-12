@@ -9,7 +9,7 @@ import {
   FileText, Building2, ArrowLeftRight, ShieldCheck,
   Banknote, Users, TrendingUp, Plus, Upload, Search,
   ChevronRight, AlertTriangle, CheckCircle, Clock,
-  DollarSign, X, Loader2
+  DollarSign, X, Loader2, Download
 } from 'lucide-react'
 
 /* --------- Types ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ */
@@ -2043,6 +2043,137 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
   const abonosCuenta = movsCuenta.filter(m => m.tipo === 'abono').reduce((s, m) => s + m.monto, 0)
   const conciliadosCuenta = movsCuenta.filter(m => m.conciliado).length
 
+  /* --- Excel export --- */
+  const CFDI_LABELS: Record<string, string> = { I: 'Ingreso', E: 'Egreso', T: 'Traslado', P: 'Pago', N: 'Nómina' }
+  const CAT_LABELS: Record<string, string> = { proveedor: 'Proveedor', proveedor_obra: 'Proveedor Obra', cobro_cliente: 'Cobro Cliente', nomina: 'Nómina', impuestos: 'Impuestos', comision: 'Comisión Bancaria', traspaso: 'Traspaso', traspaso_interno: 'Traspaso Interno', prestamo: 'Préstamo', suscripcion: 'Suscripción', gasto_operativo: 'Gasto Operativo', otro: 'Otro' }
+  const [exporting, setExporting] = useState(false)
+
+  async function exportExcel() {
+    setExporting(true)
+    try {
+      // Load SheetJS from CDN if not already loaded
+      if (!(window as any).XLSX) {
+        await new Promise<void>((resolve, reject) => {
+          const s = document.createElement('script')
+          s.src = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js'
+          s.onload = () => resolve()
+          s.onerror = () => reject(new Error('No se pudo cargar la librería XLSX'))
+          document.head.appendChild(s)
+        })
+      }
+      const XLSX = (window as any).XLSX
+
+      // Build lookup maps
+      const supplierMap = new Map(assignSuppliers.map(s => [s.id, s.name]))
+      const clienteMap = new Map(assignClientes.map(c => [c.id, c.razon_social || c.nombre_comercial || '']))
+      const poMap = new Map(assignPOs.map(p => [p.id, p]))
+      const leadMap = new Map(assignLeads.map(l => [l.id, l.name]))
+      const quotMap = new Map(assignQuotations.map(q => [q.id, q.name]))
+
+      // All movements for this month+account
+      const rows = movsCuenta.map(m => {
+        // Find linked invoices via conciliacion_links
+        const links = concLinks.filter(l => l.bank_movement_id === m.id)
+        const linkedInvs = links.map(l => invoices.find(i => i.id === l.invoice_id)).filter(Boolean)
+        const firstInv = linkedInvs[0] as Invoice | undefined
+
+        // PO info
+        const po = m.purchase_order_id ? poMap.get(m.purchase_order_id) : null
+
+        // Proveedor: from movement field, or linked invoice emisor (if recibida), or PO supplier
+        let proveedor = m.proveedor || ''
+        if (!proveedor && firstInv?.direccion === 'recibida') proveedor = firstInv.emisor_nombre || ''
+        if (!proveedor && po?.supplier_id) proveedor = supplierMap.get(po.supplier_id) || ''
+
+        // Cliente: from movement field, or linked invoice receptor (if emitida)
+        let cliente = m.cliente || ''
+        if (!cliente && firstInv?.direccion === 'emitida') cliente = firstInv.receptor_nombre || ''
+
+        // Proyecto: from lead or quotation assignment, or movement field
+        let proyecto = ''
+        if (m.lead_id) proyecto = leadMap.get(m.lead_id) || ''
+        if (!proyecto && m.quotation_id) proyecto = quotMap.get(m.quotation_id) || ''
+        if (!proyecto) proyecto = m.proyecto_sugerido || m.proyecto_codigo || ''
+
+        // Factura number: from movement or linked invoice
+        const numFactura = m.folio_serie || (firstInv ? `${firstInv.serie || ''}${firstInv.folio || ''}` : '') || ''
+
+        // UUID: from movement or linked invoice
+        const uuid = m.uuid_factura || firstInv?.uuid || ''
+
+        // UUID relacionado: from linked invoice
+        const uuidRelacionado = firstInv?.uuids_relacionados?.join(', ') || firstInv?.uuid_relacionado || ''
+
+        // Tipo de factura
+        const tipoFactura = firstInv ? (CFDI_LABELS[firstInv.tipo_comprobante] || firstInv.tipo_comprobante) : ''
+
+        // Uso CFDI
+        const usoCfdi = m.uso_cfdi || firstInv?.receptor_uso_cfdi || ''
+
+        // Tipo de gasto
+        const tipoGasto = CAT_LABELS[m.categoria_sugerida || ''] || m.categoria_sugerida || 'Otro'
+
+        return {
+          'Fecha': m.fecha || '',
+          'Tipo': m.tipo === 'cargo' ? 'Egreso' : 'Ingreso',
+          'Monto': m.monto || 0,
+          'Moneda': m.moneda || 'MXN',
+          'Descripción': m.concepto || '',
+          'Proveedor': proveedor,
+          'Cliente': cliente,
+          'Proyecto': proyecto,
+          'No. Factura': numFactura,
+          'No. Orden de Compra': po?.po_number || '',
+          'UUID': uuid,
+          'UUID Relacionado': uuidRelacionado,
+          'Tipo de Factura': tipoFactura,
+          'Uso de CFDI': usoCfdi,
+          'Tipo de Gasto': tipoGasto,
+          'Conciliado': m.conciliado ? 'Sí' : 'No',
+          'Banco': m.banco || '',
+          'Cuenta': m.cuenta || '',
+          'Beneficiario': m.beneficiario || '',
+        }
+      })
+
+      const ws = XLSX.utils.json_to_sheet(rows)
+
+      // Column widths
+      ws['!cols'] = [
+        { wch: 12 }, // Fecha
+        { wch: 8 },  // Tipo
+        { wch: 14 }, // Monto
+        { wch: 6 },  // Moneda
+        { wch: 40 }, // Descripción
+        { wch: 30 }, // Proveedor
+        { wch: 30 }, // Cliente
+        { wch: 25 }, // Proyecto
+        { wch: 15 }, // No. Factura
+        { wch: 18 }, // No. OC
+        { wch: 38 }, // UUID
+        { wch: 38 }, // UUID Relacionado
+        { wch: 12 }, // Tipo Factura
+        { wch: 12 }, // Uso CFDI
+        { wch: 18 }, // Tipo Gasto
+        { wch: 10 }, // Conciliado
+        { wch: 10 }, // Banco
+        { wch: 14 }, // Cuenta
+        { wch: 25 }, // Beneficiario
+      ]
+
+      const wb = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(wb, ws, 'Conciliación')
+      const yyyy = monthDate.getFullYear()
+      const mm = String(monthDate.getMonth() + 1).padStart(2, '0')
+      XLSX.writeFile(wb, `Conciliacion_${activeAcc.label.replace(/\s/g, '_')}_${yyyy}-${mm}.xlsx`)
+    } catch (err) {
+      console.error('Export error:', err)
+      alert('Error al exportar: ' + (err as Error).message)
+    } finally {
+      setExporting(false)
+    }
+  }
+
   /* --- Selection helpers --- */
   // Conciliacion v2: filtrar PRIMERO por cuenta activa, luego por estado
   const getMovColValue = (m: BankMovement, col: string): string => {
@@ -2135,8 +2266,15 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
             >Hoy</button>
           )}
         </div>
-        <div style={{ fontSize: 11, color: '#666' }}>
-          {movsCuenta.length} movimiento{movsCuenta.length !== 1 ? 's' : ''} en {activeAcc.label}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ fontSize: 11, color: '#666' }}>
+            {movsCuenta.length} movimiento{movsCuenta.length !== 1 ? 's' : ''} en {activeAcc.label}
+          </span>
+          <button
+            onClick={exportExcel}
+            disabled={exporting || movsCuenta.length === 0}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '5px 12px', fontSize: 11, fontWeight: 600, background: 'rgba(87,255,154,0.08)', border: '1px solid rgba(87,255,154,0.3)', borderRadius: 6, color: '#57FF9A', cursor: exporting ? 'wait' : 'pointer', fontFamily: 'inherit', opacity: movsCuenta.length === 0 ? 0.4 : 1 }}
+          >{exporting ? <Loader2 size={12} className="spin" /> : <Download size={12} />} Excel</button>
         </div>
       </div>
 
