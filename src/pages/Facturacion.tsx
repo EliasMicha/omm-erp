@@ -760,8 +760,17 @@ function ListaTodas() {
           <div style={{ fontSize: 12, color: '#444' }}>Da click en "Sincronizar TODO con FacturAPI" para traer las facturas del SAT</div>
         </div>
       ) : (
-        <div style={{ background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 12, overflow: 'hidden' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse' as const }}>
+        <div style={{ background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 12, overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse' as const, minWidth: 900, tableLayout: 'fixed' as const }}>
+            <colgroup>
+              <col style={{ width: 60 }} />
+              <col style={{ width: 130 }} />
+              <col style={{ width: 90 }} />
+              <col />
+              <col style={{ width: 140 }} />
+              <col style={{ width: 140 }} />
+              <col style={{ width: 80 }} />
+            </colgroup>
             <thead>
               <tr style={{ background: '#141414', borderBottom: '1px solid #1e1e1e' }}>
                 {['Dir', 'Folio', 'Fecha', 'Contraparte', 'RFC', 'Total', 'Status'].map(h => (
@@ -1433,8 +1442,17 @@ function ListaEmitidas({ onNueva }: { onNueva: () => void }) {
           )}
         </div>
       ) : (
-        <div style={{ background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 12, overflow: 'hidden' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <div style={{ background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 12, overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 900, tableLayout: 'fixed' as const }}>
+            <colgroup>
+              <col style={{ width: 130 }} />
+              <col style={{ width: 90 }} />
+              <col />
+              <col style={{ width: 140 }} />
+              <col style={{ width: 140 }} />
+              <col style={{ width: 80 }} />
+              <col style={{ width: 150 }} />
+            </colgroup>
             <thead>
               <tr style={{ background: '#141414', borderBottom: '1px solid #1e1e1e' }}>
                 {['Folio', 'Fecha', 'Cliente', 'RFC', 'Total', 'Status', 'Acciones'].map(h => (
@@ -2987,8 +3005,16 @@ function ListaRecibidas() {
           <div style={{ fontSize: 12, color: '#444' }}>Da click en "Sincronizar con FacturAPI" para traer las facturas del SAT</div>
         </div>
       ) : (
-        <div style={{ background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 12, overflow: 'hidden' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse' as const }}>
+        <div style={{ background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 12, overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse' as const, minWidth: 800, tableLayout: 'fixed' as const }}>
+            <colgroup>
+              <col style={{ width: 130 }} />
+              <col style={{ width: 90 }} />
+              <col />
+              <col style={{ width: 140 }} />
+              <col style={{ width: 140 }} />
+              <col style={{ width: 80 }} />
+            </colgroup>
             <thead>
               <tr style={{ background: '#141414', borderBottom: '1px solid #1e1e1e' }}>
                 {['Folio', 'Fecha', 'Proveedor', 'RFC', 'Total', 'Status'].map(h => (
