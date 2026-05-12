@@ -2768,12 +2768,36 @@ function NuevoSupplierModal({ onClose, onCreated }: { onClose: () => void; onCre
 // ═══════════════════════════════════════════════════════════════════════════════
 //  SUPPLIER DETAIL
 // ═══════════════════════════════════════════════════════════════════════════════
+interface BankAccount {
+  id: string
+  supplier_id: string
+  etiqueta: string
+  moneda: string
+  clabe: string
+  cuenta_bancaria: string
+  banco: string
+  bnet_codigo: string
+  is_default: boolean
+}
+
 function SupplierDetail({ supplierId, onBack }: { supplierId: string; onBack: () => void }) {
   const [supplier, setSupplier] = useState<Supplier | null>(null)
   const [orders, setOrders] = useState<PurchaseOrder[]>([])
   const [loading, setLoading] = useState(true)
   const [dirty, setDirty] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([])
+  const [bankDirty, setBankDirty] = useState(false)
+  const [savingBank, setSavingBank] = useState(false)
+
+  const loadBankAccounts = async () => {
+    const { data } = await supabase.from('supplier_bank_accounts').select('*').eq('supplier_id', supplierId).order('created_at')
+    setBankAccounts((data || []).map((a: any) => ({
+      id: a.id, supplier_id: a.supplier_id, etiqueta: a.etiqueta || 'Principal',
+      moneda: a.moneda || 'MXN', clabe: a.clabe || '', cuenta_bancaria: a.cuenta_bancaria || '',
+      banco: a.banco || '', bnet_codigo: a.bnet_codigo || '', is_default: a.is_default || false,
+    })))
+  }
 
   useEffect(() => {
     Promise.all([
@@ -2784,6 +2808,7 @@ function SupplierDetail({ supplierId, onBack }: { supplierId: string; onBack: ()
       setOrders(oRes.data || [])
       setLoading(false)
     })
+    loadBankAccounts()
   }, [supplierId])
 
   if (loading || !supplier) return <div style={{ padding: '24px 28px' }}><Loading /></div>
@@ -2801,14 +2826,51 @@ function SupplierDetail({ supplierId, onBack }: { supplierId: string; onBack: ()
     await supabase.from('suppliers').update({
       name: supplier.name,
       rfc: supplier.rfc || null,
-      clabe: supplier.clabe || null,
-      cuenta_bancaria: supplier.cuenta_bancaria || null,
-      banco: supplier.banco || null,
-      bnet_codigo: supplier.bnet_codigo || null,
       is_active: supplier.is_active,
       default_logistics_mode: supplier.default_logistics_mode || null,
     }).eq('id', supplier.id)
     setSaving(false); setDirty(false)
+  }
+
+  const addBankAccount = () => {
+    setBankAccounts(prev => [...prev, {
+      id: 'new_' + Date.now(), supplier_id: supplierId, etiqueta: prev.length === 0 ? 'Principal' : 'Cuenta ' + (prev.length + 1),
+      moneda: 'MXN', clabe: '', cuenta_bancaria: '', banco: '', bnet_codigo: '', is_default: prev.length === 0,
+    }])
+    setBankDirty(true)
+  }
+
+  const updBank = (idx: number, field: string, value: any) => {
+    setBankAccounts(prev => prev.map((a, i) => i === idx ? { ...a, [field]: value } : a))
+    setBankDirty(true)
+  }
+
+  const removeBank = async (idx: number) => {
+    const acct = bankAccounts[idx]
+    if (!acct.id.startsWith('new_')) {
+      await supabase.from('supplier_bank_accounts').delete().eq('id', acct.id)
+    }
+    setBankAccounts(prev => prev.filter((_, i) => i !== idx))
+    setBankDirty(true)
+  }
+
+  const guardarBancos = async () => {
+    setSavingBank(true)
+    for (const acct of bankAccounts) {
+      const payload = {
+        supplier_id: supplierId, etiqueta: acct.etiqueta, moneda: acct.moneda,
+        clabe: acct.clabe || null, cuenta_bancaria: acct.cuenta_bancaria || null,
+        banco: acct.banco || null, bnet_codigo: acct.bnet_codigo || null, is_default: acct.is_default,
+      }
+      if (acct.id.startsWith('new_')) {
+        await supabase.from('supplier_bank_accounts').insert(payload)
+      } else {
+        await supabase.from('supplier_bank_accounts').update(payload).eq('id', acct.id)
+      }
+    }
+    await loadBankAccounts()
+    setSavingBank(false)
+    setBankDirty(false)
   }
 
   const upd = (field: string, value: any) => {
@@ -2852,12 +2914,51 @@ function SupplierDetail({ supplierId, onBack }: { supplierId: string; onBack: ()
             <Field label="RFC" value={supplier.rfc || ''} onChange={v => upd('rfc', v)} />
           </div>
           <Field label="Dirección" value={supplier.address || ''} onChange={v => upd('address', v)} />
-          <div style={{ marginTop: 8, padding: '8px 10px', background: '#0f0f0f', border: '1px solid #1f1f1f', borderRadius: 6 }}>
-            <div style={{ fontSize: 10, color: '#888', textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 600, marginBottom: 8 }}>Datos bancarios (para auto-conciliacion)</div>
-            <Field label="CLABE" value={supplier.clabe || ''} onChange={v => upd('clabe', v)} />
-            <Field label="Cuenta bancaria" value={supplier.cuenta_bancaria || ''} onChange={v => upd('cuenta_bancaria', v)} />
-            <Field label="Banco" value={supplier.banco || ''} onChange={v => upd('banco', v)} />
-            <Field label="Código BNET (BBVA)" value={supplier.bnet_codigo || ''} onChange={v => upd('bnet_codigo', v)} />
+          <div style={{ marginTop: 8, padding: '10px 12px', background: '#0f0f0f', border: '1px solid #1f1f1f', borderRadius: 6 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+              <div style={{ fontSize: 10, color: '#888', textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 600 }}>Cuentas bancarias</div>
+              <div style={{ display: 'flex', gap: 6 }}>
+                {bankDirty && (
+                  <Btn size="sm" variant="primary" onClick={guardarBancos} style={{ fontSize: 10, padding: '2px 8px' }}>
+                    {savingBank ? 'Guardando...' : 'Guardar cuentas'}
+                  </Btn>
+                )}
+                <button onClick={addBankAccount} style={{ background: 'none', border: '1px solid #333', borderRadius: 6, color: '#57FF9A', cursor: 'pointer', padding: '2px 8px', fontSize: 10, display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <Plus size={10} /> Agregar cuenta
+                </button>
+              </div>
+            </div>
+            {bankAccounts.length === 0 && (
+              <div style={{ fontSize: 12, color: '#555', textAlign: 'center', padding: '12px 0' }}>Sin cuentas bancarias registradas</div>
+            )}
+            {bankAccounts.map((acct, idx) => (
+              <div key={acct.id} style={{ padding: '10px 10px', background: '#111', border: '1px solid #222', borderRadius: 8, marginBottom: 8 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', flex: 1 }}>
+                    <input value={acct.etiqueta} onChange={e => updBank(idx, 'etiqueta', e.target.value)}
+                      style={{ background: 'transparent', border: 'none', color: '#fff', fontWeight: 600, fontSize: 13, fontFamily: 'inherit', width: 120, outline: 'none' }}
+                      placeholder="Etiqueta" />
+                    <select value={acct.moneda} onChange={e => updBank(idx, 'moneda', e.target.value)}
+                      style={{ background: '#1a1a1a', border: '1px solid #333', borderRadius: 4, color: acct.moneda === 'USD' ? '#60A5FA' : '#57FF9A', fontSize: 11, fontWeight: 600, padding: '2px 6px', cursor: 'pointer', fontFamily: 'inherit' }}>
+                      <option value="MXN">MXN</option>
+                      <option value="USD">USD</option>
+                    </select>
+                    {acct.is_default && <span style={{ fontSize: 9, color: '#F59E0B', fontWeight: 600, textTransform: 'uppercase' }}>Default</span>}
+                    {!acct.is_default && (
+                      <button onClick={() => { setBankAccounts(prev => prev.map((a, i) => ({ ...a, is_default: i === idx }))); setBankDirty(true) }}
+                        style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer', fontSize: 9, fontFamily: 'inherit' }}>Hacer default</button>
+                    )}
+                  </div>
+                  <button onClick={() => removeBank(idx)} style={{ background: 'none', border: 'none', color: '#EF4444', cursor: 'pointer', padding: 2 }}><Trash2 size={12} /></button>
+                </div>
+                <div style={{ display: 'grid', gap: 6 }}>
+                  <Field label="CLABE" value={acct.clabe} onChange={v => updBank(idx, 'clabe', v)} />
+                  <Field label="Cuenta bancaria" value={acct.cuenta_bancaria} onChange={v => updBank(idx, 'cuenta_bancaria', v)} />
+                  <Field label="Banco" value={acct.banco} onChange={v => updBank(idx, 'banco', v)} />
+                  <Field label="Código BNET (BBVA)" value={acct.bnet_codigo} onChange={v => updBank(idx, 'bnet_codigo', v)} />
+                </div>
+              </div>
+            ))}
           </div>
           <SelectField label="Condiciones de pago" value={supplier.payment_terms}
             onChange={v => upd('payment_terms', v)}
