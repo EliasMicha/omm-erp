@@ -13,10 +13,14 @@ interface Factura {
   uuid_fiscal: string | null
   serie: string | null
   folio: string | null
+  tipo_comprobante: string
   fecha_emision: string | null
   fecha_timbrado: string | null
   receptor_rfc: string | null
   receptor_nombre: string | null
+  receptor_uso_cfdi: string | null
+  receptor_regimen_fiscal: string | null
+  receptor_codigo_postal: string | null
   emisor_rfc: string | null
   emisor_nombre: string | null
   subtotal: number | null
@@ -24,13 +28,21 @@ interface Factura {
   iva: number | null
   moneda: string
   facturapi_id: string | null
+  facturapi_customer_id: string | null
   xml_url: string | null
   pdf_url: string | null
   quotation_id: string | null
   lead_id: string | null
+  cliente_id: string | null
   notas: string | null
   sandbox: boolean
   created_at: string
+  forma_pago: string | null
+  metodo_pago: string | null
+  tipo_cambio: number | null
+  tipo_relacion: string | null
+  uuids_relacionados: string[] | null
+  draft_data: any | null
 }
 
 interface ClienteFiscal {
@@ -906,6 +918,123 @@ function ListaEmitidas({ onNueva }: { onNueva: () => void }) {
     }
   }
 
+  const [timbrandoId, setTimbrandoId] = useState<string | null>(null)
+
+  async function timbrarBorrador(f: Factura) {
+    if (!confirm(`Timbrar la factura borrador?\n\nSerie: ${f.serie || '--'} Folio: ${f.folio || '--'}\nCliente: ${f.receptor_nombre}\nTotal: $${(f.total || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}\n\nEsta accion enviará el CFDI al SAT.`)) return
+    setTimbrandoId(f.id)
+
+    try {
+      // 1. Ensure FacturAPI customer exists
+      let facturapiCustomerId = f.facturapi_customer_id
+      if (!facturapiCustomerId && f.cliente_id) {
+        const { data: clienteData } = await supabase.from('clientes').select('*').eq('id', f.cliente_id).single()
+        if (clienteData) {
+          const customerPayload = {
+            legal_name: clienteData.razon_social,
+            tax_id: clienteData.rfc,
+            tax_system: clienteData.regimen_fiscal_clave || clienteData.regimen_fiscal || '601',
+            email: '',
+            address: { zip: clienteData.codigo_postal || '01000' }
+          }
+          const cr = await callFacturapi('create_customer', { method: 'POST', body: { payload: customerPayload } })
+          if (!cr.ok) { alert('Error al crear cliente en FacturAPI: ' + (cr.data?.message || 'desconocido')); setTimbrandoId(null); return }
+          facturapiCustomerId = cr.data.id
+          await supabase.from('clientes').update({ facturapi_customer_id: facturapiCustomerId }).eq('id', f.cliente_id)
+        }
+      }
+      if (!facturapiCustomerId) { alert('No se pudo obtener el ID de FacturAPI del cliente'); setTimbrandoId(null); return }
+
+      // 2. Build payload based on tipo_comprobante
+      let invoicePayload: any
+
+      if (f.tipo_comprobante === 'I' || f.tipo_comprobante === 'E') {
+        // Load conceptos from factura_conceptos
+        const { data: conceptosData } = await supabase.from('factura_conceptos').select('*').eq('factura_id', f.id).order('order_index')
+        if (!conceptosData || conceptosData.length === 0) { alert('No se encontraron conceptos para esta factura borrador'); setTimbrandoId(null); return }
+
+        invoicePayload = {
+          customer: facturapiCustomerId,
+          items: conceptosData.map((c: any) => ({
+            quantity: c.cantidad,
+            product: {
+              description: c.descripcion,
+              product_key: c.clave_prod_serv,
+              price: c.valor_unitario,
+              unit_key: c.clave_unidad,
+              unit_name: c.unidad,
+              tax_included: false,
+              taxes: [{ type: 'IVA', rate: c.iva_tasa }]
+            }
+          })),
+          use: f.receptor_uso_cfdi || 'G03',
+          payment_form: f.forma_pago || '99',
+          payment_method: f.metodo_pago || 'PUE',
+          currency: f.moneda || 'MXN',
+          ...(f.serie ? { series: f.serie } : {}),
+          ...(f.folio ? { folio_number: parseInt(f.folio) || undefined } : {}),
+        }
+        if (f.tipo_comprobante === 'E') invoicePayload.type = 'E'
+        if (f.moneda !== 'MXN' && f.tipo_cambio) invoicePayload.exchange = f.tipo_cambio
+        if (f.tipo_relacion && f.uuids_relacionados && f.uuids_relacionados.length > 0) {
+          invoicePayload.related_documents = [{ relationship: f.tipo_relacion, documents: f.uuids_relacionados }]
+        }
+      } else if (f.tipo_comprobante === 'P' && f.draft_data) {
+        // REP from draft_data
+        const dd = f.draft_data
+        invoicePayload = {
+          customer: facturapiCustomerId,
+          type: 'P',
+          items: [{ quantity: 1, product: { description: 'Pago', product_key: '84111506', price: 0, unit_key: 'ACT', unit_name: 'Actividad', tax_included: false, taxes: [] } }],
+          use: 'CP01', payment_form: '99', payment_method: 'PUE', currency: 'XXX',
+          complements: [{ type: 'pago', data: [{
+            payment_form: dd.formaPagoREP,
+            date: dd.fechaPago,
+            currency: dd.monedaPago,
+            exchange: dd.monedaPago !== 'MXN' ? (parseFloat(dd.tipoCambioPago) || 1) : undefined,
+            amount: parseFloat(dd.montoPago) || 0,
+            ...(dd.numOperacion ? { num_operation: dd.numOperacion } : {}),
+            related_documents: (dd.docsPago || []).map((d: any) => ({
+              uuid: d.uuid, folio: d.folio || undefined, series: d.serie || undefined,
+              currency: d.moneda_doc, exchange: d.equivalencia_dr, payment_number: d.num_parcialidad,
+              previous_balance: d.imp_saldo_anterior, amount_paid: d.imp_pagado, balance: d.imp_saldo_insoluto,
+              taxability: d.objeto_imp,
+              ...(d.objeto_imp === '02' && d.iva_trasladado > 0 ? { taxes: [{ type: 'IVA', rate: d.iva_tasa, base: d.imp_pagado - d.iva_trasladado, amount: d.iva_trasladado, withholding: false }] } : {}),
+            })),
+          }] }],
+        }
+      } else {
+        alert('Tipo de comprobante no soportado o faltan datos del borrador'); setTimbrandoId(null); return
+      }
+
+      // 3. Call FacturAPI
+      const ir = await callFacturapi('create_invoice', { method: 'POST', body: { payload: invoicePayload } })
+      if (!ir.ok) {
+        alert('Error al timbrar: ' + (ir.data?.message || JSON.stringify(ir.data).slice(0, 300)))
+        setTimbrandoId(null)
+        return
+      }
+      const invoice = ir.data
+
+      // 4. Update the draft record
+      await supabase.from('facturas').update({
+        facturapi_id: invoice.id,
+        uuid_fiscal: invoice.uuid || null,
+        serie: invoice.series || f.serie || null,
+        folio: invoice.folio_number ? String(invoice.folio_number) : (f.folio || null),
+        status: invoice.status === 'valid' ? 'timbrada' : 'borrador',
+        fecha_timbrado: invoice.stamp?.date || null,
+        draft_data: null,
+      }).eq('id', f.id)
+
+      await load()
+      alert('Factura timbrada exitosamente. UUID: ' + (invoice.uuid || 'N/A'))
+    } catch (err: any) {
+      alert('Error: ' + (err.message || 'desconocido'))
+    }
+    setTimbrandoId(null)
+  }
+
   async function eliminarLocal(f: Factura) {
     if (!confirm(`Eliminar la factura del listado local? Esta accion no se puede deshacer.\n\nFolio: ${f.serie || ''}${f.folio || '--'}\nCliente: ${f.receptor_nombre}\n\nNota: Si la factura ya fue timbrada en SAT, NO se puede eliminar — solo cancelar.`)) return
     // Borrar conceptos primero (FK CASCADE deberia hacerlo pero por seguridad)
@@ -1024,6 +1153,11 @@ function ListaEmitidas({ onNueva }: { onNueva: () => void }) {
                   </td>
                   <td style={{ padding: '10px 14px' }}>
                     <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                      {f.status === 'borrador' && !f.facturapi_id && (
+                        <button onClick={() => timbrarBorrador(f)} disabled={timbrandoId === f.id} style={{ background: '#57FF9A18', border: '1px solid #57FF9A44', borderRadius: 6, color: '#57FF9A', cursor: timbrandoId === f.id ? 'wait' : 'pointer', padding: '2px 8px', fontSize: 10, fontWeight: 600, fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 4 }}>
+                          {timbrandoId === f.id ? <><Loader2 size={10} style={{ animation: 'spin 1s linear infinite' }} /> Timbrando...</> : 'Timbrar'}
+                        </button>
+                      )}
                       {f.facturapi_id && <a href={`/api/facturapi?action=download_pdf&id=${f.facturapi_id}`} target="_blank" rel="noopener noreferrer" style={{ color: '#A78BFA', fontSize: 10, textDecoration: 'none' }}>PDF</a>}
                       {f.facturapi_id && <a href={`/api/facturapi?action=download_xml&id=${f.facturapi_id}`} target="_blank" rel="noopener noreferrer" style={{ color: '#A78BFA', fontSize: 10, textDecoration: 'none' }}>XML</a>}
                       {canCancel && (
@@ -1493,6 +1627,89 @@ function NuevaFactura({ onCancel, onCreated }: { onCancel: () => void; onCreated
   const montoPagoNum = parseFloat(montoPago) || 0
   const diferenciaPago = Math.round((montoPagoNum - sumaDocsEnMonedaPago) * 100) / 100
 
+  const [savedDraft, setSavedDraft] = useState(false)
+  const [savingDraft, setSavingDraft] = useState(false)
+
+  async function guardarBorrador() {
+    setError(null)
+    if (!clienteId) { setError('Selecciona un cliente'); return }
+
+    const cliente = clientes.find(c => c.id === clienteId)
+    if (!cliente) { setError('Cliente no encontrado'); return }
+
+    if ((tipoComprobante === 'I' || tipoComprobante === 'E') && conceptos.length === 0) {
+      setError('Agrega al menos un concepto'); return
+    }
+
+    setSavingDraft(true)
+    try {
+      const draftPayload: any = {
+        direccion: 'emitida',
+        cliente_id: clienteId,
+        status: 'borrador',
+        estado: 'borrador',
+        tipo_comprobante: tipoComprobante,
+        fecha_emision: new Date().toISOString(),
+        receptor_rfc: cliente.rfc,
+        receptor_nombre: cliente.razon_social,
+        receptor_uso_cfdi: tipoComprobante === 'P' ? 'CP01' : usoCfdi,
+        receptor_regimen_fiscal: cliente.regimen_fiscal_clave || cliente.regimen_fiscal,
+        receptor_codigo_postal: cliente.codigo_postal,
+        emisor_rfc: 'OTE210910PW5',
+        emisor_nombre: 'OMM Technologies SA de CV',
+        emisor_regimen_fiscal: '601',
+        serie: serie || null,
+        folio: folio || null,
+        moneda: tipoComprobante === 'P' ? (monedaPago || 'MXN') : moneda,
+        tipo_cambio: tipoComprobante === 'P'
+          ? (monedaPago !== 'MXN' ? (parseFloat(tipoCambioPago) || 1) : null)
+          : (moneda !== 'MXN' ? (parseFloat(tipoCambio) || 1) : null),
+        forma_pago: tipoComprobante === 'P' ? formaPagoREP : formaPago,
+        metodo_pago: tipoComprobante === 'P' ? 'PUE' : metodoPago,
+        subtotal: tipoComprobante === 'P' ? montoPagoNum : subtotal,
+        iva: tipoComprobante === 'P' ? 0 : iva,
+        total: tipoComprobante === 'P' ? montoPagoNum : total,
+        quotation_id: cotizacionId || null,
+        notas: notas || null,
+        tipo_relacion: tipoRelacion || null,
+        uuids_relacionados: uuidsRelacionados.length > 0 ? uuidsRelacionados : null,
+        facturapi_customer_id: cliente.facturapi_customer_id || null,
+        sandbox: getCurrentFacturapiMode() === 'test',
+        // Store REP pago data for later timbrado
+        draft_data: tipoComprobante === 'P' ? {
+          fechaPago, formaPagoREP, numOperacion, monedaPago, tipoCambioPago, montoPago, docsPago
+        } : null,
+      }
+
+      const { data: created, error: insErr } = await supabase.from('facturas').insert(draftPayload).select().single()
+      if (insErr) { setError('Error al guardar borrador: ' + insErr.message); setSavingDraft(false); return }
+
+      // Save conceptos for tipo I/E drafts
+      if (created && (tipoComprobante === 'I' || tipoComprobante === 'E')) {
+        const conceptoInserts = conceptos.map((c, i) => ({
+          factura_id: (created as any).id,
+          descripcion: c.descripcion,
+          clave_prod_serv: c.clave_prod_serv,
+          clave_unidad: c.clave_unidad,
+          unidad: c.unidad,
+          cantidad: c.cantidad,
+          valor_unitario: c.valor_unitario,
+          importe: c.cantidad * c.valor_unitario,
+          iva_tasa: c.iva_tasa,
+          iva_importe: c.cantidad * c.valor_unitario * c.iva_tasa,
+          order_index: i
+        }))
+        await supabase.from('factura_conceptos').insert(conceptoInserts)
+      }
+
+      setSavedDraft(true)
+      setSavingDraft(false)
+    } catch (err: any) {
+      setError('Error: ' + (err.message || 'desconocido'))
+      setSavingDraft(false)
+    }
+  }
+
   async function emitir() {
     setError(null)
     if (!clienteId) { setError('Selecciona un cliente'); return }
@@ -1751,6 +1968,29 @@ function NuevaFactura({ onCancel, onCreated }: { onCancel: () => void; onCreated
       setError('Error: ' + (err.message || 'desconocido'))
       setEmitting(false)
     }
+  }
+
+  if (savedDraft) {
+    return (
+      <div style={{ background: '#1a1a0e', border: '1px solid #F59E0B33', borderRadius: 12, padding: 24 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+          <FileText size={20} style={{ color: '#F59E0B' }} />
+          <div style={{ fontSize: 16, fontWeight: 700, color: '#fff' }}>Borrador guardado</div>
+        </div>
+        <div style={{ fontSize: 13, color: '#999', marginBottom: 16 }}>
+          La factura se guardó como borrador. Cuando te confirmen, puedes timbrarla desde el listado de emitidas con el botón "Timbrar".
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16, fontSize: 12 }}>
+          {serie && <div><span style={{ color: '#666' }}>Serie:</span> <span style={{ color: '#ccc' }}>{serie}</span></div>}
+          {folio && <div><span style={{ color: '#666' }}>Folio:</span> <span style={{ color: '#ccc' }}>{folio}</span></div>}
+          <div><span style={{ color: '#666' }}>Total:</span> <span style={{ color: '#F59E0B', fontWeight: 600 }}>{total.toLocaleString('es-MX', { minimumFractionDigits: 2 })} {moneda}</span></div>
+          <div><span style={{ color: '#666' }}>Status:</span> <span style={{ color: '#F59E0B' }}>borrador</span></div>
+        </div>
+        <button onClick={onCreated} style={{ padding: '8px 14px', background: '#F59E0B', color: '#000', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+          Volver al listado
+        </button>
+      </div>
+    )
   }
 
   if (resultado) {
@@ -2246,8 +2486,11 @@ function NuevaFactura({ onCancel, onCreated }: { onCancel: () => void; onCreated
 
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
         <button onClick={onCancel} style={{ padding: '10px 20px', background: '#1e1e1e', color: '#ccc', border: '1px solid #2a2a2a', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Cancelar</button>
-        <button onClick={emitir} disabled={emitting} style={{ padding: '10px 20px', background: emitting ? '#444' : (tipoComprobante === 'P' ? '#A78BFA' : tipoComprobante === 'E' ? '#F59E0B' : '#57FF9A'), color: '#000', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: emitting ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
-          {emitting ? <><Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Emitiendo...</> : (tipoComprobante === 'P' ? 'Emitir REP' : tipoComprobante === 'E' ? 'Emitir nota de crédito' : 'Emitir factura')}
+        <button onClick={guardarBorrador} disabled={savingDraft || emitting} style={{ padding: '10px 20px', background: savingDraft ? '#444' : '#1e1e1e', color: '#F59E0B', border: '1px solid #F59E0B44', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: savingDraft ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+          {savingDraft ? <><Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Guardando...</> : <><FileText size={14} /> Guardar borrador</>}
+        </button>
+        <button onClick={emitir} disabled={emitting || savingDraft} style={{ padding: '10px 20px', background: emitting ? '#444' : (tipoComprobante === 'P' ? '#A78BFA' : tipoComprobante === 'E' ? '#F59E0B' : '#57FF9A'), color: '#000', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: emitting ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+          {emitting ? <><Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Emitiendo...</> : (tipoComprobante === 'P' ? 'Emitir REP' : tipoComprobante === 'E' ? 'Emitir nota de crédito' : 'Timbrar factura')}
         </button>
       </div>
     </div>
