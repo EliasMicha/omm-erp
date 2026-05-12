@@ -982,6 +982,252 @@ function ListaEmitidas({ onNueva }: { onNueva: () => void }) {
 
   const [timbrandoId, setTimbrandoId] = useState<string | null>(null)
 
+  async function descargarPdfBorrador(f: Factura) {
+    try {
+      // Cargar conceptos del borrador
+      const { data: conceptosData } = await supabase.from('factura_conceptos').select('*').eq('factura_id', f.id).order('order_index')
+      const conceptos = conceptosData || []
+
+      const { default: jsPDF } = await import('jspdf')
+      const autoTableMod = await import('jspdf-autotable')
+      const autoTable = autoTableMod.default
+      const { OMNIIOUS_LOGO } = await import('../assets/logo')
+
+      const doc = new jsPDF('p', 'mm', 'letter')
+      const w = doc.internal.pageSize.getWidth()
+      const h = doc.internal.pageSize.getHeight()
+      const mx = 15 // margen x
+
+      // Marca de agua BORRADOR diagonal
+      doc.saveGraphicsState()
+      doc.setGState(new (doc as any).GState({ opacity: 0.06 }))
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(90)
+      doc.setTextColor(255, 0, 0)
+      const cx = w / 2, cy = h / 2
+      doc.text('BORRADOR', cx, cy, { align: 'center', angle: 45 })
+      doc.restoreGraphicsState()
+
+      // Logo
+      try { doc.addImage(OMNIIOUS_LOGO, 'JPEG', mx, 12, 50, 18) } catch {}
+
+      // Encabezado: tipo comprobante
+      const tipoLabel = f.tipo_comprobante === 'P' ? 'Complemento de Pago (REP)' : f.tipo_comprobante === 'E' ? 'Nota de Crédito (Egreso)' : 'Factura (Ingreso)'
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(14)
+      doc.setTextColor(80, 80, 80)
+      doc.text(tipoLabel, w - mx, 18, { align: 'right' })
+
+      // Serie / Folio
+      doc.setFontSize(11)
+      doc.setTextColor(120, 120, 120)
+      doc.text(`Serie: ${f.serie || '--'}   Folio: ${f.folio || '--'}`, w - mx, 26, { align: 'right' })
+
+      // BORRADOR badge
+      doc.setFillColor(245, 158, 11)
+      doc.roundedRect(w - mx - 35, 29, 35, 8, 2, 2, 'F')
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(9)
+      doc.setTextColor(0, 0, 0)
+      doc.text('BORRADOR', w - mx - 17.5, 34.5, { align: 'center' })
+
+      let y = 44
+
+      // Linea separadora
+      doc.setDrawColor(200, 200, 200)
+      doc.line(mx, y, w - mx, y)
+      y += 6
+
+      // Emisor / Receptor en 2 columnas
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(8)
+      doc.setTextColor(150, 150, 150)
+      doc.text('EMISOR', mx, y)
+      doc.text('RECEPTOR', w / 2 + 5, y)
+      y += 5
+
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(10)
+      doc.setTextColor(40, 40, 40)
+      doc.text(f.emisor_nombre || 'OMM Technologies SA de CV', mx, y)
+      doc.text(f.receptor_nombre || '--', w / 2 + 5, y)
+      y += 5
+      doc.setFontSize(9)
+      doc.setTextColor(100, 100, 100)
+      doc.text(`RFC: ${f.emisor_rfc || 'OTE210910PW5'}`, mx, y)
+      doc.text(`RFC: ${f.receptor_rfc || '--'}`, w / 2 + 5, y)
+      y += 4
+      doc.text(`Régimen: 601 - General de Ley`, mx, y)
+      doc.text(`Régimen: ${f.receptor_regimen_fiscal || '--'}`, w / 2 + 5, y)
+      y += 4
+      doc.text('', mx, y)
+      doc.text(`C.P.: ${f.receptor_codigo_postal || '--'}`, w / 2 + 5, y)
+      y += 4
+      doc.text('', mx, y)
+      doc.text(`Uso CFDI: ${f.receptor_uso_cfdi || '--'}`, w / 2 + 5, y)
+      y += 6
+
+      // Datos generales
+      doc.setDrawColor(200, 200, 200)
+      doc.line(mx, y, w - mx, y)
+      y += 5
+
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(8)
+      doc.setTextColor(150, 150, 150)
+      doc.text('DATOS DEL COMPROBANTE', mx, y)
+      y += 5
+
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(9)
+      doc.setTextColor(80, 80, 80)
+      const fecha = f.fecha_emision ? new Date(f.fecha_emision).toLocaleDateString('es-MX', { year: 'numeric', month: 'long', day: 'numeric' }) : '--'
+      doc.text(`Fecha: ${fecha}`, mx, y)
+      doc.text(`Moneda: ${f.moneda || 'MXN'}${f.tipo_cambio ? '  T.C.: ' + f.tipo_cambio : ''}`, w / 2 + 5, y)
+      y += 4
+      doc.text(`Forma de pago: ${f.forma_pago || '--'}`, mx, y)
+      doc.text(`Método de pago: ${f.metodo_pago || '--'}`, w / 2 + 5, y)
+      y += 6
+
+      // Conceptos (solo para I y E)
+      if ((f.tipo_comprobante === 'I' || f.tipo_comprobante === 'E') && conceptos.length > 0) {
+        doc.setDrawColor(200, 200, 200)
+        doc.line(mx, y, w - mx, y)
+        y += 2
+
+        autoTable(doc, {
+          startY: y,
+          margin: { left: mx, right: mx },
+          head: [['#', 'Clave', 'Descripción', 'Unidad', 'Cant.', 'P. Unit.', 'Importe']],
+          body: conceptos.map((c: any, i: number) => [
+            i + 1,
+            c.clave_prod_serv || '--',
+            c.descripcion || '--',
+            c.clave_unidad || '--',
+            c.cantidad,
+            '$' + (c.valor_unitario || 0).toLocaleString('en-US', { minimumFractionDigits: 2 }),
+            '$' + (c.importe || 0).toLocaleString('en-US', { minimumFractionDigits: 2 }),
+          ]),
+          styles: { fontSize: 8, cellPadding: 2, textColor: [60, 60, 60] },
+          headStyles: { fillColor: [30, 30, 30], textColor: [200, 200, 200], fontSize: 7, fontStyle: 'bold' },
+          alternateRowStyles: { fillColor: [248, 248, 248] },
+          columnStyles: {
+            0: { cellWidth: 8, halign: 'center' },
+            1: { cellWidth: 22 },
+            2: { cellWidth: 'auto' },
+            3: { cellWidth: 16, halign: 'center' },
+            4: { cellWidth: 14, halign: 'center' },
+            5: { cellWidth: 24, halign: 'right' },
+            6: { cellWidth: 26, halign: 'right' },
+          },
+        })
+
+        y = (doc as any).lastAutoTable.finalY + 6
+      }
+
+      // REP: datos del pago
+      if (f.tipo_comprobante === 'P' && f.draft_data) {
+        const dd = f.draft_data
+        doc.setDrawColor(200, 200, 200)
+        doc.line(mx, y, w - mx, y)
+        y += 5
+        doc.setFont('helvetica', 'bold')
+        doc.setFontSize(8)
+        doc.setTextColor(150, 150, 150)
+        doc.text('DATOS DEL PAGO', mx, y)
+        y += 5
+        doc.setFont('helvetica', 'normal')
+        doc.setFontSize(9)
+        doc.setTextColor(80, 80, 80)
+        doc.text(`Fecha: ${dd.fechaPago || '--'}`, mx, y)
+        doc.text(`Forma de pago: ${dd.formaPagoREP || '--'}`, w / 2 + 5, y)
+        y += 4
+        doc.text(`Moneda: ${dd.monedaPago || 'MXN'}`, mx, y)
+        doc.text(`Monto: $${Number(dd.montoPago || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}`, w / 2 + 5, y)
+        y += 4
+        if (dd.numOperacion) { doc.text(`Num. operación: ${dd.numOperacion}`, mx, y); y += 4 }
+        y += 2
+
+        // Documentos relacionados del pago
+        if (Array.isArray(dd.docsPago) && dd.docsPago.length > 0) {
+          doc.setFont('helvetica', 'bold')
+          doc.setFontSize(8)
+          doc.setTextColor(150, 150, 150)
+          doc.text('DOCUMENTOS RELACIONADOS', mx, y)
+          y += 2
+
+          autoTable(doc, {
+            startY: y,
+            margin: { left: mx, right: mx },
+            head: [['UUID', 'Serie/Folio', 'Parcialidad', 'Saldo Ant.', 'Imp. Pagado', 'Saldo Ins.']],
+            body: dd.docsPago.map((d: any) => [
+              (d.uuid || '').slice(0, 12) + '...',
+              `${d.serie || ''}${d.folio || '--'}`,
+              d.num_parcialidad || 1,
+              '$' + (d.imp_saldo_anterior || 0).toLocaleString('en-US', { minimumFractionDigits: 2 }),
+              '$' + (d.imp_pagado || 0).toLocaleString('en-US', { minimumFractionDigits: 2 }),
+              '$' + (d.imp_saldo_insoluto || 0).toLocaleString('en-US', { minimumFractionDigits: 2 }),
+            ]),
+            styles: { fontSize: 8, cellPadding: 2, textColor: [60, 60, 60] },
+            headStyles: { fillColor: [30, 30, 30], textColor: [200, 200, 200], fontSize: 7, fontStyle: 'bold' },
+            alternateRowStyles: { fillColor: [248, 248, 248] },
+          })
+          y = (doc as any).lastAutoTable.finalY + 6
+        }
+      }
+
+      // Totales
+      doc.setDrawColor(200, 200, 200)
+      doc.line(w / 2 + 20, y, w - mx, y)
+      y += 5
+      const totX = w - mx
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(9)
+      doc.setTextColor(100, 100, 100)
+
+      if (f.tipo_comprobante !== 'P') {
+        doc.text('Subtotal:', totX - 40, y)
+        doc.text('$' + (f.subtotal || 0).toLocaleString('en-US', { minimumFractionDigits: 2 }), totX, y, { align: 'right' })
+        y += 4
+        doc.text('IVA:', totX - 40, y)
+        doc.text('$' + (f.iva || 0).toLocaleString('en-US', { minimumFractionDigits: 2 }), totX, y, { align: 'right' })
+        y += 5
+      }
+
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(11)
+      doc.setTextColor(40, 40, 40)
+      doc.text('Total:', totX - 40, y)
+      doc.text('$' + (f.total || 0).toLocaleString('en-US', { minimumFractionDigits: 2 }) + ' ' + (f.moneda || 'MXN'), totX, y, { align: 'right' })
+
+      // Notas
+      if (f.notas) {
+        y += 10
+        doc.setFont('helvetica', 'bold')
+        doc.setFontSize(8)
+        doc.setTextColor(150, 150, 150)
+        doc.text('NOTAS', mx, y)
+        y += 4
+        doc.setFont('helvetica', 'normal')
+        doc.setFontSize(9)
+        doc.setTextColor(80, 80, 80)
+        const lines = doc.splitTextToSize(f.notas, w - 2 * mx)
+        doc.text(lines, mx, y)
+      }
+
+      // Pie de pagina
+      doc.setFont('helvetica', 'italic')
+      doc.setFontSize(7)
+      doc.setTextColor(180, 180, 180)
+      doc.text('Este documento es una vista previa y NO tiene validez fiscal. No ha sido timbrado ante el SAT.', w / 2, h - 10, { align: 'center' })
+
+      const fileName = `Borrador_${f.serie || 'SIN'}-${f.folio || '000'}_${f.receptor_nombre?.replace(/\s+/g, '_').slice(0, 30) || 'cliente'}.pdf`
+      doc.save(fileName)
+    } catch (err: any) {
+      alert('Error al generar PDF: ' + (err.message || err))
+    }
+  }
+
   async function timbrarBorrador(f: Factura) {
     if (!confirm(`Timbrar la factura borrador?\n\nSerie: ${f.serie || '--'} Folio: ${f.folio || '--'}\nCliente: ${f.receptor_nombre}\nTotal: $${(f.total || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}\n\nEsta accion enviará el CFDI al SAT.`)) return
     setTimbrandoId(f.id)
@@ -1219,6 +1465,9 @@ function ListaEmitidas({ onNueva }: { onNueva: () => void }) {
                         <button onClick={() => timbrarBorrador(f)} disabled={timbrandoId === f.id} style={{ background: '#57FF9A18', border: '1px solid #57FF9A44', borderRadius: 6, color: '#57FF9A', cursor: timbrandoId === f.id ? 'wait' : 'pointer', padding: '2px 8px', fontSize: 10, fontWeight: 600, fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 4 }}>
                           {timbrandoId === f.id ? <><Loader2 size={10} style={{ animation: 'spin 1s linear infinite' }} /> Timbrando...</> : 'Timbrar'}
                         </button>
+                      )}
+                      {f.status === 'borrador' && !f.facturapi_id && (
+                        <button onClick={() => descargarPdfBorrador(f)} style={{ background: 'none', border: 'none', color: '#F59E0B', cursor: 'pointer', padding: 0, fontSize: 10, fontWeight: 600, fontFamily: 'inherit' }}>PDF</button>
                       )}
                       {f.facturapi_id && <a href={`/api/facturapi?action=download_pdf&id=${f.facturapi_id}`} target="_blank" rel="noopener noreferrer" style={{ color: '#A78BFA', fontSize: 10, textDecoration: 'none' }}>PDF</a>}
                       {f.facturapi_id && <a href={`/api/facturapi?action=download_xml&id=${f.facturapi_id}`} target="_blank" rel="noopener noreferrer" style={{ color: '#A78BFA', fontSize: 10, textDecoration: 'none' }}>XML</a>}
