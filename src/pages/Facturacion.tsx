@@ -1009,7 +1009,8 @@ function ListaEmitidas({ onNueva }: { onNueva: () => void }) {
       doc.restoreGraphicsState()
 
       // Logo
-      try { doc.addImage(OMNIIOUS_LOGO, 'JPEG', mx, 12, 50, 18) } catch {}
+      const logoW = 22; const logoH = logoW / 1.15
+      try { doc.addImage(OMNIIOUS_LOGO, 'JPEG', mx, 10, logoW, logoH) } catch {}
 
       // Encabezado: tipo comprobante
       const tipoLabel = f.tipo_comprobante === 'P' ? 'Complemento de Pago (REP)' : f.tipo_comprobante === 'E' ? 'Nota de Crédito (Egreso)' : 'Factura (Ingreso)'
