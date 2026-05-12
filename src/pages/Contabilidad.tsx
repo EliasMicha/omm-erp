@@ -3173,6 +3173,10 @@ function TabEfectivo() {
     tipo: 'cobro_cliente' as 'cobro_cliente' | 'pago_proveedor' | 'nomina_efectivo',
     persona: '', concepto: '', monto: '', fecha: new Date().toISOString().substring(0, 10), proyecto_nombre: '',
   })
+  const fileRef = useRef<HTMLInputElement>(null)
+  const [uploadPreview, setUploadPreview] = useState<any[] | null>(null)
+  const [uploading, setUploading] = useState(false)
+  const [uploadError, setUploadError] = useState('')
 
   const load = async () => {
     const { data } = await supabase.from('cash_movements').select('*').order('fecha', { ascending: false })
@@ -3200,6 +3204,82 @@ function TabEfectivo() {
     setForm({ tipo: 'cobro_cliente', persona: '', concepto: '', monto: '', fecha: new Date().toISOString().substring(0, 10), proyecto_nombre: '' })
     setShowForm(false)
     setSaving(false)
+    load()
+  }
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setUploadError('')
+    try {
+      const XLSX = await import('https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs' as any)
+      const buf = await file.arrayBuffer()
+      const wb = XLSX.read(buf, { type: 'array', cellDates: true })
+      const sheet = wb.Sheets[wb.SheetNames[0]]
+      const rows: any[] = XLSX.utils.sheet_to_json(sheet, { defval: '' })
+      if (!rows.length) { setUploadError('El archivo está vacío'); return }
+
+      // Normalize column names (case-insensitive, trimmed)
+      const normalize = (s: string) => s.toString().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim()
+      const colMap: Record<string, string> = {}
+      const firstRow = rows[0]
+      for (const key of Object.keys(firstRow)) {
+        const n = normalize(key)
+        if (n.includes('tipo')) colMap['tipo'] = key
+        else if (n.includes('persona') || n.includes('empresa') || n.includes('cliente') || n.includes('proveedor') || n.includes('empleado') || n.includes('nombre')) colMap['persona'] = key
+        else if (n.includes('concepto') || n.includes('descripcion') || n.includes('detalle')) colMap['concepto'] = key
+        else if (n.includes('monto') || n.includes('cantidad') || n.includes('importe') || n.includes('total') || n.includes('amount')) colMap['monto'] = key
+        else if (n.includes('fecha') || n.includes('date')) colMap['fecha'] = key
+        else if (n.includes('proyecto') || n.includes('project') || n.includes('obra')) colMap['proyecto'] = key
+      }
+
+      if (!colMap['monto']) { setUploadError('No se encontró columna de Monto/Importe en el Excel. Columnas detectadas: ' + Object.keys(firstRow).join(', ')); return }
+
+      const parsed = rows.map((r: any) => {
+        const rawTipo = normalize(String(r[colMap['tipo']] || ''))
+        let tipo = 'pago_proveedor'
+        if (rawTipo.includes('cobro') || rawTipo.includes('ingreso') || rawTipo.includes('cliente')) tipo = 'cobro_cliente'
+        else if (rawTipo.includes('nomina') || rawTipo.includes('nómina') || rawTipo.includes('sueldo')) tipo = 'nomina_efectivo'
+
+        let monto = 0
+        const rawMonto = r[colMap['monto']]
+        if (typeof rawMonto === 'number') monto = Math.abs(rawMonto)
+        else monto = Math.abs(parseFloat(String(rawMonto).replace(/[$,]/g, '')) || 0)
+
+        let fecha = new Date().toISOString().substring(0, 10)
+        const rawFecha = r[colMap['fecha']]
+        if (rawFecha instanceof Date) fecha = rawFecha.toISOString().substring(0, 10)
+        else if (rawFecha) {
+          const d = new Date(rawFecha)
+          if (!isNaN(d.getTime())) fecha = d.toISOString().substring(0, 10)
+        }
+
+        return {
+          tipo, persona: String(r[colMap['persona']] || '').trim(),
+          concepto: String(r[colMap['concepto']] || '').trim(),
+          monto, fecha,
+          proyecto_nombre: String(r[colMap['proyecto']] || '').trim() || null,
+          direccion: tipo === 'cobro_cliente' ? 'ingreso' : 'egreso',
+          _valid: monto > 0,
+        }
+      }).filter((r: any) => r._valid)
+
+      if (!parsed.length) { setUploadError('No se encontraron filas con monto válido'); return }
+      setUploadPreview(parsed)
+    } catch (err: any) {
+      setUploadError('Error al leer el archivo: ' + err.message)
+    }
+    if (fileRef.current) fileRef.current.value = ''
+  }
+
+  const handleBulkInsert = async () => {
+    if (!uploadPreview?.length) return
+    setUploading(true)
+    const toInsert = uploadPreview.map(({ _valid, ...rest }: any) => rest)
+    const { error } = await supabase.from('cash_movements').insert(toInsert)
+    if (error) { alert('Error al insertar: ' + error.message); setUploading(false); return }
+    setUploadPreview(null)
+    setUploading(false)
     load()
   }
 
@@ -3240,8 +3320,58 @@ function TabEfectivo() {
             {F(totalCobros - totalPagos - totalNomina)}
           </span>
         </div>
-        <Btn size="sm" variant="primary" style={{ width: isMobile ? '100%' : 'auto' }} onClick={() => setShowForm(true)}><Plus size={12} /> Registrar movimiento</Btn>
+        <div style={{ display: 'flex', gap: 8, width: isMobile ? '100%' : 'auto' }}>
+          <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" style={{ display: 'none' }} onChange={handleFileUpload} />
+          <Btn size="sm" style={{ flex: isMobile ? 1 : 'initial' }} onClick={() => fileRef.current?.click()}><Upload size={12} /> Subir Excel</Btn>
+          <Btn size="sm" variant="primary" style={{ flex: isMobile ? 1 : 'initial' }} onClick={() => setShowForm(true)}><Plus size={12} /> Registrar movimiento</Btn>
+        </div>
       </div>
+
+      {/* Error de upload */}
+      {uploadError && (
+        <div style={{ background: '#2a1515', border: '1px solid #EF4444', borderRadius: 8, padding: '10px 14px', marginBottom: 16, color: '#EF4444', fontSize: 13, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span>{uploadError}</span>
+          <button onClick={() => setUploadError('')} style={{ background: 'none', border: 'none', color: '#EF4444', cursor: 'pointer' }}><X size={14} /></button>
+        </div>
+      )}
+
+      {/* Preview modal de upload */}
+      {uploadPreview && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setUploadPreview(null)}>
+          <div onClick={e => e.stopPropagation()} style={{ background: '#1a1a1a', border: '1px solid #333', borderRadius: 12, padding: 24, width: Math.min(700, window.innerWidth - 32), maxHeight: '85vh', overflow: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <span style={{ fontSize: 16, fontWeight: 700, color: '#fff' }}>Vista previa — {uploadPreview.length} movimientos</span>
+              <button onClick={() => setUploadPreview(null)} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer' }}><X size={18} /></button>
+            </div>
+            <div style={{ maxHeight: '55vh', overflow: 'auto', borderRadius: 8, border: '1px solid #222' }}>
+              <Table>
+                <thead>
+                  <tr><Th>Fecha</Th><Th>Tipo</Th><Th>Persona</Th><Th>Concepto</Th><Th>Proyecto</Th><Th right>Monto</Th></tr>
+                </thead>
+                <tbody>
+                  {uploadPreview.map((r: any, i: number) => (
+                    <tr key={i}>
+                      <Td muted>{r.fecha}</Td>
+                      <Td><Badge label={r.tipo === 'cobro_cliente' ? 'Cobro' : r.tipo === 'pago_proveedor' ? 'Pago' : 'Nómina'} color={r.tipo === 'cobro_cliente' ? '#57FF9A' : r.tipo === 'pago_proveedor' ? '#F59E0B' : '#C084FC'} /></Td>
+                      <Td><span style={{ color: '#fff' }}>{r.persona || '—'}</span></Td>
+                      <Td muted>{r.concepto || '—'}</Td>
+                      <Td muted>{r.proyecto_nombre || '—'}</Td>
+                      <Td right style={{ fontWeight: 600, color: r.direccion === 'ingreso' ? '#57FF9A' : '#ccc' }}>{r.direccion === 'ingreso' ? '+' : '-'}{F(r.monto)}</Td>
+                    </tr>
+                  ))}
+                </tbody>
+              </Table>
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginTop: 20, justifyContent: 'flex-end', alignItems: 'center' }}>
+              <span style={{ fontSize: 12, color: '#888', flex: 1 }}>Total: {F(uploadPreview.reduce((s: number, r: any) => s + (r.direccion === 'ingreso' ? r.monto : -r.monto), 0))}</span>
+              <Btn size="sm" onClick={() => setUploadPreview(null)}>Cancelar</Btn>
+              <Btn size="sm" variant="primary" disabled={uploading} onClick={handleBulkInsert}>
+                {uploading ? <><Loader2 size={12} className="spin" /> Insertando...</> : `Insertar ${uploadPreview.length} movimientos`}
+              </Btn>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal de registro */}
       {showForm && (
