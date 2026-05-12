@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
-import { Plus, X, FileText, RefreshCw, Download, Trash2, Search, Loader2, CheckCircle2, AlertCircle, Ban, Table2 } from 'lucide-react'
+import { Plus, X, FileText, RefreshCw, Download, Trash2, Search, Loader2, CheckCircle2, AlertCircle, Ban, FolderDown } from 'lucide-react'
 import { useIsMobile } from '../lib/useIsMobile'
 
 // ============================================================
@@ -420,6 +420,8 @@ function ListaTodas() {
   const [detalleFactura, setDetalleFactura] = useState<Factura | null>(null)
   const [detalleConceptos, setDetalleConceptos] = useState<any[]>([])
   const [loadingDetalle, setLoadingDetalle] = useState(false)
+  const [exporting, setExporting] = useState(false)
+  const [exportProgress, setExportProgress] = useState('')
   // Navegacion mensual
   const [monthOffset, setMonthOffset] = useState(0)
   const now = new Date()
@@ -636,40 +638,59 @@ function ListaTodas() {
     alert('Sincronizacion de ' + monthLabelCapitalized + ' completa:\n' + totalEmit + ' emitidas + ' + totalRec + ' recibidas = ' + (totalEmit + totalRec) + ' facturas\n' + recheckedCount + ' verificadas' + changesMsg + errMsg)
   }
 
-  async function exportarExcel() {
-    if (facturas.length === 0) { alert('No hay facturas para exportar'); return }
-    const XLSX = await import('https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs' as any)
-    const rows = facturas.map(f => {
-      const isEmit = f.direccion === 'emitida'
-      return {
-        'Dirección': isEmit ? 'Emitida' : 'Recibida',
-        'Tipo': (f as any).tipo_comprobante || 'I',
-        'Serie': f.serie || '',
-        'Folio': f.folio || '',
-        'UUID': f.uuid_fiscal || '',
-        'Fecha Emisión': f.fecha_emision ? new Date(f.fecha_emision).toLocaleDateString('es-MX') : '',
-        'Fecha Timbrado': f.fecha_timbrado ? new Date(f.fecha_timbrado).toLocaleDateString('es-MX') : '',
-        'Emisor': (f as any).emisor_nombre || '',
-        'RFC Emisor': (f as any).emisor_rfc || '',
-        'Receptor': f.receptor_nombre || '',
-        'RFC Receptor': (f as any).receptor_rfc || '',
-        'Uso CFDI': (f as any).receptor_uso_cfdi || '',
-        'Subtotal': f.subtotal || 0,
-        'IVA': f.iva || 0,
-        'Total': f.total || 0,
-        'Moneda': f.moneda || 'MXN',
-        'Tipo Cambio': (f as any).tipo_cambio || '',
-        'Forma Pago': (f as any).forma_pago || '',
-        'Método Pago': (f as any).metodo_pago || '',
-        'Status': f.status || '',
-        'Notas': f.notas || '',
+  async function exportarZip() {
+    const timbradas = facturas.filter(f => f.facturapi_id && f.status === 'timbrada')
+    if (timbradas.length === 0) { alert('No hay facturas timbradas para exportar'); return }
+    setExporting(true)
+    setExportProgress(`Preparando descarga de ${timbradas.length} facturas...`)
+    try {
+      // Cargar JSZip dinámicamente
+      const JSZipModule = await import('https://cdn.jsdelivr.net/npm/jszip@3.10.1/+esm' as any)
+      const JSZip = JSZipModule.default || JSZipModule
+      const zip = new JSZip()
+      const mode = getCurrentFacturapiMode()
+      let downloaded = 0, errors = 0
+      for (const f of timbradas) {
+        downloaded++
+        const label = f.serie && f.folio ? `${f.serie}-${f.folio}` : (f.uuid_fiscal?.slice(0, 8) || f.facturapi_id?.slice(0, 8) || 'sin-id')
+        const dirLabel = f.direccion === 'emitida' ? 'E' : 'R'
+        const baseName = `${dirLabel}_${label}`
+        setExportProgress(`Descargando ${downloaded}/${timbradas.length}: ${baseName}`)
+        // Descargar PDF
+        try {
+          const pdfRes = await fetch(`/api/facturapi?action=download_pdf&mode=${mode}&id=${f.facturapi_id}`)
+          if (pdfRes.ok) {
+            const blob = await pdfRes.blob()
+            zip.file(`${baseName}.pdf`, blob)
+          } else { errors++ }
+        } catch { errors++ }
+        // Descargar XML
+        try {
+          const xmlRes = await fetch(`/api/facturapi?action=download_xml&mode=${mode}&id=${f.facturapi_id}`)
+          if (xmlRes.ok) {
+            const blob = await xmlRes.blob()
+            zip.file(`${baseName}.xml`, blob)
+          } else { errors++ }
+        } catch { errors++ }
       }
-    })
-    const ws = XLSX.utils.json_to_sheet(rows)
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, 'Facturas')
-    const mStr = monthDate.toISOString().slice(0, 7)
-    XLSX.writeFile(wb, `Facturas_${mStr}.xlsx`)
+      setExportProgress('Generando archivo ZIP...')
+      const content = await zip.generateAsync({ type: 'blob' })
+      const mStr = monthDate.toISOString().slice(0, 7)
+      const url = URL.createObjectURL(content)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `Facturas_${mStr}.zip`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+      if (errors > 0) alert(`Descarga completa. ${errors} archivo(s) no se pudieron descargar.`)
+    } catch (err: any) {
+      alert('Error al exportar: ' + (err.message || err))
+    } finally {
+      setExporting(false)
+      setExportProgress('')
+    }
   }
 
   // Filtrar por busqueda (el mes ya se filtra en la query de Supabase)
@@ -715,8 +736,9 @@ function ListaTodas() {
           {syncing ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <RefreshCw size={13} />}
           {syncing ? (syncProgress || 'Sincronizando...') : 'Sincronizar ' + monthLabelCapitalized}
         </button>
-        <button onClick={exportarExcel} disabled={syncing || facturas.length === 0} style={{ padding: '10px 16px', background: '#1e1e1e', color: '#57FF9A', border: '1px solid #57FF9A44', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'inherit' }}>
-          <Table2 size={13} /> Exportar Excel
+        <button onClick={exportarZip} disabled={syncing || exporting || facturas.length === 0} style={{ padding: '10px 16px', background: exporting ? '#1e1e1e' : '#1e1e1e', color: exporting ? '#888' : '#57FF9A', border: '1px solid #57FF9A44', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: exporting ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'inherit' }}>
+          {exporting ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <FolderDown size={13} />}
+          {exporting ? (exportProgress || 'Exportando...') : 'Descargar PDF + XML'}
         </button>
       </div>
 
