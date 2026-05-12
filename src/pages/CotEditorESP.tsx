@@ -5,6 +5,7 @@ import { Badge, Btn, Loading } from '../components/layout/UI'
 import { ANTHROPIC_API_KEY } from '../lib/config'
 import { Plus, ChevronLeft, ChevronRight, ChevronDown, X, Trash2, Image as ImageIcon, Search, RefreshCw, Sparkles, Upload, Loader2, FileText, Package, ArrowLeftRight, BookOpen } from 'lucide-react'
 import ImageUpload from '../components/ImageUpload'
+import VersionManager, { VersionSnapshot } from '../components/VersionManager'
 import { useIsMobile } from '../lib/useIsMobile'
 
 // ═══════════════════════════════════════════════════════════════════
@@ -2444,6 +2445,31 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
 
   function openAddProduct(areaId: string, systemId: string) { setAddingTo({ areaId, systemId }) }
 
+  function getVersionSnapshot(): VersionSnapshot {
+    const eq = products.reduce((s, p) => s + p.price * p.quantity, 0)
+    const mo = products.reduce((s, p) => s + p.laborCost * p.quantity, 0)
+    const sub = eq + mo + config.programacion
+    const descAmt = sub * config.descuento / 100
+    const subConDesc = sub - descAmt
+    const totalCalc = subConDesc + subConDesc * config.ivaRate / 100
+    return {
+      config: { ...config, activeSystems: activeSysIds },
+      areas: areas.map(a => ({ id: a.id, name: a.name, order: a.order })),
+      items: products.map(p => ({
+        id: p.id, areaId: p.areaId, name: p.name, description: p.description,
+        quantity: p.quantity, price: p.price, cost: p.cost,
+        total: p.price * p.quantity + p.laborCost * p.quantity,
+        system: ALL_SYSTEMS.find(s => s.id === p.systemId)?.name || p.systemId,
+        laborCost: p.laborCost, margin: p.margin, monedaOrigen: p.monedaOrigen,
+        marca: p.marca, modelo: p.modelo, provider: p.provider,
+      })),
+      total: totalCalc,
+      subtotal: subConDesc,
+      editorType: 'esp',
+      meta: { programacion: config.programacion },
+    }
+  }
+
   if (loading) return <Loading />
 
   return (
@@ -2468,6 +2494,7 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
             <>
               <button onClick={() => setShowAIImport(true)} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #57FF9A44', background: 'transparent', color: '#57FF9A', marginLeft: 8, display: 'inline-flex', alignItems: 'center', gap: 4 }}><Sparkles size={11} /> Importar con AI</button>
               <button onClick={() => setShowPdfPicker(true)} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #06B6D444', background: 'transparent', color: '#06B6D4', display: 'inline-flex', alignItems: 'center', gap: 4 }}><FileText size={11} /> Exportar PDF</button>
+              <VersionManager cotId={cotId} getCurrentSnapshot={getVersionSnapshot} accentColor="#57FF9A" compact={isMobile} />
               {(stage === 'contrato' || stage === 'propuesta') && (
                 <button onClick={() => window.open(`/cotizacion/${cotId}/memoria-tecnica`, '_blank')} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #F59E0B44', background: 'transparent', color: '#F59E0B', display: 'inline-flex', alignItems: 'center', gap: 4 }}><BookOpen size={11} /> Memoria Técnica</button>
               )}

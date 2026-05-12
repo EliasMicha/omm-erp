@@ -4,6 +4,7 @@ import { F, STAGE_CONFIG } from '../lib/utils'
 import { Badge, Btn, Loading } from '../components/layout/UI'
 import { Plus, ChevronLeft, ChevronDown, ChevronRight, X, Trash2, Settings, Copy, Printer, Pencil, Download } from 'lucide-react'
 import EditCotInfoModal from '../components/EditCotInfoModal'
+import VersionManager, { VersionSnapshot } from '../components/VersionManager'
 import { OMNIIOUS_LOGO } from '../assets/logo'
 import { useIsMobile } from '../lib/useIsMobile'
 import html2canvas from 'html2canvas'
@@ -1225,6 +1226,41 @@ export default function CotEditorCortinas({ cotId, onBack }: { cotId: string; on
     }
   }
 
+  function getVersionSnapshot(): VersionSnapshot {
+    let telaCost = 0, confCost = 0, motorCost = 0
+    items.forEach(item => {
+      telaCost += calcFabricCost(item)
+      confCost += calcConfeccionCost(item)
+      motorCost += calcMotorCostMXN(item, config.tipoCambio)
+    })
+    const telaVenta = config.margenTela > 0 ? Math.round(telaCost / (1 - config.margenTela / 100) * 100) / 100 : telaCost
+    const confVenta = config.margenTela > 0 ? Math.round(confCost / (1 - config.margenTela / 100) * 100) / 100 : confCost
+    const motorVenta = config.margenMotor > 0 ? Math.round(motorCost / (1 - config.margenMotor / 100) * 100) / 100 : motorCost
+    const sub = telaVenta + confVenta + motorVenta
+    const inst = sub * config.instPct / 100
+    const subInst = sub + inst
+    const descAmt = subInst * (config.descuento || 0) / 100
+    const subDesc = subInst - descAmt
+    const totalCalc = subDesc + subDesc * config.ivaRate / 100
+    return {
+      config: { ...config },
+      areas: areas.map(a => ({ id: a.id, name: a.name, order: a.order })),
+      items: items.map(it => ({
+        id: it.id, areaId: it.areaId, name: it.ubicacion || 'Cortina',
+        description: `${it.ancho}m x ${it.alto}m | ${it.tipoCierre} | ${it.motorBrand}`,
+        quantity: it.cantidad, price: calcItemTotal(it) / (it.cantidad || 1),
+        cost: 0, total: calcItemTotal(it),
+        system: 'Cortinas',
+        tipoCierre: it.tipoCierre, motorBrand: it.motorBrand,
+        tipoTela: it.tipoTela, ancho: it.ancho, alto: it.alto,
+      })),
+      total: totalCalc,
+      subtotal: subDesc,
+      editorType: 'cortinas',
+      meta: { margenTela: config.margenTela, margenMotor: config.margenMotor, instPct: config.instPct },
+    }
+  }
+
   if (loading) return <Loading />
 
   return (
@@ -1247,6 +1283,7 @@ export default function CotEditorCortinas({ cotId, onBack }: { cotId: string; on
           ))}
           <button onClick={() => setShowInt(!showInt)} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid ' + (showInt ? '#F59E0B' : '#333'), background: showInt ? '#F59E0B22' : 'transparent', color: showInt ? '#F59E0B' : '#555', marginLeft: 8 }}>{showInt ? 'Interno' : 'Cliente'}</button>
           <button onClick={() => setShowPdf(true)} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #67E8F9', background: '#67E8F922', color: '#67E8F9', marginLeft: 4, display: 'flex', alignItems: 'center', gap: 4 }}><Printer size={12} /> PDF</button>
+          <VersionManager cotId={cotId} getCurrentSnapshot={getVersionSnapshot} accentColor="#67E8F9" compact={isMobile} />
           <span style={{ fontSize: 15, fontWeight: 700, color: '#67E8F9', marginLeft: 10 }}>${grandTotal.toFixed(2)}</span>
         </div>
       </div>

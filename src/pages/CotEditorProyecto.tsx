@@ -4,6 +4,7 @@ import { F, STAGE_CONFIG } from '../lib/utils'
 import { Badge, Btn, Loading } from '../components/layout/UI'
 import { ChevronLeft, ChevronDown, ChevronRight, Settings, X, Printer, Download, Save, Check, Pencil, BookOpen } from 'lucide-react'
 import EditCotInfoModal from '../components/EditCotInfoModal'
+import VersionManager, { VersionSnapshot } from '../components/VersionManager'
 import { OMNIIOUS_LOGO } from '../assets/logo'
 import { autoCreateProjectFromQuotation } from '../lib/projectUtils'
 import { useIsMobile } from '../lib/useIsMobile'
@@ -1555,6 +1556,31 @@ export default function CotEditorProyecto({ cotId, onBack, specialty = 'proy' }:
     })
   }
 
+  function getVersionSnapshot(): VersionSnapshot {
+    const included = items.filter(it => it.included)
+    const subtotal = included.reduce((sum, it) => sum + it.m2 * it.precioM2, 0)
+    const descuentoAmt = subtotal * (config.descuento || 0) / 100
+    const subtotalDesc = subtotal - descuentoAmt
+    const iva = subtotalDesc * config.ivaRate / 100
+    const totalCalc = subtotalDesc + iva
+    return {
+      config: { ...config, tipoProyecto, globalM2 },
+      areas: [{ id: 'general', name: 'General', order: 0 }],
+      items: items.map(it => ({
+        id: it.id, areaId: 'general', name: it.descripcion || SYSTEMS.find(s => s.id === it.systemId)?.name || it.systemId,
+        description: it.descripcion, quantity: it.m2, price: it.precioM2, cost: 0,
+        total: it.included ? it.m2 * it.precioM2 : 0,
+        system: SYSTEMS.find(s => s.id === it.systemId)?.name || it.systemId,
+        included: it.included,
+        entregablesActivos: it.entregablesActivos,
+      })),
+      total: totalCalc,
+      subtotal: subtotalDesc,
+      editorType: 'proyecto',
+      meta: { globalM2, tipoProyecto },
+    }
+  }
+
   if (loading) return <Loading />
 
   return (
@@ -1677,6 +1703,7 @@ export default function CotEditorProyecto({ cotId, onBack, specialty = 'proy' }:
           >
             <Printer size={12} /> Propuesta
           </button>
+          <VersionManager cotId={cotId} getCurrentSnapshot={getVersionSnapshot} accentColor={BADGE_COLOR} compact={isMobile} />
           {(stage === 'contrato' || stage === 'propuesta') && (
             <button
               onClick={() => window.open(`/cotizacion/${cotId}/memoria-tecnica`, '_blank')}
