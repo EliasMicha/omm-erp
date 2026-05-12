@@ -343,9 +343,7 @@ export default function LeadDashboard() {
         let amount: number
         if (proj && proj.contract_value) {
           amount = proj.contract_value
-        } else if (q.specialty === 'esp') {
-          amount = getEspTotal(q)
-        } else if (q.specialty === 'cort' || q.specialty === 'ilum' || q.specialty === 'proy') {
+        } else if (q.specialty === 'esp' || q.specialty === 'cort' || q.specialty === 'ilum' || q.specialty === 'proy') {
           amount = q.total || 0
         } else {
           amount = (q.total || 0) * 1.16
@@ -447,11 +445,8 @@ export default function LeadDashboard() {
       if (proj && proj.contract_value) {
         // Project contract value — use directly (already final)
         amount = proj.contract_value
-      } else if (q.specialty === 'esp') {
-        // ESP: DB total is raw items sum — compute final with descuento + IVA
-        amount = getEspTotal(q)
-      } else if (q.specialty === 'cort' || q.specialty === 'ilum' || q.specialty === 'proy') {
-        // These store total WITH IVA already
+      } else if (q.specialty === 'esp' || q.specialty === 'cort' || q.specialty === 'ilum' || q.specialty === 'proy') {
+        // These all store total WITH IVA already
         amount = q.total || 0
       } else {
         // elec: raw subtotal, add IVA

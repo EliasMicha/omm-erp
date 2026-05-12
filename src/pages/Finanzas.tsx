@@ -286,6 +286,12 @@ export default function Finanzas() {
     } catch { return null }
   }
 
+  // esp/cort/ilum/proy store total WITH IVA; elec stores raw subtotal
+  const quotTotalIva = (q: any) => {
+    if (q.specialty === 'esp' || q.specialty === 'cort' || q.specialty === 'ilum' || q.specialty === 'proy') return q.total || 0
+    return (q.total || 0) * 1.16
+  }
+
   // Agrupa por Lead: todas sus cotizaciones en contrato, proyectos, compras, cobros
   const leadsFinancieros = useMemo(() => {
     return leads.map(lead => {
@@ -306,7 +312,7 @@ export default function Finanzas() {
       let totalVendido = 0
       leadQuots.forEach(q => {
         const proj = leadProjects.find(p => p.cotizacion_id === q.id)
-        totalVendido += proj ? (proj.contract_value || 0) : (q.total || 0)
+        totalVendido += proj ? (proj.contract_value || 0) : quotTotalIva(q)
       })
 
       // 2. Total Cobrado = milestones cobrados
@@ -430,7 +436,7 @@ export default function Finanzas() {
       let ventas = 0
       contratoQuots.filter(q => quotToAreaKey(q) === area.key).forEach(q => {
         const proj = projects.find((p: any) => p.cotizacion_id === q.id)
-        const amount = proj ? (proj.contract_value || 0) : (q.total || 0)
+        const amount = proj ? (proj.contract_value || 0) : quotTotalIva(q)
         const curr = getQuotCurrency(q)
         ventas += curr === 'USD' ? amount * tipoCambio : amount
       })

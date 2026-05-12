@@ -757,12 +757,17 @@ export default function CRM() {
     setLoading(true)
     Promise.all([
       supabase.from('leads').select('*').order('updated_at', { ascending: false }),
-      supabase.from('quotations').select('id,client_name,stage,total,notes'),
+      supabase.from('quotations').select('id,client_name,stage,total,notes,specialty'),
     ]).then(([{ data: ld }, { data: qt }]) => {
       setLeads(ld || [])
       // Build totals per lead — match by lead_id in notes or by name
       const totals: Record<string, { cotizado: number; vendido: number; cotCurrency: string }> = {}
       if (ld && qt) {
+        const quotTotalIva = (q: any) => {
+          // esp/cort/ilum/proy store total WITH IVA; elec stores raw subtotal
+          if (q.specialty === 'esp' || q.specialty === 'cort' || q.specialty === 'ilum' || q.specialty === 'proy') return q.total || 0
+          return (q.total || 0) * 1.16
+        }
         for (const lead of ld) {
           const leadQuotes = qt.filter(q => {
             try {
@@ -773,8 +778,8 @@ export default function CRM() {
           })
           let cotizado = 0, vendido = 0
           leadQuotes.forEach(q => {
-            cotizado += q.total || 0
-            if (q.stage === 'contrato') vendido += q.total || 0
+            cotizado += quotTotalIva(q)
+            if (q.stage === 'contrato') vendido += quotTotalIva(q)
           })
           if (cotizado > 0 || vendido > 0) totals[lead.id] = { cotizado, vendido, cotCurrency: 'USD' }
         }

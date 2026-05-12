@@ -2896,7 +2896,7 @@ function NuevaObraModal({ coordinadores, onClose, onSubmit, onCreated }: {
                     <span style={{ color: checked ? '#57FF9A' : '#ccc', flex: 1 }}>{c.name}</span>
                     {c.specialty && <span style={{ fontSize: 9, color: '#888', background: '#222', padding: '1px 5px', borderRadius: 4, textTransform: 'uppercase' }}>{c.specialty}</span>}
                     {c.stage && <span style={{ fontSize: 9, color: c.stage === 'contrato' ? '#57FF9A' : c.stage === 'propuesta' ? '#F59E0B' : '#666', background: '#1a1a1a', padding: '1px 5px', borderRadius: 4 }}>{c.stage}</span>}
-                    <span style={{ color: '#666', fontSize: 11 }}>{F(c.total)}</span>
+                    <span style={{ color: '#666', fontSize: 11 }}>{F(c.specialty === 'elec' ? c.total * 1.16 : c.total)}</span>
                   </label>
                 )
               })}
@@ -3765,7 +3765,7 @@ function SubMateriales({ obra, onLinked }: { obra: ObraData; onLinked?: (cotId: 
               <option value="">-- Seleccionar cotización --</option>
               {availableCots.map(c => (
                 <option key={c.id} value={c.id}>
-                  {c.name} ({c.specialty?.toUpperCase()}) — ${(c.total || 0).toLocaleString()}
+                  {c.name} ({c.specialty?.toUpperCase()}) — ${(c.specialty === 'elec' ? (c.total || 0) * 1.16 : (c.total || 0)).toLocaleString()}
                 </option>
               ))}
             </select>

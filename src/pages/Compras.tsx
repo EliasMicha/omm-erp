@@ -1755,7 +1755,7 @@ function POFromQuoteModal({ onClose, onCreated }: { onClose: () => void; onCreat
             onChange={v => setSelectedQuote(v)}
             options={filteredQuotes.map(q => ({
               value: q.id,
-              label: `${q.name} — ${(q.project as any)?.name || 'Sin proyecto'} — ${F(q.total)}`,
+              label: `${q.name} — ${(q.project as any)?.name || 'Sin proyecto'} — ${F(q.specialty === 'elec' ? (q.total || 0) * 1.16 : (q.total || 0))}`,
             }))} placeholder="-- Seleccionar cotización --" />
 
           {/* Proveedor */}
