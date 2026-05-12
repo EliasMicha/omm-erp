@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
-import { Plus, X, FileText, RefreshCw, Download, Trash2, Search, Loader2, CheckCircle2, AlertCircle, Ban } from 'lucide-react'
+import { Plus, X, FileText, RefreshCw, Download, Trash2, Search, Loader2, CheckCircle2, AlertCircle, Ban, Table2 } from 'lucide-react'
 import { useIsMobile } from '../lib/useIsMobile'
 
 // ============================================================
@@ -636,6 +636,42 @@ function ListaTodas() {
     alert('Sincronizacion de ' + monthLabelCapitalized + ' completa:\n' + totalEmit + ' emitidas + ' + totalRec + ' recibidas = ' + (totalEmit + totalRec) + ' facturas\n' + recheckedCount + ' verificadas' + changesMsg + errMsg)
   }
 
+  async function exportarExcel() {
+    if (facturas.length === 0) { alert('No hay facturas para exportar'); return }
+    const XLSX = await import('https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs' as any)
+    const rows = facturas.map(f => {
+      const isEmit = f.direccion === 'emitida'
+      return {
+        'Dirección': isEmit ? 'Emitida' : 'Recibida',
+        'Tipo': (f as any).tipo_comprobante || 'I',
+        'Serie': f.serie || '',
+        'Folio': f.folio || '',
+        'UUID': f.uuid_fiscal || '',
+        'Fecha Emisión': f.fecha_emision ? new Date(f.fecha_emision).toLocaleDateString('es-MX') : '',
+        'Fecha Timbrado': f.fecha_timbrado ? new Date(f.fecha_timbrado).toLocaleDateString('es-MX') : '',
+        'Emisor': (f as any).emisor_nombre || '',
+        'RFC Emisor': (f as any).emisor_rfc || '',
+        'Receptor': f.receptor_nombre || '',
+        'RFC Receptor': (f as any).receptor_rfc || '',
+        'Uso CFDI': (f as any).receptor_uso_cfdi || '',
+        'Subtotal': f.subtotal || 0,
+        'IVA': f.iva || 0,
+        'Total': f.total || 0,
+        'Moneda': f.moneda || 'MXN',
+        'Tipo Cambio': (f as any).tipo_cambio || '',
+        'Forma Pago': (f as any).forma_pago || '',
+        'Método Pago': (f as any).metodo_pago || '',
+        'Status': f.status || '',
+        'Notas': f.notas || '',
+      }
+    })
+    const ws = XLSX.utils.json_to_sheet(rows)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Facturas')
+    const mStr = monthDate.toISOString().slice(0, 7)
+    XLSX.writeFile(wb, `Facturas_${mStr}.xlsx`)
+  }
+
   // Filtrar por busqueda (el mes ya se filtra en la query de Supabase)
   const facturasMes = facturas // already filtered by month in load()
   const cntEmit = facturasMes.filter(f => f.direccion === 'emitida').length
@@ -678,6 +714,9 @@ function ListaTodas() {
         <button onClick={sincronizarMes} disabled={syncing} style={{ padding: '10px 16px', background: syncing ? '#1e1e1e' : '#57FF9A', color: syncing ? '#888' : '#000', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: syncing ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'inherit' }}>
           {syncing ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <RefreshCw size={13} />}
           {syncing ? (syncProgress || 'Sincronizando...') : 'Sincronizar ' + monthLabelCapitalized}
+        </button>
+        <button onClick={exportarExcel} disabled={syncing || facturas.length === 0} style={{ padding: '10px 16px', background: '#1e1e1e', color: '#57FF9A', border: '1px solid #57FF9A44', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'inherit' }}>
+          <Table2 size={13} /> Exportar Excel
         </button>
       </div>
 
