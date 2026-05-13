@@ -187,15 +187,28 @@ function CotDashboard({ onOpen, preferVersionId }: { onOpen: (id: string, specia
       ? (cots.find(c => c.id === preferVersionId) as any)?.version_group_id
       : null
     // First pass: pick the best version per group
+    // Priority: 1) lastViewedId (same session), 2) most recent updated_at (survives refresh)
     const bestInGroup = new Map<string, string>()
+    const bestUpdated = new Map<string, string>()
     cots.forEach(c => {
       const gid = (c as any).version_group_id
       if (!gid) return
-      // If this is the preferred version, always pick it
       if (gid === preferredGroup && c.id === preferVersionId) {
-        bestInGroup.set(gid, c.id)
+        bestInGroup.set(gid, c.id) // explicit user choice — always wins
       } else if (!bestInGroup.has(gid)) {
-        bestInGroup.set(gid, c.id) // fallback: first in list (sorted by updated_at desc)
+        // Pick most recently updated as fallback (for page refresh)
+        const prev = bestUpdated.get(gid)
+        if (!prev || c.updated_at > prev) {
+          bestInGroup.set(gid, c.id)
+          bestUpdated.set(gid, c.updated_at)
+        }
+      } else if (!preferredGroup || gid !== preferredGroup) {
+        // Not the preferred group — still check updated_at
+        const prev = bestUpdated.get(gid)
+        if (prev && c.updated_at > prev) {
+          bestInGroup.set(gid, c.id)
+          bestUpdated.set(gid, c.updated_at)
+        }
       }
     })
     // Second pass: filter
