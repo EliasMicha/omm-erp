@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
-import { GitBranch, Save, Eye, X, ChevronDown, ChevronRight, ArrowRight, Plus, Minus, Equal } from 'lucide-react'
+import { GitBranch, Copy, Eye, X, ChevronDown, ChevronRight, ArrowRight, Plus, Minus } from 'lucide-react'
 
 // ═══════════════════════════════════════════════════════════════════
 // TYPES
@@ -12,100 +12,215 @@ export interface VersionSnapshot {
     id: string; areaId: string; name: string; description?: string
     quantity: number; price: number; cost: number; total: number
     system?: string; notes?: any
-    // Extra fields for comparison
     [key: string]: any
   }>
   total: number
   subtotal: number
   editorType: 'esp' | 'proyecto' | 'cortinas'
-  meta?: any // editor-specific metadata
+  meta?: any
 }
 
-interface QVersion {
+interface SiblingVersion {
   id: string
-  quotation_id: string
-  version_number: number
-  label: string | null
-  snapshot: VersionSnapshot
+  name: string
+  version_label: string | null
   total: number
+  stage: string
   created_at: string
-  created_by: string | null
+  specialty: string | null
 }
 
 interface VersionManagerProps {
   cotId: string
   getCurrentSnapshot: () => VersionSnapshot
+  onSwitchVersion: (newCotId: string) => void
   accentColor?: string
-  compact?: boolean // for mobile
+  compact?: boolean
 }
 
 // ═══════════════════════════════════════════════════════════════════
 // MAIN COMPONENT
 // ═══════════════════════════════════════════════════════════════════
-export default function VersionManager({ cotId, getCurrentSnapshot, accentColor = '#57FF9A', compact = false }: VersionManagerProps) {
-  const [versions, setVersions] = useState<QVersion[]>([])
+export default function VersionManager({ cotId, getCurrentSnapshot, onSwitchVersion, accentColor = '#57FF9A', compact = false }: VersionManagerProps) {
+  const [siblings, setSiblings] = useState<SiblingVersion[]>([])
+  const [currentLabel, setCurrentLabel] = useState<string | null>(null)
+  const [groupId, setGroupId] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [showPanel, setShowPanel] = useState(false)
-  const [saving, setSaving] = useState(false)
-  const [label, setLabel] = useState('')
+  const [creating, setCreating] = useState(false)
+  const [newLabel, setNewLabel] = useState('')
   const [showLabelInput, setShowLabelInput] = useState(false)
+  // Compare state
   const [compareA, setCompareA] = useState<string | null>(null)
   const [compareB, setCompareB] = useState<string | null>(null)
   const [showCompare, setShowCompare] = useState(false)
+  const [snapA, setSnapA] = useState<VersionSnapshot | null>(null)
+  const [snapB, setSnapB] = useState<VersionSnapshot | null>(null)
+  const [loadingCompare, setLoadingCompare] = useState(false)
 
-  async function loadVersions() {
+  async function loadSiblings() {
     setLoading(true)
-    const { data } = await supabase
-      .from('quotation_versions')
-      .select('*')
-      .eq('quotation_id', cotId)
-      .order('version_number', { ascending: false })
-    setVersions((data || []) as QVersion[])
+    // Get this quotation's version_group_id and label
+    const { data: current } = await supabase
+      .from('quotations')
+      .select('version_group_id, version_label')
+      .eq('id', cotId)
+      .single()
+    const gid = current?.version_group_id || null
+    setGroupId(gid)
+    setCurrentLabel(current?.version_label || null)
+
+    if (gid) {
+      // Load all siblings in the group
+      const { data: sibs } = await supabase
+        .from('quotations')
+        .select('id, name, version_label, total, stage, created_at, specialty')
+        .eq('version_group_id', gid)
+        .order('version_label')
+      setSiblings((sibs || []) as SiblingVersion[])
+    } else {
+      setSiblings([])
+    }
     setLoading(false)
   }
 
   useEffect(() => {
-    if (showPanel) loadVersions()
+    if (showPanel) loadSiblings()
   }, [showPanel, cotId])
 
-  async function saveVersion() {
-    setSaving(true)
+  async function createVersion() {
+    setCreating(true)
     try {
-      // Get next version number
-      const { data: maxRow } = await supabase
-        .from('quotation_versions')
-        .select('version_number')
-        .eq('quotation_id', cotId)
-        .order('version_number', { ascending: false })
-        .limit(1)
-      const nextNum = (maxRow && maxRow.length > 0) ? maxRow[0].version_number + 1 : 1
+      const label = newLabel.trim().toUpperCase() || null
 
+      // 1. Get current quotation data
+      const { data: cot } = await supabase.from('quotations').select('*').eq('id', cotId).single()
+      if (!cot) { alert('Error: cotización no encontrada'); return }
+
+      // 2. Ensure version_group_id exists (set on original if first time)
+      let vgId = cot.version_group_id
+      if (!vgId) {
+        vgId = crypto.randomUUID()
+        // Set group on the original quotation
+        const origLabel = cot.version_label || 'A'
+        await supabase.from('quotations').update({ version_group_id: vgId, version_label: origLabel }).eq('id', cotId)
+        setCurrentLabel(origLabel)
+      }
+
+      // 3. Determine next label if not provided
+      let finalLabel = label
+      if (!finalLabel) {
+        const { data: existing } = await supabase
+          .from('quotations')
+          .select('version_label')
+          .eq('version_group_id', vgId)
+          .order('version_label')
+        const usedLabels = new Set((existing || []).map(e => e.version_label))
+        // Find next letter: A, B, C, ...
+        for (let i = 0; i < 26; i++) {
+          const candidate = String.fromCharCode(65 + i)
+          if (!usedLabels.has(candidate)) { finalLabel = candidate; break }
+        }
+        if (!finalLabel) finalLabel = 'Z' + Date.now()
+      }
+
+      // 4. Clone the quotation row
+      const { id: _, created_at: __, version_label: ___, ...cotClone } = cot
+      const { data: newCot, error: cotErr } = await supabase.from('quotations').insert({
+        ...cotClone,
+        name: cot.name + ` (${finalLabel})`,
+        version_group_id: vgId,
+        version_label: finalLabel,
+      }).select().single()
+      if (cotErr || !newCot) { alert('Error clonando cotización: ' + (cotErr?.message || 'unknown')); return }
+
+      // 5. Clone areas
+      const { data: areas } = await supabase.from('quotation_areas').select('*').eq('quotation_id', cotId).order('order_index')
+      const areaIdMap: Record<string, string> = {} // old area id → new area id
+      if (areas && areas.length > 0) {
+        for (const area of areas) {
+          const { id: aId, created_at: aCr, ...areaClone } = area
+          const { data: newArea } = await supabase.from('quotation_areas').insert({
+            ...areaClone,
+            quotation_id: newCot.id,
+          }).select().single()
+          if (newArea) areaIdMap[aId] = newArea.id
+        }
+      }
+
+      // 6. Clone items
+      const { data: items } = await supabase.from('quotation_items').select('*').eq('quotation_id', cotId).order('order_index')
+      if (items && items.length > 0) {
+        // Batch insert for speed
+        const clonedItems = items.map(item => {
+          const { id: iId, created_at: iCr, ...itemClone } = item
+          return {
+            ...itemClone,
+            quotation_id: newCot.id,
+            area_id: areaIdMap[item.area_id] || item.area_id,
+          }
+        })
+        await supabase.from('quotation_items').insert(clonedItems)
+      }
+
+      // 7. Also save a snapshot in quotation_versions for comparison
       const snapshot = getCurrentSnapshot()
-      const { error } = await supabase.from('quotation_versions').insert({
+      await supabase.from('quotation_versions').insert({
         quotation_id: cotId,
-        version_number: nextNum,
-        label: label.trim() || null,
+        version_number: 1,
+        label: currentLabel || 'Original',
         snapshot,
         total: snapshot.total,
-      })
-      if (error) {
-        console.error('Error saving version:', error)
-        alert('Error guardando versión: ' + error.message)
-      } else {
-        setLabel('')
-        setShowLabelInput(false)
-        await loadVersions()
-      }
+      }).then(() => {}) // ignore if already exists
+
+      setNewLabel('')
+      setShowLabelInput(false)
+      await loadSiblings()
+    } catch (err: any) {
+      alert('Error: ' + (err.message || err))
     } finally {
-      setSaving(false)
+      setCreating(false)
     }
   }
 
-  function startCompare() {
-    if (versions.length < 2) { alert('Necesitas al menos 2 versiones para comparar'); return }
-    setCompareA(versions[1]?.id || null) // older
-    setCompareB(versions[0]?.id || null) // newer
+  async function startCompare() {
+    if (siblings.length < 2) { alert('Necesitas al menos 2 versiones'); return }
+    const other = siblings.find(s => s.id !== cotId) || siblings[0]
+    setCompareA(cotId)
+    setCompareB(other.id)
     setShowCompare(true)
+    await loadCompareData(cotId, other.id)
+  }
+
+  async function loadCompareData(idA: string, idB: string) {
+    setLoadingCompare(true)
+    const [sA, sB] = await Promise.all([buildSnapshotFromDb(idA), buildSnapshotFromDb(idB)])
+    setSnapA(sA)
+    setSnapB(sB)
+    setLoadingCompare(false)
+  }
+
+  async function buildSnapshotFromDb(qId: string): Promise<VersionSnapshot> {
+    const [{ data: cot }, { data: areas }, { data: items }] = await Promise.all([
+      supabase.from('quotations').select('*').eq('id', qId).single(),
+      supabase.from('quotation_areas').select('*').eq('quotation_id', qId).order('order_index'),
+      supabase.from('quotation_items').select('*').eq('quotation_id', qId).order('order_index'),
+    ])
+    const config = cot?.notes ? (() => { try { return JSON.parse(cot.notes) } catch { return {} } })() : {}
+    return {
+      config,
+      areas: (areas || []).map((a: any) => ({ id: a.id, name: a.name, order: a.order_index || 0 })),
+      items: (items || []).map((it: any) => ({
+        id: it.id, areaId: it.area_id, name: it.name || '',
+        description: it.description || '',
+        quantity: it.quantity || 0, price: it.price || 0,
+        cost: it.cost || 0, total: it.total || 0,
+        system: it.system || '', notes: it.notes,
+      })),
+      total: cot?.total || 0,
+      subtotal: cot?.total || 0, // approximate
+      editorType: 'esp', // doesn't matter for comparison
+    }
   }
 
   const btnStyle = (active?: boolean): React.CSSProperties => ({
@@ -123,8 +238,19 @@ export default function VersionManager({ cotId, getCurrentSnapshot, accentColor 
     gap: 4,
   })
 
+  // Show current label badge inline if it exists
+  const labelBadge = currentLabel ? (
+    <span style={{
+      fontSize: compact ? 8 : 9, fontWeight: 800, color: '#111',
+      background: accentColor, padding: '1px 5px', borderRadius: 4, marginLeft: 2,
+    }}>{currentLabel}</span>
+  ) : null
+
   return (
     <>
+      {/* Version label badge (always visible if version exists) */}
+      {labelBadge}
+
       {/* Trigger button */}
       <button onClick={() => setShowPanel(true)} style={btnStyle()} title="Versiones">
         <GitBranch size={compact ? 10 : 11} /> {compact ? 'V' : 'Versiones'}
@@ -134,7 +260,7 @@ export default function VersionManager({ cotId, getCurrentSnapshot, accentColor 
       {showPanel && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', justifyContent: 'flex-end' }}>
           <div onClick={() => { setShowPanel(false); setShowCompare(false) }} style={{ flex: 1, background: 'rgba(0,0,0,0.5)' }} />
-          <div style={{ width: Math.min(480, window.innerWidth - 40), background: '#111', borderLeft: '1px solid #333', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          <div style={{ width: Math.min(520, window.innerWidth - 40), background: '#111', borderLeft: '1px solid #333', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             {/* Header */}
             <div style={{ padding: '12px 16px', borderBottom: '1px solid #222', display: 'flex', alignItems: 'center', gap: 8 }}>
               <GitBranch size={16} color={accentColor} />
@@ -142,29 +268,33 @@ export default function VersionManager({ cotId, getCurrentSnapshot, accentColor 
               <button onClick={() => { setShowPanel(false); setShowCompare(false) }} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer' }}><X size={16} /></button>
             </div>
 
-            {/* Save new version */}
+            {/* Create new version */}
             <div style={{ padding: '12px 16px', borderBottom: '1px solid #1a1a1a', display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div style={{ fontSize: 11, color: '#888', lineHeight: 1.4 }}>
+                Crea una copia independiente de esta cotización. Cada versión se edita por separado.
+              </div>
               {showLabelInput ? (
                 <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                   <input
-                    value={label}
-                    onChange={e => setLabel(e.target.value)}
-                    placeholder="Nota de versión (opcional)..."
-                    style={{ flex: 1, padding: '6px 10px', background: '#1a1a1a', border: '1px solid #333', borderRadius: 6, color: '#ccc', fontSize: 12, fontFamily: 'inherit' }}
+                    value={newLabel}
+                    onChange={e => setNewLabel(e.target.value.toUpperCase())}
+                    placeholder="Letra (auto si vacío)..."
+                    maxLength={3}
+                    style={{ width: 80, padding: '6px 10px', background: '#1a1a1a', border: '1px solid #333', borderRadius: 6, color: '#ccc', fontSize: 12, fontFamily: 'inherit', textAlign: 'center', textTransform: 'uppercase' }}
                     autoFocus
-                    onKeyDown={e => { if (e.key === 'Enter') saveVersion() }}
+                    onKeyDown={e => { if (e.key === 'Enter') createVersion() }}
                   />
-                  <button onClick={saveVersion} disabled={saving} style={{ ...btnStyle(true), opacity: saving ? 0.5 : 1 }}>
-                    <Save size={11} /> {saving ? '...' : 'Guardar'}
+                  <button onClick={createVersion} disabled={creating} style={{ ...btnStyle(true), opacity: creating ? 0.5 : 1 }}>
+                    <Copy size={11} /> {creating ? 'Duplicando...' : 'Crear versión'}
                   </button>
                   <button onClick={() => setShowLabelInput(false)} style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer' }}><X size={14} /></button>
                 </div>
               ) : (
                 <div style={{ display: 'flex', gap: 6 }}>
                   <button onClick={() => setShowLabelInput(true)} style={btnStyle(true)}>
-                    <Save size={11} /> Guardar versión
+                    <Copy size={11} /> Crear nueva versión
                   </button>
-                  {versions.length >= 2 && (
+                  {siblings.length >= 2 && (
                     <button onClick={startCompare} style={btnStyle()}>
                       <Eye size={11} /> Comparar
                     </button>
@@ -173,27 +303,40 @@ export default function VersionManager({ cotId, getCurrentSnapshot, accentColor 
               )}
             </div>
 
-            {/* Version list or Compare view */}
+            {/* Content */}
             <div style={{ flex: 1, overflowY: 'auto', padding: '8px 0' }}>
               {showCompare ? (
                 <CompareView
-                  versions={versions}
+                  siblings={siblings}
                   compareA={compareA}
                   compareB={compareB}
-                  onSelectA={setCompareA}
-                  onSelectB={setCompareB}
+                  onSelectA={async (id) => { setCompareA(id); if (compareB) await loadCompareData(id, compareB) }}
+                  onSelectB={async (id) => { setCompareB(id); if (compareA) await loadCompareData(compareA, id) }}
+                  snapA={snapA}
+                  snapB={snapB}
+                  loading={loadingCompare}
                   accentColor={accentColor}
+                  onBack={() => setShowCompare(false)}
                 />
               ) : loading ? (
                 <div style={{ padding: 20, textAlign: 'center', color: '#555' }}>Cargando...</div>
-              ) : versions.length === 0 ? (
+              ) : siblings.length === 0 ? (
                 <div style={{ padding: 20, textAlign: 'center', color: '#555', fontSize: 12 }}>
-                  No hay versiones guardadas aún.<br />
-                  <span style={{ fontSize: 11, color: '#444' }}>Usa "Guardar versión" para crear un snapshot.</span>
+                  Esta cotización no tiene versiones aún.<br />
+                  <span style={{ fontSize: 11, color: '#444' }}>Crea una versión para duplicar y editar independientemente.</span>
                 </div>
               ) : (
-                versions.map(v => (
-                  <VersionRow key={v.id} version={v} accentColor={accentColor} />
+                siblings.map(s => (
+                  <SiblingRow
+                    key={s.id}
+                    sibling={s}
+                    isCurrent={s.id === cotId}
+                    accentColor={accentColor}
+                    onSwitch={() => {
+                      setShowPanel(false)
+                      onSwitchVersion(s.id)
+                    }}
+                  />
                 ))
               )}
             </div>
@@ -205,62 +348,59 @@ export default function VersionManager({ cotId, getCurrentSnapshot, accentColor 
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// VERSION ROW
+// SIBLING ROW
 // ═══════════════════════════════════════════════════════════════════
-function VersionRow({ version: v, accentColor }: { version: QVersion; accentColor: string }) {
-  const [expanded, setExpanded] = useState(false)
-  const snap = v.snapshot
-  const date = new Date(v.created_at)
+function SiblingRow({ sibling: s, isCurrent, accentColor, onSwitch }: {
+  sibling: SiblingVersion; isCurrent: boolean; accentColor: string; onSwitch: () => void
+}) {
+  const date = new Date(s.created_at)
   const dateStr = date.toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' })
-  const timeStr = date.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })
+  const stageColors: Record<string, string> = {
+    oportunidad: '#3B82F6', propuesta: '#F59E0B', negociacion: '#A855F7',
+    contrato: '#10B981', perdida: '#EF4444', cancelada: '#64748B',
+  }
 
   return (
-    <div style={{ borderBottom: '1px solid #1a1a1a' }}>
-      <div
-        onClick={() => setExpanded(!expanded)}
-        style={{ padding: '10px 16px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, transition: 'background 0.15s' }}
-        onMouseEnter={e => (e.currentTarget.style.background = '#1a1a1a')}
-        onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
-      >
-        {expanded ? <ChevronDown size={12} color="#555" /> : <ChevronRight size={12} color="#555" />}
-        <span style={{ fontSize: 13, fontWeight: 700, color: accentColor }}>v{v.version_number}</span>
-        <span style={{ fontSize: 11, color: '#888', flex: 1 }}>{v.label || ''}</span>
-        <span style={{ fontSize: 12, fontWeight: 600, color: '#ccc' }}>${fmt(v.total)}</span>
-        <span style={{ fontSize: 10, color: '#555' }}>{dateStr} {timeStr}</span>
+    <div
+      onClick={isCurrent ? undefined : onSwitch}
+      style={{
+        padding: '12px 16px', cursor: isCurrent ? 'default' : 'pointer',
+        display: 'flex', alignItems: 'center', gap: 10,
+        borderBottom: '1px solid #1a1a1a',
+        background: isCurrent ? accentColor + '08' : 'transparent',
+        borderLeft: isCurrent ? `3px solid ${accentColor}` : '3px solid transparent',
+        transition: 'background 0.15s',
+      }}
+      onMouseEnter={e => { if (!isCurrent) e.currentTarget.style.background = '#1a1a1a' }}
+      onMouseLeave={e => { if (!isCurrent) e.currentTarget.style.background = 'transparent' }}
+    >
+      {/* Version badge */}
+      <span style={{
+        fontSize: 14, fontWeight: 800, color: isCurrent ? '#111' : accentColor,
+        background: isCurrent ? accentColor : accentColor + '22',
+        width: 28, height: 28, borderRadius: 6,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        flexShrink: 0,
+      }}>
+        {s.version_label || '?'}
+      </span>
+
+      {/* Info */}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 12, fontWeight: 600, color: '#ccc', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {s.name}
+          {isCurrent && <span style={{ fontSize: 9, color: accentColor, marginLeft: 6 }}>● Actual</span>}
+        </div>
+        <div style={{ fontSize: 10, color: '#555', display: 'flex', gap: 8, marginTop: 2 }}>
+          <span>{dateStr}</span>
+          <span style={{ color: stageColors[s.stage] || '#888' }}>{s.stage}</span>
+        </div>
       </div>
 
-      {expanded && snap && (
-        <div style={{ padding: '0 16px 12px 36px' }}>
-          {/* Config summary */}
-          <div style={{ fontSize: 10, color: '#666', marginBottom: 6 }}>
-            {snap.config?.currency || 'MXN'} | IVA {snap.config?.ivaRate || 16}%
-            {snap.config?.descuento ? ` | Desc ${snap.config.descuento}%` : ''}
-            {snap.config?.tipoCambio ? ` | TC $${snap.config.tipoCambio}` : ''}
-          </div>
-
-          {/* Areas summary */}
-          {snap.areas && snap.areas.length > 0 && (
-            <div style={{ marginBottom: 8 }}>
-              <div style={{ fontSize: 9, fontWeight: 700, color: '#555', textTransform: 'uppercase', marginBottom: 4 }}>Alcances ({snap.areas.length} áreas)</div>
-              {snap.areas.map((a, i) => {
-                const areaItems = snap.items.filter(it => it.areaId === a.id)
-                const areaTotal = areaItems.reduce((s, it) => s + (it.total || 0), 0)
-                return (
-                  <div key={i} style={{ fontSize: 11, color: '#888', padding: '2px 0', display: 'flex', justifyContent: 'space-between' }}>
-                    <span>{a.name} <span style={{ color: '#555' }}>({areaItems.length} items)</span></span>
-                    <span style={{ color: '#aaa' }}>${fmt(areaTotal)}</span>
-                  </div>
-                )
-              })}
-            </div>
-          )}
-
-          {/* Items count */}
-          <div style={{ fontSize: 10, color: '#555' }}>
-            {snap.items?.length || 0} conceptos | Subtotal: ${fmt(snap.subtotal || 0)} | Total: ${fmt(snap.total || 0)}
-          </div>
-        </div>
-      )}
+      {/* Total */}
+      <div style={{ fontSize: 14, fontWeight: 700, color: isCurrent ? accentColor : '#aaa', flexShrink: 0 }}>
+        ${fmt(s.total || 0)}
+      </div>
     </div>
   )
 }
@@ -268,37 +408,49 @@ function VersionRow({ version: v, accentColor }: { version: QVersion; accentColo
 // ═══════════════════════════════════════════════════════════════════
 // COMPARE VIEW
 // ═══════════════════════════════════════════════════════════════════
-function CompareView({ versions, compareA, compareB, onSelectA, onSelectB, accentColor }: {
-  versions: QVersion[]
+function CompareView({ siblings, compareA, compareB, onSelectA, onSelectB, snapA, snapB, loading, accentColor, onBack }: {
+  siblings: SiblingVersion[]
   compareA: string | null
   compareB: string | null
   onSelectA: (id: string) => void
   onSelectB: (id: string) => void
+  snapA: VersionSnapshot | null
+  snapB: VersionSnapshot | null
+  loading: boolean
   accentColor: string
+  onBack: () => void
 }) {
-  const vA = versions.find(v => v.id === compareA)
-  const vB = versions.find(v => v.id === compareB)
+  const sibA = siblings.find(s => s.id === compareA)
+  const sibB = siblings.find(s => s.id === compareB)
 
   return (
     <div style={{ padding: '0 16px' }}>
+      <button onClick={onBack} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', fontSize: 11, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 4 }}>
+        ← Volver a versiones
+      </button>
+
       {/* Selectors */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 12, alignItems: 'center' }}>
         <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 9, fontWeight: 700, color: '#EF4444', textTransform: 'uppercase', marginBottom: 4 }}>Anterior</div>
+          <div style={{ fontSize: 9, fontWeight: 700, color: '#EF4444', textTransform: 'uppercase', marginBottom: 4 }}>Versión A</div>
           <select value={compareA || ''} onChange={e => onSelectA(e.target.value)} style={selStyle}>
-            {versions.map(v => <option key={v.id} value={v.id}>v{v.version_number} {v.label ? `- ${v.label}` : ''}</option>)}
+            {siblings.map(s => <option key={s.id} value={s.id}>{s.version_label || '?'} — {s.name}</option>)}
           </select>
         </div>
         <ArrowRight size={16} color="#555" style={{ marginTop: 16 }} />
         <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 9, fontWeight: 700, color: '#10B981', textTransform: 'uppercase', marginBottom: 4 }}>Actual</div>
+          <div style={{ fontSize: 9, fontWeight: 700, color: '#10B981', textTransform: 'uppercase', marginBottom: 4 }}>Versión B</div>
           <select value={compareB || ''} onChange={e => onSelectB(e.target.value)} style={selStyle}>
-            {versions.map(v => <option key={v.id} value={v.id}>v{v.version_number} {v.label ? `- ${v.label}` : ''}</option>)}
+            {siblings.map(s => <option key={s.id} value={s.id}>{s.version_label || '?'} — {s.name}</option>)}
           </select>
         </div>
       </div>
 
-      {vA && vB && <CompareResults a={vA} b={vB} accentColor={accentColor} />}
+      {loading ? (
+        <div style={{ padding: 20, textAlign: 'center', color: '#555' }}>Cargando datos...</div>
+      ) : snapA && snapB && sibA && sibB ? (
+        <CompareResults a={snapA} b={snapB} labelA={sibA.version_label || '?'} labelB={sibB.version_label || '?'} accentColor={accentColor} />
+      ) : null}
     </div>
   )
 }
@@ -311,26 +463,22 @@ const selStyle: React.CSSProperties = {
 // ═══════════════════════════════════════════════════════════════════
 // COMPARE RESULTS
 // ═══════════════════════════════════════════════════════════════════
-function CompareResults({ a, b, accentColor }: { a: QVersion; b: QVersion; accentColor: string }) {
-  const snapA = a.snapshot
-  const snapB = b.snapshot
+function CompareResults({ a, b, labelA, labelB, accentColor }: {
+  a: VersionSnapshot; b: VersionSnapshot; labelA: string; labelB: string; accentColor: string
+}) {
+  const totalDiff = (b.total || 0) - (a.total || 0)
+  const pctChange = a.total ? ((totalDiff / a.total) * 100) : 0
 
-  // ── Totals diff ──
-  const totalDiff = (snapB.total || 0) - (snapA.total || 0)
-  const subtotalDiff = (snapB.subtotal || 0) - (snapA.subtotal || 0)
-  const pctChange = snapA.total ? ((totalDiff / snapA.total) * 100) : 0
-
-  // ── Scope diff (areas) ──
-  const areasA = new Map((snapA.areas || []).map(a => [a.name.toLowerCase().trim(), a]))
-  const areasB = new Map((snapB.areas || []).map(a => [a.name.toLowerCase().trim(), a]))
+  // Scope diff (areas)
+  const areasA = new Map((a.areas || []).map(a => [a.name.toLowerCase().trim(), a]))
+  const areasB = new Map((b.areas || []).map(a => [a.name.toLowerCase().trim(), a]))
   const addedAreas = [...areasB.keys()].filter(k => !areasA.has(k))
   const removedAreas = [...areasA.keys()].filter(k => !areasB.has(k))
   const commonAreas = [...areasB.keys()].filter(k => areasA.has(k))
 
-  // ── Items diff ──
-  // Use name as key for matching (since IDs change between versions)
-  const itemsA = new Map((snapA.items || []).map(i => [itemKey(i), i]))
-  const itemsB = new Map((snapB.items || []).map(i => [itemKey(i), i]))
+  // Items diff
+  const itemsA = new Map((a.items || []).map(i => [itemKey(i), i]))
+  const itemsB = new Map((b.items || []).map(i => [itemKey(i), i]))
   const addedItems = [...itemsB.entries()].filter(([k]) => !itemsA.has(k))
   const removedItems = [...itemsA.entries()].filter(([k]) => !itemsB.has(k))
   const changedItems: Array<{ key: string; before: any; after: any; changes: string[] }> = []
@@ -346,14 +494,14 @@ function CompareResults({ a, b, accentColor }: { a: QVersion; b: QVersion; accen
     if (changes.length > 0) changedItems.push({ key, before: itemA, after: itemB, changes })
   }
 
-  // ── Area-level price comparison ──
+  // Area-level totals
   const areaComps = commonAreas.map(areaKey => {
     const aA = areasA.get(areaKey)!
     const aB = areasB.get(areaKey)!
-    const totalA = (snapA.items || []).filter(i => i.areaId === aA.id).reduce((s, i) => s + (i.total || 0), 0)
-    const totalB = (snapB.items || []).filter(i => i.areaId === aB.id).reduce((s, i) => s + (i.total || 0), 0)
-    const countA = (snapA.items || []).filter(i => i.areaId === aA.id).length
-    const countB = (snapB.items || []).filter(i => i.areaId === aB.id).length
+    const totalA = (a.items || []).filter(i => i.areaId === aA.id).reduce((s, i) => s + (i.total || 0), 0)
+    const totalB = (b.items || []).filter(i => i.areaId === aB.id).reduce((s, i) => s + (i.total || 0), 0)
+    const countA = (a.items || []).filter(i => i.areaId === aA.id).length
+    const countB = (b.items || []).filter(i => i.areaId === aB.id).length
     return { name: aB.name, totalA, totalB, diff: totalB - totalA, countA, countB }
   })
 
@@ -362,14 +510,14 @@ function CompareResults({ a, b, accentColor }: { a: QVersion; b: QVersion; accen
       {/* Summary cards */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 16 }}>
         <div style={{ background: '#1a1a1a', borderRadius: 8, padding: 10 }}>
-          <div style={{ fontSize: 9, color: '#EF4444', fontWeight: 700, textTransform: 'uppercase' }}>v{a.version_number}</div>
-          <div style={{ fontSize: 16, fontWeight: 700, color: '#ccc' }}>${fmt(snapA.total || 0)}</div>
-          <div style={{ fontSize: 10, color: '#555' }}>{snapA.items?.length || 0} items | {snapA.areas?.length || 0} áreas</div>
+          <div style={{ fontSize: 11, color: '#EF4444', fontWeight: 700 }}>Versión {labelA}</div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: '#ccc' }}>${fmt(a.total || 0)}</div>
+          <div style={{ fontSize: 10, color: '#555' }}>{a.items?.length || 0} items · {a.areas?.length || 0} áreas</div>
         </div>
         <div style={{ background: '#1a1a1a', borderRadius: 8, padding: 10 }}>
-          <div style={{ fontSize: 9, color: '#10B981', fontWeight: 700, textTransform: 'uppercase' }}>v{b.version_number}</div>
-          <div style={{ fontSize: 16, fontWeight: 700, color: '#ccc' }}>${fmt(snapB.total || 0)}</div>
-          <div style={{ fontSize: 10, color: '#555' }}>{snapB.items?.length || 0} items | {snapB.areas?.length || 0} áreas</div>
+          <div style={{ fontSize: 11, color: '#10B981', fontWeight: 700 }}>Versión {labelB}</div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: '#ccc' }}>${fmt(b.total || 0)}</div>
+          <div style={{ fontSize: 10, color: '#555' }}>{b.items?.length || 0} items · {b.areas?.length || 0} áreas</div>
         </div>
       </div>
 
@@ -383,7 +531,7 @@ function CompareResults({ a, b, accentColor }: { a: QVersion; b: QVersion; accen
         </span>
       </div>
 
-      {/* Scope changes (areas) */}
+      {/* Scope changes */}
       <Section title="Cambios en Alcance" count={addedAreas.length + removedAreas.length + areaComps.filter(a => a.diff !== 0 || a.countA !== a.countB).length}>
         {addedAreas.map(k => (
           <DiffLine key={k} icon={<Plus size={10} color="#10B981" />} color="#10B981" text={`Área agregada: ${areasB.get(k)?.name}`} />
@@ -407,7 +555,7 @@ function CompareResults({ a, b, accentColor }: { a: QVersion; b: QVersion; accen
       {/* Added items */}
       <Section title="Conceptos Agregados" count={addedItems.length}>
         {addedItems.map(([k, item]) => (
-          <DiffLine key={k} icon={<Plus size={10} color="#10B981" />} color="#10B981" text={`${item.name}`} detail={`$${fmt(item.total || 0)}`} />
+          <DiffLine key={k} icon={<Plus size={10} color="#10B981" />} color="#10B981" text={item.name} detail={`$${fmt(item.total || 0)}`} />
         ))}
         {addedItems.length === 0 && <div style={{ fontSize: 11, color: '#555', padding: '4px 0' }}>Ninguno</div>}
       </Section>
@@ -415,7 +563,7 @@ function CompareResults({ a, b, accentColor }: { a: QVersion; b: QVersion; accen
       {/* Removed items */}
       <Section title="Conceptos Eliminados" count={removedItems.length}>
         {removedItems.map(([k, item]) => (
-          <DiffLine key={k} icon={<Minus size={10} color="#EF4444" />} color="#EF4444" text={`${item.name}`} detail={`$${fmt(item.total || 0)}`} />
+          <DiffLine key={k} icon={<Minus size={10} color="#EF4444" />} color="#EF4444" text={item.name} detail={`$${fmt(item.total || 0)}`} />
         ))}
         {removedItems.length === 0 && <div style={{ fontSize: 11, color: '#555', padding: '4px 0' }}>Ninguno</div>}
       </Section>
@@ -440,8 +588,6 @@ function CompareResults({ a, b, accentColor }: { a: QVersion; b: QVersion; accen
 // HELPERS
 // ═══════════════════════════════════════════════════════════════════
 function itemKey(item: any): string {
-  // Use name + areaName as key for matching across versions
-  // Trim and lowercase for fuzzy matching
   const name = (item.name || '').toLowerCase().trim()
   const sys = (item.system || '').toLowerCase().trim()
   return `${sys}::${name}`

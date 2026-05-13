@@ -1299,7 +1299,7 @@ function ProySummary({
 // MAIN COMPONENT
 // ═══════════════════════════════════════════════════════════════════
 
-export default function CotEditorProyecto({ cotId, onBack, specialty = 'proy' }: { cotId: string; onBack: () => void; specialty?: string }) {
+export default function CotEditorProyecto({ cotId, onBack, specialty = 'proy', onSwitchVersion }: { cotId: string; onBack: () => void; specialty?: string; onSwitchVersion?: (id: string) => void }) {
   const isMobile = useIsMobile()
   // tipoProyecto drives everything: systems, conditions, badge, etc.
   // Backward compat: old 'ilum' specialty → 'iluminacion', old 'proy' → 'especiales'
@@ -1703,7 +1703,7 @@ export default function CotEditorProyecto({ cotId, onBack, specialty = 'proy' }:
           >
             <Printer size={12} /> Propuesta
           </button>
-          <VersionManager cotId={cotId} getCurrentSnapshot={getVersionSnapshot} accentColor={BADGE_COLOR} compact={isMobile} />
+          <VersionManager cotId={cotId} getCurrentSnapshot={getVersionSnapshot} onSwitchVersion={onSwitchVersion || (() => {})} accentColor={BADGE_COLOR} compact={isMobile} />
           {(stage === 'contrato' || stage === 'propuesta') && (
             <button
               onClick={() => window.open(`/cotizacion/${cotId}/memoria-tecnica`, '_blank')}

@@ -1021,7 +1021,7 @@ function CortSummary({ items, areas, config, showInt, onConfigChange }: {
 // ═══════════════════════════════════════════════════════════════════
 // MAIN COMPONENT
 // ═══════════════════════════════════════════════════════════════════
-export default function CotEditorCortinas({ cotId, onBack }: { cotId: string; onBack: () => void }) {
+export default function CotEditorCortinas({ cotId, onBack, onSwitchVersion }: { cotId: string; onBack: () => void; onSwitchVersion?: (id: string) => void }) {
   const isMobile = useIsMobile()
   const [areas, setAreas] = useState<CortArea[]>([])
   const [items, setItems] = useState<CortItem[]>([])
@@ -1283,7 +1283,7 @@ export default function CotEditorCortinas({ cotId, onBack }: { cotId: string; on
           ))}
           <button onClick={() => setShowInt(!showInt)} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid ' + (showInt ? '#F59E0B' : '#333'), background: showInt ? '#F59E0B22' : 'transparent', color: showInt ? '#F59E0B' : '#555', marginLeft: 8 }}>{showInt ? 'Interno' : 'Cliente'}</button>
           <button onClick={() => setShowPdf(true)} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #67E8F9', background: '#67E8F922', color: '#67E8F9', marginLeft: 4, display: 'flex', alignItems: 'center', gap: 4 }}><Printer size={12} /> PDF</button>
-          <VersionManager cotId={cotId} getCurrentSnapshot={getVersionSnapshot} accentColor="#67E8F9" compact={isMobile} />
+          <VersionManager cotId={cotId} getCurrentSnapshot={getVersionSnapshot} onSwitchVersion={onSwitchVersion || (() => {})} accentColor="#67E8F9" compact={isMobile} />
           <span style={{ fontSize: 15, fontWeight: 700, color: '#67E8F9', marginLeft: 10 }}>${grandTotal.toFixed(2)}</span>
         </div>
       </div>

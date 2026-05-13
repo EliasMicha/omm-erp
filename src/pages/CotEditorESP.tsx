@@ -1913,7 +1913,7 @@ function SystemOverviewModal({ systemDef, products, areas, config, onClose }: {
 // ═══════════════════════════════════════════════════════════════════
 // MAIN COMPONENT
 // ═══════════════════════════════════════════════════════════════════
-export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack: () => void }) {
+export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId: string; onBack: () => void; onSwitchVersion?: (id: string) => void }) {
   const isMobile = useIsMobile()
   const [areas, setAreas] = useState<EspArea[]>([])
   const [activeSysIds, setActiveSysIds] = useState<string[]>([])
@@ -2494,7 +2494,7 @@ export default function CotEditorESP({ cotId, onBack }: { cotId: string; onBack:
             <>
               <button onClick={() => setShowAIImport(true)} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #57FF9A44', background: 'transparent', color: '#57FF9A', marginLeft: 8, display: 'inline-flex', alignItems: 'center', gap: 4 }}><Sparkles size={11} /> Importar con AI</button>
               <button onClick={() => setShowPdfPicker(true)} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #06B6D444', background: 'transparent', color: '#06B6D4', display: 'inline-flex', alignItems: 'center', gap: 4 }}><FileText size={11} /> Exportar PDF</button>
-              <VersionManager cotId={cotId} getCurrentSnapshot={getVersionSnapshot} accentColor="#57FF9A" compact={isMobile} />
+              <VersionManager cotId={cotId} getCurrentSnapshot={getVersionSnapshot} onSwitchVersion={onSwitchVersion || (() => {})} accentColor="#57FF9A" compact={isMobile} />
               {(stage === 'contrato' || stage === 'propuesta') && (
                 <button onClick={() => window.open(`/cotizacion/${cotId}/memoria-tecnica`, '_blank')} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #F59E0B44', background: 'transparent', color: '#F59E0B', display: 'inline-flex', alignItems: 'center', gap: 4 }}><BookOpen size={11} /> Memoria Técnica</button>
               )}
