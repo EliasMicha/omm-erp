@@ -105,7 +105,7 @@ function LeadCell({ cotId, currentLeadId, currentLeadName, leads, notes, onUpdat
   )
 }
 
-function CotDashboard({ onOpen }: { onOpen: (id: string, specialty?: string) => void }) {
+function CotDashboard({ onOpen, preferVersionId }: { onOpen: (id: string, specialty?: string) => void; preferVersionId?: string | null }) {
   const isMobile = useIsMobile()
   const { user: authUser } = useAuth()
   const showKPIs = authUser?.permission_area === 'DG' || authUser?.permission_area === 'Administracion'
@@ -180,27 +180,31 @@ function CotDashboard({ onOpen }: { onOpen: (id: string, specialty?: string) => 
 
   function getYear(c: any): string { return (c.created_at || '').slice(0, 4) }
 
-  // Hide version clones — show only the most recently updated version per group
+  // Hide version clones — show the preferred (last-viewed) or first version per group
   const cotsVisible = useMemo(() => {
-    // First pass: find the best (most recently updated) version per group
+    // Find which group the preferred version belongs to
+    const preferredGroup = preferVersionId
+      ? (cots.find(c => c.id === preferVersionId) as any)?.version_group_id
+      : null
+    // First pass: pick the best version per group
     const bestInGroup = new Map<string, string>()
-    const updatedAtMap = new Map<string, string>()
     cots.forEach(c => {
-      updatedAtMap.set(c.id, c.updated_at)
       const gid = (c as any).version_group_id
       if (!gid) return
-      const existingId = bestInGroup.get(gid)
-      if (!existingId || c.updated_at > (updatedAtMap.get(existingId) || '')) {
+      // If this is the preferred version, always pick it
+      if (gid === preferredGroup && c.id === preferVersionId) {
         bestInGroup.set(gid, c.id)
+      } else if (!bestInGroup.has(gid)) {
+        bestInGroup.set(gid, c.id) // fallback: first in list (sorted by updated_at desc)
       }
     })
-    // Second pass: filter — keep non-grouped + only best per group
+    // Second pass: filter
     return cots.filter(c => {
       const gid = (c as any).version_group_id
       if (!gid) return true
       return c.id === bestInGroup.get(gid)
     })
-  }, [cots])
+  }, [cots, preferVersionId])
 
   // Base set filtered by year
   const cotsYear = filtroYear === 'todos' ? cotsVisible : cotsVisible.filter(c => getYear(c) === filtroYear)
@@ -2005,6 +2009,7 @@ export default function Cotizaciones() {
   const initial = parseHash()
   const [openId, setOpenId] = useState<string|null>(initial.id)
   const [openSpecialty, setOpenSpecialty] = useState<string|null>(initial.spec)
+  const [lastViewedId, setLastViewedId] = useState<string|null>(null)
   const editorRef = useRef<string | null>(null)
 
   // Keep ref in sync for use in callbacks
@@ -2015,6 +2020,7 @@ export default function Cotizaciones() {
     window.location.hash = id + (specialty ? ':' + specialty : '')
   }
   const close = () => {
+    setLastViewedId(openId) // remember the version we were just viewing
     setOpenId(null); setOpenSpecialty(null)
     window.location.hash = ''
   }
@@ -2024,8 +2030,6 @@ export default function Cotizaciones() {
     const spec = editorRef.current
     setOpenId(newId)
     window.location.hash = newId + (spec ? ':' + spec : '')
-    // Touch updated_at so this version shows in the list when user goes back
-    supabase.from('quotations').update({ updated_at: new Date().toISOString() }).eq('id', newId)
   }, [])
 
   // Sync from hash if browser navigates (back/forward)
@@ -2045,6 +2049,6 @@ export default function Cotizaciones() {
   if (openId && openSpecialty === 'proy') return <CotEditorProyecto key={openId} cotId={openId} onBack={close} specialty="proy" onSwitchVersion={switchVersion}/>
   if (openId && openSpecialty === 'ilum') return <CotEditorIlum key={openId} cotId={openId} onBack={close} onSwitchVersion={switchVersion}/>
   if (openId) return <CotEditor cotId={openId} onBack={close}/>
-  return <CotDashboard onOpen={open}/>
+  return <CotDashboard onOpen={open} preferVersionId={lastViewedId}/>
 }
 // AIGenerateModal has been replaced by AIQuoteChat component (unified flow with chat)
