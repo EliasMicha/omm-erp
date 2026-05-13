@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase'
 import { F, STAGE_CONFIG } from '../lib/utils'
 import { Btn, Loading } from '../components/layout/UI'
 import { Plus, ChevronDown, ChevronRight, X, Trash2, Image as ImageIcon, Search, ArrowLeftRight, Sparkles, Upload, Loader2, FileText, RefreshCw, BookOpen } from 'lucide-react'
+import VersionManager, { VersionSnapshot } from '../components/VersionManager'
 import { useIsMobile } from '../lib/useIsMobile'
 
 // ═══════════════════════════════════════════════════════════════════
@@ -733,7 +734,7 @@ function AIImportModalIlum({ cotId, subsections, onClose, onImported }: {
 // ═══════════════════════════════════════════════════════════════════
 // MAIN COMPONENT
 // ═══════════════════════════════════════════════════════════════════
-export default function CotEditorIlum({ cotId, onBack }: { cotId: string; onBack: () => void }) {
+export default function CotEditorIlum({ cotId, onBack, onSwitchVersion }: { cotId: string; onBack: () => void; onSwitchVersion?: (id: string) => void }) {
   const isMobile = useIsMobile()
   const [quote, setQuote] = useState<IlumQuote | null>(null)
   const [subsections, setSubsections] = useState<IlumSubsection[]>([])
@@ -1039,6 +1040,26 @@ export default function CotEditorIlum({ cotId, onBack }: { cotId: string; onBack
     return map
   }, [subsections, products])
 
+  function getVersionSnapshot(): VersionSnapshot {
+    return {
+      config: { ...ilumConfig },
+      areas: subsections.map(s => ({ id: s.id, name: s.name, order: s.order })),
+      items: products.map(p => {
+        const { total, costReal } = calcLine(p)
+        return {
+          id: p.id, areaId: p.subsectionId, name: p.name,
+          description: [p.marca, p.modelo, p.watts ? p.watts + 'W' : null].filter(Boolean).join(' | ') || p.description,
+          quantity: p.quantity, price: p.price, cost: costReal, total,
+          system: 'Iluminacion',
+        }
+      }),
+      total: grandTotal,
+      subtotal: subtotalDesc,
+      editorType: 'ilum',
+      meta: { ivaRate: ilumConfig.ivaRate, descuento: ilumConfig.descuento },
+    }
+  }
+
   if (loading) return <Loading />
 
   return (
@@ -1075,6 +1096,7 @@ export default function CotEditorIlum({ cotId, onBack }: { cotId: string; onBack
           <button onClick={() => setShowAIImport(true)} style={{ padding: '6px 12px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #57FF9A44', background: 'transparent', color: '#57FF9A', display: 'inline-flex', alignItems: 'center', gap: 4 }}><Sparkles size={12} /> {isMobile ? 'AI' : 'Importar con AI'}</button>
           <button onClick={syncAllWithCatalog} style={{ padding: '6px 12px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #3B82F644', background: 'transparent', color: '#3B82F6', display: 'inline-flex', alignItems: 'center', gap: 4 }}><RefreshCw size={12} /> {isMobile ? 'Sync' : 'Sync catálogo'}</button>
           <button onClick={() => setShowPdfPicker(true)} style={{ padding: '6px 12px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #06B6D444', background: 'transparent', color: '#06B6D4', display: 'inline-flex', alignItems: 'center', gap: 4 }}><FileText size={12} /> {isMobile ? 'PDF' : 'Exportar PDF'}</button>
+          <VersionManager cotId={cotId} getCurrentSnapshot={getVersionSnapshot} onSwitchVersion={onSwitchVersion || (() => {})} accentColor="#57FF9A" compact={isMobile} />
           {quote && (quote.stage === 'contrato' || quote.stage === 'propuesta') && (
             <button onClick={() => window.open(`/cotizacion/${cotId}/memoria-tecnica`, '_blank')} style={{ padding: '6px 12px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #F59E0B44', background: 'transparent', color: '#F59E0B', display: 'inline-flex', alignItems: 'center', gap: 4 }}><BookOpen size={12} /> {isMobile ? 'Memoria' : 'Memoria Técnica'}</button>
           )}

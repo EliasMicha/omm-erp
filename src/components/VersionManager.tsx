@@ -16,7 +16,7 @@ export interface VersionSnapshot {
   }>
   total: number
   subtotal: number
-  editorType: 'esp' | 'proyecto' | 'cortinas'
+  editorType: 'esp' | 'proyecto' | 'cortinas' | 'ilum'
   meta?: any
 }
 

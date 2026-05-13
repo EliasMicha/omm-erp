@@ -180,8 +180,20 @@ function CotDashboard({ onOpen }: { onOpen: (id: string, specialty?: string) => 
 
   function getYear(c: any): string { return (c.created_at || '').slice(0, 4) }
 
+  // Hide version clones — only show the original (label "A" or no label) per group
+  const cotsVisible = useMemo(() => {
+    const seen = new Set<string>()
+    return cots.filter(c => {
+      const gid = (c as any).version_group_id
+      if (!gid) return true // no versioning, always show
+      if (seen.has(gid)) return false // already showing one from this group
+      seen.add(gid)
+      return true
+    })
+  }, [cots])
+
   // Base set filtered by year
-  const cotsYear = filtroYear === 'todos' ? cots : cots.filter(c => getYear(c) === filtroYear)
+  const cotsYear = filtroYear === 'todos' ? cotsVisible : cotsVisible.filter(c => getYear(c) === filtroYear)
 
   // Filtro por especialidad + búsqueda de texto
   const lista = cotsYear.filter(c => {
@@ -320,7 +332,7 @@ function CotDashboard({ onOpen }: { onOpen: (id: string, specialty?: string) => 
               const architect = getArchitect(c)
               return (
                 <tr key={c.id} style={{cursor:'pointer'}} onClick={() => onOpen(c.id, c.specialty)}>
-                  <Td><span style={{fontWeight:500,color:'#fff',fontSize: isMobile ? 12 : 'inherit'}}>{isMobile ? (c.name || '--').substring(0, 20) + (c.name && c.name.length > 20 ? '...' : '') : (c.name || '--')}</span></Td>
+                  <Td><span style={{fontWeight:500,color:'#fff',fontSize: isMobile ? 12 : 'inherit'}}>{isMobile ? (c.name || '--').substring(0, 20) + (c.name && c.name.length > 20 ? '...' : '') : (c.name || '--')}{(c as any).version_label && <span style={{fontSize:9,fontWeight:700,background:esp.color+'33',color:esp.color,padding:'1px 4px',borderRadius:3,marginLeft:5}}>v{(c as any).version_label}</span>}</span></Td>
                   {!isMobile && <Td>
                     <LeadCell
                       cotId={c.id}
@@ -1997,7 +2009,7 @@ export default function Cotizaciones() {
   if (openId && openSpecialty === 'esp') return <CotEditorESP cotId={openId} onBack={close} onSwitchVersion={switchVersion}/>
   if (openId && openSpecialty === 'cort') return <CotEditorCortinas cotId={openId} onBack={close} onSwitchVersion={switchVersion}/>
   if (openId && openSpecialty === 'proy') return <CotEditorProyecto cotId={openId} onBack={close} specialty="proy" onSwitchVersion={switchVersion}/>
-  if (openId && openSpecialty === 'ilum') return <CotEditorIlum cotId={openId} onBack={close}/>
+  if (openId && openSpecialty === 'ilum') return <CotEditorIlum cotId={openId} onBack={close} onSwitchVersion={switchVersion}/>
   if (openId) return <CotEditor cotId={openId} onBack={close}/>
   return <CotDashboard onOpen={open}/>
 }

@@ -79,6 +79,8 @@ export interface Quotation {
   notes?: string
   created_by?: string
   project?: Project
+  version_group_id?: string | null
+  version_label?: string | null
 }
 
 export interface QuotationArea {
