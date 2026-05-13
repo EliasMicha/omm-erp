@@ -2006,10 +2006,10 @@ export default function Cotizaciones() {
   }
 
   const switchVersion = (newId: string) => { setOpenId(newId); window.location.hash = newId + (openSpecialty ? ':' + openSpecialty : '') }
-  if (openId && openSpecialty === 'esp') return <CotEditorESP cotId={openId} onBack={close} onSwitchVersion={switchVersion}/>
-  if (openId && openSpecialty === 'cort') return <CotEditorCortinas cotId={openId} onBack={close} onSwitchVersion={switchVersion}/>
-  if (openId && openSpecialty === 'proy') return <CotEditorProyecto cotId={openId} onBack={close} specialty="proy" onSwitchVersion={switchVersion}/>
-  if (openId && openSpecialty === 'ilum') return <CotEditorIlum cotId={openId} onBack={close} onSwitchVersion={switchVersion}/>
+  if (openId && openSpecialty === 'esp') return <CotEditorESP key={openId} cotId={openId} onBack={close} onSwitchVersion={switchVersion}/>
+  if (openId && openSpecialty === 'cort') return <CotEditorCortinas key={openId} cotId={openId} onBack={close} onSwitchVersion={switchVersion}/>
+  if (openId && openSpecialty === 'proy') return <CotEditorProyecto key={openId} cotId={openId} onBack={close} specialty="proy" onSwitchVersion={switchVersion}/>
+  if (openId && openSpecialty === 'ilum') return <CotEditorIlum key={openId} cotId={openId} onBack={close} onSwitchVersion={switchVersion}/>
   if (openId) return <CotEditor cotId={openId} onBack={close}/>
   return <CotDashboard onOpen={open}/>
 }
