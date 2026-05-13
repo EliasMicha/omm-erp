@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
-import { GitBranch, Copy, Eye, X, ChevronDown, ChevronRight, ArrowRight, Plus, Minus } from 'lucide-react'
+import { GitBranch, Copy, Eye, X, ChevronDown, ChevronRight, ArrowRight, Plus, Minus, Pencil, Check } from 'lucide-react'
 
 // ═══════════════════════════════════════════════════════════════════
 // TYPES
@@ -99,29 +99,34 @@ export default function VersionManager({ cotId, getCurrentSnapshot, onSwitchVers
 
       // 2. Ensure version_group_id exists (set on original if first time)
       let vgId = cot.version_group_id
+      let isFirstVersion = false
       if (!vgId) {
         vgId = crypto.randomUUID()
-        // Set group on the original quotation
-        const origLabel = cot.version_label || 'A'
-        await supabase.from('quotations').update({ version_group_id: vgId, version_label: origLabel }).eq('id', cotId)
-        setCurrentLabel(origLabel)
+        isFirstVersion = true
+        // Set group + label "A" on the original quotation
+        await supabase.from('quotations').update({ version_group_id: vgId, version_label: 'A' }).eq('id', cotId)
+        setCurrentLabel('A')
       }
 
       // 3. Determine next label if not provided
       let finalLabel = label
       if (!finalLabel) {
-        const { data: existing } = await supabase
-          .from('quotations')
-          .select('version_label')
-          .eq('version_group_id', vgId)
-          .order('version_label')
-        const usedLabels = new Set((existing || []).map(e => e.version_label))
-        // Find next letter: A, B, C, ...
-        for (let i = 0; i < 26; i++) {
-          const candidate = String.fromCharCode(65 + i)
-          if (!usedLabels.has(candidate)) { finalLabel = candidate; break }
+        if (isFirstVersion) {
+          // Original just got "A", so next is "B"
+          finalLabel = 'B'
+        } else {
+          const { data: existing } = await supabase
+            .from('quotations')
+            .select('version_label')
+            .eq('version_group_id', vgId)
+            .order('version_label')
+          const usedLabels = new Set((existing || []).map(e => e.version_label))
+          for (let i = 0; i < 26; i++) {
+            const candidate = String.fromCharCode(65 + i)
+            if (!usedLabels.has(candidate)) { finalLabel = candidate; break }
+          }
+          if (!finalLabel) finalLabel = 'Z' + Date.now()
         }
-        if (!finalLabel) finalLabel = 'Z' + Date.now()
       }
 
       // 4. Clone the quotation row
@@ -336,6 +341,7 @@ export default function VersionManager({ cotId, getCurrentSnapshot, onSwitchVers
                       setShowPanel(false)
                       onSwitchVersion(s.id)
                     }}
+                    onRenamed={loadSiblings}
                   />
                 ))
               )}
@@ -350,9 +356,12 @@ export default function VersionManager({ cotId, getCurrentSnapshot, onSwitchVers
 // ═══════════════════════════════════════════════════════════════════
 // SIBLING ROW
 // ═══════════════════════════════════════════════════════════════════
-function SiblingRow({ sibling: s, isCurrent, accentColor, onSwitch }: {
-  sibling: SiblingVersion; isCurrent: boolean; accentColor: string; onSwitch: () => void
+function SiblingRow({ sibling: s, isCurrent, accentColor, onSwitch, onRenamed }: {
+  sibling: SiblingVersion; isCurrent: boolean; accentColor: string; onSwitch: () => void; onRenamed: () => void
 }) {
+  const [editing, setEditing] = useState(false)
+  const [editName, setEditName] = useState(s.name)
+  const [saving, setSaving] = useState(false)
   const date = new Date(s.created_at)
   const dateStr = date.toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' })
   const stageColors: Record<string, string> = {
@@ -360,19 +369,28 @@ function SiblingRow({ sibling: s, isCurrent, accentColor, onSwitch }: {
     contrato: '#10B981', perdida: '#EF4444', cancelada: '#64748B',
   }
 
+  async function saveName() {
+    if (!editName.trim() || editName.trim() === s.name) { setEditing(false); return }
+    setSaving(true)
+    await supabase.from('quotations').update({ name: editName.trim() }).eq('id', s.id)
+    setSaving(false)
+    setEditing(false)
+    onRenamed()
+  }
+
   return (
     <div
-      onClick={isCurrent ? undefined : onSwitch}
+      onClick={editing ? undefined : (isCurrent ? undefined : onSwitch)}
       style={{
-        padding: '12px 16px', cursor: isCurrent ? 'default' : 'pointer',
+        padding: '12px 16px', cursor: editing ? 'default' : (isCurrent ? 'default' : 'pointer'),
         display: 'flex', alignItems: 'center', gap: 10,
         borderBottom: '1px solid #1a1a1a',
         background: isCurrent ? accentColor + '08' : 'transparent',
         borderLeft: isCurrent ? `3px solid ${accentColor}` : '3px solid transparent',
         transition: 'background 0.15s',
       }}
-      onMouseEnter={e => { if (!isCurrent) e.currentTarget.style.background = '#1a1a1a' }}
-      onMouseLeave={e => { if (!isCurrent) e.currentTarget.style.background = 'transparent' }}
+      onMouseEnter={e => { if (!isCurrent && !editing) e.currentTarget.style.background = '#1a1a1a' }}
+      onMouseLeave={e => { if (!isCurrent) e.currentTarget.style.background = isCurrent ? accentColor + '08' : 'transparent' }}
     >
       {/* Version badge */}
       <span style={{
@@ -387,10 +405,48 @@ function SiblingRow({ sibling: s, isCurrent, accentColor, onSwitch }: {
 
       {/* Info */}
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 12, fontWeight: 600, color: '#ccc', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {s.name}
-          {isCurrent && <span style={{ fontSize: 9, color: accentColor, marginLeft: 6 }}>● Actual</span>}
-        </div>
+        {editing ? (
+          <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+            <input
+              value={editName}
+              onChange={e => setEditName(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') saveName(); if (e.key === 'Escape') setEditing(false) }}
+              onClick={e => e.stopPropagation()}
+              autoFocus
+              style={{
+                flex: 1, padding: '3px 8px', background: '#1a1a1a', border: '1px solid #444',
+                borderRadius: 4, color: '#ccc', fontSize: 12, fontFamily: 'inherit',
+              }}
+            />
+            <button
+              onClick={e => { e.stopPropagation(); saveName() }}
+              disabled={saving}
+              style={{ background: 'none', border: 'none', color: accentColor, cursor: 'pointer', padding: 2, display: 'flex' }}
+            >
+              <Check size={14} />
+            </button>
+            <button
+              onClick={e => { e.stopPropagation(); setEditing(false) }}
+              style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer', padding: 2, display: 'flex' }}
+            >
+              <X size={14} />
+            </button>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <span style={{ fontSize: 12, fontWeight: 600, color: '#ccc', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {s.name}
+            </span>
+            {isCurrent && <span style={{ fontSize: 9, color: accentColor }}>● Actual</span>}
+            <button
+              onClick={e => { e.stopPropagation(); setEditName(s.name); setEditing(true) }}
+              style={{ background: 'none', border: 'none', color: '#444', cursor: 'pointer', padding: 2, display: 'flex', flexShrink: 0 }}
+              title="Renombrar"
+            >
+              <Pencil size={11} />
+            </button>
+          </div>
+        )}
         <div style={{ fontSize: 10, color: '#555', display: 'flex', gap: 8, marginTop: 2 }}>
           <span>{dateStr}</span>
           <span style={{ color: stageColors[s.stage] || '#888' }}>{s.stage}</span>
