@@ -2049,7 +2049,6 @@ export default function Cotizaciones() {
   useEffect(() => {
     const onHash = () => {
       const { id, spec } = parseHash()
-      console.log('[hashchange]', id, spec)
       setOpenId(id)
       setOpenSpecialty(spec)
     }
