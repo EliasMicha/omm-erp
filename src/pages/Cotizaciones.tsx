@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useMemo } from 'react'
+import { useEffect, useState, useRef, useMemo, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 import { ANTHROPIC_API_KEY } from '../lib/config'
 import { Quotation, QuotationArea, QuotationItem, CatalogProduct, Project, ProjectLine, PurchasePhase } from '../types'
@@ -1988,13 +1988,17 @@ export default function Cotizaciones() {
   // Read initial state from URL hash: #cotId:specialty
   const parseHash = () => {
     const h = window.location.hash.slice(1)
-    if (!h) return { id: null, spec: null }
+    if (!h) return { id: null as string | null, spec: null as string | null }
     const [id, spec] = h.split(':')
     return { id: id || null, spec: spec || null }
   }
   const initial = parseHash()
   const [openId, setOpenId] = useState<string|null>(initial.id)
   const [openSpecialty, setOpenSpecialty] = useState<string|null>(initial.spec)
+  const editorRef = useRef<string | null>(null)
+
+  // Keep ref in sync for use in callbacks
+  editorRef.current = openSpecialty
 
   const open = (id: string, specialty?: string) => {
     setOpenId(id); setOpenSpecialty(specialty || null)
@@ -2005,7 +2009,26 @@ export default function Cotizaciones() {
     window.location.hash = ''
   }
 
-  const switchVersion = (newId: string) => { setOpenId(newId); window.location.hash = newId + (openSpecialty ? ':' + openSpecialty : '') }
+  // Use ref in switchVersion to avoid stale closures
+  const switchVersion = useCallback((newId: string) => {
+    const spec = editorRef.current
+    console.log('[switchVersion] switching to', newId, 'specialty:', spec)
+    setOpenId(newId)
+    window.location.hash = newId + (spec ? ':' + spec : '')
+  }, [])
+
+  // Sync from hash if browser navigates (back/forward)
+  useEffect(() => {
+    const onHash = () => {
+      const { id, spec } = parseHash()
+      console.log('[hashchange]', id, spec)
+      setOpenId(id)
+      setOpenSpecialty(spec)
+    }
+    window.addEventListener('hashchange', onHash)
+    return () => window.removeEventListener('hashchange', onHash)
+  }, [])
+
   if (openId && openSpecialty === 'esp') return <CotEditorESP key={openId} cotId={openId} onBack={close} onSwitchVersion={switchVersion}/>
   if (openId && openSpecialty === 'cort') return <CotEditorCortinas key={openId} cotId={openId} onBack={close} onSwitchVersion={switchVersion}/>
   if (openId && openSpecialty === 'proy') return <CotEditorProyecto key={openId} cotId={openId} onBack={close} specialty="proy" onSwitchVersion={switchVersion}/>
