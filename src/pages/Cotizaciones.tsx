@@ -180,15 +180,25 @@ function CotDashboard({ onOpen }: { onOpen: (id: string, specialty?: string) => 
 
   function getYear(c: any): string { return (c.created_at || '').slice(0, 4) }
 
-  // Hide version clones — only show the original (label "A" or no label) per group
+  // Hide version clones — show only the most recently updated version per group
   const cotsVisible = useMemo(() => {
-    const seen = new Set<string>()
+    // First pass: find the best (most recently updated) version per group
+    const bestInGroup = new Map<string, string>()
+    const updatedAtMap = new Map<string, string>()
+    cots.forEach(c => {
+      updatedAtMap.set(c.id, c.updated_at)
+      const gid = (c as any).version_group_id
+      if (!gid) return
+      const existingId = bestInGroup.get(gid)
+      if (!existingId || c.updated_at > (updatedAtMap.get(existingId) || '')) {
+        bestInGroup.set(gid, c.id)
+      }
+    })
+    // Second pass: filter — keep non-grouped + only best per group
     return cots.filter(c => {
       const gid = (c as any).version_group_id
-      if (!gid) return true // no versioning, always show
-      if (seen.has(gid)) return false // already showing one from this group
-      seen.add(gid)
-      return true
+      if (!gid) return true
+      return c.id === bestInGroup.get(gid)
     })
   }, [cots])
 
@@ -2012,9 +2022,10 @@ export default function Cotizaciones() {
   // Use ref in switchVersion to avoid stale closures
   const switchVersion = useCallback((newId: string) => {
     const spec = editorRef.current
-    console.log('[switchVersion] switching to', newId, 'specialty:', spec)
     setOpenId(newId)
     window.location.hash = newId + (spec ? ':' + spec : '')
+    // Touch updated_at so this version shows in the list when user goes back
+    supabase.from('quotations').update({ updated_at: new Date().toISOString() }).eq('id', newId)
   }, [])
 
   // Sync from hash if browser navigates (back/forward)
