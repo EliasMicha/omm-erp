@@ -2574,6 +2574,9 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
           {selectedProdIds.size > 0 && (
             <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 4 : 8, padding: isMobile ? '6px 10px' : '8px 14px', marginBottom: 10, background: '#57FF9A12', border: '1px solid #57FF9A33', borderRadius: 10, flexWrap: 'wrap' }}>
               <span style={{ fontSize: isMobile ? 10 : 12, fontWeight: 700, color: '#57FF9A' }}>{selectedProdIds.size} sel.</span>
+              {selectedProdIds.size < products.length && (
+                <button onClick={() => setSelectedProdIds(new Set(products.map(p => p.id)))} style={{ padding: '4px 10px', borderRadius: 6, fontSize: 11, background: '#57FF9A18', border: '1px solid #57FF9A33', color: '#57FF9A', cursor: 'pointer', fontFamily: 'inherit' }}>Todos ({products.length})</button>
+              )}
               {!isMobile && <span style={{ width: 1, height: 16, background: '#333' }} />}
 
               {/* Move to system */}
