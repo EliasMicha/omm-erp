@@ -126,17 +126,17 @@ interface PricingRule {
 }
 
 const PRICING_RULES: Record<string, PricingRule> = {
-  'SYSCOM':                    { costoMult: 1.05, margen: 38, instPct: 22, descMax: 10, precioPublico: false },
-  'UBIQUITI':                  { costoMult: 1.05, margen: 30, instPct: 22, descMax: 10, precioPublico: false },
-  'DEALERSHOP':                { costoMult: 1.05, margen: 38, instPct: 22, descMax: 10, precioPublico: false },
-  'LUTRON':                    { costoMult: 1.05, margen: 0,  instPct: 22, descMax: 10, precioPublico: true },
-  'DEXTRA ELECTRONICS':        { costoMult: 1.05, margen: 33, instPct: 22, descMax: 10, precioPublico: false },
-  'REPRESENTACIONES DE AUDIO': { costoMult: 1.05, margen: 33, instPct: 22, descMax: 10, precioPublico: false },
-  'TECSO':                     { costoMult: 1.05, margen: 33, instPct: 22, descMax: 10, precioPublico: false },
-  'SONOS':                     { costoMult: 1.00, margen: 0,  instPct: 22, descMax: 10, precioPublico: true },
+  'SYSCOM':                    { costoMult: 1.05, margen: 38, instPct: 25, descMax: 10, precioPublico: false },
+  'UBIQUITI':                  { costoMult: 1.05, margen: 30, instPct: 25, descMax: 10, precioPublico: false },
+  'DEALERSHOP':                { costoMult: 1.05, margen: 38, instPct: 25, descMax: 10, precioPublico: false },
+  'LUTRON':                    { costoMult: 1.05, margen: 0,  instPct: 25, descMax: 10, precioPublico: true },
+  'DEXTRA ELECTRONICS':        { costoMult: 1.05, margen: 33, instPct: 25, descMax: 10, precioPublico: false },
+  'REPRESENTACIONES DE AUDIO': { costoMult: 1.05, margen: 33, instPct: 25, descMax: 10, precioPublico: false },
+  'TECSO':                     { costoMult: 1.05, margen: 33, instPct: 25, descMax: 10, precioPublico: false },
+  'SONOS':                     { costoMult: 1.00, margen: 0,  instPct: 25, descMax: 10, precioPublico: true },
   'SOMFY':                     { costoMult: 1.00, margen: 45, instPct: 14, descMax: 10, precioPublico: false },
 }
-const DEFAULT_RULE: PricingRule = { costoMult: 1.05, margen: 33, instPct: 22, descMax: 10, precioPublico: false }
+const DEFAULT_RULE: PricingRule = { costoMult: 1.05, margen: 33, instPct: 25, descMax: 10, precioPublico: false }
 
 function getPricingRule(providerName: string): PricingRule {
   const upper = (providerName || '').toUpperCase()
