@@ -18,6 +18,7 @@ interface EspProduct {
   monedaOrigen: string // USD or MXN — the currency of the catalog product
   marca?: string | null; modelo?: string | null; sku?: string | null; provider?: string | null
   bundleId?: string | null; bundleInstanceId?: string | null; bundleName?: string | null
+  isService?: boolean // true for services (no M.O., no product cost, provider = OMM)
 }
 interface CatBundle { id: string; name: string; description: string | null; system: string | null; items: CatBundleItem[] }
 interface CatBundleItem { id: string; product_id: string; quantity: number; product: CatProduct }
@@ -86,6 +87,11 @@ function uid(): string { return Math.random().toString(36).slice(2, 10) }
 function fmt(n: number): string { return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }
 
 function calcLine(p: EspProduct) {
+  if (p.isService) {
+    // Servicios: precio = total del servicio, sin M.O. separada, sin costo de producto
+    const total = p.price * p.quantity
+    return { precioAmp: 0, moAmp: 0, total, costReal: 0, utilidad: p.price }
+  }
   const precioAmp = p.price * p.quantity
   const moAmp = p.laborCost * p.quantity
   const total = precioAmp + moAmp
@@ -187,14 +193,20 @@ function ProductRow({ p, onUpdate, onRemove, onUpdateAll, showInt, duplicateCoun
         <div style={{ fontSize: 12, fontWeight: 500, color: '#ddd' }}>{p.name}</div>
         {p.description && <div style={{ fontSize: 10, color: '#555', marginTop: 1 }}>{p.description}</div>}
         <div style={{ display: 'flex', gap: 4, alignItems: 'center', marginTop: 1, flexWrap: 'wrap' }}>
+          {p.isService && <span style={{ fontSize: 9, color: '#F59E0B', background: '#F59E0B18', padding: '1px 5px', borderRadius: 4 }}>Servicio</span>}
           {p.bundleName && <span style={{ fontSize: 9, color: '#A855F7', background: '#A855F718', padding: '1px 5px', borderRadius: 4, display: 'inline-flex', alignItems: 'center', gap: 2 }}><Package size={8} /> {p.bundleName}</span>}
           {duplicateCount > 1 && <span style={{ fontSize: 9, color: '#F59E0B', background: '#F59E0B18', padding: '1px 5px', borderRadius: 4 }}>×{duplicateCount}</span>}
         </div>
       </td>
-      <td style={S.tdR}><input type="number" defaultValue={p.price} step={0.01} onBlur={e => handleBlur('price', parseFloat(e.target.value) || 0)} style={S.input} /></td>
-      <td style={S.tdM}>${fmt(precioAmp)}</td>
-      <td style={S.tdR}><input type="number" defaultValue={p.laborCost} step={0.01} onBlur={e => handleBlur('laborCost', parseFloat(e.target.value) || 0)} style={S.input} /></td>
-      <td style={{ ...S.tdM, color: '#57FF9A' }}>${fmt(total)}</td>
+      {p.isService ? (<>
+        <td colSpan={3} style={{ ...S.tdR, fontSize: 10, color: '#666', fontStyle: 'italic' }}>Servicio — OMM</td>
+        <td style={{ ...S.tdM, color: '#57FF9A' }}><input type="number" defaultValue={p.price} step={0.01} onBlur={e => handleBlur('price', parseFloat(e.target.value) || 0)} style={{ ...S.input, color: '#57FF9A', fontWeight: 600 }} /></td>
+      </>) : (<>
+        <td style={S.tdR}><input type="number" defaultValue={p.price} step={0.01} onBlur={e => handleBlur('price', parseFloat(e.target.value) || 0)} style={S.input} /></td>
+        <td style={S.tdM}>${fmt(precioAmp)}</td>
+        <td style={S.tdR}><input type="number" defaultValue={p.laborCost} step={0.01} onBlur={e => handleBlur('laborCost', parseFloat(e.target.value) || 0)} style={S.input} /></td>
+        <td style={{ ...S.tdM, color: '#57FF9A' }}>${fmt(total)}</td>
+      </>)}
       {showInt && (<>
         <td style={{ ...S.tdR, color: '#555', fontSize: 10 }}>${fmt(costReal)}</td>
         <td style={S.tdR}><input type="number" defaultValue={p.margin} step={1} onBlur={e => handleBlur('margin', parseFloat(e.target.value) || 0)} style={{ ...S.input, width: 40, color: p.margin >= 25 ? '#57FF9A' : p.margin >= 15 ? '#F59E0B' : '#EF4444' }} /></td>
@@ -345,10 +357,10 @@ function ProductDetailModal({ product, onClose, onUpdate }: {
 // ═══════════════════════════════════════════════════════════════════
 // SYSTEM BLOCK
 // ═══════════════════════════════════════════════════════════════════
-function SystemBlock({ sysDef, products, collapsed, onToggle, onUpdate, onRemove, onUpdateAll, onAdd, showInt, allProducts, onCopyTo, onDetail, selectedIds, onToggleSelect, onSubstitute }: {
+function SystemBlock({ sysDef, products, collapsed, onToggle, onUpdate, onRemove, onUpdateAll, onAdd, onAddService, showInt, allProducts, onCopyTo, onDetail, selectedIds, onToggleSelect, onSubstitute }: {
   sysDef: EspSystemDef; products: EspProduct[]; collapsed: boolean; onToggle: () => void
   onUpdate: (id: string, f: string, v: number | string) => void; onRemove: (id: string) => void
-  onUpdateAll: (catalogId: string, field: string, value: number) => void; onAdd: () => void; showInt: boolean; allProducts: EspProduct[]
+  onUpdateAll: (catalogId: string, field: string, value: number) => void; onAdd: () => void; onAddService: () => void; showInt: boolean; allProducts: EspProduct[]
   onCopyTo?: (id: string) => void; onDetail?: (p: EspProduct) => void
   selectedIds?: Set<string>; onToggleSelect?: (id: string) => void; onSubstitute?: (p: EspProduct) => void
 }) {
@@ -395,7 +407,10 @@ function SystemBlock({ sysDef, products, collapsed, onToggle, onUpdate, onRemove
           </tbody>
         </table>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 8px' }}>
-          <Btn size="sm" onClick={onAdd}><Plus size={12} /> Producto</Btn>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <Btn size="sm" onClick={onAdd}><Plus size={12} /> Producto</Btn>
+            <Btn size="sm" onClick={onAddService} style={{ background: '#F59E0B22', color: '#F59E0B', border: '1px solid #F59E0B44' }}><Plus size={12} /> Servicio</Btn>
+          </div>
           <span style={{ fontSize: 10, color: '#555' }}>{sysDef.name.toUpperCase()} TOTAL <span style={{ fontWeight: 700, color: '#fff', marginLeft: 6 }}>${fmt(sysTotal)}</span></span>
         </div>
       </>)}
@@ -406,12 +421,12 @@ function SystemBlock({ sysDef, products, collapsed, onToggle, onUpdate, onRemove
 // ═══════════════════════════════════════════════════════════════════
 // AREA BLOCK
 // ═══════════════════════════════════════════════════════════════════
-function AreaBlock({ area, activeSystems, products, allProducts, collapsedSys, onToggleArea, onToggleSys, onUpdateProd, onRemoveProd, onUpdateAll, onAddProd, showInt, onCopyTo, onDetail, selectedIds, onToggleSelect, onSubstitute, onRemoveArea, onMoveUp, onMoveDown }: {
+function AreaBlock({ area, activeSystems, products, allProducts, collapsedSys, onToggleArea, onToggleSys, onUpdateProd, onRemoveProd, onUpdateAll, onAddProd, onAddService, showInt, onCopyTo, onDetail, selectedIds, onToggleSelect, onSubstitute, onRemoveArea, onMoveUp, onMoveDown }: {
   area: EspArea; activeSystems: EspSystemDef[]; products: EspProduct[]; allProducts: EspProduct[]
   collapsedSys: Record<string, boolean>; onToggleArea: () => void; onToggleSys: (k: string) => void
   onUpdateProd: (id: string, f: string, v: number | string) => void; onRemoveProd: (id: string) => void
   onUpdateAll: (catalogId: string, field: string, value: number) => void
-  onAddProd: (sysId: string) => void; showInt: boolean; onCopyTo?: (id: string) => void; onDetail?: (p: EspProduct) => void
+  onAddProd: (sysId: string) => void; onAddService: (sysId: string) => void; showInt: boolean; onCopyTo?: (id: string) => void; onDetail?: (p: EspProduct) => void
   selectedIds?: Set<string>; onToggleSelect?: (id: string) => void; onSubstitute?: (p: EspProduct) => void
   onRemoveArea?: (id: string) => void
   onMoveUp?: () => void; onMoveDown?: () => void
@@ -446,7 +461,7 @@ function AreaBlock({ area, activeSystems, products, allProducts, collapsedSys, o
             <SystemBlock key={sys.id} sysDef={sys} products={areaProds.filter(p => p.systemId === sys.id)}
               collapsed={collapsedSys[area.id + '_' + sys.id] || false} onToggle={() => onToggleSys(area.id + '_' + sys.id)}
               onUpdate={onUpdateProd} onRemove={onRemoveProd} onUpdateAll={onUpdateAll}
-              onAdd={() => onAddProd(sys.id)} showInt={showInt} allProducts={allProducts}  onCopyTo={onCopyTo} onDetail={onDetail}
+              onAdd={() => onAddProd(sys.id)} onAddService={() => onAddService(sys.id)} showInt={showInt} allProducts={allProducts}  onCopyTo={onCopyTo} onDetail={onDetail}
               selectedIds={selectedIds} onToggleSelect={onToggleSelect} onSubstitute={onSubstitute} />
           ))}
           {sysEmpty.length > 0 && (
@@ -1694,10 +1709,13 @@ function SummaryPanel({ products, areas, config, activeSystems, showInt, onConfi
   onConfigChange: (f: string, v: number) => void
   onSystemClick?: (sysId: string) => void
 }) {
-  let eqTotal = 0, inst = 0
-  products.forEach(p => { eqTotal += p.price * p.quantity; inst += p.laborCost * p.quantity })
+  let eqTotal = 0, inst = 0, svcTotal = 0
+  products.forEach(p => {
+    if (p.isService) { svcTotal += p.price * p.quantity }
+    else { eqTotal += p.price * p.quantity; inst += p.laborCost * p.quantity }
+  })
   const moTotal = inst + config.programacion
-  const sub = eqTotal + moTotal
+  const sub = eqTotal + moTotal + svcTotal
   const descuentoAmt = sub * config.descuento / 100
   const subConDesc = sub - descuentoAmt
   const iva = subConDesc * (config.ivaRate / 100)
@@ -1708,6 +1726,7 @@ function SummaryPanel({ products, areas, config, activeSystems, showInt, onConfi
     { l: 'INSTALACIÓN Y PROGRAMACIÓN', v: inst },
     { l: 'PROGRAMACIÓN ADICIONAL', v: config.programacion, ed: 'programacion' },
     { l: 'MANO DE OBRA TOTAL', v: moTotal, b: true },
+    ...(svcTotal > 0 ? [{ l: 'SERVICIOS', v: svcTotal, b: true }] : []),
     { l: 'SUBTOTAL', v: sub, b: true },
   ]
   // Discount row (always show so user can edit)
@@ -1979,6 +1998,7 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
         monedaOrigen: it.provider_currency || 'USD',
         marca: it.marca || null, modelo: it.modelo || null, sku: it.sku || null, provider: it.provider || null,
         bundleId: it.bundle_id || null, bundleInstanceId: it.bundle_instance_id || null, bundleName: null,
+        isService: it.type === 'servicio',
       })))
       // Load bundle names for products that have bundle_id
       const bundleIds = [...new Set(qItems.filter((it: any) => it.bundle_id).map((it: any) => it.bundle_id))]
@@ -2102,7 +2122,7 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
         const p = field === 'price' ? (value as number) : prod.price
         const q = field === 'quantity' ? (value as number) : prod.quantity
         const l = field === 'laborCost' ? (value as number) : prod.laborCost
-        updateData.total = (p + l) * q
+        updateData.total = prod.isService ? p * q : (p + l) * q
       }
     }
     supabase.from('quotation_items').update(updateData).eq('id', id).then(() => {})
@@ -2289,8 +2309,8 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
       const { data, error } = await supabase.from('quotation_items').insert({
         quotation_id: cotId, area_id: areaId, catalog_product_id: source.catalogId || null,
         name: source.name, description: source.description || null, system: sysName,
-        type: 'material', quantity: source.quantity, cost: source.cost, markup: source.margin,
-        price: source.price, total: (source.price + source.laborCost) * source.quantity,
+        type: source.isService ? 'servicio' : 'material', quantity: source.quantity, cost: source.cost, markup: source.margin,
+        price: source.price, total: source.isService ? source.price * source.quantity : (source.price + source.laborCost) * source.quantity,
         installation_cost: source.laborCost,
         order_index: products.filter(p => p.areaId === areaId && p.systemId === source.systemId).length + newProducts.filter(p => p.areaId === areaId).length,
         image_url: source.imageUrl || null,
@@ -2306,6 +2326,7 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
           margin: source.margin, order: products.length + newProducts.length,
           monedaOrigen: source.monedaOrigen,
           marca: source.marca || null, modelo: source.modelo || null, sku: source.sku || null, provider: source.provider || null,
+          isService: source.isService,
         })
       }
     }
@@ -2358,6 +2379,29 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
       }])
     }
     setAddingTo(null)
+  }
+
+  async function handleAddService(areaId: string, systemId: string) {
+    const serviceName = prompt('Nombre del servicio:')
+    if (!serviceName || !serviceName.trim()) return
+    const sysName = sysDbName(systemId)
+    const { data, error } = await supabase.from('quotation_items').insert({
+      quotation_id: cotId, area_id: areaId, catalog_product_id: null,
+      name: serviceName.trim(), description: null, system: sysName,
+      type: 'servicio', quantity: 1, cost: 0, markup: 100, price: 0,
+      total: 0, installation_cost: 0,
+      order_index: products.filter(p => p.areaId === areaId && p.systemId === systemId).length,
+      provider: 'OMM', provider_currency: config.currency,
+    }).select().single()
+    if (error) { alert('Error al crear servicio: ' + error.message); return }
+    if (data) {
+      setProducts(p => [...p, {
+        id: data.id, areaId, systemId, catalogId: null,
+        name: serviceName.trim(), description: '', imageUrl: null,
+        quantity: 1, cost: 0, price: 0, laborCost: 0, margin: 100, order: products.length,
+        monedaOrigen: config.currency, provider: 'OMM', isService: true,
+      }])
+    }
   }
 
   async function handleAddBundle(bundle: CatBundle) {
@@ -2571,7 +2615,7 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
             <AreaBlock key={area.id} area={area} activeSystems={activeSystems} products={products} allProducts={products}
               collapsedSys={collapsedSys} onToggleArea={() => toggleArea(area.id)} onToggleSys={toggleSys}
               onUpdateProd={updateProduct} onRemoveProd={removeProduct} onUpdateAll={updateAllByCatalogId}
-              onAddProd={(sysId) => openAddProduct(area.id, sysId)} showInt={showInt}  onCopyTo={(id) => setCopyingProduct(id)} onDetail={(p) => setDetailProduct(p)}
+              onAddProd={(sysId) => openAddProduct(area.id, sysId)} onAddService={(sysId) => handleAddService(area.id, sysId)} showInt={showInt}  onCopyTo={(id) => setCopyingProduct(id)} onDetail={(p) => setDetailProduct(p)}
               selectedIds={selectedProdIds} onToggleSelect={toggleProdSelect} onSubstitute={(p) => setSubstitutingProduct(p)}
               onRemoveArea={removeArea}
               onMoveUp={idx > 0 ? () => moveArea(idx, -1) : undefined}
