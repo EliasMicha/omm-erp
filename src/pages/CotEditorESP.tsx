@@ -1245,7 +1245,7 @@ function CatalogModal({ onClose, onSelect, onCreateNew, onSelectBundle, systemNa
   }, [])
 
   const filtered = search.length >= 2
-    ? catalog.filter(p => p.name.toLowerCase().includes(search.toLowerCase()) || (p.description || '').toLowerCase().includes(search.toLowerCase()))
+    ? catalog.filter(p => { const s = search.toLowerCase(); return p.name.toLowerCase().includes(s) || (p.description || '').toLowerCase().includes(s) || (p.modelo || '').toLowerCase().includes(s) || (p.marca || '').toLowerCase().includes(s) || (p.sku || '').toLowerCase().includes(s) || (p.provider || '').toLowerCase().includes(s) })
     : catalog
 
   const filteredBundles = search.length >= 2
