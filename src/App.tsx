@@ -24,6 +24,7 @@ import CotizacionPdf from './pages/CotizacionPdf'
 import MemoriaTecnica from './pages/MemoriaTecnica'
 import LeadDashboard from './pages/LeadDashboard'
 import Usuarios from './pages/Usuarios'
+import Mantenimiento from './pages/Mantenimiento'
 import ObraApp from './obra-app/ObraApp'
 import ChatBot from './components/ChatBot'
 
@@ -74,6 +75,7 @@ export default function App() {
                         <EmpleadoExpediente />
                       </ProtectedRoute>
                     } />
+                    <Route path="/mantenimiento" element={<Mantenimiento />} />
                     <Route path="/entregas" element={<Entregas />} />
                     <Route path="/empleados" element={
                       <ProtectedRoute allowedAreas={['Administracion']}>
