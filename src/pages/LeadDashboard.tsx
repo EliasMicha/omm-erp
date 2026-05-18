@@ -97,11 +97,24 @@ export default function LeadDashboard() {
 
     // 2. All quotations — filter by lead_id in notes JSON
     const { data: allQuots } = await supabase.from('quotations').select('*')
-    const leadQuots = (allQuots || []).filter(q => {
+    const leadQuotsAll = (allQuots || []).filter(q => {
       try {
         const n = typeof q.notes === 'string' ? JSON.parse(q.notes) : q.notes
         return n?.lead_id === id
       } catch { return false }
+    })
+    // Deduplicate versions: keep only the most recently updated per version_group_id
+    const bestInGroup = new Map<string, any>()
+    leadQuotsAll.forEach(q => {
+      const gid = q.version_group_id
+      if (!gid) return
+      const prev = bestInGroup.get(gid)
+      if (!prev || q.updated_at > prev.updated_at) bestInGroup.set(gid, q)
+    })
+    const leadQuots = leadQuotsAll.filter(q => {
+      const gid = q.version_group_id
+      if (!gid) return true // no version group → always show
+      return q.id === bestInGroup.get(gid)?.id
     })
     setQuotations(leadQuots)
     const quotIds = new Set(leadQuots.map(q => q.id))
