@@ -425,8 +425,8 @@ function ProjectDetail({ project, employees, onBack }: {
   const [hasContractedQuote, setHasContractedQuote] = useState(false)
   const [activePhaseId, setActivePhaseId] = useState<string | null>(null)
 
-  async function hydrate() {
-    setHydrated(false)
+  async function hydrate(initial = false) {
+    if (initial) setHydrated(false)
     setHydrateError(null)
     try {
       const [phaseRes, taskRes] = await Promise.all([
@@ -466,7 +466,7 @@ function ProjectDetail({ project, employees, onBack }: {
     }
   }
 
-  useEffect(() => { hydrate() /* eslint-disable-next-line */ }, [project.id])
+  useEffect(() => { hydrate(true) /* eslint-disable-next-line */ }, [project.id])
 
   const specCfg = project.specialty ? SPECIALTY_CONFIG[project.specialty] : null
   const totalProgress = calcProjectProgress(phases, tasks)
