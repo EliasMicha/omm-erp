@@ -426,8 +426,6 @@ function ProjectDetail({ project, employees, onBack }: {
   const [tab, setTab] = useState<'tareas' | 'documentos'>('tareas')
   const [hasContractedQuote, setHasContractedQuote] = useState(false)
   const [activePhaseId, setActivePhaseId] = useState<string | null>(null)
-  const [cambiosSubId, setCambiosSubId] = useState<string | null>(null)
-  const [cambiosComment, setCambiosComment] = useState('')
 
   async function hydrate(initial = false) {
     if (initial) setHydrated(false)
@@ -751,6 +749,8 @@ function TaskTable({ project, phases, tasks, subtasks, employees, onChange, acti
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null)
   const [showNewTaskInPhase, setShowNewTaskInPhase] = useState<string | null>(null)
   const [newTask, setNewTask] = useState({ name: '', assignee_id: '', priority: 0, due_date: '' })
+  const [cambiosSubId, setCambiosSubId] = useState<string | null>(null)
+  const [cambiosComment, setCambiosComment] = useState('')
   const isESP = project.specialty === 'esp'
 
   // Filtrar empleados por áreas relevantes al tipo de proyecto
