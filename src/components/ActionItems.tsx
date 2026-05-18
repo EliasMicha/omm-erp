@@ -104,6 +104,9 @@ export default function ActionItems({
     tags: '' as string,
   })
 
+  // Project tasks shown as pendientes
+  const [projectTaskItems, setProjectTaskItems] = useState<ActionItem[]>([])
+
   // ── LOAD ──
   async function loadItems() {
     const { data } = await supabase
@@ -115,11 +118,53 @@ export default function ActionItems({
     setLoading(false)
   }
 
-  useEffect(() => { loadItems() }, [myArea])
+  async function loadProjectTasks() {
+    // Load project_tasks assigned to anyone in this area that are not completed
+    const { data } = await supabase
+      .from('project_tasks')
+      .select('id, name, status, priority, due_date, assignee_id, project_id, created_at, completed_at, project:projects(name)')
+      .neq('status', 'completada')
+      .order('created_at', { ascending: false })
 
-  // ── FILTERED ITEMS ──
+    if (!data) { setProjectTaskItems([]); return }
+
+    // Filter: tasks assigned to employees in this area
+    const teamIds = new Set(teamEmployees.map(e => e.id))
+    const areaTasks = data.filter((t: any) => t.assignee_id && teamIds.has(t.assignee_id))
+
+    // Convert to ActionItem-like shape with a prefix to distinguish them
+    const virtual: ActionItem[] = areaTasks.map((t: any) => ({
+      id: `pt_${t.id}`,
+      created_at: t.created_at,
+      updated_at: t.created_at,
+      title: t.name,
+      description: null,
+      status: t.status === 'completada' ? 'completada' : 'pendiente',
+      priority: t.priority || 2,
+      due_date: t.due_date || null,
+      due_time: null,
+      created_by: null,
+      assignee_id: t.assignee_id,
+      area: myArea,
+      source_type: 'proyecto',
+      source_id: t.id,
+      source_meta: { project_name: t.project?.name || '' },
+      completed_at: t.completed_at || null,
+      tags: [],
+      is_recurring: false,
+      recurrence_rule: null,
+      project_id: t.project_id,
+    }))
+    setProjectTaskItems(virtual)
+  }
+
+  useEffect(() => { loadItems(); loadProjectTasks() }, [myArea, teamEmployees])
+
+  // ── FILTERED ITEMS (action_items + project_tasks merged) ──
   const filtered = useMemo(() => {
-    let list = items.filter(i => showCompleted ? true : i.status !== 'completada' && i.status !== 'cancelada')
+    // Merge action_items and project task virtual items
+    const allItems = [...items, ...projectTaskItems]
+    let list = allItems.filter(i => showCompleted ? true : i.status !== 'completada' && i.status !== 'cancelada')
     if (filter === 'mine') list = list.filter(i => i.assignee_id === myEmployeeId)
     if (filter === 'assigned') list = list.filter(i => i.created_by === myEmployeeId && i.assignee_id !== myEmployeeId)
     // Sort: overdue first, then by due_date, then by priority
@@ -137,12 +182,13 @@ export default function ActionItems({
       return 0
     })
     return list
-  }, [items, filter, showCompleted, myEmployeeId])
+  }, [items, projectTaskItems, filter, showCompleted, myEmployeeId])
 
   const overdueCount = useMemo(() => {
     const now = new Date().toISOString().slice(0, 10)
-    return items.filter(i => i.due_date && i.due_date < now && i.status !== 'completada' && i.status !== 'cancelada').length
-  }, [items])
+    const allItems = [...items, ...projectTaskItems]
+    return allItems.filter(i => i.due_date && i.due_date < now && i.status !== 'completada' && i.status !== 'cancelada').length
+  }, [items, projectTaskItems])
 
   const empMap = useMemo(() => {
     const m: Record<string, string> = {}
@@ -192,7 +238,22 @@ export default function ActionItems({
     }
   }
 
+  const isProjectTask = (item: ActionItem) => item.id.startsWith('pt_')
+  const realProjectTaskId = (item: ActionItem) => item.id.replace('pt_', '')
+
   async function toggleComplete(item: ActionItem) {
+    if (isProjectTask(item)) {
+      // Toggle project task status
+      const realId = realProjectTaskId(item)
+      const newStatus = item.status === 'completada' ? 'pendiente' : 'completada'
+      await supabase.from('project_tasks').update({
+        status: newStatus,
+        progress: newStatus === 'completada' ? 100 : 0,
+        completed_at: newStatus === 'completada' ? new Date().toISOString() : null,
+      }).eq('id', realId)
+      loadProjectTasks()
+      return
+    }
     const newStatus = item.status === 'completada' ? 'pendiente' : 'completada'
     await supabase.from('action_items').update({
       status: newStatus,
@@ -203,6 +264,7 @@ export default function ActionItems({
   }
 
   async function deleteItem(id: string) {
+    if (id.startsWith('pt_')) return // Don't delete project tasks from here
     await supabase.from('action_items').delete().eq('id', id)
     loadItems()
   }
@@ -213,7 +275,8 @@ export default function ActionItems({
   }
 
   const now = new Date().toISOString().slice(0, 10)
-  const pendingCount = items.filter(i => i.status !== 'completada' && i.status !== 'cancelada').length
+  const allMerged = [...items, ...projectTaskItems]
+  const pendingCount = allMerged.filter(i => i.status !== 'completada' && i.status !== 'cancelada').length
 
   return (
     <div>
@@ -427,9 +490,9 @@ export default function ActionItems({
                     </div>
                     <div style={{ fontSize: 11, color: '#555', marginTop: 2, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                       {/* Project */}
-                      {item.project_id && projMap[item.project_id] && (
+                      {item.project_id && (projMap[item.project_id] || item.source_meta?.project_name) && (
                         <span style={{ color: '#57FF9A', display: 'flex', alignItems: 'center', gap: 3 }}>
-                          <FolderOpen size={9} /> {projMap[item.project_id]}
+                          <FolderOpen size={9} /> {projMap[item.project_id] || item.source_meta?.project_name}
                         </span>
                       )}
                       {/* Assignee */}
@@ -445,7 +508,12 @@ export default function ActionItems({
                         </span>
                       )}
                       {/* Source */}
-                      {item.source_type !== 'manual' && (
+                      {item.source_type === 'proyecto' && (
+                        <span style={{ color: '#C084FC', display: 'flex', alignItems: 'center', gap: 3, fontSize: 10 }}>
+                          <Tag size={9} /> Tarea de proyecto
+                        </span>
+                      )}
+                      {item.source_type !== 'manual' && item.source_type !== 'proyecto' && (
                         <span style={{ color: '#555' }}>
                           {item.source_type === 'email' ? '✉' : item.source_type === 'meeting' ? '📅' : '📋'} {item.source_type}
                         </span>
@@ -464,7 +532,7 @@ export default function ActionItems({
 
                   {/* Priority + actions */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-                    {!isDone && (
+                    {!isDone && !isProjectTask(item) && (
                       <button onClick={() => updatePriority(item.id, item.priority === 3 ? 1 : item.priority + 1)} style={{
                         background: 'none', border: 'none', cursor: 'pointer', padding: 2,
                       }}>
@@ -474,14 +542,16 @@ export default function ActionItems({
                         }} title={`Prioridad: ${PRIORITY_LABELS[item.priority]}`} />
                       </button>
                     )}
-                    <button onClick={() => deleteItem(item.id)} style={{
-                      background: 'none', border: 'none', cursor: 'pointer', padding: 2,
-                      color: '#333', transition: 'color 0.15s',
-                    }}
-                      onMouseEnter={e => e.currentTarget.style.color = '#EF4444'}
-                      onMouseLeave={e => e.currentTarget.style.color = '#333'}>
-                      <Trash2 size={13} />
-                    </button>
+                    {!isProjectTask(item) && (
+                      <button onClick={() => deleteItem(item.id)} style={{
+                        background: 'none', border: 'none', cursor: 'pointer', padding: 2,
+                        color: '#333', transition: 'color 0.15s',
+                      }}
+                        onMouseEnter={e => e.currentTarget.style.color = '#EF4444'}
+                        onMouseLeave={e => e.currentTarget.style.color = '#333'}>
+                        <Trash2 size={13} />
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
