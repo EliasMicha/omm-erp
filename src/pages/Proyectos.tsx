@@ -1239,27 +1239,109 @@ function TaskTable({ project, phases, tasks, subtasks, employees, onChange, acti
                             })}
 
                             {/* Checklist plano (sin sistema ni fase) */}
-                            {subsFlat.length > 0 && (
-                              <>
-                                <div style={{ fontSize: 10, color: '#666', marginBottom: 6, marginTop: phaseOrders.length > 0 ? 12 : 0, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Subtareas / Checklist</div>
-                                {subsFlat.map(sub => (
-                                  <div key={sub.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0' }}>
-                                    <button onClick={() => toggleSubtask(sub)} style={{
-                                      background: sub.completed ? '#57FF9A' : 'transparent', border: '1.5px solid ' + (sub.completed ? '#57FF9A' : '#444'),
-                                      borderRadius: 3, width: 14, height: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0,
-                                    }}>
-                                      {sub.completed && <Check size={9} color="#000" strokeWidth={3} />}
-                                    </button>
-                                    <span style={{ fontSize: 11, color: sub.completed ? '#555' : '#bbb', textDecoration: sub.completed ? 'line-through' : 'none', flex: 1 }}>
-                                      {sub.text}
-                                    </span>
-                                    <button onClick={() => deleteSubtask(sub.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, color: '#444' }}>
-                                      <X size={10} />
-                                    </button>
+                            {subsFlat.length > 0 && (() => {
+                              const flatDone = subsFlat.filter(s => s.completed).length
+                              const flatAllDone = flatDone === subsFlat.length && subsFlat.length > 0
+                              const flatAllApproved = subsFlat.every(s => s.review_status === 'aprobado')
+                              const flatInReview = flatAllDone && !flatAllApproved
+                              return (
+                                <>
+                                  <div style={{
+                                    fontSize: 10, marginBottom: 6, marginTop: phaseOrders.length > 0 ? 12 : 0,
+                                    textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', alignItems: 'center', gap: 8,
+                                    color: flatInReview ? '#F59E0B' : flatAllApproved ? '#57FF9A' : '#666',
+                                  }}>
+                                    <span>Subtareas / Checklist</span>
+                                    {flatInReview && <span style={{ fontSize: 8, background: '#F59E0B33', color: '#F59E0B', padding: '1px 6px', borderRadius: 4, fontWeight: 700 }}>REVISIÓN</span>}
+                                    {flatAllApproved && <span style={{ fontSize: 8, background: '#57FF9A22', color: '#57FF9A', padding: '1px 6px', borderRadius: 4, fontWeight: 700 }}>APROBADA</span>}
                                   </div>
-                                ))}
-                              </>
-                            )}
+                                  {subsFlat.map(sub => (
+                                    <div key={sub.id}>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0' }}>
+                                        <button onClick={() => toggleSubtask(sub)} style={{
+                                          background: sub.completed ? '#57FF9A' : 'transparent', border: '1.5px solid ' + (sub.completed ? '#57FF9A' : '#444'),
+                                          borderRadius: 3, width: 14, height: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0,
+                                        }}>
+                                          {sub.completed && <Check size={9} color="#000" strokeWidth={3} />}
+                                        </button>
+                                        <span style={{ fontSize: 11, color: sub.completed ? '#555' : '#bbb', textDecoration: sub.completed ? 'line-through' : 'none', flex: 1 }}>
+                                          {sub.text}
+                                        </span>
+
+                                        {/* Review status badges */}
+                                        {sub.review_status === 'aprobado' && (
+                                          <span style={{ fontSize: 8, background: '#57FF9A22', color: '#57FF9A', padding: '1px 6px', borderRadius: 4, fontWeight: 600 }}>Aprobado</span>
+                                        )}
+                                        {sub.review_status === 'cambios' && (
+                                          <span style={{ fontSize: 8, background: '#EF444422', color: '#EF4444', padding: '1px 6px', borderRadius: 4, fontWeight: 600 }}>Cambios</span>
+                                        )}
+
+                                        {/* Review buttons */}
+                                        {flatInReview && sub.completed && !sub.review_status && (
+                                          <div style={{ display: 'flex', gap: 4 }}>
+                                            <button onClick={() => reviewSubtask(sub, 'aprobado')} style={{
+                                              background: '#57FF9A22', border: '1px solid #57FF9A44', borderRadius: 4,
+                                              color: '#57FF9A', fontSize: 8, padding: '2px 8px', cursor: 'pointer', fontWeight: 600,
+                                            }}>Aprobar</button>
+                                            <button onClick={() => { setCambiosSubId(sub.id); setCambiosComment(''); }} style={{
+                                              background: '#F59E0B22', border: '1px solid #F59E0B44', borderRadius: 4,
+                                              color: '#F59E0B', fontSize: 8, padding: '2px 8px', cursor: 'pointer', fontWeight: 600,
+                                            }}>Cambios</button>
+                                          </div>
+                                        )}
+
+                                        <button onClick={() => deleteSubtask(sub.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, color: '#444' }}>
+                                          <X size={10} />
+                                        </button>
+                                      </div>
+
+                                      {/* Comment input for "Solicitar cambios" */}
+                                      {cambiosSubId === sub.id && (
+                                        <div style={{ display: 'flex', gap: 6, padding: '4px 0 6px 22px' }}>
+                                          <input
+                                            autoFocus
+                                            value={cambiosComment}
+                                            onChange={e => setCambiosComment(e.target.value)}
+                                            onKeyDown={e => {
+                                              if (e.key === 'Enter' && cambiosComment.trim()) {
+                                                reviewSubtask(sub, 'cambios', cambiosComment.trim())
+                                                setCambiosSubId(null); setCambiosComment('')
+                                              }
+                                              if (e.key === 'Escape') { setCambiosSubId(null); setCambiosComment('') }
+                                            }}
+                                            placeholder="Comentario sobre cambios..."
+                                            style={{
+                                              flex: 1, background: '#1a1a1a', border: '1px solid #F59E0B44', borderRadius: 4,
+                                              color: '#ddd', fontSize: 10, padding: '4px 8px', outline: 'none',
+                                            }}
+                                          />
+                                          <button onClick={() => {
+                                            if (cambiosComment.trim()) {
+                                              reviewSubtask(sub, 'cambios', cambiosComment.trim())
+                                              setCambiosSubId(null); setCambiosComment('')
+                                            }
+                                          }} style={{
+                                            background: '#F59E0B33', border: '1px solid #F59E0B55', borderRadius: 4,
+                                            color: '#F59E0B', fontSize: 9, padding: '3px 10px', cursor: 'pointer', fontWeight: 600,
+                                          }}>Enviar</button>
+                                          <button onClick={() => { setCambiosSubId(null); setCambiosComment('') }} style={{
+                                            background: 'none', border: '1px solid #333', borderRadius: 4,
+                                            color: '#666', fontSize: 9, padding: '3px 8px', cursor: 'pointer',
+                                          }}>×</button>
+                                        </div>
+                                      )}
+
+                                      {/* Show existing review comment */}
+                                      {sub.review_comment && sub.review_status === 'cambios' && (
+                                        <div style={{ padding: '2px 0 4px 22px', fontSize: 9, color: '#EF4444', fontStyle: 'italic' }}>
+                                          ⚠ {sub.review_comment}
+                                        </div>
+                                      )}
+                                    </div>
+                                  ))}
+                                </>
+                              )
+                            })()}
 
                             {/* Subtareas agrupadas por sistema (caso ESP) */}
                             {systemNames.length > 0 && (
