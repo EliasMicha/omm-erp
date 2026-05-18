@@ -67,6 +67,8 @@ interface SubtaskRow {
   order_index: number
   system: string | null
   phase_order: number | null
+  review_status: 'aprobado' | 'cambios' | null
+  review_comment: string | null
 }
 
 interface EmployeeRow {
@@ -424,6 +426,8 @@ function ProjectDetail({ project, employees, onBack }: {
   const [tab, setTab] = useState<'tareas' | 'documentos'>('tareas')
   const [hasContractedQuote, setHasContractedQuote] = useState(false)
   const [activePhaseId, setActivePhaseId] = useState<string | null>(null)
+  const [cambiosSubId, setCambiosSubId] = useState<string | null>(null)
+  const [cambiosComment, setCambiosComment] = useState('')
 
   async function hydrate(initial = false) {
     if (initial) setHydrated(false)
@@ -763,53 +767,77 @@ function TaskTable({ project, phases, tasks, subtasks, employees, onChange, acti
 
   async function toggleSubtask(sub: SubtaskRow) {
     const newCompleted = !sub.completed
-    await supabase.from('project_task_subtasks').update({ completed: newCompleted }).eq('id', sub.id)
+    // If unchecking, also clear review status
+    const updateData: any = { completed: newCompleted }
+    if (!newCompleted) { updateData.review_status = null; updateData.review_comment = null }
+    await supabase.from('project_task_subtasks').update(updateData).eq('id', sub.id)
+
     const taskSubs = subtasks.filter(s => s.task_id === sub.task_id)
     const newSubs = taskSubs.map(s => s.id === sub.id ? { ...s, completed: newCompleted } : s)
-
-    // Check if this is an evolving ilum task and the current phase just completed
-    const task = tasks.find(t => t.id === sub.task_id)
-    if (newCompleted && sub.phase_order != null && task?.template_id && project.specialty === 'ilum') {
-      const currentPhaseOrder = sub.phase_order
-      const phaseSubsAll = newSubs.filter(s => s.phase_order === currentPhaseOrder)
-      const phaseAllDone = phaseSubsAll.every(s => s.completed)
-
-      if (phaseAllDone) {
-        // Fetch the task template to get next phase's subtasks
-        const { data: ttData } = await supabase.from('project_task_templates').select('start_phase_order,end_phase_order,phase_specific_subtasks').eq('id', task.template_id).single()
-        if (ttData?.phase_specific_subtasks) {
-          const nextPhaseOrder = currentPhaseOrder + 1
-          const nextSubs = (ttData.phase_specific_subtasks as Record<string, string[]>)[String(nextPhaseOrder)]
-          // Only advance if there are next-phase subtasks AND they haven't been created yet
-          const alreadyHasNext = newSubs.some(s => s.phase_order === nextPhaseOrder)
-          if (nextSubs && nextSubs.length > 0 && !alreadyHasNext && nextPhaseOrder <= ttData.end_phase_order) {
-            // Create next phase subtasks
-            const maxOrder = Math.max(0, ...newSubs.map(s => s.order_index))
-            const inserts = nextSubs.map((text, idx) => ({
-              task_id: task.id,
-              text,
-              completed: false,
-              order_index: maxOrder + 1 + idx,
-              system: null,
-              phase_order: nextPhaseOrder,
-            }))
-            await supabase.from('project_task_subtasks').insert(inserts)
-
-            // Move task to the next phase
-            const nextPhase = phases.find(p => p.order_index === nextPhaseOrder && !p.is_post_sale)
-            if (nextPhase) {
-              await supabase.from('project_tasks').update({ phase_id: nextPhase.id }).eq('id', task.id)
-            }
-          }
-        }
-      }
-    }
-
     const total = newSubs.length
     const done = newSubs.filter(s => s.completed).length
     const newProgress = total > 0 ? Math.round((done / total) * 100) : 0
     const newStatus: TaskStatus = newProgress === 100 ? 'completada' : newProgress > 0 ? 'en_progreso' : 'pendiente'
     await supabase.from('project_tasks').update({ progress: newProgress, status: newStatus, completed_at: newProgress === 100 ? new Date().toISOString() : null }).eq('id', sub.task_id)
+    onChange()
+  }
+
+  // Review actions for phase-evolving tasks
+  async function reviewSubtask(sub: SubtaskRow, status: 'aprobado' | 'cambios', comment?: string) {
+    await supabase.from('project_task_subtasks').update({
+      review_status: status,
+      review_comment: status === 'cambios' ? (comment || null) : null,
+    }).eq('id', sub.id)
+
+    // If "cambios", uncheck the subtask so it needs to be re-done
+    if (status === 'cambios') {
+      await supabase.from('project_task_subtasks').update({ completed: false }).eq('id', sub.id)
+    }
+
+    // Check if ALL subtasks in this phase are now approved → advance to next phase
+    if (status === 'aprobado' && sub.phase_order != null) {
+      const task = tasks.find(t => t.id === sub.task_id)
+      if (task?.template_id && project.specialty === 'ilum') {
+        const taskSubs = subtasks.filter(s => s.task_id === sub.task_id)
+        const phaseSubs = taskSubs.filter(s => s.phase_order === sub.phase_order)
+        // Check if all OTHER phase subs are approved (this one we just set to aprobado)
+        const allApproved = phaseSubs.every(s => s.id === sub.id ? true : s.review_status === 'aprobado')
+
+        if (allApproved) {
+          // Fetch template for next phase subtasks
+          const { data: ttData } = await supabase.from('project_task_templates')
+            .select('start_phase_order,end_phase_order,phase_specific_subtasks')
+            .eq('id', task.template_id).single()
+          if (ttData?.phase_specific_subtasks) {
+            const nextPhaseOrder = sub.phase_order + 1
+            const nextSubs = (ttData.phase_specific_subtasks as Record<string, string[]>)[String(nextPhaseOrder)]
+            const alreadyHasNext = taskSubs.some(s => s.phase_order === nextPhaseOrder)
+            if (nextSubs && nextSubs.length > 0 && !alreadyHasNext && nextPhaseOrder <= ttData.end_phase_order) {
+              const maxOrder = Math.max(0, ...taskSubs.map(s => s.order_index))
+              const inserts = nextSubs.map((text, idx) => ({
+                task_id: task.id, text, completed: false,
+                order_index: maxOrder + 1 + idx, system: null, phase_order: nextPhaseOrder,
+              }))
+              await supabase.from('project_task_subtasks').insert(inserts)
+
+              // Move task to the next phase
+              const nextPhase = phases.find(p => p.order_index === nextPhaseOrder && !p.is_post_sale)
+              if (nextPhase) {
+                await supabase.from('project_tasks').update({ phase_id: nextPhase.id }).eq('id', task.id)
+              }
+            }
+          }
+          // Update task progress to account for advancement
+          const allSubs = subtasks.filter(s => s.task_id === task.id)
+          const done = allSubs.filter(s => s.completed).length
+          const progress = allSubs.length > 0 ? Math.round((done / allSubs.length) * 100) : 0
+          await supabase.from('project_tasks').update({
+            progress, status: progress > 0 ? 'en_progreso' : 'pendiente',
+            completed_at: null,
+          }).eq('id', task.id)
+        }
+      }
+    }
     onChange()
   }
 
@@ -1079,7 +1107,9 @@ function TaskTable({ project, phases, tasks, subtasks, employees, onChange, acti
                             {phaseOrders.length > 0 && phaseOrders.map(po => {
                               const phaseSubs = phaseGroups[po]
                               const done = phaseSubs.filter(s => s.completed).length
-                              const allDone = done === phaseSubs.length
+                              const allDone = done === phaseSubs.length && phaseSubs.length > 0
+                              const allApproved = phaseSubs.every(s => s.review_status === 'aprobado')
+                              const inReview = allDone && !allApproved
                               const phaseColor = PHASE_COLORS[po] || '#888'
                               const phaseName = PHASE_NAMES[po] || `Fase ${po}`
                               const isCurrentPhase = po === Math.max(...phaseOrders)
@@ -1087,43 +1117,120 @@ function TaskTable({ project, phases, tasks, subtasks, employees, onChange, acti
                               return (
                                 <div key={po} style={{
                                   marginBottom: 8,
-                                  border: `1px solid ${allDone ? phaseColor + '33' : isCurrentPhase ? phaseColor + '55' : '#222'}`,
+                                  border: `1px solid ${allApproved ? phaseColor + '33' : inReview ? '#F59E0B55' : isCurrentPhase ? phaseColor + '55' : '#222'}`,
                                   borderRadius: 6, overflow: 'hidden',
-                                  opacity: allDone && !isCurrentPhase ? 0.7 : 1,
+                                  opacity: allApproved && !isCurrentPhase ? 0.7 : 1,
                                 }}>
                                   <div style={{
-                                    padding: '5px 10px', fontSize: 10, fontWeight: 700, color: phaseColor,
-                                    background: phaseColor + '12', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                                    padding: '5px 10px', fontSize: 10, fontWeight: 700,
+                                    color: allApproved ? phaseColor : inReview ? '#F59E0B' : phaseColor,
+                                    background: (allApproved ? phaseColor : inReview ? '#F59E0B' : phaseColor) + '12',
+                                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                                   }}>
                                     <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                      {allDone && <Check size={10} strokeWidth={3} />}
+                                      {allApproved && <Check size={10} strokeWidth={3} />}
                                       {phaseName}
+                                      {inReview && <span style={{ fontSize: 8, background: '#F59E0B33', color: '#F59E0B', padding: '1px 6px', borderRadius: 4, marginLeft: 4 }}>REVISIÓN</span>}
                                       {isCurrentPhase && !allDone && <span style={{ fontSize: 8, background: phaseColor + '33', padding: '1px 6px', borderRadius: 4, marginLeft: 4 }}>ACTIVA</span>}
+                                      {allApproved && <span style={{ fontSize: 8, background: phaseColor + '22', padding: '1px 6px', borderRadius: 4, marginLeft: 4 }}>APROBADA</span>}
                                     </span>
                                     <span style={{ fontSize: 9, opacity: 0.7 }}>{done}/{phaseSubs.length}</span>
                                   </div>
                                   <div style={{ padding: '6px 10px', background: '#0a0a0a' }}>
                                     {phaseSubs.map(sub => (
-                                      <div key={sub.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '3px 0' }}>
-                                        <button onClick={() => toggleSubtask(sub)} style={{
-                                          background: sub.completed ? phaseColor : 'transparent',
-                                          border: '1.5px solid ' + (sub.completed ? phaseColor : '#444'),
-                                          borderRadius: 3, width: 13, height: 13, cursor: 'pointer',
-                                          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0,
-                                        }}>
-                                          {sub.completed && <Check size={8} color="#000" strokeWidth={3} />}
-                                        </button>
-                                        <span style={{
-                                          fontSize: 11,
-                                          color: sub.completed ? '#555' : '#bbb',
-                                          textDecoration: sub.completed ? 'line-through' : 'none',
-                                          flex: 1,
-                                        }}>
-                                          {sub.text}
-                                        </span>
-                                        <button onClick={() => deleteSubtask(sub.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, color: '#444' }}>
-                                          <X size={9} />
-                                        </button>
+                                      <div key={sub.id}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '3px 0' }}>
+                                          <button onClick={() => toggleSubtask(sub)} style={{
+                                            background: sub.completed ? phaseColor : 'transparent',
+                                            border: '1.5px solid ' + (sub.completed ? phaseColor : '#444'),
+                                            borderRadius: 3, width: 13, height: 13, cursor: 'pointer',
+                                            display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0,
+                                          }}>
+                                            {sub.completed && <Check size={8} color="#000" strokeWidth={3} />}
+                                          </button>
+                                          <span style={{
+                                            fontSize: 11,
+                                            color: sub.completed ? '#555' : '#bbb',
+                                            textDecoration: sub.completed ? 'line-through' : 'none',
+                                            flex: 1,
+                                          }}>
+                                            {sub.text}
+                                          </span>
+
+                                          {/* Review status badges */}
+                                          {sub.review_status === 'aprobado' && (
+                                            <span style={{ fontSize: 8, background: '#57FF9A22', color: '#57FF9A', padding: '1px 6px', borderRadius: 4, fontWeight: 600 }}>Aprobado</span>
+                                          )}
+                                          {sub.review_status === 'cambios' && (
+                                            <span style={{ fontSize: 8, background: '#EF444422', color: '#EF4444', padding: '1px 6px', borderRadius: 4, fontWeight: 600 }}>Cambios</span>
+                                          )}
+
+                                          {/* Review buttons - show when all subtasks completed and this one has no review yet */}
+                                          {inReview && sub.completed && !sub.review_status && (
+                                            <div style={{ display: 'flex', gap: 4 }}>
+                                              <button onClick={() => reviewSubtask(sub, 'aprobado')} style={{
+                                                background: '#57FF9A22', border: '1px solid #57FF9A44', borderRadius: 4,
+                                                color: '#57FF9A', fontSize: 8, padding: '2px 8px', cursor: 'pointer', fontWeight: 600,
+                                              }}>Aprobar</button>
+                                              <button onClick={() => { setCambiosSubId(sub.id); setCambiosComment(''); }} style={{
+                                                background: '#F59E0B22', border: '1px solid #F59E0B44', borderRadius: 4,
+                                                color: '#F59E0B', fontSize: 8, padding: '2px 8px', cursor: 'pointer', fontWeight: 600,
+                                              }}>Cambios</button>
+                                            </div>
+                                          )}
+
+                                          <button onClick={() => deleteSubtask(sub.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, color: '#444' }}>
+                                            <X size={9} />
+                                          </button>
+                                        </div>
+
+                                        {/* Comment input for "Solicitar cambios" */}
+                                        {cambiosSubId === sub.id && (
+                                          <div style={{ display: 'flex', gap: 6, padding: '4px 0 6px 21px' }}>
+                                            <input
+                                              autoFocus
+                                              value={cambiosComment}
+                                              onChange={e => setCambiosComment(e.target.value)}
+                                              onKeyDown={e => {
+                                                if (e.key === 'Enter' && cambiosComment.trim()) {
+                                                  reviewSubtask(sub, 'cambios', cambiosComment.trim())
+                                                  setCambiosSubId(null); setCambiosComment('')
+                                                }
+                                                if (e.key === 'Escape') { setCambiosSubId(null); setCambiosComment('') }
+                                              }}
+                                              placeholder="Comentario sobre cambios..."
+                                              style={{
+                                                flex: 1, background: '#1a1a1a', border: '1px solid #F59E0B44', borderRadius: 4,
+                                                color: '#ddd', fontSize: 10, padding: '4px 8px', outline: 'none',
+                                              }}
+                                            />
+                                            <button onClick={() => {
+                                              if (cambiosComment.trim()) {
+                                                reviewSubtask(sub, 'cambios', cambiosComment.trim())
+                                                setCambiosSubId(null); setCambiosComment('')
+                                              }
+                                            }} style={{
+                                              background: '#F59E0B33', border: '1px solid #F59E0B55', borderRadius: 4,
+                                              color: '#F59E0B', fontSize: 9, padding: '3px 10px', cursor: 'pointer', fontWeight: 600,
+                                            }}>Enviar</button>
+                                            <button onClick={() => { setCambiosSubId(null); setCambiosComment('') }} style={{
+                                              background: 'none', border: '1px solid #333', borderRadius: 4,
+                                              color: '#666', fontSize: 9, padding: '3px 8px', cursor: 'pointer',
+                                            }}>×</button>
+                                          </div>
+                                        )}
+
+                                        {/* Show existing review comment */}
+                                        {sub.review_comment && sub.review_status !== 'cambios' && (
+                                          <div style={{ padding: '2px 0 4px 21px', fontSize: 9, color: '#888', fontStyle: 'italic' }}>
+                                            {sub.review_comment}
+                                          </div>
+                                        )}
+                                        {sub.review_comment && sub.review_status === 'cambios' && (
+                                          <div style={{ padding: '2px 0 4px 21px', fontSize: 9, color: '#EF4444', fontStyle: 'italic' }}>
+                                            ⚠ {sub.review_comment}
+                                          </div>
+                                        )}
                                       </div>
                                     ))}
                                   </div>
