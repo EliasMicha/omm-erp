@@ -66,6 +66,7 @@ interface SubtaskRow {
   completed: boolean
   order_index: number
   system: string | null
+  phase_order: number | null
 }
 
 interface EmployeeRow {
@@ -765,6 +766,45 @@ function TaskTable({ project, phases, tasks, subtasks, employees, onChange, acti
     await supabase.from('project_task_subtasks').update({ completed: newCompleted }).eq('id', sub.id)
     const taskSubs = subtasks.filter(s => s.task_id === sub.task_id)
     const newSubs = taskSubs.map(s => s.id === sub.id ? { ...s, completed: newCompleted } : s)
+
+    // Check if this is an evolving ilum task and the current phase just completed
+    const task = tasks.find(t => t.id === sub.task_id)
+    if (newCompleted && sub.phase_order != null && task?.template_id && project.specialty === 'ilum') {
+      const currentPhaseOrder = sub.phase_order
+      const phaseSubsAll = newSubs.filter(s => s.phase_order === currentPhaseOrder)
+      const phaseAllDone = phaseSubsAll.every(s => s.completed)
+
+      if (phaseAllDone) {
+        // Fetch the task template to get next phase's subtasks
+        const { data: ttData } = await supabase.from('project_task_templates').select('start_phase_order,end_phase_order,phase_specific_subtasks').eq('id', task.template_id).single()
+        if (ttData?.phase_specific_subtasks) {
+          const nextPhaseOrder = currentPhaseOrder + 1
+          const nextSubs = (ttData.phase_specific_subtasks as Record<string, string[]>)[String(nextPhaseOrder)]
+          // Only advance if there are next-phase subtasks AND they haven't been created yet
+          const alreadyHasNext = newSubs.some(s => s.phase_order === nextPhaseOrder)
+          if (nextSubs && nextSubs.length > 0 && !alreadyHasNext && nextPhaseOrder <= ttData.end_phase_order) {
+            // Create next phase subtasks
+            const maxOrder = Math.max(0, ...newSubs.map(s => s.order_index))
+            const inserts = nextSubs.map((text, idx) => ({
+              task_id: task.id,
+              text,
+              completed: false,
+              order_index: maxOrder + 1 + idx,
+              system: null,
+              phase_order: nextPhaseOrder,
+            }))
+            await supabase.from('project_task_subtasks').insert(inserts)
+
+            // Move task to the next phase
+            const nextPhase = phases.find(p => p.order_index === nextPhaseOrder && !p.is_post_sale)
+            if (nextPhase) {
+              await supabase.from('project_tasks').update({ phase_id: nextPhase.id }).eq('id', task.id)
+            }
+          }
+        }
+      }
+    }
+
     const total = newSubs.length
     const done = newSubs.filter(s => s.completed).length
     const newProgress = total > 0 ? Math.round((done / total) * 100) : 0
@@ -828,11 +868,15 @@ function TaskTable({ project, phases, tasks, subtasks, employees, onChange, acti
   async function addSubtask(taskId: string, text: string) {
     if (!text.trim()) return
     const taskSubs = subtasks.filter(s => s.task_id === taskId)
+    // If this is a phase-evolving task, tag the new subtask with the current highest phase_order
+    const phaseOrders = taskSubs.filter(s => s.phase_order != null).map(s => s.phase_order!)
+    const currentPhaseOrder = phaseOrders.length > 0 ? Math.max(...phaseOrders) : null
     await supabase.from('project_task_subtasks').insert({
       task_id: taskId,
       text: text.trim(),
       completed: false,
       order_index: taskSubs.length,
+      phase_order: currentPhaseOrder,
     })
     onChange()
   }
@@ -1002,9 +1046,25 @@ function TaskTable({ project, phases, tasks, subtasks, employees, onChange, acti
                       </div>
 
                       {(() => {
-                        // Agrupa subtareas por sistema si tienen system seteado (caso ESP con expand_by_system)
-                        const subsWithSystem = taskSubs.filter(s => s.system)
-                        const subsFlat = taskSubs.filter(s => !s.system)
+                        // Check if this is a phase-evolving ilum task
+                        const subsWithPhase = taskSubs.filter(s => s.phase_order != null)
+                        const subsWithSystem = taskSubs.filter(s => s.system && s.phase_order == null)
+                        const subsFlat = taskSubs.filter(s => !s.system && s.phase_order == null)
+
+                        // Phase names lookup
+                        const PHASE_NAMES: Record<number, string> = { 1: 'Conceptual', 2: 'Diseño', 3: 'Revisión', 4: 'Ejecutivo' }
+                        const PHASE_COLORS: Record<number, string> = { 1: '#C084FC', 2: '#3B82F6', 3: '#F59E0B', 4: '#57FF9A' }
+
+                        // Group by phase_order
+                        const phaseGroups: Record<number, SubtaskRow[]> = {}
+                        subsWithPhase.forEach(s => {
+                          const po = s.phase_order!
+                          if (!phaseGroups[po]) phaseGroups[po] = []
+                          phaseGroups[po].push(s)
+                        })
+                        const phaseOrders = Object.keys(phaseGroups).map(Number).sort((a, b) => a - b)
+
+                        // System groups (ESP)
                         const systemGroups = subsWithSystem.reduce<Record<string, SubtaskRow[]>>((acc, s) => {
                           const sys = s.system || 'Sin sistema'
                           if (!acc[sys]) acc[sys] = []
@@ -1015,10 +1075,66 @@ function TaskTable({ project, phases, tasks, subtasks, employees, onChange, acti
 
                         return (
                           <>
-                            {/* Checklist plano (sin sistema) */}
+                            {/* Phase-evolving subtasks (ilum) */}
+                            {phaseOrders.length > 0 && phaseOrders.map(po => {
+                              const phaseSubs = phaseGroups[po]
+                              const done = phaseSubs.filter(s => s.completed).length
+                              const allDone = done === phaseSubs.length
+                              const phaseColor = PHASE_COLORS[po] || '#888'
+                              const phaseName = PHASE_NAMES[po] || `Fase ${po}`
+                              const isCurrentPhase = po === Math.max(...phaseOrders)
+
+                              return (
+                                <div key={po} style={{
+                                  marginBottom: 8,
+                                  border: `1px solid ${allDone ? phaseColor + '33' : isCurrentPhase ? phaseColor + '55' : '#222'}`,
+                                  borderRadius: 6, overflow: 'hidden',
+                                  opacity: allDone && !isCurrentPhase ? 0.7 : 1,
+                                }}>
+                                  <div style={{
+                                    padding: '5px 10px', fontSize: 10, fontWeight: 700, color: phaseColor,
+                                    background: phaseColor + '12', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                                  }}>
+                                    <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                      {allDone && <Check size={10} strokeWidth={3} />}
+                                      {phaseName}
+                                      {isCurrentPhase && !allDone && <span style={{ fontSize: 8, background: phaseColor + '33', padding: '1px 6px', borderRadius: 4, marginLeft: 4 }}>ACTIVA</span>}
+                                    </span>
+                                    <span style={{ fontSize: 9, opacity: 0.7 }}>{done}/{phaseSubs.length}</span>
+                                  </div>
+                                  <div style={{ padding: '6px 10px', background: '#0a0a0a' }}>
+                                    {phaseSubs.map(sub => (
+                                      <div key={sub.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '3px 0' }}>
+                                        <button onClick={() => toggleSubtask(sub)} style={{
+                                          background: sub.completed ? phaseColor : 'transparent',
+                                          border: '1.5px solid ' + (sub.completed ? phaseColor : '#444'),
+                                          borderRadius: 3, width: 13, height: 13, cursor: 'pointer',
+                                          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0,
+                                        }}>
+                                          {sub.completed && <Check size={8} color="#000" strokeWidth={3} />}
+                                        </button>
+                                        <span style={{
+                                          fontSize: 11,
+                                          color: sub.completed ? '#555' : '#bbb',
+                                          textDecoration: sub.completed ? 'line-through' : 'none',
+                                          flex: 1,
+                                        }}>
+                                          {sub.text}
+                                        </span>
+                                        <button onClick={() => deleteSubtask(sub.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, color: '#444' }}>
+                                          <X size={9} />
+                                        </button>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )
+                            })}
+
+                            {/* Checklist plano (sin sistema ni fase) */}
                             {subsFlat.length > 0 && (
                               <>
-                                <div style={{ fontSize: 10, color: '#666', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Subtareas / Checklist</div>
+                                <div style={{ fontSize: 10, color: '#666', marginBottom: 6, marginTop: phaseOrders.length > 0 ? 12 : 0, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Subtareas / Checklist</div>
                                 {subsFlat.map(sub => (
                                   <div key={sub.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0' }}>
                                     <button onClick={() => toggleSubtask(sub)} style={{
@@ -1041,7 +1157,7 @@ function TaskTable({ project, phases, tasks, subtasks, employees, onChange, acti
                             {/* Subtareas agrupadas por sistema (caso ESP) */}
                             {systemNames.length > 0 && (
                               <>
-                                <div style={{ fontSize: 10, color: '#666', marginBottom: 6, marginTop: subsFlat.length > 0 ? 12 : 0, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                <div style={{ fontSize: 10, color: '#666', marginBottom: 6, marginTop: (subsFlat.length > 0 || phaseOrders.length > 0) ? 12 : 0, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                                   Por sistema ({systemNames.length})
                                 </div>
                                 {systemNames.map(sys => {
@@ -1158,6 +1274,7 @@ interface TaskTemplateFull {
   end_phase_order: number
   expands_by_system: boolean
   default_subtasks: string[]
+  phase_specific_subtasks: Record<string, string[]> | null
   order_index: number
 }
 
@@ -1360,12 +1477,14 @@ function NewProjectModal({ employees, onClose, onCreated }: {
       if (ttErr) throw new Error('Cargando task templates: ' + ttErr.message)
       const taskTemplates = (taskTemplatesData || []) as TaskTemplateFull[]
 
-      // 5. Instanciar tareas: cada task template se clona en cada fase del rango
-      //    [start_phase_order, end_phase_order]
+      // 5. Instanciar tareas
+      //    For ilum tasks with phase_specific_subtasks: ONE task in the first phase (evolves through phases)
+      //    For all others: clone task into each phase of its range
       const taskInserts: any[] = []
       for (const tt of taskTemplates) {
-        for (let ord = tt.start_phase_order; ord <= tt.end_phase_order; ord++) {
-          const ph = phaseByOrder(ord)
+        if (tt.phase_specific_subtasks && specialty === 'ilum') {
+          // Single task row, assigned to its first phase
+          const ph = phaseByOrder(tt.start_phase_order)
           if (!ph) continue
           taskInserts.push({
             project_id: proj.id,
@@ -1377,6 +1496,21 @@ function NewProjectModal({ employees, onClose, onCreated }: {
             progress: 0,
             priority: 0,
           })
+        } else {
+          for (let ord = tt.start_phase_order; ord <= tt.end_phase_order; ord++) {
+            const ph = phaseByOrder(ord)
+            if (!ph) continue
+            taskInserts.push({
+              project_id: proj.id,
+              phase_id: ph.id,
+              template_id: tt.id,
+              name: tt.name,
+              order_index: tt.order_index,
+              status: 'pendiente',
+              progress: 0,
+              priority: 0,
+            })
+          }
         }
       }
 
@@ -1388,16 +1522,29 @@ function NewProjectModal({ employees, onClose, onCreated }: {
       }
 
       // 6. Instanciar subtareas
-      //    - Si el template tiene expands_by_system=true Y hay sistemas detectados:
-      //      por cada sistema presente en la cotización, por cada item del default_subtasks,
-      //      se crea una subtask con system=X y text="[item]" (agrupadas en UI por sistema)
-      //    - Si expands_by_system=false: plain default_subtasks sin system
+      //    - phase_specific_subtasks (ilum evolving tasks): only create first phase's subtasks with phase_order tag
+      //    - expands_by_system=true: N sistemas × M subtasks = N*M rows
+      //    - default: plain default_subtasks sin system
       const subtaskInserts: any[] = []
       for (const task of insertedTasks) {
         const tt = taskTemplates.find(t => t.id === task.template_id)
-        if (!tt || !tt.default_subtasks || tt.default_subtasks.length === 0) continue
+        if (!tt) continue
 
-        if (tt.expands_by_system && detectedSystems.length > 0) {
+        if (tt.phase_specific_subtasks && specialty === 'ilum') {
+          // Evolving task: only create subtasks for the first phase
+          const firstPhaseOrder = tt.start_phase_order
+          const subs = tt.phase_specific_subtasks[String(firstPhaseOrder)] || []
+          subs.forEach((text, idx) => {
+            subtaskInserts.push({
+              task_id: task.id,
+              text,
+              completed: false,
+              order_index: idx,
+              system: null,
+              phase_order: firstPhaseOrder,
+            })
+          })
+        } else if (tt.expands_by_system && detectedSystems.length > 0) {
           // Expand: N sistemas × M subtasks = N*M rows
           let idx = 0
           for (const sys of detectedSystems) {
@@ -1411,7 +1558,7 @@ function NewProjectModal({ employees, onClose, onCreated }: {
               })
             }
           }
-        } else {
+        } else if (tt.default_subtasks && tt.default_subtasks.length > 0) {
           // Plain checklist
           tt.default_subtasks.forEach((text, idx) => {
             subtaskInserts.push({
