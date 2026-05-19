@@ -1737,7 +1737,6 @@ function SummaryPanel({ products, areas, config, activeSystems, showInt, onConfi
   if (config.descuento > 0) {
     afterDiscountRows.push({ l: 'SUBTOTAL CON DESCUENTO', v: subConDesc, b: true })
   }
-  afterDiscountRows.push({ l: 'TOTAL IVA', v: iva })
   afterDiscountRows.push({ l: 'TOTAL DEL PROYECTO', v: total, b: true, h: true })
 
   return (
@@ -1762,6 +1761,15 @@ function SummaryPanel({ products, areas, config, activeSystems, showInt, onConfi
             </div>
           </div>
         ))}
+        {/* IVA row — editable */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '3px 4px', borderTop: 'none' }}>
+          <span style={{ fontSize: 10, color: '#555', fontWeight: 400 }}>TOTAL IVA</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <input type="number" value={config.ivaRate} step={1} min={0} max={16} onChange={e => onConfigChange('ivaRate', Math.min(16, Math.max(0, parseFloat(e.target.value) || 0)))} style={{ ...S.input, width: 50, fontSize: 11, fontWeight: 600 }} />
+            <span style={{ fontSize: 10, color: '#555' }}>%</span>
+            <span style={{ fontSize: 11, color: '#fff', marginLeft: 4 }}>${fmt(iva)}</span>
+          </div>
+        </div>
         {/* After discount rows */}
         {afterDiscountRows.map((r, i) => (
           <div key={'a' + i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '3px 0', borderTop: r.b ? '1px solid #222' : 'none' }}>
