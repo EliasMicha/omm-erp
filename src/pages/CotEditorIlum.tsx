@@ -15,6 +15,7 @@ interface IlumProduct {
   quantity: number; cost: number; markup: number; price: number; order: number
   marca?: string | null; modelo?: string | null; sku?: string | null
   watts?: number | null; lumens?: number | null; cct?: string | null
+  nomenclatura?: string | null
 }
 
 interface IlumSubsection {
@@ -69,6 +70,15 @@ function ProductRow({ p, onUpdate, onRemove, selected, onToggleSelect, onSubstit
       <td style={{ ...S.td, width: 44, textAlign: 'center' }}>
         {p.imageUrl ? <img src={p.imageUrl} alt="" style={{ width: 36, height: 36, objectFit: 'contain', borderRadius: 4 }} />
           : <div style={{ width: 36, height: 36, background: '#1a1a1a', borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto' }}><ImageIcon size={12} color="#333" /></div>}
+      </td>
+      <td style={{ ...S.td, width: 90 }}>
+        <input
+          type="text"
+          defaultValue={p.nomenclatura || ''}
+          placeholder="—"
+          onBlur={e => onUpdate(p.id, 'nomenclatura', e.target.value.trim())}
+          style={{ ...S.input, width: 80, fontWeight: 600, color: '#57FF9A', textAlign: 'center' }}
+        />
       </td>
       <td style={{ ...S.td, minWidth: 180 }}>
         <div style={{ fontSize: 12, fontWeight: 500, color: '#ddd' }}>{p.name}</div>
@@ -208,6 +218,7 @@ function SubsectionBlock({ subsection, products, onToggle, onUpdate, onRemove, o
               </th>
             )}
             <th style={{ ...S.th, textAlign: 'center' }}>IMG</th>
+            <th style={{ ...S.th, textAlign: 'center' }}>NOMENCL.</th>
             <th style={S.th}>PRODUCTO</th>
             <th style={S.th}>MARCA</th>
             <th style={S.th}>MODELO</th>
@@ -775,6 +786,7 @@ export default function CotEditorIlum({ cotId, onBack, onSwitchVersion }: { cotI
             quantity: p.quantity || 1, cost: p.cost || 0, markup: p.markup || 0, price: p.price || 0, order: p.order_index || 0,
             marca: p.marca, modelo: p.modelo, sku: p.sku,
             watts: notes.watts || null, lumens: notes.lumens || null, cct: notes.cct || null,
+            nomenclatura: p.nomenclatura || null,
           }
         })
         // Enrich with catalog data for watts/lumens/cct if missing
