@@ -133,6 +133,10 @@ function CotDashboard({ onOpen, preferVersionId }: { onOpen: (id: string, specia
   }
 
   useEffect(() => { loadCots() }, [])
+  // Re-fetch cuando regresas del editor — preferVersionId cambia cada vez que
+  // cierras un editor (close() guarda el openId que tenías). Esto evita que el
+  // dashboard muestre totales stale después de que un editor los sincronizó.
+  useEffect(() => { if (preferVersionId) loadCots() }, [preferVersionId])
 
   function getCur(c: any): string {
     try { const m = JSON.parse(c.notes || '{}'); return m.currency || 'USD' } catch { return 'USD' }
