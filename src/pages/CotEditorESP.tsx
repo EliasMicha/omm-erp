@@ -1824,18 +1824,34 @@ function SummaryPanel({ products, areas, config, activeSystems, showInt, onConfi
               vtMO += p.laborCost * p.quantity
             })
             const mgProd = vtProd > 0 ? Math.round((vtProd - ctProd) / vtProd * 100) : 0
-            const vtTotal = vtProd + vtMO + vtSvc
+            const vtListprice = vtProd + vtMO + vtSvc
+            const descPct = config.descuento || 0
+            const descFactor = 1 - descPct / 100
+            const descMonto = vtListprice * (descPct / 100)
+            const vtBilled = vtListprice * descFactor  // revenue real que paga el cliente
             const nomPct = config.nominaPct || 0
-            const nomina = vtTotal * nomPct / 100
-            // MG bruto (solo costos de productos)
-            const mgBruto = vtTotal > 0 ? Math.round((vtTotal - ctProd) / vtTotal * 1000) / 10 : 0
-            // MG real (descontando nómina prorrateada)
-            const mgReal = vtTotal > 0 ? Math.round((vtTotal - ctProd - nomina) / vtTotal * 1000) / 10 : 0
+            const nomina = vtBilled * nomPct / 100
+            // MG bruto (revenue billed vs costo, sin nómina)
+            const mgBruto = vtBilled > 0 ? Math.round((vtBilled - ctProd) / vtBilled * 1000) / 10 : 0
+            // MG real (con nómina)
+            const mgReal = vtBilled > 0 ? Math.round((vtBilled - ctProd - nomina) / vtBilled * 1000) / 10 : 0
             return (<>
               <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}><span style={{ color: '#888' }}>Venta productos</span><span style={{ color: '#fff', fontWeight: 600 }}>${fmt(vtProd)}</span></div>
               <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}><span style={{ color: '#888' }}>+ M.O.</span><span style={{ color: '#ccc' }}>${fmt(vtMO)}</span></div>
               {vtSvc > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}><span style={{ color: '#888' }}>+ Servicios</span><span style={{ color: '#ccc' }}>${fmt(vtSvc)}</span></div>}
-              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0', fontSize: 10, borderTop: '1px solid #332222', marginTop: 3, paddingTop: 5, fontWeight: 600 }}><span style={{ color: '#ccc' }}>Revenue total</span><span style={{ color: '#fff' }}>${fmt(vtTotal)}</span></div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0', fontSize: 10, borderTop: '1px solid #332222', marginTop: 3, paddingTop: 5, fontWeight: 600 }}><span style={{ color: '#ccc' }}>Listprice total</span><span style={{ color: '#fff' }}>${fmt(vtListprice)}</span></div>
+              {descPct > 0 && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}>
+                  <span style={{ color: '#EF4444' }}>− Descuento {descPct}%</span>
+                  <span style={{ color: '#EF4444' }}>−${fmt(descMonto)}</span>
+                </div>
+              )}
+              {descPct > 0 && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10, fontWeight: 600 }}>
+                  <span style={{ color: '#ccc' }}>Revenue billed</span>
+                  <span style={{ color: '#fff' }}>${fmt(vtBilled)}</span>
+                </div>
+              )}
               <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10, marginTop: 4 }}><span style={{ color: '#888' }}>− Costo productos</span><span style={{ color: '#EF4444' }}>−${fmt(ctProd)}</span></div>
               <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}>
                 <span style={{ color: '#888', display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -1843,7 +1859,7 @@ function SummaryPanel({ products, areas, config, activeSystems, showInt, onConfi
                   <input
                     type="number" value={nomPct} step={1} min={0} max={50}
                     onChange={e => onConfigChange('nominaPct', Math.max(0, Math.min(50, parseFloat(e.target.value) || 0)))}
-                    title="% del revenue para gastos de nómina (área + administración) — placeholder 20% hasta tener dato real"
+                    title="% del revenue billed para gastos de nómina (área + administración) — placeholder 20% hasta tener dato real"
                     style={{ ...S.input, width: 45, fontSize: 10, fontWeight: 600, padding: '2px 4px' }}
                   />
                   <span style={{ fontSize: 9, color: '#555' }}>%</span>
@@ -1855,16 +1871,16 @@ function SummaryPanel({ products, areas, config, activeSystems, showInt, onConfi
                 <span style={{ color: mgProd >= 25 ? '#57FF9A' : mgProd >= 15 ? '#F59E0B' : '#EF4444', fontWeight: 600 }}>{mgProd}%</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}>
-                <span style={{ color: '#888' }}>MG bruto proyecto</span>
+                <span style={{ color: '#888' }}>MG bruto proyecto{descPct > 0 ? ' (c/ desc)' : ''}</span>
                 <span style={{ color: '#aaa', fontWeight: 600 }}>{mgBruto}%</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0', fontSize: 11, borderTop: '1px solid #332222', marginTop: 3, paddingTop: 5 }}>
-                <span style={{ color: '#F59E0B', fontWeight: 700 }}>MG real (c/ nómina)</span>
+                <span style={{ color: '#F59E0B', fontWeight: 700 }}>MG real (c/ nómina{descPct > 0 ? ' y desc' : ''})</span>
                 <span style={{ color: mgReal >= 25 ? '#57FF9A' : mgReal >= 15 ? '#F59E0B' : '#EF4444', fontWeight: 700, fontSize: 14 }}>{mgReal}%</span>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}><span style={{ color: '#888' }}>Utilidad real</span><span style={{ color: mgReal >= 0 ? '#57FF9A' : '#EF4444', fontWeight: 600 }}>${fmt(vtTotal - ctProd - nomina)}</span></div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}><span style={{ color: '#888' }}>Utilidad real</span><span style={{ color: mgReal >= 0 ? '#57FF9A' : '#EF4444', fontWeight: 600 }}>${fmt(vtBilled - ctProd - nomina)}</span></div>
               <div style={{ fontSize: 8, color: '#555', marginTop: 6, paddingTop: 6, borderTop: '1px solid #332222', lineHeight: 1.4 }}>
-                MG productos = solo equipo. MG bruto proyecto = revenue total vs costo productos. MG real = bruto menos nómina prorrateada (área + admin). El % de nómina es placeholder editable — actualizar cuando tengas dato real.
+                MG productos = venta vs costo (sin descuento). MG bruto = revenue billed vs costo productos. MG real = bruto menos nómina prorrateada. El descuento erosiona el margen sin tocar el costo. % de nómina = placeholder editable.
               </div>
             </>)
           })()}
@@ -2071,17 +2087,21 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
   }, [cotId])
 
   const activeSystems = useMemo(() => ALL_SYSTEMS.filter(s => activeSysIds.includes(s.id)), [activeSysIds])
-  // Margen real del proyecto: (revenue − costoProductos − nominaProrrateada) / revenue × 100
-  // Nomina = revenue × nominaPct/100 — gasto operativo aproximado (área + admin)
+  // Margen real del proyecto: (revenueBilled − costoProductos − nominaProrrateada) / revenueBilled × 100
+  // revenueBilled = revenue × (1 − descuento/100) — lo que el cliente realmente paga
+  // nomina = revenueBilled × nominaPct/100 — gasto operativo (área + admin) prorrateado
+  // El descuento sale del margen: bajar revenue sin tocar costo erosiona la utilidad.
   const overallMargin = useMemo(() => {
     let revenue = 0, cost = 0
     products.forEach(p => {
       revenue += p.price * p.quantity + p.laborCost * p.quantity
       cost += p.cost * p.quantity
     })
-    const nomina = revenue * (config.nominaPct || 0) / 100
-    return revenue > 0 ? Math.round(((revenue - cost - nomina) / revenue) * 1000) / 10 : 0
-  }, [products, config.nominaPct])
+    const descFactor = 1 - (config.descuento || 0) / 100
+    const revenueBilled = revenue * descFactor
+    const nomina = revenueBilled * (config.nominaPct || 0) / 100
+    return revenueBilled > 0 ? Math.round(((revenueBilled - cost - nomina) / revenueBilled) * 1000) / 10 : 0
+  }, [products, config.nominaPct, config.descuento])
   const total = useMemo(() => {
     let eq = 0, mo = 0; products.forEach(p => { eq += p.price * p.quantity; mo += p.laborCost * p.quantity })
     const sub = eq + mo + config.programacion;
@@ -2229,32 +2249,41 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
     if (totalCost === 0) { alert('No hay productos con costo. Captura costos antes de ajustar margen.'); return }
     if (productRev === 0) { alert('No hay revenue de productos para escalar.'); return }
 
-    // Fórmula con nómina:
-    // MG = (rev − costoProd − rev × nomPct/100) / rev = 1 − cost/rev − nomPct/100
-    // → newRev = totalCost / (1 − (target + nomPct)/100)
+    // Fórmula con nómina y descuento:
+    // revenueBilled = revenue × (1 − desc/100)
+    // MG = (revenueBilled − cost − revenueBilled × nomPct/100) / revenueBilled
+    //    = 1 − cost/revenueBilled − nomPct/100
+    // → revenueBilled = cost / (1 − (target + nomPct)/100)
+    // → revenue listprice = revenueBilled / (1 − desc/100)
     const nomPct = config.nominaPct || 0
+    const descPct = config.descuento || 0
     const effectiveDenom = 1 - (targetPct + nomPct) / 100
     if (effectiveDenom <= 0) {
       alert(`No alcanzable: target ${targetPct}% + nómina ${nomPct}% = ${targetPct + nomPct}% no deja revenue para costos. Reduce el target o ajusta nominaPct.`)
       return
     }
-    const newRev = totalCost / effectiveDenom
-    const newProductRev = newRev - laborRev - servicesRev
+    const descFactor = 1 - descPct / 100
+    if (descFactor <= 0) { alert('Descuento inválido (debe ser < 100%).'); return }
+    const newRevenueBilled = totalCost / effectiveDenom
+    const newRevenue = newRevenueBilled / descFactor  // listprice antes del descuento
+    const newProductRev = newRevenue - laborRev - servicesRev
     if (newProductRev <= 0) {
-      alert(`No alcanzable: la M.O. ($${laborRev.toFixed(2)}) + servicios ($${servicesRev.toFixed(2)}) ya cubren más que el revenue requerido para margen ${targetPct}%. Reduce M.O./servicios o sube el target.`)
+      alert(`No alcanzable: la M.O. ($${laborRev.toFixed(2)}) + servicios ($${servicesRev.toFixed(2)}) ya cubren más que el revenue requerido para margen ${targetPct}% (con ${descPct}% descuento). Reduce M.O./servicios, sube el target, o baja el descuento.`)
       return
     }
     const scale = newProductRev / productRev
 
     const currentRev = productRev + laborRev + servicesRev
-    const currentNomina = currentRev * nomPct / 100
-    const currentMg = currentRev > 0 ? ((currentRev - totalCost - currentNomina) / currentRev) * 100 : 0
+    const currentRevBilled = currentRev * descFactor
+    const currentNomina = currentRevBilled * nomPct / 100
+    const currentMg = currentRevBilled > 0 ? ((currentRevBilled - totalCost - currentNomina) / currentRevBilled) * 100 : 0
     if (!confirm(
       `Ajustar margen del proyecto:\n\n` +
       `• Actual: ${currentMg.toFixed(1)}% → Target: ${targetPct}%\n` +
       `• Considerando nómina prorrateada: ${nomPct}% del revenue\n` +
+      (descPct > 0 ? `• Descuento aplicado: ${descPct}% (el listprice sube extra para compensar)\n` : '') +
       `• Precios se escalarán × ${scale.toFixed(4)}\n` +
-      `• Productos: $${productRev.toFixed(2)} → $${newProductRev.toFixed(2)}\n` +
+      `• Productos (listprice): $${productRev.toFixed(2)} → $${newProductRev.toFixed(2)}\n` +
       `• M.O. y servicios sin cambios\n\n` +
       `¿Aplicar?`
     )) return
