@@ -1265,6 +1265,7 @@ function AIImportModalCortinas({ cotId, areas, onClose, onImported }: {
   const [error, setError] = useState<string | null>(null)
   const [progress, setProgress] = useState<string>('')
   const [insertedCount, setInsertedCount] = useState(0)
+  const [isDragging, setIsDragging] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   function fileToBase64(file: File): Promise<string> {
@@ -1276,17 +1277,57 @@ function AIImportModalCortinas({ cotId, areas, onClose, onImported }: {
     })
   }
 
+  async function loadXLSX(): Promise<any> {
+    if ((window as any).XLSX) return (window as any).XLSX
+    await new Promise<void>((resolve, reject) => {
+      const script = document.createElement('script')
+      script.src = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js'
+      script.onload = () => resolve()
+      script.onerror = () => reject(new Error('No se pudo cargar SheetJS desde CDN'))
+      document.head.appendChild(script)
+    })
+    if (!(window as any).XLSX) throw new Error('SheetJS cargado pero no disponible')
+    return (window as any).XLSX
+  }
+
   async function handleFile(file: File) {
-    setError(null); setStep('processing'); setProgress('Codificando PDF...')
+    setError(null); setStep('processing'); setProgress('Procesando archivo...')
     try {
       const ext = (file.name.split('.').pop() || '').toLowerCase()
-      if (ext !== 'pdf') throw new Error('Solo se soportan archivos PDF (recibido: .' + ext + ')')
-      const base64 = await fileToBase64(file)
+      let apiBody: any = null
+
+      if (ext === 'pdf') {
+        setProgress('Codificando PDF...')
+        const base64 = await fileToBase64(file)
+        apiBody = { kind: 'pdf', payload: base64, context: 'cortinas' }
+      } else if (ext === 'xlsx' || ext === 'xls') {
+        setProgress('Cargando parser de Excel...')
+        const XLSX = await loadXLSX()
+        const buf = await file.arrayBuffer()
+        const wb = XLSX.read(buf, { type: 'array' })
+        setProgress('Extrayendo texto de Excel...')
+        // Concatenate all sheets as CSV so Claude can read the tabular structure
+        let text = ''
+        for (const sheetName of wb.SheetNames) {
+          text += '\n=== Hoja: ' + sheetName + ' ===\n'
+          text += XLSX.utils.sheet_to_csv(wb.Sheets[sheetName])
+        }
+        if (text.trim().length < 20) throw new Error('Excel vacío o sin datos legibles')
+        apiBody = { kind: 'text', payload: text, context: 'cortinas' }
+      } else if (ext === 'csv' || ext === 'tsv' || ext === 'txt') {
+        setProgress('Leyendo archivo...')
+        const text = await file.text()
+        if (text.trim().length < 20) throw new Error('Archivo vacío')
+        apiBody = { kind: 'text', payload: text, context: 'cortinas' }
+      } else {
+        throw new Error('Formato no soportado: .' + ext + ' (usa PDF, Excel xlsx/xls o CSV)')
+      }
+
       setProgress('Analizando con AI (puede tardar 20-40 seg)...')
       const r = await fetch('/api/extract', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ kind: 'pdf', payload: base64, context: 'cortinas' }),
+        body: JSON.stringify(apiBody),
       })
       const data = await r.json()
       if (!r.ok || !data.ok) throw new Error(data.error || 'Error en /api/extract (' + r.status + ')')
@@ -1434,14 +1475,18 @@ function AIImportModalCortinas({ cotId, areas, onClose, onImported }: {
   }
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 1050, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+    <div
+      onDragOver={e => e.preventDefault()}
+      onDrop={e => e.preventDefault()}
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 1050, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+    >
       <div style={{ background: '#141414', border: '1px solid #333', borderRadius: isMobile ? 0 : 14, padding: isMobile ? 16 : 24, width: isMobile ? '100vw' : 'min(1200px, 95vw)', height: isMobile ? '100vh' : 'auto', maxHeight: isMobile ? '100vh' : '90vh', overflowY: 'auto', margin: 0 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
           <div>
             <div style={{ fontSize: 15, fontWeight: 700, color: '#fff', display: 'flex', alignItems: 'center', gap: 8 }}>
-              <Sparkles size={16} color="#A855F7" /> Importar PDF de Cortinas/Persianas
+              <Sparkles size={16} color="#A855F7" /> Importar Cotización (PDF / Excel)
             </div>
-            <div style={{ fontSize: 11, color: '#888', marginTop: 2 }}>Sube tu cotización en PDF y Claude la parsea automáticamente.</div>
+            <div style={{ fontSize: 11, color: '#888', marginTop: 2 }}>Sube tu cotización y Claude la parsea automáticamente.</div>
           </div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer' }}><X size={18} /></button>
         </div>
@@ -1450,17 +1495,45 @@ function AIImportModalCortinas({ cotId, areas, onClose, onImported }: {
 
         {step === 'upload' && (
           <div>
-            <div onClick={() => fileInputRef.current?.click()} style={{ border: '2px dashed #444', borderRadius: 12, padding: 40, textAlign: 'center', cursor: 'pointer', background: '#0e0e0e' }}>
-              <Upload size={32} color="#A855F7" style={{ margin: '0 auto 12px' }} />
-              <div style={{ fontSize: 13, color: '#ccc', fontWeight: 600, marginBottom: 4 }}>Click para subir PDF</div>
-              <div style={{ fontSize: 10, color: '#666' }}>Formato de cotización Somfy / OMM (1-2 páginas)</div>
+            <div
+              onClick={() => fileInputRef.current?.click()}
+              onDragEnter={e => { e.preventDefault(); e.stopPropagation(); setIsDragging(true) }}
+              onDragOver={e => { e.preventDefault(); e.stopPropagation(); setIsDragging(true) }}
+              onDragLeave={e => {
+                e.preventDefault(); e.stopPropagation()
+                // Only un-highlight if leaving the drop zone entirely (not entering a child)
+                if (e.currentTarget.contains(e.relatedTarget as Node)) return
+                setIsDragging(false)
+              }}
+              onDrop={e => {
+                e.preventDefault(); e.stopPropagation(); setIsDragging(false)
+                const f = e.dataTransfer.files?.[0]
+                if (f) handleFile(f)
+              }}
+              style={{
+                border: isDragging ? '2px dashed #A855F7' : '2px dashed #444',
+                borderRadius: 12,
+                padding: 40,
+                textAlign: 'center',
+                cursor: 'pointer',
+                background: isDragging ? '#A855F71A' : '#0e0e0e',
+                transition: 'all 0.15s ease',
+              }}
+            >
+              <Upload size={32} color={isDragging ? '#C084FC' : '#A855F7'} style={{ margin: '0 auto 12px', transition: 'color 0.15s ease' }} />
+              <div style={{ fontSize: 13, color: isDragging ? '#C084FC' : '#ccc', fontWeight: 600, marginBottom: 4 }}>
+                {isDragging ? 'Suelta el archivo aquí' : 'Click o arrastra el archivo aquí'}
+              </div>
+              <div style={{ fontSize: 10, color: '#666' }}>
+                PDF · Excel (.xlsx/.xls) · CSV — formato de cotización Somfy / OMM
+              </div>
             </div>
-            <input ref={fileInputRef} type="file" accept=".pdf" style={{ display: 'none' }} onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f) }} />
+            <input ref={fileInputRef} type="file" accept=".pdf,.xlsx,.xls,.csv,.tsv,.txt" style={{ display: 'none' }} onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f) }} />
             <div style={{ marginTop: 14, fontSize: 10, color: '#666', lineHeight: 1.6 }}>
               <div style={{ fontWeight: 600, color: '#888', marginBottom: 4 }}>El importador extrae:</div>
               • Items de cortinas/persianas con área, dimensiones, motor, tela, total<br/>
               • Extras (controles, interfaces) van a un área "EXTRAS" separada<br/>
-              • Precio/m² se back-calcula desde el total del PDF (puedes ajustar después)
+              • Precio/m² se back-calcula desde el total (puedes ajustar después)
             </div>
           </div>
         )}
@@ -1851,7 +1924,7 @@ export default function CotEditorCortinas({ cotId, onBack, onSwitchVersion }: { 
             }}>{cfg.label}</button>
           ))}
           <button onClick={() => setShowInt(!showInt)} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid ' + (showInt ? '#F59E0B' : '#333'), background: showInt ? '#F59E0B22' : 'transparent', color: showInt ? '#F59E0B' : '#555', marginLeft: 8 }}>{showInt ? 'Interno' : 'Cliente'}</button>
-          <button onClick={() => setShowAIImport(true)} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #A855F7', background: '#A855F722', color: '#A855F7', marginLeft: 4, display: 'flex', alignItems: 'center', gap: 4 }} title="Importar PDF de cortinas/persianas con AI"><Upload size={12} /> Importar PDF</button>
+          <button onClick={() => setShowAIImport(true)} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #A855F7', background: '#A855F722', color: '#A855F7', marginLeft: 4, display: 'flex', alignItems: 'center', gap: 4 }} title="Importar PDF o Excel de cortinas/persianas con AI"><Upload size={12} /> Importar</button>
           <button onClick={() => setShowPdf(true)} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #67E8F9', background: '#67E8F922', color: '#67E8F9', marginLeft: 4, display: 'flex', alignItems: 'center', gap: 4 }}><Printer size={12} /> PDF</button>
           <VersionManager cotId={cotId} getCurrentSnapshot={getVersionSnapshot} onSwitchVersion={onSwitchVersion || (() => {})} accentColor="#67E8F9" compact={isMobile} />
           <span style={{ fontSize: 15, fontWeight: 700, color: '#67E8F9', marginLeft: 10 }}>${grandTotal.toFixed(2)}</span>
