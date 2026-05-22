@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { F, STAGE_CONFIG } from '../lib/utils'
 import { Badge, Btn, Loading } from '../components/layout/UI'
-import { Plus, ChevronLeft, ChevronDown, ChevronRight, X, Trash2, Settings, Copy, Printer, Pencil, Download } from 'lucide-react'
+import { Plus, ChevronLeft, ChevronDown, ChevronRight, X, Trash2, Settings, Copy, Printer, Pencil, Download, Upload, Loader2, Sparkles, FileText } from 'lucide-react'
 import EditCotInfoModal from '../components/EditCotInfoModal'
 import VersionManager, { VersionSnapshot } from '../components/VersionManager'
 import { OMNIIOUS_LOGO } from '../assets/logo'
@@ -1221,6 +1221,360 @@ function CortSummary({ items, areas, config, showInt, onConfigChange }: {
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// AI IMPORT MODAL — Importar cotización de cortinas/persianas desde PDF
+// ═══════════════════════════════════════════════════════════════════
+interface AIExtractedItemCort {
+  _rowId: string
+  area: string
+  itemKind: ItemKind
+  persianaTipo: PersianaTipo
+  persianaMaterial: string
+  ancho: number
+  alto: number
+  cantidad: number
+  tipoCierre: 'MANUAL' | 'MOTORIZADO'
+  motorBrand: 'SOMFY' | 'LUTRON' | 'NINGUNO'
+  motorSystem: string
+  tipoTela: string
+  tipoPliegue: string
+  totalVenta: number
+  notas: string
+}
+
+interface AIExtraCort {
+  _rowId: string
+  nombre: string
+  cantidad: number
+  precioUnitario: number
+  total: number
+}
+
+function AIImportModalCortinas({ cotId, areas, onClose, onImported }: {
+  cotId: string
+  areas: CortArea[]
+  onClose: () => void
+  onImported: () => void
+}) {
+  const isMobile = useIsMobile()
+  const [step, setStep] = useState<'upload' | 'processing' | 'review' | 'inserting'>('upload')
+  const [items, setItems] = useState<AIExtractedItemCort[]>([])
+  const [extras, setExtras] = useState<AIExtraCort[]>([])
+  const [meta, setMeta] = useState<any>({})
+  const [warnings, setWarnings] = useState<string[]>([])
+  const [confidence, setConfidence] = useState<string>('')
+  const [error, setError] = useState<string | null>(null)
+  const [progress, setProgress] = useState<string>('')
+  const [insertedCount, setInsertedCount] = useState(0)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  function fileToBase64(file: File): Promise<string> {
+    return new Promise((res, rej) => {
+      const r = new FileReader()
+      r.onload = () => res((r.result as string).split(',')[1])
+      r.onerror = () => rej(new Error('Error leyendo archivo'))
+      r.readAsDataURL(file)
+    })
+  }
+
+  async function handleFile(file: File) {
+    setError(null); setStep('processing'); setProgress('Codificando PDF...')
+    try {
+      const ext = (file.name.split('.').pop() || '').toLowerCase()
+      if (ext !== 'pdf') throw new Error('Solo se soportan archivos PDF (recibido: .' + ext + ')')
+      const base64 = await fileToBase64(file)
+      setProgress('Analizando con AI (puede tardar 20-40 seg)...')
+      const r = await fetch('/api/extract', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kind: 'pdf', payload: base64, context: 'cortinas' }),
+      })
+      const data = await r.json()
+      if (!r.ok || !data.ok) throw new Error(data.error || 'Error en /api/extract (' + r.status + ')')
+
+      // Normalize items from API into AIExtractedItemCort
+      const rawItems: any[] = data.items || []
+      const normalized: AIExtractedItemCort[] = rawItems.map((it: any) => ({
+        _rowId: uid(),
+        area: String(it.area || 'GENERAL').trim().toUpperCase(),
+        itemKind: it.itemKind === 'CORTINA' ? 'CORTINA' : 'PERSIANA',
+        persianaTipo: ['ROLLER', 'VENECIANA', 'ROMANA'].includes(it.persianaTipo) ? it.persianaTipo : 'ROLLER',
+        persianaMaterial: String(it.persianaMaterial || '').trim(),
+        ancho: Number(it.ancho) || 0,
+        alto: Number(it.alto) || 0,
+        cantidad: parseInt(it.cantidad) || 1,
+        tipoCierre: it.tipoCierre === 'MANUAL' ? 'MANUAL' : 'MOTORIZADO',
+        motorBrand: ['SOMFY', 'LUTRON', 'NINGUNO'].includes(it.motorBrand) ? it.motorBrand : 'NINGUNO',
+        motorSystem: String(it.motorSystem || '').trim(),
+        tipoTela: String(it.tipoTela || '').trim(),
+        tipoPliegue: String(it.tipoPliegue || '').trim(),
+        totalVenta: Number(it.totalVenta) || 0,
+        notas: String(it.notas || '').trim(),
+      }))
+      const rawExtras: any[] = data.extras || []
+      const normalizedExtras: AIExtraCort[] = rawExtras.map((e: any) => ({
+        _rowId: uid(),
+        nombre: String(e.nombre || '').trim(),
+        cantidad: parseInt(e.cantidad) || 1,
+        precioUnitario: Number(e.precioUnitario) || 0,
+        total: Number(e.total) || (Number(e.precioUnitario) || 0) * (parseInt(e.cantidad) || 1),
+      }))
+
+      setItems(normalized)
+      setExtras(normalizedExtras)
+      setMeta(data.meta || {})
+      setWarnings(data.warnings || [])
+      setConfidence(data.confidence || 'medium')
+      setStep('review')
+    } catch (err: any) {
+      setError(err.message || 'Error procesando archivo')
+      setStep('upload')
+    }
+  }
+
+  function updateRow(rowId: string, field: keyof AIExtractedItemCort, value: any) {
+    setItems(prev => prev.map(it => it._rowId === rowId ? { ...it, [field]: value } : it))
+  }
+  function removeRow(rowId: string) { setItems(prev => prev.filter(it => it._rowId !== rowId)) }
+  function updateExtra(rowId: string, field: keyof AIExtraCort, value: any) {
+    setExtras(prev => prev.map(e => e._rowId === rowId ? { ...e, [field]: value } : e))
+  }
+  function removeExtra(rowId: string) { setExtras(prev => prev.filter(e => e._rowId !== rowId)) }
+
+  async function handleConfirm() {
+    setStep('inserting'); setError(null); setInsertedCount(0)
+    try {
+      // 1) Ensure all unique areas exist
+      setProgress('Sincronizando áreas...')
+      const areaCache: Record<string, string> = {}
+      areas.forEach(a => { areaCache[a.name.toUpperCase().trim()] = a.id })
+
+      const uniqueAreaNames = new Set<string>()
+      items.forEach(it => uniqueAreaNames.add((it.area || 'GENERAL').toUpperCase().trim()))
+      if (extras.length > 0) uniqueAreaNames.add('EXTRAS')
+
+      for (const name of uniqueAreaNames) {
+        if (areaCache[name]) continue
+        const { data: newArea, error: areaErr } = await supabase.from('quotation_areas').insert({
+          quotation_id: cotId, name, order_index: Object.keys(areaCache).length,
+        }).select().single()
+        if (areaErr) throw new Error('Error creando área "' + name + '": ' + areaErr.message)
+        if (newArea) areaCache[name] = newArea.id
+      }
+
+      // 2) Insert items (cortinas/persianas)
+      setProgress('Insertando productos...')
+      let inserted = 0
+      for (const it of items) {
+        const areaKey = (it.area || 'GENERAL').toUpperCase().trim()
+        const areaId = areaCache[areaKey]
+        if (!areaId) continue
+
+        // Back-calculate precio per m² from totalVenta (since PDF only has total per row)
+        const m2 = it.ancho * it.alto * it.cantidad
+        const persianaPrecioPorM2 = (it.itemKind === 'PERSIANA' && m2 > 0) ? Math.round((it.totalVenta / m2) * 100) / 100 : 0
+
+        // Build CortItem-shaped note JSON
+        const noteObj: any = {
+          itemKind: it.itemKind,
+          ancho: it.ancho, alto: it.alto,
+          tipoCierre: it.tipoCierre, motorBrand: it.motorBrand, motorSystem: it.motorSystem,
+          somfyHojas: 1, somfyPliegue: 'TRADICIONAL', somfyAbundancia: 0,
+          somfySoportePared: false, somfyAmrado: false, somfyCurveado: false,
+          tipoTela: it.tipoTela || 'TRASLUCIDA', anchoTela: 0, tipoPliegue: it.tipoPliegue || 'ONDA PERFECTA',
+          precioTelaPorML: 0, precioConfeccion: 0, telaIncluida: false, precioMotor: 0,
+          persianaTipo: it.persianaTipo, persianaMaterial: it.persianaMaterial, persianaPrecioPorM2,
+        }
+
+        const itemName = it.notas || (it.itemKind === 'PERSIANA' ? `${it.persianaTipo} ${it.persianaMaterial}`.trim() : it.tipoTela)
+        const { error: itemErr } = await supabase.from('quotation_items').insert({
+          quotation_id: cotId, area_id: areaId,
+          name: itemName, system: 'Cortinas', type: 'material',
+          quantity: it.cantidad, cost: 0, price: 0, total: it.totalVenta, markup: 0,
+          installation_cost: 0, order_index: inserted,
+          notes: JSON.stringify(noteObj),
+        })
+        if (itemErr) throw new Error('Error insertando "' + itemName + '": ' + itemErr.message)
+        inserted++
+        setInsertedCount(inserted)
+      }
+
+      // 3) Insert extras as PERSIANA items in EXTRAS area (1x1m so total = precioPorM2)
+      const extrasAreaId = areaCache['EXTRAS']
+      for (const ex of extras) {
+        if (!extrasAreaId) continue
+        const totalEx = ex.total || (ex.precioUnitario * ex.cantidad)
+        const m2 = 1 * 1 * ex.cantidad
+        const noteObj: any = {
+          itemKind: 'PERSIANA',
+          ancho: 1, alto: 1,
+          tipoCierre: 'MANUAL', motorBrand: 'NINGUNO', motorSystem: '',
+          somfyHojas: 1, somfyPliegue: 'TRADICIONAL', somfyAbundancia: 0,
+          somfySoportePared: false, somfyAmrado: false, somfyCurveado: false,
+          tipoTela: 'TRASLUCIDA', anchoTela: 0, tipoPliegue: 'ONDA PERFECTA',
+          precioTelaPorML: 0, precioConfeccion: 0, telaIncluida: false, precioMotor: 0,
+          persianaTipo: 'ROLLER', persianaMaterial: ex.nombre, persianaPrecioPorM2: m2 > 0 ? Math.round((totalEx / m2) * 100) / 100 : 0,
+        }
+        const { error: exErr } = await supabase.from('quotation_items').insert({
+          quotation_id: cotId, area_id: extrasAreaId,
+          name: ex.nombre, system: 'Cortinas', type: 'material',
+          quantity: ex.cantidad, cost: 0, price: 0, total: totalEx, markup: 0,
+          installation_cost: 0, order_index: inserted,
+          notes: JSON.stringify(noteObj),
+        })
+        if (exErr) throw new Error('Error insertando extra "' + ex.nombre + '": ' + exErr.message)
+        inserted++
+        setInsertedCount(inserted)
+      }
+
+      onImported()
+    } catch (err: any) {
+      setError(err.message || 'Error insertando items')
+      setStep('review')
+    }
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 1050, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ background: '#141414', border: '1px solid #333', borderRadius: isMobile ? 0 : 14, padding: isMobile ? 16 : 24, width: isMobile ? '100vw' : 'min(1200px, 95vw)', height: isMobile ? '100vh' : 'auto', maxHeight: isMobile ? '100vh' : '90vh', overflowY: 'auto', margin: 0 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: '#fff', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Sparkles size={16} color="#A855F7" /> Importar PDF de Cortinas/Persianas
+            </div>
+            <div style={{ fontSize: 11, color: '#888', marginTop: 2 }}>Sube tu cotización en PDF y Claude la parsea automáticamente.</div>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer' }}><X size={18} /></button>
+        </div>
+
+        {error && <div style={{ background: '#EF444422', border: '1px solid #EF4444', borderRadius: 8, padding: 10, marginBottom: 12, color: '#FCA5A5', fontSize: 11 }}>⚠ {error}</div>}
+
+        {step === 'upload' && (
+          <div>
+            <div onClick={() => fileInputRef.current?.click()} style={{ border: '2px dashed #444', borderRadius: 12, padding: 40, textAlign: 'center', cursor: 'pointer', background: '#0e0e0e' }}>
+              <Upload size={32} color="#A855F7" style={{ margin: '0 auto 12px' }} />
+              <div style={{ fontSize: 13, color: '#ccc', fontWeight: 600, marginBottom: 4 }}>Click para subir PDF</div>
+              <div style={{ fontSize: 10, color: '#666' }}>Formato de cotización Somfy / OMM (1-2 páginas)</div>
+            </div>
+            <input ref={fileInputRef} type="file" accept=".pdf" style={{ display: 'none' }} onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f) }} />
+            <div style={{ marginTop: 14, fontSize: 10, color: '#666', lineHeight: 1.6 }}>
+              <div style={{ fontWeight: 600, color: '#888', marginBottom: 4 }}>El importador extrae:</div>
+              • Items de cortinas/persianas con área, dimensiones, motor, tela, total<br/>
+              • Extras (controles, interfaces) van a un área "EXTRAS" separada<br/>
+              • Precio/m² se back-calcula desde el total del PDF (puedes ajustar después)
+            </div>
+          </div>
+        )}
+
+        {step === 'processing' && (
+          <div style={{ padding: 40, textAlign: 'center' }}>
+            <Loader2 size={32} color="#A855F7" style={{ animation: 'spin 1s linear infinite', margin: '0 auto 12px' }} />
+            <div style={{ fontSize: 13, color: '#ccc' }}>{progress}</div>
+            <style>{`@keyframes spin { from { transform: rotate(0deg) } to { transform: rotate(360deg) } }`}</style>
+          </div>
+        )}
+
+        {step === 'review' && (
+          <div>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 12, fontSize: 11 }}>
+              <span style={{ padding: '2px 8px', borderRadius: 5, background: confidence === 'high' ? '#10B98122' : confidence === 'low' ? '#EF444422' : '#F59E0B22', color: confidence === 'high' ? '#10B981' : confidence === 'low' ? '#EF4444' : '#F59E0B', fontWeight: 600 }}>Confianza: {confidence}</span>
+              <span style={{ color: '#888' }}>{items.length} items · {extras.length} extras</span>
+              {meta.cliente && <span style={{ color: '#888' }}>· Cliente: <span style={{ color: '#ccc' }}>{meta.cliente}</span></span>}
+              {meta.proyecto && <span style={{ color: '#888' }}>· Proyecto: <span style={{ color: '#ccc' }}>{meta.proyecto}</span></span>}
+            </div>
+            {warnings.length > 0 && (
+              <div style={{ background: '#F59E0B22', border: '1px solid #F59E0B', borderRadius: 8, padding: 8, marginBottom: 10, fontSize: 10, color: '#FCD34D' }}>
+                {warnings.map((w, i) => <div key={i}>⚠ {w}</div>)}
+              </div>
+            )}
+
+            <div style={{ maxHeight: '50vh', overflowY: 'auto', border: '1px solid #222', borderRadius: 8 }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+                <thead style={{ background: '#0e0e0e', position: 'sticky', top: 0 }}>
+                  <tr>
+                    <th style={{ ...S.th, textAlign: 'left' }}>Área</th>
+                    <th style={S.th}>Tipo</th>
+                    <th style={S.th}>Material</th>
+                    <th style={{ ...S.th, textAlign: 'right' }}>Ancho</th>
+                    <th style={{ ...S.th, textAlign: 'right' }}>Alto</th>
+                    <th style={{ ...S.th, textAlign: 'right' }}>Cant</th>
+                    <th style={S.th}>Cierre</th>
+                    <th style={S.th}>Motor</th>
+                    <th style={{ ...S.th, textAlign: 'right' }}>Total MXN</th>
+                    <th style={S.th}></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {items.map(it => (
+                    <tr key={it._rowId}>
+                      <td style={{ ...S.td, fontSize: 10 }}>
+                        <input type="text" defaultValue={it.area} onBlur={e => updateRow(it._rowId, 'area', e.target.value.toUpperCase())} style={{ ...S.input, width: 120, textAlign: 'left', fontSize: 10 }} />
+                      </td>
+                      <td style={S.td}>
+                        <select value={it.itemKind} onChange={e => updateRow(it._rowId, 'itemKind', e.target.value)} style={{ ...S.select, width: 85 }}>
+                          <option value="PERSIANA">Persiana</option>
+                          <option value="CORTINA">Cortina</option>
+                        </select>
+                      </td>
+                      <td style={S.td}>
+                        <input type="text" defaultValue={it.persianaMaterial || it.tipoTela} onBlur={e => updateRow(it._rowId, it.itemKind === 'PERSIANA' ? 'persianaMaterial' : 'tipoTela', e.target.value)} style={{ ...S.input, width: 110, textAlign: 'left', fontSize: 10 }} />
+                      </td>
+                      <td style={S.tdR}><input type="number" defaultValue={it.ancho} step={0.01} onBlur={e => updateRow(it._rowId, 'ancho', parseFloat(e.target.value) || 0)} style={{ ...S.input, width: 55 }} /></td>
+                      <td style={S.tdR}><input type="number" defaultValue={it.alto} step={0.01} onBlur={e => updateRow(it._rowId, 'alto', parseFloat(e.target.value) || 0)} style={{ ...S.input, width: 55 }} /></td>
+                      <td style={S.tdR}><input type="number" defaultValue={it.cantidad} min={1} onBlur={e => updateRow(it._rowId, 'cantidad', parseInt(e.target.value) || 1)} style={{ ...S.input, width: 45 }} /></td>
+                      <td style={S.td}>
+                        <select value={it.tipoCierre} onChange={e => updateRow(it._rowId, 'tipoCierre', e.target.value)} style={{ ...S.select, width: 90 }}>
+                          <option value="MANUAL">Manual</option>
+                          <option value="MOTORIZADO">Motorizado</option>
+                        </select>
+                      </td>
+                      <td style={{ ...S.td, fontSize: 10 }}>
+                        <input type="text" defaultValue={it.motorSystem} onBlur={e => updateRow(it._rowId, 'motorSystem', e.target.value)} placeholder="LSN50…" style={{ ...S.input, width: 100, textAlign: 'left', fontSize: 10 }} />
+                      </td>
+                      <td style={{ ...S.tdM, color: '#57FF9A' }}>${it.totalVenta.toFixed(2)}</td>
+                      <td style={S.td}><button onClick={() => removeRow(it._rowId)} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer' }}><Trash2 size={12} /></button></td>
+                    </tr>
+                  ))}
+                  {extras.length > 0 && (
+                    <>
+                      <tr style={{ background: '#1a1a1a' }}><td colSpan={10} style={{ padding: '6px 8px', fontSize: 10, fontWeight: 700, color: '#A855F7', letterSpacing: '0.08em' }}>EXTRAS (controles, interfaces, etc.)</td></tr>
+                      {extras.map(ex => (
+                        <tr key={ex._rowId}>
+                          <td colSpan={2} style={S.td}>
+                            <input type="text" defaultValue={ex.nombre} onBlur={e => updateExtra(ex._rowId, 'nombre', e.target.value)} style={{ ...S.input, width: '95%', textAlign: 'left', fontSize: 10 }} />
+                          </td>
+                          <td style={S.td} colSpan={3}>—</td>
+                          <td style={S.tdR}><input type="number" defaultValue={ex.cantidad} min={1} onBlur={e => updateExtra(ex._rowId, 'cantidad', parseInt(e.target.value) || 1)} style={{ ...S.input, width: 45 }} /></td>
+                          <td style={S.td} colSpan={2}>—</td>
+                          <td style={{ ...S.tdM, color: '#57FF9A' }}>${ex.total.toFixed(2)}</td>
+                          <td style={S.td}><button onClick={() => removeExtra(ex._rowId)} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer' }}><Trash2 size={12} /></button></td>
+                        </tr>
+                      ))}
+                    </>
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 14 }}>
+              <button onClick={() => setStep('upload')} style={{ padding: '6px 14px', background: 'transparent', border: '1px solid #444', borderRadius: 6, color: '#ccc', cursor: 'pointer', fontSize: 11 }}>← Cargar otro PDF</button>
+              <Btn onClick={handleConfirm}><FileText size={12} /> Importar {items.length + extras.length} items</Btn>
+            </div>
+          </div>
+        )}
+
+        {step === 'inserting' && (
+          <div style={{ padding: 40, textAlign: 'center' }}>
+            <Loader2 size={32} color="#A855F7" style={{ animation: 'spin 1s linear infinite', margin: '0 auto 12px' }} />
+            <div style={{ fontSize: 13, color: '#ccc' }}>{progress}</div>
+            <div style={{ fontSize: 11, color: '#888', marginTop: 8 }}>{insertedCount} / {items.length + extras.length} insertados</div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // MAIN COMPONENT
 // ═══════════════════════════════════════════════════════════════════
 export default function CotEditorCortinas({ cotId, onBack, onSwitchVersion }: { cotId: string; onBack: () => void; onSwitchVersion?: (id: string) => void }) {
@@ -1239,6 +1593,7 @@ export default function CotEditorCortinas({ cotId, onBack, onSwitchVersion }: { 
   const [projectName, setProjectName] = useState('')
   const [somfyDetail, setSomfyDetail] = useState<CortItem | null>(null)
   const [showPdf, setShowPdf] = useState(false)
+  const [showAIImport, setShowAIImport] = useState(false)
   const [showAreaPicker, setShowAreaPicker] = useState(false)
   const [copyingItem, setCopyingItem] = useState<CortItem | null>(null)
   const [showEditInfo, setShowEditInfo] = useState(false)
@@ -1496,6 +1851,7 @@ export default function CotEditorCortinas({ cotId, onBack, onSwitchVersion }: { 
             }}>{cfg.label}</button>
           ))}
           <button onClick={() => setShowInt(!showInt)} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid ' + (showInt ? '#F59E0B' : '#333'), background: showInt ? '#F59E0B22' : 'transparent', color: showInt ? '#F59E0B' : '#555', marginLeft: 8 }}>{showInt ? 'Interno' : 'Cliente'}</button>
+          <button onClick={() => setShowAIImport(true)} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #A855F7', background: '#A855F722', color: '#A855F7', marginLeft: 4, display: 'flex', alignItems: 'center', gap: 4 }} title="Importar PDF de cortinas/persianas con AI"><Upload size={12} /> Importar PDF</button>
           <button onClick={() => setShowPdf(true)} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #67E8F9', background: '#67E8F922', color: '#67E8F9', marginLeft: 4, display: 'flex', alignItems: 'center', gap: 4 }}><Printer size={12} /> PDF</button>
           <VersionManager cotId={cotId} getCurrentSnapshot={getVersionSnapshot} onSwitchVersion={onSwitchVersion || (() => {})} accentColor="#67E8F9" compact={isMobile} />
           <span style={{ fontSize: 15, fontWeight: 700, color: '#67E8F9', marginLeft: 10 }}>${grandTotal.toFixed(2)}</span>
@@ -1541,6 +1897,7 @@ export default function CotEditorCortinas({ cotId, onBack, onSwitchVersion }: { 
 
       {/* PDF proposal modal */}
       {showPdf && <CortPdfModal items={items} areas={areas} config={config} cotName={cotName} clientName={clientName} projectName={projectName} onClose={() => setShowPdf(false)} />}
+      {showAIImport && <AIImportModalCortinas cotId={cotId} areas={areas} onClose={() => setShowAIImport(false)} onImported={() => { setShowAIImport(false); load() }} />}
 
       {/* Area picker modal */}
       {showAreaPicker && <AreaPickerModal existingNames={areas.map(a => a.name)} onSelect={name => { addAreaByName(name); setShowAreaPicker(false) }} onClose={() => setShowAreaPicker(false)} />}

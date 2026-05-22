@@ -4,7 +4,7 @@
 
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 
-const PROMPT = `Eres un asistente experto en listados de productos para instalaciones especiales (audio, redes, CCTV, control de acceso, control de iluminación, detección de humo, BMS, telefonía, red celular, cortinas/persianas).
+const PROMPT_GENERIC = `Eres un asistente experto en listados de productos para instalaciones especiales (audio, redes, CCTV, control de acceso, control de iluminación, detección de humo, BMS, telefonía, red celular, cortinas/persianas).
 
 Tu tarea es extraer TODOS los productos del documento adjunto y devolver un JSON ESTRICTO con esta estructura exacta (sin markdown, sin backticks, sin texto antes ni después):
 
@@ -37,6 +37,62 @@ REGLAS:
 - NO inventes precios. Si no hay precio, usa null.
 - Devuelve SOLO el JSON.`
 
+const PROMPT_CORTINAS = `Eres un asistente experto en cotizaciones de cortinas y persianas para el ERP de OMM Technologies.
+
+Tu tarea es extraer TODOS los productos del PDF adjunto (cortinas, persianas, controles, interfaces) y devolver un JSON ESTRICTO con esta estructura exacta (sin markdown, sin backticks, sin texto antes ni después):
+
+{
+  "items": [
+    {
+      "area": "ej. RECAMARA PRINCIPAL, SALA, COCINA, GENERAL",
+      "itemKind": "PERSIANA" o "CORTINA",
+      "persianaTipo": "ROLLER" o "VENECIANA" o "ROMANA" o null,
+      "persianaMaterial": "ej. BLACKOUT, TRASLUCIDA, SCREEN 5%, MADERA 50MM",
+      "ancho": número en metros (o 0 si no aplica),
+      "alto": número en metros (o 0 si no aplica),
+      "cantidad": número entero (default 1),
+      "tipoCierre": "MANUAL" o "MOTORIZADO",
+      "motorBrand": "SOMFY" o "LUTRON" o "NINGUNO",
+      "motorSystem": "ej. LSN50, MOVELITE 35KG, GLYDEA60WT, SIVOIA QS, ACOPLAMIENTO",
+      "tipoTela": "ej. TRASLUCIDA, BLACKOUT, SHEER (solo si es CORTINA)",
+      "tipoPliegue": "ej. ONDA PERFECTA, TABLEADO (solo si es CORTINA)",
+      "totalVenta": número en MXN (el TOTAL de la fila tal como aparece en el PDF, con margen ya aplicado),
+      "notas": "ej. TELA INCLUIDA CON CANALETAS LATERALES NEGRAS"
+    }
+  ],
+  "extras": [
+    {
+      "nombre": "ej. CONTROLES SITUO 5, INTERFACE INTERTEC 16 RTS",
+      "cantidad": número,
+      "precioUnitario": número en MXN,
+      "total": número en MXN
+    }
+  ],
+  "meta": {
+    "cliente": "nombre del cliente si aparece",
+    "proyecto": "nombre del proyecto si aparece",
+    "ubicacion": "ciudad o ubicación",
+    "instPct": número (% de instalación si aparece, ej. 14),
+    "ivaRate": número (16 por default)
+  },
+  "confidence": "high|medium|low",
+  "warnings": ["string"]
+}
+
+REGLAS:
+- "PERSIANA MOTORIZADA" → itemKind=PERSIANA, tipoCierre=MOTORIZADO. "CORTINA MOTORIZADA" → itemKind=CORTINA. "MANUAL" → tipoCierre=MANUAL.
+- motorBrand inferido de motorSystem: LSN50/MOVELITE/GLYDEA/IRISMO/SONESSE → SOMFY. SIVOIA/ALENA → LUTRON. Vacío o "ACOPLAMIENTO" sin marca clara → SOMFY (asumiendo). Si tipoCierre=MANUAL → motorBrand=NINGUNO.
+- persianaTipo: para persianas roller (LSN50, SONESSE) usa "ROLLER". Para persianas de madera/aluminio usa "VENECIANA". Para tela plisada con bandas horizontales usa "ROMANA". Si no es persiana, usa null.
+- persianaMaterial: lo que aparezca en "TIPO DE TELA" (BLACKOUT, TRASLUCIDA, etc.) para persianas. Para cortinas déjalo vacío.
+- totalVenta: el número de la columna TOTAL ($58,902.77 MXN → 58902.77). Es el PRECIO DE VENTA con margen, no el costo.
+- notas: contenido de las celdas "PRECIO CONFECCION TELA" cuando dicen "TELA INCLUIDA…", o cualquier observación de la fila (ej "ACOPLAMIENTO").
+- Si el documento tiene secciones por área (RECAMARA PRINCIPAL, RECAMARA 2, SALA), asocia los items siguientes a esa área. Si no hay áreas explícitas, usa "GENERAL".
+- Filas al final del PDF que NO son cortinas/persianas (CONTROLES, INTERFACES, accesorios sueltos) van en "extras", NO en items.
+- ancho/alto en metros (no centímetros). 4.7 = 4.7m de ancho.
+- Si el PDF no tiene ancho/alto (ej. en "extras"), no los pongas en items.
+- No inventes precios ni medidas.
+- Devuelve SOLO el JSON.`
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   // CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*')
@@ -49,8 +105,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!apiKey) return res.status(500).json({ ok: false, error: 'ANTHROPIC_KEY no configurada en el servidor' })
 
   try {
-    const { kind, payload, mediaType } = req.body as { kind: string; payload: string; mediaType?: string }
+    const { kind, payload, mediaType, context } = req.body as { kind: string; payload: string; mediaType?: string; context?: string }
     if (!kind || !payload) return res.status(400).json({ ok: false, error: 'Faltan parámetros kind/payload' })
+
+    // Pick prompt by context — 'cortinas' uses CortItem schema, anything else uses generic
+    const PROMPT = context === 'cortinas' ? PROMPT_CORTINAS : PROMPT_GENERIC
 
     let content: any[]
     if (kind === 'text') {
@@ -104,6 +163,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(200).json({
       ok: true,
       items: parsed.items || [],
+      extras: parsed.extras || [],
+      meta: parsed.meta || {},
       confidence: parsed.confidence || 'medium',
       warnings: parsed.warnings || [],
     })
