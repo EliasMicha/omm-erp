@@ -757,7 +757,9 @@ export default function CotEditorIlum({ cotId, onBack, onSwitchVersion }: { cotI
   const [substitutingProduct, setSubstitutingProduct] = useState<IlumProduct | null>(null)
   const [showAIImport, setShowAIImport] = useState(false)
   const [showPdfPicker, setShowPdfPicker] = useState(false)
-  const [ilumConfig, setIlumConfig] = useState({ ivaRate: 16, descuento: 0 })
+  const [ilumConfig, setIlumConfig] = useState({ ivaRate: 16, descuento: 0, nominaPct: 20 })
+  const [showBulkMargin, setShowBulkMargin] = useState(false)
+  const [bulkMarginInput, setBulkMarginInput] = useState('')
 
   // Load quotation, subsections, and products
   useEffect(() => {
@@ -1054,6 +1056,84 @@ export default function CotEditorIlum({ cotId, onBack, onSwitchVersion }: { cotI
     }
   }, [grandTotal, loading, cotId])
 
+  // ─── MG Real del proyecto (con descuento + nómina) ─────────────────
+  // revenueBilled = subtotal × (1 − desc/100); nomina = revenueBilled × nomPct/100
+  // MG Real = (revenueBilled − costoProductos − nomina) / revenueBilled
+  const overallMargin = useMemo(() => {
+    let revenue = 0, cost = 0
+    products.forEach(p => {
+      const c = calcLine(p)
+      revenue += p.price * p.quantity
+      cost += c.costReal * p.quantity
+    })
+    const descFactor = 1 - (ilumConfig.descuento || 0) / 100
+    const revenueBilled = revenue * descFactor
+    const nomina = revenueBilled * (ilumConfig.nominaPct || 0) / 100
+    return revenueBilled > 0 ? Math.round(((revenueBilled - cost - nomina) / revenueBilled) * 1000) / 10 : 0
+  }, [products, ilumConfig.descuento, ilumConfig.nominaPct])
+
+  // Bulk-margin: escala precios proporcionalmente para que MG Real llegue al target.
+  //   newRevenueBilled = totalCost / (1 − (target + nomPct)/100)
+  //   newRevenueListprice = newRevenueBilled / (1 − desc/100)
+  //   scale = newRevenue / currentRevenue
+  async function applyBulkMargin(targetPct: number) {
+    if (isNaN(targetPct) || targetPct < 0 || targetPct >= 100) {
+      alert('Margen inválido. Usa un valor entre 0 y 99.9 (%).')
+      return
+    }
+    let totalCost = 0, productRev = 0
+    products.forEach(p => {
+      const c = calcLine(p)
+      totalCost += c.costReal * p.quantity
+      productRev += p.price * p.quantity
+    })
+    if (totalCost === 0) { alert('No hay productos con costo. Captura costos antes de ajustar margen.'); return }
+    if (productRev === 0) { alert('No hay revenue de productos para escalar.'); return }
+
+    const nomPct = ilumConfig.nominaPct || 0
+    const descPct = ilumConfig.descuento || 0
+    const effectiveDenom = 1 - (targetPct + nomPct) / 100
+    if (effectiveDenom <= 0) {
+      alert(`No alcanzable: target ${targetPct}% + nómina ${nomPct}% = ${targetPct + nomPct}% no deja revenue para costos. Reduce el target o ajusta nominaPct.`)
+      return
+    }
+    const descFactor = 1 - descPct / 100
+    if (descFactor <= 0) { alert('Descuento inválido (debe ser < 100%).'); return }
+    const newRevenueBilled = totalCost / effectiveDenom
+    const newRevenue = newRevenueBilled / descFactor
+    const scale = newRevenue / productRev
+
+    const currentRevBilled = productRev * descFactor
+    const currentNomina = currentRevBilled * nomPct / 100
+    const currentMg = currentRevBilled > 0 ? ((currentRevBilled - totalCost - currentNomina) / currentRevBilled) * 100 : 0
+
+    if (!confirm(
+      `Ajustar margen del proyecto:\n\n` +
+      `• Actual: ${currentMg.toFixed(1)}% → Target: ${targetPct}%\n` +
+      `• Nómina prorrateada: ${nomPct}% del revenue\n` +
+      (descPct > 0 ? `• Descuento aplicado: ${descPct}% (listprice sube extra para compensar)\n` : '') +
+      `• Precios se escalarán × ${scale.toFixed(4)}\n` +
+      `• Productos: $${fmt(productRev)} → $${fmt(productRev * scale)}\n\n` +
+      `¿Aplicar?`
+    )) return
+
+    const updated = products.map(p => {
+      const newPrice = Math.round(p.price * scale * 100) / 100
+      const newMarkup = (p.cost > 0 && newPrice > 0) ? Math.round((1 - p.cost / newPrice) * 100) : p.markup
+      return { ...p, price: newPrice, markup: newMarkup }
+    })
+    setProducts(updated)
+
+    for (const p of updated) {
+      const newTotal = p.price * p.quantity
+      await supabase.from('quotation_items').update({
+        price: p.price,
+        markup: p.markup,
+        total: Math.round(newTotal * 100) / 100,
+      }).eq('id', p.id)
+    }
+  }
+
   const subsectionTotals = useMemo(() => {
     const map: Record<string, number> = {}
     subsections.forEach(s => {
@@ -1078,7 +1158,7 @@ export default function CotEditorIlum({ cotId, onBack, onSwitchVersion }: { cotI
       total: grandTotal,
       subtotal: subtotalDesc,
       editorType: 'ilum',
-      meta: { ivaRate: ilumConfig.ivaRate, descuento: ilumConfig.descuento },
+      meta: { ivaRate: ilumConfig.ivaRate, descuento: ilumConfig.descuento, nominaPct: ilumConfig.nominaPct },
     }
   }
 
@@ -1121,6 +1201,53 @@ export default function CotEditorIlum({ cotId, onBack, onSwitchVersion }: { cotI
           <VersionManager cotId={cotId} getCurrentSnapshot={getVersionSnapshot} onSwitchVersion={onSwitchVersion || (() => {})} accentColor="#57FF9A" compact={isMobile} />
           {quote && (quote.stage === 'contrato' || quote.stage === 'propuesta') && (
             <button onClick={() => window.open(`/cotizacion/${cotId}/memoria-tecnica`, '_blank')} style={{ padding: '6px 12px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #F59E0B44', background: 'transparent', color: '#F59E0B', display: 'inline-flex', alignItems: 'center', gap: 4 }}><BookOpen size={12} /> {isMobile ? 'Memoria' : 'Memoria Técnica'}</button>
+          )}
+          {/* Badge MG Real — click para bulk adjust */}
+          {!isMobile && (
+            <div style={{ position: 'relative', display: 'inline-block' }}>
+              <button
+                onClick={() => { setShowBulkMargin(v => !v); setBulkMarginInput(String(overallMargin)) }}
+                title={`MG Real = (revenue − costo productos − nómina ${ilumConfig.nominaPct}%) / revenue billed. Click para ajustar.`}
+                style={{
+                  padding: '6px 12px', borderRadius: 20, fontSize: 10, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
+                  border: '1px solid ' + (overallMargin >= 25 ? '#57FF9A' : overallMargin >= 15 ? '#F59E0B' : '#EF4444'),
+                  background: (overallMargin >= 25 ? '#57FF9A' : overallMargin >= 15 ? '#F59E0B' : '#EF4444') + '22',
+                  color: overallMargin >= 25 ? '#57FF9A' : overallMargin >= 15 ? '#F59E0B' : '#EF4444',
+                  display: 'inline-flex', alignItems: 'center', gap: 4,
+                }}
+              >MG Real {overallMargin}%</button>
+              {showBulkMargin && (
+                <div style={{ position: 'absolute', top: '110%', right: 0, zIndex: 30, background: '#141414', border: '1px solid #333', borderRadius: 10, padding: 12, minWidth: 320, boxShadow: '0 10px 30px rgba(0,0,0,0.6)' }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: '#fff', marginBottom: 6 }}>Ajustar margen real del proyecto</div>
+                  <div style={{ fontSize: 10, color: '#888', marginBottom: 8, lineHeight: 1.5 }}>
+                    Escala precios proporcionalmente para que <b style={{ color: '#F59E0B' }}>MG Real</b> (revenue billed − costo − nómina <b style={{ color: '#F59E0B' }}>{ilumConfig.nominaPct}%</b>) llegue al target.
+                  </div>
+                  <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                    <input
+                      type="number" step={0.5} min={0} max={99.9}
+                      value={bulkMarginInput}
+                      onChange={e => setBulkMarginInput(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter') { applyBulkMargin(parseFloat(bulkMarginInput)); setShowBulkMargin(false) } }}
+                      placeholder="ej. 35"
+                      style={{ ...S.input, flex: 1, fontSize: 12, textAlign: 'right' }}
+                      autoFocus
+                    />
+                    <span style={{ fontSize: 11, color: '#888' }}>%</span>
+                    <button
+                      onClick={() => { applyBulkMargin(parseFloat(bulkMarginInput)); setShowBulkMargin(false) }}
+                      style={{ padding: '5px 10px', fontSize: 11, fontWeight: 700, background: '#57FF9A22', border: '1px solid #57FF9A', color: '#57FF9A', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit' }}
+                    >Aplicar</button>
+                    <button
+                      onClick={() => setShowBulkMargin(false)}
+                      style={{ padding: '5px 8px', fontSize: 11, background: 'none', border: '1px solid #333', color: '#888', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit' }}
+                    >Cancelar</button>
+                  </div>
+                  <div style={{ fontSize: 9, color: '#555', marginTop: 6 }}>
+                    Actual: {overallMargin}% · Target: {bulkMarginInput || '—'}% · Desc: {ilumConfig.descuento}% · Nóm: {ilumConfig.nominaPct}%
+                  </div>
+                </div>
+              )}
+            </div>
           )}
           <div style={{ fontSize: isMobile ? 14 : 16, fontWeight: 700, color: '#57FF9A' }}>${fmt(grandTotal)}</div>
         </div>
@@ -1248,6 +1375,79 @@ export default function CotEditorIlum({ cotId, onBack, onSwitchVersion }: { cotI
                 <span style={{ color: '#57FF9A' }}>${fmt(grandTotal)}</span>
               </div>
             </div>
+          </div>
+
+          {/* Análisis Interno — margen real con nómina y descuento */}
+          <div style={{ marginTop: 16, padding: 12, background: '#1a1414', border: '1px solid #332222', borderRadius: 10 }}>
+            <div style={{ fontSize: 10, fontWeight: 600, color: '#F59E0B', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Análisis Interno</div>
+            {(() => {
+              let vtProd = 0, ctProd = 0
+              products.forEach(p => {
+                const c = calcLine(p)
+                vtProd += p.price * p.quantity
+                ctProd += c.costReal * p.quantity
+              })
+              const mgProd = vtProd > 0 ? Math.round((vtProd - ctProd) / vtProd * 100) : 0
+              const descPct = ilumConfig.descuento || 0
+              const descFactor = 1 - descPct / 100
+              const descMonto = vtProd * (descPct / 100)
+              const vtBilled = vtProd * descFactor
+              const nomPct = ilumConfig.nominaPct || 0
+              const nomina = vtBilled * nomPct / 100
+              const mgBruto = vtBilled > 0 ? Math.round((vtBilled - ctProd) / vtBilled * 1000) / 10 : 0
+              const mgReal = vtBilled > 0 ? Math.round((vtBilled - ctProd - nomina) / vtBilled * 1000) / 10 : 0
+              return (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14 }}>
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}><span style={{ color: '#888' }}>Venta productos (listprice)</span><span style={{ color: '#fff', fontWeight: 600 }}>${fmt(vtProd)}</span></div>
+                    {descPct > 0 && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}>
+                        <span style={{ color: '#EF4444' }}>− Descuento {descPct}%</span>
+                        <span style={{ color: '#EF4444' }}>−${fmt(descMonto)}</span>
+                      </div>
+                    )}
+                    {descPct > 0 && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0', fontSize: 10, fontWeight: 600, borderTop: '1px solid #332222', marginTop: 3, paddingTop: 5 }}>
+                        <span style={{ color: '#ccc' }}>Revenue billed</span>
+                        <span style={{ color: '#fff' }}>${fmt(vtBilled)}</span>
+                      </div>
+                    )}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10, marginTop: 4 }}><span style={{ color: '#888' }}>− Costo productos</span><span style={{ color: '#EF4444' }}>−${fmt(ctProd)}</span></div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}>
+                      <span style={{ color: '#888', display: 'flex', alignItems: 'center', gap: 4 }}>
+                        − Nómina
+                        <input
+                          type="number" value={nomPct} step={1} min={0} max={50}
+                          onChange={e => updateIlumConfig('nominaPct', Math.max(0, Math.min(50, parseFloat(e.target.value) || 0)))}
+                          title="% del revenue billed para gastos de nómina (área + administración) — placeholder 20%"
+                          style={{ width: 45, padding: '2px 4px', background: '#1e1e1e', border: '1px solid #333', borderRadius: 4, color: '#ccc', fontSize: 10, fontWeight: 600, fontFamily: 'inherit', textAlign: 'right' }}
+                        />
+                        <span style={{ fontSize: 9, color: '#555' }}>%</span>
+                      </span>
+                      <span style={{ color: '#EF4444' }}>−${fmt(nomina)}</span>
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}>
+                      <span style={{ color: '#888' }}>MG productos</span>
+                      <span style={{ color: mgProd >= 25 ? '#57FF9A' : mgProd >= 15 ? '#F59E0B' : '#EF4444', fontWeight: 600 }}>{mgProd}%</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}>
+                      <span style={{ color: '#888' }}>MG bruto{descPct > 0 ? ' (c/ desc)' : ''}</span>
+                      <span style={{ color: '#aaa', fontWeight: 600 }}>{mgBruto}%</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 12, borderTop: '1px solid #332222', marginTop: 4, paddingTop: 6 }}>
+                      <span style={{ color: '#F59E0B', fontWeight: 700 }}>MG real (c/ nómina{descPct > 0 ? ' y desc' : ''})</span>
+                      <span style={{ color: mgReal >= 25 ? '#57FF9A' : mgReal >= 15 ? '#F59E0B' : '#EF4444', fontWeight: 700, fontSize: 15 }}>{mgReal}%</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}><span style={{ color: '#888' }}>Utilidad real</span><span style={{ color: mgReal >= 0 ? '#57FF9A' : '#EF4444', fontWeight: 600 }}>${fmt(vtBilled - ctProd - nomina)}</span></div>
+                    <div style={{ fontSize: 8, color: '#555', marginTop: 6, lineHeight: 1.4 }}>
+                      MG productos = sin desc. MG bruto = con desc, sin nómina. MG real = con desc y nómina prorrateada. % nómina editable.
+                    </div>
+                  </div>
+                </div>
+              )
+            })()}
           </div>
         </div>
       </div>
