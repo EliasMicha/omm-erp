@@ -24,33 +24,43 @@ interface CortConfig {
   descuento: number      // discount % (default 0)
 }
 
-// Each curtain line item
+type ItemKind = 'CORTINA' | 'PERSIANA'
+type PersianaTipo = 'ROLLER' | 'VENECIANA' | 'ROMANA'
+
+// Each curtain or blind line item
 interface CortItem {
   id: string
   areaId: string
   ubicacion: string      // e.g. "Ventana Sala", "Recámara Principal"
   ancho: number          // window width in meters
   alto: number           // window height in meters
-  cantidad: number       // qty of identical curtains
+  cantidad: number       // qty of identical units
+  // Kind discriminator — CORTINA uses fabric (tela/pliegue/confección),
+  // PERSIANA uses material price per m² (roller/veneciana/romana).
+  itemKind: ItemKind
   tipoCierre: 'MANUAL' | 'MOTORIZADO'
   motorBrand: 'SOMFY' | 'LUTRON' | 'NINGUNO'
   motorSystem: string    // e.g. "MOVELITE 35 KG", "GLYDEA35WT", "ALENA QS", "SIVOIA QS"
-  // Somfy config (when motorBrand=SOMFY)
+  // Somfy config (when motorBrand=SOMFY) — cortinas only
   somfyHojas: 1 | 2
   somfyPliegue: 'TRADICIONAL' | 'ONDULADO'
   somfyAbundancia: number
   somfySoportePared: boolean
   somfyAmrado: boolean
   somfyCurveado: boolean
-  // Fabric
+  // Fabric (cortinas only)
   tipoTela: string       // e.g. "TRASLUCIDA", "BLACKOUT", "SHEER"
   anchoTela: number      // fabric width in meters (manual input)
   tipoPliegue: string    // e.g. "ONDA PERFECTA", "PLANO", "TABLEADO"
-  // Pricing (manual or calculated)
+  // Pricing (cortinas, manual or calculated)
   precioTelaPorML: number
   precioConfeccion: number  // confection/sewing price per ML
   telaIncluida: boolean     // true = client provides own fabric (no fabric charge)
   precioMotor: number    // manual for Lutron, auto-calculated for Somfy
+  // Persianas-only fields
+  persianaTipo: PersianaTipo            // ROLLER / VENECIANA / ROMANA
+  persianaMaterial: string              // free-text (e.g. "Blackout", "Screen 5%", "Madera 50mm")
+  persianaPrecioPorM2: number           // unit cost per m² of material (MXN)
   // DB tracking
   order: number
 }
@@ -195,19 +205,34 @@ function calcFabricML(item: CortItem): number {
 }
 
 function calcFabricCost(item: CortItem): number {
+  if (item.itemKind === 'PERSIANA') return 0
   if (item.telaIncluida) return 0
   return Math.round(calcFabricML(item) * item.precioTelaPorML * item.cantidad * 100) / 100
 }
 
 function calcConfeccionCost(item: CortItem): number {
+  if (item.itemKind === 'PERSIANA') return 0
   // precioConfeccion is cost per ML — multiply by fabric meters
   const ml = calcFabricML(item)
   return Math.round(item.precioConfeccion * ml * item.cantidad * 100) / 100
 }
 
-// Motor cost in MXN — Somfy is already MXN, Lutron is USD * tipoCambio
+// Persiana material cost (MXN). Persianas are priced per m² of finished
+// surface, not by fabric ML. m² = ancho × alto, multiplied by quantity.
+function calcPersianaMaterialCost(item: CortItem): number {
+  if (item.itemKind !== 'PERSIANA') return 0
+  const m2 = (item.ancho || 0) * (item.alto || 0)
+  return Math.round(m2 * (item.persianaPrecioPorM2 || 0) * item.cantidad * 100) / 100
+}
+
+// Motor cost in MXN — Somfy is already MXN (auto-BOM for cortinas), Lutron is USD * tipoCambio.
+// Persianas always use manual precioMotor (no auto-BOM); Lutron still in USD.
 function calcMotorCostMXN(item: CortItem, tipoCambio: number): number {
   if (item.tipoCierre !== 'MOTORIZADO') return 0
+  if (item.itemKind === 'PERSIANA') {
+    if (item.motorBrand === 'LUTRON') return item.precioMotor * item.cantidad * tipoCambio
+    return item.precioMotor * item.cantidad
+  }
   if (item.motorBrand === 'SOMFY') return calcSomfyTotal(item) * item.cantidad
   if (item.motorBrand === 'LUTRON') return item.precioMotor * item.cantidad * tipoCambio
   return 0
@@ -216,6 +241,9 @@ function calcMotorCostMXN(item: CortItem, tipoCambio: number): number {
 // Motor cost in native currency (USD for Lutron, MXN for Somfy)
 function calcMotorCostRaw(item: CortItem): number {
   if (item.tipoCierre !== 'MOTORIZADO') return 0
+  if (item.itemKind === 'PERSIANA') {
+    return item.precioMotor * item.cantidad
+  }
   if (item.motorBrand === 'SOMFY') return calcSomfyTotal(item) * item.cantidad
   if (item.motorBrand === 'LUTRON') return item.precioMotor * item.cantidad
   return 0
@@ -239,11 +267,24 @@ function uid(): string { return Math.random().toString(36).slice(2, 10) }
 function defaultItem(areaId: string, order: number): CortItem {
   return {
     id: uid(), areaId, ubicacion: '', ancho: 0, alto: 0, cantidad: 1,
+    itemKind: 'CORTINA',
     tipoCierre: 'MANUAL', motorBrand: 'NINGUNO', motorSystem: '',
     somfyHojas: 1, somfyPliegue: 'TRADICIONAL', somfyAbundancia: 0,
     somfySoportePared: false, somfyAmrado: false, somfyCurveado: false,
     tipoTela: 'TRASLUCIDA', anchoTela: 0, tipoPliegue: 'ONDA PERFECTA',
-    precioTelaPorML: 0, precioConfeccion: 0, telaIncluida: false, precioMotor: 0, order,
+    precioTelaPorML: 0, precioConfeccion: 0, telaIncluida: false, precioMotor: 0,
+    persianaTipo: 'ROLLER', persianaMaterial: '', persianaPrecioPorM2: 0,
+    order,
+  }
+}
+
+function defaultPersiana(areaId: string, order: number): CortItem {
+  return {
+    ...defaultItem(areaId, order),
+    itemKind: 'PERSIANA',
+    persianaTipo: 'ROLLER',
+    persianaMaterial: 'Blackout',
+    persianaPrecioPorM2: 0,
   }
 }
 
@@ -310,16 +351,18 @@ function CortPdfModal({ items, areas, config, cotName, clientName, projectName, 
   const pdfRef = useRef<HTMLDivElement>(null)
 
   // Calculate totals (all in MXN)
-  let telaCost = 0, confCost = 0, motorCost = 0
+  let telaCost = 0, confCost = 0, motorCost = 0, persianaCost = 0
   items.forEach(item => {
     telaCost += calcFabricCost(item)
     confCost += calcConfeccionCost(item)
     motorCost += calcMotorCostMXN(item, config.tipoCambio)
+    persianaCost += calcPersianaMaterialCost(item)
   })
   const telaVenta = config.margenTela > 0 ? Math.round(telaCost / (1 - config.margenTela / 100) * 100) / 100 : telaCost
   const confVenta = config.margenTela > 0 ? Math.round(confCost / (1 - config.margenTela / 100) * 100) / 100 : confCost
   const motorVenta = config.margenMotor > 0 ? Math.round(motorCost / (1 - config.margenMotor / 100) * 100) / 100 : motorCost
-  const subtotalVenta = telaVenta + confVenta + motorVenta
+  const persianaVenta = config.margenTela > 0 ? Math.round(persianaCost / (1 - config.margenTela / 100) * 100) / 100 : persianaCost
+  const subtotalVenta = telaVenta + confVenta + motorVenta + persianaVenta
   const instalacion = Math.round(subtotalVenta * config.instPct / 100 * 100) / 100
   const subConInst = subtotalVenta + instalacion
   const descuentoAmt = Math.round(subConInst * (config.descuento || 0) / 100 * 100) / 100
@@ -434,26 +477,37 @@ function CortPdfModal({ items, areas, config, cotName, clientName, projectName, 
                     <React.Fragment key={area.id}>
                       <tr><td colSpan={10} style={{ padding: '8px 4px 4px', fontWeight: 700, color: '#000', fontSize: 10, background: '#f8f8f8', borderBottom: '1px solid #ccc', textTransform: 'uppercase' }}>{area.name}</td></tr>
                       {areaItems.map((item) => {
+                        const isPersiana = item.itemKind === 'PERSIANA'
                         const itemFabricCost = calcFabricCost(item)
                         const itemConfCost = calcConfeccionCost(item)
                         const itemMotorCostMXN = calcMotorCostMXN(item, config.tipoCambio)
+                        const itemPersianaCost = calcPersianaMaterialCost(item)
                         // Apply margins for client-facing PDF (all in MXN)
                         const mT = config.margenTela > 0 ? 1 / (1 - config.margenTela / 100) : 1
                         const mM = config.margenMotor > 0 ? 1 / (1 - config.margenMotor / 100) : 1
                         const itemTelaVenta = Math.round(itemFabricCost * mT * 100) / 100
                         const itemConfVenta = Math.round(itemConfCost * mT * 100) / 100
                         const itemMotorVenta = Math.round(itemMotorCostMXN * mM * 100) / 100
-                        const itemTotalVenta = itemTelaVenta + itemConfVenta + itemMotorVenta
+                        const itemPersianaVenta = Math.round(itemPersianaCost * mT * 100) / 100
+                        const itemTotalVenta = isPersiana
+                          ? (itemPersianaVenta + itemMotorVenta)
+                          : (itemTelaVenta + itemConfVenta + itemMotorVenta)
                         return (
                           <tr key={item.id} style={{ borderBottom: '1px solid #e0e0e0' }}>
                             <td style={{ textAlign: 'right', padding: '4px', color: '#444' }}>{item.ancho.toFixed(2)}</td>
                             <td style={{ textAlign: 'right', padding: '4px', color: '#444' }}>{item.alto.toFixed(2)}</td>
                             <td style={{ textAlign: 'right', padding: '4px', color: '#444' }}>{item.cantidad}</td>
-                            <td style={{ textAlign: 'left', padding: '4px', color: '#444' }}>{item.tipoCierre === 'MANUAL' ? 'Manual' : item.motorSystem || 'Motorizado'}</td>
-                            <td style={{ textAlign: 'left', padding: '4px', color: '#444' }}>{item.tipoTela}</td>
-                            <td style={{ textAlign: 'left', padding: '4px', color: '#444' }}>{item.tipoPliegue}</td>
-                            <td style={{ textAlign: 'right', padding: '4px', color: '#000' }}>{fmtC(itemConfVenta)}</td>
-                            <td style={{ textAlign: 'right', padding: '4px', color: item.telaIncluida ? '#999' : '#000', fontStyle: item.telaIncluida ? 'italic' : 'normal' }}>{item.telaIncluida ? 'CLIENTE' : fmtC(itemTelaVenta)}</td>
+                            <td style={{ textAlign: 'left', padding: '4px', color: '#444' }}>
+                              {isPersiana
+                                ? `Persiana ${item.persianaTipo}${item.tipoCierre === 'MOTORIZADO' ? ' (Mot.)' : ' (Man.)'}`
+                                : (item.tipoCierre === 'MANUAL' ? 'Manual' : item.motorSystem || 'Motorizado')}
+                            </td>
+                            <td style={{ textAlign: 'left', padding: '4px', color: '#444' }}>{isPersiana ? (item.persianaMaterial || '—') : item.tipoTela}</td>
+                            <td style={{ textAlign: 'left', padding: '4px', color: '#444' }}>{isPersiana ? '—' : item.tipoPliegue}</td>
+                            <td style={{ textAlign: 'right', padding: '4px', color: '#000' }}>{isPersiana ? '—' : fmtC(itemConfVenta)}</td>
+                            <td style={{ textAlign: 'right', padding: '4px', color: item.telaIncluida && !isPersiana ? '#999' : '#000', fontStyle: item.telaIncluida && !isPersiana ? 'italic' : 'normal' }}>
+                              {isPersiana ? fmtC(itemPersianaVenta) : (item.telaIncluida ? 'CLIENTE' : fmtC(itemTelaVenta))}
+                            </td>
                             <td style={{ textAlign: 'right', padding: '4px', color: '#000' }}>{itemMotorCostMXN > 0 ? fmtC(itemMotorVenta) : '---'}{item.motorBrand === 'LUTRON' && itemMotorCostMXN > 0 ? <span style={{ fontSize: 7, color: '#888' }}> (USD→MXN)</span> : ''}</td>
                             <td style={{ textAlign: 'right', padding: '4px', color: '#000', fontWeight: 700 }}>{fmtC(itemTotalVenta)}</td>
                           </tr>
@@ -760,44 +814,142 @@ function CortRow({ item, config, onUpdate, onRemove, onShowSomfy, onCopy, showIn
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// PERSIANA ROW
+// ═══════════════════════════════════════════════════════════════════
+function PersianaRow({ item, config, onUpdate, onRemove, onCopy, showInt }: {
+  item: CortItem; config: CortConfig
+  onUpdate: (id: string, field: string, value: any) => void
+  onRemove: (id: string) => void
+  onCopy: (item: CortItem) => void
+  showInt: boolean
+}) {
+  const m2 = (item.ancho || 0) * (item.alto || 0)
+  const matCost = calcPersianaMaterialCost(item)
+  const motorCostMXN = calcMotorCostMXN(item, config.tipoCambio)
+  const motorCostRaw = calcMotorCostRaw(item)
+  const totalLinea = matCost + motorCostMXN
+  // Persiana material uses margenTela (same fabric/material margin)
+  const matConMargen = config.margenTela > 0 ? Math.round(matCost / (1 - config.margenTela / 100) * 100) / 100 : matCost
+  const motorConMargen = config.margenMotor > 0 ? Math.round(motorCostMXN / (1 - config.margenMotor / 100) * 100) / 100 : motorCostMXN
+  const totalConMargen = matConMargen + motorConMargen
+
+  return (
+    <tr>
+      <td style={S.tdR}><input type="number" defaultValue={item.ancho || ''} step={0.01} placeholder="0" onBlur={e => onUpdate(item.id, 'ancho', parseFloat(e.target.value) || 0)} style={{ ...S.input, width: 60 }} /></td>
+      <td style={S.tdR}><input type="number" defaultValue={item.alto || ''} step={0.01} placeholder="0" onBlur={e => onUpdate(item.id, 'alto', parseFloat(e.target.value) || 0)} style={{ ...S.input, width: 60 }} /></td>
+      <td style={S.tdR}><input type="number" defaultValue={item.cantidad} min={1} onBlur={e => onUpdate(item.id, 'cantidad', parseInt(e.target.value) || 1)} style={{ ...S.input, width: 45 }} /></td>
+      <td style={S.td}>
+        <select value={item.persianaTipo} onChange={e => onUpdate(item.id, 'persianaTipo', e.target.value)} style={{ ...S.select, width: 100 }}>
+          <option value="ROLLER">Roller</option>
+          <option value="VENECIANA">Veneciana</option>
+          <option value="ROMANA">Romana</option>
+        </select>
+      </td>
+      <td style={S.td}>
+        <input type="text" defaultValue={item.persianaMaterial || ''} placeholder="Blackout / Madera 50mm…" onBlur={e => onUpdate(item.id, 'persianaMaterial', e.target.value)} style={{ ...S.input, width: 130, textAlign: 'left' }} />
+      </td>
+      <td style={S.td}>
+        <select value={item.tipoCierre} onChange={e => {
+          const v = e.target.value as 'MANUAL' | 'MOTORIZADO'
+          onUpdate(item.id, 'tipoCierre', v)
+          if (v === 'MANUAL') {
+            onUpdate(item.id, 'motorBrand', 'NINGUNO')
+            onUpdate(item.id, 'motorSystem', '')
+          }
+        }} style={{ ...S.select, width: 95 }}>
+          <option value="MANUAL">Manual</option>
+          <option value="MOTORIZADO">Motorizado</option>
+        </select>
+      </td>
+      <td style={S.td}>
+        {item.tipoCierre === 'MOTORIZADO' ? (
+          <select value={item.motorBrand} onChange={e => onUpdate(item.id, 'motorBrand', e.target.value)} style={{ ...S.select, width: 85 }}>
+            <option value="NINGUNO">--</option>
+            <option value="SOMFY">Somfy</option>
+            <option value="LUTRON">Lutron</option>
+          </select>
+        ) : <span style={{ color: '#444' }}>--</span>}
+      </td>
+      <td style={S.td}>
+        {item.tipoCierre === 'MOTORIZADO' && item.motorBrand !== 'NINGUNO' ? (
+          <input type="text" defaultValue={item.motorSystem || ''} placeholder="Sonesse 30 / Sivoia…" onBlur={e => onUpdate(item.id, 'motorSystem', e.target.value)} style={{ ...S.input, width: 110, textAlign: 'left' }} />
+        ) : <span style={{ color: '#444' }}>--</span>}
+      </td>
+      <td style={S.tdR}>
+        <input type="number" defaultValue={item.persianaPrecioPorM2 || ''} step={0.01} placeholder="0" onBlur={e => onUpdate(item.id, 'persianaPrecioPorM2', parseFloat(e.target.value) || 0)} style={{ ...S.input, width: 80 }} />
+      </td>
+      <td style={S.tdR}>{m2.toFixed(2)}</td>
+      <td style={{ ...S.tdR, color: '#ccc', fontWeight: 600 }}>${matCost.toFixed(2)}</td>
+      <td style={S.tdR}>
+        {item.tipoCierre === 'MOTORIZADO' && item.motorBrand !== 'NINGUNO' ? (
+          item.motorBrand === 'LUTRON' ? (
+            <input type="number" defaultValue={item.precioMotor || ''} step={0.01} placeholder="0 USD" onBlur={e => onUpdate(item.id, 'precioMotor', parseFloat(e.target.value) || 0)} style={{ ...S.input, width: 75 }} />
+          ) : (
+            <input type="number" defaultValue={item.precioMotor || ''} step={0.01} placeholder="0 MXN" onBlur={e => onUpdate(item.id, 'precioMotor', parseFloat(e.target.value) || 0)} style={{ ...S.input, width: 75 }} />
+          )
+        ) : <span style={{ color: '#444' }}>--</span>}
+        {item.tipoCierre === 'MOTORIZADO' && item.motorBrand === 'LUTRON' && (
+          <div style={{ fontSize: 8, color: '#14B8A6' }}>= ${motorCostRaw.toFixed(2)} USD × {config.tipoCambio}</div>
+        )}
+      </td>
+      <td style={{ ...S.tdM, color: '#57FF9A' }}>${(showInt ? totalLinea : totalConMargen).toFixed(2)}</td>
+      {showInt && <td style={{ ...S.tdM, color: '#67E8F9' }}>${totalConMargen.toFixed(2)}</td>}
+      <td style={{ ...S.td, width: 28, display: 'flex', gap: 4 }}>
+        <button onClick={() => onCopy(item)} title="Copiar a otra área" style={{ background: 'none', border: 'none', color: '#444', cursor: 'pointer' }}><Copy size={12} /></button>
+        <button onClick={() => onRemove(item.id)} title="Eliminar" style={{ background: 'none', border: 'none', color: '#444', cursor: 'pointer' }}><Trash2 size={12} /></button>
+      </td>
+    </tr>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // AREA BLOCK (Room)
 // ═══════════════════════════════════════════════════════════════════
-function CortAreaBlock({ area, items, config, onToggle, onUpdate, onRemove, onAdd, onShowSomfy, onCopy, showInt }: {
+function CortAreaBlock({ area, items, config, onToggle, onUpdate, onRemove, onAddCortina, onAddPersiana, onShowSomfy, onCopy, showInt }: {
   area: CortArea; items: CortItem[]; config: CortConfig
   onToggle: () => void
   onUpdate: (id: string, field: string, value: any) => void
   onRemove: (id: string) => void
-  onAdd: () => void
+  onAddCortina: () => void
+  onAddPersiana: () => void
   onShowSomfy: (item: CortItem) => void
   onCopy: (item: CortItem) => void
   showInt: boolean
 }) {
   const areaItems = items.filter(i => i.areaId === area.id)
+  const cortinaItems = areaItems.filter(i => i.itemKind !== 'PERSIANA')
+  const persianaItems = areaItems.filter(i => i.itemKind === 'PERSIANA')
 
   // Totals (all MXN — Lutron motors converted via tipoCambio)
-  let telaCost = 0, confCost = 0, motorCost = 0
+  let telaCost = 0, confCost = 0, motorCost = 0, persianaCost = 0
   areaItems.forEach(item => {
     telaCost += calcFabricCost(item)
     confCost += calcConfeccionCost(item)
     motorCost += calcMotorCostMXN(item, config.tipoCambio)
+    persianaCost += calcPersianaMaterialCost(item)
   })
-  const areaTotal = telaCost + confCost + motorCost
+  const areaTotal = telaCost + confCost + motorCost + persianaCost
   // With margin
   const telaConMargen = config.margenTela > 0 ? Math.round(telaCost / (1 - config.margenTela / 100) * 100) / 100 : telaCost
   const confConMargen = config.margenTela > 0 ? Math.round(confCost / (1 - config.margenTela / 100) * 100) / 100 : confCost
   const motorConMargen = config.margenMotor > 0 ? Math.round(motorCost / (1 - config.margenMotor / 100) * 100) / 100 : motorCost
-  const areaTotalVenta = telaConMargen + confConMargen + motorConMargen
+  const persianaConMargen = config.margenTela > 0 ? Math.round(persianaCost / (1 - config.margenTela / 100) * 100) / 100 : persianaCost
+  const areaTotalVenta = telaConMargen + confConMargen + motorConMargen + persianaConMargen
 
   return (
     <div style={{ marginBottom: 14 }}>
       <div onClick={onToggle} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 14px', cursor: 'pointer', background: '#1a1a1a', borderRadius: 10, borderLeft: '3px solid #67E8F9' }}>
         {area.collapsed ? <ChevronRight size={16} color="#67E8F9" /> : <ChevronDown size={16} color="#67E8F9" />}
         <span style={{ fontSize: 14, fontWeight: 700, color: '#fff', flex: 1, textTransform: 'uppercase' as const }}>{area.name}</span>
-        <span style={{ fontSize: 10, color: '#555' }}>{areaItems.length} cortina(s)</span>
+        <span style={{ fontSize: 10, color: '#555' }}>
+          {cortinaItems.length} cortina(s){persianaItems.length > 0 ? ` · ${persianaItems.length} persiana(s)` : ''}
+        </span>
         <span style={{ fontSize: 14, fontWeight: 700, color: '#67E8F9' }}>${(showInt ? areaTotal : areaTotalVenta).toFixed(2)}</span>
       </div>
       {!area.collapsed && (
         <div style={{ paddingLeft: 8, paddingTop: 6 }}>
+          {/* ───────── CORTINAS sub-section ───────── */}
+          <div style={{ fontSize: 9, fontWeight: 700, color: '#67E8F9', letterSpacing: '0.08em', padding: '4px 2px 2px' }}>CORTINAS</div>
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1200 }}>
               <thead><tr style={{ background: '#0e0e0e' }}>
@@ -822,20 +974,56 @@ function CortAreaBlock({ area, items, config, onToggle, onUpdate, onRemove, onAd
                 <th style={S.th}></th>
               </tr></thead>
               <tbody>
-                {areaItems.map(item => (
+                {cortinaItems.map(item => (
                   <CortRow key={item.id} item={item} config={config} onUpdate={onUpdate} onRemove={onRemove} onShowSomfy={onShowSomfy} onCopy={onCopy} showInt={showInt} />
                 ))}
               </tbody>
             </table>
           </div>
+          <div style={{ padding: '6px 8px', marginTop: 4 }}>
+            <Btn size="sm" onClick={onAddCortina}><Plus size={12} /> Cortina</Btn>
+          </div>
+
+          {/* ───────── PERSIANAS sub-section ───────── */}
+          <div style={{ fontSize: 9, fontWeight: 700, color: '#C084FC', letterSpacing: '0.08em', padding: '10px 2px 2px', borderTop: persianaItems.length > 0 ? '1px solid #222' : undefined, marginTop: persianaItems.length > 0 ? 6 : 0 }}>PERSIANAS</div>
+          {persianaItems.length > 0 && (
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1100 }}>
+                <thead><tr style={{ background: '#0e0e0e' }}>
+                  <th style={{ ...S.th, textAlign: 'right' }}>Ancho</th>
+                  <th style={{ ...S.th, textAlign: 'right' }}>Alto</th>
+                  <th style={{ ...S.th, textAlign: 'right' }}>Cant</th>
+                  <th style={S.th}>Tipo</th>
+                  <th style={S.th}>Material</th>
+                  <th style={S.th}>Cierre</th>
+                  <th style={S.th}>Motor</th>
+                  <th style={S.th}>Sistema</th>
+                  <th style={{ ...S.th, textAlign: 'right' }}>Precio/m²<br/><span style={{ fontSize: 8, color: '#555' }}>MXN</span></th>
+                  <th style={{ ...S.th, textAlign: 'right' }}>m²</th>
+                  <th style={{ ...S.th, textAlign: 'right' }}>$ Material<br/><span style={{ fontSize: 8, color: '#555' }}>MXN</span></th>
+                  <th style={{ ...S.th, textAlign: 'right' }}>Costo Motor</th>
+                  <th style={{ ...S.th, textAlign: 'right', color: '#57FF9A' }}>{showInt ? 'Costo' : 'Total'}</th>
+                  {showInt && <th style={{ ...S.th, textAlign: 'right', color: '#67E8F9' }}>Venta</th>}
+                  <th style={S.th}></th>
+                </tr></thead>
+                <tbody>
+                  {persianaItems.map(item => (
+                    <PersianaRow key={item.id} item={item} config={config} onUpdate={onUpdate} onRemove={onRemove} onCopy={onCopy} showInt={showInt} />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 8px', marginTop: 4 }}>
-            <Btn size="sm" onClick={onAdd}><Plus size={12} /> Cortina</Btn>
+            <Btn size="sm" onClick={onAddPersiana}><Plus size={12} /> Persiana</Btn>
             <div style={{ fontSize: 10, color: '#555' }}>
-              Tela <span style={{ fontSize: 8, color: '#444' }}>MXN</span>: <span style={{ color: '#ccc', fontWeight: 600 }}>${(showInt ? telaCost : telaConMargen).toFixed(2)}</span>
+              Tela: <span style={{ color: '#ccc', fontWeight: 600 }}>${(showInt ? telaCost : telaConMargen).toFixed(2)}</span>
               <span style={{ margin: '0 6px' }}>|</span>
-              Conf <span style={{ fontSize: 8, color: '#444' }}>MXN</span>: <span style={{ color: '#ccc', fontWeight: 600 }}>${(showInt ? confCost : confConMargen).toFixed(2)}</span>
+              Conf: <span style={{ color: '#ccc', fontWeight: 600 }}>${(showInt ? confCost : confConMargen).toFixed(2)}</span>
               <span style={{ margin: '0 6px' }}>|</span>
-              Motor <span style={{ fontSize: 8, color: '#444' }}>MXN</span>: <span style={{ color: '#14B8A6', fontWeight: 600 }}>${(showInt ? motorCost : motorConMargen).toFixed(2)}</span>
+              Persianas: <span style={{ color: '#C084FC', fontWeight: 600 }}>${(showInt ? persianaCost : persianaConMargen).toFixed(2)}</span>
+              <span style={{ margin: '0 6px' }}>|</span>
+              Motor: <span style={{ color: '#14B8A6', fontWeight: 600 }}>${(showInt ? motorCost : motorConMargen).toFixed(2)}</span>
               <span style={{ margin: '0 6px' }}>|</span>
               <span style={{ fontWeight: 700, color: '#67E8F9' }}>${(showInt ? areaTotal : areaTotalVenta).toFixed(2)} MXN</span>
             </div>
@@ -853,17 +1041,19 @@ function CortSummary({ items, areas, config, showInt, onConfigChange }: {
   items: CortItem[]; areas: CortArea[]; config: CortConfig; showInt: boolean
   onConfigChange: (field: string, value: number) => void
 }) {
-  let telaCost = 0, confCost = 0, motorCost = 0
+  let telaCost = 0, confCost = 0, motorCost = 0, persianaCost = 0
   items.forEach(item => {
     telaCost += calcFabricCost(item)
     confCost += calcConfeccionCost(item)
     motorCost += calcMotorCostMXN(item, config.tipoCambio)
+    persianaCost += calcPersianaMaterialCost(item)
   })
 
   const telaVenta = config.margenTela > 0 ? Math.round(telaCost / (1 - config.margenTela / 100) * 100) / 100 : telaCost
   const confVenta = config.margenTela > 0 ? Math.round(confCost / (1 - config.margenTela / 100) * 100) / 100 : confCost
   const motorVenta = config.margenMotor > 0 ? Math.round(motorCost / (1 - config.margenMotor / 100) * 100) / 100 : motorCost
-  const subtotalVenta = telaVenta + confVenta + motorVenta
+  const persianaVenta = config.margenTela > 0 ? Math.round(persianaCost / (1 - config.margenTela / 100) * 100) / 100 : persianaCost
+  const subtotalVenta = telaVenta + confVenta + motorVenta + persianaVenta
   const instalacion = Math.round(subtotalVenta * config.instPct / 100 * 100) / 100
   const subConInst = subtotalVenta + instalacion
   const descuentoAmt = Math.round(subConInst * (config.descuento || 0) / 100 * 100) / 100
@@ -872,22 +1062,28 @@ function CortSummary({ items, areas, config, showInt, onConfigChange }: {
   const total = subConDesc + iva
 
   // Cost side
-  const subtotalCost = telaCost + confCost + motorCost
+  const subtotalCost = telaCost + confCost + motorCost + persianaCost
   const utilidadTela = telaVenta - telaCost
   const utilidadConf = confVenta - confCost
   const utilidadMotor = motorVenta - motorCost
-  const utilidadTotal = utilidadTela + utilidadConf + utilidadMotor
+  const utilidadPersiana = persianaVenta - persianaCost
+  const utilidadTotal = utilidadTela + utilidadConf + utilidadMotor + utilidadPersiana
   const margenReal = subtotalVenta > 0 ? Math.round(utilidadTotal / subtotalVenta * 100) : 0
 
-  // Fabric summary
+  // Fabric summary (cortinas only)
   const fabricByType: Record<string, number> = {}
   items.forEach(item => {
+    if (item.itemKind === 'PERSIANA') return
     const ml = calcFabricML(item) * item.cantidad
     if (ml > 0) {
       fabricByType[item.tipoTela] = (fabricByType[item.tipoTela] || 0) + ml
     }
   })
 
+  // Cortina vs persiana counts
+  const cortinaCount = items.filter(i => i.itemKind !== 'PERSIANA').reduce((s, i) => s + i.cantidad, 0)
+  const persianaCount = items.filter(i => i.itemKind === 'PERSIANA').reduce((s, i) => s + i.cantidad, 0)
+  // Manual/Motorizada split — across both cortinas and persianas
   const motorCount = items.filter(i => i.tipoCierre === 'MOTORIZADO').reduce((s, i) => s + i.cantidad, 0)
   const manualCount = items.filter(i => i.tipoCierre === 'MANUAL').reduce((s, i) => s + i.cantidad, 0)
 
@@ -931,13 +1127,19 @@ function CortSummary({ items, areas, config, showInt, onConfigChange }: {
       <div style={{ background: '#141414', border: '1px solid #222', borderRadius: 12, padding: 14, marginBottom: 10 }}>
         <div style={{ fontSize: 10, fontWeight: 600, color: '#555', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Resumen</div>
         {([
-          { l: 'PERSIANAS MANUALES', v: manualCount, isCount: true },
-          { l: 'PERSIANAS MOTORIZADAS', v: motorCount, isCount: true },
+          { l: 'CORTINAS (total)', v: cortinaCount, isCount: true },
+          { l: 'PERSIANAS (total)', v: persianaCount, isCount: true },
+          { l: 'MANUALES', v: manualCount, isCount: true },
+          { l: 'MOTORIZADAS', v: motorCount, isCount: true },
           { l: 'TELA (costo)', v: telaCost, b: false },
           { l: 'TELA (venta)', v: telaVenta, b: true },
           { l: 'CONFECCION (costo)', v: confCost, b: false },
           { l: 'CONFECCION (venta)', v: confVenta, b: true },
           { l: 'TELAS CONFECCIONADAS', v: telaVenta + confVenta, b: true },
+          ...(persianaCount > 0 ? [
+            { l: 'PERSIANAS MATERIAL (costo)', v: persianaCost, b: false },
+            { l: 'PERSIANAS MATERIAL (venta)', v: persianaVenta, b: true },
+          ] : []),
           { l: 'MOTORIZACION (costo)', v: motorCost, b: false },
           { l: 'MOTORIZACION (venta)', v: motorVenta, b: true },
           { l: 'SUBTOTAL', v: subtotalVenta, b: true },
@@ -1081,6 +1283,7 @@ export default function CotEditorCortinas({ cotId, onBack, onSwitchVersion }: { 
           ancho: meta.ancho || 0,
           alto: meta.alto || 0,
           cantidad: it.quantity || 1,
+          itemKind: (meta.itemKind === 'PERSIANA' ? 'PERSIANA' : 'CORTINA') as ItemKind,
           tipoCierre: meta.tipoCierre || 'MANUAL',
           motorBrand: meta.motorBrand || 'NINGUNO',
           motorSystem: meta.motorSystem || '',
@@ -1097,6 +1300,9 @@ export default function CotEditorCortinas({ cotId, onBack, onSwitchVersion }: { 
           precioConfeccion: meta.precioConfeccion || 0,
           telaIncluida: meta.telaIncluida || false,
           precioMotor: meta.precioMotor || 0,
+          persianaTipo: (meta.persianaTipo as PersianaTipo) || 'ROLLER',
+          persianaMaterial: meta.persianaMaterial || '',
+          persianaPrecioPorM2: meta.persianaPrecioPorM2 || 0,
           order: it.order_index || 0,
         }
       }))
@@ -1121,6 +1327,7 @@ export default function CotEditorCortinas({ cotId, onBack, onSwitchVersion }: { 
 
   function itemToDbNotes(item: CortItem): string {
     return JSON.stringify({
+      itemKind: item.itemKind,
       ancho: item.ancho, alto: item.alto,
       tipoCierre: item.tipoCierre, motorBrand: item.motorBrand, motorSystem: item.motorSystem,
       somfyHojas: item.somfyHojas, somfyPliegue: item.somfyPliegue,
@@ -1128,25 +1335,32 @@ export default function CotEditorCortinas({ cotId, onBack, onSwitchVersion }: { 
       somfyAmrado: item.somfyAmrado, somfyCurveado: item.somfyCurveado,
       tipoTela: item.tipoTela, anchoTela: item.anchoTela, tipoPliegue: item.tipoPliegue,
       precioTelaPorML: item.precioTelaPorML, precioConfeccion: item.precioConfeccion, telaIncluida: item.telaIncluida, precioMotor: item.precioMotor,
+      persianaTipo: item.persianaTipo, persianaMaterial: item.persianaMaterial, persianaPrecioPorM2: item.persianaPrecioPorM2,
     })
   }
 
   function calcItemTotal(item: CortItem): number {
+    if (item.itemKind === 'PERSIANA') {
+      return calcPersianaMaterialCost(item) + calcMotorCostMXN(item, config.tipoCambio)
+    }
     return calcFabricCost(item) + calcConfeccionCost(item) + calcMotorCostMXN(item, config.tipoCambio)
   }
 
   // ── Total for header ──
   const grandTotal = useMemo(() => {
-    let telaCost = 0, confCost = 0, motorCost = 0
+    let telaCost = 0, confCost = 0, motorCost = 0, persianaCost = 0
     items.forEach(item => {
       telaCost += calcFabricCost(item)
       confCost += calcConfeccionCost(item)
       motorCost += calcMotorCostMXN(item, config.tipoCambio)
+      persianaCost += calcPersianaMaterialCost(item)
     })
     const telaVenta = config.margenTela > 0 ? Math.round(telaCost / (1 - config.margenTela / 100) * 100) / 100 : telaCost
     const confVenta = config.margenTela > 0 ? Math.round(confCost / (1 - config.margenTela / 100) * 100) / 100 : confCost
     const motorVenta = config.margenMotor > 0 ? Math.round(motorCost / (1 - config.margenMotor / 100) * 100) / 100 : motorCost
-    const sub = telaVenta + confVenta + motorVenta
+    // Persiana material uses the same fabric margin (margenTela) for simplicity
+    const persianaVenta = config.margenTela > 0 ? Math.round(persianaCost / (1 - config.margenTela / 100) * 100) / 100 : persianaCost
+    const sub = telaVenta + confVenta + motorVenta + persianaVenta
     const inst = sub * config.instPct / 100
     const subInst = sub + inst
     const descAmt = subInst * (config.descuento || 0) / 100
@@ -1190,9 +1404,9 @@ export default function CotEditorCortinas({ cotId, onBack, onSwitchVersion }: { 
     })
   }
 
-  async function addItem(areaId: string) {
+  async function addItem(areaId: string, kind: ItemKind = 'CORTINA') {
     const order = items.filter(i => i.areaId === areaId).length
-    const newItem = defaultItem(areaId, order)
+    const newItem = kind === 'PERSIANA' ? defaultPersiana(areaId, order) : defaultItem(areaId, order)
     // Insert into DB
     const { data, error } = await supabase.from('quotation_items').insert({
       quotation_id: cotId, area_id: areaId,
@@ -1309,7 +1523,8 @@ export default function CotEditorCortinas({ cotId, onBack, onSwitchVersion }: { 
             <CortAreaBlock key={area.id} area={area} items={items} config={config}
               onToggle={() => toggleArea(area.id)}
               onUpdate={updateItem} onRemove={removeItem}
-              onAdd={() => addItem(area.id)}
+              onAddCortina={() => addItem(area.id, 'CORTINA')}
+              onAddPersiana={() => addItem(area.id, 'PERSIANA')}
               onShowSomfy={setSomfyDetail}
               onCopy={setCopyingItem}
               showInt={showInt} />
