@@ -1249,9 +1249,10 @@ interface AIExtraCort {
   total: number
 }
 
-function AIImportModalCortinas({ cotId, areas, onClose, onImported }: {
+function AIImportModalCortinas({ cotId, areas, config, onClose, onImported }: {
   cotId: string
   areas: CortArea[]
+  config: CortConfig
   onClose: () => void
   onImported: () => void
 }) {
@@ -1266,6 +1267,9 @@ function AIImportModalCortinas({ cotId, areas, onClose, onImported }: {
   const [progress, setProgress] = useState<string>('')
   const [insertedCount, setInsertedCount] = useState(0)
   const [isDragging, setIsDragging] = useState(false)
+  // Precios en el archivo son venta (con margen al cliente — default, lo más común)
+  // o costo (interno, sin margen). Si venta, back-calculamos costo = total × (1 − margenTela/100).
+  const [priceMode, setPriceMode] = useState<'venta' | 'costo'>('venta')
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   function fileToBase64(file: File): Promise<string> {
@@ -1405,6 +1409,12 @@ function AIImportModalCortinas({ cotId, areas, onClose, onImported }: {
       // 2) Insert items (cortinas/persianas)
       setProgress('Insertando productos...')
       let inserted = 0
+      // If the PDF has VENTA prices (default), back-calculate cost so that when the
+      // editor applies margenTela on top, totals match the PDF exactly.
+      // factor = (1 − margenTela/100): a 40% margin gives factor = 0.6
+      const costFactor = priceMode === 'venta'
+        ? Math.max(0.01, 1 - (config.margenTela || 0) / 100)
+        : 1
       for (const it of items) {
         const areaKey = (it.area || 'GENERAL').toUpperCase().trim()
         const areaId = areaCache[areaKey]
@@ -1412,7 +1422,8 @@ function AIImportModalCortinas({ cotId, areas, onClose, onImported }: {
 
         // Back-calculate precio per m² from totalVenta (since PDF only has total per row)
         const m2 = it.ancho * it.alto * it.cantidad
-        const persianaPrecioPorM2 = (it.itemKind === 'PERSIANA' && m2 > 0) ? Math.round((it.totalVenta / m2) * 100) / 100 : 0
+        const baseTotal = it.totalVenta * costFactor  // becomes cost basis after margin reversal
+        const persianaPrecioPorM2 = (it.itemKind === 'PERSIANA' && m2 > 0) ? Math.round((baseTotal / m2) * 100) / 100 : 0
 
         // Build CortItem-shaped note JSON
         const noteObj: any = {
@@ -1445,6 +1456,7 @@ function AIImportModalCortinas({ cotId, areas, onClose, onImported }: {
         if (!extrasAreaId) continue
         const totalEx = ex.total || (ex.precioUnitario * ex.cantidad)
         const m2 = 1 * 1 * ex.cantidad
+        const baseTotalEx = totalEx * costFactor
         const noteObj: any = {
           itemKind: 'PERSIANA',
           ancho: 1, alto: 1,
@@ -1453,7 +1465,7 @@ function AIImportModalCortinas({ cotId, areas, onClose, onImported }: {
           somfySoportePared: false, somfyAmrado: false, somfyCurveado: false,
           tipoTela: 'TRASLUCIDA', anchoTela: 0, tipoPliegue: 'ONDA PERFECTA',
           precioTelaPorML: 0, precioConfeccion: 0, telaIncluida: false, precioMotor: 0,
-          persianaTipo: 'ROLLER', persianaMaterial: ex.nombre, persianaPrecioPorM2: m2 > 0 ? Math.round((totalEx / m2) * 100) / 100 : 0,
+          persianaTipo: 'ROLLER', persianaMaterial: ex.nombre, persianaPrecioPorM2: m2 > 0 ? Math.round((baseTotalEx / m2) * 100) / 100 : 0,
         }
         const { error: exErr } = await supabase.from('quotation_items').insert({
           quotation_id: cotId, area_id: extrasAreaId,
@@ -1529,11 +1541,50 @@ function AIImportModalCortinas({ cotId, areas, onClose, onImported }: {
               </div>
             </div>
             <input ref={fileInputRef} type="file" accept=".pdf,.xlsx,.xls,.csv,.tsv,.txt" style={{ display: 'none' }} onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f) }} />
+
+            {/* Toggle: ¿los precios del archivo son venta o costo? */}
+            <div style={{ marginTop: 16, padding: 12, background: '#0e0e0e', border: '1px solid #222', borderRadius: 8 }}>
+              <div style={{ fontSize: 10, fontWeight: 600, color: '#888', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Precios en el archivo</div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button
+                  onClick={() => setPriceMode('venta')}
+                  style={{
+                    flex: 1, padding: '8px 10px', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit',
+                    border: '1px solid ' + (priceMode === 'venta' ? '#A855F7' : '#333'),
+                    background: priceMode === 'venta' ? '#A855F722' : 'transparent',
+                    color: priceMode === 'venta' ? '#C084FC' : '#888',
+                    textAlign: 'left',
+                  }}
+                >
+                  <div style={{ fontSize: 11, fontWeight: 700 }}>Venta (cliente)</div>
+                  <div style={{ fontSize: 9, marginTop: 2, opacity: 0.85 }}>El total ya incluye margen — back-calcular costo con margenTela {config.margenTela}%</div>
+                </button>
+                <button
+                  onClick={() => setPriceMode('costo')}
+                  style={{
+                    flex: 1, padding: '8px 10px', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit',
+                    border: '1px solid ' + (priceMode === 'costo' ? '#A855F7' : '#333'),
+                    background: priceMode === 'costo' ? '#A855F722' : 'transparent',
+                    color: priceMode === 'costo' ? '#C084FC' : '#888',
+                    textAlign: 'left',
+                  }}
+                >
+                  <div style={{ fontSize: 11, fontWeight: 700 }}>Costo (interno)</div>
+                  <div style={{ fontSize: 9, marginTop: 2, opacity: 0.85 }}>Los precios son costos sin margen — importar tal cual</div>
+                </button>
+              </div>
+              {priceMode === 'venta' && config.margenTela > 0 && (
+                <div style={{ marginTop: 6, fontSize: 9, color: '#666' }}>
+                  Costo aplicado = total × {(1 - config.margenTela / 100).toFixed(2)} (con margen {config.margenTela}% de la cotización)
+                </div>
+              )}
+            </div>
+
             <div style={{ marginTop: 14, fontSize: 10, color: '#666', lineHeight: 1.6 }}>
               <div style={{ fontWeight: 600, color: '#888', marginBottom: 4 }}>El importador extrae:</div>
               • Items de cortinas/persianas con área, dimensiones, motor, tela, total<br/>
               • Extras (controles, interfaces) van a un área "EXTRAS" separada<br/>
-              • Precio/m² se back-calcula desde el total (puedes ajustar después)
+              • Precio/m² se back-calcula desde el total + el modo elegido arriba
             </div>
           </div>
         )}
@@ -1970,7 +2021,7 @@ export default function CotEditorCortinas({ cotId, onBack, onSwitchVersion }: { 
 
       {/* PDF proposal modal */}
       {showPdf && <CortPdfModal items={items} areas={areas} config={config} cotName={cotName} clientName={clientName} projectName={projectName} onClose={() => setShowPdf(false)} />}
-      {showAIImport && <AIImportModalCortinas cotId={cotId} areas={areas} onClose={() => setShowAIImport(false)} onImported={() => { setShowAIImport(false); load() }} />}
+      {showAIImport && <AIImportModalCortinas cotId={cotId} areas={areas} config={config} onClose={() => setShowAIImport(false)} onImported={() => { setShowAIImport(false); load() }} />}
 
       {/* Area picker modal */}
       {showAreaPicker && <AreaPickerModal existingNames={areas.map(a => a.name)} onSelect={name => { addAreaByName(name); setShowAreaPicker(false) }} onClose={() => setShowAreaPicker(false)} />}
