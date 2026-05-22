@@ -2404,7 +2404,10 @@ function TabPlaneacion({ obras, instaladores }: { obras: ObraData[]; instaladore
   const dayLabels = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb']
   const weekLabel = `${weekDays[0].toLocaleDateString('es-MX', { day: 'numeric', month: 'short' })} — ${weekDays[5].toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: 'numeric' })}`
 
-  const obrasActivas = obras.filter(o => o.status === 'en_ejecucion')
+  // Planeable = obras que aún se pueden trabajar (no completadas).
+  // Incluye entrega_pendiente (preparación previa) + en_ejecucion + pausada
+  // (pausadas pueden reanudarse). Solo completadas se excluyen.
+  const obrasActivas = obras.filter(o => o.status !== 'completada')
   const obraColors = ['#57FF9A', '#3B82F6', '#F59E0B', '#C084FC', '#EF4444', '#06B6D4', '#EC4899', '#FF6B35']
 
   // Get assignments for an installer on a day
@@ -2644,7 +2647,25 @@ Responde SOLO con un JSON, sin markdown, sin explicación:
                             <select value={newTask.obra_id} onChange={e => setNewTask(t => ({ ...t, obra_id: e.target.value }))}
                               style={{ ...inputStyle, fontSize: 10, padding: '3px 4px', marginBottom: 3 }}>
                               <option value="">Obra...</option>
-                              {obrasActivas.map(o => <option key={o.id} value={o.id}>{o.nombre}</option>)}
+                              {(() => {
+                                const instId = selectedCell?.instId
+                                const asignadas = obrasActivas.filter(o => instId && (o.instaladores_ids || []).includes(instId))
+                                const otras = obrasActivas.filter(o => !instId || !(o.instaladores_ids || []).includes(instId))
+                                return (
+                                  <>
+                                    {asignadas.length > 0 && (
+                                      <optgroup label="✓ Asignadas a este instalador">
+                                        {asignadas.map(o => <option key={o.id} value={o.id}>{o.nombre}</option>)}
+                                      </optgroup>
+                                    )}
+                                    {otras.length > 0 && (
+                                      <optgroup label={asignadas.length > 0 ? 'Otras obras' : 'Todas las obras'}>
+                                        {otras.map(o => <option key={o.id} value={o.id}>{o.nombre}</option>)}
+                                      </optgroup>
+                                    )}
+                                  </>
+                                )
+                              })()}
                             </select>
                             <input value={newTask.tarea} onChange={e => setNewTask(t => ({ ...t, tarea: e.target.value }))}
                               placeholder="Tarea..."
@@ -2668,7 +2689,7 @@ Responde SOLO con un JSON, sin markdown, sin explicación:
 
       {obrasActivas.length === 0 && (
         <div style={{ marginTop: 20 }}>
-          <EmptyState message="No hay obras en ejecución. La planeación semanal se genera a partir de obras activas con actividades pendientes." />
+          <EmptyState message="No hay obras planeables. Crea una obra desde la pestaña Obras para empezar a planearla (incluye obras en entrega pendiente, en ejecución y pausadas)." />
         </div>
       )}
     </div>
