@@ -3381,13 +3381,15 @@ function SubExtras({ obra }: { obra: ObraData }) {
         }).eq('id', ex.id)
       }
 
-      // 4. Update cotizacion total
-      await supabase.from('quotations').update({ total: totalAdendum }).eq('id', cotizacionId)
+      // 4. Update cotizacion total with IVA applied (adendums are ESP cotizaciones;
+      // dashboard expects ESP totals to include IVA — commits 3bc54d3 / 7a7e3e3).
+      const totalAdendumConIva = Math.round(totalAdendum * 1.16 * 100) / 100
+      await supabase.from('quotations').update({ total: totalAdendumConIva }).eq('id', cotizacionId)
 
       // 5. Refresh local state
       setExtras(prev => prev.map(e => selected.has(e.id) ? { ...e, status: 'cotizado', cotizacion_adendum_id: cotizacionId } : e))
       setSelected(new Set())
-      alert(`Cotización adendum creada con ${selectedExtras.length} items. Total: $${totalAdendum.toFixed(2)}. Puedes editarla desde el módulo de Cotizaciones.`)
+      alert(`Cotización adendum creada con ${selectedExtras.length} items. Total: $${totalAdendumConIva.toFixed(2)} (con IVA 16%). Puedes editarla desde el módulo de Cotizaciones.`)
     } catch (err: any) {
       console.error('Error generando adendum:', err)
       setError('Error al generar adendum: ' + (err?.message || String(err)))

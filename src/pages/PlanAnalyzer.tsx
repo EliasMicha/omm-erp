@@ -376,8 +376,11 @@ export default function PlanAnalyzer({ onBack }: { onBack: () => void }) {
         totalGeneral += areaSubtotal
       }
 
-      // 4. Update quotation total
-      await supabase.from('quotations').update({ total: totalGeneral }).eq('id', quot.id)
+      // 4. Update quotation total with IVA applied (PlanAnalyzer creates ESP cotizaciones;
+      // dashboard expects ESP totals to include IVA per contract — see Cotizaciones.tsx
+      // getTotalConIva and commits 3bc54d3 / 7a7e3e3).
+      const totalConIva = Math.round(totalGeneral * 1.16 * 100) / 100
+      await supabase.from('quotations').update({ total: totalConIva }).eq('id', quot.id)
 
       // Done — go back to cotizaciones
       onBack()

@@ -347,10 +347,17 @@ Devuelve SOLO un JSON array válido sin markdown ni explicaciones:`
         }
       }
 
-      // Update quotation total
-      await supabase.from('quotations').update({ total }).eq('id', cotData.id)
+      // Update quotation total — respect IVA contract:
+      // ESP/Cort/Ilum/Proy editors save quotations.total WITH IVA already applied.
+      // Elec saves raw subtotal. Import must match or the dashboard shows the wrong
+      // total until the user opens the editor (which re-saves with correct value).
+      const sp = q.specialty || 'esp'
+      const totalToSave = sp === 'elec'
+        ? total
+        : Math.round(total * 1.16 * 100) / 100
+      await supabase.from('quotations').update({ total: totalToSave }).eq('id', cotData.id)
 
-      created.push({ id: cotData.id, specialty: q.specialty || 'esp', name: q.name })
+      created.push({ id: cotData.id, specialty: sp, name: q.name })
     }
 
     setImportedIds(created)
