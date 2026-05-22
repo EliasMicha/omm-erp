@@ -24,7 +24,7 @@ interface CortConfig {
   descuento: number      // discount % (default 0)
 }
 
-type ItemKind = 'CORTINA' | 'PERSIANA'
+type ItemKind = 'CORTINA' | 'PERSIANA' | 'EXTRA'
 type PersianaTipo = 'ROLLER' | 'VENECIANA' | 'ROMANA'
 
 // Each curtain or blind line item
@@ -61,6 +61,9 @@ interface CortItem {
   persianaTipo: PersianaTipo            // ROLLER / VENECIANA / ROMANA
   persianaMaterial: string              // free-text (e.g. "Blackout", "Screen 5%", "Madera 50mm")
   persianaPrecioPorM2: number           // unit cost per m² of material (MXN)
+  // Extras-only fields (controles, interfaces, accesorios sueltos)
+  extraDescripcion: string              // free-text (e.g. "Control SITUO 5", "INTERFACE INTERTEC 16 RTS")
+  extraPrecioUnitario: number           // unit cost per piece (MXN) — uses margenMotor for markup
   // DB tracking
   order: number
 }
@@ -205,13 +208,13 @@ function calcFabricML(item: CortItem): number {
 }
 
 function calcFabricCost(item: CortItem): number {
-  if (item.itemKind === 'PERSIANA') return 0
+  if (item.itemKind !== 'CORTINA') return 0
   if (item.telaIncluida) return 0
   return Math.round(calcFabricML(item) * item.precioTelaPorML * item.cantidad * 100) / 100
 }
 
 function calcConfeccionCost(item: CortItem): number {
-  if (item.itemKind === 'PERSIANA') return 0
+  if (item.itemKind !== 'CORTINA') return 0
   // precioConfeccion is cost per ML — multiply by fabric meters
   const ml = calcFabricML(item)
   return Math.round(item.precioConfeccion * ml * item.cantidad * 100) / 100
@@ -225,9 +228,17 @@ function calcPersianaMaterialCost(item: CortItem): number {
   return Math.round(m2 * (item.persianaPrecioPorM2 || 0) * item.cantidad * 100) / 100
 }
 
+// Extra cost (MXN). Items like controls, interfaces, switches — flat
+// price per piece × quantity. Uses margenMotor for markup (hardware).
+function calcExtraCost(item: CortItem): number {
+  if (item.itemKind !== 'EXTRA') return 0
+  return Math.round((item.extraPrecioUnitario || 0) * item.cantidad * 100) / 100
+}
+
 // Motor cost in MXN — Somfy is already MXN (auto-BOM for cortinas), Lutron is USD * tipoCambio.
 // Persianas always use manual precioMotor (no auto-BOM); Lutron still in USD.
 function calcMotorCostMXN(item: CortItem, tipoCambio: number): number {
+  if (item.itemKind === 'EXTRA') return 0
   if (item.tipoCierre !== 'MOTORIZADO') return 0
   if (item.itemKind === 'PERSIANA') {
     if (item.motorBrand === 'LUTRON') return item.precioMotor * item.cantidad * tipoCambio
@@ -240,6 +251,7 @@ function calcMotorCostMXN(item: CortItem, tipoCambio: number): number {
 
 // Motor cost in native currency (USD for Lutron, MXN for Somfy)
 function calcMotorCostRaw(item: CortItem): number {
+  if (item.itemKind === 'EXTRA') return 0
   if (item.tipoCierre !== 'MOTORIZADO') return 0
   if (item.itemKind === 'PERSIANA') {
     return item.precioMotor * item.cantidad
@@ -274,6 +286,7 @@ function defaultItem(areaId: string, order: number): CortItem {
     tipoTela: 'TRASLUCIDA', anchoTela: 0, tipoPliegue: 'ONDA PERFECTA',
     precioTelaPorML: 0, precioConfeccion: 0, telaIncluida: false, precioMotor: 0,
     persianaTipo: 'ROLLER', persianaMaterial: '', persianaPrecioPorM2: 0,
+    extraDescripcion: '', extraPrecioUnitario: 0,
     order,
   }
 }
@@ -285,6 +298,15 @@ function defaultPersiana(areaId: string, order: number): CortItem {
     persianaTipo: 'ROLLER',
     persianaMaterial: 'Blackout',
     persianaPrecioPorM2: 0,
+  }
+}
+
+function defaultExtra(areaId: string, order: number): CortItem {
+  return {
+    ...defaultItem(areaId, order),
+    itemKind: 'EXTRA',
+    extraDescripcion: '',
+    extraPrecioUnitario: 0,
   }
 }
 
@@ -351,18 +373,20 @@ function CortPdfModal({ items, areas, config, cotName, clientName, projectName, 
   const pdfRef = useRef<HTMLDivElement>(null)
 
   // Calculate totals (all in MXN)
-  let telaCost = 0, confCost = 0, motorCost = 0, persianaCost = 0
+  let telaCost = 0, confCost = 0, motorCost = 0, persianaCost = 0, extraCost = 0
   items.forEach(item => {
     telaCost += calcFabricCost(item)
     confCost += calcConfeccionCost(item)
     motorCost += calcMotorCostMXN(item, config.tipoCambio)
     persianaCost += calcPersianaMaterialCost(item)
+    extraCost += calcExtraCost(item)
   })
   const telaVenta = config.margenTela > 0 ? Math.round(telaCost / (1 - config.margenTela / 100) * 100) / 100 : telaCost
   const confVenta = config.margenTela > 0 ? Math.round(confCost / (1 - config.margenTela / 100) * 100) / 100 : confCost
   const motorVenta = config.margenMotor > 0 ? Math.round(motorCost / (1 - config.margenMotor / 100) * 100) / 100 : motorCost
   const persianaVenta = config.margenTela > 0 ? Math.round(persianaCost / (1 - config.margenTela / 100) * 100) / 100 : persianaCost
-  const subtotalVenta = telaVenta + confVenta + motorVenta + persianaVenta
+  const extraVenta = config.margenMotor > 0 ? Math.round(extraCost / (1 - config.margenMotor / 100) * 100) / 100 : extraCost
+  const subtotalVenta = telaVenta + confVenta + motorVenta + persianaVenta + extraVenta
   const instalacion = Math.round(subtotalVenta * config.instPct / 100 * 100) / 100
   const subConInst = subtotalVenta + instalacion
   const descuentoAmt = Math.round(subConInst * (config.descuento || 0) / 100 * 100) / 100
@@ -478,10 +502,12 @@ function CortPdfModal({ items, areas, config, cotName, clientName, projectName, 
                       <tr><td colSpan={10} style={{ padding: '8px 4px 4px', fontWeight: 700, color: '#000', fontSize: 10, background: '#f8f8f8', borderBottom: '1px solid #ccc', textTransform: 'uppercase' }}>{area.name}</td></tr>
                       {areaItems.map((item) => {
                         const isPersiana = item.itemKind === 'PERSIANA'
+                        const isExtra = item.itemKind === 'EXTRA'
                         const itemFabricCost = calcFabricCost(item)
                         const itemConfCost = calcConfeccionCost(item)
                         const itemMotorCostMXN = calcMotorCostMXN(item, config.tipoCambio)
                         const itemPersianaCost = calcPersianaMaterialCost(item)
+                        const itemExtraCost = calcExtraCost(item)
                         // Apply margins for client-facing PDF (all in MXN)
                         const mT = config.margenTela > 0 ? 1 / (1 - config.margenTela / 100) : 1
                         const mM = config.margenMotor > 0 ? 1 / (1 - config.margenMotor / 100) : 1
@@ -489,26 +515,31 @@ function CortPdfModal({ items, areas, config, cotName, clientName, projectName, 
                         const itemConfVenta = Math.round(itemConfCost * mT * 100) / 100
                         const itemMotorVenta = Math.round(itemMotorCostMXN * mM * 100) / 100
                         const itemPersianaVenta = Math.round(itemPersianaCost * mT * 100) / 100
-                        const itemTotalVenta = isPersiana
-                          ? (itemPersianaVenta + itemMotorVenta)
-                          : (itemTelaVenta + itemConfVenta + itemMotorVenta)
+                        const itemExtraVenta = Math.round(itemExtraCost * mM * 100) / 100
+                        const itemTotalVenta = isExtra
+                          ? itemExtraVenta
+                          : isPersiana
+                            ? (itemPersianaVenta + itemMotorVenta)
+                            : (itemTelaVenta + itemConfVenta + itemMotorVenta)
                         return (
                           <tr key={item.id} style={{ borderBottom: '1px solid #e0e0e0' }}>
-                            <td style={{ textAlign: 'right', padding: '4px', color: '#444' }}>{item.ancho.toFixed(2)}</td>
-                            <td style={{ textAlign: 'right', padding: '4px', color: '#444' }}>{item.alto.toFixed(2)}</td>
+                            <td style={{ textAlign: 'right', padding: '4px', color: '#444' }}>{isExtra ? '—' : item.ancho.toFixed(2)}</td>
+                            <td style={{ textAlign: 'right', padding: '4px', color: '#444' }}>{isExtra ? '—' : item.alto.toFixed(2)}</td>
                             <td style={{ textAlign: 'right', padding: '4px', color: '#444' }}>{item.cantidad}</td>
                             <td style={{ textAlign: 'left', padding: '4px', color: '#444' }}>
-                              {isPersiana
-                                ? `Persiana ${item.persianaTipo}${item.tipoCierre === 'MOTORIZADO' ? ' (Mot.)' : ' (Man.)'}`
-                                : (item.tipoCierre === 'MANUAL' ? 'Manual' : item.motorSystem || 'Motorizado')}
+                              {isExtra
+                                ? (item.extraDescripcion || 'Extra')
+                                : isPersiana
+                                  ? `Persiana ${item.persianaTipo}${item.tipoCierre === 'MOTORIZADO' ? ' (Mot.)' : ' (Man.)'}`
+                                  : (item.tipoCierre === 'MANUAL' ? 'Manual' : item.motorSystem || 'Motorizado')}
                             </td>
-                            <td style={{ textAlign: 'left', padding: '4px', color: '#444' }}>{isPersiana ? (item.persianaMaterial || '—') : item.tipoTela}</td>
-                            <td style={{ textAlign: 'left', padding: '4px', color: '#444' }}>{isPersiana ? '—' : item.tipoPliegue}</td>
-                            <td style={{ textAlign: 'right', padding: '4px', color: '#000' }}>{isPersiana ? '—' : fmtC(itemConfVenta)}</td>
-                            <td style={{ textAlign: 'right', padding: '4px', color: item.telaIncluida && !isPersiana ? '#999' : '#000', fontStyle: item.telaIncluida && !isPersiana ? 'italic' : 'normal' }}>
-                              {isPersiana ? fmtC(itemPersianaVenta) : (item.telaIncluida ? 'CLIENTE' : fmtC(itemTelaVenta))}
+                            <td style={{ textAlign: 'left', padding: '4px', color: '#444' }}>{isExtra ? '—' : isPersiana ? (item.persianaMaterial || '—') : item.tipoTela}</td>
+                            <td style={{ textAlign: 'left', padding: '4px', color: '#444' }}>{(isPersiana || isExtra) ? '—' : item.tipoPliegue}</td>
+                            <td style={{ textAlign: 'right', padding: '4px', color: '#000' }}>{(isPersiana || isExtra) ? '—' : fmtC(itemConfVenta)}</td>
+                            <td style={{ textAlign: 'right', padding: '4px', color: item.telaIncluida && !isPersiana && !isExtra ? '#999' : '#000', fontStyle: item.telaIncluida && !isPersiana && !isExtra ? 'italic' : 'normal' }}>
+                              {isExtra ? fmtC(itemExtraVenta) : isPersiana ? fmtC(itemPersianaVenta) : (item.telaIncluida ? 'CLIENTE' : fmtC(itemTelaVenta))}
                             </td>
-                            <td style={{ textAlign: 'right', padding: '4px', color: '#000' }}>{itemMotorCostMXN > 0 ? fmtC(itemMotorVenta) : '---'}{item.motorBrand === 'LUTRON' && itemMotorCostMXN > 0 ? <span style={{ fontSize: 7, color: '#888' }}> (USD→MXN)</span> : ''}</td>
+                            <td style={{ textAlign: 'right', padding: '4px', color: '#000' }}>{!isExtra && itemMotorCostMXN > 0 ? fmtC(itemMotorVenta) : '---'}{item.motorBrand === 'LUTRON' && itemMotorCostMXN > 0 && !isExtra ? <span style={{ fontSize: 7, color: '#888' }}> (USD→MXN)</span> : ''}</td>
                             <td style={{ textAlign: 'right', padding: '4px', color: '#000', fontWeight: 700 }}>{fmtC(itemTotalVenta)}</td>
                           </tr>
                         )
@@ -903,39 +934,85 @@ function PersianaRow({ item, config, onUpdate, onRemove, onCopy, showInt }: {
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// EXTRA ROW (controles, interfaces, accesorios sueltos)
+// ═══════════════════════════════════════════════════════════════════
+function ExtraRow({ item, config, onUpdate, onRemove, onCopy, showInt }: {
+  item: CortItem; config: CortConfig
+  onUpdate: (id: string, field: string, value: any) => void
+  onRemove: (id: string) => void
+  onCopy: (item: CortItem) => void
+  showInt: boolean
+}) {
+  const totalLinea = calcExtraCost(item)
+  // Extras use margenMotor (hardware accessories)
+  const totalConMargen = config.margenMotor > 0 ? Math.round(totalLinea / (1 - config.margenMotor / 100) * 100) / 100 : totalLinea
+
+  return (
+    <tr>
+      <td style={S.td}>
+        <input
+          type="text"
+          defaultValue={item.extraDescripcion || ''}
+          placeholder="Control SITUO 5, Interface INTERTEC 16 RTS…"
+          onBlur={e => onUpdate(item.id, 'extraDescripcion', e.target.value)}
+          style={{ ...S.input, width: 320, textAlign: 'left' }}
+        />
+      </td>
+      <td style={S.tdR}>
+        <input type="number" defaultValue={item.cantidad} min={1} onBlur={e => onUpdate(item.id, 'cantidad', parseInt(e.target.value) || 1)} style={{ ...S.input, width: 45 }} />
+      </td>
+      <td style={S.tdR}>
+        <input type="number" defaultValue={item.extraPrecioUnitario || ''} step={0.01} placeholder="0" onBlur={e => onUpdate(item.id, 'extraPrecioUnitario', parseFloat(e.target.value) || 0)} style={{ ...S.input, width: 90 }} />
+      </td>
+      <td style={{ ...S.tdR, color: '#ccc', fontWeight: 600 }}>${totalLinea.toFixed(2)}</td>
+      <td style={{ ...S.tdM, color: '#57FF9A' }}>${(showInt ? totalLinea : totalConMargen).toFixed(2)}</td>
+      {showInt && <td style={{ ...S.tdM, color: '#67E8F9' }}>${totalConMargen.toFixed(2)}</td>}
+      <td style={{ ...S.td, width: 28, display: 'flex', gap: 4 }}>
+        <button onClick={() => onCopy(item)} title="Copiar a otra área" style={{ background: 'none', border: 'none', color: '#444', cursor: 'pointer' }}><Copy size={12} /></button>
+        <button onClick={() => onRemove(item.id)} title="Eliminar" style={{ background: 'none', border: 'none', color: '#444', cursor: 'pointer' }}><Trash2 size={12} /></button>
+      </td>
+    </tr>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // AREA BLOCK (Room)
 // ═══════════════════════════════════════════════════════════════════
-function CortAreaBlock({ area, items, config, onToggle, onUpdate, onRemove, onAddCortina, onAddPersiana, onRemoveArea, onShowSomfy, onCopy, showInt }: {
+function CortAreaBlock({ area, items, config, onToggle, onUpdate, onRemove, onAddCortina, onAddPersiana, onAddExtra, onRemoveArea, onShowSomfy, onCopy, showInt }: {
   area: CortArea; items: CortItem[]; config: CortConfig
   onToggle: () => void
   onUpdate: (id: string, field: string, value: any) => void
   onRemove: (id: string) => void
   onAddCortina: () => void
   onAddPersiana: () => void
+  onAddExtra: () => void
   onRemoveArea: () => void
   onShowSomfy: (item: CortItem) => void
   onCopy: (item: CortItem) => void
   showInt: boolean
 }) {
   const areaItems = items.filter(i => i.areaId === area.id)
-  const cortinaItems = areaItems.filter(i => i.itemKind !== 'PERSIANA')
+  const cortinaItems = areaItems.filter(i => i.itemKind === 'CORTINA' || (!i.itemKind))
   const persianaItems = areaItems.filter(i => i.itemKind === 'PERSIANA')
+  const extraItems = areaItems.filter(i => i.itemKind === 'EXTRA')
 
   // Totals (all MXN — Lutron motors converted via tipoCambio)
-  let telaCost = 0, confCost = 0, motorCost = 0, persianaCost = 0
+  let telaCost = 0, confCost = 0, motorCost = 0, persianaCost = 0, extraCost = 0
   areaItems.forEach(item => {
     telaCost += calcFabricCost(item)
     confCost += calcConfeccionCost(item)
     motorCost += calcMotorCostMXN(item, config.tipoCambio)
     persianaCost += calcPersianaMaterialCost(item)
+    extraCost += calcExtraCost(item)
   })
-  const areaTotal = telaCost + confCost + motorCost + persianaCost
+  const areaTotal = telaCost + confCost + motorCost + persianaCost + extraCost
   // With margin
   const telaConMargen = config.margenTela > 0 ? Math.round(telaCost / (1 - config.margenTela / 100) * 100) / 100 : telaCost
   const confConMargen = config.margenTela > 0 ? Math.round(confCost / (1 - config.margenTela / 100) * 100) / 100 : confCost
   const motorConMargen = config.margenMotor > 0 ? Math.round(motorCost / (1 - config.margenMotor / 100) * 100) / 100 : motorCost
   const persianaConMargen = config.margenTela > 0 ? Math.round(persianaCost / (1 - config.margenTela / 100) * 100) / 100 : persianaCost
-  const areaTotalVenta = telaConMargen + confConMargen + motorConMargen + persianaConMargen
+  const extraConMargen = config.margenMotor > 0 ? Math.round(extraCost / (1 - config.margenMotor / 100) * 100) / 100 : extraCost
+  const areaTotalVenta = telaConMargen + confConMargen + motorConMargen + persianaConMargen + extraConMargen
 
   return (
     <div style={{ marginBottom: 14 }}>
@@ -943,7 +1020,7 @@ function CortAreaBlock({ area, items, config, onToggle, onUpdate, onRemove, onAd
         {area.collapsed ? <ChevronRight size={16} color="#67E8F9" /> : <ChevronDown size={16} color="#67E8F9" />}
         <span style={{ fontSize: 14, fontWeight: 700, color: '#fff', flex: 1, textTransform: 'uppercase' as const }}>{area.name}</span>
         <span style={{ fontSize: 10, color: '#555' }}>
-          {cortinaItems.length} cortina(s){persianaItems.length > 0 ? ` · ${persianaItems.length} persiana(s)` : ''}
+          {cortinaItems.length} cortina(s){persianaItems.length > 0 ? ` · ${persianaItems.length} persiana(s)` : ''}{extraItems.length > 0 ? ` · ${extraItems.length} extra(s)` : ''}
         </span>
         <span style={{ fontSize: 14, fontWeight: 700, color: '#67E8F9' }}>${(showInt ? areaTotal : areaTotalVenta).toFixed(2)}</span>
         <button
@@ -1020,8 +1097,34 @@ function CortAreaBlock({ area, items, config, onToggle, onUpdate, onRemove, onAd
               </table>
             </div>
           )}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 8px', marginTop: 4 }}>
+          <div style={{ padding: '6px 8px', marginTop: 4 }}>
             <Btn size="sm" onClick={onAddPersiana}><Plus size={12} /> Persiana</Btn>
+          </div>
+
+          {/* ───────── EXTRAS sub-section (controles, interfaces, etc.) ───────── */}
+          <div style={{ fontSize: 9, fontWeight: 700, color: '#F59E0B', letterSpacing: '0.08em', padding: '10px 2px 2px', borderTop: extraItems.length > 0 ? '1px solid #222' : undefined, marginTop: extraItems.length > 0 ? 6 : 0 }}>EXTRAS</div>
+          {extraItems.length > 0 && (
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 700 }}>
+                <thead><tr style={{ background: '#0e0e0e' }}>
+                  <th style={S.th}>Descripción</th>
+                  <th style={{ ...S.th, textAlign: 'right' }}>Cant</th>
+                  <th style={{ ...S.th, textAlign: 'right' }}>Precio unit.<br/><span style={{ fontSize: 8, color: '#555' }}>MXN</span></th>
+                  <th style={{ ...S.th, textAlign: 'right' }}>$ Subtotal<br/><span style={{ fontSize: 8, color: '#555' }}>MXN</span></th>
+                  <th style={{ ...S.th, textAlign: 'right', color: '#57FF9A' }}>{showInt ? 'Costo' : 'Total'}</th>
+                  {showInt && <th style={{ ...S.th, textAlign: 'right', color: '#67E8F9' }}>Venta</th>}
+                  <th style={S.th}></th>
+                </tr></thead>
+                <tbody>
+                  {extraItems.map(item => (
+                    <ExtraRow key={item.id} item={item} config={config} onUpdate={onUpdate} onRemove={onRemove} onCopy={onCopy} showInt={showInt} />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 8px', marginTop: 4 }}>
+            <Btn size="sm" onClick={onAddExtra}><Plus size={12} /> Extra</Btn>
             <div style={{ fontSize: 10, color: '#555' }}>
               Tela: <span style={{ color: '#ccc', fontWeight: 600 }}>${(showInt ? telaCost : telaConMargen).toFixed(2)}</span>
               <span style={{ margin: '0 6px' }}>|</span>
@@ -1030,6 +1133,8 @@ function CortAreaBlock({ area, items, config, onToggle, onUpdate, onRemove, onAd
               Persianas: <span style={{ color: '#C084FC', fontWeight: 600 }}>${(showInt ? persianaCost : persianaConMargen).toFixed(2)}</span>
               <span style={{ margin: '0 6px' }}>|</span>
               Motor: <span style={{ color: '#14B8A6', fontWeight: 600 }}>${(showInt ? motorCost : motorConMargen).toFixed(2)}</span>
+              <span style={{ margin: '0 6px' }}>|</span>
+              Extras: <span style={{ color: '#F59E0B', fontWeight: 600 }}>${(showInt ? extraCost : extraConMargen).toFixed(2)}</span>
               <span style={{ margin: '0 6px' }}>|</span>
               <span style={{ fontWeight: 700, color: '#67E8F9' }}>${(showInt ? areaTotal : areaTotalVenta).toFixed(2)} MXN</span>
             </div>
@@ -1047,19 +1152,21 @@ function CortSummary({ items, areas, config, showInt, onConfigChange }: {
   items: CortItem[]; areas: CortArea[]; config: CortConfig; showInt: boolean
   onConfigChange: (field: string, value: number) => void
 }) {
-  let telaCost = 0, confCost = 0, motorCost = 0, persianaCost = 0
+  let telaCost = 0, confCost = 0, motorCost = 0, persianaCost = 0, extraCost = 0
   items.forEach(item => {
     telaCost += calcFabricCost(item)
     confCost += calcConfeccionCost(item)
     motorCost += calcMotorCostMXN(item, config.tipoCambio)
     persianaCost += calcPersianaMaterialCost(item)
+    extraCost += calcExtraCost(item)
   })
 
   const telaVenta = config.margenTela > 0 ? Math.round(telaCost / (1 - config.margenTela / 100) * 100) / 100 : telaCost
   const confVenta = config.margenTela > 0 ? Math.round(confCost / (1 - config.margenTela / 100) * 100) / 100 : confCost
   const motorVenta = config.margenMotor > 0 ? Math.round(motorCost / (1 - config.margenMotor / 100) * 100) / 100 : motorCost
   const persianaVenta = config.margenTela > 0 ? Math.round(persianaCost / (1 - config.margenTela / 100) * 100) / 100 : persianaCost
-  const subtotalVenta = telaVenta + confVenta + motorVenta + persianaVenta
+  const extraVenta = config.margenMotor > 0 ? Math.round(extraCost / (1 - config.margenMotor / 100) * 100) / 100 : extraCost
+  const subtotalVenta = telaVenta + confVenta + motorVenta + persianaVenta + extraVenta
   const instalacion = Math.round(subtotalVenta * config.instPct / 100 * 100) / 100
   const subConInst = subtotalVenta + instalacion
   const descuentoAmt = Math.round(subConInst * (config.descuento || 0) / 100 * 100) / 100
@@ -1068,12 +1175,13 @@ function CortSummary({ items, areas, config, showInt, onConfigChange }: {
   const total = subConDesc + iva
 
   // Cost side
-  const subtotalCost = telaCost + confCost + motorCost + persianaCost
+  const subtotalCost = telaCost + confCost + motorCost + persianaCost + extraCost
   const utilidadTela = telaVenta - telaCost
   const utilidadConf = confVenta - confCost
   const utilidadMotor = motorVenta - motorCost
   const utilidadPersiana = persianaVenta - persianaCost
-  const utilidadTotal = utilidadTela + utilidadConf + utilidadMotor + utilidadPersiana
+  const utilidadExtra = extraVenta - extraCost
+  const utilidadTotal = utilidadTela + utilidadConf + utilidadMotor + utilidadPersiana + utilidadExtra
   const margenReal = subtotalVenta > 0 ? Math.round(utilidadTotal / subtotalVenta * 100) : 0
 
   // Fabric summary (cortinas only)
@@ -1148,6 +1256,10 @@ function CortSummary({ items, areas, config, showInt, onConfigChange }: {
           ] : []),
           { l: 'MOTORIZACION (costo)', v: motorCost, b: false },
           { l: 'MOTORIZACION (venta)', v: motorVenta, b: true },
+          ...(extraCost > 0 ? [
+            { l: 'EXTRAS (costo)', v: extraCost, b: false },
+            { l: 'EXTRAS (venta)', v: extraVenta, b: true },
+          ] : []),
           { l: 'SUBTOTAL', v: subtotalVenta, b: true },
           { l: 'INSTALACION (' + config.instPct + '%)', v: instalacion },
           { l: 'SUBTOTAL + INST', v: subConInst, b: true },
@@ -1456,22 +1568,24 @@ function AIImportModalCortinas({ cotId, areas, config, onClose, onImported }: {
         setInsertedCount(inserted)
       }
 
-      // 3) Insert extras as PERSIANA items in EXTRAS area (1x1m so total = precioPorM2)
+      // 3) Insert extras as proper EXTRA items in EXTRAS area
       const extrasAreaId = areaCache['EXTRAS']
       for (const ex of extras) {
         if (!extrasAreaId) continue
         const totalEx = ex.total || (ex.precioUnitario * ex.cantidad)
-        const m2 = 1 * 1 * ex.cantidad
         const baseTotalEx = totalEx * costFactor
+        // extraPrecioUnitario = costo unitario después del back-calc
+        const precioUnitario = ex.cantidad > 0 ? Math.round((baseTotalEx / ex.cantidad) * 100) / 100 : 0
         const noteObj: any = {
-          itemKind: 'PERSIANA',
-          ancho: 1, alto: 1,
+          itemKind: 'EXTRA',
+          ancho: 0, alto: 0,
           tipoCierre: 'MANUAL', motorBrand: 'NINGUNO', motorSystem: '',
           somfyHojas: 1, somfyPliegue: 'TRADICIONAL', somfyAbundancia: 0,
           somfySoportePared: false, somfyAmrado: false, somfyCurveado: false,
           tipoTela: 'TRASLUCIDA', anchoTela: 0, tipoPliegue: 'ONDA PERFECTA',
           precioTelaPorML: 0, precioConfeccion: 0, telaIncluida: false, precioMotor: 0,
-          persianaTipo: 'ROLLER', persianaMaterial: ex.nombre, persianaPrecioPorM2: m2 > 0 ? Math.round((baseTotalEx / m2) * 100) / 100 : 0,
+          persianaTipo: 'ROLLER', persianaMaterial: '', persianaPrecioPorM2: 0,
+          extraDescripcion: ex.nombre, extraPrecioUnitario: precioUnitario,
         }
         const { error: exErr } = await supabase.from('quotation_items').insert({
           quotation_id: cotId, area_id: extrasAreaId,
@@ -1768,7 +1882,7 @@ export default function CotEditorCortinas({ cotId, onBack, onSwitchVersion }: { 
           ancho: meta.ancho || 0,
           alto: meta.alto || 0,
           cantidad: it.quantity || 1,
-          itemKind: (meta.itemKind === 'PERSIANA' ? 'PERSIANA' : 'CORTINA') as ItemKind,
+          itemKind: (meta.itemKind === 'PERSIANA' ? 'PERSIANA' : meta.itemKind === 'EXTRA' ? 'EXTRA' : 'CORTINA') as ItemKind,
           tipoCierre: meta.tipoCierre || 'MANUAL',
           motorBrand: meta.motorBrand || 'NINGUNO',
           motorSystem: meta.motorSystem || '',
@@ -1788,6 +1902,8 @@ export default function CotEditorCortinas({ cotId, onBack, onSwitchVersion }: { 
           persianaTipo: (meta.persianaTipo as PersianaTipo) || 'ROLLER',
           persianaMaterial: meta.persianaMaterial || '',
           persianaPrecioPorM2: meta.persianaPrecioPorM2 || 0,
+          extraDescripcion: meta.extraDescripcion || '',
+          extraPrecioUnitario: meta.extraPrecioUnitario || 0,
           order: it.order_index || 0,
         }
       }))
@@ -1821,10 +1937,12 @@ export default function CotEditorCortinas({ cotId, onBack, onSwitchVersion }: { 
       tipoTela: item.tipoTela, anchoTela: item.anchoTela, tipoPliegue: item.tipoPliegue,
       precioTelaPorML: item.precioTelaPorML, precioConfeccion: item.precioConfeccion, telaIncluida: item.telaIncluida, precioMotor: item.precioMotor,
       persianaTipo: item.persianaTipo, persianaMaterial: item.persianaMaterial, persianaPrecioPorM2: item.persianaPrecioPorM2,
+      extraDescripcion: item.extraDescripcion, extraPrecioUnitario: item.extraPrecioUnitario,
     })
   }
 
   function calcItemTotal(item: CortItem): number {
+    if (item.itemKind === 'EXTRA') return calcExtraCost(item)
     if (item.itemKind === 'PERSIANA') {
       return calcPersianaMaterialCost(item) + calcMotorCostMXN(item, config.tipoCambio)
     }
@@ -1833,19 +1951,22 @@ export default function CotEditorCortinas({ cotId, onBack, onSwitchVersion }: { 
 
   // ── Total for header ──
   const grandTotal = useMemo(() => {
-    let telaCost = 0, confCost = 0, motorCost = 0, persianaCost = 0
+    let telaCost = 0, confCost = 0, motorCost = 0, persianaCost = 0, extraCost = 0
     items.forEach(item => {
       telaCost += calcFabricCost(item)
       confCost += calcConfeccionCost(item)
       motorCost += calcMotorCostMXN(item, config.tipoCambio)
       persianaCost += calcPersianaMaterialCost(item)
+      extraCost += calcExtraCost(item)
     })
     const telaVenta = config.margenTela > 0 ? Math.round(telaCost / (1 - config.margenTela / 100) * 100) / 100 : telaCost
     const confVenta = config.margenTela > 0 ? Math.round(confCost / (1 - config.margenTela / 100) * 100) / 100 : confCost
     const motorVenta = config.margenMotor > 0 ? Math.round(motorCost / (1 - config.margenMotor / 100) * 100) / 100 : motorCost
     // Persiana material uses the same fabric margin (margenTela) for simplicity
     const persianaVenta = config.margenTela > 0 ? Math.round(persianaCost / (1 - config.margenTela / 100) * 100) / 100 : persianaCost
-    const sub = telaVenta + confVenta + motorVenta + persianaVenta
+    // Extras use margenMotor (hardware accessories priced similarly to motors)
+    const extraVenta = config.margenMotor > 0 ? Math.round(extraCost / (1 - config.margenMotor / 100) * 100) / 100 : extraCost
+    const sub = telaVenta + confVenta + motorVenta + persianaVenta + extraVenta
     const inst = sub * config.instPct / 100
     const subInst = sub + inst
     const descAmt = subInst * (config.descuento || 0) / 100
@@ -1891,7 +2012,9 @@ export default function CotEditorCortinas({ cotId, onBack, onSwitchVersion }: { 
 
   async function addItem(areaId: string, kind: ItemKind = 'CORTINA') {
     const order = items.filter(i => i.areaId === areaId).length
-    const newItem = kind === 'PERSIANA' ? defaultPersiana(areaId, order) : defaultItem(areaId, order)
+    const newItem = kind === 'PERSIANA' ? defaultPersiana(areaId, order)
+                  : kind === 'EXTRA' ? defaultExtra(areaId, order)
+                  : defaultItem(areaId, order)
     // Insert into DB
     const { data, error } = await supabase.from('quotation_items').insert({
       quotation_id: cotId, area_id: areaId,
@@ -2027,6 +2150,7 @@ export default function CotEditorCortinas({ cotId, onBack, onSwitchVersion }: { 
               onUpdate={updateItem} onRemove={removeItem}
               onAddCortina={() => addItem(area.id, 'CORTINA')}
               onAddPersiana={() => addItem(area.id, 'PERSIANA')}
+              onAddExtra={() => addItem(area.id, 'EXTRA')}
               onRemoveArea={() => removeArea(area.id)}
               onShowSomfy={setSomfyDetail}
               onCopy={setCopyingItem}
