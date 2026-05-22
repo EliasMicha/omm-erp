@@ -1815,16 +1815,36 @@ function SummaryPanel({ products, areas, config, activeSystems, showInt, onConfi
         <div style={{ background: '#1a1414', border: '1px solid #332222', borderRadius: 12, padding: 14 }}>
           <div style={{ fontSize: 10, fontWeight: 600, color: '#F59E0B', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Análisis Interno</div>
           {(() => {
-            let vt = 0, ct = 0; products.forEach(p => { const c = calcLine(p); vt += p.price * p.quantity; ct += c.costReal * p.quantity })
-            const mg = vt > 0 ? Math.round((vt - ct) / vt * 100) : 0
+            // Margen productos solamente (venta producto vs costo producto)
+            let vtProd = 0, ctProd = 0, vtMO = 0, vtSvc = 0
+            products.forEach(p => {
+              const c = calcLine(p)
+              if (p.isService) { vtSvc += p.price * p.quantity; return }
+              vtProd += p.price * p.quantity
+              ctProd += c.costReal * p.quantity
+              vtMO += p.laborCost * p.quantity
+            })
+            const mgProd = vtProd > 0 ? Math.round((vtProd - ctProd) / vtProd * 100) : 0
+            // Margen overall proyecto (revenue total incluyendo M.O. y servicios)
+            const vtTotal = vtProd + vtMO + vtSvc
+            const mgProy = vtTotal > 0 ? Math.round((vtTotal - ctProd) / vtTotal * 1000) / 10 : 0
             return (<>
-              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}><span style={{ color: '#888' }}>Venta</span><span style={{ color: '#fff', fontWeight: 600 }}>${fmt(vt)}</span></div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}><span style={{ color: '#888' }}>Costo</span><span style={{ color: '#ccc' }}>${fmt(ct)}</span></div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10, borderTop: '1px solid #332222', marginTop: 3, paddingTop: 5 }}>
-                <span style={{ color: '#F59E0B', fontWeight: 600 }}>Margen</span>
-                <span style={{ color: mg >= 25 ? '#57FF9A' : mg >= 15 ? '#F59E0B' : '#EF4444', fontWeight: 700, fontSize: 13 }}>{mg}%</span>
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}><span style={{ color: '#888' }}>Venta productos</span><span style={{ color: '#fff', fontWeight: 600 }}>${fmt(vtProd)}</span></div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}><span style={{ color: '#888' }}>+ M.O.</span><span style={{ color: '#ccc' }}>${fmt(vtMO)}</span></div>
+              {vtSvc > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}><span style={{ color: '#888' }}>+ Servicios</span><span style={{ color: '#ccc' }}>${fmt(vtSvc)}</span></div>}
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10, borderTop: '1px solid #332222', marginTop: 3, paddingTop: 5 }}><span style={{ color: '#888' }}>Costo productos</span><span style={{ color: '#ccc' }}>${fmt(ctProd)}</span></div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}>
+                <span style={{ color: '#888' }}>MG productos</span>
+                <span style={{ color: mgProd >= 25 ? '#57FF9A' : mgProd >= 15 ? '#F59E0B' : '#EF4444', fontWeight: 600 }}>{mgProd}%</span>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}><span style={{ color: '#888' }}>Utilidad</span><span style={{ color: '#57FF9A', fontWeight: 600 }}>${fmt((vt - ct))}</span></div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 11, borderTop: '1px solid #332222', marginTop: 3, paddingTop: 5 }}>
+                <span style={{ color: '#F59E0B', fontWeight: 700 }}>MG proyecto</span>
+                <span style={{ color: mgProy >= 25 ? '#57FF9A' : mgProy >= 15 ? '#F59E0B' : '#EF4444', fontWeight: 700, fontSize: 14 }}>{mgProy}%</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}><span style={{ color: '#888' }}>Utilidad total</span><span style={{ color: '#57FF9A', fontWeight: 600 }}>${fmt(vtTotal - ctProd)}</span></div>
+              <div style={{ fontSize: 8, color: '#555', marginTop: 6, paddingTop: 6, borderTop: '1px solid #332222', lineHeight: 1.4 }}>
+                MG productos = (venta productos − costo) / venta productos. MG proyecto = (revenue total − costo productos) / revenue total. M.O. y servicios no tienen costo capturado.
+              </div>
             </>)
           })()}
         </div>
@@ -2630,7 +2650,7 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
             <div style={{ position: 'relative', display: 'inline-block' }}>
               <button
                 onClick={() => { setShowBulkMargin(v => !v); setBulkMarginInput(String(overallMargin)) }}
-                title="Click para ajustar el margen del proyecto"
+                title="MG Proyecto = (precio + M.O. + servicios − costo productos) / revenue total. Click para ajustar."
                 style={{
                   padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
                   border: '1px solid ' + (overallMargin >= 25 ? '#57FF9A' : overallMargin >= 15 ? '#F59E0B' : '#EF4444'),
@@ -2638,12 +2658,12 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
                   color: overallMargin >= 25 ? '#57FF9A' : overallMargin >= 15 ? '#F59E0B' : '#EF4444',
                   display: 'inline-flex', alignItems: 'center', gap: 4,
                 }}
-              >MG {overallMargin}%</button>
+              >MG Proy {overallMargin}%</button>
               {showBulkMargin && (
-                <div style={{ position: 'absolute', top: '110%', right: 0, zIndex: 30, background: '#141414', border: '1px solid #333', borderRadius: 10, padding: 12, minWidth: 260, boxShadow: '0 10px 30px rgba(0,0,0,0.6)' }}>
+                <div style={{ position: 'absolute', top: '110%', right: 0, zIndex: 30, background: '#141414', border: '1px solid #333', borderRadius: 10, padding: 12, minWidth: 280, boxShadow: '0 10px 30px rgba(0,0,0,0.6)' }}>
                   <div style={{ fontSize: 11, fontWeight: 700, color: '#fff', marginBottom: 6 }}>Ajustar margen del proyecto</div>
                   <div style={{ fontSize: 10, color: '#888', marginBottom: 8, lineHeight: 1.5 }}>
-                    Escala los precios de productos proporcionalmente para alcanzar el margen target. M.O. y servicios no se tocan.
+                    Escala los precios de productos para que <b style={{ color: '#F59E0B' }}>MG proyecto</b> (revenue total vs costo de productos) llegue al target. M.O. y servicios quedan igual.
                   </div>
                   <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                     <input
