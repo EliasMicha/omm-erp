@@ -821,11 +821,21 @@ export default function CotEditorIlum({ cotId, onBack, onSwitchVersion }: { cotI
     setCustomSubInput('')
   }
 
-  // Remove subsection (only if no products)
+  // Remove subsection (cascade: deletes all products in it after confirmation)
   async function removeSubsection(id: string) {
-    const hasProducts = products.some(p => p.subsectionId === id)
-    if (hasProducts) { alert('No puedes eliminar una subsección con productos'); return }
-    await supabase.from('quotation_areas').delete().eq('id', id)
+    const subProducts = products.filter(p => p.subsectionId === id)
+    const subName = subsections.find(s => s.id === id)?.name || 'esta subsección'
+    if (subProducts.length > 0) {
+      if (!confirm(`"${subName}" tiene ${subProducts.length} producto(s). ¿Eliminar la subsección y todos sus productos?`)) return
+      const { error: delItemsErr } = await supabase.from('quotation_items').delete().eq('area_id', id)
+      if (delItemsErr) { alert('Error eliminando productos: ' + delItemsErr.message); return }
+      setProducts(prev => prev.filter(p => p.subsectionId !== id))
+      setSelectedIds(prev => new Set([...prev].filter(x => !subProducts.some(p => p.id === x))))
+    } else {
+      if (!confirm(`¿Eliminar la subsección "${subName}"?`)) return
+    }
+    const { error: delAreaErr } = await supabase.from('quotation_areas').delete().eq('id', id)
+    if (delAreaErr) { alert('Error eliminando subsección: ' + delAreaErr.message); return }
     setSubsections(subsections.filter(s => s.id !== id))
   }
 

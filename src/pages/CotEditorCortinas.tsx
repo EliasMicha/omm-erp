@@ -905,13 +905,14 @@ function PersianaRow({ item, config, onUpdate, onRemove, onCopy, showInt }: {
 // ═══════════════════════════════════════════════════════════════════
 // AREA BLOCK (Room)
 // ═══════════════════════════════════════════════════════════════════
-function CortAreaBlock({ area, items, config, onToggle, onUpdate, onRemove, onAddCortina, onAddPersiana, onShowSomfy, onCopy, showInt }: {
+function CortAreaBlock({ area, items, config, onToggle, onUpdate, onRemove, onAddCortina, onAddPersiana, onRemoveArea, onShowSomfy, onCopy, showInt }: {
   area: CortArea; items: CortItem[]; config: CortConfig
   onToggle: () => void
   onUpdate: (id: string, field: string, value: any) => void
   onRemove: (id: string) => void
   onAddCortina: () => void
   onAddPersiana: () => void
+  onRemoveArea: () => void
   onShowSomfy: (item: CortItem) => void
   onCopy: (item: CortItem) => void
   showInt: boolean
@@ -945,6 +946,11 @@ function CortAreaBlock({ area, items, config, onToggle, onUpdate, onRemove, onAd
           {cortinaItems.length} cortina(s){persianaItems.length > 0 ? ` · ${persianaItems.length} persiana(s)` : ''}
         </span>
         <span style={{ fontSize: 14, fontWeight: 700, color: '#67E8F9' }}>${(showInt ? areaTotal : areaTotalVenta).toFixed(2)}</span>
+        <button
+          onClick={e => { e.stopPropagation(); onRemoveArea() }}
+          title="Eliminar esta área y todos sus items"
+          style={{ background: 'none', border: 'none', color: '#444', cursor: 'pointer', padding: 4, marginLeft: 4, display: 'flex', alignItems: 'center' }}
+        ><Trash2 size={14} /></button>
       </div>
       {!area.collapsed && (
         <div style={{ paddingLeft: 8, paddingTop: 6 }}>
@@ -1919,6 +1925,22 @@ export default function CotEditorCortinas({ cotId, onBack, onSwitchVersion }: { 
     }
   }
 
+  async function removeArea(areaId: string) {
+    const areaItems = items.filter(i => i.areaId === areaId)
+    const areaName = areas.find(a => a.id === areaId)?.name || 'esta área'
+    if (areaItems.length > 0) {
+      if (!confirm(`"${areaName}" tiene ${areaItems.length} item(s) (cortinas/persianas). ¿Eliminar el área y todos sus items?`)) return
+      const { error: delItemsErr } = await supabase.from('quotation_items').delete().eq('area_id', areaId)
+      if (delItemsErr) { alert('Error eliminando items: ' + delItemsErr.message); return }
+      setItems(prev => prev.filter(i => i.areaId !== areaId))
+    } else {
+      if (!confirm(`¿Eliminar el área "${areaName}"?`)) return
+    }
+    const { error: delAreaErr } = await supabase.from('quotation_areas').delete().eq('id', areaId)
+    if (delAreaErr) { alert('Error eliminando área: ' + delAreaErr.message); return }
+    setAreas(prev => prev.filter(a => a.id !== areaId))
+  }
+
   function getVersionSnapshot(): VersionSnapshot {
     let telaCost = 0, confCost = 0, motorCost = 0
     items.forEach(item => {
@@ -2005,6 +2027,7 @@ export default function CotEditorCortinas({ cotId, onBack, onSwitchVersion }: { 
               onUpdate={updateItem} onRemove={removeItem}
               onAddCortina={() => addItem(area.id, 'CORTINA')}
               onAddPersiana={() => addItem(area.id, 'PERSIANA')}
+              onRemoveArea={() => removeArea(area.id)}
               onShowSomfy={setSomfyDetail}
               onCopy={setCopyingItem}
               showInt={showInt} />
