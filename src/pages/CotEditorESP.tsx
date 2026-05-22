@@ -1948,6 +1948,8 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
   const [loading, setLoading] = useState(true)
   const [config, setConfig] = useState<EspQuoteConfig>({ currency: 'USD', ivaRate: 16, programacion: 0, descuento: 0, tipoCambio: 20.5, paymentSchedule: [{ label: 'Anticipo', percentage: 80 }, { label: 'Entrega de equipos', percentage: 10 }, { label: 'Finalización de Obra', percentage: 10 }], version: '1.0' })
   const [showInt, setShowInt] = useState(true)
+  const [showBulkMargin, setShowBulkMargin] = useState(false)
+  const [bulkMarginInput, setBulkMarginInput] = useState('')
   const [stage, setStage] = useState('oportunidad')
   const [collapsedSys, setCollapsedSys] = useState<Record<string, boolean>>({})
   const [showSystemPicker, setShowSystemPicker] = useState(false)
@@ -2028,6 +2030,15 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
   }, [cotId])
 
   const activeSystems = useMemo(() => ALL_SYSTEMS.filter(s => activeSysIds.includes(s.id)), [activeSysIds])
+  // Margen overall del proyecto: (revenue − cost) / revenue × 100
+  const overallMargin = useMemo(() => {
+    let revenue = 0, cost = 0
+    products.forEach(p => {
+      revenue += p.price * p.quantity + p.laborCost * p.quantity
+      cost += p.cost * p.quantity
+    })
+    return revenue > 0 ? Math.round(((revenue - cost) / revenue) * 1000) / 10 : 0
+  }, [products])
   const total = useMemo(() => {
     let eq = 0, mo = 0; products.forEach(p => { eq += p.price * p.quantity; mo += p.laborCost * p.quantity })
     const sub = eq + mo + config.programacion;
@@ -2150,6 +2161,66 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
   function removeProduct(id: string) {
     setProducts(p => p.filter(pr => pr.id !== id))
     supabase.from('quotation_items').delete().eq('id', id).then(() => {})
+  }
+
+  // Bulk-margin: escala precios proporcionalmente para alcanzar un margen target.
+  // Mantiene M.O. (laborCost) y servicios sin tocar — solo escala el price de
+  // productos con costo > 0. El cálculo:
+  //   newRev (target) = totalCost / (1 - target/100)
+  //   newProductRev   = newRev - laborRev - servicesRev
+  //   scale            = newProductRev / currentProductRev
+  // Y cada producto: newPrice = oldPrice × scale; margin recalculado.
+  async function applyBulkMargin(targetPct: number) {
+    if (isNaN(targetPct) || targetPct < 0 || targetPct >= 100) {
+      alert('Margen inválido. Usa un valor entre 0 y 99.9 (%).')
+      return
+    }
+    let totalCost = 0, productRev = 0, laborRev = 0, servicesRev = 0
+    products.forEach(p => {
+      if (p.isService) { servicesRev += p.price * p.quantity; return }
+      totalCost += p.cost * p.quantity
+      productRev += p.price * p.quantity
+      laborRev += p.laborCost * p.quantity
+    })
+    if (totalCost === 0) { alert('No hay productos con costo. Captura costos antes de ajustar margen.'); return }
+    if (productRev === 0) { alert('No hay revenue de productos para escalar.'); return }
+
+    const newRev = totalCost / (1 - targetPct / 100)
+    const newProductRev = newRev - laborRev - servicesRev
+    if (newProductRev <= 0) {
+      alert(`No alcanzable: la M.O. ($${laborRev.toFixed(2)}) + servicios ($${servicesRev.toFixed(2)}) ya cubren más que el revenue requerido para margen ${targetPct}%. Reduce M.O./servicios o sube el target.`)
+      return
+    }
+    const scale = newProductRev / productRev
+
+    const currentMg = (productRev + laborRev + servicesRev - totalCost) / (productRev + laborRev + servicesRev) * 100
+    if (!confirm(
+      `Ajustar margen del proyecto:\n\n` +
+      `• Actual: ${currentMg.toFixed(1)}% → Target: ${targetPct}%\n` +
+      `• Precios se escalarán × ${scale.toFixed(4)}\n` +
+      `• Productos: $${productRev.toFixed(2)} → $${newProductRev.toFixed(2)}\n` +
+      `• M.O. y servicios sin cambios\n\n` +
+      `¿Aplicar?`
+    )) return
+
+    const updated = products.map(p => {
+      if (p.isService) return p
+      const newPrice = Math.round(p.price * scale * 100) / 100
+      const newMargin = (p.cost > 0 && newPrice > 0) ? Math.round((1 - p.cost / newPrice) * 100) : p.margin
+      return { ...p, price: newPrice, margin: newMargin }
+    })
+    setProducts(updated)
+
+    // Persistir en DB
+    for (const p of updated) {
+      if (p.isService) continue
+      const newTotal = (p.price + p.laborCost) * p.quantity
+      await supabase.from('quotation_items').update({
+        price: p.price,
+        markup: p.margin,
+        total: Math.round(newTotal * 100) / 100,
+      }).eq('id', p.id)
+    }
   }
 
   function toggleProdSelect(id: string) {
@@ -2553,6 +2624,53 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
               <button onClick={() => setShowSystemPicker(true)} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #57FF9A44', background: 'transparent', color: '#57FF9A' }}>⚙ Sistemas ({activeSysIds.length})</button>
               <button onClick={() => setShowInt(!showInt)} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid ' + (showInt ? '#F59E0B' : '#333'), background: showInt ? '#F59E0B22' : 'transparent', color: showInt ? '#F59E0B' : '#555' }}>{showInt ? '👁 Interno' : '👁 Cliente'}</button>
             </>
+          )}
+          {/* Margen total badge — click para ajustar bulk */}
+          {!isMobile && (
+            <div style={{ position: 'relative', display: 'inline-block' }}>
+              <button
+                onClick={() => { setShowBulkMargin(v => !v); setBulkMarginInput(String(overallMargin)) }}
+                title="Click para ajustar el margen del proyecto"
+                style={{
+                  padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
+                  border: '1px solid ' + (overallMargin >= 25 ? '#57FF9A' : overallMargin >= 15 ? '#F59E0B' : '#EF4444'),
+                  background: (overallMargin >= 25 ? '#57FF9A' : overallMargin >= 15 ? '#F59E0B' : '#EF4444') + '22',
+                  color: overallMargin >= 25 ? '#57FF9A' : overallMargin >= 15 ? '#F59E0B' : '#EF4444',
+                  display: 'inline-flex', alignItems: 'center', gap: 4,
+                }}
+              >MG {overallMargin}%</button>
+              {showBulkMargin && (
+                <div style={{ position: 'absolute', top: '110%', right: 0, zIndex: 30, background: '#141414', border: '1px solid #333', borderRadius: 10, padding: 12, minWidth: 260, boxShadow: '0 10px 30px rgba(0,0,0,0.6)' }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: '#fff', marginBottom: 6 }}>Ajustar margen del proyecto</div>
+                  <div style={{ fontSize: 10, color: '#888', marginBottom: 8, lineHeight: 1.5 }}>
+                    Escala los precios de productos proporcionalmente para alcanzar el margen target. M.O. y servicios no se tocan.
+                  </div>
+                  <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                    <input
+                      type="number" step={0.5} min={0} max={99.9}
+                      value={bulkMarginInput}
+                      onChange={e => setBulkMarginInput(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter') { applyBulkMargin(parseFloat(bulkMarginInput)); setShowBulkMargin(false) } }}
+                      placeholder="ej. 35"
+                      style={{ ...S.input, flex: 1, fontSize: 12, textAlign: 'right' }}
+                      autoFocus
+                    />
+                    <span style={{ fontSize: 11, color: '#888' }}>%</span>
+                    <button
+                      onClick={() => { applyBulkMargin(parseFloat(bulkMarginInput)); setShowBulkMargin(false) }}
+                      style={{ padding: '5px 10px', fontSize: 11, fontWeight: 700, background: '#57FF9A22', border: '1px solid #57FF9A', color: '#57FF9A', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit' }}
+                    >Aplicar</button>
+                    <button
+                      onClick={() => setShowBulkMargin(false)}
+                      style={{ padding: '5px 8px', fontSize: 11, background: 'none', border: '1px solid #333', color: '#888', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit' }}
+                    >Cancelar</button>
+                  </div>
+                  <div style={{ fontSize: 9, color: '#555', marginTop: 6 }}>
+                    Margen actual: {overallMargin}% · Target nuevo: {bulkMarginInput || '—'}%
+                  </div>
+                </div>
+              )}
+            </div>
           )}
           <span style={{ fontSize: isMobile ? 12 : 15, fontWeight: 700, color: '#57FF9A', marginLeft: isMobile ? 'auto' : 10 }}>{config.currency === 'MXN' ? '$' : 'US$'}{isMobile ? fmt(total).slice(0, 6) : fmt(total)}</span>
         </div>
