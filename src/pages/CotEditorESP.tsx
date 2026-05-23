@@ -187,7 +187,7 @@ function ProductRow({ p, onUpdate, onRemove, onUpdateAll, showInt, duplicateCoun
           : <div style={{ width: 36, height: 36, background: '#1a1a1a', borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto' }}><ImageIcon size={12} color="#333" /></div>}
       </td>
       <td style={{ ...S.td, width: 45 }}>
-        <input type="number" defaultValue={p.quantity} min={1} onBlur={e => onUpdate(p.id, 'quantity', parseInt(e.target.value) || 1)} style={{ ...S.input, width: 40 }} />
+        <input key={`qty-${p.id}-${p.quantity}`} type="number" defaultValue={p.quantity} min={1} onBlur={e => onUpdate(p.id, 'quantity', parseInt(e.target.value) || 1)} style={{ ...S.input, width: 40 }} />
       </td>
       <td style={{ ...S.td, minWidth: 180, cursor: 'pointer' }} onClick={() => onDetail?.(p)}>
         <div style={{ fontSize: 12, fontWeight: 500, color: '#ddd' }}>{p.name}</div>
@@ -200,16 +200,16 @@ function ProductRow({ p, onUpdate, onRemove, onUpdateAll, showInt, duplicateCoun
       </td>
       {p.isService ? (<>
         <td colSpan={3} style={{ ...S.tdR, fontSize: 10, color: '#666', fontStyle: 'italic' }}>Servicio — OMM</td>
-        <td style={{ ...S.tdM, color: '#57FF9A' }}><input type="number" defaultValue={p.price} step={0.01} onBlur={e => handleBlur('price', parseFloat(e.target.value) || 0)} style={{ ...S.input, color: '#57FF9A', fontWeight: 600 }} /></td>
+        <td style={{ ...S.tdM, color: '#57FF9A' }}><input key={`price-${p.id}-${p.price}`} type="number" defaultValue={p.price} step={0.01} onBlur={e => handleBlur('price', parseFloat(e.target.value) || 0)} style={{ ...S.input, color: '#57FF9A', fontWeight: 600 }} /></td>
       </>) : (<>
-        <td style={S.tdR}><input type="number" defaultValue={p.price} step={0.01} onBlur={e => handleBlur('price', parseFloat(e.target.value) || 0)} style={S.input} /></td>
+        <td style={S.tdR}><input key={`price-${p.id}-${p.price}`} type="number" defaultValue={p.price} step={0.01} onBlur={e => handleBlur('price', parseFloat(e.target.value) || 0)} style={S.input} /></td>
         <td style={S.tdM}>${fmt(precioAmp)}</td>
-        <td style={S.tdR}><input type="number" defaultValue={p.laborCost} step={0.01} onBlur={e => handleBlur('laborCost', parseFloat(e.target.value) || 0)} style={S.input} /></td>
+        <td style={S.tdR}><input key={`labor-${p.id}-${p.laborCost}`} type="number" defaultValue={p.laborCost} step={0.01} onBlur={e => handleBlur('laborCost', parseFloat(e.target.value) || 0)} style={S.input} /></td>
         <td style={{ ...S.tdM, color: '#57FF9A' }}>${fmt(total)}</td>
       </>)}
       {showInt && (<>
         <td style={{ ...S.tdR, color: '#555', fontSize: 10 }}>${fmt(costReal)}</td>
-        <td style={S.tdR}><input type="number" defaultValue={p.margin} step={1} onBlur={e => handleBlur('margin', parseFloat(e.target.value) || 0)} style={{ ...S.input, width: 40, color: p.margin >= 25 ? '#57FF9A' : p.margin >= 15 ? '#F59E0B' : '#EF4444' }} /></td>
+        <td style={S.tdR}><input key={`margin-${p.id}-${p.margin}`} type="number" defaultValue={p.margin} step={1} onBlur={e => handleBlur('margin', parseFloat(e.target.value) || 0)} style={{ ...S.input, width: 40, color: p.margin >= 25 ? '#57FF9A' : p.margin >= 15 ? '#F59E0B' : '#EF4444' }} /></td>
         <td style={{ ...S.tdR, fontSize: 10, color: utilidad >= 0 ? '#57FF9A' : '#EF4444' }}>${fmt(utilidad)}</td>
       </>)}
       <td style={{ ...S.td, width: 28 }}>{onSubstitute && p.catalogId && <button onClick={() => onSubstitute(p)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, opacity: 0.5 }} title="Sustituir en todo el proyecto"><ArrowLeftRight size={12} color="#3B82F6" /></button>}</td>

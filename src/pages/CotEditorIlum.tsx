@@ -73,6 +73,7 @@ function ProductRow({ p, onUpdate, onRemove, selected, onToggleSelect, onSubstit
       </td>
       <td style={{ ...S.td, width: 90 }}>
         <input
+          key={`nom-${p.id}-${p.nomenclatura || ''}`}
           type="text"
           defaultValue={p.nomenclatura || ''}
           placeholder="—"
@@ -88,11 +89,11 @@ function ProductRow({ p, onUpdate, onRemove, selected, onToggleSelect, onSubstit
       <td style={{ ...S.td, fontSize: 11, color: '#666' }}>{p.modelo || '—'}</td>
       <td style={{ ...S.tdR, fontSize: 11, color: '#666' }}>{p.watts ? p.watts + 'W' : '—'}</td>
       <td style={{ ...S.td, width: 45 }}>
-        <input type="number" defaultValue={p.quantity} min={1} onBlur={e => onUpdate(p.id, 'quantity', parseInt(e.target.value) || 1)} style={{ ...S.input, width: 40 }} />
+        <input key={`qty-${p.id}-${p.quantity}`} type="number" defaultValue={p.quantity} min={1} onBlur={e => onUpdate(p.id, 'quantity', parseInt(e.target.value) || 1)} style={{ ...S.input, width: 40 }} />
       </td>
-      <td style={S.tdR}><input type="number" defaultValue={p.cost} step={0.01} onBlur={e => onUpdate(p.id, 'cost', parseFloat(e.target.value) || 0)} style={S.input} /></td>
-      <td style={S.tdR}><input type="number" defaultValue={p.markup} step={1} onBlur={e => onUpdate(p.id, 'markup', parseFloat(e.target.value) || 0)} style={{ ...S.input, width: 45, color: p.markup >= 25 ? '#57FF9A' : p.markup >= 15 ? '#F59E0B' : '#EF4444' }} /></td>
-      <td style={S.tdR}><input type="number" defaultValue={p.price} step={0.01} onBlur={e => onUpdate(p.id, 'price', parseFloat(e.target.value) || 0)} style={S.input} /></td>
+      <td style={S.tdR}><input key={`cost-${p.id}-${p.cost}`} type="number" defaultValue={p.cost} step={0.01} onBlur={e => onUpdate(p.id, 'cost', parseFloat(e.target.value) || 0)} style={S.input} /></td>
+      <td style={S.tdR}><input key={`markup-${p.id}-${p.markup}`} type="number" defaultValue={p.markup} step={1} onBlur={e => onUpdate(p.id, 'markup', parseFloat(e.target.value) || 0)} style={{ ...S.input, width: 45, color: p.markup >= 25 ? '#57FF9A' : p.markup >= 15 ? '#F59E0B' : '#EF4444' }} /></td>
+      <td style={S.tdR}><input key={`price-${p.id}-${p.price}`} type="number" defaultValue={p.price} step={0.01} onBlur={e => onUpdate(p.id, 'price', parseFloat(e.target.value) || 0)} style={S.input} /></td>
       <td style={{ ...S.tdM, color: '#57FF9A' }}>${fmt(total)}</td>
       <td style={{ ...S.td, width: 28 }}>{onSubstitute && p.catalogId && <button onClick={() => onSubstitute(p)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, opacity: 0.5 }} title="Sustituir en todo el proyecto"><ArrowLeftRight size={12} color="#3B82F6" /></button>}</td>
       <td style={{ ...S.td, width: 28 }}><button onClick={() => onRemove(p.id)} style={{ background: 'none', border: 'none', color: '#444', cursor: 'pointer' }}><Trash2 size={12} /></button></td>
