@@ -9,7 +9,7 @@ import {
   FileText, Building2, ArrowLeftRight, ShieldCheck,
   Banknote, Users, TrendingUp, Plus, Upload, Search,
   ChevronRight, AlertTriangle, CheckCircle, Clock,
-  DollarSign, X, Loader2, Download
+  DollarSign, X, Loader2, Download, Pencil, Trash2
 } from 'lucide-react'
 
 /* --------- Types ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ */
@@ -3172,6 +3172,7 @@ function TabEfectivo() {
   const [loading, setLoading] = useState(true)
   const efColFilters = useColumnFilters()
   const [showForm, setShowForm] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [form, setForm] = useState({
     tipo: 'cobro_cliente' as 'cobro_cliente' | 'pago_proveedor' | 'nomina_efectivo',
@@ -3179,6 +3180,27 @@ function TabEfectivo() {
     lead_id: '' as string,
     quotation_id: '' as string,
   })
+
+  const startEdit = (m: CashMovement) => {
+    setEditingId(m.id)
+    setForm({
+      tipo: m.tipo,
+      persona: m.persona,
+      concepto: m.concepto || '',
+      monto: String(m.monto),
+      fecha: m.fecha,
+      proyecto_nombre: m.proyecto_nombre || '',
+      lead_id: m.lead_id || '',
+      quotation_id: m.quotation_id || '',
+    })
+    setShowForm(true)
+  }
+  const handleDelete = async (m: CashMovement) => {
+    if (!confirm(`¿Eliminar movimiento de ${m.persona} por ${F(m.monto)} del ${formatDate(m.fecha)}?\n\nEsta acción no se puede deshacer.`)) return
+    const { error } = await supabase.from('cash_movements').delete().eq('id', m.id)
+    if (error) { alert('Error: ' + error.message); return }
+    load()
+  }
   // Catálogos para los dropdowns de lead y cotización
   const [leads, setLeads] = useState<Array<{ id: string; name: string; company?: string }>>([])
   const [quotations, setQuotations] = useState<Array<{ id: string; name: string; specialty: string; total: number; notes?: string | null }>>([])
@@ -3225,15 +3247,22 @@ function TabEfectivo() {
     if (!form.persona.trim()) { alert('Ingresa la persona'); return }
     setSaving(true)
     const direccion = form.tipo === 'cobro_cliente' ? 'ingreso' : 'egreso'
-    const { error } = await supabase.from('cash_movements').insert({
+    const payload = {
       tipo: form.tipo, direccion, persona: form.persona.trim(),
       concepto: form.concepto.trim(), monto, fecha: form.fecha,
       proyecto_nombre: form.proyecto_nombre.trim() || null,
       lead_id: form.lead_id || null,
       quotation_id: form.quotation_id || null,
-    })
+    }
+    let error
+    if (editingId) {
+      ;({ error } = await supabase.from('cash_movements').update(payload).eq('id', editingId))
+    } else {
+      ;({ error } = await supabase.from('cash_movements').insert(payload))
+    }
     if (error) { alert('Error: ' + error.message); setSaving(false); return }
     setForm({ tipo: 'cobro_cliente', persona: '', concepto: '', monto: '', fecha: new Date().toISOString().substring(0, 10), proyecto_nombre: '', lead_id: '', quotation_id: '' })
+    setEditingId(null)
     setShowForm(false)
     setSaving(false)
     load()
@@ -3405,13 +3434,13 @@ function TabEfectivo() {
         </div>
       )}
 
-      {/* Modal de registro */}
+      {/* Modal de registro / edición */}
       {showForm && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setShowForm(false)}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => { setShowForm(false); setEditingId(null); setForm({ tipo: 'cobro_cliente', persona: '', concepto: '', monto: '', fecha: new Date().toISOString().substring(0, 10), proyecto_nombre: '', lead_id: '', quotation_id: '' }) }}>
           <div onClick={e => e.stopPropagation()} style={{ background: '#1a1a1a', border: '1px solid #333', borderRadius: 12, padding: 24, width: Math.min(440, window.innerWidth - 32), maxHeight: '90vh', overflow: 'auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-              <span style={{ fontSize: 16, fontWeight: 700, color: '#fff' }}>Registrar movimiento de efectivo</span>
-              <button onClick={() => setShowForm(false)} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', fontSize: 18 }}><X size={18} /></button>
+              <span style={{ fontSize: 16, fontWeight: 700, color: '#fff' }}>{editingId ? 'Editar movimiento de efectivo' : 'Registrar movimiento de efectivo'}</span>
+              <button onClick={() => { setShowForm(false); setEditingId(null); setForm({ tipo: 'cobro_cliente', persona: '', concepto: '', monto: '', fecha: new Date().toISOString().substring(0, 10), proyecto_nombre: '', lead_id: '', quotation_id: '' }) }} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', fontSize: 18 }}><X size={18} /></button>
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -3503,9 +3532,9 @@ function TabEfectivo() {
             </div>
 
             <div style={{ display: 'flex', gap: 8, marginTop: 20, justifyContent: 'flex-end' }}>
-              <Btn size="sm" onClick={() => setShowForm(false)}>Cancelar</Btn>
+              <Btn size="sm" onClick={() => { setShowForm(false); setEditingId(null); setForm({ tipo: 'cobro_cliente', persona: '', concepto: '', monto: '', fecha: new Date().toISOString().substring(0, 10), proyecto_nombre: '', lead_id: '', quotation_id: '' }) }}>Cancelar</Btn>
               <Btn size="sm" variant="primary" disabled={saving} onClick={handleSave}>
-                {saving ? <><Loader2 size={12} className="spin" /> Guardando...</> : 'Guardar'}
+                {saving ? <><Loader2 size={12} className="spin" /> Guardando...</> : (editingId ? 'Guardar cambios' : 'Guardar')}
               </Btn>
             </div>
           </div>
@@ -3525,6 +3554,7 @@ function TabEfectivo() {
               <Th>Lead / Cotización</Th>
               <ThFilter label="Proyecto" values={movements.map(m => getEfCol(m, 'proyecto'))} activeFilters={efColFilters.getFilter('proyecto')} onFilterChange={s => efColFilters.setFilter('proyecto', s)} />
               <Th right>Monto</Th>
+              <Th></Th>
             </tr>
           </thead>
           <tbody>
@@ -3550,6 +3580,24 @@ function TabEfectivo() {
                   color: m.direccion === 'ingreso' ? '#57FF9A' : '#ccc',
                 }}>
                   {m.direccion === 'ingreso' ? '+' : '-'}{F(m.monto)}
+                </Td>
+                <Td>
+                  <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                    <button
+                      onClick={() => startEdit(m)}
+                      title="Editar"
+                      style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', padding: 4, display: 'inline-flex', alignItems: 'center', borderRadius: 4 }}
+                      onMouseEnter={e => (e.currentTarget.style.color = '#67E8F9')}
+                      onMouseLeave={e => (e.currentTarget.style.color = '#666')}
+                    ><Pencil size={13} /></button>
+                    <button
+                      onClick={() => handleDelete(m)}
+                      title="Eliminar"
+                      style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', padding: 4, display: 'inline-flex', alignItems: 'center', borderRadius: 4 }}
+                      onMouseEnter={e => (e.currentTarget.style.color = '#EF4444')}
+                      onMouseLeave={e => (e.currentTarget.style.color = '#666')}
+                    ><Trash2 size={13} /></button>
+                  </div>
                 </Td>
               </tr>
             ))}
