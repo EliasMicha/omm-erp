@@ -937,6 +937,13 @@ Devuelve solo el JSON, sin explicaciones. Si no hay filtro para un campo, omitel
     const converted = displayCur === 'MXN' ? amount : amount / tc
     return (displayCur === 'USD' ? 'US$' : '$') + Math.round(converted).toLocaleString()
   }
+  // Helper para mostrar total mixto USD+MXN convertido a displayCur (mismo que en ListView,
+  // duplicado aquí porque CotDashboard también lo usa para los KPIs financieros)
+  function mixedToDisplay(usd: number, mxn: number): string {
+    const total = displayCur === 'USD' ? (usd + mxn / tc) : (usd * tc + mxn)
+    if (!total) return '—'
+    return (displayCur === 'USD' ? 'US$' : '$') + Math.round(total).toLocaleString()
+  }
 
   return (
     <div style={{ padding: isMobile ? '16px 12px' : '24px 28px' }}>
