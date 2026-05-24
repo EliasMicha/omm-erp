@@ -72,6 +72,10 @@ interface CashMovement {
   monto: number
   fecha: string
   proyecto_nombre?: string
+  lead_id?: string | null
+  quotation_id?: string | null
+  lead_name?: string  // hydrated from leads table
+  quotation_name?: string  // hydrated from quotations table
 }
 
 
@@ -3172,22 +3176,48 @@ function TabEfectivo() {
   const [form, setForm] = useState({
     tipo: 'cobro_cliente' as 'cobro_cliente' | 'pago_proveedor' | 'nomina_efectivo',
     persona: '', concepto: '', monto: '', fecha: new Date().toISOString().substring(0, 10), proyecto_nombre: '',
+    lead_id: '' as string,
+    quotation_id: '' as string,
   })
+  // Catálogos para los dropdowns de lead y cotización
+  const [leads, setLeads] = useState<Array<{ id: string; name: string; company?: string }>>([])
+  const [quotations, setQuotations] = useState<Array<{ id: string; name: string; specialty: string; total: number; notes?: string | null }>>([])
   const fileRef = useRef<HTMLInputElement>(null)
   const [uploadPreview, setUploadPreview] = useState<any[] | null>(null)
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState('')
 
   const load = async () => {
-    const { data } = await supabase.from('cash_movements').select('*').order('fecha', { ascending: false })
-    setMovements((data || []).map((m: any) => ({
+    const [{ data: movsData }, { data: leadsData }, { data: cotsData }] = await Promise.all([
+      supabase.from('cash_movements').select('*').order('fecha', { ascending: false }),
+      supabase.from('leads').select('id, name, company').order('name'),
+      supabase.from('quotations').select('id, name, specialty, total, notes').order('updated_at', { ascending: false }),
+    ])
+    const leadsMap = new Map((leadsData || []).map((l: any) => [l.id, l]))
+    const cotsMap = new Map((cotsData || []).map((c: any) => [c.id, c]))
+    setMovements((movsData || []).map((m: any) => ({
       id: m.id, tipo: m.tipo, direccion: m.direccion, persona: m.persona,
       concepto: m.concepto, monto: Number(m.monto), fecha: m.fecha, proyecto_nombre: m.proyecto_nombre,
+      lead_id: m.lead_id, quotation_id: m.quotation_id,
+      lead_name: m.lead_id ? (leadsMap.get(m.lead_id)?.name || '') : '',
+      quotation_name: m.quotation_id ? (cotsMap.get(m.quotation_id)?.name || '') : '',
     })))
+    setLeads(leadsData || [])
+    setQuotations(cotsData || [])
     setLoading(false)
   }
 
   useEffect(() => { load() }, [])
+
+  // Cotizaciones filtradas por lead seleccionado (via notes.lead_id en quotations)
+  const quotationsForLead = form.lead_id
+    ? quotations.filter(q => {
+        try {
+          const meta = JSON.parse(q.notes || '{}')
+          return meta.lead_id === form.lead_id
+        } catch { return false }
+      })
+    : quotations
 
   const handleSave = async () => {
     const monto = parseFloat(form.monto)
@@ -3199,9 +3229,11 @@ function TabEfectivo() {
       tipo: form.tipo, direccion, persona: form.persona.trim(),
       concepto: form.concepto.trim(), monto, fecha: form.fecha,
       proyecto_nombre: form.proyecto_nombre.trim() || null,
+      lead_id: form.lead_id || null,
+      quotation_id: form.quotation_id || null,
     })
     if (error) { alert('Error: ' + error.message); setSaving(false); return }
-    setForm({ tipo: 'cobro_cliente', persona: '', concepto: '', monto: '', fecha: new Date().toISOString().substring(0, 10), proyecto_nombre: '' })
+    setForm({ tipo: 'cobro_cliente', persona: '', concepto: '', monto: '', fecha: new Date().toISOString().substring(0, 10), proyecto_nombre: '', lead_id: '', quotation_id: '' })
     setShowForm(false)
     setSaving(false)
     load()
@@ -3409,9 +3441,64 @@ function TabEfectivo() {
                   <input type="date" value={form.fecha} onChange={e => setForm({ ...form, fecha: e.target.value })} style={inputStyle} />
                 </div>
               </div>
+              {/* Lead + Cotización (vinculación opcional pero útil para reportes) */}
               <div>
-                <label style={{ fontSize: 11, color: '#888', marginBottom: 4, display: 'block' }}>Proyecto (opcional)</label>
-                <input value={form.proyecto_nombre} onChange={e => setForm({ ...form, proyecto_nombre: e.target.value })} placeholder="Nombre del proyecto" style={inputStyle} />
+                <label style={{ fontSize: 11, color: '#888', marginBottom: 4, display: 'block' }}>Lead (opcional)</label>
+                <select
+                  value={form.lead_id}
+                  onChange={e => {
+                    const newLeadId = e.target.value
+                    const selectedLead = leads.find(l => l.id === newLeadId)
+                    setForm({
+                      ...form,
+                      lead_id: newLeadId,
+                      // Si el cliente del lead matchea con el selector de cotización actual, manténlo;
+                      // de lo contrario resetea quotation_id
+                      quotation_id: newLeadId ? '' : form.quotation_id,
+                      // Auto-popular persona con el nombre del lead si está vacío
+                      persona: form.persona || (selectedLead ? (selectedLead.company || selectedLead.name) : ''),
+                    })
+                  }}
+                  style={{ ...inputStyle, cursor: 'pointer' }}
+                >
+                  <option value="">— Sin vincular —</option>
+                  {leads.map(l => (
+                    <option key={l.id} value={l.id}>{l.name}{l.company ? ` · ${l.company}` : ''}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label style={{ fontSize: 11, color: '#888', marginBottom: 4, display: 'block' }}>
+                  Cotización (opcional)
+                  {form.lead_id && (
+                    <span style={{ marginLeft: 6, color: '#57FF9A', fontSize: 10 }}>
+                      · filtrado por lead ({quotationsForLead.length})
+                    </span>
+                  )}
+                </label>
+                <select
+                  value={form.quotation_id}
+                  onChange={e => {
+                    const newCotId = e.target.value
+                    const cot = quotations.find(q => q.id === newCotId)
+                    setForm({
+                      ...form,
+                      quotation_id: newCotId,
+                      // Auto-popular proyecto_nombre con el nombre de la cotización si está vacío
+                      proyecto_nombre: form.proyecto_nombre || (cot?.name || ''),
+                    })
+                  }}
+                  style={{ ...inputStyle, cursor: 'pointer' }}
+                >
+                  <option value="">— Sin vincular —</option>
+                  {quotationsForLead.map(q => (
+                    <option key={q.id} value={q.id}>{q.name} ({q.specialty.toUpperCase()})</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label style={{ fontSize: 11, color: '#888', marginBottom: 4, display: 'block' }}>Proyecto (texto libre, opcional)</label>
+                <input value={form.proyecto_nombre} onChange={e => setForm({ ...form, proyecto_nombre: e.target.value })} placeholder="Se autocompleta de la cotización si la eliges arriba" style={inputStyle} />
               </div>
             </div>
 
@@ -3435,6 +3522,7 @@ function TabEfectivo() {
               <ThFilter label="Tipo" values={movements.map(m => getEfCol(m, 'tipo'))} activeFilters={efColFilters.getFilter('tipo')} onFilterChange={s => efColFilters.setFilter('tipo', s)} />
               <ThFilter label="Persona" values={movements.map(m => getEfCol(m, 'persona'))} activeFilters={efColFilters.getFilter('persona')} onFilterChange={s => efColFilters.setFilter('persona', s)} />
               <Th>Concepto</Th>
+              <Th>Lead / Cotización</Th>
               <ThFilter label="Proyecto" values={movements.map(m => getEfCol(m, 'proyecto'))} activeFilters={efColFilters.getFilter('proyecto')} onFilterChange={s => efColFilters.setFilter('proyecto', s)} />
               <Th right>Monto</Th>
             </tr>
@@ -3451,6 +3539,11 @@ function TabEfectivo() {
                 </Td>
                 <Td><span style={{ color: '#fff', fontWeight: 500 }}>{m.persona}</span></Td>
                 <Td muted>{m.concepto}</Td>
+                <Td muted>
+                  {m.lead_name && <div style={{ fontSize: 10, color: '#A855F7', fontWeight: 600 }}>{m.lead_name}</div>}
+                  {m.quotation_name && <div style={{ fontSize: 9, color: '#67E8F9' }}>{m.quotation_name}</div>}
+                  {!m.lead_name && !m.quotation_name && '—'}
+                </Td>
                 <Td muted>{m.proyecto_nombre || '—'}</Td>
                 <Td right style={{
                   fontWeight: 600,
