@@ -2082,6 +2082,7 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
   const [substitutingProduct, setSubstitutingProduct] = useState<EspProduct | null>(null)
   const [showPdfPicker, setShowPdfPicker] = useState(false)
   const [viewSystemId, setViewSystemId] = useState<string | null>(null)
+  const [filterAreaId, setFilterAreaId] = useState<string | null>(null)
   const [projectId, setProjectId] = useState<string | null>(null)
   const [projectName, setProjectName] = useState('')
 
@@ -2868,6 +2869,62 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
         </span>
       </div>
 
+      {/* Areas filter bar — pills para aislar un área específica */}
+      {areas.length > 1 && (
+        <div style={{ padding: isMobile ? '5px 12px' : '5px 16px', borderBottom: '1px solid #1e1e1e', display: 'flex', gap: isMobile ? 4 : 5, alignItems: 'center', background: '#0e0e0e', flexShrink: 0, flexWrap: 'wrap' }}>
+          {!isMobile && <span style={{ fontSize: 9, color: '#444', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.1em', marginRight: 6 }}>Áreas:</span>}
+          <button
+            onClick={() => setFilterAreaId(null)}
+            style={{
+              padding: isMobile ? '2px 6px' : '3px 9px',
+              borderRadius: 14,
+              fontSize: isMobile ? 9 : 10,
+              fontWeight: 700,
+              fontFamily: 'inherit',
+              border: '1px solid ' + (filterAreaId === null ? '#57FF9A' : '#333'),
+              background: filterAreaId === null ? '#57FF9A22' : 'transparent',
+              color: filterAreaId === null ? '#57FF9A' : '#888',
+              cursor: 'pointer',
+              whiteSpace: 'nowrap' as const,
+            }}
+          >Todas ({areas.length})</button>
+          {areas.map(area => {
+            const areaTot = products.filter(p => p.areaId === area.id).reduce((s, p) => s + calcLine(p).total, 0)
+            const active = filterAreaId === area.id
+            return (
+              <button
+                key={area.id}
+                onClick={() => setFilterAreaId(active ? null : area.id)}
+                title={`${area.name} — ${(config.currency === 'MXN' ? '$' : 'US$') + fmt(areaTot)}`}
+                style={{
+                  padding: isMobile ? '2px 6px' : '3px 9px',
+                  borderRadius: 14,
+                  fontSize: isMobile ? 9 : 10,
+                  fontWeight: 600,
+                  fontFamily: 'inherit',
+                  border: '1px solid ' + (active ? '#57FF9A' : '#2a2a2a'),
+                  background: active ? '#57FF9A22' : '#161616',
+                  color: active ? '#57FF9A' : '#aaa',
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap' as const,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 5,
+                }}
+              >
+                <span>{isMobile ? area.name.slice(0, 8) : area.name}</span>
+                <span style={{ fontSize: 8, color: active ? '#57FF9A' : '#666', fontWeight: 500 }}>{(config.currency === 'MXN' ? '$' : 'US$') + areaTot.toFixed(0)}</span>
+              </button>
+            )
+          })}
+          {filterAreaId && (
+            <span style={{ marginLeft: 6, fontSize: 9, color: '#F59E0B', fontStyle: 'italic' as const }}>
+              · Mostrando solo 1 área. Click "Todas" para ver el proyecto completo.
+            </span>
+          )}
+        </div>
+      )}
+
       {/* Content */}
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 260px', flex: 1, overflow: 'hidden' }}>
         <div style={{ overflowY: 'auto', padding: isMobile ? '12px 12px' : '14px 18px' }}>
@@ -2915,7 +2972,9 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
             </div>
           )}
 
-          {areas.map((area, idx) => (
+          {areas.map((area, idx) => {
+            if (filterAreaId && area.id !== filterAreaId) return null
+            return (
             <AreaBlock key={area.id} area={area} activeSystems={activeSystems} products={products} allProducts={products}
               collapsedSys={collapsedSys} onToggleArea={() => toggleArea(area.id)} onToggleSys={toggleSys}
               onUpdateProd={updateProduct} onRemoveProd={removeProduct} onUpdateAll={updateAllByCatalogId}
@@ -2927,7 +2986,8 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
               onUpdateAreaNotes={updateAreaNotes}
               systemNotes={systemNotes}
               onUpdateSystemNote={updateSystemNote} />
-          ))}
+            )
+          })}
           <div onClick={addArea} style={{ padding: '12px', border: '1px dashed #333', borderRadius: 10, textAlign: 'center', cursor: 'pointer', color: '#444', fontSize: 12 }}>+ Agregar área</div>
         </div>
         {!isMobile && <div style={{ borderLeft: '1px solid #222', overflowY: 'auto', padding: '14px 10px', background: '#0e0e0e' }}>
