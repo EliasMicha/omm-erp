@@ -986,6 +986,54 @@ export default function CotEditorIlum({ cotId, onBack, onSwitchVersion }: { cotI
     alert(`${synced} producto(s) sincronizado(s) con catálogo.`)
   }
 
+  // Auto-numerar nomenclaturas: asigna L-01, L-02… a items sin nomenclatura en orden
+  // (por subsección y luego por orden dentro de cada subsección). Por default skipea
+  // items que ya tienen nomenclatura — pregunta antes si querés sobreescribir.
+  async function autoNumberNomenclaturas() {
+    if (products.length === 0) { alert('No hay productos para numerar.'); return }
+    const withNom = products.filter(p => p.nomenclatura && p.nomenclatura.trim()).length
+    const withoutNom = products.length - withNom
+    let overwrite = false
+    if (withNom > 0) {
+      const choice = confirm(
+        `${withoutNom} item(s) sin nomenclatura · ${withNom} ya tienen.\n\n` +
+        `OK = solo asignar a los que NO tienen (preserva los existentes)\n` +
+        `Cancelar = abort\n\n` +
+        `(Si quieres sobreescribir todo, primero borra los existentes manualmente o cancela este diálogo y avísame)`
+      )
+      if (!choice) return
+    } else {
+      if (!confirm(`Asignar nomenclatura L-01, L-02… a los ${products.length} item(s)?`)) return
+    }
+    // Sort by subsection order_index, then by item order_index
+    const subOrder = new Map(subsections.map((s, i) => [s.id, i]))
+    const sortedProducts = [...products].sort((a, b) => {
+      const subA = subOrder.get(a.subsectionId) ?? 999
+      const subB = subOrder.get(b.subsectionId) ?? 999
+      if (subA !== subB) return subA - subB
+      return (a.order || 0) - (b.order || 0)
+    })
+    let counter = 1
+    const updates: Array<{ id: string; nomenclatura: string }> = []
+    for (const p of sortedProducts) {
+      if (p.nomenclatura && p.nomenclatura.trim() && !overwrite) {
+        counter++  // still consume the number so it stays in sync with position
+        continue
+      }
+      const code = 'L-' + String(counter).padStart(2, '0')
+      updates.push({ id: p.id, nomenclatura: code })
+      counter++
+    }
+    // Apply in local state
+    const updateMap = new Map(updates.map(u => [u.id, u.nomenclatura]))
+    setProducts(prev => prev.map(p => updateMap.has(p.id) ? { ...p, nomenclatura: updateMap.get(p.id)! } : p))
+    // Persist to DB
+    for (const u of updates) {
+      await supabase.from('quotation_items').update({ nomenclatura: u.nomenclatura }).eq('id', u.id)
+    }
+    alert(`✓ Asignadas ${updates.length} nomenclaturas (L-01 a L-${String(counter - 1).padStart(2, '0')}).`)
+  }
+
   async function syncAllWithCatalog() {
     const toSync = products.filter(p => p.catalogId)
     if (toSync.length === 0) { alert('No hay productos vinculados a catálogo.'); return }
@@ -1198,6 +1246,7 @@ export default function CotEditorIlum({ cotId, onBack, onSwitchVersion }: { cotI
           </div>
           <button onClick={() => setShowAIImport(true)} style={{ padding: '6px 12px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #57FF9A44', background: 'transparent', color: '#57FF9A', display: 'inline-flex', alignItems: 'center', gap: 4 }}><Sparkles size={12} /> {isMobile ? 'AI' : 'Importar con AI'}</button>
           <button onClick={syncAllWithCatalog} style={{ padding: '6px 12px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #3B82F644', background: 'transparent', color: '#3B82F6', display: 'inline-flex', alignItems: 'center', gap: 4 }}><RefreshCw size={12} /> {isMobile ? 'Sync' : 'Sync catálogo'}</button>
+          <button onClick={autoNumberNomenclaturas} title="Asigna L-01, L-02… a items sin nomenclatura" style={{ padding: '6px 12px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #57FF9A44', background: 'transparent', color: '#57FF9A', display: 'inline-flex', alignItems: 'center', gap: 4 }}>🏷 {isMobile ? 'Num' : 'Auto-numerar'}</button>
           <button onClick={() => setShowPdfPicker(true)} style={{ padding: '6px 12px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #06B6D444', background: 'transparent', color: '#06B6D4', display: 'inline-flex', alignItems: 'center', gap: 4 }}><FileText size={12} /> {isMobile ? 'PDF' : 'Exportar PDF'}</button>
           <VersionManager cotId={cotId} getCurrentSnapshot={getVersionSnapshot} onSwitchVersion={onSwitchVersion || (() => {})} accentColor="#57FF9A" compact={isMobile} />
           {quote && (quote.stage === 'contrato' || quote.stage === 'propuesta') && (

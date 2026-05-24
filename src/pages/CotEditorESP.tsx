@@ -2869,9 +2869,9 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
         </span>
       </div>
 
-      {/* Areas filter bar — pills para aislar un área específica */}
-      {areas.length > 1 && (
-        <div style={{ padding: isMobile ? '5px 12px' : '5px 16px', borderBottom: '1px solid #1e1e1e', display: 'flex', gap: isMobile ? 4 : 5, alignItems: 'center', background: '#0e0e0e', flexShrink: 0, flexWrap: 'wrap' }}>
+      {/* Areas filter bar — solo mobile (en desktop usa el sidebar) */}
+      {areas.length > 1 && isMobile && (
+        <div style={{ padding: '5px 12px', borderBottom: '1px solid #1e1e1e', display: 'flex', gap: 4, alignItems: 'center', background: '#0e0e0e', flexShrink: 0, flexWrap: 'wrap' }}>
           {!isMobile && <span style={{ fontSize: 9, color: '#444', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.1em', marginRight: 6 }}>Áreas:</span>}
           <button
             onClick={() => setFilterAreaId(null)}
@@ -2926,7 +2926,68 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
       )}
 
       {/* Content */}
-      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 260px', flex: 1, overflow: 'hidden' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : (areas.length > 1 ? '190px 1fr 260px' : '1fr 260px'), flex: 1, overflow: 'hidden' }}>
+        {/* Sidebar de áreas (desktop, > 1 area) */}
+        {!isMobile && areas.length > 1 && (
+          <div style={{ borderRight: '1px solid #1e1e1e', overflowY: 'auto', padding: '10px 8px', background: '#0a0a0a' }}>
+            <div style={{ fontSize: 9, fontWeight: 700, color: '#444', textTransform: 'uppercase', letterSpacing: '0.1em', padding: '4px 8px', marginBottom: 4 }}>Áreas</div>
+            <button
+              onClick={() => setFilterAreaId(null)}
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                width: '100%', padding: '7px 10px', marginBottom: 3,
+                background: filterAreaId === null ? '#57FF9A18' : 'transparent',
+                border: '1px solid ' + (filterAreaId === null ? '#57FF9A44' : 'transparent'),
+                borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit',
+                color: filterAreaId === null ? '#57FF9A' : '#888',
+                fontSize: 11, fontWeight: 700,
+              }}
+            >
+              <span>Todas</span>
+              <span style={{ fontSize: 9, opacity: 0.7 }}>{areas.length}</span>
+            </button>
+            <div style={{ height: 1, background: '#1a1a1a', margin: '6px 8px' }} />
+            {areas.map(area => {
+              const areaTot = products.filter(p => p.areaId === area.id).reduce((s, p) => s + calcLine(p).total, 0)
+              const areaCount = products.filter(p => p.areaId === area.id).length
+              const active = filterAreaId === area.id
+              return (
+                <button
+                  key={area.id}
+                  onClick={() => setFilterAreaId(active ? null : area.id)}
+                  title={area.name}
+                  style={{
+                    display: 'flex', flexDirection: 'column' as const, alignItems: 'flex-start',
+                    width: '100%', padding: '7px 10px', marginBottom: 2,
+                    background: active ? '#57FF9A18' : 'transparent',
+                    border: '1px solid ' + (active ? '#57FF9A44' : 'transparent'),
+                    borderLeft: active ? '3px solid #57FF9A' : '3px solid transparent',
+                    borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit',
+                    color: active ? '#57FF9A' : '#ccc',
+                    transition: 'background 0.1s, color 0.1s',
+                  }}
+                  onMouseEnter={e => { if (!active) e.currentTarget.style.background = '#141414' }}
+                  onMouseLeave={e => { if (!active) e.currentTarget.style.background = 'transparent' }}
+                >
+                  <span style={{ fontSize: 11, fontWeight: 600, textAlign: 'left' as const, lineHeight: 1.3, width: '100%', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{area.name}</span>
+                  <span style={{ fontSize: 9, color: active ? '#57FF9A' : '#555', marginTop: 2, display: 'flex', justifyContent: 'space-between', width: '100%' }}>
+                    <span>{areaCount} item{areaCount !== 1 ? 's' : ''}</span>
+                    <span style={{ fontWeight: 600 }}>{(config.currency === 'MXN' ? '$' : 'US$') + areaTot.toFixed(0)}</span>
+                  </span>
+                </button>
+              )
+            })}
+            <button
+              onClick={addArea}
+              style={{
+                display: 'block', width: '100%', padding: '8px 10px', marginTop: 8,
+                background: 'transparent', border: '1px dashed #333', borderRadius: 6,
+                color: '#555', fontSize: 10, fontWeight: 600, fontFamily: 'inherit',
+                cursor: 'pointer',
+              }}
+            >+ Área</button>
+          </div>
+        )}
         <div style={{ overflowY: 'auto', padding: isMobile ? '12px 12px' : '14px 18px' }}>
           {/* Bulk action bar */}
           {selectedProdIds.size > 0 && (
