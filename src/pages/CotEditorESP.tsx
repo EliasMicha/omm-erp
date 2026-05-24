@@ -22,7 +22,7 @@ interface EspProduct {
 }
 interface CatBundle { id: string; name: string; description: string | null; system: string | null; items: CatBundleItem[] }
 interface CatBundleItem { id: string; product_id: string; quantity: number; product: CatProduct }
-interface EspArea { id: string; name: string; collapsed: boolean; order: number }
+interface EspArea { id: string; name: string; collapsed: boolean; order: number; notes?: string | null }
 interface EspSystemDef { id: string; name: string; color: string }
 interface CatProduct { id: string; name: string; description: string; system: string; cost: number; markup: number; precio_venta: number; provider: string; unit: string; moneda?: string; marca?: string | null; modelo?: string | null; sku?: string | null; image_url?: string | null }
 interface EspQuoteConfig { currency: string; ivaRate: number; programacion: number; descuento: number; tipoCambio: number; nominaPct: number; paymentSchedule: Array<{ label: string; percentage: number }>; version: string }
@@ -357,14 +357,17 @@ function ProductDetailModal({ product, onClose, onUpdate }: {
 // ═══════════════════════════════════════════════════════════════════
 // SYSTEM BLOCK
 // ═══════════════════════════════════════════════════════════════════
-function SystemBlock({ sysDef, products, collapsed, onToggle, onUpdate, onRemove, onUpdateAll, onAdd, onAddService, showInt, allProducts, onCopyTo, onDetail, selectedIds, onToggleSelect, onSubstitute }: {
+function SystemBlock({ sysDef, products, collapsed, onToggle, onUpdate, onRemove, onUpdateAll, onAdd, onAddService, showInt, allProducts, onCopyTo, onDetail, selectedIds, onToggleSelect, onSubstitute, note, onUpdateNote }: {
   sysDef: EspSystemDef; products: EspProduct[]; collapsed: boolean; onToggle: () => void
   onUpdate: (id: string, f: string, v: number | string) => void; onRemove: (id: string) => void
   onUpdateAll: (catalogId: string, field: string, value: number) => void; onAdd: () => void; onAddService: () => void; showInt: boolean; allProducts: EspProduct[]
   onCopyTo?: (id: string) => void; onDetail?: (p: EspProduct) => void
   selectedIds?: Set<string>; onToggleSelect?: (id: string) => void; onSubstitute?: (p: EspProduct) => void
+  note?: string
+  onUpdateNote?: (note: string) => void
 }) {
   const sysTotal = products.reduce((s, p) => s + calcLine(p).total, 0)
+  const [editingSysNote, setEditingSysNote] = useState(false)
   return (
     <div style={{ marginBottom: 10 }}>
       <div onClick={onToggle} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 10px', cursor: 'pointer', background: '#111', borderRadius: 6, marginBottom: 2 }}>
@@ -374,6 +377,28 @@ function SystemBlock({ sysDef, products, collapsed, onToggle, onUpdate, onRemove
         <span style={{ marginLeft: 'auto', fontSize: 10, color: '#666' }}>{products.length}</span>
         <span style={{ fontSize: 12, fontWeight: 700, color: '#fff' }}>${fmt(sysTotal)}</span>
       </div>
+      {/* Nota del sistema dentro del área */}
+      {!collapsed && onUpdateNote && (
+        <div style={{ margin: '0 0 6px 16px', padding: '4px 8px', background: '#0a0a0a', border: '1px solid #1a1a1a', borderRadius: 5 }}>
+          {editingSysNote ? (
+            <textarea
+              defaultValue={note || ''}
+              autoFocus
+              rows={2}
+              placeholder={`Nota para ${sysDef.name} en esta área (visible en PDF)…`}
+              onBlur={e => { onUpdateNote(e.target.value); setEditingSysNote(false) }}
+              style={{ width: '100%', background: '#1a1a1a', border: '1px solid #333', borderRadius: 4, padding: '4px 7px', color: '#ccc', fontSize: 10, fontFamily: 'inherit', resize: 'vertical' }}
+            />
+          ) : note ? (
+            <div onClick={() => setEditingSysNote(true)} style={{ display: 'flex', alignItems: 'flex-start', gap: 6, cursor: 'pointer' }} title="Click para editar">
+              <span style={{ fontSize: 9, fontWeight: 700, color: sysDef.color, letterSpacing: '0.08em', whiteSpace: 'nowrap' }}>📝</span>
+              <span style={{ fontSize: 10, color: '#bbb', whiteSpace: 'pre-wrap', flex: 1 }}>{note}</span>
+            </div>
+          ) : (
+            <button onClick={() => setEditingSysNote(true)} style={{ background: 'none', border: 'none', color: '#444', cursor: 'pointer', fontSize: 9, fontFamily: 'inherit', padding: 0 }}>+ Nota para {sysDef.name}</button>
+          )}
+        </div>
+      )}
       {!collapsed && (<>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead><tr style={{ background: '#0e0e0e' }}>
@@ -421,7 +446,7 @@ function SystemBlock({ sysDef, products, collapsed, onToggle, onUpdate, onRemove
 // ═══════════════════════════════════════════════════════════════════
 // AREA BLOCK
 // ═══════════════════════════════════════════════════════════════════
-function AreaBlock({ area, activeSystems, products, allProducts, collapsedSys, onToggleArea, onToggleSys, onUpdateProd, onRemoveProd, onUpdateAll, onAddProd, onAddService, showInt, onCopyTo, onDetail, selectedIds, onToggleSelect, onSubstitute, onRemoveArea, onMoveUp, onMoveDown }: {
+function AreaBlock({ area, activeSystems, products, allProducts, collapsedSys, onToggleArea, onToggleSys, onUpdateProd, onRemoveProd, onUpdateAll, onAddProd, onAddService, showInt, onCopyTo, onDetail, selectedIds, onToggleSelect, onSubstitute, onRemoveArea, onMoveUp, onMoveDown, onUpdateAreaNotes, systemNotes, onUpdateSystemNote }: {
   area: EspArea; activeSystems: EspSystemDef[]; products: EspProduct[]; allProducts: EspProduct[]
   collapsedSys: Record<string, boolean>; onToggleArea: () => void; onToggleSys: (k: string) => void
   onUpdateProd: (id: string, f: string, v: number | string) => void; onRemoveProd: (id: string) => void
@@ -430,7 +455,11 @@ function AreaBlock({ area, activeSystems, products, allProducts, collapsedSys, o
   selectedIds?: Set<string>; onToggleSelect?: (id: string) => void; onSubstitute?: (p: EspProduct) => void
   onRemoveArea?: (id: string) => void
   onMoveUp?: () => void; onMoveDown?: () => void
+  onUpdateAreaNotes?: (areaId: string, notes: string) => void
+  systemNotes?: Record<string, string>
+  onUpdateSystemNote?: (areaId: string, sysId: string, note: string) => void
 }) {
+  const [editingNote, setEditingNote] = useState(false)
   const areaProds = products.filter(p => p.areaId === area.id)
   const areaTotal = areaProds.reduce((s, p) => s + calcLine(p).total, 0)
   const sysWithProds = activeSystems.filter(sys => areaProds.some(p => p.systemId === sys.id))
@@ -457,13 +486,42 @@ function AreaBlock({ area, activeSystems, products, allProducts, collapsedSys, o
       </div>
       {!area.collapsed && (
         <div style={{ paddingLeft: 14, paddingTop: 6 }}>
-          {sysWithProds.map(sys => (
-            <SystemBlock key={sys.id} sysDef={sys} products={areaProds.filter(p => p.systemId === sys.id)}
-              collapsed={collapsedSys[area.id + '_' + sys.id] || false} onToggle={() => onToggleSys(area.id + '_' + sys.id)}
-              onUpdate={onUpdateProd} onRemove={onRemoveProd} onUpdateAll={onUpdateAll}
-              onAdd={() => onAddProd(sys.id)} onAddService={() => onAddService(sys.id)} showInt={showInt} allProducts={allProducts}  onCopyTo={onCopyTo} onDetail={onDetail}
-              selectedIds={selectedIds} onToggleSelect={onToggleSelect} onSubstitute={onSubstitute} />
-          ))}
+          {/* Nota del área — toggleable */}
+          {onUpdateAreaNotes && (
+            <div style={{ marginBottom: 8, padding: '6px 10px', background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 6 }}>
+              {editingNote ? (
+                <textarea
+                  defaultValue={area.notes || ''}
+                  autoFocus
+                  rows={2}
+                  placeholder="Nota para esta área (visible en PDF) — ej. coordinación de obra, especificaciones generales…"
+                  onBlur={e => { onUpdateAreaNotes(area.id, e.target.value); setEditingNote(false) }}
+                  style={{ width: '100%', background: '#1a1a1a', border: '1px solid #333', borderRadius: 4, padding: '5px 8px', color: '#ccc', fontSize: 11, fontFamily: 'inherit', resize: 'vertical' }}
+                />
+              ) : area.notes ? (
+                <div onClick={() => setEditingNote(true)} style={{ display: 'flex', alignItems: 'flex-start', gap: 6, cursor: 'pointer' }} title="Click para editar">
+                  <span style={{ fontSize: 9, fontWeight: 700, color: '#F59E0B', letterSpacing: '0.08em', whiteSpace: 'nowrap' }}>📝 NOTA</span>
+                  <span style={{ fontSize: 11, color: '#ccc', whiteSpace: 'pre-wrap', flex: 1 }}>{area.notes}</span>
+                </div>
+              ) : (
+                <button onClick={() => setEditingNote(true)} style={{ background: 'none', border: 'none', color: '#444', cursor: 'pointer', fontSize: 10, fontFamily: 'inherit', padding: 0 }}>+ Agregar nota al área</button>
+              )}
+            </div>
+          )}
+          {sysWithProds.map(sys => {
+            // Key usa sys.name para matchear con PDF (que solo tiene nombres en quotation_items.system)
+            const sysNoteKey = `${area.id}:${sys.name}`
+            const sysNote = systemNotes?.[sysNoteKey] || ''
+            return (
+              <SystemBlock key={sys.id} sysDef={sys} products={areaProds.filter(p => p.systemId === sys.id)}
+                collapsed={collapsedSys[area.id + '_' + sys.id] || false} onToggle={() => onToggleSys(area.id + '_' + sys.id)}
+                onUpdate={onUpdateProd} onRemove={onRemoveProd} onUpdateAll={onUpdateAll}
+                onAdd={() => onAddProd(sys.id)} onAddService={() => onAddService(sys.id)} showInt={showInt} allProducts={allProducts}  onCopyTo={onCopyTo} onDetail={onDetail}
+                selectedIds={selectedIds} onToggleSelect={onToggleSelect} onSubstitute={onSubstitute}
+                note={sysNote}
+                onUpdateNote={onUpdateSystemNote ? (note) => onUpdateSystemNote(area.id, sys.name, note) : undefined} />
+            )
+          })}
           {sysEmpty.length > 0 && (
             <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', padding: '4px 0' }}>
               {sysEmpty.map(sys => (
@@ -2045,6 +2103,9 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
         if (noteMeta.currency || noteMeta.tipoCambio || noteMeta.descuento !== undefined || noteMeta.programacion !== undefined) {
           setConfig(c => ({ ...c, currency: noteMeta.currency || c.currency, tipoCambio: noteMeta.tipoCambio || c.tipoCambio, descuento: noteMeta.descuento ?? c.descuento, programacion: noteMeta.programacion ?? c.programacion, nominaPct: noteMeta.nominaPct ?? c.nominaPct }))
         }
+        if (noteMeta.systemNotes && typeof noteMeta.systemNotes === 'object') {
+          setSystemNotes(noteMeta.systemNotes)
+        }
       } catch (e) { /* ignore */ }
       // Auto-detect active systems from items if notes doesn't have them
       if (!noteMeta.systems && qItems && qItems.length > 0) {
@@ -2054,7 +2115,7 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
         if (detected.length > 0) setActiveSysIds(detected)
       }
     }
-    if (qAreas && qAreas.length > 0) setAreas(qAreas.map((a: any, i: number) => ({ id: a.id, name: a.name, collapsed: false, order: i })))
+    if (qAreas && qAreas.length > 0) setAreas(qAreas.map((a: any, i: number) => ({ id: a.id, name: a.name, collapsed: false, order: i, notes: a.notes || null })))
     else setAreas([])
     if (qItems && qItems.length > 0) {
       setProducts(qItems.map((it: any) => ({
@@ -2157,6 +2218,35 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
     }
     await supabase.from('quotation_areas').delete().eq('id', areaId)
     setAreas(prev => prev.filter(a => a.id !== areaId))
+  }
+
+  // ── Notas por área (texto libre, se ve en editor + PDF) ──
+  async function updateAreaNotes(areaId: string, notes: string) {
+    const trimmed = notes.trim()
+    setAreas(prev => prev.map(a => a.id === areaId ? { ...a, notes: trimmed || null } : a))
+    await supabase.from('quotation_areas').update({ notes: trimmed || null }).eq('id', areaId)
+  }
+
+  // ── Notas por sistema dentro de área (key = areaId:sysId) ──
+  // Se guardan en quotations.notes JSON bajo `systemNotes: { 'areaId:sysId': '...' }`
+  const [systemNotes, setSystemNotes] = useState<Record<string, string>>({})
+  const systemNotesRef = useRef(systemNotes)
+  systemNotesRef.current = systemNotes
+  async function updateSystemNote(areaId: string, sysId: string, note: string) {
+    const key = `${areaId}:${sysId}`
+    const trimmed = note.trim()
+    const next = { ...systemNotesRef.current }
+    if (trimmed) next[key] = trimmed
+    else delete next[key]
+    setSystemNotes(next)
+    // Persist into quotations.notes JSON
+    let existing: any = {}
+    try {
+      const { data: q } = await supabase.from('quotations').select('notes').eq('id', cotId).single()
+      if (q?.notes) existing = JSON.parse(q.notes)
+    } catch (_) { /* ignore */ }
+    const merged = { ...existing, systemNotes: next }
+    await supabase.from('quotations').update({ notes: JSON.stringify(merged) }).eq('id', cotId)
   }
 
   async function saveNotes(overrides?: Partial<{ systems: string[]; currency: string; tipoCambio: number; descuento: number; programacion: number; nominaPct: number }>) {
@@ -2833,7 +2923,10 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
               selectedIds={selectedProdIds} onToggleSelect={toggleProdSelect} onSubstitute={(p) => setSubstitutingProduct(p)}
               onRemoveArea={removeArea}
               onMoveUp={idx > 0 ? () => moveArea(idx, -1) : undefined}
-              onMoveDown={idx < areas.length - 1 ? () => moveArea(idx, 1) : undefined} />
+              onMoveDown={idx < areas.length - 1 ? () => moveArea(idx, 1) : undefined}
+              onUpdateAreaNotes={updateAreaNotes}
+              systemNotes={systemNotes}
+              onUpdateSystemNote={updateSystemNote} />
           ))}
           <div onClick={addArea} style={{ padding: '12px', border: '1px dashed #333', borderRadius: 10, textAlign: 'center', cursor: 'pointer', color: '#444', fontSize: 12 }}>+ Agregar área</div>
         </div>

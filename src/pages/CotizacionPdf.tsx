@@ -40,7 +40,7 @@ const TERMINOS_DEFAULTS = {
 // HELPERS
 // ═══════════════════════════════════════════════════════════════════════════
 
-interface AreaRow { id: string; name: string; order_index: number }
+interface AreaRow { id: string; name: string; order_index: number; notes?: string | null }
 interface ItemRow {
   id: string
   area_id: string | null
@@ -434,11 +434,18 @@ function CotizacionPdfInner() {
   }
   const areasOrdered = areas
     .filter(a => byAreaSystem[a.name])
-    .map(a => ({ name: a.name, systems: byAreaSystem[a.name] }))
+    .map(a => ({ id: a.id, name: a.name, notes: a.notes || null, systems: byAreaSystem[a.name] }))
   // Área "Sin área" por si hay items huérfanos
   if (byAreaSystem['Sin área']) {
-    areasOrdered.push({ name: 'Sin área', systems: byAreaSystem['Sin área'] })
+    areasOrdered.push({ id: '', name: 'Sin área', notes: null, systems: byAreaSystem['Sin área'] })
   }
+
+  // Notas por sistema dentro de área (key = areaId:sysId), guardadas en cot.notes JSON
+  let systemNotesMap: Record<string, string> = {}
+  try {
+    const meta = JSON.parse(cot?.notes || '{}')
+    if (meta.systemNotes && typeof meta.systemNotes === 'object') systemNotesMap = meta.systemNotes
+  } catch {}
 
   // Vigencia calculada
   const vigenciaHasta = new Date(Date.now() + terminos.vigenciaDias * 24 * 60 * 60 * 1000)
@@ -848,14 +855,25 @@ function CotizacionPdfInner() {
                   <h3 style={{ fontSize: 12, color: '#111' }}>{idx + 1}. {area.name}</h3>
                   <div style={{ fontSize: 11, fontWeight: 600, color: '#111' }}>{FCUR(areaTotal, currency)}</div>
                 </div>
+                {area.notes && (
+                  <div style={{ padding: '6px 10px', marginBottom: 8, background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 3, fontSize: 9.5, color: '#444', fontStyle: 'italic', whiteSpace: 'pre-wrap' as const }}>
+                    <span style={{ fontWeight: 700, color: '#92400e', marginRight: 6 }}>Nota:</span>{area.notes}
+                  </div>
+                )}
                 {Object.entries(area.systems).map(([sys, sysItems]) => {
                   const sysTotal = sysItems.reduce((s, i) => s + (i.price * i.quantity), 0)
+                  const sysNote = area.id ? systemNotesMap[`${area.id}:${sys}`] : ''
                   return (
                     <div key={sys} style={{ marginLeft: 10, marginBottom: 10 }}>
                       <div style={{ fontSize: 10, fontWeight: 600, color: '#666', textTransform: 'uppercase', letterSpacing: '0.04em', padding: '4px 0', display: 'flex', justifyContent: 'space-between' }}>
                         <span>{sys}</span>
                         <span>{FCUR(sysTotal, currency)}</span>
                       </div>
+                      {sysNote && (
+                        <div style={{ padding: '4px 8px', marginBottom: 4, background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 3, fontSize: 9, color: '#555', fontStyle: 'italic', whiteSpace: 'pre-wrap' as const }}>
+                          <span style={{ fontWeight: 700, color: '#92400e', marginRight: 4 }}>Nota:</span>{sysNote}
+                        </div>
+                      )}
                       <table className="pdf-table">
                         <thead>
                           <tr>
