@@ -829,7 +829,7 @@ export default function CRM() {
     setLoading(true)
     Promise.all([
       supabase.from('leads').select('*').order('updated_at', { ascending: false }),
-      supabase.from('quotations').select('id,client_name,stage,total,notes,specialty'),
+      supabase.from('quotations').select('id,client_name,stage,total,notes,specialty,version_group_id,version_label,updated_at'),
       supabase.from('cash_movements').select('lead_id, monto, fecha, tipo'),
     ]).then(([{ data: ld }, { data: qt }, { data: cm }]) => {
       // Build cobros breakdown (assumed MXN — la mayoría de cash movements de OMM son MXN)
@@ -853,14 +853,32 @@ export default function CRM() {
         const getCurrency = (q: any): 'USD' | 'MXN' => {
           try { const m = JSON.parse(q.notes || '{}'); return m.currency === 'MXN' ? 'MXN' : 'USD' } catch { return 'USD' }
         }
+        // Dedupe versiones: si varias quotations comparten version_group_id,
+        // solo cuenta la mas reciente (por updated_at). Las que no tienen
+        // version_group_id se consideran unicas.
+        const dedupeVersions = (quotes: any[]): any[] => {
+          const byGroup = new Map<string, any>()
+          const noGroup: any[] = []
+          for (const q of quotes) {
+            if (!q.version_group_id) { noGroup.push(q); continue }
+            const existing = byGroup.get(q.version_group_id)
+            if (!existing || (q.updated_at || '') > (existing.updated_at || '')) {
+              byGroup.set(q.version_group_id, q)
+            }
+          }
+          return [...byGroup.values(), ...noGroup]
+        }
         for (const lead of ld) {
-          const leadQuotes = qt.filter(q => {
+          const leadQuotesAll = qt.filter(q => {
             try {
               const meta = JSON.parse(q.notes || '{}')
               if (meta.lead_id === lead.id) return true
             } catch {}
             return q.client_name && lead.name && q.client_name.toLowerCase().includes(lead.name.toLowerCase())
           })
+          // ⚠️ Dedupe versiones para no inflar Cotizado/Vendido cuando un lead
+          // tiene multiples versiones de la misma cotizacion
+          const leadQuotes = dedupeVersions(leadQuotesAll)
           let cotizadoUSD = 0, cotizadoMXN = 0, vendidoUSD = 0, vendidoMXN = 0
           leadQuotes.forEach(q => {
             const total = quotTotalIva(q)
