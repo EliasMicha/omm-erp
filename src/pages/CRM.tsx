@@ -24,6 +24,7 @@ interface Lead {
   needs: ProjectLine[]
   notes?: string
   estimated_value?: number
+  close_probability?: number  // 0-100, opcional; default por status si null
   lost_reason?: string
   priority: Priority
 }
@@ -624,8 +625,9 @@ function SortTh({ label, sortKey, currentKey, currentDir, onSort, right: isRight
 }
 
 // ─── Lista ─────────────────────────────────────────────────────────────────
-function ListView({ leads, onOpen, onEdit, onPriorityChange, quoteTotals, displayCur, tc }: {
+function ListView({ leads, onOpen, onEdit, onPriorityChange, onProbabilityChange, quoteTotals, displayCur, tc }: {
   leads: Lead[]; onOpen: (l: Lead) => void; onEdit: (l: Lead) => void; onPriorityChange: (id: string, p: Priority) => void
+  onProbabilityChange: (id: string, prob: number | null) => void
   quoteTotals: Record<string, { cotizadoUSD: number; cotizadoMXN: number; vendidoUSD: number; vendidoMXN: number }>; displayCur: string; tc: number
 }) {
   const isMobile = useIsMobile()
@@ -702,6 +704,7 @@ function ListView({ leads, onOpen, onEdit, onPriorityChange, quoteTotals, displa
           <Th>Especialidades</Th>
           <SortTh label="Estatus" sortKey="status" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
           <SortTh label="Estimado" sortKey="estimated" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} right />
+          <Th right>Prob. Cierre</Th>
           <SortTh label="Cotizado" sortKey="cotizado" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} right />
           <SortTh label="Vendido" sortKey="vendido" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} right />
           <Th>{' '}</Th>
@@ -739,6 +742,28 @@ function ListView({ leads, onOpen, onEdit, onPriorityChange, quoteTotals, displa
               </Td>
               <Td><Badge label={sCfg.label} color={sCfg.color} /></Td>
               <Td right><span style={{ fontWeight: 500, color: '#888' }}>{toDisplay(lead.estimated_value || 0, 'MXN')}</span></Td>
+              <Td right>
+                <input
+                  key={`prob-${lead.id}-${lead.close_probability ?? ''}`}
+                  type="number"
+                  min={0} max={100} step={5}
+                  defaultValue={lead.close_probability ?? ''}
+                  placeholder="—"
+                  onClick={e => e.stopPropagation()}
+                  onBlur={e => {
+                    const raw = e.target.value.trim()
+                    const val = raw === '' ? null : Math.max(0, Math.min(100, parseInt(raw) || 0))
+                    if (val !== (lead.close_probability ?? null)) onProbabilityChange(lead.id, val)
+                  }}
+                  style={{
+                    width: 50, padding: '3px 6px', textAlign: 'right',
+                    background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 4,
+                    color: (lead.close_probability ?? 0) >= 70 ? '#57FF9A' : (lead.close_probability ?? 0) >= 40 ? '#F59E0B' : (lead.close_probability != null ? '#EF4444' : '#666'),
+                    fontWeight: 700, fontSize: 11, fontFamily: 'inherit',
+                  }}
+                />
+                <span style={{ fontSize: 10, color: '#555', marginLeft: 2 }}>%</span>
+              </Td>
               <Td right><span style={{ fontWeight: 600, color: '#C084FC' }}>{qt ? mixedToDisplay(qt.cotizadoUSD, qt.cotizadoMXN) : '—'}</span></Td>
               <Td right><span style={{ fontWeight: 700, color: '#57FF9A' }}>{qt ? mixedToDisplay(qt.vendidoUSD, qt.vendidoMXN) : '—'}</span></Td>
               <Td>
@@ -843,6 +868,11 @@ export default function CRM() {
 
   useEffect(() => { load() }, [])
 
+  async function changeProbability(id: string, prob: number | null) {
+    setLeads(prev => prev.map(l => l.id === id ? { ...l, close_probability: prob ?? undefined } : l))
+    await supabase.from('leads').update({ close_probability: prob, updated_at: new Date().toISOString() }).eq('id', id)
+  }
+
   async function changePriority(id: string, p: Priority) {
     setLeads(prev => prev.map(l => l.id === id ? { ...l, priority: p } : l))
     await supabase.from('leads').update({ priority: p, updated_at: new Date().toISOString() }).eq('id', id)
@@ -911,10 +941,19 @@ Devuelve solo el JSON, sin explicaciones. Si no hay filtro para un campo, omitel
     : leads.filter(l => (l.created_at || '').slice(0, 4) === String(filterYear))
   // Años disponibles para el selector
   const availableYears = [...new Set(leads.map(l => parseInt((l.created_at || '').slice(0, 4))).filter(y => y > 2000))].sort((a, b) => b - a)
-  // 1. Valor de leads (suma de estimated_value, asumido MXN)
-  const valorLeadsMXN = leadsByYear.reduce((s, l) => s + (l.estimated_value || 0), 0)
-  // 2. Cierre estimado = valor leads × tasa de cierre histórica
-  const cierreEstimadoMXN = valorLeadsMXN * (tasaCierre / 100)
+  // 1. Valor de leads (suma de estimated_value, asumido MXN). Solo considera
+  // leads en pipeline activo para forecasting (excluye ganado/perdido/pausado).
+  const leadsActivosYear = leadsByYear.filter(l => !['ganado', 'perdido', 'pausado'].includes(l.status))
+  const valorLeadsMXN = leadsActivosYear.reduce((s, l) => s + (l.estimated_value || 0), 0)
+  // 2. Cierre estimado = sum(estimated_value × close_probability/100) por lead activo.
+  // Si el lead no tiene probabilidad, se asume 0 (no contribuye al forecast).
+  // Asi cada lead aporta segun su probabilidad real, no un promedio global.
+  const cierreEstimadoMXN = leadsActivosYear.reduce((s, l) => {
+    const prob = l.close_probability ?? 0
+    return s + (l.estimated_value || 0) * (prob / 100)
+  }, 0)
+  // Cantidad de leads con probabilidad asignada (para info en sub-label)
+  const leadsConProbabilidad = leadsActivosYear.filter(l => l.close_probability != null).length
   // 3. Cotizado (suma de quoteTotals de los leads del año, mantiene USD/MXN separados)
   let cotizadoUSD = 0, cotizadoMXN = 0, vendidoUSD = 0, vendidoMXN = 0
   for (const lead of leadsByYear) {
@@ -975,8 +1014,8 @@ Devuelve solo el JSON, sin explicaciones. Si no hay filtro para un campo, omitel
       {/* KPIs financieros (5 cards) */}
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(5, 1fr)', gap: 10, marginBottom: 12 }}>
         {[
-          { label: 'Valor de leads', value: mxnToDisplay(valorLeadsMXN), sub: `${leadsByYear.length} leads · estimado`, color: '#3B82F6' },
-          { label: 'Cierre estimado', value: mxnToDisplay(cierreEstimadoMXN), sub: `× ${tasaCierre}% tasa cierre`, color: '#C084FC' },
+          { label: 'Valor de leads', value: mxnToDisplay(valorLeadsMXN), sub: `${leadsActivosYear.length} en pipeline · estimado`, color: '#3B82F6' },
+          { label: 'Cierre estimado', value: mxnToDisplay(cierreEstimadoMXN), sub: `Σ(estimado × prob) — ${leadsConProbabilidad}/${leadsActivosYear.length} c/ prob`, color: '#C084FC' },
           { label: 'Cotizado', value: mixedToDisplay(cotizadoUSD, cotizadoMXN), sub: 'todas etapas', color: '#F59E0B' },
           { label: 'Vendido', value: mixedToDisplay(vendidoUSD, vendidoMXN), sub: 'cotizaciones contrato', color: '#57FF9A' },
           { label: 'Cobrado', value: mxnToDisplay(cobradoMXN), sub: 'movimientos cobro_cliente', color: '#10B981' },
@@ -1060,7 +1099,7 @@ Devuelve solo el JSON, sin explicaciones. Si no hay filtro para un campo, omitel
       {loading ? <Loading /> : (
         viewMode === 'kanban'
           ? <KanbanView leads={filtered} onOpen={(l) => nav(`/crm/${l.id}`)} />
-          : <ListView leads={filtered} onOpen={(l) => nav(`/crm/${l.id}`)} onEdit={setSelected} onPriorityChange={changePriority} quoteTotals={quoteTotals} displayCur={displayCur} tc={tc} />
+          : <ListView leads={filtered} onOpen={(l) => nav(`/crm/${l.id}`)} onEdit={setSelected} onPriorityChange={changePriority} onProbabilityChange={changeProbability} quoteTotals={quoteTotals} displayCur={displayCur} tc={tc} />
       )}
 
       {/* Seccion ganados/perdidos/pausados en kanban */}
@@ -1073,7 +1112,7 @@ Devuelve solo el JSON, sin explicaciones. Si no hay filtro para un campo, omitel
             })}
           </div>
           {leads.filter(l => ['ganado', 'perdido', 'pausado'].includes(l.status)).length > 0 && (
-            <ListView leads={leads.filter(l => ['ganado', 'perdido', 'pausado'].includes(l.status))} onOpen={(l) => nav(`/crm/${l.id}`)} onEdit={setSelected} onPriorityChange={changePriority} quoteTotals={quoteTotals} displayCur={displayCur} tc={tc} />
+            <ListView leads={leads.filter(l => ['ganado', 'perdido', 'pausado'].includes(l.status))} onOpen={(l) => nav(`/crm/${l.id}`)} onEdit={setSelected} onPriorityChange={changePriority} onProbabilityChange={changeProbability} quoteTotals={quoteTotals} displayCur={displayCur} tc={tc} />
           )}
         </div>
       )}
