@@ -778,12 +778,28 @@ export default function CRM() {
   const [quoteTotals, setQuoteTotals] = useState<Record<string, { cotizadoUSD: number; cotizadoMXN: number; vendidoUSD: number; vendidoMXN: number }>>({})
   const [displayCur, setDisplayCur] = useState<'USD' | 'MXN'>('MXN')
   const [tc, setTc] = useState(20.5)
+  const [filterYear, setFilterYear] = useState<number | 'todos'>(new Date().getFullYear())
+  // Mapeo de cobros por lead (suma de cash_movements tipo cobro_cliente)
+  const [cobrosByLead, setCobrosByLead] = useState<Record<string, number>>({})
+  // Cobros globales por año (para cuando no podemos linkear a un lead específico)
+  const [cobrosTotalByYear, setCobrosTotalByYear] = useState<Record<number, number>>({})
   function load() {
     setLoading(true)
     Promise.all([
       supabase.from('leads').select('*').order('updated_at', { ascending: false }),
       supabase.from('quotations').select('id,client_name,stage,total,notes,specialty'),
-    ]).then(([{ data: ld }, { data: qt }]) => {
+      supabase.from('cash_movements').select('lead_id, monto, fecha, tipo'),
+    ]).then(([{ data: ld }, { data: qt }, { data: cm }]) => {
+      // Build cobros breakdown (assumed MXN — la mayoría de cash movements de OMM son MXN)
+      const cobrosLead: Record<string, number> = {}
+      const cobrosYear: Record<number, number> = {}
+      ;(cm || []).filter((m: any) => m.tipo === 'cobro_cliente').forEach((m: any) => {
+        const year = m.fecha ? parseInt(m.fecha.slice(0, 4)) : 0
+        cobrosYear[year] = (cobrosYear[year] || 0) + Number(m.monto || 0)
+        if (m.lead_id) cobrosLead[m.lead_id] = (cobrosLead[m.lead_id] || 0) + Number(m.monto || 0)
+      })
+      setCobrosByLead(cobrosLead)
+      setCobrosTotalByYear(cobrosYear)
       setLeads(ld || [])
       const totals: Record<string, { cotizadoUSD: number; cotizadoMXN: number; vendidoUSD: number; vendidoMXN: number }> = {}
       if (ld && qt) {
@@ -888,6 +904,40 @@ Devuelve solo el JSON, sin explicaciones. Si no hay filtro para un campo, omitel
   const perdidos = leads.filter(l => l.status === 'perdido').length
   const tasaCierre = (ganados + perdidos) > 0 ? Math.round(ganados / (ganados + perdidos) * 100) : 0
 
+  // ── KPIs financieros filtrados por año ───────────────────────────────────
+  // Cada lead se filtra por created_at; los cobros por fecha del movimiento.
+  const leadsByYear = filterYear === 'todos'
+    ? leads
+    : leads.filter(l => (l.created_at || '').slice(0, 4) === String(filterYear))
+  // Años disponibles para el selector
+  const availableYears = [...new Set(leads.map(l => parseInt((l.created_at || '').slice(0, 4))).filter(y => y > 2000))].sort((a, b) => b - a)
+  // 1. Valor de leads (suma de estimated_value, asumido MXN)
+  const valorLeadsMXN = leadsByYear.reduce((s, l) => s + (l.estimated_value || 0), 0)
+  // 2. Cierre estimado = valor leads × tasa de cierre histórica
+  const cierreEstimadoMXN = valorLeadsMXN * (tasaCierre / 100)
+  // 3. Cotizado (suma de quoteTotals de los leads del año, mantiene USD/MXN separados)
+  let cotizadoUSD = 0, cotizadoMXN = 0, vendidoUSD = 0, vendidoMXN = 0
+  for (const lead of leadsByYear) {
+    const qt = quoteTotals[lead.id]
+    if (!qt) continue
+    cotizadoUSD += qt.cotizadoUSD
+    cotizadoMXN += qt.cotizadoMXN
+    vendidoUSD += qt.vendidoUSD
+    vendidoMXN += qt.vendidoMXN
+  }
+  // 5. Cobrado en MXN — suma cash_movements (cobros) del año seleccionado
+  // Si filterYear=todos, suma todos los años
+  const cobradoMXN = filterYear === 'todos'
+    ? Object.values(cobrosTotalByYear).reduce((s, v) => s + v, 0)
+    : (cobrosTotalByYear[filterYear as number] || 0)
+
+  // Helper para mostrar monto MXN en displayCur
+  function mxnToDisplay(amount: number): string {
+    if (!amount) return '—'
+    const converted = displayCur === 'MXN' ? amount : amount / tc
+    return (displayCur === 'USD' ? 'US$' : '$') + Math.round(converted).toLocaleString()
+  }
+
   return (
     <div style={{ padding: isMobile ? '16px 12px' : '24px 28px' }}>
       <SectionHeader
@@ -896,18 +946,38 @@ Devuelve solo el JSON, sin explicaciones. Si no hay filtro para un campo, omitel
         action={<Btn variant="primary" onClick={() => setShowNew(true)}><Plus size={14} /> Nuevo lead</Btn>}
       />
 
-      {/* KPIs */}
-      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4, 1fr)', gap: 10, marginBottom: 12 }}>
+      {/* Selector de año + status KPIs (chips compactos) */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, flexWrap: 'wrap' as const }}>
+        <span style={{ fontSize: 10, color: '#555', fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: '0.06em' }}>Año:</span>
+        {(['todos', ...availableYears] as Array<number | 'todos'>).map(y => {
+          const active = filterYear === y
+          return (
+            <button key={y} onClick={() => setFilterYear(y)} style={{
+              padding: '3px 10px', borderRadius: 14, fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
+              border: '1px solid ' + (active ? '#C084FC' : '#2a2a2a'),
+              background: active ? '#C084FC22' : 'transparent',
+              color: active ? '#C084FC' : '#888',
+            }}>{y === 'todos' ? 'Todos' : y}</button>
+          )
+        })}
+        <span style={{ marginLeft: 'auto', fontSize: 10, color: '#666' }}>
+          📊 {leadsByYear.length} leads · {ganados} ganados · {perdidos} perdidos · <b style={{ color: '#C084FC' }}>{tasaCierre}%</b> tasa cierre
+        </span>
+      </div>
+
+      {/* KPIs financieros (5 cards) */}
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(5, 1fr)', gap: 10, marginBottom: 12 }}>
         {[
-          { label: 'Pipeline activo', value: activePipeline.length.toString(), sub: F(pipelineValue), color: '#3B82F6' },
-          { label: 'Ganados', value: ganados.toString(), sub: 'total historico', color: '#57FF9A' },
-          { label: 'Perdidos', value: perdidos.toString(), sub: 'total historico', color: '#EF4444' },
-          { label: 'Tasa de cierre', value: `${tasaCierre}%`, sub: `${ganados} de ${ganados + perdidos}`, color: '#C084FC' },
+          { label: 'Valor de leads', value: mxnToDisplay(valorLeadsMXN), sub: `${leadsByYear.length} leads · estimado`, color: '#3B82F6' },
+          { label: 'Cierre estimado', value: mxnToDisplay(cierreEstimadoMXN), sub: `× ${tasaCierre}% tasa cierre`, color: '#C084FC' },
+          { label: 'Cotizado', value: mixedToDisplay(cotizadoUSD, cotizadoMXN), sub: 'todas etapas', color: '#F59E0B' },
+          { label: 'Vendido', value: mixedToDisplay(vendidoUSD, vendidoMXN), sub: 'cotizaciones contrato', color: '#57FF9A' },
+          { label: 'Cobrado', value: mxnToDisplay(cobradoMXN), sub: 'movimientos cobro_cliente', color: '#10B981' },
         ].map(k => (
           <div key={k.label} style={{ background: '#141414', border: '1px solid #1e1e1e', borderRadius: 10, padding: '12px 14px', borderTop: `2px solid ${k.color}` }}>
-            <div style={{ fontSize: 10, color: '#555', textTransform: 'uppercase' as const, letterSpacing: '0.06em', marginBottom: 4 }}>{k.label}</div>
-            <div style={{ fontSize: 22, fontWeight: 700, color: '#fff' }}>{k.value}</div>
-            <div style={{ fontSize: 10, color: '#444', marginTop: 2 }}>{k.sub}</div>
+            <div style={{ fontSize: 9, color: '#555', textTransform: 'uppercase' as const, letterSpacing: '0.06em', marginBottom: 4 }}>{k.label}</div>
+            <div style={{ fontSize: isMobile ? 16 : 19, fontWeight: 700, color: '#fff', wordBreak: 'break-word' as const }}>{k.value}</div>
+            <div style={{ fontSize: 9, color: '#444', marginTop: 2 }}>{k.sub}</div>
           </div>
         ))}
       </div>
