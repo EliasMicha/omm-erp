@@ -803,7 +803,7 @@ function CotizacionPdfInner() {
             <thead>
               <tr>
                 <th style={{ width: 46 }}></th>
-                <th style={{ width: 60 }}>Nomencl.</th>
+                {cot?.specialty === 'ilum' && <th style={{ width: 60 }}>Nomencl.</th>}
                 <th style={{ width: 70 }}>Marca</th>
                 <th style={{ width: 95 }}>Modelo</th>
                 <th>Descripción</th>
@@ -823,7 +823,7 @@ function CotizacionPdfInner() {
                       <div style={{ width: 36, height: 36, border: '1px dashed #ddd', borderRadius: 3, background: '#fafafa' }}></div>
                     )}
                   </td>
-                  <td style={{ fontSize: 9, fontWeight: 700, color: '#111' }}>{it.nomenclatura || '—'}</td>
+                  {cot?.specialty === 'ilum' && <td style={{ fontSize: 9, fontWeight: 700, color: '#111' }}>{it.nomenclatura || '—'}</td>}
                   <td style={{ fontSize: 9, fontWeight: 500 }}>{it.marca || '—'}</td>
                   <td style={{ fontSize: 9 }}>{it.modelo || '—'}</td>
                   <td>
@@ -860,7 +860,7 @@ function CotizacionPdfInner() {
                         <thead>
                           <tr>
                             <th style={{ width: 46 }}></th>
-                            <th style={{ width: 60 }}>Nomencl.</th>
+                            {cot?.specialty === 'ilum' && <th style={{ width: 60 }}>Nomencl.</th>}
                             <th style={{ width: 70 }}>Marca</th>
                             <th style={{ width: 95 }}>Modelo</th>
                             <th>Descripción</th>
@@ -882,7 +882,7 @@ function CotizacionPdfInner() {
                                   <div style={{ width: 36, height: 36, border: '1px dashed #ddd', borderRadius: 3, background: '#fafafa' }}></div>
                                 )}
                               </td>
-                              <td style={{ fontSize: 9, fontWeight: 700, color: '#111' }}>{it.nomenclatura || '—'}</td>
+                              {cot?.specialty === 'ilum' && <td style={{ fontSize: 9, fontWeight: 700, color: '#111' }}>{it.nomenclatura || '—'}</td>}
                               <td style={{ fontSize: 9, fontWeight: 500 }}>{it.marca || '—'}</td>
                               <td style={{ fontSize: 9 }}>{it.modelo || '—'}</td>
                               <td>
