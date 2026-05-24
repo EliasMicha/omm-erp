@@ -626,7 +626,7 @@ function SortTh({ label, sortKey, currentKey, currentDir, onSort, right: isRight
 // ─── Lista ─────────────────────────────────────────────────────────────────
 function ListView({ leads, onOpen, onEdit, onPriorityChange, quoteTotals, displayCur, tc }: {
   leads: Lead[]; onOpen: (l: Lead) => void; onEdit: (l: Lead) => void; onPriorityChange: (id: string, p: Priority) => void
-  quoteTotals: Record<string, { cotizado: number; vendido: number; cotCurrency: string }>; displayCur: string; tc: number
+  quoteTotals: Record<string, { cotizadoUSD: number; cotizadoMXN: number; vendidoUSD: number; vendidoMXN: number }>; displayCur: string; tc: number
 }) {
   const isMobile = useIsMobile()
   const [sortKey, setSortKey] = useState<SortKey | null>('priority')
@@ -643,6 +643,18 @@ function ListView({ leads, onOpen, onEdit, onPriorityChange, quoteTotals, displa
     const prefix = displayCur === 'USD' ? 'US$' : '$'
     return prefix + Math.round(converted).toLocaleString()
   }
+  // Convierte un total mixto (suma USD + suma MXN) a la moneda de display.
+  // Solo el monto en moneda distinta se multiplica/divide por tc.
+  function mixedToDisplay(usd: number, mxn: number): string {
+    const total = displayCur === 'USD' ? (usd + mxn / tc) : (usd * tc + mxn)
+    if (!total) return '—'
+    const prefix = displayCur === 'USD' ? 'US$' : '$'
+    return prefix + Math.round(total).toLocaleString()
+  }
+  // Mismo conversion pero devuelve el numero (para sorting)
+  function mixedToNumber(usd: number, mxn: number): number {
+    return displayCur === 'USD' ? (usd + mxn / tc) : (usd * tc + mxn)
+  }
 
   function handleSort(key: SortKey) {
     if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
@@ -657,8 +669,18 @@ function ListView({ leads, onOpen, onEdit, onPriorityChange, quoteTotals, displa
       case 'company': return dir * (a.company || '').localeCompare(b.company || '')
       case 'status': return dir * ((STATUS_CFG[a.status]?.order || 0) - (STATUS_CFG[b.status]?.order || 0))
       case 'estimated': return dir * ((a.estimated_value || 0) - (b.estimated_value || 0))
-      case 'cotizado': return dir * ((quoteTotals[a.id]?.cotizado || 0) - (quoteTotals[b.id]?.cotizado || 0))
-      case 'vendido': return dir * ((quoteTotals[a.id]?.vendido || 0) - (quoteTotals[b.id]?.vendido || 0))
+      case 'cotizado': {
+        const aQt = quoteTotals[a.id], bQt = quoteTotals[b.id]
+        const aTot = aQt ? mixedToNumber(aQt.cotizadoUSD, aQt.cotizadoMXN) : 0
+        const bTot = bQt ? mixedToNumber(bQt.cotizadoUSD, bQt.cotizadoMXN) : 0
+        return dir * (aTot - bTot)
+      }
+      case 'vendido': {
+        const aQt = quoteTotals[a.id], bQt = quoteTotals[b.id]
+        const aTot = aQt ? mixedToNumber(aQt.vendidoUSD, aQt.vendidoMXN) : 0
+        const bTot = bQt ? mixedToNumber(bQt.vendidoUSD, bQt.vendidoMXN) : 0
+        return dir * (aTot - bTot)
+      }
       case 'priority': {
         const pa = PRIORITY_CFG[a.priority || 'media'].order
         const pb = PRIORITY_CFG[b.priority || 'media'].order
@@ -717,8 +739,8 @@ function ListView({ leads, onOpen, onEdit, onPriorityChange, quoteTotals, displa
               </Td>
               <Td><Badge label={sCfg.label} color={sCfg.color} /></Td>
               <Td right><span style={{ fontWeight: 500, color: '#888' }}>{toDisplay(lead.estimated_value || 0, 'MXN')}</span></Td>
-              <Td right><span style={{ fontWeight: 600, color: '#C084FC' }}>{qt?.cotizado ? toDisplay(qt.cotizado, qt.cotCurrency || 'USD') : '—'}</span></Td>
-              <Td right><span style={{ fontWeight: 700, color: '#57FF9A' }}>{qt?.vendido ? toDisplay(qt.vendido, qt.cotCurrency || 'USD') : '—'}</span></Td>
+              <Td right><span style={{ fontWeight: 600, color: '#C084FC' }}>{qt ? mixedToDisplay(qt.cotizadoUSD, qt.cotizadoMXN) : '—'}</span></Td>
+              <Td right><span style={{ fontWeight: 700, color: '#57FF9A' }}>{qt ? mixedToDisplay(qt.vendidoUSD, qt.vendidoMXN) : '—'}</span></Td>
               <Td>
                 <button onClick={e => { e.stopPropagation(); onEdit(lead) }} title="Editar lead"
                   style={{ background: 'none', border: '1px solid #2a2a2a', borderRadius: 6, padding: '4px 8px', cursor: 'pointer', color: '#555', display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10 }}
@@ -750,7 +772,10 @@ export default function CRM() {
   const [aiQuery, setAiQuery] = useState('')
   const [aiLoading, setAiLoading] = useState(false)
   const [aiFilter, setAiFilter] = useState<Partial<{ status: LeadStatus; origin: LeadOrigin; minValue: number; text: string }> | null>(null)
-  const [quoteTotals, setQuoteTotals] = useState<Record<string, { cotizado: number; vendido: number; cotCurrency: string }>>({})
+  // Totales separados por moneda — cada cotización puede estar en USD o MXN,
+  // sumarlas requiere conocer la moneda nativa de cada una. La conversión a la
+  // moneda de display se hace al render con el tipo de cambio actual.
+  const [quoteTotals, setQuoteTotals] = useState<Record<string, { cotizadoUSD: number; cotizadoMXN: number; vendidoUSD: number; vendidoMXN: number }>>({})
   const [displayCur, setDisplayCur] = useState<'USD' | 'MXN'>('MXN')
   const [tc, setTc] = useState(20.5)
   function load() {
@@ -760,13 +785,15 @@ export default function CRM() {
       supabase.from('quotations').select('id,client_name,stage,total,notes,specialty'),
     ]).then(([{ data: ld }, { data: qt }]) => {
       setLeads(ld || [])
-      // Build totals per lead — match by lead_id in notes or by name
-      const totals: Record<string, { cotizado: number; vendido: number; cotCurrency: string }> = {}
+      const totals: Record<string, { cotizadoUSD: number; cotizadoMXN: number; vendidoUSD: number; vendidoMXN: number }> = {}
       if (ld && qt) {
         const quotTotalIva = (q: any) => {
           // esp/cort/ilum/proy store total WITH IVA; elec stores raw subtotal
           if (q.specialty === 'esp' || q.specialty === 'cort' || q.specialty === 'ilum' || q.specialty === 'proy') return q.total || 0
           return (q.total || 0) * 1.16
+        }
+        const getCurrency = (q: any): 'USD' | 'MXN' => {
+          try { const m = JSON.parse(q.notes || '{}'); return m.currency === 'MXN' ? 'MXN' : 'USD' } catch { return 'USD' }
         }
         for (const lead of ld) {
           const leadQuotes = qt.filter(q => {
@@ -776,12 +803,21 @@ export default function CRM() {
             } catch {}
             return q.client_name && lead.name && q.client_name.toLowerCase().includes(lead.name.toLowerCase())
           })
-          let cotizado = 0, vendido = 0
+          let cotizadoUSD = 0, cotizadoMXN = 0, vendidoUSD = 0, vendidoMXN = 0
           leadQuotes.forEach(q => {
-            cotizado += quotTotalIva(q)
-            if (q.stage === 'contrato') vendido += quotTotalIva(q)
+            const total = quotTotalIva(q)
+            const cur = getCurrency(q)
+            if (cur === 'USD') {
+              cotizadoUSD += total
+              if (q.stage === 'contrato') vendidoUSD += total
+            } else {
+              cotizadoMXN += total
+              if (q.stage === 'contrato') vendidoMXN += total
+            }
           })
-          if (cotizado > 0 || vendido > 0) totals[lead.id] = { cotizado, vendido, cotCurrency: 'USD' }
+          if (cotizadoUSD || cotizadoMXN || vendidoUSD || vendidoMXN) {
+            totals[lead.id] = { cotizadoUSD, cotizadoMXN, vendidoUSD, vendidoMXN }
+          }
         }
       }
       setQuoteTotals(totals)
