@@ -68,6 +68,8 @@ export default function LeadDashboard() {
   const [employees, setEmployees] = useState<any[]>([])
   const [quotItems, setQuotItems] = useState<any[]>([])
   const [bankMovements, setBankMovements] = useState<any[]>([])
+  // Movimientos de efectivo ligados al lead (cash_movements.lead_id)
+  const [cashMovements, setCashMovements] = useState<any[]>([])
   const [paymentAllocations, setPaymentAllocations] = useState<any[]>([])
   const [tipoCambio, setTipoCambio] = useState(20.50)
   const saveTipoCambioRef = async (tc: number) => {
@@ -127,8 +129,8 @@ export default function LeadDashboard() {
     setProjects(leadProjects)
     const projIds = new Set(leadProjects.map(p => p.id))
 
-    // 4. Parallel: POs, milestones, obras, tasks, phases, employees, quotation items, bank movements
-    const [posRes, msRes, obrasRes, tasksRes, phasesRes, empRes, qiRes, bmRes, areasRes, paRes] = await Promise.all([
+    // 4. Parallel: POs, milestones, obras, tasks, phases, employees, quotation items, bank movements, cash movements
+    const [posRes, msRes, obrasRes, tasksRes, phasesRes, empRes, qiRes, bmRes, areasRes, paRes, cmRes] = await Promise.all([
       supabase.from('purchase_orders').select('*').in('project_id', [...projIds]),
       supabase.from('payment_milestones').select('*,currency,amount_paid_mxn,tipo_cambio_pago').in('project_id', [...projIds]),
       supabase.from('obras').select('*').in('project_id', [...projIds]),
@@ -139,6 +141,7 @@ export default function LeadDashboard() {
       supabase.from('bank_movements').select('*').eq('lead_id', id!).order('fecha', { ascending: false }),
       supabase.from('quotation_areas').select('id,name,quotation_id').in('quotation_id', [...quotIds]),
       supabase.from('payment_allocations').select('*').in('quotation_id', [...quotIds]),
+      supabase.from('cash_movements').select('*').eq('lead_id', id!).order('fecha', { ascending: false }),
     ])
     setPos(posRes.data || [])
     setMilestones(msRes.data || [])
@@ -151,6 +154,7 @@ export default function LeadDashboard() {
     setPhases(phasesRes.data || [])
     setBankMovements(bmRes.data || [])
     setPaymentAllocations(paRes.data || [])
+    setCashMovements(cmRes.data || [])
 
     const obrasList = obrasRes.data || []
     setObras(obrasList)
@@ -963,6 +967,10 @@ export default function LeadDashboard() {
           bankMovements.filter(m => m.tipo === 'abono').forEach(m => {
             entries.push({ date: m.fecha || '', tipo: 'abono', desc: m.concepto || 'Pago', monto: m.monto || 0, cur: m.moneda || 'MXN', ref: m.referencia })
           })
+          // Abonos from cash_movements (cobros de efectivo ligados a este lead)
+          cashMovements.filter(m => m.tipo === 'cobro_cliente').forEach(m => {
+            entries.push({ date: m.fecha || '', tipo: 'abono', desc: `💵 Efectivo: ${m.concepto || m.persona || 'Cobro'}`, monto: Number(m.monto) || 0, cur: 'MXN', ref: 'CASH' })
+          })
 
           entries.sort((a, b) => a.date.localeCompare(b.date))
 
@@ -1016,9 +1024,19 @@ export default function LeadDashboard() {
           )
         })()}
 
-        {/* ── Egresos registrados (cargos bancarios del lead) ── */}
+        {/* ── Egresos registrados (cargos bancarios + pagos efectivo del lead) ── */}
         {(() => {
-          const egresos = bankMovements.filter(m => m.tipo === 'cargo')
+          // Unifica cargos bancarios + pagos a proveedor en efectivo + nominas
+          const bankEgresos = bankMovements.filter(m => m.tipo === 'cargo').map(m => ({
+            id: 'bank-' + m.id, fecha: m.fecha, concepto: m.concepto, beneficiario: m.beneficiario || m.proveedor,
+            moneda: m.moneda || 'MXN', monto: m.monto || 0, source: 'banco' as const,
+          }))
+          const cashEgresos = cashMovements.filter(m => m.tipo === 'pago_proveedor' || m.tipo === 'nomina_efectivo').map(m => ({
+            id: 'cash-' + m.id, fecha: m.fecha, concepto: m.concepto || (m.tipo === 'nomina_efectivo' ? 'Nómina en efectivo' : 'Pago a proveedor'),
+            beneficiario: m.persona, moneda: 'MXN', monto: Number(m.monto) || 0,
+            source: (m.tipo === 'nomina_efectivo' ? 'nomina' : 'efectivo') as 'efectivo' | 'nomina',
+          }))
+          const egresos = [...bankEgresos, ...cashEgresos].sort((a, b) => (b.fecha || '').localeCompare(a.fecha || ''))
           if (egresos.length === 0) return null
           const totalEgr = egresos.reduce((s, m) => s + (m.monto || 0), 0)
           return (
@@ -1042,8 +1060,12 @@ export default function LeadDashboard() {
                   {egresos.map(m => (
                     <tr key={m.id} style={trS}>
                       <td style={{ ...tdS, color: '#888' }}>{m.fecha || '—'}</td>
-                      <td style={tdS}><span style={{ color: '#fff', fontWeight: 500 }}>{(m.concepto || '—').substring(0, 45)}</span></td>
-                      <td style={{ ...tdS, color: '#666', fontSize: 11 }}>{m.beneficiario || m.proveedor || '—'}</td>
+                      <td style={tdS}>
+                        <span style={{ color: '#fff', fontWeight: 500 }}>{(m.concepto || '—').substring(0, 45)}</span>
+                        {m.source === 'efectivo' && <span style={{ marginLeft: 6, fontSize: 9, color: '#10B981', background: '#10B98122', padding: '1px 5px', borderRadius: 3, fontWeight: 600 }}>💵 EFECTIVO</span>}
+                        {m.source === 'nomina' && <span style={{ marginLeft: 6, fontSize: 9, color: '#C084FC', background: '#C084FC22', padding: '1px 5px', borderRadius: 3, fontWeight: 600 }}>NÓMINA</span>}
+                      </td>
+                      <td style={{ ...tdS, color: '#666', fontSize: 11 }}>{m.beneficiario || '—'}</td>
                       <td style={tdS}><Badge label={m.moneda || 'MXN'} color={m.moneda === 'USD' ? '#06B6D4' : '#A78BFA'} /></td>
                       <td style={{ ...tdS, textAlign: 'right', fontWeight: 600, color: '#EF4444' }}>-{FCUR(m.monto || 0, m.moneda || 'MXN')}</td>
                     </tr>
@@ -1055,17 +1077,27 @@ export default function LeadDashboard() {
           )
         })()}
 
-        {/* ── Flujo neto ── */}
-        {bankMovements.length > 0 && (() => {
-          const ingresos = bankMovements.filter(m => m.tipo === 'abono').reduce((s, m) => s + (m.monto || 0), 0)
-          const egresos = bankMovements.filter(m => m.tipo === 'cargo').reduce((s, m) => s + (m.monto || 0), 0)
+        {/* ── Flujo neto (banco + efectivo) ── */}
+        {(bankMovements.length + cashMovements.length) > 0 && (() => {
+          const ingresosBanco = bankMovements.filter(m => m.tipo === 'abono').reduce((s, m) => s + (m.monto || 0), 0)
+          const egresosBanco = bankMovements.filter(m => m.tipo === 'cargo').reduce((s, m) => s + (m.monto || 0), 0)
+          const ingresosEfectivo = cashMovements.filter(m => m.tipo === 'cobro_cliente').reduce((s, m) => s + (Number(m.monto) || 0), 0)
+          const egresosEfectivo = cashMovements.filter(m => m.tipo === 'pago_proveedor' || m.tipo === 'nomina_efectivo').reduce((s, m) => s + (Number(m.monto) || 0), 0)
+          const ingresos = ingresosBanco + ingresosEfectivo
+          const egresos = egresosBanco + egresosEfectivo
           const neto = ingresos - egresos
           return (
-            <div style={{ display: 'flex', gap: 16, marginTop: 16, padding: '10px 14px', background: '#111', borderRadius: 8, border: '1px solid #222', fontSize: 12, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: 16, marginTop: 16, padding: '10px 14px', background: '#111', borderRadius: 8, border: '1px solid #222', fontSize: 12, flexWrap: 'wrap', alignItems: 'center' }}>
               <span style={{ color: '#888' }}>Flujo neto:</span>
-              <span style={{ color: '#57FF9A', fontWeight: 600 }}>Ingresos {F(ingresos)}</span>
+              <span style={{ color: '#57FF9A', fontWeight: 600 }}>
+                Ingresos {F(ingresos)}
+                {ingresosEfectivo > 0 && <span style={{ marginLeft: 4, fontSize: 10, color: '#10B981' }}>(💵 {F(ingresosEfectivo)} efectivo)</span>}
+              </span>
               <span style={{ color: '#666' }}>—</span>
-              <span style={{ color: '#EF4444', fontWeight: 600 }}>Egresos {F(egresos)}</span>
+              <span style={{ color: '#EF4444', fontWeight: 600 }}>
+                Egresos {F(egresos)}
+                {egresosEfectivo > 0 && <span style={{ marginLeft: 4, fontSize: 10, color: '#10B981' }}>(💵 {F(egresosEfectivo)} efectivo)</span>}
+              </span>
               <span style={{ color: '#666' }}>=</span>
               <span style={{ color: neto >= 0 ? '#57FF9A' : '#EF4444', fontWeight: 700 }}>{F(neto)}</span>
             </div>
