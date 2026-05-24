@@ -26,6 +26,7 @@ interface Lead {
   notes?: string
   estimated_value?: number
   close_probability?: number  // 0-100, opcional; default por status si null
+  commercial_year?: number    // año comercial editable; si null, se usa created_at
   lost_reason?: string
   priority: Priority
 }
@@ -108,7 +109,8 @@ function NuevoLeadModal({ onClose, onCreated }: { onClose: () => void; onCreated
   const isMobile = useIsMobile()
   const [form, setForm] = useState({
     name: '', company: '', client_final: '', client_id: '', contact_name: '', contact_phone: '', contact_email: '',
-    origin: 'inbound' as LeadOrigin, needs: [] as ProjectLine[], notes: '', estimated_value: ''
+    origin: 'inbound' as LeadOrigin, needs: [] as ProjectLine[], notes: '', estimated_value: '',
+    commercial_year: String(new Date().getFullYear()),
   })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -162,6 +164,7 @@ function NuevoLeadModal({ onClose, onCreated }: { onClose: () => void; onCreated
       contact_email: form.contact_email || null, origin: form.origin, status: 'nuevo',
       needs: form.needs, notes: notesWithClient || null,
       estimated_value: parseFloat(form.estimated_value) || null,
+      commercial_year: form.commercial_year ? parseInt(form.commercial_year, 10) || null : null,
     })
     setSaving(false)
     if (err) { setError(err.message); return }
@@ -256,6 +259,10 @@ function NuevoLeadModal({ onClose, onCreated }: { onClose: () => void; onCreated
             <Field label="Email" value={form.contact_email} onChange={s('contact_email')} placeholder="correo@ejemplo.com" />
             <Field label="Valor estimado (MXN)" value={form.estimated_value} onChange={s('estimated_value')} type="number" placeholder="0" />
           </div>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12 }}>
+            <Field label="Año comercial" value={form.commercial_year} onChange={s('commercial_year')} type="number" placeholder={`${new Date().getFullYear()}`} />
+            <div />
+          </div>
           <Chips label="Origen" value={form.origin}
             onChange={(k) => setForm(f => ({ ...f, origin: k as LeadOrigin }))}
             options={Object.entries(ORIGIN_CFG).map(([k, v]) => ({ key: k as LeadOrigin, label: v.label }))} />
@@ -292,6 +299,7 @@ function LeadModal({ lead, onClose, onUpdated, onDeleted }: {
       contact_email: lead.contact_email || '', origin: lead.origin, status: lead.status,
       needs: lead.needs || [] as ProjectLine[], notes: lead.notes || '',
       estimated_value: lead.estimated_value?.toString() || '', lost_reason: lead.lost_reason || '',
+      commercial_year: lead.commercial_year?.toString() || '',
       priority: lead.priority || 'media' as Priority,
     }
   })
@@ -360,6 +368,7 @@ function LeadModal({ lead, onClose, onUpdated, onDeleted }: {
       contact_email: form.contact_email || null, origin: form.origin, status: form.status,
       needs: form.needs, notes: notesValue || null,
       estimated_value: parseFloat(form.estimated_value) || null,
+      commercial_year: form.commercial_year ? parseInt(form.commercial_year, 10) || null : null,
       lost_reason: form.lost_reason || null, priority: form.priority,
       updated_at: new Date().toISOString(),
     }).eq('id', lead.id)
@@ -501,6 +510,10 @@ function LeadModal({ lead, onClose, onUpdated, onDeleted }: {
             <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12 }}>
               <Field label="Email" value={form.contact_email} onChange={s('contact_email')} />
               <Field label="Valor estimado (MXN)" value={form.estimated_value} onChange={s('estimated_value')} type="number" />
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12 }}>
+              <Field label="Año comercial" value={form.commercial_year} onChange={s('commercial_year')} type="number" placeholder={`${new Date().getFullYear()} (default: año de creación)`} />
+              <div />
             </div>
             {form.status === 'perdido' && (
               <Field label="Razon de perdida" value={form.lost_reason} onChange={s('lost_reason')} placeholder="ej. Precio, competencia, proyecto cancelado..." />
@@ -939,12 +952,14 @@ Devuelve solo el JSON, sin explicaciones. Si no hay filtro para un campo, omitel
   const tasaCierre = (ganados + perdidos) > 0 ? Math.round(ganados / (ganados + perdidos) * 100) : 0
 
   // ── KPIs financieros filtrados por año ───────────────────────────────────
-  // Cada lead se filtra por created_at; los cobros por fecha del movimiento.
+  // Cada lead se filtra por commercial_year (si lo tiene) o por created_at;
+  // los cobros por fecha del movimiento.
+  const getLeadYear = (l: Lead): number => l.commercial_year || parseInt((l.created_at || '').slice(0, 4), 10) || 0
   const leadsByYear = filterYear === 'todos'
     ? leads
-    : leads.filter(l => (l.created_at || '').slice(0, 4) === String(filterYear))
-  // Años disponibles para el selector
-  const availableYears = [...new Set(leads.map(l => parseInt((l.created_at || '').slice(0, 4))).filter(y => y > 2000))].sort((a, b) => b - a)
+    : leads.filter(l => getLeadYear(l) === filterYear)
+  // Años disponibles para el selector — incluye tanto commercial_year como created_at
+  const availableYears = [...new Set(leads.map(getLeadYear).filter(y => y > 2000))].sort((a, b) => b - a)
   // 1. Valor de leads (suma de estimated_value, asumido MXN). Solo considera
   // leads en pipeline activo para forecasting (excluye ganado/perdido/pausado).
   const leadsActivosYear = leadsByYear.filter(l => !['ganado', 'perdido', 'pausado'].includes(l.status))
