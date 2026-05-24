@@ -851,9 +851,12 @@ function CotizacionPdfInner() {
             const areaTotal = Object.values(area.systems).flat().reduce((s, i) => s + (i.price * i.quantity), 0)
             return (
               <div key={area.name} style={{ marginBottom: 18, breakInside: 'avoid' as any }}>
-                <div style={{ background: '#f0f0f0', padding: '8px 12px', marginBottom: 6, borderLeft: '3px solid #111', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderRadius: 2 }}>
-                  <h3 style={{ fontSize: 12, color: '#111' }}>{idx + 1}. {area.name}</h3>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: '#111' }}>{FCUR(areaTotal, currency)}</div>
+                <div style={{ background: '#1e293b', padding: '10px 14px', marginBottom: 8, borderLeft: '4px solid #10b981', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderRadius: 3, boxShadow: '0 1px 2px rgba(0,0,0,0.1)' }}>
+                  <h3 style={{ fontSize: 13, color: '#fff', fontWeight: 700, letterSpacing: '0.02em' }}>
+                    <span style={{ display: 'inline-block', background: '#10b981', color: '#fff', borderRadius: 4, padding: '1px 7px', fontSize: 10, marginRight: 8, fontWeight: 700 }}>{idx + 1}</span>
+                    {area.name.toUpperCase()}
+                  </h3>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: '#10b981' }}>{FCUR(areaTotal, currency)}</div>
                 </div>
                 {area.notes && (
                   <div style={{ padding: '6px 10px', marginBottom: 8, background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 3, fontSize: 9.5, color: '#444', fontStyle: 'italic', whiteSpace: 'pre-wrap' as const }}>
