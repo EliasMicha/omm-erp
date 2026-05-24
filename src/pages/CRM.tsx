@@ -6,6 +6,7 @@ import { useIsMobile } from '../lib/useIsMobile'
 import { Plus, X, Search, Trash2, Save, Sparkles, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
 import { SPECIALTY_CONFIG } from '../lib/utils'
 import { ProjectLine } from '../types'
+import { useAuth } from '../contexts/AuthContext'
 
 type LeadStatus = 'nuevo' | 'contactado' | 'diagnostico' | 'cotizando' | 'ganado' | 'perdido' | 'pausado'
 type LeadOrigin = 'inbound' | 'outbound' | 'referido' | 'arquitecto' | 'desarrolladora'
@@ -787,6 +788,9 @@ function ListView({ leads, onOpen, onEdit, onPriorityChange, onProbabilityChange
 export default function CRM() {
   const isMobile = useIsMobile()
   const nav = useNavigate()
+  const { user } = useAuth()
+  // Solo los usuarios DG (Dirección General) ven los KPIs financieros agregados
+  const showFinancialKPIs = user?.permission_area === 'DG'
   const [leads, setLeads] = useState<Lead[]>([])
   const [loading, setLoading] = useState(true)
   const [showNew, setShowNew] = useState(false)
@@ -1011,22 +1015,24 @@ Devuelve solo el JSON, sin explicaciones. Si no hay filtro para un campo, omitel
         </span>
       </div>
 
-      {/* KPIs financieros (5 cards) */}
-      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(5, 1fr)', gap: 10, marginBottom: 12 }}>
-        {[
-          { label: 'Valor de leads', value: mxnToDisplay(valorLeadsMXN), sub: `${leadsActivosYear.length} en pipeline · estimado`, color: '#3B82F6' },
-          { label: 'Cierre estimado', value: mxnToDisplay(cierreEstimadoMXN), sub: `Σ(estimado × prob) — ${leadsConProbabilidad}/${leadsActivosYear.length} c/ prob`, color: '#C084FC' },
-          { label: 'Cotizado', value: mixedToDisplay(cotizadoUSD, cotizadoMXN), sub: 'todas etapas', color: '#F59E0B' },
-          { label: 'Vendido', value: mixedToDisplay(vendidoUSD, vendidoMXN), sub: 'cotizaciones contrato', color: '#57FF9A' },
-          { label: 'Cobrado', value: mxnToDisplay(cobradoMXN), sub: 'movimientos cobro_cliente', color: '#10B981' },
-        ].map(k => (
-          <div key={k.label} style={{ background: '#141414', border: '1px solid #1e1e1e', borderRadius: 10, padding: '12px 14px', borderTop: `2px solid ${k.color}` }}>
-            <div style={{ fontSize: 9, color: '#555', textTransform: 'uppercase' as const, letterSpacing: '0.06em', marginBottom: 4 }}>{k.label}</div>
-            <div style={{ fontSize: isMobile ? 16 : 19, fontWeight: 700, color: '#fff', wordBreak: 'break-word' as const }}>{k.value}</div>
-            <div style={{ fontSize: 9, color: '#444', marginTop: 2 }}>{k.sub}</div>
-          </div>
-        ))}
-      </div>
+      {/* KPIs financieros (5 cards) - solo visibles para DG */}
+      {showFinancialKPIs && (
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(5, 1fr)', gap: 10, marginBottom: 12 }}>
+          {[
+            { label: 'Valor de leads', value: mxnToDisplay(valorLeadsMXN), sub: `${leadsActivosYear.length} en pipeline · estimado`, color: '#3B82F6' },
+            { label: 'Cierre estimado', value: mxnToDisplay(cierreEstimadoMXN), sub: `Σ(estimado × prob) — ${leadsConProbabilidad}/${leadsActivosYear.length} c/ prob`, color: '#C084FC' },
+            { label: 'Cotizado', value: mixedToDisplay(cotizadoUSD, cotizadoMXN), sub: 'todas etapas', color: '#F59E0B' },
+            { label: 'Vendido', value: mixedToDisplay(vendidoUSD, vendidoMXN), sub: 'cotizaciones contrato', color: '#57FF9A' },
+            { label: 'Cobrado', value: mxnToDisplay(cobradoMXN), sub: 'movimientos cobro_cliente', color: '#10B981' },
+          ].map(k => (
+            <div key={k.label} style={{ background: '#141414', border: '1px solid #1e1e1e', borderRadius: 10, padding: '12px 14px', borderTop: `2px solid ${k.color}` }}>
+              <div style={{ fontSize: 9, color: '#555', textTransform: 'uppercase' as const, letterSpacing: '0.06em', marginBottom: 4 }}>{k.label}</div>
+              <div style={{ fontSize: isMobile ? 16 : 19, fontWeight: 700, color: '#fff', wordBreak: 'break-word' as const }}>{k.value}</div>
+              <div style={{ fontSize: 9, color: '#444', marginTop: 2 }}>{k.sub}</div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Currency toggle */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16, padding: '8px 12px', background: '#0e0e0e', borderRadius: 8, border: '1px solid #1e1e1e', flexWrap: 'wrap' }}>
