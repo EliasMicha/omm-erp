@@ -2060,7 +2060,9 @@ export default function Cotizaciones() {
     return () => window.removeEventListener('hashchange', onHash)
   }, [])
 
-  if (openId && openSpecialty === 'esp') return <CotEditorESP key={openId} cotId={openId} onBack={close} onSwitchVersion={switchVersion}/>
+  // elec usa el editor ESP — comparte estructura de quotation_items/areas y hereda
+  // IVA editable, descuento, MG productos/bruto/real con nómina prorrateada.
+  if (openId && (openSpecialty === 'esp' || openSpecialty === 'elec')) return <CotEditorESP key={openId} cotId={openId} onBack={close} onSwitchVersion={switchVersion}/>
   if (openId && openSpecialty === 'cort') return <CotEditorCortinas key={openId} cotId={openId} onBack={close} onSwitchVersion={switchVersion}/>
   if (openId && openSpecialty === 'proy') return <CotEditorProyecto key={openId} cotId={openId} onBack={close} specialty="proy" onSwitchVersion={switchVersion}/>
   if (openId && openSpecialty === 'ilum') return <CotEditorIlum key={openId} cotId={openId} onBack={close} onSwitchVersion={switchVersion}/>

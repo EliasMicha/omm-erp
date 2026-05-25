@@ -261,10 +261,14 @@ Devuelve SOLO un JSON array válido sin markdown ni explicaciones:`
     if (!Array.isArray(parsed)) throw new Error('Respuesta no es un array')
 
     // ─── POST-PROCESSING SAFETY NET ─────────────────────────────────────
-    // El modelo a veces omite cost o calcula total mal. Corregimos en JS para
-    // asegurar consistencia matemática: total = price × quantity, cost = price / 1.35
-    // cuando no se reporta costo explicito.
+    // Corregimos en JS para asegurar consistencia matemática y aplicar las
+    // reglas de costo de OMM:
+    //   - elec material: costo de material = 30% del precio de venta (markup 233.33%)
+    //   - elec labor:    costo de nómina   = 40% del precio (markup 150%)
+    //   - otros:         costo por defecto = price / 1.35 (markup 35%)
+    //   - total = price × quantity (siempre)
     for (const q of parsed as ParsedQuotation[]) {
+      const isElec = q.specialty === 'elec'
       for (const area of (q.areas || [])) {
         for (const item of (area.items || [])) {
           item.quantity = Number(item.quantity) || 1
@@ -273,10 +277,18 @@ Devuelve SOLO un JSON array válido sin markdown ni explicaciones:`
           item.markup = Number(item.markup) || 0
           item.total = Number(item.total) || 0
 
-          // Si tenemos price pero no cost, derivar con markup default 35%
+          // Determinar costo según tipo y specialty
           if (item.price > 0 && item.cost === 0) {
-            item.markup = item.markup || 35
-            item.cost = Math.round((item.price / (1 + item.markup / 100)) * 100) / 100
+            if (isElec && item.type === 'material') {
+              item.cost = Math.round(item.price * 0.30 * 100) / 100
+              item.markup = 233.33
+            } else if (isElec && item.type === 'labor') {
+              item.cost = Math.round(item.price * 0.40 * 100) / 100
+              item.markup = 150
+            } else {
+              item.markup = item.markup || 35
+              item.cost = Math.round((item.price / (1 + item.markup / 100)) * 100) / 100
+            }
           }
           // Si tenemos cost pero no price, derivar desde markup
           if (item.cost > 0 && item.price === 0) {
