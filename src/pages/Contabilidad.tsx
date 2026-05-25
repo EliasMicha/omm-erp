@@ -1419,8 +1419,35 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
     return lead_id
   }
 
-  // Recarga las cotizaciones desde BD (re-parsea notes para extraer lead_id).
-  // Usado al refrescar manualmente o cuando se detecta un lead sin cotizaciones.
+  // Cache de cotizaciones por lead — se llena bajo demanda con query directa
+  // a Supabase. Es la fuente de verdad para el dropdown de conciliación
+  // (más confiable que filtrar assignQuotations localmente).
+  const [quotesByLead, setQuotesByLead] = useState<Record<string, any[]>>({})
+
+  // Carga (o recarga) las cotizaciones de un lead específico desde Supabase
+  // usando LIKE sobre notes (que es text con JSON). Garantiza que aparezcan
+  // todas las cotizaciones del lead aunque se importaron después de montar.
+  async function loadQuotesForLead(leadId: string): Promise<any[]> {
+    if (!leadId) return []
+    const { data } = await supabase
+      .from('quotations')
+      .select('id,name,notes,specialty,total,currency,updated_at')
+      .like('notes', `%"lead_id":"${leadId}"%`)
+      .order('updated_at', { ascending: false })
+    const list = (data as any[]) || []
+    setQuotesByLead(prev => ({ ...prev, [leadId]: list }))
+    // También actualizar assignQuotations con los items recién cargados
+    setAssignQuotations(prev => {
+      const existing = new Map(prev.map(q => [q.id, q]))
+      for (const q of list) {
+        existing.set(q.id, { ...q, lead_id: extractLeadId(q) })
+      }
+      return Array.from(existing.values())
+    })
+    return list
+  }
+
+  // Recarga global (legacy) — usado por focus listener y botón manual
   async function reloadQuotations() {
     const { data } = await supabase
       .from('quotations')
@@ -1428,6 +1455,8 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
       .order('updated_at', { ascending: false })
     if (data) {
       setAssignQuotations((data as any[]).map(q => ({ ...q, lead_id: extractLeadId(q) })))
+      // Limpiar cache por lead para que se vuelvan a consultar
+      setQuotesByLead({})
     }
   }
 
@@ -2721,7 +2750,13 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
                             </div>
                           )
                         }
-                        const filteredQuotes = m.lead_id ? assignQuotations.filter(q => q.lead_id === m.lead_id) : []
+                        // Fuente de verdad: cache quotesByLead (lleno bajo demanda con
+                        // query directa a Supabase). Fallback a assignQuotations si aún
+                        // no se ha cargado el lead.
+                        const cachedQuotes = m.lead_id ? quotesByLead[m.lead_id] : undefined
+                        const filteredQuotes = m.lead_id
+                          ? (cachedQuotes ?? assignQuotations.filter(q => q.lead_id === m.lead_id))
+                          : []
                         const filteredPOs = m.quotation_id ? assignPOs.filter(p => p.quotation_id === m.quotation_id) : []
                         const filledCount = (m.lead_id ? 1 : 0) + (m.quotation_id ? 1 : 0) + (m.purchase_order_id ? 1 : 0)
                         const statusColor = filledCount === 3 ? '#22c55e' : filledCount > 0 ? '#eab308' : '#ef4444'
@@ -2754,10 +2789,10 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
                               <div style={{ display: 'flex', flexDirection: 'column', flex: '1 1 220px' }}>
                                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                                   <label style={labelStyle}>2. Cotizacion</label>
-                                  {m.lead_id && filteredQuotes.length === 0 && (
+                                  {m.lead_id && (
                                     <button
-                                      onClick={async () => { await reloadQuotations() }}
-                                      title="Recargar cotizaciones (útil si acabas de crear una nueva)"
+                                      onClick={async () => { await loadQuotesForLead(m.lead_id!) }}
+                                      title="Recargar cotizaciones del lead desde Supabase"
                                       style={{ background: 'none', border: 'none', color: '#57FF9A', cursor: 'pointer', fontSize: 10, padding: '0 4px', marginBottom: 2 }}
                                     >↻ Recargar</button>
                                   )}
