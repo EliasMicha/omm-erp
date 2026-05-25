@@ -1409,29 +1409,50 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
     })
   }, [])
 
+  // Helper para extraer lead_id desde el JSON notes de una cotización
+  function extractLeadId(q: any): string {
+    let lead_id = ''
+    try {
+      const n = typeof q.notes === 'string' ? JSON.parse(q.notes) : q.notes
+      if (n?.lead_id) lead_id = n.lead_id
+    } catch {}
+    return lead_id
+  }
+
+  // Recarga las cotizaciones desde BD (re-parsea notes para extraer lead_id).
+  // Usado al refrescar manualmente o cuando se detecta un lead sin cotizaciones.
+  async function reloadQuotations() {
+    const { data } = await supabase
+      .from('quotations')
+      .select('id,name,notes,specialty,total,currency,updated_at')
+      .order('updated_at', { ascending: false })
+    if (data) {
+      setAssignQuotations((data as any[]).map(q => ({ ...q, lead_id: extractLeadId(q) })))
+    }
+  }
+
   useEffect(() => {
     Promise.all([
       supabase.from('leads').select('id,name,company').order('name'),
-      supabase.from('quotations').select('id,name,notes,specialty,total,currency').order('name'),
+      supabase.from('quotations').select('id,name,notes,specialty,total,currency,updated_at').order('updated_at', { ascending: false }),
       supabase.from('purchase_orders').select('id,po_number,quotation_id,project_id,supplier_id,total,currency,purchase_phase,status').order('po_number', { ascending: false }),
       supabase.from('suppliers').select('id,name,rfc,clabe,cuenta_bancaria,banco,bnet_codigo').order('name'),
       supabase.from('clientes').select('id,razon_social,nombre_comercial,rfc,clabe,cuenta_bancaria,banco').eq('activo', true).order('razon_social'),
       supabase.from('employees').select('id,name,rfc,clabe,cuenta,banco').eq('is_active', true).order('name'),
     ]).then(([lRes, qRes, pRes, sRes, cRes, eRes]) => {
       setAssignLeads((lRes.data as any[]) || [])
-      setAssignQuotations(((qRes.data as any[]) || []).map(q => {
-        let lead_id = ''
-        try {
-          const n = typeof q.notes === 'string' ? JSON.parse(q.notes) : q.notes
-          if (n?.lead_id) lead_id = n.lead_id
-        } catch {}
-        return { ...q, lead_id }
-      }))
+      setAssignQuotations(((qRes.data as any[]) || []).map(q => ({ ...q, lead_id: extractLeadId(q) })))
       setAssignPOs((pRes.data as any[]) || [])
       setAssignSuppliers((sRes.data as any[]) || [])
       setAssignClientes((cRes.data as any[]) || [])
       setAssignEmpleados((eRes.data as any[]) || [])
     })
+
+    // Recargar quotations y POs cuando la ventana vuelve al foco — útil si
+    // se importaron cotizaciones nuevas en otra pestaña/sesión.
+    const onFocus = () => { reloadQuotations() }
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
   }, [])
   
   // --- Many-to-many link helpers ---
@@ -2731,11 +2752,20 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
                                 />
                               </div>
                               <div style={{ display: 'flex', flexDirection: 'column', flex: '1 1 220px' }}>
-                                <label style={labelStyle}>2. Cotizacion</label>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                  <label style={labelStyle}>2. Cotizacion</label>
+                                  {m.lead_id && filteredQuotes.length === 0 && (
+                                    <button
+                                      onClick={async () => { await reloadQuotations() }}
+                                      title="Recargar cotizaciones (útil si acabas de crear una nueva)"
+                                      style={{ background: 'none', border: 'none', color: '#57FF9A', cursor: 'pointer', fontSize: 10, padding: '0 4px', marginBottom: 2 }}
+                                    >↻ Recargar</button>
+                                  )}
+                                </div>
                                 <SearchSelect
                                   value={m.quotation_id || ''}
                                   options={filteredQuotes.map(q => ({ id: q.id, label: `${q.name}${q.specialty ? ` (${q.specialty})` : ''}${q.total ? ` - ${F(q.total)} ${q.currency || ''}` : ''}` }))}
-                                  placeholder={m.lead_id ? (filteredQuotes.length === 0 ? 'Sin cotizaciones' : 'Buscar cotización...') : 'Selecciona lead primero'}
+                                  placeholder={m.lead_id ? (filteredQuotes.length === 0 ? 'Sin cotizaciones — click ↻ para recargar' : 'Buscar cotización...') : 'Selecciona lead primero'}
                                   disabled={isSaving || !m.lead_id}
                                   onChange={val => updateAssignment(m.id, 'quotation_id', val || null)}
                                 />
