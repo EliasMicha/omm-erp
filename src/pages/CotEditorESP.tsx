@@ -64,7 +64,31 @@ const SYSTEM_DB_NAME: Record<string, string> = {
   'general': 'General',
 }
 function sysDbName(systemId: string): string {
+  // Sistemas custom (id 'custom_X') se persisten como 'General' en el enum
+  // product_system de BD. El systemId real se restaura desde notes.customSystems
+  // de la cotización al cargar (vía customSysIdFromItemNotes helper).
+  if ((systemId || '').startsWith('custom_')) return 'General'
   return SYSTEM_DB_NAME[systemId] || ALL_SYSTEMS.find(s => s.id === systemId)?.name || systemId
+}
+
+// Helper: lee notes del item y devuelve customSystemId si existe
+function customSysIdFromItemNotes(notes: string | null | undefined): string | null {
+  try {
+    const m = JSON.parse(notes || '{}')
+    return typeof m?.customSystemId === 'string' ? m.customSystemId : null
+  } catch { return null }
+}
+
+// Helper: devuelve el valor de notes a guardar en el item.
+// Si el systemId es custom, agrega/actualiza customSystemId en notes.
+// Si no es custom, preserva notes existente.
+function itemNotesForSystem(systemId: string, existingNotes?: string | null): string | null {
+  const isCustom = (systemId || '').startsWith('custom_')
+  if (!isCustom) return existingNotes || null
+  let meta: any = {}
+  try { meta = JSON.parse(existingNotes || '{}') } catch {}
+  meta.customSystemId = systemId
+  return JSON.stringify(meta)
 }
 // Reverse: DB enum value → system id
 const DB_NAME_TO_ID: Record<string, string> = Object.fromEntries(
@@ -2068,6 +2092,10 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
   const [stage, setStage] = useState('oportunidad')
   const [collapsedSys, setCollapsedSys] = useState<Record<string, boolean>>({})
   const [showSystemPicker, setShowSystemPicker] = useState(false)
+  // Sistemas custom creados por el usuario para esta cotización
+  // Se persisten en notes.customSystems. Cada uno tiene id 'custom_<slug>'.
+  const [customSystems, setCustomSystems] = useState<EspSystemDef[]>([])
+  const [newSystemName, setNewSystemName] = useState('')
   const [cotName, setCotName] = useState('')
   const [clientName, setClientName] = useState('')
   const [addingTo, setAddingTo] = useState<{ areaId: string; systemId: string } | null>(null)
@@ -2107,6 +2135,10 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
         if (noteMeta.systemNotes && typeof noteMeta.systemNotes === 'object') {
           setSystemNotes(noteMeta.systemNotes)
         }
+        // Sistemas custom creados por el usuario en cotizaciones anteriores
+        if (Array.isArray(noteMeta.customSystems)) {
+          setCustomSystems(noteMeta.customSystems.filter((s: any) => s && s.id && s.name))
+        }
       } catch (e) { /* ignore */ }
       // Auto-detect active systems from items if notes doesn't have them
       if (!noteMeta.systems && qItems && qItems.length > 0) {
@@ -2120,7 +2152,9 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
     else setAreas([])
     if (qItems && qItems.length > 0) {
       setProducts(qItems.map((it: any) => ({
-        id: it.id, areaId: it.area_id, systemId: dbNameToSysId(it.system),
+        // Si el item tiene customSystemId en notes, ese es su systemId real
+        // (system en BD es 'General' como placeholder porque el enum no acepta custom).
+        id: it.id, areaId: it.area_id, systemId: customSysIdFromItemNotes(it.notes) || dbNameToSysId(it.system),
         catalogId: it.catalog_product_id || null, name: it.name, description: it.description || '',
         imageUrl: it.image_url || null, quantity: it.quantity, cost: it.cost || 0, price: it.price || 0,
         laborCost: it.installation_cost || 0, margin: it.markup || 30, order: it.order_index || 0,
@@ -2148,7 +2182,60 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
     load()
   }, [cotId])
 
-  const activeSystems = useMemo(() => ALL_SYSTEMS.filter(s => activeSysIds.includes(s.id)), [activeSysIds])
+  // mergedSystems = sistemas built-in + custom creados por el usuario.
+  // Es el catálogo completo de sistemas disponibles para esta cotización.
+  const mergedSystems = useMemo<EspSystemDef[]>(() => [...ALL_SYSTEMS, ...customSystems], [customSystems])
+  const activeSystems = useMemo(() => mergedSystems.filter(s => activeSysIds.includes(s.id)), [activeSysIds, mergedSystems])
+
+  // Crear un sistema custom y activarlo automáticamente
+  async function addCustomSystem(name: string) {
+    const cleanName = name.trim()
+    if (!cleanName) return
+    // Verificar duplicados (case-insensitive, contra built-in y custom)
+    const lower = cleanName.toLowerCase()
+    if (mergedSystems.some(s => s.name.toLowerCase() === lower)) {
+      alert(`Ya existe un sistema llamado "${cleanName}"`)
+      return
+    }
+    // Color rotando de una paleta para custom systems
+    const palette = ['#F472B6', '#FB923C', '#A3E635', '#34D399', '#22D3EE', '#818CF8', '#E879F9', '#FACC15']
+    const color = palette[customSystems.length % palette.length]
+    // id único: custom_<slug>
+    const slug = cleanName.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').substring(0, 32) || 'sistema'
+    let id = `custom_${slug}`
+    let i = 2
+    while (mergedSystems.some(s => s.id === id)) { id = `custom_${slug}_${i}`; i++ }
+    const next = [...customSystems, { id, name: cleanName, color }]
+    setCustomSystems(next)
+    // Activar automáticamente
+    const nextActive = [...activeSysIds, id]
+    setActiveSysIds(nextActive)
+    setNewSystemName('')
+    // Persistir en notes
+    await saveNotesWithCustom(next, nextActive)
+  }
+
+  // Eliminar un sistema custom (solo si no tiene productos asignados)
+  async function removeCustomSystem(sysId: string) {
+    const hasProducts = products.some(p => p.systemId === sysId)
+    if (hasProducts) {
+      alert('No puedes borrar un sistema que tiene productos. Mueve o borra los productos primero.')
+      return
+    }
+    const next = customSystems.filter(s => s.id !== sysId)
+    const nextActive = activeSysIds.filter(id => id !== sysId)
+    setCustomSystems(next)
+    setActiveSysIds(nextActive)
+    await saveNotesWithCustom(next, nextActive)
+  }
+
+  // Wrapper de saveNotes que también persiste customSystems
+  async function saveNotesWithCustom(custom: EspSystemDef[], active: string[]) {
+    let existing: any = {}
+    try { const cur = await supabase.from('quotations').select('notes').eq('id', cotId).single(); existing = JSON.parse((cur.data as any)?.notes || '{}') } catch {}
+    const merged = { ...existing, systems: active, customSystems: custom }
+    await supabase.from('quotations').update({ notes: JSON.stringify(merged) }).eq('id', cotId)
+  }
   // Margen real del proyecto: (revenueBilled − costoProductos − nominaProrrateada) / revenueBilled × 100
   // revenueBilled = revenue × (1 − descuento/100) — lo que el cliente realmente paga
   // nomina = revenueBilled × nominaPct/100 — gasto operativo (área + admin) prorrateado
@@ -2257,7 +2344,7 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
       const { data: q } = await supabase.from('quotations').select('notes').eq('id', cotId).single()
       if (q?.notes) existing = JSON.parse(q.notes)
     } catch (_) { /* ignore */ }
-    const merged = { ...existing, systems: overrides?.systems ?? activeSysIds, currency: overrides?.currency ?? config.currency, tipoCambio: overrides?.tipoCambio ?? config.tipoCambio, descuento: overrides?.descuento ?? config.descuento, programacion: overrides?.programacion ?? config.programacion, nominaPct: overrides?.nominaPct ?? config.nominaPct }
+    const merged = { ...existing, systems: overrides?.systems ?? activeSysIds, currency: overrides?.currency ?? config.currency, tipoCambio: overrides?.tipoCambio ?? config.tipoCambio, descuento: overrides?.descuento ?? config.descuento, programacion: overrides?.programacion ?? config.programacion, nominaPct: overrides?.nominaPct ?? config.nominaPct, customSystems }
     await supabase.from('quotations').update({ notes: JSON.stringify(merged) }).eq('id', cotId)
   }
 
@@ -2410,9 +2497,36 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
   async function bulkMoveSystem(targetSystemId: string) {
     const ids = Array.from(selectedProdIds)
     if (ids.length === 0) return
-    // Update DB first, then local state — use DB enum value, not display name
-    const { error } = await supabase.from('quotation_items').update({ system: sysDbName(targetSystemId) }).in('id', ids)
-    if (error) { console.error('bulkMoveSystem error:', error); alert('Error al mover sistema: ' + error.message); return }
+    // Update DB first, then local state — use DB enum value, not display name.
+    // Si es custom, también necesitamos actualizar notes para guardar el customSystemId.
+    const isCustom = (targetSystemId || '').startsWith('custom_')
+    if (isCustom) {
+      // Bulk update con notes — preservar otras claves de notes leyendo primero
+      const { data: existingItems } = await supabase.from('quotation_items').select('id,notes').in('id', ids)
+      const updates = (existingItems || []).map((it: any) => ({
+        id: it.id,
+        system: sysDbName(targetSystemId),
+        notes: itemNotesForSystem(targetSystemId, it.notes),
+      }))
+      for (const u of updates) {
+        const { error: e } = await supabase.from('quotation_items').update({ system: u.system, notes: u.notes }).eq('id', u.id)
+        if (e) { console.error('bulkMoveSystem error:', e); alert('Error al mover sistema: ' + e.message); return }
+      }
+    } else {
+      // No custom: limpiar customSystemId del notes para que no quede stale
+      const { data: existingItems } = await supabase.from('quotation_items').select('id,notes').in('id', ids)
+      const updates = (existingItems || []).map((it: any) => {
+        let meta: any = {}
+        try { meta = JSON.parse(it.notes || '{}') } catch {}
+        delete meta.customSystemId
+        const hasOther = Object.keys(meta).length > 0
+        return { id: it.id, system: sysDbName(targetSystemId), notes: hasOther ? JSON.stringify(meta) : null }
+      })
+      for (const u of updates) {
+        const { error: e } = await supabase.from('quotation_items').update({ system: u.system, notes: u.notes }).eq('id', u.id)
+        if (e) { console.error('bulkMoveSystem error:', e); alert('Error al mover sistema: ' + e.message); return }
+      }
+    }
     setProducts(p => p.map(pr => ids.includes(pr.id) ? { ...pr, systemId: targetSystemId } : pr))
     setSelectedProdIds(new Set())
     setBulkAction('')
@@ -2622,6 +2736,7 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
       sku: catProd.sku || null,
       image_url: catProd.image_url || null,
       provider_currency: prodMoneda,
+      notes: itemNotesForSystem(addingTo.systemId),
     }).select().single()
     if (itemErr) { alert('Error al guardar producto: ' + itemErr.message); return }
     if (data) {
@@ -2685,6 +2800,7 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
         image_url: catProd.image_url || null, provider: catProd.provider || null,
         provider_currency: prodMoneda,
         bundle_id: bundle.id, bundle_instance_id: instanceId,
+        notes: itemNotesForSystem(addingTo.systemId),
       }).select().single()
 
       if (data) {
@@ -2727,6 +2843,7 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
       sku: catProd.sku || null,
       image_url: catProd.image_url || null,
       provider_currency: prodMoneda,
+      notes: itemNotesForSystem(addingTo.systemId),
     }).select().single()
     if (itemErr) { alert('Error al guardar producto: ' + itemErr.message); return }
     if (data) {
@@ -3189,21 +3306,49 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
             </div>
             <div style={{ fontSize: isMobile ? 10 : 11, color: '#555', marginBottom: 10 }}>Aplican para todas las áreas.</div>
             <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 5 }}>
-              {ALL_SYSTEMS.map(sys => {
+              {mergedSystems.map(sys => {
                 const on = activeSysIds.includes(sys.id)
                 const cnt = products.filter(p => p.systemId === sys.id).length
+                const isCustom = sys.id.startsWith('custom_')
                 return (
-                  <button key={sys.id} onClick={() => toggleGlobalSystem(sys.id)} style={{
-                    display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', background: on ? sys.color + '11' : '#1a1a1a',
-                    border: '1px solid ' + (on ? sys.color + '44' : '#222'), borderRadius: 10, cursor: 'pointer', color: on ? '#fff' : '#666', fontSize: 13, fontFamily: 'inherit', textAlign: 'left' as const,
-                  }}>
-                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: on ? sys.color : '#333' }} />
-                    <span style={{ flex: 1 }}>{sys.name}</span>
-                    {cnt > 0 && <span style={{ fontSize: 10, color: '#555' }}>{cnt}</span>}
-                    <span style={{ fontSize: 14, color: on ? sys.color : '#333' }}>{on ? '✓' : '○'}</span>
-                  </button>
+                  <div key={sys.id} style={{ display: 'flex', alignItems: 'stretch', gap: 4 }}>
+                    <button onClick={() => toggleGlobalSystem(sys.id)} style={{
+                      flex: 1, display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', background: on ? sys.color + '11' : '#1a1a1a',
+                      border: '1px solid ' + (on ? sys.color + '44' : '#222'), borderRadius: 10, cursor: 'pointer', color: on ? '#fff' : '#666', fontSize: 13, fontFamily: 'inherit', textAlign: 'left' as const,
+                    }}>
+                      <span style={{ width: 8, height: 8, borderRadius: '50%', background: on ? sys.color : '#333' }} />
+                      <span style={{ flex: 1 }}>{sys.name}{isCustom && <span style={{ fontSize: 9, color: '#666', marginLeft: 6 }}>custom</span>}</span>
+                      {cnt > 0 && <span style={{ fontSize: 10, color: '#555' }}>{cnt}</span>}
+                      <span style={{ fontSize: 14, color: on ? sys.color : '#333' }}>{on ? '✓' : '○'}</span>
+                    </button>
+                    {isCustom && cnt === 0 && (
+                      <button onClick={() => removeCustomSystem(sys.id)} title="Eliminar sistema custom"
+                        style={{ width: 32, background: '#1a1a1a', border: '1px solid #222', borderRadius: 10, cursor: 'pointer', color: '#666', fontSize: 14, fontFamily: 'inherit' }}>×</button>
+                    )}
+                  </div>
                 )
               })}
+            </div>
+
+            {/* Crear sistema custom */}
+            <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid #222' }}>
+              <div style={{ fontSize: 10, color: '#666', textTransform: 'uppercase' as const, letterSpacing: '0.06em', marginBottom: 6, fontWeight: 600 }}>+ Agregar sistema custom</div>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <input
+                  value={newSystemName}
+                  onChange={e => setNewSystemName(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') addCustomSystem(newSystemName) }}
+                  placeholder="Ej: Sonido Ambiental, Domótica, etc."
+                  style={{ flex: 1, padding: '8px 10px', background: '#1a1a1a', border: '1px solid #333', borderRadius: 8, color: '#fff', fontSize: 12, fontFamily: 'inherit', outline: 'none' }}
+                />
+                <button onClick={() => addCustomSystem(newSystemName)} disabled={!newSystemName.trim()} style={{
+                  padding: '8px 14px', borderRadius: 8, fontSize: 12, fontWeight: 600, fontFamily: 'inherit',
+                  cursor: newSystemName.trim() ? 'pointer' : 'not-allowed',
+                  border: '1px solid #57FF9A44', background: newSystemName.trim() ? '#57FF9A22' : '#1a1a1a',
+                  color: newSystemName.trim() ? '#57FF9A' : '#444',
+                }}>Crear</button>
+              </div>
+              <div style={{ fontSize: 9, color: '#444', marginTop: 4 }}>El sistema se activará automáticamente y aparecerá en el desglose por área. Solo puedes borrarlo si no tiene productos.</div>
             </div>
           </div>
         </div>
