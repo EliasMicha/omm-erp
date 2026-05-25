@@ -857,10 +857,12 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [bulkAction, setBulkAction] = useState<'' | 'moveArea' | 'moveSystem'>('')
   const [bulkTarget, setBulkTarget] = useState('')
-  // Config editable: IVA, descuento global, % nómina prorrateada
-  // Persistido en quotation.notes JSON. Defaults: IVA 16%, descuento 0%, nómina 20%.
-  const [config, setConfig] = useState<{ ivaRate: number; descuento: number; nominaPct: number }>({
-    ivaRate: 16, descuento: 0, nominaPct: 20
+  // Config editable: IVA, descuento global, % material y % nómina como fracción del subtotal.
+  // Persistido en quotation.notes JSON.
+  // Defaults eléctricos OMM: material 25% del subtotal, nómina 40% (máximo).
+  // Esto deja un margen bruto de 35% antes de descuento.
+  const [config, setConfig] = useState<{ ivaRate: number; descuento: number; materialPct: number; nominaPct: number }>({
+    ivaRate: 16, descuento: 0, materialPct: 25, nominaPct: 40
   })
 
   useEffect(() => {
@@ -874,12 +876,13 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
       ])
       setCot(c); setAreas(as_||[]); setItems(it||[]); setCatalog(cat||[]); setSuppliers(sups||[])
       if (as_ && as_.length > 0) setAreaActiva(as_[0].id)
-      // Cargar config (IVA, descuento, nómina) desde notes JSON
+      // Cargar config (IVA, descuento, material%, nómina%) desde notes JSON
       try {
         const meta = JSON.parse(c?.notes || '{}')
         setConfig(prev => ({
           ivaRate: typeof meta.ivaRate === 'number' ? meta.ivaRate : (meta.proyConfig?.ivaRate ?? prev.ivaRate),
           descuento: typeof meta.descuento === 'number' ? meta.descuento : prev.descuento,
+          materialPct: typeof meta.materialPct === 'number' ? meta.materialPct : prev.materialPct,
           nominaPct: typeof meta.nominaPct === 'number' ? meta.nominaPct : prev.nominaPct,
         }))
       } catch {}
@@ -896,7 +899,7 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
   }, [cotId])
 
   // Persistir cambios de config a notes JSON
-  async function saveConfig(patch: Partial<{ ivaRate: number; descuento: number; nominaPct: number }>) {
+  async function saveConfig(patch: Partial<{ ivaRate: number; descuento: number; materialPct: number; nominaPct: number }>) {
     const next = { ...config, ...patch }
     setConfig(next)
     if (!cot) return
@@ -904,6 +907,7 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
     try { meta = JSON.parse(cot.notes || '{}') } catch {}
     meta.ivaRate = next.ivaRate
     meta.descuento = next.descuento
+    meta.materialPct = next.materialPct
     meta.nominaPct = next.nominaPct
     await supabase.from('quotations').update({ notes: JSON.stringify(meta) }).eq('id', cotId)
     setCot(c => c ? { ...c, notes: JSON.stringify(meta) } : c)
@@ -1628,18 +1632,6 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
 
   // KPIs globales — desglose de costos por tipo (material vs labor/M.O.)
   const kpiMaterialItems = items.filter(i => i.type === 'material' || i.type === 'servicio')
-  // Costo de material: items con type='material' o 'servicio' (cost por unidad × cantidad)
-  const kpiCostoMaterial = items
-    .filter(i => i.type === 'material' || i.type === 'servicio')
-    .reduce((s, i) => s + (i.cost || 0) * (i.quantity || 1), 0)
-  // Costo de mano de obra / nómina: items con type='labor' o 'mano_de_obra' (cost por unidad × cantidad)
-  // + el installation_cost legacy de cualquier item
-  const kpiCostoLaborItems = items
-    .filter(i => i.type === 'labor' || i.type === 'mano_de_obra')
-    .reduce((s, i) => s + (i.cost || 0) * (i.quantity || 1), 0)
-  const kpiCostoInstall = items.reduce((s, i) => s + (i.installation_cost || 0) * (i.quantity || 1), 0)
-  const kpiCostoManoObra = kpiCostoLaborItems + kpiCostoInstall
-  const kpiCostoTotal = kpiCostoMaterial + kpiCostoManoObra
   // Venta total (sin IVA, sin descuento) — suma de price × qty de TODOS los items
   const kpiVenta = cotTotal
   // Descuento sobre subtotal
@@ -1648,15 +1640,36 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
   // IVA aplicado sobre subtotal con descuento
   const ivaAmt = ventaConDesc * (config.ivaRate || 0) / 100
   const totalConIva = ventaConDesc + ivaAmt
-  // Nómina adicional prorrateada (% del subtotal, simula carga indirecta)
-  const nominaProrr = kpiVenta * (config.nominaPct || 0) / 100
-  // MG Productos = venta vs costo de productos (sin descuento, sin nómina extra)
-  const mgProductos = kpiVenta > 0 ? Math.round((kpiVenta - kpiCostoTotal) / kpiVenta * 1000) / 10 : 0
-  // MG Bruto = venta CON descuento vs costo de productos (sin nómina extra)
-  const mgBruto = ventaConDesc > 0 ? Math.round((ventaConDesc - kpiCostoTotal) / ventaConDesc * 1000) / 10 : 0
-  // MG Real = venta con descuento − costo productos − nómina prorrateada
-  const utilidadReal = ventaConDesc - kpiCostoTotal - nominaProrr
+
+  // ─── COSTOS REALES REGISTRADOS (suma de cost × qty de cada item) ─────────
+  const realMaterial = items
+    .filter(i => i.type === 'material' || i.type === 'servicio')
+    .reduce((s, i) => s + (i.cost || 0) * (i.quantity || 1), 0)
+  const realLaborItems = items
+    .filter(i => i.type === 'labor' || i.type === 'mano_de_obra')
+    .reduce((s, i) => s + (i.cost || 0) * (i.quantity || 1), 0)
+  const realInstall = items.reduce((s, i) => s + (i.installation_cost || 0) * (i.quantity || 1), 0)
+  const realNomina = realLaborItems + realInstall
+  const realCostoTotal = realMaterial + realNomina
+
+  // ─── COSTOS MÁXIMOS / PRESUPUESTO (% del subtotal — tope de gasto) ───────
+  const maxMaterial = kpiVenta * (config.materialPct || 0) / 100
+  const maxNomina = kpiVenta * (config.nominaPct || 0) / 100
+  const maxCostoTotal = maxMaterial + maxNomina
+
+  // ─── MÁRGENES (con costo REAL) ───────────────────────────────────────────
+  // MG Productos = venta vs costo real productos (sin descuento)
+  const mgProductos = kpiVenta > 0 ? Math.round((kpiVenta - realMaterial - realNomina) / kpiVenta * 1000) / 10 : 0
+  // MG Bruto = venta CON descuento vs costo real
+  const mgBruto = ventaConDesc > 0 ? Math.round((ventaConDesc - realCostoTotal) / ventaConDesc * 1000) / 10 : 0
+  // MG Real = igual que bruto (sin nómina extra prorrateada porque ya está en realNomina)
+  const utilidadReal = ventaConDesc - realCostoTotal
   const mgReal = ventaConDesc > 0 ? Math.round(utilidadReal / ventaConDesc * 1000) / 10 : 0
+  // MG Mínimo Garantizado = venta con descuento vs costo MÁXIMO (peor caso)
+  const utilidadMin = ventaConDesc - maxCostoTotal
+  const mgMin = ventaConDesc > 0 ? Math.round(utilidadMin / ventaConDesc * 1000) / 10 : 0
+
+  const kpiCostoTotal = realCostoTotal
   const kpiUtilidad = utilidadReal
   const kpiMargen = mgReal
 
@@ -1892,53 +1905,85 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
               </div>
             </div>
 
-            {/* Columna 2: Costos desglosados */}
+            {/* Columna 2: Costos — Real vs Máximo (presupuesto) */}
             <div style={{display:'flex',flexDirection:'column',gap:4}}>
-              <div style={{fontSize:9,color:'#555',textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:2,fontWeight:600}}>Costos</div>
-              <div style={{display:'flex',justifyContent:'space-between'}}>
-                <span style={{color:'#888'}}>Material</span>
-                <span style={{color:'#F59E0B',fontWeight:600}}>{F(kpiCostoMaterial)}</span>
-              </div>
-              <div style={{display:'flex',justifyContent:'space-between'}}>
-                <span style={{color:'#888'}}>M.O. items</span>
-                <span style={{color:'#06B6D4',fontWeight:600}}>{F(kpiCostoManoObra)}</span>
-              </div>
-              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-                <span style={{color:'#888'}}>Nómina prorr. %</span>
-                <div style={{display:'flex',alignItems:'center',gap:4}}>
-                  <input type="number" min={0} max={100} step={1} value={config.nominaPct}
-                    onChange={e => saveConfig({ nominaPct: Math.min(100, Math.max(0, parseFloat(e.target.value) || 0)) })}
-                    style={{width:48,padding:'2px 6px',background:'#1a1a1a',border:'1px solid #333',borderRadius:4,color:'#fff',fontSize:11,fontFamily:'inherit',textAlign:'right'}}/>
-                  <span style={{color:'#A855F7',fontWeight:600,minWidth:80,textAlign:'right'}}>{F(nominaProrr)}</span>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:2}}>
+                <span style={{fontSize:9,color:'#555',textTransform:'uppercase',letterSpacing:'0.06em',fontWeight:600}}>Costos</span>
+                <div style={{display:'flex',gap:8,fontSize:8,color:'#666',textTransform:'uppercase',letterSpacing:'0.06em'}}>
+                  <span style={{minWidth:75,textAlign:'right'}}>Real</span>
+                  <span style={{minWidth:75,textAlign:'right'}}>Máximo</span>
                 </div>
               </div>
-              <div style={{display:'flex',justifyContent:'space-between',borderTop:'1px solid #333',paddingTop:4,marginTop:2}}>
-                <span style={{color:'#888',fontWeight:600}}>Costo Total</span>
-                <span style={{color:'#ccc',fontWeight:700}}>{F(kpiCostoTotal + nominaProrr)}</span>
+
+              {/* Material — registrado vs % del subtotal */}
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                <div style={{display:'flex',alignItems:'center',gap:4,flex:1}}>
+                  <span style={{color:'#888'}}>Material</span>
+                  <input type="number" min={0} max={100} step={1} value={config.materialPct}
+                    onChange={e => saveConfig({ materialPct: Math.min(100, Math.max(0, parseFloat(e.target.value) || 0)) })}
+                    title="% máximo del subtotal para material"
+                    style={{width:36,padding:'1px 4px',background:'#1a1a1a',border:'1px solid #333',borderRadius:4,color:'#888',fontSize:10,fontFamily:'inherit',textAlign:'right'}}/>
+                  <span style={{color:'#555',fontSize:10}}>%</span>
+                </div>
+                <span style={{color:realMaterial > maxMaterial ? '#EF4444' : '#F59E0B', fontWeight:600,minWidth:75,textAlign:'right'}}>{F(realMaterial)}</span>
+                <span style={{color:'#666',fontWeight:500,minWidth:75,textAlign:'right',fontSize:10}}>{F(maxMaterial)}</span>
+              </div>
+
+              {/* Nómina — items labor + install vs % del subtotal */}
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                <div style={{display:'flex',alignItems:'center',gap:4,flex:1}}>
+                  <span style={{color:'#888'}}>Nómina</span>
+                  <input type="number" min={0} max={100} step={1} value={config.nominaPct}
+                    onChange={e => saveConfig({ nominaPct: Math.min(100, Math.max(0, parseFloat(e.target.value) || 0)) })}
+                    title="% máximo del subtotal para nómina"
+                    style={{width:36,padding:'1px 4px',background:'#1a1a1a',border:'1px solid #333',borderRadius:4,color:'#888',fontSize:10,fontFamily:'inherit',textAlign:'right'}}/>
+                  <span style={{color:'#555',fontSize:10}}>%</span>
+                </div>
+                <span style={{color:realNomina > maxNomina ? '#EF4444' : '#06B6D4', fontWeight:600,minWidth:75,textAlign:'right'}}>{F(realNomina)}</span>
+                <span style={{color:'#666',fontWeight:500,minWidth:75,textAlign:'right',fontSize:10}}>{F(maxNomina)}</span>
+              </div>
+
+              {/* Costo total */}
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',borderTop:'1px solid #333',paddingTop:4,marginTop:2}}>
+                <span style={{color:'#888',fontWeight:600,flex:1}}>Costo Total</span>
+                <span style={{color:'#ccc',fontWeight:700,minWidth:75,textAlign:'right'}}>{F(realCostoTotal)}</span>
+                <span style={{color:'#888',fontWeight:600,minWidth:75,textAlign:'right',fontSize:10}}>{F(maxCostoTotal)}</span>
+              </div>
+
+              {/* Diferencia entre real y máximo (cuánto te sobra/falta del presupuesto) */}
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',fontSize:10}}>
+                <span style={{color:'#555',flex:1}}>vs Presupuesto</span>
+                <span style={{color: realCostoTotal <= maxCostoTotal ? '#57FF9A' : '#EF4444',fontWeight:600}}>
+                  {realCostoTotal <= maxCostoTotal ? '+' : '-'}{F(Math.abs(maxCostoTotal - realCostoTotal))}
+                </span>
               </div>
             </div>
 
-            {/* Columna 3: Márgenes */}
+            {/* Columna 3: Márgenes Real + Mínimo */}
             <div style={{display:'flex',flexDirection:'column',gap:4}}>
               <div style={{fontSize:9,color:'#555',textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:2,fontWeight:600}}>Márgenes</div>
-              <div style={{display:'flex',justifyContent:'space-between'}} title="venta − costo productos / venta">
+              <div style={{display:'flex',justifyContent:'space-between'}} title="(venta − costo real) / venta">
                 <span style={{color:'#888'}}>MG Productos</span>
                 <span style={{color:mgProductos>=30?'#57FF9A':mgProductos>=15?'#F59E0B':'#EF4444',fontWeight:600}}>{mgProductos}%</span>
               </div>
-              <div style={{display:'flex',justifyContent:'space-between'}} title="venta con descuento − costo productos / venta con descuento">
+              <div style={{display:'flex',justifyContent:'space-between'}} title="(venta − desc − costo real) / (venta − desc)">
                 <span style={{color:'#888'}}>MG Bruto (c/desc)</span>
                 <span style={{color:mgBruto>=30?'#57FF9A':mgBruto>=15?'#F59E0B':'#EF4444',fontWeight:600}}>{mgBruto}%</span>
               </div>
-              <div style={{display:'flex',justifyContent:'space-between'}} title="venta con descuento − costo productos − nómina prorrateada / venta con descuento">
+              <div style={{display:'flex',justifyContent:'space-between'}} title="Margen con costo REAL registrado">
                 <span style={{color:'#888',fontWeight:600}}>MG Real</span>
                 <span style={{color:mgReal>=25?'#57FF9A':mgReal>=15?'#F59E0B':'#EF4444',fontWeight:700,fontSize:13}}>{mgReal}%</span>
+              </div>
+              <div style={{display:'flex',justifyContent:'space-between'}} title="Peor escenario: si gastas el costo máximo permitido">
+                <span style={{color:'#888'}}>MG Mín. (peor caso)</span>
+                <span style={{color:mgMin>=25?'#57FF9A':mgMin>=15?'#F59E0B':'#EF4444',fontWeight:600}}>{mgMin}%</span>
               </div>
               <div style={{display:'flex',justifyContent:'space-between',borderTop:'1px solid #333',paddingTop:4,marginTop:2}}>
                 <span style={{color:'#888',fontWeight:600}}>Utilidad real</span>
                 <span style={{color:kpiUtilidad>=0?'#57FF9A':'#EF4444',fontWeight:700}}>{F(kpiUtilidad)}</span>
               </div>
               <div style={{fontSize:9,color:'#444',marginTop:2,lineHeight:1.3}}>
-                MG Real = (venta − desc) − costo prod. − nómina, todo / (venta − desc).
+                Real = lo que registras en items. Máximo = tope presupuestal (% del subtotal).
               </div>
             </div>
           </div>
