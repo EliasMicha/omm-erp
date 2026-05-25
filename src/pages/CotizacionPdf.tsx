@@ -399,14 +399,22 @@ function CotizacionPdfInner() {
       })
     : items // null = show all (no systems config or backwards compat)
 
-  const materialItems = filteredItems.filter(i => i.type !== 'labor')
-  const laborItems = filteredItems.filter(i => i.type === 'labor')
+  // ─── ELEC vs OTROS: distinta lógica de agrupación ─────────────────────────
+  // Para elec, las áreas (ÁREA DE PRODUCCIÓN, MONITOREO, etc.) son la unidad
+  // significativa, no los "sistemas" (todos son 'Electrico'). Y los items
+  // labor (salidas eléctricas) son la mayoría del trabajo, no se excluyen.
+  // Para esp/ilum/cort/proy se mantiene la lógica original: agrupar por
+  // sistema y excluir labor del resumen.
+  const isElec = cot.specialty === 'elec'
+
+  const materialItems = isElec ? filteredItems : filteredItems.filter(i => i.type !== 'labor')
+  const laborItems = isElec ? [] : filteredItems.filter(i => i.type === 'labor')
 
   // Subtotal de items (precio unitario × cantidad, sin mano de obra)
   const subtotalItems = materialItems.reduce((s, i) => s + (i.price * i.quantity), 0)
   // Mano de obra instalación y programación (installation_cost × cantidad del item)
   const subtotalInstalacion = materialItems.reduce((s, i) => s + ((i.installation_cost || 0) * i.quantity), 0)
-  // Mano de obra explícita (items type='labor')
+  // Mano de obra explícita (items type='labor') — solo para no-elec
   const subtotalManoObra = laborItems.reduce((s, i) => s + (i.total || (i.price * i.quantity)), 0)
   const subtotal = subtotalItems + subtotalInstalacion + subtotalManoObra + programacion
   const descuentoAmt = subtotal * descuentoPct / 100
@@ -414,16 +422,29 @@ function CotizacionPdfInner() {
   const iva = subtotalConDesc * ivaRate / 100
   const totalCon = subtotalConDesc + iva
 
-  // Agrupar por sistema (resumen + alcance)
+  // Agrupar por sistema (resumen + alcance) — para elec, key = nombre de área
+  // En elec no existe distinción real de "sistema" (todos son Electrico) pero
+  // sí hay áreas significativas que el cliente espera ver desglosadas.
   const bySystem: Record<string, { items: ItemRow[]; subtotal: number; count: number }> = {}
   for (const it of materialItems) {
-    const sys = it.system || 'General'
-    if (!bySystem[sys]) bySystem[sys] = { items: [], subtotal: 0, count: 0 }
-    bySystem[sys].items.push(it)
-    bySystem[sys].subtotal += (it.price * it.quantity) + ((it.installation_cost || 0) * it.quantity)
-    bySystem[sys].count += it.quantity
+    let key: string
+    if (isElec) {
+      key = areas.find(a => a.id === it.area_id)?.name || 'General'
+    } else {
+      key = it.system || 'General'
+    }
+    if (!bySystem[key]) bySystem[key] = { items: [], subtotal: 0, count: 0 }
+    bySystem[key].items.push(it)
+    bySystem[key].subtotal += (it.price * it.quantity) + ((it.installation_cost || 0) * it.quantity)
+    bySystem[key].count += it.quantity
   }
-  const systemsOrdered = Object.entries(bySystem).sort((a, b) => b[1].subtotal - a[1].subtotal)
+  // Para elec respeta orden de áreas en BD; para otros ordena por subtotal desc
+  const systemsOrdered = isElec
+    ? areas
+        .filter(a => bySystem[a.name])
+        .map(a => [a.name, bySystem[a.name]] as [string, typeof bySystem[string]])
+        .concat(Object.entries(bySystem).filter(([k]) => !areas.find(a => a.name === k)))
+    : Object.entries(bySystem).sort((a, b) => b[1].subtotal - a[1].subtotal)
 
   // Agrupar por área + sistema (desglose)
   const byAreaSystem: Record<string, Record<string, ItemRow[]>> = {}
@@ -740,15 +761,15 @@ function CotizacionPdfInner() {
           </table>
         </div>
 
-        {/* SECCIÓN 1: RESUMEN POR SISTEMA */}
+        {/* SECCIÓN 1: RESUMEN POR SISTEMA (o por ÁREA si es eléctrico) */}
         <div style={{ marginBottom: 18 }}>
           <h2 style={{ fontSize: 13, color: '#111', marginBottom: 8, paddingBottom: 4, borderBottom: '1px solid #ddd' }}>
-            Resumen por sistema
+            {isElec ? 'Resumen por área' : 'Resumen por sistema'}
           </h2>
           <table className="pdf-table">
             <thead>
               <tr>
-                <th>Sistema</th>
+                <th>{isElec ? 'Área' : 'Sistema'}</th>
                 <th style={{ textAlign: 'right', width: 140 }}>Subtotal</th>
               </tr>
             </thead>
@@ -756,20 +777,22 @@ function CotizacionPdfInner() {
               {systemsOrdered.map(([sys, data]) => (
                 <React.Fragment key={sys}>
                   <tr>
-                    <td style={{ fontWeight: 600, paddingBottom: 0 }}>{sys}</td>
+                    <td style={{ fontWeight: 600, paddingBottom: isElec ? 6 : 0 }}>{sys}</td>
                     <td style={{ textAlign: 'right', fontWeight: 600 }}>{FCUR(data.subtotal, currency)}</td>
                   </tr>
-                  <tr>
-                    <td colSpan={2} style={{ paddingTop: 2, paddingBottom: 10 }}>
-                      <div style={{ fontSize: 9, color: '#666', lineHeight: 1.6, maxWidth: 600 }}>
-                        {descripcionSistema(sys, data)}
-                      </div>
-                    </td>
-                  </tr>
+                  {!isElec && (
+                    <tr>
+                      <td colSpan={2} style={{ paddingTop: 2, paddingBottom: 10 }}>
+                        <div style={{ fontSize: 9, color: '#666', lineHeight: 1.6, maxWidth: 600 }}>
+                          {descripcionSistema(sys, data)}
+                        </div>
+                      </td>
+                    </tr>
+                  )}
                 </React.Fragment>
               ))}
               <tr style={{ borderTop: '2px solid #111' }}>
-                <td style={{ paddingTop: 8, color: '#666' }}>Total equipos</td>
+                <td style={{ paddingTop: 8, color: '#666' }}>{isElec ? 'Total partidas' : 'Total equipos'}</td>
                 <td style={{ textAlign: 'right', paddingTop: 8 }}>{FCUR(subtotalItems, currency)}</td>
               </tr>
               {(subtotalInstalacion + programacion) > 0 && (
