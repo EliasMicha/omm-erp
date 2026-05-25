@@ -1110,9 +1110,11 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
     let itemMarkup = prod.markup || 0
     if (isElec && itemCost === 0 && price > 0) {
       if (prod.type === 'material' || prod.type === 'servicio') {
-        itemCost = Math.round(price * 0.30 * 100) / 100
-        itemMarkup = 233.33
+        // Material: costo = 25% del precio de venta (markup 300%)
+        itemCost = Math.round(price * 0.25 * 100) / 100
+        itemMarkup = 300
       } else if (prod.type === 'labor' || prod.type === 'mano_de_obra') {
+        // Labor/nómina: costo = 40% del precio de venta (markup 150%)
         itemCost = Math.round(price * 0.40 * 100) / 100
         itemMarkup = 150
       }

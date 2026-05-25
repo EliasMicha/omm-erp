@@ -137,7 +137,9 @@ function getActiveSystems(cot: QuotationFull): string[] | null {
 function getIvaRate(cot: QuotationFull): number {
   try {
     const m = JSON.parse(cot.notes || '{}')
-    // ilumConfig (iluminación) or proyConfig (proyecto) may override IVA rate
+    // Soporta: raíz (m.ivaRate, escrito por CotEditor genérico para elec),
+    // ilumConfig (iluminación) o proyConfig (proyecto). Default 16%.
+    if (typeof m.ivaRate === 'number') return m.ivaRate
     if (m.ilumConfig && typeof m.ilumConfig.ivaRate === 'number') return m.ilumConfig.ivaRate
     if (m.proyConfig && typeof m.proyConfig.ivaRate === 'number') return m.proyConfig.ivaRate
     return 16

@@ -280,9 +280,11 @@ Devuelve SOLO un JSON array válido sin markdown ni explicaciones:`
           // Determinar costo según tipo y specialty
           if (item.price > 0 && item.cost === 0) {
             if (isElec && item.type === 'material') {
-              item.cost = Math.round(item.price * 0.30 * 100) / 100
-              item.markup = 233.33
+              // Material: costo = 25% del precio de venta (markup 300%)
+              item.cost = Math.round(item.price * 0.25 * 100) / 100
+              item.markup = 300
             } else if (isElec && item.type === 'labor') {
+              // Labor: costo = 40% del precio de venta (markup 150%)
               item.cost = Math.round(item.price * 0.40 * 100) / 100
               item.markup = 150
             } else {
