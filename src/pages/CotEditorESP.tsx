@@ -3298,14 +3298,16 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
 
       {/* System picker */}
       {showSystemPicker && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-          <div style={{ background: '#141414', border: '1px solid #333', borderRadius: isMobile ? 0 : 16, padding: isMobile ? 16 : 24, width: isMobile ? '100vw' : 380, maxHeight: isMobile ? '100vh' : 'auto', height: isMobile ? '100vh' : 'auto', margin: 0, display: 'flex', flexDirection: 'column', overflow: 'auto' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, flexShrink: 0 }}>
+        <div onClick={() => setShowSystemPicker(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: isMobile ? 0 : 20 }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: '#141414', border: '1px solid #333', borderRadius: isMobile ? 0 : 16, padding: 0, width: isMobile ? '100vw' : 420, maxHeight: isMobile ? '100vh' : '85vh', height: isMobile ? '100vh' : 'auto', margin: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            {/* Header sticky */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: isMobile ? '14px 16px 8px' : '20px 24px 8px', flexShrink: 0, borderBottom: '1px solid #222' }}>
               <div style={{ fontSize: isMobile ? 13 : 14, fontWeight: 600, color: '#fff' }}>Sistemas de la cotización</div>
-              <button onClick={() => setShowSystemPicker(false)} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer' }}><X size={isMobile ? 14 : 16} /></button>
+              <button onClick={() => setShowSystemPicker(false)} style={{ background: 'none', border: 'none', color: '#999', cursor: 'pointer', padding: 4 }}><X size={isMobile ? 16 : 18} /></button>
             </div>
-            <div style={{ fontSize: isMobile ? 10 : 11, color: '#555', marginBottom: 10 }}>Aplican para todas las áreas.</div>
-            <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 5 }}>
+            <div style={{ fontSize: isMobile ? 10 : 11, color: '#555', padding: isMobile ? '8px 16px 0' : '10px 24px 0', flexShrink: 0 }}>Aplican para todas las áreas.</div>
+            {/* Lista scrollable */}
+            <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 5, padding: isMobile ? '10px 16px' : '12px 24px', overflowY: 'auto', flex: 1, minHeight: 0 }}>
               {mergedSystems.map(sys => {
                 const on = activeSysIds.includes(sys.id)
                 const cnt = products.filter(p => p.systemId === sys.id).length
@@ -3330,8 +3332,8 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
               })}
             </div>
 
-            {/* Crear sistema custom */}
-            <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid #222' }}>
+            {/* Crear sistema custom — footer sticky */}
+            <div style={{ padding: isMobile ? '12px 16px 14px' : '14px 24px 18px', borderTop: '1px solid #222', flexShrink: 0, background: '#0e0e0e' }}>
               <div style={{ fontSize: 10, color: '#666', textTransform: 'uppercase' as const, letterSpacing: '0.06em', marginBottom: 6, fontWeight: 600 }}>+ Agregar sistema custom</div>
               <div style={{ display: 'flex', gap: 6 }}>
                 <input
@@ -3348,7 +3350,7 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
                   color: newSystemName.trim() ? '#57FF9A' : '#444',
                 }}>Crear</button>
               </div>
-              <div style={{ fontSize: 9, color: '#444', marginTop: 4 }}>El sistema se activará automáticamente y aparecerá en el desglose por área. Solo puedes borrarlo si no tiene productos.</div>
+              <div style={{ fontSize: 9, color: '#444', marginTop: 4 }}>Se activa automáticamente. Solo se puede borrar si no tiene productos.</div>
             </div>
           </div>
         </div>
