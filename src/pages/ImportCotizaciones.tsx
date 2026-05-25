@@ -110,44 +110,83 @@ export default function ImportCotizaciones({ onClose, onImported }: Props) {
     const ext = file.name.split('.').pop()?.toLowerCase() || ''
     let content: any[] = []
 
-    const systemPrompt = `Eres un experto en parsear cotizaciones de sistemas AV, eléctricos, iluminación y proyectos de construcción. Extraes datos financieros con precisión.
+    const systemPrompt = `Eres un experto en parsear cotizaciones de sistemas AV, eléctricos, iluminación y proyectos de construcción. Extraes datos financieros con precisión quirurgica.
 
-REGLAS IMPORTANTES:
-- Extrae TODOS los items con sus precios EXACTOS del documento — no redondees ni ajustes
-- Si hay áreas/zonas/secciones, agrúpalas. Si no, usa "General" como área
+═══ REGLAS GENERALES ═══
+- Extrae TODOS los items SIN excepción con sus precios EXACTOS del documento — no redondees, no ajustes, no omitas filas
+- Agrupa items por áreas/zonas/secciones (cuando existen). Si no hay áreas, usa "General"
 - El "cost" es el costo que pagamos (si lo muestra). Si solo hay precio de venta, pon cost = price / 1.35 (estimando 35% markup)
 - El "price" es el precio de venta unitario al cliente
-- El "total" es price × quantity
-- Detecta la moneda (USD o MXN) del documento
-- Detecta la especialidad: "esp" (especiales/AV/CCTV/redes/control), "elec" (eléctrico), "ilum" (iluminación), "proy" (proyecto/ingeniería), "cort" (cortinas)
+- El "total" es price × quantity (debe coincidir con el IMPORTE del documento)
+- Detecta moneda (USD o MXN) del header — busca "MONEDA: MXN", símbolos $, USD, dlls, pesos, MXN
+- Detecta especialidad por el TÍTULO del documento:
+  * "Cotización de Instalaciones Eléctricas" o "Cotización Eléctrica" → "elec"
+  * "Iluminación" → "ilum"
+  * "Cortinas" o "Persianas" → "cort"
+  * "Proyecto" o "Ingeniería" → "proy"
+  * "Especiales", "AV", "Audio Video", "CCTV", "Redes", "Control" → "esp"
 - Si el archivo tiene múltiples cotizaciones, devuelve cada una por separado
-- El stage debe ser uno de: oportunidad, estimacion, propuesta, contrato
-- source_system: "jetbuilt", "odoo", "excel", "otro"
+- El stage por defecto es "contrato" (cotización formal en PDF)
+- source_system: si el header dice "Project Tracker" → "omm", "Jetbuilt" → "jetbuilt", "Odoo" → "odoo", excel/csv → "excel", otro → "otro"
+
+═══ FORMATO OMM / PROJECT TRACKER (CRÍTICO PARA COTIZACIONES ELÉCTRICAS NATIVAS) ═══
+Si el header dice "PROPUESTA ECONÓMICA" + logo "OMNIIOUS" + footer "Project Tracker", aplica estas reglas:
+
+A. METADATA del header (caja resumen):
+   - PROYECTO → guárdalo como "name" (ej. "Oficinas Palmas Hills")
+   - COTIZACIÓN → folio interno (ej. COT-OficinasPalmasHills-G01-20260514) → guárdalo dentro de notes implícitamente
+   - "Propuesta para [NOMBRE]" → client_name (ej. "León Sevilla")
+   - MONEDA → currency
+   - FECHA → date en formato ISO YYYY-MM-DD
+   - VERSIÓN → ignorar (no se usa)
+
+B. TABLA "Detalle de partidas" con columnas: # | DESCRIPCIÓN | UNIDAD | CANT. | P. UNIT. | IMPORTE
+   - Las ÁREAS aparecen como FILAS HEADER en mayúsculas/negritas que abarcan todo el ancho de la tabla (ej. "ÁREA DE PRODUCCIÓN", "MONITOREO", "SHOWROOM", "RECEPCIÓN", "SALA DE JUNTAS 16P", "OFICINA VERO", "CONTABILIDAD", "COCINA", "PASILLO PRINCIPAL ÁREA PRIVADA", "ÁREAS GENERALES", etc.)
+   - Cada área se cierra con una fila "<NOMBRE_ÁREA> TOTAL $monto" — esta fila NO es un item, es el subtotal del área para validar
+   - Cada ITEM ocupa varias líneas en la celda DESCRIPCIÓN:
+     * Línea 1-2: Nombre del producto en NEGRITAS (puede partirse en 2 líneas, ej. "Salida Eléctrica para Luminaria en Muro, Piso" + "o Plafón" → unirlas como "Salida Eléctrica para Luminaria en Muro, Piso o Plafón")
+     * Línea siguiente: la MARCA en gris (ej. "Omniious", "Argos", "Quality", "Condumex", "Schneider Electric") → va al campo "marca"
+     * Última línea: texto "Incluye Herramienta y Mano de Obra" o "Incluye Suministro, Instalación, Herramienta y Mano de Obra" → va al campo "description"
+   - El campo UNIDAD: típicamente "pza", "m", "ml", "lote", "servicio"
+   - CANT.: cantidad numérica
+   - P. UNIT.: precio unitario de venta (en MXN para formato OMM)
+   - IMPORTE: total de la fila = CANT × P. UNIT.
+
+C. Para items OMM eléctricos:
+   - El "system" debe ser "Electrico" (no inventes audio/CCTV/etc. en este caso)
+   - El "type" debe ser "labor" si el item dice "Salida Eléctrica para..." o "Instalación de..." (mano de obra)
+   - El "type" debe ser "material" si el item dice "Metro Lineal de Tubería...", "Cable de Cobre...", "Tablero Eléctrico...", "Interruptor Termomagnético..." (suministro físico)
+   - cost = price / 1.35 (no se muestra costo, se estima 35% markup)
+
+D. Validación final:
+   - La suma de "total" de los items dentro de un área DEBE igualar el "<ÁREA> TOTAL" del PDF (tolerancia ±1 MXN)
+   - La suma de TODOS los items debe igualar el Subtotal del header (NO el TOTAL, porque el TOTAL incluye IVA)
+   - Si no cuadra, revisa qué item se te escapó y completalo
 
 Devuelve SOLO un JSON array válido sin markdown ni explicaciones:`
 
     const jsonFormat = `[{
-  "name": "Nombre de la cotización",
-  "client_name": "Nombre del cliente",
+  "name": "Nombre del proyecto (ej. 'Oficinas Palmas Hills')",
+  "client_name": "Cliente final (ej. 'León Sevilla')",
   "specialty": "esp|elec|ilum|proy|cort",
   "currency": "USD|MXN",
   "stage": "contrato|propuesta|estimacion|oportunidad",
-  "date": "2025-01-15",
-  "source_system": "jetbuilt|odoo|excel|otro",
+  "date": "2026-05-14",
+  "source_system": "omm|jetbuilt|odoo|excel|otro",
   "areas": [{
-    "name": "Nombre del area",
+    "name": "Nombre EXACTO del area en mayúsculas (ej. 'ÁREA DE PRODUCCIÓN', 'MONITOREO', 'OFICINA VERO', 'ÁREAS GENERALES')",
     "items": [{
-      "name": "Nombre del producto",
-      "description": "Descripcion técnica",
-      "marca": "Marca",
-      "modelo": "Modelo",
-      "system": "Audio|CCTV|Redes|Lutron|Control|Electrico|Iluminacion",
-      "unit": "pza|m|m2|lote|servicio",
-      "quantity": 1,
-      "cost": 100,
+      "name": "Nombre del producto unido si venía multi-línea (ej. 'Salida Eléctrica para Luminaria en Muro, Piso o Plafón')",
+      "description": "Texto auxiliar como 'Incluye Herramienta y Mano de Obra' o 'Incluye Suministro, Instalación, Herramienta y Mano de Obra'",
+      "marca": "Omniious|Argos|Quality|Condumex|Schneider Electric|... (segunda línea del descripción en formato OMM)",
+      "modelo": "Modelo si aparece (ej. 'NQ424AB225', 'HDL36125', 'QO115') o ''",
+      "system": "Electrico (para 'elec') | Audio|CCTV|Redes|Lutron|Control|Iluminacion (para esp/ilum)",
+      "unit": "pza|m|ml|m2|lote|servicio",
+      "quantity": 108,
+      "cost": 851.85,
       "markup": 35,
-      "price": 135,
-      "total": 135,
+      "price": 1150,
+      "total": 124200,
       "type": "material|labor"
     }]
   }]
@@ -182,8 +221,9 @@ Devuelve SOLO un JSON array válido sin markdown ni explicaciones:`
         'anthropic-dangerous-direct-browser-access': 'true'
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 16000,
+        // Sonnet 4.6 — mejor extracción de tablas y formatos densos como Project Tracker
+        model: 'claude-sonnet-4-6',
+        max_tokens: 32000,
         system: systemPrompt,
         messages: [{ role: 'user', content }]
       })
@@ -219,6 +259,43 @@ Devuelve SOLO un JSON array válido sin markdown ni explicaciones:`
 
     const parsed = JSON.parse(jsonStr)
     if (!Array.isArray(parsed)) throw new Error('Respuesta no es un array')
+
+    // ─── POST-PROCESSING SAFETY NET ─────────────────────────────────────
+    // El modelo a veces omite cost o calcula total mal. Corregimos en JS para
+    // asegurar consistencia matemática: total = price × quantity, cost = price / 1.35
+    // cuando no se reporta costo explicito.
+    for (const q of parsed as ParsedQuotation[]) {
+      for (const area of (q.areas || [])) {
+        for (const item of (area.items || [])) {
+          item.quantity = Number(item.quantity) || 1
+          item.price = Number(item.price) || 0
+          item.cost = Number(item.cost) || 0
+          item.markup = Number(item.markup) || 0
+          item.total = Number(item.total) || 0
+
+          // Si tenemos price pero no cost, derivar con markup default 35%
+          if (item.price > 0 && item.cost === 0) {
+            item.markup = item.markup || 35
+            item.cost = Math.round((item.price / (1 + item.markup / 100)) * 100) / 100
+          }
+          // Si tenemos cost pero no price, derivar desde markup
+          if (item.cost > 0 && item.price === 0) {
+            item.markup = item.markup || 35
+            item.price = Math.round(item.cost * (1 + item.markup / 100) * 100) / 100
+          }
+          // Si tenemos ambos pero markup no se reportó, calcularlo
+          if (item.cost > 0 && item.price > 0 && item.markup === 0) {
+            item.markup = Math.round(((item.price / item.cost) - 1) * 100)
+          }
+          // Total debe ser price × quantity
+          const expectedTotal = Math.round(item.price * item.quantity * 100) / 100
+          if (Math.abs(item.total - expectedTotal) > 0.5) {
+            item.total = expectedTotal
+          }
+        }
+      }
+    }
+
     return parsed as ParsedQuotation[]
   }
 
