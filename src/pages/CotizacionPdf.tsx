@@ -134,6 +134,25 @@ function getActiveSystems(cot: QuotationFull): string[] | null {
   } catch { return null }
 }
 
+// Lee los sistemas custom definidos en notes de la cotización.
+// Cada uno: { id: 'custom_X', name: 'Nombre', color: '#...' }
+function getCustomSystems(cot: QuotationFull): Array<{ id: string; name: string; color?: string }> {
+  try {
+    const m = JSON.parse(cot.notes || '{}')
+    if (!Array.isArray(m.customSystems)) return []
+    return m.customSystems.filter((s: any) => s && typeof s.id === 'string' && typeof s.name === 'string')
+  } catch { return [] }
+}
+
+// Lee el customSystemId de un item (guardado en notes JSON del item al crear).
+// Se usa para asociar items con system='General' en BD a su sistema custom real.
+function itemCustomSystemId(notes: string | null | undefined): string | null {
+  try {
+    const m = JSON.parse(notes || '{}')
+    return typeof m?.customSystemId === 'string' ? m.customSystemId : null
+  } catch { return null }
+}
+
 function getIvaRate(cot: QuotationFull): number {
   try {
     const m = JSON.parse(cot.notes || '{}')
@@ -388,14 +407,22 @@ function CotizacionPdfInner() {
 
   // Filter items by active systems (if toggled off in editor, exclude from PDF)
   const activeSystemIds = getActiveSystems(cot)
+  const customSystemsList = getCustomSystems(cot)
+  // Map: customSystemId → custom system definition (para etiquetar items y resolver nombre)
+  const customSysMap: Record<string, { id: string; name: string; color?: string }> = {}
+  for (const cs of customSystemsList) customSysMap[cs.id] = cs
+
   const filteredItems = activeSystemIds
     ? items.filter(i => {
         const dbName = (i.system || '').toLowerCase()
-        // Check if any active system ID maps to this item's system value
+        const itemCustomId = itemCustomSystemId(i.notes)
+        // 1. Si el item tiene customSystemId, matchear contra los custom activos
+        if (itemCustomId && activeSystemIds.includes(itemCustomId)) return true
+        // 2. Matchear contra los built-in activos por mapping enum
         return activeSystemIds.some(sysId => {
           const mapped = (SYSTEM_ID_TO_DB[sysId] || '').toLowerCase()
-          return mapped === dbName
-        }) || !i.system // keep items without a system assigned
+          return mapped === dbName && !itemCustomId // excluir items que pertenecen a un custom (no a 'General' real)
+        }) || (!i.system && !itemCustomId) // keep items without system assigned
       })
     : items // null = show all (no systems config or backwards compat)
 
@@ -430,18 +457,24 @@ function CotizacionPdfInner() {
     return 'pza'
   }
 
-  // Agrupar — para esp/ilum/cort/proy: por sistema. Para elec: por CONCEPTO
-  // (nombre del producto), consolidando todas las áreas. Ej: "Salida Eléctrica
-  // para Luminaria" que aparece en 16 áreas se consolida en una sola fila
-  // con la suma total de cantidades y montos. Es lo que el cliente espera ver:
-  // "cuántas salidas eléctricas totales hay en todo el proyecto".
+  // Agrupar — para esp/ilum/cort/proy: por sistema (usando custom system name
+  // si aplica). Para elec: por CONCEPTO (nombre del producto), consolidando
+  // todas las áreas. Ej: "Salida Eléctrica para Luminaria" que aparece en 16
+  // áreas se consolida en una sola fila con suma total de cantidades y montos.
   const bySystem: Record<string, { items: ItemRow[]; subtotal: number; count: number; unit?: string; priceUnit?: number }> = {}
   for (const it of materialItems) {
     let key: string
     if (isElec) {
       key = it.name || 'Sin nombre'
     } else {
-      key = it.system || 'General'
+      // Para no-elec: si el item es de un sistema custom, usar el nombre custom.
+      // Sino, el system field directo (Audio, CCTV, etc.).
+      const customId = itemCustomSystemId(it.notes)
+      if (customId && customSysMap[customId]) {
+        key = customSysMap[customId].name
+      } else {
+        key = it.system || 'General'
+      }
     }
     if (!bySystem[key]) bySystem[key] = { items: [], subtotal: 0, count: 0 }
     bySystem[key].items.push(it)

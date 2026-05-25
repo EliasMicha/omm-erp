@@ -3119,7 +3119,7 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
               {!isMobile && <select value="" onChange={e => { if (e.target.value) bulkMoveSystem(e.target.value) }}
                 style={{ padding: '4px 8px', borderRadius: 6, fontSize: 11, background: '#1a1a1a', border: '1px solid #333', color: '#ccc', fontFamily: 'inherit', cursor: 'pointer' }}>
                 <option value="">Mover a sistema...</option>
-                {ALL_SYSTEMS.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                {mergedSystems.map(s => <option key={s.id} value={s.id}>{s.name}{s.id.startsWith('custom_') ? ' (custom)' : ''}</option>)}
               </select>}
 
               {/* Move to area */}
