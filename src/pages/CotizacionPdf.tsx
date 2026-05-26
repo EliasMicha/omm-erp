@@ -461,7 +461,12 @@ function CotizacionPdfInner() {
   // si aplica). Para elec: por CONCEPTO (nombre del producto), consolidando
   // todas las áreas. Ej: "Salida Eléctrica para Luminaria" que aparece en 16
   // áreas se consolida en una sola fila con suma total de cantidades y montos.
-  const bySystem: Record<string, { items: ItemRow[]; subtotal: number; count: number; unit?: string; priceUnit?: number }> = {}
+  // Para no-elec: además calculamos equipos (price*qty), installLocal
+  // (installation_cost*qty del sistema), moProrrateada (parte de MO global
+  // = subtotalManoObra + programacion, distribuida por peso de equipos),
+  // y total = equipos + installLocal + moProrrateada. Asi cuadra exacto
+  // con el subtotal final.
+  const bySystem: Record<string, { items: ItemRow[]; equipos: number; installLocal: number; moProrr: number; subtotal: number; count: number; unit?: string; priceUnit?: number }> = {}
   for (const it of materialItems) {
     let key: string
     if (isElec) {
@@ -476,16 +481,35 @@ function CotizacionPdfInner() {
         key = it.system || 'General'
       }
     }
-    if (!bySystem[key]) bySystem[key] = { items: [], subtotal: 0, count: 0 }
+    if (!bySystem[key]) bySystem[key] = { items: [], equipos: 0, installLocal: 0, moProrr: 0, subtotal: 0, count: 0 }
     bySystem[key].items.push(it)
-    bySystem[key].subtotal += (it.price * it.quantity) + ((it.installation_cost || 0) * it.quantity)
+    const equiposItem = it.price * it.quantity
+    const installItem = (it.installation_cost || 0) * it.quantity
+    bySystem[key].equipos += equiposItem
+    bySystem[key].installLocal += installItem
+    bySystem[key].subtotal += equiposItem + installItem
     bySystem[key].count += it.quantity
     if (isElec) {
       bySystem[key].unit = deriveUnit(it.name)
       bySystem[key].priceUnit = it.price
     }
   }
-  // Ordena por subtotal desc (los conceptos más caros primero)
+
+  // ─── Prorrateo de MO global entre sistemas (solo para no-elec) ───────────
+  // moGlobal = labor explícito (items type='labor') + programación adicional.
+  // Se distribuye proporcionalmente al peso de "equipos" de cada sistema.
+  // Cada sistema recibe: moProrr = moGlobal × (equipos_sys / subtotalItems)
+  // El "Total" mostrado al cliente por sistema = equipos + installLocal + moProrr
+  // que suma exacto al subtotal final de la cotización.
+  if (!isElec) {
+    const moGlobal = subtotalManoObra + programacion
+    for (const key of Object.keys(bySystem)) {
+      const weight = subtotalItems > 0 ? bySystem[key].equipos / subtotalItems : 0
+      bySystem[key].moProrr = moGlobal * weight
+      bySystem[key].subtotal = bySystem[key].equipos + bySystem[key].installLocal + bySystem[key].moProrr
+    }
+  }
+  // Ordena por subtotal desc (los más caros primero)
   const systemsOrdered = Object.entries(bySystem).sort((a, b) => b[1].subtotal - a[1].subtotal)
 
   // Agrupar por área + sistema (desglose)
@@ -815,7 +839,9 @@ function CotizacionPdfInner() {
                 {isElec && <th style={{ textAlign: 'center', width: 50 }}>Unidad</th>}
                 {isElec && <th style={{ textAlign: 'right', width: 60 }}>Cant.</th>}
                 {isElec && <th style={{ textAlign: 'right', width: 90 }}>P. Unit.</th>}
-                <th style={{ textAlign: 'right', width: 140 }}>Subtotal</th>
+                {!isElec && <th style={{ textAlign: 'right', width: 110 }}>Equipos</th>}
+                {!isElec && <th style={{ textAlign: 'right', width: 110 }}>M.O.</th>}
+                <th style={{ textAlign: 'right', width: 130 }}>{isElec ? 'Subtotal' : 'Total'}</th>
               </tr>
             </thead>
             <tbody>
@@ -826,11 +852,13 @@ function CotizacionPdfInner() {
                     {isElec && <td style={{ textAlign: 'center', color: '#666' }}>{data.unit || ''}</td>}
                     {isElec && <td style={{ textAlign: 'right', color: '#666' }}>{data.count.toLocaleString('es-MX', { maximumFractionDigits: 2 })}</td>}
                     {isElec && <td style={{ textAlign: 'right', color: '#666' }}>{FCUR(data.priceUnit || 0, currency)}</td>}
+                    {!isElec && <td style={{ textAlign: 'right', color: '#666' }}>{FCUR(data.equipos, currency)}</td>}
+                    {!isElec && <td style={{ textAlign: 'right', color: '#666' }}>{FCUR(data.installLocal + data.moProrr, currency)}</td>}
                     <td style={{ textAlign: 'right', fontWeight: 600 }}>{FCUR(data.subtotal, currency)}</td>
                   </tr>
                   {!isElec && (
                     <tr>
-                      <td colSpan={2} style={{ paddingTop: 2, paddingBottom: 10 }}>
+                      <td colSpan={4} style={{ paddingTop: 2, paddingBottom: 10 }}>
                         <div style={{ fontSize: 9, color: '#666', lineHeight: 1.6, maxWidth: 600 }}>
                           {descripcionSistema(sys, data)}
                         </div>
@@ -840,37 +868,30 @@ function CotizacionPdfInner() {
                 </React.Fragment>
               ))}
               <tr style={{ borderTop: '2px solid #111' }}>
-                <td style={{ paddingTop: 8, color: '#666' }}>{isElec ? 'Total partidas' : 'Total equipos'}</td>
+                <td style={{ paddingTop: 8, color: '#666', fontWeight: 600 }}>{isElec ? 'Total partidas' : 'Subtotal'}</td>
                 {isElec && <td colSpan={3}></td>}
-                <td style={{ textAlign: 'right', paddingTop: 8 }}>{FCUR(subtotalItems, currency)}</td>
-              </tr>
-              {(subtotalInstalacion + programacion) > 0 && (
-              <tr>
-                <td style={{ color: '#666' }}>Instalación y programación</td>
-                {isElec && <td colSpan={3}></td>}
-                <td style={{ textAlign: 'right' }}>{FCUR(subtotalInstalacion + programacion, currency)}</td>
-              </tr>
-              )}
-              <tr style={{ borderTop: '1px solid #ddd' }}>
-                <td style={{ fontWeight: 700, paddingTop: 6 }}>Subtotal</td>
-                {isElec && <td colSpan={3}></td>}
-                <td style={{ textAlign: 'right', fontWeight: 700, paddingTop: 6 }}>{FCUR(subtotal, currency)}</td>
+                {!isElec && <td style={{ textAlign: 'right', paddingTop: 8, fontWeight: 600 }}>{FCUR(subtotalItems, currency)}</td>}
+                {!isElec && <td style={{ textAlign: 'right', paddingTop: 8, fontWeight: 600 }}>{FCUR(subtotalInstalacion + subtotalManoObra + programacion, currency)}</td>}
+                <td style={{ textAlign: 'right', paddingTop: 8, fontWeight: 600 }}>{FCUR(subtotal, currency)}</td>
               </tr>
               {descuentoPct > 0 && (
                 <tr>
                   <td style={{ color: '#c00' }}>Descuento ({descuentoPct}%)</td>
                   {isElec && <td colSpan={3}></td>}
+                  {!isElec && <td colSpan={2}></td>}
                   <td style={{ textAlign: 'right', color: '#c00' }}>-{FCUR(descuentoAmt, currency)}</td>
                 </tr>
               )}
               <tr>
                 <td style={{ color: '#888' }}>IVA {ivaRate}%</td>
                 {isElec && <td colSpan={3}></td>}
+                {!isElec && <td colSpan={2}></td>}
                 <td style={{ textAlign: 'right', color: '#888' }}>{FCUR(iva, currency)}</td>
               </tr>
               <tr style={{ borderTop: '1px solid #111' }}>
                 <td style={{ fontWeight: 700, fontSize: 12, color: '#111', paddingTop: 6 }}>Total</td>
                 {isElec && <td colSpan={3}></td>}
+                {!isElec && <td colSpan={2}></td>}
                 <td style={{ textAlign: 'right', fontWeight: 700, fontSize: 12, color: '#111', paddingTop: 6 }}>{FCUR(totalCon, currency)}</td>
               </tr>
             </tbody>
