@@ -882,6 +882,14 @@ function CotizacionPdfInner() {
                   <td style={{ textAlign: 'right', color: '#c00' }}>-{FCUR(descuentoAmt, currency)}</td>
                 </tr>
               )}
+              {descuentoPct > 0 && (
+                <tr style={{ borderTop: '1px solid #eee' }}>
+                  <td style={{ paddingTop: 6, fontWeight: 600 }}>Subtotal con descuento</td>
+                  {isElec && <td colSpan={3}></td>}
+                  {!isElec && <td colSpan={2}></td>}
+                  <td style={{ textAlign: 'right', fontWeight: 600, paddingTop: 6 }}>{FCUR(subtotalConDesc, currency)}</td>
+                </tr>
+              )}
               <tr>
                 <td style={{ color: '#888' }}>IVA {ivaRate}%</td>
                 {isElec && <td colSpan={3}></td>}
