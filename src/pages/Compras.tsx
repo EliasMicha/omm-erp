@@ -1817,6 +1817,8 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
   const [projects, setProjects] = useState<Project[]>([])
   const [obras, setObras] = useState<Obra[]>([])
+  const [leads, setLeads] = useState<Array<{ id: string; name: string; company?: string }>>([])
+  const [quotations, setQuotations] = useState<Array<{ id: string; name: string; lead_id: string; specialty?: string; total?: number; currency?: string }>>([])
   const [loading, setLoading] = useState(true)
   const [dirty, setDirty] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -1832,13 +1834,23 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
       supabase.from('suppliers').select('*').eq('is_active', true).order('name'),
       supabase.from('projects').select('*').eq('status', 'activo').order('name'),
       supabase.from('obras').select('id,nombre,project_id').order('nombre'),
-    ]).then(([poRes, itemsRes, catRes, supRes, projRes, obrRes]) => {
+      supabase.from('leads').select('id,name,company').order('updated_at', { ascending: false }),
+      supabase.from('quotations').select('id,name,notes,specialty,total,currency,updated_at').order('updated_at', { ascending: false }),
+    ]).then(([poRes, itemsRes, catRes, supRes, projRes, obrRes, leadRes, quoRes]) => {
       setPO(poRes.data)
       setItems(itemsRes.data || [])
       setCatalog(catRes.data || [])
       setSuppliers(supRes.data || [])
       setProjects(projRes.data || [])
       setObras(obrRes.data || [])
+      setLeads((leadRes.data as any[]) || [])
+      // Mapear quotations con lead_id parseado desde notes JSON
+      const qList = ((quoRes.data as any[]) || []).map(q => {
+        let lead_id = ''
+        try { const m = typeof q.notes === 'string' ? JSON.parse(q.notes || '{}') : q.notes; if (m?.lead_id) lead_id = m.lead_id } catch {}
+        return { ...q, lead_id }
+      })
+      setQuotations(qList)
       setLoading(false)
     })
   }
@@ -1873,6 +1885,7 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
       subtotal, iva, total,
       supplier_id: po.supplier_id || null,
       project_id: po.project_id || null,
+      quotation_id: po.quotation_id || null,
       notes: po.notes || null,
       supplier_doc_number: po.supplier_doc_number || null,
       expected_delivery: po.expected_delivery || null,
@@ -2053,37 +2066,72 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
         </div>
       </div>
 
-      {/* PO info row */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 12, marginBottom: 12 }}>
-        <SelectField label="Proveedor" value={po.supplier_id || ''}
-          onChange={v => {
-            setPO(p => {
-              if (!p) return p
-              // Si la PO está en 'pending', precargar el default logístico del proveedor elegido
-              const next: PurchaseOrder = { ...p, supplier_id: v }
-              if ((!p.logistics_mode || p.logistics_mode === 'pending') && v) {
-                const sup = suppliers.find(s => s.id === v)
-                if (sup?.default_logistics_mode) next.logistics_mode = sup.default_logistics_mode
-              }
-              return next
-            })
-            setDirty(true)
-          }}
-          options={suppliers.map(s => ({ value: s.id, label: s.name }))} placeholder="-- Seleccionar --" />
-        <SelectField label="Proyecto" value={po.project_id || ''} onChange={v => { setPO(p => p ? { ...p, project_id: v } : p); setDirty(true) }}
-          options={projects.map(p => ({ value: p.id, label: p.name }))} placeholder="-- Sin proyecto --" />
+      {/* PO info row 1: Proveedor / Lead / Cotización / Info proveedor */}
+      {(() => {
+        // Derivar lead actual desde la cotización vinculada (notes.lead_id)
+        const linkedQuote = quotations.find(q => q.id === po.quotation_id)
+        const currentLeadId = linkedQuote?.lead_id || ''
+        // Cotizaciones del lead actual
+        const quotesForLead = currentLeadId ? quotations.filter(q => q.lead_id === currentLeadId) : []
+        return (
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 12, marginBottom: 12 }}>
+            <SelectField label="Proveedor" value={po.supplier_id || ''}
+              onChange={v => {
+                setPO(p => {
+                  if (!p) return p
+                  // Si la PO está en 'pending', precargar el default logístico del proveedor elegido
+                  const next: PurchaseOrder = { ...p, supplier_id: v }
+                  if ((!p.logistics_mode || p.logistics_mode === 'pending') && v) {
+                    const sup = suppliers.find(s => s.id === v)
+                    if (sup?.default_logistics_mode) next.logistics_mode = sup.default_logistics_mode
+                  }
+                  return next
+                })
+                setDirty(true)
+              }}
+              options={suppliers.map(s => ({ value: s.id, label: s.name }))} placeholder="-- Seleccionar --" />
+            <SelectField label="Lead" value={currentLeadId}
+              onChange={v => {
+                // Al cambiar lead, limpiar quotation_id (se elige cotización del nuevo lead)
+                setPO(p => p ? { ...p, quotation_id: null } : p)
+                setDirty(true)
+                // Nota: el lead_id no se guarda directo en PO; se infiere desde quotation.notes.lead_id
+                // Si el usuario selecciona un lead distinto pero no elige cotización, el PO queda sin quotation_id
+                if (v) {
+                  // No hacemos nada extra — el filtro de cotizaciones abajo reaccionará
+                }
+              }}
+              options={leads.map(l => ({ value: l.id, label: `${l.name}${l.company ? ' — ' + l.company : ''}` }))}
+              placeholder="-- Sin lead --" />
+            <SelectField label="Cotización" value={po.quotation_id || ''}
+              onChange={v => { setPO(p => p ? { ...p, quotation_id: v || null } : p); setDirty(true) }}
+              options={(quotesForLead.length > 0 ? quotesForLead : quotations).map(q => ({
+                value: q.id,
+                label: `${q.name}${q.specialty ? ' (' + q.specialty + ')' : ''}${q.total ? ' — ' + F(q.total) + ' ' + (q.currency || '') : ''}`,
+              }))}
+              placeholder={currentLeadId ? (quotesForLead.length === 0 ? 'Sin cotizaciones del lead' : '-- Seleccionar --') : '-- Selecciona lead primero --'} />
+            <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
+              <div style={{ fontSize: 10, color: '#555', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Proveedor info</div>
+              {po.supplier ? (
+                <div style={{ fontSize: 11, color: '#888' }}>
+                  {(po.supplier as Supplier).contact_name && <div>{(po.supplier as Supplier).contact_name}</div>}
+                  {(po.supplier as Supplier).contact_phone && <div>{(po.supplier as Supplier).contact_phone}</div>}
+                  {(po.supplier as Supplier).payment_terms && <div style={{ color: '#57FF9A' }}>{PAYMENT_TERMS_CFG[(po.supplier as Supplier).payment_terms]}</div>}
+                </div>
+              ) : <div style={{ fontSize: 11, color: '#444' }}>Sin proveedor asignado</div>}
+            </div>
+          </div>
+        )
+      })()}
+
+      {/* PO info row 2: Entrega esperada + Folio del proveedor */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 2fr', gap: 12, marginBottom: 12 }}>
         <Field label="Entrega esperada" value={po.expected_delivery || ''} type="date"
           onChange={v => { setPO(p => p ? { ...p, expected_delivery: v } : p); setDirty(true) }} />
-        <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
-          <div style={{ fontSize: 10, color: '#555', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Proveedor info</div>
-          {po.supplier ? (
-            <div style={{ fontSize: 11, color: '#888' }}>
-              {(po.supplier as Supplier).contact_name && <div>{(po.supplier as Supplier).contact_name}</div>}
-              {(po.supplier as Supplier).contact_phone && <div>{(po.supplier as Supplier).contact_phone}</div>}
-              {(po.supplier as Supplier).payment_terms && <div style={{ color: '#57FF9A' }}>{PAYMENT_TERMS_CFG[(po.supplier as Supplier).payment_terms]}</div>}
-            </div>
-          ) : <div style={{ fontSize: 11, color: '#444' }}>Sin proveedor asignado</div>}
-        </div>
+        <Field label="Folio / cotización del proveedor" value={po.supplier_doc_number || ''}
+          onChange={v => { setPO(p => p ? { ...p, supplier_doc_number: v } : p); setDirty(true) }}
+          placeholder="ej. OV-12345 / Cot-2024-789" />
+        <div></div>
       </div>
 
       {/* Logística row (Entregas v2) */}
