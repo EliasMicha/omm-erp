@@ -1881,13 +1881,17 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
     })
   }
 
-  // Cuando cambia po.lead_id, autocargar cotizaciones del lead
+  // Effective lead_id: po.lead_id (columna directa) o derivado de la cotización vinculada.
+  // Necesario para POs viejas que no tienen lead_id guardado pero sí tienen quotation_id.
+  const linkedQuoteForEffect = quotations.find(q => q.id === po?.quotation_id)
+  const effectiveLeadId: string = ((po as any)?.lead_id || linkedQuoteForEffect?.lead_id || '') as string
+
+  // Autocargar cotizaciones del lead cuando cambia el effective lead_id
   useEffect(() => {
-    const leadId = (po as any)?.lead_id
-    if (leadId && !quotesByLead[leadId]) {
-      loadQuotesForLead(leadId)
+    if (effectiveLeadId && !quotesByLead[effectiveLeadId]) {
+      loadQuotesForLead(effectiveLeadId)
     }
-  }, [(po as any)?.lead_id])
+  }, [effectiveLeadId])
 
   if (loading || !po) return <div style={{ padding: '24px 28px' }}><Loading /></div>
 
