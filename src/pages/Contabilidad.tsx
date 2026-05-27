@@ -1424,24 +1424,33 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
   // (más confiable que filtrar assignQuotations localmente).
   const [quotesByLead, setQuotesByLead] = useState<Record<string, any[]>>({})
 
-  // Carga (o recarga) las cotizaciones de un lead específico desde Supabase
-  // usando LIKE sobre notes (que es text con JSON). Garantiza que aparezcan
-  // todas las cotizaciones del lead aunque se importaron después de montar.
+  // Carga (o recarga) las cotizaciones de un lead específico desde Supabase.
+  // Estrategia robusta:
+  // 1. Buscar con ILIKE solo por el UUID del lead (sin comillas — el patrón
+  //    `%"lead_id":"UUID"%` puede fallar al URL-encode las comillas dobles).
+  // 2. Filtrar del lado cliente parseando notes JSON para confirmar match exacto
+  //    de lead_id (evita falsos positivos por UUIDs similares en otros campos).
   async function loadQuotesForLead(leadId: string): Promise<any[]> {
     if (!leadId) return []
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('quotations')
       .select('id,name,notes,specialty,total,currency,updated_at')
-      .like('notes', `%"lead_id":"${leadId}"%`)
+      .ilike('notes', `%${leadId}%`)
       .order('updated_at', { ascending: false })
-    const list = (data as any[]) || []
+    if (error) {
+      console.error('loadQuotesForLead error:', error)
+      return []
+    }
+    // Filtrar del lado cliente: parsear notes y confirmar lead_id exacto
+    const list = ((data as any[]) || [])
+      .map(q => ({ ...q, lead_id: extractLeadId(q) }))
+      .filter(q => q.lead_id === leadId)
+    console.log(`[loadQuotesForLead] lead=${leadId} → ${list.length} cotizaciones`)
     setQuotesByLead(prev => ({ ...prev, [leadId]: list }))
     // También actualizar assignQuotations con los items recién cargados
     setAssignQuotations(prev => {
       const existing = new Map(prev.map(q => [q.id, q]))
-      for (const q of list) {
-        existing.set(q.id, { ...q, lead_id: extractLeadId(q) })
-      }
+      for (const q of list) existing.set(q.id, q)
       return Array.from(existing.values())
     })
     return list
@@ -1562,6 +1571,8 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
         if (value) {
           const lead = assignLeads.find(l => l.id === value)
           if (lead) updates.proyecto = lead.name
+          // Auto-cargar las cotizaciones del lead al asignarlo (no esperar al click ↻)
+          loadQuotesForLead(value)
         } else {
           updates.proyecto = ''
         }

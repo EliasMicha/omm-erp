@@ -1861,17 +1861,34 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
   }
   useEffect(load, [poId])
 
-  // Carga cotizaciones de un lead específico via LIKE sobre notes (source of truth).
-  // Es más confiable que filtrar el cache global porque garantiza incluso las
-  // cotizaciones recién importadas.
+  // Carga cotizaciones de un lead específico. Estrategia:
+  // 1. Query por UUID del lead como substring (sin comillas — porque las comillas
+  //    en el patrón URL-encoded pueden fallar en algunos casos).
+  // 2. Filtrar del lado cliente parseando notes JSON para confirmar match exacto
+  //    de lead_id (evita falsos positivos por UUIDs similares).
   async function loadQuotesForLead(leadId: string) {
     if (!leadId) return
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('quotations')
       .select('id,name,notes,specialty,total,currency,updated_at')
-      .like('notes', `%"lead_id":"${leadId}"%`)
+      .ilike('notes', `%${leadId}%`)
       .order('updated_at', { ascending: false })
-    const list = ((data as any[]) || []).map(q => ({ ...q, lead_id: leadId }))
+    if (error) {
+      console.error('loadQuotesForLead error:', error)
+      return
+    }
+    // Filtrar del lado cliente: parsear notes y confirmar lead_id exacto
+    const list = ((data as any[]) || [])
+      .map(q => {
+        let parsedLeadId = ''
+        try {
+          const m = typeof q.notes === 'string' ? JSON.parse(q.notes || '{}') : q.notes
+          if (m?.lead_id) parsedLeadId = m.lead_id
+        } catch {}
+        return { ...q, lead_id: parsedLeadId }
+      })
+      .filter(q => q.lead_id === leadId)
+    console.log(`[loadQuotesForLead] lead=${leadId} → ${list.length} cotizaciones`)
     setQuotesByLead(prev => ({ ...prev, [leadId]: list }))
     // Merge en el cache global por si la cotización seleccionada es nueva
     setQuotations(prev => {
