@@ -1840,7 +1840,7 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
       supabase.from('projects').select('*').eq('status', 'activo').order('name'),
       supabase.from('obras').select('id,nombre,project_id').order('nombre'),
       supabase.from('leads').select('id,name,company').order('updated_at', { ascending: false }),
-      supabase.from('quotations').select('id,name,notes,specialty,total,currency,updated_at').order('updated_at', { ascending: false }),
+      supabase.from('quotations').select('id,name,notes,specialty,total,updated_at').order('updated_at', { ascending: false }),
     ]).then(([poRes, itemsRes, catRes, supRes, projRes, obrRes, leadRes, quoRes]) => {
       setPO(poRes.data)
       setItems(itemsRes.data || [])
@@ -1849,11 +1849,16 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
       setProjects(projRes.data || [])
       setObras(obrRes.data || [])
       setLeads((leadRes.data as any[]) || [])
-      // Mapear quotations con lead_id parseado desde notes JSON
+      // Mapear quotations con lead_id y currency parseados desde notes JSON
       const qList = ((quoRes.data as any[]) || []).map(q => {
         let lead_id = ''
-        try { const m = typeof q.notes === 'string' ? JSON.parse(q.notes || '{}') : q.notes; if (m?.lead_id) lead_id = m.lead_id } catch {}
-        return { ...q, lead_id }
+        let currency = ''
+        try {
+          const m = typeof q.notes === 'string' ? JSON.parse(q.notes || '{}') : q.notes
+          if (m?.lead_id) lead_id = m.lead_id
+          if (m?.currency) currency = m.currency
+        } catch {}
+        return { ...q, lead_id, currency }
       })
       setQuotations(qList)
       setLoading(false)
@@ -1870,7 +1875,7 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
     if (!leadId) return
     const { data, error } = await supabase
       .from('quotations')
-      .select('id,name,notes,specialty,total,currency,updated_at')
+      .select('id,name,notes,specialty,total,updated_at')
       .ilike('notes', `%${leadId}%`)
       .order('updated_at', { ascending: false })
     if (error) {
@@ -1881,11 +1886,13 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
     const list = ((data as any[]) || [])
       .map(q => {
         let parsedLeadId = ''
+        let currency = ''
         try {
           const m = typeof q.notes === 'string' ? JSON.parse(q.notes || '{}') : q.notes
           if (m?.lead_id) parsedLeadId = m.lead_id
+          if (m?.currency) currency = m.currency
         } catch {}
-        return { ...q, lead_id: parsedLeadId }
+        return { ...q, lead_id: parsedLeadId, currency }
       })
       .filter(q => q.lead_id === leadId)
     console.log(`[loadQuotesForLead] lead=${leadId} → ${list.length} cotizaciones`)
@@ -2132,17 +2139,6 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
         const quotesForLead = currentLeadId
           ? (cachedQuotes ?? quotations.filter(q => q.lead_id === currentLeadId))
           : []
-        // DEBUG: exponer state al window para troubleshooting
-        ;(window as any).__poDebug = {
-          po_id: po?.id, po_lead_id: (po as any)?.lead_id, po_quotation_id: po?.quotation_id,
-          linkedQuoteId: linkedQuote?.id, linkedQuoteLeadId: linkedQuote?.lead_id,
-          currentLeadId,
-          cachedCount: cachedQuotes?.length,
-          quotationsCount: quotations.length,
-          quotesForLeadCount: quotesForLead.length,
-          quotesByLeadKeys: Object.keys(quotesByLead),
-          sampleQuotation: quotations[0] ? { id: quotations[0].id, name: quotations[0].name, lead_id: quotations[0].lead_id } : null,
-        }
         return (
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 12, marginBottom: 12 }}>
             <SearchableSelect label="Proveedor" value={po.supplier_id || ''}

@@ -1419,6 +1419,14 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
     return lead_id
   }
 
+  function extractCurrency(q: any): string {
+    try {
+      const n = typeof q.notes === 'string' ? JSON.parse(q.notes) : q.notes
+      if (n?.currency) return n.currency
+    } catch {}
+    return ''
+  }
+
   // Cache de cotizaciones por lead — se llena bajo demanda con query directa
   // a Supabase. Es la fuente de verdad para el dropdown de conciliación
   // (más confiable que filtrar assignQuotations localmente).
@@ -1434,7 +1442,7 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
     if (!leadId) return []
     const { data, error } = await supabase
       .from('quotations')
-      .select('id,name,notes,specialty,total,currency,updated_at')
+      .select('id,name,notes,specialty,total,updated_at')
       .ilike('notes', `%${leadId}%`)
       .order('updated_at', { ascending: false })
     if (error) {
@@ -1443,7 +1451,7 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
     }
     // Filtrar del lado cliente: parsear notes y confirmar lead_id exacto
     const list = ((data as any[]) || [])
-      .map(q => ({ ...q, lead_id: extractLeadId(q) }))
+      .map(q => ({ ...q, lead_id: extractLeadId(q), currency: extractCurrency(q) }))
       .filter(q => q.lead_id === leadId)
     console.log(`[loadQuotesForLead] lead=${leadId} → ${list.length} cotizaciones`)
     setQuotesByLead(prev => ({ ...prev, [leadId]: list }))
@@ -1460,10 +1468,10 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
   async function reloadQuotations() {
     const { data } = await supabase
       .from('quotations')
-      .select('id,name,notes,specialty,total,currency,updated_at')
+      .select('id,name,notes,specialty,total,updated_at')
       .order('updated_at', { ascending: false })
     if (data) {
-      setAssignQuotations((data as any[]).map(q => ({ ...q, lead_id: extractLeadId(q) })))
+      setAssignQuotations((data as any[]).map(q => ({ ...q, lead_id: extractLeadId(q), currency: extractCurrency(q) })))
       // Limpiar cache por lead para que se vuelvan a consultar
       setQuotesByLead({})
     }
@@ -1472,14 +1480,14 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
   useEffect(() => {
     Promise.all([
       supabase.from('leads').select('id,name,company').order('name'),
-      supabase.from('quotations').select('id,name,notes,specialty,total,currency,updated_at').order('updated_at', { ascending: false }),
+      supabase.from('quotations').select('id,name,notes,specialty,total,updated_at').order('updated_at', { ascending: false }),
       supabase.from('purchase_orders').select('id,po_number,quotation_id,project_id,supplier_id,total,currency,purchase_phase,status').order('po_number', { ascending: false }),
       supabase.from('suppliers').select('id,name,rfc,clabe,cuenta_bancaria,banco,bnet_codigo').order('name'),
       supabase.from('clientes').select('id,razon_social,nombre_comercial,rfc,clabe,cuenta_bancaria,banco').eq('activo', true).order('razon_social'),
       supabase.from('employees').select('id,name,rfc,clabe,cuenta,banco').eq('is_active', true).order('name'),
     ]).then(([lRes, qRes, pRes, sRes, cRes, eRes]) => {
       setAssignLeads((lRes.data as any[]) || [])
-      setAssignQuotations(((qRes.data as any[]) || []).map(q => ({ ...q, lead_id: extractLeadId(q) })))
+      setAssignQuotations(((qRes.data as any[]) || []).map(q => ({ ...q, lead_id: extractLeadId(q), currency: extractCurrency(q) })))
       setAssignPOs((pRes.data as any[]) || [])
       setAssignSuppliers((sRes.data as any[]) || [])
       setAssignClientes((cRes.data as any[]) || [])
