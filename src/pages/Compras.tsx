@@ -45,6 +45,7 @@ interface PurchaseOrder {
   project_id?: string
   supplier_id?: string
   quotation_id?: string
+  lead_id?: string | null
   specialty: ProjectLine
   purchase_phase?: PurchasePhase
   status: POStatus
@@ -1886,6 +1887,7 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
       supplier_id: po.supplier_id || null,
       project_id: po.project_id || null,
       quotation_id: po.quotation_id || null,
+      lead_id: (po as any).lead_id || null,
       notes: po.notes || null,
       supplier_doc_number: po.supplier_doc_number || null,
       expected_delivery: po.expected_delivery || null,
@@ -2068,9 +2070,10 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
 
       {/* PO info row 1: Proveedor / Lead / Cotización / Info proveedor */}
       {(() => {
-        // Derivar lead actual desde la cotización vinculada (notes.lead_id)
+        // Lead source of truth: po.lead_id (columna directa). Fallback: derivarlo
+        // desde la cotización vinculada para POs viejas que no tenían lead_id guardado.
         const linkedQuote = quotations.find(q => q.id === po.quotation_id)
-        const currentLeadId = linkedQuote?.lead_id || ''
+        const currentLeadId = (po as any).lead_id || linkedQuote?.lead_id || ''
         // Cotizaciones del lead actual
         const quotesForLead = currentLeadId ? quotations.filter(q => q.lead_id === currentLeadId) : []
         return (
@@ -2092,19 +2095,35 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
               options={suppliers.map(s => ({ value: s.id, label: s.name }))} placeholder="-- Seleccionar --" />
             <SelectField label="Lead" value={currentLeadId}
               onChange={v => {
-                // Al cambiar lead, limpiar quotation_id (se elige cotización del nuevo lead)
-                setPO(p => p ? { ...p, quotation_id: null } : p)
+                // Persistir lead_id directamente en el PO (columna BD).
+                // Si la cotización actual NO pertenece al nuevo lead, limpiar quotation_id.
+                setPO(p => {
+                  if (!p) return p
+                  const next: any = { ...p, lead_id: v || null }
+                  const currentQ = quotations.find(q => q.id === p.quotation_id)
+                  if (currentQ && currentQ.lead_id !== v) {
+                    next.quotation_id = null
+                  }
+                  return next
+                })
                 setDirty(true)
-                // Nota: el lead_id no se guarda directo en PO; se infiere desde quotation.notes.lead_id
-                // Si el usuario selecciona un lead distinto pero no elige cotización, el PO queda sin quotation_id
-                if (v) {
-                  // No hacemos nada extra — el filtro de cotizaciones abajo reaccionará
-                }
               }}
               options={leads.map(l => ({ value: l.id, label: `${l.name}${l.company ? ' — ' + l.company : ''}` }))}
               placeholder="-- Sin lead --" />
             <SelectField label="Cotización" value={po.quotation_id || ''}
-              onChange={v => { setPO(p => p ? { ...p, quotation_id: v || null } : p); setDirty(true) }}
+              onChange={v => {
+                // Al elegir cotización, sincronizar lead_id desde notes de la cot (si no había lead_id antes)
+                setPO(p => {
+                  if (!p) return p
+                  const next: any = { ...p, quotation_id: v || null }
+                  if (v) {
+                    const q = quotations.find(qq => qq.id === v)
+                    if (q?.lead_id && !next.lead_id) next.lead_id = q.lead_id
+                  }
+                  return next
+                })
+                setDirty(true)
+              }}
               options={(quotesForLead.length > 0 ? quotesForLead : quotations).map(q => ({
                 value: q.id,
                 label: `${q.name}${q.specialty ? ' (' + q.specialty + ')' : ''}${q.total ? ' — ' + F(q.total) + ' ' + (q.currency || '') : ''}`,
