@@ -2132,6 +2132,17 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
         const quotesForLead = currentLeadId
           ? (cachedQuotes ?? quotations.filter(q => q.lead_id === currentLeadId))
           : []
+        // DEBUG: exponer state al window para troubleshooting
+        ;(window as any).__poDebug = {
+          po_id: po?.id, po_lead_id: (po as any)?.lead_id, po_quotation_id: po?.quotation_id,
+          linkedQuoteId: linkedQuote?.id, linkedQuoteLeadId: linkedQuote?.lead_id,
+          currentLeadId,
+          cachedCount: cachedQuotes?.length,
+          quotationsCount: quotations.length,
+          quotesForLeadCount: quotesForLead.length,
+          quotesByLeadKeys: Object.keys(quotesByLead),
+          sampleQuotation: quotations[0] ? { id: quotations[0].id, name: quotations[0].name, lead_id: quotations[0].lead_id } : null,
+        }
         return (
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 12, marginBottom: 12 }}>
             <SearchableSelect label="Proveedor" value={po.supplier_id || ''}
