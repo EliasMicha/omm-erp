@@ -1820,6 +1820,10 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
   const [obras, setObras] = useState<Obra[]>([])
   const [leads, setLeads] = useState<Array<{ id: string; name: string; company?: string }>>([])
   const [quotations, setQuotations] = useState<Array<{ id: string; name: string; lead_id: string; specialty?: string; total?: number; currency?: string }>>([])
+  // Cache de cotizaciones por lead — se llena bajo demanda con query directa a Supabase
+  // usando LIKE sobre notes. Garantiza que aparezcan TODAS las cotizaciones del lead
+  // aunque el cache global esté desactualizado o falle el parseo de notes.
+  const [quotesByLead, setQuotesByLead] = useState<Record<string, Array<{ id: string; name: string; lead_id: string; specialty?: string; total?: number; currency?: string }>>>({})
   const [loading, setLoading] = useState(true)
   const [dirty, setDirty] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -1856,6 +1860,34 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
     })
   }
   useEffect(load, [poId])
+
+  // Carga cotizaciones de un lead específico via LIKE sobre notes (source of truth).
+  // Es más confiable que filtrar el cache global porque garantiza incluso las
+  // cotizaciones recién importadas.
+  async function loadQuotesForLead(leadId: string) {
+    if (!leadId) return
+    const { data } = await supabase
+      .from('quotations')
+      .select('id,name,notes,specialty,total,currency,updated_at')
+      .like('notes', `%"lead_id":"${leadId}"%`)
+      .order('updated_at', { ascending: false })
+    const list = ((data as any[]) || []).map(q => ({ ...q, lead_id: leadId }))
+    setQuotesByLead(prev => ({ ...prev, [leadId]: list }))
+    // Merge en el cache global por si la cotización seleccionada es nueva
+    setQuotations(prev => {
+      const existing = new Map(prev.map(q => [q.id, q]))
+      for (const q of list) existing.set(q.id, q)
+      return Array.from(existing.values())
+    })
+  }
+
+  // Cuando cambia po.lead_id, autocargar cotizaciones del lead
+  useEffect(() => {
+    const leadId = (po as any)?.lead_id
+    if (leadId && !quotesByLead[leadId]) {
+      loadQuotesForLead(leadId)
+    }
+  }, [(po as any)?.lead_id])
 
   if (loading || !po) return <div style={{ padding: '24px 28px' }}><Loading /></div>
 
@@ -2074,11 +2106,14 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
         // desde la cotización vinculada para POs viejas que no tenían lead_id guardado.
         const linkedQuote = quotations.find(q => q.id === po.quotation_id)
         const currentLeadId = (po as any).lead_id || linkedQuote?.lead_id || ''
-        // Cotizaciones del lead actual
-        const quotesForLead = currentLeadId ? quotations.filter(q => q.lead_id === currentLeadId) : []
+        // Cotizaciones del lead actual — usa cache directo de Supabase (source of truth)
+        const cachedQuotes = currentLeadId ? quotesByLead[currentLeadId] : undefined
+        const quotesForLead = currentLeadId
+          ? (cachedQuotes ?? quotations.filter(q => q.lead_id === currentLeadId))
+          : []
         return (
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 12, marginBottom: 12 }}>
-            <SelectField label="Proveedor" value={po.supplier_id || ''}
+            <SearchableSelect label="Proveedor" value={po.supplier_id || ''}
               onChange={v => {
                 setPO(p => {
                   if (!p) return p
@@ -2092,8 +2127,8 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
                 })
                 setDirty(true)
               }}
-              options={suppliers.map(s => ({ value: s.id, label: s.name }))} placeholder="-- Seleccionar --" />
-            <SelectField label="Lead" value={currentLeadId}
+              options={suppliers.map(s => ({ value: s.id, label: s.name }))} placeholder="-- Sin proveedor --" />
+            <SearchableSelect label="Lead" value={currentLeadId}
               onChange={v => {
                 // Persistir lead_id directamente en el PO (columna BD).
                 // Si la cotización actual NO pertenece al nuevo lead, limpiar quotation_id.
@@ -2107,28 +2142,40 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
                   return next
                 })
                 setDirty(true)
+                // Cargar cotizaciones del lead nuevo desde Supabase (LIKE sobre notes)
+                if (v) loadQuotesForLead(v)
               }}
               options={leads.map(l => ({ value: l.id, label: `${l.name}${l.company ? ' — ' + l.company : ''}` }))}
               placeholder="-- Sin lead --" />
-            <SelectField label="Cotización" value={po.quotation_id || ''}
-              onChange={v => {
-                // Al elegir cotización, sincronizar lead_id desde notes de la cot (si no había lead_id antes)
-                setPO(p => {
-                  if (!p) return p
-                  const next: any = { ...p, quotation_id: v || null }
-                  if (v) {
-                    const q = quotations.find(qq => qq.id === v)
-                    if (q?.lead_id && !next.lead_id) next.lead_id = q.lead_id
-                  }
-                  return next
-                })
-                setDirty(true)
-              }}
-              options={(quotesForLead.length > 0 ? quotesForLead : quotations).map(q => ({
-                value: q.id,
-                label: `${q.name}${q.specialty ? ' (' + q.specialty + ')' : ''}${q.total ? ' — ' + F(q.total) + ' ' + (q.currency || '') : ''}`,
-              }))}
-              placeholder={currentLeadId ? (quotesForLead.length === 0 ? 'Sin cotizaciones del lead' : '-- Seleccionar --') : '-- Selecciona lead primero --'} />
+            <div style={{ position: 'relative' }}>
+              <SearchableSelect label="Cotización" value={po.quotation_id || ''}
+                onChange={v => {
+                  // Al elegir cotización, sincronizar lead_id desde notes de la cot (si no había lead_id antes)
+                  setPO(p => {
+                    if (!p) return p
+                    const next: any = { ...p, quotation_id: v || null }
+                    if (v) {
+                      const allQ = [...quotations, ...Object.values(quotesByLead).flat()]
+                      const q = allQ.find(qq => qq.id === v)
+                      if (q?.lead_id && !next.lead_id) next.lead_id = q.lead_id
+                    }
+                    return next
+                  })
+                  setDirty(true)
+                }}
+                options={quotesForLead.map(q => ({
+                  value: q.id,
+                  label: `${q.name}${q.specialty ? ' (' + q.specialty + ')' : ''}${q.total ? ' — ' + F(q.total) + ' ' + (q.currency || '') : ''}`,
+                }))}
+                placeholder={currentLeadId ? (quotesForLead.length === 0 ? 'Sin cotizaciones del lead' : '-- Sin cotización --') : '-- Selecciona lead primero --'} />
+              {currentLeadId && (
+                <button
+                  onClick={async () => { await loadQuotesForLead(currentLeadId) }}
+                  title="Recargar cotizaciones del lead desde Supabase"
+                  style={{ position: 'absolute', top: 0, right: 0, background: 'none', border: 'none', color: '#57FF9A', cursor: 'pointer', fontSize: 10, padding: 0 }}
+                >↻ Recargar</button>
+              )}
+            </div>
             <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
               <div style={{ fontSize: 10, color: '#555', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Proveedor info</div>
               {po.supplier ? (
