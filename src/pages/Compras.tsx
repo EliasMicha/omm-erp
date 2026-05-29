@@ -474,11 +474,12 @@ function ProcurementTracker({ onOpenPO, onOpenDetail }: { onOpenPO: (id: string)
 
   useEffect(() => {
     async function load() {
-      // 1. All closed quotations
+      // 1. All closed quotations (excluyendo Proyectos — son servicios sin compras)
       const { data: quots } = await supabase
         .from('quotations')
         .select('id, name, client_name, notes, specialty')
         .eq('stage', 'contrato')
+        .neq('specialty', 'proy')
         .order('updated_at', { ascending: false })
 
       if (!quots || quots.length === 0) { setLoading(false); return }
