@@ -1394,6 +1394,13 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
   const [assignEmpleados, setAssignEmpleados] = useState<{ id: string; name: string; rfc?: string; clabe?: string; cuenta?: string; banco?: string }[]>([])
   const [savingAssign, setSavingAssign] = useState<string | null>(null)
   const [savingMatch, setSavingMatch] = useState<string | null>(null)
+  // Búsqueda manual de facturas por movimiento — solo aparece cuando NO hay matches exactos.
+  // Key = movimiento.id; Value = {q (texto libre), minMonto, maxMonto, fechaDesde, fechaHasta}
+  const [invSearchByMov, setInvSearchByMov] = useState<Record<string, { q: string; minMonto: string; maxMonto: string; fechaDesde: string; fechaHasta: string }>>({})
+  const getInvSearch = (movId: string) => invSearchByMov[movId] || { q: '', minMonto: '', maxMonto: '', fechaDesde: '', fechaHasta: '' }
+  const setInvSearch = (movId: string, patch: Partial<{ q: string; minMonto: string; maxMonto: string; fechaDesde: string; fechaHasta: string }>) => {
+    setInvSearchByMov(prev => ({ ...prev, [movId]: { ...getInvSearch(movId), ...patch } }))
+  }
 
   // Many-to-many conciliation links
   interface ConcLink { id: string; bank_movement_id: string; invoice_id: string; monto_aplicado: number; nota?: string }
@@ -2635,13 +2642,35 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
                           if (movLinks.some(l => l.invoice_id === inv.id)) return false
                           return true
                         })
-                        const sorted = [...candidateInvoices].sort((a, b) => {
-                          const aExact = Math.abs(a.total - m.monto) < 0.01 || Math.abs(a.total - remaining) < 0.01
-                          const bExact = Math.abs(b.total - m.monto) < 0.01 || Math.abs(b.total - remaining) < 0.01
-                          if (aExact && !bExact) return -1
-                          if (!aExact && bExact) return 1
-                          return (b.fecha_emision || '').localeCompare(a.fecha_emision || '')
-                        })
+                        // Matches exactos: monto = m.monto o = remaining (tolerancia 0.01)
+                        const exactMatches = candidateInvoices.filter(inv =>
+                          Math.abs(inv.total - m.monto) < 0.01 || Math.abs(inv.total - remaining) < 0.01
+                        )
+                        const hasExactMatches = exactMatches.length > 0
+
+                        // Si NO hay matches exactos, el usuario debe buscar manualmente con filtros
+                        const movSearch = getInvSearch(m.id)
+                        const hasSearchActive = !!(movSearch.q || movSearch.minMonto || movSearch.maxMonto || movSearch.fechaDesde || movSearch.fechaHasta)
+                        const searchedList = !hasExactMatches && hasSearchActive ? candidateInvoices.filter(inv => {
+                          const who = (inv.direccion === 'emitida' ? inv.receptor_nombre : inv.emisor_nombre) || ''
+                          const folio = `${inv.serie || ''}-${inv.folio || ''}`
+                          if (movSearch.q) {
+                            const q = movSearch.q.toLowerCase()
+                            const matchText = (who + ' ' + folio + ' ' + (inv.emisor_rfc || '') + ' ' + (inv.receptor_rfc || '')).toLowerCase()
+                            if (!matchText.includes(q)) return false
+                          }
+                          if (movSearch.minMonto && inv.total < parseFloat(movSearch.minMonto)) return false
+                          if (movSearch.maxMonto && inv.total > parseFloat(movSearch.maxMonto)) return false
+                          if (movSearch.fechaDesde && (inv.fecha_emision || '') < movSearch.fechaDesde) return false
+                          if (movSearch.fechaHasta && (inv.fecha_emision || '') > movSearch.fechaHasta) return false
+                          return true
+                        }).sort((a, b) => (b.fecha_emision || '').localeCompare(a.fecha_emision || '')) : []
+
+                        // Lista que se renderiza:
+                        // - Si hay matches exactos → mostrar SOLO esos con badge
+                        // - Si no, pero hay búsqueda activa → mostrar resultados filtrados
+                        // - Si no hay ni búsqueda ni matches → lista vacía + UI de búsqueda
+                        const sorted = hasExactMatches ? exactMatches : searchedList
 
                         return (
                           <div style={{ background: '#141414', border: '1px solid #1f1f1f', borderRadius: 6, padding: '8px 10px', marginBottom: 8 }}>
@@ -2689,15 +2718,74 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
                               </div>
                             )}
 
-                            {/* Add invoice - searchable list with checkboxes */}
+                            {/* Add invoice - búsqueda con filtros */}
                             {!fullyLinked && (
                               <div>
-                                <div style={{ fontSize: 10, color: '#666', marginBottom: 4 }}>
-                                  Restante: <span style={{ color: '#eab308', fontWeight: 600, fontFamily: 'monospace' }}>{F(remaining)}</span> — selecciona facturas:
-                                </div>
+                                {hasExactMatches ? (
+                                  <div style={{ fontSize: 10, color: '#22c55e', marginBottom: 4, fontWeight: 600 }}>
+                                    ✓ Match exacto encontrado · Restante: <span style={{ fontFamily: 'monospace' }}>{F(remaining)}</span>
+                                  </div>
+                                ) : (
+                                  <>
+                                    <div style={{ fontSize: 10, color: '#eab308', marginBottom: 6, fontWeight: 600 }}>
+                                      ⚠ Sin match exacto por monto · Restante: <span style={{ fontFamily: 'monospace' }}>{F(remaining)}</span>
+                                      <span style={{ color: '#666', fontWeight: 400, marginLeft: 6 }}>— busca manualmente entre facturas no conciliadas</span>
+                                    </div>
+                                    {/* Buscador con filtros */}
+                                    <div style={{ display: 'grid', gridTemplateColumns: '2fr 90px 90px 100px 100px auto', gap: 6, marginBottom: 6, padding: 6, background: '#0e0e0e', borderRadius: 4, border: '1px solid #1f1f1f' }}>
+                                      <input
+                                        type="text"
+                                        value={movSearch.q}
+                                        onChange={e => setInvSearch(m.id, { q: e.target.value })}
+                                        placeholder="Emisor, RFC, folio…"
+                                        style={{ background: '#1a1a1a', color: '#fff', border: '1px solid #2a2a2a', borderRadius: 3, padding: '4px 6px', fontSize: 11, fontFamily: 'inherit' }}
+                                      />
+                                      <input
+                                        type="number"
+                                        value={movSearch.minMonto}
+                                        onChange={e => setInvSearch(m.id, { minMonto: e.target.value })}
+                                        placeholder="Monto min"
+                                        style={{ background: '#1a1a1a', color: '#fff', border: '1px solid #2a2a2a', borderRadius: 3, padding: '4px 6px', fontSize: 11, fontFamily: 'monospace', textAlign: 'right' }}
+                                      />
+                                      <input
+                                        type="number"
+                                        value={movSearch.maxMonto}
+                                        onChange={e => setInvSearch(m.id, { maxMonto: e.target.value })}
+                                        placeholder="Monto max"
+                                        style={{ background: '#1a1a1a', color: '#fff', border: '1px solid #2a2a2a', borderRadius: 3, padding: '4px 6px', fontSize: 11, fontFamily: 'monospace', textAlign: 'right' }}
+                                      />
+                                      <input
+                                        type="date"
+                                        value={movSearch.fechaDesde}
+                                        onChange={e => setInvSearch(m.id, { fechaDesde: e.target.value })}
+                                        title="Fecha desde"
+                                        style={{ background: '#1a1a1a', color: '#fff', border: '1px solid #2a2a2a', borderRadius: 3, padding: '4px 6px', fontSize: 11, fontFamily: 'inherit' }}
+                                      />
+                                      <input
+                                        type="date"
+                                        value={movSearch.fechaHasta}
+                                        onChange={e => setInvSearch(m.id, { fechaHasta: e.target.value })}
+                                        title="Fecha hasta"
+                                        style={{ background: '#1a1a1a', color: '#fff', border: '1px solid #2a2a2a', borderRadius: 3, padding: '4px 6px', fontSize: 11, fontFamily: 'inherit' }}
+                                      />
+                                      {hasSearchActive && (
+                                        <button
+                                          onClick={() => setInvSearchByMov(prev => ({ ...prev, [m.id]: { q: '', minMonto: '', maxMonto: '', fechaDesde: '', fechaHasta: '' } }))}
+                                          title="Limpiar filtros"
+                                          style={{ background: '#2a1a1a', color: '#ef4444', border: '1px solid #4a2a2a', borderRadius: 3, padding: '4px 8px', fontSize: 10, cursor: 'pointer', fontFamily: 'inherit' }}
+                                        >✕</button>
+                                      )}
+                                    </div>
+                                    <div style={{ fontSize: 10, color: '#666', marginBottom: 4 }}>
+                                      {hasSearchActive ? `${sorted.length} resultado${sorted.length !== 1 ? 's' : ''}` : 'Escribe en los filtros para buscar entre todas las facturas no conciliadas'}
+                                    </div>
+                                  </>
+                                )}
                                 <div style={{ maxHeight: 180, overflowY: 'auto', border: '1px solid #1f1f1f', borderRadius: 4, background: '#111' }}>
                                   {sorted.length === 0 ? (
-                                    <div style={{ fontSize: 10, color: '#555', padding: 8, textAlign: 'center' }}>Sin facturas disponibles</div>
+                                    <div style={{ fontSize: 10, color: '#555', padding: 8, textAlign: 'center' }}>
+                                      {hasExactMatches ? 'Sin facturas disponibles' : hasSearchActive ? 'Sin coincidencias — ajusta los filtros' : 'Usa los filtros arriba para buscar'}
+                                    </div>
                                   ) : sorted.slice(0, 30).map(inv => {
                                     const who = inv.direccion === 'emitida' ? inv.receptor_nombre : inv.emisor_nombre
                                     const exactMov = Math.abs(inv.total - m.monto) < 0.01
@@ -2711,14 +2799,19 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
                                         style={{
                                           display: 'flex', alignItems: 'center', gap: 6, padding: '4px 8px', cursor: isSavingMatch ? 'wait' : 'pointer',
                                           borderBottom: '1px solid #1a1a1a', fontSize: 11,
-                                          background: exactMov || exactRem ? 'rgba(34,197,94,0.04)' : 'transparent',
+                                          background: exactMov || exactRem ? 'rgba(34,197,94,0.06)' : 'transparent',
                                         }}
                                       >
+                                        {(exactMov || exactRem) && (
+                                          <span style={{ fontSize: 9, color: '#22c55e', background: '#22c55e22', padding: '1px 5px', borderRadius: 3, fontWeight: 600, letterSpacing: '0.04em' }}>
+                                            {exactMov ? 'MATCH EXACTO' : 'MATCH RESTANTE'}
+                                          </span>
+                                        )}
                                         <span style={{ color: '#3B82F6', fontWeight: 600, minWidth: 70 }}>{inv.serie}-{inv.folio}</span>
                                         <span style={{ color: '#888', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{who}{nomTag}</span>
                                         <span style={{ color: '#888', fontSize: 10 }}>{inv.fecha_emision}</span>
                                         <span style={{ fontFamily: 'monospace', fontWeight: 600, color: exactMov || exactRem ? '#22c55e' : '#ccc', minWidth: 80, textAlign: 'right' }}>
-                                          {exactMov ? '✓ ' : exactRem ? '≈ ' : ''}{F(inv.total)}
+                                          {F(inv.total)}
                                         </span>
                                         {invLinkedElsewhere > 0 && (
                                           <span style={{ fontSize: 9, color: '#eab308', background: '#eab30815', padding: '1px 4px', borderRadius: 3 }}>
