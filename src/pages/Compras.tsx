@@ -885,6 +885,8 @@ function ProcurementDetail({ quotationId, onBack, onOpenPO }: { quotationId: str
 function POList({ onOpen }: { onOpen: (id: string) => void }) {
   const isMobile = useIsMobile()
   const [orders, setOrders] = useState<PurchaseOrder[]>([])
+  // Resumen de cotejo por OC: { po_id: { total: items, cotejados, sumCotejo } }
+  const [cotejoSummary, setCotejoSummary] = useState<Record<string, { total: number; cotejados: number; sumCotejo: number; sumCatalogo: number }>>({})
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [filterStatus, setFilterStatus] = useState<string>('todas')
@@ -895,9 +897,28 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
 
   const load = () => {
     setLoading(true)
-    supabase.from('purchase_orders').select('*,project:projects(name,client_name),supplier:suppliers(name),quotation:quotations(name,client_name,notes)')
-      .order('created_at', { ascending: false })
-      .then(({ data }) => { setOrders(data || []); setLoading(false) })
+    Promise.all([
+      supabase.from('purchase_orders').select('*,project:projects(name,client_name),supplier:suppliers(name),quotation:quotations(name,client_name,notes)')
+        .order('created_at', { ascending: false }),
+      supabase.from('po_items').select('purchase_order_id, total, real_total, cotejo_status'),
+    ]).then(([poRes, itemsRes]) => {
+      setOrders(poRes.data || [])
+      // Calcular resumen de cotejo por OC
+      const summary: Record<string, { total: number; cotejados: number; sumCotejo: number; sumCatalogo: number }> = {}
+      for (const it of (itemsRes.data as any[]) || []) {
+        const pid = it.purchase_order_id
+        if (!summary[pid]) summary[pid] = { total: 0, cotejados: 0, sumCotejo: 0, sumCatalogo: 0 }
+        summary[pid].total += 1
+        summary[pid].sumCatalogo += Number(it.total) || 0
+        const isCotejado = it.cotejo_status === 'cotejado' || it.cotejo_status === 'sustituido'
+        if (isCotejado) summary[pid].cotejados += 1
+        // Si cotejado y hay real_total, usar real_total; sino fallback al catálogo
+        const valor = isCotejado && it.real_total != null ? Number(it.real_total) : Number(it.total) || 0
+        summary[pid].sumCotejo += valor
+      }
+      setCotejoSummary(summary)
+      setLoading(false)
+    })
   }
   useEffect(load, [])
 
@@ -943,8 +964,10 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
     )
   }
 
-  const totalFilteredMXN = lista.filter(o => o.currency === 'MXN').reduce((s, o) => s + o.total, 0)
-  const totalFilteredUSD = lista.filter(o => o.currency === 'USD').reduce((s, o) => s + o.total, 0)
+  // Helper: total cotejado de una OC (real_total cuando aplique, sino catálogo)
+  const getCotejoTotal = (o: PurchaseOrder) => cotejoSummary[o.id]?.sumCotejo ?? o.total
+  const totalFilteredMXN = lista.filter(o => o.currency === 'MXN').reduce((s, o) => s + getCotejoTotal(o), 0)
+  const totalFilteredUSD = lista.filter(o => o.currency === 'USD').reduce((s, o) => s + getCotejoTotal(o), 0)
 
   return (
     <div>
@@ -1003,14 +1026,25 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
         <div style={{ overflowX: 'auto' }}>
           <Table>
             <thead><tr>
-              <Th>OC #</Th><Th>Proveedor</Th><Th>Cotización</Th><Th>Lead</Th><Th>Especialidad</Th><Th>Fase</Th><Th>Estado</Th><Th>Fecha</Th><Th right>Total MXN</Th><Th right>Total USD</Th><Th></Th>
+              <Th>OC #</Th><Th>Proveedor</Th><Th>Cotización</Th><Th>Lead</Th><Th>Especialidad</Th><Th>Fase</Th><Th>Estado</Th><Th>Cotejo</Th><Th>Fecha</Th><Th right>Total MXN</Th><Th right>Total USD</Th><Th></Th>
           </tr></thead>
           <tbody>
-            {lista.length === 0 && <tr><td colSpan={11}><EmptyState message="Sin órdenes de compra" /></td></tr>}
+            {lista.length === 0 && <tr><td colSpan={12}><EmptyState message="Sin órdenes de compra" /></td></tr>}
             {lista.map(o => {
               const st = PO_STATUS_CFG[o.status]
               const esp = SPECIALTY_CONFIG[o.specialty]
               const phaseCfg = o.purchase_phase ? PHASE_CONFIG[o.purchase_phase] : null
+              const summary = cotejoSummary[o.id]
+              const cotejoPct = summary && summary.total > 0 ? (summary.cotejados / summary.total) : 0
+              const allCotejado = summary && summary.cotejados > 0 && summary.cotejados === summary.total
+              const noCotejado = !summary || summary.cotejados === 0
+              const cotejoColor = allCotejado ? '#57FF9A' : noCotejado ? '#6B7280' : '#F59E0B'
+              const cotejoLabel = !summary || summary.total === 0
+                ? 'Sin items'
+                : allCotejado ? `✓ ${summary.cotejados}/${summary.total}`
+                : noCotejado ? `Sin cotejar`
+                : `${summary.cotejados}/${summary.total}`
+              const displayTotal = summary?.sumCotejo ?? o.total
               return (
                 <tr key={o.id} style={{ cursor: 'pointer' }} onClick={() => onOpen(o.id)}>
                   <Td><span style={{ fontWeight: 600, color: '#fff' }}>{o.po_number}</span></Td>
@@ -1020,9 +1054,10 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
                   <Td><Badge label={esp.icon + ' ' + esp.label} color={esp.color} /></Td>
                   <Td>{phaseCfg ? <Badge label={phaseCfg.label} color={phaseCfg.color} /> : <span style={{color:'#555',fontSize:11}}>--</span>}</Td>
                   <Td><Badge label={st.label} color={st.color} /></Td>
+                  <Td><Badge label={cotejoLabel} color={cotejoColor} /></Td>
                   <Td muted>{formatDate(o.created_at)}</Td>
-                  <Td right>{o.currency === 'MXN' ? <span style={{ fontWeight: 600, color: '#57FF9A' }}>{F(o.total)}</span> : <span style={{ color: '#333' }}>—</span>}</Td>
-                  <Td right>{o.currency === 'USD' ? <span style={{ fontWeight: 600, color: '#57FF9A' }}>{FUSD(o.total)}</span> : <span style={{ color: '#333' }}>—</span>}</Td>
+                  <Td right>{o.currency === 'MXN' ? <span style={{ fontWeight: 600, color: allCotejado ? '#57FF9A' : noCotejado ? '#ccc' : '#F59E0B' }} title={allCotejado ? 'Total cotejado' : noCotejado ? 'Total catálogo (sin cotejar)' : 'Mezcla de catálogo + cotejado'}>{F(displayTotal)}</span> : <span style={{ color: '#333' }}>—</span>}</Td>
+                  <Td right>{o.currency === 'USD' ? <span style={{ fontWeight: 600, color: allCotejado ? '#57FF9A' : noCotejado ? '#ccc' : '#F59E0B' }} title={allCotejado ? 'Total cotejado' : noCotejado ? 'Total catálogo (sin cotejar)' : 'Mezcla de catálogo + cotejado'}>{FUSD(displayTotal)}</span> : <span style={{ color: '#333' }}>—</span>}</Td>
                   <Td><div style={{ display: 'flex', gap: 4 }}>
                     <Btn size="sm" onClick={e => { e?.stopPropagation(); downloadPdf(o) }}><Download size={13} /></Btn>
                     <Btn size="sm" onClick={e => { e?.stopPropagation(); onOpen(o.id) }}>Abrir</Btn>
