@@ -75,6 +75,8 @@ interface POItem {
   catalog_product_id?: string
   name: string
   description?: string
+  marca?: string
+  modelo?: string
   system?: string
   unit: string
   quantity: number
@@ -85,6 +87,8 @@ interface POItem {
   order_index: number
   // Cotejo fields — valores reales de la compra
   real_name?: string
+  real_marca?: string
+  real_modelo?: string
   real_unit_cost?: number
   real_quantity?: number
   real_total?: number
@@ -1715,6 +1719,8 @@ function POFromQuoteModal({ onClose, onCreated }: { onClose: () => void; onCreat
         catalog_product_id: it.catalog_product_id || null,
         name: it.name,
         description: it.description || null,
+        marca: it.marca || null,
+        modelo: it.modelo || null,
         system: it.system || null,
         unit: 'pza',
         quantity: it.quantity,
@@ -1934,10 +1940,12 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
     for (const it of items) {
       await supabase.from('po_items').update({
         name: it.name, description: it.description, system: it.system, unit: it.unit,
+        marca: it.marca || null, modelo: it.modelo || null,
         quantity: it.quantity, unit_cost: it.unit_cost, total: it.total,
         quantity_received: it.quantity_received,
         real_name: it.real_name || null, real_unit_cost: it.real_unit_cost ?? null,
         real_quantity: it.real_quantity ?? null, real_total: it.real_total ?? null,
+        real_marca: it.real_marca || null, real_modelo: it.real_modelo || null,
         cotejo_status: it.cotejo_status || 'pendiente', cotejo_notes: it.cotejo_notes || null,
       }).eq('id', it.id)
     }
@@ -1979,6 +1987,8 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
       catalog_product_id: product.id,
       name: product.name,
       description: product.description || null,
+      marca: (product as any).marca || null,
+      modelo: (product as any).modelo || null,
       system: product.system || null,
       unit: product.unit,
       quantity: 1,
@@ -2301,7 +2311,7 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
 
         <Table>
           <thead><tr>
-            <Th>#</Th><Th>Artículo original</Th><Th>Sistema</Th><Th>Unidad</Th><Th right>Cant</Th><Th right>P.U. catálogo</Th><Th right>Total catálogo</Th>
+            <Th>#</Th><Th>Artículo original</Th><Th>Modelo</Th><Th>Sistema</Th><Th>Unidad</Th><Th right>Cant</Th><Th right>P.U. catálogo</Th><Th right>Total catálogo</Th>
             {po.status === 'borrador' && (<>
               <Th>Artículo real</Th><Th right>Cant real</Th><Th right>P.U. real</Th><Th right>Total real</Th><Th right>Δ</Th><Th>Estado</Th>
             </>)}
@@ -2325,6 +2335,14 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
                       style={{ background: 'transparent', border: 'none', color: '#fff', fontSize: 12, fontFamily: 'inherit', width: '100%', outline: 'none' }} />
                   ) : <span style={{ color: '#fff', fontSize: 12 }}>{it.name}</span>}
                   {it.description && <div style={{ fontSize: 10, color: '#555', marginTop: 2 }}>{it.description}</div>}
+                </Td>
+                <Td>
+                  {canEdit ? (
+                    <input value={it.modelo || ''} onChange={e => updateItem(it.id, 'modelo', e.target.value)}
+                      placeholder="—"
+                      style={{ background: 'transparent', border: 'none', color: it.modelo ? '#ccc' : '#444', fontSize: 11, fontFamily: 'monospace', width: 120, outline: 'none' }} />
+                  ) : <span style={{ color: it.modelo ? '#ccc' : '#444', fontSize: 11, fontFamily: 'monospace' }}>{it.modelo || '—'}</span>}
+                  {it.marca && <div style={{ fontSize: 9, color: '#555', marginTop: 1 }}>{it.marca}</div>}
                 </Td>
                 <Td muted>{it.system || '--'}</Td>
                 <Td>
