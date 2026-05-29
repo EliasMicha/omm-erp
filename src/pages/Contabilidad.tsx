@@ -1554,6 +1554,15 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
     setConcLinks(concLinks.map(l => l.id === linkId ? { ...l, monto_aplicado: newMonto } : l))
   }
 
+  // Guardar comentarios/observaciones del movimiento bancario.
+  // Se llama al perder foco del textarea (onBlur). Persiste en bank_movements.observaciones.
+  const saveObservaciones = async (movId: string, value: string) => {
+    const clean = value.trim() || null
+    const { error } = await supabase.from('bank_movements').update({ observaciones: clean }).eq('id', movId)
+    if (error) { console.error('[upd-obs]', error); return }
+    setMovements(prev => prev.map(m => m.id === movId ? { ...m, observaciones: clean ?? undefined } : m))
+  }
+
   // Legacy compat: old applyManualMatch for single auto-match
   const applyManualMatch = async (mov: BankMovement, invId: string | null) => {
     if (invId === null) {
@@ -2936,6 +2945,28 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
                         {m.referencia && <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}><strong style={{ color: '#aaa' }}>Referencia:</strong> {m.referencia}</div>}
                         {m.rfc_contraparte && <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}><strong style={{ color: '#aaa' }}>RFC:</strong> <span style={{ fontFamily: 'monospace' }}>{m.rfc_contraparte}</span></div>}
                         {(m.banco || m.cuenta) && <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}><strong style={{ color: '#aaa' }}>Banco/Cuenta:</strong> {m.banco} {m.cuenta && `· ${m.cuenta}`}</div>}
+
+                        {/* Comentarios / observaciones editables */}
+                        <div style={{ marginTop: 8, marginBottom: 4 }}>
+                          <div style={{ fontSize: 10, color: '#666', textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 600, marginBottom: 4 }}>Comentarios</div>
+                          <textarea
+                            key={`obs-${m.id}-${m.observaciones || ''}`}
+                            defaultValue={m.observaciones || ''}
+                            onBlur={e => {
+                              const current = m.observaciones || ''
+                              if (e.target.value !== current) saveObservaciones(m.id, e.target.value)
+                            }}
+                            placeholder="Notas internas: contexto, recordatorios, instrucciones para el equipo…"
+                            rows={2}
+                            style={{
+                              width: '100%', background: '#1a1a1a', color: '#fff', border: '1px solid #2a2a2a',
+                              borderRadius: 4, padding: '6px 8px', fontSize: 11, fontFamily: 'inherit',
+                              resize: 'vertical' as const, outline: 'none', boxSizing: 'border-box' as const, minHeight: 36,
+                            }}
+                          />
+                          <div style={{ fontSize: 9, color: '#444', marginTop: 2 }}>Se guarda automáticamente al hacer click fuera del campo.</div>
+                        </div>
+
                         {match && (
                           <div style={{ fontSize: 11, color: '#3B82F6', marginTop: 6, padding: '6px 10px', background: 'rgba(59,130,246,0.06)', borderRadius: 6, border: '1px solid rgba(59,130,246,0.15)' }}>
                             <strong>Match sugerido:</strong> {match.info}
