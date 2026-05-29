@@ -2309,6 +2309,7 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
           )}
         </div>
 
+        <div style={{ overflowX: 'auto', width: '100%', WebkitOverflowScrolling: 'touch' as const }}>
         <Table>
           <thead><tr>
             <Th>#</Th><Th>Artículo original</Th><Th>Modelo</Th><Th>Sistema</Th><Th>Unidad</Th><Th right>Cant</Th><Th right>P.U. catálogo</Th><Th right>Total catálogo</Th>
@@ -2340,9 +2341,9 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
                   {canEdit ? (
                     <input value={it.modelo || ''} onChange={e => updateItem(it.id, 'modelo', e.target.value)}
                       placeholder="—"
-                      style={{ background: 'transparent', border: 'none', color: it.modelo ? '#ccc' : '#444', fontSize: 11, fontFamily: 'monospace', width: 120, outline: 'none' }} />
-                  ) : <span style={{ color: it.modelo ? '#ccc' : '#444', fontSize: 11, fontFamily: 'monospace' }}>{it.modelo || '—'}</span>}
-                  {it.marca && <div style={{ fontSize: 9, color: '#555', marginTop: 1 }}>{it.marca}</div>}
+                      style={{ background: 'transparent', border: 'none', color: it.modelo ? '#ccc' : '#444', fontSize: 11, fontFamily: 'monospace', width: 90, outline: 'none' }} />
+                  ) : <span style={{ color: it.modelo ? '#ccc' : '#444', fontSize: 11, fontFamily: 'monospace', whiteSpace: 'nowrap' as const }}>{it.modelo || '—'}</span>}
+                  {it.marca && <div style={{ fontSize: 9, color: '#555', marginTop: 1, whiteSpace: 'nowrap' as const }}>{it.marca}</div>}
                 </Td>
                 <Td muted>{it.system || '--'}</Td>
                 <Td>
@@ -2456,6 +2457,7 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
             })}
           </tbody>
         </Table>
+        </div>
       </div>
 
       {/* Totals + Notes */}
