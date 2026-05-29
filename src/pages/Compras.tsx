@@ -903,7 +903,8 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
       supabase.from('po_items').select('purchase_order_id, total, real_total, cotejo_status'),
     ]).then(([poRes, itemsRes]) => {
       setOrders(poRes.data || [])
-      // Calcular resumen de cotejo por OC
+      // Calcular resumen de cotejo por OC. sumCotejo y sumCatalogo son SUBTOTALES.
+      // Los totales mostrados al usuario incluyen IVA 16% (sumCotejo * 1.16).
       const summary: Record<string, { total: number; cotejados: number; sumCotejo: number; sumCatalogo: number }> = {}
       for (const it of (itemsRes.data as any[]) || []) {
         const pid = it.purchase_order_id
@@ -964,8 +965,12 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
     )
   }
 
-  // Helper: total cotejado de una OC (real_total cuando aplique, sino catálogo)
-  const getCotejoTotal = (o: PurchaseOrder) => cotejoSummary[o.id]?.sumCotejo ?? o.total
+  // Helper: total cotejado de una OC con IVA 16% (real_total cuando aplique, sino catálogo)
+  // sumCotejo es SUBTOTAL — se multiplica por 1.16 para igualar a o.total que ya incluye IVA
+  const getCotejoTotal = (o: PurchaseOrder) => {
+    const s = cotejoSummary[o.id]?.sumCotejo
+    return s != null ? s * 1.16 : o.total
+  }
   const totalFilteredMXN = lista.filter(o => o.currency === 'MXN').reduce((s, o) => s + getCotejoTotal(o), 0)
   const totalFilteredUSD = lista.filter(o => o.currency === 'USD').reduce((s, o) => s + getCotejoTotal(o), 0)
 
@@ -1044,7 +1049,8 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
                 : allCotejado ? `✓ ${summary.cotejados}/${summary.total}`
                 : noCotejado ? `Sin cotejar`
                 : `${summary.cotejados}/${summary.total}`
-              const displayTotal = summary?.sumCotejo ?? o.total
+              // Total con IVA 16% para mostrar al usuario (igual a pagos reales / o.total)
+              const displayTotal = summary?.sumCotejo != null ? summary.sumCotejo * 1.16 : o.total
               return (
                 <tr key={o.id} style={{ cursor: 'pointer' }} onClick={() => onOpen(o.id)}>
                   <Td><span style={{ fontWeight: 600, color: '#fff' }}>{o.po_number}</span></Td>
