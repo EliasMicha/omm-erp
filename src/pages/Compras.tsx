@@ -1963,8 +1963,17 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
   const stCfg = PO_STATUS_CFG[po.status]
   const esp = SPECIALTY_CONFIG[po.specialty]
 
-  // Recalculate totals from items
-  const subtotal = items.reduce((s, it) => s + it.total, 0)
+  // Recalcular totales — usa real_total cuando el item esta cotejado
+  // (cotejo_status='cotejado'|'sustituido' y real_total != null). Asi:
+  // - Subtotal/total reflejan el monto REAL pagado/recibido
+  // - po.total queda con el monto cotejado al guardar (no se sobreescribe con catalogo)
+  // - La lista de OCs (POList) muestra el monto correcto automaticamente
+  const itemValue = (it: POItem): number => {
+    const isCotejado = it.cotejo_status === 'cotejado' || it.cotejo_status === 'sustituido'
+    return isCotejado && it.real_total != null ? Number(it.real_total) : Number(it.total) || 0
+  }
+  const subtotal = items.reduce((s, it) => s + itemValue(it), 0)
+  const subtotalCatalogo = items.reduce((s, it) => s + (Number(it.total) || 0), 0)
   const iva = Math.round(subtotal * 0.16)
   const total = subtotal + iva
 
@@ -2086,18 +2095,11 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
   const cotejados = items.filter(it => it.cotejo_status === 'cotejado' || it.cotejo_status === 'sustituido').length
   const totalItems = items.length
   const allCotejado = totalItems > 0 && cotejados === totalItems
+  const partialCotejado = cotejados > 0 && cotejados < totalItems
   const cotejoComplete = allCotejado || totalItems === 0
-
-  // Compute real totals (use real values if cotejado, otherwise original)
-  const realSubtotal = items.reduce((s, it) => {
-    if (it.cotejo_status === 'cotejado' || it.cotejo_status === 'sustituido') {
-      return s + (it.real_total ?? it.total)
-    }
-    return s + it.total
-  }, 0)
-  const realIva = Math.round(realSubtotal * 0.16)
-  const realTotal = realSubtotal + realIva
-  const diffTotal = realTotal - total
+  // Labels dinamicos del panel de totales
+  const subtotalLabel = allCotejado ? 'Subtotal cotejado' : partialCotejado ? `Subtotal (${cotejados}/${totalItems} cotejados)` : 'Subtotal catálogo'
+  const totalLabel = allCotejado ? 'Total cotejado' : partialCotejado ? 'Total mixto' : 'Total catálogo'
 
   // Status action buttons
   const statusActions: { label: string; target: POStatus; variant: 'primary' | 'default' | 'danger'; disabled?: boolean; tooltip?: string }[] = []
@@ -2510,37 +2512,31 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
           </label>
         </div>
         <div style={{ background: '#141414', border: '1px solid #222', borderRadius: 12, padding: 16 }}>
+          {/* Panel principal: muestra los montos COTEJADOS cuando aplique (real_total),
+              sino los catálogo. po.total ya se guarda con este valor al guardar. */}
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-            <span style={{ fontSize: 12, color: '#888' }}>Subtotal catálogo</span>
+            <span style={{ fontSize: 12, color: '#888' }}>{subtotalLabel}</span>
             <span style={{ fontSize: 12, color: '#ccc' }}>{F(subtotal)}</span>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
             <span style={{ fontSize: 12, color: '#888' }}>IVA (16%)</span>
             <span style={{ fontSize: 12, color: '#ccc' }}>{F(iva)}</span>
           </div>
-          <div style={{ borderTop: '1px solid #333', paddingTop: 8, display: 'flex', justifyContent: 'space-between', marginBottom: po.status === 'borrador' && cotejados > 0 ? 12 : 0 }}>
-            <span style={{ fontSize: 14, fontWeight: 700, color: '#fff' }}>Total catálogo</span>
-            <span style={{ fontSize: 14, fontWeight: 700, color: '#57FF9A' }}>{F(total)}</span>
+          <div style={{ borderTop: '1px solid #333', paddingTop: 8, display: 'flex', justifyContent: 'space-between', marginBottom: subtotal !== subtotalCatalogo ? 10 : 0 }}>
+            <span style={{ fontSize: 14, fontWeight: 700, color: '#fff' }}>{totalLabel}</span>
+            <span style={{ fontSize: 14, fontWeight: 700, color: allCotejado ? '#57FF9A' : partialCotejado ? '#F59E0B' : '#ccc' }}>{F(total)}</span>
           </div>
-          {/* Show real totals if any items are cotejado */}
-          {po.status === 'borrador' && cotejados > 0 && (
+          {/* Referencia: si el cotejado difiere del catálogo, mostrar la diferencia */}
+          {subtotal !== subtotalCatalogo && (
             <div style={{ borderTop: '1px solid #333', paddingTop: 8 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                <span style={{ fontSize: 12, color: '#888' }}>Subtotal real</span>
-                <span style={{ fontSize: 12, color: '#ccc' }}>{F(realSubtotal)}</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                <span style={{ fontSize: 12, color: '#888' }}>IVA real (16%)</span>
-                <span style={{ fontSize: 12, color: '#ccc' }}>{F(realIva)}</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                <span style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>Total real</span>
-                <span style={{ fontSize: 13, fontWeight: 700, color: '#3B82F6' }}>{F(realTotal)}</span>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                <span style={{ fontSize: 11, color: '#666' }}>vs Catálogo</span>
+                <span style={{ fontSize: 11, color: '#666', fontFamily: 'monospace' }}>{F(subtotalCatalogo * 1.16)}</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ fontSize: 11, color: '#888' }}>Diferencia</span>
-                <span style={{ fontSize: 12, fontWeight: 700, color: diffTotal > 0 ? '#EF4444' : diffTotal < 0 ? '#57FF9A' : '#555' }}>
-                  {diffTotal > 0 ? '+' : ''}{F(diffTotal)}
+                <span style={{ fontSize: 11, color: '#666' }}>Diferencia</span>
+                <span style={{ fontSize: 12, fontWeight: 700, color: total - (subtotalCatalogo * 1.16) > 0 ? '#EF4444' : '#57FF9A', fontFamily: 'monospace' }}>
+                  {total - (subtotalCatalogo * 1.16) > 0 ? '+' : ''}{F(total - (subtotalCatalogo * 1.16))}
                 </span>
               </div>
             </div>
