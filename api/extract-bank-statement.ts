@@ -26,7 +26,12 @@ REGLAS DE PARSEO:
 EXTRACCIÓN DE METADATOS DEL CONCEPTO (auto-detección agresiva):
 Para cada movimiento, analiza el campo concepto y extrae:
 
-- beneficiario: el actor externo de la transacción. Ejemplos:
+- beneficiario: SOLO el nombre del actor externo REAL (persona física o empresa concreta).
+  NUNCA pongas etiquetas de categoría tipo "SPEI nómina", "Pagofactura", "Depósito cliente",
+  "Nómina OMM", "GEMA (traspaso)" — esas son CATEGORÍAS, no beneficiarios.
+  Si no puedes identificar un nombre concreto, devuelve null y deja que el sistema haga match
+  contra el catálogo de proveedores/clientes/empleados después.
+  Ejemplos válidos:
   • 'UBER RIDE/...' → 'Uber'
   • 'DLO*TDA UBER RIDES/...' → 'Uber'
   • 'STRIPE *AMAZONPRIMESUB/...' → 'Amazon Prime'
@@ -37,12 +42,18 @@ Para cada movimiento, analiza el campo concepto y extrae:
   • 'SAT/GUIA:...' → 'SAT'
   • 'IMSS/INF/AFORE/...' → 'IMSS/INFONAVIT'
   • 'SISTEMAS Y SERVICIOS/GUIA:...' → 'SYSCOM'
-  • 'PAGO CUENTA DE TERCERO/...': extraer la referencia libre al final (ej. 'LUMIN 1106', 'Bocinas E401', 'Finiquito Carlos')
-  • 'SPEI ENVIADO BANAMEX/...Finiquito Carlos Alberto' → 'Carlos Alberto' (o lo que sea la referencia)
-  • 'PAGO DE NOMINA/IN ... OMM TECHNOLOGIES' → 'Nómina OMM'
-  • 'TRANSF SPEI BANAMEX/...' → 'SPEI nómina'
-  • 'DEPOSITO DE TERCERO/REF...BMRCASH' → 'Depósito cliente'
-  • 'PAGO TARJETA DE CREDITO/...' → 'TDC BBVA'
+  • 'SPEI ENVIADO BANAMEX/...Carlos Alberto' → 'Carlos Alberto' (nombre real)
+  • 'PAGO CUENTA DE TERCERO/...LUMIN' → 'LUMIN' (si LUMIN es nombre de proveedor real)
+  Ejemplos donde beneficiario debe ser null (que el usuario asigne después):
+  • 'TRANSF SPEI BANAMEX/...' sin nombre claro → null
+  • 'DEPOSITO DE TERCERO/REF...BMRCASH' sin nombre → null
+  • 'PAGO CUENTA DE TERCERO/0031548923 BNET' (solo BNET, sin nombre) → null
+  • 'TRASPASO ENTRE CUENTAS' → null
+  • 'PAGO DE NOMINA/IN ... OMM TECHNOLOGIES' → null (categoría es 'nomina', no pongas "Nómina OMM")
+  • 'PAGO TARJETA DE CREDITO/...' → null
+
+- bnet_codigo: si el concepto contiene un número de cuenta seguido de 'BNET' (ej. '0031548923 BNET'),
+  extraer SOLO los dígitos (sin la palabra BNET, sin espacios). Ejemplo: '0031548923 BNET' → '0031548923'.
 
 - rfc_contraparte: si el concepto contiene 'RFC: XXX NNNNNNXXX', extraerlo normalizado SIN espacios.
   Ejemplo: 'RFC: DME 180122DU4' → 'DME180122DU4'

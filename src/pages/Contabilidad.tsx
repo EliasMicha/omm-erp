@@ -85,6 +85,10 @@ interface BankMovement {
   categoria_sugerida?: string; proyecto_sugerido?: string; conciliado: boolean
   beneficiario?: string; factura_match_id?: string; factura_match_info?: string
   rfc_contraparte?: string; proyecto_codigo?: string; banco?: string; cuenta?: string
+  // Separación Beneficiario REAL vs concepto/categoría detectada por IA
+  concepto_detectado?: string  // valor histórico que el extractor IA ponía en beneficiario
+  beneficiario_id?: string  // FK a suppliers/clientes/employees
+  beneficiario_tipo?: 'proveedor' | 'cliente' | 'empleado' | 'manual'
   // Conciliación v2 - campos nuevos
   moneda?: 'MXN' | 'USD'
   saldo_posterior?: number
@@ -194,6 +198,194 @@ function SearchSelect({ value, options, placeholder, disabled, onChange }: {
   )
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// BeneficiarioCell — celda editable para asignar beneficiario REAL (proveedor/
+// cliente/empleado) o texto manual a un movimiento bancario. Distinta del
+// "concepto detectado" que es la descripción/categoría que la IA infiere.
+// ═══════════════════════════════════════════════════════════════════════════
+function BeneficiarioCell({
+  mov, suggest, suppliers, clientes, empleados, onAssign
+}: {
+  mov: { beneficiario?: string; beneficiario_id?: string; beneficiario_tipo?: string; concepto_detectado?: string; concepto: string }
+  suggest: { id: string; tipo: 'proveedor' | 'cliente' | 'empleado'; nombre: string; razon: string } | null
+  suppliers: { id: string; name: string; rfc?: string }[]
+  clientes: { id: string; razon_social: string; nombre_comercial?: string; rfc?: string }[]
+  empleados: { id: string; name: string; rfc?: string }[]
+  onAssign: (id: string | null, tipo: 'proveedor' | 'cliente' | 'empleado' | 'manual' | null, nombre: string | null) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const [manualText, setManualText] = useState('')
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false) }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  // Estado actual del beneficiario
+  const hasReal = !!mov.beneficiario_id
+  const hasManual = !mov.beneficiario_id && !!mov.beneficiario
+  const hasDetected = !mov.beneficiario_id && !mov.beneficiario && !!mov.concepto_detectado
+
+  const tipoColor: Record<string, string> = {
+    proveedor: '#F59E0B',
+    cliente: '#57FF9A',
+    empleado: '#C084FC',
+    manual: '#9ca3af',
+  }
+
+  // Combinar catálogos en una lista unificada de candidatos
+  const candidates = [
+    ...suppliers.map(s => ({ id: s.id, tipo: 'proveedor' as const, nombre: s.name, sub: s.rfc || '' })),
+    ...clientes.map(c => ({ id: c.id, tipo: 'cliente' as const, nombre: c.nombre_comercial || c.razon_social, sub: c.rfc || '' })),
+    ...empleados.map(e => ({ id: e.id, tipo: 'empleado' as const, nombre: e.name, sub: e.rfc || '' })),
+  ]
+  const q = query.trim().toLowerCase()
+  const filtered = q
+    ? candidates.filter(c => c.nombre.toLowerCase().includes(q) || (c.sub && c.sub.toLowerCase().includes(q)))
+    : candidates.slice(0, 30)
+
+  const renderDisplay = () => {
+    if (hasReal) {
+      return (
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+          <span style={{
+            fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 3,
+            background: (tipoColor[mov.beneficiario_tipo || 'manual'] || '#555') + '22',
+            color: tipoColor[mov.beneficiario_tipo || 'manual'] || '#555',
+            textTransform: 'uppercase' as const, letterSpacing: 0.3,
+          }}>{mov.beneficiario_tipo?.substring(0, 3)}</span>
+          <span style={{ color: '#ddd', fontSize: 12 }}>{mov.beneficiario}</span>
+        </span>
+      )
+    }
+    if (hasManual) {
+      return <span style={{ color: '#ddd', fontSize: 12 }}>{mov.beneficiario}</span>
+    }
+    if (hasDetected) {
+      return (
+        <span style={{ color: '#555', fontSize: 11, fontStyle: 'italic' }}>
+          {mov.concepto_detectado} <span style={{ color: '#3B82F6', fontSize: 10 }}>+ asignar</span>
+        </span>
+      )
+    }
+    return <span style={{ color: '#444', fontSize: 11 }}>+ asignar</span>
+  }
+
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <div onClick={() => setOpen(o => !o)} style={{ cursor: 'pointer', padding: '2px 0' }}>
+        {renderDisplay()}
+      </div>
+      {open && (
+        <div style={{
+          position: 'absolute', top: '100%', left: 0, zIndex: 100,
+          background: '#111', border: '1px solid #333', borderRadius: 6,
+          minWidth: 280, maxWidth: 360, marginTop: 4,
+          boxShadow: '0 8px 24px rgba(0,0,0,0.6)',
+        }}>
+          {/* Sugerencia automática */}
+          {suggest && (
+            <div
+              onClick={() => { onAssign(suggest.id, suggest.tipo, suggest.nombre); setOpen(false); setQuery('') }}
+              style={{
+                padding: '8px 10px', cursor: 'pointer',
+                background: 'rgba(87,255,154,0.06)',
+                borderBottom: '1px solid #222',
+              }}
+            >
+              <div style={{ fontSize: 10, color: '#57FF9A', fontWeight: 600, textTransform: 'uppercase' as const, marginBottom: 2 }}>
+                ⚡ Sugerido — {suggest.razon}
+              </div>
+              <div style={{ fontSize: 12, color: '#fff' }}>
+                <span style={{
+                  fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 3, marginRight: 6,
+                  background: (tipoColor[suggest.tipo] || '#555') + '22',
+                  color: tipoColor[suggest.tipo] || '#555',
+                  textTransform: 'uppercase' as const,
+                }}>{suggest.tipo.substring(0, 3)}</span>
+                {suggest.nombre}
+              </div>
+            </div>
+          )}
+          {/* Search */}
+          <div style={{ padding: 8, borderBottom: '1px solid #222' }}>
+            <input
+              autoFocus
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              placeholder="Buscar proveedor/cliente/empleado..."
+              style={{
+                width: '100%', padding: '5px 8px', fontSize: 11,
+                background: '#0a0a0a', border: '1px solid #333', borderRadius: 4,
+                color: '#fff', fontFamily: 'inherit', boxSizing: 'border-box',
+              }}
+            />
+          </div>
+          {/* Lista filtrada */}
+          <div style={{ maxHeight: 200, overflowY: 'auto' }}>
+            {filtered.length === 0 ? (
+              <div style={{ padding: 10, fontSize: 11, color: '#555', textAlign: 'center' as const }}>Sin coincidencias</div>
+            ) : filtered.slice(0, 50).map(c => (
+              <div
+                key={`${c.tipo}-${c.id}`}
+                onClick={() => { onAssign(c.id, c.tipo, c.nombre); setOpen(false); setQuery('') }}
+                style={{
+                  padding: '5px 10px', fontSize: 11, cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', gap: 6,
+                  borderBottom: '1px solid #1a1a1a',
+                }}
+                onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.04)')}
+                onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+              >
+                <span style={{
+                  fontSize: 9, fontWeight: 700, padding: '1px 4px', borderRadius: 3,
+                  background: (tipoColor[c.tipo] || '#555') + '22',
+                  color: tipoColor[c.tipo] || '#555',
+                  textTransform: 'uppercase' as const,
+                }}>{c.tipo.substring(0, 3)}</span>
+                <span style={{ color: '#ddd', flex: 1 }}>{c.nombre}</span>
+                {c.sub && <span style={{ color: '#555', fontSize: 10 }}>{c.sub}</span>}
+              </div>
+            ))}
+          </div>
+          {/* Manual + clear */}
+          <div style={{ padding: 8, borderTop: '1px solid #222', display: 'flex', gap: 4 }}>
+            <input
+              value={manualText}
+              onChange={e => setManualText(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter' && manualText.trim()) {
+                  onAssign(null, 'manual', manualText.trim())
+                  setManualText(''); setOpen(false); setQuery('')
+                }
+              }}
+              placeholder="Texto manual..."
+              style={{
+                flex: 1, padding: '4px 6px', fontSize: 10,
+                background: '#0a0a0a', border: '1px solid #333', borderRadius: 4,
+                color: '#fff', fontFamily: 'inherit',
+              }}
+            />
+            {(mov.beneficiario_id || mov.beneficiario) && (
+              <button
+                onClick={() => { onAssign(null, null, null); setOpen(false); setQuery('') }}
+                style={{
+                  padding: '3px 8px', fontSize: 10, cursor: 'pointer',
+                  background: 'transparent', color: '#EF4444',
+                  border: '1px solid #EF4444', borderRadius: 4, fontFamily: 'inherit',
+                }}
+              >Quitar</button>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   const isMobile = useIsMobile()
   return (
@@ -265,6 +457,9 @@ export default function Contabilidad() {
           moneda: m.moneda || 'MXN',
           cuenta_destino_detectada: m.cuenta_destino_detectada || undefined,
           bnet_codigo_detectado: m.bnet_codigo_detectado || undefined,
+          concepto_detectado: m.concepto_detectado || undefined,
+          beneficiario_id: m.beneficiario_id || undefined,
+          beneficiario_tipo: m.beneficiario_tipo || undefined,
         })))
       }
     })
@@ -1646,6 +1841,9 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
     traspaso_pair_id: m.traspaso_pair_id || null,
     folio_spei: m.folio_spei || null, clabe_contraparte: m.clabe_contraparte || null,
     source: m.source || 'manual',
+    concepto_detectado: m.concepto_detectado || null,
+    beneficiario_id: m.beneficiario_id || null,
+    beneficiario_tipo: m.beneficiario_tipo || null,
   })
 
   // Dedup key: cuenta+fecha+concepto+monto+tipo (matches DB unique index)
@@ -1844,6 +2042,91 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
     }
 
     return null
+  }
+
+  /* ─────────────────────────────────────────────────────────────────────────
+   * BENEFICIARIO — match contra catálogos suppliers/clientes/employees
+   * ─────────────────────────────────────────────────────────────────────────
+   * El extractor IA NO debe poner etiquetas tipo "SPEI nómina"/"Pagofactura"
+   * en beneficiario. Ese campo es el actor REAL (persona/empresa). El concepto
+   * descriptivo va en categoria_sugerida + concepto.
+   */
+
+  // Extrae código BNET / número de cuenta del concepto si no vino del extractor
+  const extractBnetFromConcepto = (concepto: string): string | null => {
+    if (!concepto) return null
+    // Match patrones tipo "0031548923 BNET", "/0009395980 BNET"
+    const m1 = concepto.match(/\b(\d{8,11})\s*BNET\b/i)
+    if (m1) return m1[1]
+    // Match números de cuenta solitos en SPEI/traspaso
+    const m2 = concepto.match(/\b(\d{10,18})\b/)
+    if (m2) return m2[1]
+    return null
+  }
+
+  // Auto-sugiere beneficiario para un movimiento — busca en catálogos
+  const suggestBeneficiario = (m: BankMovement): { id: string; tipo: 'proveedor' | 'cliente' | 'empleado'; nombre: string; razon: string } | null => {
+    const bnet = m.bnet_codigo_detectado || extractBnetFromConcepto(m.concepto)
+    const cuentaDet = m.cuenta_destino_detectada || m.clabe_contraparte || bnet || ''
+
+    // 1. Si hay factura vinculada, usar su contraparte
+    if (m.factura_match_id) {
+      const inv = invoices.find(i => i.id === m.factura_match_id)
+      if (inv) {
+        if (m.tipo === 'cargo' && inv.emisor_rfc) {
+          const sup = assignSuppliers.find(s => s.rfc && normalizeRfc(s.rfc) === normalizeRfc(inv.emisor_rfc!))
+          if (sup) return { id: sup.id, tipo: 'proveedor', nombre: sup.name, razon: 'desde factura vinculada' }
+        }
+        if (m.tipo === 'abono' && inv.receptor_rfc) {
+          const cli = assignClientes.find(c => c.rfc && normalizeRfc(c.rfc) === normalizeRfc(inv.receptor_rfc!))
+          if (cli) return { id: cli.id, tipo: 'cliente', nombre: cli.nombre_comercial || cli.razon_social, razon: 'desde factura vinculada' }
+        }
+      }
+    }
+
+    // 2. Match por BNET (suppliers)
+    if (m.tipo === 'cargo' && bnet) {
+      const sup = assignSuppliers.find(s => s.bnet_codigo && s.bnet_codigo === bnet)
+      if (sup) return { id: sup.id, tipo: 'proveedor', nombre: sup.name, razon: `BNET ${bnet}` }
+    }
+
+    // 3. Match por cuenta (suppliers, clientes, empleados según tipo de mov)
+    if (cuentaDet) {
+      if (m.tipo === 'cargo') {
+        const sup = assignSuppliers.find(s => (s.clabe === cuentaDet || s.cuenta_bancaria === cuentaDet))
+        if (sup) return { id: sup.id, tipo: 'proveedor', nombre: sup.name, razon: `cuenta ${cuentaDet}` }
+        const emp = assignEmpleados.find(e => (e.clabe === cuentaDet || e.cuenta === cuentaDet))
+        if (emp) return { id: emp.id, tipo: 'empleado', nombre: emp.name, razon: `cuenta ${cuentaDet}` }
+      }
+      if (m.tipo === 'abono') {
+        const cli = assignClientes.find(c => (c.clabe === cuentaDet || c.cuenta_bancaria === cuentaDet))
+        if (cli) return { id: cli.id, tipo: 'cliente', nombre: cli.nombre_comercial || cli.razon_social, razon: `cuenta ${cuentaDet}` }
+      }
+    }
+
+    // 4. Match por nombre en concepto (empleados nómina)
+    if (m.tipo === 'cargo' && m.concepto) {
+      const cl = m.concepto.toLowerCase()
+      const emp = assignEmpleados.find(e => e.name && cl.includes(e.name.toLowerCase().split(' ')[0]) && e.name.toLowerCase().split(' ')[0].length > 3)
+      if (emp) return { id: emp.id, tipo: 'empleado', nombre: emp.name, razon: 'nombre en concepto' }
+    }
+
+    return null
+  }
+
+  // Persiste asignación de beneficiario y actualiza state local
+  const setBeneficiarioMov = async (movId: string, id: string | null, tipo: 'proveedor' | 'cliente' | 'empleado' | 'manual' | null, nombre: string | null) => {
+    const upd: any = {
+      beneficiario_id: id,
+      beneficiario_tipo: tipo,
+      beneficiario: nombre,  // siempre persistimos también el nombre para display rápido
+    }
+    const { error } = await supabase.from('bank_movements').update(upd).eq('id', movId)
+    if (error) { console.error('[upd-benef]', error); alert('Error guardando beneficiario: ' + error.message); return }
+    setBankMovements(bankMovements.map(x => x.id === movId
+      ? { ...x, beneficiario_id: id || undefined, beneficiario_tipo: tipo || undefined, beneficiario: nombre || undefined }
+      : x
+    ))
   }
 
   /* --- Upload handler — usa edge function server-side /api/extract-bank-statement --- */
@@ -2575,7 +2858,14 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
                         {m.concepto.length > 40 ? m.concepto.substring(0, 40) + '...' : m.concepto}
                       </span>
                     </Td>
-                    <Td muted>{m.beneficiario || '—'}</Td>
+                    <Td><BeneficiarioCell
+                      mov={m}
+                      suggest={suggestBeneficiario(m)}
+                      suppliers={assignSuppliers}
+                      clientes={assignClientes}
+                      empleados={assignEmpleados}
+                      onAssign={(id, tipo, nombre) => setBeneficiarioMov(m.id, id, tipo, nombre)}
+                    /></Td>
                     <Td>
                       {(() => {
                         const filled = (m.lead_id ? 1 : 0) + (m.quotation_id ? 1 : 0) + (m.purchase_order_id ? 1 : 0)
