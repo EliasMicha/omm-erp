@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react'
+import React, { useState, useRef, useEffect, useMemo } from 'react'
 import { MOCK_CLIENTES } from './Clientes'
 import type { ClienteFiscal } from './Clientes'
 import { supabase } from '../lib/supabase'
@@ -14,7 +14,181 @@ import {
 
 /* --------- Types ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ */
 
-type Tab = 'facturacion' | 'conciliacion' | 'supervision' | 'efectivo' | 'cobranza' | 'flujo' | 'anticipos'
+type Tab = 'facturacion' | 'conciliacion' | 'costos_obra' | 'supervision' | 'efectivo' | 'cobranza' | 'flujo' | 'anticipos'
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CATEGORÍAS ESTRUCTURADAS PARA REPORTE DE COSTOS POR OBRA
+// ═══════════════════════════════════════════════════════════════════════════
+// El user usa keywords consistentes en el concepto de los movs bancarios:
+//   "Material - Obra X" → costo de material eléctrico (cable, tubo, apagadores)
+//   "Lumin - Obra X"    → luminarias
+//   "Bocinas/Audio/Redes/Cámaras/CCTV/Lutron/Somfy/BMS" → instalaciones especiales
+//   "Amazon/Google/Claude/Adobe/Spotify" → gasto general (overhead)
+//   "Nómina/Sueldo" → nómina
+//   "SAT/IMSS/INFONAVIT" → impuestos
+//
+// classifyConcepto() devuelve la categoría granular usando estos keywords.
+// Las categorías van en categoria_sugerida (campo existente).
+// ═══════════════════════════════════════════════════════════════════════════
+
+type CategoriaGranular =
+  | 'material_electrico'
+  | 'luminarias'
+  | 'instalaciones_especiales'
+  | 'nomina_directa'           // nómina vinculada a obra
+  | 'nomina_admin'             // nómina sin obra (admin, proyecto)
+  | 'gasto_general'            // overhead (Amazon, oficina, suscripciones)
+  | 'impuestos'
+  | 'comision_bancaria'
+  | 'traspaso_interno'
+  | 'cobro_cliente'
+  | 'anticipo_proveedor'
+  | 'pago_tdc'
+  | 'prestamo'
+  | 'otro'
+
+const CATEGORIA_COLORS: Record<CategoriaGranular | string, string> = {
+  material_electrico: '#FFB347',
+  luminarias: '#C084FC',
+  instalaciones_especiales: '#57FF9A',
+  nomina_directa: '#06B6D4',
+  nomina_admin: '#8B5CF6',
+  gasto_general: '#EC4899',
+  impuestos: '#EF4444',
+  comision_bancaria: '#6B7280',
+  traspaso_interno: '#3B82F6',
+  cobro_cliente: '#10B981',
+  anticipo_proveedor: '#F59E0B',
+  pago_tdc: '#A78BFA',
+  prestamo: '#06B6D4',
+  otro: '#555',
+}
+
+const CATEGORIA_LABELS: Record<CategoriaGranular | string, string> = {
+  material_electrico: 'Material eléctrico',
+  luminarias: 'Luminarias',
+  instalaciones_especiales: 'Inst. especiales',
+  nomina_directa: 'Nómina directa',
+  nomina_admin: 'Nómina admin',
+  gasto_general: 'Gasto general',
+  impuestos: 'Impuestos',
+  comision_bancaria: 'Comisión banco',
+  traspaso_interno: 'Traspaso interno',
+  cobro_cliente: 'Cobro cliente',
+  anticipo_proveedor: 'Anticipo proveedor',
+  pago_tdc: 'Pago TDC',
+  prestamo: 'Préstamo',
+  otro: 'Otro',
+  // Compat con categorías legacy
+  proveedor: 'Proveedor',
+  proveedor_obra: 'Proveedor obra',
+  nomina: 'Nómina',
+}
+
+// Keywords ordenadas por especificidad. La primera que matchee gana.
+const CATEGORIA_KEYWORDS: { cat: CategoriaGranular; patterns: RegExp[] }[] = [
+  // Instalaciones especiales — equipos de audio/video/seguridad/control
+  { cat: 'instalaciones_especiales', patterns: [
+    /\bbocinas?\b/i, /\baudio\b/i, /\bparlantes?\b/i, /\baltavoces?\b/i,
+    /\bredes?\b/i, /\bswitch\b/i, /\brouters?\b/i, /\baccess\s*point/i, /\bAP\b/,
+    /\bc[aá]maras?\b/i, /\bCCTV\b/i, /\bvideo\s*vigilancia/i, /\bNVR\b/i, /\bDVR\b/i,
+    /\blutron\b/i, /\bsomfy\b/i, /\bcortinas?\b/i, /\bpersianas?\b/i,
+    /\bBMS\b/i, /\bdomotic[ao]\b/i, /\bcontrol\b/i, /\bautomatizaci[oó]n\b/i,
+    /\bproyectores?\b/i, /\bpantallas?\b/i, /\binstal\.?\s*espec/i,
+    /\bcrestron\b/i, /\bsavant\b/i, /\bcontrol4\b/i, /\bsonos\b/i,
+    /\bhoneywell\b/i, /\baltronic/i, /\binteruptor\s*int/i,
+  ]},
+  // Luminarias
+  { cat: 'luminarias', patterns: [
+    /\blumin/i, /\bilumin/i, /\bLED\b/i, /\bfocos?\b/i, /\bplafones?\b/i,
+    /\bdriver\b/i, /\bspot\s*light/i, /\blamparas?\b/i, /\bl[aá]mparas?\b/i,
+    /\bdownlight/i, /\briel\b/i,
+  ]},
+  // Material eléctrico (general construcción / instalación)
+  { cat: 'material_electrico', patterns: [
+    /\bmaterial\b/i, /\bcable[s]?\b/i, /\btubo\s*conduit/i, /\bpvc\b/i,
+    /\bapagador/i, /\bcontacto/i, /\benchufe/i, /\btablero/i, /\bbreaker/i,
+    /\binterruptor\b/i, /\bclavija/i, /\bcaja\s*de\s*registro/i, /\bsoporte/i,
+    /\bmufa\b/i, /\bcondulet/i, /\bchalupa/i, /\bmedidor/i,
+    /\beléctrico/i, /\belectrico/i,
+  ]},
+  // Gasto general — overhead recurrente
+  { cat: 'gasto_general', patterns: [
+    /\bamazon\b/i, /\bgoogle\b/i, /\bclaude\b/i, /\banthropic\b/i,
+    /\badobe\b/i, /\bspotify\b/i, /\bnetflix\b/i, /\bdropbox\b/i,
+    /\bmicrosoft\b/i, /\bzoom\b/i, /\bfigma\b/i, /\bnotion\b/i,
+    /\bstripe\b/i, /\bopenai\b/i, /\bchatgpt\b/i,
+    /\bgodaddy\b/i, /\bvercel\b/i, /\bgithub\b/i,
+    /\btelmex\b/i, /\bizzi\b/i, /\btotalplay\b/i, /\bmega\s*cable/i,
+    /\baxtel\b/i, /\bat&?t\b/i,
+    /\buber\b/i, /\bdidi\b/i, /\brappi\b/i,
+    /\bclaro\b/i, /\bsuscripci/i, /\brenovaci[oó]n/i,
+    /\boficina\b/i, /\bpapeler[ií]a/i, /\binternet\b/i,
+    /\brenta\s*oficina/i, /\bservicios?\s*p[uú]blicos/i,
+    /\bgasolina\b/i, /\bcfe\b/i, /\bcomex\b/i,
+  ]},
+  // Impuestos
+  { cat: 'impuestos', patterns: [
+    /\bSAT\b/i, /\bIMSS\b/i, /\bINFONAVIT\b/i, /\bAFORE\b/i,
+    /\bISR\b/i, /\bIVA\s*PROVISION/i, /\bimpuestos?\b/i,
+    /\bSHCP\b/i, /\bRENATIPS\b/i,
+  ]},
+  // Comisión bancaria
+  { cat: 'comision_bancaria', patterns: [
+    /\bSERV\s*BANCA/i, /\bIVA\s*COM/i, /\bADMON\s*RENTA/i,
+    /\bCOMPENSACION\b/i, /\bIVA\s*REP\s*TARJ/i, /\bREP\s*TARJ\s*TIT/i,
+    /\bcomisi[oó]n/i, /\bcomision\b/i,
+  ]},
+  // Traspaso interno
+  { cat: 'traspaso_interno', patterns: [
+    /\bTRASPASO\s*ENTRE\s*CUENTAS/i, /\btraspaso\s*interno/i,
+    /\bGEMA\b/i, /\btraspaso\b/i,
+  ]},
+  // Cobro cliente
+  { cat: 'cobro_cliente', patterns: [
+    /\bDEPOSITO\s*DE\s*TERCERO/i, /\bSPEI\s*RECIBIDO/i, /\bDEP\.?\s*CHEQUES/i,
+    /\bcobro\b/i, /\bdep[oó]sito\s*cliente/i, /\bBMRCASH\b/i,
+  ]},
+  // Nómina (sin determinar si directa o admin todavía — se resuelve después)
+  { cat: 'nomina_directa', patterns: [
+    /\bn[oó]mina\b/i, /\bsueldo\b/i, /\bsalario\b/i,
+    /\bfiniquito\b/i, /\baguinaldo\b/i, /\bvacacion/i,
+  ]},
+  // Anticipo a proveedor
+  { cat: 'anticipo_proveedor', patterns: [
+    /\banticipo\b/i,
+  ]},
+  // Pago TDC
+  { cat: 'pago_tdc', patterns: [
+    /\bPAGO\s*TARJETA\s*DE\s*CREDITO/i, /\bTDC\b/i, /\btarjeta\s*cr[eé]dito/i,
+  ]},
+  // Préstamo
+  { cat: 'prestamo', patterns: [
+    /\bpr[eé]stamo/i,
+  ]},
+]
+
+// Clasificador principal — devuelve la categoría granular para un concepto
+function classifyConcepto(concepto: string, tipo: 'cargo' | 'abono'): CategoriaGranular {
+  if (!concepto) return 'otro'
+  for (const { cat, patterns } of CATEGORIA_KEYWORDS) {
+    for (const p of patterns) {
+      if (p.test(concepto)) {
+        // Heurística: si es nómina pero hay proyecto en concepto, mantenerla en nomina_directa
+        // (se ajusta a admin después si no tiene proyecto)
+        return cat
+      }
+    }
+  }
+  // Default por tipo
+  return tipo === 'abono' ? 'cobro_cliente' : 'otro'
+}
+
+// Refina categoría: nómina sin proyecto → nomina_admin
+function refineNominaCategory(cat: CategoriaGranular, hasProyecto: boolean): CategoriaGranular {
+  if (cat === 'nomina_directa' && !hasProyecto) return 'nomina_admin'
+  return cat
+}
 
 type InvoiceDirection = 'emitida' | 'recibida'
 type InvoiceStatus = 'borrador' | 'timbrada' | 'enviada' | 'pagada' | 'cancelada' | 'error'
@@ -112,6 +286,7 @@ interface BankMovement {
 const TABS: { key: Tab; label: string; icon: typeof FileText }[] = [
   { key: 'facturacion', label: 'Facturacion', icon: FileText },
   { key: 'conciliacion', label: 'Conciliacion', icon: ArrowLeftRight },
+  { key: 'costos_obra', label: 'Costos por obra', icon: TrendingUp },
   { key: 'supervision', label: 'Supervision', icon: ShieldCheck },
   { key: 'efectivo', label: 'Efectivo', icon: Banknote },
   { key: 'cobranza', label: 'Cobranza', icon: DollarSign },
@@ -433,7 +608,14 @@ export default function Contabilidad() {
   useEffect(() => {
     supabase.from('bank_movements').select('*').order('fecha', { ascending: false }).range(0, 4999).then(({ data }) => {
       if (data && data.length > 0) {
-        setBankMovements(data.map((m: any) => ({
+        setBankMovements(data.map((m: any) => {
+          // Aplicar clasificador granular (en memoria). Si nuestro clasificador
+          // devuelve 'otro' pero el legacy tenía algo más específico, conservamos.
+          const proyecto = m.proyecto || m.proyecto_codigo || ''
+          const rawCat = classifyConcepto(m.concepto || '', m.tipo || 'cargo')
+          const finalCat = refineNominaCategory(rawCat, !!proyecto)
+          const categoria = finalCat !== 'otro' ? finalCat : (m.categoria || 'otro')
+          return {
           id: m.id,
           fecha: m.fecha || '',
           concepto: m.concepto || '',
@@ -441,7 +623,7 @@ export default function Contabilidad() {
           monto: Number(m.monto) || 0,
           tipo: m.tipo || 'cargo',
           saldo: Number(m.saldo) || 0,
-          categoria_sugerida: m.categoria || 'otro',
+          categoria_sugerida: categoria,
           proyecto_sugerido: m.proyecto || '',
           beneficiario: m.beneficiario || '',
           conciliado: m.conciliado || false,
@@ -460,7 +642,8 @@ export default function Contabilidad() {
           concepto_detectado: m.concepto_detectado || undefined,
           beneficiario_id: m.beneficiario_id || undefined,
           beneficiario_tipo: m.beneficiario_tipo || undefined,
-        })))
+          }
+        }))
       }
     })
   }, [])
@@ -599,6 +782,7 @@ export default function Contabilidad() {
       {/* Tab content */}
       {activeTab === 'facturacion' && <TabFacturacion invoices={invoices} setInvoices={setInvoices} bankMovements={bankMovements} projectNames={projectNames} />}
       {activeTab === 'conciliacion' && <TabConciliacion bankMovements={bankMovements} setBankMovements={setBankMovements} invoices={invoices} projectNames={projectNames} />}
+      {activeTab === 'costos_obra' && <TabCostosObra bankMovements={bankMovements} setBankMovements={setBankMovements} />}
       {activeTab === 'supervision' && <TabSupervision invoices={invoices} bankMovements={bankMovements} />}
       {activeTab === 'efectivo' && <TabEfectivo />}
       {activeTab === 'cobranza' && <TabCobranza />}
@@ -2614,7 +2798,7 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
     projectMap.set(proy, cur)
   })
 
-  const catColors: Record<string, string> = { nomina: '#C084FC', proveedor: '#F59E0B', cobro_cliente: '#57FF9A', impuestos: '#EF4444', comision: '#6B7280', traspaso: '#3B82F6', prestamo: '#06B6D4', suscripcion: '#EC4899', otro: '#555' }
+  const catColors: Record<string, string> = { ...CATEGORIA_COLORS, nomina: '#C084FC', proveedor: '#F59E0B', cobro_cliente: '#57FF9A', impuestos: '#EF4444', comision: '#6B7280', traspaso: '#3B82F6', prestamo: '#06B6D4', suscripcion: '#EC4899', otro: '#555' }
   const chkStyle: React.CSSProperties = { width: 15, height: 15, accentColor: '#57FF9A', cursor: 'pointer' }
 
   return (
@@ -2889,7 +3073,7 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
                         <span style={{ color: '#444' }}>—</span>
                       )}
                     </Td>
-                    <Td><Badge label={m.categoria_sugerida || 'otro'} color={catColors[m.categoria_sugerida || 'otro'] || '#555'} /></Td>
+                    <Td><Badge label={CATEGORIA_LABELS[m.categoria_sugerida || 'otro'] || m.categoria_sugerida || 'Otro'} color={catColors[m.categoria_sugerida || 'otro'] || '#555'} /></Td>
                     <Td right>{m.tipo === 'cargo' ? <span style={{ color: '#EF4444' }}>{F(m.monto)}</span> : ''}</Td>
                     <Td right>{m.tipo === 'abono' ? <span style={{ color: '#57FF9A' }}>{F(m.monto)}</span> : ''}</Td>
                     <Td>{(() => {
@@ -3402,6 +3586,278 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
 }
 
 /* --------- Tab 3: Supervisi--n Fiscal ------------------------------------------------------------------------------------------------------------ */
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TabCostosObra — Reporte de costos por obra con prorrateo de overhead/admin
+// ═══════════════════════════════════════════════════════════════════════════
+// Fórmula:
+//   Costo total obra = Material + Luminarias + Equipos especiales + Nómina directa
+//                    + (% ventas obra) × Overhead del mes
+//                    + (% ventas obra) × Nómina admin del mes
+//
+// Donde % ventas obra = cobros del cliente atribuidos a obra X / total cobros mes
+//
+// Permite filtrar por mes. Muestra desglose por obra + KPIs mensuales.
+// ═══════════════════════════════════════════════════════════════════════════
+function TabCostosObra({ bankMovements, setBankMovements }: { bankMovements: BankMovement[]; setBankMovements: (m: BankMovement[]) => void }) {
+  const [selectedMonth, setSelectedMonth] = useState<string>(() => {
+    const d = new Date()
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+  })
+
+  // Obtener lista de meses disponibles
+  const monthsAvail = useMemo(() => {
+    const set = new Set<string>()
+    bankMovements.forEach(m => {
+      if (m.fecha && m.fecha.length >= 7) set.add(m.fecha.substring(0, 7))
+    })
+    return Array.from(set).sort((a, b) => b.localeCompare(a))
+  }, [bankMovements])
+
+  // Movimientos del mes seleccionado
+  const monthMovs = useMemo(() =>
+    bankMovements.filter(m => m.fecha && m.fecha.startsWith(selectedMonth)),
+    [bankMovements, selectedMonth]
+  )
+
+  // Estructura: agrupar por obra
+  type ObraStats = {
+    proyecto: string
+    material: number
+    luminarias: number
+    especiales: number
+    nominaDirecta: number
+    ingresos: number  // cobros del cliente atribuidos a esta obra
+    overheadAsignado: number  // calculado al final
+    nominaAdminAsignada: number  // calculado al final
+    total: number  // calculado al final
+  }
+
+  const report = useMemo(() => {
+    const obras = new Map<string, ObraStats>()
+    let overheadPool = 0
+    let nominaAdminPool = 0
+    let totalIngresos = 0
+
+    const getObra = (p: string): ObraStats => {
+      if (!obras.has(p)) {
+        obras.set(p, { proyecto: p, material: 0, luminarias: 0, especiales: 0, nominaDirecta: 0, ingresos: 0, overheadAsignado: 0, nominaAdminAsignada: 0, total: 0 })
+      }
+      return obras.get(p)!
+    }
+
+    for (const m of monthMovs) {
+      const proyecto = m.proyecto_codigo || m.proyecto_sugerido || ''
+      const cat = m.categoria_sugerida || 'otro'
+      const monto = m.monto || 0
+
+      if (m.tipo === 'cargo') {
+        if (!proyecto) {
+          // Sin proyecto → pool de overhead o nómina admin
+          if (cat === 'nomina_admin' || cat === 'nomina_directa') nominaAdminPool += monto
+          else if (cat === 'gasto_general') overheadPool += monto
+          // impuestos, comisión banco, traspaso interno NO se prorratean a obras
+        } else {
+          const o = getObra(proyecto)
+          if (cat === 'material_electrico') o.material += monto
+          else if (cat === 'luminarias') o.luminarias += monto
+          else if (cat === 'instalaciones_especiales') o.especiales += monto
+          else if (cat === 'nomina_directa') o.nominaDirecta += monto
+          else if (cat === 'gasto_general') overheadPool += monto  // gasto general aunque diga proyecto sigue siendo pool
+          // Otros costos directos no clasificados se suman al material como catchall
+          else if (cat === 'otro') o.material += monto
+        }
+      } else if (m.tipo === 'abono') {
+        if (cat === 'cobro_cliente') {
+          totalIngresos += monto
+          if (proyecto) {
+            const o = getObra(proyecto)
+            o.ingresos += monto
+          }
+        }
+      }
+    }
+
+    // Prorratear overhead y nómina admin
+    const obrasArr = Array.from(obras.values())
+    for (const o of obrasArr) {
+      const pct = totalIngresos > 0 ? o.ingresos / totalIngresos : 0
+      o.overheadAsignado = overheadPool * pct
+      o.nominaAdminAsignada = nominaAdminPool * pct
+      o.total = o.material + o.luminarias + o.especiales + o.nominaDirecta + o.overheadAsignado + o.nominaAdminAsignada
+    }
+
+    obrasArr.sort((a, b) => b.total - a.total)
+    return { obras: obrasArr, overheadPool, nominaAdminPool, totalIngresos }
+  }, [monthMovs])
+
+  // Totales globales
+  const totals = useMemo(() => {
+    const t = report.obras.reduce((acc, o) => ({
+      material: acc.material + o.material,
+      luminarias: acc.luminarias + o.luminarias,
+      especiales: acc.especiales + o.especiales,
+      nominaDirecta: acc.nominaDirecta + o.nominaDirecta,
+      overhead: acc.overhead + o.overheadAsignado,
+      nominaAdmin: acc.nominaAdmin + o.nominaAdminAsignada,
+      ingresos: acc.ingresos + o.ingresos,
+      total: acc.total + o.total,
+    }), { material: 0, luminarias: 0, especiales: 0, nominaDirecta: 0, overhead: 0, nominaAdmin: 0, ingresos: 0, total: 0 })
+    return t
+  }, [report])
+
+  // Re-clasificar masivamente: persiste categorías en DB
+  const [reclassifying, setReclassifying] = useState(false)
+  const reclassifyAll = async () => {
+    if (!confirm(`Re-clasificar ${bankMovements.length} movimientos con keywords nuevas? Esto sobrescribe categoría_sugerida en DB.`)) return
+    setReclassifying(true)
+    try {
+      const updates = bankMovements.map(m => {
+        const proyecto = m.proyecto_codigo || m.proyecto_sugerido || ''
+        const rawCat = classifyConcepto(m.concepto || '', m.tipo)
+        const finalCat = refineNominaCategory(rawCat, !!proyecto)
+        return { id: m.id, categoria: finalCat }
+      })
+      // Procesar en batches de 50
+      for (let i = 0; i < updates.length; i += 50) {
+        const batch = updates.slice(i, i + 50)
+        await Promise.all(batch.map(u =>
+          supabase.from('bank_movements').update({ categoria: u.categoria }).eq('id', u.id)
+        ))
+      }
+      // Refrescar state local
+      setBankMovements(bankMovements.map(m => {
+        const proyecto = m.proyecto_codigo || m.proyecto_sugerido || ''
+        const rawCat = classifyConcepto(m.concepto || '', m.tipo)
+        const finalCat = refineNominaCategory(rawCat, !!proyecto)
+        return { ...m, categoria_sugerida: finalCat }
+      }))
+      alert(`Re-clasificados ${updates.length} movimientos.`)
+    } catch (err: any) {
+      alert('Error: ' + (err.message || err))
+    } finally {
+      setReclassifying(false)
+    }
+  }
+
+  return (
+    <div>
+      <SectionHeader
+        title="Costos por obra"
+        subtitle={`${report.obras.length} obras en el mes · Overhead pool: ${F(report.overheadPool)} · Nómina admin pool: ${F(report.nominaAdminPool)}`}
+        action={
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <select
+              value={selectedMonth}
+              onChange={e => setSelectedMonth(e.target.value)}
+              style={{ padding: '6px 10px', fontSize: 12, background: '#1a1a1a', border: '1px solid #333', borderRadius: 6, color: '#fff', fontFamily: 'inherit' }}
+            >
+              {monthsAvail.map(m => <option key={m} value={m}>{m}</option>)}
+            </select>
+            <Btn onClick={reclassifyAll} disabled={reclassifying}>
+              {reclassifying ? 'Re-clasificando...' : 'Re-clasificar todos'}
+            </Btn>
+          </div>
+        }
+      />
+
+      {/* KPI cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 20 }}>
+        <KPICard label="Material eléctrico" value={F(totals.material)} color={CATEGORIA_COLORS.material_electrico} />
+        <KPICard label="Luminarias" value={F(totals.luminarias)} color={CATEGORIA_COLORS.luminarias} />
+        <KPICard label="Inst. especiales" value={F(totals.especiales)} color={CATEGORIA_COLORS.instalaciones_especiales} />
+        <KPICard label="Nómina directa" value={F(totals.nominaDirecta)} color={CATEGORIA_COLORS.nomina_directa} />
+        <KPICard label="Overhead prorrateado" value={F(totals.overhead)} color={CATEGORIA_COLORS.gasto_general} />
+        <KPICard label="Nómina admin prorrateada" value={F(totals.nominaAdmin)} color={CATEGORIA_COLORS.nomina_admin} />
+        <KPICard label="Ingresos del mes" value={F(totals.ingresos)} color="#10B981" />
+        <KPICard label="Costo total" value={F(totals.total)} color="#fff" />
+      </div>
+
+      {/* Tabla por obra */}
+      <div style={{ overflowX: 'auto' }}>
+        <Table>
+          <thead><tr>
+            <Th>Obra</Th>
+            <Th right>Material</Th>
+            <Th right>Luminarias</Th>
+            <Th right>Inst. esp.</Th>
+            <Th right>Nóm. directa</Th>
+            <Th right>Overhead %</Th>
+            <Th right>Nóm. admin %</Th>
+            <Th right>Ingresos</Th>
+            <Th right>Costo total</Th>
+            <Th right>Margen</Th>
+          </tr></thead>
+          <tbody>
+            {report.obras.length === 0 && (
+              <tr><td colSpan={10} style={{ padding: 20, textAlign: 'center', color: '#666' }}>Sin obras con movimientos en {selectedMonth}</td></tr>
+            )}
+            {report.obras.map(o => {
+              const pct = report.totalIngresos > 0 ? (o.ingresos / report.totalIngresos) * 100 : 0
+              const margen = o.ingresos - o.total
+              const margenPct = o.ingresos > 0 ? (margen / o.ingresos) * 100 : 0
+              return (
+                <tr key={o.proyecto}>
+                  <Td>
+                    <span style={{ fontWeight: 600, color: '#fff' }}>{o.proyecto}</span>
+                    {pct > 0 && <span style={{ marginLeft: 6, fontSize: 10, color: '#666' }}>({pct.toFixed(1)}% ventas)</span>}
+                  </Td>
+                  <Td right><span style={{ color: '#ccc' }}>{F(o.material)}</span></Td>
+                  <Td right><span style={{ color: '#ccc' }}>{F(o.luminarias)}</span></Td>
+                  <Td right><span style={{ color: '#ccc' }}>{F(o.especiales)}</span></Td>
+                  <Td right><span style={{ color: '#ccc' }}>{F(o.nominaDirecta)}</span></Td>
+                  <Td right><span style={{ color: '#888', fontStyle: 'italic' }}>{F(o.overheadAsignado)}</span></Td>
+                  <Td right><span style={{ color: '#888', fontStyle: 'italic' }}>{F(o.nominaAdminAsignada)}</span></Td>
+                  <Td right><span style={{ color: '#57FF9A', fontWeight: 600 }}>{F(o.ingresos)}</span></Td>
+                  <Td right><span style={{ color: '#fff', fontWeight: 700 }}>{F(o.total)}</span></Td>
+                  <Td right>
+                    <span style={{ color: margen >= 0 ? '#57FF9A' : '#EF4444', fontWeight: 600 }}>
+                      {F(margen)}
+                    </span>
+                    {o.ingresos > 0 && <span style={{ display: 'block', fontSize: 10, color: margen >= 0 ? '#57FF9A' : '#EF4444' }}>
+                      {margenPct.toFixed(1)}%
+                    </span>}
+                  </Td>
+                </tr>
+              )
+            })}
+            {/* Totales */}
+            {report.obras.length > 0 && (
+              <tr style={{ borderTop: '2px solid #333', background: '#0d0d0d' }}>
+                <Td><span style={{ fontWeight: 700, color: '#fff' }}>Total</span></Td>
+                <Td right><span style={{ fontWeight: 700, color: '#fff' }}>{F(totals.material)}</span></Td>
+                <Td right><span style={{ fontWeight: 700, color: '#fff' }}>{F(totals.luminarias)}</span></Td>
+                <Td right><span style={{ fontWeight: 700, color: '#fff' }}>{F(totals.especiales)}</span></Td>
+                <Td right><span style={{ fontWeight: 700, color: '#fff' }}>{F(totals.nominaDirecta)}</span></Td>
+                <Td right><span style={{ fontWeight: 700, color: '#fff' }}>{F(totals.overhead)}</span></Td>
+                <Td right><span style={{ fontWeight: 700, color: '#fff' }}>{F(totals.nominaAdmin)}</span></Td>
+                <Td right><span style={{ fontWeight: 700, color: '#57FF9A' }}>{F(totals.ingresos)}</span></Td>
+                <Td right><span style={{ fontWeight: 700, color: '#fff' }}>{F(totals.total)}</span></Td>
+                <Td right><span style={{ fontWeight: 700, color: totals.ingresos - totals.total >= 0 ? '#57FF9A' : '#EF4444' }}>{F(totals.ingresos - totals.total)}</span></Td>
+              </tr>
+            )}
+          </tbody>
+        </Table>
+      </div>
+
+      {/* Nota sobre overhead/admin sin asignar */}
+      {(report.overheadPool > 0 || report.nominaAdminPool > 0) && report.obras.length === 0 && (
+        <div style={{ marginTop: 16, padding: 12, background: '#1a1a1a', border: '1px solid #333', borderRadius: 8, fontSize: 12, color: '#aaa' }}>
+          Hay {F(report.overheadPool)} de overhead y {F(report.nominaAdminPool)} de nómina admin este mes pero ninguna obra con ingresos para prorratear. Asigna proyectos a los cobros de cliente para que el reporte cuadre.
+        </div>
+      )}
+    </div>
+  )
+}
+
+function KPICard({ label, value, color }: { label: string; value: string; color: string }) {
+  return (
+    <div style={{ background: '#0d0d0d', border: '1px solid #1f1f1f', borderRadius: 8, padding: 12, borderLeft: `3px solid ${color}` }}>
+      <div style={{ fontSize: 10, color: '#666', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>{label}</div>
+      <div style={{ fontSize: 18, fontWeight: 700, color: '#fff' }}>{value}</div>
+    </div>
+  )
+}
 
 function TabSupervision({ invoices, bankMovements }: { invoices: Invoice[]; bankMovements: BankMovement[] }) {
   const isMobile = useIsMobile()
