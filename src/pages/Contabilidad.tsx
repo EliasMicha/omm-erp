@@ -89,6 +89,11 @@ const CATEGORIA_LABELS: Record<CategoriaGranular | string, string> = {
 const CATEGORIA_KEYWORDS: { cat: CategoriaGranular; patterns: RegExp[] }[] = [
   // Instalaciones especiales — equipos de audio/video/seguridad/control
   { cat: 'instalaciones_especiales', patterns: [
+    // Proveedores específicos cuyos conceptos NO siempre describen el producto.
+    // Syscom (también aparece como "SISTEMAS Y SERVICIOS" o "STR*SYSCOM MX") vende
+    // siempre equipo de instalaciones especiales → forzar categoría.
+    /\bSYSCOM\b/i, /\bSISTEMAS\s+Y\s+SERVICIOS\b/i, /\bSTR\*?SYSCOM\b/i,
+    // Keywords genéricos por tipo de equipo
     /\bbocinas?\b/i, /\baudio\b/i, /\bparlantes?\b/i, /\baltavoces?\b/i,
     /\bredes?\b/i, /\bswitch\b/i, /\brouters?\b/i, /\baccess\s*point/i, /\bAP\b/,
     /\bc[aá]maras?\b/i, /\bCCTV\b/i, /\bvideo\s*vigilancia/i, /\bNVR\b/i, /\bDVR\b/i,
