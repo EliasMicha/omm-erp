@@ -2236,22 +2236,39 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
    * descriptivo va en categoria_sugerida + concepto.
    */
 
-  // Extrae código BNET / número de cuenta del concepto si no vino del extractor
+  // Extrae código BNET (identificador del proveedor en BBVA) del concepto.
+  // Formato típico BBVA: "PAGO CUENTA DE TERCERO/ 0006120240 BNET 0113569756 ..."
+  //                                              ^^^^^^^^^^      ^^^^^^^^^^
+  //                                              cuenta tercero   código BNET
+  // El código BNET REAL es el número DESPUÉS de la palabra "BNET" — eso es lo
+  // que coincide con suppliers.bnet_codigo (registrado en el alta de proveedor).
   const extractBnetFromConcepto = (concepto: string): string | null => {
     if (!concepto) return null
-    // Match patrones tipo "0031548923 BNET", "/0009395980 BNET"
-    const m1 = concepto.match(/\b(\d{8,11})\s*BNET\b/i)
-    if (m1) return m1[1]
-    // Match números de cuenta solitos en SPEI/traspaso
+    // 1. PRIORIDAD: número DESPUÉS de "BNET" (el código BNET real del proveedor)
+    const after = concepto.match(/\bBNET\s+(\d{8,12})\b/i)
+    if (after) return after[1]
+    // 2. Fallback: número en formato típico SPEI/traspaso
     const m2 = concepto.match(/\b(\d{10,18})\b/)
     if (m2) return m2[1]
     return null
   }
 
+  // Extrae número de cuenta del tercero (el número ANTES de "BNET").
+  // Coincide con suppliers.cuenta_bancaria o suppliers.clabe.
+  const extractCuentaTerceroFromConcepto = (concepto: string): string | null => {
+    if (!concepto) return null
+    const before = concepto.match(/\b(\d{8,12})\s+BNET\b/i)
+    if (before) return before[1]
+    return null
+  }
+
   // Auto-sugiere beneficiario para un movimiento — busca en catálogos
   const suggestBeneficiario = (m: BankMovement): { id: string; tipo: 'proveedor' | 'cliente' | 'empleado'; nombre: string; razon: string } | null => {
-    const bnet = m.bnet_codigo_detectado || extractBnetFromConcepto(m.concepto)
-    const cuentaDet = m.cuenta_destino_detectada || m.clabe_contraparte || bnet || ''
+    // IMPORTANTE: re-extraer SIEMPRE del concepto. El campo bnet_codigo_detectado
+    // del AI extractor histori puede tener la cuenta del tercero (número antes
+    // de "BNET") confundida con el código BNET real (número después de "BNET").
+    const bnetReal = extractBnetFromConcepto(m.concepto) || m.bnet_codigo_detectado || null
+    const cuentaTercero = extractCuentaTerceroFromConcepto(m.concepto) || m.cuenta_destino_detectada || m.clabe_contraparte || null
 
     // 1. Si hay factura vinculada, usar su contraparte
     if (m.factura_match_id) {
@@ -2268,23 +2285,23 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
       }
     }
 
-    // 2. Match por BNET (suppliers)
-    if (m.tipo === 'cargo' && bnet) {
-      const sup = assignSuppliers.find(s => s.bnet_codigo && s.bnet_codigo === bnet)
-      if (sup) return { id: sup.id, tipo: 'proveedor', nombre: sup.name, razon: `BNET ${bnet}` }
+    // 2. Match por código BNET (suppliers) — el número DESPUÉS de "BNET"
+    if (m.tipo === 'cargo' && bnetReal) {
+      const sup = assignSuppliers.find(s => s.bnet_codigo && s.bnet_codigo === bnetReal)
+      if (sup) return { id: sup.id, tipo: 'proveedor', nombre: sup.name, razon: `código BNET ${bnetReal}` }
     }
 
-    // 3. Match por cuenta (suppliers, clientes, empleados según tipo de mov)
-    if (cuentaDet) {
+    // 3. Match por cuenta bancaria (tercero — número ANTES de "BNET")
+    if (cuentaTercero) {
       if (m.tipo === 'cargo') {
-        const sup = assignSuppliers.find(s => (s.clabe === cuentaDet || s.cuenta_bancaria === cuentaDet))
-        if (sup) return { id: sup.id, tipo: 'proveedor', nombre: sup.name, razon: `cuenta ${cuentaDet}` }
-        const emp = assignEmpleados.find(e => (e.clabe === cuentaDet || e.cuenta === cuentaDet))
-        if (emp) return { id: emp.id, tipo: 'empleado', nombre: emp.name, razon: `cuenta ${cuentaDet}` }
+        const sup = assignSuppliers.find(s => (s.clabe === cuentaTercero || s.cuenta_bancaria === cuentaTercero))
+        if (sup) return { id: sup.id, tipo: 'proveedor', nombre: sup.name, razon: `cuenta ${cuentaTercero}` }
+        const emp = assignEmpleados.find(e => (e.clabe === cuentaTercero || e.cuenta === cuentaTercero))
+        if (emp) return { id: emp.id, tipo: 'empleado', nombre: emp.name, razon: `cuenta ${cuentaTercero}` }
       }
       if (m.tipo === 'abono') {
-        const cli = assignClientes.find(c => (c.clabe === cuentaDet || c.cuenta_bancaria === cuentaDet))
-        if (cli) return { id: cli.id, tipo: 'cliente', nombre: cli.nombre_comercial || cli.razon_social, razon: `cuenta ${cuentaDet}` }
+        const cli = assignClientes.find(c => (c.clabe === cuentaTercero || c.cuenta_bancaria === cuentaTercero))
+        if (cli) return { id: cli.id, tipo: 'cliente', nombre: cli.nombre_comercial || cli.razon_social, razon: `cuenta ${cuentaTercero}` }
       }
     }
 
@@ -2311,6 +2328,46 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
       ? { ...x, beneficiario_id: id || undefined, beneficiario_tipo: tipo || undefined, beneficiario: nombre || undefined }
       : x
     ))
+  }
+
+  // Auto-asignar beneficiarios masivamente — aplica suggestBeneficiario a todos
+  // los movimientos sin beneficiario_id y persiste los matches.
+  const [autoAsignando, setAutoAsignando] = useState(false)
+  const autoAsignarBeneficiarios = async () => {
+    const candidatos = bankMovements.filter(m => !m.beneficiario_id)
+    if (candidatos.length === 0) { alert('No hay movimientos sin asignar.'); return }
+    const matches: { mov: BankMovement; sug: NonNullable<ReturnType<typeof suggestBeneficiario>> }[] = []
+    for (const m of candidatos) {
+      const sug = suggestBeneficiario(m)
+      if (sug && sug.id) matches.push({ mov: m, sug })
+    }
+    if (matches.length === 0) { alert(`Sin matches. ${candidatos.length} movimientos sin asignar pero ninguno coincide con el catálogo (BNET, cuenta, RFC o nombre).`); return }
+    if (!confirm(`Auto-asignar ${matches.length} de ${candidatos.length} movimientos sin asignar?\n\nMatches por:\n- BNET/cuenta del catálogo\n- RFC desde factura vinculada\n- Nombre de empleado en concepto`)) return
+    setAutoAsignando(true)
+    try {
+      // Persistir en batches de 50
+      for (let i = 0; i < matches.length; i += 50) {
+        const batch = matches.slice(i, i + 50)
+        await Promise.all(batch.map(({ mov, sug }) =>
+          supabase.from('bank_movements').update({
+            beneficiario_id: sug.id,
+            beneficiario_tipo: sug.tipo,
+            beneficiario: sug.nombre,
+          }).eq('id', mov.id)
+        ))
+      }
+      // Refrescar state local
+      const updatesById = new Map(matches.map(({ mov, sug }) => [mov.id, sug]))
+      setBankMovements(bankMovements.map(m => {
+        const sug = updatesById.get(m.id)
+        return sug ? { ...m, beneficiario_id: sug.id, beneficiario_tipo: sug.tipo, beneficiario: sug.nombre } : m
+      }))
+      alert(`Listo. ${matches.length} beneficiarios asignados.`)
+    } catch (err: any) {
+      alert('Error: ' + (err.message || err))
+    } finally {
+      setAutoAsignando(false)
+    }
   }
 
   /* --- Upload handler — usa edge function server-side /api/extract-bank-statement --- */
@@ -2883,6 +2940,9 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
         )}
         <Btn size="sm" variant="default" onClick={() => setShowManual(!showManual)}>
           <Plus size={12} /> Manual
+        </Btn>
+        <Btn size="sm" variant="default" onClick={autoAsignarBeneficiarios} disabled={autoAsignando}>
+          {autoAsignando ? '⏳ Asignando...' : '⚡ Auto-asignar beneficiarios'}
         </Btn>
         {(() => {
           const ultima = getUltimaFechaCuenta(activeAccount)

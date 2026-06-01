@@ -52,8 +52,18 @@ Para cada movimiento, analiza el campo concepto y extrae:
   • 'PAGO DE NOMINA/IN ... OMM TECHNOLOGIES' → null (categoría es 'nomina', no pongas "Nómina OMM")
   • 'PAGO TARJETA DE CREDITO/...' → null
 
-- bnet_codigo: si el concepto contiene un número de cuenta seguido de 'BNET' (ej. '0031548923 BNET'),
-  extraer SOLO los dígitos (sin la palabra BNET, sin espacios). Ejemplo: '0031548923 BNET' → '0031548923'.
+- bnet_codigo_detectado: el código BNET REAL del proveedor — es el número que va
+  DESPUÉS de la palabra "BNET" en el concepto. Es el identificador único del
+  proveedor en la plataforma BBVA Bancanet.
+  Formato típico: "PAGO CUENTA DE TERCERO/ 0006120240 BNET 0113569756 Bocina"
+                                           ^^^^^^^^^^      ^^^^^^^^^^
+                                           cuenta tercero  código BNET (este)
+  Devuelve "0113569756" (el número DESPUÉS de "BNET").
+  Si no hay palabra "BNET" en el concepto, null.
+
+- cuenta_destino_detectada: número de cuenta del beneficiario — es el número que
+  va ANTES de la palabra "BNET". En el ejemplo arriba: "0006120240".
+  Es el número de cuenta bancaria del tercero.
 
 - rfc_contraparte: si el concepto contiene 'RFC: XXX NNNNNNXXX', extraerlo normalizado SIN espacios.
   Ejemplo: 'RFC: DME 180122DU4' → 'DME180122DU4'
