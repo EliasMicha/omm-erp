@@ -1769,6 +1769,8 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
   const [assignQuotations, setAssignQuotations] = useState<{ id: string; name: string; lead_id: string; specialty?: string; total?: number; currency?: string }[]>([])
   const [assignPOs, setAssignPOs] = useState<{ id: string; po_number: string; quotation_id?: string; project_id?: string; supplier_id?: string; total?: number; currency?: string; purchase_phase?: string; status?: string }[]>([])
   const [assignSuppliers, setAssignSuppliers] = useState<{ id: string; name: string; rfc?: string; clabe?: string; cuenta_bancaria?: string; banco?: string; bnet_codigo?: string }[]>([])
+  // Cuentas bancarias relacionadas — 1 supplier puede tener N cuentas con distinto BNET/CLABE
+  const [supplierAccounts, setSupplierAccounts] = useState<{ id: string; supplier_id: string; etiqueta?: string; moneda?: string; clabe?: string; cuenta_bancaria?: string; banco?: string; bnet_codigo?: string }[]>([])
   const [assignClientes, setAssignClientes] = useState<{ id: string; razon_social: string; nombre_comercial?: string; rfc?: string; clabe?: string; cuenta_bancaria?: string; banco?: string }[]>([])
   const [assignEmpleados, setAssignEmpleados] = useState<{ id: string; name: string; rfc?: string; clabe?: string; cuenta?: string; banco?: string }[]>([])
   const [savingAssign, setSavingAssign] = useState<string | null>(null)
@@ -1871,13 +1873,15 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
       supabase.from('suppliers').select('id,name,rfc,clabe,cuenta_bancaria,banco,bnet_codigo').order('name'),
       supabase.from('clientes').select('id,razon_social,nombre_comercial,rfc,clabe,cuenta_bancaria,banco').eq('activo', true).order('razon_social'),
       supabase.from('employees').select('id,name,rfc,clabe,cuenta,banco').eq('is_active', true).order('name'),
-    ]).then(([lRes, qRes, pRes, sRes, cRes, eRes]) => {
+      supabase.from('supplier_bank_accounts').select('id,supplier_id,etiqueta,moneda,clabe,cuenta_bancaria,banco,bnet_codigo'),
+    ]).then(([lRes, qRes, pRes, sRes, cRes, eRes, sbaRes]) => {
       setAssignLeads((lRes.data as any[]) || [])
       setAssignQuotations(((qRes.data as any[]) || []).map(q => ({ ...q, lead_id: extractLeadId(q), currency: extractCurrency(q) })))
       setAssignPOs((pRes.data as any[]) || [])
       setAssignSuppliers((sRes.data as any[]) || [])
       setAssignClientes((cRes.data as any[]) || [])
       setAssignEmpleados((eRes.data as any[]) || [])
+      setSupplierAccounts((sbaRes.data as any[]) || [])
     })
 
     // Recargar quotations y POs cuando la ventana vuelve al foco — útil si
@@ -2285,15 +2289,30 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
       }
     }
 
-    // 2. Match por código BNET (suppliers) — el número DESPUÉS de "BNET"
+    // 2. Match por código BNET — primero en supplier_bank_accounts (tabla relacional
+    //    donde están REALMENTE registrados los BNET — un supplier puede tener varias
+    //    cuentas con distintos BNET). Después fallback a suppliers.bnet_codigo legacy.
     if (m.tipo === 'cargo' && bnetReal) {
-      const sup = assignSuppliers.find(s => s.bnet_codigo && s.bnet_codigo === bnetReal)
-      if (sup) return { id: sup.id, tipo: 'proveedor', nombre: sup.name, razon: `código BNET ${bnetReal}` }
+      const acct = supplierAccounts.find(a => a.bnet_codigo && a.bnet_codigo === bnetReal)
+      if (acct) {
+        const sup = assignSuppliers.find(s => s.id === acct.supplier_id)
+        if (sup) return { id: sup.id, tipo: 'proveedor', nombre: sup.name, razon: `código BNET ${bnetReal}${acct.etiqueta ? ` (${acct.etiqueta})` : ''}` }
+      }
+      const supLegacy = assignSuppliers.find(s => s.bnet_codigo && s.bnet_codigo === bnetReal)
+      if (supLegacy) return { id: supLegacy.id, tipo: 'proveedor', nombre: supLegacy.name, razon: `código BNET ${bnetReal}` }
     }
 
     // 3. Match por cuenta bancaria (tercero — número ANTES de "BNET")
+    //    Buscar tanto en supplier_bank_accounts como en suppliers directos
     if (cuentaTercero) {
       if (m.tipo === 'cargo') {
+        const acct = supplierAccounts.find(a =>
+          (a.clabe && a.clabe === cuentaTercero) || (a.cuenta_bancaria && a.cuenta_bancaria === cuentaTercero)
+        )
+        if (acct) {
+          const sup = assignSuppliers.find(s => s.id === acct.supplier_id)
+          if (sup) return { id: sup.id, tipo: 'proveedor', nombre: sup.name, razon: `cuenta ${cuentaTercero}` }
+        }
         const sup = assignSuppliers.find(s => (s.clabe === cuentaTercero || s.cuenta_bancaria === cuentaTercero))
         if (sup) return { id: sup.id, tipo: 'proveedor', nombre: sup.name, razon: `cuenta ${cuentaTercero}` }
         const emp = assignEmpleados.find(e => (e.clabe === cuentaTercero || e.cuenta === cuentaTercero))
