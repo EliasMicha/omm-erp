@@ -1,34 +1,31 @@
 // ═══════════════════════════════════════════════════════════════════════════
-// /api/test-lutron-login — POC: valida que Playwright + sparticuz/chromium
-// funcionan en Vercel y que MyLutron NO detecta el bot.
+// /api/agent — Endpoint único para todos los agentes de cotización por
+// proveedor. Routing interno via query params para no consumir múltiples
+// serverless functions slots (Vercel Hobby = max 12).
 // ═══════════════════════════════════════════════════════════════════════════
 //
-// Flow del test:
-//   1. Lanza Chromium headless con stealth args
-//   2. Navega a https://www.mylutron.com (redirige a OAuth login)
-//   3. Stage 1: llena email → click Next
-//   4. Stage 2: llena password → click Login
-//   5. Espera redirect a mylutron.com/Project
-//   6. Toma screenshot de la home logueada
-//   7. Devuelve { ok, status, screenshot_base64, timing_ms, error? }
+// Routing:
+//   POST /api/agent?action=test_login&supplier=lutron
+//      → valida que el login funciona con Playwright + sparticuz/chromium
+//   POST /api/agent?action=create_quote&supplier=lutron
+//      → (TODO) ejecuta el playbook completo: login + crear proyecto +
+//        agregar items + descargar PDF
 //
-// Requiere env vars en Vercel:
-//   - MYLUTRON_EMAIL: tu email del portal
-//   - MYLUTRON_PASS: tu password del portal
+// Env vars requeridas:
+//   - MYLUTRON_EMAIL, MYLUTRON_PASS (mientras armamos vault encriptado)
+//   - AGENT_VAULT_KEY (para fases siguientes)
 //
-// Llamada de prueba:
-//   curl -X POST https://omm-erp.vercel.app/api/test-lutron-login \
-//        -H "Content-Type: application/json" -d "{}"
+// Test rápido:
+//   curl -X POST "https://omm-erp.vercel.app/api/agent?action=test_login&supplier=lutron"
 
 import chromium from '@sparticuz/chromium'
 import { chromium as playwrightChromium } from 'playwright-core'
 
 export const config = {
-  // Vercel function: Hobby = 60s max con esta config; suficiente para login
   maxDuration: 60,
 }
 
-interface TestResult {
+interface TestLoginResult {
   ok: boolean
   status: 'success' | 'failed_at_email' | 'failed_at_password' | 'failed_at_redirect' | 'detected_as_bot' | 'unknown_error'
   current_url?: string
@@ -38,32 +35,68 @@ interface TestResult {
   error?: string
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// MAIN HANDLER — Routing por ?action y ?supplier
+// ═══════════════════════════════════════════════════════════════════════════
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') {
     res.status(405).json({ ok: false, error: 'Method not allowed (use POST)' })
     return
   }
 
+  const action = (req.query?.action || '').toString()
+  const supplier = (req.query?.supplier || '').toString().toLowerCase()
+
+  if (!action) {
+    res.status(400).json({ ok: false, error: 'Missing ?action param. Valid: test_login, create_quote' })
+    return
+  }
+  if (!supplier) {
+    res.status(400).json({ ok: false, error: 'Missing ?supplier param. Valid: lutron, syscom, dextra' })
+    return
+  }
+
+  try {
+    if (action === 'test_login' && supplier === 'lutron') {
+      const result = await testLutronLogin()
+      res.status(result.ok ? 200 : 500).json(result)
+      return
+    }
+
+    if (action === 'create_quote' && supplier === 'lutron') {
+      res.status(501).json({ ok: false, error: 'Not implemented yet. Pending: complete playbook execution.' })
+      return
+    }
+
+    res.status(400).json({ ok: false, error: `Unsupported action+supplier combination: ${action} / ${supplier}` })
+  } catch (err: any) {
+    res.status(500).json({ ok: false, error: err?.message || String(err) })
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// LUTRON — Test login (Stage 1 POC del agente)
+// ═══════════════════════════════════════════════════════════════════════════
+async function testLutronLogin(): Promise<TestLoginResult> {
   const email = process.env.MYLUTRON_EMAIL
   const password = process.env.MYLUTRON_PASS
   if (!email || !password) {
-    res.status(500).json({
+    return {
       ok: false,
+      status: 'unknown_error',
       error: 'Missing MYLUTRON_EMAIL or MYLUTRON_PASS in env vars',
-    })
-    return
+    }
   }
 
   const t0 = Date.now()
   let browser: any = null
-  const result: TestResult = { ok: false, status: 'unknown_error' }
+  const result: TestLoginResult = { ok: false, status: 'unknown_error' }
 
   try {
-    // Lanzar Chromium con args anti-detection
     browser = await playwrightChromium.launch({
       args: [
         ...chromium.args,
-        '--disable-blink-features=AutomationControlled',  // hides navigator.webdriver
+        '--disable-blink-features=AutomationControlled',
         '--no-sandbox',
         '--disable-setuid-sandbox',
       ],
@@ -78,16 +111,12 @@ export default async function handler(req: any, res: any) {
       timezoneId: 'America/Mexico_City',
     })
 
-    // Inyecta script anti-detection ANTES de cualquier navegación
+    // Anti-detection scripts
     await context.addInitScript(() => {
-      // navigator.webdriver = false
       Object.defineProperty(navigator, 'webdriver', { get: () => undefined })
-      // chrome runtime existe (de browsers reales)
       // @ts-ignore
       window.chrome = { runtime: {} }
-      // plugins length > 0
       Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] })
-      // permissions API responde como un browser real
       const origQuery = window.navigator.permissions.query
       // @ts-ignore
       window.navigator.permissions.query = (parameters: any) =>
@@ -98,10 +127,9 @@ export default async function handler(req: any, res: any) {
 
     const page = await context.newPage()
 
-    // === Stage 1: Navigate y entrar email ===
+    // Stage 1: Navigate y email
     await page.goto('https://www.mylutron.com', { waitUntil: 'networkidle', timeout: 30000 })
 
-    // Verifica que llegamos al login multi-step
     const currentUrl = page.url()
     if (!currentUrl.includes('umslogin.lutron.com')) {
       result.status = 'failed_at_email'
@@ -110,30 +138,27 @@ export default async function handler(req: any, res: any) {
       throw new Error(result.error)
     }
 
-    // Llenar email
     const emailInput = await page.waitForSelector('input[placeholder="Email address"]', { timeout: 10000 })
     await emailInput.fill(email)
     await page.click('button[type="submit"]')
 
-    // === Stage 2: Esperar pantalla de password y llenarlo ===
-    // Damos tiempo a la transición (puede tardar si hay federation check)
+    // Stage 2: Password
     await page.waitForLoadState('networkidle', { timeout: 15000 })
     const passwordInput = await page.waitForSelector('input[type="password"]', { timeout: 10000 })
     if (!passwordInput) {
       result.status = 'failed_at_password'
-      result.error = 'Password field not found after email submit'
+      result.error = 'Password field not found'
       throw new Error(result.error)
     }
     await passwordInput.fill(password)
     await page.click('button[type="submit"]')
 
-    // === Stage 3: Esperar redirect al dashboard ===
+    // Stage 3: OAuth callback redirect
     try {
       await page.waitForURL((url: URL) => url.hostname === 'mylutron.com' && url.pathname.toLowerCase().includes('project'), {
         timeout: 30000,
       })
     } catch (e) {
-      // Verifica si nos rechazaron por bot detection
       const url = page.url()
       const bodyText = await page.evaluate(() => document.body.innerText).catch(() => '')
       if (bodyText.match(/captcha|robot|verify|blocked|denied/i)) {
@@ -147,7 +172,7 @@ export default async function handler(req: any, res: any) {
       throw new Error(result.error)
     }
 
-    // === Stage 4: Screenshot del dashboard ===
+    // Stage 4: Screenshot
     await page.waitForLoadState('networkidle', { timeout: 15000 })
     const screenshotBuffer = await page.screenshot({ type: 'jpeg', quality: 70, fullPage: false })
     result.screenshot_base64 = screenshotBuffer.toString('base64')
@@ -165,5 +190,5 @@ export default async function handler(req: any, res: any) {
   }
 
   result.timing_ms = Date.now() - t0
-  res.status(result.ok ? 200 : 500).json(result)
+  return result
 }

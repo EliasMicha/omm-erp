@@ -10,7 +10,7 @@
     "api/generate-quote.ts": {
       "maxDuration": 120
     },
-    "api/test-lutron-login.ts": {
+    "api/agent.ts": {
       "maxDuration": 60,
       "memory": 1024
     }
