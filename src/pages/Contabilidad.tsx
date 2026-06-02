@@ -2088,6 +2088,19 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
   const addManual = async () => {
     const monto = Math.abs(parseFloat(manual.monto) || 0)
     if (!manual.concepto.trim() || monto === 0) return
+    // Importante: ligar el movimiento a la cuenta activa para que aparezca en los
+    // filtros (banco + cuenta + moneda). Sin esto, no se cuenta en KPIs ni tabla.
+    const acc = ACCOUNTS[activeAccount]
+    // Avisar si la fecha no cae en el mes seleccionado (para evitar que el user
+    // crea que se "perdió" el movimiento por estar viendo otro mes)
+    const movMonth = manual.fecha.substring(0, 7)
+    if (movMonth !== selectedMonth) {
+      const proceed = confirm(
+        `La fecha del movimiento (${manual.fecha}) cae en ${movMonth} pero estás viendo ${selectedMonth}. ` +
+        `Se va a guardar y aparecerá cuando navegues a ${movMonth}. ¿Continuar?`
+      )
+      if (!proceed) return
+    }
     const newMov: BankMovement = {
       id: crypto.randomUUID(),
       fecha: manual.fecha,
@@ -2100,6 +2113,10 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
       proyecto_sugerido: manual.proyecto,
       beneficiario: manual.beneficiario.trim(),
       conciliado: false,
+      banco: acc.banco,
+      cuenta: acc.cuenta,
+      moneda: acc.moneda,
+      source: 'manual',
     }
     setBankMovements([newMov, ...bankMovements])
     dbInsertMany([newMov])
