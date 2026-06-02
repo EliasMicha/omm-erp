@@ -4,22 +4,18 @@
 // serverless functions slots (Vercel Hobby = max 12).
 // ═══════════════════════════════════════════════════════════════════════════
 //
+// Stack: puppeteer-core + @sparticuz/chromium (oficialmente soportado en Vercel)
+//
 // Routing:
 //   POST /api/agent?action=test_login&supplier=lutron
-//      → valida que el login funciona con Playwright + sparticuz/chromium
+//      → valida que el login funciona
 //   POST /api/agent?action=create_quote&supplier=lutron
-//      → (TODO) ejecuta el playbook completo: login + crear proyecto +
-//        agregar items + descargar PDF
+//      → (TODO) ejecuta el playbook completo
 //
-// Env vars requeridas:
-//   - MYLUTRON_EMAIL, MYLUTRON_PASS (mientras armamos vault encriptado)
-//   - AGENT_VAULT_KEY (para fases siguientes)
-//
-// Test rápido:
-//   curl -X POST "https://omm-erp.vercel.app/api/agent?action=test_login&supplier=lutron"
+// Env vars: MYLUTRON_EMAIL, MYLUTRON_PASS
 
 import chromium from '@sparticuz/chromium'
-import { chromium as playwrightChromium } from 'playwright-core'
+import puppeteer from 'puppeteer-core'
 
 export const config = {
   maxDuration: 60,
@@ -35,9 +31,6 @@ interface TestLoginResult {
   error?: string
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// MAIN HANDLER — Routing por ?action y ?supplier
-// ═══════════════════════════════════════════════════════════════════════════
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') {
     res.status(405).json({ ok: false, error: 'Method not allowed (use POST)' })
@@ -47,12 +40,11 @@ export default async function handler(req: any, res: any) {
   const action = (req.query?.action || '').toString()
   const supplier = (req.query?.supplier || '').toString().toLowerCase()
 
-  if (!action) {
-    res.status(400).json({ ok: false, error: 'Missing ?action param. Valid: test_login, create_quote' })
-    return
-  }
-  if (!supplier) {
-    res.status(400).json({ ok: false, error: 'Missing ?supplier param. Valid: lutron, syscom, dextra' })
+  if (!action || !supplier) {
+    res.status(400).json({
+      ok: false,
+      error: 'Missing ?action or ?supplier param. Valid: action=test_login|create_quote, supplier=lutron|syscom|dextra',
+    })
     return
   }
 
@@ -64,19 +56,16 @@ export default async function handler(req: any, res: any) {
     }
 
     if (action === 'create_quote' && supplier === 'lutron') {
-      res.status(501).json({ ok: false, error: 'Not implemented yet. Pending: complete playbook execution.' })
+      res.status(501).json({ ok: false, error: 'Not implemented yet' })
       return
     }
 
-    res.status(400).json({ ok: false, error: `Unsupported action+supplier combination: ${action} / ${supplier}` })
+    res.status(400).json({ ok: false, error: `Unsupported action+supplier: ${action} / ${supplier}` })
   } catch (err: any) {
     res.status(500).json({ ok: false, error: err?.message || String(err) })
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// LUTRON — Test login (Stage 1 POC del agente)
-// ═══════════════════════════════════════════════════════════════════════════
 async function testLutronLogin(): Promise<TestLoginResult> {
   const email = process.env.MYLUTRON_EMAIL
   const password = process.env.MYLUTRON_PASS
@@ -93,26 +82,20 @@ async function testLutronLogin(): Promise<TestLoginResult> {
   const result: TestLoginResult = { ok: false, status: 'unknown_error' }
 
   try {
-    browser = await playwrightChromium.launch({
-      args: [
-        ...chromium.args,
+    // sparticuz/chromium config oficial para Vercel + puppeteer-core
+    browser = await puppeteer.launch({
+      args: chromium.args.concat([
         '--disable-blink-features=AutomationControlled',
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-      ],
+      ]),
+      defaultViewport: { width: 1412, height: 743 },
       executablePath: await chromium.executablePath(),
-      headless: true,
+      headless: chromium.headless as any,
     })
 
-    const context = await browser.newContext({
-      userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-      viewport: { width: 1412, height: 743 },
-      locale: 'en-US',
-      timezoneId: 'America/Mexico_City',
-    })
+    const page = await browser.newPage()
 
-    // Anti-detection scripts
-    await context.addInitScript(() => {
+    // Anti-detection scripts antes de cualquier navegación
+    await page.evaluateOnNewDocument(() => {
       Object.defineProperty(navigator, 'webdriver', { get: () => undefined })
       // @ts-ignore
       window.chrome = { runtime: {} }
@@ -125,10 +108,10 @@ async function testLutronLogin(): Promise<TestLoginResult> {
           : origQuery(parameters)
     })
 
-    const page = await context.newPage()
+    await page.setUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36')
 
     // Stage 1: Navigate y email
-    await page.goto('https://www.mylutron.com', { waitUntil: 'networkidle', timeout: 30000 })
+    await page.goto('https://www.mylutron.com', { waitUntil: 'networkidle0', timeout: 30000 })
 
     const currentUrl = page.url()
     if (!currentUrl.includes('umslogin.lutron.com')) {
@@ -138,26 +121,27 @@ async function testLutronLogin(): Promise<TestLoginResult> {
       throw new Error(result.error)
     }
 
-    const emailInput = await page.waitForSelector('input[placeholder="Email address"]', { timeout: 10000 })
-    await emailInput.fill(email)
-    await page.click('button[type="submit"]')
+    await page.waitForSelector('input[placeholder="Email address"]', { timeout: 10000 })
+    await page.type('input[placeholder="Email address"]', email, { delay: 50 })
+    await Promise.all([
+      page.waitForNavigation({ waitUntil: 'networkidle0', timeout: 15000 }).catch(() => null),
+      page.click('button[type="submit"]'),
+    ])
 
     // Stage 2: Password
-    await page.waitForLoadState('networkidle', { timeout: 15000 })
-    const passwordInput = await page.waitForSelector('input[type="password"]', { timeout: 10000 })
-    if (!passwordInput) {
-      result.status = 'failed_at_password'
-      result.error = 'Password field not found'
-      throw new Error(result.error)
-    }
-    await passwordInput.fill(password)
-    await page.click('button[type="submit"]')
+    await page.waitForSelector('input[type="password"]', { timeout: 10000 })
+    await page.type('input[type="password"]', password, { delay: 50 })
+    await Promise.all([
+      page.waitForNavigation({ waitUntil: 'networkidle0', timeout: 30000 }).catch(() => null),
+      page.click('button[type="submit"]'),
+    ])
 
-    // Stage 3: OAuth callback redirect
+    // Stage 3: Wait for redirect to mylutron.com/Project
     try {
-      await page.waitForURL((url: URL) => url.hostname === 'mylutron.com' && url.pathname.toLowerCase().includes('project'), {
-        timeout: 30000,
-      })
+      await page.waitForFunction(
+        () => window.location.hostname === 'mylutron.com' && /project/i.test(window.location.pathname),
+        { timeout: 30000 }
+      )
     } catch (e) {
       const url = page.url()
       const bodyText = await page.evaluate(() => document.body.innerText).catch(() => '')
@@ -173,8 +157,8 @@ async function testLutronLogin(): Promise<TestLoginResult> {
     }
 
     // Stage 4: Screenshot
-    await page.waitForLoadState('networkidle', { timeout: 15000 })
-    const screenshotBuffer = await page.screenshot({ type: 'jpeg', quality: 70, fullPage: false })
+    await page.waitForNetworkIdle({ timeout: 15000 }).catch(() => null)
+    const screenshotBuffer = await page.screenshot({ type: 'jpeg', quality: 70 })
     result.screenshot_base64 = screenshotBuffer.toString('base64')
     result.current_url = page.url()
     result.page_title = await page.title()
