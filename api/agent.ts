@@ -16,6 +16,7 @@
 
 import chromium from '@sparticuz/chromium'
 import puppeteer from 'puppeteer-core'
+import path from 'path'
 
 export const config = {
   maxDuration: 60,
@@ -89,7 +90,6 @@ async function testLutronLogin(): Promise<TestLoginResult> {
 
     // Fix para "libnss3.so: cannot open shared object file"
     // Agregar el directorio donde sparticuz extrajo las shared libs a LD_LIBRARY_PATH
-    const path = require('path')
     const libDir = path.dirname(executablePath)
     process.env.LD_LIBRARY_PATH = `${libDir}:${process.env.LD_LIBRARY_PATH || ''}`
 
