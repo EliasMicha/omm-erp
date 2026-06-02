@@ -1877,6 +1877,9 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
   const [saving, setSaving] = useState(false)
   const [showAddItem, setShowAddItem] = useState(false)
   const [catalogSearch, setCatalogSearch] = useState('')
+  // Agentes/playbooks de cotización por proveedor (dispatcher)
+  const [playbooks, setPlaybooks] = useState<Array<{ id: string; supplier_id: string; name: string; method: string; config: any; active: boolean }>>([])
+  const [showAgentModal, setShowAgentModal] = useState(false)
 
   const load = () => {
     setLoading(true)
@@ -1889,7 +1892,8 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
       supabase.from('obras').select('id,nombre,project_id').order('nombre'),
       supabase.from('leads').select('id,name,company').order('updated_at', { ascending: false }),
       supabase.from('quotations').select('id,name,notes,specialty,total,updated_at').order('updated_at', { ascending: false }),
-    ]).then(([poRes, itemsRes, catRes, supRes, projRes, obrRes, leadRes, quoRes]) => {
+      supabase.from('supplier_quote_playbooks').select('*').eq('active', true),
+    ]).then(([poRes, itemsRes, catRes, supRes, projRes, obrRes, leadRes, quoRes, pbRes]) => {
       setPO(poRes.data)
       setItems(itemsRes.data || [])
       setCatalog(catRes.data || [])
@@ -1909,10 +1913,17 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
         return { ...q, lead_id, currency }
       })
       setQuotations(qList)
+      setPlaybooks((pbRes?.data as any[]) || [])
       setLoading(false)
     })
   }
   useEffect(load, [poId])
+
+  // Helper dispatcher: devuelve el playbook activo para un supplier_id, o null
+  const getPlaybookForSupplier = (supplierId: string | null | undefined) => {
+    if (!supplierId) return null
+    return playbooks.find(p => p.supplier_id === supplierId) || null
+  }
 
   // Carga cotizaciones de un lead específico. Estrategia:
   // 1. Query por UUID del lead como substring (sin comillas — porque las comillas
@@ -2174,6 +2185,17 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
             }))
             generatePOPdf(po as any, enriched, { sinCostos: true })
           }}><FileText size={14} /> PDF sin costos</Btn>
+          {/* Botón Dispatcher de agentes — solo si supplier tiene playbook activo */}
+          {(() => {
+            const pb = getPlaybookForSupplier(po.supplier_id)
+            if (!pb) return null
+            return (
+              <Btn size="sm" variant="primary" onClick={() => setShowAgentModal(true)}
+                style={{ background: 'rgba(168,85,247,0.15)', borderColor: '#A855F7', color: '#C084FC' }}>
+                ⚡ Cotizar con agente
+              </Btn>
+            )
+          })()}
           {statusActions.map(a => (
             <div key={a.target} title={a.tooltip} style={{ display: 'inline-flex' }}>
               <Btn variant={a.variant} size="sm" disabled={a.disabled} onClick={() => changeStatus(a.target)}>{a.label}</Btn>
@@ -2195,21 +2217,42 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
           : []
         return (
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 12, marginBottom: 12 }}>
-            <SearchableSelect label="Proveedor" value={po.supplier_id || ''}
-              onChange={v => {
-                setPO(p => {
-                  if (!p) return p
-                  // Si la PO está en 'pending', precargar el default logístico del proveedor elegido
-                  const next: PurchaseOrder = { ...p, supplier_id: v }
-                  if ((!p.logistics_mode || p.logistics_mode === 'pending') && v) {
-                    const sup = suppliers.find(s => s.id === v)
-                    if (sup?.default_logistics_mode) next.logistics_mode = sup.default_logistics_mode
-                  }
-                  return next
-                })
-                setDirty(true)
-              }}
-              options={suppliers.map(s => ({ value: s.id, label: s.name }))} placeholder="-- Sin proveedor --" />
+            <div>
+              <SearchableSelect label="Proveedor" value={po.supplier_id || ''}
+                onChange={v => {
+                  setPO(p => {
+                    if (!p) return p
+                    const next: PurchaseOrder = { ...p, supplier_id: v }
+                    if ((!p.logistics_mode || p.logistics_mode === 'pending') && v) {
+                      const sup = suppliers.find(s => s.id === v)
+                      if (sup?.default_logistics_mode) next.logistics_mode = sup.default_logistics_mode
+                    }
+                    return next
+                  })
+                  setDirty(true)
+                }}
+                options={suppliers.map(s => ({ value: s.id, label: s.name }))} placeholder="-- Sin proveedor --" />
+              {/* Badge indicador de agente disponible */}
+              {(() => {
+                const pb = getPlaybookForSupplier(po.supplier_id)
+                if (!pb) {
+                  return po.supplier_id ? (
+                    <div style={{ marginTop: 4, fontSize: 10, color: '#555' }}>
+                      Sin agente — cotiza manual
+                    </div>
+                  ) : null
+                }
+                const methodLabel = pb.method === 'web_portal' ? 'Web portal' : pb.method === 'email_rfq' ? 'Email RFQ' : pb.method
+                return (
+                  <div style={{
+                    marginTop: 4, fontSize: 10, fontWeight: 600,
+                    color: '#C084FC', display: 'flex', alignItems: 'center', gap: 4,
+                  }}>
+                    ⚡ Agente disponible · {methodLabel}
+                  </div>
+                )
+              })()}
+            </div>
             <SearchableSelect label="Lead" value={currentLeadId}
               onChange={v => {
                 // Persistir lead_id directamente en el PO (columna BD).
@@ -2565,6 +2608,108 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
           {dirty && <Btn variant="primary" onClick={guardar}><Save size={14} /> {saving ? 'Guardando...' : 'Guardar cambios'}</Btn>}
         </div>
       </div>
+
+      {/* Modal del agente de cotización (dispatcher por proveedor) */}
+      {showAgentModal && (() => {
+        const pb = getPlaybookForSupplier(po.supplier_id)
+        if (!pb) return null
+        const supplier = (po.supplier as any) || suppliers.find(s => s.id === po.supplier_id)
+        const config = pb.config || {}
+        const itemsToCotizar = items
+          .map(it => {
+            const cat = catalog.find(c => c.id === it.catalog_product_id)
+            return { name: it.name || cat?.name || '', modelo: cat?.modelo || '', marca: cat?.marca || '', qty: it.quantity }
+          })
+          .filter(it => it.modelo)
+
+        return (
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+            <div style={{ background: '#141414', border: '1px solid rgba(168,85,247,0.4)', borderRadius: 16, padding: 24, width: 720, maxHeight: '85vh', overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                <div>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: '#fff', display: 'flex', alignItems: 'center', gap: 8 }}>
+                    ⚡ Agente de cotización · {supplier?.name}
+                  </div>
+                  <div style={{ fontSize: 11, color: '#888', marginTop: 4 }}>
+                    Playbook: <span style={{ color: '#C084FC' }}>{pb.name}</span> · Método: <span style={{ color: '#C084FC' }}>{pb.method}</span>
+                  </div>
+                </div>
+                <button onClick={() => setShowAgentModal(false)} style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer' }}><X size={18} /></button>
+              </div>
+
+              {/* Estado del playbook */}
+              <div style={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 8, padding: 12, marginBottom: 16, fontSize: 11, color: '#aaa' }}>
+                {config.mapping_status === 'POC EXITOSO end-to-end. Listo para construir UI integration.' ? (
+                  <span style={{ color: '#57FF9A' }}>✓ POC validado · {config.poc_validated || ''}</span>
+                ) : (
+                  <span style={{ color: '#F59E0B' }}>⚠ Playbook en construcción</span>
+                )}
+              </div>
+
+              {/* Items que se van a cotizar */}
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: '#888', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>
+                  Items para cotizar ({itemsToCotizar.length})
+                </div>
+                <div style={{ background: '#0a0a0a', border: '1px solid #222', borderRadius: 8, maxHeight: 180, overflowY: 'auto' }}>
+                  {itemsToCotizar.length === 0 ? (
+                    <div style={{ padding: 12, color: '#555', fontSize: 11, textAlign: 'center' }}>
+                      Los items de esta OC no tienen modelo definido. Agrega modelos del catálogo para que el agente pueda cotizarlos.
+                    </div>
+                  ) : (
+                    itemsToCotizar.map((it, i) => (
+                      <div key={i} style={{ padding: '8px 12px', borderBottom: '1px solid #1a1a1a', display: 'flex', justifyContent: 'space-between', fontSize: 11 }}>
+                        <span style={{ color: '#ddd' }}>
+                          <span style={{ color: '#C084FC', fontWeight: 600, fontFamily: 'monospace' }}>{it.modelo}</span>
+                          {it.marca && <span style={{ color: '#666', marginLeft: 6 }}>· {it.marca}</span>}
+                        </span>
+                        <span style={{ color: '#888' }}>qty {it.qty}</span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              {/* Instrucciones por método */}
+              {pb.method === 'web_portal' && (
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#888', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>
+                    Cómo cotizar (web portal)
+                  </div>
+                  <ol style={{ paddingLeft: 20, fontSize: 11, color: '#ccc', lineHeight: 1.7 }}>
+                    <li>Abre <a href={config.portal_url} target="_blank" rel="noreferrer" style={{ color: '#C084FC' }}>{config.portal_url}</a> y loguéate si no estás dentro</li>
+                    <li>Click "Add Project" — crea proyecto con nombre <code style={{ background: '#1a1a1a', padding: '1px 5px', borderRadius: 3, color: '#C084FC' }}>OMM {po.po_number}</code></li>
+                    <li>Para cada modelo de arriba: click "Add Product by Model Number" → mete modelo y qty → save</li>
+                    <li>Lutron muestra el List Price en tiempo real. Anótalos.</li>
+                    <li>Cuando termines, regresa al ERP y captura los precios reales en el cotejo de OC</li>
+                  </ol>
+                  <Btn size="sm" variant="primary"
+                    onClick={() => window.open(config.portal_url, '_blank')}
+                    style={{ background: 'rgba(168,85,247,0.2)', borderColor: '#A855F7', color: '#C084FC', marginTop: 8 }}>
+                    Abrir {supplier?.name} en nueva pestaña
+                  </Btn>
+                </div>
+              )}
+
+              {pb.method === 'email_rfq' && (
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#888', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>
+                    Cómo cotizar (email RFQ)
+                  </div>
+                  <div style={{ fontSize: 11, color: '#aaa' }}>
+                    Email template configurado en el playbook. Próximamente: botón "Generar email" que abre Gmail con el draft pre-llenado.
+                  </div>
+                </div>
+              )}
+
+              {/* Footer */}
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, paddingTop: 12, borderTop: '1px solid #2a2a2a' }}>
+                <Btn variant="ghost" onClick={() => setShowAgentModal(false)}>Cerrar</Btn>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* Add from catalog modal */}
       {showAddItem && (
