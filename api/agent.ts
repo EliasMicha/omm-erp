@@ -83,13 +83,27 @@ async function testLutronLogin(): Promise<TestLoginResult> {
 
   try {
     // sparticuz/chromium config oficial para Vercel + puppeteer-core
+    // Importante: executablePath() debe llamarse antes de launch para que
+    // sparticuz extraiga el binary + shared libraries
+    const executablePath = await chromium.executablePath()
+
+    // Fix para "libnss3.so: cannot open shared object file"
+    // Agregar el directorio donde sparticuz extrajo las shared libs a LD_LIBRARY_PATH
+    const path = require('path')
+    const libDir = path.dirname(executablePath)
+    process.env.LD_LIBRARY_PATH = `${libDir}:${process.env.LD_LIBRARY_PATH || ''}`
+
     browser = await puppeteer.launch({
       args: chromium.args.concat([
         '--disable-blink-features=AutomationControlled',
       ]),
       defaultViewport: { width: 1412, height: 743 },
-      executablePath: await chromium.executablePath(),
+      executablePath,
       headless: chromium.headless as any,
+      env: {
+        ...process.env,
+        LD_LIBRARY_PATH: process.env.LD_LIBRARY_PATH,
+      } as any,
     })
 
     const page = await browser.newPage()

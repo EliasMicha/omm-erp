@@ -10,7 +10,7 @@
     "build:typecheck": "tsc && vite build"
   },
   "dependencies": {
-    "@sparticuz/chromium": "^131.0.1",
+    "@sparticuz/chromium": "130.0.0",
     "@supabase/supabase-js": "^2.49.4",
     "jspdf": "^4.2.1",
     "jspdf-autotable": "^5.0.7",
