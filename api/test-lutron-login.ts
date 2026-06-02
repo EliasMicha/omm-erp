@@ -26,7 +26,6 @@ import { chromium as playwrightChromium } from 'playwright-core'
 export const config = {
   // Vercel function: Hobby = 60s max con esta config; suficiente para login
   maxDuration: 60,
-  runtime: 'nodejs20.x',
 }
 
 interface TestResult {
