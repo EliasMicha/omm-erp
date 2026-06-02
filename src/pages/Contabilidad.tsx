@@ -2005,7 +2005,7 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [showManual, setShowManual] = useState(false)
-  const [manual, setManual] = useState({ fecha: new Date().toISOString().substring(0, 10), concepto: '', beneficiario: '', monto: '', tipo: 'cargo' as 'cargo' | 'abono', categoria: 'otro', proyecto: '' })
+  const [manual, setManual] = useState({ fecha: new Date().toISOString().substring(0, 10), concepto: '', beneficiario: '', monto: '', tipo: 'cargo' as 'cargo' | 'abono', categoria: 'otro', lead_id: '', quotation_id: '' })
   const fileRef = useRef<HTMLInputElement>(null)
   const [monthOffset, setMonthOffset] = useState(0)
   // Conciliacion v2 - 3 cuentas
@@ -2087,20 +2087,27 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
 
   const addManual = async () => {
     const monto = Math.abs(parseFloat(manual.monto) || 0)
-    if (!manual.concepto.trim() || monto === 0) return
-    // Importante: ligar el movimiento a la cuenta activa para que aparezca en los
-    // filtros (banco + cuenta + moneda). Sin esto, no se cuenta en KPIs ni tabla.
+    if (!manual.concepto.trim() || monto === 0) {
+      alert('Llena concepto y monto antes de agregar.')
+      return
+    }
+    // Ligar el movimiento a la cuenta activa (BBVA MXN/USD/Banorte) para que
+    // aparezca en KPIs y tabla del tab actual.
     const acc = ACCOUNTS[activeAccount]
-    // Avisar si la fecha no cae en el mes seleccionado (para evitar que el user
-    // crea que se "perdió" el movimiento por estar viendo otro mes)
+    // Si la fecha cae fuera del mes que se está viendo, avisar al user.
+    // Usar monthDate (que sí existe en este scope) en vez de selectedMonth.
     const movMonth = manual.fecha.substring(0, 7)
-    if (movMonth !== selectedMonth) {
+    const viewingMonth = `${monthDate.getFullYear()}-${String(monthDate.getMonth() + 1).padStart(2, '0')}`
+    if (movMonth !== viewingMonth) {
       const proceed = confirm(
-        `La fecha del movimiento (${manual.fecha}) cae en ${movMonth} pero estás viendo ${selectedMonth}. ` +
-        `Se va a guardar y aparecerá cuando navegues a ${movMonth}. ¿Continuar?`
+        `La fecha (${manual.fecha}) está en ${movMonth} pero estás viendo ${monthLabelCapitalized}.\n\n` +
+        `El movimiento se va a guardar y aparecerá cuando navegues a ${movMonth}. ¿Continuar?`
       )
       if (!proceed) return
     }
+    // Resolver nombre del proyecto desde la cotización vinculada (si hay)
+    const linkedQuote = manual.quotation_id ? assignQuotations.find(q => q.id === manual.quotation_id) : null
+    const linkedLead = manual.lead_id ? assignLeads.find(l => l.id === manual.lead_id) : null
     const newMov: BankMovement = {
       id: crypto.randomUUID(),
       fecha: manual.fecha,
@@ -2110,17 +2117,19 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
       tipo: manual.tipo,
       saldo: 0,
       categoria_sugerida: manual.categoria,
-      proyecto_sugerido: manual.proyecto,
+      proyecto_sugerido: linkedQuote?.name || linkedLead?.name || '',
       beneficiario: manual.beneficiario.trim(),
       conciliado: false,
       banco: acc.banco,
       cuenta: acc.cuenta,
       moneda: acc.moneda,
       source: 'manual',
+      lead_id: manual.lead_id || undefined,
+      quotation_id: manual.quotation_id || undefined,
     }
     setBankMovements([newMov, ...bankMovements])
     dbInsertMany([newMov])
-    setManual({ fecha: new Date().toISOString().substring(0, 10), concepto: '', beneficiario: '', monto: '', tipo: 'cargo', categoria: 'otro', proyecto: '' })
+    setManual({ fecha: new Date().toISOString().substring(0, 10), concepto: '', beneficiario: '', monto: '', tipo: 'cargo', categoria: 'otro', lead_id: '', quotation_id: '' })
     setShowManual(false)
   }
 
@@ -3067,7 +3076,7 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
               </select>
             </div>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 8, alignItems: 'end' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr auto', gap: 8, alignItems: 'end' }}>
             <div>
               <div style={{ fontSize: 10, color: '#666', marginBottom: 4 }}>Categoría</div>
               <select value={manual.categoria} onChange={e => setManual(m => ({ ...m, categoria: e.target.value }))} style={{ width: '100%', padding: '6px 8px', fontSize: 12, background: '#0a0a0a', border: '1px solid #333', borderRadius: 6, color: '#fff', fontFamily: 'inherit' }}>
@@ -3075,10 +3084,32 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
               </select>
             </div>
             <div>
-              <div style={{ fontSize: 10, color: '#666', marginBottom: 4 }}>Proyecto</div>
-              <select value={manual.proyecto} onChange={e => setManual(m => ({ ...m, proyecto: e.target.value }))} style={{ width: '100%', padding: '6px 8px', fontSize: 12, background: '#0a0a0a', border: '1px solid #333', borderRadius: 6, color: '#fff', fontFamily: 'inherit' }}>
-                <option value="">Sin proyecto</option>
-                {projectNames.map(p => <option key={p} value={p}>{p}</option>)}
+              <div style={{ fontSize: 10, color: '#666', marginBottom: 4 }}>Lead</div>
+              <select
+                value={manual.lead_id}
+                onChange={e => {
+                  const newLeadId = e.target.value
+                  // Al cambiar de lead, limpiar la cotización seleccionada
+                  setManual(m => ({ ...m, lead_id: newLeadId, quotation_id: '' }))
+                }}
+                style={{ width: '100%', padding: '6px 8px', fontSize: 12, background: '#0a0a0a', border: '1px solid #333', borderRadius: 6, color: '#fff', fontFamily: 'inherit' }}
+              >
+                <option value="">Sin lead</option>
+                {assignLeads.map(l => <option key={l.id} value={l.id}>{l.name}{l.company ? ` — ${l.company}` : ''}</option>)}
+              </select>
+            </div>
+            <div>
+              <div style={{ fontSize: 10, color: '#666', marginBottom: 4 }}>Cotización del lead</div>
+              <select
+                value={manual.quotation_id}
+                onChange={e => setManual(m => ({ ...m, quotation_id: e.target.value }))}
+                disabled={!manual.lead_id}
+                style={{ width: '100%', padding: '6px 8px', fontSize: 12, background: '#0a0a0a', border: '1px solid #333', borderRadius: 6, color: manual.lead_id ? '#fff' : '#555', fontFamily: 'inherit', opacity: manual.lead_id ? 1 : 0.5 }}
+              >
+                <option value="">{manual.lead_id ? 'Sin cotización' : 'Elige lead primero'}</option>
+                {manual.lead_id && assignQuotations.filter(q => q.lead_id === manual.lead_id).map(q => (
+                  <option key={q.id} value={q.id}>{q.name}{q.specialty ? ` · ${q.specialty}` : ''}</option>
+                ))}
               </select>
             </div>
             <div style={{ display: 'flex', gap: 6 }}>
