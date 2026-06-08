@@ -121,10 +121,20 @@ function NuevoLeadModal({ onClose, onCreated }: { onClose: () => void; onCreated
   const [newClientName, setNewClientName] = useState('')
   const [newClientRazon, setNewClientRazon] = useState('')
   const [newClientRfc, setNewClientRfc] = useState('')
+  // Lista de arquitectos ya registrados (dedup por company de leads existentes).
+  // Permite autocomplete para evitar duplicados tipo "Braverman" vs "Braverman Arq."
+  const [architects, setArchitects] = useState<string[]>([])
+  const [showArchitectDrop, setShowArchitectDrop] = useState(false)
 
   useEffect(() => {
     supabase.from('clientes').select('id,nombre_comercial,razon_social,rfc,regimen_fiscal,codigo_postal,uso_cfdi_clave,email').neq('activo', false).order('razon_social')
       .then(({ data }) => setClientes(data || []))
+    // Cargar arquitectos únicos de leads existentes
+    supabase.from('leads').select('company').not('company', 'is', null).then(({ data }) => {
+      const unique = Array.from(new Set((data || []).map((l: any) => (l.company || '').trim()).filter(Boolean)))
+        .sort((a, b) => a.localeCompare(b))
+      setArchitects(unique)
+    })
   }, [])
 
   const s = (k: string) => (v: string) => setForm(f => ({ ...f, [k]: v }))
@@ -181,12 +191,46 @@ function NuevoLeadModal({ onClose, onCreated }: { onClose: () => void; onCreated
         <div style={{ display: 'grid', gap: 14 }}>
           <Field label="Nombre / Proyecto *" value={form.name} onChange={s('name')} placeholder="ej. Casa Salame" />
 
-          {/* Arquitecto / Despacho */}
+          {/* Arquitecto / Despacho — autocompletado para evitar duplicados */}
           <label style={{ fontSize: 11, color: '#555', textTransform: 'uppercase' as const, letterSpacing: '0.06em' }}>
             Arquitecto / Despacho
-            <input value={form.company} onChange={e => { s('company')(e.target.value) }}
-              placeholder="ej. Niz+Chauvet Arquitectos"
-              style={{ display: 'block', width: '100%', marginTop: 4, padding: '8px 10px', background: '#1e1e1e', border: '1px solid #333', borderRadius: 8, color: '#fff', fontSize: 13, fontFamily: 'inherit', boxSizing: 'border-box' as const }} />
+            <div style={{ position: 'relative' as const, marginTop: 4 }}>
+              <input value={form.company}
+                onChange={e => s('company')(e.target.value)}
+                onFocus={() => setShowArchitectDrop(true)}
+                onBlur={() => setTimeout(() => setShowArchitectDrop(false), 200)}
+                placeholder="Empieza a escribir... (se autocompleta con arquitectos existentes)"
+                style={{ width: '100%', padding: '8px 10px', background: '#1e1e1e', border: '1px solid ' + (showArchitectDrop ? '#57FF9A' : '#333'), borderRadius: 8, color: '#fff', fontSize: 13, fontFamily: 'inherit', boxSizing: 'border-box' as const }} />
+              {showArchitectDrop && (() => {
+                const q = (form.company || '').toLowerCase().trim()
+                const filtered = q
+                  ? architects.filter(a => a.toLowerCase().includes(q)).slice(0, 12)
+                  : architects.slice(0, 12)
+                const hasExactMatch = q && architects.some(a => a.toLowerCase() === q)
+                return (
+                  <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#1a1a1a', border: '1px solid #333', borderRadius: 8, marginTop: 2, maxHeight: 240, overflowY: 'auto', zIndex: 10 }}>
+                    {filtered.map(a => (
+                      <div key={a}
+                        onMouseDown={e => e.preventDefault()}
+                        onClick={() => { s('company')(a); setShowArchitectDrop(false) }}
+                        style={{ padding: '8px 10px', cursor: 'pointer', fontSize: 12, color: '#ccc', borderBottom: '1px solid #222' }}
+                        onMouseEnter={e => { e.currentTarget.style.background = '#222' }}
+                        onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}>
+                        {a}
+                      </div>
+                    ))}
+                    {q && !hasExactMatch && (
+                      <div style={{ padding: '8px 10px', fontSize: 11, color: '#57FF9A', borderTop: '1px solid #222', background: 'rgba(87,255,154,0.05)' }}>
+                        ⏎ Se va a crear "<strong style={{ color: '#fff' }}>{form.company}</strong>" como arquitecto nuevo
+                      </div>
+                    )}
+                    {filtered.length === 0 && !q && (
+                      <div style={{ padding: 10, fontSize: 11, color: '#555', textAlign: 'center' }}>No hay arquitectos registrados todavía</div>
+                    )}
+                  </div>
+                )
+              })()}
+            </div>
           </label>
 
           {/* Cliente Final (quien paga/factura) with dropdown */}
@@ -314,10 +358,18 @@ function LeadModal({ lead, onClose, onUpdated, onDeleted }: {
   const [newClientName, setNewClientName] = useState('')
   const [newClientRazon, setNewClientRazon] = useState('')
   const [newClientRfc, setNewClientRfc] = useState('')
+  // Autocomplete de arquitectos (mismo patrón que NuevoLeadModal)
+  const [architects, setArchitects] = useState<string[]>([])
+  const [showArchitectDrop, setShowArchitectDrop] = useState(false)
 
   useEffect(() => {
     supabase.from('clientes').select('id,nombre_comercial,razon_social,rfc,regimen_fiscal,codigo_postal,uso_cfdi_clave,email').neq('activo', false).order('razon_social')
       .then(({ data }) => setClientes(data || []))
+    supabase.from('leads').select('company').not('company', 'is', null).then(({ data }) => {
+      const unique = Array.from(new Set((data || []).map((l: any) => (l.company || '').trim()).filter(Boolean)))
+        .sort((a, b) => a.localeCompare(b))
+      setArchitects(unique)
+    })
   }, [])
 
   const filteredClientes = clientSearch.length >= 1
@@ -441,7 +493,47 @@ function LeadModal({ lead, onClose, onUpdated, onDeleted }: {
         <div style={{ flex: 1, overflowY: 'auto' as const, padding: '18px 22px' }}>
           <div style={{ display: 'grid', gap: 14 }}>
             <Field label="Nombre / Proyecto" value={form.name} onChange={s('name')} />
-            <Field label="Arquitecto / Despacho" value={form.company} onChange={s('company')} placeholder="ej. Niz+Chauvet Arquitectos" />
+            {/* Arquitecto / Despacho — autocompletado contra arquitectos existentes */}
+            <label style={{ fontSize: 11, color: '#555', textTransform: 'uppercase' as const, letterSpacing: '0.06em' }}>
+              Arquitecto / Despacho
+              <div style={{ position: 'relative' as const, marginTop: 4 }}>
+                <input value={form.company}
+                  onChange={e => s('company')(e.target.value)}
+                  onFocus={() => setShowArchitectDrop(true)}
+                  onBlur={() => setTimeout(() => setShowArchitectDrop(false), 200)}
+                  placeholder="Empieza a escribir... (autocomplete contra arquitectos existentes)"
+                  style={{ width: '100%', padding: '8px 10px', background: '#1e1e1e', border: '1px solid ' + (showArchitectDrop ? '#57FF9A' : '#333'), borderRadius: 8, color: '#fff', fontSize: 13, fontFamily: 'inherit', boxSizing: 'border-box' as const }} />
+                {showArchitectDrop && (() => {
+                  const q = (form.company || '').toLowerCase().trim()
+                  const filtered = q
+                    ? architects.filter(a => a.toLowerCase().includes(q)).slice(0, 12)
+                    : architects.slice(0, 12)
+                  const hasExactMatch = q && architects.some(a => a.toLowerCase() === q)
+                  return (
+                    <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#1a1a1a', border: '1px solid #333', borderRadius: 8, marginTop: 2, maxHeight: 240, overflowY: 'auto', zIndex: 10 }}>
+                      {filtered.map(a => (
+                        <div key={a}
+                          onMouseDown={e => e.preventDefault()}
+                          onClick={() => { s('company')(a); setShowArchitectDrop(false) }}
+                          style={{ padding: '8px 10px', cursor: 'pointer', fontSize: 12, color: '#ccc', borderBottom: '1px solid #222' }}
+                          onMouseEnter={e => { e.currentTarget.style.background = '#222' }}
+                          onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}>
+                          {a}
+                        </div>
+                      ))}
+                      {q && !hasExactMatch && (
+                        <div style={{ padding: '8px 10px', fontSize: 11, color: '#57FF9A', borderTop: '1px solid #222', background: 'rgba(87,255,154,0.05)' }}>
+                          ⏎ Se va a guardar como arquitecto nuevo: "<strong style={{ color: '#fff' }}>{form.company}</strong>"
+                        </div>
+                      )}
+                      {filtered.length === 0 && !q && (
+                        <div style={{ padding: 10, fontSize: 11, color: '#555', textAlign: 'center' }}>No hay arquitectos registrados</div>
+                      )}
+                    </div>
+                  )
+                })()}
+              </div>
+            </label>
             {/* Cliente Final (quien paga/factura) with dropdown */}
             <label style={{ fontSize: 11, color: '#555', textTransform: 'uppercase' as const, letterSpacing: '0.06em' }}>
               Cliente Final (quien paga / factura)
