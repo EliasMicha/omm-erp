@@ -8,6 +8,23 @@ body {
   font-family: 'DM Sans', 'Inter', system-ui, sans-serif;
   font-size: 13px;
   -webkit-font-smoothing: antialiased;
+  /* Safe area insets para iOS (notch, dynamic island) y Android edge cases.
+     env(safe-area-inset-*) es 0 en desktop y > 0 en dispositivos con notch. */
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+  min-height: 100vh;
+  /* Para que elementos position:fixed top:0 también respeten el notch — el body
+     ya tiene padding, pero por si acaso usamos un custom property. */
+}
+
+/* CSS custom properties para que cualquier componente acceda al safe area */
+:root {
+  --safe-area-top: env(safe-area-inset-top, 0px);
+  --safe-area-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-area-left: env(safe-area-inset-left, 0px);
+  --safe-area-right: env(safe-area-inset-right, 0px);
 }
 
 ::-webkit-scrollbar { width: 4px; height: 4px; }
