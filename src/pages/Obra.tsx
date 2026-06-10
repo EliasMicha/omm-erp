@@ -1155,9 +1155,9 @@ ${teamInfo.map((t: any) => `- ${t.nombre} (id: "${t.id}") — Habilidades: ${t.h
 Asigna cada tarea al instalador más apropiado según el sistema de la tarea y las habilidades del instalador.`
       }
 
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
+      const response = await fetch('/api/anthropic', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'anthropic-dangerous-direct-browser-access': 'true', 'anthropic-version': '2023-06-01', 'x-api-key': ANTHROPIC_API_KEY },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           model: 'claude-sonnet-4-20250514', max_tokens: 8000,
           system: `Eres coordinador de obra de instalaciones especiales. A partir de la cotización, genera las TAREAS DE INSTALACIÓN en campo.
@@ -1552,9 +1552,9 @@ function ReporteClienteModal({ obra, instaladores, onClose }: {
         faltantes: allFaltantes.slice(0, 5),
         sistemas: Array.from(bySystem.entries()).map(([k, v]) => `${k}: ${v.pct}%`),
       }
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
+      const response = await fetch('/api/anthropic', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'anthropic-dangerous-direct-browser-access': 'true', 'anthropic-version': '2023-06-01', 'x-api-key': ANTHROPIC_API_KEY },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           model: 'claude-sonnet-4-20250514', max_tokens: 2000,
           system: `Eres redactor de reportes de avance de obra para OMM Technologies (instalaciones especiales).
@@ -2470,9 +2470,9 @@ function TabPlaneacion({ obras, instaladores }: { obras: ObraData[]; instaladore
     ).join('\n')
 
     try {
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
+      const response = await fetch('/api/anthropic', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'anthropic-dangerous-direct-browser-access': 'true', 'anthropic-version': '2023-06-01', 'x-api-key': ANTHROPIC_API_KEY },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           model: 'claude-sonnet-4-20250514', max_tokens: 4000,
           system: `Eres el coordinador de obra de OMM Technologies, empresa de instalaciones especiales (CCTV, audio, redes, control de iluminación Lutron, control de acceso, eléctrico).

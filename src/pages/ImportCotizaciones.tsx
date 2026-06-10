@@ -212,13 +212,10 @@ Devuelve SOLO un JSON array válido sin markdown ni explicaciones:`
       ]
     }
 
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
+    const res = await fetch('/api/anthropic', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true'
       },
       body: JSON.stringify({
         // Sonnet 4.6 — mejor extracción de tablas y formatos densos como Project Tracker

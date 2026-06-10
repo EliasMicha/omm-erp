@@ -1526,13 +1526,10 @@ function CreateProductModal({ onClose, onCreate, systemName }: {
     setAiStatus('Buscando información del producto...')
 
     try {
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
+      const response = await fetch('/api/anthropic', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'anthropic-dangerous-direct-browser-access': 'true',
-          'anthropic-version': '2023-06-01',
-          'x-api-key': ANTHROPIC_API_KEY,
         },
         body: JSON.stringify({
           model: 'claude-sonnet-4-20250514',

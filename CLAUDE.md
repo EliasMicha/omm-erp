@@ -1,5 +1,214 @@
 # CLAUDE.md — OMM ERP Context Document
-## Last updated: 2026-04-16 (Sesión Cotizador Cortinas completo)
+## Last updated: 2026-05-21 (Sesión catch-up + documentación de 304 commits no documentados)
+
+---
+
+## 🔥 Sesión 2026-05-21 — Catch-up: 304 commits sin documentar + WIP obsoleto descartado
+
+### Resumen ejecutivo
+Al abrir la sesión, el local estaba **304 commits atrás** de `origin/main`. La última doc en CLAUDE.md era 2026-04-16. Entre abril y mayo se trabajó intensamente desde otras máquinas/sesiones sin actualizar este documento: se construyeron **módulos completos nuevos** (Auth, Mantenimiento, Finanzas, Empleados, Usuarios, OMM Bot, Memoria Técnica, AI Live Build, Change Orders, Import Cotizaciones, varios dashboards por rol) y se evolucionaron los existentes (versionamiento de cotizaciones en todos los editores, Materiales en Obra, modos logísticos en Compras, Entregas v2 con responsive móvil).
+
+También había **WIP local sin commitear** del 17-abr en `App.tsx`, `Compras.tsx`, `Obra.tsx`, `Entregas.tsx` + 3 SQL — todo el trabajo previo del módulo Entregas. Tras un análisis de funciones únicas (0 funciones únicas en WIP de Compras, 1 versión vieja de `SubMateriales` en Obra; main agregó `ProcurementDetail`, `ProcurementTracker`, `SearchableSelect`, `AutogenWizard`, `ReporteClienteModal`, etc.), se confirmó que el WIP era estrictamente un subconjunto de lo ya pusheado a main. Decisión: descartar.
+
+### ⚠️ Restricción técnica del sandbox de bash
+El sandbox no permite escribir/borrar en `.git/` (archivos como `.git/index.lock` y `.git/config.lock` de la sesión que crasheó el 16-abr quedaron stale con permisos read-only, Operation not permitted incluso siendo mismo user). **`git pull`, `git stash`, `git config`, `git checkout` desde la sandbox FALLAN**. Las operaciones read-only sí funcionan:
+- `git show origin/main:<path>` — OK
+- `git log`, `git diff` — OK
+- `git fetch` — OK parcial (actualiza refs pero deja warnings de tmp pack)
+
+**Workaround para sincronizar el working tree**: el usuario debe correr los comandos en su Terminal nativo (fuera de la sandbox). Ver "Comandos para sincronizar" al final.
+
+### Sistema de Autenticación y Access Control (commit `4c39f42`)
+
+**Tablas Supabase nuevas**: `app_users` (id, email, password_hash usando pgcrypto, nombre, permission_area, nivel, employee_id, activo, created_at). RPC `verify_login(email, password)` que valida con `crypt()`.
+
+**Archivos clave**:
+- `src/contexts/AuthContext.tsx` (~95 líneas) — `AuthProvider`, `useAuth()`, sesión en `localStorage.omm_user`
+- `src/components/ProtectedRoute.tsx` (~50 líneas) — guard con `allowedAreas` + verificación de `activo`
+- `src/pages/Login.tsx` (~97 líneas) — UI dark theme OMM verde #57FF9A
+- `src/pages/Usuarios.tsx` (~322 líneas) — CRUD de `app_users` con link a `employees`, reset password via RPC
+
+**Tipos exportados desde AuthContext**:
+```ts
+type PermissionArea = 'DG' | 'Administracion' | 'Ventas_Ingenieria' | 'Operaciones'
+type UserNivel = 'director' | 'ejecutor'
+```
+
+**Reglas de acceso por área** (definidas en Sidebar.tsx + ProtectedRoute):
+- `DG`: acceso total a todo
+- `Administracion`: Finanzas, Nómina, Empleados, Contabilidad, Facturación (rutas protegidas con `allowedAreas={['Administracion']}`)
+- `Ventas_Ingenieria`: Cotizaciones, Proyectos, Leads, Reglas AI
+- `Operaciones`: Obra, Compras, Entregas, Mantenimiento
+- Ruta `/usuarios` con `allowedAreas={[]}` = solo DG
+
+**App.tsx** ahora envuelve todo en `<AuthProvider>` + `<ProtectedRoute>`. Rutas nuevas:
+`/login`, `/crm/:id` (LeadDashboard), `/cotizacion/:id/memoria-tecnica`, `/mantenimiento`, `/finanzas`, `/empleados`, `/usuarios`. Más el widget global `<ChatBot />` montado fuera de `<main>`.
+
+### Módulo Mantenimiento (commit `5b6c8aa`)
+`src/pages/Mantenimiento.tsx` (~1831 líneas). Gestión de propiedades post-venta, contratos y tickets.
+
+**Tablas**:
+- `properties` — propiedades de clientes (vinculadas a leads/proyectos)
+- `contracts` — `tipo: 'poliza' | 'por_visita'`, `monthly_fee | annual_fee`, `visits_included`, `visits_used`
+- `tickets_row` — tickets con `category` (falla / mantenimiento_preventivo / solicitud_nueva / garantia), `priority`, `status`, `assigned_to`
+
+**Features**: dashboard con KPIs (propiedades activas, ingresos recurrentes MXN/USD, tickets abiertos vs resueltos), gestión de pólizas con conteo de visitas usadas, upsell tracking (oportunidades de venta cruzada desde tickets de garantía).
+
+### Módulo Finanzas (commit `bf9cfaa` — reemplaza Cobranza)
+`src/pages/Finanzas.tsx` (~1040 líneas). Dashboard financiero ejecutivo.
+
+**Lógica clave**: categorización automática de movimientos bancarios por emisor:
+- SEGURO SOCIAL → impuestos
+- LUTRON, PROCABLES, etc. → material_obra
+- Otros mapeos por keyword en `concepto`
+
+Usa `bank_movements` + `facturas` (recibidas). Charts con Chart.js: ingresos vs egresos mes a mes, breakdown por categoría, top proveedores.
+
+### Sistema de Versionamiento de Cotizaciones (commits `e55bad0`, `090badb`, `6f0de69`, `defa494`, etc.)
+
+**Implementado en TODOS los editores**: ESP, Cortinas, Iluminación, Proyecto.
+
+`src/components/VersionManager.tsx` (~680 líneas). Permite tener múltiples versiones de la misma cotización agrupadas por `version_group_id`. Cada versión tiene su propio snapshot independiente de config/areas/items.
+
+**Columnas nuevas en `quotations`**:
+- `version_group_id` (uuid) — agrupa hermanas
+- `version_label` (text) — nombre amigable ("v1", "Sin instalación", "Premium")
+- Otras versiones existentes: `stage`, `specialty`, `total`, `updated_at`
+
+**Features**:
+- Botón "Nueva versión" en cada editor — duplica todo el contenido a una nueva fila quotations + nuevas quotation_areas + quotation_items
+- Switcher en `Cotizaciones.tsx` para alternar entre versiones (con `key={openId}` para forzar re-mount)
+- Comparación A/B visual
+- Rename de versiones
+- Track de "última versión vista" para que la lista muestre la fila correcta tras switch (commit `8c5361d`, `c446182`)
+
+### Materiales en Obra + Modos Logísticos en Compras (commits `1f980dc`, `d4e48cb`)
+
+**Obra.tsx — Pestaña Materiales**: matriz de 4 estados por item — Cotizado / Pedido / Recibido / Entregado. Cruza `quotation_items` (lo cotizado) ↔ `po_items` (lo pedido en OC) ↔ `delivery_items` (lo entregado). Match por `catalog_product_id` (strict) con fallback a nombre normalizado vía función `matBucket()`. Filtros por estado: `falta_pedir`, `falta_recibir`, `falta_entregar`, `completo`.
+
+**Compras.tsx — 5 modos logísticos por PO**:
+```
+pending             — Por decidir
+pickup_to_bodega    — Recolectar → bodega OMM
+pickup_to_obra      — Recolectar → directo a obra
+supplier_to_bodega  — Proveedor → bodega OMM
+supplier_to_obra    — Proveedor → directo a obra
+```
+Cada proveedor tiene `default_logistics_mode` para autocompletar al crear PO. Los modos `*_obra` requieren `logistics_target_obra_id`.
+
+### Entregas v2 final (commits `920b257`, varios)
+`src/pages/Entregas.tsx` (~1554 líneas). 4 tabs:
+1. **Dashboard** — KPIs de entregas pendientes, en ruta, del día
+2. **Recolecciones Pendientes** — POs con logistics_mode pickup_* listas para programar
+3. **Entregas a Obra** — entregas desde bodega o directas
+4. **Historial** — todas las entregas con filtros
+
+**Tipos**:
+```ts
+type DeliveryType = 'entrega' | 'recoleccion' | 'recoleccion_directa'
+type DeliveryStatus = 'pendiente' | 'en_ruta' | 'entregado' | 'cancelado'
+type ItemDirection = 'in_bodega' | 'in_obra' | 'out_bodega_to_obra'
+```
+
+**Tablas**: `deliveries` (origin/destination ahora nullable, folio, signatures_url, photo_evidence[], driver_id, installer_id) + `delivery_items` (nueva, una fila por SKU).
+
+**Features**: firma en canvas (driver + receiver), upload de fotos a Supabase Storage bucket `entregas/`, generación de remisión PDF en ventana nueva, responsive móvil con `useIsMobile`.
+
+### Módulo Empleados real (commit `267ea26`)
+`src/pages/Empleados.tsx` (~528 líneas). Tabla + organigrama con `reporta_a_id`. 9 áreas: `DG, ADMINISTRACION, INGENIERIAS_ESPECIALES, ILUMINACION, OBRA, LOGISTICA, CASA_LUCE, NULED`. Vinculación bidireccional con `app_users` para acceso al sistema.
+
+### OMM Bot (commit `758bd07`)
+`src/components/ChatBot.tsx` (~357 líneas). Widget flotante (esquina inf-derecha) con OpenAI function calling. Permite preguntas sobre el ERP (estado de cotizaciones, balance del banco, búsqueda de leads, etc.) usando las tablas Supabase como herramientas.
+
+### Memoria Técnica (commit `080d621`)
+`src/pages/MemoriaTecnica.tsx` (~660 líneas) + ruta `/cotizacion/:id/memoria-tecnica`. Visor + descargador en HTML/PDF. Datos almacenados en JSON estructurado dentro del campo `quotations.memoria_tecnica` con campos: `alcance[]`, `fichas_tecnicas[]`, `topologia` (mermaid), `consideraciones[]`. Colores por sistema (Audio #8B5CF6, CCTV #3B82F6, Redes #06B6D4). Export con html2canvas + jsPDF.
+
+### AI Quote Live + Import Cotizaciones (módulos relacionados)
+- `src/pages/AIQuoteLive.tsx` (~1783 líneas) — generador interactivo con wizard conversacional, soporta zonas, sistemas (iluminación/audio/CCTV/redes/BMS/cortinas), auto-sugiere desde precedentes
+- `src/pages/ImportCotizaciones.tsx` (~631 líneas) — carga masiva desde PDF parseado con Claude API. Extrae nombre/cliente/specialty/areas/items con marca/modelo/cost/markup/total
+
+### Change Orders (módulo nuevo)
+`src/pages/ChangeOrders.tsx` (~862 líneas). Tablas `change_orders` + `change_order_items` (`accion`, `original_item_id`, `catalog_product_id`, `costo`, `markup`, `cantidad`). Acciones: agregar / quitar / swap / cambio_qty. Threshold de aprobación: $5,000 configurable. Calcula `delta_costo` acumulativo.
+
+### Dashboards por rol (commits varios)
+- `DashboardAdmin.tsx` (~540 líneas) — Admin: usuarios, facturación, nómina, tesorería
+- `DashboardProduccion.tsx` (~245 líneas) — Producción: tareas completadas, progreso por especialidad (usa `project_tasks`)
+- `DashboardVentasIng.tsx` (~818 líneas) — Ventas/Ingeniería: pipeline por stage, leads, conversión
+
+### LeadDashboard nuevo (commit `975c985`)
+`src/pages/LeadDashboard.tsx` (~1573 líneas). Ruta `/crm/:id`. Estados: prospecto / contactado / propuesta / ganado / perdido. Integración con `quotations` para tracking de oportunidades. Timeline de interacciones. **Fix `c5a95a4`**: el summary del CRM ahora solo cuenta la versión activa de cotización (no la suma de todas las versiones hermanas — eso inflaba el pipeline).
+
+### Nómina mejoras (TabPeriodos)
+`src/pages/nomina/TabPeriodos.tsx` (~947 líneas). Tabla `payroll_periods` (frequency: semanal/quincenal, period_start/end, estatus, total_transferencia, total_efectivo, total_bonos, notas). **Parser SFacil PDF** (`parseSFacilNominaPDF` en `src/lib/nominaPdfParser.ts` ~298 líneas): extrae nombre/RFC/SDI/percepciones/deducciones/neto. Reconciliación transferencias vs efectivo.
+
+### Componentes y utilidades nuevas
+- `src/components/ActionItems.tsx` (~577 líneas) — tareas + action items con `due_date`, `priority`, `tags`, `recurring`
+- `src/components/CalendarWidget.tsx` (~126 líneas) — mini calendario con eventos
+- `src/components/EmailImport.tsx` (~379 líneas) — importa de Outlook/Gmail para crear action items
+- `src/components/EditCotInfoModal.tsx` (~118 líneas) — edita metadata de cotización
+- `src/lib/poPdf.ts` (~275 líneas) — generador PDF de OC
+- `src/lib/projectUtils.ts` (~220 líneas) — helpers de precios/markups/stats
+- `src/lib/useIsMobile.ts` (~18 líneas) — hook viewport < 768px
+
+### Otros fixes y mejoras destacadas en el rango
+| Commit | Fix/Feature |
+|--------|-------------|
+| `e920085` | Default instalación 22% → 25% en cotizadores |
+| `a6eea99` | IVA editable por cotización en CotEditorESP |
+| `9805c1c` | Multiple bank accounts por proveedor (MXN/USD) |
+| `3bc54d3` | Fix de inconsistencias en totales de cotización across pages |
+| `5b42566` | TODOS los módulos responsive móvil (`useIsMobile` agregado a Entregas, Sidebar, etc.) |
+| `769a7f6` | Permitir linkear cualquier cotización a obra y mostrar todas las especialidades |
+| `1115fee` / `d2adb1c` / `3ee2b4c` | Client report generator (compacto, profesional) con HTML template fijo |
+| `787b2ea` | Checkbox selection + bulk delete para tareas |
+| `dafd352` | Task assignment dropdown + status filter + delete |
+| `a91fdfe` | AI wizard interactivo para auto-generar tareas |
+| `58333fa` | Fix coordinador dropdown + multi-cotización en Nueva Obra modal |
+| `c2a0e0e` | Searchable lead dropdown en Nueva Obra modal |
+| `4c54219` | Filtrar empleados por área y tipo de trabajo en obra/proyectos |
+| `ff6dae1` | Restructura de fases ilum (evolving tasks con subtasks por fase) |
+| `8e6c209` | Review workflow para TODOS los subtasks (no solo evolving) |
+| `daf4159` | Tareas asignadas en dashboard Pendientes |
+| `e4f7532`, `b146564`, `f72a8ac`, `1f194ab` | Varios fixes a OC modal (FK hint, filter por lead_id desde notes JSON, strict supplier/phase filtering, consolidar duplicados) |
+| `c9b6627`, `fdf3400` | Seguimiento tab en Compras (Vendido → OC → Pedido por item) + summary con drilldown |
+| `2c68124` | Reemplaza Proyecto column con Cotización + Lead en tablas de Compras |
+| `bb48763`, `3276a77`, `fecd18a` | PDF export para OC con marca/modelo + "sin costos" para mandar a proveedor |
+
+### Comandos para sincronizar el working tree local
+
+Ejecutar en Terminal nativa de macOS (NO desde Claude — el sandbox no puede tocar `.git/`):
+
+```bash
+cd /Users/eliasmicha/Documents/Claude/Projects/OMM-ERP
+
+# 1. Limpiar locks stale de la sesión crasheada del 16-abr
+rm -f .git/index.lock .git/config.lock
+
+# 2. Descartar el WIP obsoleto (todo eso ya está en main, mejor versión)
+git checkout -- src/App.tsx src/pages/Compras.tsx src/pages/Obra.tsx
+rm -f src/pages/Entregas.tsx supabase_entregas_migration.sql supabase_entregas_v2_migration.sql supabase_entregas_v2_paso2_migration.sql sembrado_maria_attie_preview.pdf test_sembrado_7_sistemas.pdf zerenity_sembrado_audio.pdf
+
+# 3. Fast-forward a origin/main (304 commits)
+git pull origin main
+
+# 4. Verificar build
+npm run build
+
+# 5. Commitear este CLAUDE.md si quedó modificado
+git add CLAUDE.md
+git commit -m "docs: catch-up con 304 commits no documentados (sesión 2026-05-21)"
+git push
+```
+
+### Pendientes (heredados de sesiones previas, todavía válidos)
+- **Monitor de Anticipos Fase 2** — sub-tab "Anticipos" en Contabilidad.tsx (detección por clave 84111506, grupos por `uuids_relacionados`, estados 🟢🟡🟠🔴, KPIs, tabla expandible). La Fase 1 (sync con relationships) está parcialmente hecha en `ListaRecibidas.sincronizar()`.
+- **Corrección de KPIs de doble conteo** — descontar tipo E con `tipo_relacion IN ('01','03','07')` en totales de Contabilidad
+- **Cotización con IA desde planos arquitectónicos** — subir plano, extraer medidas con visión, auto-generar items de cortinas
+- **Rollback ALL_SYSTEMS en CotEditorESP** — restaurar nombres bonitos + agregar campo `dbValue` (ver sesión 2026-04-14)
+- **Auditar embeds PGRST201 ambiguos** en otros archivos del repo (Proyectos, Compras, Obra, Contabilidad, Facturacion ya recibieron varios fixes pero puede haber más casos)
+- **Sync de relationships en ListaEmitidas y ListaTodas** — solo `ListaRecibidas` lo hace, falta replicar el patrón
+- **Re-sincronizar meses históricos** para poblar `tipo_relacion`/`uuids_relacionados` retroactivamente en facturas emitidas viejas
+- **Restaurar `"build": "tsc && vite build"`** después de fixear los TS errors (hoy solo `vite build`)
 
 ---
 

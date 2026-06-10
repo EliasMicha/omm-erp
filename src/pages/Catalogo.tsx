@@ -179,13 +179,10 @@ Return this exact JSON format:
 IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
 
     try {
-      const res = await fetch('https://api.anthropic.com/v1/messages', {
+      const res = await fetch('/api/anthropic', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'anthropic-dangerous-direct-browser-access': 'true',
-          'anthropic-version': '2023-06-01',
-          'x-api-key': ANTHROPIC_API_KEY,
         },
         body: JSON.stringify({
           model: 'claude-sonnet-4-20250514',
@@ -357,7 +354,7 @@ IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
     try {
       const text = await file.text()
       const prompt = 'Eres un asistente de OMM Technologies (instalaciones electricas y sistemas especiales). Analiza este archivo de productos/SKUs y devuelve SOLO un JSON array. Para cada producto extrae: name, description, clave_prod_serv (codigo SAT mas probable segun el tipo de producto), clave_unidad (H87 para piezas, E48 para servicios, MTR para metros), unit, cost (numero), precio_venta (numero), moneda (MXN o USD), marca, modelo, system (Electrico/CCTV/Audio/Control de acceso/Redes/Iluminacion/Control de iluminacion/General), type (material/mano_de_obra/servicio/equipo), sku, markup (porcentaje). Si hay duplicados, consolidalos. Estandariza nombres. Responde SOLO con el JSON array, sin markdown ni backticks.\n\nArchivo:\n' + text.substring(0, 15000)
-      const r = await fetch('https://api.anthropic.com/v1/messages', {
+      const r = await fetch('/api/anthropic', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 4000, messages: [{ role: 'user', content: prompt }] }),
       })
@@ -824,9 +821,9 @@ function TabProveedores({ suppliers, setSuppliers }: { suppliers: Supplier[]; se
         r.readAsDataURL(file)
       })
       setExtractStatus('Extrayendo datos con AI...')
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
+      const response = await fetch('/api/anthropic', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'anthropic-dangerous-direct-browser-access': 'true', 'anthropic-version': '2023-06-01', 'x-api-key': ANTHROPIC_API_KEY },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           model: 'claude-sonnet-4-20250514', max_tokens: 2000,
           messages: [{ role: 'user', content: [
