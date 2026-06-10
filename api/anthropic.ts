@@ -26,10 +26,11 @@ export default async function handler(req: any, res: any) {
     return
   }
 
-  const apiKey = process.env.ANTHROPIC_API_KEY
+  // Acepta ambos nombres de env var (ANTHROPIC_API_KEY o ANTHROPIC_KEY)
+  const apiKey = process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_KEY
   if (!apiKey) {
     res.status(500).json({
-      error: { message: 'ANTHROPIC_API_KEY no configurada en el servidor' },
+      error: { message: 'ANTHROPIC_API_KEY/ANTHROPIC_KEY no configurada en el servidor' },
     })
     return
   }
