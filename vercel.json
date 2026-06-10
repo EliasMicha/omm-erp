@@ -7,9 +7,6 @@
     "api/chatbot.ts": {
       "maxDuration": 60
     },
-    "api/generate-quote.ts": {
-      "maxDuration": 120
-    },
     "api/agent.ts": {
       "maxDuration": 60,
       "memory": 1024
