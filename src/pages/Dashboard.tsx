@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { Project, PaymentMilestone, WorkReport } from '../types'
@@ -6,7 +6,7 @@ import { F, STATUS_CONFIG, STAGE_CONFIG, formatDate } from '../lib/utils'
 import { KpiCard, Table, Th, Td, ProgressBar, Badge, Loading, SectionHeader } from '../components/layout/UI'
 import { useIsMobile } from '../lib/useIsMobile'
 import { useAuth } from '../contexts/AuthContext'
-import { FolderOpen, DollarSign, AlertTriangle, Users, FileText, TrendingUp } from 'lucide-react'
+import { FolderOpen, DollarSign, AlertTriangle, Users, FileText, TrendingUp, ChevronRight, ChevronDown } from 'lucide-react'
 import DashboardProduccion from './DashboardProduccion'
 import DashboardVentasIng from './DashboardVentasIng'
 import DashboardAdmin from './DashboardAdmin'
@@ -206,6 +206,257 @@ export default function Dashboard() {
         </Table>
       </div>
       </div>
+
+      {/* ── COBRANZA POR PROYECTO (solo DG) ── */}
+      {area === 'DG' && <CobranzaPorProyecto />}
+    </div>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CobranzaPorProyecto — vista por lead del estado financiero de cada proyecto
+//   Vendido        = suma de quotations.total (stage=contrato) del lead
+//   Cobrado        = suma de bank_movements (categoria=cobro_cliente) del lead
+//   Pagado total   = suma de bank_movements (tipo=cargo) del lead
+//   Pagado compras = suma de POs (status pedida/recibida/recibida_parcial) del lead
+//   Por pagar comp = suma de POs (status borrador/aprobada) del lead
+//
+//   Click sobre el row → expande mostrando cotizaciones del lead con su monto.
+// ═══════════════════════════════════════════════════════════════════════════
+function CobranzaPorProyecto() {
+  const navigate = useNavigate()
+  const isMobile = useIsMobile()
+  const [loading, setLoading] = useState(true)
+  const [leads, setLeads] = useState<any[]>([])
+  const [quotations, setQuotations] = useState<any[]>([])
+  const [pos, setPOs] = useState<any[]>([])
+  const [bankMovs, setBankMovs] = useState<any[]>([])
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const [showAll, setShowAll] = useState(false)
+
+  useEffect(() => {
+    async function load() {
+      const [leadsRes, qRes, poRes, bmRes] = await Promise.all([
+        supabase.from('leads').select('id, name, company'),
+        supabase.from('quotations').select('id, name, notes, specialty, stage, total').order('updated_at', { ascending: false }),
+        supabase.from('purchase_orders').select('id, po_number, total, status, lead_id, quotation_id, currency'),
+        supabase.from('bank_movements').select('id, monto, tipo, fecha, lead_id, quotation_id, categoria_sugerida, moneda').not('lead_id', 'is', null),
+      ])
+      // Parsear lead_id de cotizaciones desde notes JSON (igual que en otros lugares)
+      const qList = (qRes.data || []).map((q: any) => {
+        let lead_id = ''
+        try {
+          const m = typeof q.notes === 'string' ? JSON.parse(q.notes || '{}') : q.notes
+          if (m?.lead_id) lead_id = m.lead_id
+        } catch {}
+        return { ...q, lead_id }
+      })
+      setLeads(leadsRes.data || [])
+      setQuotations(qList)
+      setPOs(poRes.data || [])
+      setBankMovs(bmRes.data || [])
+      setLoading(false)
+    }
+    load()
+  }, [])
+
+  // Resolver lead_id de una OC: si no tiene directo, inferirlo desde la cotización vinculada
+  const resolvePoLead = (po: any) => {
+    if (po.lead_id) return po.lead_id
+    if (po.quotation_id) {
+      const q = quotations.find(qq => qq.id === po.quotation_id)
+      if (q?.lead_id) return q.lead_id
+    }
+    return null
+  }
+
+  // Calcular métricas por lead, ordenadas por monto vendido desc
+  const leadRows = useMemo(() => {
+    if (loading) return []
+    // Solo leads que tienen al menos una cotización contrato
+    const contratos = quotations.filter(q => q.stage === 'contrato' && q.lead_id)
+    const leadIdsConContrato = new Set(contratos.map(q => q.lead_id))
+
+    const rows = Array.from(leadIdsConContrato).map(leadId => {
+      const lead = leads.find(l => l.id === leadId)
+      const cotsLead = contratos.filter(q => q.lead_id === leadId)
+      const vendido = cotsLead.reduce((s, q) => s + (Number(q.total) || 0) * 1.16, 0) // total + IVA
+      // POs de este lead (directo o vía cotización)
+      const posLead = pos.filter(p => resolvePoLead(p) === leadId)
+      const pagado_compras = posLead
+        .filter(p => ['pedida', 'recibida', 'recibida_parcial'].includes(p.status))
+        .reduce((s, p) => s + (Number(p.total) || 0), 0)
+      const por_pagar_compras = posLead
+        .filter(p => ['borrador', 'aprobada'].includes(p.status))
+        .reduce((s, p) => s + (Number(p.total) || 0), 0)
+      // Bank movements de este lead
+      const movsLead = bankMovs.filter(b => b.lead_id === leadId)
+      const cobrado = movsLead
+        .filter(b => b.tipo === 'abono' && (b.categoria_sugerida === 'cobro_cliente' || !b.categoria_sugerida))
+        .reduce((s, b) => s + (Number(b.monto) || 0), 0)
+      const pagado_total = movsLead
+        .filter(b => b.tipo === 'cargo')
+        .reduce((s, b) => s + (Number(b.monto) || 0), 0)
+
+      return {
+        leadId,
+        leadName: lead?.name || '(lead sin nombre)',
+        leadCompany: lead?.company || '',
+        cotsLead,
+        vendido,
+        cobrado,
+        pagado_total,
+        pagado_compras,
+        por_pagar_compras,
+        // Balance: cobrado - pagado total (sirve para ver utilidad en efectivo del proyecto)
+        balance: cobrado - pagado_total,
+        // Margen de cobranza pendiente vs vendido
+        por_cobrar: Math.max(0, vendido - cobrado),
+      }
+    })
+    rows.sort((a, b) => b.vendido - a.vendido)
+    return rows
+  }, [loading, leads, quotations, pos, bankMovs])
+
+  // Totales generales
+  const totals = useMemo(() => leadRows.reduce((acc, r) => ({
+    vendido: acc.vendido + r.vendido,
+    cobrado: acc.cobrado + r.cobrado,
+    pagado_total: acc.pagado_total + r.pagado_total,
+    pagado_compras: acc.pagado_compras + r.pagado_compras,
+    por_pagar_compras: acc.por_pagar_compras + r.por_pagar_compras,
+    por_cobrar: acc.por_cobrar + r.por_cobrar,
+  }), { vendido: 0, cobrado: 0, pagado_total: 0, pagado_compras: 0, por_pagar_compras: 0, por_cobrar: 0 }), [leadRows])
+
+  const toggleExpand = (leadId: string) => {
+    setExpanded(prev => {
+      const next = new Set(prev)
+      if (next.has(leadId)) next.delete(leadId); else next.add(leadId)
+      return next
+    })
+  }
+
+  if (loading) return (
+    <div style={{ marginBottom: 24 }}>
+      <SectionHeader title="Cobranza por proyecto" />
+      <div style={{ padding: 20, color: '#666', fontSize: 12 }}>Cargando...</div>
+    </div>
+  )
+
+  const visibleRows = showAll ? leadRows : leadRows.slice(0, 10)
+
+  return (
+    <div style={{ marginBottom: 24 }}>
+      <SectionHeader
+        title="Cobranza por proyecto"
+        subtitle={`${leadRows.length} proyectos cerrados · Click en una fila para ver el desglose de cotizaciones`}
+      />
+      <div style={{ overflowX: 'auto', background: '#0d0d0d', border: '1px solid #1a1a1a', borderRadius: 10 }}>
+        <Table>
+          <thead><tr>
+            <Th></Th>
+            <Th>Proyecto / Lead</Th>
+            <Th right>Vendido</Th>
+            <Th right>Cobrado</Th>
+            <Th right>Por cobrar</Th>
+            <Th right>Pagado total</Th>
+            <Th right>Pagado compras</Th>
+            <Th right>Por pagar compras</Th>
+          </tr></thead>
+          <tbody>
+            {visibleRows.length === 0 && (
+              <tr><Td colSpan={8} muted>Sin proyectos con cotización en contrato</Td></tr>
+            )}
+            {visibleRows.map(r => {
+              const isExp = expanded.has(r.leadId)
+              return (
+                <>
+                  <tr key={r.leadId} onClick={() => toggleExpand(r.leadId)} style={{ cursor: 'pointer' }}>
+                    <Td style={{ width: 24, padding: '6px 8px' }}>
+                      {isExp ? <ChevronDown size={14} color="#666" /> : <ChevronRight size={14} color="#666" />}
+                    </Td>
+                    <Td>
+                      <div style={{ fontWeight: 600, color: '#fff' }}>{r.leadName}</div>
+                      {r.leadCompany && <div style={{ fontSize: 10, color: '#666' }}>{r.leadCompany}</div>}
+                    </Td>
+                    <Td right><span style={{ color: '#ccc', fontWeight: 600 }}>{F(r.vendido)}</span></Td>
+                    <Td right><span style={{ color: '#57FF9A', fontWeight: 600 }}>{F(r.cobrado)}</span></Td>
+                    <Td right><span style={{ color: r.por_cobrar > 0 ? '#F59E0B' : '#666', fontWeight: 600 }}>{r.por_cobrar > 0 ? F(r.por_cobrar) : '✓'}</span></Td>
+                    <Td right><span style={{ color: '#EF4444' }}>{F(r.pagado_total)}</span></Td>
+                    <Td right><span style={{ color: '#EF4444' }}>{F(r.pagado_compras)}</span></Td>
+                    <Td right><span style={{ color: r.por_pagar_compras > 0 ? '#F59E0B' : '#666' }}>{r.por_pagar_compras > 0 ? F(r.por_pagar_compras) : '—'}</span></Td>
+                  </tr>
+                  {isExp && (
+                    <tr key={r.leadId + '-exp'}>
+                      <td colSpan={8} style={{ background: '#080808', padding: 0 }}>
+                        <div style={{ padding: '8px 16px 12px 40px' }}>
+                          <div style={{ fontSize: 10, color: '#555', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
+                            Cotizaciones del lead ({r.cotsLead.length})
+                          </div>
+                          <table style={{ width: '100%', fontSize: 11 }}>
+                            <thead>
+                              <tr style={{ color: '#444' }}>
+                                <td style={{ padding: '4px 6px' }}>Cotización</td>
+                                <td style={{ padding: '4px 6px' }}>Especialidad</td>
+                                <td style={{ padding: '4px 6px', textAlign: 'right' }}>Subtotal</td>
+                                <td style={{ padding: '4px 6px', textAlign: 'right' }}>c/IVA</td>
+                                <td style={{ padding: '4px 6px' }}></td>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {r.cotsLead.map((q: any) => (
+                                <tr key={q.id} style={{ borderTop: '1px solid #1a1a1a' }}
+                                  onClick={(e) => { e.stopPropagation(); navigate(`/cotizaciones`) }}
+                                  onMouseEnter={e => (e.currentTarget.style.background = '#111')}
+                                  onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                                >
+                                  <td style={{ padding: '6px', color: '#ddd', cursor: 'pointer' }}>{q.name}</td>
+                                  <td style={{ padding: '6px', color: '#888' }}>{q.specialty}</td>
+                                  <td style={{ padding: '6px', textAlign: 'right', color: '#aaa' }}>{F(Number(q.total) || 0)}</td>
+                                  <td style={{ padding: '6px', textAlign: 'right', color: '#fff', fontWeight: 600 }}>{F((Number(q.total) || 0) * 1.16)}</td>
+                                  <td style={{ padding: '6px', textAlign: 'right' }}>
+                                    <button onClick={(e) => { e.stopPropagation(); navigate(`/crm/${r.leadId}`) }}
+                                      style={{ background: 'transparent', border: '1px solid #333', borderRadius: 4, padding: '2px 8px', color: '#888', fontSize: 10, cursor: 'pointer', fontFamily: 'inherit' }}>
+                                      CRM →
+                                    </button>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </>
+              )
+            })}
+            {/* Fila de totales */}
+            {leadRows.length > 0 && (
+              <tr style={{ borderTop: '2px solid #333', background: '#0a0a0a' }}>
+                <Td></Td>
+                <Td><span style={{ fontWeight: 700, color: '#fff' }}>Total</span></Td>
+                <Td right><span style={{ fontWeight: 700, color: '#fff' }}>{F(totals.vendido)}</span></Td>
+                <Td right><span style={{ fontWeight: 700, color: '#57FF9A' }}>{F(totals.cobrado)}</span></Td>
+                <Td right><span style={{ fontWeight: 700, color: totals.por_cobrar > 0 ? '#F59E0B' : '#666' }}>{F(totals.por_cobrar)}</span></Td>
+                <Td right><span style={{ fontWeight: 700, color: '#EF4444' }}>{F(totals.pagado_total)}</span></Td>
+                <Td right><span style={{ fontWeight: 700, color: '#EF4444' }}>{F(totals.pagado_compras)}</span></Td>
+                <Td right><span style={{ fontWeight: 700, color: totals.por_pagar_compras > 0 ? '#F59E0B' : '#666' }}>{F(totals.por_pagar_compras)}</span></Td>
+              </tr>
+            )}
+          </tbody>
+        </Table>
+      </div>
+      {leadRows.length > 10 && (
+        <div style={{ display: 'flex', justifyContent: 'center', marginTop: 8 }}>
+          <button onClick={() => setShowAll(s => !s)} style={{
+            background: 'transparent', border: '1px solid #2a2a2a', borderRadius: 6,
+            padding: '6px 14px', color: '#888', fontSize: 11, cursor: 'pointer', fontFamily: 'inherit',
+          }}>
+            {showAll ? `Mostrar solo top 10` : `Ver todos (${leadRows.length})`}
+          </button>
+        </div>
+      )}
     </div>
   )
 }
