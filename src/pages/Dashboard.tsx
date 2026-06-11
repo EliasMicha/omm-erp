@@ -247,16 +247,30 @@ function CobranzaPorProyecto() {
         supabase.from('purchase_orders').select('id, po_number, total, status, lead_id, quotation_id, currency'),
         supabase.from('bank_movements').select('id, monto, tipo, fecha, lead_id, quotation_id, categoria_sugerida, moneda').not('lead_id', 'is', null),
       ])
-      // Parsear lead_id Y currency de cotizaciones desde notes JSON
+      // Parsear lead_id, currency, descuento e ivaRate de cotizaciones desde notes JSON.
+      // El descuento e ivaRate pueden estar en niveles distintos según especialidad:
+      //   esp:    notes.descuento, notes.ivaRate (default 16)
+      //   ilum:   notes.ilumConfig.descuento, notes.ilumConfig.ivaRate
+      //   cort:   notes.cortConfig.descuento, notes.cortConfig.ivaRate
+      //   proy:   notes.proyConfig.descuento, notes.proyConfig.ivaRate
+      //   elec:   varía — buscar en todos los lugares
       const qList = (qRes.data || []).map((q: any) => {
         let lead_id = ''
-        let currency = 'MXN' // default
+        let currency = 'MXN'
+        let descuento = 0  // % (0-100)
+        let ivaRate = 16   // % (default IVA México)
         try {
           const m = typeof q.notes === 'string' ? JSON.parse(q.notes || '{}') : q.notes
           if (m?.lead_id) lead_id = m.lead_id
           if (m?.currency) currency = m.currency
+          // Buscar descuento e ivaRate en el orden: root → especialidad config
+          const configs = [m, m?.proyConfig, m?.ilumConfig, m?.cortConfig, m?.espConfig, m?.elecConfig].filter(Boolean)
+          for (const cfg of configs) {
+            if (descuento === 0 && typeof cfg.descuento === 'number') descuento = cfg.descuento
+            if (ivaRate === 16 && typeof cfg.ivaRate === 'number') ivaRate = cfg.ivaRate
+          }
         } catch {}
-        return { ...q, lead_id, currency }
+        return { ...q, lead_id, currency, descuento, ivaRate }
       })
       setLeads(leadsRes.data || [])
       setQuotations(qList)
@@ -303,11 +317,21 @@ function CobranzaPorProyecto() {
     const contratos = quotations.filter(q => q.stage === 'contrato' && q.lead_id)
     const leadIdsConContrato = new Set(contratos.map(q => q.lead_id))
 
+    // Helper: monto final de una cotización con descuento Y ivaRate aplicados.
+    // Fórmula: subtotal * (1 - descuento/100) * (1 + ivaRate/100)
+    const cotMontoFinal = (q: any): number => {
+      const subtotal = Number(q.total) || 0
+      const desc = Number(q.descuento) || 0
+      const iva = Number(q.ivaRate) || 16
+      const conDescuento = subtotal * (1 - desc / 100)
+      return conDescuento * (1 + iva / 100)
+    }
+
     const rows = Array.from(leadIdsConContrato).map(leadId => {
       const lead = leads.find(l => l.id === leadId)
       const cotsLead = contratos.filter(q => q.lead_id === leadId)
-      // Vendido: convertir cada cotización desde su moneda nativa
-      const vendido = cotsLead.reduce((s, q) => s + convert((Number(q.total) || 0) * 1.16, q.currency || 'MXN'), 0)
+      // Vendido: monto final c/IVA y c/descuento aplicado, convertido a la moneda activa
+      const vendido = cotsLead.reduce((s, q) => s + convert(cotMontoFinal(q), q.currency || 'MXN'), 0)
       // POs de este lead (directo o vía cotización)
       const posLead = pos.filter(p => resolvePoLead(p) === leadId)
       const pagado_compras = posLead
@@ -466,12 +490,19 @@ function CobranzaPorProyecto() {
                                 <td style={{ padding: '4px 6px' }}>Cotización</td>
                                 <td style={{ padding: '4px 6px' }}>Especialidad</td>
                                 <td style={{ padding: '4px 6px', textAlign: 'right' }}>Subtotal</td>
-                                <td style={{ padding: '4px 6px', textAlign: 'right' }}>c/IVA</td>
+                                <td style={{ padding: '4px 6px', textAlign: 'right' }}>Desc.</td>
+                                <td style={{ padding: '4px 6px', textAlign: 'right' }}>IVA</td>
+                                <td style={{ padding: '4px 6px', textAlign: 'right' }}>Total final</td>
                                 <td style={{ padding: '4px 6px' }}></td>
                               </tr>
                             </thead>
                             <tbody>
-                              {r.cotsLead.map((q: any) => (
+                              {r.cotsLead.map((q: any) => {
+                                const subtotal = Number(q.total) || 0
+                                const desc = Number(q.descuento) || 0
+                                const iva = Number(q.ivaRate) || 16
+                                const finalAmount = subtotal * (1 - desc / 100) * (1 + iva / 100)
+                                return (
                                 <tr key={q.id} style={{ borderTop: '1px solid #1a1a1a' }}
                                   onClick={(e) => { e.stopPropagation(); navigate(`/cotizaciones`) }}
                                   onMouseEnter={e => (e.currentTarget.style.background = '#111')}
@@ -484,8 +515,10 @@ function CobranzaPorProyecto() {
                                       {q.currency || 'MXN'}
                                     </span>
                                   </td>
-                                  <td style={{ padding: '6px', textAlign: 'right', color: '#aaa' }}>{fmt(convert(Number(q.total) || 0, q.currency || 'MXN'))}</td>
-                                  <td style={{ padding: '6px', textAlign: 'right', color: '#fff', fontWeight: 600 }}>{fmt(convert((Number(q.total) || 0) * 1.16, q.currency || 'MXN'))}</td>
+                                  <td style={{ padding: '6px', textAlign: 'right', color: '#aaa' }}>{fmt(convert(subtotal, q.currency || 'MXN'))}</td>
+                                  <td style={{ padding: '6px', textAlign: 'right', color: desc > 0 ? '#F59E0B' : '#444' }}>{desc > 0 ? `-${desc}%` : '—'}</td>
+                                  <td style={{ padding: '6px', textAlign: 'right', color: '#666' }}>{iva}%</td>
+                                  <td style={{ padding: '6px', textAlign: 'right', color: '#fff', fontWeight: 600 }}>{fmt(convert(finalAmount, q.currency || 'MXN'))}</td>
                                   <td style={{ padding: '6px', textAlign: 'right' }}>
                                     <button onClick={(e) => { e.stopPropagation(); navigate(`/crm/${r.leadId}`) }}
                                       style={{ background: 'transparent', border: '1px solid #333', borderRadius: 4, padding: '2px 8px', color: '#888', fontSize: 10, cursor: 'pointer', fontFamily: 'inherit' }}>
@@ -493,7 +526,8 @@ function CobranzaPorProyecto() {
                                     </button>
                                   </td>
                                 </tr>
-                              ))}
+                                )
+                              })}
                             </tbody>
                           </table>
                         </div>
