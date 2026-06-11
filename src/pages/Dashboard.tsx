@@ -231,6 +231,7 @@ function CobranzaPorProyecto() {
   const [quotations, setQuotations] = useState<any[]>([])
   const [pos, setPOs] = useState<any[]>([])
   const [bankMovs, setBankMovs] = useState<any[]>([])
+  const [cashMovs, setCashMovs] = useState<any[]>([])
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [showAll, setShowAll] = useState(false)
   // Manejo de moneda: el user elige ver todo en MXN o USD, con TC editable.
@@ -241,11 +242,13 @@ function CobranzaPorProyecto() {
 
   useEffect(() => {
     async function load() {
-      const [leadsRes, qRes, poRes, bmRes] = await Promise.all([
+      const [leadsRes, qRes, poRes, bmRes, cmRes] = await Promise.all([
         supabase.from('leads').select('id, name, company'),
         supabase.from('quotations').select('id, name, notes, specialty, stage, total').order('updated_at', { ascending: false }),
         supabase.from('purchase_orders').select('id, po_number, total, status, lead_id, quotation_id, currency'),
         supabase.from('bank_movements').select('id, monto, tipo, fecha, lead_id, quotation_id, categoria_sugerida, moneda').not('lead_id', 'is', null),
+        // Cobros y pagos en efectivo (tab Efectivo de Contabilidad)
+        supabase.from('cash_movements').select('id, tipo, direccion, monto, fecha, lead_id, quotation_id, concepto').not('lead_id', 'is', null),
       ])
       // Parsear lead_id, currency, descuento e ivaRate de cotizaciones desde notes JSON.
       // El descuento e ivaRate pueden estar en niveles distintos según especialidad:
@@ -276,6 +279,7 @@ function CobranzaPorProyecto() {
       setQuotations(qList)
       setPOs(poRes.data || [])
       setBankMovs(bmRes.data || [])
+      setCashMovs(cmRes.data || [])
       setLoading(false)
     }
     load()
@@ -342,12 +346,23 @@ function CobranzaPorProyecto() {
         .reduce((s, p) => s + convert(Number(p.total) || 0, p.currency || 'MXN'), 0)
       // Bank movements de este lead
       const movsLead = bankMovs.filter(b => b.lead_id === leadId)
-      const cobrado = movsLead
+      const cobrado_banco = movsLead
         .filter(b => b.tipo === 'abono' && (b.categoria_sugerida === 'cobro_cliente' || !b.categoria_sugerida))
         .reduce((s, b) => s + convert(Number(b.monto) || 0, b.moneda || 'MXN'), 0)
-      const pagado_total = movsLead
+      const pagado_banco = movsLead
         .filter(b => b.tipo === 'cargo')
         .reduce((s, b) => s + convert(Number(b.monto) || 0, b.moneda || 'MXN'), 0)
+      // Cash movements de este lead (efectivo) — siempre se asume MXN
+      const efectivoLead = cashMovs.filter(c => c.lead_id === leadId)
+      const cobrado_efectivo = efectivoLead
+        .filter(c => c.direccion === 'ingreso' || c.tipo === 'cobro_cliente')
+        .reduce((s, c) => s + convert(Number(c.monto) || 0, 'MXN'), 0)
+      const pagado_efectivo = efectivoLead
+        .filter(c => c.direccion === 'egreso')
+        .reduce((s, c) => s + convert(Number(c.monto) || 0, 'MXN'), 0)
+      // Totales: banco + efectivo
+      const cobrado = cobrado_banco + cobrado_efectivo
+      const pagado_total = pagado_banco + pagado_efectivo
 
       // Detectar si el lead tiene mezcla de monedas (para warning visual)
       const monedasMixtas = new Set<string>()
@@ -362,7 +377,11 @@ function CobranzaPorProyecto() {
         cotsLead,
         vendido,
         cobrado,
+        cobrado_banco,
+        cobrado_efectivo,
         pagado_total,
+        pagado_banco,
+        pagado_efectivo,
         pagado_compras,
         por_pagar_compras,
         balance: cobrado - pagado_total,
@@ -372,7 +391,7 @@ function CobranzaPorProyecto() {
     })
     rows.sort((a, b) => b.vendido - a.vendido)
     return rows
-  }, [loading, leads, quotations, pos, bankMovs, currencyView, tc])
+  }, [loading, leads, quotations, pos, bankMovs, cashMovs, currencyView, tc])
 
   // Totales generales
   const totals = useMemo(() => leadRows.reduce((acc, r) => ({
@@ -471,7 +490,14 @@ function CobranzaPorProyecto() {
                       {r.leadCompany && <div style={{ fontSize: 10, color: '#666' }}>{r.leadCompany}</div>}
                     </Td>
                     <Td right><span style={{ color: '#ccc', fontWeight: 600 }}>{fmt(r.vendido)}</span></Td>
-                    <Td right><span style={{ color: '#57FF9A', fontWeight: 600 }}>{fmt(r.cobrado)}</span></Td>
+                    <Td right>
+                      <div style={{ color: '#57FF9A', fontWeight: 600 }}>{fmt(r.cobrado)}</div>
+                      {r.cobrado_efectivo > 0 && (
+                        <div title={`Banco: ${fmt(r.cobrado_banco)} + Efectivo: ${fmt(r.cobrado_efectivo)}`} style={{ fontSize: 9, color: '#666', marginTop: 2 }}>
+                          💵 {fmt(r.cobrado_efectivo)}
+                        </div>
+                      )}
+                    </Td>
                     <Td right><span style={{ color: r.por_cobrar > 0 ? '#F59E0B' : '#666', fontWeight: 600 }}>{r.por_cobrar > 0 ? fmt(r.por_cobrar) : '✓'}</span></Td>
                     <Td right><span style={{ color: '#EF4444' }}>{fmt(r.pagado_total)}</span></Td>
                     <Td right><span style={{ color: '#EF4444' }}>{fmt(r.pagado_compras)}</span></Td>
