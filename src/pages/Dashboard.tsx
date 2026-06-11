@@ -233,6 +233,11 @@ function CobranzaPorProyecto() {
   const [bankMovs, setBankMovs] = useState<any[]>([])
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [showAll, setShowAll] = useState(false)
+  // Manejo de moneda: el user elige ver todo en MXN o USD, con TC editable.
+  // Cada source tiene su propia moneda original: quotations.notes.currency,
+  // purchase_orders.currency, bank_movements.moneda. Se convierte al display.
+  const [currencyView, setCurrencyView] = useState<'MXN' | 'USD'>('MXN')
+  const [tc, setTc] = useState<number>(20.5)
 
   useEffect(() => {
     async function load() {
@@ -242,14 +247,16 @@ function CobranzaPorProyecto() {
         supabase.from('purchase_orders').select('id, po_number, total, status, lead_id, quotation_id, currency'),
         supabase.from('bank_movements').select('id, monto, tipo, fecha, lead_id, quotation_id, categoria_sugerida, moneda').not('lead_id', 'is', null),
       ])
-      // Parsear lead_id de cotizaciones desde notes JSON (igual que en otros lugares)
+      // Parsear lead_id Y currency de cotizaciones desde notes JSON
       const qList = (qRes.data || []).map((q: any) => {
         let lead_id = ''
+        let currency = 'MXN' // default
         try {
           const m = typeof q.notes === 'string' ? JSON.parse(q.notes || '{}') : q.notes
           if (m?.lead_id) lead_id = m.lead_id
+          if (m?.currency) currency = m.currency
         } catch {}
-        return { ...q, lead_id }
+        return { ...q, lead_id, currency }
       })
       setLeads(leadsRes.data || [])
       setQuotations(qList)
@@ -259,6 +266,25 @@ function CobranzaPorProyecto() {
     }
     load()
   }, [])
+
+  // Helper: convertir un monto en su moneda original a la moneda de visualización
+  // - source MXN, view MXN → mismo
+  // - source USD, view MXN → monto * tc
+  // - source MXN, view USD → monto / tc
+  // - source USD, view USD → mismo
+  const convert = (amount: number, fromCurrency: string): number => {
+    const from = (fromCurrency || 'MXN').toUpperCase()
+    if (from === currencyView) return amount
+    if (from === 'USD' && currencyView === 'MXN') return amount * tc
+    if (from === 'MXN' && currencyView === 'USD') return amount / tc
+    return amount
+  }
+  // Formateador con prefijo de moneda
+  const fmt = (amount: number) => {
+    const formatted = F(Math.abs(amount))
+    // F() devuelve "$X,XXX.XX" sin distinguir moneda. Agregamos sufijo.
+    return currencyView === 'USD' ? formatted + ' USD' : formatted
+  }
 
   // Resolver lead_id de una OC: si no tiene directo, inferirlo desde la cotización vinculada
   const resolvePoLead = (po: any) => {
@@ -280,23 +306,30 @@ function CobranzaPorProyecto() {
     const rows = Array.from(leadIdsConContrato).map(leadId => {
       const lead = leads.find(l => l.id === leadId)
       const cotsLead = contratos.filter(q => q.lead_id === leadId)
-      const vendido = cotsLead.reduce((s, q) => s + (Number(q.total) || 0) * 1.16, 0) // total + IVA
+      // Vendido: convertir cada cotización desde su moneda nativa
+      const vendido = cotsLead.reduce((s, q) => s + convert((Number(q.total) || 0) * 1.16, q.currency || 'MXN'), 0)
       // POs de este lead (directo o vía cotización)
       const posLead = pos.filter(p => resolvePoLead(p) === leadId)
       const pagado_compras = posLead
         .filter(p => ['pedida', 'recibida', 'recibida_parcial'].includes(p.status))
-        .reduce((s, p) => s + (Number(p.total) || 0), 0)
+        .reduce((s, p) => s + convert(Number(p.total) || 0, p.currency || 'MXN'), 0)
       const por_pagar_compras = posLead
         .filter(p => ['borrador', 'aprobada'].includes(p.status))
-        .reduce((s, p) => s + (Number(p.total) || 0), 0)
+        .reduce((s, p) => s + convert(Number(p.total) || 0, p.currency || 'MXN'), 0)
       // Bank movements de este lead
       const movsLead = bankMovs.filter(b => b.lead_id === leadId)
       const cobrado = movsLead
         .filter(b => b.tipo === 'abono' && (b.categoria_sugerida === 'cobro_cliente' || !b.categoria_sugerida))
-        .reduce((s, b) => s + (Number(b.monto) || 0), 0)
+        .reduce((s, b) => s + convert(Number(b.monto) || 0, b.moneda || 'MXN'), 0)
       const pagado_total = movsLead
         .filter(b => b.tipo === 'cargo')
-        .reduce((s, b) => s + (Number(b.monto) || 0), 0)
+        .reduce((s, b) => s + convert(Number(b.monto) || 0, b.moneda || 'MXN'), 0)
+
+      // Detectar si el lead tiene mezcla de monedas (para warning visual)
+      const monedasMixtas = new Set<string>()
+      cotsLead.forEach(q => monedasMixtas.add((q.currency || 'MXN').toUpperCase()))
+      posLead.forEach(p => monedasMixtas.add((p.currency || 'MXN').toUpperCase()))
+      const hasMixedCurrencies = monedasMixtas.size > 1
 
       return {
         leadId,
@@ -308,15 +341,14 @@ function CobranzaPorProyecto() {
         pagado_total,
         pagado_compras,
         por_pagar_compras,
-        // Balance: cobrado - pagado total (sirve para ver utilidad en efectivo del proyecto)
         balance: cobrado - pagado_total,
-        // Margen de cobranza pendiente vs vendido
         por_cobrar: Math.max(0, vendido - cobrado),
+        hasMixedCurrencies,
       }
     })
     rows.sort((a, b) => b.vendido - a.vendido)
     return rows
-  }, [loading, leads, quotations, pos, bankMovs])
+  }, [loading, leads, quotations, pos, bankMovs, currencyView, tc])
 
   // Totales generales
   const totals = useMemo(() => leadRows.reduce((acc, r) => ({
@@ -349,8 +381,35 @@ function CobranzaPorProyecto() {
     <div style={{ marginBottom: 24 }}>
       <SectionHeader
         title="Cobranza por proyecto"
-        subtitle={`${leadRows.length} proyectos cerrados · Click en una fila para ver el desglose de cotizaciones`}
+        subtitle={`${leadRows.length} proyectos cerrados · Todo convertido a ${currencyView} con TC ${tc}`}
       />
+      {/* Toggle de moneda + TC editable */}
+      <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 10, padding: '8px 12px', background: '#141414', border: '1px solid #222', borderRadius: 8, flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 10, color: '#666', textTransform: 'uppercase', letterSpacing: 0.5 }}>Ver en</span>
+        <div style={{ display: 'flex', gap: 4, background: '#0a0a0a', borderRadius: 6, padding: 2 }}>
+          {(['MXN', 'USD'] as const).map(m => (
+            <button key={m} onClick={() => setCurrencyView(m)} style={{
+              padding: '5px 14px', fontSize: 11, fontWeight: 600,
+              background: currencyView === m ? (m === 'MXN' ? '#F59E0B22' : '#3B82F622') : 'transparent',
+              color: currencyView === m ? (m === 'MXN' ? '#F59E0B' : '#3B82F6') : '#666',
+              border: currencyView === m ? `1px solid ${m === 'MXN' ? '#F59E0B' : '#3B82F6'}` : '1px solid transparent',
+              borderRadius: 4, cursor: 'pointer', fontFamily: 'inherit',
+            }}>{m === 'MXN' ? '🇲🇽 MXN' : '🇺🇸 USD'}</button>
+          ))}
+        </div>
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginLeft: 8 }}>
+          <span style={{ fontSize: 10, color: '#666' }}>TC:</span>
+          <input
+            type="number" step="0.01" value={tc}
+            onChange={e => setTc(Math.max(0.01, parseFloat(e.target.value) || 0))}
+            style={{ width: 80, padding: '5px 8px', fontSize: 11, background: '#0a0a0a', border: '1px solid #333', borderRadius: 4, color: '#fff', fontFamily: 'inherit', textAlign: 'right' }}
+          />
+          <span style={{ fontSize: 10, color: '#555' }}>1 USD = {tc} MXN</span>
+        </div>
+        <div style={{ marginLeft: 'auto', fontSize: 10, color: '#666' }}>
+          ⓘ Cotizaciones en USD se convierten con el TC. Filas con badge ⚠ tienen mezcla de monedas.
+        </div>
+      </div>
       <div style={{ overflowX: 'auto', background: '#0d0d0d', border: '1px solid #1a1a1a', borderRadius: 10 }}>
         <Table>
           <thead><tr>
@@ -376,15 +435,23 @@ function CobranzaPorProyecto() {
                       {isExp ? <ChevronDown size={14} color="#666" /> : <ChevronRight size={14} color="#666" />}
                     </Td>
                     <Td>
-                      <div style={{ fontWeight: 600, color: '#fff' }}>{r.leadName}</div>
+                      <div style={{ fontWeight: 600, color: '#fff', display: 'flex', alignItems: 'center', gap: 6 }}>
+                        {r.leadName}
+                        {r.hasMixedCurrencies && (
+                          <span title="Este lead tiene cotizaciones en MXN y USD — el TC afecta el cálculo" style={{
+                            fontSize: 9, fontWeight: 700, padding: '1px 6px', borderRadius: 4,
+                            background: 'rgba(245,158,11,0.15)', border: '1px solid rgba(245,158,11,0.4)', color: '#F59E0B',
+                          }}>⚠ MXN+USD</span>
+                        )}
+                      </div>
                       {r.leadCompany && <div style={{ fontSize: 10, color: '#666' }}>{r.leadCompany}</div>}
                     </Td>
-                    <Td right><span style={{ color: '#ccc', fontWeight: 600 }}>{F(r.vendido)}</span></Td>
-                    <Td right><span style={{ color: '#57FF9A', fontWeight: 600 }}>{F(r.cobrado)}</span></Td>
-                    <Td right><span style={{ color: r.por_cobrar > 0 ? '#F59E0B' : '#666', fontWeight: 600 }}>{r.por_cobrar > 0 ? F(r.por_cobrar) : '✓'}</span></Td>
-                    <Td right><span style={{ color: '#EF4444' }}>{F(r.pagado_total)}</span></Td>
-                    <Td right><span style={{ color: '#EF4444' }}>{F(r.pagado_compras)}</span></Td>
-                    <Td right><span style={{ color: r.por_pagar_compras > 0 ? '#F59E0B' : '#666' }}>{r.por_pagar_compras > 0 ? F(r.por_pagar_compras) : '—'}</span></Td>
+                    <Td right><span style={{ color: '#ccc', fontWeight: 600 }}>{fmt(r.vendido)}</span></Td>
+                    <Td right><span style={{ color: '#57FF9A', fontWeight: 600 }}>{fmt(r.cobrado)}</span></Td>
+                    <Td right><span style={{ color: r.por_cobrar > 0 ? '#F59E0B' : '#666', fontWeight: 600 }}>{r.por_cobrar > 0 ? fmt(r.por_cobrar) : '✓'}</span></Td>
+                    <Td right><span style={{ color: '#EF4444' }}>{fmt(r.pagado_total)}</span></Td>
+                    <Td right><span style={{ color: '#EF4444' }}>{fmt(r.pagado_compras)}</span></Td>
+                    <Td right><span style={{ color: r.por_pagar_compras > 0 ? '#F59E0B' : '#666' }}>{r.por_pagar_compras > 0 ? fmt(r.por_pagar_compras) : '—'}</span></Td>
                   </tr>
                   {isExp && (
                     <tr key={r.leadId + '-exp'}>
@@ -411,9 +478,14 @@ function CobranzaPorProyecto() {
                                   onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
                                 >
                                   <td style={{ padding: '6px', color: '#ddd', cursor: 'pointer' }}>{q.name}</td>
-                                  <td style={{ padding: '6px', color: '#888' }}>{q.specialty}</td>
-                                  <td style={{ padding: '6px', textAlign: 'right', color: '#aaa' }}>{F(Number(q.total) || 0)}</td>
-                                  <td style={{ padding: '6px', textAlign: 'right', color: '#fff', fontWeight: 600 }}>{F((Number(q.total) || 0) * 1.16)}</td>
+                                  <td style={{ padding: '6px', color: '#888' }}>
+                                    {q.specialty}
+                                    <span style={{ marginLeft: 6, fontSize: 9, color: q.currency === 'USD' ? '#3B82F6' : '#F59E0B' }}>
+                                      {q.currency || 'MXN'}
+                                    </span>
+                                  </td>
+                                  <td style={{ padding: '6px', textAlign: 'right', color: '#aaa' }}>{fmt(convert(Number(q.total) || 0, q.currency || 'MXN'))}</td>
+                                  <td style={{ padding: '6px', textAlign: 'right', color: '#fff', fontWeight: 600 }}>{fmt(convert((Number(q.total) || 0) * 1.16, q.currency || 'MXN'))}</td>
                                   <td style={{ padding: '6px', textAlign: 'right' }}>
                                     <button onClick={(e) => { e.stopPropagation(); navigate(`/crm/${r.leadId}`) }}
                                       style={{ background: 'transparent', border: '1px solid #333', borderRadius: 4, padding: '2px 8px', color: '#888', fontSize: 10, cursor: 'pointer', fontFamily: 'inherit' }}>
@@ -435,13 +507,13 @@ function CobranzaPorProyecto() {
             {leadRows.length > 0 && (
               <tr style={{ borderTop: '2px solid #333', background: '#0a0a0a' }}>
                 <Td></Td>
-                <Td><span style={{ fontWeight: 700, color: '#fff' }}>Total</span></Td>
-                <Td right><span style={{ fontWeight: 700, color: '#fff' }}>{F(totals.vendido)}</span></Td>
-                <Td right><span style={{ fontWeight: 700, color: '#57FF9A' }}>{F(totals.cobrado)}</span></Td>
-                <Td right><span style={{ fontWeight: 700, color: totals.por_cobrar > 0 ? '#F59E0B' : '#666' }}>{F(totals.por_cobrar)}</span></Td>
-                <Td right><span style={{ fontWeight: 700, color: '#EF4444' }}>{F(totals.pagado_total)}</span></Td>
-                <Td right><span style={{ fontWeight: 700, color: '#EF4444' }}>{F(totals.pagado_compras)}</span></Td>
-                <Td right><span style={{ fontWeight: 700, color: totals.por_pagar_compras > 0 ? '#F59E0B' : '#666' }}>{F(totals.por_pagar_compras)}</span></Td>
+                <Td><span style={{ fontWeight: 700, color: '#fff' }}>Total ({currencyView})</span></Td>
+                <Td right><span style={{ fontWeight: 700, color: '#fff' }}>{fmt(totals.vendido)}</span></Td>
+                <Td right><span style={{ fontWeight: 700, color: '#57FF9A' }}>{fmt(totals.cobrado)}</span></Td>
+                <Td right><span style={{ fontWeight: 700, color: totals.por_cobrar > 0 ? '#F59E0B' : '#666' }}>{fmt(totals.por_cobrar)}</span></Td>
+                <Td right><span style={{ fontWeight: 700, color: '#EF4444' }}>{fmt(totals.pagado_total)}</span></Td>
+                <Td right><span style={{ fontWeight: 700, color: '#EF4444' }}>{fmt(totals.pagado_compras)}</span></Td>
+                <Td right><span style={{ fontWeight: 700, color: totals.por_pagar_compras > 0 ? '#F59E0B' : '#666' }}>{fmt(totals.por_pagar_compras)}</span></Td>
               </tr>
             )}
           </tbody>
