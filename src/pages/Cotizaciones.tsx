@@ -7,6 +7,7 @@ import { Badge, Btn, Table, Th, Td, Loading, SectionHeader, EmptyState } from '.
 import { useIsMobile } from '../lib/useIsMobile'
 import { Plus, ChevronLeft, X, Zap, Loader2, Search, Trash2, Upload, RefreshCw, FileText, GitBranch, BarChart3, Pencil } from 'lucide-react'
 import EditCotInfoModal from '../components/EditCotInfoModal'
+import PaymentPlanModal from '../components/PaymentPlanModal'
 import CotEditorESP from './CotEditorESP'
 import ChangeOrdersTab, { ObraRealTab } from './ChangeOrders'
 import ImportCotizaciones from './ImportCotizaciones'
@@ -840,6 +841,7 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
   const [aiErrorNewProd, setAiErrorNewProd] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [generating, setGenerating] = useState(false)
+  const [showPaymentPlan, setShowPaymentPlan] = useState(false)
   const [genResult, setGenResult] = useState<string|null>(null)
   const [aiImporting, setAiImporting] = useState(false)
   const [aiImportProgress, setAiImportProgress] = useState('')
@@ -1731,6 +1733,11 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
                 <Zap size={12}/> {generating ? 'Generando...' : 'Regenerar OC'}
               </Btn>
             )}
+            {cot.stage === 'contrato' && (
+              <Btn size="sm" onClick={() => setShowPaymentPlan(true)} style={{marginLeft:4, background: 'rgba(168,85,247,0.15)', borderColor: '#A855F7', color: '#C084FC'}}>
+                💰 Plan de pagos
+              </Btn>
+            )}
           </>}
           <span style={{fontSize:14,fontWeight:700,color:'#57FF9A',marginLeft:8}}>{F(cotTotal)}</span>
         </div>
@@ -2203,6 +2210,19 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
             setCot(c => c ? { ...c, name, client_name: client, project_id: projId || '' } : c)
             setShowEditInfo(false)
           }}
+        />
+      )}
+
+      {/* Modal Plan de pagos — solo visible cuando cot está en contrato */}
+      {showPaymentPlan && cot && (
+        <PaymentPlanModal
+          quotationId={cotId}
+          quotationName={cot.name}
+          totalFinal={cotTotal}
+          currency={(cot as any).currency || 'MXN'}
+          projectId={cot.project_id || null}
+          onClose={() => setShowPaymentPlan(false)}
+          onSaved={() => setShowPaymentPlan(false)}
         />
       )}
     </div>
