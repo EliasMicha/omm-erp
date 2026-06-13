@@ -208,7 +208,535 @@ export default function Dashboard() {
       </div>
 
       {/* ── COBRANZA POR PROYECTO (solo DG) ── */}
+      {area === 'DG' && <ProyeccionCobranza />}
       {area === 'DG' && <CobranzaPorProyecto />}
+
+      {/* ── PROYECCIÓN DE CIERRE DE VENTAS (solo DG) ── */}
+      {area === 'DG' && <ProyeccionCierreVentas />}
+    </div>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ProyeccionCierreVentas — agrupa leads activos por mes de expected_close_date
+//   Esperado    = Σ estimated_value
+//   Ponderado   = Σ estimated_value × close_probability / 100
+//   Solo leads con status NO en ['ganado','perdido'] y con expected_close_date
+//   Vista de los próximos 12 meses
+// ═══════════════════════════════════════════════════════════════════════════
+function ProyeccionCierreVentas() {
+  const navigate = useNavigate()
+  const [loading, setLoading] = useState(true)
+  const [leads, setLeads] = useState<any[]>([])
+  const [expandedMonth, setExpandedMonth] = useState<string | null>(null)
+
+  useEffect(() => {
+    supabase.from('leads')
+      .select('id, name, company, status, estimated_value, close_probability, expected_close_date')
+      .not('expected_close_date', 'is', null)
+      .not('status', 'in', '(ganado,perdido)')
+      .order('expected_close_date')
+      .then(({ data }) => {
+        setLeads(data || [])
+        setLoading(false)
+      })
+  }, [])
+
+  // Generar 12 meses hacia adelante desde mes actual
+  const months = useMemo(() => {
+    const arr: { key: string; label: string; date: Date }[] = []
+    const now = new Date()
+    for (let i = 0; i < 12; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() + i, 1)
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+      const label = d.toLocaleDateString('es-MX', { month: 'short', year: 'numeric' })
+      arr.push({ key, label: label.charAt(0).toUpperCase() + label.slice(1), date: d })
+    }
+    return arr
+  }, [])
+
+  // Agrupar leads por mes de expected_close_date
+  const byMonth = useMemo(() => {
+    const map: Record<string, { esperado: number; ponderado: number; leads: any[] }> = {}
+    months.forEach(m => { map[m.key] = { esperado: 0, ponderado: 0, leads: [] } })
+    // Bucket adicional para leads que se pasaron de los 12 meses (futuro lejano)
+    map['futuro'] = { esperado: 0, ponderado: 0, leads: [] }
+    // Bucket para leads ya vencidos (expected_close_date en el pasado)
+    map['vencido'] = { esperado: 0, ponderado: 0, leads: [] }
+
+    const today = new Date(); today.setHours(0, 0, 0, 0)
+    const lastMonthKey = months[months.length - 1].key
+
+    leads.forEach(l => {
+      const d = new Date(l.expected_close_date)
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+      const value = Number(l.estimated_value) || 0
+      const prob = Number(l.close_probability) || 0
+      const target = d < today ? 'vencido' : (key > lastMonthKey ? 'futuro' : key)
+      if (!map[target]) return
+      map[target].esperado += value
+      map[target].ponderado += value * (prob / 100)
+      map[target].leads.push(l)
+    })
+    return map
+  }, [leads, months])
+
+  const totales = useMemo(() => {
+    const all = Object.values(byMonth)
+    return {
+      esperado: all.reduce((s, m) => s + m.esperado, 0),
+      ponderado: all.reduce((s, m) => s + m.ponderado, 0),
+      count: leads.length,
+    }
+  }, [byMonth, leads])
+
+  if (loading) return null
+
+  return (
+    <div style={{ marginBottom: 24 }}>
+      <SectionHeader
+        title="Proyección de cierre de ventas"
+        subtitle={`${totales.count} leads activos con fecha de cierre · Total esperado ${F(totales.esperado)} · Ponderado ${F(totales.ponderado)}`}
+      />
+      <div style={{ overflowX: 'auto', background: '#0d0d0d', border: '1px solid #1a1a1a', borderRadius: 10 }}>
+        <Table>
+          <thead><tr>
+            <Th></Th>
+            <Th>Mes</Th>
+            <Th right>Leads</Th>
+            <Th right>Esperado</Th>
+            <Th right>Ponderado (× prob.)</Th>
+          </tr></thead>
+          <tbody>
+            {/* Vencidos (rojo, arriba si hay) */}
+            {byMonth['vencido'].leads.length > 0 && (
+              <MonthRow
+                monthKey="vencido"
+                label="⚠ Vencidos (sin actualizar)"
+                color="#EF4444"
+                data={byMonth['vencido']}
+                expanded={expandedMonth === 'vencido'}
+                onToggle={() => setExpandedMonth(expandedMonth === 'vencido' ? null : 'vencido')}
+                navigate={navigate}
+              />
+            )}
+            {/* Próximos 12 meses */}
+            {months.map(m => {
+              const data = byMonth[m.key]
+              if (data.leads.length === 0) return null
+              return (
+                <MonthRow
+                  key={m.key}
+                  monthKey={m.key}
+                  label={m.label}
+                  color="#57FF9A"
+                  data={data}
+                  expanded={expandedMonth === m.key}
+                  onToggle={() => setExpandedMonth(expandedMonth === m.key ? null : m.key)}
+                  navigate={navigate}
+                />
+              )
+            })}
+            {/* Futuro lejano */}
+            {byMonth['futuro'].leads.length > 0 && (
+              <MonthRow
+                monthKey="futuro"
+                label="Futuro lejano (>12 meses)"
+                color="#888"
+                data={byMonth['futuro']}
+                expanded={expandedMonth === 'futuro'}
+                onToggle={() => setExpandedMonth(expandedMonth === 'futuro' ? null : 'futuro')}
+                navigate={navigate}
+              />
+            )}
+            {/* Si nada */}
+            {totales.count === 0 && (
+              <tr><Td colSpan={5} muted>Sin leads con fecha de cierre estimada. Define <strong style={{ color: '#888' }}>Cierre estimado</strong> en cada lead desde el CRM.</Td></tr>
+            )}
+            {/* Total */}
+            {totales.count > 0 && (
+              <tr style={{ borderTop: '2px solid #333', background: '#0a0a0a' }}>
+                <Td></Td>
+                <Td><span style={{ fontWeight: 700, color: '#fff' }}>Total</span></Td>
+                <Td right><span style={{ fontWeight: 700, color: '#fff' }}>{totales.count}</span></Td>
+                <Td right><span style={{ fontWeight: 700, color: '#fff' }}>{F(totales.esperado)}</span></Td>
+                <Td right><span style={{ fontWeight: 700, color: '#57FF9A' }}>{F(totales.ponderado)}</span></Td>
+              </tr>
+            )}
+          </tbody>
+        </Table>
+      </div>
+    </div>
+  )
+}
+
+function MonthRow({ monthKey, label, color, data, expanded, onToggle, navigate }: {
+  monthKey: string; label: string; color: string;
+  data: { esperado: number; ponderado: number; leads: any[] };
+  expanded: boolean; onToggle: () => void; navigate: (path: string) => void;
+}) {
+  return (
+    <>
+      <tr onClick={onToggle} style={{ cursor: 'pointer' }}>
+        <Td style={{ width: 24, padding: '6px 8px' }}>
+          {expanded ? <ChevronDown size={14} color="#666" /> : <ChevronRight size={14} color="#666" />}
+        </Td>
+        <Td>
+          <span style={{ fontWeight: 600, color, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: '50%', background: color }} />
+            {label}
+          </span>
+        </Td>
+        <Td right><span style={{ color: '#aaa' }}>{data.leads.length}</span></Td>
+        <Td right><span style={{ color: '#ccc', fontWeight: 600 }}>{F(data.esperado)}</span></Td>
+        <Td right><span style={{ color: '#57FF9A', fontWeight: 600 }}>{F(data.ponderado)}</span></Td>
+      </tr>
+      {expanded && (
+        <tr>
+          <td colSpan={5} style={{ background: '#080808', padding: 0 }}>
+            <div style={{ padding: '8px 16px 12px 40px' }}>
+              <div style={{ fontSize: 10, color: '#555', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
+                Leads esperados {monthKey === 'vencido' ? '(fechas vencidas)' : `en ${label}`}
+              </div>
+              <table style={{ width: '100%', fontSize: 11 }}>
+                <thead><tr style={{ color: '#444' }}>
+                  <td style={{ padding: '4px 6px' }}>Lead</td>
+                  <td style={{ padding: '4px 6px' }}>Arquitecto</td>
+                  <td style={{ padding: '4px 6px' }}>Status</td>
+                  <td style={{ padding: '4px 6px' }}>Fecha cierre</td>
+                  <td style={{ padding: '4px 6px', textAlign: 'right' }}>Prob.</td>
+                  <td style={{ padding: '4px 6px', textAlign: 'right' }}>Valor</td>
+                  <td style={{ padding: '4px 6px', textAlign: 'right' }}>Ponderado</td>
+                </tr></thead>
+                <tbody>
+                  {data.leads.map(l => {
+                    const v = Number(l.estimated_value) || 0
+                    const p = Number(l.close_probability) || 0
+                    return (
+                      <tr key={l.id}
+                        onClick={(e) => { e.stopPropagation(); navigate(`/crm/${l.id}`) }}
+                        style={{ borderTop: '1px solid #1a1a1a', cursor: 'pointer' }}
+                        onMouseEnter={e => (e.currentTarget.style.background = '#111')}
+                        onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                      >
+                        <td style={{ padding: '6px', color: '#fff', fontWeight: 500 }}>{l.name}</td>
+                        <td style={{ padding: '6px', color: '#888' }}>{l.company || '—'}</td>
+                        <td style={{ padding: '6px', color: '#666' }}>{l.status}</td>
+                        <td style={{ padding: '6px', color: '#888' }}>{l.expected_close_date}</td>
+                        <td style={{ padding: '6px', textAlign: 'right', color: p >= 70 ? '#57FF9A' : p >= 40 ? '#F59E0B' : '#888' }}>{p}%</td>
+                        <td style={{ padding: '6px', textAlign: 'right', color: '#ccc' }}>{F(v)}</td>
+                        <td style={{ padding: '6px', textAlign: 'right', color: '#57FF9A', fontWeight: 600 }}>{F(v * p / 100)}</td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </td>
+        </tr>
+      )}
+    </>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ProyeccionCobranza — KPIs próximos 6 meses + cotizaciones sin plan
+//   Lee payment_milestones agrupados por mes (YYYY-MM):
+//     - pendiente (paid_at IS NULL, due_date >= hoy)
+//     - vencido   (paid_at IS NULL, due_date < hoy)
+//     - cobrado   (paid_at IS NOT NULL)
+//   Click un mes → expande hitos con quotation + lead asociado.
+//   También muestra widget "Cotizaciones sin plan" como atajo para capturar
+//   las que faltan retroactivamente.
+// ═══════════════════════════════════════════════════════════════════════════
+function ProyeccionCobranza() {
+  const navigate = useNavigate()
+  const [milestones, setMilestones] = useState<any[]>([])
+  const [quotsContrato, setQuotsContrato] = useState<any[]>([])
+  const [leadsMap, setLeadsMap] = useState<Record<string, any>>({})
+  const [loading, setLoading] = useState(true)
+  const [expandedMonth, setExpandedMonth] = useState<string | null>(null)
+  // Toggle moneda — heredamos el patrón del componente Cobranza por proyecto.
+  // Por simplicidad asumimos MXN como base aquí; los milestones tienen currency.
+  const [currencyView, setCurrencyView] = useState<'MXN' | 'USD'>('MXN')
+  const [tc, setTc] = useState<number>(20.5)
+
+  useEffect(() => {
+    async function load() {
+      const [pmRes, qRes, leadsRes] = await Promise.all([
+        // Trae milestones con su quotation embebida para mostrar contexto
+        supabase.from('payment_milestones').select('*'),
+        supabase.from('quotations').select('id, name, notes, stage').eq('stage', 'contrato'),
+        supabase.from('leads').select('id, name, company'),
+      ])
+      const qList = (qRes.data || []).map((q: any) => {
+        let lead_id = ''
+        try {
+          const m = typeof q.notes === 'string' ? JSON.parse(q.notes || '{}') : q.notes
+          if (m?.lead_id) lead_id = m.lead_id
+        } catch {}
+        return { ...q, lead_id }
+      })
+      const leadsObj: Record<string, any> = {}
+      ;(leadsRes.data || []).forEach((l: any) => { leadsObj[l.id] = l })
+      setMilestones(pmRes.data || [])
+      setQuotsContrato(qList)
+      setLeadsMap(leadsObj)
+      setLoading(false)
+    }
+    load()
+  }, [])
+
+  // Conversor de moneda
+  const convert = (amount: number, fromCurrency: string): number => {
+    const from = (fromCurrency || 'MXN').toUpperCase()
+    if (from === currencyView) return amount
+    if (from === 'USD' && currencyView === 'MXN') return amount * tc
+    if (from === 'MXN' && currencyView === 'USD') return amount / tc
+    return amount
+  }
+  const fmt = (n: number) => currencyView === 'USD' ? F(Math.abs(n)) + ' USD' : F(Math.abs(n))
+
+  // Agrupar milestones por mes (YYYY-MM)
+  const monthsData = useMemo(() => {
+    if (loading) return []
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    // Próximos 6 meses + 1 columna "vencido histórico"
+    const months: string[] = []
+    for (let i = 0; i < 6; i++) {
+      const d = new Date(today.getFullYear(), today.getMonth() + i, 1)
+      months.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`)
+    }
+    return months.map(monthKey => {
+      const [yr, mo] = monthKey.split('-').map(Number)
+      const monthStart = new Date(yr, mo - 1, 1)
+      const monthEnd = new Date(yr, mo, 0, 23, 59, 59)
+      const hitosMes = milestones.filter((m: any) => {
+        if (!m.due_date) return false
+        const dd = new Date(m.due_date + 'T00:00:00')
+        return dd >= monthStart && dd <= monthEnd
+      })
+      const pendiente = hitosMes
+        .filter(m => !m.paid_at && new Date(m.due_date + 'T00:00:00') >= today)
+        .reduce((s, m) => s + convert(Number(m.amount) || 0, m.currency || 'MXN'), 0)
+      const vencido = hitosMes
+        .filter(m => !m.paid_at && new Date(m.due_date + 'T00:00:00') < today)
+        .reduce((s, m) => s + convert(Number(m.amount) || 0, m.currency || 'MXN'), 0)
+      const cobrado = hitosMes
+        .filter(m => m.paid_at)
+        .reduce((s, m) => s + convert(Number(m.amount_paid_mxn || m.amount) || 0, m.currency || 'MXN'), 0)
+      const total = pendiente + vencido + cobrado
+      return { monthKey, monthStart, hitosMes, pendiente, vencido, cobrado, total }
+    })
+  }, [milestones, currencyView, tc, loading])
+
+  // Hitos vencidos históricos (anteriores al primer mes en cards)
+  const vencidoHistorico = useMemo(() => {
+    if (loading) return { total: 0, hitos: [] as any[] }
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    const firstMonth = new Date(today.getFullYear(), today.getMonth(), 1)
+    const overdue = milestones.filter((m: any) => {
+      if (!m.due_date || m.paid_at) return false
+      const dd = new Date(m.due_date + 'T00:00:00')
+      return dd < firstMonth
+    })
+    const total = overdue.reduce((s, m) => s + convert(Number(m.amount) || 0, m.currency || 'MXN'), 0)
+    return { total, hitos: overdue }
+  }, [milestones, currencyView, tc, loading])
+
+  // Cotizaciones contrato sin plan
+  const cotsSinPlan = useMemo(() => {
+    if (loading) return []
+    const quotIdsConPlan = new Set(milestones.map((m: any) => m.quotation_id))
+    return quotsContrato.filter(q => !quotIdsConPlan.has(q.id))
+  }, [milestones, quotsContrato, loading])
+
+  if (loading) return (
+    <div style={{ marginBottom: 24 }}>
+      <SectionHeader title="Proyección de cobranza" />
+      <div style={{ padding: 20, color: '#666', fontSize: 12 }}>Cargando...</div>
+    </div>
+  )
+
+  // Helper: formatear monthKey "2026-06" a "Junio 2026"
+  const fmtMonthLabel = (monthKey: string) => {
+    const [yr, mo] = monthKey.split('-').map(Number)
+    const d = new Date(yr, mo - 1, 1)
+    return d.toLocaleDateString('es-MX', { month: 'long', year: 'numeric' }).replace(/^./, c => c.toUpperCase())
+  }
+
+  return (
+    <div style={{ marginBottom: 24 }}>
+      <SectionHeader
+        title="Proyección de cobranza"
+        subtitle={`${milestones.length} hitos registrados · Próximos 6 meses · Click un mes para ver hitos`}
+      />
+      {/* Toggle moneda */}
+      <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 10, padding: '8px 12px', background: '#141414', border: '1px solid #222', borderRadius: 8, flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 10, color: '#666', textTransform: 'uppercase', letterSpacing: 0.5 }}>Ver en</span>
+        <div style={{ display: 'flex', gap: 4, background: '#0a0a0a', borderRadius: 6, padding: 2 }}>
+          {(['MXN', 'USD'] as const).map(m => (
+            <button key={m} onClick={() => setCurrencyView(m)} style={{
+              padding: '5px 14px', fontSize: 11, fontWeight: 600,
+              background: currencyView === m ? (m === 'MXN' ? '#F59E0B22' : '#3B82F622') : 'transparent',
+              color: currencyView === m ? (m === 'MXN' ? '#F59E0B' : '#3B82F6') : '#666',
+              border: currencyView === m ? `1px solid ${m === 'MXN' ? '#F59E0B' : '#3B82F6'}` : '1px solid transparent',
+              borderRadius: 4, cursor: 'pointer', fontFamily: 'inherit',
+            }}>{m === 'MXN' ? '🇲🇽 MXN' : '🇺🇸 USD'}</button>
+          ))}
+        </div>
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginLeft: 8 }}>
+          <span style={{ fontSize: 10, color: '#666' }}>TC:</span>
+          <input
+            type="number" step="0.01" value={tc}
+            onChange={e => setTc(Math.max(0.01, parseFloat(e.target.value) || 0))}
+            style={{ width: 80, padding: '5px 8px', fontSize: 11, background: '#0a0a0a', border: '1px solid #333', borderRadius: 4, color: '#fff', fontFamily: 'inherit', textAlign: 'right' as const }}
+          />
+        </div>
+      </div>
+
+      {/* Cards de los 6 meses */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))', gap: 10, marginBottom: 12 }}>
+        {/* Vencido histórico — solo aparece si hay */}
+        {vencidoHistorico.total > 0 && (
+          <div style={{
+            background: '#0d0d0d', border: '1px solid rgba(239,68,68,0.4)', borderRadius: 10,
+            padding: '12px 14px', borderTop: '3px solid #EF4444', cursor: 'pointer',
+          }} onClick={() => setExpandedMonth(expandedMonth === '__overdue' ? null : '__overdue')}>
+            <div style={{ fontSize: 9, color: '#EF4444', textTransform: 'uppercase' as const, letterSpacing: 0.5, fontWeight: 700 }}>
+              ⚠ Vencido (acumulado)
+            </div>
+            <div style={{ fontSize: 18, fontWeight: 700, color: '#EF4444', marginTop: 4 }}>
+              {fmt(vencidoHistorico.total)}
+            </div>
+            <div style={{ fontSize: 10, color: '#666', marginTop: 2 }}>{vencidoHistorico.hitos.length} hitos atrasados</div>
+          </div>
+        )}
+        {monthsData.map(m => {
+          const isExp = expandedMonth === m.monthKey
+          const hasContent = m.total > 0
+          return (
+            <div key={m.monthKey}
+              onClick={() => hasContent && setExpandedMonth(isExp ? null : m.monthKey)}
+              style={{
+                background: '#0d0d0d', border: '1px solid ' + (isExp ? '#3B82F6' : '#1a1a1a'), borderRadius: 10,
+                padding: '12px 14px', borderTop: '3px solid ' + (m.vencido > 0 ? '#F59E0B' : '#3B82F6'),
+                cursor: hasContent ? 'pointer' : 'default',
+                opacity: hasContent ? 1 : 0.4, transition: 'border-color 0.15s',
+              }}>
+              <div style={{ fontSize: 9, color: '#888', textTransform: 'uppercase' as const, letterSpacing: 0.5, fontWeight: 600 }}>
+                {fmtMonthLabel(m.monthKey)}
+              </div>
+              <div style={{ fontSize: 18, fontWeight: 700, color: '#fff', marginTop: 4 }}>
+                {fmt(m.total)}
+              </div>
+              <div style={{ fontSize: 10, marginTop: 4, color: '#666', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {m.pendiente > 0 && <span style={{ color: '#3B82F6' }}>📅 {fmt(m.pendiente)}</span>}
+                {m.vencido > 0 && <span style={{ color: '#F59E0B' }}>⚠ {fmt(m.vencido)}</span>}
+                {m.cobrado > 0 && <span style={{ color: '#57FF9A' }}>✓ {fmt(m.cobrado)}</span>}
+                {m.total === 0 && <span style={{ color: '#444' }}>sin hitos</span>}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Tabla expandible con hitos del mes seleccionado */}
+      {expandedMonth && (() => {
+        const hitosToShow = expandedMonth === '__overdue'
+          ? vencidoHistorico.hitos
+          : monthsData.find(m => m.monthKey === expandedMonth)?.hitosMes || []
+        return (
+          <div style={{ background: '#0d0d0d', border: '1px solid #1a1a1a', borderRadius: 10, padding: 16, marginBottom: 12 }}>
+            <div style={{ fontSize: 11, color: '#888', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 10 }}>
+              Hitos {expandedMonth === '__overdue' ? 'vencidos acumulados' : fmtMonthLabel(expandedMonth)} · {hitosToShow.length}
+            </div>
+            <table style={{ width: '100%', fontSize: 11 }}>
+              <thead><tr style={{ color: '#555' }}>
+                <td style={{ padding: '4px 8px' }}>Concepto</td>
+                <td style={{ padding: '4px 8px' }}>Cotización / Lead</td>
+                <td style={{ padding: '4px 8px', textAlign: 'right' as const }}>Monto</td>
+                <td style={{ padding: '4px 8px' }}>Vence</td>
+                <td style={{ padding: '4px 8px' }}>Estado</td>
+              </tr></thead>
+              <tbody>
+                {hitosToShow.map((h: any) => {
+                  const quot = quotsContrato.find(q => q.id === h.quotation_id)
+                  const lead = quot ? leadsMap[quot.lead_id] : null
+                  const dueDate = new Date(h.due_date + 'T00:00:00')
+                  const today = new Date()
+                  today.setHours(0, 0, 0, 0)
+                  const isOverdue = !h.paid_at && dueDate < today
+                  const isPaid = !!h.paid_at
+                  return (
+                    <tr key={h.id} style={{ borderTop: '1px solid #1a1a1a' }}>
+                      <td style={{ padding: '8px', color: '#ddd' }}>{h.name}</td>
+                      <td style={{ padding: '8px', color: '#888' }}>
+                        <div style={{ color: '#ccc' }}>{quot?.name || '(cotización borrada)'}</div>
+                        {lead && <div style={{ fontSize: 9, color: '#666' }}>{lead.name}{lead.company ? ` — ${lead.company}` : ''}</div>}
+                      </td>
+                      <td style={{ padding: '8px', textAlign: 'right' as const, color: '#fff', fontWeight: 600 }}>
+                        {fmt(convert(Number(h.amount) || 0, h.currency || 'MXN'))}
+                      </td>
+                      <td style={{ padding: '8px', color: isOverdue ? '#F59E0B' : '#888', fontSize: 10 }}>
+                        {h.due_date}
+                      </td>
+                      <td style={{ padding: '8px' }}>
+                        {isPaid ? (
+                          <span style={{ background: 'rgba(87,255,154,0.15)', color: '#57FF9A', padding: '2px 8px', borderRadius: 4, fontSize: 9, fontWeight: 600 }}>✓ Cobrado</span>
+                        ) : isOverdue ? (
+                          <span style={{ background: 'rgba(245,158,11,0.15)', color: '#F59E0B', padding: '2px 8px', borderRadius: 4, fontSize: 9, fontWeight: 600 }}>⚠ Vencido</span>
+                        ) : (
+                          <span style={{ background: 'rgba(59,130,246,0.15)', color: '#3B82F6', padding: '2px 8px', borderRadius: 4, fontSize: 9, fontWeight: 600 }}>📅 Pendiente</span>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )
+      })()}
+
+      {/* Cotizaciones sin plan — atajo para capturar */}
+      {cotsSinPlan.length > 0 && (
+        <div style={{ background: '#1a1a0a', border: '1px solid rgba(245,158,11,0.3)', borderRadius: 10, padding: 14 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+            <span style={{ fontSize: 16 }}>⚠</span>
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#F59E0B' }}>
+                {cotsSinPlan.length} cotizaciones cerradas SIN plan de pagos
+              </div>
+              <div style={{ fontSize: 10, color: '#888', marginTop: 2 }}>
+                Estas no aparecen en la proyección. Captura su plan para tenerlas en el dashboard.
+              </div>
+            </div>
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            {cotsSinPlan.slice(0, 12).map((q: any) => {
+              const lead = leadsMap[q.lead_id]
+              return (
+                <button key={q.id}
+                  onClick={() => navigate('/cotizaciones')}
+                  style={{
+                    background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: 6,
+                    padding: '6px 10px', cursor: 'pointer', fontFamily: 'inherit',
+                    fontSize: 10, color: '#F59E0B', textAlign: 'left' as const,
+                  }}>
+                  <div style={{ fontWeight: 600 }}>{q.name}</div>
+                  {lead && <div style={{ fontSize: 9, color: '#888', marginTop: 1 }}>{lead.name}</div>}
+                </button>
+              )
+            })}
+            {cotsSinPlan.length > 12 && (
+              <div style={{ padding: '6px 10px', fontSize: 10, color: '#666' }}>+{cotsSinPlan.length - 12} más</div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
