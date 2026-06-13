@@ -774,9 +774,11 @@ function CobranzaPorProyecto() {
         supabase.from('leads').select('id, name, company'),
         supabase.from('quotations').select('id, name, notes, specialty, stage, total').order('updated_at', { ascending: false }),
         supabase.from('purchase_orders').select('id, po_number, total, status, lead_id, quotation_id, currency'),
-        supabase.from('bank_movements').select('id, monto, tipo, fecha, lead_id, quotation_id, categoria_sugerida, moneda').not('lead_id', 'is', null),
-        // Cobros y pagos en efectivo (tab Efectivo de Contabilidad)
-        supabase.from('cash_movements').select('id, tipo, direccion, monto, fecha, lead_id, quotation_id, concepto').not('lead_id', 'is', null),
+        // Traer TODOS los movimientos con lead_id O quotation_id (no solo lead_id directo).
+        // El lead se infiere via quotation cuando no está directo. Esto recupera
+        // ~362 movs históricos que estaban quedando fuera del cálculo.
+        supabase.from('bank_movements').select('id, monto, tipo, fecha, lead_id, quotation_id, categoria_sugerida, moneda').or('lead_id.not.is.null,quotation_id.not.is.null'),
+        supabase.from('cash_movements').select('id, tipo, direccion, monto, fecha, lead_id, quotation_id, concepto').or('lead_id.not.is.null,quotation_id.not.is.null'),
       ])
       // Parsear lead_id, currency, descuento e ivaRate de cotizaciones desde notes JSON.
       // El descuento e ivaRate pueden estar en niveles distintos según especialidad:
@@ -832,15 +834,17 @@ function CobranzaPorProyecto() {
     return currencyView === 'USD' ? formatted + ' USD' : formatted
   }
 
-  // Resolver lead_id de una OC: si no tiene directo, inferirlo desde la cotización vinculada
-  const resolvePoLead = (po: any) => {
-    if (po.lead_id) return po.lead_id
-    if (po.quotation_id) {
-      const q = quotations.find(qq => qq.id === po.quotation_id)
+  // Resolver lead_id de cualquier registro con quotation_id: directo o inferido.
+  // Aplica para POs, bank_movements, cash_movements — todos pueden tener uno u otro.
+  const resolveLead = (record: any) => {
+    if (record.lead_id) return record.lead_id
+    if (record.quotation_id) {
+      const q = quotations.find(qq => qq.id === record.quotation_id)
       if (q?.lead_id) return q.lead_id
     }
     return null
   }
+  const resolvePoLead = resolveLead  // alias por compat
 
   // Calcular métricas por lead, ordenadas por monto vendido desc
   const leadRows = useMemo(() => {
@@ -872,16 +876,18 @@ function CobranzaPorProyecto() {
       const por_pagar_compras = posLead
         .filter(p => ['borrador', 'aprobada'].includes(p.status))
         .reduce((s, p) => s + convert(Number(p.total) || 0, p.currency || 'MXN'), 0)
-      // Bank movements de este lead
-      const movsLead = bankMovs.filter(b => b.lead_id === leadId)
+      // Bank movements de este lead — incluir tanto directos (lead_id) como
+      // inferidos (quotation_id → lead). Aceptamos cualquier abono como cobro
+      // porque la categoría 'cobro_cliente' no siempre está asignada.
+      const movsLead = bankMovs.filter(b => resolveLead(b) === leadId)
       const cobrado_banco = movsLead
-        .filter(b => b.tipo === 'abono' && (b.categoria_sugerida === 'cobro_cliente' || !b.categoria_sugerida))
+        .filter(b => b.tipo === 'abono')
         .reduce((s, b) => s + convert(Number(b.monto) || 0, b.moneda || 'MXN'), 0)
       const pagado_banco = movsLead
         .filter(b => b.tipo === 'cargo')
         .reduce((s, b) => s + convert(Number(b.monto) || 0, b.moneda || 'MXN'), 0)
-      // Cash movements de este lead (efectivo) — siempre se asume MXN
-      const efectivoLead = cashMovs.filter(c => c.lead_id === leadId)
+      // Cash movements de este lead — mismo patrón (directo o vía cotización)
+      const efectivoLead = cashMovs.filter(c => resolveLead(c) === leadId)
       const cobrado_efectivo = efectivoLead
         .filter(c => c.direccion === 'ingreso' || c.tipo === 'cobro_cliente')
         .reduce((s, c) => s + convert(Number(c.monto) || 0, 'MXN'), 0)
