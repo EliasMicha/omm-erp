@@ -11,6 +11,7 @@ import {
   CheckCircle2, Clock, XCircle, TrendingUp, Package, BarChart3, Plus, X, Download,
 } from 'lucide-react'
 import jsPDF from 'jspdf'
+import PaymentPlanModal from '../components/PaymentPlanModal'
 
 // ═══════════════════════════════════════════════════════════════════
 // TYPES
@@ -77,6 +78,11 @@ export default function LeadDashboard() {
     if (id) await supabase.from('leads').update({ tipo_cambio_ref: tc }).eq('id', id)
   }
   const [showNewMilestone, setShowNewMilestone] = useState(false)
+  // Modal de plan de pagos con templates (reemplaza al widget de un hito a la vez).
+  // selectedQuotForPlan: id de la cotización elegida cuando hay varias contratos.
+  const [selectedQuotForPlan, setSelectedQuotForPlan] = useState<string | null>(null)
+  // Si el user da click en "Plan de pagos" y hay > 1 cot contrato, abrir el selector.
+  const [showQuotPicker, setShowQuotPicker] = useState(false)
   const [cobrarModal, setCobrarModal] = useState<any>(null) // milestone being marked as cobrado
 
   // (AI summary removed — replaced with computed consolidation)
@@ -1107,9 +1113,29 @@ export default function LeadDashboard() {
         {/* ── Hitos de cobro (planning) ── */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 20, marginBottom: 8 }}>
           <span style={{ fontSize: 11, fontWeight: 600, color: '#888', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Hitos de Cobro</span>
-          <button onClick={() => setShowNewMilestone(true)} style={{ ...linkBtnS, padding: '4px 10px', fontSize: 11, gap: 4, color: '#57FF9A', borderColor: '#57FF9A44' }}>
-            <Plus size={12} /> Nuevo hito
-          </button>
+          <div style={{ display: 'flex', gap: 6 }}>
+            {/* Botón principal: Plan de pagos con templates */}
+            <button
+              onClick={() => {
+                const contratos = quotations.filter(q => q.stage === 'contrato')
+                if (contratos.length === 0) {
+                  alert('Necesitas al menos una cotización en stage "contrato" para definir el plan de pagos.')
+                  return
+                }
+                if (contratos.length === 1) {
+                  setSelectedQuotForPlan(contratos[0].id)
+                } else {
+                  setShowQuotPicker(true)
+                }
+              }}
+              style={{ ...linkBtnS, padding: '4px 10px', fontSize: 11, gap: 4, color: '#C084FC', borderColor: '#A855F744', background: 'rgba(168,85,247,0.08)' }}>
+              💰 Plan de pagos
+            </button>
+            {/* Fallback: capturar un hito a la vez (manual) */}
+            <button onClick={() => setShowNewMilestone(true)} style={{ ...linkBtnS, padding: '4px 10px', fontSize: 11, gap: 4, color: '#666', borderColor: '#333' }}>
+              <Plus size={12} /> Hito suelto
+            </button>
+          </div>
         </div>
         {milestones.length === 0 ? (
           <Empty text="Sin hitos de cobro registrados" />
@@ -1354,6 +1380,73 @@ export default function LeadDashboard() {
           </div>
         )}
       </Section>
+
+      {/* Selector de cotización cuando el lead tiene varias contrato */}
+      {showQuotPicker && (() => {
+        const contratos = quotations.filter(q => q.stage === 'contrato')
+        return (
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16 }}>
+            <div style={{ background: '#141414', border: '1px solid #2a2a2a', borderRadius: 12, padding: 20, width: '100%', maxWidth: 500 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: '#fff' }}>¿Para qué cotización?</div>
+                <button onClick={() => setShowQuotPicker(false)} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer' }}><X size={18} /></button>
+              </div>
+              <div style={{ fontSize: 11, color: '#888', marginBottom: 10 }}>
+                Este lead tiene varias cotizaciones cerradas. Elige una para definir su plan de pagos.
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {contratos.map(q => {
+                  const cur = getQuotCurrency(q)
+                  const total = (Number(q.total) || 0) * 1.16
+                  return (
+                    <button key={q.id}
+                      onClick={() => { setSelectedQuotForPlan(q.id); setShowQuotPicker(false) }}
+                      style={{
+                        background: '#0a0a0a', border: '1px solid #2a2a2a', borderRadius: 8,
+                        padding: '10px 14px', cursor: 'pointer', fontFamily: 'inherit',
+                        textAlign: 'left', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                      }}
+                      onMouseEnter={e => (e.currentTarget.style.borderColor = '#A855F7')}
+                      onMouseLeave={e => (e.currentTarget.style.borderColor = '#2a2a2a')}
+                    >
+                      <div>
+                        <div style={{ fontSize: 12, color: '#fff', fontWeight: 600 }}>{q.name}</div>
+                        <div style={{ fontSize: 10, color: '#666', marginTop: 2 }}>{q.specialty} · {cur}</div>
+                      </div>
+                      <div style={{ fontSize: 12, color: '#57FF9A', fontWeight: 600 }}>{FCUR(total, cur)}</div>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          </div>
+        )
+      })()}
+
+      {/* Modal Plan de pagos */}
+      {selectedQuotForPlan && (() => {
+        const q = quotations.find(qq => qq.id === selectedQuotForPlan)
+        if (!q) return null
+        const cur = getQuotCurrency(q)
+        const total = (Number(q.total) || 0) * 1.16
+        // Buscar el proyecto vinculado a esta cotización (si hay)
+        const linkedProj = projects.find(p => p.cotizacion_id === q.id)
+        return (
+          <PaymentPlanModal
+            quotationId={q.id}
+            quotationName={q.name}
+            totalFinal={total}
+            currency={cur}
+            projectId={linkedProj?.id || null}
+            onClose={() => setSelectedQuotForPlan(null)}
+            onSaved={() => {
+              setSelectedQuotForPlan(null)
+              // Recargar milestones después de guardar
+              if (id) load()
+            }}
+          />
+        )
+      })()}
     </div>
   )
 }
