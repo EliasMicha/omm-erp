@@ -26,7 +26,7 @@ interface Attendance {
 }
 
 const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
-  en_sitio: { label: 'EN SITIO', color: '#57FF9A' },
+  en_sitio: { label: 'EN SITIO', color: '#10B981' },
   fuera_de_rango: { label: 'FUERA DE RANGO', color: '#f59e0b' },
   sin_obra: { label: 'SIN OBRA', color: '#a78bfa' },
   aprobada: { label: 'APROBADA', color: '#3b82f6' },
@@ -218,7 +218,7 @@ export default function TabAsistencia() {
               padding: '8px 16px',
               background: filterRange === r ? '#0f2a1a' : 'transparent',
               border: 'none', borderRadius: 8,
-              color: filterRange === r ? '#57FF9A' : '#666',
+              color: filterRange === r ? '#10B981' : '#666',
               fontSize: 12, fontWeight: 600, cursor: 'pointer',
               textTransform: 'capitalize',
             }}
@@ -233,7 +233,7 @@ export default function TabAsistencia() {
         <KpiCard
           label="Empleados activos"
           value={kpis.empleadosActivos}
-          color="#57FF9A"
+          color="#10B981"
           icon={<Users size={16} />}
         />
         <KpiCard
@@ -345,7 +345,7 @@ export default function TabAsistencia() {
                     <span style={{
                       fontSize: 10, padding: '2px 8px', borderRadius: 8,
                       background: a.tipo === 'entrada' ? '#0f2a1a' : '#1a1f2f',
-                      color: a.tipo === 'entrada' ? '#57FF9A' : '#3b82f6',
+                      color: a.tipo === 'entrada' ? '#10B981' : '#3b82f6',
                       fontWeight: 700, textTransform: 'uppercase',
                     }}>
                       {a.tipo}
@@ -482,7 +482,7 @@ export default function TabAsistencia() {
                     rel="noopener noreferrer"
                     style={{
                       display: 'inline-flex', alignItems: 'center', gap: 4,
-                      fontSize: 11, color: '#57FF9A', textDecoration: 'none',
+                      fontSize: 11, color: '#10B981', textDecoration: 'none',
                       marginTop: 4,
                     }}
                   >
@@ -495,7 +495,7 @@ export default function TabAsistencia() {
                   <div style={{ fontSize: 10, color: '#666', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>Distancia a obra</div>
                   <div style={{
                     fontSize: 14,
-                    color: selected.status === 'fuera_de_rango' ? '#f59e0b' : '#57FF9A',
+                    color: selected.status === 'fuera_de_rango' ? '#f59e0b' : '#10B981',
                     fontWeight: 600,
                   }}>
                     {fmtDist(selected.distancia_obra_metros)}

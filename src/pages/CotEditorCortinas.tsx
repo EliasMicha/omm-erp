@@ -596,7 +596,7 @@ function CortPdfModal({ items, areas, config, cotName, clientName, projectName, 
 
         {/* Footer buttons - outside ref */}
         <div className="cort-pdf-no-print" style={{ display: 'flex', gap: 10, padding: 16, justifyContent: 'center', borderTop: '1px solid #ddd', background: '#f9f9f9' }}>
-          <button onClick={handleDownloadPdf} disabled={downloading} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', background: '#57FF9A', color: '#000', border: 'none', borderRadius: 4, fontSize: 12, fontWeight: 600, cursor: downloading ? 'wait' : 'pointer', opacity: downloading ? 0.6 : 1 }}>
+          <button onClick={handleDownloadPdf} disabled={downloading} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', background: '#10B981', color: '#000', border: 'none', borderRadius: 4, fontSize: 12, fontWeight: 600, cursor: downloading ? 'wait' : 'pointer', opacity: downloading ? 0.6 : 1 }}>
             <Download size={14} /> {downloading ? 'Generando...' : 'Descargar PDF'}
           </button>
           <button onClick={handlePrint} style={{ padding: '8px 16px', background: '#000', color: '#fff', border: 'none', borderRadius: 4, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>Imprimir</button>
@@ -805,7 +805,7 @@ function CortRow({ item, config, onUpdate, onRemove, onShowSomfy, onCopy, showIn
       <td style={S.td}>
         <label style={{ display: 'flex', alignItems: 'center', gap: 3, cursor: 'pointer' }}>
           <input type="checkbox" checked={item.telaIncluida} onChange={e => onUpdate(item.id, 'telaIncluida', e.target.checked)} style={{ width: 12, height: 12 }} />
-          <span style={{ fontSize: 9, color: item.telaIncluida ? '#F59E0B' : '#555' }}>Cliente</span>
+          <span style={{ fontSize: 9, color: item.telaIncluida ? '#D97706' : '#555' }}>Cliente</span>
         </label>
       </td>
       <td style={{ ...S.tdR, fontSize: 11, color: '#888' }}>{fabricML.toFixed(2)}</td>
@@ -819,7 +819,7 @@ function CortRow({ item, config, onUpdate, onRemove, onShowSomfy, onCopy, showIn
       <td style={S.td}>
         {item.tipoCierre === 'MOTORIZADO' && item.motorBrand === 'LUTRON' ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-            <span style={{ fontSize: 9, color: '#F59E0B', fontWeight: 600 }}>USD</span>
+            <span style={{ fontSize: 9, color: '#D97706', fontWeight: 600 }}>USD</span>
             <input type="number" defaultValue={item.precioMotor} step={1} min={0}
               onBlur={e => onUpdate(item.id, 'precioMotor', parseFloat(e.target.value) || 0)}
               style={{ ...S.input, width: 65 }} />
@@ -828,7 +828,7 @@ function CortRow({ item, config, onUpdate, onRemove, onShowSomfy, onCopy, showIn
           <span style={{ color: '#14B8A6', fontWeight: 600, fontSize: 12 }}>${motorCostRaw.toFixed(2)} <span style={{ fontSize: 8, color: '#555' }}>MXN</span></span>
         ) : <span style={{ color: '#444' }}>--</span>}
       </td>
-      <td style={{ ...S.tdM, color: '#57FF9A' }}>
+      <td style={{ ...S.tdM, color: '#10B981' }}>
         ${(showInt ? totalLinea : totalConMargen).toFixed(2)}
       </td>
       {showInt && (
@@ -923,7 +923,7 @@ function PersianaRow({ item, config, onUpdate, onRemove, onCopy, showInt }: {
           <div style={{ fontSize: 8, color: '#14B8A6' }}>= ${motorCostRaw.toFixed(2)} USD × {config.tipoCambio}</div>
         )}
       </td>
-      <td style={{ ...S.tdM, color: '#57FF9A' }}>${(showInt ? totalLinea : totalConMargen).toFixed(2)}</td>
+      <td style={{ ...S.tdM, color: '#10B981' }}>${(showInt ? totalLinea : totalConMargen).toFixed(2)}</td>
       {showInt && <td style={{ ...S.tdM, color: '#67E8F9' }}>${totalConMargen.toFixed(2)}</td>}
       <td style={{ ...S.td, width: 28, display: 'flex', gap: 4 }}>
         <button onClick={() => onCopy(item)} title="Copiar a otra área" style={{ background: 'none', border: 'none', color: '#444', cursor: 'pointer' }}><Copy size={12} /></button>
@@ -965,7 +965,7 @@ function ExtraRow({ item, config, onUpdate, onRemove, onCopy, showInt }: {
         <input type="number" defaultValue={item.extraPrecioUnitario || ''} step={0.01} placeholder="0" onBlur={e => onUpdate(item.id, 'extraPrecioUnitario', parseFloat(e.target.value) || 0)} style={{ ...S.input, width: 90 }} />
       </td>
       <td style={{ ...S.tdR, color: '#ccc', fontWeight: 600 }}>${totalLinea.toFixed(2)}</td>
-      <td style={{ ...S.tdM, color: '#57FF9A' }}>${(showInt ? totalLinea : totalConMargen).toFixed(2)}</td>
+      <td style={{ ...S.tdM, color: '#10B981' }}>${(showInt ? totalLinea : totalConMargen).toFixed(2)}</td>
       {showInt && <td style={{ ...S.tdM, color: '#67E8F9' }}>${totalConMargen.toFixed(2)}</td>}
       <td style={{ ...S.td, width: 28, display: 'flex', gap: 4 }}>
         <button onClick={() => onCopy(item)} title="Copiar a otra área" style={{ background: 'none', border: 'none', color: '#444', cursor: 'pointer' }}><Copy size={12} /></button>
@@ -1052,7 +1052,7 @@ function CortAreaBlock({ area, items, config, onToggle, onUpdate, onRemove, onAd
                 <th style={{ ...S.th, textAlign: 'right' }}>Costo Conf<br/><span style={{ fontSize: 8, color: '#555' }}>MXN</span></th>
                 <th style={{ ...S.th, textAlign: 'right' }}>$ Conf<br/><span style={{ fontSize: 8, color: '#555' }}>MXN</span></th>
                 <th style={{ ...S.th, textAlign: 'right' }}>Costo Motor</th>
-                <th style={{ ...S.th, textAlign: 'right', color: '#57FF9A' }}>{showInt ? 'Costo' : 'Total'}</th>
+                <th style={{ ...S.th, textAlign: 'right', color: '#10B981' }}>{showInt ? 'Costo' : 'Total'}</th>
                 {showInt && <th style={{ ...S.th, textAlign: 'right', color: '#67E8F9' }}>Venta</th>}
                 <th style={S.th}></th>
               </tr></thead>
@@ -1068,7 +1068,7 @@ function CortAreaBlock({ area, items, config, onToggle, onUpdate, onRemove, onAd
           </div>
 
           {/* ───────── PERSIANAS sub-section ───────── */}
-          <div style={{ fontSize: 9, fontWeight: 700, color: '#C084FC', letterSpacing: '0.08em', padding: '10px 2px 2px', borderTop: persianaItems.length > 0 ? '1px solid #222' : undefined, marginTop: persianaItems.length > 0 ? 6 : 0 }}>PERSIANAS</div>
+          <div style={{ fontSize: 9, fontWeight: 700, color: '#A78BFA', letterSpacing: '0.08em', padding: '10px 2px 2px', borderTop: persianaItems.length > 0 ? '1px solid #222' : undefined, marginTop: persianaItems.length > 0 ? 6 : 0 }}>PERSIANAS</div>
           {persianaItems.length > 0 && (
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1100 }}>
@@ -1085,7 +1085,7 @@ function CortAreaBlock({ area, items, config, onToggle, onUpdate, onRemove, onAd
                   <th style={{ ...S.th, textAlign: 'right' }}>m²</th>
                   <th style={{ ...S.th, textAlign: 'right' }}>$ Material<br/><span style={{ fontSize: 8, color: '#555' }}>MXN</span></th>
                   <th style={{ ...S.th, textAlign: 'right' }}>Costo Motor</th>
-                  <th style={{ ...S.th, textAlign: 'right', color: '#57FF9A' }}>{showInt ? 'Costo' : 'Total'}</th>
+                  <th style={{ ...S.th, textAlign: 'right', color: '#10B981' }}>{showInt ? 'Costo' : 'Total'}</th>
                   {showInt && <th style={{ ...S.th, textAlign: 'right', color: '#67E8F9' }}>Venta</th>}
                   <th style={S.th}></th>
                 </tr></thead>
@@ -1102,7 +1102,7 @@ function CortAreaBlock({ area, items, config, onToggle, onUpdate, onRemove, onAd
           </div>
 
           {/* ───────── EXTRAS sub-section (controles, interfaces, etc.) ───────── */}
-          <div style={{ fontSize: 9, fontWeight: 700, color: '#F59E0B', letterSpacing: '0.08em', padding: '10px 2px 2px', borderTop: extraItems.length > 0 ? '1px solid #222' : undefined, marginTop: extraItems.length > 0 ? 6 : 0 }}>EXTRAS</div>
+          <div style={{ fontSize: 9, fontWeight: 700, color: '#D97706', letterSpacing: '0.08em', padding: '10px 2px 2px', borderTop: extraItems.length > 0 ? '1px solid #222' : undefined, marginTop: extraItems.length > 0 ? 6 : 0 }}>EXTRAS</div>
           {extraItems.length > 0 && (
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 700 }}>
@@ -1111,7 +1111,7 @@ function CortAreaBlock({ area, items, config, onToggle, onUpdate, onRemove, onAd
                   <th style={{ ...S.th, textAlign: 'right' }}>Cant</th>
                   <th style={{ ...S.th, textAlign: 'right' }}>Precio unit.<br/><span style={{ fontSize: 8, color: '#555' }}>MXN</span></th>
                   <th style={{ ...S.th, textAlign: 'right' }}>$ Subtotal<br/><span style={{ fontSize: 8, color: '#555' }}>MXN</span></th>
-                  <th style={{ ...S.th, textAlign: 'right', color: '#57FF9A' }}>{showInt ? 'Costo' : 'Total'}</th>
+                  <th style={{ ...S.th, textAlign: 'right', color: '#10B981' }}>{showInt ? 'Costo' : 'Total'}</th>
                   {showInt && <th style={{ ...S.th, textAlign: 'right', color: '#67E8F9' }}>Venta</th>}
                   <th style={S.th}></th>
                 </tr></thead>
@@ -1130,11 +1130,11 @@ function CortAreaBlock({ area, items, config, onToggle, onUpdate, onRemove, onAd
               <span style={{ margin: '0 6px' }}>|</span>
               Conf: <span style={{ color: '#ccc', fontWeight: 600 }}>${(showInt ? confCost : confConMargen).toFixed(2)}</span>
               <span style={{ margin: '0 6px' }}>|</span>
-              Persianas: <span style={{ color: '#C084FC', fontWeight: 600 }}>${(showInt ? persianaCost : persianaConMargen).toFixed(2)}</span>
+              Persianas: <span style={{ color: '#A78BFA', fontWeight: 600 }}>${(showInt ? persianaCost : persianaConMargen).toFixed(2)}</span>
               <span style={{ margin: '0 6px' }}>|</span>
               Motor: <span style={{ color: '#14B8A6', fontWeight: 600 }}>${(showInt ? motorCost : motorConMargen).toFixed(2)}</span>
               <span style={{ margin: '0 6px' }}>|</span>
-              Extras: <span style={{ color: '#F59E0B', fontWeight: 600 }}>${(showInt ? extraCost : extraConMargen).toFixed(2)}</span>
+              Extras: <span style={{ color: '#D97706', fontWeight: 600 }}>${(showInt ? extraCost : extraConMargen).toFixed(2)}</span>
               <span style={{ margin: '0 6px' }}>|</span>
               <span style={{ fontWeight: 700, color: '#67E8F9' }}>${(showInt ? areaTotal : areaTotalVenta).toFixed(2)} MXN</span>
             </div>
@@ -1271,8 +1271,8 @@ function CortSummary({ items, areas, config, showInt, onConfigChange }: {
           { l: 'TOTAL', v: total, b: true, h: true },
         ] as Array<{ l: string; v: number; isCount?: boolean; b?: boolean; h?: boolean; disc?: boolean }>).map((r, i) => (
           <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '3px 0', borderTop: r.b ? '1px solid #222' : 'none' }}>
-            <span style={{ fontSize: 10, color: r.disc ? '#EF4444' : r.h ? '#67E8F9' : r.b ? '#ccc' : '#555', fontWeight: r.b ? 700 : 400 }}>{r.l}</span>
-            <span style={{ fontSize: r.h ? 15 : 11, fontWeight: r.b ? 700 : 400, color: r.disc ? '#EF4444' : r.h ? '#67E8F9' : '#fff' }}>
+            <span style={{ fontSize: 10, color: r.disc ? '#DC2626' : r.h ? '#67E8F9' : r.b ? '#ccc' : '#555', fontWeight: r.b ? 700 : 400 }}>{r.l}</span>
+            <span style={{ fontSize: r.h ? 15 : 11, fontWeight: r.b ? 700 : 400, color: r.disc ? '#DC2626' : r.h ? '#67E8F9' : '#fff' }}>
               {r.isCount ? r.v : '$' + Math.abs(r.v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </span>
           </div>
@@ -1317,7 +1317,7 @@ function CortSummary({ items, areas, config, showInt, onConfigChange }: {
       {/* Internal analysis */}
       {showInt && (
         <div style={{ background: '#1a1414', border: '1px solid #332222', borderRadius: 12, padding: 14 }}>
-          <div style={{ fontSize: 10, fontWeight: 600, color: '#F59E0B', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Analisis Interno</div>
+          <div style={{ fontSize: 10, fontWeight: 600, color: '#D97706', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Analisis Interno</div>
           <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}><span style={{ color: '#888' }}>Costo tela</span><span style={{ color: '#ccc' }}>${telaCost.toFixed(2)}</span></div>
           <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}><span style={{ color: '#888' }}>Costo conf</span><span style={{ color: '#ccc' }}>${confCost.toFixed(2)}</span></div>
           <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}><span style={{ color: '#888' }}>Costo motor</span><span style={{ color: '#ccc' }}>${motorCost.toFixed(2)}</span></div>
@@ -1325,12 +1325,12 @@ function CortSummary({ items, areas, config, showInt, onConfigChange }: {
             <span style={{ color: '#888' }}>Costo total</span><span style={{ color: '#ccc', fontWeight: 600 }}>${subtotalCost.toFixed(2)}</span>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}><span style={{ color: '#888' }}>Venta</span><span style={{ color: '#fff', fontWeight: 600 }}>${subtotalVenta.toFixed(2)}</span></div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}><span style={{ color: '#888' }}>Utilidad tela</span><span style={{ color: '#57FF9A' }}>${utilidadTela.toFixed(2)}</span></div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}><span style={{ color: '#888' }}>Utilidad conf</span><span style={{ color: '#57FF9A' }}>${utilidadConf.toFixed(2)}</span></div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}><span style={{ color: '#888' }}>Utilidad motor</span><span style={{ color: '#57FF9A' }}>${utilidadMotor.toFixed(2)}</span></div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}><span style={{ color: '#888' }}>Utilidad tela</span><span style={{ color: '#10B981' }}>${utilidadTela.toFixed(2)}</span></div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}><span style={{ color: '#888' }}>Utilidad conf</span><span style={{ color: '#10B981' }}>${utilidadConf.toFixed(2)}</span></div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}><span style={{ color: '#888' }}>Utilidad motor</span><span style={{ color: '#10B981' }}>${utilidadMotor.toFixed(2)}</span></div>
           <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10, borderTop: '1px solid #332222', marginTop: 3, paddingTop: 5 }}>
-            <span style={{ color: '#F59E0B', fontWeight: 600 }}>Margen</span>
-            <span style={{ color: margenReal >= 25 ? '#57FF9A' : margenReal >= 15 ? '#F59E0B' : '#EF4444', fontWeight: 700, fontSize: 13 }}>{margenReal}%</span>
+            <span style={{ color: '#D97706', fontWeight: 600 }}>Margen</span>
+            <span style={{ color: margenReal >= 25 ? '#10B981' : margenReal >= 15 ? '#D97706' : '#DC2626', fontWeight: 700, fontSize: 13 }}>{margenReal}%</span>
           </div>
         </div>
       )}
@@ -1616,14 +1616,14 @@ function AIImportModalCortinas({ cotId, areas, config, onClose, onImported }: {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
           <div>
             <div style={{ fontSize: 15, fontWeight: 700, color: '#fff', display: 'flex', alignItems: 'center', gap: 8 }}>
-              <Sparkles size={16} color="#A855F7" /> Importar Cotización (PDF / Excel)
+              <Sparkles size={16} color="#7C3AED" /> Importar Cotización (PDF / Excel)
             </div>
             <div style={{ fontSize: 11, color: '#888', marginTop: 2 }}>Sube tu cotización y Claude la parsea automáticamente.</div>
           </div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer' }}><X size={18} /></button>
         </div>
 
-        {error && <div style={{ background: '#EF444422', border: '1px solid #EF4444', borderRadius: 8, padding: 10, marginBottom: 12, color: '#FCA5A5', fontSize: 11 }}>⚠ {error}</div>}
+        {error && <div style={{ background: '#DC262622', border: '1px solid #DC2626', borderRadius: 8, padding: 10, marginBottom: 12, color: '#FCA5A5', fontSize: 11 }}>⚠ {error}</div>}
 
         {step === 'upload' && (
           <div>
@@ -1643,17 +1643,17 @@ function AIImportModalCortinas({ cotId, areas, config, onClose, onImported }: {
                 if (f) handleFile(f)
               }}
               style={{
-                border: isDragging ? '2px dashed #A855F7' : '2px dashed #444',
+                border: isDragging ? '2px dashed #7C3AED' : '2px dashed #444',
                 borderRadius: 12,
                 padding: 40,
                 textAlign: 'center',
                 cursor: 'pointer',
-                background: isDragging ? '#A855F71A' : '#0e0e0e',
+                background: isDragging ? '#7C3AED1A' : '#0e0e0e',
                 transition: 'all 0.15s ease',
               }}
             >
-              <Upload size={32} color={isDragging ? '#C084FC' : '#A855F7'} style={{ margin: '0 auto 12px', transition: 'color 0.15s ease' }} />
-              <div style={{ fontSize: 13, color: isDragging ? '#C084FC' : '#ccc', fontWeight: 600, marginBottom: 4 }}>
+              <Upload size={32} color={isDragging ? '#A78BFA' : '#7C3AED'} style={{ margin: '0 auto 12px', transition: 'color 0.15s ease' }} />
+              <div style={{ fontSize: 13, color: isDragging ? '#A78BFA' : '#ccc', fontWeight: 600, marginBottom: 4 }}>
                 {isDragging ? 'Suelta el archivo aquí' : 'Click o arrastra el archivo aquí'}
               </div>
               <div style={{ fontSize: 10, color: '#666' }}>
@@ -1670,9 +1670,9 @@ function AIImportModalCortinas({ cotId, areas, config, onClose, onImported }: {
                   onClick={() => setPriceMode('venta')}
                   style={{
                     flex: 1, padding: '8px 10px', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit',
-                    border: '1px solid ' + (priceMode === 'venta' ? '#A855F7' : '#333'),
-                    background: priceMode === 'venta' ? '#A855F722' : 'transparent',
-                    color: priceMode === 'venta' ? '#C084FC' : '#888',
+                    border: '1px solid ' + (priceMode === 'venta' ? '#7C3AED' : '#333'),
+                    background: priceMode === 'venta' ? '#7C3AED22' : 'transparent',
+                    color: priceMode === 'venta' ? '#A78BFA' : '#888',
                     textAlign: 'left',
                   }}
                 >
@@ -1683,9 +1683,9 @@ function AIImportModalCortinas({ cotId, areas, config, onClose, onImported }: {
                   onClick={() => setPriceMode('costo')}
                   style={{
                     flex: 1, padding: '8px 10px', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit',
-                    border: '1px solid ' + (priceMode === 'costo' ? '#A855F7' : '#333'),
-                    background: priceMode === 'costo' ? '#A855F722' : 'transparent',
-                    color: priceMode === 'costo' ? '#C084FC' : '#888',
+                    border: '1px solid ' + (priceMode === 'costo' ? '#7C3AED' : '#333'),
+                    background: priceMode === 'costo' ? '#7C3AED22' : 'transparent',
+                    color: priceMode === 'costo' ? '#A78BFA' : '#888',
                     textAlign: 'left',
                   }}
                 >
@@ -1711,7 +1711,7 @@ function AIImportModalCortinas({ cotId, areas, config, onClose, onImported }: {
 
         {step === 'processing' && (
           <div style={{ padding: 40, textAlign: 'center' }}>
-            <Loader2 size={32} color="#A855F7" style={{ animation: 'spin 1s linear infinite', margin: '0 auto 12px' }} />
+            <Loader2 size={32} color="#7C3AED" style={{ animation: 'spin 1s linear infinite', margin: '0 auto 12px' }} />
             <div style={{ fontSize: 13, color: '#ccc' }}>{progress}</div>
             <style>{`@keyframes spin { from { transform: rotate(0deg) } to { transform: rotate(360deg) } }`}</style>
           </div>
@@ -1720,13 +1720,13 @@ function AIImportModalCortinas({ cotId, areas, config, onClose, onImported }: {
         {step === 'review' && (
           <div>
             <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 12, fontSize: 11 }}>
-              <span style={{ padding: '2px 8px', borderRadius: 5, background: confidence === 'high' ? '#10B98122' : confidence === 'low' ? '#EF444422' : '#F59E0B22', color: confidence === 'high' ? '#10B981' : confidence === 'low' ? '#EF4444' : '#F59E0B', fontWeight: 600 }}>Confianza: {confidence}</span>
+              <span style={{ padding: '2px 8px', borderRadius: 5, background: confidence === 'high' ? '#10B98122' : confidence === 'low' ? '#DC262622' : '#D9770622', color: confidence === 'high' ? '#10B981' : confidence === 'low' ? '#DC2626' : '#D97706', fontWeight: 600 }}>Confianza: {confidence}</span>
               <span style={{ color: '#888' }}>{items.length} items · {extras.length} extras</span>
               {meta.cliente && <span style={{ color: '#888' }}>· Cliente: <span style={{ color: '#ccc' }}>{meta.cliente}</span></span>}
               {meta.proyecto && <span style={{ color: '#888' }}>· Proyecto: <span style={{ color: '#ccc' }}>{meta.proyecto}</span></span>}
             </div>
             {warnings.length > 0 && (
-              <div style={{ background: '#F59E0B22', border: '1px solid #F59E0B', borderRadius: 8, padding: 8, marginBottom: 10, fontSize: 10, color: '#FCD34D' }}>
+              <div style={{ background: '#D9770622', border: '1px solid #D97706', borderRadius: 8, padding: 8, marginBottom: 10, fontSize: 10, color: '#FCD34D' }}>
                 {warnings.map((w, i) => <div key={i}>⚠ {w}</div>)}
               </div>
             )}
@@ -1774,13 +1774,13 @@ function AIImportModalCortinas({ cotId, areas, config, onClose, onImported }: {
                       <td style={{ ...S.td, fontSize: 10 }}>
                         <input type="text" defaultValue={it.motorSystem} onBlur={e => updateRow(it._rowId, 'motorSystem', e.target.value)} placeholder="LSN50…" style={{ ...S.input, width: 100, textAlign: 'left', fontSize: 10 }} />
                       </td>
-                      <td style={{ ...S.tdM, color: '#57FF9A' }}>${it.totalVenta.toFixed(2)}</td>
+                      <td style={{ ...S.tdM, color: '#10B981' }}>${it.totalVenta.toFixed(2)}</td>
                       <td style={S.td}><button onClick={() => removeRow(it._rowId)} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer' }}><Trash2 size={12} /></button></td>
                     </tr>
                   ))}
                   {extras.length > 0 && (
                     <>
-                      <tr style={{ background: '#1a1a1a' }}><td colSpan={10} style={{ padding: '6px 8px', fontSize: 10, fontWeight: 700, color: '#A855F7', letterSpacing: '0.08em' }}>EXTRAS (controles, interfaces, etc.)</td></tr>
+                      <tr style={{ background: '#1a1a1a' }}><td colSpan={10} style={{ padding: '6px 8px', fontSize: 10, fontWeight: 700, color: '#7C3AED', letterSpacing: '0.08em' }}>EXTRAS (controles, interfaces, etc.)</td></tr>
                       {extras.map(ex => (
                         <tr key={ex._rowId}>
                           <td colSpan={2} style={S.td}>
@@ -1789,7 +1789,7 @@ function AIImportModalCortinas({ cotId, areas, config, onClose, onImported }: {
                           <td style={S.td} colSpan={3}>—</td>
                           <td style={S.tdR}><input type="number" defaultValue={ex.cantidad} min={1} onBlur={e => updateExtra(ex._rowId, 'cantidad', parseInt(e.target.value) || 1)} style={{ ...S.input, width: 45 }} /></td>
                           <td style={S.td} colSpan={2}>—</td>
-                          <td style={{ ...S.tdM, color: '#57FF9A' }}>${ex.total.toFixed(2)}</td>
+                          <td style={{ ...S.tdM, color: '#10B981' }}>${ex.total.toFixed(2)}</td>
                           <td style={S.td}><button onClick={() => removeExtra(ex._rowId)} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer' }}><Trash2 size={12} /></button></td>
                         </tr>
                       ))}
@@ -1808,7 +1808,7 @@ function AIImportModalCortinas({ cotId, areas, config, onClose, onImported }: {
 
         {step === 'inserting' && (
           <div style={{ padding: 40, textAlign: 'center' }}>
-            <Loader2 size={32} color="#A855F7" style={{ animation: 'spin 1s linear infinite', margin: '0 auto 12px' }} />
+            <Loader2 size={32} color="#7C3AED" style={{ animation: 'spin 1s linear infinite', margin: '0 auto 12px' }} />
             <div style={{ fontSize: 13, color: '#ccc' }}>{progress}</div>
             <div style={{ fontSize: 11, color: '#888', marginTop: 8 }}>{insertedCount} / {items.length + extras.length} insertados</div>
           </div>
@@ -2119,8 +2119,8 @@ export default function CotEditorCortinas({ cotId, onBack, onSwitchVersion }: { 
               border: '1px solid ' + (stage === s ? cfg.color : '#333'), background: stage === s ? cfg.color + '22' : 'transparent', color: stage === s ? cfg.color : '#555',
             }}>{cfg.label}</button>
           ))}
-          <button onClick={() => setShowInt(!showInt)} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid ' + (showInt ? '#F59E0B' : '#333'), background: showInt ? '#F59E0B22' : 'transparent', color: showInt ? '#F59E0B' : '#555', marginLeft: 8 }}>{showInt ? 'Interno' : 'Cliente'}</button>
-          <button onClick={() => setShowAIImport(true)} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #A855F7', background: '#A855F722', color: '#A855F7', marginLeft: 4, display: 'flex', alignItems: 'center', gap: 4 }} title="Importar PDF o Excel de cortinas/persianas con AI"><Upload size={12} /> Importar</button>
+          <button onClick={() => setShowInt(!showInt)} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid ' + (showInt ? '#D97706' : '#333'), background: showInt ? '#D9770622' : 'transparent', color: showInt ? '#D97706' : '#555', marginLeft: 8 }}>{showInt ? 'Interno' : 'Cliente'}</button>
+          <button onClick={() => setShowAIImport(true)} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #7C3AED', background: '#7C3AED22', color: '#7C3AED', marginLeft: 4, display: 'flex', alignItems: 'center', gap: 4 }} title="Importar PDF o Excel de cortinas/persianas con AI"><Upload size={12} /> Importar</button>
           <button onClick={() => setShowPdf(true)} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #67E8F9', background: '#67E8F922', color: '#67E8F9', marginLeft: 4, display: 'flex', alignItems: 'center', gap: 4 }}><Printer size={12} /> PDF</button>
           <VersionManager cotId={cotId} getCurrentSnapshot={getVersionSnapshot} onSwitchVersion={onSwitchVersion || (() => {})} accentColor="#67E8F9" compact={isMobile} />
           <span style={{ fontSize: 15, fontWeight: 700, color: '#67E8F9', marginLeft: 10 }}>${grandTotal.toFixed(2)}</span>
@@ -2131,9 +2131,9 @@ export default function CotEditorCortinas({ cotId, onBack, onSwitchVersion }: { 
       <div style={{ padding: isMobile ? '5px 8px' : '5px 16px', borderBottom: '1px solid #1e1e1e', display: 'flex', gap: isMobile ? 4 : 8, alignItems: 'center', background: '#0e0e0e', flexShrink: 0, flexWrap: 'wrap' }}>
         <span style={{ fontSize: 9, color: '#444', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.1em' }}>Cortinas y Persianas</span>
         <span style={{ fontSize: 10, color: '#14B8A6', background: '#14B8A622', padding: '2px 8px', borderRadius: 5 }}>Somfy auto-BOM</span>
-        <span style={{ fontSize: 10, color: '#A855F7', background: '#A855F722', padding: '2px 8px', borderRadius: 5 }}>Lutron manual</span>
+        <span style={{ fontSize: 10, color: '#7C3AED', background: '#7C3AED22', padding: '2px 8px', borderRadius: 5 }}>Lutron manual</span>
         <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span style={{ fontSize: 10, fontWeight: 600, color: config.currency === 'USD' ? '#06B6D4' : '#F59E0B', background: config.currency === 'USD' ? '#06B6D422' : '#F59E0B22', padding: '2px 8px', borderRadius: 5 }}>{config.currency}</span>
+          <span style={{ fontSize: 10, fontWeight: 600, color: config.currency === 'USD' ? '#06B6D4' : '#D97706', background: config.currency === 'USD' ? '#06B6D422' : '#D9770622', padding: '2px 8px', borderRadius: 5 }}>{config.currency}</span>
           <span style={{ fontSize: 9, color: '#555' }}>TC:</span>
           <input type="number" value={config.tipoCambio} step={0.1}
             onChange={e => updateConfig('tipoCambio', parseFloat(e.target.value) || 20)}

@@ -52,12 +52,12 @@ interface Precedent {
 }
 
 const SYSTEMS = [
-  { id: 'Audio', label: 'Audio', color: '#57FF9A' },
-  { id: 'Redes', label: 'Redes', color: '#3B82F6' },
-  { id: 'CCTV', label: 'CCTV', color: '#EF4444' },
-  { id: 'Control de Acceso', label: 'Control de Acceso', color: '#F59E0B' },
-  { id: 'Control de Iluminación', label: 'Control de Iluminación', color: '#A855F7' },
-  { id: 'Detección de Humo', label: 'Detección de Humo', color: '#EF4444' },
+  { id: 'Audio', label: 'Audio', color: '#10B981' },
+  { id: 'Redes', label: 'Redes', color: '#2563EB' },
+  { id: 'CCTV', label: 'CCTV', color: '#DC2626' },
+  { id: 'Control de Acceso', label: 'Control de Acceso', color: '#D97706' },
+  { id: 'Control de Iluminación', label: 'Control de Iluminación', color: '#7C3AED' },
+  { id: 'Detección de Humo', label: 'Detección de Humo', color: '#DC2626' },
   { id: 'BMS', label: 'BMS', color: '#06B6D4' },
   { id: 'Telefonía', label: 'Telefonía', color: '#06B6D4' },
   { id: 'Red Celular', label: 'Red Celular', color: '#8B5CF6' },
@@ -415,7 +415,7 @@ export default function PlanAnalyzer({ onBack }: { onBack: () => void }) {
               border: '2px dashed #333', borderRadius: 12, padding: '48px 24px', textAlign: 'center',
               cursor: 'pointer', transition: 'border-color 0.2s',
               background: planFile ? 'rgba(87,255,154,0.03)' : 'transparent',
-              borderColor: planFile ? '#57FF9A44' : '#333',
+              borderColor: planFile ? '#10B98144' : '#333',
             }}
           >
             <input id="plan-input" type="file" accept=".pdf,.png,.jpg,.jpeg,.webp" style={{ display: 'none' }}
@@ -423,13 +423,13 @@ export default function PlanAnalyzer({ onBack }: { onBack: () => void }) {
 
             {planFile ? (
               <div>
-                <CheckCircle size={32} color="#57FF9A" style={{ marginBottom: 12 }} />
+                <CheckCircle size={32} color="#10B981" style={{ marginBottom: 12 }} />
                 <div style={{ fontSize: 15, fontWeight: 600, color: '#fff', marginBottom: 4 }}>{planFile.name}</div>
                 <div style={{ fontSize: 12, color: '#888' }}>{(planFile.size / 1024 / 1024).toFixed(1)} MB · {planMediaType}</div>
                 {planPreview && (
                   <img src={planPreview} alt="Preview" style={{ maxWidth: 400, maxHeight: 300, borderRadius: 8, marginTop: 16, border: '1px solid #333' }} />
                 )}
-                <div style={{ marginTop: 12, fontSize: 12, color: '#57FF9A', cursor: 'pointer' }}
+                <div style={{ marginTop: 12, fontSize: 12, color: '#10B981', cursor: 'pointer' }}
                   onClick={e => { e.stopPropagation(); setPlanFile(null); setPlanBase64(''); setPlanPreview('') }}>
                   Cambiar archivo
                 </div>
@@ -443,7 +443,7 @@ export default function PlanAnalyzer({ onBack }: { onBack: () => void }) {
             )}
           </div>
 
-          {error && <div style={{ color: '#EF4444', fontSize: 13, marginTop: 12 }}>{error}</div>}
+          {error && <div style={{ color: '#DC2626', fontSize: 13, marginTop: 12 }}>{error}</div>}
         </div>
 
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 20 }}>
@@ -472,8 +472,8 @@ export default function PlanAnalyzer({ onBack }: { onBack: () => void }) {
                   style={{
                     padding: '6px 14px', borderRadius: 20, fontSize: 12, cursor: 'pointer',
                     background: projectType === pt ? 'rgba(87,255,154,0.15)' : '#1a1a1a',
-                    border: projectType === pt ? '1px solid #57FF9A66' : '1px solid #333',
-                    color: projectType === pt ? '#57FF9A' : '#aaa',
+                    border: projectType === pt ? '1px solid #10B98166' : '1px solid #333',
+                    color: projectType === pt ? '#10B981' : '#aaa',
                     fontWeight: projectType === pt ? 600 : 400,
                   }}>
                   {pt}
@@ -525,13 +525,13 @@ export default function PlanAnalyzer({ onBack }: { onBack: () => void }) {
             <span><Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> Cargando catalogo y precedentes...</span>
           ) : (
             <>
-              <span style={{ color: '#57FF9A' }}>{catalog.length} productos en catalogo</span>
-              <span style={{ color: '#3B82F6' }}>{precedents.length} cotizaciones de referencia</span>
+              <span style={{ color: '#10B981' }}>{catalog.length} productos en catalogo</span>
+              <span style={{ color: '#2563EB' }}>{precedents.length} cotizaciones de referencia</span>
             </>
           )}
         </div>
 
-        {error && <div style={{ color: '#EF4444', fontSize: 13, marginTop: 12, ...card }}>{error}</div>}
+        {error && <div style={{ color: '#DC2626', fontSize: 13, marginTop: 12, ...card }}>{error}</div>}
 
         <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 20 }}>
           <Btn onClick={() => setStep(0)}><ChevronLeft size={14} /> Atras</Btn>
@@ -549,7 +549,7 @@ export default function PlanAnalyzer({ onBack }: { onBack: () => void }) {
     return (
       <div style={{ padding: '24px 28px', maxWidth: 800, textAlign: 'center' }}>
         <div style={{ ...card, marginTop: 60, padding: '48px 24px' }}>
-          <Loader2 size={40} color="#57FF9A" style={{ animation: 'spin 1s linear infinite', marginBottom: 16 }} />
+          <Loader2 size={40} color="#10B981" style={{ animation: 'spin 1s linear infinite', marginBottom: 16 }} />
           <div style={{ fontSize: 18, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Analizando plano con AI...</div>
           <div style={{ fontSize: 13, color: '#888', maxWidth: 400, margin: '0 auto' }}>
             Claude esta leyendo el plano, identificando areas y proponiendo equipos de tu catalogo. Esto puede tomar 15-30 segundos.
@@ -575,16 +575,16 @@ export default function PlanAnalyzer({ onBack }: { onBack: () => void }) {
           </Btn>
         </div>} />
 
-      {error && <div style={{ ...card, color: '#EF4444', fontSize: 13, marginTop: 12 }}>{error}</div>}
+      {error && <div style={{ ...card, color: '#DC2626', fontSize: 13, marginTop: 12 }}>{error}</div>}
 
       {/* Summary cards */}
       {result && (
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 16 }}>
-          <div style={{ ...card, borderLeft: '2px solid #57FF9A' }}>
+          <div style={{ ...card, borderLeft: '2px solid #10B981' }}>
             <div style={{ ...label, marginBottom: 8 }}>Resumen del plano</div>
             <div style={{ fontSize: 13, color: '#ccc', lineHeight: 1.6 }}>{result.plan_summary}</div>
           </div>
-          <div style={{ ...card, borderLeft: '2px solid #3B82F6' }}>
+          <div style={{ ...card, borderLeft: '2px solid #2563EB' }}>
             <div style={{ ...label, marginBottom: 8 }}>Logica de la propuesta</div>
             <div style={{ fontSize: 13, color: '#ccc', lineHeight: 1.6 }}>{result.rationale}</div>
           </div>
@@ -593,13 +593,13 @@ export default function PlanAnalyzer({ onBack }: { onBack: () => void }) {
 
       {/* Warnings */}
       {result && result.warnings.length > 0 && (
-        <div style={{ ...card, marginTop: 12, borderLeft: '2px solid #F59E0B' }}>
+        <div style={{ ...card, marginTop: 12, borderLeft: '2px solid #D97706' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-            <AlertTriangle size={14} color="#F59E0B" />
+            <AlertTriangle size={14} color="#D97706" />
             <span style={{ ...label, marginBottom: 0 }}>Advertencias</span>
           </div>
           {result.warnings.map((w, i) => (
-            <div key={i} style={{ fontSize: 12, color: '#F59E0B', marginBottom: 4 }}>- {w}</div>
+            <div key={i} style={{ fontSize: 12, color: '#D97706', marginBottom: 4 }}>- {w}</div>
           ))}
         </div>
       )}
@@ -612,12 +612,12 @@ export default function PlanAnalyzer({ onBack }: { onBack: () => void }) {
           const areaSystems = [...new Set(area.items.map(it => it.system))]
 
           return (
-            <div key={ai} style={{ ...card, marginBottom: 8, borderLeft: `2px solid ${expanded ? '#57FF9A' : '#333'}` }}>
+            <div key={ai} style={{ ...card, marginBottom: 8, borderLeft: `2px solid ${expanded ? '#10B981' : '#333'}` }}>
               {/* Area header */}
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}
                 onClick={() => setExpandedArea(expanded ? null : ai)}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <MapPin size={14} color={expanded ? '#57FF9A' : '#666'} />
+                  <MapPin size={14} color={expanded ? '#10B981' : '#666'} />
                   <div>
                     <div style={{ fontSize: 14, fontWeight: 600, color: '#fff' }}>{area.name}</div>
                     <div style={{ fontSize: 11, color: '#666', marginTop: 2 }}>
@@ -629,10 +629,10 @@ export default function PlanAnalyzer({ onBack }: { onBack: () => void }) {
                   {areaSystems.map(s => (
                     <span key={s} style={{ fontSize: 10, padding: '2px 8px', borderRadius: 10, background: `${systemColor(s)}18`, color: systemColor(s) }}>{s}</span>
                   ))}
-                  <Btn onClick={(e: React.MouseEvent) => { e.stopPropagation(); removeArea(ai) }} style={{ padding: '4px 6px', color: '#EF4444' }}>
+                  <Btn onClick={(e: React.MouseEvent) => { e.stopPropagation(); removeArea(ai) }} style={{ padding: '4px 6px', color: '#DC2626' }}>
                     <Trash2 size={12} />
                   </Btn>
-                  <Eye size={14} color={expanded ? '#57FF9A' : '#555'} />
+                  <Eye size={14} color={expanded ? '#10B981' : '#555'} />
                 </div>
               </div>
 
@@ -656,10 +656,10 @@ export default function PlanAnalyzer({ onBack }: { onBack: () => void }) {
                             {item.system}
                           </span>
                           {item.is_new_suggestion && (
-                            <span style={{ fontSize: 9, padding: '1px 6px', borderRadius: 8, background: '#F59E0B18', color: '#F59E0B' }}>Sugerencia</span>
+                            <span style={{ fontSize: 9, padding: '1px 6px', borderRadius: 8, background: '#D9770618', color: '#D97706' }}>Sugerencia</span>
                           )}
                           {item.catalog_product_id && (
-                            <span style={{ fontSize: 9, padding: '1px 6px', borderRadius: 8, background: '#57FF9A18', color: '#57FF9A' }}>Catalogo</span>
+                            <span style={{ fontSize: 9, padding: '1px 6px', borderRadius: 8, background: '#10B98118', color: '#10B981' }}>Catalogo</span>
                           )}
                         </div>
                         <div style={{ fontSize: 13, color: '#fff', fontWeight: 500, marginTop: 4 }}>
@@ -699,7 +699,7 @@ export default function PlanAnalyzer({ onBack }: { onBack: () => void }) {
 
                       {/* Remove */}
                       <div onClick={() => removeItem(ai, ii)} style={{ cursor: 'pointer', textAlign: 'center' }}>
-                        <Trash2 size={12} color="#EF4444" />
+                        <Trash2 size={12} color="#DC2626" />
                       </div>
                     </div>
                   ))}

@@ -680,7 +680,7 @@ function CotizacionPdfInner() {
             display: 'inline-flex', alignItems: 'center', gap: 6,
           }}><Settings size={14} /> Editar datos y términos</button>
           <button onClick={generatePdf} disabled={generating} style={{
-            padding: '8px 16px', background: generating ? '#888' : '#57FF9A', border: 'none', color: '#000',
+            padding: '8px 16px', background: generating ? '#888' : '#10B981', border: 'none', color: '#000',
             borderRadius: 8, cursor: generating ? 'wait' : 'pointer', fontFamily: 'Inter, sans-serif', fontSize: 12, fontWeight: 600,
             display: 'inline-flex', alignItems: 'center', gap: 6, opacity: generating ? 0.7 : 1,
           }}>{generating ? <><Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Generando...</> : <><Download size={14} /> Descargar PDF</>}</button>
@@ -758,7 +758,7 @@ function CotizacionPdfInner() {
               <button onClick={resetConfig} style={{ padding: '8px 14px', background: 'none', border: '1px solid #444', borderRadius: 6, color: '#888', cursor: 'pointer', fontSize: 11, fontFamily: 'inherit' }}>Restaurar defaults</button>
               <div style={{ display: 'flex', gap: 8 }}>
                 <button onClick={() => setShowSettings(false)} style={{ padding: '8px 14px', background: 'none', border: '1px solid #333', borderRadius: 6, color: '#888', cursor: 'pointer', fontSize: 11, fontFamily: 'inherit' }}>Cancelar</button>
-                <button onClick={saveConfig} style={{ padding: '8px 14px', background: '#57FF9A', border: 'none', borderRadius: 6, color: '#000', cursor: 'pointer', fontSize: 11, fontWeight: 600, fontFamily: 'inherit' }}>Guardar</button>
+                <button onClick={saveConfig} style={{ padding: '8px 14px', background: '#10B981', border: 'none', borderRadius: 6, color: '#000', cursor: 'pointer', fontSize: 11, fontWeight: 600, fontFamily: 'inherit' }}>Guardar</button>
               </div>
             </div>
           </div>

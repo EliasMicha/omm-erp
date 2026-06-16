@@ -57,7 +57,7 @@ type Tab = 'info' | 'materiales' | 'documentos' | 'reportes'
 
 const DOC_TIPO_CONFIG: Record<string, { label: string; icon: any; color: string }> = {
   plano: { label: 'Planos', icon: FileImage, color: '#3b82f6' },
-  ficha_tecnica: { label: 'Fichas técnicas', icon: FileText, color: '#57FF9A' },
+  ficha_tecnica: { label: 'Fichas técnicas', icon: FileText, color: '#10B981' },
   diagrama: { label: 'Diagramas', icon: FileCog, color: '#a78bfa' },
   render: { label: 'Renders', icon: FileImage, color: '#f59e0b' },
   memoria_calculo: { label: 'Memorias de cálculo', icon: Scroll, color: '#ec4899' },
@@ -144,14 +144,14 @@ export default function DetalleObraPage() {
   }, [documentos])
 
   const statusColor = (s: string | null) =>
-    s === 'en_ejecucion' ? '#57FF9A' :
+    s === 'en_ejecucion' ? '#10B981' :
     s === 'pausada' ? '#f59e0b' :
     s === 'completada' ? '#3b82f6' :
     s === 'entrega_pendiente' ? '#a78bfa' :
     '#666'
 
   const actStatusColor = (s: string) =>
-    s === 'completada' ? '#57FF9A' :
+    s === 'completada' ? '#10B981' :
     s === 'en_proceso' ? '#3b82f6' :
     s === 'bloqueada' ? '#ef4444' :
     '#666'
@@ -192,7 +192,7 @@ export default function DetalleObraPage() {
         <button
           onClick={() => navigate('/obra-app/mis-obras')}
           style={{
-            padding: '10px 18px', background: '#57FF9A', color: '#0a0a0a',
+            padding: '10px 18px', background: '#10B981', color: '#0a0a0a',
             border: 'none', borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: 'pointer',
           }}
         >Volver</button>
@@ -274,7 +274,7 @@ export default function DetalleObraPage() {
                 flex: 1, minWidth: 0, padding: '10px 6px',
                 background: active ? '#0f2a1a' : 'transparent',
                 border: 'none', borderRadius: 8,
-                color: active ? '#57FF9A' : '#666',
+                color: active ? '#10B981' : '#666',
                 fontSize: 11, fontWeight: 600, cursor: 'pointer',
                 display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3,
               }}
@@ -293,7 +293,7 @@ export default function DetalleObraPage() {
             <div style={{ padding: 14, background: '#0f0f0f', border: '1px solid #1a1a1a', borderRadius: 12 }}>
               <div style={{ fontSize: 10, color: '#666', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>Dirección</div>
               <div style={{ display: 'flex', gap: 8, fontSize: 13, color: '#ccc', lineHeight: 1.5 }}>
-                <MapPin size={14} style={{ flexShrink: 0, marginTop: 2, color: '#57FF9A' }} />
+                <MapPin size={14} style={{ flexShrink: 0, marginTop: 2, color: '#10B981' }} />
                 <span>{obra.direccion_completa || obra.direccion}</span>
               </div>
             </div>
@@ -306,7 +306,7 @@ export default function DetalleObraPage() {
                 {obra.sistemas.map(s => (
                   <div key={s} style={{
                     padding: '6px 10px', background: '#0f2a1a', border: '1px solid #1f3a2a',
-                    borderRadius: 8, fontSize: 12, color: '#57FF9A', fontWeight: 600,
+                    borderRadius: 8, fontSize: 12, color: '#10B981', fontWeight: 600,
                     display: 'flex', alignItems: 'center', gap: 4,
                   }}>
                     <span>{SISTEMA_EMOJI[s] || '📦'}</span>
@@ -321,7 +321,7 @@ export default function DetalleObraPage() {
             <div style={{ padding: 14, background: '#0f0f0f', border: '1px solid #1a1a1a', borderRadius: 12 }}>
               <div style={{ fontSize: 10, color: '#666', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>Inicio</div>
               <div style={{ fontSize: 13, color: '#ccc', display: 'flex', alignItems: 'center', gap: 6 }}>
-                <Calendar size={12} color="#57FF9A" />
+                <Calendar size={12} color="#10B981" />
                 {fmtDate(obra.fecha_inicio)}
               </div>
             </div>
@@ -355,9 +355,9 @@ export default function DetalleObraPage() {
                 style={{
                   flexShrink: 0, padding: '8px 12px',
                   background: sistemaFiltro === 'todos' ? '#0f2a1a' : '#0f0f0f',
-                  border: `1px solid ${sistemaFiltro === 'todos' ? '#57FF9A' : '#1f1f1f'}`,
+                  border: `1px solid ${sistemaFiltro === 'todos' ? '#10B981' : '#1f1f1f'}`,
                   borderRadius: 20,
-                  color: sistemaFiltro === 'todos' ? '#57FF9A' : '#888',
+                  color: sistemaFiltro === 'todos' ? '#10B981' : '#888',
                   fontSize: 11, fontWeight: 600, cursor: 'pointer',
                   whiteSpace: 'nowrap',
                 }}
@@ -371,9 +371,9 @@ export default function DetalleObraPage() {
                   style={{
                     flexShrink: 0, padding: '8px 12px',
                     background: sistemaFiltro === s ? '#0f2a1a' : '#0f0f0f',
-                    border: `1px solid ${sistemaFiltro === s ? '#57FF9A' : '#1f1f1f'}`,
+                    border: `1px solid ${sistemaFiltro === s ? '#10B981' : '#1f1f1f'}`,
                     borderRadius: 20,
-                    color: sistemaFiltro === s ? '#57FF9A' : '#888',
+                    color: sistemaFiltro === s ? '#10B981' : '#888',
                     fontSize: 11, fontWeight: 600, cursor: 'pointer',
                     whiteSpace: 'nowrap',
                     display: 'flex', alignItems: 'center', gap: 4,
@@ -412,7 +412,7 @@ export default function DetalleObraPage() {
               {Object.entries(actividadesByArea).map(([area, acts]) => (
                 <div key={area}>
                   <div style={{
-                    fontSize: 11, color: '#57FF9A',
+                    fontSize: 11, color: '#10B981',
                     textTransform: 'uppercase', letterSpacing: 1, fontWeight: 700,
                     marginBottom: 6, paddingLeft: 4,
                     display: 'flex', alignItems: 'center', gap: 6,

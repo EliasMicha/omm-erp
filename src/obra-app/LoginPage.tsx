@@ -66,7 +66,7 @@ export default function LoginPage({ onLogin }: { onLogin: () => void }) {
           <div style={{
             width: 80, height: 80, margin: '0 auto 16px',
             borderRadius: 20,
-            background: '#57FF9A',
+            background: '#10B981',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             fontSize: 36, fontWeight: 800, color: '#0a0a0a',
           }}>
@@ -127,7 +127,7 @@ export default function LoginPage({ onLogin }: { onLogin: () => void }) {
             disabled={loading}
             style={{
               width: '100%', padding: '16px 20px',
-              background: loading ? '#3a5f48' : '#57FF9A',
+              background: loading ? '#3a5f48' : '#10B981',
               color: '#0a0a0a', border: 'none',
               borderRadius: 12, fontSize: 16, fontWeight: 700,
               cursor: loading ? 'not-allowed' : 'pointer',

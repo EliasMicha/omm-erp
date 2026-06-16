@@ -113,11 +113,11 @@ interface POPayment {
 // ─── Config ───────────────────────────────────────────────────────────────────
 const PO_STATUS_CFG: Record<POStatus, { label: string; color: string; order: number }> = {
   borrador:         { label: 'Borrador',         color: '#6B7280', order: 0 },
-  aprobada:         { label: 'Aprobada',         color: '#3B82F6', order: 1 },
-  pedida:           { label: 'Pedida',           color: '#F59E0B', order: 2 },
-  recibida_parcial: { label: 'Parcial',          color: '#C084FC', order: 3 },
-  recibida:         { label: 'Recibida',         color: '#57FF9A', order: 4 },
-  cancelada:        { label: 'Cancelada',        color: '#EF4444', order: 5 },
+  aprobada:         { label: 'Aprobada',         color: '#2563EB', order: 1 },
+  pedida:           { label: 'Pedida',           color: '#D97706', order: 2 },
+  recibida_parcial: { label: 'Parcial',          color: '#A78BFA', order: 3 },
+  recibida:         { label: 'Recibida',         color: '#10B981', order: 4 },
+  cancelada:        { label: 'Cancelada',        color: '#DC2626', order: 5 },
 }
 
 const PAYMENT_TERMS_CFG: Record<PaymentTerms, string> = {
@@ -133,8 +133,8 @@ const SYSTEM_OPTIONS = ['Redes', 'CCTV', 'Audio', 'Lutron', 'Acceso', 'Somfy', '
 // Modo logístico — cómo llega el material de una PO
 const LOGISTICS_CFG: Record<LogisticsMode, { label: string; short: string; color: string; needsObra: boolean; description: string }> = {
   pending:            { label: 'Por decidir',              short: 'Pendiente',     color: '#6B7280', needsObra: false, description: 'Aún no se decide cómo llega' },
-  pickup_to_bodega:   { label: 'Recolectar → bodega',      short: 'Recol→Bodega',  color: '#3B82F6', needsObra: false, description: 'OMM va por ella y la lleva a bodega' },
-  pickup_to_obra:     { label: 'Recolectar → directo a obra', short: 'Recol→Obra', color: '#F59E0B', needsObra: true,  description: 'OMM va por ella y la lleva directo a la obra' },
+  pickup_to_bodega:   { label: 'Recolectar → bodega',      short: 'Recol→Bodega',  color: '#2563EB', needsObra: false, description: 'OMM va por ella y la lleva a bodega' },
+  pickup_to_obra:     { label: 'Recolectar → directo a obra', short: 'Recol→Obra', color: '#D97706', needsObra: true,  description: 'OMM va por ella y la lleva directo a la obra' },
   supplier_to_bodega: { label: 'Proveedor → bodega',       short: 'Prov→Bodega',   color: '#8B5CF6', needsObra: false, description: 'Proveedor envía a bodega OMM' },
   supplier_to_obra:   { label: 'Proveedor → directo a obra', short: 'Prov→Obra',   color: '#EC4899', needsObra: true,  description: 'Proveedor envía directo a la obra' },
 }
@@ -201,7 +201,7 @@ function SearchableSelect({ label, value, onChange, options, placeholder }: {
       <div
         onClick={() => { setOpen(true); setSearch('') }}
         style={{
-          padding: '8px 10px', background: '#1e1e1e', border: '1px solid ' + (open ? '#57FF9A' : '#333'),
+          padding: '8px 10px', background: '#1e1e1e', border: '1px solid ' + (open ? '#10B981' : '#333'),
           borderRadius: 8, color: selected ? '#fff' : '#666', fontSize: 13, cursor: 'pointer',
           display: 'flex', justifyContent: 'space-between', alignItems: 'center',
         }}>
@@ -229,7 +229,7 @@ function SearchableSelect({ label, value, onChange, options, placeholder }: {
             )}
             {filtered.map(o => (
               <div key={o.value} onClick={() => { onChange(o.value); setOpen(false); setSearch('') }}
-                style={{ padding: '7px 10px', fontSize: 12, color: o.value === value ? '#57FF9A' : '#ccc', cursor: 'pointer', background: o.value === value ? 'rgba(87,255,154,0.08)' : 'transparent' }}
+                style={{ padding: '7px 10px', fontSize: 12, color: o.value === value ? '#10B981' : '#ccc', cursor: 'pointer', background: o.value === value ? 'rgba(87,255,154,0.08)' : 'transparent' }}
                 onMouseEnter={e => { if (o.value !== value) e.currentTarget.style.background = '#252525' }}
                 onMouseLeave={e => { if (o.value !== value) e.currentTarget.style.background = 'transparent' }}>
                 {o.label}
@@ -271,8 +271,8 @@ export default function Compras() {
               padding: '8px 16px', borderRadius: '8px 8px 0 0', fontSize: 12, cursor: 'pointer',
               fontFamily: 'inherit', fontWeight: view === key ? 600 : 400, border: 'none',
               background: view === key ? '#1e1e1e' : 'transparent',
-              color: view === key ? '#57FF9A' : '#666',
-              borderBottom: view === key ? '2px solid #57FF9A' : '2px solid transparent',
+              color: view === key ? '#10B981' : '#666',
+              borderBottom: view === key ? '2px solid #10B981' : '2px solid transparent',
               display: 'flex', alignItems: 'center', gap: 6,
             }}>
             <Icon size={14} /> {label}
@@ -354,12 +354,12 @@ function ComprasDashboard({ onOpenPO, onGoToList }: { onOpenPO: (id: string) => 
 
       {/* KPIs */}
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4,1fr)', gap: 12, marginBottom: 24 }}>
-        <KpiCard label="OC Activas" value={active.length} color="#3B82F6" icon={<FileText size={16} />} />
-        <KpiCard label="Pendiente MXN" value={F(totalPendienteMXN)} color="#F59E0B" icon={<ShoppingCart size={16} />} />
-        <KpiCard label="Pendiente USD" value={FUSD(totalPendienteUSD)} color="#F59E0B" icon={<ShoppingCart size={16} />} />
-        <KpiCard label="Mes MXN" value={F(totalMesMXN)} color="#57FF9A" icon={<Package size={16} />} />
-        <KpiCard label="Mes USD" value={FUSD(totalMesUSD)} color="#57FF9A" icon={<Package size={16} />} />
-        <KpiCard label="Por recibir" value={porRecibir} color="#C084FC" icon={<Truck size={16} />} />
+        <KpiCard label="OC Activas" value={active.length} color="#2563EB" icon={<FileText size={16} />} />
+        <KpiCard label="Pendiente MXN" value={F(totalPendienteMXN)} color="#D97706" icon={<ShoppingCart size={16} />} />
+        <KpiCard label="Pendiente USD" value={FUSD(totalPendienteUSD)} color="#D97706" icon={<ShoppingCart size={16} />} />
+        <KpiCard label="Mes MXN" value={F(totalMesMXN)} color="#10B981" icon={<Package size={16} />} />
+        <KpiCard label="Mes USD" value={FUSD(totalMesUSD)} color="#10B981" icon={<Package size={16} />} />
+        <KpiCard label="Por recibir" value={porRecibir} color="#A78BFA" icon={<Truck size={16} />} />
       </div>
 
       {/* Status summary */}
@@ -386,7 +386,7 @@ function ComprasDashboard({ onOpenPO, onGoToList }: { onOpenPO: (id: string) => 
             topSuppliers.map((s, i) => (
               <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #1e1e1e' }}>
                 <span style={{ fontSize: 12, color: '#ccc' }}>{s.name}</span>
-                <span style={{ fontSize: 12, fontWeight: 600, color: '#57FF9A', display: 'flex', gap: 8, alignItems: 'baseline' }}>
+                <span style={{ fontSize: 12, fontWeight: 600, color: '#10B981', display: 'flex', gap: 8, alignItems: 'baseline' }}>
                   {s.totalMXN > 0 && <span>{F(s.totalMXN)}</span>}
                   {s.totalUSD > 0 && <span style={{ color: '#A78BFA' }}>{FUSD(s.totalUSD)}</span>}
                   <span style={{ color: '#555', fontWeight: 400 }}>({s.count})</span>
@@ -403,7 +403,7 @@ function ComprasDashboard({ onOpenPO, onGoToList }: { onOpenPO: (id: string) => 
               <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #1e1e1e' }}>
                 <span style={{ fontSize: 12, color: '#ccc' }}>{p.name}</span>
                 <span style={{ fontSize: 12, fontWeight: 600, display: 'flex', gap: 8, alignItems: 'baseline' }}>
-                  {p.totalMXN > 0 && <span style={{ color: '#F59E0B' }}>{F(p.totalMXN)}</span>}
+                  {p.totalMXN > 0 && <span style={{ color: '#D97706' }}>{F(p.totalMXN)}</span>}
                   {p.totalUSD > 0 && <span style={{ color: '#A78BFA' }}>{FUSD(p.totalUSD)}</span>}
                 </span>
               </div>
@@ -434,8 +434,8 @@ function ComprasDashboard({ onOpenPO, onGoToList }: { onOpenPO: (id: string) => 
                     <Td><Badge label={esp.icon + ' ' + esp.label} color={esp.color} /></Td>
                     <Td>{phaseCfg ? <Badge label={phaseCfg.label} color={phaseCfg.color} /> : <span style={{color:'#555',fontSize:11}}>--</span>}</Td>
                     <Td><Badge label={st.label} color={st.color} /></Td>
-                    <Td right>{o.currency === 'MXN' ? <span style={{ fontWeight: 600, color: '#57FF9A' }}>{F(o.total)}</span> : <span style={{ color: '#333' }}>—</span>}</Td>
-                  <Td right>{o.currency === 'USD' ? <span style={{ fontWeight: 600, color: '#57FF9A' }}>{FUSD(o.total)}</span> : <span style={{ color: '#333' }}>—</span>}</Td>
+                    <Td right>{o.currency === 'MXN' ? <span style={{ fontWeight: 600, color: '#10B981' }}>{F(o.total)}</span> : <span style={{ color: '#333' }}>—</span>}</Td>
+                  <Td right>{o.currency === 'USD' ? <span style={{ fontWeight: 600, color: '#10B981' }}>{FUSD(o.total)}</span> : <span style={{ color: '#333' }}>—</span>}</Td>
                   </tr>
                 )
               })}
@@ -581,12 +581,12 @@ function ProcurementTracker({ onOpenPO, onOpenDetail }: { onOpenPO: (id: string)
       {totItems > 0 && (
         <div style={{ marginBottom: 20 }}>
           <div style={{ display: 'flex', height: 10, borderRadius: 5, overflow: 'hidden', background: '#1a1a1a' }}>
-            {totConOC > 0 && <div style={{ width: `${(totConOC / totItems) * 100}%`, background: '#3B82F6', transition: 'width 0.3s' }} />}
-            {totFaltantes > 0 && <div style={{ width: `${(totFaltantes / totItems) * 100}%`, background: '#F59E0B', transition: 'width 0.3s' }} />}
+            {totConOC > 0 && <div style={{ width: `${(totConOC / totItems) * 100}%`, background: '#2563EB', transition: 'width 0.3s' }} />}
+            {totFaltantes > 0 && <div style={{ width: `${(totFaltantes / totItems) * 100}%`, background: '#D97706', transition: 'width 0.3s' }} />}
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, fontSize: 11 }}>
-            <span style={{ color: '#3B82F6' }}>{totConOC} productos con OC ({Math.round((totConOC / totItems) * 100)}%)</span>
-            <span style={{ color: '#F59E0B' }}>{totFaltantes} productos faltantes ({Math.round((totFaltantes / totItems) * 100)}%)</span>
+            <span style={{ color: '#2563EB' }}>{totConOC} productos con OC ({Math.round((totConOC / totItems) * 100)}%)</span>
+            <span style={{ color: '#D97706' }}>{totFaltantes} productos faltantes ({Math.round((totFaltantes / totItems) * 100)}%)</span>
           </div>
         </div>
       )}
@@ -615,21 +615,21 @@ function ProcurementTracker({ onOpenPO, onOpenDetail }: { onOpenPO: (id: string)
                   <Td><span style={{ fontWeight: 600, color: '#fff' }}>{r.lead_name}</span></Td>
                   <Td muted>{r.name}</Td>
                   <Td>{espCfg ? <Badge label={espCfg.icon + ' ' + espCfg.label} color={espCfg.color} /> : <span style={{ color: '#555' }}>--</span>}</Td>
-                  <Td right>{r.numOCs > 0 ? <span style={{ color: '#3B82F6', fontWeight: 600 }}>{r.numOCs}</span> : <span style={{ color: '#444' }}>0</span>}</Td>
+                  <Td right>{r.numOCs > 0 ? <span style={{ color: '#2563EB', fontWeight: 600 }}>{r.numOCs}</span> : <span style={{ color: '#444' }}>0</span>}</Td>
                   <Td right>{r.totalItems}</Td>
                   <Td right>
                     {r.itemsFaltantes > 0
-                      ? <span style={{ color: '#F59E0B', fontWeight: 600 }}>{r.itemsFaltantes}</span>
-                      : <span style={{ color: '#57FF9A' }}>✓</span>}
+                      ? <span style={{ color: '#D97706', fontWeight: 600 }}>{r.itemsFaltantes}</span>
+                      : <span style={{ color: '#10B981' }}>✓</span>}
                   </Td>
                   <Td right><span style={{ fontWeight: 600, color: '#ccc' }}>{FCUR(r.costoTotal, r.currency)}</span></Td>
                   <Td right>
-                    <span style={{ color: r.costoPedido > 0 ? '#57FF9A' : '#444', fontWeight: 600 }}>
+                    <span style={{ color: r.costoPedido > 0 ? '#10B981' : '#444', fontWeight: 600 }}>
                       {FCUR(r.costoPedido, r.currency)}
                     </span>
                   </Td>
                   <Td right>
-                    <span style={{ color: r.costoFaltante > 0 ? '#F59E0B' : '#57FF9A', fontWeight: 600 }}>
+                    <span style={{ color: r.costoFaltante > 0 ? '#D97706' : '#10B981', fontWeight: 600 }}>
                       {r.costoFaltante > 0 ? FCUR(r.costoFaltante, r.currency) : '✓'}
                     </span>
                   </Td>
@@ -644,10 +644,10 @@ function ProcurementTracker({ onOpenPO, onOpenDetail }: { onOpenPO: (id: string)
                 <Td>{' '}</Td>
                 <Td right><span style={{ fontWeight: 700, color: '#fff' }}>{rows.reduce((s, r) => s + r.numOCs, 0)}</span></Td>
                 <Td right><span style={{ fontWeight: 700, color: '#fff' }}>{totItems}</span></Td>
-                <Td right><span style={{ fontWeight: 700, color: totFaltantes > 0 ? '#F59E0B' : '#57FF9A' }}>{totFaltantes}</span></Td>
+                <Td right><span style={{ fontWeight: 700, color: totFaltantes > 0 ? '#D97706' : '#10B981' }}>{totFaltantes}</span></Td>
                 <Td right><span style={{ fontWeight: 700, color: '#fff' }}>{FUSD(totCosto)}</span></Td>
-                <Td right><span style={{ fontWeight: 700, color: '#57FF9A' }}>{FUSD(totPedido)}</span></Td>
-                <Td right><span style={{ fontWeight: 700, color: totFaltante > 0 ? '#F59E0B' : '#57FF9A' }}>{totFaltante > 0 ? FUSD(totFaltante) : '✓'}</span></Td>
+                <Td right><span style={{ fontWeight: 700, color: '#10B981' }}>{FUSD(totPedido)}</span></Td>
+                <Td right><span style={{ fontWeight: 700, color: totFaltante > 0 ? '#D97706' : '#10B981' }}>{totFaltante > 0 ? FUSD(totFaltante) : '✓'}</span></Td>
               </tr>
             )}
           </tbody>
@@ -783,7 +783,7 @@ function ProcurementDetail({ quotationId, onBack, onOpenPO }: { quotationId: str
   if (loading) return <Loading />
 
   const espCfg = SPECIALTY_CONFIG[quotInfo.specialty as ProjectLine]
-  const statusColors: Record<string, string> = { vendido: '#F59E0B', oc_generada: '#3B82F6', pedido: '#57FF9A' }
+  const statusColors: Record<string, string> = { vendido: '#D97706', oc_generada: '#2563EB', pedido: '#10B981' }
   const statusLabels: Record<string, string> = { vendido: 'Sin OC', oc_generada: 'OC Generada', pedido: 'Pedido' }
 
   return (
@@ -857,7 +857,7 @@ function ProcurementDetail({ quotationId, onBack, onOpenPO }: { quotationId: str
                 <Td>
                   {item.po_number ? (
                     <span onClick={() => { if (item.po_id) onOpenPO(item.po_id) }}
-                      style={{ fontSize: 11, color: '#3B82F6', cursor: 'pointer', textDecoration: 'underline', fontWeight: 600 }}>
+                      style={{ fontSize: 11, color: '#2563EB', cursor: 'pointer', textDecoration: 'underline', fontWeight: 600 }}>
                       {item.po_number}
                     </span>
                   ) : <span style={{ color: '#333' }}>—</span>}
@@ -868,7 +868,7 @@ function ProcurementDetail({ quotationId, onBack, onOpenPO }: { quotationId: str
                 <Td muted>{item.expected_delivery ? formatDate(item.expected_delivery) : '--'}</Td>
                 <Td>
                   {item.delivered_at
-                    ? <span style={{ color: '#57FF9A', fontSize: 11 }}>{formatDate(item.delivered_at)}</span>
+                    ? <span style={{ color: '#10B981', fontSize: 11 }}>{formatDate(item.delivered_at)}</span>
                     : <span style={{ color: '#333' }}>—</span>}
                 </Td>
               </tr>
@@ -981,7 +981,7 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
         subtitle={`${lista.length} órdenes | MXN: ${F(totalFilteredMXN)} · USD: ${FUSD(totalFilteredUSD)}`}
         action={
           <div style={{ display: 'flex', gap: 8 }}>
-            <Btn onClick={() => setShowFromPDF(true)} style={{ borderColor: '#A855F7', color: '#C084FC' }}><Sparkles size={14} /> Desde PDF (IA)</Btn>
+            <Btn onClick={() => setShowFromPDF(true)} style={{ borderColor: '#7C3AED', color: '#A78BFA' }}><Sparkles size={14} /> Desde PDF (IA)</Btn>
           <Btn onClick={() => setShowFromQuote(true)}><Copy size={14} /> Desde cotización</Btn>
             <Btn variant="primary" onClick={() => setShowNew(true)}><Plus size={14} /> Nueva OC</Btn>
           </div>
@@ -1005,9 +1005,9 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
             return (
               <button key={s} onClick={() => setFilterStatus(s)} style={{
                 padding: '4px 10px', borderRadius: 20, fontSize: 10, cursor: 'pointer', fontFamily: 'inherit',
-                border: `1px solid ${on ? (cfg?.color || '#57FF9A') : '#333'}`,
-                background: on ? (cfg?.color || '#57FF9A') + '22' : 'transparent',
-                color: on ? (cfg?.color || '#57FF9A') : '#555', fontWeight: on ? 600 : 400,
+                border: `1px solid ${on ? (cfg?.color || '#10B981') : '#333'}`,
+                background: on ? (cfg?.color || '#10B981') + '22' : 'transparent',
+                color: on ? (cfg?.color || '#10B981') : '#555', fontWeight: on ? 600 : 400,
               }}>{s === 'todas' ? 'Todas' : cfg?.label}</button>
             )
           })}
@@ -1019,9 +1019,9 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
             return (
               <button key={f} onClick={() => setFilterSpec(f)} style={{
                 padding: '4px 10px', borderRadius: 20, fontSize: 10, cursor: 'pointer', fontFamily: 'inherit',
-                border: `1px solid ${on ? (cfg?.color || '#57FF9A') : '#333'}`,
-                background: on ? (cfg?.color || '#57FF9A') + '22' : 'transparent',
-                color: on ? (cfg?.color || '#57FF9A') : '#555', fontWeight: on ? 600 : 400,
+                border: `1px solid ${on ? (cfg?.color || '#10B981') : '#333'}`,
+                background: on ? (cfg?.color || '#10B981') + '22' : 'transparent',
+                color: on ? (cfg?.color || '#10B981') : '#555', fontWeight: on ? 600 : 400,
               }}>{f === 'todas' ? 'Todas' : cfg?.icon + ' ' + cfg?.label}</button>
             )
           })}
@@ -1044,7 +1044,7 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
               const cotejoPct = summary && summary.total > 0 ? (summary.cotejados / summary.total) : 0
               const allCotejado = summary && summary.cotejados > 0 && summary.cotejados === summary.total
               const noCotejado = !summary || summary.cotejados === 0
-              const cotejoColor = allCotejado ? '#57FF9A' : noCotejado ? '#6B7280' : '#F59E0B'
+              const cotejoColor = allCotejado ? '#10B981' : noCotejado ? '#6B7280' : '#D97706'
               const cotejoLabel = !summary || summary.total === 0
                 ? 'Sin items'
                 : allCotejado ? `✓ ${summary.cotejados}/${summary.total}`
@@ -1063,8 +1063,8 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
                   <Td><Badge label={st.label} color={st.color} /></Td>
                   <Td><Badge label={cotejoLabel} color={cotejoColor} /></Td>
                   <Td muted>{formatDate(o.created_at)}</Td>
-                  <Td right>{o.currency === 'MXN' ? <span style={{ fontWeight: 600, color: allCotejado ? '#57FF9A' : noCotejado ? '#ccc' : '#F59E0B' }} title={allCotejado ? 'Total cotejado' : noCotejado ? 'Total catálogo (sin cotejar)' : 'Mezcla de catálogo + cotejado'}>{F(displayTotal)}</span> : <span style={{ color: '#333' }}>—</span>}</Td>
-                  <Td right>{o.currency === 'USD' ? <span style={{ fontWeight: 600, color: allCotejado ? '#57FF9A' : noCotejado ? '#ccc' : '#F59E0B' }} title={allCotejado ? 'Total cotejado' : noCotejado ? 'Total catálogo (sin cotejar)' : 'Mezcla de catálogo + cotejado'}>{FUSD(displayTotal)}</span> : <span style={{ color: '#333' }}>—</span>}</Td>
+                  <Td right>{o.currency === 'MXN' ? <span style={{ fontWeight: 600, color: allCotejado ? '#10B981' : noCotejado ? '#ccc' : '#D97706' }} title={allCotejado ? 'Total cotejado' : noCotejado ? 'Total catálogo (sin cotejar)' : 'Mezcla de catálogo + cotejado'}>{F(displayTotal)}</span> : <span style={{ color: '#333' }}>—</span>}</Td>
+                  <Td right>{o.currency === 'USD' ? <span style={{ fontWeight: 600, color: allCotejado ? '#10B981' : noCotejado ? '#ccc' : '#D97706' }} title={allCotejado ? 'Total cotejado' : noCotejado ? 'Total catálogo (sin cotejar)' : 'Mezcla de catálogo + cotejado'}>{FUSD(displayTotal)}</span> : <span style={{ color: '#333' }}>—</span>}</Td>
                   <Td><div style={{ display: 'flex', gap: 4 }}>
                     <Btn size="sm" onClick={e => { e?.stopPropagation(); downloadPdf(o) }}><Download size={13} /></Btn>
                     <Btn size="sm" onClick={e => { e?.stopPropagation(); onOpen(o.id) }}>Abrir</Btn>
@@ -1359,7 +1359,7 @@ REGLAS:
       <div style={modalStyle}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
           <div style={{ fontSize: 16, fontWeight: 600, color: '#fff', display: 'flex', alignItems: 'center', gap: 8 }}>
-            <Sparkles size={16} color="#C084FC" /> OC desde PDF (IA)
+            <Sparkles size={16} color="#A78BFA" /> OC desde PDF (IA)
           </div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer' }}><X size={18} /></button>
         </div>
@@ -1370,7 +1370,7 @@ REGLAS:
           <div>
             <div style={{ border: '2px dashed #2a2a2a', borderRadius: 12, padding: 40, textAlign: 'center' as const, cursor: 'pointer' }}
               onClick={() => document.getElementById('pdf-input')?.click()}
-              onDragOver={e => { e.preventDefault(); (e.currentTarget as HTMLDivElement).style.borderColor = '#A855F7' }}
+              onDragOver={e => { e.preventDefault(); (e.currentTarget as HTMLDivElement).style.borderColor = '#7C3AED' }}
               onDragLeave={e => { (e.currentTarget as HTMLDivElement).style.borderColor = '#2a2a2a' }}
               onDrop={e => {
                 e.preventDefault()
@@ -1390,7 +1390,7 @@ REGLAS:
 
         {step === 'processing' && (
           <div style={{ padding: 60, textAlign: 'center' as const }}>
-            <div style={{ fontSize: 14, color: '#C084FC', marginBottom: 8 }}><Sparkles size={20} /> Analizando PDF con IA...</div>
+            <div style={{ fontSize: 14, color: '#A78BFA', marginBottom: 8 }}><Sparkles size={20} /> Analizando PDF con IA...</div>
             <div style={{ fontSize: 11, color: '#555' }}>Extrayendo proveedor, productos y montos</div>
           </div>
         )}
@@ -1401,8 +1401,8 @@ REGLAS:
             <div>
               <label style={labelStyle}>Proveedor</label>
               <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
-                <button onClick={() => setCreateNewSupplier(false)} style={{ padding: '5px 12px', borderRadius: 16, fontSize: 11, cursor: 'pointer', fontFamily: 'inherit', border: `1px solid ${!createNewSupplier ? '#57FF9A' : '#333'}`, background: !createNewSupplier ? '#57FF9A22' : 'transparent', color: !createNewSupplier ? '#57FF9A' : '#666' }}>Existente</button>
-                <button onClick={() => setCreateNewSupplier(true)} style={{ padding: '5px 12px', borderRadius: 16, fontSize: 11, cursor: 'pointer', fontFamily: 'inherit', border: `1px solid ${createNewSupplier ? '#A855F7' : '#333'}`, background: createNewSupplier ? '#A855F722' : 'transparent', color: createNewSupplier ? '#C084FC' : '#666' }}>Crear nuevo</button>
+                <button onClick={() => setCreateNewSupplier(false)} style={{ padding: '5px 12px', borderRadius: 16, fontSize: 11, cursor: 'pointer', fontFamily: 'inherit', border: `1px solid ${!createNewSupplier ? '#10B981' : '#333'}`, background: !createNewSupplier ? '#10B98122' : 'transparent', color: !createNewSupplier ? '#10B981' : '#666' }}>Existente</button>
+                <button onClick={() => setCreateNewSupplier(true)} style={{ padding: '5px 12px', borderRadius: 16, fontSize: 11, cursor: 'pointer', fontFamily: 'inherit', border: `1px solid ${createNewSupplier ? '#7C3AED' : '#333'}`, background: createNewSupplier ? '#7C3AED22' : 'transparent', color: createNewSupplier ? '#A78BFA' : '#666' }}>Crear nuevo</button>
               </div>
               {!createNewSupplier ? (
                 <select value={supplierId} onChange={e => setSupplierId(e.target.value)} style={inputStyle}>
@@ -1482,7 +1482,7 @@ REGLAS:
             <div style={{ background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 10, padding: 12, display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, fontSize: 12 }}>
               <div><div style={{ color: '#555', fontSize: 10 }}>Subtotal</div><div style={{ color: '#fff', fontWeight: 600 }}>{currency === 'USD' ? FUSD(subtotal) : F(subtotal)}</div></div>
               <div><div style={{ color: '#555', fontSize: 10 }}>IVA (16%)</div><div style={{ color: '#fff', fontWeight: 600 }}>{currency === 'USD' ? FUSD(iva) : F(iva)}</div></div>
-              <div><div style={{ color: '#555', fontSize: 10 }}>Total</div><div style={{ color: '#57FF9A', fontWeight: 700 }}>{currency === 'USD' ? FUSD(total) : F(total)}</div></div>
+              <div><div style={{ color: '#555', fontSize: 10 }}>Total</div><div style={{ color: '#10B981', fontWeight: 700 }}>{currency === 'USD' ? FUSD(total) : F(total)}</div></div>
             </div>
 
             {/* Notas */}
@@ -1583,7 +1583,7 @@ function NuevaPOModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
               }} />
           </label>
         </div>
-        {error && <div style={{ color: '#EF4444', fontSize: 12, marginTop: 10 }}>{error}</div>}
+        {error && <div style={{ color: '#DC2626', fontSize: 12, marginTop: 10 }}>{error}</div>}
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 20 }}>
           <Btn onClick={onClose}>Cancelar</Btn>
           <Btn variant="primary" onClick={crear}>{saving ? 'Creando...' : 'Crear OC'}</Btn>
@@ -1843,7 +1843,7 @@ function POFromQuoteModal({ onClose, onCreated }: { onClose: () => void; onCreat
             </div>
           )}
         </div>
-        {error && <div style={{ color: '#EF4444', fontSize: 12, marginTop: 10 }}>{error}</div>}
+        {error && <div style={{ color: '#DC2626', fontSize: 12, marginTop: 10 }}>{error}</div>}
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 20 }}>
           <Btn onClick={onClose}>Cancelar</Btn>
           <Btn variant="primary" onClick={crear} disabled={saving || previewItems.length === 0}>{saving ? 'Generando...' : `Generar OC (${previewItems.length} items)`}</Btn>
@@ -2188,7 +2188,7 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
             if (!pb) return null
             return (
               <Btn size="sm" variant="primary" onClick={() => setShowAgentModal(true)}
-                style={{ background: 'rgba(168,85,247,0.15)', borderColor: '#A855F7', color: '#C084FC' }}>
+                style={{ background: 'rgba(168,85,247,0.15)', borderColor: '#7C3AED', color: '#A78BFA' }}>
                 ⚡ Cotizar con agente
               </Btn>
             )
@@ -2243,7 +2243,7 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
                 return (
                   <div style={{
                     marginTop: 4, fontSize: 10, fontWeight: 600,
-                    color: '#C084FC', display: 'flex', alignItems: 'center', gap: 4,
+                    color: '#A78BFA', display: 'flex', alignItems: 'center', gap: 4,
                   }}>
                     ⚡ Agente disponible · {methodLabel}
                   </div>
@@ -2294,7 +2294,7 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
                 <button
                   onClick={async () => { await loadQuotesForLead(currentLeadId) }}
                   title="Recargar cotizaciones del lead desde Supabase"
-                  style={{ position: 'absolute', top: 0, right: 0, background: 'none', border: 'none', color: '#57FF9A', cursor: 'pointer', fontSize: 10, padding: 0 }}
+                  style={{ position: 'absolute', top: 0, right: 0, background: 'none', border: 'none', color: '#10B981', cursor: 'pointer', fontSize: 10, padding: 0 }}
                 >↻ Recargar</button>
               )}
             </div>
@@ -2304,7 +2304,7 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
                 <div style={{ fontSize: 11, color: '#888' }}>
                   {(po.supplier as Supplier).contact_name && <div>{(po.supplier as Supplier).contact_name}</div>}
                   {(po.supplier as Supplier).contact_phone && <div>{(po.supplier as Supplier).contact_phone}</div>}
-                  {(po.supplier as Supplier).payment_terms && <div style={{ color: '#57FF9A' }}>{PAYMENT_TERMS_CFG[(po.supplier as Supplier).payment_terms]}</div>}
+                  {(po.supplier as Supplier).payment_terms && <div style={{ color: '#10B981' }}>{PAYMENT_TERMS_CFG[(po.supplier as Supplier).payment_terms]}</div>}
                 </div>
               ) : <div style={{ fontSize: 11, color: '#444' }}>Sin proveedor asignado</div>}
             </div>
@@ -2378,8 +2378,8 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
               <div style={{
                 fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 20,
                 background: allCotejado ? 'rgba(87,255,154,0.1)' : 'rgba(245,158,11,0.1)',
-                color: allCotejado ? '#57FF9A' : '#F59E0B',
-                border: `1px solid ${allCotejado ? '#57FF9A33' : '#F59E0B33'}`,
+                color: allCotejado ? '#10B981' : '#D97706',
+                border: `1px solid ${allCotejado ? '#10B98133' : '#D9770633'}`,
               }}>
                 Cotejo: {cotejados}/{totalItems} {allCotejado ? '✓' : ''}
               </div>
@@ -2408,7 +2408,7 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
             {items.map((it, idx) => {
               const rTotal = it.real_total ?? (it.real_unit_cost != null && it.real_quantity != null ? Math.round(it.real_unit_cost * it.real_quantity * 100) / 100 : null)
               const diff = rTotal != null ? rTotal - it.total : null
-              const cotejoColor = it.cotejo_status === 'cotejado' ? '#57FF9A' : it.cotejo_status === 'sustituido' ? '#C084FC' : '#6B7280'
+              const cotejoColor = it.cotejo_status === 'cotejado' ? '#10B981' : it.cotejo_status === 'sustituido' ? '#A78BFA' : '#6B7280'
               const cotejoLabel = it.cotejo_status === 'cotejado' ? 'Cotejado' : it.cotejo_status === 'sustituido' ? 'Sustituido' : 'Pendiente'
 
               return (
@@ -2490,13 +2490,13 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
                       }} />
                   </Td>
                   <Td right>
-                    <span style={{ fontWeight: 600, color: rTotal != null ? '#57FF9A' : '#444', fontSize: 12 }}>
+                    <span style={{ fontWeight: 600, color: rTotal != null ? '#10B981' : '#444', fontSize: 12 }}>
                       {rTotal != null ? F(rTotal) : '--'}
                     </span>
                   </Td>
                   <Td right>
                     {diff != null && (
-                      <span style={{ fontSize: 11, fontWeight: 600, color: diff > 0 ? '#EF4444' : diff < 0 ? '#57FF9A' : '#555' }}>
+                      <span style={{ fontSize: 11, fontWeight: 600, color: diff > 0 ? '#DC2626' : diff < 0 ? '#10B981' : '#555' }}>
                         {diff > 0 ? '+' : ''}{F(diff)}
                       </span>
                     )}
@@ -2522,8 +2522,8 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
                       onChange={e => updateItem(it.id, 'quantity_received', parseFloat(e.target.value) || 0)}
                       style={{
                         background: it.quantity_received >= it.quantity ? 'rgba(87,255,154,0.1)' : 'rgba(245,158,11,0.1)',
-                        border: `1px solid ${it.quantity_received >= it.quantity ? '#57FF9A44' : '#F59E0B44'}`,
-                        borderRadius: 4, color: it.quantity_received >= it.quantity ? '#57FF9A' : '#F59E0B',
+                        border: `1px solid ${it.quantity_received >= it.quantity ? '#10B98144' : '#D9770644'}`,
+                        borderRadius: 4, color: it.quantity_received >= it.quantity ? '#10B981' : '#D97706',
                         fontSize: 12, fontFamily: 'inherit', width: 60, textAlign: 'right', padding: '2px 6px',
                       }} />
                   </Td>
@@ -2531,7 +2531,7 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
                 {canEdit && (
                   <Td>
                     <button onClick={() => removeItem(it.id)}
-                      style={{ background: 'none', border: 'none', color: '#EF4444', cursor: 'pointer', padding: 4, opacity: 0.6 }}>
+                      style={{ background: 'none', border: 'none', color: '#DC2626', cursor: 'pointer', padding: 4, opacity: 0.6 }}>
                       <Trash2 size={14} />
                     </button>
                   </Td>
@@ -2571,7 +2571,7 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
           </div>
           <div style={{ borderTop: '1px solid #333', paddingTop: 8, display: 'flex', justifyContent: 'space-between', marginBottom: subtotal !== subtotalCatalogo ? 10 : 0 }}>
             <span style={{ fontSize: 14, fontWeight: 700, color: '#fff' }}>{totalLabel}</span>
-            <span style={{ fontSize: 14, fontWeight: 700, color: allCotejado ? '#57FF9A' : partialCotejado ? '#F59E0B' : '#ccc' }}>{F(total)}</span>
+            <span style={{ fontSize: 14, fontWeight: 700, color: allCotejado ? '#10B981' : partialCotejado ? '#D97706' : '#ccc' }}>{F(total)}</span>
           </div>
           {/* Referencia: si el cotejado difiere del catálogo, mostrar la diferencia */}
           {subtotal !== subtotalCatalogo && (
@@ -2582,7 +2582,7 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                 <span style={{ fontSize: 11, color: '#666' }}>Diferencia</span>
-                <span style={{ fontSize: 12, fontWeight: 700, color: total - (subtotalCatalogo * 1.16) > 0 ? '#EF4444' : '#57FF9A', fontFamily: 'monospace' }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: total - (subtotalCatalogo * 1.16) > 0 ? '#DC2626' : '#10B981', fontFamily: 'monospace' }}>
                   {total - (subtotalCatalogo * 1.16) > 0 ? '+' : ''}{F(total - (subtotalCatalogo * 1.16))}
                 </span>
               </div>
@@ -2628,7 +2628,7 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
                     ⚡ Agente de cotización · {supplier?.name}
                   </div>
                   <div style={{ fontSize: 11, color: '#888', marginTop: 4 }}>
-                    Playbook: <span style={{ color: '#C084FC' }}>{pb.name}</span> · Método: <span style={{ color: '#C084FC' }}>{pb.method}</span>
+                    Playbook: <span style={{ color: '#A78BFA' }}>{pb.name}</span> · Método: <span style={{ color: '#A78BFA' }}>{pb.method}</span>
                   </div>
                 </div>
                 <button onClick={() => setShowAgentModal(false)} style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer' }}><X size={18} /></button>
@@ -2637,9 +2637,9 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
               {/* Estado del playbook */}
               <div style={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 8, padding: 12, marginBottom: 16, fontSize: 11, color: '#aaa' }}>
                 {config.mapping_status === 'POC EXITOSO end-to-end. Listo para construir UI integration.' ? (
-                  <span style={{ color: '#57FF9A' }}>✓ POC validado · {config.poc_validated || ''}</span>
+                  <span style={{ color: '#10B981' }}>✓ POC validado · {config.poc_validated || ''}</span>
                 ) : (
-                  <span style={{ color: '#F59E0B' }}>⚠ Playbook en construcción</span>
+                  <span style={{ color: '#D97706' }}>⚠ Playbook en construcción</span>
                 )}
               </div>
 
@@ -2657,7 +2657,7 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
                     itemsToCotizar.map((it, i) => (
                       <div key={i} style={{ padding: '8px 12px', borderBottom: '1px solid #1a1a1a', display: 'flex', justifyContent: 'space-between', fontSize: 11 }}>
                         <span style={{ color: '#ddd' }}>
-                          <span style={{ color: '#C084FC', fontWeight: 600, fontFamily: 'monospace' }}>{it.modelo}</span>
+                          <span style={{ color: '#A78BFA', fontWeight: 600, fontFamily: 'monospace' }}>{it.modelo}</span>
                           {it.marca && <span style={{ color: '#666', marginLeft: 6 }}>· {it.marca}</span>}
                         </span>
                         <span style={{ color: '#888' }}>qty {it.qty}</span>
@@ -2674,15 +2674,15 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
                     Cómo cotizar (web portal)
                   </div>
                   <ol style={{ paddingLeft: 20, fontSize: 11, color: '#ccc', lineHeight: 1.7 }}>
-                    <li>Abre <a href={config.portal_url} target="_blank" rel="noreferrer" style={{ color: '#C084FC' }}>{config.portal_url}</a> y loguéate si no estás dentro</li>
-                    <li>Click "Add Project" — crea proyecto con nombre <code style={{ background: '#1a1a1a', padding: '1px 5px', borderRadius: 3, color: '#C084FC' }}>OMM {po.po_number}</code></li>
+                    <li>Abre <a href={config.portal_url} target="_blank" rel="noreferrer" style={{ color: '#A78BFA' }}>{config.portal_url}</a> y loguéate si no estás dentro</li>
+                    <li>Click "Add Project" — crea proyecto con nombre <code style={{ background: '#1a1a1a', padding: '1px 5px', borderRadius: 3, color: '#A78BFA' }}>OMM {po.po_number}</code></li>
                     <li>Para cada modelo de arriba: click "Add Product by Model Number" → mete modelo y qty → save</li>
                     <li>Lutron muestra el List Price en tiempo real. Anótalos.</li>
                     <li>Cuando termines, regresa al ERP y captura los precios reales en el cotejo de OC</li>
                   </ol>
                   <Btn size="sm" variant="primary"
                     onClick={() => window.open(config.portal_url, '_blank')}
-                    style={{ background: 'rgba(168,85,247,0.2)', borderColor: '#A855F7', color: '#C084FC', marginTop: 8 }}>
+                    style={{ background: 'rgba(168,85,247,0.2)', borderColor: '#7C3AED', color: '#A78BFA', marginTop: 8 }}>
                     Abrir {supplier?.name} en nueva pestaña
                   </Btn>
                 </div>
@@ -2736,7 +2736,7 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
                     <div style={{ fontSize: 10, color: '#555' }}>{p.system} | {p.provider || 'Sin proveedor'}</div>
                   </div>
                   <div style={{ textAlign: 'right' }}>
-                    <div style={{ fontSize: 12, color: '#57FF9A', fontWeight: 600 }}>{F(p.cost)}</div>
+                    <div style={{ fontSize: 12, color: '#10B981', fontWeight: 600 }}>{F(p.cost)}</div>
                     <div style={{ fontSize: 10, color: '#555' }}>/{p.unit}</div>
                   </div>
                 </div>
@@ -2790,10 +2790,10 @@ function PaymentsSection({ poId, poTotal, poCurrency, poStatus, onStatusChange }
       <div style={{ marginBottom: 12 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#888', marginBottom: 4 }}>
           <span>Pagado: {fmtMoney(totalPaid)} de {fmtMoney(poTotal)}</span>
-          <span style={{ color: pct >= 100 ? '#57FF9A' : pct > 0 ? '#F59E0B' : '#555' }}>{pct.toFixed(0)}%</span>
+          <span style={{ color: pct >= 100 ? '#10B981' : pct > 0 ? '#D97706' : '#555' }}>{pct.toFixed(0)}%</span>
         </div>
         <div style={{ height: 6, background: '#1a1a1a', borderRadius: 4, overflow: 'hidden' }}>
-          <div style={{ height: '100%', width: pct + '%', background: pct >= 100 ? '#57FF9A' : '#F59E0B', transition: 'width 0.3s' }} />
+          <div style={{ height: '100%', width: pct + '%', background: pct >= 100 ? '#10B981' : '#D97706', transition: 'width 0.3s' }} />
         </div>
       </div>
 
@@ -2805,7 +2805,7 @@ function PaymentsSection({ poId, poTotal, poCurrency, poStatus, onStatusChange }
             <div key={p.id} style={{ display: 'grid', gridTemplateColumns: '90px 1fr 100px 110px 24px', gap: 8, padding: '8px 0', borderBottom: '1px solid #1a1a1a', fontSize: 11, alignItems: 'center' }}>
               <span style={{ color: '#888' }}>{formatDate(p.payment_date)}</span>
               <span style={{ color: '#aaa' }}>{p.method}{p.reference ? ' · ' + p.reference : ''}</span>
-              <span style={{ color: '#57FF9A', fontWeight: 600 }}>{fmtMoney(p.amount)}</span>
+              <span style={{ color: '#10B981', fontWeight: 600 }}>{fmtMoney(p.amount)}</span>
               <span>{p.receipt_url ? <a href={p.receipt_url} target="_blank" rel="noopener noreferrer" style={{ color: '#A78BFA', fontSize: 10 }}>Ver comprobante</a> : <span style={{ color: '#444', fontSize: 10 }}>Sin comprobante</span>}</span>
               <button onClick={() => handleDelete(p.id)} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', padding: 2 }}><Trash2 size={12} /></button>
             </div>
@@ -2994,7 +2994,7 @@ function SupplierList({ onOpen }: { onOpen: (id: string) => void }) {
                 <Td muted>{s.contact_name || '--'}</Td>
                 <Td muted>{s.contact_phone || '--'}</Td>
                 <Td muted>{s.rfc || '--'}</Td>
-                <Td><Badge label={PAYMENT_TERMS_CFG[s.payment_terms]} color="#3B82F6" /></Td>
+                <Td><Badge label={PAYMENT_TERMS_CFG[s.payment_terms]} color="#2563EB" /></Td>
                 <Td>
                   <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
                     {(s.systems || []).slice(0, 3).map(sys => (
@@ -3003,7 +3003,7 @@ function SupplierList({ onOpen }: { onOpen: (id: string) => void }) {
                     {(s.systems || []).length > 3 && <span style={{ fontSize: 10, color: '#555' }}>+{s.systems.length - 3}</span>}
                   </div>
                 </Td>
-                <Td><Badge label={s.is_active ? 'Activo' : 'Inactivo'} color={s.is_active ? '#57FF9A' : '#EF4444'} /></Td>
+                <Td><Badge label={s.is_active ? 'Activo' : 'Inactivo'} color={s.is_active ? '#10B981' : '#DC2626'} /></Td>
                 <Td><Btn size="sm" onClick={e => { e?.stopPropagation(); onOpen(s.id) }}>Ver</Btn></Td>
               </tr>
             ))}
@@ -3078,9 +3078,9 @@ function NuevoSupplierModal({ onClose, onCreated }: { onClose: () => void; onCre
                     style={{
                       padding: '4px 10px', borderRadius: 20, fontSize: 11, cursor: 'pointer', fontFamily: 'inherit',
                       fontWeight: active ? 600 : 400,
-                      border: `1px solid ${active ? '#57FF9A' : '#333'}`,
-                      background: active ? '#57FF9A22' : 'transparent',
-                      color: active ? '#57FF9A' : '#666',
+                      border: `1px solid ${active ? '#10B981' : '#333'}`,
+                      background: active ? '#10B98122' : 'transparent',
+                      color: active ? '#10B981' : '#666',
                     }}>{sys}</button>
                 )
               })}
@@ -3097,7 +3097,7 @@ function NuevoSupplierModal({ onClose, onCreated }: { onClose: () => void; onCre
               }} />
           </label>
         </div>
-        {error && <div style={{ color: '#EF4444', fontSize: 12, marginTop: 10 }}>{error}</div>}
+        {error && <div style={{ color: '#DC2626', fontSize: 12, marginTop: 10 }}>{error}</div>}
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 20 }}>
           <Btn onClick={onClose}>Cancelar</Btn>
           <Btn variant="primary" onClick={crear}>{saving ? 'Guardando...' : 'Crear proveedor'}</Btn>
@@ -3265,7 +3265,7 @@ function SupplierDetail({ supplierId, onBack }: { supplierId: string; onBack: ()
                     {savingBank ? 'Guardando...' : 'Guardar cuentas'}
                   </Btn>
                 )}
-                <button onClick={addBankAccount} style={{ background: 'none', border: '1px solid #333', borderRadius: 6, color: '#57FF9A', cursor: 'pointer', padding: '2px 8px', fontSize: 10, display: 'flex', alignItems: 'center', gap: 4 }}>
+                <button onClick={addBankAccount} style={{ background: 'none', border: '1px solid #333', borderRadius: 6, color: '#10B981', cursor: 'pointer', padding: '2px 8px', fontSize: 10, display: 'flex', alignItems: 'center', gap: 4 }}>
                   <Plus size={10} /> Agregar cuenta
                 </button>
               </div>
@@ -3281,17 +3281,17 @@ function SupplierDetail({ supplierId, onBack }: { supplierId: string; onBack: ()
                       style={{ background: 'transparent', border: 'none', color: '#fff', fontWeight: 600, fontSize: 13, fontFamily: 'inherit', width: 120, outline: 'none' }}
                       placeholder="Etiqueta" />
                     <select value={acct.moneda} onChange={e => updBank(idx, 'moneda', e.target.value)}
-                      style={{ background: '#1a1a1a', border: '1px solid #333', borderRadius: 4, color: acct.moneda === 'USD' ? '#60A5FA' : '#57FF9A', fontSize: 11, fontWeight: 600, padding: '2px 6px', cursor: 'pointer', fontFamily: 'inherit' }}>
+                      style={{ background: '#1a1a1a', border: '1px solid #333', borderRadius: 4, color: acct.moneda === 'USD' ? '#60A5FA' : '#10B981', fontSize: 11, fontWeight: 600, padding: '2px 6px', cursor: 'pointer', fontFamily: 'inherit' }}>
                       <option value="MXN">MXN</option>
                       <option value="USD">USD</option>
                     </select>
-                    {acct.is_default && <span style={{ fontSize: 9, color: '#F59E0B', fontWeight: 600, textTransform: 'uppercase' }}>Default</span>}
+                    {acct.is_default && <span style={{ fontSize: 9, color: '#D97706', fontWeight: 600, textTransform: 'uppercase' }}>Default</span>}
                     {!acct.is_default && (
                       <button onClick={() => { setBankAccounts(prev => prev.map((a, i) => ({ ...a, is_default: i === idx }))); setBankDirty(true) }}
                         style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer', fontSize: 9, fontFamily: 'inherit' }}>Hacer default</button>
                     )}
                   </div>
-                  <button onClick={() => removeBank(idx)} style={{ background: 'none', border: 'none', color: '#EF4444', cursor: 'pointer', padding: 2 }}><Trash2 size={12} /></button>
+                  <button onClick={() => removeBank(idx)} style={{ background: 'none', border: 'none', color: '#DC2626', cursor: 'pointer', padding: 2 }}><Trash2 size={12} /></button>
                 </div>
                 <div style={{ display: 'grid', gap: 6 }}>
                   <Field label="CLABE" value={acct.clabe} onChange={v => updBank(idx, 'clabe', v)} />
@@ -3321,8 +3321,8 @@ function SupplierDetail({ supplierId, onBack }: { supplierId: string; onBack: ()
                   <button key={sys} onClick={() => toggleSystem(sys)}
                     style={{
                       padding: '4px 10px', borderRadius: 20, fontSize: 11, cursor: 'pointer', fontFamily: 'inherit', fontWeight: active ? 600 : 400,
-                      border: `1px solid ${active ? '#57FF9A' : '#333'}`,
-                      background: active ? '#57FF9A22' : 'transparent', color: active ? '#57FF9A' : '#666',
+                      border: `1px solid ${active ? '#10B981' : '#333'}`,
+                      background: active ? '#10B98122' : 'transparent', color: active ? '#10B981' : '#666',
                     }}>{sys}</button>
                 )
               })}
@@ -3345,7 +3345,7 @@ function SupplierDetail({ supplierId, onBack }: { supplierId: string; onBack: ()
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <Badge label={st.label} color={st.color} />
-                      <span style={{ fontSize: 12, fontWeight: 600, color: '#57FF9A' }}>{F(o.total)}</span>
+                      <span style={{ fontSize: 12, fontWeight: 600, color: '#10B981' }}>{F(o.total)}</span>
                     </div>
                   </div>
                 )

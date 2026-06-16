@@ -23,9 +23,9 @@ const GASTO_LABELS: Record<GastoCategoria, string> = {
   gastos_generales: 'Gastos generales',
 }
 const GASTO_COLORS: Record<GastoCategoria, string> = {
-  material_obra: '#3B82F6',
-  nomina_fiscal: '#F59E0B',
-  impuestos_gobierno: '#EF4444',
+  material_obra: '#2563EB',
+  nomina_fiscal: '#D97706',
+  impuestos_gobierno: '#DC2626',
   servicios: '#8B5CF6',
   gastos_generales: '#6B7280',
 }
@@ -59,11 +59,11 @@ function bankCatLabel(cat: string): string {
 }
 function bankCatColor(cat: string): string {
   const map: Record<string, string> = {
-    cobro_cliente: '#57FF9A',
-    proveedor_obra: '#3B82F6',
-    gasto_operativo: '#F59E0B',
-    impuestos: '#EF4444',
-    nomina: '#C084FC',
+    cobro_cliente: '#10B981',
+    proveedor_obra: '#2563EB',
+    gasto_operativo: '#D97706',
+    impuestos: '#DC2626',
+    nomina: '#A78BFA',
     servicio: '#8B5CF6',
     comision_bancaria: '#6B7280',
   }
@@ -376,12 +376,12 @@ export default function Finanzas() {
   //   proy + "Iluminac" en nombre  → Diseño de Iluminación (nómina ILUMINACION)
 
   const AREAS_NEGOCIO = [
-    { key: 'proy_esp', label: 'Proyecto Ing. Especiales', payrollAreas: ['INGENIERIAS ESPECIALES'], tipo: 'proyecto' as const, color: '#57FF9A' },
+    { key: 'proy_esp', label: 'Proyecto Ing. Especiales', payrollAreas: ['INGENIERIAS ESPECIALES'], tipo: 'proyecto' as const, color: '#10B981' },
     { key: 'proy_elec', label: 'Proyecto Ing. Eléctricas', payrollAreas: ['INGENIERIAS ELECTRICAS'], tipo: 'proyecto' as const, color: '#34D399' },
-    { key: 'proy_ilum', label: 'Diseño de Iluminación', payrollAreas: ['ILUMINACION'], tipo: 'proyecto' as const, color: '#C084FC' },
-    { key: 'ilum', label: 'Suministro de Luminarias', payrollAreas: [] as string[], tipo: 'suministro' as const, color: '#F59E0B' },
+    { key: 'proy_ilum', label: 'Diseño de Iluminación', payrollAreas: ['ILUMINACION'], tipo: 'proyecto' as const, color: '#A78BFA' },
+    { key: 'ilum', label: 'Suministro de Luminarias', payrollAreas: [] as string[], tipo: 'suministro' as const, color: '#D97706' },
     { key: 'cort', label: 'Cortinas y Persianas', payrollAreas: [] as string[], tipo: 'suministro' as const, color: '#EC4899' },
-    { key: 'esp', label: 'Instalaciones Especiales', payrollAreas: ['INSTALACIONES ESPECIALES'], tipo: 'ejecucion' as const, color: '#3B82F6' },
+    { key: 'esp', label: 'Instalaciones Especiales', payrollAreas: ['INSTALACIONES ESPECIALES'], tipo: 'ejecucion' as const, color: '#2563EB' },
     { key: 'elec', label: 'Instalaciones Eléctricas', payrollAreas: ['ELECTRICO'], tipo: 'ejecucion' as const, color: '#FFB347' },
   ]
 
@@ -510,41 +510,41 @@ export default function Finanzas() {
         <KpiCard
           label="Ingresos facturados"
           value={F(ingresosFacturados)}
-          color="#57FF9A"
+          color="#10B981"
           icon={<ArrowUpRight size={16} />}
         />
         <KpiCard
           label="Egresos facturados"
           value={F(egresosFacturados)}
-          color="#EF4444"
+          color="#DC2626"
           icon={<ArrowDownRight size={16} />}
         />
         <KpiCard
           label="Margen bruto"
           value={PCT(margenBruto)}
-          color={margenBruto >= 0.3 ? '#57FF9A' : margenBruto >= 0.15 ? '#F59E0B' : '#EF4444'}
+          color={margenBruto >= 0.3 ? '#10B981' : margenBruto >= 0.15 ? '#D97706' : '#DC2626'}
           icon={<TrendingUp size={16} />}
         />
         <KpiCard
           label="Nómina bruta mensual"
           value={F(costoNominaReal)}
-          color="#C084FC"
+          color="#A78BFA"
           icon={<Users size={16} />}
         />
         <KpiCard
           label="Cuentas vencidas"
           value={F(cobranzaVencida)}
-          color={cobranzaVencida > 0 ? '#EF4444' : '#57FF9A'}
+          color={cobranzaVencida > 0 ? '#DC2626' : '#10B981'}
           icon={<AlertTriangle size={16} />}
         />
       </div>
 
       {/* ── SECOND ROW: IVA + Saldo bancario + Cobranza pendiente ── */}
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)', gap: 12, marginBottom: 28 }}>
-        <SmallKpi label="IVA cobrado" value={F(ivaEmitido)} color="#57FF9A" />
-        <SmallKpi label="IVA pagado" value={F(ivaRecibido)} color="#EF4444" />
-        <SmallKpi label="Saldo bancario" value={F2(bankSaldo)} color="#3B82F6" />
-        <SmallKpi label="Cobranza pendiente" value={F(cobranzaPendiente)} color="#F59E0B" />
+        <SmallKpi label="IVA cobrado" value={F(ivaEmitido)} color="#10B981" />
+        <SmallKpi label="IVA pagado" value={F(ivaRecibido)} color="#DC2626" />
+        <SmallKpi label="Saldo bancario" value={F2(bankSaldo)} color="#2563EB" />
+        <SmallKpi label="Cobranza pendiente" value={F(cobranzaPendiente)} color="#D97706" />
       </div>
 
       {/* ── MAIN GRID ───────────────────────────────────────────── */}
@@ -597,9 +597,9 @@ export default function Finanzas() {
             <>
               <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12, marginBottom: 16 }}>
                 <MiniStat label="Neto pactado total" value={F(nominaBruta > 0 ? nominaBruta : nominaMensualEstimada)} accent="#fff" />
-                <MiniStat label="Transferencia (fiscal)" value={F(nominaFiscal)} accent="#57FF9A" />
-                <MiniStat label="Efectivo" value={F(nominaEfectivo)} accent="#F59E0B" />
-                <MiniStat label="Caja chica del mes" value={F(cajaChicaTotal)} accent="#C084FC" />
+                <MiniStat label="Transferencia (fiscal)" value={F(nominaFiscal)} accent="#10B981" />
+                <MiniStat label="Efectivo" value={F(nominaEfectivo)} accent="#D97706" />
+                <MiniStat label="Caja chica del mes" value={F(cajaChicaTotal)} accent="#A78BFA" />
               </div>
               <div style={{ borderTop: '1px solid #222', paddingTop: 12 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
@@ -612,7 +612,7 @@ export default function Finanzas() {
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <span style={{ fontSize: 12, color: '#888' }}>Nómina estimada mensual</span>
-                  <span style={{ fontSize: 13, color: '#C084FC', fontWeight: 500 }}>{F(nominaMensualEstimada)}</span>
+                  <span style={{ fontSize: 13, color: '#A78BFA', fontWeight: 500 }}>{F(nominaMensualEstimada)}</span>
                 </div>
               </div>
               {/* Nómina como % de ingresos */}
@@ -624,7 +624,7 @@ export default function Finanzas() {
                       <div style={{
                         width: `${Math.min((costoNominaReal / ingresosFacturados) * 100, 100)}%`,
                         height: '100%', borderRadius: 3,
-                        background: (costoNominaReal / ingresosFacturados) > 0.4 ? '#EF4444' : (costoNominaReal / ingresosFacturados) > 0.25 ? '#F59E0B' : '#57FF9A',
+                        background: (costoNominaReal / ingresosFacturados) > 0.4 ? '#DC2626' : (costoNominaReal / ingresosFacturados) > 0.25 ? '#D97706' : '#10B981',
                       }} />
                     </div>
                     <span style={{ fontSize: 13, fontWeight: 600, color: '#fff' }}>{PCT(costoNominaReal / ingresosFacturados)}</span>
@@ -651,7 +651,7 @@ export default function Finanzas() {
                   <div style={{ flex: 1 }}>
                     <div style={{ fontSize: 12, color: '#ccc', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</div>
                     <div style={{ height: 3, borderRadius: 2, background: '#1a1a1a', marginTop: 3 }}>
-                      <div style={{ height: '100%', borderRadius: 2, background: '#57FF9A', width: `${(total / topClientes[0][1]) * 100}%`, opacity: 1 - (i * 0.08) }} />
+                      <div style={{ height: '100%', borderRadius: 2, background: '#10B981', width: `${(total / topClientes[0][1]) * 100}%`, opacity: 1 - (i * 0.08) }} />
                     </div>
                   </div>
                   <span style={{ fontSize: 12, color: '#fff', fontWeight: 500, fontVariantNumeric: 'tabular-nums', minWidth: 80, textAlign: 'right' }}>{F(total)}</span>
@@ -673,7 +673,7 @@ export default function Finanzas() {
                   <div style={{ flex: 1 }}>
                     <div style={{ fontSize: 12, color: '#ccc', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</div>
                     <div style={{ height: 3, borderRadius: 2, background: '#1a1a1a', marginTop: 3 }}>
-                      <div style={{ height: '100%', borderRadius: 2, background: '#EF4444', width: `${(total / topProveedores[0][1]) * 100}%`, opacity: 1 - (i * 0.08) }} />
+                      <div style={{ height: '100%', borderRadius: 2, background: '#DC2626', width: `${(total / topProveedores[0][1]) * 100}%`, opacity: 1 - (i * 0.08) }} />
                     </div>
                   </div>
                   <span style={{ fontSize: 12, color: '#fff', fontWeight: 500, fontVariantNumeric: 'tabular-nums', minWidth: 80, textAlign: 'right' }}>{F(total)}</span>
@@ -694,9 +694,9 @@ export default function Finanzas() {
           ) : (
             <>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 16 }}>
-                <MiniStat label="Entradas" value={F2(bankIngresos)} accent="#57FF9A" />
-                <MiniStat label="Salidas" value={F2(bankEgresos)} accent="#EF4444" />
-                <MiniStat label="Flujo neto" value={F2(bankIngresos - bankEgresos)} accent={bankIngresos >= bankEgresos ? '#57FF9A' : '#EF4444'} />
+                <MiniStat label="Entradas" value={F2(bankIngresos)} accent="#10B981" />
+                <MiniStat label="Salidas" value={F2(bankEgresos)} accent="#DC2626" />
+                <MiniStat label="Flujo neto" value={F2(bankIngresos - bankEgresos)} accent={bankIngresos >= bankEgresos ? '#10B981' : '#DC2626'} />
               </div>
               <div style={{ fontSize: 11, color: '#666', marginBottom: 8 }}>Salidas por categoría</div>
               {bankPorCategoria.map(([cat, data]) => (
@@ -715,7 +715,7 @@ export default function Finanzas() {
                 {bankMovements.slice(0, 5).map((m: any) => (
                   <div key={m.id} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontSize: 11 }}>
                     <span style={{ color: '#888', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 200 }}>{m.concepto || m.beneficiario || '—'}</span>
-                    <span style={{ color: m.tipo === 'abono' ? '#57FF9A' : '#EF4444', fontWeight: 500, fontVariantNumeric: 'tabular-nums' }}>
+                    <span style={{ color: m.tipo === 'abono' ? '#10B981' : '#DC2626', fontWeight: 500, fontVariantNumeric: 'tabular-nums' }}>
                       {m.tipo === 'abono' ? '+' : '-'}{F2(m.monto)}
                     </span>
                   </div>
@@ -735,8 +735,8 @@ export default function Finanzas() {
           ) : (
             <>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 16 }}>
-                <MiniStat label="Pendiente" value={F(cobranzaPendiente)} accent="#F59E0B" />
-                <MiniStat label="Vencida" value={F(cobranzaVencida)} accent="#EF4444" />
+                <MiniStat label="Pendiente" value={F(cobranzaPendiente)} accent="#D97706" />
+                <MiniStat label="Vencida" value={F(cobranzaVencida)} accent="#DC2626" />
                 <MiniStat label="Hitos totales" value={String(milestones.length)} accent="#888" />
               </div>
               <Table>
@@ -750,7 +750,7 @@ export default function Finanzas() {
                       <tr key={m.id}>
                         <Td><div style={{ fontSize: 12 }}>{m.name}</div><div style={{ fontSize: 10, color: '#555' }}>{proj?.name || ''}</div></Td>
                         <Td muted>{m.due_date || '—'}</Td>
-                        <Td><Badge label={m.status} color={m.status === 'vencido' ? '#EF4444' : m.status === 'vigente' ? '#57FF9A' : '#F59E0B'} /></Td>
+                        <Td><Badge label={m.status} color={m.status === 'vencido' ? '#DC2626' : m.status === 'vigente' ? '#10B981' : '#D97706'} /></Td>
                         <Td right>{F(m.amount || 0)}</Td>
                       </tr>
                     )
@@ -781,11 +781,11 @@ export default function Finanzas() {
                 const overheadPctVal = oh?.overheadPct || 0
                 return (
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12, marginBottom: 16 }}>
-                    <MiniStat label="Ventas totales (contratos)" value={F(totalRevenue)} accent="#57FF9A" />
-                    <MiniStat label="Gastos fijos" value={F(oh?.gastosFijos || 0)} accent="#F59E0B" />
-                    <MiniStat label="Gastos generales" value={F(oh?.gastosGenerales || 0)} accent="#EF4444" />
-                    <MiniStat label="Overhead %" value={overheadPctVal > 0 ? PCT(overheadPctVal) : '—'} accent={overheadPctVal <= 0.25 ? '#57FF9A' : overheadPctVal <= 0.4 ? '#F59E0B' : '#EF4444'} />
-                    <MiniStat label="Margen operativo" value={F(totalMargen)} accent={totalMargen >= 0 ? '#57FF9A' : '#EF4444'} />
+                    <MiniStat label="Ventas totales (contratos)" value={F(totalRevenue)} accent="#10B981" />
+                    <MiniStat label="Gastos fijos" value={F(oh?.gastosFijos || 0)} accent="#D97706" />
+                    <MiniStat label="Gastos generales" value={F(oh?.gastosGenerales || 0)} accent="#DC2626" />
+                    <MiniStat label="Overhead %" value={overheadPctVal > 0 ? PCT(overheadPctVal) : '—'} accent={overheadPctVal <= 0.25 ? '#10B981' : overheadPctVal <= 0.4 ? '#D97706' : '#DC2626'} />
+                    <MiniStat label="Margen operativo" value={F(totalMargen)} accent={totalMargen >= 0 ? '#10B981' : '#DC2626'} />
                   </div>
                 )
               })()}
@@ -831,7 +831,7 @@ export default function Finanzas() {
                   <tbody>
                     {areasNegocio.map(a => {
                       const tipoLabel = a.tipo === 'proyecto' ? 'Proyecto' : a.tipo === 'suministro' ? 'Suministro' : 'Ejecución'
-                      const tipoColor = a.tipo === 'proyecto' ? '#C084FC' : a.tipo === 'suministro' ? '#F59E0B' : '#3B82F6'
+                      const tipoColor = a.tipo === 'proyecto' ? '#A78BFA' : a.tipo === 'suministro' ? '#D97706' : '#2563EB'
                       return (
                         <tr key={a.key} style={{ borderBottom: '1px solid #1a1a1a' }}>
                           <td style={tdS}>
@@ -844,21 +844,21 @@ export default function Finanzas() {
                             <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 4, fontWeight: 600, background: `${tipoColor}20`, color: tipoColor }}>{tipoLabel}</span>
                           </td>
                           <td style={{ ...tdS, textAlign: 'center', color: '#888' }}>{a.headcount || '—'}</td>
-                          <td style={{ ...tdS, ...tdRight, color: a.ventas > 0 ? '#57FF9A' : '#444', fontWeight: a.ventas > 0 ? 600 : 400 }}>{a.ventas > 0 ? F(a.ventas) : '—'}</td>
-                          <td style={{ ...tdS, ...tdRight, color: a.costoNomina > 0 ? '#C084FC' : '#444' }}>{a.costoNomina > 0 ? F(a.costoNomina) : '—'}</td>
-                          <td style={{ ...tdS, ...tdRight, color: a.compras > 0 ? '#F59E0B' : '#444' }}>{a.compras > 0 ? F(a.compras) : '—'}</td>
+                          <td style={{ ...tdS, ...tdRight, color: a.ventas > 0 ? '#10B981' : '#444', fontWeight: a.ventas > 0 ? 600 : 400 }}>{a.ventas > 0 ? F(a.ventas) : '—'}</td>
+                          <td style={{ ...tdS, ...tdRight, color: a.costoNomina > 0 ? '#A78BFA' : '#444' }}>{a.costoNomina > 0 ? F(a.costoNomina) : '—'}</td>
+                          <td style={{ ...tdS, ...tdRight, color: a.compras > 0 ? '#D97706' : '#444' }}>{a.compras > 0 ? F(a.compras) : '—'}</td>
                           <td style={{ ...tdS, ...tdRight, color: a.overhead > 0 ? '#888' : '#444' }}>{a.overhead > 0 ? F(a.overhead) : '—'}</td>
-                          <td style={{ ...tdS, ...tdRight, color: a.costoTotal > 0 ? '#EF4444' : '#444', fontWeight: 500 }}>{a.costoTotal > 0 ? F(a.costoTotal) : '—'}</td>
-                          <td style={{ ...tdS, ...tdRight, fontWeight: 600, color: a.margen > 0 ? '#57FF9A' : a.margen < 0 ? '#EF4444' : '#444' }}>
+                          <td style={{ ...tdS, ...tdRight, color: a.costoTotal > 0 ? '#DC2626' : '#444', fontWeight: 500 }}>{a.costoTotal > 0 ? F(a.costoTotal) : '—'}</td>
+                          <td style={{ ...tdS, ...tdRight, fontWeight: 600, color: a.margen > 0 ? '#10B981' : a.margen < 0 ? '#DC2626' : '#444' }}>
                             {a.ventas > 0 || a.costoTotal > 0 ? F(a.margen) : '—'}
                           </td>
                           <td style={{ ...tdS, textAlign: 'center' }}>
                             {a.ventas > 0 ? (
-                              <span style={{ fontSize: 12, fontWeight: 600, color: a.pctMargen >= 0.2 ? '#57FF9A' : a.pctMargen >= 0 ? '#F59E0B' : '#EF4444' }}>
+                              <span style={{ fontSize: 12, fontWeight: 600, color: a.pctMargen >= 0.2 ? '#10B981' : a.pctMargen >= 0 ? '#D97706' : '#DC2626' }}>
                                 {PCT(a.pctMargen)}
                               </span>
                             ) : a.costoTotal > 0 ? (
-                              <span style={{ fontSize: 10, color: '#EF4444' }}>sin ventas</span>
+                              <span style={{ fontSize: 10, color: '#DC2626' }}>sin ventas</span>
                             ) : '—'}
                           </td>
                         </tr>
@@ -869,13 +869,13 @@ export default function Finanzas() {
                       <td style={{ ...tdS, fontWeight: 600, color: '#888' }}>TOTAL</td>
                       <td style={tdS} />
                       <td style={{ ...tdS, textAlign: 'center', fontWeight: 600, color: '#888' }}>{areasNegocio.reduce((s, a) => s + a.headcount, 0)}</td>
-                      <td style={{ ...tdS, ...tdRight, fontWeight: 700, color: '#57FF9A' }}>{F(totalRevenue)}</td>
-                      <td style={{ ...tdS, ...tdRight, fontWeight: 600, color: '#C084FC' }}>{F(areasNegocio.reduce((s, a) => s + a.costoNomina, 0))}</td>
-                      <td style={{ ...tdS, ...tdRight, fontWeight: 600, color: '#F59E0B' }}>{F(areasNegocio.reduce((s, a) => s + a.compras, 0))}</td>
+                      <td style={{ ...tdS, ...tdRight, fontWeight: 700, color: '#10B981' }}>{F(totalRevenue)}</td>
+                      <td style={{ ...tdS, ...tdRight, fontWeight: 600, color: '#A78BFA' }}>{F(areasNegocio.reduce((s, a) => s + a.costoNomina, 0))}</td>
+                      <td style={{ ...tdS, ...tdRight, fontWeight: 600, color: '#D97706' }}>{F(areasNegocio.reduce((s, a) => s + a.compras, 0))}</td>
                       <td style={{ ...tdS, ...tdRight, fontWeight: 600, color: '#888' }}>{F(areasNegocio.reduce((s, a) => s + a.overhead, 0))}</td>
-                      <td style={{ ...tdS, ...tdRight, fontWeight: 700, color: '#EF4444' }}>{F(totalCost)}</td>
-                      <td style={{ ...tdS, ...tdRight, fontWeight: 700, color: totalMargen >= 0 ? '#57FF9A' : '#EF4444' }}>{F(totalMargen)}</td>
-                      <td style={{ ...tdS, textAlign: 'center', fontWeight: 700, color: totalRevenue > 0 && totalMargen >= 0 ? '#57FF9A' : '#EF4444' }}>
+                      <td style={{ ...tdS, ...tdRight, fontWeight: 700, color: '#DC2626' }}>{F(totalCost)}</td>
+                      <td style={{ ...tdS, ...tdRight, fontWeight: 700, color: totalMargen >= 0 ? '#10B981' : '#DC2626' }}>{F(totalMargen)}</td>
+                      <td style={{ ...tdS, textAlign: 'center', fontWeight: 700, color: totalRevenue > 0 && totalMargen >= 0 ? '#10B981' : '#DC2626' }}>
                         {totalRevenue > 0 ? PCT(totalMargen / totalRevenue) : '—'}
                       </td>
                     </tr>
@@ -888,7 +888,7 @@ export default function Finanzas() {
                 Overhead % = (Gastos fijos + Gastos generales) / Ventas totales → prorrateado proporcionalmente por ventas de cada área.
                 <br />Gastos fijos = nómina admin + servicios (renta, luz, tel). Gastos generales = otros gastos + impuestos patronales.
                 {areasNegocio.some(a => a.costoTotal > 0 && a.ventas === 0) && (
-                  <span style={{ color: '#F59E0B' }}> Áreas sin ventas absorben $0 de overhead (solo muestran costos directos).</span>
+                  <span style={{ color: '#D97706' }}> Áreas sin ventas absorben $0 de overhead (solo muestran costos directos).</span>
                 )}
               </div>
             </>
@@ -908,7 +908,7 @@ export default function Finanzas() {
             <input
               type="number" step="0.1" value={tipoCambio}
               onChange={e => setTipoCambio(Number(e.target.value) || 20)}
-              style={{ width: 70, padding: '4px 8px', fontSize: 12, background: '#0a0a0a', border: '1px solid #333', borderRadius: 6, color: '#57FF9A', fontWeight: 600, textAlign: 'center', fontFamily: 'inherit' }}
+              style={{ width: 70, padding: '4px 8px', fontSize: 12, background: '#0a0a0a', border: '1px solid #333', borderRadius: 6, color: '#10B981', fontWeight: 600, textAlign: 'center', fontFamily: 'inherit' }}
             />
           </div>
         </div>
@@ -942,20 +942,20 @@ export default function Finanzas() {
                         <div style={{ fontSize: 10, color: '#555' }}>{l.company} · {l.projectCount} proy · {l.quotCount} cot</div>
                       </td>
                       <td style={{ ...tdS, textAlign: 'center' }}>
-                        <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 4, fontWeight: 600, background: l.moneda === 'USD' ? '#3B82F620' : '#57FF9A20', color: l.moneda === 'USD' ? '#3B82F6' : '#57FF9A' }}>{l.moneda}</span>
+                        <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 4, fontWeight: 600, background: l.moneda === 'USD' ? '#2563EB20' : '#10B98120', color: l.moneda === 'USD' ? '#2563EB' : '#10B981' }}>{l.moneda}</span>
                       </td>
-                      <td style={{ ...tdS, ...tdRight, color: '#57FF9A', fontWeight: 600 }}>{Fm(l.totalVendido)}</td>
-                      <td style={{ ...tdS, ...tdRight, color: l.totalCobrado > 0 ? '#57FF9A' : '#555' }}>{Fm(l.totalCobrado)}</td>
+                      <td style={{ ...tdS, ...tdRight, color: '#10B981', fontWeight: 600 }}>{Fm(l.totalVendido)}</td>
+                      <td style={{ ...tdS, ...tdRight, color: l.totalCobrado > 0 ? '#10B981' : '#555' }}>{Fm(l.totalCobrado)}</td>
                       <td style={{ ...tdS, textAlign: 'center' }}>
-                        <MiniProgress pct={l.pctCobro} color="#57FF9A" />
+                        <MiniProgress pct={l.pctCobro} color="#10B981" />
                       </td>
-                      <td style={{ ...tdS, ...tdRight, color: l.totalCompras > 0 ? '#3B82F6' : '#555' }}>{Fm(l.totalCompras)}</td>
-                      <td style={{ ...tdS, ...tdRight, color: l.totalComprado > 0 ? '#F59E0B' : '#555' }}>{Fm(l.totalComprado)}</td>
+                      <td style={{ ...tdS, ...tdRight, color: l.totalCompras > 0 ? '#2563EB' : '#555' }}>{Fm(l.totalCompras)}</td>
+                      <td style={{ ...tdS, ...tdRight, color: l.totalComprado > 0 ? '#D97706' : '#555' }}>{Fm(l.totalComprado)}</td>
                       <td style={{ ...tdS, textAlign: 'center' }}>
-                        <MiniProgress pct={l.pctCompras} color="#3B82F6" />
+                        <MiniProgress pct={l.pctCompras} color="#2563EB" />
                       </td>
-                      <td style={{ ...tdS, ...tdRight, color: l.porComprar > 0 ? '#F59E0B' : '#555' }}>{Fm(l.porComprar)}</td>
-                      <td style={{ ...tdS, ...tdRight, color: l.porCobrar > 0 ? '#EF4444' : '#57FF9A', fontWeight: l.porCobrar > 0 ? 600 : 400 }}>{Fm(l.porCobrar)}</td>
+                      <td style={{ ...tdS, ...tdRight, color: l.porComprar > 0 ? '#D97706' : '#555' }}>{Fm(l.porComprar)}</td>
+                      <td style={{ ...tdS, ...tdRight, color: l.porCobrar > 0 ? '#DC2626' : '#10B981', fontWeight: l.porCobrar > 0 ? 600 : 400 }}>{Fm(l.porCobrar)}</td>
                     </tr>
                   )
                 })}
@@ -963,16 +963,16 @@ export default function Finanzas() {
                 <tr style={{ borderTop: '2px solid #333' }}>
                   <td style={{ ...tdS, fontWeight: 600, color: '#888' }}>TOTAL (MXN)</td>
                   <td style={{ ...tdS, textAlign: 'center' }}>
-                    <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 4, fontWeight: 600, background: '#57FF9A20', color: '#57FF9A' }}>MXN</span>
+                    <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 4, fontWeight: 600, background: '#10B98120', color: '#10B981' }}>MXN</span>
                   </td>
-                  <td style={{ ...tdS, ...tdRight, fontWeight: 700, color: '#57FF9A' }}>{F(leadsFinancieros.reduce((s, l) => s + l.totalVendidoMXN, 0))}</td>
-                  <td style={{ ...tdS, ...tdRight, fontWeight: 600, color: '#57FF9A' }}>{F(leadsFinancieros.reduce((s, l) => s + (l.moneda === 'USD' ? l.totalCobrado * tipoCambio : l.totalCobrado), 0))}</td>
+                  <td style={{ ...tdS, ...tdRight, fontWeight: 700, color: '#10B981' }}>{F(leadsFinancieros.reduce((s, l) => s + l.totalVendidoMXN, 0))}</td>
+                  <td style={{ ...tdS, ...tdRight, fontWeight: 600, color: '#10B981' }}>{F(leadsFinancieros.reduce((s, l) => s + (l.moneda === 'USD' ? l.totalCobrado * tipoCambio : l.totalCobrado), 0))}</td>
                   <td style={tdS}>{' '}</td>
-                  <td style={{ ...tdS, ...tdRight, fontWeight: 600, color: '#3B82F6' }}>{F(leadsFinancieros.reduce((s, l) => s + (l.moneda === 'USD' ? l.totalCompras * tipoCambio : l.totalCompras), 0))}</td>
-                  <td style={{ ...tdS, ...tdRight, fontWeight: 600, color: '#F59E0B' }}>{F(leadsFinancieros.reduce((s, l) => s + (l.moneda === 'USD' ? l.totalComprado * tipoCambio : l.totalComprado), 0))}</td>
+                  <td style={{ ...tdS, ...tdRight, fontWeight: 600, color: '#2563EB' }}>{F(leadsFinancieros.reduce((s, l) => s + (l.moneda === 'USD' ? l.totalCompras * tipoCambio : l.totalCompras), 0))}</td>
+                  <td style={{ ...tdS, ...tdRight, fontWeight: 600, color: '#D97706' }}>{F(leadsFinancieros.reduce((s, l) => s + (l.moneda === 'USD' ? l.totalComprado * tipoCambio : l.totalComprado), 0))}</td>
                   <td style={tdS}>{' '}</td>
-                  <td style={{ ...tdS, ...tdRight, fontWeight: 600, color: '#F59E0B' }}>{F(leadsFinancieros.reduce((s, l) => s + l.porComprarMXN, 0))}</td>
-                  <td style={{ ...tdS, ...tdRight, fontWeight: 700, color: '#EF4444' }}>{F(leadsFinancieros.reduce((s, l) => s + l.porCobrarMXN, 0))}</td>
+                  <td style={{ ...tdS, ...tdRight, fontWeight: 600, color: '#D97706' }}>{F(leadsFinancieros.reduce((s, l) => s + l.porComprarMXN, 0))}</td>
+                  <td style={{ ...tdS, ...tdRight, fontWeight: 700, color: '#DC2626' }}>{F(leadsFinancieros.reduce((s, l) => s + l.porCobrarMXN, 0))}</td>
                 </tr>
               </tbody>
             </table>

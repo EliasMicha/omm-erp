@@ -30,7 +30,7 @@ interface Reporte {
 }
 
 const TIPO_CONFIG: Record<string, { label: string; color: string; emoji: string }> = {
-  avance: { label: 'AVANCE', color: '#57FF9A', emoji: '📈' },
+  avance: { label: 'AVANCE', color: '#10B981', emoji: '📈' },
   problema: { label: 'PROBLEMA', color: '#f59e0b', emoji: '⚠️' },
   terminacion_tarea: { label: 'TAREA TERMINADA', color: '#3b82f6', emoji: '✅' },
   material_faltante: { label: 'FALTA MATERIAL', color: '#ec4899', emoji: '📦' },
@@ -143,7 +143,7 @@ export default function TabReportes() {
               padding: '8px 16px',
               background: filterRange === r ? '#0f2a1a' : 'transparent',
               border: 'none', borderRadius: 8,
-              color: filterRange === r ? '#57FF9A' : '#666',
+              color: filterRange === r ? '#10B981' : '#666',
               fontSize: 12, fontWeight: 600, cursor: 'pointer',
             }}
           >
@@ -162,7 +162,7 @@ export default function TabReportes() {
         <KpiCard
           label="Avances reportados"
           value={kpis.totalAvances}
-          color="#57FF9A"
+          color="#10B981"
           icon={<CheckCircle2 size={16} />}
         />
         <KpiCard
@@ -325,7 +325,7 @@ export default function TabReportes() {
                     {r.ai_avances?.map((a, i) => (
                       <span key={'a'+i} style={{
                         fontSize: 10, padding: '3px 8px', borderRadius: 6,
-                        background: '#0f2a1a', color: '#57FF9A', fontWeight: 500,
+                        background: '#0f2a1a', color: '#10B981', fontWeight: 500,
                         display: 'inline-flex', alignItems: 'center', gap: 4,
                       }}>
                         <CheckCircle2 size={10} /> {a}
@@ -413,8 +413,8 @@ export default function TabReportes() {
             {selected.ai_resumen && (
               <div style={{ marginBottom: 20, padding: 14, background: '#0f1f15', border: '1px solid #1f3a2a', borderRadius: 10 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-                  <Sparkles size={12} color="#57FF9A" />
-                  <span style={{ fontSize: 10, color: '#57FF9A', textTransform: 'uppercase', letterSpacing: 1, fontWeight: 700 }}>Resumen IA</span>
+                  <Sparkles size={12} color="#10B981" />
+                  <span style={{ fontSize: 10, color: '#10B981', textTransform: 'uppercase', letterSpacing: 1, fontWeight: 700 }}>Resumen IA</span>
                 </div>
                 <div style={{ fontSize: 13, color: '#eee', lineHeight: 1.6 }}>{selected.ai_resumen}</div>
               </div>
@@ -460,8 +460,8 @@ export default function TabReportes() {
                 {selected.ai_avances && selected.ai_avances.length > 0 && (
                   <div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-                      <CheckCircle2 size={14} color="#57FF9A" />
-                      <span style={{ fontSize: 11, color: '#57FF9A', textTransform: 'uppercase', letterSpacing: 1, fontWeight: 700 }}>
+                      <CheckCircle2 size={14} color="#10B981" />
+                      <span style={{ fontSize: 11, color: '#10B981', textTransform: 'uppercase', letterSpacing: 1, fontWeight: 700 }}>
                         Avances ({selected.ai_avances.length})
                       </span>
                     </div>
@@ -513,7 +513,7 @@ export default function TabReportes() {
                   href={`https://maps.google.com/?q=${selected.latitude},${selected.longitude}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  style={{ color: '#57FF9A', textDecoration: 'none' }}
+                  style={{ color: '#10B981', textDecoration: 'none' }}
                 >
                   {Number(selected.latitude).toFixed(6)}, {Number(selected.longitude).toFixed(6)}
                 </a>

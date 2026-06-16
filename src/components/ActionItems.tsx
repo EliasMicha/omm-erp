@@ -62,7 +62,7 @@ const select: React.CSSProperties = {
 }
 
 const PRIORITY_LABELS: Record<number, string> = { 1: 'Baja', 2: 'Media', 3: 'Alta' }
-const PRIORITY_COLORS: Record<number, string> = { 1: '#888', 2: '#3B82F6', 3: '#EF4444' }
+const PRIORITY_COLORS: Record<number, string> = { 1: '#888', 2: '#2563EB', 3: '#DC2626' }
 
 // ═══════════════════════════════════════════════════════════════
 // MAIN COMPONENT
@@ -286,7 +286,7 @@ export default function ActionItems({
           <span style={{ fontSize: 15, fontWeight: 700, color: '#fff' }}>Pendientes</span>
           <span style={{ fontSize: 12, color: '#555' }}>({pendingCount})</span>
           {overdueCount > 0 && (
-            <span style={{ fontSize: 11, color: '#EF4444', display: 'flex', alignItems: 'center', gap: 3 }}>
+            <span style={{ fontSize: 11, color: '#DC2626', display: 'flex', alignItems: 'center', gap: 3 }}>
               <AlertTriangle size={11} /> {overdueCount} vencido{overdueCount > 1 ? 's' : ''}
             </span>
           )}
@@ -305,7 +305,7 @@ export default function ActionItems({
           ))}
           <button onClick={() => setShowCompleted(!showCompleted)} style={{
             background: 'transparent', border: '1px solid #222', borderRadius: 6,
-            padding: '4px 8px', fontSize: 11, color: showCompleted ? '#57FF9A' : '#555',
+            padding: '4px 8px', fontSize: 11, color: showCompleted ? '#10B981' : '#555',
             cursor: 'pointer',
           }}>
             <CheckCircle2 size={11} />
@@ -332,7 +332,7 @@ export default function ActionItems({
         {userEmail && (
           <button onClick={() => setShowEmailImport(true)} style={{
             background: '#1a1a2e', border: '1px solid #333', borderRadius: 8, padding: '8px 12px',
-            color: '#3B82F6', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, fontSize: 12,
+            color: '#2563EB', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, fontSize: 12,
             whiteSpace: 'nowrap',
           }}>
             <Mail size={14} /> Email
@@ -441,7 +441,7 @@ export default function ActionItems({
                 color: '#888', cursor: 'pointer', fontSize: 12,
               }}>Cancelar</button>
               <button onClick={createItem} style={{
-                background: '#57FF9A', border: 'none', borderRadius: 8, padding: '8px 20px',
+                background: '#10B981', border: 'none', borderRadius: 8, padding: '8px 20px',
                 color: '#000', cursor: 'pointer', fontSize: 12, fontWeight: 600,
               }}>Crear</button>
             </div>
@@ -465,7 +465,7 @@ export default function ActionItems({
               <div key={item.id} style={{
                 ...card,
                 padding: '10px 14px',
-                borderLeft: `3px solid ${isDone ? '#333' : isOverdue ? '#EF4444' : PRIORITY_COLORS[item.priority] || '#333'}`,
+                borderLeft: `3px solid ${isDone ? '#333' : isOverdue ? '#DC2626' : PRIORITY_COLORS[item.priority] || '#333'}`,
                 opacity: isDone ? 0.5 : 1,
                 transition: 'all 0.15s',
               }}>
@@ -473,7 +473,7 @@ export default function ActionItems({
                   {/* Checkbox */}
                   <button onClick={() => toggleComplete(item)} style={{
                     background: 'none', border: 'none', cursor: 'pointer', padding: 2, marginTop: 1, flexShrink: 0,
-                    color: isDone ? '#57FF9A' : '#444',
+                    color: isDone ? '#10B981' : '#444',
                   }}>
                     {isDone ? <CheckCircle2 size={16} /> : <Circle size={16} />}
                   </button>
@@ -482,7 +482,7 @@ export default function ActionItems({
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{
                       fontSize: 13, fontWeight: 500,
-                      color: isDone ? '#555' : isOverdue ? '#EF4444' : '#fff',
+                      color: isDone ? '#555' : isOverdue ? '#DC2626' : '#fff',
                       textDecoration: isDone ? 'line-through' : 'none',
                       overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                     }}>
@@ -491,7 +491,7 @@ export default function ActionItems({
                     <div style={{ fontSize: 11, color: '#555', marginTop: 2, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                       {/* Project */}
                       {item.project_id && (projMap[item.project_id] || item.source_meta?.project_name) && (
-                        <span style={{ color: '#57FF9A', display: 'flex', alignItems: 'center', gap: 3 }}>
+                        <span style={{ color: '#10B981', display: 'flex', alignItems: 'center', gap: 3 }}>
                           <FolderOpen size={9} /> {projMap[item.project_id] || item.source_meta?.project_name}
                         </span>
                       )}
@@ -503,13 +503,13 @@ export default function ActionItems({
                       )}
                       {/* Due date */}
                       {item.due_date && (
-                        <span style={{ color: isOverdue ? '#EF4444' : '#666', display: 'flex', alignItems: 'center', gap: 3 }}>
+                        <span style={{ color: isOverdue ? '#DC2626' : '#666', display: 'flex', alignItems: 'center', gap: 3 }}>
                           <Calendar size={9} /> {formatDate(item.due_date)}
                         </span>
                       )}
                       {/* Source */}
                       {item.source_type === 'proyecto' && (
-                        <span style={{ color: '#C084FC', display: 'flex', alignItems: 'center', gap: 3, fontSize: 10 }}>
+                        <span style={{ color: '#A78BFA', display: 'flex', alignItems: 'center', gap: 3, fontSize: 10 }}>
                           <Tag size={9} /> Tarea de proyecto
                         </span>
                       )}
@@ -547,7 +547,7 @@ export default function ActionItems({
                         background: 'none', border: 'none', cursor: 'pointer', padding: 2,
                         color: '#333', transition: 'color 0.15s',
                       }}
-                        onMouseEnter={e => e.currentTarget.style.color = '#EF4444'}
+                        onMouseEnter={e => e.currentTarget.style.color = '#DC2626'}
                         onMouseLeave={e => e.currentTarget.style.color = '#333'}>
                         <Trash2 size={13} />
                       </button>

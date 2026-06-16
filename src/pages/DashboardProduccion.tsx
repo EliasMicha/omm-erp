@@ -121,22 +121,22 @@ export default function DashboardProduccion() {
 
       {/* ── KPIs ── */}
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2,1fr)' : 'repeat(4,1fr)', gap: 12, marginBottom: 24 }}>
-        <KpiCard label="Tareas pendientes" value={tasks.length} color={tasks.length > 10 ? '#F59E0B' : '#57FF9A'} icon={<ClipboardList size={16} />} />
-        <KpiCard label="Vencidas" value={overdueTasks.length} color={overdueTasks.length > 0 ? '#EF4444' : '#57FF9A'} icon={<AlertTriangle size={16} />} />
-        <KpiCard label="Esta semana" value={dueThisWeek.length} color="#3B82F6" icon={<Clock size={16} />} />
+        <KpiCard label="Tareas pendientes" value={tasks.length} color={tasks.length > 10 ? '#D97706' : '#10B981'} icon={<ClipboardList size={16} />} />
+        <KpiCard label="Vencidas" value={overdueTasks.length} color={overdueTasks.length > 0 ? '#DC2626' : '#10B981'} icon={<AlertTriangle size={16} />} />
+        <KpiCard label="Esta semana" value={dueThisWeek.length} color="#2563EB" icon={<Clock size={16} />} />
         <KpiCard label="Proyectos activos" value={projects.length} icon={<FolderOpen size={16} />} />
       </div>
 
       {/* ── OVERDUE ALERT ── */}
       {overdueTasks.length > 0 && (
         <div style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: 10, padding: '16px 20px', marginBottom: 20 }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: '#EF4444', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: '#DC2626', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
             <AlertTriangle size={14} /> {overdueTasks.length} tarea{overdueTasks.length > 1 ? 's' : ''} vencida{overdueTasks.length > 1 ? 's' : ''}
           </div>
           {overdueTasks.slice(0, 5).map(t => (
             <div key={t.id} style={{ fontSize: 12, color: '#ccc', padding: '4px 0', display: 'flex', justifyContent: 'space-between' }}>
               <span><span style={{ color: '#fff', fontWeight: 500 }}>{t.name}</span> — {t.project_name}</span>
-              <span style={{ color: '#EF4444', fontSize: 11 }}>{t.due_date ? formatDate(t.due_date) : ''}</span>
+              <span style={{ color: '#DC2626', fontSize: 11 }}>{t.due_date ? formatDate(t.due_date) : ''}</span>
             </div>
           ))}
         </div>
@@ -181,7 +181,7 @@ export default function DashboardProduccion() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               {cotizaciones.map(c => {
                 const cfg = SPECIALTY_CONFIG[c.specialty as keyof typeof SPECIALTY_CONFIG]
-                const stageColor = c.stage === 'contrato' ? '#57FF9A' : '#F59E0B'
+                const stageColor = c.stage === 'contrato' ? '#10B981' : '#D97706'
                 return (
                   <div key={c.id} onClick={() => navigate(`/cotizaciones#${c.id}:${c.specialty}`)} style={{ background: '#111', border: '1px solid #222', borderRadius: 10, padding: '12px 16px', cursor: 'pointer', transition: 'border-color 0.15s', borderLeft: cfg ? `3px solid ${cfg.color}` : '3px solid #333' }}
                     onMouseEnter={e => e.currentTarget.style.borderColor = '#444'}
@@ -222,12 +222,12 @@ export default function DashboardProduccion() {
                     const isOverdue = t.due_date && t.due_date < now
                     return (
                       <tr key={t.id}>
-                        <Td><span style={{ fontWeight: 500, color: isOverdue ? '#EF4444' : '#fff' }}>{t.name}</span></Td>
+                        <Td><span style={{ fontWeight: 500, color: isOverdue ? '#DC2626' : '#fff' }}>{t.name}</span></Td>
                         <Td>
                           <Badge label={t.status}
-                            color={t.status === 'completada' ? '#57FF9A' : t.status === 'en_progreso' ? '#3B82F6' : '#888'} />
+                            color={t.status === 'completada' ? '#10B981' : t.status === 'en_progreso' ? '#2563EB' : '#888'} />
                         </Td>
-                        <Td muted style={isOverdue ? { color: '#EF4444', fontWeight: 600 } : undefined}>
+                        <Td muted style={isOverdue ? { color: '#DC2626', fontWeight: 600 } : undefined}>
                           {t.due_date ? formatDate(t.due_date) : <span style={{ color: '#333' }}>—</span>}
                         </Td>
                         <Td>{t.progress > 0 ? <ProgressBar pct={t.progress} /> : <span style={{ color: '#333' }}>—</span>}</Td>

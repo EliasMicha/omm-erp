@@ -258,8 +258,8 @@ export default function Clientes() {
 
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, 1fr)', gap: 12, marginBottom: 20 }}>
         <KpiCard label="Total clientes" value={clientes.length} icon={<Users2 size={16} />} />
-        <KpiCard label="Personas morales" value={clientes.filter(c => c.tipo_persona === 'moral').length} color="#3B82F6" icon={<Building2 size={16} />} />
-        <KpiCard label="Activos" value={clientes.filter(c => c.activo).length} color="#57FF9A" icon={<CheckCircle size={16} />} />
+        <KpiCard label="Personas morales" value={clientes.filter(c => c.tipo_persona === 'moral').length} color="#2563EB" icon={<Building2 size={16} />} />
+        <KpiCard label="Activos" value={clientes.filter(c => c.activo).length} color="#10B981" icon={<CheckCircle size={16} />} />
       </div>
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: isMobile ? 'stretch' : 'center', marginBottom: 16, flexWrap: 'wrap', gap: isMobile ? 8 : 0 }}>
@@ -268,7 +268,7 @@ export default function Clientes() {
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar por nombre o RFC..." style={{ ...iS, width: '100%', paddingLeft: 32 }} />
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flex: isMobile ? '1 1 100%' : 'initial', flexWrap: 'wrap', justifyContent: isMobile ? 'space-between' : 'flex-end' }}>
-          {csfStatus && <span style={{ fontSize: 11, color: csfStatus.startsWith('✓') ? '#57FF9A' : csfStatus.startsWith('Error') ? '#EF4444' : '#888' }}>{csfStatus}</span>}
+          {csfStatus && <span style={{ fontSize: 11, color: csfStatus.startsWith('✓') ? '#10B981' : csfStatus.startsWith('Error') ? '#DC2626' : '#888' }}>{csfStatus}</span>}
           <label style={{ cursor: 'pointer' }}>
             <input type="file" accept=".pdf" onChange={handleCSFUpload} style={{ display: 'none' }} />
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '6px 12px', background: '#1a1a1a', border: '1px solid #333', borderRadius: 8, color: '#ccc', fontSize: 12, fontFamily: 'inherit', cursor: 'pointer' }}>
@@ -287,12 +287,12 @@ export default function Clientes() {
           {filtered.map(c => (
             <tr key={c.id} style={{ cursor: 'pointer' }} onClick={() => openEdit(c)}>
               <Td><span style={{ fontWeight: 600, color: '#fff', fontFamily: 'monospace', fontSize: 12 }}>{c.rfc}</span></Td>
-              <Td><span style={{ color: '#57FF9A', fontWeight: 500 }}>{c.nombre_comercial || '—'}</span></Td>
+              <Td><span style={{ color: '#10B981', fontWeight: 500 }}>{c.nombre_comercial || '—'}</span></Td>
               <Td><span style={{ color: '#ccc' }}>{c.razon_social}</span></Td>
               <Td muted style={{ fontSize: 11 }}>{c.regimen_fiscal_clave ? `${c.regimen_fiscal_clave} - ${(c.regimen_fiscal || '').substring(0, 30)}` : '—'}</Td>
               <Td muted>{c.codigo_postal || '—'}</Td>
               <Td muted style={{ fontSize: 11 }}>{c.uso_cfdi_clave || '—'}</Td>
-              <Td><Badge label={c.tipo_persona === 'moral' ? 'Moral' : 'Fisica'} color={c.tipo_persona === 'moral' ? '#3B82F6' : '#C084FC'} /></Td>
+              <Td><Badge label={c.tipo_persona === 'moral' ? 'Moral' : 'Fisica'} color={c.tipo_persona === 'moral' ? '#2563EB' : '#A78BFA'} /></Td>
               <Td><Edit size={12} style={{ color: '#555' }} /></Td>
             </tr>
           ))}
@@ -310,7 +310,7 @@ export default function Clientes() {
 
             <Fld label="Nombre Comercial"><input style={iS} value={form.nombre_comercial || ''} onChange={e => setForm({...form, nombre_comercial: e.target.value})} placeholder="ej. Grupo Salsa, Arktres, etc." /></Fld>
 
-            <div style={{ fontSize: 13, fontWeight: 600, color: '#57FF9A', marginTop: 16, marginBottom: 12 }}>Datos Fiscales (Constancia de Situacion Fiscal)</div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#10B981', marginTop: 16, marginBottom: 12 }}>Datos Fiscales (Constancia de Situacion Fiscal)</div>
 
             <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr 1fr', gap: 10 }}>
               <Fld label="RFC *"><input style={iS} value={form.rfc || ''} onChange={e => setForm({...form, rfc: e.target.value.toUpperCase()})} placeholder="XAXX010101000" maxLength={13} /></Fld>
@@ -335,7 +335,7 @@ export default function Clientes() {
                 <div>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: (form.email || '').trim() ? 6 : 0 }}>
                     {(form.email || '').split(',').filter(e => e.trim()).map((em, i) => (
-                      <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: '#1a2a1a', border: '1px solid #2a4a2a', borderRadius: 12, padding: '2px 8px 2px 10px', fontSize: 12, color: '#57FF9A' }}>
+                      <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: '#1a2a1a', border: '1px solid #2a4a2a', borderRadius: 12, padding: '2px 8px 2px 10px', fontSize: 12, color: '#10B981' }}>
                         {em.trim()}
                         <button onClick={() => {
                           const emails = (form.email || '').split(',').filter(e => e.trim())

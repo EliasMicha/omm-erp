@@ -92,36 +92,36 @@ const SPECIALTY_AREAS: Record<string, string[]> = {
 // ═══════════════════════════════════════════════════════════════════
 
 const SPECIALTY_CONFIG: Record<Specialty, { label: string; short: string; color: string; icon: string; leader: string }> = {
-  esp:  { label: 'Especialidades', short: 'ESP',  color: '#57FF9A', icon: '◈', leader: 'Alfredo Rosas' },
-  ilum: { label: 'Iluminación',    short: 'ILU',  color: '#C084FC', icon: '◇', leader: 'Juan Pablo' },
+  esp:  { label: 'Especialidades', short: 'ESP',  color: '#10B981', icon: '◈', leader: 'Alfredo Rosas' },
+  ilum: { label: 'Iluminación',    short: 'ILU',  color: '#A78BFA', icon: '◇', leader: 'Juan Pablo' },
   elec: { label: 'Eléctrico',      short: 'ELEC', color: '#FFB347', icon: '◉', leader: 'Ricardo Flores' },
   cort: { label: 'Cortinas',       short: 'CORT', color: '#67E8F9', icon: '◐', leader: '' },
   proy: { label: 'Proyecto',       short: 'PROY', color: '#F472B6', icon: '◓', leader: '' },
 }
 
 const STATUS_CONFIG: Record<ProjectStatus, { label: string; color: string }> = {
-  activo:     { label: 'Activo',     color: '#57FF9A' },
-  pausado:    { label: 'Pausado',    color: '#F59E0B' },
-  completado: { label: 'Completado', color: '#3B82F6' },
+  activo:     { label: 'Activo',     color: '#10B981' },
+  pausado:    { label: 'Pausado',    color: '#D97706' },
+  completado: { label: 'Completado', color: '#2563EB' },
   cancelado:  { label: 'Cancelado',  color: '#6B7280' },
 }
 
 const TASK_STATUS_CONFIG: Record<TaskStatus, { label: string; color: string }> = {
   pendiente:    { label: 'Pendiente',    color: '#6B7280' },
-  en_progreso:  { label: 'En progreso',  color: '#3B82F6' },
-  bloqueada:    { label: 'Bloqueada',    color: '#EF4444' },
-  completada:   { label: 'Completada',   color: '#57FF9A' },
+  en_progreso:  { label: 'En progreso',  color: '#2563EB' },
+  bloqueada:    { label: 'Bloqueada',    color: '#DC2626' },
+  completada:   { label: 'Completada',   color: '#10B981' },
 }
 
 const ESP_SYSTEMS = ['CCTV', 'Audio', 'Redes', 'Acceso', 'Iluminacion', 'Humo', 'BMS', 'Telefonia', 'Celular', 'Cortinas']
 
 const SYSTEM_COLORS: Record<string, string> = {
-  CCTV:        '#3B82F6',
+  CCTV:        '#2563EB',
   Audio:       '#8B5CF6',
   Redes:       '#06B6D4',
-  Acceso:      '#F59E0B',
-  Iluminacion: '#C084FC',
-  Humo:        '#EF4444',
+  Acceso:      '#D97706',
+  Iluminacion: '#A78BFA',
+  Humo:        '#DC2626',
   BMS:         '#10B981',
   Telefonia:   '#F97316',
   Celular:     '#EC4899',
@@ -280,10 +280,10 @@ export default function Proyectos() {
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
-            <KpiBox label="Proyectos activos" value={stats.active} color="#57FF9A" />
-            <KpiBox label="Avance promedio" value={`${stats.avg}%`} color="#3B82F6" />
-            <KpiBox label="Total proyectos" value={stats.total} color="#C084FC" />
-            <KpiBox label="Tareas vencidas" value={stats.overdueTasks} color={stats.overdueTasks > 0 ? '#EF4444' : '#6B7280'} />
+            <KpiBox label="Proyectos activos" value={stats.active} color="#10B981" />
+            <KpiBox label="Avance promedio" value={`${stats.avg}%`} color="#2563EB" />
+            <KpiBox label="Total proyectos" value={stats.total} color="#A78BFA" />
+            <KpiBox label="Tareas vencidas" value={stats.overdueTasks} color={stats.overdueTasks > 0 ? '#DC2626' : '#6B7280'} />
           </div>
 
           <div style={{ display: 'flex', gap: 8, marginBottom: 16, alignItems: 'center' }}>
@@ -291,9 +291,9 @@ export default function Proyectos() {
             {(['todos', 'activo', 'pausado', 'completado'] as const).map(s => (
               <button key={s} onClick={() => setFiltroStatus(s)} style={{
                 padding: '5px 12px', fontSize: 11, borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit',
-                background: filtroStatus === s ? '#57FF9A18' : '#0a0a0a',
-                border: filtroStatus === s ? '1px solid #57FF9A66' : '1px solid #222',
-                color: filtroStatus === s ? '#57FF9A' : '#666',
+                background: filtroStatus === s ? '#10B98118' : '#0a0a0a',
+                border: filtroStatus === s ? '1px solid #10B98166' : '1px solid #222',
+                color: filtroStatus === s ? '#10B981' : '#666',
               }}>
                 {s === 'todos' ? 'Todos' : STATUS_CONFIG[s as ProjectStatus]?.label}
               </button>
@@ -391,9 +391,9 @@ function ProjectCard({ project, phases, tasks, onClick }: {
       <div style={{ marginBottom: 8 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: '#555', marginBottom: 4 }}>
           <span>Avance de ingeniería</span>
-          <span style={{ fontWeight: 700, color: progress >= 100 ? '#57FF9A' : '#3B82F6' }}>{progress}%</span>
+          <span style={{ fontWeight: 700, color: progress >= 100 ? '#10B981' : '#2563EB' }}>{progress}%</span>
         </div>
-        <ProgressBar pct={progress} color={progress >= 100 ? '#57FF9A' : '#3B82F6'} />
+        <ProgressBar pct={progress} color={progress >= 100 ? '#10B981' : '#2563EB'} />
       </div>
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 10, borderTop: '1px solid #1e1e1e', gap: 8, flexWrap: 'wrap' }}>
@@ -401,7 +401,7 @@ function ProjectCard({ project, phases, tasks, onClick }: {
           <Clock size={10} /> {active ? `Fase: ${active.name}` : 'Sin fases'}
         </div>
         {tienePostventa && (
-          <span style={{ fontSize: 9, color: '#57FF9A', padding: '2px 6px', borderRadius: 4, background: '#57FF9A11', border: '1px solid #57FF9A33' }}>● Postventa</span>
+          <span style={{ fontSize: 9, color: '#10B981', padding: '2px 6px', borderRadius: 4, background: '#10B98111', border: '1px solid #10B98133' }}>● Postventa</span>
         )}
         <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, color: '#555' }}>
           <Calendar size={10} /> {formatDate(project.created_at)}
@@ -505,8 +505,8 @@ function ProjectDetail({ project, employees, onBack }: {
             {specCfg?.leader && <> · Líder: {specCfg.leader}</>}
           </div>
         </div>
-        <span style={{ fontSize: 18, fontWeight: 700, color: totalProgress >= 100 ? '#57FF9A' : '#3B82F6' }}>{totalProgress}%</span>
-        <Badge label={STATUS_CONFIG[project.status]?.label || 'Activo'} color={STATUS_CONFIG[project.status]?.color || '#57FF9A'} />
+        <span style={{ fontSize: 18, fontWeight: 700, color: totalProgress >= 100 ? '#10B981' : '#2563EB' }}>{totalProgress}%</span>
+        <Badge label={STATUS_CONFIG[project.status]?.label || 'Activo'} color={STATUS_CONFIG[project.status]?.color || '#10B981'} />
       </div>
 
       {hydrateError && (
@@ -536,9 +536,9 @@ function ProjectDetail({ project, employees, onBack }: {
               return (
                 <button key={key} onClick={() => setTab(key)} style={{
                   padding: '8px 14px', fontSize: 12, fontWeight: active ? 600 : 400,
-                  color: active ? '#57FF9A' : '#666',
+                  color: active ? '#10B981' : '#666',
                   background: active ? 'rgba(87,255,154,0.08)' : 'transparent',
-                  border: 'none', borderBottom: active ? '2px solid #57FF9A' : '2px solid transparent',
+                  border: 'none', borderBottom: active ? '2px solid #10B981' : '2px solid transparent',
                   cursor: 'pointer', fontFamily: 'inherit', borderRadius: '8px 8px 0 0',
                 }}>
                   <Icon size={13} style={{ marginRight: 6 }} />{label}
@@ -592,8 +592,8 @@ function PhaseTimeline({ phases, tasks, hasContract, activePhaseId, onPhaseClick
       'pending'
     const color =
       state === 'locked' ? '#333' :
-      state === 'completed' ? '#57FF9A' :
-      state === 'in_progress' ? '#3B82F6' :
+      state === 'completed' ? '#10B981' :
+      state === 'in_progress' ? '#2563EB' :
       '#6B7280'
     return { prog, locked, state, color, tasksCount: ptasks.length }
   }
@@ -613,7 +613,7 @@ function PhaseTimeline({ phases, tasks, hasContract, activePhaseId, onPhaseClick
         {!isLast && (
           <div style={{
             position: 'absolute', top: 23, left: '50%', width: '100%', height: 2,
-            background: state === 'completed' ? '#57FF9A55' : '#2a2a2a',
+            background: state === 'completed' ? '#10B98155' : '#2a2a2a',
             zIndex: 0,
           }} />
         )}
@@ -684,11 +684,11 @@ function PhaseTimeline({ phases, tasks, hasContract, activePhaseId, onPhaseClick
         }}>
           <div style={{ flex: 1, height: 1, background: '#1e1e1e' }} />
           <div style={{
-            fontSize: 9, color: hasContract ? '#57FF9A' : '#555', fontWeight: 700,
+            fontSize: 9, color: hasContract ? '#10B981' : '#555', fontWeight: 700,
             letterSpacing: '0.1em', textTransform: 'uppercase',
             padding: '3px 10px', borderRadius: 10,
-            background: hasContract ? '#57FF9A11' : '#0a0a0a',
-            border: `1px solid ${hasContract ? '#57FF9A44' : '#222'}`,
+            background: hasContract ? '#10B98111' : '#0a0a0a',
+            border: `1px solid ${hasContract ? '#10B98144' : '#222'}`,
           }}>
             {hasContract ? '● Post-venta activa' : <><Lock size={9} style={{ verticalAlign: 'middle', marginRight: 4 }} />Post-venta bloqueada</>}
           </div>
@@ -716,14 +716,14 @@ function PhaseTimeline({ phases, tasks, hasContract, activePhaseId, onPhaseClick
       {/* Filtro activo */}
       {activePhaseId && (
         <div style={{
-          fontSize: 10, color: '#57FF9A', marginTop: 12, padding: '6px 12px',
-          background: '#57FF9A11', border: '1px solid #57FF9A33', borderRadius: 6,
+          fontSize: 10, color: '#10B981', marginTop: 12, padding: '6px 12px',
+          background: '#10B98111', border: '1px solid #10B98133', borderRadius: 6,
           display: 'inline-flex', alignItems: 'center', gap: 8,
         }}>
           <span>Filtrando por fase: <strong>{phases.find(p => p.id === activePhaseId)?.name}</strong></span>
           <button
             onClick={() => onPhaseClick(null)}
-            style={{ background: 'none', border: 'none', color: '#57FF9A', cursor: 'pointer', padding: 0, display: 'flex' }}
+            style={{ background: 'none', border: 'none', color: '#10B981', cursor: 'pointer', padding: 0, display: 'flex' }}
           >
             <X size={11} />
           </button>
@@ -932,7 +932,7 @@ function TaskTable({ project, phases, tasks, subtasks, employees, onChange, acti
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 13, fontWeight: 600, color: locked ? '#555' : '#fff' }}>
                   {phase.name}
-                  {phase.is_post_sale && <span style={{ fontSize: 9, marginLeft: 8, color: '#57FF9A' }}>● POSTVENTA</span>}
+                  {phase.is_post_sale && <span style={{ fontSize: 9, marginLeft: 8, color: '#10B981' }}>● POSTVENTA</span>}
                 </div>
                 <div style={{ fontSize: 10, color: '#555' }}>{phaseTasks.length} tarea{phaseTasks.length !== 1 ? 's' : ''} · {phaseProgress}% avance</div>
               </div>
@@ -942,7 +942,7 @@ function TaskTable({ project, phases, tasks, subtasks, employees, onChange, acti
             </div>
 
             {showNewTaskInPhase === phase.id && (
-              <div style={{ padding: 12, background: '#141414', border: '1px solid #57FF9A33', borderRadius: 8, marginBottom: 8 }}>
+              <div style={{ padding: 12, background: '#141414', border: '1px solid #10B98133', borderRadius: 8, marginBottom: 8 }}>
                 <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr auto', gap: 8, alignItems: 'end' }}>
                   <div>
                     <div style={{ fontSize: 10, color: '#666', marginBottom: 4 }}>Nombre de la tarea</div>
@@ -1001,7 +1001,7 @@ function TaskTable({ project, phases, tasks, subtasks, employees, onChange, acti
 
               return (
                 <div key={task.id} style={{
-                  background: '#141414', border: '1px solid ' + (overdue ? '#EF444455' : '#222'), borderRadius: 10,
+                  background: '#141414', border: '1px solid ' + (overdue ? '#DC262655' : '#222'), borderRadius: 10,
                   padding: '10px 14px', marginBottom: 6,
                 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
@@ -1011,11 +1011,11 @@ function TaskTable({ project, phases, tasks, subtasks, employees, onChange, acti
                     <div style={{ flex: 1, minWidth: 200 }}>
                       <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', display: 'flex', alignItems: 'center', gap: 6 }}>
                         {task.name}
-                        {overdue && <AlertCircle size={11} color="#EF4444" />}
+                        {overdue && <AlertCircle size={11} color="#DC2626" />}
                       </div>
                       <div style={{ fontSize: 10, color: '#555', marginTop: 2 }}>
                         {taskSubs.length > 0 && <span>{taskSubs.filter(s => s.completed).length}/{taskSubs.length} subtareas</span>}
-                        {task.due_date && <span style={{ marginLeft: 8, color: overdue ? '#EF4444' : '#555' }}>● {formatDate(task.due_date)}</span>}
+                        {task.due_date && <span style={{ marginLeft: 8, color: overdue ? '#DC2626' : '#555' }}>● {formatDate(task.due_date)}</span>}
                       </div>
                     </div>
 
@@ -1029,7 +1029,7 @@ function TaskTable({ project, phases, tasks, subtasks, employees, onChange, acti
                     )}
 
                     <select value={task.assignee_id || ''} onChange={e => changeTaskAssignee(task, e.target.value)}
-                      style={{ padding: '4px 8px', fontSize: 10, background: '#0a0a0a', border: '1px solid #333', borderRadius: 5, color: assignee ? '#57FF9A' : '#666', fontFamily: 'inherit', minWidth: 100 }}
+                      style={{ padding: '4px 8px', fontSize: 10, background: '#0a0a0a', border: '1px solid #333', borderRadius: 5, color: assignee ? '#10B981' : '#666', fontFamily: 'inherit', minWidth: 100 }}
                     >
                       <option value="">— Sin —</option>
                       {filteredEmployees.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
@@ -1039,8 +1039,8 @@ function TaskTable({ project, phases, tasks, subtasks, employees, onChange, acti
                       {[1, 2, 3].map(n => (
                         <button key={n} onClick={() => changeTaskPriority(task, task.priority === n ? 0 : n)} style={{
                           background: 'none', border: 'none', cursor: 'pointer', padding: 1,
-                          color: task.priority >= n ? '#F59E0B' : '#333',
-                        }}><Star size={11} fill={task.priority >= n ? '#F59E0B' : 'none'} /></button>
+                          color: task.priority >= n ? '#D97706' : '#333',
+                        }}><Star size={11} fill={task.priority >= n ? '#D97706' : 'none'} /></button>
                       ))}
                     </div>
 
@@ -1081,7 +1081,7 @@ function TaskTable({ project, phases, tasks, subtasks, employees, onChange, acti
 
                         // Phase names lookup
                         const PHASE_NAMES: Record<number, string> = { 1: 'Conceptual', 2: 'Diseño', 3: 'Revisión', 4: 'Ejecutivo' }
-                        const PHASE_COLORS: Record<number, string> = { 1: '#C084FC', 2: '#3B82F6', 3: '#F59E0B', 4: '#57FF9A' }
+                        const PHASE_COLORS: Record<number, string> = { 1: '#A78BFA', 2: '#2563EB', 3: '#D97706', 4: '#10B981' }
 
                         // Group by phase_order
                         const phaseGroups: Record<number, SubtaskRow[]> = {}
@@ -1117,20 +1117,20 @@ function TaskTable({ project, phases, tasks, subtasks, employees, onChange, acti
                               return (
                                 <div key={po} style={{
                                   marginBottom: 8,
-                                  border: `1px solid ${allApproved ? phaseColor + '33' : inReview ? '#F59E0B55' : isCurrentPhase ? phaseColor + '55' : '#222'}`,
+                                  border: `1px solid ${allApproved ? phaseColor + '33' : inReview ? '#D9770655' : isCurrentPhase ? phaseColor + '55' : '#222'}`,
                                   borderRadius: 6, overflow: 'hidden',
                                   opacity: allApproved && !isCurrentPhase ? 0.7 : 1,
                                 }}>
                                   <div style={{
                                     padding: '5px 10px', fontSize: 10, fontWeight: 700,
-                                    color: allApproved ? phaseColor : inReview ? '#F59E0B' : phaseColor,
-                                    background: (allApproved ? phaseColor : inReview ? '#F59E0B' : phaseColor) + '12',
+                                    color: allApproved ? phaseColor : inReview ? '#D97706' : phaseColor,
+                                    background: (allApproved ? phaseColor : inReview ? '#D97706' : phaseColor) + '12',
                                     display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                                   }}>
                                     <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                                       {allApproved && <Check size={10} strokeWidth={3} />}
                                       {phaseName}
-                                      {inReview && <span style={{ fontSize: 8, background: '#F59E0B33', color: '#F59E0B', padding: '1px 6px', borderRadius: 4, marginLeft: 4 }}>REVISIÓN</span>}
+                                      {inReview && <span style={{ fontSize: 8, background: '#D9770633', color: '#D97706', padding: '1px 6px', borderRadius: 4, marginLeft: 4 }}>REVISIÓN</span>}
                                       {isCurrentPhase && !allDone && <span style={{ fontSize: 8, background: phaseColor + '33', padding: '1px 6px', borderRadius: 4, marginLeft: 4 }}>ACTIVA</span>}
                                       {allApproved && <span style={{ fontSize: 8, background: phaseColor + '22', padding: '1px 6px', borderRadius: 4, marginLeft: 4 }}>APROBADA</span>}
                                     </span>
@@ -1159,22 +1159,22 @@ function TaskTable({ project, phases, tasks, subtasks, employees, onChange, acti
 
                                           {/* Review status badges */}
                                           {sub.review_status === 'aprobado' && (
-                                            <span style={{ fontSize: 8, background: '#57FF9A22', color: '#57FF9A', padding: '1px 6px', borderRadius: 4, fontWeight: 600 }}>Aprobado</span>
+                                            <span style={{ fontSize: 8, background: '#10B98122', color: '#10B981', padding: '1px 6px', borderRadius: 4, fontWeight: 600 }}>Aprobado</span>
                                           )}
                                           {sub.review_status === 'cambios' && (
-                                            <span style={{ fontSize: 8, background: '#EF444422', color: '#EF4444', padding: '1px 6px', borderRadius: 4, fontWeight: 600 }}>Cambios</span>
+                                            <span style={{ fontSize: 8, background: '#DC262622', color: '#DC2626', padding: '1px 6px', borderRadius: 4, fontWeight: 600 }}>Cambios</span>
                                           )}
 
                                           {/* Review buttons - show when all subtasks completed and this one has no review yet */}
                                           {inReview && sub.completed && !sub.review_status && (
                                             <div style={{ display: 'flex', gap: 4 }}>
                                               <button onClick={() => reviewSubtask(sub, 'aprobado')} style={{
-                                                background: '#57FF9A22', border: '1px solid #57FF9A44', borderRadius: 4,
-                                                color: '#57FF9A', fontSize: 8, padding: '2px 8px', cursor: 'pointer', fontWeight: 600,
+                                                background: '#10B98122', border: '1px solid #10B98144', borderRadius: 4,
+                                                color: '#10B981', fontSize: 8, padding: '2px 8px', cursor: 'pointer', fontWeight: 600,
                                               }}>Aprobar</button>
                                               <button onClick={() => { setCambiosSubId(sub.id); setCambiosComment(''); }} style={{
-                                                background: '#F59E0B22', border: '1px solid #F59E0B44', borderRadius: 4,
-                                                color: '#F59E0B', fontSize: 8, padding: '2px 8px', cursor: 'pointer', fontWeight: 600,
+                                                background: '#D9770622', border: '1px solid #D9770644', borderRadius: 4,
+                                                color: '#D97706', fontSize: 8, padding: '2px 8px', cursor: 'pointer', fontWeight: 600,
                                               }}>Cambios</button>
                                             </div>
                                           )}
@@ -1200,7 +1200,7 @@ function TaskTable({ project, phases, tasks, subtasks, employees, onChange, acti
                                               }}
                                               placeholder="Comentario sobre cambios..."
                                               style={{
-                                                flex: 1, background: '#1a1a1a', border: '1px solid #F59E0B44', borderRadius: 4,
+                                                flex: 1, background: '#1a1a1a', border: '1px solid #D9770644', borderRadius: 4,
                                                 color: '#ddd', fontSize: 10, padding: '4px 8px', outline: 'none',
                                               }}
                                             />
@@ -1210,8 +1210,8 @@ function TaskTable({ project, phases, tasks, subtasks, employees, onChange, acti
                                                 setCambiosSubId(null); setCambiosComment('')
                                               }
                                             }} style={{
-                                              background: '#F59E0B33', border: '1px solid #F59E0B55', borderRadius: 4,
-                                              color: '#F59E0B', fontSize: 9, padding: '3px 10px', cursor: 'pointer', fontWeight: 600,
+                                              background: '#D9770633', border: '1px solid #D9770655', borderRadius: 4,
+                                              color: '#D97706', fontSize: 9, padding: '3px 10px', cursor: 'pointer', fontWeight: 600,
                                             }}>Enviar</button>
                                             <button onClick={() => { setCambiosSubId(null); setCambiosComment('') }} style={{
                                               background: 'none', border: '1px solid #333', borderRadius: 4,
@@ -1227,7 +1227,7 @@ function TaskTable({ project, phases, tasks, subtasks, employees, onChange, acti
                                           </div>
                                         )}
                                         {sub.review_comment && sub.review_status === 'cambios' && (
-                                          <div style={{ padding: '2px 0 4px 21px', fontSize: 9, color: '#EF4444', fontStyle: 'italic' }}>
+                                          <div style={{ padding: '2px 0 4px 21px', fontSize: 9, color: '#DC2626', fontStyle: 'italic' }}>
                                             ⚠ {sub.review_comment}
                                           </div>
                                         )}
@@ -1249,17 +1249,17 @@ function TaskTable({ project, phases, tasks, subtasks, employees, onChange, acti
                                   <div style={{
                                     fontSize: 10, marginBottom: 6, marginTop: phaseOrders.length > 0 ? 12 : 0,
                                     textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', alignItems: 'center', gap: 8,
-                                    color: flatInReview ? '#F59E0B' : flatAllApproved ? '#57FF9A' : '#666',
+                                    color: flatInReview ? '#D97706' : flatAllApproved ? '#10B981' : '#666',
                                   }}>
                                     <span>Subtareas / Checklist</span>
-                                    {flatInReview && <span style={{ fontSize: 8, background: '#F59E0B33', color: '#F59E0B', padding: '1px 6px', borderRadius: 4, fontWeight: 700 }}>REVISIÓN</span>}
-                                    {flatAllApproved && <span style={{ fontSize: 8, background: '#57FF9A22', color: '#57FF9A', padding: '1px 6px', borderRadius: 4, fontWeight: 700 }}>APROBADA</span>}
+                                    {flatInReview && <span style={{ fontSize: 8, background: '#D9770633', color: '#D97706', padding: '1px 6px', borderRadius: 4, fontWeight: 700 }}>REVISIÓN</span>}
+                                    {flatAllApproved && <span style={{ fontSize: 8, background: '#10B98122', color: '#10B981', padding: '1px 6px', borderRadius: 4, fontWeight: 700 }}>APROBADA</span>}
                                   </div>
                                   {subsFlat.map(sub => (
                                     <div key={sub.id}>
                                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0' }}>
                                         <button onClick={() => toggleSubtask(sub)} style={{
-                                          background: sub.completed ? '#57FF9A' : 'transparent', border: '1.5px solid ' + (sub.completed ? '#57FF9A' : '#444'),
+                                          background: sub.completed ? '#10B981' : 'transparent', border: '1.5px solid ' + (sub.completed ? '#10B981' : '#444'),
                                           borderRadius: 3, width: 14, height: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0,
                                         }}>
                                           {sub.completed && <Check size={9} color="#000" strokeWidth={3} />}
@@ -1270,22 +1270,22 @@ function TaskTable({ project, phases, tasks, subtasks, employees, onChange, acti
 
                                         {/* Review status badges */}
                                         {sub.review_status === 'aprobado' && (
-                                          <span style={{ fontSize: 8, background: '#57FF9A22', color: '#57FF9A', padding: '1px 6px', borderRadius: 4, fontWeight: 600 }}>Aprobado</span>
+                                          <span style={{ fontSize: 8, background: '#10B98122', color: '#10B981', padding: '1px 6px', borderRadius: 4, fontWeight: 600 }}>Aprobado</span>
                                         )}
                                         {sub.review_status === 'cambios' && (
-                                          <span style={{ fontSize: 8, background: '#EF444422', color: '#EF4444', padding: '1px 6px', borderRadius: 4, fontWeight: 600 }}>Cambios</span>
+                                          <span style={{ fontSize: 8, background: '#DC262622', color: '#DC2626', padding: '1px 6px', borderRadius: 4, fontWeight: 600 }}>Cambios</span>
                                         )}
 
                                         {/* Review buttons */}
                                         {flatInReview && sub.completed && !sub.review_status && (
                                           <div style={{ display: 'flex', gap: 4 }}>
                                             <button onClick={() => reviewSubtask(sub, 'aprobado')} style={{
-                                              background: '#57FF9A22', border: '1px solid #57FF9A44', borderRadius: 4,
-                                              color: '#57FF9A', fontSize: 8, padding: '2px 8px', cursor: 'pointer', fontWeight: 600,
+                                              background: '#10B98122', border: '1px solid #10B98144', borderRadius: 4,
+                                              color: '#10B981', fontSize: 8, padding: '2px 8px', cursor: 'pointer', fontWeight: 600,
                                             }}>Aprobar</button>
                                             <button onClick={() => { setCambiosSubId(sub.id); setCambiosComment(''); }} style={{
-                                              background: '#F59E0B22', border: '1px solid #F59E0B44', borderRadius: 4,
-                                              color: '#F59E0B', fontSize: 8, padding: '2px 8px', cursor: 'pointer', fontWeight: 600,
+                                              background: '#D9770622', border: '1px solid #D9770644', borderRadius: 4,
+                                              color: '#D97706', fontSize: 8, padding: '2px 8px', cursor: 'pointer', fontWeight: 600,
                                             }}>Cambios</button>
                                           </div>
                                         )}
@@ -1311,7 +1311,7 @@ function TaskTable({ project, phases, tasks, subtasks, employees, onChange, acti
                                             }}
                                             placeholder="Comentario sobre cambios..."
                                             style={{
-                                              flex: 1, background: '#1a1a1a', border: '1px solid #F59E0B44', borderRadius: 4,
+                                              flex: 1, background: '#1a1a1a', border: '1px solid #D9770644', borderRadius: 4,
                                               color: '#ddd', fontSize: 10, padding: '4px 8px', outline: 'none',
                                             }}
                                           />
@@ -1321,8 +1321,8 @@ function TaskTable({ project, phases, tasks, subtasks, employees, onChange, acti
                                               setCambiosSubId(null); setCambiosComment('')
                                             }
                                           }} style={{
-                                            background: '#F59E0B33', border: '1px solid #F59E0B55', borderRadius: 4,
-                                            color: '#F59E0B', fontSize: 9, padding: '3px 10px', cursor: 'pointer', fontWeight: 600,
+                                            background: '#D9770633', border: '1px solid #D9770655', borderRadius: 4,
+                                            color: '#D97706', fontSize: 9, padding: '3px 10px', cursor: 'pointer', fontWeight: 600,
                                           }}>Enviar</button>
                                           <button onClick={() => { setCambiosSubId(null); setCambiosComment('') }} style={{
                                             background: 'none', border: '1px solid #333', borderRadius: 4,
@@ -1333,7 +1333,7 @@ function TaskTable({ project, phases, tasks, subtasks, employees, onChange, acti
 
                                       {/* Show existing review comment */}
                                       {sub.review_comment && sub.review_status === 'cambios' && (
-                                        <div style={{ padding: '2px 0 4px 22px', fontSize: 9, color: '#EF4444', fontStyle: 'italic' }}>
+                                        <div style={{ padding: '2px 0 4px 22px', fontSize: 9, color: '#DC2626', fontStyle: 'italic' }}>
                                           ⚠ {sub.review_comment}
                                         </div>
                                       )}
@@ -1808,7 +1808,7 @@ function NewProjectModal({ employees, onClose, onCreated }: {
               <select
                 value={selectedLeadId}
                 onChange={e => setSelectedLeadId(e.target.value)}
-                style={{ ...inputS, borderColor: selectedLeadId ? '#57FF9A66' : '#EF444466' }}
+                style={{ ...inputS, borderColor: selectedLeadId ? '#10B98166' : '#DC262666' }}
               >
                 <option value="">— Selecciona un lead —</option>
                 {leads.map(l => (
@@ -1818,13 +1818,13 @@ function NewProjectModal({ employees, onClose, onCreated }: {
                 ))}
               </select>
               {leads.length === 0 && (
-                <div style={{ fontSize: 10, color: '#EF4444', marginTop: 4 }}>
+                <div style={{ fontSize: 10, color: '#DC2626', marginTop: 4 }}>
                   No hay leads activos. Crea un lead en el CRM primero.
                 </div>
               )}
               {selectedLead && (
                 <div style={{ fontSize: 11, color: '#888', marginTop: 6, padding: '6px 10px', background: '#0a0a0a', borderRadius: 6, border: '1px solid #1e1e1e' }}>
-                  <span style={{ color: '#57FF9A' }}>●</span> {selectedLead.name}
+                  <span style={{ color: '#10B981' }}>●</span> {selectedLead.name}
                   {selectedLead.company && <span> · {selectedLead.company}</span>}
                   {selectedLead.contact_name && <span> · {selectedLead.contact_name}</span>}
                 </div>
@@ -1854,14 +1854,14 @@ function NewProjectModal({ employees, onClose, onCreated }: {
                       })}
                     </select>
                     {selectedQuotation && !quotationIsContrato && (
-                      <div style={{ marginTop: 6, padding: '8px 10px', background: '#EF444411', border: '1px solid #EF444433', borderRadius: 6, fontSize: 11, color: '#EF4444' }}>
+                      <div style={{ marginTop: 6, padding: '8px 10px', background: '#DC262611', border: '1px solid #DC262633', borderRadius: 6, fontSize: 11, color: '#DC2626' }}>
                         ⚠️ La cotización debe estar en etapa <strong>Contrato</strong> para poder crear el proyecto. Etapa actual: <strong>{selectedQuotation.stage}</strong>
                       </div>
                     )}
                     {selectedQuotation && (
                       <div style={{ marginTop: 8, padding: '10px 12px', background: '#0a0a0a', border: '1px solid #1e1e1e', borderRadius: 6 }}>
                         <div style={{ fontSize: 11, color: '#aaa', marginBottom: 6 }}>
-                          <strong style={{ color: quotationIsContrato ? '#57FF9A' : '#F59E0B' }}>{selectedQuotation.name}</strong>
+                          <strong style={{ color: quotationIsContrato ? '#10B981' : '#D97706' }}>{selectedQuotation.name}</strong>
                           <span style={{ color: '#555', marginLeft: 6 }}>· Estado: {selectedQuotation.stage}</span>
                           {selectedQuotation.total > 0 && <span style={{ color: '#555', marginLeft: 6 }}>· ${selectedQuotation.total.toLocaleString('es-MX')}</span>}
                         </div>
@@ -1951,7 +1951,7 @@ function NewProjectModal({ employees, onClose, onCreated }: {
 
         <div style={{ display: 'flex', gap: 8, marginTop: 20, justifyContent: 'flex-end', alignItems: 'center' }}>
           {!selectedLeadId && (
-            <span style={{ fontSize: 10, color: '#EF4444', marginRight: 'auto' }}>⚠ Sin lead no hay proyecto</span>
+            <span style={{ fontSize: 10, color: '#DC2626', marginRight: 'auto' }}>⚠ Sin lead no hay proyecto</span>
           )}
           <Btn onClick={onClose}>Cancelar</Btn>
           <Btn variant="primary" onClick={crear} disabled={!canSubmit}>
@@ -2075,7 +2075,7 @@ function ProjectDocumentosTab({ projectId, projectName }: { projectId: string; p
       </div>
 
       {showNew && (
-        <div style={{ background: '#141414', border: '1px solid #57FF9A33', borderRadius: 10, padding: 16, marginBottom: 16 }}>
+        <div style={{ background: '#141414', border: '1px solid #10B98133', borderRadius: 10, padding: 16, marginBottom: 16 }}>
           <div style={{ fontSize: 13, fontWeight: 600, color: '#fff', marginBottom: 12 }}>Nuevo documento — {projectName}</div>
           <div style={{ display: 'grid', gap: 10 }}>
             <div>
@@ -2139,14 +2139,14 @@ function ProjectDocumentosTab({ projectId, projectName }: { projectId: string; p
                 <img src={d.drive_thumbnail_url} alt={d.nombre} style={{ width: '100%', height: 110, objectFit: 'cover', borderRadius: 6, marginBottom: 8 }} />
               )}
               <div style={{ display: 'flex', gap: 6, marginBottom: 4, flexWrap: 'wrap' }}>
-                <Badge label={DOC_TIPO_LABEL[d.tipo] || d.tipo} color="#3B82F6" />
+                <Badge label={DOC_TIPO_LABEL[d.tipo] || d.tipo} color="#2563EB" />
                 {d.sistema && <Badge label={d.sistema} color="#8B5CF6" />}
                 {d.version && <Badge label={d.version} color="#555" />}
               </div>
               <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 4, paddingRight: 20 }}>{d.nombre}</div>
               {d.notas && <div style={{ fontSize: 10, color: '#666', marginBottom: 6 }}>{d.notas}</div>}
               <a href={d.drive_url} target="_blank" rel="noopener noreferrer" style={{
-                display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, color: '#57FF9A', textDecoration: 'none',
+                display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, color: '#10B981', textDecoration: 'none',
               }}>
                 <ExternalLink size={10} /> Abrir en Drive
               </a>

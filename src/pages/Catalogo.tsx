@@ -397,8 +397,8 @@ IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
 
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, 1fr)', gap: 12, marginBottom: 20 }}>
         <KpiCard label="Total productos" value={totalProducts} icon={<Package size={16} />} />
-        <KpiCard label="Activos" value={activeProducts} color="#57FF9A" icon={<Layers size={16} />} />
-        <KpiCard label="Proveedores" value={suppliers.length} color="#3B82F6" icon={<Tag size={16} />} />
+        <KpiCard label="Activos" value={activeProducts} color="#10B981" icon={<Layers size={16} />} />
+        <KpiCard label="Proveedores" value={suppliers.length} color="#2563EB" icon={<Tag size={16} />} />
       </div>
 
       {/* Tabs */}
@@ -412,9 +412,9 @@ IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
           return (
             <button key={key} onClick={() => setTab(key)} style={{
               padding: '8px 14px', fontSize: 12, fontWeight: active ? 600 : 400,
-              color: active ? '#57FF9A' : '#666',
+              color: active ? '#10B981' : '#666',
               background: active ? 'rgba(87,255,154,0.08)' : 'transparent',
-              border: 'none', borderBottom: active ? '2px solid #57FF9A' : '2px solid transparent',
+              border: 'none', borderBottom: active ? '2px solid #10B981' : '2px solid transparent',
               cursor: 'pointer', fontFamily: 'inherit', borderRadius: '8px 8px 0 0',
             }}>{label}</button>
           )
@@ -427,7 +427,7 @@ IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
       {tab === 'productos' && (<>
 
       {importResult && (
-        <div style={{ background: '#141414', border: '1px solid #57FF9A33', borderRadius: 10, padding: '10px 16px', marginBottom: 12, fontSize: 12, color: '#57FF9A', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ background: '#141414', border: '1px solid #10B98133', borderRadius: 10, padding: '10px 16px', marginBottom: 12, fontSize: 12, color: '#10B981', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <span>{importResult}</span>
           <button onClick={() => setImportResult(null)} style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer' }}><X size={14} /></button>
         </div>
@@ -437,7 +437,7 @@ IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
         {SPECIALTY_TABS.map(t => {
           const active = filterSpecialty === t.key
           return (
-            <button key={t.key} onClick={() => setFilterSpecialty(t.key)} style={{ padding: '8px 18px', borderRadius: 20, fontSize: 12, cursor: 'pointer', fontFamily: 'inherit', fontWeight: 600, border: `1px solid ${active ? '#57FF9A' : '#333'}`, background: active ? '#57FF9A18' : 'transparent', color: active ? '#57FF9A' : '#888' }}>
+            <button key={t.key} onClick={() => setFilterSpecialty(t.key)} style={{ padding: '8px 18px', borderRadius: 20, fontSize: 12, cursor: 'pointer', fontFamily: 'inherit', fontWeight: 600, border: `1px solid ${active ? '#10B981' : '#333'}`, background: active ? '#10B98118' : 'transparent', color: active ? '#10B981' : '#888' }}>
               {t.icon} {t.label} ({specialtyCounts[t.key]})
             </button>
           )
@@ -451,7 +451,7 @@ IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
             <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar por nombre, SKU, clave SAT..." style={{ ...iS, width: '100%', paddingLeft: 32 }} />
           </div>
           {activeFiltersCount > 0 && (
-            <button onClick={() => { setFilterSystem(''); setFilterMarca(''); setFilterProvider(''); setFilterPhase(''); setFilterMoneda('') }} style={{ padding: '6px 12px', background: '#1a1a1a', border: '1px solid #333', borderRadius: 8, color: '#F59E0B', fontSize: 11, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}>
+            <button onClick={() => { setFilterSystem(''); setFilterMarca(''); setFilterProvider(''); setFilterPhase(''); setFilterMoneda('') }} style={{ padding: '6px 12px', background: '#1a1a1a', border: '1px solid #333', borderRadius: 8, color: '#D97706', fontSize: 11, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}>
               <X size={10} /> {activeFiltersCount} filtro{activeFiltersCount > 1 ? 's' : ''} activo{activeFiltersCount > 1 ? 's' : ''}
             </button>
           )}
@@ -466,7 +466,7 @@ IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
       {/* Bulk actions bar */}
       {selectedIds.size > 0 && (
         <div style={{ display: 'flex', alignItems: isMobile ? 'stretch' : 'center', gap: 12, padding: '10px 16px', background: '#1a2a1a', border: '1px solid #2a4a2a', borderRadius: 10, marginBottom: 10, flexWrap: isMobile ? 'wrap' : 'nowrap', flexDirection: isMobile ? 'column' : 'row' }}>
-          <span style={{ fontSize: 13, fontWeight: 600, color: '#57FF9A' }}>{selectedIds.size} seleccionados</span>
+          <span style={{ fontSize: 13, fontWeight: 600, color: '#10B981' }}>{selectedIds.size} seleccionados</span>
           <select value={bulkField} onChange={e => { setBulkField(e.target.value); setBulkValue('') }} style={{ ...iS, width: 160, fontSize: 12 }}>
             <option value="">Cambiar campo...</option>
             <option value="system">Sistema</option>
@@ -510,7 +510,7 @@ IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
           )}
           <div style={{ flex: 1 }} />
           <Btn size="sm" variant="default" onClick={() => { setSelectedIds(new Set()); setBulkField(''); setBulkValue('') }}>Cancelar</Btn>
-          <button onClick={bulkDelete} disabled={bulkSaving} style={{ background: 'none', border: '1px solid #EF4444', borderRadius: 8, color: '#EF4444', padding: '5px 12px', fontSize: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
+          <button onClick={bulkDelete} disabled={bulkSaving} style={{ background: 'none', border: '1px solid #DC2626', borderRadius: 8, color: '#DC2626', padding: '5px 12px', fontSize: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
             <Trash2 size={12} /> Eliminar
           </button>
         </div>
@@ -596,7 +596,7 @@ IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
           <th></th>
           <th style={{ padding: '4px 6px' }}>
             {activeFiltersCount > 0 && (
-              <button onClick={() => { setFilterSystem(''); setFilterMarca(''); setFilterProvider(''); setFilterPhase(''); setFilterMoneda('') }} style={{ background: 'none', border: 'none', color: '#EF4444', cursor: 'pointer', fontSize: 10, padding: 0 }}>
+              <button onClick={() => { setFilterSystem(''); setFilterMarca(''); setFilterProvider(''); setFilterPhase(''); setFilterMoneda('') }} style={{ background: 'none', border: 'none', color: '#DC2626', cursor: 'pointer', fontSize: 10, padding: 0 }}>
                 <X size={12} />
               </button>
             )}
@@ -649,7 +649,7 @@ IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
                 <Td>{p.purchase_phase ? <Badge label={PHASE_CONFIG[p.purchase_phase as PurchasePhase]?.label || p.purchase_phase} color={PHASE_CONFIG[p.purchase_phase as PurchasePhase]?.color || '#555'} /> : <span style={{color:'#555',fontSize:11}}>--</span>}</Td>
               </>}
               <Td right muted><span style={{fontSize:9,color:'#555'}}>{p.moneda||'MXN'}</span> {F(p.cost)}</Td>
-              <Td right style={{fontWeight: 600, color:'#57FF9A'}}>{F(p.precio_venta || calcPrecioVenta(p.cost, p.markup))}</Td>
+              <Td right style={{fontWeight: 600, color:'#10B981'}}>{F(p.precio_venta || calcPrecioVenta(p.cost, p.markup))}</Td>
               <Td><Edit size={12} style={{ color: '#555' }} onClick={(e: React.MouseEvent) => { e.stopPropagation(); openEdit(p) }} /></Td>
             </tr>
           ))}
@@ -670,19 +670,19 @@ IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
               <div><span style={{color:'#555'}}>Clave SAT:</span> <span style={{color:'#fff', fontFamily:'monospace'}}>{selectedProduct.clave_prod_serv || '--'}</span></div>
               <div><span style={{color:'#555'}}>SKU:</span> <span style={{color:'#ccc'}}>{selectedProduct.sku || '--'}</span></div>
               <div><span style={{color:'#555'}}>Sistema:</span> <span style={{color:'#ccc'}}>{selectedProduct.system || '--'}</span></div>
-              <div><span style={{color:'#555'}}>Tipo:</span> <Badge label={selectedProduct.type} color="#3B82F6" /></div>
+              <div><span style={{color:'#555'}}>Tipo:</span> <Badge label={selectedProduct.type} color="#2563EB" /></div>
               <div><span style={{color:'#555'}}>Unidad:</span> <span style={{color:'#ccc'}}>{selectedProduct.clave_unidad} ({selectedProduct.unit})</span></div>
               <div><span style={{color:'#555'}}>Proveedor:</span> <span style={{color:'#ccc'}}>{suppliers.find(s => s.id === selectedProduct.supplier_id)?.name || selectedProduct.provider || '--'}</span></div>
               <div><span style={{color:'#555'}}>Fase compra:</span> {selectedProduct.purchase_phase ? <Badge label={PHASE_CONFIG[selectedProduct.purchase_phase as PurchasePhase]?.label || selectedProduct.purchase_phase} color={PHASE_CONFIG[selectedProduct.purchase_phase as PurchasePhase]?.color || '#555'} /> : <span style={{color:'#555'}}>--</span>}</div>
               <div><span style={{color:'#555'}}>Marca:</span> <span style={{color:'#ccc'}}>{selectedProduct.marca || '--'}</span></div>
               <div><span style={{color:'#555'}}>Modelo:</span> <span style={{color:'#ccc'}}>{selectedProduct.modelo || '--'}</span></div>
-              <div><span style={{color:'#555'}}>Moneda:</span> <span style={{color: selectedProduct.moneda === 'USD' ? '#3B82F6' : '#57FF9A'}}>{selectedProduct.moneda || 'MXN'}</span></div>
-              <div><span style={{color:'#555'}}>Costo:</span> <span style={{color:'#F59E0B', fontWeight:600}}>{F(selectedProduct.cost)}</span></div>
+              <div><span style={{color:'#555'}}>Moneda:</span> <span style={{color: selectedProduct.moneda === 'USD' ? '#2563EB' : '#10B981'}}>{selectedProduct.moneda || 'MXN'}</span></div>
+              <div><span style={{color:'#555'}}>Costo:</span> <span style={{color:'#D97706', fontWeight:600}}>{F(selectedProduct.cost)}</span></div>
               <div><span style={{color:'#555'}}>Margen:</span> <span style={{color:'#ccc'}}>{selectedProduct.markup}%</span></div>
-              <div><span style={{color:'#555'}}>Precio Venta:</span> <span style={{color:'#57FF9A', fontWeight:700}}>{F(selectedProduct.precio_venta || calcPrecioVenta(selectedProduct.cost, selectedProduct.markup))}</span></div>
+              <div><span style={{color:'#555'}}>Precio Venta:</span> <span style={{color:'#10B981', fontWeight:700}}>{F(selectedProduct.precio_venta || calcPrecioVenta(selectedProduct.cost, selectedProduct.markup))}</span></div>
               <div><span style={{color:'#555'}}>IVA:</span> <span style={{color:'#ccc'}}>{(selectedProduct.iva_rate * 100)}%</span></div>
               <div><span style={{color:'#555'}}>Categoria:</span> <span style={{color:'#ccc'}}>{selectedProduct.category || '--'}</span></div>
-              <div><span style={{color:'#555'}}>Activo:</span> <span style={{color: selectedProduct.is_active ? '#57FF9A' : '#EF4444'}}>{selectedProduct.is_active ? 'Si' : 'No'}</span></div>
+              <div><span style={{color:'#555'}}>Activo:</span> <span style={{color: selectedProduct.is_active ? '#10B981' : '#DC2626'}}>{selectedProduct.is_active ? 'Si' : 'No'}</span></div>
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
               <Btn size="sm" variant="default" onClick={() => { openEdit(selectedProduct); setSelectedProduct(null) }}>Editar</Btn>
@@ -938,10 +938,10 @@ Si un campo no aparece, déjalo como string vacío. Para sistemas, infiere del g
                 <Td muted>{p.email || '—'}</Td>
                 <Td>
                   <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
-                    {(p.sistemas || []).map(s => <Badge key={s} label={s.length > 10 ? s.substring(0, 8) + '..' : s} color="#3B82F6" />)}
+                    {(p.sistemas || []).map(s => <Badge key={s} label={s.length > 10 ? s.substring(0, 8) + '..' : s} color="#2563EB" />)}
                   </div>
                 </Td>
-                <Td><Badge label={p.is_active ? 'Activo' : 'Inactivo'} color={p.is_active ? '#57FF9A' : '#6B7280'} /></Td>
+                <Td><Badge label={p.is_active ? 'Activo' : 'Inactivo'} color={p.is_active ? '#10B981' : '#6B7280'} /></Td>
                 <Td><button onClick={() => openEdit(p)} style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer' }}><Edit size={14} /></button></Td>
               </tr>
             ))}
@@ -964,7 +964,7 @@ Si un campo no aparece, déjalo como string vacío. Para sistemas, infiere del g
                 {extracting ? <><Loader2 size={12} /> Extrayendo...</> : <><Upload size={12} /> Subir CSF o factura PDF</>}
               </Btn>
               <span style={{ fontSize: 10, color: '#555' }}>Extrae datos automáticamente con AI</span>
-              {extractStatus && <span style={{ fontSize: 10, color: extractStatus.startsWith('✓') ? '#57FF9A' : '#888', marginLeft: 'auto' }}>{extractStatus}</span>}
+              {extractStatus && <span style={{ fontSize: 10, color: extractStatus.startsWith('✓') ? '#10B981' : '#888', marginLeft: 'auto' }}>{extractStatus}</span>}
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
               <Fld label="Nombre *"><input style={fS} value={form.name || ''} onChange={e => setForm({ ...form, name: e.target.value })} /></Fld>
@@ -981,7 +981,7 @@ Si un campo no aparece, déjalo como string vacío. Para sistemas, infiere del g
                       <button key={s} onClick={() => toggleSistema(s)} style={{
                         padding: '4px 10px', fontSize: 11, borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit',
                         background: sel ? 'rgba(59,130,246,0.15)' : '#0a0a0a',
-                        border: `1px solid ${sel ? '#3B82F6' : '#333'}`, color: sel ? '#3B82F6' : '#666',
+                        border: `1px solid ${sel ? '#2563EB' : '#333'}`, color: sel ? '#2563EB' : '#666',
                       }}>{s}</button>
                     )
                   })}
@@ -1178,17 +1178,17 @@ function TabBundles({ products }: { products: Product[] }) {
                   padding: '12px 16px', cursor: 'pointer',
                 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <BoxesIcon size={16} style={{ color: '#57FF9A', opacity: 0.7 }} />
+                    <BoxesIcon size={16} style={{ color: '#10B981', opacity: 0.7 }} />
                     <div>
                       <div style={{ fontSize: 14, fontWeight: 600, color: '#fff' }}>{b.name}</div>
                       {b.description && <div style={{ fontSize: 11, color: '#555', marginTop: 1 }}>{b.description}</div>}
                     </div>
-                    {b.system && <Badge label={b.system} color="#3B82F6" />}
+                    {b.system && <Badge label={b.system} color="#2563EB" />}
                     <span style={{ fontSize: 11, color: '#555' }}>{b.items.length} componentes</span>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
                     <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: '#57FF9A' }}>{F(totalVenta)}</div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: '#10B981' }}>{F(totalVenta)}</div>
                       <div style={{ fontSize: 10, color: '#555' }}>Costo: {F(totalCosto)}</div>
                     </div>
                     <button onClick={e => { e.stopPropagation(); openEdit(b) }} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', padding: 4 }}>
@@ -1217,7 +1217,7 @@ function TabBundles({ products }: { products: Product[] }) {
                               <Td muted>{prod?.system || '—'}</Td>
                               <Td right>{item.quantity}</Td>
                               <Td right muted>{prod ? F(prod.precio_venta) : '—'}</Td>
-                              <Td right style={{ fontWeight: 600, color: '#57FF9A' }}>{prod ? F(prod.precio_venta * item.quantity) : '—'}</Td>
+                              <Td right style={{ fontWeight: 600, color: '#10B981' }}>{prod ? F(prod.precio_venta * item.quantity) : '—'}</Td>
                             </tr>
                           )
                         })}
@@ -1225,7 +1225,7 @@ function TabBundles({ products }: { products: Product[] }) {
                       <tfoot>
                         <tr>
                           <td colSpan={4} style={{ padding: '8px 12px', fontSize: 12, fontWeight: 600, color: '#888', textAlign: 'right', borderTop: '1px solid #333' }}>Total Bundle</td>
-                          <td style={{ padding: '8px 12px', fontSize: 14, fontWeight: 700, color: '#57FF9A', textAlign: 'right', borderTop: '1px solid #333' }}>{F(totalVenta)}</td>
+                          <td style={{ padding: '8px 12px', fontSize: 14, fontWeight: 700, color: '#10B981', textAlign: 'right', borderTop: '1px solid #333' }}>{F(totalVenta)}</td>
                         </tr>
                       </tfoot>
                     </Table>
@@ -1285,7 +1285,7 @@ function TabBundles({ products }: { products: Product[] }) {
                           <span style={{ color: '#fff', fontWeight: 500 }}>{p.name}</span>
                           {p.marca && <span style={{ color: '#555', marginLeft: 6, fontSize: 10 }}>{p.marca}</span>}
                         </div>
-                        <span style={{ color: '#57FF9A', fontWeight: 600 }}>{F(p.precio_venta)}</span>
+                        <span style={{ color: '#10B981', fontWeight: 600 }}>{F(p.precio_venta)}</span>
                       </div>
                     ))}
                   </div>
@@ -1316,9 +1316,9 @@ function TabBundles({ products }: { products: Product[] }) {
                               style={{ ...iS, width: 70, textAlign: 'right', padding: '4px 6px' }}
                             />
                           </Td>
-                          <Td right style={{ fontWeight: 600, color: '#57FF9A' }}>{prod ? F(prod.precio_venta * item.quantity) : '—'}</Td>
+                          <Td right style={{ fontWeight: 600, color: '#10B981' }}>{prod ? F(prod.precio_venta * item.quantity) : '—'}</Td>
                           <Td>
-                            <button onClick={() => removeItem(item.product_id)} style={{ background: 'none', border: 'none', color: '#EF4444', cursor: 'pointer', padding: 2 }}>
+                            <button onClick={() => removeItem(item.product_id)} style={{ background: 'none', border: 'none', color: '#DC2626', cursor: 'pointer', padding: 2 }}>
                               <Trash2 size={13} />
                             </button>
                           </Td>
@@ -1329,7 +1329,7 @@ function TabBundles({ products }: { products: Product[] }) {
                   <tfoot>
                     <tr>
                       <td colSpan={3} style={{ padding: '10px 12px', fontSize: 12, fontWeight: 600, color: '#888', textAlign: 'right', borderTop: '1px solid #333' }}>Total Bundle</td>
-                      <td style={{ padding: '10px 12px', fontSize: 16, fontWeight: 700, color: '#57FF9A', textAlign: 'right', borderTop: '1px solid #333' }}>{F(getBundleTotal(formItems))}</td>
+                      <td style={{ padding: '10px 12px', fontSize: 16, fontWeight: 700, color: '#10B981', textAlign: 'right', borderTop: '1px solid #333' }}>{F(getBundleTotal(formItems))}</td>
                       <td style={{ borderTop: '1px solid #333' }} />
                     </tr>
                     <tr>

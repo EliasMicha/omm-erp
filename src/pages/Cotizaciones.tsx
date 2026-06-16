@@ -67,7 +67,7 @@ function LeadCell({ cotId, currentLeadId, currentLeadName, leads, notes, onUpdat
     return (
       <span
         onClick={e => { e.stopPropagation(); setEditing(true) }}
-        style={{ color: currentLeadName ? '#C084FC' : '#333', cursor: 'pointer' }}
+        style={{ color: currentLeadName ? '#A78BFA' : '#333', cursor: 'pointer' }}
         title="Click para cambiar lead"
       >
         {currentLeadName || '--'}
@@ -93,7 +93,7 @@ function LeadCell({ cotId, currentLeadId, currentLeadName, leads, notes, onUpdat
         )}
         {filtered.map(l => (
           <div key={l.id} onMouseDown={() => selectLead(l)}
-            style={{ padding: '6px 8px', cursor: 'pointer', fontSize: 11, color: l.id === currentLeadId ? '#C084FC' : '#ccc', borderBottom: '1px solid #222' }}
+            style={{ padding: '6px 8px', cursor: 'pointer', fontSize: 11, color: l.id === currentLeadId ? '#A78BFA' : '#ccc', borderBottom: '1px solid #222' }}
             onMouseEnter={e => { e.currentTarget.style.background = '#222' }}
             onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}>
             <div style={{ fontWeight: 500 }}>{l.name}</div>
@@ -267,7 +267,7 @@ function CotDashboard({ onOpen, preferVersionId }: { onOpen: (id: string, specia
         subtitle={showKPIs ? `${cotsYear.length} cotizaciones${filtroYear !== 'todos' ? ' ('+filtroYear+')' : ''} · ${FCUR(totalUSD, 'USD')} · ${FCUR(totalMXN, 'MXN')}` : `${cotsYear.length} cotizaciones${filtroYear !== 'todos' ? ' ('+filtroYear+')' : ''}`}
         action={<div style={{display:'flex',gap:8,flexWrap: isMobile ? 'wrap' : 'nowrap'}}>
           <Btn onClick={() => setShowImport(true)} style={{border:'1px solid #3b82f644', color:'#3b82f6', display:'inline-flex', alignItems:'center', gap:4, flex: isMobile ? '1 1 calc(50% - 4px)' : 'auto'}}><Upload size={14}/> {isMobile ? 'Imp.' : 'Importar'}</Btn>
-          <Btn onClick={() => setShowAIGen(true)} style={{border:'1px solid #57FF9A44', color:'#57FF9A', display:'inline-flex', alignItems:'center', gap:4, flex: isMobile ? '1 1 calc(50% - 4px)' : 'auto'}}><Zap size={14}/> {isMobile ? 'AI' : 'Cotizar con AI'}</Btn>
+          <Btn onClick={() => setShowAIGen(true)} style={{border:'1px solid #10B98144', color:'#10B981', display:'inline-flex', alignItems:'center', gap:4, flex: isMobile ? '1 1 calc(50% - 4px)' : 'auto'}}><Zap size={14}/> {isMobile ? 'AI' : 'Cotizar con AI'}</Btn>
           <Btn variant="primary" onClick={() => setShowNew(true)} style={{flex: isMobile ? '1 1 100%' : 'auto'}}><Plus size={14}/> {isMobile ? 'Nueva' : 'Nueva cotizacion'}</Btn>
         </div>}/>
 
@@ -335,9 +335,9 @@ function CotDashboard({ onOpen, preferVersionId }: { onOpen: (id: string, specia
           return (
             <button key={f} onClick={() => setFiltro(f)} style={{
               padding:'5px 12px',borderRadius:20,fontSize: isMobile ? 10 : 11,cursor:'pointer',fontFamily:'inherit',
-              border:`1px solid ${on?(cfg?.color||'#57FF9A'):'#333'}`,
-              background:on?(cfg?.color||'#57FF9A')+'22':'transparent',
-              color:on?(cfg?.color||'#57FF9A'):'#666',fontWeight:on?600:400,
+              border:`1px solid ${on?(cfg?.color||'#10B981'):'#333'}`,
+              background:on?(cfg?.color||'#10B981')+'22':'transparent',
+              color:on?(cfg?.color||'#10B981'):'#666',fontWeight:on?600:400,
               whiteSpace: 'nowrap',
             }}>
               {f === 'todas' ? 'Todas' : isMobile ? cfg?.icon : (cfg?.icon+' '+cfg?.label)}
@@ -423,8 +423,8 @@ function CotDashboard({ onOpen, preferVersionId }: { onOpen: (id: string, specia
                     </select>
                   </Td>
                   <Td><span style={{fontSize:11,color:'#888'}}>{c.created_at ? new Date(c.created_at).toLocaleDateString('es-MX',{day:'2-digit',month:'short',year:'numeric'}) : '--'}</span></Td>
-                  <Td><span style={{fontSize:11,fontWeight:600,color: cur === 'USD' ? '#06B6D4' : '#F59E0B'}}>{cur}</span></Td>
-                  <Td right><span style={{fontWeight:600,color:'#57FF9A'}}>{FCUR(getTotalConIva(c), cur)}<span style={{fontSize:9,color:'#555',marginLeft:4,fontWeight:400}}>c/IVA</span></span></Td>
+                  <Td><span style={{fontSize:11,fontWeight:600,color: cur === 'USD' ? '#06B6D4' : '#D97706'}}>{cur}</span></Td>
+                  <Td right><span style={{fontWeight:600,color:'#10B981'}}>{FCUR(getTotalConIva(c), cur)}<span style={{fontSize:9,color:'#555',marginLeft:4,fontWeight:400}}>c/IVA</span></span></Td>
                   <Td>
                     <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                       <Btn size="sm" onClick={e => { e?.stopPropagation(); onOpen(c.id, c.specialty) }}>Abrir</Btn>
@@ -433,7 +433,7 @@ function CotDashboard({ onOpen, preferVersionId }: { onOpen: (id: string, specia
                           onClick={e => { e.stopPropagation(); deleteQuotation(c.id, c.name) }}
                           title="Eliminar cotización (solo en etapa Oportunidad)"
                           style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer', padding: 4, borderRadius: 4, display: 'flex', alignItems: 'center' }}
-                          onMouseEnter={e => (e.currentTarget.style.color = '#EF4444')}
+                          onMouseEnter={e => (e.currentTarget.style.color = '#DC2626')}
                           onMouseLeave={e => (e.currentTarget.style.color = '#555')}
                         >
                           <Trash2 size={14} />
@@ -467,14 +467,14 @@ const AREA_PRESETS = [
 const SYSTEM_PRESETS = [
   { id: 'audio', name: 'Audio', color: '#8B5CF6' },
   { id: 'redes', name: 'Redes', color: '#06B6D4' },
-  { id: 'cctv', name: 'CCTV', color: '#3B82F6' },
-  { id: 'control_acceso', name: 'Control de Acceso', color: '#F59E0B' },
-  { id: 'control_iluminacion', name: 'Control de Iluminación', color: '#C084FC' },
-  { id: 'deteccion_humo', name: 'Detección de Incendio', color: '#EF4444' },
+  { id: 'cctv', name: 'CCTV', color: '#2563EB' },
+  { id: 'control_acceso', name: 'Control de Acceso', color: '#D97706' },
+  { id: 'control_iluminacion', name: 'Control de Iluminación', color: '#A78BFA' },
+  { id: 'deteccion_humo', name: 'Detección de Incendio', color: '#DC2626' },
   { id: 'bms', name: 'BMS', color: '#10B981' },
   { id: 'telefonia', name: 'Telefonía', color: '#F97316' },
   { id: 'red_celular', name: 'Señal Celular', color: '#EC4899' },
-  { id: 'lutron_hwqs', name: 'Lutron HW QS', color: '#A855F7' },
+  { id: 'lutron_hwqs', name: 'Lutron HW QS', color: '#7C3AED' },
   { id: 'lutron', name: 'Lutron', color: '#9333EA' },
   { id: 'somfy', name: 'Somfy', color: '#14B8A6' },
   { id: 'electrico', name: 'Eléctrico', color: '#EAB308' },
@@ -621,8 +621,8 @@ function NuevaCoModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
                 {([
                   { id: 'especiales' as const, label: 'Ingenierías Especiales', icon: '⚡', color: '#F9A8D4' },
-                  { id: 'electrica' as const, label: 'Ingeniería Eléctrica', icon: '🔌', color: '#F59E0B' },
-                  { id: 'iluminacion' as const, label: 'Diseño de Iluminación', icon: '💡', color: '#C084FC' },
+                  { id: 'electrica' as const, label: 'Ingeniería Eléctrica', icon: '🔌', color: '#D97706' },
+                  { id: 'iluminacion' as const, label: 'Diseño de Iluminación', icon: '💡', color: '#A78BFA' },
                 ]).map(t => (
                   <button key={t.id} onClick={() => setForm(f => ({ ...f, tipoProyecto: t.id }))}
                     style={{
@@ -650,9 +650,9 @@ function NuevaCoModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
                 {(['USD', 'MXN'] as const).map(cur => (
                   <button key={cur} onClick={() => setForm(f => ({ ...f, currency: cur }))} style={{
                     padding: '8px 14px', borderRadius: 8, fontSize: 13, cursor: 'pointer', fontFamily: 'inherit', fontWeight: 600,
-                    border: '1px solid ' + (form.currency === cur ? '#57FF9A' : '#333'),
-                    background: form.currency === cur ? '#57FF9A22' : 'transparent',
-                    color: form.currency === cur ? '#57FF9A' : '#555',
+                    border: '1px solid ' + (form.currency === cur ? '#10B981' : '#333'),
+                    background: form.currency === cur ? '#10B98122' : 'transparent',
+                    color: form.currency === cur ? '#10B981' : '#555',
                   }}>{cur === 'USD' ? '🇺🇸 USD' : '🇲🇽 MXN'}</button>
                 ))}
               </div>
@@ -781,9 +781,9 @@ function NuevaCoModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
                   return (
                     <button key={area} onClick={() => toggleArea(area)} style={{
                       padding: '4px 10px', borderRadius: 8, fontSize: 10, cursor: 'pointer', fontFamily: 'inherit',
-                      border: '1px solid ' + (on ? '#57FF9A' : '#333'),
-                      background: on ? '#57FF9A18' : 'transparent',
-                      color: on ? '#57FF9A' : '#555', fontWeight: on ? 600 : 400,
+                      border: '1px solid ' + (on ? '#10B981' : '#333'),
+                      background: on ? '#10B98118' : 'transparent',
+                      color: on ? '#10B981' : '#555', fontWeight: on ? 600 : 400,
                     }}>
                       {on ? '✓ ' : ''}{area}
                     </button>
@@ -793,7 +793,7 @@ function NuevaCoModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
                 {form.areas.filter(a => !AREA_PRESETS.includes(a)).map(area => (
                   <button key={area} onClick={() => toggleArea(area)} style={{
                     padding: '4px 10px', borderRadius: 8, fontSize: 10, cursor: 'pointer', fontFamily: 'inherit',
-                    border: '1px solid #57FF9A', background: '#57FF9A18', color: '#57FF9A', fontWeight: 600,
+                    border: '1px solid #10B981', background: '#10B98118', color: '#10B981', fontWeight: 600,
                   }}>✓ {area}</button>
                 ))}
               </div>
@@ -1734,19 +1734,19 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
               </Btn>
             )}
             {cot.stage === 'contrato' && (
-              <Btn size="sm" onClick={() => setShowPaymentPlan(true)} style={{marginLeft:4, background: 'rgba(168,85,247,0.15)', borderColor: '#A855F7', color: '#C084FC'}}>
+              <Btn size="sm" onClick={() => setShowPaymentPlan(true)} style={{marginLeft:4, background: 'rgba(168,85,247,0.15)', borderColor: '#7C3AED', color: '#A78BFA'}}>
                 💰 Plan de pagos
               </Btn>
             )}
           </>}
-          <span style={{fontSize:14,fontWeight:700,color:'#57FF9A',marginLeft:8}}>{F(cotTotal)}</span>
+          <span style={{fontSize:14,fontWeight:700,color:'#10B981',marginLeft:8}}>{F(cotTotal)}</span>
         </div>
       </div>
 
       {/* Auto-generation result banner */}
       {genResult && (
         <div style={{padding:'8px 16px',background:'#1a2a1a',borderBottom:'1px solid #333',display:'flex',alignItems:'center',gap:8,fontSize:12}}>
-          <Zap size={14} style={{color:'#57FF9A'}}/>
+          <Zap size={14} style={{color:'#10B981'}}/>
           <span style={{color:'#ccc',flex:1}}>{genResult}</span>
           <button onClick={()=>setGenResult(null)} style={{background:'none',border:'none',color:'#555',cursor:'pointer',fontSize:14}}>x</button>
         </div>
@@ -1796,7 +1796,7 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
 
           {selectedIds.size > 0 && (
             <div style={{padding:'6px 14px',background:'#1a2a1a',borderBottom:'1px solid #333',display:'flex',alignItems:'center',gap:10,flexShrink:0,flexWrap:'wrap'}}>
-              <span style={{fontSize:11,color:'#57FF9A',fontWeight:600}}>{selectedIds.size} seleccionado{selectedIds.size > 1 ? 's' : ''}</span>
+              <span style={{fontSize:11,color:'#10B981',fontWeight:600}}>{selectedIds.size} seleccionado{selectedIds.size > 1 ? 's' : ''}</span>
               <select value={bulkAction} onChange={e => { setBulkAction(e.target.value as any); setBulkTarget('') }} style={{fontSize:11,background:'#222',color:'#ccc',border:'1px solid #444',borderRadius:6,padding:'3px 8px',fontFamily:'inherit'}}>
                 <option value="">Acción...</option>
                 <option value="moveArea">Mover a área</option>
@@ -1814,7 +1814,7 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
                   {[...new Set(items.map(i => i.system).filter(Boolean))].map(s => <option key={s} value={s!}>{s}</option>)}
                 </select>
               )}
-              <button onClick={bulkRemove} style={{fontSize:11,background:'#3a1a1a',color:'#EF4444',border:'1px solid #EF444444',borderRadius:6,padding:'3px 10px',cursor:'pointer',fontFamily:'inherit',fontWeight:600}}>Eliminar</button>
+              <button onClick={bulkRemove} style={{fontSize:11,background:'#3a1a1a',color:'#DC2626',border:'1px solid #DC262644',borderRadius:6,padding:'3px 10px',cursor:'pointer',fontFamily:'inherit',fontWeight:600}}>Eliminar</button>
               <button onClick={() => setSelectedIds(new Set())} style={{fontSize:11,background:'transparent',color:'#666',border:'1px solid #333',borderRadius:6,padding:'3px 10px',cursor:'pointer',fontFamily:'inherit'}}>Deseleccionar</button>
             </div>
           )}
@@ -1824,7 +1824,7 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
               <thead>
                 <tr style={{background:'#1a1a1a',position:'sticky',top:0,zIndex:1}}>
                   <th style={{padding:'6px 4px',borderBottom:'1px solid #222',width:28,textAlign:'center'}}>
-                    <input type="checkbox" checked={displayItems.length > 0 && selectedIds.size === displayItems.length} onChange={toggleSelectAll} style={{cursor:'pointer',accentColor:'#57FF9A'}} />
+                    <input type="checkbox" checked={displayItems.length > 0 && selectedIds.size === displayItems.length} onChange={toggleSelectAll} style={{cursor:'pointer',accentColor:'#10B981'}} />
                   </th>
                   {(isIlum ? ['Producto','Marca','Modelo','W','Cant.','Costo','Markup%','Precio','Total',''] : ['Producto','Sistema','Fase','Distrib.','Tipo','Cant.','Costo','Markup%','Precio','Total','']).map((h,i) => (
                     <th key={h} style={{padding:'6px 8px',fontSize:10,fontWeight:600,color:'#444',textAlign:(isIlum ? i>=4 : i>=5)?'right':'left',textTransform:'uppercase',letterSpacing:'0.06em',borderBottom:'1px solid #222',whiteSpace:'nowrap'}}>{h}</th>
@@ -1839,7 +1839,7 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
                   return (
                   <tr key={item.id} style={{background: selectedIds.has(item.id) ? '#1a2a1a' : 'transparent'}}>
                     <td style={{padding:'4px 4px',borderBottom:'1px solid #1a1a1a',textAlign:'center',width:28}}>
-                      <input type="checkbox" checked={selectedIds.has(item.id)} onChange={()=>toggleSelect(item.id)} style={{cursor:'pointer',accentColor:'#57FF9A'}} />
+                      <input type="checkbox" checked={selectedIds.has(item.id)} onChange={()=>toggleSelect(item.id)} style={{cursor:'pointer',accentColor:'#10B981'}} />
                     </td>
                     <td style={{padding:'7px 8px',fontSize:12,fontWeight:500,color:'#ddd',borderBottom:'1px solid #1a1a1a'}}>{item.name}</td>
                     {!isIlum && <td style={{padding:'7px 8px',borderBottom:'1px solid #1a1a1a'}}>{item.system&&<Badge label={item.system} color="#555"/>}</td>}
@@ -1883,12 +1883,12 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
                 <span style={{color:'#ccc',fontWeight:600}}>{F(kpiVenta)}</span>
               </div>
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-                <span style={{color: config.descuento > 0 ? '#EF4444' : '#888'}}>Descuento %</span>
+                <span style={{color: config.descuento > 0 ? '#DC2626' : '#888'}}>Descuento %</span>
                 <div style={{display:'flex',alignItems:'center',gap:4}}>
                   <input type="number" min={0} max={100} step={1} value={config.descuento}
                     onChange={e => saveConfig({ descuento: Math.min(100, Math.max(0, parseFloat(e.target.value) || 0)) })}
                     style={{width:48,padding:'2px 6px',background:'#1a1a1a',border:'1px solid #333',borderRadius:4,color:'#fff',fontSize:11,fontFamily:'inherit',textAlign:'right'}}/>
-                  {config.descuento > 0 && <span style={{color:'#EF4444',fontWeight:600,minWidth:80,textAlign:'right'}}>-{F(descAmt)}</span>}
+                  {config.descuento > 0 && <span style={{color:'#DC2626',fontWeight:600,minWidth:80,textAlign:'right'}}>-{F(descAmt)}</span>}
                 </div>
               </div>
               {config.descuento > 0 && (
@@ -1908,7 +1908,7 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
               </div>
               <div style={{display:'flex',justifyContent:'space-between',borderTop:'1px solid #333',paddingTop:4,marginTop:2}}>
                 <span style={{color:'#888',fontWeight:600}}>TOTAL</span>
-                <span style={{color:'#57FF9A',fontWeight:700,fontSize:13}}>{F(totalConIva)}</span>
+                <span style={{color:'#10B981',fontWeight:700,fontSize:13}}>{F(totalConIva)}</span>
               </div>
             </div>
 
@@ -1932,7 +1932,7 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
                     style={{width:36,padding:'1px 4px',background:'#1a1a1a',border:'1px solid #333',borderRadius:4,color:'#888',fontSize:10,fontFamily:'inherit',textAlign:'right'}}/>
                   <span style={{color:'#555',fontSize:10}}>%</span>
                 </div>
-                <span style={{color:realMaterial > maxMaterial ? '#EF4444' : '#F59E0B', fontWeight:600,minWidth:75,textAlign:'right'}}>{F(realMaterial)}</span>
+                <span style={{color:realMaterial > maxMaterial ? '#DC2626' : '#D97706', fontWeight:600,minWidth:75,textAlign:'right'}}>{F(realMaterial)}</span>
                 <span style={{color:'#666',fontWeight:500,minWidth:75,textAlign:'right',fontSize:10}}>{F(maxMaterial)}</span>
               </div>
 
@@ -1946,7 +1946,7 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
                     style={{width:36,padding:'1px 4px',background:'#1a1a1a',border:'1px solid #333',borderRadius:4,color:'#888',fontSize:10,fontFamily:'inherit',textAlign:'right'}}/>
                   <span style={{color:'#555',fontSize:10}}>%</span>
                 </div>
-                <span style={{color:realNomina > maxNomina ? '#EF4444' : '#06B6D4', fontWeight:600,minWidth:75,textAlign:'right'}}>{F(realNomina)}</span>
+                <span style={{color:realNomina > maxNomina ? '#DC2626' : '#06B6D4', fontWeight:600,minWidth:75,textAlign:'right'}}>{F(realNomina)}</span>
                 <span style={{color:'#666',fontWeight:500,minWidth:75,textAlign:'right',fontSize:10}}>{F(maxNomina)}</span>
               </div>
 
@@ -1960,7 +1960,7 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
               {/* Diferencia entre real y máximo (cuánto te sobra/falta del presupuesto) */}
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',fontSize:10}}>
                 <span style={{color:'#555',flex:1}}>vs Presupuesto</span>
-                <span style={{color: realCostoTotal <= maxCostoTotal ? '#57FF9A' : '#EF4444',fontWeight:600}}>
+                <span style={{color: realCostoTotal <= maxCostoTotal ? '#10B981' : '#DC2626',fontWeight:600}}>
                   {realCostoTotal <= maxCostoTotal ? '+' : '-'}{F(Math.abs(maxCostoTotal - realCostoTotal))}
                 </span>
               </div>
@@ -1971,23 +1971,23 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
               <div style={{fontSize:9,color:'#555',textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:2,fontWeight:600}}>Márgenes</div>
               <div style={{display:'flex',justifyContent:'space-between'}} title="(venta − costo real) / venta">
                 <span style={{color:'#888'}}>MG Productos</span>
-                <span style={{color:mgProductos>=30?'#57FF9A':mgProductos>=15?'#F59E0B':'#EF4444',fontWeight:600}}>{mgProductos}%</span>
+                <span style={{color:mgProductos>=30?'#10B981':mgProductos>=15?'#D97706':'#DC2626',fontWeight:600}}>{mgProductos}%</span>
               </div>
               <div style={{display:'flex',justifyContent:'space-between'}} title="(venta − desc − costo real) / (venta − desc)">
                 <span style={{color:'#888'}}>MG Bruto (c/desc)</span>
-                <span style={{color:mgBruto>=30?'#57FF9A':mgBruto>=15?'#F59E0B':'#EF4444',fontWeight:600}}>{mgBruto}%</span>
+                <span style={{color:mgBruto>=30?'#10B981':mgBruto>=15?'#D97706':'#DC2626',fontWeight:600}}>{mgBruto}%</span>
               </div>
               <div style={{display:'flex',justifyContent:'space-between'}} title="Margen con costo REAL registrado">
                 <span style={{color:'#888',fontWeight:600}}>MG Real</span>
-                <span style={{color:mgReal>=25?'#57FF9A':mgReal>=15?'#F59E0B':'#EF4444',fontWeight:700,fontSize:13}}>{mgReal}%</span>
+                <span style={{color:mgReal>=25?'#10B981':mgReal>=15?'#D97706':'#DC2626',fontWeight:700,fontSize:13}}>{mgReal}%</span>
               </div>
               <div style={{display:'flex',justifyContent:'space-between'}} title="Peor escenario: si gastas el costo máximo permitido">
                 <span style={{color:'#888'}}>MG Mín. (peor caso)</span>
-                <span style={{color:mgMin>=25?'#57FF9A':mgMin>=15?'#F59E0B':'#EF4444',fontWeight:600}}>{mgMin}%</span>
+                <span style={{color:mgMin>=25?'#10B981':mgMin>=15?'#D97706':'#DC2626',fontWeight:600}}>{mgMin}%</span>
               </div>
               <div style={{display:'flex',justifyContent:'space-between',borderTop:'1px solid #333',paddingTop:4,marginTop:2}}>
                 <span style={{color:'#888',fontWeight:600}}>Utilidad real</span>
-                <span style={{color:kpiUtilidad>=0?'#57FF9A':'#EF4444',fontWeight:700}}>{F(kpiUtilidad)}</span>
+                <span style={{color:kpiUtilidad>=0?'#10B981':'#DC2626',fontWeight:700}}>{F(kpiUtilidad)}</span>
               </div>
               <div style={{fontSize:9,color:'#444',marginTop:2,lineHeight:1.3}}>
                 Real = lo que registras en items. Máximo = tope presupuestal (% del subtotal).
@@ -2074,7 +2074,7 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
                         <Td><span style={{fontWeight:500,color:'#ddd'}}>{p.name}</span><br/><span style={{fontSize:10,color:'#555'}}>{p.description}</span></Td>
                         <Td muted><span style={{color:'#aaa',fontSize:11}}>{(p as any).marca || p.provider || '--'}</span><br/><span style={{fontSize:10,color:'#555'}}>{(p as any).modelo || ''}</span></Td>
                         <Td muted>{p.system||'--'}</Td>
-                        <Td right><span style={{fontWeight:600,color:'#57FF9A'}}>{(p as any).moneda === 'USD' ? '$' : ''}{F((p as any).precio_venta && (p as any).precio_venta > 0 && (!p.cost || p.cost === 0) ? Number((p as any).precio_venta) : calcItemPrice(p.cost,p.markup))}</span></Td>
+                        <Td right><span style={{fontWeight:600,color:'#10B981'}}>{(p as any).moneda === 'USD' ? '$' : ''}{F((p as any).precio_venta && (p as any).precio_venta > 0 && (!p.cost || p.cost === 0) ? Number((p as any).precio_venta) : calcItemPrice(p.cost,p.markup))}</span></Td>
                         <Td><Btn size="sm" variant="primary" onClick={()=>addFromCatalog(p)}>+ Agregar</Btn></Td>
                       </tr>
                     ))
@@ -2123,7 +2123,7 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
                           {r.modelo && <span style={{fontSize:9,color:'#666'}}>{r.modelo}</span>}
                         </td>
                         <td style={{padding:'8px 10px',fontSize:12,color:'#ddd',textAlign:'right'}}>{r.cantidad}</td>
-                        <td style={{padding:'8px 10px',fontSize:12,textAlign:'right',color: cost > 0 ? '#F59E0B' : '#555'}}>{cost > 0 ? F(cost) : '—'}</td>
+                        <td style={{padding:'8px 10px',fontSize:12,textAlign:'right',color: cost > 0 ? '#D97706' : '#555'}}>{cost > 0 ? F(cost) : '—'}</td>
                         <td style={{padding:'8px 10px',fontSize:12,textAlign:'right',color: laborCost > 0 ? '#06B6D4' : '#555'}}>{laborCost > 0 ? F(laborCost) : '—'}</td>
                         <td style={{padding:'8px 10px',fontSize:12,color:'#ddd',textAlign:'right'}}>{price > 0 ? F(price) : '—'}</td>
                         <td style={{padding:'8px 10px',fontSize:12,textAlign:'center'}}>

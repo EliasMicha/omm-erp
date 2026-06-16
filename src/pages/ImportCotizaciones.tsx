@@ -493,7 +493,7 @@ Devuelve SOLO un JSON array válido sin markdown ni explicaciones:`
             <div
               onClick={() => fileRef.current?.click()}
               style={{ border: '2px dashed #333', borderRadius: 12, padding: '40px 20px', textAlign: 'center', cursor: 'pointer', marginBottom: 16, transition: 'border-color 0.2s' }}
-              onDragOver={e => { e.preventDefault(); e.currentTarget.style.borderColor = '#57FF9A' }}
+              onDragOver={e => { e.preventDefault(); e.currentTarget.style.borderColor = '#10B981' }}
               onDragLeave={e => { e.currentTarget.style.borderColor = '#333' }}
               onDrop={e => {
                 e.preventDefault()
@@ -537,7 +537,7 @@ Devuelve SOLO un JSON array válido sin markdown ni explicaciones:`
         {/* ─── STEP: PARSING ─────────────────────────────────────────── */}
         {step === 'parsing' && (
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16, padding: '40px 0' }}>
-            <Loader2 size={32} style={{ color: '#57FF9A', animation: 'spin 1s linear infinite' }} />
+            <Loader2 size={32} style={{ color: '#10B981', animation: 'spin 1s linear infinite' }} />
             <div style={{ fontSize: 14, color: '#888' }}>Analizando {files.length} archivo{files.length !== 1 ? 's' : ''} con IA...</div>
             <div style={{ fontSize: 11, color: '#555' }}>Esto puede tomar unos segundos por archivo</div>
           </div>
@@ -565,7 +565,7 @@ Devuelve SOLO un JSON array válido sin markdown ni explicaciones:`
                     <span style={{ fontSize: 11, color: '#666' }}>{q.client_name}</span>
                     <span style={{ fontSize: 10, color: '#555', padding: '2px 8px', background: '#222', borderRadius: 4 }}>{q.currency}</span>
                     <span style={{ fontSize: 11, color: '#888' }}>{totalItems} items</span>
-                    <span style={{ fontSize: 13, fontWeight: 700, color: '#57FF9A' }}>{q.currency === 'MXN' ? 'MX$' : '$'}{F(totalMonto)}</span>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: '#10B981' }}>{q.currency === 'MXN' ? 'MX$' : '$'}{F(totalMonto)}</span>
                     <button onClick={e => { e.stopPropagation(); removeQuote(qi) }} style={{ background: 'none', border: 'none', color: '#444', cursor: 'pointer' }}><Trash2 size={14} /></button>
                   </div>
 
@@ -662,10 +662,10 @@ Devuelve SOLO un JSON array válido sin markdown ni explicaciones:`
         {/* ─── STEP: IMPORTING ───────────────────────────────────────── */}
         {step === 'importing' && (
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16, padding: '40px 0' }}>
-            <Loader2 size={32} style={{ color: '#57FF9A', animation: 'spin 1s linear infinite' }} />
+            <Loader2 size={32} style={{ color: '#10B981', animation: 'spin 1s linear infinite' }} />
             <div style={{ fontSize: 14, color: '#888' }}>Importando cotización {importProgress.current} de {importProgress.total}...</div>
             <div style={{ width: 300, height: 4, background: '#222', borderRadius: 2, overflow: 'hidden' }}>
-              <div style={{ width: `${(importProgress.current / importProgress.total) * 100}%`, height: '100%', background: '#57FF9A', borderRadius: 2, transition: 'width 0.3s' }} />
+              <div style={{ width: `${(importProgress.current / importProgress.total) * 100}%`, height: '100%', background: '#10B981', borderRadius: 2, transition: 'width 0.3s' }} />
             </div>
           </div>
         )}
@@ -685,7 +685,7 @@ Devuelve SOLO un JSON array válido sin markdown ni explicaciones:`
                     onClick={() => onImported(q.id, q.specialty)}>
                     <span style={{ color: spCfg.color, fontSize: 11 }}>{spCfg.icon}</span>
                     <span style={{ fontSize: 12, color: '#ccc' }}>{q.name}</span>
-                    <span style={{ marginLeft: 'auto', fontSize: 10, color: '#57FF9A' }}>Abrir →</span>
+                    <span style={{ marginLeft: 'auto', fontSize: 10, color: '#10B981' }}>Abrir →</span>
                   </div>
                 )
               })}

@@ -166,7 +166,7 @@ export default function EmailImport({
   }
 
   const PRIORITY_LABELS: Record<number, string> = { 1: 'Baja', 2: 'Media', 3: 'Alta' }
-  const PRIORITY_COLORS: Record<number, string> = { 1: '#888', 2: '#3B82F6', 3: '#EF4444' }
+  const PRIORITY_COLORS: Record<number, string> = { 1: '#888', 2: '#2563EB', 3: '#DC2626' }
 
   return (
     <div style={{
@@ -186,7 +186,7 @@ export default function EmailImport({
           display: 'flex', justifyContent: 'space-between', alignItems: 'center',
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <Mail size={18} color="#3B82F6" />
+            <Mail size={18} color="#2563EB" />
             <span style={{ fontSize: 16, fontWeight: 700, color: '#fff' }}>
               {selectedEmail ? 'Crear pendiente desde email' : 'Importar desde email'}
             </span>
@@ -205,7 +205,7 @@ export default function EmailImport({
             {/* Email preview */}
             <div style={{
               background: '#111', border: '1px solid #222', borderRadius: 10, padding: '12px 16px',
-              marginBottom: 16, borderLeft: '3px solid #3B82F6',
+              marginBottom: 16, borderLeft: '3px solid #2563EB',
             }}>
               <div style={{ fontSize: 13, fontWeight: 600, color: '#fff', marginBottom: 4 }}>
                 {selectedEmail.subject}
@@ -283,7 +283,7 @@ export default function EmailImport({
                   color: '#888', cursor: 'pointer', fontSize: 13,
                 }}>Volver</button>
                 <button onClick={createFromEmail} disabled={creating} style={{
-                  background: '#3B82F6', border: 'none', borderRadius: 8, padding: '10px 24px',
+                  background: '#2563EB', border: 'none', borderRadius: 8, padding: '10px 24px',
                   color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 600,
                   opacity: creating ? 0.5 : 1,
                 }}>
@@ -331,7 +331,7 @@ export default function EmailImport({
                       width: 36, height: 36, borderRadius: 18, flexShrink: 0,
                       background: '#1a1a2e', display: 'flex', alignItems: 'center', justifyContent: 'center',
                     }}>
-                      <Mail size={16} color="#3B82F6" />
+                      <Mail size={16} color="#2563EB" />
                     </div>
                     {/* Content */}
                     <div style={{ flex: 1, minWidth: 0 }}>

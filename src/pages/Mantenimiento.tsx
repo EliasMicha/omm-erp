@@ -125,9 +125,9 @@ interface Upsell {
 const SYSTEMS_OPTIONS = [
   { id: 'audio', label: 'Audio', color: '#8B5CF6' },
   { id: 'redes', label: 'Redes', color: '#06B6D4' },
-  { id: 'cctv', label: 'CCTV', color: '#3B82F6' },
-  { id: 'control_acceso', label: 'Control de Acceso', color: '#F59E0B' },
-  { id: 'control_iluminacion', label: 'Control de Iluminación', color: '#C084FC' },
+  { id: 'cctv', label: 'CCTV', color: '#2563EB' },
+  { id: 'control_acceso', label: 'Control de Acceso', color: '#D97706' },
+  { id: 'control_iluminacion', label: 'Control de Iluminación', color: '#A78BFA' },
   { id: 'lutron', label: 'Lutron', color: '#9333EA' },
   { id: 'electrico', label: 'Eléctrico', color: '#EAB308' },
 ]
@@ -136,43 +136,43 @@ const SYSTEM_COLOR: Record<string, string> = {}
 SYSTEMS_OPTIONS.forEach(s => { SYSTEM_COLOR[s.id] = s.color; SYSTEM_COLOR[s.label] = s.color })
 
 const CONTRACT_TYPE_CFG: Record<string, { label: string; color: string }> = {
-  poliza: { label: 'Póliza', color: '#A855F7' },
-  por_visita: { label: 'Por Visita', color: '#3B82F6' },
+  poliza: { label: 'Póliza', color: '#7C3AED' },
+  por_visita: { label: 'Por Visita', color: '#2563EB' },
 }
 
 const PRIORITY_CFG: Record<TicketPriority, { label: string; color: string }> = {
-  urgente: { label: 'Urgente', color: '#EF4444' },
+  urgente: { label: 'Urgente', color: '#DC2626' },
   alta: { label: 'Alta', color: '#F97316' },
-  media: { label: 'Media', color: '#F59E0B' },
+  media: { label: 'Media', color: '#D97706' },
   baja: { label: 'Baja', color: '#6B7280' },
 }
 
 const STATUS_CFG: Record<TicketStatus, { label: string; color: string }> = {
-  abierto: { label: 'Abierto', color: '#3B82F6' },
-  en_progreso: { label: 'En Progreso', color: '#F59E0B' },
-  esperando_cliente: { label: 'Esperando Cliente', color: '#A855F7' },
+  abierto: { label: 'Abierto', color: '#2563EB' },
+  en_progreso: { label: 'En Progreso', color: '#D97706' },
+  esperando_cliente: { label: 'Esperando Cliente', color: '#7C3AED' },
   resuelto: { label: 'Resuelto', color: '#10B981' },
   cerrado: { label: 'Cerrado', color: '#6B7280' },
 }
 
 const CATEGORY_CFG: Record<TicketCategory, { label: string; color: string }> = {
-  falla: { label: 'Falla', color: '#EF4444' },
-  mantenimiento_preventivo: { label: 'Preventivo', color: '#3B82F6' },
+  falla: { label: 'Falla', color: '#DC2626' },
+  mantenimiento_preventivo: { label: 'Preventivo', color: '#2563EB' },
   solicitud_nueva: { label: 'Solicitud Nueva', color: '#10B981' },
-  garantia: { label: 'Garantía', color: '#F59E0B' },
+  garantia: { label: 'Garantía', color: '#D97706' },
   otro: { label: 'Otro', color: '#6B7280' },
 }
 
 const UPSELL_STATUS_CFG: Record<UpsellStatus, { label: string; color: string }> = {
   identificada: { label: 'Identificada', color: '#6B7280' },
-  propuesta: { label: 'Propuesta', color: '#3B82F6' },
+  propuesta: { label: 'Propuesta', color: '#2563EB' },
   aceptada: { label: 'Aceptada', color: '#10B981' },
-  rechazada: { label: 'Rechazada', color: '#EF4444' },
-  convertida: { label: 'Convertida', color: '#57FF9A' },
+  rechazada: { label: 'Rechazada', color: '#DC2626' },
+  convertida: { label: 'Convertida', color: '#10B981' },
 }
 
 const VISIT_STATUS_CFG: Record<string, { label: string; color: string }> = {
-  programada: { label: 'Programada', color: '#3B82F6' },
+  programada: { label: 'Programada', color: '#2563EB' },
   completada: { label: 'Completada', color: '#10B981' },
   cancelada: { label: 'Cancelada', color: '#6B7280' },
 }
@@ -266,10 +266,10 @@ function slaDisplay(reportedAt: string, slaHours: number | null): { text: string
   const deadline = reported + slaHours * 3600000
   const now = Date.now()
   const remaining = deadline - now
-  if (remaining < 0) return { text: 'Vencido', color: '#EF4444' }
+  if (remaining < 0) return { text: 'Vencido', color: '#DC2626' }
   const hrs = Math.floor(remaining / 3600000)
   const mins = Math.floor((remaining % 3600000) / 60000)
-  if (hrs < 4) return { text: `${hrs}h ${mins}m`, color: '#F59E0B' }
+  if (hrs < 4) return { text: `${hrs}h ${mins}m`, color: '#D97706' }
   return { text: `${hrs}h`, color: '#10B981' }
 }
 
@@ -405,8 +405,8 @@ export default function Mantenimiento() {
           <button key={t.key} onClick={() => setTab(t.key)} style={{
             padding: '10px 20px', background: 'none', border: 'none', cursor: 'pointer',
             fontSize: 13, fontWeight: tab === t.key ? 600 : 400, fontFamily: 'inherit',
-            color: tab === t.key ? '#57FF9A' : '#666',
-            borderBottom: tab === t.key ? '2px solid #57FF9A' : '2px solid transparent',
+            color: tab === t.key ? '#10B981' : '#666',
+            borderBottom: tab === t.key ? '2px solid #10B981' : '2px solid transparent',
             transition: 'all 0.15s',
           }}>
             {t.label}
@@ -502,9 +502,9 @@ function TabPropiedades({ properties, tickets, visits, searchProp, setSearchProp
     <>
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
         <KpiCard label="Total Propiedades" value={properties.length} icon={<Building2 size={16} />} />
-        <KpiCard label="Con Póliza" value={conPoliza} color="#A855F7" icon={<Shield size={16} />} />
-        <KpiCard label="Por Visita" value={porVisita} color="#3B82F6" icon={<Wrench size={16} />} />
-        <KpiCard label="Tickets Abiertos" value={totalOpen} color={totalOpen > 0 ? '#F59E0B' : '#57FF9A'} icon={<Ticket size={16} />} />
+        <KpiCard label="Con Póliza" value={conPoliza} color="#7C3AED" icon={<Shield size={16} />} />
+        <KpiCard label="Por Visita" value={porVisita} color="#2563EB" icon={<Wrench size={16} />} />
+        <KpiCard label="Tickets Abiertos" value={totalOpen} color={totalOpen > 0 ? '#D97706' : '#10B981'} icon={<Ticket size={16} />} />
       </div>
 
       <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
@@ -550,7 +550,7 @@ function TabPropiedades({ properties, tickets, visits, searchProp, setSearchProp
                   <Td><Badge label={ct.label} color={ct.color} /></Td>
                   <Td>
                     {openT.length > 0 ? (
-                      <span style={{ color: '#F59E0B', fontWeight: 600, fontSize: 12 }}>{openT.length}</span>
+                      <span style={{ color: '#D97706', fontWeight: 600, fontSize: 12 }}>{openT.length}</span>
                     ) : (
                       <span style={{ color: '#555', fontSize: 12 }}>0</span>
                     )}
@@ -609,10 +609,10 @@ function TabTickets({ tickets, properties, propMap, statusFilter, setStatusFilte
   return (
     <>
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
-        <KpiCard label="Abiertos" value={open} color="#3B82F6" icon={<Ticket size={16} />} />
-        <KpiCard label="En Progreso" value={inProgress} color="#F59E0B" icon={<Clock size={16} />} />
+        <KpiCard label="Abiertos" value={open} color="#2563EB" icon={<Ticket size={16} />} />
+        <KpiCard label="En Progreso" value={inProgress} color="#D97706" icon={<Clock size={16} />} />
         <KpiCard label="Resueltos Hoy" value={resolvedToday} color="#10B981" icon={<CheckCircle size={16} />} />
-        <KpiCard label="SLA Cumplido" value={`${slaPct}%`} color={slaPct >= 90 ? '#10B981' : slaPct >= 70 ? '#F59E0B' : '#EF4444'} icon={<AlertTriangle size={16} />} />
+        <KpiCard label="SLA Cumplido" value={`${slaPct}%`} color={slaPct >= 90 ? '#10B981' : slaPct >= 70 ? '#D97706' : '#DC2626'} icon={<AlertTriangle size={16} />} />
       </div>
 
       <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -730,9 +730,9 @@ function TabPolizas({ contracts, propMap, onNew, isMobile }: {
               const fee = c.monthly_fee ? `${F(c.monthly_fee)}/mes` : c.annual_fee ? `${F(c.annual_fee)}/año` : '--'
               return (
                 <tr key={c.id}
-                  style={{ background: expiringSoon ? '#F59E0B08' : expired ? '#EF444408' : 'transparent' }}
+                  style={{ background: expiringSoon ? '#D9770608' : expired ? '#DC262608' : 'transparent' }}
                   onMouseEnter={e => (e.currentTarget.style.background = '#1a1a1a')}
-                  onMouseLeave={e => (e.currentTarget.style.background = expiringSoon ? '#F59E0B08' : expired ? '#EF444408' : 'transparent')}>
+                  onMouseLeave={e => (e.currentTarget.style.background = expiringSoon ? '#D9770608' : expired ? '#DC262608' : 'transparent')}>
                   <Td>{prop?.name || '--'}</Td>
                   <Td>
                     <div style={{ fontWeight: 500, color: '#fff', fontSize: 12 }}>{c.name}</div>
@@ -745,15 +745,15 @@ function TabPolizas({ contracts, propMap, onNew, isMobile }: {
                   )}
                   <Td>{fee}</Td>
                   <Td>
-                    <span style={{ color: c.visits_used >= c.visits_included ? '#EF4444' : '#ccc', fontWeight: 500, fontSize: 12 }}>
+                    <span style={{ color: c.visits_used >= c.visits_included ? '#DC2626' : '#ccc', fontWeight: 500, fontSize: 12 }}>
                       {c.visits_used}/{c.visits_included}
                     </span>
                   </Td>
                   <Td>
                     {expired
-                      ? <Badge label="Vencida" color="#EF4444" />
+                      ? <Badge label="Vencida" color="#DC2626" />
                       : expiringSoon
-                        ? <Badge label="Por Vencer" color="#F59E0B" />
+                        ? <Badge label="Por Vencer" color="#D97706" />
                         : c.is_active
                           ? <Badge label="Activa" color="#10B981" />
                           : <Badge label="Inactiva" color="#6B7280" />
@@ -785,8 +785,8 @@ function TabOportunidades({ upsells, propMap, onSelect, onNew, isMobile }: {
     <>
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(3, 1fr)', gap: 12, marginBottom: 20 }}>
         <KpiCard label="Total Oportunidades" value={upsells.length} icon={<TrendingUp size={16} />} />
-        <KpiCard label="Valor Estimado" value={F(totalValue)} color="#3B82F6" icon={<DollarSign size={16} />} />
-        <KpiCard label="Convertidas" value={converted} color="#57FF9A" icon={<CheckCircle size={16} />} />
+        <KpiCard label="Valor Estimado" value={F(totalValue)} color="#2563EB" icon={<DollarSign size={16} />} />
+        <KpiCard label="Convertidas" value={converted} color="#10B981" icon={<CheckCircle size={16} />} />
       </div>
 
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
@@ -870,7 +870,7 @@ function PropertyDetail({ property, tickets, visits, contracts, upsells, propMap
     <div style={{ padding: isMobile ? 16 : 32, maxWidth: 1200, margin: '0 auto' }}>
       {/* Back */}
       <button onClick={onBack} style={{
-        background: 'none', border: 'none', color: '#57FF9A', cursor: 'pointer',
+        background: 'none', border: 'none', color: '#10B981', cursor: 'pointer',
         display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontFamily: 'inherit',
         marginBottom: 20, padding: 0,
       }}>
@@ -935,7 +935,7 @@ function PropertyDetail({ property, tickets, visits, contracts, upsells, propMap
               <div style={{ fontSize: 13, color: '#ccc' }}>
                 Cuota: {activeContract.monthly_fee ? `${F(activeContract.monthly_fee)}/mes` : activeContract.annual_fee ? `${F(activeContract.annual_fee)}/año` : '--'}
               </div>
-              <div style={{ fontSize: 13, color: activeContract.visits_used >= activeContract.visits_included ? '#EF4444' : '#ccc' }}>
+              <div style={{ fontSize: 13, color: activeContract.visits_used >= activeContract.visits_included ? '#DC2626' : '#ccc' }}>
                 Visitas: {activeContract.visits_used}/{activeContract.visits_included}
               </div>
               <Badge label="Activa" color="#10B981" />
@@ -986,10 +986,10 @@ function PropertyDetail({ property, tickets, visits, contracts, upsells, propMap
                   {/* Icon */}
                   <div style={{
                     width: 32, height: 32, borderRadius: '50%',
-                    background: isTicket ? '#3B82F622' : '#10B98122',
+                    background: isTicket ? '#2563EB22' : '#10B98122',
                     display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
                   }}>
-                    {isTicket ? <Ticket size={14} style={{ color: '#3B82F6' }} /> : <Wrench size={14} style={{ color: '#10B981' }} />}
+                    {isTicket ? <Ticket size={14} style={{ color: '#2563EB' }} /> : <Wrench size={14} style={{ color: '#10B981' }} />}
                   </div>
                   {/* Content */}
                   <div style={{ flex: 1, minWidth: 0 }}>
@@ -1063,7 +1063,7 @@ function TicketDetail({ ticket, property, visits, onBack, onReload, isMobile }: 
   return (
     <div style={{ padding: isMobile ? 16 : 32, maxWidth: 1000, margin: '0 auto' }}>
       <button onClick={onBack} style={{
-        background: 'none', border: 'none', color: '#57FF9A', cursor: 'pointer',
+        background: 'none', border: 'none', color: '#10B981', cursor: 'pointer',
         display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontFamily: 'inherit',
         marginBottom: 20, padding: 0,
       }}>
@@ -1080,7 +1080,7 @@ function TicketDetail({ ticket, property, visits, onBack, onReload, isMobile }: 
           <Badge label={cat.label} color={cat.color} />
           <Badge label={pri.label} color={pri.color} />
           <Badge label={st.label} color={st.color} />
-          {ticket.billable && <Badge label="Facturable" color="#F59E0B" />}
+          {ticket.billable && <Badge label="Facturable" color="#D97706" />}
         </div>
       </div>
 
@@ -1225,7 +1225,7 @@ function UpsellDetail({ upsell, property, onBack, onReload, isMobile }: {
   return (
     <div style={{ padding: isMobile ? 16 : 32, maxWidth: 800, margin: '0 auto' }}>
       <button onClick={onBack} style={{
-        background: 'none', border: 'none', color: '#57FF9A', cursor: 'pointer',
+        background: 'none', border: 'none', color: '#10B981', cursor: 'pointer',
         display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontFamily: 'inherit',
         marginBottom: 20, padding: 0,
       }}>
@@ -1266,7 +1266,7 @@ function UpsellDetail({ upsell, property, onBack, onReload, isMobile }: {
         <div style={{ background: '#141414', border: '1px solid #222', borderRadius: 12, padding: 20 }}>
           <div style={{ fontSize: 11, color: '#555', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 12 }}>Detalles</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <InfoRow label="Valor Estimado" value={F(upsell.estimated_value || 0)} valueColor="#57FF9A" />
+            <InfoRow label="Valor Estimado" value={F(upsell.estimated_value || 0)} valueColor="#10B981" />
             <InfoRow label="Moneda" value={upsell.currency || 'MXN'} />
             <InfoRow label="Asignado a" value={upsell.assigned_to || '--'} />
             <InfoRow label="Creado" value={formatDate(upsell.created_at)} />
@@ -1421,7 +1421,7 @@ function NewPropertyModal({ onClose, onCreated }: { onClose: () => void; onCreat
 
         <TextArea label="Notas" value={form.notes} onChange={s('notes')} placeholder="Notas adicionales..." />
 
-        {error && <div style={{ color: '#EF4444', fontSize: 12 }}>{error}</div>}
+        {error && <div style={{ color: '#DC2626', fontSize: 12 }}>{error}</div>}
 
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 8 }}>
           <Btn onClick={onClose}>Cancelar</Btn>
@@ -1555,7 +1555,7 @@ function NewTicketModal({ properties, onClose, onCreated }: {
           )}
         </div>
 
-        {error && <div style={{ color: '#EF4444', fontSize: 12 }}>{error}</div>}
+        {error && <div style={{ color: '#DC2626', fontSize: 12 }}>{error}</div>}
 
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 8 }}>
           <Btn onClick={onClose}>Cancelar</Btn>
@@ -1639,7 +1639,7 @@ function NewContractModal({ properties, onClose, onCreated }: {
 
         <Field label="Visitas Incluidas" value={form.visits_included} onChange={s('visits_included')} type="number" />
 
-        {error && <div style={{ color: '#EF4444', fontSize: 12 }}>{error}</div>}
+        {error && <div style={{ color: '#DC2626', fontSize: 12 }}>{error}</div>}
 
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 8 }}>
           <Btn onClick={onClose}>Cancelar</Btn>
@@ -1714,7 +1714,7 @@ function NewUpsellModal({ properties, onClose, onCreated }: {
 
         <Field label="Asignado a" value={form.assigned_to} onChange={s('assigned_to')} placeholder="Responsable" />
 
-        {error && <div style={{ color: '#EF4444', fontSize: 12 }}>{error}</div>}
+        {error && <div style={{ color: '#DC2626', fontSize: 12 }}>{error}</div>}
 
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 8 }}>
           <Btn onClick={onClose}>Cancelar</Btn>
@@ -1819,7 +1819,7 @@ function AddVisitModal({ ticketId, propertyId, contractId, onClose, onCreated }:
           )}
         </div>
 
-        {error && <div style={{ color: '#EF4444', fontSize: 12 }}>{error}</div>}
+        {error && <div style={{ color: '#DC2626', fontSize: 12 }}>{error}</div>}
 
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 8 }}>
           <Btn onClick={onClose}>Cancelar</Btn>

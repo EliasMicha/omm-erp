@@ -61,10 +61,10 @@ function ProductRow({ p, onUpdate, onRemove, selected, onToggleSelect, onSubstit
 }) {
   const { total, costReal, utilidad } = calcLine(p)
   return (
-    <tr style={{ background: selected ? '#57FF9A0D' : undefined }}>
+    <tr style={{ background: selected ? '#10B9810D' : undefined }}>
       {onToggleSelect && (
         <td style={{ ...S.td, width: 28, textAlign: 'center', padding: '6px 4px' }}>
-          <input type="checkbox" checked={!!selected} onChange={() => onToggleSelect(p.id)} style={{ accentColor: '#57FF9A', cursor: 'pointer' }} />
+          <input type="checkbox" checked={!!selected} onChange={() => onToggleSelect(p.id)} style={{ accentColor: '#10B981', cursor: 'pointer' }} />
         </td>
       )}
       <td style={{ ...S.td, width: 44, textAlign: 'center' }}>
@@ -78,7 +78,7 @@ function ProductRow({ p, onUpdate, onRemove, selected, onToggleSelect, onSubstit
           defaultValue={p.nomenclatura || ''}
           placeholder="—"
           onBlur={e => onUpdate(p.id, 'nomenclatura', e.target.value.trim())}
-          style={{ ...S.input, width: 80, fontWeight: 600, color: '#57FF9A', textAlign: 'center' }}
+          style={{ ...S.input, width: 80, fontWeight: 600, color: '#10B981', textAlign: 'center' }}
         />
       </td>
       <td style={{ ...S.td, minWidth: 180 }}>
@@ -92,10 +92,10 @@ function ProductRow({ p, onUpdate, onRemove, selected, onToggleSelect, onSubstit
         <input key={`qty-${p.id}-${p.quantity}`} type="number" defaultValue={p.quantity} min={1} onBlur={e => onUpdate(p.id, 'quantity', parseInt(e.target.value) || 1)} style={{ ...S.input, width: 40 }} />
       </td>
       <td style={S.tdR}><input key={`cost-${p.id}-${p.cost}`} type="number" defaultValue={p.cost} step={0.01} onBlur={e => onUpdate(p.id, 'cost', parseFloat(e.target.value) || 0)} style={S.input} /></td>
-      <td style={S.tdR}><input key={`markup-${p.id}-${p.markup}`} type="number" defaultValue={p.markup} step={1} onBlur={e => onUpdate(p.id, 'markup', parseFloat(e.target.value) || 0)} style={{ ...S.input, width: 45, color: p.markup >= 25 ? '#57FF9A' : p.markup >= 15 ? '#F59E0B' : '#EF4444' }} /></td>
+      <td style={S.tdR}><input key={`markup-${p.id}-${p.markup}`} type="number" defaultValue={p.markup} step={1} onBlur={e => onUpdate(p.id, 'markup', parseFloat(e.target.value) || 0)} style={{ ...S.input, width: 45, color: p.markup >= 25 ? '#10B981' : p.markup >= 15 ? '#D97706' : '#DC2626' }} /></td>
       <td style={S.tdR}><input key={`price-${p.id}-${p.price}`} type="number" defaultValue={p.price} step={0.01} onBlur={e => onUpdate(p.id, 'price', parseFloat(e.target.value) || 0)} style={S.input} /></td>
-      <td style={{ ...S.tdM, color: '#57FF9A' }}>${fmt(total)}</td>
-      <td style={{ ...S.td, width: 28 }}>{onSubstitute && p.catalogId && <button onClick={() => onSubstitute(p)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, opacity: 0.5 }} title="Sustituir en todo el proyecto"><ArrowLeftRight size={12} color="#3B82F6" /></button>}</td>
+      <td style={{ ...S.tdM, color: '#10B981' }}>${fmt(total)}</td>
+      <td style={{ ...S.td, width: 28 }}>{onSubstitute && p.catalogId && <button onClick={() => onSubstitute(p)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, opacity: 0.5 }} title="Sustituir en todo el proyecto"><ArrowLeftRight size={12} color="#2563EB" /></button>}</td>
       <td style={{ ...S.td, width: 28 }}><button onClick={() => onRemove(p.id)} style={{ background: 'none', border: 'none', color: '#444', cursor: 'pointer' }}><Trash2 size={12} /></button></td>
     </tr>
   )
@@ -170,7 +170,7 @@ function IlumCatalogModal({ onClose, onSelect, subsectionName }: {
                       <td style={{ ...S.td, fontSize: 10, color: '#666' }}>{p.modelo || '—'}</td>
                       <td style={{ ...S.tdR, fontSize: 10, color: '#666' }}>{p.watts ? p.watts + 'W' : '—'}</td>
                       <td style={{ ...S.tdR, fontSize: 10, color: '#555' }}>${fmt(p.cost)}</td>
-                      <td style={{ ...S.tdR, fontWeight: 600, color: '#57FF9A' }}>${fmt(precio)}</td>
+                      <td style={{ ...S.tdR, fontWeight: 600, color: '#10B981' }}>${fmt(precio)}</td>
                       <td style={S.td}><Btn size="sm" variant="primary">+ Agregar</Btn></td>
                     </tr>
                   )
@@ -199,7 +199,7 @@ function SubsectionBlock({ subsection, products, onToggle, onUpdate, onRemove, o
     <div style={{ marginBottom: 10 }}>
       <div onClick={onToggle} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 10px', cursor: 'pointer', background: '#111', borderRadius: 6, marginBottom: 2 }}>
         {subsection.collapsed ? <ChevronRight size={12} color="#555" /> : <ChevronDown size={12} color="#555" />}
-        <span style={{ fontSize: 12, fontWeight: 700, color: '#57FF9A', textTransform: 'uppercase' as const, letterSpacing: '0.04em' }}>{subsection.name}</span>
+        <span style={{ fontSize: 12, fontWeight: 700, color: '#10B981', textTransform: 'uppercase' as const, letterSpacing: '0.04em' }}>{subsection.name}</span>
         <span style={{ marginLeft: 'auto', fontSize: 10, color: '#666' }}>{products.length}</span>
         <span style={{ fontSize: 12, fontWeight: 700, color: '#fff' }}>${fmt(subTotal)}</span>
       </div>
@@ -215,7 +215,7 @@ function SubsectionBlock({ subsection, products, onToggle, onUpdate, onRemove, o
                     const ids = products.map(p => p.id)
                     if (onSelectAll) onSelectAll(ids, !allSelected)
                   }}
-                  style={{ accentColor: '#57FF9A', cursor: 'pointer' }} />
+                  style={{ accentColor: '#10B981', cursor: 'pointer' }} />
               </th>
             )}
             <th style={{ ...S.th, textAlign: 'center' }}>IMG</th>
@@ -631,7 +631,7 @@ function AIImportModalIlum({ cotId, subsections, onClose, onImported }: {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
           <div>
             <div style={{ fontSize: 14, fontWeight: 600, color: '#fff', display: 'flex', alignItems: 'center', gap: 8 }}>
-              <Sparkles size={14} color="#57FF9A" /> Importar con AI — Iluminación
+              <Sparkles size={14} color="#10B981" /> Importar con AI — Iluminación
             </div>
             <div style={{ fontSize: 11, color: '#555' }}>Sube un listado en Excel, CSV, PDF o imagen — la AI extrae los productos de iluminación</div>
           </div>
@@ -653,14 +653,14 @@ function AIImportModalIlum({ cotId, subsections, onClose, onImported }: {
 
         {step === 'processing' && (
           <div style={{ padding: '60px 20px', textAlign: 'center' }}>
-            <Loader2 size={32} color="#57FF9A" style={{ animation: 'spin 1s linear infinite', marginBottom: 12 }} />
+            <Loader2 size={32} color="#10B981" style={{ animation: 'spin 1s linear infinite', marginBottom: 12 }} />
             <div style={{ fontSize: 13, color: '#ccc' }}>{progress}</div>
           </div>
         )}
 
         {step === 'inserting' && (
           <div style={{ padding: '60px 20px', textAlign: 'center' }}>
-            <Loader2 size={32} color="#57FF9A" style={{ animation: 'spin 1s linear infinite', marginBottom: 12 }} />
+            <Loader2 size={32} color="#10B981" style={{ animation: 'spin 1s linear infinite', marginBottom: 12 }} />
             <div style={{ fontSize: 13, color: '#ccc' }}>{progress}</div>
             <div style={{ fontSize: 11, color: '#555', marginTop: 8 }}>Insertados: {insertedCount} / {items.length}</div>
           </div>
@@ -668,16 +668,16 @@ function AIImportModalIlum({ cotId, subsections, onClose, onImported }: {
 
         {step === 'review' && (<>
           <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 10, fontSize: 11 }}>
-            <span style={{ color: '#888' }}>Confianza: <span style={{ color: confidence === 'high' ? '#57FF9A' : confidence === 'medium' ? '#F59E0B' : '#EF4444', fontWeight: 600 }}>{confidence}</span></span>
+            <span style={{ color: '#888' }}>Confianza: <span style={{ color: confidence === 'high' ? '#10B981' : confidence === 'medium' ? '#D97706' : '#DC2626', fontWeight: 600 }}>{confidence}</span></span>
             <span style={{ color: '#888' }}>{items.length} items detectados</span>
-            <span style={{ color: '#57FF9A' }}>✓ {exactCount} en catálogo</span>
-            <span style={{ color: '#F59E0B' }}>~ {partialCount} parciales</span>
+            <span style={{ color: '#10B981' }}>✓ {exactCount} en catálogo</span>
+            <span style={{ color: '#D97706' }}>~ {partialCount} parciales</span>
             <span style={{ color: '#06B6D4' }}>+ {noneCount} nuevos</span>
           </div>
 
           {warnings.length > 0 && (
             <div style={{ background: '#2a200a', border: '1px solid #3a2e10', borderRadius: 8, padding: 10, marginBottom: 10 }}>
-              <div style={{ fontSize: 11, color: '#F59E0B', fontWeight: 600, marginBottom: 4 }}>Advertencias:</div>
+              <div style={{ fontSize: 11, color: '#D97706', fontWeight: 600, marginBottom: 4 }}>Advertencias:</div>
               {warnings.map((w, i) => <div key={i} style={{ fontSize: 11, color: '#aaa' }}>• {w}</div>)}
             </div>
           )}
@@ -703,8 +703,8 @@ function AIImportModalIlum({ cotId, subsections, onClose, onImported }: {
                 {items.map(it => (
                   <tr key={it._rowId}>
                     <td style={{ ...S.td, textAlign: 'center', width: 28 }}>
-                      {it.match_status === 'exact' && <span title="En catálogo" style={{ color: '#57FF9A' }}>✓</span>}
-                      {it.match_status === 'partial' && <span title="Match parcial" style={{ color: '#F59E0B' }}>~</span>}
+                      {it.match_status === 'exact' && <span title="En catálogo" style={{ color: '#10B981' }}>✓</span>}
+                      {it.match_status === 'partial' && <span title="Match parcial" style={{ color: '#D97706' }}>~</span>}
                       {it.match_status === 'none' && <span title="Se creará nuevo" style={{ color: '#06B6D4' }}>+</span>}
                     </td>
                     <td style={S.td}>
@@ -718,7 +718,7 @@ function AIImportModalIlum({ cotId, subsections, onClose, onImported }: {
                     <td style={S.td}><input value={it.descripcion} onChange={e => updateRow(it._rowId, 'descripcion', e.target.value)} style={{ width: 180, padding: '4px 6px', background: '#1e1e1e', border: '1px solid #333', borderRadius: 4, color: '#ccc', fontSize: 11, fontFamily: 'inherit' }} /></td>
                     <td style={S.tdR}><input type="number" value={it.watts ?? ''} onChange={e => updateRow(it._rowId, 'watts', e.target.value ? parseFloat(e.target.value) : null)} style={{ width: 50, padding: '4px 6px', background: '#1e1e1e', border: '1px solid #333', borderRadius: 4, color: '#ccc', fontSize: 11, fontFamily: 'inherit', textAlign: 'right' }} /></td>
                     <td style={S.tdR}><input type="number" value={it.cantidad} onChange={e => updateRow(it._rowId, 'cantidad', parseInt(e.target.value) || 1)} style={{ width: 50, padding: '4px 6px', background: '#1e1e1e', border: '1px solid #333', borderRadius: 4, color: '#ccc', fontSize: 11, fontFamily: 'inherit', textAlign: 'right' }} /></td>
-                    <td style={S.tdR}><input type="number" step={0.01} value={it.costo ?? ''} onChange={e => updateRow(it._rowId, 'costo', e.target.value ? parseFloat(e.target.value) : null)} style={{ width: 70, padding: '4px 6px', background: '#1e1e1e', border: '1px solid #333', borderRadius: 4, color: '#F59E0B', fontSize: 11, fontFamily: 'inherit', textAlign: 'right' }} /></td>
+                    <td style={S.tdR}><input type="number" step={0.01} value={it.costo ?? ''} onChange={e => updateRow(it._rowId, 'costo', e.target.value ? parseFloat(e.target.value) : null)} style={{ width: 70, padding: '4px 6px', background: '#1e1e1e', border: '1px solid #333', borderRadius: 4, color: '#D97706', fontSize: 11, fontFamily: 'inherit', textAlign: 'right' }} /></td>
                     <td style={S.tdR}><input type="number" step={0.01} value={it.precio_unitario ?? ''} onChange={e => updateRow(it._rowId, 'precio_unitario', e.target.value ? parseFloat(e.target.value) : null)} style={{ width: 70, padding: '4px 6px', background: '#1e1e1e', border: '1px solid #333', borderRadius: 4, color: '#ccc', fontSize: 11, fontFamily: 'inherit', textAlign: 'right' }} /></td>
                     <td style={S.td}>
                       <select value={it.moneda || ''} onChange={e => updateRow(it._rowId, 'moneda', (e.target.value || null) as any)}
@@ -1218,7 +1218,7 @@ export default function CotEditorIlum({ cotId, onBack, onSwitchVersion }: { cotI
       <div style={{ maxWidth: 1200, margin: '0 auto' }}>
         {/* Header */}
         <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 8 : 20, marginBottom: 24, paddingBottom: 16, borderBottom: '1px solid #222', flexWrap: 'wrap' }}>
-          <button onClick={onBack} style={{ background: 'none', border: 'none', color: '#57FF9A', cursor: 'pointer', fontSize: 14, fontWeight: 600, fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 4 }}>
+          <button onClick={onBack} style={{ background: 'none', border: 'none', color: '#10B981', cursor: 'pointer', fontSize: 14, fontWeight: 600, fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 4 }}>
             {'<'} Cotizaciones
           </button>
           <div style={{ flex: 1 }}>
@@ -1244,13 +1244,13 @@ export default function CotEditorIlum({ cotId, onBack, onSwitchVersion }: { cotI
               </button>
             ))}
           </div>
-          <button onClick={() => setShowAIImport(true)} style={{ padding: '6px 12px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #57FF9A44', background: 'transparent', color: '#57FF9A', display: 'inline-flex', alignItems: 'center', gap: 4 }}><Sparkles size={12} /> {isMobile ? 'AI' : 'Importar con AI'}</button>
-          <button onClick={syncAllWithCatalog} style={{ padding: '6px 12px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #3B82F644', background: 'transparent', color: '#3B82F6', display: 'inline-flex', alignItems: 'center', gap: 4 }}><RefreshCw size={12} /> {isMobile ? 'Sync' : 'Sync catálogo'}</button>
-          <button onClick={autoNumberNomenclaturas} title="Asigna L-01, L-02… a items sin nomenclatura" style={{ padding: '6px 12px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #57FF9A44', background: 'transparent', color: '#57FF9A', display: 'inline-flex', alignItems: 'center', gap: 4 }}>🏷 {isMobile ? 'Num' : 'Auto-numerar'}</button>
+          <button onClick={() => setShowAIImport(true)} style={{ padding: '6px 12px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #10B98144', background: 'transparent', color: '#10B981', display: 'inline-flex', alignItems: 'center', gap: 4 }}><Sparkles size={12} /> {isMobile ? 'AI' : 'Importar con AI'}</button>
+          <button onClick={syncAllWithCatalog} style={{ padding: '6px 12px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #2563EB44', background: 'transparent', color: '#2563EB', display: 'inline-flex', alignItems: 'center', gap: 4 }}><RefreshCw size={12} /> {isMobile ? 'Sync' : 'Sync catálogo'}</button>
+          <button onClick={autoNumberNomenclaturas} title="Asigna L-01, L-02… a items sin nomenclatura" style={{ padding: '6px 12px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #10B98144', background: 'transparent', color: '#10B981', display: 'inline-flex', alignItems: 'center', gap: 4 }}>🏷 {isMobile ? 'Num' : 'Auto-numerar'}</button>
           <button onClick={() => setShowPdfPicker(true)} style={{ padding: '6px 12px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #06B6D444', background: 'transparent', color: '#06B6D4', display: 'inline-flex', alignItems: 'center', gap: 4 }}><FileText size={12} /> {isMobile ? 'PDF' : 'Exportar PDF'}</button>
-          <VersionManager cotId={cotId} getCurrentSnapshot={getVersionSnapshot} onSwitchVersion={onSwitchVersion || (() => {})} accentColor="#57FF9A" compact={isMobile} />
+          <VersionManager cotId={cotId} getCurrentSnapshot={getVersionSnapshot} onSwitchVersion={onSwitchVersion || (() => {})} accentColor="#10B981" compact={isMobile} />
           {quote && (quote.stage === 'contrato' || quote.stage === 'propuesta') && (
-            <button onClick={() => window.open(`/cotizacion/${cotId}/memoria-tecnica`, '_blank')} style={{ padding: '6px 12px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #F59E0B44', background: 'transparent', color: '#F59E0B', display: 'inline-flex', alignItems: 'center', gap: 4 }}><BookOpen size={12} /> {isMobile ? 'Memoria' : 'Memoria Técnica'}</button>
+            <button onClick={() => window.open(`/cotizacion/${cotId}/memoria-tecnica`, '_blank')} style={{ padding: '6px 12px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #D9770644', background: 'transparent', color: '#D97706', display: 'inline-flex', alignItems: 'center', gap: 4 }}><BookOpen size={12} /> {isMobile ? 'Memoria' : 'Memoria Técnica'}</button>
           )}
           {/* Badge MG Real — click para bulk adjust */}
           {!isMobile && (
@@ -1260,9 +1260,9 @@ export default function CotEditorIlum({ cotId, onBack, onSwitchVersion }: { cotI
                 title={`MG Real = (revenue − costo productos − nómina ${ilumConfig.nominaPct}%) / revenue billed. Click para ajustar.`}
                 style={{
                   padding: '6px 12px', borderRadius: 20, fontSize: 10, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
-                  border: '1px solid ' + (overallMargin >= 25 ? '#57FF9A' : overallMargin >= 15 ? '#F59E0B' : '#EF4444'),
-                  background: (overallMargin >= 25 ? '#57FF9A' : overallMargin >= 15 ? '#F59E0B' : '#EF4444') + '22',
-                  color: overallMargin >= 25 ? '#57FF9A' : overallMargin >= 15 ? '#F59E0B' : '#EF4444',
+                  border: '1px solid ' + (overallMargin >= 25 ? '#10B981' : overallMargin >= 15 ? '#D97706' : '#DC2626'),
+                  background: (overallMargin >= 25 ? '#10B981' : overallMargin >= 15 ? '#D97706' : '#DC2626') + '22',
+                  color: overallMargin >= 25 ? '#10B981' : overallMargin >= 15 ? '#D97706' : '#DC2626',
                   display: 'inline-flex', alignItems: 'center', gap: 4,
                 }}
               >MG Real {overallMargin}%</button>
@@ -1270,7 +1270,7 @@ export default function CotEditorIlum({ cotId, onBack, onSwitchVersion }: { cotI
                 <div style={{ position: 'absolute', top: '110%', right: 0, zIndex: 30, background: '#141414', border: '1px solid #333', borderRadius: 10, padding: 12, minWidth: 320, boxShadow: '0 10px 30px rgba(0,0,0,0.6)' }}>
                   <div style={{ fontSize: 11, fontWeight: 700, color: '#fff', marginBottom: 6 }}>Ajustar margen real del proyecto</div>
                   <div style={{ fontSize: 10, color: '#888', marginBottom: 8, lineHeight: 1.5 }}>
-                    Escala precios proporcionalmente para que <b style={{ color: '#F59E0B' }}>MG Real</b> (revenue billed − costo − nómina <b style={{ color: '#F59E0B' }}>{ilumConfig.nominaPct}%</b>) llegue al target.
+                    Escala precios proporcionalmente para que <b style={{ color: '#D97706' }}>MG Real</b> (revenue billed − costo − nómina <b style={{ color: '#D97706' }}>{ilumConfig.nominaPct}%</b>) llegue al target.
                   </div>
                   <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                     <input
@@ -1285,7 +1285,7 @@ export default function CotEditorIlum({ cotId, onBack, onSwitchVersion }: { cotI
                     <span style={{ fontSize: 11, color: '#888' }}>%</span>
                     <button
                       onClick={() => { applyBulkMargin(parseFloat(bulkMarginInput)); setShowBulkMargin(false) }}
-                      style={{ padding: '5px 10px', fontSize: 11, fontWeight: 700, background: '#57FF9A22', border: '1px solid #57FF9A', color: '#57FF9A', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit' }}
+                      style={{ padding: '5px 10px', fontSize: 11, fontWeight: 700, background: '#10B98122', border: '1px solid #10B981', color: '#10B981', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit' }}
                     >Aplicar</button>
                     <button
                       onClick={() => setShowBulkMargin(false)}
@@ -1299,7 +1299,7 @@ export default function CotEditorIlum({ cotId, onBack, onSwitchVersion }: { cotI
               )}
             </div>
           )}
-          <div style={{ fontSize: isMobile ? 14 : 16, fontWeight: 700, color: '#57FF9A' }}>${fmt(grandTotal)}</div>
+          <div style={{ fontSize: isMobile ? 14 : 16, fontWeight: 700, color: '#10B981' }}>${fmt(grandTotal)}</div>
         </div>
 
         {/* Subsection Presets */}
@@ -1314,8 +1314,8 @@ export default function CotEditorIlum({ cotId, onBack, onSwitchVersion }: { cotI
                   disabled={exists}
                   style={{
                     padding: '6px 12px', borderRadius: 6, fontSize: isMobile ? 10 : 11, fontWeight: 600, fontFamily: 'inherit',
-                    background: exists ? '#57FF9A33' : '#1a1a1a', border: exists ? '1px solid #57FF9A' : '1px solid #333',
-                    color: exists ? '#57FF9A' : '#666', cursor: exists ? 'default' : 'pointer', opacity: exists ? 1 : 0.6,
+                    background: exists ? '#10B98133' : '#1a1a1a', border: exists ? '1px solid #10B981' : '1px solid #333',
+                    color: exists ? '#10B981' : '#666', cursor: exists ? 'default' : 'pointer', opacity: exists ? 1 : 0.6,
                   }}
                 >
                   {preset}
@@ -1337,14 +1337,14 @@ export default function CotEditorIlum({ cotId, onBack, onSwitchVersion }: { cotI
         {selectedIds.size > 0 && (
           <div style={{
             display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px', marginBottom: 12,
-            background: '#57FF9A11', border: '1px solid #57FF9A33', borderRadius: 10, flexWrap: 'wrap',
+            background: '#10B98111', border: '1px solid #10B98133', borderRadius: 10, flexWrap: 'wrap',
           }}>
-            <span style={{ fontSize: 12, fontWeight: 700, color: '#57FF9A' }}>{selectedIds.size} sel.</span>
+            <span style={{ fontSize: 12, fontWeight: 700, color: '#10B981' }}>{selectedIds.size} sel.</span>
             <span style={{ width: 1, height: 16, background: '#333' }} />
-            <button onClick={syncSelectedWithCatalog} style={{ padding: '4px 10px', borderRadius: 6, fontSize: 11, background: '#3B82F622', border: '1px solid #3B82F644', color: '#3B82F6', cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 4 }}>
+            <button onClick={syncSelectedWithCatalog} style={{ padding: '4px 10px', borderRadius: 6, fontSize: 11, background: '#2563EB22', border: '1px solid #2563EB44', color: '#2563EB', cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 4 }}>
               <RefreshCw size={11} /> Sync catálogo
             </button>
-            <button onClick={bulkDeleteSelected} style={{ padding: '4px 10px', borderRadius: 6, fontSize: 11, background: '#EF444422', border: '1px solid #EF444444', color: '#EF4444', cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 4 }}>
+            <button onClick={bulkDeleteSelected} style={{ padding: '4px 10px', borderRadius: 6, fontSize: 11, background: '#DC262622', border: '1px solid #DC262644', color: '#DC2626', cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 4 }}>
               <Trash2 size={11} /> Eliminar
             </button>
             <div style={{ flex: 1 }} />
@@ -1387,7 +1387,7 @@ export default function CotEditorIlum({ cotId, onBack, onSwitchVersion }: { cotI
         )}
 
         {/* Summary Footer */}
-        <div style={{ marginTop: 30, padding: '20px', background: '#111', borderRadius: 10, borderTop: '2px solid #57FF9A' }}>
+        <div style={{ marginTop: 30, padding: '20px', background: '#111', borderRadius: 10, borderTop: '2px solid #10B981' }}>
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: isMobile ? 20 : 40, flexWrap: 'wrap', alignItems: 'flex-start' }}>
             {/* Config inputs */}
             <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
@@ -1411,7 +1411,7 @@ export default function CotEditorIlum({ cotId, onBack, onSwitchVersion }: { cotI
                 <span style={{ color: '#ccc' }}>${fmt(subtotal)}</span>
               </div>
               {(ilumConfig.descuento || 0) > 0 && (
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#F59E0B', marginBottom: 4 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#D97706', marginBottom: 4 }}>
                   <span>Descuento {ilumConfig.descuento}%</span>
                   <span>-${fmt(descuentoAmt)}</span>
                 </div>
@@ -1421,15 +1421,15 @@ export default function CotEditorIlum({ cotId, onBack, onSwitchVersion }: { cotI
                 <span style={{ color: '#ccc' }}>${fmt(ivaAmt)}</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 16, fontWeight: 700, borderTop: '1px solid #333', paddingTop: 8 }}>
-                <span style={{ color: '#57FF9A' }}>TOTAL</span>
-                <span style={{ color: '#57FF9A' }}>${fmt(grandTotal)}</span>
+                <span style={{ color: '#10B981' }}>TOTAL</span>
+                <span style={{ color: '#10B981' }}>${fmt(grandTotal)}</span>
               </div>
             </div>
           </div>
 
           {/* Análisis Interno — margen real con nómina y descuento */}
           <div style={{ marginTop: 16, padding: 12, background: '#1a1414', border: '1px solid #332222', borderRadius: 10 }}>
-            <div style={{ fontSize: 10, fontWeight: 600, color: '#F59E0B', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Análisis Interno</div>
+            <div style={{ fontSize: 10, fontWeight: 600, color: '#D97706', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Análisis Interno</div>
             {(() => {
               let vtProd = 0, ctProd = 0
               products.forEach(p => {
@@ -1452,8 +1452,8 @@ export default function CotEditorIlum({ cotId, onBack, onSwitchVersion }: { cotI
                     <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}><span style={{ color: '#888' }}>Venta productos (listprice)</span><span style={{ color: '#fff', fontWeight: 600 }}>${fmt(vtProd)}</span></div>
                     {descPct > 0 && (
                       <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}>
-                        <span style={{ color: '#EF4444' }}>− Descuento {descPct}%</span>
-                        <span style={{ color: '#EF4444' }}>−${fmt(descMonto)}</span>
+                        <span style={{ color: '#DC2626' }}>− Descuento {descPct}%</span>
+                        <span style={{ color: '#DC2626' }}>−${fmt(descMonto)}</span>
                       </div>
                     )}
                     {descPct > 0 && (
@@ -1462,7 +1462,7 @@ export default function CotEditorIlum({ cotId, onBack, onSwitchVersion }: { cotI
                         <span style={{ color: '#fff' }}>${fmt(vtBilled)}</span>
                       </div>
                     )}
-                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10, marginTop: 4 }}><span style={{ color: '#888' }}>− Costo productos</span><span style={{ color: '#EF4444' }}>−${fmt(ctProd)}</span></div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10, marginTop: 4 }}><span style={{ color: '#888' }}>− Costo productos</span><span style={{ color: '#DC2626' }}>−${fmt(ctProd)}</span></div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}>
                       <span style={{ color: '#888', display: 'flex', alignItems: 'center', gap: 4 }}>
                         − Nómina
@@ -1474,23 +1474,23 @@ export default function CotEditorIlum({ cotId, onBack, onSwitchVersion }: { cotI
                         />
                         <span style={{ fontSize: 9, color: '#555' }}>%</span>
                       </span>
-                      <span style={{ color: '#EF4444' }}>−${fmt(nomina)}</span>
+                      <span style={{ color: '#DC2626' }}>−${fmt(nomina)}</span>
                     </div>
                   </div>
                   <div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}>
                       <span style={{ color: '#888' }}>MG productos</span>
-                      <span style={{ color: mgProd >= 25 ? '#57FF9A' : mgProd >= 15 ? '#F59E0B' : '#EF4444', fontWeight: 600 }}>{mgProd}%</span>
+                      <span style={{ color: mgProd >= 25 ? '#10B981' : mgProd >= 15 ? '#D97706' : '#DC2626', fontWeight: 600 }}>{mgProd}%</span>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}>
                       <span style={{ color: '#888' }}>MG bruto{descPct > 0 ? ' (c/ desc)' : ''}</span>
                       <span style={{ color: '#aaa', fontWeight: 600 }}>{mgBruto}%</span>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 12, borderTop: '1px solid #332222', marginTop: 4, paddingTop: 6 }}>
-                      <span style={{ color: '#F59E0B', fontWeight: 700 }}>MG real (c/ nómina{descPct > 0 ? ' y desc' : ''})</span>
-                      <span style={{ color: mgReal >= 25 ? '#57FF9A' : mgReal >= 15 ? '#F59E0B' : '#EF4444', fontWeight: 700, fontSize: 15 }}>{mgReal}%</span>
+                      <span style={{ color: '#D97706', fontWeight: 700 }}>MG real (c/ nómina{descPct > 0 ? ' y desc' : ''})</span>
+                      <span style={{ color: mgReal >= 25 ? '#10B981' : mgReal >= 15 ? '#D97706' : '#DC2626', fontWeight: 700, fontSize: 15 }}>{mgReal}%</span>
                     </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}><span style={{ color: '#888' }}>Utilidad real</span><span style={{ color: mgReal >= 0 ? '#57FF9A' : '#EF4444', fontWeight: 600 }}>${fmt(vtBilled - ctProd - nomina)}</span></div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}><span style={{ color: '#888' }}>Utilidad real</span><span style={{ color: mgReal >= 0 ? '#10B981' : '#DC2626', fontWeight: 600 }}>${fmt(vtBilled - ctProd - nomina)}</span></div>
                     <div style={{ fontSize: 8, color: '#555', marginTop: 6, lineHeight: 1.4 }}>
                       MG productos = sin desc. MG bruto = con desc, sin nómina. MG real = con desc y nómina prorrateada. % nómina editable.
                     </div>

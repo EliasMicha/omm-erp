@@ -96,36 +96,36 @@ interface ObraData {
    ═══════════════════════════════════════════════════════════════════ */
 
 const SISTEMAS_CONFIG: Record<Sistema, { label: string; color: string; icon: typeof Wifi }> = {
-  CCTV:       { label: 'CCTV',             color: '#EF4444', icon: Shield },
-  Audio:      { label: 'Audio',            color: '#C084FC', icon: Volume2 },
-  Redes:      { label: 'Redes',            color: '#3B82F6', icon: Wifi },
-  Control:    { label: 'Control (Lutron)', color: '#F59E0B', icon: Sun },
+  CCTV:       { label: 'CCTV',             color: '#DC2626', icon: Shield },
+  Audio:      { label: 'Audio',            color: '#A78BFA', icon: Volume2 },
+  Redes:      { label: 'Redes',            color: '#2563EB', icon: Wifi },
+  Control:    { label: 'Control (Lutron)', color: '#D97706', icon: Sun },
   Acceso:     { label: 'Control Acceso',   color: '#06B6D4', icon: Lock },
   Electrico:  { label: 'Eléctrico',        color: '#FF6B35', icon: Wrench },
   Humo:       { label: 'Detección Humo',   color: '#DC2626', icon: Flame },
   BMS:        { label: 'BMS',              color: '#14B8A6', icon: Server },
   Telefonia:  { label: 'Telefonía',        color: '#8B5CF6', icon: Phone },
   Celular:    { label: 'Red Celular',      color: '#EC4899', icon: Radio },
-  Persianas:  { label: 'Cortinas/Persianas', color: '#A855F7', icon: Blinds },
+  Persianas:  { label: 'Cortinas/Persianas', color: '#7C3AED', icon: Blinds },
 }
 
 const STATUS_CONFIG: Record<ObraStatus, { label: string; color: string }> = {
-  entrega_pendiente: { label: 'Entrega pendiente', color: '#F59E0B' },
-  en_ejecucion:      { label: 'En ejecución',      color: '#57FF9A' },
+  entrega_pendiente: { label: 'Entrega pendiente', color: '#D97706' },
+  en_ejecucion:      { label: 'En ejecución',      color: '#10B981' },
   pausada:           { label: 'Pausada',            color: '#6B7280' },
-  completada:        { label: 'Completada',         color: '#3B82F6' },
+  completada:        { label: 'Completada',         color: '#2563EB' },
 }
 
 const ACT_STATUS_CONFIG: Record<ActividadStatus, { label: string; color: string }> = {
   pendiente:   { label: 'Pendiente',   color: '#6B7280' },
-  en_progreso: { label: 'En progreso', color: '#3B82F6' },
-  bloqueada:   { label: 'Bloqueada',   color: '#EF4444' },
-  completada:  { label: 'Completada',  color: '#57FF9A' },
+  en_progreso: { label: 'En progreso', color: '#2563EB' },
+  bloqueada:   { label: 'Bloqueada',   color: '#DC2626' },
+  completada:  { label: 'Completada',  color: '#10B981' },
 }
 
 const NIVEL_CONFIG: Record<string, { label: string; color: string }> = {
-  senior: { label: 'Senior', color: '#F59E0B' },
-  medio:  { label: 'Medio',  color: '#3B82F6' },
+  senior: { label: 'Senior', color: '#D97706' },
+  medio:  { label: 'Medio',  color: '#2563EB' },
   junior: { label: 'Junior', color: '#6B7280' },
 }
 
@@ -381,9 +381,9 @@ export default function Obra() {
       {/* KPIs */}
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
         <KpiCard label="Obras activas" value={activas} icon={<HardHat size={16} />} />
-        <KpiCard label="Entrega pendiente" value={pendientesEntrega} color="#F59E0B" icon={<FileText size={16} />} />
-        <KpiCard label="Actividades bloqueadas" value={bloqueadas} color="#EF4444" icon={<AlertTriangle size={16} />} />
-        <KpiCard label="Avance promedio" value={`${Math.round(avgAvance)}%`} color="#3B82F6" icon={<TrendingUp size={16} />} />
+        <KpiCard label="Entrega pendiente" value={pendientesEntrega} color="#D97706" icon={<FileText size={16} />} />
+        <KpiCard label="Actividades bloqueadas" value={bloqueadas} color="#DC2626" icon={<AlertTriangle size={16} />} />
+        <KpiCard label="Avance promedio" value={`${Math.round(avgAvance)}%`} color="#2563EB" icon={<TrendingUp size={16} />} />
       </div>
 
       {/* Tabs */}
@@ -397,9 +397,9 @@ export default function Obra() {
           return (
             <button key={key} onClick={() => setTab(key)} style={{
               padding: '8px 14px', fontSize: 12, fontWeight: active ? 600 : 400,
-              color: active ? '#57FF9A' : '#666',
+              color: active ? '#10B981' : '#666',
               background: active ? 'rgba(87,255,154,0.08)' : 'transparent',
-              border: 'none', borderBottom: active ? '2px solid #57FF9A' : '2px solid transparent',
+              border: 'none', borderBottom: active ? '2px solid #10B981' : '2px solid transparent',
               cursor: 'pointer', fontFamily: 'inherit', borderRadius: '8px 8px 0 0',
             }}>
               <Icon size={13} style={{ marginRight: 6 }} />{label}
@@ -420,14 +420,14 @@ export default function Obra() {
                     ...cardStyle, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 16,
                     transition: 'border-color 0.12s',
                   }}
-                  onMouseEnter={e => (e.currentTarget.style.borderColor = '#57FF9A33')}
+                  onMouseEnter={e => (e.currentTarget.style.borderColor = '#10B98133')}
                   onMouseLeave={e => (e.currentTarget.style.borderColor = '#222')}
                   >
                     <div style={{ flex: 1 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
                         <span style={{ fontSize: 14, fontWeight: 600, color: '#fff' }}>{o.nombre}</span>
                         <Badge label={st.label} color={st.color} />
-                        {bloq > 0 && <Badge label={`${bloq} bloqueada${bloq > 1 ? 's' : ''}`} color="#EF4444" />}
+                        {bloq > 0 && <Badge label={`${bloq} bloqueada${bloq > 1 ? 's' : ''}`} color="#DC2626" />}
                       </div>
                       <div style={{ fontSize: 11, color: '#666', marginBottom: 6 }}>
                         {o.cliente} · {o.coordinador} · {o.direccion}
@@ -602,10 +602,10 @@ function ObraDetail({ obra, instaladores, onBack, updateObra }: {
       {/* KPIs */}
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(5, 1fr)', gap: 12, marginBottom: 20 }}>
         <KpiCard label="Avance global" value={`${obra.avance_global}%`} icon={<TrendingUp size={16} />} />
-        <KpiCard label="Actividades" value={`${completadas}/${obra.actividades.length}`} color="#3B82F6" icon={<ClipboardList size={16} />} />
-        <KpiCard label="Bloqueadas" value={bloqueadas} color={bloqueadas > 0 ? '#EF4444' : '#57FF9A'} icon={<AlertTriangle size={16} />} />
-        <KpiCard label="Documentos" value={`${docsRecibidos}/${obra.entrega_docs.length}`} color="#F59E0B" icon={<FileText size={16} />} />
-        <KpiCard label="Contrato" value={F(obra.valor_contrato)} color="#C084FC" icon={<HardHat size={16} />} />
+        <KpiCard label="Actividades" value={`${completadas}/${obra.actividades.length}`} color="#2563EB" icon={<ClipboardList size={16} />} />
+        <KpiCard label="Bloqueadas" value={bloqueadas} color={bloqueadas > 0 ? '#DC2626' : '#10B981'} icon={<AlertTriangle size={16} />} />
+        <KpiCard label="Documentos" value={`${docsRecibidos}/${obra.entrega_docs.length}`} color="#D97706" icon={<FileText size={16} />} />
+        <KpiCard label="Contrato" value={F(obra.valor_contrato)} color="#A78BFA" icon={<HardHat size={16} />} />
       </div>
 
       {/* Sub-tabs */}
@@ -624,9 +624,9 @@ function ObraDetail({ obra, instaladores, onBack, updateObra }: {
           return (
             <button key={key} onClick={() => setSubTab(key)} style={{
               padding: '8px 14px', fontSize: 12, fontWeight: active ? 600 : 400,
-              color: active ? '#57FF9A' : '#666',
+              color: active ? '#10B981' : '#666',
               background: active ? 'rgba(87,255,154,0.08)' : 'transparent',
-              border: 'none', borderBottom: active ? '2px solid #57FF9A' : '2px solid transparent',
+              border: 'none', borderBottom: active ? '2px solid #10B981' : '2px solid transparent',
               cursor: 'pointer', fontFamily: 'inherit', borderRadius: '8px 8px 0 0',
             }}>
               <Icon size={13} style={{ marginRight: 6 }} />{label}
@@ -783,7 +783,7 @@ function SubActividades({ obra, instaladores, updateObra, showNew, setShowNew }:
           </div>
         </div>
         <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-          {genStatus && <span style={{ fontSize: 10, color: genStatus.startsWith('✓') ? '#57FF9A' : genStatus.startsWith('Error') ? '#EF4444' : '#888' }}>{genStatus}</span>}
+          {genStatus && <span style={{ fontSize: 10, color: genStatus.startsWith('✓') ? '#10B981' : genStatus.startsWith('Error') ? '#DC2626' : '#888' }}>{genStatus}</span>}
           {obra.cotizacion_id && (
             <Btn size="sm" variant="default" onClick={handleAutogenerar} disabled={generating}>
               {generating ? <><Loader2 size={12} /> Generando...</> : <>🤖 Autogenerar desde cotización</>}
@@ -824,7 +824,7 @@ function SubActividades({ obra, instaladores, updateObra, showNew, setShowNew }:
                     if (selected.size === filteredActs.length) setSelected(new Set())
                     else setSelected(new Set(filteredActs.map(a => a.id)))
                   }}
-                  style={{ accentColor: '#57FF9A' }} />
+                  style={{ accentColor: '#10B981' }} />
                 Sel. todo ({filteredActs.length})
               </label>
               {selected.size > 0 && (
@@ -853,7 +853,7 @@ function SubActividades({ obra, instaladores, updateObra, showNew, setShowNew }:
 
       {/* New activity form */}
       {showNew && (
-        <div style={{ ...cardStyle, borderColor: '#57FF9A33' }}>
+        <div style={{ ...cardStyle, borderColor: '#10B98133' }}>
           <div style={{ fontSize: 13, fontWeight: 600, color: '#fff', marginBottom: 12 }}>Nueva actividad</div>
           <div style={{ display: 'grid', gridTemplateColumns: '130px 1fr 150px 150px 130px', gap: 8, marginBottom: 10 }}>
             <div>
@@ -931,7 +931,7 @@ function SubActividades({ obra, instaladores, updateObra, showNew, setShowNew }:
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                       <input type="checkbox" checked={selected.has(a.id)}
                         onChange={() => setSelected(prev => { const n = new Set(prev); n.has(a.id) ? n.delete(a.id) : n.add(a.id); return n })}
-                        style={{ accentColor: '#57FF9A', flexShrink: 0 }} />
+                        style={{ accentColor: '#10B981', flexShrink: 0 }} />
                       <div style={{ flex: 1 }}>
                         <div style={{ fontSize: 12, color: '#ccc', marginBottom: 2 }}>{a.descripcion}</div>
                         <div style={{ fontSize: 10, color: '#555', display: 'flex', gap: 12, flexWrap: 'wrap' }}>
@@ -941,7 +941,7 @@ function SubActividades({ obra, instaladores, updateObra, showNew, setShowNew }:
                           {a.fecha_fin_plan && <span><Calendar size={10} style={{ verticalAlign: 'middle' }} /> {formatDate(a.fecha_fin_plan)}</span>}
                         </div>
                         {a.bloqueo && (
-                          <div style={{ fontSize: 10, color: '#EF4444', marginTop: 4, padding: '3px 8px', background: 'rgba(239,68,68,0.06)', borderRadius: 4 }}>
+                          <div style={{ fontSize: 10, color: '#DC2626', marginTop: 4, padding: '3px 8px', background: 'rgba(239,68,68,0.06)', borderRadius: 4 }}>
                             <AlertTriangle size={10} style={{ verticalAlign: 'middle' }} /> {a.bloqueo}
                           </div>
                         )}
@@ -950,7 +950,7 @@ function SubActividades({ obra, instaladores, updateObra, showNew, setShowNew }:
                         <select value={a.instalador_id || ''}
                           onChange={e => updateActividad(a.id, { instalador_id: e.target.value || undefined } as any)}
                           title="Asignar instalador"
-                          style={{ padding: '3px 6px', fontSize: 10, background: '#0a0a0a', border: '1px solid #333', borderRadius: 4, color: a.instalador_id ? '#57FF9A' : '#555', fontFamily: 'inherit', maxWidth: 110 }}
+                          style={{ padding: '3px 6px', fontSize: 10, background: '#0a0a0a', border: '1px solid #333', borderRadius: 4, color: a.instalador_id ? '#10B981' : '#555', fontFamily: 'inherit', maxWidth: 110 }}
                         >
                           <option value="">Sin asignar</option>
                           {instaladores.map(i => <option key={i.id} value={i.id}>{i.nombre}</option>)}
@@ -1331,7 +1331,7 @@ Devuelve SOLO un JSON array, sin markdown:
               borderRadius: m.role === 'user' ? '14px 14px 4px 14px' : '14px 14px 14px 4px',
               background: m.role === 'user' ? 'rgba(87,255,154,0.12)' : '#1a1a1a',
               border: m.role === 'user' ? '1px solid rgba(87,255,154,0.2)' : '1px solid #252525',
-              fontSize: 12, color: m.role === 'user' ? '#57FF9A' : '#ccc',
+              fontSize: 12, color: m.role === 'user' ? '#10B981' : '#ccc',
               lineHeight: 1.5, whiteSpace: 'pre-wrap',
             }}>
               {m.text}
@@ -1341,7 +1341,7 @@ Devuelve SOLO un JSON array, sin markdown:
           {/* Phase-specific UI */}
           {phase === 'loading' && (
             <div style={{ textAlign: 'center', padding: 20 }}>
-              <Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} color="#57FF9A" />
+              <Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} color="#10B981" />
               <div style={{ fontSize: 11, color: '#555', marginTop: 8 }}>Leyendo cotización...</div>
             </div>
           )}
@@ -1386,7 +1386,7 @@ Devuelve SOLO un JSON array, sin markdown:
                       background: checked ? 'rgba(87,255,154,0.06)' : 'transparent',
                       borderRadius: 6, border: checked ? '1px solid rgba(87,255,154,0.15)' : '1px solid transparent',
                     }}>
-                      <input type="checkbox" checked={checked} onChange={() => toggleInst(inst.id)} style={{ accentColor: '#57FF9A' }} />
+                      <input type="checkbox" checked={checked} onChange={() => toggleInst(inst.id)} style={{ accentColor: '#10B981' }} />
                       <div style={{ flex: 1 }}>
                         <div style={{ fontSize: 12, color: checked ? '#fff' : '#ccc' }}>{inst.nombre}</div>
                         <div style={{ fontSize: 10, color: '#555' }}>{inst.habilidades.join(', ')}</div>
@@ -1415,7 +1415,7 @@ Devuelve SOLO un JSON array, sin markdown:
 
           {phase === 'generating' && (
             <div style={{ textAlign: 'center', padding: 12 }}>
-              <Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} color="#57FF9A" />
+              <Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} color="#10B981" />
             </div>
           )}
 
@@ -1845,7 +1845,7 @@ ${sections.evidenciaFotos && fotos.length > 0 ? `
                   background: sections[s.key] ? 'rgba(87,255,154,0.04)' : 'transparent',
                   borderRadius: 6, border: sections[s.key] ? '1px solid rgba(87,255,154,0.12)' : '1px solid #1a1a1a',
                 }}>
-                  <input type="checkbox" checked={sections[s.key]} onChange={() => toggleSection(s.key)} style={{ accentColor: '#57FF9A' }} />
+                  <input type="checkbox" checked={sections[s.key]} onChange={() => toggleSection(s.key)} style={{ accentColor: '#10B981' }} />
                   <span style={{ fontSize: 12, color: sections[s.key] ? '#ccc' : '#555', flex: 1 }}>{s.label}</span>
                   {s.count !== undefined && <span style={{ fontSize: 10, color: '#555' }}>{s.count}</span>}
                 </label>
@@ -1868,7 +1868,7 @@ ${sections.evidenciaFotos && fotos.length > 0 ? `
                       display: 'flex', alignItems: 'center', gap: 8, padding: '5px 10px', cursor: 'pointer',
                       borderBottom: '1px solid #151515', opacity: excluded ? 0.4 : 1,
                     }}>
-                      <input type="checkbox" checked={!excluded} onChange={() => toggleReporte(r.id)} style={{ accentColor: '#57FF9A' }} />
+                      <input type="checkbox" checked={!excluded} onChange={() => toggleReporte(r.id)} style={{ accentColor: '#10B981' }} />
                       <span style={{ fontSize: 11, color: '#ccc', flex: 1 }}>{formatDate(r.fecha)} — {inst?.nombre || 'Instalador'}</span>
                       <span style={{ fontSize: 10, color: '#555' }}>{r.fotos.length > 0 ? `${r.fotos.length} fotos` : ''}</span>
                     </label>
@@ -2026,7 +2026,7 @@ function SubReportes({ obra, instaladores, updateObra, showNew, setShowNew }: {
 
       {/* New report form */}
       {showNew && (
-        <div style={{ ...cardStyle, borderColor: '#57FF9A33' }}>
+        <div style={{ ...cardStyle, borderColor: '#10B98133' }}>
           <div style={{ fontSize: 13, fontWeight: 600, color: '#fff', marginBottom: 12 }}>Nuevo reporte de campo</div>
           <div style={{ display: 'grid', gridTemplateColumns: '200px 1fr', gap: 8, marginBottom: 10 }}>
             <div>
@@ -2041,7 +2041,7 @@ function SubReportes({ obra, instaladores, updateObra, showNew, setShowNew }: {
               <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                 <input type="file" ref={fileRef} accept="image/*" multiple style={{ display: 'none' }} onChange={handlePhotoUpload} />
                 <Btn size="sm" variant="default" onClick={() => fileRef.current?.click()}><Camera size={12} /> Subir fotos</Btn>
-                {newReporte.fotos.length > 0 && <span style={{ fontSize: 11, color: '#57FF9A' }}>{newReporte.fotos.length} foto{newReporte.fotos.length > 1 ? 's' : ''}</span>}
+                {newReporte.fotos.length > 0 && <span style={{ fontSize: 11, color: '#10B981' }}>{newReporte.fotos.length} foto{newReporte.fotos.length > 1 ? 's' : ''}</span>}
               </div>
             </div>
           </div>
@@ -2052,7 +2052,7 @@ function SubReportes({ obra, instaladores, updateObra, showNew, setShowNew }: {
                 <div key={i} style={{ position: 'relative' }}>
                   <img src={f} style={{ width: 60, height: 60, objectFit: 'cover', borderRadius: 6, border: '1px solid #333' }} />
                   <button onClick={() => setNewReporte(r => ({ ...r, fotos: r.fotos.filter((_, j) => j !== i) }))}
-                    style={{ position: 'absolute', top: -4, right: -4, width: 16, height: 16, borderRadius: '50%', background: '#EF4444', border: 'none', color: '#fff', fontSize: 10, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    style={{ position: 'absolute', top: -4, right: -4, width: 16, height: 16, borderRadius: '50%', background: '#DC2626', border: 'none', color: '#fff', fontSize: 10, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     <X size={8} />
                   </button>
                 </div>
@@ -2089,14 +2089,14 @@ function SubReportes({ obra, instaladores, updateObra, showNew, setShowNew }: {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
                     <span style={{ fontSize: 12, fontWeight: 600, color: '#fff' }}>{inst?.nombre || 'Instalador'}</span>
                     <span style={{ fontSize: 10, color: '#555' }}>{formatDate(r.fecha)}</span>
-                    {r.procesado && <Badge label="AI procesado" color="#3B82F6" />}
+                    {r.procesado && <Badge label="AI procesado" color="#2563EB" />}
                     {r.fotos.length > 0 && <span style={{ fontSize: 10, color: '#666' }}><Camera size={10} /> {r.fotos.length}</span>}
                   </div>
                   <div style={{ fontSize: 11, color: '#888' }}>
                     {r.ai_resumen || (r.texto_raw.length > 100 ? r.texto_raw.substring(0, 100) + '...' : r.texto_raw)}
                   </div>
                 </div>
-                {r.ai_bloqueos && r.ai_bloqueos.length > 0 && <Badge label={`${r.ai_bloqueos.length} bloqueo${r.ai_bloqueos.length > 1 ? 's' : ''}`} color="#EF4444" />}
+                {r.ai_bloqueos && r.ai_bloqueos.length > 0 && <Badge label={`${r.ai_bloqueos.length} bloqueo${r.ai_bloqueos.length > 1 ? 's' : ''}`} color="#DC2626" />}
                 <ChevronDown size={14} color="#444" style={{ transform: expanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }} />
               </div>
 
@@ -2120,19 +2120,19 @@ function SubReportes({ obra, instaladores, updateObra, showNew, setShowNew }: {
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
                       {r.ai_avances && r.ai_avances.length > 0 && (
                         <div style={{ padding: '8px 10px', background: 'rgba(87,255,154,0.04)', borderRadius: 6, border: '1px solid rgba(87,255,154,0.1)' }}>
-                          <div style={{ fontSize: 10, fontWeight: 600, color: '#57FF9A', marginBottom: 6 }}>✓ Avances</div>
+                          <div style={{ fontSize: 10, fontWeight: 600, color: '#10B981', marginBottom: 6 }}>✓ Avances</div>
                           {r.ai_avances.map((a, i) => <div key={i} style={{ fontSize: 11, color: '#aaa', marginBottom: 3 }}>• {a}</div>)}
                         </div>
                       )}
                       {r.ai_faltantes && r.ai_faltantes.length > 0 && (
                         <div style={{ padding: '8px 10px', background: 'rgba(245,158,11,0.04)', borderRadius: 6, border: '1px solid rgba(245,158,11,0.1)' }}>
-                          <div style={{ fontSize: 10, fontWeight: 600, color: '#F59E0B', marginBottom: 6 }}>⚠ Faltantes</div>
+                          <div style={{ fontSize: 10, fontWeight: 600, color: '#D97706', marginBottom: 6 }}>⚠ Faltantes</div>
                           {r.ai_faltantes.map((f, i) => <div key={i} style={{ fontSize: 11, color: '#aaa', marginBottom: 3 }}>• {f}</div>)}
                         </div>
                       )}
                       {r.ai_bloqueos && r.ai_bloqueos.length > 0 && (
                         <div style={{ padding: '8px 10px', background: 'rgba(239,68,68,0.04)', borderRadius: 6, border: '1px solid rgba(239,68,68,0.1)' }}>
-                          <div style={{ fontSize: 10, fontWeight: 600, color: '#EF4444', marginBottom: 6 }}>🚫 Bloqueos</div>
+                          <div style={{ fontSize: 10, fontWeight: 600, color: '#DC2626', marginBottom: 6 }}>🚫 Bloqueos</div>
                           {r.ai_bloqueos.map((b, i) => <div key={i} style={{ fontSize: 11, color: '#aaa', marginBottom: 3 }}>• {b}</div>)}
                         </div>
                       )}
@@ -2192,8 +2192,8 @@ function SubEntrega({ obra, updateObra }: { obra: ObraData; updateObra: (fn: (o:
             <div style={{ fontSize: 11, color: '#666' }}>Documentación que oficina entrega al coordinador de obra al iniciar</div>
           </div>
           <div style={{ textAlign: 'right' }}>
-            <div style={{ fontSize: 18, fontWeight: 700, color: allReceived ? '#57FF9A' : '#F59E0B' }}>{received}/{obra.entrega_docs.length}</div>
-            <ProgressBar pct={Math.round(received / obra.entrega_docs.length * 100)} color={allReceived ? '#57FF9A' : '#F59E0B'} />
+            <div style={{ fontSize: 18, fontWeight: 700, color: allReceived ? '#10B981' : '#D97706' }}>{received}/{obra.entrega_docs.length}</div>
+            <ProgressBar pct={Math.round(received / obra.entrega_docs.length * 100)} color={allReceived ? '#10B981' : '#D97706'} />
           </div>
         </div>
 
@@ -2206,11 +2206,11 @@ function SubEntrega({ obra, updateObra }: { obra: ObraData; updateObra: (fn: (o:
           }}>
             <div style={{
               width: 20, height: 20, borderRadius: 4,
-              border: d.recibido ? '2px solid #57FF9A' : '2px solid #333',
+              border: d.recibido ? '2px solid #10B981' : '2px solid #333',
               background: d.recibido ? 'rgba(87,255,154,0.15)' : 'transparent',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
             }}>
-              {d.recibido && <CheckCircle size={12} color="#57FF9A" />}
+              {d.recibido && <CheckCircle size={12} color="#10B981" />}
             </div>
             <span style={{ fontSize: 12, color: d.recibido ? '#aaa' : '#666', textDecoration: d.recibido ? 'line-through' : 'none' }}>{d.nombre}</span>
           </div>
@@ -2219,7 +2219,7 @@ function SubEntrega({ obra, updateObra }: { obra: ObraData; updateObra: (fn: (o:
 
       {allReceived && obra.status === 'entrega_pendiente' && (
         <div style={{ padding: 16, background: 'rgba(87,255,154,0.05)', border: '1px solid rgba(87,255,154,0.15)', borderRadius: 10, textAlign: 'center' }}>
-          <div style={{ fontSize: 13, color: '#57FF9A', fontWeight: 600, marginBottom: 8 }}>Todos los documentos recibidos</div>
+          <div style={{ fontSize: 13, color: '#10B981', fontWeight: 600, marginBottom: 8 }}>Todos los documentos recibidos</div>
           <Btn size="sm" variant="primary" onClick={async () => {
             updateObra(o => ({ ...o, status: 'en_ejecucion' }))
             await supabase.from('obras').update({ status: 'en_ejecucion' }).eq('id', obra.id)
@@ -2262,7 +2262,7 @@ function SubEquipo({ obra, instaladores, obraInstaladores, updateObra }: {
 
       {/* Add picker */}
       {showAdd && disponibles.length > 0 && (
-        <div style={{ ...cardStyle, borderColor: '#57FF9A33', marginBottom: 12 }}>
+        <div style={{ ...cardStyle, borderColor: '#10B98133', marginBottom: 12 }}>
           <div style={{ fontSize: 11, color: '#666', marginBottom: 8 }}>Instaladores disponibles — click para asignar</div>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
             {disponibles.map(i => {
@@ -2274,7 +2274,7 @@ function SubEquipo({ obra, instaladores, obraInstaladores, updateObra }: {
                 }}>
                   <strong>{i.nombre}</strong>
                   <span style={{ color: '#555', marginLeft: 6 }}>{NIVEL_CONFIG[i.nivel].label}</span>
-                  <span style={{ color: '#57FF9A', marginLeft: 6 }}>{matchSistemas.length}/{obra.sistemas.length} sistemas</span>
+                  <span style={{ color: '#10B981', marginLeft: 6 }}>{matchSistemas.length}/{obra.sistemas.length} sistemas</span>
                 </button>
               )
             })}
@@ -2355,7 +2355,7 @@ function TabInstaladores({ instaladores, setInstaladores, showNew, setShowNew }:
                   </div>
                   <div style={{ display: 'flex', gap: 4, alignItems: 'start' }}>
                     <Badge label={niv.label} color={niv.color} />
-                    <Badge label={i.disponible ? 'Disponible' : 'Ocupado'} color={i.disponible ? '#57FF9A' : '#6B7280'} />
+                    <Badge label={i.disponible ? 'Disponible' : 'Ocupado'} color={i.disponible ? '#10B981' : '#6B7280'} />
                   </div>
                 </div>
                 {/* Skills */}
@@ -2408,7 +2408,7 @@ function TabPlaneacion({ obras, instaladores }: { obras: ObraData[]; instaladore
   // Incluye entrega_pendiente (preparación previa) + en_ejecucion + pausada
   // (pausadas pueden reanudarse). Solo completadas se excluyen.
   const obrasActivas = obras.filter(o => o.status !== 'completada')
-  const obraColors = ['#57FF9A', '#3B82F6', '#F59E0B', '#C084FC', '#EF4444', '#06B6D4', '#EC4899', '#FF6B35']
+  const obraColors = ['#10B981', '#2563EB', '#D97706', '#A78BFA', '#DC2626', '#06B6D4', '#EC4899', '#FF6B35']
 
   // Get assignments for an installer on a day
   const getCell = (instId: string, dayIdx: number) => {
@@ -2555,7 +2555,7 @@ Responde SOLO con un JSON, sin markdown, sin explicación:
         <div style={{ fontSize: 14, fontWeight: 600, color: '#fff', flex: 1, textAlign: 'center' }}>
           <Calendar size={14} style={{ verticalAlign: 'middle', marginRight: 6 }} />
           {weekLabel}
-          {weekOffset === 0 && <span style={{ fontSize: 10, color: '#57FF9A', marginLeft: 8 }}>Esta semana</span>}
+          {weekOffset === 0 && <span style={{ fontSize: 10, color: '#10B981', marginLeft: 8 }}>Esta semana</span>}
         </div>
         <button onClick={() => setWeekOffset(w => w + 1)} style={{ background: '#141414', border: '1px solid #333', borderRadius: 6, padding: '4px 10px', color: '#ccc', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12 }}>Siguiente →</button>
         <Btn size="sm" variant="primary" onClick={sugerirConAI} disabled={processing || obrasActivas.length === 0}>
@@ -2587,7 +2587,7 @@ Responde SOLO con un JSON, sin markdown, sin explicación:
                   <th key={i} style={{
                     padding: '8px 6px', textAlign: 'center', fontSize: 11, fontWeight: 600,
                     borderBottom: '1px solid #222', minWidth: 130,
-                    color: isToday ? '#57FF9A' : '#666',
+                    color: isToday ? '#10B981' : '#666',
                     background: isToday ? 'rgba(87,255,154,0.04)' : '#111',
                   }}>
                     <div>{dayLabels[i]}</div>
@@ -2672,7 +2672,7 @@ Responde SOLO con un JSON, sin markdown, sin explicación:
                               onKeyDown={e => { if (e.key === 'Enter') addAssignment() }}
                               style={{ ...inputStyle, fontSize: 10, padding: '3px 4px', marginBottom: 3 }} />
                             <div style={{ display: 'flex', gap: 3 }}>
-                              <button onClick={addAssignment} style={{ flex: 1, padding: '2px 4px', fontSize: 9, background: 'rgba(87,255,154,0.1)', border: '1px solid rgba(87,255,154,0.2)', borderRadius: 4, color: '#57FF9A', cursor: 'pointer', fontFamily: 'inherit' }}>Agregar</button>
+                              <button onClick={addAssignment} style={{ flex: 1, padding: '2px 4px', fontSize: 9, background: 'rgba(87,255,154,0.1)', border: '1px solid rgba(87,255,154,0.2)', borderRadius: 4, color: '#10B981', cursor: 'pointer', fontFamily: 'inherit' }}>Agregar</button>
                               <button onClick={() => setSelectedCell(null)} style={{ padding: '2px 4px', fontSize: 9, background: '#1a1a1a', border: '1px solid #333', borderRadius: 4, color: '#666', cursor: 'pointer', fontFamily: 'inherit' }}>×</button>
                             </div>
                           </div>
@@ -2850,7 +2850,7 @@ function NuevaObraModal({ coordinadores, onClose, onSubmit, onCreated }: {
               onClick={() => { setLeadOpen(true); setLeadSearch('') }}
               style={{
                 ...inputStyle, cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                borderColor: leadOpen ? '#57FF9A' : '#333',
+                borderColor: leadOpen ? '#10B981' : '#333',
               }}>
               <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: form.lead_id ? '#fff' : '#666' }}>
                 {form.lead_id ? (() => { const l = leads.find(x => x.id === form.lead_id); return l ? `${l.name}${l.company ? ' | ' + l.company : ''}` : 'Seleccionar...' })() : '— Seleccionar lead —'}
@@ -2866,7 +2866,7 @@ function NuevaObraModal({ coordinadores, onClose, onSubmit, onCreated }: {
                 <div style={{ overflowY: 'auto', flex: 1 }}>
                   {filteredLeads.map(l => (
                     <div key={l.id} onClick={() => handleLeadSelect(l.id)}
-                      style={{ padding: '7px 10px', fontSize: 12, color: l.id === form.lead_id ? '#57FF9A' : '#ccc', cursor: 'pointer', background: l.id === form.lead_id ? 'rgba(87,255,154,0.08)' : 'transparent' }}
+                      style={{ padding: '7px 10px', fontSize: 12, color: l.id === form.lead_id ? '#10B981' : '#ccc', cursor: 'pointer', background: l.id === form.lead_id ? 'rgba(87,255,154,0.08)' : 'transparent' }}
                       onMouseEnter={e => { if (l.id !== form.lead_id) e.currentTarget.style.background = '#252525' }}
                       onMouseLeave={e => { if (l.id !== form.lead_id) e.currentTarget.style.background = 'transparent' }}>
                       {l.name}{l.company ? <span style={{ color: '#666' }}> | {l.company}</span> : ''}
@@ -2899,7 +2899,7 @@ function NuevaObraModal({ coordinadores, onClose, onSubmit, onCreated }: {
             <input value={form.direccion} onChange={e => setForm(f => ({ ...f, direccion: e.target.value }))} style={inputStyle} />
           </div>
           <div>
-            <div style={labelStyle}>Cotizaciones {loadingCots && '(cargando...)'} {form.cotizacion_ids.length > 0 && <span style={{ color: '#57FF9A', fontWeight: 600 }}>({form.cotizacion_ids.length})</span>}</div>
+            <div style={labelStyle}>Cotizaciones {loadingCots && '(cargando...)'} {form.cotizacion_ids.length > 0 && <span style={{ color: '#10B981', fontWeight: 600 }}>({form.cotizacion_ids.length})</span>}</div>
             <div style={{ border: '1px solid #333', borderRadius: 8, maxHeight: 140, overflowY: 'auto', background: '#0a0a0a' }}>
               {filteredCots.length === 0 && <div style={{ padding: 10, fontSize: 11, color: '#555', textAlign: 'center' as const }}>{form.lead_id ? 'Sin cotizaciones para este lead' : 'Selecciona un lead primero'}</div>}
               {filteredCots.map(c => {
@@ -2913,10 +2913,10 @@ function NuevaObraModal({ coordinadores, onClose, onSubmit, onCreated }: {
                     onMouseEnter={e => { if (!checked) e.currentTarget.style.background = '#151515' }}
                     onMouseLeave={e => { if (!checked) e.currentTarget.style.background = 'transparent' }}>
                     <input type="checkbox" checked={checked} onChange={() => toggleCot(c.id)}
-                      style={{ accentColor: '#57FF9A' }} />
-                    <span style={{ color: checked ? '#57FF9A' : '#ccc', flex: 1 }}>{c.name}</span>
+                      style={{ accentColor: '#10B981' }} />
+                    <span style={{ color: checked ? '#10B981' : '#ccc', flex: 1 }}>{c.name}</span>
                     {c.specialty && <span style={{ fontSize: 9, color: '#888', background: '#222', padding: '1px 5px', borderRadius: 4, textTransform: 'uppercase' }}>{c.specialty}</span>}
-                    {c.stage && <span style={{ fontSize: 9, color: c.stage === 'contrato' ? '#57FF9A' : c.stage === 'propuesta' ? '#F59E0B' : '#666', background: '#1a1a1a', padding: '1px 5px', borderRadius: 4 }}>{c.stage}</span>}
+                    {c.stage && <span style={{ fontSize: 9, color: c.stage === 'contrato' ? '#10B981' : c.stage === 'propuesta' ? '#D97706' : '#666', background: '#1a1a1a', padding: '1px 5px', borderRadius: 4 }}>{c.stage}</span>}
                     <span style={{ color: '#666', fontSize: 11 }}>{F(c.specialty === 'elec' ? c.total * 1.16 : c.total)}</span>
                   </label>
                 )
@@ -3100,9 +3100,9 @@ const BLOQUEO_TIPO_LABEL: Record<string, string> = {
   otro: 'Otro',
 }
 const SEVERIDAD_COLOR: Record<string, string> = {
-  baja: '#57FF9A',
-  media: '#F59E0B',
-  alta: '#EF4444',
+  baja: '#10B981',
+  media: '#D97706',
+  alta: '#DC2626',
   critica: '#C026D3',
 }
 
@@ -3178,7 +3178,7 @@ function SubBloqueos({ obra, instaladores }: { obra: ObraData; instaladores: Ins
       </div>
 
       {showNew && (
-        <div style={{ ...cardStyle, borderColor: '#EF444433', marginBottom: 12 }}>
+        <div style={{ ...cardStyle, borderColor: '#DC262633', marginBottom: 12 }}>
           <div style={{ fontSize: 13, fontWeight: 600, color: '#fff', marginBottom: 10 }}>Nuevo bloqueo</div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 8 }}>
             <div>
@@ -3222,14 +3222,14 @@ function SubBloqueos({ obra, instaladores }: { obra: ObraData; instaladores: Ins
 
       {abiertos.length > 0 && (
         <div style={{ marginBottom: 16 }}>
-          <div style={{ fontSize: 11, color: '#EF4444', fontWeight: 600, textTransform: 'uppercase', marginBottom: 8 }}>Abiertos ({abiertos.length})</div>
+          <div style={{ fontSize: 11, color: '#DC2626', fontWeight: 600, textTransform: 'uppercase', marginBottom: 8 }}>Abiertos ({abiertos.length})</div>
           {abiertos.map(b => (
             <div key={b.id} style={{ ...cardStyle, borderLeft: `3px solid ${SEVERIDAD_COLOR[b.severidad]}`, marginBottom: 8 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
                 <div style={{ display: 'flex', gap: 6 }}>
                   <Badge label={BLOQUEO_TIPO_LABEL[b.tipo] || b.tipo} color={SEVERIDAD_COLOR[b.severidad]} />
                   <Badge label={b.severidad} color={SEVERIDAD_COLOR[b.severidad]} />
-                  {b.status === 'en_atencion' && <Badge label="En atención" color="#F59E0B" />}
+                  {b.status === 'en_atencion' && <Badge label="En atención" color="#D97706" />}
                 </div>
                 <div style={{ fontSize: 10, color: '#555' }}>{new Date(b.fecha_reporte).toLocaleDateString('es-MX')}</div>
               </div>
@@ -3242,7 +3242,7 @@ function SubBloqueos({ obra, instaladores }: { obra: ObraData; instaladores: Ins
                 <button onClick={() => {
                   const notas = prompt('Notas de resolución (opcional):') || ''
                   resolver(b.id, notas)
-                }} style={{ marginLeft: 'auto', padding: '4px 10px', fontSize: 10, background: 'rgba(87,255,154,0.1)', border: '1px solid rgba(87,255,154,0.3)', borderRadius: 4, color: '#57FF9A', cursor: 'pointer', fontFamily: 'inherit' }}>
+                }} style={{ marginLeft: 'auto', padding: '4px 10px', fontSize: 10, background: 'rgba(87,255,154,0.1)', border: '1px solid rgba(87,255,154,0.3)', borderRadius: 4, color: '#10B981', cursor: 'pointer', fontFamily: 'inherit' }}>
                   Resolver
                 </button>
               </div>
@@ -3253,7 +3253,7 @@ function SubBloqueos({ obra, instaladores }: { obra: ObraData; instaladores: Ins
 
       {resueltos.length > 0 && (
         <div>
-          <div style={{ fontSize: 11, color: '#57FF9A', fontWeight: 600, textTransform: 'uppercase', marginBottom: 8 }}>Resueltos ({resueltos.length})</div>
+          <div style={{ fontSize: 11, color: '#10B981', fontWeight: 600, textTransform: 'uppercase', marginBottom: 8 }}>Resueltos ({resueltos.length})</div>
           {resueltos.slice(0, 10).map(b => (
             <div key={b.id} style={{ ...cardStyle, opacity: 0.6, marginBottom: 6, padding: 10 }}>
               <div style={{ fontSize: 11, color: '#888' }}>
@@ -3446,7 +3446,7 @@ function SubExtras({ obra }: { obra: ObraData }) {
       {pendientes.length > 0 && (
         <div style={{ marginBottom: 16 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-            <div style={{ fontSize: 11, color: '#F59E0B', fontWeight: 600, textTransform: 'uppercase' }}>Pendientes de revisión ({pendientes.length})</div>
+            <div style={{ fontSize: 11, color: '#D97706', fontWeight: 600, textTransform: 'uppercase' }}>Pendientes de revisión ({pendientes.length})</div>
             {selected.size > 0 && (
               <Btn size="sm" variant="primary" onClick={generarAdendum} disabled={generating}>
                 {generating ? 'Generando...' : `✨ Generar cotización adendum (${selected.size})`}
@@ -3457,23 +3457,23 @@ function SubExtras({ obra }: { obra: ObraData }) {
             const diasEspera = Math.floor((ahora - new Date(ex.detectado_at).getTime()) / (24 * 60 * 60 * 1000))
             const critico = diasEspera > 7
             return (
-              <div key={ex.id} style={{ ...cardStyle, marginBottom: 8, borderLeft: critico ? '3px solid #C026D3' : '3px solid #F59E0B' }}>
+              <div key={ex.id} style={{ ...cardStyle, marginBottom: 8, borderLeft: critico ? '3px solid #C026D3' : '3px solid #D97706' }}>
                 <div style={{ display: 'flex', gap: 10 }}>
                   <input type="checkbox" checked={selected.has(ex.id)} onChange={() => toggleSel(ex.id)} style={{ marginTop: 4 }} />
                   <div style={{ flex: 1 }}>
                     <div style={{ display: 'flex', gap: 6, marginBottom: 4 }}>
                       <Badge label={ex.tipo} color={ex.tipo === 'actividad' ? '#8B5CF6' : '#06B6D4'} />
-                      {ex.sistema && <Badge label={ex.sistema} color="#3B82F6" />}
+                      {ex.sistema && <Badge label={ex.sistema} color="#2563EB" />}
                       <Badge label={`${ex.cantidad} ${ex.unidad}`} color="#555" />
                       {critico && <Badge label={`⚠ ${diasEspera}d`} color="#C026D3" />}
-                      {ex.catalog_product_id && ex.match_confianza !== null && ex.match_confianza > 0.8 && <Badge label={`Match ${Math.round(ex.match_confianza * 100)}%`} color="#57FF9A" />}
+                      {ex.catalog_product_id && ex.match_confianza !== null && ex.match_confianza > 0.8 && <Badge label={`Match ${Math.round(ex.match_confianza * 100)}%`} color="#10B981" />}
                     </div>
                     <div style={{ fontSize: 12, color: '#ccc', marginBottom: 4 }}>{ex.descripcion}</div>
                     {ex.texto_original && <div style={{ fontSize: 10, color: '#666', fontStyle: 'italic', marginBottom: 6 }}>"{ex.texto_original}"</div>}
-                    {ex.precio_estimado > 0 && <div style={{ fontSize: 11, color: '#57FF9A' }}>Precio estimado: ${ex.precio_estimado.toFixed(2)} {ex.moneda}</div>}
+                    {ex.precio_estimado > 0 && <div style={{ fontSize: 11, color: '#10B981' }}>Precio estimado: ${ex.precio_estimado.toFixed(2)} {ex.moneda}</div>}
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                    <button onClick={() => aprobarInterno(ex.id)} style={{ padding: '3px 8px', fontSize: 9, background: 'rgba(87,255,154,0.1)', border: '1px solid rgba(87,255,154,0.3)', borderRadius: 4, color: '#57FF9A', cursor: 'pointer', fontFamily: 'inherit' }}>Aprobar interno</button>
+                    <button onClick={() => aprobarInterno(ex.id)} style={{ padding: '3px 8px', fontSize: 9, background: 'rgba(87,255,154,0.1)', border: '1px solid rgba(87,255,154,0.3)', borderRadius: 4, color: '#10B981', cursor: 'pointer', fontFamily: 'inherit' }}>Aprobar interno</button>
                     <button onClick={() => rechazar(ex.id)} style={{ padding: '3px 8px', fontSize: 9, background: '#1a1a1a', border: '1px solid #333', borderRadius: 4, color: '#666', cursor: 'pointer', fontFamily: 'inherit' }}>Rechazar</button>
                   </div>
                 </div>
@@ -3490,7 +3490,7 @@ function SubExtras({ obra }: { obra: ObraData }) {
             <div key={ex.id} style={{ ...cardStyle, marginBottom: 6, padding: 10, opacity: 0.65 }}>
               <div style={{ display: 'flex', gap: 6, marginBottom: 4 }}>
                 <Badge label={ex.tipo} color="#555" />
-                <Badge label={EXTRA_STATUS_LABEL[ex.status]} color={ex.status === 'cotizado' ? '#57FF9A' : ex.status === 'rechazado' ? '#EF4444' : '#888'} />
+                <Badge label={EXTRA_STATUS_LABEL[ex.status]} color={ex.status === 'cotizado' ? '#10B981' : ex.status === 'rechazado' ? '#DC2626' : '#888'} />
               </div>
               <div style={{ fontSize: 11, color: '#888' }}>{ex.descripcion}</div>
             </div>
@@ -3607,14 +3607,14 @@ function SubDocumentacion({ obra }: { obra: ObraData }) {
             <a key={d.id} href={d.drive_url} target="_blank" rel="noopener noreferrer" style={{
               ...cardStyle, textDecoration: 'none', display: 'block', transition: 'border-color 0.12s',
             }}
-              onMouseEnter={e => (e.currentTarget.style.borderColor = '#57FF9A44')}
+              onMouseEnter={e => (e.currentTarget.style.borderColor = '#10B98144')}
               onMouseLeave={e => (e.currentTarget.style.borderColor = '#222')}
             >
               {d.drive_thumbnail_url && (
                 <img src={d.drive_thumbnail_url} alt={d.nombre} style={{ width: '100%', height: 120, objectFit: 'cover', borderRadius: 6, marginBottom: 8 }} />
               )}
               <div style={{ display: 'flex', gap: 6, marginBottom: 4, flexWrap: 'wrap' }}>
-                <Badge label={DOC_TIPO_LABEL[d.tipo] || d.tipo} color="#3B82F6" />
+                <Badge label={DOC_TIPO_LABEL[d.tipo] || d.tipo} color="#2563EB" />
                 {d.sistema && <Badge label={d.sistema} color="#8B5CF6" />}
                 {d.version && <Badge label={d.version} color="#555" />}
               </div>
@@ -3917,9 +3917,9 @@ function SubMateriales({ obra, onLinked }: { obra: ObraData; onLinked?: (cotId: 
       {/* KPIs por estado — matriz 4 estados */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 16 }}>
         <KpiCard label="Falta pedir"     value={String(kpiFaltaPedir)}     color="#F87171" icon={<AlertTriangle size={16} />} />
-        <KpiCard label="Falta recibir"   value={String(kpiFaltaRecibir)}   color="#F59E0B" icon={<ShoppingCart size={16} />} />
-        <KpiCard label="Falta entregar"  value={String(kpiFaltaEntregar)}  color="#3B82F6" icon={<Truck size={16} />} />
-        <KpiCard label="Completos"       value={String(kpiCompletos)}      color="#57FF9A" icon={<CheckCircle2 size={16} />} />
+        <KpiCard label="Falta recibir"   value={String(kpiFaltaRecibir)}   color="#D97706" icon={<ShoppingCart size={16} />} />
+        <KpiCard label="Falta entregar"  value={String(kpiFaltaEntregar)}  color="#2563EB" icon={<Truck size={16} />} />
+        <KpiCard label="Completos"       value={String(kpiCompletos)}      color="#10B981" icon={<CheckCircle2 size={16} />} />
       </div>
 
       {/* Controles */}
@@ -3989,10 +3989,10 @@ function SubMateriales({ obra, onLinked }: { obra: ObraData; onLinked?: (cotId: 
               onClick={() => toggleArea(area.id)}
               style={{
                 display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px',
-                cursor: 'pointer', background: '#141414', borderLeft: '3px solid #57FF9A',
+                cursor: 'pointer', background: '#141414', borderLeft: '3px solid #10B981',
               }}
             >
-              {isCollapsed ? <ChevronRight size={14} color="#57FF9A" /> : <ChevronDown size={14} color="#57FF9A" />}
+              {isCollapsed ? <ChevronRight size={14} color="#10B981" /> : <ChevronDown size={14} color="#10B981" />}
               <span style={{ fontSize: 13, fontWeight: 700, color: '#fff', flex: 1, textTransform: 'uppercase' as const }}>
                 {area.name}
               </span>
@@ -4002,7 +4002,7 @@ function SubMateriales({ obra, onLinked }: { obra: ObraData; onLinked?: (cotId: 
                 {areaFaltaPedir > 0    && <span style={{ color: '#F87171' }} title="Falta pedir">●{areaFaltaPedir}</span>}
                 {areaFaltaRecibir > 0  && <span style={{ color: '#FBBF24' }} title="Falta recibir">●{areaFaltaRecibir}</span>}
                 {areaFaltaEntregar > 0 && <span style={{ color: '#60A5FA' }} title="Falta entregar">●{areaFaltaEntregar}</span>}
-                {areaCompletos > 0     && <span style={{ color: '#57FF9A' }} title="Completos">✓{areaCompletos}</span>}
+                {areaCompletos > 0     && <span style={{ color: '#10B981' }} title="Completos">✓{areaCompletos}</span>}
               </span>
             </div>
 
@@ -4033,7 +4033,7 @@ function SubMateriales({ obra, onLinked }: { obra: ObraData; onLinked?: (cotId: 
                             <th style={{ textAlign: 'center', fontSize: 9, color: '#F87171', fontWeight: 700, padding: '4px 6px', textTransform: 'uppercase' as const, letterSpacing: '0.06em', width: 80 }}>Cotizado</th>
                             <th style={{ textAlign: 'center', fontSize: 9, color: '#FBBF24', fontWeight: 700, padding: '4px 6px', textTransform: 'uppercase' as const, letterSpacing: '0.06em', width: 80 }}>Pedido</th>
                             <th style={{ textAlign: 'center', fontSize: 9, color: '#60A5FA', fontWeight: 700, padding: '4px 6px', textTransform: 'uppercase' as const, letterSpacing: '0.06em', width: 80 }}>Recibido</th>
-                            <th style={{ textAlign: 'center', fontSize: 9, color: '#57FF9A', fontWeight: 700, padding: '4px 6px', textTransform: 'uppercase' as const, letterSpacing: '0.06em', width: 80 }}>Entregado</th>
+                            <th style={{ textAlign: 'center', fontSize: 9, color: '#10B981', fontWeight: 700, padding: '4px 6px', textTransform: 'uppercase' as const, letterSpacing: '0.06em', width: 80 }}>Entregado</th>
                             <th style={{ textAlign: 'center', fontSize: 9, color: '#444', fontWeight: 600, padding: '4px 6px', textTransform: 'uppercase' as const, letterSpacing: '0.06em', width: 60 }}>Estado</th>
                           </tr>
                         </thead>
@@ -4049,12 +4049,12 @@ function SubMateriales({ obra, onLinked }: { obra: ObraData; onLinked?: (cotId: 
                               falta_pedir:     { color: '#F87171', label: '●', title: 'Falta pedir' },
                               falta_recibir:   { color: '#FBBF24', label: '●', title: 'Falta recibir' },
                               falta_entregar:  { color: '#60A5FA', label: '●', title: 'Falta entregar' },
-                              completo:        { color: '#57FF9A', label: '✓', title: 'Completo' },
+                              completo:        { color: '#10B981', label: '✓', title: 'Completo' },
                             }[st]
                             // Helpers de color por comparación con cotizado
                             const pedColor = ped >= cot ? '#FBBF24' : (ped > 0 ? '#fbbf2480' : '#3a3a3a')
                             const recColor = rec >= cot ? '#60A5FA' : (rec > 0 ? '#60a5fa80' : '#3a3a3a')
-                            const entColor = ent >= cot ? '#57FF9A' : (ent > 0 ? '#57ff9a80' : '#3a3a3a')
+                            const entColor = ent >= cot ? '#10B981' : (ent > 0 ? '#57ff9a80' : '#3a3a3a')
                             return (
                               <tr key={it.id} style={{ borderTop: '1px solid #141414' }}>
                                 <td style={{ fontSize: 12, color: '#ddd', padding: '6px' }}>

@@ -117,12 +117,12 @@ export default function ImageUpload({
       <div
         style={containerStyle}
         onClick={() => !uploading && fileInputRef.current?.click()}
-        onMouseEnter={e => { if (!value && !uploading) e.currentTarget.style.borderColor = '#57FF9A' }}
+        onMouseEnter={e => { if (!value && !uploading) e.currentTarget.style.borderColor = '#10B981' }}
         onMouseLeave={e => { if (!value && !uploading) e.currentTarget.style.borderColor = '#333' }}
       >
         {uploading ? (
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
-            <Loader2 size={dimensions.iconSize} color="#57FF9A" style={{ animation: 'spin 1s linear infinite' }} />
+            <Loader2 size={dimensions.iconSize} color="#10B981" style={{ animation: 'spin 1s linear infinite' }} />
             <div style={{ fontSize: dimensions.textSize, color: '#666' }}>Subiendo...</div>
           </div>
         ) : value ? (

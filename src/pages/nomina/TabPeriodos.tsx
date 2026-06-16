@@ -556,7 +556,7 @@ export default function TabPeriodos() {
           <Badge label="BORRADOR" color="#f59e0b" />
         )}
         {isCurrentPeriod && (
-          <Badge label={viewMode === 'semanal' ? 'SEMANA ACTUAL' : 'QUINCENA ACTUAL'} color="#57FF9A" />
+          <Badge label={viewMode === 'semanal' ? 'SEMANA ACTUAL' : 'QUINCENA ACTUAL'} color="#10B981" />
         )}
       </div>
 
@@ -568,7 +568,7 @@ export default function TabPeriodos() {
           <KpiCard label="Total efectivo" value={F(kpis.totalEfectivo)} color="#f59e0b" />
           <KpiCard label="Cajas chicas" value={F(kpis.totalCaja)} color="#a78bfa" />
           <KpiCard label="Horas extra" value={F(kpis.totalHE)} color="#fb923c" />
-          <KpiCard label="Bonos" value={F(kpis.totalBonos)} color="#57FF9A" />
+          <KpiCard label="Bonos" value={F(kpis.totalBonos)} color="#10B981" />
         </div>
       )}
 
@@ -718,12 +718,12 @@ export default function TabPeriodos() {
                         </Td>
                         <Td right>
                           {isClosed ? (
-                            <span style={{ color: '#57FF9A' }}>{F(Number(item.bono_puntualidad) || 0)}</span>
+                            <span style={{ color: '#10B981' }}>{F(Number(item.bono_puntualidad) || 0)}</span>
                           ) : (
                             <EditableCell
                               value={Number(item.bono_puntualidad) || 0}
                               onChange={v => updateItemField(item.id, 'bono_puntualidad', v)}
-                              color="#57FF9A"
+                              color="#10B981"
                             />
                           )}
                         </Td>
@@ -749,7 +749,7 @@ export default function TabPeriodos() {
                             )}
                             {item._totalEfectivo > 0 && (
                               <span title={item.efectivo_pagado ? 'Efectivo pagado ✓' : 'Marcar efectivo como pagado'}
-                                style={{ color: item.efectivo_pagado ? '#57FF9A' : '#444', cursor: 'pointer' }}
+                                style={{ color: item.efectivo_pagado ? '#10B981' : '#444', cursor: 'pointer' }}
                                 onClick={() => toggleEfectivoPagado(item)}>
                                 <DollarSign size={14} />
                               </span>
@@ -775,7 +775,7 @@ export default function TabPeriodos() {
                     <Td right><span style={{ fontWeight: 600, color: '#f59e0b' }}>{F(kpis.totalSueldo - kpis.totalTransf)}</span></Td>
                     <Td right><span style={{ fontWeight: 600, color: '#a78bfa' }}>{F(kpis.totalCaja)}</span></Td>
                     <Td right><span style={{ fontWeight: 600, color: '#fb923c' }}>{F(kpis.totalHE)}</span></Td>
-                    <Td right><span style={{ fontWeight: 600, color: '#57FF9A' }}>{F(kpis.totalBonos)}</span></Td>
+                    <Td right><span style={{ fontWeight: 600, color: '#10B981' }}>{F(kpis.totalBonos)}</span></Td>
                     <Td right>
                       <span style={{
                         fontWeight: 700, color: '#fff', fontSize: 14,
@@ -850,7 +850,7 @@ export default function TabPeriodos() {
                         <Td><span style={{ fontSize: 12 }}>{r.pdfName}</span></Td>
                         <Td>
                           {r.matched ? (
-                            <span style={{ color: '#57FF9A', fontSize: 12 }}>{r.dbName}</span>
+                            <span style={{ color: '#10B981', fontSize: 12 }}>{r.dbName}</span>
                           ) : (
                             <span style={{ color: '#ef4444', fontSize: 12 }}>No encontrado</span>
                           )}
@@ -858,7 +858,7 @@ export default function TabPeriodos() {
                         <Td right><span style={{ color: '#60a5fa', fontWeight: 500 }}>{F(r.neto)}</span></Td>
                         <Td>
                           {r.matched ? (
-                            <CheckCircle2 size={14} style={{ color: '#57FF9A' }} />
+                            <CheckCircle2 size={14} style={{ color: '#10B981' }} />
                           ) : (
                             <AlertCircle size={14} style={{ color: '#ef4444' }} />
                           )}

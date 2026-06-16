@@ -67,7 +67,7 @@ export default function Sidebar() {
             position: 'fixed', top: 10, left: 10, zIndex: 1100,
             background: '#111', border: '1px solid #333', borderRadius: 8,
             padding: 8, display: 'flex', alignItems: 'center', justifyContent: 'center',
-            color: '#57FF9A', cursor: 'pointer',
+            color: '#10B981', cursor: 'pointer',
           }}
         >
           <Menu size={20} />
@@ -95,7 +95,7 @@ export default function Sidebar() {
               <div style={{ padding: '20px 16px 16px', borderBottom: '1px solid #222', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div>
                   <div style={{ fontSize: 16, fontWeight: 700, color: '#fff' }}>
-                    <span style={{ color: '#57FF9A' }}>OMM</span> Tech
+                    <span style={{ color: '#10B981' }}>OMM</span> Tech
                   </div>
                   <div style={{ fontSize: 10, color: '#555', marginTop: 2, letterSpacing: '0.1em', textTransform: 'uppercase' }}>ERP Sistema</div>
                 </div>
@@ -111,7 +111,7 @@ export default function Sidebar() {
                     display: 'flex', alignItems: 'center', gap: 10,
                     padding: '12px 14px', borderRadius: 8, marginBottom: 2,
                     fontSize: 14, fontWeight: isActive ? 600 : 400,
-                    color: isActive ? '#57FF9A' : '#888',
+                    color: isActive ? '#10B981' : '#888',
                     background: isActive ? 'rgba(87,255,154,0.08)' : 'transparent',
                     textDecoration: 'none',
                     border: isActive ? '1px solid rgba(87,255,154,0.15)' : '1px solid transparent',
@@ -155,7 +155,7 @@ export default function Sidebar() {
         {!collapsed && (
           <div>
             <div style={{ fontSize: 16, fontWeight: 700, color: '#fff', letterSpacing: '-0.02em' }}>
-              <span style={{ color: '#57FF9A' }}>OMM</span> Tech
+              <span style={{ color: '#10B981' }}>OMM</span> Tech
             </div>
             <div style={{ fontSize: 10, color: '#555', marginTop: 2, letterSpacing: '0.1em', textTransform: 'uppercase' as const }}>ERP Sistema</div>
           </div>
@@ -168,7 +168,7 @@ export default function Sidebar() {
             cursor: 'pointer', padding: '4px 4px', display: 'flex', alignItems: 'center', justifyContent: 'center',
             transition: 'color 0.15s',
           }}
-          onMouseEnter={e => (e.currentTarget.style.color = '#57FF9A')}
+          onMouseEnter={e => (e.currentTarget.style.color = '#10B981')}
           onMouseLeave={e => (e.currentTarget.style.color = '#666')}
         >
           {collapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
@@ -181,7 +181,7 @@ export default function Sidebar() {
             padding: collapsed ? '8px 0' : '7px 10px',
             justifyContent: collapsed ? 'center' : 'flex-start',
             borderRadius: 8, marginBottom: 2,
-            fontSize: 12, fontWeight: isActive ? 600 : 400, color: isActive ? '#57FF9A' : '#888',
+            fontSize: 12, fontWeight: isActive ? 600 : 400, color: isActive ? '#10B981' : '#888',
             background: isActive ? 'rgba(87,255,154,0.08)' : 'transparent', textDecoration: 'none',
             transition: 'all 0.12s', border: isActive ? '1px solid rgba(87,255,154,0.15)' : '1px solid transparent',
           })}>

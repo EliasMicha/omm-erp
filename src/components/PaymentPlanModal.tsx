@@ -162,7 +162,9 @@ export default function PaymentPlanModal({ quotationId, quotationName, totalFina
         const { error: delErr } = await supabase.from('payment_milestones').delete().eq('quotation_id', quotationId)
         if (delErr) throw delErr
       }
-      // Insertar los nuevos
+      // Insertar los nuevos — siempre quotation_id Y project_id (cuando exista)
+      // para que la vista de ProyeccionCobranza pueda asociar contexto sin importar
+      // desde dónde se haya creado el hito (CotEditor o LeadDashboard).
       const rows = hitos.map(h => ({
         quotation_id: quotationId,
         project_id: projectId || null,
@@ -203,7 +205,7 @@ export default function PaymentPlanModal({ quotationId, quotationName, totalFina
               {existing.length > 0 ? 'Editar plan de pagos' : 'Definir plan de pagos'}
             </div>
             <div style={{ fontSize: 11, color: '#888' }}>{quotationName}</div>
-            <div style={{ fontSize: 12, color: '#57FF9A', fontWeight: 600, marginTop: 4 }}>
+            <div style={{ fontSize: 12, color: '#10B981', fontWeight: 600, marginTop: 4 }}>
               Total: {F(totalFinal)} {currency}
             </div>
           </div>
@@ -223,13 +225,13 @@ export default function PaymentPlanModal({ quotationId, quotationName, totalFina
               return (
                 <button key={t.id} onClick={() => applyTemplate(t.id)} style={{
                   background: active ? 'rgba(168,85,247,0.15)' : '#0a0a0a',
-                  border: '1px solid ' + (active ? '#A855F7' : '#222'),
+                  border: '1px solid ' + (active ? '#7C3AED' : '#222'),
                   borderRadius: 8, padding: '10px 12px', cursor: 'pointer',
-                  color: active ? '#C084FC' : '#888', textAlign: 'left' as const, fontFamily: 'inherit',
+                  color: active ? '#A78BFA' : '#888', textAlign: 'left' as const, fontFamily: 'inherit',
                   transition: 'all 0.15s',
                 }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: active ? '#C084FC' : '#ccc' }}>{t.name}</div>
-                  <div style={{ fontSize: 9, marginTop: 3, color: active ? '#A855F7' : '#666' }}>{t.description}</div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: active ? '#A78BFA' : '#ccc' }}>{t.name}</div>
+                  <div style={{ fontSize: 9, marginTop: 3, color: active ? '#7C3AED' : '#666' }}>{t.description}</div>
                 </button>
               )
             })}
@@ -283,11 +285,11 @@ export default function PaymentPlanModal({ quotationId, quotationName, totalFina
                       <option key={i} value={i}>{fmtMonth(calcDueDate(i))}</option>
                     ))}
                   </select>
-                  <div style={{ fontSize: 11, color: '#57FF9A', fontWeight: 600, textAlign: 'right' as const }}>
+                  <div style={{ fontSize: 11, color: '#10B981', fontWeight: 600, textAlign: 'right' as const }}>
                     {F(monto)} {currency}
                   </div>
                   <button onClick={() => removeHito(idx)} disabled={hitos.length === 1} style={{
-                    background: 'transparent', border: 'none', color: hitos.length === 1 ? '#333' : '#EF4444',
+                    background: 'transparent', border: 'none', color: hitos.length === 1 ? '#333' : '#DC2626',
                     cursor: hitos.length === 1 ? 'not-allowed' : 'pointer', padding: 2,
                   }}>
                     <Trash2 size={12} />
@@ -297,7 +299,7 @@ export default function PaymentPlanModal({ quotationId, quotationName, totalFina
             })}
           </div>
           {/* Suma de porcentajes */}
-          <div style={{ marginTop: 8, padding: '6px 10px', background: sumPct === 100 ? 'rgba(87,255,154,0.06)' : 'rgba(245,158,11,0.06)', border: '1px solid ' + (sumPct === 100 ? 'rgba(87,255,154,0.3)' : 'rgba(245,158,11,0.3)'), borderRadius: 6, fontSize: 11, color: sumPct === 100 ? '#57FF9A' : '#F59E0B', display: 'flex', alignItems: 'center', gap: 6 }}>
+          <div style={{ marginTop: 8, padding: '6px 10px', background: sumPct === 100 ? 'rgba(87,255,154,0.06)' : 'rgba(245,158,11,0.06)', border: '1px solid ' + (sumPct === 100 ? 'rgba(87,255,154,0.3)' : 'rgba(245,158,11,0.3)'), borderRadius: 6, fontSize: 11, color: sumPct === 100 ? '#10B981' : '#D97706', display: 'flex', alignItems: 'center', gap: 6 }}>
             {sumPct === 100 ? <CheckCircle size={12} /> : <AlertCircle size={12} />}
             Suma: <strong>{sumPct}%</strong>
             {sumPct === 100 ? ' ✓ Listo' : ` (faltan ${100 - sumPct}% para completar)`}
@@ -306,7 +308,7 @@ export default function PaymentPlanModal({ quotationId, quotationName, totalFina
 
         {/* Error */}
         {error && (
-          <div style={{ padding: '8px 12px', background: 'rgba(239,68,68,0.1)', border: '1px solid #EF4444', borderRadius: 6, color: '#fca5a5', fontSize: 11, marginBottom: 12 }}>
+          <div style={{ padding: '8px 12px', background: 'rgba(239,68,68,0.1)', border: '1px solid #DC2626', borderRadius: 6, color: '#fca5a5', fontSize: 11, marginBottom: 12 }}>
             {error}
           </div>
         )}
@@ -318,10 +320,10 @@ export default function PaymentPlanModal({ quotationId, quotationName, totalFina
             padding: '8px 16px', color: '#888', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit',
           }}>Cancelar</button>
           <button onClick={guardar} disabled={!isValid || saving} style={{
-            background: isValid ? '#C084FC22' : '#222',
-            border: '1px solid ' + (isValid ? '#A855F7' : '#333'),
+            background: isValid ? '#A78BFA22' : '#222',
+            border: '1px solid ' + (isValid ? '#7C3AED' : '#333'),
             borderRadius: 6, padding: '8px 18px',
-            color: isValid ? '#C084FC' : '#555', fontSize: 12, fontWeight: 600,
+            color: isValid ? '#A78BFA' : '#555', fontSize: 12, fontWeight: 600,
             cursor: isValid && !saving ? 'pointer' : 'not-allowed', fontFamily: 'inherit',
           }}>
             {saving ? 'Guardando...' : existing.length > 0 ? 'Actualizar plan' : 'Crear plan de pagos'}

@@ -77,19 +77,19 @@ function formatDate(iso: string): string {
 const SYSTEM_COLORS: Record<string, string> = {
   'Audio': '#8B5CF6',
   'Redes': '#06B6D4',
-  'CCTV': '#3B82F6',
-  'Control de acceso': '#F59E0B',
-  'Control de Acceso': '#F59E0B',
-  'Control de iluminacion': '#C084FC',
-  'Control de Iluminación': '#C084FC',
-  'Humo': '#EF4444',
-  'Detección de Incendio': '#EF4444',
+  'CCTV': '#2563EB',
+  'Control de acceso': '#D97706',
+  'Control de Acceso': '#D97706',
+  'Control de iluminacion': '#A78BFA',
+  'Control de Iluminación': '#A78BFA',
+  'Humo': '#DC2626',
+  'Detección de Incendio': '#DC2626',
   'BMS': '#10B981',
   'Telefonia': '#F97316',
   'Telefonía': '#F97316',
   'Celular': '#EC4899',
   'Señal Celular': '#EC4899',
-  'Lutron': '#A855F7',
+  'Lutron': '#7C3AED',
   'Somfy': '#14B8A6',
   'Electrico': '#EAB308',
   'Eléctrico': '#EAB308',
@@ -295,7 +295,7 @@ export default function MemoriaTecnica() {
     <div style={{ minHeight: '100vh', background: '#0a0a0a', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Inter, sans-serif' }}>
       <div style={{ textAlign: 'center', color: '#ddd' }}>
         <div style={{ marginBottom: 20 }}>
-          <Loader2 size={40} style={{ animation: 'spin 1s linear infinite', color: '#57FF9A' }} />
+          <Loader2 size={40} style={{ animation: 'spin 1s linear infinite', color: '#10B981' }} />
         </div>
         <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 8 }}>Generando Memoria Técnica</div>
         <div style={{ fontSize: 12, color: '#888' }}>{progress}</div>
@@ -313,10 +313,10 @@ export default function MemoriaTecnica() {
   if (step === 'error') return (
     <div style={{ minHeight: '100vh', background: '#0a0a0a', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Inter, sans-serif' }}>
       <div style={{ textAlign: 'center', color: '#ddd', maxWidth: 500, padding: 20 }}>
-        <div style={{ fontSize: 16, fontWeight: 600, color: '#EF4444', marginBottom: 12 }}>Error</div>
+        <div style={{ fontSize: 16, fontWeight: 600, color: '#DC2626', marginBottom: 12 }}>Error</div>
         <div style={{ fontSize: 12, color: '#888', marginBottom: 20 }}>{error}</div>
         <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
-          <button onClick={() => { setStep('loading'); setError('') }} style={{ padding: '10px 20px', background: '#57FF9A', color: '#000', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 600, fontSize: 12, fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 6 }}>
+          <button onClick={() => { setStep('loading'); setError('') }} style={{ padding: '10px 20px', background: '#10B981', color: '#000', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 600, fontSize: 12, fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 6 }}>
             <RefreshCw size={14} /> Reintentar
           </button>
           <button onClick={() => window.close()} style={{ padding: '10px 20px', background: '#222', color: '#888', border: '1px solid #333', borderRadius: 8, cursor: 'pointer', fontSize: 12, fontFamily: 'inherit' }}>
@@ -372,7 +372,7 @@ export default function MemoriaTecnica() {
         padding: '12px 20px', display: 'flex', gap: 10, alignItems: 'center', justifyContent: 'space-between',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <CheckCircle size={16} color="#57FF9A" />
+          <CheckCircle size={16} color="#10B981" />
           <span style={{ color: '#888', fontSize: 12, fontFamily: 'Inter, sans-serif' }}>
             Memoria Técnica · {meta.quotation_name}
           </span>
@@ -384,7 +384,7 @@ export default function MemoriaTecnica() {
             display: 'inline-flex', alignItems: 'center', gap: 6,
           }}><RefreshCw size={14} /> Regenerar</button>
           <button onClick={exportPdf} disabled={generating} style={{
-            padding: '8px 16px', background: generating ? '#888' : '#57FF9A', border: 'none', color: '#000',
+            padding: '8px 16px', background: generating ? '#888' : '#10B981', border: 'none', color: '#000',
             borderRadius: 8, cursor: generating ? 'wait' : 'pointer', fontFamily: 'Inter, sans-serif', fontSize: 12, fontWeight: 600,
             display: 'inline-flex', alignItems: 'center', gap: 6, opacity: generating ? 0.7 : 1,
           }}>{generating ? <><Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Generando...</> : <><Download size={14} /> Descargar PDF</>}</button>
@@ -532,7 +532,7 @@ export default function MemoriaTecnica() {
                     </div>
                   )}
                   {prod.notas_instalacion && (
-                    <div style={{ fontSize: 9, color: '#F59E0B', marginTop: 2 }}>
+                    <div style={{ fontSize: 9, color: '#D97706', marginTop: 2 }}>
                       <strong>Nota:</strong> {prod.notas_instalacion}
                     </div>
                   )}
@@ -627,7 +627,7 @@ export default function MemoriaTecnica() {
             </table>
 
             {cons.notas_adicionales && cons.notas_adicionales.length > 0 && (
-              <div style={{ fontSize: 9, color: '#666', lineHeight: 1.5, padding: '8px 12px', background: '#FFFBEB', borderRadius: 6, marginTop: 8, borderLeft: '3px solid #F59E0B' }}>
+              <div style={{ fontSize: 9, color: '#666', lineHeight: 1.5, padding: '8px 12px', background: '#FFFBEB', borderRadius: 6, marginTop: 8, borderLeft: '3px solid #D97706' }}>
                 {cons.notas_adicionales.map((nota, nIdx) => (
                   <div key={nIdx} style={{ marginTop: nIdx > 0 ? 4 : 0 }}>• {nota}</div>
                 ))}

@@ -542,7 +542,7 @@ const TIPO_PROYECTO_CONFIG: Record<TipoProyecto, {
   electrica: {
     label: 'Ingeniería Eléctrica',
     icon: '🔌',
-    color: '#F59E0B',
+    color: '#D97706',
     systems: ELECTRICA_SYSTEMS,
     conditions: ELECTRICA_PDF_CONDITIONS,
     badgeLabel: 'ELEC',
@@ -551,7 +551,7 @@ const TIPO_PROYECTO_CONFIG: Record<TipoProyecto, {
   iluminacion: {
     label: 'Diseño de Iluminación',
     icon: '💡',
-    color: '#C084FC',
+    color: '#A78BFA',
     systems: ILUM_SYSTEMS,
     conditions: ILUM_PDF_CONDITIONS,
     badgeLabel: 'ILUM',
@@ -1260,8 +1260,8 @@ function ProySummary({
               marginBottom: 6,
             }}
           >
-            <span style={{ color: '#F59E0B' }}>Descuento {config.descuento}%</span>
-            <span style={{ color: '#F59E0B' }}>-${descuentoAmt.toFixed(2)}</span>
+            <span style={{ color: '#D97706' }}>Descuento {config.descuento}%</span>
+            <span style={{ color: '#D97706' }}>-${descuentoAmt.toFixed(2)}</span>
           </div>
         )}
         <div
@@ -1661,9 +1661,9 @@ export default function CotEditorProyecto({ cotId, onBack, specialty = 'proy', o
               fontWeight: 600,
               cursor: saving ? 'wait' : 'pointer',
               fontFamily: 'inherit',
-              border: dirty ? '1px solid #57FF9A' : '1px solid #333',
-              background: dirty ? '#57FF9A22' : 'transparent',
-              color: dirty ? '#57FF9A' : '#555',
+              border: dirty ? '1px solid #10B981' : '1px solid #333',
+              background: dirty ? '#10B98122' : 'transparent',
+              color: dirty ? '#10B981' : '#555',
               marginLeft: 4,
               display: 'flex',
               alignItems: 'center',
@@ -1710,7 +1710,7 @@ export default function CotEditorProyecto({ cotId, onBack, specialty = 'proy', o
               style={{
                 padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600,
                 cursor: 'pointer', fontFamily: 'inherit',
-                border: '1px solid #F59E0B44', background: 'transparent', color: '#F59E0B',
+                border: '1px solid #D9770644', background: 'transparent', color: '#D97706',
                 display: 'flex', alignItems: 'center', gap: 4,
               }}
             >

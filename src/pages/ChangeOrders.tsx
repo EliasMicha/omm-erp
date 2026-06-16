@@ -246,7 +246,7 @@ export default function ChangeOrders({ cotId, items, areas, catalog, specialty }
         <ArrowRight size={14} style={{ color: '#444' }} />
         <div>
           <div style={{ fontSize: 9, color: '#555', textTransform: 'uppercase', fontWeight: 600, letterSpacing: '0.1em' }}>Obra Real</div>
-          <div style={{ fontSize: 16, fontWeight: 700, color: '#57FF9A' }}>{F(summary.obraReal)}</div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: '#10B981' }}>{F(summary.obraReal)}</div>
         </div>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
           <span style={{ fontSize: 11, color: '#666' }}>
@@ -807,7 +807,7 @@ export function ObraRealTab({ items, orders, areas }: {
         <ArrowRight size={14} style={{ color: '#444' }} />
         <div>
           <div style={{ fontSize: 9, color: '#555', textTransform: 'uppercase', fontWeight: 600, letterSpacing: '0.1em' }}>Obra Real</div>
-          <div style={{ fontSize: 16, fontWeight: 700, color: '#57FF9A' }}>{F(obraTotal)}</div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: '#10B981' }}>{F(obraTotal)}</div>
         </div>
         <div style={{ fontSize: 13, fontWeight: 600, color: delta >= 0 ? '#22c55e' : '#ef4444' }}>
           ({delta >= 0 ? '+' : ''}{F(delta)})

@@ -31,7 +31,7 @@ const TIPO_LABELS: Record<string, string> = {
 }
 
 const TIPO_COLORS: Record<string, string> = {
-  avance: '#57FF9A',
+  avance: '#10B981',
   problema: '#ef4444',
   terminacion_tarea: '#3b82f6',
   material_faltante: '#f59e0b',
@@ -95,7 +95,7 @@ export default function ReportesPage({ employeeId }: { employeeId: string }) {
         <button
           onClick={() => navigate('/obra-app/reportes/nuevo')}
           style={{
-            background: '#57FF9A', border: 'none',
+            background: '#10B981', border: 'none',
             borderRadius: 10, padding: '10px 14px', cursor: 'pointer',
             color: '#0a0a0a', fontSize: 13, fontWeight: 700,
             display: 'flex', alignItems: 'center', gap: 6,
@@ -120,7 +120,7 @@ export default function ReportesPage({ employeeId }: { employeeId: string }) {
           <button
             onClick={() => navigate('/obra-app/reportes/nuevo')}
             style={{
-              background: '#57FF9A', border: 'none',
+              background: '#10B981', border: 'none',
               borderRadius: 10, padding: '12px 18px', cursor: 'pointer',
               color: '#0a0a0a', fontSize: 13, fontWeight: 700,
             }}
@@ -183,7 +183,7 @@ export default function ReportesPage({ employeeId }: { employeeId: string }) {
                   <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid #1f1f1f' }}>
                     {r.ai_avances && r.ai_avances.length > 0 && (
                       <div style={{ marginBottom: 10 }}>
-                        <div style={{ fontSize: 10, color: '#57FF9A', textTransform: 'uppercase', fontWeight: 700, marginBottom: 4 }}>
+                        <div style={{ fontSize: 10, color: '#10B981', textTransform: 'uppercase', fontWeight: 700, marginBottom: 4 }}>
                           ✓ Avances
                         </div>
                         {r.ai_avances.map((a, i) => (

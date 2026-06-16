@@ -30,14 +30,14 @@ interface EspQuoteConfig { currency: string; ivaRate: number; programacion: numb
 const ALL_SYSTEMS: EspSystemDef[] = [
   { id: 'audio',               name: 'Audio',                color: '#8B5CF6' },
   { id: 'redes',               name: 'Redes',                color: '#06B6D4' },
-  { id: 'cctv',                name: 'CCTV',                 color: '#3B82F6' },
-  { id: 'control_acceso',      name: 'Control de Acceso',    color: '#F59E0B' },
-  { id: 'control_iluminacion', name: 'Control de Iluminación', color: '#C084FC' },
-  { id: 'deteccion_humo',      name: 'Detección de Incendio', color: '#EF4444' },
+  { id: 'cctv',                name: 'CCTV',                 color: '#2563EB' },
+  { id: 'control_acceso',      name: 'Control de Acceso',    color: '#D97706' },
+  { id: 'control_iluminacion', name: 'Control de Iluminación', color: '#A78BFA' },
+  { id: 'deteccion_humo',      name: 'Detección de Incendio', color: '#DC2626' },
   { id: 'bms',                 name: 'BMS',                  color: '#10B981' },
   { id: 'telefonia',           name: 'Telefonía',            color: '#F97316' },
   { id: 'red_celular',         name: 'Señal Celular',        color: '#EC4899' },
-  { id: 'lutron_hwqs',          name: 'Lutron HW QS',         color: '#A855F7' },
+  { id: 'lutron_hwqs',          name: 'Lutron HW QS',         color: '#7C3AED' },
   { id: 'lutron',              name: 'Lutron',               color: '#9333EA' },
   { id: 'somfy',               name: 'Somfy',                color: '#14B8A6' },
   { id: 'electrico',           name: 'Eléctrico',            color: '#EAB308' },
@@ -200,10 +200,10 @@ function ProductRow({ p, onUpdate, onRemove, onUpdateAll, showInt, duplicateCoun
     }
   }
   return (
-    <tr style={{ background: selected ? '#57FF9A0D' : undefined }}>
+    <tr style={{ background: selected ? '#10B9810D' : undefined }}>
       {onToggleSelect && (
         <td style={{ ...S.td, width: 28, textAlign: 'center', padding: '6px 4px' }}>
-          <input type="checkbox" checked={!!selected} onChange={() => onToggleSelect(p.id)} style={{ accentColor: '#57FF9A', cursor: 'pointer' }} />
+          <input type="checkbox" checked={!!selected} onChange={() => onToggleSelect(p.id)} style={{ accentColor: '#10B981', cursor: 'pointer' }} />
         </td>
       )}
       <td style={{ ...S.td, width: 44, textAlign: 'center' }}>
@@ -217,26 +217,26 @@ function ProductRow({ p, onUpdate, onRemove, onUpdateAll, showInt, duplicateCoun
         <div style={{ fontSize: 12, fontWeight: 500, color: '#ddd' }}>{p.name}</div>
         {p.description && <div style={{ fontSize: 10, color: '#555', marginTop: 1 }}>{p.description}</div>}
         <div style={{ display: 'flex', gap: 4, alignItems: 'center', marginTop: 1, flexWrap: 'wrap' }}>
-          {p.isService && <span style={{ fontSize: 9, color: '#F59E0B', background: '#F59E0B18', padding: '1px 5px', borderRadius: 4 }}>Servicio</span>}
-          {p.bundleName && <span style={{ fontSize: 9, color: '#A855F7', background: '#A855F718', padding: '1px 5px', borderRadius: 4, display: 'inline-flex', alignItems: 'center', gap: 2 }}><Package size={8} /> {p.bundleName}</span>}
-          {duplicateCount > 1 && <span style={{ fontSize: 9, color: '#F59E0B', background: '#F59E0B18', padding: '1px 5px', borderRadius: 4 }}>×{duplicateCount}</span>}
+          {p.isService && <span style={{ fontSize: 9, color: '#D97706', background: '#D9770618', padding: '1px 5px', borderRadius: 4 }}>Servicio</span>}
+          {p.bundleName && <span style={{ fontSize: 9, color: '#7C3AED', background: '#7C3AED18', padding: '1px 5px', borderRadius: 4, display: 'inline-flex', alignItems: 'center', gap: 2 }}><Package size={8} /> {p.bundleName}</span>}
+          {duplicateCount > 1 && <span style={{ fontSize: 9, color: '#D97706', background: '#D9770618', padding: '1px 5px', borderRadius: 4 }}>×{duplicateCount}</span>}
         </div>
       </td>
       {p.isService ? (<>
         <td colSpan={3} style={{ ...S.tdR, fontSize: 10, color: '#666', fontStyle: 'italic' }}>Servicio — OMM</td>
-        <td style={{ ...S.tdM, color: '#57FF9A' }}><input key={`price-${p.id}-${p.price}`} type="number" defaultValue={p.price} step={0.01} onBlur={e => handleBlur('price', parseFloat(e.target.value) || 0)} style={{ ...S.input, color: '#57FF9A', fontWeight: 600 }} /></td>
+        <td style={{ ...S.tdM, color: '#10B981' }}><input key={`price-${p.id}-${p.price}`} type="number" defaultValue={p.price} step={0.01} onBlur={e => handleBlur('price', parseFloat(e.target.value) || 0)} style={{ ...S.input, color: '#10B981', fontWeight: 600 }} /></td>
       </>) : (<>
         <td style={S.tdR}><input key={`price-${p.id}-${p.price}`} type="number" defaultValue={p.price} step={0.01} onBlur={e => handleBlur('price', parseFloat(e.target.value) || 0)} style={S.input} /></td>
         <td style={S.tdM}>${fmt(precioAmp)}</td>
         <td style={S.tdR}><input key={`labor-${p.id}-${p.laborCost}`} type="number" defaultValue={p.laborCost} step={0.01} onBlur={e => handleBlur('laborCost', parseFloat(e.target.value) || 0)} style={S.input} /></td>
-        <td style={{ ...S.tdM, color: '#57FF9A' }}>${fmt(total)}</td>
+        <td style={{ ...S.tdM, color: '#10B981' }}>${fmt(total)}</td>
       </>)}
       {showInt && (<>
         <td style={{ ...S.tdR, color: '#555', fontSize: 10 }}>${fmt(costReal)}</td>
-        <td style={S.tdR}><input key={`margin-${p.id}-${p.margin}`} type="number" defaultValue={p.margin} step={1} onBlur={e => handleBlur('margin', parseFloat(e.target.value) || 0)} style={{ ...S.input, width: 40, color: p.margin >= 25 ? '#57FF9A' : p.margin >= 15 ? '#F59E0B' : '#EF4444' }} /></td>
-        <td style={{ ...S.tdR, fontSize: 10, color: utilidad >= 0 ? '#57FF9A' : '#EF4444' }}>${fmt(utilidad)}</td>
+        <td style={S.tdR}><input key={`margin-${p.id}-${p.margin}`} type="number" defaultValue={p.margin} step={1} onBlur={e => handleBlur('margin', parseFloat(e.target.value) || 0)} style={{ ...S.input, width: 40, color: p.margin >= 25 ? '#10B981' : p.margin >= 15 ? '#D97706' : '#DC2626' }} /></td>
+        <td style={{ ...S.tdR, fontSize: 10, color: utilidad >= 0 ? '#10B981' : '#DC2626' }}>${fmt(utilidad)}</td>
       </>)}
-      <td style={{ ...S.td, width: 28 }}>{onSubstitute && p.catalogId && <button onClick={() => onSubstitute(p)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, opacity: 0.5 }} title="Sustituir en todo el proyecto"><ArrowLeftRight size={12} color="#3B82F6" /></button>}</td>
+      <td style={{ ...S.td, width: 28 }}>{onSubstitute && p.catalogId && <button onClick={() => onSubstitute(p)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, opacity: 0.5 }} title="Sustituir en todo el proyecto"><ArrowLeftRight size={12} color="#2563EB" /></button>}</td>
       <td style={{ ...S.td, width: 28 }}>{onCopyTo && <button onClick={() => onCopyTo(p.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, padding: 0, opacity: 0.5 }} title="Copiar a otras areas">{String.fromCodePoint(0x1F4CB)}</button>}</td><td style={{ ...S.td, width: 28 }}><button onClick={() => onRemove(p.id)} style={{ background: 'none', border: 'none', color: '#444', cursor: 'pointer' }}><Trash2 size={12} /></button></td>
     </tr>
   )
@@ -313,11 +313,11 @@ function ProductDetailModal({ product, onClose, onUpdate }: {
           <div style={{ height: 1, background: '#333', margin: '12px 0' }} />
 
           {/* Pricing */}
-          <div style={{ fontSize: 11, fontWeight: 700, color: '#57FF9A', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>Pricing</div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: '#10B981', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>Pricing</div>
           <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 4 }}>
             <div style={gridCell}>
               <div style={labelStyle}>Costo Real</div>
-              <div style={{ ...valueStyle, color: '#F59E0B' }}>${fmt(product.cost || costReal)}</div>
+              <div style={{ ...valueStyle, color: '#D97706' }}>${fmt(product.cost || costReal)}</div>
             </div>
             <div style={gridCell}>
               <div style={labelStyle}>Precio Venta</div>
@@ -327,11 +327,11 @@ function ProductDetailModal({ product, onClose, onUpdate }: {
           <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 4 }}>
             <div style={gridCell}>
               <div style={labelStyle}>Margen %</div>
-              <div style={{ ...valueStyle, color: product.margin >= 25 ? '#57FF9A' : product.margin >= 15 ? '#F59E0B' : '#EF4444' }}>{product.margin}%</div>
+              <div style={{ ...valueStyle, color: product.margin >= 25 ? '#10B981' : product.margin >= 15 ? '#D97706' : '#DC2626' }}>{product.margin}%</div>
             </div>
             <div style={gridCell}>
               <div style={labelStyle}>Utilidad Unitaria</div>
-              <div style={{ ...valueStyle, color: utilidad >= 0 ? '#57FF9A' : '#EF4444' }}>${fmt(utilidad)}</div>
+              <div style={{ ...valueStyle, color: utilidad >= 0 ? '#10B981' : '#DC2626' }}>${fmt(utilidad)}</div>
             </div>
           </div>
           <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 4 }}>
@@ -349,7 +349,7 @@ function ProductDetailModal({ product, onClose, onUpdate }: {
           <div style={{ height: 1, background: '#333', margin: '12px 0' }} />
 
           {/* Totals */}
-          <div style={{ fontSize: 11, fontWeight: 700, color: '#57FF9A', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>Totales</div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: '#10B981', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>Totales</div>
           <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 4 }}>
             <div style={gridCell}>
               <div style={labelStyle}>Precio Ampliado</div>
@@ -363,7 +363,7 @@ function ProductDetailModal({ product, onClose, onUpdate }: {
           <div style={{ display: 'flex', gap: 16 }}>
             <div style={gridCell}>
               <div style={labelStyle}>Total (Precio + M.O.)</div>
-              <div style={{ fontSize: 16, fontWeight: 700, color: '#57FF9A' }}>${fmt(total)}</div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: '#10B981' }}>${fmt(total)}</div>
             </div>
             {catCost > 0 && (
               <div style={gridCell}>
@@ -438,7 +438,7 @@ function SystemBlock({ sysDef, products, collapsed, onToggle, onUpdate, onRemove
                       else if (!allSelected && !isSelected) onToggleSelect(p.id)  // select missing
                     })
                   }}
-                  style={{ accentColor: '#57FF9A', cursor: 'pointer' }} />
+                  style={{ accentColor: '#10B981', cursor: 'pointer' }} />
               </th>
             )}
             <th style={{ ...S.th, textAlign: 'center' }}>IMG</th><th style={{ ...S.th, textAlign: 'center' }}>CANT.</th>
@@ -458,7 +458,7 @@ function SystemBlock({ sysDef, products, collapsed, onToggle, onUpdate, onRemove
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 8px' }}>
           <div style={{ display: 'flex', gap: 6 }}>
             <Btn size="sm" onClick={onAdd}><Plus size={12} /> Producto</Btn>
-            <Btn size="sm" onClick={onAddService} style={{ background: '#F59E0B22', color: '#F59E0B', border: '1px solid #F59E0B44' }}><Plus size={12} /> Servicio</Btn>
+            <Btn size="sm" onClick={onAddService} style={{ background: '#D9770622', color: '#D97706', border: '1px solid #D9770644' }}><Plus size={12} /> Servicio</Btn>
           </div>
           <span style={{ fontSize: 10, color: '#555' }}>{sysDef.name.toUpperCase()} TOTAL <span style={{ fontWeight: 700, color: '#fff', marginLeft: 6 }}>${fmt(sysTotal)}</span></span>
         </div>
@@ -491,13 +491,13 @@ function AreaBlock({ area, activeSystems, products, allProducts, collapsedSys, o
 
   return (
     <div style={{ marginBottom: 14 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 14px', cursor: 'pointer', background: '#1a1a1a', borderRadius: 10, borderLeft: '3px solid #57FF9A' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 14px', cursor: 'pointer', background: '#1a1a1a', borderRadius: 10, borderLeft: '3px solid #10B981' }}>
         <div onClick={onToggleArea} style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, cursor: 'pointer' }}>
-          {area.collapsed ? <ChevronRight size={16} color="#57FF9A" /> : <ChevronDown size={16} color="#57FF9A" />}
+          {area.collapsed ? <ChevronRight size={16} color="#10B981" /> : <ChevronDown size={16} color="#10B981" />}
           <span style={{ fontSize: 14, fontWeight: 700, color: '#fff', flex: 1, textTransform: 'uppercase' as const }}>{area.name}</span>
         </div>
         <span style={{ fontSize: 10, color: '#555' }}>{sysWithProds.length} sistemas</span>
-        <span style={{ fontSize: 14, fontWeight: 700, color: '#57FF9A' }}>${fmt(areaTotal)}</span>
+        <span style={{ fontSize: 14, fontWeight: 700, color: '#10B981' }}>${fmt(areaTotal)}</span>
         <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 0, marginLeft: 4 }}>
           {onMoveUp && <button onClick={(e) => { e.stopPropagation(); onMoveUp() }} style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer', padding: '0 3px', lineHeight: 1, fontSize: 10 }} title="Mover arriba">▲</button>}
           {onMoveDown && <button onClick={(e) => { e.stopPropagation(); onMoveDown() }} style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer', padding: '0 3px', lineHeight: 1, fontSize: 10 }} title="Mover abajo">▼</button>}
@@ -524,7 +524,7 @@ function AreaBlock({ area, activeSystems, products, allProducts, collapsedSys, o
                 />
               ) : area.notes ? (
                 <div onClick={() => setEditingNote(true)} style={{ display: 'flex', alignItems: 'flex-start', gap: 6, cursor: 'pointer' }} title="Click para editar">
-                  <span style={{ fontSize: 9, fontWeight: 700, color: '#F59E0B', letterSpacing: '0.08em', whiteSpace: 'nowrap' }}>📝 NOTA</span>
+                  <span style={{ fontSize: 9, fontWeight: 700, color: '#D97706', letterSpacing: '0.08em', whiteSpace: 'nowrap' }}>📝 NOTA</span>
                   <span style={{ fontSize: 11, color: '#ccc', whiteSpace: 'pre-wrap', flex: 1 }}>{area.notes}</span>
                 </div>
               ) : (
@@ -1153,7 +1153,7 @@ function AIImportModal({ cotId, areas, activeSysIds, currency, tipoCambio, onClo
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, flexShrink: 0 }}>
           <div>
             <div style={{ fontSize: isMobile ? 13 : 14, fontWeight: 600, color: '#fff', display: 'flex', alignItems: 'center', gap: 8 }}>
-              <Sparkles size={isMobile ? 12 : 14} color="#57FF9A" /> Importar con AI
+              <Sparkles size={isMobile ? 12 : 14} color="#10B981" /> Importar con AI
             </div>
             {!isMobile && <div style={{ fontSize: 11, color: '#555' }}>Sube un listado en Excel, CSV, PDF o imagen — la AI extrae los productos</div>}
           </div>
@@ -1186,14 +1186,14 @@ function AIImportModal({ cotId, areas, activeSysIds, currency, tipoCambio, onClo
 
         {step === 'processing' && (
           <div style={{ padding: '60px 20px', textAlign: 'center' }}>
-            <Loader2 size={32} color="#57FF9A" style={{ animation: 'spin 1s linear infinite', marginBottom: 12 }} />
+            <Loader2 size={32} color="#10B981" style={{ animation: 'spin 1s linear infinite', marginBottom: 12 }} />
             <div style={{ fontSize: 13, color: '#ccc' }}>{progress}</div>
           </div>
         )}
 
         {step === 'inserting' && (
           <div style={{ padding: '60px 20px', textAlign: 'center' }}>
-            <Loader2 size={32} color="#57FF9A" style={{ animation: 'spin 1s linear infinite', marginBottom: 12 }} />
+            <Loader2 size={32} color="#10B981" style={{ animation: 'spin 1s linear infinite', marginBottom: 12 }} />
             <div style={{ fontSize: 13, color: '#ccc' }}>{progress}</div>
             <div style={{ fontSize: 11, color: '#555', marginTop: 8 }}>Insertados: {insertedCount} / {items.length}</div>
           </div>
@@ -1202,16 +1202,16 @@ function AIImportModal({ cotId, areas, activeSysIds, currency, tipoCambio, onClo
         {step === 'review' && (
           <>
             <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 10, fontSize: 11 }}>
-              <span style={{ color: '#888' }}>Confianza: <span style={{ color: confidence === 'high' ? '#57FF9A' : confidence === 'medium' ? '#F59E0B' : '#EF4444', fontWeight: 600 }}>{confidence}</span></span>
+              <span style={{ color: '#888' }}>Confianza: <span style={{ color: confidence === 'high' ? '#10B981' : confidence === 'medium' ? '#D97706' : '#DC2626', fontWeight: 600 }}>{confidence}</span></span>
               <span style={{ color: '#888' }}>{items.length} items detectados</span>
-              <span style={{ color: '#57FF9A' }}>✓ {exactCount} en catálogo</span>
-              <span style={{ color: '#F59E0B' }}>~ {partialCount} parciales</span>
+              <span style={{ color: '#10B981' }}>✓ {exactCount} en catálogo</span>
+              <span style={{ color: '#D97706' }}>~ {partialCount} parciales</span>
               <span style={{ color: '#06B6D4' }}>+ {noneCount} nuevos</span>
             </div>
 
             {warnings.length > 0 && (
               <div style={{ background: '#2a200a', border: '1px solid #3a2e10', borderRadius: 8, padding: 10, marginBottom: 10 }}>
-                <div style={{ fontSize: 11, color: '#F59E0B', fontWeight: 600, marginBottom: 4 }}>Advertencias:</div>
+                <div style={{ fontSize: 11, color: '#D97706', fontWeight: 600, marginBottom: 4 }}>Advertencias:</div>
                 {warnings.map((w, i) => <div key={i} style={{ fontSize: 11, color: '#aaa' }}>• {w}</div>)}
               </div>
             )}
@@ -1237,8 +1237,8 @@ function AIImportModal({ cotId, areas, activeSysIds, currency, tipoCambio, onClo
                   {items.map(it => (
                     <tr key={it._rowId}>
                       <td style={{ ...S.td, textAlign: 'center', width: 28 }}>
-                        {it.match_status === 'exact' && <span title="En catálogo" style={{ color: '#57FF9A' }}>✓</span>}
-                        {it.match_status === 'partial' && <span title="Match parcial" style={{ color: '#F59E0B' }}>~</span>}
+                        {it.match_status === 'exact' && <span title="En catálogo" style={{ color: '#10B981' }}>✓</span>}
+                        {it.match_status === 'partial' && <span title="Match parcial" style={{ color: '#D97706' }}>~</span>}
                         {it.match_status === 'none' && <span title="Se creará nuevo" style={{ color: '#06B6D4' }}>+</span>}
                       </td>
                       <td style={S.td}>
@@ -1269,7 +1269,7 @@ function AIImportModal({ cotId, areas, activeSysIds, currency, tipoCambio, onClo
                       </td>
                       <td style={S.tdR}>
                         <input type="number" step={0.01} value={it.costo ?? ''} onChange={e => updateRow(it._rowId, 'costo', e.target.value ? parseFloat(e.target.value) : null)}
-                          style={{ width: 70, padding: '4px 6px', background: '#1e1e1e', border: '1px solid #333', borderRadius: 4, color: '#F59E0B', fontSize: 11, fontFamily: 'inherit', textAlign: 'right' }} />
+                          style={{ width: 70, padding: '4px 6px', background: '#1e1e1e', border: '1px solid #333', borderRadius: 4, color: '#D97706', fontSize: 11, fontFamily: 'inherit', textAlign: 'right' }} />
                       </td>
                       <td style={S.tdR}>
                         <input type="number" step={0.01} value={it.precio_unitario ?? ''} onChange={e => updateRow(it._rowId, 'precio_unitario', e.target.value ? parseFloat(e.target.value) : null)}
@@ -1351,8 +1351,8 @@ function CatalogModal({ onClose, onSelect, onCreateNew, onSelectBundle, systemNa
 
   const tabStyle = (active: boolean): React.CSSProperties => ({
     padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
-    background: active ? '#57FF9A22' : 'transparent', color: active ? '#57FF9A' : '#666',
-    border: active ? '1px solid #57FF9A44' : '1px solid transparent',
+    background: active ? '#10B98122' : 'transparent', color: active ? '#10B981' : '#666',
+    border: active ? '1px solid #10B98144' : '1px solid transparent',
   })
 
   return (
@@ -1397,7 +1397,7 @@ function CatalogModal({ onClose, onSelect, onCreateNew, onSelectBundle, systemNa
             loading ? <Loading /> : filtered.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '30px 20px', color: '#444', fontSize: 13 }}>
                 {search ? 'Sin resultados — ' : 'Catálogo vacío — '}
-                <button onClick={onCreateNew} style={{ background: 'none', border: 'none', color: '#57FF9A', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, textDecoration: 'underline' }}>Crear producto nuevo</button>
+                <button onClick={onCreateNew} style={{ background: 'none', border: 'none', color: '#10B981', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, textDecoration: 'underline' }}>Crear producto nuevo</button>
               </div>
             ) : (
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -1420,7 +1420,7 @@ function CatalogModal({ onClose, onSelect, onCreateNew, onSelectBundle, systemNa
                         <td style={{ ...S.td, fontSize: 10, color: '#666' }}>{p.system || '--'}</td>
                         <td style={{ ...S.td, fontSize: 10, color: '#666' }}>{p.provider || '--'}</td>
                         <td style={{ ...S.tdR, fontSize: 10, color: '#555' }}>${fmt(p.cost)}</td>
-                        <td style={{ ...S.tdR, fontWeight: 600, color: '#57FF9A' }}>${precio}</td>
+                        <td style={{ ...S.tdR, fontWeight: 600, color: '#10B981' }}>${precio}</td>
                         <td style={S.td}><Btn size="sm" variant="primary">+ Agregar</Btn></td>
                       </tr>
                     )
@@ -1449,14 +1449,14 @@ function CatalogModal({ onClose, onSelect, onCreateNew, onSelectBundle, systemNa
                     <div key={b.id} style={{ border: '1px solid #2a2a2a', borderRadius: 10, overflow: 'hidden' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: '#1a1a1a', cursor: 'pointer' }}
                         onClick={() => setExpandedBundle(isExpanded ? null : b.id)}>
-                        <Package size={16} color="#A855F7" />
+                        <Package size={16} color="#7C3AED" />
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ fontSize: 13, fontWeight: 600, color: '#fff' }}>{b.name}</div>
                           {b.description && <div style={{ fontSize: 10, color: '#555' }}>{b.description}</div>}
                         </div>
                         <span style={{ fontSize: 10, color: '#666' }}>{b.items.length} productos</span>
                         <span style={{ fontSize: 10, color: '#555' }}>${fmt(totalCost)}</span>
-                        <span style={{ fontSize: 13, fontWeight: 700, color: '#57FF9A' }}>${fmt(totalPrice)}</span>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: '#10B981' }}>${fmt(totalPrice)}</span>
                         <Btn size="sm" variant="primary" onClick={(e: React.MouseEvent) => { e.stopPropagation(); onSelectBundle?.(b) }}>+ Bundle</Btn>
                         {isExpanded ? <ChevronDown size={14} color="#555" /> : <ChevronRight size={14} color="#555" />}
                       </div>
@@ -1661,7 +1661,7 @@ IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
               style={{ flex: 1, padding: '8px 10px', background: '#1a1a1a', border: '1px solid #333', borderRadius: 8, color: '#fff', fontSize: 13, fontFamily: 'inherit' }} />
             <Btn variant="primary" onClick={searchWithAI} disabled={aiLoading}>{aiLoading ? '⏳ Buscando...' : '🔍 Buscar'}</Btn>
           </div>
-          {aiStatus && <div style={{ marginTop: 6, fontSize: 11, color: aiStatus.startsWith('✓') ? '#57FF9A' : aiStatus.startsWith('Error') ? '#EF4444' : '#888' }}>{aiStatus}</div>}
+          {aiStatus && <div style={{ marginTop: 6, fontSize: 11, color: aiStatus.startsWith('✓') ? '#10B981' : aiStatus.startsWith('Error') ? '#DC2626' : '#888' }}>{aiStatus}</div>}
         </div>
 
         {/* Form fields */}
@@ -1763,7 +1763,7 @@ IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
               <div style={{ background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 8, padding: '10px 12px' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, fontSize: 11 }}>
                   <div><span style={{ color: '#555' }}>Costo real</span><br /><span style={{ color: '#ccc', fontWeight: 600 }}>${fmt(costoReal)}</span></div>
-                  <div><span style={{ color: '#555' }}>Precio venta</span><br /><span style={{ color: '#57FF9A', fontWeight: 700, fontSize: 14 }}>{rule.precioPublico ? 'Precio público' : '$' + fmt(precioVenta)}</span></div>
+                  <div><span style={{ color: '#555' }}>Precio venta</span><br /><span style={{ color: '#10B981', fontWeight: 700, fontSize: 14 }}>{rule.precioPublico ? 'Precio público' : '$' + fmt(precioVenta)}</span></div>
                   <div><span style={{ color: '#555' }}>Inst + Prog ({rule.instPct}%)</span><br /><span style={{ color: '#ccc', fontWeight: 600 }}>${fmt(labor)}</span></div>
                 </div>
               </div>
@@ -1832,11 +1832,11 @@ function SummaryPanel({ products, areas, config, activeSystems, showInt, onConfi
         {/* Discount row */}
         {discountRows.map((r, i) => (
           <div key={'d' + i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '3px 0', borderTop: '1px solid #222', background: config.descuento > 0 ? 'rgba(239,68,68,0.05)' : 'transparent', borderRadius: 4, paddingLeft: 4, paddingRight: 4 }}>
-            <span style={{ fontSize: 10, color: config.descuento > 0 ? '#EF4444' : '#555', fontWeight: 400 }}>{r.l}</span>
+            <span style={{ fontSize: 10, color: config.descuento > 0 ? '#DC2626' : '#555', fontWeight: 400 }}>{r.l}</span>
             <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
               <input type="number" value={r.v} step={1} min={0} max={100} onChange={e => onConfigChange('descuento', Math.min(100, Math.max(0, parseFloat(e.target.value) || 0)))} style={{ ...S.input, width: 50, fontSize: 11, fontWeight: 600 }} />
               <span style={{ fontSize: 10, color: '#555' }}>%</span>
-              {config.descuento > 0 && <span style={{ fontSize: 10, color: '#EF4444', marginLeft: 4 }}>-${fmt(descuentoAmt)}</span>}
+              {config.descuento > 0 && <span style={{ fontSize: 10, color: '#DC2626', marginLeft: 4 }}>-${fmt(descuentoAmt)}</span>}
             </div>
           </div>
         ))}
@@ -1852,8 +1852,8 @@ function SummaryPanel({ products, areas, config, activeSystems, showInt, onConfi
         {/* After discount rows */}
         {afterDiscountRows.map((r, i) => (
           <div key={'a' + i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '3px 0', borderTop: r.b ? '1px solid #222' : 'none' }}>
-            <span style={{ fontSize: 10, color: r.h ? '#57FF9A' : r.b ? '#ccc' : '#555', fontWeight: r.b ? 700 : 400 }}>{r.l}</span>
-            <span style={{ fontSize: r.h ? 15 : 11, fontWeight: r.b ? 700 : 400, color: r.h ? '#57FF9A' : '#fff' }}>${fmt(r.v)}</span>
+            <span style={{ fontSize: 10, color: r.h ? '#10B981' : r.b ? '#ccc' : '#555', fontWeight: r.b ? 700 : 400 }}>{r.l}</span>
+            <span style={{ fontSize: r.h ? 15 : 11, fontWeight: r.b ? 700 : 400, color: r.h ? '#10B981' : '#fff' }}>${fmt(r.v)}</span>
           </div>
         ))}
         <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px solid #222' }}>
@@ -1884,7 +1884,7 @@ function SummaryPanel({ products, areas, config, activeSystems, showInt, onConfi
           return <div key={sys.id} onClick={() => onSystemClick?.(sys.id)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '3px 4px', fontSize: 10, cursor: 'pointer', borderRadius: 4, transition: 'background 0.1s' }} onMouseEnter={e => (e.currentTarget.style.background = '#1e1e1e')} onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
             <span style={{ color: sys.color }}>{sys.name}</span>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              {showInt && <span style={{ fontSize: 9, fontWeight: 600, color: sysMg >= 25 ? '#57FF9A' : sysMg >= 15 ? '#F59E0B' : '#EF4444' }}>{sysMg}%</span>}
+              {showInt && <span style={{ fontSize: 9, fontWeight: 600, color: sysMg >= 25 ? '#10B981' : sysMg >= 15 ? '#D97706' : '#DC2626' }}>{sysMg}%</span>}
               <span style={{ color: '#ccc', fontWeight: 500 }}>${fmt(t)}</span>
             </div>
           </div>
@@ -1892,7 +1892,7 @@ function SummaryPanel({ products, areas, config, activeSystems, showInt, onConfi
       </div>
       {showInt && (
         <div style={{ background: '#1a1414', border: '1px solid #332222', borderRadius: 12, padding: 14 }}>
-          <div style={{ fontSize: 10, fontWeight: 600, color: '#F59E0B', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Análisis Interno</div>
+          <div style={{ fontSize: 10, fontWeight: 600, color: '#D97706', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Análisis Interno</div>
           {(() => {
             let vtProd = 0, ctProd = 0, vtMO = 0, vtSvc = 0
             products.forEach(p => {
@@ -1921,8 +1921,8 @@ function SummaryPanel({ products, areas, config, activeSystems, showInt, onConfi
               <div style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0', fontSize: 10, borderTop: '1px solid #332222', marginTop: 3, paddingTop: 5, fontWeight: 600 }}><span style={{ color: '#ccc' }}>Listprice total</span><span style={{ color: '#fff' }}>${fmt(vtListprice)}</span></div>
               {descPct > 0 && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}>
-                  <span style={{ color: '#EF4444' }}>− Descuento {descPct}%</span>
-                  <span style={{ color: '#EF4444' }}>−${fmt(descMonto)}</span>
+                  <span style={{ color: '#DC2626' }}>− Descuento {descPct}%</span>
+                  <span style={{ color: '#DC2626' }}>−${fmt(descMonto)}</span>
                 </div>
               )}
               {descPct > 0 && (
@@ -1931,7 +1931,7 @@ function SummaryPanel({ products, areas, config, activeSystems, showInt, onConfi
                   <span style={{ color: '#fff' }}>${fmt(vtBilled)}</span>
                 </div>
               )}
-              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10, marginTop: 4 }}><span style={{ color: '#888' }}>− Costo productos</span><span style={{ color: '#EF4444' }}>−${fmt(ctProd)}</span></div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10, marginTop: 4 }}><span style={{ color: '#888' }}>− Costo productos</span><span style={{ color: '#DC2626' }}>−${fmt(ctProd)}</span></div>
               <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}>
                 <span style={{ color: '#888', display: 'flex', alignItems: 'center', gap: 4 }}>
                   − Nómina
@@ -1943,21 +1943,21 @@ function SummaryPanel({ products, areas, config, activeSystems, showInt, onConfi
                   />
                   <span style={{ fontSize: 9, color: '#555' }}>%</span>
                 </span>
-                <span style={{ color: '#EF4444' }}>−${fmt(nomina)}</span>
+                <span style={{ color: '#DC2626' }}>−${fmt(nomina)}</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10, borderTop: '1px solid #332222', marginTop: 3, paddingTop: 5 }}>
                 <span style={{ color: '#888' }}>MG productos</span>
-                <span style={{ color: mgProd >= 25 ? '#57FF9A' : mgProd >= 15 ? '#F59E0B' : '#EF4444', fontWeight: 600 }}>{mgProd}%</span>
+                <span style={{ color: mgProd >= 25 ? '#10B981' : mgProd >= 15 ? '#D97706' : '#DC2626', fontWeight: 600 }}>{mgProd}%</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}>
                 <span style={{ color: '#888' }}>MG bruto proyecto{descPct > 0 ? ' (c/ desc)' : ''}</span>
                 <span style={{ color: '#aaa', fontWeight: 600 }}>{mgBruto}%</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0', fontSize: 11, borderTop: '1px solid #332222', marginTop: 3, paddingTop: 5 }}>
-                <span style={{ color: '#F59E0B', fontWeight: 700 }}>MG real (c/ nómina{descPct > 0 ? ' y desc' : ''})</span>
-                <span style={{ color: mgReal >= 25 ? '#57FF9A' : mgReal >= 15 ? '#F59E0B' : '#EF4444', fontWeight: 700, fontSize: 14 }}>{mgReal}%</span>
+                <span style={{ color: '#D97706', fontWeight: 700 }}>MG real (c/ nómina{descPct > 0 ? ' y desc' : ''})</span>
+                <span style={{ color: mgReal >= 25 ? '#10B981' : mgReal >= 15 ? '#D97706' : '#DC2626', fontWeight: 700, fontSize: 14 }}>{mgReal}%</span>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}><span style={{ color: '#888' }}>Utilidad real</span><span style={{ color: mgReal >= 0 ? '#57FF9A' : '#EF4444', fontWeight: 600 }}>${fmt(vtBilled - ctProd - nomina)}</span></div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}><span style={{ color: '#888' }}>Utilidad real</span><span style={{ color: mgReal >= 0 ? '#10B981' : '#DC2626', fontWeight: 600 }}>${fmt(vtBilled - ctProd - nomina)}</span></div>
               <div style={{ fontSize: 8, color: '#555', marginTop: 6, paddingTop: 6, borderTop: '1px solid #332222', lineHeight: 1.4 }}>
                 MG productos = venta vs costo (sin descuento). MG bruto = revenue billed vs costo productos. MG real = bruto menos nómina prorrateada. El descuento erosiona el margen sin tocar el costo. % de nómina = placeholder editable.
               </div>
@@ -2058,10 +2058,10 @@ function SystemOverviewModal({ systemDef, products, areas, config, onClose }: {
               <tfoot>
                 <tr style={{ borderTop: '2px solid #333' }}>
                   <td colSpan={2} style={{ ...S.td, fontWeight: 600, color: '#fff', paddingLeft: 16 }}>TOTAL</td>
-                  <td style={{ ...S.td, textAlign: 'right', fontWeight: 600, color: '#F59E0B' }}>${fmt(totals.costo)}</td>
+                  <td style={{ ...S.td, textAlign: 'right', fontWeight: 600, color: '#D97706' }}>${fmt(totals.costo)}</td>
                   <td style={{ ...S.td, textAlign: 'right', fontWeight: 600, color: '#fff' }}>${fmt(totals.venta)}</td>
                   <td style={{ ...S.td, textAlign: 'center', fontWeight: 700, color: '#fff' }}>{totals.qty}</td>
-                  <td style={{ ...S.td, textAlign: 'right', fontWeight: 700, color: '#57FF9A' }}>${fmt(totals.venta)}</td>
+                  <td style={{ ...S.td, textAlign: 'right', fontWeight: 700, color: '#10B981' }}>${fmt(totals.venta)}</td>
                   <td style={S.td} />
                 </tr>
               </tfoot>
@@ -2891,8 +2891,8 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
       <div style={{ padding: isMobile ? '7px 12px' : '7px 16px', borderBottom: '1px solid #222', display: 'flex', alignItems: 'center', gap: isMobile ? 6 : 10, flexShrink: 0, background: '#111', flexWrap: 'wrap' }}>
         <button onClick={onBack} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, fontSize: isMobile ? 10 : 12 }}><ChevronLeft size={isMobile ? 12 : 14} /> {isMobile ? '' : 'Cotizaciones'}</button>
         {!isMobile && <span style={{ color: '#333' }}>/</span>}
-        <span style={{ fontSize: isMobile ? 10 : 12, fontWeight: 500, color: '#57FF9A', cursor: 'pointer' }} onClick={() => setShowEditCot(true)}>◈ {isMobile ? (cotName || 'Cot').slice(0, 10) : (cotName || 'Cotización ESP')}</span>
-        <Badge label="ESP" color="#57FF9A" />
+        <span style={{ fontSize: isMobile ? 10 : 12, fontWeight: 500, color: '#10B981', cursor: 'pointer' }} onClick={() => setShowEditCot(true)}>◈ {isMobile ? (cotName || 'Cot').slice(0, 10) : (cotName || 'Cotización ESP')}</span>
+        <Badge label="ESP" color="#10B981" />
         {!isMobile && clientName && <span style={{ fontSize: 11, color: '#888' }}>{clientName}</span>}
         {!isMobile && projectName && <span style={{ fontSize: 10, color: '#555' }}>| {projectName}</span>}
         <button onClick={() => setShowEditCot(true)} style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer', fontSize: 10 }}>✏️</button>
@@ -2905,14 +2905,14 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
           ))}
           {!isMobile && (
             <>
-              <button onClick={() => setShowAIImport(true)} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #57FF9A44', background: 'transparent', color: '#57FF9A', marginLeft: 8, display: 'inline-flex', alignItems: 'center', gap: 4 }}><Sparkles size={11} /> Importar con AI</button>
+              <button onClick={() => setShowAIImport(true)} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #10B98144', background: 'transparent', color: '#10B981', marginLeft: 8, display: 'inline-flex', alignItems: 'center', gap: 4 }}><Sparkles size={11} /> Importar con AI</button>
               <button onClick={() => setShowPdfPicker(true)} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #06B6D444', background: 'transparent', color: '#06B6D4', display: 'inline-flex', alignItems: 'center', gap: 4 }}><FileText size={11} /> Exportar PDF</button>
-              <VersionManager cotId={cotId} getCurrentSnapshot={getVersionSnapshot} onSwitchVersion={onSwitchVersion || (() => {})} accentColor="#57FF9A" compact={isMobile} />
+              <VersionManager cotId={cotId} getCurrentSnapshot={getVersionSnapshot} onSwitchVersion={onSwitchVersion || (() => {})} accentColor="#10B981" compact={isMobile} />
               {(stage === 'contrato' || stage === 'propuesta') && (
-                <button onClick={() => window.open(`/cotizacion/${cotId}/memoria-tecnica`, '_blank')} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #F59E0B44', background: 'transparent', color: '#F59E0B', display: 'inline-flex', alignItems: 'center', gap: 4 }}><BookOpen size={11} /> Memoria Técnica</button>
+                <button onClick={() => window.open(`/cotizacion/${cotId}/memoria-tecnica`, '_blank')} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #D9770644', background: 'transparent', color: '#D97706', display: 'inline-flex', alignItems: 'center', gap: 4 }}><BookOpen size={11} /> Memoria Técnica</button>
               )}
-              <button onClick={() => setShowSystemPicker(true)} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #57FF9A44', background: 'transparent', color: '#57FF9A' }}>⚙ Sistemas ({activeSysIds.length})</button>
-              <button onClick={() => setShowInt(!showInt)} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid ' + (showInt ? '#F59E0B' : '#333'), background: showInt ? '#F59E0B22' : 'transparent', color: showInt ? '#F59E0B' : '#555' }}>{showInt ? '👁 Interno' : '👁 Cliente'}</button>
+              <button onClick={() => setShowSystemPicker(true)} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #10B98144', background: 'transparent', color: '#10B981' }}>⚙ Sistemas ({activeSysIds.length})</button>
+              <button onClick={() => setShowInt(!showInt)} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid ' + (showInt ? '#D97706' : '#333'), background: showInt ? '#D9770622' : 'transparent', color: showInt ? '#D97706' : '#555' }}>{showInt ? '👁 Interno' : '👁 Cliente'}</button>
             </>
           )}
           {/* Margen total badge — click para ajustar bulk */}
@@ -2923,9 +2923,9 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
                 title={`MG Real = (revenue − costo productos − nómina ${config.nominaPct}%) / revenue. Click para ajustar.`}
                 style={{
                   padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
-                  border: '1px solid ' + (overallMargin >= 25 ? '#57FF9A' : overallMargin >= 15 ? '#F59E0B' : '#EF4444'),
-                  background: (overallMargin >= 25 ? '#57FF9A' : overallMargin >= 15 ? '#F59E0B' : '#EF4444') + '22',
-                  color: overallMargin >= 25 ? '#57FF9A' : overallMargin >= 15 ? '#F59E0B' : '#EF4444',
+                  border: '1px solid ' + (overallMargin >= 25 ? '#10B981' : overallMargin >= 15 ? '#D97706' : '#DC2626'),
+                  background: (overallMargin >= 25 ? '#10B981' : overallMargin >= 15 ? '#D97706' : '#DC2626') + '22',
+                  color: overallMargin >= 25 ? '#10B981' : overallMargin >= 15 ? '#D97706' : '#DC2626',
                   display: 'inline-flex', alignItems: 'center', gap: 4,
                 }}
               >MG Real {overallMargin}%</button>
@@ -2933,7 +2933,7 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
                 <div style={{ position: 'absolute', top: '110%', right: 0, zIndex: 30, background: '#141414', border: '1px solid #333', borderRadius: 10, padding: 12, minWidth: 320, boxShadow: '0 10px 30px rgba(0,0,0,0.6)' }}>
                   <div style={{ fontSize: 11, fontWeight: 700, color: '#fff', marginBottom: 6 }}>Ajustar margen real del proyecto</div>
                   <div style={{ fontSize: 10, color: '#888', marginBottom: 8, lineHeight: 1.5 }}>
-                    Escala precios de productos para que <b style={{ color: '#F59E0B' }}>MG Real</b> (revenue total − costo − nómina <b style={{ color: '#F59E0B' }}>{config.nominaPct}%</b>) llegue al target. M.O. y servicios sin cambios.
+                    Escala precios de productos para que <b style={{ color: '#D97706' }}>MG Real</b> (revenue total − costo − nómina <b style={{ color: '#D97706' }}>{config.nominaPct}%</b>) llegue al target. M.O. y servicios sin cambios.
                   </div>
                   <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                     <input
@@ -2948,7 +2948,7 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
                     <span style={{ fontSize: 11, color: '#888' }}>%</span>
                     <button
                       onClick={() => { applyBulkMargin(parseFloat(bulkMarginInput)); setShowBulkMargin(false) }}
-                      style={{ padding: '5px 10px', fontSize: 11, fontWeight: 700, background: '#57FF9A22', border: '1px solid #57FF9A', color: '#57FF9A', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit' }}
+                      style={{ padding: '5px 10px', fontSize: 11, fontWeight: 700, background: '#10B98122', border: '1px solid #10B981', color: '#10B981', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit' }}
                     >Aplicar</button>
                     <button
                       onClick={() => setShowBulkMargin(false)}
@@ -2962,7 +2962,7 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
               )}
             </div>
           )}
-          <span style={{ fontSize: isMobile ? 12 : 15, fontWeight: 700, color: '#57FF9A', marginLeft: isMobile ? 'auto' : 10 }}>{config.currency === 'MXN' ? '$' : 'US$'}{isMobile ? fmt(total).slice(0, 6) : fmt(total)}</span>
+          <span style={{ fontSize: isMobile ? 12 : 15, fontWeight: 700, color: '#10B981', marginLeft: isMobile ? 'auto' : 10 }}>{config.currency === 'MXN' ? '$' : 'US$'}{isMobile ? fmt(total).slice(0, 6) : fmt(total)}</span>
         </div>
       </div>
 
@@ -2975,7 +2975,7 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
           return <span key={sys.id} onClick={() => setViewSystemId(sys.id)} style={{ padding: isMobile ? '1px 4px' : '2px 7px', borderRadius: 5, fontSize: isMobile ? 8 : 10, fontWeight: 600, background: sys.color + '18', color: sys.color, border: '1px solid ' + sys.color + '33', cursor: 'pointer', transition: 'opacity 0.1s', whiteSpace: 'nowrap' }} onMouseEnter={e => (e.currentTarget.style.opacity = '0.8')} onMouseLeave={e => (e.currentTarget.style.opacity = '1')}>{isMobile ? sys.name.slice(0, 4) : sys.name} {isMobile ? st.toFixed(0) : (config.currency === 'MXN' ? '$' : 'US$') + st.toFixed(0)}</span>
         })}
         <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: isMobile ? 3 : 6, flexWrap: isMobile ? 'wrap' : 'nowrap' }}>
-          <span style={{ fontSize: isMobile ? 8 : 10, fontWeight: 600, color: config.currency === 'USD' ? '#06B6D4' : '#F59E0B', background: config.currency === 'USD' ? '#06B6D422' : '#F59E0B22', padding: isMobile ? '1px 4px' : '2px 8px', borderRadius: 5 }}>{config.currency}</span>
+          <span style={{ fontSize: isMobile ? 8 : 10, fontWeight: 600, color: config.currency === 'USD' ? '#06B6D4' : '#D97706', background: config.currency === 'USD' ? '#06B6D422' : '#D9770622', padding: isMobile ? '1px 4px' : '2px 8px', borderRadius: 5 }}>{config.currency}</span>
           {!isMobile && <span style={{ fontSize: 9, color: '#555' }}>TC:</span>}
           <input type="number" value={config.tipoCambio} step={0.1}
             onChange={e => updateConfig('tipoCambio', parseFloat(e.target.value) || 20)}
@@ -2995,9 +2995,9 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
               fontSize: isMobile ? 9 : 10,
               fontWeight: 700,
               fontFamily: 'inherit',
-              border: '1px solid ' + (filterAreaId === null ? '#57FF9A' : '#333'),
-              background: filterAreaId === null ? '#57FF9A22' : 'transparent',
-              color: filterAreaId === null ? '#57FF9A' : '#888',
+              border: '1px solid ' + (filterAreaId === null ? '#10B981' : '#333'),
+              background: filterAreaId === null ? '#10B98122' : 'transparent',
+              color: filterAreaId === null ? '#10B981' : '#888',
               cursor: 'pointer',
               whiteSpace: 'nowrap' as const,
             }}
@@ -3016,9 +3016,9 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
                   fontSize: isMobile ? 9 : 10,
                   fontWeight: 600,
                   fontFamily: 'inherit',
-                  border: '1px solid ' + (active ? '#57FF9A' : '#2a2a2a'),
-                  background: active ? '#57FF9A22' : '#161616',
-                  color: active ? '#57FF9A' : '#aaa',
+                  border: '1px solid ' + (active ? '#10B981' : '#2a2a2a'),
+                  background: active ? '#10B98122' : '#161616',
+                  color: active ? '#10B981' : '#aaa',
                   cursor: 'pointer',
                   whiteSpace: 'nowrap' as const,
                   display: 'inline-flex',
@@ -3027,12 +3027,12 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
                 }}
               >
                 <span>{isMobile ? area.name.slice(0, 8) : area.name}</span>
-                <span style={{ fontSize: 8, color: active ? '#57FF9A' : '#666', fontWeight: 500 }}>{(config.currency === 'MXN' ? '$' : 'US$') + areaTot.toFixed(0)}</span>
+                <span style={{ fontSize: 8, color: active ? '#10B981' : '#666', fontWeight: 500 }}>{(config.currency === 'MXN' ? '$' : 'US$') + areaTot.toFixed(0)}</span>
               </button>
             )
           })}
           {filterAreaId && (
-            <span style={{ marginLeft: 6, fontSize: 9, color: '#F59E0B', fontStyle: 'italic' as const }}>
+            <span style={{ marginLeft: 6, fontSize: 9, color: '#D97706', fontStyle: 'italic' as const }}>
               · Mostrando solo 1 área. Click "Todas" para ver el proyecto completo.
             </span>
           )}
@@ -3050,10 +3050,10 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
               style={{
                 display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                 width: '100%', padding: '7px 10px', marginBottom: 3,
-                background: filterAreaId === null ? '#57FF9A18' : 'transparent',
-                border: '1px solid ' + (filterAreaId === null ? '#57FF9A44' : 'transparent'),
+                background: filterAreaId === null ? '#10B98118' : 'transparent',
+                border: '1px solid ' + (filterAreaId === null ? '#10B98144' : 'transparent'),
                 borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit',
-                color: filterAreaId === null ? '#57FF9A' : '#888',
+                color: filterAreaId === null ? '#10B981' : '#888',
                 fontSize: 11, fontWeight: 700,
               }}
             >
@@ -3073,18 +3073,18 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
                   style={{
                     display: 'flex', flexDirection: 'column' as const, alignItems: 'flex-start',
                     width: '100%', padding: '7px 10px', marginBottom: 2,
-                    background: active ? '#57FF9A18' : 'transparent',
-                    border: '1px solid ' + (active ? '#57FF9A44' : 'transparent'),
-                    borderLeft: active ? '3px solid #57FF9A' : '3px solid transparent',
+                    background: active ? '#10B98118' : 'transparent',
+                    border: '1px solid ' + (active ? '#10B98144' : 'transparent'),
+                    borderLeft: active ? '3px solid #10B981' : '3px solid transparent',
                     borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit',
-                    color: active ? '#57FF9A' : '#ccc',
+                    color: active ? '#10B981' : '#ccc',
                     transition: 'background 0.1s, color 0.1s',
                   }}
                   onMouseEnter={e => { if (!active) e.currentTarget.style.background = '#141414' }}
                   onMouseLeave={e => { if (!active) e.currentTarget.style.background = 'transparent' }}
                 >
                   <span style={{ fontSize: 11, fontWeight: 600, textAlign: 'left' as const, lineHeight: 1.3, width: '100%', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{area.name}</span>
-                  <span style={{ fontSize: 9, color: active ? '#57FF9A' : '#555', marginTop: 2, display: 'flex', justifyContent: 'space-between', width: '100%' }}>
+                  <span style={{ fontSize: 9, color: active ? '#10B981' : '#555', marginTop: 2, display: 'flex', justifyContent: 'space-between', width: '100%' }}>
                     <span>{areaCount} item{areaCount !== 1 ? 's' : ''}</span>
                     <span style={{ fontWeight: 600 }}>{(config.currency === 'MXN' ? '$' : 'US$') + areaTot.toFixed(0)}</span>
                   </span>
@@ -3105,10 +3105,10 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
         <div style={{ overflowY: 'auto', padding: isMobile ? '12px 12px' : '14px 18px' }}>
           {/* Bulk action bar */}
           {selectedProdIds.size > 0 && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 4 : 8, padding: isMobile ? '6px 10px' : '8px 14px', marginBottom: 10, background: '#57FF9A12', border: '1px solid #57FF9A33', borderRadius: 10, flexWrap: 'wrap' }}>
-              <span style={{ fontSize: isMobile ? 10 : 12, fontWeight: 700, color: '#57FF9A' }}>{selectedProdIds.size} sel.</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 4 : 8, padding: isMobile ? '6px 10px' : '8px 14px', marginBottom: 10, background: '#10B98112', border: '1px solid #10B98133', borderRadius: 10, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: isMobile ? 10 : 12, fontWeight: 700, color: '#10B981' }}>{selectedProdIds.size} sel.</span>
               {selectedProdIds.size < products.length && (
-                <button onClick={() => setSelectedProdIds(new Set(products.map(p => p.id)))} style={{ padding: '4px 10px', borderRadius: 6, fontSize: 11, background: '#57FF9A18', border: '1px solid #57FF9A33', color: '#57FF9A', cursor: 'pointer', fontFamily: 'inherit' }}>Todos ({products.length})</button>
+                <button onClick={() => setSelectedProdIds(new Set(products.map(p => p.id)))} style={{ padding: '4px 10px', borderRadius: 6, fontSize: 11, background: '#10B98118', border: '1px solid #10B98133', color: '#10B981', cursor: 'pointer', fontFamily: 'inherit' }}>Todos ({products.length})</button>
               )}
               {!isMobile && <span style={{ width: 1, height: 16, background: '#333' }} />}
 
@@ -3134,12 +3134,12 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
               </select>}
 
               {/* Delete */}
-              <button onClick={bulkRemove} style={{ padding: isMobile ? '3px 6px' : '4px 10px', borderRadius: 6, fontSize: isMobile ? 9 : 11, background: '#EF444422', border: '1px solid #EF444444', color: '#EF4444', cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 2 }}>
+              <button onClick={bulkRemove} style={{ padding: isMobile ? '3px 6px' : '4px 10px', borderRadius: 6, fontSize: isMobile ? 9 : 11, background: '#DC262622', border: '1px solid #DC262644', color: '#DC2626', cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 2 }}>
                 <Trash2 size={isMobile ? 9 : 11} /> {isMobile ? 'Del' : 'Eliminar'}
               </button>
 
               {/* Sync with catalogue */}
-              {!isMobile && <button onClick={syncSelectedWithCatalog} style={{ padding: '4px 10px', borderRadius: 6, fontSize: 11, background: '#3B82F622', border: '1px solid #3B82F644', color: '#3B82F6', cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 4 }}>
+              {!isMobile && <button onClick={syncSelectedWithCatalog} style={{ padding: '4px 10px', borderRadius: 6, fontSize: 11, background: '#2563EB22', border: '1px solid #2563EB44', color: '#2563EB', cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 4 }}>
                 <RefreshCw size={11} /> Sync catálogo
               </button>}
 
@@ -3197,7 +3197,7 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
           <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <div style={{ background: '#1a1a1a', border: '1px solid #333', borderRadius: isMobile ? 0 : 12, padding: isMobile ? 16 : 24, minWidth: isMobile ? 'auto' : 400, width: isMobile ? '100vw' : 'auto', maxWidth: isMobile ? '100vw' : 500, maxHeight: isMobile ? '100vh' : '80vh', height: isMobile ? '100vh' : 'auto', display: 'flex', flexDirection: 'column' as const, margin: 0 }}>
               <h3 style={{ margin: '0 0 8px', color: '#fff', fontSize: isMobile ? 14 : 16, flexShrink: 0 }}>Copiar producto a otras áreas</h3>
-              <p style={{ color: '#57FF9A', fontSize: isMobile ? 12 : 13, margin: '0 0 16px', flexShrink: 0 }}>{src.name} (de {areas.find(a => a.id === src.areaId)?.name})</p>
+              <p style={{ color: '#10B981', fontSize: isMobile ? 12 : 13, margin: '0 0 16px', flexShrink: 0 }}>{src.name} (de {areas.find(a => a.id === src.areaId)?.name})</p>
               <div style={{ overflowY: 'auto' as const, flex: 1 }}>
                 {otherAreas.map(a => (
                   <label key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderBottom: '1px solid #222', cursor: 'pointer', color: '#ccc', fontSize: isMobile ? 12 : 14 }}>
@@ -3207,7 +3207,7 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
               </div>
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16, flexShrink: 0, flexWrap: isMobile ? 'wrap' : 'nowrap' }}>
                 <button onClick={() => setCopyingProduct(null)} style={{ padding: isMobile ? '8px 12px' : '8px 16px', borderRadius: 8, border: '1px solid #333', background: '#222', color: '#ccc', cursor: 'pointer', fontSize: isMobile ? 12 : 14, flex: isMobile ? 1 : 'auto' }}>Cancelar</button>
-                <button onClick={() => { const sel = otherAreas.filter(a => (document.getElementById('cp_' + a.id) as HTMLInputElement)?.checked).map(a => a.id); if (sel.length) copyProductToAreas(copyingProduct, sel); }} style={{ padding: isMobile ? '8px 12px' : '8px 16px', borderRadius: 8, border: 'none', background: '#57FF9A', color: '#000', fontWeight: 600, cursor: 'pointer', fontSize: isMobile ? 12 : 14, flex: isMobile ? 1 : 'auto' }}>Copiar</button>
+                <button onClick={() => { const sel = otherAreas.filter(a => (document.getElementById('cp_' + a.id) as HTMLInputElement)?.checked).map(a => a.id); if (sel.length) copyProductToAreas(copyingProduct, sel); }} style={{ padding: isMobile ? '8px 12px' : '8px 16px', borderRadius: 8, border: 'none', background: '#10B981', color: '#000', fontWeight: 600, cursor: 'pointer', fontSize: isMobile ? 12 : 14, flex: isMobile ? 1 : 'auto' }}>Copiar</button>
               </div>
             </div>
           </div>
@@ -3343,8 +3343,8 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
                 <button onClick={() => addCustomSystem(newSystemName)} disabled={!newSystemName.trim()} style={{
                   padding: '8px 14px', borderRadius: 8, fontSize: 12, fontWeight: 600, fontFamily: 'inherit',
                   cursor: newSystemName.trim() ? 'pointer' : 'not-allowed',
-                  border: '1px solid #57FF9A44', background: newSystemName.trim() ? '#57FF9A22' : '#1a1a1a',
-                  color: newSystemName.trim() ? '#57FF9A' : '#444',
+                  border: '1px solid #10B98144', background: newSystemName.trim() ? '#10B98122' : '#1a1a1a',
+                  color: newSystemName.trim() ? '#10B981' : '#444',
                 }}>Crear</button>
               </div>
               <div style={{ fontSize: 9, color: '#444', marginTop: 4 }}>Se activa automáticamente. Solo se puede borrar si no tiene productos.</div>

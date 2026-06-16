@@ -86,22 +86,22 @@ interface POItem {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 const STATUS_CFG: Record<DeliveryStatus, { label: string; color: string }> = {
-  pendiente: { label: 'Pendiente', color: '#F59E0B' },
-  en_ruta:   { label: 'En ruta',   color: '#3B82F6' },
-  entregado: { label: 'Entregado', color: '#57FF9A' },
-  cancelado: { label: 'Cancelado', color: '#EF4444' },
+  pendiente: { label: 'Pendiente', color: '#D97706' },
+  en_ruta:   { label: 'En ruta',   color: '#2563EB' },
+  entregado: { label: 'Entregado', color: '#10B981' },
+  cancelado: { label: 'Cancelado', color: '#DC2626' },
 }
 
 const TYPE_CFG: Record<DeliveryType, { label: string; color: string; icon: string }> = {
-  entrega:             { label: 'Entrega a obra',        color: '#57FF9A', icon: '📦' },
-  recoleccion:         { label: 'Recolección → bodega',  color: '#C084FC', icon: '🚚' },
-  recoleccion_directa: { label: 'Recolección → obra',    color: '#F59E0B', icon: '⚡' },
+  entrega:             { label: 'Entrega a obra',        color: '#10B981', icon: '📦' },
+  recoleccion:         { label: 'Recolección → bodega',  color: '#A78BFA', icon: '🚚' },
+  recoleccion_directa: { label: 'Recolección → obra',    color: '#D97706', icon: '⚡' },
 }
 
 const LOGISTICS_CFG: Record<LogisticsMode, { label: string; short: string; color: string; needsObra: boolean }> = {
   pending:             { label: 'Pendiente de definir',   short: 'Pendiente',  color: '#888',    needsObra: false },
-  pickup_to_bodega:    { label: 'OMM recoge → bodega',    short: 'Rec→bodega', color: '#C084FC', needsObra: false },
-  pickup_to_obra:      { label: 'OMM recoge → obra',      short: 'Rec→obra',   color: '#F59E0B', needsObra: true  },
+  pickup_to_bodega:    { label: 'OMM recoge → bodega',    short: 'Rec→bodega', color: '#A78BFA', needsObra: false },
+  pickup_to_obra:      { label: 'OMM recoge → obra',      short: 'Rec→obra',   color: '#D97706', needsObra: true  },
   supplier_to_bodega:  { label: 'Proveedor → bodega',     short: 'Prov→bodega',color: '#60A5FA', needsObra: false },
   supplier_to_obra:    { label: 'Proveedor → obra',       short: 'Prov→obra',  color: '#34D399', needsObra: true  },
 }
@@ -265,7 +265,7 @@ function SignaturePad({ value, onChange, label }: {
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-        <div style={{ fontSize: 11, color: hasDrawing ? '#57FF9A' : '#555', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 500 }}>
+        <div style={{ fontSize: 11, color: hasDrawing ? '#10B981' : '#555', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 500 }}>
           <PenTool size={10} style={{ verticalAlign: 'middle', marginRight: 4 }} />
           {label} {hasDrawing && '✓'}
         </div>
@@ -407,8 +407,8 @@ export default function Entregas() {
               padding: '8px 16px', borderRadius: '8px 8px 0 0', fontSize: 12, cursor: 'pointer',
               fontFamily: 'inherit', fontWeight: view === key ? 600 : 400, border: 'none',
               background: view === key ? '#1e1e1e' : 'transparent',
-              color: view === key ? '#57FF9A' : '#666',
-              borderBottom: view === key ? '2px solid #57FF9A' : '2px solid transparent',
+              color: view === key ? '#10B981' : '#666',
+              borderBottom: view === key ? '2px solid #10B981' : '2px solid transparent',
               display: 'flex', alignItems: 'center', gap: 6,
             }}>
             <Icon size={14} /> {label}
@@ -477,10 +477,10 @@ function EntregasDashboard({ onOpen, onNew, onGoTo }: { onOpen: (id: string) => 
         action={<Btn variant="primary" onClick={onNew}><Plus size={14} /> Nueva manual</Btn>} />
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12, marginBottom: 24 }}>
-        <KpiCard label="Hoy"              value={stats.hoy}           color="#57FF9A" icon={<Calendar size={16} />} />
-        <KpiCard label="Pendientes"       value={stats.pendientes}    color="#F59E0B" icon={<Clock size={16} />} />
-        <KpiCard label="En ruta"          value={stats.enRuta}        color="#3B82F6" icon={<Truck size={16} />} />
-        <KpiCard label="Entregadas (mes)" value={stats.entregadasMes} color="#C084FC" icon={<CheckCircle2 size={16} />} />
+        <KpiCard label="Hoy"              value={stats.hoy}           color="#10B981" icon={<Calendar size={16} />} />
+        <KpiCard label="Pendientes"       value={stats.pendientes}    color="#D97706" icon={<Clock size={16} />} />
+        <KpiCard label="En ruta"          value={stats.enRuta}        color="#2563EB" icon={<Truck size={16} />} />
+        <KpiCard label="Entregadas (mes)" value={stats.entregadasMes} color="#A78BFA" icon={<CheckCircle2 size={16} />} />
         <KpiCard label="POs por atender"  value={pendingPOsCount}     color="#EC4899" icon={<Package size={16} />} />
       </div>
 
@@ -492,7 +492,7 @@ function EntregasDashboard({ onOpen, onNew, onGoTo }: { onOpen: (id: string) => 
               {pendingPOsCount} orden{pendingPOsCount === 1 ? '' : 'es'} de compra comprada{pendingPOsCount === 1 ? '' : 's'} esperando logística
             </div>
             <div style={{ fontSize: 11, color: '#888', marginTop: 4 }}>
-              Ve a <span style={{ color: '#57FF9A' }}>Recolecciones pendientes</span> o <span style={{ color: '#57FF9A' }}>Entregas a obra</span> para programarlas.
+              Ve a <span style={{ color: '#10B981' }}>Recolecciones pendientes</span> o <span style={{ color: '#10B981' }}>Entregas a obra</span> para programarlas.
             </div>
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
@@ -795,7 +795,7 @@ function DeliveryRow({ row, onOpen }: { row: Delivery; onOpen: (id: string) => v
       </Td>
       <Td muted>{row.driver?.name || '—'}</Td>
       <Td muted>{row.installer?.name || '—'}</Td>
-      <Td><span style={{ fontSize: 11, color: firmas === 2 ? '#57FF9A' : firmas > 0 ? '#F59E0B' : '#444' }}>{firmas}/2</span></Td>
+      <Td><span style={{ fontSize: 11, color: firmas === 2 ? '#10B981' : firmas > 0 ? '#D97706' : '#444' }}>{firmas}/2</span></Td>
       <Td><Badge label={statusCfg.label} color={statusCfg.color} /></Td>
     </tr>
   )
@@ -1224,7 +1224,7 @@ function EntregaEditor({ deliveryId, prefill, onBack }: {
               onChange={v => { update({ installer_id: v || null }); setAutoInstallerHint(null) }}
               placeholder="Seleccionar" options={installerOptions} disabled={d.type === 'recoleccion'} />
             {autoInstallerHint && (
-              <div style={{ fontSize: 10, color: '#57FF9A', marginTop: 4 }}>
+              <div style={{ fontSize: 10, color: '#10B981', marginTop: 4 }}>
                 <Sparkles size={9} style={{ verticalAlign: 'middle', marginRight: 3 }} />
                 Auto-asignado del plan del día: {autoInstallerHint}
               </div>
@@ -1497,7 +1497,7 @@ function openRemisionPdf(d: Delivery, items: DeliveryItemRow[]) {
   }
 </style></head><body>
   <div class="no-print" style="text-align:right;margin-bottom:12px;">
-    <button onclick="window.print()" style="padding:8px 16px;background:#57FF9A;border:none;border-radius:6px;font-weight:600;cursor:pointer;">Imprimir / Guardar PDF</button>
+    <button onclick="window.print()" style="padding:8px 16px;background:#10B981;border:none;border-radius:6px;font-weight:600;cursor:pointer;">Imprimir / Guardar PDF</button>
   </div>
   <div class="header">
     <div>

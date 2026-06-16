@@ -57,7 +57,7 @@ button { cursor: pointer; font-family: inherit; }
 
 table tr:last-child td { border-bottom: none; }
 
-::selection { background: #57FF9A33; color: #57FF9A; }
+::selection { background: #10B98133; color: #10B981; }
 
 /* ═══════════════════════════════════════════════════════════
    RESPONSIVE / MOBILE

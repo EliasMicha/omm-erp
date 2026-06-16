@@ -105,7 +105,7 @@ export default function MisObrasPage({ employeeId }: { employeeId: string }) {
   useEffect(() => { load() }, [employeeId])
 
   const statusColor = (s: string | null) =>
-    s === 'en_ejecucion' ? '#57FF9A' :
+    s === 'en_ejecucion' ? '#10B981' :
     s === 'pausada' ? '#f59e0b' :
     s === 'completada' ? '#3b82f6' :
     s === 'entrega_pendiente' ? '#a78bfa' :

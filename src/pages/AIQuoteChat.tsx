@@ -96,10 +96,10 @@ const LOCATIONS = [
 const AI_ALL_SYSTEMS = [
   { id: 'audio', name: 'Audio', color: '#8B5CF6', enumValue: 'Audio' },
   { id: 'redes', name: 'Redes', color: '#06B6D4', enumValue: 'Redes' },
-  { id: 'cctv', name: 'CCTV', color: '#3B82F6', enumValue: 'CCTV' },
-  { id: 'control_acceso', name: 'Control de Acceso', color: '#F59E0B', enumValue: 'Acceso' },
-  { id: 'control_iluminacion', name: 'Control de Iluminación', color: '#C084FC', enumValue: 'Iluminacion' },
-  { id: 'deteccion_humo', name: 'Detección de Humo', color: '#EF4444', enumValue: 'Humo' },
+  { id: 'cctv', name: 'CCTV', color: '#2563EB', enumValue: 'CCTV' },
+  { id: 'control_acceso', name: 'Control de Acceso', color: '#D97706', enumValue: 'Acceso' },
+  { id: 'control_iluminacion', name: 'Control de Iluminación', color: '#A78BFA', enumValue: 'Iluminacion' },
+  { id: 'deteccion_humo', name: 'Detección de Humo', color: '#DC2626', enumValue: 'Humo' },
   { id: 'bms', name: 'BMS', color: '#10B981', enumValue: 'BMS' },
   { id: 'telefonia', name: 'Telefonía', color: '#F97316', enumValue: 'Telefonia' },
   { id: 'red_celular', name: 'Red Celular', color: '#EC4899', enumValue: 'Celular' },
@@ -759,8 +759,8 @@ export default function AIQuoteChat({ onClose, onCreated }: {
         <div style={{ padding: '16px 20px', borderBottom: '1px solid #222', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
           <div>
             <div style={{ fontSize: 15, fontWeight: 600, color: '#fff', display: 'flex', alignItems: 'center', gap: 8 }}>
-              <Zap size={15} color="#57FF9A" /> Cotizar con AI
-              {planFiles.length > 0 && <span style={{ background: '#3B82F620', color: '#3B82F6', border: '1px solid #3B82F644', fontSize: 9, padding: '2px 6px', borderRadius: 4 }}>+ {planFiles.length} plano{planFiles.length > 1 ? 's' : ''}</span>}
+              <Zap size={15} color="#10B981" /> Cotizar con AI
+              {planFiles.length > 0 && <span style={{ background: '#2563EB20', color: '#2563EB', border: '1px solid #2563EB44', fontSize: 9, padding: '2px 6px', borderRadius: 4 }}>+ {planFiles.length} plano{planFiles.length > 1 ? 's' : ''}</span>}
             </div>
             <div style={{ fontSize: 11, color: '#555', marginTop: 2 }}>
               {step === 'mode' && 'Elige cómo darle contexto al sistema'}
@@ -789,7 +789,7 @@ export default function AIQuoteChat({ onClose, onCreated }: {
               <button
                 onClick={() => { setScope(s => ({ ...s, mode: 'questionnaire' })); setStep('questionnaire') }}
                 style={{ padding: '24px 18px', background: '#0e0e0e', border: '1px solid #2a2a2a', borderRadius: 12, cursor: 'pointer', textAlign: 'left', color: '#ddd', fontFamily: 'inherit', transition: 'all 0.15s' }}
-                onMouseEnter={e => { e.currentTarget.style.borderColor = '#57FF9A'; e.currentTarget.style.background = '#0e1a12' }}
+                onMouseEnter={e => { e.currentTarget.style.borderColor = '#10B981'; e.currentTarget.style.background = '#0e1a12' }}
                 onMouseLeave={e => { e.currentTarget.style.borderColor = '#2a2a2a'; e.currentTarget.style.background = '#0e0e0e' }}
               >
                 <div style={{ fontSize: 20, marginBottom: 8 }}>📋</div>
@@ -799,7 +799,7 @@ export default function AIQuoteChat({ onClose, onCreated }: {
               <button
                 onClick={() => { setScope(s => ({ ...s, mode: 'freetext' })); setStep('freetext') }}
                 style={{ padding: '24px 18px', background: '#0e0e0e', border: '1px solid #2a2a2a', borderRadius: 12, cursor: 'pointer', textAlign: 'left', color: '#ddd', fontFamily: 'inherit', transition: 'all 0.15s' }}
-                onMouseEnter={e => { e.currentTarget.style.borderColor = '#57FF9A'; e.currentTarget.style.background = '#0e1a12' }}
+                onMouseEnter={e => { e.currentTarget.style.borderColor = '#10B981'; e.currentTarget.style.background = '#0e1a12' }}
                 onMouseLeave={e => { e.currentTarget.style.borderColor = '#2a2a2a'; e.currentTarget.style.background = '#0e0e0e' }}
               >
                 <div style={{ fontSize: 20, marginBottom: 8 }}>📝</div>
@@ -809,7 +809,7 @@ export default function AIQuoteChat({ onClose, onCreated }: {
               <button
                 onClick={() => { setScope(s => ({ ...s, mode: 'questionnaire' })); setStep('live-setup') }}
                 style={{ padding: '24px 18px', background: '#0e0e0e', border: '1px solid #2a2a2a', borderRadius: 12, cursor: 'pointer', textAlign: 'left', color: '#ddd', fontFamily: 'inherit', transition: 'all 0.15s' }}
-                onMouseEnter={e => { e.currentTarget.style.borderColor = '#C084FC'; e.currentTarget.style.background = '#140e1a' }}
+                onMouseEnter={e => { e.currentTarget.style.borderColor = '#A78BFA'; e.currentTarget.style.background = '#140e1a' }}
                 onMouseLeave={e => { e.currentTarget.style.borderColor = '#2a2a2a'; e.currentTarget.style.background = '#0e0e0e' }}
               >
                 <div style={{ fontSize: 20, marginBottom: 8 }}>⚡</div>
@@ -830,7 +830,7 @@ export default function AIQuoteChat({ onClose, onCreated }: {
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 6 }}>
                   {PROJECT_TYPES.map(t => (
                     <button key={t.id} onClick={() => setScope(s => ({ ...s, tipo: t.id }))}
-                      style={{ padding: '10px 8px', background: scope.tipo === t.id ? '#57FF9A15' : '#0e0e0e', border: '1px solid ' + (scope.tipo === t.id ? '#57FF9A' : '#2a2a2a'), borderRadius: 8, cursor: 'pointer', color: scope.tipo === t.id ? '#57FF9A' : '#888', fontFamily: 'inherit', fontSize: 11, textAlign: 'center' }}>
+                      style={{ padding: '10px 8px', background: scope.tipo === t.id ? '#10B98115' : '#0e0e0e', border: '1px solid ' + (scope.tipo === t.id ? '#10B981' : '#2a2a2a'), borderRadius: 8, cursor: 'pointer', color: scope.tipo === t.id ? '#10B981' : '#888', fontFamily: 'inherit', fontSize: 11, textAlign: 'center' }}>
                       <div style={{ fontWeight: 600 }}>{t.label}</div>
                       <div style={{ fontSize: 9, color: '#555', marginTop: 2 }}>{t.desc}</div>
                     </button>
@@ -861,7 +861,7 @@ export default function AIQuoteChat({ onClose, onCreated }: {
                             style={{ padding: '8px 10px', cursor: 'pointer', fontSize: 12, color: '#ccc', borderBottom: '1px solid #222' }}
                             onMouseEnter={e => { e.currentTarget.style.background = '#222' }}
                             onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}>
-                            <div style={{ fontWeight: 600, color: '#C084FC' }}>{l.name}</div>
+                            <div style={{ fontWeight: 600, color: '#A78BFA' }}>{l.name}</div>
                             {l.company && <div style={{ fontSize: 10, color: '#777' }}>{l.company}</div>}
                           </div>
                         ))}
@@ -870,7 +870,7 @@ export default function AIQuoteChat({ onClose, onCreated }: {
                   </div>
                   {selectedLead && (
                     <div style={{ marginTop: 6, padding: '6px 10px', background: '#120e1a', border: '1px solid #2a1a3a', borderRadius: 6, fontSize: 10, color: '#aaa', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span><span style={{ color: '#C084FC', fontWeight: 600, fontSize: 11 }}>{selectedLead.name}</span>{selectedLead.company ? ' · ' + selectedLead.company : ''}</span>
+                      <span><span style={{ color: '#A78BFA', fontWeight: 600, fontSize: 11 }}>{selectedLead.name}</span>{selectedLead.company ? ' · ' + selectedLead.company : ''}</span>
                       <button onClick={() => { setLeadSearch(''); setSelectedLeadId('') }} style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer', fontSize: 10 }}>✕</button>
                     </div>
                   )}
@@ -896,7 +896,7 @@ export default function AIQuoteChat({ onClose, onCreated }: {
                             style={{ padding: '8px 10px', cursor: 'pointer', fontSize: 12, color: '#ccc', borderBottom: '1px solid #222' }}
                             onMouseEnter={e => { e.currentTarget.style.background = '#222' }}
                             onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}>
-                            <div style={{ fontWeight: 600, color: '#57FF9A' }}>{c.nombre_comercial || c.razon_social}</div>
+                            <div style={{ fontWeight: 600, color: '#10B981' }}>{c.nombre_comercial || c.razon_social}</div>
                             <div style={{ fontSize: 10, color: '#777' }}>{c.razon_social} · {c.rfc}</div>
                           </div>
                         ))}
@@ -922,7 +922,7 @@ export default function AIQuoteChat({ onClose, onCreated }: {
                   {selectedClient && (
                     <div style={{ marginTop: 6, padding: '6px 10px', background: '#0e1a0e', border: '1px solid #1a3a1a', borderRadius: 6, fontSize: 10, color: '#aaa', lineHeight: 1.6 }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ color: '#57FF9A', fontWeight: 600, fontSize: 11 }}>Datos de facturación</span>
+                        <span style={{ color: '#10B981', fontWeight: 600, fontSize: 11 }}>Datos de facturación</span>
                         <button onClick={() => { setScope(s => ({ ...s, cliente: '' })); setClientSearch(''); setClientId('') }}
                           style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer', fontSize: 10 }}>✕</button>
                       </div>
@@ -956,7 +956,7 @@ export default function AIQuoteChat({ onClose, onCreated }: {
                 <div style={{ display: 'flex', gap: 6 }}>
                   {LEVELS.map(l => (
                     <button key={l.id} onClick={() => setScope(s => ({ ...s, nivel: l.id }))}
-                      style={{ flex: 1, padding: '8px 10px', background: scope.nivel === l.id ? '#57FF9A15' : '#0e0e0e', border: '1px solid ' + (scope.nivel === l.id ? '#57FF9A' : '#2a2a2a'), borderRadius: 8, cursor: 'pointer', color: scope.nivel === l.id ? '#57FF9A' : '#888', fontFamily: 'inherit', fontSize: 12, fontWeight: 600 }}>
+                      style={{ flex: 1, padding: '8px 10px', background: scope.nivel === l.id ? '#10B98115' : '#0e0e0e', border: '1px solid ' + (scope.nivel === l.id ? '#10B981' : '#2a2a2a'), borderRadius: 8, cursor: 'pointer', color: scope.nivel === l.id ? '#10B981' : '#888', fontFamily: 'inherit', fontSize: 12, fontWeight: 600 }}>
                       {l.label}
                     </button>
                   ))}
@@ -985,11 +985,11 @@ export default function AIQuoteChat({ onClose, onCreated }: {
                 {planFiles.length > 0 && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 8 }}>
                     {planFiles.map((p, i) => (
-                      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: 'rgba(87,255,154,0.03)', border: '1px solid #57FF9A44', borderRadius: 8 }}>
-                        <FileText size={16} color="#57FF9A" />
+                      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: 'rgba(87,255,154,0.03)', border: '1px solid #10B98144', borderRadius: 8 }}>
+                        <FileText size={16} color="#10B981" />
                         <div style={{ flex: 1, textAlign: 'left' }}>
                           <div style={{ fontSize: 12, fontWeight: 600, color: '#fff' }}>{p.file.name}</div>
-                          <div style={{ fontSize: 10, color: p.uploading ? '#F59E0B' : '#888' }}>
+                          <div style={{ fontSize: 10, color: p.uploading ? '#D97706' : '#888' }}>
                             {p.uploading ? 'Subiendo...' : `${(p.file.size / 1024 / 1024).toFixed(1)} MB`}
                           </div>
                         </div>
@@ -1032,7 +1032,7 @@ export default function AIQuoteChat({ onClose, onCreated }: {
             {/* Data info */}
             <div style={{ display: 'flex', gap: 16, fontSize: 11, color: '#666', marginTop: 16, padding: '10px 12px', background: '#0e0e0e', borderRadius: 8, border: '1px solid #1e1e1e' }}>
               {loadingData ? <span><Loader2 size={11} style={{ animation: 'spin 1s linear infinite' }} /> Cargando...</span>
-                : <><span style={{ color: '#57FF9A' }}>{catalog.length} productos</span><span style={{ color: '#3B82F6' }}>{precedents.length} precedentes</span></>}
+                : <><span style={{ color: '#10B981' }}>{catalog.length} productos</span><span style={{ color: '#2563EB' }}>{precedents.length} precedentes</span></>}
             </div>
 
             {/* Footer */}
@@ -1060,7 +1060,7 @@ export default function AIQuoteChat({ onClose, onCreated }: {
               {planFiles.length > 0 && (
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 6 }}>
                   {planFiles.map((p, i) => (
-                    <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: '#0e1a0e', border: '1px solid #1a3a1a', borderRadius: 6, padding: '3px 8px', fontSize: 11, color: '#57FF9A' }}>
+                    <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: '#0e1a0e', border: '1px solid #1a3a1a', borderRadius: 6, padding: '3px 8px', fontSize: 11, color: '#10B981' }}>
                       <FileText size={10} /> {p.file.name}
                       <button onClick={() => removePlan(i)} style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer', fontSize: 10, padding: 0 }}>✕</button>
                     </span>
@@ -1098,7 +1098,7 @@ export default function AIQuoteChat({ onClose, onCreated }: {
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 6 }}>
                   {PROJECT_TYPES.map(t => (
                     <button key={t.id} onClick={() => setScope(s => ({ ...s, tipo: t.id }))}
-                      style={{ padding: '10px 8px', background: scope.tipo === t.id ? '#C084FC15' : '#0e0e0e', border: '1px solid ' + (scope.tipo === t.id ? '#C084FC' : '#2a2a2a'), borderRadius: 8, cursor: 'pointer', color: scope.tipo === t.id ? '#C084FC' : '#888', fontFamily: 'inherit', fontSize: 11, textAlign: 'center' }}>
+                      style={{ padding: '10px 8px', background: scope.tipo === t.id ? '#A78BFA15' : '#0e0e0e', border: '1px solid ' + (scope.tipo === t.id ? '#A78BFA' : '#2a2a2a'), borderRadius: 8, cursor: 'pointer', color: scope.tipo === t.id ? '#A78BFA' : '#888', fontFamily: 'inherit', fontSize: 11, textAlign: 'center' }}>
                       <div style={{ fontWeight: 600 }}>{t.label}</div>
                       <div style={{ fontSize: 9, color: '#555', marginTop: 2 }}>{t.desc}</div>
                     </button>
@@ -1115,7 +1115,7 @@ export default function AIQuoteChat({ onClose, onCreated }: {
                 <div style={{ position: 'relative' }}>
                   <label style={sLabel}>Lead (oportunidad)</label>
                   <input value={leadSearch} onChange={e => { setLeadSearch(e.target.value); setShowLeadDrop(true) }} onFocus={() => setShowLeadDrop(true)} placeholder="Buscar lead..." style={inputS} />
-                  {selectedLead && <span style={{ fontSize: 9, color: '#57FF9A', marginTop: 2, display: 'block' }}>{selectedLead.name}{selectedLead.company ? ` · ${selectedLead.company}` : ''}</span>}
+                  {selectedLead && <span style={{ fontSize: 9, color: '#10B981', marginTop: 2, display: 'block' }}>{selectedLead.name}{selectedLead.company ? ` · ${selectedLead.company}` : ''}</span>}
                   {showLeadDrop && (
                     <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, maxHeight: 150, overflowY: 'auto', background: '#1e1e1e', border: '1px solid #333', borderRadius: 8, zIndex: 10, marginTop: 4 }}>
                       {filteredLeads.map(l => (
@@ -1130,7 +1130,7 @@ export default function AIQuoteChat({ onClose, onCreated }: {
                 <div style={{ position: 'relative' }}>
                   <label style={sLabel}>Cliente facturación</label>
                   <input value={clientSearch} onChange={e => { setClientSearch(e.target.value); setShowClientDrop(true) }} onFocus={() => setShowClientDrop(true)} placeholder="Buscar cliente..." style={inputS} />
-                  {selectedClient && <span style={{ fontSize: 9, color: '#57FF9A', marginTop: 2, display: 'block' }}>{selectedClient.razon_social} · {selectedClient.rfc}</span>}
+                  {selectedClient && <span style={{ fontSize: 9, color: '#10B981', marginTop: 2, display: 'block' }}>{selectedClient.razon_social} · {selectedClient.rfc}</span>}
                   {showClientDrop && (
                     <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, maxHeight: 150, overflowY: 'auto', background: '#1e1e1e', border: '1px solid #333', borderRadius: 8, zIndex: 10, marginTop: 4 }}>
                       {filteredClientes.map(c => (
@@ -1190,7 +1190,7 @@ export default function AIQuoteChat({ onClose, onCreated }: {
                 {planFiles.length > 0 && (
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 6 }}>
                     {planFiles.map((p, i) => (
-                      <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: '#0e1a0e', border: '1px solid #1a3a1a', borderRadius: 6, padding: '3px 8px', fontSize: 11, color: '#57FF9A' }}>
+                      <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: '#0e1a0e', border: '1px solid #1a3a1a', borderRadius: 6, padding: '3px 8px', fontSize: 11, color: '#10B981' }}>
                         <FileText size={10} /> {p.file.name}
                         {p.uploading && <Loader2 size={10} style={{ animation: 'spin 1s linear infinite' }} />}
                         <button onClick={() => removePlan(i)} style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer', fontSize: 10, padding: 0 }}>✕</button>
@@ -1223,14 +1223,14 @@ export default function AIQuoteChat({ onClose, onCreated }: {
             {/* Data info */}
             <div style={{ display: 'flex', gap: 16, fontSize: 11, color: '#666', marginTop: 16, padding: '10px 12px', background: '#0e0e0e', borderRadius: 8, border: '1px solid #1e1e1e' }}>
               {loadingData ? <span><Loader2 size={11} style={{ animation: 'spin 1s linear infinite' }} /> Cargando...</span>
-                : <><span style={{ color: '#C084FC' }}>{catalog.length} productos</span><span style={{ color: '#3B82F6' }}>{precedents.length} precedentes</span></>}
+                : <><span style={{ color: '#A78BFA' }}>{catalog.length} productos</span><span style={{ color: '#2563EB' }}>{precedents.length} precedentes</span></>}
             </div>
 
             {/* Footer */}
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginTop: 16, paddingTop: 14, borderTop: '1px solid #222' }}>
               <Btn onClick={() => setStep('mode')}>← Atrás</Btn>
               <Btn variant="primary" onClick={() => setStep('live')} disabled={scope.sistemas.length === 0 || loadingData || planFiles.some(p => p.uploading)}
-                style={{ background: '#C084FC', borderColor: '#C084FC' }}>
+                style={{ background: '#A78BFA', borderColor: '#A78BFA' }}>
                 <Zap size={14} /> {planFiles.some(p => p.uploading) ? 'Subiendo planos...' : 'Construir en Vivo →'}
               </Btn>
             </div>
@@ -1267,10 +1267,10 @@ export default function AIQuoteChat({ onClose, onCreated }: {
                     lineHeight: 1.6,
                     whiteSpace: 'pre-wrap',
                     background: msg.role === 'user' ? '#1a3a2a' : '#1a1a1a',
-                    border: msg.role === 'user' ? '1px solid #57FF9A33' : '1px solid #2a2a2a',
+                    border: msg.role === 'user' ? '1px solid #10B98133' : '1px solid #2a2a2a',
                     color: msg.role === 'user' ? '#ccc' : '#ddd',
                   }}>
-                    {msg.role === 'assistant' && <div style={{ fontSize: 9, color: '#57FF9A', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>OMM AI</div>}
+                    {msg.role === 'assistant' && <div style={{ fontSize: 9, color: '#10B981', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>OMM AI</div>}
                     {msg.content}
                   </div>
                 </div>
@@ -1279,9 +1279,9 @@ export default function AIQuoteChat({ onClose, onCreated }: {
               {sending && (
                 <div style={{ display: 'flex', justifyContent: 'flex-start', marginBottom: 16 }}>
                   <div style={{ padding: '12px 16px', borderRadius: 12, background: '#1a1a1a', border: '1px solid #2a2a2a' }}>
-                    <div style={{ fontSize: 9, color: '#57FF9A', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>OMM AI</div>
+                    <div style={{ fontSize: 9, color: '#10B981', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>OMM AI</div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <Loader2 size={16} color="#57FF9A" style={{ animation: 'spin 1s linear infinite' }} />
+                      <Loader2 size={16} color="#10B981" style={{ animation: 'spin 1s linear infinite' }} />
                       <span style={{ fontSize: 11, color: '#666' }}>
                         {sendingSeconds < 5 ? 'Procesando...' :
                          sendingSeconds < 30 ? 'Analizando proyecto...' :
@@ -1329,27 +1329,27 @@ export default function AIQuoteChat({ onClose, onCreated }: {
                 <div style={{ fontSize: 9, color: '#555', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Items</div>
                 <div style={{ fontSize: 16, fontWeight: 700, color: '#fff' }}>{totalItems}</div>
               </div>
-              <div style={{ padding: '10px 12px', background: '#0e1a12', border: '1px solid #57FF9A33', borderRadius: 8 }}>
-                <div style={{ fontSize: 9, color: '#57FF9A', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Del catálogo</div>
-                <div style={{ fontSize: 16, fontWeight: 700, color: '#57FF9A' }}>{fromCatalog}</div>
+              <div style={{ padding: '10px 12px', background: '#0e1a12', border: '1px solid #10B98133', borderRadius: 8 }}>
+                <div style={{ fontSize: 9, color: '#10B981', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Del catálogo</div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: '#10B981' }}>{fromCatalog}</div>
               </div>
-              <div style={{ padding: '10px 12px', background: '#1a1610', border: '1px solid #F59E0B33', borderRadius: 8 }}>
-                <div style={{ fontSize: 9, color: '#F59E0B', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Sugeridos</div>
-                <div style={{ fontSize: 16, fontWeight: 700, color: '#F59E0B' }}>{suggested}</div>
+              <div style={{ padding: '10px 12px', background: '#1a1610', border: '1px solid #D9770633', borderRadius: 8 }}>
+                <div style={{ fontSize: 9, color: '#D97706', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Sugeridos</div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: '#D97706' }}>{suggested}</div>
               </div>
             </div>
 
             {/* Rationale */}
             {rationale && (
               <div style={{ padding: '10px 12px', background: '#0e0e0e', border: '1px solid #222', borderRadius: 8, marginBottom: 10, fontSize: 11, color: '#aaa', lineHeight: 1.5, flexShrink: 0 }}>
-                <span style={{ color: '#57FF9A', fontWeight: 600 }}>Razonamiento: </span>{rationale}
+                <span style={{ color: '#10B981', fontWeight: 600 }}>Razonamiento: </span>{rationale}
               </div>
             )}
 
             {/* Warnings */}
             {warnings.length > 0 && (
               <div style={{ padding: '8px 12px', background: '#1a1610', border: '1px solid #3a2e10', borderRadius: 8, marginBottom: 10, flexShrink: 0 }}>
-                <div style={{ fontSize: 10, color: '#F59E0B', fontWeight: 600, marginBottom: 4 }}>Advertencias:</div>
+                <div style={{ fontSize: 10, color: '#D97706', fontWeight: 600, marginBottom: 4 }}>Advertencias:</div>
                 {warnings.map((w, i) => <div key={i} style={{ fontSize: 11, color: '#aaa' }}>• {w}</div>)}
               </div>
             )}
@@ -1390,7 +1390,7 @@ export default function AIQuoteChat({ onClose, onCreated }: {
                           <td style={{ padding: '6px' }}>
                             <div style={{ color: '#ddd', fontWeight: 500 }}>{it.marca} {it.modelo}</div>
                             <div style={{ color: '#666', fontSize: 10 }}>{it.description}</div>
-                            {it.is_new_suggestion && <span style={{ background: '#F59E0B20', color: '#F59E0B', border: '1px solid #F59E0B44', fontSize: 8, marginTop: 2, padding: '1px 5px', borderRadius: 3, display: 'inline-block' }}>Sugerido</span>}
+                            {it.is_new_suggestion && <span style={{ background: '#D9770620', color: '#D97706', border: '1px solid #D9770644', fontSize: 8, marginTop: 2, padding: '1px 5px', borderRadius: 3, display: 'inline-block' }}>Sugerido</span>}
                           </td>
                           <td style={{ padding: '6px' }}>
                             <span style={{ background: (AI_ALL_SYSTEMS.find(s => s.name === it.system)?.color || '#888') + '20', color: AI_ALL_SYSTEMS.find(s => s.name === it.system)?.color || '#888', border: '1px solid ' + (AI_ALL_SYSTEMS.find(s => s.name === it.system)?.color || '#888') + '44', fontSize: 9, padding: '2px 6px', borderRadius: 4 }}>
@@ -1412,7 +1412,7 @@ export default function AIQuoteChat({ onClose, onCreated }: {
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginTop: 14, paddingTop: 14, borderTop: '1px solid #222', flexShrink: 0 }}>
               <Btn onClick={backToChat}><ChevronLeft size={14} /> Volver al chat</Btn>
               <div style={{ display: 'flex', gap: 8 }}>
-                <Btn onClick={downloadSembrado} disabled={downloadingSembrado} style={{ background: '#0e1a12', color: '#57FF9A', border: '1px solid #57FF9A44' }}>
+                <Btn onClick={downloadSembrado} disabled={downloadingSembrado} style={{ background: '#0e1a12', color: '#10B981', border: '1px solid #10B98144' }}>
                   {downloadingSembrado ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Download size={14} />}
                   {downloadingSembrado ? 'Generando...' : 'Sembrado PDF'}
                 </Btn>
@@ -1428,7 +1428,7 @@ export default function AIQuoteChat({ onClose, onCreated }: {
         {inserting && (
           <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 40 }}>
             <div style={{ textAlign: 'center' }}>
-              <Loader2 size={36} color="#57FF9A" style={{ animation: 'spin 1s linear infinite', marginBottom: 16 }} />
+              <Loader2 size={36} color="#10B981" style={{ animation: 'spin 1s linear infinite', marginBottom: 16 }} />
               <div style={{ fontSize: 14, color: '#ccc', fontWeight: 600 }}>{insertProgress}</div>
             </div>
           </div>

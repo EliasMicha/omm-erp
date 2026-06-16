@@ -41,7 +41,7 @@ interface VersionManagerProps {
 // ═══════════════════════════════════════════════════════════════════
 // MAIN COMPONENT
 // ═══════════════════════════════════════════════════════════════════
-export default function VersionManager({ cotId, getCurrentSnapshot, onSwitchVersion, accentColor = '#57FF9A', compact = false }: VersionManagerProps) {
+export default function VersionManager({ cotId, getCurrentSnapshot, onSwitchVersion, accentColor = '#10B981', compact = false }: VersionManagerProps) {
   const [siblings, setSiblings] = useState<SiblingVersion[]>([])
   const [currentLabel, setCurrentLabel] = useState<string | null>(null)
   const [groupId, setGroupId] = useState<string | null>(null)
@@ -365,8 +365,8 @@ function SiblingRow({ sibling: s, isCurrent, accentColor, onSwitch, onRenamed }:
   const date = new Date(s.created_at)
   const dateStr = date.toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' })
   const stageColors: Record<string, string> = {
-    oportunidad: '#3B82F6', propuesta: '#F59E0B', negociacion: '#A855F7',
-    contrato: '#10B981', perdida: '#EF4444', cancelada: '#64748B',
+    oportunidad: '#2563EB', propuesta: '#D97706', negociacion: '#7C3AED',
+    contrato: '#10B981', perdida: '#DC2626', cancelada: '#64748B',
   }
 
   async function saveName() {
@@ -488,7 +488,7 @@ function CompareView({ siblings, compareA, compareB, onSelectA, onSelectB, snapA
       {/* Selectors */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 12, alignItems: 'center' }}>
         <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 9, fontWeight: 700, color: '#EF4444', textTransform: 'uppercase', marginBottom: 4 }}>Versión A</div>
+          <div style={{ fontSize: 9, fontWeight: 700, color: '#DC2626', textTransform: 'uppercase', marginBottom: 4 }}>Versión A</div>
           <select value={compareA || ''} onChange={e => onSelectA(e.target.value)} style={selStyle}>
             {siblings.map(s => <option key={s.id} value={s.id}>{s.version_label || '?'} — {s.name}</option>)}
           </select>
@@ -566,7 +566,7 @@ function CompareResults({ a, b, labelA, labelB, accentColor }: {
       {/* Summary cards */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 16 }}>
         <div style={{ background: '#1a1a1a', borderRadius: 8, padding: 10 }}>
-          <div style={{ fontSize: 11, color: '#EF4444', fontWeight: 700 }}>Versión {labelA}</div>
+          <div style={{ fontSize: 11, color: '#DC2626', fontWeight: 700 }}>Versión {labelA}</div>
           <div style={{ fontSize: 16, fontWeight: 700, color: '#ccc' }}>${fmt(a.total || 0)}</div>
           <div style={{ fontSize: 10, color: '#555' }}>{a.items?.length || 0} items · {a.areas?.length || 0} áreas</div>
         </div>
@@ -578,8 +578,8 @@ function CompareResults({ a, b, labelA, labelB, accentColor }: {
       </div>
 
       {/* Delta */}
-      <div style={{ background: totalDiff > 0 ? '#10B98115' : totalDiff < 0 ? '#EF444415' : '#33333330', borderRadius: 8, padding: 10, marginBottom: 16, textAlign: 'center' }}>
-        <span style={{ fontSize: 18, fontWeight: 700, color: totalDiff > 0 ? '#10B981' : totalDiff < 0 ? '#EF4444' : '#888' }}>
+      <div style={{ background: totalDiff > 0 ? '#10B98115' : totalDiff < 0 ? '#DC262615' : '#33333330', borderRadius: 8, padding: 10, marginBottom: 16, textAlign: 'center' }}>
+        <span style={{ fontSize: 18, fontWeight: 700, color: totalDiff > 0 ? '#10B981' : totalDiff < 0 ? '#DC2626' : '#888' }}>
           {totalDiff > 0 ? '+' : ''}{fmt(totalDiff)}
         </span>
         <span style={{ fontSize: 11, color: '#888', marginLeft: 8 }}>
@@ -593,12 +593,12 @@ function CompareResults({ a, b, labelA, labelB, accentColor }: {
           <DiffLine key={k} icon={<Plus size={10} color="#10B981" />} color="#10B981" text={`Área agregada: ${areasB.get(k)?.name}`} />
         ))}
         {removedAreas.map(k => (
-          <DiffLine key={k} icon={<Minus size={10} color="#EF4444" />} color="#EF4444" text={`Área eliminada: ${areasA.get(k)?.name}`} />
+          <DiffLine key={k} icon={<Minus size={10} color="#DC2626" />} color="#DC2626" text={`Área eliminada: ${areasA.get(k)?.name}`} />
         ))}
         {areaComps.filter(a => a.diff !== 0 || a.countA !== a.countB).map(a => (
           <div key={a.name} style={{ padding: '4px 0', fontSize: 11, color: '#ccc', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span>{a.name} <span style={{ color: '#555' }}>({a.countA}→{a.countB} items)</span></span>
-            <span style={{ color: a.diff > 0 ? '#10B981' : a.diff < 0 ? '#EF4444' : '#888', fontWeight: 600 }}>
+            <span style={{ color: a.diff > 0 ? '#10B981' : a.diff < 0 ? '#DC2626' : '#888', fontWeight: 600 }}>
               {a.diff > 0 ? '+' : ''}{fmt(a.diff)}
             </span>
           </div>
@@ -619,7 +619,7 @@ function CompareResults({ a, b, labelA, labelB, accentColor }: {
       {/* Removed items */}
       <Section title="Conceptos Eliminados" count={removedItems.length}>
         {removedItems.map(([k, item]) => (
-          <DiffLine key={k} icon={<Minus size={10} color="#EF4444" />} color="#EF4444" text={item.name} detail={`$${fmt(item.total || 0)}`} />
+          <DiffLine key={k} icon={<Minus size={10} color="#DC2626" />} color="#DC2626" text={item.name} detail={`$${fmt(item.total || 0)}`} />
         ))}
         {removedItems.length === 0 && <div style={{ fontSize: 11, color: '#555', padding: '4px 0' }}>Ninguno</div>}
       </Section>

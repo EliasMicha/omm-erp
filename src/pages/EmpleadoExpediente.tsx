@@ -212,7 +212,7 @@ export default function EmpleadoExpediente() {
         </Link>
         <div style={{ flex: 1 }} />
         {savedFlash && (
-          <span style={{ color: '#57FF9A', fontSize: 12, fontWeight: 500 }}>✓ Guardado</span>
+          <span style={{ color: '#10B981', fontSize: 12, fontWeight: 500 }}>✓ Guardado</span>
         )}
         <Btn onClick={handleSave} disabled={saving} variant="primary">
           <Save size={13} /> {saving ? 'Guardando...' : 'Guardar cambios'}
@@ -233,7 +233,7 @@ export default function EmpleadoExpediente() {
               color={
                 employee.estado_empleado === 'baja' ? '#ef4444' :
                 employee.estado_empleado === 'incapacidad' ? '#f59e0b' :
-                employee.estado_empleado === 'vacaciones' ? '#a78bfa' : '#57FF9A'
+                employee.estado_empleado === 'vacaciones' ? '#a78bfa' : '#10B981'
               }
             />
             {employee.tipo_trabajo && (
@@ -268,7 +268,7 @@ export default function EmpleadoExpediente() {
                   display: 'flex', alignItems: 'center', gap: 10,
                   background: active ? '#1a1a1a' : 'transparent',
                   border: 'none',
-                  borderLeft: active ? '2px solid #57FF9A' : '2px solid transparent',
+                  borderLeft: active ? '2px solid #10B981' : '2px solid transparent',
                   color: active ? '#fff' : '#888',
                   padding: '10px 14px',
                   fontSize: 13,
@@ -350,7 +350,7 @@ function Avatar({ employee, onUpload }: { employee: Employee; onUpload: () => vo
         onClick={() => inputRef.current?.click()}
         style={{
           position: 'absolute', bottom: 0, right: 0,
-          background: '#57FF9A', color: '#000', border: 'none',
+          background: '#10B981', color: '#000', border: 'none',
           borderRadius: '50%', width: 26, height: 26,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           cursor: 'pointer'
@@ -730,14 +730,14 @@ function SectionObraApp({ form, set, employeeId }: { form: Partial<Employee>; se
       <div style={{
         display: 'flex', alignItems: 'center', gap: 12, padding: 16, marginBottom: 20,
         background: hasAuth && isActive ? 'rgba(87, 255, 154, 0.08)' : 'rgba(239, 68, 68, 0.08)',
-        border: `1px solid ${hasAuth && isActive ? '#57FF9A30' : '#ef444430'}`,
+        border: `1px solid ${hasAuth && isActive ? '#10B98130' : '#ef444430'}`,
         borderRadius: 10,
       }}>
         <div style={{
           width: 40, height: 40, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
-          background: hasAuth && isActive ? '#57FF9A20' : '#ef444420',
+          background: hasAuth && isActive ? '#10B98120' : '#ef444420',
         }}>
-          <Smartphone size={18} style={{ color: hasAuth && isActive ? '#57FF9A' : '#ef4444' }} />
+          <Smartphone size={18} style={{ color: hasAuth && isActive ? '#10B981' : '#ef4444' }} />
         </div>
         <div>
           <div style={{ fontWeight: 600, color: '#eee', fontSize: 14 }}>
@@ -757,7 +757,7 @@ function SectionObraApp({ form, set, employeeId }: { form: Partial<Employee>; se
             onClick={() => set('app_activo', !isActive)}
             style={{
               padding: '6px 16px', borderRadius: 20, cursor: 'pointer', fontSize: 12, fontWeight: 600,
-              background: isActive ? '#57FF9A' : '#333', color: isActive ? '#000' : '#888',
+              background: isActive ? '#10B981' : '#333', color: isActive ? '#000' : '#888',
               transition: 'all 0.2s',
             }}
           >
@@ -1045,7 +1045,7 @@ function SectionHistorial() {
 function SectionTitle({ icon: Icon, title, inline }: { icon: any; title: string; inline?: boolean }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: inline ? 0 : 18 }}>
-      <Icon size={16} color="#57FF9A" />
+      <Icon size={16} color="#10B981" />
       <h2 style={{ margin: 0, fontSize: 15, fontWeight: 600, color: '#eee' }}>{title}</h2>
     </div>
   )
@@ -1283,7 +1283,7 @@ function AIExtractor({ employeeId, onExtracted }: {
       borderRadius: 10,
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-        <Sparkles size={15} color="#57FF9A" />
+        <Sparkles size={15} color="#10B981" />
         <span style={{ fontSize: 13, fontWeight: 600, color: '#eee' }}>Extracción automática con IA</span>
         <span style={{ fontSize: 10, color: '#666', marginLeft: 'auto' }}>
           Sube un documento y los campos se llenarán solos
@@ -1335,8 +1335,8 @@ function AIExtractor({ employeeId, onExtracted }: {
       {status === 'done' && extracted && (
         <div style={{ marginTop: 14 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-            <CheckCircle2 size={14} color="#57FF9A" />
-            <span style={{ fontSize: 12, color: '#57FF9A', fontWeight: 500 }}>
+            <CheckCircle2 size={14} color="#10B981" />
+            <span style={{ fontSize: 12, color: '#10B981', fontWeight: 500 }}>
               Campos extraídos · revisa antes de aplicar
             </span>
           </div>

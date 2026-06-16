@@ -81,7 +81,7 @@ export default function Nomina() {
                 background: 'none', border: 'none',
                 color: active ? '#fff' : '#888',
                 padding: '12px 18px', fontSize: 13, fontWeight: 500, cursor: 'pointer',
-                borderBottom: active ? '2px solid #57FF9A' : '2px solid transparent',
+                borderBottom: active ? '2px solid #10B981' : '2px solid transparent',
                 display: 'flex', alignItems: 'center', gap: 8, transition: 'color 0.15s',
               }}
             >
@@ -235,13 +235,13 @@ function TabEmpleados() {
                 const pct = kpis.totalNetoMensual > 0 ? (d.neto / kpis.totalNetoMensual) * 100 : 0
                 return (
                   <div key={area} style={{ position: 'relative', padding: '8px 10px', borderRadius: 6, overflow: 'hidden', border: '1px solid #1e1e1e' }}>
-                    <div style={{ position: 'absolute', inset: 0, background: '#57FF9A', opacity: 0.06, width: `${pct}%` }} />
+                    <div style={{ position: 'absolute', inset: 0, background: '#10B981', opacity: 0.06, width: `${pct}%` }} />
                     <div style={{ position: 'relative', display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
                       <div>
                         <span style={{ fontSize: 12, color: '#ccc', fontWeight: 500 }}>{area}</span>
                         <span style={{ fontSize: 10, color: '#555', marginLeft: 6 }}>{d.count} emp</span>
                       </div>
-                      <span style={{ fontSize: 12, fontWeight: 600, color: '#57FF9A' }}>{F(d.neto)}</span>
+                      <span style={{ fontSize: 12, fontWeight: 600, color: '#10B981' }}>{F(d.neto)}</span>
                     </div>
                   </div>
                 )

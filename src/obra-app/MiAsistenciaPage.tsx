@@ -175,7 +175,7 @@ export default function MiAsistenciaPage({ employeeId }: { employeeId: string })
             flex: 1, padding: '10px',
             background: period === 'semana' ? '#0f2a1a' : 'transparent',
             border: 'none', borderRadius: 8,
-            color: period === 'semana' ? '#57FF9A' : '#666',
+            color: period === 'semana' ? '#10B981' : '#666',
             fontSize: 13, fontWeight: 600, cursor: 'pointer',
           }}
         >Esta semana</button>
@@ -185,7 +185,7 @@ export default function MiAsistenciaPage({ employeeId }: { employeeId: string })
             flex: 1, padding: '10px',
             background: period === 'mes' ? '#0f2a1a' : 'transparent',
             border: 'none', borderRadius: 8,
-            color: period === 'mes' ? '#57FF9A' : '#666',
+            color: period === 'mes' ? '#10B981' : '#666',
             fontSize: 13, fontWeight: 600, cursor: 'pointer',
           }}
         >Este mes</button>
@@ -201,7 +201,7 @@ export default function MiAsistenciaPage({ employeeId }: { employeeId: string })
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
             <div style={{ padding: 14, background: '#0f0f0f', border: '1px solid #1a1a1a', borderRadius: 12 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-                <Calendar size={13} color="#57FF9A" />
+                <Calendar size={13} color="#10B981" />
                 <span style={{ fontSize: 10, color: '#666', textTransform: 'uppercase', letterSpacing: 1 }}>Días</span>
               </div>
               <div style={{ fontSize: 22, fontWeight: 700, color: '#fff' }}>{diasTrabajados}</div>
@@ -328,14 +328,14 @@ export default function MiAsistenciaPage({ employeeId }: { employeeId: string })
                 <div key={d.fecha} style={{
                   background: '#0f0f0f',
                   border: '1px solid #1a1a1a',
-                  borderLeft: d.sin_salida ? '3px solid #c026d3' : d.retardo_min > 0 ? '3px solid #f59e0b' : '3px solid #57FF9A',
+                  borderLeft: d.sin_salida ? '3px solid #c026d3' : d.retardo_min > 0 ? '3px solid #f59e0b' : '3px solid #10B981',
                   borderRadius: 12,
                   padding: 14,
                 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
                     <div style={{ fontSize: 13, fontWeight: 700, flex: 1 }}>{fmtDate(d.fecha)}</div>
                     {d.obra_nombre && (
-                      <div style={{ fontSize: 10, color: '#57FF9A', background: '#0f2a1a', padding: '2px 8px', borderRadius: 8, fontWeight: 600 }}>
+                      <div style={{ fontSize: 10, color: '#10B981', background: '#0f2a1a', padding: '2px 8px', borderRadius: 8, fontWeight: 600 }}>
                         {d.obra_nombre}
                       </div>
                     )}

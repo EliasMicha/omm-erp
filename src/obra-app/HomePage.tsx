@@ -165,12 +165,12 @@ export default function HomePage({ employee, onLogout }: { employee: Employee; o
   const urgenciaColor =
     assignment?.urgencia === 'urgente' ? '#ef4444' :
     assignment?.urgencia === 'alta' ? '#f59e0b' :
-    '#57FF9A'
+    '#10B981'
 
   const btnColor =
     nextAction === 'done' ? '#333' :
     nextAction === 'salida' ? '#f59e0b' :
-    '#57FF9A'
+    '#10B981'
   const btnTextColor = nextAction === 'done' ? '#666' : '#0a0a0a'
   const btnLabel =
     nextAction === 'done' ? 'JORNADA COMPLETADA' :
@@ -178,7 +178,7 @@ export default function HomePage({ employee, onLogout }: { employee: Employee; o
     'CHECAR ENTRADA'
 
   const tiles = [
-    { icon: FileText, label: 'Reportes', hint: 'Subir nuevo', path: '/obra-app/reportes', color: '#57FF9A' },
+    { icon: FileText, label: 'Reportes', hint: 'Subir nuevo', path: '/obra-app/reportes', color: '#10B981' },
     { icon: Calendar, label: 'Mi semana', hint: 'Planeación', path: '/obra-app/mi-semana', color: '#3b82f6' },
     { icon: Package2, label: 'Mis obras', hint: 'Materiales y docs', path: '/obra-app/mis-obras', color: '#a78bfa' },
     { icon: TrendingUp, label: 'Mi asistencia', hint: 'Retardos y extras', path: '/obra-app/mi-asistencia', color: '#ec4899' },
@@ -202,7 +202,7 @@ export default function HomePage({ employee, onLogout }: { employee: Employee; o
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
         <div style={{
           width: 44, height: 44, borderRadius: 22,
-          background: '#1a1a1a', border: '2px solid #57FF9A',
+          background: '#1a1a1a', border: '2px solid #10B981',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           fontSize: 16, fontWeight: 700,
           overflow: 'hidden',
@@ -340,7 +340,7 @@ export default function HomePage({ employee, onLogout }: { employee: Employee; o
           padding: 12, marginBottom: 16, borderRadius: 10,
           background: checkInState === 'error' ? '#3a1a1a' : checkInState === 'success' ? '#0f2a1a' : '#1a1a1a',
           border: `1px solid ${checkInState === 'error' ? '#5a2a2a' : checkInState === 'success' ? '#2a5a3a' : '#2a2a2a'}`,
-          color: checkInState === 'error' ? '#fca5a5' : checkInState === 'success' ? '#57FF9A' : '#888',
+          color: checkInState === 'error' ? '#fca5a5' : checkInState === 'success' ? '#10B981' : '#888',
           fontSize: 13, display: 'flex', gap: 8, alignItems: 'center',
         }}>
           {checkInState === 'error' ? <AlertCircle size={16} /> :
@@ -361,7 +361,7 @@ export default function HomePage({ employee, onLogout }: { employee: Employee; o
               padding: 12, marginBottom: 6,
               background: '#0f0f0f', border: '1px solid #1a1a1a', borderRadius: 10,
             }}>
-              <Clock size={16} color="#57FF9A" />
+              <Clock size={16} color="#10B981" />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 13, fontWeight: 600 }}>
                   {a.tipo === 'entrada' ? 'Entrada' : 'Salida'} · {new Date(a.hora).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}

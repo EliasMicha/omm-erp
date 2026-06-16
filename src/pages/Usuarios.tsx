@@ -37,7 +37,7 @@ const inputStyle: React.CSSProperties = {
 }
 
 const btnStyle: React.CSSProperties = {
-  background: '#57FF9A', color: '#000', border: 'none', borderRadius: 8,
+  background: '#10B981', color: '#000', border: 'none', borderRadius: 8,
   padding: '10px 20px', fontSize: 14, fontWeight: 600, cursor: 'pointer',
 }
 
@@ -179,7 +179,7 @@ export default function Usuarios() {
         </div>
       )}
       {success && (
-        <div style={{ background: 'rgba(87,255,154,0.1)', border: '1px solid rgba(87,255,154,0.3)', borderRadius: 8, padding: '10px 14px', fontSize: 13, color: '#57FF9A', marginBottom: 16 }}>
+        <div style={{ background: 'rgba(87,255,154,0.1)', border: '1px solid rgba(87,255,154,0.3)', borderRadius: 8, padding: '10px 14px', fontSize: 13, color: '#10B981', marginBottom: 16 }}>
           {success}
         </div>
       )}
@@ -260,7 +260,7 @@ export default function Usuarios() {
               <tr key={u.id} style={{ borderBottom: '1px solid #1a1a1a', opacity: u.activo ? 1 : 0.5 }}>
                 <td style={{ padding: '10px 12px', color: '#fff' }}>{u.nombre}</td>
                 <td style={{ padding: '10px 12px', color: '#aaa' }}>{u.email}</td>
-                <td style={{ padding: '10px 12px', color: u.employee_id ? '#57FF9A' : '#555' }}>
+                <td style={{ padding: '10px 12px', color: u.employee_id ? '#10B981' : '#555' }}>
                   {u.employee_id ? getEmployeeName(u.employee_id) || 'Vinculado' : 'Sin vincular'}
                 </td>
                 <td style={{ padding: '10px 12px' }}>
@@ -280,7 +280,7 @@ export default function Usuarios() {
                   <span style={{
                     display: 'inline-block', padding: '2px 10px', borderRadius: 12, fontSize: 11, fontWeight: 600,
                     background: u.activo ? 'rgba(87,255,154,0.15)' : 'rgba(255,60,60,0.15)',
-                    color: u.activo ? '#57FF9A' : '#f66',
+                    color: u.activo ? '#10B981' : '#f66',
                   }}>
                     {u.activo ? 'Activo' : 'Inactivo'}
                   </span>
@@ -288,7 +288,7 @@ export default function Usuarios() {
                 <td style={{ padding: '10px 12px' }}>
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                     <button onClick={() => toggleActivo(u)}
-                      style={{ background: 'none', border: '1px solid #333', borderRadius: 6, color: u.activo ? '#f66' : '#57FF9A', padding: '4px 10px', fontSize: 11, cursor: 'pointer' }}>
+                      style={{ background: 'none', border: '1px solid #333', borderRadius: 6, color: u.activo ? '#f66' : '#10B981', padding: '4px 10px', fontSize: 11, cursor: 'pointer' }}>
                       {u.activo ? 'Desactivar' : 'Activar'}
                     </button>
                     {editingPw === u.id ? (
@@ -296,7 +296,7 @@ export default function Usuarios() {
                         <input type="text" value={newPw} onChange={e => setNewPw(e.target.value)} placeholder="nueva contraseña"
                           style={{ ...inputStyle, width: 140, padding: '4px 8px', fontSize: 12 }} />
                         <button onClick={() => handlePasswordChange(u.id)}
-                          style={{ background: '#57FF9A', color: '#000', border: 'none', borderRadius: 6, padding: '4px 10px', fontSize: 11, cursor: 'pointer', fontWeight: 600 }}>
+                          style={{ background: '#10B981', color: '#000', border: 'none', borderRadius: 6, padding: '4px 10px', fontSize: 11, cursor: 'pointer', fontWeight: 600 }}>
                           OK
                         </button>
                         <button onClick={() => { setEditingPw(null); setNewPw('') }}

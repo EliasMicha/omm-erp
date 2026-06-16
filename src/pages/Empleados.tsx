@@ -25,7 +25,7 @@ interface Emp {
 type Nivel = 'direccion' | 'coordinacion' | 'operativo'
 
 const NIVEL_CONFIG: Record<Nivel, { label: string; color: string; icon: string }> = {
-  direccion:    { label: 'Dirección',    color: '#F59E0B', icon: '👑' },
+  direccion:    { label: 'Dirección',    color: '#D97706', icon: '👑' },
   coordinacion: { label: 'Coordinación', color: '#8B5CF6', icon: '📋' },
   operativo:    { label: 'Operativo',    color: '#06B6D4', icon: '🔧' },
 }
@@ -33,10 +33,10 @@ const NIVEL_CONFIG: Record<Nivel, { label: string; color: string; icon: string }
 const AREAS = [
   { id: 'DIRECCION GENERAL', label: 'Dirección General', color: '#F9A8D4' },
   { id: 'ADMINISTRACION', label: 'Administración', color: '#6B7280' },
-  { id: 'INGENIERIAS ESPECIALES', label: 'Ing. Especiales (Proyecto)', color: '#57FF9A' },
+  { id: 'INGENIERIAS ESPECIALES', label: 'Ing. Especiales (Proyecto)', color: '#10B981' },
   { id: 'INGENIERIAS ELECTRICAS', label: 'Ing. Eléctrica (Proyecto)', color: '#34D399' },
-  { id: 'ILUMINACION', label: 'Iluminación', color: '#C084FC' },
-  { id: 'INSTALACIONES ESPECIALES', label: 'Obra — Especiales', color: '#3B82F6' },
+  { id: 'ILUMINACION', label: 'Iluminación', color: '#A78BFA' },
+  { id: 'INSTALACIONES ESPECIALES', label: 'Obra — Especiales', color: '#2563EB' },
   { id: 'ELECTRICO', label: 'Obra — Eléctrico', color: '#FFB347' },
   { id: 'LOGISTICA', label: 'Logística', color: '#10B981' },
   { id: 'CASA LUCE', label: 'Casa Luce', color: '#EC4899' },
@@ -125,9 +125,9 @@ export default function Empleados() {
                 style={{
                   padding: '5px 14px', borderRadius: 20, fontSize: 11, cursor: 'pointer',
                   fontFamily: 'inherit', fontWeight: 600,
-                  border: `1px solid ${view === v ? '#57FF9A' : '#333'}`,
-                  background: view === v ? '#57FF9A22' : 'transparent',
-                  color: view === v ? '#57FF9A' : '#666',
+                  border: `1px solid ${view === v ? '#10B981' : '#333'}`,
+                  background: view === v ? '#10B98122' : 'transparent',
+                  color: view === v ? '#10B981' : '#666',
                 }}
               >
                 {v === 'tabla' ? '📋 Tabla' : '🏗️ Organigrama'}
@@ -143,7 +143,7 @@ export default function Empleados() {
           { label: 'Dirección', value: directores, color: NIVEL_CONFIG.direccion.color },
           { label: 'Coordinación', value: coordinadores, color: NIVEL_CONFIG.coordinacion.color },
           { label: 'Operativos', value: operativos, color: NIVEL_CONFIG.operativo.color },
-          { label: 'Total Activos', value: totalActivos, color: '#57FF9A' },
+          { label: 'Total Activos', value: totalActivos, color: '#10B981' },
         ].map(kpi => (
           <div key={kpi.label} style={{
             background: '#141414', border: '1px solid #222', borderRadius: 10,
@@ -183,9 +183,9 @@ export default function Empleados() {
       <div style={{ display: 'flex', gap: 5, marginBottom: 10, flexWrap: 'wrap' }}>
         <button onClick={() => setFiltroArea('todas')} style={{
           padding: '4px 10px', borderRadius: 20, fontSize: 10, cursor: 'pointer', fontFamily: 'inherit',
-          border: `1px solid ${filtroArea === 'todas' ? '#57FF9A' : '#333'}`,
-          background: filtroArea === 'todas' ? '#57FF9A22' : 'transparent',
-          color: filtroArea === 'todas' ? '#57FF9A' : '#555', fontWeight: 600,
+          border: `1px solid ${filtroArea === 'todas' ? '#10B981' : '#333'}`,
+          background: filtroArea === 'todas' ? '#10B98122' : 'transparent',
+          color: filtroArea === 'todas' ? '#10B981' : '#555', fontWeight: 600,
         }}>Todas</button>
         {AREAS.map(a => (
           <button key={a.id} onClick={() => setFiltroArea(a.id)} style={{
@@ -338,7 +338,7 @@ function EmpTable({
                       ))}
                     </select>
                   ) : (
-                    <span style={{ fontSize: 11, color: manager ? '#C084FC' : '#333' }}>
+                    <span style={{ fontSize: 11, color: manager ? '#A78BFA' : '#333' }}>
                       {manager ? manager.nombre : '—'}
                     </span>
                   )}
@@ -356,9 +356,9 @@ function EmpTable({
                   <button
                     onClick={() => setEditingId(isEditing ? null : e.id)}
                     style={{
-                      background: 'none', border: `1px solid ${isEditing ? '#57FF9A' : '#333'}`,
+                      background: 'none', border: `1px solid ${isEditing ? '#10B981' : '#333'}`,
                       borderRadius: 6, padding: '3px 8px', fontSize: 10, cursor: 'pointer',
-                      color: isEditing ? '#57FF9A' : '#555', fontFamily: 'inherit', fontWeight: 600,
+                      color: isEditing ? '#10B981' : '#555', fontFamily: 'inherit', fontWeight: 600,
                     }}
                   >
                     {isEditing ? '✓ Listo' : 'Editar'}
@@ -459,8 +459,8 @@ function OrgChart({ emps }: { emps: Emp[] }) {
     <div>
       {/* Note about configuration */}
       <div style={{
-        padding: '10px 14px', background: '#F59E0B11', border: '1px solid #F59E0B33',
-        borderRadius: 8, marginBottom: 16, fontSize: 11, color: '#F59E0B',
+        padding: '10px 14px', background: '#D9770611', border: '1px solid #D9770633',
+        borderRadius: 8, marginBottom: 16, fontSize: 11, color: '#D97706',
       }}>
         💡 El organigrama se construye con el campo "Reporta a" de cada empleado. Usa la vista de Tabla para asignar la cadena de mando.
       </div>
@@ -471,7 +471,7 @@ function OrgChart({ emps }: { emps: Emp[] }) {
       {/* Unassigned directors */}
       {unassignedDirectors.length > 0 && (
         <div style={{ marginTop: 20 }}>
-          <div style={{ fontSize: 11, color: '#F59E0B', fontWeight: 600, marginBottom: 8, textTransform: 'uppercase' }}>
+          <div style={{ fontSize: 11, color: '#D97706', fontWeight: 600, marginBottom: 8, textTransform: 'uppercase' }}>
             ⚠ Directores sin "Reporta a" asignado
           </div>
           {unassignedDirectors.map(d => renderNode(d, 0))}

@@ -49,16 +49,16 @@ type CategoriaGranular =
 
 const CATEGORIA_COLORS: Record<CategoriaGranular | string, string> = {
   material_electrico: '#FFB347',
-  luminarias: '#C084FC',
-  instalaciones_especiales: '#57FF9A',
+  luminarias: '#A78BFA',
+  instalaciones_especiales: '#10B981',
   nomina_directa: '#06B6D4',
   nomina_admin: '#8B5CF6',
   gasto_general: '#EC4899',
-  impuestos: '#EF4444',
+  impuestos: '#DC2626',
   comision_bancaria: '#6B7280',
-  traspaso_interno: '#3B82F6',
+  traspaso_interno: '#2563EB',
   cobro_cliente: '#10B981',
-  anticipo_proveedor: '#F59E0B',
+  anticipo_proveedor: '#D97706',
   pago_tdc: '#A78BFA',
   prestamo: '#06B6D4',
   otro: '#555',
@@ -301,11 +301,11 @@ const TABS: { key: Tab; label: string; icon: typeof FileText }[] = [
 
 const INVOICE_STATUS_CONFIG: Record<InvoiceStatus, { label: string; color: string }> = {
   borrador: { label: 'Borrador', color: '#6B7280' },
-  timbrada: { label: 'Timbrada', color: '#3B82F6' },
+  timbrada: { label: 'Timbrada', color: '#2563EB' },
   enviada: { label: 'Enviada', color: '#8B5CF6' },
-  pagada: { label: 'Pagada', color: '#57FF9A' },
-  cancelada: { label: 'Cancelada', color: '#EF4444' },
-  error: { label: 'Error', color: '#F59E0B' },
+  pagada: { label: 'Pagada', color: '#10B981' },
+  cancelada: { label: 'Cancelada', color: '#DC2626' },
+  error: { label: 'Error', color: '#D97706' },
 }
 
 const CFDI_TYPE_LABELS: Record<CfdiType, string> = {
@@ -362,7 +362,7 @@ function SearchSelect({ value, options, placeholder, disabled, onChange }: {
               key={o.id}
               onClick={() => { onChange(o.id); setOpen(false); setQuery('') }}
               style={{
-                padding: '5px 8px', fontSize: 11, cursor: 'pointer', color: o.id === value ? '#57FF9A' : '#ccc',
+                padding: '5px 8px', fontSize: 11, cursor: 'pointer', color: o.id === value ? '#10B981' : '#ccc',
                 background: o.id === value ? 'rgba(87,255,154,0.06)' : 'transparent',
                 borderBottom: '1px solid #1a1a1a',
               }}
@@ -410,9 +410,9 @@ function BeneficiarioCell({
   const hasDetected = !mov.beneficiario_id && !mov.beneficiario && !!mov.concepto_detectado
 
   const tipoColor: Record<string, string> = {
-    proveedor: '#F59E0B',
-    cliente: '#57FF9A',
-    empleado: '#C084FC',
+    proveedor: '#D97706',
+    cliente: '#10B981',
+    empleado: '#A78BFA',
     manual: '#9ca3af',
   }
 
@@ -447,7 +447,7 @@ function BeneficiarioCell({
     if (hasDetected) {
       return (
         <span style={{ color: '#555', fontSize: 11, fontStyle: 'italic' }}>
-          {mov.concepto_detectado} <span style={{ color: '#3B82F6', fontSize: 10 }}>+ asignar</span>
+          {mov.concepto_detectado} <span style={{ color: '#2563EB', fontSize: 10 }}>+ asignar</span>
         </span>
       )
     }
@@ -476,7 +476,7 @@ function BeneficiarioCell({
                 borderBottom: '1px solid #222',
               }}
             >
-              <div style={{ fontSize: 10, color: '#57FF9A', fontWeight: 600, textTransform: 'uppercase' as const, marginBottom: 2 }}>
+              <div style={{ fontSize: 10, color: '#10B981', fontWeight: 600, textTransform: 'uppercase' as const, marginBottom: 2 }}>
                 ⚡ Sugerido — {suggest.razon}
               </div>
               <div style={{ fontSize: 12, color: '#fff' }}>
@@ -554,8 +554,8 @@ function BeneficiarioCell({
                 onClick={() => { onAssign(null, null, null); setOpen(false); setQuery('') }}
                 style={{
                   padding: '3px 8px', fontSize: 10, cursor: 'pointer',
-                  background: 'transparent', color: '#EF4444',
-                  border: '1px solid #EF4444', borderRadius: 4, fontFamily: 'inherit',
+                  background: 'transparent', color: '#DC2626',
+                  border: '1px solid #DC2626', borderRadius: 4, fontFamily: 'inherit',
                 }}
               >Quitar</button>
             )}
@@ -770,9 +770,9 @@ export default function Contabilidad() {
               style={{
                 display: 'flex', alignItems: 'center', gap: 6,
                 padding: '8px 14px', fontSize: 12, fontWeight: active ? 600 : 400,
-                color: active ? '#57FF9A' : '#666',
+                color: active ? '#10B981' : '#666',
                 background: active ? 'rgba(87,255,154,0.08)' : 'transparent',
-                border: 'none', borderBottom: active ? '2px solid #57FF9A' : '2px solid transparent',
+                border: 'none', borderBottom: active ? '2px solid #10B981' : '2px solid transparent',
                 cursor: 'pointer', fontFamily: 'inherit',
                 transition: 'all 0.12s', borderRadius: '8px 8px 0 0',
               }}
@@ -1338,7 +1338,7 @@ function TabFacturacion({ invoices, setInvoices, bankMovements, projectNames }: 
           {monthOffset !== 0 && (
             <button
               onClick={() => setMonthOffset(0)}
-              style={{ padding: '6px 10px', fontSize: 11, background: 'rgba(87,255,154,0.08)', border: '1px solid rgba(87,255,154,0.3)', borderRadius: 6, color: '#57FF9A', cursor: 'pointer', fontFamily: 'inherit' }}
+              style={{ padding: '6px 10px', fontSize: 11, background: 'rgba(87,255,154,0.08)', border: '1px solid rgba(87,255,154,0.3)', borderRadius: 6, color: '#10B981', cursor: 'pointer', fontFamily: 'inherit' }}
             >Hoy</button>
           )}
         </div>
@@ -1349,18 +1349,18 @@ function TabFacturacion({ invoices, setInvoices, bankMovements, projectNames }: 
 
       {/* KPIs - Fila MXN */}
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)', gap: 12, marginBottom: 12 }}>
-        <KpiCard label="Total Facturado MXN" value={F(totalFacturadoMxn) + ' MXN'} color="#3B82F6" icon={<DollarSign size={16} />} />
-        <KpiCard label="Total Recibido MXN" value={F(totalRecibidoMxn) + ' MXN'} color="#F59E0B" icon={<DollarSign size={16} />} />
+        <KpiCard label="Total Facturado MXN" value={F(totalFacturadoMxn) + ' MXN'} color="#2563EB" icon={<DollarSign size={16} />} />
+        <KpiCard label="Total Recibido MXN" value={F(totalRecibidoMxn) + ' MXN'} color="#D97706" icon={<DollarSign size={16} />} />
         <KpiCard
           label="IVA por pagar MXN"
           value={F(ivaPorPagarMxn) + ' MXN'}
-          color={ivaPorPagarMxn >= 0 ? '#EF4444' : '#57FF9A'}
+          color={ivaPorPagarMxn >= 0 ? '#DC2626' : '#10B981'}
           icon={<ShieldCheck size={16} />}
         />
         <KpiCard
           label="Ingresos sin factura"
           value={F(ingresosSinFactura) + ' MXN'}
-          color={ingresosSinFactura > 0 ? '#F59E0B' : '#57FF9A'}
+          color={ingresosSinFactura > 0 ? '#D97706' : '#10B981'}
           icon={<AlertTriangle size={16} />}
         />
       </div>
@@ -1371,7 +1371,7 @@ function TabFacturacion({ invoices, setInvoices, bankMovements, projectNames }: 
         <KpiCard
           label="IVA por pagar USD"
           value={F(ivaPorPagarUsd) + ' USD'}
-          color={ivaPorPagarUsd >= 0 ? '#EF4444' : '#57FF9A'}
+          color={ivaPorPagarUsd >= 0 ? '#DC2626' : '#10B981'}
           icon={<ShieldCheck size={16} />}
         />
         <KpiCard
@@ -1462,8 +1462,8 @@ function TabFacturacion({ invoices, setInvoices, bankMovements, projectNames }: 
                       return (
                         <span style={{
                           fontSize: 10, fontWeight: 600, padding: '2px 6px', borderRadius: 4,
-                          background: isNom ? '#A855F722' : isEmitida ? '#3B82F622' : '#F59E0B22',
-                          color: isNom ? '#A855F7' : isEmitida ? '#3B82F6' : '#F59E0B',
+                          background: isNom ? '#7C3AED22' : isEmitida ? '#2563EB22' : '#D9770622',
+                          color: isNom ? '#7C3AED' : isEmitida ? '#2563EB' : '#D97706',
                         }}>
                           {isEmitida ? 'EMI' : 'REC'}
                         </span>
@@ -1474,8 +1474,8 @@ function TabFacturacion({ invoices, setInvoices, bankMovements, projectNames }: 
                   <Td>
                     <span style={{
                       fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 4,
-                      background: (inv.moneda || 'MXN') === 'USD' ? '#10B98122' : '#3B82F622',
-                      color: (inv.moneda || 'MXN') === 'USD' ? '#10B981' : '#3B82F6',
+                      background: (inv.moneda || 'MXN') === 'USD' ? '#10B98122' : '#2563EB22',
+                      color: (inv.moneda || 'MXN') === 'USD' ? '#10B981' : '#2563EB',
                       fontFamily: 'monospace',
                     }}>{inv.moneda || 'MXN'}</span>
                   </Td>
@@ -1496,12 +1496,12 @@ function TabFacturacion({ invoices, setInvoices, bankMovements, projectNames }: 
                   <Td muted>{inv.proyecto_nombre || '—'}</Td>
                   <Td right>
                     {isIngreso
-                      ? <span style={{ color: '#57FF9A', fontWeight: 600 }}>{F(inv.total)}</span>
+                      ? <span style={{ color: '#10B981', fontWeight: 600 }}>{F(inv.total)}</span>
                       : <span style={{ color: '#444' }}>—</span>}
                   </Td>
                   <Td right>
                     {!isIngreso
-                      ? <span style={{ color: '#EF4444', fontWeight: 600 }}>{F(inv.total)}</span>
+                      ? <span style={{ color: '#DC2626', fontWeight: 600 }}>{F(inv.total)}</span>
                       : <span style={{ color: '#444' }}>—</span>}
                   </Td>
                   <Td><Badge label={cfg.label} color={cfg.color} /></Td>
@@ -1530,7 +1530,7 @@ function TabFacturacion({ invoices, setInvoices, bankMovements, projectNames }: 
             </Field>
             {newInv.receptor_nombre && (
               <div style={{ background: '#0a0a0a', border: '1px solid #222', borderRadius: 8, padding: '10px 14px', marginBottom: 12 }}>
-                <div style={{ fontSize: 11, color: '#57FF9A', fontWeight: 600, marginBottom: 6 }}>Datos fiscales del cliente (solo lectura)</div>
+                <div style={{ fontSize: 11, color: '#10B981', fontWeight: 600, marginBottom: 6 }}>Datos fiscales del cliente (solo lectura)</div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 16px', fontSize: 11 }}>
                   <div><span style={{color:'#555'}}>RFC:</span> <span style={{color:'#fff', fontFamily:'monospace'}}>{newInv.rfc_receptor}</span></div>
                   <div><span style={{color:'#555'}}>Regimen:</span> <span style={{color:'#ccc'}}>{newInv.regimen_receptor}</span></div>
@@ -1585,9 +1585,9 @@ function TabFacturacion({ invoices, setInvoices, bankMovements, projectNames }: 
                     </div>
                     <div>
                       <div style={{ fontSize: 9, color: '#555', marginBottom: 2 }}>Importe</div>
-                      <div style={{ padding: '8px 12px', background: '#0a0a0a', border: '1px solid #222', borderRadius: 8, color: '#57FF9A', fontSize: 13, fontWeight: 600 }}>{F(cp.importe)}</div>
+                      <div style={{ padding: '8px 12px', background: '#0a0a0a', border: '1px solid #222', borderRadius: 8, color: '#10B981', fontSize: 13, fontWeight: 600 }}>{F(cp.importe)}</div>
                     </div>
-                    <button onClick={() => removeConcepto(i)} style={{ background: 'none', border: 'none', color: '#EF4444', cursor: 'pointer', padding: '8px 0' }}><X size={14} /></button>
+                    <button onClick={() => removeConcepto(i)} style={{ background: 'none', border: 'none', color: '#DC2626', cursor: 'pointer', padding: '8px 0' }}><X size={14} /></button>
                   </div>
                 ))}
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 16, marginTop: 12, fontSize: 12, borderTop: '1px solid #1a1a1a', paddingTop: 8 }}>
@@ -1620,7 +1620,7 @@ function TabFacturacion({ invoices, setInvoices, bankMovements, projectNames }: 
       {selectedInv && (
         <Modal title={selectedInv.serie ? selectedInv.serie + '-' + selectedInv.folio : selectedInv.folio} onClose={() => setSelectedInv(null)}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 20px', fontSize: 12 }}>
-            <div><span style={{color:'#555'}}>Direccion:</span> <Badge label={selectedInv.direccion === 'emitida' ? 'Emitida' : 'Recibida'} color={selectedInv.direccion === 'emitida' ? '#3B82F6' : '#F59E0B'} /></div>
+            <div><span style={{color:'#555'}}>Direccion:</span> <Badge label={selectedInv.direccion === 'emitida' ? 'Emitida' : 'Recibida'} color={selectedInv.direccion === 'emitida' ? '#2563EB' : '#D97706'} /></div>
             <div><span style={{color:'#555'}}>Tipo CFDI:</span> <span style={{color:'#fff'}}>{CFDI_TYPE_LABELS[selectedInv.tipo_comprobante]}</span></div>
             <div><span style={{color:'#555'}}>Emisor:</span> <span style={{color:'#ccc'}}>{selectedInv.emisor_nombre}</span></div>
             <div><span style={{color:'#555'}}>Receptor:</span> <span style={{color:'#ccc'}}>{selectedInv.receptor_nombre}</span></div>
@@ -1628,7 +1628,7 @@ function TabFacturacion({ invoices, setInvoices, bankMovements, projectNames }: 
             <div><span style={{color:'#555'}}>Estado:</span> <Badge label={INVOICE_STATUS_CONFIG[selectedInv.estado].label} color={INVOICE_STATUS_CONFIG[selectedInv.estado].color} /></div>
             <div><span style={{color:'#555'}}>Metodo pago:</span> <span style={{color:'#ccc'}}>{selectedInv.metodo_pago || '--'}</span></div>
             <div><span style={{color:'#555'}}>Proyecto:</span> <span style={{color:'#ccc'}}>{selectedInv.proyecto_nombre || '--'}</span></div>
-            <div><span style={{color:'#555'}}>Conciliada:</span> <span style={{color: selectedInv.conciliada ? '#57FF9A' : '#F59E0B'}}>{selectedInv.conciliada ? 'Si' : 'No'}</span></div>
+            <div><span style={{color:'#555'}}>Conciliada:</span> <span style={{color: selectedInv.conciliada ? '#10B981' : '#D97706'}}>{selectedInv.conciliada ? 'Si' : 'No'}</span></div>
             <div><span style={{color:'#555'}}>Total:</span> <span style={{color:'#fff', fontWeight: 700, fontSize: 16}}>{F(selectedInv.total)}</span></div>
           </div>
           <div style={{ marginTop: 16, padding: '12px 0', borderTop: '1px solid #222' }}>
@@ -1665,20 +1665,20 @@ function TabFacturacion({ invoices, setInvoices, bankMovements, projectNames }: 
           <div style={{ fontSize: 11, color: '#444', marginBottom: 12 }}>{selectedInv.uuid ? 'UUID: ' + selectedInv.uuid : 'Sin UUID (factura no timbrada)'}</div>
           
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '6px 16px', fontSize: 12, marginBottom: 16 }}>
-            <div><span style={{color:'#555'}}>Direccion:</span> <Badge label={selectedInv.direccion === 'emitida' ? 'Emitida' : 'Recibida'} color={selectedInv.direccion === 'emitida' ? '#3B82F6' : '#F59E0B'} /></div>
+            <div><span style={{color:'#555'}}>Direccion:</span> <Badge label={selectedInv.direccion === 'emitida' ? 'Emitida' : 'Recibida'} color={selectedInv.direccion === 'emitida' ? '#2563EB' : '#D97706'} /></div>
             <div><span style={{color:'#555'}}>Tipo:</span> <span style={{color:'#fff'}}>{CFDI_TYPE_LABELS[selectedInv.tipo_comprobante]}</span></div>
             <div><span style={{color:'#555'}}>Estado:</span> <Badge label={INVOICE_STATUS_CONFIG[selectedInv.estado].label} color={INVOICE_STATUS_CONFIG[selectedInv.estado].color} /></div>
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 20px', fontSize: 12, marginBottom: 16 }}>
             <div style={{borderBottom:'1px solid #1a1a1a', paddingBottom: 4}}>
-              <div style={{color:'#57FF9A', fontWeight: 600, fontSize: 11, marginBottom: 4}}>Emisor</div>
+              <div style={{color:'#10B981', fontWeight: 600, fontSize: 11, marginBottom: 4}}>Emisor</div>
               <div><span style={{color:'#555'}}>RFC:</span> <span style={{color:'#fff', fontFamily:'monospace'}}>{selectedInv.emisor_rfc || '--'}</span></div>
               <div><span style={{color:'#555'}}>Nombre:</span> <span style={{color:'#ccc'}}>{selectedInv.emisor_nombre}</span></div>
               <div><span style={{color:'#555'}}>Regimen:</span> <span style={{color:'#888'}}>{selectedInv.emisor_regimen || '--'}</span></div>
             </div>
             <div style={{borderBottom:'1px solid #1a1a1a', paddingBottom: 4}}>
-              <div style={{color:'#3B82F6', fontWeight: 600, fontSize: 11, marginBottom: 4}}>Receptor</div>
+              <div style={{color:'#2563EB', fontWeight: 600, fontSize: 11, marginBottom: 4}}>Receptor</div>
               <div><span style={{color:'#555'}}>RFC:</span> <span style={{color:'#fff', fontFamily:'monospace'}}>{selectedInv.receptor_rfc || '--'}</span></div>
               <div><span style={{color:'#555'}}>Nombre:</span> <span style={{color:'#ccc'}}>{selectedInv.receptor_nombre}</span></div>
               <div><span style={{color:'#555'}}>Regimen:</span> <span style={{color:'#888'}}>{selectedInv.receptor_regimen || '--'}</span></div>
@@ -2565,9 +2565,9 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
 
   /* --- Conciliacion v2: configuracion de cuentas --- */
   const ACCOUNTS = {
-    'bbva-mxn':    { banco: 'BBVA',    moneda: 'MXN' as const, cuenta: '0118270236', label: 'BBVA MXN',    color: '#3B82F6' },
+    'bbva-mxn':    { banco: 'BBVA',    moneda: 'MXN' as const, cuenta: '0118270236', label: 'BBVA MXN',    color: '#2563EB' },
     'bbva-usd':    { banco: 'BBVA',    moneda: 'USD' as const, cuenta: '0119196919', label: 'BBVA USD',    color: '#10B981' },
-    'banorte-mxn': { banco: 'Banorte', moneda: 'MXN' as const, cuenta: '1263311182', label: 'Banorte MXN', color: '#EF4444' },
+    'banorte-mxn': { banco: 'Banorte', moneda: 'MXN' as const, cuenta: '1263311182', label: 'Banorte MXN', color: '#DC2626' },
   }
   type AccountId = keyof typeof ACCOUNTS
 
@@ -2905,8 +2905,8 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
     projectMap.set(proy, cur)
   })
 
-  const catColors: Record<string, string> = { ...CATEGORIA_COLORS, nomina: '#C084FC', proveedor: '#F59E0B', cobro_cliente: '#57FF9A', impuestos: '#EF4444', comision: '#6B7280', traspaso: '#3B82F6', prestamo: '#06B6D4', suscripcion: '#EC4899', otro: '#555' }
-  const chkStyle: React.CSSProperties = { width: 15, height: 15, accentColor: '#57FF9A', cursor: 'pointer' }
+  const catColors: Record<string, string> = { ...CATEGORIA_COLORS, nomina: '#A78BFA', proveedor: '#D97706', cobro_cliente: '#10B981', impuestos: '#DC2626', comision: '#6B7280', traspaso: '#2563EB', prestamo: '#06B6D4', suscripcion: '#EC4899', otro: '#555' }
+  const chkStyle: React.CSSProperties = { width: 15, height: 15, accentColor: '#10B981', cursor: 'pointer' }
 
   return (
     <div>
@@ -2925,7 +2925,7 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
           {monthOffset !== 0 && (
             <button
               onClick={() => setMonthOffset(0)}
-              style={{ padding: '6px 10px', fontSize: 11, background: 'rgba(87,255,154,0.08)', border: '1px solid rgba(87,255,154,0.3)', borderRadius: 6, color: '#57FF9A', cursor: 'pointer', fontFamily: 'inherit' }}
+              style={{ padding: '6px 10px', fontSize: 11, background: 'rgba(87,255,154,0.08)', border: '1px solid rgba(87,255,154,0.3)', borderRadius: 6, color: '#10B981', cursor: 'pointer', fontFamily: 'inherit' }}
             >Hoy</button>
           )}
         </div>
@@ -2936,7 +2936,7 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
           <button
             onClick={exportExcel}
             disabled={exporting || movsCuenta.length === 0}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '5px 12px', fontSize: 11, fontWeight: 600, background: 'rgba(87,255,154,0.08)', border: '1px solid rgba(87,255,154,0.3)', borderRadius: 6, color: '#57FF9A', cursor: exporting ? 'wait' : 'pointer', fontFamily: 'inherit', opacity: movsCuenta.length === 0 ? 0.4 : 1 }}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '5px 12px', fontSize: 11, fontWeight: 600, background: 'rgba(87,255,154,0.08)', border: '1px solid rgba(87,255,154,0.3)', borderRadius: 6, color: '#10B981', cursor: exporting ? 'wait' : 'pointer', fontFamily: 'inherit', opacity: movsCuenta.length === 0 ? 0.4 : 1 }}
           >{exporting ? <Loader2 size={12} className="spin" /> : <Download size={12} />} Excel</button>
         </div>
       </div>
@@ -2970,9 +2970,9 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
       {/* KPIs filtrados por cuenta activa */}
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
         <KpiCard label="Movimientos" value={movsCuenta.length} icon={<ArrowLeftRight size={16} />} />
-        <KpiCard label="Cargos" value={F(cargosCuenta)} color="#EF4444" icon={<TrendingUp size={16} />} />
-        <KpiCard label="Abonos" value={F(abonosCuenta)} color="#57FF9A" icon={<Banknote size={16} />} />
-        <KpiCard label="Conciliados" value={`${conciliadosCuenta}/${movsCuenta.length}`} color="#3B82F6" icon={<CheckCircle size={16} />} />
+        <KpiCard label="Cargos" value={F(cargosCuenta)} color="#DC2626" icon={<TrendingUp size={16} />} />
+        <KpiCard label="Abonos" value={F(abonosCuenta)} color="#10B981" icon={<Banknote size={16} />} />
+        <KpiCard label="Conciliados" value={`${conciliadosCuenta}/${movsCuenta.length}`} color="#2563EB" icon={<CheckCircle size={16} />} />
       </div>
 
       {/* Toolbar — Conciliacion v2 con botones contextuales por cuenta */}
@@ -3017,7 +3017,7 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
           </div>
         )}
 
-        {status && <span style={{ fontSize: 11, color: status.startsWith('✓') ? '#57FF9A' : status.startsWith('Error') ? '#EF4444' : '#888' }}>{status}</span>}
+        {status && <span style={{ fontSize: 11, color: status.startsWith('✓') ? '#10B981' : status.startsWith('Error') ? '#DC2626' : '#888' }}>{status}</span>}
       </div>
 
       {/* Banner de cuadre de totales (aparece después de upload con expected_totals del PDF) */}
@@ -3026,17 +3026,17 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
           padding: '10px 14px', marginBottom: 16, borderRadius: 8, fontSize: 11,
           background: lastCheck.cuadra ? 'rgba(87,255,154,0.06)' : 'rgba(239,68,68,0.06)',
           border: `1px solid ${lastCheck.cuadra ? 'rgba(87,255,154,0.2)' : 'rgba(239,68,68,0.25)'}`,
-          color: lastCheck.cuadra ? '#57FF9A' : '#f87171',
+          color: lastCheck.cuadra ? '#10B981' : '#f87171',
           display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap',
         }}>
           <strong>{lastCheck.cuadra ? '✓ Extracción cuadra con el PDF' : '⚠ Extracción NO cuadra con los totales del PDF'}</strong>
           <span style={{ color: '#888' }}>
-            Cargos: <strong style={{ color: lastCheck.cargos_sum_ok ? '#57FF9A' : '#f87171' }}>{F(lastCheck.sum_cargos_extraido)}</strong>
+            Cargos: <strong style={{ color: lastCheck.cargos_sum_ok ? '#10B981' : '#f87171' }}>{F(lastCheck.sum_cargos_extraido)}</strong>
             {' / esperado '}{F(lastCheck.expected.cargos_total)}
             {' ('}{lastCheck.count_cargos_extraido}/{lastCheck.expected.cargos_count} mov{')'}
           </span>
           <span style={{ color: '#888' }}>
-            Abonos: <strong style={{ color: lastCheck.abonos_sum_ok ? '#57FF9A' : '#f87171' }}>{F(lastCheck.sum_abonos_extraido)}</strong>
+            Abonos: <strong style={{ color: lastCheck.abonos_sum_ok ? '#10B981' : '#f87171' }}>{F(lastCheck.sum_abonos_extraido)}</strong>
             {' / esperado '}{F(lastCheck.expected.abonos_total)}
             {' ('}{lastCheck.count_abonos_extraido}/{lastCheck.expected.abonos_count} mov{')'}
           </span>
@@ -3123,9 +3123,9 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
       {/* Batch actions */}
       {selected.size > 0 && (
         <div style={{ display: 'flex', gap: 8, marginBottom: 12, alignItems: 'center', padding: '8px 12px', background: 'rgba(87,255,154,0.05)', border: '1px solid rgba(87,255,154,0.15)', borderRadius: 8 }}>
-          <span style={{ fontSize: 12, color: '#57FF9A', fontWeight: 600 }}>{selected.size} seleccionado{selected.size > 1 ? 's' : ''}</span>
+          <span style={{ fontSize: 12, color: '#10B981', fontWeight: 600 }}>{selected.size} seleccionado{selected.size > 1 ? 's' : ''}</span>
           <Btn size="sm" variant="primary" onClick={conciliarSelected}><CheckCircle size={11} /> Conciliar</Btn>
-          <Btn size="sm" variant="default" onClick={deleteSelected} style={{ color: '#EF4444', borderColor: '#EF4444' }}><X size={11} /> Eliminar</Btn>
+          <Btn size="sm" variant="default" onClick={deleteSelected} style={{ color: '#DC2626', borderColor: '#DC2626' }}><X size={11} /> Eliminar</Btn>
           <button onClick={() => setSelected(new Set())} style={{ marginLeft: 'auto', fontSize: 11, color: '#666', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit' }}>Deseleccionar</button>
         </div>
       )}
@@ -3137,8 +3137,8 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
             <div key={proy} style={{ background: '#141414', border: '1px solid #222', borderRadius: 8, padding: '6px 10px', fontSize: 11 }}>
               <span style={{ color: '#fff', fontWeight: 600 }}>{proy}</span>
               <span style={{ color: '#666', marginLeft: 6 }}>{d.count} mov</span>
-              {d.abonos > 0 && <span style={{ color: '#57FF9A', marginLeft: 6 }}>+{F(d.abonos)}</span>}
-              {d.cargos > 0 && <span style={{ color: '#EF4444', marginLeft: 6 }}>-{F(d.cargos)}</span>}
+              {d.abonos > 0 && <span style={{ color: '#10B981', marginLeft: 6 }}>+{F(d.abonos)}</span>}
+              {d.cargos > 0 && <span style={{ color: '#DC2626', marginLeft: 6 }}>-{F(d.cargos)}</span>}
             </div>
           ))}
         </div>
@@ -3196,22 +3196,22 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
                             <span style={{
                               fontSize: 9, fontWeight: 700, padding: '2px 5px', borderRadius: 4,
                               background: 'rgba(87,255,154,0.12)', border: '1px solid rgba(87,255,154,0.3)',
-                              color: '#57FF9A', fontFamily: 'monospace', letterSpacing: 0.3,
+                              color: '#10B981', fontFamily: 'monospace', letterSpacing: 0.3,
                             }}>{m.proyecto_codigo}</span>
                           )}
-                          {m.proyecto_sugerido && <Badge label={m.proyecto_sugerido} color="#3B82F6" />}
+                          {m.proyecto_sugerido && <Badge label={m.proyecto_sugerido} color="#2563EB" />}
                         </span>
                       ) : (
                         <span style={{ color: '#444' }}>—</span>
                       )}
                     </Td>
                     <Td><Badge label={CATEGORIA_LABELS[m.categoria_sugerida || 'otro'] || m.categoria_sugerida || 'Otro'} color={catColors[m.categoria_sugerida || 'otro'] || '#555'} /></Td>
-                    <Td right>{m.tipo === 'cargo' ? <span style={{ color: '#EF4444' }}>{F(m.monto)}</span> : ''}</Td>
-                    <Td right>{m.tipo === 'abono' ? <span style={{ color: '#57FF9A' }}>{F(m.monto)}</span> : ''}</Td>
+                    <Td right>{m.tipo === 'cargo' ? <span style={{ color: '#DC2626' }}>{F(m.monto)}</span> : ''}</Td>
+                    <Td right>{m.tipo === 'abono' ? <span style={{ color: '#10B981' }}>{F(m.monto)}</span> : ''}</Td>
                     <Td>{(() => {
                       const lnkCount = getLinksForMov(m.id).length
                       if (lnkCount > 0) return <span style={{ fontSize: 10, color: '#22c55e', cursor: 'pointer', fontWeight: 600 }} onClick={() => setExpandedId(isExpanded ? null : m.id)}>🔗 {lnkCount} fact.</span>
-                      if (match) return <span style={{ fontSize: 10, color: '#3B82F6', cursor: 'pointer' }} onClick={() => setExpandedId(isExpanded ? null : m.id)}>🔗 Ver</span>
+                      if (match) return <span style={{ fontSize: 10, color: '#2563EB', cursor: 'pointer' }} onClick={() => setExpandedId(isExpanded ? null : m.id)}>🔗 Ver</span>
                       return <span style={{ fontSize: 10, color: '#444', cursor: 'pointer' }} onClick={() => setExpandedId(isExpanded ? null : m.id)}>+ Vincular</span>
                     })()}</Td>
                     <Td>
@@ -3228,7 +3228,7 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
                           padding: '3px 8px', fontSize: 10, fontWeight: 600, borderRadius: 6, cursor: 'pointer',
                           border: m.conciliado ? '1px solid #333' : '1px solid rgba(87,255,154,0.3)',
                           background: m.conciliado ? '#1a1a1a' : 'rgba(87,255,154,0.08)',
-                          color: m.conciliado ? '#666' : '#57FF9A', fontFamily: 'inherit',
+                          color: m.conciliado ? '#666' : '#10B981', fontFamily: 'inherit',
                         }}
                       >
                         {m.conciliado ? 'Desconciliar' : 'Conciliar ✓'}
@@ -3314,7 +3314,7 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
                                   const nomTag = inv.tipo_comprobante === 'N' ? ' [NOM]' : ''
                                   return (
                                     <div key={link.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 8px', background: '#1a1a1a', borderRadius: 4, border: '1px solid #252525' }}>
-                                      <span style={{ fontSize: 11, color: '#3B82F6', fontWeight: 600 }}>{inv.serie}-{inv.folio}</span>
+                                      <span style={{ fontSize: 11, color: '#2563EB', fontWeight: 600 }}>{inv.serie}-{inv.folio}</span>
                                       <span style={{ fontSize: 10, color: '#888', flex: 1 }}>{who}{nomTag} · Total: {F(inv.total)}</span>
                                       <input
                                         type="number"
@@ -3422,7 +3422,7 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
                                             {exactMov ? 'MATCH EXACTO' : 'MATCH RESTANTE'}
                                           </span>
                                         )}
-                                        <span style={{ color: '#3B82F6', fontWeight: 600, minWidth: 70 }}>{inv.serie}-{inv.folio}</span>
+                                        <span style={{ color: '#2563EB', fontWeight: 600, minWidth: 70 }}>{inv.serie}-{inv.folio}</span>
                                         <span style={{ color: '#888', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{who}{nomTag}</span>
                                         <span style={{ color: '#888', fontSize: 10 }}>{inv.fecha_emision}</span>
                                         <span style={{ fontFamily: 'monospace', fontWeight: 600, color: exactMov || exactRem ? '#22c55e' : '#ccc', minWidth: 80, textAlign: 'right' }}>
@@ -3433,7 +3433,7 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
                                             {F(invLinkedElsewhere)} aplicado
                                           </span>
                                         )}
-                                        <span style={{ color: '#3B82F6', fontSize: 13, fontWeight: 700, padding: '0 2px' }}>+</span>
+                                        <span style={{ color: '#2563EB', fontSize: 13, fontWeight: 700, padding: '0 2px' }}>+</span>
                                       </div>
                                     )
                                   })}
@@ -3520,7 +3520,7 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
                                     <button
                                       onClick={async () => { await loadQuotesForLead(m.lead_id!) }}
                                       title="Recargar cotizaciones del lead desde Supabase"
-                                      style={{ background: 'none', border: 'none', color: '#57FF9A', cursor: 'pointer', fontSize: 10, padding: '0 4px', marginBottom: 2 }}
+                                      style={{ background: 'none', border: 'none', color: '#10B981', cursor: 'pointer', fontSize: 10, padding: '0 4px', marginBottom: 2 }}
                                     >↻ Recargar</button>
                                   )}
                                 </div>
@@ -3574,7 +3574,7 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
                         </div>
 
                         {match && (
-                          <div style={{ fontSize: 11, color: '#3B82F6', marginTop: 6, padding: '6px 10px', background: 'rgba(59,130,246,0.06)', borderRadius: 6, border: '1px solid rgba(59,130,246,0.15)' }}>
+                          <div style={{ fontSize: 11, color: '#2563EB', marginTop: 6, padding: '6px 10px', background: 'rgba(59,130,246,0.06)', borderRadius: 6, border: '1px solid rgba(59,130,246,0.15)' }}>
                             <strong>Match sugerido:</strong> {match.info}
                           </div>
                         )}
@@ -3940,13 +3940,13 @@ function TabCostosObra({ bankMovements, setBankMovements }: { bankMovements: Ban
                   <Td right><span style={{ color: '#ccc' }}>{F(o.nominaDirecta)}</span></Td>
                   <Td right><span style={{ color: '#888', fontStyle: 'italic' }}>{F(o.overheadAsignado)}</span></Td>
                   <Td right><span style={{ color: '#888', fontStyle: 'italic' }}>{F(o.nominaAdminAsignada)}</span></Td>
-                  <Td right><span style={{ color: '#57FF9A', fontWeight: 600 }}>{F(o.ingresos)}</span></Td>
+                  <Td right><span style={{ color: '#10B981', fontWeight: 600 }}>{F(o.ingresos)}</span></Td>
                   <Td right><span style={{ color: '#fff', fontWeight: 700 }}>{F(o.total)}</span></Td>
                   <Td right>
-                    <span style={{ color: margen >= 0 ? '#57FF9A' : '#EF4444', fontWeight: 600 }}>
+                    <span style={{ color: margen >= 0 ? '#10B981' : '#DC2626', fontWeight: 600 }}>
                       {F(margen)}
                     </span>
-                    {o.ingresos > 0 && <span style={{ display: 'block', fontSize: 10, color: margen >= 0 ? '#57FF9A' : '#EF4444' }}>
+                    {o.ingresos > 0 && <span style={{ display: 'block', fontSize: 10, color: margen >= 0 ? '#10B981' : '#DC2626' }}>
                       {margenPct.toFixed(1)}%
                     </span>}
                   </Td>
@@ -3963,9 +3963,9 @@ function TabCostosObra({ bankMovements, setBankMovements }: { bankMovements: Ban
                 <Td right><span style={{ fontWeight: 700, color: '#fff' }}>{F(totals.nominaDirecta)}</span></Td>
                 <Td right><span style={{ fontWeight: 700, color: '#fff' }}>{F(totals.overhead)}</span></Td>
                 <Td right><span style={{ fontWeight: 700, color: '#fff' }}>{F(totals.nominaAdmin)}</span></Td>
-                <Td right><span style={{ fontWeight: 700, color: '#57FF9A' }}>{F(totals.ingresos)}</span></Td>
+                <Td right><span style={{ fontWeight: 700, color: '#10B981' }}>{F(totals.ingresos)}</span></Td>
                 <Td right><span style={{ fontWeight: 700, color: '#fff' }}>{F(totals.total)}</span></Td>
-                <Td right><span style={{ fontWeight: 700, color: totals.ingresos - totals.total >= 0 ? '#57FF9A' : '#EF4444' }}>{F(totals.ingresos - totals.total)}</span></Td>
+                <Td right><span style={{ fontWeight: 700, color: totals.ingresos - totals.total >= 0 ? '#10B981' : '#DC2626' }}>{F(totals.ingresos - totals.total)}</span></Td>
               </tr>
             )}
           </tbody>
@@ -4101,10 +4101,10 @@ function TabSupervision({ invoices, bankMovements }: { invoices: Invoice[]; bank
 
       {/* KPIs */}
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
-        <KpiCard label="Facturas sin conciliar" value={facturasSinConciliar.length} color="#EF4444" icon={<FileText size={16} />} />
-        <KpiCard label="Monto sin conciliar" value={F(totalFacturasSC)} color="#EF4444" icon={<DollarSign size={16} />} />
-        <KpiCard label="Pagos sin factura" value={pagosSinFactura.length} color="#F59E0B" icon={<AlertTriangle size={16} />} />
-        <KpiCard label="Monto pagos s/fact" value={F(totalPagosSF)} color="#F59E0B" icon={<DollarSign size={16} />} />
+        <KpiCard label="Facturas sin conciliar" value={facturasSinConciliar.length} color="#DC2626" icon={<FileText size={16} />} />
+        <KpiCard label="Monto sin conciliar" value={F(totalFacturasSC)} color="#DC2626" icon={<DollarSign size={16} />} />
+        <KpiCard label="Pagos sin factura" value={pagosSinFactura.length} color="#D97706" icon={<AlertTriangle size={16} />} />
+        <KpiCard label="Monto pagos s/fact" value={F(totalPagosSF)} color="#D97706" icon={<DollarSign size={16} />} />
       </div>
 
       {/* Toggle vista */}
@@ -4114,7 +4114,7 @@ function TabSupervision({ invoices, bankMovements }: { invoices: Invoice[]; bank
             padding: '6px 16px', fontSize: 12, fontWeight: vista === v ? 600 : 400,
             background: vista === v ? 'rgba(87,255,154,0.08)' : '#141414',
             border: vista === v ? '1px solid rgba(87,255,154,0.3)' : '1px solid #333',
-            borderRadius: 6, color: vista === v ? '#57FF9A' : '#888', cursor: 'pointer',
+            borderRadius: 6, color: vista === v ? '#10B981' : '#888', cursor: 'pointer',
           }}>
             {v === 'facturas' ? `Facturas sin conciliar (${facturasSinConciliar.length})` : `Pagos sin factura (${pagosSinFactura.length})`}
           </button>
@@ -4154,18 +4154,18 @@ function TabSupervision({ invoices, bankMovements }: { invoices: Invoice[]; bank
                         <td style={tdStyle}>
                           <span style={{
                             fontSize: 10, fontWeight: 600, padding: '2px 6px', borderRadius: 4,
-                            background: isNom ? '#A855F722' : isEmitida ? '#3B82F622' : '#F59E0B22',
-                            color: isNom ? '#A855F7' : isEmitida ? '#3B82F6' : '#F59E0B',
+                            background: isNom ? '#7C3AED22' : isEmitida ? '#2563EB22' : '#D9770622',
+                            color: isNom ? '#7C3AED' : isEmitida ? '#2563EB' : '#D97706',
                           }}>{isEmitida ? 'EMI' : 'REC'}</span>
                         </td>
                         <td style={{ ...tdStyle, color: '#888' }}>{CFDI_TYPE_LABELS[inv.tipo_comprobante]}</td>
                         <td style={tdStyle}>
-                          <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 4, background: mon === 'USD' ? '#10B98122' : '#3B82F622', color: mon === 'USD' ? '#10B981' : '#3B82F6', fontFamily: 'monospace' }}>{mon}</span>
+                          <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 4, background: mon === 'USD' ? '#10B98122' : '#2563EB22', color: mon === 'USD' ? '#10B981' : '#2563EB', fontFamily: 'monospace' }}>{mon}</span>
                         </td>
                         <td style={{ ...tdStyle, color: '#ccc' }}>{who}</td>
                         <td style={{ ...tdStyle, fontSize: 10, color: '#666', fontFamily: 'monospace' }}>{rfc}</td>
                         <td style={{ ...tdStyle, color: '#888' }}>{formatDate(inv.fecha_emision)}</td>
-                        <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 600, color: isEmitida && !isNom ? '#57FF9A' : '#EF4444' }}>{F(inv.total)}</td>
+                        <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 600, color: isEmitida && !isNom ? '#10B981' : '#DC2626' }}>{F(inv.total)}</td>
                         <td style={tdStyle}><Badge label={INVOICE_STATUS_CONFIG[inv.estado]?.label || inv.estado} color={INVOICE_STATUS_CONFIG[inv.estado]?.color || '#555'} /></td>
                       </tr>
                     )
@@ -4191,8 +4191,8 @@ function TabSupervision({ invoices, bankMovements }: { invoices: Invoice[]; bank
           ) : (
             <>
               <div style={{ display: 'flex', gap: 12, marginBottom: 12 }}>
-                <span style={{ fontSize: 11, color: '#888' }}>Cargos sin factura: <span style={{ color: '#EF4444', fontWeight: 600 }}>{F(totalCargosSF)}</span></span>
-                <span style={{ fontSize: 11, color: '#888' }}>Abonos sin factura: <span style={{ color: '#57FF9A', fontWeight: 600 }}>{F(totalAbonosSF)}</span></span>
+                <span style={{ fontSize: 11, color: '#888' }}>Cargos sin factura: <span style={{ color: '#DC2626', fontWeight: 600 }}>{F(totalCargosSF)}</span></span>
+                <span style={{ fontSize: 11, color: '#888' }}>Abonos sin factura: <span style={{ color: '#10B981', fontWeight: 600 }}>{F(totalAbonosSF)}</span></span>
               </div>
               <Table>
                 <thead>
@@ -4219,17 +4219,17 @@ function TabSupervision({ invoices, bankMovements }: { invoices: Invoice[]; bank
                           <td style={{ ...tdStyle, color: '#aaa' }}>{m.beneficiario || '—'}</td>
                           <td style={{ ...tdStyle, color: '#ccc' }}>{entityIcon} {entity}</td>
                           <td style={tdStyle}><Badge label={m.categoria_sugerida || 'otro'} color={
-                            m.categoria_sugerida === 'nomina' ? '#C084FC' :
-                            m.categoria_sugerida === 'proveedor' || m.categoria_sugerida === 'proveedor_obra' ? '#F59E0B' :
-                            m.categoria_sugerida === 'cobro_cliente' ? '#57FF9A' :
-                            m.categoria_sugerida === 'traspaso' || m.categoria_sugerida === 'traspaso_interno' ? '#3B82F6' :
+                            m.categoria_sugerida === 'nomina' ? '#A78BFA' :
+                            m.categoria_sugerida === 'proveedor' || m.categoria_sugerida === 'proveedor_obra' ? '#D97706' :
+                            m.categoria_sugerida === 'cobro_cliente' ? '#10B981' :
+                            m.categoria_sugerida === 'traspaso' || m.categoria_sugerida === 'traspaso_interno' ? '#2563EB' :
                             m.categoria_sugerida === 'gasto_operativo' ? '#6B7280' : '#555'
                           } /></td>
                           <td style={tdStyle}>
-                            <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 4, background: mon === 'USD' ? '#10B98122' : '#3B82F622', color: mon === 'USD' ? '#10B981' : '#3B82F6', fontFamily: 'monospace' }}>{mon}</span>
+                            <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 4, background: mon === 'USD' ? '#10B98122' : '#2563EB22', color: mon === 'USD' ? '#10B981' : '#2563EB', fontFamily: 'monospace' }}>{mon}</span>
                           </td>
-                          <td style={{ ...tdStyle, textAlign: 'right' }}>{m.tipo === 'cargo' ? <span style={{ color: '#EF4444', fontWeight: 600 }}>{F(m.monto)}</span> : <span style={{ color: '#444' }}>—</span>}</td>
-                          <td style={{ ...tdStyle, textAlign: 'right' }}>{m.tipo === 'abono' ? <span style={{ color: '#57FF9A', fontWeight: 600 }}>{F(m.monto)}</span> : <span style={{ color: '#444' }}>—</span>}</td>
+                          <td style={{ ...tdStyle, textAlign: 'right' }}>{m.tipo === 'cargo' ? <span style={{ color: '#DC2626', fontWeight: 600 }}>{F(m.monto)}</span> : <span style={{ color: '#444' }}>—</span>}</td>
+                          <td style={{ ...tdStyle, textAlign: 'right' }}>{m.tipo === 'abono' ? <span style={{ color: '#10B981', fontWeight: 600 }}>{F(m.monto)}</span> : <span style={{ color: '#444' }}>—</span>}</td>
                         </tr>
                       )
                     })}
@@ -4237,8 +4237,8 @@ function TabSupervision({ invoices, bankMovements }: { invoices: Invoice[]; bank
                 <tfoot>
                   <tr>
                     <td colSpan={6} style={{ ...tdStyle, fontWeight: 600, color: '#888', textAlign: 'right', borderTop: '1px solid #333' }}>Total</td>
-                    <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 700, color: '#EF4444', borderTop: '1px solid #333' }}>{F(totalCargosSF)}</td>
-                    <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 700, color: '#57FF9A', borderTop: '1px solid #333' }}>{F(totalAbonosSF)}</td>
+                    <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 700, color: '#DC2626', borderTop: '1px solid #333' }}>{F(totalCargosSF)}</td>
+                    <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 700, color: '#10B981', borderTop: '1px solid #333' }}>{F(totalAbonosSF)}</td>
                   </tr>
                 </tfoot>
               </Table>
@@ -4456,14 +4456,14 @@ function TabEfectivo() {
   return (
     <div>
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, 1fr)', gap: 12, marginBottom: 20 }}>
-        <KpiCard label="Cobros cash (clientes)" value={F(totalCobros)} color="#57FF9A" icon={<DollarSign size={16} />} />
-        <KpiCard label="Pagos cash (proveedores)" value={F(totalPagos)} color="#F59E0B" icon={<Banknote size={16} />} />
-        <KpiCard label="Nomina cash" value={F(totalNomina)} color="#C084FC" icon={<Users size={16} />} />
+        <KpiCard label="Cobros cash (clientes)" value={F(totalCobros)} color="#10B981" icon={<DollarSign size={16} />} />
+        <KpiCard label="Pagos cash (proveedores)" value={F(totalPagos)} color="#D97706" icon={<Banknote size={16} />} />
+        <KpiCard label="Nomina cash" value={F(totalNomina)} color="#A78BFA" icon={<Users size={16} />} />
       </div>
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: isMobile ? 'stretch' : 'center', marginBottom: 16, flexWrap: 'wrap', gap: isMobile ? 8 : 0 }}>
         <div style={{ fontSize: 13, color: '#666', flex: isMobile ? '1 1 100%' : 'initial' }}>
-          Efectivo neto del mes: <span style={{ color: totalCobros - totalPagos - totalNomina >= 0 ? '#57FF9A' : '#EF4444', fontWeight: 700 }}>
+          Efectivo neto del mes: <span style={{ color: totalCobros - totalPagos - totalNomina >= 0 ? '#10B981' : '#DC2626', fontWeight: 700 }}>
             {F(totalCobros - totalPagos - totalNomina)}
           </span>
         </div>
@@ -4476,9 +4476,9 @@ function TabEfectivo() {
 
       {/* Error de upload */}
       {uploadError && (
-        <div style={{ background: '#2a1515', border: '1px solid #EF4444', borderRadius: 8, padding: '10px 14px', marginBottom: 16, color: '#EF4444', fontSize: 13, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ background: '#2a1515', border: '1px solid #DC2626', borderRadius: 8, padding: '10px 14px', marginBottom: 16, color: '#DC2626', fontSize: 13, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <span>{uploadError}</span>
-          <button onClick={() => setUploadError('')} style={{ background: 'none', border: 'none', color: '#EF4444', cursor: 'pointer' }}><X size={14} /></button>
+          <button onClick={() => setUploadError('')} style={{ background: 'none', border: 'none', color: '#DC2626', cursor: 'pointer' }}><X size={14} /></button>
         </div>
       )}
 
@@ -4499,11 +4499,11 @@ function TabEfectivo() {
                   {uploadPreview.map((r: any, i: number) => (
                     <tr key={i}>
                       <Td muted>{r.fecha}</Td>
-                      <Td><Badge label={r.tipo === 'cobro_cliente' ? 'Cobro' : r.tipo === 'pago_proveedor' ? 'Pago' : 'Nómina'} color={r.tipo === 'cobro_cliente' ? '#57FF9A' : r.tipo === 'pago_proveedor' ? '#F59E0B' : '#C084FC'} /></Td>
+                      <Td><Badge label={r.tipo === 'cobro_cliente' ? 'Cobro' : r.tipo === 'pago_proveedor' ? 'Pago' : 'Nómina'} color={r.tipo === 'cobro_cliente' ? '#10B981' : r.tipo === 'pago_proveedor' ? '#D97706' : '#A78BFA'} /></Td>
                       <Td><span style={{ color: '#fff' }}>{r.persona || '—'}</span></Td>
                       <Td muted>{r.concepto || '—'}</Td>
                       <Td muted>{r.proyecto_nombre || '—'}</Td>
-                      <Td right style={{ fontWeight: 600, color: r.direccion === 'ingreso' ? '#57FF9A' : '#ccc' }}>{r.direccion === 'ingreso' ? '+' : '-'}{F(r.monto)}</Td>
+                      <Td right style={{ fontWeight: 600, color: r.direccion === 'ingreso' ? '#10B981' : '#ccc' }}>{r.direccion === 'ingreso' ? '+' : '-'}{F(r.monto)}</Td>
                     </tr>
                   ))}
                 </tbody>
@@ -4586,7 +4586,7 @@ function TabEfectivo() {
                 <label style={{ fontSize: 11, color: '#888', marginBottom: 4, display: 'block' }}>
                   Cotización (opcional)
                   {form.lead_id && (
-                    <span style={{ marginLeft: 6, color: '#57FF9A', fontSize: 10 }}>
+                    <span style={{ marginLeft: 6, color: '#10B981', fontSize: 10 }}>
                       · filtrado por lead ({quotationsForLead.length})
                     </span>
                   )}
@@ -4650,20 +4650,20 @@ function TabEfectivo() {
                 <Td>
                   <Badge
                     label={m.tipo === 'cobro_cliente' ? 'Cobro' : m.tipo === 'pago_proveedor' ? 'Pago' : 'Nomina'}
-                    color={m.tipo === 'cobro_cliente' ? '#57FF9A' : m.tipo === 'pago_proveedor' ? '#F59E0B' : '#C084FC'}
+                    color={m.tipo === 'cobro_cliente' ? '#10B981' : m.tipo === 'pago_proveedor' ? '#D97706' : '#A78BFA'}
                   />
                 </Td>
                 <Td><span style={{ color: '#fff', fontWeight: 500 }}>{m.persona}</span></Td>
                 <Td muted>{m.concepto}</Td>
                 <Td muted>
-                  {m.lead_name && <div style={{ fontSize: 10, color: '#A855F7', fontWeight: 600 }}>{m.lead_name}</div>}
+                  {m.lead_name && <div style={{ fontSize: 10, color: '#7C3AED', fontWeight: 600 }}>{m.lead_name}</div>}
                   {m.quotation_name && <div style={{ fontSize: 9, color: '#67E8F9' }}>{m.quotation_name}</div>}
                   {!m.lead_name && !m.quotation_name && '—'}
                 </Td>
                 <Td muted>{m.proyecto_nombre || '—'}</Td>
                 <Td right style={{
                   fontWeight: 600,
-                  color: m.direccion === 'ingreso' ? '#57FF9A' : '#ccc',
+                  color: m.direccion === 'ingreso' ? '#10B981' : '#ccc',
                 }}>
                   {m.direccion === 'ingreso' ? '+' : '-'}{F(m.monto)}
                 </Td>
@@ -4680,7 +4680,7 @@ function TabEfectivo() {
                       onClick={() => handleDelete(m)}
                       title="Eliminar"
                       style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', padding: 4, display: 'inline-flex', alignItems: 'center', borderRadius: 4 }}
-                      onMouseEnter={e => (e.currentTarget.style.color = '#EF4444')}
+                      onMouseEnter={e => (e.currentTarget.style.color = '#DC2626')}
                       onMouseLeave={e => (e.currentTarget.style.color = '#666')}
                     ><Trash2 size={13} /></button>
                   </div>
@@ -4815,8 +4815,8 @@ function TabAnticipos({ invoices }: { invoices: Invoice[] }) {
           <button key={d} onClick={() => setDirection(d)} style={{
             padding: '6px 16px', fontSize: 12, fontWeight: direction === d ? 700 : 400,
             background: direction === d ? 'rgba(87,255,154,0.12)' : '#1a1a1a',
-            color: direction === d ? '#57FF9A' : '#888',
-            border: direction === d ? '1px solid #57FF9A' : '1px solid #333',
+            color: direction === d ? '#10B981' : '#888',
+            border: direction === d ? '1px solid #10B981' : '1px solid #333',
             borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit',
           }}>{d === 'emitida' ? 'Anticipos Emitidos' : 'Anticipos Recibidos'}</button>
         ))}
@@ -4824,7 +4824,7 @@ function TabAnticipos({ invoices }: { invoices: Invoice[] }) {
 
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
         <KpiCard label="Anticipos vivos $" value={F(anticiposVivos)} color="#eab308" icon={<DollarSign size={16} />} />
-        <KpiCard label="Pendientes" value={String(cantidadPendientes)} color="#3B82F6" icon={<Clock size={16} />} />
+        <KpiCard label="Pendientes" value={String(cantidadPendientes)} color="#2563EB" icon={<Clock size={16} />} />
         <KpiCard label="Riesgo fiscal $" value={F(riesgoFiscal)} color="#ef4444" icon={<AlertTriangle size={16} />} />
         <KpiCard label="Mas antiguo (dias)" value={String(masAntiguoDias)} color={masAntiguoDias > 60 ? '#ef4444' : '#eab308'} icon={<Clock size={16} />} />
       </div>
@@ -4862,7 +4862,7 @@ function TabAnticipos({ invoices }: { invoices: Invoice[] }) {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 14, whiteSpace: 'nowrap' }}>
                     <span style={{ fontSize: 11, color: '#888' }}>{g.anticipo.moneda || 'MXN'}</span>
                     <span style={{ fontSize: 14, fontWeight: 700, color: '#fff' }}>{F(g.montoAnticipo)}</span>
-                    <span style={{ fontSize: 11, color: '#57FF9A' }}>Fact: {F(g.montoFacturado)}</span>
+                    <span style={{ fontSize: 11, color: '#10B981' }}>Fact: {F(g.montoFacturado)}</span>
                     <span style={{ fontSize: 11, color: '#ef4444' }}>NC: -{F(g.montoNC)}</span>
                     <span style={{ fontSize: 11, fontWeight: 600, color: g.diasActivo > 60 ? '#ef4444' : g.diasActivo > 30 ? '#eab308' : '#888' }}>{g.diasActivo}d</span>
                   </div>
@@ -4874,14 +4874,14 @@ function TabAnticipos({ invoices }: { invoices: Invoice[] }) {
                     <div style={{ display: 'grid', gridTemplateColumns: '90px 1fr', gap: '4px 12px', padding: '10px 0 8px', fontSize: 12 }}>
                       <LBL>Folio</LBL><span style={{ color: '#fff' }}>{g.anticipo.serie}-{g.anticipo.folio}</span>
                       <LBL>Cliente/Prov</LBL><span style={{ color: '#fff' }}>{cliente} <span style={{ color: '#666' }}>({rfc})</span></span>
-                      <LBL>UUID</LBL><span style={{ color: '#3B82F6', fontSize: 11, fontFamily: 'monospace' }}>{g.anticipo.uuid || 'N/A'}</span>
+                      <LBL>UUID</LBL><span style={{ color: '#2563EB', fontSize: 11, fontFamily: 'monospace' }}>{g.anticipo.uuid || 'N/A'}</span>
                       <LBL>Fecha</LBL><span style={{ color: '#ccc' }}>{g.anticipo.fecha_emision}</span>
                       <LBL>Moneda</LBL><span style={{ color: '#ccc' }}>{g.anticipo.moneda || 'MXN'}</span>
                       <LBL>Metodo pago</LBL><span style={{ color: '#ccc' }}>{g.anticipo.metodo_pago || '-'}</span>
                       <LBL>Forma pago</LBL><span style={{ color: '#ccc' }}>{g.anticipo.forma_pago || '-'}</span>
                       <LBL>Uso CFDI</LBL><span style={{ color: '#ccc' }}>{g.anticipo.receptor_uso_cfdi || '-'}</span>
                       <LBL>Clave SAT</LBL><span style={{ color: '#ccc' }}>{g.anticipo.conceptos && g.anticipo.conceptos.length > 0 ? g.anticipo.conceptos.map(cp => cp.clave_prod_serv).join(', ') : '-'}</span>
-                      <LBL>Monto</LBL><span style={{ color: '#57FF9A', fontWeight: 700 }}>{F(g.montoAnticipo)} {g.anticipo.moneda || 'MXN'}</span>
+                      <LBL>Monto</LBL><span style={{ color: '#10B981', fontWeight: 700 }}>{F(g.montoAnticipo)} {g.anticipo.moneda || 'MXN'}</span>
                     </div>
 
                     {/* Cadena: facturas producto + NCs */}
@@ -4908,7 +4908,7 @@ function TabAnticipos({ invoices }: { invoices: Invoice[] }) {
                               return (
                                 <React.Fragment key={fp.id}>
                                   <tr>
-                                    <Td><Badge label="Factura I" color="#3B82F6" /></Td>
+                                    <Td><Badge label="Factura I" color="#2563EB" /></Td>
                                     <Td style={{ fontWeight: 600 }}>{fp.serie}-{fp.folio}</Td>
                                     <Td>{fpCliente}</Td>
                                     <Td style={{ fontSize: 11, color: '#888' }}>{fpRfc}</Td>
@@ -4944,7 +4944,7 @@ function TabAnticipos({ invoices }: { invoices: Invoice[] }) {
                     {/* Summary */}
                     <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 20, padding: '10px 0 0', borderTop: '1px solid #222', marginTop: 8, fontSize: 12 }}>
                       <span style={{ color: '#888' }}>Anticipo: <span style={{ color: '#fff', fontWeight: 600 }}>{F(g.montoAnticipo)}</span></span>
-                      <span style={{ color: '#888' }}>Facturado: <span style={{ color: '#57FF9A', fontWeight: 600 }}>{F(g.montoFacturado)}</span></span>
+                      <span style={{ color: '#888' }}>Facturado: <span style={{ color: '#10B981', fontWeight: 600 }}>{F(g.montoFacturado)}</span></span>
                       <span style={{ color: '#888' }}>NCs: <span style={{ color: '#ef4444', fontWeight: 600 }}>-{F(g.montoNC)}</span></span>
                       <span style={{ color: '#888' }}>Saldo: <span style={{ color: Math.abs(g.montoAnticipo - g.montoFacturado) < 0.01 ? '#22c55e' : '#eab308', fontWeight: 700 }}>{F(g.montoAnticipo - g.montoFacturado)}</span></span>
                     </div>

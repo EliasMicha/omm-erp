@@ -316,9 +316,9 @@ export default function SubirReportePage({ employeeId }: { employeeId: string })
             style={{
               padding: '10px 8px',
               background: tipoReporte === t.value ? '#0f2a1a' : '#0f0f0f',
-              border: `1px solid ${tipoReporte === t.value ? '#57FF9A' : '#1f1f1f'}`,
+              border: `1px solid ${tipoReporte === t.value ? '#10B981' : '#1f1f1f'}`,
               borderRadius: 10,
-              color: tipoReporte === t.value ? '#57FF9A' : '#888',
+              color: tipoReporte === t.value ? '#10B981' : '#888',
               fontSize: 12, fontWeight: 600, cursor: 'pointer',
             }}
           >
@@ -359,7 +359,7 @@ export default function SubirReportePage({ employeeId }: { employeeId: string })
           style={{
             width: '100%', padding: '16px', marginBottom: 10,
             background: '#0f0f0f', border: '1px dashed #1f3a2a',
-            borderRadius: 12, color: '#57FF9A', fontSize: 14, fontWeight: 600,
+            borderRadius: 12, color: '#10B981', fontSize: 14, fontWeight: 600,
             cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
           }}
         >
@@ -460,7 +460,7 @@ export default function SubirReportePage({ employeeId }: { employeeId: string })
           padding: 14, marginBottom: 16, borderRadius: 10,
           background: result.ok ? '#0f2a1a' : '#3a1a1a',
           border: `1px solid ${result.ok ? '#2a5a3a' : '#5a2a2a'}`,
-          color: result.ok ? '#57FF9A' : '#fca5a5',
+          color: result.ok ? '#10B981' : '#fca5a5',
           fontSize: 13, display: 'flex', gap: 8, alignItems: 'center',
         }}>
           {result.ok ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
@@ -473,7 +473,7 @@ export default function SubirReportePage({ employeeId }: { employeeId: string })
         disabled={submitting || recording}
         style={{
           width: '100%', padding: '18px',
-          background: submitting ? '#3a5f48' : '#57FF9A',
+          background: submitting ? '#3a5f48' : '#10B981',
           color: '#0a0a0a', border: 'none',
           borderRadius: 14, fontSize: 16, fontWeight: 700,
           cursor: submitting || recording ? 'not-allowed' : 'pointer',

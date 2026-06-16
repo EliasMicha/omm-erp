@@ -74,12 +74,12 @@ interface ConfirmedItem {
    ═══════════════════════════════════════════════════════════ */
 
 const SYSTEM_STEPS: Record<string, { name: string; color: string }> = {
-  'control_iluminacion': { name: 'Iluminación', color: '#C084FC' },
+  'control_iluminacion': { name: 'Iluminación', color: '#A78BFA' },
   'audio': { name: 'Audio', color: '#8B5CF6' },
   'redes': { name: 'Redes', color: '#06B6D4' },
-  'cctv': { name: 'CCTV', color: '#3B82F6' },
-  'control_acceso': { name: 'Acceso', color: '#F59E0B' },
-  'deteccion_humo': { name: 'Humo', color: '#EF4444' },
+  'cctv': { name: 'CCTV', color: '#2563EB' },
+  'control_acceso': { name: 'Acceso', color: '#D97706' },
+  'deteccion_humo': { name: 'Humo', color: '#DC2626' },
   'cortinas': { name: 'Cortinas', color: '#67E8F9' },
   'bms': { name: 'BMS', color: '#10B981' },
   'telefonia': { name: 'Telefonía', color: '#F97316' },
@@ -846,8 +846,8 @@ La lista de items debe ser COMPLETA para TODAS las zonas que necesiten este sist
   const isStepCompleted = (step: string) => completedSteps.has(step)
   const isStepCurrent = (step: string) => currentStep === step
   const stepColor = (step: string) => {
-    if (isStepCompleted(step)) return '#57FF9A'
-    if (isStepCurrent(step)) return '#57FF9A'
+    if (isStepCompleted(step)) return '#10B981'
+    if (isStepCurrent(step)) return '#10B981'
     return '#444'
   }
 
@@ -1073,9 +1073,9 @@ La lista de items debe ser COMPLETA para TODAS las zonas que necesiten este sist
                   style={{
                     padding: '10px 12px',
                     background: '#0e1a0e',
-                    border: '1px solid #57FF9A44',
+                    border: '1px solid #10B98144',
                     borderRadius: 8,
-                    color: '#57FF9A',
+                    color: '#10B981',
                     cursor: 'pointer',
                     fontSize: 12,
                     fontFamily: 'inherit',
@@ -1310,9 +1310,9 @@ La lista de items debe ser COMPLETA para TODAS las zonas que necesiten este sist
                     style={{
                       padding: '10px 12px',
                       background: '#0e1a0e',
-                      border: '1px solid #57FF9A44',
+                      border: '1px solid #10B98144',
                       borderRadius: 8,
-                      color: '#57FF9A',
+                      color: '#10B981',
                       cursor: 'pointer',
                       fontSize: 12,
                       fontFamily: 'inherit',
@@ -1329,9 +1329,9 @@ La lista de items debe ser COMPLETA para TODAS las zonas que necesiten este sist
                     style={{
                       padding: '10px 12px',
                       background: '#0e0e1a',
-                      border: '1px solid #3B82F644',
+                      border: '1px solid #2563EB44',
                       borderRadius: 8,
-                      color: '#3B82F6',
+                      color: '#2563EB',
                       cursor: 'pointer',
                       fontSize: 12,
                       fontFamily: 'inherit',
@@ -1365,11 +1365,11 @@ La lista de items debe ser COMPLETA para TODAS las zonas que necesiten este sist
                       marginTop: 10,
                       padding: 12,
                       background: '#0a0a14',
-                      border: '1px solid #3B82F644',
+                      border: '1px solid #2563EB44',
                       borderRadius: 10,
                     }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                        <span style={{ fontSize: 11, fontWeight: 600, color: '#3B82F6', textTransform: 'uppercase' }}>
+                        <span style={{ fontSize: 11, fontWeight: 600, color: '#2563EB', textTransform: 'uppercase' }}>
                           Buscar en catálogo {sysEnum ? `(${SYSTEM_STEPS[currentStep]?.name || sysEnum})` : ''}
                         </span>
                         <button onClick={() => setShowCatalogSearch(false)}
@@ -1418,7 +1418,7 @@ La lista de items debe ser COMPLETA para TODAS las zonas que necesiten este sist
                               flexDirection: 'column',
                               gap: 2,
                             }}
-                            onMouseEnter={e => { e.currentTarget.style.background = '#3B82F610' }}
+                            onMouseEnter={e => { e.currentTarget.style.background = '#2563EB10' }}
                             onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}
                           >
                             <div style={{ fontWeight: 600, color: '#ddd' }}>{p.marca} {p.modelo}</div>
@@ -1456,8 +1456,8 @@ La lista de items debe ser COMPLETA para TODAS las zonas que necesiten este sist
                           maxWidth: '85%',
                           alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start',
                           background: m.role === 'user' ? '#1a2a1a' : '#1a1a2a',
-                          color: m.role === 'user' ? '#57FF9A' : '#8B9FFF',
-                          border: `1px solid ${m.role === 'user' ? '#57FF9A22' : '#8B9FFF22'}`,
+                          color: m.role === 'user' ? '#10B981' : '#8B9FFF',
+                          border: `1px solid ${m.role === 'user' ? '#10B98122' : '#8B9FFF22'}`,
                         }}>
                           {m.content}
                         </div>
@@ -1486,7 +1486,7 @@ La lista de items debe ser COMPLETA para TODAS las zonas que necesiten este sist
                       disabled={!stepChatInput.trim() || stepChatLoading}
                       style={{
                         padding: '8px 14px',
-                        background: stepChatInput.trim() ? '#57FF9A' : '#333',
+                        background: stepChatInput.trim() ? '#10B981' : '#333',
                         border: 'none',
                         borderRadius: 8,
                         color: stepChatInput.trim() ? '#000' : '#666',
@@ -1533,9 +1533,9 @@ La lista de items debe ser COMPLETA para TODAS las zonas que necesiten este sist
                     <div style={{ fontSize: 9, color: '#555', textTransform: 'uppercase' }}>Items</div>
                     <div style={{ fontSize: 18, fontWeight: 700, color: '#fff' }}>{getTotalItems()}</div>
                   </div>
-                  <div style={{ padding: '10px 12px', background: '#0e1a0e', border: '1px solid #57FF9A33', borderRadius: 8 }}>
-                    <div style={{ fontSize: 9, color: '#57FF9A', textTransform: 'uppercase' }}>Sistemas</div>
-                    <div style={{ fontSize: 18, fontWeight: 700, color: '#57FF9A' }}>
+                  <div style={{ padding: '10px 12px', background: '#0e1a0e', border: '1px solid #10B98133', borderRadius: 8 }}>
+                    <div style={{ fontSize: 9, color: '#10B981', textTransform: 'uppercase' }}>Sistemas</div>
+                    <div style={{ fontSize: 18, fontWeight: 700, color: '#10B981' }}>
                       {Object.keys(confirmedItems).filter(k => confirmedItems[k].length > 0).length} / {scope.sistemas.length}
                     </div>
                   </div>
@@ -1603,9 +1603,9 @@ La lista de items debe ser COMPLETA para TODAS las zonas que necesiten este sist
                       <div style={{
                         padding: '10px 12px',
                         background: '#2a1a10',
-                        border: '1px solid #F59E0B44',
+                        border: '1px solid #D9770644',
                         borderRadius: 8,
-                        color: '#F59E0B',
+                        color: '#D97706',
                         fontSize: 12,
                         marginBottom: 12,
                         display: 'flex',
@@ -1773,7 +1773,7 @@ La lista de items debe ser COMPLETA para TODAS las zonas que necesiten este sist
         {inserting && (
           <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 16 }}>
             <div style={{ textAlign: 'center' }}>
-              <Loader2 size={36} color="#57FF9A" style={{ animation: 'spin 1s linear infinite', marginBottom: 16 }} />
+              <Loader2 size={36} color="#10B981" style={{ animation: 'spin 1s linear infinite', marginBottom: 16 }} />
               <div style={{ fontSize: 14, color: '#ccc', fontWeight: 600 }}>{insertProgress}</div>
             </div>
           </div>

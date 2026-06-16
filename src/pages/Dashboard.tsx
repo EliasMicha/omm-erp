@@ -93,10 +93,10 @@ export default function Dashboard() {
       {/* ── KPI CARDS ── */}
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : isFinancial ? 'repeat(4, 1fr)' : 'repeat(2, 1fr)', gap: 12, marginBottom: 24 }}>
         <KpiCard label="Proyectos activos" value={projects.length} icon={<FolderOpen size={16} />} />
-        {isFinancial && <KpiCard label="Pipeline total" value={F(pipeline)} color="#3B82F6" icon={<DollarSign size={16} />} />}
-        {isFinancial && <KpiCard label="Cobros vencidos" value={vencidos.length} color={vencidos.length > 0 ? '#EF4444' : '#57FF9A'} icon={<AlertTriangle size={16} />} />}
-        {area === 'DG' && <KpiCard label="Leads recientes" value={recentLeads.length} color="#3B82F6" icon={<TrendingUp size={16} />} />}
-        <KpiCard label="Empleados activos" value={empCount} color="#C084FC" icon={<Users size={16} />} />
+        {isFinancial && <KpiCard label="Pipeline total" value={F(pipeline)} color="#2563EB" icon={<DollarSign size={16} />} />}
+        {isFinancial && <KpiCard label="Cobros vencidos" value={vencidos.length} color={vencidos.length > 0 ? '#DC2626' : '#10B981'} icon={<AlertTriangle size={16} />} />}
+        {area === 'DG' && <KpiCard label="Leads recientes" value={recentLeads.length} color="#2563EB" icon={<TrendingUp size={16} />} />}
+        <KpiCard label="Empleados activos" value={empCount} color="#A78BFA" icon={<Users size={16} />} />
       </div>
 
       {/* ── SALES: Cotizaciones pipeline ── */}
@@ -148,10 +148,10 @@ export default function Dashboard() {
                 {milestones.length===0&&<tr><Td colSpan={4} muted>Sin cobros pendientes</Td></tr>}
                 {milestones.slice(0,6).map(m => (
                   <tr key={m.id}>
-                    <Td><span style={{fontWeight:500,color:m.status==='vencido'?'#EF4444':'#ccc'}}>{m.name}</span></Td>
+                    <Td><span style={{fontWeight:500,color:m.status==='vencido'?'#DC2626':'#ccc'}}>{m.name}</span></Td>
                     <Td muted>{(m.project as any)?.name||'-'}</Td>
                     <Td muted>{m.due_date?formatDate(m.due_date):'-'}</Td>
-                    <Td right style={{color:'#57FF9A',fontWeight:600}}>{F(m.amount)}</Td>
+                    <Td right style={{color:'#10B981',fontWeight:600}}>{F(m.amount)}</Td>
                   </tr>
                 ))}
               </tbody>
@@ -168,7 +168,7 @@ export default function Dashboard() {
                   <tr key={l.id} onClick={() => navigate(`/crm/${l.id}`)} style={{ cursor: 'pointer' }}>
                     <Td><span style={{fontWeight:500,color:'#fff'}}>{l.name}</span></Td>
                     <Td muted>{l.company || '-'}</Td>
-                    <Td><Badge label={l.status} color={l.status === 'ganado' ? '#57FF9A' : l.status === 'perdido' ? '#EF4444' : '#3B82F6'} /></Td>
+                    <Td><Badge label={l.status} color={l.status === 'ganado' ? '#10B981' : l.status === 'perdido' ? '#DC2626' : '#2563EB'} /></Td>
                     <Td muted>{l.created_at ? formatDate(l.created_at) : '-'}</Td>
                   </tr>
                 ))}
@@ -313,7 +313,7 @@ function ProyeccionCierreVentas() {
               <MonthRow
                 monthKey="vencido"
                 label="⚠ Vencidos (sin actualizar)"
-                color="#EF4444"
+                color="#DC2626"
                 data={byMonth['vencido']}
                 expanded={expandedMonth === 'vencido'}
                 onToggle={() => setExpandedMonth(expandedMonth === 'vencido' ? null : 'vencido')}
@@ -329,7 +329,7 @@ function ProyeccionCierreVentas() {
                   key={m.key}
                   monthKey={m.key}
                   label={m.label}
-                  color="#57FF9A"
+                  color="#10B981"
                   data={data}
                   expanded={expandedMonth === m.key}
                   onToggle={() => setExpandedMonth(expandedMonth === m.key ? null : m.key)}
@@ -360,7 +360,7 @@ function ProyeccionCierreVentas() {
                 <Td><span style={{ fontWeight: 700, color: '#fff' }}>Total</span></Td>
                 <Td right><span style={{ fontWeight: 700, color: '#fff' }}>{totales.count}</span></Td>
                 <Td right><span style={{ fontWeight: 700, color: '#fff' }}>{F(totales.esperado)}</span></Td>
-                <Td right><span style={{ fontWeight: 700, color: '#57FF9A' }}>{F(totales.ponderado)}</span></Td>
+                <Td right><span style={{ fontWeight: 700, color: '#10B981' }}>{F(totales.ponderado)}</span></Td>
               </tr>
             )}
           </tbody>
@@ -389,7 +389,7 @@ function MonthRow({ monthKey, label, color, data, expanded, onToggle, navigate }
         </Td>
         <Td right><span style={{ color: '#aaa' }}>{data.leads.length}</span></Td>
         <Td right><span style={{ color: '#ccc', fontWeight: 600 }}>{F(data.esperado)}</span></Td>
-        <Td right><span style={{ color: '#57FF9A', fontWeight: 600 }}>{F(data.ponderado)}</span></Td>
+        <Td right><span style={{ color: '#10B981', fontWeight: 600 }}>{F(data.ponderado)}</span></Td>
       </tr>
       {expanded && (
         <tr>
@@ -423,9 +423,9 @@ function MonthRow({ monthKey, label, color, data, expanded, onToggle, navigate }
                         <td style={{ padding: '6px', color: '#888' }}>{l.company || '—'}</td>
                         <td style={{ padding: '6px', color: '#666' }}>{l.status}</td>
                         <td style={{ padding: '6px', color: '#888' }}>{l.expected_close_date}</td>
-                        <td style={{ padding: '6px', textAlign: 'right', color: p >= 70 ? '#57FF9A' : p >= 40 ? '#F59E0B' : '#888' }}>{p}%</td>
+                        <td style={{ padding: '6px', textAlign: 'right', color: p >= 70 ? '#10B981' : p >= 40 ? '#D97706' : '#888' }}>{p}%</td>
                         <td style={{ padding: '6px', textAlign: 'right', color: '#ccc' }}>{F(v)}</td>
-                        <td style={{ padding: '6px', textAlign: 'right', color: '#57FF9A', fontWeight: 600 }}>{F(v * p / 100)}</td>
+                        <td style={{ padding: '6px', textAlign: 'right', color: '#10B981', fontWeight: 600 }}>{F(v * p / 100)}</td>
                       </tr>
                     )
                   })}
@@ -580,9 +580,9 @@ function ProyeccionCobranza() {
           {(['MXN', 'USD'] as const).map(m => (
             <button key={m} onClick={() => setCurrencyView(m)} style={{
               padding: '5px 14px', fontSize: 11, fontWeight: 600,
-              background: currencyView === m ? (m === 'MXN' ? '#F59E0B22' : '#3B82F622') : 'transparent',
-              color: currencyView === m ? (m === 'MXN' ? '#F59E0B' : '#3B82F6') : '#666',
-              border: currencyView === m ? `1px solid ${m === 'MXN' ? '#F59E0B' : '#3B82F6'}` : '1px solid transparent',
+              background: currencyView === m ? (m === 'MXN' ? '#D9770622' : '#2563EB22') : 'transparent',
+              color: currencyView === m ? (m === 'MXN' ? '#D97706' : '#2563EB') : '#666',
+              border: currencyView === m ? `1px solid ${m === 'MXN' ? '#D97706' : '#2563EB'}` : '1px solid transparent',
               borderRadius: 4, cursor: 'pointer', fontFamily: 'inherit',
             }}>{m === 'MXN' ? '🇲🇽 MXN' : '🇺🇸 USD'}</button>
           ))}
@@ -603,12 +603,12 @@ function ProyeccionCobranza() {
         {vencidoHistorico.total > 0 && (
           <div style={{
             background: '#0d0d0d', border: '1px solid rgba(239,68,68,0.4)', borderRadius: 10,
-            padding: '12px 14px', borderTop: '3px solid #EF4444', cursor: 'pointer',
+            padding: '12px 14px', borderTop: '3px solid #DC2626', cursor: 'pointer',
           }} onClick={() => setExpandedMonth(expandedMonth === '__overdue' ? null : '__overdue')}>
-            <div style={{ fontSize: 9, color: '#EF4444', textTransform: 'uppercase' as const, letterSpacing: 0.5, fontWeight: 700 }}>
+            <div style={{ fontSize: 9, color: '#DC2626', textTransform: 'uppercase' as const, letterSpacing: 0.5, fontWeight: 700 }}>
               ⚠ Vencido (acumulado)
             </div>
-            <div style={{ fontSize: 18, fontWeight: 700, color: '#EF4444', marginTop: 4 }}>
+            <div style={{ fontSize: 18, fontWeight: 700, color: '#DC2626', marginTop: 4 }}>
               {fmt(vencidoHistorico.total)}
             </div>
             <div style={{ fontSize: 10, color: '#666', marginTop: 2 }}>{vencidoHistorico.hitos.length} hitos atrasados</div>
@@ -621,8 +621,8 @@ function ProyeccionCobranza() {
             <div key={m.monthKey}
               onClick={() => hasContent && setExpandedMonth(isExp ? null : m.monthKey)}
               style={{
-                background: '#0d0d0d', border: '1px solid ' + (isExp ? '#3B82F6' : '#1a1a1a'), borderRadius: 10,
-                padding: '12px 14px', borderTop: '3px solid ' + (m.vencido > 0 ? '#F59E0B' : '#3B82F6'),
+                background: '#0d0d0d', border: '1px solid ' + (isExp ? '#2563EB' : '#1a1a1a'), borderRadius: 10,
+                padding: '12px 14px', borderTop: '3px solid ' + (m.vencido > 0 ? '#D97706' : '#2563EB'),
                 cursor: hasContent ? 'pointer' : 'default',
                 opacity: hasContent ? 1 : 0.4, transition: 'border-color 0.15s',
               }}>
@@ -633,9 +633,9 @@ function ProyeccionCobranza() {
                 {fmt(m.total)}
               </div>
               <div style={{ fontSize: 10, marginTop: 4, color: '#666', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                {m.pendiente > 0 && <span style={{ color: '#3B82F6' }}>📅 {fmt(m.pendiente)}</span>}
-                {m.vencido > 0 && <span style={{ color: '#F59E0B' }}>⚠ {fmt(m.vencido)}</span>}
-                {m.cobrado > 0 && <span style={{ color: '#57FF9A' }}>✓ {fmt(m.cobrado)}</span>}
+                {m.pendiente > 0 && <span style={{ color: '#2563EB' }}>📅 {fmt(m.pendiente)}</span>}
+                {m.vencido > 0 && <span style={{ color: '#D97706' }}>⚠ {fmt(m.vencido)}</span>}
+                {m.cobrado > 0 && <span style={{ color: '#10B981' }}>✓ {fmt(m.cobrado)}</span>}
                 {m.total === 0 && <span style={{ color: '#444' }}>sin hitos</span>}
               </div>
             </div>
@@ -680,16 +680,16 @@ function ProyeccionCobranza() {
                       <td style={{ padding: '8px', textAlign: 'right' as const, color: '#fff', fontWeight: 600 }}>
                         {fmt(convert(Number(h.amount) || 0, h.currency || 'MXN'))}
                       </td>
-                      <td style={{ padding: '8px', color: isOverdue ? '#F59E0B' : '#888', fontSize: 10 }}>
+                      <td style={{ padding: '8px', color: isOverdue ? '#D97706' : '#888', fontSize: 10 }}>
                         {h.due_date}
                       </td>
                       <td style={{ padding: '8px' }}>
                         {isPaid ? (
-                          <span style={{ background: 'rgba(87,255,154,0.15)', color: '#57FF9A', padding: '2px 8px', borderRadius: 4, fontSize: 9, fontWeight: 600 }}>✓ Cobrado</span>
+                          <span style={{ background: 'rgba(87,255,154,0.15)', color: '#10B981', padding: '2px 8px', borderRadius: 4, fontSize: 9, fontWeight: 600 }}>✓ Cobrado</span>
                         ) : isOverdue ? (
-                          <span style={{ background: 'rgba(245,158,11,0.15)', color: '#F59E0B', padding: '2px 8px', borderRadius: 4, fontSize: 9, fontWeight: 600 }}>⚠ Vencido</span>
+                          <span style={{ background: 'rgba(245,158,11,0.15)', color: '#D97706', padding: '2px 8px', borderRadius: 4, fontSize: 9, fontWeight: 600 }}>⚠ Vencido</span>
                         ) : (
-                          <span style={{ background: 'rgba(59,130,246,0.15)', color: '#3B82F6', padding: '2px 8px', borderRadius: 4, fontSize: 9, fontWeight: 600 }}>📅 Pendiente</span>
+                          <span style={{ background: 'rgba(59,130,246,0.15)', color: '#2563EB', padding: '2px 8px', borderRadius: 4, fontSize: 9, fontWeight: 600 }}>📅 Pendiente</span>
                         )}
                       </td>
                     </tr>
@@ -707,7 +707,7 @@ function ProyeccionCobranza() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
             <span style={{ fontSize: 16 }}>⚠</span>
             <div>
-              <div style={{ fontSize: 12, fontWeight: 700, color: '#F59E0B' }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#D97706' }}>
                 {cotsSinPlan.length} cotizaciones cerradas SIN plan de pagos
               </div>
               <div style={{ fontSize: 10, color: '#888', marginTop: 2 }}>
@@ -724,7 +724,7 @@ function ProyeccionCobranza() {
                   style={{
                     background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: 6,
                     padding: '6px 10px', cursor: 'pointer', fontFamily: 'inherit',
-                    fontSize: 10, color: '#F59E0B', textAlign: 'left' as const,
+                    fontSize: 10, color: '#D97706', textAlign: 'left' as const,
                   }}>
                   <div style={{ fontWeight: 600 }}>{q.name}</div>
                   {lead && <div style={{ fontSize: 9, color: '#888', marginTop: 1 }}>{lead.name}</div>}
@@ -967,9 +967,9 @@ function CobranzaPorProyecto() {
           {(['MXN', 'USD'] as const).map(m => (
             <button key={m} onClick={() => setCurrencyView(m)} style={{
               padding: '5px 14px', fontSize: 11, fontWeight: 600,
-              background: currencyView === m ? (m === 'MXN' ? '#F59E0B22' : '#3B82F622') : 'transparent',
-              color: currencyView === m ? (m === 'MXN' ? '#F59E0B' : '#3B82F6') : '#666',
-              border: currencyView === m ? `1px solid ${m === 'MXN' ? '#F59E0B' : '#3B82F6'}` : '1px solid transparent',
+              background: currencyView === m ? (m === 'MXN' ? '#D9770622' : '#2563EB22') : 'transparent',
+              color: currencyView === m ? (m === 'MXN' ? '#D97706' : '#2563EB') : '#666',
+              border: currencyView === m ? `1px solid ${m === 'MXN' ? '#D97706' : '#2563EB'}` : '1px solid transparent',
               borderRadius: 4, cursor: 'pointer', fontFamily: 'inherit',
             }}>{m === 'MXN' ? '🇲🇽 MXN' : '🇺🇸 USD'}</button>
           ))}
@@ -1017,7 +1017,7 @@ function CobranzaPorProyecto() {
                         {r.hasMixedCurrencies && (
                           <span title="Este lead tiene cotizaciones en MXN y USD — el TC afecta el cálculo" style={{
                             fontSize: 9, fontWeight: 700, padding: '1px 6px', borderRadius: 4,
-                            background: 'rgba(245,158,11,0.15)', border: '1px solid rgba(245,158,11,0.4)', color: '#F59E0B',
+                            background: 'rgba(245,158,11,0.15)', border: '1px solid rgba(245,158,11,0.4)', color: '#D97706',
                           }}>⚠ MXN+USD</span>
                         )}
                       </div>
@@ -1025,17 +1025,17 @@ function CobranzaPorProyecto() {
                     </Td>
                     <Td right><span style={{ color: '#ccc', fontWeight: 600 }}>{fmt(r.vendido)}</span></Td>
                     <Td right>
-                      <div style={{ color: '#57FF9A', fontWeight: 600 }}>{fmt(r.cobrado)}</div>
+                      <div style={{ color: '#10B981', fontWeight: 600 }}>{fmt(r.cobrado)}</div>
                       {r.cobrado_efectivo > 0 && (
                         <div title={`Banco: ${fmt(r.cobrado_banco)} + Efectivo: ${fmt(r.cobrado_efectivo)}`} style={{ fontSize: 9, color: '#666', marginTop: 2 }}>
                           💵 {fmt(r.cobrado_efectivo)}
                         </div>
                       )}
                     </Td>
-                    <Td right><span style={{ color: r.por_cobrar > 0 ? '#F59E0B' : '#666', fontWeight: 600 }}>{r.por_cobrar > 0 ? fmt(r.por_cobrar) : '✓'}</span></Td>
-                    <Td right><span style={{ color: '#EF4444' }}>{fmt(r.pagado_total)}</span></Td>
-                    <Td right><span style={{ color: '#EF4444' }}>{fmt(r.pagado_compras)}</span></Td>
-                    <Td right><span style={{ color: r.por_pagar_compras > 0 ? '#F59E0B' : '#666' }}>{r.por_pagar_compras > 0 ? fmt(r.por_pagar_compras) : '—'}</span></Td>
+                    <Td right><span style={{ color: r.por_cobrar > 0 ? '#D97706' : '#666', fontWeight: 600 }}>{r.por_cobrar > 0 ? fmt(r.por_cobrar) : '✓'}</span></Td>
+                    <Td right><span style={{ color: '#DC2626' }}>{fmt(r.pagado_total)}</span></Td>
+                    <Td right><span style={{ color: '#DC2626' }}>{fmt(r.pagado_compras)}</span></Td>
+                    <Td right><span style={{ color: r.por_pagar_compras > 0 ? '#D97706' : '#666' }}>{r.por_pagar_compras > 0 ? fmt(r.por_pagar_compras) : '—'}</span></Td>
                   </tr>
                   {isExp && (
                     <tr key={r.leadId + '-exp'}>
@@ -1071,12 +1071,12 @@ function CobranzaPorProyecto() {
                                   <td style={{ padding: '6px', color: '#ddd', cursor: 'pointer' }}>{q.name}</td>
                                   <td style={{ padding: '6px', color: '#888' }}>
                                     {q.specialty}
-                                    <span style={{ marginLeft: 6, fontSize: 9, color: q.currency === 'USD' ? '#3B82F6' : '#F59E0B' }}>
+                                    <span style={{ marginLeft: 6, fontSize: 9, color: q.currency === 'USD' ? '#2563EB' : '#D97706' }}>
                                       {q.currency || 'MXN'}
                                     </span>
                                   </td>
                                   <td style={{ padding: '6px', textAlign: 'right', color: '#aaa' }}>{fmt(convert(subtotal, q.currency || 'MXN'))}</td>
-                                  <td style={{ padding: '6px', textAlign: 'right', color: desc > 0 ? '#F59E0B' : '#444' }}>{desc > 0 ? `-${desc}%` : '—'}</td>
+                                  <td style={{ padding: '6px', textAlign: 'right', color: desc > 0 ? '#D97706' : '#444' }}>{desc > 0 ? `-${desc}%` : '—'}</td>
                                   <td style={{ padding: '6px', textAlign: 'right', color: '#666' }}>{iva}%</td>
                                   <td style={{ padding: '6px', textAlign: 'right', color: '#fff', fontWeight: 600 }}>{fmt(convert(finalAmount, q.currency || 'MXN'))}</td>
                                   <td style={{ padding: '6px', textAlign: 'right' }}>
@@ -1103,11 +1103,11 @@ function CobranzaPorProyecto() {
                 <Td></Td>
                 <Td><span style={{ fontWeight: 700, color: '#fff' }}>Total ({currencyView})</span></Td>
                 <Td right><span style={{ fontWeight: 700, color: '#fff' }}>{fmt(totals.vendido)}</span></Td>
-                <Td right><span style={{ fontWeight: 700, color: '#57FF9A' }}>{fmt(totals.cobrado)}</span></Td>
-                <Td right><span style={{ fontWeight: 700, color: totals.por_cobrar > 0 ? '#F59E0B' : '#666' }}>{fmt(totals.por_cobrar)}</span></Td>
-                <Td right><span style={{ fontWeight: 700, color: '#EF4444' }}>{fmt(totals.pagado_total)}</span></Td>
-                <Td right><span style={{ fontWeight: 700, color: '#EF4444' }}>{fmt(totals.pagado_compras)}</span></Td>
-                <Td right><span style={{ fontWeight: 700, color: totals.por_pagar_compras > 0 ? '#F59E0B' : '#666' }}>{fmt(totals.por_pagar_compras)}</span></Td>
+                <Td right><span style={{ fontWeight: 700, color: '#10B981' }}>{fmt(totals.cobrado)}</span></Td>
+                <Td right><span style={{ fontWeight: 700, color: totals.por_cobrar > 0 ? '#D97706' : '#666' }}>{fmt(totals.por_cobrar)}</span></Td>
+                <Td right><span style={{ fontWeight: 700, color: '#DC2626' }}>{fmt(totals.pagado_total)}</span></Td>
+                <Td right><span style={{ fontWeight: 700, color: '#DC2626' }}>{fmt(totals.pagado_compras)}</span></Td>
+                <Td right><span style={{ fontWeight: 700, color: totals.por_pagar_compras > 0 ? '#D97706' : '#666' }}>{fmt(totals.por_pagar_compras)}</span></Td>
               </tr>
             )}
           </tbody>

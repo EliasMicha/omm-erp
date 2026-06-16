@@ -147,7 +147,7 @@ const ChatBot: React.FC = () => {
             width: '52px',
             height: '52px',
             borderRadius: '50%',
-            backgroundColor: '#57FF9A',
+            backgroundColor: '#10B981',
             border: 'none',
             cursor: 'pointer',
             display: 'flex',
@@ -204,8 +204,8 @@ const ChatBot: React.FC = () => {
             }}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Bot size={20} color="#57FF9A" />
-              <span style={{ color: '#57FF9A', fontWeight: 'bold', fontSize: '14px' }}>
+              <Bot size={20} color="#10B981" />
+              <span style={{ color: '#10B981', fontWeight: 'bold', fontSize: '14px' }}>
                 OMM Bot
               </span>
             </div>
@@ -248,7 +248,7 @@ const ChatBot: React.FC = () => {
                 }}
               >
                 {msg.role === 'assistant' && (
-                  <Bot size={16} color="#57FF9A" style={{ flexShrink: 0 }} />
+                  <Bot size={16} color="#10B981" style={{ flexShrink: 0 }} />
                 )}
                 <div
                   style={{
@@ -256,7 +256,7 @@ const ChatBot: React.FC = () => {
                     padding: '8px 12px',
                     borderRadius: '12px',
                     backgroundColor:
-                      msg.role === 'user' ? '#57FF9A' : '#1a1a1a',
+                      msg.role === 'user' ? '#10B981' : '#1a1a1a',
                     color: msg.role === 'user' ? '#000' : '#ccc',
                     fontSize: '13px',
                     lineHeight: '1.4',
@@ -266,14 +266,14 @@ const ChatBot: React.FC = () => {
                   {renderMessageContent(msg.content)}
                 </div>
                 {msg.role === 'user' && (
-                  <User size={16} color="#57FF9A" style={{ flexShrink: 0 }} />
+                  <User size={16} color="#10B981" style={{ flexShrink: 0 }} />
                 )}
               </div>
             ))}
 
             {loading && (
               <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-end' }}>
-                <Bot size={16} color="#57FF9A" style={{ flexShrink: 0 }} />
+                <Bot size={16} color="#10B981" style={{ flexShrink: 0 }} />
                 <div
                   style={{
                     padding: '8px 12px',
@@ -284,7 +284,7 @@ const ChatBot: React.FC = () => {
                     alignItems: 'center',
                   }}
                 >
-                  <Loader2 size={14} color="#57FF9A" style={{ animation: 'spin 1s linear infinite' }} />
+                  <Loader2 size={14} color="#10B981" style={{ animation: 'spin 1s linear infinite' }} />
                   <span style={{ color: '#ccc', fontSize: '13px' }}>
                     Escribiendo...
                   </span>
@@ -324,7 +324,7 @@ const ChatBot: React.FC = () => {
                 transition: 'border-color 0.2s ease',
               }}
               onFocus={(e) => {
-                (e.target as HTMLInputElement).style.borderColor = '#57FF9A';
+                (e.target as HTMLInputElement).style.borderColor = '#10B981';
               }}
               onBlur={(e) => {
                 (e.target as HTMLInputElement).style.borderColor = '#2a2a2a';
@@ -335,7 +335,7 @@ const ChatBot: React.FC = () => {
               disabled={loading || !input.trim()}
               style={{
                 padding: '8px 12px',
-                backgroundColor: input.trim() && !loading ? '#57FF9A' : '#2a2a2a',
+                backgroundColor: input.trim() && !loading ? '#10B981' : '#2a2a2a',
                 border: 'none',
                 borderRadius: '8px',
                 cursor: input.trim() && !loading ? 'pointer' : 'not-allowed',

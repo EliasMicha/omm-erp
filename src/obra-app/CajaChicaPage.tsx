@@ -231,7 +231,7 @@ export default function CajaChicaPage({ employeeId }: { employeeId: string }) {
               style={{
                 width: '100%', padding: '16px', marginBottom: 6,
                 background: '#0f0f0f', border: '1px dashed #1f3a2a',
-                borderRadius: 12, color: '#57FF9A', fontSize: 14, fontWeight: 600,
+                borderRadius: 12, color: '#10B981', fontSize: 14, fontWeight: 600,
                 cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
               }}
             >
@@ -312,9 +312,9 @@ export default function CajaChicaPage({ employeeId }: { employeeId: string }) {
               style={{
                 padding: '10px 6px',
                 background: categoria === c.value ? '#0f2a1a' : '#0f0f0f',
-                border: `1px solid ${categoria === c.value ? '#57FF9A' : '#1f1f1f'}`,
+                border: `1px solid ${categoria === c.value ? '#10B981' : '#1f1f1f'}`,
                 borderRadius: 10,
-                color: categoria === c.value ? '#57FF9A' : '#888',
+                color: categoria === c.value ? '#10B981' : '#888',
                 fontSize: 11, fontWeight: 600, cursor: 'pointer',
                 display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
               }}
@@ -365,7 +365,7 @@ export default function CajaChicaPage({ employeeId }: { employeeId: string }) {
             padding: 12, marginBottom: 16, borderRadius: 10,
             background: result.ok ? '#0f2a1a' : '#3a1a1a',
             border: `1px solid ${result.ok ? '#2a5a3a' : '#5a2a2a'}`,
-            color: result.ok ? '#57FF9A' : '#fca5a5',
+            color: result.ok ? '#10B981' : '#fca5a5',
             fontSize: 13, display: 'flex', gap: 8, alignItems: 'center',
           }}>
             {result.ok ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
@@ -378,7 +378,7 @@ export default function CajaChicaPage({ employeeId }: { employeeId: string }) {
           disabled={submitting || extracting}
           style={{
             width: '100%', padding: '18px',
-            background: submitting ? '#3a5f48' : '#57FF9A',
+            background: submitting ? '#3a5f48' : '#10B981',
             color: '#0a0a0a', border: 'none',
             borderRadius: 14, fontSize: 16, fontWeight: 700,
             cursor: submitting ? 'not-allowed' : 'pointer',
@@ -423,7 +423,7 @@ export default function CajaChicaPage({ employeeId }: { employeeId: string }) {
         <button
           onClick={() => setShowForm(true)}
           style={{
-            background: '#57FF9A', border: 'none',
+            background: '#10B981', border: 'none',
             borderRadius: 10, padding: '10px 14px', cursor: 'pointer',
             color: '#0a0a0a', fontSize: 13, fontWeight: 700,
             display: 'flex', alignItems: 'center', gap: 6,
@@ -442,7 +442,7 @@ export default function CajaChicaPage({ employeeId }: { employeeId: string }) {
         <div style={{ fontSize: 10, color: '#666', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>
           Por pagar en quincena
         </div>
-        <div style={{ fontSize: 26, fontWeight: 700, color: '#57FF9A' }}>
+        <div style={{ fontSize: 26, fontWeight: 700, color: '#10B981' }}>
           {fmtMoney(totalPendiente)}
         </div>
         <div style={{ fontSize: 11, color: '#888', marginTop: 2 }}>
@@ -465,7 +465,7 @@ export default function CajaChicaPage({ employeeId }: { employeeId: string }) {
           <button
             onClick={() => setShowForm(true)}
             style={{
-              background: '#57FF9A', border: 'none',
+              background: '#10B981', border: 'none',
               borderRadius: 10, padding: '12px 18px', cursor: 'pointer',
               color: '#0a0a0a', fontSize: 13, fontWeight: 700,
             }}
@@ -506,7 +506,7 @@ export default function CajaChicaPage({ employeeId }: { employeeId: string }) {
                 </div>
                 <div style={{ textAlign: 'right' }}>
                   <div style={{
-                    fontSize: 9, color: t.estatus === 'pagado' ? '#57FF9A' : '#f59e0b',
+                    fontSize: 9, color: t.estatus === 'pagado' ? '#10B981' : '#f59e0b',
                     textTransform: 'uppercase', fontWeight: 700,
                   }}>
                     {t.estatus}

@@ -85,7 +85,7 @@ export default function CalendarWidget({ userEmail, isMobile }: { userEmail: str
             return (
               <div key={event.id} style={{
                 display: 'flex', gap: 10, padding: '8px 4px',
-                borderLeft: '3px solid #3B82F6', paddingLeft: 12, marginBottom: 4,
+                borderLeft: '3px solid #2563EB', paddingLeft: 12, marginBottom: 4,
                 borderRadius: 2,
               }}>
                 <div style={{ flexShrink: 0, minWidth: 54, textAlign: 'right' }}>

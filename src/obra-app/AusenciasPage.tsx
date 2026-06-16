@@ -43,7 +43,7 @@ function calcDiasVacaciones(fechaIngreso: string | null): { dias: number; antigu
 }
 
 const TIPOS = [
-  { value: 'vacaciones', label: 'Vacaciones', icon: Plane, color: '#57FF9A', anticipoDias: 10 },
+  { value: 'vacaciones', label: 'Vacaciones', icon: Plane, color: '#10B981', anticipoDias: 10 },
   { value: 'permiso_con_goce', label: 'Permiso con goce', icon: Calendar, color: '#3b82f6', anticipoDias: 0 },
   { value: 'permiso_sin_goce', label: 'Permiso sin goce', icon: Calendar, color: '#f59e0b', anticipoDias: 0 },
   { value: 'incapacidad', label: 'Incapacidad', icon: Heart, color: '#ef4444', anticipoDias: 0 },
@@ -272,7 +272,7 @@ export default function AusenciasPage({ employeeId }: { employeeId: string }) {
           <div style={{
             padding: 10, marginBottom: 16,
             background: '#0f2a1a', border: '1px solid #1f3a2a',
-            borderRadius: 10, fontSize: 13, color: '#57FF9A', textAlign: 'center',
+            borderRadius: 10, fontSize: 13, color: '#10B981', textAlign: 'center',
           }}>
             {diasCalculados} {diasCalculados === 1 ? 'día solicitado' : 'días solicitados'}
             {tipo === 'vacaciones' && ` · quedarían ${diasDisponibles - diasCalculados} de ${vacInfo.dias}`}
@@ -330,7 +330,7 @@ export default function AusenciasPage({ employeeId }: { employeeId: string }) {
             padding: 12, marginBottom: 16, borderRadius: 10,
             background: result.ok ? '#0f2a1a' : '#3a1a1a',
             border: `1px solid ${result.ok ? '#2a5a3a' : '#5a2a2a'}`,
-            color: result.ok ? '#57FF9A' : '#fca5a5',
+            color: result.ok ? '#10B981' : '#fca5a5',
             fontSize: 13, display: 'flex', gap: 8, alignItems: 'center',
           }}>
             {result.ok ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
@@ -343,7 +343,7 @@ export default function AusenciasPage({ employeeId }: { employeeId: string }) {
           disabled={submitting}
           style={{
             width: '100%', padding: '18px',
-            background: submitting ? '#3a5f48' : '#57FF9A',
+            background: submitting ? '#3a5f48' : '#10B981',
             color: '#0a0a0a', border: 'none',
             borderRadius: 14, fontSize: 16, fontWeight: 700,
             cursor: submitting ? 'not-allowed' : 'pointer',
@@ -388,7 +388,7 @@ export default function AusenciasPage({ employeeId }: { employeeId: string }) {
         <button
           onClick={() => setShowForm(true)}
           style={{
-            background: '#57FF9A', border: 'none',
+            background: '#10B981', border: 'none',
             borderRadius: 10, padding: '10px 14px', cursor: 'pointer',
             color: '#0a0a0a', fontSize: 13, fontWeight: 700,
             display: 'flex', alignItems: 'center', gap: 6,
@@ -408,7 +408,7 @@ export default function AusenciasPage({ employeeId }: { employeeId: string }) {
           Vacaciones disponibles {thisYear}
         </div>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-          <div style={{ fontSize: 32, fontWeight: 700, color: '#57FF9A' }}>
+          <div style={{ fontSize: 32, fontWeight: 700, color: '#10B981' }}>
             {diasDisponibles}
           </div>
           <div style={{ fontSize: 14, color: '#888' }}>de {vacInfo.dias} días</div>
@@ -433,7 +433,7 @@ export default function AusenciasPage({ employeeId }: { employeeId: string }) {
           <button
             onClick={() => setShowForm(true)}
             style={{
-              background: '#57FF9A', border: 'none',
+              background: '#10B981', border: 'none',
               borderRadius: 10, padding: '12px 18px', cursor: 'pointer',
               color: '#0a0a0a', fontSize: 13, fontWeight: 700,
             }}
@@ -446,7 +446,7 @@ export default function AusenciasPage({ employeeId }: { employeeId: string }) {
           {ausencias.map(a => {
             const cfg = TIPOS.find(t => t.value === a.tipo) || TIPOS[0]
             const Icon = cfg.icon
-            const statusColor = a.status === 'aprobada' ? '#57FF9A' :
+            const statusColor = a.status === 'aprobada' ? '#10B981' :
                                 a.status === 'rechazada' ? '#ef4444' :
                                 a.status === 'cancelada' ? '#666' : '#f59e0b'
             return (

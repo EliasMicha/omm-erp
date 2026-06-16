@@ -15,7 +15,7 @@ export function Badge({ label, color }: { label: string; color: string }) {
 }
 
 // ── KPI Card ─────────────────────────────────────────────────────────────────
-export function KpiCard({ label, value, color = '#57FF9A', icon }: {
+export function KpiCard({ label, value, color = '#10B981', icon }: {
   label: string; value: string | number; color?: string; icon?: ReactNode
 }) {
   return (
@@ -146,7 +146,7 @@ export function ThFilter({
     <th
       style={{
         padding: '8px 12px', background: '#1a1a1a',
-        fontSize: 10, fontWeight: 600, color: isFiltering ? '#57FF9A' : '#555',
+        fontSize: 10, fontWeight: 600, color: isFiltering ? '#10B981' : '#555',
         textAlign: right ? 'right' : 'left',
         textTransform: 'uppercase', letterSpacing: '0.06em',
         borderBottom: '1px solid #222',
@@ -157,7 +157,7 @@ export function ThFilter({
       <div ref={ref} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer' }} onClick={() => { setOpen(!open); setSearch('') }}>
         <span>{label}</span>
         <svg width="10" height="10" viewBox="0 0 10 10" fill="none" style={{ opacity: isFiltering ? 1 : 0.4, flexShrink: 0 }}>
-          <path d="M1 1h8L6 5v3l-2 1V5L1 1z" fill={isFiltering ? '#57FF9A' : '#888'} />
+          <path d="M1 1h8L6 5v3l-2 1V5L1 1z" fill={isFiltering ? '#10B981' : '#888'} />
         </svg>
         {open && (
           <div
@@ -203,14 +203,14 @@ export function ThFilter({
             />
             {/* Botones rápidos */}
             <div style={{ display: 'flex', gap: 6, marginBottom: 6, fontSize: 10 }}>
-              <button onClick={selectAll} style={{ background: 'none', border: 'none', color: '#3B82F6', cursor: 'pointer', padding: 0, fontSize: 10, fontFamily: 'inherit' }}>
+              <button onClick={selectAll} style={{ background: 'none', border: 'none', color: '#2563EB', cursor: 'pointer', padding: 0, fontSize: 10, fontFamily: 'inherit' }}>
                 Todos
               </button>
               <button onClick={clearAll} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', padding: 0, fontSize: 10, fontFamily: 'inherit' }}>
                 Limpiar
               </button>
               {isFiltering && (
-                <button onClick={selectAll} style={{ background: 'none', border: 'none', color: '#EF4444', cursor: 'pointer', padding: 0, fontSize: 10, fontFamily: 'inherit', marginLeft: 'auto' }}>
+                <button onClick={selectAll} style={{ background: 'none', border: 'none', color: '#DC2626', cursor: 'pointer', padding: 0, fontSize: 10, fontFamily: 'inherit', marginLeft: 'auto' }}>
                   Quitar filtro
                 </button>
               )}
@@ -293,7 +293,7 @@ export function useColumnFilters<T extends string>() {
 }
 
 // ── Progress Bar ─────────────────────────────────────────────────────────────
-export function ProgressBar({ pct, color = '#57FF9A' }: { pct: number; color?: string }) {
+export function ProgressBar({ pct, color = '#10B981' }: { pct: number; color?: string }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
       <div style={{ flex: 1, height: 4, background: '#2a2a2a', borderRadius: 2, overflow: 'hidden' }}>
@@ -323,9 +323,9 @@ export function Btn({ children, onClick, variant = 'default', size = 'md', style
   }
   const variants: Record<string, CSSProperties> = {
     default: { background: '#1e1e1e', color: '#aaa', border: '1px solid #333' },
-    primary: { background: '#57FF9A', color: '#000', fontWeight: 700 },
+    primary: { background: '#10B981', color: '#000', fontWeight: 700 },
     ghost:   { background: 'transparent', color: '#666', border: '1px solid transparent' },
-    danger:  { background: '#EF4444', color: '#fff', fontWeight: 600 },
+    danger:  { background: '#DC2626', color: '#fff', fontWeight: 600 },
   }
   return (
     <button onClick={disabled ? undefined : onClick} disabled={disabled} style={{ ...base, ...variants[variant], ...style }}>

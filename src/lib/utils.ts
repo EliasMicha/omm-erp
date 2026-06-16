@@ -11,52 +11,52 @@ export const FCUR = (n: number, currency?: string | null) =>
 
 
 export const PHASE_CONFIG: Record<PurchasePhase, { label: string; color: string; order: number }> = {
-  inicio:   { label: 'Inicio',   color: '#3B82F6', order: 0 },
-  roughin:  { label: 'Rough-in', color: '#F59E0B', order: 1 },
-  acabados: { label: 'Acabados', color: '#C084FC', order: 2 },
-  cierre:   { label: 'Cierre',   color: '#57FF9A', order: 3 },
+  inicio:   { label: 'Inicio',   color: '#2563EB', order: 0 },
+  roughin:  { label: 'Rough-in', color: '#D97706', order: 1 },
+  acabados: { label: 'Acabados', color: '#A78BFA', order: 2 },
+  cierre:   { label: 'Cierre',   color: '#10B981', order: 3 },
 }
 
 export const SPECIALTY_CONFIG: Record<ProjectLine, { label: string; color: string; icon: string }> = {
-  esp: { label: 'Especiales', color: '#57FF9A', icon: '◈' },
+  esp: { label: 'Especiales', color: '#10B981', icon: '◈' },
   elec: { label: 'Eléctrico', color: '#FFB347', icon: '◉' },
-  ilum: { label: 'Iluminación', color: '#C084FC', icon: '◇' },
+  ilum: { label: 'Iluminación', color: '#A78BFA', icon: '◇' },
   cort: { label: 'Cortinas', color: '#67E8F9', icon: '▦' },
   proy: { label: 'Proyectos', color: '#F9A8D4', icon: '◎' },
 }
 
 export const STAGE_CONFIG: Record<QuoteStage, { label: string; color: string }> = {
   oportunidad: { label: 'Oportunidad', color: '#6B7280' },
-  estimacion:  { label: 'Estimación',  color: '#F59E0B' },
-  propuesta:   { label: 'Propuesta',   color: '#3B82F6' },
-  contrato:    { label: 'Contrato',    color: '#57FF9A' },
+  estimacion:  { label: 'Estimación',  color: '#D97706' },
+  propuesta:   { label: 'Propuesta',   color: '#2563EB' },
+  contrato:    { label: 'Contrato',    color: '#10B981' },
 }
 
 export const STATUS_CONFIG: Record<ProjectStatus, { label: string; color: string }> = {
-  activo:     { label: 'Activo',     color: '#57FF9A' },
-  pausado:    { label: 'Pausado',    color: '#F59E0B' },
+  activo:     { label: 'Activo',     color: '#10B981' },
+  pausado:    { label: 'Pausado',    color: '#D97706' },
   completado: { label: 'Completado', color: '#6B7280' },
-  cancelado:  { label: 'Cancelado',  color: '#EF4444' },
+  cancelado:  { label: 'Cancelado',  color: '#DC2626' },
 }
 
 export const DELIVERY_STATUS_CONFIG: Record<DeliveryStatus, { label: string; color: string }> = {
-  pendiente:  { label: 'Pendiente',  color: '#F59E0B' },
-  en_ruta:    { label: 'En ruta',    color: '#3B82F6' },
-  entregado:  { label: 'Entregado',  color: '#57FF9A' },
-  cancelado:  { label: 'Cancelado',  color: '#EF4444' },
+  pendiente:  { label: 'Pendiente',  color: '#D97706' },
+  en_ruta:    { label: 'En ruta',    color: '#2563EB' },
+  entregado:  { label: 'Entregado',  color: '#10B981' },
+  cancelado:  { label: 'Cancelado',  color: '#DC2626' },
 }
 
 export const PAYMENT_STATUS_CONFIG: Record<PaymentStatus, { label: string; color: string }> = {
   pendiente: { label: 'Pendiente', color: '#6B7280' },
-  vigente:   { label: 'Vigente',   color: '#3B82F6' },
-  vencido:   { label: 'Vencido',   color: '#EF4444' },
-  cobrado:   { label: 'Cobrado',   color: '#57FF9A' },
+  vigente:   { label: 'Vigente',   color: '#2563EB' },
+  vencido:   { label: 'Vencido',   color: '#DC2626' },
+  cobrado:   { label: 'Cobrado',   color: '#10B981' },
 }
 
 export const PAYROLL_STATUS_CONFIG: Record<PayrollStatus, { label: string; color: string }> = {
   borrador: { label: 'Borrador', color: '#6B7280' },
-  aprobado: { label: 'Aprobado', color: '#3B82F6' },
-  pagado:   { label: 'Pagado',   color: '#57FF9A' },
+  aprobado: { label: 'Aprobado', color: '#2563EB' },
+  pagado:   { label: 'Pagado',   color: '#10B981' },
 }
 
 export const ROLE_LABELS: Record<UserRole, string> = {
@@ -69,7 +69,7 @@ export const ROLE_LABELS: Record<UserRole, string> = {
 }
 
 export const LEVEL_CONFIG: Record<UserLevel, { label: string; color: string }> = {
-  oro:       { label: 'Oro',       color: '#F59E0B' },
+  oro:       { label: 'Oro',       color: '#D97706' },
   plata:     { label: 'Plata',     color: '#9CA3AF' },
   bronce:    { label: 'Bronce',    color: '#B45309' },
   sin_nivel: { label: 'Sin nivel', color: '#4B5563' },

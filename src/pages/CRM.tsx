@@ -27,6 +27,7 @@ interface Lead {
   estimated_value?: number
   close_probability?: number  // 0-100, opcional; default por status si null
   commercial_year?: number    // año comercial editable; si null, se usa created_at
+  expected_close_date?: string // fecha estimada de cierre — usada en Proyección de ventas
   lost_reason?: string
   priority: Priority
 }
@@ -35,11 +36,11 @@ type Priority = 'alta' | 'media' | 'baja' | 'fria'
 
 const STATUS_CFG: Record<LeadStatus, { label: string; color: string; order: number }> = {
   nuevo:       { label: 'Nuevo',       color: '#6B7280', order: 0 },
-  contactado:  { label: 'Contactado',  color: '#3B82F6', order: 1 },
-  diagnostico: { label: 'Diagnostico', color: '#F59E0B', order: 2 },
-  cotizando:   { label: 'Cotizando',   color: '#C084FC', order: 3 },
-  ganado:      { label: 'Ganado',      color: '#57FF9A', order: 4 },
-  perdido:     { label: 'Perdido',     color: '#EF4444', order: 5 },
+  contactado:  { label: 'Contactado',  color: '#2563EB', order: 1 },
+  diagnostico: { label: 'Diagnostico', color: '#D97706', order: 2 },
+  cotizando:   { label: 'Cotizando',   color: '#A78BFA', order: 3 },
+  ganado:      { label: 'Ganado',      color: '#10B981', order: 4 },
+  perdido:     { label: 'Perdido',     color: '#DC2626', order: 5 },
   pausado:     { label: 'Pausado',     color: '#78716C', order: 6 },
 }
 
@@ -87,7 +88,7 @@ function Chips({ label, options, value, onChange, colorMap }: {
       {label}
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' as const, marginTop: 6 }}>
         {options.map(({ key, label: lbl, color }) => {
-          const c = colorMap?.[key] || color || '#57FF9A'
+          const c = colorMap?.[key] || color || '#10B981'
           const active = isActive(key)
           return (
             <button key={key} onClick={() => onChange(key)} style={{
@@ -111,6 +112,7 @@ function NuevoLeadModal({ onClose, onCreated }: { onClose: () => void; onCreated
     name: '', company: '', client_final: '', client_id: '', contact_name: '', contact_phone: '', contact_email: '',
     origin: 'inbound' as LeadOrigin, needs: [] as ProjectLine[], notes: '', estimated_value: '',
     commercial_year: String(new Date().getFullYear()),
+    expected_close_date: '', close_probability: '50',
   })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -175,6 +177,8 @@ function NuevoLeadModal({ onClose, onCreated }: { onClose: () => void; onCreated
       needs: form.needs, notes: notesWithClient || null,
       estimated_value: parseFloat(form.estimated_value) || null,
       commercial_year: form.commercial_year ? parseInt(form.commercial_year, 10) || null : null,
+      expected_close_date: form.expected_close_date || null,
+      close_probability: form.close_probability ? Math.max(0, Math.min(100, parseInt(form.close_probability, 10))) : null,
     })
     setSaving(false)
     if (err) { setError(err.message); return }
@@ -200,7 +204,7 @@ function NuevoLeadModal({ onClose, onCreated }: { onClose: () => void; onCreated
                 onFocus={() => setShowArchitectDrop(true)}
                 onBlur={() => setTimeout(() => setShowArchitectDrop(false), 200)}
                 placeholder="Empieza a escribir... (se autocompleta con arquitectos existentes)"
-                style={{ width: '100%', padding: '8px 10px', background: '#1e1e1e', border: '1px solid ' + (showArchitectDrop ? '#57FF9A' : '#333'), borderRadius: 8, color: '#fff', fontSize: 13, fontFamily: 'inherit', boxSizing: 'border-box' as const }} />
+                style={{ width: '100%', padding: '8px 10px', background: '#1e1e1e', border: '1px solid ' + (showArchitectDrop ? '#10B981' : '#333'), borderRadius: 8, color: '#fff', fontSize: 13, fontFamily: 'inherit', boxSizing: 'border-box' as const }} />
               {showArchitectDrop && (() => {
                 const q = (form.company || '').toLowerCase().trim()
                 const filtered = q
@@ -220,7 +224,7 @@ function NuevoLeadModal({ onClose, onCreated }: { onClose: () => void; onCreated
                       </div>
                     ))}
                     {q && !hasExactMatch && (
-                      <div style={{ padding: '8px 10px', fontSize: 11, color: '#57FF9A', borderTop: '1px solid #222', background: 'rgba(87,255,154,0.05)' }}>
+                      <div style={{ padding: '8px 10px', fontSize: 11, color: '#10B981', borderTop: '1px solid #222', background: 'rgba(87,255,154,0.05)' }}>
                         ⏎ Se va a crear "<strong style={{ color: '#fff' }}>{form.company}</strong>" como arquitecto nuevo
                       </div>
                     )}
@@ -242,7 +246,7 @@ function NuevoLeadModal({ onClose, onCreated }: { onClose: () => void; onCreated
                   onFocus={() => setShowClientDrop(true)}
                   onBlur={() => setTimeout(() => setShowClientDrop(false), 200)}
                   placeholder="Buscar por nombre comercial..."
-                  style={{ width: '100%', padding: '8px 10px', background: '#1e1e1e', border: '1px solid ' + (showClientDrop ? '#57FF9A' : '#333'), borderRadius: 8, color: '#fff', fontSize: 13, fontFamily: 'inherit', boxSizing: 'border-box' as const }} />
+                  style={{ width: '100%', padding: '8px 10px', background: '#1e1e1e', border: '1px solid ' + (showClientDrop ? '#10B981' : '#333'), borderRadius: 8, color: '#fff', fontSize: 13, fontFamily: 'inherit', boxSizing: 'border-box' as const }} />
                 {showClientDrop && (
                   <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#1a1a1a', border: '1px solid #333', borderRadius: 8, marginTop: 2, maxHeight: 220, overflowY: 'auto', zIndex: 10 }}>
                     {filteredClientes.length === 0 ? (
@@ -253,7 +257,7 @@ function NuevoLeadModal({ onClose, onCreated }: { onClose: () => void; onCreated
                         style={{ padding: '8px 10px', cursor: 'pointer', fontSize: 12, color: '#ccc', borderBottom: '1px solid #222' }}
                         onMouseEnter={e => { e.currentTarget.style.background = '#222' }}
                         onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}>
-                        <div style={{ fontWeight: 600, color: '#57FF9A' }}>{c.nombre_comercial || c.razon_social}</div>
+                        <div style={{ fontWeight: 600, color: '#10B981' }}>{c.nombre_comercial || c.razon_social}</div>
                         <div style={{ fontSize: 10, color: '#777' }}>{c.razon_social} · {c.rfc}</div>
                       </div>
                     ))}
@@ -281,7 +285,7 @@ function NuevoLeadModal({ onClose, onCreated }: { onClose: () => void; onCreated
             {selectedClient && (
               <div style={{ marginTop: 8, padding: '8px 12px', background: '#0e1a0e', border: '1px solid #1a3a1a', borderRadius: 8, fontSize: 11 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                  <span style={{ color: '#57FF9A', fontWeight: 600 }}>Datos de facturación</span>
+                  <span style={{ color: '#10B981', fontWeight: 600 }}>Datos de facturación</span>
                   <button onClick={() => { setForm(f => ({ ...f, client_final: '', client_id: '' })); setClientSearch('') }}
                     style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer', fontSize: 10 }}>✕ Desvincular</button>
                 </div>
@@ -305,6 +309,10 @@ function NuevoLeadModal({ onClose, onCreated }: { onClose: () => void; onCreated
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12 }}>
             <Field label="Año comercial" value={form.commercial_year} onChange={s('commercial_year')} type="number" placeholder={`${new Date().getFullYear()}`} />
+            <Field label="Probabilidad cierre (%)" value={form.close_probability} onChange={s('close_probability')} type="number" placeholder="50" />
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12 }}>
+            <Field label="Cierre estimado" value={form.expected_close_date} onChange={s('expected_close_date')} type="date" />
             <div />
           </div>
           <Chips label="Origen" value={form.origin}
@@ -319,7 +327,7 @@ function NuevoLeadModal({ onClose, onCreated }: { onClose: () => void; onCreated
               style={{ display: 'block', width: '100%', marginTop: 4, padding: '8px 10px', background: '#1e1e1e', border: '1px solid #333', borderRadius: 8, color: '#fff', fontSize: 13, fontFamily: 'inherit', resize: 'vertical' as const, boxSizing: 'border-box' as const }} />
           </label>
         </div>
-        {error && <div style={{ color: '#EF4444', fontSize: 12, marginTop: 10 }}>{error}</div>}
+        {error && <div style={{ color: '#DC2626', fontSize: 12, marginTop: 10 }}>{error}</div>}
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 20 }}>
           <Btn onClick={onClose}>Cancelar</Btn>
           <Btn variant="primary" onClick={crear}>{saving ? 'Guardando...' : 'Crear lead'}</Btn>
@@ -344,6 +352,8 @@ function LeadModal({ lead, onClose, onUpdated, onDeleted }: {
       needs: lead.needs || [] as ProjectLine[], notes: lead.notes || '',
       estimated_value: lead.estimated_value?.toString() || '', lost_reason: lead.lost_reason || '',
       commercial_year: lead.commercial_year?.toString() || '',
+      expected_close_date: lead.expected_close_date || '',
+      close_probability: lead.close_probability?.toString() || '',
       priority: lead.priority || 'media' as Priority,
     }
   })
@@ -421,6 +431,8 @@ function LeadModal({ lead, onClose, onUpdated, onDeleted }: {
       needs: form.needs, notes: notesValue || null,
       estimated_value: parseFloat(form.estimated_value) || null,
       commercial_year: form.commercial_year ? parseInt(form.commercial_year, 10) || null : null,
+      expected_close_date: form.expected_close_date || null,
+      close_probability: form.close_probability !== '' ? Math.max(0, Math.min(100, parseInt(form.close_probability, 10) || 0)) : null,
       lost_reason: form.lost_reason || null, priority: form.priority,
       updated_at: new Date().toISOString(),
     }).eq('id', lead.id)
@@ -502,7 +514,7 @@ function LeadModal({ lead, onClose, onUpdated, onDeleted }: {
                   onFocus={() => setShowArchitectDrop(true)}
                   onBlur={() => setTimeout(() => setShowArchitectDrop(false), 200)}
                   placeholder="Empieza a escribir... (autocomplete contra arquitectos existentes)"
-                  style={{ width: '100%', padding: '8px 10px', background: '#1e1e1e', border: '1px solid ' + (showArchitectDrop ? '#57FF9A' : '#333'), borderRadius: 8, color: '#fff', fontSize: 13, fontFamily: 'inherit', boxSizing: 'border-box' as const }} />
+                  style={{ width: '100%', padding: '8px 10px', background: '#1e1e1e', border: '1px solid ' + (showArchitectDrop ? '#10B981' : '#333'), borderRadius: 8, color: '#fff', fontSize: 13, fontFamily: 'inherit', boxSizing: 'border-box' as const }} />
                 {showArchitectDrop && (() => {
                   const q = (form.company || '').toLowerCase().trim()
                   const filtered = q
@@ -522,7 +534,7 @@ function LeadModal({ lead, onClose, onUpdated, onDeleted }: {
                         </div>
                       ))}
                       {q && !hasExactMatch && (
-                        <div style={{ padding: '8px 10px', fontSize: 11, color: '#57FF9A', borderTop: '1px solid #222', background: 'rgba(87,255,154,0.05)' }}>
+                        <div style={{ padding: '8px 10px', fontSize: 11, color: '#10B981', borderTop: '1px solid #222', background: 'rgba(87,255,154,0.05)' }}>
                           ⏎ Se va a guardar como arquitecto nuevo: "<strong style={{ color: '#fff' }}>{form.company}</strong>"
                         </div>
                       )}
@@ -543,7 +555,7 @@ function LeadModal({ lead, onClose, onUpdated, onDeleted }: {
                     onFocus={() => setShowClientDrop(true)}
                     onBlur={() => setTimeout(() => setShowClientDrop(false), 200)}
                     placeholder="Buscar por nombre comercial..."
-                    style={{ width: '100%', padding: '8px 10px', background: '#1e1e1e', border: '1px solid ' + (showClientDrop ? '#57FF9A' : '#333'), borderRadius: 8, color: '#fff', fontSize: 13, fontFamily: 'inherit', boxSizing: 'border-box' as const }} />
+                    style={{ width: '100%', padding: '8px 10px', background: '#1e1e1e', border: '1px solid ' + (showClientDrop ? '#10B981' : '#333'), borderRadius: 8, color: '#fff', fontSize: 13, fontFamily: 'inherit', boxSizing: 'border-box' as const }} />
                   {showClientDrop && (
                     <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#1a1a1a', border: '1px solid #333', borderRadius: 8, marginTop: 2, maxHeight: 220, overflowY: 'auto', zIndex: 10 }}>
                       {filteredClientes.length === 0 ? (
@@ -554,7 +566,7 @@ function LeadModal({ lead, onClose, onUpdated, onDeleted }: {
                           style={{ padding: '8px 10px', cursor: 'pointer', fontSize: 12, color: '#ccc', borderBottom: '1px solid #222' }}
                           onMouseEnter={e => { e.currentTarget.style.background = '#222' }}
                           onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}>
-                          <div style={{ fontWeight: 600, color: '#57FF9A' }}>{c.nombre_comercial || c.razon_social}</div>
+                          <div style={{ fontWeight: 600, color: '#10B981' }}>{c.nombre_comercial || c.razon_social}</div>
                           <div style={{ fontSize: 10, color: '#777' }}>{c.razon_social} · {c.rfc}</div>
                         </div>
                       ))}
@@ -582,7 +594,7 @@ function LeadModal({ lead, onClose, onUpdated, onDeleted }: {
               {selectedClient && (
                 <div style={{ marginTop: 8, padding: '8px 12px', background: '#0e1a0e', border: '1px solid #1a3a1a', borderRadius: 8, fontSize: 11 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                    <span style={{ color: '#57FF9A', fontWeight: 600 }}>Datos de facturación</span>
+                    <span style={{ color: '#10B981', fontWeight: 600 }}>Datos de facturación</span>
                     <button onClick={() => { setForm(f => ({ ...f, client_final: '', client_id: '' })); setClientSearch(''); setDirty(true) }}
                       style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer', fontSize: 10 }}>✕ Desvincular</button>
                   </div>
@@ -605,6 +617,10 @@ function LeadModal({ lead, onClose, onUpdated, onDeleted }: {
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12 }}>
               <Field label="Año comercial" value={form.commercial_year} onChange={s('commercial_year')} type="number" placeholder={`${new Date().getFullYear()} (default: año de creación)`} />
+              <Field label="Probabilidad de cierre (%)" value={form.close_probability} onChange={s('close_probability')} type="number" placeholder="0-100" />
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12 }}>
+              <Field label="Cierre estimado" value={form.expected_close_date} onChange={s('expected_close_date')} type="date" />
               <div />
             </div>
             {form.status === 'perdido' && (
@@ -628,7 +644,7 @@ function LeadModal({ lead, onClose, onUpdated, onDeleted }: {
         <div style={{ padding: '12px 22px', borderTop: '1px solid #1a1a1a', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           {confirmDelete ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontSize: 12, color: '#EF4444' }}>Eliminar este lead?</span>
+              <span style={{ fontSize: 12, color: '#DC2626' }}>Eliminar este lead?</span>
               <Btn size="sm" onClick={() => setConfirmDelete(false)}>No</Btn>
               <Btn size="sm" variant="danger" onClick={eliminar}>{deleting ? 'Eliminando...' : 'Si, eliminar'}</Btn>
             </div>
@@ -686,7 +702,7 @@ function KanbanView({ leads, onOpen }: { leads: Lead[]; onOpen: (l: Lead) => voi
                   )}
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
                     <div style={{ fontSize: 10, color: '#444' }}>{ORIGIN_CFG[lead.origin]?.label}</div>
-                    {lead.estimated_value ? <div style={{ fontSize: 11, fontWeight: 700, color: '#57FF9A' }}>{F(lead.estimated_value)}</div> : null}
+                    {lead.estimated_value ? <div style={{ fontSize: 11, fontWeight: 700, color: '#10B981' }}>{F(lead.estimated_value)}</div> : null}
                   </div>
                 </div>
               ))}
@@ -700,9 +716,9 @@ function KanbanView({ leads, onOpen }: { leads: Lead[]; onOpen: (l: Lead) => voi
 
 // ─── Prioridad manual ─────────────────────────────────────────────────────
 const PRIORITY_CFG: Record<Priority, { label: string; color: string; order: number }> = {
-  alta:  { label: 'Alta',  color: '#EF4444', order: 0 },
-  media: { label: 'Media', color: '#F59E0B', order: 1 },
-  baja:  { label: 'Baja',  color: '#3B82F6', order: 2 },
+  alta:  { label: 'Alta',  color: '#DC2626', order: 0 },
+  media: { label: 'Media', color: '#D97706', order: 1 },
+  baja:  { label: 'Baja',  color: '#2563EB', order: 2 },
   fria:  { label: 'Fría',  color: '#4B5563', order: 3 },
 }
 const PRIORITY_CYCLE: Priority[] = ['alta', 'media', 'baja', 'fria']
@@ -718,7 +734,7 @@ function SortTh({ label, sortKey, currentKey, currentDir, onSort, right: isRight
   return (
     <Th right={isRight}>
       <button onClick={() => onSort(sortKey)} style={{
-        background: 'none', border: 'none', color: active ? '#57FF9A' : '#666',
+        background: 'none', border: 'none', color: active ? '#10B981' : '#666',
         cursor: 'pointer', fontFamily: 'inherit', fontSize: 10, fontWeight: 600,
         textTransform: 'uppercase' as const, letterSpacing: '0.06em', padding: 0,
         display: 'inline-flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' as const,
@@ -864,18 +880,18 @@ function ListView({ leads, onOpen, onEdit, onPriorityChange, onProbabilityChange
                   style={{
                     width: 50, padding: '3px 6px', textAlign: 'right',
                     background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 4,
-                    color: (lead.close_probability ?? 0) >= 70 ? '#57FF9A' : (lead.close_probability ?? 0) >= 40 ? '#F59E0B' : (lead.close_probability != null ? '#EF4444' : '#666'),
+                    color: (lead.close_probability ?? 0) >= 70 ? '#10B981' : (lead.close_probability ?? 0) >= 40 ? '#D97706' : (lead.close_probability != null ? '#DC2626' : '#666'),
                     fontWeight: 700, fontSize: 11, fontFamily: 'inherit',
                   }}
                 />
                 <span style={{ fontSize: 10, color: '#555', marginLeft: 2 }}>%</span>
               </Td>
-              <Td right><span style={{ fontWeight: 600, color: '#C084FC' }}>{qt ? mixedToDisplay(qt.cotizadoUSD, qt.cotizadoMXN) : '—'}</span></Td>
-              <Td right><span style={{ fontWeight: 700, color: '#57FF9A' }}>{qt ? mixedToDisplay(qt.vendidoUSD, qt.vendidoMXN) : '—'}</span></Td>
+              <Td right><span style={{ fontWeight: 600, color: '#A78BFA' }}>{qt ? mixedToDisplay(qt.cotizadoUSD, qt.cotizadoMXN) : '—'}</span></Td>
+              <Td right><span style={{ fontWeight: 700, color: '#10B981' }}>{qt ? mixedToDisplay(qt.vendidoUSD, qt.vendidoMXN) : '—'}</span></Td>
               <Td>
                 <button onClick={e => { e.stopPropagation(); onEdit(lead) }} title="Editar lead"
                   style={{ background: 'none', border: '1px solid #2a2a2a', borderRadius: 6, padding: '4px 8px', cursor: 'pointer', color: '#555', display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10 }}
-                  onMouseEnter={e => { e.currentTarget.style.borderColor = '#57FF9A'; e.currentTarget.style.color = '#57FF9A' }}
+                  onMouseEnter={e => { e.currentTarget.style.borderColor = '#10B981'; e.currentTarget.style.color = '#10B981' }}
                   onMouseLeave={e => { e.currentTarget.style.borderColor = '#2a2a2a'; e.currentTarget.style.color = '#555' }}>
                   <Save size={10} /> Editar
                 </button>
@@ -1129,14 +1145,14 @@ Devuelve solo el JSON, sin explicaciones. Si no hay filtro para un campo, omitel
           return (
             <button key={y} onClick={() => setFilterYear(y)} style={{
               padding: '3px 10px', borderRadius: 14, fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
-              border: '1px solid ' + (active ? '#C084FC' : '#2a2a2a'),
-              background: active ? '#C084FC22' : 'transparent',
-              color: active ? '#C084FC' : '#888',
+              border: '1px solid ' + (active ? '#A78BFA' : '#2a2a2a'),
+              background: active ? '#A78BFA22' : 'transparent',
+              color: active ? '#A78BFA' : '#888',
             }}>{y === 'todos' ? 'Todos' : y}</button>
           )
         })}
         <span style={{ marginLeft: 'auto', fontSize: 10, color: '#666' }}>
-          📊 {leadsByYear.length} leads · {ganados} ganados · {perdidos} perdidos · <b style={{ color: '#C084FC' }}>{tasaCierre}%</b> tasa cierre
+          📊 {leadsByYear.length} leads · {ganados} ganados · {perdidos} perdidos · <b style={{ color: '#A78BFA' }}>{tasaCierre}%</b> tasa cierre
         </span>
       </div>
 
@@ -1144,10 +1160,10 @@ Devuelve solo el JSON, sin explicaciones. Si no hay filtro para un campo, omitel
       {showFinancialKPIs && (
         <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(5, 1fr)', gap: 10, marginBottom: 12 }}>
           {[
-            { label: 'Valor de leads', value: mxnToDisplay(valorLeadsMXN), sub: `${leadsActivosYear.length} en pipeline · estimado`, color: '#3B82F6' },
-            { label: 'Cierre estimado', value: mxnToDisplay(cierreEstimadoMXN), sub: `Σ(estimado × prob) — ${leadsConProbabilidad}/${leadsActivosYear.length} c/ prob`, color: '#C084FC' },
-            { label: 'Cotizado', value: mixedToDisplay(cotizadoUSD, cotizadoMXN), sub: 'todas etapas', color: '#F59E0B' },
-            { label: 'Vendido', value: mixedToDisplay(vendidoUSD, vendidoMXN), sub: 'cotizaciones contrato', color: '#57FF9A' },
+            { label: 'Valor de leads', value: mxnToDisplay(valorLeadsMXN), sub: `${leadsActivosYear.length} en pipeline · estimado`, color: '#2563EB' },
+            { label: 'Cierre estimado', value: mxnToDisplay(cierreEstimadoMXN), sub: `Σ(estimado × prob) — ${leadsConProbabilidad}/${leadsActivosYear.length} c/ prob`, color: '#A78BFA' },
+            { label: 'Cotizado', value: mixedToDisplay(cotizadoUSD, cotizadoMXN), sub: 'todas etapas', color: '#D97706' },
+            { label: 'Vendido', value: mixedToDisplay(vendidoUSD, vendidoMXN), sub: 'cotizaciones contrato', color: '#10B981' },
             { label: 'Cobrado', value: mxnToDisplay(cobradoMXN), sub: 'movimientos cobro_cliente', color: '#10B981' },
           ].map(k => (
             <div key={k.label} style={{ background: '#141414', border: '1px solid #1e1e1e', borderRadius: 10, padding: '12px 14px', borderTop: `2px solid ${k.color}` }}>
@@ -1165,9 +1181,9 @@ Devuelve solo el JSON, sin explicaciones. Si no hay filtro para un campo, omitel
         {(['MXN', 'USD'] as const).map(cur => (
           <button key={cur} onClick={() => setDisplayCur(cur)} style={{
             padding: '4px 12px', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
-            border: '1px solid ' + (displayCur === cur ? (cur === 'USD' ? '#06B6D4' : '#F59E0B') : '#333'),
-            background: displayCur === cur ? (cur === 'USD' ? '#06B6D422' : '#F59E0B22') : 'transparent',
-            color: displayCur === cur ? (cur === 'USD' ? '#06B6D4' : '#F59E0B') : '#555',
+            border: '1px solid ' + (displayCur === cur ? (cur === 'USD' ? '#06B6D4' : '#D97706') : '#333'),
+            background: displayCur === cur ? (cur === 'USD' ? '#06B6D422' : '#D9770622') : 'transparent',
+            color: displayCur === cur ? (cur === 'USD' ? '#06B6D4' : '#D97706') : '#555',
           }}>{cur === 'USD' ? '🇺🇸 USD' : '🇲🇽 MXN'}</button>
         ))}
         <span style={{ fontSize: 10, color: '#555', marginLeft: 8 }}>TC:</span>
@@ -1185,11 +1201,11 @@ Devuelve solo el JSON, sin explicaciones. Si no hay filtro para un campo, omitel
         </div>
         <div style={{ display: 'flex', gap: 6, flex: isMobile ? '1 1 100%' : 2 }}>
           <div style={{ position: 'relative' as const, flex: 1 }}>
-            <Sparkles size={14} style={{ position: 'absolute' as const, left: 10, top: '50%', transform: 'translateY(-50%)', color: aiFilter ? '#57FF9A' : '#555', pointerEvents: 'none' as const }} />
+            <Sparkles size={14} style={{ position: 'absolute' as const, left: 10, top: '50%', transform: 'translateY(-50%)', color: aiFilter ? '#10B981' : '#555', pointerEvents: 'none' as const }} />
             <input value={aiQuery} onChange={e => setAiQuery(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && buscarConAI()}
               placeholder="Busqueda con AI: ej. 'leads de arquitectos con valor alto'"
-              style={{ width: '100%', padding: '8px 10px 8px 32px', background: aiFilter ? '#0d1f14' : '#141414', border: `1px solid ${aiFilter ? '#57FF9A44' : '#2a2a2a'}`, borderRadius: 8, color: '#ccc', fontSize: 13, fontFamily: 'inherit', boxSizing: 'border-box' as const }} />
+              style={{ width: '100%', padding: '8px 10px 8px 32px', background: aiFilter ? '#0d1f14' : '#141414', border: `1px solid ${aiFilter ? '#10B98144' : '#2a2a2a'}`, borderRadius: 8, color: '#ccc', fontSize: 13, fontFamily: 'inherit', boxSizing: 'border-box' as const }} />
           </div>
           <Btn onClick={buscarConAI} disabled={aiLoading}>{aiLoading ? '...' : 'Buscar'}</Btn>
           {aiFilter && <Btn onClick={clearAI}>Limpiar AI</Btn>}
@@ -1200,7 +1216,7 @@ Devuelve solo el JSON, sin explicaciones. Si no hay filtro para un campo, omitel
       <div style={{ display: 'flex', gap: 8, marginBottom: 16, alignItems: 'center', flexWrap: 'wrap' as const, justifyContent: isMobile ? 'space-between' : 'flex-start' }}>
         <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' as const }}>
           {(['todos', ...Object.keys(STATUS_CFG)] as (LeadStatus | 'todos')[]).map(k => {
-            const v = k === 'todos' ? { label: 'Todos', color: '#57FF9A' } : STATUS_CFG[k as LeadStatus]
+            const v = k === 'todos' ? { label: 'Todos', color: '#10B981' } : STATUS_CFG[k as LeadStatus]
             const active = filtroStatus === k
             return (
               <button key={k} onClick={() => setFiltroStatus(k)} style={{
@@ -1215,8 +1231,8 @@ Devuelve solo el JSON, sin explicaciones. Si no hay filtro para un campo, omitel
           {(['kanban', 'lista'] as const).map(m => (
             <button key={m} onClick={() => setViewMode(m)} style={{
               padding: '5px 14px', fontSize: 11, cursor: 'pointer', fontFamily: 'inherit',
-              background: viewMode === m ? '#57FF9A18' : 'transparent',
-              color: viewMode === m ? '#57FF9A' : '#555', fontWeight: viewMode === m ? 600 : 400,
+              background: viewMode === m ? '#10B98118' : 'transparent',
+              color: viewMode === m ? '#10B981' : '#555', fontWeight: viewMode === m ? 600 : 400,
               border: 'none', borderRight: m === 'kanban' ? '1px solid #2a2a2a' : 'none'
             }}>{m === 'kanban' ? 'Kanban' : 'Lista'}</button>
           ))}

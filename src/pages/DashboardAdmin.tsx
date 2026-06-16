@@ -211,12 +211,12 @@ export default function DashboardAdmin() {
 
       {/* ── KPI ROW ── */}
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2,1fr)' : 'repeat(6,1fr)', gap: 10, marginBottom: 20 }}>
-        <KpiCard label="Emitido este mes" value={F(totalEmitidoMes)} color="#3B82F6" icon={<ArrowUpCircle size={16} />} />
-        <KpiCard label={`Recibidas (${recibidasMes.length})`} value={F(totalRecibidoMes)} color="#F59E0B" icon={<ArrowDownCircle size={16} />} />
-        <KpiCard label="Conciliación" value={`${conciliacionPct}%`} color={conciliacionPct < 50 ? '#EF4444' : conciliacionPct < 80 ? '#F59E0B' : '#57FF9A'} icon={<BarChart3 size={16} />} />
-        <KpiCard label="Sin conciliar" value={sinConciliar} color={sinConciliar > 50 ? '#EF4444' : '#F59E0B'} icon={<AlertTriangle size={16} />} />
-        <KpiCard label="Por cobrar" value={F(totalPorCobrar)} color="#C084FC" icon={<DollarSign size={16} />} />
-        <KpiCard label="Cobros vencidos" value={F(totalVencido)} color={totalVencido > 0 ? '#EF4444' : '#57FF9A'} icon={<Clock size={16} />} />
+        <KpiCard label="Emitido este mes" value={F(totalEmitidoMes)} color="#2563EB" icon={<ArrowUpCircle size={16} />} />
+        <KpiCard label={`Recibidas (${recibidasMes.length})`} value={F(totalRecibidoMes)} color="#D97706" icon={<ArrowDownCircle size={16} />} />
+        <KpiCard label="Conciliación" value={`${conciliacionPct}%`} color={conciliacionPct < 50 ? '#DC2626' : conciliacionPct < 80 ? '#D97706' : '#10B981'} icon={<BarChart3 size={16} />} />
+        <KpiCard label="Sin conciliar" value={sinConciliar} color={sinConciliar > 50 ? '#DC2626' : '#D97706'} icon={<AlertTriangle size={16} />} />
+        <KpiCard label="Por cobrar" value={F(totalPorCobrar)} color="#A78BFA" icon={<DollarSign size={16} />} />
+        <KpiCard label="Cobros vencidos" value={F(totalVencido)} color={totalVencido > 0 ? '#DC2626' : '#10B981'} icon={<Clock size={16} />} />
       </div>
 
       {/* ══════════════════════════════════════════════════════════
@@ -235,7 +235,7 @@ export default function DashboardAdmin() {
               onToggle={() => toggle('recibidas')}
               extra={
                 recibidasMes.length > 0
-                  ? <span style={{ fontSize: 11, color: '#F59E0B', display: 'flex', alignItems: 'center', gap: 4 }}><Bell size={11} /> {recibidasMes.length} nuevas este mes</span>
+                  ? <span style={{ fontSize: 11, color: '#D97706', display: 'flex', alignItems: 'center', gap: 4 }}><Bell size={11} /> {recibidasMes.length} nuevas este mes</span>
                   : undefined
               }
             />
@@ -250,7 +250,7 @@ export default function DashboardAdmin() {
                       return (
                         <div key={f.id} style={{
                           ...card, padding: '8px 12px',
-                          borderLeft: `3px solid ${f.conciliada ? '#57FF9A' : isNew ? '#F59E0B' : '#333'}`,
+                          borderLeft: `3px solid ${f.conciliada ? '#10B981' : isNew ? '#D97706' : '#333'}`,
                         }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                             <div style={{ flex: 1, minWidth: 0 }}>
@@ -269,8 +269,8 @@ export default function DashboardAdmin() {
                               </div>
                               <div style={{ marginTop: 2 }}>
                                 {f.conciliada
-                                  ? <Badge label="Conciliada" color="#57FF9A" />
-                                  : <Badge label="Pendiente" color="#F59E0B" />
+                                  ? <Badge label="Conciliada" color="#10B981" />
+                                  : <Badge label="Pendiente" color="#D97706" />
                                 }
                               </div>
                             </div>
@@ -292,7 +292,7 @@ export default function DashboardAdmin() {
               icon={<CreditCard size={15} />}
               expanded={expandedSections.cobranza}
               onToggle={() => toggle('cobranza')}
-              extra={cobranzaVencida.length > 0 ? <span style={{ fontSize: 11, color: '#EF4444', fontWeight: 600 }}>{cobranzaVencida.length} vencido{cobranzaVencida.length > 1 ? 's' : ''}</span> : undefined}
+              extra={cobranzaVencida.length > 0 ? <span style={{ fontSize: 11, color: '#DC2626', fontWeight: 600 }}>{cobranzaVencida.length} vencido{cobranzaVencida.length > 1 ? 's' : ''}</span> : undefined}
             />
             {expandedSections.cobranza && (
               <div style={{ maxHeight: 250, overflowY: 'auto' }}>
@@ -305,11 +305,11 @@ export default function DashboardAdmin() {
                       return (
                         <div key={m.id} style={{
                           ...card, padding: '8px 12px',
-                          borderLeft: `3px solid ${isOverdue ? '#EF4444' : '#333'}`,
+                          borderLeft: `3px solid ${isOverdue ? '#DC2626' : '#333'}`,
                         }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                             <div style={{ flex: 1, minWidth: 0 }}>
-                              <div style={{ fontSize: 12, fontWeight: 500, color: isOverdue ? '#EF4444' : '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              <div style={{ fontSize: 12, fontWeight: 500, color: isOverdue ? '#DC2626' : '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                 {m.name}
                               </div>
                               <div style={{ fontSize: 10, color: '#555', marginTop: 1 }}>
@@ -317,8 +317,8 @@ export default function DashboardAdmin() {
                               </div>
                             </div>
                             <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: 8 }}>
-                              <div style={{ fontSize: 12, fontWeight: 600, color: '#57FF9A' }}>{F(m.amount)}</div>
-                              <div style={{ fontSize: 10, color: isOverdue ? '#EF4444' : '#666', marginTop: 1 }}>
+                              <div style={{ fontSize: 12, fontWeight: 600, color: '#10B981' }}>{F(m.amount)}</div>
+                              <div style={{ fontSize: 10, color: isOverdue ? '#DC2626' : '#666', marginTop: 1 }}>
                                 {m.due_date ? formatDate(m.due_date) : 'Sin fecha'}
                               </div>
                             </div>
@@ -388,8 +388,8 @@ export default function DashboardAdmin() {
                     <span style={{ fontSize: 10, color: '#888', flexShrink: 0 }}>{pb.pctFacturado}%</span>
                   </div>
                   <div style={{ display: 'flex', gap: 10, fontSize: 10 }}>
-                    <span style={{ color: '#57FF9A' }}>Fact: {F(pb.facturado)}</span>
-                    {pb.pendienteCobro > 0 && <span style={{ color: '#F59E0B' }}>Cobro: {F(pb.pendienteCobro)}</span>}
+                    <span style={{ color: '#10B981' }}>Fact: {F(pb.facturado)}</span>
+                    {pb.pendienteCobro > 0 && <span style={{ color: '#D97706' }}>Cobro: {F(pb.pendienteCobro)}</span>}
                     {pb.facturaCount === 0 && <span style={{ color: '#444' }}>Sin facturas</span>}
                   </div>
                 </div>
@@ -404,25 +404,25 @@ export default function DashboardAdmin() {
           {expandedSections.conciliacion && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {/* Summary card */}
-              <div style={{ ...card, borderLeft: `3px solid ${conciliacionPct >= 80 ? '#57FF9A' : conciliacionPct >= 50 ? '#F59E0B' : '#EF4444'}` }}>
+              <div style={{ ...card, borderLeft: `3px solid ${conciliacionPct >= 80 ? '#10B981' : conciliacionPct >= 50 ? '#D97706' : '#DC2626'}` }}>
                 <div style={{ fontSize: 11, color: '#666', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>Facturas recibidas</div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
                   <div style={{ flex: 1 }}>
                     <div style={{ height: 8, background: '#222', borderRadius: 4, overflow: 'hidden' }}>
                       <div style={{
                         width: `${conciliacionPct}%`, height: '100%', borderRadius: 4,
-                        background: conciliacionPct >= 80 ? '#57FF9A' : conciliacionPct >= 50 ? '#F59E0B' : '#EF4444',
+                        background: conciliacionPct >= 80 ? '#10B981' : conciliacionPct >= 50 ? '#D97706' : '#DC2626',
                         transition: 'width 0.3s',
                       }} />
                     </div>
                   </div>
-                  <span style={{ fontSize: 16, fontWeight: 700, color: conciliacionPct >= 80 ? '#57FF9A' : conciliacionPct >= 50 ? '#F59E0B' : '#EF4444' }}>
+                  <span style={{ fontSize: 16, fontWeight: 700, color: conciliacionPct >= 80 ? '#10B981' : conciliacionPct >= 50 ? '#D97706' : '#DC2626' }}>
                     {conciliacionPct}%
                   </span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11 }}>
-                  <span style={{ color: '#57FF9A' }}><CheckCircle2 size={10} style={{ marginRight: 3, verticalAlign: -1 }} />{conciliadasCount} conciliadas</span>
-                  <span style={{ color: '#F59E0B' }}><AlertTriangle size={10} style={{ marginRight: 3, verticalAlign: -1 }} />{sinConciliar} pendientes</span>
+                  <span style={{ color: '#10B981' }}><CheckCircle2 size={10} style={{ marginRight: 3, verticalAlign: -1 }} />{conciliadasCount} conciliadas</span>
+                  <span style={{ color: '#D97706' }}><AlertTriangle size={10} style={{ marginRight: 3, verticalAlign: -1 }} />{sinConciliar} pendientes</span>
                 </div>
               </div>
 
@@ -431,7 +431,7 @@ export default function DashboardAdmin() {
                 conciliaciones.map(c => {
                   const mesDate = new Date(c.mes)
                   const mesName = mesDate.toLocaleDateString('es-MX', { month: 'short', year: 'numeric' })
-                  const statusColor = c.status === 'conciliado' ? '#57FF9A' : c.status === 'en_proceso' ? '#F59E0B' : '#EF4444'
+                  const statusColor = c.status === 'conciliado' ? '#10B981' : c.status === 'en_proceso' ? '#D97706' : '#DC2626'
                   return (
                     <div key={c.id} style={{ ...card, borderLeft: `3px solid ${statusColor}` }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
@@ -439,7 +439,7 @@ export default function DashboardAdmin() {
                         <Badge label={c.status === 'conciliado' ? 'OK' : c.status === 'en_proceso' ? 'En proceso' : 'Pendiente'} color={statusColor} />
                       </div>
                       {c.diferencia !== 0 && (
-                        <div style={{ fontSize: 11, color: '#EF4444' }}>Diferencia: {F(c.diferencia)}</div>
+                        <div style={{ fontSize: 11, color: '#DC2626' }}>Diferencia: {F(c.diferencia)}</div>
                       )}
                     </div>
                   )
@@ -464,9 +464,9 @@ export default function DashboardAdmin() {
               {areaCounts.map(ac => {
                 const pct = employees.length > 0 ? Math.round((ac.count / employees.length) * 100) : 0
                 const areaColors: Record<string, string> = {
-                  'ELECTRICO': '#3B82F6', 'INSTALACIONES ESPECIALES': '#8B5CF6',
-                  'INGENIERIAS ESPECIALES': '#C084FC', 'ADMINISTRACION': '#57FF9A',
-                  'ILUMINACION': '#F59E0B', 'INGENIERIAS ELECTRICAS': '#06B6D4',
+                  'ELECTRICO': '#2563EB', 'INSTALACIONES ESPECIALES': '#8B5CF6',
+                  'INGENIERIAS ESPECIALES': '#A78BFA', 'ADMINISTRACION': '#10B981',
+                  'ILUMINACION': '#D97706', 'INGENIERIAS ELECTRICAS': '#06B6D4',
                 }
                 const color = areaColors[ac.area] || '#888'
                 return (

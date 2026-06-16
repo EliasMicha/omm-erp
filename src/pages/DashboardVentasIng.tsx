@@ -121,7 +121,7 @@ const STAGE_LABELS: Record<string, string> = {
   oportunidad: 'Oportunidad', estimacion: 'Estimación', propuesta: 'Propuesta', contrato: 'Contrato'
 }
 const STAGE_COLORS: Record<string, string> = {
-  oportunidad: '#888', estimacion: '#F59E0B', propuesta: '#3B82F6', contrato: '#57FF9A'
+  oportunidad: '#888', estimacion: '#D97706', propuesta: '#2563EB', contrato: '#10B981'
 }
 
 function daysSince(dateStr: string | null): number {
@@ -377,9 +377,9 @@ export default function DashboardVentasIng() {
           subtitle="Tu panel de trabajo — cotizaciones, tareas y entregables"
         />
         <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2,1fr)' : 'repeat(4,1fr)', gap: 12, marginBottom: 20 }}>
-          <KpiCard label="Tareas pendientes" value={myTasks.length} color={myTasks.length > 8 ? '#F59E0B' : '#57FF9A'} icon={<Target size={16} />} />
-          <KpiCard label="Vencidas" value={myOverdue.length} color={myOverdue.length > 0 ? '#EF4444' : '#57FF9A'} icon={<AlertTriangle size={16} />} />
-          <KpiCard label="Esta semana" value={myDueWeek.length} color="#3B82F6" icon={<Calendar size={16} />} />
+          <KpiCard label="Tareas pendientes" value={myTasks.length} color={myTasks.length > 8 ? '#D97706' : '#10B981'} icon={<Target size={16} />} />
+          <KpiCard label="Vencidas" value={myOverdue.length} color={myOverdue.length > 0 ? '#DC2626' : '#10B981'} icon={<AlertTriangle size={16} />} />
+          <KpiCard label="Esta semana" value={myDueWeek.length} color="#2563EB" icon={<Calendar size={16} />} />
           <KpiCard label="Cotizaciones" value={myQuots.length} icon={<FileText size={16} />} />
         </div>
         {myOverdue.length > 0 && <OverdueAlert tasks={myOverdue} />}
@@ -455,11 +455,11 @@ export default function DashboardVentasIng() {
 
       {/* ── KPI ROW ── */}
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2,1fr)' : 'repeat(5,1fr)', gap: 12, marginBottom: 20 }}>
-        <KpiCard label="Tareas pendientes" value={tasks.length} color={tasks.length > 20 ? '#F59E0B' : '#57FF9A'} icon={<Target size={16} />} />
-        <KpiCard label="Vencidas" value={overdueTasks.length} color={overdueTasks.length > 0 ? '#EF4444' : '#57FF9A'} icon={<AlertTriangle size={16} />} />
-        <KpiCard label="Esta semana" value={dueThisWeek.length} color="#3B82F6" icon={<Calendar size={16} />} />
-        <KpiCard label="Sin asignar" value={unassignedQuots.length} color={unassignedQuots.length > 0 ? '#F59E0B' : '#57FF9A'} icon={<UserCheck size={16} />} />
-        <KpiCard label="Alertas SLA" value={slaAlerts.length} color={slaAlerts.length > 0 ? '#EF4444' : '#57FF9A'} icon={<Clock size={16} />} />
+        <KpiCard label="Tareas pendientes" value={tasks.length} color={tasks.length > 20 ? '#D97706' : '#10B981'} icon={<Target size={16} />} />
+        <KpiCard label="Vencidas" value={overdueTasks.length} color={overdueTasks.length > 0 ? '#DC2626' : '#10B981'} icon={<AlertTriangle size={16} />} />
+        <KpiCard label="Esta semana" value={dueThisWeek.length} color="#2563EB" icon={<Calendar size={16} />} />
+        <KpiCard label="Sin asignar" value={unassignedQuots.length} color={unassignedQuots.length > 0 ? '#D97706' : '#10B981'} icon={<UserCheck size={16} />} />
+        <KpiCard label="Alertas SLA" value={slaAlerts.length} color={slaAlerts.length > 0 ? '#DC2626' : '#10B981'} icon={<Clock size={16} />} />
       </div>
 
       {/* ── OVERDUE ALERT (compact) ── */}
@@ -489,7 +489,7 @@ export default function DashboardVentasIng() {
           {/* Requiere Acción — compact inline */}
           {actionItems.length > 0 && (
             <div>
-              <CollapsibleHeader title="Requiere Acción" count={actionItems.length} icon={<Zap size={15} />} expanded={expandedSections.alerts} onToggle={() => toggle('alerts')} color="#EF4444" />
+              <CollapsibleHeader title="Requiere Acción" count={actionItems.length} icon={<Zap size={15} />} expanded={expandedSections.alerts} onToggle={() => toggle('alerts')} color="#DC2626" />
               {expandedSections.alerts && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 250, overflowY: 'auto' }}>
                   {actionItems.slice(0, 8).map(item => (
@@ -498,7 +498,7 @@ export default function DashboardVentasIng() {
                       style={{
                         background: '#111', border: '1px solid #222', borderRadius: 8,
                         padding: '8px 12px', cursor: 'pointer',
-                        borderLeft: `3px solid ${item.urgency >= 4 ? '#EF4444' : '#F59E0B'}`,
+                        borderLeft: `3px solid ${item.urgency >= 4 ? '#DC2626' : '#D97706'}`,
                         transition: 'border-color 0.15s',
                       }}
                       onMouseEnter={e => e.currentTarget.style.borderColor = '#444'}
@@ -512,7 +512,7 @@ export default function DashboardVentasIng() {
                             {item.quotation.assignee_id && empMap[item.quotation.assignee_id] ? empMap[item.quotation.assignee_id] : 'Sin asignar'}
                           </div>
                         </div>
-                        <Badge label={item.reason} color={item.urgency >= 4 ? '#EF4444' : '#F59E0B'} />
+                        <Badge label={item.reason} color={item.urgency >= 4 ? '#DC2626' : '#D97706'} />
                       </div>
                     </div>
                   ))}
@@ -538,7 +538,7 @@ export default function DashboardVentasIng() {
                 workDistribution.map(w => (
                   <div key={w.employee.id} style={{
                     background: '#111', border: '1px solid #222', borderRadius: 10, padding: '10px 14px',
-                    borderLeft: `3px solid ${w.score >= 80 ? '#57FF9A' : w.score >= 50 ? '#F59E0B' : '#EF4444'}`,
+                    borderLeft: `3px solid ${w.score >= 80 ? '#10B981' : w.score >= 50 ? '#D97706' : '#DC2626'}`,
                   }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                       <div>
@@ -552,22 +552,22 @@ export default function DashboardVentasIng() {
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                         fontSize: 12, fontWeight: 700,
                         background: w.score >= 80 ? 'rgba(87,255,154,0.12)' : w.score >= 50 ? 'rgba(245,158,11,0.12)' : 'rgba(239,68,68,0.12)',
-                        color: w.score >= 80 ? '#57FF9A' : w.score >= 50 ? '#F59E0B' : '#EF4444',
+                        color: w.score >= 80 ? '#10B981' : w.score >= 50 ? '#D97706' : '#DC2626',
                       }}>
                         {w.score}
                       </div>
                     </div>
                     {/* Compact stats row */}
                     <div style={{ display: 'flex', gap: 4, marginBottom: 6 }}>
-                      {w.taskCount > 0 && <div style={{ flex: w.taskCount, height: 4, borderRadius: 2, background: w.overdueCount > 0 ? '#EF4444' : '#3B82F6' }} />}
-                      {w.quotCount > 0 && <div style={{ flex: w.quotCount, height: 4, borderRadius: 2, background: w.stalledCount > 0 ? '#F59E0B' : '#57FF9A' }} />}
+                      {w.taskCount > 0 && <div style={{ flex: w.taskCount, height: 4, borderRadius: 2, background: w.overdueCount > 0 ? '#DC2626' : '#2563EB' }} />}
+                      {w.quotCount > 0 && <div style={{ flex: w.quotCount, height: 4, borderRadius: 2, background: w.stalledCount > 0 ? '#D97706' : '#10B981' }} />}
                       {w.taskCount === 0 && w.quotCount === 0 && <div style={{ flex: 1, height: 4, borderRadius: 2, background: '#222' }} />}
                     </div>
                     <div style={{ display: 'flex', gap: 10, fontSize: 11, flexWrap: 'wrap' }}>
                       <span style={{ color: '#888' }}>{w.taskCount}T</span>
                       <span style={{ color: '#888' }}>{w.quotCount}C</span>
-                      {w.overdueCount > 0 && <span style={{ color: '#EF4444', fontWeight: 600 }}>{w.overdueCount} venc</span>}
-                      {w.stalledCount > 0 && <span style={{ color: '#F59E0B', fontWeight: 600 }}>{w.stalledCount} estanc</span>}
+                      {w.overdueCount > 0 && <span style={{ color: '#DC2626', fontWeight: 600 }}>{w.overdueCount} venc</span>}
+                      {w.stalledCount > 0 && <span style={{ color: '#D97706', fontWeight: 600 }}>{w.stalledCount} estanc</span>}
                     </div>
                   </div>
                 ))
@@ -604,7 +604,7 @@ export default function DashboardVentasIng() {
                     </div>
                     <ProgressBar pct={p.advance_pct || 0} />
                     {pOverdue.length > 0 && (
-                      <div style={{ fontSize: 10, color: '#EF4444', marginTop: 4, display: 'flex', alignItems: 'center', gap: 3 }}>
+                      <div style={{ fontSize: 10, color: '#DC2626', marginTop: 4, display: 'flex', alignItems: 'center', gap: 3 }}>
                         <AlertTriangle size={9} /> {pOverdue.length} tarea{pOverdue.length > 1 ? 's' : ''} vencida{pOverdue.length > 1 ? 's' : ''}
                       </div>
                     )}
@@ -612,7 +612,7 @@ export default function DashboardVentasIng() {
                     {pTasks.length > 0 && (
                       <div style={{ marginTop: 6, paddingTop: 6, borderTop: '1px solid #1a1a1a' }}>
                         {pTasks.slice(0, 3).map(t => (
-                          <div key={t.id} style={{ fontSize: 11, color: t.due_date && t.due_date < now ? '#EF4444' : '#888', padding: '2px 0', display: 'flex', justifyContent: 'space-between' }}>
+                          <div key={t.id} style={{ fontSize: 11, color: t.due_date && t.due_date < now ? '#DC2626' : '#888', padding: '2px 0', display: 'flex', justifyContent: 'space-between' }}>
                             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{t.name}</span>
                             {t.due_date && <span style={{ flexShrink: 0, marginLeft: 8, fontSize: 10 }}>{formatDate(t.due_date)}</span>}
                           </div>
@@ -682,7 +682,7 @@ function CollapsibleHeader({ title, count, icon, expanded, onToggle, color }: {
 function OverdueAlert({ tasks, empMap }: { tasks: ProjectTask[]; empMap?: Record<string, string> }) {
   return (
     <div style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: 10, padding: '14px 18px', marginBottom: 16 }}>
-      <div style={{ fontSize: 13, fontWeight: 700, color: '#EF4444', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
+      <div style={{ fontSize: 13, fontWeight: 700, color: '#DC2626', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
         <AlertTriangle size={14} /> {tasks.length} tarea{tasks.length > 1 ? 's' : ''} vencida{tasks.length > 1 ? 's' : ''}
       </div>
       {tasks.slice(0, 6).map(t => (
@@ -694,7 +694,7 @@ function OverdueAlert({ tasks, empMap }: { tasks: ProjectTask[]; empMap?: Record
               <span style={{ color: '#888' }}> · {empMap[t.assignee_id]}</span>
             )}
           </span>
-          <span style={{ color: '#EF4444', fontSize: 11 }}>{t.due_date ? formatDate(t.due_date) : ''}</span>
+          <span style={{ color: '#DC2626', fontSize: 11 }}>{t.due_date ? formatDate(t.due_date) : ''}</span>
         </div>
       ))}
     </div>
@@ -710,12 +710,12 @@ function TaskRow({ task, now, onClick, showAssignee, empMap, compact }: {
       ...card,
       padding: compact ? '8px 14px' : '10px 14px',
       cursor: 'pointer',
-      borderLeft: `3px solid ${isOverdue ? '#EF4444' : task.status === 'en_progreso' ? '#3B82F6' : '#333'}`,
+      borderLeft: `3px solid ${isOverdue ? '#DC2626' : task.status === 'en_progreso' ? '#2563EB' : '#333'}`,
     }}
       onMouseEnter={e => cardHover(e, true)} onMouseLeave={e => cardHover(e, false)}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: compact ? 12 : 13, fontWeight: 500, color: isOverdue ? '#EF4444' : '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          <div style={{ fontSize: compact ? 12 : 13, fontWeight: 500, color: isOverdue ? '#DC2626' : '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {task.name}
           </div>
           {!compact && (
@@ -732,7 +732,7 @@ function TaskRow({ task, now, onClick, showAssignee, empMap, compact }: {
         </div>
         <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: 12 }}>
           {task.due_date && (
-            <div style={{ fontSize: 11, color: isOverdue ? '#EF4444' : '#888', fontWeight: isOverdue ? 600 : 400 }}>
+            <div style={{ fontSize: 11, color: isOverdue ? '#DC2626' : '#888', fontWeight: isOverdue ? 600 : 400 }}>
               {formatDate(task.due_date)}
             </div>
           )}
@@ -763,12 +763,12 @@ function QuotRow({ quot, empMap, onClick }: { quot: Quotation; empMap?: Record<s
             {empMap && quot.assignee_id && empMap[quot.assignee_id] && (
               <span> · {empMap[quot.assignee_id]}</span>
             )}
-            {!quot.assignee_id && <span style={{ color: '#F59E0B' }}> · Sin asignar</span>}
+            {!quot.assignee_id && <span style={{ color: '#D97706' }}> · Sin asignar</span>}
           </div>
         </div>
         <div style={{ textAlign: 'right' }}>
           <Badge label={STAGE_LABELS[quot.stage] || quot.stage} color={STAGE_COLORS[quot.stage] || '#888'} />
-          <div style={{ fontSize: 10, color: days > 7 ? '#F59E0B' : '#555', marginTop: 4 }}>{days}d en etapa</div>
+          <div style={{ fontSize: 10, color: days > 7 ? '#D97706' : '#555', marginTop: 4 }}>{days}d en etapa</div>
         </div>
       </div>
     </div>
@@ -802,7 +802,7 @@ function ProjectRow({ project, tasks, onClick, empMap }: {
         <div style={{ textAlign: 'right' }}>
           <div style={{ fontSize: 11, color: '#888' }}>{pendingCount} pendiente{pendingCount !== 1 ? 's' : ''}</div>
           {project.end_date_planned && (
-            <div style={{ fontSize: 10, color: project.end_date_planned < new Date().toISOString().slice(0, 10) ? '#EF4444' : '#555' }}>
+            <div style={{ fontSize: 10, color: project.end_date_planned < new Date().toISOString().slice(0, 10) ? '#DC2626' : '#555' }}>
               {formatDate(project.end_date_planned)}
             </div>
           )}

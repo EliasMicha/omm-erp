@@ -22,28 +22,28 @@ const FCUR = (n: number, cur: string) => cur === 'USD' ? FUSD(n) : F(n)
 const PCT = (n: number) => (n * 100).toFixed(1) + '%'
 
 const STAGE_COLORS: Record<string, string> = {
-  oportunidad: '#F59E0B', cotizando: '#3B82F6', negociacion: '#C084FC',
-  contrato: '#57FF9A', perdido: '#EF4444', pausado: '#6B7280',
+  oportunidad: '#D97706', cotizando: '#2563EB', negociacion: '#A78BFA',
+  contrato: '#10B981', perdido: '#DC2626', pausado: '#6B7280',
 }
 const STAGE_LABELS: Record<string, string> = {
   oportunidad: 'Oportunidad', cotizando: 'Cotizando', negociacion: 'Negociación',
   contrato: 'Contrato', perdido: 'Perdido', pausado: 'Pausado',
 }
 const PO_STATUS_COLOR: Record<string, string> = {
-  borrador: '#6B7280', enviada: '#3B82F6', confirmada: '#57FF9A',
-  entregada: '#34D399', cancelada: '#EF4444',
+  borrador: '#6B7280', enviada: '#2563EB', confirmada: '#10B981',
+  entregada: '#34D399', cancelada: '#DC2626',
 }
 const MILESTONE_COLOR: Record<string, string> = {
-  pendiente: '#F59E0B', vigente: '#3B82F6', cobrado: '#57FF9A', vencido: '#EF4444',
+  pendiente: '#D97706', vigente: '#2563EB', cobrado: '#10B981', vencido: '#DC2626',
 }
 const TASK_STATUS_ICON: Record<string, React.ReactNode> = {
-  pendiente: <Clock size={12} color="#F59E0B" />,
-  en_progreso: <BarChart3 size={12} color="#3B82F6" />,
-  completada: <CheckCircle2 size={12} color="#57FF9A" />,
-  bloqueada: <XCircle size={12} color="#EF4444" />,
+  pendiente: <Clock size={12} color="#D97706" />,
+  en_progreso: <BarChart3 size={12} color="#2563EB" />,
+  completada: <CheckCircle2 size={12} color="#10B981" />,
+  bloqueada: <XCircle size={12} color="#DC2626" />,
 }
 const BLOQUEO_SEV_COLOR: Record<string, string> = {
-  baja: '#F59E0B', media: '#F97316', alta: '#EF4444', critica: '#DC2626',
+  baja: '#D97706', media: '#F97316', alta: '#DC2626', critica: '#DC2626',
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -705,7 +705,7 @@ export default function LeadDashboard() {
           <div style={{ fontSize: 13, color: '#666' }}>
             {lead.company && <span>{lead.company} · </span>}
             {lead.contact_name && <span>{lead.contact_name} · </span>}
-            <Badge label={lead.status} color={lead.status === 'ganado' ? '#57FF9A' : lead.status === 'perdido' ? '#EF4444' : '#3B82F6'} />
+            <Badge label={lead.status} color={lead.status === 'ganado' ? '#10B981' : lead.status === 'perdido' ? '#DC2626' : '#2563EB'} />
           </div>
         </div>
       </div>
@@ -723,19 +723,19 @@ export default function LeadDashboard() {
           />
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 16, fontSize: 12 }}>
-          <span style={{ color: '#57FF9A', fontWeight: 600 }}>Vendido {F(financials.totalVendido)}</span>
+          <span style={{ color: '#10B981', fontWeight: 600 }}>Vendido {F(financials.totalVendido)}</span>
           <span style={{ color: '#34D399', fontWeight: 600 }}>Cobrado {F(financials.totalCobrado)}</span>
-          <span style={{ color: '#F59E0B', fontWeight: 600 }}>Por cobrar {F(financials.porCobrar)}</span>
-          <span style={{ color: '#3B82F6', fontWeight: 600 }}>{financials.totalVendido > 0 ? PCT(financials.totalCobrado / financials.totalVendido) : '—'}</span>
+          <span style={{ color: '#D97706', fontWeight: 600 }}>Por cobrar {F(financials.porCobrar)}</span>
+          <span style={{ color: '#2563EB', fontWeight: 600 }}>{financials.totalVendido > 0 ? PCT(financials.totalCobrado / financials.totalVendido) : '—'}</span>
         </div>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(6, 1fr)', gap: 10, marginBottom: 24 }}>
-        <KpiDual label="Total Vendido" usd={financials.byCur.USD.vendido} mxn={financials.byCur.MXN.vendido} color="#57FF9A" />
+        <KpiDual label="Total Vendido" usd={financials.byCur.USD.vendido} mxn={financials.byCur.MXN.vendido} color="#10B981" />
         <KpiDual label="Cobrado" usd={financials.byCur.USD.cobrado} mxn={financials.byCur.MXN.cobrado} color="#34D399" />
-        <KpiDual label="Por Cobrar" usd={Math.max(0, financials.byCur.USD.vendido - financials.byCur.USD.cobrado)} mxn={Math.max(0, financials.byCur.MXN.vendido - financials.byCur.MXN.cobrado)} color="#F59E0B" />
-        <KpiDual label="Comprado" usd={financials.byCur.USD.comprado} mxn={financials.byCur.MXN.comprado} color="#3B82F6" />
-        <KpiDual label="Por Comprar" usd={Math.max(0, financials.byCur.USD.presupuesto - financials.byCur.USD.comprado)} mxn={Math.max(0, financials.byCur.MXN.presupuesto - financials.byCur.MXN.comprado)} color="#F59E0B" />
-        <KpiMini label="Bloqueos" value={String(allBloqueos.length)} color={allBloqueos.length > 0 ? '#EF4444' : '#57FF9A'} />
+        <KpiDual label="Por Cobrar" usd={Math.max(0, financials.byCur.USD.vendido - financials.byCur.USD.cobrado)} mxn={Math.max(0, financials.byCur.MXN.vendido - financials.byCur.MXN.cobrado)} color="#D97706" />
+        <KpiDual label="Comprado" usd={financials.byCur.USD.comprado} mxn={financials.byCur.MXN.comprado} color="#2563EB" />
+        <KpiDual label="Por Comprar" usd={Math.max(0, financials.byCur.USD.presupuesto - financials.byCur.USD.comprado)} mxn={Math.max(0, financials.byCur.MXN.presupuesto - financials.byCur.MXN.comprado)} color="#D97706" />
+        <KpiMini label="Bloqueos" value={String(allBloqueos.length)} color={allBloqueos.length > 0 ? '#DC2626' : '#10B981'} />
       </div>
       </>)}
 
@@ -750,7 +750,7 @@ export default function LeadDashboard() {
             if (curQuots.length === 0) return null
             const sym = cur === 'USD' ? 'US$' : '$'
             const summary = quotSummaryByCur[cur]
-            const accentColor = cur === 'USD' ? '#3B82F6' : '#57FF9A'
+            const accentColor = cur === 'USD' ? '#2563EB' : '#10B981'
 
             return (
               <div key={cur} style={{ marginBottom: 20 }}>
@@ -778,7 +778,7 @@ export default function LeadDashboard() {
                         <td style={tdS}><span style={{ color: '#fff', fontWeight: 500 }}>{q.name}</span></td>
                         <td style={tdS}><Badge label={q.specialty?.toUpperCase() || '—'} color="#555" /></td>
                         <td style={tdS}><Badge label={STAGE_LABELS[q.stage] || q.stage} color={STAGE_COLORS[q.stage] || '#555'} /></td>
-                        <td style={{ ...tdS, textAlign: 'right', fontWeight: 600, color: q.stage === 'contrato' ? '#57FF9A' : '#888' }}>
+                        <td style={{ ...tdS, textAlign: 'right', fontWeight: 600, color: q.stage === 'contrato' ? '#10B981' : '#888' }}>
                           {sym}{getQuotTotalIva(q).toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
                         </td>
                         <td style={{ ...tdS, color: '#555' }}>{q.created_at?.slice(0, 10)}</td>
@@ -859,16 +859,16 @@ export default function LeadDashboard() {
       {showFinancials && <Section title="Estado de Cuenta" icon={<DollarSign size={14} />} count={bankMovements.filter(m => m.tipo === 'abono').length} expanded={expanded.estado} onToggle={() => toggle('estado')}>
         {/* Summary bar — dual currency */}
         <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4, 1fr)', gap: 10, marginBottom: 16 }}>
-          <MiniStatDual label="Total vendido" usd={financials.byCur.USD.vendido} mxn={financials.byCur.MXN.vendido} accent="#57FF9A" />
+          <MiniStatDual label="Total vendido" usd={financials.byCur.USD.vendido} mxn={financials.byCur.MXN.vendido} accent="#10B981" />
           <MiniStatDual label="Cobrado" usd={financials.byCur.USD.cobrado} mxn={financials.byCur.MXN.cobrado} accent="#34D399" />
-          <MiniStatDual label="Por cobrar" usd={Math.max(0, financials.byCur.USD.vendido - financials.byCur.USD.cobrado)} mxn={Math.max(0, financials.byCur.MXN.vendido - financials.byCur.MXN.cobrado)} accent="#F59E0B" />
-          <MiniStat label="% Cobro" value={financials.totalVendido > 0 ? PCT(financials.totalCobrado / financials.totalVendido) : '—'} accent="#3B82F6" />
+          <MiniStatDual label="Por cobrar" usd={Math.max(0, financials.byCur.USD.vendido - financials.byCur.USD.cobrado)} mxn={Math.max(0, financials.byCur.MXN.vendido - financials.byCur.MXN.cobrado)} accent="#D97706" />
+          <MiniStat label="% Cobro" value={financials.totalVendido > 0 ? PCT(financials.totalCobrado / financials.totalVendido) : '—'} accent="#2563EB" />
         </div>
         {/* Progress bar */}
         {financials.totalVendido > 0 && (
           <div style={{ marginBottom: 16 }}>
             <div style={{ display: 'flex', height: 10, borderRadius: 5, overflow: 'hidden', background: '#1a1a1a' }}>
-              <div style={{ width: `${Math.min((financials.totalCobrado / financials.totalVendido) * 100, 100)}%`, background: '#57FF9A', transition: 'width 0.3s' }} />
+              <div style={{ width: `${Math.min((financials.totalCobrado / financials.totalVendido) * 100, 100)}%`, background: '#10B981', transition: 'width 0.3s' }} />
             </div>
           </div>
         )}
@@ -876,7 +876,7 @@ export default function LeadDashboard() {
         {/* ── SALDO POR COTIZACIÓN ── */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
           <span style={{ fontSize: 11, fontWeight: 600, color: '#888', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Saldo por Cotización</span>
-          <button onClick={exportEstadoCuenta} style={{ ...linkBtnS, padding: '4px 10px', fontSize: 11, gap: 4, color: '#3B82F6', borderColor: '#3B82F644' }}>
+          <button onClick={exportEstadoCuenta} style={{ ...linkBtnS, padding: '4px 10px', fontSize: 11, gap: 4, color: '#2563EB', borderColor: '#2563EB44' }}>
             <Download size={12} /> Exportar PDF
           </button>
         </div>
@@ -917,12 +917,12 @@ export default function LeadDashboard() {
                       <td style={tdS}><Badge label={SPECIALTY_CONFIG[q.specialty as keyof typeof SPECIALTY_CONFIG]?.label || q.specialty} color={SPECIALTY_CONFIG[q.specialty as keyof typeof SPECIALTY_CONFIG]?.color || '#555'} /></td>
                       <td style={tdS}><Badge label={cur} color={cur === 'USD' ? '#06B6D4' : '#A78BFA'} /></td>
                       <td style={{ ...tdS, textAlign: 'right', fontWeight: 600, color: '#fff' }}>{FCUR(total, cur)}</td>
-                      <td style={{ ...tdS, textAlign: 'right', fontWeight: 600, color: '#57FF9A' }}>{FCUR(pagado, cur)}</td>
-                      <td style={{ ...tdS, textAlign: 'right', fontWeight: 600, color: pendiente > 0 ? '#F59E0B' : '#57FF9A' }}>{FCUR(pendiente, cur)}</td>
+                      <td style={{ ...tdS, textAlign: 'right', fontWeight: 600, color: '#10B981' }}>{FCUR(pagado, cur)}</td>
+                      <td style={{ ...tdS, textAlign: 'right', fontWeight: 600, color: pendiente > 0 ? '#D97706' : '#10B981' }}>{FCUR(pendiente, cur)}</td>
                       <td style={{ ...tdS, textAlign: 'center' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                           <div style={{ flex: 1, height: 6, borderRadius: 3, background: '#1a1a1a', overflow: 'hidden' }}>
-                            <div style={{ width: `${Math.min(pctPagado * 100, 100)}%`, height: '100%', background: pctPagado >= 1 ? '#57FF9A' : '#3B82F6', transition: 'width 0.3s' }} />
+                            <div style={{ width: `${Math.min(pctPagado * 100, 100)}%`, height: '100%', background: pctPagado >= 1 ? '#10B981' : '#2563EB', transition: 'width 0.3s' }} />
                           </div>
                           <span style={{ fontSize: 10, color: '#888', minWidth: 28 }}>{Math.round(pctPagado * 100)}%</span>
                         </div>
@@ -941,8 +941,8 @@ export default function LeadDashboard() {
                       <span key={c} style={{ color: '#aaa' }}>
                         <Badge label={c} color={c === 'USD' ? '#06B6D4' : '#A78BFA'} />
                         {' '}Total: <b style={{ color: '#fff' }}>{FCUR(byC[c].total, c)}</b>
-                        {' '}| Pagado: <b style={{ color: '#57FF9A' }}>{FCUR(byC[c].pagado, c)}</b>
-                        {' '}| Pendiente: <b style={{ color: '#F59E0B' }}>{FCUR(Math.max(0, byC[c].total - byC[c].pagado), c)}</b>
+                        {' '}| Pagado: <b style={{ color: '#10B981' }}>{FCUR(byC[c].pagado, c)}</b>
+                        {' '}| Pendiente: <b style={{ color: '#D97706' }}>{FCUR(Math.max(0, byC[c].total - byC[c].pagado), c)}</b>
                       </span>
                     ))}
                   </div>
@@ -1016,10 +1016,10 @@ export default function LeadDashboard() {
                       <td style={{ ...tdS, textAlign: 'right', color: e.tipo === 'cargo' ? '#fff' : '#333' }}>
                         {e.tipo === 'cargo' ? FCUR(e.monto, e.cur) : ''}
                       </td>
-                      <td style={{ ...tdS, textAlign: 'right', color: e.tipo === 'abono' ? '#57FF9A' : '#333' }}>
+                      <td style={{ ...tdS, textAlign: 'right', color: e.tipo === 'abono' ? '#10B981' : '#333' }}>
                         {e.tipo === 'abono' ? FCUR(e.monto, e.cur) : ''}
                       </td>
-                      <td style={{ ...tdS, textAlign: 'right', fontWeight: 600, color: e.saldo > 0 ? '#F59E0B' : '#57FF9A' }}>
+                      <td style={{ ...tdS, textAlign: 'right', fontWeight: 600, color: e.saldo > 0 ? '#D97706' : '#10B981' }}>
                         {FCUR(e.saldo, e.cur)}
                       </td>
                     </tr>
@@ -1049,7 +1049,7 @@ export default function LeadDashboard() {
             <>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 20, marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
                 <span style={{ fontSize: 11, fontWeight: 600, color: '#888', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Egresos Registrados</span>
-                <span style={{ fontSize: 11, color: '#EF4444', fontWeight: 600 }}>{F(totalEgr)}</span>
+                <span style={{ fontSize: 11, color: '#DC2626', fontWeight: 600 }}>{F(totalEgr)}</span>
               </div>
               <div style={{ overflowX: 'auto' }}>
                 <table style={tblS}>
@@ -1069,11 +1069,11 @@ export default function LeadDashboard() {
                       <td style={tdS}>
                         <span style={{ color: '#fff', fontWeight: 500 }}>{(m.concepto || '—').substring(0, 45)}</span>
                         {m.source === 'efectivo' && <span style={{ marginLeft: 6, fontSize: 9, color: '#10B981', background: '#10B98122', padding: '1px 5px', borderRadius: 3, fontWeight: 600 }}>💵 EFECTIVO</span>}
-                        {m.source === 'nomina' && <span style={{ marginLeft: 6, fontSize: 9, color: '#C084FC', background: '#C084FC22', padding: '1px 5px', borderRadius: 3, fontWeight: 600 }}>NÓMINA</span>}
+                        {m.source === 'nomina' && <span style={{ marginLeft: 6, fontSize: 9, color: '#A78BFA', background: '#A78BFA22', padding: '1px 5px', borderRadius: 3, fontWeight: 600 }}>NÓMINA</span>}
                       </td>
                       <td style={{ ...tdS, color: '#666', fontSize: 11 }}>{m.beneficiario || '—'}</td>
                       <td style={tdS}><Badge label={m.moneda || 'MXN'} color={m.moneda === 'USD' ? '#06B6D4' : '#A78BFA'} /></td>
-                      <td style={{ ...tdS, textAlign: 'right', fontWeight: 600, color: '#EF4444' }}>-{FCUR(m.monto || 0, m.moneda || 'MXN')}</td>
+                      <td style={{ ...tdS, textAlign: 'right', fontWeight: 600, color: '#DC2626' }}>-{FCUR(m.monto || 0, m.moneda || 'MXN')}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -1095,17 +1095,17 @@ export default function LeadDashboard() {
           return (
             <div style={{ display: 'flex', gap: 16, marginTop: 16, padding: '10px 14px', background: '#111', borderRadius: 8, border: '1px solid #222', fontSize: 12, flexWrap: 'wrap', alignItems: 'center' }}>
               <span style={{ color: '#888' }}>Flujo neto:</span>
-              <span style={{ color: '#57FF9A', fontWeight: 600 }}>
+              <span style={{ color: '#10B981', fontWeight: 600 }}>
                 Ingresos {F(ingresos)}
                 {ingresosEfectivo > 0 && <span style={{ marginLeft: 4, fontSize: 10, color: '#10B981' }}>(💵 {F(ingresosEfectivo)} efectivo)</span>}
               </span>
               <span style={{ color: '#666' }}>—</span>
-              <span style={{ color: '#EF4444', fontWeight: 600 }}>
+              <span style={{ color: '#DC2626', fontWeight: 600 }}>
                 Egresos {F(egresos)}
                 {egresosEfectivo > 0 && <span style={{ marginLeft: 4, fontSize: 10, color: '#10B981' }}>(💵 {F(egresosEfectivo)} efectivo)</span>}
               </span>
               <span style={{ color: '#666' }}>=</span>
-              <span style={{ color: neto >= 0 ? '#57FF9A' : '#EF4444', fontWeight: 700 }}>{F(neto)}</span>
+              <span style={{ color: neto >= 0 ? '#10B981' : '#DC2626', fontWeight: 700 }}>{F(neto)}</span>
             </div>
           )
         })()}
@@ -1128,7 +1128,7 @@ export default function LeadDashboard() {
                   setShowQuotPicker(true)
                 }
               }}
-              style={{ ...linkBtnS, padding: '4px 10px', fontSize: 11, gap: 4, color: '#C084FC', borderColor: '#A855F744', background: 'rgba(168,85,247,0.08)' }}>
+              style={{ ...linkBtnS, padding: '4px 10px', fontSize: 11, gap: 4, color: '#A78BFA', borderColor: '#7C3AED44', background: 'rgba(168,85,247,0.08)' }}>
               💰 Plan de pagos
             </button>
             {/* Fallback: capturar un hito a la vez (manual) */}
@@ -1160,9 +1160,9 @@ export default function LeadDashboard() {
                   <tr key={m.id} style={trS}>
                     <td style={tdS}><span style={{ color: '#fff', fontWeight: 500 }}>{m.name}</span></td>
                     <td style={{ ...tdS, color: '#666', fontSize: 11 }}>{proj?.name || '—'}</td>
-                    <td style={{ ...tdS, color: m.status === 'vencido' ? '#EF4444' : '#888' }}>{m.due_date || '—'}</td>
+                    <td style={{ ...tdS, color: m.status === 'vencido' ? '#DC2626' : '#888' }}>{m.due_date || '—'}</td>
                     <td style={tdS}><Badge label={m.status} color={MILESTONE_COLOR[m.status] || '#555'} /></td>
-                    <td style={{ ...tdS, textAlign: 'right', fontWeight: 600, color: m.status === 'cobrado' ? '#57FF9A' : '#fff' }}>{FCUR(m.amount || 0, mCur)}</td>
+                    <td style={{ ...tdS, textAlign: 'right', fontWeight: 600, color: m.status === 'cobrado' ? '#10B981' : '#fff' }}>{FCUR(m.amount || 0, mCur)}</td>
                   </tr>
                 )
               })}
@@ -1181,9 +1181,9 @@ export default function LeadDashboard() {
         />}
         {/* Alerta: cobrado < comprado */}
         {financials.totalCobrado < financials.totalComprado && financials.totalComprado > 0 && (
-          <div style={{ marginTop: 12, padding: '10px 14px', background: '#EF444410', border: '1px solid #EF444440', borderRadius: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
-            <AlertTriangle size={14} color="#EF4444" />
-            <span style={{ fontSize: 12, color: '#EF4444' }}>Lo cobrado es menor a lo comprado. Diferencia: {F(financials.totalComprado - financials.totalCobrado)}</span>
+          <div style={{ marginTop: 12, padding: '10px 14px', background: '#DC262610', border: '1px solid #DC262640', borderRadius: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <AlertTriangle size={14} color="#DC2626" />
+            <span style={{ fontSize: 12, color: '#DC2626' }}>Lo cobrado es menor a lo comprado. Diferencia: {F(financials.totalComprado - financials.totalCobrado)}</span>
           </div>
         )}
       </Section>}
@@ -1191,10 +1191,10 @@ export default function LeadDashboard() {
       {/* ══════════ 3. COMPRAS FALTANTES ══════════ */}
       <Section title="Compras" icon={<ShoppingCart size={14} />} count={pos.length} expanded={expanded.compras} onToggle={() => toggle('compras')}>
         <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4, 1fr)', gap: 10, marginBottom: 16 }}>
-          <MiniStatDual label="Presupuesto compras" usd={financials.byCur.USD.presupuesto} mxn={financials.byCur.MXN.presupuesto} accent="#3B82F6" />
-          <MiniStatDual label="Comprado" usd={financials.byCur.USD.comprado} mxn={financials.byCur.MXN.comprado} accent="#F59E0B" />
-          <MiniStatDual label="Por comprar" usd={Math.max(0, financials.byCur.USD.presupuesto - financials.byCur.USD.comprado)} mxn={Math.max(0, financials.byCur.MXN.presupuesto - financials.byCur.MXN.comprado)} accent={financials.porComprar > 0 ? '#EF4444' : '#57FF9A'} />
-          <MiniStat label="% Avance" value={financials.totalCompras > 0 ? PCT(financials.totalComprado / financials.totalCompras) : '—'} accent="#3B82F6" />
+          <MiniStatDual label="Presupuesto compras" usd={financials.byCur.USD.presupuesto} mxn={financials.byCur.MXN.presupuesto} accent="#2563EB" />
+          <MiniStatDual label="Comprado" usd={financials.byCur.USD.comprado} mxn={financials.byCur.MXN.comprado} accent="#D97706" />
+          <MiniStatDual label="Por comprar" usd={Math.max(0, financials.byCur.USD.presupuesto - financials.byCur.USD.comprado)} mxn={Math.max(0, financials.byCur.MXN.presupuesto - financials.byCur.MXN.comprado)} accent={financials.porComprar > 0 ? '#DC2626' : '#10B981'} />
+          <MiniStat label="% Avance" value={financials.totalCompras > 0 ? PCT(financials.totalComprado / financials.totalCompras) : '—'} accent="#2563EB" />
         </div>
         {pos.length === 0 ? (
           <Empty text="Sin órdenes de compra" />
@@ -1221,7 +1221,7 @@ export default function LeadDashboard() {
                     <td style={{ ...tdS, color: '#666', fontSize: 11 }}>{proj?.name || '—'}</td>
                     <td style={tdS}><Badge label={po.status} color={PO_STATUS_COLOR[po.status] || '#555'} /></td>
                     <td style={tdS}>
-                      <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 4, fontWeight: 600, background: po.currency === 'USD' ? '#3B82F620' : '#57FF9A20', color: po.currency === 'USD' ? '#3B82F6' : '#57FF9A' }}>{po.currency || 'MXN'}</span>
+                      <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 4, fontWeight: 600, background: po.currency === 'USD' ? '#2563EB20' : '#10B98120', color: po.currency === 'USD' ? '#2563EB' : '#10B981' }}>{po.currency || 'MXN'}</span>
                     </td>
                     <td style={{ ...tdS, textAlign: 'right', fontWeight: 600, color: '#fff' }}>{sym}{(po.total || 0).toLocaleString('es-MX', { minimumFractionDigits: 0 })}</td>
                     <td style={{ ...tdS, color: '#888' }}>{po.expected_delivery || '—'}</td>
@@ -1257,13 +1257,13 @@ export default function LeadDashboard() {
                       </div>
                     </div>
                     <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontSize: 18, fontWeight: 700, color: '#57FF9A' }}>{PCT(pctAvance)}</div>
+                      <div style={{ fontSize: 18, fontWeight: 700, color: '#10B981' }}>{PCT(pctAvance)}</div>
                       <div style={{ fontSize: 10, color: '#555' }}>{completedTasks}/{totalTasks} tareas</div>
                     </div>
                   </div>
                   {/* Progress bar */}
                   <div style={{ height: 6, borderRadius: 3, background: '#1a1a1a', marginBottom: 10 }}>
-                    <div style={{ width: `${pctAvance * 100}%`, height: '100%', borderRadius: 3, background: '#57FF9A', transition: 'width 0.3s' }} />
+                    <div style={{ width: `${pctAvance * 100}%`, height: '100%', borderRadius: 3, background: '#10B981', transition: 'width 0.3s' }} />
                   </div>
                   {/* Phases & tasks */}
                   {projPhases.length > 0 && (
@@ -1318,13 +1318,13 @@ export default function LeadDashboard() {
                       </div>
                     </div>
                     <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontSize: 18, fontWeight: 700, color: '#3B82F6' }}>{Math.round(avgPct)}%</div>
+                      <div style={{ fontSize: 18, fontWeight: 700, color: '#2563EB' }}>{Math.round(avgPct)}%</div>
                       <div style={{ fontSize: 10, color: '#555' }}>{acts.length} actividades</div>
                     </div>
                   </div>
                   {/* Progress bar */}
                   <div style={{ height: 6, borderRadius: 3, background: '#1a1a1a', marginBottom: 10 }}>
-                    <div style={{ width: `${avgPct}%`, height: '100%', borderRadius: 3, background: '#3B82F6', transition: 'width 0.3s' }} />
+                    <div style={{ width: `${avgPct}%`, height: '100%', borderRadius: 3, background: '#2563EB', transition: 'width 0.3s' }} />
                   </div>
                   {/* Actividades */}
                   {acts.length > 0 && (
@@ -1337,7 +1337,7 @@ export default function LeadDashboard() {
                           </div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                             <div style={{ width: 40, height: 4, borderRadius: 2, background: '#1a1a1a' }}>
-                              <div style={{ width: `${a.porcentaje || 0}%`, height: '100%', borderRadius: 2, background: (a.porcentaje || 0) >= 100 ? '#57FF9A' : '#3B82F6' }} />
+                              <div style={{ width: `${a.porcentaje || 0}%`, height: '100%', borderRadius: 2, background: (a.porcentaje || 0) >= 100 ? '#10B981' : '#2563EB' }} />
                             </div>
                             <span style={{ fontSize: 10, color: '#888', minWidth: 28, textAlign: 'right' }}>{a.porcentaje || 0}%</span>
                           </div>
@@ -1355,7 +1355,7 @@ export default function LeadDashboard() {
       {/* ══════════ 6. BLOQUEOS ══════════ */}
       <Section title="Bloqueos / Temas a revisar" icon={<AlertTriangle size={14} />} count={allBloqueos.length} expanded={expanded.bloqueos} onToggle={() => toggle('bloqueos')}>
         {allBloqueos.length === 0 ? (
-          <div style={{ padding: 20, textAlign: 'center', color: '#57FF9A', fontSize: 13 }}>
+          <div style={{ padding: 20, textAlign: 'center', color: '#10B981', fontSize: 13 }}>
             <CheckCircle2 size={20} style={{ verticalAlign: -4, marginRight: 6 }} />
             Sin bloqueos detectados
           </div>
@@ -1366,7 +1366,7 @@ export default function LeadDashboard() {
               return (sev[a.severidad as keyof typeof sev] ?? 4) - (sev[b.severidad as keyof typeof sev] ?? 4)
             }).map((b, i) => (
               <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 14px', background: '#111', border: `1px solid ${BLOQUEO_SEV_COLOR[b.severidad] || '#333'}30`, borderRadius: 8, borderLeft: `3px solid ${BLOQUEO_SEV_COLOR[b.severidad] || '#555'}` }}>
-                <AlertTriangle size={14} color={BLOQUEO_SEV_COLOR[b.severidad] || '#F59E0B'} style={{ marginTop: 2, flexShrink: 0 }} />
+                <AlertTriangle size={14} color={BLOQUEO_SEV_COLOR[b.severidad] || '#D97706'} style={{ marginTop: 2, flexShrink: 0 }} />
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 12, color: '#fff', fontWeight: 500 }}>{b.descripcion}</div>
                   <div style={{ fontSize: 10, color: '#555', marginTop: 2 }}>
@@ -1406,14 +1406,14 @@ export default function LeadDashboard() {
                         padding: '10px 14px', cursor: 'pointer', fontFamily: 'inherit',
                         textAlign: 'left', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                       }}
-                      onMouseEnter={e => (e.currentTarget.style.borderColor = '#A855F7')}
+                      onMouseEnter={e => (e.currentTarget.style.borderColor = '#7C3AED')}
                       onMouseLeave={e => (e.currentTarget.style.borderColor = '#2a2a2a')}
                     >
                       <div>
                         <div style={{ fontSize: 12, color: '#fff', fontWeight: 600 }}>{q.name}</div>
                         <div style={{ fontSize: 10, color: '#666', marginTop: 2 }}>{q.specialty} · {cur}</div>
                       </div>
-                      <div style={{ fontSize: 12, color: '#57FF9A', fontWeight: 600 }}>{FCUR(total, cur)}</div>
+                      <div style={{ fontSize: 12, color: '#10B981', fontWeight: 600 }}>{FCUR(total, cur)}</div>
                     </button>
                   )
                 })}
@@ -1487,7 +1487,7 @@ function NewMilestoneForm({ projects, quotations, getQuotCurrency, onClose, onCr
   }
 
   return (
-    <div style={{ marginTop: 12, padding: 16, background: '#111', border: '1px solid #57FF9A33', borderRadius: 10 }}>
+    <div style={{ marginTop: 12, padding: 16, background: '#111', border: '1px solid #10B98133', borderRadius: 10 }}>
       <div style={{ fontSize: 13, fontWeight: 600, color: '#fff', marginBottom: 12 }}>Nuevo hito de cobro</div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 180px 120px 130px 90px', gap: 8, alignItems: 'end' }}>
         <div>
@@ -1519,7 +1519,7 @@ function NewMilestoneForm({ projects, quotations, getQuotCurrency, onClose, onCr
       </div>
       <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
         <button onClick={save} disabled={saving || !form.name || !form.amount || !form.project_id}
-          style={{ ...linkBtnS, padding: '5px 12px', fontSize: 11, color: '#57FF9A', borderColor: '#57FF9A44', opacity: (!form.name || !form.amount || !form.project_id) ? 0.4 : 1 }}>
+          style={{ ...linkBtnS, padding: '5px 12px', fontSize: 11, color: '#10B981', borderColor: '#10B98144', opacity: (!form.name || !form.amount || !form.project_id) ? 0.4 : 1 }}>
           {saving ? 'Guardando...' : 'Crear hito'}
         </button>
         <button onClick={onClose} style={{ ...linkBtnS, padding: '5px 12px', fontSize: 11 }}>Cancelar</button>
@@ -1567,7 +1567,7 @@ function CobrarModal({ milestone, tipoCambioDefault, onClose, onCobrado }: {
 
         <div style={{ padding: 12, background: '#0a0a0a', borderRadius: 8, marginBottom: 16, border: '1px solid #222' }}>
           <div style={{ fontSize: 12, color: '#ccc', fontWeight: 500 }}>{milestone.name}</div>
-          <div style={{ fontSize: 18, fontWeight: 700, color: isUSD ? '#06B6D4' : '#57FF9A', marginTop: 4 }}>
+          <div style={{ fontSize: 18, fontWeight: 700, color: isUSD ? '#06B6D4' : '#10B981', marginTop: 4 }}>
             {FCUR(milestone.amount || 0, milestone._cur || milestone.currency || 'MXN')}
           </div>
         </div>
@@ -1581,9 +1581,9 @@ function CobrarModal({ milestone, tipoCambioDefault, onClose, onCobrado }: {
                   <button key={c} onClick={() => setPagoEn(c)} style={{
                     flex: 1, padding: '8px', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer',
                     fontFamily: 'inherit',
-                    background: pagoEn === c ? (c === 'USD' ? '#06B6D420' : '#57FF9A20') : '#1a1a1a',
-                    border: `1px solid ${pagoEn === c ? (c === 'USD' ? '#06B6D4' : '#57FF9A') : '#333'}`,
-                    color: pagoEn === c ? (c === 'USD' ? '#06B6D4' : '#57FF9A') : '#666',
+                    background: pagoEn === c ? (c === 'USD' ? '#06B6D420' : '#10B98120') : '#1a1a1a',
+                    border: `1px solid ${pagoEn === c ? (c === 'USD' ? '#06B6D4' : '#10B981') : '#333'}`,
+                    color: pagoEn === c ? (c === 'USD' ? '#06B6D4' : '#10B981') : '#666',
                   }}>{c === 'MXN' ? 'Pesos (MXN)' : 'Dólares (USD)'}</button>
                 ))}
               </div>
@@ -1608,7 +1608,7 @@ function CobrarModal({ milestone, tipoCambioDefault, onClose, onCobrado }: {
           <button onClick={onClose} style={{ ...linkBtnS, padding: '6px 14px', fontSize: 12 }}>Cancelar</button>
           <button onClick={save} disabled={saving} style={{
             ...linkBtnS, padding: '6px 14px', fontSize: 12, fontWeight: 600,
-            color: '#57FF9A', borderColor: '#57FF9A44', background: '#57FF9A10',
+            color: '#10B981', borderColor: '#10B98144', background: '#10B98110',
           }}>
             {saving ? 'Guardando...' : '✓ Marcar como cobrado'}
           </button>

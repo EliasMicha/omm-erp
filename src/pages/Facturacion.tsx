@@ -339,13 +339,13 @@ export default function Facturacion() {
           <h1 style={{ fontSize: isMobile ? 18 : 22, fontWeight: 700, color: '#fff', margin: 0 }}>Facturacion</h1>
           <div style={{ fontSize: 12, color: '#666', marginTop: 4, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
             FacturAPI {facturapiMode === 'live' ? 'LIVE' : 'TEST'}
-            {pingStatus === 'ok' && <CheckCircle2 size={12} style={{ color: '#57FF9A' }} />}
-            {pingStatus === 'error' && <AlertCircle size={12} style={{ color: '#EF4444' }} />}
+            {pingStatus === 'ok' && <CheckCircle2 size={12} style={{ color: '#10B981' }} />}
+            {pingStatus === 'error' && <AlertCircle size={12} style={{ color: '#DC2626' }} />}
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8, flex: isMobile ? '1 1 100%' : 'initial', flexWrap: 'wrap', justifyContent: isMobile ? 'flex-end' : 'flex-start' }}>
           <button onClick={() => setView('nueva')} style={{
-            padding: '8px 16px', background: '#57FF9A', color: '#000', border: 'none', borderRadius: 8,
+            padding: '8px 16px', background: '#10B981', color: '#000', border: 'none', borderRadius: 8,
             fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6
           }}>
             <Plus size={14} /> Nueva factura
@@ -392,7 +392,7 @@ export default function Facturacion() {
         {(['todas', 'lista', 'recibidas'] as const).map(v => (
           <button key={v} onClick={() => setView(v)} style={{
             padding: '10px 18px', background: 'transparent',
-            border: 'none', borderBottom: `2px solid ${view === v ? '#57FF9A' : 'transparent'}`,
+            border: 'none', borderBottom: `2px solid ${view === v ? '#10B981' : 'transparent'}`,
             color: view === v ? '#fff' : '#666', fontSize: 13, fontWeight: 600,
             cursor: 'pointer', fontFamily: 'inherit'
           }}>
@@ -718,7 +718,7 @@ function ListaTodas() {
           <span style={{ fontSize: 14, fontWeight: 600, color: '#fff', minWidth: 160, textAlign: 'center' as const }}>{monthLabelCapitalized}</span>
           <button onClick={() => setMonthOffset(monthOffset + 1)} style={{ padding: '6px 10px', fontSize: 12, background: '#1a1a1a', border: '1px solid #333', borderRadius: 6, color: '#ccc', cursor: 'pointer', fontFamily: 'inherit' }}>Mes siguiente ▶</button>
           {monthOffset !== 0 && (
-            <button onClick={() => setMonthOffset(0)} style={{ padding: '6px 10px', fontSize: 11, background: 'rgba(87,255,154,0.08)', border: '1px solid rgba(87,255,154,0.3)', borderRadius: 6, color: '#57FF9A', cursor: 'pointer', fontFamily: 'inherit' }}>Hoy</button>
+            <button onClick={() => setMonthOffset(0)} style={{ padding: '6px 10px', fontSize: 11, background: 'rgba(87,255,154,0.08)', border: '1px solid rgba(87,255,154,0.3)', borderRadius: 6, color: '#10B981', cursor: 'pointer', fontFamily: 'inherit' }}>Hoy</button>
           )}
         </div>
         <div style={{ fontSize: 11, color: '#888' }}>
@@ -733,11 +733,11 @@ function ListaTodas() {
           <Search size={14} style={{ position: 'absolute', left: 10, top: 10, color: '#555' }} />
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar por contraparte, RFC, UUID o folio..." style={{ width: '100%', padding: '8px 12px 8px 32px', background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 8, color: '#fff', fontSize: 13, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' as const }} />
         </div>
-        <button onClick={sincronizarMes} disabled={syncing} style={{ padding: '10px 16px', background: syncing ? '#1e1e1e' : '#57FF9A', color: syncing ? '#888' : '#000', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: syncing ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'inherit' }}>
+        <button onClick={sincronizarMes} disabled={syncing} style={{ padding: '10px 16px', background: syncing ? '#1e1e1e' : '#10B981', color: syncing ? '#888' : '#000', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: syncing ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'inherit' }}>
           {syncing ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <RefreshCw size={13} />}
           {syncing ? (syncProgress || 'Sincronizando...') : 'Sincronizar ' + monthLabelCapitalized}
         </button>
-        <button onClick={exportarZip} disabled={syncing || exporting || facturas.length === 0} style={{ padding: '10px 16px', background: exporting ? '#1e1e1e' : '#1e1e1e', color: exporting ? '#888' : '#57FF9A', border: '1px solid #57FF9A44', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: exporting ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'inherit' }}>
+        <button onClick={exportarZip} disabled={syncing || exporting || facturas.length === 0} style={{ padding: '10px 16px', background: exporting ? '#1e1e1e' : '#1e1e1e', color: exporting ? '#888' : '#10B981', border: '1px solid #10B98144', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: exporting ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'inherit' }}>
           {exporting ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <FolderDown size={13} />}
           {exporting ? (exportProgress || 'Exportando...') : 'Descargar PDF + XML'}
         </button>
@@ -745,7 +745,7 @@ function ListaTodas() {
 
       {/* Barra de progreso del sync */}
       {syncing && syncProgress && (
-        <div style={{ marginBottom: 16, padding: '10px 14px', background: 'rgba(87,255,154,0.06)', border: '1px solid rgba(87,255,154,0.3)', borderRadius: 8, fontSize: 12, color: '#57FF9A', display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ marginBottom: 16, padding: '10px 14px', background: 'rgba(87,255,154,0.06)', border: '1px solid rgba(87,255,154,0.3)', borderRadius: 8, fontSize: 12, color: '#10B981', display: 'flex', alignItems: 'center', gap: 8 }}>
           <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} />
           {syncProgress}
         </div>
@@ -787,15 +787,15 @@ function ListaTodas() {
                 return (
                   <tr key={f.id} onClick={() => abrirDetalle(f)} style={{ borderBottom: '1px solid #1a1a1a', cursor: 'pointer' }}>
                     <td style={{ padding: '10px 10px' }}>
-                      <span style={{ padding: '2px 6px', borderRadius: 4, fontSize: 9, fontWeight: 700, letterSpacing: '0.05em', background: isEmit ? 'rgba(87,255,154,0.15)' : 'rgba(251,191,36,0.12)', color: isEmit ? '#57FF9A' : '#fcd34d' }}>{isEmit ? 'EMI' : 'REC'}</span>
+                      <span style={{ padding: '2px 6px', borderRadius: 4, fontSize: 9, fontWeight: 700, letterSpacing: '0.05em', background: isEmit ? 'rgba(87,255,154,0.15)' : 'rgba(251,191,36,0.12)', color: isEmit ? '#10B981' : '#fcd34d' }}>{isEmit ? 'EMI' : 'REC'}</span>
                     </td>
                     <td style={{ padding: '10px 10px', fontSize: 11, color: '#ccc', fontFamily: 'monospace', ...cellEllipsis }}>{f.serie || ''}{f.folio || '--'}</td>
                     <td style={{ padding: '10px 10px', fontSize: 11, color: '#888' }}>{f.fecha_emision ? new Date(f.fecha_emision).toLocaleDateString() : '--'}</td>
                     <td style={{ padding: '10px 10px', fontSize: 12, color: '#ddd', ...cellEllipsis }}>{contraparte || '--'}</td>
                     <td style={{ padding: '10px 10px', fontSize: 11, color: '#888', fontFamily: 'monospace', ...cellEllipsis }}>{contraparteRfc || '--'}</td>
-                    <td style={{ padding: '10px 10px', fontSize: 12, color: isEmit ? '#57FF9A' : '#fcd34d', fontWeight: 600, textAlign: 'right' as const, ...cellEllipsis }}>${(f.total || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })} {f.moneda}</td>
+                    <td style={{ padding: '10px 10px', fontSize: 12, color: isEmit ? '#10B981' : '#fcd34d', fontWeight: 600, textAlign: 'right' as const, ...cellEllipsis }}>${(f.total || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })} {f.moneda}</td>
                     <td style={{ padding: '10px 10px' }}>
-                      <span style={{ padding: '2px 8px', borderRadius: 10, fontSize: 10, fontWeight: 600, background: f.status === 'timbrada' ? '#57FF9A22' : f.status === 'cancelada' ? '#EF444422' : '#F59E0B22', color: f.status === 'timbrada' ? '#57FF9A' : f.status === 'cancelada' ? '#EF4444' : '#F59E0B' }}>{f.status}</span>
+                      <span style={{ padding: '2px 8px', borderRadius: 10, fontSize: 10, fontWeight: 600, background: f.status === 'timbrada' ? '#10B98122' : f.status === 'cancelada' ? '#DC262622' : '#D9770622', color: f.status === 'timbrada' ? '#10B981' : f.status === 'cancelada' ? '#DC2626' : '#D97706' }}>{f.status}</span>
                     </td>
                   </tr>
                 )
@@ -824,7 +824,7 @@ function DetalleModal(props: { factura: Factura; conceptos: any[]; loading: bool
   const fAny = f as any
   const isEmit = f.direccion === 'emitida'
   const dirLabel = isEmit ? 'EMITIDA' : 'RECIBIDA'
-  const dirColor = isEmit ? '#57FF9A' : '#fcd34d'
+  const dirColor = isEmit ? '#10B981' : '#fcd34d'
   const subtotalNum = Number(f.subtotal) || 0
   const totalNum = Number(f.total) || 0
   const ivaNum = Number(fAny.iva) || 0
@@ -866,7 +866,7 @@ function DetalleModal(props: { factura: Factura; conceptos: any[]; loading: bool
           {hasFacturapiId ? (
             <button onClick={props.onXml} style={{ padding: '8px 14px', background: '#1e1e1e', border: '1px solid #2a2a2a', borderRadius: 8, color: '#60a5fa', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>Descargar XML</button>
           ) : null}
-          <button onClick={props.onClose} style={{ padding: '8px 14px', background: '#57FF9A', border: 'none', borderRadius: 8, color: '#000', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>Cerrar</button>
+          <button onClick={props.onClose} style={{ padding: '8px 14px', background: '#10B981', border: 'none', borderRadius: 8, color: '#000', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>Cerrar</button>
         </div>
       </div>
     </div>
@@ -1401,7 +1401,7 @@ function ListaEmitidas({ onNueva }: { onNueva: () => void }) {
           <span style={{ fontSize: 14, fontWeight: 600, color: '#fff', minWidth: 160, textAlign: 'center' as const }}>{monthLabelCapitalized}</span>
           <button onClick={() => setMonthOffset(monthOffset + 1)} style={{ padding: '6px 10px', fontSize: 12, background: '#1a1a1a', border: '1px solid #333', borderRadius: 6, color: '#ccc', cursor: 'pointer', fontFamily: 'inherit' }}>Mes siguiente ▶</button>
           {monthOffset !== 0 && (
-            <button onClick={() => setMonthOffset(0)} style={{ padding: '6px 10px', fontSize: 11, background: 'rgba(87,255,154,0.08)', border: '1px solid rgba(87,255,154,0.3)', borderRadius: 6, color: '#57FF9A', cursor: 'pointer', fontFamily: 'inherit' }}>Hoy</button>
+            <button onClick={() => setMonthOffset(0)} style={{ padding: '6px 10px', fontSize: 11, background: 'rgba(87,255,154,0.08)', border: '1px solid rgba(87,255,154,0.3)', borderRadius: 6, color: '#10B981', cursor: 'pointer', fontFamily: 'inherit' }}>Hoy</button>
           )}
         </div>
         <div style={{ fontSize: 11, color: '#666' }}>
@@ -1435,7 +1435,7 @@ function ListaEmitidas({ onNueva }: { onNueva: () => void }) {
           <div style={{ fontSize: 12, color: '#444', marginBottom: 16 }}>{search ? 'Cambia tu busqueda' : 'Crea tu primera factura desde el boton de arriba'}</div>
           {!search && (
             <button onClick={onNueva} style={{
-              padding: '8px 16px', background: '#57FF9A', color: '#000', border: 'none', borderRadius: 8,
+              padding: '8px 16px', background: '#10B981', color: '#000', border: 'none', borderRadius: 8,
               fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6
             }}>
               <Plus size={12} /> Nueva factura
@@ -1472,33 +1472,33 @@ function ListaEmitidas({ onNueva }: { onNueva: () => void }) {
                   <td style={{ padding: '10px 10px', fontSize: 11, color: '#888' }}>{f.fecha_emision ? new Date(f.fecha_emision).toLocaleDateString() : '--'}</td>
                   <td style={{ padding: '10px 10px', fontSize: 12, color: '#ddd', ...cellEllipsis }}>{f.receptor_nombre || '--'}</td>
                   <td style={{ padding: '10px 10px', fontSize: 11, color: '#888', fontFamily: 'monospace', ...cellEllipsis }}>{f.receptor_rfc || '--'}</td>
-                  <td style={{ padding: '10px 10px', fontSize: 12, color: '#57FF9A', fontWeight: 600, textAlign: 'right', ...cellEllipsis }}>${(f.total || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })} {f.moneda}</td>
+                  <td style={{ padding: '10px 10px', fontSize: 12, color: '#10B981', fontWeight: 600, textAlign: 'right', ...cellEllipsis }}>${(f.total || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })} {f.moneda}</td>
                   <td style={{ padding: '10px 14px' }}>
                     <span style={{
                       padding: '2px 8px', borderRadius: 10, fontSize: 10, fontWeight: 600,
-                      background: f.status === 'timbrada' ? '#57FF9A22' : f.status === 'cancelada' ? '#EF444422' : '#F59E0B22',
-                      color: f.status === 'timbrada' ? '#57FF9A' : f.status === 'cancelada' ? '#EF4444' : '#F59E0B',
+                      background: f.status === 'timbrada' ? '#10B98122' : f.status === 'cancelada' ? '#DC262622' : '#D9770622',
+                      color: f.status === 'timbrada' ? '#10B981' : f.status === 'cancelada' ? '#DC2626' : '#D97706',
                     }}>{f.status}</span>
                   </td>
                   <td style={{ padding: '10px 14px' }}>
                     <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                       {f.status === 'borrador' && !f.facturapi_id && (
-                        <button onClick={() => timbrarBorrador(f)} disabled={timbrandoId === f.id} style={{ background: '#57FF9A18', border: '1px solid #57FF9A44', borderRadius: 6, color: '#57FF9A', cursor: timbrandoId === f.id ? 'wait' : 'pointer', padding: '2px 8px', fontSize: 10, fontWeight: 600, fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <button onClick={() => timbrarBorrador(f)} disabled={timbrandoId === f.id} style={{ background: '#10B98118', border: '1px solid #10B98144', borderRadius: 6, color: '#10B981', cursor: timbrandoId === f.id ? 'wait' : 'pointer', padding: '2px 8px', fontSize: 10, fontWeight: 600, fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 4 }}>
                           {timbrandoId === f.id ? <><Loader2 size={10} style={{ animation: 'spin 1s linear infinite' }} /> Timbrando...</> : 'Timbrar'}
                         </button>
                       )}
                       {f.status === 'borrador' && !f.facturapi_id && (
-                        <button onClick={() => descargarPdfBorrador(f)} style={{ background: 'none', border: 'none', color: '#F59E0B', cursor: 'pointer', padding: 0, fontSize: 10, fontWeight: 600, fontFamily: 'inherit' }}>PDF</button>
+                        <button onClick={() => descargarPdfBorrador(f)} style={{ background: 'none', border: 'none', color: '#D97706', cursor: 'pointer', padding: 0, fontSize: 10, fontWeight: 600, fontFamily: 'inherit' }}>PDF</button>
                       )}
                       {f.facturapi_id && <a href={`/api/facturapi?action=download_pdf&id=${f.facturapi_id}`} target="_blank" rel="noopener noreferrer" style={{ color: '#A78BFA', fontSize: 10, textDecoration: 'none' }}>PDF</a>}
                       {f.facturapi_id && <a href={`/api/facturapi?action=download_xml&id=${f.facturapi_id}`} target="_blank" rel="noopener noreferrer" style={{ color: '#A78BFA', fontSize: 10, textDecoration: 'none' }}>XML</a>}
                       {canCancel && (
-                        <button onClick={() => setShowCancelModal(f)} disabled={cancelando === f.id} title="Cancelar CFDI en SAT" style={{ background: 'none', border: 'none', color: '#F59E0B', cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center' }}>
+                        <button onClick={() => setShowCancelModal(f)} disabled={cancelando === f.id} title="Cancelar CFDI en SAT" style={{ background: 'none', border: 'none', color: '#D97706', cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center' }}>
                           <Ban size={13} />
                         </button>
                       )}
                       {canDelete && (
-                        <button onClick={() => eliminarLocal(f)} title="Eliminar del listado local" style={{ background: 'none', border: 'none', color: '#EF4444', cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center' }}>
+                        <button onClick={() => eliminarLocal(f)} title="Eliminar del listado local" style={{ background: 'none', border: 'none', color: '#DC2626', cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center' }}>
                           <Trash2 size={13} />
                         </button>
                       )}
@@ -1556,7 +1556,7 @@ function CancelarModal({ factura, onClose, onConfirm, loading }: { factura: Fact
 
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 20 }}>
           <button onClick={onClose} style={{ padding: '10px 20px', background: '#1e1e1e', color: '#ccc', border: '1px solid #2a2a2a', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>No cancelar</button>
-          <button onClick={() => onConfirm(motivo, sustitucion)} disabled={loading || (motivo === '01' && !sustitucion)} style={{ padding: '10px 20px', background: loading ? '#444' : '#EF4444', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: loading ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+          <button onClick={() => onConfirm(motivo, sustitucion)} disabled={loading || (motivo === '01' && !sustitucion)} style={{ padding: '10px 20px', background: loading ? '#444' : '#DC2626', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: loading ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
             {loading ? <><Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Cancelando...</> : 'Cancelar CFDI'}
           </button>
         </div>
@@ -1693,9 +1693,9 @@ function SelectorFacturasRelacionadas(props: {
                   const f = facturas.find(x => x.uuid_fiscal === uuid)
                   const label = f ? `${f.serie || ''}${f.folio || ''} - ${uuid.slice(0, 8)}...` : `${uuid.slice(0, 8)}...`
                   return (
-                    <div key={uuid} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 8px', background: '#A78BFA22', border: '1px solid #A78BFA44', borderRadius: 6, fontSize: 11, color: '#C084FC', fontFamily: 'monospace' }}>
+                    <div key={uuid} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 8px', background: '#A78BFA22', border: '1px solid #A78BFA44', borderRadius: 6, fontSize: 11, color: '#A78BFA', fontFamily: 'monospace' }}>
                       <span>{label}</span>
-                      <button onClick={() => toggleUuid(uuid)} style={{ background: 'none', border: 'none', color: '#C084FC', cursor: 'pointer', padding: 0, display: 'flex' }}><X size={11} /></button>
+                      <button onClick={() => toggleUuid(uuid)} style={{ background: 'none', border: 'none', color: '#A78BFA', cursor: 'pointer', padding: 0, display: 'flex' }}><X size={11} /></button>
                     </div>
                   )
                 })}
@@ -1734,10 +1734,10 @@ function SelectorFacturasRelacionadas(props: {
                     fontSize: 11,
                   }}
                 >
-                  <div style={{ color: seleccionada ? '#C084FC' : '#333' }}>
+                  <div style={{ color: seleccionada ? '#A78BFA' : '#333' }}>
                     {seleccionada ? <CheckCircle2 size={14} /> : <div style={{ width: 14, height: 14, border: '1px solid #333', borderRadius: 3 }} />}
                   </div>
-                  <div style={{ fontFamily: 'monospace', color: seleccionada ? '#C084FC' : '#888', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <div style={{ fontFamily: 'monospace', color: seleccionada ? '#A78BFA' : '#888', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {f.uuid_fiscal}
                   </div>
                   <div style={{ color: '#888' }}>{f.serie || ''}{f.folio || '-'}</div>
@@ -2312,9 +2312,9 @@ function NuevaFactura({ onCancel, onCreated }: { onCancel: () => void; onCreated
 
   if (savedDraft) {
     return (
-      <div style={{ background: '#1a1a0e', border: '1px solid #F59E0B33', borderRadius: 12, padding: 24 }}>
+      <div style={{ background: '#1a1a0e', border: '1px solid #D9770633', borderRadius: 12, padding: 24 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
-          <FileText size={20} style={{ color: '#F59E0B' }} />
+          <FileText size={20} style={{ color: '#D97706' }} />
           <div style={{ fontSize: 16, fontWeight: 700, color: '#fff' }}>Borrador guardado</div>
         </div>
         <div style={{ fontSize: 13, color: '#999', marginBottom: 16 }}>
@@ -2323,10 +2323,10 @@ function NuevaFactura({ onCancel, onCreated }: { onCancel: () => void; onCreated
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16, fontSize: 12 }}>
           {serie && <div><span style={{ color: '#666' }}>Serie:</span> <span style={{ color: '#ccc' }}>{serie}</span></div>}
           {folio && <div><span style={{ color: '#666' }}>Folio:</span> <span style={{ color: '#ccc' }}>{folio}</span></div>}
-          <div><span style={{ color: '#666' }}>Total:</span> <span style={{ color: '#F59E0B', fontWeight: 600 }}>{total.toLocaleString('es-MX', { minimumFractionDigits: 2 })} {moneda}</span></div>
-          <div><span style={{ color: '#666' }}>Status:</span> <span style={{ color: '#F59E0B' }}>borrador</span></div>
+          <div><span style={{ color: '#666' }}>Total:</span> <span style={{ color: '#D97706', fontWeight: 600 }}>{total.toLocaleString('es-MX', { minimumFractionDigits: 2 })} {moneda}</span></div>
+          <div><span style={{ color: '#666' }}>Status:</span> <span style={{ color: '#D97706' }}>borrador</span></div>
         </div>
-        <button onClick={onCreated} style={{ padding: '8px 14px', background: '#F59E0B', color: '#000', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+        <button onClick={onCreated} style={{ padding: '8px 14px', background: '#D97706', color: '#000', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
           Volver al listado
         </button>
       </div>
@@ -2335,16 +2335,16 @@ function NuevaFactura({ onCancel, onCreated }: { onCancel: () => void; onCreated
 
   if (resultado) {
     return (
-      <div style={{ background: '#0e1f12', border: '1px solid #57FF9A33', borderRadius: 12, padding: 24 }}>
+      <div style={{ background: '#0e1f12', border: '1px solid #10B98133', borderRadius: 12, padding: 24 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
-          <CheckCircle2 size={20} style={{ color: '#57FF9A' }} />
+          <CheckCircle2 size={20} style={{ color: '#10B981' }} />
           <div style={{ fontSize: 16, fontWeight: 700, color: '#fff' }}>Factura emitida exitosamente</div>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16, fontSize: 12 }}>
           <div><span style={{ color: '#666' }}>UUID:</span> <span style={{ color: '#ccc', fontFamily: 'monospace' }}>{resultado.uuid}</span></div>
           <div><span style={{ color: '#666' }}>Folio:</span> <span style={{ color: '#ccc' }}>{resultado.series}{resultado.folio_number}</span></div>
-          <div><span style={{ color: '#666' }}>Total:</span> <span style={{ color: '#57FF9A', fontWeight: 600 }}>{(resultado.total || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })} {resultado.currency}</span></div>
-          <div><span style={{ color: '#666' }}>Status:</span> <span style={{ color: '#57FF9A' }}>{resultado.status}</span></div>
+          <div><span style={{ color: '#666' }}>Total:</span> <span style={{ color: '#10B981', fontWeight: 600 }}>{(resultado.total || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })} {resultado.currency}</span></div>
+          <div><span style={{ color: '#666' }}>Status:</span> <span style={{ color: '#10B981' }}>{resultado.status}</span></div>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <a href={`/api/facturapi?action=download_pdf&id=${resultado.id}`} target="_blank" rel="noopener noreferrer" style={{ padding: '8px 14px', background: '#1e1e1e', color: '#A78BFA', border: '1px solid #2a2a2a', borderRadius: 8, fontSize: 12, fontWeight: 600, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
@@ -2353,7 +2353,7 @@ function NuevaFactura({ onCancel, onCreated }: { onCancel: () => void; onCreated
           <a href={`/api/facturapi?action=download_xml&id=${resultado.id}`} target="_blank" rel="noopener noreferrer" style={{ padding: '8px 14px', background: '#1e1e1e', color: '#A78BFA', border: '1px solid #2a2a2a', borderRadius: 8, fontSize: 12, fontWeight: 600, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <Download size={12} /> Descargar XML
           </a>
-          <button onClick={onCreated} style={{ padding: '8px 14px', background: '#57FF9A', color: '#000', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+          <button onClick={onCreated} style={{ padding: '8px 14px', background: '#10B981', color: '#000', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
             Volver al listado
           </button>
         </div>
@@ -2381,21 +2381,21 @@ function NuevaFactura({ onCancel, onCreated }: { onCancel: () => void; onCreated
         <div style={{ display: 'flex', gap: 6 }}>
           <button onClick={() => setTipoComprobante('I')} style={{
             padding: '10px 20px', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
-            border: `1px solid ${tipoComprobante === 'I' ? '#57FF9A' : '#2a2a2a'}`,
-            background: tipoComprobante === 'I' ? '#57FF9A18' : 'transparent',
-            color: tipoComprobante === 'I' ? '#57FF9A' : '#888',
+            border: `1px solid ${tipoComprobante === 'I' ? '#10B981' : '#2a2a2a'}`,
+            background: tipoComprobante === 'I' ? '#10B98118' : 'transparent',
+            color: tipoComprobante === 'I' ? '#10B981' : '#888',
           }}>Factura (tipo I — Ingreso)</button>
           <button onClick={() => setTipoComprobante('P')} style={{
             padding: '10px 20px', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
             border: `1px solid ${tipoComprobante === 'P' ? '#A78BFA' : '#2a2a2a'}`,
             background: tipoComprobante === 'P' ? '#A78BFA18' : 'transparent',
-            color: tipoComprobante === 'P' ? '#C084FC' : '#888',
+            color: tipoComprobante === 'P' ? '#A78BFA' : '#888',
           }}>Comprobante de Pago (tipo P — REP)</button>
           <button onClick={() => setTipoComprobante('E')} style={{
             padding: '10px 20px', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
-            border: `1px solid ${tipoComprobante === 'E' ? '#F59E0B' : '#2a2a2a'}`,
-            background: tipoComprobante === 'E' ? '#F59E0B18' : 'transparent',
-            color: tipoComprobante === 'E' ? '#F59E0B' : '#888',
+            border: `1px solid ${tipoComprobante === 'E' ? '#D97706' : '#2a2a2a'}`,
+            background: tipoComprobante === 'E' ? '#D9770618' : 'transparent',
+            color: tipoComprobante === 'E' ? '#D97706' : '#888',
           }}>Nota de Crédito (tipo E — Egreso)</button>
         </div>
         {tipoComprobante === 'P' && (
@@ -2460,13 +2460,13 @@ function NuevaFactura({ onCancel, onCreated }: { onCancel: () => void; onCreated
           return (
             <div style={{ marginTop: 12, background: faltanCriticos ? '#3a1a1a' : '#0a1f0e', border: '1px solid ' + (faltanCriticos ? '#5a2a2a' : '#1a3a1f'), borderRadius: 8, padding: 14 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: faltanCriticos ? '#f87171' : '#57FF9A', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{faltanCriticos ? 'Datos fiscales incompletos' : 'Datos fiscales del cliente'}</div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: faltanCriticos ? '#f87171' : '#10B981', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{faltanCriticos ? 'Datos fiscales incompletos' : 'Datos fiscales del cliente'}</div>
                 {c.facturapi_customer_id && <span style={{ fontSize: 9, color: '#888', fontFamily: 'monospace' }}>FacturAPI: {c.facturapi_customer_id.slice(0, 12)}...</span>}
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, fontSize: 11 }}>
                 {checks.map(ck => (
                   <div key={ck.label} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    {ck.ok ? <CheckCircle2 size={11} style={{ color: '#57FF9A', flexShrink: 0 }} /> : <AlertCircle size={11} style={{ color: ck.optional ? '#666' : '#EF4444', flexShrink: 0 }} />}
+                    {ck.ok ? <CheckCircle2 size={11} style={{ color: '#10B981', flexShrink: 0 }} /> : <AlertCircle size={11} style={{ color: ck.optional ? '#666' : '#DC2626', flexShrink: 0 }} />}
                     <span style={{ color: '#888', minWidth: 90 }}>{ck.label}:</span>
                     <span style={{ color: ck.ok ? '#ddd' : (ck.optional ? '#666' : '#f87171'), fontFamily: ck.label === 'RFC' ? 'monospace' : 'inherit' }}>{ck.value || '-- falta --'}</span>
                   </div>
@@ -2506,15 +2506,15 @@ function NuevaFactura({ onCancel, onCreated }: { onCancel: () => void; onCreated
         <div style={{ display: 'flex', gap: 6 }}>
           <button onClick={() => setModoConceptos('manual')} style={{
             padding: '8px 16px', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
-            border: `1px solid ${modoConceptos === 'manual' ? '#57FF9A' : '#2a2a2a'}`,
-            background: modoConceptos === 'manual' ? '#57FF9A18' : 'transparent',
-            color: modoConceptos === 'manual' ? '#57FF9A' : '#888',
+            border: `1px solid ${modoConceptos === 'manual' ? '#10B981' : '#2a2a2a'}`,
+            background: modoConceptos === 'manual' ? '#10B98118' : 'transparent',
+            color: modoConceptos === 'manual' ? '#10B981' : '#888',
           }}>Manual (concepto agrupado)</button>
           <button onClick={() => setModoConceptos('desde_cotizacion')} style={{
             padding: '8px 16px', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
             border: `1px solid ${modoConceptos === 'desde_cotizacion' ? '#A78BFA' : '#2a2a2a'}`,
             background: modoConceptos === 'desde_cotizacion' ? '#A78BFA18' : 'transparent',
-            color: modoConceptos === 'desde_cotizacion' ? '#C084FC' : '#888',
+            color: modoConceptos === 'desde_cotizacion' ? '#A78BFA' : '#888',
           }}>Desde cotizacion (items del catalogo)</button>
         </div>
         {modoConceptos === 'desde_cotizacion' && (
@@ -2643,7 +2643,7 @@ function NuevaFactura({ onCancel, onCreated }: { onCancel: () => void; onCreated
         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#888', marginBottom: 4 }}>
           <span>IVA</span><span>{iva.toLocaleString('es-MX', { minimumFractionDigits: 2 })} {moneda}</span>
         </div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, color: '#57FF9A', fontWeight: 700, marginTop: 8 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, color: '#10B981', fontWeight: 700, marginTop: 8 }}>
           <span>Total</span><span>{total.toLocaleString('es-MX', { minimumFractionDigits: 2 })} {moneda}</span>
         </div>
       </div>
@@ -2742,7 +2742,7 @@ function NuevaFactura({ onCancel, onCreated }: { onCancel: () => void; onCreated
           {docsPago.map((d, idx) => (
             <div key={d.uuid} style={{ background: '#0a0a0a', border: '1px solid #1a1a1a', borderRadius: 8, padding: 14, marginBottom: 10 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                <div style={{ fontSize: 11, color: '#C084FC', fontFamily: 'monospace' }}>
+                <div style={{ fontSize: 11, color: '#A78BFA', fontFamily: 'monospace' }}>
                   {d.serie || ''}{d.folio || '-'} — {d.uuid.slice(0, 8)}... <span style={{ color: '#666' }}>({d.total_doc.toLocaleString('es-MX', { minimumFractionDigits: 2 })} {d.moneda_doc})</span>
                 </div>
                 <button onClick={() => removeDocPago(idx)} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', padding: 0 }}><Trash2 size={12} /></button>
@@ -2816,7 +2816,7 @@ function NuevaFactura({ onCancel, onCreated }: { onCancel: () => void; onCreated
             <span>Monto del pago declarado</span>
             <span style={{ fontFamily: 'monospace' }}>{montoPagoNum.toLocaleString('es-MX', { minimumFractionDigits: 2 })} {monedaPago}</span>
           </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, fontWeight: 700, marginTop: 8, color: Math.abs(diferenciaPago) < 0.01 ? '#57FF9A' : '#f87171' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, fontWeight: 700, marginTop: 8, color: Math.abs(diferenciaPago) < 0.01 ? '#10B981' : '#f87171' }}>
             <span>Diferencia</span>
             <span style={{ fontFamily: 'monospace' }}>{diferenciaPago.toLocaleString('es-MX', { minimumFractionDigits: 2 })} {monedaPago}</span>
           </div>
@@ -2830,10 +2830,10 @@ function NuevaFactura({ onCancel, onCreated }: { onCancel: () => void; onCreated
 
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
         <button onClick={onCancel} style={{ padding: '10px 20px', background: '#1e1e1e', color: '#ccc', border: '1px solid #2a2a2a', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Cancelar</button>
-        <button onClick={guardarBorrador} disabled={savingDraft || emitting} style={{ padding: '10px 20px', background: savingDraft ? '#444' : '#1e1e1e', color: '#F59E0B', border: '1px solid #F59E0B44', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: savingDraft ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+        <button onClick={guardarBorrador} disabled={savingDraft || emitting} style={{ padding: '10px 20px', background: savingDraft ? '#444' : '#1e1e1e', color: '#D97706', border: '1px solid #D9770644', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: savingDraft ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
           {savingDraft ? <><Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Guardando...</> : <><FileText size={14} /> Guardar borrador</>}
         </button>
-        <button onClick={emitir} disabled={emitting || savingDraft} style={{ padding: '10px 20px', background: emitting ? '#444' : (tipoComprobante === 'P' ? '#A78BFA' : tipoComprobante === 'E' ? '#F59E0B' : '#57FF9A'), color: '#000', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: emitting ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+        <button onClick={emitir} disabled={emitting || savingDraft} style={{ padding: '10px 20px', background: emitting ? '#444' : (tipoComprobante === 'P' ? '#A78BFA' : tipoComprobante === 'E' ? '#D97706' : '#10B981'), color: '#000', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: emitting ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
           {emitting ? <><Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Emitiendo...</> : (tipoComprobante === 'P' ? 'Emitir REP' : tipoComprobante === 'E' ? 'Emitir nota de crédito' : 'Timbrar factura')}
         </button>
       </div>
@@ -2978,7 +2978,7 @@ function ListaRecibidas() {
           <span style={{ fontSize: 14, fontWeight: 600, color: '#fff', minWidth: 160, textAlign: 'center' as const }}>{monthLabelCapitalized}</span>
           <button onClick={() => setMonthOffset(monthOffset + 1)} style={{ padding: '6px 10px', fontSize: 12, background: '#1a1a1a', border: '1px solid #333', borderRadius: 6, color: '#ccc', cursor: 'pointer', fontFamily: 'inherit' }}>Mes siguiente ▶</button>
           {monthOffset !== 0 && (
-            <button onClick={() => setMonthOffset(0)} style={{ padding: '6px 10px', fontSize: 11, background: 'rgba(87,255,154,0.08)', border: '1px solid rgba(87,255,154,0.3)', borderRadius: 6, color: '#57FF9A', cursor: 'pointer', fontFamily: 'inherit' }}>Hoy</button>
+            <button onClick={() => setMonthOffset(0)} style={{ padding: '6px 10px', fontSize: 11, background: 'rgba(87,255,154,0.08)', border: '1px solid rgba(87,255,154,0.3)', borderRadius: 6, color: '#10B981', cursor: 'pointer', fontFamily: 'inherit' }}>Hoy</button>
           )}
         </div>
         <div style={{ fontSize: 11, color: '#666' }}>
@@ -3033,9 +3033,9 @@ function ListaRecibidas() {
                   <td style={{ padding: '10px 10px', fontSize: 11, color: '#888' }}>{f.fecha_emision ? new Date(f.fecha_emision).toLocaleDateString() : '--'}</td>
                   <td style={{ padding: '10px 10px', fontSize: 12, color: '#ddd', ...cellEllipsis }}>{f.emisor_nombre || '--'}</td>
                   <td style={{ padding: '10px 10px', fontSize: 11, color: '#888', fontFamily: 'monospace', ...cellEllipsis }}>{f.emisor_rfc || '--'}</td>
-                  <td style={{ padding: '10px 10px', fontSize: 12, color: '#F59E0B', fontWeight: 600, textAlign: 'right' as const, ...cellEllipsis }}>${(f.total || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })} {f.moneda}</td>
+                  <td style={{ padding: '10px 10px', fontSize: 12, color: '#D97706', fontWeight: 600, textAlign: 'right' as const, ...cellEllipsis }}>${(f.total || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })} {f.moneda}</td>
                   <td style={{ padding: '10px 10px' }}>
-                    <span style={{ padding: '2px 8px', borderRadius: 10, fontSize: 10, fontWeight: 600, background: f.status === 'timbrada' ? '#57FF9A22' : f.status === 'cancelada' ? '#EF444422' : '#F59E0B22', color: f.status === 'timbrada' ? '#57FF9A' : f.status === 'cancelada' ? '#EF4444' : '#F59E0B' }}>{f.status}</span>
+                    <span style={{ padding: '2px 8px', borderRadius: 10, fontSize: 10, fontWeight: 600, background: f.status === 'timbrada' ? '#10B98122' : f.status === 'cancelada' ? '#DC262622' : '#D9770622', color: f.status === 'timbrada' ? '#10B981' : f.status === 'cancelada' ? '#DC2626' : '#D97706' }}>{f.status}</span>
                   </td>
                 </tr>
                 )

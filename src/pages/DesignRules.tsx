@@ -182,7 +182,7 @@ export default function DesignRules() {
             }}
           >
             <div style={{ fontSize: 10, color: '#666', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{sys}</div>
-            <div style={{ fontSize: 18, fontWeight: 700, color: filterSystem === sys ? '#57FF9A' : '#fff', marginTop: 2 }}>{count}</div>
+            <div style={{ fontSize: 18, fontWeight: 700, color: filterSystem === sys ? '#10B981' : '#fff', marginTop: 2 }}>{count}</div>
           </div>
         ))}
       </div>
@@ -241,7 +241,7 @@ export default function DesignRules() {
                   onClick={() => setExpandedId(expandedId === rule.id ? null : rule.id)}
                 >
                   <Td>
-                    <Badge label={rule.system} color="#57FF9A" />
+                    <Badge label={rule.system} color="#10B981" />
                   </Td>
                   <Td><span style={{ fontSize: 11, color: '#888' }}>{rule.category}</span></Td>
                   <Td>
@@ -263,7 +263,7 @@ export default function DesignRules() {
                   </Td>
                   <Td right><span style={{ fontSize: 12, color: '#888' }}>{rule.priority}</span></Td>
                   <Td>
-                    <Badge label={rule.is_active ? 'Activa' : 'Inactiva'} color={rule.is_active ? '#57FF9A' : '#666'} />
+                    <Badge label={rule.is_active ? 'Activa' : 'Inactiva'} color={rule.is_active ? '#10B981' : '#666'} />
                   </Td>
                   <Td right>
                     <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }} onClick={e => e.stopPropagation()}>
@@ -272,7 +272,7 @@ export default function DesignRules() {
                       <Btn variant="ghost" size="sm" onClick={() => handleToggleActive(rule)}>
                         {rule.is_active ? '⏸' : '▶'}
                       </Btn>
-                      <Btn variant="ghost" size="sm" onClick={() => handleDelete(rule.id)}><Trash2 size={12} color="#EF4444" /></Btn>
+                      <Btn variant="ghost" size="sm" onClick={() => handleDelete(rule.id)}><Trash2 size={12} color="#DC2626" /></Btn>
                     </div>
                   </Td>
                 </tr>
@@ -358,7 +358,7 @@ export default function DesignRules() {
                           padding: '4px 12px', borderRadius: 6, fontSize: 11, fontWeight: 500,
                           cursor: 'pointer', transition: 'all 0.15s', border: 'none',
                           background: active ? 'rgba(87,255,154,0.15)' : '#222',
-                          color: active ? '#57FF9A' : '#888',
+                          color: active ? '#10B981' : '#888',
                         }}
                       >
                         {level}

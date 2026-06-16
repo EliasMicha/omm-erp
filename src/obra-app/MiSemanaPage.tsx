@@ -92,7 +92,7 @@ export default function MiSemanaPage({ employeeId }: { employeeId: string }) {
   const urgenciaColor = (u: string) =>
     u === 'urgente' ? '#ef4444' :
     u === 'alta' ? '#f59e0b' :
-    u === 'baja' ? '#666' : '#57FF9A'
+    u === 'baja' ? '#666' : '#10B981'
 
   return (
     <div style={{
@@ -140,7 +140,7 @@ export default function MiSemanaPage({ employeeId }: { employeeId: string }) {
           style={{
             flex: 1, padding: '10px', background: '#0f1a12',
             border: '1px solid #1f3a2a', borderRadius: 10,
-            color: '#57FF9A', fontSize: 12, cursor: 'pointer', fontWeight: 600,
+            color: '#10B981', fontSize: 12, cursor: 'pointer', fontWeight: 600,
           }}
         >Hoy</button>
         <button
@@ -177,7 +177,7 @@ export default function MiSemanaPage({ employeeId }: { employeeId: string }) {
                 onClick={() => assignment && setExpandedDay(expanded ? null : dow)}
                 style={{
                   background: assignment ? '#0f1a12' : '#0f0f0f',
-                  border: `1px solid ${isToday ? '#57FF9A' : assignment ? '#1f3a2a' : '#1a1a1a'}`,
+                  border: `1px solid ${isToday ? '#10B981' : assignment ? '#1f3a2a' : '#1a1a1a'}`,
                   borderRadius: 14,
                   padding: 14,
                   cursor: assignment ? 'pointer' : 'default',
@@ -193,7 +193,7 @@ export default function MiSemanaPage({ employeeId }: { employeeId: string }) {
                     <div style={{ fontSize: 10, color: '#666', textTransform: 'uppercase', letterSpacing: 1 }}>
                       {DAYS[dow]}
                     </div>
-                    <div style={{ fontSize: 18, fontWeight: 700, color: isToday ? '#57FF9A' : '#fff' }}>
+                    <div style={{ fontSize: 18, fontWeight: 700, color: isToday ? '#10B981' : '#fff' }}>
                       {date.getDate()}
                     </div>
                   </div>
@@ -217,7 +217,7 @@ export default function MiSemanaPage({ employeeId }: { employeeId: string }) {
                           {isToday && (
                             <span style={{
                               fontSize: 9, padding: '2px 6px', borderRadius: 8,
-                              background: '#57FF9A22', color: '#57FF9A',
+                              background: '#10B98122', color: '#10B981',
                               fontWeight: 700,
                             }}>HOY</span>
                           )}

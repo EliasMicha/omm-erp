@@ -40,7 +40,7 @@ const CATEGORIAS: Record<string, { label: string; emoji: string }> = {
 const STATUS_COLORS: Record<string, string> = {
   pendiente: '#f59e0b',
   aprobado: '#3b82f6',
-  pagado: '#57FF9A',
+  pagado: '#10B981',
   rechazado: '#ef4444',
 }
 
@@ -204,7 +204,7 @@ export default function TabCajaChica() {
         <KpiCard
           label="Pagado este mes"
           value={fmtMoney(kpis.pagado_mes_monto)}
-          color="#57FF9A"
+          color="#10B981"
           icon={<DollarSign size={16} />}
         />
         <KpiCard

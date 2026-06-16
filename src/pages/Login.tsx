@@ -34,7 +34,7 @@ export default function Login() {
       }}>
         <div style={{ textAlign: 'center', marginBottom: 8 }}>
           <div style={{ fontSize: 24, fontWeight: 700, color: '#fff' }}>
-            <span style={{ color: '#57FF9A' }}>OMM</span> Tech
+            <span style={{ color: '#10B981' }}>OMM</span> Tech
           </div>
           <div style={{ fontSize: 12, color: '#555', marginTop: 4, letterSpacing: '0.1em', textTransform: 'uppercase' }}>
             ERP Sistema
@@ -58,7 +58,7 @@ export default function Login() {
               background: '#1a1a1a', border: '1px solid #333', borderRadius: 8,
               padding: '10px 14px', color: '#fff', fontSize: 14, outline: 'none',
             }}
-            onFocus={e => e.currentTarget.style.borderColor = '#57FF9A'}
+            onFocus={e => e.currentTarget.style.borderColor = '#10B981'}
             onBlur={e => e.currentTarget.style.borderColor = '#333'}
           />
         </div>
@@ -74,7 +74,7 @@ export default function Login() {
               background: '#1a1a1a', border: '1px solid #333', borderRadius: 8,
               padding: '10px 14px', color: '#fff', fontSize: 14, outline: 'none',
             }}
-            onFocus={e => e.currentTarget.style.borderColor = '#57FF9A'}
+            onFocus={e => e.currentTarget.style.borderColor = '#10B981'}
             onBlur={e => e.currentTarget.style.borderColor = '#333'}
           />
         </div>
@@ -83,7 +83,7 @@ export default function Login() {
           type="submit"
           disabled={loading}
           style={{
-            background: loading ? '#333' : '#57FF9A', color: '#000', border: 'none',
+            background: loading ? '#333' : '#10B981', color: '#000', border: 'none',
             borderRadius: 8, padding: '12px 0', fontSize: 14, fontWeight: 600,
             cursor: loading ? 'not-allowed' : 'pointer', marginTop: 8,
             transition: 'opacity 0.15s',
