@@ -1,5 +1,20 @@
+// ═══════════════════════════════════════════════════════════════════════════
+// AuthContext — Supabase Auth + app_users metadata
+// ═══════════════════════════════════════════════════════════════════════════
+// Flow:
+//   1. Login con supabase.auth.signInWithPassword (email + password)
+//   2. Después del login, llamamos RPC get_my_app_user() que devuelve el
+//      app_users vinculado por auth_user_id = auth.uid()
+//   3. Esa info (permission_area, nivel, employee_id) se mantiene en el state
+//   4. La sesión la maneja Supabase Auth (JWT con refresh automático)
+//
+// Para usuarios pre-existentes que NO tienen auth.users todavía:
+//   El componente Login detecta el caso (vía check_email_status RPC) y los
+//   redirige a un flow de "configurar password" con supabase.auth.signUp.
+// ═══════════════════════════════════════════════════════════════════════════
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react'
 import { supabase } from '../lib/supabase'
+import type { Session } from '@supabase/supabase-js'
 
 export type PermissionArea = 'DG' | 'Administracion' | 'Ventas_Ingenieria' | 'Operaciones'
 export type UserNivel = 'director' | 'ejecutor'
@@ -16,73 +31,155 @@ export interface UserProfile {
 
 interface AuthContextType {
   user: UserProfile | null
+  session: Session | null
   loading: boolean
-  signIn: (email: string, password: string) => Promise<{ error: string | null }>
-  signOut: () => void
+  signIn: (email: string, password: string) => Promise<{ error: string | null; needsSignup?: boolean }>
+  signUpExisting: (email: string, password: string) => Promise<{ error: string | null }>
+  signOut: () => Promise<void>
+  refreshProfile: () => Promise<void>
 }
 
-const AUTH_KEY = 'omm_user'
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<UserProfile | null>(null)
+  const [session, setSession] = useState<Session | null>(null)
   const [loading, setLoading] = useState(true)
 
-  // Restore session from localStorage
-  useEffect(() => {
-    try {
-      const stored = localStorage.getItem(AUTH_KEY)
-      if (stored) {
-        setUser(JSON.parse(stored))
-      }
-    } catch (e) {
-      console.error('Error restoring session:', e)
+  // Cargar el app_user vinculado al auth.uid() actual
+  async function loadProfile() {
+    const { data, error } = await supabase.rpc('get_my_app_user')
+    if (error) {
+      console.error('[auth] get_my_app_user error:', error)
+      setUser(null)
+      return null
     }
-    setLoading(false)
+    if (!data || !data.id) {
+      setUser(null)
+      return null
+    }
+    if (!data.activo) {
+      // Usuario desactivado: cerrar sesión inmediatamente
+      await supabase.auth.signOut()
+      setUser(null)
+      return null
+    }
+    const profile: UserProfile = {
+      id: data.id,
+      email: data.email,
+      nombre: data.nombre,
+      permission_area: data.permission_area,
+      nivel: data.nivel || 'ejecutor',
+      employee_id: data.employee_id || null,
+      activo: data.activo,
+    }
+    setUser(profile)
+    return profile
+  }
+
+  // Inicialización: leer sesión + escuchar cambios
+  useEffect(() => {
+    let isMounted = true
+
+    // 1. Get initial session
+    supabase.auth.getSession().then(async ({ data: { session: s } }) => {
+      if (!isMounted) return
+      setSession(s)
+      if (s) await loadProfile()
+      setLoading(false)
+    })
+
+    // 2. Escuchar cambios de auth (login, logout, refresh de token)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, s) => {
+      if (!isMounted) return
+      setSession(s)
+      if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+        await loadProfile()
+      } else if (event === 'SIGNED_OUT') {
+        setUser(null)
+      }
+    })
+
+    return () => {
+      isMounted = false
+      subscription.unsubscribe()
+    }
   }, [])
 
   async function signIn(email: string, password: string) {
-    // Query using pgcrypto crypt() to verify password
-    const { data, error } = await supabase.rpc('verify_login', {
-      p_email: email.toLowerCase().trim(),
-      p_password: password,
+    const emailNorm = email.toLowerCase().trim()
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: emailNorm,
+      password,
     })
 
     if (error) {
-      console.error('Login RPC error:', error)
-      return { error: 'Error al iniciar sesión' }
-    }
-
-    if (!data || data.length === 0) {
+      // Si las credenciales son inválidas, verificar si el email existe en app_users
+      // pero no tiene auth.users → necesita "primer ingreso"
+      if (error.message.toLowerCase().includes('invalid')) {
+        const { data: status } = await supabase.rpc('check_email_status', { p_email: emailNorm })
+        if (status && status[0]?.needs_signup) {
+          return { error: 'PRIMER_INGRESO', needsSignup: true }
+        }
+      }
       return { error: 'Email o contraseña incorrectos' }
     }
 
-    const profile: UserProfile = {
-      id: data[0].id,
-      email: data[0].email,
-      nombre: data[0].nombre,
-      permission_area: data[0].permission_area,
-      nivel: data[0].nivel || 'ejecutor',
-      employee_id: data[0].employee_id || null,
-      activo: data[0].activo,
+    if (!data.session) {
+      return { error: 'No se pudo establecer sesión' }
     }
 
-    if (!profile.activo) {
-      return { error: 'Tu cuenta está desactivada' }
-    }
-
-    setUser(profile)
-    localStorage.setItem(AUTH_KEY, JSON.stringify(profile))
+    // El profile se carga via onAuthStateChange → SIGNED_IN → loadProfile
     return { error: null }
   }
 
-  function signOut() {
+  async function signUpExisting(email: string, password: string) {
+    const emailNorm = email.toLowerCase().trim()
+
+    // Verificar primero que el email exista en app_users
+    const { data: status } = await supabase.rpc('check_email_status', { p_email: emailNorm })
+    if (!status || !status[0]?.in_app_users) {
+      return { error: 'Email no autorizado. Pide al administrador que te dé de alta primero.' }
+    }
+    if (status[0]?.in_auth) {
+      return { error: 'Ya tienes cuenta, intenta iniciar sesión normalmente.' }
+    }
+
+    // SignUp creará auth.users; el trigger handle_new_auth_user (server-side):
+    //   1. Vincula auth.users.id con app_users.auth_user_id (match por email)
+    //   2. Auto-confirma email_confirmed_at = NOW() porque el user es pre-aprobado
+    const { error: signupErr } = await supabase.auth.signUp({
+      email: emailNorm,
+      password,
+    })
+    if (signupErr) {
+      return { error: signupErr.message }
+    }
+    // Aunque el signUp devuelva session=null (si la org tiene email confirm
+    // habilitado), el trigger ya confirmó el email server-side. Forzamos un
+    // signIn explícito para arrancar la sesión.
+    const { error: signinErr } = await supabase.auth.signInWithPassword({
+      email: emailNorm,
+      password,
+    })
+    if (signinErr) {
+      return { error: 'Cuenta creada pero no se pudo iniciar sesión: ' + signinErr.message }
+    }
+    return { error: null }
+  }
+
+  async function signOut() {
+    await supabase.auth.signOut()
     setUser(null)
-    localStorage.removeItem(AUTH_KEY)
+    setSession(null)
+  }
+
+  async function refreshProfile() {
+    await loadProfile()
   }
 
   return (
-    <AuthContext.Provider value={{ user, loading, signIn, signOut }}>
+    <AuthContext.Provider value={{ user, session, loading, signIn, signUpExisting, signOut, refreshProfile }}>
       {children}
     </AuthContext.Provider>
   )
