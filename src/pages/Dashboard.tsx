@@ -459,7 +459,7 @@ function ProyeccionCobranza() {
   // Toggle moneda — heredamos el patrón del componente Cobranza por proyecto.
   // Por simplicidad asumimos MXN como base aquí; los milestones tienen currency.
   const [currencyView, setCurrencyView] = useState<'MXN' | 'USD'>('MXN')
-  const [tc, setTc] = useState<number>(20.5)
+  const [tc, setTc] = useState<number>(18.5)
 
   useEffect(() => {
     async function load() {
@@ -768,7 +768,7 @@ function CobranzaPorProyecto() {
   // Cada source tiene su propia moneda original: quotations.notes.currency,
   // purchase_orders.currency, bank_movements.moneda. Se convierte al display.
   const [currencyView, setCurrencyView] = useState<'MXN' | 'USD'>('MXN')
-  const [tc, setTc] = useState<number>(20.5)
+  const [tc, setTc] = useState<number>(18.5)
 
   useEffect(() => {
     async function load() {
