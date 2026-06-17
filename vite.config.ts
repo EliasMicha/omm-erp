@@ -13,7 +13,7 @@ export default defineConfig({
         name: 'OMM ERP',
         short_name: 'OMM ERP',
         description: 'ERP de OMM Technologies — instalaciones especiales',
-        theme_color: '#57FF9A',
+        theme_color: '#10B981',
         background_color: '#0a0a0a',
         display: 'standalone',
         orientation: 'portrait',
@@ -33,6 +33,12 @@ export default defineConfig({
         ],
       },
       workbox: {
+        // CRÍTICO: el SW nuevo toma control inmediatamente y limpia caches viejos.
+        // Sin esto, el SW viejo intercepta requests al endpoint /auth/v1/token y
+        // los usuarios quedan atorados en "Entrando..." al hacer login.
+        clientsClaim: true,
+        skipWaiting: true,
+        cleanupOutdatedCaches: true,
         // Cachear todos los assets estáticos del build
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
         // No cachear las llamadas a Supabase ni a las funciones de Vercel
