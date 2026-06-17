@@ -80,45 +80,43 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return profile
   }
 
-  // Inicialización: leer sesión + escuchar cambios
+  // Inicialización: usar onAuthStateChange como fuente principal.
+  // Esto dispara INITIAL_SESSION inmediatamente al suscribirse, con la sesión
+  // hidratada del localStorage. Es más confiable que getSession() que puede
+  // colgarse esperando network en algunos entornos (Safari/PWA/SW).
   useEffect(() => {
     let isMounted = true
+    let initialResolved = false
 
-    // Safety timeout: si después de 5s el auth no resolvió, marcar loading=false
-    // (defensa contra getSession() colgada en Safari/PWA/service worker viejo)
+    // Safety timeout extendido: 8s para dar margen al network refresh
     const safetyTimeout = setTimeout(() => {
-      if (isMounted) {
-        console.warn('[auth] safety timeout — forzando loading=false')
+      if (isMounted && !initialResolved) {
+        console.warn('[auth] safety timeout — onAuthStateChange no disparó INITIAL_SESSION en 8s, forzando loading=false')
+        initialResolved = true
         setLoading(false)
       }
-    }, 5000)
+    }, 8000)
 
-    // 1. Get initial session
-    supabase.auth.getSession()
-      .then(async ({ data: { session: s } }) => {
-        if (!isMounted) return
-        setSession(s)
-        if (s) {
-          try { await loadProfile() } catch (e) { console.error('[auth] loadProfile error:', e) }
-        }
-      })
-      .catch(e => {
-        console.error('[auth] getSession error:', e)
-      })
-      .finally(() => {
-        if (!isMounted) return
-        clearTimeout(safetyTimeout)
-        setLoading(false)
-      })
-
-    // 2. Escuchar cambios de auth (login, logout, refresh de token)
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, s) => {
       if (!isMounted) return
+      console.log('[auth] event:', event, '— session:', s ? 'present' : 'null')
       setSession(s)
-      if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
-        try { await loadProfile() } catch (e) { console.error('[auth] loadProfile error:', e) }
-      } else if (event === 'SIGNED_OUT') {
+
+      if (event === 'SIGNED_OUT') {
         setUser(null)
+      } else if (s) {
+        // INITIAL_SESSION, SIGNED_IN, TOKEN_REFRESHED, USER_UPDATED
+        try { await loadProfile() } catch (e) { console.error('[auth] loadProfile error:', e) }
+      } else {
+        // INITIAL_SESSION sin sesión guardada
+        setUser(null)
+      }
+
+      // Marcar loading=false en el primer evento (INITIAL_SESSION típicamente)
+      if (!initialResolved) {
+        initialResolved = true
+        clearTimeout(safetyTimeout)
+        setLoading(false)
       }
     })
 
