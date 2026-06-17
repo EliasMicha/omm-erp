@@ -54,24 +54,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(null)
       return null
     }
-    if (!data || !data.id) {
+    // El RPC devuelve TABLE → es un array. Tomamos el primer row.
+    const row = Array.isArray(data) ? data[0] : data
+    if (!row || !row.id) {
+      console.warn('[auth] get_my_app_user devolvió vacío — usuario no vinculado a app_users')
       setUser(null)
       return null
     }
-    if (!data.activo) {
+    if (!row.activo) {
       // Usuario desactivado: cerrar sesión inmediatamente
       await supabase.auth.signOut()
       setUser(null)
       return null
     }
     const profile: UserProfile = {
-      id: data.id,
-      email: data.email,
-      nombre: data.nombre,
-      permission_area: data.permission_area,
-      nivel: data.nivel || 'ejecutor',
-      employee_id: data.employee_id || null,
-      activo: data.activo,
+      id: row.id,
+      email: row.email,
+      nombre: row.nombre,
+      permission_area: row.permission_area,
+      nivel: row.nivel || 'ejecutor',
+      employee_id: row.employee_id || null,
+      activo: row.activo,
     }
     setUser(profile)
     return profile
