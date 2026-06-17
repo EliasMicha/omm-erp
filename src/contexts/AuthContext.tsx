@@ -80,52 +80,48 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return profile
   }
 
-  // Inicialización: hidratar manualmente desde localStorage como fallback.
-  // En algunos entornos (Safari/PWA/SW), ni getSession() ni onAuthStateChange
-  // disparan INITIAL_SESSION confiablemente. Solución: leer LS, llamar
-  // setSession() para hidratar el client, después loadProfile().
+  // Inicialización: hidratar manualmente desde localStorage.
+  // Bypasseamos getSession()/onAuthStateChange (que se cuelgan o entran en loop
+  // en algunos entornos). signIn/signOut se manejan explícitamente por el código
+  // de la UI, no por el listener — eso evita re-renders innecesarios.
   useEffect(() => {
     let isMounted = true
 
     async function init() {
       try {
-        // 1. Intentar leer la sesión del localStorage manualmente
         const storageKey = 'sb-ubbumxommqjcpdozpunf-auth-token'
         const stored = typeof window !== 'undefined' ? window.localStorage.getItem(storageKey) : null
 
-        if (stored) {
-          try {
-            const parsed = JSON.parse(stored)
-            const accessToken = parsed?.access_token
-            const refreshToken = parsed?.refresh_token
-            const expiresAt = parsed?.expires_at
-
-            if (accessToken && refreshToken) {
-              const now = Math.floor(Date.now() / 1000)
-              const isExpired = expiresAt && expiresAt < now
-
-              console.log('[auth] sesión encontrada en LS — expired:', isExpired)
-
-              // Hidratar el client con la sesión guardada
-              const { data, error } = await supabase.auth.setSession({
-                access_token: accessToken,
-                refresh_token: refreshToken,
-              })
-
-              if (error) {
-                console.error('[auth] setSession error:', error)
-                window.localStorage.removeItem(storageKey)
-              } else if (data.session && isMounted) {
-                setSession(data.session)
-                await loadProfile()
-              }
-            }
-          } catch (e) {
-            console.error('[auth] error parseando token de LS:', e)
-            window.localStorage.removeItem(storageKey)
-          }
-        } else {
+        if (!stored) {
           console.log('[auth] no hay sesión en LS')
+          return
+        }
+
+        const parsed = JSON.parse(stored)
+        const accessToken = parsed?.access_token
+        const refreshToken = parsed?.refresh_token
+
+        if (!accessToken || !refreshToken) {
+          console.warn('[auth] token en LS incompleto, limpiando')
+          window.localStorage.removeItem(storageKey)
+          return
+        }
+
+        console.log('[auth] hidratando sesión desde LS')
+        const { data, error } = await supabase.auth.setSession({
+          access_token: accessToken,
+          refresh_token: refreshToken,
+        })
+
+        if (error) {
+          console.error('[auth] setSession error:', error)
+          window.localStorage.removeItem(storageKey)
+          return
+        }
+
+        if (data.session && isMounted) {
+          setSession(data.session)
+          await loadProfile()
         }
       } catch (e) {
         console.error('[auth] init error:', e)
@@ -136,27 +132,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     init()
 
-    // Escuchar cambios futuros (login, logout, refresh)
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, s) => {
-      if (!isMounted) return
-      console.log('[auth] event:', event, '— session:', s ? 'present' : 'null')
-
-      if (event === 'INITIAL_SESSION') {
-        // Ya manejado por init() manualmente — ignorar
-        return
-      }
-
-      setSession(s)
-      if (event === 'SIGNED_OUT') {
-        setUser(null)
-      } else if (s) {
-        try { await loadProfile() } catch (e) { console.error('[auth] loadProfile error:', e) }
-      }
-    })
-
     return () => {
       isMounted = false
-      subscription.unsubscribe()
     }
   }, [])
 
@@ -183,7 +160,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return { error: 'No se pudo establecer sesión' }
     }
 
-    // El profile se carga via onAuthStateChange → SIGNED_IN → loadProfile
+    // Cargar profile explícitamente (ya no usamos onAuthStateChange para esto)
+    setSession(data.session)
+    await loadProfile()
     return { error: null }
   }
 
@@ -212,12 +191,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Aunque el signUp devuelva session=null (si la org tiene email confirm
     // habilitado), el trigger ya confirmó el email server-side. Forzamos un
     // signIn explícito para arrancar la sesión.
-    const { error: signinErr } = await supabase.auth.signInWithPassword({
+    const { data: signinData, error: signinErr } = await supabase.auth.signInWithPassword({
       email: emailNorm,
       password,
     })
     if (signinErr) {
       return { error: 'Cuenta creada pero no se pudo iniciar sesión: ' + signinErr.message }
+    }
+    if (signinData.session) {
+      setSession(signinData.session)
+      await loadProfile()
     }
     return { error: null }
   }
