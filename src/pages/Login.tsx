@@ -15,46 +15,65 @@ export default function Login() {
   const { signIn, signUpExisting } = useAuth()
   const navigate = useNavigate()
 
+  // Helper: agrega timeout a una promesa (si no resuelve en N ms, rechaza)
+  function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+    return Promise.race([
+      promise,
+      new Promise<T>((_, reject) =>
+        setTimeout(() => reject(new Error(`${label} tardó más de ${ms}ms — verifica tu conexión o limpia el cache`)), ms)
+      ),
+    ])
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError('')
     setInfo('')
     setLoading(true)
 
-    if (mode === 'login') {
-      const { error: err, needsSignup } = await signIn(email, password)
-      if (needsSignup) {
-        setMode('first-time-setup')
-        setPassword('')
-        setInfo('Es tu primer ingreso. Configura una contraseña nueva (mínimo 6 caracteres).')
-        setLoading(false)
-        return
-      }
-      if (err) {
-        setError(err)
-        setLoading(false)
+    try {
+      if (mode === 'login') {
+        const { error: err, needsSignup } = await withTimeout(signIn(email, password), 10000, 'signIn')
+        if (needsSignup) {
+          setMode('first-time-setup')
+          setPassword('')
+          setInfo('Es tu primer ingreso. Configura una contraseña nueva (mínimo 6 caracteres).')
+          setLoading(false)
+          return
+        }
+        if (err) {
+          setError(err)
+          setLoading(false)
+        } else {
+          // Sesión OK — redirigir. setLoading(false) para evitar "Entrando..." pegado
+          setLoading(false)
+          navigate('/')
+        }
       } else {
-        navigate('/')
+        // first-time-setup mode
+        if (password.length < 6) {
+          setError('La contraseña debe tener al menos 6 caracteres')
+          setLoading(false)
+          return
+        }
+        if (password !== confirmPassword) {
+          setError('Las contraseñas no coinciden')
+          setLoading(false)
+          return
+        }
+        const { error: err } = await withTimeout(signUpExisting(email, password), 10000, 'signUp')
+        if (err) {
+          setError(err)
+          setLoading(false)
+        } else {
+          setLoading(false)
+          navigate('/')
+        }
       }
-    } else {
-      // first-time-setup mode
-      if (password.length < 6) {
-        setError('La contraseña debe tener al menos 6 caracteres')
-        setLoading(false)
-        return
-      }
-      if (password !== confirmPassword) {
-        setError('Las contraseñas no coinciden')
-        setLoading(false)
-        return
-      }
-      const { error: err } = await signUpExisting(email, password)
-      if (err) {
-        setError(err)
-        setLoading(false)
-      } else {
-        navigate('/')
-      }
+    } catch (e: any) {
+      console.error('[login] handleSubmit error:', e)
+      setError(e?.message || 'Error inesperado. Intenta de nuevo o limpia el cache.')
+      setLoading(false)
     }
   }
 
