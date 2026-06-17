@@ -760,6 +760,8 @@ function CobranzaPorProyecto() {
   const [pos, setPOs] = useState<any[]>([])
   const [bankMovs, setBankMovs] = useState<any[]>([])
   const [cashMovs, setCashMovs] = useState<any[]>([])
+  const [invoices, setInvoices] = useState<any[]>([])
+  const [conciliacionLinks, setConciliacionLinks] = useState<any[]>([])
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [showAll, setShowAll] = useState(false)
   // Manejo de moneda: el user elige ver todo en MXN o USD, con TC editable.
@@ -770,15 +772,23 @@ function CobranzaPorProyecto() {
 
   useEffect(() => {
     async function load() {
-      const [leadsRes, qRes, poRes, bmRes, cmRes] = await Promise.all([
+      // 1) Traer todo lo que tiene asignación directa (lead_id o quotation_id)
+      // 2) Adicionalmente traer TODOS los conciliacion_links + facturas vinculadas
+      //    para descubrir movs que solo están vinculados via factura → lead.
+      const [leadsRes, qRes, poRes, bmRes, cmRes, invRes, linksRes] = await Promise.all([
         supabase.from('leads').select('id, name, company'),
         supabase.from('quotations').select('id, name, notes, specialty, stage, total').order('updated_at', { ascending: false }),
         supabase.from('purchase_orders').select('id, po_number, total, status, lead_id, quotation_id, currency'),
-        // Traer TODOS los movimientos con lead_id O quotation_id (no solo lead_id directo).
-        // El lead se infiere via quotation cuando no está directo. Esto recupera
-        // ~362 movs históricos que estaban quedando fuera del cálculo.
-        supabase.from('bank_movements').select('id, monto, tipo, fecha, lead_id, quotation_id, categoria_sugerida, moneda').or('lead_id.not.is.null,quotation_id.not.is.null'),
-        supabase.from('cash_movements').select('id, tipo, direccion, monto, fecha, lead_id, quotation_id, concepto').or('lead_id.not.is.null,quotation_id.not.is.null'),
+        // BUG FIX: la columna real es `categoria` (no `categoria_sugerida`).
+        // Antes el SELECT fallaba y bankMovs quedaba vacío → Cobrado siempre $0.
+        // Traemos TODOS los movs (no solo los que tienen lead_id directo) porque
+        // muchos están conciliados a una factura que sí tiene lead/quotation.
+        supabase.from('bank_movements').select('id, monto, tipo, fecha, lead_id, quotation_id, categoria, moneda'),
+        supabase.from('cash_movements').select('id, tipo, direccion, monto, fecha, lead_id, quotation_id, concepto'),
+        // Facturas con sus lead_id/quotation_id — usadas para resolver lead via factura
+        supabase.from('facturas').select('id, lead_id, quotation_id, cotizacion_id'),
+        // Links bank_movement ↔ factura (tabla de conciliación)
+        supabase.from('conciliacion_links').select('bank_movement_id, invoice_id, monto_aplicado'),
       ])
       // Parsear lead_id, currency, descuento e ivaRate de cotizaciones desde notes JSON.
       // El descuento e ivaRate pueden estar en niveles distintos según especialidad:
@@ -810,6 +820,8 @@ function CobranzaPorProyecto() {
       setPOs(poRes.data || [])
       setBankMovs(bmRes.data || [])
       setCashMovs(cmRes.data || [])
+      setInvoices(invRes.data || [])
+      setConciliacionLinks(linksRes.data || [])
       setLoading(false)
     }
     load()
@@ -834,8 +846,7 @@ function CobranzaPorProyecto() {
     return currencyView === 'USD' ? formatted + ' USD' : formatted
   }
 
-  // Resolver lead_id de cualquier registro con quotation_id: directo o inferido.
-  // Aplica para POs, bank_movements, cash_movements — todos pueden tener uno u otro.
+  // Resolver lead_id en cascada: directo → via quotation → via factura conciliada
   const resolveLead = (record: any) => {
     if (record.lead_id) return record.lead_id
     if (record.quotation_id) {
@@ -845,6 +856,26 @@ function CobranzaPorProyecto() {
     return null
   }
   const resolvePoLead = resolveLead  // alias por compat
+
+  // Para bank_movements: extender resolve a usar conciliacion_links → factura
+  const resolveBankMovLead = (mov: any): string | null => {
+    // 1. Directo
+    const direct = resolveLead(mov)
+    if (direct) return direct
+    // 2. Via factura conciliada — buscar todos los links de este mov
+    const links = conciliacionLinks.filter(l => l.bank_movement_id === mov.id)
+    for (const link of links) {
+      const inv = invoices.find(i => i.id === link.invoice_id)
+      if (!inv) continue
+      if (inv.lead_id) return inv.lead_id
+      const qid = inv.quotation_id || inv.cotizacion_id
+      if (qid) {
+        const q = quotations.find(qq => qq.id === qid)
+        if (q?.lead_id) return q.lead_id
+      }
+    }
+    return null
+  }
 
   // Calcular métricas por lead, ordenadas por monto vendido desc
   const leadRows = useMemo(() => {
@@ -876,10 +907,10 @@ function CobranzaPorProyecto() {
       const por_pagar_compras = posLead
         .filter(p => ['borrador', 'aprobada'].includes(p.status))
         .reduce((s, p) => s + convert(Number(p.total) || 0, p.currency || 'MXN'), 0)
-      // Bank movements de este lead — incluir tanto directos (lead_id) como
-      // inferidos (quotation_id → lead). Aceptamos cualquier abono como cobro
-      // porque la categoría 'cobro_cliente' no siempre está asignada.
-      const movsLead = bankMovs.filter(b => resolveLead(b) === leadId)
+      // Bank movements de este lead — cascada directo → quotation → factura conciliada.
+      // Cualquier abono cuenta como cobro (la categoría 'cobro_cliente' no siempre
+      // está asignada). Cualquier cargo cuenta como pago.
+      const movsLead = bankMovs.filter(b => resolveBankMovLead(b) === leadId)
       const cobrado_banco = movsLead
         .filter(b => b.tipo === 'abono')
         .reduce((s, b) => s + convert(Number(b.monto) || 0, b.moneda || 'MXN'), 0)
@@ -925,7 +956,7 @@ function CobranzaPorProyecto() {
     })
     rows.sort((a, b) => b.vendido - a.vendido)
     return rows
-  }, [loading, leads, quotations, pos, bankMovs, cashMovs, currencyView, tc])
+  }, [loading, leads, quotations, pos, bankMovs, cashMovs, invoices, conciliacionLinks, currencyView, tc])
 
   // Totales generales
   const totals = useMemo(() => leadRows.reduce((acc, r) => ({
