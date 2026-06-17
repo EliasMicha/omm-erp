@@ -185,6 +185,46 @@ export default function Login() {
             ← Volver al login
           </button>
         )}
+
+        {/* Botón de "Reset" — útil cuando Safari/PWA tienen SW viejo cacheado */}
+        <button
+          type="button"
+          onClick={async () => {
+            setError('')
+            setInfo('Limpiando cache...')
+            try {
+              // 1. Unregister todos los service workers
+              if ('serviceWorker' in navigator) {
+                const regs = await navigator.serviceWorker.getRegistrations()
+                for (const r of regs) await r.unregister()
+              }
+              // 2. Borrar caches
+              if ('caches' in window) {
+                const names = await caches.keys()
+                for (const n of names) await caches.delete(n)
+              }
+              // 3. Limpiar localStorage + sessionStorage
+              localStorage.clear()
+              sessionStorage.clear()
+              // 4. Borrar IndexedDB
+              if (indexedDB.databases) {
+                const dbs = await indexedDB.databases()
+                for (const db of dbs) if (db.name) indexedDB.deleteDatabase(db.name)
+              }
+              setInfo('Cache limpio. Recargando...')
+              setTimeout(() => { window.location.href = '/login?clean=' + Date.now() }, 500)
+            } catch (err: any) {
+              setError('Error limpiando cache: ' + (err?.message || String(err)))
+            }
+          }}
+          style={{
+            background: 'transparent', color: '#666', border: '1px solid #333',
+            borderRadius: 6, padding: '8px 12px', fontSize: 11, cursor: 'pointer',
+            marginTop: 4,
+          }}
+        >
+          ¿Problemas para entrar? Limpia el cache
+        </button>
       </form>
     </div>
   )
