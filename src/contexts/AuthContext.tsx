@@ -80,49 +80,82 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return profile
   }
 
-  // Inicialización: usar onAuthStateChange como fuente principal.
-  // Esto dispara INITIAL_SESSION inmediatamente al suscribirse, con la sesión
-  // hidratada del localStorage. Es más confiable que getSession() que puede
-  // colgarse esperando network en algunos entornos (Safari/PWA/SW).
+  // Inicialización: hidratar manualmente desde localStorage como fallback.
+  // En algunos entornos (Safari/PWA/SW), ni getSession() ni onAuthStateChange
+  // disparan INITIAL_SESSION confiablemente. Solución: leer LS, llamar
+  // setSession() para hidratar el client, después loadProfile().
   useEffect(() => {
     let isMounted = true
-    let initialResolved = false
 
-    // Safety timeout extendido: 8s para dar margen al network refresh
-    const safetyTimeout = setTimeout(() => {
-      if (isMounted && !initialResolved) {
-        console.warn('[auth] safety timeout — onAuthStateChange no disparó INITIAL_SESSION en 8s, forzando loading=false')
-        initialResolved = true
-        setLoading(false)
+    async function init() {
+      try {
+        // 1. Intentar leer la sesión del localStorage manualmente
+        const storageKey = 'sb-ubbumxommqjcpdozpunf-auth-token'
+        const stored = typeof window !== 'undefined' ? window.localStorage.getItem(storageKey) : null
+
+        if (stored) {
+          try {
+            const parsed = JSON.parse(stored)
+            const accessToken = parsed?.access_token
+            const refreshToken = parsed?.refresh_token
+            const expiresAt = parsed?.expires_at
+
+            if (accessToken && refreshToken) {
+              const now = Math.floor(Date.now() / 1000)
+              const isExpired = expiresAt && expiresAt < now
+
+              console.log('[auth] sesión encontrada en LS — expired:', isExpired)
+
+              // Hidratar el client con la sesión guardada
+              const { data, error } = await supabase.auth.setSession({
+                access_token: accessToken,
+                refresh_token: refreshToken,
+              })
+
+              if (error) {
+                console.error('[auth] setSession error:', error)
+                window.localStorage.removeItem(storageKey)
+              } else if (data.session && isMounted) {
+                setSession(data.session)
+                await loadProfile()
+              }
+            }
+          } catch (e) {
+            console.error('[auth] error parseando token de LS:', e)
+            window.localStorage.removeItem(storageKey)
+          }
+        } else {
+          console.log('[auth] no hay sesión en LS')
+        }
+      } catch (e) {
+        console.error('[auth] init error:', e)
+      } finally {
+        if (isMounted) setLoading(false)
       }
-    }, 8000)
+    }
 
+    init()
+
+    // Escuchar cambios futuros (login, logout, refresh)
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, s) => {
       if (!isMounted) return
       console.log('[auth] event:', event, '— session:', s ? 'present' : 'null')
-      setSession(s)
 
+      if (event === 'INITIAL_SESSION') {
+        // Ya manejado por init() manualmente — ignorar
+        return
+      }
+
+      setSession(s)
       if (event === 'SIGNED_OUT') {
         setUser(null)
       } else if (s) {
-        // INITIAL_SESSION, SIGNED_IN, TOKEN_REFRESHED, USER_UPDATED
         try { await loadProfile() } catch (e) { console.error('[auth] loadProfile error:', e) }
-      } else {
-        // INITIAL_SESSION sin sesión guardada
-        setUser(null)
-      }
-
-      // Marcar loading=false en el primer evento (INITIAL_SESSION típicamente)
-      if (!initialResolved) {
-        initialResolved = true
-        clearTimeout(safetyTimeout)
-        setLoading(false)
       }
     })
 
     return () => {
       isMounted = false
-      clearTimeout(safetyTimeout)
       subscription.unsubscribe()
     }
   }, [])
