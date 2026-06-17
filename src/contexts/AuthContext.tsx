@@ -81,20 +81,39 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let isMounted = true
 
+    // Safety timeout: si después de 5s el auth no resolvió, marcar loading=false
+    // (defensa contra getSession() colgada en Safari/PWA/service worker viejo)
+    const safetyTimeout = setTimeout(() => {
+      if (isMounted) {
+        console.warn('[auth] safety timeout — forzando loading=false')
+        setLoading(false)
+      }
+    }, 5000)
+
     // 1. Get initial session
-    supabase.auth.getSession().then(async ({ data: { session: s } }) => {
-      if (!isMounted) return
-      setSession(s)
-      if (s) await loadProfile()
-      setLoading(false)
-    })
+    supabase.auth.getSession()
+      .then(async ({ data: { session: s } }) => {
+        if (!isMounted) return
+        setSession(s)
+        if (s) {
+          try { await loadProfile() } catch (e) { console.error('[auth] loadProfile error:', e) }
+        }
+      })
+      .catch(e => {
+        console.error('[auth] getSession error:', e)
+      })
+      .finally(() => {
+        if (!isMounted) return
+        clearTimeout(safetyTimeout)
+        setLoading(false)
+      })
 
     // 2. Escuchar cambios de auth (login, logout, refresh de token)
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, s) => {
       if (!isMounted) return
       setSession(s)
       if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
-        await loadProfile()
+        try { await loadProfile() } catch (e) { console.error('[auth] loadProfile error:', e) }
       } else if (event === 'SIGNED_OUT') {
         setUser(null)
       }
@@ -102,6 +121,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     return () => {
       isMounted = false
+      clearTimeout(safetyTimeout)
       subscription.unsubscribe()
     }
   }, [])
