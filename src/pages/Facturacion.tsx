@@ -402,7 +402,7 @@ export default function Facturacion() {
         ))}
       </div>
 
-      {view === 'todas' && <ListaTodas />}
+      {view === 'todas' && <ListaTodas onEditar={(f) => { setEditingFactura(f); setView('editar') }} />}
       {view === 'lista' && <ListaEmitidas onNueva={() => setView('nueva')} onEditar={(f) => { setEditingFactura(f); setView('editar') }} />}
       {view === 'nueva' && <NuevaFactura onCancel={() => setView('lista')} onCreated={() => setView('lista')} />}
       {view === 'editar' && <NuevaFactura onCancel={() => { setEditingFactura(null); setView('lista') }} onCreated={() => { setEditingFactura(null); setView('lista') }} editingFactura={editingFactura} />}
@@ -414,7 +414,7 @@ export default function Facturacion() {
 // ============================================================
 // Lista de TODAS las facturas (emitidas + recibidas) con sync unificado
 // ============================================================
-function ListaTodas() {
+function ListaTodas({ onEditar }: { onEditar?: (f: Factura) => void } = {}) {
   const [facturas, setFacturas] = useState<Factura[]>([])
   const [loading, setLoading] = useState(true)
   const [syncing, setSyncing] = useState(false)
@@ -425,6 +425,7 @@ function ListaTodas() {
   const [loadingDetalle, setLoadingDetalle] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [exportProgress, setExportProgress] = useState('')
+  const [timbrandoId, setTimbrandoId] = useState<string | null>(null)
   // Navegacion mensual
   const [monthOffset, setMonthOffset] = useState(0)
   const now = new Date()
@@ -453,6 +454,91 @@ function ListaTodas() {
     if (error) console.error('Facturacion load error:', error)
     setFacturas((data as Factura[]) || [])
     setLoading(false)
+  }
+
+  // ─── Acciones de borradores y timbradas (clonadas de ListaEmitidas) ─────
+  async function eliminarLocal(f: Factura) {
+    if (!confirm(`Eliminar la factura del listado local? Esta accion no se puede deshacer.\n\nFolio: ${f.serie || ''}${f.folio || '--'}\nCliente: ${f.receptor_nombre || f.emisor_nombre}\n\nNota: Si la factura ya fue timbrada en SAT, NO se puede eliminar — solo cancelar.`)) return
+    await supabase.from('factura_conceptos').delete().eq('factura_id', f.id)
+    const { error } = await supabase.from('facturas').delete().eq('id', f.id)
+    if (error) { alert('Error al eliminar: ' + error.message); return }
+    await load()
+  }
+
+  async function timbrarBorrador(f: Factura) {
+    if (!confirm(`Timbrar la factura borrador?\n\nSerie: ${f.serie || '--'} Folio: ${f.folio || '--'}\nCliente: ${f.receptor_nombre}\nTotal: $${(f.total || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}\n\nEsta accion enviará el CFDI al SAT.`)) return
+    setTimbrandoId(f.id)
+    try {
+      let facturapiCustomerId = f.facturapi_customer_id
+      if (!facturapiCustomerId && f.cliente_id) {
+        const { data: clienteData } = await supabase.from('clientes').select('*').eq('id', f.cliente_id).single()
+        if (clienteData) {
+          const customerPayload = {
+            legal_name: clienteData.razon_social, tax_id: clienteData.rfc,
+            tax_system: clienteData.regimen_fiscal_clave || clienteData.regimen_fiscal || '601',
+            email: '', address: { zip: clienteData.codigo_postal || '01000' }
+          }
+          const cr = await callFacturapi('create_customer', { method: 'POST', body: { payload: customerPayload } })
+          if (!cr.ok) { alert('Error al crear cliente en FacturAPI: ' + (cr.data?.message || 'desconocido')); setTimbrandoId(null); return }
+          facturapiCustomerId = cr.data.id
+          await supabase.from('clientes').update({ facturapi_customer_id: facturapiCustomerId }).eq('id', f.cliente_id)
+        }
+      }
+      if (!facturapiCustomerId) { alert('No se pudo obtener el ID de FacturAPI del cliente'); setTimbrandoId(null); return }
+      let invoicePayload: any
+      if (f.tipo_comprobante === 'I' || f.tipo_comprobante === 'E') {
+        const { data: conceptosData } = await supabase.from('factura_conceptos').select('*').eq('factura_id', f.id).order('order_index')
+        if (!conceptosData || conceptosData.length === 0) { alert('No se encontraron conceptos para esta factura borrador'); setTimbrandoId(null); return }
+        invoicePayload = {
+          customer: facturapiCustomerId,
+          items: conceptosData.map((c: any) => ({
+            quantity: c.cantidad,
+            product: { description: c.descripcion, product_key: c.clave_prod_serv, price: c.valor_unitario, unit_key: c.clave_unidad, unit_name: c.unidad, tax_included: false, taxes: [{ type: 'IVA', rate: c.iva_tasa }] }
+          })),
+          use: f.receptor_uso_cfdi || 'G03', payment_form: f.forma_pago || '99', payment_method: f.metodo_pago || 'PUE', currency: f.moneda || 'MXN',
+          ...(f.serie ? { series: f.serie } : {}),
+          ...(f.folio ? { folio_number: parseInt(f.folio) || undefined } : {}),
+        }
+        if (f.tipo_comprobante === 'E') invoicePayload.type = 'E'
+        if (f.moneda !== 'MXN' && f.tipo_cambio) invoicePayload.exchange = f.tipo_cambio
+        if (f.tipo_relacion && f.uuids_relacionados && f.uuids_relacionados.length > 0) {
+          invoicePayload.related_documents = [{ relationship: f.tipo_relacion, documents: f.uuids_relacionados }]
+        }
+      } else if (f.tipo_comprobante === 'P' && f.draft_data) {
+        const dd = f.draft_data
+        invoicePayload = {
+          customer: facturapiCustomerId, type: 'P',
+          items: [{ quantity: 1, product: { description: 'Pago', product_key: '84111506', price: 0, unit_key: 'ACT', unit_name: 'Actividad', tax_included: false, taxes: [] } }],
+          use: 'CP01', payment_form: '99', payment_method: 'PUE', currency: 'XXX',
+          complements: [{ type: 'pago', data: [{
+            payment_form: dd.formaPagoREP, date: dd.fechaPago, currency: dd.monedaPago,
+            exchange: dd.monedaPago !== 'MXN' ? (parseFloat(dd.tipoCambioPago) || 1) : undefined,
+            amount: parseFloat(dd.montoPago) || 0,
+            ...(dd.numOperacion ? { num_operation: dd.numOperacion } : {}),
+            related_documents: (dd.docsPago || []).map((d: any) => ({
+              uuid: d.uuid, folio: d.folio || undefined, series: d.serie || undefined, currency: d.moneda_doc, exchange: d.equivalencia_dr, payment_number: d.num_parcialidad,
+              previous_balance: d.imp_saldo_anterior, amount_paid: d.imp_pagado, balance: d.imp_saldo_insoluto, taxability: d.objeto_imp,
+              ...(d.objeto_imp === '02' && d.iva_trasladado > 0 ? { taxes: [{ type: 'IVA', rate: d.iva_tasa, base: d.base_dr || (d.imp_pagado - d.iva_trasladado), amount: d.iva_trasladado, withholding: false }] } : {}),
+            })),
+          }] }],
+        }
+      } else { alert('Tipo de comprobante no soportado o faltan datos del borrador'); setTimbrandoId(null); return }
+      const ir = await callFacturapi('create_invoice', { method: 'POST', body: { payload: invoicePayload } })
+      if (!ir.ok) { alert('Error al timbrar: ' + (ir.data?.message || JSON.stringify(ir.data).slice(0, 300))); setTimbrandoId(null); return }
+      const invoice = ir.data
+      await supabase.from('facturas').update({
+        facturapi_id: invoice.id, uuid_fiscal: invoice.uuid || null,
+        serie: invoice.series || f.serie || null,
+        folio: invoice.folio_number ? String(invoice.folio_number) : (f.folio || null),
+        status: invoice.status === 'valid' ? 'timbrada' : 'borrador',
+        fecha_timbrado: invoice.stamp?.date || null, draft_data: null,
+      }).eq('id', f.id)
+      await load()
+      alert('Factura timbrada exitosamente. UUID: ' + (invoice.uuid || 'N/A'))
+    } catch (err: any) {
+      alert('Error: ' + (err.message || 'desconocido'))
+    }
+    setTimbrandoId(null)
   }
 
   async function abrirDetalle(f: Factura) {
@@ -765,17 +851,18 @@ function ListaTodas() {
         <div style={{ background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 12, overflow: 'hidden' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse' as const, tableLayout: 'fixed' as const }}>
             <colgroup>
-              <col style={{ width: '5%' }} />
+              <col style={{ width: '4%' }} />
+              <col style={{ width: '10%' }} />
+              <col style={{ width: '8%' }} />
+              <col style={{ width: '24%' }} />
+              <col style={{ width: '11%' }} />
               <col style={{ width: '12%' }} />
               <col style={{ width: '8%' }} />
-              <col style={{ width: '30%' }} />
-              <col style={{ width: '13%' }} />
-              <col style={{ width: '14%' }} />
-              <col style={{ width: '8%' }} />
+              <col style={{ width: '23%' }} />
             </colgroup>
             <thead>
               <tr style={{ background: '#141414', borderBottom: '1px solid #1e1e1e' }}>
-                {['Dir', 'Folio', 'Fecha', 'Contraparte', 'RFC', 'Total', 'Status'].map(h => (
+                {['Dir', 'Folio', 'Fecha', 'Contraparte', 'RFC', 'Total', 'Status', 'Acciones'].map(h => (
                   <th key={h} style={{ padding: '10px 10px', fontSize: 10, fontWeight: 600, color: '#666', textTransform: 'uppercase' as const, letterSpacing: '0.06em', textAlign: 'left' as const }}>{h}</th>
                 ))}
               </tr>
@@ -798,6 +885,26 @@ function ListaTodas() {
                     <td style={{ padding: '10px 10px', fontSize: 12, color: isEmit ? '#10B981' : '#fcd34d', fontWeight: 600, textAlign: 'right' as const, ...cellEllipsis }}>${(f.total || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })} {f.moneda}</td>
                     <td style={{ padding: '10px 10px' }}>
                       <span style={{ padding: '2px 8px', borderRadius: 10, fontSize: 10, fontWeight: 600, background: f.status === 'timbrada' ? '#10B98122' : f.status === 'cancelada' ? '#DC262622' : '#D9770622', color: f.status === 'timbrada' ? '#10B981' : f.status === 'cancelada' ? '#DC2626' : '#D97706' }}>{f.status}</span>
+                    </td>
+                    <td style={{ padding: '10px 10px' }} onClick={(e) => e.stopPropagation()}>
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                        {/* Solo borradores emitidos pueden editarse/timbrarse */}
+                        {f.status === 'borrador' && f.direccion === 'emitida' && !f.facturapi_id && onEditar && (
+                          <button onClick={() => onEditar(f)} title="Editar borrador" style={{ background: '#2563EB18', border: '1px solid #2563EB44', borderRadius: 6, color: '#2563EB', cursor: 'pointer', padding: '2px 8px', fontSize: 10, fontWeight: 600, fontFamily: 'inherit' }}>Editar</button>
+                        )}
+                        {f.status === 'borrador' && f.direccion === 'emitida' && !f.facturapi_id && (
+                          <button onClick={() => timbrarBorrador(f)} disabled={timbrandoId === f.id} style={{ background: '#10B98118', border: '1px solid #10B98144', borderRadius: 6, color: '#10B981', cursor: timbrandoId === f.id ? 'wait' : 'pointer', padding: '2px 8px', fontSize: 10, fontWeight: 600, fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 4 }}>
+                            {timbrandoId === f.id ? <><Loader2 size={10} style={{ animation: 'spin 1s linear infinite' }} /> Timbrando...</> : 'Timbrar'}
+                          </button>
+                        )}
+                        {f.facturapi_id && <a href={`/api/facturapi?action=download_pdf&id=${f.facturapi_id}`} target="_blank" rel="noopener noreferrer" style={{ color: '#A78BFA', fontSize: 10, textDecoration: 'none' }}>PDF</a>}
+                        {f.facturapi_id && <a href={`/api/facturapi?action=download_xml&id=${f.facturapi_id}`} target="_blank" rel="noopener noreferrer" style={{ color: '#A78BFA', fontSize: 10, textDecoration: 'none' }}>XML</a>}
+                        {(f.status === 'borrador' || f.status === 'cancelada' || f.status === 'error') && (
+                          <button onClick={() => eliminarLocal(f)} title="Eliminar del listado local" style={{ background: 'none', border: 'none', color: '#DC2626', cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center' }}>
+                            <Trash2 size={13} />
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 )
