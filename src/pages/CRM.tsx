@@ -724,7 +724,7 @@ const PRIORITY_CFG: Record<Priority, { label: string; color: string; order: numb
 const PRIORITY_CYCLE: Priority[] = ['alta', 'media', 'baja', 'fria']
 
 // ─── Sortable header ──────────────────────────────────────────────────────
-type SortKey = 'name' | 'company' | 'status' | 'estimated' | 'cotizado' | 'vendido' | 'priority'
+type SortKey = 'name' | 'company' | 'status' | 'estimated' | 'cotizado' | 'vendido' | 'cobrado' | 'priority'
 type SortDir = 'asc' | 'desc'
 
 function SortTh({ label, sortKey, currentKey, currentDir, onSort, right: isRight }: {
@@ -747,10 +747,12 @@ function SortTh({ label, sortKey, currentKey, currentDir, onSort, right: isRight
 }
 
 // ─── Lista ─────────────────────────────────────────────────────────────────
-function ListView({ leads, onOpen, onEdit, onPriorityChange, onProbabilityChange, quoteTotals, displayCur, tc }: {
+function ListView({ leads, onOpen, onEdit, onPriorityChange, onProbabilityChange, quoteTotals, cobrosByLead, displayCur, tc }: {
   leads: Lead[]; onOpen: (l: Lead) => void; onEdit: (l: Lead) => void; onPriorityChange: (id: string, p: Priority) => void
   onProbabilityChange: (id: string, prob: number | null) => void
-  quoteTotals: Record<string, { cotizadoUSD: number; cotizadoMXN: number; vendidoUSD: number; vendidoMXN: number }>; displayCur: string; tc: number
+  quoteTotals: Record<string, { cotizadoUSD: number; cotizadoMXN: number; vendidoUSD: number; vendidoMXN: number }>
+  cobrosByLead: Record<string, number>  // suma de cobros por lead (en MXN)
+  displayCur: string; tc: number
 }) {
   const isMobile = useIsMobile()
   const [sortKey, setSortKey] = useState<SortKey | null>('priority')
@@ -782,7 +784,7 @@ function ListView({ leads, onOpen, onEdit, onPriorityChange, onProbabilityChange
 
   function handleSort(key: SortKey) {
     if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
-    else { setSortKey(key); setSortDir(key === 'estimated' || key === 'cotizado' || key === 'vendido' ? 'desc' : 'asc') }
+    else { setSortKey(key); setSortDir(key === 'estimated' || key === 'cotizado' || key === 'vendido' || key === 'cobrado' ? 'desc' : 'asc') }
   }
 
   const sorted = [...leads].sort((a, b) => {
@@ -804,6 +806,11 @@ function ListView({ leads, onOpen, onEdit, onPriorityChange, onProbabilityChange
         const aTot = aQt ? mixedToNumber(aQt.vendidoUSD, aQt.vendidoMXN) : 0
         const bTot = bQt ? mixedToNumber(bQt.vendidoUSD, bQt.vendidoMXN) : 0
         return dir * (aTot - bTot)
+      }
+      case 'cobrado': {
+        const aC = cobrosByLead[a.id] || 0
+        const bC = cobrosByLead[b.id] || 0
+        return dir * (aC - bC)
       }
       case 'priority': {
         const pa = PRIORITY_CFG[a.priority || 'media'].order
@@ -829,6 +836,7 @@ function ListView({ leads, onOpen, onEdit, onPriorityChange, onProbabilityChange
           <Th right>Prob. Cierre</Th>
           <SortTh label="Cotizado" sortKey="cotizado" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} right />
           <SortTh label="Vendido" sortKey="vendido" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} right />
+          <SortTh label="Cobrado" sortKey="cobrado" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} right />
           <Th>{' '}</Th>
         </tr>
       </thead>
@@ -888,6 +896,7 @@ function ListView({ leads, onOpen, onEdit, onPriorityChange, onProbabilityChange
               </Td>
               <Td right><span style={{ fontWeight: 600, color: '#A78BFA' }}>{qt ? mixedToDisplay(qt.cotizadoUSD, qt.cotizadoMXN) : '—'}</span></Td>
               <Td right><span style={{ fontWeight: 700, color: '#10B981' }}>{qt ? mixedToDisplay(qt.vendidoUSD, qt.vendidoMXN) : '—'}</span></Td>
+              <Td right><span style={{ fontWeight: 700, color: '#22c55e' }}>{cobrosByLead[lead.id] ? toDisplay(cobrosByLead[lead.id], 'MXN') : '—'}</span></Td>
               <Td>
                 <button onClick={e => { e.stopPropagation(); onEdit(lead) }} title="Editar lead"
                   style={{ background: 'none', border: '1px solid #2a2a2a', borderRadius: 6, padding: '4px 8px', cursor: 'pointer', color: '#555', display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10 }}
@@ -1299,7 +1308,7 @@ Devuelve solo el JSON, sin explicaciones. Si no hay filtro para un campo, omitel
       {loading ? <Loading /> : (
         viewMode === 'kanban'
           ? <KanbanView leads={filtered} onOpen={(l) => nav(`/crm/${l.id}`)} />
-          : <ListView leads={filtered} onOpen={(l) => nav(`/crm/${l.id}`)} onEdit={setSelected} onPriorityChange={changePriority} onProbabilityChange={changeProbability} quoteTotals={quoteTotals} displayCur={displayCur} tc={tc} />
+          : <ListView leads={filtered} onOpen={(l) => nav(`/crm/${l.id}`)} onEdit={setSelected} onPriorityChange={changePriority} onProbabilityChange={changeProbability} quoteTotals={quoteTotals} cobrosByLead={cobrosByLead} displayCur={displayCur} tc={tc} />
       )}
 
       {/* Seccion ganados/perdidos/pausados en kanban */}
@@ -1312,7 +1321,7 @@ Devuelve solo el JSON, sin explicaciones. Si no hay filtro para un campo, omitel
             })}
           </div>
           {leads.filter(l => ['ganado', 'perdido', 'pausado'].includes(l.status)).length > 0 && (
-            <ListView leads={leads.filter(l => ['ganado', 'perdido', 'pausado'].includes(l.status))} onOpen={(l) => nav(`/crm/${l.id}`)} onEdit={setSelected} onPriorityChange={changePriority} onProbabilityChange={changeProbability} quoteTotals={quoteTotals} displayCur={displayCur} tc={tc} />
+            <ListView leads={leads.filter(l => ['ganado', 'perdido', 'pausado'].includes(l.status))} onOpen={(l) => nav(`/crm/${l.id}`)} onEdit={setSelected} onPriorityChange={changePriority} onProbabilityChange={changeProbability} quoteTotals={quoteTotals} cobrosByLead={cobrosByLead} displayCur={displayCur} tc={tc} />
           )}
         </div>
       )}
