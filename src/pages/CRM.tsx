@@ -724,7 +724,7 @@ const PRIORITY_CFG: Record<Priority, { label: string; color: string; order: numb
 const PRIORITY_CYCLE: Priority[] = ['alta', 'media', 'baja', 'fria']
 
 // ─── Sortable header ──────────────────────────────────────────────────────
-type SortKey = 'name' | 'company' | 'status' | 'estimated' | 'cotizado' | 'vendido' | 'cobrado' | 'priority'
+type SortKey = 'name' | 'company' | 'status' | 'estimated' | 'cotizado' | 'vendido' | 'cobrado' | 'por_cobrar' | 'priority'
 type SortDir = 'asc' | 'desc'
 
 function SortTh({ label, sortKey, currentKey, currentDir, onSort, right: isRight }: {
@@ -784,7 +784,7 @@ function ListView({ leads, onOpen, onEdit, onPriorityChange, onProbabilityChange
 
   function handleSort(key: SortKey) {
     if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
-    else { setSortKey(key); setSortDir(key === 'estimated' || key === 'cotizado' || key === 'vendido' || key === 'cobrado' ? 'desc' : 'asc') }
+    else { setSortKey(key); setSortDir(key === 'estimated' || key === 'cotizado' || key === 'vendido' || key === 'cobrado' || key === 'por_cobrar' ? 'desc' : 'asc') }
   }
 
   const sorted = [...leads].sort((a, b) => {
@@ -812,6 +812,15 @@ function ListView({ leads, onOpen, onEdit, onPriorityChange, onProbabilityChange
         const bC = cobrosByLead[b.id] || 0
         return dir * (aC - bC)
       }
+      case 'por_cobrar': {
+        // Por cobrar = Vendido (en MXN) - Cobrado (MXN). Si vendido es 0, por_cobrar = 0.
+        const aQt = quoteTotals[a.id], bQt = quoteTotals[b.id]
+        const aVendidoMXN = aQt ? mixedToNumber(aQt.vendidoUSD, aQt.vendidoMXN) : 0
+        const bVendidoMXN = bQt ? mixedToNumber(bQt.vendidoUSD, bQt.vendidoMXN) : 0
+        const aPC = Math.max(0, aVendidoMXN - (cobrosByLead[a.id] || 0))
+        const bPC = Math.max(0, bVendidoMXN - (cobrosByLead[b.id] || 0))
+        return dir * (aPC - bPC)
+      }
       case 'priority': {
         const pa = PRIORITY_CFG[a.priority || 'media'].order
         const pb = PRIORITY_CFG[b.priority || 'media'].order
@@ -837,6 +846,7 @@ function ListView({ leads, onOpen, onEdit, onPriorityChange, onProbabilityChange
           <SortTh label="Cotizado" sortKey="cotizado" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} right />
           <SortTh label="Vendido" sortKey="vendido" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} right />
           <SortTh label="Cobrado" sortKey="cobrado" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} right />
+          <SortTh label="Por cobrar" sortKey="por_cobrar" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} right />
           <Th>{' '}</Th>
         </tr>
       </thead>
@@ -897,6 +907,13 @@ function ListView({ leads, onOpen, onEdit, onPriorityChange, onProbabilityChange
               <Td right><span style={{ fontWeight: 600, color: '#A78BFA' }}>{qt ? mixedToDisplay(qt.cotizadoUSD, qt.cotizadoMXN) : '—'}</span></Td>
               <Td right><span style={{ fontWeight: 700, color: '#10B981' }}>{qt ? mixedToDisplay(qt.vendidoUSD, qt.vendidoMXN) : '—'}</span></Td>
               <Td right><span style={{ fontWeight: 700, color: '#22c55e' }}>{cobrosByLead[lead.id] ? toDisplay(cobrosByLead[lead.id], 'MXN') : '—'}</span></Td>
+              <Td right>{(() => {
+                const vendidoMXN = qt ? mixedToNumber(qt.vendidoUSD, qt.vendidoMXN) : 0
+                const porCobrar = Math.max(0, vendidoMXN - (cobrosByLead[lead.id] || 0))
+                if (vendidoMXN <= 0) return <span style={{ color: '#444' }}>—</span>
+                if (porCobrar <= 0.01) return <span style={{ color: '#10B981', fontWeight: 700 }}>✓</span>
+                return <span style={{ fontWeight: 700, color: '#D97706' }}>{toDisplay(porCobrar, 'MXN')}</span>
+              })()}</Td>
               <Td>
                 <button onClick={e => { e.stopPropagation(); onEdit(lead) }} title="Editar lead"
                   style={{ background: 'none', border: '1px solid #2a2a2a', borderRadius: 6, padding: '4px 8px', cursor: 'pointer', color: '#555', display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10 }}
