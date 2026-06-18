@@ -938,16 +938,69 @@ export default function CRM() {
     Promise.all([
       supabase.from('leads').select('*').order('updated_at', { ascending: false }),
       supabase.from('quotations').select('id,client_name,stage,total,notes,specialty,version_group_id,version_label,updated_at'),
-      supabase.from('cash_movements').select('lead_id, monto, fecha, tipo'),
-    ]).then(([{ data: ld }, { data: qt }, { data: cm }]) => {
-      // Build cobros breakdown (assumed MXN — la mayoría de cash movements de OMM son MXN)
+      supabase.from('cash_movements').select('lead_id, quotation_id, monto, fecha, tipo, direccion'),
+      // BUG FIX: antes solo se contaban cash_movements con tipo cobro_cliente.
+      // Ahora también traemos bank_movements (abonos) + facturas + links para
+      // resolver el lead en cascada y no perder cobros.
+      supabase.from('bank_movements').select('id, lead_id, quotation_id, monto, fecha, tipo, moneda'),
+      supabase.from('facturas').select('id, lead_id, quotation_id, cotizacion_id'),
+      supabase.from('conciliacion_links').select('bank_movement_id, invoice_id, monto_aplicado'),
+    ]).then(([{ data: ld }, { data: qt }, { data: cm }, { data: bm }, { data: fc }, { data: cl }]) => {
+      // Map quotation_id → lead_id (desde notes JSON) para resolver cascada
+      const quotToLead = new Map<string, string>()
+      ;(qt || []).forEach((q: any) => {
+        try {
+          const meta = JSON.parse(q.notes || '{}')
+          if (meta.lead_id) quotToLead.set(q.id, meta.lead_id)
+        } catch {}
+      })
+      // Resolver lead via factura → quotation → lead, o factura.lead_id directo
+      const resolveLeadForInvoice = (invId: string): string | null => {
+        const inv = (fc || []).find((f: any) => f.id === invId)
+        if (!inv) return null
+        if (inv.lead_id) return inv.lead_id
+        const qid = inv.quotation_id || inv.cotizacion_id
+        if (qid) return quotToLead.get(qid) || null
+        return null
+      }
+      const resolveLeadForBankMov = (mov: any): string | null => {
+        if (mov.lead_id) return mov.lead_id
+        if (mov.quotation_id) return quotToLead.get(mov.quotation_id) || null
+        // Via factura conciliada
+        const links = (cl || []).filter((l: any) => l.bank_movement_id === mov.id)
+        for (const link of links) {
+          const lid = resolveLeadForInvoice(link.invoice_id)
+          if (lid) return lid
+        }
+        return null
+      }
+
+      // Build cobros breakdown — banco + efectivo
       const cobrosLead: Record<string, number> = {}
       const cobrosYear: Record<number, number> = {}
-      ;(cm || []).filter((m: any) => m.tipo === 'cobro_cliente').forEach((m: any) => {
-        const year = m.fecha ? parseInt(m.fecha.slice(0, 4)) : 0
-        cobrosYear[year] = (cobrosYear[year] || 0) + Number(m.monto || 0)
-        if (m.lead_id) cobrosLead[m.lead_id] = (cobrosLead[m.lead_id] || 0) + Number(m.monto || 0)
-      })
+      const addCobro = (leadId: string | null | undefined, monto: number, fecha: string | null) => {
+        const year = fecha ? parseInt(fecha.slice(0, 4)) : 0
+        cobrosYear[year] = (cobrosYear[year] || 0) + monto
+        if (leadId) cobrosLead[leadId] = (cobrosLead[leadId] || 0) + monto
+      }
+      // cash_movements: tipo cobro_cliente o direccion ingreso
+      ;(cm || [])
+        .filter((m: any) => m.tipo === 'cobro_cliente' || m.direccion === 'ingreso')
+        .forEach((m: any) => {
+          const leadId = m.lead_id || (m.quotation_id ? quotToLead.get(m.quotation_id) : null)
+          addCobro(leadId, Number(m.monto || 0), m.fecha)
+        })
+      // bank_movements: cualquier abono cuenta como cobro (en MXN — convertir si USD)
+      ;(bm || [])
+        .filter((m: any) => m.tipo === 'abono')
+        .forEach((m: any) => {
+          const leadId = resolveLeadForBankMov(m)
+          // Convertir USD → MXN para consistencia (CRM usa MXN como base)
+          const montoMXN = (m.moneda || 'MXN').toUpperCase() === 'USD'
+            ? Number(m.monto || 0) * 20.5
+            : Number(m.monto || 0)
+          addCobro(leadId, montoMXN, m.fecha)
+        })
       setCobrosByLead(cobrosLead)
       setCobrosTotalByYear(cobrosYear)
       setLeads(ld || [])
