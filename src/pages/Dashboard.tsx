@@ -894,37 +894,105 @@ function CobranzaPorProyecto() {
     const rows = Array.from(leadIdsConContrato).map(leadId => {
       const lead = leads.find(l => l.id === leadId)
       const cotsLead = contratos.filter(q => q.lead_id === leadId)
-      // Vendido: monto final c/IVA y c/descuento aplicado, convertido a la moneda activa
-      const vendido = cotsLead.reduce((s, q) => s + convert(cotMontoFinal(q), q.currency || 'MXN'), 0)
-      // POs de este lead (directo o vía cotización)
+
+      // ═══════════════════════════════════════════════════════════════════════
+      // Multi-moneda: acumular SIEMPRE en la moneda nativa del source.
+      // Convertir solo al final para el "Total" en la moneda del toggle.
+      // ═══════════════════════════════════════════════════════════════════════
+      // Vendido — separado por moneda nativa de cada cot
+      const vendidoMXN = cotsLead
+        .filter(q => (q.currency || 'MXN').toUpperCase() === 'MXN')
+        .reduce((s, q) => s + cotMontoFinal(q), 0)
+      const vendidoUSD = cotsLead
+        .filter(q => (q.currency || 'MXN').toUpperCase() === 'USD')
+        .reduce((s, q) => s + cotMontoFinal(q), 0)
+      const vendido = convert(vendidoMXN, 'MXN') + convert(vendidoUSD, 'USD')
+
+      // POs de este lead — también por moneda nativa
       const posLead = pos.filter(p => resolvePoLead(p) === leadId)
-      const pagado_compras = posLead
-        .filter(p => ['pedida', 'recibida', 'recibida_parcial'].includes(p.status))
-        .reduce((s, p) => s + convert(Number(p.total) || 0, p.currency || 'MXN'), 0)
-      const por_pagar_compras = posLead
-        .filter(p => ['borrador', 'aprobada'].includes(p.status))
-        .reduce((s, p) => s + convert(Number(p.total) || 0, p.currency || 'MXN'), 0)
-      // Bank movements de este lead — cascada directo → quotation → factura conciliada.
-      // Cualquier abono cuenta como cobro (la categoría 'cobro_cliente' no siempre
-      // está asignada). Cualquier cargo cuenta como pago.
+      const pagadoComprasMXN = posLead
+        .filter(p => ['pedida', 'recibida', 'recibida_parcial'].includes(p.status) && (p.currency || 'MXN').toUpperCase() === 'MXN')
+        .reduce((s, p) => s + (Number(p.total) || 0), 0)
+      const pagadoComprasUSD = posLead
+        .filter(p => ['pedida', 'recibida', 'recibida_parcial'].includes(p.status) && (p.currency || 'MXN').toUpperCase() === 'USD')
+        .reduce((s, p) => s + (Number(p.total) || 0), 0)
+      const pagado_compras = convert(pagadoComprasMXN, 'MXN') + convert(pagadoComprasUSD, 'USD')
+
+      const porPagarComprasMXN = posLead
+        .filter(p => ['borrador', 'aprobada'].includes(p.status) && (p.currency || 'MXN').toUpperCase() === 'MXN')
+        .reduce((s, p) => s + (Number(p.total) || 0), 0)
+      const porPagarComprasUSD = posLead
+        .filter(p => ['borrador', 'aprobada'].includes(p.status) && (p.currency || 'MXN').toUpperCase() === 'USD')
+        .reduce((s, p) => s + (Number(p.total) || 0), 0)
+      const por_pagar_compras = convert(porPagarComprasMXN, 'MXN') + convert(porPagarComprasUSD, 'USD')
+
+      // Bank movements — clave del multi-moneda:
+      //   1. Si el mov está vinculado via conciliacion_links a una factura, usar
+      //      monto_en_moneda_factura si tiene TC aplicado (cross-currency), sino
+      //      monto_aplicado en la moneda del mov.
+      //   2. Si no tiene link, usar monto del mov en su moneda nativa.
       const movsLead = bankMovs.filter(b => resolveBankMovLead(b) === leadId)
-      const cobrado_banco = movsLead
-        .filter(b => b.tipo === 'abono')
-        .reduce((s, b) => s + convert(Number(b.monto) || 0, b.moneda || 'MXN'), 0)
-      const pagado_banco = movsLead
-        .filter(b => b.tipo === 'cargo')
-        .reduce((s, b) => s + convert(Number(b.monto) || 0, b.moneda || 'MXN'), 0)
-      // Cash movements de este lead — mismo patrón (directo o vía cotización)
+      let cobradoBancoMXN = 0
+      let cobradoBancoUSD = 0
+      let pagadoBancoMXN = 0
+      let pagadoBancoUSD = 0
+      for (const m of movsLead) {
+        const links = conciliacionLinks.filter(l => l.bank_movement_id === m.id)
+        const movMon = (m.moneda || 'MXN').toUpperCase()
+        const monto = Number(m.monto) || 0
+        const isAbono = m.tipo === 'abono'
+
+        if (links.length === 0) {
+          // Sin link: contar el mov en su moneda nativa
+          if (isAbono) {
+            if (movMon === 'USD') cobradoBancoUSD += monto
+            else cobradoBancoMXN += monto
+          } else {
+            if (movMon === 'USD') pagadoBancoUSD += monto
+            else pagadoBancoMXN += monto
+          }
+          continue
+        }
+        // Con links: cada link contribuye en su moneda de factura
+        for (const link of links) {
+          const inv = invoices.find(i => i.id === link.invoice_id)
+          const invMon = (inv?.moneda || movMon).toUpperCase()
+          // monto_en_moneda_factura si tiene TC, sino monto_aplicado
+          const aporta = (link.tc_aplicado && link.monto_en_moneda_factura)
+            ? Number(link.monto_en_moneda_factura)
+            : Number(link.monto_aplicado)
+          if (isAbono) {
+            if (invMon === 'USD') cobradoBancoUSD += aporta
+            else cobradoBancoMXN += aporta
+          } else {
+            if (invMon === 'USD') pagadoBancoUSD += aporta
+            else pagadoBancoMXN += aporta
+          }
+        }
+      }
+
+      // Cash movements — asumimos MXN siempre
       const efectivoLead = cashMovs.filter(c => resolveLead(c) === leadId)
-      const cobrado_efectivo = efectivoLead
+      const cobradoEfectivoMXN = efectivoLead
         .filter(c => c.direccion === 'ingreso' || c.tipo === 'cobro_cliente')
-        .reduce((s, c) => s + convert(Number(c.monto) || 0, 'MXN'), 0)
-      const pagado_efectivo = efectivoLead
+        .reduce((s, c) => s + (Number(c.monto) || 0), 0)
+      const pagadoEfectivoMXN = efectivoLead
         .filter(c => c.direccion === 'egreso')
-        .reduce((s, c) => s + convert(Number(c.monto) || 0, 'MXN'), 0)
-      // Totales: banco + efectivo
-      const cobrado = cobrado_banco + cobrado_efectivo
-      const pagado_total = pagado_banco + pagado_efectivo
+        .reduce((s, c) => s + (Number(c.monto) || 0), 0)
+
+      // Acumulados por moneda nativa (sin convertir)
+      const cobradoMXN = cobradoBancoMXN + cobradoEfectivoMXN
+      const cobradoUSD = cobradoBancoUSD
+      const pagadoTotalMXN = pagadoBancoMXN + pagadoEfectivoMXN
+      const pagadoTotalUSD = pagadoBancoUSD
+
+      // Totales convertidos al toggle (solo como referencia visual)
+      const cobrado = convert(cobradoMXN, 'MXN') + convert(cobradoUSD, 'USD')
+      const pagado_total = convert(pagadoTotalMXN, 'MXN') + convert(pagadoTotalUSD, 'USD')
+
+      // Por cobrar por moneda nativa
+      const porCobrarMXN = Math.max(0, vendidoMXN - cobradoMXN)
+      const porCobrarUSD = Math.max(0, vendidoUSD - cobradoUSD)
 
       // Detectar si el lead tiene mezcla de monedas (para warning visual)
       const monedasMixtas = new Set<string>()
@@ -937,17 +1005,21 @@ function CobranzaPorProyecto() {
         leadName: lead?.name || '(lead sin nombre)',
         leadCompany: lead?.company || '',
         cotsLead,
+        // Totales convertidos a moneda del toggle (referencia)
         vendido,
         cobrado,
-        cobrado_banco,
-        cobrado_efectivo,
         pagado_total,
-        pagado_banco,
-        pagado_efectivo,
         pagado_compras,
         por_pagar_compras,
         balance: cobrado - pagado_total,
         por_cobrar: Math.max(0, vendido - cobrado),
+        // Por moneda nativa
+        vendidoMXN, vendidoUSD,
+        cobradoMXN, cobradoUSD,
+        pagadoTotalMXN, pagadoTotalUSD,
+        pagadoComprasMXN, pagadoComprasUSD,
+        porPagarComprasMXN, porPagarComprasUSD,
+        porCobrarMXN, porCobrarUSD,
         hasMixedCurrencies,
       }
     })
@@ -971,6 +1043,47 @@ function CobranzaPorProyecto() {
       if (next.has(leadId)) next.delete(leadId); else next.add(leadId)
       return next
     })
+  }
+
+  // Helper: renderizar celda multi-moneda.
+  // - Si solo MXN > 0: mostrar solo MXN
+  // - Si solo USD > 0: mostrar solo USD
+  // - Si ambos > 0: mostrar las 2 líneas (MXN arriba, USD abajo) con el total
+  //   convertido a la moneda del toggle como sub-info
+  // - Si todo es 0: mostrar zero string ('$0.00') o el zeroLabel (ej '✓', '—')
+  function renderDualCurrency(
+    mxn: number,
+    usd: number,
+    convertFn: (a: number, c: string) => number,
+    currView: 'MXN' | 'USD',
+    color: string,
+    zeroLabel?: string,
+  ) {
+    const hasMXN = mxn > 0.01
+    const hasUSD = usd > 0.01
+    if (!hasMXN && !hasUSD) {
+      return <span style={{ color: '#666' }}>{zeroLabel || fmt(0)}</span>
+    }
+    if (hasMXN && hasUSD) {
+      const totalToggle = convertFn(mxn, 'MXN') + convertFn(usd, 'USD')
+      return (
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 1 }}>
+          <span style={{ color, fontWeight: 600, fontSize: 11 }}>{F(mxn)} <span style={{ fontSize: 9, color: '#888' }}>MXN</span></span>
+          <span style={{ color, fontWeight: 600, fontSize: 11 }}>{F(usd)} <span style={{ fontSize: 9, color: '#888' }}>USD</span></span>
+          <span style={{ fontSize: 9, color: '#555', borderTop: '1px solid #2a2a2a', paddingTop: 2, marginTop: 1 }}>
+            ≈ {fmt(totalToggle)}
+          </span>
+        </div>
+      )
+    }
+    // Solo una moneda
+    const value = hasMXN ? mxn : usd
+    const nativeCur = hasMXN ? 'MXN' : 'USD'
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+        <span style={{ color, fontWeight: 600 }}>{F(value)} <span style={{ fontSize: 9, color: '#888' }}>{nativeCur}</span></span>
+      </div>
+    )
   }
 
   if (loading) return (
@@ -1051,19 +1164,12 @@ function CobranzaPorProyecto() {
                       </div>
                       {r.leadCompany && <div style={{ fontSize: 10, color: '#666' }}>{r.leadCompany}</div>}
                     </Td>
-                    <Td right><span style={{ color: '#ccc', fontWeight: 600 }}>{fmt(r.vendido)}</span></Td>
-                    <Td right>
-                      <div style={{ color: '#10B981', fontWeight: 600 }}>{fmt(r.cobrado)}</div>
-                      {r.cobrado_efectivo > 0 && (
-                        <div title={`Banco: ${fmt(r.cobrado_banco)} + Efectivo: ${fmt(r.cobrado_efectivo)}`} style={{ fontSize: 9, color: '#666', marginTop: 2 }}>
-                          💵 {fmt(r.cobrado_efectivo)}
-                        </div>
-                      )}
-                    </Td>
-                    <Td right><span style={{ color: r.por_cobrar > 0 ? '#D97706' : '#666', fontWeight: 600 }}>{r.por_cobrar > 0 ? fmt(r.por_cobrar) : '✓'}</span></Td>
-                    <Td right><span style={{ color: '#DC2626' }}>{fmt(r.pagado_total)}</span></Td>
-                    <Td right><span style={{ color: '#DC2626' }}>{fmt(r.pagado_compras)}</span></Td>
-                    <Td right><span style={{ color: r.por_pagar_compras > 0 ? '#D97706' : '#666' }}>{r.por_pagar_compras > 0 ? fmt(r.por_pagar_compras) : '—'}</span></Td>
+                    <Td right>{renderDualCurrency(r.vendidoMXN, r.vendidoUSD, convert, currencyView, '#ccc')}</Td>
+                    <Td right>{renderDualCurrency(r.cobradoMXN, r.cobradoUSD, convert, currencyView, '#10B981')}</Td>
+                    <Td right>{renderDualCurrency(r.porCobrarMXN, r.porCobrarUSD, convert, currencyView, r.porCobrarMXN + r.porCobrarUSD > 0 ? '#D97706' : '#666', '✓')}</Td>
+                    <Td right>{renderDualCurrency(r.pagadoTotalMXN, r.pagadoTotalUSD, convert, currencyView, '#DC2626')}</Td>
+                    <Td right>{renderDualCurrency(r.pagadoComprasMXN, r.pagadoComprasUSD, convert, currencyView, '#DC2626')}</Td>
+                    <Td right>{renderDualCurrency(r.porPagarComprasMXN, r.porPagarComprasUSD, convert, currencyView, r.porPagarComprasMXN + r.porPagarComprasUSD > 0 ? '#D97706' : '#666', '—')}</Td>
                   </tr>
                   {isExp && (
                     <tr key={r.leadId + '-exp'}>
