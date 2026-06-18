@@ -1789,7 +1789,17 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
   }
 
   // Many-to-many conciliation links
-  interface ConcLink { id: string; bank_movement_id: string; invoice_id: string; monto_aplicado: number; nota?: string }
+  interface ConcLink {
+    id: string
+    bank_movement_id: string
+    invoice_id: string
+    monto_aplicado: number
+    nota?: string
+    // Multi-moneda: cuando moneda mov ≠ moneda factura, se guarda el TC del día
+    // del pago + el monto equivalente en la moneda de la factura.
+    tc_aplicado?: number
+    monto_en_moneda_factura?: number
+  }
   const [concLinks, setConcLinks] = useState<ConcLink[]>([])
   const getLinksForMov = (movId: string) => concLinks.filter(l => l.bank_movement_id === movId)
   const getLinksForInv = (invId: string) => concLinks.filter(l => l.invoice_id === invId)
@@ -1904,7 +1914,47 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
       if (!inv) return
       const monto = montoAplicado ?? Math.min(inv.total - totalLinkedForInv(invId), mov.monto - totalLinkedForMov(mov.id))
       const finalMonto = Math.max(0, Math.round(monto * 100) / 100)
-      const { data, error } = await supabase.from('conciliacion_links').insert({ bank_movement_id: mov.id, invoice_id: invId, monto_aplicado: finalMonto }).select().single()
+
+      // Multi-moneda: si la moneda del mov ≠ moneda de la factura, pedir TC al user.
+      // Default = último TC conocido en concLinks (o 18.5 fallback).
+      const movMoneda = (mov.moneda || 'MXN').toUpperCase()
+      const invMoneda = (inv.moneda || 'MXN').toUpperCase()
+      let tcAplicado: number | null = null
+      let montoEnMonedaFactura: number | null = null
+
+      if (movMoneda !== invMoneda) {
+        const ultimoTc = concLinks
+          .filter(l => l.tc_aplicado && l.tc_aplicado > 0)
+          .sort((a, b) => (b as any).id.localeCompare((a as any).id))
+          .map(l => l.tc_aplicado)[0]
+        const defaultTc = ultimoTc || 18.5
+        const promptMsg = `Las monedas no coinciden:\n\n  • Movimiento: ${finalMonto.toFixed(2)} ${movMoneda}\n  • Factura: ${invMoneda}\n\n¿Qué TC del día se usó? (BBVA venta del día del pago)`
+        const input = window.prompt(promptMsg, String(defaultTc))
+        if (input === null) return  // canceló
+        const parsedTc = parseFloat(input.replace(',', '.'))
+        if (!parsedTc || parsedTc <= 0) {
+          alert('TC inválido. Operación cancelada.')
+          return
+        }
+        tcAplicado = parsedTc
+        // monto del mov convertido a moneda de la factura
+        // Si mov MXN → inv USD: monto / tc
+        // Si mov USD → inv MXN: monto * tc
+        if (movMoneda === 'MXN' && invMoneda === 'USD') {
+          montoEnMonedaFactura = Math.round((finalMonto / parsedTc) * 100) / 100
+        } else if (movMoneda === 'USD' && invMoneda === 'MXN') {
+          montoEnMonedaFactura = Math.round((finalMonto * parsedTc) * 100) / 100
+        } else {
+          montoEnMonedaFactura = finalMonto  // fallback
+        }
+      }
+
+      const insertPayload: any = { bank_movement_id: mov.id, invoice_id: invId, monto_aplicado: finalMonto }
+      if (tcAplicado !== null) {
+        insertPayload.tc_aplicado = tcAplicado
+        insertPayload.monto_en_moneda_factura = montoEnMonedaFactura
+      }
+      const { data, error } = await supabase.from('conciliacion_links').insert(insertPayload).select().single()
       if (error) { console.error('[add-link]', error); alert('Error: ' + error.message); return }
       const newLinks = [...concLinks, data as ConcLink]
       setConcLinks(newLinks)
@@ -3312,16 +3362,26 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
                                   if (!inv) return null
                                   const who = inv.direccion === 'emitida' ? inv.receptor_nombre : inv.emisor_nombre
                                   const nomTag = inv.tipo_comprobante === 'N' ? ' [NOM]' : ''
+                                  const hasTc = link.tc_aplicado && link.tc_aplicado > 0
+                                  const movMon = (m.moneda || 'MXN').toUpperCase()
+                                  const invMon = (inv.moneda || 'MXN').toUpperCase()
                                   return (
-                                    <div key={link.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 8px', background: '#1a1a1a', borderRadius: 4, border: '1px solid #252525' }}>
+                                    <div key={link.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 8px', background: '#1a1a1a', borderRadius: 4, border: '1px solid #252525', flexWrap: 'wrap' }}>
                                       <span style={{ fontSize: 11, color: '#2563EB', fontWeight: 600 }}>{inv.serie}-{inv.folio}</span>
-                                      <span style={{ fontSize: 10, color: '#888', flex: 1 }}>{who}{nomTag} · Total: {F(inv.total)}</span>
+                                      <span style={{ fontSize: 10, color: '#888', flex: 1 }}>{who}{nomTag} · Total: {F(inv.total)} {invMon}</span>
                                       <input
                                         type="number"
                                         value={link.monto_aplicado}
                                         onChange={e => updateLinkMonto(link.id, parseFloat(e.target.value) || 0)}
                                         style={{ width: 90, background: '#111', color: '#fff', border: '1px solid #333', borderRadius: 3, padding: '2px 6px', fontSize: 11, fontFamily: 'monospace', textAlign: 'right' }}
                                       />
+                                      <span style={{ fontSize: 10, color: '#666' }}>{movMon}</span>
+                                      {hasTc && (
+                                        <span title={`Aplica como ${(link.monto_en_moneda_factura || 0).toFixed(2)} ${invMon} al TC ${link.tc_aplicado}`}
+                                          style={{ fontSize: 9, color: '#22c55e', background: '#22c55e22', padding: '2px 6px', borderRadius: 3, fontWeight: 600 }}>
+                                          TC {link.tc_aplicado} → {(link.monto_en_moneda_factura || 0).toFixed(2)} {invMon}
+                                        </span>
+                                      )}
                                       <button
                                         onClick={() => removeLink(m, link.id)}
                                         disabled={isSavingMatch}
