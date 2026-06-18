@@ -282,7 +282,8 @@ async function callFacturapi(action: string, opts: { method?: string; query?: Re
 // ============================================================
 export default function Facturacion() {
   const isMobile = useIsMobile()
-  const [view, setView] = useState<'todas' | 'lista' | 'nueva' | 'recibidas'>('todas')
+  const [view, setView] = useState<'todas' | 'lista' | 'nueva' | 'recibidas' | 'editar'>('todas')
+  const [editingFactura, setEditingFactura] = useState<Factura | null>(null)
   const [pingStatus, setPingStatus] = useState<'idle' | 'ok' | 'error'>('idle')
   // FacturAPI mode (Sesion B)
   const [facturapiMode, setFacturapiMode] = useState<'test' | 'live'>('live')
@@ -402,8 +403,9 @@ export default function Facturacion() {
       </div>
 
       {view === 'todas' && <ListaTodas />}
-      {view === 'lista' && <ListaEmitidas onNueva={() => setView('nueva')} />}
+      {view === 'lista' && <ListaEmitidas onNueva={() => setView('nueva')} onEditar={(f) => { setEditingFactura(f); setView('editar') }} />}
       {view === 'nueva' && <NuevaFactura onCancel={() => setView('lista')} onCreated={() => setView('lista')} />}
+      {view === 'editar' && <NuevaFactura onCancel={() => { setEditingFactura(null); setView('lista') }} onCreated={() => { setEditingFactura(null); setView('lista') }} editingFactura={editingFactura} />}
       {view === 'recibidas' && <ListaRecibidas />}
     </div>
   )
@@ -876,7 +878,7 @@ function DetalleModal(props: { factura: Factura; conceptos: any[]; loading: bool
 // ============================================================
 // Lista de Facturas Emitidas
 // ============================================================
-function ListaEmitidas({ onNueva }: { onNueva: () => void }) {
+function ListaEmitidas({ onNueva, onEditar }: { onNueva: () => void; onEditar?: (f: Factura) => void }) {
   const [facturas, setFacturas] = useState<Factura[]>([])
   const [loading, setLoading] = useState(true)
   const [syncing, setSyncing] = useState(false)
@@ -1482,6 +1484,11 @@ function ListaEmitidas({ onNueva }: { onNueva: () => void }) {
                   </td>
                   <td style={{ padding: '10px 14px' }}>
                     <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                      {f.status === 'borrador' && !f.facturapi_id && onEditar && (
+                        <button onClick={() => onEditar(f)} title="Editar borrador" style={{ background: '#2563EB18', border: '1px solid #2563EB44', borderRadius: 6, color: '#2563EB', cursor: 'pointer', padding: '2px 8px', fontSize: 10, fontWeight: 600, fontFamily: 'inherit' }}>
+                          Editar
+                        </button>
+                      )}
                       {f.status === 'borrador' && !f.facturapi_id && (
                         <button onClick={() => timbrarBorrador(f)} disabled={timbrandoId === f.id} style={{ background: '#10B98118', border: '1px solid #10B98144', borderRadius: 6, color: '#10B981', cursor: timbrandoId === f.id ? 'wait' : 'pointer', padding: '2px 8px', fontSize: 10, fontWeight: 600, fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 4 }}>
                           {timbrandoId === f.id ? <><Loader2 size={10} style={{ animation: 'spin 1s linear infinite' }} /> Timbrando...</> : 'Timbrar'}
@@ -1756,7 +1763,8 @@ function SelectorFacturasRelacionadas(props: {
 // ============================================================
 // Nueva Factura — form
 // ============================================================
-function NuevaFactura({ onCancel, onCreated }: { onCancel: () => void; onCreated: () => void }) {
+function NuevaFactura({ onCancel, onCreated, editingFactura }: { onCancel: () => void; onCreated: () => void; editingFactura?: Factura | null }) {
+  const isEditing = !!editingFactura
   const [clientes, setClientes] = useState<ClienteFiscal[]>([])
   const [cotizaciones, setCotizaciones] = useState<QuotationLite[]>([])
   const [clienteId, setClienteId] = useState('')
@@ -1837,6 +1845,54 @@ function NuevaFactura({ onCancel, onCreated }: { onCancel: () => void; onCreated
       setCotizaciones((cot.data as QuotationLite[]) || [])
     })
   }, [])
+
+  // Pre-cargar datos cuando estamos editando un borrador
+  useEffect(() => {
+    if (!editingFactura) return
+    const f = editingFactura as any
+    // Campos básicos
+    setClienteId(f.cliente_id || '')
+    setCotizacionId(f.quotation_id || '')
+    setTipoComprobante((f.tipo_comprobante as 'I' | 'P' | 'E') || 'I')
+    setUsoCfdi(f.receptor_uso_cfdi || 'G03')
+    setFormaPago(f.forma_pago || '99')
+    setMetodoPago(f.metodo_pago || 'PUE')
+    setMoneda(f.moneda || 'MXN')
+    setTipoCambio(String(f.tipo_cambio || 1))
+    setNotas(f.notas || '')
+    setSerie(f.serie || '')
+    setFolio(f.folio || '')
+    setTipoRelacion(f.tipo_relacion || '')
+    setUuidsRelacionados(Array.isArray(f.uuids_relacionados) ? f.uuids_relacionados : [])
+
+    // REP draft_data
+    if (f.tipo_comprobante === 'P' && f.draft_data) {
+      const d = typeof f.draft_data === 'string' ? JSON.parse(f.draft_data) : f.draft_data
+      if (d.fechaPago) setFechaPago(d.fechaPago)
+      if (d.formaPagoREP) setFormaPagoREP(d.formaPagoREP)
+      if (d.numOperacion) setNumOperacion(d.numOperacion)
+      if (d.monedaPago) setMonedaPago(d.monedaPago)
+      if (d.tipoCambioPago) setTipoCambioPago(String(d.tipoCambioPago))
+      if (d.montoPago) setMontoPago(String(d.montoPago))
+      if (Array.isArray(d.docsPago)) setDocsPago(d.docsPago)
+    }
+
+    // Cargar conceptos asociados al borrador
+    supabase.from('factura_conceptos').select('*').eq('factura_id', f.id).order('orden_display').then(({ data }) => {
+      if (data && data.length > 0) {
+        const cargados: Concepto[] = (data as any[]).map(c => ({
+          descripcion: c.descripcion || '',
+          clave_prod_serv: c.clave_prod_serv || '81111500',
+          clave_unidad: c.clave_unidad || 'E48',
+          unidad: c.unidad || 'Unidad de servicio',
+          cantidad: Number(c.cantidad) || 1,
+          valor_unitario: Number(c.valor_unitario) || 0,
+          iva_tasa: Number(c.iva_tasa) || 0.16,
+        }))
+        setConceptos(cargados)
+      }
+    })
+  }, [editingFactura])
 
   // Importar items de cotizacion como conceptos facturables
   async function importarItemsDeCotizacion() {
@@ -2021,8 +2077,24 @@ function NuevaFactura({ onCancel, onCreated }: { onCancel: () => void; onCreated
         } : null,
       }
 
-      const { data: created, error: insErr } = await supabase.from('facturas').insert(draftPayload).select().single()
-      if (insErr) { setError('Error al guardar borrador: ' + insErr.message); setSavingDraft(false); return }
+      let created: any = null
+      if (isEditing && editingFactura) {
+        // UPDATE: editar borrador existente
+        const { data: updated, error: updErr } = await supabase
+          .from('facturas')
+          .update(draftPayload)
+          .eq('id', editingFactura.id)
+          .select()
+          .single()
+        if (updErr) { setError('Error al actualizar borrador: ' + updErr.message); setSavingDraft(false); return }
+        created = updated
+        // Borrar conceptos viejos antes de re-insertar
+        await supabase.from('factura_conceptos').delete().eq('factura_id', editingFactura.id)
+      } else {
+        const { data: insertedData, error: insErr } = await supabase.from('facturas').insert(draftPayload).select().single()
+        if (insErr) { setError('Error al guardar borrador: ' + insErr.message); setSavingDraft(false); return }
+        created = insertedData
+      }
 
       // Save conceptos for tipo I/E drafts
       if (created && (tipoComprobante === 'I' || tipoComprobante === 'E')) {
@@ -2368,7 +2440,8 @@ function NuevaFactura({ onCancel, onCreated }: { onCancel: () => void; onCreated
     <div style={{ background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 12, padding: 24 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
         <div style={{ fontSize: 16, fontWeight: 700, color: '#fff' }}>
-          {tipoComprobante === 'I' ? 'Nueva factura' : tipoComprobante === 'E' ? 'Nota de crédito (Egreso)' : 'Nuevo comprobante de pago (REP)'}
+          {isEditing ? 'Editar borrador — ' : ''}
+          {tipoComprobante === 'I' ? (isEditing ? 'Factura (Ingreso)' : 'Nueva factura') : tipoComprobante === 'E' ? 'Nota de crédito (Egreso)' : 'Comprobante de pago (REP)'}
         </div>
         <button onClick={onCancel} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer' }}><X size={18} /></button>
       </div>
@@ -2831,7 +2904,7 @@ function NuevaFactura({ onCancel, onCreated }: { onCancel: () => void; onCreated
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
         <button onClick={onCancel} style={{ padding: '10px 20px', background: '#1e1e1e', color: '#ccc', border: '1px solid #2a2a2a', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Cancelar</button>
         <button onClick={guardarBorrador} disabled={savingDraft || emitting} style={{ padding: '10px 20px', background: savingDraft ? '#444' : '#1e1e1e', color: '#D97706', border: '1px solid #D9770644', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: savingDraft ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
-          {savingDraft ? <><Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Guardando...</> : <><FileText size={14} /> Guardar borrador</>}
+          {savingDraft ? <><Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Guardando...</> : <><FileText size={14} /> {isEditing ? 'Actualizar borrador' : 'Guardar borrador'}</>}
         </button>
         <button onClick={emitir} disabled={emitting || savingDraft} style={{ padding: '10px 20px', background: emitting ? '#444' : (tipoComprobante === 'P' ? '#A78BFA' : tipoComprobante === 'E' ? '#D97706' : '#10B981'), color: '#000', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: emitting ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
           {emitting ? <><Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Emitiendo...</> : (tipoComprobante === 'P' ? 'Emitir REP' : tipoComprobante === 'E' ? 'Emitir nota de crédito' : 'Timbrar factura')}
