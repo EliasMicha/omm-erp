@@ -884,15 +884,12 @@ function CobranzaPorProyecto() {
     const contratos = quotations.filter(q => q.stage === 'contrato' && q.lead_id)
     const leadIdsConContrato = new Set(contratos.map(q => q.lead_id))
 
-    // Helper: monto final de una cotización con descuento Y ivaRate aplicados.
-    // Fórmula: subtotal * (1 - descuento/100) * (1 + ivaRate/100)
-    const cotMontoFinal = (q: any): number => {
-      const subtotal = Number(q.total) || 0
-      const desc = Number(q.descuento) || 0
-      const iva = Number(q.ivaRate) || 16
-      const conDescuento = subtotal * (1 - desc / 100)
-      return conDescuento * (1 + iva / 100)
-    }
+    // Helper: monto final de la cotización.
+    // IMPORTANTE: quotations.total YA viene con descuento e IVA aplicados desde
+    // el editor (CotEditorESP, CotEditorCortinas, etc). Aplicar otra vez los
+    // multiplicadores aquí causaba doble IVA / doble descuento. Confiamos
+    // directamente en q.total.
+    const cotMontoFinal = (q: any): number => Number(q.total) || 0
 
     const rows = Array.from(leadIdsConContrato).map(leadId => {
       const lead = leads.find(l => l.id === leadId)
@@ -1080,19 +1077,14 @@ function CobranzaPorProyecto() {
                               <tr style={{ color: '#444' }}>
                                 <td style={{ padding: '4px 6px' }}>Cotización</td>
                                 <td style={{ padding: '4px 6px' }}>Especialidad</td>
-                                <td style={{ padding: '4px 6px', textAlign: 'right' }}>Subtotal</td>
-                                <td style={{ padding: '4px 6px', textAlign: 'right' }}>Desc.</td>
-                                <td style={{ padding: '4px 6px', textAlign: 'right' }}>IVA</td>
                                 <td style={{ padding: '4px 6px', textAlign: 'right' }}>Total final</td>
                                 <td style={{ padding: '4px 6px' }}></td>
                               </tr>
                             </thead>
                             <tbody>
                               {r.cotsLead.map((q: any) => {
-                                const subtotal = Number(q.total) || 0
-                                const desc = Number(q.descuento) || 0
-                                const iva = Number(q.ivaRate) || 16
-                                const finalAmount = subtotal * (1 - desc / 100) * (1 + iva / 100)
+                                // q.total ya es el total final con descuento e IVA aplicados.
+                                const finalAmount = Number(q.total) || 0
                                 return (
                                 <tr key={q.id} style={{ borderTop: '1px solid #1a1a1a' }}
                                   onClick={(e) => { e.stopPropagation(); navigate(`/cotizaciones`) }}
@@ -1106,9 +1098,6 @@ function CobranzaPorProyecto() {
                                       {q.currency || 'MXN'}
                                     </span>
                                   </td>
-                                  <td style={{ padding: '6px', textAlign: 'right', color: '#aaa' }}>{fmt(convert(subtotal, q.currency || 'MXN'))}</td>
-                                  <td style={{ padding: '6px', textAlign: 'right', color: desc > 0 ? '#D97706' : '#444' }}>{desc > 0 ? `-${desc}%` : '—'}</td>
-                                  <td style={{ padding: '6px', textAlign: 'right', color: '#666' }}>{iva}%</td>
                                   <td style={{ padding: '6px', textAlign: 'right', color: '#fff', fontWeight: 600 }}>{fmt(convert(finalAmount, q.currency || 'MXN'))}</td>
                                   <td style={{ padding: '6px', textAlign: 'right' }}>
                                     <button onClick={(e) => { e.stopPropagation(); navigate(`/crm/${r.leadId}`) }}
