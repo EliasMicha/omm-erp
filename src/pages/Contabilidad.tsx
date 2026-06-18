@@ -2790,6 +2790,12 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
         const linkedInvs = links.map(l => invoices.find(i => i.id === l.invoice_id)).filter(Boolean)
         const firstInv = linkedInvs[0] as Invoice | undefined
 
+        // Multi-moneda: si alguno de los links tiene tc_aplicado, mostrarlo
+        const linkConTc = links.find(l => l.tc_aplicado && l.tc_aplicado > 0)
+        const tcAplicado = linkConTc?.tc_aplicado || ''
+        const montoEnMonedaFactura = linkConTc?.monto_en_moneda_factura || ''
+        const monedaFactura = linkConTc ? (firstInv?.moneda || '') : ''
+
         // PO info
         const po = m.purchase_order_id ? poMap.get(m.purchase_order_id) : null
 
@@ -2846,6 +2852,10 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
           'Banco': m.banco || '',
           'Cuenta': m.cuenta || '',
           'Beneficiario': m.beneficiario || '',
+          'TC Aplicado': tcAplicado,
+          'Monto Factura (mon. factura)': montoEnMonedaFactura,
+          'Moneda Factura': monedaFactura,
+          'Comentarios': m.observaciones || '',
         }
       })
 
@@ -2872,6 +2882,10 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
         { wch: 10 }, // Banco
         { wch: 14 }, // Cuenta
         { wch: 25 }, // Beneficiario
+        { wch: 10 }, // TC Aplicado
+        { wch: 18 }, // Monto Factura (mon. factura)
+        { wch: 14 }, // Moneda Factura
+        { wch: 50 }, // Comentarios
       ]
 
       const wb = XLSX.utils.book_new()
