@@ -1651,16 +1651,19 @@ function POFromQuoteModal({ onClose, onCreated }: { onClose: () => void; onCreat
 
       // Enrich items with catalog data (provider, moneda, cost) for filtering and correct pricing
       const catIds = [...new Set(items.map(it => it.catalog_product_id).filter(Boolean))]
-      let catMap = new Map<string, { provider: string; moneda: string; cost: number }>()
+      let catMap = new Map<string, { provider: string; supplier_id: string | null; moneda: string; cost: number }>()
       if (catIds.length > 0) {
-        const { data: catProducts } = await supabase.from('catalog_products').select('id, provider, moneda, cost').in('id', catIds)
-        ;(catProducts || []).forEach((p: any) => catMap.set(p.id, { provider: p.provider || '', moneda: p.moneda || 'USD', cost: Number(p.cost) || 0 }))
+        const { data: catProducts } = await supabase.from('catalog_products').select('id, provider, supplier_id, moneda, cost').in('id', catIds)
+        ;(catProducts || []).forEach((p: any) => catMap.set(p.id, { provider: p.provider || '', supplier_id: p.supplier_id || null, moneda: p.moneda || 'USD', cost: Number(p.cost) || 0 }))
       }
       items = items.map((it: any) => {
         const cat = it.catalog_product_id ? catMap.get(it.catalog_product_id) : null
         // Always use catalog cost if available (quotation_items.cost can be wrong — sometimes has precio_venta)
         const realCost = cat?.cost || Number(it.cost) || 0
-        return { ...it, cost: realCost, _provider: it.provider || cat?.provider || '', _moneda: cat?.moneda || 'USD' }
+        // IMPORTANTE: priorizar catalog.provider (siempre es el más actualizado).
+        // El trigger sync_catalog_changes_to_items mantiene quotation_items.provider
+        // sincronizado, pero esta fuente sirve como red de seguridad para datos viejos.
+        return { ...it, cost: realCost, _provider: cat?.provider || it.provider || '', _moneda: cat?.moneda || 'USD' }
       })
 
       // Consolidate duplicate products (same catalog_product_id or same name) — sum quantities
@@ -1680,13 +1683,18 @@ function POFromQuoteModal({ onClose, onCreated }: { onClose: () => void; onCreat
       if (selectedPhase) {
         items = items.filter(it => it.purchase_phase === selectedPhase)
       }
-      // Filter by supplier — strict, using enriched _provider from catalog
+      // Filter by supplier — strict, usando dato actualizado del catalog
       if (selectedSupplier) {
         const sup = suppliers.find(s => s.id === selectedSupplier)
         if (sup) {
           const supLower = sup.name.toLowerCase()
           items = items.filter(it => {
+            // 1) Match directo por supplier_id del catalog (más confiable)
+            const cat = it.catalog_product_id ? catMap.get(it.catalog_product_id) : null
+            if (cat?.supplier_id === selectedSupplier) return true
+            // 2) Fallback al supplier_id del quotation_item (puede estar desactualizado)
             if (it.supplier_id === selectedSupplier) return true
+            // 3) Match fuzzy por nombre de proveedor
             const provLower = (it._provider || '').toLowerCase()
             if (!provLower) return false
             if (supLower.includes(provLower) || provLower.includes(supLower)) return true
