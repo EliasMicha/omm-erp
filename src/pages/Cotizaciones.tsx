@@ -191,11 +191,25 @@ function CotDashboard({ onOpen, preferVersionId }: { onOpen: (id: string, specia
   // Available years from quotations
   const availableYears = useMemo(() => {
     const yrs = new Set<string>()
-    cots.forEach(c => { if (c.created_at) yrs.add(c.created_at.slice(0, 4)) })
+    cots.forEach(c => {
+      if (c.commercial_year) yrs.add(String(c.commercial_year))
+      else if (c.created_at) yrs.add(c.created_at.slice(0, 4))
+    })
     return ['todos', ...Array.from(yrs).sort().reverse()]
   }, [cots])
 
-  function getYear(c: any): string { return (c.created_at || '').slice(0, 4) }
+  // Año comercial: override manual (commercial_year) o fallback a created_at
+  function getYear(c: any): string {
+    if (c.commercial_year) return String(c.commercial_year)
+    return (c.created_at || '').slice(0, 4)
+  }
+
+  // Actualizar el año comercial de una cotización
+  async function updateCommercialYear(id: string, year: number | null) {
+    const { error } = await supabase.from('quotations').update({ commercial_year: year }).eq('id', id)
+    if (error) { alert('Error: ' + error.message); return }
+    setCots(prev => prev.map(c => c.id === id ? { ...c, commercial_year: year } : c))
+  }
 
   // Hide version clones — show the preferred (last-viewed) or first version per group
   const cotsVisible = useMemo(() => {
@@ -446,7 +460,31 @@ function CotDashboard({ onOpen, preferVersionId }: { onOpen: (id: string, specia
                       ))}
                     </select>
                   </Td>
-                  <Td><span style={{fontSize:11,color:'#888'}}>{c.created_at ? new Date(c.created_at).toLocaleDateString('es-MX',{day:'2-digit',month:'short',year:'numeric'}) : '--'}</span></Td>
+                  <Td onClick={e => e.stopPropagation()}>
+                    <div style={{display:'flex',flexDirection:'column',gap:2}}>
+                      <span style={{fontSize:11,color:'#888'}}>{c.created_at ? new Date(c.created_at).toLocaleDateString('es-MX',{day:'2-digit',month:'short'}) : '--'}</span>
+                      <input
+                        type="number"
+                        min={2000}
+                        max={2100}
+                        placeholder={(c.created_at || '').slice(0, 4)}
+                        defaultValue={c.commercial_year || ''}
+                        title="Año comercial — override para reportes. Vacío = usar fecha de creación"
+                        onBlur={e => {
+                          const v = e.target.value.trim()
+                          const year = v ? parseInt(v) : null
+                          if (year !== c.commercial_year) updateCommercialYear(c.id, year)
+                        }}
+                        style={{
+                          width: 60, fontSize: 10, padding: '2px 4px',
+                          background: c.commercial_year ? '#A78BFA15' : '#0a0a0a',
+                          border: `1px solid ${c.commercial_year ? '#A78BFA55' : '#222'}`,
+                          borderRadius: 3, color: c.commercial_year ? '#A78BFA' : '#aaa',
+                          fontFamily: 'inherit', textAlign: 'center',
+                        }}
+                      />
+                    </div>
+                  </Td>
                   <Td><span style={{fontSize:11,fontWeight:600,color: cur === 'USD' ? '#06B6D4' : '#D97706'}}>{cur}</span></Td>
                   <Td right><span style={{fontWeight:600,color:'#10B981'}}>{FCUR(getTotalConIva(c), cur)}<span style={{fontSize:9,color:'#555',marginLeft:4,fontWeight:400}}>c/IVA</span></span></Td>
                   <Td>
