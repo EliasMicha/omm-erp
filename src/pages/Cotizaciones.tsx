@@ -403,7 +403,7 @@ function CotDashboard({ onOpen, preferVersionId }: { onOpen: (id: string, specia
         <div style={{overflowX: 'auto'}}>
         <Table>
           <thead><tr>
-            <Th>Cotización</Th>{!isMobile && <Th>Lead</Th>}{!isMobile && <Th>Arquitecto</Th>}<Th>Cliente</Th><Th>Especialidad</Th><Th>Etapa</Th><Th>Fecha</Th><Th>Moneda</Th><Th right>Total</Th><Th></Th>
+            <Th>Cotización</Th>{!isMobile && <Th>Lead</Th>}{!isMobile && <Th>Arquitecto</Th>}<Th>Cliente</Th><Th>Especialidad</Th><Th>Etapa</Th><Th>Fecha</Th><Th>Año</Th><Th>Moneda</Th><Th right>Total</Th><Th></Th>
           </tr></thead>
           <tbody>
             {lista.length === 0 && (<tr><td colSpan={10}><EmptyState message={search || filtro !== "todas" ? "No se encontraron cotizaciones con estos filtros" : "Sin cotizaciones - crea la primera"}/></td></tr>)}
@@ -460,30 +460,28 @@ function CotDashboard({ onOpen, preferVersionId }: { onOpen: (id: string, specia
                       ))}
                     </select>
                   </Td>
+                  <Td><span style={{fontSize:11,color:'#888'}}>{c.created_at ? new Date(c.created_at).toLocaleDateString('es-MX',{day:'2-digit',month:'short',year:'numeric'}) : '--'}</span></Td>
                   <Td onClick={e => e.stopPropagation()}>
-                    <div style={{display:'flex',flexDirection:'column',gap:2}}>
-                      <span style={{fontSize:11,color:'#888'}}>{c.created_at ? new Date(c.created_at).toLocaleDateString('es-MX',{day:'2-digit',month:'short'}) : '--'}</span>
-                      <input
-                        type="number"
-                        min={2000}
-                        max={2100}
-                        placeholder={(c.created_at || '').slice(0, 4)}
-                        defaultValue={c.commercial_year || ''}
-                        title="Año comercial — override para reportes. Vacío = usar fecha de creación"
-                        onBlur={e => {
-                          const v = e.target.value.trim()
-                          const year = v ? parseInt(v) : null
-                          if (year !== c.commercial_year) updateCommercialYear(c.id, year)
-                        }}
-                        style={{
-                          width: 60, fontSize: 10, padding: '2px 4px',
-                          background: c.commercial_year ? '#A78BFA15' : '#0a0a0a',
-                          border: `1px solid ${c.commercial_year ? '#A78BFA55' : '#222'}`,
-                          borderRadius: 3, color: c.commercial_year ? '#A78BFA' : '#aaa',
-                          fontFamily: 'inherit', textAlign: 'center',
-                        }}
-                      />
-                    </div>
+                    <input
+                      type="number"
+                      min={2000}
+                      max={2100}
+                      placeholder={(c.created_at || '').slice(0, 4) || 'Año'}
+                      defaultValue={c.commercial_year || ''}
+                      title="Año comercial — override para reportes. Vacío = usar año de la fecha de creación"
+                      onBlur={e => {
+                        const v = e.target.value.trim()
+                        const year = v ? parseInt(v) : null
+                        if (year !== c.commercial_year) updateCommercialYear(c.id, year)
+                      }}
+                      style={{
+                        width: 64, fontSize: 11, padding: '4px 6px',
+                        background: c.commercial_year ? '#A78BFA15' : '#0a0a0a',
+                        border: `1px solid ${c.commercial_year ? '#A78BFA55' : '#222'}`,
+                        borderRadius: 4, color: c.commercial_year ? '#A78BFA' : '#aaa',
+                        fontFamily: 'inherit', textAlign: 'center', fontWeight: 600,
+                      }}
+                    />
                   </Td>
                   <Td><span style={{fontSize:11,fontWeight:600,color: cur === 'USD' ? '#06B6D4' : '#D97706'}}>{cur}</span></Td>
                   <Td right><span style={{fontWeight:600,color:'#10B981'}}>{FCUR(getTotalConIva(c), cur)}<span style={{fontSize:9,color:'#555',marginLeft:4,fontWeight:400}}>c/IVA</span></span></Td>
