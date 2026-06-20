@@ -461,27 +461,34 @@ function CotDashboard({ onOpen, preferVersionId }: { onOpen: (id: string, specia
                     </select>
                   </Td>
                   <Td><span style={{fontSize:11,color:'#888'}}>{c.created_at ? new Date(c.created_at).toLocaleDateString('es-MX',{day:'2-digit',month:'short',year:'numeric'}) : '--'}</span></Td>
-                  <Td onClick={e => e.stopPropagation()}>
-                    <input
-                      type="number"
-                      min={2000}
-                      max={2100}
-                      placeholder={(c.created_at || '').slice(0, 4) || 'Año'}
-                      defaultValue={c.commercial_year || ''}
-                      title="Año comercial — override para reportes. Vacío = usar año de la fecha de creación"
-                      onBlur={e => {
-                        const v = e.target.value.trim()
-                        const year = v ? parseInt(v) : null
-                        if (year !== c.commercial_year) updateCommercialYear(c.id, year)
-                      }}
-                      style={{
-                        width: 64, fontSize: 11, padding: '4px 6px',
-                        background: c.commercial_year ? '#A78BFA15' : '#0a0a0a',
-                        border: `1px solid ${c.commercial_year ? '#A78BFA55' : '#222'}`,
-                        borderRadius: 4, color: c.commercial_year ? '#A78BFA' : '#aaa',
-                        fontFamily: 'inherit', textAlign: 'center', fontWeight: 600,
-                      }}
-                    />
+                  <Td>
+                    <div onClick={e => e.stopPropagation()} style={{ display: 'inline-block' }}>
+                      <input
+                        type="number"
+                        min={2000}
+                        max={2100}
+                        placeholder={(c.created_at || '').slice(0, 4) || 'Año'}
+                        defaultValue={c.commercial_year || ''}
+                        title="Año comercial — override para reportes. Vacío = usar año de la fecha de creación"
+                        onClick={e => e.stopPropagation()}
+                        onFocus={e => e.stopPropagation()}
+                        onMouseDown={e => e.stopPropagation()}
+                        onKeyDown={e => e.stopPropagation()}
+                        onBlur={e => {
+                          e.stopPropagation()
+                          const v = e.target.value.trim()
+                          const year = v ? parseInt(v) : null
+                          if (year !== c.commercial_year) updateCommercialYear(c.id, year)
+                        }}
+                        style={{
+                          width: 64, fontSize: 11, padding: '4px 6px',
+                          background: c.commercial_year ? '#A78BFA15' : '#0a0a0a',
+                          border: `1px solid ${c.commercial_year ? '#A78BFA55' : '#222'}`,
+                          borderRadius: 4, color: c.commercial_year ? '#A78BFA' : '#aaa',
+                          fontFamily: 'inherit', textAlign: 'center', fontWeight: 600,
+                        }}
+                      />
+                    </div>
                   </Td>
                   <Td><span style={{fontSize:11,fontWeight:600,color: cur === 'USD' ? '#06B6D4' : '#D97706'}}>{cur}</span></Td>
                   <Td right><span style={{fontWeight:600,color:'#10B981'}}>{FCUR(getTotalConIva(c), cur)}<span style={{fontSize:9,color:'#555',marginLeft:4,fontWeight:400}}>c/IVA</span></span></Td>
