@@ -257,7 +257,10 @@ function CotDashboard({ onOpen, preferVersionId }: { onOpen: (id: string, specia
   // KPIs por etapa (USD y MXN separados) — con IVA — filtered by year
   const byStageAndCur = (s: string, cur: string) => cotsYear.filter(c => c.stage === s && getCur(c) === cur).reduce((a, c) => a + getTotalConIva(c), 0)
   // KPIs por especialidad (USD y MXN separados) — con IVA
+  // Total cotizado (todas las etapas)
   const bySpecAndCur = (spec: string, cur: string) => cotsYear.filter(c => c.specialty === spec && getCur(c) === cur).reduce((a, c) => a + getTotalConIva(c), 0)
+  // Solo vendido (stage = contrato)
+  const bySpecVendidoAndCur = (spec: string, cur: string) => cotsYear.filter(c => c.specialty === spec && c.stage === 'contrato' && getCur(c) === cur).reduce((a, c) => a + getTotalConIva(c), 0)
   const totalUSD = cotsYear.filter(c => getCur(c) === 'USD').reduce((s, c) => s + getTotalConIva(c), 0)
   const totalMXN = cotsYear.filter(c => getCur(c) === 'MXN').reduce((s, c) => s + getTotalConIva(c), 0)
 
@@ -288,20 +291,41 @@ function CotDashboard({ onOpen, preferVersionId }: { onOpen: (id: string, specia
         })}
       </div>
 
-      {/* KPIs por especialidad — USD y MXN separados */}
+      {/* KPIs por especialidad — Cotizado total + Vendido (contrato), USD y MXN separados */}
       <div style={{display:'grid',gridTemplateColumns: isMobile ? 'repeat(2,1fr)' : 'repeat(5,1fr)',gap:10,marginBottom:20}}>
         {(['esp','elec','ilum','cort','proy'] as const).map(spec => {
           const cfg = SPECIALTY_CONFIG[spec]
-          const usd = bySpecAndCur(spec, 'USD')
-          const mxn = bySpecAndCur(spec, 'MXN')
+          const cotUsd = bySpecAndCur(spec, 'USD')
+          const cotMxn = bySpecAndCur(spec, 'MXN')
+          const venUsd = bySpecVendidoAndCur(spec, 'USD')
+          const venMxn = bySpecVendidoAndCur(spec, 'MXN')
+          const anyCot = cotUsd > 0 || cotMxn > 0
+          const anyVen = venUsd > 0 || venMxn > 0
           return (
-            <div key={spec} style={{background:'#141414',border:'1px solid #222',borderRadius:10,padding:'12px 14px',borderLeft:`2px solid ${cfg.color}`}}>
-              <div style={{fontSize: isMobile ? 9 : 10,color:'#555',textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:4,display:'flex',alignItems:'center',gap:4}}>
+            <div key={spec} style={{background:'#141414',border:'1px solid #222',borderRadius:10,padding:'10px 12px',borderLeft:`2px solid ${cfg.color}`}}>
+              <div style={{fontSize: isMobile ? 9 : 10,color:'#555',textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:6,display:'flex',alignItems:'center',gap:4}}>
                 <span style={{color:cfg.color,fontSize: isMobile ? 10 : 14}}>{cfg.icon}</span> {isMobile ? '' : cfg.label}
               </div>
-              {usd > 0 && <div style={{fontSize: isMobile ? 11 : 13,fontWeight:700,color:'#fff'}}>USD {F(usd)}</div>}
-              {mxn > 0 && <div style={{fontSize: isMobile ? 10 : 12,fontWeight:600,color:'#ccc'}}>MXN {F(mxn)}</div>}
-              {usd === 0 && mxn === 0 && <div style={{fontSize: isMobile ? 11 : 13,fontWeight:700,color:'#333'}}>$0</div>}
+              {/* Cotizado */}
+              <div style={{marginBottom: 6}}>
+                <div style={{fontSize: 8, color: '#A78BFA', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600, marginBottom: 1}}>Cotizado</div>
+                {anyCot ? (
+                  <>
+                    {cotUsd > 0 && <div style={{fontSize: isMobile ? 10 : 12, fontWeight: 700, color: '#fff'}}>USD {F(cotUsd)}</div>}
+                    {cotMxn > 0 && <div style={{fontSize: isMobile ? 9 : 11, fontWeight: 600, color: '#ccc'}}>MXN {F(cotMxn)}</div>}
+                  </>
+                ) : <div style={{fontSize: isMobile ? 10 : 12, color: '#333'}}>—</div>}
+              </div>
+              {/* Vendido */}
+              <div style={{borderTop: '1px solid #222', paddingTop: 4}}>
+                <div style={{fontSize: 8, color: '#10B981', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600, marginBottom: 1}}>Vendido</div>
+                {anyVen ? (
+                  <>
+                    {venUsd > 0 && <div style={{fontSize: isMobile ? 10 : 12, fontWeight: 700, color: '#10B981'}}>USD {F(venUsd)}</div>}
+                    {venMxn > 0 && <div style={{fontSize: isMobile ? 9 : 11, fontWeight: 600, color: '#10B981dd'}}>MXN {F(venMxn)}</div>}
+                  </>
+                ) : <div style={{fontSize: isMobile ? 10 : 12, color: '#333'}}>—</div>}
+              </div>
             </div>
           )
         })}
