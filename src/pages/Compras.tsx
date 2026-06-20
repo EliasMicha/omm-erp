@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, useMemo } from 'react'
 import { supabase } from '../lib/supabase'
 import { ANTHROPIC_API_KEY } from '../lib/config'
 import { Project, CatalogProduct, ProjectLine, PurchasePhase } from '../types'
@@ -1608,6 +1608,10 @@ function POFromQuoteModal({ onClose, onCreated }: { onClose: () => void; onCreat
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [previewItems, setPreviewItems] = useState<any[]>([])
+  // Selección por item — key = catalog_product_id || name
+  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set())
+  // Items ya ordenados (de POs previas de la misma cotización) — key → cantidad ordenada
+  const [ordenadoPrevio, setOrdenadoPrevio] = useState<Map<string, number>>(new Map())
 
   useEffect(() => {
     Promise.all([
@@ -1695,13 +1699,56 @@ function POFromQuoteModal({ onClose, onCreated }: { onClose: () => void; onCreat
         }
       }
       setPreviewItems(items)
+
+      // Cargar cantidades ya ordenadas en POs previas de esta cotización (para
+      // marcar items que ya se compraron y no duplicar). Excluye POs canceladas.
+      const { data: posPrevias } = await supabase
+        .from('purchase_orders')
+        .select('id, status')
+        .eq('quotation_id', selectedQuote)
+      const poIds = (posPrevias || []).filter((p: any) => p.status !== 'cancelada').map((p: any) => p.id)
+      const mapOrdenado = new Map<string, number>()
+      if (poIds.length > 0) {
+        const { data: prevItems } = await supabase
+          .from('po_items')
+          .select('catalog_product_id, name, quantity')
+          .in('purchase_order_id', poIds)
+        ;(prevItems || []).forEach((pi: any) => {
+          const key = pi.catalog_product_id || pi.name
+          mapOrdenado.set(key, (mapOrdenado.get(key) || 0) + Number(pi.quantity || 0))
+        })
+      }
+      setOrdenadoPrevio(mapOrdenado)
+
+      // Default: marcar todos los items que NO están completamente ordenados
+      const newSelected = new Set<string>()
+      items.forEach((it: any) => {
+        const key = it.catalog_product_id || it.name
+        const yaOrd = mapOrdenado.get(key) || 0
+        if (yaOrd < it.quantity) newSelected.add(key)
+      })
+      setSelectedKeys(newSelected)
     }
     loadItems()
   }, [selectedQuote, selectedSupplier, selectedPhase])
 
+  // Helper: items que el user efectivamente seleccionó
+  const finalItems = useMemo(() => {
+    return previewItems.filter((it: any) => {
+      const key = it.catalog_product_id || it.name
+      return selectedKeys.has(key)
+    }).map((it: any) => {
+      // Ajustar cantidad: restar lo ya ordenado para no duplicar
+      const key = it.catalog_product_id || it.name
+      const yaOrd = ordenadoPrevio.get(key) || 0
+      const restante = Math.max(0, it.quantity - yaOrd)
+      return { ...it, quantity: restante > 0 ? restante : it.quantity }
+    })
+  }, [previewItems, selectedKeys, ordenadoPrevio])
+
   async function crear() {
     if (!selectedQuote) { setError('Selecciona una cotización'); return }
-    if (previewItems.length === 0) { setError('No hay productos que cumplan el filtro'); return }
+    if (finalItems.length === 0) { setError('Selecciona al menos un producto'); return }
     setSaving(true); setError('')
 
     const quote = quotations.find(q => q.id === selectedQuote)
@@ -1718,7 +1765,7 @@ function POFromQuoteModal({ onClose, onCreated }: { onClose: () => void; onCreat
 
     // Group items by currency (MXN/USD). If mixed, create 2 separate POs.
     const itemsByCurrency: Record<string, any[]> = { MXN: [], USD: [] }
-    previewItems.forEach((it: any) => {
+    finalItems.forEach((it: any) => {
       const cur = it._moneda === 'MXN' ? 'MXN' : 'USD'
       itemsByCurrency[cur].push(it)
     })
@@ -1827,26 +1874,90 @@ function POFromQuoteModal({ onClose, onCreated }: { onClose: () => void; onCreat
             </div>
           </label>
 
-          {/* Preview */}
-          {selectedQuote && (
+          {/* Preview con checkboxes individuales */}
+          {selectedQuote && previewItems.length > 0 && (
             <div style={{ background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 10, padding: '10px 12px' }}>
-              <div style={{ fontSize: 11, color: '#555', fontWeight: 600, marginBottom: 6 }}>
-                {previewItems.length} productos encontrados — Costo total: {F(previewItems.reduce((s: number, it: any) => s + it.cost * it.quantity, 0))}
-              </div>
-              {previewItems.slice(0, 8).map((it: any, i: number) => (
-                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10, color: '#666' }}>
-                  <span style={{ color: '#aaa' }}>{it.quantity}× {it.name}</span>
-                  <span>${(it.cost * it.quantity).toFixed(2)}</span>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <div style={{ fontSize: 11, color: '#888', fontWeight: 600 }}>
+                  {finalItems.length} de {previewItems.length} productos seleccionados — Costo: {F(finalItems.reduce((s: number, it: any) => s + it.cost * it.quantity, 0))}
                 </div>
-              ))}
-              {previewItems.length > 8 && <div style={{ fontSize: 10, color: '#444', marginTop: 4 }}>...y {previewItems.length - 8} más</div>}
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button
+                    onClick={() => {
+                      const all = new Set<string>()
+                      previewItems.forEach((it: any) => {
+                        const key = it.catalog_product_id || it.name
+                        const yaOrd = ordenadoPrevio.get(key) || 0
+                        if (yaOrd < it.quantity) all.add(key)
+                      })
+                      setSelectedKeys(all)
+                    }}
+                    style={{ background: 'none', border: '1px solid #333', borderRadius: 4, padding: '2px 8px', fontSize: 9, color: '#888', cursor: 'pointer', fontFamily: 'inherit' }}
+                  >Todos disponibles</button>
+                  <button
+                    onClick={() => setSelectedKeys(new Set())}
+                    style={{ background: 'none', border: '1px solid #333', borderRadius: 4, padding: '2px 8px', fontSize: 9, color: '#888', cursor: 'pointer', fontFamily: 'inherit' }}
+                  >Ninguno</button>
+                </div>
+              </div>
+              <div style={{ maxHeight: 280, overflowY: 'auto', border: '1px solid #1e1e1e', borderRadius: 6 }}>
+                {previewItems.map((it: any, i: number) => {
+                  const key = it.catalog_product_id || it.name
+                  const yaOrd = ordenadoPrevio.get(key) || 0
+                  const restante = Math.max(0, it.quantity - yaOrd)
+                  const completamenteOrdenado = restante === 0 && yaOrd > 0
+                  const parcialmenteOrdenado = yaOrd > 0 && restante > 0
+                  const isChecked = selectedKeys.has(key)
+                  return (
+                    <label key={i} style={{
+                      display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', fontSize: 11,
+                      borderBottom: i < previewItems.length - 1 ? '1px solid #161616' : 'none',
+                      cursor: completamenteOrdenado ? 'not-allowed' : 'pointer',
+                      opacity: completamenteOrdenado ? 0.45 : 1,
+                      background: parcialmenteOrdenado ? 'rgba(217,119,6,0.06)' : 'transparent',
+                    }}>
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        disabled={completamenteOrdenado}
+                        onChange={e => {
+                          const next = new Set(selectedKeys)
+                          if (e.target.checked) next.add(key)
+                          else next.delete(key)
+                          setSelectedKeys(next)
+                        }}
+                        style={{ accentColor: '#10B981', cursor: completamenteOrdenado ? 'not-allowed' : 'pointer' }}
+                      />
+                      <span style={{ flex: 1, color: completamenteOrdenado ? '#666' : '#ccc' }}>
+                        <span style={{ fontWeight: 600 }}>{restante > 0 ? restante : it.quantity}×</span> {it.name}
+                        {completamenteOrdenado && (
+                          <span style={{ marginLeft: 6, fontSize: 9, background: '#10B98122', color: '#10B981', padding: '1px 5px', borderRadius: 3, fontWeight: 600 }}>
+                            ✓ Ya ordenado
+                          </span>
+                        )}
+                        {parcialmenteOrdenado && (
+                          <span style={{ marginLeft: 6, fontSize: 9, background: '#D9770622', color: '#D97706', padding: '1px 5px', borderRadius: 3, fontWeight: 600 }}>
+                            {yaOrd}/{it.quantity} ya ordenados
+                          </span>
+                        )}
+                      </span>
+                      <span style={{ color: '#888', fontFamily: 'monospace' }}>${(it.cost * (restante > 0 ? restante : it.quantity)).toFixed(2)}</span>
+                    </label>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+          {selectedQuote && previewItems.length === 0 && (
+            <div style={{ background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 10, padding: '10px 12px', fontSize: 11, color: '#555' }}>
+              Sin productos en esta combinación de proveedor/fase
             </div>
           )}
         </div>
         {error && <div style={{ color: '#DC2626', fontSize: 12, marginTop: 10 }}>{error}</div>}
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 20 }}>
           <Btn onClick={onClose}>Cancelar</Btn>
-          <Btn variant="primary" onClick={crear} disabled={saving || previewItems.length === 0}>{saving ? 'Generando...' : `Generar OC (${previewItems.length} items)`}</Btn>
+          <Btn variant="primary" onClick={crear} disabled={saving || finalItems.length === 0}>{saving ? 'Generando...' : `Generar OC (${finalItems.length} items)`}</Btn>
         </div>
       </div>
     </div>
