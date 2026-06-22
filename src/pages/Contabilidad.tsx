@@ -4804,10 +4804,83 @@ interface AnticipoGroup {
   diasActivo: number
 }
 
-function TabAnticipos({ invoices }: { invoices: Invoice[] }) {
+function TabAnticipos({ invoices: _invoicesProp }: { invoices: Invoice[] }) {
   const isMobile = useIsMobile()
   const [direction, setDirection] = useState<'emitida' | 'recibida'>('emitida')
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
+  // Carga propia para garantizar que conceptos + uuids_relacionados estén frescos.
+  // No depender del state del padre (que puede no haber re-cargado conceptos
+  // después de sync de FacturAPI).
+  const [invoices, setInvoices] = useState<Invoice[]>([])
+  const [loadingOwn, setLoadingOwn] = useState(true)
+  const [reloadKey, setReloadKey] = useState(0)
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoadingOwn(true)
+      // 1. Cargar TODAS las facturas con paginación
+      let all: any[] = []
+      let from = 0
+      const PAGE = 1000
+      while (true) {
+        const { data } = await supabase.from('facturas').select('*').order('created_at', { ascending: false }).range(from, from + PAGE - 1)
+        if (!data || data.length === 0) break
+        all = all.concat(data)
+        if (data.length < PAGE) break
+        from += PAGE
+      }
+      // 2. Cargar TODOS los conceptos con paginación (puede crecer más allá de 10k)
+      let allCp: any[] = []
+      let fcFrom = 0
+      while (true) {
+        const { data } = await supabase.from('factura_conceptos').select('*').range(fcFrom, fcFrom + PAGE - 1)
+        if (!data || data.length === 0) break
+        allCp = allCp.concat(data)
+        if (data.length < PAGE) break
+        fcFrom += PAGE
+      }
+      const byFactura: Record<string, Concepto[]> = {}
+      allCp.forEach((cp: any) => {
+        if (!byFactura[cp.factura_id]) byFactura[cp.factura_id] = []
+        byFactura[cp.factura_id].push({
+          clave_prod_serv: cp.clave_prod_serv || '',
+          cantidad: Number(cp.cantidad) || 0,
+          clave_unidad: cp.clave_unidad || '',
+          unidad: cp.unidad || '',
+          descripcion: cp.descripcion || '',
+          valor_unitario: Number(cp.valor_unitario) || 0,
+          importe: Number(cp.importe) || 0,
+        })
+      })
+      const mapped = all.filter((f: any) => !f.sandbox).map((f: any) => ({
+        id: f.id, direccion: f.direccion || 'emitida', serie: f.serie || '', folio: f.folio || '',
+        tipo_comprobante: f.tipo_comprobante || 'I',
+        receptor_nombre: f.receptor_nombre || '', emisor_nombre: f.emisor_nombre || '',
+        total: Number(f.total) || 0,
+        estado: (f.estado && f.estado !== 'borrador' ? f.estado : f.status) || 'borrador',
+        fecha_emision: f.fecha_emision ? (() => { const dt = new Date(f.fecha_emision); return isNaN(dt.getTime()) ? '' : `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}` })() : '',
+        proyecto_nombre: f.proyecto_nombre || '', conciliada: f.conciliada || false,
+        uuid: f.uuid_fiscal || '',
+        subtotal: Number(f.subtotal) || 0, iva: Number(f.iva) || 0,
+        moneda: f.moneda || 'MXN', forma_pago: f.forma_pago || '',
+        emisor_rfc: f.emisor_rfc || '', emisor_regimen: f.emisor_regimen_fiscal || '',
+        receptor_rfc: f.receptor_rfc || '', receptor_regimen: f.receptor_regimen_fiscal || '',
+        receptor_uso_cfdi: f.receptor_uso_cfdi || '', receptor_cp: f.receptor_domicilio_fiscal || '',
+        tipo_relacion: f.tipo_relacion || null,
+        uuids_relacionados: f.uuids_relacionados || null,
+        facturapi_id: f.facturapi_id || undefined,
+        sandbox: f.sandbox ?? undefined,
+        conceptos: byFactura[f.id] || [],
+      })) as Invoice[]
+      if (!cancelled) {
+        setInvoices(mapped)
+        setLoadingOwn(false)
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [reloadKey])
 
   const dirInvoices = invoices.filter(inv => inv.direccion === direction)
 
@@ -4888,7 +4961,7 @@ function TabAnticipos({ invoices }: { invoices: Invoice[] }) {
 
   return (
     <div style={{ padding: '20px 0' }}>
-      <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16, alignItems: 'center' }}>
         {(['emitida', 'recibida'] as const).map(d => (
           <button key={d} onClick={() => setDirection(d)} style={{
             padding: '6px 16px', fontSize: 12, fontWeight: direction === d ? 700 : 400,
@@ -4898,7 +4971,22 @@ function TabAnticipos({ invoices }: { invoices: Invoice[] }) {
             borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit',
           }}>{d === 'emitida' ? 'Anticipos Emitidos' : 'Anticipos Recibidos'}</button>
         ))}
+        <button
+          onClick={() => setReloadKey(k => k + 1)}
+          disabled={loadingOwn}
+          style={{
+            marginLeft: 'auto', padding: '6px 14px', fontSize: 11,
+            background: '#1a1a1a', color: loadingOwn ? '#555' : '#A78BFA',
+            border: '1px solid #A78BFA44', borderRadius: 6,
+            cursor: loadingOwn ? 'wait' : 'pointer', fontFamily: 'inherit',
+          }}
+        >{loadingOwn ? 'Cargando...' : '↻ Recargar'}</button>
       </div>
+      {invoices.length === 0 && !loadingOwn && (
+        <div style={{ padding: 20, color: '#666', textAlign: 'center', fontSize: 12 }}>
+          Sin facturas cargadas. Pica Recargar para volver a sincronizar.
+        </div>
+      )}
 
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
         <KpiCard label="Anticipos vivos $" value={F(anticiposVivos)} color="#eab308" icon={<DollarSign size={16} />} />
