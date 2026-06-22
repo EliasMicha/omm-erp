@@ -2106,8 +2106,16 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
     const isCotejado = it.cotejo_status === 'cotejado' || it.cotejo_status === 'sustituido'
     return isCotejado && it.real_total != null ? Number(it.real_total) : Number(it.total) || 0
   }
-  const subtotal = items.reduce((s, it) => s + itemValue(it), 0)
+  const subtotalItems = items.reduce((s, it) => s + itemValue(it), 0)
   const subtotalCatalogo = items.reduce((s, it) => s + (Number(it.total) || 0), 0)
+  // Extras: cargos adicionales antes del IVA (importación, fletes, etc)
+  const extras: Array<{ concepto: string; tipo: 'fijo' | 'porcentaje'; valor: number }> =
+    Array.isArray((po as any)?.extras) ? (po as any).extras : []
+  const extrasTotal = extras.reduce((s, e) => {
+    if (e.tipo === 'porcentaje') return s + subtotalItems * ((Number(e.valor) || 0) / 100)
+    return s + (Number(e.valor) || 0)
+  }, 0)
+  const subtotal = subtotalItems + extrasTotal
   const iva = Math.round(subtotal * 0.16)
   const total = subtotal + iva
 
@@ -2130,6 +2138,7 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
     // Update PO totals
     await supabase.from('purchase_orders').update({
       subtotal, iva, total,
+      extras,
       supplier_id: po.supplier_id || null,
       project_id: po.project_id || null,
       quotation_id: po.quotation_id || null,
@@ -2682,8 +2691,92 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
               sino los catálogo. po.total ya se guarda con este valor al guardar. */}
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
             <span style={{ fontSize: 12, color: '#888' }}>{subtotalLabel}</span>
-            <span style={{ fontSize: 12, color: '#ccc' }}>{F(subtotal)}</span>
+            <span style={{ fontSize: 12, color: '#ccc' }}>{F(subtotalItems)}</span>
           </div>
+
+          {/* Extras: cargos adicionales (importación, fletes, seguros, etc) */}
+          {extras.length > 0 && (
+            <div style={{ marginBottom: 8, paddingBottom: 8, borderBottom: '1px dashed #2a2a2a' }}>
+              {extras.map((e, idx) => {
+                const monto = e.tipo === 'porcentaje' ? subtotalItems * ((Number(e.valor) || 0) / 100) : (Number(e.valor) || 0)
+                return (
+                  <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 4 }}>
+                    <input
+                      value={e.concepto}
+                      placeholder="Concepto"
+                      disabled={!canEdit}
+                      onChange={ev => {
+                        const next = extras.map((x, i) => i === idx ? { ...x, concepto: ev.target.value } : x)
+                        setPO(p => p ? { ...p, extras: next } as any : p)
+                        setDirty(true)
+                      }}
+                      style={{ flex: 1, padding: '3px 6px', fontSize: 11, background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 4, color: '#ccc', fontFamily: 'inherit' }}
+                    />
+                    <select
+                      value={e.tipo}
+                      disabled={!canEdit}
+                      onChange={ev => {
+                        const next = extras.map((x, i) => i === idx ? { ...x, tipo: ev.target.value as 'fijo' | 'porcentaje' } : x)
+                        setPO(p => p ? { ...p, extras: next } as any : p)
+                        setDirty(true)
+                      }}
+                      style={{ padding: '3px 4px', fontSize: 11, background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 4, color: '#ccc', fontFamily: 'inherit' }}
+                    >
+                      <option value="porcentaje">%</option>
+                      <option value="fijo">$</option>
+                    </select>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={e.valor}
+                      disabled={!canEdit}
+                      onChange={ev => {
+                        const v = parseFloat(ev.target.value) || 0
+                        const next = extras.map((x, i) => i === idx ? { ...x, valor: v } : x)
+                        setPO(p => p ? { ...p, extras: next } as any : p)
+                        setDirty(true)
+                      }}
+                      style={{ width: 70, padding: '3px 6px', fontSize: 11, background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 4, color: '#ccc', fontFamily: 'monospace', textAlign: 'right' }}
+                    />
+                    <span style={{ fontSize: 11, color: '#888', fontFamily: 'monospace', width: 80, textAlign: 'right' }}>{F(monto)}</span>
+                    {canEdit && (
+                      <button
+                        onClick={() => {
+                          const next = extras.filter((_, i) => i !== idx)
+                          setPO(p => p ? { ...p, extras: next } as any : p)
+                          setDirty(true)
+                        }}
+                        title="Quitar"
+                        style={{ background: 'none', border: 'none', color: '#DC2626', cursor: 'pointer', padding: 2 }}
+                      ><X size={11} /></button>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
+          {/* Botón agregar extra */}
+          {canEdit && (
+            <div style={{ marginBottom: 8 }}>
+              <button
+                onClick={() => {
+                  const next = [...extras, { concepto: '', tipo: 'porcentaje' as const, valor: 0 }]
+                  setPO(p => p ? { ...p, extras: next } as any : p)
+                  setDirty(true)
+                }}
+                style={{ background: 'none', border: '1px dashed #333', borderRadius: 6, color: '#888', cursor: 'pointer', padding: '4px 10px', fontSize: 10, fontFamily: 'inherit', width: '100%' }}
+              >+ Agregar cargo extra (importación, fletes, etc)</button>
+            </div>
+          )}
+
+          {extrasTotal > 0 && (
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+              <span style={{ fontSize: 12, color: '#888' }}>Subtotal con extras</span>
+              <span style={{ fontSize: 12, color: '#ccc' }}>{F(subtotal)}</span>
+            </div>
+          )}
+
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
             <span style={{ fontSize: 12, color: '#888' }}>IVA (16%)</span>
             <span style={{ fontSize: 12, color: '#ccc' }}>{F(iva)}</span>
