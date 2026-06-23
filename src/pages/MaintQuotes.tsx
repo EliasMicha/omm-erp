@@ -3,6 +3,18 @@ import { supabase } from '../lib/supabase'
 import { F, formatDate } from '../lib/utils'
 import { KpiCard, Table, Th, Td, Badge, Btn, EmptyState, Loading } from '../components/layout/UI'
 import { Plus, X, Search, FileText, Trash2, DollarSign, Clock, CheckCircle, Loader2, AlertTriangle } from 'lucide-react'
+import { OMNIIOUS_LOGO } from '../assets/logo'
+
+// Mismos datos/term que el PDF oficial de cotizaciones (configurables en CotizacionPdf → localStorage)
+const OMM_DEFAULTS = {
+  razonSocial: 'OMM Technologies SA de CV', rfc: '[RFC PENDIENTE]', domicilio: '[Dirección fiscal pendiente]',
+  codigoPostal: '[CP]', ciudad: 'Ciudad de México, México', telefono: '[Teléfono pendiente]',
+  email: '[email pendiente]', web: 'www.ommtechnologies.mx',
+}
+const CONDICIONES_DEFAULT = 'Esta cotización NO incluye materiales ni refacciones; de requerirse, se cotizan por separado y requieren autorización previa del cliente. Incluye únicamente la mano de obra / servicio descrito. Precios en MXN. Sujeto a disponibilidad de agenda. Garantía de 30 días sobre la mano de obra del servicio realizado.'
+function readOmm() {
+  try { const s = localStorage.getItem('omm_pdf_header'); return s ? { ...OMM_DEFAULTS, ...JSON.parse(s) } : OMM_DEFAULTS } catch { return OMM_DEFAULTS }
+}
 
 export interface PropOpt { id: string; name: string; client_name: string | null; address: string | null; city: string | null; client_phone: string | null }
 
@@ -47,6 +59,8 @@ export function QuoteEditorModal({ quoteId, prefill, properties, onClose, onSave
   const [validUntil, setValidUntil] = useState('')
   const [followUpAt, setFollowUpAt] = useState('')
   const [notes, setNotes] = useState('')
+  const [ordenDia, setOrdenDia] = useState('')
+  const [condiciones, setCondiciones] = useState(CONDICIONES_DEFAULT)
   const [items, setItems] = useState<QuoteItem[]>([])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -63,6 +77,7 @@ export function QuoteEditorModal({ quoteId, prefill, properties, onClose, onSave
       if (q) {
         setPropertyId(q.property_id); setUpsellId(q.upsell_id); setFolio(q.folio); setTitle(q.title)
         setCurrency(q.currency); setStatus(q.status); setValidUntil(q.valid_until || ''); setFollowUpAt(q.follow_up_at || ''); setNotes(q.notes || '')
+        setOrdenDia(q.orden_dia || ''); setCondiciones(q.condiciones || CONDICIONES_DEFAULT)
       }
       const { data: its } = await supabase.from('maintenance_quote_items').select('*').eq('quote_id', quoteId).order('order_index')
       setItems((its || []).map((i: any) => ({ id: i.id, catalog_product_id: i.catalog_product_id, name: i.name, marca: i.marca, modelo: i.modelo, sku: i.sku, quantity: Number(i.quantity), unit_cost: i.unit_cost, markup: i.markup, unit_price: Number(i.unit_price) })))
@@ -112,6 +127,7 @@ export function QuoteEditorModal({ quoteId, prefill, properties, onClose, onSave
     const payload: any = {
       property_id: propertyId, upsell_id: upsellId, title, currency, status,
       subtotal, iva, total, valid_until: validUntil || null, follow_up_at: followUpAt || null, notes: notes || null,
+      orden_dia: ordenDia || null, condiciones: condiciones || null,
       updated_at: now,
     }
     if (status === 'enviada') payload.sent_at = now
@@ -152,7 +168,7 @@ export function QuoteEditorModal({ quoteId, prefill, properties, onClose, onSave
 
   function pdf() {
     const w = window.open('', '_blank')
-    if (w) { w.document.write(buildQuoteHtml({ prop, folio, title, currency, items, subtotal, iva, total, validUntil, notes })); w.document.close() }
+    if (w) { w.document.write(buildQuoteHtml({ prop, folio, title, currency, items, subtotal, iva, total, validUntil, notes, ordenDia, condiciones, omm: readOmm() })); w.document.close() }
   }
 
   if (loading) return <div style={overlay}><div style={panel}><Loading /></div></div>
@@ -173,6 +189,10 @@ export function QuoteEditorModal({ quoteId, prefill, properties, onClose, onSave
             </select></L>
             <L t="Título"><input value={title} onChange={e => setTitle(e.target.value)} style={inp} /></L>
           </div>
+
+          <L t="Orden del día / queja del cliente (sale en el PDF)">
+            <textarea value={ordenDia} onChange={e => setOrdenDia(e.target.value)} rows={2} style={{ ...inp, resize: 'vertical' }} placeholder="Motivo de la visita reportado por el cliente..." />
+          </L>
 
           {/* Buscar en catálogo */}
           <div>
@@ -231,7 +251,10 @@ export function QuoteEditorModal({ quoteId, prefill, properties, onClose, onSave
             <L t="Vigencia hasta"><input type="date" value={validUntil} onChange={e => setValidUntil(e.target.value)} style={inp} /></L>
             <L t="Próximo seguimiento"><input type="date" value={followUpAt} onChange={e => setFollowUpAt(e.target.value)} style={inp} /></L>
           </div>
-          <L t="Notas"><textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2} style={{ ...inp, resize: 'vertical' }} placeholder="Condiciones, alcance, exclusiones..." /></L>
+          <L t="Condiciones (sale en el PDF · incluye 'no incluye materiales')">
+            <textarea value={condiciones} onChange={e => setCondiciones(e.target.value)} rows={3} style={{ ...inp, resize: 'vertical' }} />
+          </L>
+          <L t="Notas internas"><textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2} style={{ ...inp, resize: 'vertical' }} placeholder="Notas internas (no salen en el PDF)..." /></L>
 
           {error && <div style={{ color: '#fca5a5', fontSize: 13 }}>{error}</div>}
         </div>
@@ -355,31 +378,89 @@ export function TabCotizaciones({ properties, isMobile }: { properties: PropOpt[
   )
 }
 
-// ── PDF ─────────────────────────────────────────────────────────────────────
+// ── PDF (idéntico al PDF oficial de cotizaciones: logo OMNIIOUS, datos OMM, estilo B/N) ──
+function esc(s: any): string { return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') }
+
 function buildQuoteHtml(d: any): string {
-  const { prop, folio, title, currency, items, subtotal, iva, total, validUntil, notes } = d
+  const { prop, folio, title, currency, items, subtotal, iva, total, validUntil, ordenDia, condiciones, omm } = d
   const m = (n: number) => (currency === 'USD' ? 'US$' : '$') + Math.round(n).toLocaleString('es-MX')
-  const hoy = new Date().toLocaleDateString('es-MX', { day: '2-digit', month: 'long', year: 'numeric' })
-  const rows = items.map((it: QuoteItem) => `<tr><td class="l">${[it.marca, it.modelo].filter(Boolean).join(' ') || it.name}${it.sku ? `<br/><span class="sku">${it.sku}</span>` : ''}</td><td>${it.quantity}</td><td class="r">${m(it.unit_price)}</td><td class="r">${m((it.unit_price || 0) * (it.quantity || 0))}</td></tr>`).join('')
-  return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Cotización #${folio || ''}</title>
-  <style>*{box-sizing:border-box}body{font-family:Arial,Helvetica,sans-serif;color:#111;margin:0;padding:32px;font-size:12px}
-  h1{font-size:18px;border-bottom:3px solid #10B981;padding-bottom:10px}
-  .meta{display:grid;grid-template-columns:1fr 1fr;gap:3px 24px;margin:14px 0}.meta b{color:#555}
-  table{width:100%;border-collapse:collapse;margin:14px 0}th,td{border:1px solid #ccc;padding:7px 9px;text-align:center}
-  th{background:#10B981;color:#fff}td.l{text-align:left}td.r{text-align:right}.sku{color:#888;font-size:10px}
-  .totals{width:50%;margin-left:auto}.totals td{text-align:right}.totals td.k{text-align:left;font-weight:600;background:#f5f5f5}
-  .notes{margin-top:14px;font-size:11px;color:#444;white-space:pre-line}@media print{button{display:none}}</style></head><body>
-  <button onclick="window.print()" style="float:right;padding:8px 14px;background:#10B981;color:#fff;border:none;border-radius:6px;cursor:pointer">Imprimir / PDF</button>
-  <h1>COTIZACIÓN DE MANTENIMIENTO ${folio ? '#' + folio : ''}</h1>
-  <div class="meta">
-    <div><b>PROYECTO:</b> ${prop?.name || '—'}</div><div><b>FECHA:</b> ${hoy}</div>
-    <div><b>CLIENTE:</b> ${prop?.client_name || '—'}</div><div><b>DIRECCIÓN:</b> ${prop?.address || '—'}${prop?.city ? ', ' + prop.city : ''}</div>
-    <div><b>CONCEPTO:</b> ${title || '—'}</div><div><b>VIGENCIA:</b> ${validUntil ? new Date(validUntil + 'T12:00:00').toLocaleDateString('es-MX') : '—'}</div>
+  const hoy = new Date().toLocaleDateString('es-MX', { year: 'numeric', month: 'long', day: 'numeric' })
+  const vig = validUntil ? new Date(validUntil + 'T12:00:00').toLocaleDateString('es-MX', { year: 'numeric', month: 'long', day: 'numeric' }) : '—'
+  const folioStr = 'OMM-MTTO-' + (folio || '----')
+  const rows = items.map((it: QuoteItem) => {
+    const concepto = [it.marca, it.modelo].filter(Boolean).join(' ') || it.name
+    const sub = it.sku ? `<div style="font-size:9px;color:#888">${esc(it.sku)}</div>` : (concepto !== it.name && it.name ? `<div style="font-size:9px;color:#888">${esc(it.name)}</div>` : '')
+    return `<tr><td>${esc(concepto)}${sub}</td><td style="text-align:center">${it.quantity}</td><td style="text-align:right">${m(it.unit_price)}</td><td style="text-align:right;font-weight:600">${m((it.unit_price || 0) * (it.quantity || 0))}</td></tr>`
+  }).join('')
+
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${esc(title || 'Cotización')} ${folioStr}</title>
+  <style>
+    @page { size: A4; margin: 14mm 12mm; }
+    * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; color: #111; margin: 0; padding: 28px 40px; max-width: 860px; margin: 0 auto; font-size: 11px; line-height: 1.5; }
+    .hdr { border-bottom: 2px solid #111; padding-bottom: 16px; margin-bottom: 18px; display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; }
+    .hdr img { height: 64px; width: auto; object-fit: contain; }
+    .omm { text-align: right; font-size: 9px; color: #555; line-height: 1.6; }
+    .omm b { color: #111; font-size: 11px; }
+    .eyebrow { font-size: 9px; color: #999; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 3px; }
+    h1 { font-size: 18px; margin: 0 0 10px; font-weight: 600; }
+    h2 { font-size: 13px; margin: 0 0 8px; font-weight: 600; padding-bottom: 4px; border-bottom: 1px solid #ddd; }
+    .data td { padding: 3px 12px 3px 0; font-size: 10px; }
+    .data .k { color: #888; width: 110px; }
+    .sec { margin-bottom: 18px; }
+    .box { font-size: 11px; color: #333; line-height: 1.6; background: #f7f7f7; border: 1px solid #eee; border-radius: 6px; padding: 10px 12px; white-space: pre-line; }
+    table.items { width: 100%; border-collapse: collapse; }
+    table.items th { background: #f5f5f5; padding: 6px 8px; text-align: left; font-size: 9px; text-transform: uppercase; letter-spacing: 0.04em; color: #666; font-weight: 600; border-bottom: 1px solid #ddd; }
+    table.items td { padding: 6px 8px; border-bottom: 1px solid #eee; font-size: 10px; vertical-align: top; }
+    .totals { width: 55%; margin-left: auto; margin-top: 4px; }
+    .totals td { padding: 4px 8px; font-size: 11px; text-align: right; }
+    .totals td.k { text-align: left; color: #888; }
+    .totals tr.total td { border-top: 1px solid #111; font-weight: 700; font-size: 13px; color: #111; padding-top: 6px; }
+    .cond { font-size: 9.5px; color: #444; line-height: 1.6; white-space: pre-line; }
+    .foot { margin-top: 22px; padding-top: 10px; border-top: 1px solid #eee; font-size: 9px; color: #999; }
+    @media print { button { display: none; } }
+  </style></head><body>
+  <button onclick="window.print()" style="position:fixed;top:14px;right:14px;padding:8px 14px;background:#10B981;color:#000;border:none;border-radius:6px;cursor:pointer;font-weight:600">Imprimir / PDF</button>
+
+  <div class="hdr">
+    <img src="${OMNIIOUS_LOGO}" alt="OMNIIOUS" />
+    <div class="omm">
+      <b>${esc(omm.razonSocial)}</b>
+      <div>RFC: ${esc(omm.rfc)}</div>
+      <div>${esc(omm.domicilio)}</div>
+      <div>${esc(omm.codigoPostal)} · ${esc(omm.ciudad)}</div>
+      <div>${esc(omm.telefono)} · ${esc(omm.email)}</div>
+      <div>${esc(omm.web)}</div>
+    </div>
   </div>
-  <table><thead><tr><th class="l">Concepto</th><th>Cant</th><th>P. unitario</th><th>Importe</th></tr></thead><tbody>${rows}</tbody></table>
-  <table class="totals"><tr><td class="k">Subtotal</td><td>${m(subtotal)}</td></tr><tr><td class="k">IVA 16%</td><td>${m(iva)}</td></tr><tr><td class="k">TOTAL</td><td><b>${m(total)}</b></td></tr></table>
-  ${notes ? `<div class="notes"><b>Notas:</b>\n${notes}</div>` : ''}
-  <div class="notes" style="margin-top:24px;color:#888">OMM Technologies S.A. de C.V. · Cotización sujeta a disponibilidad. Precios en ${currency}.</div>
+
+  <div class="sec">
+    <div class="eyebrow">Cotización de mantenimiento</div>
+    <h1>${esc(title || 'Cotización de mantenimiento')}</h1>
+    <table class="data"><tbody>
+      <tr><td class="k">Folio</td><td style="font-weight:600">${folioStr}</td><td class="k">Fecha</td><td>${hoy}</td></tr>
+      <tr><td class="k">Cliente</td><td style="font-weight:600">${esc(prop?.client_name || '—')}</td><td class="k">Vigencia</td><td>${vig === '—' ? '—' : 'Hasta ' + vig}</td></tr>
+      <tr><td class="k">Propiedad</td><td>${esc(prop?.name || '—')}</td><td class="k">Moneda</td><td>${esc(currency)}</td></tr>
+      ${prop?.address ? `<tr><td class="k">Dirección</td><td colspan="3">${esc(prop.address)}${prop?.city ? ', ' + esc(prop.city) : ''}</td></tr>` : ''}
+    </tbody></table>
+  </div>
+
+  ${ordenDia ? `<div class="sec"><h2>Orden del día / motivo de la visita</h2><div class="box">${esc(ordenDia)}</div></div>` : ''}
+
+  <div class="sec">
+    <h2>Conceptos</h2>
+    <table class="items"><thead><tr><th>Concepto</th><th style="text-align:center;width:50px">Cant.</th><th style="text-align:right;width:100px">P. Unit.</th><th style="text-align:right;width:110px">Importe</th></tr></thead>
+    <tbody>${rows}</tbody></table>
+    <table class="totals"><tbody>
+      <tr><td class="k">Subtotal</td><td>${m(subtotal)}</td></tr>
+      <tr><td class="k">IVA 16%</td><td>${m(iva)}</td></tr>
+      <tr class="total"><td class="k">Total</td><td>${m(total)}</td></tr>
+    </tbody></table>
+  </div>
+
+  <div class="sec"><h2>Condiciones</h2><div class="cond">${esc(condiciones || CONDICIONES_DEFAULT)}</div></div>
+
+  <div class="foot">${esc(omm.razonSocial)} · Esta cotización es informativa y no constituye un comprobante fiscal. Precios en ${esc(currency)}.</div>
   </body></html>`
 }
 
