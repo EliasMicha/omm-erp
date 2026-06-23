@@ -4339,7 +4339,7 @@ function TabEfectivo() {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [form, setForm] = useState({
-    tipo: 'cobro_cliente' as 'cobro_cliente' | 'pago_proveedor' | 'nomina_efectivo' | 'viaticos' | 'gasolina' | 'gastos_generales' | 'comida' | 'papeleria' | 'mantenimiento' | 'envio_paqueteria' | 'herramientas' | 'otro_gasto',
+    tipo: 'cobro_cliente' as 'cobro_cliente' | 'aportacion' | 'pago_proveedor' | 'nomina_efectivo' | 'viaticos' | 'gasolina' | 'gastos_generales' | 'comida' | 'papeleria' | 'mantenimiento' | 'envio_paqueteria' | 'herramientas' | 'otro_gasto',
     persona: '', concepto: '', monto: '', fecha: new Date().toISOString().substring(0, 10), proyecto_nombre: '',
     lead_id: '' as string,
     quotation_id: '' as string,
@@ -4413,7 +4413,7 @@ function TabEfectivo() {
     if (!monto || monto <= 0) { alert('Ingresa un monto válido'); return }
     if (!form.persona.trim()) { alert('Ingresa la persona'); return }
     setSaving(true)
-    const direccion = form.tipo === 'cobro_cliente' ? 'ingreso' : 'egreso'
+    const direccion = (form.tipo === 'cobro_cliente' || form.tipo === 'aportacion') ? 'ingreso' : 'egreso'
     const payload = {
       tipo: form.tipo, direccion, persona: form.persona.trim(),
       concepto: form.concepto.trim(), monto, fecha: form.fecha,
@@ -4617,6 +4617,7 @@ function TabEfectivo() {
                 <select value={form.tipo} onChange={e => setForm({ ...form, tipo: e.target.value as any })} style={{ ...inputStyle, cursor: 'pointer' }}>
                   <optgroup label="Ingresos">
                     <option value="cobro_cliente">💰 Cobro de cliente</option>
+                    <option value="aportacion">🏦 Aportación</option>
                   </optgroup>
                   <optgroup label="Egresos — operativos">
                     <option value="pago_proveedor">📦 Pago a proveedor</option>

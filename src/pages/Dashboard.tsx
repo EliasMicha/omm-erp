@@ -973,7 +973,8 @@ function CobranzaPorProyecto() {
 
       // Cash movements — respetar moneda nativa (USD o MXN)
       const efectivoLead = cashMovs.filter(c => resolveLead(c) === leadId)
-      const isIngreso = (c: any) => c.direccion === 'ingreso' || c.tipo === 'cobro_cliente'
+      // Aportaciones son capital de socios, NO cobros del cliente — no inflan Cobrado del proyecto
+      const isIngreso = (c: any) => (c.direccion === 'ingreso' || c.tipo === 'cobro_cliente') && c.tipo !== 'aportacion'
       const cobradoEfectivoMXN = efectivoLead
         .filter(c => isIngreso(c) && (c.moneda || 'MXN').toUpperCase() === 'MXN')
         .reduce((s, c) => s + (Number(c.monto) || 0), 0)
