@@ -1,4 +1,19 @@
 # CLAUDE.md — OMM ERP Context Document
+
+## 🔑 GitHub PAT para pushes (LEER AL INICIO DE CADA SESIÓN)
+
+El PAT está en `.claude-pat` en la raíz del proyecto (gitignored). Léelo así al inicio de cada sesión que requiera commits:
+
+```bash
+PAT=$(cat /sessions/<session>/mnt/OMM-ERP/.claude-pat | tr -d '[:space:]')
+```
+
+O via Read tool: `Read /Users/eliasmicha/Documents/Claude/Projects/OMM-ERP/.claude-pat` y usar el contenido en los curls al GitHub API.
+
+**NO hay que preguntar el PAT al usuario.** Si el archivo no existe, avisar al usuario que lo cree con: `echo "ghp_xxxx" > .claude-pat`.
+
+Si el PAT está expirado (curl da 401), avisar al user y pedirle que genere uno nuevo en https://github.com/settings/tokens y lo guarde en ese archivo.
+
 ## Last updated: 2026-05-21 (Sesión catch-up + documentación de 304 commits no documentados)
 
 ---
