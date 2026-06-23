@@ -53,8 +53,9 @@ interface QuoteItem {
   unit_cost: number | null
   markup: number | null
   unit_price: number
+  installation: number
 }
-interface CatProd { id: string; name: string; marca: string | null; modelo: string | null; sku: string | null; cost: number | null; markup: number | null; precio_venta: number | null; moneda: string | null }
+interface CatProd { id: string; name: string; marca: string | null; modelo: string | null; sku: string | null; cost: number | null; markup: number | null; precio_venta: number | null; moneda: string | null; costo_mano_obra: number | null }
 
 // ── EDITOR ──────────────────────────────────────────────────────────────────
 export function QuoteEditorModal({ quoteId, prefill, properties, onClose, onSaved }: {
@@ -70,6 +71,8 @@ export function QuoteEditorModal({ quoteId, prefill, properties, onClose, onSave
   const [folio, setFolio] = useState<number | null>(null)
   const [title, setTitle] = useState(prefill?.title ? `Cotización: ${prefill.title}` : 'Cotización de mantenimiento')
   const [currency, setCurrency] = useState('MXN')
+  const [tipoCambio, setTipoCambio] = useState('18.5')
+  const [programacion, setProgramacion] = useState('0')
   const [status, setStatus] = useState('borrador')
   const [validUntil, setValidUntil] = useState('')
   const [followUpAt, setFollowUpAt] = useState('')
@@ -93,9 +96,10 @@ export function QuoteEditorModal({ quoteId, prefill, properties, onClose, onSave
         setPropertyId(q.property_id); setUpsellId(q.upsell_id); setFolio(q.folio); setTitle(q.title)
         setCurrency(q.currency); setStatus(q.status); setValidUntil(q.valid_until || ''); setFollowUpAt(q.follow_up_at || ''); setNotes(q.notes || '')
         setOrdenDia(q.orden_dia || ''); setCondiciones(q.condiciones || CONDICIONES_DEFAULT)
+        if (q.tipo_cambio) setTipoCambio(String(q.tipo_cambio)); setProgramacion(String(q.programacion || 0))
       }
       const { data: its } = await supabase.from('maintenance_quote_items').select('*').eq('quote_id', quoteId).order('order_index')
-      setItems((its || []).map((i: any) => ({ id: i.id, catalog_product_id: i.catalog_product_id, name: i.name, marca: i.marca, modelo: i.modelo, sku: i.sku, quantity: Number(i.quantity), unit_cost: i.unit_cost, markup: i.markup, unit_price: Number(i.unit_price) })))
+      setItems((its || []).map((i: any) => ({ id: i.id, catalog_product_id: i.catalog_product_id, name: i.name, marca: i.marca, modelo: i.modelo, sku: i.sku, quantity: Number(i.quantity), unit_cost: i.unit_cost, markup: i.markup, unit_price: Number(i.unit_price), installation: Number(i.installation) || 0 })))
       setLoading(false)
     })()
   }, [quoteId])
@@ -105,7 +109,7 @@ export function QuoteEditorModal({ quoteId, prefill, properties, onClose, onSave
     const t = setTimeout(async () => {
       setSearching(true)
       const { data } = await supabase.from('catalog_products')
-        .select('id, name, marca, modelo, sku, cost, markup, precio_venta, moneda')
+        .select('id, name, marca, modelo, sku, cost, markup, precio_venta, moneda, costo_mano_obra')
         .eq('is_active', true)
         .or(`name.ilike.%${catQ}%,marca.ilike.%${catQ}%,modelo.ilike.%${catQ}%,sku.ilike.%${catQ}%`)
         .limit(15)
@@ -115,21 +119,52 @@ export function QuoteEditorModal({ quoteId, prefill, properties, onClose, onSave
     return () => clearTimeout(t)
   }, [catQ])
 
+  const tc = parseFloat(tipoCambio) || 1
+  // Convierte un monto de su moneda nativa a la moneda de la cotización
+  function toQuoteCur(amount: number, fromCur: string): number {
+    const from = (fromCur || 'MXN').toUpperCase() === 'USD' ? 'USD' : 'MXN'
+    if (from === currency) return amount
+    if (from === 'USD' && currency === 'MXN') return amount * tc
+    if (from === 'MXN' && currency === 'USD') return amount / tc
+    return amount
+  }
+  function priceCatalogo(p: CatProd): number {
+    const base = p.precio_venta && p.precio_venta > 0 ? Number(p.precio_venta) : (Number(p.cost) || 0) * (1 + (Number(p.markup) || 0))
+    return base
+  }
+
   function addFromCatalog(p: CatProd) {
-    const price = p.precio_venta && p.precio_venta > 0 ? Number(p.precio_venta) : Math.round((Number(p.cost) || 0) * (1 + (Number(p.markup) || 0)))
+    const nativePrice = priceCatalogo(p)
+    const unit = Math.round(toQuoteCur(nativePrice, p.moneda || 'MXN') * 100) / 100
+    // La mano de obra del catálogo se asume en MXN
+    const inst = Math.round(toQuoteCur(Number(p.costo_mano_obra) || 0, 'MXN') * 100) / 100
     setItems(its => [...its, {
       catalog_product_id: p.id, name: p.name, marca: p.marca, modelo: p.modelo, sku: p.sku,
-      quantity: 1, unit_cost: p.cost, markup: p.markup, unit_price: price,
+      quantity: 1, unit_cost: p.cost, markup: p.markup, unit_price: unit, installation: inst,
     }])
     setCatQ(''); setCatRes([])
   }
   function addBlank() {
-    setItems(its => [...its, { catalog_product_id: null, name: '', marca: null, modelo: null, sku: null, quantity: 1, unit_cost: null, markup: null, unit_price: 0 }])
+    setItems(its => [...its, { catalog_product_id: null, name: '', marca: null, modelo: null, sku: null, quantity: 1, unit_cost: null, markup: null, unit_price: 0, installation: 0 }])
   }
   function updItem(i: number, patch: Partial<QuoteItem>) { setItems(its => its.map((it, idx) => idx === i ? { ...it, ...patch } : it)) }
   function rmItem(i: number) { setItems(its => its.filter((_, idx) => idx !== i)) }
 
-  const subtotal = useMemo(() => items.reduce((s, it) => s + (it.unit_price || 0) * (it.quantity || 0), 0), [items])
+  // Cambiar la moneda reconvierte los montos ya capturados
+  function changeCurrency(newCur: string) {
+    if (newCur === currency) return
+    const factor = (currency === 'USD' && newCur === 'MXN') ? tc : (currency === 'MXN' && newCur === 'USD') ? 1 / tc : 1
+    if (factor !== 1) {
+      setItems(its => its.map(it => ({ ...it, unit_price: Math.round(it.unit_price * factor * 100) / 100, installation: Math.round((it.installation || 0) * factor * 100) / 100 })))
+      setProgramacion(p => String(Math.round((parseFloat(p) || 0) * factor * 100) / 100))
+    }
+    setCurrency(newCur)
+  }
+
+  const progNum = parseFloat(programacion) || 0
+  const subtotal = useMemo(() =>
+    items.reduce((s, it) => s + ((it.unit_price || 0) + (it.installation || 0)) * (it.quantity || 0), 0) + progNum,
+    [items, progNum])
   const iva = subtotal * 0.16
   const total = subtotal + iva
   const prop = properties.find(p => p.id === propertyId)
@@ -141,6 +176,7 @@ export function QuoteEditorModal({ quoteId, prefill, properties, onClose, onSave
     const now = new Date().toISOString()
     const payload: any = {
       property_id: propertyId, upsell_id: upsellId, title, currency, status,
+      tipo_cambio: tc, programacion: progNum,
       subtotal, iva, total, valid_until: validUntil || null, follow_up_at: followUpAt || null, notes: notes || null,
       orden_dia: ordenDia || null, condiciones: condiciones || null,
       updated_at: now,
@@ -162,8 +198,8 @@ export function QuoteEditorModal({ quoteId, prefill, properties, onClose, onSave
     const rows = items.map((it, idx) => ({
       quote_id: qid, catalog_product_id: it.catalog_product_id, name: it.name || 'Concepto',
       marca: it.marca, modelo: it.modelo, sku: it.sku, quantity: it.quantity,
-      unit_cost: it.unit_cost, markup: it.markup, unit_price: it.unit_price,
-      total: (it.unit_price || 0) * (it.quantity || 0), order_index: idx,
+      unit_cost: it.unit_cost, markup: it.markup, unit_price: it.unit_price, installation: it.installation || 0,
+      total: ((it.unit_price || 0) + (it.installation || 0)) * (it.quantity || 0), order_index: idx,
     }))
     await supabase.from('maintenance_quote_items').insert(rows)
 
@@ -183,7 +219,7 @@ export function QuoteEditorModal({ quoteId, prefill, properties, onClose, onSave
 
   function pdf() {
     const w = window.open('', '_blank')
-    if (w) { w.document.write(buildQuoteHtml({ prop, folio, title, currency, items, subtotal, iva, total, validUntil, notes, ordenDia, condiciones, omm: readOmm(), bancos: readBancos(currency) })); w.document.close() }
+    if (w) { w.document.write(buildQuoteHtml({ prop, folio, title, currency, items, programacion: progNum, subtotal, iva, total, validUntil, notes, ordenDia, condiciones, omm: readOmm(), bancos: readBancos(currency) })); w.document.close() }
   }
 
   if (loading) return <div style={overlay}><div style={panel}><Loading /></div></div>
@@ -224,7 +260,7 @@ export function QuoteEditorModal({ quoteId, prefill, properties, onClose, onSave
                         <div style={{ fontSize: 12, color: '#fff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{[p.marca, p.modelo].filter(Boolean).join(' ') || p.name}</div>
                         <div style={{ fontSize: 10, color: '#666' }}>{p.name}{p.sku ? ` · ${p.sku}` : ''}</div>
                       </div>
-                      <div style={{ fontSize: 12, color: '#10B981', fontWeight: 600 }}>{money(p.precio_venta && p.precio_venta > 0 ? p.precio_venta : (Number(p.cost) || 0) * (1 + (Number(p.markup) || 0)))}</div>
+                      <div style={{ fontSize: 12, color: '#10B981', fontWeight: 600, textAlign: 'right' }}>{money(priceCatalogo(p), p.moneda || 'MXN')}<div style={{ fontSize: 9, color: '#666' }}>{(p.moneda || 'MXN')}</div></div>
                     </button>
                   ))}
                 </div>
@@ -236,20 +272,27 @@ export function QuoteEditorModal({ quoteId, prefill, properties, onClose, onSave
           {/* Items */}
           {items.length > 0 && (
             <div style={{ border: '1px solid #222', borderRadius: 10, overflow: 'hidden' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 60px 90px 90px 28px', gap: 6, padding: '8px 10px', background: '#1a1a1a', fontSize: 10, color: '#888', textTransform: 'uppercase' }}>
-                <span>Concepto</span><span style={{ textAlign: 'center' }}>Cant</span><span style={{ textAlign: 'right' }}>P. unit</span><span style={{ textAlign: 'right' }}>Total</span><span />
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 46px 78px 78px 80px 24px', gap: 5, padding: '8px 10px', background: '#1a1a1a', fontSize: 9, color: '#888', textTransform: 'uppercase' }}>
+                <span>Concepto</span><span style={{ textAlign: 'center' }}>Cant</span><span style={{ textAlign: 'right' }}>P. unit</span><span style={{ textAlign: 'right' }}>Instal.</span><span style={{ textAlign: 'right' }}>Total</span><span />
               </div>
               {items.map((it, i) => (
-                <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 60px 90px 90px 28px', gap: 6, padding: '8px 10px', alignItems: 'center', borderTop: '1px solid #1a1a1a' }}>
+                <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 46px 78px 78px 80px 24px', gap: 5, padding: '8px 10px', alignItems: 'center', borderTop: '1px solid #1a1a1a' }}>
                   <input value={it.name} onChange={e => updItem(i, { name: e.target.value })} placeholder="Nombre del concepto"
                     style={{ ...cellInp, textAlign: 'left' }} />
                   <input value={it.quantity} onChange={e => updItem(i, { quantity: parseFloat(e.target.value) || 0 })} type="number" style={{ ...cellInp, textAlign: 'center' }} />
                   <input value={it.unit_price} onChange={e => updItem(i, { unit_price: parseFloat(e.target.value) || 0 })} type="number" style={{ ...cellInp, textAlign: 'right' }} />
-                  <div style={{ fontSize: 12, color: '#fff', textAlign: 'right', fontWeight: 600 }}>{money((it.unit_price || 0) * (it.quantity || 0), currency)}</div>
+                  <input value={it.installation} onChange={e => updItem(i, { installation: parseFloat(e.target.value) || 0 })} type="number" style={{ ...cellInp, textAlign: 'right' }} />
+                  <div style={{ fontSize: 11, color: '#fff', textAlign: 'right', fontWeight: 600 }}>{money(((it.unit_price || 0) + (it.installation || 0)) * (it.quantity || 0), currency)}</div>
                   <button onClick={() => rmItem(i)} style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer' }}><X size={13} /></button>
                 </div>
               ))}
-              <div style={{ padding: '10px', borderTop: '1px solid #222', display: 'flex', flexDirection: 'column', gap: 3, alignItems: 'flex-end', fontSize: 13 }}>
+              <div style={{ padding: '10px', borderTop: '1px solid #222', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                <label style={{ fontSize: 11, color: '#888', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  Programación / puesta en marcha:
+                  <input value={programacion} onChange={e => setProgramacion(e.target.value)} type="number" style={{ ...cellInp, width: 90, textAlign: 'right' }} />
+                </label>
+              </div>
+              <div style={{ padding: '0 10px 10px', display: 'flex', flexDirection: 'column', gap: 3, alignItems: 'flex-end', fontSize: 13 }}>
                 <div style={{ color: '#888' }}>Subtotal: <b style={{ color: '#ccc' }}>{money(subtotal, currency)}</b></div>
                 <div style={{ color: '#888' }}>IVA 16%: <b style={{ color: '#ccc' }}>{money(iva, currency)}</b></div>
                 <div style={{ color: '#fff', fontSize: 15 }}>Total: <b style={{ color: '#10B981' }}>{money(total, currency)}</b></div>
@@ -257,15 +300,19 @@ export function QuoteEditorModal({ quoteId, prefill, properties, onClose, onSave
             </div>
           )}
 
-          {/* Seguimiento */}
+          {/* Moneda + TC */}
           <div style={grid4}>
-            <L t="Moneda"><select value={currency} onChange={e => setCurrency(e.target.value)} style={inp}><option>MXN</option><option>USD</option></select></L>
+            <L t="Moneda de la cotización"><select value={currency} onChange={e => changeCurrency(e.target.value)} style={inp}><option>MXN</option><option>USD</option></select></L>
+            <L t="Tipo de cambio (MXN/USD)"><input value={tipoCambio} onChange={e => setTipoCambio(e.target.value)} type="number" step="0.01" style={inp} /></L>
+            <L t="Vigencia hasta"><input type="date" value={validUntil} onChange={e => setValidUntil(e.target.value)} style={inp} /></L>
             <L t="Estado"><select value={status} onChange={e => setStatus(e.target.value)} style={inp}>
               {Object.entries(QUOTE_STATUS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
             </select></L>
-            <L t="Vigencia hasta"><input type="date" value={validUntil} onChange={e => setValidUntil(e.target.value)} style={inp} /></L>
-            <L t="Próximo seguimiento"><input type="date" value={followUpAt} onChange={e => setFollowUpAt(e.target.value)} style={inp} /></L>
           </div>
+          <div style={{ fontSize: 10, color: '#666', marginTop: -6 }}>
+            El catálogo está en su moneda nativa (mayormente USD); al agregar un producto se convierte a la moneda de la cotización con este tipo de cambio. Cambiar la moneda reconvierte los montos.
+          </div>
+          <L t="Próximo seguimiento"><input type="date" value={followUpAt} onChange={e => setFollowUpAt(e.target.value)} style={inp} /></L>
           <L t="Condiciones (sale en el PDF · incluye 'no incluye materiales')">
             <textarea value={condiciones} onChange={e => setCondiciones(e.target.value)} rows={3} style={{ ...inp, resize: 'vertical' }} />
           </L>
@@ -397,16 +444,18 @@ export function TabCotizaciones({ properties, isMobile }: { properties: PropOpt[
 function esc(s: any): string { return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') }
 
 function buildQuoteHtml(d: any): string {
-  const { prop, folio, title, currency, items, subtotal, iva, total, validUntil, ordenDia, condiciones, omm, bancos } = d
+  const { prop, folio, title, currency, items, programacion, subtotal, iva, total, validUntil, ordenDia, condiciones, omm, bancos } = d
   const m = (n: number) => (currency === 'USD' ? 'US$' : '$') + Math.round(n).toLocaleString('es-MX')
   const hoy = new Date().toLocaleDateString('es-MX', { year: 'numeric', month: 'long', day: 'numeric' })
   const vig = validUntil ? new Date(validUntil + 'T12:00:00').toLocaleDateString('es-MX', { year: 'numeric', month: 'long', day: 'numeric' }) : '—'
   const folioStr = 'OMM-MTTO-' + (folio || '----')
-  const rows = items.map((it: QuoteItem) => {
+  const anyInst = (items || []).some((it: QuoteItem) => (it.installation || 0) > 0)
+  const rows = (items || []).map((it: QuoteItem) => {
     const concepto = [it.marca, it.modelo].filter(Boolean).join(' ') || it.name
     const sub = it.sku ? `<div style="font-size:9px;color:#888">${esc(it.sku)}</div>` : (concepto !== it.name && it.name ? `<div style="font-size:9px;color:#888">${esc(it.name)}</div>` : '')
-    return `<tr><td>${esc(concepto)}${sub}</td><td style="text-align:center">${it.quantity}</td><td style="text-align:right">${m(it.unit_price)}</td><td style="text-align:right;font-weight:600">${m((it.unit_price || 0) * (it.quantity || 0))}</td></tr>`
-  }).join('')
+    const imp = ((it.unit_price || 0) + (it.installation || 0)) * (it.quantity || 0)
+    return `<tr><td>${esc(concepto)}${sub}</td><td style="text-align:center">${it.quantity}</td><td style="text-align:right">${m(it.unit_price)}</td>${anyInst ? `<td style="text-align:right">${m((it.installation || 0) * (it.quantity || 0))}</td>` : ''}<td style="text-align:right;font-weight:600">${m(imp)}</td></tr>`
+  }).join('') + ((programacion || 0) > 0 ? `<tr><td>Programación y puesta en marcha</td><td></td><td></td>${anyInst ? '<td></td>' : ''}<td style="text-align:right;font-weight:600">${m(programacion)}</td></tr>` : '')
 
   return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${esc(title || 'Cotización')} ${folioStr}</title>
   <style>
@@ -464,7 +513,7 @@ function buildQuoteHtml(d: any): string {
 
   <div class="sec">
     <h2>Conceptos</h2>
-    <table class="items"><thead><tr><th>Concepto</th><th style="text-align:center;width:50px">Cant.</th><th style="text-align:right;width:100px">P. Unit.</th><th style="text-align:right;width:110px">Importe</th></tr></thead>
+    <table class="items"><thead><tr><th>Concepto</th><th style="text-align:center;width:46px">Cant.</th><th style="text-align:right;width:90px">P. Unit.</th>${anyInst ? '<th style="text-align:right;width:90px">Instalación</th>' : ''}<th style="text-align:right;width:100px">Importe</th></tr></thead>
     <tbody>${rows}</tbody></table>
     <table class="totals"><tbody>
       <tr><td class="k">Subtotal</td><td>${m(subtotal)}</td></tr>
