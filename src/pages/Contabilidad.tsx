@@ -4513,12 +4513,38 @@ function TabEfectivo() {
   }
 
   const cobros = movements.filter(m => m.tipo === 'cobro_cliente')
+  const aportaciones = movements.filter(m => m.tipo === 'aportacion')
   const pagos = movements.filter(m => m.tipo === 'pago_proveedor')
   const nomina = movements.filter(m => m.tipo === 'nomina_efectivo')
+  const viaticos = movements.filter(m => m.tipo === 'viaticos')
+  const gasolina = movements.filter(m => m.tipo === 'gasolina')
+  const comida = movements.filter(m => m.tipo === 'comida')
+  const papeleria = movements.filter(m => m.tipo === 'papeleria')
+  const mantenimiento = movements.filter(m => m.tipo === 'mantenimiento')
+  const envioPaqueteria = movements.filter(m => m.tipo === 'envio_paqueteria')
+  const herramientas = movements.filter(m => m.tipo === 'herramientas')
+  const gastosGenerales = movements.filter(m => m.tipo === 'gastos_generales')
+  const otroGasto = movements.filter(m => m.tipo === 'otro_gasto')
 
-  const totalCobros = cobros.reduce((s, m) => s + m.monto, 0)
-  const totalPagos = pagos.reduce((s, m) => s + m.monto, 0)
-  const totalNomina = nomina.reduce((s, m) => s + m.monto, 0)
+  const sum = (arr: typeof movements) => arr.reduce((s, m) => s + m.monto, 0)
+  const totalCobros = sum(cobros)
+  const totalAportaciones = sum(aportaciones)
+  const totalPagos = sum(pagos)
+  const totalNomina = sum(nomina)
+  const totalViaticos = sum(viaticos)
+  const totalGasolina = sum(gasolina)
+  const totalComida = sum(comida)
+  const totalPapeleria = sum(papeleria)
+  const totalMantenimiento = sum(mantenimiento)
+  const totalEnvioPaqueteria = sum(envioPaqueteria)
+  const totalHerramientas = sum(herramientas)
+  const totalGastosGenerales = sum(gastosGenerales)
+  const totalOtroGasto = sum(otroGasto)
+
+  // Total egresos = todo lo que NO es cobro_cliente ni aportacion
+  const totalEgresos = totalPagos + totalNomina + totalViaticos + totalGasolina + totalComida + totalPapeleria + totalMantenimiento + totalEnvioPaqueteria + totalHerramientas + totalGastosGenerales + totalOtroGasto
+  const totalIngresos = totalCobros + totalAportaciones
+  const efectivoNeto = totalIngresos - totalEgresos
 
   const getEfCol = (m: CashMovement, col: string): string => {
     switch (col) {
@@ -4537,16 +4563,35 @@ function TabEfectivo() {
 
   return (
     <div>
-      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, 1fr)', gap: 12, marginBottom: 20 }}>
-        <KpiCard label="Cobros cash (clientes)" value={F(totalCobros)} color="#10B981" icon={<DollarSign size={16} />} />
-        <KpiCard label="Pagos cash (proveedores)" value={F(totalPagos)} color="#D97706" icon={<Banknote size={16} />} />
-        <KpiCard label="Nomina cash" value={F(totalNomina)} color="#A78BFA" icon={<Users size={16} />} />
+      {/* INGRESOS — verde */}
+      <div style={{ marginBottom: 8 }}>
+        <div style={{ fontSize: 10, color: '#10B981', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Ingresos</div>
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(3, 1fr)', gap: 8 }}>
+          <KpiCard label="💰 Cobros" value={F(totalCobros)} color="#10B981" icon={<DollarSign size={14} />} />
+          <KpiCard label="🏦 Aportaciones" value={F(totalAportaciones)} color="#22c55e" icon={<DollarSign size={14} />} />
+          <KpiCard label="∑ Total ingresos" value={F(totalIngresos)} color="#10B981" icon={<DollarSign size={14} />} />
+        </div>
+      </div>
+
+      {/* EGRESOS — naranja/rojo */}
+      <div style={{ marginBottom: 16 }}>
+        <div style={{ fontSize: 10, color: '#D97706', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Egresos</div>
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)', gap: 8 }}>
+          <KpiCard label="📦 Proveedores" value={F(totalPagos)} color="#D97706" icon={<Banknote size={14} />} />
+          <KpiCard label="👥 Nómina" value={F(totalNomina)} color="#A78BFA" icon={<Users size={14} />} />
+          <KpiCard label="✈️ Viáticos" value={F(totalViaticos)} color="#06B6D4" icon={<Banknote size={14} />} />
+          <KpiCard label="⛽ Gasolina" value={F(totalGasolina)} color="#F59E0B" icon={<Banknote size={14} />} />
+          <KpiCard label="🍽️ Comida" value={F(totalComida)} color="#EC4899" icon={<Banknote size={14} />} />
+          <KpiCard label="📋 Gastos generales" value={F(totalGastosGenerales)} color="#9CA3AF" icon={<Banknote size={14} />} />
+          <KpiCard label="🛠️ Herramientas / Mant." value={F(totalHerramientas + totalMantenimiento)} color="#7C3AED" icon={<Banknote size={14} />} />
+          <KpiCard label="∑ Total egresos" value={F(totalEgresos)} color="#DC2626" icon={<Banknote size={14} />} />
+        </div>
       </div>
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: isMobile ? 'stretch' : 'center', marginBottom: 16, flexWrap: 'wrap', gap: isMobile ? 8 : 0 }}>
         <div style={{ fontSize: 13, color: '#666', flex: isMobile ? '1 1 100%' : 'initial' }}>
-          Efectivo neto del mes: <span style={{ color: totalCobros - totalPagos - totalNomina >= 0 ? '#10B981' : '#DC2626', fontWeight: 700 }}>
-            {F(totalCobros - totalPagos - totalNomina)}
+          Efectivo neto del mes: <span style={{ color: efectivoNeto >= 0 ? '#10B981' : '#DC2626', fontWeight: 700 }}>
+            {F(efectivoNeto)}
           </span>
         </div>
         <div style={{ display: 'flex', gap: 8, width: isMobile ? '100%' : 'auto' }}>
