@@ -12,6 +12,8 @@ import SubirReportePage from './SubirReportePage'
 import MiAsistenciaPage from './MiAsistenciaPage'
 import CajaChicaPage from './CajaChicaPage'
 import AusenciasPage from './AusenciasPage'
+import MisVisitasPage from './MisVisitasPage'
+import DetalleVisitaPage from './DetalleVisitaPage'
 import { Loader2 } from 'lucide-react'
 
 interface Employee {
@@ -92,6 +94,8 @@ export default function ObraApp() {
       <Route path="/mis-obras/:obraId" element={<DetalleObraPage />} />
       <Route path="/reportes" element={<ReportesPage employeeId={employee.id} />} />
       <Route path="/reportes/nuevo" element={<SubirReportePage employeeId={employee.id} />} />
+      <Route path="/visitas" element={<MisVisitasPage employeeId={employee.id} />} />
+      <Route path="/visita/:visitId" element={<DetalleVisitaPage />} />
       <Route path="/mi-asistencia" element={<MiAsistenciaPage employeeId={employee.id} />} />
       <Route path="/caja-chica" element={<CajaChicaPage employeeId={employee.id} />} />
       <Route path="/ausencias" element={<AusenciasPage employeeId={employee.id} />} />

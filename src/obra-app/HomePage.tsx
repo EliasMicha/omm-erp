@@ -6,7 +6,7 @@ import { getWorkDate } from './lib/workDate'
 import {
   LogOut, MapPin, AlertCircle, CheckCircle2, Clock,
   FileText, Calendar, Package2, Receipt, Loader2,
-  TrendingUp, Plane
+  TrendingUp, Plane, Wrench
 } from 'lucide-react'
 
 interface Employee {
@@ -50,6 +50,7 @@ export default function HomePage({ employee, onLogout }: { employee: Employee; o
   const [loading, setLoading] = useState(true)
   const [checkInState, setCheckInState] = useState<'idle' | 'locating' | 'uploading' | 'success' | 'error'>('idle')
   const [checkInMsg, setCheckInMsg] = useState('')
+  const [visitasPendientes, setVisitasPendientes] = useState(0)
 
   const loadData = async () => {
     setLoading(true)
@@ -70,6 +71,15 @@ export default function HomePage({ employee, onLogout }: { employee: Employee; o
       .eq('fecha', today)
       .order('hora', { ascending: true })
     setTodayAttendance((att as AttendanceRecord[]) || [])
+
+    // Visitas de mantenimiento pendientes (hoy en adelante)
+    const { count: vCount } = await supabase
+      .from('maintenance_visits')
+      .select('id', { count: 'exact', head: true })
+      .eq('technician_id', employee.id)
+      .gte('visit_date', today)
+      .not('status', 'in', '("completada","cancelada")')
+    setVisitasPendientes(vCount || 0)
 
     setLoading(false)
   }
@@ -178,6 +188,7 @@ export default function HomePage({ employee, onLogout }: { employee: Employee; o
     'CHECAR ENTRADA'
 
   const tiles = [
+    { icon: Wrench, label: 'Mis visitas', hint: 'Mantenimiento', path: '/obra-app/visitas', color: '#06b6d4', badge: visitasPendientes },
     { icon: FileText, label: 'Reportes', hint: 'Subir nuevo', path: '/obra-app/reportes', color: '#10B981' },
     { icon: Calendar, label: 'Mi semana', hint: 'Planeación', path: '/obra-app/mi-semana', color: '#3b82f6' },
     { icon: Package2, label: 'Mis obras', hint: 'Materiales y docs', path: '/obra-app/mis-obras', color: '#a78bfa' },
@@ -386,6 +397,7 @@ export default function HomePage({ employee, onLogout }: { employee: Employee; o
             <button key={i}
               onClick={() => navigate(t.path)}
               style={{
+                position: 'relative',
                 padding: 16, background: '#0f0f0f', border: '1px solid #1a1a1a',
                 borderRadius: 14, display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 8,
                 cursor: 'pointer',
@@ -396,6 +408,16 @@ export default function HomePage({ employee, onLogout }: { employee: Employee; o
               <Icon size={22} color={t.color} />
               <div style={{ fontSize: 13, fontWeight: 600 }}>{t.label}</div>
               <div style={{ fontSize: 10, color: '#666' }}>{t.hint}</div>
+              {'badge' in t && (t as any).badge > 0 && (
+                <div style={{
+                  position: 'absolute', top: 12, right: 12, minWidth: 20, height: 20, padding: '0 6px',
+                  borderRadius: 10, background: t.color, color: '#0a0a0a',
+                  fontSize: 11, fontWeight: 800,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                  {(t as any).badge}
+                </div>
+              )}
             </button>
           )
         })}

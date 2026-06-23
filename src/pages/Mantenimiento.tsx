@@ -87,7 +87,10 @@ interface Visit {
   property_id: string
   contract_id: string | null
   visit_date: string
+  scheduled_time: string | null
   technician: string
+  technician_id: string | null
+  route_order: number | null
   duration_hours: number | null
   work_performed: string
   parts_used: string
@@ -96,8 +99,26 @@ interface Visit {
   amount_charged: number | null
   currency: string
   status: 'programada' | 'completada' | 'cancelada'
+  en_route_at: string | null
+  arrived_at: string | null
+  completed_at: string | null
+  photos: string[] | null
+  report: any
   notes: string
   created_at: string
+}
+
+interface Technician {
+  id: string
+  nombre: string | null
+  name: string | null
+  area: string | null
+  foto_url: string | null
+}
+
+function techName(t: Technician | undefined | null): string {
+  if (!t) return 'Sin asignar'
+  return t.nombre || t.name || 'Técnico'
 }
 
 type UpsellStatus = 'identificada' | 'propuesta' | 'aceptada' | 'rechazada' | 'convertida'
@@ -177,7 +198,7 @@ const VISIT_STATUS_CFG: Record<string, { label: string; color: string }> = {
   cancelada: { label: 'Cancelada', color: '#6B7280' },
 }
 
-type Tab = 'propiedades' | 'tickets' | 'polizas' | 'oportunidades'
+type Tab = 'propiedades' | 'agenda' | 'tickets' | 'polizas' | 'oportunidades'
 
 // ── Shared UI ──────────────────────────────────────────────────────────────
 
@@ -286,6 +307,7 @@ export default function Mantenimiento() {
   const [contracts, setContracts] = useState<Contract[]>([])
   const [visits, setVisits] = useState<Visit[]>([])
   const [upsells, setUpsells] = useState<Upsell[]>([])
+  const [technicians, setTechnicians] = useState<Technician[]>([])
 
   // Views
   const [selectedPropertyId, setSelectedPropertyId] = useState<string | null>(null)
@@ -297,6 +319,7 @@ export default function Mantenimiento() {
   const [showNewTicket, setShowNewTicket] = useState(false)
   const [showNewContract, setShowNewContract] = useState(false)
   const [showNewUpsell, setShowNewUpsell] = useState(false)
+  const [showSchedule, setShowSchedule] = useState(false)
 
   // Filters
   const [searchProp, setSearchProp] = useState('')
@@ -308,18 +331,20 @@ export default function Mantenimiento() {
 
   async function loadAll() {
     setLoading(true)
-    const [pRes, tRes, cRes, vRes, uRes] = await Promise.all([
+    const [pRes, tRes, cRes, vRes, uRes, eRes] = await Promise.all([
       supabase.from('maintenance_properties').select('*').order('name'),
       supabase.from('maintenance_tickets').select('*').order('created_at', { ascending: false }),
       supabase.from('maintenance_contracts').select('*').order('end_date', { ascending: false }),
       supabase.from('maintenance_visits').select('*').order('visit_date', { ascending: false }),
       supabase.from('maintenance_upsell').select('*').order('created_at', { ascending: false }),
+      supabase.from('employees').select('id, nombre, name, area, foto_url, activo').eq('activo', true).order('nombre'),
     ])
     setProperties(pRes.data || [])
     setTickets(tRes.data || [])
     setContracts(cRes.data || [])
     setVisits(vRes.data || [])
     setUpsells(uRes.data || [])
+    setTechnicians((eRes.data as Technician[]) || [])
     setLoading(false)
   }
 
@@ -332,6 +357,12 @@ export default function Mantenimiento() {
     properties.forEach(p => { m[p.id] = p })
     return m
   }, [properties])
+
+  const techMap = useMemo(() => {
+    const m: Record<string, Technician> = {}
+    technicians.forEach(t => { m[t.id] = t })
+    return m
+  }, [technicians])
 
   const ticketsForProperty = (pid: string) => tickets.filter(t => t.property_id === pid)
   const visitsForProperty = (pid: string) => visits.filter(v => v.property_id === pid)
@@ -347,6 +378,7 @@ export default function Mantenimiento() {
 
   const tabs: { key: Tab; label: string }[] = [
     { key: 'propiedades', label: 'Propiedades' },
+    { key: 'agenda', label: 'Agenda' },
     { key: 'tickets', label: 'Tickets' },
     { key: 'polizas', label: 'Pólizas' },
     { key: 'oportunidades', label: 'Oportunidades' },
@@ -426,6 +458,15 @@ export default function Mantenimiento() {
         />
       )}
 
+      {tab === 'agenda' && (
+        <TabAgenda
+          visits={visits} propMap={propMap} techMap={techMap}
+          onOpenProperty={id => setSelectedPropertyId(id)}
+          onSchedule={() => setShowSchedule(true)}
+          isMobile={isMobile}
+        />
+      )}
+
       {tab === 'tickets' && (
         <TabTickets
           tickets={tickets} properties={properties} propMap={propMap}
@@ -467,6 +508,13 @@ export default function Mantenimiento() {
       )}
       {showNewUpsell && (
         <NewUpsellModal properties={properties} onClose={() => setShowNewUpsell(false)} onCreated={() => { setShowNewUpsell(false); loadAll() }} />
+      )}
+      {showSchedule && (
+        <ProgramarVisitaModal
+          properties={properties} tickets={tickets} contracts={contracts} technicians={technicians}
+          onClose={() => setShowSchedule(false)}
+          onCreated={() => { setShowSchedule(false); loadAll() }}
+        />
       )}
     </div>
   )
@@ -1729,18 +1777,241 @@ function NewUpsellModal({ properties, onClose, onCreated }: {
 // MODAL: ADD VISIT (from ticket detail)
 // ═══════════════════════════════════════════════════════════════════════════
 
+// ═══════════════════════════════════════════════════════════════════════════
+// TAB: AGENDA (programación de visitas por día / técnico)
+// ═══════════════════════════════════════════════════════════════════════════
+
+function visitStateLabel(v: Visit): { label: string; color: string } {
+  if (v.status === 'completada') return { label: 'Completada', color: '#10B981' }
+  if (v.status === 'cancelada') return { label: 'Cancelada', color: '#888' }
+  if (v.arrived_at) return { label: 'En sitio', color: '#3b82f6' }
+  if (v.en_route_at) return { label: 'En camino', color: '#f59e0b' }
+  return { label: 'Programada', color: '#A78BFA' }
+}
+
+function fmtHora(t: string | null): string {
+  if (!t) return '--:--'
+  return t.slice(0, 5)
+}
+
+function TabAgenda({ visits, propMap, techMap, onOpenProperty, onSchedule, isMobile }: {
+  visits: Visit[]
+  propMap: Record<string, Property>
+  techMap: Record<string, Technician>
+  onOpenProperty: (id: string) => void
+  onSchedule: () => void
+  isMobile: boolean
+}) {
+  const today = new Date().toISOString().slice(0, 10)
+  const sorted = [...visits].sort((a, b) => {
+    if (a.visit_date !== b.visit_date) return a.visit_date < b.visit_date ? -1 : 1
+    const ra = a.route_order ?? 999, rb = b.route_order ?? 999
+    if (ra !== rb) return ra - rb
+    return (a.scheduled_time ?? '99').localeCompare(b.scheduled_time ?? '99')
+  })
+
+  const upcoming = sorted.filter(v => v.visit_date >= today && v.status !== 'completada' && v.status !== 'cancelada')
+  const past = sorted.filter(v => !(v.visit_date >= today && v.status !== 'completada' && v.status !== 'cancelada'))
+    .sort((a, b) => a.visit_date < b.visit_date ? 1 : -1).slice(0, 40)
+
+  const groupByDate = (arr: Visit[]) => {
+    const g: Record<string, Visit[]> = {}
+    arr.forEach(v => { (g[v.visit_date] ||= []).push(v) })
+    return g
+  }
+  const upGroups = groupByDate(upcoming)
+  const pastGroups = groupByDate(past)
+  const fmtDate = (d: string) => new Date(d + 'T12:00:00').toLocaleDateString('es-MX', { weekday: 'long', day: 'numeric', month: 'short' })
+
+  const Row = (v: Visit) => {
+    const st = visitStateLabel(v)
+    const prop = propMap[v.property_id]
+    const tech = v.technician_id ? techMap[v.technician_id] : null
+    return (
+      <div key={v.id} style={{
+        display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px',
+        background: '#0f0f0f', border: '1px solid #1a1a1a', borderRadius: 10, marginBottom: 6,
+      }}>
+        <div style={{ width: 52, fontSize: 13, fontWeight: 700, color: '#A78BFA', flexShrink: 0 }}>{fmtHora(v.scheduled_time)}</div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <button onClick={() => onOpenProperty(v.property_id)} style={{
+            background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: '#fff',
+            fontSize: 13, fontWeight: 600, fontFamily: 'inherit', textAlign: 'left',
+            whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%',
+          }}>
+            {prop?.name || 'Propiedad'}
+          </button>
+          <div style={{ fontSize: 11, color: '#777', display: 'flex', gap: 8, marginTop: 2 }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              {tech?.foto_url
+                ? <img src={tech.foto_url} style={{ width: 16, height: 16, borderRadius: 8, objectFit: 'cover' }} alt="" />
+                : <Users size={12} />}
+              {techName(tech)}
+            </span>
+            {v.ticket_id && <span style={{ display: 'flex', alignItems: 'center', gap: 3 }}><Ticket size={11} /> Ticket</span>}
+          </div>
+        </div>
+        <span style={{ fontSize: 10, padding: '3px 8px', borderRadius: 8, background: st.color + '1f', color: st.color, fontWeight: 600, flexShrink: 0 }}>
+          {st.label}
+        </span>
+      </div>
+    )
+  }
+
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <KpiCard label="Próximas" value={String(upcoming.length)} />
+          <KpiCard label="Hoy" value={String(upcoming.filter(v => v.visit_date === today).length)} />
+        </div>
+        <Btn variant="primary" onClick={onSchedule}><Plus size={14} /> Programar visita</Btn>
+      </div>
+
+      {upcoming.length === 0 && (
+        <EmptyState message="No hay visitas programadas. Usa 'Programar visita' para agendar." />
+      )}
+
+      {Object.keys(upGroups).sort().map(date => (
+        <div key={date} style={{ marginBottom: 18 }}>
+          <div style={{ fontSize: 12, color: '#10B981', fontWeight: 600, textTransform: 'capitalize', marginBottom: 8 }}>{fmtDate(date)}</div>
+          {upGroups[date].map(Row)}
+        </div>
+      ))}
+
+      {past.length > 0 && (
+        <div style={{ marginTop: 24 }}>
+          <div style={{ fontSize: 11, color: '#666', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10 }}>Historial reciente</div>
+          {Object.keys(pastGroups).sort().reverse().map(date => (
+            <div key={date} style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 11, color: '#888', textTransform: 'capitalize', marginBottom: 6 }}>{fmtDate(date)}</div>
+              {pastGroups[date].map(Row)}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// Modal para programar (agendar) una visita asignando técnico, fecha y hora
+function ProgramarVisitaModal({ properties, tickets, contracts, technicians, onClose, onCreated }: {
+  properties: Property[]
+  tickets: TicketRow[]
+  contracts: Contract[]
+  technicians: Technician[]
+  onClose: () => void
+  onCreated: () => void
+}) {
+  const [form, setForm] = useState({
+    property_id: '', ticket_id: '', technician_id: '',
+    visit_date: new Date().toISOString().slice(0, 10),
+    scheduled_time: '09:00', route_order: '', notes: '',
+  })
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const set = (k: string) => (v: string) => setForm(f => ({ ...f, [k]: v }))
+
+  const openTicketsForProp = tickets.filter(t =>
+    t.property_id === form.property_id && t.status !== 'resuelto' && t.status !== 'cerrado')
+
+  async function save() {
+    if (!form.property_id) { setError('Selecciona la propiedad'); return }
+    if (!form.technician_id) { setError('Asigna un técnico'); return }
+    if (!form.visit_date) { setError('La fecha es requerida'); return }
+    setSaving(true); setError('')
+
+    const tech = technicians.find(t => t.id === form.technician_id)
+    const activeContract = contracts.find(c => c.property_id === form.property_id && c.is_active)
+
+    const { error: err } = await supabase.from('maintenance_visits').insert({
+      property_id: form.property_id,
+      ticket_id: form.ticket_id || null,
+      contract_id: activeContract?.id || null,
+      technician_id: form.technician_id,
+      technician: techName(tech),
+      visit_date: form.visit_date,
+      scheduled_time: form.scheduled_time || null,
+      route_order: form.route_order ? parseInt(form.route_order, 10) : null,
+      status: 'programada',
+      notes: form.notes.trim() || null,
+      currency: 'MXN',
+    })
+    setSaving(false)
+    if (err) { setError(err.message); return }
+    onCreated()
+  }
+
+  return (
+    <ModalShell title="Programar visita" onClose={onClose} width={520}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <label style={labelStyle}>
+          Propiedad *
+          <select value={form.property_id} onChange={e => set('property_id')(e.target.value)} style={{ ...selectStyle, marginTop: 4 }}>
+            <option value="">Selecciona propiedad...</option>
+            {properties.map(p => <option key={p.id} value={p.id}>{p.name}{p.client_name ? ` — ${p.client_name}` : ''}</option>)}
+          </select>
+        </label>
+
+        {form.property_id && openTicketsForProp.length > 0 && (
+          <label style={labelStyle}>
+            Ticket relacionado (opcional)
+            <select value={form.ticket_id} onChange={e => set('ticket_id')(e.target.value)} style={{ ...selectStyle, marginTop: 4 }}>
+              <option value="">Sin ticket (visita / preventivo)</option>
+              {openTicketsForProp.map(t => <option key={t.id} value={t.id}>#{t.ticket_number} · {t.subject}</option>)}
+            </select>
+          </label>
+        )}
+
+        <label style={labelStyle}>
+          Técnico asignado *
+          <select value={form.technician_id} onChange={e => set('technician_id')(e.target.value)} style={{ ...selectStyle, marginTop: 4 }}>
+            <option value="">Selecciona técnico...</option>
+            {technicians.map(t => <option key={t.id} value={t.id}>{techName(t)}{t.area ? ` (${t.area})` : ''}</option>)}
+          </select>
+        </label>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+          <Field label="Fecha *" value={form.visit_date} onChange={set('visit_date')} type="date" />
+          <label style={labelStyle}>
+            Hora
+            <input type="time" value={form.scheduled_time} onChange={e => set('scheduled_time')(e.target.value)}
+              style={{ ...selectStyle, marginTop: 4 }} />
+          </label>
+          <Field label="Orden ruta" value={form.route_order} onChange={set('route_order')} placeholder="1" type="number" />
+        </div>
+
+        <TextArea label="Notas para el técnico" value={form.notes} onChange={set('notes')} placeholder="Instrucciones, acceso, contacto en sitio..." rows={2} />
+
+        {error && <div style={{ color: '#DC2626', fontSize: 12 }}>{error}</div>}
+
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 8 }}>
+          <Btn onClick={onClose}>Cancelar</Btn>
+          <Btn variant="primary" onClick={save} disabled={saving}>{saving ? 'Agendando...' : 'Programar visita'}</Btn>
+        </div>
+      </div>
+    </ModalShell>
+  )
+}
+
 function AddVisitModal({ ticketId, propertyId, contractId, onClose, onCreated }: {
   ticketId: string; propertyId: string; contractId: string | null
   onClose: () => void; onCreated: () => void
 }) {
   const [form, setForm] = useState({
     visit_date: new Date().toISOString().slice(0, 10),
-    technician: '', duration_hours: '', work_performed: '',
+    scheduled_time: '', technician_id: '', technician: '', duration_hours: '', work_performed: '',
     parts_used: '', cost: '', billable: false, amount_charged: '',
     status: 'programada' as string,
   })
+  const [technicians, setTechnicians] = useState<Technician[]>([])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+
+  useEffect(() => {
+    supabase.from('employees').select('id, nombre, name, area, foto_url, activo').eq('activo', true).order('nombre')
+      .then(({ data }) => setTechnicians((data as Technician[]) || []))
+  }, [])
 
   const s = (k: string) => (v: string) => setForm(f => ({ ...f, [k]: v }))
 
@@ -1748,12 +2019,15 @@ function AddVisitModal({ ticketId, propertyId, contractId, onClose, onCreated }:
     if (!form.visit_date) { setError('La fecha es requerida'); return }
     setSaving(true)
     setError('')
+    const tech = technicians.find(t => t.id === form.technician_id)
     const { error: err } = await supabase.from('maintenance_visits').insert({
       ticket_id: ticketId,
       property_id: propertyId,
       contract_id: contractId,
       visit_date: form.visit_date,
-      technician: form.technician.trim() || null,
+      scheduled_time: form.scheduled_time || null,
+      technician_id: form.technician_id || null,
+      technician: tech ? techName(tech) : null,
       duration_hours: form.duration_hours ? parseFloat(form.duration_hours) : null,
       work_performed: form.work_performed.trim(),
       parts_used: form.parts_used.trim(),
@@ -1785,8 +2059,13 @@ function AddVisitModal({ ticketId, propertyId, contractId, onClose, onCreated }:
   return (
     <ModalShell title="Registrar Visita" onClose={onClose} width={520}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
           <Field label="Fecha *" value={form.visit_date} onChange={s('visit_date')} type="date" />
+          <label style={labelStyle}>
+            Hora
+            <input type="time" value={form.scheduled_time} onChange={e => s('scheduled_time')(e.target.value)}
+              style={{ ...selectStyle, marginTop: 4 }} />
+          </label>
           <label style={labelStyle}>
             Estado
             <select value={form.status} onChange={e => s('status')(e.target.value)}
@@ -1799,7 +2078,14 @@ function AddVisitModal({ ticketId, propertyId, contractId, onClose, onCreated }:
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 12 }}>
-          <Field label="Técnico" value={form.technician} onChange={s('technician')} placeholder="Nombre del técnico" />
+          <label style={labelStyle}>
+            Técnico
+            <select value={form.technician_id} onChange={e => s('technician_id')(e.target.value)}
+              style={{ ...selectStyle, marginTop: 4 }}>
+              <option value="">Sin asignar...</option>
+              {technicians.map(t => <option key={t.id} value={t.id}>{techName(t)}</option>)}
+            </select>
+          </label>
           <Field label="Duración (hrs)" value={form.duration_hours} onChange={s('duration_hours')} placeholder="2.5" type="number" />
         </div>
 
