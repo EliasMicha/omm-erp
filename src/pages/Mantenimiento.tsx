@@ -118,6 +118,8 @@ interface Visit {
   en_route_at: string | null
   arrived_at: string | null
   completed_at: string | null
+  checkin_lat: number | null
+  checkin_lng: number | null
   photos: string[] | null
   report: any
   notes: string
@@ -244,7 +246,7 @@ const VISIT_STATUS_CFG: Record<string, { label: string; color: string }> = {
   cancelada: { label: 'Cancelada', color: '#6B7280' },
 }
 
-type Tab = 'dashboard' | 'propiedades' | 'agenda' | 'tickets' | 'polizas' | 'oportunidades'
+type Tab = 'dashboard' | 'propiedades' | 'agenda' | 'reportes' | 'tickets' | 'polizas' | 'oportunidades'
 
 // ── Shared UI ──────────────────────────────────────────────────────────────
 
@@ -431,6 +433,7 @@ export default function Mantenimiento() {
     { key: 'dashboard', label: 'Dashboard' },
     { key: 'propiedades', label: 'Propiedades' },
     { key: 'agenda', label: 'Agenda' },
+    { key: 'reportes', label: 'Reportes' },
     { key: 'tickets', label: 'Tickets' },
     { key: 'polizas', label: 'Pólizas' },
     { key: 'oportunidades', label: 'Oportunidades' },
@@ -529,6 +532,10 @@ export default function Mantenimiento() {
           onSchedule={() => setShowSchedule(true)}
           isMobile={isMobile}
         />
+      )}
+
+      {tab === 'reportes' && (
+        <TabReportes visits={visits} propMap={propMap} techMap={techMap} isMobile={isMobile} />
       )}
 
       {tab === 'tickets' && (
@@ -812,6 +819,191 @@ function RowKV({ k, v, color = '#fff' }: { k: string; v: string; color?: string 
 // ═══════════════════════════════════════════════════════════════════════════
 // TAB: PROPIEDADES
 // ═══════════════════════════════════════════════════════════════════════════
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TAB: REPORTES (levantamientos del técnico en sitio)
+// ═══════════════════════════════════════════════════════════════════════════
+
+const VISIT_KIND_CFG: Record<string, { label: string; color: string }> = {
+  preventiva: { label: 'Preventiva', color: '#10B981' },
+  emergencia: { label: 'Bomberazo', color: '#f59e0b' },
+  bomberazo: { label: 'Bomberazo', color: '#f59e0b' },
+  garantia: { label: 'Garantía', color: '#3b82f6' },
+  otro: { label: 'Otro', color: '#888' },
+}
+
+function hasReport(v: Visit): boolean {
+  return v.status === 'completada'
+    || (Array.isArray(v.photos) && v.photos.length > 0)
+    || !!(v.work_performed && v.work_performed.trim())
+    || !!(v.report && (v.report.observaciones || v.report.recomendacion))
+}
+
+function TabReportes({ visits, propMap, techMap, isMobile }: {
+  visits: Visit[]; propMap: Record<string, Property>; techMap: Record<string, Technician>; isMobile: boolean
+}) {
+  const [search, setSearch] = useState('')
+  const [techFilter, setTechFilter] = useState('')
+  const [kindFilter, setKindFilter] = useState('')
+  const [selected, setSelected] = useState<Visit | null>(null)
+
+  const reportes = useMemo(() => {
+    let list = visits.filter(hasReport)
+    if (techFilter) list = list.filter(v => v.technician_id === techFilter)
+    if (kindFilter) list = list.filter(v => (v as any).visit_kind === kindFilter)
+    if (search) {
+      const q = search.toLowerCase()
+      list = list.filter(v => (propMap[v.property_id]?.name || '').toLowerCase().includes(q) || (v.work_performed || '').toLowerCase().includes(q))
+    }
+    return list.sort((a, b) => (b.completed_at || b.visit_date || '').localeCompare(a.completed_at || a.visit_date || ''))
+  }, [visits, search, techFilter, kindFilter, propMap])
+
+  const techsWithReports = useMemo(() => {
+    const ids = new Set(visits.filter(hasReport).map(v => v.technician_id).filter(Boolean) as string[])
+    return Array.from(ids).map(id => techMap[id]).filter(Boolean)
+  }, [visits, techMap])
+
+  return (
+    <>
+      <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
+        <div style={{ position: 'relative', flex: 1, minWidth: 200 }}>
+          <Search size={14} style={{ position: 'absolute', left: 10, top: 10, color: '#555' }} />
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar propiedad o trabajo realizado..." style={{ ...inputStyle, paddingLeft: 30 }} />
+        </div>
+        <select value={kindFilter} onChange={e => setKindFilter(e.target.value)} style={{ ...selectStyle, maxWidth: 170 }}>
+          <option value="">Todos los tipos</option>
+          <option value="preventiva">Preventiva</option>
+          <option value="emergencia">Bomberazo</option>
+          <option value="garantia">Garantía</option>
+          <option value="otro">Otro</option>
+        </select>
+        <select value={techFilter} onChange={e => setTechFilter(e.target.value)} style={{ ...selectStyle, maxWidth: 200 }}>
+          <option value="">Todos los técnicos</option>
+          {techsWithReports.map(t => <option key={t.id} value={t.id}>{techName(t)}</option>)}
+        </select>
+      </div>
+
+      {reportes.length === 0 ? (
+        <EmptyState message="No hay reportes aún. Aparecen aquí cuando el técnico completa una visita en la app de campo." />
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fill, minmax(320px, 1fr))', gap: 12 }}>
+          {reportes.map(v => {
+            const prop = propMap[v.property_id]
+            const tech = v.technician_id ? techMap[v.technician_id] : null
+            const kind = VISIT_KIND_CFG[(v as any).visit_kind] || VISIT_KIND_CFG.otro
+            const nPhotos = Array.isArray(v.photos) ? v.photos.length : 0
+            return (
+              <button key={v.id} onClick={() => setSelected(v)} style={{
+                textAlign: 'left', fontFamily: 'inherit', cursor: 'pointer',
+                background: '#141414', border: '1px solid #222', borderRadius: 12, padding: 14, color: '#fff',
+                display: 'flex', flexDirection: 'column', gap: 8,
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                  <div style={{ fontSize: 14, fontWeight: 600, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{prop?.name || 'Propiedad'}</div>
+                  <Badge label={kind.label} color={kind.color} />
+                </div>
+                <div style={{ fontSize: 11, color: '#888', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  <span>{formatDate(v.completed_at || v.visit_date)}</span>
+                  {tech && <span>· {techName(tech)}</span>}
+                  {nPhotos > 0 && <span style={{ color: '#06b6d4' }}>· {nPhotos} 📷</span>}
+                  {v.billable && <span style={{ color: '#f59e0b' }}>· facturable</span>}
+                </div>
+                {v.work_performed && <div style={{ fontSize: 12, color: '#bbb', lineHeight: 1.4, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{v.work_performed}</div>}
+                {v.report?.recomendacion && (
+                  <div style={{ fontSize: 11, color: '#a78bfa', display: 'flex', alignItems: 'center', gap: 4 }}>★ Oportunidad detectada</div>
+                )}
+              </button>
+            )
+          })}
+        </div>
+      )}
+
+      {selected && (
+        <VisitReportModal visit={selected} property={propMap[selected.property_id]} tech={selected.technician_id ? techMap[selected.technician_id] : null} onClose={() => setSelected(null)} />
+      )}
+    </>
+  )
+}
+
+function VisitReportModal({ visit, property, tech, onClose }: {
+  visit: Visit; property?: Property; tech?: Technician | null; onClose: () => void
+}) {
+  const [urls, setUrls] = useState<string[]>([])
+  useEffect(() => {
+    (async () => {
+      const paths = Array.isArray(visit.photos) ? visit.photos : []
+      if (paths.length === 0) return
+      const { data } = await supabase.storage.from('mantenimiento-evidencias').createSignedUrls(paths, 3600)
+      setUrls((data || []).map((d: any) => d.signedUrl).filter(Boolean))
+    })()
+  }, [visit.id])
+
+  const kind = VISIT_KIND_CFG[(visit as any).visit_kind] || VISIT_KIND_CFG.otro
+  const mapsUrl = visit.checkin_lat && visit.checkin_lng ? `https://www.google.com/maps/search/?api=1&query=${visit.checkin_lat},${visit.checkin_lng}` : null
+
+  return (
+    <ModalShell title={`Reporte — ${property?.name || 'Visita'}`} onClose={onClose} width={640}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', fontSize: 12, color: '#888' }}>
+          <Badge label={kind.label} color={kind.color} />
+          <span>{formatDate(visit.completed_at || visit.visit_date)}</span>
+          {tech && <span>· Técnico: {techName(tech)}</span>}
+          {visit.duration_hours && <span>· {visit.duration_hours} h</span>}
+          {visit.billable && <span style={{ color: '#f59e0b' }}>· Facturable {visit.amount_charged ? F(visit.amount_charged) : ''}</span>}
+        </div>
+
+        {/* Fotos */}
+        {Array.isArray(visit.photos) && visit.photos.length > 0 && (
+          <div>
+            <div style={infoLabel}>Evidencia fotográfica ({visit.photos.length})</div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: 6 }}>
+              {urls.length === 0
+                ? <div style={{ fontSize: 12, color: '#666' }}>Cargando fotos...</div>
+                : urls.map((u, i) => (
+                  <a key={i} href={u} target="_blank" rel="noreferrer" style={{ display: 'block', aspectRatio: '1', borderRadius: 8, overflow: 'hidden', background: '#0f0f0f' }}>
+                    <img src={u} style={{ width: '100%', height: '100%', objectFit: 'cover' }} alt={`evidencia ${i + 1}`} />
+                  </a>
+                ))}
+            </div>
+          </div>
+        )}
+
+        <ReportField label="Trabajo realizado" value={visit.work_performed} />
+        <ReportField label="Refacciones / material usado" value={visit.parts_used} />
+        <ReportField label="Observaciones / levantamiento" value={visit.report?.observaciones} />
+        {visit.report?.recomendacion && (
+          <div>
+            <div style={{ ...infoLabel, color: '#a78bfa' }}>★ Recomendación de venta</div>
+            <div style={{ fontSize: 13, color: '#ddd', lineHeight: 1.5, background: '#1a1530', border: '1px solid #2a2045', borderRadius: 8, padding: 12 }}>{visit.report.recomendacion}</div>
+          </div>
+        )}
+
+        {/* Trazabilidad */}
+        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: 11, color: '#666', borderTop: '1px solid #222', paddingTop: 12 }}>
+          {visit.en_route_at && <span>En camino: {new Date(visit.en_route_at).toLocaleString('es-MX')}</span>}
+          {visit.arrived_at && <span>Llegada: {new Date(visit.arrived_at).toLocaleString('es-MX')}</span>}
+          {visit.completed_at && <span>Completada: {new Date(visit.completed_at).toLocaleString('es-MX')}</span>}
+          {mapsUrl && <a href={mapsUrl} target="_blank" rel="noreferrer" style={{ color: '#3b82f6', textDecoration: 'none' }}>📍 Ubicación de check-in</a>}
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+          <Btn onClick={onClose}>Cerrar</Btn>
+        </div>
+      </div>
+    </ModalShell>
+  )
+}
+
+const infoLabel: React.CSSProperties = { fontSize: 10, color: '#666', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 6 }
+function ReportField({ label, value }: { label: string; value: string | null | undefined }) {
+  if (!value || !value.trim()) return null
+  return (
+    <div>
+      <div style={infoLabel}>{label}</div>
+      <div style={{ fontSize: 13, color: '#ddd', lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>{value}</div>
+    </div>
+  )
+}
 
 function TabPropiedades({ properties, tickets, visits, searchProp, setSearchProp, onSelect, onNew, onFromLead, isMobile, openTicketsForProperty, lastVisitForProperty }: {
   properties: Property[]; tickets: TicketRow[]; visits: Visit[]
