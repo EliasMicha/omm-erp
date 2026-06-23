@@ -8,23 +8,47 @@ export default function LoginPage({ onLogin }: { onLogin: () => void }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
+  // Construye los posibles emails a partir de lo que el usuario escribe.
+  // Las cuentas de campo se crean como <digitos>@obra.omm.app (a veces con 52, a veces sin).
+  const buildCandidates = (raw: string): string[] => {
+    const v = raw.trim()
+    if (v.includes('@')) return [v.toLowerCase()]
+    const d = v.replace(/\D/g, '')
+    const set = new Set<string>()
+    if (d) {
+      set.add(`${d}@obra.omm.app`)
+      if (d.length === 10) set.add(`52${d}@obra.omm.app`)
+      if (d.length === 12 && d.startsWith('52')) set.add(`${d.slice(2)}@obra.omm.app`)
+      if (d.length === 13 && d.startsWith('521')) {
+        set.add(`52${d.slice(3)}@obra.omm.app`)
+        set.add(`${d.slice(3)}@obra.omm.app`)
+      }
+    }
+    return Array.from(set)
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!email.trim() || !password) {
-      setError('Completa email y contraseña')
+      setError('Completa email o teléfono y contraseña')
       return
     }
     setError('')
     setLoading(true)
-    const { data, error: authErr } = await supabase.auth.signInWithPassword({
-      email: email.trim().toLowerCase(),
-      password,
-    })
+
+    const candidates = buildCandidates(email)
+    let data: any = null
+    let authErr: any = null
+    for (const cand of candidates) {
+      const res = await supabase.auth.signInWithPassword({ email: cand, password })
+      if (!res.error && res.data.session) { data = res.data; authErr = null; break }
+      authErr = res.error
+    }
     setLoading(false)
-    if (authErr) {
+    if (authErr || !data) {
       setError(
-        authErr.message === 'Invalid login credentials'
-          ? 'Email o contraseña incorrectos'
+        !authErr || authErr.message === 'Invalid login credentials'
+          ? 'Usuario o contraseña incorrectos'
           : authErr.message
       )
       return
@@ -78,15 +102,15 @@ export default function LoginPage({ onLogin }: { onLogin: () => void }) {
 
         <form onSubmit={handleSubmit}>
           <div style={{ marginBottom: 16 }}>
-            <label style={{ display: 'block', fontSize: 12, color: '#888', marginBottom: 6 }}>Email</label>
+            <label style={{ display: 'block', fontSize: 12, color: '#888', marginBottom: 6 }}>Email o teléfono</label>
             <input
-              type="email"
+              type="text"
               inputMode="email"
-              autoComplete="email"
+              autoComplete="username"
               autoCapitalize="none"
               value={email}
               onChange={e => setEmail(e.target.value)}
-              placeholder="tu@correo.com"
+              placeholder="tu@correo.com o tu teléfono"
               style={{
                 width: '100%', padding: '14px 16px',
                 background: '#0f0f0f', border: '1px solid #1f1f1f',
