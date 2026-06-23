@@ -23,6 +23,7 @@ interface Employee {
   area: string | null
   foto_url: string | null
   app_activo: boolean | null
+  mantenimiento_app: boolean | null
 }
 
 export default function ObraApp() {
@@ -33,7 +34,7 @@ export default function ObraApp() {
   const loadEmployee = async (userId: string) => {
     const { data } = await supabase
       .from('employees')
-      .select('id, nombre, puesto, area, foto_url, app_activo')
+      .select('id, nombre, puesto, area, foto_url, app_activo, mantenimiento_app')
       .eq('auth_user_id', userId)
       .maybeSingle()
     setEmployee(data as Employee | null)
@@ -94,8 +95,8 @@ export default function ObraApp() {
       <Route path="/mis-obras/:obraId" element={<DetalleObraPage />} />
       <Route path="/reportes" element={<ReportesPage employeeId={employee.id} />} />
       <Route path="/reportes/nuevo" element={<SubirReportePage employeeId={employee.id} />} />
-      <Route path="/visitas" element={<MisVisitasPage employeeId={employee.id} />} />
-      <Route path="/visita/:visitId" element={<DetalleVisitaPage />} />
+      {employee.mantenimiento_app && <Route path="/visitas" element={<MisVisitasPage employeeId={employee.id} />} />}
+      {employee.mantenimiento_app && <Route path="/visita/:visitId" element={<DetalleVisitaPage />} />}
       <Route path="/mi-asistencia" element={<MiAsistenciaPage employeeId={employee.id} />} />
       <Route path="/caja-chica" element={<CajaChicaPage employeeId={employee.id} />} />
       <Route path="/ausencias" element={<AusenciasPage employeeId={employee.id} />} />

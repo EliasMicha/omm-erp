@@ -15,6 +15,7 @@ interface Employee {
   puesto: string | null
   area: string | null
   foto_url: string | null
+  mantenimiento_app?: boolean | null
 }
 
 interface Obra {
@@ -72,14 +73,16 @@ export default function HomePage({ employee, onLogout }: { employee: Employee; o
       .order('hora', { ascending: true })
     setTodayAttendance((att as AttendanceRecord[]) || [])
 
-    // Visitas de mantenimiento pendientes (hoy en adelante)
-    const { count: vCount } = await supabase
-      .from('maintenance_visits')
-      .select('id', { count: 'exact', head: true })
-      .eq('technician_id', employee.id)
-      .gte('visit_date', today)
-      .not('status', 'in', '("completada","cancelada")')
-    setVisitasPendientes(vCount || 0)
+    // Visitas de mantenimiento pendientes (solo si tiene acceso a la sección)
+    if (employee.mantenimiento_app) {
+      const { count: vCount } = await supabase
+        .from('maintenance_visits')
+        .select('id', { count: 'exact', head: true })
+        .eq('technician_id', employee.id)
+        .gte('visit_date', today)
+        .not('status', 'in', '("completada","cancelada")')
+      setVisitasPendientes(vCount || 0)
+    }
 
     setLoading(false)
   }
@@ -188,7 +191,7 @@ export default function HomePage({ employee, onLogout }: { employee: Employee; o
     'CHECAR ENTRADA'
 
   const tiles = [
-    { icon: Wrench, label: 'Mis visitas', hint: 'Mantenimiento', path: '/obra-app/visitas', color: '#06b6d4', badge: visitasPendientes },
+    ...(employee.mantenimiento_app ? [{ icon: Wrench, label: 'Mis visitas', hint: 'Mantenimiento', path: '/obra-app/visitas', color: '#06b6d4', badge: visitasPendientes }] : []),
     { icon: FileText, label: 'Reportes', hint: 'Subir nuevo', path: '/obra-app/reportes', color: '#10B981' },
     { icon: Calendar, label: 'Mi semana', hint: 'Planeación', path: '/obra-app/mi-semana', color: '#3b82f6' },
     { icon: Package2, label: 'Mis obras', hint: 'Materiales y docs', path: '/obra-app/mis-obras', color: '#a78bfa' },

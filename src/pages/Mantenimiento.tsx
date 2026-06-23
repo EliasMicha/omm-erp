@@ -132,6 +132,7 @@ interface Technician {
   name: string | null
   area: string | null
   foto_url: string | null
+  mantenimiento_app?: boolean | null
 }
 
 function techName(t: Technician | undefined | null): string {
@@ -371,6 +372,7 @@ export default function Mantenimiento() {
   const [showSchedule, setShowSchedule] = useState(false)
   const [showGenerador, setShowGenerador] = useState(false)
   const [showFromLead, setShowFromLead] = useState(false)
+  const [showEquipo, setShowEquipo] = useState(false)
 
   // Filters
   const [searchProp, setSearchProp] = useState('')
@@ -388,7 +390,7 @@ export default function Mantenimiento() {
       supabase.from('maintenance_contracts').select('*').order('end_date', { ascending: false }),
       supabase.from('maintenance_visits').select('*').order('visit_date', { ascending: false }),
       supabase.from('maintenance_upsell').select('*').order('created_at', { ascending: false }),
-      supabase.from('employees').select('id, nombre, name, area, foto_url, activo').eq('activo', true).order('nombre'),
+      supabase.from('employees').select('id, nombre, name, area, foto_url, activo, mantenimiento_app').eq('activo', true).order('nombre'),
       supabase.from('maintenance_equipment').select('id, property_id, marca, modelo, garantia_fin'),
     ])
     setProperties(pRes.data || [])
@@ -530,6 +532,7 @@ export default function Mantenimiento() {
           visits={visits} propMap={propMap} techMap={techMap}
           onOpenProperty={id => setSelectedPropertyId(id)}
           onSchedule={() => setShowSchedule(true)}
+          onEquipo={() => setShowEquipo(true)}
           isMobile={isMobile}
         />
       )}
@@ -574,6 +577,9 @@ export default function Mantenimiento() {
       )}
       {showFromLead && (
         <CreateFromLeadModal onClose={() => setShowFromLead(false)} onCreated={() => { setShowFromLead(false); loadAll() }} />
+      )}
+      {showEquipo && (
+        <EquipoCampoModal onClose={() => setShowEquipo(false)} onUpdated={loadAll} />
       )}
       {showNewTicket && (
         <NewTicketModal properties={properties} onClose={() => setShowNewTicket(false)} onCreated={() => { setShowNewTicket(false); loadAll() }} />
@@ -2244,6 +2250,84 @@ function NewPropertyModal({ onClose, onCreated }: { onClose: () => void; onCreat
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// MODAL: EQUIPO DE CAMPO (quién ve la sección de Mantenimiento en la app)
+// ═══════════════════════════════════════════════════════════════════════════
+
+interface EmpRow { id: string; nombre: string | null; name: string | null; area: string | null; foto_url: string | null; mantenimiento_app: boolean | null; app_activo: boolean | null }
+
+function EquipoCampoModal({ onClose, onUpdated }: { onClose: () => void; onUpdated: () => void }) {
+  const [emps, setEmps] = useState<EmpRow[]>([])
+  const [loading, setLoading] = useState(true)
+  const [search, setSearch] = useState('')
+  const [dirty, setDirty] = useState(false)
+
+  async function load() {
+    setLoading(true)
+    const { data } = await supabase.from('employees')
+      .select('id, nombre, name, area, foto_url, mantenimiento_app, app_activo')
+      .eq('activo', true).order('nombre')
+    setEmps((data as EmpRow[]) || [])
+    setLoading(false)
+  }
+  useEffect(() => { load() }, [])
+
+  async function toggle(id: string, val: boolean) {
+    setEmps(es => es.map(e => e.id === id ? { ...e, mantenimiento_app: val } : e))
+    setDirty(true)
+    await supabase.from('employees').update({ mantenimiento_app: val }).eq('id', id)
+  }
+
+  function close() { if (dirty) onUpdated(); onClose() }
+
+  const filtered = emps.filter(e => {
+    if (!search) return true
+    const q = search.toLowerCase()
+    return (e.nombre || e.name || '').toLowerCase().includes(q) || (e.area || '').toLowerCase().includes(q)
+  })
+  const activos = emps.filter(e => e.mantenimiento_app).length
+
+  return (
+    <ModalShell title="Equipo de campo · Mantenimiento" onClose={close} width={520}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div style={{ fontSize: 12, color: '#888' }}>
+          Solo los empleados activados aquí verán la sección de visitas de Mantenimiento en la app de campo y podrán recibir visitas asignadas. <b style={{ color: '#10B981' }}>{activos}</b> con acceso.
+        </div>
+        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar empleado..." style={inputStyle} />
+        {loading ? <Loading /> : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 360, overflowY: 'auto' }}>
+            {filtered.map(e => {
+              const on = !!e.mantenimiento_app
+              return (
+                <div key={e.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', background: '#0f0f0f', border: '1px solid #1a1a1a', borderRadius: 10 }}>
+                  <div style={{ width: 30, height: 30, borderRadius: 15, background: '#1a1a1a', overflow: 'hidden', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, color: '#888' }}>
+                    {e.foto_url ? <img src={e.foto_url} style={{ width: '100%', height: '100%', objectFit: 'cover' }} alt="" /> : (e.nombre || e.name || '?').slice(0, 1)}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, color: '#fff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{e.nombre || e.name || 'Empleado'}</div>
+                    <div style={{ fontSize: 10, color: '#666' }}>
+                      {e.area || 'Sin área'}{on && !e.app_activo ? ' · ⚠ sin acceso app' : ''}
+                    </div>
+                  </div>
+                  <button onClick={() => toggle(e.id, !on)} style={{
+                    width: 44, height: 24, borderRadius: 12, border: 'none', cursor: 'pointer', position: 'relative',
+                    background: on ? '#10B981' : '#333', transition: 'background 0.15s', flexShrink: 0,
+                  }}>
+                    <span style={{ position: 'absolute', top: 2, left: on ? 22 : 2, width: 20, height: 20, borderRadius: 10, background: '#fff', transition: 'left 0.15s' }} />
+                  </button>
+                </div>
+              )
+            })}
+          </div>
+        )}
+        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+          <Btn variant="primary" onClick={close}>Listo</Btn>
+        </div>
+      </div>
+    </ModalShell>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // MODAL: CREAR PROPIEDAD DESDE LEAD
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -2749,12 +2833,13 @@ function fmtHora(t: string | null): string {
   return t.slice(0, 5)
 }
 
-function TabAgenda({ visits, propMap, techMap, onOpenProperty, onSchedule, isMobile }: {
+function TabAgenda({ visits, propMap, techMap, onOpenProperty, onSchedule, onEquipo, isMobile }: {
   visits: Visit[]
   propMap: Record<string, Property>
   techMap: Record<string, Technician>
   onOpenProperty: (id: string) => void
   onSchedule: () => void
+  onEquipo: () => void
   isMobile: boolean
 }) {
   const today = new Date().toISOString().slice(0, 10)
@@ -2820,7 +2905,10 @@ function TabAgenda({ visits, propMap, techMap, onOpenProperty, onSchedule, isMob
           <KpiCard label="Próximas" value={String(upcoming.length)} />
           <KpiCard label="Hoy" value={String(upcoming.filter(v => v.visit_date === today).length)} />
         </div>
-        <Btn variant="primary" onClick={onSchedule}><Plus size={14} /> Programar visita</Btn>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <Btn onClick={onEquipo}><Users size={14} /> Equipo</Btn>
+          <Btn variant="primary" onClick={onSchedule}><Plus size={14} /> Programar visita</Btn>
+        </div>
       </div>
 
       {upcoming.length === 0 && (
@@ -2923,8 +3011,11 @@ function ProgramarVisitaModal({ properties, tickets, contracts, technicians, onC
           Técnico asignado *
           <select value={form.technician_id} onChange={e => set('technician_id')(e.target.value)} style={{ ...selectStyle, marginTop: 4 }}>
             <option value="">Selecciona técnico...</option>
-            {technicians.map(t => <option key={t.id} value={t.id}>{techName(t)}{t.area ? ` (${t.area})` : ''}</option>)}
+            {technicians.filter(t => t.mantenimiento_app).map(t => <option key={t.id} value={t.id}>{techName(t)}{t.area ? ` (${t.area})` : ''}</option>)}
           </select>
+          {technicians.filter(t => t.mantenimiento_app).length === 0 && (
+            <span style={{ fontSize: 10, color: '#D97706', marginTop: 4 }}>Nadie tiene acceso a Mantenimiento aún. Actívalos en "Equipo" (tab Agenda).</span>
+          )}
         </label>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
@@ -2975,7 +3066,7 @@ function AddVisitModal({ ticketId, propertyId, contractId, onClose, onCreated }:
   const [error, setError] = useState('')
 
   useEffect(() => {
-    supabase.from('employees').select('id, nombre, name, area, foto_url, activo').eq('activo', true).order('nombre')
+    supabase.from('employees').select('id, nombre, name, area, foto_url, activo, mantenimiento_app').eq('activo', true).eq('mantenimiento_app', true).order('nombre')
       .then(({ data }) => setTechnicians((data as Technician[]) || []))
   }, [])
 
