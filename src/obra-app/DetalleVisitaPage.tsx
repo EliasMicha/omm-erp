@@ -5,8 +5,9 @@ import { getCurrentPosition } from './lib/geolocation'
 import {
   ArrowLeft, MapPin, Phone, Clock, Loader2, Camera, X, Send,
   CheckCircle2, AlertCircle, Navigation, Wrench, User, Truck,
-  Sparkles, DollarSign, Ticket
+  Sparkles, DollarSign, Ticket, FileText, PenLine
 } from 'lucide-react'
+import { OMNIIOUS_LOGO } from '../assets/logo'
 
 interface Property {
   id: string
@@ -45,6 +46,8 @@ interface Visit {
   amount_charged: number | null
   report: any
   photos: string[]
+  notes: string | null
+  signature_url: string | null
   property?: Property | null
   ticket?: TicketInfo | null
 }
@@ -68,9 +71,13 @@ export default function DetalleVisitaPage() {
   const [partsUsed, setPartsUsed] = useState('')
   const [observaciones, setObservaciones] = useState('')
   const [recomendacion, setRecomendacion] = useState('')
+  const [siguientesPasos, setSiguientesPasos] = useState('')
+  const [resuelto, setResuelto] = useState(false)
+  const [sigData, setSigData] = useState<string | null>(null)
   const [billable, setBillable] = useState(false)
   const [amount, setAmount] = useState('')
   const [photos, setPhotos] = useState<File[]>([])
+  const [pdfBusy, setPdfBusy] = useState(false)
   const photoInputRef = useRef<HTMLInputElement>(null)
 
   const load = async () => {
@@ -95,6 +102,8 @@ export default function DetalleVisitaPage() {
       setPartsUsed(v.parts_used || '')
       setObservaciones(v.report?.observaciones || '')
       setRecomendacion(v.report?.recomendacion || '')
+      setSiguientesPasos(v.report?.siguientes_pasos || '')
+      setResuelto(!!v.report?.resuelto)
       setBillable(v.billable || false)
       setAmount(v.amount_charged ? String(v.amount_charged) : '')
     }
@@ -162,10 +171,21 @@ export default function DetalleVisitaPage() {
         photoPaths.push(path)
       }
 
+      // Subir firma del cliente (si firmó)
+      let signaturePath: string | null = (visit as any).signature_url || null
+      if (sigData) {
+        const blob = await (await fetch(sigData)).blob()
+        const sigPath = `${visit.id}/firma_${Date.now()}.png`
+        const { error: sigErr } = await supabase.storage.from('mantenimiento-evidencias').upload(sigPath, blob, { contentType: 'image/png', upsert: true })
+        if (!sigErr) signaturePath = sigPath
+      }
+
       const now = new Date().toISOString()
       const report = {
         observaciones: observaciones.trim() || null,
         recomendacion: recomendacion.trim() || null,
+        siguientes_pasos: siguientesPasos.trim() || null,
+        resuelto,
       }
       const { error } = await supabase.from('maintenance_visits').update({
         status: 'completada',
@@ -177,6 +197,7 @@ export default function DetalleVisitaPage() {
         amount_charged: billable && amount ? parseFloat(amount) : null,
         report,
         photos: photoPaths,
+        signature_url: signaturePath,
         updated_at: now,
       }).eq('id', visit.id)
       if (error) throw new Error(error.message)
@@ -208,12 +229,45 @@ export default function DetalleVisitaPage() {
         })
       }
 
-      flash(true, 'Visita completada')
-      setTimeout(() => navigate('/obra-app/visitas'), 1400)
+      setBusy('')
+      flash(true, 'Visita completada. Ya puedes descargar el reporte.')
+      load()
     } catch (e: any) {
       setBusy('')
       flash(false, e.message || 'Error al completar')
     }
+  }
+
+  function fileToDataUrl(f: File): Promise<string> {
+    return new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result as string); r.onerror = rej; r.readAsDataURL(f) })
+  }
+
+  async function downloadReport() {
+    if (!visit) return
+    setPdfBusy(true)
+    try {
+      // Fotos: usar las locales recién tomadas; si no hay, firmar URLs del storage
+      let photoSrcs: string[] = []
+      if (photos.length > 0) photoSrcs = await Promise.all(photos.map(fileToDataUrl))
+      else if (visit.photos?.length) {
+        const { data } = await supabase.storage.from('mantenimiento-evidencias').createSignedUrls(visit.photos, 3600)
+        photoSrcs = (data || []).map((d: any) => d.signedUrl).filter(Boolean)
+      }
+      // Firma
+      let sigSrc = sigData
+      if (!sigSrc && visit.signature_url) {
+        const { data } = await supabase.storage.from('mantenimiento-evidencias').createSignedUrl(visit.signature_url, 3600)
+        sigSrc = data?.signedUrl || null
+      }
+      const queja = visit.ticket ? [visit.ticket.subject, visit.ticket.description].filter(Boolean).join(' — ') : (visit.notes || '')
+      const html = buildServiceReportHtml({
+        visit, prop: visit.property, queja,
+        hallazgos: observaciones, siguientesPasos, resuelto,
+        workPerformed, partsUsed, billable, amount, photoSrcs, sigSrc,
+      })
+      const w = window.open('', '_blank')
+      if (w) { w.document.write(html); w.document.close() }
+    } finally { setPdfBusy(false) }
   }
 
   if (loading) {
@@ -370,9 +424,28 @@ export default function DetalleVisitaPage() {
       <input value={partsUsed} onChange={e => setPartsUsed(e.target.value)} disabled={done}
         placeholder="Ej. 2 sensores, 1 fuente..." style={{ ...inputStyle, minHeight: 0 }} />
 
-      <label style={lbl}>Observaciones / levantamiento</label>
+      <label style={lbl}>Hallazgos / levantamiento</label>
       <textarea value={observaciones} onChange={e => setObservaciones(e.target.value)} disabled={done}
-        placeholder="Estado del sistema, hallazgos, pendientes..." rows={2} style={inputStyle} />
+        placeholder="Estado del sistema, qué encontraste, diagnóstico..." rows={2} style={inputStyle} />
+
+      {/* Resultado */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+        <button onClick={() => !done && setResuelto(true)} disabled={done}
+          style={resultBtn(resuelto, '#10B981')}>
+          <CheckCircle2 size={14} /> Problema resuelto
+        </button>
+        <button onClick={() => !done && setResuelto(false)} disabled={done}
+          style={resultBtn(!resuelto, '#f59e0b')}>
+          <Clock size={14} /> Requiere seguimiento
+        </button>
+      </div>
+      {!resuelto && (
+        <>
+          <label style={lbl}>Siguientes pasos</label>
+          <textarea value={siguientesPasos} onChange={e => setSiguientesPasos(e.target.value)} disabled={done}
+            placeholder="¿Qué falta? ¿Qué se debe hacer en una próxima visita?" rows={2} style={inputStyle} />
+        </>
+      )}
 
       <label style={{ ...lbl, color: '#a78bfa' }}>
         <Sparkles size={11} style={{ verticalAlign: -1 }} /> Recomendación de venta (opcional)
@@ -422,6 +495,14 @@ export default function DetalleVisitaPage() {
         )}
       </div>
 
+      {/* Firma del cliente */}
+      <label style={lbl}><PenLine size={11} style={{ verticalAlign: -1 }} /> Firma del cliente</label>
+      {done && visit.signature_url && !sigData ? (
+        <SignedImage path={visit.signature_url} />
+      ) : (
+        <SignaturePad onChange={setSigData} disabled={done} />
+      )}
+
       {msg && (
         <div style={{
           padding: 12, marginBottom: 14, borderRadius: 10,
@@ -446,6 +527,23 @@ export default function DetalleVisitaPage() {
         </button>
       )}
 
+      {done && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <button onClick={downloadReport} disabled={pdfBusy} style={{
+            width: '100%', padding: 18, background: '#10B981', color: '#0a0a0a', border: 'none',
+            borderRadius: 14, fontSize: 16, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
+          }}>
+            {pdfBusy ? <Loader2 size={18} className="spin" /> : <FileText size={18} />}
+            {pdfBusy ? 'Generando...' : 'Descargar reporte de servicio (PDF)'}
+          </button>
+          <button onClick={() => navigate('/obra-app/visitas')} style={{
+            width: '100%', padding: 14, background: 'transparent', color: '#888', border: '1px solid #1f1f1f',
+            borderRadius: 12, fontSize: 14, cursor: 'pointer', fontFamily: 'inherit',
+          }}>Volver a mis visitas</button>
+        </div>
+      )}
+
       <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } } .spin { animation: spin 1s linear infinite; }`}</style>
     </div>
   )
@@ -468,4 +566,142 @@ function actionLink(color: string): React.CSSProperties {
 }
 function progressBtn(doneState: boolean, color: string): React.CSSProperties {
   return { flex: 1, padding: '13px', background: doneState ? color + '18' : '#0f0f0f', border: `1px solid ${doneState ? color + '55' : '#1f1f1f'}`, borderRadius: 12, color: doneState ? color : '#ccc', fontSize: 13, fontWeight: 600, cursor: doneState ? 'default' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, fontFamily: 'inherit' }
+}
+function resultBtn(active: boolean, color: string): React.CSSProperties {
+  return { flex: 1, padding: '11px', background: active ? color + '20' : '#0f0f0f', border: `1px solid ${active ? color : '#1f1f1f'}`, borderRadius: 10, color: active ? color : '#888', fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontFamily: 'inherit' }
+}
+
+// ── Firma del cliente (canvas) ──
+function SignaturePad({ onChange, disabled }: { onChange: (d: string | null) => void; disabled?: boolean }) {
+  const ref = useRef<HTMLCanvasElement>(null)
+  const drawing = useRef(false)
+  const hasDrawn = useRef(false)
+  useEffect(() => {
+    const c = ref.current; if (!c) return
+    const ctx = c.getContext('2d')!; ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height)
+  }, [])
+  function getPos(e: React.PointerEvent) {
+    const c = ref.current!; const r = c.getBoundingClientRect()
+    return { x: (e.clientX - r.left) * (c.width / r.width), y: (e.clientY - r.top) * (c.height / r.height) }
+  }
+  function down(e: React.PointerEvent) {
+    if (disabled) return
+    drawing.current = true
+    const ctx = ref.current!.getContext('2d')!; const p = getPos(e)
+    ctx.beginPath(); ctx.moveTo(p.x, p.y)
+    try { (e.target as Element).setPointerCapture(e.pointerId) } catch {}
+  }
+  function move(e: React.PointerEvent) {
+    if (!drawing.current) return
+    const ctx = ref.current!.getContext('2d')!; const p = getPos(e)
+    ctx.lineTo(p.x, p.y); ctx.strokeStyle = '#111'; ctx.lineWidth = 2.5; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.stroke()
+    hasDrawn.current = true
+  }
+  function up() {
+    if (!drawing.current) return
+    drawing.current = false
+    if (hasDrawn.current) onChange(ref.current!.toDataURL('image/png'))
+  }
+  function clear() {
+    const c = ref.current!; const ctx = c.getContext('2d')!
+    ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height)
+    hasDrawn.current = false; onChange(null)
+  }
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <canvas ref={ref} width={560} height={170}
+        onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerLeave={up}
+        style={{ width: '100%', height: 'auto', background: '#fff', borderRadius: 10, border: '1px solid #1f1f1f', touchAction: 'none', display: 'block', opacity: disabled ? 0.5 : 1 }} />
+      {!disabled && (
+        <button onClick={clear} style={{ marginTop: 6, background: 'transparent', border: '1px solid #1f1f1f', borderRadius: 8, padding: '6px 12px', color: '#888', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit' }}>Limpiar firma</button>
+      )}
+    </div>
+  )
+}
+
+function SignedImage({ path }: { path: string }) {
+  const [url, setUrl] = useState<string | null>(null)
+  useEffect(() => {
+    supabase.storage.from('mantenimiento-evidencias').createSignedUrl(path, 3600).then(({ data }) => setUrl(data?.signedUrl || null))
+  }, [path])
+  if (!url) return <div style={{ ...inputStyle, height: 80, marginBottom: 14 }} />
+  return <img src={url} alt="firma" style={{ width: '100%', maxHeight: 170, objectFit: 'contain', background: '#fff', borderRadius: 10, marginBottom: 14, border: '1px solid #1f1f1f' }} />
+}
+
+// ── PDF Reporte de servicio (estilo idéntico al oficial: logo OMNIIOUS, B/N) ──
+function escR(s: any): string { return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') }
+function fmtDT(iso: string | null): string {
+  if (!iso) return '—'
+  try { return new Date(iso).toLocaleString('es-MX', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' }) } catch { return '—' }
+}
+
+function buildServiceReportHtml(d: any): string {
+  const { visit, prop, queja, hallazgos, siguientesPasos, resuelto, workPerformed, partsUsed, billable, amount, photoSrcs, sigSrc } = d
+  const folio = 'RS-' + String(visit.id).slice(0, 8).toUpperCase()
+  const costo = billable && amount ? `$${Math.round(parseFloat(amount)).toLocaleString('es-MX')} MXN + IVA`
+    : visit.contract_id ? 'Sin costo — cubierto por póliza de mantenimiento' : 'Sin costo'
+  const fotos = (photoSrcs || []).map((s: string) => `<img src="${s}" />`).join('')
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Reporte de servicio ${folio}</title>
+  <style>
+    @page { size: A4; margin: 14mm 12mm; }
+    * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; color: #111; margin: 0 auto; padding: 28px 40px; max-width: 860px; font-size: 11px; line-height: 1.5; }
+    .hdr { border-bottom: 2px solid #111; padding-bottom: 16px; margin-bottom: 18px; display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; }
+    .hdr img.logo { height: 60px; width: auto; object-fit: contain; }
+    .badge { display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 10px; font-weight: 700; }
+    .ok { background: #e7f8ef; color: #0a7a45; border: 1px solid #0a7a4533; }
+    .pend { background: #fff4e5; color: #b25e00; border: 1px solid #b25e0033; }
+    h1 { font-size: 18px; margin: 0 0 10px; font-weight: 600; }
+    h2 { font-size: 12px; margin: 16px 0 6px; font-weight: 600; padding-bottom: 4px; border-bottom: 1px solid #ddd; text-transform: uppercase; letter-spacing: 0.04em; color: #444; }
+    .data td { padding: 3px 12px 3px 0; font-size: 10px; }
+    .data .k { color: #888; width: 130px; }
+    .box { font-size: 11px; color: #333; line-height: 1.6; background: #f7f7f7; border: 1px solid #eee; border-radius: 6px; padding: 10px 12px; white-space: pre-line; }
+    .fotos { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+    .fotos img { width: 100%; height: 130px; object-fit: cover; border-radius: 6px; border: 1px solid #eee; }
+    .costo { font-size: 15px; font-weight: 700; }
+    .firma { margin-top: 8px; }
+    .firma img { max-height: 150px; max-width: 320px; object-fit: contain; display: block; }
+    .firma .line { border-top: 1px solid #111; width: 320px; margin-top: 4px; padding-top: 4px; font-size: 10px; color: #555; }
+    .foot { margin-top: 22px; padding-top: 10px; border-top: 1px solid #eee; font-size: 9px; color: #999; }
+    @media print { button { display: none; } }
+  </style></head><body>
+  <button onclick="window.print()" style="position:fixed;top:14px;right:14px;padding:8px 14px;background:#10B981;color:#000;border:none;border-radius:6px;cursor:pointer;font-weight:600">Imprimir / PDF</button>
+  <div class="hdr">
+    <img class="logo" src="${OMNIIOUS_LOGO}" alt="OMNIIOUS" />
+    <div style="text-align:right">
+      <div class="eyebrow" style="font-size:9px;color:#999;text-transform:uppercase;letter-spacing:.08em">Reporte de servicio · Mantenimiento</div>
+      <div style="font-weight:600;font-size:13px">${folio}</div>
+      <div style="margin-top:6px">${resuelto ? '<span class="badge ok">PROBLEMA RESUELTO</span>' : '<span class="badge pend">REQUIERE SEGUIMIENTO</span>'}</div>
+    </div>
+  </div>
+
+  <h1>${escR(prop?.name || 'Servicio de mantenimiento')}</h1>
+  <table class="data"><tbody>
+    <tr><td class="k">Cliente</td><td style="font-weight:600">${escR(prop?.client_name || '—')}</td><td class="k">Atendido</td><td>${fmtDT(visit.completed_at || visit.arrived_at)}</td></tr>
+    <tr><td class="k">Dirección</td><td>${escR(prop?.address || '—')}${prop?.city ? ', ' + escR(prop.city) : ''}</td><td class="k">Técnico</td><td>${escR(visit.technician || '—')}</td></tr>
+  </tbody></table>
+
+  ${queja ? `<h2>Queja / motivo reportado</h2><div class="box">${escR(queja)}</div>` : ''}
+
+  <h2>Trabajo realizado</h2>
+  <div class="box">${escR(workPerformed || '—')}${partsUsed ? `\n\nRefacciones / material: ${escR(partsUsed)}` : ''}</div>
+
+  ${hallazgos ? `<h2>Hallazgos / diagnóstico</h2><div class="box">${escR(hallazgos)}</div>` : ''}
+
+  <h2>${resuelto ? 'Resultado' : 'Siguientes pasos'}</h2>
+  <div class="box">${resuelto ? '✔ El problema fue resuelto durante esta visita.' : escR(siguientesPasos || 'Pendiente de definir siguientes pasos.')}</div>
+
+  ${fotos ? `<h2>Evidencia fotográfica</h2><div class="fotos">${fotos}</div>` : ''}
+
+  <h2>Costo del servicio</h2>
+  <div class="costo">${escR(costo)}</div>
+
+  <h2>Conformidad del cliente</h2>
+  <div class="firma">
+    ${sigSrc ? `<img src="${sigSrc}" alt="firma" />` : '<div style="height:90px"></div>'}
+    <div class="line">Firma de conformidad — ${escR(prop?.client_name || 'Cliente')}</div>
+  </div>
+
+  <div class="foot">OMM Technologies S.A. de C.V. · Reporte de servicio de mantenimiento. Este documento hace constar la atención realizada en sitio.</div>
+  </body></html>`
 }
