@@ -1,6 +1,22 @@
 import { useState, useMemo } from 'react'
 import { supabase } from '../lib/supabase'
 import { X, FileText, Check, Loader2 } from 'lucide-react'
+import { OMNIIOUS_LOGO } from '../assets/logo'
+
+// Datos OMM compartidos con el PDF oficial de cotizaciones (localStorage 'omm_pdf_header')
+const OMM_PDF_DEFAULTS = {
+  razonSocial: 'OMM Technologies SA de CV', rfc: '[RFC PENDIENTE]', domicilio: '[Dirección fiscal pendiente]',
+  codigoPostal: '[CP]', ciudad: 'Ciudad de México, México', telefono: '[Teléfono pendiente]',
+  email: '[email pendiente]', web: 'www.ommtechnologies.mx',
+}
+function readOmmHeader() {
+  try { const s = localStorage.getItem('omm_pdf_header'); return s ? { ...OMM_PDF_DEFAULTS, ...JSON.parse(s) } : OMM_PDF_DEFAULTS } catch { return OMM_PDF_DEFAULTS }
+}
+const POLIZA_BANCOS_MXN = [
+  { banco: 'BBVA', cuenta: '0118270236', clabe: '' },
+  { banco: 'Banorte', cuenta: '1263311182', clabe: '' },
+]
+function escP(s: any): string { return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') }
 
 // ── Catálogos de factores (de la hoja "Listas" del generador Excel) ──
 const TIPO_PROYECTO = [
@@ -367,61 +383,114 @@ const TYC = `<b>TÉRMINOS Y CONDICIONES GENERALES DE LA PÓLIZA DE MANTENIMIENTO
 
 function buildProposalHtml(d: any): string {
   const { property, planes, calc, sel, selCalc, paymentPlan, valorNum, foranea, factores } = d
+  const omm = readOmmHeader()
   const fmtL = (n: number) => '$' + Math.round(n).toLocaleString('es-MX')
   const pctL = (n: number) => (n * 100).toFixed(2) + '%'
-  const hoy = new Date().toLocaleDateString('es-MX', { day: '2-digit', month: 'long', year: 'numeric' })
-  const planCols = planes.map((p: PlanDef) => `<th>${p.label}</th>`).join('')
-  const rowF = (label: string, vals: string[]) => `<tr><td class="l">${label}</td>${vals.map(v => `<td>${v}</td>`).join('')}</tr>`
-  return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Póliza de Mantenimiento — ${property?.name || ''}</title>
+  const hoy = new Date().toLocaleDateString('es-MX', { year: 'numeric', month: 'long', day: 'numeric' })
+  const vig = new Date(Date.now() + 365 * 864e5).toLocaleDateString('es-MX', { year: 'numeric', month: 'long', day: 'numeric' })
+  const planCols = planes.map((p: PlanDef) => `<th style="text-align:right">${escP(p.label)}</th>`).join('')
+  const rowF = (label: string, vals: string[]) => `<tr><td class="l">${label}</td>${vals.map((v, i) => `<td style="text-align:right${planes[i].key === sel.key ? ';background:#f3faf6;font-weight:600' : ''}">${v}</td>`).join('')}</tr>`
+  const bancoRows = POLIZA_BANCOS_MXN.map(b => `<tr><td style="padding:4px 6px;border-bottom:1px solid #eee">${escP(b.banco)}</td><td style="padding:4px 6px;border-bottom:1px solid #eee">${escP(b.cuenta)}</td><td style="padding:4px 6px;border-bottom:1px solid #eee">${b.clabe ? escP(b.clabe) : '—'}</td></tr>`).join('')
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Póliza de Mantenimiento — ${escP(property?.name || '')}</title>
   <style>
-    *{box-sizing:border-box} body{font-family:Arial,Helvetica,sans-serif;color:#111;margin:0;padding:32px;font-size:12px}
-    h1{font-size:18px;text-align:center;letter-spacing:1px;border-bottom:3px solid #10B981;padding-bottom:10px}
-    .meta{display:grid;grid-template-columns:1fr 1fr;gap:4px 24px;margin:16px 0;font-size:12px}
-    .meta b{color:#555}
-    table{width:100%;border-collapse:collapse;margin:14px 0}
-    th,td{border:1px solid #ccc;padding:6px 8px;text-align:center}
-    th{background:#10B981;color:#fff} td.l{text-align:left;background:#f5f5f5;font-weight:600}
-    .sel{background:#eafff4}
-    .totals{margin-top:16px;width:60%;margin-left:auto}
-    .totals td{text-align:right} .totals td.k{text-align:left;font-weight:600;background:#f5f5f5}
-    .tyc{font-size:9.5px;line-height:1.5;white-space:pre-line;margin-top:18px;border-top:1px solid #ccc;padding-top:12px;color:#333}
-    .sign{display:flex;justify-content:space-around;margin-top:48px;text-align:center}
-    .sign div{border-top:1px solid #333;padding-top:6px;width:40%;font-size:11px}
-    @media print{button{display:none}}
+    @page { size: A4; margin: 14mm 12mm; }
+    * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; color: #111; margin: 0 auto; padding: 28px 40px; max-width: 860px; font-size: 11px; line-height: 1.5; }
+    .hdr { border-bottom: 2px solid #111; padding-bottom: 16px; margin-bottom: 18px; display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; }
+    .hdr img { height: 64px; width: auto; object-fit: contain; }
+    .omm { text-align: right; font-size: 9px; color: #555; line-height: 1.6; }
+    .omm b { color: #111; font-size: 11px; }
+    .eyebrow { font-size: 9px; color: #999; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 3px; }
+    h1 { font-size: 18px; margin: 0 0 10px; font-weight: 600; }
+    h2 { font-size: 13px; margin: 0 0 8px; font-weight: 600; padding-bottom: 4px; border-bottom: 1px solid #ddd; }
+    .data td { padding: 3px 12px 3px 0; font-size: 10px; }
+    .data .k { color: #888; width: 130px; }
+    .sec { margin-bottom: 18px; }
+    .box { font-size: 11px; color: #333; }
+    table.cmp { width: 100%; border-collapse: collapse; }
+    table.cmp th { background: #f5f5f5; padding: 6px 8px; font-size: 9px; text-transform: uppercase; letter-spacing: 0.04em; color: #666; font-weight: 600; border-bottom: 1px solid #ddd; }
+    table.cmp td { padding: 5px 8px; border-bottom: 1px solid #eee; font-size: 10px; }
+    table.cmp td.l { text-align: left; color: #666; }
+    .totals { width: 60%; margin-left: auto; margin-top: 6px; }
+    .totals td { padding: 4px 8px; font-size: 11px; text-align: right; }
+    .totals td.k { text-align: left; color: #888; }
+    .totals tr.total td { border-top: 1px solid #111; font-weight: 700; font-size: 13px; color: #111; padding-top: 6px; }
+    .tyc { font-size: 9px; line-height: 1.55; white-space: pre-line; color: #444; }
+    .sign { display: flex; justify-content: space-around; margin-top: 44px; text-align: center; }
+    .sign div { border-top: 1px solid #333; padding-top: 6px; width: 40%; font-size: 10px; color: #444; }
+    .foot { margin-top: 18px; padding-top: 10px; border-top: 1px solid #eee; font-size: 9px; color: #999; }
+    @media print { button { display: none; } }
   </style></head><body>
-  <button onclick="window.print()" style="float:right;padding:8px 14px;background:#10B981;color:#fff;border:none;border-radius:6px;cursor:pointer">Imprimir / PDF</button>
-  <h1>PÓLIZA DE MANTENIMIENTO ANUAL</h1>
-  <div class="meta">
-    <div><b>PROYECTO:</b> ${property?.name || '—'}</div><div><b>FECHA:</b> ${hoy}</div>
-    <div><b>CLIENTE:</b> ${property?.client_name || '—'}</div><div><b>DIRECCIÓN:</b> ${property?.address || '—'}${property?.city ? ', ' + property.city : ''}</div>
-    <div><b>VALOR DEL PROYECTO:</b> ${fmtL(valorNum)}</div><div><b>UBICACIÓN FORÁNEA:</b> ${foranea ? 'Sí' : 'No'}</div>
-    <div><b>TIPO DE OBRA:</b> ${factores.fTipo}</div><div><b>SISTEMAS:</b> ${factores.fSistemas}</div>
-    <div><b>ANTIGÜEDAD:</b> ${factores.fAntiguedad}</div><div><b>VENDEDOR:</b> Elias Gabriel Micha Cohen</div>
+  <button onclick="window.print()" style="position:fixed;top:14px;right:14px;padding:8px 14px;background:#10B981;color:#000;border:none;border-radius:6px;cursor:pointer;font-weight:600">Imprimir / PDF</button>
+
+  <div class="hdr">
+    <img src="${OMNIIOUS_LOGO}" alt="OMNIIOUS" />
+    <div class="omm">
+      <b>${escP(omm.razonSocial)}</b>
+      <div>RFC: ${escP(omm.rfc)}</div>
+      <div>${escP(omm.domicilio)}</div>
+      <div>${escP(omm.codigoPostal)} · ${escP(omm.ciudad)}</div>
+      <div>${escP(omm.telefono)} · ${escP(omm.email)}</div>
+      <div>${escP(omm.web)}</div>
+    </div>
   </div>
-  <table>
-    <thead><tr><th class="l">RESUMEN DE PLANES</th>${planCols}</tr></thead>
-    <tbody>
-      ${rowF('Visitas preventivas/año', planes.map((p: PlanDef) => String(p.preventivas)))}
-      ${rowF('Bomberazos incluidos/año', planes.map((p: PlanDef) => String(p.emergencias)))}
-      ${rowF('Soporte remoto', planes.map((p: PlanDef) => p.soporte))}
-      ${rowF('Arribo on-site máx.', planes.map((p: PlanDef) => p.arribo))}
-      ${rowF('Backups / programación', planes.map((p: PlanDef) => p.backups))}
-      ${rowF('Reportes técnicos', planes.map((p: PlanDef) => p.reportes))}
-      ${rowF('Cobertura horaria', planes.map((p: PlanDef) => p.cobertura))}
-      ${rowF('% final ajustado', planes.map((p: PlanDef) => pctL(calc(p).finalPct)))}
-      ${rowF('Costo anual (s/IVA)', planes.map((p: PlanDef) => fmtL(calc(p).totalAnual)))}
-      ${rowF('Costo mensual', planes.map((p: PlanDef) => fmtL(calc(p).monthly)))}
-    </tbody>
-  </table>
-  <table class="totals">
-    <tr><td class="k">PLAN SELECCIONADO</td><td>${sel.label}</td></tr>
-    <tr><td class="k">PLAN DE PAGO</td><td>${paymentPlan}</td></tr>
-    <tr><td class="k">COSTO ANUAL (s/IVA)</td><td>${fmtL(selCalc.totalAnual)}</td></tr>
-    <tr><td class="k">IVA (16%)</td><td>${fmtL(selCalc.iva)}</td></tr>
-    <tr><td class="k">TOTAL CON IVA</td><td><b>${fmtL(selCalc.totalConIva)}</b></td></tr>
-    <tr><td class="k">PLAN MENSUAL (12 pagos)</td><td>${fmtL(selCalc.mensual12)}</td></tr>
-  </table>
-  <div class="tyc">${TYC}</div>
-  <div class="sign"><div>Cliente</div><div>Elias Gabriel Micha Cohen<br/>OMM Technologies S.A. de C.V.</div></div>
+
+  <div class="sec">
+    <div class="eyebrow">Póliza de mantenimiento anual</div>
+    <h1>${escP(property?.name || 'Póliza de Mantenimiento')}</h1>
+    <table class="data"><tbody>
+      <tr><td class="k">Cliente</td><td style="font-weight:600">${escP(property?.client_name || '—')}</td><td class="k">Fecha</td><td>${hoy}</td></tr>
+      <tr><td class="k">Dirección</td><td>${escP(property?.address || '—')}${property?.city ? ', ' + escP(property.city) : ''}</td><td class="k">Vigencia</td><td>12 meses (hasta ${vig})</td></tr>
+      <tr><td class="k">Tipo de obra</td><td>${escP(factores.fTipo)}</td><td class="k">Ubicación foránea</td><td>${foranea ? 'Sí' : 'No'}</td></tr>
+    </tbody></table>
+  </div>
+
+  <div class="sec">
+    <h2>Comparativo de planes</h2>
+    <table class="cmp">
+      <thead><tr><th class="l" style="text-align:left">Concepto</th>${planCols}</tr></thead>
+      <tbody>
+        ${rowF('Visitas preventivas/año', planes.map((p: PlanDef) => String(p.preventivas)))}
+        ${rowF('Bomberazos incluidos/año', planes.map((p: PlanDef) => String(p.emergencias)))}
+        ${rowF('Soporte remoto', planes.map((p: PlanDef) => p.soporte))}
+        ${rowF('Arribo on-site máx.', planes.map((p: PlanDef) => p.arribo))}
+        ${rowF('Reportes técnicos', planes.map((p: PlanDef) => p.reportes))}
+        ${rowF('Cobertura horaria', planes.map((p: PlanDef) => p.cobertura))}
+        ${rowF('% final ajustado', planes.map((p: PlanDef) => pctL(calc(p).finalPct)))}
+        ${rowF('Costo anual (s/IVA)', planes.map((p: PlanDef) => fmtL(calc(p).totalAnual)))}
+        ${rowF('Costo mensual', planes.map((p: PlanDef) => fmtL(calc(p).monthly)))}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="sec">
+    <h2>Plan seleccionado: ${escP(sel.label)}</h2>
+    <table class="totals"><tbody>
+      <tr><td class="k">Plan de pago</td><td>${escP(paymentPlan)}</td></tr>
+      <tr><td class="k">Costo anual (s/IVA)</td><td>${fmtL(selCalc.totalAnual)}</td></tr>
+      <tr><td class="k">IVA 16%</td><td>${fmtL(selCalc.iva)}</td></tr>
+      <tr class="total"><td class="k">Total con IVA</td><td>${fmtL(selCalc.totalConIva)}</td></tr>
+      <tr><td class="k">Plan mensual (12 pagos)</td><td>${fmtL(selCalc.mensual12)}</td></tr>
+    </tbody></table>
+  </div>
+
+  <div class="sec"><h2>Datos para pago (MXN)</h2>
+    <div class="box">
+      <div><b>Titular:</b> OMM Technologies SA de CV &nbsp;·&nbsp; <b>RFC:</b> OTE210910PW5</div>
+      <table style="width:100%;border-collapse:collapse;margin-top:6px">
+        <thead><tr>
+          <th style="text-align:left;font-size:9px;color:#888;text-transform:uppercase;padding:3px 6px;border-bottom:1px solid #ddd">Banco</th>
+          <th style="text-align:left;font-size:9px;color:#888;text-transform:uppercase;padding:3px 6px;border-bottom:1px solid #ddd">Cuenta</th>
+          <th style="text-align:left;font-size:9px;color:#888;text-transform:uppercase;padding:3px 6px;border-bottom:1px solid #ddd">CLABE</th>
+        </tr></thead>
+        <tbody>${bancoRows}</tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="sec"><h2>Términos y condiciones</h2><div class="tyc">${TYC}</div></div>
+
+  <div class="sign"><div>Cliente — Acepto las condiciones del plan</div><div>Elias Gabriel Micha Cohen<br/>OMM Technologies S.A. de C.V.</div></div>
+  <div class="foot">${escP(omm.razonSocial)} · Propuesta de póliza de mantenimiento. Precios en MXN. Vigencia 12 meses a partir de la contratación.</div>
   </body></html>`
 }
