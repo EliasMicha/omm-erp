@@ -57,6 +57,8 @@ export default function DetalleVisitaPage() {
   const { visitId } = useParams<{ visitId: string }>()
   const navigate = useNavigate()
   const [visit, setVisit] = useState<Visit | null>(null)
+  const [equipment, setEquipment] = useState<any[]>([])
+  const [showEquipment, setShowEquipment] = useState(false)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState<string>('')
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
@@ -80,6 +82,14 @@ export default function DetalleVisitaPage() {
       .maybeSingle()
     const v = data as any as Visit | null
     setVisit(v)
+    if (v?.property_id) {
+      const { data: eq } = await supabase
+        .from('maintenance_equipment')
+        .select('id, system, marca, modelo, sku, ubicacion, cantidad, garantia_fin')
+        .eq('property_id', v.property_id)
+        .order('system', { ascending: true })
+      setEquipment(eq || [])
+    }
     if (v) {
       setWorkPerformed(v.work_performed || '')
       setPartsUsed(v.parts_used || '')
@@ -281,6 +291,37 @@ export default function DetalleVisitaPage() {
           )}
         </div>
       </div>
+
+      {/* Equipos instalados (contexto para el técnico) */}
+      {equipment.length > 0 && (
+        <div style={card}>
+          <button onClick={() => setShowEquipment(s => !s)} style={{
+            width: '100%', background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+            color: '#fff', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 8,
+          }}>
+            <Wrench size={14} color="#06b6d4" />
+            <span style={{ fontSize: 13, fontWeight: 600 }}>Equipos instalados ({equipment.length})</span>
+            <span style={{ marginLeft: 'auto', fontSize: 18, color: '#666', lineHeight: 1 }}>{showEquipment ? '−' : '+'}</span>
+          </button>
+          {showEquipment && (
+            <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {equipment.map(e => (
+                <div key={e.id} style={{ paddingBottom: 8, borderBottom: '1px solid #1a1a1a' }}>
+                  <div style={{ fontSize: 13, color: '#fff' }}>
+                    {[e.marca, e.modelo].filter(Boolean).join(' ') || 'Equipo'}
+                    {e.cantidad && e.cantidad > 1 ? <span style={{ color: '#888' }}> ×{e.cantidad}</span> : null}
+                  </div>
+                  <div style={{ fontSize: 11, color: '#888', marginTop: 2, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    {e.system && <span style={{ color: '#06b6d4' }}>{e.system}</span>}
+                    {e.ubicacion && <span>· {e.ubicacion}</span>}
+                    {e.sku && <span>· {e.sku}</span>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Ticket vinculado */}
       {visit.ticket && (

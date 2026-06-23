@@ -121,6 +121,36 @@ function techName(t: Technician | undefined | null): string {
   return t.nombre || t.name || 'Técnico'
 }
 
+interface MaintContact {
+  id: string
+  property_id: string
+  name: string
+  phone_e164: string | null
+  email: string | null
+  role: string
+  is_primary: boolean
+  notes: string | null
+}
+
+interface MaintEquipment {
+  id: string
+  property_id: string
+  system: string | null
+  marca: string | null
+  modelo: string | null
+  sku: string | null
+  ubicacion: string | null
+  cantidad: number | null
+  serial: string | null
+  fecha_instalacion: string | null
+  garantia_fin: string | null
+  image_url: string | null
+  notes: string | null
+  source_quotation_item_id: string | null
+}
+
+const CONTACT_ROLES = ['dueño', 'administrador', 'arquitecto', 'contacto_sitio', 'otro']
+
 type UpsellStatus = 'identificada' | 'propuesta' | 'aceptada' | 'rechazada' | 'convertida'
 
 interface Upsell {
@@ -899,6 +929,46 @@ function PropertyDetail({ property, tickets, visits, contracts, upsells, propMap
   propMap: Record<string, Property>
   onBack: () => void; onOpenTicket: (id: string) => void; onReload: () => void; isMobile: boolean
 }) {
+  const [contacts, setContacts] = useState<MaintContact[]>([])
+  const [equipment, setEquipment] = useState<MaintEquipment[]>([])
+  const [showAddContact, setShowAddContact] = useState(false)
+  const [showAddEquipment, setShowAddEquipment] = useState(false)
+  const [seeding, setSeeding] = useState(false)
+
+  async function loadExpediente() {
+    if (!property) return
+    const [cRes, eRes] = await Promise.all([
+      supabase.from('maintenance_contacts').select('*').eq('property_id', property.id).order('is_primary', { ascending: false }),
+      supabase.from('maintenance_equipment').select('*').eq('property_id', property.id).order('system', { ascending: true }),
+    ])
+    setContacts((cRes.data as MaintContact[]) || [])
+    setEquipment((eRes.data as MaintEquipment[]) || [])
+  }
+  useEffect(() => { loadExpediente() }, [property?.id])
+
+  async function seedFromQuotation() {
+    if (!property?.original_quotation_id) return
+    setSeeding(true)
+    const { data, error } = await supabase.rpc('seed_maintenance_equipment_from_quotation', {
+      p_property_id: property.id, p_quotation_id: property.original_quotation_id,
+    })
+    setSeeding(false)
+    if (error) { alert('Error al sembrar equipos: ' + error.message); return }
+    await loadExpediente()
+    alert(`${data ?? 0} equipo(s) importado(s) de la cotización original.`)
+  }
+
+  async function deleteContact(id: string) {
+    if (!confirm('¿Eliminar este contacto?')) return
+    await supabase.from('maintenance_contacts').delete().eq('id', id)
+    loadExpediente()
+  }
+  async function deleteEquipment(id: string) {
+    if (!confirm('¿Eliminar este equipo?')) return
+    await supabase.from('maintenance_equipment').delete().eq('id', id)
+    loadExpediente()
+  }
+
   if (!property) return <div style={{ padding: 32, color: '#555' }}>Propiedad no encontrada. <Btn onClick={onBack}>Volver</Btn></div>
 
   const activeContract = contracts.find(c => c.is_active && (!c.end_date || new Date(c.end_date + 'T00:00:00') >= new Date()))
@@ -994,6 +1064,79 @@ function PropertyDetail({ property, tickets, visits, contracts, upsells, propMap
         </div>
       </div>
 
+      {/* Expediente: Contactos + Equipos */}
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 16, marginBottom: 24 }}>
+        {/* Contactos */}
+        <div style={{ background: '#141414', border: '1px solid #222', borderRadius: 12, padding: 20 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#888' }}>Contactos</div>
+            <button onClick={() => setShowAddContact(true)} style={miniBtn}><Plus size={12} /> Agregar</button>
+          </div>
+          {contacts.length === 0 ? (
+            <div style={{ color: '#444', fontSize: 12, padding: '8px 0' }}>Sin contactos. Agrega quién puede reportar fallas (con teléfono).</div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {contacts.map(c => (
+                <div key={c.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '8px 0', borderBottom: '1px solid #1e1e1e' }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, color: '#fff', fontWeight: 500, display: 'flex', alignItems: 'center', gap: 6 }}>
+                      {c.name}
+                      {c.is_primary && <span style={{ fontSize: 9, color: '#10B981' }}>★ principal</span>}
+                    </div>
+                    <div style={{ fontSize: 11, color: '#888', marginTop: 2 }}>
+                      <span style={{ textTransform: 'capitalize' }}>{c.role.replace('_', ' ')}</span>
+                      {c.phone_e164 && <> · {c.phone_e164}</>}
+                      {c.email && <> · {c.email}</>}
+                    </div>
+                  </div>
+                  <button onClick={() => deleteContact(c.id)} style={trashBtn}><X size={13} /></button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Equipos instalados */}
+        <div style={{ background: '#141414', border: '1px solid #222', borderRadius: 12, padding: 20 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4, flexWrap: 'wrap', gap: 6 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#888' }}>Equipos instalados <span style={{ color: '#555', fontWeight: 400 }}>· sin precios</span></div>
+            <div style={{ display: 'flex', gap: 6 }}>
+              {property.original_quotation_id && (
+                <button onClick={seedFromQuotation} disabled={seeding} style={miniBtn}>
+                  {seeding ? 'Sembrando...' : '↻ Desde cotización'}
+                </button>
+              )}
+              <button onClick={() => setShowAddEquipment(true)} style={miniBtn}><Plus size={12} /> Agregar</button>
+            </div>
+          </div>
+          {equipment.length === 0 ? (
+            <div style={{ color: '#444', fontSize: 12, padding: '8px 0' }}>
+              Sin equipos. {property.original_quotation_id ? 'Usa "Desde cotización" para sembrarlos automáticamente.' : 'Agrega los equipos manualmente.'}
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 320, overflowY: 'auto' }}>
+              {equipment.map(e => (
+                <div key={e.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '8px 0', borderBottom: '1px solid #1e1e1e' }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, color: '#fff', fontWeight: 500 }}>
+                      {[e.marca, e.modelo].filter(Boolean).join(' ') || e.notes || 'Equipo'}
+                      {e.cantidad && e.cantidad > 1 ? <span style={{ color: '#888', fontWeight: 400 }}> ×{e.cantidad}</span> : null}
+                    </div>
+                    <div style={{ fontSize: 11, color: '#888', marginTop: 2, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      {e.system && <span style={{ color: '#10B981' }}>{e.system}</span>}
+                      {e.ubicacion && <span>· {e.ubicacion}</span>}
+                      {e.sku && <span>· {e.sku}</span>}
+                      {e.garantia_fin && <span style={{ color: new Date(e.garantia_fin) < new Date() ? '#DC2626' : '#888' }}>· gar. {formatDate(e.garantia_fin)}</span>}
+                    </div>
+                  </div>
+                  <button onClick={() => deleteEquipment(e.id)} style={trashBtn}><X size={13} /></button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* Upsell opportunities */}
       {upsells.length > 0 && (
         <div style={{ background: '#141414', border: '1px solid #222', borderRadius: 12, padding: 20, marginBottom: 24 }}>
@@ -1075,7 +1218,144 @@ function PropertyDetail({ property, tickets, visits, contracts, upsells, propMap
           </div>
         )}
       </div>
+
+      {showAddContact && (
+        <AddContactModal propertyId={property.id} onClose={() => setShowAddContact(false)}
+          onCreated={() => { setShowAddContact(false); loadExpediente() }} />
+      )}
+      {showAddEquipment && (
+        <AddEquipmentModal propertyId={property.id} onClose={() => setShowAddEquipment(false)}
+          onCreated={() => { setShowAddEquipment(false); loadExpediente() }} />
+      )}
     </div>
+  )
+}
+
+// Estilos compartidos del expediente
+const miniBtn: React.CSSProperties = {
+  background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 8, padding: '5px 10px',
+  color: '#10B981', fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+  display: 'flex', alignItems: 'center', gap: 4,
+}
+const trashBtn: React.CSSProperties = {
+  background: 'transparent', border: 'none', color: '#555', cursor: 'pointer', padding: 4, flexShrink: 0,
+}
+
+function AddContactModal({ propertyId, onClose, onCreated }: {
+  propertyId: string; onClose: () => void; onCreated: () => void
+}) {
+  const [form, setForm] = useState({ name: '', phone_e164: '', email: '', role: 'dueño', is_primary: false })
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const s = (k: string) => (v: string) => setForm(f => ({ ...f, [k]: v }))
+
+  async function save() {
+    if (!form.name.trim()) { setError('El nombre es requerido'); return }
+    setSaving(true); setError('')
+    let phone = form.phone_e164.trim()
+    if (phone && !phone.startsWith('+')) phone = '+' + phone.replace(/[^0-9]/g, '')
+    const { error: err } = await supabase.from('maintenance_contacts').insert({
+      property_id: propertyId,
+      name: form.name.trim(),
+      phone_e164: phone || null,
+      email: form.email.trim() || null,
+      role: form.role,
+      is_primary: form.is_primary,
+    })
+    setSaving(false)
+    if (err) { setError(err.message); return }
+    onCreated()
+  }
+
+  return (
+    <ModalShell title="Agregar contacto" onClose={onClose} width={460}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <Field label="Nombre *" value={form.name} onChange={s('name')} placeholder="Nombre del contacto" />
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <Field label="Teléfono (WhatsApp)" value={form.phone_e164} onChange={s('phone_e164')} placeholder="+52..." />
+          <label style={labelStyle}>
+            Rol
+            <select value={form.role} onChange={e => s('role')(e.target.value)} style={{ ...selectStyle, marginTop: 4 }}>
+              {CONTACT_ROLES.map(r => <option key={r} value={r} style={{ textTransform: 'capitalize' }}>{r.replace('_', ' ')}</option>)}
+            </select>
+          </label>
+        </div>
+        <Field label="Email" value={form.email} onChange={s('email')} placeholder="correo@ejemplo.com" />
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 12, color: '#ccc' }}>
+          <input type="checkbox" checked={form.is_primary} onChange={e => setForm(f => ({ ...f, is_primary: e.target.checked }))} />
+          Contacto principal
+        </label>
+        {error && <div style={{ color: '#DC2626', fontSize: 12 }}>{error}</div>}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 8 }}>
+          <Btn onClick={onClose}>Cancelar</Btn>
+          <Btn variant="primary" onClick={save} disabled={saving}>{saving ? 'Guardando...' : 'Agregar'}</Btn>
+        </div>
+      </div>
+    </ModalShell>
+  )
+}
+
+function AddEquipmentModal({ propertyId, onClose, onCreated }: {
+  propertyId: string; onClose: () => void; onCreated: () => void
+}) {
+  const [form, setForm] = useState({
+    marca: '', modelo: '', system: '', ubicacion: '', cantidad: '1', sku: '', serial: '', garantia_fin: '', notes: '',
+  })
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const s = (k: string) => (v: string) => setForm(f => ({ ...f, [k]: v }))
+
+  async function save() {
+    if (!form.marca.trim() && !form.modelo.trim() && !form.notes.trim()) { setError('Indica al menos marca, modelo o descripción'); return }
+    setSaving(true); setError('')
+    const { error: err } = await supabase.from('maintenance_equipment').insert({
+      property_id: propertyId,
+      marca: form.marca.trim() || null,
+      modelo: form.modelo.trim() || null,
+      system: form.system.trim() || null,
+      ubicacion: form.ubicacion.trim() || null,
+      cantidad: form.cantidad ? parseFloat(form.cantidad) : 1,
+      sku: form.sku.trim() || null,
+      serial: form.serial.trim() || null,
+      garantia_fin: form.garantia_fin || null,
+      notes: form.notes.trim() || null,
+    })
+    setSaving(false)
+    if (err) { setError(err.message); return }
+    onCreated()
+  }
+
+  return (
+    <ModalShell title="Agregar equipo" onClose={onClose} width={520}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <Field label="Marca" value={form.marca} onChange={s('marca')} placeholder="Ej. Lutron" />
+          <Field label="Modelo" value={form.modelo} onChange={s('modelo')} placeholder="Ej. RA2 Select" />
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+          <label style={labelStyle}>
+            Sistema
+            <select value={form.system} onChange={e => s('system')(e.target.value)} style={{ ...selectStyle, marginTop: 4 }}>
+              <option value="">--</option>
+              {SYSTEMS_OPTIONS.map(o => <option key={o.id} value={o.label}>{o.label}</option>)}
+            </select>
+          </label>
+          <Field label="Ubicación" value={form.ubicacion} onChange={s('ubicacion')} placeholder="Sala, cocina..." />
+          <Field label="Cantidad" value={form.cantidad} onChange={s('cantidad')} type="number" />
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <Field label="SKU / No. parte" value={form.sku} onChange={s('sku')} placeholder="Opcional" />
+          <Field label="Serie" value={form.serial} onChange={s('serial')} placeholder="Opcional" />
+        </div>
+        <Field label="Fin de garantía" value={form.garantia_fin} onChange={s('garantia_fin')} type="date" />
+        <TextArea label="Notas" value={form.notes} onChange={s('notes')} placeholder="Detalle del equipo..." rows={2} />
+        {error && <div style={{ color: '#DC2626', fontSize: 12 }}>{error}</div>}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 8 }}>
+          <Btn onClick={onClose}>Cancelar</Btn>
+          <Btn variant="primary" onClick={save} disabled={saving}>{saving ? 'Guardando...' : 'Agregar equipo'}</Btn>
+        </div>
+      </div>
+    </ModalShell>
   )
 }
 
