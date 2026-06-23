@@ -4343,6 +4343,7 @@ function TabEfectivo() {
     persona: '', concepto: '', monto: '', fecha: new Date().toISOString().substring(0, 10), proyecto_nombre: '',
     lead_id: '' as string,
     quotation_id: '' as string,
+    moneda: 'MXN' as 'MXN' | 'USD',
   })
 
   const startEdit = (m: CashMovement) => {
@@ -4356,6 +4357,7 @@ function TabEfectivo() {
       proyecto_nombre: m.proyecto_nombre || '',
       lead_id: m.lead_id || '',
       quotation_id: m.quotation_id || '',
+      moneda: (m as any).moneda || 'MXN',
     })
     setShowForm(true)
   }
@@ -4385,6 +4387,7 @@ function TabEfectivo() {
       id: m.id, tipo: m.tipo, direccion: m.direccion, persona: m.persona,
       concepto: m.concepto, monto: Number(m.monto), fecha: m.fecha, proyecto_nombre: m.proyecto_nombre,
       lead_id: m.lead_id, quotation_id: m.quotation_id,
+      moneda: (m.moneda || 'MXN') as 'MXN' | 'USD',
       lead_name: m.lead_id ? (leadsMap.get(m.lead_id)?.name || '') : '',
       quotation_name: m.quotation_id ? (cotsMap.get(m.quotation_id)?.name || '') : '',
     })))
@@ -4417,6 +4420,7 @@ function TabEfectivo() {
       proyecto_nombre: form.proyecto_nombre.trim() || null,
       lead_id: form.lead_id || null,
       quotation_id: form.quotation_id || null,
+      moneda: form.moneda,
     }
     let error
     if (editingId) {
@@ -4425,7 +4429,7 @@ function TabEfectivo() {
       ;({ error } = await supabase.from('cash_movements').insert(payload))
     }
     if (error) { alert('Error: ' + error.message); setSaving(false); return }
-    setForm({ tipo: 'cobro_cliente', persona: '', concepto: '', monto: '', fecha: new Date().toISOString().substring(0, 10), proyecto_nombre: '', lead_id: '', quotation_id: '' })
+    setForm({ tipo: 'cobro_cliente', persona: '', concepto: '', monto: '', fecha: new Date().toISOString().substring(0, 10), proyecto_nombre: '', lead_id: '', quotation_id: '', moneda: 'MXN' })
     setEditingId(null)
     setShowForm(false)
     setSaving(false)
@@ -4639,10 +4643,17 @@ function TabEfectivo() {
                 <label style={{ fontSize: 11, color: '#888', marginBottom: 4, display: 'block' }}>Concepto</label>
                 <input value={form.concepto} onChange={e => setForm({ ...form, concepto: e.target.value })} placeholder="Descripción del pago" style={inputStyle} />
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1.3fr', gap: 10 }}>
                 <div>
                   <label style={{ fontSize: 11, color: '#888', marginBottom: 4, display: 'block' }}>Monto *</label>
                   <input type="number" value={form.monto} onChange={e => setForm({ ...form, monto: e.target.value })} placeholder="0.00" min="0" step="0.01" style={inputStyle} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 11, color: '#888', marginBottom: 4, display: 'block' }}>Moneda</label>
+                  <select value={form.moneda} onChange={e => setForm({ ...form, moneda: e.target.value as 'MXN' | 'USD' })} style={{ ...inputStyle, cursor: 'pointer' }}>
+                    <option value="MXN">🇲🇽 MXN</option>
+                    <option value="USD">🇺🇸 USD</option>
+                  </select>
                 </div>
                 <div>
                   <label style={{ fontSize: 11, color: '#888', marginBottom: 4, display: 'block' }}>Fecha</label>

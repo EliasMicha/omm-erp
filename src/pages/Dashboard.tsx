@@ -784,7 +784,7 @@ function CobranzaPorProyecto() {
         // Traemos TODOS los movs (no solo los que tienen lead_id directo) porque
         // muchos están conciliados a una factura que sí tiene lead/quotation.
         supabase.from('bank_movements').select('id, monto, tipo, fecha, lead_id, quotation_id, categoria, moneda'),
-        supabase.from('cash_movements').select('id, tipo, direccion, monto, fecha, lead_id, quotation_id, concepto'),
+        supabase.from('cash_movements').select('id, tipo, direccion, monto, fecha, lead_id, quotation_id, concepto, moneda'),
         // Facturas con sus lead_id/quotation_id — usadas para resolver lead via factura
         supabase.from('facturas').select('id, lead_id, quotation_id, cotizacion_id'),
         // Links bank_movement ↔ factura (tabla de conciliación)
@@ -971,20 +971,27 @@ function CobranzaPorProyecto() {
         }
       }
 
-      // Cash movements — asumimos MXN siempre
+      // Cash movements — respetar moneda nativa (USD o MXN)
       const efectivoLead = cashMovs.filter(c => resolveLead(c) === leadId)
+      const isIngreso = (c: any) => c.direccion === 'ingreso' || c.tipo === 'cobro_cliente'
       const cobradoEfectivoMXN = efectivoLead
-        .filter(c => c.direccion === 'ingreso' || c.tipo === 'cobro_cliente')
+        .filter(c => isIngreso(c) && (c.moneda || 'MXN').toUpperCase() === 'MXN')
+        .reduce((s, c) => s + (Number(c.monto) || 0), 0)
+      const cobradoEfectivoUSD = efectivoLead
+        .filter(c => isIngreso(c) && (c.moneda || 'MXN').toUpperCase() === 'USD')
         .reduce((s, c) => s + (Number(c.monto) || 0), 0)
       const pagadoEfectivoMXN = efectivoLead
-        .filter(c => c.direccion === 'egreso')
+        .filter(c => c.direccion === 'egreso' && (c.moneda || 'MXN').toUpperCase() === 'MXN')
+        .reduce((s, c) => s + (Number(c.monto) || 0), 0)
+      const pagadoEfectivoUSD = efectivoLead
+        .filter(c => c.direccion === 'egreso' && (c.moneda || 'MXN').toUpperCase() === 'USD')
         .reduce((s, c) => s + (Number(c.monto) || 0), 0)
 
       // Acumulados por moneda nativa (sin convertir)
       const cobradoMXN = cobradoBancoMXN + cobradoEfectivoMXN
-      const cobradoUSD = cobradoBancoUSD
+      const cobradoUSD = cobradoBancoUSD + cobradoEfectivoUSD
       const pagadoTotalMXN = pagadoBancoMXN + pagadoEfectivoMXN
-      const pagadoTotalUSD = pagadoBancoUSD
+      const pagadoTotalUSD = pagadoBancoUSD + pagadoEfectivoUSD
 
       // Totales convertidos al toggle (solo como referencia visual)
       const cobrado = convert(cobradoMXN, 'MXN') + convert(cobradoUSD, 'USD')
