@@ -244,6 +244,12 @@ export default function DetalleVisitaPage() {
 
   async function downloadReport() {
     if (!visit) return
+    // IMPORTANTE: abrir la ventana de forma SÍNCRONA dentro del gesto del tap
+    // (iOS Safari bloquea window.open si ocurre después de un await).
+    const w = window.open('', '_blank')
+    if (w) {
+      try { w.document.write('<!doctype html><meta charset="utf-8"><body style="margin:0;font-family:-apple-system,system-ui,sans-serif;color:#666;display:flex;align-items:center;justify-content:center;height:100vh">Generando reporte…</body>') } catch {}
+    }
     setPdfBusy(true)
     try {
       // Fotos: usar las locales recién tomadas; si no hay, firmar URLs del storage
@@ -265,8 +271,21 @@ export default function DetalleVisitaPage() {
         hallazgos: observaciones, siguientesPasos, resuelto,
         workPerformed, partsUsed, billable, amount, photoSrcs, sigSrc,
       })
-      const w = window.open('', '_blank')
-      if (w) { w.document.write(html); w.document.close() }
+      const blob = new Blob([html], { type: 'text/html' })
+      const url = URL.createObjectURL(blob)
+      if (w) {
+        w.location.href = url
+      } else {
+        // Pop-up bloqueado: descarga directa como fallback
+        const a = document.createElement('a')
+        a.href = url; a.download = `Reporte_${String(visit.id).slice(0, 8)}.html`; a.rel = 'noreferrer'
+        document.body.appendChild(a); a.click(); a.remove()
+        flash(true, 'Reporte descargado. Ábrelo y usa Imprimir → PDF.')
+      }
+      setTimeout(() => URL.revokeObjectURL(url), 60000)
+    } catch (e: any) {
+      if (w) { try { w.close() } catch {} }
+      flash(false, 'No se pudo generar el reporte: ' + (e?.message || ''))
     } finally { setPdfBusy(false) }
   }
 
