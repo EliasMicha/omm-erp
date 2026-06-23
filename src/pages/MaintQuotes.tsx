@@ -16,6 +16,21 @@ function readOmm() {
   try { const s = localStorage.getItem('omm_pdf_header'); return s ? { ...OMM_DEFAULTS, ...JSON.parse(s) } : OMM_DEFAULTS } catch { return OMM_DEFAULTS }
 }
 
+// Cuentas bancarias OMM (configurables en localStorage 'omm_pdf_bancos'; CLABE opcional)
+const BANK_TITULAR = 'OMM Technologies SA de CV'
+const BANK_RFC = 'OTE210910PW5'
+const BANCOS_DEFAULT = [
+  { banco: 'BBVA', moneda: 'MXN', cuenta: '0118270236', clabe: '' },
+  { banco: 'Banorte', moneda: 'MXN', cuenta: '1263311182', clabe: '' },
+  { banco: 'BBVA', moneda: 'USD', cuenta: '0119196919', clabe: '' },
+]
+function readBancos(currency: string) {
+  let list = BANCOS_DEFAULT
+  try { const s = localStorage.getItem('omm_pdf_bancos'); if (s) { const p = JSON.parse(s); if (Array.isArray(p)) list = p } } catch {}
+  const wantUSD = currency === 'USD'
+  return list.filter(b => (wantUSD ? b.moneda === 'USD' : b.moneda !== 'USD'))
+}
+
 export interface PropOpt { id: string; name: string; client_name: string | null; address: string | null; city: string | null; client_phone: string | null }
 
 const QUOTE_STATUS: Record<string, { label: string; color: string }> = {
@@ -168,7 +183,7 @@ export function QuoteEditorModal({ quoteId, prefill, properties, onClose, onSave
 
   function pdf() {
     const w = window.open('', '_blank')
-    if (w) { w.document.write(buildQuoteHtml({ prop, folio, title, currency, items, subtotal, iva, total, validUntil, notes, ordenDia, condiciones, omm: readOmm() })); w.document.close() }
+    if (w) { w.document.write(buildQuoteHtml({ prop, folio, title, currency, items, subtotal, iva, total, validUntil, notes, ordenDia, condiciones, omm: readOmm(), bancos: readBancos(currency) })); w.document.close() }
   }
 
   if (loading) return <div style={overlay}><div style={panel}><Loading /></div></div>
@@ -382,7 +397,7 @@ export function TabCotizaciones({ properties, isMobile }: { properties: PropOpt[
 function esc(s: any): string { return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') }
 
 function buildQuoteHtml(d: any): string {
-  const { prop, folio, title, currency, items, subtotal, iva, total, validUntil, ordenDia, condiciones, omm } = d
+  const { prop, folio, title, currency, items, subtotal, iva, total, validUntil, ordenDia, condiciones, omm, bancos } = d
   const m = (n: number) => (currency === 'USD' ? 'US$' : '$') + Math.round(n).toLocaleString('es-MX')
   const hoy = new Date().toLocaleDateString('es-MX', { year: 'numeric', month: 'long', day: 'numeric' })
   const vig = validUntil ? new Date(validUntil + 'T12:00:00').toLocaleDateString('es-MX', { year: 'numeric', month: 'long', day: 'numeric' }) : '—'
@@ -459,6 +474,23 @@ function buildQuoteHtml(d: any): string {
   </div>
 
   <div class="sec"><h2>Condiciones</h2><div class="cond">${esc(condiciones || CONDICIONES_DEFAULT)}</div></div>
+
+  ${Array.isArray(bancos) && bancos.length > 0 ? `<div class="sec"><h2>Datos para pago (${esc(currency)})</h2>
+    <div class="box" style="font-size:10.5px">
+      <div><b>Titular:</b> ${esc(BANK_TITULAR)} &nbsp;·&nbsp; <b>RFC:</b> ${esc(BANK_RFC)}</div>
+      <table style="width:100%;border-collapse:collapse;margin-top:6px">
+        <thead><tr>
+          <th style="text-align:left;font-size:9px;color:#888;text-transform:uppercase;padding:3px 6px;border-bottom:1px solid #ddd">Banco</th>
+          <th style="text-align:left;font-size:9px;color:#888;text-transform:uppercase;padding:3px 6px;border-bottom:1px solid #ddd">Cuenta</th>
+          <th style="text-align:left;font-size:9px;color:#888;text-transform:uppercase;padding:3px 6px;border-bottom:1px solid #ddd">CLABE</th>
+        </tr></thead>
+        <tbody>
+          ${bancos.map((b: any) => `<tr><td style="padding:4px 6px;border-bottom:1px solid #eee">${esc(b.banco)}</td><td style="padding:4px 6px;border-bottom:1px solid #eee">${esc(b.cuenta)}</td><td style="padding:4px 6px;border-bottom:1px solid #eee">${b.clabe ? esc(b.clabe) : '—'}</td></tr>`).join('')}
+        </tbody>
+      </table>
+      <div style="margin-top:6px;color:#666;font-size:9.5px">Favor de enviar comprobante de pago. Indicar el folio ${esc('OMM-MTTO-' + (folio || ''))} en el concepto.</div>
+    </div>
+  </div>` : ''}
 
   <div class="foot">${esc(omm.razonSocial)} · Esta cotización es informativa y no constituye un comprobante fiscal. Precios en ${esc(currency)}.</div>
   </body></html>`
