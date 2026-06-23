@@ -4339,7 +4339,7 @@ function TabEfectivo() {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [form, setForm] = useState({
-    tipo: 'cobro_cliente' as 'cobro_cliente' | 'pago_proveedor' | 'nomina_efectivo',
+    tipo: 'cobro_cliente' as 'cobro_cliente' | 'pago_proveedor' | 'nomina_efectivo' | 'viaticos' | 'gasolina' | 'gastos_generales' | 'comida' | 'papeleria' | 'mantenimiento' | 'envio_paqueteria' | 'herramientas' | 'otro_gasto',
     persona: '', concepto: '', monto: '', fecha: new Date().toISOString().substring(0, 10), proyecto_nombre: '',
     lead_id: '' as string,
     quotation_id: '' as string,
@@ -4611,9 +4611,24 @@ function TabEfectivo() {
               <div>
                 <label style={{ fontSize: 11, color: '#888', marginBottom: 4, display: 'block' }}>Tipo</label>
                 <select value={form.tipo} onChange={e => setForm({ ...form, tipo: e.target.value as any })} style={{ ...inputStyle, cursor: 'pointer' }}>
-                  <option value="cobro_cliente">Cobro de cliente</option>
-                  <option value="pago_proveedor">Pago a proveedor</option>
-                  <option value="nomina_efectivo">Nómina efectivo</option>
+                  <optgroup label="Ingresos">
+                    <option value="cobro_cliente">💰 Cobro de cliente</option>
+                  </optgroup>
+                  <optgroup label="Egresos — operativos">
+                    <option value="pago_proveedor">📦 Pago a proveedor</option>
+                    <option value="nomina_efectivo">👥 Nómina efectivo</option>
+                    <option value="viaticos">✈️ Viáticos</option>
+                    <option value="gasolina">⛽ Gasolina</option>
+                    <option value="comida">🍽️ Comida / Restaurantes</option>
+                    <option value="envio_paqueteria">📮 Envío / Paquetería</option>
+                  </optgroup>
+                  <optgroup label="Egresos — administrativos">
+                    <option value="gastos_generales">📋 Gastos generales</option>
+                    <option value="papeleria">📎 Papelería / Oficina</option>
+                    <option value="mantenimiento">🔧 Mantenimiento</option>
+                    <option value="herramientas">🛠️ Herramientas</option>
+                  </optgroup>
+                  <option value="otro_gasto">❓ Otro gasto</option>
                 </select>
               </div>
               <div>
