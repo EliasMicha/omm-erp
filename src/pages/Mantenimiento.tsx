@@ -368,6 +368,7 @@ export default function Mantenimiento() {
   const [showNewUpsell, setShowNewUpsell] = useState(false)
   const [showSchedule, setShowSchedule] = useState(false)
   const [showGenerador, setShowGenerador] = useState(false)
+  const [showFromLead, setShowFromLead] = useState(false)
 
   // Filters
   const [searchProp, setSearchProp] = useState('')
@@ -503,6 +504,7 @@ export default function Mantenimiento() {
           searchProp={searchProp} setSearchProp={setSearchProp}
           onSelect={id => setSelectedPropertyId(id)}
           onNew={() => setShowNewProperty(true)}
+          onFromLead={() => setShowFromLead(true)}
           isMobile={isMobile}
           openTicketsForProperty={openTicketsForProperty}
           lastVisitForProperty={lastVisitForProperty}
@@ -562,6 +564,9 @@ export default function Mantenimiento() {
       {/* Modals */}
       {showNewProperty && (
         <NewPropertyModal onClose={() => setShowNewProperty(false)} onCreated={() => { setShowNewProperty(false); loadAll() }} />
+      )}
+      {showFromLead && (
+        <CreateFromLeadModal onClose={() => setShowFromLead(false)} onCreated={() => { setShowFromLead(false); loadAll() }} />
       )}
       {showNewTicket && (
         <NewTicketModal properties={properties} onClose={() => setShowNewTicket(false)} onCreated={() => { setShowNewTicket(false); loadAll() }} />
@@ -808,10 +813,10 @@ function RowKV({ k, v, color = '#fff' }: { k: string; v: string; color?: string 
 // TAB: PROPIEDADES
 // ═══════════════════════════════════════════════════════════════════════════
 
-function TabPropiedades({ properties, tickets, visits, searchProp, setSearchProp, onSelect, onNew, isMobile, openTicketsForProperty, lastVisitForProperty }: {
+function TabPropiedades({ properties, tickets, visits, searchProp, setSearchProp, onSelect, onNew, onFromLead, isMobile, openTicketsForProperty, lastVisitForProperty }: {
   properties: Property[]; tickets: TicketRow[]; visits: Visit[]
   searchProp: string; setSearchProp: (v: string) => void
-  onSelect: (id: string) => void; onNew: () => void; isMobile: boolean
+  onSelect: (id: string) => void; onNew: () => void; onFromLead: () => void; isMobile: boolean
   openTicketsForProperty: (pid: string) => TicketRow[]
   lastVisitForProperty: (pid: string) => Visit | null
 }) {
@@ -846,6 +851,7 @@ function TabPropiedades({ properties, tickets, visits, searchProp, setSearchProp
             placeholder="Buscar propiedad, cliente, ciudad..."
             style={{ ...inputStyle, paddingLeft: 30 }} />
         </div>
+        <Btn onClick={onFromLead}><Users size={14} /> Desde lead</Btn>
         <Btn variant="primary" onClick={onNew}><Plus size={14} /> Nueva Propiedad</Btn>
       </div>
 
@@ -2039,6 +2045,198 @@ function NewPropertyModal({ onClose, onCreated }: { onClose: () => void; onCreat
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 8 }}>
           <Btn onClick={onClose}>Cancelar</Btn>
           <Btn variant="primary" onClick={save} disabled={saving}>{saving ? 'Guardando...' : 'Crear Propiedad'}</Btn>
+        </div>
+      </div>
+    </ModalShell>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// MODAL: CREAR PROPIEDAD DESDE LEAD
+// ═══════════════════════════════════════════════════════════════════════════
+
+interface LeadOpt {
+  id: string; name: string | null; company: string | null
+  contact_name: string | null; contact_phone: string | null; contact_email: string | null
+  project_id: string | null; status: string | null
+}
+interface QuotOpt { id: string; name: string | null; specialty: string | null; total: number | null; stage: string | null }
+
+function CreateFromLeadModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+  const [leads, setLeads] = useState<LeadOpt[]>([])
+  const [search, setSearch] = useState('')
+  const [leadId, setLeadId] = useState('')
+  const [quots, setQuots] = useState<QuotOpt[]>([])
+  const [quotId, setQuotId] = useState('')
+  const [loadingQuots, setLoadingQuots] = useState(false)
+  const [form, setForm] = useState({
+    name: '', client_name: '', client_phone: '', client_email: '',
+    address: '', city: '', notes: '', contract_type: 'por_visita' as 'poliza' | 'por_visita',
+  })
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const s = (k: string) => (v: string) => setForm(f => ({ ...f, [k]: v }))
+
+  useEffect(() => {
+    supabase.from('leads')
+      .select('id, name, company, contact_name, contact_phone, contact_email, project_id, status')
+      .order('status', { ascending: true }).order('name', { ascending: true })
+      .then(({ data }) => setLeads((data as LeadOpt[]) || []))
+  }, [])
+
+  const lead = leads.find(l => l.id === leadId)
+
+  async function selectLead(id: string) {
+    setLeadId(id)
+    setQuotId('')
+    const l = leads.find(x => x.id === id)
+    if (!l) return
+    setForm({
+      name: l.name || l.company || '',
+      client_name: l.contact_name || l.company || l.name || '',
+      client_phone: l.contact_phone || '',
+      client_email: l.contact_email || '',
+      address: '', city: '', notes: `Importada del lead ${l.name || l.company || ''}.`.trim(),
+      contract_type: 'por_visita',
+    })
+    // Buscar cotizaciones relacionadas (por project_id o por lead_id en notes)
+    setLoadingQuots(true)
+    const found = new Map<string, QuotOpt>()
+    if (l.project_id) {
+      const { data } = await supabase.from('quotations').select('id, name, specialty, total, stage').eq('project_id', l.project_id)
+      ;(data || []).forEach((q: any) => found.set(q.id, q))
+    }
+    const { data: byNotes } = await supabase.from('quotations').select('id, name, specialty, total, stage').ilike('notes', `%${id}%`).limit(20)
+    ;(byNotes || []).forEach((q: any) => found.set(q.id, q))
+    const list = Array.from(found.values())
+    setQuots(list)
+    if (list.length === 1) setQuotId(list[0].id)
+    setLoadingQuots(false)
+  }
+
+  async function save() {
+    if (!leadId) { setError('Selecciona un lead'); return }
+    if (!form.name.trim()) { setError('El nombre de la propiedad es requerido'); return }
+    setSaving(true); setError('')
+    let phone = form.client_phone.trim()
+    if (phone && !phone.startsWith('+')) phone = '+' + phone.replace(/[^0-9]/g, '')
+    const { data: prop, error: err } = await supabase.from('maintenance_properties').insert({
+      name: form.name.trim(),
+      client_name: form.client_name.trim(),
+      client_phone: phone,
+      client_email: form.client_email.trim(),
+      address: form.address.trim(),
+      city: form.city.trim(),
+      notes: form.notes.trim(),
+      contract_type: form.contract_type,
+      original_quotation_id: quotId || null,
+      is_active: true,
+    }).select('id').single()
+    if (err) { setSaving(false); setError(err.message); return }
+
+    // Crear contacto desde el lead (llave para identificar quien escribe)
+    if (prop && (form.client_name.trim() || phone)) {
+      await supabase.from('maintenance_contacts').insert({
+        property_id: prop.id,
+        name: form.client_name.trim() || 'Cliente',
+        phone_e164: phone || null,
+        email: form.client_email.trim() || null,
+        role: 'dueño',
+        is_primary: true,
+      })
+    }
+    // Sembrar equipos desde la cotización si se ligó una
+    if (prop && quotId) {
+      await supabase.rpc('seed_maintenance_equipment_from_quotation', { p_property_id: prop.id, p_quotation_id: quotId }).catch(() => {})
+    }
+    setSaving(false)
+    onCreated()
+  }
+
+  const filteredLeads = useMemo(() => {
+    if (!search) return leads.slice(0, 200)
+    const q = search.toLowerCase()
+    return leads.filter(l =>
+      (l.name || '').toLowerCase().includes(q) ||
+      (l.company || '').toLowerCase().includes(q) ||
+      (l.contact_name || '').toLowerCase().includes(q)
+    ).slice(0, 200)
+  }, [leads, search])
+
+  return (
+    <ModalShell title="Crear propiedad desde lead" onClose={onClose} width={560}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <div>
+          <label style={labelStyle}>Buscar lead</label>
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Nombre, despacho o contacto..."
+            style={{ ...inputStyle, marginTop: 4, marginBottom: 8 }} />
+          <select value={leadId} onChange={e => selectLead(e.target.value)} style={selectStyle} size={1}>
+            <option value="">Selecciona un lead ({leads.length})...</option>
+            {filteredLeads.map(l => (
+              <option key={l.id} value={l.id}>
+                {(l.name || l.company || 'Lead')}{l.contact_name ? ` — ${l.contact_name}` : ''}{l.status ? ` · ${l.status}` : ''}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {lead && (
+          <>
+            <div style={{ height: 1, background: '#222' }} />
+            <Field label="Nombre de la propiedad *" value={form.name} onChange={s('name')} placeholder="Ej: Residencia Los Olivos" />
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <Field label="Cliente" value={form.client_name} onChange={s('client_name')} />
+              <Field label="Teléfono (WhatsApp)" value={form.client_phone} onChange={s('client_phone')} placeholder="+52..." />
+            </div>
+            <Field label="Email" value={form.client_email} onChange={s('client_email')} />
+            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 12 }}>
+              <Field label="Dirección" value={form.address} onChange={s('address')} placeholder="Calle y número" />
+              <Field label="Ciudad" value={form.city} onChange={s('city')} placeholder="Ciudad" />
+            </div>
+
+            <div>
+              <label style={labelStyle}>
+                Cotización original {loadingQuots && <span style={{ color: '#555' }}>· buscando...</span>}
+              </label>
+              {quots.length === 0 ? (
+                <div style={{ fontSize: 11, color: '#666', marginTop: 4 }}>
+                  {loadingQuots ? 'Buscando cotizaciones del lead...' : 'No se encontraron cotizaciones ligadas. Podrás ligarlas y sembrar equipos después desde el expediente.'}
+                </div>
+              ) : (
+                <select value={quotId} onChange={e => setQuotId(e.target.value)} style={{ ...selectStyle, marginTop: 4 }}>
+                  <option value="">Sin ligar (no sembrar equipos)</option>
+                  {quots.map(q => (
+                    <option key={q.id} value={q.id}>{q.name || 'Cotización'}{q.specialty ? ` · ${q.specialty}` : ''}{q.total ? ` · ${F(q.total)}` : ''}</option>
+                  ))}
+                </select>
+              )}
+              {quotId && <div style={{ fontSize: 11, color: '#10B981', marginTop: 4 }}>Se sembrarán los equipos de esta cotización (sin precios).</div>}
+            </div>
+
+            <div>
+              <label style={labelStyle}>Tipo de contrato</label>
+              <div style={{ display: 'flex', gap: 10, marginTop: 6 }}>
+                {(['poliza', 'por_visita'] as const).map(ct => {
+                  const cfg = CONTRACT_TYPE_CFG[ct]
+                  const active = form.contract_type === ct
+                  return (
+                    <button key={ct} onClick={() => setForm(f => ({ ...f, contract_type: ct }))} style={{
+                      padding: '8px 16px', borderRadius: 8, fontSize: 12, cursor: 'pointer', fontFamily: 'inherit',
+                      fontWeight: active ? 600 : 400, border: `1px solid ${active ? cfg.color : '#333'}`,
+                      background: active ? cfg.color + '22' : 'transparent', color: active ? cfg.color : '#666',
+                    }}>{cfg.label}</button>
+                  )
+                })}
+              </div>
+            </div>
+          </>
+        )}
+
+        {error && <div style={{ color: '#DC2626', fontSize: 12 }}>{error}</div>}
+
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 8 }}>
+          <Btn onClick={onClose}>Cancelar</Btn>
+          <Btn variant="primary" onClick={save} disabled={saving || !lead}>{saving ? 'Creando...' : 'Crear propiedad'}</Btn>
         </div>
       </div>
     </ModalShell>
