@@ -244,7 +244,7 @@ const VISIT_STATUS_CFG: Record<string, { label: string; color: string }> = {
   cancelada: { label: 'Cancelada', color: '#6B7280' },
 }
 
-type Tab = 'propiedades' | 'agenda' | 'tickets' | 'polizas' | 'oportunidades'
+type Tab = 'dashboard' | 'propiedades' | 'agenda' | 'tickets' | 'polizas' | 'oportunidades'
 
 // ── Shared UI ──────────────────────────────────────────────────────────────
 
@@ -344,7 +344,7 @@ function slaDisplay(reportedAt: string, slaHours: number | null): { text: string
 
 export default function Mantenimiento() {
   const isMobile = useIsMobile()
-  const [tab, setTab] = useState<Tab>('propiedades')
+  const [tab, setTab] = useState<Tab>('dashboard')
   const [loading, setLoading] = useState(true)
 
   // Data
@@ -354,6 +354,7 @@ export default function Mantenimiento() {
   const [visits, setVisits] = useState<Visit[]>([])
   const [upsells, setUpsells] = useState<Upsell[]>([])
   const [technicians, setTechnicians] = useState<Technician[]>([])
+  const [equipmentAll, setEquipmentAll] = useState<MaintEquipment[]>([])
 
   // Views
   const [selectedPropertyId, setSelectedPropertyId] = useState<string | null>(null)
@@ -378,13 +379,14 @@ export default function Mantenimiento() {
 
   async function loadAll() {
     setLoading(true)
-    const [pRes, tRes, cRes, vRes, uRes, eRes] = await Promise.all([
+    const [pRes, tRes, cRes, vRes, uRes, eRes, eqRes] = await Promise.all([
       supabase.from('maintenance_properties').select('*').order('name'),
       supabase.from('maintenance_tickets').select('*').order('created_at', { ascending: false }),
       supabase.from('maintenance_contracts').select('*').order('end_date', { ascending: false }),
       supabase.from('maintenance_visits').select('*').order('visit_date', { ascending: false }),
       supabase.from('maintenance_upsell').select('*').order('created_at', { ascending: false }),
       supabase.from('employees').select('id, nombre, name, area, foto_url, activo').eq('activo', true).order('nombre'),
+      supabase.from('maintenance_equipment').select('id, property_id, marca, modelo, garantia_fin'),
     ])
     setProperties(pRes.data || [])
     setTickets(tRes.data || [])
@@ -392,6 +394,7 @@ export default function Mantenimiento() {
     setVisits(vRes.data || [])
     setUpsells(uRes.data || [])
     setTechnicians((eRes.data as Technician[]) || [])
+    setEquipmentAll((eqRes.data as MaintEquipment[]) || [])
     setLoading(false)
   }
 
@@ -424,6 +427,7 @@ export default function Mantenimiento() {
   // ── Tabs ───────────────────────────────────────────────────────────────
 
   const tabs: { key: Tab; label: string }[] = [
+    { key: 'dashboard', label: 'Dashboard' },
     { key: 'propiedades', label: 'Propiedades' },
     { key: 'agenda', label: 'Agenda' },
     { key: 'tickets', label: 'Tickets' },
@@ -505,6 +509,17 @@ export default function Mantenimiento() {
         />
       )}
 
+      {tab === 'dashboard' && (
+        <TabDashboard
+          properties={properties} tickets={tickets} contracts={contracts}
+          visits={visits} upsells={upsells} equipment={equipmentAll} techMap={techMap}
+          onGoTab={(t) => setTab(t)}
+          onOpenProperty={id => setSelectedPropertyId(id)}
+          onOpenTicket={id => { setSelectedTicketId(id); setTab('tickets') }}
+          isMobile={isMobile}
+        />
+      )}
+
       {tab === 'agenda' && (
         <TabAgenda
           visits={visits} propMap={propMap} techMap={techMap}
@@ -571,6 +586,220 @@ export default function Mantenimiento() {
           onCreated={() => { setShowGenerador(false); loadAll() }}
         />
       )}
+    </div>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TAB: DASHBOARD
+// ═══════════════════════════════════════════════════════════════════════════
+
+const MXN = (n: number) => '$' + Math.round(n).toLocaleString('es-MX')
+const USD = (n: number) => '$' + Math.round(n).toLocaleString('en-US')
+const hoursBetween = (a: string, b: string) => (new Date(b).getTime() - new Date(a).getTime()) / 3600000
+
+function DashCard({ children }: { children: React.ReactNode }) {
+  return <div style={{ background: '#141414', border: '1px solid #222', borderRadius: 14, padding: 18 }}>{children}</div>
+}
+function DashTitle({ children }: { children: React.ReactNode }) {
+  return <div style={{ fontSize: 13, fontWeight: 600, color: '#888', marginBottom: 14 }}>{children}</div>
+}
+function BarRow({ label, value, max, color, suffix }: { label: string; value: number; max: number; color: string; suffix?: string }) {
+  const w = max > 0 ? Math.max(2, (value / max) * 100) : 0
+  return (
+    <div style={{ marginBottom: 10 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
+        <span style={{ color: '#ccc' }}>{label}</span>
+        <span style={{ color: '#fff', fontWeight: 600 }}>{value}{suffix || ''}</span>
+      </div>
+      <div style={{ height: 7, background: '#1f1f1f', borderRadius: 4, overflow: 'hidden' }}>
+        <div style={{ width: `${w}%`, height: '100%', background: color }} />
+      </div>
+    </div>
+  )
+}
+
+function TabDashboard({ properties, tickets, contracts, visits, upsells, equipment, techMap, onGoTab, onOpenProperty, onOpenTicket, isMobile }: {
+  properties: Property[]; tickets: TicketRow[]; contracts: Contract[]; visits: Visit[]; upsells: Upsell[]
+  equipment: MaintEquipment[]; techMap: Record<string, Technician>
+  onGoTab: (t: Tab) => void; onOpenProperty: (id: string) => void; onOpenTicket: (id: string) => void; isMobile: boolean
+}) {
+  const now = new Date()
+  const today = now.toISOString().slice(0, 10)
+  const in30 = new Date(now.getTime() + 30 * 864e5)
+  const in60 = new Date(now.getTime() + 60 * 864e5)
+  const in7 = new Date(now.getTime() + 7 * 864e5).toISOString().slice(0, 10)
+  const monthKey = today.slice(0, 7)
+
+  const isExpired = (c: Contract) => !!c.end_date && new Date(c.end_date + 'T00:00:00') < now
+  const activePolizas = contracts.filter(c => c.is_active && !isExpired(c))
+
+  // Ingresos recurrentes por moneda nativa
+  const mrr = (cur: string) => activePolizas.filter(c => (cur === 'USD' ? c.currency === 'USD' : c.currency !== 'USD'))
+    .reduce((s, c) => s + (c.monthly_fee || (c.annual_fee || 0) / 12), 0)
+  const mrrMXN = mrr('MXN'), mrrUSD = mrr('USD')
+
+  // Tier distribution
+  const tierCount = (t: string) => activePolizas.filter(c => c.plan_tier === t).length
+
+  // Pólizas por vencer / vencidas / cubetas agotadas
+  const porVencer = contracts.filter(c => c.is_active && c.end_date && new Date(c.end_date + 'T00:00:00') > now && new Date(c.end_date + 'T00:00:00') < in30)
+  const vencidas = contracts.filter(c => c.is_active && isExpired(c))
+  const cubetaAgotada = activePolizas.filter(c =>
+    (c.preventive_visits_included > 0 && c.preventive_visits_used >= c.preventive_visits_included) ||
+    (c.emergency_visits_included > 0 && c.emergency_visits_used >= c.emergency_visits_included))
+  const prevRestantes = activePolizas.reduce((s, c) => s + Math.max(0, c.preventive_visits_included - c.preventive_visits_used), 0)
+  const bombRestantes = activePolizas.reduce((s, c) => s + Math.max(0, c.emergency_visits_included - c.emergency_visits_used), 0)
+
+  // Tickets
+  const abiertos = tickets.filter(t => t.status === 'abierto' || t.status === 'en_progreso' || t.status === 'esperando_cliente')
+  const urgentesAbiertos = abiertos.filter(t => t.priority === 'urgente' || t.priority === 'alta')
+  const sinAsignar = abiertos.filter(t => !t.assigned_to)
+  const countBy = <T extends string>(arr: TicketRow[], key: (t: TicketRow) => T) => {
+    const m: Record<string, number> = {}
+    arr.forEach(t => { const k = key(t); m[k] = (m[k] || 0) + 1 })
+    return m
+  }
+  const byPriority = countBy(abiertos, t => t.priority)
+  const byCategory = countBy(abiertos, t => t.category)
+  const slaResponseBreaches = abiertos.filter(t => !t.first_response_at && hoursBetween(t.reported_at || t.created_at, now.toISOString()) > (t.sla_response_hours || 24))
+  const resolved = tickets.filter(t => t.resolved_at)
+  const resolvedOnTime = resolved.filter(t => hoursBetween(t.reported_at || t.created_at, t.resolved_at!) <= (t.sla_resolution_hours || 72)).length
+  const slaCompliance = resolved.length > 0 ? Math.round((resolvedOnTime / resolved.length) * 100) : null
+  const avgResolution = resolved.length > 0 ? resolved.reduce((s, t) => s + hoursBetween(t.reported_at || t.created_at, t.resolved_at!), 0) / resolved.length : null
+
+  // Visitas
+  const visitasSemana = visits.filter(v => v.status === 'programada' && v.visit_date >= today && v.visit_date <= in7)
+  const completadasMes = visits.filter(v => v.status === 'completada' && (v.completed_at || v.visit_date || '').slice(0, 7) === monthKey)
+  const pendientesVisita = visits.filter(v => v.status === 'programada' && v.visit_date <= today)
+
+  // Upsells
+  const upActivos = upsells.filter(u => u.status !== 'convertida' && u.status !== 'rechazada')
+  const upValMXN = upActivos.filter(u => u.currency !== 'USD').reduce((s, u) => s + (u.estimated_value || 0), 0)
+  const upValUSD = upActivos.filter(u => u.currency === 'USD').reduce((s, u) => s + (u.estimated_value || 0), 0)
+  const upByStatus = (s: UpsellStatus) => upsells.filter(u => u.status === s)
+
+  // Propiedades + garantías
+  const propsConPoliza = new Set(activePolizas.map(c => c.property_id))
+  const sinPoliza = properties.filter(p => p.is_active && !propsConPoliza.has(p.id))
+  const garantiasPorVencer = equipment.filter(e => e.garantia_fin && new Date(e.garantia_fin) > now && new Date(e.garantia_fin) < in60)
+
+  // Alertas accionables
+  const alerts: { icon: any; color: string; text: string; action?: () => void }[] = []
+  vencidas.forEach(c => alerts.push({ icon: AlertTriangle, color: '#DC2626', text: `Póliza vencida: ${properties.find(p => p.id === c.property_id)?.name || c.name}`, action: () => onOpenProperty(c.property_id) }))
+  porVencer.forEach(c => alerts.push({ icon: Clock, color: '#D97706', text: `Póliza por vencer (${c.end_date ? formatDate(c.end_date) : ''}): ${properties.find(p => p.id === c.property_id)?.name || c.name}`, action: () => onOpenProperty(c.property_id) }))
+  cubetaAgotada.forEach(c => alerts.push({ icon: Shield, color: '#D97706', text: `Visitas agotadas: ${properties.find(p => p.id === c.property_id)?.name || c.name}`, action: () => onGoTab('polizas') }))
+  urgentesAbiertos.slice(0, 6).forEach(t => alerts.push({ icon: Ticket, color: '#DC2626', text: `Ticket ${t.priority}: #${t.ticket_number} ${t.subject}`, action: () => onOpenTicket(t.id) }))
+  slaResponseBreaches.slice(0, 6).forEach(t => alerts.push({ icon: Clock, color: '#DC2626', text: `SLA vencido sin respuesta: #${t.ticket_number} ${t.subject}`, action: () => onOpenTicket(t.id) }))
+  garantiasPorVencer.slice(0, 6).forEach(e => alerts.push({ icon: Wrench, color: '#D97706', text: `Garantía por vencer (${e.garantia_fin ? formatDate(e.garantia_fin) : ''}): ${[e.marca, e.modelo].filter(Boolean).join(' ')}`, action: () => onOpenProperty(e.property_id) }))
+
+  const maxTickets = Math.max(1, ...Object.values(byPriority), ...Object.values(byCategory))
+  const maxTier = Math.max(1, tierCount('bronce'), tierCount('plata'), tierCount('oro'), tierCount('platino'))
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {/* KPIs principales */}
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4, 1fr)', gap: 12 }}>
+        <KpiCard label="Ingreso recurrente MXN" value={`${MXN(mrrMXN)}/mes`} color="#10B981" icon={<DollarSign size={16} />} />
+        {mrrUSD > 0
+          ? <KpiCard label="Ingreso recurrente USD" value={`${USD(mrrUSD)}/mes`} color="#10B981" icon={<DollarSign size={16} />} />
+          : <KpiCard label="Pólizas activas" value={String(activePolizas.length)} color="#2563EB" icon={<Shield size={16} />} />}
+        <KpiCard label="Tickets abiertos" value={String(abiertos.length)} color={abiertos.length ? '#D97706' : '#6B7280'} icon={<Ticket size={16} />} />
+        <KpiCard label="Visitas esta semana" value={String(visitasSemana.length)} color="#A78BFA" icon={<Calendar size={16} />} />
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4, 1fr)', gap: 12 }}>
+        <KpiCard label="Cumplimiento SLA" value={slaCompliance !== null ? `${slaCompliance}%` : '—'} color={slaCompliance !== null && slaCompliance < 80 ? '#DC2626' : '#10B981'} icon={<CheckCircle size={16} />} />
+        <KpiCard label="Resolución prom." value={avgResolution !== null ? `${Math.round(avgResolution)} h` : '—'} icon={<Clock size={16} />} />
+        <KpiCard label="Visitas restantes" value={`${prevRestantes + bombRestantes}`} color="#2563EB" icon={<Wrench size={16} />} />
+        <KpiCard label="Pipeline upsell MXN" value={MXN(upValMXN)} color="#A78BFA" icon={<TrendingUp size={16} />} />
+      </div>
+
+      {/* Alertas */}
+      <DashCard>
+        <DashTitle>Requiere atención ({alerts.length})</DashTitle>
+        {alerts.length === 0 ? (
+          <div style={{ color: '#10B981', fontSize: 13, display: 'flex', alignItems: 'center', gap: 8 }}><CheckCircle size={15} /> Todo en orden, sin alertas.</div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 280, overflowY: 'auto' }}>
+            {alerts.slice(0, 20).map((a, i) => {
+              const Icon = a.icon
+              return (
+                <button key={i} onClick={a.action} style={{
+                  display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', textAlign: 'left',
+                  background: '#0f0f0f', border: '1px solid #1a1a1a', borderRadius: 9, cursor: a.action ? 'pointer' : 'default',
+                  color: '#ccc', fontSize: 12, fontFamily: 'inherit',
+                }}>
+                  <Icon size={14} color={a.color} style={{ flexShrink: 0 }} />
+                  <span style={{ flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{a.text}</span>
+                </button>
+              )
+            })}
+          </div>
+        )}
+      </DashCard>
+
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 16 }}>
+        {/* Pólizas */}
+        <DashCard>
+          <DashTitle>Pólizas por plan</DashTitle>
+          {(['bronce', 'plata', 'oro', 'platino'] as const).map(t => (
+            <BarRow key={t} label={TIER_CFG[t].label} value={tierCount(t)} max={maxTier} color={TIER_CFG[t].color} />
+          ))}
+          <div style={{ display: 'flex', gap: 16, marginTop: 12, paddingTop: 12, borderTop: '1px solid #222', fontSize: 12, color: '#888' }}>
+            <span>Por vencer: <b style={{ color: '#D97706' }}>{porVencer.length}</b></span>
+            <span>Vencidas: <b style={{ color: '#DC2626' }}>{vencidas.length}</b></span>
+            <span>Visitas restantes: <b style={{ color: '#10B981' }}>{prevRestantes} prev · {bombRestantes} bomb.</b></span>
+          </div>
+        </DashCard>
+
+        {/* Tickets */}
+        <DashCard>
+          <DashTitle>Tickets abiertos por prioridad</DashTitle>
+          {(['urgente', 'alta', 'media', 'baja'] as const).map(p => (
+            <BarRow key={p} label={PRIORITY_CFG[p]?.label || p} value={byPriority[p] || 0} max={maxTickets} color={PRIORITY_CFG[p]?.color || '#888'} />
+          ))}
+          <div style={{ display: 'flex', gap: 16, marginTop: 12, paddingTop: 12, borderTop: '1px solid #222', fontSize: 12, color: '#888' }}>
+            <span>Sin asignar: <b style={{ color: sinAsignar.length ? '#D97706' : '#10B981' }}>{sinAsignar.length}</b></span>
+            <span>SLA vencido: <b style={{ color: slaResponseBreaches.length ? '#DC2626' : '#10B981' }}>{slaResponseBreaches.length}</b></span>
+          </div>
+        </DashCard>
+
+        {/* Pipeline upsell */}
+        <DashCard>
+          <DashTitle>Pipeline de oportunidades</DashTitle>
+          {(['identificada', 'propuesta', 'aceptada', 'convertida'] as UpsellStatus[]).map(s => {
+            const items = upByStatus(s)
+            const val = items.reduce((a, u) => a + (u.estimated_value || 0), 0)
+            const cfg = UPSELL_STATUS_CFG[s]
+            return <BarRow key={s} label={`${cfg.label} (${items.length})`} value={Math.round(val)} max={Math.max(1, upValMXN + upValUSD)} color={cfg.color} />
+          })}
+          <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid #222', fontSize: 12, color: '#888' }}>
+            Valor activo: <b style={{ color: '#A78BFA' }}>{MXN(upValMXN)}{upValUSD > 0 ? ` · ${USD(upValUSD)} USD` : ''}</b>
+          </div>
+        </DashCard>
+
+        {/* Cartera */}
+        <DashCard>
+          <DashTitle>Cartera</DashTitle>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, fontSize: 13 }}>
+            <RowKV k="Propiedades activas" v={String(properties.filter(p => p.is_active).length)} />
+            <RowKV k="Con póliza activa" v={String(propsConPoliza.size)} color="#10B981" />
+            <RowKV k="Sin póliza (oportunidad)" v={String(sinPoliza.length)} color={sinPoliza.length ? '#D97706' : '#888'} />
+            <RowKV k="Visitas completadas (mes)" v={String(completadasMes.length)} />
+            <RowKV k="Visitas pendientes / vencidas" v={String(pendientesVisita.length)} color={pendientesVisita.length ? '#D97706' : '#888'} />
+            <RowKV k="Garantías por vencer (60d)" v={String(garantiasPorVencer.length)} color={garantiasPorVencer.length ? '#D97706' : '#888'} />
+          </div>
+        </DashCard>
+      </div>
+    </div>
+  )
+}
+
+function RowKV({ k, v, color = '#fff' }: { k: string; v: string; color?: string }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingBottom: 8, borderBottom: '1px solid #1c1c1c' }}>
+      <span style={{ color: '#888' }}>{k}</span>
+      <span style={{ color, fontWeight: 700 }}>{v}</span>
     </div>
   )
 }
