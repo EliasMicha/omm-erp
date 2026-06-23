@@ -250,21 +250,31 @@ export function QuoteEditorModal({ quoteId, prefill, properties, onClose, onSave
 }
 
 // ── TAB ─────────────────────────────────────────────────────────────────────
-interface QuoteRow { id: string; property_id: string; folio: number; title: string; status: string; currency: string; total: number; valid_until: string | null; follow_up_at: string | null; updated_at: string; upsell_id: string | null }
+interface QuoteRow { id: string; property_id: string; folio: number; title: string; status: string; currency: string; total: number; valid_until: string | null; follow_up_at: string | null; updated_at: string; upsell_id: string | null; visit_id: string | null }
 
 export function TabCotizaciones({ properties, isMobile }: { properties: PropOpt[]; isMobile: boolean }) {
   const [quotes, setQuotes] = useState<QuoteRow[]>([])
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState<{ quoteId?: string } | null>(null)
   const [statusFilter, setStatusFilter] = useState('')
+  const [precioSuelta, setPrecioSuelta] = useState('')
+  const [savedPrecio, setSavedPrecio] = useState(true)
 
   async function load() {
     setLoading(true)
-    const { data } = await supabase.from('maintenance_quotes').select('id, property_id, folio, title, status, currency, total, valid_until, follow_up_at, updated_at, upsell_id').order('updated_at', { ascending: false })
+    const { data } = await supabase.from('maintenance_quotes').select('id, property_id, folio, title, status, currency, total, valid_until, follow_up_at, updated_at, upsell_id, visit_id').order('updated_at', { ascending: false })
     setQuotes((data as QuoteRow[]) || [])
+    const { data: s } = await supabase.from('maintenance_settings').select('value').eq('key', 'precio_visita_suelta').maybeSingle()
+    setPrecioSuelta(s?.value != null ? String(s.value) : '3000')
     setLoading(false)
   }
   useEffect(() => { load() }, [])
+
+  async function savePrecio() {
+    const v = parseFloat(precioSuelta) || 0
+    await supabase.from('maintenance_settings').upsert({ key: 'precio_visita_suelta', value: v, updated_at: new Date().toISOString() })
+    setSavedPrecio(true)
+  }
 
   const propMap = useMemo(() => { const m: Record<string, PropOpt> = {}; properties.forEach(p => m[p.id] = p); return m }, [properties])
   const today = new Date().toISOString().slice(0, 10)
@@ -285,6 +295,18 @@ export function TabCotizaciones({ properties, isMobile }: { properties: PropOpt[
         <KpiCard label="Pipeline MXN" value={money(pipMXN)} color="#2563EB" icon={<DollarSign size={16} />} />
         <KpiCard label="Ganadas (mes)" value={money(ganadasVal)} color="#10B981" icon={<CheckCircle size={16} />} />
         <KpiCard label="Seguimientos hoy" value={String(seguimientos.length)} color={seguimientos.length ? '#D97706' : '#6B7280'} icon={<Clock size={16} />} />
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, padding: '10px 12px', background: '#0f1a14', border: '1px solid #1f3a2a', borderRadius: 10, flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 12, color: '#10B981', fontWeight: 600 }}>Auto · Visita suelta</span>
+        <span style={{ fontSize: 11, color: '#888' }}>Las visitas sin póliza generan una cotización automática a este precio:</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <span style={{ color: '#888' }}>$</span>
+          <input value={precioSuelta} onChange={e => { setPrecioSuelta(e.target.value); setSavedPrecio(false) }} type="number"
+            style={{ ...inp, width: 100, padding: '6px 8px' }} />
+          <span style={{ fontSize: 11, color: '#666' }}>MXN + IVA</span>
+          {!savedPrecio && <button onClick={savePrecio} style={{ ...miniBtn, marginLeft: 4 }}>Guardar</button>}
+        </div>
       </div>
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, gap: 8, flexWrap: 'wrap' }}>
@@ -310,7 +332,10 @@ export function TabCotizaciones({ properties, isMobile }: { properties: PropOpt[
                 <tr key={q.id} onClick={() => setEditing({ quoteId: q.id })} style={{ cursor: 'pointer', background: needsFollow ? '#D9770608' : 'transparent' }}
                   onMouseEnter={e => e.currentTarget.style.background = '#1a1a1a'}
                   onMouseLeave={e => e.currentTarget.style.background = needsFollow ? '#D9770608' : 'transparent'}>
-                  <Td>#{q.folio}{q.upsell_id && <span title="Desde oportunidad" style={{ color: '#a78bfa' }}> ★</span>}</Td>
+                  <Td>#{q.folio}
+                    {q.upsell_id && <span title="Desde oportunidad" style={{ color: '#a78bfa' }}> ★</span>}
+                    {q.visit_id && <span title="Visita suelta automática" style={{ fontSize: 9, color: '#06b6d4', border: '1px solid #06b6d433', borderRadius: 6, padding: '1px 5px', marginLeft: 6 }}>Suelta</span>}
+                  </Td>
                   <Td>{propMap[q.property_id]?.name || '--'}</Td>
                   <Td muted>{q.title}</Td>
                   <Td>{money(Number(q.total || 0), q.currency)}</Td>
