@@ -181,9 +181,12 @@ export default function DetalleVisitaPage() {
       }).eq('id', visit.id)
       if (error) throw new Error(error.message)
 
-      // Incrementar visitas de póliza
+      // Descontar la cubeta correcta de la póliza (preventiva vs bomberazo)
       if (visit.contract_id) {
-        await supabase.rpc('increment_visits_used', { contract_id_param: visit.contract_id }).catch(() => {})
+        await supabase.rpc('increment_contract_visit', {
+          p_contract_id: visit.contract_id,
+          p_kind: (visit as any).visit_kind || 'preventiva',
+        }).catch(() => {})
       }
 
       // Cerrar ticket vinculado como resuelto (no bloquea si falla)

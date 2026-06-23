@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase'
 import { SectionHeader, KpiCard, Table, Th, Td, Badge, Btn, EmptyState, Loading } from '../components/layout/UI'
 import { F, formatDate } from '../lib/utils'
 import { useIsMobile } from '../lib/useIsMobile'
+import GeneradorPoliza from './GeneradorPoliza'
 import {
   Plus, X, Search, ArrowLeft, Building2, Phone, Mail, MapPin, Wrench,
   Ticket, Calendar, TrendingUp, Clock, CheckCircle, AlertTriangle,
@@ -40,12 +41,27 @@ interface Contract {
   currency: string
   visits_included: number
   visits_used: number
+  plan_tier: string | null
+  preventive_visits_included: number
+  preventive_visits_used: number
+  emergency_visits_included: number
+  emergency_visits_used: number
+  project_value: number | null
+  payment_plan: string | null
+  service_levels: any
   is_active: boolean
   notes: string
   created_at: string
   updated_at: string
   // joined
   property?: Property
+}
+
+const TIER_CFG: Record<string, { label: string; color: string }> = {
+  bronce: { label: 'Bronce', color: '#b87333' },
+  plata: { label: 'Plata', color: '#9ca3af' },
+  oro: { label: 'Oro', color: '#f5b301' },
+  platino: { label: 'Platino', color: '#a78bfa' },
 }
 
 type TicketCategory = 'falla' | 'mantenimiento_preventivo' | 'solicitud_nueva' | 'garantia' | 'otro'
@@ -350,6 +366,7 @@ export default function Mantenimiento() {
   const [showNewContract, setShowNewContract] = useState(false)
   const [showNewUpsell, setShowNewUpsell] = useState(false)
   const [showSchedule, setShowSchedule] = useState(false)
+  const [showGenerador, setShowGenerador] = useState(false)
 
   // Filters
   const [searchProp, setSearchProp] = useState('')
@@ -513,6 +530,7 @@ export default function Mantenimiento() {
         <TabPolizas
           contracts={contracts} propMap={propMap}
           onNew={() => setShowNewContract(true)}
+          onGenerar={() => setShowGenerador(true)}
           isMobile={isMobile}
         />
       )}
@@ -544,6 +562,13 @@ export default function Mantenimiento() {
           properties={properties} tickets={tickets} contracts={contracts} technicians={technicians}
           onClose={() => setShowSchedule(false)}
           onCreated={() => { setShowSchedule(false); loadAll() }}
+        />
+      )}
+      {showGenerador && (
+        <GeneradorPoliza
+          properties={properties.map(p => ({ id: p.id, name: p.name, client_name: p.client_name, address: p.address, city: p.city }))}
+          onClose={() => setShowGenerador(false)}
+          onCreated={() => { setShowGenerador(false); loadAll() }}
         />
       )}
     </div>
@@ -764,8 +789,26 @@ function TabTickets({ tickets, properties, propMap, statusFilter, setStatusFilte
 // TAB: POLIZAS
 // ═══════════════════════════════════════════════════════════════════════════
 
-function TabPolizas({ contracts, propMap, onNew, isMobile }: {
-  contracts: Contract[]; propMap: Record<string, Property>; onNew: () => void; isMobile: boolean
+function VisitBucket({ used, included, label, color }: { used: number; included: number; label: string; color: string }) {
+  const remaining = Math.max(0, (included || 0) - (used || 0))
+  const exhausted = included > 0 && used >= included
+  const fillPct = included > 0 ? Math.min(100, (used / included) * 100) : 0
+  return (
+    <div style={{ minWidth: 110 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, marginBottom: 3 }}>
+        <span style={{ color: '#888' }}>{label}</span>
+        <span style={{ color: exhausted ? '#DC2626' : '#ccc', fontWeight: 600 }}>{remaining} rest.</span>
+      </div>
+      <div style={{ height: 5, background: '#1f1f1f', borderRadius: 3, overflow: 'hidden' }}>
+        <div style={{ width: `${fillPct}%`, height: '100%', background: exhausted ? '#DC2626' : color }} />
+      </div>
+      <div style={{ fontSize: 9, color: '#555', marginTop: 2 }}>{used}/{included} usadas</div>
+    </div>
+  )
+}
+
+function TabPolizas({ contracts, propMap, onNew, onGenerar, isMobile }: {
+  contracts: Contract[]; propMap: Record<string, Property>; onNew: () => void; onGenerar: () => void; isMobile: boolean
 }) {
   const now = new Date()
   const soonThreshold = new Date(now.getTime() + 30 * 24 * 3600000) // 30 days
@@ -775,28 +818,45 @@ function TabPolizas({ contracts, propMap, onNew, isMobile }: {
     const end = new Date(c.end_date + 'T00:00:00')
     return end > now && end < soonThreshold
   }
-
   const isExpired = (c: Contract) => {
     if (!c.end_date) return false
     return new Date(c.end_date + 'T00:00:00') < now
   }
 
+  const active = contracts.filter(c => c.is_active && !isExpired(c))
+  const mrrMXN = active.reduce((s, c) => s + (c.currency !== 'USD' ? (c.monthly_fee || (c.annual_fee || 0) / 12) : 0), 0)
+  const mrrUSD = active.reduce((s, c) => s + (c.currency === 'USD' ? (c.monthly_fee || (c.annual_fee || 0) / 12) : 0), 0)
+  const alertas = contracts.filter(c => isExpired(c) || isExpiringSoon(c)
+    || (c.is_active && c.preventive_visits_included > 0 && c.preventive_visits_used >= c.preventive_visits_included)
+    || (c.is_active && c.emergency_visits_included > 0 && c.emergency_visits_used >= c.emergency_visits_included)).length
+
   return (
     <>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <div style={{ fontSize: 14, color: '#888' }}>{contracts.length} contratos registrados</div>
-        <Btn variant="primary" onClick={onNew}><Plus size={14} /> Nueva Póliza</Btn>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
+        <KpiCard label="Pólizas activas" value={String(active.length)} icon={<Shield size={16} />} />
+        <KpiCard label="Ingreso recurrente MXN" value={`${F(mrrMXN)}/mes`} color="#2563EB" icon={<DollarSign size={16} />} />
+        {mrrUSD > 0 && <KpiCard label="Ingreso recurrente USD" value={`$${Math.round(mrrUSD).toLocaleString('en-US')}/mes`} color="#10B981" icon={<DollarSign size={16} />} />}
+        <KpiCard label="Alertas" value={String(alertas)} color={alertas > 0 ? '#D97706' : '#6B7280'} icon={<AlertTriangle size={16} />} />
       </div>
 
-      {contracts.length === 0 ? <EmptyState message="No hay pólizas registradas" /> : (
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
+        <div style={{ fontSize: 14, color: '#888' }}>{contracts.length} pólizas registradas</div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <Btn onClick={onNew}><Plus size={14} /> Manual</Btn>
+          <Btn variant="primary" onClick={onGenerar}><FileText size={14} /> Generar póliza</Btn>
+        </div>
+      </div>
+
+      {contracts.length === 0 ? <EmptyState message="No hay pólizas. Usa 'Generar póliza' para crear una con la calculadora." /> : (
         <Table>
           <thead>
             <tr>
               <Th>Propiedad</Th>
-              <Th>Póliza</Th>
+              <Th>Plan</Th>
               {!isMobile && <Th>Vigencia</Th>}
               <Th>Cuota</Th>
-              <Th>Visitas</Th>
+              <Th>Preventivas</Th>
+              <Th>Bomberazos</Th>
               <Th>Estado</Th>
             </tr>
           </thead>
@@ -806,6 +866,7 @@ function TabPolizas({ contracts, propMap, onNew, isMobile }: {
               const expired = isExpired(c)
               const expiringSoon = isExpiringSoon(c)
               const fee = c.monthly_fee ? `${F(c.monthly_fee)}/mes` : c.annual_fee ? `${F(c.annual_fee)}/año` : '--'
+              const tier = c.plan_tier ? TIER_CFG[c.plan_tier] : null
               return (
                 <tr key={c.id}
                   style={{ background: expiringSoon ? '#D9770608' : expired ? '#DC262608' : 'transparent' }}
@@ -813,20 +874,15 @@ function TabPolizas({ contracts, propMap, onNew, isMobile }: {
                   onMouseLeave={e => (e.currentTarget.style.background = expiringSoon ? '#D9770608' : expired ? '#DC262608' : 'transparent')}>
                   <Td>{prop?.name || '--'}</Td>
                   <Td>
-                    <div style={{ fontWeight: 500, color: '#fff', fontSize: 12 }}>{c.name}</div>
-                    {c.contract_type && <div style={{ fontSize: 10, color: '#555' }}>{c.contract_type}</div>}
+                    {tier ? <Badge label={tier.label} color={tier.color} /> : <span style={{ fontSize: 12, color: '#fff' }}>{c.name}</span>}
+                    <div style={{ fontSize: 10, color: '#555', marginTop: 2 }}>{c.payment_plan || c.contract_type}</div>
                   </Td>
                   {!isMobile && (
-                    <Td muted>
-                      {c.start_date ? formatDate(c.start_date) : '--'} — {c.end_date ? formatDate(c.end_date) : '--'}
-                    </Td>
+                    <Td muted>{c.start_date ? formatDate(c.start_date) : '--'} — {c.end_date ? formatDate(c.end_date) : '--'}</Td>
                   )}
                   <Td>{fee}</Td>
-                  <Td>
-                    <span style={{ color: c.visits_used >= c.visits_included ? '#DC2626' : '#ccc', fontWeight: 500, fontSize: 12 }}>
-                      {c.visits_used}/{c.visits_included}
-                    </span>
-                  </Td>
+                  <Td><VisitBucket used={c.preventive_visits_used} included={c.preventive_visits_included} label="Preventivas" color="#10B981" /></Td>
+                  <Td><VisitBucket used={c.emergency_visits_used} included={c.emergency_visits_included} label="Bomberazos" color="#f59e0b" /></Td>
                   <Td>
                     {expired
                       ? <Badge label="Vencida" color="#DC2626" />
@@ -2186,7 +2242,7 @@ function ProgramarVisitaModal({ properties, tickets, contracts, technicians, onC
   const [form, setForm] = useState({
     property_id: '', ticket_id: '', technician_id: '',
     visit_date: new Date().toISOString().slice(0, 10),
-    scheduled_time: '09:00', route_order: '', notes: '',
+    scheduled_time: '09:00', route_order: '', notes: '', visit_kind: 'preventiva',
   })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -2213,6 +2269,7 @@ function ProgramarVisitaModal({ properties, tickets, contracts, technicians, onC
       visit_date: form.visit_date,
       scheduled_time: form.scheduled_time || null,
       route_order: form.route_order ? parseInt(form.route_order, 10) : null,
+      visit_kind: form.visit_kind,
       status: 'programada',
       notes: form.notes.trim() || null,
       currency: 'MXN',
@@ -2261,6 +2318,16 @@ function ProgramarVisitaModal({ properties, tickets, contracts, technicians, onC
           <Field label="Orden ruta" value={form.route_order} onChange={set('route_order')} placeholder="1" type="number" />
         </div>
 
+        <label style={labelStyle}>
+          Tipo de visita
+          <select value={form.visit_kind} onChange={e => set('visit_kind')(e.target.value)} style={{ ...selectStyle, marginTop: 4 }}>
+            <option value="preventiva">Preventiva (limpieza / actualización)</option>
+            <option value="emergencia">Bomberazo / emergencia</option>
+            <option value="garantia">Garantía</option>
+            <option value="otro">Otro</option>
+          </select>
+        </label>
+
         <TextArea label="Notas para el técnico" value={form.notes} onChange={set('notes')} placeholder="Instrucciones, acceso, contacto en sitio..." rows={2} />
 
         {error && <div style={{ color: '#DC2626', fontSize: 12 }}>{error}</div>}
@@ -2282,7 +2349,7 @@ function AddVisitModal({ ticketId, propertyId, contractId, onClose, onCreated }:
     visit_date: new Date().toISOString().slice(0, 10),
     scheduled_time: '', technician_id: '', technician: '', duration_hours: '', work_performed: '',
     parts_used: '', cost: '', billable: false, amount_charged: '',
-    status: 'programada' as string,
+    status: 'programada' as string, visit_kind: 'preventiva',
   })
   const [technicians, setTechnicians] = useState<Technician[]>([])
   const [saving, setSaving] = useState(false)
@@ -2308,6 +2375,7 @@ function AddVisitModal({ ticketId, propertyId, contractId, onClose, onCreated }:
       scheduled_time: form.scheduled_time || null,
       technician_id: form.technician_id || null,
       technician: tech ? techName(tech) : null,
+      visit_kind: form.visit_kind,
       duration_hours: form.duration_hours ? parseFloat(form.duration_hours) : null,
       work_performed: form.work_performed.trim(),
       parts_used: form.parts_used.trim(),
@@ -2320,17 +2388,9 @@ function AddVisitModal({ ticketId, propertyId, contractId, onClose, onCreated }:
     setSaving(false)
     if (err) { setError(err.message); return }
 
-    // If visit completed and has a contract, increment visits_used
+    // Si la visita quedó completada y tiene póliza, descontar la cubeta correcta
     if (form.status === 'completada' && contractId) {
-      await supabase.rpc('increment_visits_used', { contract_id_param: contractId }).catch(() => {
-        // fallback: manual update
-        supabase.from('maintenance_contracts').select('visits_used').eq('id', contractId).single()
-          .then(({ data }) => {
-            if (data) {
-              supabase.from('maintenance_contracts').update({ visits_used: (data.visits_used || 0) + 1 }).eq('id', contractId)
-            }
-          })
-      })
+      await supabase.rpc('increment_contract_visit', { p_contract_id: contractId, p_kind: form.visit_kind }).catch(() => {})
     }
 
     onCreated()
@@ -2368,6 +2428,16 @@ function AddVisitModal({ ticketId, propertyId, contractId, onClose, onCreated }:
           </label>
           <Field label="Duración (hrs)" value={form.duration_hours} onChange={s('duration_hours')} placeholder="2.5" type="number" />
         </div>
+
+        <label style={labelStyle}>
+          Tipo de visita
+          <select value={form.visit_kind} onChange={e => s('visit_kind')(e.target.value)} style={{ ...selectStyle, marginTop: 4 }}>
+            <option value="preventiva">Preventiva (limpieza / actualización)</option>
+            <option value="emergencia">Bomberazo / emergencia</option>
+            <option value="garantia">Garantía</option>
+            <option value="otro">Otro</option>
+          </select>
+        </label>
 
         <TextArea label="Trabajo Realizado" value={form.work_performed} onChange={s('work_performed')} placeholder="Descripción del trabajo..." rows={3} />
         <Field label="Refacciones Utilizadas" value={form.parts_used} onChange={s('parts_used')} placeholder="Lista de refacciones" />
