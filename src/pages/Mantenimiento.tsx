@@ -4,6 +4,7 @@ import { SectionHeader, KpiCard, Table, Th, Td, Badge, Btn, EmptyState, Loading 
 import { F, formatDate } from '../lib/utils'
 import { useIsMobile } from '../lib/useIsMobile'
 import GeneradorPoliza from './GeneradorPoliza'
+import { TabCotizaciones, QuoteEditorModal } from './MaintQuotes'
 import {
   Plus, X, Search, ArrowLeft, Building2, Phone, Mail, MapPin, Wrench,
   Ticket, Calendar, TrendingUp, Clock, CheckCircle, AlertTriangle,
@@ -247,7 +248,7 @@ const VISIT_STATUS_CFG: Record<string, { label: string; color: string }> = {
   cancelada: { label: 'Cancelada', color: '#6B7280' },
 }
 
-type Tab = 'dashboard' | 'propiedades' | 'agenda' | 'reportes' | 'tickets' | 'polizas' | 'oportunidades'
+type Tab = 'dashboard' | 'propiedades' | 'agenda' | 'reportes' | 'tickets' | 'polizas' | 'oportunidades' | 'cotizaciones'
 
 // ── Shared UI ──────────────────────────────────────────────────────────────
 
@@ -439,6 +440,7 @@ export default function Mantenimiento() {
     { key: 'tickets', label: 'Tickets' },
     { key: 'polizas', label: 'Pólizas' },
     { key: 'oportunidades', label: 'Oportunidades' },
+    { key: 'cotizaciones', label: 'Cotizaciones' },
   ]
 
   // ── Render ─────────────────────────────────────────────────────────────
@@ -558,6 +560,13 @@ export default function Mantenimiento() {
           contracts={contracts} propMap={propMap}
           onNew={() => setShowNewContract(true)}
           onGenerar={() => setShowGenerador(true)}
+          isMobile={isMobile}
+        />
+      )}
+
+      {tab === 'cotizaciones' && (
+        <TabCotizaciones
+          properties={properties.map(p => ({ id: p.id, name: p.name, client_name: p.client_name, address: p.address, city: p.city, client_phone: p.client_phone }))}
           isMobile={isMobile}
         />
       )}
@@ -2012,6 +2021,7 @@ function UpsellDetail({ upsell, property, onBack, onReload, isMobile }: {
   const [status, setStatus] = useState<UpsellStatus>(upsell.status)
   const [notes, setNotes] = useState(upsell.notes || '')
   const [saving, setSaving] = useState(false)
+  const [showQuote, setShowQuote] = useState(false)
 
   const cfg = UPSELL_STATUS_CFG[status]
   const pipeline: UpsellStatus[] = ['identificada', 'propuesta', 'aceptada', 'convertida']
@@ -2049,10 +2059,22 @@ function UpsellDetail({ upsell, property, onBack, onReload, isMobile }: {
         <ArrowLeft size={16} /> Volver a Oportunidades
       </button>
 
-      <div style={{ marginBottom: 24 }}>
-        <div style={{ fontSize: 20, fontWeight: 700, color: '#fff', marginBottom: 4 }}>{upsell.title}</div>
-        <div style={{ fontSize: 13, color: '#888' }}>{property?.name || '--'}</div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24, gap: 12, flexWrap: 'wrap' }}>
+        <div>
+          <div style={{ fontSize: 20, fontWeight: 700, color: '#fff', marginBottom: 4 }}>{upsell.title}</div>
+          <div style={{ fontSize: 13, color: '#888' }}>{property?.name || '--'}</div>
+        </div>
+        {property && <Btn variant="primary" onClick={() => setShowQuote(true)}><FileText size={14} /> Crear cotización</Btn>}
       </div>
+
+      {showQuote && property && (
+        <QuoteEditorModal
+          properties={[{ id: property.id, name: property.name, client_name: property.client_name, address: property.address, city: property.city, client_phone: property.client_phone }]}
+          prefill={{ property_id: property.id, upsell_id: upsell.id, title: upsell.title }}
+          onClose={() => setShowQuote(false)}
+          onSaved={() => { setShowQuote(false); onReload() }}
+        />
+      )}
 
       {/* Progress bar */}
       <div style={{ display: 'flex', gap: 4, marginBottom: 24 }}>
