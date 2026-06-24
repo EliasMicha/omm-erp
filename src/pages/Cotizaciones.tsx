@@ -929,6 +929,7 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
   const [verTodo, setVerTodo] = useState(false)         // ver todas las áreas a la vez
   const [filtroArticulo, setFiltroArticulo] = useState('') // filtrar por tipo de artículo (cruza áreas)
   const [editItem, setEditItem] = useState<QuotationItem | null>(null) // modal editar producto
+  const [substituteItem, setSubstituteItem] = useState<QuotationItem | null>(null) // modal sustituir producto
   const [propMsg, setPropMsg] = useState<string>('') // aviso de propagación de precio
   // Config editable: IVA, descuento global, % material y % nómina como fracción del subtotal.
   // Persistido en quotation.notes JSON.
@@ -1217,6 +1218,49 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
       syncQuotationTotal(newItems)
     }
     setShowCat(false)
+  }
+
+  // Mapea un producto del catálogo a los campos de un item (misma lógica que addFromCatalog)
+  function productFieldsFromCatalog(prod: any) {
+    const pv = prod.precio_venta
+    const usePrecioVenta = pv && pv > 0 && (!prod.cost || prod.cost === 0)
+    const price = usePrecioVenta ? Number(pv) : calcItemPrice(prod.cost || 0, prod.markup || 0)
+    const isElec = cot?.specialty === 'elec'
+    let itemCost = prod.cost || 0
+    let itemMarkup = prod.markup || 0
+    if (isElec && itemCost === 0 && price > 0) {
+      if (prod.type === 'material' || prod.type === 'servicio') { itemCost = Math.round(price * 0.25 * 100) / 100; itemMarkup = 300 }
+      else if (prod.type === 'labor' || prod.type === 'mano_de_obra') { itemCost = Math.round(price * 0.40 * 100) / 100; itemMarkup = 150 }
+    }
+    return {
+      catalog_product_id: prod.id, name: prod.name, description: prod.description ?? null, system: prod.system ?? null,
+      type: prod.type, provider: prod.provider ?? null, cost: itemCost, markup: itemMarkup,
+      supplier_id: prod.supplier_id || null, purchase_phase: prod.purchase_phase || 'inicio', price,
+      marca: prod.marca ?? null, modelo: prod.modelo ?? null, sku: prod.sku ?? null, image_url: prod.image_url ?? null,
+      provider_currency: prod.moneda || prod.provider_currency || 'USD',
+    }
+  }
+
+  // Sustituir un producto por otro del catálogo, opcionalmente en TODAS las áreas
+  async function substituteProduct(sourceItem: QuotationItem, prod: any, replaceAll: boolean) {
+    const key = itemProductKey(sourceItem)
+    const targetIds = replaceAll ? items.filter(i => itemProductKey(i) === key).map(i => i.id) : [sourceItem.id]
+    const base = productFieldsFromCatalog(prod)
+    const updatedMap: Record<string, any> = {}
+    for (const tid of targetIds) {
+      const t = items.find(i => i.id === tid); if (!t) continue
+      const fields = { ...base, total: Math.round(base.price * (t.quantity || 0) * 100) / 100 }
+      await supabase.from('quotation_items').update(fields).eq('id', tid)
+      updatedMap[tid] = fields
+    }
+    const newItems = items.map(i => updatedMap[i.id] ? { ...i, ...updatedMap[i.id] } : i)
+    setItems(newItems)
+    syncQuotationTotal(newItems)
+    setSubstituteItem(null)
+    if (targetIds.length > 1) {
+      setPropMsg(`Producto sustituido en ${targetIds.length} ubicaciones`)
+      setTimeout(() => setPropMsg(''), 3500)
+    }
   }
 
   // Sync quotation total to DB whenever items change
@@ -2046,6 +2090,7 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
                     <td style={{padding:'7px 8px',fontSize:12,textAlign:'right',fontWeight:600,color:'#fff',borderBottom:'1px solid #1a1a1a'}}>{F(item.total)}</td>
                     <td style={{padding:'7px 8px',borderBottom:'1px solid #1a1a1a',whiteSpace:'nowrap'}}>
                       <button onClick={()=>setEditItem(item)} title="Editar producto" style={{background:'none',border:'none',color:'#666',cursor:'pointer',fontSize:13,marginRight:6}}>✎</button>
+                      <button onClick={()=>setSubstituteItem(item)} title="Sustituir por otro producto" style={{background:'none',border:'none',color:'#666',cursor:'pointer',fontSize:13,marginRight:6}}>⇄</button>
                       <button onClick={()=>removeItem(item.id)} style={{background:'none',border:'none',color:'#444',cursor:'pointer',fontSize:16}}>x</button>
                     </td>
                   </tr>
@@ -2424,12 +2469,73 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
           onSave={(fields, alsoCatalog) => saveItemProduct(editItem, fields, alsoCatalog)}
         />
       )}
+
+      {substituteItem && (
+        <SubstituteModal
+          item={substituteItem}
+          catalog={catalog}
+          sameCount={items.filter(i => itemProductKey(i) === itemProductKey(substituteItem)).length}
+          onClose={() => setSubstituteItem(null)}
+          onSubstitute={(prod, replaceAll) => substituteProduct(substituteItem, prod, replaceAll)}
+        />
+      )}
     </div>
   )
 }
 
 const PRODUCT_SYSTEMS = ['Electrico','Redes','CCTV','Audio','Lutron','Acceso','Control de acceso','Control de iluminacion','Iluminacion','Somfy','Cortinas','BMS','Humo','Telefonia','Celular','General']
 const PRODUCT_TYPES = ['material','labor','mano_de_obra','servicio','equipo']
+
+// Modal para sustituir un producto por otro del catálogo, opcionalmente en todas las áreas
+function SubstituteModal({ item, catalog, sameCount, onClose, onSubstitute }: {
+  item: QuotationItem
+  catalog: any[]
+  sameCount: number
+  onClose: () => void
+  onSubstitute: (prod: any, replaceAll: boolean) => Promise<void> | void
+}) {
+  const [q, setQ] = useState('')
+  const [replaceAll, setReplaceAll] = useState(sameCount > 1)
+  const [saving, setSaving] = useState(false)
+  const s = q.trim().toLowerCase()
+  const results = (s
+    ? catalog.filter((p: any) => `${p.name||''} ${p.marca||''} ${p.modelo||''} ${p.sku||''}`.toLowerCase().includes(s))
+    : catalog).slice(0, 40)
+  async function pick(prod: any) { setSaving(true); await onSubstitute(prod, replaceAll) }
+  const fld: React.CSSProperties = { width: '100%', padding: '9px 12px', background: '#0e0e0e', border: '1px solid #333', borderRadius: 8, color: '#fff', fontSize: 13, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 1000, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: 20, overflowY: 'auto' }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: '#141414', border: '1px solid #2a2a2a', borderRadius: 14, width: '100%', maxWidth: 560, padding: 22, marginTop: 24 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+          <div style={{ fontSize: 15, fontWeight: 700, color: '#fff' }}>Sustituir producto</div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', fontSize: 18 }}>×</button>
+        </div>
+        <div style={{ fontSize: 12, color: '#888', marginBottom: 12 }}>Reemplazar <b style={{ color: '#ccc' }}>{item.name}</b> por otro producto del catálogo.</div>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: '#ccc', marginBottom: 12, cursor: sameCount > 1 ? 'pointer' : 'default' }}>
+          <input type="checkbox" checked={replaceAll} disabled={sameCount <= 1} onChange={e => setReplaceAll(e.target.checked)} />
+          Reemplazar en <b style={{ color: '#10B981', margin: '0 4px' }}>todas las {sameCount}</b> ubicaciones de este producto {sameCount <= 1 && '(solo hay 1)'}
+        </label>
+        <input value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar producto del catálogo…" style={{ ...fld, marginBottom: 10 }} autoFocus />
+        <div style={{ maxHeight: 320, overflowY: 'auto', border: '1px solid #222', borderRadius: 8 }}>
+          {results.length === 0 ? <div style={{ padding: 14, fontSize: 12, color: '#666' }}>Sin resultados.</div> :
+            results.map((p: any) => (
+              <button key={p.id} onClick={() => pick(p)} disabled={saving} style={{
+                width: '100%', textAlign: 'left', display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px',
+                background: 'none', border: 'none', borderBottom: '1px solid #1a1a1a', cursor: 'pointer', color: '#fff', fontFamily: 'inherit',
+              }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 12, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{[p.marca, p.modelo].filter(Boolean).join(' ') || p.name}</div>
+                  <div style={{ fontSize: 10, color: '#666' }}>{p.name}{p.sku ? ` · ${p.sku}` : ''}{p.system ? ` · ${p.system}` : ''}</div>
+                </div>
+                <div style={{ fontSize: 12, color: '#10B981', fontWeight: 600 }}>{(p.moneda === 'USD' ? '$' : '$')}{F(p.precio_venta && p.precio_venta > 0 && (!p.cost || p.cost === 0) ? Number(p.precio_venta) : calcItemPrice(p.cost, p.markup))}</div>
+              </button>
+            ))}
+        </div>
+        {saving && <div style={{ fontSize: 12, color: '#888', marginTop: 8 }}>Sustituyendo…</div>}
+      </div>
+    </div>
+  )
+}
 
 // Modal para editar todas las características de un producto dentro de la cotización
 function EditItemModal({ item, suppliers, phases, onClose, onSave }: {
