@@ -924,7 +924,7 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
   const [showPdfPicker, setShowPdfPicker] = useState(false)
   const [showEditInfo, setShowEditInfo] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
-  const [bulkAction, setBulkAction] = useState<'' | 'moveArea' | 'moveSystem'>('')
+  const [bulkAction, setBulkAction] = useState<'' | 'moveArea' | 'copyArea' | 'moveSystem'>('')
   const [bulkTarget, setBulkTarget] = useState('')
   const [verTodo, setVerTodo] = useState(false)         // ver todas las áreas a la vez
   const [filtroArticulo, setFiltroArticulo] = useState('') // filtrar por tipo de artículo (cruza áreas)
@@ -1724,6 +1724,25 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
     setSelectedIds(new Set())
     setBulkAction(''); setBulkTarget('')
   }
+  // Copiar (duplicar) los productos seleccionados a otra área
+  async function bulkCopyToArea(targetAreaId: string) {
+    if (!selectedIds.size || !targetAreaId) return
+    const ids = Array.from(selectedIds)
+    const rows = ids.map((id, i) => {
+      const s = items.find(it => it.id === id)
+      if (!s) return null
+      const { id: _id, created_at: _ca, bundle_id: _b, bundle_instance_id: _bi, ...rest } = s as any
+      return { ...rest, quotation_id: cotId, area_id: targetAreaId, order_index: items.length + i }
+    }).filter(Boolean)
+    if (rows.length === 0) return
+    const { data, error } = await supabase.from('quotation_items').insert(rows as any[]).select()
+    if (error) { alert('Error al copiar a área: ' + error.message); return }
+    const newItems = [...items, ...((data as QuotationItem[]) || [])]
+    setItems(newItems)
+    setSelectedIds(new Set())
+    setBulkAction(''); setBulkTarget('')
+    syncQuotationTotal(newItems)
+  }
 
   if (loading||!cot) return <Loading/>
 
@@ -1925,11 +1944,18 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
               <select value={bulkAction} onChange={e => { setBulkAction(e.target.value as any); setBulkTarget('') }} style={{fontSize:11,background:'#222',color:'#ccc',border:'1px solid #444',borderRadius:6,padding:'3px 8px',fontFamily:'inherit'}}>
                 <option value="">Acción...</option>
                 <option value="moveArea">Mover a área</option>
+                <option value="copyArea">Copiar a área</option>
                 <option value="moveSystem">Cambiar sistema</option>
               </select>
               {bulkAction === 'moveArea' && (
                 <select value={bulkTarget} onChange={e => { if (e.target.value) bulkMoveArea(e.target.value) }} style={{fontSize:11,background:'#222',color:'#ccc',border:'1px solid #444',borderRadius:6,padding:'3px 8px',fontFamily:'inherit'}}>
                   <option value="">Selecciona área...</option>
+                  {areas.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                </select>
+              )}
+              {bulkAction === 'copyArea' && (
+                <select value={bulkTarget} onChange={e => { if (e.target.value) bulkCopyToArea(e.target.value) }} style={{fontSize:11,background:'#222',color:'#ccc',border:'1px solid #444',borderRadius:6,padding:'3px 8px',fontFamily:'inherit'}}>
+                  <option value="">Copiar a área...</option>
                   {areas.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
                 </select>
               )}
