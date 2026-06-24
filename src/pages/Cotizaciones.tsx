@@ -1222,6 +1222,11 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
     setCot(c => c ? { ...c, total: newTotal } : c)
   }
 
+  // Identifica "el mismo producto": por catalog_product_id, o por nombre si es manual
+  function itemProductKey(i: QuotationItem): string {
+    return i.catalog_product_id ? `cat:${i.catalog_product_id}` : `name:${(i.name || '').trim().toLowerCase()}`
+  }
+
   async function updateItem(id: string, campo: string, val: number) {
     const item = items.find(i => i.id === id)
     if (!item) return
@@ -1229,7 +1234,24 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
     updated.price = calcItemPrice(updated.cost, updated.markup)
     updated.total = calcItemTotal(updated.cost, updated.markup, updated.quantity)
     await supabase.from('quotation_items').update({ [campo]: val, price: updated.price, total: updated.total }).eq('id', id)
-    const newItems = items.map(i => i.id === id ? updated : i)
+
+    // Si cambió el precio (costo o markup), propagar a TODAS las áreas con el mismo producto.
+    // La cantidad NO se propaga: cada área conserva la suya y su total se recalcula.
+    const propagate = campo === 'cost' || campo === 'markup'
+    const key = itemProductKey(item)
+    const targets = propagate ? items.filter(i => i.id !== id && itemProductKey(i) === key) : []
+    for (const t of targets) {
+      const tTotal = calcItemTotal(updated.cost, updated.markup, t.quantity)
+      await supabase.from('quotation_items').update({ cost: updated.cost, markup: updated.markup, price: updated.price, total: tTotal }).eq('id', t.id)
+    }
+
+    const newItems = items.map(i => {
+      if (i.id === id) return updated
+      if (propagate && itemProductKey(i) === key) {
+        return { ...i, cost: updated.cost, markup: updated.markup, price: updated.price, total: calcItemTotal(updated.cost, updated.markup, i.quantity) }
+      }
+      return i
+    })
     setItems(newItems)
     syncQuotationTotal(newItems)
   }
