@@ -1265,13 +1265,21 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
     }
   }
 
-  // Editar datos descriptivos del producto (item) y opcionalmente el catálogo
+  // Editar todas las características del producto (item) y opcionalmente el catálogo
   async function saveItemProduct(item: QuotationItem, fields: any, alsoCatalog: boolean) {
+    // Recalcular precio y total si cambió costo/markup/cantidad
+    const cost = fields.cost ?? (item as any).cost
+    const markup = fields.markup ?? (item as any).markup
+    const quantity = fields.quantity ?? item.quantity
+    fields.price = calcItemPrice(cost, markup)
+    fields.total = calcItemTotal(cost, markup, quantity)
     await supabase.from('quotation_items').update(fields).eq('id', item.id)
-    setItems(prev => prev.map(i => i.id === item.id ? { ...i, ...fields } : i))
+    const newItems = items.map(i => i.id === item.id ? { ...i, ...fields } : i)
+    setItems(newItems)
+    syncQuotationTotal(newItems)
     if (alsoCatalog && item.catalog_product_id) {
       const catFields: any = {}
-      for (const k of ['name','marca','modelo','description','provider']) if (k in fields) catFields[k] = fields[k]
+      for (const k of ['name','marca','modelo','sku','description','provider','system','cost','markup','supplier_id','purchase_phase','provider_currency']) if (k in fields) catFields[k] = fields[k]
       await supabase.from('catalog_products').update(catFields).eq('id', item.catalog_product_id)
       setCatalog(prev => prev.map(p => p.id === item.catalog_product_id ? { ...p, ...catFields } : p))
     }
@@ -2395,6 +2403,8 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
       {editItem && (
         <EditItemModal
           item={editItem}
+          suppliers={suppliers}
+          phases={Object.entries(PHASE_CONFIG).map(([k, v]: any) => ({ value: k, label: v.label }))}
           onClose={() => setEditItem(null)}
           onSave={(fields, alsoCatalog) => saveItemProduct(editItem, fields, alsoCatalog)}
         />
@@ -2403,24 +2413,32 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
   )
 }
 
-// Modal para editar los datos descriptivos de un producto dentro de la cotización
-function EditItemModal({ item, onClose, onSave }: {
+const PRODUCT_SYSTEMS = ['Electrico','Redes','CCTV','Audio','Lutron','Acceso','Control de acceso','Control de iluminacion','Iluminacion','Somfy','Cortinas','BMS','Humo','Telefonia','Celular','General']
+const PRODUCT_TYPES = ['material','labor','mano_de_obra','servicio','equipo']
+
+// Modal para editar todas las características de un producto dentro de la cotización
+function EditItemModal({ item, suppliers, phases, onClose, onSave }: {
   item: QuotationItem
+  suppliers: { id: string; name: string }[]
+  phases: { value: string; label: string }[]
   onClose: () => void
   onSave: (fields: any, alsoCatalog: boolean) => Promise<void> | void
 }) {
+  const it = item as any
   const [f, setF] = useState({
-    name: item.name || '',
-    marca: (item as any).marca || '',
-    modelo: (item as any).modelo || '',
-    description: (item as any).description || '',
-    provider: item.provider || '',
+    name: it.name || '', marca: it.marca || '', modelo: it.modelo || '', sku: it.sku || '',
+    system: it.system || '', type: it.type || 'material',
+    provider: it.provider || '', provider_currency: it.provider_currency || 'USD',
+    supplier_id: it.supplier_id || '', purchase_phase: it.purchase_phase || '',
+    quantity: String(it.quantity ?? 1), cost: String(it.cost ?? 0), markup: String(it.markup ?? 0),
+    installation_cost: String(it.installation_cost ?? 0),
+    description: it.description || '',
   })
   const [alsoCat, setAlsoCat] = useState(false)
   const [saving, setSaving] = useState(false)
   const set = (k: string) => (v: string) => setF(s => ({ ...s, [k]: v }))
-  const fld: React.CSSProperties = { width: '100%', padding: '9px 12px', background: '#0e0e0e', border: '1px solid #333', borderRadius: 8, color: '#fff', fontSize: 13, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }
-  const lbl: React.CSSProperties = { display: 'block', fontSize: 11, color: '#888', marginBottom: 4 }
+  const fld: React.CSSProperties = { width: '100%', padding: '8px 10px', background: '#0e0e0e', border: '1px solid #333', borderRadius: 8, color: '#fff', fontSize: 13, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }
+  const lbl: React.CSSProperties = { display: 'block', fontSize: 10, color: '#888', marginBottom: 3, textTransform: 'uppercase', letterSpacing: '0.04em' }
 
   async function submit() {
     if (!f.name.trim()) return
@@ -2429,26 +2447,72 @@ function EditItemModal({ item, onClose, onSave }: {
       name: f.name.trim(),
       marca: f.marca.trim() || null,
       modelo: f.modelo.trim() || null,
-      description: f.description.trim() || null,
+      sku: f.sku.trim() || null,
+      system: f.system || null,
+      type: f.type || 'material',
       provider: f.provider.trim() || null,
+      provider_currency: f.provider_currency || null,
+      supplier_id: f.supplier_id || null,
+      purchase_phase: f.purchase_phase || null,
+      quantity: parseFloat(f.quantity) || 0,
+      cost: parseFloat(f.cost) || 0,
+      markup: parseFloat(f.markup) || 0,
+      installation_cost: parseFloat(f.installation_cost) || 0,
+      description: f.description.trim() || null,
     }, alsoCat)
     setSaving(false)
   }
 
   return (
-    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
-      <div onClick={e => e.stopPropagation()} style={{ background: '#141414', border: '1px solid #2a2a2a', borderRadius: 14, width: '100%', maxWidth: 520, padding: 22 }}>
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 1000, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: 20, overflowY: 'auto' }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: '#141414', border: '1px solid #2a2a2a', borderRadius: 14, width: '100%', maxWidth: 580, padding: 22, marginTop: 24, marginBottom: 40 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
           <div style={{ fontSize: 15, fontWeight: 700, color: '#fff' }}>Editar producto</div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', fontSize: 18 }}>×</button>
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 11 }}>
           <div><label style={lbl}>Nombre *</label><input value={f.name} onChange={e => set('name')(e.target.value)} style={fld} /></div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
             <div><label style={lbl}>Marca</label><input value={f.marca} onChange={e => set('marca')(e.target.value)} style={fld} /></div>
             <div><label style={lbl}>Modelo</label><input value={f.modelo} onChange={e => set('modelo')(e.target.value)} style={fld} /></div>
+            <div><label style={lbl}>SKU</label><input value={f.sku} onChange={e => set('sku')(e.target.value)} style={fld} /></div>
           </div>
-          <div><label style={lbl}>Proveedor / marca distribuidora</label><input value={f.provider} onChange={e => set('provider')(e.target.value)} style={fld} /></div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <div><label style={lbl}>Sistema</label>
+              <select value={f.system} onChange={e => set('system')(e.target.value)} style={fld}>
+                <option value="">--</option>
+                {PRODUCT_SYSTEMS.map(s => <option key={s} value={s}>{s}</option>)}
+              </select></div>
+            <div><label style={lbl}>Tipo</label>
+              <select value={f.type} onChange={e => set('type')(e.target.value)} style={fld}>
+                {PRODUCT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+              </select></div>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <div><label style={lbl}>Distribuidor</label>
+              <select value={f.supplier_id} onChange={e => set('supplier_id')(e.target.value)} style={fld}>
+                <option value="">Sin distribuidor</option>
+                {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select></div>
+            <div><label style={lbl}>Fase de compra</label>
+              <select value={f.purchase_phase} onChange={e => set('purchase_phase')(e.target.value)} style={fld}>
+                <option value="">--</option>
+                {phases.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
+              </select></div>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 10 }}>
+            <div><label style={lbl}>Proveedor / marca distribuidora</label><input value={f.provider} onChange={e => set('provider')(e.target.value)} style={fld} /></div>
+            <div><label style={lbl}>Moneda compra</label>
+              <select value={f.provider_currency} onChange={e => set('provider_currency')(e.target.value)} style={fld}>
+                <option value="USD">USD</option><option value="MXN">MXN</option>
+              </select></div>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 10 }}>
+            <div><label style={lbl}>Cantidad</label><input type="number" value={f.quantity} onChange={e => set('quantity')(e.target.value)} style={fld} /></div>
+            <div><label style={lbl}>Costo</label><input type="number" value={f.cost} onChange={e => set('cost')(e.target.value)} style={fld} /></div>
+            <div><label style={lbl}>Markup %</label><input type="number" value={f.markup} onChange={e => set('markup')(e.target.value)} style={fld} /></div>
+            <div><label style={lbl}>Instalación (M.O.)</label><input type="number" value={f.installation_cost} onChange={e => set('installation_cost')(e.target.value)} style={fld} /></div>
+          </div>
           <div><label style={lbl}>Descripción</label><textarea value={f.description} onChange={e => set('description')(e.target.value)} rows={2} style={{ ...fld, resize: 'vertical' }} /></div>
           {item.catalog_product_id && (
             <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: '#ccc', cursor: 'pointer' }}>
@@ -2456,7 +2520,7 @@ function EditItemModal({ item, onClose, onSave }: {
               Actualizar también en el catálogo (afecta futuras cotizaciones)
             </label>
           )}
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 6 }}>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 4 }}>
             <Btn onClick={onClose}>Cancelar</Btn>
             <Btn variant="primary" onClick={submit} disabled={saving}>{saving ? 'Guardando…' : 'Guardar'}</Btn>
           </div>
