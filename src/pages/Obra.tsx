@@ -1194,8 +1194,9 @@ Devuelve SOLO un JSON array, sin markdown:
       const parsed = extractJsonArray(text)
 
       if (!parsed) {
-        console.error('Autogen tareas — respuesta sin JSON parseable:', text.slice(0, 800))
-        addAI('No pude parsear la respuesta. Intenta de nuevo.')
+        const stop = data?.stop_reason ? ` [stop: ${data.stop_reason}]` : ''
+        console.error('Autogen tareas — respuesta sin JSON parseable:', JSON.stringify(data).slice(0, 1500))
+        addAI('No pude parsear la respuesta.' + stop + '\n\nLo que devolvió el modelo:\n' + (text ? text.slice(0, 500) : '(vacío — ' + JSON.stringify(data).slice(0, 300) + ')'))
         setPhase('confirm')
         return
       }
@@ -4223,4 +4224,3 @@ function SubMateriales({ obra, onLinked }: { obra: ObraData; onLinked?: (cotId: 
   )
 }
 
-// redeploy nudge 1782277136
