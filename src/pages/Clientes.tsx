@@ -202,7 +202,7 @@ export default function Clientes() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514', max_tokens: 1500,
+          model: 'claude-sonnet-4-6', max_tokens: 1500,
           messages: [{ role: 'user', content: [
             { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64 } },
             { type: 'text', text: `Extrae los datos fiscales de esta Constancia de Situación Fiscal del SAT mexicano. Devuelve SOLO un JSON con estos campos exactos, sin markdown:

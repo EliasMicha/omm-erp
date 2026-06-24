@@ -1109,7 +1109,7 @@ export default function CRM() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514',
+          model: 'claude-sonnet-4-6',
           max_tokens: 500,
           system: `Eres un asistente de CRM para una empresa de instalaciones electricas y especiales (CCTV, audio, iluminacion, redes, acceso).
 Analiza la consulta del usuario y devuelve SOLO un JSON con los filtros para buscar leads.

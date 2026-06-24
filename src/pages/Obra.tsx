@@ -1159,7 +1159,7 @@ Asigna cada tarea al instalador más apropiado según el sistema de la tarea y l
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514', max_tokens: 8000,
+          model: 'claude-sonnet-4-6', max_tokens: 8000,
           system: `Eres coordinador de obra de instalaciones especiales. A partir de la cotización, genera las TAREAS DE INSTALACIÓN en campo.
 
 REGLAS:
@@ -1556,7 +1556,7 @@ function ReporteClienteModal({ obra, instaladores, onClose }: {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514', max_tokens: 2000,
+          model: 'claude-sonnet-4-6', max_tokens: 2000,
           system: `Eres redactor de reportes de avance de obra para OMM Technologies (instalaciones especiales).
 Genera DOS textos en español, profesional, orientado al cliente/residente/arquitecto:
 1. "resumen": 2-3 oraciones resumiendo el avance del periodo. Tono positivo y proactivo.
@@ -2561,7 +2561,7 @@ function TabPlaneacion({ obras, instaladores }: { obras: ObraData[]; instaladore
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514', max_tokens: 4000,
+          model: 'claude-sonnet-4-6', max_tokens: 4000,
           system: `Eres el coordinador de obra de OMM Technologies, empresa de instalaciones especiales (CCTV, audio, redes, control de iluminación Lutron, control de acceso, eléctrico).
 
 Tu trabajo es planear la semana de los instaladores considerando:

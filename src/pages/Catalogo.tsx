@@ -185,7 +185,7 @@ IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514',
+          model: 'claude-sonnet-4-6',
           max_tokens: 1000,
           tools: [{ type: 'web_search_20250305', name: 'web_search' }],
           messages: [{ role: 'user', content: prompt }],
@@ -356,7 +356,7 @@ IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
       const prompt = 'Eres un asistente de OMM Technologies (instalaciones electricas y sistemas especiales). Analiza este archivo de productos/SKUs y devuelve SOLO un JSON array. Para cada producto extrae: name, description, clave_prod_serv (codigo SAT mas probable segun el tipo de producto), clave_unidad (H87 para piezas, E48 para servicios, MTR para metros), unit, cost (numero), precio_venta (numero), moneda (MXN o USD), marca, modelo, system (Electrico/CCTV/Audio/Control de acceso/Redes/Iluminacion/Control de iluminacion/General), type (material/mano_de_obra/servicio/equipo), sku, markup (porcentaje). Si hay duplicados, consolidalos. Estandariza nombres. Responde SOLO con el JSON array, sin markdown ni backticks.\n\nArchivo:\n' + text.substring(0, 15000)
       const r = await fetch('/api/anthropic', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 4000, messages: [{ role: 'user', content: prompt }] }),
+        body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 4000, messages: [{ role: 'user', content: prompt }] }),
       })
       const data = await r.json()
       const aiText = data.content?.[0]?.text || ''
@@ -825,7 +825,7 @@ function TabProveedores({ suppliers, setSuppliers }: { suppliers: Supplier[]; se
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514', max_tokens: 2000,
+          model: 'claude-sonnet-4-6', max_tokens: 2000,
           messages: [{ role: 'user', content: [
             { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64 } },
             { type: 'text', text: `Extrae los datos del proveedor de este documento (puede ser una Constancia de Situación Fiscal CSF, una factura CFDI, o cualquier documento fiscal mexicano).
