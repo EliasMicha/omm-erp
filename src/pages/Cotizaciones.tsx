@@ -926,6 +926,9 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [bulkAction, setBulkAction] = useState<'' | 'moveArea' | 'moveSystem'>('')
   const [bulkTarget, setBulkTarget] = useState('')
+  const [verTodo, setVerTodo] = useState(false)         // ver todas las áreas a la vez
+  const [filtroArticulo, setFiltroArticulo] = useState('') // filtrar por tipo de artículo (cruza áreas)
+  const [editItem, setEditItem] = useState<QuotationItem | null>(null) // modal editar producto
   // Config editable: IVA, descuento global, % material y % nómina como fracción del subtotal.
   // Persistido en quotation.notes JSON.
   // Defaults eléctricos OMM: material 25% del subtotal, nómina 40% (máximo).
@@ -1254,6 +1257,19 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
     })
     setItems(newItems)
     syncQuotationTotal(newItems)
+  }
+
+  // Editar datos descriptivos del producto (item) y opcionalmente el catálogo
+  async function saveItemProduct(item: QuotationItem, fields: any, alsoCatalog: boolean) {
+    await supabase.from('quotation_items').update(fields).eq('id', item.id)
+    setItems(prev => prev.map(i => i.id === item.id ? { ...i, ...fields } : i))
+    if (alsoCatalog && item.catalog_product_id) {
+      const catFields: any = {}
+      for (const k of ['name','marca','modelo','description','provider']) if (k in fields) catFields[k] = fields[k]
+      await supabase.from('catalog_products').update(catFields).eq('id', item.catalog_product_id)
+      setCatalog(prev => prev.map(p => p.id === item.catalog_product_id ? { ...p, ...catFields } : p))
+    }
+    setEditItem(null)
   }
 
   // ─── SYNC PRICES FROM CATALOG ─────────────────────────────────────────
@@ -1717,8 +1733,13 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
   const areaObj = areas.find(a => a.id === areaActiva)
   const esp = SPECIALTY_CONFIG[cot.specialty]
   const isIlum = cot.specialty === 'ilum'
-  const displayItems = isIlum ? items : areaItems
-  const displayTotal = isIlum ? cotTotal : areaTotal
+  const fq = filtroArticulo.trim().toLowerCase()
+  const filtering = !isIlum && (verTodo || fq !== '')  // vista que cruza todas las áreas
+  const matchArticulo = (i: QuotationItem) =>
+    !fq || `${i.name||''} ${(i as any).marca||''} ${(i as any).modelo||''} ${i.system||''} ${i.provider||''} ${(i as any).sku||''}`.toLowerCase().includes(fq)
+  const displayItems = isIlum ? items : (filtering ? items.filter(matchArticulo) : areaItems)
+  const displayTotal = isIlum ? cotTotal : (filtering ? displayItems.reduce((s,i)=>s+i.total,0) : areaTotal)
+  const areaNameOf = (aid: string|null) => areas.find(a => a.id === aid)?.name || '—'
   const proj = cot.project as any
 
   // KPIs globales — desglose de costos por tipo (material vs labor/M.O.)
@@ -1859,11 +1880,20 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
       {activeTab === 'cotizacion' && <div style={{display:'grid',gridTemplateColumns: isIlum ? '1fr' : '175px 1fr',flex:1,overflow:'hidden'}}>
         {!isIlum && <div style={{borderRight:'1px solid #222',overflowY:'auto',background:'#0e0e0e'}}>
           <div style={{padding:'8px 8px 4px',fontSize:9,fontWeight:600,color:'#444',textTransform:'uppercase',letterSpacing:'0.1em'}}>Areas</div>
+          <div onClick={()=>setVerTodo(true)} style={{
+            display:'flex',justifyContent:'space-between',padding:'7px 10px',cursor:'pointer',
+            borderLeft:`2px solid ${verTodo?esp.color:'transparent'}`,
+            background:verTodo?esp.color+'11':'transparent',
+            fontSize:11,color:verTodo?'#fff':'#888',fontWeight:verTodo?600:500,
+          }}>
+            <span>📋 Ver todo</span>
+            <span style={{fontSize:10,color:'#444',flexShrink:0}}>{F(cotTotal)}</span>
+          </div>
           {areas.map(a => {
             const tot = items.filter(i=>i.area_id===a.id).reduce((s,i)=>s+i.total,0)
-            const active = a.id === areaActiva
+            const active = !verTodo && a.id === areaActiva
             return (
-              <div key={a.id} onClick={()=>setAreaActiva(a.id)} style={{
+              <div key={a.id} onClick={()=>{ setVerTodo(false); setAreaActiva(a.id) }} style={{
                 display:'flex',justifyContent:'space-between',padding:'7px 10px',cursor:'pointer',
                 borderLeft:`2px solid ${active?esp.color:'transparent'}`,
                 background:active?esp.color+'11':'transparent',
@@ -1879,7 +1909,13 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
 
         <div style={{display:'flex',flexDirection:'column',overflow:'hidden'}}>
           <div style={{padding:'6px 14px',borderBottom:'1px solid #222',display:'flex',alignItems:'center',gap:8,flexShrink:0,background:'#111'}}>
-            <span style={{fontSize:12,fontWeight:600,color:'#fff'}}>{isIlum ? 'Luminarias' : areaObj?.name}</span>
+            <span style={{fontSize:12,fontWeight:600,color:'#fff'}}>{isIlum ? 'Luminarias' : (filtering ? `Todas las áreas${fq ? ` · "${filtroArticulo.trim()}"` : ''}` : areaObj?.name)}</span>
+            {!isIlum && (
+              <input value={filtroArticulo} onChange={e=>setFiltroArticulo(e.target.value)}
+                placeholder="Filtrar artículo (cruza áreas)…"
+                style={{marginLeft:10,width:240,padding:'4px 10px',background:'#0e0e0e',border:'1px solid #333',borderRadius:8,color:'#ddd',fontSize:11,fontFamily:'inherit',outline:'none'}}/>
+            )}
+            {!isIlum && filtering && <span style={{fontSize:10,color:'#666'}}>{displayItems.length} ítem(s) en {new Set(displayItems.map(i=>i.area_id)).size} área(s)</span>}
             <span style={{marginLeft:'auto',fontSize:13,fontWeight:700,color:esp.color}}>{F(displayTotal)}</span>
           </div>
 
@@ -1930,7 +1966,11 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
                     <td style={{padding:'4px 4px',borderBottom:'1px solid #1a1a1a',textAlign:'center',width:28}}>
                       <input type="checkbox" checked={selectedIds.has(item.id)} onChange={()=>toggleSelect(item.id)} style={{cursor:'pointer',accentColor:'#10B981'}} />
                     </td>
-                    <td style={{padding:'7px 8px',fontSize:12,fontWeight:500,color:'#ddd',borderBottom:'1px solid #1a1a1a'}}>{item.name}</td>
+                    <td style={{padding:'7px 8px',fontSize:12,fontWeight:500,color:'#ddd',borderBottom:'1px solid #1a1a1a'}}>
+                      {item.name}
+                      {filtering && <div style={{fontSize:9,color:'#10B981'}}>{areaNameOf(item.area_id)}</div>}
+                      {((item as any).marca || (item as any).modelo) && <div style={{fontSize:9,color:'#555'}}>{[(item as any).marca,(item as any).modelo].filter(Boolean).join(' ')}</div>}
+                    </td>
                     {!isIlum && <td style={{padding:'7px 8px',borderBottom:'1px solid #1a1a1a'}}>{item.system&&<Badge label={item.system} color="#555"/>}</td>}
                     {!isIlum && <td style={{padding:'7px 8px',borderBottom:'1px solid #1a1a1a'}}>{phaseCfg ? <Badge label={phaseCfg.label} color={phaseCfg.color}/> : <span style={{color:'#444',fontSize:10}}>--</span>}</td>}
                     {!isIlum && <td style={{padding:'7px 8px',fontSize:10,color: supplierName ? '#ccc' : '#444',borderBottom:'1px solid #1a1a1a'}}>{supplierName || '--'}</td>}
@@ -1947,7 +1987,8 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
                     ))}
                     <td style={{padding:'7px 8px',fontSize:11,textAlign:'right',color:'#888',borderBottom:'1px solid #1a1a1a'}}>{F(item.price)}</td>
                     <td style={{padding:'7px 8px',fontSize:12,textAlign:'right',fontWeight:600,color:'#fff',borderBottom:'1px solid #1a1a1a'}}>{F(item.total)}</td>
-                    <td style={{padding:'7px 8px',borderBottom:'1px solid #1a1a1a'}}>
+                    <td style={{padding:'7px 8px',borderBottom:'1px solid #1a1a1a',whiteSpace:'nowrap'}}>
+                      <button onClick={()=>setEditItem(item)} title="Editar producto" style={{background:'none',border:'none',color:'#666',cursor:'pointer',fontSize:13,marginRight:6}}>✎</button>
                       <button onClick={()=>removeItem(item.id)} style={{background:'none',border:'none',color:'#444',cursor:'pointer',fontSize:16}}>x</button>
                     </td>
                   </tr>
@@ -1955,7 +1996,9 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
                 })}
                 <tr>
                   <td colSpan={isIlum ? 11 : 12} style={{padding:'6px 8px'}}>
-                    <Btn size="sm" onClick={()=>setShowCat(true)}><Plus size={12}/> Agregar producto</Btn>
+                    {filtering
+                      ? <span style={{fontSize:11,color:'#555'}}>Selecciona un área (no "Ver todo") para agregar productos.</span>
+                      : <Btn size="sm" onClick={()=>setShowCat(true)}><Plus size={12}/> Agregar producto</Btn>}
                   </td>
                 </tr>
               </tbody>
@@ -2314,6 +2357,77 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
           onSaved={() => setShowPaymentPlan(false)}
         />
       )}
+
+      {editItem && (
+        <EditItemModal
+          item={editItem}
+          onClose={() => setEditItem(null)}
+          onSave={(fields, alsoCatalog) => saveItemProduct(editItem, fields, alsoCatalog)}
+        />
+      )}
+    </div>
+  )
+}
+
+// Modal para editar los datos descriptivos de un producto dentro de la cotización
+function EditItemModal({ item, onClose, onSave }: {
+  item: QuotationItem
+  onClose: () => void
+  onSave: (fields: any, alsoCatalog: boolean) => Promise<void> | void
+}) {
+  const [f, setF] = useState({
+    name: item.name || '',
+    marca: (item as any).marca || '',
+    modelo: (item as any).modelo || '',
+    description: (item as any).description || '',
+    provider: item.provider || '',
+  })
+  const [alsoCat, setAlsoCat] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const set = (k: string) => (v: string) => setF(s => ({ ...s, [k]: v }))
+  const fld: React.CSSProperties = { width: '100%', padding: '9px 12px', background: '#0e0e0e', border: '1px solid #333', borderRadius: 8, color: '#fff', fontSize: 13, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }
+  const lbl: React.CSSProperties = { display: 'block', fontSize: 11, color: '#888', marginBottom: 4 }
+
+  async function submit() {
+    if (!f.name.trim()) return
+    setSaving(true)
+    await onSave({
+      name: f.name.trim(),
+      marca: f.marca.trim() || null,
+      modelo: f.modelo.trim() || null,
+      description: f.description.trim() || null,
+      provider: f.provider.trim() || null,
+    }, alsoCat)
+    setSaving(false)
+  }
+
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: '#141414', border: '1px solid #2a2a2a', borderRadius: 14, width: '100%', maxWidth: 520, padding: 22 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <div style={{ fontSize: 15, fontWeight: 700, color: '#fff' }}>Editar producto</div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', fontSize: 18 }}>×</button>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div><label style={lbl}>Nombre *</label><input value={f.name} onChange={e => set('name')(e.target.value)} style={fld} /></div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div><label style={lbl}>Marca</label><input value={f.marca} onChange={e => set('marca')(e.target.value)} style={fld} /></div>
+            <div><label style={lbl}>Modelo</label><input value={f.modelo} onChange={e => set('modelo')(e.target.value)} style={fld} /></div>
+          </div>
+          <div><label style={lbl}>Proveedor / marca distribuidora</label><input value={f.provider} onChange={e => set('provider')(e.target.value)} style={fld} /></div>
+          <div><label style={lbl}>Descripción</label><textarea value={f.description} onChange={e => set('description')(e.target.value)} rows={2} style={{ ...fld, resize: 'vertical' }} /></div>
+          {item.catalog_product_id && (
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: '#ccc', cursor: 'pointer' }}>
+              <input type="checkbox" checked={alsoCat} onChange={e => setAlsoCat(e.target.checked)} />
+              Actualizar también en el catálogo (afecta futuras cotizaciones)
+            </label>
+          )}
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 6 }}>
+            <Btn onClick={onClose}>Cancelar</Btn>
+            <Btn variant="primary" onClick={submit} disabled={saving}>{saving ? 'Guardando…' : 'Guardar'}</Btn>
+          </div>
+        </div>
+      </div>
     </div>
   )
 }
