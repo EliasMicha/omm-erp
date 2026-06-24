@@ -2034,14 +2034,14 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
                         <input type="number" value={(item[campo as keyof QuotationItem] as number) ?? 0}
                           onChange={e=>{ const v = e.target.value===''?0:parseFloat(e.target.value); setItems(prev=>prev.map(i=>i.id===item.id?{...i,[campo]:(isNaN(v)?0:v)}:i)) }}
                           onBlur={e=>updateItem(item.id,campo,parseFloat(e.target.value)||0)}
-                          style={{width:campo==='cost'?70:50,textAlign:'right',background:'transparent',border:'none',color:'#aaa',fontSize:12,fontFamily:'inherit'}}/>
+                          style={{width:campo==='cost'?92:(campo==='markup'?74:66),textAlign:'right',background:'transparent',border:'none',color:'#aaa',fontSize:12,fontFamily:'inherit'}}/>
                       </td>
                     ))}
                     <td style={{padding:'4px 8px',borderBottom:'1px solid #1a1a1a'}}>
                       <input type="number" value={(item.price as number) ?? 0}
                         onChange={e=>{ const v = e.target.value===''?0:parseFloat(e.target.value); setItems(prev=>prev.map(i=>i.id===item.id?{...i,price:(isNaN(v)?0:v)}:i)) }}
                         onBlur={e=>updateItem(item.id,'price',parseFloat(e.target.value)||0)}
-                        style={{width:80,textAlign:'right',background:'transparent',border:'none',color:'#10B981',fontWeight:600,fontSize:12,fontFamily:'inherit'}}/>
+                        style={{width:100,textAlign:'right',background:'transparent',border:'none',color:'#10B981',fontWeight:600,fontSize:12,fontFamily:'inherit'}}/>
                     </td>
                     <td style={{padding:'7px 8px',fontSize:12,textAlign:'right',fontWeight:600,color:'#fff',borderBottom:'1px solid #1a1a1a'}}>{F(item.total)}</td>
                     <td style={{padding:'7px 8px',borderBottom:'1px solid #1a1a1a',whiteSpace:'nowrap'}}>
