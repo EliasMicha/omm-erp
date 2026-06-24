@@ -2385,10 +2385,15 @@ function TabInstaladores({ instaladores, setInstaladores, showNew, setShowNew }:
    TAB: PLANEACION SEMANAL
    ═══════════════════════════════════════════════════════════════════ */
 
+type AsgItem = { id?: string; obra: string; obra_id: string; project_id: string | null; tarea: string; obraColor: string }
+function ymdLocal(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
 function TabPlaneacion({ obras, instaladores }: { obras: ObraData[]; instaladores: Instalador[] }) {
   const [weekOffset, setWeekOffset] = useState(0)
   const [processing, setProcessing] = useState(false)
-  const [assignments, setAssignments] = useState<Map<string, Map<number, { obra: string; tarea: string; obraColor: string }[]>>>(new Map())
+  const [assignments, setAssignments] = useState<Map<string, Map<number, AsgItem[]>>>(new Map())
   const [selectedCell, setSelectedCell] = useState<{ instId: string; dayIdx: number } | null>(null)
   const [newTask, setNewTask] = useState({ obra_id: '', tarea: '' })
 
@@ -2410,25 +2415,96 @@ function TabPlaneacion({ obras, instaladores }: { obras: ObraData[]; instaladore
   const obrasActivas = obras.filter(o => o.status !== 'completada')
   const obraColors = ['#10B981', '#2563EB', '#D97706', '#A78BFA', '#DC2626', '#06B6D4', '#EC4899', '#FF6B35']
 
+  const weekStartStr = ymdLocal(mondayBase)
+  const colorForObra = (obraId: string) => {
+    const idx = obrasActivas.findIndex(o => o.id === obraId)
+    return obraColors[(idx >= 0 ? idx : 0) % obraColors.length]
+  }
+
+  // ── Persistencia ──────────────────────────────────────────────────────────
+  async function ensureWeeklyPlan(): Promise<string | null> {
+    const { data: plan } = await supabase.from('weekly_plans').select('id').eq('week_start', weekStartStr).maybeSingle()
+    if (plan) return plan.id
+    const { data: created, error } = await supabase.from('weekly_plans').insert({ week_start: weekStartStr }).select('id').single()
+    if (error) { console.error('weekly_plans insert', error); return null }
+    return created.id
+  }
+
+  async function loadWeek() {
+    const { data: plan } = await supabase.from('weekly_plans').select('id').eq('week_start', weekStartStr).maybeSingle()
+    if (!plan) { setAssignments(new Map()); return }
+    const { data: asns } = await supabase.from('weekly_plan_assignments')
+      .select('id, employee_id, obra_id, project_id, day_of_week, tareas, obras(id, nombre)')
+      .eq('plan_id', plan.id)
+    const map = new Map<string, Map<number, AsgItem[]>>()
+    for (const a of (asns as any[]) || []) {
+      const dayIdx = (a.day_of_week ?? 1) - 1
+      if (dayIdx < 0 || dayIdx > 5 || !a.employee_id) continue
+      const instMap = map.get(a.employee_id) || new Map<number, AsgItem[]>()
+      const arr = instMap.get(dayIdx) || []
+      arr.push({ id: a.id, obra: a.obras?.nombre || obras.find(o => o.id === a.obra_id)?.nombre || '', obra_id: a.obra_id, project_id: a.project_id, tarea: a.tareas || '', obraColor: colorForObra(a.obra_id) })
+      instMap.set(dayIdx, arr)
+      map.set(a.employee_id, instMap)
+    }
+    setAssignments(map)
+  }
+
+  useEffect(() => { loadWeek() }, [weekOffset, obras.length])
+
+  // Reescribe en BD todas las asignaciones de la semana (usado por AI)
+  async function persistAll(map: Map<string, Map<number, AsgItem[]>>) {
+    const planId = await ensureWeeklyPlan()
+    if (!planId) return
+    const weekDates = weekDays.map(ymdLocal)
+    await supabase.from('weekly_plan_assignments').delete().eq('plan_id', planId)
+    await supabase.from('installer_daily_assignment').delete().in('fecha', weekDates)
+    const wpa: any[] = []; const ida: any[] = []
+    for (const [instId, instMap] of map) {
+      for (const [dayIdx, arr] of instMap) {
+        arr.forEach((it, i) => {
+          wpa.push({ plan_id: planId, employee_id: instId, obra_id: it.obra_id || null, project_id: it.project_id || null, day_of_week: dayIdx + 1, tareas: it.tarea, urgencia: 'normal' })
+          if (i === 0) ida.push({ employee_id: instId, fecha: weekDates[dayIdx], obra_id: it.obra_id || null, project_id: it.project_id || null, tareas: it.tarea, urgencia: 'normal' })
+        })
+      }
+    }
+    if (wpa.length) await supabase.from('weekly_plan_assignments').insert(wpa)
+    if (ida.length) await supabase.from('installer_daily_assignment').insert(ida)
+    await loadWeek()
+  }
+
   // Get assignments for an installer on a day
   const getCell = (instId: string, dayIdx: number) => {
     return assignments.get(instId)?.get(dayIdx) || []
   }
 
-  // Add manual assignment
-  const addAssignment = () => {
+  // Add manual assignment (persiste en BD)
+  const addAssignment = async () => {
     if (!selectedCell || !newTask.obra_id || !newTask.tarea.trim()) return
     const { instId, dayIdx } = selectedCell
     const obra = obras.find(o => o.id === newTask.obra_id)
     if (!obra) return
-    const obraIdx = obrasActivas.findIndex(o => o.id === newTask.obra_id)
-    const color = obraColors[obraIdx % obraColors.length]
+    const color = colorForObra(obra.id)
+    const tarea = newTask.tarea.trim()
+    const project_id = obra.project_id || null
+    const fecha = ymdLocal(weekDays[dayIdx])
+
+    const planId = await ensureWeeklyPlan()
+    if (!planId) { alert('No se pudo crear/encontrar el plan semanal.'); return }
+
+    const { data: ins, error } = await supabase.from('weekly_plan_assignments').insert({
+      plan_id: planId, employee_id: instId, obra_id: obra.id, project_id, day_of_week: dayIdx + 1, tareas: tarea, urgencia: 'normal',
+    }).select('id').single()
+    if (error) { alert('Error al guardar la asignación: ' + error.message); return }
+
+    // Espejo diario (lo que ve "Hoy estás en" / Mi semana) — 1 por instalador/día
+    await supabase.from('installer_daily_assignment').delete().eq('employee_id', instId).eq('fecha', fecha)
+    await supabase.from('installer_daily_assignment').insert({ employee_id: instId, fecha, obra_id: obra.id, project_id, tareas: tarea, urgencia: 'normal' })
 
     setAssignments(prev => {
       const next = new Map(prev)
-      const instMap = new Map(next.get(instId) || new Map())
+      const instMap = new Map(next.get(instId) || new Map<number, AsgItem[]>())
       const dayArr = [...(instMap.get(dayIdx) || [])]
-      dayArr.push({ obra: obra.nombre, tarea: newTask.tarea.trim(), obraColor: color })
+      dayArr.push({ id: ins.id, obra: obra.nombre, obra_id: obra.id, project_id, tarea, obraColor: color })
       instMap.set(dayIdx, dayArr)
       next.set(instId, instMap)
       return next
@@ -2437,11 +2513,22 @@ function TabPlaneacion({ obras, instaladores }: { obras: ObraData[]; instaladore
     setSelectedCell(null)
   }
 
-  // Remove assignment
-  const removeAssignment = (instId: string, dayIdx: number, taskIdx: number) => {
+  // Remove assignment (persiste en BD)
+  const removeAssignment = async (instId: string, dayIdx: number, taskIdx: number) => {
+    const item = assignments.get(instId)?.get(dayIdx)?.[taskIdx]
+    const fecha = ymdLocal(weekDays[dayIdx])
+    if (item?.id) await supabase.from('weekly_plan_assignments').delete().eq('id', item.id)
+
+    // Recalcular el espejo diario: queda el primero restante de ese día (o se borra)
+    const remaining = (assignments.get(instId)?.get(dayIdx) || []).filter((_, i) => i !== taskIdx)
+    await supabase.from('installer_daily_assignment').delete().eq('employee_id', instId).eq('fecha', fecha)
+    if (remaining[0]) {
+      await supabase.from('installer_daily_assignment').insert({ employee_id: instId, fecha, obra_id: remaining[0].obra_id || null, project_id: remaining[0].project_id || null, tareas: remaining[0].tarea, urgencia: 'normal' })
+    }
+
     setAssignments(prev => {
       const next = new Map(prev)
-      const instMap = new Map(next.get(instId) || new Map())
+      const instMap = new Map(next.get(instId) || new Map<number, AsgItem[]>())
       const dayArr = [...(instMap.get(dayIdx) || [])]
       dayArr.splice(taskIdx, 1)
       if (dayArr.length === 0) instMap.delete(dayIdx)
@@ -2531,12 +2618,13 @@ Responde SOLO con un JSON, sin markdown, sin explicación:
 
                 const instMap = newAssignments.get(inst.id) || new Map()
                 const dayArr = instMap.get(dayIdx) || []
-                dayArr.push({ obra: item.obra || '', tarea: item.tarea || '', obraColor: color })
+                dayArr.push({ obra: obraMatch?.nombre || item.obra || '', obra_id: obraMatch?.id || '', project_id: obraMatch?.project_id || null, tarea: item.tarea || '', obraColor: color })
                 instMap.set(dayIdx, dayArr)
                 newAssignments.set(inst.id, instMap)
               })
 
               setAssignments(newAssignments)
+              await persistAll(newAssignments)
             }
           } catch (_e) { console.error('JSON parse error in plan:', _e) }
         }
