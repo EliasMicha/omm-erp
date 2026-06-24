@@ -929,6 +929,7 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
   const [verTodo, setVerTodo] = useState(false)         // ver todas las áreas a la vez
   const [filtroArticulo, setFiltroArticulo] = useState('') // filtrar por tipo de artículo (cruza áreas)
   const [editItem, setEditItem] = useState<QuotationItem | null>(null) // modal editar producto
+  const [propMsg, setPropMsg] = useState<string>('') // aviso de propagación de precio
   // Config editable: IVA, descuento global, % material y % nómina como fracción del subtotal.
   // Persistido en quotation.notes JSON.
   // Defaults eléctricos OMM: material 25% del subtotal, nómina 40% (máximo).
@@ -1257,6 +1258,11 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
     })
     setItems(newItems)
     syncQuotationTotal(newItems)
+    if (propagate && targets.length > 0) {
+      const nAreas = new Set(targets.map(t => t.area_id)).size
+      setPropMsg(`Precio actualizado en ${targets.length} producto(s) igual(es) · ${nAreas} área(s)`)
+      setTimeout(() => setPropMsg(''), 3500)
+    }
   }
 
   // Editar datos descriptivos del producto (item) y opcionalmente el catálogo
@@ -1935,6 +1941,7 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
                 style={{marginLeft:10,width:240,padding:'4px 10px',background:'#0e0e0e',border:'1px solid #333',borderRadius:8,color:'#ddd',fontSize:11,fontFamily:'inherit',outline:'none'}}/>
             )}
             {!isIlum && filtering && <span style={{fontSize:10,color:'#666'}}>{displayItems.length} ítem(s) en {new Set(displayItems.map(i=>i.area_id)).size} área(s)</span>}
+            {propMsg && <span style={{fontSize:10,color:'#10B981',background:'#0f2a1a',border:'1px solid #1f3a2a',borderRadius:6,padding:'2px 8px'}}>↻ {propMsg}</span>}
             <span style={{marginLeft:'auto',fontSize:13,fontWeight:700,color:esp.color}}>{F(displayTotal)}</span>
           </div>
 
@@ -2006,7 +2013,8 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
                     {isIlum && <td style={{padding:'7px 8px',fontSize:11,color:'#888',textAlign:'right',borderBottom:'1px solid #1a1a1a'}}>{(catProd && catProd.watts) ? catProd.watts + 'W' : '--'}</td>}
                     {['quantity','cost','markup'].map(campo => (
                       <td key={campo} style={{padding:'4px 8px',borderBottom:'1px solid #1a1a1a'}}>
-                        <input type="number" defaultValue={item[campo as keyof QuotationItem] as number}
+                        <input type="number" value={(item[campo as keyof QuotationItem] as number) ?? 0}
+                          onChange={e=>{ const v = e.target.value===''?0:parseFloat(e.target.value); setItems(prev=>prev.map(i=>i.id===item.id?{...i,[campo]:(isNaN(v)?0:v)}:i)) }}
                           onBlur={e=>updateItem(item.id,campo,parseFloat(e.target.value)||0)}
                           style={{width:campo==='cost'?70:50,textAlign:'right',background:'transparent',border:'none',color:'#aaa',fontSize:12,fontFamily:'inherit'}}/>
                       </td>
