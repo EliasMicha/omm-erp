@@ -1234,25 +1234,35 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
   async function updateItem(id: string, campo: string, val: number) {
     const item = items.find(i => i.id === id)
     if (!item) return
-    const updated = {...item, [campo]: val}
-    updated.price = calcItemPrice(updated.cost, updated.markup)
-    updated.total = calcItemTotal(updated.cost, updated.markup, updated.quantity)
-    await supabase.from('quotation_items').update({ [campo]: val, price: updated.price, total: updated.total }).eq('id', id)
+    const updated: any = { ...item, [campo]: val }
+    // El campo `markup` es en realidad el MARGEN: precio = costo / (1 - margen/100)
+    if (campo === 'price') {
+      // Editar el precio público recalcula el MARGEN. El costo NO cambia.
+      const cost = updated.cost || 0
+      const price = val
+      updated.markup = price > 0 ? Math.round((1 - cost / price) * 10000) / 100 : 0
+      updated.price = price
+      updated.total = Math.round(price * (updated.quantity || 0) * 100) / 100
+    } else {
+      // Editar costo, margen o cantidad recalcula el precio público
+      updated.price = calcItemPrice(updated.cost, updated.markup)
+      updated.total = calcItemTotal(updated.cost, updated.markup, updated.quantity)
+    }
+    await supabase.from('quotation_items').update({ cost: updated.cost, markup: updated.markup, price: updated.price, total: updated.total }).eq('id', id)
 
-    // Si cambió el precio (costo o markup), propagar a TODAS las áreas con el mismo producto.
-    // La cantidad NO se propaga: cada área conserva la suya y su total se recalcula.
-    const propagate = campo === 'cost' || campo === 'markup'
+    // Costo/margen/precio del mismo producto se propagan a todas las áreas (la cantidad NO).
+    const propagate = campo === 'cost' || campo === 'markup' || campo === 'price'
     const key = itemProductKey(item)
     const targets = propagate ? items.filter(i => i.id !== id && itemProductKey(i) === key) : []
     for (const t of targets) {
-      const tTotal = calcItemTotal(updated.cost, updated.markup, t.quantity)
+      const tTotal = Math.round(updated.price * (t.quantity || 0) * 100) / 100
       await supabase.from('quotation_items').update({ cost: updated.cost, markup: updated.markup, price: updated.price, total: tTotal }).eq('id', t.id)
     }
 
     const newItems = items.map(i => {
       if (i.id === id) return updated
       if (propagate && itemProductKey(i) === key) {
-        return { ...i, cost: updated.cost, markup: updated.markup, price: updated.price, total: calcItemTotal(updated.cost, updated.markup, i.quantity) }
+        return { ...i, cost: updated.cost, markup: updated.markup, price: updated.price, total: Math.round(updated.price * (i.quantity || 0) * 100) / 100 }
       }
       return i
     })
@@ -1992,7 +2002,7 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
                   <th style={{padding:'6px 4px',borderBottom:'1px solid #222',width:28,textAlign:'center'}}>
                     <input type="checkbox" checked={displayItems.length > 0 && selectedIds.size === displayItems.length} onChange={toggleSelectAll} style={{cursor:'pointer',accentColor:'#10B981'}} />
                   </th>
-                  {(isIlum ? ['Producto','Marca','Modelo','W','Cant.','Costo','Markup%','Precio','Total',''] : ['Producto','Sistema','Fase','Distrib.','Tipo','Cant.','Costo','Markup%','Precio','Total','']).map((h,i) => (
+                  {(isIlum ? ['Producto','Marca','Modelo','W','Cant.','Costo','Margen %','Precio','Total',''] : ['Producto','Sistema','Fase','Distrib.','Tipo','Cant.','Costo','Margen %','Precio','Total','']).map((h,i) => (
                     <th key={h} style={{padding:'6px 8px',fontSize:10,fontWeight:600,color:'#444',textAlign:(isIlum ? i>=4 : i>=5)?'right':'left',textTransform:'uppercase',letterSpacing:'0.06em',borderBottom:'1px solid #222',whiteSpace:'nowrap'}}>{h}</th>
                   ))}
                 </tr>
@@ -2027,7 +2037,12 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
                           style={{width:campo==='cost'?70:50,textAlign:'right',background:'transparent',border:'none',color:'#aaa',fontSize:12,fontFamily:'inherit'}}/>
                       </td>
                     ))}
-                    <td style={{padding:'7px 8px',fontSize:11,textAlign:'right',color:'#888',borderBottom:'1px solid #1a1a1a'}}>{F(item.price)}</td>
+                    <td style={{padding:'4px 8px',borderBottom:'1px solid #1a1a1a'}}>
+                      <input type="number" value={(item.price as number) ?? 0}
+                        onChange={e=>{ const v = e.target.value===''?0:parseFloat(e.target.value); setItems(prev=>prev.map(i=>i.id===item.id?{...i,price:(isNaN(v)?0:v)}:i)) }}
+                        onBlur={e=>updateItem(item.id,'price',parseFloat(e.target.value)||0)}
+                        style={{width:80,textAlign:'right',background:'transparent',border:'none',color:'#10B981',fontWeight:600,fontSize:12,fontFamily:'inherit'}}/>
+                    </td>
                     <td style={{padding:'7px 8px',fontSize:12,textAlign:'right',fontWeight:600,color:'#fff',borderBottom:'1px solid #1a1a1a'}}>{F(item.total)}</td>
                     <td style={{padding:'7px 8px',borderBottom:'1px solid #1a1a1a',whiteSpace:'nowrap'}}>
                       <button onClick={()=>setEditItem(item)} title="Editar producto" style={{background:'none',border:'none',color:'#666',cursor:'pointer',fontSize:13,marginRight:6}}>✎</button>
@@ -2510,7 +2525,7 @@ function EditItemModal({ item, suppliers, phases, onClose, onSave }: {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 10 }}>
             <div><label style={lbl}>Cantidad</label><input type="number" value={f.quantity} onChange={e => set('quantity')(e.target.value)} style={fld} /></div>
             <div><label style={lbl}>Costo</label><input type="number" value={f.cost} onChange={e => set('cost')(e.target.value)} style={fld} /></div>
-            <div><label style={lbl}>Markup %</label><input type="number" value={f.markup} onChange={e => set('markup')(e.target.value)} style={fld} /></div>
+            <div><label style={lbl}>Margen %</label><input type="number" value={f.markup} onChange={e => set('markup')(e.target.value)} style={fld} /></div>
             <div><label style={lbl}>Instalación (M.O.)</label><input type="number" value={f.installation_cost} onChange={e => set('installation_cost')(e.target.value)} style={fld} /></div>
           </div>
           <div><label style={lbl}>Descripción</label><textarea value={f.description} onChange={e => set('description')(e.target.value)} rows={2} style={{ ...fld, resize: 'vertical' }} /></div>
