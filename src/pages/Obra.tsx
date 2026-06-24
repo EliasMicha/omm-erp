@@ -1159,7 +1159,7 @@ Asigna cada tarea al instalador más apropiado según el sistema de la tarea y l
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          model: 'claude-sonnet-4-6', max_tokens: 8000,
+          model: 'claude-sonnet-4-6', max_tokens: 16000,
           system: `Eres coordinador de obra de instalaciones especiales. A partir de la cotización, genera las TAREAS DE INSTALACIÓN en campo.
 
 REGLAS:
@@ -1191,15 +1191,14 @@ Devuelve SOLO un JSON array, sin markdown:
 
       const data = await response.json()
       const text = (data.content || []).filter((b: any) => b.type === 'text').map((b: any) => b.text).join('')
-      const jsonMatch = text.match(/\[[\s\S]*\]/)
+      const parsed = extractJsonArray(text)
 
-      if (!jsonMatch) {
+      if (!parsed) {
+        console.error('Autogen tareas — respuesta sin JSON parseable:', text.slice(0, 800))
         addAI('No pude parsear la respuesta. Intenta de nuevo.')
         setPhase('confirm')
         return
       }
-
-      const parsed = JSON.parse(jsonMatch[0].replace(/```json|```/g, '').trim())
       if (!Array.isArray(parsed) || parsed.length === 0) {
         addAI('No se generaron tareas.')
         setPhase('confirm')
@@ -2384,6 +2383,32 @@ function TabInstaladores({ instaladores, setInstaladores, showNew, setShowNew }:
 /* ═══════════════════════════════════════════════════════════════════
    TAB: PLANEACION SEMANAL
    ═══════════════════════════════════════════════════════════════════ */
+
+// Extrae un array JSON de la respuesta del modelo de forma robusta:
+// limpia fences markdown, escanea corchetes balanceados (ignorando los de strings)
+// y repara truncación quedándose con el último objeto completo.
+function extractJsonArray(raw: string): any[] | null {
+  if (!raw) return null
+  const t = raw.replace(/```json/gi, '').replace(/```/g, '').trim()
+  const start = t.indexOf('[')
+  if (start === -1) return null
+  let depth = 0, end = -1, inStr = false, esc = false
+  for (let i = start; i < t.length; i++) {
+    const c = t[i]
+    if (inStr) { if (esc) esc = false; else if (c === '\\') esc = true; else if (c === '"') inStr = false; continue }
+    if (c === '"') inStr = true
+    else if (c === '[') depth++
+    else if (c === ']') { depth--; if (depth === 0) { end = i; break } }
+  }
+  let arrStr = end !== -1 ? t.slice(start, end + 1) : t.slice(start)
+  try { const p = JSON.parse(arrStr); if (Array.isArray(p)) return p } catch {}
+  // Reparar truncación: cerrar el array tras el último objeto completo
+  const lastBrace = arrStr.lastIndexOf('}')
+  if (lastBrace !== -1) {
+    try { const p = JSON.parse(arrStr.slice(0, lastBrace + 1) + ']'); if (Array.isArray(p)) return p } catch {}
+  }
+  return null
+}
 
 type AsgItem = { id?: string; obra: string; obra_id: string; project_id: string | null; tarea: string; obraColor: string }
 function ymdLocal(d: Date): string {
