@@ -2755,8 +2755,24 @@ Responde SOLO con un JSON, sin markdown, sin explicación:
                                 )
                               })()}
                             </select>
+                            {(() => {
+                              const selObra = obras.find(o => o.id === newTask.obra_id)
+                              const pend = (selObra?.actividades || []).filter(a => a.status !== 'completada')
+                              if (!newTask.obra_id || pend.length === 0) return null
+                              return (
+                                <select value="" onChange={e => { if (e.target.value) setNewTask(t => ({ ...t, tarea: e.target.value })) }}
+                                  style={{ ...inputStyle, fontSize: 10, padding: '3px 4px', marginBottom: 3 }}>
+                                  <option value="">↳ Actividad pendiente de la obra...</option>
+                                  {pend.map(a => (
+                                    <option key={a.id} value={a.descripcion}>
+                                      {`[${(SISTEMAS_CONFIG[a.sistema]?.label || a.sistema).substring(0, 4)}] ${a.descripcion}${a.status === 'bloqueada' ? ' ⚠' : ''}`}
+                                    </option>
+                                  ))}
+                                </select>
+                              )
+                            })()}
                             <input value={newTask.tarea} onChange={e => setNewTask(t => ({ ...t, tarea: e.target.value }))}
-                              placeholder="Tarea..."
+                              placeholder="Tarea (elige arriba o escribe)..."
                               onKeyDown={e => { if (e.key === 'Enter') addAssignment() }}
                               style={{ ...inputStyle, fontSize: 10, padding: '3px 4px', marginBottom: 3 }} />
                             <div style={{ display: 'flex', gap: 3 }}>
