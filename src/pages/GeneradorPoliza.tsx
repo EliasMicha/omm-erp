@@ -256,7 +256,8 @@ export default function GeneradorPoliza({ properties, onClose, onCreated, editCo
       }).join(', ') + ' {')
     const host = document.createElement('div')
     host.id = 'pzpdf-host'
-    host.style.cssText = 'position:fixed;left:0;top:0;width:900px;background:#fff;z-index:-9999;opacity:0;pointer-events:none;overflow:visible'
+    // Fuera de pantalla pero OPACO y renderizado (opacity:0 hace que html2canvas capture en blanco)
+    host.style.cssText = 'position:fixed;left:-10000px;top:0;width:900px;background:#fff;z-index:-1;pointer-events:none;overflow:visible'
     const styleEl = document.createElement('style')
     styleEl.textContent = scopeCss(styleText, '#pzpdf-host')
     const content = document.createElement('div')
@@ -264,8 +265,10 @@ export default function GeneradorPoliza({ properties, onClose, onCreated, editCo
     host.appendChild(styleEl); host.appendChild(content)
     document.body.appendChild(host)
     try {
-      await new Promise(res => setTimeout(res, 350))
+      // esperar a que carguen imágenes (logo) y fuentes antes de capturar
+      await Promise.all(Array.from(host.querySelectorAll('img')).map(img => (img as HTMLImageElement).complete ? Promise.resolve() : new Promise(r => { (img as HTMLImageElement).onload = (img as HTMLImageElement).onerror = () => r(null) })))
       try { await (document as any).fonts?.ready } catch {}
+      await new Promise(res => setTimeout(res, 200))
       const full = await html2canvas(host, { scale: 2, backgroundColor: '#ffffff', useCORS: true, width: 900, windowWidth: 900 })
       const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
       const pageWmm = 210, pageHmm = 297
