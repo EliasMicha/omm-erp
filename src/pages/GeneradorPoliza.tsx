@@ -93,6 +93,14 @@ export default function GeneradorPoliza({ properties, onClose, onCreated, editCo
   const [fOtros, setFOtros] = useState(String(snap?.factores?.otros_pct != null ? Math.round(snap.factores.otros_pct * 1000) / 10 : '0'))
   // Planes editables (preventivas/emergencias por plan) — al editar, sobreescribe el plan elegido con lo guardado
   const [planes, setPlanes] = useState<PlanDef[]>(() => {
+    // Si hay config completa guardada de los 4 planes, restáurala
+    if (Array.isArray(snap?.planes_custom) && snap.planes_custom.length) {
+      return PLANES_BASE.map(p => {
+        const c = snap.planes_custom.find((x: any) => x.key === p.key)
+        return c ? { ...p, preventivas: c.preventivas ?? p.preventivas, emergencias: c.emergencias ?? p.emergencias, basePct: c.base_pct ?? p.basePct } : p
+      })
+    }
+    // Compatibilidad: pólizas viejas solo guardaron el plan seleccionado
     const tier = snap?.plan?.tier || editContract?.plan_tier
     if (!tier) return PLANES_BASE
     return PLANES_BASE.map(p => p.key === tier ? {
@@ -161,6 +169,8 @@ export default function GeneradorPoliza({ properties, onClose, onCreated, editCo
       viatico_dia: parseFloat(viaticoDia) || 0, traslado: parseFloat(traslado) || 0,
       costo_visita_suelta: parseFloat(visitaSuelta) || 0,
       factores: { tipo: fTipo, sistemas: fSistemas, antiguedad: fAntiguedad, volumen: fVolumen, otros_pct: (parseFloat(fOtros) || 0) / 100, adj_pct: adjPct },
+      // Config completa de los 4 planes (preventivas/emergencias/base_pct) para que al editar permanezcan
+      planes_custom: planes.map(p => ({ key: p.key, preventivas: p.preventivas, emergencias: p.emergencias, base_pct: p.basePct })),
       plan: { tier: sel.key, base_pct: sel.basePct, final_pct: selCalc.finalPct, annual: selCalc.annual, monthly: selCalc.monthly,
         preventivas: sel.preventivas, emergencias: sel.emergencias, viaticos_por_visita: viaticoPorVisita,
         viaticos_anual: selCalc.viaticosAnual, poliza_anual: selCalc.totalAnual,
@@ -183,8 +193,8 @@ export default function GeneradorPoliza({ properties, onClose, onCreated, editCo
       property_id: propertyId,
       name: `Póliza ${sel.label} — ${selProp?.name || ''}`.trim(),
       contract_type: 'poliza',
-      monthly_fee: selCalc.totalAnual / 12,
-      annual_fee: selCalc.totalAnual,
+      monthly_fee: finalAnualSinIva / 12,
+      annual_fee: finalAnualSinIva,
       currency: 'MXN',
       plan_tier: sel.key,
       preventive_visits_included: sel.preventivas,
@@ -526,6 +536,8 @@ function buildProposalHtml(d: any): string {
         ${rowF('Reportes técnicos', planes.map((p: PlanDef) => p.reportes))}
         ${rowF('Cobertura horaria', planes.map((p: PlanDef) => p.cobertura))}
         ${rowF('% final ajustado', planes.map((p: PlanDef) => pctL(calc(p).finalPct)))}
+        ${rowF('Cuota anual base (s/viáticos)', planes.map((p: PlanDef) => fmtL(calc(p).annual)))}
+        ${d.foranea ? rowF('Viáticos anuales est.', planes.map((p: PlanDef) => fmtL(calc(p).viaticosAnual))) : ''}
         ${rowF('Costo anual (s/IVA)', planes.map((p: PlanDef) => fmtL(calc(p).totalAnual)))}
         ${rowF('Costo mensual', planes.map((p: PlanDef) => fmtL(calc(p).totalAnual / 12)))}
       </tbody>
@@ -552,6 +564,9 @@ function buildProposalHtml(d: any): string {
     <h2>Plan seleccionado: ${escP(sel.label)}</h2>
     <table class="totals"><tbody>
       <tr><td class="k">Plan de pago</td><td>${escP(paymentPlan)}</td></tr>
+      <tr><td class="k">Visitas incluidas</td><td>${sel.preventivas} preventivas · ${sel.emergencias} bomberazos / año</td></tr>
+      <tr><td class="k">Cuota anual base (s/viáticos)</td><td>${fmtL(selCalc.annual)}</td></tr>
+      ${d.foranea ? `<tr><td class="k">Viáticos por visita</td><td>${fmtL(d.viaticoPorVisita || 0)}</td></tr><tr><td class="k">Viáticos anuales est.</td><td>${fmtL(selCalc.viaticosAnual)}</td></tr>` : ''}
       ${(d.extras && d.extras.length > 0) ? `<tr><td class="k">Póliza anual (s/IVA)</td><td>${fmtL(selCalc.totalAnual)}</td></tr><tr><td class="k">Extras (s/IVA)</td><td>${fmtL(d.extrasTotal)}</td></tr>` : ''}
       <tr><td class="k">Costo anual (s/IVA)</td><td>${fmtL(d.finalAnualSinIva ?? selCalc.totalAnual)}</td></tr>
       <tr><td class="k">IVA 16%</td><td>${fmtL(d.finalIva ?? selCalc.iva)}</td></tr>
