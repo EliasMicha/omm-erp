@@ -236,8 +236,17 @@ export default function GeneradorPoliza({ properties, onClose, onCreated, editCo
       factores: { fTipo, fSistemas, fAntiguedad, fVolumen },
       extras: extrasClean(), extrasTotal, finalAnualSinIva, finalIva, finalTotalConIva, finalMensual12,
     })
-    const w = window.open('', '_blank')
-    if (w) { w.document.write(html); w.document.close() }
+    // Abrir como Blob URL (render confiable en pestaña nueva). Fallback: descargar el HTML.
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const w = window.open(url, '_blank')
+    if (!w) {
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `Poliza_${(selProp?.name || 'propuesta').replace(/\s+/g, '_')}.html`
+      document.body.appendChild(a); a.click(); a.remove()
+    }
+    setTimeout(() => URL.revokeObjectURL(url), 60000)
   }
 
   return (
