@@ -231,6 +231,8 @@ export default function GeneradorPoliza({ properties, onClose, onCreated, editCo
     const html = buildProposalHtml({
       property: selProp, planes, calc, sel, selCalc, paymentPlan, valorNum,
       foranea, viaticoPorVisita, visitaSuelta: parseFloat(visitaSuelta) || 0, adjPct,
+      tecnicos: parseFloat(tecnicos) || 0, dias: parseFloat(dias) || 0,
+      diasTotales: (parseFloat(dias) || 0) * (sel.preventivas + sel.emergencias),
       factores: { fTipo, fSistemas, fAntiguedad, fVolumen },
       extras: extrasClean(), extrasTotal, finalAnualSinIva, finalIva, finalTotalConIva, finalMensual12,
     })
@@ -566,7 +568,7 @@ function buildProposalHtml(d: any): string {
       <tr><td class="k">Plan de pago</td><td>${escP(paymentPlan)}</td></tr>
       <tr><td class="k">Visitas incluidas</td><td>${sel.preventivas} preventivas · ${sel.emergencias} bomberazos / año</td></tr>
       <tr><td class="k">Cuota anual base (s/viáticos)</td><td>${fmtL(selCalc.annual)}</td></tr>
-      ${d.foranea ? `<tr><td class="k">Viáticos por visita</td><td>${fmtL(d.viaticoPorVisita || 0)}</td></tr><tr><td class="k">Viáticos anuales est.</td><td>${fmtL(selCalc.viaticosAnual)}</td></tr>` : ''}
+      ${d.foranea ? `<tr><td class="k">Técnicos por visita</td><td>${d.tecnicos}</td></tr><tr><td class="k">Días en sitio por visita</td><td>${d.dias}</td></tr><tr><td class="k">Días totales en sitio / año</td><td>${d.diasTotales}</td></tr><tr><td class="k">Viáticos por visita</td><td>${fmtL(d.viaticoPorVisita || 0)}</td></tr><tr><td class="k">Viáticos anuales est.</td><td>${fmtL(selCalc.viaticosAnual)}</td></tr>` : ''}
       ${(d.extras && d.extras.length > 0) ? `<tr><td class="k">Póliza anual (s/IVA)</td><td>${fmtL(selCalc.totalAnual)}</td></tr><tr><td class="k">Extras (s/IVA)</td><td>${fmtL(d.extrasTotal)}</td></tr>` : ''}
       <tr><td class="k">Costo anual (s/IVA)</td><td>${fmtL(d.finalAnualSinIva ?? selCalc.totalAnual)}</td></tr>
       <tr><td class="k">IVA 16%</td><td>${fmtL(d.finalIva ?? selCalc.iva)}</td></tr>
