@@ -2,6 +2,8 @@ import { useState, useMemo } from 'react'
 import { supabase } from '../lib/supabase'
 import { X, FileText, Check, Loader2, Plus } from 'lucide-react'
 import { OMNIIOUS_LOGO } from '../assets/logo'
+import html2canvas from 'html2canvas'
+import jsPDF from 'jspdf'
 
 // Datos OMM compartidos con el PDF oficial de cotizaciones (localStorage 'omm_pdf_header')
 const OMM_PDF_DEFAULTS = {
@@ -227,7 +229,10 @@ export default function GeneradorPoliza({ properties, onClose, onCreated, editCo
     onCreated()
   }
 
-  function descargarPropuesta() {
+  const [pdfBusy, setPdfBusy] = useState(false)
+  async function descargarPropuesta() {
+    if (pdfBusy) return
+    setPdfBusy(true)
     const html = buildProposalHtml({
       property: selProp, planes, calc, sel, selCalc, paymentPlan, valorNum,
       foranea, viaticoPorVisita, visitaSuelta: parseFloat(visitaSuelta) || 0, adjPct,
@@ -236,17 +241,44 @@ export default function GeneradorPoliza({ properties, onClose, onCreated, editCo
       factores: { fTipo, fSistemas, fAntiguedad, fVolumen },
       extras: extrasClean(), extrasTotal, finalAnualSinIva, finalIva, finalTotalConIva, finalMensual12,
     })
-    // Abrir como Blob URL (render confiable en pestaña nueva). Fallback: descargar el HTML.
-    const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const w = window.open(url, '_blank')
-    if (!w) {
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `Poliza_${(selProp?.name || 'propuesta').replace(/\s+/g, '_')}.html`
-      document.body.appendChild(a); a.click(); a.remove()
+    const fileBase = `Poliza_${(selProp?.name || 'propuesta').replace(/\s+/g, '_')}`
+    // Render en iframe aislado y exportar a PDF REAL (funciona en iOS/desktop)
+    const iframe = document.createElement('iframe')
+    iframe.style.cssText = 'position:fixed;left:-9999px;top:0;width:900px;height:1400px;border:0;background:#fff'
+    document.body.appendChild(iframe)
+    try {
+      const idoc = iframe.contentDocument!
+      idoc.open(); idoc.write(html); idoc.close()
+      // esperar layout + fuentes
+      await new Promise(res => setTimeout(res, 500))
+      try { await (idoc as any).fonts?.ready } catch {}
+      const target = idoc.body
+      const canvas = await html2canvas(target, { scale: 2, backgroundColor: '#ffffff', useCORS: true, windowWidth: 900 })
+      const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
+      const pageW = 210, pageH = 297
+      const imgW = pageW
+      const imgH = canvas.height * imgW / canvas.width
+      const imgData = canvas.toDataURL('image/jpeg', 0.92)
+      let heightLeft = imgH, position = 0
+      pdf.addImage(imgData, 'JPEG', 0, position, imgW, imgH)
+      heightLeft -= pageH
+      while (heightLeft > 0) {
+        position -= pageH
+        pdf.addPage()
+        pdf.addImage(imgData, 'JPEG', 0, position, imgW, imgH)
+        heightLeft -= pageH
+      }
+      pdf.save(`${fileBase}.pdf`)
+    } catch (e) {
+      // Fallback: abrir el HTML como Blob (por si falla el render a PDF)
+      const url = URL.createObjectURL(new Blob([html], { type: 'text/html;charset=utf-8' }))
+      const w = window.open(url, '_blank')
+      if (!w) { const a = document.createElement('a'); a.href = url; a.download = `${fileBase}.html`; document.body.appendChild(a); a.click(); a.remove() }
+      setTimeout(() => URL.revokeObjectURL(url), 60000)
+    } finally {
+      document.body.removeChild(iframe)
+      setPdfBusy(false)
     }
-    setTimeout(() => URL.revokeObjectURL(url), 60000)
   }
 
   return (
@@ -401,7 +433,7 @@ export default function GeneradorPoliza({ properties, onClose, onCreated, editCo
 
         {/* Footer */}
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, padding: '14px 20px', borderTop: '1px solid #222', position: 'sticky', bottom: 0, background: '#0d0d0d' }}>
-          <button onClick={descargarPropuesta} style={btnGhost}><FileText size={15} /> Propuesta PDF</button>
+          <button onClick={descargarPropuesta} disabled={pdfBusy} style={btnGhost}>{pdfBusy ? <Loader2 size={15} className="spin" /> : <FileText size={15} />} {pdfBusy ? 'Generando…' : 'Propuesta PDF'}</button>
           <button onClick={crearPoliza} disabled={saving} style={btnPrimary}>
             {saving ? <Loader2 size={15} className="spin" /> : <Check size={15} />} {isEdit ? 'Guardar cambios' : 'Crear póliza'}
           </button>
