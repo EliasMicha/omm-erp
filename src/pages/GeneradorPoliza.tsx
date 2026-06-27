@@ -271,9 +271,29 @@ export default function GeneradorPoliza({ properties, onClose, onCreated, editCo
       const pageWmm = 210, pageHmm = 297
       const pxPerMm = full.width / pageWmm
       const pageHpx = Math.floor(pageHmm * pxPerMm)
+      // Datos de píxeles para encontrar franjas en blanco y NO cortar contenido a la mitad
+      const fctx = full.getContext('2d')!
+      let pixels: Uint8ClampedArray | null = null
+      try { pixels = fctx.getImageData(0, 0, full.width, full.height).data } catch { pixels = null }
+      const rowBlank = (row: number) => {
+        if (!pixels) return false
+        for (let x = 0; x < full.width; x += 4) {
+          const i = (row * full.width + x) * 4
+          if (pixels[i] < 248 || pixels[i + 1] < 248 || pixels[i + 2] < 248) return false
+        }
+        return true
+      }
       let y = 0, page = 0
       while (y < full.height) {
-        const sliceH = Math.min(pageHpx, full.height - y)
+        let cut = Math.min(y + pageHpx, full.height)
+        if (cut < full.height) {
+          // busca una línea en blanco hacia arriba (hasta 38% de la página) para cortar en un hueco
+          const limit = y + Math.floor(pageHpx * 0.62)
+          let c = cut
+          while (c > limit && !rowBlank(c)) c--
+          if (c > limit) cut = c
+        }
+        const sliceH = cut - y
         const pc = document.createElement('canvas')
         pc.width = full.width; pc.height = sliceH
         const ctx = pc.getContext('2d')!
@@ -281,7 +301,7 @@ export default function GeneradorPoliza({ properties, onClose, onCreated, editCo
         ctx.drawImage(full, 0, y, full.width, sliceH, 0, 0, full.width, sliceH)
         if (page > 0) pdf.addPage()
         pdf.addImage(pc.toDataURL('image/jpeg', 0.92), 'JPEG', 0, 0, pageWmm, sliceH / pxPerMm)
-        y += sliceH; page++
+        y = cut; page++
       }
       pdf.save(`${fileBase}.pdf`)
     } catch (e) {
