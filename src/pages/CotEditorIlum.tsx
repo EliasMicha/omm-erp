@@ -2,8 +2,9 @@ import { useState, useEffect, useMemo, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { F, STAGE_CONFIG } from '../lib/utils'
 import { Btn, Loading } from '../components/layout/UI'
-import { Plus, ChevronDown, ChevronRight, X, Trash2, Image as ImageIcon, Search, ArrowLeftRight, Sparkles, Upload, Loader2, FileText, RefreshCw, BookOpen } from 'lucide-react'
+import { Plus, ChevronDown, ChevronRight, X, Trash2, Image as ImageIcon, Search, ArrowLeftRight, Sparkles, Upload, Loader2, FileText, RefreshCw, BookOpen, Pencil } from 'lucide-react'
 import VersionManager, { VersionSnapshot } from '../components/VersionManager'
+import EditCotInfoModal from '../components/EditCotInfoModal'
 import { useIsMobile } from '../lib/useIsMobile'
 
 // ═══════════════════════════════════════════════════════════════════
@@ -24,6 +25,7 @@ interface IlumSubsection {
 
 interface IlumQuote {
   id: string; name: string; stage: string; notes: any
+  client_name?: string | null; project_id?: string | null
 }
 
 interface CatProduct {
@@ -85,15 +87,15 @@ function ProductRow({ p, onUpdate, onRemove, selected, onToggleSelect, onSubstit
         <div style={{ fontSize: 12, fontWeight: 500, color: '#ddd' }}>{p.name}</div>
         {p.description && <div style={{ fontSize: 10, color: '#555', marginTop: 1 }}>{p.description}</div>}
       </td>
-      <td style={{ ...S.td, fontSize: 11, color: '#666' }}>{p.marca || '—'}</td>
-      <td style={{ ...S.td, fontSize: 11, color: '#666' }}>{p.modelo || '—'}</td>
+      <td style={{ ...S.td, fontSize: 11, color: '#666', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={p.marca || ''}>{p.marca || '—'}</td>
+      <td style={{ ...S.td, fontSize: 11, color: '#666', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={p.modelo || ''}>{p.modelo || '—'}</td>
       <td style={{ ...S.tdR, fontSize: 11, color: '#666' }}>{p.watts ? p.watts + 'W' : '—'}</td>
-      <td style={{ ...S.td, width: 45 }}>
-        <input key={`qty-${p.id}-${p.quantity}`} type="number" defaultValue={p.quantity} min={1} onBlur={e => onUpdate(p.id, 'quantity', parseInt(e.target.value) || 1)} style={{ ...S.input, width: 40 }} />
+      <td style={S.td}>
+        <input key={`qty-${p.id}-${p.quantity}`} type="number" defaultValue={p.quantity} min={1} onBlur={e => onUpdate(p.id, 'quantity', parseInt(e.target.value) || 1)} style={{ ...S.input, width: '100%', boxSizing: 'border-box' }} />
       </td>
-      <td style={S.tdR}><input key={`cost-${p.id}-${p.cost}`} type="number" defaultValue={p.cost} step={0.01} onBlur={e => onUpdate(p.id, 'cost', parseFloat(e.target.value) || 0)} style={S.input} /></td>
-      <td style={S.tdR}><input key={`markup-${p.id}-${p.markup}`} type="number" defaultValue={p.markup} step={1} onBlur={e => onUpdate(p.id, 'markup', parseFloat(e.target.value) || 0)} style={{ ...S.input, width: 45, color: p.markup >= 25 ? '#10B981' : p.markup >= 15 ? '#D97706' : '#DC2626' }} /></td>
-      <td style={S.tdR}><input key={`price-${p.id}-${p.price}`} type="number" defaultValue={p.price} step={0.01} onBlur={e => onUpdate(p.id, 'price', parseFloat(e.target.value) || 0)} style={S.input} /></td>
+      <td style={S.tdR}><input key={`cost-${p.id}-${p.cost}`} type="number" defaultValue={p.cost} step={0.01} onBlur={e => onUpdate(p.id, 'cost', parseFloat(e.target.value) || 0)} style={{ ...S.input, width: '100%', boxSizing: 'border-box' }} /></td>
+      <td style={S.tdR}><input key={`markup-${p.id}-${p.markup}`} type="number" defaultValue={p.markup} step={1} onBlur={e => onUpdate(p.id, 'markup', parseFloat(e.target.value) || 0)} style={{ ...S.input, width: '100%', boxSizing: 'border-box', color: p.markup >= 25 ? '#10B981' : p.markup >= 15 ? '#D97706' : '#DC2626' }} /></td>
+      <td style={S.tdR}><input key={`price-${p.id}-${p.price}`} type="number" defaultValue={p.price} step={0.01} onBlur={e => onUpdate(p.id, 'price', parseFloat(e.target.value) || 0)} style={{ ...S.input, width: '100%', boxSizing: 'border-box' }} /></td>
       <td style={{ ...S.tdM, color: '#10B981' }}>${fmt(total)}</td>
       <td style={{ ...S.td, width: 28 }}>{onSubstitute && p.catalogId && <button onClick={() => onSubstitute(p)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, opacity: 0.5 }} title="Sustituir en todo el proyecto"><ArrowLeftRight size={12} color="#2563EB" /></button>}</td>
       <td style={{ ...S.td, width: 28 }}><button onClick={() => onRemove(p.id)} style={{ background: 'none', border: 'none', color: '#444', cursor: 'pointer' }}><Trash2 size={12} /></button></td>
@@ -204,7 +206,24 @@ function SubsectionBlock({ subsection, products, onToggle, onUpdate, onRemove, o
         <span style={{ fontSize: 12, fontWeight: 700, color: '#fff' }}>${fmt(subTotal)}</span>
       </div>
       {!subsection.collapsed && (<>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', minWidth: 940, borderCollapse: 'collapse', tableLayout: 'fixed' as const }}>
+          <colgroup>
+            {onToggleSelect && <col style={{ width: 30 }} />}
+            <col style={{ width: 46 }} />{/* IMG */}
+            <col style={{ width: 92 }} />{/* NOMENCL */}
+            <col />{/* PRODUCTO (flexible) */}
+            <col style={{ width: 96 }} />{/* MARCA */}
+            <col style={{ width: 100 }} />{/* MODELO */}
+            <col style={{ width: 52 }} />{/* W */}
+            <col style={{ width: 62 }} />{/* CANT */}
+            <col style={{ width: 92 }} />{/* COSTO */}
+            <col style={{ width: 70 }} />{/* MG% */}
+            <col style={{ width: 92 }} />{/* PRECIO */}
+            <col style={{ width: 98 }} />{/* TOTAL */}
+            <col style={{ width: 30 }} />{/* sustituir */}
+            <col style={{ width: 30 }} />{/* eliminar */}
+          </colgroup>
           <thead><tr style={{ background: '#0e0e0e' }}>
             {onToggleSelect && (
               <th style={{ ...S.th, width: 28, textAlign: 'center', padding: '6px 4px' }}>
@@ -237,6 +256,7 @@ function SubsectionBlock({ subsection, products, onToggle, onUpdate, onRemove, o
             ))}
           </tbody>
         </table>
+        </div>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 8px' }}>
           <Btn size="sm" onClick={onAdd}><Plus size={12} /> Producto</Btn>
           <span style={{ fontSize: 10, color: '#555' }}>{subsection.name.toUpperCase()} TOTAL <span style={{ fontWeight: 700, color: '#fff', marginLeft: 6 }}>${fmt(subTotal)}</span></span>
@@ -761,6 +781,7 @@ export default function CotEditorIlum({ cotId, onBack, onSwitchVersion }: { cotI
   const [ilumConfig, setIlumConfig] = useState({ ivaRate: 16, descuento: 0, nominaPct: 20 })
   const [showBulkMargin, setShowBulkMargin] = useState(false)
   const [bulkMarginInput, setBulkMarginInput] = useState('')
+  const [showEditInfo, setShowEditInfo] = useState(false)
 
   // Load quotation, subsections, and products
   useEffect(() => {
@@ -1221,12 +1242,16 @@ export default function CotEditorIlum({ cotId, onBack, onSwitchVersion }: { cotI
           <button onClick={onBack} style={{ background: 'none', border: 'none', color: '#10B981', cursor: 'pointer', fontSize: 14, fontWeight: 600, fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 4 }}>
             {'<'} Cotizaciones
           </button>
-          <div style={{ flex: 1 }}>
-            <input
-              type="text" value={quote?.name || ''} onChange={e => updateQuoteName(e.target.value)}
-              placeholder="Nombre de cotización"
-              style={{ background: 'transparent', border: 'none', fontSize: 20, fontWeight: 700, color: '#fff', width: '100%', fontFamily: 'inherit' }}
-            />
+          <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <input
+                type="text" value={quote?.name || ''} onChange={e => updateQuoteName(e.target.value)}
+                placeholder="Nombre de cotización"
+                style={{ background: 'transparent', border: 'none', fontSize: 20, fontWeight: 700, color: '#fff', width: '100%', fontFamily: 'inherit' }}
+              />
+              {(quote?.client_name) && <div style={{ fontSize: 11, color: '#666', marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{quote.client_name}</div>}
+            </div>
+            <button onClick={() => setShowEditInfo(true)} title="Editar datos de la cotización (cliente, lead, proyecto)" style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', padding: 4, display: 'flex', alignItems: 'center', flexShrink: 0 }}><Pencil size={14} /></button>
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             {Object.entries(STAGE_CONFIG).map(([id, s]) => (
@@ -1508,6 +1533,21 @@ export default function CotEditorIlum({ cotId, onBack, onSwitchVersion }: { cotI
           onClose={() => setCatalogModal(null)}
           onSelect={p => addProductFromCatalog(catalogModal.subsectionId, p)}
           subsectionName={subsections.find(s => s.id === catalogModal.subsectionId)?.name || ''}
+        />
+      )}
+
+      {/* Editar datos de la cotización (cliente, lead, proyecto) */}
+      {showEditInfo && quote && (
+        <EditCotInfoModal
+          cotId={cotId}
+          name={quote.name}
+          clientName={quote.client_name || ''}
+          projectId={quote.project_id || null}
+          onClose={() => setShowEditInfo(false)}
+          onSaved={(name, client, projId) => {
+            setQuote(q => q ? { ...q, name, client_name: client, project_id: projId || null } : q)
+            setShowEditInfo(false)
+          }}
         />
       )}
 
