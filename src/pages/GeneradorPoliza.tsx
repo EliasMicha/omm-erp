@@ -242,41 +242,55 @@ export default function GeneradorPoliza({ properties, onClose, onCreated, editCo
       extras: extrasClean(), extrasTotal, finalAnualSinIva, finalIva, finalTotalConIva, finalMensual12,
     })
     const fileBase = `Poliza_${(selProp?.name || 'propuesta').replace(/\s+/g, '_')}`
-    // Render en iframe aislado y exportar a PDF REAL (funciona en iOS/desktop)
-    const iframe = document.createElement('iframe')
-    iframe.style.cssText = 'position:fixed;left:-9999px;top:0;width:900px;height:1400px;border:0;background:#fff'
-    document.body.appendChild(iframe)
+    // Renderiza el HTML dentro del documento (oculto, con estilos aislados a #pzpdf-host)
+    // y exporta un PDF REAL cortando por páginas. Más confiable que iframe/window.open.
+    const parsed = new DOMParser().parseFromString(html, 'text/html')
+    const styleText = Array.from(parsed.querySelectorAll('style')).map(s => s.textContent || '').join('\n')
+    const scopeCss = (css: string, scope: string) => css
+      .replace(/@page[^}]*\}/g, '')
+      .replace(/([^{}]+)\{/g, (_m, sel) => sel.split(',').map((s: string) => {
+        s = s.trim(); if (!s) return s
+        if (s === 'body' || s === 'html') return scope
+        if (s === '*') return scope + ' *'
+        return scope + ' ' + s
+      }).join(', ') + ' {')
+    const host = document.createElement('div')
+    host.id = 'pzpdf-host'
+    host.style.cssText = 'position:fixed;left:0;top:0;width:900px;background:#fff;z-index:-9999;opacity:0;pointer-events:none;overflow:visible'
+    const styleEl = document.createElement('style')
+    styleEl.textContent = scopeCss(styleText, '#pzpdf-host')
+    const content = document.createElement('div')
+    content.innerHTML = parsed.body.innerHTML
+    host.appendChild(styleEl); host.appendChild(content)
+    document.body.appendChild(host)
     try {
-      const idoc = iframe.contentDocument!
-      idoc.open(); idoc.write(html); idoc.close()
-      // esperar layout + fuentes
-      await new Promise(res => setTimeout(res, 500))
-      try { await (idoc as any).fonts?.ready } catch {}
-      const target = idoc.body
-      const canvas = await html2canvas(target, { scale: 2, backgroundColor: '#ffffff', useCORS: true, windowWidth: 900 })
+      await new Promise(res => setTimeout(res, 350))
+      try { await (document as any).fonts?.ready } catch {}
+      const full = await html2canvas(host, { scale: 2, backgroundColor: '#ffffff', useCORS: true, width: 900, windowWidth: 900 })
       const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
-      const pageW = 210, pageH = 297
-      const imgW = pageW
-      const imgH = canvas.height * imgW / canvas.width
-      const imgData = canvas.toDataURL('image/jpeg', 0.92)
-      let heightLeft = imgH, position = 0
-      pdf.addImage(imgData, 'JPEG', 0, position, imgW, imgH)
-      heightLeft -= pageH
-      while (heightLeft > 0) {
-        position -= pageH
-        pdf.addPage()
-        pdf.addImage(imgData, 'JPEG', 0, position, imgW, imgH)
-        heightLeft -= pageH
+      const pageWmm = 210, pageHmm = 297
+      const pxPerMm = full.width / pageWmm
+      const pageHpx = Math.floor(pageHmm * pxPerMm)
+      let y = 0, page = 0
+      while (y < full.height) {
+        const sliceH = Math.min(pageHpx, full.height - y)
+        const pc = document.createElement('canvas')
+        pc.width = full.width; pc.height = sliceH
+        const ctx = pc.getContext('2d')!
+        ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, pc.width, sliceH)
+        ctx.drawImage(full, 0, y, full.width, sliceH, 0, 0, full.width, sliceH)
+        if (page > 0) pdf.addPage()
+        pdf.addImage(pc.toDataURL('image/jpeg', 0.92), 'JPEG', 0, 0, pageWmm, sliceH / pxPerMm)
+        y += sliceH; page++
       }
       pdf.save(`${fileBase}.pdf`)
     } catch (e) {
-      // Fallback: abrir el HTML como Blob (por si falla el render a PDF)
       const url = URL.createObjectURL(new Blob([html], { type: 'text/html;charset=utf-8' }))
       const w = window.open(url, '_blank')
       if (!w) { const a = document.createElement('a'); a.href = url; a.download = `${fileBase}.html`; document.body.appendChild(a); a.click(); a.remove() }
       setTimeout(() => URL.revokeObjectURL(url), 60000)
     } finally {
-      document.body.removeChild(iframe)
+      document.body.removeChild(host)
       setPdfBusy(false)
     }
   }
