@@ -65,30 +65,49 @@ const pct = (n: number) => (n * 100).toFixed(2) + '%'
 
 interface PropOpt { id: string; name: string; client_name: string | null; address: string | null; city: string | null }
 
-export default function GeneradorPoliza({ properties, onClose, onCreated }: {
-  properties: PropOpt[]; onClose: () => void; onCreated: () => void
+export default function GeneradorPoliza({ properties, onClose, onCreated, editContract }: {
+  properties: PropOpt[]; onClose: () => void; onCreated: () => void; editContract?: any
 }) {
+  // Si estamos editando, precargamos desde el snapshot de precios guardado (o de los campos del contrato)
+  const snap: any = (() => {
+    const s = editContract?.pricing_snapshot
+    if (!s) return null
+    try { return typeof s === 'string' ? JSON.parse(s) : s } catch { return null }
+  })()
+  const isEdit = !!editContract
+
   // Inputs del proyecto
-  const [propertyId, setPropertyId] = useState('')
-  const [valor, setValor] = useState('800000')
-  const [foranea, setForanea] = useState(false)
-  const [tecnicos, setTecnicos] = useState('2')
-  const [dias, setDias] = useState('4')
-  const [viaticoDia, setViaticoDia] = useState('1200')
-  const [traslado, setTraslado] = useState('10000')
-  const [visitaSuelta, setVisitaSuelta] = useState('3000')
+  const [propertyId, setPropertyId] = useState(editContract?.property_id || '')
+  const [valor, setValor] = useState(String(snap?.project_value ?? editContract?.project_value ?? '800000'))
+  const [foranea, setForanea] = useState(!!snap?.foranea)
+  const [tecnicos, setTecnicos] = useState(String(snap?.tecnicos ?? '2'))
+  const [dias, setDias] = useState(String(snap?.dias_sitio ?? '4'))
+  const [viaticoDia, setViaticoDia] = useState(String(snap?.viatico_dia ?? '1200'))
+  const [traslado, setTraslado] = useState(String(snap?.traslado ?? '10000'))
+  const [visitaSuelta, setVisitaSuelta] = useState(String(snap?.costo_visita_suelta ?? '3000'))
   // Factores
-  const [fTipo, setFTipo] = useState(TIPO_PROYECTO[0].label)
-  const [fSistemas, setFSistemas] = useState(SISTEMAS[2].label)
-  const [fAntiguedad, setFAntiguedad] = useState(ANTIGUEDAD[1].label)
-  const [fVolumen, setFVolumen] = useState(VOLUMEN[0].label)
-  const [fOtros, setFOtros] = useState('0')
-  // Planes editables (preventivas/emergencias por plan)
-  const [planes, setPlanes] = useState<PlanDef[]>(PLANES_BASE)
+  const [fTipo, setFTipo] = useState(snap?.factores?.tipo ?? TIPO_PROYECTO[0].label)
+  const [fSistemas, setFSistemas] = useState(snap?.factores?.sistemas ?? SISTEMAS[2].label)
+  const [fAntiguedad, setFAntiguedad] = useState(snap?.factores?.antiguedad ?? ANTIGUEDAD[1].label)
+  const [fVolumen, setFVolumen] = useState(snap?.factores?.volumen ?? VOLUMEN[0].label)
+  const [fOtros, setFOtros] = useState(String(snap?.factores?.otros_pct != null ? Math.round(snap.factores.otros_pct * 1000) / 10 : '0'))
+  // Planes editables (preventivas/emergencias por plan) — al editar, sobreescribe el plan elegido con lo guardado
+  const [planes, setPlanes] = useState<PlanDef[]>(() => {
+    const tier = snap?.plan?.tier || editContract?.plan_tier
+    if (!tier) return PLANES_BASE
+    return PLANES_BASE.map(p => p.key === tier ? {
+      ...p,
+      preventivas: snap?.plan?.preventivas ?? editContract?.preventive_visits_included ?? p.preventivas,
+      emergencias: snap?.plan?.emergencias ?? editContract?.emergency_visits_included ?? p.emergencias,
+      basePct: snap?.plan?.base_pct ?? p.basePct,
+    } : p)
+  })
   // Selección
-  const [selected, setSelected] = useState('oro')
-  const [paymentPlan, setPaymentPlan] = useState('Anual')
-  const [extras, setExtras] = useState<{ id: string; desc: string; qty: string; precio: string }[]>([])
+  const [selected, setSelected] = useState(snap?.plan?.tier ?? editContract?.plan_tier ?? 'oro')
+  const [paymentPlan, setPaymentPlan] = useState(snap?.payment_plan ?? editContract?.payment_plan ?? 'Anual')
+  const [extras, setExtras] = useState<{ id: string; desc: string; qty: string; precio: string }[]>(
+    (snap?.plan?.extras || []).map((e: any) => ({ id: Math.random().toString(36).slice(2), desc: e.desc || '', qty: String(e.qty ?? 1), precio: String(e.precio ?? 0) }))
+  )
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
@@ -158,31 +177,41 @@ export default function GeneradorPoliza({ properties, onClose, onCreated }: {
     if (!propertyId) { setError('Selecciona la propiedad para ligar la póliza'); return }
     if (valorNum <= 0) { setError('Captura el valor del proyecto'); return }
     setSaving(true); setError('')
-    const today = new Date()
-    const end = new Date(today); end.setFullYear(end.getFullYear() + 1)
-    const { error: err } = await supabase.from('maintenance_contracts').insert({
+    const baseNotes = `${isEdit ? 'Editada' : 'Generada'} con calculadora de pólizas. Ajustes ${pct(adjPct)}.` + (extrasTotal > 0 ? ` Extras: ${fmt(extrasTotal)} (${extrasClean().map(e => `${e.qty}× ${e.desc}`).join('; ')}).` : '')
+    // Campos editables (no toca fechas ni visitas usadas al editar)
+    const fields: any = {
       property_id: propertyId,
       name: `Póliza ${sel.label} — ${selProp?.name || ''}`.trim(),
       contract_type: 'poliza',
-      start_date: today.toISOString().slice(0, 10),
-      end_date: end.toISOString().slice(0, 10),
       monthly_fee: selCalc.monthly,
       annual_fee: selCalc.annual,
       currency: 'MXN',
       plan_tier: sel.key,
       preventive_visits_included: sel.preventivas,
       emergency_visits_included: sel.emergencias,
-      preventive_visits_used: 0,
-      emergency_visits_used: 0,
       visits_included: sel.preventivas + sel.emergencias,
-      visits_used: 0,
       project_value: valorNum,
       payment_plan: paymentPlan,
       pricing_snapshot: buildSnapshot(),
       service_levels: buildServiceLevels(sel),
-      is_active: true,
-      notes: `Generada con calculadora de pólizas. Ajustes ${pct(adjPct)}.` + (extrasTotal > 0 ? ` Extras: ${fmt(extrasTotal)} (${extrasClean().map(e => `${e.qty}× ${e.desc}`).join('; ')}).` : ''),
-    })
+      notes: baseNotes,
+    }
+    let err
+    if (isEdit) {
+      ({ error: err } = await supabase.from('maintenance_contracts').update(fields).eq('id', editContract.id))
+    } else {
+      const today = new Date()
+      const end = new Date(today); end.setFullYear(end.getFullYear() + 1)
+      ;({ error: err } = await supabase.from('maintenance_contracts').insert({
+        ...fields,
+        start_date: today.toISOString().slice(0, 10),
+        end_date: end.toISOString().slice(0, 10),
+        preventive_visits_used: 0,
+        emergency_visits_used: 0,
+        visits_used: 0,
+        is_active: true,
+      }))
+    }
     setSaving(false)
     if (err) { setError(err.message); return }
     onCreated()
@@ -204,7 +233,7 @@ export default function GeneradorPoliza({ properties, onClose, onCreated }: {
       <div style={panel} onClick={e => e.stopPropagation()}>
         {/* Header */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid #222', position: 'sticky', top: 0, background: '#0d0d0d', zIndex: 2 }}>
-          <div style={{ fontSize: 16, fontWeight: 700, color: '#fff' }}>Generador de pólizas</div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: '#fff' }}>{isEdit ? 'Editar póliza' : 'Generador de pólizas'}</div>
           <button onClick={onClose} style={iconBtn}><X size={18} /></button>
         </div>
 
@@ -353,7 +382,7 @@ export default function GeneradorPoliza({ properties, onClose, onCreated }: {
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, padding: '14px 20px', borderTop: '1px solid #222', position: 'sticky', bottom: 0, background: '#0d0d0d' }}>
           <button onClick={descargarPropuesta} style={btnGhost}><FileText size={15} /> Propuesta PDF</button>
           <button onClick={crearPoliza} disabled={saving} style={btnPrimary}>
-            {saving ? <Loader2 size={15} className="spin" /> : <Check size={15} />} Crear póliza
+            {saving ? <Loader2 size={15} className="spin" /> : <Check size={15} />} {isEdit ? 'Guardar cambios' : 'Crear póliza'}
           </button>
         </div>
         <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } } .spin { animation: spin 1s linear infinite; }`}</style>

@@ -372,6 +372,7 @@ export default function Mantenimiento() {
   const [showNewUpsell, setShowNewUpsell] = useState(false)
   const [showSchedule, setShowSchedule] = useState(false)
   const [showGenerador, setShowGenerador] = useState(false)
+  const [editPoliza, setEditPoliza] = useState<any | null>(null)
   const [showFromLead, setShowFromLead] = useState(false)
   const [showEquipo, setShowEquipo] = useState(false)
 
@@ -559,7 +560,8 @@ export default function Mantenimiento() {
         <TabPolizas
           contracts={contracts} propMap={propMap}
           onNew={() => setShowNewContract(true)}
-          onGenerar={() => setShowGenerador(true)}
+          onGenerar={() => { setEditPoliza(null); setShowGenerador(true) }}
+          onEditar={(c) => { setEditPoliza(c); setShowGenerador(true) }}
           isMobile={isMobile}
         />
       )}
@@ -609,8 +611,9 @@ export default function Mantenimiento() {
       {showGenerador && (
         <GeneradorPoliza
           properties={properties.map(p => ({ id: p.id, name: p.name, client_name: p.client_name, address: p.address, city: p.city }))}
-          onClose={() => setShowGenerador(false)}
-          onCreated={() => { setShowGenerador(false); loadAll() }}
+          editContract={editPoliza}
+          onClose={() => { setShowGenerador(false); setEditPoliza(null) }}
+          onCreated={() => { setShowGenerador(false); setEditPoliza(null); loadAll() }}
         />
       )}
     </div>
@@ -1249,8 +1252,8 @@ function VisitBucket({ used, included, label, color }: { used: number; included:
   )
 }
 
-function TabPolizas({ contracts, propMap, onNew, onGenerar, isMobile }: {
-  contracts: Contract[]; propMap: Record<string, Property>; onNew: () => void; onGenerar: () => void; isMobile: boolean
+function TabPolizas({ contracts, propMap, onNew, onGenerar, onEditar, isMobile }: {
+  contracts: Contract[]; propMap: Record<string, Property>; onNew: () => void; onGenerar: () => void; onEditar: (c: Contract) => void; isMobile: boolean
 }) {
   const now = new Date()
   const soonThreshold = new Date(now.getTime() + 30 * 24 * 3600000) // 30 days
@@ -1300,6 +1303,7 @@ function TabPolizas({ contracts, propMap, onNew, onGenerar, isMobile }: {
               <Th>Preventivas</Th>
               <Th>Bomberazos</Th>
               <Th>Estado</Th>
+              <Th></Th>
             </tr>
           </thead>
           <tbody>
@@ -1334,6 +1338,12 @@ function TabPolizas({ contracts, propMap, onNew, onGenerar, isMobile }: {
                           ? <Badge label="Activa" color="#10B981" />
                           : <Badge label="Inactiva" color="#6B7280" />
                     }
+                  </Td>
+                  <Td>
+                    <button onClick={() => onEditar(c)} title="Editar póliza"
+                      style={{ background: 'none', border: '1px solid #333', borderRadius: 6, color: '#10B981', cursor: 'pointer', fontSize: 11, fontFamily: 'inherit', padding: '3px 10px' }}>
+                      Editar
+                    </button>
                   </Td>
                 </tr>
               )
