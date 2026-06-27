@@ -108,6 +108,8 @@ export interface QuotationItem {
   quantity: number
   cost: number
   markup: number
+  mo_pct?: number
+  util_pct?: number
   price: number
   total: number
   installation_cost: number
