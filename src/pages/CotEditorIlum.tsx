@@ -1238,21 +1238,26 @@ export default function CotEditorIlum({ cotId, onBack, onSwitchVersion }: { cotI
     <div style={{ background: '#0e0e0e', minHeight: '100vh', padding: isMobile ? '12px' : '20px', color: '#ccc' }}>
       <div style={{ maxWidth: 1200, margin: '0 auto' }}>
         {/* Header */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 8 : 20, marginBottom: 24, paddingBottom: 16, borderBottom: '1px solid #222', flexWrap: 'wrap' }}>
-          <button onClick={onBack} style={{ background: 'none', border: 'none', color: '#10B981', cursor: 'pointer', fontSize: 14, fontWeight: 600, fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 4 }}>
-            {'<'} Cotizaciones
-          </button>
-          <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8 }}>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <input
-                type="text" value={quote?.name || ''} onChange={e => updateQuoteName(e.target.value)}
-                placeholder="Nombre de cotización"
-                style={{ background: 'transparent', border: 'none', fontSize: 20, fontWeight: 700, color: '#fff', width: '100%', fontFamily: 'inherit' }}
-              />
-              {(quote?.client_name) && <div style={{ fontSize: 11, color: '#666', marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{quote.client_name}</div>}
+        <div style={{ marginBottom: 24, paddingBottom: 16, borderBottom: '1px solid #222' }}>
+          {/* Renglón 1: regresar + título (línea completa) */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
+            <button onClick={onBack} style={{ background: 'none', border: 'none', color: '#10B981', cursor: 'pointer', fontSize: 13, fontWeight: 600, fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+              {'<'} Cotizaciones
+            </button>
+            <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <input
+                  type="text" value={quote?.name || ''} onChange={e => updateQuoteName(e.target.value)}
+                  placeholder="Nombre de cotización"
+                  style={{ background: 'transparent', border: 'none', fontSize: 17, fontWeight: 700, color: '#fff', width: '100%', fontFamily: 'inherit' }}
+                />
+                {(quote?.client_name) && <div style={{ fontSize: 11, color: '#666', marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{quote.client_name}</div>}
+              </div>
+              <button onClick={() => setShowEditInfo(true)} title="Editar datos de la cotización (cliente, lead, proyecto)" style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', padding: 4, display: 'flex', alignItems: 'center', flexShrink: 0 }}><Pencil size={14} /></button>
             </div>
-            <button onClick={() => setShowEditInfo(true)} title="Editar datos de la cotización (cliente, lead, proyecto)" style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', padding: 4, display: 'flex', alignItems: 'center', flexShrink: 0 }}><Pencil size={14} /></button>
           </div>
+          {/* Renglón 2: etapas + acciones */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 8 : 12, flexWrap: 'wrap' }}>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             {Object.entries(STAGE_CONFIG).map(([id, s]) => (
               <button
@@ -1325,6 +1330,7 @@ export default function CotEditorIlum({ cotId, onBack, onSwitchVersion }: { cotI
             </div>
           )}
           <div style={{ fontSize: isMobile ? 14 : 16, fontWeight: 700, color: '#10B981' }}>${fmt(grandTotal)}</div>
+          </div>
         </div>
 
         {/* Subsection Presets */}
