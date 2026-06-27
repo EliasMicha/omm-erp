@@ -460,16 +460,72 @@ const btnPrimary: React.CSSProperties = { display: 'flex', alignItems: 'center',
 
 // ── Propuesta comercial (PDF en ventana nueva) ──
 const TYC = `<b>TÉRMINOS Y CONDICIONES GENERALES DE LA PÓLIZA DE MANTENIMIENTO</b>
-<b>1. Vigencia.</b> La presente póliza tiene una vigencia de doce (12) meses a partir de la fecha de contratación, y podrá renovarse previo acuerdo entre las partes. Cualquier modificación en el alcance o nivel de servicio deberá formalizarse por escrito.
-<b>2. Alcance del servicio.</b> La póliza cubre los servicios de mantenimiento preventivo y correctivo de los sistemas instalados por OMM Technologies S.A. de C.V. de acuerdo con el plan contratado (Bronce, Plata, Oro o Platino). Incluye inspección, calibración, limpieza, respaldo de configuraciones, pruebas funcionales, asesoría técnica y atención a reportes de falla conforme al nivel de servicio establecido.
-<b>3. Garantías y responsabilidad sobre equipos.</b> OMM Technologies no otorga garantía sobre ningún equipo, dispositivo o componente electrónico, ya que la garantía es exclusiva del fabricante o proveedor. En caso de equipos en garantía, OMM coordina traslado y gestión con el proveedor, sin costo de mano de obra dentro de la cobertura, pero sin incluir transporte, paquetería, viáticos ni refacciones que el fabricante no cubra. Equipos fuera de garantía o intervenidos por terceros: el costo del servicio y refacciones corren por cuenta del cliente.
-<b>4. Refacciones y materiales.</b> La póliza no incluye refacciones, materiales ni equipos de reemplazo. Cualquier componente que deba sustituirse será cotizado por separado y requerirá autorización previa del cliente.
-<b>5. Atención a fallas y tiempos de respuesta.</b> Se rigen por el nivel de servicio (SLA) contratado. Atención remota según nivel (Bronce 48 h, Plata 36 h, Oro 24 h, Platino 12 h). Atención on-site conforme a condiciones acordadas y disponibilidad de acceso.
-<b>6. Condiciones del sitio y acceso.</b> El cliente deberá garantizar acceso oportuno y seguro, energía eléctrica estable y avisar de modificaciones de infraestructura. Los retrasos por falta de acceso no son incumplimiento de OMM.
-<b>7. Viáticos y traslados.</b> Los servicios dentro del área metropolitana están incluidos. Para sitios foráneos aplican viáticos y traslados adicionales según la póliza.
-<b>8. Pagos y servicios adicionales.</b> El costo podrá pagarse mensual, trimestral o anualmente. Cualquier servicio no contemplado se cotiza por separado.
-<b>9. Terminación anticipada.</b> Por incumplimiento de pago, incumplimiento reiterado, o por mutuo acuerdo con aviso escrito de al menos 30 días naturales.
-<b>10. Limitación de responsabilidad.</b> OMM ejecuta con personal calificado conforme a normas vigentes (NOM, NEC, NFPA). No garantiza funcionamiento ininterrumpido (depende de red eléctrica, datos, uso, terceros). La responsabilidad máxima de OMM no excederá el monto total pagado por la póliza en curso.`
+
+<b>1. Vigencia</b>
+La presente póliza tiene una vigencia de doce (12) meses a partir de la fecha de contratación, y podrá renovarse previo acuerdo entre las partes. Cualquier modificación en el alcance o nivel de servicio deberá formalizarse por escrito.
+
+<b>2. Alcance del servicio</b>
+La póliza cubre los servicios de mantenimiento preventivo y correctivo de los sistemas instalados por OMM Technologies S.A. de C.V. de acuerdo con el plan contratado (Bronce, Plata, Oro o Platino).
+Estos servicios incluyen inspección, calibración, limpieza, respaldo de configuraciones, pruebas funcionales, asesoría técnica y atención a reportes de falla conforme al nivel de servicio establecido.
+
+<b>3. Garantías y responsabilidad sobre equipos</b>
+<b>3.1 Limitación de garantía de equipos</b>
+OMM Technologies no otorga garantía sobre ningún equipo, dispositivo o componente electrónico, ya que la garantía es exclusiva del fabricante o proveedor.
+La empresa no se compromete ni se hace responsable por fallas, defectos de fabricación, obsolescencia o pérdida de funcionamiento de los equipos más allá del periodo de garantía ofrecido por el fabricante.
+<b>3.2 Gestión de garantías</b>
+En caso de que un equipo se encuentre dentro del periodo de garantía del fabricante, OMM Technologies se compromete a:
+• Coordinar el traslado, entrega y gestión del equipo con el proveedor o centro de servicio autorizado.
+• Dar seguimiento al proceso de diagnóstico y reparación o reemplazo.
+• Notificar al cliente del resultado del diagnóstico y del tiempo estimado de resolución informado por el fabricante.
+Este proceso no tiene costo adicional de mano de obra dentro de la cobertura de la póliza, pero no incluye los costos de transporte, empaques, paquetería, viáticos ni refacciones que el fabricante no cubra.
+<b>3.3 Equipos fuera de garantía</b>
+Cuando un equipo esté fuera de garantía, presente daños físicos, o haya sido instalado por terceros, OMM podrá ofrecer asistencia técnica para su revisión y diagnóstico, pero el costo del servicio y las refacciones correrán por cuenta del cliente.
+OMM no se hace responsable de fallas internas de componentes electrónicos, fluctuaciones eléctricas, o mal uso por parte de usuarios o terceros.
+<b>3.4 Exclusión de responsabilidad</b>
+OMM Technologies no será responsable por:
+• Desgaste natural de piezas o componentes.
+• Daños ocasionados por descargas eléctricas, picos de voltaje, fallas de suministro de CFE o UPS.
+• Daños por humedad, polvo, manipulación indebida o condiciones ambientales inadecuadas.
+• Intervenciones o modificaciones realizadas por personal ajeno a OMM.
+• Fallas en software, firmware o licencias caducadas que dependan de terceros.
+• Daños indirectos, pérdida de datos, lucro cesante o interrupción de actividades derivadas de fallas o retrasos.
+
+<b>4. Refacciones y materiales</b>
+La póliza no incluye refacciones, materiales ni equipos de reemplazo.
+Cualquier componente que deba sustituirse será cotizado por separado y requerirá autorización previa del cliente.
+OMM puede ofrecer, de forma opcional, servicio de "gestión de refacciones" o "stock crítico en consignación" bajo un acuerdo adicional, con costos definidos según disponibilidad y tipo de equipo.
+
+<b>5. Atención a fallas y tiempos de respuesta</b>
+Los tiempos de atención y servicio se regirán por el nivel de servicio (SLA) contratado.
+Atención remota: según nivel (Bronce 48 h, Plata 36 h, Oro 24 h, Platino 12 h).
+Atención on-site: conforme a las condiciones acordadas y a la disponibilidad de acceso al sitio.
+Los tiempos de diagnóstico o reparación de equipos en garantía dependen del fabricante, y no pueden ser comprometidos por OMM.
+
+<b>6. Condiciones del sitio y acceso</b>
+El cliente deberá:
+• Garantizar el acceso oportuno y seguro a las instalaciones en las fechas acordadas.
+• Contar con energía eléctrica estable y condiciones adecuadas para el trabajo técnico.
+• Avisar de cualquier modificación de infraestructura que pudiera afectar los sistemas.
+Los retrasos causados por falta de acceso, permisos o condiciones no aptas no se considerarán incumplimiento por parte de OMM.
+
+<b>7. Viáticos y traslados</b>
+Los servicios dentro del área metropolitana están incluidos. Para sitios foráneos, se aplicarán viáticos y gastos de traslado adicionales, de acuerdo con los valores definidos en la póliza. El cliente podrá autorizar por escrito cada desplazamiento o visita extraordinaria.
+
+<b>8. Pagos y servicios adicionales</b>
+El costo de la póliza será el indicado en la propuesta comercial, y podrá pagarse mensualmente, trimestralmente o anualmente.
+Cualquier servicio no contemplado en la póliza será cotizado por separado.
+Los pagos deberán realizarse conforme a las condiciones establecidas en la factura correspondiente.
+
+<b>9. Terminación anticipada</b>
+La póliza podrá darse por terminada:
+• Por incumplimiento de pago del cliente.
+• Por incumplimiento reiterado de las obligaciones de cualquiera de las partes.
+• Por mutuo acuerdo, con aviso escrito de al menos 30 días naturales.
+
+<b>10. Limitación de responsabilidad</b>
+OMM Technologies se compromete a ejecutar los trabajos con personal calificado y conforme a normas técnicas vigentes (NOM, NEC, NFPA u otras aplicables).
+Sin embargo, la empresa no garantiza la continuidad o funcionamiento ininterrumpido de los sistemas electrónicos, ya que esto depende de múltiples factores externos (red eléctrica, red de datos, uso diario, otros proveedores, etc.).
+La responsabilidad máxima de OMM por cualquier reclamación derivada de esta póliza no excederá el monto total pagado por la póliza en curso.`
 
 function buildProposalHtml(d: any): string {
   const { property, planes, calc, sel, selCalc, paymentPlan, valorNum, foranea, factores } = d
