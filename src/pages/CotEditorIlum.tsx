@@ -783,6 +783,12 @@ export default function CotEditorIlum({ cotId, onBack, onSwitchVersion }: { cotI
   const [bulkMarginInput, setBulkMarginInput] = useState('')
   const [showEditInfo, setShowEditInfo] = useState(false)
 
+  // Oculta el bot flotante mientras el editor está abierto (estorba sobre la tabla/totales)
+  useEffect(() => {
+    document.body.classList.add('hide-chatbot')
+    return () => document.body.classList.remove('hide-chatbot')
+  }, [])
+
   // Load quotation, subsections, and products
   useEffect(() => {
     async function load() {

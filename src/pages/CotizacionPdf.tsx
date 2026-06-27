@@ -231,15 +231,27 @@ function CotizacionPdfInner() {
         setCot(cotData as QuotationFull)
         setAreas((areasData || []) as AreaRow[])
         // Supabase returns numeric columns as strings — convert explicitly
-        setItems((itemsData || []).map((it: any) => ({
-          ...it,
-          quantity: Number(it.quantity) || 0,
-          cost: Number(it.cost) || 0,
-          markup: Number(it.markup) || 0,
-          price: Number(it.price) || 0,
-          total: Number(it.total) || 0,
-          installation_cost: Number(it.installation_cost) || 0,
-        })) as ItemRow[])
+        setItems((itemsData || []).map((it: any) => {
+          const price = Number(it.price) || 0
+          const total = Number(it.total) || 0
+          let quantity = Number(it.quantity) || 0
+          // Reconciliación: el TOTAL guardado es la verdad. En cotizaciones viejas/importadas la
+          // cantidad quedó en 1 pero el total tiene el monto real → derivamos cantidad = total / precio
+          // para que cantidad × precio = total (el PDF muestra el monto correcto, no subvaluado).
+          if (price > 0 && total > 0 && Math.abs(total - price * quantity) > 0.01) {
+            const q = Math.round(total / price)
+            if (q > 0) quantity = q
+          }
+          return {
+            ...it,
+            quantity,
+            cost: Number(it.cost) || 0,
+            markup: Number(it.markup) || 0,
+            price,
+            total,
+            installation_cost: Number(it.installation_cost) || 0,
+          }
+        }) as ItemRow[])
 
         // Cargar lead + arquitecto
         try {

@@ -135,7 +135,9 @@ const ChatBot: React.FC = () => {
   const panelBottom = isMobile ? '0' : '80px';
 
   return (
-    <div style={{ position: 'fixed', zIndex: 1000 }}>
+    <div className="omm-chatbot" style={{ position: 'fixed', zIndex: 1000 }}>
+      {/* Oculta el bot cuando un editor de cotización está abierto (estorba sobre la tabla) */}
+      <style>{`body.hide-chatbot .omm-chatbot{display:none!important}`}</style>
       {/* Floating Bubble */}
       {!open && (
         <button

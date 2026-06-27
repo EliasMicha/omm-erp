@@ -940,6 +940,12 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
     ivaRate: 16, descuento: 0, materialPct: 25, nominaPct: 40
   })
 
+  // Oculta el bot flotante mientras el editor está abierto (estorba sobre la tabla/totales)
+  useEffect(() => {
+    document.body.classList.add('hide-chatbot')
+    return () => document.body.classList.remove('hide-chatbot')
+  }, [])
+
   useEffect(() => {
     async function load() {
       const [{ data: c },{ data: as_ },{ data: it },{ data: cat },{ data: sups }] = await Promise.all([
@@ -949,7 +955,21 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
         supabase.from('catalog_products').select('*').eq('is_active',true).order('name'),
         supabase.from('suppliers').select('id,name').eq('is_active',true).order('name'),
       ])
-      setCot(c); setAreas(as_||[]); setItems(it||[]); setCatalog(cat||[]); setSuppliers(sups||[])
+      // Reconciliación no destructiva: en cotizaciones viejas/importadas la CANTIDAD quedó en 1
+      // pero el TOTAL guarda el monto real. El total es la verdad, así que derivamos la cantidad
+      // real = total / precio para que cantidad × precio = total (editor y PDF muestran el monto correcto).
+      // No escribe a BD; solo se persiste si el usuario edita ese renglón.
+      const itemsRec = (it || []).map((r: any) => {
+        const price = Number(r.price) || 0
+        const total = Number(r.total) || 0
+        const qty = Number(r.quantity) || 0
+        if (price > 0 && total > 0 && Math.abs(total - price * qty) > 0.01) {
+          const q = Math.round(total / price)
+          if (q > 0) return { ...r, quantity: q }
+        }
+        return r
+      })
+      setCot(c); setAreas(as_||[]); setItems(itemsRec); setCatalog(cat||[]); setSuppliers(sups||[])
       if (as_ && as_.length > 0) setAreaActiva(as_[0].id)
       // Cargar config (IVA, descuento, material%, nómina%) desde notes JSON
       try {
