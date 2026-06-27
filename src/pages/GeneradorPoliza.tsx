@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
 import { supabase } from '../lib/supabase'
-import { X, FileText, Check, Loader2 } from 'lucide-react'
+import { X, FileText, Check, Loader2, Plus } from 'lucide-react'
 import { OMNIIOUS_LOGO } from '../assets/logo'
 
 // Datos OMM compartidos con el PDF oficial de cotizaciones (localStorage 'omm_pdf_header')
@@ -88,6 +88,7 @@ export default function GeneradorPoliza({ properties, onClose, onCreated }: {
   // Selección
   const [selected, setSelected] = useState('oro')
   const [paymentPlan, setPaymentPlan] = useState('Anual')
+  const [extras, setExtras] = useState<{ id: string; desc: string; qty: string; precio: string }[]>([])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
@@ -119,6 +120,18 @@ export default function GeneradorPoliza({ properties, onClose, onCreated }: {
   const selCalc = calc(sel)
   const selProp = properties.find(p => p.id === propertyId)
 
+  // Extras (productos / servicios adicionales) — suman al total de la póliza
+  const extrasTotal = extras.reduce((s, e) => s + (parseFloat(e.qty) || 0) * (parseFloat(e.precio) || 0), 0)
+  const finalAnualSinIva = selCalc.totalAnual + extrasTotal
+  const finalIva = finalAnualSinIva * 0.16
+  const finalTotalConIva = finalAnualSinIva + finalIva
+  const finalMensual12 = finalTotalConIva / 12
+  const addExtra = () => setExtras(x => [...x, { id: Math.random().toString(36).slice(2), desc: '', qty: '1', precio: '' }])
+  const updateExtra = (id: string, f: 'desc' | 'qty' | 'precio', v: string) => setExtras(x => x.map(e => e.id === id ? { ...e, [f]: v } : e))
+  const removeExtra = (id: string) => setExtras(x => x.filter(e => e.id !== id))
+  const extrasClean = () => extras.filter(e => e.desc.trim() || (parseFloat(e.precio) || 0) > 0)
+    .map(e => ({ desc: e.desc.trim(), qty: parseFloat(e.qty) || 0, precio: parseFloat(e.precio) || 0, subtotal: (parseFloat(e.qty) || 0) * (parseFloat(e.precio) || 0) }))
+
   function updatePlan(key: string, field: 'preventivas' | 'emergencias' | 'basePct', value: number) {
     setPlanes(ps => ps.map(p => p.key === key ? { ...p, [field]: value } : p))
   }
@@ -131,7 +144,9 @@ export default function GeneradorPoliza({ properties, onClose, onCreated }: {
       factores: { tipo: fTipo, sistemas: fSistemas, antiguedad: fAntiguedad, volumen: fVolumen, otros_pct: (parseFloat(fOtros) || 0) / 100, adj_pct: adjPct },
       plan: { tier: sel.key, base_pct: sel.basePct, final_pct: selCalc.finalPct, annual: selCalc.annual, monthly: selCalc.monthly,
         preventivas: sel.preventivas, emergencias: sel.emergencias, viaticos_por_visita: viaticoPorVisita,
-        viaticos_anual: selCalc.viaticosAnual, total_anual: selCalc.totalAnual, iva: selCalc.iva, total_con_iva: selCalc.totalConIva, mensual_12: selCalc.mensual12 },
+        viaticos_anual: selCalc.viaticosAnual, poliza_anual: selCalc.totalAnual,
+        extras: extrasClean(), extras_total: extrasTotal,
+        total_anual: finalAnualSinIva, iva: finalIva, total_con_iva: finalTotalConIva, mensual_12: finalMensual12 },
       payment_plan: paymentPlan,
     }
   }
@@ -166,7 +181,7 @@ export default function GeneradorPoliza({ properties, onClose, onCreated }: {
       pricing_snapshot: buildSnapshot(),
       service_levels: buildServiceLevels(sel),
       is_active: true,
-      notes: `Generada con calculadora de pólizas. Ajustes ${pct(adjPct)}.`,
+      notes: `Generada con calculadora de pólizas. Ajustes ${pct(adjPct)}.` + (extrasTotal > 0 ? ` Extras: ${fmt(extrasTotal)} (${extrasClean().map(e => `${e.qty}× ${e.desc}`).join('; ')}).` : ''),
     })
     setSaving(false)
     if (err) { setError(err.message); return }
@@ -178,6 +193,7 @@ export default function GeneradorPoliza({ properties, onClose, onCreated }: {
       property: selProp, planes, calc, sel, selCalc, paymentPlan, valorNum,
       foranea, viaticoPorVisita, visitaSuelta: parseFloat(visitaSuelta) || 0, adjPct,
       factores: { fTipo, fSistemas, fAntiguedad, fVolumen },
+      extras: extrasClean(), extrasTotal, finalAnualSinIva, finalIva, finalTotalConIva, finalMensual12,
     })
     const w = window.open('', '_blank')
     if (w) { w.document.write(html); w.document.close() }
@@ -283,6 +299,28 @@ export default function GeneradorPoliza({ properties, onClose, onCreated }: {
             </div>
           </Section>
 
+          {/* Extras */}
+          <Section title="Extras (productos / servicios adicionales)">
+            {extras.length === 0 && (
+              <div style={{ fontSize: 12, color: '#666', marginBottom: 10 }}>
+                Sin extras. Agrega productos, equipo o servicios que sumen al total de la póliza (ej. UPS, refacciones, visita adicional).
+              </div>
+            )}
+            {extras.map(e => (
+              <div key={e.id} style={{ display: 'grid', gridTemplateColumns: '1fr 70px 120px 110px 30px', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+                <input value={e.desc} onChange={ev => updateExtra(e.id, 'desc', ev.target.value)} placeholder="Concepto (ej. UPS 1kVA / refacción / visita extra)" style={inp} />
+                <input value={e.qty} onChange={ev => updateExtra(e.id, 'qty', ev.target.value)} type="number" placeholder="Cant." style={inp} />
+                <input value={e.precio} onChange={ev => updateExtra(e.id, 'precio', ev.target.value)} type="number" placeholder="Precio unit." style={inp} />
+                <div style={{ fontSize: 12, color: '#10B981', textAlign: 'right', fontWeight: 600 }}>{fmt((parseFloat(e.qty) || 0) * (parseFloat(e.precio) || 0))}</div>
+                <button onClick={() => removeExtra(e.id)} style={iconBtn} title="Quitar extra"><X size={14} /></button>
+              </div>
+            ))}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
+              <button onClick={addExtra} style={btnGhost}><Plus size={14} /> Agregar extra</button>
+              {extrasTotal > 0 && <div style={{ fontSize: 12, color: '#ccc' }}>Subtotal extras: <b style={{ color: '#10B981' }}>{fmt(extrasTotal)}</b></div>}
+            </div>
+          </Section>
+
           {/* Selección */}
           <Section title="Plan seleccionado">
             <div style={grid3}>
@@ -298,10 +336,12 @@ export default function GeneradorPoliza({ properties, onClose, onCreated }: {
               </Lbl>
             </div>
             <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginTop: 8 }}>
-              <Stat label="Costo anual" value={fmt(selCalc.totalAnual)} />
-              <Stat label="IVA 16%" value={fmt(selCalc.iva)} />
-              <Stat label="Total con IVA" value={fmt(selCalc.totalConIva)} color={TIER_COLOR[sel.key]} />
-              <Stat label="Mensual (12 pagos)" value={fmt(selCalc.mensual12)} />
+              {extrasTotal > 0 && <Stat label="Póliza (s/extras)" value={fmt(selCalc.totalAnual)} />}
+              {extrasTotal > 0 && <Stat label="Extras" value={fmt(extrasTotal)} />}
+              <Stat label="Costo anual" value={fmt(finalAnualSinIva)} />
+              <Stat label="IVA 16%" value={fmt(finalIva)} />
+              <Stat label="Total con IVA" value={fmt(finalTotalConIva)} color={TIER_COLOR[sel.key]} />
+              <Stat label="Mensual (12 pagos)" value={fmt(finalMensual12)} />
               <Stat label="Visitas/año" value={`${sel.preventivas} prev · ${sel.emergencias} bomb.`} />
             </div>
           </Section>
@@ -463,14 +503,31 @@ function buildProposalHtml(d: any): string {
     </table>
   </div>
 
+  ${(d.extras && d.extras.length > 0) ? `
+  <div class="sec">
+    <h2>Extras (productos / servicios adicionales)</h2>
+    <table style="width:100%;border-collapse:collapse">
+      <thead><tr>
+        <th style="text-align:left;font-size:9px;color:#888;text-transform:uppercase;padding:4px 6px;border-bottom:1px solid #ddd">Concepto</th>
+        <th style="text-align:right;font-size:9px;color:#888;text-transform:uppercase;padding:4px 6px;border-bottom:1px solid #ddd">Cant.</th>
+        <th style="text-align:right;font-size:9px;color:#888;text-transform:uppercase;padding:4px 6px;border-bottom:1px solid #ddd">P. Unit.</th>
+        <th style="text-align:right;font-size:9px;color:#888;text-transform:uppercase;padding:4px 6px;border-bottom:1px solid #ddd">Importe</th>
+      </tr></thead>
+      <tbody>
+        ${d.extras.map((e: any) => `<tr><td style="padding:4px 6px;border-bottom:1px solid #f0f0f0">${escP(e.desc)}</td><td style="text-align:right;padding:4px 6px;border-bottom:1px solid #f0f0f0">${e.qty}</td><td style="text-align:right;padding:4px 6px;border-bottom:1px solid #f0f0f0">${fmtL(e.precio)}</td><td style="text-align:right;padding:4px 6px;border-bottom:1px solid #f0f0f0;font-weight:600">${fmtL(e.subtotal)}</td></tr>`).join('')}
+      </tbody>
+    </table>
+  </div>` : ''}
+
   <div class="sec">
     <h2>Plan seleccionado: ${escP(sel.label)}</h2>
     <table class="totals"><tbody>
       <tr><td class="k">Plan de pago</td><td>${escP(paymentPlan)}</td></tr>
-      <tr><td class="k">Costo anual (s/IVA)</td><td>${fmtL(selCalc.totalAnual)}</td></tr>
-      <tr><td class="k">IVA 16%</td><td>${fmtL(selCalc.iva)}</td></tr>
-      <tr class="total"><td class="k">Total con IVA</td><td>${fmtL(selCalc.totalConIva)}</td></tr>
-      <tr><td class="k">Plan mensual (12 pagos)</td><td>${fmtL(selCalc.mensual12)}</td></tr>
+      ${(d.extras && d.extras.length > 0) ? `<tr><td class="k">Póliza anual (s/IVA)</td><td>${fmtL(selCalc.totalAnual)}</td></tr><tr><td class="k">Extras (s/IVA)</td><td>${fmtL(d.extrasTotal)}</td></tr>` : ''}
+      <tr><td class="k">Costo anual (s/IVA)</td><td>${fmtL(d.finalAnualSinIva ?? selCalc.totalAnual)}</td></tr>
+      <tr><td class="k">IVA 16%</td><td>${fmtL(d.finalIva ?? selCalc.iva)}</td></tr>
+      <tr class="total"><td class="k">Total con IVA</td><td>${fmtL(d.finalTotalConIva ?? selCalc.totalConIva)}</td></tr>
+      <tr><td class="k">Plan mensual (12 pagos)</td><td>${fmtL(d.finalMensual12 ?? selCalc.mensual12)}</td></tr>
     </tbody></table>
   </div>
 
