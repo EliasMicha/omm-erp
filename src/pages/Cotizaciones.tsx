@@ -1289,8 +1289,12 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
   }
 
   // Sync quotation total to DB whenever items change
+  // Total de línea SIEMPRE derivado: precio × cantidad (no confiar en el campo `total` guardado,
+  // que en cotizaciones viejas/importadas puede estar desfasado).
+  const lineTot = (i: QuotationItem) => Math.round((Number(i.price) || 0) * (Number(i.quantity) || 0) * 100) / 100
+
   async function syncQuotationTotal(updatedItems: QuotationItem[]) {
-    const newTotal = updatedItems.reduce((s, i) => s + i.total, 0)
+    const newTotal = updatedItems.reduce((s, i) => s + lineTot(i), 0)
     await supabase.from('quotations').update({ total: newTotal }).eq('id', cotId)
     setCot(c => c ? { ...c, total: newTotal } : c)
   }
@@ -1869,8 +1873,8 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
   if (loading||!cot) return <Loading/>
 
   const areaItems = items.filter(i => i.area_id === areaActiva)
-  const areaTotal = areaItems.reduce((s,i) => s+i.total, 0)
-  const cotTotal = items.reduce((s,i) => s+i.total, 0)
+  const areaTotal = areaItems.reduce((s,i) => s+lineTot(i), 0)
+  const cotTotal = items.reduce((s,i) => s+lineTot(i), 0)
   const areaObj = areas.find(a => a.id === areaActiva)
   const esp = SPECIALTY_CONFIG[cot.specialty]
   const isIlum = cot.specialty === 'ilum'
@@ -1879,7 +1883,7 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
   const matchArticulo = (i: QuotationItem) =>
     !fq || `${i.name||''} ${(i as any).marca||''} ${(i as any).modelo||''} ${i.system||''} ${i.provider||''} ${(i as any).sku||''}`.toLowerCase().includes(fq)
   const displayItems = isIlum ? items : (filtering ? items.filter(matchArticulo) : areaItems)
-  const displayTotal = isIlum ? cotTotal : (filtering ? displayItems.reduce((s,i)=>s+i.total,0) : areaTotal)
+  const displayTotal = isIlum ? cotTotal : (filtering ? displayItems.reduce((s,i)=>s+lineTot(i),0) : areaTotal)
   const areaNameOf = (aid: string|null) => areas.find(a => a.id === aid)?.name || '—'
   const proj = cot.project as any
 
@@ -2031,7 +2035,7 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
             <span style={{fontSize:10,color:'#444',flexShrink:0}}>{F(cotTotal)}</span>
           </div>
           {areas.map(a => {
-            const tot = items.filter(i=>i.area_id===a.id).reduce((s,i)=>s+i.total,0)
+            const tot = items.filter(i=>i.area_id===a.id).reduce((s,i)=>s+lineTot(i),0)
             const active = !verTodo && a.id === areaActiva
             return (
               <div key={a.id} onClick={()=>{ setVerTodo(false); setAreaActiva(a.id) }} style={{
@@ -2149,7 +2153,7 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
                         onBlur={e=>updateItem(item.id,'price',parseFloat(e.target.value)||0)}
                         style={{width:104,textAlign:'right',background:'#10221a',border:'1px solid #1f3a2a',borderRadius:6,padding:'5px 6px',color:'#10B981',fontWeight:600,fontSize:12,fontFamily:'inherit'}}/>
                     </td>
-                    <td style={{padding:'7px 8px',fontSize:12,textAlign:'right',fontWeight:600,color:'#fff',borderBottom:'1px solid #1a1a1a'}}>{F(item.total)}</td>
+                    <td style={{padding:'7px 8px',fontSize:12,textAlign:'right',fontWeight:600,color:'#fff',borderBottom:'1px solid #1a1a1a'}}>{F(lineTot(item))}</td>
                     <td style={{padding:'4px 8px',borderBottom:'1px solid #1a1a1a',whiteSpace:'nowrap'}}>
                       <div style={{display:'flex',alignItems:'center',gap:2}}>
                         <button onClick={()=>setEditItem(item)} title="Editar producto" style={{background:'none',border:'none',color:'#9ca3af',cursor:'pointer',padding:6,borderRadius:6,display:'inline-flex'}} onMouseEnter={e=>{e.currentTarget.style.background='#222';e.currentTarget.style.color='#fff'}} onMouseLeave={e=>{e.currentTarget.style.background='none';e.currentTarget.style.color='#9ca3af'}}><Pencil size={17}/></button>
