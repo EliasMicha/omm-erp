@@ -183,8 +183,8 @@ export default function GeneradorPoliza({ properties, onClose, onCreated, editCo
       property_id: propertyId,
       name: `Póliza ${sel.label} — ${selProp?.name || ''}`.trim(),
       contract_type: 'poliza',
-      monthly_fee: selCalc.monthly,
-      annual_fee: selCalc.annual,
+      monthly_fee: selCalc.totalAnual / 12,
+      annual_fee: selCalc.totalAnual,
       currency: 'MXN',
       plan_tier: sel.key,
       preventive_visits_included: sel.preventivas,
@@ -299,8 +299,9 @@ export default function GeneradorPoliza({ properties, onClose, onCreated, editCo
                 </thead>
                 <tbody>
                   <Row label="% final ajustado" cells={planes.map(p => pct(calc(p).finalPct))} sel={selected} planes={planes} />
-                  <Row label="Costo anual" cells={planes.map(p => fmt(calc(p).annual))} sel={selected} planes={planes} strong />
-                  <Row label="Costo mensual" cells={planes.map(p => fmt(calc(p).monthly))} sel={selected} planes={planes} />
+                  <Row label="Cuota anual base (s/viáticos)" cells={planes.map(p => fmt(calc(p).annual))} sel={selected} planes={planes} />
+                  <Row label="Costo anual (s/IVA)" cells={planes.map(p => fmt(calc(p).totalAnual))} sel={selected} planes={planes} strong />
+                  <Row label="Costo mensual" cells={planes.map(p => fmt(calc(p).totalAnual / 12))} sel={selected} planes={planes} />
                   <tr>
                     <td style={tdLeft}>Visitas preventivas/año</td>
                     {planes.map(p => (
@@ -322,7 +323,6 @@ export default function GeneradorPoliza({ properties, onClose, onCreated, editCo
                   <Row label="Reportes técnicos" cells={planes.map(p => p.reportes)} sel={selected} planes={planes} />
                   <Row label="Cobertura horaria" cells={planes.map(p => p.cobertura)} sel={selected} planes={planes} />
                   {foranea && <Row label="Viáticos anuales est." cells={planes.map(p => fmt(calc(p).viaticosAnual))} sel={selected} planes={planes} />}
-                  <Row label="Total anual (s/IVA)" cells={planes.map(p => fmt(calc(p).totalAnual))} sel={selected} planes={planes} strong />
                 </tbody>
               </table>
             </div>
@@ -527,7 +527,7 @@ function buildProposalHtml(d: any): string {
         ${rowF('Cobertura horaria', planes.map((p: PlanDef) => p.cobertura))}
         ${rowF('% final ajustado', planes.map((p: PlanDef) => pctL(calc(p).finalPct)))}
         ${rowF('Costo anual (s/IVA)', planes.map((p: PlanDef) => fmtL(calc(p).totalAnual)))}
-        ${rowF('Costo mensual', planes.map((p: PlanDef) => fmtL(calc(p).monthly)))}
+        ${rowF('Costo mensual', planes.map((p: PlanDef) => fmtL(calc(p).totalAnual / 12)))}
       </tbody>
     </table>
   </div>
