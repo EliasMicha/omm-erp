@@ -5,7 +5,7 @@ import { Quotation, QuotationArea, QuotationItem, CatalogProduct, Project, Proje
 import { F, FCUR, SPECIALTY_CONFIG, STAGE_CONFIG, PHASE_CONFIG, calcItemPrice, calcItemTotal } from '../lib/utils'
 import { Badge, Btn, Table, Th, Td, Loading, SectionHeader, EmptyState } from '../components/layout/UI'
 import { useIsMobile } from '../lib/useIsMobile'
-import { Plus, ChevronLeft, X, Zap, Loader2, Search, Trash2, Upload, RefreshCw, FileText, GitBranch, BarChart3, Pencil, ArrowLeftRight } from 'lucide-react'
+import { Plus, ChevronLeft, X, Zap, Loader2, Search, Trash2, Upload, RefreshCw, FileText, GitBranch, BarChart3, Pencil, ArrowLeftRight, Copy } from 'lucide-react'
 import EditCotInfoModal from '../components/EditCotInfoModal'
 import PaymentPlanModal from '../components/PaymentPlanModal'
 import CotEditorESP from './CotEditorESP'
@@ -1138,6 +1138,43 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
     syncQuotationTotal(newItems)
   }
 
+  async function renameArea(areaId: string) {
+    const area = areas.find(a => a.id === areaId)
+    const nombre = prompt('Nuevo nombre del área:', area?.name || '')
+    if (nombre == null) return
+    const limpio = nombre.trim()
+    if (!limpio || limpio === area?.name) return
+    const { error } = await supabase.from('quotation_areas').update({ name: limpio }).eq('id', areaId)
+    if (error) { alert('Error al renombrar: ' + error.message); return }
+    setAreas(prev => prev.map(a => a.id === areaId ? { ...a, name: limpio } : a))
+  }
+
+  async function duplicateArea(areaId: string) {
+    const area = areas.find(a => a.id === areaId)
+    if (!area) return
+    const { data: newArea, error } = await supabase.from('quotation_areas')
+      .insert({ quotation_id: cotId, name: `${area.name} (copia)`, order_index: areas.length })
+      .select().single()
+    if (error || !newArea) { alert('Error al duplicar área: ' + (error?.message || '')); return }
+    const srcItems = items.filter(i => i.area_id === areaId)
+    let insertedItems: QuotationItem[] = []
+    if (srcItems.length > 0) {
+      const rows = srcItems.map((s, i) => {
+        const { id: _id, created_at: _ca, bundle_id: _b, bundle_instance_id: _bi, ...rest } = s as any
+        return { ...rest, quotation_id: cotId, area_id: newArea.id, order_index: i }
+      })
+      const { data, error: e2 } = await supabase.from('quotation_items').insert(rows as any[]).select()
+      if (e2) { alert('Error al copiar productos: ' + e2.message) }
+      insertedItems = (data as QuotationItem[]) || []
+    }
+    const newItems = [...items, ...insertedItems]
+    setAreas(prev => [...prev, newArea])
+    setItems(newItems)
+    setVerTodo(false)
+    setAreaActiva(newArea.id)
+    syncQuotationTotal(newItems)
+  }
+
   async function aiSearchNewProd() {
     const marca = newProd.marca || ''
     const modelo = newProd.modelo || ''
@@ -2059,14 +2096,16 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
             const active = !verTodo && a.id === areaActiva
             return (
               <div key={a.id} onClick={()=>{ setVerTodo(false); setAreaActiva(a.id) }} style={{
-                display:'flex',alignItems:'center',gap:6,padding:'7px 10px',cursor:'pointer',
+                display:'flex',alignItems:'center',gap:4,padding:'7px 10px',cursor:'pointer',
                 borderLeft:`2px solid ${active?esp.color:'transparent'}`,
                 background:active?esp.color+'11':'transparent',
                 fontSize:11,color:active?'#fff':'#666',fontWeight:active?600:400,
               }}>
-                <span style={{flex:1,minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{a.name}</span>
+                <span style={{flex:1,minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}} onDoubleClick={e=>{ e.stopPropagation(); renameArea(a.id) }} title="Doble clic para renombrar">{a.name}</span>
                 <span style={{fontSize:10,color:'#444',flexShrink:0}}>{F(tot)}</span>
-                <button onClick={e=>{ e.stopPropagation(); removeArea(a.id) }} title="Eliminar área" style={{background:'none',border:'none',color:'#555',cursor:'pointer',padding:'0 2px',fontSize:14,lineHeight:1,flexShrink:0}}>×</button>
+                <button onClick={e=>{ e.stopPropagation(); renameArea(a.id) }} title="Renombrar área" style={{background:'none',border:'none',color:'#666',cursor:'pointer',padding:'2px',display:'inline-flex',flexShrink:0}}><Pencil size={11}/></button>
+                <button onClick={e=>{ e.stopPropagation(); duplicateArea(a.id) }} title="Duplicar área con sus productos" style={{background:'none',border:'none',color:'#666',cursor:'pointer',padding:'2px',display:'inline-flex',flexShrink:0}}><Copy size={11}/></button>
+                <button onClick={e=>{ e.stopPropagation(); removeArea(a.id) }} title="Eliminar área" style={{background:'none',border:'none',color:'#666',cursor:'pointer',padding:'2px',display:'inline-flex',flexShrink:0}}><Trash2 size={11}/></button>
               </div>
             )
           })}
