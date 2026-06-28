@@ -366,10 +366,8 @@ export default function LeadDashboard() {
         let amount: number
         if (proj && proj.contract_value) {
           amount = proj.contract_value
-        } else if (q.specialty === 'esp' || q.specialty === 'cort' || q.specialty === 'ilum' || q.specialty === 'proy') {
-          amount = q.total || 0
         } else {
-          amount = (q.total || 0) * 1.16
+          amount = quoteFinalConIva(q)
         }
         doc.text((q.name || '—').substring(0, 40), 18, y)
         doc.text((q.specialty || '—').toUpperCase(), 90, y)
@@ -453,6 +451,14 @@ export default function LeadDashboard() {
   // ESP editor now stores total WITH IVA+descuento already applied — use directly
   const getEspTotal = (q: any): number => Number(q.total) || 0
 
+  // Monto final con descuento + IVA. Fuente canónica: total_final (lo escriben TODOS los editores).
+  // Fallback por especialidad para cotizaciones aún no re-guardadas.
+  const quoteFinalConIva = (q: any): number => {
+    if (typeof q.total_final === 'number' && !isNaN(q.total_final)) return Number(q.total_final)
+    if (q.specialty === 'esp' || q.specialty === 'cort' || q.specialty === 'ilum' || q.specialty === 'proy') return Number(q.total) || 0
+    return (Number(q.total) || 0) * 1.16
+  }
+
   const toMXN = (amount: number, currency: string) =>
     currency === 'USD' ? amount * tipoCambio : amount
 
@@ -468,12 +474,8 @@ export default function LeadDashboard() {
       if (proj && proj.contract_value) {
         // Project contract value — use directly (already final)
         amount = proj.contract_value
-      } else if (q.specialty === 'esp' || q.specialty === 'cort' || q.specialty === 'ilum' || q.specialty === 'proy') {
-        // These all store total WITH IVA already
-        amount = q.total || 0
       } else {
-        // elec: raw subtotal, add IVA
-        amount = (q.total || 0) * 1.16
+        amount = quoteFinalConIva(q)
       }
       byCur[cur].vendido += amount
     })
@@ -515,11 +517,7 @@ export default function LeadDashboard() {
   }, [quotations, projects, bankMovements, paymentAllocations, pos, quotItems, tipoCambio])
 
   // Helper: compute quotation total with IVA for display
-  const getQuotTotalIva = (q: any): number => {
-    if (q.specialty === 'esp') return getEspTotal(q)
-    if (q.specialty === 'cort' || q.specialty === 'ilum' || q.specialty === 'proy') return Number(q.total) || 0
-    return (Number(q.total) || 0) * 1.16
-  }
+  const getQuotTotalIva = (q: any): number => quoteFinalConIva(q)
 
   // Consolidated quotation summary — separated by currency
   const quotSummaryByCur = useMemo(() => {
@@ -1397,7 +1395,7 @@ export default function LeadDashboard() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 {contratos.map(q => {
                   const cur = getQuotCurrency(q)
-                  const total = (Number(q.total) || 0) * 1.16
+                  const total = quoteFinalConIva(q)
                   return (
                     <button key={q.id}
                       onClick={() => { setSelectedQuotForPlan(q.id); setShowQuotPicker(false) }}
@@ -1428,7 +1426,7 @@ export default function LeadDashboard() {
         const q = quotations.find(qq => qq.id === selectedQuotForPlan)
         if (!q) return null
         const cur = getQuotCurrency(q)
-        const total = (Number(q.total) || 0) * 1.16
+        const total = quoteFinalConIva(q)
         // Buscar el proyecto vinculado a esta cotización (si hay)
         const linkedProj = projects.find(p => p.cotizacion_id === q.id)
         return (

@@ -443,7 +443,9 @@ Devuelve SOLO un JSON array válido sin markdown ni explicaciones:`
       const totalToSave = sp === 'elec'
         ? total
         : Math.round(total * 1.16 * 100) / 100
-      await supabase.from('quotations').update({ total: totalToSave }).eq('id', cotData.id)
+      // total_final = monto final con IVA (sin descuento en import) — fuente canónica para lista/CRM
+      const totalFinal = Math.round(total * 1.16 * 100) / 100
+      await supabase.from('quotations').update({ total: totalToSave, total_final: totalFinal }).eq('id', cotData.id)
 
       created.push({ id: cotData.id, specialty: sp, name: q.name })
     }

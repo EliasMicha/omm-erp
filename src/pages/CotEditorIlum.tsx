@@ -1128,7 +1128,7 @@ export default function CotEditorIlum({ cotId, onBack, onSwitchVersion }: { cotI
   // Sync total to quotation record
   useEffect(() => {
     if (!loading && grandTotal >= 0) {
-      supabase.from('quotations').update({ total: Math.round(grandTotal * 100) / 100 }).eq('id', cotId).then(() => {})
+      supabase.from('quotations').update({ total: Math.round(grandTotal * 100) / 100, total_final: Math.round(grandTotal * 100) / 100 }).eq('id', cotId).then(() => {})
     }
   }, [grandTotal, loading, cotId])
 

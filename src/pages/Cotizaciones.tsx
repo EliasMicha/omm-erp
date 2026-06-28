@@ -156,6 +156,9 @@ function CotDashboard({ onOpen, preferVersionId }: { onOpen: (id: string, specia
     try { const m = JSON.parse(c.notes || '{}'); return typeof m.descuento === 'number' ? m.descuento : 0 } catch { return 0 }
   }
   function getTotalConIva(c: any): number {
+    // Fuente canónica: total_final (con descuento + IVA) que escriben TODOS los editores.
+    if (typeof c.total_final === 'number' && !isNaN(c.total_final)) return c.total_final
+    // Fallback (cotizaciones aún no re-guardadas):
     // ESP, Cortinas, Ilum, and Proyecto editors all store total WITH IVA already
     if (c.specialty === 'esp' || c.specialty === 'cort' || c.specialty === 'ilum' || c.specialty === 'proy') return c.total || 0
     // elec (generic editor) stores raw item subtotal without IVA; aplicar descuento + IVA
@@ -1351,10 +1354,21 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
   const lineTot = (i: QuotationItem) => Math.round((Number(i.price) || 0) * (Number(i.quantity) || 0) * 100) / 100
 
   async function syncQuotationTotal(updatedItems: QuotationItem[]) {
-    const newTotal = updatedItems.reduce((s, i) => s + lineTot(i), 0)
-    await supabase.from('quotations').update({ total: newTotal }).eq('id', cotId)
-    setCot(c => c ? { ...c, total: newTotal } : c)
+    const sub = Math.round(updatedItems.reduce((s, i) => s + lineTot(i), 0) * 100) / 100
+    const desc = config.descuento || 0, iva = config.ivaRate || 0
+    // total_final = subtotal − descuento + IVA (el número final que ve el cliente, igual que la lista/CRM)
+    const finalTotal = Math.round(sub * (1 - desc / 100) * (1 + iva / 100) * 100) / 100
+    await supabase.from('quotations').update({ total: sub, total_final: finalTotal }).eq('id', cotId)
+    setCot(c => c ? { ...c, total: sub, total_final: finalTotal } : c)
   }
+
+  // Mantiene quotations.total / total_final SIEMPRE fresco (incluye al cargar y reconciliar),
+  // para que la lista y el CRM muestren el total final correcto sin tener que entrar y salir.
+  useEffect(() => {
+    if (loading || !cot) return
+    syncQuotationTotal(items)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items, config.descuento, config.ivaRate, loading])
 
   // Identifica "el mismo producto": por catalog_product_id, o por nombre si es manual
   function itemProductKey(i: QuotationItem): string {

@@ -380,7 +380,7 @@ export default function PlanAnalyzer({ onBack }: { onBack: () => void }) {
       // dashboard expects ESP totals to include IVA per contract — see Cotizaciones.tsx
       // getTotalConIva and commits 3bc54d3 / 7a7e3e3).
       const totalConIva = Math.round(totalGeneral * 1.16 * 100) / 100
-      await supabase.from('quotations').update({ total: totalConIva }).eq('id', quot.id)
+      await supabase.from('quotations').update({ total: totalConIva, total_final: totalConIva }).eq('id', quot.id)
 
       // Done — go back to cotizaciones
       onBack()

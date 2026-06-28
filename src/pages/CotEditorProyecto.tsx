@@ -1454,7 +1454,7 @@ export default function CotEditorProyecto({ cotId, onBack, specialty = 'proy', o
   useEffect(() => {
     if (!loading && cotId) {
       const rounded = Math.round(grandTotal * 100) / 100
-      supabase.from('quotations').update({ total: rounded }).eq('id', cotId)
+      supabase.from('quotations').update({ total: rounded, total_final: rounded }).eq('id', cotId)
         .then(({ error }) => { if (error) console.error('sync total error:', error); else console.log('synced total:', rounded) })
     }
   }, [grandTotal, loading, cotId])

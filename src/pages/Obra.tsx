@@ -3535,7 +3535,7 @@ function SubExtras({ obra }: { obra: ObraData }) {
       // 4. Update cotizacion total with IVA applied (adendums are ESP cotizaciones;
       // dashboard expects ESP totals to include IVA — commits 3bc54d3 / 7a7e3e3).
       const totalAdendumConIva = Math.round(totalAdendum * 1.16 * 100) / 100
-      await supabase.from('quotations').update({ total: totalAdendumConIva }).eq('id', cotizacionId)
+      await supabase.from('quotations').update({ total: totalAdendumConIva, total_final: totalAdendumConIva }).eq('id', cotizacionId)
 
       // 5. Refresh local state
       setExtras(prev => prev.map(e => selected.has(e.id) ? { ...e, status: 'cotizado', cotizacion_adendum_id: cotizacionId } : e))
