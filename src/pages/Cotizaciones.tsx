@@ -133,7 +133,15 @@ function CotDashboard({ onOpen, preferVersionId }: { onOpen: (id: string, specia
     setLoading(false)
   }
 
-  useEffect(() => { loadCots() }, [])
+  useEffect(() => {
+    loadCots()
+    // Segunda recarga tras un momento: captura el guardado async del editor recién cerrado
+    // (el editor guarda total/total_final en segundo plano; sin esto la lista mostraba el valor viejo).
+    const t = setTimeout(() => loadCots(), 1500)
+    const onFocus = () => loadCots()
+    window.addEventListener('focus', onFocus)
+    return () => { clearTimeout(t); window.removeEventListener('focus', onFocus) }
+  }, [])
   // Re-fetch cuando regresas del editor — preferVersionId cambia cada vez que
   // cierras un editor (close() guarda el openId que tenías). Esto evita que el
   // dashboard muestre totales stale después de que un editor los sincronizó.
