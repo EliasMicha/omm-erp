@@ -1187,6 +1187,35 @@ const FIELD_LABELS: Record<string, string> = {
   direccion_estado: 'Estado',
 }
 
+// Prompts de extracción por tipo de documento (igual que la edge function, pero ahora
+// se llaman vía el proxy /api/anthropic que ya tiene la API key buena de Vercel).
+const EXTRACT_PROMPTS: Record<string, string> = {
+  ine: `Extrae los datos de esta credencial INE mexicana. Devuelve SOLO JSON valido, sin markdown, con esta estructura exacta:
+{"nombre":"string (nombre completo en mayusculas como aparece)","fecha_nacimiento":"YYYY-MM-DD o null","genero":"Masculino | Femenino | null","curp":"string 18 caracteres o null","ine_numero":"string CIC/clave de elector o null","direccion_calle":"string o null","direccion_numero":"string o null","direccion_colonia":"string o null","direccion_cp":"string 5 digitos o null","direccion_ciudad":"string o null","direccion_estado":"string o null"}
+Si un campo no es legible o no aparece, usa null. No inventes datos.`,
+  constancia_situacion_fiscal: `Extrae los datos de esta Constancia de Situacion Fiscal mexicana (SAT). Devuelve SOLO JSON valido, sin markdown:
+{"nombre":"string (nombre completo)","rfc":"string 13 caracteres persona fisica o 12 moral","curp":"string 18 caracteres o null","fecha_nacimiento":"YYYY-MM-DD o null","direccion_calle":"string o null","direccion_numero":"string o null","direccion_colonia":"string o null","direccion_cp":"string 5 digitos o null","direccion_ciudad":"string o null","direccion_estado":"string o null"}
+Si un campo no aparece, null. No inventes.`,
+  curp: `Extrae los datos de este documento CURP mexicano. Devuelve SOLO JSON valido, sin markdown:
+{"nombre":"string (nombre completo)","curp":"string 18 caracteres","fecha_nacimiento":"YYYY-MM-DD o null","genero":"Masculino | Femenino | null"}
+Si un campo no aparece, null.`,
+  comprobante_domicilio: `Extrae la direccion de este comprobante de domicilio mexicano (recibo de luz CFE, agua, gas, telefono, etc). Devuelve SOLO JSON valido, sin markdown:
+{"direccion_calle":"string o null","direccion_numero":"string o null","direccion_colonia":"string o null","direccion_cp":"string 5 digitos o null","direccion_ciudad":"string o null","direccion_estado":"string o null"}
+Si un campo no aparece, null.`,
+  acta_nacimiento: `Extrae los datos de esta acta de nacimiento mexicana. Devuelve SOLO JSON valido, sin markdown:
+{"nombre":"string (nombre completo)","fecha_nacimiento":"YYYY-MM-DD","curp":"string 18 caracteres o null","genero":"Masculino | Femenino | null"}
+Si un campo no aparece, null.`,
+}
+
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader()
+    r.onload = () => resolve((r.result as string).split(',')[1] || '')
+    r.onerror = () => reject(new Error('No se pudo leer el archivo'))
+    r.readAsDataURL(file)
+  })
+}
+
 function AIExtractor({ employeeId, onExtracted }: {
   employeeId: string
   onExtracted: (fields: Record<string, any>) => void
@@ -1230,21 +1259,26 @@ function AIExtractor({ employeeId, onExtracted }: {
         notas: 'Subido para extracción con IA'
       })
 
-      // 3. Call Edge Function
+      // 3. Extraer con IA vía el proxy /api/anthropic (usa la API key de Vercel, ya actualizada)
       setStatus('extracting')
-      const { data: sessionData } = await supabase.auth.getSession()
-      const functionUrl = `${(supabase as any).supabaseUrl}/functions/v1/extract-identity`
-      const resp = await fetch(functionUrl, {
+      const prompt = EXTRACT_PROMPTS[docType]
+      if (!prompt) throw new Error('Tipo de documento no soportado: ' + docType)
+      const b64 = await fileToBase64(file)
+      const ext = (file.name.split('.').pop() || '').toLowerCase()
+      const mediaMap: Record<string, string> = { pdf: 'application/pdf', jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', heic: 'image/heic' }
+      const mediaType = mediaMap[ext] || file.type || 'image/jpeg'
+      const isPdf = mediaType === 'application/pdf'
+      const contentBlock = isPdf
+        ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: b64 } }
+        : { type: 'image', source: { type: 'base64', media_type: mediaType, data: b64 } }
+
+      const resp = await fetch('/api/anthropic', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${(supabase as any).supabaseKey}`,
-          'apikey': (supabase as any).supabaseKey,
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          employee_id: employeeId,
-          storage_path: path,
-          doc_type: docType,
+          model: 'claude-sonnet-4-6',
+          max_tokens: 1024,
+          messages: [{ role: 'user', content: [contentBlock, { type: 'text', text: prompt }] }],
         }),
       })
 
@@ -1254,9 +1288,12 @@ function AIExtractor({ employeeId, onExtracted }: {
       }
 
       const result = await resp.json()
-      if (result.error) throw new Error(result.error)
+      if (result.error) throw new Error(typeof result.error === 'string' ? result.error : (result.error.message || JSON.stringify(result.error)))
+      const textContent: string = result.content?.[0]?.text || ''
+      let parsed: Record<string, any> = {}
+      try { parsed = JSON.parse(textContent.replace(/```json\n?|\n?```/g, '').trim()) } catch { throw new Error('No se pudo interpretar la respuesta de la IA') }
 
-      setExtracted(result.extracted || {})
+      setExtracted(parsed)
       setStatus('done')
     } catch (e: any) {
       setErrorMsg(e.message || String(e))
