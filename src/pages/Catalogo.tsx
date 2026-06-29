@@ -245,11 +245,21 @@ IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
 
   useEffect(() => {
     const load = async () => {
-      const [{ data }, { data: sups }] = await Promise.all([
-        supabase.from('catalog_products').select('*').or('is_active.is.null,is_active.eq.true').order('name'),
-        supabase.from('suppliers').select('id,name').eq('is_active', true).order('name'),
-      ])
-      if (data) setProducts(data.map((p: any) => ({...p, cost: Number(p.cost)||0, markup: Number(p.markup)||35, precio_venta: Number(p.precio_venta)||0, iva_rate: Number(p.iva_rate)||0.16})))
+      // Paginado: Supabase devuelve máx 1000 por consulta; con +1000 productos hay que traer por lotes
+      const PAGE = 1000
+      let from = 0
+      let all: any[] = []
+      while (true) {
+        const { data, error } = await supabase.from('catalog_products').select('*')
+          .or('is_active.is.null,is_active.eq.true').order('name').range(from, from + PAGE - 1)
+        if (error) { console.error('[catalog] load error:', error); break }
+        if (!data || data.length === 0) break
+        all = all.concat(data)
+        if (data.length < PAGE) break
+        from += PAGE
+      }
+      setProducts(all.map((p: any) => ({...p, cost: Number(p.cost)||0, markup: Number(p.markup)||35, precio_venta: Number(p.precio_venta)||0, iva_rate: Number(p.iva_rate)||0.16})))
+      const { data: sups } = await supabase.from('suppliers').select('id,name').eq('is_active', true).order('name')
       if (sups) setSuppliers(sups)
     }
     load()
