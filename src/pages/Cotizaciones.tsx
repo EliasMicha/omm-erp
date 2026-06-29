@@ -164,16 +164,14 @@ function CotDashboard({ onOpen, preferVersionId }: { onOpen: (id: string, specia
     try { const m = JSON.parse(c.notes || '{}'); return typeof m.descuento === 'number' ? m.descuento : 0 } catch { return 0 }
   }
   function getTotalConIva(c: any): number {
-    // ESP/Cortinas/Ilum/Proyecto: el editor guarda `total` YA con descuento+IVA y lo auto-sincroniza
-    // (siempre fresco) — úsalo directo.
-    if (c.specialty === 'esp' || c.specialty === 'cort' || c.specialty === 'ilum' || c.specialty === 'proy') return c.total || 0
-    // elec: `total` es subtotal. Usa total_final (con desc+IVA, lo mantiene fresco el editor) si existe;
-    // si no, recalcula con descuento + IVA de notes.
+    // total_final = monto final (con descuento + IVA) que escriben TODOS los editores. Es el único
+    // campo confiable sin importar qué editor se haya usado. Fuente única de verdad.
     if (typeof c.total_final === 'number' && !isNaN(c.total_final)) return c.total_final
+    // Fallback solo para cotizaciones aún sin total_final:
+    if (c.specialty === 'esp' || c.specialty === 'cort' || c.specialty === 'ilum' || c.specialty === 'proy') return c.total || 0
     const iva = getIvaRate(c)
     const desc = getDescuento(c)
-    const subConDesc = (c.total || 0) * (1 - desc / 100)
-    return subConDesc * (1 + iva / 100)
+    return (c.total || 0) * (1 - desc / 100) * (1 + iva / 100)
   }
   function getLeadId(c: any): string {
     try { const m = JSON.parse(c.notes || '{}'); return m.lead_id || '' } catch { return '' }

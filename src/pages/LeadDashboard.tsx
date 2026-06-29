@@ -454,10 +454,9 @@ export default function LeadDashboard() {
   // Monto final con descuento + IVA. Fuente canónica: total_final (lo escriben TODOS los editores).
   // Fallback por especialidad para cotizaciones aún no re-guardadas.
   const quoteFinalConIva = (q: any): number => {
-    // ESP/Cort/Ilum/Proy guardan total YA con IVA (siempre fresco); úsalo directo.
-    if (q.specialty === 'esp' || q.specialty === 'cort' || q.specialty === 'ilum' || q.specialty === 'proy') return Number(q.total) || 0
-    // elec: total es subtotal → usa total_final (con desc+IVA) si existe, si no aplica 16%.
+    // total_final = monto final con descuento + IVA (lo escriben todos los editores). Fuente única.
     if (typeof q.total_final === 'number' && !isNaN(q.total_final)) return Number(q.total_final)
+    if (q.specialty === 'esp' || q.specialty === 'cort' || q.specialty === 'ilum' || q.specialty === 'proy') return Number(q.total) || 0
     return (Number(q.total) || 0) * 1.16
   }
 
