@@ -346,7 +346,29 @@ IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
       } else {
         const { data, error } = await supabase.from('catalog_products').insert(row).select().single()
         if (error) {
-          if (error.code === '23505') { alert('Ya existe un producto con el modelo "' + (form.modelo || '') + '". Cada modelo debe ser único.'); return }
+          if (error.code === '23505') {
+            // El modelo ya existe (quizá un producto borrado/oculto que sigue ocupando ese modelo único).
+            // Buscarlo y, si está inactivo, reactivarlo + actualizarlo con los datos nuevos.
+            const { data: existing } = await supabase.from('catalog_products')
+              .select('id, name, is_active').eq('modelo', form.modelo || '').limit(1).maybeSingle()
+            if (existing) {
+              if (existing.is_active === false) {
+                const { data: upd, error: updErr } = await supabase.from('catalog_products')
+                  .update({ ...row, is_active: true }).eq('id', existing.id).select().single()
+                if (updErr) { console.error('[catalog] reactivate error:', updErr); alert('Error al reactivar: ' + updErr.message); return }
+                if (upd) {
+                  setProducts(prev => [{...upd, cost:Number(upd.cost), markup:Number(upd.markup), precio_venta:Number(upd.precio_venta), iva_rate:Number(upd.iva_rate)} as Product, ...prev.filter(p => p.id !== upd.id)])
+                  const sp2 = (upd.specialty || 'esp') as 'esp'|'ilum'|'elec'|'proy'
+                  if (['esp','ilum','elec','proy'].includes(sp2)) setFilterSpecialty(sp2)
+                  setShowForm(false)
+                  alert('Ese modelo ya existía pero estaba borrado/oculto. Se reactivó y actualizó con tus datos.')
+                }
+                return
+              }
+              alert('Ya existe (y está activo) un producto con el modelo "' + (form.modelo || '') + '": ' + (existing.name || '') + '. Búscalo en el catálogo o edítalo.'); return
+            }
+            alert('Ya existe un producto con el modelo "' + (form.modelo || '') + '". Cada modelo debe ser único.'); return
+          }
           console.error('[catalog] insert error:', error); alert('Error al crear producto: ' + error.message); return
         }
         if (data) {
