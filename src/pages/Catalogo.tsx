@@ -246,7 +246,7 @@ IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
   useEffect(() => {
     const load = async () => {
       const [{ data }, { data: sups }] = await Promise.all([
-        supabase.from('catalog_products').select('*').order('name'),
+        supabase.from('catalog_products').select('*').or('is_active.is.null,is_active.eq.true').order('name'),
         supabase.from('suppliers').select('id,name').eq('is_active', true).order('name'),
       ])
       if (data) setProducts(data.map((p: any) => ({...p, cost: Number(p.cost)||0, markup: Number(p.markup)||35, precio_venta: Number(p.precio_venta)||0, iva_rate: Number(p.iva_rate)||0.16})))
@@ -256,6 +256,7 @@ IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
   }, [])
 
   const filtered = products.filter(p => {
+    if (p.is_active === false) return false   // ocultar productos borrados (soft delete)
     const matchSearch = !search || p.name?.toLowerCase().includes(search.toLowerCase()) || p.description?.toLowerCase().includes(search.toLowerCase()) || p.clave_prod_serv?.includes(search) || p.sku?.toLowerCase().includes(search.toLowerCase()) || p.modelo?.toLowerCase().includes(search.toLowerCase())
     const matchSystem = !filterSystem || p.system === filterSystem
     const matchSpecialty = (p.specialty || 'esp') === filterSpecialty
@@ -338,7 +339,12 @@ IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
           if (error.code === '23505') { alert('Ya existe un producto con el modelo "' + (form.modelo || '') + '". Cada modelo debe ser único.'); return }
           console.error('[catalog] insert error:', error); alert('Error al crear producto: ' + error.message); return
         }
-        if (data) setProducts([{...data, cost: Number(data.cost), markup: Number(data.markup), precio_venta: Number(data.precio_venta), iva_rate: Number(data.iva_rate)} as Product, ...products])
+        if (data) {
+          setProducts([{...data, cost: Number(data.cost), markup: Number(data.markup), precio_venta: Number(data.precio_venta), iva_rate: Number(data.iva_rate)} as Product, ...products])
+          // Cambia a la pestaña del producto recién creado para que sea visible (no "desaparezca")
+          const sp = (data.specialty || 'esp') as 'esp' | 'ilum' | 'elec' | 'proy'
+          if (['esp','ilum','elec','proy'].includes(sp)) setFilterSpecialty(sp)
+        }
       }
       setShowForm(false)
     } catch (err) {
