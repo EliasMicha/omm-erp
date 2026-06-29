@@ -936,11 +936,17 @@ function DocumentCard({ doc, onDelete }: { doc: EmployeeDocument; onDelete: () =
         </div>
       )}
       <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
-        {doc.url && (
-          <a href={doc.url} target="_blank" rel="noopener noreferrer"
-            style={{ flex: 1, textAlign: 'center', padding: '6px 10px', background: '#1a1a1a', borderRadius: 4, color: '#aaa', fontSize: 11, textDecoration: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
+        {doc.storage_path && (
+          <button onClick={async () => {
+            try {
+              const { data, error } = await supabase.storage.from('employee-documents').createSignedUrl(doc.storage_path, 3600)
+              if (error || !data?.signedUrl) { alert('No se pudo generar el enlace: ' + (error?.message || 'desconocido')); return }
+              window.open(data.signedUrl, '_blank', 'noopener,noreferrer')
+            } catch (e: any) { alert('Error al abrir el documento: ' + (e?.message || e)) }
+          }}
+            style={{ flex: 1, textAlign: 'center', padding: '6px 10px', background: '#1a1a1a', borderRadius: 4, color: '#aaa', fontSize: 11, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
             <Download size={11} /> Ver / descargar
-          </a>
+          </button>
         )}
         <button onClick={onDelete}
           style={{ background: 'none', border: '1px solid #3a1a1a', color: '#c44', padding: '6px 10px', borderRadius: 4, fontSize: 11, cursor: 'pointer' }}>
