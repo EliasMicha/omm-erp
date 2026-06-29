@@ -135,12 +135,16 @@ function CotDashboard({ onOpen, preferVersionId }: { onOpen: (id: string, specia
 
   useEffect(() => {
     loadCots()
-    // Segunda recarga tras un momento: captura el guardado async del editor recién cerrado
-    // (el editor guarda total/total_final en segundo plano; sin esto la lista mostraba el valor viejo).
+    // Segunda recarga tras un momento: captura el guardado async del editor recién cerrado.
     const t = setTimeout(() => loadCots(), 1500)
+    // Red de seguridad: auto-refresco mientras la lista está visible, para que SIEMPRE muestre
+    // el total final actual de TODAS las cotizaciones sin tener que recargar a mano.
+    const interval = setInterval(() => { if (document.visibilityState === 'visible') loadCots() }, 12000)
     const onFocus = () => loadCots()
+    const onVis = () => { if (document.visibilityState === 'visible') loadCots() }
     window.addEventListener('focus', onFocus)
-    return () => { clearTimeout(t); window.removeEventListener('focus', onFocus) }
+    document.addEventListener('visibilitychange', onVis)
+    return () => { clearTimeout(t); clearInterval(interval); window.removeEventListener('focus', onFocus); document.removeEventListener('visibilitychange', onVis) }
   }, [])
   // Re-fetch cuando regresas del editor — preferVersionId cambia cada vez que
   // cierras un editor (close() guarda el openId que tenías). Esto evita que el
