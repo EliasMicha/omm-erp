@@ -114,7 +114,8 @@ Para cada movimiento, analiza el campo concepto y extrae:
   • 'media' si detectaste beneficiario + categoria pero sin proyecto
   • 'baja' si solo detectaste categoria o solo beneficiario genérico
 
-RESPUESTA (JSON únicamente, sin markdown fences):
+RESPUESTA (JSON únicamente, sin markdown fences, sin texto antes ni después).
+Tu respuesta DEBE empezar con el carácter { y terminar con el carácter }. NO escribas ninguna explicación, nota ni razonamiento fuera del JSON.
 {
   "movements": [
     {
@@ -441,14 +442,53 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const data = await r.json()
     const textBlocks = (data.content || []).filter((b: any) => b.type === 'text').map((b: any) => b.text).join('\n')
     const cleaned = textBlocks.replace(/```json|```/g, '').trim()
-    const jsonMatch = cleaned.match(/\{[\s\S]*\}/)
-    if (!jsonMatch) return res.status(500).json({ ok: false, error: 'Claude no devolvió JSON parseable', raw: cleaned.substring(0, 500) })
 
-    let parsed: any
-    try {
-      parsed = JSON.parse(jsonMatch[0])
-    } catch (e: any) {
-      return res.status(500).json({ ok: false, error: 'JSON inválido: ' + e.message, raw: jsonMatch[0].substring(0, 500) })
+    // Extracción robusta del objeto JSON:
+    // El modelo a veces antepone texto o una llave suelta antes del JSON real.
+    // En vez de un regex greedy (que agarra desde la 1ª '{' hasta la última '}'
+    // y falla si hay una llave espuria), escaneamos cada '{' como posible inicio,
+    // recortamos el objeto balanceado (respetando strings/escapes) e intentamos
+    // parsear. Nos quedamos con el primero que parsee y tenga 'movements'.
+    const tryParse = (s: string): any | null => {
+      try { return JSON.parse(s) } catch {}
+      // Reparación 1: remover comas colgantes antes de } o ]
+      try { return JSON.parse(s.replace(/,\s*([}\]])/g, '$1')) } catch {}
+      return null
+    }
+    const extractBalanced = (text: string, start: number): string | null => {
+      let depth = 0, inStr = false, esc = false
+      for (let i = start; i < text.length; i++) {
+        const ch = text[i]
+        if (inStr) {
+          if (esc) esc = false
+          else if (ch === '\\') esc = true
+          else if (ch === '"') inStr = false
+          continue
+        }
+        if (ch === '"') inStr = true
+        else if (ch === '{') depth++
+        else if (ch === '}') { depth--; if (depth === 0) return text.slice(start, i + 1) }
+      }
+      return null
+    }
+    let parsed: any = null
+    let fallback: any = null
+    let lastCandidate = ''
+    for (let idx = cleaned.indexOf('{'); idx !== -1 && !parsed; idx = cleaned.indexOf('{', idx + 1)) {
+      const candidate = extractBalanced(cleaned, idx)
+      if (!candidate) break
+      lastCandidate = candidate
+      const p = tryParse(candidate)
+      if (!p || typeof p !== 'object') continue
+      if (Array.isArray(p.movements) || 'movements' in p || 'expected_totals' in p || 'periodo' in p) {
+        parsed = p; break
+      }
+      // Guarda el primer objeto que parsee como último recurso (sin cortar la búsqueda)
+      if (!fallback) fallback = p
+    }
+    if (!parsed) parsed = fallback
+    if (!parsed) {
+      return res.status(500).json({ ok: false, error: 'Claude no devolvió JSON parseable', raw: (lastCandidate || cleaned).substring(0, 500) })
     }
 
     const movements: any[] = Array.isArray(parsed.movements) ? parsed.movements : []
