@@ -49,13 +49,14 @@ interface QuoteItem {
   marca: string | null
   modelo: string | null
   sku: string | null
+  description: string | null
   quantity: number
   unit_cost: number | null
   markup: number | null
   unit_price: number
   installation: number
 }
-interface CatProd { id: string; name: string; marca: string | null; modelo: string | null; sku: string | null; cost: number | null; markup: number | null; precio_venta: number | null; moneda: string | null; costo_mano_obra: number | null }
+interface CatProd { id: string; name: string; marca: string | null; modelo: string | null; sku: string | null; description: string | null; subdescripcion: string | null; cost: number | null; markup: number | null; precio_venta: number | null; moneda: string | null; costo_mano_obra: number | null }
 
 // ── EDITOR ──────────────────────────────────────────────────────────────────
 export function QuoteEditorModal({ quoteId, prefill, properties, onClose, onSaved }: {
@@ -99,7 +100,7 @@ export function QuoteEditorModal({ quoteId, prefill, properties, onClose, onSave
         if (q.tipo_cambio) setTipoCambio(String(q.tipo_cambio)); setProgramacion(String(q.programacion || 0))
       }
       const { data: its } = await supabase.from('maintenance_quote_items').select('*').eq('quote_id', quoteId).order('order_index')
-      setItems((its || []).map((i: any) => ({ id: i.id, catalog_product_id: i.catalog_product_id, name: i.name, marca: i.marca, modelo: i.modelo, sku: i.sku, quantity: Number(i.quantity), unit_cost: i.unit_cost, markup: i.markup, unit_price: Number(i.unit_price), installation: Number(i.installation) || 0 })))
+      setItems((its || []).map((i: any) => ({ id: i.id, catalog_product_id: i.catalog_product_id, name: i.name, marca: i.marca, modelo: i.modelo, sku: i.sku, description: i.description || null, quantity: Number(i.quantity), unit_cost: i.unit_cost, markup: i.markup, unit_price: Number(i.unit_price), installation: Number(i.installation) || 0 })))
       setLoading(false)
     })()
   }, [quoteId])
@@ -109,7 +110,7 @@ export function QuoteEditorModal({ quoteId, prefill, properties, onClose, onSave
     const t = setTimeout(async () => {
       setSearching(true)
       const { data } = await supabase.from('catalog_products')
-        .select('id, name, marca, modelo, sku, cost, markup, precio_venta, moneda, costo_mano_obra')
+        .select('id, name, marca, modelo, sku, description, subdescripcion, cost, markup, precio_venta, moneda, costo_mano_obra')
         .eq('is_active', true)
         .or(`name.ilike.%${catQ}%,marca.ilike.%${catQ}%,modelo.ilike.%${catQ}%,sku.ilike.%${catQ}%`)
         .limit(15)
@@ -140,12 +141,13 @@ export function QuoteEditorModal({ quoteId, prefill, properties, onClose, onSave
     const inst = Math.round(toQuoteCur(Number(p.costo_mano_obra) || 0, 'MXN') * 100) / 100
     setItems(its => [...its, {
       catalog_product_id: p.id, name: p.name, marca: p.marca, modelo: p.modelo, sku: p.sku,
+      description: p.description || p.subdescripcion || null,
       quantity: 1, unit_cost: p.cost, markup: p.markup, unit_price: unit, installation: inst,
     }])
     setCatQ(''); setCatRes([])
   }
   function addBlank() {
-    setItems(its => [...its, { catalog_product_id: null, name: '', marca: null, modelo: null, sku: null, quantity: 1, unit_cost: null, markup: null, unit_price: 0, installation: 0 }])
+    setItems(its => [...its, { catalog_product_id: null, name: '', marca: null, modelo: null, sku: null, description: null, quantity: 1, unit_cost: null, markup: null, unit_price: 0, installation: 0 }])
   }
   function updItem(i: number, patch: Partial<QuoteItem>) { setItems(its => its.map((it, idx) => idx === i ? { ...it, ...patch } : it)) }
   function rmItem(i: number) { setItems(its => its.filter((_, idx) => idx !== i)) }
@@ -197,7 +199,7 @@ export function QuoteEditorModal({ quoteId, prefill, properties, onClose, onSave
     }
     const rows = items.map((it, idx) => ({
       quote_id: qid, catalog_product_id: it.catalog_product_id, name: it.name || 'Concepto',
-      marca: it.marca, modelo: it.modelo, sku: it.sku, quantity: it.quantity,
+      marca: it.marca, modelo: it.modelo, sku: it.sku, description: it.description || null, quantity: it.quantity,
       unit_cost: it.unit_cost, markup: it.markup, unit_price: it.unit_price, installation: it.installation || 0,
       total: ((it.unit_price || 0) + (it.installation || 0)) * (it.quantity || 0), order_index: idx,
     }))
@@ -276,9 +278,13 @@ export function QuoteEditorModal({ quoteId, prefill, properties, onClose, onSave
                 <span>Concepto</span><span style={{ textAlign: 'center' }}>Cant</span><span style={{ textAlign: 'right' }}>P. unit</span><span style={{ textAlign: 'right' }}>Instal.</span><span style={{ textAlign: 'right' }}>Total</span><span />
               </div>
               {items.map((it, i) => (
-                <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 46px 78px 78px 80px 24px', gap: 5, padding: '8px 10px', alignItems: 'center', borderTop: '1px solid #1a1a1a' }}>
-                  <input value={it.name} onChange={e => updItem(i, { name: e.target.value })} placeholder="Nombre del concepto"
-                    style={{ ...cellInp, textAlign: 'left' }} />
+                <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 46px 78px 78px 80px 24px', gap: 5, padding: '8px 10px', alignItems: 'start', borderTop: '1px solid #1a1a1a' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                    <input value={it.name} onChange={e => updItem(i, { name: e.target.value })} placeholder="Nombre del concepto"
+                      style={{ ...cellInp, textAlign: 'left' }} />
+                    <input value={it.description || ''} onChange={e => updItem(i, { description: e.target.value })} placeholder="Descripción (opcional)"
+                      style={{ ...cellInp, textAlign: 'left', fontSize: 10, color: '#aaa' }} />
+                  </div>
                   <input value={it.quantity} onChange={e => updItem(i, { quantity: parseFloat(e.target.value) || 0 })} type="number" style={{ ...cellInp, textAlign: 'center' }} />
                   <input value={it.unit_price} onChange={e => updItem(i, { unit_price: parseFloat(e.target.value) || 0 })} type="number" style={{ ...cellInp, textAlign: 'right' }} />
                   <input value={it.installation} onChange={e => updItem(i, { installation: parseFloat(e.target.value) || 0 })} type="number" style={{ ...cellInp, textAlign: 'right' }} />
@@ -453,8 +459,9 @@ function buildQuoteHtml(d: any): string {
   const rows = (items || []).map((it: QuoteItem) => {
     const concepto = [it.marca, it.modelo].filter(Boolean).join(' ') || it.name
     const sub = it.sku ? `<div style="font-size:9px;color:#888">${esc(it.sku)}</div>` : (concepto !== it.name && it.name ? `<div style="font-size:9px;color:#888">${esc(it.name)}</div>` : '')
+    const descLine = it.description ? `<div style="font-size:9.5px;color:#555;margin-top:2px;line-height:1.35">${esc(it.description)}</div>` : ''
     const imp = ((it.unit_price || 0) + (it.installation || 0)) * (it.quantity || 0)
-    return `<tr><td>${esc(concepto)}${sub}</td><td style="text-align:center">${it.quantity}</td><td style="text-align:right">${m(it.unit_price)}</td>${anyInst ? `<td style="text-align:right">${m((it.installation || 0) * (it.quantity || 0))}</td>` : ''}<td style="text-align:right;font-weight:600">${m(imp)}</td></tr>`
+    return `<tr><td>${esc(concepto)}${sub}${descLine}</td><td style="text-align:center">${it.quantity}</td><td style="text-align:right">${m(it.unit_price)}</td>${anyInst ? `<td style="text-align:right">${m((it.installation || 0) * (it.quantity || 0))}</td>` : ''}<td style="text-align:right;font-weight:600">${m(imp)}</td></tr>`
   }).join('') + ((programacion || 0) > 0 ? `<tr><td>Programación y puesta en marcha</td><td></td><td></td>${anyInst ? '<td></td>' : ''}<td style="text-align:right;font-weight:600">${m(programacion)}</td></tr>` : '')
 
   return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${esc(title || 'Cotización')} ${folioStr}</title>
