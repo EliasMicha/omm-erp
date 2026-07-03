@@ -113,6 +113,17 @@ interface DocRelacionadoPago {
   iva_trasladado: number          // monto IVA del pago sobre esta factura (auto o editable)
 }
 
+// REP: un pago individual dentro del complemento (un REP puede tener varios)
+interface PagoREP {
+  fechaPago: string
+  formaPagoREP: string
+  monedaPago: string
+  tipoCambioPago: string
+  montoPago: string
+  numOperacion: string
+  docsPago: DocRelacionadoPago[]
+}
+
 // ============================================================
 // API Helper + FacturAPI mode (Sesion B - dual test/live)
 // ============================================================
@@ -506,21 +517,27 @@ function ListaTodas({ onEditar }: { onEditar?: (f: Factura) => void } = {}) {
         }
       } else if (f.tipo_comprobante === 'P' && f.draft_data) {
         const dd = f.draft_data
+        // Reunir todos los pagos: los guardados + el capturado en los campos del draft
+        const pagos: any[] = Array.isArray(dd.pagosGuardados) ? [...dd.pagosGuardados] : []
+        if (Array.isArray(dd.docsPago) && dd.docsPago.length > 0) {
+          pagos.push({ fechaPago: dd.fechaPago, formaPagoREP: dd.formaPagoREP, monedaPago: dd.monedaPago, tipoCambioPago: dd.tipoCambioPago, montoPago: dd.montoPago, numOperacion: dd.numOperacion, docsPago: dd.docsPago })
+        }
+        if (pagos.length === 0) { alert('El borrador de REP no tiene pagos'); setTimbrandoId(null); return }
         invoicePayload = {
           customer: facturapiCustomerId, type: 'P',
           items: [{ quantity: 1, product: { description: 'Pago', product_key: '84111506', price: 0, unit_key: 'ACT', unit_name: 'Actividad', tax_included: false, taxes: [] } }],
           use: 'CP01', payment_form: '99', payment_method: 'PUE', currency: 'XXX',
-          complements: [{ type: 'pago', data: [{
-            payment_form: dd.formaPagoREP, date: dd.fechaPago, currency: dd.monedaPago,
-            exchange: dd.monedaPago !== 'MXN' ? (parseFloat(dd.tipoCambioPago) || 1) : undefined,
-            amount: parseFloat(dd.montoPago) || 0,
-            ...(dd.numOperacion ? { num_operation: dd.numOperacion } : {}),
-            related_documents: (dd.docsPago || []).map((d: any) => ({
-              uuid: d.uuid, folio: d.folio || undefined, series: d.serie || undefined, currency: d.moneda_doc, exchange: d.equivalencia_dr, payment_number: d.num_parcialidad,
-              previous_balance: d.imp_saldo_anterior, amount_paid: d.imp_pagado, balance: d.imp_saldo_insoluto, taxability: d.objeto_imp,
-              ...(d.objeto_imp === '02' && d.iva_trasladado > 0 ? { taxes: [{ type: 'IVA', rate: d.iva_tasa, base: d.base_dr || (d.imp_pagado - d.iva_trasladado), amount: d.iva_trasladado, withholding: false }] } : {}),
+          complements: [{ type: 'pago', data: pagos.map((p: any) => ({
+            payment_form: p.formaPagoREP, date: p.fechaPago, currency: p.monedaPago,
+            exchange: p.monedaPago !== 'MXN' ? (parseFloat(p.tipoCambioPago) || 1) : undefined,
+            amount: parseFloat(p.montoPago) || 0,
+            ...(p.numOperacion ? { num_operation: p.numOperacion } : {}),
+            related_documents: (p.docsPago || []).map((d: any) => ({
+              uuid: d.uuid, amount: d.imp_pagado, installment: d.num_parcialidad, last_balance: d.imp_saldo_anterior,
+              currency: d.moneda_doc, exchange: d.equivalencia_dr, taxability: d.objeto_imp,
+              ...(d.objeto_imp === '02' && d.iva_trasladado > 0 ? { taxes: [{ base: d.base_dr || (d.imp_pagado - d.iva_trasladado), type: 'IVA', rate: d.iva_tasa, withholding: false }] } : {}),
             })),
-          }] }],
+          })) }],
         }
       } else { alert('Tipo de comprobante no soportado o faltan datos del borrador'); setTimbrandoId(null); return }
       const ir = await callFacturapi('create_invoice', { method: 'POST', body: { payload: invoicePayload } })
@@ -1408,28 +1425,31 @@ function ListaEmitidas({ onNueva, onEditar }: { onNueva: () => void; onEditar?: 
           invoicePayload.related_documents = [{ relationship: f.tipo_relacion, documents: f.uuids_relacionados }]
         }
       } else if (f.tipo_comprobante === 'P' && f.draft_data) {
-        // REP from draft_data
+        // REP from draft_data (soporta múltiples pagos)
         const dd = f.draft_data
+        const pagos: any[] = Array.isArray(dd.pagosGuardados) ? [...dd.pagosGuardados] : []
+        if (Array.isArray(dd.docsPago) && dd.docsPago.length > 0) {
+          pagos.push({ fechaPago: dd.fechaPago, formaPagoREP: dd.formaPagoREP, monedaPago: dd.monedaPago, tipoCambioPago: dd.tipoCambioPago, montoPago: dd.montoPago, numOperacion: dd.numOperacion, docsPago: dd.docsPago })
+        }
+        if (pagos.length === 0) { alert('El borrador de REP no tiene pagos'); setTimbrandoId(null); return }
         invoicePayload = {
           customer: facturapiCustomerId,
           type: 'P',
           items: [{ quantity: 1, product: { description: 'Pago', product_key: '84111506', price: 0, unit_key: 'ACT', unit_name: 'Actividad', tax_included: false, taxes: [] } }],
           use: 'CP01', payment_form: '99', payment_method: 'PUE', currency: 'XXX',
-          complements: [{ type: 'pago', data: [{
-            payment_form: dd.formaPagoREP,
-            date: dd.fechaPago,
-            currency: dd.monedaPago,
-            exchange: dd.monedaPago !== 'MXN' ? (parseFloat(dd.tipoCambioPago) || 1) : undefined,
-            amount: parseFloat(dd.montoPago) || 0,
-            ...(dd.numOperacion ? { num_operation: dd.numOperacion } : {}),
-            related_documents: (dd.docsPago || []).map((d: any) => ({
-              uuid: d.uuid, folio: d.folio || undefined, series: d.serie || undefined,
-              currency: d.moneda_doc, exchange: d.equivalencia_dr, payment_number: d.num_parcialidad,
-              previous_balance: d.imp_saldo_anterior, amount_paid: d.imp_pagado, balance: d.imp_saldo_insoluto,
-              taxability: d.objeto_imp,
-              ...(d.objeto_imp === '02' && d.iva_trasladado > 0 ? { taxes: [{ type: 'IVA', rate: d.iva_tasa, base: d.base_dr || (d.imp_pagado - d.iva_trasladado), amount: d.iva_trasladado, withholding: false }] } : {}),
+          complements: [{ type: 'pago', data: pagos.map((p: any) => ({
+            payment_form: p.formaPagoREP,
+            date: p.fechaPago,
+            currency: p.monedaPago,
+            exchange: p.monedaPago !== 'MXN' ? (parseFloat(p.tipoCambioPago) || 1) : undefined,
+            amount: parseFloat(p.montoPago) || 0,
+            ...(p.numOperacion ? { num_operation: p.numOperacion } : {}),
+            related_documents: (p.docsPago || []).map((d: any) => ({
+              uuid: d.uuid, amount: d.imp_pagado, installment: d.num_parcialidad, last_balance: d.imp_saldo_anterior,
+              currency: d.moneda_doc, exchange: d.equivalencia_dr, taxability: d.objeto_imp,
+              ...(d.objeto_imp === '02' && d.iva_trasladado > 0 ? { taxes: [{ base: d.base_dr || (d.imp_pagado - d.iva_trasladado), type: 'IVA', rate: d.iva_tasa, withholding: false }] } : {}),
             })),
-          }] }],
+          })) }],
         }
       } else {
         alert('Tipo de comprobante no soportado o faltan datos del borrador'); setTimbrandoId(null); return
@@ -1912,6 +1932,8 @@ function NuevaFactura({ onCancel, onCreated, editingFactura }: { onCancel: () =>
   const [docsPago, setDocsPago] = useState<DocRelacionadoPago[]>([])
   const [mostrarSelectorPPD, setMostrarSelectorPPD] = useState(false)
   const [uuidsPPDTemporales, setUuidsPPDTemporales] = useState<string[]>([])
+  // Múltiples pagos dentro del mismo REP: los ya "guardados"; el formulario de arriba edita el pago en curso
+  const [pagosGuardados, setPagosGuardados] = useState<PagoREP[]>([])
 
   // Pre-llenar uso CFDI cuando se selecciona un cliente con preferencia
   useEffect(() => {
@@ -1982,6 +2004,7 @@ function NuevaFactura({ onCancel, onCreated, editingFactura }: { onCancel: () =>
       if (d.tipoCambioPago) setTipoCambioPago(String(d.tipoCambioPago))
       if (d.montoPago) setMontoPago(String(d.montoPago))
       if (Array.isArray(d.docsPago)) setDocsPago(d.docsPago)
+      if (Array.isArray(d.pagosGuardados)) setPagosGuardados(d.pagosGuardados)
     }
 
     // Cargar conceptos asociados al borrador
@@ -2130,6 +2153,47 @@ function NuevaFactura({ onCancel, onCreated, editingFactura }: { onCancel: () =>
   const montoPagoNum = parseFloat(montoPago) || 0
   const diferenciaPago = Math.round((montoPagoNum - sumaDocsEnMonedaPago) * 100) / 100
 
+  // Valida un pago individual (el en curso o uno guardado). Devuelve mensaje de error o null.
+  function validarPago(p: PagoREP): string | null {
+    const monto = parseFloat(p.montoPago) || 0
+    if (p.docsPago.length === 0) return 'Agrega al menos una factura PPD al pago'
+    if (monto <= 0) return 'El monto del pago debe ser mayor a 0'
+    const suma = p.docsPago.reduce((s, d) => s + (d.imp_pagado * d.equivalencia_dr), 0)
+    const dif = Math.round((monto - suma) * 100) / 100
+    if (Math.abs(dif) > 0.01) return `La suma de imp. pagado × equivalencia (${suma.toFixed(2)}) no coincide con el monto del pago (${monto.toFixed(2)}). Diferencia: ${dif.toFixed(2)}`
+    if (p.docsPago.some(d => d.imp_pagado <= 0)) return 'Todos los documentos relacionados deben tener imp. pagado > 0'
+    if (p.docsPago.some(d => d.imp_pagado > d.imp_saldo_anterior + 0.01)) return 'Imp. pagado no puede ser mayor al saldo anterior en ninguna factura'
+    return null
+  }
+
+  // Snapshot del pago que se está editando en el formulario
+  function pagoEnCurso(): PagoREP {
+    return { fechaPago, formaPagoREP, monedaPago, tipoCambioPago, montoPago, numOperacion, docsPago }
+  }
+
+  // Limpia el formulario para empezar a capturar otro pago
+  function limpiarFormPago() {
+    const d = new Date()
+    const pad = (n: number) => String(n).padStart(2, '0')
+    setFechaPago(`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`)
+    setFormaPagoREP('03'); setMonedaPago('MXN'); setTipoCambioPago('1'); setMontoPago('0'); setNumOperacion('')
+    setDocsPago([]); setUuidsPPDTemporales([]); setMostrarSelectorPPD(false)
+  }
+
+  // Guarda el pago en curso a la lista y limpia el form para el siguiente
+  function guardarPagoYAgregarOtro() {
+    setError(null)
+    const p = pagoEnCurso()
+    const err = validarPago(p)
+    if (err) { setError('Pago no válido: ' + err); return }
+    setPagosGuardados([...pagosGuardados, p])
+    limpiarFormPago()
+  }
+
+  function removePagoGuardado(idx: number) {
+    setPagosGuardados(pagosGuardados.filter((_, i) => i !== idx))
+  }
+
   const [savedDraft, setSavedDraft] = useState(false)
   const [savingDraft, setSavingDraft] = useState(false)
 
@@ -2180,7 +2244,7 @@ function NuevaFactura({ onCancel, onCreated, editingFactura }: { onCancel: () =>
         sandbox: getCurrentFacturapiMode() === 'test',
         // Store REP pago data for later timbrado
         draft_data: tipoComprobante === 'P' ? {
-          fechaPago, formaPagoREP, numOperacion, monedaPago, tipoCambioPago, montoPago, docsPago
+          fechaPago, formaPagoREP, numOperacion, monedaPago, tipoCambioPago, montoPago, docsPago, pagosGuardados
         } : null,
       }
 
@@ -2233,6 +2297,9 @@ function NuevaFactura({ onCancel, onCreated, editingFactura }: { onCancel: () =>
     setError(null)
     if (!clienteId) { setError('Selecciona un cliente'); return }
 
+    // Lista de pagos a emitir (REP). Se llena en la rama tipo P.
+    let pagosParaEmitir: PagoREP[] = []
+
     // Validaciones segun tipo de comprobante
     if (tipoComprobante === 'I' || tipoComprobante === 'E') {
       if (conceptos.length === 0) { setError('Agrega al menos un concepto'); return }
@@ -2245,20 +2312,14 @@ function NuevaFactura({ onCancel, onCreated, editingFactura }: { onCancel: () =>
         return
       }
     } else {
-      // tipoComprobante === 'P' — REP
-      if (docsPago.length === 0) { setError('Agrega al menos una factura PPD al pago'); return }
-      if (montoPagoNum <= 0) { setError('El monto del pago debe ser mayor a 0'); return }
-      if (Math.abs(diferenciaPago) > 0.01) {
-        setError(`La suma de imp_pagado × equivalencia (${sumaDocsEnMonedaPago.toFixed(2)}) no coincide con el monto del pago (${montoPagoNum.toFixed(2)}). Diferencia: ${diferenciaPago.toFixed(2)}`)
-        return
-      }
-      if (docsPago.some(d => d.imp_pagado <= 0)) {
-        setError('Todos los documentos relacionados deben tener imp_pagado > 0')
-        return
-      }
-      if (docsPago.some(d => d.imp_pagado > d.imp_saldo_anterior + 0.01)) {
-        setError('Imp. pagado no puede ser mayor al saldo anterior en ninguna factura')
-        return
+      // tipoComprobante === 'P' — REP (puede tener 1 o varios pagos)
+      pagosParaEmitir = [...pagosGuardados]
+      const cur = pagoEnCurso()
+      if (cur.docsPago.length > 0 || (parseFloat(cur.montoPago) || 0) > 0) pagosParaEmitir.push(cur)
+      if (pagosParaEmitir.length === 0) { setError('Agrega al menos un pago con sus facturas PPD'); return }
+      for (let i = 0; i < pagosParaEmitir.length; i++) {
+        const e = validarPago(pagosParaEmitir[i])
+        if (e) { setError(`Pago ${i + 1}: ${e}`); return }
       }
     }
 
@@ -2358,29 +2419,28 @@ function NuevaFactura({ onCancel, onCreated, editingFactura }: { onCancel: () =>
           currency: 'XXX',
           complements: [{
             type: 'pago',
-            data: [{
-              payment_form: formaPagoREP,
-              date: fechaPago,
-              currency: monedaPago,
-              exchange: monedaPago !== 'MXN' ? (parseFloat(tipoCambioPago) || 1) : undefined,
-              amount: montoPagoNum,
-              ...(numOperacion ? { num_operation: numOperacion } : {}),
-              related_documents: docsPago.map(d => ({
+            // Un REP puede llevar varios pagos (uno por cada movimiento recibido)
+            data: pagosParaEmitir.map(p => ({
+              payment_form: p.formaPagoREP,
+              date: p.fechaPago,
+              currency: p.monedaPago,
+              exchange: p.monedaPago !== 'MXN' ? (parseFloat(p.tipoCambioPago) || 1) : undefined,
+              amount: parseFloat(p.montoPago) || 0,
+              ...(p.numOperacion ? { num_operation: p.numOperacion } : {}),
+              // Nombres EXACTOS del esquema FacturAPI: amount / installment / last_balance / taxes{base,type,rate}
+              related_documents: p.docsPago.map(d => ({
                 uuid: d.uuid,
-                folio: d.folio || undefined,
-                series: d.serie || undefined,
+                amount: d.imp_pagado,
+                installment: d.num_parcialidad,
+                last_balance: d.imp_saldo_anterior,
                 currency: d.moneda_doc,
                 exchange: d.equivalencia_dr,
-                payment_number: d.num_parcialidad,
-                previous_balance: d.imp_saldo_anterior,
-                amount_paid: d.imp_pagado,
-                balance: d.imp_saldo_insoluto,
                 taxability: d.objeto_imp,
                 ...(d.objeto_imp === '02' && d.iva_trasladado > 0 ? {
-                  taxes: [{ type: 'IVA', rate: d.iva_tasa, base: d.base_dr, amount: d.iva_trasladado, withholding: false }]
+                  taxes: [{ base: d.base_dr, type: 'IVA', rate: d.iva_tasa, withholding: false }]
                 } : {}),
               })),
-            }]
+            })),
           }],
         }
       }
@@ -2393,6 +2453,27 @@ function NuevaFactura({ onCancel, onCreated, editingFactura }: { onCancel: () =>
       }
 
       const invoice = ir.data
+
+      // REP: agregar montos/moneda/uuids de TODOS los pagos para la persistencia local
+      const repCurrencies = new Set(pagosParaEmitir.map(p => p.monedaPago))
+      let repMoneda = 'MXN', repMonto = 0, repTC: number | null = null
+      if (pagosParaEmitir.length > 0) {
+        if (repCurrencies.size === 1) {
+          repMoneda = pagosParaEmitir[0].monedaPago
+          repMonto = Math.round(pagosParaEmitir.reduce((s, p) => s + (parseFloat(p.montoPago) || 0), 0) * 100) / 100
+          repTC = repMoneda !== 'MXN' ? (parseFloat(pagosParaEmitir[0].tipoCambioPago) || 1) : null
+        } else {
+          // Monedas mixtas: expresar el total en MXN usando el TC de cada pago
+          repMoneda = 'MXN'
+          repMonto = Math.round(pagosParaEmitir.reduce((s, p) => {
+            const m = parseFloat(p.montoPago) || 0
+            const tc = p.monedaPago !== 'MXN' ? (parseFloat(p.tipoCambioPago) || 1) : 1
+            return s + m * tc
+          }, 0) * 100) / 100
+        }
+      }
+      const repUuids = Array.from(new Set(pagosParaEmitir.flatMap(p => p.docsPago.map(d => d.uuid))))
+      const repFormaPago = pagosParaEmitir[0]?.formaPagoREP || formaPagoREP
 
       const facturaSupabase: any = (tipoComprobante === 'I' || tipoComprobante === 'E') ? {
         direccion: 'emitida',
@@ -2442,18 +2523,18 @@ function NuevaFactura({ onCancel, onCreated, editingFactura }: { onCancel: () =>
         receptor_regimen_fiscal: cliente.regimen_fiscal_clave || cliente.regimen_fiscal,
         receptor_codigo_postal: cliente.codigo_postal,
         // En REP el header SAT va en 0; el monto real es el del complemento de pago.
-        // Guardamos el monto en `total` para que computeAmounts() y los KPIs lo usen.
-        subtotal: montoPagoNum,
+        // Guardamos el monto agregado (suma de todos los pagos) en `total` para KPIs.
+        subtotal: repMonto,
         iva: 0,
-        total: montoPagoNum,
-        moneda: monedaPago,
-        tipo_cambio: monedaPago !== 'MXN' ? (parseFloat(tipoCambioPago) || 1) : null,
-        forma_pago: formaPagoREP,
+        total: repMonto,
+        moneda: repMoneda,
+        tipo_cambio: repTC,
+        forma_pago: repFormaPago,
         metodo_pago: 'PUE',
         notas: notas || null,
-        // uuids_relacionados = union de todos los UUIDs de documentos pagados
+        // uuids_relacionados = union de todos los UUIDs de documentos pagados (todos los pagos)
         // (util para el Monitor de Anticipos y queries de cobranza)
-        uuids_relacionados: docsPago.map(d => d.uuid),
+        uuids_relacionados: repUuids,
         sandbox: getCurrentFacturapiMode() === 'test',
       }
 
@@ -2830,6 +2911,20 @@ function NuevaFactura({ onCancel, onCreated, editingFactura }: { onCancel: () =>
       </>}
 
       {tipoComprobante === 'P' && <>
+        {/* Pagos ya guardados en este REP (multi-pago) */}
+        {pagosGuardados.length > 0 && (
+          <div style={{ marginBottom: 20 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#A78BFA', marginBottom: 10 }}>Pagos en este REP ({pagosGuardados.length} guardado{pagosGuardados.length > 1 ? 's' : ''} + el que estás capturando)</div>
+            {pagosGuardados.map((p, i) => (
+              <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#12101a', border: '1px solid #A78BFA33', borderRadius: 8, padding: '10px 14px', marginBottom: 8 }}>
+                <div style={{ fontSize: 12, color: '#ccc' }}>
+                  <b style={{ color: '#A78BFA' }}>Pago {i + 1}</b> · {(parseFloat(p.montoPago) || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })} {p.monedaPago} · {p.docsPago.length} factura(s) · {(p.fechaPago || '').replace('T', ' ')}
+                </div>
+                <button onClick={() => removePagoGuardado(i)} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', padding: 0 }} title="Quitar este pago"><Trash2 size={13} /></button>
+              </div>
+            ))}
+          </div>
+        )}
         {/* Datos del pago (cabecera del complemento) */}
         <div style={{ marginBottom: 20 }}>
           <div style={{ fontSize: 13, fontWeight: 600, color: '#888', marginBottom: 10 }}>Datos del pago</div>
@@ -3006,6 +3101,19 @@ function NuevaFactura({ onCancel, onCreated, editingFactura }: { onCancel: () =>
             </div>
           )}
         </div>
+
+        {/* Multi-pago: guardar el pago actual y capturar otro en el mismo REP */}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 20 }}>
+          <button onClick={guardarPagoYAgregarOtro} disabled={docsPago.length === 0 || Math.abs(diferenciaPago) >= 0.01}
+            style={{ padding: '8px 14px', background: (docsPago.length > 0 && Math.abs(diferenciaPago) < 0.01) ? '#1e1e2e' : '#181818', color: (docsPago.length > 0 && Math.abs(diferenciaPago) < 0.01) ? '#A78BFA' : '#555', border: '1px solid #A78BFA44', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: (docsPago.length > 0 && Math.abs(diferenciaPago) < 0.01) ? 'pointer' : 'not-allowed', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Plus size={13} /> Guardar este pago y agregar otro
+          </button>
+        </div>
+        {pagosGuardados.length > 0 && (
+          <div style={{ fontSize: 11, color: '#888', marginBottom: 16, textAlign: 'right' }}>
+            Al emitir se incluirán los {pagosGuardados.length} pago(s) guardado(s){(docsPago.length > 0 ? ' + el que estás capturando' : '')}.
+          </div>
+        )}
       </>}
 
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
