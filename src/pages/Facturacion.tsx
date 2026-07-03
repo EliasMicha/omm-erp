@@ -2195,7 +2195,15 @@ function NuevaFactura({ onCancel, onCreated, editingFactura }: { onCancel: () =>
     setError(null)
     if (!clienteId) { setError('Selecciona un cliente'); return }
 
-    const cliente = clientes.find(c => c.id === clienteId)
+    let cliente = clientes.find(c => c.id === clienteId)
+    if (!cliente) {
+      const { data: cData } = await supabase
+        .from('clientes')
+        .select('id,razon_social,rfc,uso_cfdi,uso_cfdi_clave,regimen_fiscal,regimen_fiscal_clave,codigo_postal,email,telefono,calle,num_exterior,num_interior,colonia,municipio,estado,facturapi_customer_id')
+        .eq('id', clienteId)
+        .maybeSingle()
+      if (cData) cliente = cData as any
+    }
     if (!cliente) { setError('Cliente no encontrado'); return }
 
     if ((tipoComprobante === 'I' || tipoComprobante === 'E') && conceptos.length === 0) {
@@ -2317,7 +2325,17 @@ function NuevaFactura({ onCancel, onCreated, editingFactura }: { onCancel: () =>
       }
     }
 
-    const cliente = clientes.find(c => c.id === clienteId)
+    let cliente = clientes.find(c => c.id === clienteId)
+    if (!cliente) {
+      // Fallback: el cliente puede no estar en la lista en memoria (cap de 1000, cliente inactivo,
+      // o carrera al editar un borrador). Traerlo directo por id.
+      const { data: cData } = await supabase
+        .from('clientes')
+        .select('id,razon_social,rfc,uso_cfdi,uso_cfdi_clave,regimen_fiscal,regimen_fiscal_clave,codigo_postal,email,telefono,calle,num_exterior,num_interior,colonia,municipio,estado,facturapi_customer_id')
+        .eq('id', clienteId)
+        .maybeSingle()
+      if (cData) cliente = cData as any
+    }
     if (!cliente) { setError('Cliente no encontrado'); return }
 
     setEmitting(true)
