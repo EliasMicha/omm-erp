@@ -525,17 +525,14 @@ function ListaTodas({ onEditar }: { onEditar?: (f: Factura) => void } = {}) {
         if (pagos.length === 0) { alert('El borrador de REP no tiene pagos'); setTimbrandoId(null); return }
         invoicePayload = {
           customer: facturapiCustomerId, type: 'P',
-          items: [{ quantity: 1, product: { description: 'Pago', product_key: '84111506', price: 0, unit_key: 'ACT', unit_name: 'Actividad', tax_included: false, taxes: [] } }],
-          use: 'CP01', payment_form: '99', payment_method: 'PUE', currency: 'XXX',
           complements: [{ type: 'pago', data: pagos.map((p: any) => ({
             payment_form: p.formaPagoREP, date: p.fechaPago, currency: p.monedaPago,
-            exchange: p.monedaPago !== 'MXN' ? (parseFloat(p.tipoCambioPago) || 1) : undefined,
+            ...(p.monedaPago !== 'MXN' ? { exchange: parseFloat(p.tipoCambioPago) || 1 } : {}),
             ...(p.numOperacion ? { num_operation: p.numOperacion } : {}),
             related_documents: (p.docsPago || []).map((d: any) => ({
               uuid: d.uuid, amount: d.imp_pagado, installment: d.num_parcialidad, last_balance: d.imp_saldo_anterior,
               ...(d.moneda_doc && d.moneda_doc !== p.monedaPago ? { currency: d.moneda_doc, exchange: d.equivalencia_dr } : {}),
-              taxability: d.objeto_imp,
-              ...(d.objeto_imp === '02' && d.iva_trasladado > 0 ? { taxes: [{ base: d.base_dr || (d.imp_pagado - d.iva_trasladado), type: 'IVA', rate: d.iva_tasa, withholding: false }] } : {}),
+              ...(d.objeto_imp === '02' && d.iva_trasladado > 0 ? { taxes: [{ base: d.base_dr || (d.imp_pagado - d.iva_trasladado), type: 'IVA', rate: d.iva_tasa }] } : {}),
             })),
           })) }],
         }
@@ -1435,19 +1432,16 @@ function ListaEmitidas({ onNueva, onEditar }: { onNueva: () => void; onEditar?: 
         invoicePayload = {
           customer: facturapiCustomerId,
           type: 'P',
-          items: [{ quantity: 1, product: { description: 'Pago', product_key: '84111506', price: 0, unit_key: 'ACT', unit_name: 'Actividad', tax_included: false, taxes: [] } }],
-          use: 'CP01', payment_form: '99', payment_method: 'PUE', currency: 'XXX',
           complements: [{ type: 'pago', data: pagos.map((p: any) => ({
             payment_form: p.formaPagoREP,
             date: p.fechaPago,
             currency: p.monedaPago,
-            exchange: p.monedaPago !== 'MXN' ? (parseFloat(p.tipoCambioPago) || 1) : undefined,
+            ...(p.monedaPago !== 'MXN' ? { exchange: parseFloat(p.tipoCambioPago) || 1 } : {}),
             ...(p.numOperacion ? { num_operation: p.numOperacion } : {}),
             related_documents: (p.docsPago || []).map((d: any) => ({
               uuid: d.uuid, amount: d.imp_pagado, installment: d.num_parcialidad, last_balance: d.imp_saldo_anterior,
               ...(d.moneda_doc && d.moneda_doc !== p.monedaPago ? { currency: d.moneda_doc, exchange: d.equivalencia_dr } : {}),
-              taxability: d.objeto_imp,
-              ...(d.objeto_imp === '02' && d.iva_trasladado > 0 ? { taxes: [{ base: d.base_dr || (d.imp_pagado - d.iva_trasladado), type: 'IVA', rate: d.iva_tasa, withholding: false }] } : {}),
+              ...(d.objeto_imp === '02' && d.iva_trasladado > 0 ? { taxes: [{ base: d.base_dr || (d.imp_pagado - d.iva_trasladado), type: 'IVA', rate: d.iva_tasa }] } : {}),
             })),
           })) }],
         }
@@ -2395,28 +2389,11 @@ function NuevaFactura({ onCancel, onCreated, editingFactura }: { onCancel: () =>
         }
       } else {
         // REP (tipo P) — Complemento de Pagos 2.0
-        // Header: 1 item generico con clave SAT 84111506, price=0, sin impuestos
-        // Uso CFDI obligatorio: CP01 (Pagos)
-        // Forma pago header: 99 (por definir), Metodo: PUE
+        // FacturAPI arma el header (item SAT 84111506 en 0, uso CP01, moneda XXX)
+        // automáticamente. El payload SOLO lleva customer, type y complements.
         invoicePayload = {
           customer: facturapiCustomerId,
           type: 'P',
-          items: [{
-            quantity: 1,
-            product: {
-              description: 'Pago',
-              product_key: '84111506',
-              price: 0,
-              unit_key: 'ACT',
-              unit_name: 'Actividad',
-              tax_included: false,
-              taxes: [],
-            }
-          }],
-          use: 'CP01',
-          payment_form: '99',
-          payment_method: 'PUE',
-          currency: 'XXX',
           complements: [{
             type: 'pago',
             // Un REP puede llevar varios pagos (uno por cada movimiento recibido)
@@ -2424,18 +2401,17 @@ function NuevaFactura({ onCancel, onCreated, editingFactura }: { onCancel: () =>
               payment_form: p.formaPagoREP,
               date: p.fechaPago,
               currency: p.monedaPago,
-              exchange: p.monedaPago !== 'MXN' ? (parseFloat(p.tipoCambioPago) || 1) : undefined,
-                ...(p.numOperacion ? { num_operation: p.numOperacion } : {}),
-              // Nombres EXACTOS del esquema FacturAPI: amount / installment / last_balance / taxes{base,type,rate}
+              ...(p.monedaPago !== 'MXN' ? { exchange: parseFloat(p.tipoCambioPago) || 1 } : {}),
+              ...(p.numOperacion ? { num_operation: p.numOperacion } : {}),
+              // Campos EXACTOS del esquema FacturAPI: amount / installment / last_balance / taxes{base,type,rate}
               related_documents: p.docsPago.map(d => ({
                 uuid: d.uuid,
                 amount: d.imp_pagado,
                 installment: d.num_parcialidad,
                 last_balance: d.imp_saldo_anterior,
                 ...(d.moneda_doc && d.moneda_doc !== p.monedaPago ? { currency: d.moneda_doc, exchange: d.equivalencia_dr } : {}),
-                taxability: d.objeto_imp,
                 ...(d.objeto_imp === '02' && d.iva_trasladado > 0 ? {
-                  taxes: [{ base: d.base_dr, type: 'IVA', rate: d.iva_tasa, withholding: false }]
+                  taxes: [{ base: d.base_dr, type: 'IVA', rate: d.iva_tasa }]
                 } : {}),
               })),
             })),
