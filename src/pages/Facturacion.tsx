@@ -530,7 +530,6 @@ function ListaTodas({ onEditar }: { onEditar?: (f: Factura) => void } = {}) {
           complements: [{ type: 'pago', data: pagos.map((p: any) => ({
             payment_form: p.formaPagoREP, date: p.fechaPago, currency: p.monedaPago,
             exchange: p.monedaPago !== 'MXN' ? (parseFloat(p.tipoCambioPago) || 1) : undefined,
-            amount: parseFloat(p.montoPago) || 0,
             ...(p.numOperacion ? { num_operation: p.numOperacion } : {}),
             related_documents: (p.docsPago || []).map((d: any) => ({
               uuid: d.uuid, amount: d.imp_pagado, installment: d.num_parcialidad, last_balance: d.imp_saldo_anterior,
@@ -1442,7 +1441,6 @@ function ListaEmitidas({ onNueva, onEditar }: { onNueva: () => void; onEditar?: 
             date: p.fechaPago,
             currency: p.monedaPago,
             exchange: p.monedaPago !== 'MXN' ? (parseFloat(p.tipoCambioPago) || 1) : undefined,
-            amount: parseFloat(p.montoPago) || 0,
             ...(p.numOperacion ? { num_operation: p.numOperacion } : {}),
             related_documents: (p.docsPago || []).map((d: any) => ({
               uuid: d.uuid, amount: d.imp_pagado, installment: d.num_parcialidad, last_balance: d.imp_saldo_anterior,
@@ -2425,8 +2423,7 @@ function NuevaFactura({ onCancel, onCreated, editingFactura }: { onCancel: () =>
               date: p.fechaPago,
               currency: p.monedaPago,
               exchange: p.monedaPago !== 'MXN' ? (parseFloat(p.tipoCambioPago) || 1) : undefined,
-              amount: parseFloat(p.montoPago) || 0,
-              ...(p.numOperacion ? { num_operation: p.numOperacion } : {}),
+                ...(p.numOperacion ? { num_operation: p.numOperacion } : {}),
               // Nombres EXACTOS del esquema FacturAPI: amount / installment / last_balance / taxes{base,type,rate}
               related_documents: p.docsPago.map(d => ({
                 uuid: d.uuid,
