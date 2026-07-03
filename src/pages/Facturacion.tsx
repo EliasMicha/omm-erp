@@ -533,7 +533,8 @@ function ListaTodas({ onEditar }: { onEditar?: (f: Factura) => void } = {}) {
             ...(p.numOperacion ? { num_operation: p.numOperacion } : {}),
             related_documents: (p.docsPago || []).map((d: any) => ({
               uuid: d.uuid, amount: d.imp_pagado, installment: d.num_parcialidad, last_balance: d.imp_saldo_anterior,
-              currency: d.moneda_doc, exchange: d.equivalencia_dr, taxability: d.objeto_imp,
+              ...(d.moneda_doc && d.moneda_doc !== p.monedaPago ? { currency: d.moneda_doc, exchange: d.equivalencia_dr } : {}),
+              taxability: d.objeto_imp,
               ...(d.objeto_imp === '02' && d.iva_trasladado > 0 ? { taxes: [{ base: d.base_dr || (d.imp_pagado - d.iva_trasladado), type: 'IVA', rate: d.iva_tasa, withholding: false }] } : {}),
             })),
           })) }],
@@ -1444,7 +1445,8 @@ function ListaEmitidas({ onNueva, onEditar }: { onNueva: () => void; onEditar?: 
             ...(p.numOperacion ? { num_operation: p.numOperacion } : {}),
             related_documents: (p.docsPago || []).map((d: any) => ({
               uuid: d.uuid, amount: d.imp_pagado, installment: d.num_parcialidad, last_balance: d.imp_saldo_anterior,
-              currency: d.moneda_doc, exchange: d.equivalencia_dr, taxability: d.objeto_imp,
+              ...(d.moneda_doc && d.moneda_doc !== p.monedaPago ? { currency: d.moneda_doc, exchange: d.equivalencia_dr } : {}),
+              taxability: d.objeto_imp,
               ...(d.objeto_imp === '02' && d.iva_trasladado > 0 ? { taxes: [{ base: d.base_dr || (d.imp_pagado - d.iva_trasladado), type: 'IVA', rate: d.iva_tasa, withholding: false }] } : {}),
             })),
           })) }],
@@ -2430,8 +2432,7 @@ function NuevaFactura({ onCancel, onCreated, editingFactura }: { onCancel: () =>
                 amount: d.imp_pagado,
                 installment: d.num_parcialidad,
                 last_balance: d.imp_saldo_anterior,
-                currency: d.moneda_doc,
-                exchange: d.equivalencia_dr,
+                ...(d.moneda_doc && d.moneda_doc !== p.monedaPago ? { currency: d.moneda_doc, exchange: d.equivalencia_dr } : {}),
                 taxability: d.objeto_imp,
                 ...(d.objeto_imp === '02' && d.iva_trasladado > 0 ? {
                   taxes: [{ base: d.base_dr, type: 'IVA', rate: d.iva_tasa, withholding: false }]
