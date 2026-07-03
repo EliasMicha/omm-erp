@@ -911,8 +911,8 @@ function ListaTodas({ onEditar }: { onEditar?: (f: Factura) => void } = {}) {
                             {timbrandoId === f.id ? <><Loader2 size={10} style={{ animation: 'spin 1s linear infinite' }} /> Timbrando...</> : 'Timbrar'}
                           </button>
                         )}
-                        {f.facturapi_id && <a href={`/api/facturapi?action=download_pdf&id=${f.facturapi_id}`} target="_blank" rel="noopener noreferrer" style={{ color: '#A78BFA', fontSize: 10, textDecoration: 'none' }}>PDF</a>}
-                        {f.facturapi_id && <a href={`/api/facturapi?action=download_xml&id=${f.facturapi_id}`} target="_blank" rel="noopener noreferrer" style={{ color: '#A78BFA', fontSize: 10, textDecoration: 'none' }}>XML</a>}
+                        {f.facturapi_id && <a href={`/api/facturapi?action=download_pdf&mode=${(f as any).sandbox ? 'test' : 'live'}&id=${f.facturapi_id}`} target="_blank" rel="noopener noreferrer" style={{ color: '#A78BFA', fontSize: 10, textDecoration: 'none' }}>PDF</a>}
+                        {f.facturapi_id && <a href={`/api/facturapi?action=download_xml&mode=${(f as any).sandbox ? 'test' : 'live'}&id=${f.facturapi_id}`} target="_blank" rel="noopener noreferrer" style={{ color: '#A78BFA', fontSize: 10, textDecoration: 'none' }}>XML</a>}
                         {(f.status === 'borrador' || f.status === 'cancelada' || f.status === 'error') && (
                           <button onClick={() => eliminarLocal(f)} title="Eliminar del listado local" style={{ background: 'none', border: 'none', color: '#DC2626', cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center' }}>
                             <Trash2 size={13} />
@@ -1618,8 +1618,8 @@ function ListaEmitidas({ onNueva, onEditar }: { onNueva: () => void; onEditar?: 
                       {f.status === 'borrador' && !f.facturapi_id && (
                         <button onClick={() => descargarPdfBorrador(f)} style={{ background: 'none', border: 'none', color: '#D97706', cursor: 'pointer', padding: 0, fontSize: 10, fontWeight: 600, fontFamily: 'inherit' }}>PDF</button>
                       )}
-                      {f.facturapi_id && <a href={`/api/facturapi?action=download_pdf&id=${f.facturapi_id}`} target="_blank" rel="noopener noreferrer" style={{ color: '#A78BFA', fontSize: 10, textDecoration: 'none' }}>PDF</a>}
-                      {f.facturapi_id && <a href={`/api/facturapi?action=download_xml&id=${f.facturapi_id}`} target="_blank" rel="noopener noreferrer" style={{ color: '#A78BFA', fontSize: 10, textDecoration: 'none' }}>XML</a>}
+                      {f.facturapi_id && <a href={`/api/facturapi?action=download_pdf&mode=${(f as any).sandbox ? 'test' : 'live'}&id=${f.facturapi_id}`} target="_blank" rel="noopener noreferrer" style={{ color: '#A78BFA', fontSize: 10, textDecoration: 'none' }}>PDF</a>}
+                      {f.facturapi_id && <a href={`/api/facturapi?action=download_xml&mode=${(f as any).sandbox ? 'test' : 'live'}&id=${f.facturapi_id}`} target="_blank" rel="noopener noreferrer" style={{ color: '#A78BFA', fontSize: 10, textDecoration: 'none' }}>XML</a>}
                       {canCancel && (
                         <button onClick={() => setShowCancelModal(f)} disabled={cancelando === f.id} title="Cancelar CFDI en SAT" style={{ background: 'none', border: 'none', color: '#D97706', cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center' }}>
                           <Ban size={13} />
@@ -2605,10 +2605,10 @@ function NuevaFactura({ onCancel, onCreated, editingFactura }: { onCancel: () =>
           <div><span style={{ color: '#666' }}>Status:</span> <span style={{ color: '#10B981' }}>{resultado.status}</span></div>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <a href={`/api/facturapi?action=download_pdf&id=${resultado.id}`} target="_blank" rel="noopener noreferrer" style={{ padding: '8px 14px', background: '#1e1e1e', color: '#A78BFA', border: '1px solid #2a2a2a', borderRadius: 8, fontSize: 12, fontWeight: 600, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <a href={`/api/facturapi?action=download_pdf&mode=${getCurrentFacturapiMode()}&id=${resultado.id}`} target="_blank" rel="noopener noreferrer" style={{ padding: '8px 14px', background: '#1e1e1e', color: '#A78BFA', border: '1px solid #2a2a2a', borderRadius: 8, fontSize: 12, fontWeight: 600, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <Download size={12} /> Descargar PDF
           </a>
-          <a href={`/api/facturapi?action=download_xml&id=${resultado.id}`} target="_blank" rel="noopener noreferrer" style={{ padding: '8px 14px', background: '#1e1e1e', color: '#A78BFA', border: '1px solid #2a2a2a', borderRadius: 8, fontSize: 12, fontWeight: 600, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <a href={`/api/facturapi?action=download_xml&mode=${getCurrentFacturapiMode()}&id=${resultado.id}`} target="_blank" rel="noopener noreferrer" style={{ padding: '8px 14px', background: '#1e1e1e', color: '#A78BFA', border: '1px solid #2a2a2a', borderRadius: 8, fontSize: 12, fontWeight: 600, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <Download size={12} /> Descargar XML
           </a>
           <button onClick={onCreated} style={{ padding: '8px 14px', background: '#10B981', color: '#000', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
