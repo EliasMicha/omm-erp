@@ -16,8 +16,19 @@ import { createContext, useContext, useEffect, useState, ReactNode } from 'react
 import { supabase } from '../lib/supabase'
 import type { Session } from '@supabase/supabase-js'
 
-export type PermissionArea = 'DG' | 'Administracion' | 'Ventas_Ingenieria' | 'Operaciones'
+export type PermissionArea = 'DG' | 'Administracion' | 'Ventas_Ingenieria' | 'Operaciones' | 'Mantenimiento'
 export type UserNivel = 'director' | 'ejecutor'
+
+// Roles "restringidos": solo pueden ver/entrar a las rutas listadas (whitelist).
+// El resto de rutas se ocultan del menú y se bloquean por URL directa.
+// (DG siempre ve todo; las áreas que NO aparecen aquí usan la lógica de allowedAreas por ruta.)
+export const RESTRICTED_AREA_ROUTES: Partial<Record<PermissionArea, string[]>> = {
+  Mantenimiento: ['/mantenimiento', '/catalogo', '/obra'],
+}
+// Ruta "home" a la que se redirige un rol restringido si intenta abrir algo fuera de su whitelist
+export const RESTRICTED_AREA_HOME: Partial<Record<PermissionArea, string>> = {
+  Mantenimiento: '/mantenimiento',
+}
 
 export interface UserProfile {
   id: string

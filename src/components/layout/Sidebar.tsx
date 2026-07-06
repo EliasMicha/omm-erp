@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { LayoutDashboard, FileText, ClipboardList, Users, Truck, FolderOpen, Users2, BookOpen, ShoppingCart, TrendingUp, Building2, Package, Receipt, BrainCircuit, ChevronLeft, ChevronRight, Menu, X, LogOut, Shield, Wrench } from 'lucide-react'
 import { useIsMobile } from '../../lib/useIsMobile'
-import { useAuth, PermissionArea } from '../../contexts/AuthContext'
+import { useAuth, PermissionArea, RESTRICTED_AREA_ROUTES } from '../../contexts/AuthContext'
 
 /* Cada ruta tiene áreas permitidas. Si no tiene allowedAreas, todos la ven. */
 interface NavItem {
@@ -45,9 +45,12 @@ export default function Sidebar() {
 
   // Filter nav based on permissions — DG sees everything
   const filteredNav = NAV.filter(item => {
-    if (!item.allowedAreas) return true
     if (!user) return false
     if (user.permission_area === 'DG') return true
+    // Roles restringidos (ej. Mantenimiento): solo ven las rutas de su whitelist
+    const whitelist = RESTRICTED_AREA_ROUTES[user.permission_area]
+    if (whitelist) return whitelist.includes(item.to)
+    if (!item.allowedAreas) return true
     return item.allowedAreas.includes(user.permission_area)
   })
 

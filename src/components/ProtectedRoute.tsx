@@ -1,5 +1,5 @@
-import { Navigate } from 'react-router-dom'
-import { useAuth, PermissionArea } from '../contexts/AuthContext'
+import { Navigate, useLocation } from 'react-router-dom'
+import { useAuth, PermissionArea, RESTRICTED_AREA_ROUTES, RESTRICTED_AREA_HOME } from '../contexts/AuthContext'
 
 interface Props {
   children: React.ReactNode
@@ -8,6 +8,7 @@ interface Props {
 
 export default function ProtectedRoute({ children, allowedAreas }: Props) {
   const { user, loading, signOut } = useAuth()
+  const location = useLocation()
 
   if (loading) {
     return (
@@ -34,6 +35,18 @@ export default function ProtectedRoute({ children, allowedAreas }: Props) {
 
   // DG has access to everything
   if (user.permission_area === 'DG') {
+    return <>{children}</>
+  }
+
+  // Roles restringidos (ej. Mantenimiento): solo pueden abrir rutas de su whitelist.
+  // Si intentan cualquier otra ruta por URL directa, se redirigen a su home.
+  const whitelist = RESTRICTED_AREA_ROUTES[user.permission_area]
+  if (whitelist) {
+    const path = location.pathname
+    const permitido = whitelist.some(p => path === p || path.startsWith(p + '/'))
+    if (!permitido) {
+      return <Navigate to={RESTRICTED_AREA_HOME[user.permission_area] || whitelist[0]} replace />
+    }
     return <>{children}</>
   }
 
