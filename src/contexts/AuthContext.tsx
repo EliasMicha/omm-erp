@@ -23,6 +23,7 @@ export type UserNivel = 'director' | 'ejecutor'
 // El resto de rutas se ocultan del menú y se bloquean por URL directa.
 // (DG siempre ve todo; las áreas que NO aparecen aquí usan la lógica de allowedAreas por ruta.)
 export const RESTRICTED_AREA_ROUTES: Partial<Record<PermissionArea, string[]>> = {
+  // Rol Mantenimiento: solo ve estas 3 secciones (menú + bloqueo por URL directa)
   Mantenimiento: ['/mantenimiento', '/catalogo', '/obra'],
 }
 // Ruta "home" a la que se redirige un rol restringido si intenta abrir algo fuera de su whitelist
