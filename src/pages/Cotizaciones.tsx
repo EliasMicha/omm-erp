@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef, useMemo, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
+import { fetchAllActiveCatalog } from '../lib/catalog'
 import { ANTHROPIC_API_KEY } from '../lib/config'
 import { Quotation, QuotationArea, QuotationItem, CatalogProduct, Project, ProjectLine, PurchasePhase } from '../types'
 import { F, FCUR, SPECIALTY_CONFIG, STAGE_CONFIG, PHASE_CONFIG, calcItemPrice, calcItemTotal } from '../lib/utils'
@@ -961,7 +962,7 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
         supabase.from('quotations').select('*,project:projects!quotations_project_id_fkey(name,client_name)').eq('id',cotId).single(),
         supabase.from('quotation_areas').select('*').eq('quotation_id',cotId).order('order_index'),
         supabase.from('quotation_items').select('*').eq('quotation_id',cotId),
-        supabase.from('catalog_products').select('*').eq('is_active',true).order('name'),
+        fetchAllActiveCatalog().then(rows => ({ data: rows })),
         supabase.from('suppliers').select('id,name').eq('is_active',true).order('name'),
       ])
       // Reconciliación no destructiva: en cotizaciones viejas/importadas la CANTIDAD quedó en 1
@@ -1881,7 +1882,7 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
       await supabase.from('quotations').update({ total: newTotal }).eq('id', cotId)
       setCot(c => c ? { ...c, total: newTotal } : c)
       // Refresh catalog in memory
-      const { data: freshCat } = await supabase.from('catalog_products').select('*').eq('is_active', true).order('name')
+      const freshCat = await fetchAllActiveCatalog()
       if (freshCat) setCatalog(freshCat)
     }
     setAiImportResult(null)

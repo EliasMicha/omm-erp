@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { supabase } from '../lib/supabase'
+import { fetchAllActiveCatalog } from '../lib/catalog'
 import { F, STAGE_CONFIG } from '../lib/utils'
 import { Btn, Loading } from '../components/layout/UI'
 import { Plus, ChevronDown, ChevronRight, X, Trash2, Image as ImageIcon, Search, ArrowLeftRight, Sparkles, Upload, Loader2, FileText, RefreshCw, BookOpen, Pencil } from 'lucide-react'
@@ -116,8 +117,8 @@ function IlumCatalogModal({ onClose, onSelect, subsectionName }: {
 
   useEffect(() => {
     setLoading(true)
-    supabase.from('catalog_products').select('*').eq('is_active', true).eq('specialty', 'ilum').order('name')
-      .then(({ data }: any) => { setCatalog(data || []); setLoading(false) })
+    fetchAllActiveCatalog({ specialty: 'ilum' })
+      .then((data: any) => { setCatalog(data || []); setLoading(false) })
   }, [])
 
   const filtered = search.length >= 2

@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef, useMemo } from 'react'
 import { supabase } from '../lib/supabase'
+import { fetchAllActiveCatalog } from '../lib/catalog'
 import { ANTHROPIC_API_KEY } from '../lib/config'
 import { Project, CatalogProduct, ProjectLine, PurchasePhase } from '../types'
 import { F, FUSD, FCUR, SPECIALTY_CONFIG, PHASE_CONFIG, formatDate } from '../lib/utils'
@@ -2002,7 +2003,7 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
     Promise.all([
       supabase.from('purchase_orders').select('*,project:projects(name,client_name),supplier:suppliers(*)').eq('id', poId).single(),
       supabase.from('po_items').select('*').eq('purchase_order_id', poId).order('order_index'),
-      supabase.from('catalog_products').select('*').eq('is_active', true).order('name'),
+      fetchAllActiveCatalog().then(rows => ({ data: rows })),
       supabase.from('suppliers').select('*').eq('is_active', true).order('name'),
       supabase.from('projects').select('*').eq('status', 'activo').order('name'),
       supabase.from('obras').select('id,nombre,project_id').order('nombre'),

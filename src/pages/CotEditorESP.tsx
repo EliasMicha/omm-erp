@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
+import { fetchAllActiveCatalog } from '../lib/catalog'
 import { F, STAGE_CONFIG } from '../lib/utils'
 import { Badge, Btn, Loading } from '../components/layout/UI'
 import { ANTHROPIC_API_KEY } from '../lib/config'
@@ -1323,9 +1324,8 @@ function CatalogModal({ onClose, onSelect, onCreateNew, onSelectBundle, systemNa
 
   useEffect(() => {
     setLoading(true)
-    let q: any = supabase.from('catalog_products').select('*').eq('is_active', true)
-    if (!showAll) q = q.eq('specialty', 'esp')
-    q.order('name').then(({ data }: any) => { setCatalog(data || []); setLoading(false) })
+    fetchAllActiveCatalog(showAll ? undefined : { specialty: 'esp' })
+      .then((data: any) => { setCatalog(data || []); setLoading(false) })
   }, [showAll])
 
   useEffect(() => {
