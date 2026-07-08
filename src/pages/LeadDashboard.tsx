@@ -570,7 +570,9 @@ export default function LeadDashboard() {
             grandTotal += sysFinal
           })
         } else if (totalAlreadyHasIva) {
-          const qTotal = Number(q.total) || 0
+          // Fuente canónica: total_final (monto final con descuento + IVA), igual que las tarjetas.
+          // Antes usaba q.total (subtotal sin el cálculo final) → el total no cuadraba con las tarjetas.
+          const qTotal = quoteFinalConIva(q)
           const sys = q.name || q.specialty
           if (!systemTotals[sys]) systemTotals[sys] = { subtotal: 0, items: 0 }
           systemTotals[sys].subtotal += qTotal
