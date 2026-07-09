@@ -953,7 +953,7 @@ export default function CRM() {
   // moneda de display se hace al render con el tipo de cambio actual.
   const [quoteTotals, setQuoteTotals] = useState<Record<string, { cotizadoUSD: number; cotizadoMXN: number; vendidoUSD: number; vendidoMXN: number }>>({})
   const [displayCur, setDisplayCur] = useState<'USD' | 'MXN'>('MXN')
-  const [tc, setTc] = useState(20.5)
+  const [tc, setTc] = useState(18)
   const [filterYear, setFilterYear] = useState<number | 'todos'>(new Date().getFullYear())
   // Mapeo de cobros por lead (suma de cash_movements tipo cobro_cliente)
   const [cobrosByLead, setCobrosByLead] = useState<Record<string, number>>({})
@@ -1023,7 +1023,7 @@ export default function CRM() {
           const leadId = resolveLeadForBankMov(m)
           // Convertir USD → MXN para consistencia (CRM usa MXN como base)
           const montoMXN = (m.moneda || 'MXN').toUpperCase() === 'USD'
-            ? Number(m.monto || 0) * 20.5
+            ? Number(m.monto || 0) * 18
             : Number(m.monto || 0)
           addCobro(leadId, montoMXN, m.fecha)
         })
@@ -1266,7 +1266,7 @@ Devuelve solo el JSON, sin explicaciones. Si no hay filtro para un campo, omitel
           }}>{cur === 'USD' ? '🇺🇸 USD' : '🇲🇽 MXN'}</button>
         ))}
         <span style={{ fontSize: 10, color: '#555', marginLeft: 8 }}>TC:</span>
-        <input type="number" value={tc} step={0.1} onChange={e => setTc(parseFloat(e.target.value) || 20)}
+        <input type="number" value={tc} step={0.1} onChange={e => setTc(parseFloat(e.target.value) || 18)}
           style={{ width: 55, padding: '3px 6px', background: '#1a1a1a', border: '1px solid #333', borderRadius: 4, color: '#ccc', fontSize: 11, fontFamily: 'inherit', textAlign: 'right' }} />
         <span style={{ fontSize: 10, color: '#444' }}>Estimados en MXN · Cotizados en USD</span>
       </div>
