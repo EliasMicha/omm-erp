@@ -1815,10 +1815,10 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
   // ── Prorrateo de un pago entre varias cotizaciones (payment_allocations) ──
   // La tabla payment_allocations (bank_movement_id, quotation_id, monto) ya la lee
   // el CRM para el saldo por cotización. Aquí la poblamos desde conciliación.
-  interface PayAlloc { id: string; bank_movement_id: string; quotation_id: string; monto: number; nota?: string }
+  interface PayAlloc { id: string; bank_movement_id: string; quotation_id: string; monto: number; nota?: string; tc_aplicado?: number | null; monto_origen?: number | null; moneda_origen?: string | null }
   const [payAllocs, setPayAllocs] = useState<PayAlloc[]>([])
-  // Borradores editables del prorrateo por movimiento: [{quotation_id, monto}]
-  const [allocDraft, setAllocDraft] = useState<Record<string, { quotation_id: string; monto: number }[]>>({})
+  // Borradores editables del prorrateo por movimiento: [{quotation_id, monto (en moneda del movimiento), tc}]
+  const [allocDraft, setAllocDraft] = useState<Record<string, { quotation_id: string; monto: number; tc?: number }[]>>({})
   const [savingAlloc, setSavingAlloc] = useState<string | null>(null)
   useEffect(() => {
     supabase.from('payment_allocations').select('*').then(({ data }) => {
@@ -1834,8 +1834,16 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
       return { ...prev, [movId]: existing }
     })
   }
-  const setDraftRows = (movId: string, rows: { quotation_id: string; monto: number }[]) =>
+  const setDraftRows = (movId: string, rows: { quotation_id: string; monto: number; tc?: number }[]) =>
     setAllocDraft(prev => ({ ...prev, [movId]: rows }))
+  const curOf = (moneda: any): 'USD' | 'MXN' => (String(moneda || 'MXN').toUpperCase() === 'USD' ? 'USD' : 'MXN')
+  // Convierte el monto (en moneda del movimiento) a la moneda de la cotización usando el TC
+  const convertirAMonedaCot = (montoOrigen: number, movCur: 'USD' | 'MXN', qCur: 'USD' | 'MXN', tc: number): number => {
+    if (qCur === movCur) return montoOrigen
+    if (qCur === 'USD' && movCur === 'MXN') return tc > 0 ? Math.round((montoOrigen / tc) * 100) / 100 : 0
+    if (qCur === 'MXN' && movCur === 'USD') return Math.round((montoOrigen * tc) * 100) / 100
+    return montoOrigen
+  }
   // Reparte el monto del movimiento proporcional al total de cada cotización seleccionada
   const prorratearAuto = (movId: string, montoMov: number, quotesById: Map<string, any>, rows: { quotation_id: string; monto: number }[]) => {
     if (rows.length === 0) return
@@ -1856,15 +1864,32 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
     }
     setDraftRows(movId, nuevos)
   }
-  const guardarProrrateo = async (movId: string, leadId: string | null) => {
+  const guardarProrrateo = async (movId: string, mov: any, quotesById: Map<string, any>) => {
+    const movCur = curOf(mov.moneda)
+    const rows = (allocDraft[movId] || []).filter(r => r.quotation_id && (Number(r.monto) || 0) !== 0)
+    // Validación: si el cobro se adjudica a una cotización en otra moneda, el TC es OBLIGATORIO
+    for (const r of rows) {
+      const q = quotesById.get(r.quotation_id)
+      const qCur = curOf(q?.currency)
+      if (qCur !== movCur && !(Number(r.tc) > 0)) {
+        alert(`Captura el tipo de cambio para la cotización "${q?.name || ''}" — el cobro es en ${movCur} y la cotización en ${qCur}.`)
+        return
+      }
+    }
     setSavingAlloc(movId)
     try {
-      const rows = (allocDraft[movId] || []).filter(r => r.quotation_id && (Number(r.monto) || 0) !== 0)
       // Reemplazo total: borrar lo previo del movimiento e insertar el borrador
       await supabase.from('payment_allocations').delete().eq('bank_movement_id', movId)
       let inserted: PayAlloc[] = []
       if (rows.length > 0) {
-        const payload = rows.map(r => ({ bank_movement_id: movId, quotation_id: r.quotation_id, monto: Number(r.monto) || 0 }))
+        const payload = rows.map(r => {
+          const q = quotesById.get(r.quotation_id)
+          const qCur = curOf(q?.currency)
+          const origen = Number(r.monto) || 0
+          const tc = qCur !== movCur ? (Number(r.tc) || 0) : null
+          const montoConv = convertirAMonedaCot(origen, movCur, qCur, tc || 0)
+          return { bank_movement_id: movId, quotation_id: r.quotation_id, monto: montoConv, monto_origen: origen, moneda_origen: movCur, tc_aplicado: tc }
+        })
         const { data, error } = await supabase.from('payment_allocations').insert(payload).select()
         if (error) { alert('Error al guardar prorrateo: ' + error.message); return }
         inserted = (data as PayAlloc[]) || []
@@ -1874,7 +1899,7 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
       // Compat: si hay 1 cotización, deja quotation_id en el movimiento; si hay varias, null
       const primaryQuote = rows.length === 1 ? rows[0].quotation_id : null
       const bmUpdates: any = { quotation_id: primaryQuote }
-      if (leadId) bmUpdates.lead_id = leadId
+      if (mov.lead_id) bmUpdates.lead_id = mov.lead_id
       await supabase.from('bank_movements').update(bmUpdates).eq('id', movId)
       setBankMovements(prev => prev.map(bm => bm.id === movId ? { ...bm, ...bmUpdates } : bm))
     } finally {
@@ -3696,13 +3721,15 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
 
                             {/* Prorrateo entre varias cotizaciones (payment_allocations) */}
                             {m.lead_id && (() => {
-                              const draft = allocDraft[m.id] ?? getAllocsForMov(m.id).map(a => ({ quotation_id: a.quotation_id, monto: Number(a.monto) || 0 }))
+                              const draft = allocDraft[m.id] ?? getAllocsForMov(m.id).map(a => ({ quotation_id: a.quotation_id, monto: Number(a.monto_origen ?? a.monto) || 0, tc: a.tc_aplicado ?? undefined }))
                               const quotesById = new Map(filteredQuotes.map(q => [q.id, q]))
+                              const movCur = curOf(m.moneda)
                               const montoMov = Math.abs(Number(m.monto) || 0)
                               const sumAlloc = Math.round(draft.reduce((s, r) => s + (Number(r.monto) || 0), 0) * 100) / 100
                               const diff = Math.round((montoMov - sumAlloc) * 100) / 100
                               const available = filteredQuotes.filter(q => !draft.some(r => r.quotation_id === q.id))
                               const cuadra = Math.abs(diff) < 0.01
+                              const faltaTc = draft.some(r => { const q = quotesById.get(r.quotation_id); return q && curOf(q.currency) !== movCur && !(Number(r.tc) > 0) })
                               const savedCount = getAllocsForMov(m.id).length
                               const isSavingA = savingAlloc === m.id
                               const mono: React.CSSProperties = { fontFamily: 'monospace' }
@@ -3711,22 +3738,35 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
                                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
                                     <span style={{ fontSize: 10, color: '#888', textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 600 }}>Prorrateo entre cotizaciones</span>
                                     {draft.length > 0 && <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 3, background: cuadra ? '#22c55e22' : '#eab30822', color: cuadra ? '#22c55e' : '#eab308', fontWeight: 600 }}>{cuadra ? 'Cuadra' : `Restante ${F(diff)}`}</span>}
+                                    {faltaTc && <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 3, background: '#ef444422', color: '#ef4444', fontWeight: 600 }}>Falta TC</span>}
                                     {savedCount > 1 && <span style={{ fontSize: 10, color: '#666' }}>({savedCount} cotizaciones guardadas)</span>}
                                     {isSavingA && <span style={{ fontSize: 10, color: '#888' }}>guardando...</span>}
                                   </div>
-                                  <div style={{ fontSize: 10, color: '#666', marginBottom: 8 }}>Asigna este pago de <b style={{ color: '#aaa' }}>{F(montoMov)}</b> a una o varias cotizaciones. Se reparte proporcional al total de cada una (editable).</div>
+                                  <div style={{ fontSize: 10, color: '#666', marginBottom: 8 }}>Asigna este pago de <b style={{ color: '#aaa' }}>{F(montoMov)} {movCur}</b> a una o varias cotizaciones (montos en {movCur}). Si la cotización está en otra moneda, captura el <b style={{ color: '#aaa' }}>tipo de cambio</b> acordado.</div>
 
                                   {draft.map((r, idx) => {
                                     const q = quotesById.get(r.quotation_id)
+                                    const qCur = curOf(q?.currency)
+                                    const cruce = q && qCur !== movCur
+                                    const convertido = cruce ? convertirAMonedaCot(Number(r.monto) || 0, movCur, qCur, Number(r.tc) || 0) : null
                                     return (
-                                      <div key={r.quotation_id} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                                        <span style={{ flex: 1, fontSize: 11, color: '#ddd', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                      <div key={r.quotation_id} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6, flexWrap: 'wrap' }}>
+                                        <span style={{ flex: '1 1 180px', fontSize: 11, color: '#ddd', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                           {q ? `${q.name}${q.specialty ? ` (${q.specialty})` : ''}` : r.quotation_id.slice(0, 8)}
-                                          {q?.total ? <span style={{ color: '#666' }}> · total {F(q.total)}</span> : null}
+                                          <span style={{ color: cruce ? '#eab308' : '#666' }}> · {qCur}{q?.total ? ` ${F(q.total)}` : ''}</span>
                                         </span>
-                                        <input type="number" step="0.01" value={r.monto}
+                                        <input type="number" step="0.01" value={r.monto} title={`Monto en ${movCur}`}
                                           onChange={e => { const v = parseFloat(e.target.value) || 0; setDraftRows(m.id, draft.map((x, i) => i === idx ? { ...x, monto: v } : x)) }}
-                                          style={{ ...mono, width: 120, background: '#1a1a1a', color: '#fff', border: '1px solid #2a2a2a', borderRadius: 4, padding: '4px 6px', fontSize: 11, textAlign: 'right' }} />
+                                          style={{ ...mono, width: 110, background: '#1a1a1a', color: '#fff', border: '1px solid #2a2a2a', borderRadius: 4, padding: '4px 6px', fontSize: 11, textAlign: 'right' }} />
+                                        {cruce && (
+                                          <>
+                                            <input type="number" step="0.0001" value={r.tc ?? ''} placeholder="TC"
+                                              title="Tipo de cambio acordado con el cliente"
+                                              onChange={e => { const v = parseFloat(e.target.value) || 0; setDraftRows(m.id, draft.map((x, i) => i === idx ? { ...x, tc: v } : x)) }}
+                                              style={{ ...mono, width: 70, background: (Number(r.tc) > 0 ? '#1a1a1a' : '#2a1414'), color: '#fff', border: '1px solid ' + (Number(r.tc) > 0 ? '#2a2a2a' : '#7a2a2a'), borderRadius: 4, padding: '4px 6px', fontSize: 11, textAlign: 'right' }} />
+                                            <span style={{ ...mono, fontSize: 10, color: '#10B981', minWidth: 90, textAlign: 'right' }}>= {convertido != null && convertido > 0 ? F(convertido) + ' ' + qCur : '—'}</span>
+                                          </>
+                                        )}
                                         <button onClick={() => setDraftRows(m.id, draft.filter((_, i) => i !== idx))}
                                           style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', padding: 0 }} title="Quitar"><X size={13} /></button>
                                       </div>
@@ -3747,8 +3787,8 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
                                       style={{ background: '#1e1e1e', color: draft.length ? '#10B981' : '#555', border: '1px solid #10B98144', borderRadius: 5, padding: '5px 10px', fontSize: 11, fontWeight: 600, cursor: draft.length ? 'pointer' : 'not-allowed' }}>
                                       ⟳ Prorratear {F(montoMov)}
                                     </button>
-                                    <button onClick={() => guardarProrrateo(m.id, m.lead_id || null)} disabled={isSavingA}
-                                      style={{ background: cuadra ? '#10B981' : '#1e1e1e', color: cuadra ? '#000' : '#ccc', border: cuadra ? 'none' : '1px solid #2a2a2a', borderRadius: 5, padding: '5px 12px', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
+                                    <button onClick={() => guardarProrrateo(m.id, m, quotesById)} disabled={isSavingA || faltaTc}
+                                      style={{ background: (cuadra && !faltaTc) ? '#10B981' : '#1e1e1e', color: (cuadra && !faltaTc) ? '#000' : '#ccc', border: (cuadra && !faltaTc) ? 'none' : '1px solid #2a2a2a', borderRadius: 5, padding: '5px 12px', fontSize: 11, fontWeight: 700, cursor: faltaTc ? 'not-allowed' : 'pointer' }}>
                                       Guardar prorrateo
                                     </button>
                                   </div>

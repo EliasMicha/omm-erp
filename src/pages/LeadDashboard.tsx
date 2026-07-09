@@ -289,7 +289,11 @@ export default function LeadDashboard() {
     const items: { date: string; concepto: string; monto: number; cur: string; tc?: number; source: 'prorrateo' | 'banco' | 'efectivo' }[] = []
     paymentAllocations.filter((pa: any) => pa.quotation_id === qId).forEach((pa: any) => {
       const mov = bankMovements.find((m: any) => m.id === pa.bank_movement_id)
-      items.push({ date: mov?.fecha || '', concepto: mov?.concepto || 'Pago (prorrateo)', monto: Number(pa.monto) || 0, cur, tc: mov?.tipo_cambio, source: 'prorrateo' })
+      // Si el cobro fue en otra moneda, mostrar el origen y el TC acordado
+      const extra = (pa.tc_aplicado && pa.monto_origen)
+        ? ` · ${Math.round(Number(pa.monto_origen)).toLocaleString('es-MX')} ${pa.moneda_origen || ''} @ TC ${pa.tc_aplicado}`
+        : ''
+      items.push({ date: mov?.fecha || '', concepto: (mov?.concepto || 'Pago (prorrateo)') + extra, monto: Number(pa.monto) || 0, cur, tc: pa.tc_aplicado || mov?.tipo_cambio, source: 'prorrateo' })
     })
     bankMovements.filter((m: any) => m.tipo === 'abono' && m.quotation_id === qId && !allocMovIds.has(m.id) && (m.moneda || 'MXN') === cur)
       .forEach((m: any) => items.push({ date: m.fecha || '', concepto: m.concepto || 'Transferencia', monto: Number(m.monto) || 0, cur, tc: m.tipo_cambio, source: 'banco' }))
