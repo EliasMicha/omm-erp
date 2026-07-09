@@ -286,19 +286,18 @@ export default function LeadDashboard() {
   // Se evita doble conteo: un movimiento con prorrateo ya no se cuenta por su quotation_id.
   function getPagosDeCotizacion(qId: string, cur: string) {
     const allocMovIds = new Set(paymentAllocations.map((pa: any) => pa.bank_movement_id))
-    const items: { date: string; concepto: string; monto: number; cur: string; tc?: number; source: 'prorrateo' | 'banco' | 'efectivo' }[] = []
+    // montoOrigen/monedaOrigen/tc: cuando el cobro fue en otra moneda (ej. MXN) y se
+    // adjudicó a una cotización en USD con un TC acordado. monto = monto YA convertido.
+    const items: { date: string; concepto: string; monto: number; cur: string; tc?: number | null; montoOrigen?: number | null; monedaOrigen?: string | null; source: 'prorrateo' | 'banco' | 'efectivo' }[] = []
     paymentAllocations.filter((pa: any) => pa.quotation_id === qId).forEach((pa: any) => {
       const mov = bankMovements.find((m: any) => m.id === pa.bank_movement_id)
-      // Si el cobro fue en otra moneda, mostrar el origen y el TC acordado
-      const extra = (pa.tc_aplicado && pa.monto_origen)
-        ? ` · ${Math.round(Number(pa.monto_origen)).toLocaleString('es-MX')} ${pa.moneda_origen || ''} @ TC ${pa.tc_aplicado}`
-        : ''
-      items.push({ date: mov?.fecha || '', concepto: (mov?.concepto || 'Pago (prorrateo)') + extra, monto: Number(pa.monto) || 0, cur, tc: pa.tc_aplicado || mov?.tipo_cambio, source: 'prorrateo' })
+      const cruce = pa.tc_aplicado && pa.monto_origen && pa.moneda_origen && pa.moneda_origen !== cur
+      items.push({ date: mov?.fecha || '', concepto: mov?.concepto || 'Pago (prorrateo)', monto: Number(pa.monto) || 0, cur, source: 'prorrateo', tc: cruce ? Number(pa.tc_aplicado) : null, montoOrigen: cruce ? Number(pa.monto_origen) : null, monedaOrigen: cruce ? pa.moneda_origen : null })
     })
     bankMovements.filter((m: any) => m.tipo === 'abono' && m.quotation_id === qId && !allocMovIds.has(m.id) && (m.moneda || 'MXN') === cur)
-      .forEach((m: any) => items.push({ date: m.fecha || '', concepto: m.concepto || 'Transferencia', monto: Number(m.monto) || 0, cur, tc: m.tipo_cambio, source: 'banco' }))
+      .forEach((m: any) => items.push({ date: m.fecha || '', concepto: m.concepto || 'Transferencia', monto: Number(m.monto) || 0, cur, source: 'banco', tc: null, montoOrigen: null, monedaOrigen: null }))
     cashMovements.filter((m: any) => m.tipo === 'cobro_cliente' && m.quotation_id === qId && !allocMovIds.has(m.id) && (m.moneda || 'MXN') === cur)
-      .forEach((m: any) => items.push({ date: m.fecha || '', concepto: '💵 ' + (m.concepto || m.persona || 'Efectivo'), monto: Number(m.monto) || 0, cur, source: 'efectivo' }))
+      .forEach((m: any) => items.push({ date: m.fecha || '', concepto: '💵 ' + (m.concepto || m.persona || 'Efectivo'), monto: Number(m.monto) || 0, cur, source: 'efectivo', tc: null, montoOrigen: null, monedaOrigen: null }))
     return items.sort((a, b) => (a.date || '').localeCompare(b.date || ''))
   }
 
@@ -475,14 +474,21 @@ export default function LeadDashboard() {
         doc.text('FECHA', M + 6, y + 2); doc.text('CONCEPTO', M + 28, y + 2); doc.text('ORIGEN', RIGHT - 34, y + 2, { align: 'right' }); doc.text('MONTO', RIGHT - 3, y + 2, { align: 'right' })
         y += 4
         pagos.forEach((p, i) => {
-          checkPage(5.4)
-          if (i % 2 === 1) { setFill(ZEBRA); doc.rect(M + 3, y, RIGHT - M - 3, 5.2, 'F') }
+          const cruce = !!(p.tc && p.montoOrigen && p.monedaOrigen)
+          const rh = cruce ? 9 : 5.2
+          checkPage(rh)
+          if (i % 2 === 1) { setFill(ZEBRA); doc.rect(M + 3, y, RIGHT - M - 3, rh, 'F') }
           setTxt(GRAY); doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5)
           doc.text(p.date || '—', M + 6, y + 3.6)
           setTxt([70, 70, 70]); doc.text((p.concepto || '').replace(/💵 /, '').substring(0, 46), M + 28, y + 3.6)
           setTxt([160, 160, 160]); doc.setFontSize(6.5); doc.text(p.source.toUpperCase(), RIGHT - 34, y + 3.6, { align: 'right' })
           setTxt(GREEN); doc.setFont('helvetica', 'bold'); doc.setFontSize(8); doc.text(money(p.monto, p.cur), RIGHT - 3, y + 3.6, { align: 'right' })
-          y += 5.2
+          // Segunda línea: cobro en otra moneda con su TC acordado
+          if (cruce) {
+            setTxt([150, 150, 150]); doc.setFont('helvetica', 'normal'); doc.setFontSize(6.8)
+            doc.text(`Cobro en ${money(p.montoOrigen as number, p.monedaOrigen as string)} ${p.monedaOrigen}  ·  TC acordado ${p.tc}  →  ${money(p.monto, p.cur)}`, M + 28, y + 7.4)
+          }
+          y += rh
         })
         // ── Pie: avance de cobro + por cobrar ──
         y += 2
@@ -647,15 +653,35 @@ export default function LeadDashboard() {
           systemTotals[sys].items += quotItems.filter(i => i.quotation_id === q.id).length
           grandTotal += qTotal
         } else {
+          // elec u otros: distribuir el total_final (con descuento + IVA) proporcional por
+          // sistema. Antes sumaba items×1.16 SIN el descuento → inflaba el total vs la tarjeta.
           const qItems = quotItems.filter(i => i.quotation_id === q.id)
+          const qFinal = quoteFinalConIva(q)
+          const rawTotal = qItems.reduce((s, i) => s + (Number(i.total) || 0), 0)
+          const sysRaw: Record<string, { raw: number; count: number }> = {}
           qItems.forEach(item => {
             const sys = item.system || 'Sin sistema'
-            if (!systemTotals[sys]) systemTotals[sys] = { subtotal: 0, items: 0 }
-            const itemTotal = (Number(item.total) || 0) * 1.16
-            systemTotals[sys].subtotal += itemTotal
-            systemTotals[sys].items += (item.quantity || 1)
-            grandTotal += itemTotal
+            if (!sysRaw[sys]) sysRaw[sys] = { raw: 0, count: 0 }
+            sysRaw[sys].raw += Number(item.total) || 0
+            sysRaw[sys].count += (item.quantity || 1)
           })
+          const sysKeys = Object.keys(sysRaw)
+          if (sysKeys.length === 0) {
+            // Sin items: una sola entrada con el nombre de la cotización
+            const sys = q.name || q.specialty
+            if (!systemTotals[sys]) systemTotals[sys] = { subtotal: 0, items: 0 }
+            systemTotals[sys].subtotal += qFinal
+            grandTotal += qFinal
+          } else {
+            sysKeys.forEach(sys => {
+              const data = sysRaw[sys]
+              const sysFinal = rawTotal > 0 ? qFinal * (data.raw / rawTotal) : (sysKeys.length === 1 ? qFinal : 0)
+              if (!systemTotals[sys]) systemTotals[sys] = { subtotal: 0, items: 0 }
+              systemTotals[sys].subtotal += sysFinal
+              systemTotals[sys].items += data.count
+              grandTotal += sysFinal
+            })
+          }
         }
       })
 
@@ -1050,11 +1076,18 @@ export default function LeadDashboard() {
                         </span>
                       </div>
                       {pagos.map((p, i) => (
-                        <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 11, color: '#aaa', padding: '3px 0', borderTop: i === 0 ? '1px solid #1c1c1c' : 'none' }}>
-                          <span style={{ color: '#777', fontFamily: 'monospace', minWidth: 82 }}>{p.date || '—'}</span>
-                          <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.concepto}</span>
-                          <span style={{ fontSize: 9, color: '#666', textTransform: 'uppercase', alignSelf: 'center' }}>{p.source}</span>
-                          <span style={{ color: '#10B981', fontWeight: 600, minWidth: 90, textAlign: 'right' }}>{FCUR(p.monto, p.cur)}</span>
+                        <div key={i} style={{ padding: '3px 0', borderTop: i === 0 ? '1px solid #1c1c1c' : 'none' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 11, color: '#aaa' }}>
+                            <span style={{ color: '#777', fontFamily: 'monospace', minWidth: 82 }}>{p.date || '—'}</span>
+                            <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.concepto}</span>
+                            <span style={{ fontSize: 9, color: '#666', textTransform: 'uppercase', alignSelf: 'center' }}>{p.source}</span>
+                            <span style={{ color: '#10B981', fontWeight: 600, minWidth: 90, textAlign: 'right' }}>{FCUR(p.monto, p.cur)}</span>
+                          </div>
+                          {p.tc && p.montoOrigen && p.monedaOrigen && (
+                            <div style={{ fontSize: 9.5, color: '#8a8a8a', paddingLeft: 90, marginTop: 1 }}>
+                              Cobro en {FCUR(p.montoOrigen, p.monedaOrigen)} {p.monedaOrigen} · TC acordado {p.tc} → {FCUR(p.monto, p.cur)}
+                            </div>
+                          )}
                         </div>
                       ))}
                     </div>
