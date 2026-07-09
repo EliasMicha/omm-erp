@@ -1812,6 +1812,76 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
     })
   }, [])
 
+  // ── Prorrateo de un pago entre varias cotizaciones (payment_allocations) ──
+  // La tabla payment_allocations (bank_movement_id, quotation_id, monto) ya la lee
+  // el CRM para el saldo por cotización. Aquí la poblamos desde conciliación.
+  interface PayAlloc { id: string; bank_movement_id: string; quotation_id: string; monto: number; nota?: string }
+  const [payAllocs, setPayAllocs] = useState<PayAlloc[]>([])
+  // Borradores editables del prorrateo por movimiento: [{quotation_id, monto}]
+  const [allocDraft, setAllocDraft] = useState<Record<string, { quotation_id: string; monto: number }[]>>({})
+  const [savingAlloc, setSavingAlloc] = useState<string | null>(null)
+  useEffect(() => {
+    supabase.from('payment_allocations').select('*').then(({ data }) => {
+      if (data) setPayAllocs(data as PayAlloc[])
+    })
+  }, [])
+  const getAllocsForMov = (movId: string) => payAllocs.filter(a => a.bank_movement_id === movId)
+  // Inicializa el borrador del movimiento desde lo ya guardado (una sola vez)
+  const ensureAllocDraft = (movId: string) => {
+    setAllocDraft(prev => {
+      if (prev[movId]) return prev
+      const existing = payAllocs.filter(a => a.bank_movement_id === movId).map(a => ({ quotation_id: a.quotation_id, monto: Number(a.monto) || 0 }))
+      return { ...prev, [movId]: existing }
+    })
+  }
+  const setDraftRows = (movId: string, rows: { quotation_id: string; monto: number }[]) =>
+    setAllocDraft(prev => ({ ...prev, [movId]: rows }))
+  // Reparte el monto del movimiento proporcional al total de cada cotización seleccionada
+  const prorratearAuto = (movId: string, montoMov: number, quotesById: Map<string, any>, rows: { quotation_id: string; monto: number }[]) => {
+    if (rows.length === 0) return
+    const pesos = rows.map(r => Math.max(0, Number(quotesById.get(r.quotation_id)?.total) || 0))
+    const sumaPesos = pesos.reduce((s, p) => s + p, 0)
+    let asignado = 0
+    const nuevos = rows.map((r, i) => {
+      let monto: number
+      if (sumaPesos > 0) monto = Math.round(montoMov * (pesos[i] / sumaPesos) * 100) / 100
+      else monto = Math.round((montoMov / rows.length) * 100) / 100 // sin totales → partes iguales
+      asignado += monto
+      return { ...r, monto }
+    })
+    // Ajustar el redondeo en el último renglón para que la suma cuadre exacto
+    if (nuevos.length > 0) {
+      const diff = Math.round((montoMov - asignado) * 100) / 100
+      nuevos[nuevos.length - 1].monto = Math.round((nuevos[nuevos.length - 1].monto + diff) * 100) / 100
+    }
+    setDraftRows(movId, nuevos)
+  }
+  const guardarProrrateo = async (movId: string, leadId: string | null) => {
+    setSavingAlloc(movId)
+    try {
+      const rows = (allocDraft[movId] || []).filter(r => r.quotation_id && (Number(r.monto) || 0) !== 0)
+      // Reemplazo total: borrar lo previo del movimiento e insertar el borrador
+      await supabase.from('payment_allocations').delete().eq('bank_movement_id', movId)
+      let inserted: PayAlloc[] = []
+      if (rows.length > 0) {
+        const payload = rows.map(r => ({ bank_movement_id: movId, quotation_id: r.quotation_id, monto: Number(r.monto) || 0 }))
+        const { data, error } = await supabase.from('payment_allocations').insert(payload).select()
+        if (error) { alert('Error al guardar prorrateo: ' + error.message); return }
+        inserted = (data as PayAlloc[]) || []
+      }
+      // Sincroniza el state global de allocations
+      setPayAllocs(prev => [...prev.filter(a => a.bank_movement_id !== movId), ...inserted])
+      // Compat: si hay 1 cotización, deja quotation_id en el movimiento; si hay varias, null
+      const primaryQuote = rows.length === 1 ? rows[0].quotation_id : null
+      const bmUpdates: any = { quotation_id: primaryQuote }
+      if (leadId) bmUpdates.lead_id = leadId
+      await supabase.from('bank_movements').update(bmUpdates).eq('id', movId)
+      setBankMovements(prev => prev.map(bm => bm.id === movId ? { ...bm, ...bmUpdates } : bm))
+    } finally {
+      setSavingAlloc(null)
+    }
+  }
+
   // Helper para extraer lead_id desde el JSON notes de una cotización
   function extractLeadId(q: any): string {
     let lead_id = ''
@@ -3623,6 +3693,68 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
                                 />
                               </div>
                             </div>
+
+                            {/* Prorrateo entre varias cotizaciones (payment_allocations) */}
+                            {m.lead_id && (() => {
+                              const draft = allocDraft[m.id] ?? getAllocsForMov(m.id).map(a => ({ quotation_id: a.quotation_id, monto: Number(a.monto) || 0 }))
+                              const quotesById = new Map(filteredQuotes.map(q => [q.id, q]))
+                              const montoMov = Math.abs(Number(m.monto) || 0)
+                              const sumAlloc = Math.round(draft.reduce((s, r) => s + (Number(r.monto) || 0), 0) * 100) / 100
+                              const diff = Math.round((montoMov - sumAlloc) * 100) / 100
+                              const available = filteredQuotes.filter(q => !draft.some(r => r.quotation_id === q.id))
+                              const cuadra = Math.abs(diff) < 0.01
+                              const savedCount = getAllocsForMov(m.id).length
+                              const isSavingA = savingAlloc === m.id
+                              const mono: React.CSSProperties = { fontFamily: 'monospace' }
+                              return (
+                                <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px dashed #2a2a2a' }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                                    <span style={{ fontSize: 10, color: '#888', textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 600 }}>Prorrateo entre cotizaciones</span>
+                                    {draft.length > 0 && <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 3, background: cuadra ? '#22c55e22' : '#eab30822', color: cuadra ? '#22c55e' : '#eab308', fontWeight: 600 }}>{cuadra ? 'Cuadra' : `Restante ${F(diff)}`}</span>}
+                                    {savedCount > 1 && <span style={{ fontSize: 10, color: '#666' }}>({savedCount} cotizaciones guardadas)</span>}
+                                    {isSavingA && <span style={{ fontSize: 10, color: '#888' }}>guardando...</span>}
+                                  </div>
+                                  <div style={{ fontSize: 10, color: '#666', marginBottom: 8 }}>Asigna este pago de <b style={{ color: '#aaa' }}>{F(montoMov)}</b> a una o varias cotizaciones. Se reparte proporcional al total de cada una (editable).</div>
+
+                                  {draft.map((r, idx) => {
+                                    const q = quotesById.get(r.quotation_id)
+                                    return (
+                                      <div key={r.quotation_id} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                                        <span style={{ flex: 1, fontSize: 11, color: '#ddd', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                          {q ? `${q.name}${q.specialty ? ` (${q.specialty})` : ''}` : r.quotation_id.slice(0, 8)}
+                                          {q?.total ? <span style={{ color: '#666' }}> · total {F(q.total)}</span> : null}
+                                        </span>
+                                        <input type="number" step="0.01" value={r.monto}
+                                          onChange={e => { const v = parseFloat(e.target.value) || 0; setDraftRows(m.id, draft.map((x, i) => i === idx ? { ...x, monto: v } : x)) }}
+                                          style={{ ...mono, width: 120, background: '#1a1a1a', color: '#fff', border: '1px solid #2a2a2a', borderRadius: 4, padding: '4px 6px', fontSize: 11, textAlign: 'right' }} />
+                                        <button onClick={() => setDraftRows(m.id, draft.filter((_, i) => i !== idx))}
+                                          style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', padding: 0 }} title="Quitar"><X size={13} /></button>
+                                      </div>
+                                    )
+                                  })}
+
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
+                                    <div style={{ flex: '1 1 200px', minWidth: 160 }}>
+                                      <SearchSelect
+                                        value=""
+                                        options={available.map(q => ({ id: q.id, label: `${q.name}${q.specialty ? ` (${q.specialty})` : ''}${q.total ? ` - ${F(q.total)} ${q.currency || ''}` : ''}` }))}
+                                        placeholder={available.length === 0 ? 'No hay más cotizaciones del lead' : '＋ Agregar cotización...'}
+                                        disabled={isSavingA || available.length === 0}
+                                        onChange={val => { if (val) setDraftRows(m.id, [...draft, { quotation_id: val, monto: 0 }]) }}
+                                      />
+                                    </div>
+                                    <button onClick={() => prorratearAuto(m.id, montoMov, quotesById, draft)} disabled={isSavingA || draft.length === 0}
+                                      style={{ background: '#1e1e1e', color: draft.length ? '#10B981' : '#555', border: '1px solid #10B98144', borderRadius: 5, padding: '5px 10px', fontSize: 11, fontWeight: 600, cursor: draft.length ? 'pointer' : 'not-allowed' }}>
+                                      ⟳ Prorratear {F(montoMov)}
+                                    </button>
+                                    <button onClick={() => guardarProrrateo(m.id, m.lead_id || null)} disabled={isSavingA}
+                                      style={{ background: cuadra ? '#10B981' : '#1e1e1e', color: cuadra ? '#000' : '#ccc', border: cuadra ? 'none' : '1px solid #2a2a2a', borderRadius: 5, padding: '5px 12px', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
+                                      Guardar prorrateo
+                                    </button>
+                                  </div>
+                                </div>
+                              )
+                            })()}
                           </div>
                         )
                       })()}
