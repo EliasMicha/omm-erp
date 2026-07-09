@@ -552,16 +552,13 @@ export default function LeadDashboard() {
       byCur[cur].vendido += amount
     })
 
-    // Cobrado: bank_movements (abonos) asignados al lead en contabilidad
-    // Si un pago MXN tiene tipo_cambio, se convierte a USD equivalente
-    bankMovements.filter(m => m.tipo === 'abono').forEach(m => {
-      const cur: 'USD' | 'MXN' = m.moneda === 'USD' ? 'USD' : 'MXN'
-      if (cur === 'MXN' && m.tipo_cambio && m.tipo_cambio > 0) {
-        // Pago en MXN con TC → contar como cobro USD equivalente
-        byCur.USD.cobrado += (m.monto || 0) / m.tipo_cambio
-      } else {
-        byCur[cur].cobrado += (m.monto || 0)
-      }
+    // Cobrado: MISMA atribución por cotización que "cobros por cotización"
+    // (prorrateo con TC acordado + cobros asignados por quotation_id, banco y efectivo).
+    // Cada monto ya viene en la moneda de su cotización, así no hay conversiones raras.
+    quotations.filter(q => q.stage === 'contrato').forEach(q => {
+      const cur = getQuotCurrency(q)
+      const pagos = getPagosDeCotizacion(q.id, cur)
+      byCur[cur].cobrado += pagos.reduce((s, p) => s + p.monto, 0)
     })
 
     // Comprado: POs
@@ -586,7 +583,7 @@ export default function LeadDashboard() {
     const porComprar = Math.max(0, totalCompras - totalComprado)
 
     return { byCur, totalVendido, totalCobrado, totalComprado, totalCompras, porCobrar, porComprar }
-  }, [quotations, projects, bankMovements, paymentAllocations, pos, quotItems, tipoCambio])
+  }, [quotations, projects, bankMovements, cashMovements, paymentAllocations, pos, quotItems, tipoCambio])
 
   // Helper: compute quotation total with IVA for display
   const getQuotTotalIva = (q: any): number => quoteFinalConIva(q)
