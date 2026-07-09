@@ -459,28 +459,42 @@ export default function LeadDashboard() {
     } else {
       conCobros.forEach(({ q, cur, total, cobrado, pagos }) => {
         const pend = Math.max(0, total - cobrado)
-        checkPage(12 + pagos.length * 5.5)
-        // Sub-encabezado de la cotización
-        setFill([243, 245, 244]); doc.rect(M, y, RIGHT - M, 11, 'F')
-        setFill(GREEN); doc.rect(M, y, 1.6, 11, 'F')
-        setTxt(DARK); doc.setFont('helvetica', 'bold'); doc.setFontSize(9)
-        doc.text((q.name || '—').substring(0, 50), M + 4, y + 4.5)
-        setTxt(GRAY); doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5)
-        doc.text(`Total ${money(total, cur)}`, M + 4, y + 8.5)
-        doc.text(`Cobrado ${money(cobrado, cur)}`, M + 55, y + 8.5)
-        doc.text(`Pendiente ${money(pend, cur)}`, M + 108, y + 8.5)
-        y += 13
+        const pct = total > 0 ? Math.min(cobrado / total, 1) : 0
+        // Cada cotización es un mini estado de cuenta: encabezado + cobros + pie con avance
+        checkPage(10 + pagos.length * 5.4 + 22)
+        // Encabezado: nombre + badge de moneda
+        setFill([243, 245, 244]); doc.rect(M, y, RIGHT - M, 8.5, 'F')
+        setFill(GREEN); doc.rect(M, y, 1.6, 8.5, 'F')
+        setTxt(DARK); doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5)
+        doc.text((q.name || '—').substring(0, 52), M + 4, y + 5.6)
+        setFill(cur === 'USD' ? [6, 182, 212] : [167, 139, 250]); doc.roundedRect(RIGHT - 18, y + 2.4, 14, 4.6, 1, 1, 'F')
+        setTxt([255, 255, 255]); doc.setFont('helvetica', 'bold'); doc.setFontSize(7); doc.text(cur, RIGHT - 11, y + 5.6, { align: 'center' })
+        y += 10
+        // Mini encabezado de columnas
+        setTxt([150, 150, 150]); doc.setFont('helvetica', 'bold'); doc.setFontSize(6.5)
+        doc.text('FECHA', M + 6, y + 2); doc.text('CONCEPTO', M + 28, y + 2); doc.text('ORIGEN', RIGHT - 34, y + 2, { align: 'right' }); doc.text('MONTO', RIGHT - 3, y + 2, { align: 'right' })
+        y += 4
         pagos.forEach((p, i) => {
-          checkPage(5.5)
+          checkPage(5.4)
           if (i % 2 === 1) { setFill(ZEBRA); doc.rect(M + 3, y, RIGHT - M - 3, 5.2, 'F') }
           setTxt(GRAY); doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5)
           doc.text(p.date || '—', M + 6, y + 3.6)
-          setTxt([70, 70, 70]); doc.text((p.concepto || '').replace(/💵 /, '').substring(0, 48), M + 28, y + 3.6)
-          setTxt([150, 150, 150]); doc.setFontSize(6.5); doc.text(p.source.toUpperCase(), RIGHT - 34, y + 3.6, { align: 'right' })
+          setTxt([70, 70, 70]); doc.text((p.concepto || '').replace(/💵 /, '').substring(0, 46), M + 28, y + 3.6)
+          setTxt([160, 160, 160]); doc.setFontSize(6.5); doc.text(p.source.toUpperCase(), RIGHT - 34, y + 3.6, { align: 'right' })
           setTxt(GREEN); doc.setFont('helvetica', 'bold'); doc.setFontSize(8); doc.text(money(p.monto, p.cur), RIGHT - 3, y + 3.6, { align: 'right' })
           y += 5.2
         })
-        y += 5
+        // ── Pie: avance de cobro + por cobrar ──
+        y += 2
+        const barX = M + 4, barW = RIGHT - M - 8
+        setFill([228, 228, 228]); doc.rect(barX, y, barW, 4, 'F')
+        setFill(pct >= 1 ? GREEN : [37, 99, 235]); doc.rect(barX, y, barW * pct, 4, 'F')
+        y += 8
+        setTxt([90, 90, 90]); doc.setFont('helvetica', 'normal'); doc.setFontSize(8)
+        doc.text(`${Math.round(pct * 100)}% cobrado  ·  ${money(cobrado, cur)} de ${money(total, cur)}`, M + 4, y)
+        setTxt([217, 119, 6]); doc.setFont('helvetica', 'bold'); doc.setFontSize(11)
+        doc.text(`Por cobrar  ${money(pend, cur)}`, RIGHT - 3, y + 0.3, { align: 'right' })
+        y += 11
       })
     }
 
