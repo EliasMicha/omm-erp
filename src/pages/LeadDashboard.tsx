@@ -306,185 +306,192 @@ export default function LeadDashboard() {
     if (!lead) return
     const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'letter' })
     const W = doc.internal.pageSize.getWidth()
-    let y = 20
+    const M = 15                       // margen
+    const RIGHT = W - M
+    let y = 16
 
-    const addPage = () => { doc.addPage(); y = 20 }
-    const checkPage = (need: number) => { if (y + need > 260) addPage() }
+    // ── Paleta ──
+    const GREEN: [number, number, number] = [16, 185, 129]
+    const DARK: [number, number, number] = [26, 26, 26]
+    const GRAY: [number, number, number] = [120, 120, 120]
+    const HEADFILL: [number, number, number] = [238, 241, 240]
+    const ZEBRA: [number, number, number] = [248, 249, 249]
+    const setTxt = (c: [number, number, number]) => doc.setTextColor(c[0], c[1], c[2])
+    const setFill = (c: [number, number, number]) => doc.setFillColor(c[0], c[1], c[2])
 
-    // ── Header ──
-    doc.setFontSize(18)
-    doc.setFont('helvetica', 'bold')
-    doc.text('Estado de Cuenta', 15, y)
-    y += 8
-    doc.setFontSize(11)
-    doc.setFont('helvetica', 'normal')
-    doc.text(lead.name || 'Sin nombre', 15, y)
-    y += 5
-    if (lead.company) { doc.text(lead.company, 15, y); y += 5 }
-    doc.setFontSize(9)
-    doc.setTextColor(120)
-    doc.text(`Generado: ${new Date().toLocaleDateString('es-MX', { day: '2-digit', month: 'long', year: 'numeric' })}`, 15, y)
-    doc.setTextColor(0)
+    const money = (n: number, cur: string) => (cur === 'USD' ? 'US$' : '$') + (Number(n) || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    const addPage = () => { doc.addPage(); y = 18 }
+    const checkPage = (need: number) => { if (y + need > 258) addPage() }
+    const sectionTitle = (t: string) => {
+      checkPage(16)
+      setFill(DARK); doc.rect(M, y, RIGHT - M, 7, 'F')
+      setFill(GREEN); doc.rect(M, y, 2, 7, 'F')
+      setTxt([255, 255, 255]); doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5)
+      doc.text(t.toUpperCase(), M + 5, y + 4.8)
+      setTxt(DARK); y += 11
+    }
+
+    // ── Encabezado ──
+    setFill(GREEN); doc.rect(M, y, 5, 5, 'F')
+    setTxt(DARK); doc.setFont('helvetica', 'bold'); doc.setFontSize(9)
+    doc.text('OMM TECHNOLOGIES', M + 7.5, y + 4)
+    setTxt(GRAY); doc.setFont('helvetica', 'normal'); doc.setFontSize(8)
+    doc.text(new Date().toLocaleDateString('es-MX', { day: '2-digit', month: 'long', year: 'numeric' }), RIGHT, y + 4, { align: 'right' })
     y += 10
+    setTxt(DARK); doc.setFont('helvetica', 'bold'); doc.setFontSize(20)
+    doc.text('Estado de Cuenta', M, y + 2); y += 8
+    setTxt([60, 60, 60]); doc.setFont('helvetica', 'normal'); doc.setFontSize(12)
+    doc.text(lead.name || 'Sin nombre', M, y + 2); y += 6
+    if (lead.company) { setTxt(GRAY); doc.setFontSize(9.5); doc.text(lead.company, M, y + 1); y += 5 }
+    setFill(GREEN); doc.rect(M, y + 1, RIGHT - M, 0.8, 'F'); y += 8
 
-    // ── Resumen financiero ──
-    doc.setFontSize(12)
-    doc.setFont('helvetica', 'bold')
-    doc.text('Resumen Financiero', 15, y); y += 7
-
-    const fmtPDF = (n: number, cur: string) => cur === 'USD' ? `US$${n.toLocaleString('es-MX')}` : `$${n.toLocaleString('es-MX')}`
-    const byCur = financials.byCur
-
-    const summaryRows: [string, string, string][] = []
-    if (byCur.USD.vendido > 0 || byCur.USD.cobrado > 0) {
-      summaryRows.push(['Total Vendido USD', fmtPDF(byCur.USD.vendido, 'USD'), ''])
-      summaryRows.push(['Cobrado USD', fmtPDF(byCur.USD.cobrado, 'USD'), ''])
-      summaryRows.push(['Por Cobrar USD', fmtPDF(Math.max(0, byCur.USD.vendido - byCur.USD.cobrado), 'USD'), ''])
-    }
-    if (byCur.MXN.vendido > 0 || byCur.MXN.cobrado > 0) {
-      summaryRows.push(['Total Vendido MXN', fmtPDF(byCur.MXN.vendido, 'MXN'), ''])
-      summaryRows.push(['Cobrado MXN', fmtPDF(byCur.MXN.cobrado, 'MXN'), ''])
-      summaryRows.push(['Por Cobrar MXN', fmtPDF(Math.max(0, byCur.MXN.vendido - byCur.MXN.cobrado), 'MXN'), ''])
-    }
-
-    doc.setFontSize(9)
-    doc.setFont('helvetica', 'normal')
-    summaryRows.forEach(([label, val]) => {
-      checkPage(5)
-      doc.text(label, 18, y)
-      doc.text(val, W - 18, y, { align: 'right' })
-      y += 5
-    })
-    y += 6
-
-    // ── Separator ──
-    doc.setDrawColor(200); doc.line(15, y, W - 15, y); y += 8
-
-    // ── Cotizaciones Cerradas (Contratos) ──
+    // ── Datos consolidados (consistentes con "cobros por cotización") ──
     const contratos = quotations.filter(q => q.stage === 'contrato')
-    doc.setFontSize(12)
-    doc.setFont('helvetica', 'bold')
-    doc.text('Cotizaciones Cerradas', 15, y); y += 7
+    const resumen = { USD: { vendido: 0, cobrado: 0 }, MXN: { vendido: 0, cobrado: 0 } }
+    const quoteData = contratos.map(q => {
+      const cur = getQuotCurrency(q)
+      const proj = projects.find(p => p.cotizacion_id === q.id)
+      const total = (proj && proj.contract_value) ? Number(proj.contract_value) : quoteFinalConIva(q)
+      const pagos = getPagosDeCotizacion(q.id, cur)
+      const cobrado = pagos.reduce((s, p) => s + p.monto, 0)
+      resumen[cur].vendido += total
+      resumen[cur].cobrado += cobrado
+      return { q, cur, total, cobrado, pagos }
+    })
 
-    if (contratos.length === 0) {
-      doc.setFontSize(9); doc.setFont('helvetica', 'italic'); doc.setTextColor(120)
-      doc.text('Sin cotizaciones cerradas', 18, y); doc.setTextColor(0); y += 8
-    } else {
-      // Table header
-      doc.setFontSize(8); doc.setFont('helvetica', 'bold'); doc.setTextColor(80)
-      doc.text('Nombre', 18, y)
-      doc.text('Especialidad', 90, y)
-      doc.text('Moneda', 135, y)
-      doc.text('Total', W - 18, y, { align: 'right' })
-      doc.setTextColor(0)
-      y += 2; doc.setDrawColor(180); doc.line(15, y, W - 15, y); y += 4
-
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(9)
-      contratos.forEach(q => {
-        checkPage(6)
-        const cur = getQuotCurrency(q)
-        const proj = projects.find(p => p.cotizacion_id === q.id)
-        let amount: number
-        if (proj && proj.contract_value) {
-          amount = proj.contract_value
-        } else {
-          amount = quoteFinalConIva(q)
+    // ── Resumen: tarjetas por moneda ──
+    const curs = (['USD', 'MXN'] as const).filter(c => resumen[c].vendido > 0 || resumen[c].cobrado > 0)
+    if (curs.length > 0) {
+      const gap = 6
+      const cardW = (RIGHT - M - gap * (curs.length - 1)) / curs.length
+      const cardH = 30
+      checkPage(cardH + 4)
+      curs.forEach((c, i) => {
+        const x = M + i * (cardW + gap)
+        const pend = Math.max(0, resumen[c].vendido - resumen[c].cobrado)
+        const pct = resumen[c].vendido > 0 ? resumen[c].cobrado / resumen[c].vendido : 0
+        setFill([250, 250, 250]); doc.setDrawColor(225, 228, 227); doc.roundedRect(x, y, cardW, cardH, 2, 2, 'FD')
+        // badge moneda
+        setFill(c === 'USD' ? [6, 182, 212] : [167, 139, 250]); doc.roundedRect(x + 4, y + 4, 14, 5, 1, 1, 'F')
+        setTxt([255, 255, 255]); doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); doc.text(c, x + 11, y + 7.6, { align: 'center' })
+        setTxt(GRAY); doc.setFont('helvetica', 'normal'); doc.setFontSize(7)
+        doc.text('GENERAL', x + 21, y + 7.6)
+        const line = (label: string, val: string, cc: [number, number, number], yy: number) => {
+          setTxt(GRAY); doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.text(label, x + 4, yy)
+          setTxt(cc); doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.text(val, x + cardW - 4, yy, { align: 'right' })
         }
-        doc.text((q.name || '—').substring(0, 40), 18, y)
-        doc.text((q.specialty || '—').toUpperCase(), 90, y)
-        doc.text(cur, 135, y)
-        doc.text(fmtPDF(Math.round(amount), cur), W - 18, y, { align: 'right' })
-        y += 5.5
+        line('Total vendido', money(resumen[c].vendido, c), DARK, y + 15)
+        line('Cobrado', money(resumen[c].cobrado, c), GREEN, y + 20.5)
+        line('Pendiente', money(pend, c), [217, 119, 6], y + 26)
+        // barra de avance
+        setFill([230, 230, 230]); doc.rect(x + 4, y + cardH - 2.5, cardW - 8, 1.4, 'F')
+        setFill(GREEN); doc.rect(x + 4, y + cardH - 2.5, (cardW - 8) * Math.min(pct, 1), 1.4, 'F')
       })
-      y += 4
+      y += cardH + 8
     }
 
-    // ── Separator ──
-    doc.setDrawColor(200); doc.line(15, y, W - 15, y); y += 8
-
-    // ── Ingresos Registrados (transferencias + efectivo) ──
-    const ingresos = [
-      ...bankMovements.filter(m => m.tipo === 'abono').map(m => ({ fecha: m.fecha, concepto: m.concepto || 'Transferencia', moneda: m.moneda || 'MXN', monto: Number(m.monto) || 0, tc: m.tipo_cambio, metodo: 'Transf.' })),
-      ...cashMovements.filter(m => m.tipo === 'cobro_cliente').map(m => ({ fecha: m.fecha, concepto: m.concepto || m.persona || 'Efectivo', moneda: m.moneda || 'MXN', monto: Number(m.monto) || 0, tc: null as any, metodo: 'Efectivo' })),
-    ].sort((a, b) => (a.fecha || '').localeCompare(b.fecha || ''))
-    doc.setFontSize(12)
-    doc.setFont('helvetica', 'bold')
-    doc.text('Ingresos Registrados (transferencia + efectivo)', 15, y); y += 7
-
-    if (ingresos.length === 0) {
-      doc.setFontSize(9); doc.setFont('helvetica', 'italic'); doc.setTextColor(120)
-      doc.text('Sin ingresos registrados', 18, y); doc.setTextColor(0); y += 8
+    // ── Cotizaciones cerradas ──
+    sectionTitle('Cotizaciones cerradas')
+    if (quoteData.length === 0) {
+      setTxt(GRAY); doc.setFont('helvetica', 'italic'); doc.setFontSize(9); doc.text('Sin cotizaciones cerradas', M + 3, y); y += 8
     } else {
-      // Table header
-      doc.setFontSize(8); doc.setFont('helvetica', 'bold'); doc.setTextColor(80)
-      doc.text('Fecha', 18, y)
-      doc.text('Concepto', 42, y)
-      doc.text('Método', 108, y)
-      doc.text('Mon.', 132, y)
-      doc.text('Monto', W - 18, y, { align: 'right' })
-      doc.setTextColor(0)
-      y += 2; doc.setDrawColor(180); doc.line(15, y, W - 15, y); y += 4
+      const cX = { nom: M + 3, esp: 108, mon: 140 }
+      setFill(HEADFILL); doc.rect(M, y, RIGHT - M, 6, 'F')
+      setTxt(GRAY); doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5)
+      doc.text('COTIZACIÓN', cX.nom, y + 4); doc.text('ESP.', cX.esp, y + 4); doc.text('MON.', cX.mon, y + 4); doc.text('TOTAL', RIGHT - 3, y + 4, { align: 'right' })
+      y += 6
+      quoteData.forEach(({ q, cur, total }, i) => {
+        checkPage(7)
+        if (i % 2 === 1) { setFill(ZEBRA); doc.rect(M, y, RIGHT - M, 6, 'F') }
+        setTxt(DARK); doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5)
+        doc.text((q.name || '—').substring(0, 46), cX.nom, y + 4)
+        setTxt(GRAY); doc.setFontSize(7.5); doc.text((q.specialty || '—').toUpperCase(), cX.esp, y + 4); doc.text(cur, cX.mon, y + 4)
+        setTxt(DARK); doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); doc.text(money(total, cur), RIGHT - 3, y + 4, { align: 'right' })
+        y += 6
+      })
+      y += 6
+    }
 
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(9)
+    // ── Movimientos de cobro recibidos ──
+    const ingresos = [
+      ...bankMovements.filter(m => m.tipo === 'abono').map(m => ({ fecha: m.fecha, concepto: m.concepto || 'Transferencia', moneda: (m.moneda === 'USD' ? 'USD' : 'MXN'), monto: Number(m.monto) || 0, metodo: 'Transf.' })),
+      ...cashMovements.filter(m => m.tipo === 'cobro_cliente').map(m => ({ fecha: m.fecha, concepto: m.concepto || m.persona || 'Efectivo', moneda: (m.moneda === 'USD' ? 'USD' : 'MXN'), monto: Number(m.monto) || 0, metodo: 'Efectivo' })),
+    ].sort((a, b) => (a.fecha || '').localeCompare(b.fecha || ''))
+    sectionTitle('Movimientos de cobro recibidos')
+    if (ingresos.length === 0) {
+      setTxt(GRAY); doc.setFont('helvetica', 'italic'); doc.setFontSize(9); doc.text('Sin cobros registrados', M + 3, y); y += 8
+    } else {
+      const cX = { fec: M + 3, con: 40, met: 112, mon: 138 }
+      setFill(HEADFILL); doc.rect(M, y, RIGHT - M, 6, 'F')
+      setTxt(GRAY); doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5)
+      doc.text('FECHA', cX.fec, y + 4); doc.text('CONCEPTO', cX.con, y + 4); doc.text('MÉTODO', cX.met, y + 4); doc.text('MON.', cX.mon, y + 4); doc.text('MONTO', RIGHT - 3, y + 4, { align: 'right' })
+      y += 6
       const totCobros = { USD: 0, MXN: 0 }
-      ingresos.forEach(m => {
-        checkPage(6)
-        const cur = (m.moneda === 'USD') ? 'USD' : 'MXN'
+      ingresos.forEach((m, i) => {
+        checkPage(7)
+        const cur = m.moneda as 'USD' | 'MXN'
         totCobros[cur] += m.monto
-        doc.text(m.fecha || '—', 18, y)
-        doc.text((m.concepto || '—').substring(0, 34), 42, y)
-        doc.text(m.metodo, 108, y)
-        doc.text(cur, 132, y)
-        doc.text(fmtPDF(m.monto || 0, cur), W - 18, y, { align: 'right' })
-        y += 5.5
+        if (i % 2 === 1) { setFill(ZEBRA); doc.rect(M, y, RIGHT - M, 6, 'F') }
+        setTxt(DARK); doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5)
+        doc.text(m.fecha || '—', cX.fec, y + 4)
+        doc.text((m.concepto || '—').substring(0, 40), cX.con, y + 4)
+        setTxt(GRAY); doc.setFontSize(7.5); doc.text(m.metodo, cX.met, y + 4); doc.text(cur, cX.mon, y + 4)
+        setTxt(DARK); doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); doc.text(money(m.monto, cur), RIGHT - 3, y + 4, { align: 'right' })
+        y += 6
       })
-
-      // Totales de cobros por moneda
-      y += 3; checkPage(14)
-      doc.setDrawColor(180); doc.line(110, y, W - 15, y); y += 4
-      doc.setFont('helvetica', 'bold')
+      // Totales por moneda
+      checkPage(6 * (Object.values(totCobros).filter(v => v > 0).length) + 4)
       ;(['USD', 'MXN'] as const).filter(c => totCobros[c] > 0).forEach(c => {
-        doc.text(`Total cobros ${c}`, 110, y)
-        doc.text(fmtPDF(Math.round(totCobros[c]), c), W - 18, y, { align: 'right' })
-        y += 5
+        setFill([242, 245, 244]); doc.rect(M, y, RIGHT - M, 6, 'F')
+        setTxt(DARK); doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5)
+        doc.text(`Total recibido ${c}`, M + 3, y + 4)
+        doc.text(money(totCobros[c], c), RIGHT - 3, y + 4, { align: 'right' })
+        y += 6
       })
+      y += 6
     }
 
     // ── Cobros por cotización (mini estado de cuenta) ──
-    y += 4; doc.setDrawColor(200); doc.line(15, y, W - 15, y); y += 8
-    checkPage(10)
-    doc.setFontSize(12); doc.setFont('helvetica', 'bold')
-    doc.text('Cobros por cotización', 15, y); y += 7
-    contratos.forEach(q => {
-      const cur = getQuotCurrency(q)
-      const pagos = getPagosDeCotizacion(q.id, cur)
-      if (pagos.length === 0) return
-      const totalQ = quoteFinalConIva(q)
-      const pagadoQ = pagos.reduce((s, p) => s + p.monto, 0)
-      checkPage(12 + pagos.length * 5)
-      doc.setFontSize(9); doc.setFont('helvetica', 'bold'); doc.setTextColor(0)
-      doc.text((q.name || '—').substring(0, 45), 18, y)
-      doc.setTextColor(90); doc.setFont('helvetica', 'normal'); doc.setFontSize(8)
-      doc.text(`Total ${fmtPDF(Math.round(totalQ), cur)}  ·  Cobrado ${fmtPDF(Math.round(pagadoQ), cur)}  ·  Pendiente ${fmtPDF(Math.round(Math.max(0, totalQ - pagadoQ)), cur)}`, W - 18, y, { align: 'right' })
-      doc.setTextColor(0); y += 4.5
-      pagos.forEach(p => {
-        checkPage(5)
-        doc.setFontSize(8); doc.setFont('helvetica', 'normal'); doc.setTextColor(100)
-        doc.text(`${p.date || '—'}  ${(p.concepto || '').replace(/💵 /, '').substring(0, 40)}  [${p.source}]`, 22, y)
-        doc.setTextColor(0)
-        doc.text(fmtPDF(Math.round(p.monto), p.cur), W - 18, y, { align: 'right' })
-        y += 4.5
+    sectionTitle('Cobros por cotización')
+    const conCobros = quoteData.filter(d => d.pagos.length > 0)
+    if (conCobros.length === 0) {
+      setTxt(GRAY); doc.setFont('helvetica', 'italic'); doc.setFontSize(9); doc.text('Aún no hay cobros adjudicados a cotizaciones', M + 3, y); y += 8
+    } else {
+      conCobros.forEach(({ q, cur, total, cobrado, pagos }) => {
+        const pend = Math.max(0, total - cobrado)
+        checkPage(12 + pagos.length * 5.5)
+        // Sub-encabezado de la cotización
+        setFill([243, 245, 244]); doc.rect(M, y, RIGHT - M, 11, 'F')
+        setFill(GREEN); doc.rect(M, y, 1.6, 11, 'F')
+        setTxt(DARK); doc.setFont('helvetica', 'bold'); doc.setFontSize(9)
+        doc.text((q.name || '—').substring(0, 50), M + 4, y + 4.5)
+        setTxt(GRAY); doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5)
+        doc.text(`Total ${money(total, cur)}`, M + 4, y + 8.5)
+        doc.text(`Cobrado ${money(cobrado, cur)}`, M + 55, y + 8.5)
+        doc.text(`Pendiente ${money(pend, cur)}`, M + 108, y + 8.5)
+        y += 13
+        pagos.forEach((p, i) => {
+          checkPage(5.5)
+          if (i % 2 === 1) { setFill(ZEBRA); doc.rect(M + 3, y, RIGHT - M - 3, 5.2, 'F') }
+          setTxt(GRAY); doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5)
+          doc.text(p.date || '—', M + 6, y + 3.6)
+          setTxt([70, 70, 70]); doc.text((p.concepto || '').replace(/💵 /, '').substring(0, 48), M + 28, y + 3.6)
+          setTxt([150, 150, 150]); doc.setFontSize(6.5); doc.text(p.source.toUpperCase(), RIGHT - 34, y + 3.6, { align: 'right' })
+          setTxt(GREEN); doc.setFont('helvetica', 'bold'); doc.setFontSize(8); doc.text(money(p.monto, p.cur), RIGHT - 3, y + 3.6, { align: 'right' })
+          y += 5.2
+        })
+        y += 5
       })
-      y += 3
-    })
+    }
 
     // ── Footer ──
     const pageCount = doc.getNumberOfPages()
     for (let i = 1; i <= pageCount; i++) {
       doc.setPage(i)
-      doc.setFontSize(7); doc.setTextColor(150)
-      doc.text(`OMM ERP — Estado de Cuenta — ${lead.name}`, 15, 272)
-      doc.text(`Pág. ${i}/${pageCount}`, W - 15, 272, { align: 'right' })
+      setFill(GREEN); doc.rect(M, 270, RIGHT - M, 0.5, 'F')
+      doc.setFontSize(7); setTxt(GRAY)
+      doc.text(`OMM ERP · Estado de Cuenta · ${lead.name}`, M, 274)
+      doc.text(`Página ${i} de ${pageCount}`, RIGHT, 274, { align: 'right' })
     }
 
     doc.save(`Estado_de_Cuenta_${(lead.name || 'Lead').replace(/\s+/g, '_')}.pdf`)
