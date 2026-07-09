@@ -281,6 +281,23 @@ export default function LeadDashboard() {
     doc.save(`Resumen_Inversion_${(lead.name || 'Lead').replace(/\s+/g, '_')}.pdf`)
   }
 
+  // Cobros atribuidos a una cotización: prorrateo (payment_allocations) + movimientos
+  // asignados directo por quotation_id (banco 'abono' y efectivo 'cobro_cliente').
+  // Se evita doble conteo: un movimiento con prorrateo ya no se cuenta por su quotation_id.
+  function getPagosDeCotizacion(qId: string, cur: string) {
+    const allocMovIds = new Set(paymentAllocations.map((pa: any) => pa.bank_movement_id))
+    const items: { date: string; concepto: string; monto: number; cur: string; tc?: number; source: 'prorrateo' | 'banco' | 'efectivo' }[] = []
+    paymentAllocations.filter((pa: any) => pa.quotation_id === qId).forEach((pa: any) => {
+      const mov = bankMovements.find((m: any) => m.id === pa.bank_movement_id)
+      items.push({ date: mov?.fecha || '', concepto: mov?.concepto || 'Pago (prorrateo)', monto: Number(pa.monto) || 0, cur, tc: mov?.tipo_cambio, source: 'prorrateo' })
+    })
+    bankMovements.filter((m: any) => m.tipo === 'abono' && m.quotation_id === qId && !allocMovIds.has(m.id) && (m.moneda || 'MXN') === cur)
+      .forEach((m: any) => items.push({ date: m.fecha || '', concepto: m.concepto || 'Transferencia', monto: Number(m.monto) || 0, cur, tc: m.tipo_cambio, source: 'banco' }))
+    cashMovements.filter((m: any) => m.tipo === 'cobro_cliente' && m.quotation_id === qId && !allocMovIds.has(m.id) && (m.moneda || 'MXN') === cur)
+      .forEach((m: any) => items.push({ date: m.fecha || '', concepto: '💵 ' + (m.concepto || m.persona || 'Efectivo'), monto: Number(m.monto) || 0, cur, source: 'efectivo' }))
+    return items.sort((a, b) => (a.date || '').localeCompare(b.date || ''))
+  }
+
   function exportEstadoCuenta() {
     if (!lead) return
     const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'letter' })
@@ -381,11 +398,14 @@ export default function LeadDashboard() {
     // ── Separator ──
     doc.setDrawColor(200); doc.line(15, y, W - 15, y); y += 8
 
-    // ── Ingresos Registrados (bank_movements abonos) ──
-    const ingresos = bankMovements.filter(m => m.tipo === 'abono')
+    // ── Ingresos Registrados (transferencias + efectivo) ──
+    const ingresos = [
+      ...bankMovements.filter(m => m.tipo === 'abono').map(m => ({ fecha: m.fecha, concepto: m.concepto || 'Transferencia', moneda: m.moneda || 'MXN', monto: Number(m.monto) || 0, tc: m.tipo_cambio, metodo: 'Transf.' })),
+      ...cashMovements.filter(m => m.tipo === 'cobro_cliente').map(m => ({ fecha: m.fecha, concepto: m.concepto || m.persona || 'Efectivo', moneda: m.moneda || 'MXN', monto: Number(m.monto) || 0, tc: null as any, metodo: 'Efectivo' })),
+    ].sort((a, b) => (a.fecha || '').localeCompare(b.fecha || ''))
     doc.setFontSize(12)
     doc.setFont('helvetica', 'bold')
-    doc.text('Ingresos Registrados', 15, y); y += 7
+    doc.text('Ingresos Registrados (transferencia + efectivo)', 15, y); y += 7
 
     if (ingresos.length === 0) {
       doc.setFontSize(9); doc.setFont('helvetica', 'italic'); doc.setTextColor(120)
@@ -394,39 +414,65 @@ export default function LeadDashboard() {
       // Table header
       doc.setFontSize(8); doc.setFont('helvetica', 'bold'); doc.setTextColor(80)
       doc.text('Fecha', 18, y)
-      doc.text('Concepto', 48, y)
-      doc.text('Moneda', 118, y)
-      doc.text('Monto', 148, y, { align: 'right' })
-      doc.text('T.C.', 162, y, { align: 'right' })
-      doc.text('Equiv. USD', W - 18, y, { align: 'right' })
+      doc.text('Concepto', 42, y)
+      doc.text('Método', 108, y)
+      doc.text('Mon.', 132, y)
+      doc.text('Monto', W - 18, y, { align: 'right' })
       doc.setTextColor(0)
       y += 2; doc.setDrawColor(180); doc.line(15, y, W - 15, y); y += 4
 
       doc.setFont('helvetica', 'normal'); doc.setFontSize(9)
-      let totalEquivUSD = 0
+      const totCobros = { USD: 0, MXN: 0 }
       ingresos.forEach(m => {
         checkPage(6)
-        const cur = m.moneda || 'MXN'
-        const isMxn = cur !== 'USD'
-        const equivUsd = isMxn && m.tipo_cambio > 0 ? (m.monto || 0) / m.tipo_cambio : (isMxn ? 0 : (m.monto || 0))
-        totalEquivUSD += equivUsd
+        const cur = (m.moneda === 'USD') ? 'USD' : 'MXN'
+        totCobros[cur] += m.monto
         doc.text(m.fecha || '—', 18, y)
-        doc.text((m.concepto || '—').substring(0, 35), 48, y)
-        doc.text(cur, 118, y)
-        doc.text(fmtPDF(m.monto || 0, cur), 148, y, { align: 'right' })
-        doc.text(isMxn && m.tipo_cambio ? String(m.tipo_cambio) : '—', 162, y, { align: 'right' })
-        doc.text(equivUsd > 0 ? fmtPDF(Math.round(equivUsd), 'USD') : '—', W - 18, y, { align: 'right' })
+        doc.text((m.concepto || '—').substring(0, 34), 42, y)
+        doc.text(m.metodo, 108, y)
+        doc.text(cur, 132, y)
+        doc.text(fmtPDF(m.monto || 0, cur), W - 18, y, { align: 'right' })
         y += 5.5
       })
 
-      // Total equiv USD
-      y += 3; checkPage(10)
-      doc.setDrawColor(180); doc.line(120, y, W - 15, y); y += 4
+      // Totales de cobros por moneda
+      y += 3; checkPage(14)
+      doc.setDrawColor(180); doc.line(110, y, W - 15, y); y += 4
       doc.setFont('helvetica', 'bold')
-      doc.text('Total cobrado equiv.', 120, y)
-      doc.text(fmtPDF(Math.round(totalEquivUSD), 'USD'), W - 18, y, { align: 'right' })
-      y += 5
+      ;(['USD', 'MXN'] as const).filter(c => totCobros[c] > 0).forEach(c => {
+        doc.text(`Total cobros ${c}`, 110, y)
+        doc.text(fmtPDF(Math.round(totCobros[c]), c), W - 18, y, { align: 'right' })
+        y += 5
+      })
     }
+
+    // ── Cobros por cotización (mini estado de cuenta) ──
+    y += 4; doc.setDrawColor(200); doc.line(15, y, W - 15, y); y += 8
+    checkPage(10)
+    doc.setFontSize(12); doc.setFont('helvetica', 'bold')
+    doc.text('Cobros por cotización', 15, y); y += 7
+    contratos.forEach(q => {
+      const cur = getQuotCurrency(q)
+      const pagos = getPagosDeCotizacion(q.id, cur)
+      if (pagos.length === 0) return
+      const totalQ = quoteFinalConIva(q)
+      const pagadoQ = pagos.reduce((s, p) => s + p.monto, 0)
+      checkPage(12 + pagos.length * 5)
+      doc.setFontSize(9); doc.setFont('helvetica', 'bold'); doc.setTextColor(0)
+      doc.text((q.name || '—').substring(0, 45), 18, y)
+      doc.setTextColor(90); doc.setFont('helvetica', 'normal'); doc.setFontSize(8)
+      doc.text(`Total ${fmtPDF(Math.round(totalQ), cur)}  ·  Cobrado ${fmtPDF(Math.round(pagadoQ), cur)}  ·  Pendiente ${fmtPDF(Math.round(Math.max(0, totalQ - pagadoQ)), cur)}`, W - 18, y, { align: 'right' })
+      doc.setTextColor(0); y += 4.5
+      pagos.forEach(p => {
+        checkPage(5)
+        doc.setFontSize(8); doc.setFont('helvetica', 'normal'); doc.setTextColor(100)
+        doc.text(`${p.date || '—'}  ${(p.concepto || '').replace(/💵 /, '').substring(0, 40)}  [${p.source}]`, 22, y)
+        doc.setTextColor(0)
+        doc.text(fmtPDF(Math.round(p.monto), p.cur), W - 18, y, { align: 'right' })
+        y += 4.5
+      })
+      y += 3
+    })
 
     // ── Footer ──
     const pageCount = doc.getNumberOfPages()
@@ -885,20 +931,39 @@ export default function LeadDashboard() {
           const contratos = quotations.filter(q => q.stage === 'contrato')
           if (contratos.length === 0) return <Empty text="Sin cotizaciones en etapa contrato" />
 
-          // Build per-quotation balances using payment_allocations
+          // Build per-quotation balances: pagado = prorrateo + cobros asignados por quotation_id
           const quotBalances = contratos.map(q => {
             const cur = getQuotCurrency(q)
             const total = getQuotTotalIva(q)
-            // Sum allocated payments for this quotation
-            const allocations = paymentAllocations.filter(pa => pa.quotation_id === q.id)
-            const pagado = allocations.reduce((s: number, pa: any) => s + Number(pa.monto || 0), 0)
+            const pagos = getPagosDeCotizacion(q.id, cur)
+            const pagado = pagos.reduce((s, p) => s + p.monto, 0)
             const pendiente = Math.max(0, total - pagado)
             const pctPagado = total > 0 ? pagado / total : 0
-            return { q, cur, total, pagado, pendiente, pctPagado, allocations }
+            return { q, cur, total, pagado, pendiente, pctPagado, pagos }
           })
+          // Resumen general por moneda (para el bloque de arriba)
+          const resumen = { USD: { totalVendido: 0, cobros: 0 }, MXN: { totalVendido: 0, cobros: 0 } }
+          quotBalances.forEach(({ cur, total, pagado }) => { resumen[cur].totalVendido += total; resumen[cur].cobros += pagado })
 
           return (
             <div style={{ overflowX: 'auto' }}>
+              {/* ── Resumen general arriba ── */}
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 14 }}>
+                <div style={{ background: '#111', border: '1px solid #1f1f1f', borderRadius: 8, padding: '10px 14px', minWidth: 150 }}>
+                  <div style={{ fontSize: 10, color: '#888', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Cotizaciones cerradas</div>
+                  <div style={{ fontSize: 20, fontWeight: 700, color: '#fff', marginTop: 2 }}>{contratos.length}</div>
+                </div>
+                {(['USD', 'MXN'] as const).filter(c => resumen[c].totalVendido > 0 || resumen[c].cobros > 0).map(c => (
+                  <div key={c} style={{ background: '#111', border: '1px solid #1f1f1f', borderRadius: 8, padding: '10px 14px', minWidth: 190 }}>
+                    <div style={{ fontSize: 10, color: '#888', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <Badge label={c} color={c === 'USD' ? '#06B6D4' : '#A78BFA'} /> General
+                    </div>
+                    <div style={{ fontSize: 12, color: '#aaa' }}>Total vendido: <b style={{ color: '#fff' }}>{FCUR(resumen[c].totalVendido, c)}</b></div>
+                    <div style={{ fontSize: 12, color: '#aaa' }}>Total cobros: <b style={{ color: '#10B981' }}>{FCUR(resumen[c].cobros, c)}</b></div>
+                    <div style={{ fontSize: 12, color: '#aaa' }}>Pendiente: <b style={{ color: '#D97706' }}>{FCUR(Math.max(0, resumen[c].totalVendido - resumen[c].cobros), c)}</b></div>
+                  </div>
+                ))}
+              </div>
               <table style={tblS}>
                 <thead>
                   <tr style={trHeadS}>
@@ -949,6 +1014,31 @@ export default function LeadDashboard() {
                   </div>
                 )
               })()}
+
+              {/* ── Desglose de cobros por cotización (mini estado de cuenta) ── */}
+              {quotBalances.some(qb => qb.pagos.length > 0) && (
+                <div style={{ marginTop: 16 }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: '#888', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>Cobros por cotización</div>
+                  {quotBalances.filter(qb => qb.pagos.length > 0).map(({ q, cur, total, pagado, pendiente, pagos }) => (
+                    <div key={q.id} style={{ background: '#0e0e0e', border: '1px solid #1c1c1c', borderRadius: 8, padding: '10px 12px', marginBottom: 10 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginBottom: 6 }}>
+                        <span style={{ fontSize: 12, fontWeight: 600, color: '#fff' }}>{q.name}</span>
+                        <span style={{ fontSize: 11, color: '#888' }}>
+                          Total <b style={{ color: '#fff' }}>{FCUR(total, cur)}</b> · Cobrado <b style={{ color: '#10B981' }}>{FCUR(pagado, cur)}</b> · Pendiente <b style={{ color: pendiente > 0 ? '#D97706' : '#10B981' }}>{FCUR(pendiente, cur)}</b>
+                        </span>
+                      </div>
+                      {pagos.map((p, i) => (
+                        <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 11, color: '#aaa', padding: '3px 0', borderTop: i === 0 ? '1px solid #1c1c1c' : 'none' }}>
+                          <span style={{ color: '#777', fontFamily: 'monospace', minWidth: 82 }}>{p.date || '—'}</span>
+                          <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.concepto}</span>
+                          <span style={{ fontSize: 9, color: '#666', textTransform: 'uppercase', alignSelf: 'center' }}>{p.source}</span>
+                          <span style={{ color: '#10B981', fontWeight: 600, minWidth: 90, textAlign: 'right' }}>{FCUR(p.monto, p.cur)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )
         })()}
