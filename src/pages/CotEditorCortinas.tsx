@@ -41,6 +41,7 @@ interface CortItem {
   tipoCierre: 'MANUAL' | 'MOTORIZADO'
   motorBrand: 'SOMFY' | 'LUTRON' | 'NINGUNO'
   motorSystem: string    // e.g. "MOVELITE 35 KG", "GLYDEA35WT", "ALENA QS", "SIVOIA QS"
+  configNota: string     // detalles libres de configuración (ej. cortinero Lutron: modelo/control/notas)
   // Somfy config (when motorBrand=SOMFY) — cortinas only
   somfyHojas: 1 | 2
   somfyPliegue: 'TRADICIONAL' | 'ONDULADO'
@@ -280,7 +281,7 @@ function defaultItem(areaId: string, order: number): CortItem {
   return {
     id: uid(), areaId, ubicacion: '', ancho: 0, alto: 0, cantidad: 1,
     itemKind: 'CORTINA',
-    tipoCierre: 'MANUAL', motorBrand: 'NINGUNO', motorSystem: '',
+    tipoCierre: 'MANUAL', motorBrand: 'NINGUNO', motorSystem: '', configNota: '',
     somfyHojas: 1, somfyPliegue: 'TRADICIONAL', somfyAbundancia: 0,
     somfySoportePared: false, somfyAmrado: false, somfyCurveado: false,
     tipoTela: 'TRASLUCIDA', anchoTela: 0, tipoPliegue: 'ONDA PERFECTA',
@@ -532,6 +533,7 @@ function CortPdfModal({ items, areas, config, cotName, clientName, projectName, 
                                 : isPersiana
                                   ? `Persiana ${item.persianaTipo}${item.tipoCierre === 'MOTORIZADO' ? ' (Mot.)' : ' (Man.)'}`
                                   : (item.tipoCierre === 'MANUAL' ? 'Manual' : item.motorSystem || 'Motorizado')}
+                              {item.configNota && !isExtra && !isPersiana ? <div style={{ fontSize: 8, color: '#777', marginTop: 2, fontStyle: 'italic', whiteSpace: 'pre-wrap' }}>{item.configNota}</div> : null}
                             </td>
                             <td style={{ textAlign: 'left', padding: '4px', color: '#444' }}>{isExtra ? '—' : isPersiana ? (item.persianaMaterial || '—') : item.tipoTela}</td>
                             <td style={{ textAlign: 'left', padding: '4px', color: '#444' }}>{(isPersiana || isExtra) ? '—' : item.tipoPliegue}</td>
@@ -779,6 +781,11 @@ function CortRow({ item, config, onUpdate, onRemove, onShowSomfy, onCopy, showIn
               Pared
             </label>
           </div>
+        ) : item.motorBrand === 'LUTRON' ? (
+          <textarea value={item.configNota || ''} onChange={e => onUpdate(item.id, 'configNota', e.target.value)}
+            placeholder="Detalles del cortinero Lutron (modelo, control, notas)..."
+            rows={2}
+            style={{ ...S.select, fontSize: 10, width: '100%', minWidth: 120, resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.3 }} />
         ) : <span style={{ color: '#333', fontSize: 10 }}>--</span>}
       </td>
       {/* Fabric */}
@@ -1883,7 +1890,7 @@ export default function CotEditorCortinas({ cotId, onBack, onSwitchVersion }: { 
           alto: meta.alto || 0,
           cantidad: it.quantity || 1,
           itemKind: (meta.itemKind === 'PERSIANA' ? 'PERSIANA' : meta.itemKind === 'EXTRA' ? 'EXTRA' : 'CORTINA') as ItemKind,
-          tipoCierre: meta.tipoCierre || 'MANUAL',
+          tipoCierre: meta.tipoCierre || 'MANUAL', configNota: meta.configNota || '',
           motorBrand: meta.motorBrand || 'NINGUNO',
           motorSystem: meta.motorSystem || '',
           somfyHojas: meta.somfyHojas || 1,
@@ -1930,7 +1937,7 @@ export default function CotEditorCortinas({ cotId, onBack, onSwitchVersion }: { 
     return JSON.stringify({
       itemKind: item.itemKind,
       ancho: item.ancho, alto: item.alto,
-      tipoCierre: item.tipoCierre, motorBrand: item.motorBrand, motorSystem: item.motorSystem,
+      tipoCierre: item.tipoCierre, motorBrand: item.motorBrand, motorSystem: item.motorSystem, configNota: item.configNota,
       somfyHojas: item.somfyHojas, somfyPliegue: item.somfyPliegue,
       somfyAbundancia: item.somfyAbundancia, somfySoportePared: item.somfySoportePared,
       somfyAmrado: item.somfyAmrado, somfyCurveado: item.somfyCurveado,
