@@ -398,7 +398,12 @@ function CortPdfModal({ items, areas, config, cotName, clientName, projectName, 
   const manualCount = items.filter(i => i.tipoCierre === 'MANUAL').reduce((s, i) => s + i.cantidad, 0)
   const motorCount = items.filter(i => i.tipoCierre === 'MOTORIZADO').reduce((s, i) => s + i.cantidad, 0)
 
-  const fmtC = (n: number) => '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  // Moneda de presentación: todo el cálculo interno es en MXN; si la cotización
+  // es USD, convertimos con el TC y mostramos US$. (Lutron USD→MXN×TC → ÷TC = USD original.)
+  const dispCur: 'USD' | 'MXN' = config.currency === 'USD' ? 'USD' : 'MXN'
+  const tcDisp = config.tipoCambio || 1
+  const toDisp = (mxn: number) => dispCur === 'USD' ? mxn / tcDisp : mxn
+  const fmtC = (n: number) => (dispCur === 'USD' ? 'US$' : '$') + toDisp(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
   const [downloading, setDownloading] = useState(false)
 
@@ -473,7 +478,7 @@ function CortPdfModal({ items, areas, config, cotName, clientName, projectName, 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 20, fontSize: 10, borderBottom: '1px solid #ddd', paddingBottom: 12 }}>
               <div><span style={{ fontWeight: 600, color: '#000' }}>Proyecto:</span> <span style={{ color: '#444' }}>{projectName || '---'}</span></div>
               <div><span style={{ fontWeight: 600, color: '#000' }}>Cliente:</span> <span style={{ color: '#444' }}>{clientName || '---'}</span></div>
-              <div><span style={{ fontWeight: 600, color: '#000' }}>Total:</span> <span style={{ color: '#000', fontWeight: 700 }}>${total.toFixed(2)}</span></div>
+              <div><span style={{ fontWeight: 600, color: '#000' }}>Total:</span> <span style={{ color: '#000', fontWeight: 700 }}>{fmtC(total)} {dispCur}</span></div>
               <div><span style={{ fontWeight: 600, color: '#000' }}>Ubicación:</span> <span style={{ color: '#444' }}>---</span></div>
             </div>
 
@@ -491,7 +496,7 @@ function CortPdfModal({ items, areas, config, cotName, clientName, projectName, 
                   <th style={{ textAlign: 'right', padding: '6px 4px', fontWeight: 600, color: '#000' }}>Confección</th>
                   <th style={{ textAlign: 'right', padding: '6px 4px', fontWeight: 600, color: '#000' }}>Tela</th>
                   <th style={{ textAlign: 'right', padding: '6px 4px', fontWeight: 600, color: '#000' }}>Motor</th>
-                  <th style={{ textAlign: 'right', padding: '6px 4px', fontWeight: 600, color: '#000' }}>Total MXN</th>
+                  <th style={{ textAlign: 'right', padding: '6px 4px', fontWeight: 600, color: '#000' }}>Total {dispCur}</th>
                 </tr>
               </thead>
               <tbody>
@@ -541,7 +546,7 @@ function CortPdfModal({ items, areas, config, cotName, clientName, projectName, 
                             <td style={{ textAlign: 'right', padding: '4px', color: item.telaIncluida && !isPersiana && !isExtra ? '#999' : '#000', fontStyle: item.telaIncluida && !isPersiana && !isExtra ? 'italic' : 'normal' }}>
                               {isExtra ? fmtC(itemExtraVenta) : isPersiana ? fmtC(itemPersianaVenta) : (item.telaIncluida ? 'CLIENTE' : fmtC(itemTelaVenta))}
                             </td>
-                            <td style={{ textAlign: 'right', padding: '4px', color: '#000' }}>{!isExtra && itemMotorCostMXN > 0 ? fmtC(itemMotorVenta) : '---'}{item.motorBrand === 'LUTRON' && itemMotorCostMXN > 0 && !isExtra ? <span style={{ fontSize: 7, color: '#888' }}> (USD→MXN)</span> : ''}</td>
+                            <td style={{ textAlign: 'right', padding: '4px', color: '#000' }}>{!isExtra && itemMotorCostMXN > 0 ? fmtC(itemMotorVenta) : '---'}{dispCur === 'MXN' && item.motorBrand === 'LUTRON' && itemMotorCostMXN > 0 && !isExtra ? <span style={{ fontSize: 7, color: '#888' }}> (USD→MXN)</span> : ''}</td>
                             <td style={{ textAlign: 'right', padding: '4px', color: '#000', fontWeight: 700 }}>{fmtC(itemTotalVenta)}</td>
                           </tr>
                         )
@@ -588,7 +593,9 @@ function CortPdfModal({ items, areas, config, cotName, clientName, projectName, 
               <div style={{ fontWeight: 600, color: '#333', marginBottom: 6, fontSize: 9, textTransform: 'uppercase' }}>Condiciones Generales</div>
               <div style={{ marginBottom: 3 }}>• Presupuesto sujeto a condiciones de entrega y disponibilidad de materiales.</div>
               <div style={{ marginBottom: 3 }}>• Vigencia de 1 mes a partir de la fecha de emisión.</div>
-              <div style={{ marginBottom: 3 }}>• Tela y confección en MXN. Motores Somfy en MXN. Motores Lutron en USD (TC ${config.tipoCambio.toFixed(2)}).</div>
+              {dispCur === 'USD'
+                ? <div style={{ marginBottom: 3 }}>• Precios expresados en USD, convertidos al tipo de cambio de ${config.tipoCambio.toFixed(2)} MXN/USD.</div>
+                : <div style={{ marginBottom: 3 }}>• Tela y confección en MXN. Motores Somfy en MXN. Motores Lutron en USD (TC ${config.tipoCambio.toFixed(2)}).</div>}
               {items.some(i => i.telaIncluida) && <div style={{ marginBottom: 3 }}>• Las partidas marcadas "CLIENTE" indican que la tela es suministrada por el cliente. Solo se cobra confección e instalación.</div>}
               <div style={{ marginBottom: 3 }}>• Instalación incluida ({config.instPct}% sobre subtotal).</div>
               <div>• Precios más IVA ({config.ivaRate}%).</div>
@@ -1981,17 +1988,22 @@ export default function CotEditorCortinas({ cotId, onBack, onSwitchVersion }: { 
     return subDesc + subDesc * config.ivaRate / 100
   }, [items, config])
 
-  // Sync total to quotations table
+  // Sync total to quotations table.
+  // grandTotal se calcula en MXN; si la cotización es USD, guardamos el total_final
+  // convertido a USD (÷TC) para que el CRM/lista lo muestren en su moneda correcta.
   useEffect(() => {
     if (!loading && cotId) {
-      const rounded = Math.round(grandTotal * 100) / 100
-      supabase.from('quotations').update({ total: rounded, total_final: rounded }).eq('id', cotId)
-        .then(({ error }) => { if (error) console.error('sync total error:', error); else console.log('synced total:', rounded) })
+      const roundedMXN = Math.round(grandTotal * 100) / 100
+      const finalInCur = config.currency === 'USD'
+        ? Math.round((grandTotal / (config.tipoCambio || 1)) * 100) / 100
+        : roundedMXN
+      supabase.from('quotations').update({ total: finalInCur, total_final: finalInCur }).eq('id', cotId)
+        .then(({ error }) => { if (error) console.error('sync total error:', error); else console.log('synced total:', finalInCur, config.currency) })
     }
-  }, [grandTotal, loading])
+  }, [grandTotal, loading, config.currency, config.tipoCambio])
 
   // ── Actions ──
-  function updateConfig(field: string, value: number) {
+  function updateConfig(field: string, value: number | string) {
     setConfig(prev => {
       const next = { ...prev, [field]: value }
       saveQuotationNotes(next)
@@ -2140,7 +2152,11 @@ export default function CotEditorCortinas({ cotId, onBack, onSwitchVersion }: { 
         <span style={{ fontSize: 10, color: '#14B8A6', background: '#14B8A622', padding: '2px 8px', borderRadius: 5 }}>Somfy auto-BOM</span>
         <span style={{ fontSize: 10, color: '#7C3AED', background: '#7C3AED22', padding: '2px 8px', borderRadius: 5 }}>Lutron manual</span>
         <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span style={{ fontSize: 10, fontWeight: 600, color: config.currency === 'USD' ? '#06B6D4' : '#D97706', background: config.currency === 'USD' ? '#06B6D422' : '#D9770622', padding: '2px 8px', borderRadius: 5 }}>{config.currency}</span>
+          <button onClick={() => updateConfig('currency', config.currency === 'USD' ? 'MXN' : 'USD')}
+            title="Cambiar moneda de la cotización (USD / MXN)"
+            style={{ fontSize: 10, fontWeight: 700, color: config.currency === 'USD' ? '#06B6D4' : '#D97706', background: config.currency === 'USD' ? '#06B6D422' : '#D9770622', padding: '3px 10px', borderRadius: 5, border: '1px solid ' + (config.currency === 'USD' ? '#06B6D455' : '#D9770655'), cursor: 'pointer', fontFamily: 'inherit' }}>
+            {config.currency} ⇄
+          </button>
           <span style={{ fontSize: 9, color: '#555' }}>TC:</span>
           <input type="number" value={config.tipoCambio} step={0.1}
             onChange={e => updateConfig('tipoCambio', parseFloat(e.target.value) || 20)}
