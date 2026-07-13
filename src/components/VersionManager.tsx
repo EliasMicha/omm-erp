@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
-import { GitBranch, Copy, Eye, X, ChevronDown, ChevronRight, ArrowRight, Plus, Minus, Pencil, Check } from 'lucide-react'
+import { GitBranch, Copy, Eye, X, ChevronDown, ChevronRight, ArrowRight, Plus, Minus, Pencil, Check, Trash2 } from 'lucide-react'
 
 // ═══════════════════════════════════════════════════════════════════
 // TYPES
@@ -87,6 +87,26 @@ export default function VersionManager({ cotId, getCurrentSnapshot, onSwitchVers
   useEffect(() => {
     if (showPanel) loadSiblings()
   }, [showPanel, cotId])
+
+  async function deleteVersion(s: SiblingVersion) {
+    if (siblings.length <= 1) { alert('No puedes eliminar la única versión de la cotización.'); return }
+    if (s.stage === 'contrato') {
+      if (!confirm(`⚠ La versión "${s.version_label || ''} — ${s.name}" está en CONTRATO. ¿Seguro que quieres eliminarla? Esta acción no se puede deshacer.`)) return
+    } else {
+      if (!confirm(`¿Eliminar la versión "${s.version_label || ''} — ${s.name}"? Esta acción no se puede deshacer.`)) return
+    }
+    // Cascade: items → areas → quotation
+    await supabase.from('quotation_items').delete().eq('quotation_id', s.id)
+    await supabase.from('quotation_areas').delete().eq('quotation_id', s.id)
+    const { error } = await supabase.from('quotations').delete().eq('id', s.id)
+    if (error) { alert('Error al eliminar la versión: ' + error.message); return }
+    // Si borramos la versión que estamos viendo, cambiar a otra hermana
+    if (s.id === cotId) {
+      const other = siblings.find(x => x.id !== s.id)
+      if (other) { setShowPanel(false); onSwitchVersion(other.id); return }
+    }
+    loadSiblings()
+  }
 
   async function createVersion() {
     setCreating(true)
@@ -337,11 +357,13 @@ export default function VersionManager({ cotId, getCurrentSnapshot, onSwitchVers
                     sibling={s}
                     isCurrent={s.id === cotId}
                     accentColor={accentColor}
+                    canDelete={siblings.length > 1}
                     onSwitch={() => {
                       setShowPanel(false)
                       onSwitchVersion(s.id)
                     }}
                     onRenamed={loadSiblings}
+                    onDelete={() => deleteVersion(s)}
                   />
                 ))
               )}
@@ -356,8 +378,8 @@ export default function VersionManager({ cotId, getCurrentSnapshot, onSwitchVers
 // ═══════════════════════════════════════════════════════════════════
 // SIBLING ROW
 // ═══════════════════════════════════════════════════════════════════
-function SiblingRow({ sibling: s, isCurrent, accentColor, onSwitch, onRenamed }: {
-  sibling: SiblingVersion; isCurrent: boolean; accentColor: string; onSwitch: () => void; onRenamed: () => void
+function SiblingRow({ sibling: s, isCurrent, accentColor, canDelete, onSwitch, onRenamed, onDelete }: {
+  sibling: SiblingVersion; isCurrent: boolean; accentColor: string; canDelete: boolean; onSwitch: () => void; onRenamed: () => void; onDelete: () => void
 }) {
   const [editing, setEditing] = useState(false)
   const [editName, setEditName] = useState(s.name)
@@ -457,6 +479,19 @@ function SiblingRow({ sibling: s, isCurrent, accentColor, onSwitch, onRenamed }:
       <div style={{ fontSize: 14, fontWeight: 700, color: isCurrent ? accentColor : '#aaa', flexShrink: 0 }}>
         ${fmt(s.total || 0)}
       </div>
+
+      {/* Eliminar versión */}
+      {canDelete && (
+        <button
+          onClick={e => { e.stopPropagation(); onDelete() }}
+          title="Eliminar esta versión"
+          style={{ background: 'none', border: 'none', color: '#5a3a3a', cursor: 'pointer', padding: 4, display: 'flex', flexShrink: 0 }}
+          onMouseEnter={e => (e.currentTarget.style.color = '#ef4444')}
+          onMouseLeave={e => (e.currentTarget.style.color = '#5a3a3a')}
+        >
+          <Trash2 size={14} />
+        </button>
+      )}
     </div>
   )
 }
