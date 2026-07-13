@@ -2092,8 +2092,8 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
   const saveObservaciones = async (movId: string, value: string) => {
     const clean = value.trim() || null
     const { error } = await supabase.from('bank_movements').update({ observaciones: clean }).eq('id', movId)
-    if (error) { console.error('[upd-obs]', error); return }
-    setMovements(prev => prev.map(m => m.id === movId ? { ...m, observaciones: clean ?? undefined } : m))
+    if (error) { console.error('[upd-obs]', error); alert('No se pudo guardar el comentario: ' + error.message); return }
+    setBankMovements(prev => prev.map(m => m.id === movId ? { ...m, observaciones: clean ?? undefined } : m))
   }
 
   // Legacy compat: old applyManualMatch for single auto-match
