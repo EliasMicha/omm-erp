@@ -85,6 +85,14 @@ const CATEGORIA_LABELS: Record<CategoriaGranular | string, string> = {
   nomina: 'Nómina',
 }
 
+// Opciones (ordenadas) para el dropdown de categoría en conciliación.
+const CATEGORIA_OPTIONS: CategoriaGranular[] = [
+  'material_electrico', 'luminarias', 'instalaciones_especiales',
+  'nomina_directa', 'nomina_admin', 'gasto_general',
+  'anticipo_proveedor', 'cobro_cliente', 'impuestos',
+  'comision_bancaria', 'traspaso_interno', 'pago_tdc', 'prestamo', 'otro',
+]
+
 // Keywords ordenadas por especificidad. La primera que matchee gana.
 const CATEGORIA_KEYWORDS: { cat: CategoriaGranular; patterns: RegExp[] }[] = [
   // Instalaciones especiales — equipos de audio/video/seguridad/control
@@ -262,6 +270,7 @@ interface BankMovement {
   id: string; fecha: string; concepto: string; referencia: string
   monto: number; tipo: 'cargo' | 'abono'; saldo: number
   categoria_sugerida?: string; proyecto_sugerido?: string; conciliado: boolean
+  categoria_manual?: boolean
   beneficiario?: string; factura_match_id?: string; factura_match_info?: string
   rfc_contraparte?: string; proyecto_codigo?: string; banco?: string; cuenta?: string
   // Separación Beneficiario REAL vs concepto/categoría detectada por IA
@@ -619,7 +628,10 @@ export default function Contabilidad() {
           const proyecto = m.proyecto || m.proyecto_codigo || ''
           const rawCat = classifyConcepto(m.concepto || '', m.tipo || 'cargo')
           const finalCat = refineNominaCategory(rawCat, !!proyecto)
-          const categoria = finalCat !== 'otro' ? finalCat : (m.categoria || 'otro')
+          // Si el usuario fijó la categoría a mano, respetarla — el clasificador NO la sobreescribe.
+          const categoria = m.categoria_manual
+            ? (m.categoria || 'otro')
+            : (finalCat !== 'otro' ? finalCat : (m.categoria || 'otro'))
           return {
           id: m.id,
           fecha: m.fecha || '',
@@ -629,6 +641,7 @@ export default function Contabilidad() {
           tipo: m.tipo || 'cargo',
           saldo: Number(m.saldo) || 0,
           categoria_sugerida: categoria,
+          categoria_manual: m.categoria_manual || false,
           proyecto_sugerido: m.proyecto || '',
           beneficiario: m.beneficiario || '',
           conciliado: m.conciliado || false,
@@ -2096,6 +2109,14 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
     setBankMovements(prev => prev.map(m => m.id === movId ? { ...m, observaciones: clean ?? undefined } : m))
   }
 
+  // Cambiar la categoría del movimiento a mano. Marca categoria_manual=true para
+  // que el clasificador automático NO la sobreescriba en la próxima carga.
+  const saveCategoria = async (movId: string, cat: string) => {
+    const { error } = await supabase.from('bank_movements').update({ categoria: cat, categoria_manual: true }).eq('id', movId)
+    if (error) { console.error('[upd-cat]', error); alert('No se pudo cambiar la categoría: ' + error.message); return }
+    setBankMovements(prev => prev.map(m => m.id === movId ? { ...m, categoria_sugerida: cat, categoria_manual: true } : m))
+  }
+
   // Legacy compat: old applyManualMatch for single auto-match
   const applyManualMatch = async (mov: BankMovement, invId: string | null) => {
     if (invId === null) {
@@ -3366,7 +3387,29 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
                         <span style={{ color: '#444' }}>—</span>
                       )}
                     </Td>
-                    <Td><Badge label={CATEGORIA_LABELS[m.categoria_sugerida || 'otro'] || m.categoria_sugerida || 'Otro'} color={catColors[m.categoria_sugerida || 'otro'] || '#555'} /></Td>
+                    <Td>{(() => {
+                      const curCat = m.categoria_sugerida || 'otro'
+                      const col = catColors[curCat] || '#555'
+                      return (
+                        <select
+                          value={CATEGORIA_OPTIONS.includes(curCat as any) ? curCat : 'otro'}
+                          onClick={e => e.stopPropagation()}
+                          onChange={e => { e.stopPropagation(); saveCategoria(m.id, e.target.value) }}
+                          title={m.categoria_manual ? 'Categoría fijada manualmente' : 'Categoría automática — puedes cambiarla'}
+                          style={{
+                            fontSize: 10, fontWeight: 700, padding: '2px 4px', borderRadius: 4,
+                            background: `${col}18`, color: col, border: `1px solid ${col}55`,
+                            fontFamily: 'inherit', cursor: 'pointer', outline: 'none', maxWidth: 150,
+                          }}
+                        >
+                          {CATEGORIA_OPTIONS.map(c => (
+                            <option key={c} value={c} style={{ background: '#1a1a1a', color: '#fff' }}>
+                              {m.categoria_manual && c === curCat ? '● ' : ''}{CATEGORIA_LABELS[c] || c}
+                            </option>
+                          ))}
+                        </select>
+                      )
+                    })()}</Td>
                     <Td right>{m.tipo === 'cargo' ? <span style={{ color: '#DC2626' }}>{F(m.monto)}</span> : ''}</Td>
                     <Td right>{m.tipo === 'abono' ? <span style={{ color: '#10B981' }}>{F(m.monto)}</span> : ''}</Td>
                     <Td>{(() => {
