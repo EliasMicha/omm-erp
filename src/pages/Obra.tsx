@@ -4,6 +4,7 @@ import { F, formatDate } from '../lib/utils'
 import { ANTHROPIC_API_KEY } from '../lib/config'
 import { supabase } from '../lib/supabase'
 import { useIsMobile } from '../lib/useIsMobile'
+import jsPDF from 'jspdf'
 import {
   HardHat, Users, ClipboardList, Calendar, AlertTriangle, CheckCircle, CheckCircle2,
   Clock, ChevronRight, ArrowLeft, Plus, Upload, Camera, X, Eye,
@@ -2508,6 +2509,99 @@ function TabPlaneacion({ obras, instaladores }: { obras: ObraData[]; instaladore
     return assignments.get(instId)?.get(dayIdx) || []
   }
 
+  // ── Exportar la tabla de planeación a PDF (horizontal) ──
+  function exportarPlaneacionPDF() {
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'letter' })
+    const W = doc.internal.pageSize.getWidth()
+    const H = doc.internal.pageSize.getHeight()
+    const M = 10
+    const hexToRgb = (hex: string): [number, number, number] => {
+      const h = (hex || '#888').replace('#', '')
+      const n = parseInt(h.length === 3 ? h.split('').map(c => c + c).join('') : h, 16)
+      return [(n >> 16) & 255, (n >> 8) & 255, n & 255]
+    }
+    const filas = instaladores.filter(i => i.disponible)
+    const instColW = 42
+    const dayColW = (W - 2 * M - instColW) / 6
+    const lineH = 3.4
+
+    // Encabezado del documento
+    let y = M
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(15); doc.setTextColor(20, 20, 20)
+    doc.text('Planeación Semanal', M, y + 5)
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(90, 90, 90)
+    doc.text(weekLabel, W - M, y + 3, { align: 'right' })
+    doc.setFontSize(8); doc.setTextColor(140, 140, 140)
+    doc.text(`Generado: ${new Date().toLocaleDateString('es-MX', { day: '2-digit', month: 'long', year: 'numeric' })}`, W - M, y + 8, { align: 'right' })
+    y += 12
+    doc.setFillColor(16, 185, 129); doc.rect(M, y, W - 2 * M, 0.6, 'F'); y += 3
+
+    // Construye las líneas por celda para calcular alturas
+    const cellLines = (instId: string, dayIdx: number): { text: string; color: [number, number, number] }[] => {
+      const arr = getCell(instId, dayIdx)
+      const out: { text: string; color: [number, number, number] }[] = []
+      arr.forEach(a => {
+        const label = a.tarea ? `${a.obra}: ${a.tarea}` : a.obra
+        const wrapped: string[] = doc.splitTextToSize(`• ${label}`, dayColW - 3)
+        wrapped.forEach(w => out.push({ text: w, color: hexToRgb(a.obraColor) }))
+      })
+      return out
+    }
+
+    const drawHeader = () => {
+      doc.setFillColor(26, 26, 26); doc.rect(M, y, W - 2 * M, 8, 'F')
+      doc.setTextColor(255, 255, 255); doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5)
+      doc.text('INSTALADOR', M + 2, y + 5.3)
+      dayLabels.forEach((lbl, i) => {
+        const x = M + instColW + i * dayColW
+        const d = weekDays[i]
+        doc.text(`${lbl} ${d.getDate()}/${d.getMonth() + 1}`, x + 2, y + 5.3)
+      })
+      y += 8
+    }
+    drawHeader()
+
+    doc.setFont('helvetica', 'normal')
+    filas.forEach((inst, ri) => {
+      // Altura de la fila = máximo de líneas entre los 6 días (mínimo 2)
+      const perDay = [0, 1, 2, 3, 4, 5].map(d => cellLines(inst.id, d))
+      const maxLines = Math.max(2, ...perDay.map(l => l.length))
+      const rowH = maxLines * lineH + 3
+
+      if (y + rowH > H - M) { doc.addPage(); y = M; drawHeader(); doc.setFont('helvetica', 'normal') }
+
+      if (ri % 2 === 1) { doc.setFillColor(247, 248, 248); doc.rect(M, y, W - 2 * M, rowH, 'F') }
+      // Nombre del instalador
+      doc.setTextColor(30, 30, 30); doc.setFont('helvetica', 'bold'); doc.setFontSize(8)
+      doc.splitTextToSize(inst.nombre, instColW - 3).slice(0, 3).forEach((ln: string, k: number) => doc.text(ln, M + 2, y + 4 + k * lineH))
+      // Celdas por día
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(7)
+      perDay.forEach((lines, di) => {
+        const x = M + instColW + di * dayColW
+        lines.forEach((ln, k) => {
+          doc.setTextColor(ln.color[0], ln.color[1], ln.color[2])
+          doc.text(ln.text, x + 2, y + 4 + k * lineH)
+        })
+      })
+      // Bordes verticales de columnas
+      doc.setDrawColor(225, 225, 225)
+      for (let c = 0; c <= 6; c++) { const x = M + instColW + c * dayColW - (c === 0 ? 0 : 0); doc.line(x, y, x, y + rowH) }
+      doc.line(M, y, M, y + rowH)
+      doc.line(W - M, y, W - M, y + rowH)
+      doc.line(M, y + rowH, W - M, y + rowH)
+      y += rowH
+    })
+
+    // Pie
+    const pages = doc.getNumberOfPages()
+    for (let i = 1; i <= pages; i++) {
+      doc.setPage(i); doc.setFontSize(7); doc.setTextColor(150, 150, 150)
+      doc.text('OMM ERP · Planeación semanal', M, H - 5)
+      doc.text(`Página ${i} de ${pages}`, W - M, H - 5, { align: 'right' })
+    }
+    doc.save(`Planeacion_Semanal_${weekStartStr}.pdf`)
+  }
+
   // Add manual assignment (persiste en BD)
   const addAssignment = async () => {
     if (!selectedCell || !newTask.obra_id || !newTask.tarea.trim()) return
@@ -2723,6 +2817,9 @@ Responde SOLO con un JSON, sin markdown, sin explicación:
           {weekOffset === 0 && <span style={{ fontSize: 10, color: '#10B981', marginLeft: 8 }}>Esta semana</span>}
         </div>
         <button onClick={() => setWeekOffset(w => w + 1)} style={{ background: '#141414', border: '1px solid #333', borderRadius: 6, padding: '4px 10px', color: '#ccc', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12 }}>Siguiente →</button>
+        <Btn size="sm" variant="secondary" onClick={exportarPlaneacionPDF} title="Descargar la planeación de esta semana en PDF">
+          <FileText size={12} /> PDF
+        </Btn>
         <Btn size="sm" variant="primary" onClick={sugerirConAI} disabled={processing || obrasActivas.length === 0}>
           {processing ? <><Loader2 size={12} /> Generando...</> : <>🤖 Sugerir con AI</>}
         </Btn>
