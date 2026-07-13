@@ -1,7 +1,7 @@
 export type UserRole = 'dg' | 'coordinador' | 'instalador' | 'admin' | 'disenador' | 'ingeniero'
 export type UserLevel = 'oro' | 'plata' | 'bronce' | 'sin_nivel'
 export type ProjectStatus = 'activo' | 'pausado' | 'completado' | 'cancelado'
-export type ProjectLine = 'esp' | 'elec' | 'ilum' | 'cort' | 'proy'
+export type ProjectLine = 'esp' | 'elec' | 'ilum' | 'cort' | 'proy' | 'dist'
 export type ProductType = 'material' | 'labor'
 export type ProductSystem = 'Redes' | 'CCTV' | 'Audio' | 'Lutron' | 'Acceso' | 'Somfy' | 'Electrico' | 'Iluminacion' | 'Cortinas' | 'General'
 export type QuoteStage = 'oportunidad' | 'estimacion' | 'propuesta' | 'contrato'

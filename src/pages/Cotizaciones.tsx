@@ -15,6 +15,7 @@ import ImportCotizaciones from './ImportCotizaciones'
 import AIQuoteChat from './AIQuoteChat'
 import CotEditorCortinas from './CotEditorCortinas'
 import CotEditorIlum from './CotEditorIlum'
+import CotEditorDistribucion from './CotEditorDistribucion'
 import { useAuth } from '../contexts/AuthContext'
 import CotEditorProyecto from './CotEditorProyecto'
 import { autoCreateProjectFromQuotation } from '../lib/projectUtils'
@@ -2853,6 +2854,7 @@ export default function Cotizaciones() {
   if (openId && openSpecialty === 'cort') return <CotEditorCortinas key={openId} cotId={openId} onBack={close} onSwitchVersion={switchVersion}/>
   if (openId && openSpecialty === 'proy') return <CotEditorProyecto key={openId} cotId={openId} onBack={close} specialty="proy" onSwitchVersion={switchVersion}/>
   if (openId && openSpecialty === 'ilum') return <CotEditorIlum key={openId} cotId={openId} onBack={close} onSwitchVersion={switchVersion}/>
+  if (openId && openSpecialty === 'dist') return <CotEditorDistribucion key={openId} cotId={openId} onBack={close} onSwitchVersion={switchVersion}/>
   if (openId) return <CotEditor cotId={openId} onBack={close}/>
   return <CotDashboard onOpen={open} preferVersionId={lastViewedId}/>
 }

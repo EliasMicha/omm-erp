@@ -23,6 +23,7 @@ export const SPECIALTY_CONFIG: Record<ProjectLine, { label: string; color: strin
   ilum: { label: 'Iluminación', color: '#A78BFA', icon: '◇' },
   cort: { label: 'Cortinas', color: '#67E8F9', icon: '▦' },
   proy: { label: 'Proyectos', color: '#F9A8D4', icon: '◎' },
+  dist: { label: 'Distribución', color: '#F59E0B', icon: '⇄' },
 }
 
 export const STAGE_CONFIG: Record<QuoteStage, { label: string; color: string }> = {
