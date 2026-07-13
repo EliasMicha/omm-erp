@@ -2559,7 +2559,8 @@ function TabPlaneacion({ obras, instaladores }: { obras: ObraData[]; instaladore
     try {
       const planId = await ensureWeeklyPlan()
       if (!planId) { alert('No se pudo crear/encontrar el plan semanal.'); return }
-      const dias = [0, 1, 2, 3, 4, 5].filter(d => !getCell(instId, d).some(t => t.obra_id === obra.id))
+      // Solo Lun–Vie (0–4). El sábado (5) se deja vacío: solo se trabaja en casos especiales.
+      const dias = [0, 1, 2, 3, 4].filter(d => !getCell(instId, d).some(t => t.obra_id === obra.id))
       if (dias.length === 0) { setNewTask({ obra_id: '', tarea: '' }); setSelectedCell(null); return }
       const rows = dias.map(d => ({ plan_id: planId, employee_id: instId, obra_id: obra.id, project_id, day_of_week: d + 1, tareas: tarea, urgencia: 'normal' }))
       const { data: ins, error } = await supabase.from('weekly_plan_assignments').insert(rows).select('id, day_of_week')
@@ -2856,7 +2857,7 @@ Responde SOLO con un JSON, sin markdown, sin explicación:
                               <button onClick={() => setSelectedCell(null)} style={{ padding: '2px 4px', fontSize: 9, background: '#1a1a1a', border: '1px solid #333', borderRadius: 4, color: '#666', cursor: 'pointer', fontFamily: 'inherit' }}>×</button>
                             </div>
                             <button onClick={addAssignmentWholeWeek} disabled={!newTask.obra_id || fillingWeek}
-                              title="Asigna esta obra a los 6 días de la semana para este instalador"
+                              title="Asigna esta obra de Lunes a Viernes (el sábado se deja vacío)"
                               style={{ width: '100%', marginTop: 3, padding: '3px 4px', fontSize: 9, fontWeight: 600, background: newTask.obra_id ? 'rgba(37,99,235,0.15)' : '#141414', border: '1px solid ' + (newTask.obra_id ? 'rgba(37,99,235,0.4)' : '#2a2a2a'), borderRadius: 4, color: newTask.obra_id ? '#60A5FA' : '#555', cursor: newTask.obra_id ? 'pointer' : 'not-allowed', fontFamily: 'inherit' }}>
                               {fillingWeek ? 'Asignando…' : '📅 Toda la semana'}
                             </button>
