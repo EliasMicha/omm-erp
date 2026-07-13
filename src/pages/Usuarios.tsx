@@ -29,6 +29,7 @@ const AREAS: { value: PermissionArea; label: string }[] = [
   { value: 'Ventas_Ingenieria', label: 'Ventas / Ingeniería' },
   { value: 'Operaciones', label: 'Operaciones' },
   { value: 'Mantenimiento', label: 'Mantenimiento (solo Mtto, Catálogo y Obra)' },
+  { value: 'Coordinador_Obra', label: 'Coordinador de Obra (solo Obra)' },
 ]
 
 const inputStyle: React.CSSProperties = {

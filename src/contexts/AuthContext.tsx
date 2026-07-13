@@ -16,7 +16,7 @@ import { createContext, useContext, useEffect, useState, ReactNode } from 'react
 import { supabase } from '../lib/supabase'
 import type { Session } from '@supabase/supabase-js'
 
-export type PermissionArea = 'DG' | 'Administracion' | 'Ventas_Ingenieria' | 'Operaciones' | 'Mantenimiento'
+export type PermissionArea = 'DG' | 'Administracion' | 'Ventas_Ingenieria' | 'Operaciones' | 'Mantenimiento' | 'Coordinador_Obra'
 export type UserNivel = 'director' | 'ejecutor'
 
 // Roles "restringidos": solo pueden ver/entrar a las rutas listadas (whitelist).
@@ -25,10 +25,14 @@ export type UserNivel = 'director' | 'ejecutor'
 export const RESTRICTED_AREA_ROUTES: Partial<Record<PermissionArea, string[]>> = {
   // Rol Mantenimiento: solo ve estas 3 secciones (menú + bloqueo por URL directa)
   Mantenimiento: ['/mantenimiento', '/catalogo', '/obra'],
+  // Coordinador de instalaciones especiales: solo el módulo de Obra (obras, equipo
+  // de instalación / asignación de instaladores y planeación semanal — todo vive en /obra).
+  Coordinador_Obra: ['/obra'],
 }
 // Ruta "home" a la que se redirige un rol restringido si intenta abrir algo fuera de su whitelist
 export const RESTRICTED_AREA_HOME: Partial<Record<PermissionArea, string>> = {
   Mantenimiento: '/mantenimiento',
+  Coordinador_Obra: '/obra',
 }
 
 export interface UserProfile {
