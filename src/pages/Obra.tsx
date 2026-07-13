@@ -5,6 +5,7 @@ import { ANTHROPIC_API_KEY } from '../lib/config'
 import { supabase } from '../lib/supabase'
 import { useIsMobile } from '../lib/useIsMobile'
 import jsPDF from 'jspdf'
+import { useAuth } from '../contexts/AuthContext'
 import {
   HardHat, Users, ClipboardList, Calendar, AlertTriangle, CheckCircle, CheckCircle2,
   Clock, ChevronRight, ArrowLeft, Plus, Upload, Camera, X, Eye,
@@ -205,6 +206,9 @@ const cardStyle: React.CSSProperties = {
 
 export default function Obra() {
   const isMobile = useIsMobile()
+  const { user } = useAuth()
+  // El Coordinador de Obra (y roles de campo) no deben ver montos de dinero.
+  const hideMoney = user?.permission_area === 'Coordinador_Obra'
   const [tab, setTab] = useState<Tab>('dashboard')
   const [obras, setObras] = useState<ObraData[]>([])
   const [instaladores, setInstaladores] = useState<Instalador[]>([])
@@ -362,6 +366,7 @@ export default function Obra() {
     return <ObraDetail
       obra={obra}
       instaladores={instaladores}
+      hideMoney={hideMoney}
       onBack={() => setSelectedObra(null)}
       updateObra={(updater) => updateObra(obra.id, updater)}
     />
@@ -452,7 +457,7 @@ export default function Obra() {
                       <div style={{ fontSize: 11, color: '#666', marginBottom: 4 }}>Avance</div>
                       <div style={{ fontSize: 20, fontWeight: 700, color: '#fff', marginBottom: 4 }}>{o.avance_global}%</div>
                       <ProgressBar pct={o.avance_global} />
-                      <div style={{ fontSize: 10, color: '#555', marginTop: 6 }}>{F(o.valor_contrato)}</div>
+                      {!hideMoney && <div style={{ fontSize: 10, color: '#555', marginTop: 6 }}>{F(o.valor_contrato)}</div>}
                     </div>
                     <ChevronRight size={16} color="#444" />
                   </div>
@@ -489,9 +494,10 @@ export default function Obra() {
    OBRA DETAIL VIEW
    ═══════════════════════════════════════════════════════════════════ */
 
-function ObraDetail({ obra, instaladores, onBack, updateObra }: {
+function ObraDetail({ obra, instaladores, hideMoney, onBack, updateObra }: {
   obra: ObraData
   instaladores: Instalador[]
+  hideMoney?: boolean
   onBack: () => void
   updateObra: (updater: (o: ObraData) => ObraData) => void
 }) {
@@ -609,12 +615,12 @@ function ObraDetail({ obra, instaladores, onBack, updateObra }: {
       {!hydrated && <div style={{ marginBottom: 16 }}><Loading /></div>}
 
       {/* KPIs */}
-      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(5, 1fr)', gap: 12, marginBottom: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : `repeat(${hideMoney ? 4 : 5}, 1fr)`, gap: 12, marginBottom: 20 }}>
         <KpiCard label="Avance global" value={`${obra.avance_global}%`} icon={<TrendingUp size={16} />} />
         <KpiCard label="Actividades" value={`${completadas}/${obra.actividades.length}`} color="#2563EB" icon={<ClipboardList size={16} />} />
         <KpiCard label="Bloqueadas" value={bloqueadas} color={bloqueadas > 0 ? '#DC2626' : '#10B981'} icon={<AlertTriangle size={16} />} />
         <KpiCard label="Documentos" value={`${docsRecibidos}/${obra.entrega_docs.length}`} color="#D97706" icon={<FileText size={16} />} />
-        <KpiCard label="Contrato" value={F(obra.valor_contrato)} color="#A78BFA" icon={<HardHat size={16} />} />
+        {!hideMoney && <KpiCard label="Contrato" value={F(obra.valor_contrato)} color="#A78BFA" icon={<HardHat size={16} />} />}
       </div>
 
       {/* Sub-tabs */}
