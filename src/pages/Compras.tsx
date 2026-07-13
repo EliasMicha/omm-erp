@@ -3248,12 +3248,13 @@ function NuevoSupplierModal({ onClose, onCreated }: { onClose: () => void; onCre
   async function crear() {
     if (!form.name.trim()) { setError('El nombre es requerido'); return }
     setSaving(true); setError('')
+    // Nombres reales de columnas en suppliers: contacto, telefono, email, direccion, notas, sistemas
     const { error: err } = await supabase.from('suppliers').insert({
-      name: form.name.trim(), contact_name: form.contact_name || null,
-      contact_phone: form.contact_phone || null, contact_email: form.contact_email || null,
-      rfc: form.rfc || null, address: form.address || null,
-      payment_terms: form.payment_terms, notes: form.notes || null,
-      systems: form.systems, is_active: true,
+      name: form.name.trim(), contacto: form.contact_name || null,
+      telefono: form.contact_phone || null, email: form.contact_email || null,
+      rfc: form.rfc || null, direccion: form.address || null,
+      payment_terms: form.payment_terms, notas: form.notes || null,
+      sistemas: form.systems, is_active: true,
     })
     setSaving(false)
     if (err) { setError(err.message); return }
@@ -3373,14 +3374,17 @@ function SupplierDetail({ supplierId, onBack }: { supplierId: string; onBack: ()
   async function guardar() {
     if (!supplier) return
     setSaving(true)
-    // NOTA: la tabla suppliers en DB usa nombres en español (contacto, telefono,
-    // email, direccion, notas, sistemas) y NO tiene payment_terms. La UI de este
-    // editor lee/escribe nombres en inglés, por lo que hay un bug pre-existente
-    // donde varios campos no persisten. Aquí salvo SOLO las columnas que sí
-    // existen en DB para evitar que la llamada entera falle.
+    // Columnas reales en DB (español): contacto, telefono, email, direccion, notas, sistemas.
     await supabase.from('suppliers').update({
       name: supplier.name,
       rfc: supplier.rfc || null,
+      contacto: supplier.contacto || null,
+      telefono: supplier.telefono || null,
+      email: supplier.email || null,
+      direccion: supplier.direccion || null,
+      notas: supplier.notas || null,
+      sistemas: supplier.sistemas || [],
+      payment_terms: supplier.payment_terms || null,
       is_active: supplier.is_active,
       default_logistics_mode: supplier.default_logistics_mode || null,
     }).eq('id', supplier.id)
@@ -3435,8 +3439,9 @@ function SupplierDetail({ supplierId, onBack }: { supplierId: string; onBack: ()
 
   const toggleSystem = (sys: string) => {
     if (!supplier) return
-    const systems = supplier.systems.includes(sys) ? supplier.systems.filter(x => x !== sys) : [...supplier.systems, sys]
-    upd('systems', systems)
+    const cur = supplier.sistemas || []
+    const sistemas = cur.includes(sys) ? cur.filter((x: string) => x !== sys) : [...cur, sys]
+    upd('sistemas', sistemas)
   }
 
   return (
@@ -3461,14 +3466,14 @@ function SupplierDetail({ supplierId, onBack }: { supplierId: string; onBack: ()
         <div style={{ display: 'grid', gap: 12 }}>
           <Field label="Nombre / Razón social" value={supplier.name} onChange={v => upd('name', v)} />
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <Field label="Contacto" value={supplier.contact_name || ''} onChange={v => upd('contact_name', v)} />
-            <Field label="Teléfono" value={supplier.contact_phone || ''} onChange={v => upd('contact_phone', v)} />
+            <Field label="Contacto" value={supplier.contacto || ''} onChange={v => upd('contacto', v)} />
+            <Field label="Teléfono" value={supplier.telefono || ''} onChange={v => upd('telefono', v)} />
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <Field label="Email" value={supplier.contact_email || ''} onChange={v => upd('contact_email', v)} />
+            <Field label="Email" value={supplier.email || ''} onChange={v => upd('email', v)} />
             <Field label="RFC" value={supplier.rfc || ''} onChange={v => upd('rfc', v)} />
           </div>
-          <Field label="Dirección" value={supplier.address || ''} onChange={v => upd('address', v)} />
+          <Field label="Dirección" value={supplier.direccion || ''} onChange={v => upd('direccion', v)} />
           <div style={{ marginTop: 8, padding: '10px 12px', background: '#0f0f0f', border: '1px solid #1f1f1f', borderRadius: 6 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
               <div style={{ fontSize: 10, color: '#888', textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 600 }}>Cuentas bancarias</div>
@@ -3529,7 +3534,7 @@ function SupplierDetail({ supplierId, onBack }: { supplierId: string; onBack: ()
             Sistemas
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
               {SYSTEM_OPTIONS.map(sys => {
-                const active = (supplier.systems || []).includes(sys)
+                const active = (supplier.sistemas || []).includes(sys)
                 return (
                   <button key={sys} onClick={() => toggleSystem(sys)}
                     style={{
