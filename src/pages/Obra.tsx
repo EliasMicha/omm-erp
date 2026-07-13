@@ -2544,6 +2544,51 @@ function TabPlaneacion({ obras, instaladores }: { obras: ObraData[]; instaladore
     setSelectedCell(null)
   }
 
+  // Asigna la misma obra a TODA la semana (6 días) del instalador seleccionado.
+  // Salta los días que ya tengan esa obra para no duplicar.
+  const [fillingWeek, setFillingWeek] = useState(false)
+  const addAssignmentWholeWeek = async () => {
+    if (!selectedCell || !newTask.obra_id) return
+    const { instId } = selectedCell
+    const obra = obras.find(o => o.id === newTask.obra_id)
+    if (!obra) return
+    const color = colorForObra(obra.id)
+    const tarea = newTask.tarea.trim()
+    const project_id = obra.project_id || null
+    setFillingWeek(true)
+    try {
+      const planId = await ensureWeeklyPlan()
+      if (!planId) { alert('No se pudo crear/encontrar el plan semanal.'); return }
+      const dias = [0, 1, 2, 3, 4, 5].filter(d => !getCell(instId, d).some(t => t.obra_id === obra.id))
+      if (dias.length === 0) { setNewTask({ obra_id: '', tarea: '' }); setSelectedCell(null); return }
+      const rows = dias.map(d => ({ plan_id: planId, employee_id: instId, obra_id: obra.id, project_id, day_of_week: d + 1, tareas: tarea, urgencia: 'normal' }))
+      const { data: ins, error } = await supabase.from('weekly_plan_assignments').insert(rows).select('id, day_of_week')
+      if (error) { alert('Error al guardar la semana: ' + error.message); return }
+      // Espejo diario: 1 por día (reemplaza el existente)
+      for (const d of dias) {
+        const fecha = ymdLocal(weekDays[d])
+        await supabase.from('installer_daily_assignment').delete().eq('employee_id', instId).eq('fecha', fecha)
+        await supabase.from('installer_daily_assignment').insert({ employee_id: instId, fecha, obra_id: obra.id, project_id, tareas: tarea, urgencia: 'normal' })
+      }
+      setAssignments(prev => {
+        const next = new Map(prev)
+        const instMap = new Map(next.get(instId) || new Map<number, AsgItem[]>())
+        ;(ins as any[] || []).forEach(row => {
+          const dIdx = (row.day_of_week || 1) - 1
+          const dayArr = [...(instMap.get(dIdx) || [])]
+          dayArr.push({ id: row.id, obra: obra.nombre, obra_id: obra.id, project_id, tarea, obraColor: color })
+          instMap.set(dIdx, dayArr)
+        })
+        next.set(instId, instMap)
+        return next
+      })
+      setNewTask({ obra_id: '', tarea: '' })
+      setSelectedCell(null)
+    } finally {
+      setFillingWeek(false)
+    }
+  }
+
   // Remove assignment (persiste en BD)
   const removeAssignment = async (instId: string, dayIdx: number, taskIdx: number) => {
     const item = assignments.get(instId)?.get(dayIdx)?.[taskIdx]
@@ -2810,6 +2855,11 @@ Responde SOLO con un JSON, sin markdown, sin explicación:
                               <button onClick={addAssignment} style={{ flex: 1, padding: '2px 4px', fontSize: 9, background: 'rgba(87,255,154,0.1)', border: '1px solid rgba(87,255,154,0.2)', borderRadius: 4, color: '#10B981', cursor: 'pointer', fontFamily: 'inherit' }}>Agregar</button>
                               <button onClick={() => setSelectedCell(null)} style={{ padding: '2px 4px', fontSize: 9, background: '#1a1a1a', border: '1px solid #333', borderRadius: 4, color: '#666', cursor: 'pointer', fontFamily: 'inherit' }}>×</button>
                             </div>
+                            <button onClick={addAssignmentWholeWeek} disabled={!newTask.obra_id || fillingWeek}
+                              title="Asigna esta obra a los 6 días de la semana para este instalador"
+                              style={{ width: '100%', marginTop: 3, padding: '3px 4px', fontSize: 9, fontWeight: 600, background: newTask.obra_id ? 'rgba(37,99,235,0.15)' : '#141414', border: '1px solid ' + (newTask.obra_id ? 'rgba(37,99,235,0.4)' : '#2a2a2a'), borderRadius: 4, color: newTask.obra_id ? '#60A5FA' : '#555', cursor: newTask.obra_id ? 'pointer' : 'not-allowed', fontFamily: 'inherit' }}>
+                              {fillingWeek ? 'Asignando…' : '📅 Toda la semana'}
+                            </button>
                           </div>
                         )}
                       </td>
