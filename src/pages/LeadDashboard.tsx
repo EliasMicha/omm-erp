@@ -62,6 +62,7 @@ export default function LeadDashboard() {
   const [pos, setPos] = useState<any[]>([])
   const [milestones, setMilestones] = useState<any[]>([])
   const [obras, setObras] = useState<any[]>([])
+  const [nominaByObra, setNominaByObra] = useState<Record<string, number>>({})
   const [obraActividades, setObraActividades] = useState<any[]>([])
   const [obraBloqueos, setObraBloqueos] = useState<any[]>([])
   const [tasks, setTasks] = useState<any[]>([])
@@ -94,6 +95,38 @@ export default function LeadDashboard() {
   const toggle = (k: string) => setExpanded(p => ({ ...p, [k]: !p[k] }))
 
   useEffect(() => { if (id) load() }, [id])
+
+  // Nómina asignada por obra (según la planeación semanal).
+  // Cada instalador reparte su sueldo SEMANAL proporcional a los slots (día-obra)
+  // que se le asignaron esa semana; se acumula por obra a lo largo de todas las semanas.
+  useEffect(() => {
+    const obraIds = obras.map(o => o.id)
+    if (obraIds.length === 0) { setNominaByObra({}); return }
+    let cancelled = false
+    ;(async () => {
+      const { data: leadAsn } = await supabase.from('weekly_plan_assignments').select('employee_id, obra_id, plan_id').in('obra_id', obraIds)
+      if (!leadAsn || leadAsn.length === 0) { if (!cancelled) setNominaByObra({}); return }
+      const empIds = Array.from(new Set(leadAsn.map((a: any) => a.employee_id).filter(Boolean)))
+      const planIds = Array.from(new Set(leadAsn.map((a: any) => a.plan_id).filter(Boolean)))
+      const [{ data: allAsn }, { data: emps }] = await Promise.all([
+        supabase.from('weekly_plan_assignments').select('employee_id, plan_id').in('employee_id', empIds).in('plan_id', planIds),
+        supabase.from('employees').select('id, sueldo_neto_semanal').in('id', empIds),
+      ])
+      if (cancelled) return
+      const salary: Record<string, number> = {}
+      ;(emps || []).forEach((e: any) => { salary[e.id] = Number(e.sueldo_neto_semanal) || 0 })
+      const totalSlots: Record<string, number> = {}
+      ;(allAsn || []).forEach((a: any) => { const k = a.employee_id + '|' + a.plan_id; totalSlots[k] = (totalSlots[k] || 0) + 1 })
+      const per: Record<string, number> = {}
+      leadAsn.forEach((a: any) => {
+        const k = a.employee_id + '|' + a.plan_id
+        const cost = (salary[a.employee_id] || 0) / (totalSlots[k] || 1)
+        per[a.obra_id] = (per[a.obra_id] || 0) + cost
+      })
+      setNominaByObra(per)
+    })()
+    return () => { cancelled = true }
+  }, [obras.map(o => o.id).join(',')])
 
   async function load() {
     setLoading(true)
@@ -1466,6 +1499,11 @@ export default function LeadDashboard() {
                     <div style={{ textAlign: 'right' }}>
                       <div style={{ fontSize: 18, fontWeight: 700, color: '#2563EB' }}>{Math.round(avgPct)}%</div>
                       <div style={{ fontSize: 10, color: '#555' }}>{acts.length} actividades</div>
+                      {(nominaByObra[obra.id] || 0) > 0 && (
+                        <div style={{ fontSize: 11, color: '#10B981', fontWeight: 600, marginTop: 4 }} title="Costo de nómina asignado según la planeación semanal">
+                          Nómina: {F(nominaByObra[obra.id])}
+                        </div>
+                      )}
                     </div>
                   </div>
                   {/* Progress bar */}

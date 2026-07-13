@@ -2626,44 +2626,6 @@ function TabPlaneacion({ obras, instaladores, hideMoney }: { obras: ObraData[]; 
 
   useEffect(() => { loadWeek() }, [weekOffset, obras.length])
 
-  // Sueldos semanales de los instaladores (para costo de nómina por obra)
-  const [salaries, setSalaries] = useState<Record<string, number>>({})
-  useEffect(() => {
-    if (hideMoney) return
-    const ids = instaladores.map(i => i.id)
-    if (ids.length === 0) return
-    supabase.from('employees').select('id, sueldo_neto_semanal').in('id', ids).then(({ data }) => {
-      const m: Record<string, number> = {}
-      ;(data || []).forEach((e: any) => { m[e.id] = Number(e.sueldo_neto_semanal) || 0 })
-      setSalaries(m)
-    })
-  }, [instaladores, hideMoney])
-
-  // Costo de nómina por obra según la planeación de la semana visible.
-  // Cada instalador reparte su sueldo SEMANAL proporcional entre los slots
-  // (instalador-día-obra) que tiene asignados esa semana. Así se atribuye el 100%
-  // de la nómina de la semana a las obras donde trabajó.
-  function nominaPorObra() {
-    const perObra: Record<string, { nombre: string; slots: number; costo: number }> = {}
-    let costeadoTotal = 0, sinSueldo = 0
-    for (const [instId, instMap] of assignments) {
-      const slots: { obra_id: string; nombre: string }[] = []
-      for (const [, arr] of instMap) arr.forEach(a => { if (a.obra_id) slots.push({ obra_id: a.obra_id, nombre: a.obra }) })
-      if (slots.length === 0) continue
-      const semanal = salaries[instId] || 0
-      if (semanal <= 0) sinSueldo++
-      const costoPorSlot = semanal / slots.length
-      slots.forEach(s => {
-        if (!perObra[s.obra_id]) perObra[s.obra_id] = { nombre: s.nombre || 'Obra', slots: 0, costo: 0 }
-        perObra[s.obra_id].slots += 1
-        perObra[s.obra_id].costo += costoPorSlot
-        costeadoTotal += costoPorSlot
-      })
-    }
-    const filas = Object.entries(perObra).map(([id, v]) => ({ id, ...v })).sort((a, b) => b.costo - a.costo)
-    return { filas, total: costeadoTotal, sinSueldo }
-  }
-
   // Reescribe en BD todas las asignaciones de la semana (usado por AI)
   async function persistAll(map: Map<string, Map<number, AsgItem[]>>) {
     const planId = await ensureWeeklyPlan()
@@ -3156,44 +3118,6 @@ Responde SOLO con un JSON, sin markdown, sin explicación:
           <EmptyState message="No hay obras planeables. Crea una obra desde la pestaña Obras para empezar a planearla (incluye obras en entrega pendiente, en ejecución y pausadas)." />
         </div>
       )}
-
-      {/* Costo de nómina por obra (según planeación de la semana) — oculto para coordinador */}
-      {!hideMoney && (() => {
-        const { filas, total, sinSueldo } = nominaPorObra()
-        if (filas.length === 0) return null
-        return (
-          <div style={{ marginTop: 24, background: '#0e0e0e', border: '1px solid #1f1f1f', borderRadius: 12, padding: 14 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 4 }}>
-              <span style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>💰 Costo de nómina por obra</span>
-              <span style={{ fontSize: 11, color: '#666' }}>según la planeación de {weekLabel}</span>
-              <span style={{ marginLeft: 'auto', fontSize: 15, fontWeight: 800, color: '#10B981' }}>{F(total)}</span>
-            </div>
-            <div style={{ fontSize: 10, color: '#555', marginBottom: 10 }}>
-              El sueldo semanal de cada instalador se reparte proporcional a los días que se le asignó a cada obra.
-            </div>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead>
-                <tr style={{ borderBottom: '1px solid #222' }}>
-                  <th style={{ textAlign: 'left', fontSize: 10, color: '#888', textTransform: 'uppercase', padding: '4px 6px' }}>Obra</th>
-                  <th style={{ textAlign: 'center', fontSize: 10, color: '#888', textTransform: 'uppercase', padding: '4px 6px', width: 100 }}>Días-hombre</th>
-                  <th style={{ textAlign: 'right', fontSize: 10, color: '#888', textTransform: 'uppercase', padding: '4px 6px', width: 140 }}>Costo nómina</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filas.map(f => (
-                  <tr key={f.id} style={{ borderBottom: '1px solid #161616' }}>
-                    <td style={{ fontSize: 12, color: '#ddd', padding: '6px' }}>{f.nombre}</td>
-                    <td style={{ fontSize: 12, color: '#aaa', textAlign: 'center', padding: '6px' }}>{f.slots}</td>
-                    <td style={{ fontSize: 12, color: '#10B981', fontWeight: 600, textAlign: 'right', padding: '6px', fontFamily: 'monospace' }}>{F(f.costo)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            {sinSueldo > 0 && <div style={{ fontSize: 10, color: '#D97706', marginTop: 8 }}>⚠ {sinSueldo} instalador(es) sin sueldo semanal capturado — su costo cuenta como $0. Captúralo en Empleados para incluirlo.</div>}
-            <div style={{ fontSize: 10, color: '#555', marginTop: 6 }}>Nota: se basa en la planeación. Cuando se registre asistencia con obra, se podrá afinar al costo real por días efectivamente trabajados.</div>
-          </div>
-        )
-      })()}
     </div>
   )
 }
