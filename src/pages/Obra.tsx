@@ -223,7 +223,9 @@ export default function Obra() {
       try {
         const [obrasRes, empRes] = await Promise.all([
           supabase.from('obras').select('*').order('created_at', { ascending: false }),
-          supabase.from('employees').select('id,name,phone,role,level,skills,disponible,foto_url,calificacion,notes,is_active,tipo_trabajo,area').eq('is_active', true).order('name'),
+          // Excluye bajas: RRHH marca la baja en activo/estado_empleado; obra usa is_active.
+          // Filtramos por ambos para que un dado de baja no reaparezca aunque un flag quede desincronizado.
+          supabase.from('employees').select('id,name,phone,role,level,skills,disponible,foto_url,calificacion,notes,is_active,activo,estado_empleado,tipo_trabajo,area').eq('is_active', true).or('activo.is.null,activo.eq.true').order('name'),
         ])
         if (cancelled) return
         if (obrasRes.error) {
@@ -238,7 +240,10 @@ export default function Obra() {
           setLoading(false)
           return
         }
-        const empleados = empRes.data || []
+        // Excluir cualquier empleado dado de baja (por si algún flag quedó desincronizado)
+        const empleados = (empRes.data || []).filter((e: any) =>
+          e.activo !== false && String(e.estado_empleado || '').toLowerCase() !== 'baja'
+        )
         // Instaladores = empleados de campo (OBRA o MIXTO) — excluye oficina
         const insts = empleados.filter((e: any) =>
           e.tipo_trabajo === 'OBRA' || e.tipo_trabajo === 'MIXTO'
