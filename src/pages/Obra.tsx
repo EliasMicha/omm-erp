@@ -20,7 +20,7 @@ import {
 type ObraStatus = 'entrega_pendiente' | 'en_ejecucion' | 'pausada' | 'completada'
 type ActividadStatus = 'pendiente' | 'en_progreso' | 'bloqueada' | 'completada'
 type Sistema = 'CCTV' | 'Audio' | 'Redes' | 'Control' | 'Acceso' | 'Electrico' | 'Humo' | 'BMS' | 'Telefonia' | 'Celular' | 'Persianas'
-type Tab = 'obras' | 'instaladores' | 'planeacion'
+type Tab = 'dashboard' | 'obras' | 'instaladores' | 'planeacion'
 
 interface Instalador {
   id: string
@@ -205,7 +205,7 @@ const cardStyle: React.CSSProperties = {
 
 export default function Obra() {
   const isMobile = useIsMobile()
-  const [tab, setTab] = useState<Tab>('obras')
+  const [tab, setTab] = useState<Tab>('dashboard')
   const [obras, setObras] = useState<ObraData[]>([])
   const [instaladores, setInstaladores] = useState<Instalador[]>([])
   const [coordinadores, setCoordinadores] = useState<Array<{ id: string; name: string }>>([])
@@ -395,6 +395,7 @@ export default function Obra() {
       {/* Tabs */}
       <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid #222', marginBottom: 20 }}>
         {([
+          { key: 'dashboard' as Tab, label: 'Panel', icon: TrendingUp },
           { key: 'obras' as Tab, label: 'Obras', icon: HardHat },
           { key: 'planeacion' as Tab, label: 'Planeación semanal', icon: Calendar },
           { key: 'instaladores' as Tab, label: 'Equipo de instalación', icon: Users },
@@ -413,6 +414,8 @@ export default function Obra() {
           )
         })}
       </div>
+
+      {tab === 'dashboard' && <TabCoordinacion obras={obras} onOpenObra={(id) => setSelectedObra(id)} />}
 
       {tab === 'obras' && (
         <div>
@@ -2420,6 +2423,140 @@ function extractJsonArray(raw: string): any[] | null {
 type AsgItem = { id?: string; obra: string; obra_id: string; project_id: string | null; tarea: string; obraColor: string }
 function ymdLocal(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// PANEL DE COORDINACIÓN — vista rápida por obra
+// ═══════════════════════════════════════════════════════════════════
+function TabCoordinacion({ obras, onOpenObra }: { obras: ObraData[]; onOpenObra: (id: string) => void }) {
+  const [reportes, setReportes] = useState<any[]>([])
+  const [bloqueos, setBloqueos] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const activas = obras.filter(o => o.status !== 'completada')
+
+  useEffect(() => {
+    if (activas.length === 0) { setLoading(false); return }
+    const ids = activas.map(o => o.id)
+    let cancelled = false
+    ;(async () => {
+      setLoading(true)
+      const [rep, blo] = await Promise.all([
+        supabase.from('obra_reportes').select('id,obra_id,fecha,ai_resumen,ai_avances,ai_faltantes,ai_bloqueos,procesado,tipo_reporte,texto_raw').in('obra_id', ids).order('fecha', { ascending: false }),
+        supabase.from('obra_bloqueos').select('id,obra_id,descripcion,tipo,severidad,status,notificado_residente').in('obra_id', ids).eq('status', 'abierto'),
+      ])
+      if (cancelled) return
+      setReportes(rep.data || [])
+      setBloqueos(blo.data || [])
+      setLoading(false)
+    })()
+    return () => { cancelled = true }
+  }, [obras.map(o => o.id).join(',')])
+
+  const hace7 = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
+  const uniq = (arr: any[]) => Array.from(new Set((arr || []).map((s: any) => String(s || '').trim()).filter(Boolean)))
+
+  const data = activas.map(o => {
+    const reps = reportes.filter(r => r.obra_id === o.id)
+    const ultimo = reps[0] || null
+    const recientes = reps.slice(0, 3)
+    const faltantes = uniq(recientes.flatMap(r => r.ai_faltantes || []))
+    const avances = uniq(ultimo?.ai_avances || [])
+    const aiBloqueos = uniq(recientes.flatMap(r => r.ai_bloqueos || []))
+    const blo = bloqueos.filter(b => b.obra_id === o.id)
+    const porCliente = uniq([...aiBloqueos, ...blo.map(b => b.descripcion)])
+    const reportesNuevos = reps.filter(r => r.fecha && new Date(r.fecha + 'T00:00:00') >= hace7).length
+    const sinProcesar = reps.filter(r => !r.procesado).length
+    const actPend = o.actividades.filter(a => a.status !== 'completada').length
+    return { o, ultimo, faltantes, avances, porCliente, reportesNuevos, sinProcesar, totalReportes: reps.length, actPend }
+  }).sort((a, b) => (b.porCliente.length + b.faltantes.length) - (a.porCliente.length + a.faltantes.length))
+
+  const kMateriales = data.reduce((s, d) => s + d.faltantes.length, 0)
+  const kCliente = data.reduce((s, d) => s + d.porCliente.length, 0)
+  const kSemana = data.reduce((s, d) => s + d.reportesNuevos, 0)
+  const kSinProc = data.reduce((s, d) => s + d.sinProcesar, 0)
+
+  const Kpi = ({ label, value, color, hint }: { label: string; value: number | string; color: string; hint?: string }) => (
+    <div style={{ background: '#111', border: '1px solid #1f1f1f', borderRadius: 10, padding: '12px 14px' }}>
+      <div style={{ fontSize: 10, color: '#888', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{label}</div>
+      <div style={{ fontSize: 24, fontWeight: 800, color, marginTop: 2 }}>{value}</div>
+      {hint && <div style={{ fontSize: 10, color: '#555', marginTop: 2 }}>{hint}</div>}
+    </div>
+  )
+
+  const ListBlock = ({ title, items, color, empty }: { title: string; items: string[]; color: string; empty: string }) => (
+    <div style={{ flex: 1, minWidth: 200 }}>
+      <div style={{ fontSize: 10, fontWeight: 700, color, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
+        {title} <span style={{ background: color + '22', color, borderRadius: 8, padding: '0 6px', fontSize: 9 }}>{items.length}</span>
+      </div>
+      {items.length === 0
+        ? <div style={{ fontSize: 11, color: '#444', fontStyle: 'italic' }}>{empty}</div>
+        : <ul style={{ margin: 0, paddingLeft: 14, display: 'flex', flexDirection: 'column', gap: 3 }}>
+            {items.slice(0, 6).map((t, i) => <li key={i} style={{ fontSize: 11.5, color: '#cbd5d5', lineHeight: 1.35 }}>{t}</li>)}
+            {items.length > 6 && <li style={{ fontSize: 10, color: '#666', listStyle: 'none' }}>+{items.length - 6} más…</li>}
+          </ul>}
+    </div>
+  )
+
+  if (loading) return <Loading />
+
+  return (
+    <div>
+      {/* KPIs rápidos */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12, marginBottom: 18 }}>
+        <Kpi label="Obras activas" value={activas.length} color="#10B981" />
+        <Kpi label="Pendientes de material" value={kMateriales} color="#D97706" hint="de reportes recientes" />
+        <Kpi label="Por reportar a cliente" value={kCliente} color="#DC2626" hint="bloqueos e incidencias" />
+        <Kpi label="Reportes (7 días)" value={kSemana} color="#2563EB" />
+        <Kpi label="Reportes sin procesar" value={kSinProc} color="#A78BFA" />
+      </div>
+
+      {activas.length === 0 && <EmptyState message="No hay obras activas" />}
+
+      {/* Tarjeta por obra */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {data.map(({ o, ultimo, faltantes, avances, porCliente, reportesNuevos, sinProcesar, totalReportes, actPend }) => {
+          const st = STATUS_CONFIG[o.status]
+          return (
+            <div key={o.id} style={{ background: '#0e0e0e', border: '1px solid #1f1f1f', borderRadius: 12, padding: 14 }}>
+              {/* Header */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
+                <span onClick={() => onOpenObra(o.id)} style={{ fontSize: 15, fontWeight: 700, color: '#fff', cursor: 'pointer' }}
+                  onMouseEnter={e => (e.currentTarget.style.color = '#10B981')} onMouseLeave={e => (e.currentTarget.style.color = '#fff')}>
+                  {o.nombre}
+                </span>
+                <Badge label={st.label} color={st.color} />
+                <span style={{ fontSize: 11, color: '#666' }}>{o.cliente}</span>
+                <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
+                  {reportesNuevos > 0 && <Badge label={`${reportesNuevos} reporte(s) nuevos`} color="#2563EB" />}
+                  {sinProcesar > 0 && <Badge label={`${sinProcesar} sin procesar`} color="#A78BFA" />}
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontSize: 16, fontWeight: 700, color: '#fff' }}>{o.avance_global}%</div>
+                    <div style={{ width: 90 }}><ProgressBar pct={o.avance_global} /></div>
+                  </div>
+                  <button onClick={() => onOpenObra(o.id)} style={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 6, color: '#aaa', fontSize: 11, padding: '4px 10px', cursor: 'pointer', fontFamily: 'inherit' }}>Abrir →</button>
+                </div>
+              </div>
+
+              {/* Último reporte */}
+              <div style={{ fontSize: 11.5, color: '#aaa', marginBottom: 10, background: '#141414', borderRadius: 8, padding: '8px 10px' }}>
+                <span style={{ color: '#777', fontWeight: 600 }}>Último reporte {ultimo?.fecha ? `(${ultimo.fecha})` : ''}: </span>
+                {ultimo?.ai_resumen || ultimo?.texto_raw || <span style={{ color: '#555', fontStyle: 'italic' }}>Sin reportes de campo aún.</span>}
+              </div>
+
+              {/* Columnas de pendientes */}
+              <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+                <ListBlock title="🧱 Pendientes de material" items={faltantes} color="#D97706" empty="Sin faltantes reportados" />
+                <ListBlock title="⚠ Por reportar a cliente" items={porCliente} color="#DC2626" empty="Sin incidencias abiertas" />
+                <ListBlock title="✓ Avances recientes" items={avances} color="#10B981" empty="Sin avances en el último reporte" />
+              </div>
+
+              <div style={{ fontSize: 10, color: '#555', marginTop: 8 }}>{totalReportes} reporte(s) de campo · {actPend} actividad(es) pendiente(s)</div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
 }
 
 function TabPlaneacion({ obras, instaladores }: { obras: ObraData[]; instaladores: Instalador[] }) {
