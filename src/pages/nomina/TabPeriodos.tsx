@@ -19,6 +19,9 @@ interface Employee {
   puesto: string | null
   area: string | null
   rfc: string | null
+  banco: string | null
+  cuenta: string | null
+  clabe: string | null
 }
 
 interface PayrollPeriod {
@@ -151,7 +154,7 @@ export default function TabPeriodos() {
       const freq = viewMode === 'semanal' ? 'SEMANAL' : 'QUINCENAL'
       const { data } = await supabase
         .from('employees')
-        .select('id,nombre,tipo_alta,sueldo_neto_semanal,sueldo_neto_quincenal,puesto,area,rfc')
+        .select('id,nombre,tipo_alta,sueldo_neto_semanal,sueldo_neto_quincenal,puesto,area,rfc,banco,cuenta,clabe')
         .eq('activo', true)
         .eq('tipo_alta', freq)
         .order('nombre')
@@ -456,6 +459,48 @@ export default function TabPeriodos() {
     setSaving(false)
   }
 
+  // ── Descargar layout BBVA (.txt) para transferencias de nómina ──
+  // Formato de ancho fijo, 108 chars/línea, CRLF. Campos:
+  //   consecutivo(9) + 16 espacios + cuenta(12) + 10 espacios + importe centavos(15) + nombre(40) + '001001'
+  // La cuenta BBVA guardada es de 10 dígitos; el layout la usa a 12 con prefijo '99'.
+  const descargarLayoutBBVA = () => {
+    const toAscii = (s: string) => (s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\u00d1/g, 'N').replace(/\u00f1/g, 'n').toUpperCase()
+    const rows = mergedItems
+      .map(it => ({ emp: (it as any)._emp as Employee | undefined, amount: Number(it.neto_a_pagar_cfdi) || 0 }))
+      .filter(r => !!r.emp && r.amount > 0)
+      .filter(r => {
+        const banco = r.emp!.banco || ''
+        const clabeDig = (r.emp!.clabe || '').replace(/\D/g, '')
+        return /bbva/i.test(banco) || clabeDig.startsWith('012')
+      })
+
+    if (rows.length === 0) {
+      alert('No hay transferencias BBVA con monto en "Neto transferido". Captura los montos a transferir primero.')
+      return
+    }
+
+    const lines = rows.map((r, i) => {
+      const seq = String(i + 1).padStart(9, '0')
+      const dig = ((r.emp!.cuenta || '').match(/\d+/) || [''])[0]
+      const acct = dig.length === 10 ? '99' + dig : (dig.length >= 12 ? dig.slice(0, 12) : dig.padStart(12, '0'))
+      const imp = String(Math.round(r.amount * 100)).padStart(15, '0').slice(-15)
+      const name = toAscii(r.emp!.nombre || '').padEnd(40, ' ').slice(0, 40)
+      return seq + ' '.repeat(16) + acct + ' '.repeat(10) + imp + name + '001001'
+    })
+    const content = lines.join('\r\n') + '\r\n'
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `PAGO_NOMINA_BBVA_${period?.period_start || ''}.txt`
+    document.body.appendChild(a); a.click(); a.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 1500)
+
+    const total = rows.reduce((s, r) => s + r.amount, 0)
+    const excl = mergedItems.length - rows.length
+    alert(`Layout BBVA generado: ${rows.length} transferencias por ${F(total)}.` + (excl > 0 ? `\n${excl} empleado(s) sin cuenta BBVA o sin monto de transferencia — no incluidos.` : ''))
+  }
+
   // Close/lock period
   const closePeriod = async () => {
     if (!period) return
@@ -720,6 +765,9 @@ export default function TabPeriodos() {
 
                 <Btn onClick={recalcularPeriodo} variant="ghost" style={{ fontSize: 12 }} disabled={saving}>
                   <RefreshCw size={13} /> {saving ? 'Recalculando...' : 'Recalcular'}
+                </Btn>
+                <Btn onClick={descargarLayoutBBVA} variant="ghost" style={{ fontSize: 12, color: '#60a5fa' }} title="Descargar el archivo TXT de transferencias BBVA (usa el Neto transferido de cada empleado)">
+                  <Banknote size={13} /> Layout BBVA
                 </Btn>
                 {hasDirty && (
                   <Btn onClick={saveChanges} variant="primary" style={{ fontSize: 12 }} disabled={saving}>
