@@ -43,6 +43,10 @@ type CategoriaGranular =
   | 'traspaso_interno'
   | 'cobro_cliente'
   | 'anticipo_proveedor'
+  | 'pago_proveedor'          // naturaleza: pago a proveedor (nivel 1)
+  | 'cortinas_persianas'      // tipo de gasto (nivel 2)
+  | 'insumos_generales'       // tipo de gasto (nivel 2)
+  | 'herramienta'             // tipo de gasto (nivel 2)
   | 'pago_tdc'
   | 'prestamo'
   | 'otro'
@@ -59,6 +63,10 @@ const CATEGORIA_COLORS: Record<CategoriaGranular | string, string> = {
   traspaso_interno: '#2563EB',
   cobro_cliente: '#10B981',
   anticipo_proveedor: '#D97706',
+  pago_proveedor: '#D97706',
+  cortinas_persianas: '#67E8F9',
+  insumos_generales: '#F59E0B',
+  herramienta: '#94A3B8',
   pago_tdc: '#A78BFA',
   prestamo: '#06B6D4',
   otro: '#555',
@@ -76,6 +84,10 @@ const CATEGORIA_LABELS: Record<CategoriaGranular | string, string> = {
   traspaso_interno: 'Traspaso interno',
   cobro_cliente: 'Cobro cliente',
   anticipo_proveedor: 'Anticipo proveedor',
+  pago_proveedor: 'Pago a proveedor',
+  cortinas_persianas: 'Cortinas / persianas',
+  insumos_generales: 'Insumos generales',
+  herramienta: 'Herramienta',
   pago_tdc: 'Pago TDC',
   prestamo: 'Préstamo',
   otro: 'Otro',
@@ -85,13 +97,27 @@ const CATEGORIA_LABELS: Record<CategoriaGranular | string, string> = {
   nomina: 'Nómina',
 }
 
-// Opciones (ordenadas) para el dropdown de categoría en conciliación.
-const CATEGORIA_OPTIONS: CategoriaGranular[] = [
-  'material_electrico', 'luminarias', 'instalaciones_especiales',
+// NIVEL 1 — Naturaleza del movimiento (siempre aplica).
+const NATURALEZA_OPTIONS: string[] = [
+  'cobro_cliente', 'pago_proveedor', 'anticipo_proveedor',
   'nomina_directa', 'nomina_admin', 'gasto_general',
-  'anticipo_proveedor', 'cobro_cliente', 'impuestos',
-  'comision_bancaria', 'traspaso_interno', 'pago_tdc', 'prestamo', 'otro',
+  'impuestos', 'comision_bancaria', 'traspaso_interno',
+  'pago_tdc', 'prestamo', 'otro',
 ]
+
+// NIVEL 2 — Tipo de gasto (solo egresos de material/proveedor).
+const TIPO_GASTO_OPTIONS: CategoriaGranular[] = [
+  'material_electrico', 'luminarias', 'instalaciones_especiales',
+  'cortinas_persianas', 'insumos_generales', 'herramienta', 'otro',
+]
+
+// El clasificador devuelve categorías granulares; las de material son en realidad
+// "tipo de gasto" cuya naturaleza implícita es pago a proveedor.
+const MATERIAL_GRANULAR = new Set(['material_electrico', 'luminarias', 'instalaciones_especiales'])
+const granularToNaturaleza = (g: string): string => MATERIAL_GRANULAR.has(g) ? 'pago_proveedor' : (NATURALEZA_OPTIONS.includes(g) ? g : 'otro')
+const granularToTipoGasto = (g: string): string => MATERIAL_GRANULAR.has(g) ? g : ''
+// El tipo de gasto solo se pregunta en egresos a proveedor.
+const naturalezaTieneGasto = (nat: string): boolean => nat === 'pago_proveedor' || nat === 'anticipo_proveedor'
 
 // Keywords ordenadas por especificidad. La primera que matchee gana.
 const CATEGORIA_KEYWORDS: { cat: CategoriaGranular; patterns: RegExp[] }[] = [
@@ -271,6 +297,7 @@ interface BankMovement {
   monto: number; tipo: 'cargo' | 'abono'; saldo: number
   categoria_sugerida?: string; proyecto_sugerido?: string; conciliado: boolean
   categoria_manual?: boolean
+  tipo_gasto?: string
   beneficiario?: string; factura_match_id?: string; factura_match_info?: string
   rfc_contraparte?: string; proyecto_codigo?: string; banco?: string; cuenta?: string
   // Separación Beneficiario REAL vs concepto/categoría detectada por IA
@@ -628,10 +655,11 @@ export default function Contabilidad() {
           const proyecto = m.proyecto || m.proyecto_codigo || ''
           const rawCat = classifyConcepto(m.concepto || '', m.tipo || 'cargo')
           const finalCat = refineNominaCategory(rawCat, !!proyecto)
-          // Si el usuario fijó la categoría a mano, respetarla — el clasificador NO la sobreescribe.
-          const categoria = m.categoria_manual
-            ? (m.categoria || 'otro')
-            : (finalCat !== 'otro' ? finalCat : (m.categoria || 'otro'))
+          // NIVEL 1 (naturaleza): si el usuario la fijó a mano, se respeta; si no, el clasificador.
+          const naturalezaAuto = granularToNaturaleza(finalCat !== 'otro' ? finalCat : (m.categoria || 'otro'))
+          const categoria = m.categoria_manual ? (m.categoria || 'otro') : naturalezaAuto
+          // NIVEL 2 (tipo de gasto): valor guardado gana; si no, autosugerido por el clasificador.
+          const tipoGasto = m.tipo_gasto || granularToTipoGasto(finalCat) || ''
           return {
           id: m.id,
           fecha: m.fecha || '',
@@ -642,6 +670,7 @@ export default function Contabilidad() {
           saldo: Number(m.saldo) || 0,
           categoria_sugerida: categoria,
           categoria_manual: m.categoria_manual || false,
+          tipo_gasto: tipoGasto || undefined,
           proyecto_sugerido: m.proyecto || '',
           beneficiario: m.beneficiario || '',
           conciliado: m.conciliado || false,
@@ -2109,12 +2138,23 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
     setBankMovements(prev => prev.map(m => m.id === movId ? { ...m, observaciones: clean ?? undefined } : m))
   }
 
-  // Cambiar la categoría del movimiento a mano. Marca categoria_manual=true para
-  // que el clasificador automático NO la sobreescriba en la próxima carga.
-  const saveCategoria = async (movId: string, cat: string) => {
-    const { error } = await supabase.from('bank_movements').update({ categoria: cat, categoria_manual: true }).eq('id', movId)
+  // NIVEL 1 — cambiar la naturaleza a mano. Marca categoria_manual=true para que el
+  // clasificador NO la sobreescriba. Si deja de ser egreso a proveedor, limpia tipo_gasto.
+  const saveNaturaleza = async (movId: string, nat: string) => {
+    const limpiaGasto = !naturalezaTieneGasto(nat)
+    const patch: any = { categoria: nat, categoria_manual: true }
+    if (limpiaGasto) patch.tipo_gasto = null
+    const { error } = await supabase.from('bank_movements').update(patch).eq('id', movId)
     if (error) { console.error('[upd-cat]', error); alert('No se pudo cambiar la categoría: ' + error.message); return }
-    setBankMovements(prev => prev.map(m => m.id === movId ? { ...m, categoria_sugerida: cat, categoria_manual: true } : m))
+    setBankMovements(prev => prev.map(m => m.id === movId ? { ...m, categoria_sugerida: nat, categoria_manual: true, tipo_gasto: limpiaGasto ? undefined : m.tipo_gasto } : m))
+  }
+
+  // NIVEL 2 — tipo de gasto (material). Valor vacío = sin especificar.
+  const saveTipoGasto = async (movId: string, tg: string) => {
+    const val = tg || null
+    const { error } = await supabase.from('bank_movements').update({ tipo_gasto: val }).eq('id', movId)
+    if (error) { console.error('[upd-tg]', error); alert('No se pudo cambiar el tipo de gasto: ' + error.message); return }
+    setBankMovements(prev => prev.map(m => m.id === movId ? { ...m, tipo_gasto: val ?? undefined } : m))
   }
 
   // Legacy compat: old applyManualMatch for single auto-match
@@ -2188,6 +2228,7 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
     id: m.id, fecha: m.fecha, concepto: m.concepto, referencia: m.referencia,
     monto: m.monto, tipo: m.tipo, saldo: m.saldo,
     categoria: m.categoria_sugerida || 'otro', proyecto: m.proyecto_sugerido || '',
+    categoria_manual: m.categoria_manual || false, tipo_gasto: m.tipo_gasto || null,
     beneficiario: m.beneficiario || '', conciliado: m.conciliado,
     factura_match_id: m.factura_match_id || null, factura_match_info: m.factura_match_info || '',
     rfc_contraparte: m.rfc_contraparte || null, proyecto_codigo: m.proyecto_codigo || null,
@@ -2285,6 +2326,7 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
       tipo: manual.tipo,
       saldo: 0,
       categoria_sugerida: manual.categoria,
+      categoria_manual: true,
       proyecto_sugerido: linkedQuote?.name || linkedLead?.name || '',
       beneficiario: manual.beneficiario.trim(),
       conciliado: false,
@@ -3262,7 +3304,7 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
             <div>
               <div style={{ fontSize: 10, color: '#666', marginBottom: 4 }}>Categoría</div>
               <select value={manual.categoria} onChange={e => setManual(m => ({ ...m, categoria: e.target.value }))} style={{ width: '100%', padding: '6px 8px', fontSize: 12, background: '#0a0a0a', border: '1px solid #333', borderRadius: 6, color: '#fff', fontFamily: 'inherit' }}>
-                {['nomina', 'proveedor', 'cobro_cliente', 'impuestos', 'comision', 'traspaso', 'prestamo', 'suscripcion', 'otro'].map(c => <option key={c} value={c}>{c}</option>)}
+                {NATURALEZA_OPTIONS.map(c => <option key={c} value={c}>{CATEGORIA_LABELS[c] || c}</option>)}
               </select>
             </div>
             <div>
@@ -3388,26 +3430,52 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
                       )}
                     </Td>
                     <Td>{(() => {
-                      const curCat = m.categoria_sugerida || 'otro'
-                      const col = catColors[curCat] || '#555'
+                      const curNat = NATURALEZA_OPTIONS.includes(m.categoria_sugerida || '') ? (m.categoria_sugerida as string) : 'otro'
+                      const col = catColors[curNat] || '#555'
+                      const curTg = m.tipo_gasto || ''
+                      const tgCol = catColors[curTg] || '#666'
+                      const showTg = naturalezaTieneGasto(curNat)
                       return (
-                        <select
-                          value={CATEGORIA_OPTIONS.includes(curCat as any) ? curCat : 'otro'}
-                          onClick={e => e.stopPropagation()}
-                          onChange={e => { e.stopPropagation(); saveCategoria(m.id, e.target.value) }}
-                          title={m.categoria_manual ? 'Categoría fijada manualmente' : 'Categoría automática — puedes cambiarla'}
-                          style={{
-                            fontSize: 10, fontWeight: 700, padding: '2px 4px', borderRadius: 4,
-                            background: `${col}18`, color: col, border: `1px solid ${col}55`,
-                            fontFamily: 'inherit', cursor: 'pointer', outline: 'none', maxWidth: 150,
-                          }}
-                        >
-                          {CATEGORIA_OPTIONS.map(c => (
-                            <option key={c} value={c} style={{ background: '#1a1a1a', color: '#fff' }}>
-                              {m.categoria_manual && c === curCat ? '● ' : ''}{CATEGORIA_LABELS[c] || c}
-                            </option>
-                          ))}
-                        </select>
+                        <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 3 }}>
+                          <select
+                            value={curNat}
+                            onClick={e => e.stopPropagation()}
+                            onChange={e => { e.stopPropagation(); saveNaturaleza(m.id, e.target.value) }}
+                            title={m.categoria_manual ? 'Naturaleza fijada manualmente' : 'Naturaleza automática — puedes cambiarla'}
+                            style={{
+                              fontSize: 10, fontWeight: 700, padding: '2px 4px', borderRadius: 4,
+                              background: `${col}18`, color: col, border: `1px solid ${col}55`,
+                              fontFamily: 'inherit', cursor: 'pointer', outline: 'none', maxWidth: 160,
+                            }}
+                          >
+                            {NATURALEZA_OPTIONS.map(c => (
+                              <option key={c} value={c} style={{ background: '#1a1a1a', color: '#fff' }}>
+                                {m.categoria_manual && c === curNat ? '● ' : ''}{CATEGORIA_LABELS[c] || c}
+                              </option>
+                            ))}
+                          </select>
+                          {showTg && (
+                            <select
+                              value={TIPO_GASTO_OPTIONS.includes(curTg as any) ? curTg : ''}
+                              onClick={e => e.stopPropagation()}
+                              onChange={e => { e.stopPropagation(); saveTipoGasto(m.id, e.target.value) }}
+                              title="Tipo de gasto (qué se compró)"
+                              style={{
+                                fontSize: 9, fontWeight: 600, padding: '2px 4px', borderRadius: 4,
+                                background: curTg ? `${tgCol}14` : '#161616', color: curTg ? tgCol : '#777',
+                                border: `1px dashed ${curTg ? tgCol + '55' : '#333'}`,
+                                fontFamily: 'inherit', cursor: 'pointer', outline: 'none', maxWidth: 160,
+                              }}
+                            >
+                              <option value="" style={{ background: '#1a1a1a', color: '#777' }}>— tipo de gasto —</option>
+                              {TIPO_GASTO_OPTIONS.map(c => (
+                                <option key={c} value={c} style={{ background: '#1a1a1a', color: '#fff' }}>
+                                  {CATEGORIA_LABELS[c] || c}
+                                </option>
+                              ))}
+                            </select>
+                          )}
+                        </div>
                       )
                     })()}</Td>
                     <Td right>{m.tipo === 'cargo' ? <span style={{ color: '#DC2626' }}>{F(m.monto)}</span> : ''}</Td>
@@ -4103,8 +4171,10 @@ function TabCostosObra({ bankMovements, setBankMovements }: { bankMovements: Ban
 
     for (const m of monthMovs) {
       const proyecto = m.proyecto_codigo || m.proyecto_sugerido || ''
-      const cat = m.categoria_sugerida || 'otro'
+      const cat = m.categoria_sugerida || 'otro'   // NIVEL 1 (naturaleza)
+      const tg = m.tipo_gasto || ''                // NIVEL 2 (tipo de gasto)
       const monto = m.monto || 0
+      const esEgresoProveedor = cat === 'pago_proveedor' || cat === 'anticipo_proveedor'
 
       if (m.tipo === 'cargo') {
         if (!proyecto) {
@@ -4114,11 +4184,14 @@ function TabCostosObra({ bankMovements, setBankMovements }: { bankMovements: Ban
           // impuestos, comisión banco, traspaso interno NO se prorratean a obras
         } else {
           const o = getObra(proyecto)
-          if (cat === 'material_electrico') o.material += monto
-          else if (cat === 'luminarias') o.luminarias += monto
-          else if (cat === 'instalaciones_especiales') o.especiales += monto
-          else if (cat === 'nomina_directa') o.nominaDirecta += monto
+          if (cat === 'nomina_directa') o.nominaDirecta += monto
           else if (cat === 'gasto_general') overheadPool += monto  // gasto general aunque diga proyecto sigue siendo pool
+          else if (esEgresoProveedor) {
+            // Desglose por tipo de gasto (nivel 2)
+            if (tg === 'luminarias') o.luminarias += monto
+            else if (tg === 'instalaciones_especiales' || tg === 'cortinas_persianas') o.especiales += monto
+            else o.material += monto  // material_electrico, insumos, herramienta, otro, o sin tipo → material
+          }
           // Otros costos directos no clasificados se suman al material como catchall
           else if (cat === 'otro') o.material += monto
         }
@@ -4164,28 +4237,30 @@ function TabCostosObra({ bankMovements, setBankMovements }: { bankMovements: Ban
   // Re-clasificar masivamente: persiste categorías en DB
   const [reclassifying, setReclassifying] = useState(false)
   const reclassifyAll = async () => {
-    if (!confirm(`Re-clasificar ${bankMovements.length} movimientos con keywords nuevas? Esto sobrescribe categoría_sugerida en DB.`)) return
+    if (!confirm(`Re-clasificar movimientos con keywords nuevas? Respeta los que fijaste a mano.`)) return
     setReclassifying(true)
     try {
-      const updates = bankMovements.map(m => {
+      // Solo los que NO están fijados manualmente
+      const updates = bankMovements.filter(m => !m.categoria_manual).map(m => {
         const proyecto = m.proyecto_codigo || m.proyecto_sugerido || ''
         const rawCat = classifyConcepto(m.concepto || '', m.tipo)
         const finalCat = refineNominaCategory(rawCat, !!proyecto)
-        return { id: m.id, categoria: finalCat }
+        return { id: m.id, categoria: granularToNaturaleza(finalCat), tipo_gasto: granularToTipoGasto(finalCat) || null }
       })
       // Procesar en batches de 50
       for (let i = 0; i < updates.length; i += 50) {
         const batch = updates.slice(i, i + 50)
         await Promise.all(batch.map(u =>
-          supabase.from('bank_movements').update({ categoria: u.categoria }).eq('id', u.id)
+          supabase.from('bank_movements').update({ categoria: u.categoria, tipo_gasto: u.tipo_gasto }).eq('id', u.id)
         ))
       }
       // Refrescar state local
       setBankMovements(bankMovements.map(m => {
+        if (m.categoria_manual) return m
         const proyecto = m.proyecto_codigo || m.proyecto_sugerido || ''
         const rawCat = classifyConcepto(m.concepto || '', m.tipo)
         const finalCat = refineNominaCategory(rawCat, !!proyecto)
-        return { ...m, categoria_sugerida: finalCat }
+        return { ...m, categoria_sugerida: granularToNaturaleza(finalCat), tipo_gasto: granularToTipoGasto(finalCat) || undefined }
       }))
       alert(`Re-clasificados ${updates.length} movimientos.`)
     } catch (err: any) {
