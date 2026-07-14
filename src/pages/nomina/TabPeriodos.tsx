@@ -354,6 +354,63 @@ export default function TabPeriodos() {
     setSaving(false)
   }
 
+  // Recalcular: re-jala las cajas chicas aprobadas del rango del periodo por empleado
+  // y actualiza cada item (aunque el periodo ya exista y los tickets se hayan
+  // aprobado después de crearlo). Sobrescribe caja_chica con la suma vigente.
+  const recalcularPeriodo = async () => {
+    if (!period) { await loadPeriod(); return }
+    setSaving(true)
+    const startStr = period.period_start
+    const endStr = period.period_end
+
+    // Cajas chicas aprobadas/pagadas dentro del rango
+    const { data: cajaData } = await supabase
+      .from('caja_chica_tickets')
+      .select('employee_id, monto')
+      .in('estatus', ['aprobado', 'pagado'])
+      .gte('fecha', startStr)
+      .lte('fecha', endStr)
+    const cajaMap: Record<string, number> = {}
+    ;(cajaData || []).forEach((t: any) => {
+      cajaMap[t.employee_id] = (cajaMap[t.employee_id] || 0) + Number(t.monto || 0)
+    })
+
+    // Actualizar cada item cuya caja chica haya cambiado
+    const { data: itemData } = await supabase.from('payroll_items').select('*').eq('period_id', period.id)
+    const its = (itemData as PayrollItem[]) || []
+    for (const it of its) {
+      const cajaChica = cajaMap[it.employee_id] || 0
+      if (Number(it.caja_chica || 0) === cajaChica) continue
+      const sueldoNeto = Number(it.sueldo_neto_pactado) || 0
+      const netoTransferido = Number(it.neto_a_pagar_cfdi) || 0
+      const efectivoBase = sueldoNeto - netoTransferido
+      const horasExtra = Number(it.horas_extras_monto) || 0
+      const bonos = Number(it.bono_puntualidad) || 0
+      const descInfonavit = Number(it.descuento_infonavit_efectivo) || 0
+      const redondeo = Number(it.redondeo) || 0
+      const totalEfectivo = efectivoBase + cajaChica + horasExtra + bonos - descInfonavit
+      await supabase.from('payroll_items').update({
+        caja_chica: cajaChica,
+        total_efectivo_calculado: totalEfectivo,
+        total_efectivo_final: totalEfectivo + redondeo,
+      }).eq('id', it.id)
+    }
+
+    // Recalcular totales del periodo
+    const { data: fresh } = await supabase.from('payroll_items').select('*').eq('period_id', period.id)
+    const allItems = (fresh as PayrollItem[]) || []
+    await supabase.from('payroll_periods').update({
+      total_transferencia: allItems.reduce((s, i) => s + (Number(i.neto_a_pagar_cfdi) || 0), 0),
+      total_efectivo: allItems.reduce((s, i) => s + (Number(i.total_efectivo_final) || 0), 0),
+      total_horas_extras: allItems.reduce((s, i) => s + (Number(i.horas_extras_monto) || 0), 0),
+      total_bonos: allItems.reduce((s, i) => s + (Number(i.bono_puntualidad) || 0), 0),
+      total_caja_chica: allItems.reduce((s, i) => s + (Number(i.caja_chica) || 0), 0),
+    }).eq('id', period.id)
+
+    await loadPeriod()
+    setSaving(false)
+  }
+
   // Close/lock period
   const closePeriod = async () => {
     if (!period) return
@@ -614,8 +671,8 @@ export default function TabPeriodos() {
                   <input type="file" accept=".pdf" onChange={handlePdfImport} style={{ display: 'none' }} />
                 </label>
 
-                <Btn onClick={() => loadPeriod()} variant="ghost" style={{ fontSize: 12 }}>
-                  <RefreshCw size={13} /> Recalcular
+                <Btn onClick={recalcularPeriodo} variant="ghost" style={{ fontSize: 12 }} disabled={saving}>
+                  <RefreshCw size={13} /> {saving ? 'Recalculando...' : 'Recalcular'}
                 </Btn>
                 {hasDirty && (
                   <Btn onClick={saveChanges} variant="primary" style={{ fontSize: 12 }} disabled={saving}>
