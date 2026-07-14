@@ -89,6 +89,20 @@ async function extractTextFromPdf(file: File): Promise<string> {
   return fullText
 }
 
+/* ── Parser de COMPROBANTE de pago (BBVA / SPEI) ── */
+// Extrae las cuentas que aparecen en el detalle del comprobante (cada cuenta va
+// seguida de su importe). Sirve tanto para cuentas mismo-banco (10 dígitos) como
+// para CLABE interbancaria (18 dígitos). Devuelve el set de cuentas pagadas.
+export async function parseComprobantePagos(file: File): Promise<{ accounts: Set<string> }> {
+  const text = await extractTextFromPdf(file)
+  const accounts = new Set<string>()
+  // <cuenta 18 ó 10 dígitos> seguido (opcionalmente con '$') de un importe con 2 decimales
+  const re = /\b(\d{18}|\d{10})\b\s*\$?\s*[\d,]+\.\d{2}/g
+  let m: RegExpExecArray | null
+  while ((m = re.exec(text)) !== null) accounts.add(m[1])
+  return { accounts }
+}
+
 /* ── Main parser ── */
 
 export async function parseSFacilNominaPDF(file: File): Promise<NominaPDFResult> {

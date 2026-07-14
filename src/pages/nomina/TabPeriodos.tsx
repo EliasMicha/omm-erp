@@ -6,7 +6,7 @@ import {
   Calendar, DollarSign, Banknote, Clock, Plus, ChevronLeft, ChevronRight,
   Save, RefreshCw, Lock, AlertCircle, CheckCircle2, Gift, Upload, FileText
 } from 'lucide-react'
-import { parseSFacilNominaPDF, matchEmployeeByName } from '../../lib/nominaPdfParser'
+import { parseSFacilNominaPDF, matchEmployeeByName, parseComprobantePagos } from '../../lib/nominaPdfParser'
 
 /* ─────────────── Types ─────────────── */
 
@@ -589,6 +589,7 @@ export default function TabPeriodos() {
     if (!period) return
     setSubiendoComp(true)
     try {
+      // 1. Guardar el archivo
       const ext = (file.name.split('.').pop() || 'dat').toLowerCase()
       const path = `${period.id}/comprobante_${Date.now()}.${ext}`
       const { error: upErr } = await supabase.storage.from('nomina-comprobantes').upload(path, file, { upsert: true })
@@ -597,12 +598,45 @@ export default function TabPeriodos() {
       await supabase.from('payroll_periods').update({
         comprobante_transferencia_url: pub.publicUrl,
         comprobante_transferencia_path: path,
-        transferencia_pagada: true,
         transferencia_pagada_at: new Date().toISOString(),
       }).eq('id', period.id)
-      // Marcar todas las transferencias del periodo como conciliadas
-      await supabase.from('payroll_items').update({ conciliado_transferencia: true }).eq('period_id', period.id)
+
+      const isPdf = /pdf$/i.test(file.type) || /\.pdf$/i.test(file.name)
+      if (!isPdf) {
+        await loadPeriod()
+        alert('Comprobante (imagen) guardado.\nComo es imagen no puedo detectar automáticamente quién se pagó — marca cada transferencia con el icono de billete en la columna Estado, o sube el PDF del comprobante para marcarlas solas.')
+        return
+      }
+
+      // 2. Leer el comprobante y marcar SOLO las cuentas que aparecen en él
+      const { accounts } = await parseComprobantePagos(file)
+      const { data: itemData } = await supabase.from('payroll_items').select('*').eq('period_id', period.id)
+      const its = (itemData as PayrollItem[]) || []
+      const empById = new Map(employees.map(e => [e.id, e]))
+      const toMark: string[] = []
+      for (const it of its) {
+        const emp = empById.get(it.employee_id)
+        if (!emp) continue
+        const cuentaDig = ((emp.cuenta || '').replace(/\s/g, '').match(/\d+/) || [''])[0]
+        const clabeDig = (emp.clabe || '').replace(/\D/g, '')
+        if ((cuentaDig && accounts.has(cuentaDig)) || (clabeDig && accounts.has(clabeDig))) toMark.push(it.id)
+      }
+      if (toMark.length) {
+        await supabase.from('payroll_items').update({ conciliado_transferencia: true }).in('id', toMark)
+      }
+
+      // 3. transferencia_pagada del periodo = true solo si TODOS los que transfieren ya están cubiertos
+      const { data: fresh } = await supabase.from('payroll_items').select('neto_a_pagar_cfdi, conciliado_transferencia').eq('period_id', period.id)
+      const transfiriendo = (fresh || []).filter((i: any) => Number(i.neto_a_pagar_cfdi) > 0)
+      const todosPagados = transfiriendo.length > 0 && transfiriendo.every((i: any) => i.conciliado_transferencia)
+      await supabase.from('payroll_periods').update({ transferencia_pagada: todosPagados }).eq('id', period.id)
+
       await loadPeriod()
+      const noEncontradas = accounts.size - toMark.length
+      let msg = `Comprobante procesado: ${toMark.length} transferencia(s) marcadas como pagadas.`
+      if (noEncontradas > 0) msg += `\n${noEncontradas} cuenta(s) del comprobante no coinciden con empleados de este periodo.`
+      if (!todosPagados) msg += `\n\nAún faltan transferencias por comprobar (p. ej. las de otros bancos por SPEI). Sube su comprobante para marcarlas.`
+      alert(msg)
     } catch (e: any) {
       alert('No se pudo subir el comprobante: ' + (e.message || e))
     } finally {
@@ -938,9 +972,23 @@ export default function TabPeriodos() {
               </>
             ) : (
               <>
-                <span style={{ fontSize: 12, color: '#888' }}>
-                  Sube el comprobante de la transferencia bancaria para marcarla como pagada.
-                </span>
+                {(() => {
+                  const transf = mergedItems.filter(i => Number(i.neto_a_pagar_cfdi) > 0)
+                  const pagados = transf.filter(i => (i as any).conciliado_transferencia).length
+                  return (
+                    <span style={{ fontSize: 12, color: '#888' }}>
+                      {pagados > 0
+                        ? <>Transferencias comprobadas: <b style={{ color: '#ccc' }}>{pagados}/{transf.length}</b>. Sube el comprobante del resto (p. ej. SPEI de otros bancos).</>
+                        : <>Sube el comprobante (PDF) de la transferencia para marcar como pagados solo a los que aparecen en él.</>}
+                    </span>
+                  )
+                })()}
+                {period.comprobante_transferencia_url && (
+                  <a href={period.comprobante_transferencia_url} target="_blank" rel="noreferrer"
+                    style={{ fontSize: 12, color: '#60a5fa', textDecoration: 'underline' }}>
+                    Ver último comprobante
+                  </a>
+                )}
                 <div style={{ flex: 1 }} />
                 <label style={{
                   display: 'inline-flex', alignItems: 'center', gap: 6,
@@ -948,7 +996,7 @@ export default function TabPeriodos() {
                   background: '#1a2e1a', border: '1px solid #10B98140', borderRadius: 6,
                   color: '#10B981', cursor: subiendoComp ? 'wait' : 'pointer',
                 }}>
-                  <Upload size={13} /> {subiendoComp ? 'Subiendo...' : 'Subir comprobante'}
+                  <Upload size={13} /> {subiendoComp ? 'Procesando...' : 'Subir comprobante'}
                   <input type="file" accept="image/*,application/pdf" disabled={subiendoComp}
                     onChange={e => { const f = e.target.files?.[0]; if (f) subirComprobanteTransferencia(f); e.currentTarget.value = '' }}
                     style={{ display: 'none' }} />
