@@ -9,6 +9,7 @@ import { OMNIIOUS_LOGO } from '../assets/logo'
 import { useIsMobile } from '../lib/useIsMobile'
 import html2canvas from 'html2canvas'
 import jsPDF from 'jspdf'
+import * as XLSX from 'xlsx'
 
 // ═══════════════════════════════════════════════════════════════════
 // TYPES
@@ -2118,6 +2119,119 @@ export default function CotEditorCortinas({ cotId, onBack, onSwitchVersion }: { 
     }
   }
 
+  // ─────────────────────────────────────────────────────────────────
+  // Exportar a Excel (.xlsx) — mismo modelo de precios que el PDF, en la
+  // moneda de la cotización (MXN o USD). Una fila por partida, agrupadas
+  // por área, con desglose y totales.
+  // ─────────────────────────────────────────────────────────────────
+  function exportarExcel() {
+    const dispCur: 'USD' | 'MXN' = config.currency === 'USD' ? 'USD' : 'MXN'
+    const tc = config.tipoCambio || 1
+    const toDisp = (mxn: number) => dispCur === 'USD' ? mxn / tc : mxn
+    const rnd = (n: number) => Math.round(n * 100) / 100
+    const mT = config.margenTela > 0 ? 1 / (1 - config.margenTela / 100) : 1
+    const mM = config.margenMotor > 0 ? 1 / (1 - config.margenMotor / 100) : 1
+
+    const rows: any[][] = []
+    rows.push([`Cotización de Cortinas y Persianas — ${cotName || ''}`])
+    rows.push([`Proyecto: ${projectName || '—'}`, '', `Cliente: ${clientName || '—'}`])
+    rows.push([`Fecha: ${new Date().toLocaleDateString('es-MX')}`, '', `Moneda: ${dispCur}`, '', `TC: ${tc}`])
+    rows.push([])
+    const header = ['Área', 'Ubicación', 'Tipo / Sistema', 'Config', 'Ancho (m)', 'Alto (m)', 'Cant', 'Tela / Material', 'Pliegue', `Confección (${dispCur})`, `Tela (${dispCur})`, `Motor (${dispCur})`, `Total (${dispCur})`]
+    rows.push(header)
+
+    let sumTela = 0, sumConf = 0, sumMotor = 0, sumPersiana = 0, sumExtra = 0
+
+    areas.forEach(area => {
+      const areaItems = items.filter(i => i.areaId === area.id)
+      if (areaItems.length === 0) return
+      rows.push([area.name])
+      areaItems.forEach(item => {
+        const isPersiana = item.itemKind === 'PERSIANA'
+        const isExtra = item.itemKind === 'EXTRA'
+        const fabricCost = calcFabricCost(item)
+        const confCost = calcConfeccionCost(item)
+        const motorMXN = calcMotorCostMXN(item, config.tipoCambio)
+        const persianaCost = calcPersianaMaterialCost(item)
+        const extraCost = calcExtraCost(item)
+        sumTela += fabricCost; sumConf += confCost; sumMotor += motorMXN; sumPersiana += persianaCost; sumExtra += extraCost
+
+        const telaV = rnd(toDisp(fabricCost * mT))
+        const confV = rnd(toDisp(confCost * mT))
+        const motorV = rnd(toDisp(motorMXN * mM))
+        const persV = rnd(toDisp(persianaCost * mT))
+        const extraV = rnd(toDisp(extraCost * mM))
+        const totalV = isExtra ? extraV : isPersiana ? rnd(persV + motorV) : rnd(telaV + confV + motorV)
+
+        const tipoLabel = isExtra
+          ? (item.extraDescripcion || 'Extra')
+          : isPersiana
+            ? `Persiana ${item.persianaTipo} (${item.tipoCierre === 'MOTORIZADO' ? 'Mot.' : 'Man.'})`
+            : (item.tipoCierre === 'MANUAL' ? 'Manual' : (item.motorSystem || 'Motorizado'))
+        const telaMat = isExtra ? '' : isPersiana ? (item.persianaMaterial || '') : item.tipoTela
+        const pliegue = (isPersiana || isExtra) ? '' : item.tipoPliegue
+        const confCell = (isPersiana || isExtra) ? '' : confV
+        const telaCell = isExtra ? extraV : isPersiana ? persV : (item.telaIncluida ? 'CLIENTE' : telaV)
+        const motorCell = (!isExtra && motorMXN > 0) ? motorV : ''
+
+        rows.push([
+          area.name,
+          item.ubicacion || '',
+          tipoLabel,
+          item.configNota || '',
+          isExtra ? '' : item.ancho,
+          isExtra ? '' : item.alto,
+          item.cantidad,
+          telaMat,
+          pliegue,
+          confCell,
+          telaCell,
+          motorCell,
+          totalV,
+        ])
+      })
+    })
+
+    // Totales (en moneda de presentación)
+    const telaVenta = rnd(toDisp(sumTela * mT))
+    const confVenta = rnd(toDisp(sumConf * mT))
+    const motorVenta = rnd(toDisp(sumMotor * mM))
+    const persianaVenta = rnd(toDisp(sumPersiana * mT))
+    const extraVenta = rnd(toDisp(sumExtra * mM))
+    const subtotalVenta = rnd(telaVenta + confVenta + motorVenta + persianaVenta + extraVenta)
+    const instalacion = rnd(subtotalVenta * config.instPct / 100)
+    const subConInst = rnd(subtotalVenta + instalacion)
+    const descAmt = rnd(subConInst * (config.descuento || 0) / 100)
+    const subConDesc = rnd(subConInst - descAmt)
+    const iva = rnd(subConDesc * config.ivaRate / 100)
+    const total = rnd(subConDesc + iva)
+
+    const L = header.length
+    const blank = new Array(L).fill('')
+    const totalRow = (label: string, val: number) => { const r = new Array(L).fill(''); r[L - 2] = label; r[L - 1] = val; return r }
+    rows.push(blank)
+    rows.push(totalRow('Total Tela', telaVenta))
+    rows.push(totalRow('Total Confección', confVenta))
+    rows.push(totalRow('Total Motorización', motorVenta))
+    if (persianaVenta > 0) rows.push(totalRow('Total Persianas', persianaVenta))
+    if (extraVenta > 0) rows.push(totalRow('Total Extras', extraVenta))
+    rows.push(totalRow('Subtotal', subtotalVenta))
+    rows.push(totalRow(`Instalación (${config.instPct}%)`, instalacion))
+    if ((config.descuento || 0) > 0) rows.push(totalRow(`Descuento (${config.descuento}%)`, -descAmt))
+    rows.push(totalRow(`IVA (${config.ivaRate}%)`, iva))
+    rows.push(totalRow(`TOTAL (${dispCur})`, total))
+
+    const ws = XLSX.utils.aoa_to_sheet(rows)
+    ws['!cols'] = [
+      { wch: 18 }, { wch: 20 }, { wch: 22 }, { wch: 24 }, { wch: 9 }, { wch: 9 },
+      { wch: 6 }, { wch: 18 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 },
+    ]
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Cotización')
+    const fname = `Cotizacion_Cortinas_${(cotName || 'cotizacion').replace(/[^a-zA-Z0-9_-]/g, '_')}.xlsx`
+    XLSX.writeFile(wb, fname)
+  }
+
   if (loading) return <Loading />
 
   return (
@@ -2141,6 +2255,7 @@ export default function CotEditorCortinas({ cotId, onBack, onSwitchVersion }: { 
           <button onClick={() => setShowInt(!showInt)} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid ' + (showInt ? '#D97706' : '#333'), background: showInt ? '#D9770622' : 'transparent', color: showInt ? '#D97706' : '#555', marginLeft: 8 }}>{showInt ? 'Interno' : 'Cliente'}</button>
           <button onClick={() => setShowAIImport(true)} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #7C3AED', background: '#7C3AED22', color: '#7C3AED', marginLeft: 4, display: 'flex', alignItems: 'center', gap: 4 }} title="Importar PDF o Excel de cortinas/persianas con AI"><Upload size={12} /> Importar</button>
           <button onClick={() => setShowPdf(true)} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #67E8F9', background: '#67E8F922', color: '#67E8F9', marginLeft: 4, display: 'flex', alignItems: 'center', gap: 4 }}><Printer size={12} /> PDF</button>
+          <button onClick={exportarExcel} title="Descargar la cotización en Excel" style={{ padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #10B981', background: '#10B98122', color: '#10B981', marginLeft: 4, display: 'flex', alignItems: 'center', gap: 4 }}><Download size={12} /> Excel</button>
           <VersionManager cotId={cotId} getCurrentSnapshot={getVersionSnapshot} onSwitchVersion={onSwitchVersion || (() => {})} accentColor="#67E8F9" compact={isMobile} />
           <span style={{ fontSize: 15, fontWeight: 700, color: '#67E8F9', marginLeft: 10 }}>${grandTotal.toFixed(2)}</span>
         </div>
