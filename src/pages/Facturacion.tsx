@@ -1885,6 +1885,7 @@ function SelectorFacturasRelacionadas(props: {
 // Nueva Factura — form
 // ============================================================
 function NuevaFactura({ onCancel, onCreated, editingFactura }: { onCancel: () => void; onCreated: () => void; editingFactura?: Factura | null }) {
+  const isMobile = useIsMobile()
   const isEditing = !!editingFactura
   const [clientes, setClientes] = useState<ClienteFiscal[]>([])
   const [cotizaciones, setCotizaciones] = useState<QuotationLite[]>([])
@@ -2673,7 +2674,7 @@ function NuevaFactura({ onCancel, onCreated, editingFactura }: { onCancel: () =>
 
       <div style={{ marginBottom: 20 }}>
         <div style={{ fontSize: 13, fontWeight: 600, color: '#888', marginBottom: 10 }}>Cliente y vinculacion</div>
-        <div style={{ display: 'grid', gridTemplateColumns: tipoComprobante !== 'P' ? '1fr 1fr' : '1fr', gap: 12 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : (tipoComprobante !== 'P' ? '1fr 1fr' : '1fr'), gap: 12 }}>
           <div>
             <label style={lblStyle}>Cliente *</label>
             <select value={clienteId} onChange={e => setClienteId(e.target.value)} style={inpStyle}>
@@ -2692,7 +2693,7 @@ function NuevaFactura({ onCancel, onCreated, editingFactura }: { onCancel: () =>
           )}
         </div>
         {tipoComprobante !== 'P' && (
-          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 12, marginTop: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '2fr 1fr', gap: 12, marginTop: 12 }}>
             <div>
               <label style={lblStyle}>Serie (nombre del proyecto)</label>
               <input value={serie} onChange={e => setSerie(e.target.value)} placeholder="Se auto-llena con la cotización" style={inpStyle} />
@@ -2722,7 +2723,7 @@ function NuevaFactura({ onCancel, onCreated, editingFactura }: { onCancel: () =>
                 <div style={{ fontSize: 12, fontWeight: 700, color: faltanCriticos ? '#f87171' : '#10B981', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{faltanCriticos ? 'Datos fiscales incompletos' : 'Datos fiscales del cliente'}</div>
                 {c.facturapi_customer_id && <span style={{ fontSize: 9, color: '#888', fontFamily: 'monospace' }}>FacturAPI: {c.facturapi_customer_id.slice(0, 12)}...</span>}
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, fontSize: 11 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 8, fontSize: 11 }}>
                 {checks.map(ck => (
                   <div key={ck.label} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                     {ck.ok ? <CheckCircle2 size={11} style={{ color: '#10B981', flexShrink: 0 }} /> : <AlertCircle size={11} style={{ color: ck.optional ? '#666' : '#DC2626', flexShrink: 0 }} />}
@@ -2801,7 +2802,7 @@ function NuevaFactura({ onCancel, onCreated, editingFactura }: { onCancel: () =>
         </div>
         {conceptos.map((c, i) => (
           <div key={i} style={{ background: '#0a0a0a', border: '1px solid #1a1a1a', borderRadius: 8, padding: 12, marginBottom: 8 }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 24px', gap: 8, marginBottom: 8 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '2fr 1fr 1fr 24px', gap: 8, marginBottom: 8 }}>
               <div>
                 <label style={lblStyle}>Descripcion *</label>
                 <input value={c.descripcion} onChange={e => updateConcepto(i, 'descripcion', e.target.value)} placeholder="Servicio integral de red de oficinas" style={inpStyle} />
@@ -2816,7 +2817,7 @@ function NuevaFactura({ onCancel, onCreated, editingFactura }: { onCancel: () =>
               </div>
               <button onClick={() => removeConcepto(i)} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', padding: 0, alignSelf: 'end', height: 32 }}><Trash2 size={14} /></button>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 8 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : '1fr 1fr 1fr 1fr', gap: 8 }}>
               <div>
                 <label style={lblStyle}>Unidad</label>
                 <input value={c.unidad} onChange={e => updateConcepto(i, 'unidad', e.target.value)} placeholder="Unidad de servicio" style={inpStyle} />
@@ -2844,7 +2845,7 @@ function NuevaFactura({ onCancel, onCreated, editingFactura }: { onCancel: () =>
 
       <div style={{ marginBottom: 20 }}>
         <div style={{ fontSize: 13, fontWeight: 600, color: '#888', marginBottom: 10 }}>Configuracion fiscal</div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 12 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : '1fr 1fr 1fr 1fr', gap: 12 }}>
           <div>
             <label style={lblStyle}>Uso CFDI</label>
             <select value={usoCfdi} onChange={e => setUsoCfdi(e.target.value)} style={inpStyle}>
@@ -2926,7 +2927,7 @@ function NuevaFactura({ onCancel, onCreated, editingFactura }: { onCancel: () =>
         {/* Datos del pago (cabecera del complemento) */}
         <div style={{ marginBottom: 20 }}>
           <div style={{ fontSize: 13, fontWeight: 600, color: '#888', marginBottom: 10 }}>Datos del pago</div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr 1fr', gap: 12, marginBottom: 12 }}>
             <div>
               <label style={lblStyle}>Fecha y hora del pago *</label>
               <input type="datetime-local" value={fechaPago} onChange={e => setFechaPago(e.target.value)} style={inpStyle} />
@@ -2947,7 +2948,7 @@ function NuevaFactura({ onCancel, onCreated, editingFactura }: { onCancel: () =>
               <input value={numOperacion} onChange={e => setNumOperacion(e.target.value)} placeholder="Ref, cheque..." style={inpStyle} />
             </div>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr 1fr', gap: 12 }}>
             <div>
               <label style={lblStyle}>Moneda del pago *</label>
               <select value={monedaPago} onChange={e => setMonedaPago(e.target.value)} style={inpStyle}>
@@ -3020,7 +3021,7 @@ function NuevaFactura({ onCancel, onCreated, editingFactura }: { onCancel: () =>
                 </div>
                 <button onClick={() => removeDocPago(idx)} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', padding: 0 }}><Trash2 size={12} /></button>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 8, marginBottom: 8 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : '1fr 1fr 1fr 1fr', gap: 8, marginBottom: 8 }}>
                 <div>
                   <label style={lblStyle}>Equiv. DR</label>
                   <input type="number" step="0.0001" value={d.equivalencia_dr} onChange={e => updateDocPago(idx, 'equivalencia_dr', parseFloat(e.target.value) || 1)} style={inpStyle} />
@@ -3038,7 +3039,7 @@ function NuevaFactura({ onCancel, onCreated, editingFactura }: { onCancel: () =>
                   <input type="number" step="0.01" value={d.imp_pagado} onChange={e => updateDocPago(idx, 'imp_pagado', parseFloat(e.target.value) || 0)} style={{ ...inpStyle, borderColor: '#A78BFA44' }} />
                 </div>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr 1fr', gap: 8 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : '1fr 1fr 1fr 1fr 1fr', gap: 8 }}>
                 <div>
                   <label style={lblStyle}>Saldo insoluto</label>
                   <input type="number" value={d.imp_saldo_insoluto.toFixed(2)} disabled style={{ ...inpStyle, opacity: 0.6 }} />
