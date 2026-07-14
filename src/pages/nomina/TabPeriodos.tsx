@@ -41,6 +41,10 @@ interface PayrollPeriod {
   total_bonos: number | null
   total_caja_chica: number | null
   notas: string | null
+  comprobante_transferencia_url: string | null
+  comprobante_transferencia_path: string | null
+  transferencia_pagada: boolean | null
+  transferencia_pagada_at: string | null
   created_at: string
 }
 
@@ -121,6 +125,7 @@ export default function TabPeriodos() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [dirty, setDirty] = useState<Record<string, Partial<PayrollItem>>>({})
+  const [subiendoComp, setSubiendoComp] = useState(false)
 
   // Computed date range
   const range = useMemo(() => {
@@ -464,7 +469,7 @@ export default function TabPeriodos() {
   //   consecutivo(9) + 16 espacios + cuenta(12) + 10 espacios + importe centavos(15) + nombre(40) + '001001'
   // La cuenta BBVA guardada es de 10 dígitos; el layout la usa a 12 con prefijo '99'.
   const descargarLayoutBBVA = () => {
-    const toAscii = (s: string) => (s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\u00d1/g, 'N').replace(/\u00f1/g, 'n').toUpperCase()
+    const toAscii = (s: string) => (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/Ñ/g, 'N').replace(/ñ/g, 'n').toUpperCase()
     const rows = mergedItems
       .map(it => ({ emp: (it as any)._emp as Employee | undefined, amount: Number(it.neto_a_pagar_cfdi) || 0 }))
       .filter(r => !!r.emp && r.amount > 0)
@@ -513,6 +518,112 @@ export default function TabPeriodos() {
     let msg = `Layout BBVA generado: ${included.length} transferencias por ${F(total)}.`
     if (invalidos.length) msg += `\n\n⚠️ ${invalidos.length} con cuenta inválida — NO incluidos (corrige su cuenta a 10 dígitos):\n` + invalidos.join('\n')
     alert(msg)
+  }
+
+  // ── Descargar layout SPEI (.txt) para transferencias a NO BBVA ──
+  // Formato "Transferencias en Tiempo Real" SPEI, 128 caracteres/línea, CRLF. Campos:
+  //   CLABE destino(18) + cuenta origen(18) + divisa(3) + importe(16 con punto) +
+  //   titular(30) + tipo cuenta(2='40' CLABE) + clave banco(3) + concepto(30) + referencia(7) + 'H'(1)
+  const descargarLayoutSPEI = () => {
+    const toAscii = (s: string) => (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/Ñ/g, 'N').replace(/ñ/g, 'n').toUpperCase()
+    const ORIGEN_BBVA = '0118270236' // cuenta BBVA MXN de OMM (10 dígitos)
+    const origen18 = ('00000000' + ORIGEN_BBVA).slice(-18) // 8 ceros + 10 dígitos
+
+    const rows = mergedItems
+      .map(it => ({ emp: (it as any)._emp as Employee | undefined, amount: Number(it.neto_a_pagar_cfdi) || 0 }))
+      .filter(r => !!r.emp && r.amount > 0)
+      .filter(r => {
+        const clabe = (r.emp!.clabe || '').replace(/\D/g, '')
+        const esBBVA = /bbva/i.test(r.emp!.banco || '') || clabe.startsWith('012')
+        return !esBBVA // solo NO BBVA
+      })
+
+    if (rows.length === 0) {
+      alert('No hay transferencias a bancos distintos de BBVA con monto en "Neto transferido".')
+      return
+    }
+
+    const included: { emp: Employee; amount: number; clabe: string }[] = []
+    const invalidos: string[] = []
+    rows.forEach(r => {
+      const clabe = (r.emp!.clabe || '').replace(/\D/g, '')
+      if (clabe.length !== 18) { invalidos.push(`${r.emp!.nombre} (CLABE: ${r.emp!.clabe || 'falta'})`); return }
+      included.push({ emp: r.emp!, amount: r.amount, clabe })
+    })
+
+    if (included.length === 0) {
+      alert('Ninguna CLABE es válida (deben ser 18 dígitos).\nCorrige estas:\n\n' + invalidos.join('\n'))
+      return
+    }
+
+    const concepto30 = toAscii('NOMINA').padEnd(30, ' ').slice(0, 30)
+    const lines = included.map((r, i) => {
+      const destino18 = r.clabe.slice(0, 18)                                   // CLABE interbancaria (18)
+      const divisa = 'MXN'                                                     // valor fijo
+      const importe16 = r.amount.toFixed(2).padStart(16, '0').slice(-16)       // con punto y 2 decimales
+      const titular30 = toAscii(r.emp.nombre || '').padEnd(30, ' ').slice(0, 30)
+      const tipoCuenta = '40'                                                  // 40 = Cuenta CLABE Interbancaria
+      const claveBanco = r.clabe.slice(0, 3)                                   // primeros 3 dígitos de la CLABE
+      const referencia7 = String(i + 1).padStart(7, '0').slice(-7)
+      const disp = 'H'                                                         // mismo día
+      return destino18 + origen18 + divisa + importe16 + titular30 + tipoCuenta + claveBanco + concepto30 + referencia7 + disp
+    })
+    const content = lines.join('\r\n') + '\r\n'
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `PAGO_SPEI_${period?.period_start || ''}.txt`
+    document.body.appendChild(a); a.click(); a.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 1500)
+
+    const total = included.reduce((s, r) => s + r.amount, 0)
+    let msg = `Layout SPEI generado: ${included.length} transferencias por ${F(total)}.`
+    if (invalidos.length) msg += `\n\n⚠️ ${invalidos.length} sin CLABE válida — NO incluidos:\n` + invalidos.join('\n')
+    alert(msg)
+  }
+
+  // ── Comprobante de transferencia (a nivel periodo) ──
+  // Al subirlo, marca la transferencia como pagada y concilia todos los items.
+  const subirComprobanteTransferencia = async (file: File) => {
+    if (!period) return
+    setSubiendoComp(true)
+    try {
+      const ext = (file.name.split('.').pop() || 'dat').toLowerCase()
+      const path = `${period.id}/comprobante_${Date.now()}.${ext}`
+      const { error: upErr } = await supabase.storage.from('nomina-comprobantes').upload(path, file, { upsert: true })
+      if (upErr) throw upErr
+      const { data: pub } = supabase.storage.from('nomina-comprobantes').getPublicUrl(path)
+      await supabase.from('payroll_periods').update({
+        comprobante_transferencia_url: pub.publicUrl,
+        comprobante_transferencia_path: path,
+        transferencia_pagada: true,
+        transferencia_pagada_at: new Date().toISOString(),
+      }).eq('id', period.id)
+      // Marcar todas las transferencias del periodo como conciliadas
+      await supabase.from('payroll_items').update({ conciliado_transferencia: true }).eq('period_id', period.id)
+      await loadPeriod()
+    } catch (e: any) {
+      alert('No se pudo subir el comprobante: ' + (e.message || e))
+    } finally {
+      setSubiendoComp(false)
+    }
+  }
+
+  const quitarComprobanteTransferencia = async () => {
+    if (!period) return
+    if (!confirm('¿Quitar el comprobante y marcar la transferencia como NO pagada?')) return
+    if (period.comprobante_transferencia_path) {
+      await supabase.storage.from('nomina-comprobantes').remove([period.comprobante_transferencia_path])
+    }
+    await supabase.from('payroll_periods').update({
+      comprobante_transferencia_url: null,
+      comprobante_transferencia_path: null,
+      transferencia_pagada: false,
+      transferencia_pagada_at: null,
+    }).eq('id', period.id)
+    await supabase.from('payroll_items').update({ conciliado_transferencia: false }).eq('period_id', period.id)
+    await loadPeriod()
   }
 
   // Close/lock period
@@ -780,8 +891,11 @@ export default function TabPeriodos() {
                 <Btn onClick={recalcularPeriodo} variant="ghost" style={{ fontSize: 12 }} disabled={saving}>
                   <RefreshCw size={13} /> {saving ? 'Recalculando...' : 'Recalcular'}
                 </Btn>
-                <Btn onClick={descargarLayoutBBVA} variant="ghost" style={{ fontSize: 12, color: '#60a5fa' }} title="Descargar el archivo TXT de transferencias BBVA (usa el Neto transferido de cada empleado)">
+                <Btn onClick={descargarLayoutBBVA} variant="ghost" style={{ fontSize: 12, color: '#60a5fa' }} title="TXT de transferencias mismo banco (BBVA). Usa el Neto transferido.">
                   <Banknote size={13} /> Layout BBVA
+                </Btn>
+                <Btn onClick={descargarLayoutSPEI} variant="ghost" style={{ fontSize: 12, color: '#a78bfa' }} title="TXT SPEI para transferencias a otros bancos (NO BBVA), usando la CLABE de cada empleado.">
+                  <Banknote size={13} /> Layout SPEI
                 </Btn>
                 {hasDirty && (
                   <Btn onClick={saveChanges} variant="primary" style={{ fontSize: 12 }} disabled={saving}>
@@ -791,6 +905,54 @@ export default function TabPeriodos() {
                 <Btn onClick={closePeriod} variant="ghost" style={{ fontSize: 12, color: '#ef4444' }}>
                   <Lock size={13} /> Cerrar periodo
                 </Btn>
+              </>
+            )}
+          </div>
+
+          {/* Comprobante de transferencia (nivel periodo) */}
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16,
+            padding: '10px 14px', borderRadius: 8,
+            background: period.transferencia_pagada ? 'rgba(16,185,129,0.08)' : '#0f0f0f',
+            border: '1px solid ' + (period.transferencia_pagada ? 'rgba(16,185,129,0.3)' : '#1a1a1a'),
+          }}>
+            <Banknote size={15} style={{ color: period.transferencia_pagada ? '#10B981' : '#60a5fa' }} />
+            {period.transferencia_pagada ? (
+              <>
+                <span style={{ fontSize: 12, fontWeight: 600, color: '#10B981' }}>
+                  Transferencia pagada{period.transferencia_pagada_at ? ` · ${new Date(period.transferencia_pagada_at).toLocaleDateString('es-MX')}` : ''}
+                </span>
+                {period.comprobante_transferencia_url && (
+                  <a href={period.comprobante_transferencia_url} target="_blank" rel="noreferrer"
+                    style={{ fontSize: 12, color: '#60a5fa', textDecoration: 'underline' }}>
+                    Ver comprobante
+                  </a>
+                )}
+                <div style={{ flex: 1 }} />
+                {!isClosed && (
+                  <button onClick={quitarComprobanteTransferencia}
+                    style={{ fontSize: 11, color: '#888', background: 'none', border: '1px solid #333', borderRadius: 6, padding: '3px 10px', cursor: 'pointer', fontFamily: 'inherit' }}>
+                    Quitar
+                  </button>
+                )}
+              </>
+            ) : (
+              <>
+                <span style={{ fontSize: 12, color: '#888' }}>
+                  Sube el comprobante de la transferencia bancaria para marcarla como pagada.
+                </span>
+                <div style={{ flex: 1 }} />
+                <label style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 6,
+                  padding: '6px 14px', fontSize: 12, fontWeight: 500,
+                  background: '#1a2e1a', border: '1px solid #10B98140', borderRadius: 6,
+                  color: '#10B981', cursor: subiendoComp ? 'wait' : 'pointer',
+                }}>
+                  <Upload size={13} /> {subiendoComp ? 'Subiendo...' : 'Subir comprobante'}
+                  <input type="file" accept="image/*,application/pdf" disabled={subiendoComp}
+                    onChange={e => { const f = e.target.files?.[0]; if (f) subirComprobanteTransferencia(f); e.currentTarget.value = '' }}
+                    style={{ display: 'none' }} />
+                </label>
               </>
             )}
           </div>
