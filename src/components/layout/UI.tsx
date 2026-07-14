@@ -35,10 +35,13 @@ export function KpiCard({ label, value, color = '#10B981', icon }: {
 }
 
 // ── Table ────────────────────────────────────────────────────────────────────
-export function Table({ children }: { children: ReactNode }) {
+export function Table({ children, minWidth }: { children: ReactNode; minWidth?: number }) {
   return (
-    <div style={{ border: '1px solid #222', borderRadius: 12, position: 'relative' }}>
-      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+    <div style={{
+      border: '1px solid #222', borderRadius: 12, position: 'relative',
+      overflowX: 'auto', WebkitOverflowScrolling: 'touch' as const, maxWidth: '100%',
+    }}>
+      <table style={{ width: '100%', minWidth: minWidth ?? 720, borderCollapse: 'collapse' }}>
         {children}
       </table>
     </div>
