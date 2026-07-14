@@ -7,6 +7,7 @@ import {
   Save, RefreshCw, Lock, AlertCircle, CheckCircle2, Gift, Upload, FileText
 } from 'lucide-react'
 import { parseSFacilNominaPDF, matchEmployeeByName, parseComprobantePagos } from '../../lib/nominaPdfParser'
+import { OMNIIOUS_LOGO } from '../../assets/logo'
 
 /* ─────────────── Types ─────────────── */
 
@@ -583,6 +584,67 @@ export default function TabPeriodos() {
     alert(msg)
   }
 
+  // ── Descargar PDF de pagos en efectivo (con cuenta de depósito) ──
+  const descargarPdfEfectivo = () => {
+    const esc = (s: string) => String(s || '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' } as any)[c])
+    const rows = mergedItems
+      .map(it => ({ emp: (it as any)._emp as Employee | undefined, efectivo: (it as any)._totalEfectivo as number }))
+      .filter(r => r.emp && r.efectivo > 0.005)
+    if (rows.length === 0) { alert('No hay pagos en efectivo en este periodo.'); return }
+    const total = rows.reduce((s, r) => s + r.efectivo, 0)
+    const titulo = periodLabel(viewMode, range.start, range.end)
+    const hoy = new Date().toLocaleDateString('es-MX', { day: 'numeric', month: 'long', year: 'numeric' })
+
+    const filas = rows.map((r, i) => `
+      <tr>
+        <td style="text-align:center;color:#666">${i + 1}</td>
+        <td>${esc(r.emp!.nombre)}</td>
+        <td style="color:#555">${esc(r.emp!.puesto || '')}</td>
+        <td>${esc(r.emp!.banco || '—')}</td>
+        <td style="font-family:monospace">${esc(r.emp!.cuenta || '—')}</td>
+        <td style="font-family:monospace;font-size:9px">${esc(r.emp!.clabe || '—')}</td>
+        <td style="text-align:right;font-weight:700">${F(r.efectivo)}</td>
+        <td style="border-bottom:1px solid #999;min-width:90px"></td>
+      </tr>`).join('')
+
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Pagos en efectivo — ${esc(titulo)}</title>
+    <style>
+      body{font-family:Arial,Helvetica,sans-serif;margin:0;padding:28px;color:#111}
+      .head{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #10B981;padding-bottom:12px;margin-bottom:16px}
+      .t1{font-size:18px;font-weight:700}.t2{font-size:12px;color:#555;margin-top:2px}
+      .meta{font-size:11px;color:#666;text-align:right}
+      table{border-collapse:collapse;width:100%;font-size:11px}
+      th{background:#0e7490;color:#fff;text-align:left;padding:7px 8px;font-size:10px;text-transform:uppercase}
+      td{padding:6px 8px;border-bottom:1px solid #e5e5e5}
+      tfoot td{border-top:2px solid #111;font-weight:700;font-size:12px;padding-top:8px}
+      @media print{body{padding:12px}}
+    </style></head><body>
+      <div class="head">
+        <div><div class="t1">RELACIÓN DE PAGOS EN EFECTIVO</div><div class="t2">OMM Technologies SA de CV · ${esc(titulo)}</div></div>
+        <div style="display:flex;align-items:center;gap:12px">
+          <div class="meta">Fecha: ${hoy}<br/>Empleados: ${rows.length}</div>
+          ${OMNIIOUS_LOGO ? `<img src="${OMNIIOUS_LOGO}" style="height:34px;object-fit:contain"/>` : ''}
+        </div>
+      </div>
+      <table>
+        <thead><tr>
+          <th style="text-align:center">#</th><th>Empleado</th><th>Puesto</th><th>Banco</th>
+          <th>Cuenta</th><th>CLABE</th><th style="text-align:right">Efectivo</th><th>Firma</th>
+        </tr></thead>
+        <tbody>${filas}</tbody>
+        <tfoot><tr>
+          <td colspan="6" style="text-align:right">TOTAL EFECTIVO</td>
+          <td style="text-align:right">${F(total)}</td><td></td>
+        </tr></tfoot>
+      </table>
+    </body></html>`
+
+    const w = window.open('', '_blank', 'width=1000,height=800')
+    if (!w) { alert('Permite las ventanas emergentes para generar el PDF.'); return }
+    w.document.write(html); w.document.close()
+    setTimeout(() => { w.focus(); w.print() }, 400)
+  }
+
   // ── Comprobante de transferencia (a nivel periodo) ──
   // Al subirlo, marca la transferencia como pagada y concilia todos los items.
   const subirComprobanteTransferencia = async (file: File) => {
@@ -930,6 +992,9 @@ export default function TabPeriodos() {
                 </Btn>
                 <Btn onClick={descargarLayoutSPEI} variant="ghost" style={{ fontSize: 12, color: '#a78bfa' }} title="TXT SPEI para transferencias a otros bancos (NO BBVA), usando la CLABE de cada empleado.">
                   <Banknote size={13} /> Layout SPEI
+                </Btn>
+                <Btn onClick={descargarPdfEfectivo} variant="ghost" style={{ fontSize: 12, color: '#f59e0b' }} title="PDF con los pagos en efectivo por empleado y su cuenta de depósito.">
+                  <FileText size={13} /> PDF Efectivo
                 </Btn>
                 {hasDirty && (
                   <Btn onClick={saveChanges} variant="primary" style={{ fontSize: 12 }} disabled={saving}>
