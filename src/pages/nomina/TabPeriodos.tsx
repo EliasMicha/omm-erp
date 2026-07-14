@@ -479,13 +479,26 @@ export default function TabPeriodos() {
       return
     }
 
-    const lines = rows.map((r, i) => {
+    // Validar cuentas: se leen los dígitos (quitando espacios/texto). Válidas = 10 o 12 dígitos.
+    const included: { emp: Employee; amount: number; acct: string }[] = []
+    const invalidos: string[] = []
+    rows.forEach(r => {
+      const digRaw = (r.emp!.cuenta || '').replace(/\s+/g, '')
+      const dig = (digRaw.match(/\d+/) || [''])[0]
+      if (dig.length !== 10 && dig.length !== 12) { invalidos.push(`${r.emp!.nombre} (${r.emp!.cuenta || 'sin cuenta'})`); return }
+      included.push({ emp: r.emp!, amount: r.amount, acct: dig.length === 10 ? '99' + dig : dig })
+    })
+
+    if (included.length === 0) {
+      alert('Ninguna cuenta BBVA es válida.\nCorrige estas cuentas (deben ser 10 dígitos):\n\n' + invalidos.join('\n'))
+      return
+    }
+
+    const lines = included.map((r, i) => {
       const seq = String(i + 1).padStart(9, '0')
-      const dig = ((r.emp!.cuenta || '').match(/\d+/) || [''])[0]
-      const acct = dig.length === 10 ? '99' + dig : (dig.length >= 12 ? dig.slice(0, 12) : dig.padStart(12, '0'))
       const imp = String(Math.round(r.amount * 100)).padStart(15, '0').slice(-15)
-      const name = toAscii(r.emp!.nombre || '').padEnd(40, ' ').slice(0, 40)
-      return seq + ' '.repeat(16) + acct + ' '.repeat(10) + imp + name + '001001'
+      const name = toAscii(r.emp.nombre || '').padEnd(40, ' ').slice(0, 40)
+      return seq + ' '.repeat(16) + r.acct + ' '.repeat(10) + imp + name + '001001'
     })
     const content = lines.join('\r\n') + '\r\n'
     const blob = new Blob([content], { type: 'text/plain;charset=utf-8' })
@@ -496,9 +509,10 @@ export default function TabPeriodos() {
     document.body.appendChild(a); a.click(); a.remove()
     setTimeout(() => URL.revokeObjectURL(url), 1500)
 
-    const total = rows.reduce((s, r) => s + r.amount, 0)
-    const excl = mergedItems.length - rows.length
-    alert(`Layout BBVA generado: ${rows.length} transferencias por ${F(total)}.` + (excl > 0 ? `\n${excl} empleado(s) sin cuenta BBVA o sin monto de transferencia — no incluidos.` : ''))
+    const total = included.reduce((s, r) => s + r.amount, 0)
+    let msg = `Layout BBVA generado: ${included.length} transferencias por ${F(total)}.`
+    if (invalidos.length) msg += `\n\n⚠️ ${invalidos.length} con cuenta inválida — NO incluidos (corrige su cuenta a 10 dígitos):\n` + invalidos.join('\n')
+    alert(msg)
   }
 
   // Close/lock period
