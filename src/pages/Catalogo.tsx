@@ -267,7 +267,17 @@ IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
 
   const filtered = products.filter(p => {
     if (p.is_active === false) return false   // ocultar productos borrados (soft delete)
-    const matchSearch = !search || p.name?.toLowerCase().includes(search.toLowerCase()) || p.description?.toLowerCase().includes(search.toLowerCase()) || p.clave_prod_serv?.includes(search) || p.sku?.toLowerCase().includes(search.toLowerCase()) || p.modelo?.toLowerCase().includes(search.toLowerCase())
+    const s = search.toLowerCase()
+    const provName = suppliers.find(x => x.id === p.supplier_id)?.name || ''
+    const matchSearch = !search
+      || p.name?.toLowerCase().includes(s)
+      || p.description?.toLowerCase().includes(s)
+      || p.clave_prod_serv?.includes(search)
+      || p.sku?.toLowerCase().includes(s)
+      || p.modelo?.toLowerCase().includes(s)
+      || p.marca?.toLowerCase().includes(s)
+      || p.provider?.toLowerCase().includes(s)
+      || provName.toLowerCase().includes(s)
     const matchSystem = !filterSystem || p.system === filterSystem
     const matchSpecialty = (p.specialty || 'esp') === filterSpecialty
     const matchMarca = !filterMarca || (p.marca || '') === filterMarca
