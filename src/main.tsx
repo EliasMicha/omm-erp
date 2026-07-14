@@ -4,28 +4,28 @@ import App from './App'
 import './index.css'
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Auto-actualización del PWA / Service Worker.
-// vite-plugin-pwa está en 'autoUpdate' (skipWaiting + clientsClaim), pero aún así
-// el contenido nuevo se aplica hasta la siguiente recarga, por lo que los usuarios
-// quedaban en versiones viejas y había que "limpiar caché" a mano.
-// Aquí: (1) cuando un SW nuevo toma control, recargamos UNA vez para servir la
-// versión nueva; (2) al reenfocar la pestaña, forzamos un chequeo de actualización.
+// KILL SWITCH del Service Worker / PWA.
+// El PWA fue desactivado (selfDestroying) porque el SW viejo se quedaba sirviendo
+// versiones cacheadas y "no entraba la actualización". Aquí, en cada arranque:
+// si hay algún SW registrado, lo desregistramos, borramos todos los caches y
+// recargamos UNA sola vez (guardado en sessionStorage para no ciclar). Tras esa
+// recarga ya no queda SW y la app siempre carga la versión más reciente de la red.
 // ─────────────────────────────────────────────────────────────────────────────
 if ('serviceWorker' in navigator) {
-  const hadController = !!navigator.serviceWorker.controller
-  let refreshing = false
-  navigator.serviceWorker.addEventListener('controllerchange', () => {
-    // No recargar en la primera instalación (cuando no había SW controlando)
-    if (refreshing || !hadController) return
-    refreshing = true
-    window.location.reload()
-  })
-  // Al volver a la pestaña, revisar si hay versión nueva
-  const checkForUpdate = () => {
-    navigator.serviceWorker.getRegistration().then(reg => { reg?.update().catch(() => {}) }).catch(() => {})
-  }
-  window.addEventListener('focus', checkForUpdate)
-  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkForUpdate() })
+  navigator.serviceWorker.getRegistrations().then(async (regs) => {
+    if (!regs || regs.length === 0) return
+    await Promise.allSettled(regs.map((r) => r.unregister()))
+    try {
+      if ('caches' in window) {
+        const keys = await caches.keys()
+        await Promise.allSettled(keys.map((k) => caches.delete(k)))
+      }
+    } catch { /* noop */ }
+    if (!sessionStorage.getItem('sw_killed')) {
+      sessionStorage.setItem('sw_killed', '1')
+      window.location.reload()
+    }
+  }).catch(() => { /* noop */ })
 }
 
 ReactDOM.createRoot(document.getElementById('root')!).render(

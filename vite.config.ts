@@ -6,6 +6,9 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
+      // Desactivamos el PWA: genera un SW que se auto-elimina y limpia todos los
+      // caches en los clientes (soluciona los "no entra la actualización" por SW viejo).
+      selfDestroying: true,
       registerType: 'autoUpdate',
       // Incluir iconos en el manifest
       includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'omm-icon.svg'],
