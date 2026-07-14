@@ -52,6 +52,7 @@ interface PayrollItem {
   bono_puntualidad: number | null
   caja_chica: number | null
   descuento_infonavit_efectivo: number | null
+  descuento_faltas: number | null
   otros_conceptos: any | null
   total_efectivo_calculado: number | null
   redondeo: number | null
@@ -192,6 +193,38 @@ export default function TabPeriodos() {
 
   useEffect(() => { loadPeriod() }, [loadPeriod])
 
+  // Días de falta (sin goce) por empleado dentro del rango del periodo, desde Ausencias.
+  const fetchFaltasDias = async (startStr: string, endStr: string): Promise<Record<string, number>> => {
+    const { data } = await supabase
+      .from('ausencias')
+      .select('employee_id, tipo, fecha_inicio, fecha_fin, dias_solicitados, status')
+    const map: Record<string, number> = {}
+    ;(data || []).forEach((a: any) => {
+      const tipo = String(a.tipo || '').toLowerCase()
+      const esFalta = tipo.includes('falta') || tipo.includes('sin goce') || tipo.includes('injustific')
+      if (!esFalta) return
+      const st = String(a.status || '').toLowerCase()
+      if (['rechazado', 'rechazada', 'cancelado', 'cancelada'].includes(st)) return
+      const ini: string = a.fecha_inicio
+      const fin: string = a.fecha_fin || a.fecha_inicio
+      if (!ini) return
+      // Traslape con el rango del periodo
+      const s = ini > startStr ? ini : startStr
+      const e = fin < endStr ? fin : endStr
+      if (s > e) return
+      const days = Math.floor((Date.parse(e) - Date.parse(s)) / 86400000) + 1
+      if (days > 0) map[a.employee_id] = (map[a.employee_id] || 0) + days
+    })
+    return map
+  }
+
+  // Descuento por faltas en efectivo = días de falta × sueldo diario del periodo.
+  const descFaltasMonto = (sueldoNeto: number, dias: number): number => {
+    if (!dias) return 0
+    const diasPeriodo = viewMode === 'semanal' ? 7 : 15
+    return Math.round((sueldoNeto / diasPeriodo) * dias * 100) / 100
+  }
+
   // Create period + auto-populate items
   const createPeriod = async () => {
     setLoading(true)
@@ -235,6 +268,9 @@ export default function TabPeriodos() {
       cajaMap[t.employee_id] = (cajaMap[t.employee_id] || 0) + Number(t.monto || 0)
     })
 
+    // Auto-pull faltas (descuento en efectivo)
+    const faltasMap = await fetchFaltasDias(startStr, endStr)
+
     // Auto-pull overtime from attendance
     const { data: attendanceData } = await supabase
       .from('installer_attendance')
@@ -264,11 +300,13 @@ export default function TabPeriodos() {
         viewMode === 'semanal' ? emp.sueldo_neto_semanal : emp.sueldo_neto_quincenal
       ) || 0
       const cajaChica = cajaMap[emp.id] || 0
+      const descFaltas = descFaltasMonto(sueldoNeto, faltasMap[emp.id] || 0)
       const horasExtraMin = overtimeMap[emp.id] || 0
       // Overtime rate: sueldo_neto / hours_in_period * 2 (doble)
       const hoursInPeriod = viewMode === 'semanal' ? 48 : 96
       const hourlyRate = sueldoNeto / hoursInPeriod
       const horasExtraMonto = Math.round((horasExtraMin / 60) * hourlyRate * 2 * 100) / 100
+      const totalEf = sueldoNeto + cajaChica + horasExtraMonto - descFaltas
 
       return {
         period_id: newPeriod.id,
@@ -280,8 +318,9 @@ export default function TabPeriodos() {
         bono_puntualidad: 0,
         caja_chica: cajaChica,
         descuento_infonavit_efectivo: 0,
-        total_efectivo_calculado: sueldoNeto + cajaChica + horasExtraMonto,
-        total_efectivo_final: sueldoNeto + cajaChica + horasExtraMonto,
+        descuento_faltas: descFaltas,
+        total_efectivo_calculado: totalEf,
+        total_efectivo_final: totalEf,
         efectivo_pagado: false,
         conciliado_transferencia: false,
       }
@@ -320,7 +359,8 @@ export default function TabPeriodos() {
       const horasExtra = Number(merged.horas_extras_monto) || 0
       const bonos = Number(merged.bono_puntualidad) || 0
       const descInfonavit = Number(merged.descuento_infonavit_efectivo) || 0
-      const totalEfectivo = efectivoBase + cajaChica + horasExtra + bonos - descInfonavit
+      const descFaltas = Number(merged.descuento_faltas) || 0
+      const totalEfectivo = efectivoBase + cajaChica + horasExtra + bonos - descInfonavit - descFaltas
       const redondeo = Number(merged.redondeo) || 0
 
       await supabase.from('payroll_items').update({
@@ -375,22 +415,27 @@ export default function TabPeriodos() {
       cajaMap[t.employee_id] = (cajaMap[t.employee_id] || 0) + Number(t.monto || 0)
     })
 
-    // Actualizar cada item cuya caja chica haya cambiado
+    // Faltas (descuento en efectivo)
+    const faltasMap = await fetchFaltasDias(startStr, endStr)
+
+    // Actualizar cada item cuya caja chica o descuento por faltas haya cambiado
     const { data: itemData } = await supabase.from('payroll_items').select('*').eq('period_id', period.id)
     const its = (itemData as PayrollItem[]) || []
     for (const it of its) {
       const cajaChica = cajaMap[it.employee_id] || 0
-      if (Number(it.caja_chica || 0) === cajaChica) continue
       const sueldoNeto = Number(it.sueldo_neto_pactado) || 0
+      const descFaltas = descFaltasMonto(sueldoNeto, faltasMap[it.employee_id] || 0)
+      if (Number(it.caja_chica || 0) === cajaChica && Number(it.descuento_faltas || 0) === descFaltas) continue
       const netoTransferido = Number(it.neto_a_pagar_cfdi) || 0
       const efectivoBase = sueldoNeto - netoTransferido
       const horasExtra = Number(it.horas_extras_monto) || 0
       const bonos = Number(it.bono_puntualidad) || 0
       const descInfonavit = Number(it.descuento_infonavit_efectivo) || 0
       const redondeo = Number(it.redondeo) || 0
-      const totalEfectivo = efectivoBase + cajaChica + horasExtra + bonos - descInfonavit
+      const totalEfectivo = efectivoBase + cajaChica + horasExtra + bonos - descInfonavit - descFaltas
       await supabase.from('payroll_items').update({
         caja_chica: cajaChica,
+        descuento_faltas: descFaltas,
         total_efectivo_calculado: totalEfectivo,
         total_efectivo_final: totalEfectivo + redondeo,
       }).eq('id', it.id)
@@ -499,7 +544,8 @@ export default function TabPeriodos() {
       const horasExtra = Number(m.horas_extras_monto) || 0
       const bonos = Number(m.bono_puntualidad) || 0
       const descInfonavit = Number(m.descuento_infonavit_efectivo) || 0
-      const totalEfectivo = efectivoBase + cajaChica + horasExtra + bonos - descInfonavit
+      const descFaltas = Number(m.descuento_faltas) || 0
+      const totalEfectivo = efectivoBase + cajaChica + horasExtra + bonos - descInfonavit - descFaltas
       return {
         ...m,
         _efectivoBase: efectivoBase,
@@ -517,7 +563,8 @@ export default function TabPeriodos() {
     const totalCaja = mergedItems.reduce((s, i) => s + (Number(i.caja_chica) || 0), 0)
     const totalHE = mergedItems.reduce((s, i) => s + (Number(i.horas_extras_monto) || 0), 0)
     const totalBonos = mergedItems.reduce((s, i) => s + (Number(i.bono_puntualidad) || 0), 0)
-    return { totalSueldo, totalTransf, totalEfectivo, totalCaja, totalHE, totalBonos }
+    const totalDesc = mergedItems.reduce((s, i) => s + (Number(i.descuento_faltas) || 0), 0)
+    return { totalSueldo, totalTransf, totalEfectivo, totalCaja, totalHE, totalBonos, totalDesc }
   }, [mergedItems])
 
   /* ── Toggle efectivo pagado → auto-insert/delete cash_movement ── */
@@ -717,6 +764,11 @@ export default function TabPeriodos() {
                         <Gift size={12} /> Bonos
                       </span>
                     </Th>
+                    <Th right>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'flex-end' }} title="Descuento en efectivo por faltas (auto desde Ausencias, editable)">
+                        Descuento
+                      </span>
+                    </Th>
                     <Th right>Total efectivo</Th>
                     <Th>Estado</Th>
                   </tr>
@@ -785,6 +837,17 @@ export default function TabPeriodos() {
                           )}
                         </Td>
                         <Td right>
+                          {isClosed ? (
+                            <span style={{ color: '#ef4444' }}>{Number(item.descuento_faltas) ? '-' + F(Number(item.descuento_faltas)) : F(0)}</span>
+                          ) : (
+                            <EditableCell
+                              value={Number(item.descuento_faltas) || 0}
+                              onChange={v => updateItemField(item.id, 'descuento_faltas', v)}
+                              color="#ef4444"
+                            />
+                          )}
+                        </Td>
+                        <Td right>
                           <span style={{
                             fontWeight: 600,
                             color: '#fff',
@@ -833,6 +896,7 @@ export default function TabPeriodos() {
                     <Td right><span style={{ fontWeight: 600, color: '#a78bfa' }}>{F(kpis.totalCaja)}</span></Td>
                     <Td right><span style={{ fontWeight: 600, color: '#fb923c' }}>{F(kpis.totalHE)}</span></Td>
                     <Td right><span style={{ fontWeight: 600, color: '#10B981' }}>{F(kpis.totalBonos)}</span></Td>
+                    <Td right><span style={{ fontWeight: 600, color: '#ef4444' }}>{kpis.totalDesc ? '-' + F(kpis.totalDesc) : F(0)}</span></Td>
                     <Td right>
                       <span style={{
                         fontWeight: 700, color: '#fff', fontSize: 14,
@@ -855,7 +919,7 @@ export default function TabPeriodos() {
           }}>
             <span style={{ color: '#888', fontWeight: 500 }}>Fórmula: </span>
             <span style={{ color: '#f59e0b' }}>Efectivo base</span> = Sueldo neto − Neto transferido &nbsp;|&nbsp;
-            <span style={{ color: '#fff' }}>Total efectivo</span> = Efectivo base + Cajas chicas + Hrs extra + Bonos
+            <span style={{ color: '#fff' }}>Total efectivo</span> = Efectivo base + Cajas chicas + Hrs extra + Bonos − Descuento (faltas)
           </div>
         </>
       )}
