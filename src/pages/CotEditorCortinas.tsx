@@ -2124,29 +2124,105 @@ export default function CotEditorCortinas({ cotId, onBack, onSwitchVersion }: { 
   // por área, con desglose y totales.
   // ─────────────────────────────────────────────────────────────────
   async function exportarExcel() {
-    // SheetJS se carga desde CDN (no está como dependencia npm), igual que en Contabilidad.
-    const XLSX: any = await import('https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs' as any)
+    // ExcelJS (soporta estilos + imagen/logo). Se carga desde CDN vía <script> UMD.
+    const ExcelJS: any = await (async () => {
+      if ((window as any).ExcelJS) return (window as any).ExcelJS
+      await new Promise<void>((res, rej) => {
+        const s = document.createElement('script')
+        s.src = 'https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js'
+        s.onload = () => res()
+        s.onerror = () => rej(new Error('No se pudo cargar la librería de Excel'))
+        document.head.appendChild(s)
+      })
+      return (window as any).ExcelJS
+    })()
+
     const dispCur: 'USD' | 'MXN' = config.currency === 'USD' ? 'USD' : 'MXN'
     const tc = config.tipoCambio || 1
     const toDisp = (mxn: number) => dispCur === 'USD' ? mxn / tc : mxn
     const rnd = (n: number) => Math.round(n * 100) / 100
     const mT = config.margenTela > 0 ? 1 / (1 - config.margenTela / 100) : 1
     const mM = config.margenMotor > 0 ? 1 / (1 - config.margenMotor / 100) : 1
+    const money = dispCur === 'USD' ? '"US$"#,##0.00' : '"$"#,##0.00'
 
-    const rows: any[][] = []
-    rows.push([`Cotización de Cortinas y Persianas — ${cotName || ''}`])
-    rows.push([`Proyecto: ${projectName || '—'}`, '', `Cliente: ${clientName || '—'}`])
-    rows.push([`Fecha: ${new Date().toLocaleDateString('es-MX')}`, '', `Moneda: ${dispCur}`, '', `TC: ${tc}`])
-    rows.push([])
-    const header = ['Área', 'Ubicación', 'Tipo / Sistema', 'Config', 'Ancho (m)', 'Alto (m)', 'Cant', 'Tela / Material', 'Pliegue', `Confección (${dispCur})`, `Tela (${dispCur})`, `Motor (${dispCur})`, `Total (${dispCur})`]
-    rows.push(header)
+    // Paleta
+    const CYAN = 'FF0E7490', CYAN_LT = 'FFE0F7FA', DARK = 'FF0F172A', GRAY = 'FF6B7280'
+    const thin = { style: 'thin', color: { argb: 'FFD1D5DB' } }
+    const allBorder = { top: thin, left: thin, bottom: thin, right: thin }
 
+    const wb = new ExcelJS.Workbook()
+    const ws = wb.addWorksheet('Cotización', { views: [{ showGridLines: false, state: 'frozen', ySplit: 8 }] })
+    ws.columns = [
+      { width: 16 }, { width: 22 }, { width: 20 }, { width: 26 }, { width: 9 }, { width: 9 },
+      { width: 6 }, { width: 18 }, { width: 14 }, { width: 15 }, { width: 15 }, { width: 15 }, { width: 16 },
+    ]
+    const NCOLS = 13
+
+    // ── Logo + encabezado ──
+    try {
+      const b64 = (OMNIIOUS_LOGO || '').split(',')[1]
+      if (b64) {
+        const imgId = wb.addImage({ base64: b64, extension: 'jpeg' })
+        ws.addImage(imgId, { tl: { col: 0.15, row: 0.2 }, ext: { width: 150, height: 60 } })
+      }
+    } catch { /* si falla el logo, seguimos sin él */ }
+
+    ws.mergeCells('C1:M1')
+    const tCell = ws.getCell('C1')
+    tCell.value = 'COTIZACIÓN DE CORTINAS Y PERSIANAS'
+    tCell.font = { bold: true, size: 16, color: { argb: DARK } }
+    tCell.alignment = { vertical: 'middle', horizontal: 'right' }
+    ws.mergeCells('C2:M2')
+    const sCell = ws.getCell('C2')
+    sCell.value = cotName || ''
+    sCell.font = { size: 12, color: { argb: CYAN }, bold: true }
+    sCell.alignment = { horizontal: 'right' }
+    ws.mergeCells('C3:M3')
+    const s2Cell = ws.getCell('C3')
+    s2Cell.value = 'OMM Technologies SA de CV'
+    s2Cell.font = { size: 10, color: { argb: GRAY } }
+    s2Cell.alignment = { horizontal: 'right' }
+    ws.getRow(1).height = 24; ws.getRow(2).height = 18; ws.getRow(3).height = 16
+
+    // ── Bloque de info (filas 5-6) ──
+    const label = (cell: string, txt: string) => { const c = ws.getCell(cell); c.value = txt; c.font = { size: 9, bold: true, color: { argb: GRAY } } }
+    const val = (cell: string, v: any) => { const c = ws.getCell(cell); c.value = v; c.font = { size: 11, color: { argb: DARK } } }
+    label('A5', 'PROYECTO'); val('B5', projectName || '—')
+    label('E5', 'CLIENTE'); val('F5', clientName || '—')
+    label('A6', 'FECHA'); val('B6', new Date().toLocaleDateString('es-MX'))
+    label('E6', 'MONEDA'); val('F6', dispCur)
+    label('H6', 'TIPO DE CAMBIO'); val('J6', dispCur === 'USD' ? tc : '—')
+
+    // ── Encabezado de tabla (fila 8) ──
+    const header = ['Área', 'Ubicación', 'Tipo / Sistema', 'Config', 'Ancho (m)', 'Alto (m)', 'Cant', 'Tela / Material', 'Pliegue', `Confección`, `Tela`, `Motor`, `Total (${dispCur})`]
+    const hRow = ws.getRow(8)
+    header.forEach((h, i) => { hRow.getCell(i + 1).value = h })
+    hRow.height = 20
+    for (let c = 1; c <= NCOLS; c++) {
+      const cell = hRow.getCell(c)
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: CYAN } }
+      cell.font = { bold: true, size: 10, color: { argb: 'FFFFFFFF' } }
+      cell.alignment = { vertical: 'middle', horizontal: c >= 5 ? 'right' : 'left', wrapText: true }
+      cell.border = allBorder
+    }
+
+    let r = 9
     let sumTela = 0, sumConf = 0, sumMotor = 0, sumPersiana = 0, sumExtra = 0
 
     areas.forEach(area => {
       const areaItems = items.filter(i => i.areaId === area.id)
       if (areaItems.length === 0) return
-      rows.push([area.name])
+      // Fila de área (banda)
+      const aRow = ws.getRow(r)
+      aRow.getCell(1).value = area.name
+      for (let c = 1; c <= NCOLS; c++) {
+        const cell = aRow.getCell(c)
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: CYAN_LT } }
+        cell.font = { bold: true, size: 10, color: { argb: DARK } }
+        cell.border = { bottom: thin }
+      }
+      r++
+
       areaItems.forEach(item => {
         const isPersiana = item.itemKind === 'PERSIANA'
         const isExtra = item.itemKind === 'EXTRA'
@@ -2171,29 +2247,32 @@ export default function CotEditorCortinas({ cotId, onBack, onSwitchVersion }: { 
             : (item.tipoCierre === 'MANUAL' ? 'Manual' : (item.motorSystem || 'Motorizado'))
         const telaMat = isExtra ? '' : isPersiana ? (item.persianaMaterial || '') : item.tipoTela
         const pliegue = (isPersiana || isExtra) ? '' : item.tipoPliegue
-        const confCell = (isPersiana || isExtra) ? '' : confV
-        const telaCell = isExtra ? extraV : isPersiana ? persV : (item.telaIncluida ? 'CLIENTE' : telaV)
-        const motorCell = (!isExtra && motorMXN > 0) ? motorV : ''
+        const confCell = (isPersiana || isExtra) ? null : confV
+        const telaCell: any = isExtra ? extraV : isPersiana ? persV : (item.telaIncluida ? 'CLIENTE' : telaV)
+        const motorCell = (!isExtra && motorMXN > 0) ? motorV : null
 
-        rows.push([
-          area.name,
-          item.ubicacion || '',
-          tipoLabel,
-          item.configNota || '',
-          isExtra ? '' : item.ancho,
-          isExtra ? '' : item.alto,
-          item.cantidad,
-          telaMat,
-          pliegue,
-          confCell,
-          telaCell,
-          motorCell,
-          totalV,
-        ])
+        const iRow = ws.getRow(r)
+        const vals: any[] = [
+          '', item.ubicacion || '', tipoLabel, item.configNota || '',
+          isExtra ? null : item.ancho, isExtra ? null : item.alto, item.cantidad,
+          telaMat, pliegue, confCell, telaCell, motorCell, totalV,
+        ]
+        vals.forEach((v, i) => { iRow.getCell(i + 1).value = v })
+        for (let c = 1; c <= NCOLS; c++) {
+          const cell = iRow.getCell(c)
+          cell.border = allBorder
+          cell.font = { size: 10, color: { argb: DARK } }
+          if (c >= 5) cell.alignment = { horizontal: 'right' }
+          if (c === 4) cell.alignment = { wrapText: true, vertical: 'top' }
+          if (c >= 10 && c <= 13 && typeof cell.value === 'number') cell.numFmt = money
+          if (c === 7 && typeof cell.value === 'number') cell.numFmt = '0'
+          if ((c === 5 || c === 6) && typeof cell.value === 'number') cell.numFmt = '0.00'
+        }
+        r++
       })
     })
 
-    // Totales (en moneda de presentación)
+    // ── Totales ──
     const telaVenta = rnd(toDisp(sumTela * mT))
     const confVenta = rnd(toDisp(sumConf * mT))
     const motorVenta = rnd(toDisp(sumMotor * mM))
@@ -2207,30 +2286,46 @@ export default function CotEditorCortinas({ cotId, onBack, onSwitchVersion }: { 
     const iva = rnd(subConDesc * config.ivaRate / 100)
     const total = rnd(subConDesc + iva)
 
-    const L = header.length
-    const blank = new Array(L).fill('')
-    const totalRow = (label: string, val: number) => { const r = new Array(L).fill(''); r[L - 2] = label; r[L - 1] = val; return r }
-    rows.push(blank)
-    rows.push(totalRow('Total Tela', telaVenta))
-    rows.push(totalRow('Total Confección', confVenta))
-    rows.push(totalRow('Total Motorización', motorVenta))
-    if (persianaVenta > 0) rows.push(totalRow('Total Persianas', persianaVenta))
-    if (extraVenta > 0) rows.push(totalRow('Total Extras', extraVenta))
-    rows.push(totalRow('Subtotal', subtotalVenta))
-    rows.push(totalRow(`Instalación (${config.instPct}%)`, instalacion))
-    if ((config.descuento || 0) > 0) rows.push(totalRow(`Descuento (${config.descuento}%)`, -descAmt))
-    rows.push(totalRow(`IVA (${config.ivaRate}%)`, iva))
-    rows.push(totalRow(`TOTAL (${dispCur})`, total))
+    r++ // fila en blanco
+    const addTotal = (lbl: string, valNum: number, opts?: { strong?: boolean; accent?: boolean }) => {
+      const row = ws.getRow(r)
+      const lc = row.getCell(11); lc.value = lbl
+      lc.alignment = { horizontal: 'right' }
+      const vc = row.getCell(13); vc.value = valNum; vc.numFmt = money; vc.alignment = { horizontal: 'right' }
+      ws.mergeCells(r, 11, r, 12)
+      if (opts?.accent) {
+        for (let c = 11; c <= 13; c++) {
+          const cell = row.getCell(c)
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: CYAN } }
+          cell.font = { bold: true, size: 12, color: { argb: 'FFFFFFFF' } }
+        }
+        row.height = 22
+      } else {
+        lc.font = { bold: !!opts?.strong, size: 10, color: { argb: opts?.strong ? DARK : GRAY } }
+        vc.font = { bold: !!opts?.strong, size: 10, color: { argb: DARK } }
+      }
+      r++
+    }
+    addTotal('Total Tela', telaVenta)
+    addTotal('Total Confección', confVenta)
+    addTotal('Total Motorización', motorVenta)
+    if (persianaVenta > 0) addTotal('Total Persianas', persianaVenta)
+    if (extraVenta > 0) addTotal('Total Extras', extraVenta)
+    addTotal('Subtotal', subtotalVenta, { strong: true })
+    addTotal(`Instalación (${config.instPct}%)`, instalacion)
+    if ((config.descuento || 0) > 0) addTotal(`Descuento (${config.descuento}%)`, -descAmt)
+    addTotal(`IVA (${config.ivaRate}%)`, iva)
+    addTotal(`TOTAL (${dispCur})`, total, { accent: true })
 
-    const ws = XLSX.utils.aoa_to_sheet(rows)
-    ws['!cols'] = [
-      { wch: 18 }, { wch: 20 }, { wch: 22 }, { wch: 24 }, { wch: 9 }, { wch: 9 },
-      { wch: 6 }, { wch: 18 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 },
-    ]
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, 'Cotización')
-    const fname = `Cotizacion_Cortinas_${(cotName || 'cotizacion').replace(/[^a-zA-Z0-9_-]/g, '_')}.xlsx`
-    XLSX.writeFile(wb, fname)
+    // ── Descargar ──
+    const buf = await wb.xlsx.writeBuffer()
+    const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `Cotizacion_Cortinas_${(cotName || 'cotizacion').replace(/[^a-zA-Z0-9_-]/g, '_')}.xlsx`
+    document.body.appendChild(a); a.click(); a.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 1500)
   }
 
   if (loading) return <Loading />
