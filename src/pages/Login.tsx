@@ -192,30 +192,35 @@ export default function Login() {
           onClick={async () => {
             setError('')
             setInfo('Limpiando cache...')
-            try {
-              // 1. Unregister todos los service workers
-              if ('serviceWorker' in navigator) {
-                const regs = await navigator.serviceWorker.getRegistrations()
-                for (const r of regs) await r.unregister()
-              }
-              // 2. Borrar caches
-              if ('caches' in window) {
-                const names = await caches.keys()
-                for (const n of names) await caches.delete(n)
-              }
-              // 3. Limpiar localStorage + sessionStorage
-              localStorage.clear()
-              sessionStorage.clear()
-              // 4. Borrar IndexedDB
-              if (indexedDB.databases) {
-                const dbs = await indexedDB.databases()
-                for (const db of dbs) if (db.name) indexedDB.deleteDatabase(db.name)
-              }
-              setInfo('Cache limpio. Recargando...')
-              setTimeout(() => { window.location.href = '/login?clean=' + Date.now() }, 500)
-            } catch (err: any) {
-              setError('Error limpiando cache: ' + (err?.message || String(err)))
+            // Cada paso tolera errores; un timeout global garantiza la recarga aunque algo se cuelgue.
+            const withTimeout = <T,>(p: Promise<T>, ms: number) =>
+              Promise.race([p, new Promise<void>(res => setTimeout(res, ms))])
+            const limpiar = async () => {
+              try {
+                if ('serviceWorker' in navigator) {
+                  const regs = await navigator.serviceWorker.getRegistrations().catch(() => [] as any[])
+                  await Promise.allSettled(regs.map((r: any) => r.unregister()))
+                }
+              } catch { /* noop */ }
+              try {
+                if ('caches' in window) {
+                  const names = await caches.keys().catch(() => [] as string[])
+                  await Promise.allSettled(names.map(n => caches.delete(n)))
+                }
+              } catch { /* noop */ }
+              try { localStorage.clear() } catch { /* noop */ }
+              try { sessionStorage.clear() } catch { /* noop */ }
+              try {
+                if ((indexedDB as any).databases) {
+                  const dbs = await (indexedDB as any).databases().catch(() => [] as any[])
+                  for (const db of dbs) if (db?.name) { try { indexedDB.deleteDatabase(db.name) } catch { /* noop */ } }
+                }
+              } catch { /* noop */ }
             }
+            // Máximo 3s limpiando; pase lo que pase, recargamos con cache-busting.
+            await withTimeout(limpiar(), 3000)
+            setInfo('Cache limpio. Recargando...')
+            window.location.href = '/login?clean=' + Date.now()
           }}
           style={{
             background: 'transparent', color: '#666', border: '1px solid #333',
