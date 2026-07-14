@@ -3443,6 +3443,7 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
                   {isExpanded && (
                     <tr>
                       <td colSpan={10} style={{ padding: '8px 16px', background: '#0d0d0d', borderBottom: '1px solid #1a1a1a' }}>
+                      <div style={isMobile ? { position: 'sticky' as const, left: 0, width: 'calc(100vw - 40px)', boxSizing: 'border-box' as const } : undefined}>
                       {/* Match múltiple de facturas (many-to-many) */}
                       {(() => {
                         const isSavingMatch = savingMatch === m.id
@@ -3899,6 +3900,7 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
                             <strong>Match sugerido:</strong> {match.info}
                           </div>
                         )}
+                      </div>
                       </td>
                     </tr>
                   )}
