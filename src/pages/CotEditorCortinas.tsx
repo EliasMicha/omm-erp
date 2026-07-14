@@ -9,7 +9,6 @@ import { OMNIIOUS_LOGO } from '../assets/logo'
 import { useIsMobile } from '../lib/useIsMobile'
 import html2canvas from 'html2canvas'
 import jsPDF from 'jspdf'
-import * as XLSX from 'xlsx'
 
 // ═══════════════════════════════════════════════════════════════════
 // TYPES
@@ -2124,7 +2123,9 @@ export default function CotEditorCortinas({ cotId, onBack, onSwitchVersion }: { 
   // moneda de la cotización (MXN o USD). Una fila por partida, agrupadas
   // por área, con desglose y totales.
   // ─────────────────────────────────────────────────────────────────
-  function exportarExcel() {
+  async function exportarExcel() {
+    // SheetJS se carga desde CDN (no está como dependencia npm), igual que en Contabilidad.
+    const XLSX: any = await import('https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs' as any)
     const dispCur: 'USD' | 'MXN' = config.currency === 'USD' ? 'USD' : 'MXN'
     const tc = config.tipoCambio || 1
     const toDisp = (mxn: number) => dispCur === 'USD' ? mxn / tc : mxn
@@ -2255,7 +2256,7 @@ export default function CotEditorCortinas({ cotId, onBack, onSwitchVersion }: { 
           <button onClick={() => setShowInt(!showInt)} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid ' + (showInt ? '#D97706' : '#333'), background: showInt ? '#D9770622' : 'transparent', color: showInt ? '#D97706' : '#555', marginLeft: 8 }}>{showInt ? 'Interno' : 'Cliente'}</button>
           <button onClick={() => setShowAIImport(true)} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #7C3AED', background: '#7C3AED22', color: '#7C3AED', marginLeft: 4, display: 'flex', alignItems: 'center', gap: 4 }} title="Importar PDF o Excel de cortinas/persianas con AI"><Upload size={12} /> Importar</button>
           <button onClick={() => setShowPdf(true)} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #67E8F9', background: '#67E8F922', color: '#67E8F9', marginLeft: 4, display: 'flex', alignItems: 'center', gap: 4 }}><Printer size={12} /> PDF</button>
-          <button onClick={exportarExcel} title="Descargar la cotización en Excel" style={{ padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #10B981', background: '#10B98122', color: '#10B981', marginLeft: 4, display: 'flex', alignItems: 'center', gap: 4 }}><Download size={12} /> Excel</button>
+          <button onClick={() => exportarExcel().catch(e => alert('No se pudo exportar a Excel: ' + (e?.message || e)))} title="Descargar la cotización en Excel" style={{ padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #10B981', background: '#10B98122', color: '#10B981', marginLeft: 4, display: 'flex', alignItems: 'center', gap: 4 }}><Download size={12} /> Excel</button>
           <VersionManager cotId={cotId} getCurrentSnapshot={getVersionSnapshot} onSwitchVersion={onSwitchVersion || (() => {})} accentColor="#67E8F9" compact={isMobile} />
           <span style={{ fontSize: 15, fontWeight: 700, color: '#67E8F9', marginLeft: 10 }}>${grandTotal.toFixed(2)}</span>
         </div>
