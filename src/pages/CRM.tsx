@@ -1033,8 +1033,10 @@ export default function CRM() {
       const totals: Record<string, { cotizadoUSD: number; cotizadoMXN: number; vendidoUSD: number; vendidoMXN: number }> = {}
       if (ld && qt) {
         const quotTotalIva = (q: any) => {
-          // esp/cort/ilum/proy store total WITH IVA; elec stores raw subtotal
-          if (q.specialty === 'esp' || q.specialty === 'cort' || q.specialty === 'ilum' || q.specialty === 'proy') return q.total || 0
+          // esp/cort/ilum/proy/dist guardan total CON IVA; elec guarda subtotal crudo.
+          // Fuente canónica: total_final (con descuento + IVA) cuando existe.
+          if (typeof q.total_final === 'number' && !isNaN(q.total_final)) return Number(q.total_final)
+          if (q.specialty === 'esp' || q.specialty === 'cort' || q.specialty === 'ilum' || q.specialty === 'proy' || q.specialty === 'dist') return q.total || 0
           return (q.total || 0) * 1.16
         }
         const getCurrency = (q: any): 'USD' | 'MXN' => {
