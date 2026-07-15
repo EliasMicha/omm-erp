@@ -14,7 +14,7 @@ import { fetchAllActiveCatalog } from '../lib/catalog'
 // PDF (formato Lutron u otro) y traer productos del catálogo.
 // ─────────────────────────────────────────────────────────────────────────────
 interface DistItem { id: string; name: string; marca: string; modelo: string; cantidad: number; costo: number; precioPublico: number }
-interface DistConfig { currency: 'MXN' | 'USD'; ivaRate: number; descuentoPct: number; fletes: number; factorImport: number }
+interface DistConfig { currency: 'MXN' | 'USD'; ivaRate: number; descuentoPct: number; fletes: number; factorImport: number; tipoCambio: number }
 
 const uid = () => Math.random().toString(36).slice(2, 10)
 const r2 = (n: number) => Math.round(n * 100) / 100
@@ -30,7 +30,7 @@ export default function CotEditorDistribucion({ cotId, onBack, onSwitchVersion }
   const [cotName, setCotName] = useState('')
   const [clientName, setClientName] = useState('')
   const [items, setItems] = useState<DistItem[]>([])
-  const [config, setConfig] = useState<DistConfig>({ currency: 'MXN', ivaRate: 16, descuentoPct: 0, fletes: 0, factorImport: 0 })
+  const [config, setConfig] = useState<DistConfig>({ currency: 'MXN', ivaRate: 16, descuentoPct: 0, fletes: 0, factorImport: 0, tipoCambio: 18 })
   const notesRef = useRef<any>({})
   const saveTimer = useRef<any>(null)
   const fileRef = useRef<HTMLInputElement>(null)
@@ -99,6 +99,20 @@ export default function CotEditorDistribucion({ cotId, onBack, onSwitchVersion }
   function addRow() { setItems(x => [...x, { id: uid(), name: '', marca: '', modelo: '', cantidad: 1, costo: 0, precioPublico: 0 }]) }
   function upd(id: string, patch: Partial<DistItem>) { setItems(x => x.map(i => i.id === id ? { ...i, ...patch } : i)) }
   function rm(id: string) { setItems(x => x.filter(i => i.id !== id)) }
+
+  // Convertir todos los montos a la otra moneda usando el TC PACTADO de esta cotización.
+  // El TC queda guardado en la cotización (no cambia contra ninguna otra tabla del ERP):
+  // así el deal se cierra a ese tipo de cambio fijo.
+  function convertirMoneda() {
+    const tc = Number(config.tipoCambio) || 0
+    if (tc <= 0) { alert('Captura primero el tipo de cambio.'); return }
+    const aMXN = config.currency === 'USD'         // USD → MXN (× TC) ; MXN → USD (÷ TC)
+    const factor = aMXN ? tc : 1 / tc
+    const destino = aMXN ? 'MXN' : 'USD'
+    if (!confirm(`Convertir todos los montos de ${config.currency} a ${destino} al tipo de cambio ${tc}?\n\nEsto fija los precios en ${destino} y así se cierra el deal.`)) return
+    setItems(x => x.map(i => ({ ...i, costo: r2(i.costo * factor), precioPublico: r2(i.precioPublico * factor) })))
+    setConfig(c => ({ ...c, currency: destino, fletes: r2((c.fletes || 0) * factor), factorImport: r2((c.factorImport || 0) * factor) }))
+  }
 
   function addFromCatalog(p: any) {
     setItems(x => [...x, {
@@ -238,10 +252,14 @@ export default function CotEditorDistribucion({ cotId, onBack, onSwitchVersion }
         </button>
         <input ref={fileRef} type="file" accept=".pdf,image/*,.csv,.txt" style={{ display: 'none' }}
           onChange={e => { const f = e.target.files?.[0]; if (f) importarOrden(f); e.currentTarget.value = '' }} />
-        <button onClick={() => setConfig(c => ({ ...c, currency: c.currency === 'USD' ? 'MXN' : 'USD' }))}
-          title="Cambiar moneda"
+        <label style={{ fontSize: 10, color: '#666', display: 'flex', alignItems: 'center', gap: 4 }} title="Tipo de cambio pactado (fijo para esta cotización)">TC
+          <input type="number" step={0.01} value={config.tipoCambio} onChange={e => setConfig(c => ({ ...c, tipoCambio: parseFloat(e.target.value) || 0 }))}
+            style={{ ...inp, width: 62, padding: '3px 6px', textAlign: 'right' }} />
+        </label>
+        <button onClick={convertirMoneda}
+          title={`Convertir todos los montos a la otra moneda al TC ${config.tipoCambio}`}
           style={{ fontSize: 11, fontWeight: 700, color: config.currency === 'USD' ? '#06B6D4' : '#F59E0B', background: config.currency === 'USD' ? '#06B6D422' : '#F59E0B22', border: '1px solid ' + (config.currency === 'USD' ? '#06B6D455' : '#F59E0B55'), borderRadius: 5, padding: '3px 10px', cursor: 'pointer', fontFamily: 'inherit' }}>
-          {config.currency} ⇄
+          {config.currency} → {config.currency === 'USD' ? 'MXN' : 'USD'}
         </button>
         <label style={{ fontSize: 10, color: '#666', display: 'flex', alignItems: 'center', gap: 4 }}>IVA%
           <input type="number" value={config.ivaRate} onChange={e => setConfig(c => ({ ...c, ivaRate: parseFloat(e.target.value) || 0 }))}
