@@ -67,7 +67,8 @@ export default function CotEditorDistribucion({ cotId, onBack, onSwitchVersion }
   const subtotalPublico = r2(items.reduce((s, i) => s + i.precioPublico * i.cantidad, 0))
   const descuentoAmt = r2(subtotalPublico * (config.descuentoPct || 0) / 100)
   const subtotalConDesc = r2(subtotalPublico - descuentoAmt)
-  const cargos = r2((config.fletes || 0) + (config.factorImport || 0))
+  const factorImportAmt = r2(subtotalConDesc * (config.factorImport || 0) / 100)  // factor = % sobre el subtotal con descuento
+  const cargos = r2((config.fletes || 0) + factorImportAmt)
   const baseIva = r2(subtotalConDesc + cargos)
   const iva = r2(baseIva * config.ivaRate / 100)
   const total = r2(baseIva + iva)
@@ -111,7 +112,8 @@ export default function CotEditorDistribucion({ cotId, onBack, onSwitchVersion }
     const destino = aMXN ? 'MXN' : 'USD'
     if (!confirm(`Convertir todos los montos de ${config.currency} a ${destino} al tipo de cambio ${tc}?\n\nEsto fija los precios en ${destino} y así se cierra el deal.`)) return
     setItems(x => x.map(i => ({ ...i, costo: r2(i.costo * factor), precioPublico: r2(i.precioPublico * factor) })))
-    setConfig(c => ({ ...c, currency: destino, fletes: r2((c.fletes || 0) * factor), factorImport: r2((c.factorImport || 0) * factor) }))
+    // fletes es monto (se convierte); factor de importación es % (no se convierte)
+    setConfig(c => ({ ...c, currency: destino, fletes: r2((c.fletes || 0) * factor) }))
   }
 
   function addFromCatalog(p: any) {
@@ -180,13 +182,13 @@ export default function CotEditorDistribucion({ cotId, onBack, onSwitchVersion }
 
       if (newItems.length === 0) throw new Error('No se detectaron partidas en el documento')
       setItems(prev => [...prev, ...newItems])
+      const cargosOrigen = (Number(parsed.fletes) || 0) + (Number(parsed.factorImportacion) || 0)
       setConfig(c => ({
         ...c,
         currency: (parsed.moneda === 'USD' || parsed.moneda === 'MXN') ? parsed.moneda : c.currency,
-        fletes: Number(parsed.fletes) || c.fletes,
-        factorImport: Number(parsed.factorImportacion) || c.factorImport,
+        fletes: cargosOrigen || c.fletes,   // Shipping + Import Fee de la orden (montos) → Fletes
       }))
-      alert(`Importadas ${newItems.length} partidas.\nRevisa el precio público (se precargó con el costo) y aplica el descuento.`)
+      alert(`Importadas ${newItems.length} partidas.\nRevisa el precio público (se precargó con el costo), aplica el descuento y el factor de importación (%).`)
     } catch (e: any) {
       alert('No se pudo importar: ' + (e.message || e))
     } finally {
@@ -210,7 +212,7 @@ export default function CotEditorDistribucion({ cotId, onBack, onSwitchVersion }
       (config.descuentoPct || 0) > 0 ? `<div style="color:#c00"><span>Descuento (${config.descuentoPct}%)</span><span>-${fmt(descuentoAmt)}</span></div>` : '',
       (config.descuentoPct || 0) > 0 ? `<div><span>Subtotal con descuento</span><span>${fmt(subtotalConDesc)}</span></div>` : '',
       (config.fletes || 0) > 0 ? `<div><span>Fletes</span><span>${fmt(config.fletes)}</span></div>` : '',
-      (config.factorImport || 0) > 0 ? `<div><span>Factor de importación</span><span>${fmt(config.factorImport)}</span></div>` : '',
+      (config.factorImport || 0) > 0 ? `<div><span>Factor de importación (${config.factorImport}%)</span><span>${fmt(factorImportAmt)}</span></div>` : '',
       `<div><span>IVA (${config.ivaRate}%)</span><span>${fmt(iva)}</span></div>`,
       `<div class="grand"><span>Total</span><span>${fmt(total)} ${cur}</span></div>`,
     ].filter(Boolean).join('')
@@ -351,9 +353,12 @@ export default function CotEditorDistribucion({ cotId, onBack, onSwitchVersion }
               style={{ ...inp, width: 110, padding: '3px 6px', textAlign: 'right' }} />
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '3px 0' }}>
-            <span style={{ fontSize: 12, color: '#888' }}>Factor de importación</span>
-            <input type="number" value={config.factorImport} onChange={e => setConfig(c => ({ ...c, factorImport: parseFloat(e.target.value) || 0 }))}
-              style={{ ...inp, width: 110, padding: '3px 6px', textAlign: 'right' }} />
+            <span style={{ fontSize: 12, color: '#888', display: 'flex', alignItems: 'center', gap: 5 }}>
+              Factor de importación
+              <input type="number" value={config.factorImport} onChange={e => setConfig(c => ({ ...c, factorImport: parseFloat(e.target.value) || 0 }))}
+                style={{ ...inp, width: 52, padding: '2px 5px', textAlign: 'right' }} />%
+            </span>
+            <span style={{ fontSize: 12, color: '#ccc', fontWeight: 500 }}>{F2(factorImportAmt)}</span>
           </div>
           <div style={{ borderTop: '1px solid #2a2a2a', margin: '6px 0' }} />
           <Row label={`IVA (${config.ivaRate}%)`} value={F2(iva)} />
