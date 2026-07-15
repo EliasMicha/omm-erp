@@ -49,6 +49,7 @@ interface CortItem {
   somfySoportePared: boolean
   somfyAmrado: boolean
   somfyCurveado: boolean
+  somfyCurvas: number      // número de curvas (servicio de curveado por curva)
   // Fabric (cortinas only)
   tipoTela: string       // e.g. "TRASLUCIDA", "BLACKOUT", "SHEER"
   anchoTela: number      // fabric width in meters (manual input)
@@ -103,6 +104,7 @@ const MOVELITE_PRICES: Record<string, number> = {
   'ONDULADO_CLIP': 5.60,
   'CONTROL_SITUO1': 1299.20,
   'CONTROL_SITUO5': 1659.20,
+  'SERVICIO_CURVEADO': 1156.80,   // servicio de curveado de riel, por curva
 }
 
 // GLYDEA unit prices (MXN)
@@ -122,6 +124,7 @@ const GLYDEA_PRICES: Record<string, number> = {
   'ONDULADO_CLIP': 5.60,
   'CONTROL_SITUO1': 1299.20,
   'CONTROL_SITUO5': 1659.20,
+  'SERVICIO_CURVEADO': 1156.80,   // servicio de curveado de riel, por curva
 }
 
 const SOMFY_MOVELITE_SYSTEMS = ['MOVELITE 35 KG', 'MOVELITE BATERIA RECARGABLE', 'MOVELITE 50 RTS']
@@ -186,6 +189,12 @@ function calcSomfyBOM(item: CortItem): SomfyBOMLine[] {
 
   // Control (1 per motor)
   lines.push({ concepto: 'Control Situo 1', cantidad: 1, precioUnitario: prices['CONTROL_SITUO1'], total: prices['CONTROL_SITUO1'] })
+
+  // Servicio de curveado (riel curvo): 1 servicio por curva
+  if (item.somfyCurveado) {
+    const curvas = Math.max(1, Number(item.somfyCurvas) || 1)
+    lines.push({ concepto: `Servicio de curveado (${curvas} curva${curvas > 1 ? 's' : ''})`, cantidad: curvas, precioUnitario: prices['SERVICIO_CURVEADO'], total: curvas * prices['SERVICIO_CURVEADO'] })
+  }
 
   return lines
 }
@@ -283,7 +292,7 @@ function defaultItem(areaId: string, order: number): CortItem {
     itemKind: 'CORTINA',
     tipoCierre: 'MANUAL', motorBrand: 'NINGUNO', motorSystem: '', configNota: '',
     somfyHojas: 1, somfyPliegue: 'TRADICIONAL', somfyAbundancia: 0,
-    somfySoportePared: false, somfyAmrado: false, somfyCurveado: false,
+    somfySoportePared: false, somfyAmrado: false, somfyCurveado: false, somfyCurvas: 1,
     tipoTela: 'TRASLUCIDA', anchoTela: 0, tipoPliegue: 'ONDA PERFECTA',
     precioTelaPorML: 0, precioConfeccion: 0, telaIncluida: false, precioMotor: 0,
     persianaTipo: 'ROLLER', persianaMaterial: '', persianaPrecioPorM2: 0,
@@ -787,6 +796,18 @@ function CortRow({ item, config, onUpdate, onRemove, onShowSomfy, onCopy, showIn
               <input type="checkbox" checked={item.somfySoportePared} onChange={e => onUpdate(item.id, 'somfySoportePared', e.target.checked)} style={{ width: 12, height: 12 }} />
               Pared
             </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 3, color: '#666', cursor: 'pointer' }}>
+              <input type="checkbox" checked={item.somfyCurveado} onChange={e => onUpdate(item.id, 'somfyCurveado', e.target.checked)} style={{ width: 12, height: 12 }} />
+              Curvo
+            </label>
+            {item.somfyCurveado && (
+              <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                <span style={{ color: '#555' }}>Curvas:</span>
+                <input type="number" min={1} step={1} value={item.somfyCurvas ?? 1}
+                  onChange={e => onUpdate(item.id, 'somfyCurvas', Math.max(1, parseInt(e.target.value) || 1))}
+                  style={{ ...S.select, fontSize: 10, width: 40, padding: '2px 3px' }} />
+              </div>
+            )}
           </div>
         ) : item.motorBrand === 'LUTRON' ? (
           <textarea value={item.configNota || ''} onChange={e => onUpdate(item.id, 'configNota', e.target.value)}
@@ -1563,7 +1584,7 @@ function AIImportModalCortinas({ cotId, areas, config, onClose, onImported }: {
           ancho: it.ancho, alto: it.alto,
           tipoCierre: it.tipoCierre, motorBrand: it.motorBrand, motorSystem: it.motorSystem,
           somfyHojas: 1, somfyPliegue: 'TRADICIONAL', somfyAbundancia: 0,
-          somfySoportePared: false, somfyAmrado: false, somfyCurveado: false,
+          somfySoportePared: false, somfyAmrado: false, somfyCurveado: false, somfyCurvas: 1,
           tipoTela: it.tipoTela || 'TRASLUCIDA', anchoTela: 0, tipoPliegue: it.tipoPliegue || 'ONDA PERFECTA',
           precioTelaPorML: 0, precioConfeccion: 0, telaIncluida: false, precioMotor: 0,
           persianaTipo: it.persianaTipo, persianaMaterial: it.persianaMaterial, persianaPrecioPorM2,
@@ -1595,7 +1616,7 @@ function AIImportModalCortinas({ cotId, areas, config, onClose, onImported }: {
           ancho: 0, alto: 0,
           tipoCierre: 'MANUAL', motorBrand: 'NINGUNO', motorSystem: '',
           somfyHojas: 1, somfyPliegue: 'TRADICIONAL', somfyAbundancia: 0,
-          somfySoportePared: false, somfyAmrado: false, somfyCurveado: false,
+          somfySoportePared: false, somfyAmrado: false, somfyCurveado: false, somfyCurvas: 1,
           tipoTela: 'TRASLUCIDA', anchoTela: 0, tipoPliegue: 'ONDA PERFECTA',
           precioTelaPorML: 0, precioConfeccion: 0, telaIncluida: false, precioMotor: 0,
           persianaTipo: 'ROLLER', persianaMaterial: '', persianaPrecioPorM2: 0,
@@ -1906,6 +1927,7 @@ export default function CotEditorCortinas({ cotId, onBack, onSwitchVersion }: { 
           somfySoportePared: meta.somfySoportePared || false,
           somfyAmrado: meta.somfyAmrado || false,
           somfyCurveado: meta.somfyCurveado || false,
+          somfyCurvas: meta.somfyCurvas || 1,
           tipoTela: meta.tipoTela || 'TRASLUCIDA',
           anchoTela: meta.anchoTela || 0,
           tipoPliegue: meta.tipoPliegue || 'ONDA PERFECTA',
@@ -1947,7 +1969,7 @@ export default function CotEditorCortinas({ cotId, onBack, onSwitchVersion }: { 
       tipoCierre: item.tipoCierre, motorBrand: item.motorBrand, motorSystem: item.motorSystem, configNota: item.configNota,
       somfyHojas: item.somfyHojas, somfyPliegue: item.somfyPliegue,
       somfyAbundancia: item.somfyAbundancia, somfySoportePared: item.somfySoportePared,
-      somfyAmrado: item.somfyAmrado, somfyCurveado: item.somfyCurveado,
+      somfyAmrado: item.somfyAmrado, somfyCurveado: item.somfyCurveado, somfyCurvas: item.somfyCurvas,
       tipoTela: item.tipoTela, anchoTela: item.anchoTela, tipoPliegue: item.tipoPliegue,
       precioTelaPorML: item.precioTelaPorML, precioConfeccion: item.precioConfeccion, telaIncluida: item.telaIncluida, precioMotor: item.precioMotor,
       persianaTipo: item.persianaTipo, persianaMaterial: item.persianaMaterial, persianaPrecioPorM2: item.persianaPrecioPorM2,
