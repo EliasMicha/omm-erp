@@ -808,6 +808,9 @@ function CortRow({ item, config, onUpdate, onRemove, onShowSomfy, onCopy, showIn
                   style={{ ...S.select, fontSize: 10, width: 40, padding: '2px 3px' }} />
               </div>
             )}
+            <input value={item.configNota || ''} onChange={e => onUpdate(item.id, 'configNota', e.target.value)}
+              placeholder="Detalle (ej. curvo, notas…)"
+              style={{ ...S.select, fontSize: 10, padding: '2px 4px', minWidth: 110 }} />
           </div>
         ) : item.motorBrand === 'LUTRON' ? (
           <textarea value={item.configNota || ''} onChange={e => onUpdate(item.id, 'configNota', e.target.value)}
