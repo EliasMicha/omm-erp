@@ -59,6 +59,7 @@ interface CortItem {
   precioConfeccion: number  // confection/sewing price per ML
   telaIncluida: boolean     // true = client provides own fabric (no fabric charge)
   precioMotor: number    // manual for Lutron, auto-calculated for Somfy
+  somfyOverride: number  // override manual del costo Somfy por unidad (0 = usar auto-BOM)
   // Persianas-only fields
   persianaTipo: PersianaTipo            // ROLLER / VENECIANA / ROMANA
   persianaMaterial: string              // free-text (e.g. "Blackout", "Screen 5%", "Madera 50mm")
@@ -254,7 +255,7 @@ function calcMotorCostMXN(item: CortItem, tipoCambio: number): number {
     if (item.motorBrand === 'LUTRON') return item.precioMotor * item.cantidad * tipoCambio
     return item.precioMotor * item.cantidad
   }
-  if (item.motorBrand === 'SOMFY') return calcSomfyTotal(item) * item.cantidad
+  if (item.motorBrand === 'SOMFY') return (item.somfyOverride > 0 ? item.somfyOverride : calcSomfyTotal(item)) * item.cantidad
   if (item.motorBrand === 'LUTRON') return item.precioMotor * item.cantidad * tipoCambio
   return 0
 }
@@ -266,7 +267,7 @@ function calcMotorCostRaw(item: CortItem): number {
   if (item.itemKind === 'PERSIANA') {
     return item.precioMotor * item.cantidad
   }
-  if (item.motorBrand === 'SOMFY') return calcSomfyTotal(item) * item.cantidad
+  if (item.motorBrand === 'SOMFY') return (item.somfyOverride > 0 ? item.somfyOverride : calcSomfyTotal(item)) * item.cantidad
   if (item.motorBrand === 'LUTRON') return item.precioMotor * item.cantidad
   return 0
 }
@@ -294,7 +295,7 @@ function defaultItem(areaId: string, order: number): CortItem {
     somfyHojas: 1, somfyPliegue: 'TRADICIONAL', somfyAbundancia: 0,
     somfySoportePared: false, somfyAmrado: false, somfyCurveado: false, somfyCurvas: 1,
     tipoTela: 'TRASLUCIDA', anchoTela: 0, tipoPliegue: 'ONDA PERFECTA',
-    precioTelaPorML: 0, precioConfeccion: 0, telaIncluida: false, precioMotor: 0,
+    precioTelaPorML: 0, precioConfeccion: 0, telaIncluida: false, precioMotor: 0, somfyOverride: 0,
     persianaTipo: 'ROLLER', persianaMaterial: '', persianaPrecioPorM2: 0,
     extraDescripcion: '', extraPrecioUnitario: 0,
     order,
@@ -768,6 +769,15 @@ function CortRow({ item, config, onUpdate, onRemove, onShowSomfy, onCopy, showIn
               <button onClick={() => onShowSomfy(item)} style={{ background: 'none', border: '1px solid #14B8A633', borderRadius: 4, color: '#14B8A6', fontSize: 9, cursor: 'pointer', padding: '2px 6px' }}>
                 Ver desglose
               </button>
+            )}
+            {item.motorBrand === 'SOMFY' && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 3 }} title="Costo Somfy por unidad. Déjalo en 0 para usar el cálculo automático del BOM.">
+                <span style={{ color: '#555', fontSize: 9 }}>Motor $</span>
+                <input type="number" value={item.somfyOverride || 0}
+                  onChange={e => onUpdate(item.id, 'somfyOverride', parseFloat(e.target.value) || 0)}
+                  placeholder={String(Math.round(calcSomfyTotal(item)))}
+                  style={{ ...S.select, fontSize: 10, padding: '2px 4px', width: 90, borderColor: (item.somfyOverride || 0) > 0 ? '#F59E0B66' : '#2a2a2a' }} />
+              </div>
             )}
           </div>
         ) : <span style={{ color: '#444', fontSize: 10 }}>--</span>}
@@ -1589,7 +1599,7 @@ function AIImportModalCortinas({ cotId, areas, config, onClose, onImported }: {
           somfyHojas: 1, somfyPliegue: 'TRADICIONAL', somfyAbundancia: 0,
           somfySoportePared: false, somfyAmrado: false, somfyCurveado: false, somfyCurvas: 1,
           tipoTela: it.tipoTela || 'TRASLUCIDA', anchoTela: 0, tipoPliegue: it.tipoPliegue || 'ONDA PERFECTA',
-          precioTelaPorML: 0, precioConfeccion: 0, telaIncluida: false, precioMotor: 0,
+          precioTelaPorML: 0, precioConfeccion: 0, telaIncluida: false, precioMotor: 0, somfyOverride: 0,
           persianaTipo: it.persianaTipo, persianaMaterial: it.persianaMaterial, persianaPrecioPorM2,
         }
 
@@ -1621,7 +1631,7 @@ function AIImportModalCortinas({ cotId, areas, config, onClose, onImported }: {
           somfyHojas: 1, somfyPliegue: 'TRADICIONAL', somfyAbundancia: 0,
           somfySoportePared: false, somfyAmrado: false, somfyCurveado: false, somfyCurvas: 1,
           tipoTela: 'TRASLUCIDA', anchoTela: 0, tipoPliegue: 'ONDA PERFECTA',
-          precioTelaPorML: 0, precioConfeccion: 0, telaIncluida: false, precioMotor: 0,
+          precioTelaPorML: 0, precioConfeccion: 0, telaIncluida: false, precioMotor: 0, somfyOverride: 0,
           persianaTipo: 'ROLLER', persianaMaterial: '', persianaPrecioPorM2: 0,
           extraDescripcion: ex.nombre, extraPrecioUnitario: precioUnitario,
         }
@@ -1938,6 +1948,7 @@ export default function CotEditorCortinas({ cotId, onBack, onSwitchVersion }: { 
           precioConfeccion: meta.precioConfeccion || 0,
           telaIncluida: meta.telaIncluida || false,
           precioMotor: meta.precioMotor || 0,
+          somfyOverride: meta.somfyOverride || 0,
           persianaTipo: (meta.persianaTipo as PersianaTipo) || 'ROLLER',
           persianaMaterial: meta.persianaMaterial || '',
           persianaPrecioPorM2: meta.persianaPrecioPorM2 || 0,
@@ -1974,7 +1985,7 @@ export default function CotEditorCortinas({ cotId, onBack, onSwitchVersion }: { 
       somfyAbundancia: item.somfyAbundancia, somfySoportePared: item.somfySoportePared,
       somfyAmrado: item.somfyAmrado, somfyCurveado: item.somfyCurveado, somfyCurvas: item.somfyCurvas,
       tipoTela: item.tipoTela, anchoTela: item.anchoTela, tipoPliegue: item.tipoPliegue,
-      precioTelaPorML: item.precioTelaPorML, precioConfeccion: item.precioConfeccion, telaIncluida: item.telaIncluida, precioMotor: item.precioMotor,
+      precioTelaPorML: item.precioTelaPorML, precioConfeccion: item.precioConfeccion, telaIncluida: item.telaIncluida, precioMotor: item.precioMotor, somfyOverride: item.somfyOverride,
       persianaTipo: item.persianaTipo, persianaMaterial: item.persianaMaterial, persianaPrecioPorM2: item.persianaPrecioPorM2,
       extraDescripcion: item.extraDescripcion, extraPrecioUnitario: item.extraPrecioUnitario,
     })
