@@ -1643,12 +1643,24 @@ function POFromQuoteModal({ onClose, onCreated }: { onClose: () => void; onCreat
   useEffect(() => {
     if (!selectedQuote) { setPreviewItems([]); return }
     async function loadItems() {
-      const { data: areas } = await supabase.from('quotation_areas').select('id').eq('quotation_id', selectedQuote)
-      const areaIds = (areas || []).map((a: any) => a.id)
-      if (areaIds.length === 0) { setPreviewItems([]); return }
-      let query = supabase.from('quotation_items').select('*').in('area_id', areaIds).eq('type', 'material')
-      const { data } = await query.order('order_index')
-      let items = data || []
+      // Distribución (specialty 'dist') guarda sus items sin area_id ni áreas: hay que
+      // cargarlos por quotation_id directo, sin exigir type='material' ni fase (dist no
+      // usa fases de compra). Para el resto de especialidades se mantiene el flujo por área.
+      const selQ = quotations.find((x: any) => x.id === selectedQuote)
+      const isDist = selQ?.specialty === 'dist'
+      let distCurrency = 'USD'
+      if (isDist) { try { distCurrency = (JSON.parse(selQ?.notes || '{}').currency) || 'USD' } catch {} }
+      let items: any[] = []
+      if (isDist) {
+        const { data } = await supabase.from('quotation_items').select('*').eq('quotation_id', selectedQuote).order('order_index')
+        items = data || []
+      } else {
+        const { data: areas } = await supabase.from('quotation_areas').select('id').eq('quotation_id', selectedQuote)
+        const areaIds = (areas || []).map((a: any) => a.id)
+        if (areaIds.length === 0) { setPreviewItems([]); return }
+        const { data } = await supabase.from('quotation_items').select('*').in('area_id', areaIds).eq('type', 'material').order('order_index')
+        items = data || []
+      }
 
       // Enrich items with catalog data (provider, moneda, cost) for filtering and correct pricing
       const catIds = [...new Set(items.map(it => it.catalog_product_id).filter(Boolean))]
@@ -1664,7 +1676,8 @@ function POFromQuoteModal({ onClose, onCreated }: { onClose: () => void; onCreat
         // IMPORTANTE: priorizar catalog.provider (siempre es el más actualizado).
         // El trigger sync_catalog_changes_to_items mantiene quotation_items.provider
         // sincronizado, pero esta fuente sirve como red de seguridad para datos viejos.
-        return { ...it, cost: realCost, _provider: cat?.provider || it.provider || '', _moneda: cat?.moneda || 'USD' }
+        // Distribución: sin catálogo, usar la marca como proveedor y la moneda pactada de la cotización
+        return { ...it, cost: realCost, _provider: cat?.provider || it.provider || (isDist ? it.marca : '') || '', _moneda: isDist ? distCurrency : (cat?.moneda || 'USD') }
       })
 
       // Consolidate duplicate products (same catalog_product_id or same name) — sum quantities
@@ -1680,8 +1693,8 @@ function POFromQuoteModal({ onClose, onCreated }: { onClose: () => void; onCreat
       })
       items = Array.from(consolidated.values())
 
-      // Filter by phase — strict filter
-      if (selectedPhase) {
+      // Filter by phase — strict filter (Distribución no usa fases de compra: no filtrar)
+      if (selectedPhase && !isDist) {
         items = items.filter(it => it.purchase_phase === selectedPhase)
       }
       // Filter by supplier — strict, usando dato actualizado del catalog
