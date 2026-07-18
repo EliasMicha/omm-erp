@@ -31,6 +31,7 @@ export const STAGE_CONFIG: Record<QuoteStage, { label: string; color: string }> 
   estimacion:  { label: 'Estimación',  color: '#D97706' },
   propuesta:   { label: 'Propuesta',   color: '#2563EB' },
   contrato:    { label: 'Contrato',    color: '#10B981' },
+  perdida:     { label: 'Perdida',     color: '#DC2626' },
 }
 
 export const STATUS_CONFIG: Record<ProjectStatus, { label: string; color: string }> = {

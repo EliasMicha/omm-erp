@@ -278,6 +278,9 @@ function CotDashboard({ onOpen, preferVersionId }: { onOpen: (id: string, specia
     }
     return true
   })
+    // Las cotizaciones perdidas se van hasta abajo para no estorbar (sort estable:
+    // conserva el orden por fecha dentro de cada grupo)
+    .sort((a, c) => (a.stage === 'perdida' ? 1 : 0) - (c.stage === 'perdida' ? 1 : 0))
 
   // KPIs por etapa (USD y MXN separados) — con IVA — filtered by year
   const byStageAndCur = (s: string, cur: string) => cotsYear.filter(c => c.stage === s && getCur(c) === cur).reduce((a, c) => a + getTotalConIva(c), 0)
