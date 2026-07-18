@@ -2673,6 +2673,12 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
       if (!td?.ok || !td?.access) { alert('Belvo: ' + (td?.error || 'no se pudo obtener el token del widget')); return }
       const sdk = await loadBelvoWidget()
       if (!sdk?.createWidget) { alert('Belvo: widget no disponible'); return }
+      // El widget de Belvo requiere un <div id="belvo"></div> donde montarse
+      if (!document.getElementById('belvo')) {
+        const mount = document.createElement('div')
+        mount.id = 'belvo'
+        document.body.appendChild(mount)
+      }
       sdk.createWidget(td.access, {
         locale: 'es',
         country_codes: ['MX'],
