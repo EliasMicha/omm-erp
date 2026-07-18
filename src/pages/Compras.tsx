@@ -1671,8 +1671,10 @@ function POFromQuoteModal({ onClose, onCreated }: { onClose: () => void; onCreat
       }
       items = items.map((it: any) => {
         const cat = it.catalog_product_id ? catMap.get(it.catalog_product_id) : null
-        // Always use catalog cost if available (quotation_items.cost can be wrong — sometimes has precio_venta)
-        const realCost = cat?.cost || Number(it.cost) || 0
+        // Always use catalog cost if available (quotation_items.cost can be wrong — sometimes has precio_venta).
+        // EXCEPCIÓN Distribución: el costo de la cotización es el PACTADO (al TC acordado, en la moneda
+        // de la cotización) y NO debe pisarse con el costo genérico del catálogo (que suele estar en otra moneda).
+        const realCost = isDist ? (Number(it.cost) || 0) : (cat?.cost || Number(it.cost) || 0)
         // IMPORTANTE: priorizar catalog.provider (siempre es el más actualizado).
         // El trigger sync_catalog_changes_to_items mantiene quotation_items.provider
         // sincronizado, pero esta fuente sirve como red de seguridad para datos viejos.
