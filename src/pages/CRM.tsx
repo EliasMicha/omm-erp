@@ -1059,10 +1059,13 @@ export default function CRM() {
         }
         for (const lead of ld) {
           const leadQuotesAll = qt.filter(q => {
-            try {
-              const meta = JSON.parse(q.notes || '{}')
-              if (meta.lead_id === lead.id) return true
-            } catch {}
+            let meta: any = {}
+            try { meta = JSON.parse(q.notes || '{}') } catch {}
+            // Si la cotización tiene lead_id explícito, empatar SOLO por lead_id (estricto).
+            // Evita que una cotización de otro lead se cuele por coincidencia de nombre
+            // (p.ej. "Villa 1" capturaba "Villa 14" porque es substring).
+            if (meta.lead_id) return meta.lead_id === lead.id
+            // Legacy sin lead_id: fallback por nombre.
             return q.client_name && lead.name && q.client_name.toLowerCase().includes(lead.name.toLowerCase())
           })
           // ⚠️ Dedupe versiones para no inflar Cotizado/Vendido cuando un lead
