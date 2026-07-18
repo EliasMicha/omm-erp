@@ -1,16 +1,22 @@
-// Vercel serverless — Sincroniza movimientos bancarios desde Belvo hacia bank_movements.
-// Recorre las conexiones activas en bank_connections, trae las transacciones de cada link
-// (últimos N días) y las inserta en bank_movements deduplicando por belvo_transaction_id.
-// Así los movimientos aparecen solos en la Conciliación, sin importar TXT a mano.
+// Vercel serverless — Endpoint ÚNICO de Belvo (consolidado por el límite de 12
+// funciones del plan Hobby de Vercel). Reemplaza a belvo-link.ts + belvo-sync.ts.
 //
-// Env requeridas: BELVO_SECRET_ID, BELVO_SECRET_PASSWORD, (BELVO_BASE_URL opcional),
-//   SUPABASE_URL/ANON_KEY (o VITE_*). Opcional: CRON_SECRET para proteger el endpoint.
+//   GET/POST /api/belvo?action=link   → crea un LINK de prueba en SANDBOX y lo
+//       registra en bank_connections. Overrideable con
+//       ?institution=&username=&password=&banco=&cuenta=&moneda=
+//       Solo sandbox: los links reales de producción se crean con el Connect
+//       Widget de Belvo (con las credenciales reales del banco), no con este helper.
 //
-// Uso: GET/POST /api/belvo-sync?days=30[&token=CRON_SECRET]
+//   GET/POST /api/belvo?action=sync&days=30[&token=CRON_SECRET]  (default) → recorre
+//       las conexiones activas de bank_connections, trae las transacciones de cada
+//       link (últimos N días) y las inserta en bank_movements deduplicando por
+//       belvo_transaction_id. Así los movimientos aparecen solos en la Conciliación.
+//
+// Env: BELVO_SECRET_ID, BELVO_SECRET_PASSWORD, (BELVO_BASE_URL opcional),
+//   SUPABASE_URL/ANON_KEY (o VITE_*). Opcional: CRON_SECRET para proteger el sync.
 
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 
-// deploy trigger: belvo endpoints
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Access-Control-Allow-Origin', '*')
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
@@ -24,40 +30,75 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(500).json({ ok: false, error: 'Faltan BELVO_SECRET_ID / BELVO_SECRET_PASSWORD en las variables de entorno.' })
   }
 
-  // Protección opcional: si CRON_SECRET está configurado, exigir token (header o query)
-  const cronSecret = process.env.CRON_SECRET
-  if (cronSecret) {
-    const auth = req.headers.authorization || ''
-    const token = String((req.query as any).token || '')
-    if (auth !== `Bearer ${cronSecret}` && token !== cronSecret) {
-      return res.status(401).json({ ok: false, error: 'No autorizado' })
-    }
-  }
-
   const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL
   const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY
   if (!supabaseUrl || !supabaseKey) return res.status(500).json({ ok: false, error: 'Supabase env vars no configuradas' })
   const sbHeaders: Record<string, string> = { 'Content-Type': 'application/json', apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}` }
 
   const belvoAuth = 'Basic ' + Buffer.from(`${secretId}:${secretPassword}`).toString('base64')
+  const action = String((req.query as any).action || 'sync').toLowerCase()
 
   try {
+    if (action === 'link') {
+      // ───────── Crear link de prueba en SANDBOX ─────────
+      if (!/sandbox/i.test(baseUrl)) {
+        return res.status(400).json({ ok: false, error: 'Este helper solo crea links en SANDBOX. Para producción usa el Connect Widget de Belvo con las credenciales reales del banco.' })
+      }
+      const q = req.query as any
+      const institution = String(q.institution || 'erebor_mx_retail')
+      const username = String(q.username || 'bnk1006')
+      const password = String(q.password || 'supersecret')
+      const banco = String(q.banco || 'BBVA (sandbox)')
+      const cuenta = String(q.cuenta || 'erebor-test')
+      const moneda = String(q.moneda || 'MXN')
+
+      const linkResp = await fetch(`${baseUrl}/api/links/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: belvoAuth },
+        body: JSON.stringify({ institution, username, password, access_mode: 'recurrent' }),
+      })
+      const linkData = await linkResp.json().catch(() => null)
+      if (!linkResp.ok) return res.status(linkResp.status).json({ ok: false, error: 'Belvo no pudo crear el link', detail: linkData })
+      const linkId = linkData?.id
+      if (!linkId) return res.status(500).json({ ok: false, error: 'Belvo no devolvió un link id', detail: linkData })
+
+      const existResp = await fetch(`${supabaseUrl}/rest/v1/bank_connections?link_id=eq.${linkId}&select=id`, { headers: sbHeaders })
+      const exist = await existResp.json().catch(() => [])
+      if (!Array.isArray(exist) || exist.length === 0) {
+        await fetch(`${supabaseUrl}/rest/v1/bank_connections`, {
+          method: 'POST',
+          headers: { ...sbHeaders, Prefer: 'return=minimal' },
+          body: JSON.stringify({ link_id: linkId, institution, banco, cuenta, moneda, activo: true }),
+        })
+      }
+      return res.status(200).json({ ok: true, action: 'link', link_id: linkId, institution, banco, cuenta, moneda, next: '/api/belvo?action=sync&days=90' })
+    }
+
+    // ───────── Sync de movimientos (default) ─────────
+    // Protección opcional: si CRON_SECRET está configurado, exigir token
+    const cronSecret = process.env.CRON_SECRET
+    if (cronSecret) {
+      const auth = req.headers.authorization || ''
+      const token = String((req.query as any).token || '')
+      if (auth !== `Bearer ${cronSecret}` && token !== cronSecret) {
+        return res.status(401).json({ ok: false, error: 'No autorizado' })
+      }
+    }
+
     const days = Math.max(1, Math.min(365, Number((req.query as any).days) || 30))
     const dateTo = new Date().toISOString().slice(0, 10)
     const dateFrom = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10)
 
-    // 1. Conexiones activas
     const connResp = await fetch(`${supabaseUrl}/rest/v1/bank_connections?activo=eq.true&select=*`, { headers: sbHeaders })
     const conns = await connResp.json()
     if (!Array.isArray(conns) || conns.length === 0) {
-      return res.status(200).json({ ok: true, message: 'No hay conexiones bancarias activas (bank_connections).', inserted: 0, perLink: [] })
+      return res.status(200).json({ ok: true, action: 'sync', message: 'No hay conexiones bancarias activas (bank_connections). Crea una con /api/belvo?action=link', inserted: 0, perLink: [] })
     }
 
     let totalInserted = 0
     const perLink: any[] = []
 
     for (const conn of conns) {
-      // 2. Traer transacciones del link desde Belvo
       const txResp = await fetch(`${baseUrl}/api/transactions/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: belvoAuth },
@@ -67,7 +108,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (!txResp.ok) { perLink.push({ link: conn.link_id, status: txResp.status, error: txData }); continue }
       const txs: any[] = Array.isArray(txData) ? txData : (txData?.results || [])
 
-      // 3. Mapear a bank_movements
       const rows = txs
         .filter(t => (t.status || 'PROCESSED') === 'PROCESSED' && t.id)
         .map(t => ({
@@ -86,7 +126,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       let inserted = 0
       if (rows.length) {
-        // Upsert deduplicando por belvo_transaction_id (ignora los ya existentes)
         const insResp = await fetch(`${supabaseUrl}/rest/v1/bank_movements?on_conflict=belvo_transaction_id`, {
           method: 'POST',
           headers: { ...sbHeaders, Prefer: 'resolution=ignore-duplicates,return=representation' },
@@ -99,13 +138,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       totalInserted += inserted
       perLink.push({ link: conn.link_id, banco: conn.banco, fetched: txs.length, inserted })
 
-      // 4. Marcar última sincronización
       await fetch(`${supabaseUrl}/rest/v1/bank_connections?id=eq.${conn.id}`, {
         method: 'PATCH', headers: sbHeaders, body: JSON.stringify({ last_synced_at: new Date().toISOString() }),
       }).catch(() => {})
     }
 
-    return res.status(200).json({ ok: true, rango: { dateFrom, dateTo }, inserted: totalInserted, perLink })
+    return res.status(200).json({ ok: true, action: 'sync', rango: { dateFrom, dateTo }, inserted: totalInserted, perLink })
   } catch (e: any) {
     return res.status(500).json({ ok: false, error: String(e?.message || e) })
   }

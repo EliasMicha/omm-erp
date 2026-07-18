@@ -11,11 +11,11 @@
       "maxDuration": 60,
       "memory": 1024
     },
-    "api/belvo-sync.ts": {
+    "api/belvo.ts": {
       "maxDuration": 60
     }
   },
   "crons": [
-    { "path": "/api/belvo-sync", "schedule": "0 12 * * *" }
+    { "path": "/api/belvo?action=sync&days=30", "schedule": "0 12 * * *" }
   ]
 }
