@@ -16,6 +16,6 @@
     }
   },
   "crons": [
-    { "path": "/api/belvo-sync", "schedule": "0 */6 * * *" }
+    { "path": "/api/belvo-sync", "schedule": "0 12 * * *" }
   ]
 }
