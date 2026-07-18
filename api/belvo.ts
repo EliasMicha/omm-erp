@@ -47,6 +47,45 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(r.status).json({ ok: r.ok, count: list.length, institutions: list.map((i: any) => ({ name: i.name, display_name: i.display_name, country: i.country_code || i.country_codes, type: i.type, status: i.status })) })
     }
 
+    if (action === 'widget_token') {
+      // ───────── Genera el access token para el Connect Widget ─────────
+      // (el widget se inicializa en el frontend con este token; funciona en
+      //  cualquier entorno según BELVO_BASE_URL)
+      const tokenResp = await fetch(`${baseUrl}/api/token/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: secretId, password: secretPassword, scopes: 'read_institutions,write_links' }),
+      })
+      const td = await tokenResp.json().catch(() => null)
+      if (!tokenResp.ok || !td?.access) {
+        return res.status(tokenResp.status || 500).json({ ok: false, error: 'No se pudo generar el token del widget', detail: td })
+      }
+      return res.status(200).json({ ok: true, access: td.access })
+    }
+
+    if (action === 'save_link') {
+      // ───────── Guarda el link que devuelve el widget en bank_connections ─────────
+      const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {})
+      const linkId = body.link_id || body.link
+      if (!linkId) return res.status(400).json({ ok: false, error: 'Falta link_id' })
+      const institution = body.institution || null
+      const banco = body.banco || null
+      const cuenta = body.cuenta || null
+      const moneda = body.moneda || 'MXN'
+
+      const existResp = await fetch(`${supabaseUrl}/rest/v1/bank_connections?link_id=eq.${linkId}&select=id`, { headers: sbHeaders })
+      const exist = await existResp.json().catch(() => [])
+      if (!Array.isArray(exist) || exist.length === 0) {
+        const ins = await fetch(`${supabaseUrl}/rest/v1/bank_connections`, {
+          method: 'POST',
+          headers: { ...sbHeaders, Prefer: 'return=minimal' },
+          body: JSON.stringify({ link_id: linkId, institution, banco, cuenta, moneda, activo: true }),
+        })
+        if (!ins.ok) { const e = await ins.json().catch(() => null); return res.status(ins.status).json({ ok: false, error: 'No se pudo guardar la conexión', detail: e }) }
+      }
+      return res.status(200).json({ ok: true, link_id: linkId, institution })
+    }
+
     if (action === 'link') {
       // ───────── Crear link de prueba en SANDBOX ─────────
       if (!/sandbox/i.test(baseUrl)) {

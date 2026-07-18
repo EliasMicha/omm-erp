@@ -645,8 +645,8 @@ export default function Contabilidad() {
   const [bankMovements, setBankMovements] = useState<BankMovement[]>([])
   const [projectNames, setProjectNames] = useState<string[]>([])
 
-  // Load bank movements from Supabase
-  useEffect(() => {
+  // Load bank movements from Supabase (reutilizable para refrescar tras sync de Belvo)
+  const loadBankMovements = () => {
     supabase.from('bank_movements').select('*').order('fecha', { ascending: false }).range(0, 4999).then(({ data }) => {
       if (data && data.length > 0) {
         setBankMovements(data.map((m: any) => {
@@ -693,7 +693,8 @@ export default function Contabilidad() {
         }))
       }
     })
-  }, [])
+  }
+  useEffect(() => { loadBankMovements() }, [])
 
   // Load real project names from Supabase (para el dropdown de manual entry)
   useEffect(() => {
@@ -828,7 +829,7 @@ export default function Contabilidad() {
 
       {/* Tab content */}
       {activeTab === 'facturacion' && <TabFacturacion invoices={invoices} setInvoices={setInvoices} bankMovements={bankMovements} projectNames={projectNames} />}
-      {activeTab === 'conciliacion' && <TabConciliacion bankMovements={bankMovements} setBankMovements={setBankMovements} invoices={invoices} projectNames={projectNames} />}
+      {activeTab === 'conciliacion' && <TabConciliacion bankMovements={bankMovements} setBankMovements={setBankMovements} invoices={invoices} projectNames={projectNames} reloadMovements={loadBankMovements} />}
       {activeTab === 'costos_obra' && <TabCostosObra bankMovements={bankMovements} setBankMovements={setBankMovements} />}
       {activeTab === 'supervision' && <TabSupervision invoices={invoices} bankMovements={bankMovements} />}
       {activeTab === 'efectivo' && <TabEfectivo />}
@@ -1807,7 +1808,7 @@ function TabFacturacion({ invoices, setInvoices, bankMovements, projectNames }: 
 
 /* --------- Tab 2: Conciliaci--n Bancaria --------------------------------------------------------------------------------------------------- */
 
-function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNames }: { bankMovements: BankMovement[]; setBankMovements: (m: BankMovement[]) => void; invoices: Invoice[]; projectNames: string[] }) {
+function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNames, reloadMovements }: { bankMovements: BankMovement[]; setBankMovements: (m: BankMovement[]) => void; invoices: Invoice[]; projectNames: string[]; reloadMovements?: () => void }) {
   const isMobile = useIsMobile()
   const [processing, setProcessing] = useState(false)
   const concColFilters = useColumnFilters()
@@ -2630,6 +2631,76 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
     }
   }
 
+  // ── Belvo: conectar banco (Connect Widget) + sincronizar movimientos ──
+  const [belvoSyncing, setBelvoSyncing] = useState(false)
+  const [belvoConnecting, setBelvoConnecting] = useState(false)
+
+  const sincronizarBelvo = async () => {
+    setBelvoSyncing(true)
+    try {
+      const r = await fetch('/api/belvo?action=sync&days=90')
+      const d = await r.json().catch(() => null)
+      if (!d?.ok) { alert('Belvo: ' + (d?.error || 'no se pudo sincronizar')); return }
+      if ((d.inserted ?? 0) === 0 && (!d.perLink || d.perLink.length === 0)) {
+        alert(d.message || 'No hay conexiones bancarias activas. Conecta un banco con "Conectar banco (Belvo)".')
+      } else {
+        alert(`Belvo: ${d.inserted ?? 0} movimiento(s) nuevo(s) sincronizado(s).`)
+        reloadMovements?.()
+      }
+    } catch (e: any) {
+      alert('Belvo: ' + (e?.message || e))
+    } finally {
+      setBelvoSyncing(false)
+    }
+  }
+
+  const loadBelvoWidget = (): Promise<any> => new Promise((resolve, reject) => {
+    const w = window as any
+    if (w.belvoSDK) return resolve(w.belvoSDK)
+    const s = document.createElement('script')
+    s.src = 'https://cdn.belvo.io/belvo-widget-1-stable.js'
+    s.async = true
+    s.onload = () => resolve((window as any).belvoSDK)
+    s.onerror = () => reject(new Error('No se pudo cargar el widget de Belvo'))
+    document.body.appendChild(s)
+  })
+
+  const conectarBancoBelvo = async () => {
+    setBelvoConnecting(true)
+    try {
+      const tr = await fetch('/api/belvo?action=widget_token')
+      const td = await tr.json().catch(() => null)
+      if (!td?.ok || !td?.access) { alert('Belvo: ' + (td?.error || 'no se pudo obtener el token del widget')); return }
+      const sdk = await loadBelvoWidget()
+      if (!sdk?.createWidget) { alert('Belvo: widget no disponible'); return }
+      sdk.createWidget(td.access, {
+        locale: 'es',
+        country_codes: ['MX'],
+        institution_types: ['bank'],
+        callback: async (link: string, institution: string) => {
+          try {
+            await fetch('/api/belvo?action=save_link', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ link_id: link, institution }),
+            })
+            const sr = await fetch('/api/belvo?action=sync&days=90')
+            const sd = await sr.json().catch(() => null)
+            alert(`Banco conectado. ${sd?.ok ? (sd.inserted ?? 0) : 0} movimiento(s) sincronizado(s).`)
+            reloadMovements?.()
+          } catch (e: any) {
+            alert('Belvo (post-conexión): ' + (e?.message || e))
+          }
+        },
+        onExit: () => {},
+        onEvent: () => {},
+      }).build()
+    } catch (e: any) {
+      alert('Belvo: ' + (e?.message || e))
+    } finally {
+      setBelvoConnecting(false)
+    }
+  }
+
   /* --- Upload handler — usa edge function server-side /api/extract-bank-statement --- */
   const handleBankUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]; if (!file) return
@@ -3217,6 +3288,12 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
         </Btn>
         <Btn size="sm" variant="default" onClick={autoAsignarBeneficiarios} disabled={autoAsignando}>
           {autoAsignando ? '⏳ Asignando...' : '⚡ Auto-asignar beneficiarios'}
+        </Btn>
+        <Btn size="sm" variant="default" onClick={conectarBancoBelvo} disabled={belvoConnecting}>
+          {belvoConnecting ? '⏳ Abriendo...' : '🔗 Conectar banco (Belvo)'}
+        </Btn>
+        <Btn size="sm" variant="default" onClick={sincronizarBelvo} disabled={belvoSyncing}>
+          {belvoSyncing ? '⏳ Sincronizando...' : '🔄 Sincronizar Belvo'}
         </Btn>
         {(() => {
           const ultima = getUltimaFechaCuenta(activeAccount)
