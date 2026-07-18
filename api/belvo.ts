@@ -39,6 +39,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const action = String((req.query as any).action || 'sync').toLowerCase()
 
   try {
+    if (action === 'institutions') {
+      // Lista las instituciones disponibles (útil para saber qué usar en sandbox)
+      const r = await fetch(`${baseUrl}/api/institutions/?page_size=100`, { headers: { Authorization: belvoAuth } })
+      const d = await r.json().catch(() => null)
+      const list = Array.isArray(d?.results) ? d.results : (Array.isArray(d) ? d : [])
+      return res.status(r.status).json({ ok: r.ok, count: list.length, institutions: list.map((i: any) => ({ name: i.name, display_name: i.display_name, country: i.country_code || i.country_codes, type: i.type, status: i.status })) })
+    }
+
     if (action === 'link') {
       // ───────── Crear link de prueba en SANDBOX ─────────
       if (!/sandbox/i.test(baseUrl)) {
