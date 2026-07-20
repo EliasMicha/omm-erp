@@ -118,7 +118,7 @@ const cardHover = (e: React.MouseEvent<HTMLDivElement>, enter: boolean) => {
 
 const STAGES = ['oportunidad', 'estimacion', 'propuesta', 'contrato'] as const
 const STAGE_LABELS: Record<string, string> = {
-  oportunidad: 'Oportunidad', estimacion: 'Estimación', propuesta: 'Propuesta', contrato: 'Contrato'
+  oportunidad: 'Oportunidad', estimacion: 'Estimación', propuesta: 'Por cerrar', contrato: 'Contrato'
 }
 const STAGE_COLORS: Record<string, string> = {
   oportunidad: '#888', estimacion: '#D97706', propuesta: '#2563EB', contrato: '#10B981'
