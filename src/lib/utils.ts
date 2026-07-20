@@ -29,7 +29,7 @@ export const SPECIALTY_CONFIG: Record<ProjectLine, { label: string; color: strin
 export const STAGE_CONFIG: Record<QuoteStage, { label: string; color: string }> = {
   oportunidad: { label: 'Oportunidad', color: '#6B7280' },
   estimacion:  { label: 'Estimación',  color: '#D97706' },
-  propuesta:   { label: 'Propuesta',   color: '#2563EB' },
+  propuesta:   { label: 'Por cerrar',  color: '#2563EB' },
   contrato:    { label: 'Contrato',    color: '#10B981' },
   perdida:     { label: 'Perdida',     color: '#DC2626' },
 }
