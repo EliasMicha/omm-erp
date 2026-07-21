@@ -264,11 +264,13 @@ export default function TabPeriodos() {
       return
     }
 
-    // Auto-pull cajas chicas per employee in this date range
+    // Auto-pull cajas chicas per employee — SOLO aprobadas que aún no se han pagado/ligado
+    // a otro período (evita doble conteo).
     const { data: cajaData } = await supabase
       .from('caja_chica_tickets')
       .select('employee_id, monto')
-      .in('estatus', ['aprobado', 'pagado'])
+      .eq('estatus', 'aprobado')
+      .is('payroll_item_id', null)
       .gte('fecha', startStr)
       .lte('fecha', endStr)
 
@@ -412,24 +414,29 @@ export default function TabPeriodos() {
     const startStr = period.period_start
     const endStr = period.period_end
 
-    // Cajas chicas aprobadas/pagadas dentro del rango
+    // Items del período (para saber qué tickets ya están ligados a ESTE período)
+    const { data: itemData } = await supabase.from('payroll_items').select('*').eq('period_id', period.id)
+    const its = (itemData as PayrollItem[]) || []
+    const itemIds = new Set(its.map(i => i.id))
+
+    // Cajas chicas del rango: se incluyen las APROBADAS aún no ligadas (no pagadas todavía) y
+    // las que YA están ligadas a un item de ESTE período. Las ligadas a otro período (ya
+    // pagadas allá) NO se re-jalan → evita el doble conteo.
     const { data: cajaData } = await supabase
       .from('caja_chica_tickets')
-      .select('employee_id, monto')
-      .in('estatus', ['aprobado', 'pagado'])
+      .select('employee_id, monto, estatus, payroll_item_id')
       .gte('fecha', startStr)
       .lte('fecha', endStr)
     const cajaMap: Record<string, number> = {}
     ;(cajaData || []).forEach((t: any) => {
-      cajaMap[t.employee_id] = (cajaMap[t.employee_id] || 0) + Number(t.monto || 0)
+      const incluir = (t.estatus === 'aprobado' && !t.payroll_item_id) || (t.payroll_item_id && itemIds.has(t.payroll_item_id))
+      if (incluir) cajaMap[t.employee_id] = (cajaMap[t.employee_id] || 0) + Number(t.monto || 0)
     })
 
     // Faltas (descuento en efectivo)
     const faltasMap = await fetchFaltasDias(startStr, endStr)
 
     // Actualizar cada item cuya caja chica o descuento por faltas haya cambiado
-    const { data: itemData } = await supabase.from('payroll_items').select('*').eq('period_id', period.id)
-    const its = (itemData as PayrollItem[]) || []
     for (const it of its) {
       const cajaChica = cajaMap[it.employee_id] || 0
       const sueldoNeto = Number(it.sueldo_neto_pactado) || 0
@@ -725,8 +732,21 @@ export default function TabPeriodos() {
   // Close/lock period
   const closePeriod = async () => {
     if (!period) return
-    if (!confirm('¿Cerrar este periodo? Ya no se podrán editar los montos.')) return
+    if (!confirm('¿Cerrar este periodo? Ya no se podrán editar los montos.\n\nLos tickets de caja chica aprobados de este rango se marcarán como PAGADOS (ya van dentro del efectivo de esta nómina).')) return
     await supabase.from('payroll_periods').update({ estatus: 'cerrado' }).eq('id', period.id)
+    // Marcar como PAGADOS y ligar al item de nómina los tickets de caja chica aprobados del
+    // rango. Así: (a) el estatus refleja que ya se pagaron dentro de la nómina, y (b) quedan
+    // ligados a este período para que NO se vuelvan a jalar en otro período (evita doble conteo).
+    const { data: pitems } = await supabase.from('payroll_items').select('id, employee_id').eq('period_id', period.id)
+    for (const it of (pitems || []) as { id: string; employee_id: string }[]) {
+      await supabase.from('caja_chica_tickets')
+        .update({ estatus: 'pagado', payroll_item_id: it.id })
+        .eq('estatus', 'aprobado')
+        .is('payroll_item_id', null)
+        .eq('employee_id', it.employee_id)
+        .gte('fecha', period.period_start)
+        .lte('fecha', period.period_end)
+    }
     await loadPeriod()
   }
 
