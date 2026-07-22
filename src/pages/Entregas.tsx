@@ -726,25 +726,36 @@ function TabDashboard({ isMobile, onOperar, onIr }: any) {
   const [obraMap, setObraMap] = useState<Record<string, string>>({})
   const [recibidas, setRecibidas] = useState<Set<string>>(new Set())
   const [movHoy, setMovHoy] = useState<number>(0)
+  const [quotToLead, setQuotToLead] = useState<Record<string, string>>({})
+  const [verPo, setVerPo] = useState<any>(null)
 
   useEffect(() => {
     (async () => {
       setLoading(true)
       const hoyStr = new Date().toISOString().slice(0, 10)
       const [poR, sR, lR, oR, mR, mhR] = await Promise.all([
-        supabase.from('purchase_orders').select('id, po_number, status, logistics_mode, logistics_target_obra_id, expected_delivery, delivered_at, total, currency, supplier_id, lead_id, created_at').neq('status', 'cancelada').order('created_at', { ascending: false }).limit(500),
+        supabase.from('purchase_orders').select('id, po_number, status, logistics_mode, logistics_target_obra_id, expected_delivery, delivered_at, total, currency, supplier_id, lead_id, quotation_id, created_at').neq('status', 'cancelada').order('created_at', { ascending: false }).limit(500),
         supabase.from('suppliers').select('id, name'),
         supabase.from('leads').select('id, name'),
         supabase.from('obras').select('id, nombre'),
         supabase.from('stock_movements').select('po_id').eq('tipo', 'recepcion_compra').eq('anulado', false).not('po_id', 'is', null),
         supabase.from('stock_movements').select('id').eq('anulado', false).eq('fecha', hoyStr),
       ])
-      setPos((poR.data as any[]) || [])
+      const posData = (poR.data as any[]) || []
+      setPos(posData)
       const sm: any = {}; ((sR.data as any[]) || []).forEach(s => sm[s.id] = s.name); setSupMap(sm)
       const lm: any = {}; ((lR.data as any[]) || []).forEach(l => lm[l.id] = l.name); setLeadMap(lm)
       const om: any = {}; ((oR.data as any[]) || []).forEach(o => om[o.id] = o.nombre); setObraMap(om)
       setRecibidas(new Set(((mR.data as any[]) || []).map(m => m.po_id)))
       setMovHoy(((mhR.data as any[]) || []).length)
+      // Resolver el lead vía cotización cuando la OC no trae lead_id (como hace Compras)
+      const qids = [...new Set(posData.map(p => p.quotation_id).filter(Boolean))]
+      if (qids.length) {
+        const { data: qd } = await supabase.from('quotations').select('id, notes').in('id', qids)
+        const q2l: Record<string, string> = {}
+        ;((qd as any[]) || []).forEach(q => { try { const lid = JSON.parse(q.notes || '{}').lead_id; if (lid) q2l[q.id] = lid } catch {} })
+        setQuotToLead(q2l)
+      }
       setLoading(false)
     })()
   }, [])
@@ -752,21 +763,26 @@ function TabDashboard({ isMobile, onOperar, onIr }: any) {
   if (loading) return <Loading />
 
   const hoy = new Date().toISOString().slice(0, 10)
-  const recibida = (po: any) => recibidas.has(po.id) || !!po.delivered_at
+  const recibida = (po: any) => po.status === 'recibida' || recibidas.has(po.id) || !!po.delivered_at
+  // Solo OCs CONFIRMADAS (aprobada/pedida/parcial) entran a los listados accionables.
+  // Las de borrador van aparte en "no confirmadas".
+  const confirmada = (po: any) => ['aprobada', 'pedida', 'recibida_parcial'].includes(po.status)
+  const activa = (po: any) => confirmada(po) && !recibida(po)
   const isPickup = (m: string) => m === 'pickup_to_bodega' || m === 'pickup_to_obra'
   const isProv = (m: string) => m === 'supplier_to_bodega' || m === 'supplier_to_obra'
 
-  const porRecolectar = pos.filter(p => isPickup(p.logistics_mode) && !recibida(p))
-  const porRecibir = pos.filter(p => isProv(p.logistics_mode) && !recibida(p))
-  const pendienteLog = pos.filter(p => (!p.logistics_mode || p.logistics_mode === 'pending') && !recibida(p))
-  const agendaHoy = pos.filter(p => p.expected_delivery === hoy && !recibida(p))
-  const pedidos = pos.filter(p => p.status === 'pedida')
-  const vencidas = pos.filter(p => p.expected_delivery && p.expected_delivery < hoy && !recibida(p) && (isPickup(p.logistics_mode) || isProv(p.logistics_mode)))
+  const porRecolectar = pos.filter(p => activa(p) && isPickup(p.logistics_mode))
+  const porRecibir = pos.filter(p => activa(p) && isProv(p.logistics_mode))
+  const pendienteLog = pos.filter(p => activa(p) && (!p.logistics_mode || p.logistics_mode === 'pending'))
+  const agendaHoy = pos.filter(p => activa(p) && p.expected_delivery === hoy)
+  const vencidas = pos.filter(p => activa(p) && p.expected_delivery && p.expected_delivery < hoy)
+  const noConfirmadas = pos.filter(p => p.status === 'borrador')
 
   const destino = (p: any) => p.logistics_target_obra_id ? (obraMap[p.logistics_target_obra_id] || 'Obra') : 'Bodega'
   const money = (p: any) => (p.currency === 'USD' ? 'US$' : '$') + F(p.total || 0)
+  const leadName = (p: any) => leadMap[p.lead_id] || leadMap[quotToLead[p.quotation_id]] || '—'
 
-  const POTabla = ({ rows, accion, colorAccion }: { rows: any[]; accion: string; colorAccion: string }) => (
+  const POTabla = ({ rows, accion, colorAccion }: { rows: any[]; accion?: string; colorAccion?: string }) => (
     <div style={{ overflowX: 'auto', border: '1px solid #1f1f1f', borderRadius: 10 }}>
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 640 }}>
         <thead><tr style={{ background: '#0f0f0f', color: '#777', textAlign: 'left' }}>
@@ -783,14 +799,14 @@ function TabDashboard({ isMobile, onOperar, onIr }: any) {
             const venc = p.expected_delivery && p.expected_delivery < hoy
             return (
               <tr key={p.id} style={{ borderTop: '1px solid #1a1a1a', color: '#ccc' }}>
-                <td style={{ padding: '8px 10px', fontWeight: 600, color: '#eee' }}>{p.po_number}</td>
+                <td style={{ padding: '8px 10px' }}><button onClick={() => setVerPo(p)} style={{ background: 'none', border: 'none', color: '#67E8F9', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, padding: 0, textDecoration: 'underline' }}>{p.po_number}</button></td>
                 <td style={{ padding: '8px 10px' }}>{supMap[p.supplier_id] || '—'}</td>
-                <td style={{ padding: '8px 10px', color: '#aaa' }}>{leadMap[p.lead_id] || '—'}</td>
+                <td style={{ padding: '8px 10px', color: '#aaa' }}>{leadName(p)}</td>
                 <td style={{ padding: '8px 10px', color: '#aaa' }}>{destino(p)}</td>
                 <td style={{ padding: '8px 10px', color: venc ? '#DC2626' : '#aaa', fontWeight: venc ? 700 : 400 }}>{p.expected_delivery ? fechaCorta(p.expected_delivery) : '—'}{venc ? ' ⚠' : ''}</td>
                 <td style={{ padding: '8px 10px', textAlign: 'right' }}>{money(p)}</td>
                 <td style={{ padding: '8px 10px', textAlign: 'right' }}>
-                  <button onClick={() => onOperar(p.id)} style={{ padding: '4px 10px', fontSize: 11, fontWeight: 600, background: colorAccion + '22', border: `1px solid ${colorAccion}55`, borderRadius: 6, color: colorAccion, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}>{accion}</button>
+                  {accion ? <button onClick={() => onOperar(p.id)} style={{ padding: '4px 10px', fontSize: 11, fontWeight: 600, background: (colorAccion || '#888') + '22', border: `1px solid ${(colorAccion || '#888')}55`, borderRadius: 6, color: colorAccion || '#888', cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}>{accion}</button> : null}
                 </td>
               </tr>
             )
@@ -838,15 +854,73 @@ function TabDashboard({ isMobile, onOperar, onIr }: any) {
 
       {pendienteLog.length > 0 && (
         <Seccion titulo={`Sin logística definida (${pendienteLog.length})`} icon={<PackagePlus size={16} color="#D97706" />}>
-          <div style={{ fontSize: 11, color: '#888', marginBottom: 8 }}>Estas OCs no tienen modo logístico (recolección / proveedor). Defínelo en Compras.</div>
+          <div style={{ fontSize: 11, color: '#888', marginBottom: 8 }}>OCs confirmadas pero sin modo logístico (recolección / proveedor). Defínelo en Compras — igual puedes recibirlas.</div>
           <POTabla rows={pendienteLog} accion="Recibir" colorAccion="#D97706" />
         </Seccion>
       )}
+
+      {noConfirmadas.length > 0 && (
+        <Seccion titulo={`Órdenes no confirmadas — borrador (${noConfirmadas.length})`} icon={<PackagePlus size={16} color="#666" />}>
+          <div style={{ fontSize: 11, color: '#888', marginBottom: 8 }}>Están en borrador: no se reciben hasta confirmarlas (aprobar / pedir) en Compras. Pica la OC para ver su contenido.</div>
+          <POTabla rows={noConfirmadas} />
+        </Seccion>
+      )}
+
+      {verPo && <PoContenidoModal po={verPo} supMap={supMap} leadName={leadName(verPo)} confirmada={confirmada(verPo)} onClose={() => setVerPo(null)} onRecibir={() => { onOperar(verPo.id); setVerPo(null) }} />}
 
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 8 }}>
         <Btn size="sm" variant="default" onClick={() => onIr('porlead')}><ClipboardList size={12} /> Ver inventario por lead</Btn>
         <Btn size="sm" variant="default" onClick={() => onIr('registrar')}><PackagePlus size={12} /> Registrar movimiento</Btn>
         <Btn size="sm" variant="default" onClick={() => onIr('movimientos')}><Truck size={12} /> Ver movimientos</Btn>
+      </div>
+    </div>
+  )
+}
+
+// Modal: contenido de una OC (qué hay que recibir)
+function PoContenidoModal({ po, supMap, leadName, confirmada, onClose, onRecibir }: any) {
+  const [items, setItems] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  useEffect(() => {
+    (async () => {
+      setLoading(true)
+      const { data } = await supabase.from('po_items').select('name, marca, modelo, quantity, unit').eq('purchase_order_id', po.id).order('order_index')
+      setItems((data as any[]) || [])
+      setLoading(false)
+    })()
+  }, [po.id])
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 20 }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: '#141414', border: '1px solid #333', borderRadius: 14, width: 'min(760px, 96vw)', maxHeight: '85vh', overflow: 'auto', padding: 20 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+          <div style={{ fontSize: 16, fontWeight: 700, color: '#fff' }}>{po.po_number} · {supMap[po.supplier_id] || 'Sin proveedor'}</div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer' }}><X size={18} /></button>
+        </div>
+        <div style={{ fontSize: 11, color: '#888', marginBottom: 14 }}>Lead: {leadName || '—'} · Contenido de la orden ({items.length} partidas)</div>
+        {loading ? <Loading /> : items.length === 0 ? <EmptyState message="Esta OC no tiene partidas." /> : (
+          <div style={{ border: '1px solid #1f1f1f', borderRadius: 10, overflow: 'hidden' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+              <thead><tr style={{ background: '#0f0f0f', color: '#777', textAlign: 'left' }}>
+                <th style={{ padding: '8px 10px' }}>Marca</th><th style={{ padding: '8px 10px' }}>Modelo</th><th style={{ padding: '8px 10px' }}>Descripción</th><th style={{ padding: '8px 10px', textAlign: 'center' }}>Cantidad</th>
+              </tr></thead>
+              <tbody>
+                {items.map((it, i) => (
+                  <tr key={i} style={{ borderTop: '1px solid #1a1a1a', color: '#ccc' }}>
+                    <td style={{ padding: '6px 10px' }}>{it.marca || '—'}</td>
+                    <td style={{ padding: '6px 10px' }}>{it.modelo || '—'}</td>
+                    <td style={{ padding: '6px 10px', color: '#eee' }}>{it.name}</td>
+                    <td style={{ padding: '6px 10px', textAlign: 'center', fontWeight: 700, color: '#fff' }}>{F(it.quantity)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
+          {confirmada
+            ? <Btn variant="primary" onClick={onRecibir}><PackagePlus size={12} /> Registrar recepción</Btn>
+            : <span style={{ fontSize: 11, color: '#D97706' }}>OC en borrador — confírmala en Compras para poder recibirla.</span>}
+        </div>
       </div>
     </div>
   )
