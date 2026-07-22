@@ -192,7 +192,7 @@ export default function CotizacionPdf() {
 
 function CotizacionPdfInner() {
   const { id, format } = useParams<{ id: string; format: string }>()
-  const formato = (format || 'ejecutivo') as 'ejecutivo' | 'tecnico' | 'lista'
+  const formato = (format || 'ejecutivo') as 'ejecutivo' | 'tecnico' | 'lista' | 'resumen'
 
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -643,10 +643,12 @@ function CotizacionPdfInner() {
     ejecutivo: 'Propuesta Ejecutiva',
     tecnico: 'Propuesta Técnica Detallada',
     lista: 'Lista de Precios',
+    resumen: 'Resumen de Equipos',
   }[formato]
 
   const mostrarCostosInternos = formato === 'tecnico'
   const mostrarTablaPlana = formato === 'lista'
+  const esResumen = formato === 'resumen'  // mismo layout agrupado que ejecutivo, pero SIN precios
 
   // ─── Estilos print-optimized ─────────────────────────────────────────────
   // ─── Estilos — usar min-height en px, NO vh (Safari print bug) ──────────
@@ -840,7 +842,8 @@ function CotizacionPdfInner() {
           </table>
         </div>
 
-        {/* SECCIÓN 1: RESUMEN POR SISTEMA (o por CONCEPTO si es eléctrico) */}
+        {/* SECCIÓN 1: RESUMEN POR SISTEMA — oculto en el Resumen de Equipos (sin precios) */}
+        {!esResumen && (
         <div style={{ marginBottom: 18 }}>
           <h2 style={{ fontSize: 13, color: '#111', marginBottom: 8, paddingBottom: 4, borderBottom: '1px solid #ddd' }}>
             {isElec ? 'Resumen por concepto' : 'Resumen por sistema'}
@@ -918,11 +921,12 @@ function CotizacionPdfInner() {
             </tbody>
           </table>
         </div>
+        )}
 
         {/* SECCIÓN 3: DESGLOSE */}
         <div className="page-break" />
         <h2 style={{ fontSize: 13, color: '#111', marginBottom: 12, paddingBottom: 4, borderBottom: '1px solid #ddd' }}>
-          {mostrarTablaPlana ? 'Lista detallada de precios' : 'Desglose por área y sistema'}
+          {esResumen ? 'Equipos por área y sistema' : mostrarTablaPlana ? 'Lista detallada de precios' : 'Desglose por área y sistema'}
         </h2>
 
         {mostrarTablaPlana ? (
@@ -977,7 +981,7 @@ function CotizacionPdfInner() {
                     <span style={{ display: 'inline-block', background: '#10b981', color: '#fff', borderRadius: 4, padding: '1px 7px', fontSize: 10, marginRight: 8, fontWeight: 700 }}>{idx + 1}</span>
                     {area.name.toUpperCase()}
                   </h3>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: '#10b981' }}>{FCUR(areaTotal, currency)}</div>
+                  {!esResumen && <div style={{ fontSize: 12, fontWeight: 700, color: '#10b981' }}>{FCUR(areaTotal, currency)}</div>}
                 </div>
                 {area.notes && (
                   <div style={{ padding: '6px 10px', marginBottom: 8, background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 3, fontSize: 9.5, color: '#444', fontStyle: 'italic', whiteSpace: 'pre-wrap' as const }}>
@@ -991,7 +995,7 @@ function CotizacionPdfInner() {
                     <div key={sys} style={{ marginLeft: 10, marginBottom: 10 }}>
                       <div style={{ fontSize: 10, fontWeight: 600, color: '#666', textTransform: 'uppercase', letterSpacing: '0.04em', padding: '4px 0', display: 'flex', justifyContent: 'space-between' }}>
                         <span>{sys}</span>
-                        <span>{FCUR(sysTotal, currency)}</span>
+                        {!esResumen && <span>{FCUR(sysTotal, currency)}</span>}
                       </div>
                       {sysNote && (
                         <div style={{ padding: '4px 8px', marginBottom: 4, background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 3, fontSize: 9, color: '#555', fontStyle: 'italic', whiteSpace: 'pre-wrap' as const }}>
@@ -1010,8 +1014,8 @@ function CotizacionPdfInner() {
                             {mostrarCostosInternos && <th style={{ textAlign: 'right', width: 60 }}>Costo</th>}
                             {mostrarCostosInternos && <th style={{ textAlign: 'center', width: 36 }}>MUp</th>}
                             <th style={{ textAlign: 'center', width: 36 }}>Cant</th>
-                            <th style={{ textAlign: 'right', width: 70 }}>P. unit.</th>
-                            <th style={{ textAlign: 'right', width: 70 }}>Total</th>
+                            {!esResumen && <th style={{ textAlign: 'right', width: 70 }}>P. unit.</th>}
+                            {!esResumen && <th style={{ textAlign: 'right', width: 70 }}>Total</th>}
                           </tr>
                         </thead>
                         <tbody>
@@ -1041,8 +1045,8 @@ function CotizacionPdfInner() {
                               {mostrarCostosInternos && <td style={{ textAlign: 'right', color: '#888' }}>{FCUR(it.cost || 0, currency)}</td>}
                               {mostrarCostosInternos && <td style={{ textAlign: 'center', color: '#888', fontSize: 9 }}>{it.markup || 0}%</td>}
                               <td style={{ textAlign: 'center' }}>{it.quantity}</td>
-                              <td style={{ textAlign: 'right', fontWeight: 500 }}>{FCUR(it.price, currency)}</td>
-                              <td style={{ textAlign: 'right', fontWeight: 600 }}>{FCUR(it.price * it.quantity, currency)}</td>
+                              {!esResumen && <td style={{ textAlign: 'right', fontWeight: 500 }}>{FCUR(it.price, currency)}</td>}
+                              {!esResumen && <td style={{ textAlign: 'right', fontWeight: 600 }}>{FCUR(it.price * it.quantity, currency)}</td>}
                             </tr>
                           ))}
                         </tbody>
@@ -1055,7 +1059,8 @@ function CotizacionPdfInner() {
           })
         )}
 
-        {/* SECCIÓN 4: TOTALES FINALES (se repite al final del desglose) */}
+        {/* SECCIÓN 4: TOTALES FINALES — oculto en el Resumen de Equipos (sin precios) */}
+        {!esResumen && (
         <div style={{ marginTop: 20, marginBottom: 22, padding: '14px 0', borderTop: '2px solid #111' }}>
           <table style={{ width: '100%', fontSize: 11 }}>
             <tbody>
@@ -1114,6 +1119,7 @@ function CotizacionPdfInner() {
             </tbody>
           </table>
         </div>
+        )}
 
         {/* SECCIÓN 5: TÉRMINOS COMERCIALES */}
         <div className="page-break" />

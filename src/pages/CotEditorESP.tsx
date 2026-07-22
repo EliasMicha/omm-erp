@@ -3239,6 +3239,7 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
                 { id: 'ejecutivo', icon: '📄', title: 'Ejecutivo', desc: 'Para cliente final. Diseño formal, sin costos internos ni markups. La versión que mandas por email.' },
                 { id: 'tecnico', icon: '🔧', title: 'Técnico detallado', desc: 'Para ingeniería. Incluye SKUs, proveedores, fases de compra, costos internos y markups. Uso interno o cliente técnico.' },
                 { id: 'lista', icon: '📋', title: 'Lista de precios', desc: 'Tabla simple sin agrupar. Ideal para comparar precios rápido.' },
+                { id: 'resumen', icon: '📦', title: 'Resumen de equipos', desc: 'Mismo formato de la cotización pero SIN precios — con foto, marca, modelo, descripción y cantidad. Para mandar al cliente o al instalador lo que va.' },
               ] as const).map(opt => (
                 <button
                   key={opt.id}
