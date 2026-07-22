@@ -1136,7 +1136,16 @@ function TabAgenda({ isMobile, obras, empleados }: any) {
 
   async function cycleEstatus(t: any) {
     const next = t.estatus === 'pendiente' ? 'en_ruta' : t.estatus === 'en_ruta' ? 'completada' : 'pendiente'
-    await supabase.from('logistics_tasks').update({ estatus: next }).eq('id', t.id); load()
+    await supabase.from('logistics_tasks').update({ estatus: next }).eq('id', t.id)
+    // Al completar un movimiento de herramienta → actualizar ubicación + responsable de cada equipo
+    if (next === 'completada' && t.tipo === 'herramienta' && Array.isArray(t.items) && t.extras) {
+      const ex = t.extras
+      for (const it of t.items) {
+        if (!it.asset_id) continue
+        await supabase.from('assets').update({ ubicacion_tipo: ex.destino_tipo, ubicacion_obra_id: ex.destino_obra_id || null, ubicacion_nombre: ex.destino_nombre, responsable_id: ex.responsable_id || null, responsable_nombre: ex.responsable_nombre || null, updated_at: new Date().toISOString() }).eq('id', it.asset_id)
+      }
+    }
+    load()
   }
   async function del(t: any) { if (!confirm('¿Eliminar esta tarea?')) return; await supabase.from('logistics_tasks').update({ estatus: 'cancelada' }).eq('id', t.id); load() }
 
@@ -1307,6 +1316,25 @@ function TareaModal({ init, obras, leads, empleados, onClose, onSaved }: any) {
     setRecoItems(((data as any[]) || []).map(it => ({ catalog_product_id: it.catalog_product_id || null, marca: it.marca || '', modelo: it.modelo || '', descripcion: it.name || '', qty: Number(it.quantity) || 1, unit: it.unit || 'pza' })))
   }
 
+  // ── Herramienta builder (mover herramienta entre obra/oficina/bodega) ──
+  const [herrLoaded, setHerrLoaded] = useState(false)
+  const [assets, setAssets] = useState<any[]>([])
+  const [hResp, setHResp] = useState('')          // filtro por responsable
+  const [hUb, setHUb] = useState('')              // filtro por ubicación actual
+  const [hQ, setHQ] = useState('')
+  const [hSel, setHSel] = useState<Record<string, boolean>>(Array.isArray(init.items) && init.tipo === 'herramienta' ? Object.fromEntries(init.items.map((i: any) => [i.asset_id, true])) : {})
+  const [hDestTipo, setHDestTipo] = useState(init.extras?.destino_tipo || 'obra')
+  const [hDestObra, setHDestObra] = useState(init.extras?.destino_obra_id || '')
+  const [hRecibe, setHRecibe] = useState(init.extras?.responsable_id || '')
+
+  useEffect(() => {
+    if (tipo !== 'herramienta' || herrLoaded) return
+    (async () => {
+      const { data } = await supabase.from('assets').select('id, nombre, categoria, marca, modelo, serie, responsable_id, responsable_nombre, ubicacion_tipo, ubicacion_obra_id, ubicacion_nombre').neq('estatus', 'baja').order('nombre')
+      setAssets((data as any[]) || []); setHerrLoaded(true)
+    })()
+  }, [tipo])
+
   useEffect(() => {
     if (init.id && init.tipo === 'entrega' && Array.isArray(init.items)) {
       const s: any = {}; init.items.forEach((it: any) => { s[it.key] = { qty: Number(it.qty) || 0, on: true } }); setSel(s)
@@ -1345,8 +1373,17 @@ function TareaModal({ init, obras, leads, empleados, onClose, onSaved }: any) {
 
   const esEntrega = tipo === 'entrega'
   const esReco = tipo === 'recoleccion'
+  const esHerr = tipo === 'herramienta'
   const provList = [...new Set(recoPos.map(p => p.supplier_id).filter(Boolean))].map(id => ({ id, name: supMap[id] || 'Proveedor' })).sort((a, b) => a.name.localeCompare(b.name))
   const recoPoObj = recoPos.find(p => p.id === recoPo)
+  const herrResps = Array.from(new Map(assets.filter(a => a.responsable_id).map(a => [a.responsable_id, a.responsable_nombre || 'Responsable'])).entries()).map(([id, nombre]) => ({ id, nombre })).sort((a, b) => a.nombre.localeCompare(b.nombre))
+  const herrUbics = [...new Set(assets.map(a => a.ubicacion_nombre).filter(Boolean))].sort()
+  const assetsFilt = assets.filter(a => {
+    if (hResp && a.responsable_id !== hResp) return false
+    if (hUb && (a.ubicacion_nombre || '') !== hUb) return false
+    if (hQ.trim() && !(`${a.nombre} ${a.marca || ''} ${a.modelo || ''} ${a.serie || ''}`.toLowerCase().includes(hQ.toLowerCase()))) return false
+    return true
+  })
   const leadsInv = invByLead ? Object.entries(invByLead).map(([id, v]: any) => ({ id, name: v.name, n: v.lines.length })).sort((a, b) => a.name.localeCompare(b.name)) : []
   const lineas = (entLead && invByLead && invByLead[entLead]) ? invByLead[entLead].lines : []
   const leadNameEnt = invByLead && invByLead[entLead] ? invByLead[entLead].name : ''
@@ -1356,6 +1393,20 @@ function TareaModal({ init, obras, leads, empleados, onClose, onSaved }: any) {
   const itemsSel = () => lineas.filter((l: any) => sel[l.key]?.on && (sel[l.key]?.qty || 0) > 0).map((l: any) => ({ key: l.key, quotation_id: l.quotation_id, marca: l.marca, modelo: l.modelo, descripcion: l.descripcion, qty: Number(sel[l.key].qty) }))
 
   async function guardar() {
+    if (esHerr) {
+      const sel = assets.filter(a => hSel[a.id])
+      if (sel.length === 0) { alert('Marca al menos una herramienta a mover.'); return }
+      if (hDestTipo === 'obra' && !hDestObra) { alert('Elige la obra destino.'); return }
+      setSaving(true)
+      const destNombre = hDestTipo === 'obra' ? (obras.find((o: any) => o.id === hDestObra)?.nombre || 'Obra') : hDestTipo === 'oficina' ? 'Oficina' : 'Bodega'
+      const respNombre = empleados.find((e: any) => e.id === hRecibe)?.nombre || null
+      const items = sel.map(a => ({ asset_id: a.id, nombre: a.nombre, categoria: a.categoria, serie: a.serie || null }))
+      const extras = { destino_tipo: hDestTipo, destino_obra_id: hDestTipo === 'obra' ? (hDestObra || null) : null, destino_nombre: destNombre, responsable_id: hRecibe || null, responsable_nombre: respNombre }
+      const row: any = { tipo: 'herramienta', titulo: (titulo.trim() || ('Mover herramienta → ' + destNombre)), fecha, hora: hora || null, ubicacion: ubicacion || destNombre, prioridad, lead_id: hDestTipo === 'obra' ? (hDestObra || null) : null, obra_id: null, po_id: null, asignado_a: asignado || null, asignado_nombre: empleados.find((e: any) => e.id === asignado)?.nombre || null, notas: notas || null, items, recibe_nombre: respNombre, extras }
+      const res = init.id ? await supabase.from('logistics_tasks').update(row).eq('id', init.id) : await supabase.from('logistics_tasks').insert(row)
+      if (res.error) { alert('Error: ' + res.error.message); setSaving(false); return }
+      setSaving(false); onSaved(); return
+    }
     if (esReco) {
       if (!recoPo) { alert('Selecciona la orden de compra a recolectar.'); return }
       setSaving(true)
@@ -1388,9 +1439,9 @@ function TareaModal({ init, obras, leads, empleados, onClose, onSaved }: any) {
 
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 20 }}>
-      <div onClick={e => e.stopPropagation()} style={{ background: '#141414', border: '1px solid #333', borderRadius: 14, width: (esEntrega || esReco) ? 'min(720px, 96vw)' : 'min(560px, 96vw)', maxHeight: '90vh', overflow: 'auto', padding: 20 }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: '#141414', border: '1px solid #333', borderRadius: 14, width: (esEntrega || esReco || esHerr) ? 'min(720px, 96vw)' : 'min(560px, 96vw)', maxHeight: '90vh', overflow: 'auto', padding: 20 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-          <div style={{ fontSize: 16, fontWeight: 700, color: '#fff' }}>{init.id ? (esEntrega ? 'Editar entrega' : esReco ? 'Editar recolección' : 'Editar tarea') : (esEntrega ? 'Programar entrega' : esReco ? 'Programar recolección' : 'Nueva tarea de ruta')}</div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: '#fff' }}>{init.id ? (esEntrega ? 'Editar entrega' : esReco ? 'Editar recolección' : esHerr ? 'Editar movimiento de herramienta' : 'Editar tarea') : (esEntrega ? 'Programar entrega' : esReco ? 'Programar recolección' : esHerr ? 'Mover herramienta' : 'Nueva tarea de ruta')}</div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer' }}><X size={18} /></button>
         </div>
 
@@ -1411,7 +1462,83 @@ function TareaModal({ init, obras, leads, empleados, onClose, onSaved }: any) {
           </div>
         </div>
 
-        {esReco ? (
+        {esHerr ? (
+          <>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
+              <div><label style={labelStyle}>Filtrar por responsable</label>
+                <select value={hResp} onChange={e => setHResp(e.target.value)} style={inputStyle}>
+                  <option value="">Todos</option>
+                  {herrResps.map((r: any) => <option key={r.id} value={r.id}>{r.nombre}</option>)}
+                </select>
+              </div>
+              <div><label style={labelStyle}>Filtrar por ubicación actual</label>
+                <select value={hUb} onChange={e => setHUb(e.target.value)} style={inputStyle}>
+                  <option value="">Todas (general)</option>
+                  {herrUbics.map((u: any) => <option key={u} value={u}>{u}</option>)}
+                </select>
+              </div>
+            </div>
+            <input value={hQ} onChange={e => setHQ(e.target.value)} placeholder="Buscar herramienta / serie…" style={{ ...inputStyle, marginBottom: 10 }} />
+
+            <label style={labelStyle}>Herramienta a mover — marca lo que se mueve</label>
+            <div style={{ border: '1px solid #2a2a2a', borderRadius: 10, overflow: 'hidden', marginBottom: 14, maxHeight: 240, overflowY: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11.5 }}>
+                <thead><tr style={{ background: '#0f0f0f', color: '#777', textAlign: 'left', position: 'sticky', top: 0 }}>
+                  <th style={{ padding: '7px 8px', width: 30 }}></th>
+                  <th style={{ padding: '7px 8px' }}>Equipo</th>
+                  <th style={{ padding: '7px 8px' }}>Ubicación actual</th>
+                </tr></thead>
+                <tbody>
+                  {assetsFilt.length === 0 ? <tr><td colSpan={3} style={{ padding: '10px 8px', color: '#666', fontSize: 11 }}>Sin herramienta con esos filtros.</td></tr> : assetsFilt.map(a => {
+                    const cat = CAT_CFG[a.categoria] || CAT_CFG.otro; const on = !!hSel[a.id]
+                    return (
+                      <tr key={a.id} style={{ borderTop: '1px solid #1a1a1a', color: '#ccc', background: on ? '#132015' : 'transparent' }}>
+                        <td style={{ padding: '6px 8px', textAlign: 'center' }}><input type="checkbox" checked={on} onChange={() => setHSel(s => ({ ...s, [a.id]: !s[a.id] }))} style={{ cursor: 'pointer' }} /></td>
+                        <td style={{ padding: '6px 8px', color: '#eee' }}>{a.nombre}<div style={{ fontSize: 9.5, color: '#666' }}><span style={{ color: cat.color }}>{cat.icon} {cat.label}</span>{a.serie ? ' · ' + a.serie : ''}</div></td>
+                        <td style={{ padding: '6px 8px', color: '#aaa' }}>{a.ubicacion_nombre || '—'}<div style={{ fontSize: 9.5, color: '#666' }}>{a.responsable_nombre || 'sin responsable'}</div></td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: hDestTipo === 'obra' ? '1fr 1fr' : '1fr', gap: 10, marginBottom: 12 }}>
+              <div><label style={labelStyle}>A qué ubicación va</label>
+                <select value={hDestTipo} onChange={e => setHDestTipo(e.target.value)} style={inputStyle}>
+                  <option value="obra">Una obra</option>
+                  <option value="oficina">Oficina</option>
+                  <option value="bodega">Bodega</option>
+                </select>
+              </div>
+              {hDestTipo === 'obra' && (
+                <div><label style={labelStyle}>Obra destino</label>
+                  <select value={hDestObra} onChange={e => setHDestObra(e.target.value)} style={inputStyle}>
+                    <option value="">— Elige obra —</option>
+                    {obras.map((o: any) => <option key={o.id} value={o.id}>{o.nombre}</option>)}
+                  </select>
+                </div>
+              )}
+            </div>
+
+            <div style={{ marginBottom: 12 }}><label style={labelStyle}>Responsable de recibir la herramienta</label>
+              <select value={hRecibe} onChange={e => setHRecibe(e.target.value)} style={inputStyle}>
+                <option value="">— Elige —</option>
+                {empleados.map((e: any) => <option key={e.id} value={e.id}>{e.nombre}{e.puesto ? ' · ' + e.puesto.trim() : ''}</option>)}
+              </select>
+            </div>
+
+            <label style={labelStyle}>Ubicación / dirección (opcional)</label>
+            <input value={ubicacion} onChange={e => setUbicacion(e.target.value)} placeholder="Dirección de entrega" style={{ ...inputStyle, marginBottom: 12 }} />
+
+            <div style={{ marginBottom: 12 }}><label style={labelStyle}>Chofer / responsable de llevarlo</label>
+              <select value={asignado} onChange={e => setAsignado(e.target.value)} style={inputStyle}>
+                <option value="">—</option>
+                {empleados.map((e: any) => <option key={e.id} value={e.id}>{e.nombre}</option>)}
+              </select>
+            </div>
+          </>
+        ) : esReco ? (
           <>
             <label style={labelStyle}>Proveedor</label>
             {loadingReco ? <div style={{ fontSize: 12, color: '#888', padding: '8px 0', marginBottom: 12 }}>Cargando órdenes por recolectar…</div> : (
@@ -1580,7 +1707,7 @@ function TareaModal({ init, obras, leads, empleados, onClose, onSaved }: any) {
 
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
           <Btn variant="default" onClick={onClose}>Cancelar</Btn>
-          <Btn variant="primary" onClick={guardar} disabled={saving}>{saving ? 'Guardando…' : (esEntrega ? (init.id ? 'Guardar y generar recibos' : 'Programar y generar recibos') : esReco ? (init.id ? 'Guardar' : 'Programar recolección') : (init.id ? 'Guardar' : 'Crear tarea'))}</Btn>
+          <Btn variant="primary" onClick={guardar} disabled={saving}>{saving ? 'Guardando…' : (esEntrega ? (init.id ? 'Guardar y generar recibos' : 'Programar y generar recibos') : esReco ? (init.id ? 'Guardar' : 'Programar recolección') : esHerr ? (init.id ? 'Guardar' : 'Programar movimiento') : (init.id ? 'Guardar' : 'Crear tarea'))}</Btn>
         </div>
       </div>
     </div>
