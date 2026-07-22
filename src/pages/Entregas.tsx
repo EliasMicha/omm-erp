@@ -517,6 +517,7 @@ function TabInventarioLead({ isMobile }: any) {
   const [loading, setLoading] = useState(true)
   const [leads, setLeads] = useState<any[]>([])
   const [cots, setCots] = useState<any[]>([])
+  const [contractedLeadIds, setContractedLeadIds] = useState<Set<string>>(new Set())
   const [q, setQ] = useState('')
   const [leadSel, setLeadSel] = useState<string>('')
   const [detalle, setDetalle] = useState<any[] | null>(null)
@@ -525,25 +526,35 @@ function TabInventarioLead({ isMobile }: any) {
   useEffect(() => {
     (async () => {
       setLoading(true)
-      const [lR, qR] = await Promise.all([
+      const [lR, qR, oR] = await Promise.all([
         supabase.from('leads').select('id, name').order('name'),
         supabase.from('quotations').select('id, name, specialty, notes, created_at, updated_at').eq('stage', 'contrato'),
+        supabase.from('obras').select('id, quotation_id, quotation_ids'),
       ])
       setLeads((lR.data as any[]) || [])
-      setCots(((qR.data as any[]) || []).map(c => {
+      const cotsParsed = ((qR.data as any[]) || []).map(c => {
         let lead_id: string | null = null
         try { lead_id = JSON.parse(c.notes || '{}').lead_id || null } catch {}
         return { id: c.id, name: c.name, specialty: c.specialty, lead_id, created_at: c.created_at }
-      }))
+      })
+      setCots(cotsParsed)
+      // Solo leads CONTRATADOS = los que tienen una obra (obra → cotización → lead)
+      const cotLead = new Map<string, string | null>(cotsParsed.map((c: any) => [c.id, c.lead_id]))
+      const set = new Set<string>()
+      ;((oR.data as any[]) || []).forEach((o: any) => {
+        const refs = [o.quotation_id, ...(Array.isArray(o.quotation_ids) ? o.quotation_ids : [])].filter(Boolean)
+        refs.forEach((qid: string) => { const lid = cotLead.get(qid); if (lid) set.add(lid) })
+      })
+      setContractedLeadIds(set)
       setLoading(false)
     })()
   }, [])
 
   const leadsConCots = useMemo(() => {
     const cnt: Record<string, number> = {}
-    cots.forEach(c => { if (c.lead_id) cnt[c.lead_id] = (cnt[c.lead_id] || 0) + 1 })
+    cots.forEach(c => { if (c.lead_id && contractedLeadIds.has(c.lead_id)) cnt[c.lead_id] = (cnt[c.lead_id] || 0) + 1 })
     return leads.filter(l => cnt[l.id]).map(l => ({ ...l, nCots: cnt[l.id] }))
-  }, [leads, cots])
+  }, [leads, cots, contractedLeadIds])
 
   const leadsFiltrados = leadsConCots.filter(l => !q.trim() || (l.name || '').toLowerCase().includes(q.toLowerCase()))
 
@@ -606,7 +617,7 @@ function TabInventarioLead({ isMobile }: any) {
       <div>
         <div style={{ display: 'flex', gap: 8, marginBottom: 14, alignItems: 'center' }}>
           <input value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar lead…" style={{ ...inputStyle, maxWidth: 320 }} />
-          <span style={{ fontSize: 11, color: '#666' }}>{leadsFiltrados.length} leads con contrato</span>
+          <span style={{ fontSize: 11, color: '#666' }}>{leadsFiltrados.length} obras contratadas</span>
         </div>
         {leadsFiltrados.length === 0 ? <EmptyState message="No hay leads con cotizaciones en contrato." /> : (
           <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(2,1fr)', gap: 10 }}>
