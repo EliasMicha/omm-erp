@@ -151,37 +151,44 @@ export default function Entregas() {
 
 // ═══════════════════════════ INVENTARIO ═══════════════════════════
 function TabInventario({ stockBodega, stockObra, obras, isMobile }: any) {
-  const [sub, setSub] = useState<'bodega' | 'obra'>('bodega')
+  const [sub, setSub] = useState<'general' | 'obra'>('general')
   const [obraSel, setObraSel] = useState<string>('')
   const [q, setQ] = useState('')
+  const [detalle, setDetalle] = useState<any | null>(null)
+  const obraName = (id: string) => obras.find((o: any) => o.id === id)?.nombre || 'Obra'
 
-  const obrasConStock = useMemo(() => {
-    const ids = new Set(stockObra.map((r: any) => r.obra_id))
-    return obras.filter((o: any) => ids.has(o.id))
-  }, [stockObra, obras])
+  // Consolidado: por producto → total (bodega + obras), asignado (en obras), remanente (bodega libre)
+  const consolidado = useMemo(() => {
+    const keyOf = (r: any) => r.catalog_product_id || `${(r.marca || '').toLowerCase()}|${(r.modelo || '').toLowerCase()}|${(r.descripcion || '').toLowerCase()}`
+    const map = new Map<string, any>()
+    const ensure = (r: any) => { const k = keyOf(r); if (!map.has(k)) map.set(k, { key: k, marca: r.marca || '', modelo: r.modelo || '', descripcion: r.descripcion || '', remanente: 0, asignado: 0, porObra: [] as any[] }); return map.get(k) }
+    stockBodega.forEach((r: any) => { const x = ensure(r); x.remanente += Number(r.en_bodega || 0) })
+    stockObra.forEach((r: any) => { const x = ensure(r); const qy = Number(r.en_obra || 0); if (qy === 0) return; x.asignado += qy; x.porObra.push({ obra_id: r.obra_id, qty: qy }) })
+    return Array.from(map.values()).map(x => ({ ...x, total: x.remanente + x.asignado })).filter(x => x.total !== 0).sort((a, b) => (a.descripcion || '').localeCompare(b.descripcion || ''))
+  }, [stockBodega, stockObra])
 
-  const filtroTxt = (r: any) => {
-    const s = q.toLowerCase().trim()
-    if (!s) return true
-    return (r.descripcion || '').toLowerCase().includes(s) || (r.marca || '').toLowerCase().includes(s) || (r.modelo || '').toLowerCase().includes(s)
-  }
+  const obrasConStock = useMemo(() => { const ids = new Set(stockObra.map((r: any) => r.obra_id)); return obras.filter((o: any) => ids.has(o.id)) }, [stockObra, obras])
 
-  const bodega = stockBodega.filter(filtroTxt)
+  const filtroTxt = (r: any) => { const s = q.toLowerCase().trim(); if (!s) return true; return (r.descripcion || '').toLowerCase().includes(s) || (r.marca || '').toLowerCase().includes(s) || (r.modelo || '').toLowerCase().includes(s) }
+  const consFilt = consolidado.filter(filtroTxt)
   const obraRows = stockObra.filter((r: any) => (!obraSel || r.obra_id === obraSel) && filtroTxt(r))
 
-  const totalBodega = stockBodega.reduce((s: number, r: any) => s + Number(r.en_bodega || 0), 0)
+  const totalPzs = consolidado.reduce((s: number, r: any) => s + r.total, 0)
+  const asignadoPzs = consolidado.reduce((s: number, r: any) => s + r.asignado, 0)
+  const remanentePzs = consolidado.reduce((s: number, r: any) => s + r.remanente, 0)
 
   return (
     <div>
-      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2,1fr)' : 'repeat(3,1fr)', gap: 12, marginBottom: 16 }}>
-        <KpiCard label="SKUs en bodega" value={stockBodega.length} icon={<Warehouse size={16} />} />
-        <KpiCard label="Piezas en bodega" value={F(totalBodega)} color="#2563EB" icon={<PackagePlus size={16} />} />
-        <KpiCard label="Obras con material" value={obrasConStock.length} color="#D97706" icon={<Building2 size={16} />} />
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2,1fr)' : 'repeat(4,1fr)', gap: 12, marginBottom: 16 }}>
+        <KpiCard label="Piezas totales" value={F(totalPzs)} icon={<Warehouse size={16} />} />
+        <KpiCard label="Asignado a obras" value={F(asignadoPzs)} color="#D97706" icon={<Building2 size={16} />} />
+        <KpiCard label="Remanente en bodega" value={F(remanentePzs)} color="#10B981" icon={<PackagePlus size={16} />} />
+        <KpiCard label="Obras con material" value={obrasConStock.length} color="#2563EB" icon={<Building2 size={16} />} />
       </div>
 
       <div style={{ display: 'flex', gap: 8, marginBottom: 12, alignItems: 'center', flexWrap: 'wrap' }}>
         <div style={{ display: 'flex', gap: 2, background: '#141414', borderRadius: 8, padding: 2, border: '1px solid #222' }}>
-          {([['bodega', 'Bodega (general)'], ['obra', 'Por obra']] as const).map(([id, lbl]) => (
+          {([['general', 'General (consolidado)'], ['obra', 'Por obra']] as const).map(([id, lbl]) => (
             <button key={id} onClick={() => setSub(id)} style={{ padding: '6px 12px', fontSize: 12, fontWeight: sub === id ? 600 : 400, color: sub === id ? '#fff' : '#777', background: sub === id ? '#2a2a2a' : 'transparent', border: 'none', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit' }}>{lbl}</button>
           ))}
         </div>
@@ -194,7 +201,79 @@ function TabInventario({ stockBodega, stockObra, obras, isMobile }: any) {
         <input value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar equipo…" style={{ ...inputStyle, width: 'auto', minWidth: 200, marginLeft: 'auto' }} />
       </div>
 
-      <InvTable rows={sub === 'bodega' ? bodega : obraRows} mode={sub} obraName={(id: string) => obras.find((o: any) => o.id === id)?.nombre || '—'} />
+      {sub === 'general' ? (
+        consFilt.length === 0 ? <EmptyState message="Sin material en inventario. Registra movimientos para poblarlo." /> : (
+          <div style={{ overflowX: 'auto', border: '1px solid #1f1f1f', borderRadius: 10 }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+              <thead>
+                <tr style={{ background: '#0f0f0f', color: '#777', textAlign: 'left' }}>
+                  <th style={{ padding: '10px 12px' }}>Marca</th>
+                  <th style={{ padding: '10px 12px' }}>Modelo</th>
+                  <th style={{ padding: '10px 12px' }}>Descripción</th>
+                  <th style={{ padding: '10px 12px', textAlign: 'right' }}>Total</th>
+                  <th style={{ padding: '10px 12px', textAlign: 'right' }}>Asignado</th>
+                  <th style={{ padding: '10px 12px', textAlign: 'right' }}>Remanente</th>
+                  <th style={{ padding: '10px 12px', textAlign: 'center' }}></th>
+                </tr>
+              </thead>
+              <tbody>
+                {consFilt.map(r => (
+                  <tr key={r.key} onClick={() => r.asignado > 0 && setDetalle(r)} style={{ borderTop: '1px solid #1a1a1a', color: '#ccc', cursor: r.asignado > 0 ? 'pointer' : 'default' }}
+                    onMouseEnter={e => { if (r.asignado > 0) e.currentTarget.style.background = '#131313' }} onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
+                    <td style={{ padding: '8px 12px' }}>{r.marca || '—'}</td>
+                    <td style={{ padding: '8px 12px' }}>{r.modelo || '—'}</td>
+                    <td style={{ padding: '8px 12px', color: '#eee' }}>{r.descripcion || '—'}</td>
+                    <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 700, color: '#fff', fontSize: 14 }}>{F(r.total)}</td>
+                    <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600, color: r.asignado > 0 ? '#D97706' : '#555' }}>{F(r.asignado)}</td>
+                    <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600, color: r.remanente > 0 ? '#10B981' : '#555' }}>{F(r.remanente)}</td>
+                    <td style={{ padding: '8px 12px', textAlign: 'center', color: '#57FF9A', fontSize: 11 }}>{r.asignado > 0 ? 'ver ›' : ''}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )
+      ) : (
+        <InvTable rows={obraRows} mode="obra" obraName={obraName} />
+      )}
+
+      {detalle && (
+        <div onClick={() => setDetalle(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16 }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: '#111', border: '1px solid #2a2a2a', borderRadius: 12, width: 'min(560px,100%)', maxHeight: '85vh', overflowY: 'auto' }}>
+            <div style={{ padding: '16px 20px', borderBottom: '1px solid #1f1f1f', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <div>
+                <div style={{ fontSize: 15, fontWeight: 700, color: '#fff' }}>{detalle.marca ? detalle.marca + ' ' : ''}{detalle.modelo || detalle.descripcion}</div>
+                <div style={{ fontSize: 11, color: '#888', marginTop: 3 }}>{detalle.descripcion}</div>
+              </div>
+              <button onClick={() => setDetalle(null)} style={{ background: 'transparent', border: 'none', color: '#888', fontSize: 20, cursor: 'pointer' }}>×</button>
+            </div>
+            <div style={{ padding: '14px 20px', display: 'flex', gap: 18, fontSize: 12, borderBottom: '1px solid #1f1f1f' }}>
+              <div><div style={{ color: '#777', fontSize: 10 }}>TOTAL</div><div style={{ fontSize: 18, fontWeight: 800, color: '#fff' }}>{F(detalle.total)}</div></div>
+              <div><div style={{ color: '#777', fontSize: 10 }}>ASIGNADO</div><div style={{ fontSize: 18, fontWeight: 800, color: '#D97706' }}>{F(detalle.asignado)}</div></div>
+              <div><div style={{ color: '#777', fontSize: 10 }}>REMANENTE</div><div style={{ fontSize: 18, fontWeight: 800, color: '#10B981' }}>{F(detalle.remanente)}</div></div>
+            </div>
+            <div style={{ padding: '14px 20px' }}>
+              <div style={{ fontSize: 11, color: '#777', textTransform: 'uppercase', letterSpacing: .5, marginBottom: 8 }}>Asignado a obra</div>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+                <tbody>
+                  {[...detalle.porObra].sort((a, b) => b.qty - a.qty).map((p, i) => (
+                    <tr key={i} style={{ borderTop: i ? '1px solid #1a1a1a' : 'none' }}>
+                      <td style={{ padding: '7px 0', color: '#ddd' }}>{obraName(p.obra_id)}</td>
+                      <td style={{ padding: '7px 0', textAlign: 'right', fontWeight: 700, color: '#fff' }}>{F(p.qty)}</td>
+                    </tr>
+                  ))}
+                  {detalle.remanente > 0 && (
+                    <tr style={{ borderTop: '1px solid #1a1a1a' }}>
+                      <td style={{ padding: '7px 0', color: '#10B981' }}>Bodega (remanente)</td>
+                      <td style={{ padding: '7px 0', textAlign: 'right', fontWeight: 700, color: '#10B981' }}>{F(detalle.remanente)}</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
