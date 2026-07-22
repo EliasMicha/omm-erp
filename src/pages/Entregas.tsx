@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase'
 import { Btn, KpiCard, SectionHeader, EmptyState, Loading } from '../components/layout/UI'
 import { fetchAllActiveCatalog } from '../lib/catalog'
 import { SPECIALTY_CONFIG } from '../lib/utils'
-import { Plus, X, Trash2, Warehouse, Building2, ArrowRight, ClipboardList, PackagePlus, ChevronRight } from 'lucide-react'
+import { Plus, X, Trash2, Warehouse, Building2, ArrowRight, ClipboardList, PackagePlus, ChevronRight, LayoutDashboard, Truck, Calendar, Clock, Inbox, PackageCheck } from 'lucide-react'
 import { useIsMobile } from '../lib/useIsMobile'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -35,7 +35,8 @@ const labelStyle: React.CSSProperties = { fontSize: 10, fontWeight: 600, color: 
 
 export default function Entregas() {
   const isMobile = useIsMobile()
-  const [tab, setTab] = useState<'porlead' | 'inventario' | 'movimientos' | 'registrar'>('porlead')
+  const [tab, setTab] = useState<'dashboard' | 'porlead' | 'inventario' | 'movimientos' | 'registrar'>('dashboard')
+  const [preselectPo, setPreselectPo] = useState<string>('')
   const [loading, setLoading] = useState(true)
 
   const [obras, setObras] = useState<Obra[]>([])
@@ -94,10 +95,11 @@ export default function Entregas() {
       {/* Tabs */}
       <div style={{ display: 'flex', gap: 4, marginBottom: 20, background: '#0f0f0f', borderRadius: 10, padding: 4, border: '1px solid #1f1f1f', flexWrap: 'wrap' }}>
         {([
+          { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard size={14} /> },
           { id: 'porlead', label: 'Inventario por lead', icon: <ClipboardList size={14} /> },
           { id: 'inventario', label: 'Bodega / Obra', icon: <Warehouse size={14} /> },
           { id: 'movimientos', label: 'Movimientos', icon: <ClipboardList size={14} /> },
-          { id: 'registrar', label: 'Registrar movimiento', icon: <PackagePlus size={14} /> },
+          { id: 'registrar', label: 'Registrar', icon: <PackagePlus size={14} /> },
         ] as const).map(t => (
           <button key={t.id} onClick={() => setTab(t.id)} style={{
             flex: isMobile ? '1 1 100%' : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
@@ -108,14 +110,15 @@ export default function Entregas() {
         ))}
       </div>
 
+      {tab === 'dashboard' && <TabDashboard isMobile={isMobile} onOperar={(poId: string) => { setPreselectPo(poId); setTab('registrar') }} onIr={(t: any) => setTab(t)} />}
       {tab === 'porlead' && <TabInventarioLead obras={obras} isMobile={isMobile} />}
       {tab === 'inventario' && <TabInventario stockBodega={stockBodega} stockObra={stockObra} obras={obras} isMobile={isMobile} />}
       {tab === 'movimientos' && <TabMovimientos movimientos={movimientos} obras={obras} isMobile={isMobile} />}
       {tab === 'registrar' && (
         <TabRegistrar
           obras={obras} empleados={empleados} pos={pos} catalog={catalog}
-          obraProject={obraProject} isMobile={isMobile}
-          onSaved={async () => { await Promise.all([loadInventario(), loadMovimientos()]); setTab('movimientos') }}
+          obraProject={obraProject} isMobile={isMobile} initialPoId={preselectPo}
+          onSaved={async () => { await Promise.all([loadInventario(), loadMovimientos()]); setPreselectPo(''); setTab('movimientos') }}
         />
       )}
     </div>
@@ -274,7 +277,7 @@ function TabMovimientos({ movimientos, obras, isMobile }: any) {
 }
 
 // ═══════════════════════════ REGISTRAR MOVIMIENTO ═══════════════════════════
-function TabRegistrar({ obras, empleados, pos, catalog, obraProject, isMobile, onSaved }: any) {
+function TabRegistrar({ obras, empleados, pos, catalog, obraProject, isMobile, onSaved, initialPoId }: any) {
   const [tipo, setTipo] = useState<Tipo>('recepcion_compra')
   const [poId, setPoId] = useState('')
   const [poQuotationId, setPoQuotationId] = useState<string | null>(null)
@@ -288,6 +291,9 @@ function TabRegistrar({ obras, empleados, pos, catalog, obraProject, isMobile, o
   const [fecha, setFecha] = useState(new Date().toISOString().slice(0, 10))
   const [lineas, setLineas] = useState<Linea[]>([])
   const [saving, setSaving] = useState(false)
+
+  // Si venimos del Dashboard con una OC preseleccionada → recepción precargada
+  useEffect(() => { if (initialPoId) { setTipo('recepcion_compra'); cargarDesdeOC(initialPoId) } }, [])
 
   // buscador de catálogo
   const [catQ, setCatQ] = useState('')
@@ -700,5 +706,140 @@ function FaseCell({ f, ref_ }: { f: Fase; ref_?: number }) {
       <div style={{ fontWeight: 800, fontSize: 14, color }}>{f.qty > 0 ? Number(f.qty).toLocaleString('es-MX', { maximumFractionDigits: 2 }) : '—'}</div>
       {f.fecha && <div style={{ fontSize: 9, color: '#666' }}>{fechaCorta(f.fecha)}</div>}
     </td>
+  )
+}
+
+// ═══════════════════════════ DASHBOARD DE LOGÍSTICA ═══════════════════════════
+function TabDashboard({ isMobile, onOperar, onIr }: any) {
+  const [loading, setLoading] = useState(true)
+  const [pos, setPos] = useState<any[]>([])
+  const [supMap, setSupMap] = useState<Record<string, string>>({})
+  const [leadMap, setLeadMap] = useState<Record<string, string>>({})
+  const [obraMap, setObraMap] = useState<Record<string, string>>({})
+  const [recibidas, setRecibidas] = useState<Set<string>>(new Set())
+  const [movHoy, setMovHoy] = useState<number>(0)
+
+  useEffect(() => {
+    (async () => {
+      setLoading(true)
+      const hoyStr = new Date().toISOString().slice(0, 10)
+      const [poR, sR, lR, oR, mR, mhR] = await Promise.all([
+        supabase.from('purchase_orders').select('id, po_number, status, logistics_mode, logistics_target_obra_id, expected_delivery, delivered_at, total, currency, supplier_id, lead_id, created_at').neq('status', 'cancelada').order('created_at', { ascending: false }).limit(500),
+        supabase.from('suppliers').select('id, name'),
+        supabase.from('leads').select('id, name'),
+        supabase.from('obras').select('id, nombre'),
+        supabase.from('stock_movements').select('po_id').eq('tipo', 'recepcion_compra').eq('anulado', false).not('po_id', 'is', null),
+        supabase.from('stock_movements').select('id').eq('anulado', false).eq('fecha', hoyStr),
+      ])
+      setPos((poR.data as any[]) || [])
+      const sm: any = {}; ((sR.data as any[]) || []).forEach(s => sm[s.id] = s.name); setSupMap(sm)
+      const lm: any = {}; ((lR.data as any[]) || []).forEach(l => lm[l.id] = l.name); setLeadMap(lm)
+      const om: any = {}; ((oR.data as any[]) || []).forEach(o => om[o.id] = o.nombre); setObraMap(om)
+      setRecibidas(new Set(((mR.data as any[]) || []).map(m => m.po_id)))
+      setMovHoy(((mhR.data as any[]) || []).length)
+      setLoading(false)
+    })()
+  }, [])
+
+  if (loading) return <Loading />
+
+  const hoy = new Date().toISOString().slice(0, 10)
+  const recibida = (po: any) => recibidas.has(po.id) || !!po.delivered_at
+  const isPickup = (m: string) => m === 'pickup_to_bodega' || m === 'pickup_to_obra'
+  const isProv = (m: string) => m === 'supplier_to_bodega' || m === 'supplier_to_obra'
+
+  const porRecolectar = pos.filter(p => isPickup(p.logistics_mode) && !recibida(p))
+  const porRecibir = pos.filter(p => isProv(p.logistics_mode) && !recibida(p))
+  const pendienteLog = pos.filter(p => (!p.logistics_mode || p.logistics_mode === 'pending') && !recibida(p))
+  const agendaHoy = pos.filter(p => p.expected_delivery === hoy && !recibida(p))
+  const pedidos = pos.filter(p => p.status === 'pedida')
+  const vencidas = pos.filter(p => p.expected_delivery && p.expected_delivery < hoy && !recibida(p) && (isPickup(p.logistics_mode) || isProv(p.logistics_mode)))
+
+  const destino = (p: any) => p.logistics_target_obra_id ? (obraMap[p.logistics_target_obra_id] || 'Obra') : 'Bodega'
+  const money = (p: any) => (p.currency === 'USD' ? 'US$' : '$') + F(p.total || 0)
+
+  const POTabla = ({ rows, accion, colorAccion }: { rows: any[]; accion: string; colorAccion: string }) => (
+    <div style={{ overflowX: 'auto', border: '1px solid #1f1f1f', borderRadius: 10 }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 640 }}>
+        <thead><tr style={{ background: '#0f0f0f', color: '#777', textAlign: 'left' }}>
+          <th style={{ padding: '8px 10px' }}>OC</th>
+          <th style={{ padding: '8px 10px' }}>Proveedor</th>
+          <th style={{ padding: '8px 10px' }}>Lead</th>
+          <th style={{ padding: '8px 10px' }}>Destino</th>
+          <th style={{ padding: '8px 10px' }}>Fecha esp.</th>
+          <th style={{ padding: '8px 10px', textAlign: 'right' }}>Total</th>
+          <th style={{ padding: '8px 10px', textAlign: 'right' }}></th>
+        </tr></thead>
+        <tbody>
+          {rows.map(p => {
+            const venc = p.expected_delivery && p.expected_delivery < hoy
+            return (
+              <tr key={p.id} style={{ borderTop: '1px solid #1a1a1a', color: '#ccc' }}>
+                <td style={{ padding: '8px 10px', fontWeight: 600, color: '#eee' }}>{p.po_number}</td>
+                <td style={{ padding: '8px 10px' }}>{supMap[p.supplier_id] || '—'}</td>
+                <td style={{ padding: '8px 10px', color: '#aaa' }}>{leadMap[p.lead_id] || '—'}</td>
+                <td style={{ padding: '8px 10px', color: '#aaa' }}>{destino(p)}</td>
+                <td style={{ padding: '8px 10px', color: venc ? '#DC2626' : '#aaa', fontWeight: venc ? 700 : 400 }}>{p.expected_delivery ? fechaCorta(p.expected_delivery) : '—'}{venc ? ' ⚠' : ''}</td>
+                <td style={{ padding: '8px 10px', textAlign: 'right' }}>{money(p)}</td>
+                <td style={{ padding: '8px 10px', textAlign: 'right' }}>
+                  <button onClick={() => onOperar(p.id)} style={{ padding: '4px 10px', fontSize: 11, fontWeight: 600, background: colorAccion + '22', border: `1px solid ${colorAccion}55`, borderRadius: 6, color: colorAccion, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}>{accion}</button>
+                </td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+    </div>
+  )
+
+  const Seccion = ({ titulo, icon, children }: any) => (
+    <div style={{ marginBottom: 24 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, fontSize: 14, fontWeight: 700, color: '#fff' }}>{icon} {titulo}</div>
+      {children}
+    </div>
+  )
+
+  return (
+    <div>
+      {/* KPIs del día/semana */}
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2,1fr)' : 'repeat(5,1fr)', gap: 12, marginBottom: 22 }}>
+        <KpiCard label="Por recolectar" value={porRecolectar.length} color="#A78BFA" icon={<Truck size={16} />} />
+        <KpiCard label="Por recibir" value={porRecibir.length} color="#60A5FA" icon={<Inbox size={16} />} />
+        <KpiCard label="Agendado hoy" value={agendaHoy.length} color="#10B981" icon={<Calendar size={16} />} />
+        <KpiCard label="Vencidas" value={vencidas.length} color="#DC2626" icon={<Clock size={16} />} />
+        <KpiCard label="Movs. hoy" value={movHoy} color="#67E8F9" icon={<PackageCheck size={16} />} />
+      </div>
+
+      {vencidas.length > 0 && (
+        <Seccion titulo={`Atrasadas — requieren atención (${vencidas.length})`} icon={<Clock size={16} color="#DC2626" />}>
+          <POTabla rows={vencidas} accion="Registrar" colorAccion="#DC2626" />
+        </Seccion>
+      )}
+
+      <Seccion titulo={`Ruta / agenda de hoy (${agendaHoy.length})`} icon={<Calendar size={16} color="#10B981" />}>
+        {agendaHoy.length === 0 ? <EmptyState message="Nada agendado para hoy (según fecha esperada de las OCs)." /> : <POTabla rows={agendaHoy} accion="Registrar" colorAccion="#10B981" />}
+      </Seccion>
+
+      <Seccion titulo={`Por recolectar — OMM recoge (${porRecolectar.length})`} icon={<Truck size={16} color="#A78BFA" />}>
+        {porRecolectar.length === 0 ? <EmptyState message="Nada pendiente de recolectar." /> : <POTabla rows={porRecolectar} accion="Recibir" colorAccion="#A78BFA" />}
+      </Seccion>
+
+      <Seccion titulo={`Por recibir — llega de proveedor (${porRecibir.length})`} icon={<Inbox size={16} color="#60A5FA" />}>
+        {porRecibir.length === 0 ? <EmptyState message="Nada pendiente de recibir." /> : <POTabla rows={porRecibir} accion="Recibir" colorAccion="#60A5FA" />}
+      </Seccion>
+
+      {pendienteLog.length > 0 && (
+        <Seccion titulo={`Sin logística definida (${pendienteLog.length})`} icon={<PackagePlus size={16} color="#D97706" />}>
+          <div style={{ fontSize: 11, color: '#888', marginBottom: 8 }}>Estas OCs no tienen modo logístico (recolección / proveedor). Defínelo en Compras.</div>
+          <POTabla rows={pendienteLog} accion="Recibir" colorAccion="#D97706" />
+        </Seccion>
+      )}
+
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 8 }}>
+        <Btn size="sm" variant="default" onClick={() => onIr('porlead')}><ClipboardList size={12} /> Ver inventario por lead</Btn>
+        <Btn size="sm" variant="default" onClick={() => onIr('registrar')}><PackagePlus size={12} /> Registrar movimiento</Btn>
+        <Btn size="sm" variant="default" onClick={() => onIr('movimientos')}><Truck size={12} /> Ver movimientos</Btn>
+      </div>
+    </div>
   )
 }
