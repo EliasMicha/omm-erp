@@ -551,8 +551,9 @@ function TabInventarioLead({ isMobile }: any) {
   const leadsConCots = useMemo(() => {
     const cnt: Record<string, number> = {}
     cots.forEach(c => { if (c.lead_id) cnt[c.lead_id] = (cnt[c.lead_id] || 0) + 1 })
-    // Contratado = lead ganado con al menos una cotización de contrato con equipo (sin proy)
-    return leads.filter(l => l.status === 'ganado' && cnt[l.id]).map(l => ({ ...l, nCots: cnt[l.id] }))
+    // El eje es la COTIZACIÓN: aparece cualquier lead que tenga ≥1 cotización en contrato
+    // (con equipo). No se filtra por status del lead.
+    return leads.filter(l => cnt[l.id]).map(l => ({ ...l, nCots: cnt[l.id] }))
   }, [leads, cots])
 
   const leadsFiltrados = leadsConCots.filter(l => !q.trim() || (l.name || '').toLowerCase().includes(q.toLowerCase()))
@@ -616,7 +617,7 @@ function TabInventarioLead({ isMobile }: any) {
       <div>
         <div style={{ display: 'flex', gap: 8, marginBottom: 14, alignItems: 'center' }}>
           <input value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar lead…" style={{ ...inputStyle, maxWidth: 320 }} />
-          <span style={{ fontSize: 11, color: '#666' }}>{leadsFiltrados.length} obras contratadas</span>
+          <span style={{ fontSize: 11, color: '#666' }}>{leadsFiltrados.length} leads con cotización en contrato</span>
         </div>
         {leadsFiltrados.length === 0 ? <EmptyState message="No hay leads con cotizaciones en contrato." /> : (
           <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(2,1fr)', gap: 10 }}>
