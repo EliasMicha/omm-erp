@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase'
 import { Btn, KpiCard, SectionHeader, EmptyState, Loading } from '../components/layout/UI'
 import { fetchAllActiveCatalog } from '../lib/catalog'
 import { SPECIALTY_CONFIG } from '../lib/utils'
-import { Plus, X, Trash2, Warehouse, Building2, ArrowRight, ClipboardList, PackagePlus, ChevronRight, ChevronLeft, LayoutDashboard, Truck, Calendar, CalendarDays, Clock, Inbox, PackageCheck, MapPin } from 'lucide-react'
+import { Plus, X, Trash2, Warehouse, Building2, ArrowRight, ClipboardList, PackagePlus, ChevronRight, ChevronLeft, LayoutDashboard, Truck, Calendar, CalendarDays, Clock, Inbox, PackageCheck, MapPin, Wrench, Laptop, Pencil } from 'lucide-react'
 import { useIsMobile } from '../lib/useIsMobile'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -35,7 +35,7 @@ const labelStyle: React.CSSProperties = { fontSize: 10, fontWeight: 600, color: 
 
 export default function Entregas() {
   const isMobile = useIsMobile()
-  const [tab, setTab] = useState<'dashboard' | 'agenda' | 'porlead' | 'inventario' | 'movimientos' | 'registrar'>('dashboard')
+  const [tab, setTab] = useState<'dashboard' | 'agenda' | 'porlead' | 'inventario' | 'movimientos' | 'registrar' | 'herramienta'>('dashboard')
   const [preselectPo, setPreselectPo] = useState<string>('')
   const [loading, setLoading] = useState(true)
 
@@ -55,7 +55,7 @@ export default function Entregas() {
   async function loadBase() {
     const [oR, eR, pR, cotR] = await Promise.all([
       supabase.from('obras').select('id, nombre, project_id').order('nombre'),
-      supabase.from('employees').select('id, nombre').order('nombre'),
+      supabase.from('employees').select('id, nombre, puesto, area').order('nombre'),
       supabase.from('purchase_orders').select('id, po_number, project_id, status').neq('status', 'cancelada').order('po_number', { ascending: false }).limit(300),
       supabase.from('quotations').select('notes, specialty').eq('stage', 'contrato'),
     ])
@@ -110,6 +110,7 @@ export default function Entregas() {
           { id: 'inventario', label: 'Bodega / Obra', icon: <Warehouse size={14} /> },
           { id: 'movimientos', label: 'Movimientos', icon: <ClipboardList size={14} /> },
           { id: 'registrar', label: 'Registrar', icon: <PackagePlus size={14} /> },
+          { id: 'herramienta', label: 'Herramienta', icon: <Wrench size={14} /> },
         ] as const).map(t => (
           <button key={t.id} onClick={() => setTab(t.id)} style={{
             flex: isMobile ? '1 1 100%' : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
@@ -132,6 +133,7 @@ export default function Entregas() {
           onSaved={async () => { await Promise.all([loadInventario(), loadMovimientos()]); setPreselectPo(''); setTab('movimientos') }}
         />
       )}
+      {tab === 'herramienta' && <TabHerramienta obras={leadsInv} empleados={empleados} isMobile={isMobile} />}
     </div>
   )
 }
@@ -1255,10 +1257,44 @@ function TareaModal({ init, obras, leads, empleados, onClose, onSaved }: any) {
   const [recibeNombre, setRecibeNombre] = useState(init.recibe_nombre || '')
   const [recibeRol, setRecibeRol] = useState(init.recibe_rol || 'instalador')
 
+  // ── Recolección builder ──
+  const [recoLoaded, setRecoLoaded] = useState(false)
+  const [loadingReco, setLoadingReco] = useState(false)
+  const [recoPos, setRecoPos] = useState<any[]>([])
+  const [supMap, setSupMap] = useState<Record<string, string>>({})
+  const [recoProv, setRecoProv] = useState('')
+  const [recoPo, setRecoPo] = useState(init.po_id || '')
+  const [recoItems, setRecoItems] = useState<any[]>(Array.isArray(init.items) && init.tipo === 'recoleccion' ? init.items : [])
+
+  // Personal que puede recibir en obra (por puesto de campo)
+  const FIELD_RE = /INSTALADOR|OFICIAL|CHALAN|MANTENIMIENTO|INGENIERO INSTALAC|COORDINADOR LOG|CHOFER|RESIDENTE|DIRECTOR INSTALA/i
+  const personalCampo = (empleados || []).filter((e: any) => FIELD_RE.test((e.puesto || '')))
+
   useEffect(() => {
     if (tipo !== 'entrega' || invByLead) return
     (async () => { setLoadingInv(true); setInvByLead(await cargarInventarioEntregable()); setLoadingInv(false) })()
   }, [tipo])
+
+  useEffect(() => {
+    if (tipo !== 'recoleccion' || recoLoaded) return
+    (async () => {
+      setLoadingReco(true)
+      const { data: pR } = await supabase.from('purchase_orders').select('id, po_number, supplier_id, quotation_id, status, logistics_mode').neq('status', 'cancelada')
+      // Recolección = las que NOSOTROS recogemos (modo pickup) o sin modo definido; nunca borrador
+      const pos = ((pR.data as any[]) || []).filter(p => p.status !== 'borrador' && (!p.logistics_mode || String(p.logistics_mode).startsWith('pickup')))
+      setRecoPos(pos)
+      const supIds = [...new Set(pos.map(p => p.supplier_id).filter(Boolean))]
+      if (supIds.length) { const { data: sR } = await supabase.from('suppliers').select('id, name').in('id', supIds); const m: any = {}; ((sR.data as any[]) || []).forEach(s => m[s.id] = s.name); setSupMap(m) }
+      setRecoLoaded(true); setLoadingReco(false)
+    })()
+  }, [tipo])
+
+  async function cargarRecoItems(poId: string) {
+    setRecoPo(poId)
+    if (!poId) { setRecoItems([]); return }
+    const { data } = await supabase.from('po_items').select('catalog_product_id, name, marca, modelo, quantity, unit').eq('purchase_order_id', poId)
+    setRecoItems(((data as any[]) || []).map(it => ({ catalog_product_id: it.catalog_product_id || null, marca: it.marca || '', modelo: it.modelo || '', descripcion: it.name || '', qty: Number(it.quantity) || 1, unit: it.unit || 'pza' })))
+  }
 
   useEffect(() => {
     if (init.id && init.tipo === 'entrega' && Array.isArray(init.items)) {
@@ -1297,6 +1333,9 @@ function TareaModal({ init, obras, leads, empleados, onClose, onSaved }: any) {
   }
 
   const esEntrega = tipo === 'entrega'
+  const esReco = tipo === 'recoleccion'
+  const provList = [...new Set(recoPos.map(p => p.supplier_id).filter(Boolean))].map(id => ({ id, name: supMap[id] || 'Proveedor' })).sort((a, b) => a.name.localeCompare(b.name))
+  const recoPoObj = recoPos.find(p => p.id === recoPo)
   const leadsInv = invByLead ? Object.entries(invByLead).map(([id, v]: any) => ({ id, name: v.name, n: v.lines.length })).sort((a, b) => a.name.localeCompare(b.name)) : []
   const lineas = (entLead && invByLead && invByLead[entLead]) ? invByLead[entLead].lines : []
   const leadNameEnt = invByLead && invByLead[entLead] ? invByLead[entLead].name : ''
@@ -1306,6 +1345,15 @@ function TareaModal({ init, obras, leads, empleados, onClose, onSaved }: any) {
   const itemsSel = () => lineas.filter((l: any) => sel[l.key]?.on && (sel[l.key]?.qty || 0) > 0).map((l: any) => ({ key: l.key, quotation_id: l.quotation_id, marca: l.marca, modelo: l.modelo, descripcion: l.descripcion, qty: Number(sel[l.key].qty) }))
 
   async function guardar() {
+    if (esReco) {
+      if (!recoPo) { alert('Selecciona la orden de compra a recolectar.'); return }
+      setSaving(true)
+      const prov = supMap[recoPoObj?.supplier_id] || 'Proveedor'
+      const row: any = { tipo: 'recoleccion', titulo: (titulo.trim() || ('Recolección — ' + prov + (recoPoObj?.po_number ? ' · ' + recoPoObj.po_number : ''))), fecha, hora: hora || null, ubicacion: ubicacion || null, prioridad, lead_id: null, obra_id: null, po_id: recoPo, asignado_a: asignado || null, asignado_nombre: empleados.find((e: any) => e.id === asignado)?.nombre || null, notas: notas || null, items: recoItems }
+      const res = init.id ? await supabase.from('logistics_tasks').update(row).eq('id', init.id) : await supabase.from('logistics_tasks').insert(row)
+      if (res.error) { alert('Error: ' + res.error.message); setSaving(false); return }
+      setSaving(false); onSaved(); return
+    }
     if (esEntrega) {
       if (!entLead) { alert('Selecciona la obra/lead destino (solo aparecen los que tienen inventario).'); return }
       const items = itemsSel()
@@ -1329,9 +1377,9 @@ function TareaModal({ init, obras, leads, empleados, onClose, onSaved }: any) {
 
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 20 }}>
-      <div onClick={e => e.stopPropagation()} style={{ background: '#141414', border: '1px solid #333', borderRadius: 14, width: esEntrega ? 'min(720px, 96vw)' : 'min(560px, 96vw)', maxHeight: '90vh', overflow: 'auto', padding: 20 }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: '#141414', border: '1px solid #333', borderRadius: 14, width: (esEntrega || esReco) ? 'min(720px, 96vw)' : 'min(560px, 96vw)', maxHeight: '90vh', overflow: 'auto', padding: 20 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-          <div style={{ fontSize: 16, fontWeight: 700, color: '#fff' }}>{init.id ? (esEntrega ? 'Editar entrega' : 'Editar tarea') : (esEntrega ? 'Programar entrega' : 'Nueva tarea de ruta')}</div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: '#fff' }}>{init.id ? (esEntrega ? 'Editar entrega' : esReco ? 'Editar recolección' : 'Editar tarea') : (esEntrega ? 'Programar entrega' : esReco ? 'Programar recolección' : 'Nueva tarea de ruta')}</div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer' }}><X size={18} /></button>
         </div>
 
@@ -1352,7 +1400,60 @@ function TareaModal({ init, obras, leads, empleados, onClose, onSaved }: any) {
           </div>
         </div>
 
-        {esEntrega ? (
+        {esReco ? (
+          <>
+            <label style={labelStyle}>Proveedor</label>
+            {loadingReco ? <div style={{ fontSize: 12, color: '#888', padding: '8px 0', marginBottom: 12 }}>Cargando órdenes por recolectar…</div> : (
+              <select value={recoProv} onChange={e => { setRecoProv(e.target.value); setRecoPo(''); setRecoItems([]) }} style={{ ...inputStyle, marginBottom: 12 }}>
+                <option value="">Selecciona proveedor…</option>
+                {provList.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            )}
+            {!loadingReco && provList.length === 0 && <div style={{ fontSize: 12, color: '#D97706', marginBottom: 12 }}>No hay órdenes por recolectar (modo pickup, confirmadas).</div>}
+
+            {recoProv && (
+              <>
+                <label style={labelStyle}>Orden de compra</label>
+                <select value={recoPo} onChange={e => cargarRecoItems(e.target.value)} style={{ ...inputStyle, marginBottom: 12 }}>
+                  <option value="">Selecciona OC…</option>
+                  {recoPos.filter(p => p.supplier_id === recoProv).map(p => <option key={p.id} value={p.id}>{p.po_number}</option>)}
+                </select>
+              </>
+            )}
+
+            {recoPo && (
+              <div style={{ marginBottom: 14 }}>
+                <label style={labelStyle}>Qué se recolecta ({recoItems.length} partidas)</label>
+                <div style={{ border: '1px solid #2a2a2a', borderRadius: 10, overflow: 'hidden' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11.5 }}>
+                    <thead><tr style={{ background: '#0f0f0f', color: '#777', textAlign: 'left' }}>
+                      <th style={{ padding: '7px 8px' }}>Equipo</th>
+                      <th style={{ padding: '7px 8px', textAlign: 'center', width: 70 }}>Cant.</th>
+                    </tr></thead>
+                    <tbody>
+                      {recoItems.length === 0 ? <tr><td colSpan={2} style={{ padding: '10px 8px', color: '#666', fontSize: 11 }}>Esta OC no tiene partidas.</td></tr> : recoItems.map((it, i) => (
+                        <tr key={i} style={{ borderTop: '1px solid #1a1a1a', color: '#ccc' }}>
+                          <td style={{ padding: '6px 8px', color: '#eee' }}>{it.marca ? it.marca + ' ' : ''}{it.modelo || it.descripcion}{it.modelo && it.descripcion && it.descripcion !== it.modelo ? <span style={{ display: 'block', color: '#666', fontSize: 10 }}>{it.descripcion}</span> : null}</td>
+                          <td style={{ padding: '6px 8px', textAlign: 'center', fontWeight: 700, color: '#fff' }}>{fmtQ(it.qty)} <span style={{ color: '#666', fontWeight: 400, fontSize: 10 }}>{it.unit}</span></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            <label style={labelStyle}>Ubicación / dirección de recolección</label>
+            <input value={ubicacion} onChange={e => setUbicacion(e.target.value)} placeholder="Dónde se recoge el material" style={{ ...inputStyle, marginBottom: 12 }} />
+
+            <div style={{ marginBottom: 12 }}><label style={labelStyle}>Chofer / responsable</label>
+              <select value={asignado} onChange={e => setAsignado(e.target.value)} style={inputStyle}>
+                <option value="">—</option>
+                {empleados.map((e: any) => <option key={e.id} value={e.id}>{e.nombre}</option>)}
+              </select>
+            </div>
+          </>
+        ) : esEntrega ? (
           <>
             <label style={labelStyle}>Destino — obra / lead con inventario</label>
             {loadingInv ? <div style={{ fontSize: 12, color: '#888', padding: '8px 0', marginBottom: 12 }}>Cargando inventario entregable…</div> : (
@@ -1403,7 +1504,16 @@ function TareaModal({ init, obras, leads, empleados, onClose, onSaved }: any) {
             )}
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
-              <div><label style={labelStyle}>Recibe en obra (nombre)</label><input value={recibeNombre} onChange={e => setRecibeNombre(e.target.value)} placeholder="Nombre de quien recibe" style={inputStyle} /></div>
+              <div><label style={labelStyle}>Recibe en obra (nombre)</label>
+                {recibeRol === 'instalador' ? (
+                  <select value={recibeNombre} onChange={e => setRecibeNombre(e.target.value)} style={inputStyle}>
+                    <option value="">— Elige instalador —</option>
+                    {personalCampo.map((e: any) => <option key={e.id} value={e.nombre}>{e.nombre}{e.puesto ? ' · ' + e.puesto.trim() : ''}</option>)}
+                  </select>
+                ) : (
+                  <input value={recibeNombre} onChange={e => setRecibeNombre(e.target.value)} placeholder="Nombre de quien recibe" style={inputStyle} />
+                )}
+              </div>
               <div><label style={labelStyle}>Rol de quien recibe</label>
                 <select value={recibeRol} onChange={e => setRecibeRol(e.target.value)} style={inputStyle}>
                   <option value="instalador">Instalador OMM</option>
@@ -1459,7 +1569,215 @@ function TareaModal({ init, obras, leads, empleados, onClose, onSaved }: any) {
 
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
           <Btn variant="default" onClick={onClose}>Cancelar</Btn>
-          <Btn variant="primary" onClick={guardar} disabled={saving}>{saving ? 'Guardando…' : (esEntrega ? (init.id ? 'Guardar y generar recibos' : 'Programar y generar recibos') : (init.id ? 'Guardar' : 'Crear tarea'))}</Btn>
+          <Btn variant="primary" onClick={guardar} disabled={saving}>{saving ? 'Guardando…' : (esEntrega ? (init.id ? 'Guardar y generar recibos' : 'Programar y generar recibos') : esReco ? (init.id ? 'Guardar' : 'Programar recolección') : (init.id ? 'Guardar' : 'Crear tarea'))}</Btn>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ═══════════════════════════ HERRAMIENTA Y EQUIPO ═══════════════════════════
+const CAT_CFG: Record<string, { label: string; icon: string; color: string }> = {
+  herramienta: { label: 'Herramienta', icon: '🔧', color: '#F59E0B' },
+  computo: { label: 'Cómputo', icon: '💻', color: '#3B82F6' },
+  vehiculo: { label: 'Vehículo', icon: '🚚', color: '#10B981' },
+  mobiliario: { label: 'Mobiliario', icon: '🪑', color: '#A78BFA' },
+  otro: { label: 'Otro', icon: '📦', color: '#6B7280' },
+}
+const EST_CFG: Record<string, { label: string; color: string }> = {
+  activo: { label: 'Activo', color: '#10B981' },
+  en_reparacion: { label: 'En reparación', color: '#D97706' },
+  perdido: { label: 'Perdido', color: '#DC2626' },
+  baja: { label: 'Baja', color: '#6B7280' },
+}
+
+function TabHerramienta({ obras, empleados, isMobile }: any) {
+  const [rows, setRows] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [modal, setModal] = useState<any>(null)
+  const [fCat, setFCat] = useState('todas')
+  const [fEst, setFEst] = useState('activos')
+  const [q, setQ] = useState('')
+
+  const load = async () => { setLoading(true); const { data } = await supabase.from('assets').select('*').order('nombre'); setRows((data as any[]) || []); setLoading(false) }
+  useEffect(() => { load() }, [])
+
+  async function darBaja(a: any) { if (!confirm(`¿Dar de baja "${a.nombre}"?`)) return; await supabase.from('assets').update({ estatus: 'baja', updated_at: new Date().toISOString() }).eq('id', a.id); load() }
+
+  const lista = rows.filter(a => {
+    if (fCat !== 'todas' && a.categoria !== fCat) return false
+    if (fEst === 'activos' && a.estatus === 'baja') return false
+    if (fEst !== 'activos' && fEst !== 'todos' && a.estatus !== fEst) return false
+    if (q.trim()) { const s = q.toLowerCase(); if (!(`${a.nombre} ${a.marca || ''} ${a.modelo || ''} ${a.serie || ''} ${a.responsable_nombre || ''} ${a.ubicacion_nombre || ''}`.toLowerCase().includes(s))) return false }
+    return true
+  })
+  const activos = rows.filter(a => a.estatus !== 'baja')
+  const valorTotal = activos.reduce((s, a) => s + Number(a.valor || 0), 0)
+  const enRep = rows.filter(a => a.estatus === 'en_reparacion').length
+
+  if (loading) return <Loading />
+  return (
+    <div>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2,1fr)' : 'repeat(4,1fr)', gap: 12, marginBottom: 16 }}>
+        <KpiCard label="Activos" value={activos.length} icon={<Wrench size={16} />} />
+        <KpiCard label="En reparación" value={enRep} color="#D97706" icon={<Wrench size={16} />} />
+        <KpiCard label="Equipos de cómputo" value={activos.filter(a => a.categoria === 'computo').length} color="#3B82F6" icon={<Laptop size={16} />} />
+        <KpiCard label="Valor estimado" value={'$' + fmtQ(valorTotal)} color="#10B981" icon={<PackageCheck size={16} />} />
+      </div>
+
+      <div style={{ display: 'flex', gap: 8, marginBottom: 14, alignItems: 'center', flexWrap: 'wrap' }}>
+        <select value={fCat} onChange={e => setFCat(e.target.value)} style={{ ...inputStyle, width: 'auto' }}>
+          <option value="todas">Todas las categorías</option>
+          {Object.keys(CAT_CFG).map(k => <option key={k} value={k}>{CAT_CFG[k].icon} {CAT_CFG[k].label}</option>)}
+        </select>
+        <select value={fEst} onChange={e => setFEst(e.target.value)} style={{ ...inputStyle, width: 'auto' }}>
+          <option value="activos">Activos (no baja)</option>
+          <option value="en_reparacion">En reparación</option>
+          <option value="perdido">Perdidos</option>
+          <option value="baja">Bajas</option>
+          <option value="todos">Todos</option>
+        </select>
+        <input value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar equipo, serie, responsable…" style={{ ...inputStyle, width: 'auto', minWidth: 220 }} />
+        <Btn size="sm" variant="primary" style={{ marginLeft: 'auto' }} onClick={() => setModal({})}><Plus size={12} /> Nuevo equipo</Btn>
+      </div>
+
+      {lista.length === 0 ? <EmptyState message="Sin equipos registrados. Usa 'Nuevo equipo' para empezar." /> : (
+        <div style={{ overflowX: 'auto', border: '1px solid #1f1f1f', borderRadius: 10 }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 820 }}>
+            <thead>
+              <tr style={{ background: '#0f0f0f', color: '#777', textAlign: 'left' }}>
+                <th style={{ padding: '10px 12px' }}>Equipo</th>
+                <th style={{ padding: '10px 12px' }}>Categoría</th>
+                <th style={{ padding: '10px 12px' }}>Serie / código</th>
+                <th style={{ padding: '10px 12px' }}>Responsable</th>
+                <th style={{ padding: '10px 12px' }}>Ubicación</th>
+                <th style={{ padding: '10px 12px' }}>Estatus</th>
+                <th style={{ padding: '10px 12px', textAlign: 'center' }}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {lista.map(a => {
+                const cat = CAT_CFG[a.categoria] || CAT_CFG.otro; const est = EST_CFG[a.estatus] || EST_CFG.activo
+                return (
+                  <tr key={a.id} style={{ borderTop: '1px solid #1a1a1a', color: '#ccc' }}>
+                    <td style={{ padding: '8px 12px', color: '#eee' }}>{a.nombre}{(a.marca || a.modelo) ? <span style={{ display: 'block', color: '#666', fontSize: 10 }}>{a.marca} {a.modelo}</span> : null}</td>
+                    <td style={{ padding: '8px 12px' }}><span style={{ fontSize: 11, fontWeight: 600, color: cat.color }}>{cat.icon} {cat.label}</span></td>
+                    <td style={{ padding: '8px 12px', color: '#aaa' }}>{a.serie || '—'}</td>
+                    <td style={{ padding: '8px 12px' }}>{a.responsable_nombre || <span style={{ color: '#555' }}>Sin asignar</span>}</td>
+                    <td style={{ padding: '8px 12px', color: '#aaa' }}>{a.ubicacion_nombre || (a.ubicacion_tipo === 'oficina' ? 'Oficina' : a.ubicacion_tipo === 'bodega' ? 'Bodega' : '—')}</td>
+                    <td style={{ padding: '8px 12px' }}><span style={{ fontSize: 11, fontWeight: 600, color: est.color }}>● {est.label}</span></td>
+                    <td style={{ padding: '8px 12px', textAlign: 'center', whiteSpace: 'nowrap' }}>
+                      <button onClick={() => setModal(a)} style={{ background: 'none', border: 'none', color: '#67E8F9', cursor: 'pointer', marginRight: 8 }}><Pencil size={14} /></button>
+                      {a.estatus !== 'baja' && <button onClick={() => darBaja(a)} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer' }}><Trash2 size={14} /></button>}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {modal && <AssetModal init={modal} obras={obras} empleados={empleados} onClose={() => setModal(null)} onSaved={() => { setModal(null); load() }} />}
+    </div>
+  )
+}
+
+function AssetModal({ init, obras, empleados, onClose, onSaved }: any) {
+  const [nombre, setNombre] = useState(init.nombre || '')
+  const [categoria, setCategoria] = useState(init.categoria || 'herramienta')
+  const [marca, setMarca] = useState(init.marca || '')
+  const [modelo, setModelo] = useState(init.modelo || '')
+  const [serie, setSerie] = useState(init.serie || '')
+  const [responsable, setResponsable] = useState(init.responsable_id || '')
+  const [ubTipo, setUbTipo] = useState(init.ubicacion_tipo || 'oficina')
+  const [ubObra, setUbObra] = useState(init.ubicacion_obra_id || '')
+  const [estatus, setEstatus] = useState(init.estatus || 'activo')
+  const [valor, setValor] = useState(init.valor ?? '')
+  const [fechaAsig, setFechaAsig] = useState(init.fecha_asignacion || '')
+  const [notas, setNotas] = useState(init.notas || '')
+  const [saving, setSaving] = useState(false)
+
+  async function guardar() {
+    if (!nombre.trim()) { alert('Ponle nombre al equipo.'); return }
+    setSaving(true)
+    const respNombre = empleados.find((e: any) => e.id === responsable)?.nombre || null
+    const obraNombre = ubTipo === 'obra' ? (obras.find((o: any) => o.id === ubObra)?.nombre || null) : (ubTipo === 'oficina' ? 'Oficina' : 'Bodega')
+    const row: any = {
+      nombre: nombre.trim(), categoria, marca: marca || null, modelo: modelo || null, serie: serie || null,
+      responsable_id: responsable || null, responsable_nombre: respNombre,
+      ubicacion_tipo: ubTipo, ubicacion_obra_id: ubTipo === 'obra' ? (ubObra || null) : null, ubicacion_nombre: obraNombre,
+      estatus, valor: valor === '' ? null : Number(valor), fecha_asignacion: fechaAsig || null, notas: notas || null, updated_at: new Date().toISOString(),
+    }
+    const res = init.id ? await supabase.from('assets').update(row).eq('id', init.id) : await supabase.from('assets').insert(row)
+    if (res.error) { alert('Error: ' + res.error.message); setSaving(false); return }
+    setSaving(false); onSaved()
+  }
+
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 20 }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: '#141414', border: '1px solid #333', borderRadius: 14, width: 'min(620px, 96vw)', maxHeight: '90vh', overflow: 'auto', padding: 20 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <div style={{ fontSize: 16, fontWeight: 700, color: '#fff' }}>{init.id ? 'Editar equipo' : 'Nuevo equipo'}</div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer' }}><X size={18} /></button>
+        </div>
+
+        <label style={labelStyle}>Nombre del equipo</label>
+        <input value={nombre} onChange={e => setNombre(e.target.value)} placeholder="Ej. Taladro Bosch, Laptop Dell Latitude…" style={{ ...inputStyle, marginBottom: 12 }} />
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 12 }}>
+          <div><label style={labelStyle}>Categoría</label>
+            <select value={categoria} onChange={e => setCategoria(e.target.value)} style={inputStyle}>
+              {Object.keys(CAT_CFG).map(k => <option key={k} value={k}>{CAT_CFG[k].icon} {CAT_CFG[k].label}</option>)}
+            </select>
+          </div>
+          <div><label style={labelStyle}>Marca</label><input value={marca} onChange={e => setMarca(e.target.value)} style={inputStyle} /></div>
+          <div><label style={labelStyle}>Modelo</label><input value={modelo} onChange={e => setModelo(e.target.value)} style={inputStyle} /></div>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
+          <div><label style={labelStyle}>Serie / código interno</label><input value={serie} onChange={e => setSerie(e.target.value)} style={inputStyle} /></div>
+          <div><label style={labelStyle}>Responsable</label>
+            <select value={responsable} onChange={e => setResponsable(e.target.value)} style={inputStyle}>
+              <option value="">— Sin asignar —</option>
+              {empleados.map((e: any) => <option key={e.id} value={e.id}>{e.nombre}{e.puesto ? ' · ' + e.puesto.trim() : ''}</option>)}
+            </select>
+          </div>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: ubTipo === 'obra' ? '1fr 1fr' : '1fr', gap: 10, marginBottom: 12 }}>
+          <div><label style={labelStyle}>Ubicación</label>
+            <select value={ubTipo} onChange={e => setUbTipo(e.target.value)} style={inputStyle}>
+              <option value="oficina">Oficina</option>
+              <option value="bodega">Bodega</option>
+              <option value="obra">En una obra</option>
+            </select>
+          </div>
+          {ubTipo === 'obra' && (
+            <div><label style={labelStyle}>Obra</label>
+              <select value={ubObra} onChange={e => setUbObra(e.target.value)} style={inputStyle}>
+                <option value="">— Elige obra —</option>
+                {obras.map((o: any) => <option key={o.id} value={o.id}>{o.nombre}</option>)}
+              </select>
+            </div>
+          )}
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 12 }}>
+          <div><label style={labelStyle}>Estatus</label>
+            <select value={estatus} onChange={e => setEstatus(e.target.value)} style={inputStyle}>
+              {Object.keys(EST_CFG).map(k => <option key={k} value={k}>{EST_CFG[k].label}</option>)}
+            </select>
+          </div>
+          <div><label style={labelStyle}>Valor (MXN)</label><input type="number" value={valor} onChange={e => setValor(e.target.value)} placeholder="0" style={inputStyle} /></div>
+          <div><label style={labelStyle}>Fecha asignación</label><input type="date" value={fechaAsig} onChange={e => setFechaAsig(e.target.value)} style={inputStyle} /></div>
+        </div>
+
+        <div style={{ marginBottom: 18 }}><label style={labelStyle}>Notas</label><input value={notas} onChange={e => setNotas(e.target.value)} placeholder="Estado físico, accesorios, etc." style={inputStyle} /></div>
+
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+          <Btn variant="default" onClick={onClose}>Cancelar</Btn>
+          <Btn variant="primary" onClick={guardar} disabled={saving}>{saving ? 'Guardando…' : (init.id ? 'Guardar' : 'Registrar equipo')}</Btn>
         </div>
       </div>
     </div>
