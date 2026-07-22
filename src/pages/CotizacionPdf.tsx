@@ -815,8 +815,8 @@ function CotizacionPdfInner() {
               <tr>
                 <td style={{ padding: '3px 12px 3px 0', color: '#888' }}>Cliente</td>
                 <td style={{ padding: '3px 0', fontWeight: 600 }}>{cot.client_name || '—'}</td>
-                <td style={{ padding: '3px 12px 3px 0', color: '#888' }}>Vigencia</td>
-                <td style={{ padding: '3px 0' }}>Hasta {vigenciaHasta}</td>
+                {!esResumen && <><td style={{ padding: '3px 12px 3px 0', color: '#888' }}>Vigencia</td>
+                <td style={{ padding: '3px 0' }}>Hasta {vigenciaHasta}</td></>}
               </tr>
               {architect && (
                 <tr>
