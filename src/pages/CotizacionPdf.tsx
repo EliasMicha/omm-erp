@@ -1121,7 +1121,8 @@ function CotizacionPdfInner() {
         </div>
         )}
 
-        {/* SECCIÓN 5: TÉRMINOS COMERCIALES */}
+        {/* SECCIÓN 5 (términos) + FIRMA — ocultos en el Resumen de Equipos (uso interno) */}
+        {!esResumen && (<>
         <div className="page-break" />
         <div style={{ marginBottom: 20 }}>
           <h2 style={{ fontSize: 13, color: '#111', marginBottom: 10, paddingBottom: 4, borderBottom: '1px solid #ddd' }}>
@@ -1175,6 +1176,7 @@ function CotizacionPdfInner() {
             <div style={{ color: '#666' }}>{omm.razonSocial}</div>
           </div>
         </div>
+        </>)}
 
         {/* FOOTER */}
         <div style={{ marginTop: 24, paddingTop: 10, borderTop: '1px solid #ddd', fontSize: 8, color: '#999', textAlign: 'center' }}>
