@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { Btn, KpiCard, SectionHeader, EmptyState, Loading } from '../components/layout/UI'
 import { fetchAllActiveCatalog } from '../lib/catalog'
-import { Plus, X, Trash2, Warehouse, Building2, ArrowRight, ClipboardList, PackagePlus } from 'lucide-react'
+import { SPECIALTY_CONFIG } from '../lib/utils'
+import { Plus, X, Trash2, Warehouse, Building2, ArrowRight, ClipboardList, PackagePlus, ChevronRight } from 'lucide-react'
 import { useIsMobile } from '../lib/useIsMobile'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -34,7 +35,7 @@ const labelStyle: React.CSSProperties = { fontSize: 10, fontWeight: 600, color: 
 
 export default function Entregas() {
   const isMobile = useIsMobile()
-  const [tab, setTab] = useState<'inventario' | 'movimientos' | 'registrar'>('inventario')
+  const [tab, setTab] = useState<'porlead' | 'inventario' | 'movimientos' | 'registrar'>('porlead')
   const [loading, setLoading] = useState(true)
 
   const [obras, setObras] = useState<Obra[]>([])
@@ -93,7 +94,8 @@ export default function Entregas() {
       {/* Tabs */}
       <div style={{ display: 'flex', gap: 4, marginBottom: 20, background: '#0f0f0f', borderRadius: 10, padding: 4, border: '1px solid #1f1f1f', flexWrap: 'wrap' }}>
         {([
-          { id: 'inventario', label: 'Inventario', icon: <Warehouse size={14} /> },
+          { id: 'porlead', label: 'Inventario por lead', icon: <ClipboardList size={14} /> },
+          { id: 'inventario', label: 'Bodega / Obra', icon: <Warehouse size={14} /> },
           { id: 'movimientos', label: 'Movimientos', icon: <ClipboardList size={14} /> },
           { id: 'registrar', label: 'Registrar movimiento', icon: <PackagePlus size={14} /> },
         ] as const).map(t => (
@@ -106,6 +108,7 @@ export default function Entregas() {
         ))}
       </div>
 
+      {tab === 'porlead' && <TabInventarioLead obras={obras} isMobile={isMobile} />}
       {tab === 'inventario' && <TabInventario stockBodega={stockBodega} stockObra={stockObra} obras={obras} isMobile={isMobile} />}
       {tab === 'movimientos' && <TabMovimientos movimientos={movimientos} obras={obras} isMobile={isMobile} />}
       {tab === 'registrar' && (
@@ -274,6 +277,7 @@ function TabMovimientos({ movimientos, obras, isMobile }: any) {
 function TabRegistrar({ obras, empleados, pos, catalog, obraProject, isMobile, onSaved }: any) {
   const [tipo, setTipo] = useState<Tipo>('recepcion_compra')
   const [poId, setPoId] = useState('')
+  const [poQuotationId, setPoQuotationId] = useState<string | null>(null)
   const [destinoKind, setDestinoKind] = useState<'bodega' | 'obra'>('bodega') // solo recepción
   const [origenObra, setOrigenObra] = useState('')
   const [destinoObra, setDestinoObra] = useState('')
@@ -306,9 +310,13 @@ function TabRegistrar({ obras, empleados, pos, catalog, obraProject, isMobile, o
 
   async function cargarDesdeOC(id: string) {
     setPoId(id)
-    if (!id) return
-    const { data } = await supabase.from('po_items').select('catalog_product_id, name, marca, modelo, quantity, unit').eq('purchase_order_id', id)
-    setLineas((data || []).map((it: any) => ({ key: Math.random().toString(36).slice(2), catalog_product_id: it.catalog_product_id || null, descripcion: it.name || '', marca: it.marca || '', modelo: it.modelo || '', qty: Number(it.quantity) || 1, unit: it.unit || 'pza' })))
+    if (!id) { setPoQuotationId(null); return }
+    const [itR, poR] = await Promise.all([
+      supabase.from('po_items').select('catalog_product_id, name, marca, modelo, quantity, unit').eq('purchase_order_id', id),
+      supabase.from('purchase_orders').select('quotation_id').eq('id', id).single(),
+    ])
+    setPoQuotationId((poR.data as any)?.quotation_id || null)
+    setLineas(((itR.data as any[]) || []).map((it: any) => ({ key: Math.random().toString(36).slice(2), catalog_product_id: it.catalog_product_id || null, descripcion: it.name || '', marca: it.marca || '', modelo: it.modelo || '', qty: Number(it.quantity) || 1, unit: it.unit || 'pza' })))
   }
 
   function validar(): string | null {
@@ -352,6 +360,7 @@ function TabRegistrar({ obras, empleados, pos, catalog, obraProject, isMobile, o
         qty: Number(l.qty), unit: l.unit || 'pza', tipo,
         origen_tipo, origen_obra_id, destino_tipo, destino_obra_id, bucket_destino, proyecto_id,
         po_id: tipo === 'recepcion_compra' ? (poId || null) : null,
+        quotation_id: tipo === 'recepcion_compra' ? (poQuotationId || null) : null,
         motivo: tipo === 'obra_a_bodega' ? motivo : null,
         movido_por: movidoPor || null, movido_por_nombre: empName || null, recibido_por: recibidoPor || null,
         notas: notas || null, folio, batch_id: batch,
@@ -360,7 +369,7 @@ function TabRegistrar({ obras, empleados, pos, catalog, obraProject, isMobile, o
       const { error } = await supabase.from('stock_movements').insert(rows)
       if (error) { alert('Error al guardar: ' + error.message); setSaving(false); return }
       alert(`✅ ${rows.length} movimiento(s) registrado(s). Folio ${folio}`)
-      setLineas([]); setPoId(''); setNotas(''); setRecibidoPor('')
+      setLineas([]); setPoId(''); setPoQuotationId(null); setNotas(''); setRecibidoPor('')
       await onSaved()
     } catch (e: any) {
       alert('Error: ' + (e?.message || e))
@@ -378,7 +387,7 @@ function TabRegistrar({ obras, empleados, pos, catalog, obraProject, isMobile, o
       <label style={labelStyle}>Tipo de movimiento</label>
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4,1fr)', gap: 8, marginBottom: 20 }}>
         {(Object.keys(TIPO_CFG) as Tipo[]).map(t => (
-          <button key={t} onClick={() => { setTipo(t); setLineas([]); setPoId('') }} style={{
+          <button key={t} onClick={() => { setTipo(t); setLineas([]); setPoId(''); setPoQuotationId(null) }} style={{
             padding: '12px 10px', borderRadius: 10, cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left',
             background: tipo === t ? TIPO_CFG[t].color + '18' : '#0e0e0e', border: `1px solid ${tipo === t ? TIPO_CFG[t].color : '#2a2a2a'}`,
             color: tipo === t ? '#fff' : '#aaa',
@@ -496,5 +505,189 @@ function TabRegistrar({ obras, empleados, pos, catalog, obraProject, isMobile, o
         <Btn variant="primary" onClick={guardar} disabled={saving || lineas.length === 0}>{saving ? 'Guardando…' : `Registrar movimiento (${lineas.length})`}</Btn>
       </div>
     </div>
+  )
+}
+
+// ═══════════════════════════ INVENTARIO POR LEAD + COTIZACIÓN ═══════════════════════════
+type Fase = { qty: number; fecha: string | null }
+const mkFase = (): Fase => ({ qty: 0, fecha: null })
+const maxFecha = (a: string | null, b: string | null) => !a ? b : !b ? a : (a > b ? a : b)
+
+function TabInventarioLead({ isMobile }: any) {
+  const [loading, setLoading] = useState(true)
+  const [leads, setLeads] = useState<any[]>([])
+  const [cots, setCots] = useState<any[]>([])
+  const [q, setQ] = useState('')
+  const [leadSel, setLeadSel] = useState<string>('')
+  const [detalle, setDetalle] = useState<any[] | null>(null)
+  const [loadingDet, setLoadingDet] = useState(false)
+
+  useEffect(() => {
+    (async () => {
+      setLoading(true)
+      const [lR, qR] = await Promise.all([
+        supabase.from('leads').select('id, name').order('name'),
+        supabase.from('quotations').select('id, name, specialty, notes, created_at, updated_at').eq('stage', 'contrato'),
+      ])
+      setLeads((lR.data as any[]) || [])
+      setCots(((qR.data as any[]) || []).map(c => {
+        let lead_id: string | null = null
+        try { lead_id = JSON.parse(c.notes || '{}').lead_id || null } catch {}
+        return { id: c.id, name: c.name, specialty: c.specialty, lead_id, created_at: c.created_at }
+      }))
+      setLoading(false)
+    })()
+  }, [])
+
+  const leadsConCots = useMemo(() => {
+    const cnt: Record<string, number> = {}
+    cots.forEach(c => { if (c.lead_id) cnt[c.lead_id] = (cnt[c.lead_id] || 0) + 1 })
+    return leads.filter(l => cnt[l.id]).map(l => ({ ...l, nCots: cnt[l.id] }))
+  }, [leads, cots])
+
+  const leadsFiltrados = leadsConCots.filter(l => !q.trim() || (l.name || '').toLowerCase().includes(q.toLowerCase()))
+
+  async function abrirLead(leadId: string) {
+    setLeadSel(leadId); setLoadingDet(true); setDetalle(null)
+    const cotsLead = cots.filter(c => c.lead_id === leadId)
+    const cotIds = cotsLead.map(c => c.id)
+    if (cotIds.length === 0) { setDetalle([]); setLoadingDet(false); return }
+
+    const [qiR, poR] = await Promise.all([
+      supabase.from('quotation_items').select('quotation_id, catalog_product_id, name, marca, modelo, quantity').in('quotation_id', cotIds),
+      supabase.from('purchase_orders').select('id, quotation_id, created_at, approved_at').in('quotation_id', cotIds),
+    ])
+    const qItems = (qiR.data as any[]) || []
+    const posData = (poR.data as any[]) || []
+    const poIds = posData.map(p => p.id)
+    const poCot: Record<string, string> = {}; posData.forEach(p => { poCot[p.id] = p.quotation_id })
+    const poFecha: Record<string, string> = {}; posData.forEach(p => { poFecha[p.id] = (p.approved_at || p.created_at || '').slice(0, 10) })
+
+    let poItems: any[] = []
+    if (poIds.length) { const { data } = await supabase.from('po_items').select('purchase_order_id, catalog_product_id, name, marca, modelo, quantity').in('purchase_order_id', poIds); poItems = data || [] }
+
+    const mv1 = (await supabase.from('stock_movements').select('*').eq('anulado', false).in('quotation_id', cotIds)).data || []
+    const mv2 = poIds.length ? ((await supabase.from('stock_movements').select('*').eq('anulado', false).in('po_id', poIds)).data || []) : []
+    const movs = [...mv1, ...mv2.filter((m: any) => !mv1.find((x: any) => x.id === m.id))]
+
+    const keyOf = (it: any) => it.catalog_product_id || `${(it.marca || '').toLowerCase()}|${(it.modelo || '').toLowerCase()}|${(it.name || it.descripcion || '').toLowerCase()}`
+
+    const detalleCots = cotsLead.map(cot => {
+      const map = new Map<string, any>()
+      const ensure = (it: any) => {
+        const k = keyOf(it)
+        if (!map.has(k)) map.set(k, { key: k, marca: it.marca || '', modelo: it.modelo || '', descripcion: it.name || it.descripcion || '', vendido: mkFase(), comprado: mkFase(), recibido: mkFase(), entregado: mkFase() })
+        return map.get(k)
+      }
+      // Vendido
+      qItems.filter(i => i.quotation_id === cot.id).forEach(i => { const r = ensure(i); r.vendido.qty += Number(i.quantity) || 0; r.vendido.fecha = maxFecha(r.vendido.fecha, (cot.created_at || '').slice(0, 10)) })
+      // Comprado
+      poItems.filter(pi => poCot[pi.purchase_order_id] === cot.id).forEach(pi => { const r = ensure(pi); r.comprado.qty += Number(pi.quantity) || 0; r.comprado.fecha = maxFecha(r.comprado.fecha, poFecha[pi.purchase_order_id] || null) })
+      // Recibido + Entregado (del libro)
+      movs.forEach((m: any) => {
+        const mCot = m.quotation_id || (m.po_id ? poCot[m.po_id] : null)
+        if (mCot !== cot.id) return
+        const r = ensure(m)
+        if (m.tipo === 'recepcion_compra') { r.recibido.qty += Number(m.qty) || 0; r.recibido.fecha = maxFecha(r.recibido.fecha, (m.fecha || '').slice(0, 10)) }
+        if (m.destino_tipo === 'obra') { r.entregado.qty += Number(m.qty) || 0; r.entregado.fecha = maxFecha(r.entregado.fecha, (m.fecha || '').slice(0, 10)) }
+      })
+      const arts = Array.from(map.values()).sort((a, b) => (a.descripcion || '').localeCompare(b.descripcion || ''))
+      return { cot, arts }
+    })
+    setDetalle(detalleCots)
+    setLoadingDet(false)
+  }
+
+  if (loading) return <Loading />
+
+  // Vista lista de leads
+  if (!leadSel) {
+    return (
+      <div>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 14, alignItems: 'center' }}>
+          <input value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar lead…" style={{ ...inputStyle, maxWidth: 320 }} />
+          <span style={{ fontSize: 11, color: '#666' }}>{leadsFiltrados.length} leads con contrato</span>
+        </div>
+        {leadsFiltrados.length === 0 ? <EmptyState message="No hay leads con cotizaciones en contrato." /> : (
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(2,1fr)', gap: 10 }}>
+            {leadsFiltrados.map(l => (
+              <button key={l.id} onClick={() => abrirLead(l.id)} style={{ textAlign: 'left', padding: '14px 16px', background: '#0e0e0e', border: '1px solid #2a2a2a', borderRadius: 10, cursor: 'pointer', color: '#eee', fontFamily: 'inherit', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+                onMouseEnter={e => (e.currentTarget.style.borderColor = '#67E8F9')} onMouseLeave={e => (e.currentTarget.style.borderColor = '#2a2a2a')}>
+                <span style={{ fontSize: 14, fontWeight: 600 }}>{l.name}</span>
+                <span style={{ fontSize: 11, color: '#888' }}>{l.nCots} cotización{l.nCots !== 1 ? 'es' : ''} <ChevronRight size={14} style={{ verticalAlign: 'middle' }} /></span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  // Vista detalle de un lead
+  const leadName = leads.find(l => l.id === leadSel)?.name || 'Lead'
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+        <button onClick={() => { setLeadSel(''); setDetalle(null) }} style={{ background: '#141414', border: '1px solid #333', borderRadius: 8, padding: '6px 10px', color: '#ccc', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12 }}>← Leads</button>
+        <div style={{ fontSize: 18, fontWeight: 700, color: '#fff' }}>{leadName}</div>
+      </div>
+
+      {loadingDet ? <Loading /> : (detalle || []).length === 0 ? <EmptyState message="Este lead no tiene cotizaciones en contrato." /> : (
+        (detalle || []).map((d: any) => {
+          const esp = SPECIALTY_CONFIG[d.cot.specialty as keyof typeof SPECIALTY_CONFIG]
+          return (
+            <div key={d.cot.id} style={{ marginBottom: 22 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, padding: '8px 12px', background: '#0f0f0f', borderRadius: 8, borderLeft: `4px solid ${esp?.color || '#666'}` }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>{d.cot.name}</span>
+                {esp && <span style={{ fontSize: 11, fontWeight: 600, color: esp.color }}>{esp.icon} {esp.label}</span>}
+                <span style={{ fontSize: 10, color: '#666', marginLeft: 'auto' }}>{d.arts.length} artículos</span>
+              </div>
+              {d.arts.length === 0 ? <div style={{ fontSize: 12, color: '#666', padding: '4px 12px' }}>Sin artículos.</div> : (
+                <div style={{ overflowX: 'auto', border: '1px solid #1f1f1f', borderRadius: 10 }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11.5, minWidth: 760 }}>
+                    <thead>
+                      <tr style={{ background: '#0f0f0f', color: '#777', textAlign: 'left' }}>
+                        <th style={{ padding: '8px 10px' }}>Marca</th>
+                        <th style={{ padding: '8px 10px' }}>Modelo</th>
+                        <th style={{ padding: '8px 10px' }}>Descripción</th>
+                        <th style={{ padding: '8px 10px', textAlign: 'center' }}>Vendido</th>
+                        <th style={{ padding: '8px 10px', textAlign: 'center' }}>Comprado</th>
+                        <th style={{ padding: '8px 10px', textAlign: 'center' }}>Recibido</th>
+                        <th style={{ padding: '8px 10px', textAlign: 'center' }}>Entregado</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {d.arts.map((a: any) => (
+                        <tr key={a.key} style={{ borderTop: '1px solid #1a1a1a', color: '#ccc' }}>
+                          <td style={{ padding: '6px 10px' }}>{a.marca || '—'}</td>
+                          <td style={{ padding: '6px 10px' }}>{a.modelo || '—'}</td>
+                          <td style={{ padding: '6px 10px', color: '#eee' }}>{a.descripcion || '—'}</td>
+                          <FaseCell f={a.vendido} />
+                          <FaseCell f={a.comprado} ref_={a.vendido.qty} />
+                          <FaseCell f={a.recibido} ref_={a.comprado.qty} />
+                          <FaseCell f={a.entregado} ref_={a.recibido.qty} />
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )
+        })
+      )}
+    </div>
+  )
+}
+
+function FaseCell({ f, ref_ }: { f: Fase; ref_?: number }) {
+  // color: si esta fase quedó por debajo de la fase anterior (ref_), marcar en ámbar (falta)
+  const falta = ref_ !== undefined && f.qty < ref_
+  const color = f.qty === 0 ? '#555' : falta ? '#D97706' : '#10B981'
+  return (
+    <td style={{ padding: '6px 10px', textAlign: 'center' }}>
+      <div style={{ fontWeight: 800, fontSize: 14, color }}>{f.qty > 0 ? Number(f.qty).toLocaleString('es-MX', { maximumFractionDigits: 2 }) : '—'}</div>
+      {f.fecha && <div style={{ fontSize: 9, color: '#666' }}>{fechaCorta(f.fecha)}</div>}
+    </td>
   )
 }
