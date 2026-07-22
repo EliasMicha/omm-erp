@@ -56,19 +56,30 @@ export default function Entregas() {
     const [oR, eR, pR, cotR] = await Promise.all([
       supabase.from('obras').select('id, nombre, project_id').order('nombre'),
       supabase.from('employees').select('id, nombre, puesto, area').order('nombre'),
-      supabase.from('purchase_orders').select('id, po_number, project_id, status').neq('status', 'cancelada').order('po_number', { ascending: false }).limit(300),
+      supabase.from('purchase_orders').select('id, po_number, project_id, status, supplier_id, quotation_id, lead_id').neq('status', 'cancelada').order('po_number', { ascending: false }).limit(300),
       supabase.from('quotations').select('notes, specialty').eq('stage', 'contrato'),
     ])
     setObras((oR.data as any) || [])
     setEmpleados((eR.data as any) || [])
-    setPos((pR.data as any) || [])
+    const posRaw = (pR.data as any[]) || []
     // El "destino" del inventario es el LEAD con cotización en contrato (con material) — no la tabla obras
     const ids = new Set<string>()
     ;((cotR.data as any[]) || []).forEach(c => { if (c.specialty !== 'proy' && c.specialty !== 'cort') { try { const lid = JSON.parse(c.notes || '{}').lead_id; if (lid) ids.add(lid) } catch {} } })
-    if (ids.size) {
-      const { data: ld } = await supabase.from('leads').select('id, name').in('id', [...ids])
-      setLeadsInv(((ld as any[]) || []).map(l => ({ id: l.id, nombre: l.name })).sort((a, b) => a.nombre.localeCompare(b.nombre)))
-    } else setLeadsInv([])
+    // Enriquecer OCs con proveedor + lead (para que el listado sea legible: OC · obra · proveedor)
+    const supIds = [...new Set(posRaw.map(p => p.supplier_id).filter(Boolean))]
+    const qIds = [...new Set(posRaw.map(p => p.quotation_id).filter(Boolean))]
+    const [supR, qR2] = await Promise.all([
+      supIds.length ? supabase.from('suppliers').select('id, name').in('id', supIds) : Promise.resolve({ data: [] as any[] }),
+      qIds.length ? supabase.from('quotations').select('id, notes').in('id', qIds) : Promise.resolve({ data: [] as any[] }),
+    ])
+    const supM: Record<string, string> = {}; ((supR.data as any[]) || []).forEach(s => supM[s.id] = s.name)
+    const q2l: Record<string, string> = {}; ((qR2.data as any[]) || []).forEach(x => { try { const lid = JSON.parse(x.notes || '{}').lead_id; if (lid) q2l[x.id] = lid } catch {} })
+    const leadIds = new Set<string>([...ids])
+    posRaw.forEach(p => { const lid = p.lead_id || q2l[p.quotation_id]; if (lid) leadIds.add(lid) })
+    const leadNameM: Record<string, string> = {}
+    if (leadIds.size) { const { data: ld } = await supabase.from('leads').select('id, name').in('id', [...leadIds]); ((ld as any[]) || []).forEach(l => leadNameM[l.id] = l.name) }
+    setPos(posRaw.map(p => { const lid = p.lead_id || q2l[p.quotation_id]; return { ...p, _prov: supM[p.supplier_id] || '', _lead: (lid && leadNameM[lid]) || '' } }))
+    setLeadsInv([...ids].map(id => ({ id, nombre: leadNameM[id] || 'Lead' })).filter(l => l.nombre !== 'Lead' || true).sort((a, b) => a.nombre.localeCompare(b.nombre)))
     fetchAllActiveCatalog().then(setCatalog).catch(() => {})
   }
 
@@ -537,7 +548,7 @@ function TabRegistrar({ obras, empleados, pos, catalog, obraProject, isMobile, o
               <label style={labelStyle}>Orden de compra (opcional — precarga los productos)</label>
               <select value={poId} onChange={e => cargarDesdeOC(e.target.value)} style={inputStyle}>
                 <option value="">— Sin OC / captura manual —</option>
-                {pos.map((p: any) => <option key={p.id} value={p.id}>{p.po_number}</option>)}
+                {pos.map((p: any) => <option key={p.id} value={p.id}>{[p.po_number, p._lead, p._prov].filter(Boolean).join('  ·  ')}</option>)}
               </select>
             </div>
             <div>
