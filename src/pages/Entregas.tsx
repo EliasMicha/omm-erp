@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase'
 import { Btn, KpiCard, SectionHeader, EmptyState, Loading } from '../components/layout/UI'
 import { fetchAllActiveCatalog } from '../lib/catalog'
 import { SPECIALTY_CONFIG } from '../lib/utils'
-import { Plus, X, Trash2, Warehouse, Building2, ArrowRight, ClipboardList, PackagePlus, ChevronRight, LayoutDashboard, Truck, Calendar, Clock, Inbox, PackageCheck } from 'lucide-react'
+import { Plus, X, Trash2, Warehouse, Building2, ArrowRight, ClipboardList, PackagePlus, ChevronRight, ChevronLeft, LayoutDashboard, Truck, Calendar, CalendarDays, Clock, Inbox, PackageCheck, MapPin } from 'lucide-react'
 import { useIsMobile } from '../lib/useIsMobile'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -35,7 +35,7 @@ const labelStyle: React.CSSProperties = { fontSize: 10, fontWeight: 600, color: 
 
 export default function Entregas() {
   const isMobile = useIsMobile()
-  const [tab, setTab] = useState<'dashboard' | 'porlead' | 'inventario' | 'movimientos' | 'registrar'>('dashboard')
+  const [tab, setTab] = useState<'dashboard' | 'agenda' | 'porlead' | 'inventario' | 'movimientos' | 'registrar'>('dashboard')
   const [preselectPo, setPreselectPo] = useState<string>('')
   const [loading, setLoading] = useState(true)
 
@@ -96,6 +96,7 @@ export default function Entregas() {
       <div style={{ display: 'flex', gap: 4, marginBottom: 20, background: '#0f0f0f', borderRadius: 10, padding: 4, border: '1px solid #1f1f1f', flexWrap: 'wrap' }}>
         {([
           { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard size={14} /> },
+          { id: 'agenda', label: 'Agenda / Ruta', icon: <CalendarDays size={14} /> },
           { id: 'porlead', label: 'Inventario por lead', icon: <ClipboardList size={14} /> },
           { id: 'inventario', label: 'Bodega / Obra', icon: <Warehouse size={14} /> },
           { id: 'movimientos', label: 'Movimientos', icon: <ClipboardList size={14} /> },
@@ -111,6 +112,7 @@ export default function Entregas() {
       </div>
 
       {tab === 'dashboard' && <TabDashboard isMobile={isMobile} onOperar={(poId: string) => { setPreselectPo(poId); setTab('registrar') }} onIr={(t: any) => setTab(t)} />}
+      {tab === 'agenda' && <TabAgenda isMobile={isMobile} obras={obras} empleados={empleados} />}
       {tab === 'porlead' && <TabInventarioLead obras={obras} isMobile={isMobile} />}
       {tab === 'inventario' && <TabInventario stockBodega={stockBodega} stockObra={stockObra} obras={obras} isMobile={isMobile} />}
       {tab === 'movimientos' && <TabMovimientos movimientos={movimientos} obras={obras} isMobile={isMobile} />}
@@ -728,6 +730,7 @@ function TabDashboard({ isMobile, onOperar, onIr }: any) {
   const [movHoy, setMovHoy] = useState<number>(0)
   const [quotToLead, setQuotToLead] = useState<Record<string, string>>({})
   const [verPo, setVerPo] = useState<any>(null)
+  const [rutaTasks, setRutaTasks] = useState<any[]>([])
 
   useEffect(() => {
     (async () => {
@@ -748,6 +751,10 @@ function TabDashboard({ isMobile, onOperar, onIr }: any) {
       const om: any = {}; ((oR.data as any[]) || []).forEach(o => om[o.id] = o.nombre); setObraMap(om)
       setRecibidas(new Set(((mR.data as any[]) || []).map(m => m.po_id)))
       setMovHoy(((mhR.data as any[]) || []).length)
+      // Ruta: tareas de hoy y mañana (agenda) pendientes
+      const man = new Date(); man.setDate(man.getDate() + 1); const mananaStr = man.toISOString().slice(0, 10)
+      const tR = await supabase.from('logistics_tasks').select('*').gte('fecha', hoyStr).lte('fecha', mananaStr).neq('estatus', 'cancelada').neq('estatus', 'completada')
+      setRutaTasks((tR.data as any[]) || [])
       // Resolver el lead vía cotización cuando la OC no trae lead_id (como hace Compras)
       const qids = [...new Set(posData.map(p => p.quotation_id).filter(Boolean))]
       if (qids.length) {
@@ -833,6 +840,26 @@ function TabDashboard({ isMobile, onOperar, onIr }: any) {
         <KpiCard label="Vencidas" value={vencidas.length} color="#DC2626" icon={<Clock size={16} />} />
         <KpiCard label="Movs. hoy" value={movHoy} color="#67E8F9" icon={<PackageCheck size={16} />} />
       </div>
+
+      {rutaTasks.length > 0 && (
+        <Seccion titulo={`Ruta — hoy y mañana (${rutaTasks.length})`} icon={<CalendarDays size={16} color="#67E8F9" />}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {[...rutaTasks].sort((a, b) => ((a.fecha || '') + (a.hora || '99')).localeCompare((b.fecha || '') + (b.hora || '99'))).map((t: any) => {
+              const cfg = TAREA_CFG[t.tipo] || TAREA_CFG.otro; const prio = PRIO_CFG[t.prioridad]
+              return (
+                <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#0f0f0f', border: '1px solid #1f1f1f', borderLeft: `3px solid ${prio?.color || '#666'}`, borderRadius: 8, padding: '8px 12px', flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 11, color: '#888', minWidth: 78 }}>{fechaCorta(t.fecha)}{t.hora ? ' ' + String(t.hora).slice(0, 5) : ''}</span>
+                  <span style={{ fontSize: 13, color: '#eee', fontWeight: 600 }}>{cfg.icon} {t.titulo}</span>
+                  {t.ubicacion && <span style={{ fontSize: 11, color: '#888' }}>· {t.ubicacion}</span>}
+                  {t.estatus === 'en_ruta' && <span style={{ fontSize: 10, color: '#60A5FA' }}>● en ruta</span>}
+                  <span style={{ marginLeft: 'auto', fontSize: 10, fontWeight: 700, color: prio?.color }}>{prio?.label}</span>
+                </div>
+              )
+            })}
+          </div>
+          <div style={{ marginTop: 10 }}><Btn size="sm" variant="default" onClick={() => onIr('agenda')}><CalendarDays size={12} /> Ver agenda de la semana</Btn></div>
+        </Seccion>
+      )}
 
       {vencidas.length > 0 && (
         <Seccion titulo={`Atrasadas — requieren atención (${vencidas.length})`} icon={<Clock size={16} color="#DC2626" />}>
@@ -920,6 +947,191 @@ function PoContenidoModal({ po, supMap, leadName, confirmada, onClose, onRecibir
           {confirmada
             ? <Btn variant="primary" onClick={onRecibir}><PackagePlus size={12} /> Registrar recepción</Btn>
             : <span style={{ fontSize: 11, color: '#D97706' }}>OC en borrador — confírmala en Compras para poder recibirla.</span>}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ═══════════════════════════ AGENDA / RUTA SEMANAL ═══════════════════════════
+const TAREA_CFG: Record<string, { label: string; icon: string; color: string }> = {
+  recoleccion: { label: 'Recolección', icon: '🚚', color: '#A78BFA' },
+  entrega:     { label: 'Entrega',     icon: '📦', color: '#10B981' },
+  compra:      { label: 'Compra',      icon: '🛒', color: '#60A5FA' },
+  muestra:     { label: 'Muestra',     icon: '🎨', color: '#F59E0B' },
+  herramienta: { label: 'Herramienta', icon: '🔧', color: '#94A3B8' },
+  visita:      { label: 'Visita',      icon: '📍', color: '#F472B6' },
+  otro:        { label: 'Otro',        icon: '•',  color: '#9CA3AF' },
+}
+const PRIO_CFG: Record<string, { label: string; color: string }> = {
+  alta: { label: 'Alta', color: '#DC2626' }, media: { label: 'Media', color: '#D97706' }, baja: { label: 'Baja', color: '#10B981' },
+}
+const DIAS = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom']
+const isoDay = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+const mondayOf = (offset: number) => { const t = new Date(); t.setHours(12, 0, 0, 0); const dow = (t.getDay() + 6) % 7; t.setDate(t.getDate() - dow + offset * 7); return t }
+
+function TabAgenda({ isMobile, obras, empleados }: any) {
+  const [weekOffset, setWeekOffset] = useState(0)
+  const [tasks, setTasks] = useState<any[]>([])
+  const [leads, setLeads] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [modal, setModal] = useState<any>(null)
+
+  const weekDays = useMemo(() => { const mon = mondayOf(weekOffset); return Array.from({ length: 7 }, (_, i) => { const d = new Date(mon); d.setDate(mon.getDate() + i); return d }) }, [weekOffset])
+  const weekStart = isoDay(weekDays[0]); const weekEnd = isoDay(weekDays[6])
+  const hoyStr = isoDay(new Date())
+
+  const load = async () => {
+    setLoading(true)
+    const { data } = await supabase.from('logistics_tasks').select('*').gte('fecha', weekStart).lte('fecha', weekEnd).neq('estatus', 'cancelada')
+    setTasks((data as any[]) || [])
+    setLoading(false)
+  }
+  useEffect(() => { load() }, [weekStart])
+  useEffect(() => { supabase.from('leads').select('id, name').order('name').then(({ data }) => setLeads((data as any[]) || [])) }, [])
+
+  const tasksByDay = (iso: string) => tasks.filter(t => t.fecha === iso).sort((a, b) => {
+    if ((a.hora || '') !== (b.hora || '')) return (a.hora || '99') < (b.hora || '99') ? -1 : 1
+    const p = (x: string) => x === 'alta' ? 0 : x === 'media' ? 1 : 2
+    return p(a.prioridad) - p(b.prioridad)
+  })
+
+  async function cycleEstatus(t: any) {
+    const next = t.estatus === 'pendiente' ? 'en_ruta' : t.estatus === 'en_ruta' ? 'completada' : 'pendiente'
+    await supabase.from('logistics_tasks').update({ estatus: next }).eq('id', t.id); load()
+  }
+  async function del(t: any) { if (!confirm('¿Eliminar esta tarea?')) return; await supabase.from('logistics_tasks').update({ estatus: 'cancelada' }).eq('id', t.id); load() }
+
+  const navBtn: React.CSSProperties = { background: '#141414', border: '1px solid #333', borderRadius: 8, padding: '6px 10px', color: '#ccc', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 4 }
+  const rango = weekDays[0].toLocaleDateString('es-MX', { day: 'numeric', month: 'short' }) + ' – ' + weekDays[6].toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: '2-digit' })
+
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
+        <button onClick={() => setWeekOffset(w => w - 1)} style={navBtn}><ChevronLeft size={16} /></button>
+        <div style={{ fontSize: 14, fontWeight: 700, color: '#fff', minWidth: 170, textAlign: 'center' }}>{rango}</div>
+        <button onClick={() => setWeekOffset(w => w + 1)} style={navBtn}><ChevronRight size={16} /></button>
+        {weekOffset !== 0 && <button onClick={() => setWeekOffset(0)} style={{ ...navBtn, color: '#10B981' }}>Hoy</button>}
+        <Btn size="sm" variant="primary" style={{ marginLeft: 'auto' }} onClick={() => setModal({ fecha: hoyStr })}><Plus size={12} /> Nueva tarea</Btn>
+      </div>
+
+      {loading ? <Loading /> : (
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(7,1fr)', gap: 8 }}>
+          {weekDays.map((d, i) => {
+            const iso = isoDay(d); const esHoy = iso === hoyStr; const dayTasks = tasksByDay(iso)
+            return (
+              <div key={iso} style={{ background: '#0e0e0e', border: `1px solid ${esHoy ? '#10B981' : '#1f1f1f'}`, borderRadius: 10, padding: 8, minHeight: 130 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: esHoy ? '#10B981' : '#aaa' }}>{DIAS[i]} {d.getDate()}</div>
+                  <button onClick={() => setModal({ fecha: iso })} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer' }}><Plus size={14} /></button>
+                </div>
+                {dayTasks.length === 0 && <div style={{ fontSize: 10, color: '#3a3a3a', textAlign: 'center', padding: '12px 0' }}>—</div>}
+                {dayTasks.map(t => {
+                  const cfg = TAREA_CFG[t.tipo] || TAREA_CFG.otro; const prio = PRIO_CFG[t.prioridad]; const done = t.estatus === 'completada'
+                  return (
+                    <div key={t.id} onClick={() => setModal(t)} style={{ background: '#161616', border: `1px solid ${t.estatus === 'en_ruta' ? '#2563EB' : '#262626'}`, borderLeft: `3px solid ${prio?.color || '#666'}`, borderRadius: 6, padding: '6px 8px', marginBottom: 6, opacity: done ? 0.55 : 1, cursor: 'pointer' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 4 }}>
+                        <div style={{ fontSize: 11, fontWeight: 600, color: '#eee', textDecoration: done ? 'line-through' : 'none' }}>{cfg.icon} {t.titulo}</div>
+                        <button onClick={e => { e.stopPropagation(); del(t) }} style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer', flexShrink: 0, padding: 0 }}><X size={11} /></button>
+                      </div>
+                      {(t.hora || t.ubicacion) && <div style={{ fontSize: 9, color: '#888', marginTop: 2 }}>{t.hora ? t.hora.slice(0, 5) + ' ' : ''}{t.ubicacion ? '· ' + t.ubicacion : ''}</div>}
+                      <button onClick={e => { e.stopPropagation(); cycleEstatus(t) }} style={{ marginTop: 4, fontSize: 9, fontWeight: 600, padding: '1px 6px', borderRadius: 4, border: 'none', cursor: 'pointer', fontFamily: 'inherit', background: done ? '#10B98122' : t.estatus === 'en_ruta' ? '#2563EB22' : '#33333366', color: done ? '#10B981' : t.estatus === 'en_ruta' ? '#60A5FA' : '#999' }}>
+                        {done ? '✓ Completada' : t.estatus === 'en_ruta' ? '● En ruta' : 'Pendiente'}
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {modal && <TareaModal init={modal} obras={obras} leads={leads} empleados={empleados} onClose={() => setModal(null)} onSaved={() => { setModal(null); load() }} />}
+    </div>
+  )
+}
+
+function TareaModal({ init, obras, leads, empleados, onClose, onSaved }: any) {
+  const [tipo, setTipo] = useState(init.tipo || 'otro')
+  const [titulo, setTitulo] = useState(init.titulo || '')
+  const [fecha, setFecha] = useState(init.fecha || new Date().toISOString().slice(0, 10))
+  const [hora, setHora] = useState(init.hora ? String(init.hora).slice(0, 5) : '')
+  const [ubicacion, setUbicacion] = useState(init.ubicacion || '')
+  const [prioridad, setPrioridad] = useState(init.prioridad || 'media')
+  const [leadId, setLeadId] = useState(init.lead_id || '')
+  const [obraId, setObraId] = useState(init.obra_id || '')
+  const [asignado, setAsignado] = useState(init.asignado_a || '')
+  const [notas, setNotas] = useState(init.notas || '')
+  const [saving, setSaving] = useState(false)
+
+  async function guardar() {
+    if (!titulo.trim()) { alert('Ponle un título a la tarea.'); return }
+    setSaving(true)
+    const row: any = { tipo, titulo: titulo.trim(), fecha, hora: hora || null, ubicacion: ubicacion || null, prioridad, lead_id: leadId || null, obra_id: obraId || null, asignado_a: asignado || null, asignado_nombre: empleados.find((e: any) => e.id === asignado)?.nombre || null, notas: notas || null }
+    const res = init.id ? await supabase.from('logistics_tasks').update(row).eq('id', init.id) : await supabase.from('logistics_tasks').insert(row)
+    if (res.error) { alert('Error: ' + res.error.message); setSaving(false); return }
+    setSaving(false); onSaved()
+  }
+
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 20 }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: '#141414', border: '1px solid #333', borderRadius: 14, width: 'min(560px, 96vw)', maxHeight: '90vh', overflow: 'auto', padding: 20 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <div style={{ fontSize: 16, fontWeight: 700, color: '#fff' }}>{init.id ? 'Editar tarea' : 'Nueva tarea de ruta'}</div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer' }}><X size={18} /></button>
+        </div>
+
+        <label style={labelStyle}>Tipo</label>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 6, marginBottom: 14 }}>
+          {Object.keys(TAREA_CFG).map(k => (
+            <button key={k} onClick={() => setTipo(k)} style={{ padding: '6px 4px', borderRadius: 8, cursor: 'pointer', fontFamily: 'inherit', fontSize: 10, fontWeight: 600, background: tipo === k ? TAREA_CFG[k].color + '22' : '#0e0e0e', border: `1px solid ${tipo === k ? TAREA_CFG[k].color : '#2a2a2a'}`, color: tipo === k ? '#fff' : '#999' }}>{TAREA_CFG[k].icon} {TAREA_CFG[k].label}</button>
+          ))}
+        </div>
+
+        <label style={labelStyle}>Título</label>
+        <input value={titulo} onChange={e => setTitulo(e.target.value)} placeholder="Ej. Llevar muestras de tela a cliente" style={{ ...inputStyle, marginBottom: 12 }} />
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 12 }}>
+          <div><label style={labelStyle}>Fecha</label><input type="date" value={fecha} onChange={e => setFecha(e.target.value)} style={inputStyle} /></div>
+          <div><label style={labelStyle}>Hora</label><input type="time" value={hora} onChange={e => setHora(e.target.value)} style={inputStyle} /></div>
+          <div><label style={labelStyle}>Prioridad</label>
+            <select value={prioridad} onChange={e => setPrioridad(e.target.value)} style={inputStyle}>
+              {Object.keys(PRIO_CFG).map(k => <option key={k} value={k}>{PRIO_CFG[k].label}</option>)}
+            </select>
+          </div>
+        </div>
+
+        <label style={labelStyle}>Ubicación</label>
+        <input value={ubicacion} onChange={e => setUbicacion(e.target.value)} placeholder="Dirección / obra / lugar" style={{ ...inputStyle, marginBottom: 12 }} />
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
+          <div><label style={labelStyle}>Lead (opcional)</label>
+            <select value={leadId} onChange={e => setLeadId(e.target.value)} style={inputStyle}>
+              <option value="">—</option>
+              {leads.map((l: any) => <option key={l.id} value={l.id}>{l.name}</option>)}
+            </select>
+          </div>
+          <div><label style={labelStyle}>Obra (opcional)</label>
+            <select value={obraId} onChange={e => setObraId(e.target.value)} style={inputStyle}>
+              <option value="">—</option>
+              {obras.map((o: any) => <option key={o.id} value={o.id}>{o.nombre}</option>)}
+            </select>
+          </div>
+        </div>
+
+        <div style={{ marginBottom: 12 }}><label style={labelStyle}>Asignado a</label>
+          <select value={asignado} onChange={e => setAsignado(e.target.value)} style={inputStyle}>
+            <option value="">—</option>
+            {empleados.map((e: any) => <option key={e.id} value={e.id}>{e.nombre}</option>)}
+          </select>
+        </div>
+
+        <div style={{ marginBottom: 18 }}><label style={labelStyle}>Notas</label><input value={notas} onChange={e => setNotas(e.target.value)} placeholder="Detalle (opcional)" style={inputStyle} /></div>
+
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+          <Btn variant="default" onClick={onClose}>Cancelar</Btn>
+          <Btn variant="primary" onClick={guardar} disabled={saving}>{saving ? 'Guardando…' : (init.id ? 'Guardar' : 'Crear tarea')}</Btn>
         </div>
       </div>
     </div>
