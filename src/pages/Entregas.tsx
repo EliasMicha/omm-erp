@@ -40,6 +40,7 @@ export default function Entregas() {
   const [loading, setLoading] = useState(true)
 
   const [obras, setObras] = useState<Obra[]>([])
+  const [leadsInv, setLeadsInv] = useState<{ id: string; nombre: string }[]>([])
   const [empleados, setEmpleados] = useState<Emp[]>([])
   const [pos, setPos] = useState<any[]>([])
   const [catalog, setCatalog] = useState<any[]>([])
@@ -52,14 +53,22 @@ export default function Entregas() {
   const obraProject = (id: string | null) => obras.find(o => o.id === id)?.project_id || null
 
   async function loadBase() {
-    const [oR, eR, pR] = await Promise.all([
+    const [oR, eR, pR, cotR] = await Promise.all([
       supabase.from('obras').select('id, nombre, project_id').order('nombre'),
       supabase.from('employees').select('id, nombre').order('nombre'),
       supabase.from('purchase_orders').select('id, po_number, project_id, status').neq('status', 'cancelada').order('po_number', { ascending: false }).limit(300),
+      supabase.from('quotations').select('notes, specialty').eq('stage', 'contrato'),
     ])
     setObras((oR.data as any) || [])
     setEmpleados((eR.data as any) || [])
     setPos((pR.data as any) || [])
+    // El "destino" del inventario es el LEAD con cotización en contrato (con material) — no la tabla obras
+    const ids = new Set<string>()
+    ;((cotR.data as any[]) || []).forEach(c => { if (c.specialty !== 'proy' && c.specialty !== 'cort') { try { const lid = JSON.parse(c.notes || '{}').lead_id; if (lid) ids.add(lid) } catch {} } })
+    if (ids.size) {
+      const { data: ld } = await supabase.from('leads').select('id, name').in('id', [...ids])
+      setLeadsInv(((ld as any[]) || []).map(l => ({ id: l.id, nombre: l.name })).sort((a, b) => a.nombre.localeCompare(b.nombre)))
+    } else setLeadsInv([])
     fetchAllActiveCatalog().then(setCatalog).catch(() => {})
   }
 
@@ -114,11 +123,11 @@ export default function Entregas() {
       {tab === 'dashboard' && <TabDashboard isMobile={isMobile} onOperar={(poId: string) => { setPreselectPo(poId); setTab('registrar') }} onIr={(t: any) => setTab(t)} />}
       {tab === 'agenda' && <TabAgenda isMobile={isMobile} obras={obras} empleados={empleados} />}
       {tab === 'porlead' && <TabInventarioLead obras={obras} isMobile={isMobile} />}
-      {tab === 'inventario' && <TabInventario stockBodega={stockBodega} stockObra={stockObra} obras={obras} isMobile={isMobile} />}
-      {tab === 'movimientos' && <TabMovimientos movimientos={movimientos} obras={obras} isMobile={isMobile} />}
+      {tab === 'inventario' && <TabInventario stockBodega={stockBodega} stockObra={stockObra} obras={leadsInv} isMobile={isMobile} />}
+      {tab === 'movimientos' && <TabMovimientos movimientos={movimientos} obras={leadsInv} isMobile={isMobile} />}
       {tab === 'registrar' && (
         <TabRegistrar
-          obras={obras} empleados={empleados} pos={pos} catalog={catalog}
+          obras={leadsInv} empleados={empleados} pos={pos} catalog={catalog}
           obraProject={obraProject} isMobile={isMobile} initialPoId={preselectPo}
           onSaved={async () => { await Promise.all([loadInventario(), loadMovimientos()]); setPreselectPo(''); setTab('movimientos') }}
         />
