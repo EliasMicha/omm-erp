@@ -1434,11 +1434,8 @@ REGLAS:
             {/* Proyecto + Especialidad + Fase + Moneda */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
               <div>
-                <label style={labelStyle}>Obra / Proyecto</label>
-                <select value={projectId} onChange={e => setProjectId(e.target.value)} style={inputStyle}>
-                  <option value="">-- Sin proyecto --</option>
-                  {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                </select>
+                <SearchableSelect label="Obra / Proyecto" value={projectId} onChange={setProjectId}
+                  options={projects.map(p => ({ value: p.id, label: p.name }))} placeholder="-- Sin proyecto --" />
               </div>
               <div>
                 <label style={labelStyle}>Moneda</label>
