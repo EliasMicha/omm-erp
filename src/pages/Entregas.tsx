@@ -1147,9 +1147,14 @@ function TabAgenda({ isMobile, obras, empleados }: any) {
                         <button onClick={e => { e.stopPropagation(); del(t) }} style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer', flexShrink: 0, padding: 0 }}><X size={11} /></button>
                       </div>
                       {(t.hora || t.ubicacion) && <div style={{ fontSize: 9, color: '#888', marginTop: 2 }}>{t.hora ? t.hora.slice(0, 5) + ' ' : ''}{t.ubicacion ? '· ' + t.ubicacion : ''}</div>}
-                      <button onClick={e => { e.stopPropagation(); cycleEstatus(t) }} style={{ marginTop: 4, fontSize: 9, fontWeight: 600, padding: '1px 6px', borderRadius: 4, border: 'none', cursor: 'pointer', fontFamily: 'inherit', background: done ? '#10B98122' : t.estatus === 'en_ruta' ? '#2563EB22' : '#33333366', color: done ? '#10B981' : t.estatus === 'en_ruta' ? '#60A5FA' : '#999' }}>
-                        {done ? '✓ Completada' : t.estatus === 'en_ruta' ? '● En ruta' : 'Pendiente'}
-                      </button>
+                      <div style={{ display: 'flex', gap: 4, marginTop: 4, flexWrap: 'wrap' }}>
+                        <button onClick={e => { e.stopPropagation(); cycleEstatus(t) }} style={{ fontSize: 9, fontWeight: 600, padding: '1px 6px', borderRadius: 4, border: 'none', cursor: 'pointer', fontFamily: 'inherit', background: done ? '#10B98122' : t.estatus === 'en_ruta' ? '#2563EB22' : '#33333366', color: done ? '#10B981' : t.estatus === 'en_ruta' ? '#60A5FA' : '#999' }}>
+                          {done ? '✓ Completada' : t.estatus === 'en_ruta' ? '● En ruta' : 'Pendiente'}
+                        </button>
+                        {t.tipo === 'entrega' && Array.isArray(t.items) && t.items.length > 0 && (
+                          <button onClick={e => { e.stopPropagation(); generarRecibosEntrega({ folio: t.folio || t.id.slice(0, 8), fecha: t.fecha, leadName: leads.find((l: any) => l.id === t.lead_id)?.name || t.titulo, ubicacion: t.ubicacion, chofer: t.asignado_nombre, recibeNombre: t.recibe_nombre, recibeRol: t.recibe_rol, items: t.items, notas: t.notas }) }} style={{ fontSize: 9, fontWeight: 600, padding: '1px 6px', borderRadius: 4, border: 'none', cursor: 'pointer', fontFamily: 'inherit', background: '#57FF9A22', color: '#57FF9A' }}>🧾 Recibos</button>
+                        )}
+                      </div>
                     </div>
                   )
                 })}
@@ -1162,6 +1167,58 @@ function TabAgenda({ isMobile, obras, empleados }: any) {
       {modal && <TareaModal init={modal} obras={obras} leads={leads} empleados={empleados} onClose={() => setModal(null)} onSaved={() => { setModal(null); load() }} />}
     </div>
   )
+}
+
+const fmtQ = (n: number) => Number(n).toLocaleString('es-MX', { maximumFractionDigits: 2 })
+
+// Genera 2 recibos imprimibles (chofer + obra) — uno por entrega, consolidando orígenes
+function generarRecibosEntrega({ folio, fecha, leadName, ubicacion, chofer, recibeNombre, recibeRol, items, notas }: any) {
+  const rolLabel: any = { instalador: 'Instalador OMM', residente: 'Residente de obra', cliente: 'Cliente' }
+  const fechaTxt = (() => { try { return new Date(fecha + 'T12:00:00').toLocaleDateString('es-MX', { day: '2-digit', month: 'long', year: 'numeric' }) } catch { return fecha } })()
+  const filas = items.map((it: any, i: number) => `<tr><td style="text-align:center">${i + 1}</td><td>${it.marca || ''}</td><td>${it.modelo || ''}</td><td>${it.descripcion || ''}</td><td style="text-align:center;font-weight:700">${fmtQ(it.qty)}</td></tr>`).join('')
+  const totalPzs = items.reduce((s: number, it: any) => s + Number(it.qty || 0), 0)
+  const bloque = (titulo: string, quienLabel: string, quienNombre: string, leyenda: string) => `
+    <div class="recibo">
+      <div class="hd"><div><div class="logo">OMM</div><div class="sub">OMM Technologies · Entrega de material</div></div>
+        <div style="text-align:right"><div class="folio">${folio}</div><div class="sub">${fechaTxt}</div></div></div>
+      <div class="tt">${titulo}</div>
+      <table class="meta"><tr><td style="width:55%"><b>Obra / Lead:</b> ${leadName}</td><td><b>Ubicación:</b> ${ubicacion || '—'}</td></tr>
+        <tr><td><b>Chofer:</b> ${chofer || '—'}</td><td><b>${quienLabel}:</b> ${quienNombre || '—'}</td></tr></table>
+      <table class="items"><thead><tr><th style="width:34px">#</th><th>Marca</th><th>Modelo</th><th>Descripción</th><th style="width:60px">Cant.</th></tr></thead>
+        <tbody>${filas}</tbody>
+        <tfoot><tr><td colspan="4" style="text-align:right"><b>Total de piezas</b></td><td style="text-align:center"><b>${fmtQ(totalPzs)}</b></td></tr></tfoot></table>
+      ${notas ? `<div class="notas"><b>Notas:</b> ${notas}</div>` : ''}
+      <div class="leyenda">${leyenda}</div>
+      <div class="firmas"><div class="fw"><div class="ln"></div>${quienNombre || quienLabel}<div class="sub">Firma de quien recibe</div></div>
+        <div class="fw"><div class="ln"></div>OMM Technologies<div class="sub">Entregó</div></div></div>
+    </div>`
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>Recibos ${folio}</title><style>
+    *{box-sizing:border-box;font-family:Arial,Helvetica,sans-serif}
+    body{margin:0;color:#111}
+    .recibo{padding:34px 40px;page-break-after:always}
+    .hd{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #111;padding-bottom:10px}
+    .logo{font-size:30px;font-weight:800;letter-spacing:1px}
+    .sub{font-size:11px;color:#666;margin-top:2px}
+    .folio{font-size:15px;font-weight:700}
+    .tt{font-size:16px;font-weight:800;margin:18px 0 12px;text-transform:uppercase}
+    table{width:100%;border-collapse:collapse;font-size:12px}
+    .meta td{padding:3px 0;font-size:12px}
+    .items{margin-top:8px}
+    .items th{background:#111;color:#fff;padding:7px 8px;text-align:left;font-size:11px}
+    .items td{border-bottom:1px solid #ddd;padding:6px 8px}
+    .items tfoot td{border:none;padding-top:8px}
+    .notas{margin-top:12px;font-size:12px}
+    .leyenda{margin-top:20px;font-size:11px;color:#333;line-height:1.5;border:1px solid #ccc;border-radius:6px;padding:10px}
+    .firmas{display:flex;gap:60px;margin-top:54px}
+    .fw{flex:1;text-align:center;font-size:12px}
+    .ln{border-top:1px solid #111;margin-bottom:6px;height:1px}
+    @media print{.recibo{padding:24px 30px}}
+  </style></head><body>
+  ${bloque('Recibo del chofer', 'Recibe (chofer)', chofer, 'El chofer confirma que RECIBE la mercancía descrita, en buen estado y en las cantidades indicadas, haciéndose responsable de su traslado hasta la obra destino.')}
+  ${bloque('Recibo en obra', (rolLabel[recibeRol] || 'Recibe en obra'), recibeNombre, 'Quien recibe en obra confirma haber RECIBIDO la mercancía descrita en las cantidades indicadas y en buen estado.')}
+  <script>window.onload=function(){setTimeout(function(){window.print()},250)}</script>
+  </body></html>`
+  const w = window.open('', '_blank'); if (w) { w.document.write(html); w.document.close() }
 }
 
 function TareaModal({ init, obras, leads, empleados, onClose, onSaved }: any) {
@@ -1177,7 +1234,78 @@ function TareaModal({ init, obras, leads, empleados, onClose, onSaved }: any) {
   const [notas, setNotas] = useState(init.notas || '')
   const [saving, setSaving] = useState(false)
 
+  // ── Entrega builder ──
+  const [invByLead, setInvByLead] = useState<Record<string, any> | null>(null)
+  const [loadingInv, setLoadingInv] = useState(false)
+  const [entLead, setEntLead] = useState(init.tipo === 'entrega' ? (init.lead_id || '') : '')
+  const [sel, setSel] = useState<Record<string, { qty: number; on: boolean }>>({})
+  const [recibeNombre, setRecibeNombre] = useState(init.recibe_nombre || '')
+  const [recibeRol, setRecibeRol] = useState(init.recibe_rol || 'instalador')
+
+  useEffect(() => {
+    if (tipo !== 'entrega' || invByLead) return
+    (async () => { setLoadingInv(true); setInvByLead(await cargarInventarioEntregable()); setLoadingInv(false) })()
+  }, [tipo])
+
+  useEffect(() => {
+    if (init.id && init.tipo === 'entrega' && Array.isArray(init.items)) {
+      const s: any = {}; init.items.forEach((it: any) => { s[it.key] = { qty: Number(it.qty) || 0, on: true } }); setSel(s)
+    }
+  }, [])
+
+  async function cargarInventarioEntregable(): Promise<Record<string, any>> {
+    const { data: cotsRaw } = await supabase.from('quotations').select('id,name,specialty,notes,created_at').eq('stage', 'contrato')
+    const cots = ((cotsRaw as any[]) || []).filter(c => c.specialty !== 'proy').map(c => { let lead_id: string | null = null; try { lead_id = JSON.parse(c.notes || '{}').lead_id || null } catch { }; return { id: c.id, name: c.name, specialty: c.specialty, lead_id } }).filter(c => c.lead_id)
+    const cotIds = cots.map(c => c.id)
+    if (!cotIds.length) return {}
+    const { data: posRaw } = await supabase.from('purchase_orders').select('id,quotation_id,status').in('quotation_id', cotIds)
+    const pos = ((posRaw as any[]) || []).filter(p => p.status !== 'cancelada')
+    const poCot: any = {}; pos.forEach(p => poCot[p.id] = p.quotation_id)
+    const confirmedPoIds = pos.filter(p => p.status !== 'borrador').map(p => p.id)
+    const allPoIds = pos.map(p => p.id)
+    let poItems: any[] = []
+    if (confirmedPoIds.length) { const { data } = await supabase.from('po_items').select('purchase_order_id,catalog_product_id,name,marca,modelo,quantity').in('purchase_order_id', confirmedPoIds); poItems = data || [] }
+    const mv1 = (await supabase.from('stock_movements').select('*').eq('anulado', false).in('quotation_id', cotIds)).data || []
+    const mv2 = allPoIds.length ? ((await supabase.from('stock_movements').select('*').eq('anulado', false).in('po_id', allPoIds)).data || []) : []
+    const movs = [...mv1, ...mv2.filter((m: any) => !mv1.find((x: any) => x.id === m.id))]
+    const keyOf = (it: any) => it.catalog_product_id || `${(it.marca || '').toLowerCase()}|${(it.modelo || '').toLowerCase()}|${(it.name || it.descripcion || '').toLowerCase()}`
+    const leadName = (lid: string) => (leads.find((l: any) => l.id === lid)?.name) || 'Lead'
+    const byLead: Record<string, any> = {}
+    const ensureLead = (lid: string) => { if (!byLead[lid]) byLead[lid] = { name: leadName(lid), map: new Map() }; return byLead[lid] }
+    const ensureLine = (lid: string, cot: any, it: any) => { const L = ensureLead(lid); const k = cot.id + '::' + keyOf(it); if (!L.map.has(k)) L.map.set(k, { key: k, quotation_id: cot.id, cotName: cot.name, specialty: cot.specialty, marca: it.marca || '', modelo: it.modelo || '', descripcion: it.name || it.descripcion || '', comprado: 0, recibido: 0, entregado: 0 }); return L.map.get(k) }
+    cots.forEach(cot => { poItems.filter(pi => poCot[pi.purchase_order_id] === cot.id).forEach(pi => { const r = ensureLine(cot.lead_id!, cot, pi); r.comprado += Number(pi.quantity) || 0 }) })
+    movs.forEach((m: any) => { const mCot = m.quotation_id || (m.po_id ? poCot[m.po_id] : null); const cot = cots.find(c => c.id === mCot); if (!cot) return; const r = ensureLine(cot.lead_id!, cot, m); if (m.tipo === 'recepcion_compra') r.recibido += Number(m.qty) || 0; if (m.destino_tipo === 'obra') r.entregado += Number(m.qty) || 0 })
+    const out: Record<string, any> = {}
+    Object.entries(byLead).forEach(([lid, v]: any) => {
+      const lines = Array.from(v.map.values()).map((r: any) => ({ ...r, en_bodega: Math.max(0, r.recibido - r.entregado), por_recibir: Math.max(0, r.comprado - r.recibido), por_entregar: Math.max(0, r.comprado - r.entregado) })).filter((r: any) => r.por_entregar > 0).sort((a: any, b: any) => (a.specialty || '').localeCompare(b.specialty || '') || (a.descripcion || '').localeCompare(b.descripcion || ''))
+      if (lines.length) out[lid] = { name: v.name, lines }
+    })
+    return out
+  }
+
+  const esEntrega = tipo === 'entrega'
+  const leadsInv = invByLead ? Object.entries(invByLead).map(([id, v]: any) => ({ id, name: v.name, n: v.lines.length })).sort((a, b) => a.name.localeCompare(b.name)) : []
+  const lineas = (entLead && invByLead && invByLead[entLead]) ? invByLead[entLead].lines : []
+  const leadNameEnt = invByLead && invByLead[entLead] ? invByLead[entLead].name : ''
+
+  function toggle(ln: any) { setSel(s => { const cur = s[ln.key]; if (cur?.on) return { ...s, [ln.key]: { ...cur, on: false } }; const def = ln.en_bodega > 0 ? ln.en_bodega : ln.por_entregar; return { ...s, [ln.key]: { qty: cur?.qty || def, on: true } } }) }
+  function setQty(k: string, v: number) { setSel(s => ({ ...s, [k]: { qty: v, on: true } })) }
+  const itemsSel = () => lineas.filter((l: any) => sel[l.key]?.on && (sel[l.key]?.qty || 0) > 0).map((l: any) => ({ key: l.key, quotation_id: l.quotation_id, marca: l.marca, modelo: l.modelo, descripcion: l.descripcion, qty: Number(sel[l.key].qty) }))
+
   async function guardar() {
+    if (esEntrega) {
+      if (!entLead) { alert('Selecciona la obra/lead destino (solo aparecen los que tienen inventario).'); return }
+      const items = itemsSel()
+      if (items.length === 0) { alert('Marca al menos un equipo a entregar.'); return }
+      setSaving(true)
+      const folio = init.folio || ('ENT-' + fecha.slice(2).replace(/-/g, '') + '-' + Math.floor(Math.random() * 900 + 100))
+      const chofer = empleados.find((e: any) => e.id === asignado)?.nombre || ''
+      const row: any = { tipo: 'entrega', titulo: (titulo.trim() || ('Entrega — ' + leadNameEnt)), fecha, hora: hora || null, ubicacion: ubicacion || null, prioridad, lead_id: entLead, obra_id: null, po_id: null, asignado_a: asignado || null, asignado_nombre: chofer || null, notas: notas || null, items, recibe_nombre: recibeNombre || null, recibe_rol: recibeRol || null, folio }
+      const res = init.id ? await supabase.from('logistics_tasks').update(row).eq('id', init.id) : await supabase.from('logistics_tasks').insert(row)
+      if (res.error) { alert('Error: ' + res.error.message); setSaving(false); return }
+      generarRecibosEntrega({ folio, fecha, leadName: leadNameEnt, ubicacion, chofer, recibeNombre, recibeRol, items, notas })
+      setSaving(false); onSaved(); return
+    }
     if (!titulo.trim()) { alert('Ponle un título a la tarea.'); return }
     setSaving(true)
     const row: any = { tipo, titulo: titulo.trim(), fecha, hora: hora || null, ubicacion: ubicacion || null, prioridad, lead_id: leadId || null, obra_id: obraId || null, asignado_a: asignado || null, asignado_nombre: empleados.find((e: any) => e.id === asignado)?.nombre || null, notas: notas || null }
@@ -1188,9 +1316,9 @@ function TareaModal({ init, obras, leads, empleados, onClose, onSaved }: any) {
 
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 20 }}>
-      <div onClick={e => e.stopPropagation()} style={{ background: '#141414', border: '1px solid #333', borderRadius: 14, width: 'min(560px, 96vw)', maxHeight: '90vh', overflow: 'auto', padding: 20 }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: '#141414', border: '1px solid #333', borderRadius: 14, width: esEntrega ? 'min(720px, 96vw)' : 'min(560px, 96vw)', maxHeight: '90vh', overflow: 'auto', padding: 20 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-          <div style={{ fontSize: 16, fontWeight: 700, color: '#fff' }}>{init.id ? 'Editar tarea' : 'Nueva tarea de ruta'}</div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: '#fff' }}>{init.id ? (esEntrega ? 'Editar entrega' : 'Editar tarea') : (esEntrega ? 'Programar entrega' : 'Nueva tarea de ruta')}</div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer' }}><X size={18} /></button>
         </div>
 
@@ -1200,9 +1328,6 @@ function TareaModal({ init, obras, leads, empleados, onClose, onSaved }: any) {
             <button key={k} onClick={() => setTipo(k)} style={{ padding: '6px 4px', borderRadius: 8, cursor: 'pointer', fontFamily: 'inherit', fontSize: 10, fontWeight: 600, background: tipo === k ? TAREA_CFG[k].color + '22' : '#0e0e0e', border: `1px solid ${tipo === k ? TAREA_CFG[k].color : '#2a2a2a'}`, color: tipo === k ? '#fff' : '#999' }}>{TAREA_CFG[k].icon} {TAREA_CFG[k].label}</button>
           ))}
         </div>
-
-        <label style={labelStyle}>Título</label>
-        <input value={titulo} onChange={e => setTitulo(e.target.value)} placeholder="Ej. Llevar muestras de tela a cliente" style={{ ...inputStyle, marginBottom: 12 }} />
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 12 }}>
           <div><label style={labelStyle}>Fecha</label><input type="date" value={fecha} onChange={e => setFecha(e.target.value)} style={inputStyle} /></div>
@@ -1214,36 +1339,114 @@ function TareaModal({ init, obras, leads, empleados, onClose, onSaved }: any) {
           </div>
         </div>
 
-        <label style={labelStyle}>Ubicación</label>
-        <input value={ubicacion} onChange={e => setUbicacion(e.target.value)} placeholder="Dirección / obra / lugar" style={{ ...inputStyle, marginBottom: 12 }} />
+        {esEntrega ? (
+          <>
+            <label style={labelStyle}>Destino — obra / lead con inventario</label>
+            {loadingInv ? <div style={{ fontSize: 12, color: '#888', padding: '8px 0', marginBottom: 12 }}>Cargando inventario entregable…</div> : (
+              <select value={entLead} onChange={e => { setEntLead(e.target.value); setSel({}) }} style={{ ...inputStyle, marginBottom: 12 }}>
+                <option value="">Selecciona…</option>
+                {leadsInv.map(l => <option key={l.id} value={l.id}>{l.name} ({l.n} {l.n === 1 ? 'artículo' : 'artículos'})</option>)}
+              </select>
+            )}
+            {!loadingInv && leadsInv.length === 0 && <div style={{ fontSize: 12, color: '#D97706', marginBottom: 12 }}>No hay obras con inventario pendiente de entregar (comprado o en bodega).</div>}
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
-          <div><label style={labelStyle}>Lead (opcional)</label>
-            <select value={leadId} onChange={e => setLeadId(e.target.value)} style={inputStyle}>
-              <option value="">—</option>
-              {leads.map((l: any) => <option key={l.id} value={l.id}>{l.name}</option>)}
-            </select>
-          </div>
-          <div><label style={labelStyle}>Obra (opcional)</label>
-            <select value={obraId} onChange={e => setObraId(e.target.value)} style={inputStyle}>
-              <option value="">—</option>
-              {obras.map((o: any) => <option key={o.id} value={o.id}>{o.nombre}</option>)}
-            </select>
-          </div>
-        </div>
+            {entLead && (
+              <div style={{ marginBottom: 14 }}>
+                <label style={labelStyle}>Equipos a entregar — marca lo que se manda</label>
+                <div style={{ border: '1px solid #2a2a2a', borderRadius: 10, overflow: 'hidden' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11.5 }}>
+                    <thead><tr style={{ background: '#0f0f0f', color: '#777', textAlign: 'left' }}>
+                      <th style={{ padding: '7px 8px', width: 30 }}></th>
+                      <th style={{ padding: '7px 8px' }}>Equipo</th>
+                      <th style={{ padding: '7px 8px', textAlign: 'center' }}>Disponibilidad</th>
+                      <th style={{ padding: '7px 8px', textAlign: 'center', width: 72 }}>Enviar</th>
+                    </tr></thead>
+                    <tbody>
+                      {lineas.map((l: any) => {
+                        const esp = SPECIALTY_CONFIG[l.specialty as keyof typeof SPECIALTY_CONFIG]
+                        const on = !!sel[l.key]?.on
+                        return (
+                          <tr key={l.key} style={{ borderTop: '1px solid #1a1a1a', color: '#ccc', background: on ? '#132015' : 'transparent' }}>
+                            <td style={{ padding: '6px 8px', textAlign: 'center' }}><input type="checkbox" checked={on} onChange={() => toggle(l)} style={{ cursor: 'pointer' }} /></td>
+                            <td style={{ padding: '6px 8px', color: '#eee' }}>
+                              <div>{l.marca ? l.marca + ' ' : ''}{l.modelo || l.descripcion}</div>
+                              <div style={{ fontSize: 9.5, color: '#666' }}>{esp ? <span style={{ color: esp.color }}>{esp.label}</span> : ''}{l.modelo && l.descripcion && l.descripcion !== l.modelo ? ' · ' + l.descripcion : ''}</div>
+                            </td>
+                            <td style={{ padding: '6px 8px', textAlign: 'center', whiteSpace: 'nowrap' }}>
+                              <span style={{ color: l.en_bodega > 0 ? '#10B981' : '#555' }}>Bodega {fmtQ(l.en_bodega)}</span>
+                              {l.por_recibir > 0 && <span style={{ color: '#D97706' }}> · por recibir {fmtQ(l.por_recibir)}</span>}
+                            </td>
+                            <td style={{ padding: '6px 8px', textAlign: 'center' }}>
+                              <input type="number" min={0} max={l.por_entregar} value={sel[l.key]?.qty ?? ''} placeholder={String(l.en_bodega > 0 ? l.en_bodega : l.por_entregar)} onChange={e => setQty(l.key, Math.min(l.por_entregar, Number(e.target.value) || 0))} style={{ ...inputStyle, width: 60, padding: '4px 6px', textAlign: 'center' }} />
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                <div style={{ fontSize: 10, color: '#666', marginTop: 4 }}>Si un artículo está "por recibir", primero se recolecta del proveedor y luego se entrega todo junto — un solo recibo.</div>
+              </div>
+            )}
 
-        <div style={{ marginBottom: 12 }}><label style={labelStyle}>Asignado a</label>
-          <select value={asignado} onChange={e => setAsignado(e.target.value)} style={inputStyle}>
-            <option value="">—</option>
-            {empleados.map((e: any) => <option key={e.id} value={e.id}>{e.nombre}</option>)}
-          </select>
-        </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
+              <div><label style={labelStyle}>Recibe en obra (nombre)</label><input value={recibeNombre} onChange={e => setRecibeNombre(e.target.value)} placeholder="Nombre de quien recibe" style={inputStyle} /></div>
+              <div><label style={labelStyle}>Rol de quien recibe</label>
+                <select value={recibeRol} onChange={e => setRecibeRol(e.target.value)} style={inputStyle}>
+                  <option value="instalador">Instalador OMM</option>
+                  <option value="residente">Residente de obra</option>
+                  <option value="cliente">Cliente</option>
+                </select>
+              </div>
+            </div>
+
+            <label style={labelStyle}>Ubicación de entrega</label>
+            <input value={ubicacion} onChange={e => setUbicacion(e.target.value)} placeholder="Dirección de la obra" style={{ ...inputStyle, marginBottom: 12 }} />
+
+            <div style={{ marginBottom: 12 }}><label style={labelStyle}>Chofer / responsable de llevarlo</label>
+              <select value={asignado} onChange={e => setAsignado(e.target.value)} style={inputStyle}>
+                <option value="">—</option>
+                {empleados.map((e: any) => <option key={e.id} value={e.id}>{e.nombre}</option>)}
+              </select>
+            </div>
+          </>
+        ) : (
+          <>
+            <label style={labelStyle}>Título</label>
+            <input value={titulo} onChange={e => setTitulo(e.target.value)} placeholder="Ej. Llevar muestras de tela a cliente" style={{ ...inputStyle, marginBottom: 12 }} />
+
+            <label style={labelStyle}>Ubicación</label>
+            <input value={ubicacion} onChange={e => setUbicacion(e.target.value)} placeholder="Dirección / obra / lugar" style={{ ...inputStyle, marginBottom: 12 }} />
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
+              <div><label style={labelStyle}>Lead (opcional)</label>
+                <select value={leadId} onChange={e => setLeadId(e.target.value)} style={inputStyle}>
+                  <option value="">—</option>
+                  {leads.map((l: any) => <option key={l.id} value={l.id}>{l.name}</option>)}
+                </select>
+              </div>
+              <div><label style={labelStyle}>Obra (opcional)</label>
+                <select value={obraId} onChange={e => setObraId(e.target.value)} style={inputStyle}>
+                  <option value="">—</option>
+                  {obras.map((o: any) => <option key={o.id} value={o.id}>{o.nombre}</option>)}
+                </select>
+              </div>
+            </div>
+
+            <div style={{ marginBottom: 12 }}><label style={labelStyle}>Asignado a</label>
+              <select value={asignado} onChange={e => setAsignado(e.target.value)} style={inputStyle}>
+                <option value="">—</option>
+                {empleados.map((e: any) => <option key={e.id} value={e.id}>{e.nombre}</option>)}
+              </select>
+            </div>
+          </>
+        )}
 
         <div style={{ marginBottom: 18 }}><label style={labelStyle}>Notas</label><input value={notas} onChange={e => setNotas(e.target.value)} placeholder="Detalle (opcional)" style={inputStyle} /></div>
 
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
           <Btn variant="default" onClick={onClose}>Cancelar</Btn>
-          <Btn variant="primary" onClick={guardar} disabled={saving}>{saving ? 'Guardando…' : (init.id ? 'Guardar' : 'Crear tarea')}</Btn>
+          <Btn variant="primary" onClick={guardar} disabled={saving}>{saving ? 'Guardando…' : (esEntrega ? (init.id ? 'Guardar y generar recibos' : 'Programar y generar recibos') : (init.id ? 'Guardar' : 'Crear tarea'))}</Btn>
         </div>
       </div>
     </div>
