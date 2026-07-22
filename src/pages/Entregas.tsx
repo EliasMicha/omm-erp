@@ -614,7 +614,7 @@ function TabInventarioLead({ isMobile }: any) {
               <button key={l.id} onClick={() => abrirLead(l.id)} style={{ textAlign: 'left', padding: '14px 16px', background: '#0e0e0e', border: '1px solid #2a2a2a', borderRadius: 10, cursor: 'pointer', color: '#eee', fontFamily: 'inherit', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
                 onMouseEnter={e => (e.currentTarget.style.borderColor = '#67E8F9')} onMouseLeave={e => (e.currentTarget.style.borderColor = '#2a2a2a')}>
                 <span style={{ fontSize: 14, fontWeight: 600 }}>{l.name}</span>
-                <span style={{ fontSize: 11, color: '#888' }}>{l.nCots} cotización{l.nCots !== 1 ? 'es' : ''} <ChevronRight size={14} style={{ verticalAlign: 'middle' }} /></span>
+                <span style={{ fontSize: 11, color: '#888' }}>{l.nCots} {l.nCots === 1 ? 'cotización' : 'cotizaciones'} <ChevronRight size={14} style={{ verticalAlign: 'middle' }} /></span>
               </button>
             ))}
           </div>
