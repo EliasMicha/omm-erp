@@ -1013,7 +1013,7 @@ function CotizacionPdfInner() {
                             {mostrarCostosInternos && <th style={{ width: 80 }}>SKU / Prov.</th>}
                             {mostrarCostosInternos && <th style={{ textAlign: 'right', width: 60 }}>Costo</th>}
                             {mostrarCostosInternos && <th style={{ textAlign: 'center', width: 36 }}>MUp</th>}
-                            <th style={{ textAlign: esResumen ? 'right' : 'center', width: esResumen ? 70 : 36, fontSize: esResumen ? 11 : undefined }}>{esResumen ? 'Cantidad' : 'Cant'}</th>
+                            <th style={{ textAlign: 'center', width: esResumen ? 70 : 36, fontSize: esResumen ? 11 : undefined }}>{esResumen ? 'Cantidad' : 'Cant'}</th>
                             {!esResumen && <th style={{ textAlign: 'right', width: 70 }}>P. unit.</th>}
                             {!esResumen && <th style={{ textAlign: 'right', width: 70 }}>Total</th>}
                           </tr>
@@ -1044,7 +1044,7 @@ function CotizacionPdfInner() {
                               )}
                               {mostrarCostosInternos && <td style={{ textAlign: 'right', color: '#888' }}>{FCUR(it.cost || 0, currency)}</td>}
                               {mostrarCostosInternos && <td style={{ textAlign: 'center', color: '#888', fontSize: 9 }}>{it.markup || 0}%</td>}
-                              <td style={{ textAlign: esResumen ? 'right' : 'center', ...(esResumen ? { fontWeight: 800, fontSize: 15, color: '#111' } : {}) }}>{it.quantity}</td>
+                              <td style={{ textAlign: 'center', ...(esResumen ? { fontWeight: 800, fontSize: 15, color: '#111' } : {}) }}>{it.quantity}</td>
                               {!esResumen && <td style={{ textAlign: 'right', fontWeight: 500 }}>{FCUR(it.price, currency)}</td>}
                               {!esResumen && <td style={{ textAlign: 'right', fontWeight: 600 }}>{FCUR(it.price * it.quantity, currency)}</td>}
                             </tr>
