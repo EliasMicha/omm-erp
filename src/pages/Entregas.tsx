@@ -515,9 +515,17 @@ function TabRegistrar({ obras, empleados, pos, catalog, obraProject, isMobile, o
 }
 
 // ═══════════════════════════ INVENTARIO POR LEAD + COTIZACIÓN ═══════════════════════════
-type Fase = { qty: number; fecha: string | null }
-const mkFase = (): Fase => ({ qty: 0, fecha: null })
-const maxFecha = (a: string | null, b: string | null) => !a ? b : !b ? a : (a > b ? a : b)
+type Parte = { qty: number; fecha: string | null }
+type Fase = { total: number; partes: Parte[] }
+const mkFase = (): Fase => ({ total: 0, partes: [] })
+// Cada parcialidad se acumula por fecha (misma fecha = misma parcialidad)
+const addParte = (f: Fase, qty: number, fecha: string | null) => {
+  if (!qty) return
+  f.total += qty
+  const ex = f.partes.find(p => p.fecha === fecha)
+  if (ex) ex.qty += qty
+  else f.partes.push({ qty, fecha })
+}
 
 function TabInventarioLead({ isMobile }: any) {
   const [loading, setLoading] = useState(true)
@@ -590,17 +598,17 @@ function TabInventarioLead({ isMobile }: any) {
         if (!map.has(k)) map.set(k, { key: k, marca: it.marca || '', modelo: it.modelo || '', descripcion: it.name || it.descripcion || '', vendido: mkFase(), comprado: mkFase(), recibido: mkFase(), entregado: mkFase() })
         return map.get(k)
       }
-      // Vendido
-      qItems.filter(i => i.quotation_id === cot.id).forEach(i => { const r = ensure(i); r.vendido.qty += Number(i.quantity) || 0; r.vendido.fecha = maxFecha(r.vendido.fecha, (cot.created_at || '').slice(0, 10)) })
-      // Comprado
-      poItems.filter(pi => poCot[pi.purchase_order_id] === cot.id).forEach(pi => { const r = ensure(pi); r.comprado.qty += Number(pi.quantity) || 0; r.comprado.fecha = maxFecha(r.comprado.fecha, poFecha[pi.purchase_order_id] || null) })
-      // Recibido + Entregado (del libro)
+      // Vendido (una fecha: la del contrato)
+      qItems.filter(i => i.quotation_id === cot.id).forEach(i => { const r = ensure(i); addParte(r.vendido, Number(i.quantity) || 0, (cot.created_at || '').slice(0, 10)) })
+      // Comprado (una parcialidad por OC / fecha de OC)
+      poItems.filter(pi => poCot[pi.purchase_order_id] === cot.id).forEach(pi => { const r = ensure(pi); addParte(r.comprado, Number(pi.quantity) || 0, poFecha[pi.purchase_order_id] || null) })
+      // Recibido + Entregado (una parcialidad por movimiento del libro / su fecha)
       movs.forEach((m: any) => {
         const mCot = m.quotation_id || (m.po_id ? poCot[m.po_id] : null)
         if (mCot !== cot.id) return
         const r = ensure(m)
-        if (m.tipo === 'recepcion_compra') { r.recibido.qty += Number(m.qty) || 0; r.recibido.fecha = maxFecha(r.recibido.fecha, (m.fecha || '').slice(0, 10)) }
-        if (m.destino_tipo === 'obra') { r.entregado.qty += Number(m.qty) || 0; r.entregado.fecha = maxFecha(r.entregado.fecha, (m.fecha || '').slice(0, 10)) }
+        if (m.tipo === 'recepcion_compra') addParte(r.recibido, Number(m.qty) || 0, (m.fecha || '').slice(0, 10))
+        if (m.destino_tipo === 'obra') addParte(r.entregado, Number(m.qty) || 0, (m.fecha || '').slice(0, 10))
       })
       const arts = Array.from(map.values()).sort((a, b) => (a.descripcion || '').localeCompare(b.descripcion || ''))
       return { cot, arts }
@@ -674,9 +682,9 @@ function TabInventarioLead({ isMobile }: any) {
                           <td style={{ padding: '6px 10px' }}>{a.modelo || '—'}</td>
                           <td style={{ padding: '6px 10px', color: '#eee' }}>{a.descripcion || '—'}</td>
                           <FaseCell f={a.vendido} />
-                          <FaseCell f={a.comprado} ref_={a.vendido.qty} />
-                          <FaseCell f={a.recibido} ref_={a.comprado.qty} />
-                          <FaseCell f={a.entregado} ref_={a.recibido.qty} />
+                          <FaseCell f={a.comprado} ref_={a.vendido.total} />
+                          <FaseCell f={a.recibido} ref_={a.comprado.total} />
+                          <FaseCell f={a.entregado} ref_={a.recibido.total} />
                         </tr>
                       ))}
                     </tbody>
@@ -693,12 +701,18 @@ function TabInventarioLead({ isMobile }: any) {
 
 function FaseCell({ f, ref_ }: { f: Fase; ref_?: number }) {
   // color: si esta fase quedó por debajo de la fase anterior (ref_), marcar en ámbar (falta)
-  const falta = ref_ !== undefined && f.qty < ref_
-  const color = f.qty === 0 ? '#555' : falta ? '#D97706' : '#10B981'
+  const falta = ref_ !== undefined && f.total < ref_
+  const color = f.total === 0 ? '#555' : falta ? '#D97706' : '#10B981'
+  const fmt = (n: number) => Number(n).toLocaleString('es-MX', { maximumFractionDigits: 2 })
+  const partes = [...f.partes].sort((a, b) => (a.fecha || '').localeCompare(b.fecha || ''))
   return (
-    <td style={{ padding: '6px 10px', textAlign: 'center' }}>
-      <div style={{ fontWeight: 800, fontSize: 14, color }}>{f.qty > 0 ? Number(f.qty).toLocaleString('es-MX', { maximumFractionDigits: 2 }) : '—'}</div>
-      {f.fecha && <div style={{ fontSize: 9, color: '#666' }}>{fechaCorta(f.fecha)}</div>}
+    <td style={{ padding: '6px 10px', textAlign: 'center', verticalAlign: 'top' }}>
+      <div style={{ fontWeight: 800, fontSize: 14, color }}>{f.total > 0 ? fmt(f.total) : '—'}</div>
+      {/* Una sola parcialidad → solo la fecha. Varias → desglose cantidad · fecha */}
+      {partes.length === 1 && partes[0].fecha && <div style={{ fontSize: 9, color: '#666' }}>{fechaCorta(partes[0].fecha)}</div>}
+      {partes.length > 1 && partes.map((p, i) => (
+        <div key={i} style={{ fontSize: 9, color: '#888' }}>{fmt(p.qty)} · {p.fecha ? fechaCorta(p.fecha) : '—'}</div>
+      ))}
     </td>
   )
 }
