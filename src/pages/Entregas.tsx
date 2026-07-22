@@ -212,14 +212,65 @@ function TabMovimientos({ movimientos, obras, isMobile }: any) {
   const [fTipo, setFTipo] = useState<string>('todos')
   const [fObra, setFObra] = useState<string>('')
   const [q, setQ] = useState('')
+  const [detalle, setDetalle] = useState<any | null>(null)
+  const [poMap, setPoMap] = useState<Record<string, any>>({})
+  const [q2l, setQ2l] = useState<Record<string, string>>({})
+  const [leadMap, setLeadMap] = useState<Record<string, string>>({})
+  const [supMap, setSupMap] = useState<Record<string, string>>({})
   const obraName = (id: string | null) => obras.find((o: any) => o.id === id)?.nombre || null
 
-  const lista = movimientos.filter((m: any) => {
+  // Cargar OCs (num interna + orden proveedor + lead) y leads referenciados
+  useEffect(() => {
+    (async () => {
+      const poIds = [...new Set(movimientos.map((m: any) => m.po_id).filter(Boolean))]
+      const qIds = [...new Set(movimientos.map((m: any) => m.quotation_id).filter(Boolean))]
+      const pR = poIds.length
+        ? await supabase.from('purchase_orders').select('id, po_number, supplier_doc_number, quotation_id, lead_id, supplier_id').in('id', poIds)
+        : { data: [] as any[] }
+      const pm: any = {}; ((pR.data as any[]) || []).forEach(p => pm[p.id] = p); setPoMap(pm)
+      const allQ = [...new Set([...qIds, ...((pR.data as any[]) || []).map(p => p.quotation_id).filter(Boolean)])]
+      const supIds = [...new Set(((pR.data as any[]) || []).map(p => p.supplier_id).filter(Boolean))]
+      const [qR, lR, sR] = await Promise.all([
+        allQ.length ? supabase.from('quotations').select('id, notes').in('id', allQ) : Promise.resolve({ data: [] as any[] }),
+        supabase.from('leads').select('id, name'),
+        supIds.length ? supabase.from('suppliers').select('id, name').in('id', supIds) : Promise.resolve({ data: [] as any[] }),
+      ])
+      const q2: any = {}; ((qR.data as any[]) || []).forEach(x => { try { const lid = JSON.parse(x.notes || '{}').lead_id; if (lid) q2[x.id] = lid } catch { } }); setQ2l(q2)
+      const lm: any = {}; ((lR.data as any[]) || []).forEach(l => lm[l.id] = l.name); setLeadMap(lm)
+      const sm: any = {}; ((sR.data as any[]) || []).forEach(s => sm[s.id] = s.name); setSupMap(sm)
+    })()
+  }, [movimientos])
+
+  // Agrupar por folio/batch → un renglón por movimiento (no por equipo)
+  const grupos = useMemo(() => {
+    const map = new Map<string, any>()
+    for (const m of movimientos) {
+      const key = m.batch_id || m.id
+      if (!map.has(key)) map.set(key, { ...m, _items: [m] })
+      else map.get(key)._items.push(m)
+    }
+    return Array.from(map.values())
+  }, [movimientos])
+
+  const po = (m: any) => (m.po_id ? poMap[m.po_id] : null)
+  const leadDe = (m: any) => {
+    const p = po(m)
+    const qid = m.quotation_id || p?.quotation_id
+    const lid = (qid && q2l[qid]) || p?.lead_id
+    return (lid && leadMap[lid]) || null
+  }
+  const refInterna = (m: any) => po(m)?.po_number || m.folio || '—'
+  const ordenProv = (m: any) => po(m)?.supplier_doc_number || null
+  const provNombre = (m: any) => { const p = po(m); return p ? supMap[p.supplier_id] : null }
+
+  const lista = grupos.filter((m: any) => {
     if (fTipo !== 'todos' && m.tipo !== fTipo) return false
     if (fObra && m.origen_obra_id !== fObra && m.destino_obra_id !== fObra) return false
     if (q.trim()) {
       const s = q.toLowerCase().trim()
-      if (!((m.descripcion || '').toLowerCase().includes(s) || (m.marca || '').toLowerCase().includes(s) || (m.modelo || '').toLowerCase().includes(s) || (m.folio || '').toLowerCase().includes(s))) return false
+      const items = m._items.map((x: any) => `${x.marca || ''} ${x.modelo || ''} ${x.descripcion || ''}`).join(' ').toLowerCase()
+      const hay = items.includes(s) || (refInterna(m) || '').toLowerCase().includes(s) || (ordenProv(m) || '').toLowerCase().includes(s) || (leadDe(m) || '').toLowerCase().includes(s) || (m.folio || '').toLowerCase().includes(s)
+      if (!hay) return false
     }
     return true
   })
@@ -238,7 +289,7 @@ function TabMovimientos({ movimientos, obras, isMobile }: any) {
           <option value="">Todas las obras</option>
           {obras.map((o: any) => <option key={o.id} value={o.id}>{o.nombre}</option>)}
         </select>
-        <input value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar equipo o folio…" style={{ ...inputStyle, width: 'auto', minWidth: 200, marginLeft: 'auto' }} />
+        <input value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar equipo, OC, lead…" style={{ ...inputStyle, width: 'auto', minWidth: 200, marginLeft: 'auto' }} />
       </div>
 
       {lista.length === 0 ? <EmptyState message="Sin movimientos registrados. Usa 'Registrar movimiento' para empezar." /> : (
@@ -248,25 +299,29 @@ function TabMovimientos({ movimientos, obras, isMobile }: any) {
               <tr style={{ background: '#0f0f0f', color: '#777', textAlign: 'left' }}>
                 <th style={{ padding: '10px 12px' }}>Fecha</th>
                 <th style={{ padding: '10px 12px' }}>Tipo</th>
-                <th style={{ padding: '10px 12px' }}>Equipo</th>
-                <th style={{ padding: '10px 12px', textAlign: 'center' }}>Cant.</th>
-                <th style={{ padding: '10px 12px' }}>Movimiento</th>
-                <th style={{ padding: '10px 12px' }}>Quién</th>
-                <th style={{ padding: '10px 12px' }}>Folio</th>
+                <th style={{ padding: '10px 12px' }}>OC interna / Folio</th>
+                <th style={{ padding: '10px 12px' }}>Orden proveedor</th>
+                <th style={{ padding: '10px 12px' }}>Lead</th>
+                <th style={{ padding: '10px 12px' }}>Entrega</th>
+                <th style={{ padding: '10px 12px' }}>Recibe</th>
+                <th style={{ padding: '10px 12px', textAlign: 'center' }}></th>
               </tr>
             </thead>
             <tbody>
               {lista.map((m: any) => {
                 const cfg = TIPO_CFG[m.tipo as Tipo]
+                const op = ordenProv(m); const pn = provNombre(m)
                 return (
-                  <tr key={m.id} style={{ borderTop: '1px solid #1a1a1a', color: '#ccc' }}>
+                  <tr key={m.batch_id || m.id} onClick={() => setDetalle(m)} style={{ borderTop: '1px solid #1a1a1a', color: '#ccc', cursor: 'pointer' }}
+                    onMouseEnter={e => (e.currentTarget.style.background = '#131313')} onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
                     <td style={{ padding: '8px 12px', whiteSpace: 'nowrap' }}>{fechaCorta(m.fecha)}</td>
                     <td style={{ padding: '8px 12px' }}><span style={{ fontSize: 11, fontWeight: 600, color: cfg?.color || '#888' }}>{cfg?.icon} {cfg?.label || m.tipo}</span></td>
-                    <td style={{ padding: '8px 12px', color: '#eee' }}>{m.marca ? m.marca + ' ' : ''}{m.modelo || m.descripcion}</td>
-                    <td style={{ padding: '8px 12px', textAlign: 'center', fontWeight: 700, color: '#fff' }}>{F(m.qty)}</td>
-                    <td style={{ padding: '8px 12px', color: '#aaa', whiteSpace: 'nowrap' }}>{puntoOrigen(m)} <span style={{ color: '#555' }}>→</span> {puntoDestino(m)}{m.motivo ? <span style={{ color: '#777', fontStyle: 'italic' }}> · {m.motivo}</span> : ''}</td>
+                    <td style={{ padding: '8px 12px', color: '#eee', whiteSpace: 'nowrap' }}>{refInterna(m)}</td>
+                    <td style={{ padding: '8px 12px', color: '#aaa', whiteSpace: 'nowrap' }}>{op || '—'}{pn ? <span style={{ display: 'block', color: '#666', fontSize: 10 }}>{pn}</span> : null}</td>
+                    <td style={{ padding: '8px 12px', color: '#ccc' }}>{leadDe(m) || <span style={{ color: '#555' }}>—</span>}</td>
                     <td style={{ padding: '8px 12px', color: '#aaa' }}>{m.movido_por_nombre || '—'}</td>
-                    <td style={{ padding: '8px 12px', color: '#666', fontSize: 11 }}>{m.folio || '—'}</td>
+                    <td style={{ padding: '8px 12px', color: '#aaa' }}>{m.recibido_por || '—'}</td>
+                    <td style={{ padding: '8px 12px', textAlign: 'center', color: '#57FF9A', fontSize: 11 }}>ver ›</td>
                   </tr>
                 )
               })}
@@ -274,6 +329,63 @@ function TabMovimientos({ movimientos, obras, isMobile }: any) {
           </table>
         </div>
       )}
+
+      {detalle && (
+        <MovimientoDetalleModal
+          m={detalle} items={detalle._items}
+          refInterna={refInterna(detalle)} ordenProv={ordenProv(detalle)} provNombre={provNombre(detalle)}
+          lead={leadDe(detalle)} origen={puntoOrigen(detalle)} destino={puntoDestino(detalle)}
+          onClose={() => setDetalle(null)}
+        />
+      )}
+    </div>
+  )
+}
+
+function MovimientoDetalleModal({ m, items, refInterna, ordenProv, provNombre, lead, origen, destino, onClose }: any) {
+  const cfg = TIPO_CFG[m.tipo as Tipo]
+  const Row = ({ k, v }: any) => v ? (
+    <div style={{ display: 'flex', gap: 8 }}><span style={{ color: '#777', minWidth: 130 }}>{k}</span><span style={{ color: '#ddd' }}>{v}</span></div>
+  ) : null
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16 }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: '#111', border: '1px solid #2a2a2a', borderRadius: 12, width: 'min(680px,100%)', maxHeight: '88vh', overflowY: 'auto' }}>
+        <div style={{ padding: '16px 20px', borderBottom: '1px solid #1f1f1f', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: '#fff' }}><span style={{ color: cfg?.color || '#888' }}>{cfg?.icon} {cfg?.label || m.tipo}</span></div>
+            <div style={{ fontSize: 12, color: '#888', marginTop: 4 }}>{origen} → {destino} · {fechaCorta(m.fecha)}</div>
+          </div>
+          <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: '#888', fontSize: 20, cursor: 'pointer' }}>×</button>
+        </div>
+        <div style={{ padding: '16px 20px', display: 'grid', gap: 6, fontSize: 12.5 }}>
+          <Row k="OC interna / Folio" v={refInterna} />
+          <Row k="Orden proveedor" v={ordenProv ? `${ordenProv}${provNombre ? ' · ' + provNombre : ''}` : (provNombre || null)} />
+          <Row k="Lead" v={lead} />
+          <Row k="Entrega" v={m.movido_por_nombre} />
+          <Row k="Recibe" v={m.recibido_por} />
+          <Row k="Motivo" v={m.motivo} />
+          <Row k="Notas" v={m.notas} />
+        </div>
+        <div style={{ padding: '0 20px 20px' }}>
+          <div style={{ fontSize: 11, color: '#777', textTransform: 'uppercase', letterSpacing: .5, marginBottom: 8 }}>Equipos ({items.length})</div>
+          <div style={{ border: '1px solid #1f1f1f', borderRadius: 8, overflow: 'hidden' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+              <thead><tr style={{ background: '#0f0f0f', color: '#777', textAlign: 'left' }}>
+                <th style={{ padding: '8px 12px' }}>Equipo</th>
+                <th style={{ padding: '8px 12px', textAlign: 'center' }}>Cant.</th>
+              </tr></thead>
+              <tbody>
+                {items.map((it: any) => (
+                  <tr key={it.id} style={{ borderTop: '1px solid #1a1a1a' }}>
+                    <td style={{ padding: '8px 12px', color: '#eee' }}>{it.marca ? it.marca + ' ' : ''}{it.modelo || it.descripcion}{it.modelo && it.descripcion && it.descripcion !== it.modelo ? <span style={{ display: 'block', color: '#666', fontSize: 10 }}>{it.descripcion}</span> : null}</td>
+                    <td style={{ padding: '8px 12px', textAlign: 'center', fontWeight: 700, color: '#fff' }}>{F(it.qty)} <span style={{ color: '#666', fontWeight: 400, fontSize: 10 }}>{it.unit || 'pza'}</span></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
     </div>
   )
 }
