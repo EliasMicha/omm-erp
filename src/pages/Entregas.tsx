@@ -538,11 +538,13 @@ function TabInventarioLead({ isMobile }: any) {
         supabase.from('obras').select('id, quotation_id, quotation_ids'),
       ])
       setLeads((lR.data as any[]) || [])
-      const cotsParsed = ((qR.data as any[]) || []).map(c => {
-        let lead_id: string | null = null
-        try { lead_id = JSON.parse(c.notes || '{}').lead_id || null } catch {}
-        return { id: c.id, name: c.name, specialty: c.specialty, lead_id, created_at: c.created_at }
-      })
+      const cotsParsed = ((qR.data as any[]) || [])
+        .filter(c => c.specialty !== 'proy')  // Proyecto = servicio/ingeniería, no lleva inventario físico
+        .map(c => {
+          let lead_id: string | null = null
+          try { lead_id = JSON.parse(c.notes || '{}').lead_id || null } catch {}
+          return { id: c.id, name: c.name, specialty: c.specialty, lead_id, created_at: c.created_at }
+        })
       setCots(cotsParsed)
       // Solo leads CONTRATADOS = los que tienen una obra (obra → cotización → lead)
       const cotLead = new Map<string, string | null>(cotsParsed.map((c: any) => [c.id, c.lead_id]))
