@@ -659,7 +659,7 @@ function TabInventarioLead({ isMobile }: any) {
       ])
       setLeads((lR.data as any[]) || [])
       const cotsParsed = ((qR.data as any[]) || [])
-        .filter(c => c.specialty !== 'proy')  // Proyecto = servicio/ingeniería, no lleva inventario físico
+        .filter(c => c.specialty !== 'proy' && c.specialty !== 'cort')  // Proyecto = ingeniería (sin material); Cortinas = fuera por ahora
         .map(c => {
           let lead_id: string | null = null
           try { lead_id = JSON.parse(c.notes || '{}').lead_id || null } catch {}
@@ -706,14 +706,17 @@ function TabInventarioLead({ isMobile }: any) {
     const keyOf = (it: any) => it.catalog_product_id || `${(it.marca || '').toLowerCase()}|${(it.modelo || '').toLowerCase()}|${(it.name || it.descripcion || '').toLowerCase()}`
 
     const detalleCots = cotsLead.map(cot => {
+      // Eléctricas: se cotizan por salida / metro lineal, no por producto → el inventario NO se rige
+      // por los items de la cotización sino por el conjunto de sus COMPRAS (tubo, cable, codos…).
+      const esElec = cot.specialty === 'elec'
       const map = new Map<string, any>()
       const ensure = (it: any) => {
         const k = keyOf(it)
         if (!map.has(k)) map.set(k, { key: k, marca: it.marca || '', modelo: it.modelo || '', descripcion: it.name || it.descripcion || '', vendido: mkFase(), comprado: mkFase(), recibido: mkFase(), entregado: mkFase() })
         return map.get(k)
       }
-      // Vendido (una fecha: la del contrato)
-      qItems.filter(i => i.quotation_id === cot.id).forEach(i => { const r = ensure(i); addParte(r.vendido, Number(i.quantity) || 0, (cot.created_at || '').slice(0, 10)) })
+      // Vendido (una fecha: la del contrato) — omitido para eléctricas
+      if (!esElec) qItems.filter(i => i.quotation_id === cot.id).forEach(i => { const r = ensure(i); addParte(r.vendido, Number(i.quantity) || 0, (cot.created_at || '').slice(0, 10)) })
       // Comprado (una parcialidad por OC / fecha de OC)
       poItems.filter(pi => poCot[pi.purchase_order_id] === cot.id).forEach(pi => { const r = ensure(pi); addParte(r.comprado, Number(pi.quantity) || 0, poFecha[pi.purchase_order_id] || null) })
       // Recibido + Entregado (una parcialidad por movimiento del libro / su fecha)
@@ -725,7 +728,7 @@ function TabInventarioLead({ isMobile }: any) {
         if (m.destino_tipo === 'obra') addParte(r.entregado, Number(m.qty) || 0, (m.fecha || '').slice(0, 10))
       })
       const arts = Array.from(map.values()).sort((a, b) => (a.descripcion || '').localeCompare(b.descripcion || ''))
-      return { cot, arts }
+      return { cot, arts, esElec }
     })
     setDetalle(detalleCots)
     setLoadingDet(false)
@@ -773,6 +776,7 @@ function TabInventarioLead({ isMobile }: any) {
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, padding: '8px 12px', background: '#0f0f0f', borderRadius: 8, borderLeft: `4px solid ${esp?.color || '#666'}` }}>
                 <span style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>{d.cot.name}</span>
                 {esp && <span style={{ fontSize: 11, fontWeight: 600, color: esp.color }}>{esp.icon} {esp.label}</span>}
+                {d.esElec && <span style={{ fontSize: 10, fontWeight: 600, color: '#FFB347', background: '#FFB34718', padding: '2px 7px', borderRadius: 4 }}>inventario por compras</span>}
                 <span style={{ fontSize: 10, color: '#666', marginLeft: 'auto' }}>{d.arts.length} artículos</span>
               </div>
               {d.arts.length === 0 ? <div style={{ fontSize: 12, color: '#666', padding: '4px 12px' }}>Sin artículos.</div> : (
@@ -783,7 +787,7 @@ function TabInventarioLead({ isMobile }: any) {
                         <th style={{ padding: '8px 10px' }}>Marca</th>
                         <th style={{ padding: '8px 10px' }}>Modelo</th>
                         <th style={{ padding: '8px 10px' }}>Descripción</th>
-                        <th style={{ padding: '8px 10px', textAlign: 'center' }}>Vendido</th>
+                        <th style={{ padding: '8px 10px', textAlign: 'center' }}>{d.esElec ? 'Vendido (n/a)' : 'Vendido'}</th>
                         <th style={{ padding: '8px 10px', textAlign: 'center' }}>Comprado</th>
                         <th style={{ padding: '8px 10px', textAlign: 'center' }}>Recibido</th>
                         <th style={{ padding: '8px 10px', textAlign: 'center' }}>Entregado</th>
@@ -796,7 +800,7 @@ function TabInventarioLead({ isMobile }: any) {
                           <td style={{ padding: '6px 10px' }}>{a.modelo || '—'}</td>
                           <td style={{ padding: '6px 10px', color: '#eee' }}>{a.descripcion || '—'}</td>
                           <FaseCell f={a.vendido} />
-                          <FaseCell f={a.comprado} ref_={a.vendido.total} />
+                          <FaseCell f={a.comprado} ref_={d.esElec ? undefined : a.vendido.total} />
                           <FaseCell f={a.recibido} ref_={a.comprado.total} />
                           <FaseCell f={a.entregado} ref_={a.recibido.total} />
                         </tr>
@@ -1255,7 +1259,7 @@ function TareaModal({ init, obras, leads, empleados, onClose, onSaved }: any) {
 
   async function cargarInventarioEntregable(): Promise<Record<string, any>> {
     const { data: cotsRaw } = await supabase.from('quotations').select('id,name,specialty,notes,created_at').eq('stage', 'contrato')
-    const cots = ((cotsRaw as any[]) || []).filter(c => c.specialty !== 'proy').map(c => { let lead_id: string | null = null; try { lead_id = JSON.parse(c.notes || '{}').lead_id || null } catch { }; return { id: c.id, name: c.name, specialty: c.specialty, lead_id } }).filter(c => c.lead_id)
+    const cots = ((cotsRaw as any[]) || []).filter(c => c.specialty !== 'proy' && c.specialty !== 'cort').map(c => { let lead_id: string | null = null; try { lead_id = JSON.parse(c.notes || '{}').lead_id || null } catch { }; return { id: c.id, name: c.name, specialty: c.specialty, lead_id } }).filter(c => c.lead_id)
     const cotIds = cots.map(c => c.id)
     if (!cotIds.length) return {}
     const { data: posRaw } = await supabase.from('purchase_orders').select('id,quotation_id,status').in('quotation_id', cotIds)
