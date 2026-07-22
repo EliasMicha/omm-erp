@@ -135,7 +135,7 @@ export default function Entregas() {
       {tab === 'dashboard' && <TabDashboard isMobile={isMobile} onOperar={(poId: string) => { setPreselectPo(poId); setTab('registrar') }} onIr={(t: any) => setTab(t)} />}
       {tab === 'agenda' && <TabAgenda isMobile={isMobile} obras={obras} empleados={empleados} />}
       {tab === 'porlead' && <TabInventarioLead obras={obras} isMobile={isMobile} />}
-      {tab === 'inventario' && <TabInventario stockBodega={stockBodega} stockObra={stockObra} obras={leadsInv} isMobile={isMobile} />}
+      {tab === 'inventario' && <TabInventario movimientos={movimientos} obras={leadsInv} isMobile={isMobile} />}
       {tab === 'movimientos' && <TabMovimientos movimientos={movimientos} obras={leadsInv} isMobile={isMobile} />}
       {tab === 'registrar' && (
         <TabRegistrar
@@ -150,28 +150,54 @@ export default function Entregas() {
 }
 
 // ═══════════════════════════ INVENTARIO ═══════════════════════════
-function TabInventario({ stockBodega, stockObra, obras, isMobile }: any) {
+function TabInventario({ movimientos, obras, isMobile }: any) {
   const [sub, setSub] = useState<'general' | 'obra'>('general')
   const [obraSel, setObraSel] = useState<string>('')
   const [q, setQ] = useState('')
   const [detalle, setDetalle] = useState<any | null>(null)
+  const [q2l, setQ2l] = useState<Record<string, string>>({})
+  const [poQ, setPoQ] = useState<Record<string, string>>({})
   const obraName = (id: string) => obras.find((o: any) => o.id === id)?.nombre || 'Obra'
 
-  // Consolidado: por producto → total (bodega + obras), asignado (en obras), remanente (bodega libre)
-  const consolidado = useMemo(() => {
-    const keyOf = (r: any) => r.catalog_product_id || `${(r.marca || '').toLowerCase()}|${(r.modelo || '').toLowerCase()}|${(r.descripcion || '').toLowerCase()}`
-    const map = new Map<string, any>()
-    const ensure = (r: any) => { const k = keyOf(r); if (!map.has(k)) map.set(k, { key: k, marca: r.marca || '', modelo: r.modelo || '', descripcion: r.descripcion || '', remanente: 0, asignado: 0, porObra: [] as any[] }); return map.get(k) }
-    stockBodega.forEach((r: any) => { const x = ensure(r); x.remanente += Number(r.en_bodega || 0) })
-    stockObra.forEach((r: any) => { const x = ensure(r); const qy = Number(r.en_obra || 0); if (qy === 0) return; x.asignado += qy; x.porObra.push({ obra_id: r.obra_id, qty: qy }) })
-    return Array.from(map.values()).map(x => ({ ...x, total: x.remanente + x.asignado })).filter(x => x.total !== 0).sort((a, b) => (a.descripcion || '').localeCompare(b.descripcion || ''))
-  }, [stockBodega, stockObra])
+  // Resolver OC → cotización → lead (la ASIGNACIÓN sigue a la OC, no a la ubicación física)
+  useEffect(() => {
+    (async () => {
+      const qIds = [...new Set(movimientos.map((m: any) => m.quotation_id).filter(Boolean))]
+      const poIds = [...new Set(movimientos.map((m: any) => m.po_id).filter(Boolean))]
+      const poR = poIds.length ? await supabase.from('purchase_orders').select('id, quotation_id').in('id', poIds) : { data: [] as any[] }
+      const pq: any = {}; ((poR.data as any[]) || []).forEach(p => pq[p.id] = p.quotation_id); setPoQ(pq)
+      const allQ = [...new Set([...qIds, ...((poR.data as any[]) || []).map(p => p.quotation_id).filter(Boolean)])]
+      if (allQ.length) { const { data } = await supabase.from('quotations').select('id, notes').in('id', allQ); const m: any = {}; ((data as any[]) || []).forEach(x => { try { const lid = JSON.parse(x.notes || '{}').lead_id; if (lid) m[x.id] = lid } catch {} }); setQ2l(m) }
+    })()
+  }, [movimientos])
 
-  const obrasConStock = useMemo(() => { const ids = new Set(stockObra.map((r: any) => r.obra_id)); return obras.filter((o: any) => ids.has(o.id)) }, [stockObra, obras])
+  // Consolidado por producto: total (todo lo que tenemos), asignado (pertenece a una obra por su OC), remanente (general sin OC)
+  const consolidado = useMemo(() => {
+    const keyOf = (m: any) => m.catalog_product_id || `${(m.marca || '').toLowerCase()}|${(m.modelo || '').toLowerCase()}|${(m.descripcion || '').toLowerCase()}`
+    const leadOf = (m: any) => { const qid = m.quotation_id || (m.po_id ? poQ[m.po_id] : null); return (qid && q2l[qid]) || null }
+    const map = new Map<string, any>()
+    const ensure = (m: any) => { const k = keyOf(m); if (!map.has(k)) map.set(k, { key: k, marca: m.marca || '', modelo: m.modelo || '', descripcion: m.descripcion || '', byLead: new Map<string, number>(), general: 0 }); return map.get(k) }
+    for (const m of movimientos) {
+      const x = ensure(m); const qy = Number(m.qty) || 0; const L = leadOf(m); const t = m.tipo
+      const addLead = (lid: string, d: number) => x.byLead.set(lid, (x.byLead.get(lid) || 0) + d)
+      if (t === 'recepcion_compra' || t === 'ajuste') { if (L) addLead(L, qy); else x.general += qy }
+      else if (t === 'instalado' || t === 'baja') { if (L) addLead(L, -qy); else x.general -= qy }
+      else if (t === 'obra_a_bodega') { if (m.origen_obra_id) addLead(m.origen_obra_id, -qy); x.general += qy } // devolución → remanente
+      // bodega_a_obra / obra_a_obra: reubicación física, no cambia la propiedad por OC → no altera los totales
+    }
+    return Array.from(map.values()).map(x => {
+      const porObra = [...x.byLead.entries()].map(([lead_id, qty]) => ({ lead_id, qty })).filter(p => p.qty !== 0)
+      const asignado = porObra.reduce((s, p) => s + p.qty, 0)
+      return { key: x.key, marca: x.marca, modelo: x.modelo, descripcion: x.descripcion, porObra, asignado, remanente: x.general, total: asignado + x.general }
+    }).filter(x => x.total !== 0).sort((a, b) => (a.descripcion || '').localeCompare(b.descripcion || ''))
+  }, [movimientos, q2l, poQ])
+
+  const obrasConMaterial = useMemo(() => { const ids = new Set<string>(); consolidado.forEach(r => r.porObra.forEach((p: any) => ids.add(p.lead_id))); return ids.size }, [consolidado])
 
   const filtroTxt = (r: any) => { const s = q.toLowerCase().trim(); if (!s) return true; return (r.descripcion || '').toLowerCase().includes(s) || (r.marca || '').toLowerCase().includes(s) || (r.modelo || '').toLowerCase().includes(s) }
   const consFilt = consolidado.filter(filtroTxt)
-  const obraRows = stockObra.filter((r: any) => (!obraSel || r.obra_id === obraSel) && filtroTxt(r))
+  // Por obra: aplanar la asignación por lead
+  const obraRows = consolidado.flatMap((r: any) => r.porObra.map((p: any) => ({ ...r, obra_id: p.lead_id, en_obra: p.qty }))).filter((r: any) => (!obraSel || r.obra_id === obraSel) && filtroTxt(r))
 
   const totalPzs = consolidado.reduce((s: number, r: any) => s + r.total, 0)
   const asignadoPzs = consolidado.reduce((s: number, r: any) => s + r.asignado, 0)
@@ -183,7 +209,7 @@ function TabInventario({ stockBodega, stockObra, obras, isMobile }: any) {
         <KpiCard label="Piezas totales" value={F(totalPzs)} icon={<Warehouse size={16} />} />
         <KpiCard label="Asignado a obras" value={F(asignadoPzs)} color="#D97706" icon={<Building2 size={16} />} />
         <KpiCard label="Remanente en bodega" value={F(remanentePzs)} color="#10B981" icon={<PackagePlus size={16} />} />
-        <KpiCard label="Obras con material" value={obrasConStock.length} color="#2563EB" icon={<Building2 size={16} />} />
+        <KpiCard label="Obras con material" value={obrasConMaterial} color="#2563EB" icon={<Building2 size={16} />} />
       </div>
 
       <div style={{ display: 'flex', gap: 8, marginBottom: 12, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -258,7 +284,7 @@ function TabInventario({ stockBodega, stockObra, obras, isMobile }: any) {
                 <tbody>
                   {[...detalle.porObra].sort((a, b) => b.qty - a.qty).map((p, i) => (
                     <tr key={i} style={{ borderTop: i ? '1px solid #1a1a1a' : 'none' }}>
-                      <td style={{ padding: '7px 0', color: '#ddd' }}>{obraName(p.obra_id)}</td>
+                      <td style={{ padding: '7px 0', color: '#ddd' }}>{obraName(p.lead_id)}</td>
                       <td style={{ padding: '7px 0', textAlign: 'right', fontWeight: 700, color: '#fff' }}>{F(p.qty)}</td>
                     </tr>
                   ))}
