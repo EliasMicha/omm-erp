@@ -448,17 +448,21 @@ function CotizacionPdfInner() {
   const isElec = cot.specialty === 'elec'
 
   const materialItems = isElec ? filteredItems : filteredItems.filter(i => i.type !== 'labor')
-  // Consolidado de equipos (para el Resumen de Equipos): total por producto en TODA la cotización,
-  // sin área ni sistema — el listado de lo que hay que recibir de cada uno.
-  const equiposConsolidados = Array.from(
-    materialItems.reduce((map: Map<string, any>, it) => {
+  // Consolidado de equipos (para el Resumen de Equipos): total por producto AGRUPADO POR SISTEMA
+  // (sin área) — el listado de lo que hay que recibir de cada uno.
+  const equiposPorSistema = (() => {
+    const bySys = new Map<string, Map<string, any>>()
+    for (const it of materialItems) {
+      const sys = it.system || 'Sin sistema'
+      if (!bySys.has(sys)) bySys.set(sys, new Map<string, any>())
+      const inner = bySys.get(sys) as Map<string, any>
       const key = it.catalog_product_id || `${it.marca || ''}|${it.modelo || ''}|${(it.name || '').toLowerCase()}`
-      const ex = map.get(key)
+      const ex = inner.get(key)
       if (ex) ex.quantity += Number(it.quantity) || 0
-      else map.set(key, { marca: it.marca, modelo: it.modelo, name: it.name, quantity: Number(it.quantity) || 0 })
-      return map
-    }, new Map<string, any>()).values()
-  )
+      else inner.set(key, { marca: it.marca, modelo: it.modelo, name: it.name, quantity: Number(it.quantity) || 0 })
+    }
+    return Array.from(bySys.entries()).map(([sys, m]) => ({ sys, items: Array.from(m.values()) }))
+  })()
   const laborItems = isElec ? [] : filteredItems.filter(i => i.type === 'labor')
 
   // Subtotal de items (precio unitario × cantidad, sin mano de obra)
@@ -940,26 +944,31 @@ function CotizacionPdfInner() {
             <h2 style={{ fontSize: 13, color: '#111', marginBottom: 8, paddingBottom: 4, borderBottom: '1px solid #ddd' }}>
               Total de equipos a recibir
             </h2>
-            <table className="pdf-table">
-              <thead>
-                <tr>
-                  <th style={{ width: 70 }}>Marca</th>
-                  <th style={{ width: 110 }}>Modelo</th>
-                  <th>Descripción</th>
-                  <th style={{ textAlign: 'center', width: 70 }}>Cantidad</th>
-                </tr>
-              </thead>
-              <tbody>
-                {equiposConsolidados.map((it: any, i: number) => (
-                  <tr key={i}>
-                    <td style={{ fontSize: 9, fontWeight: 500 }}>{it.marca || '—'}</td>
-                    <td style={{ fontSize: 9 }}>{it.modelo || '—'}</td>
-                    <td style={{ fontSize: 10 }}>{it.name}</td>
-                    <td style={{ textAlign: 'center', fontWeight: 800, fontSize: 14, color: '#111' }}>{it.quantity}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            {equiposPorSistema.map((grupo, gi) => (
+              <div key={gi} style={{ marginBottom: 12 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: '#666', textTransform: 'uppercase', letterSpacing: '0.04em', padding: '4px 0' }}>{grupo.sys}</div>
+                <table className="pdf-table">
+                  <thead>
+                    <tr>
+                      <th style={{ width: 70 }}>Marca</th>
+                      <th style={{ width: 110 }}>Modelo</th>
+                      <th>Descripción</th>
+                      <th style={{ textAlign: 'center', width: 70 }}>Cantidad</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {grupo.items.map((it: any, i: number) => (
+                      <tr key={i}>
+                        <td style={{ fontSize: 9, fontWeight: 500 }}>{it.marca || '—'}</td>
+                        <td style={{ fontSize: 9 }}>{it.modelo || '—'}</td>
+                        <td style={{ fontSize: 10 }}>{it.name}</td>
+                        <td style={{ textAlign: 'center', fontWeight: 800, fontSize: 14, color: '#111' }}>{it.quantity}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ))}
           </div>
         )}
 
