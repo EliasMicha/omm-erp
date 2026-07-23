@@ -853,6 +853,11 @@ function CortRow({ item, config, onUpdate, onRemove, onShowSomfy, onCopy, showIn
             placeholder="Detalles del cortinero Lutron (modelo, control, notas)..."
             rows={2}
             style={{ ...S.select, fontSize: 10, width: '100%', minWidth: 120, resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.3 }} />
+        ) : item.tipoCierre === 'MANUAL' ? (
+          <textarea value={item.configNota || ''} onChange={e => onUpdate(item.id, 'configNota', e.target.value)}
+            placeholder="Comentario / configuración (opcional)…"
+            rows={2}
+            style={{ ...S.select, fontSize: 10, width: '100%', minWidth: 120, resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.3 }} />
         ) : <span style={{ color: '#333', fontSize: 10 }}>--</span>}
       </td>
       {/* Fabric */}
