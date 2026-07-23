@@ -437,23 +437,31 @@ function CortPdfModal({ items, areas, config, cotName, clientName, projectName, 
     setDownloading(true)
     try {
       const canvas = await html2canvas(el, { scale: 2, useCORS: true, backgroundColor: '#ffffff' })
-      const imgData = canvas.toDataURL('image/png')
       const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
       const pageW = pdf.internal.pageSize.getWidth()
       const pageH = pdf.internal.pageSize.getHeight()
       const margin = 10
       const usableW = pageW - margin * 2
-      const imgW = canvas.width
-      const imgH = canvas.height
-      const ratio = usableW / imgW
-      const scaledH = imgH * ratio
-      // Multi-page support
-      let yOffset = 0
       const usableH = pageH - margin * 2
-      while (yOffset < scaledH) {
-        if (yOffset > 0) pdf.addPage()
-        pdf.addImage(imgData, 'PNG', margin, margin - yOffset, usableW, scaledH)
-        yOffset += usableH
+      // px de canvas por mm de ancho útil → altura de página en px del canvas
+      const pxPerMm = canvas.width / usableW
+      const pageHpx = Math.floor(usableH * pxPerMm)
+      let rendered = 0
+      let page = 0
+      while (rendered < canvas.height) {
+        const sliceH = Math.min(pageHpx, canvas.height - rendered)
+        // recorta esta porción a un canvas temporal (fondo blanco) para evitar traslapes/duplicados
+        const tmp = document.createElement('canvas')
+        tmp.width = canvas.width
+        tmp.height = sliceH
+        const ctx = tmp.getContext('2d')!
+        ctx.fillStyle = '#ffffff'
+        ctx.fillRect(0, 0, tmp.width, tmp.height)
+        ctx.drawImage(canvas, 0, rendered, canvas.width, sliceH, 0, 0, canvas.width, sliceH)
+        if (page > 0) pdf.addPage()
+        pdf.addImage(tmp.toDataURL('image/png'), 'PNG', margin, margin, usableW, sliceH / pxPerMm)
+        rendered += sliceH
+        page++
       }
       const filename = `Propuesta_Cortinas_${(cotName || 'cotizacion').replace(/[^a-zA-Z0-9_-]/g, '_')}.pdf`
       pdf.save(filename)
