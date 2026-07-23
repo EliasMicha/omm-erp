@@ -436,33 +436,51 @@ function CortPdfModal({ items, areas, config, cotName, clientName, projectName, 
     if (!el || downloading) return
     setDownloading(true)
     try {
-      const canvas = await html2canvas(el, { scale: 2, useCORS: true, backgroundColor: '#ffffff' })
+      const SCALE = 2
+      const canvas = await html2canvas(el, { scale: SCALE, useCORS: true, backgroundColor: '#ffffff' })
       const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
       const pageW = pdf.internal.pageSize.getWidth()
       const pageH = pdf.internal.pageSize.getHeight()
       const margin = 10
       const usableW = pageW - margin * 2
       const usableH = pageH - margin * 2
-      // px de canvas por mm de ancho útil → altura de página en px del canvas
       const pxPerMm = canvas.width / usableW
-      const pageHpx = Math.floor(usableH * pxPerMm)
-      let rendered = 0
-      let page = 0
-      while (rendered < canvas.height) {
-        const sliceH = Math.min(pageHpx, canvas.height - rendered)
-        // recorta esta porción a un canvas temporal (fondo blanco) para evitar traslapes/duplicados
+      const pageHpx = Math.floor(usableH * pxPerMm) // altura de página en px del canvas
+
+      // Puntos donde SÍ se puede cortar sin partir un área (inicio de cada bloque)
+      const elTop = el.getBoundingClientRect().top
+      const breakYs = Array.from(el.querySelectorAll('.pdf-area-start'))
+        .map(n => Math.round((n.getBoundingClientRect().top - elTop) * SCALE))
+        .filter(y => y > 0)
+        .sort((a, b) => a - b)
+
+      // Paginación: llena hasta el último inicio de bloque que quepa; si un bloque es más alto que una página, corte duro
+      const cuts: number[] = []
+      let start = 0
+      while (start < canvas.height) {
+        const limit = start + pageHpx
+        if (limit >= canvas.height) { cuts.push(canvas.height); break }
+        const candidate = breakYs.filter(y => y > start && y <= limit).pop()
+        const end = candidate ?? limit // si ningún bloque cabe (bloque enorme) → corte duro
+        cuts.push(end)
+        start = end
+      }
+
+      let prev = 0
+      cuts.forEach((end, i) => {
+        const sliceH = end - prev
+        if (sliceH <= 0) { prev = end; return }
         const tmp = document.createElement('canvas')
         tmp.width = canvas.width
         tmp.height = sliceH
         const ctx = tmp.getContext('2d')!
         ctx.fillStyle = '#ffffff'
         ctx.fillRect(0, 0, tmp.width, tmp.height)
-        ctx.drawImage(canvas, 0, rendered, canvas.width, sliceH, 0, 0, canvas.width, sliceH)
-        if (page > 0) pdf.addPage()
+        ctx.drawImage(canvas, 0, prev, canvas.width, sliceH, 0, 0, canvas.width, sliceH)
+        if (i > 0) pdf.addPage()
         pdf.addImage(tmp.toDataURL('image/png'), 'PNG', margin, margin, usableW, sliceH / pxPerMm)
-        rendered += sliceH
-        page++
-      }
+        prev = end
+      })
       const filename = `Propuesta_Cortinas_${(cotName || 'cotizacion').replace(/[^a-zA-Z0-9_-]/g, '_')}.pdf`
       pdf.save(filename)
     } catch (err) {
@@ -523,7 +541,7 @@ function CortPdfModal({ items, areas, config, cotName, clientName, projectName, 
                   if (areaItems.length === 0) return null
                   return (
                     <React.Fragment key={area.id}>
-                      <tr><td colSpan={10} style={{ padding: '8px 4px 4px', fontWeight: 700, color: '#000', fontSize: 10, background: '#f8f8f8', borderBottom: '1px solid #ccc', textTransform: 'uppercase' }}>{area.name}</td></tr>
+                      <tr className="pdf-area-start"><td colSpan={10} style={{ padding: '8px 4px 4px', fontWeight: 700, color: '#000', fontSize: 10, background: '#f8f8f8', borderBottom: '1px solid #ccc', textTransform: 'uppercase' }}>{area.name}</td></tr>
                       {areaItems.map((item) => {
                         const isPersiana = item.itemKind === 'PERSIANA'
                         const isExtra = item.itemKind === 'EXTRA'
@@ -577,7 +595,7 @@ function CortPdfModal({ items, areas, config, cotName, clientName, projectName, 
             </div>
 
             {/* Summary */}
-            <div style={{ marginBottom: 20 }}>
+            <div className="pdf-area-start" style={{ marginBottom: 20 }}>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 150px', gap: 8, fontSize: 10 }}>
                 <div style={{ textAlign: 'right', color: '#555' }}>Persianas Manuales:</div>
                 <div style={{ textAlign: 'right', fontWeight: 600, color: '#000' }}>{manualCount}</div>
