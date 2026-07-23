@@ -2181,6 +2181,84 @@ export default function CotEditorCortinas({ cotId, onBack, onSwitchVersion }: { 
   }
 
   // ─────────────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────
+  // Exportar documento de COTIZACIÓN SOMFY — especificación técnica para
+  // enviar a Somfy: medidas, sistema/motor, tipo de onda, hojas, tela,
+  // abundancia y opciones, con BOM por partida + BOM consolidado.
+  // ─────────────────────────────────────────────────────────────────
+  function exportSomfy() {
+    const somfyItems = items.filter(i => i.motorBrand === 'SOMFY' && ALL_SOMFY_SYSTEMS.includes(i.motorSystem))
+    if (somfyItems.length === 0) { alert('No hay partidas con motor Somfy en esta cotización.'); return }
+    const esc = (s: any) => String(s ?? '').replace(/[&<>]/g, (c: string) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' } as any)[c])
+    const nf = (n: number) => Number(n || 0).toLocaleString('es-MX', { maximumFractionDigits: 2 })
+    const areaName = (id: string) => areas.find(a => a.id === id)?.name || '—'
+    const fechaTxt = new Date().toLocaleDateString('es-MX', { day: '2-digit', month: 'long', year: 'numeric' })
+
+    // BOM consolidado (suma de cantidades por concepto)
+    const consol = new Map<string, number>()
+    somfyItems.forEach(it => calcSomfyBOM(it).forEach(l => consol.set(l.concepto, (consol.get(l.concepto) || 0) + l.cantidad * (it.cantidad || 1))))
+
+    const bloques = somfyItems.map((it, idx) => {
+      const bom = calcSomfyBOM(it)
+      const opciones = [
+        it.somfySoportePared ? 'Soporte a pared' : null,
+        it.somfyAmrado ? 'Amarrado' : null,
+        it.somfyCurveado ? `Curveado (${it.somfyCurvas || 0} curvas)` : null,
+      ].filter(Boolean).join(' · ') || '—'
+      const bomRows = bom.map(l => `<tr><td>${esc(l.concepto)}</td><td class="c">${nf(l.cantidad)}</td></tr>`).join('')
+      return `
+        <div class="blk">
+          <div class="blk-h">${idx + 1}. ${esc(areaName(it.areaId))}${it.ubicacion ? ' — ' + esc(it.ubicacion) : ''}</div>
+          <table class="spec"><tbody>
+            <tr><td>Sistema / Motor</td><td><b>${esc(it.motorSystem)}</b></td><td>Cantidad</td><td><b>${nf(it.cantidad || 1)}</b></td></tr>
+            <tr><td>Ancho</td><td>${nf(it.ancho)} m</td><td>Alto</td><td>${nf(it.alto)} m</td></tr>
+            <tr><td>Hojas</td><td>${it.somfyHojas}</td><td>Tipo de onda / pliegue</td><td>${esc(it.somfyPliegue)}</td></tr>
+            <tr><td>Abundancia</td><td>${nf(it.somfyAbundancia)}</td><td>Tipo de tela</td><td>${esc(it.tipoTela || '—')}</td></tr>
+            <tr><td>Opciones</td><td colspan="3">${opciones}</td></tr>
+          </tbody></table>
+          <table class="bom"><thead><tr><th>Componente (BOM)</th><th class="c">Cant.</th></tr></thead><tbody>${bomRows}</tbody></table>
+        </div>`
+    }).join('')
+
+    const consolRows = [...consol.entries()].sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([c, q]) => `<tr><td>${esc(c)}</td><td class="c">${nf(q)}</td></tr>`).join('')
+
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>Cotización Somfy — ${esc(cotName || '')}</title><style>
+      *{box-sizing:border-box;font-family:Arial,Helvetica,sans-serif}
+      body{margin:0;color:#111;padding:34px 40px}
+      .hd{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #111;padding-bottom:10px;margin-bottom:14px}
+      .logo{font-size:28px;font-weight:800;letter-spacing:1px}
+      .sub{font-size:11px;color:#666;margin-top:2px}
+      .tt{font-size:15px;font-weight:800;text-transform:uppercase;margin:4px 0 14px}
+      .meta{font-size:12px;color:#333;margin-bottom:16px}
+      .meta b{color:#000}
+      .blk{border:1px solid #ddd;border-radius:6px;padding:12px 14px;margin-bottom:14px;page-break-inside:avoid}
+      .blk-h{font-size:13px;font-weight:800;margin-bottom:8px;text-transform:uppercase}
+      table{width:100%;border-collapse:collapse;font-size:12px}
+      .spec td{padding:4px 6px;border-bottom:1px solid #f0f0f0}
+      .spec td:nth-child(odd){color:#666;width:18%}
+      .spec td:nth-child(even){color:#111;font-weight:600}
+      .bom{margin-top:10px}
+      .bom th{background:#111;color:#fff;text-align:left;padding:6px 8px;font-size:11px}
+      .bom td{border-bottom:1px solid #eee;padding:5px 8px}
+      .c{text-align:center}
+      .consol{margin-top:8px;border:2px solid #111;border-radius:6px;overflow:hidden;page-break-inside:avoid}
+      .consol h3{margin:0;background:#111;color:#fff;font-size:12px;padding:8px 10px;text-transform:uppercase}
+      .consol table{font-size:12px}
+      .consol td{border-bottom:1px solid #eee;padding:6px 10px}
+    </style></head><body>
+      <div class="hd"><div><div class="logo">OMM</div><div class="sub">OMM Technologies · Especificación para cotización Somfy</div></div>
+        <div style="text-align:right"><div class="sub">${fechaTxt}</div></div></div>
+      <div class="tt">Cotización Somfy — ${esc(cotName || '')}</div>
+      <div class="meta"><b>Proyecto:</b> ${esc(projectName || '—')} &nbsp;·&nbsp; <b>Cliente:</b> ${esc(clientName || '—')} &nbsp;·&nbsp; <b>Partidas Somfy:</b> ${somfyItems.length}</div>
+      ${bloques}
+      <div class="consol"><h3>BOM consolidado — total a cotizar</h3><table><tbody>${consolRows}</tbody></table></div>
+      <script>window.onload=function(){setTimeout(function(){window.print()},250)}</script>
+    </body></html>`
+    const w = window.open('', '_blank', 'width=900,height=700')
+    if (w) { w.document.write(html); w.document.close() }
+  }
+
   // Exportar a Excel (.xlsx) — mismo modelo de precios que el PDF, en la
   // moneda de la cotización (MXN o USD). Una fila por partida, agrupadas
   // por área, con desglose y totales.
@@ -2413,6 +2491,7 @@ export default function CotEditorCortinas({ cotId, onBack, onSwitchVersion }: { 
           <button onClick={() => setShowInt(!showInt)} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid ' + (showInt ? '#D97706' : '#333'), background: showInt ? '#D9770622' : 'transparent', color: showInt ? '#D97706' : '#555', marginLeft: 8 }}>{showInt ? 'Interno' : 'Cliente'}</button>
           <button onClick={() => setShowAIImport(true)} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #7C3AED', background: '#7C3AED22', color: '#7C3AED', marginLeft: 4, display: 'flex', alignItems: 'center', gap: 4 }} title="Importar PDF o Excel de cortinas/persianas con AI"><Upload size={12} /> Importar</button>
           <button onClick={() => setShowPdf(true)} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #67E8F9', background: '#67E8F922', color: '#67E8F9', marginLeft: 4, display: 'flex', alignItems: 'center', gap: 4 }}><Printer size={12} /> PDF</button>
+          <button onClick={() => exportSomfy()} title="Documento de especificación para cotizar con Somfy (medidas, motor, onda, tela, BOM)" style={{ padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #14B8A6', background: '#14B8A622', color: '#14B8A6', marginLeft: 4, display: 'flex', alignItems: 'center', gap: 4 }}><Printer size={12} /> Somfy</button>
           <button onClick={() => exportarExcel().catch(e => alert('No se pudo exportar a Excel: ' + (e?.message || e)))} title="Descargar la cotización en Excel" style={{ padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #10B981', background: '#10B98122', color: '#10B981', marginLeft: 4, display: 'flex', alignItems: 'center', gap: 4 }}><Download size={12} /> Excel</button>
           <VersionManager cotId={cotId} getCurrentSnapshot={getVersionSnapshot} onSwitchVersion={onSwitchVersion || (() => {})} accentColor="#67E8F9" compact={isMobile} />
           <span style={{ fontSize: 15, fontWeight: 700, color: '#67E8F9', marginLeft: 10 }}>${grandTotal.toFixed(2)}</span>
