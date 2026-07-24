@@ -646,8 +646,21 @@ export default function Contabilidad() {
   const [projectNames, setProjectNames] = useState<string[]>([])
 
   // Load bank movements from Supabase (reutilizable para refrescar tras sync de Belvo)
-  const loadBankMovements = () => {
-    supabase.from('bank_movements').select('*').order('fecha', { ascending: false }).range(0, 4999).then(({ data }) => {
+  // Paginado: Supabase/PostgREST limita a 1000 filas por request, así que hay que
+  // traer todas las páginas o se pierden los movimientos más viejos (ej. enero).
+  const loadBankMovements = async () => {
+    const PAGE = 1000
+    let from = 0
+    let all: any[] = []
+    while (true) {
+      const { data, error } = await supabase.from('bank_movements').select('*').order('fecha', { ascending: false }).range(from, from + PAGE - 1)
+      if (error || !data || data.length === 0) break
+      all = all.concat(data)
+      if (data.length < PAGE) break
+      from += PAGE
+    }
+    {
+      const data = all
       if (data && data.length > 0) {
         setBankMovements(data.map((m: any) => {
           // Aplicar clasificador granular (en memoria). Si nuestro clasificador
@@ -692,7 +705,7 @@ export default function Contabilidad() {
           }
         }))
       }
-    })
+    }
   }
   useEffect(() => { loadBankMovements() }, [])
 
