@@ -964,19 +964,33 @@ export default function CRM() {
   const [cotizadoByYear, setCotizadoByYear] = useState<Record<number, { usd: number; mxn: number }>>({})
   // Cobrado del año partido en cierres de este año (nuevo) vs años anteriores (arrastre/finiquitos)
   const [cobradoVintage, setCobradoVintage] = useState<Record<number, { nuevo: number; arrastre: number }>>({})
-  function load() {
+  // Paginado: Supabase corta a 1000 filas por request. bank_movements ya pasa de 1000,
+  // así que hay que traer todas las páginas o se pierden cobros (abonos) y bajan los KPIs.
+  async function fetchAllRows(table: string, sel: string): Promise<any[]> {
+    const PAGE = 1000; let from = 0; let all: any[] = []
+    while (true) {
+      const { data, error } = await supabase.from(table).select(sel).range(from, from + PAGE - 1)
+      if (error || !data || data.length === 0) break
+      all = all.concat(data)
+      if (data.length < PAGE) break
+      from += PAGE
+    }
+    return all
+  }
+  async function load() {
     setLoading(true)
+    // Estas 3 tablas pueden exceder 1000 filas → paginar (bank_movements + facturas + links)
+    const [bm, fc, cl] = await Promise.all([
+      fetchAllRows('bank_movements', 'id, lead_id, quotation_id, monto, fecha, tipo, moneda'),
+      fetchAllRows('facturas', 'id, lead_id, quotation_id, cotizacion_id'),
+      fetchAllRows('conciliacion_links', 'bank_movement_id, invoice_id, monto_aplicado'),
+    ])
     Promise.all([
       supabase.from('leads').select('*').order('updated_at', { ascending: false }),
       supabase.from('quotations').select('id,client_name,stage,total,notes,specialty,version_group_id,version_label,updated_at,created_at,commercial_year'),
       supabase.from('cash_movements').select('lead_id, quotation_id, monto, fecha, tipo, direccion'),
-      // BUG FIX: antes solo se contaban cash_movements con tipo cobro_cliente.
-      // Ahora también traemos bank_movements (abonos) + facturas + links para
-      // resolver el lead en cascada y no perder cobros.
-      supabase.from('bank_movements').select('id, lead_id, quotation_id, monto, fecha, tipo, moneda'),
-      supabase.from('facturas').select('id, lead_id, quotation_id, cotizacion_id'),
-      supabase.from('conciliacion_links').select('bank_movement_id, invoice_id, monto_aplicado'),
-    ]).then(([{ data: ld }, { data: qt }, { data: cm }, { data: bm }, { data: fc }, { data: cl }]) => {
+      supabase.from('payment_allocations').select('quotation_id, monto, monto_origen, moneda_origen, bank_movement_id'),
+    ]).then(([{ data: ld }, { data: qt }, { data: cm }, { data: pa }]) => {
       // Map quotation_id → lead_id (desde notes JSON) para resolver cascada
       const quotToLead = new Map<string, string>()
       ;(qt || []).forEach((q: any) => {
@@ -1043,6 +1057,9 @@ export default function CRM() {
           else vintage[payYear].nuevo += monto
         }
       }
+      // Movimientos de banco con PRORRATEO: se cuentan vía payment_allocations, no por su propio id
+      const bankById = new Map<string, any>(); (bm || []).forEach((m: any) => bankById.set(m.id, m))
+      const allocMovIds = new Set<string>((pa || []).map((x: any) => x.bank_movement_id).filter(Boolean))
       // cash_movements: tipo cobro_cliente o direccion ingreso
       ;(cm || [])
         .filter((m: any) => m.tipo === 'cobro_cliente' || m.direccion === 'ingreso')
@@ -1050,9 +1067,9 @@ export default function CRM() {
           const leadId = m.lead_id || (m.quotation_id ? quotToLead.get(m.quotation_id) : null)
           addCobro(leadId, m.quotation_id, Number(m.monto || 0), m.fecha)
         })
-      // bank_movements: cualquier abono cuenta como cobro (en MXN — convertir si USD)
+      // bank_movements: abonos NO prorrateados (los prorrateados se cuentan abajo, evita doble conteo)
       ;(bm || [])
-        .filter((m: any) => m.tipo === 'abono')
+        .filter((m: any) => m.tipo === 'abono' && !allocMovIds.has(m.id))
         .forEach((m: any) => {
           const leadId = resolveLeadForBankMov(m)
           const montoMXN = (m.moneda || 'MXN').toUpperCase() === 'USD'
@@ -1060,6 +1077,17 @@ export default function CRM() {
             : Number(m.monto || 0)
           addCobro(leadId, m.quotation_id, montoMXN, m.fecha)
         })
+      // Prorrateo (payment_allocations): cada slice se atribuye a la cotización → lead, en MXN por su monto original
+      ;(pa || []).forEach((x: any) => {
+        const leadId = x.quotation_id ? quotToLead.get(x.quotation_id) : null
+        const mov = x.bank_movement_id ? bankById.get(x.bank_movement_id) : null
+        const fecha = mov?.fecha || null
+        // MXN real que entró: monto_origen en su moneda de origen (fallback: monto de la cotización)
+        const mxn = x.monto_origen != null
+          ? ((x.moneda_origen || 'MXN').toUpperCase() === 'USD' ? Number(x.monto_origen) * 18 : Number(x.monto_origen))
+          : Number(x.monto || 0)
+        addCobro(leadId, x.quotation_id, mxn, fecha)
+      })
       setCobrosByLead(cobrosLead)
       setCobrosTotalByYear(cobrosYear)
       setCobradoVintage(vintage)
