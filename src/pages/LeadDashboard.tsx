@@ -624,6 +624,32 @@ export default function LeadDashboard() {
     return { byCur, totalVendido, totalCobrado, totalComprado, totalCompras, porCobrar, porComprar }
   }, [quotations, projects, bankMovements, cashMovements, paymentAllocations, pos, quotItems, tipoCambio])
 
+  // Desglose por año: vendido (por año de cierre de cada cotización) y cobrado (por fecha de pago).
+  // Un proyecto que cierra en un año y cobra en varios se ve por año, sin distorsionar totales.
+  const multiYear = useMemo(() => {
+    const yd: Record<number, { vendidoMXN: number; cobradoMXN: number }> = {}
+    const ensure = (y: number) => { if (!yd[y]) yd[y] = { vendidoMXN: 0, cobradoMXN: 0 }; return yd[y] }
+    const leadYear = (lead?.commercial_year as number) || parseInt((lead?.created_at || '').slice(0, 4), 10) || 0
+    quotations.filter(q => q.stage === 'contrato').forEach(q => {
+      const cur = getQuotCurrency(q)
+      const proj = projects.find(p => p.cotizacion_id === q.id)
+      const amount = (proj && proj.contract_value) ? proj.contract_value : quoteFinalConIva(q)
+      const amtMXN = cur === 'USD' ? amount * tipoCambio : amount
+      const y = (q.commercial_year as number) || leadYear || parseInt((q.updated_at || q.created_at || '').slice(0, 4), 10) || 0
+      if (y) ensure(y).vendidoMXN += amtMXN
+    })
+    bankMovements.filter(m => m.tipo === 'abono').forEach(m => {
+      const y = parseInt((m.fecha || '').slice(0, 4), 10); if (!y) return
+      const mxn = (m.moneda || 'MXN').toUpperCase() === 'USD' ? Number(m.monto || 0) * tipoCambio : Number(m.monto || 0)
+      ensure(y).cobradoMXN += mxn
+    })
+    cashMovements.filter((m: any) => m.tipo === 'cobro_cliente' || m.direccion === 'ingreso').forEach((m: any) => {
+      const y = parseInt((m.fecha || '').slice(0, 4), 10); if (!y) return
+      ensure(y).cobradoMXN += Number(m.monto || 0)
+    })
+    return Object.entries(yd).map(([y, d]) => ({ year: Number(y), ...d })).sort((a, b) => a.year - b.year)
+  }, [quotations, projects, bankMovements, cashMovements, tipoCambio, lead])
+
   // Helper: compute quotation total with IVA for display
   const getQuotTotalIva = (q: any): number => quoteFinalConIva(q)
 
@@ -998,6 +1024,32 @@ export default function LeadDashboard() {
             <div style={{ display: 'flex', height: 10, borderRadius: 5, overflow: 'hidden', background: '#1a1a1a' }}>
               <div style={{ width: `${Math.min((financials.totalCobrado / financials.totalVendido) * 100, 100)}%`, background: '#10B981', transition: 'width 0.3s' }} />
             </div>
+          </div>
+        )}
+
+        {/* ── DESGLOSE POR AÑO (proyectos que cruzan de año) ── */}
+        {multiYear.length > 1 && (
+          <div style={{ marginBottom: 16, border: '1px solid #1f1f1f', borderRadius: 10, overflow: 'hidden' }}>
+            <div style={{ padding: '8px 12px', background: '#0f0f0f', fontSize: 10, fontWeight: 700, color: '#888', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Por año (MXN) — vendido por año de cierre · cobrado por fecha de pago</div>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+              <thead><tr style={{ color: '#666', textAlign: 'right' }}>
+                <th style={{ padding: '6px 12px', textAlign: 'left' }}>Año</th>
+                <th style={{ padding: '6px 12px' }}>Vendido</th>
+                <th style={{ padding: '6px 12px' }}>Cobrado</th>
+                <th style={{ padding: '6px 12px' }}>Saldo</th>
+              </tr></thead>
+              <tbody>
+                {(() => { let acVend = 0, acCob = 0; return multiYear.map(r => { acVend += r.vendidoMXN; acCob += r.cobradoMXN; const saldo = acVend - acCob; return (
+                  <tr key={r.year} style={{ borderTop: '1px solid #1a1a1a', color: '#ccc', textAlign: 'right' }}>
+                    <td style={{ padding: '6px 12px', textAlign: 'left', color: '#fff', fontWeight: 600 }}>{r.year}</td>
+                    <td style={{ padding: '6px 12px', color: r.vendidoMXN > 0 ? '#10B981' : '#555' }}>{r.vendidoMXN > 0 ? F(r.vendidoMXN) : '—'}</td>
+                    <td style={{ padding: '6px 12px', color: r.cobradoMXN > 0 ? '#34D399' : '#555' }}>{r.cobradoMXN > 0 ? F(r.cobradoMXN) : '—'}</td>
+                    <td style={{ padding: '6px 12px', color: saldo > 1 ? '#D97706' : '#666' }}>{F(Math.max(0, saldo))}</td>
+                  </tr>
+                ) }) })()}
+              </tbody>
+            </table>
+            <div style={{ padding: '6px 12px', fontSize: 9.5, color: '#555', borderTop: '1px solid #1a1a1a' }}>El "Vendido" no se repite entre años: queda en el año de cierre. El "Saldo" es acumulado (vendido − cobrado a la fecha).</div>
           </div>
         )}
 

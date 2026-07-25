@@ -959,11 +959,16 @@ export default function CRM() {
   const [cobrosByLead, setCobrosByLead] = useState<Record<string, number>>({})
   // Cobros globales por año (para cuando no podemos linkear a un lead específico)
   const [cobrosTotalByYear, setCobrosTotalByYear] = useState<Record<number, number>>({})
+  // Vendido/Cotizado por AÑO DE CIERRE de cada cotización (eje independiente de la fecha de cobro)
+  const [vendidoByYear, setVendidoByYear] = useState<Record<number, { usd: number; mxn: number }>>({})
+  const [cotizadoByYear, setCotizadoByYear] = useState<Record<number, { usd: number; mxn: number }>>({})
+  // Cobrado del año partido en cierres de este año (nuevo) vs años anteriores (arrastre/finiquitos)
+  const [cobradoVintage, setCobradoVintage] = useState<Record<number, { nuevo: number; arrastre: number }>>({})
   function load() {
     setLoading(true)
     Promise.all([
       supabase.from('leads').select('*').order('updated_at', { ascending: false }),
-      supabase.from('quotations').select('id,client_name,stage,total,notes,specialty,version_group_id,version_label,updated_at'),
+      supabase.from('quotations').select('id,client_name,stage,total,notes,specialty,version_group_id,version_label,updated_at,created_at,commercial_year'),
       supabase.from('cash_movements').select('lead_id, quotation_id, monto, fecha, tipo, direccion'),
       // BUG FIX: antes solo se contaban cash_movements con tipo cobro_cliente.
       // Ahora también traemos bank_movements (abonos) + facturas + links para
@@ -1001,36 +1006,67 @@ export default function CRM() {
         return null
       }
 
-      // Build cobros breakdown — banco + efectivo
+      // ── Año de cierre por cotización (para atribuir vendido y la añada de los cobros) ──
+      const leadById = new Map<string, any>(); (ld || []).forEach((l: any) => leadById.set(l.id, l))
+      const yearOf = (s: string | undefined): number => { const y = parseInt((s || '').slice(0, 4), 10); return y > 2000 ? y : 0 }
+      const quotYearOf = (q: any): number => {
+        if (q.commercial_year) return q.commercial_year
+        const lead = leadById.get(quotToLead.get(q.id) || '')
+        if (lead?.commercial_year) return lead.commercial_year
+        return yearOf(q.updated_at) || yearOf(q.created_at) || 0
+      }
+      const quotYear = new Map<string, number>(); (qt || []).forEach((q: any) => quotYear.set(q.id, quotYearOf(q)))
+      // Añada de venta por lead = menor año entre sus cotizaciones en contrato
+      const leadSaleYear = new Map<string, number>()
+      ;(qt || []).forEach((q: any) => {
+        if (q.stage !== 'contrato') return
+        const lid = quotToLead.get(q.id); if (!lid) return
+        const y = quotYear.get(q.id) || 0; if (!y) return
+        const cur = leadSaleYear.get(lid); if (cur == null || y < cur) leadSaleYear.set(lid, y)
+      })
+
+      // Build cobros breakdown — banco + efectivo, con clasificación nuevo vs arrastre
       const cobrosLead: Record<string, number> = {}
       const cobrosYear: Record<number, number> = {}
-      const addCobro = (leadId: string | null | undefined, monto: number, fecha: string | null) => {
-        const year = fecha ? parseInt(fecha.slice(0, 4)) : 0
-        cobrosYear[year] = (cobrosYear[year] || 0) + monto
+      const vintage: Record<number, { nuevo: number; arrastre: number }> = {}
+      const addCobro = (leadId: string | null | undefined, quotationId: string | null | undefined, monto: number, fecha: string | null) => {
+        const payYear = fecha ? parseInt(fecha.slice(0, 4)) : 0
+        cobrosYear[payYear] = (cobrosYear[payYear] || 0) + monto
         if (leadId) cobrosLead[leadId] = (cobrosLead[leadId] || 0) + monto
+        // añada: año de la cotización ligada, o del lead
+        let saleY = 0
+        if (quotationId && quotYear.get(quotationId)) saleY = quotYear.get(quotationId)!
+        else if (leadId && leadSaleYear.get(leadId)) saleY = leadSaleYear.get(leadId)!
+        if (payYear) {
+          if (!vintage[payYear]) vintage[payYear] = { nuevo: 0, arrastre: 0 }
+          if (saleY && saleY < payYear) vintage[payYear].arrastre += monto
+          else vintage[payYear].nuevo += monto
+        }
       }
       // cash_movements: tipo cobro_cliente o direccion ingreso
       ;(cm || [])
         .filter((m: any) => m.tipo === 'cobro_cliente' || m.direccion === 'ingreso')
         .forEach((m: any) => {
           const leadId = m.lead_id || (m.quotation_id ? quotToLead.get(m.quotation_id) : null)
-          addCobro(leadId, Number(m.monto || 0), m.fecha)
+          addCobro(leadId, m.quotation_id, Number(m.monto || 0), m.fecha)
         })
       // bank_movements: cualquier abono cuenta como cobro (en MXN — convertir si USD)
       ;(bm || [])
         .filter((m: any) => m.tipo === 'abono')
         .forEach((m: any) => {
           const leadId = resolveLeadForBankMov(m)
-          // Convertir USD → MXN para consistencia (CRM usa MXN como base)
           const montoMXN = (m.moneda || 'MXN').toUpperCase() === 'USD'
             ? Number(m.monto || 0) * 18
             : Number(m.monto || 0)
-          addCobro(leadId, montoMXN, m.fecha)
+          addCobro(leadId, m.quotation_id, montoMXN, m.fecha)
         })
       setCobrosByLead(cobrosLead)
       setCobrosTotalByYear(cobrosYear)
+      setCobradoVintage(vintage)
       setLeads(ld || [])
       const totals: Record<string, { cotizadoUSD: number; cotizadoMXN: number; vendidoUSD: number; vendidoMXN: number }> = {}
+      const vByYear: Record<number, { usd: number; mxn: number }> = {}
+      const cByYear: Record<number, { usd: number; mxn: number }> = {}
       if (ld && qt) {
         const quotTotalIva = (q: any) => {
           // esp/cort/ilum/proy/dist guardan total CON IVA; elec guarda subtotal crudo.
@@ -1075,12 +1111,17 @@ export default function CRM() {
           leadQuotes.forEach(q => {
             const total = quotTotalIva(q)
             const cur = getCurrency(q)
+            // Año de cierre de ESTA cotización (propio → del lead → updated/created)
+            const y = q.commercial_year || lead.commercial_year || quotYear.get(q.id) || 0
+            if (y) { if (!cByYear[y]) cByYear[y] = { usd: 0, mxn: 0 } }
             if (cur === 'USD') {
               cotizadoUSD += total
-              if (q.stage === 'contrato') vendidoUSD += total
+              if (y) cByYear[y].usd += total
+              if (q.stage === 'contrato') { vendidoUSD += total; if (y) { if (!vByYear[y]) vByYear[y] = { usd: 0, mxn: 0 }; vByYear[y].usd += total } }
             } else {
               cotizadoMXN += total
-              if (q.stage === 'contrato') vendidoMXN += total
+              if (y) cByYear[y].mxn += total
+              if (q.stage === 'contrato') { vendidoMXN += total; if (y) { if (!vByYear[y]) vByYear[y] = { usd: 0, mxn: 0 }; vByYear[y].mxn += total } }
             }
           })
           if (cotizadoUSD || cotizadoMXN || vendidoUSD || vendidoMXN) {
@@ -1089,6 +1130,8 @@ export default function CRM() {
         }
       }
       setQuoteTotals(totals)
+      setVendidoByYear(vByYear)
+      setCotizadoByYear(cByYear)
       setLoading(false)
     })
   }
@@ -1168,8 +1211,13 @@ Devuelve solo el JSON, sin explicaciones. Si no hay filtro para un campo, omitel
   const leadsByYear = filterYear === 'todos'
     ? leads
     : leads.filter(l => getLeadYear(l) === filterYear)
-  // Años disponibles para el selector — incluye tanto commercial_year como created_at
-  const availableYears = [...new Set(leads.map(getLeadYear).filter(y => y > 2000))].sort((a, b) => b - a)
+  // Años disponibles para el selector — de leads, cotizaciones (año de cierre) y cobros (fecha de pago)
+  const availableYears = [...new Set([
+    ...leads.map(getLeadYear),
+    ...Object.keys(vendidoByYear).map(Number),
+    ...Object.keys(cotizadoByYear).map(Number),
+    ...Object.keys(cobrosTotalByYear).map(Number),
+  ].filter(y => y > 2000))].sort((a, b) => b - a)
   // 1. Valor de leads (suma de estimated_value, asumido MXN). Solo considera
   // leads en pipeline activo para forecasting (excluye ganado/perdido/pausado).
   const leadsActivosYear = leadsByYear.filter(l => !['ganado', 'perdido', 'pausado'].includes(l.status))
@@ -1183,21 +1231,29 @@ Devuelve solo el JSON, sin explicaciones. Si no hay filtro para un campo, omitel
   }, 0)
   // Cantidad de leads con probabilidad asignada (para info en sub-label)
   const leadsConProbabilidad = leadsActivosYear.filter(l => l.close_probability != null).length
-  // 3. Cotizado (suma de quoteTotals de los leads del año, mantiene USD/MXN separados)
+  // 3-4. Cotizado y Vendido por AÑO DE CIERRE de cada cotización (no por año del lead).
+  // Así una obra que cerró en 2025 aporta a 2025 aunque el lead siga vivo o cobre en 2026.
   let cotizadoUSD = 0, cotizadoMXN = 0, vendidoUSD = 0, vendidoMXN = 0
-  for (const lead of leadsByYear) {
-    const qt = quoteTotals[lead.id]
-    if (!qt) continue
-    cotizadoUSD += qt.cotizadoUSD
-    cotizadoMXN += qt.cotizadoMXN
-    vendidoUSD += qt.vendidoUSD
-    vendidoMXN += qt.vendidoMXN
+  if (filterYear === 'todos') {
+    Object.values(vendidoByYear).forEach(v => { vendidoUSD += v.usd; vendidoMXN += v.mxn })
+    Object.values(cotizadoByYear).forEach(c => { cotizadoUSD += c.usd; cotizadoMXN += c.mxn })
+  } else {
+    const v = vendidoByYear[filterYear as number]; if (v) { vendidoUSD = v.usd; vendidoMXN = v.mxn }
+    const c = cotizadoByYear[filterYear as number]; if (c) { cotizadoUSD = c.usd; cotizadoMXN = c.mxn }
   }
-  // 5. Cobrado en MXN — suma cash_movements (cobros) del año seleccionado
-  // Si filterYear=todos, suma todos los años
+  // 5. Cobrado en MXN — por fecha de pago (eje independiente de la venta)
   const cobradoMXN = filterYear === 'todos'
     ? Object.values(cobrosTotalByYear).reduce((s, v) => s + v, 0)
     : (cobrosTotalByYear[filterYear as number] || 0)
+  // 5b. Desglose del cobrado: cierres de este año (nuevo) vs años anteriores (arrastre/finiquitos)
+  const vint = filterYear === 'todos'
+    ? Object.values(cobradoVintage).reduce((a, v) => ({ nuevo: a.nuevo + v.nuevo, arrastre: a.arrastre + v.arrastre }), { nuevo: 0, arrastre: 0 })
+    : (cobradoVintage[filterYear as number] || { nuevo: 0, arrastre: 0 })
+  // 6. Cartera (backlog) — vendido histórico menos cobrado histórico (todos los años, en MXN).
+  // Es el flujo futuro comprometido: finiquitos y saldos por cobrar de contratos ya cerrados.
+  const vendidoTotalMXNall = Object.values(vendidoByYear).reduce((s, v) => s + v.usd * tc + v.mxn, 0)
+  const cobradoTotalAll = Object.values(cobrosTotalByYear).reduce((s, v) => s + v, 0)
+  const carteraMXN = Math.max(0, vendidoTotalMXNall - cobradoTotalAll)
 
   // Helper para mostrar monto MXN en displayCur
   function mxnToDisplay(amount: number): string {
@@ -1242,13 +1298,14 @@ Devuelve solo el JSON, sin explicaciones. Si no hay filtro para un campo, omitel
 
       {/* KPIs financieros (5 cards) - solo visibles para DG */}
       {showFinancialKPIs && (
-        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(5, 1fr)', gap: 10, marginBottom: 12 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(6, 1fr)', gap: 10, marginBottom: 12 }}>
           {[
             { label: 'Valor de leads', value: mxnToDisplay(valorLeadsMXN), sub: `${leadsActivosYear.length} en pipeline · estimado`, color: '#2563EB' },
             { label: 'Cierre estimado', value: mxnToDisplay(cierreEstimadoMXN), sub: `Σ(estimado × prob) — ${leadsConProbabilidad}/${leadsActivosYear.length} c/ prob`, color: '#A78BFA' },
-            { label: 'Cotizado', value: mixedToDisplay(cotizadoUSD, cotizadoMXN), sub: 'todas etapas', color: '#D97706' },
-            { label: 'Vendido', value: mixedToDisplay(vendidoUSD, vendidoMXN), sub: 'cotizaciones contrato', color: '#10B981' },
-            { label: 'Cobrado', value: mxnToDisplay(cobradoMXN), sub: 'movimientos cobro_cliente', color: '#10B981' },
+            { label: 'Cotizado', value: mixedToDisplay(cotizadoUSD, cotizadoMXN), sub: filterYear === 'todos' ? 'todas etapas · histórico' : `por año de cierre · ${filterYear}`, color: '#D97706' },
+            { label: 'Vendido', value: mixedToDisplay(vendidoUSD, vendidoMXN), sub: filterYear === 'todos' ? 'contratos cerrados · histórico' : `cerrado en ${filterYear}`, color: '#10B981' },
+            { label: 'Cobrado', value: mxnToDisplay(cobradoMXN), sub: `${mxnToDisplay(vint.nuevo)} nuevo · ${mxnToDisplay(vint.arrastre)} arrastre`, color: '#10B981' },
+            { label: 'Cartera (por cobrar)', value: mxnToDisplay(carteraMXN), sub: 'vendido − cobrado · histórico', color: '#06B6D4' },
           ].map(k => (
             <div key={k.label} style={{ background: '#141414', border: '1px solid #1e1e1e', borderRadius: 10, padding: '12px 14px', borderTop: `2px solid ${k.color}` }}>
               <div style={{ fontSize: 9, color: '#555', textTransform: 'uppercase' as const, letterSpacing: '0.06em', marginBottom: 4 }}>{k.label}</div>
