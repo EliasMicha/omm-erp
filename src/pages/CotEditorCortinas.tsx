@@ -22,6 +22,7 @@ interface CortConfig {
   margenTela: number     // margin on fabric (%)
   margenMotor: number    // margin on motors/hardware (%)
   descuento: number      // discount % (default 0)
+  costoNomina?: number   // costo de mano de obra / nómina de instalación (MXN) — resta al margen real
 }
 
 type ItemKind = 'CORTINA' | 'PERSIANA' | 'EXTRA'
@@ -1253,15 +1254,13 @@ function CortSummary({ items, areas, config, showInt, onConfigChange }: {
   const iva = Math.round(subConDesc * config.ivaRate / 100 * 100) / 100
   const total = subConDesc + iva
 
-  // Cost side
+  // Cost side — margen REAL: ingreso (venta + instalación − descuento, s/IVA) menos costo total (materiales + nómina)
   const subtotalCost = telaCost + confCost + motorCost + persianaCost + extraCost
-  const utilidadTela = telaVenta - telaCost
-  const utilidadConf = confVenta - confCost
-  const utilidadMotor = motorVenta - motorCost
-  const utilidadPersiana = persianaVenta - persianaCost
-  const utilidadExtra = extraVenta - extraCost
-  const utilidadTotal = utilidadTela + utilidadConf + utilidadMotor + utilidadPersiana + utilidadExtra
-  const margenReal = subtotalVenta > 0 ? Math.round(utilidadTotal / subtotalVenta * 100) : 0
+  const costoNomina = config.costoNomina || 0
+  const costoTotalReal = subtotalCost + costoNomina
+  const ingresoReal = subConDesc // subtotal + instalación − descuento, sin IVA
+  const utilidadReal = ingresoReal - costoTotalReal
+  const margenReal = ingresoReal > 0 ? Math.round(utilidadReal / ingresoReal * 100) : 0
 
   // Fabric summary (cortinas only)
   const fabricByType: Record<string, number> = {}
@@ -1312,6 +1311,11 @@ function CortSummary({ items, areas, config, showInt, onConfigChange }: {
             <span style={{ fontSize: 10, color: '#888' }}>IVA %</span>
             <input type="number" value={config.ivaRate} step={1}
               onChange={e => onConfigChange('ivaRate', parseFloat(e.target.value) || 0)} style={inputS} />
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: 10, color: '#888' }} title="Costo de mano de obra / nómina de instalación. Resta al margen real (no se le muestra al cliente).">Costo nómina $</span>
+            <input type="number" value={config.costoNomina || 0} step={100} min={0}
+              onChange={e => onConfigChange('costoNomina', Math.max(0, parseFloat(e.target.value) || 0))} style={inputS} />
           </div>
         </div>
       </div>
@@ -1397,21 +1401,25 @@ function CortSummary({ items, areas, config, showInt, onConfigChange }: {
       {showInt && (
         <div style={{ background: '#1a1414', border: '1px solid #332222', borderRadius: 12, padding: 14 }}>
           <div style={{ fontSize: 10, fontWeight: 600, color: '#D97706', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Analisis Interno</div>
+          {/* Costos */}
           <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}><span style={{ color: '#888' }}>Costo tela</span><span style={{ color: '#ccc' }}>${telaCost.toFixed(2)}</span></div>
           <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}><span style={{ color: '#888' }}>Costo conf</span><span style={{ color: '#ccc' }}>${confCost.toFixed(2)}</span></div>
           <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}><span style={{ color: '#888' }}>Costo motor</span><span style={{ color: '#ccc' }}>${motorCost.toFixed(2)}</span></div>
           {persianaCost > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}><span style={{ color: '#888' }}>Costo persianas</span><span style={{ color: '#ccc' }}>${persianaCost.toFixed(2)}</span></div>}
           {extraCost > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}><span style={{ color: '#888' }}>Costo extras</span><span style={{ color: '#ccc' }}>${extraCost.toFixed(2)}</span></div>}
+          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}><span style={{ color: '#888' }}>Costo materiales</span><span style={{ color: '#ccc' }}>${subtotalCost.toFixed(2)}</span></div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}><span style={{ color: '#888' }}>Costo nómina</span><span style={{ color: costoNomina > 0 ? '#F59E0B' : '#555' }}>${costoNomina.toFixed(2)}</span></div>
           <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10, borderTop: '1px solid #332222', marginTop: 3, paddingTop: 5 }}>
-            <span style={{ color: '#888' }}>Costo total</span><span style={{ color: '#ccc', fontWeight: 600 }}>${subtotalCost.toFixed(2)}</span>
+            <span style={{ color: '#888', fontWeight: 600 }}>Costo total</span><span style={{ color: '#ccc', fontWeight: 700 }}>${costoTotalReal.toFixed(2)}</span>
           </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}><span style={{ color: '#888' }}>Venta</span><span style={{ color: '#fff', fontWeight: 600 }}>${subtotalVenta.toFixed(2)}</span></div>
-          {telaCost > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}><span style={{ color: '#888' }}>Utilidad tela</span><span style={{ color: '#10B981' }}>${utilidadTela.toFixed(2)}</span></div>}
-          {confCost > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}><span style={{ color: '#888' }}>Utilidad conf</span><span style={{ color: '#10B981' }}>${utilidadConf.toFixed(2)}</span></div>}
-          {motorCost > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}><span style={{ color: '#888' }}>Utilidad motor</span><span style={{ color: '#10B981' }}>${utilidadMotor.toFixed(2)}</span></div>}
-          {persianaCost > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}><span style={{ color: '#888' }}>Utilidad persianas</span><span style={{ color: '#10B981' }}>${utilidadPersiana.toFixed(2)}</span></div>}
-          {extraCost > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}><span style={{ color: '#888' }}>Utilidad extras</span><span style={{ color: '#10B981' }}>${utilidadExtra.toFixed(2)}</span></div>}
-          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}><span style={{ color: '#888', fontWeight: 600 }}>Utilidad total</span><span style={{ color: '#10B981', fontWeight: 700 }}>${utilidadTotal.toFixed(2)}</span></div>
+          {/* Ingreso (s/IVA): venta de producto + instalación − descuento */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10, marginTop: 4 }}><span style={{ color: '#888' }}>Venta producto</span><span style={{ color: '#ccc' }}>${subtotalVenta.toFixed(2)}</span></div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}><span style={{ color: '#888' }}>+ Instalación ({config.instPct}%)</span><span style={{ color: '#ccc' }}>${instalacion.toFixed(2)}</span></div>
+          {(config.descuento || 0) > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}><span style={{ color: '#DC2626' }}>− Descuento ({config.descuento}%)</span><span style={{ color: '#DC2626' }}>-${descuentoAmt.toFixed(2)}</span></div>}
+          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10, borderTop: '1px solid #332222', marginTop: 3, paddingTop: 5 }}>
+            <span style={{ color: '#fff', fontWeight: 600 }}>Ingreso (s/IVA)</span><span style={{ color: '#fff', fontWeight: 700 }}>${ingresoReal.toFixed(2)}</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}><span style={{ color: '#888', fontWeight: 600 }}>Utilidad</span><span style={{ color: utilidadReal >= 0 ? '#10B981' : '#DC2626', fontWeight: 700 }}>${utilidadReal.toFixed(2)}</span></div>
           <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10, borderTop: '1px solid #332222', marginTop: 3, paddingTop: 5 }}>
             <span style={{ color: '#D97706', fontWeight: 600 }}>Margen</span>
             <span style={{ color: margenReal >= 25 ? '#10B981' : margenReal >= 15 ? '#D97706' : '#DC2626', fontWeight: 700, fontSize: 13 }}>{margenReal}%</span>
