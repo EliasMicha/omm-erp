@@ -22,7 +22,7 @@ interface CortConfig {
   margenTela: number     // margin on fabric (%)
   margenMotor: number    // margin on motors/hardware (%)
   descuento: number      // discount % (default 0)
-  costoNomina?: number   // costo de mano de obra / nómina de instalación (MXN) — resta al margen real
+  nominaPct?: number     // costo de mano de obra / nómina como % de la venta de producto — resta al margen real
 }
 
 type ItemKind = 'CORTINA' | 'PERSIANA' | 'EXTRA'
@@ -1256,7 +1256,8 @@ function CortSummary({ items, areas, config, showInt, onConfigChange }: {
 
   // Cost side — margen REAL: ingreso (venta + instalación − descuento, s/IVA) menos costo total (materiales + nómina)
   const subtotalCost = telaCost + confCost + motorCost + persianaCost + extraCost
-  const costoNomina = config.costoNomina || 0
+  const nominaPct = config.nominaPct || 0
+  const costoNomina = Math.round(subtotalVenta * nominaPct / 100 * 100) / 100 // % de la venta de producto
   const costoTotalReal = subtotalCost + costoNomina
   const ingresoReal = subConDesc // subtotal + instalación − descuento, sin IVA
   const utilidadReal = ingresoReal - costoTotalReal
@@ -1313,9 +1314,9 @@ function CortSummary({ items, areas, config, showInt, onConfigChange }: {
               onChange={e => onConfigChange('ivaRate', parseFloat(e.target.value) || 0)} style={inputS} />
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: 10, color: '#888' }} title="Costo de mano de obra / nómina de instalación. Resta al margen real (no se le muestra al cliente).">Costo nómina $</span>
-            <input type="number" value={config.costoNomina || 0} step={100} min={0}
-              onChange={e => onConfigChange('costoNomina', Math.max(0, parseFloat(e.target.value) || 0))} style={inputS} />
+            <span style={{ fontSize: 10, color: '#888' }} title="Costo de mano de obra / nómina de instalación como % de la venta de producto. Resta al margen real (no se le muestra al cliente).">Nómina % (venta)</span>
+            <input type="number" value={config.nominaPct || 0} step={1} min={0} max={100}
+              onChange={e => onConfigChange('nominaPct', Math.min(100, Math.max(0, parseFloat(e.target.value) || 0)))} style={inputS} />
           </div>
         </div>
       </div>
@@ -1408,7 +1409,7 @@ function CortSummary({ items, areas, config, showInt, onConfigChange }: {
           {persianaCost > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}><span style={{ color: '#888' }}>Costo persianas</span><span style={{ color: '#ccc' }}>${persianaCost.toFixed(2)}</span></div>}
           {extraCost > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}><span style={{ color: '#888' }}>Costo extras</span><span style={{ color: '#ccc' }}>${extraCost.toFixed(2)}</span></div>}
           <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}><span style={{ color: '#888' }}>Costo materiales</span><span style={{ color: '#ccc' }}>${subtotalCost.toFixed(2)}</span></div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}><span style={{ color: '#888' }}>Costo nómina</span><span style={{ color: costoNomina > 0 ? '#F59E0B' : '#555' }}>${costoNomina.toFixed(2)}</span></div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}><span style={{ color: '#888' }}>Costo nómina{nominaPct > 0 ? ` (${nominaPct}%)` : ''}</span><span style={{ color: costoNomina > 0 ? '#F59E0B' : '#555' }}>${costoNomina.toFixed(2)}</span></div>
           <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10, borderTop: '1px solid #332222', marginTop: 3, paddingTop: 5 }}>
             <span style={{ color: '#888', fontWeight: 600 }}>Costo total</span><span style={{ color: '#ccc', fontWeight: 700 }}>${costoTotalReal.toFixed(2)}</span>
           </div>
