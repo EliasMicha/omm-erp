@@ -5,6 +5,7 @@ import { Badge, Btn, Table, Th, Td, Loading, SectionHeader, EmptyState } from '.
 import { useIsMobile } from '../lib/useIsMobile'
 import { Plus, X, Search, Trash2, Save, Sparkles, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
 import { SPECIALTY_CONFIG } from '../lib/utils'
+import { tcForYear, DEFAULT_TC } from '../lib/fx'
 import { ProjectLine } from '../types'
 import { useAuth } from '../contexts/AuthContext'
 
@@ -953,7 +954,7 @@ export default function CRM() {
   // moneda de display se hace al render con el tipo de cambio actual.
   const [quoteTotals, setQuoteTotals] = useState<Record<string, { cotizadoUSD: number; cotizadoMXN: number; vendidoUSD: number; vendidoMXN: number }>>({})
   const [displayCur, setDisplayCur] = useState<'USD' | 'MXN'>('MXN')
-  const [tc, setTc] = useState(18)
+  const [tc, setTc] = useState(DEFAULT_TC)
   const [filterYear, setFilterYear] = useState<number | 'todos'>(new Date().getFullYear())
   // Mapeo de cobros por lead (suma de cash_movements tipo cobro_cliente)
   const [cobrosByLead, setCobrosByLead] = useState<Record<string, number>>({})
@@ -1074,8 +1075,9 @@ export default function CRM() {
         .filter((m: any) => m.tipo === 'abono' && m.categoria === 'cobro_cliente' && !allocMovIds.has(m.id))
         .forEach((m: any) => {
           const leadId = resolveLeadForBankMov(m)
+          const payYear = m.fecha ? parseInt(String(m.fecha).slice(0, 4), 10) : 0
           const montoMXN = (m.moneda || 'MXN').toUpperCase() === 'USD'
-            ? Number(m.monto || 0) * 18
+            ? Number(m.monto || 0) * tcForYear(payYear)
             : Number(m.monto || 0)
           addCobro(leadId, m.quotation_id, montoMXN, m.fecha)
         })
@@ -1084,9 +1086,10 @@ export default function CRM() {
         const leadId = x.quotation_id ? quotToLead.get(x.quotation_id) : null
         const mov = x.bank_movement_id ? bankById.get(x.bank_movement_id) : null
         const fecha = mov?.fecha || null
+        const payYear = fecha ? parseInt(String(fecha).slice(0, 4), 10) : 0
         // MXN real que entró: monto_origen en su moneda de origen (fallback: monto de la cotización)
         const mxn = x.monto_origen != null
-          ? ((x.moneda_origen || 'MXN').toUpperCase() === 'USD' ? Number(x.monto_origen) * 18 : Number(x.monto_origen))
+          ? ((x.moneda_origen || 'MXN').toUpperCase() === 'USD' ? Number(x.monto_origen) * tcForYear(payYear) : Number(x.monto_origen))
           : Number(x.monto || 0)
         addCobro(leadId, x.quotation_id, mxn, fecha)
       })
@@ -1167,6 +1170,12 @@ export default function CRM() {
   }
 
   useEffect(() => { load() }, [])
+  // El TC de display sigue al año seleccionado: 2025→19.57 (real), 2026→18 (provisional).
+  // Vista "todos" usa el default. El usuario puede override manual en el input.
+  useEffect(() => {
+    if (filterYear !== 'todos') setTc(tcForYear(filterYear as number))
+    else setTc(DEFAULT_TC)
+  }, [filterYear])
 
   async function changeProbability(id: string, prob: number | null) {
     setLeads(prev => prev.map(l => l.id === id ? { ...l, close_probability: prob ?? undefined } : l))
@@ -1358,7 +1367,7 @@ Devuelve solo el JSON, sin explicaciones. Si no hay filtro para un campo, omitel
           }}>{cur === 'USD' ? '🇺🇸 USD' : '🇲🇽 MXN'}</button>
         ))}
         <span style={{ fontSize: 10, color: '#555', marginLeft: 8 }}>TC:</span>
-        <input type="number" value={tc} step={0.1} onChange={e => setTc(parseFloat(e.target.value) || 18)}
+        <input type="number" value={tc} step={0.1} onChange={e => setTc(parseFloat(e.target.value) || DEFAULT_TC)}
           style={{ width: 55, padding: '3px 6px', background: '#1a1a1a', border: '1px solid #333', borderRadius: 4, color: '#ccc', fontSize: 11, fontFamily: 'inherit', textAlign: 'right' }} />
         <span style={{ fontSize: 10, color: '#444' }}>Estimados en MXN · Cotizados en USD</span>
       </div>
