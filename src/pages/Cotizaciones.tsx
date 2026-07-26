@@ -294,7 +294,25 @@ function CotDashboard({ onOpen, preferVersionId }: { onOpen: (id: string, specia
       default: return ''
     }
   }
-  const listaFiltrada = colFilters.applyFilters(lista, getColVal)
+  const listaConColFilters = colFilters.applyFilters(lista, getColVal)
+  // Ordenamiento por columna (Cotización / Fecha / Total)
+  const [sortKey, setSortKey] = useState<'cotizacion' | 'fecha' | 'total' | null>(null)
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
+  const toggleSort = (k: 'cotizacion' | 'fecha' | 'total') => {
+    if (sortKey === k) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setSortKey(k); setSortDir(k === 'cotizacion' ? 'asc' : 'desc') }
+  }
+  const sortArrow = (k: string) => sortKey === k ? (sortDir === 'asc' ? ' ▲' : ' ▼') : ''
+  const listaFiltrada = sortKey
+    ? [...listaConColFilters].sort((a, b) => {
+        let av: any, bv: any
+        if (sortKey === 'fecha') { av = a.created_at || ''; bv = b.created_at || '' }
+        else if (sortKey === 'total') { av = getTotalConIva(a); bv = getTotalConIva(b) }
+        else { av = (a.name || '').toLowerCase(); bv = (b.name || '').toLowerCase() }
+        const cmp = av < bv ? -1 : av > bv ? 1 : 0
+        return sortDir === 'asc' ? cmp : -cmp
+      })
+    : listaConColFilters
 
   // KPIs por etapa (USD y MXN separados) — con IVA — filtered by year
   const byStageAndCur = (s: string, cur: string) => cotsYear.filter(c => c.stage === s && getCur(c) === cur).reduce((a, c) => a + getTotalConIva(c), 0)
@@ -431,15 +449,15 @@ function CotDashboard({ onOpen, preferVersionId }: { onOpen: (id: string, specia
         <div style={{overflowX: 'auto'}}>
         <Table>
           <thead><tr>
-            <Th>Cotización</Th>
+            <Th><span onClick={() => toggleSort('cotizacion')} style={{ cursor: 'pointer', userSelect: 'none' }}>Cotización{sortArrow('cotizacion')}</span></Th>
             {!isMobile && <ThFilter label="Lead" values={lista.map(c => getLeadName(c) || '--')} activeFilters={colFilters.getFilter('lead')} onFilterChange={s => colFilters.setFilter('lead', s)} />}
             {!isMobile && <ThFilter label="Arquitecto" values={lista.map(c => getArchitect(c) || '--')} activeFilters={colFilters.getFilter('arq')} onFilterChange={s => colFilters.setFilter('arq', s)} />}
             <ThFilter label="Cliente" values={lista.map(c => c.client_name || '--')} activeFilters={colFilters.getFilter('cliente')} onFilterChange={s => colFilters.setFilter('cliente', s)} />
             <Th>Especialidad</Th>
             <ThFilter label="Etapa" values={lista.map(c => STAGE_CONFIG[c.stage]?.label || c.stage)} activeFilters={colFilters.getFilter('etapa')} onFilterChange={s => colFilters.setFilter('etapa', s)} />
-            <Th>Fecha</Th><Th>Año</Th>
+            <Th><span onClick={() => toggleSort('fecha')} style={{ cursor: 'pointer', userSelect: 'none' }}>Fecha{sortArrow('fecha')}</span></Th><Th>Año</Th>
             <ThFilter label="Moneda" values={lista.map(c => getCur(c))} activeFilters={colFilters.getFilter('moneda')} onFilterChange={s => colFilters.setFilter('moneda', s)} />
-            <Th right>Total</Th><Th></Th>
+            <Th right><span onClick={() => toggleSort('total')} style={{ cursor: 'pointer', userSelect: 'none' }}>Total{sortArrow('total')}</span></Th><Th></Th>
           </tr></thead>
           <tbody>
             {listaFiltrada.length === 0 && (<tr><td colSpan={10}><EmptyState message={search || filtro !== "todas" || colFilters.activeCount > 0 ? "No se encontraron cotizaciones con estos filtros" : "Sin cotizaciones - crea la primera"}/></td></tr>)}
