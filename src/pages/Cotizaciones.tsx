@@ -4,7 +4,7 @@ import { fetchAllActiveCatalog } from '../lib/catalog'
 import { ANTHROPIC_API_KEY } from '../lib/config'
 import { Quotation, QuotationArea, QuotationItem, CatalogProduct, Project, ProjectLine, PurchasePhase } from '../types'
 import { F, FCUR, SPECIALTY_CONFIG, STAGE_CONFIG, PHASE_CONFIG, calcItemPrice, calcItemTotal } from '../lib/utils'
-import { Badge, Btn, Table, Th, Td, Loading, SectionHeader, EmptyState } from '../components/layout/UI'
+import { Badge, Btn, Table, Th, Td, Loading, SectionHeader, EmptyState, ThFilter, useColumnFilters } from '../components/layout/UI'
 import { useIsMobile } from '../lib/useIsMobile'
 import { Plus, ChevronLeft, X, Zap, Loader2, Search, Trash2, Upload, RefreshCw, FileText, GitBranch, BarChart3, Pencil, ArrowLeftRight, Copy } from 'lucide-react'
 import EditCotInfoModal from '../components/EditCotInfoModal'
@@ -282,6 +282,20 @@ function CotDashboard({ onOpen, preferVersionId }: { onOpen: (id: string, specia
     // conserva el orden por fecha dentro de cada grupo)
     .sort((a, c) => (a.stage === 'perdida' ? 1 : 0) - (c.stage === 'perdida' ? 1 : 0))
 
+  // Filtros por columna (estilo Excel) — Lead, Arquitecto, Cliente, Etapa, Moneda
+  const colFilters = useColumnFilters()
+  const getColVal = (c: Quotation, col: string): string => {
+    switch (col) {
+      case 'lead': return getLeadName(c) || '--'
+      case 'arq': return getArchitect(c) || '--'
+      case 'cliente': return c.client_name || '--'
+      case 'etapa': return STAGE_CONFIG[c.stage]?.label || c.stage
+      case 'moneda': return getCur(c)
+      default: return ''
+    }
+  }
+  const listaFiltrada = colFilters.applyFilters(lista, getColVal)
+
   // KPIs por etapa (USD y MXN separados) — con IVA — filtered by year
   const byStageAndCur = (s: string, cur: string) => cotsYear.filter(c => c.stage === s && getCur(c) === cur).reduce((a, c) => a + getTotalConIva(c), 0)
   // KPIs por especialidad (USD y MXN separados) — con IVA
@@ -417,11 +431,19 @@ function CotDashboard({ onOpen, preferVersionId }: { onOpen: (id: string, specia
         <div style={{overflowX: 'auto'}}>
         <Table>
           <thead><tr>
-            <Th>Cotización</Th>{!isMobile && <Th>Lead</Th>}{!isMobile && <Th>Arquitecto</Th>}<Th>Cliente</Th><Th>Especialidad</Th><Th>Etapa</Th><Th>Fecha</Th><Th>Año</Th><Th>Moneda</Th><Th right>Total</Th><Th></Th>
+            <Th>Cotización</Th>
+            {!isMobile && <ThFilter label="Lead" values={lista.map(c => getLeadName(c) || '--')} activeFilters={colFilters.getFilter('lead')} onFilterChange={s => colFilters.setFilter('lead', s)} />}
+            {!isMobile && <ThFilter label="Arquitecto" values={lista.map(c => getArchitect(c) || '--')} activeFilters={colFilters.getFilter('arq')} onFilterChange={s => colFilters.setFilter('arq', s)} />}
+            <ThFilter label="Cliente" values={lista.map(c => c.client_name || '--')} activeFilters={colFilters.getFilter('cliente')} onFilterChange={s => colFilters.setFilter('cliente', s)} />
+            <Th>Especialidad</Th>
+            <ThFilter label="Etapa" values={lista.map(c => STAGE_CONFIG[c.stage]?.label || c.stage)} activeFilters={colFilters.getFilter('etapa')} onFilterChange={s => colFilters.setFilter('etapa', s)} />
+            <Th>Fecha</Th><Th>Año</Th>
+            <ThFilter label="Moneda" values={lista.map(c => getCur(c))} activeFilters={colFilters.getFilter('moneda')} onFilterChange={s => colFilters.setFilter('moneda', s)} />
+            <Th right>Total</Th><Th></Th>
           </tr></thead>
           <tbody>
-            {lista.length === 0 && (<tr><td colSpan={10}><EmptyState message={search || filtro !== "todas" ? "No se encontraron cotizaciones con estos filtros" : "Sin cotizaciones - crea la primera"}/></td></tr>)}
-            {lista.map(c => {
+            {listaFiltrada.length === 0 && (<tr><td colSpan={10}><EmptyState message={search || filtro !== "todas" || colFilters.activeCount > 0 ? "No se encontraron cotizaciones con estos filtros" : "Sin cotizaciones - crea la primera"}/></td></tr>)}
+            {listaFiltrada.map(c => {
               const esp = SPECIALTY_CONFIG[c.specialty]; const stage = STAGE_CONFIG[c.stage]
               const cur = getCur(c)
               const leadName = getLeadName(c)
