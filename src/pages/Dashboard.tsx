@@ -5,6 +5,7 @@ import { Project, PaymentMilestone, WorkReport } from '../types'
 import { F, STATUS_CONFIG, STAGE_CONFIG, formatDate } from '../lib/utils'
 import { KpiCard, Table, Th, Td, ProgressBar, Badge, Loading, SectionHeader } from '../components/layout/UI'
 import { useIsMobile } from '../lib/useIsMobile'
+import { tcForYear } from '../lib/fx'
 import { useAuth } from '../contexts/AuthContext'
 import { FolderOpen, DollarSign, AlertTriangle, Users, FileText, TrendingUp, ChevronRight, ChevronDown } from 'lucide-react'
 import DashboardProduccion from './DashboardProduccion'
@@ -459,7 +460,7 @@ function ProyeccionCobranza() {
   // Toggle moneda — heredamos el patrón del componente Cobranza por proyecto.
   // Por simplicidad asumimos MXN como base aquí; los milestones tienen currency.
   const [currencyView, setCurrencyView] = useState<'MXN' | 'USD'>('MXN')
-  const [tc, setTc] = useState<number>(18.5)
+  const [tc, setTc] = useState<number>(tcForYear(new Date().getFullYear()))
 
   useEffect(() => {
     async function load() {
@@ -768,7 +769,7 @@ function CobranzaPorProyecto() {
   // Cada source tiene su propia moneda original: quotations.notes.currency,
   // purchase_orders.currency, bank_movements.moneda. Se convierte al display.
   const [currencyView, setCurrencyView] = useState<'MXN' | 'USD'>('MXN')
-  const [tc, setTc] = useState<number>(18.5)
+  const [tc, setTc] = useState<number>(tcForYear(new Date().getFullYear()))
 
   useEffect(() => {
     async function load() {
