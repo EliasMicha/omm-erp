@@ -644,7 +644,7 @@ export default function LeadDashboard() {
       const mxn = (m.moneda || 'MXN').toUpperCase() === 'USD' ? Number(m.monto || 0) * tcForYear(y) : Number(m.monto || 0)
       ensure(y).cobradoMXN += mxn
     })
-    cashMovements.filter((m: any) => m.tipo === 'cobro_cliente' || m.direccion === 'ingreso').forEach((m: any) => {
+    cashMovements.filter((m: any) => m.tipo === 'cobro_cliente').forEach((m: any) => {
       const y = parseInt((m.fecha || '').slice(0, 4), 10); if (!y) return
       ensure(y).cobradoMXN += Number(m.monto || 0)
     })
