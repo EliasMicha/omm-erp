@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase'
 import { SPECIALTY_CONFIG } from '../lib/utils'
 import { Loading, Badge, SectionHeader } from '../components/layout/UI'
 import { useIsMobile } from '../lib/useIsMobile'
+import { tcForYear } from '../lib/fx'
 import { useAuth } from '../contexts/AuthContext'
 import {
   ArrowLeft, FileText, DollarSign, ShoppingCart, Briefcase,
@@ -73,7 +74,7 @@ export default function LeadDashboard() {
   // Movimientos de efectivo ligados al lead (cash_movements.lead_id)
   const [cashMovements, setCashMovements] = useState<any[]>([])
   const [paymentAllocations, setPaymentAllocations] = useState<any[]>([])
-  const [tipoCambio, setTipoCambio] = useState(20.50)
+  const [tipoCambio, setTipoCambio] = useState(tcForYear(new Date().getFullYear()))
   const saveTipoCambioRef = async (tc: number) => {
     setTipoCambio(tc)
     if (id) await supabase.from('leads').update({ tipo_cambio_ref: tc }).eq('id', id)
@@ -638,9 +639,9 @@ export default function LeadDashboard() {
       const y = (q.commercial_year as number) || leadYear || parseInt((q.updated_at || q.created_at || '').slice(0, 4), 10) || 0
       if (y) ensure(y).vendidoMXN += amtMXN
     })
-    bankMovements.filter(m => m.tipo === 'abono').forEach(m => {
+    bankMovements.filter(m => m.tipo === 'abono' && m.categoria === 'cobro_cliente').forEach(m => {
       const y = parseInt((m.fecha || '').slice(0, 4), 10); if (!y) return
-      const mxn = (m.moneda || 'MXN').toUpperCase() === 'USD' ? Number(m.monto || 0) * tipoCambio : Number(m.monto || 0)
+      const mxn = (m.moneda || 'MXN').toUpperCase() === 'USD' ? Number(m.monto || 0) * tcForYear(y) : Number(m.monto || 0)
       ensure(y).cobradoMXN += mxn
     })
     cashMovements.filter((m: any) => m.tipo === 'cobro_cliente' || m.direccion === 'ingreso').forEach((m: any) => {
