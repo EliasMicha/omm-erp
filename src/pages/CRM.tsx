@@ -981,7 +981,7 @@ export default function CRM() {
     setLoading(true)
     // Estas 3 tablas pueden exceder 1000 filas → paginar (bank_movements + facturas + links)
     const [bm, fc, cl] = await Promise.all([
-      fetchAllRows('bank_movements', 'id, lead_id, quotation_id, monto, fecha, tipo, moneda'),
+      fetchAllRows('bank_movements', 'id, lead_id, quotation_id, monto, fecha, tipo, moneda, categoria'),
       fetchAllRows('facturas', 'id, lead_id, quotation_id, cotizacion_id'),
       fetchAllRows('conciliacion_links', 'bank_movement_id, invoice_id, monto_aplicado'),
     ])
@@ -1067,9 +1067,11 @@ export default function CRM() {
           const leadId = m.lead_id || (m.quotation_id ? quotToLead.get(m.quotation_id) : null)
           addCobro(leadId, m.quotation_id, Number(m.monto || 0), m.fecha)
         })
-      // bank_movements: abonos NO prorrateados (los prorrateados se cuentan abajo, evita doble conteo)
+      // bank_movements: abonos NO prorrateados (los prorrateados se cuentan abajo, evita doble conteo).
+      // SOLO categoria='cobro_cliente': excluye traspasos internos, compra de dólares, préstamos,
+      // devoluciones/cheques devueltos y reembolsos de proveedor — NO son ingreso real y antes inflaban el Cobrado.
       ;(bm || [])
-        .filter((m: any) => m.tipo === 'abono' && !allocMovIds.has(m.id))
+        .filter((m: any) => m.tipo === 'abono' && m.categoria === 'cobro_cliente' && !allocMovIds.has(m.id))
         .forEach((m: any) => {
           const leadId = resolveLeadForBankMov(m)
           const montoMXN = (m.moneda || 'MXN').toUpperCase() === 'USD'
