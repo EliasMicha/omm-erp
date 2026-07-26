@@ -1063,7 +1063,7 @@ export default function CRM() {
       const allocMovIds = new Set<string>((pa || []).map((x: any) => x.bank_movement_id).filter(Boolean))
       // cash_movements: tipo cobro_cliente o direccion ingreso
       ;(cm || [])
-        .filter((m: any) => m.tipo === 'cobro_cliente' || m.direccion === 'ingreso')
+        .filter((m: any) => m.tipo === 'cobro_cliente')  // solo cobros de cliente: excluye aportaciones/otros ingresos
         .forEach((m: any) => {
           const leadId = m.lead_id || (m.quotation_id ? quotToLead.get(m.quotation_id) : null)
           addCobro(leadId, m.quotation_id, Number(m.monto || 0), m.fecha)
