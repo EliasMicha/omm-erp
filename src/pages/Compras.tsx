@@ -1034,10 +1034,10 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
         <div style={{ overflowX: 'auto' }}>
           <Table>
             <thead><tr>
-              <Th>OC #</Th><Th>Proveedor</Th><Th>Cotización</Th><Th>Lead</Th><Th>Especialidad</Th><Th>Fase</Th><Th>Estado</Th><Th>Cotejo</Th><Th>Fecha</Th><Th right>Total MXN</Th><Th right>Total USD</Th><Th></Th>
+              <Th>OC #</Th><Th>Descripción</Th><Th>Proveedor</Th><Th>Cotización</Th><Th>Lead</Th><Th>Especialidad</Th><Th>Fase</Th><Th>Estado</Th><Th>Cotejo</Th><Th>Fecha</Th><Th right>Total MXN</Th><Th right>Total USD</Th><Th></Th>
           </tr></thead>
           <tbody>
-            {lista.length === 0 && <tr><td colSpan={12}><EmptyState message="Sin órdenes de compra" /></td></tr>}
+            {lista.length === 0 && <tr><td colSpan={13}><EmptyState message="Sin órdenes de compra" /></td></tr>}
             {lista.map(o => {
               const st = PO_STATUS_CFG[o.status]
               const esp = SPECIALTY_CONFIG[o.specialty]
@@ -1057,6 +1057,7 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
               return (
                 <tr key={o.id} style={{ cursor: 'pointer' }} onClick={() => onOpen(o.id)}>
                   <Td><span style={{ fontWeight: 600, color: '#fff' }}>{o.po_number}</span></Td>
+                  <Td><span style={{ color: o.descripcion ? '#ccc' : '#555', fontSize: 12 }}>{o.descripcion || '--'}</span></Td>
                   <Td>{(o.supplier as any)?.name || <span style={{ color: '#555' }}>--</span>}</Td>
                   <Td muted>{getQuotName(o) || '--'}</Td>
                   <Td muted>{getLeadName(o) || '--'}</Td>
