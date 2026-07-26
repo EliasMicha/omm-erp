@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase'
 import { KpiCard, Table, Th, Td, Badge, Loading, SectionHeader, ProgressBar } from '../components/layout/UI'
 import { DollarSign, TrendingUp, TrendingDown, AlertTriangle, Receipt, Users, ShoppingCart, PieChart, ArrowUpRight, ArrowDownRight, Calendar, ChevronLeft, ChevronRight, BarChart3 } from 'lucide-react'
 import { useIsMobile } from '../lib/useIsMobile'
+import { tcForYear, DEFAULT_TC } from '../lib/fx'
 
 const F = (n: number) => '$' + n.toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 0 })
 const F2 = (n: number) => '$' + n.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -80,7 +81,9 @@ export default function Finanzas() {
     const now = new Date()
     return { year: now.getFullYear(), month: now.getMonth() } // 0-indexed
   })
-  const [tipoCambio, setTipoCambio] = useState(20.50) // USD → MXN
+  const [tipoCambio, setTipoCambio] = useState(tcForYear(new Date().getFullYear())) // USD → MXN, por año (src/lib/fx.ts)
+  // El TC sigue al año del mes navegado (2025→19.57 real, 2026→18 provisional). Editable a mano abajo.
+  useEffect(() => { setTipoCambio(tcForYear(mes.year)) }, [mes.year])
 
   // Raw data
   const [facturasEmitidas, setFacturasEmitidas] = useState<any[]>([])
@@ -907,7 +910,7 @@ export default function Finanzas() {
             <span style={{ fontSize: 11, color: '#666' }}>TC USD→MXN:</span>
             <input
               type="number" step="0.1" value={tipoCambio}
-              onChange={e => setTipoCambio(Number(e.target.value) || 20)}
+              onChange={e => setTipoCambio(Number(e.target.value) || DEFAULT_TC)}
               style={{ width: 70, padding: '4px 8px', fontSize: 12, background: '#0a0a0a', border: '1px solid #333', borderRadius: 6, color: '#10B981', fontWeight: 600, textAlign: 'center', fontFamily: 'inherit' }}
             />
           </div>
