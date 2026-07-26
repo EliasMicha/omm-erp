@@ -55,6 +55,7 @@ interface PurchaseOrder {
   total: number
   currency: 'MXN' | 'USD'
   supplier_doc_number?: string
+  descripcion?: string
   notes?: string
   requested_by?: string
   approved_by?: string
@@ -2157,6 +2158,7 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
       quotation_id: po.quotation_id || null,
       lead_id: (po as any).lead_id || null,
       notes: po.notes || null,
+      descripcion: po.descripcion || null,
       supplier_doc_number: po.supplier_doc_number || null,
       expected_delivery: po.expected_delivery || null,
       logistics_mode: po.logistics_mode || 'pending',
@@ -2460,7 +2462,9 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
         <Field label="Folio / cotización del proveedor" value={po.supplier_doc_number || ''}
           onChange={v => { setPO(p => p ? { ...p, supplier_doc_number: v } : p); setDirty(true) }}
           placeholder="ej. OV-12345 / Cot-2024-789" />
-        <div></div>
+        <Field label="Descripción general" value={po.descripcion || ''}
+          onChange={v => { setPO(p => p ? { ...p, descripcion: v } : p); setDirty(true) }}
+          placeholder="ej. Redes A101" />
       </div>
 
       {/* Logística row (Entregas v2) */}
