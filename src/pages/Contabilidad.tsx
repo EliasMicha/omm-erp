@@ -5,6 +5,7 @@ import { supabase } from '../lib/supabase'
 import { SectionHeader, KpiCard, Table, Th, Td, ThFilter, useColumnFilters, Badge, Btn, EmptyState } from '../components/layout/UI'
 import { F, formatDate } from '../lib/utils'
 import { useIsMobile } from '../lib/useIsMobile'
+import { DEFAULT_TC } from '../lib/fx'
 import {
   FileText, Building2, ArrowLeftRight, ShieldCheck,
   Banknote, Users, TrendingUp, Plus, Upload, Search,
@@ -2078,7 +2079,7 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
           .filter(l => l.tc_aplicado && l.tc_aplicado > 0)
           .sort((a, b) => (b as any).id.localeCompare((a as any).id))
           .map(l => l.tc_aplicado)[0]
-        const defaultTc = ultimoTc || 18.5
+        const defaultTc = ultimoTc || DEFAULT_TC
         const promptMsg = `Las monedas no coinciden:\n\n  • Movimiento: ${finalMonto.toFixed(2)} ${movMoneda}\n  • Factura: ${invMoneda}\n\n¿Qué TC del día se usó? (BBVA venta del día del pago)`
         const input = window.prompt(promptMsg, String(defaultTc))
         if (input === null) return  // canceló
