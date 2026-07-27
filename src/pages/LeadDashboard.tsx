@@ -383,8 +383,7 @@ export default function LeadDashboard() {
     const resumen = { USD: { vendido: 0, cobrado: 0 }, MXN: { vendido: 0, cobrado: 0 } }
     const quoteData = contratos.map(q => {
       const cur = getQuotCurrency(q)
-      const proj = projects.find(p => p.cotizacion_id === q.id)
-      const total = (proj && proj.contract_value) ? Number(proj.contract_value) : quoteFinalConIva(q)
+      const total = quoteFinalConIva(q)
       const pagos = getPagosDeCotizacion(q.id, cur)
       const cobrado = pagos.reduce((s, p) => s + p.monto, 0)
       resumen[cur].vendido += total
@@ -581,14 +580,9 @@ export default function LeadDashboard() {
     // Vendido: contratos (con IVA 16%)
     quotations.filter(q => q.stage === 'contrato').forEach(q => {
       const cur = getQuotCurrency(q)
-      const proj = projects.find(p => p.cotizacion_id === q.id)
-      let amount: number
-      if (proj && proj.contract_value) {
-        // Project contract value — use directly (already final)
-        amount = proj.contract_value
-      } else {
-        amount = quoteFinalConIva(q)
-      }
+      // Vendido = total_final de la cotización (con descuento + IVA). No usamos contract_value
+      // del proyecto porque se queda stale cuando la cotización se edita después de crear la obra.
+      const amount = quoteFinalConIva(q)
       byCur[cur].vendido += amount
     })
 
@@ -633,10 +627,9 @@ export default function LeadDashboard() {
     const leadYear = (lead?.commercial_year as number) || parseInt((lead?.created_at || '').slice(0, 4), 10) || 0
     quotations.filter(q => q.stage === 'contrato').forEach(q => {
       const cur = getQuotCurrency(q)
-      const proj = projects.find(p => p.cotizacion_id === q.id)
-      const amount = (proj && proj.contract_value) ? proj.contract_value : quoteFinalConIva(q)
-      const amtMXN = cur === 'USD' ? amount * tipoCambio : amount
+      const amount = quoteFinalConIva(q)
       const y = (q.commercial_year as number) || leadYear || parseInt((q.updated_at || q.created_at || '').slice(0, 4), 10) || 0
+      const amtMXN = cur === 'USD' ? amount * tcForYear(y) : amount
       if (y) ensure(y).vendidoMXN += amtMXN
     })
     bankMovements.filter(m => m.tipo === 'abono' && m.categoria === 'cobro_cliente').forEach(m => {
