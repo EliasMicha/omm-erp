@@ -84,7 +84,8 @@ export async function autoCreateProjectFromQuotation(quotationId: string): Promi
       specialty,
       lines: [specialty],
       status: 'activo',
-      contract_value: cot.total || 0,
+      // Valor de contrato con IVA (total_final); fallback a total crudo si no existe.
+      contract_value: (cot.total_final != null && cot.total_final !== '') ? Number(cot.total_final) : (Number(cot.total) || 0),
       advance_pct: 0,
       cotizacion_id: quotationId,
       lead_id: leadId,
