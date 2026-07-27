@@ -462,9 +462,9 @@ interface QuotSummary {
   itemsConOC: number
   itemsPedidos: number
   itemsFaltantes: number
-  costoTotal: number
-  costoPedido: number
-  costoFaltante: number
+  costoTotal: { usd: number; mxn: number }
+  costoPedido: { usd: number; mxn: number }
+  costoFaltante: { usd: number; mxn: number }
   currency: string
   numOCs: number
 }
@@ -538,9 +538,17 @@ function ProcurementTracker({ onOpenPO, onOpenDetail }: { onOpenPO: (id: string)
         const itemsFaltantes = totalItems - itemsConOC
         const currency = items[0]?.provider_currency || 'USD'
 
-        const costoTotal = items.reduce((s, i) => s + Number(i.cost) * Number(i.quantity), 0)
-        const costoPedido = items.filter(i => i.catalog_product_id && itemsWithPO.has(i.catalog_product_id)).reduce((s, i) => s + Number(i.cost) * Number(i.quantity), 0)
-        const costoFaltante = costoTotal - costoPedido
+        const costoTotal = { usd: 0, mxn: 0 }
+        const costoPedido = { usd: 0, mxn: 0 }
+        for (const i of items) {
+          const amt = Number(i.cost) * Number(i.quantity)
+          const usd = (i.provider_currency || 'USD').toUpperCase() === 'USD'
+          if (usd) costoTotal.usd += amt; else costoTotal.mxn += amt
+          if (i.catalog_product_id && itemsWithPO.has(i.catalog_product_id)) {
+            if (usd) costoPedido.usd += amt; else costoPedido.mxn += amt
+          }
+        }
+        const costoFaltante = { usd: costoTotal.usd - costoPedido.usd, mxn: costoTotal.mxn - costoPedido.mxn }
 
         return {
           id: q.id,
@@ -571,9 +579,21 @@ function ProcurementTracker({ onOpenPO, onOpenDetail }: { onOpenPO: (id: string)
   const totItems = rows.reduce((s, r) => s + r.totalItems, 0)
   const totConOC = rows.reduce((s, r) => s + r.itemsConOC, 0)
   const totFaltantes = rows.reduce((s, r) => s + r.itemsFaltantes, 0)
-  const totCosto = rows.reduce((s, r) => s + r.costoTotal, 0)
-  const totPedido = rows.reduce((s, r) => s + r.costoPedido, 0)
-  const totFaltante = rows.reduce((s, r) => s + r.costoFaltante, 0)
+  const sumCur = (pick: (r: QuotSummary) => { usd: number; mxn: number }) =>
+    rows.reduce((a, r) => ({ usd: a.usd + pick(r).usd, mxn: a.mxn + pick(r).mxn }), { usd: 0, mxn: 0 })
+  const totCosto = sumCur(r => r.costoTotal)
+  const totPedido = sumCur(r => r.costoPedido)
+  const totFaltante = sumCur(r => r.costoFaltante)
+  // Render de monto por moneda (USD y MXN en líneas separadas)
+  const money2 = (m: { usd: number; mxn: number }, color: string, weight = 600) => {
+    if (Math.round(m.usd) === 0 && Math.round(m.mxn) === 0) return <span style={{ color: '#444' }}>—</span>
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', lineHeight: 1.3 }}>
+        {Math.round(m.usd) !== 0 && <span style={{ color, fontWeight: weight }}>{FUSD(m.usd)}</span>}
+        {Math.round(m.mxn) !== 0 && <span style={{ color, fontWeight: weight }}>{F(m.mxn)}</span>}
+      </div>
+    )
+  }
 
   return (
     <div>
@@ -624,16 +644,12 @@ function ProcurementTracker({ onOpenPO, onOpenDetail }: { onOpenPO: (id: string)
                       ? <span style={{ color: '#D97706', fontWeight: 600 }}>{r.itemsFaltantes}</span>
                       : <span style={{ color: '#10B981' }}>✓</span>}
                   </Td>
-                  <Td right><span style={{ fontWeight: 600, color: '#ccc' }}>{FCUR(r.costoTotal, r.currency)}</span></Td>
+                  <Td right>{money2(r.costoTotal, '#ccc')}</Td>
+                  <Td right>{money2(r.costoPedido, '#10B981')}</Td>
                   <Td right>
-                    <span style={{ color: r.costoPedido > 0 ? '#10B981' : '#444', fontWeight: 600 }}>
-                      {FCUR(r.costoPedido, r.currency)}
-                    </span>
-                  </Td>
-                  <Td right>
-                    <span style={{ color: r.costoFaltante > 0 ? '#D97706' : '#10B981', fontWeight: 600 }}>
-                      {r.costoFaltante > 0 ? FCUR(r.costoFaltante, r.currency) : '✓'}
-                    </span>
+                    {(Math.round(r.costoFaltante.usd) > 0 || Math.round(r.costoFaltante.mxn) > 0)
+                      ? money2(r.costoFaltante, '#D97706')
+                      : <span style={{ color: '#10B981' }}>✓</span>}
                   </Td>
                 </tr>
               )
@@ -647,9 +663,13 @@ function ProcurementTracker({ onOpenPO, onOpenDetail }: { onOpenPO: (id: string)
                 <Td right><span style={{ fontWeight: 700, color: '#fff' }}>{rows.reduce((s, r) => s + r.numOCs, 0)}</span></Td>
                 <Td right><span style={{ fontWeight: 700, color: '#fff' }}>{totItems}</span></Td>
                 <Td right><span style={{ fontWeight: 700, color: totFaltantes > 0 ? '#D97706' : '#10B981' }}>{totFaltantes}</span></Td>
-                <Td right><span style={{ fontWeight: 700, color: '#fff' }}>{FUSD(totCosto)}</span></Td>
-                <Td right><span style={{ fontWeight: 700, color: '#10B981' }}>{FUSD(totPedido)}</span></Td>
-                <Td right><span style={{ fontWeight: 700, color: totFaltante > 0 ? '#D97706' : '#10B981' }}>{totFaltante > 0 ? FUSD(totFaltante) : '✓'}</span></Td>
+                <Td right>{money2(totCosto, '#fff', 700)}</Td>
+                <Td right>{money2(totPedido, '#10B981', 700)}</Td>
+                <Td right>
+                  {(Math.round(totFaltante.usd) > 0 || Math.round(totFaltante.mxn) > 0)
+                    ? money2(totFaltante, '#D97706', 700)
+                    : <span style={{ fontWeight: 700, color: '#10B981' }}>✓</span>}
+                </Td>
               </tr>
             )}
           </tbody>
