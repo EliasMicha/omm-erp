@@ -988,10 +988,11 @@ export default function CRM() {
     ])
     Promise.all([
       supabase.from('leads').select('*').order('updated_at', { ascending: false }),
-      supabase.from('quotations').select('id,client_name,stage,total,notes,specialty,version_group_id,version_label,updated_at,created_at,commercial_year'),
+      supabase.from('quotations').select('id,client_name,stage,total,total_final,notes,specialty,version_group_id,version_label,updated_at,created_at,commercial_year'),
       supabase.from('cash_movements').select('lead_id, quotation_id, monto, fecha, tipo, direccion'),
       supabase.from('payment_allocations').select('quotation_id, monto, monto_origen, moneda_origen, bank_movement_id'),
-    ]).then(([{ data: ld }, { data: qt }, { data: cm }, { data: pa }]) => {
+      supabase.from('projects').select('cotizacion_id, contract_value'),
+    ]).then(([{ data: ld }, { data: qt }, { data: cm }, { data: pa }, { data: projData }]) => {
       // Map quotation_id → lead_id (desde notes JSON) para resolver cascada
       const quotToLead = new Map<string, string>()
       ;(qt || []).forEach((q: any) => {
@@ -1104,10 +1105,14 @@ export default function CRM() {
         const quotTotalIva = (q: any) => {
           // esp/cort/ilum/proy/dist guardan total CON IVA; elec guarda subtotal crudo.
           // Fuente canónica: total_final (con descuento + IVA) cuando existe.
-          if (typeof q.total_final === 'number' && !isNaN(q.total_final)) return Number(q.total_final)
-          if (q.specialty === 'esp' || q.specialty === 'cort' || q.specialty === 'ilum' || q.specialty === 'proy' || q.specialty === 'dist') return q.total || 0
-          return (q.total || 0) * 1.16
+          if (q.total_final != null && q.total_final !== '' && !isNaN(Number(q.total_final))) return Number(q.total_final)
+          if (q.specialty === 'esp' || q.specialty === 'cort' || q.specialty === 'ilum' || q.specialty === 'proy' || q.specialty === 'dist') return Number(q.total) || 0
+          return (Number(q.total) || 0) * 1.16
         }
+        // VENDIDO = valor final del contrato (contract_value del proyecto) si existe; si no, el total c/IVA.
+        const contractByQuot = new Map<string, number>()
+        ;(projData || []).forEach((p: any) => { if (p.cotizacion_id && p.contract_value != null) contractByQuot.set(p.cotizacion_id, Number(p.contract_value)) })
+        const soldValue = (q: any) => contractByQuot.has(q.id) ? contractByQuot.get(q.id)! : quotTotalIva(q)
         const getCurrency = (q: any): 'USD' | 'MXN' => {
           try { const m = JSON.parse(q.notes || '{}'); return m.currency === 'MXN' ? 'MXN' : 'USD' } catch { return 'USD' }
         }
@@ -1143,6 +1148,7 @@ export default function CRM() {
           let cotizadoUSD = 0, cotizadoMXN = 0, vendidoUSD = 0, vendidoMXN = 0
           leadQuotes.forEach(q => {
             const total = quotTotalIva(q)
+            const sold = q.stage === 'contrato' ? soldValue(q) : total
             const cur = getCurrency(q)
             // Año de cierre de ESTA cotización (propio → del lead → updated/created)
             const y = q.commercial_year || lead.commercial_year || quotYear.get(q.id) || 0
@@ -1150,11 +1156,11 @@ export default function CRM() {
             if (cur === 'USD') {
               cotizadoUSD += total
               if (y) cByYear[y].usd += total
-              if (q.stage === 'contrato') { vendidoUSD += total; if (y) { if (!vByYear[y]) vByYear[y] = { usd: 0, mxn: 0 }; vByYear[y].usd += total } }
+              if (q.stage === 'contrato') { vendidoUSD += sold; if (y) { if (!vByYear[y]) vByYear[y] = { usd: 0, mxn: 0 }; vByYear[y].usd += sold } }
             } else {
               cotizadoMXN += total
               if (y) cByYear[y].mxn += total
-              if (q.stage === 'contrato') { vendidoMXN += total; if (y) { if (!vByYear[y]) vByYear[y] = { usd: 0, mxn: 0 }; vByYear[y].mxn += total } }
+              if (q.stage === 'contrato') { vendidoMXN += sold; if (y) { if (!vByYear[y]) vByYear[y] = { usd: 0, mxn: 0 }; vByYear[y].mxn += sold } }
             }
           })
           if (cotizadoUSD || cotizadoMXN || vendidoUSD || vendidoMXN) {
