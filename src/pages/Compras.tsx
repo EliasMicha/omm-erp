@@ -828,7 +828,7 @@ function ProcurementDetail({ quotationId, onBack, onOpenPO }: { quotationId: str
             <Th>Producto</Th>
             <Th>Proveedor cotizado</Th>
             <Th right>Cant</Th>
-            <Th right>Total</Th>
+            <Th right>Costo</Th>
             <Th>OC Interna</Th>
             <Th>Proveedor OC</Th>
             <Th>Doc Proveedor</Th>
@@ -855,7 +855,7 @@ function ProcurementDetail({ quotationId, onBack, onOpenPO }: { quotationId: str
                 </Td>
                 <Td muted>{item.supplier || '--'}</Td>
                 <Td right>{item.quantity}</Td>
-                <Td right><span style={{ fontWeight: 600, color: '#ccc' }}>{FCUR(item.total, item.currency)}</span></Td>
+                <Td right><span style={{ fontWeight: 600, color: '#ccc' }} title="Costo (proveedor) = costo unitario × cantidad">{FCUR(item.cost * item.quantity, item.currency)}</span></Td>
                 <Td>
                   {item.po_number ? (
                     <span onClick={() => { if (item.po_id) onOpenPO(item.po_id) }}
