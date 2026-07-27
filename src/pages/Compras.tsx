@@ -490,7 +490,7 @@ function ProcurementTracker({ onOpenPO, onOpenDetail }: { onOpenPO: (id: string)
       // 2. All material items
       const { data: qItems } = await supabase
         .from('quotation_items')
-        .select('id, quotation_id, catalog_product_id, cost, total, provider_currency')
+        .select('id, quotation_id, catalog_product_id, cost, total, quantity, provider_currency')
         .in('quotation_id', quotIds)
         .eq('type', 'material')
 
@@ -538,8 +538,8 @@ function ProcurementTracker({ onOpenPO, onOpenDetail }: { onOpenPO: (id: string)
         const itemsFaltantes = totalItems - itemsConOC
         const currency = items[0]?.provider_currency || 'USD'
 
-        const costoTotal = items.reduce((s, i) => s + Number(i.total), 0)
-        const costoPedido = items.filter(i => i.catalog_product_id && itemsWithPO.has(i.catalog_product_id)).reduce((s, i) => s + Number(i.total), 0)
+        const costoTotal = items.reduce((s, i) => s + Number(i.cost) * Number(i.quantity), 0)
+        const costoPedido = items.filter(i => i.catalog_product_id && itemsWithPO.has(i.catalog_product_id)).reduce((s, i) => s + Number(i.cost) * Number(i.quantity), 0)
         const costoFaltante = costoTotal - costoPedido
 
         return {
