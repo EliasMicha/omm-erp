@@ -660,7 +660,7 @@ export default function LeadDashboard() {
     }
 
     ;(['USD', 'MXN'] as const).forEach(cur => {
-      const curQuots = quotations.filter(q => getQuotCurrency(q) === cur)
+      const curQuots = quotations.filter(q => getQuotCurrency(q) === cur && q.stage !== 'perdida')
       if (curQuots.length === 0) return
 
       result[cur].quotations = curQuots
@@ -894,7 +894,7 @@ export default function LeadDashboard() {
         ) : (<>
           {/* Render separate table + summary per currency */}
           {(['USD', 'MXN'] as const).map(cur => {
-            const curQuots = quotations.filter(q => getQuotCurrency(q) === cur)
+            const curQuots = quotations.filter(q => getQuotCurrency(q) === cur && q.stage !== 'perdida')
             if (curQuots.length === 0) return null
             const sym = cur === 'USD' ? 'US$' : '$'
             const summary = quotSummaryByCur[cur]
