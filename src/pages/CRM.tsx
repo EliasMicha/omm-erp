@@ -1142,6 +1142,8 @@ export default function CRM() {
           const leadQuotes = dedupeVersions(leadQuotesAll)
           let cotizadoUSD = 0, cotizadoMXN = 0, vendidoUSD = 0, vendidoMXN = 0
           leadQuotes.forEach(q => {
+            // Las cotizaciones perdidas no suman en ningún lado (ni Cotizado ni Vendido).
+            if (q.stage === 'perdida') return
             const total = quotTotalIva(q)
             const cur = getCurrency(q)
             // Año de cierre de ESTA cotización (propio → del lead → updated/created)
