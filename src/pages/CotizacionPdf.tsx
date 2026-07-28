@@ -202,6 +202,10 @@ function CotizacionPdfInner() {
   const [leadName, setLeadName] = useState('')
   const [architect, setArchitect] = useState('')
   const [showSettings, setShowSettings] = useState(false)
+  // Overrides manuales de la descripción por sistema (editadas a mano). Guardadas en notes JSON.
+  const [descOverrides, setDescOverrides] = useState<Record<string, string>>({})
+  const [editingSys, setEditingSys] = useState<string | null>(null)
+  const [editText, setEditText] = useState('')
   const [generating, setGenerating] = useState(false)
   const contentRef = useRef<HTMLDivElement>(null)
 
@@ -268,6 +272,8 @@ function CotizacionPdfInner() {
           }
         } catch (e) { /* ignore */ }
 
+        try { const m2 = JSON.parse(cotData.notes || '{}'); if (m2.systemDescriptions && typeof m2.systemDescriptions === 'object') setDescOverrides(m2.systemDescriptions) } catch { /* ignore */ }
+
         setLoading(false)
       } catch (err: any) {
         setError(err.message || 'Error cargando cotización')
@@ -283,6 +289,21 @@ function CotizacionPdfInner() {
       localStorage.setItem('omm_pdf_terminos', JSON.stringify(terminos))
       setShowSettings(false)
     } catch (e) { /* ignore */ }
+  }
+
+  // Guarda (o borra, si el texto queda vacío) el override de descripción de un sistema.
+  async function saveSysDesc(sys: string, text: string) {
+    let meta: any = {}
+    try { meta = JSON.parse(cot?.notes || '{}') } catch { /* ignore */ }
+    const map: Record<string, string> = { ...(meta.systemDescriptions || {}) }
+    if (text.trim() === '') delete map[sys]; else map[sys] = text
+    meta.systemDescriptions = map
+    const newNotes = JSON.stringify(meta)
+    const { error } = await supabase.from('quotations').update({ notes: newNotes }).eq('id', id!)
+    if (error) { alert('No se pudo guardar: ' + error.message); return }
+    if (cot) setCot({ ...cot, notes: newNotes })
+    setDescOverrides(map)
+    setEditingSys(null)
   }
 
   function resetConfig() {
@@ -575,6 +596,8 @@ function CotizacionPdfInner() {
 
   // Descripciones comerciales por sistema — orientadas a ventas, no técnicas
   function descripcionSistema(sys: string, data: { items: ItemRow[]; count: number }): string {
+    // Override manual (editado a mano) tiene prioridad sobre el texto autogenerado por IA.
+    if (descOverrides[sys] != null && descOverrides[sys].trim() !== '') return descOverrides[sys]
     // Analizar marca dominante por valor total (subtotal), no solo por primera aparición
     // Tambien detectar marca desde el nombre del producto si marca está vacía
     const knownBrands = ['Lutron', 'UniFi', 'Ubiquiti', 'Sonos', 'Bose', 'Shure', 'Hikvision', 'Dahua', 'Axis', 'Panduit', 'Cisco', 'Meraki', 'Somfy', 'Control4', 'Crestron', 'Savant', 'CyberPower', 'Honeywell', 'DSC', 'Bosch', 'Epcom', 'Syscom', 'Liberty']
@@ -890,9 +913,24 @@ function CotizacionPdfInner() {
                   {!isElec && (
                     <tr>
                       <td colSpan={4} style={{ paddingTop: 2, paddingBottom: 10 }}>
-                        <div style={{ fontSize: 9, color: '#666', lineHeight: 1.6, maxWidth: 600 }}>
-                          {descripcionSistema(sys, data)}
-                        </div>
+                        {editingSys === sys ? (
+                          <div className="no-print" style={{ maxWidth: 600 }}>
+                            <textarea value={editText} onChange={e => setEditText(e.target.value)} rows={3}
+                              style={{ width: '100%', fontSize: 11, fontFamily: 'inherit', padding: 6, border: '1px solid #bbb', borderRadius: 4, boxSizing: 'border-box' }} />
+                            <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                              <button onClick={() => saveSysDesc(sys, editText)} style={{ fontSize: 11, padding: '3px 10px', background: '#111', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer', fontFamily: 'inherit' }}>Guardar</button>
+                              <button onClick={() => setEditingSys(null)} style={{ fontSize: 11, padding: '3px 10px', background: 'none', border: '1px solid #bbb', borderRadius: 4, cursor: 'pointer', fontFamily: 'inherit' }}>Cancelar</button>
+                              {descOverrides[sys] != null && <button onClick={() => saveSysDesc(sys, '')} style={{ fontSize: 11, padding: '3px 10px', background: 'none', border: '1px solid #bbb', borderRadius: 4, cursor: 'pointer', color: '#b45309', fontFamily: 'inherit' }}>Restaurar auto</button>}
+                            </div>
+                          </div>
+                        ) : (
+                          <div style={{ fontSize: 9, color: '#666', lineHeight: 1.6, maxWidth: 600 }}>
+                            {descripcionSistema(sys, data)}
+                            {descOverrides[sys] != null && <span className="no-print" style={{ marginLeft: 6, fontSize: 8, color: '#059669' }}>(editada)</span>}
+                            <span className="no-print" onClick={() => { setEditingSys(sys); setEditText(descripcionSistema(sys, data)) }}
+                              style={{ marginLeft: 8, fontSize: 9, color: '#2563EB', cursor: 'pointer', textDecoration: 'underline' }}>editar</span>
+                          </div>
+                        )}
                       </td>
                     </tr>
                   )}
