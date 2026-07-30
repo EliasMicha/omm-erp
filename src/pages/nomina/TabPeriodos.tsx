@@ -7,6 +7,7 @@ import {
   Save, RefreshCw, Lock, AlertCircle, CheckCircle2, Gift, Upload, FileText
 } from 'lucide-react'
 import { parseSFacilNominaPDF, matchEmployeeByName, parseComprobantePagos } from '../../lib/nominaPdfParser'
+import { useIsMobile } from '../../lib/useIsMobile'
 import { OMNIIOUS_LOGO } from '../../assets/logo'
 
 /* ─────────────── Types ─────────────── */
@@ -118,6 +119,7 @@ function periodLabel(mode: ViewMode, start: Date, end: Date): string {
 /* ─────────────── Component ─────────────── */
 
 export default function TabPeriodos() {
+  const isMobile = useIsMobile()
   const [viewMode, setViewMode] = useState<ViewMode>('semanal')
   const [currentDate, setCurrentDate] = useState(new Date())
   const [employees, setEmployees] = useState<Employee[]>([])
@@ -920,11 +922,11 @@ export default function TabPeriodos() {
         </div>
 
         {/* Period navigator */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: isMobile ? 0 : 12, flex: isMobile ? '1 1 100%' : undefined }}>
           <button onClick={() => navigate(-1)} style={navBtnStyle}><ChevronLeft size={16} /></button>
           <div style={{
             padding: '8px 16px', background: '#111', borderRadius: 8, border: '1px solid #222',
-            fontSize: 13, color: '#eee', fontWeight: 500, minWidth: 260, textAlign: 'center',
+            fontSize: isMobile ? 12 : 13, color: '#eee', fontWeight: 500, minWidth: isMobile ? 0 : 260, flex: isMobile ? 1 : undefined, textAlign: 'center',
           }}>
             {periodLabel(viewMode, range.start, range.end)}
           </div>
@@ -952,7 +954,7 @@ export default function TabPeriodos() {
 
       {/* KPI Cards */}
       {period && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 10, marginBottom: 20 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(6, 1fr)', gap: 10, marginBottom: 20 }}>
           <KpiCard label="Sueldo neto total" value={F(kpis.totalSueldo)} />
           <KpiCard label="Total transferencia" value={F(kpis.totalTransf)} color="#60a5fa" />
           <KpiCard label="Total efectivo" value={F(kpis.totalEfectivo)} color="#f59e0b" />
@@ -985,7 +987,7 @@ export default function TabPeriodos() {
         /* Period exists — show table */
         <>
           {/* Action bar */}
-          <div style={{ display: 'flex', gap: 8, marginBottom: 16, alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 16, alignItems: 'center', flexWrap: 'wrap' }}>
             <span style={{ fontSize: 12, color: '#666' }}>
               {mergedItems.length} empleados · {viewMode === 'semanal' ? 'Semana' : 'Quincena'}
             </span>
