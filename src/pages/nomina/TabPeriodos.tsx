@@ -993,6 +993,17 @@ export default function TabPeriodos() {
             </span>
             <div style={{ flex: 1 }} />
 
+            {/* Descargas de layouts/PDF — disponibles SIEMPRE, incluso en periodo cerrado */}
+            <Btn onClick={descargarLayoutBBVA} variant="ghost" style={{ fontSize: 12, color: '#60a5fa' }} title="TXT de transferencias mismo banco (BBVA). Usa el Neto transferido.">
+              <Banknote size={13} /> Layout BBVA
+            </Btn>
+            <Btn onClick={descargarLayoutSPEI} variant="ghost" style={{ fontSize: 12, color: '#a78bfa' }} title="TXT SPEI para transferencias a otros bancos (NO BBVA), usando la CLABE de cada empleado.">
+              <Banknote size={13} /> Layout SPEI
+            </Btn>
+            <Btn onClick={descargarPdfEfectivo} variant="ghost" style={{ fontSize: 12, color: '#f59e0b' }} title="PDF con los pagos en efectivo por empleado y su cuenta de depósito.">
+              <FileText size={13} /> PDF Efectivo
+            </Btn>
+
             {!isClosed && (
               <>
                 {/* PDF Import */}
@@ -1008,15 +1019,6 @@ export default function TabPeriodos() {
 
                 <Btn onClick={recalcularPeriodo} variant="ghost" style={{ fontSize: 12 }} disabled={saving}>
                   <RefreshCw size={13} /> {saving ? 'Recalculando...' : 'Recalcular'}
-                </Btn>
-                <Btn onClick={descargarLayoutBBVA} variant="ghost" style={{ fontSize: 12, color: '#60a5fa' }} title="TXT de transferencias mismo banco (BBVA). Usa el Neto transferido.">
-                  <Banknote size={13} /> Layout BBVA
-                </Btn>
-                <Btn onClick={descargarLayoutSPEI} variant="ghost" style={{ fontSize: 12, color: '#a78bfa' }} title="TXT SPEI para transferencias a otros bancos (NO BBVA), usando la CLABE de cada empleado.">
-                  <Banknote size={13} /> Layout SPEI
-                </Btn>
-                <Btn onClick={descargarPdfEfectivo} variant="ghost" style={{ fontSize: 12, color: '#f59e0b' }} title="PDF con los pagos en efectivo por empleado y su cuenta de depósito.">
-                  <FileText size={13} /> PDF Efectivo
                 </Btn>
                 {hasDirty && (
                   <Btn onClick={saveChanges} variant="primary" style={{ fontSize: 12 }} disabled={saving}>
