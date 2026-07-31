@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase'
 import { Project, PaymentMilestone, WorkReport } from '../types'
 import { F, STATUS_CONFIG, STAGE_CONFIG, formatDate } from '../lib/utils'
 import { KpiCard, Table, Th, Td, ProgressBar, Badge, Loading, SectionHeader } from '../components/layout/UI'
+import RadarVentas from '../components/RadarVentas'
 import { useIsMobile } from '../lib/useIsMobile'
 import { tcForYear } from '../lib/fx'
 import { useAuth } from '../contexts/AuthContext'
@@ -90,6 +91,9 @@ export default function Dashboard() {
   return (
     <div style={{ padding: isMobile ? '16px 12px' : '24px 28px', maxWidth: 1200 }}>
       <SectionHeader title="Dashboard" subtitle={subtitle} />
+
+      {/* ── RADAR DE VENTAS (nuevo cockpit — seguimientos que se te escapan) ── */}
+      {(area === 'DG' || area === 'Ventas_Ingenieria') && <RadarVentas />}
 
       {/* ── KPI CARDS ── */}
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : isFinancial ? 'repeat(4, 1fr)' : 'repeat(2, 1fr)', gap: 12, marginBottom: 24 }}>
