@@ -92,8 +92,22 @@ export default function Dashboard() {
     <div style={{ padding: isMobile ? '16px 12px' : '24px 28px', maxWidth: 1200 }}>
       <SectionHeader title="Dashboard" subtitle={subtitle} />
 
-      {/* ── RADAR DE VENTAS (nuevo cockpit — seguimientos que se te escapan) ── */}
-      {(area === 'DG' || area === 'Ventas_Ingenieria') && <RadarVentas />}
+      {/* ── CENTRO DE MANDO — secciones (tarjeta resumen, clic para el detalle) ── */}
+      {(area === 'DG' || area === 'Ventas_Ingenieria') && (
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, 1fr)', gap: 12, marginBottom: 24 }}>
+          <RadarVentas mode="card" />
+          <div style={{ background: '#141414', border: '1px solid #1e1e1e', borderTop: '2px solid #3B82F6', borderRadius: 12, padding: 16, minHeight: 130, display: 'flex', flexDirection: 'column', gap: 6, opacity: 0.55 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>Operación</div>
+            <div style={{ fontSize: 11, color: '#888' }}>Avances de obra</div>
+            <div style={{ marginTop: 'auto', fontSize: 10, color: '#555', fontWeight: 600 }}>Próximamente</div>
+          </div>
+          <div style={{ background: '#141414', border: '1px solid #1e1e1e', borderTop: '2px solid #D97706', borderRadius: 12, padding: 16, minHeight: 130, display: 'flex', flexDirection: 'column', gap: 6, opacity: 0.55 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>Compras</div>
+            <div style={{ fontSize: 11, color: '#888' }}>Urgente por comprar o vencer</div>
+            <div style={{ marginTop: 'auto', fontSize: 10, color: '#555', fontWeight: 600 }}>Próximamente</div>
+          </div>
+        </div>
+      )}
 
       {/* ── KPI CARDS ── */}
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : isFinancial ? 'repeat(4, 1fr)' : 'repeat(2, 1fr)', gap: 12, marginBottom: 24 }}>
