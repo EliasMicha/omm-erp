@@ -23,6 +23,7 @@ import EmpleadoExpediente from './pages/EmpleadoExpediente'
 import CotizacionPdf from './pages/CotizacionPdf'
 import MemoriaTecnica from './pages/MemoriaTecnica'
 import LeadDashboard from './pages/LeadDashboard'
+import RadarVentas from './components/RadarVentas'
 import Usuarios from './pages/Usuarios'
 import Mantenimiento from './pages/Mantenimiento'
 import ObraApp from './obra-app/ObraApp'
@@ -49,6 +50,7 @@ export default function App() {
                 <main style={{ flex: 1, overflowX: 'hidden', overflowY: 'auto', minHeight: '100vh', width: 0 }}>
                   <Routes>
                     <Route path="/" element={<Dashboard />} />
+                    <Route path="/radar-ventas" element={<RadarVentas mode="detail" />} />
                     <Route path="/crm" element={<CRM />} />
                     <Route path="/crm/:id" element={<LeadDashboard />} />
                     <Route path="/cotizaciones" element={<Cotizaciones />} />
