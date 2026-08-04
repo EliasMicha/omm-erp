@@ -164,6 +164,12 @@ export default function Cobranza() {
   // Esperado del mes: override manual si existe, si no el gap de fase autocalculado.
   const esperadoDe = (L: LeadRow) => { const o = obraTrack[L.leadId]; return o && o.monto_esperado != null ? Number(o.monto_esperado) : Math.round(L.gap) }
   const totEsperado = useMemo(() => activas.reduce((s, L) => s + esperadoDe(L), 0), [activas, obraTrack])
+  // KPIs de cobranza mensual: objetivo teórico (Σ venta×%fase) vs real cobrado vs brecha.
+  const mensual = useMemo(() => {
+    const teorico = activas.reduce((s, L) => s + L.objetivo * L.vTot, 0)
+    const cobrado = activas.reduce((s, L) => s + L.cTot, 0)
+    return { teorico, cobrado, brecha: tot.gap, esperado: totEsperado, pctAlDia: teorico > 0 ? cobrado / teorico : 0 }
+  }, [activas, tot, totEsperado])
   async function saveObra(leadId: string, patch: any) {
     const cur = obraTrack[leadId] || {}
     const next = { lead_id: leadId, monto_esperado: cur.monto_esperado ?? null, fecha_pronosticada: cur.fecha_pronosticada ?? null, ...patch, updated_at: new Date().toISOString() }
@@ -317,10 +323,17 @@ export default function Cobranza() {
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4, 1fr)', gap: 10, marginBottom: 20 }}>
-            <KpiCard label="Por cobrar total" value={money(tot.porCobrar)} color="#D97706" />
-            <KpiCard label="Deberías cobrar (por fase)" value={money(tot.gap)} color="#EF4444" />
-            <KpiCard label="Finiquitos (entregadas)" value={money(tot.finiquito)} color="#8B5CF6" />
-            <KpiCard label="Obras por cobrar" value={String(tot.obras)} color="#3B82F6" />
+            {view === 'programacion' ? (<>
+              <KpiCard label={`Objetivo teórico (deberías tener cobrado · ${pctS(mensual.pctAlDia)} al día)`} value={money(mensual.teorico)} color="#3B82F6" />
+              <KpiCard label="Real cobrado" value={money(mensual.cobrado)} color="#10B981" />
+              <KpiCard label="Brecha vs objetivo (a cobrar)" value={money(mensual.brecha)} color="#EF4444" />
+              <KpiCard label="Esperado este mes (programado)" value={money(mensual.esperado)} color="#D97706" />
+            </>) : (<>
+              <KpiCard label="Por cobrar total" value={money(tot.porCobrar)} color="#D97706" />
+              <KpiCard label="Deberías cobrar (por fase)" value={money(tot.gap)} color="#EF4444" />
+              <KpiCard label="Finiquitos (entregadas)" value={money(tot.finiquito)} color="#8B5CF6" />
+              <KpiCard label="Obras por cobrar" value={String(tot.obras)} color="#3B82F6" />
+            </>)}
           </div>
 
           {view === 'detalle' ? (<>
