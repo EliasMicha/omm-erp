@@ -28,7 +28,7 @@ interface LeadRow {
   leadId: string; lead: string; cliente: string; nQuotes: number
   vTot: number; cTot: number; porCobrar: number
   avance: number; objetivo: number; gap: number
-  fase: string | null; entrega: boolean; quotes: QRow[]
+  fase: string | null; entrega: boolean; finiquitado: boolean; quotes: QRow[]
 }
 
 async function fetchAll(table: string, cols: string) {
@@ -115,6 +115,8 @@ export default function Cobranza() {
       const fs = new Set(L.quotes.map(q => q.fase || ''))
       L.fase = fs.size === 1 ? (L.quotes[0].fase || null) : 'mixto'
       L.entrega = L.quotes.some(q => q.fase === 'detalles')
+      // Finiquitado = cobrado ≈ 100% del vendido (nada relevante por cobrar)
+      L.finiquitado = L.vTot > 0 && (L.avance >= 0.999 || L.porCobrar < Math.max(1, L.vTot * 0.002))
     })
     arr.sort((a, b) => b.porCobrar - a.porCobrar)
     return arr
@@ -126,7 +128,10 @@ export default function Cobranza() {
     setTracking(prev => { const n = { ...prev }; qIds.forEach(id => { n[id] = { ...(n[id] || {}), quotation_id: id, fase } }); return n })
   }
 
-  const tot = useMemo(() => rows.reduce((a, r) => ({ porCobrar: a.porCobrar + r.porCobrar, gap: a.gap + r.gap, finiquito: a.finiquito + (r.entrega ? r.porCobrar : 0), obras: a.obras + 1 }), { porCobrar: 0, gap: 0, finiquito: 0, obras: 0 }), [rows])
+  const activas = useMemo(() => rows.filter(r => !r.finiquitado), [rows])
+  const finiquitadas = useMemo(() => rows.filter(r => r.finiquitado), [rows])
+  const [showFin, setShowFin] = useState(false)
+  const tot = useMemo(() => activas.reduce((a, r) => ({ porCobrar: a.porCobrar + r.porCobrar, gap: a.gap + r.gap, finiquito: a.finiquito + (r.entrega ? r.porCobrar : 0), obras: a.obras + 1 }), { porCobrar: 0, gap: 0, finiquito: 0, obras: 0 }), [activas])
 
   const th: React.CSSProperties = { fontSize: 10, color: '#666', textTransform: 'uppercase', letterSpacing: '0.04em', padding: '8px 8px', textAlign: 'right', whiteSpace: 'nowrap' }
   const thL: React.CSSProperties = { ...th, textAlign: 'left' }
@@ -139,6 +144,62 @@ export default function Cobranza() {
       {FASES.map(f => <option key={f.key} value={f.key}>{f.label} ({f.pct}%)</option>)}
     </select>
   )
+
+  const TH = (
+    <tr style={{ background: '#111' }}>
+      <th style={{ ...thL, width: 26 }}></th><th style={thL}>Lead</th><th style={thL}>Cliente</th>
+      <th style={th}>Cots</th><th style={th}>Vendido</th><th style={th}>Cobrado</th><th style={th}>Por cobrar</th>
+      <th style={th}>% avance</th><th style={th}>% objetivo</th><th style={th}>A cobrar (fase)</th>
+      <th style={{ ...thL, textAlign: 'center' }}>Fase de obra</th><th style={{ ...thL, width: 26 }}></th>
+    </tr>
+  )
+
+  const renderRows = (list: LeadRow[]) => list.map(L => {
+    const open = expanded.has(L.leadId)
+    const atras = L.gap > 0
+    return (
+      <Fragment key={L.leadId}>
+        <tr style={{ borderTop: '1px solid #161616', cursor: 'pointer', background: open ? '#0d0d0d' : 'transparent' }}
+          onClick={() => setExpanded(p => { const n = new Set(p); n.has(L.leadId) ? n.delete(L.leadId) : n.add(L.leadId); return n })}>
+          <td style={{ ...td, textAlign: 'center', color: '#666' }}>{open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</td>
+          <td style={{ ...td, textAlign: 'left', color: '#fff', fontWeight: 600 }}>{L.lead}{L.entrega && <span style={{ marginLeft: 6, fontSize: 9, color: '#8B5CF6', border: '1px solid #8B5CF640', borderRadius: 8, padding: '1px 6px' }}>ENTREGA</span>}</td>
+          <td style={{ ...td, textAlign: 'left', color: '#888' }}>{L.cliente || '—'}</td>
+          <td style={{ ...td, color: '#888' }}>{L.nQuotes}</td>
+          <td style={{ ...td, color: '#ccc' }}>{money(L.vTot)}</td>
+          <td style={{ ...td, color: '#10B981' }}>{money(L.cTot)}</td>
+          <td style={{ ...td, color: L.porCobrar > 0 ? '#D97706' : '#555', fontWeight: 600 }}>{money(L.porCobrar)}</td>
+          <td style={{ ...td, color: '#ccc' }}>{pct(L.avance)}</td>
+          <td style={{ ...td, color: '#888' }}>{L.objetivo > 0 ? pct(L.objetivo) : '—'}</td>
+          <td style={{ ...td, color: atras ? '#EF4444' : '#10B981', fontWeight: 600 }}>{atras ? money(L.gap) : '✓ al día'}</td>
+          <td style={{ padding: '6px 8px', textAlign: 'center' }} onClick={e => e.stopPropagation()}>
+            {faseSelect(L.fase === 'mixto' ? '' : (L.fase || ''), v => setFase(L.quotes.map(q => q.id), v), L.fase === 'mixto')}
+          </td>
+          <td style={{ ...td, textAlign: 'center' }} onClick={e => e.stopPropagation()}>
+            <button onClick={() => navigate('/crm/' + L.leadId)} title="Abrir en CRM" style={{ background: 'none', border: '1px solid #333', borderRadius: 6, padding: '4px 6px', color: '#888', cursor: 'pointer' }}><ExternalLink size={12} /></button>
+          </td>
+        </tr>
+        {open && L.quotes.map(q => {
+          const vE = q.cur === 'USD' ? q.vendido * tc : q.vendido
+          const cE = q.cur === 'USD' ? q.cobrado * tc : q.cobrado
+          return (
+            <tr key={q.id} style={{ background: '#0a0a0a', borderTop: '1px solid #141414' }}>
+              <td></td>
+              <td colSpan={2} style={{ ...td, textAlign: 'left', color: '#bbb', paddingLeft: 22 }}>↳ {q.name} <span style={{ color: '#555', fontSize: 10 }}>({q.cur}{q.cur === 'USD' ? ' @' + tc : ''})</span></td>
+              <td></td>
+              <td style={{ ...td, color: '#999' }}>{money(vE)}<div style={{ fontSize: 9, color: '#555' }}>{q.cur === 'USD' ? 'US$' + Math.round(q.vendido).toLocaleString() : ''}</div></td>
+              <td style={{ ...td, color: '#0a9' }}>{money(cE)}<div style={{ fontSize: 9, color: '#555' }}>{q.cur === 'USD' ? 'US$' + Math.round(q.cobrado).toLocaleString() : ''}</div></td>
+              <td style={{ ...td, color: '#b5760a' }}>{money(Math.max(0, vE - cE))}</td>
+              <td style={{ ...td, color: '#999' }}>{vE > 0 ? pct(cE / vE) : '—'}</td>
+              <td style={{ ...td, color: '#666' }}>{faseByKey(q.fase) ? faseByKey(q.fase)!.pct + '%' : '—'}</td>
+              <td></td>
+              <td style={{ padding: '6px 8px', textAlign: 'center' }}>{faseSelect(q.fase || '', v => setFase([q.id], v))}</td>
+              <td></td>
+            </tr>
+          )
+        })}
+      </Fragment>
+    )
+  })
 
   return (
     <div style={{ padding: isMobile ? '16px 12px' : '24px 28px' }}>
@@ -178,7 +239,7 @@ export default function Cobranza() {
                 </tr>
               </thead>
               <tbody>
-                {rows.map(L => {
+                {activas.map(L => {
                   const open = expanded.has(L.leadId)
                   const atras = L.gap > 0
                   return (
@@ -224,10 +285,27 @@ export default function Cobranza() {
                     </Fragment>
                   )
                 })}
-                {rows.length === 0 && <tr><td colSpan={12} style={{ padding: 30, textAlign: 'center', color: '#666' }}>Sin obras con contrato cerrado.</td></tr>}
+                {activas.length === 0 && <tr><td colSpan={12} style={{ padding: 30, textAlign: 'center', color: '#666' }}>Sin obras activas por cobrar.</td></tr>}
               </tbody>
             </table>
           </div>
+
+          {finiquitadas.length > 0 && (
+            <div style={{ marginTop: 18 }}>
+              <button onClick={() => setShowFin(s => !s)} style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: '1px solid #222', borderRadius: 8, padding: '8px 14px', color: '#888', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12 }}>
+                {showFin ? <ChevronDown size={14} /> : <ChevronRight size={14} />} Obras finiquitadas ({finiquitadas.length}) — cobradas al ~100%
+              </button>
+              {showFin && (
+                <div style={{ overflowX: 'auto', border: '1px solid #1a1a1a', borderRadius: 12, marginTop: 10, opacity: 0.7 }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 980 }}>
+                    <thead>{TH}</thead>
+                    <tbody>{renderRows(finiquitadas)}</tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
           <div style={{ fontSize: 11, color: '#555', marginTop: 10 }}>
             Totales en MXN = pesos nativos + (USD × TC general). <b>% objetivo</b> = promedio de la fase de cada cotización ponderado por su venta. <b>A cobrar (fase)</b> = lo que falta cobrar para alcanzar el % objetivo. Cobros en pesos aplicados a cotizaciones USD se convierten vía prorrateo del CRM.
           </div>
