@@ -76,22 +76,26 @@ export default function Cobranza() {
   const [loading, setLoading] = useState(true)
   const [raw, setRaw] = useState<any>(null)
   const [tracking, setTracking] = useState<Record<string, any>>({})
+  const [obraTrack, setObraTrack] = useState<Record<string, any>>({})
+  const [view, setView] = useState<'detalle' | 'programacion'>('detalle')
   const [tc, setTc] = useState(tcForYear(new Date().getFullYear()))
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [showFin, setShowFin] = useState(false)
 
   useEffect(() => {
     (async () => {
-      const [leads, quots, pa, cm, track] = await Promise.all([
+      const [leads, quots, pa, cm, track, obra] = await Promise.all([
         supabase.from('leads').select('id,name,company,tipo_cambio_ref').then(r => r.data || []),
         supabase.from('quotations').select('id,name,stage,notes,total,total_final,specialty,commercial_year').eq('stage', 'contrato').then(r => r.data || []),
         supabase.from('payment_allocations').select('quotation_id, monto, bank_movement_id').then(r => r.data || []),
         supabase.from('cash_movements').select('quotation_id, tipo, monto, moneda').then(r => r.data || []),
         supabase.from('cobranza_tracking').select('*').then(r => r.data || []),
+        supabase.from('cobranza_obra').select('*').then(r => r.data || []),
       ])
       const bm = await fetchAll('bank_movements', 'id, quotation_id, tipo, monto, moneda')
       const tm: Record<string, any> = {}; track.forEach((t: any) => { tm[t.quotation_id] = t })
-      setTracking(tm); setRaw({ leads, quots, pa, cm, bm }); setLoading(false)
+      const om: Record<string, any> = {}; obra.forEach((t: any) => { om[t.lead_id] = t })
+      setTracking(tm); setObraTrack(om); setRaw({ leads, quots, pa, cm, bm }); setLoading(false)
     })()
   }, [])
 
@@ -157,10 +161,21 @@ export default function Cobranza() {
     setTracking(prev => ({ ...prev, [qId]: { ...(prev[qId] || {}), quotation_id: qId, fase } }))
   }
 
+  // Esperado del mes: override manual si existe, si no el gap de fase autocalculado.
+  const esperadoDe = (L: LeadRow) => { const o = obraTrack[L.leadId]; return o && o.monto_esperado != null ? Number(o.monto_esperado) : Math.round(L.gap) }
+  const totEsperado = useMemo(() => activas.reduce((s, L) => s + esperadoDe(L), 0), [activas, obraTrack])
+  async function saveObra(leadId: string, patch: any) {
+    const cur = obraTrack[leadId] || {}
+    const next = { lead_id: leadId, monto_esperado: cur.monto_esperado ?? null, fecha_pronosticada: cur.fecha_pronosticada ?? null, ...patch, updated_at: new Date().toISOString() }
+    await supabase.from('cobranza_obra').upsert([next], { onConflict: 'lead_id' })
+    setObraTrack(prev => ({ ...prev, [leadId]: { ...(prev[leadId] || {}), lead_id: leadId, ...patch } }))
+  }
+
   const th: React.CSSProperties = { fontSize: 10, color: '#666', textTransform: 'uppercase', letterSpacing: '0.03em', padding: '8px 7px', textAlign: 'right', whiteSpace: 'nowrap' }
   const thL: React.CSSProperties = { ...th, textAlign: 'left' }
   const td: React.CSSProperties = { padding: '9px 7px', fontSize: 12, textAlign: 'right', whiteSpace: 'nowrap' }
   const tdU: React.CSSProperties = { ...td, fontSize: 11 }
+  const tabBtn = (active: boolean): React.CSSProperties => ({ padding: '6px 14px', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid ' + (active ? '#10B981' : '#2a2a2a'), background: active ? '#10B98122' : 'transparent', color: active ? '#10B981' : '#888' })
 
   const faseSelect = (spec: string, value: string | null, onChange: (v: string) => void) => {
     const opts = FASES_BY_SPEC[spec] || []
@@ -237,12 +252,64 @@ export default function Cobranza() {
     )
   })
 
+  const renderProg = () => (
+    <div style={{ overflowX: 'auto', border: '1px solid #1e1e1e', borderRadius: 12 }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 920 }}>
+        <thead>
+          <tr style={{ background: '#111' }}>
+            <th style={thL}>Lead</th><th style={{ ...thL, textAlign: 'center' }}>Tipo</th>
+            <th style={th}>Vendido</th><th style={th}>Cobrado</th><th style={th}>Por cobrar</th>
+            <th style={th}>% av</th><th style={th}>% obj</th>
+            <th style={{ ...th, textAlign: 'center' }}>Esperado este mes</th>
+            <th style={{ ...thL, textAlign: 'center' }}>Fecha pronosticada</th>
+          </tr>
+        </thead>
+        <tbody>
+          {activas.map(L => (
+            <tr key={L.leadId} style={{ borderTop: '1px solid #161616' }}>
+              <td style={{ ...td, textAlign: 'left', color: '#fff', fontWeight: 600 }}>{L.lead}</td>
+              <td style={{ ...td, textAlign: 'center', color: '#888', fontSize: 10 }}>{L.tipos || '—'}</td>
+              <td style={{ ...td, color: '#ccc' }}>{money(L.vTot)}</td>
+              <td style={{ ...td, color: '#10B981' }}>{money(L.cTot)}</td>
+              <td style={{ ...td, color: '#D97706', fontWeight: 600 }}>{money(L.porCobrar)}</td>
+              <td style={{ ...td, color: '#ccc' }}>{pctS(L.avance)}</td>
+              <td style={{ ...td, color: '#888' }}>{L.objetivo > 0 ? pctS(L.objetivo) : '—'}</td>
+              <td style={{ padding: '6px 8px', textAlign: 'center' }}>
+                <input type="number" defaultValue={esperadoDe(L)} key={L.leadId + '-' + Math.round(L.gap) + '-' + (obraTrack[L.leadId]?.monto_esperado ?? 'x')}
+                  onBlur={e => { const v = e.target.value.trim(); saveObra(L.leadId, { monto_esperado: v === '' ? null : Number(v) }) }}
+                  title="Auto = lo que falta para el % objetivo de fase. Editable si acordaste otro monto."
+                  style={{ width: 120, background: '#0e0e0e', border: '1px solid #333', borderRadius: 6, color: '#EF4444', fontSize: 12, padding: '5px 8px', textAlign: 'right', fontFamily: 'inherit', fontWeight: 600 }} />
+              </td>
+              <td style={{ padding: '6px 8px', textAlign: 'center' }}>
+                <input type="date" defaultValue={obraTrack[L.leadId]?.fecha_pronosticada || ''}
+                  onChange={e => saveObra(L.leadId, { fecha_pronosticada: e.target.value || null })}
+                  style={{ background: '#0e0e0e', border: '1px solid #333', borderRadius: 6, color: '#ccc', fontSize: 12, padding: '5px 8px', fontFamily: 'inherit' }} />
+              </td>
+            </tr>
+          ))}
+          {activas.length === 0 && <tr><td colSpan={9} style={{ padding: 30, textAlign: 'center', color: '#666' }}>Sin obras activas.</td></tr>}
+          <tr style={{ borderTop: '2px solid #333', background: '#0a0a0a' }}>
+            <td colSpan={4} style={{ ...td, textAlign: 'left', fontWeight: 700, color: '#fff' }}>Total esperado este mes</td>
+            <td style={{ ...td, color: '#666' }}>{money(tot.porCobrar)}</td>
+            <td></td><td></td>
+            <td style={{ ...td, textAlign: 'center', fontWeight: 700, color: '#EF4444' }}>{money(totEsperado)}</td>
+            <td></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  )
+
   return (
     <div style={{ padding: isMobile ? '16px 12px' : '24px 28px' }}>
       <SectionHeader title="Cobranza" subtitle={`${activas.length} obras por cobrar${finiquitadas.length ? ` · ${finiquitadas.length} finiquitadas` : ''}`} />
 
       {loading ? <Loading /> : (
         <>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+            <button onClick={() => setView('detalle')} style={tabBtn(view === 'detalle')}>Detalle</button>
+            <button onClick={() => setView('programacion')} style={tabBtn(view === 'programacion')}>Programación mensual</button>
+          </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
             <span style={{ fontSize: 11, color: '#666' }}>TC general USD→MXN:</span>
             <input type="number" step="0.1" value={tc} onChange={e => setTc(parseFloat(e.target.value) || tc)}
@@ -256,6 +323,7 @@ export default function Cobranza() {
             <KpiCard label="Obras por cobrar" value={String(tot.obras)} color="#3B82F6" />
           </div>
 
+          {view === 'detalle' ? (<>
           <div style={{ overflowX: 'auto', border: '1px solid #1e1e1e', borderRadius: 12 }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1120 }}>
               <thead>{TH}</thead>
@@ -285,6 +353,12 @@ export default function Cobranza() {
           <div style={{ fontSize: 11, color: '#555', marginTop: 10 }}>
             <b>Vendido/Cobrado/Por cobrar</b> = total en MXN (USD×TC + MXN); las columnas <b>USD</b> muestran la parte nativa en dólares. <b>% obj</b> = Σ(venta × %fase) ÷ venta total. <b>A cobrar</b> = lo que falta para el objetivo. <b>Fases</b> = cotizaciones con fase asignada. La fase se pone por cotización (expande la obra) según su especialidad.
           </div>
+          </>) : (
+            <>
+              <div style={{ fontSize: 11, color: '#555', marginBottom: 10 }}>El <b>esperado este mes</b> se autocalcula del gap de fase (lo que falta para el % objetivo). Es editable si acordaste otro monto con el cliente. Total esperado del mes: <b style={{ color: '#EF4444' }}>{money(totEsperado)}</b>.</div>
+              {renderProg()}
+            </>
+          )}
         </>
       )}
     </div>
