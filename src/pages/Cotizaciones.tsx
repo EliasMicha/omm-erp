@@ -1322,25 +1322,27 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
     const isElec = cot?.specialty === 'elec'
     let itemCost = prod.cost || 0
     let itemMarkup = prod.markup || 0
-    if (isElec && itemCost === 0 && price > 0) {
-      if (prod.type === 'material' || prod.type === 'servicio') {
-        // Material: costo = 25% del precio de venta (markup 300%)
-        itemCost = Math.round(price * 0.25 * 100) / 100
-        itemMarkup = 300
-      } else if (prod.type === 'labor' || prod.type === 'mano_de_obra') {
-        // Labor/nómina: costo = 40% del precio de venta (markup 150%)
-        itemCost = Math.round(price * 0.40 * 100) / 100
-        itemMarkup = 150
+    let moPct = Number((prod as any).mo_pct) || 0
+    let utilPct = Number((prod as any).util_pct) || 0
+    let priceFinal = price
+    if (isElec) {
+      if (itemCost > 0 && (prod as any).util_pct != null) {
+        // Catálogo con config eléctrica completa → reconstruye precio con el modelo eléctrico
+        const r = elecLine(itemCost, moPct, utilPct, 1)
+        priceFinal = r.price; itemMarkup = r.markup
+      } else if (itemCost === 0 && price > 0) {
+        if (prod.type === 'material' || prod.type === 'servicio') { itemCost = Math.round(price * 0.25 * 100) / 100; itemMarkup = 300 }
+        else if (prod.type === 'labor' || prod.type === 'mano_de_obra') { itemCost = Math.round(price * 0.40 * 100) / 100; itemMarkup = 150 }
       }
     }
     const item = {
       area_id: areaActiva, quotation_id: cotId, catalog_product_id: prod.id,
       name: prod.name, description: prod.description, system: prod.system,
       type: prod.type, provider: prod.provider, quantity: 1,
-      cost: itemCost, markup: itemMarkup,
+      cost: itemCost, markup: itemMarkup, mo_pct: moPct, util_pct: utilPct,
       supplier_id: prod.supplier_id || null,
       purchase_phase: prod.purchase_phase || 'inicio',
-      price, total: price,
+      price: priceFinal, total: priceFinal,
       installation_cost: 0, order_index: items.filter(i => i.area_id === areaActiva).length,
       marca: (prod as any).marca || null,
       modelo: (prod as any).modelo || null,
@@ -1513,9 +1515,15 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
     syncQuotationTotal(newItems)
     if (alsoCatalog && item.catalog_product_id) {
       const catFields: any = {}
-      for (const k of ['name','marca','modelo','sku','description','provider','system','cost','markup','supplier_id','purchase_phase','provider_currency']) if (k in fields) catFields[k] = fields[k]
-      await supabase.from('catalog_products').update(catFields).eq('id', item.catalog_product_id)
-      setCatalog(prev => prev.map(p => p.id === item.catalog_product_id ? { ...p, ...catFields } : p))
+      // Solo columnas que EXISTEN en catalog_products (provider_currency NO existe → usa 'moneda')
+      for (const k of ['name','marca','modelo','sku','description','provider','system','cost','markup','supplier_id','purchase_phase']) if (k in fields) catFields[k] = fields[k]
+      if ('provider_currency' in fields) catFields.moneda = fields.provider_currency
+      catFields.mo_pct = fields.mo_pct
+      catFields.util_pct = fields.util_pct
+      catFields.precio_venta = fields.price   // guarda el precio de venta calculado para futuras cotizaciones
+      const { error: catErr } = await supabase.from('catalog_products').update(catFields).eq('id', item.catalog_product_id)
+      if (catErr) { alert('No se pudo guardar al catálogo: ' + catErr.message) }
+      else setCatalog(prev => prev.map(p => p.id === item.catalog_product_id ? { ...p, ...catFields } : p))
     }
     setEditItem(null)
   }
@@ -1556,6 +1564,35 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
     }
     setSyncing(false)
     alert(updated > 0 ? `Se actualizaron ${updated} producto${updated > 1 ? 's' : ''} con precios del catálogo.` : 'Todos los precios ya están al día.')
+  }
+
+  // ─── GUARDAR PRECIOS DE ESTA COTIZACIÓN AL CATÁLOGO (empuja cotización → catálogo) ──
+  async function pushPricesToCatalog() {
+    if (!confirm('¿Guardar los precios y configuración de TODOS los productos de esta cotización al catálogo? Afecta futuras cotizaciones.')) return
+    setSyncing(true)
+    let updated = 0, errors = 0
+    const seen = new Set<string>()
+    for (const item of items) {
+      const cid = item.catalog_product_id
+      if (!cid || seen.has(cid)) continue
+      seen.add(cid)
+      const catFields: any = {
+        cost: item.cost ?? 0,
+        markup: (item as any).markup ?? 0,
+        mo_pct: (item as any).mo_pct ?? 0,
+        util_pct: (item as any).util_pct ?? (item.markup ?? 0),
+        precio_venta: item.price ?? 0,
+        provider: item.provider ?? null,
+        supplier_id: item.supplier_id ?? null,
+        purchase_phase: item.purchase_phase ?? null,
+      }
+      if ((item as any).provider_currency) catFields.moneda = (item as any).provider_currency
+      const { error } = await supabase.from('catalog_products').update(catFields).eq('id', cid)
+      if (error) { errors++; console.error('push catalog', error) }
+      else { updated++; setCatalog(prev => prev.map(p => p.id === cid ? { ...p, ...catFields } : p)) }
+    }
+    setSyncing(false)
+    alert(errors ? `Se guardaron ${updated} al catálogo, ${errors} con error.` : `Se guardaron ${updated} producto${updated !== 1 ? 's' : ''} al catálogo.`)
   }
 
   // ─── AI IMPORT HELPERS ────────────────────────────────────────────────
@@ -2099,8 +2136,8 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
             <Btn size="sm" onClick={() => aiImportRef.current?.click()} disabled={aiImporting} style={{marginLeft:4}}>
               {aiImporting ? <><Loader2 size={12} style={{animation:'spin 1s linear infinite'}}/> {aiImportProgress || 'Importando...'}</> : <><Upload size={12}/> Importar con IA</>}
             </Btn>
-            <Btn size="sm" onClick={syncPricesFromCatalog} disabled={syncing} style={{marginLeft:4}}>
-              {syncing ? <><Loader2 size={12} style={{animation:'spin 1s linear infinite'}}/> Actualizando...</> : <><RefreshCw size={12}/> Sync Catálogo</>}
+            <Btn size="sm" onClick={pushPricesToCatalog} disabled={syncing} style={{marginLeft:4}} title="Guarda los precios/config de esta cotización al catálogo (afecta futuras cotizaciones)">
+              {syncing ? <><Loader2 size={12} style={{animation:'spin 1s linear infinite'}}/> Guardando...</> : <><RefreshCw size={12}/> Guardar al catálogo</>}
             </Btn>
             <Btn size="sm" onClick={() => setShowPdfPicker(true)} style={{marginLeft:4}}>
               <FileText size={12}/> Exportar PDF
