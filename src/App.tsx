@@ -53,7 +53,11 @@ export default function App() {
                     <Route path="/" element={<Dashboard />} />
                     <Route path="/radar-ventas" element={<RadarVentas mode="detail" />} />
                     <Route path="/crm" element={<CRM />} />
-                    <Route path="/cobranza" element={<Cobranza />} />
+                    <Route path="/cobranza" element={
+                      <ProtectedRoute allowedAreas={['Administracion']}>
+                        <Cobranza />
+                      </ProtectedRoute>
+                    } />
                     <Route path="/crm/:id" element={<LeadDashboard />} />
                     <Route path="/cotizaciones" element={<Cotizaciones />} />
                     <Route path="/compras" element={<Compras />} />
