@@ -17,7 +17,7 @@ const NAV: NavItem[] = [
   { to: '/crm', icon: Users2, label: 'CRM y Ventas' },
   { to: '/cotizaciones', icon: FileText, label: 'Cotizaciones' },
   { to: '/proyectos', icon: FolderOpen, label: 'Proyectos' },
-  { to: '/cobranza', icon: Receipt, label: 'Cobranza' },
+  { to: '/cobranza', icon: Receipt, label: 'Cobranza', allowedAreas: ['Administracion'] },
   { to: '/compras', icon: ShoppingCart, label: 'Compras' },
   { to: '/obra', icon: ClipboardList, label: 'Obra' },
   { to: '/finanzas', icon: TrendingUp, label: 'Finanzas', allowedAreas: ['Administracion'] },
