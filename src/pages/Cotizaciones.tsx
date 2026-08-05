@@ -980,6 +980,7 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [bulkAction, setBulkAction] = useState<'' | 'moveArea' | 'copyArea' | 'moveSystem'>('')
   const [bulkTarget, setBulkTarget] = useState('')
+  const [copyTargets, setCopyTargets] = useState<Set<string>>(new Set())
   const [verTodo, setVerTodo] = useState(false)         // ver todas las áreas a la vez
   const [filtroArticulo, setFiltroArticulo] = useState('') // filtrar por tipo de artículo (cruza áreas)
   const [editItem, setEditItem] = useState<QuotationItem | null>(null) // modal editar producto
@@ -2028,10 +2029,65 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
     setBulkAction(''); setBulkTarget('')
     syncQuotationTotal(newItems)
   }
+  // Copiar los productos seleccionados a VARIAS áreas a la vez
+  async function bulkCopyToAreas(targetAreaIds: string[]) {
+    if (!selectedIds.size || targetAreaIds.length === 0) return
+    const ids = Array.from(selectedIds)
+    const rows: any[] = []
+    let idx = items.length
+    for (const targetAreaId of targetAreaIds) {
+      for (const id of ids) {
+        const s = items.find(it => it.id === id)
+        if (!s) continue
+        const { id: _id, created_at: _ca, bundle_id: _b, bundle_instance_id: _bi, ...rest } = s as any
+        rows.push({ ...rest, quotation_id: cotId, area_id: targetAreaId, order_index: idx++ })
+      }
+    }
+    if (rows.length === 0) return
+    const { data, error } = await supabase.from('quotation_items').insert(rows).select()
+    if (error) { alert('Error al copiar a áreas: ' + error.message); return }
+    const newItems = [...items, ...((data as QuotationItem[]) || [])]
+    setItems(newItems)
+    setSelectedIds(new Set())
+    setCopyTargets(new Set())
+    setBulkAction(''); setBulkTarget('')
+    syncQuotationTotal(newItems)
+    setPropMsg(`Copiado a ${targetAreaIds.length} área(s)`); setTimeout(() => setPropMsg(''), 3000)
+  }
+  // Reordenar áreas (mover arriba/abajo intercambiando order_index)
+  async function reorderArea(areaId: string, dir: -1 | 1) {
+    const sorted = [...areas].sort((a, b) => ((a as any).order_index ?? 0) - ((b as any).order_index ?? 0))
+    const i = sorted.findIndex(a => a.id === areaId)
+    const j = i + dir
+    if (i < 0 || j < 0 || j >= sorted.length) return
+    const a = sorted[i], b = sorted[j]
+    const oa = (a as any).order_index ?? i, ob = (b as any).order_index ?? j
+    await Promise.all([
+      supabase.from('quotation_areas').update({ order_index: ob }).eq('id', a.id),
+      supabase.from('quotation_areas').update({ order_index: oa }).eq('id', b.id),
+    ])
+    setAreas(prev => prev.map(x => x.id === a.id ? { ...x, order_index: ob } : x.id === b.id ? { ...x, order_index: oa } : x))
+  }
+  // Reordenar ítems dentro de su área (mover arriba/abajo intercambiando order_index)
+  async function reorderItem(itemId: string, dir: -1 | 1) {
+    const it = items.find(i => i.id === itemId)
+    if (!it) return
+    const siblings = items.filter(i => i.area_id === it.area_id).sort((a, b) => ((a as any).order_index ?? 0) - ((b as any).order_index ?? 0))
+    const i = siblings.findIndex(s => s.id === itemId)
+    const j = i + dir
+    if (i < 0 || j < 0 || j >= siblings.length) return
+    const a = siblings[i], b = siblings[j]
+    const oa = (a as any).order_index ?? i, ob = (b as any).order_index ?? j
+    await Promise.all([
+      supabase.from('quotation_items').update({ order_index: ob }).eq('id', a.id),
+      supabase.from('quotation_items').update({ order_index: oa }).eq('id', b.id),
+    ])
+    setItems(prev => prev.map(x => x.id === a.id ? { ...x, order_index: ob } as any : x.id === b.id ? { ...x, order_index: oa } as any : x))
+  }
 
   if (loading||!cot) return <Loading/>
 
-  const areaItems = items.filter(i => i.area_id === areaActiva)
+  const areaItems = items.filter(i => i.area_id === areaActiva).sort((a, b) => ((a as any).order_index ?? 0) - ((b as any).order_index ?? 0))
   const areaTotal = areaItems.reduce((s,i) => s+lineTot(i), 0)
   const cotTotal = items.reduce((s,i) => s+lineTot(i), 0)
   const areaObj = areas.find(a => a.id === areaActiva)
@@ -2193,7 +2249,7 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
             <span>📋 Ver todo</span>
             <span style={{fontSize:10,color:'#444',flexShrink:0}}>{F(cotTotal)}</span>
           </div>
-          {areas.map(a => {
+          {[...areas].sort((x,y)=>((x as any).order_index??0)-((y as any).order_index??0)).map((a, aIdx, arr) => {
             const tot = items.filter(i=>i.area_id===a.id).reduce((s,i)=>s+lineTot(i),0)
             const active = !verTodo && a.id === areaActiva
             return (
@@ -2205,6 +2261,8 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
               }}>
                 <span style={{flex:1,minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}} onDoubleClick={e=>{ e.stopPropagation(); renameArea(a.id) }} title="Doble clic para renombrar">{a.name}</span>
                 <span style={{fontSize:10,color:'#444',flexShrink:0}}>{F(tot)}</span>
+                <button onClick={e=>{ e.stopPropagation(); reorderArea(a.id,-1) }} disabled={aIdx===0} title="Subir área" style={{background:'none',border:'none',color:aIdx===0?'#333':'#666',cursor:aIdx===0?'default':'pointer',padding:'1px',fontSize:9,lineHeight:1,display:'inline-flex',flexShrink:0}}>▲</button>
+                <button onClick={e=>{ e.stopPropagation(); reorderArea(a.id,1) }} disabled={aIdx===arr.length-1} title="Bajar área" style={{background:'none',border:'none',color:aIdx===arr.length-1?'#333':'#666',cursor:aIdx===arr.length-1?'default':'pointer',padding:'1px',fontSize:9,lineHeight:1,display:'inline-flex',flexShrink:0}}>▼</button>
                 <button onClick={e=>{ e.stopPropagation(); renameArea(a.id) }} title="Renombrar área" style={{background:'none',border:'none',color:'#666',cursor:'pointer',padding:'2px',display:'inline-flex',flexShrink:0}}><Pencil size={11}/></button>
                 <button onClick={e=>{ e.stopPropagation(); duplicateArea(a.id) }} title="Duplicar área con sus productos" style={{background:'none',border:'none',color:'#666',cursor:'pointer',padding:'2px',display:'inline-flex',flexShrink:0}}><Copy size={11}/></button>
                 <button onClick={e=>{ e.stopPropagation(); removeArea(a.id) }} title="Eliminar área" style={{background:'none',border:'none',color:'#666',cursor:'pointer',padding:'2px',display:'inline-flex',flexShrink:0}}><Trash2 size={11}/></button>
@@ -2235,7 +2293,7 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
           {selectedIds.size > 0 && (
             <div style={{padding:'6px 14px',background:'#1a2a1a',borderBottom:'1px solid #333',display:'flex',alignItems:'center',gap:10,flexShrink:0,flexWrap:'wrap'}}>
               <span style={{fontSize:11,color:'#10B981',fontWeight:600}}>{selectedIds.size} seleccionado{selectedIds.size > 1 ? 's' : ''}</span>
-              <select value={bulkAction} onChange={e => { setBulkAction(e.target.value as any); setBulkTarget('') }} style={{fontSize:11,background:'#222',color:'#ccc',border:'1px solid #444',borderRadius:6,padding:'3px 8px',fontFamily:'inherit'}}>
+              <select value={bulkAction} onChange={e => { setBulkAction(e.target.value as any); setBulkTarget(''); setCopyTargets(new Set()) }} style={{fontSize:11,background:'#222',color:'#ccc',border:'1px solid #444',borderRadius:6,padding:'3px 8px',fontFamily:'inherit'}}>
                 <option value="">Acción...</option>
                 <option value="moveArea">Mover a área</option>
                 <option value="copyArea">Copiar a área</option>
@@ -2248,10 +2306,20 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
                 </select>
               )}
               {bulkAction === 'copyArea' && (
-                <select value={bulkTarget} onChange={e => { if (e.target.value) bulkCopyToArea(e.target.value) }} style={{fontSize:11,background:'#222',color:'#ccc',border:'1px solid #444',borderRadius:6,padding:'3px 8px',fontFamily:'inherit'}}>
-                  <option value="">Copiar a área...</option>
-                  {areas.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-                </select>
+                <div style={{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap',background:'#141414',border:'1px solid #333',borderRadius:6,padding:'4px 8px'}}>
+                  <div style={{display:'flex',gap:5,flexWrap:'wrap',maxHeight:76,overflowY:'auto',maxWidth:440}}>
+                    {[...areas].sort((x,y)=>((x as any).order_index??0)-((y as any).order_index??0)).map(a => {
+                      const on = copyTargets.has(a.id)
+                      return (
+                        <label key={a.id} style={{display:'flex',alignItems:'center',gap:3,fontSize:10,color:on?'#10B981':'#bbb',cursor:'pointer',border:'1px solid '+(on?'#10B98155':'#333'),background:on?'#10B98118':'transparent',borderRadius:4,padding:'2px 6px'}}>
+                          <input type="checkbox" checked={on} onChange={e=>setCopyTargets(prev=>{const n=new Set(prev); e.target.checked?n.add(a.id):n.delete(a.id); return n})} style={{cursor:'pointer',accentColor:'#10B981'}}/>
+                          {a.name}
+                        </label>
+                      )
+                    })}
+                  </div>
+                  <button disabled={copyTargets.size===0} onClick={()=>bulkCopyToAreas(Array.from(copyTargets))} style={{fontSize:11,background:copyTargets.size?'#10B98122':'#1a1a1a',color:copyTargets.size?'#10B981':'#555',border:'1px solid '+(copyTargets.size?'#10B98155':'#333'),borderRadius:6,padding:'3px 10px',cursor:copyTargets.size?'pointer':'default',fontFamily:'inherit',fontWeight:600,whiteSpace:'nowrap'}}>Copiar a {copyTargets.size} área(s)</button>
+                </div>
               )}
               {bulkAction === 'moveSystem' && (
                 <select value={bulkTarget} onChange={e => { if (e.target.value) bulkMoveSystem(e.target.value) }} style={{fontSize:11,background:'#222',color:'#ccc',border:'1px solid #444',borderRadius:6,padding:'3px 8px',fontFamily:'inherit'}}>
@@ -2277,7 +2345,7 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
                 </tr>
               </thead>
               <tbody>
-                {displayItems.map(item => {
+                {displayItems.map((item, itemIdx) => {
                   const phaseCfg = item.purchase_phase ? PHASE_CONFIG[item.purchase_phase as PurchasePhase] : null
                   const supplierName = item.supplier_id ? suppliers.find(s => s.id === item.supplier_id)?.name : null
                   const catProd = catalog.find(c => c.id === item.catalog_product_id) as any
@@ -2317,6 +2385,12 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
                     <td style={{padding:'7px 8px',fontSize:12,textAlign:'right',fontWeight:600,color:'#fff',borderBottom:'1px solid #1a1a1a'}}>{F(lineTot(item))}</td>
                     <td style={{padding:'4px 8px',borderBottom:'1px solid #1a1a1a',whiteSpace:'nowrap'}}>
                       <div style={{display:'flex',alignItems:'center',gap:2}}>
+                        {!filtering && (
+                          <div style={{display:'flex',flexDirection:'column',lineHeight:0.9,marginRight:2}}>
+                            <button onClick={()=>reorderItem(item.id,-1)} disabled={itemIdx===0} title="Subir" style={{background:'none',border:'none',color:itemIdx===0?'#333':'#777',cursor:itemIdx===0?'default':'pointer',padding:0,fontSize:10,lineHeight:1}}>▲</button>
+                            <button onClick={()=>reorderItem(item.id,1)} disabled={itemIdx===displayItems.length-1} title="Bajar" style={{background:'none',border:'none',color:itemIdx===displayItems.length-1?'#333':'#777',cursor:itemIdx===displayItems.length-1?'default':'pointer',padding:0,fontSize:10,lineHeight:1}}>▼</button>
+                          </div>
+                        )}
                         <button onClick={()=>setEditItem(item)} title="Editar producto" style={{background:'none',border:'none',color:'#9ca3af',cursor:'pointer',padding:6,borderRadius:6,display:'inline-flex'}} onMouseEnter={e=>{e.currentTarget.style.background='#222';e.currentTarget.style.color='#fff'}} onMouseLeave={e=>{e.currentTarget.style.background='none';e.currentTarget.style.color='#9ca3af'}}><Pencil size={17}/></button>
                         <button onClick={()=>setSubstituteItem(item)} title="Sustituir por otro producto" style={{background:'none',border:'none',color:'#9ca3af',cursor:'pointer',padding:6,borderRadius:6,display:'inline-flex'}} onMouseEnter={e=>{e.currentTarget.style.background='#222';e.currentTarget.style.color='#2563EB'}} onMouseLeave={e=>{e.currentTarget.style.background='none';e.currentTarget.style.color='#9ca3af'}}><ArrowLeftRight size={17}/></button>
                         <button onClick={()=>removeItem(item.id)} title="Eliminar" style={{background:'none',border:'none',color:'#9ca3af',cursor:'pointer',padding:6,borderRadius:6,display:'inline-flex'}} onMouseEnter={e=>{e.currentTarget.style.background='#2a1414';e.currentTarget.style.color='#DC2626'}} onMouseLeave={e=>{e.currentTarget.style.background='none';e.currentTarget.style.color='#9ca3af'}}><Trash2 size={17}/></button>
