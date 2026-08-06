@@ -2483,6 +2483,51 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
     }
   }
 
+  // Convertir toda la cotización a la otra moneda multiplicando por el TC fijo.
+  // USD → MXN: × TC.  MXN → USD: ÷ TC (red de seguridad para revertir).
+  async function convertQuoteCurrency() {
+    const tc = config.tipoCambio
+    if (!tc || tc <= 0) { alert('Escribe un tipo de cambio válido en el campo TC antes de convertir.'); return }
+    const toMXN = config.currency !== 'MXN'
+    const factor = toMXN ? tc : 1 / tc
+    const targetCur = toMXN ? 'MXN' : 'USD'
+    if (!confirm(
+      `Convertir toda la cotización a ${toMXN ? 'PESOS (MXN)' : 'DÓLARES (USD)'}\n\n` +
+      `• Tipo de cambio fijo: ${tc}\n` +
+      `• Precios, costos, M.O. y programación se ${toMXN ? 'multiplican ×' : 'dividen ÷'} ${tc}\n` +
+      `• Los márgenes se mantienen igual\n` +
+      `• ${products.length} partida(s) se actualizarán\n\n` +
+      `Esto reescribe los valores en ${targetCur}. ¿Continuar?`
+    )) return
+
+    const r2 = (n: number) => Math.round(n * 100) / 100
+    const updated = products.map(p => ({
+      ...p,
+      price: r2(p.price * factor),
+      cost: r2(p.cost * factor),
+      laborCost: r2(p.laborCost * factor),
+      // margin se mantiene: price y cost escalan por el mismo factor
+    }))
+    setProducts(updated)
+
+    // Persistir cada partida en la DB
+    for (const p of updated) {
+      const total = p.isService ? p.price * p.quantity : (p.price + p.laborCost) * p.quantity
+      const { error } = await supabase.from('quotation_items').update({
+        price: p.price,
+        cost: p.cost,
+        installation_cost: p.laborCost,
+        total: r2(total),
+      }).eq('id', p.id)
+      if (error) { alert('Error al convertir una partida: ' + error.message); return }
+    }
+
+    // Fijar la moneda de la cotización y convertir también la programación
+    const nuevaProg = r2(config.programacion * factor)
+    setConfig(prev => ({ ...prev, currency: targetCur, programacion: nuevaProg }))
+    await saveNotes({ currency: targetCur, tipoCambio: tc, programacion: nuevaProg })
+  }
+
   function toggleProdSelect(id: string) {
     setSelectedProdIds(prev => {
       const next = new Set(prev)
@@ -2980,6 +3025,11 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
           <input type="number" value={config.tipoCambio} step={0.1}
             onChange={e => updateConfig('tipoCambio', parseFloat(e.target.value) || 20)}
             style={{ width: isMobile ? 45 : 55, padding: '2px 6px', background: '#1a1a1a', border: '1px solid #333', borderRadius: 4, color: '#ccc', fontSize: 10, fontFamily: 'inherit', textAlign: 'right' }} />
+          <button onClick={convertQuoteCurrency}
+            title={config.currency === 'MXN' ? 'Revertir a USD dividiendo entre el TC' : 'Multiplicar todo por el TC y fijar la cotización en pesos'}
+            style={{ padding: isMobile ? '2px 6px' : '2px 9px', fontSize: isMobile ? 8 : 10, fontWeight: 700, fontFamily: 'inherit', cursor: 'pointer', whiteSpace: 'nowrap', borderRadius: 5, border: '1px solid ' + (config.currency === 'MXN' ? '#06B6D455' : '#D9770655'), background: config.currency === 'MXN' ? '#06B6D418' : '#D9770618', color: config.currency === 'MXN' ? '#06B6D4' : '#D97706' }}>
+            {config.currency === 'MXN' ? '→ USD' : '→ MXN'}
+          </button>
         </span>
       </div>
 
