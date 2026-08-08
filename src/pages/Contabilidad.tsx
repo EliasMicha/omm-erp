@@ -1826,6 +1826,18 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
   const isMobile = useIsMobile()
   const [processing, setProcessing] = useState(false)
   const concColFilters = useColumnFilters()
+  // ── Vista general de movimientos (todos los meses/años) para filtrar por
+  //    proyecto y corregir/reasignar el vínculo lead+cotización ──
+  const [showGeneral, setShowGeneral] = useState(false)
+  const [genSearch, setGenSearch] = useState('')
+  const [genProy, setGenProy] = useState('')            // '' = todos · '__none__' = sin proyecto · texto = contiene
+  const [genTipo, setGenTipo] = useState<'todos' | 'abono' | 'cargo'>('todos')
+  const [genSel, setGenSel] = useState<Set<string>>(new Set())
+  const [genBulkLead, setGenBulkLead] = useState('')
+  const [genBulkQuote, setGenBulkQuote] = useState('')
+  const [genRowLead, setGenRowLead] = useState<Record<string, string>>({})  // movId -> lead elegido (cascada)
+  const [genRowQuote, setGenRowQuote] = useState<Record<string, string>>({})
+  const [savingGen, setSavingGen] = useState(false)
   // Asignacion en cascada Lead -> Cotizacion -> OC
   const [assignLeads, setAssignLeads] = useState<{ id: string; name: string; company?: string }[]>([])
   const [assignQuotations, setAssignQuotations] = useState<{ id: string; name: string; lead_id: string; specialty?: string; total?: number; currency?: string }[]>([])
@@ -2057,6 +2069,75 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
     window.addEventListener('focus', onFocus)
     return () => window.removeEventListener('focus', onFocus)
   }, [])
+
+  // ── Vista general: helpers ──
+  const proyOf = (m: BankMovement) => (((m as any).proyecto_sugerido || (m as any).proyecto_codigo || '') as string).trim()
+  const leadNameOf = (id?: string | null) => assignLeads.find(l => l.id === id)?.name || ''
+  const quoteNameOf = (id?: string | null) => assignQuotations.find(q => q.id === id)?.name || ''
+
+  // Lista de proyectos-indicador distintos (todos los movimientos, sin filtro de fecha)
+  const genProyectos = useMemo(() => {
+    const map = new Map<string, { count: number; linked: number; total: number }>()
+    for (const m of bankMovements) {
+      const p = proyOf(m)
+      if (!p) continue
+      const e = map.get(p) || { count: 0, linked: 0, total: 0 }
+      e.count++; if (m.quotation_id) e.linked++; e.total += m.monto || 0
+      map.set(p, e)
+    }
+    return Array.from(map.entries()).map(([name, v]) => ({ name, ...v })).sort((a, b) => b.count - a.count)
+  }, [bankMovements, assignQuotations])
+
+  // Movimientos filtrados para la vista general (todas las fechas)
+  const genFiltered = useMemo(() => {
+    if (!showGeneral) return [] as BankMovement[]
+    const q = genSearch.trim().toLowerCase()
+    const pf = genProy.trim().toLowerCase()
+    return bankMovements.filter(m => {
+      const p = proyOf(m)
+      if (genProy === '__none__') { if (p) return false }
+      else if (pf) { if (!p.toLowerCase().includes(pf)) return false }
+      if (genTipo !== 'todos' && m.tipo !== genTipo) return false
+      if (q) {
+        const h = `${m.concepto || ''} ${m.beneficiario || ''} ${p} ${m.referencia || ''} ${leadNameOf(m.lead_id)} ${quoteNameOf(m.quotation_id)} ${m.monto}`.toLowerCase()
+        if (!h.includes(q)) return false
+      }
+      return true
+    }).sort((a, b) => (a.fecha < b.fecha ? 1 : a.fecha > b.fecha ? -1 : 0))
+  }, [showGeneral, bankMovements, genSearch, genProy, genTipo, assignLeads, assignQuotations])
+
+  // Asignar lead+cotización (y opcionalmente el indicador de proyecto) a UN movimiento
+  async function asignarMovGeneral(movId: string, leadId: string, quoteId: string, proyectoNombre?: string) {
+    const upd: any = { lead_id: leadId || null, quotation_id: quoteId || null }
+    if (proyectoNombre) upd.proyecto = proyectoNombre
+    const { error } = await supabase.from('bank_movements').update(upd).eq('id', movId)
+    if (error) { alert('Error al asignar: ' + error.message); return false }
+    setBankMovements(bankMovements.map(bm => bm.id === movId
+      ? ({ ...bm, lead_id: leadId || undefined, quotation_id: quoteId || undefined, ...(proyectoNombre ? { proyecto_sugerido: proyectoNombre } : {}) } as any)
+      : bm))
+    return true
+  }
+
+  // Asignación masiva sobre los movimientos seleccionados
+  async function bulkAsignarGeneral() {
+    const ids = Array.from(genSel)
+    if (ids.length === 0) { alert('Selecciona al menos un movimiento.'); return }
+    if (!genBulkLead && !genBulkQuote) { alert('Elige el lead y/o la cotización destino.'); return }
+    const proyNombre = genBulkQuote ? quoteNameOf(genBulkQuote) : ''
+    if (!confirm(`Reasignar ${ids.length} movimiento(s) a:\n\nLead: ${leadNameOf(genBulkLead) || '—'}\nCotización: ${quoteNameOf(genBulkQuote) || '—'}\n${proyNombre ? `\nEl indicador de proyecto se actualizará a "${proyNombre}".` : ''}\n\n¿Continuar?`)) return
+    setSavingGen(true)
+    try {
+      const upd: any = { lead_id: genBulkLead || null, quotation_id: genBulkQuote || null }
+      if (proyNombre) upd.proyecto = proyNombre
+      const { error } = await supabase.from('bank_movements').update(upd).in('id', ids)
+      if (error) { alert('Error en asignación masiva: ' + error.message); return }
+      const idset = new Set(ids)
+      setBankMovements(bankMovements.map(bm => idset.has(bm.id)
+        ? ({ ...bm, lead_id: genBulkLead || undefined, quotation_id: genBulkQuote || undefined, ...(proyNombre ? { proyecto_sugerido: proyNombre } : {}) } as any)
+        : bm))
+      setGenSel(new Set())
+    } finally { setSavingGen(false) }
+  }
   
   // --- Many-to-many link helpers ---
   const addLink = async (mov: BankMovement, invId: string, montoAplicado?: number) => {
@@ -3223,8 +3304,87 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
   const catColors: Record<string, string> = { ...CATEGORIA_COLORS, nomina: '#A78BFA', proveedor: '#D97706', cobro_cliente: '#10B981', impuestos: '#DC2626', comision: '#6B7280', traspaso: '#2563EB', prestamo: '#06B6D4', suscripcion: '#EC4899', otro: '#555' }
   const chkStyle: React.CSSProperties = { width: 15, height: 15, accentColor: '#10B981', cursor: 'pointer' }
 
+  const genCell: React.CSSProperties = { padding: '5px 8px', borderBottom: '1px solid #1a1a1a', verticalAlign: 'middle' }
   return (
     <div>
+      {/* ─── Vista general de movimientos por proyecto (todas las fechas) ─── */}
+      {showGeneral && (
+        <div onClick={() => setShowGeneral(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.78)', zIndex: 9998, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: isMobile ? 0 : '20px', overflow: 'auto' }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: '#0f0f0f', border: '1px solid #222', borderRadius: isMobile ? 0 : 12, width: '100%', maxWidth: 1240, display: 'flex', flexDirection: 'column' }}>
+            {/* Header */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 16px', borderBottom: '1px solid #222', flexWrap: 'wrap' }}>
+              <Search size={16} style={{ color: '#60A5FA' }} />
+              <div style={{ fontSize: 15, fontWeight: 700, color: '#fff' }}>Movimientos por proyecto</div>
+              <span style={{ fontSize: 11, color: '#666' }}>todas las cuentas · todos los meses y años</span>
+              <button onClick={() => setShowGeneral(false)} style={{ marginLeft: 'auto', background: 'none', border: 'none', color: '#888', cursor: 'pointer' }}><X size={18} /></button>
+            </div>
+
+            {/* Filtros */}
+            <div style={{ padding: '12px 16px', borderBottom: '1px solid #1e1e1e', display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+              <input value={genSearch} onChange={e => setGenSearch(e.target.value)} placeholder="Buscar concepto, beneficiario, monto…" style={{ flex: '1 1 220px', minWidth: 180, padding: '6px 10px', background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 6, color: '#ddd', fontSize: 12, fontFamily: 'inherit', outline: 'none' }} />
+              <select value={genProy} onChange={e => setGenProy(e.target.value)} style={{ padding: '6px 10px', background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 6, color: '#ddd', fontSize: 11, fontFamily: 'inherit', maxWidth: 320 }}>
+                <option value="">Todos los proyectos</option>
+                <option value="__none__">— Sin proyecto —</option>
+                {genProyectos.map(p => <option key={p.name} value={p.name}>{p.name} ({p.count}{p.linked < p.count ? ` · ${p.count - p.linked} sin ligar` : ' ✓'})</option>)}
+              </select>
+              <div style={{ display: 'flex', gap: 4 }}>
+                {(['todos', 'abono', 'cargo'] as const).map(t => (
+                  <button key={t} onClick={() => setGenTipo(t)} style={{ padding: '5px 10px', fontSize: 11, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer', borderRadius: 6, border: '1px solid ' + (genTipo === t ? '#3B82F6' : '#2a2a2a'), background: genTipo === t ? '#3B82F622' : 'transparent', color: genTipo === t ? '#60A5FA' : '#888' }}>{t === 'todos' ? 'Todos' : t === 'abono' ? 'Abonos' : 'Cargos'}</button>
+                ))}
+              </div>
+              <span style={{ marginLeft: 'auto', fontSize: 11, color: '#666' }}>{genFiltered.length} movimiento(s)</span>
+            </div>
+
+            {/* Barra de asignación masiva */}
+            <div style={{ padding: '10px 16px', borderBottom: '1px solid #1e1e1e', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', background: '#121212' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#ccc', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                <input type="checkbox" checked={genFiltered.length > 0 && genFiltered.every(m => genSel.has(m.id))} onChange={e => setGenSel(e.target.checked ? new Set(genFiltered.map(m => m.id)) : new Set())} style={{ accentColor: '#10B981' }} />
+                {genSel.size > 0 ? `${genSel.size} seleccionado(s)` : 'Seleccionar todos'}
+              </label>
+              <span style={{ fontSize: 11, color: '#555' }}>→ reasignar a:</span>
+              <div style={{ width: 190 }}><SearchSelect value={genBulkLead} options={assignLeads.map(l => ({ id: l.id, label: l.name + (l.company ? ` · ${l.company}` : '') }))} placeholder="Lead destino…" onChange={v => { setGenBulkLead(v); setGenBulkQuote('') }} /></div>
+              <div style={{ width: 220 }}><SearchSelect value={genBulkQuote} disabled={!genBulkLead} options={assignQuotations.filter(q => q.lead_id === genBulkLead).map(q => ({ id: q.id, label: q.name }))} placeholder={genBulkLead ? 'Cotización destino…' : 'Elige lead primero'} onChange={v => setGenBulkQuote(v)} /></div>
+              <button disabled={savingGen || genSel.size === 0} onClick={bulkAsignarGeneral} style={{ padding: '6px 12px', fontSize: 11, fontWeight: 700, fontFamily: 'inherit', cursor: (savingGen || genSel.size === 0) ? 'default' : 'pointer', borderRadius: 6, border: '1px solid #10B98155', background: genSel.size ? '#10B98122' : '#161616', color: genSel.size ? '#10B981' : '#555', whiteSpace: 'nowrap' }}>{savingGen ? 'Asignando…' : `Asignar ${genSel.size || ''}`}</button>
+            </div>
+
+            {/* Tabla */}
+            <div style={{ overflow: 'auto', maxHeight: isMobile ? '70vh' : '60vh' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead><tr style={{ background: '#161616', position: 'sticky', top: 0, zIndex: 1 }}>
+                  {['', 'Fecha', 'Cuenta', 'Concepto / Beneficiario', 'Monto', 'Proyecto (indicador)', 'Lead', 'Cotización', 'Reasignar'].map((h, i) => (<th key={i} style={{ padding: '6px 8px', fontSize: 9, fontWeight: 600, color: '#555', textTransform: 'uppercase', textAlign: h === 'Monto' ? 'right' : 'left', borderBottom: '1px solid #222', whiteSpace: 'nowrap' }}>{h}</th>))}
+                </tr></thead>
+                <tbody>
+                  {genFiltered.slice(0, 400).map(m => {
+                    const rowLead = genRowLead[m.id] ?? m.lead_id ?? ''
+                    const rowQuote = genRowQuote[m.id] ?? m.quotation_id ?? ''
+                    return (
+                      <tr key={m.id} style={{ background: genSel.has(m.id) ? '#12251d' : 'transparent' }}>
+                        <td style={genCell}><input type="checkbox" checked={genSel.has(m.id)} onChange={() => setGenSel(prev => { const n = new Set(prev); n.has(m.id) ? n.delete(m.id) : n.add(m.id); return n })} style={{ accentColor: '#10B981' }} /></td>
+                        <td style={{ ...genCell, whiteSpace: 'nowrap', color: '#999', fontSize: 10 }}>{formatDate(m.fecha)}</td>
+                        <td style={{ ...genCell, fontSize: 10, color: '#888', whiteSpace: 'nowrap' }}>{m.banco || '—'}{m.moneda === 'USD' ? ' · USD' : ''}</td>
+                        <td style={{ ...genCell, fontSize: 11, color: '#ccc', maxWidth: 240 }}><div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.beneficiario || m.concepto}</div>{m.beneficiario ? <div style={{ fontSize: 9, color: '#555', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.concepto}</div> : null}</td>
+                        <td style={{ ...genCell, textAlign: 'right', fontWeight: 600, whiteSpace: 'nowrap', color: m.tipo === 'abono' ? '#10B981' : '#DC2626' }}>{m.tipo === 'abono' ? '+' : '−'}{F(m.monto)}</td>
+                        <td style={{ ...genCell, fontSize: 10, color: proyOf(m) ? '#D9A441' : '#555', maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{proyOf(m) || '—'}</td>
+                        <td style={{ ...genCell, fontSize: 10, color: m.lead_id ? '#8FA9FF' : '#555', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{leadNameOf(m.lead_id) || (m.lead_id ? '(lead)' : '—')}</td>
+                        <td style={{ ...genCell, fontSize: 10, color: m.quotation_id ? '#10B981' : '#555', maxWidth: 130, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{quoteNameOf(m.quotation_id) || (m.quotation_id ? '(cotización)' : '—')}</td>
+                        <td style={{ ...genCell, minWidth: 340 }}>
+                          <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                            <div style={{ width: 130 }}><SearchSelect value={rowLead} options={assignLeads.map(l => ({ id: l.id, label: l.name }))} placeholder="Lead…" onChange={v => { setGenRowLead(p => ({ ...p, [m.id]: v })); setGenRowQuote(p => ({ ...p, [m.id]: '' })) }} /></div>
+                            <div style={{ width: 145 }}><SearchSelect value={rowQuote} disabled={!rowLead} options={assignQuotations.filter(q => q.lead_id === rowLead).map(q => ({ id: q.id, label: q.name }))} placeholder={rowLead ? 'Cotización…' : 'Lead primero'} onChange={v => setGenRowQuote(p => ({ ...p, [m.id]: v }))} /></div>
+                            <button onClick={async () => { const ok = await asignarMovGeneral(m.id, rowLead, rowQuote, rowQuote ? quoteNameOf(rowQuote) : undefined); if (ok) { setGenRowLead(p => { const n = { ...p }; delete n[m.id]; return n }); setGenRowQuote(p => { const n = { ...p }; delete n[m.id]; return n }) } }} disabled={!rowLead && !rowQuote} title="Guardar el vínculo de este movimiento" style={{ padding: '4px 8px', fontSize: 11, fontWeight: 700, fontFamily: 'inherit', cursor: (rowLead || rowQuote) ? 'pointer' : 'default', borderRadius: 5, border: '1px solid #10B98155', background: (rowLead || rowQuote) ? '#10B98122' : '#161616', color: (rowLead || rowQuote) ? '#10B981' : '#555' }}>✓</button>
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                  {genFiltered.length === 0 && <tr><td colSpan={9} style={{ padding: 30, textAlign: 'center', color: '#555', fontSize: 12 }}>No hay movimientos con esos filtros.</td></tr>}
+                </tbody>
+              </table>
+              {genFiltered.length > 400 && <div style={{ padding: '8px 16px', fontSize: 10, color: '#666', textAlign: 'center' }}>Mostrando 400 de {genFiltered.length}. Afina el filtro para ver el resto.</div>}
+            </div>
+          </div>
+        </div>
+      )}
       {/* Navegacion mensual (Conciliacion v2) */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, padding: '10px 14px', background: '#141414', border: '1px solid #222', borderRadius: 10, flexWrap: 'wrap', gap: isMobile ? 8 : 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 6 : 10, flex: isMobile ? '1 1 100%' : 'initial' }}>
@@ -3248,6 +3408,11 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
           <span style={{ fontSize: 11, color: '#666' }}>
             {movsCuenta.length} movimiento{movsCuenta.length !== 1 ? 's' : ''} en {activeAcc.label}
           </span>
+          <button
+            onClick={() => setShowGeneral(true)}
+            title="Ver TODOS los movimientos (todas las cuentas, meses y años) para filtrar por proyecto y corregir el vínculo"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '5px 12px', fontSize: 11, fontWeight: 600, background: 'rgba(37,99,235,0.10)', border: '1px solid rgba(37,99,235,0.4)', borderRadius: 6, color: '#60A5FA', cursor: 'pointer', fontFamily: 'inherit' }}
+          ><Search size={12} /> Vista general por proyecto</button>
           <button
             onClick={exportExcel}
             disabled={exporting || movsCuenta.length === 0}
