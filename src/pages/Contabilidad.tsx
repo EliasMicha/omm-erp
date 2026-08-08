@@ -1838,6 +1838,13 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
   const [genRowLead, setGenRowLead] = useState<Record<string, string>>({})  // movId -> lead elegido (cascada)
   const [genRowQuote, setGenRowQuote] = useState<Record<string, string>>({})
   const [savingGen, setSavingGen] = useState(false)
+  // ── Reporte de ingresos y egresos por proyecto (desglose por cotización) ──
+  const [showReport, setShowReport] = useState(false)
+  const [repLead, setRepLead] = useState('')
+  const [repCash, setRepCash] = useState<any[]>([])
+  const [repLoadingCash, setRepLoadingCash] = useState(false)
+  const [repExporting, setRepExporting] = useState(false)
+  const [repExpanded, setRepExpanded] = useState<Set<string>>(new Set())
   // Asignacion en cascada Lead -> Cotizacion -> OC
   const [assignLeads, setAssignLeads] = useState<{ id: string; name: string; company?: string }[]>([])
   const [assignQuotations, setAssignQuotations] = useState<{ id: string; name: string; lead_id: string; specialty?: string; total?: number; currency?: string }[]>([])
@@ -2139,6 +2146,52 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
     } finally { setSavingGen(false) }
   }
   
+  // Cargar movimientos de efectivo del proyecto seleccionado (para el reporte)
+  useEffect(() => {
+    if (!showReport || !repLead) { setRepCash([]); return }
+    setRepLoadingCash(true)
+    supabase.from('cash_movements').select('*').eq('lead_id', repLead).then(({ data }) => {
+      setRepCash((data as any[]) || [])
+      setRepLoadingCash(false)
+    })
+  }, [showReport, repLead])
+
+  async function exportReporteExcel(groups: any[], leadName: string) {
+    setRepExporting(true)
+    try {
+      if (!(window as any).XLSX) {
+        await new Promise<void>((resolve, reject) => {
+          const s = document.createElement('script')
+          s.src = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js'
+          s.onload = () => resolve(); s.onerror = () => reject(new Error('No se pudo cargar la librería XLSX'))
+          document.head.appendChild(s)
+        })
+      }
+      const XLSX = (window as any).XLSX
+      const resumen = groups.map(g => ({
+        'Cotización': g.name,
+        'Ingresos MXN': g.ingMXN, 'Egresos MXN': g.egrMXN, 'Balance MXN': g.ingMXN - g.egrMXN,
+        'Ingresos USD': g.ingUSD, 'Egresos USD': g.egrUSD, 'Balance USD': g.ingUSD - g.egrUSD,
+        'Movimientos': g.items.length,
+      }))
+      resumen.push({
+        'Cotización': 'TOTAL',
+        'Ingresos MXN': groups.reduce((s, g) => s + g.ingMXN, 0), 'Egresos MXN': groups.reduce((s, g) => s + g.egrMXN, 0), 'Balance MXN': groups.reduce((s, g) => s + (g.ingMXN - g.egrMXN), 0),
+        'Ingresos USD': groups.reduce((s, g) => s + g.ingUSD, 0), 'Egresos USD': groups.reduce((s, g) => s + g.egrUSD, 0), 'Balance USD': groups.reduce((s, g) => s + (g.ingUSD - g.egrUSD), 0),
+        'Movimientos': groups.reduce((s, g) => s + g.items.length, 0),
+      })
+      const detalle = groups.flatMap((g: any) => g.items.map((r: any) => ({
+        'Cotización': g.name, 'Fecha': r.fecha, 'Fuente': r.fuente,
+        'Tipo': r.dir === 'ingreso' ? 'Ingreso' : 'Egreso', 'Concepto': r.concepto, 'Detalle': r.detalle,
+        'Moneda': r.moneda, 'Ingreso': r.dir === 'ingreso' ? r.monto : '', 'Egreso': r.dir === 'egreso' ? r.monto : '',
+      })))
+      const wb = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(resumen), 'Resumen')
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(detalle.length ? detalle : [{ info: 'Sin movimientos' }]), 'Detalle')
+      XLSX.writeFile(wb, `Reporte_${(leadName || 'proyecto').replace(/[^\w]+/g, '_')}.xlsx`)
+    } finally { setRepExporting(false) }
+  }
+
   // --- Many-to-many link helpers ---
   const addLink = async (mov: BankMovement, invId: string, montoAplicado?: number) => {
     setSavingMatch(mov.id)
@@ -3385,6 +3438,118 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
           </div>
         </div>
       )}
+      {/* ─── Reporte de ingresos y egresos por proyecto (desglose por cotización) ─── */}
+      {showReport && (() => {
+        const leadName = leadNameOf(repLead)
+        const norm = (qid: any, fecha: any, concepto: any, detalle: any, monto: number, moneda: any, dir: 'ingreso' | 'egreso', fuente: string) =>
+          ({ quotation_id: qid || '', fecha: fecha || '', concepto: concepto || '', detalle: detalle || '', monto: monto || 0, moneda: (moneda === 'USD' ? 'USD' : 'MXN'), dir, fuente })
+        const repBank = repLead ? bankMovements.filter(m => m.lead_id === repLead).map(m => norm(m.quotation_id, m.fecha, m.beneficiario || m.concepto, m.concepto, m.monto || 0, m.moneda || 'MXN', m.tipo === 'abono' ? 'ingreso' : 'egreso', 'Banco')) : []
+        const repEfec = repLead ? repCash.map((c: any) => norm(c.quotation_id, c.fecha, c.persona || c.concepto, c.concepto, Number(c.monto) || 0, c.moneda || 'MXN', c.direccion === 'ingreso' ? 'ingreso' : 'egreso', 'Efectivo')) : []
+        const repAll = [...repBank, ...repEfec]
+        const quotesLead = assignQuotations.filter(q => q.lead_id === repLead)
+        const baseGroups = [...quotesLead.map(q => ({ id: q.id, name: q.name })), { id: '', name: 'Sin cotización asignada' }]
+        const repGroups = baseGroups.map(g => {
+          const items = repAll.filter(r => (r.quotation_id || '') === g.id).sort((a, b) => (a.fecha < b.fecha ? 1 : a.fecha > b.fecha ? -1 : 0))
+          const sum = (dir: string, cur: string) => items.filter(r => r.dir === dir && r.moneda === cur).reduce((s, r) => s + r.monto, 0)
+          return { ...g, items, ingMXN: sum('ingreso', 'MXN'), egrMXN: sum('egreso', 'MXN'), ingUSD: sum('ingreso', 'USD'), egrUSD: sum('egreso', 'USD') }
+        }).filter(g => g.items.length > 0)
+        const T = { ingMXN: repGroups.reduce((s, g) => s + g.ingMXN, 0), egrMXN: repGroups.reduce((s, g) => s + g.egrMXN, 0), ingUSD: repGroups.reduce((s, g) => s + g.ingUSD, 0), egrUSD: repGroups.reduce((s, g) => s + g.egrUSD, 0) }
+        const hasUSD = T.ingUSD > 0 || T.egrUSD > 0
+        const money = (n: number, color: string) => <span style={{ color, fontWeight: 600 }}>{F(n)}</span>
+        return (
+          <div onClick={() => setShowReport(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.78)', zIndex: 9998, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: isMobile ? 0 : '20px', overflow: 'auto' }}>
+            <div onClick={e => e.stopPropagation()} style={{ background: '#0f0f0f', border: '1px solid #222', borderRadius: isMobile ? 0 : 12, width: '100%', maxWidth: 1180, display: 'flex', flexDirection: 'column' }}>
+              {/* Header */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 16px', borderBottom: '1px solid #222', flexWrap: 'wrap' }}>
+                <TrendingUp size={16} style={{ color: '#C084FC' }} />
+                <div style={{ fontSize: 15, fontWeight: 700, color: '#fff' }}>Reporte de ingresos y egresos por proyecto</div>
+                <div style={{ width: 260, marginLeft: 8 }}>
+                  <SearchSelect value={repLead} options={assignLeads.map(l => ({ id: l.id, label: l.name + (l.company ? ` · ${l.company}` : '') }))} placeholder="Elige un proyecto (lead)…" onChange={v => { setRepLead(v); setRepExpanded(new Set()) }} />
+                </div>
+                <button disabled={!repLead || repExporting || repGroups.length === 0} onClick={() => exportReporteExcel(repGroups, leadName)} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '6px 12px', fontSize: 11, fontWeight: 600, background: 'rgba(87,255,154,0.08)', border: '1px solid rgba(87,255,154,0.3)', borderRadius: 6, color: repLead && repGroups.length ? '#10B981' : '#555', cursor: repLead && repGroups.length ? 'pointer' : 'default', fontFamily: 'inherit' }}>{repExporting ? <Loader2 size={12} className="spin" /> : <Download size={12} />} Excel</button>
+                <button onClick={() => setShowReport(false)} style={{ marginLeft: 'auto', background: 'none', border: 'none', color: '#888', cursor: 'pointer' }}><X size={18} /></button>
+              </div>
+
+              {!repLead ? (
+                <div style={{ padding: 40, textAlign: 'center', color: '#666', fontSize: 13 }}>Elige un proyecto arriba para ver su reporte de ingresos y egresos por cotización.</div>
+              ) : (
+                <div style={{ padding: '14px 16px', overflow: 'auto', maxHeight: isMobile ? '78vh' : '68vh' }}>
+                  {/* KPIs globales del proyecto */}
+                  <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2,1fr)' : 'repeat(3,1fr)', gap: 12, marginBottom: 16 }}>
+                    <KpiCard label="Ingresos MXN" value={F(T.ingMXN)} color="#10B981" icon={<Banknote size={16} />} />
+                    <KpiCard label="Egresos MXN" value={F(T.egrMXN)} color="#DC2626" icon={<TrendingUp size={16} />} />
+                    <KpiCard label="Balance MXN" value={F(T.ingMXN - T.egrMXN)} color={T.ingMXN - T.egrMXN >= 0 ? '#10B981' : '#DC2626'} icon={<CheckCircle size={16} />} />
+                    {hasUSD && <>
+                      <KpiCard label="Ingresos USD" value={F(T.ingUSD)} color="#10B981" icon={<Banknote size={16} />} />
+                      <KpiCard label="Egresos USD" value={F(T.egrUSD)} color="#DC2626" icon={<TrendingUp size={16} />} />
+                      <KpiCard label="Balance USD" value={F(T.ingUSD - T.egrUSD)} color={T.ingUSD - T.egrUSD >= 0 ? '#10B981' : '#DC2626'} icon={<CheckCircle size={16} />} />
+                    </>}
+                  </div>
+                  {repLoadingCash && <div style={{ fontSize: 11, color: '#666', marginBottom: 8 }}>Cargando movimientos de efectivo…</div>}
+
+                  {/* Tabla resumen por cotización */}
+                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead><tr style={{ background: '#161616' }}>
+                      {['Cotización', 'Ing. MXN', 'Egr. MXN', 'Bal. MXN', ...(hasUSD ? ['Ing. USD', 'Egr. USD', 'Bal. USD'] : []), 'Movs.'].map((h, i) => (
+                        <th key={i} style={{ padding: '7px 8px', fontSize: 9, fontWeight: 600, color: '#555', textTransform: 'uppercase', textAlign: i === 0 ? 'left' : 'right', borderBottom: '1px solid #222', whiteSpace: 'nowrap' }}>{h}</th>
+                      ))}
+                    </tr></thead>
+                    <tbody>
+                      {repGroups.map(g => {
+                        const open = repExpanded.has(g.id || '__none__')
+                        const key = g.id || '__none__'
+                        return (
+                          <React.Fragment key={key}>
+                            <tr onClick={() => setRepExpanded(prev => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n })} style={{ cursor: 'pointer', background: open ? '#141414' : 'transparent' }}>
+                              <td style={{ padding: '7px 8px', fontSize: 12, color: g.id ? '#ddd' : '#999', borderBottom: '1px solid #1a1a1a', fontWeight: 600 }}>{open ? '▾ ' : '▸ '}{g.name}</td>
+                              <td style={{ padding: '7px 8px', textAlign: 'right', borderBottom: '1px solid #1a1a1a' }}>{money(g.ingMXN, '#10B981')}</td>
+                              <td style={{ padding: '7px 8px', textAlign: 'right', borderBottom: '1px solid #1a1a1a' }}>{money(g.egrMXN, '#DC2626')}</td>
+                              <td style={{ padding: '7px 8px', textAlign: 'right', borderBottom: '1px solid #1a1a1a' }}>{money(g.ingMXN - g.egrMXN, g.ingMXN - g.egrMXN >= 0 ? '#ddd' : '#DC2626')}</td>
+                              {hasUSD && <>
+                                <td style={{ padding: '7px 8px', textAlign: 'right', borderBottom: '1px solid #1a1a1a' }}>{money(g.ingUSD, '#10B981')}</td>
+                                <td style={{ padding: '7px 8px', textAlign: 'right', borderBottom: '1px solid #1a1a1a' }}>{money(g.egrUSD, '#DC2626')}</td>
+                                <td style={{ padding: '7px 8px', textAlign: 'right', borderBottom: '1px solid #1a1a1a' }}>{money(g.ingUSD - g.egrUSD, g.ingUSD - g.egrUSD >= 0 ? '#ddd' : '#DC2626')}</td>
+                              </>}
+                              <td style={{ padding: '7px 8px', textAlign: 'right', fontSize: 11, color: '#666', borderBottom: '1px solid #1a1a1a' }}>{g.items.length}</td>
+                            </tr>
+                            {open && g.items.map((r: any, ri: number) => (
+                              <tr key={key + '-' + ri} style={{ background: '#0c0c0c' }}>
+                                <td style={{ padding: '4px 8px 4px 22px', fontSize: 10, color: '#999', borderBottom: '1px solid #141414' }}>
+                                  <span style={{ color: '#555' }}>{formatDate(r.fecha)}</span> · <span style={{ color: r.fuente === 'Efectivo' ? '#D9A441' : '#60A5FA' }}>{r.fuente}</span> · {r.concepto}
+                                </td>
+                                <td colSpan={hasUSD ? 7 : 4} style={{ padding: '4px 8px', textAlign: 'right', borderBottom: '1px solid #141414', whiteSpace: 'nowrap' }}>
+                                  <span style={{ color: r.dir === 'ingreso' ? '#10B981' : '#DC2626', fontWeight: 600, fontSize: 11 }}>{r.dir === 'ingreso' ? '+' : '−'}{F(r.monto)} {r.moneda}</span>
+                                </td>
+                              </tr>
+                            ))}
+                          </React.Fragment>
+                        )
+                      })}
+                      {repGroups.length === 0 && <tr><td colSpan={hasUSD ? 8 : 5} style={{ padding: 30, textAlign: 'center', color: '#555', fontSize: 12 }}>Este proyecto no tiene movimientos de banco ni efectivo ligados todavía. Usa "Vista general por proyecto" para relacionarlos.</td></tr>}
+                      {repGroups.length > 0 && (
+                        <tr style={{ background: '#141414', fontWeight: 700 }}>
+                          <td style={{ padding: '8px', fontSize: 12, color: '#fff', borderTop: '1px solid #333' }}>TOTAL</td>
+                          <td style={{ padding: '8px', textAlign: 'right', borderTop: '1px solid #333' }}>{money(T.ingMXN, '#10B981')}</td>
+                          <td style={{ padding: '8px', textAlign: 'right', borderTop: '1px solid #333' }}>{money(T.egrMXN, '#DC2626')}</td>
+                          <td style={{ padding: '8px', textAlign: 'right', borderTop: '1px solid #333' }}>{money(T.ingMXN - T.egrMXN, T.ingMXN - T.egrMXN >= 0 ? '#10B981' : '#DC2626')}</td>
+                          {hasUSD && <>
+                            <td style={{ padding: '8px', textAlign: 'right', borderTop: '1px solid #333' }}>{money(T.ingUSD, '#10B981')}</td>
+                            <td style={{ padding: '8px', textAlign: 'right', borderTop: '1px solid #333' }}>{money(T.egrUSD, '#DC2626')}</td>
+                            <td style={{ padding: '8px', textAlign: 'right', borderTop: '1px solid #333' }}>{money(T.ingUSD - T.egrUSD, T.ingUSD - T.egrUSD >= 0 ? '#10B981' : '#DC2626')}</td>
+                          </>}
+                          <td style={{ padding: '8px', textAlign: 'right', fontSize: 11, color: '#888', borderTop: '1px solid #333' }}>{repGroups.reduce((s, g) => s + g.items.length, 0)}</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                  <div style={{ marginTop: 10, fontSize: 10, color: '#555' }}>Ingresos = abonos de banco + entradas de efectivo · Egresos = cargos de banco + salidas de efectivo. Movimientos ligados a este proyecto (lead), agrupados por cotización.</div>
+                </div>
+              )}
+            </div>
+          </div>
+        )
+      })()}
+
       {/* Navegacion mensual (Conciliacion v2) */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, padding: '10px 14px', background: '#141414', border: '1px solid #222', borderRadius: 10, flexWrap: 'wrap', gap: isMobile ? 8 : 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 6 : 10, flex: isMobile ? '1 1 100%' : 'initial' }}>
@@ -3413,6 +3578,11 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
             title="Ver TODOS los movimientos (todas las cuentas, meses y años) para filtrar por proyecto y corregir el vínculo"
             style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '5px 12px', fontSize: 11, fontWeight: 600, background: 'rgba(37,99,235,0.10)', border: '1px solid rgba(37,99,235,0.4)', borderRadius: 6, color: '#60A5FA', cursor: 'pointer', fontFamily: 'inherit' }}
           ><Search size={12} /> Vista general por proyecto</button>
+          <button
+            onClick={() => setShowReport(true)}
+            title="Reporte de ingresos y egresos de un proyecto, desglosado por cotización (banco + efectivo)"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '5px 12px', fontSize: 11, fontWeight: 600, background: 'rgba(168,85,247,0.10)', border: '1px solid rgba(168,85,247,0.4)', borderRadius: 6, color: '#C084FC', cursor: 'pointer', fontFamily: 'inherit' }}
+          ><TrendingUp size={12} /> Reporte por proyecto</button>
           <button
             onClick={exportExcel}
             disabled={exporting || movsCuenta.length === 0}
