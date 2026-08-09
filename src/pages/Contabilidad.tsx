@@ -5148,7 +5148,25 @@ function TabEfectivo() {
     setLoading(false)
   }
 
+  // Refresca SOLO los catálogos de lead/cotización (sin recargar toda la lista)
+  const loadCatalogs = async () => {
+    const [{ data: leadsData }, { data: cotsData }] = await Promise.all([
+      supabase.from('leads').select('id, name, company').order('name'),
+      supabase.from('quotations').select('id, name, specialty, total, notes').order('updated_at', { ascending: false }),
+    ])
+    if (leadsData) setLeads(leadsData)
+    if (cotsData) setQuotations(cotsData)
+  }
+
   useEffect(() => { load() }, [])
+  // Al abrir el formulario, traer leads/cotizaciones frescos (por si se crearon/editaron en otra parte)
+  useEffect(() => { if (showForm) loadCatalogs() }, [showForm])
+  // Y refrescar catálogos cuando la ventana vuelve al foco
+  useEffect(() => {
+    const onFocus = () => { loadCatalogs() }
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
+  }, [])
 
   // Cotizaciones filtradas por lead seleccionado (via notes.lead_id en quotations)
   const quotationsForLead = form.lead_id
@@ -5460,7 +5478,10 @@ function TabEfectivo() {
               </div>
               {/* Lead + Cotización (vinculación opcional pero útil para reportes) */}
               <div>
-                <label style={{ fontSize: 11, color: '#888', marginBottom: 4, display: 'block' }}>Lead (opcional)</label>
+                <label style={{ fontSize: 11, color: '#888', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  Lead (opcional)
+                  <button type="button" onClick={() => loadCatalogs()} title="Refrescar lista de leads y cotizaciones" style={{ background: 'none', border: '1px solid #333', borderRadius: 5, color: '#10B981', cursor: 'pointer', padding: '1px 6px', fontSize: 10, fontFamily: 'inherit', display: 'inline-flex', alignItems: 'center', gap: 3 }}>↻ Actualizar</button>
+                </label>
                 <select
                   value={form.lead_id}
                   onChange={e => {
