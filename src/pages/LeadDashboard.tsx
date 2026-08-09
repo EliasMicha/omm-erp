@@ -330,8 +330,17 @@ export default function LeadDashboard() {
     })
     bankMovements.filter((m: any) => m.tipo === 'abono' && m.quotation_id === qId && !allocMovIds.has(m.id) && (m.moneda || 'MXN') === cur)
       .forEach((m: any) => items.push({ date: m.fecha || '', concepto: m.concepto || 'Transferencia', monto: Number(m.monto) || 0, cur, source: 'banco', tc: null, montoOrigen: null, monedaOrigen: null }))
-    cashMovements.filter((m: any) => m.tipo === 'cobro_cliente' && m.quotation_id === qId && !allocMovIds.has(m.id) && (m.moneda || 'MXN') === cur)
-      .forEach((m: any) => items.push({ date: m.fecha || '', concepto: '💵 ' + (m.concepto || m.persona || 'Efectivo'), monto: Number(m.monto) || 0, cur, source: 'efectivo', tc: null, montoOrigen: null, monedaOrigen: null }))
+    cashMovements.filter((m: any) => {
+      if (m.tipo !== 'cobro_cliente' || m.quotation_id !== qId || allocMovIds.has(m.id)) return false
+      // Cobro cruzado: si se pagó en otra moneda con TC acordado, la moneda efectiva
+      // para esta cotización es moneda_cotizacion (ej. pago MXN adjudicado a cotización USD).
+      const efCur = (m.tc_aplicado && m.moneda_cotizacion) ? m.moneda_cotizacion : (m.moneda || 'MXN')
+      return efCur === cur
+    }).forEach((m: any) => {
+      const cruce = !!(m.tc_aplicado && m.moneda_cotizacion && (m.moneda || 'MXN') !== m.moneda_cotizacion)
+      const monto = cruce ? (Number(m.monto_cotizacion) || 0) : (Number(m.monto) || 0)
+      items.push({ date: m.fecha || '', concepto: '💵 ' + (m.concepto || m.persona || 'Efectivo'), monto, cur, source: 'efectivo', tc: cruce ? Number(m.tc_aplicado) : null, montoOrigen: cruce ? Number(m.monto) : null, monedaOrigen: cruce ? (m.moneda || 'MXN') : null })
+    })
     return items.sort((a, b) => (a.date || '').localeCompare(b.date || ''))
   }
 
@@ -1199,8 +1208,12 @@ export default function LeadDashboard() {
             entries.push({ date: m.fecha || '', tipo: 'abono', desc: m.concepto || 'Pago', monto: m.monto || 0, cur: m.moneda || 'MXN', ref: m.referencia })
           })
           // Abonos from cash_movements (cobros de efectivo ligados a este lead)
-          cashMovements.filter(m => m.tipo === 'cobro_cliente').forEach(m => {
-            entries.push({ date: m.fecha || '', tipo: 'abono', desc: `💵 Efectivo: ${m.concepto || m.persona || 'Cobro'}`, monto: Number(m.monto) || 0, cur: 'MXN', ref: 'CASH' })
+          cashMovements.filter(m => m.tipo === 'cobro_cliente').forEach((m: any) => {
+            const cruce = !!(m.tc_aplicado && m.moneda_cotizacion && (m.moneda || 'MXN') !== m.moneda_cotizacion)
+            const cur = cruce ? m.moneda_cotizacion : (m.moneda || 'MXN')
+            const monto = cruce ? (Number(m.monto_cotizacion) || 0) : (Number(m.monto) || 0)
+            const nota = cruce ? ` (${m.moneda || 'MXN'} ${Number(m.monto) || 0} @ ${m.tc_aplicado})` : ''
+            entries.push({ date: m.fecha || '', tipo: 'abono', desc: `💵 Efectivo: ${m.concepto || m.persona || 'Cobro'}${nota}`, monto, cur, ref: 'CASH' })
           })
 
           entries.sort((a, b) => a.date.localeCompare(b.date))
