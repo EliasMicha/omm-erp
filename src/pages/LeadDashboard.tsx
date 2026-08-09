@@ -12,6 +12,7 @@ import {
   CheckCircle2, Clock, XCircle, TrendingUp, Package, BarChart3, Plus, X, Download,
 } from 'lucide-react'
 import jsPDF from 'jspdf'
+import { generarEstadoCuentaPdf } from '../lib/estadoCuentaPdf'
 import PaymentPlanModal from '../components/PaymentPlanModal'
 
 // ═══════════════════════════════════════════════════════════════════
@@ -345,6 +346,12 @@ export default function LeadDashboard() {
   }
 
   function exportEstadoCuenta() {
+    if (!lead) return
+    const doc = generarEstadoCuentaPdf({ lead, quotations, bankMovements, cashMovements, paymentAllocations })
+    doc.save(`Estado_de_Cuenta_${(lead.name || 'Lead').replace(/\s+/g, '_')}.pdf`)
+  }
+  // Cuerpo anterior conservado como referencia (no se usa; la generación vive en lib/estadoCuentaPdf).
+  function __estadoCuentaLegacy_NO_USAR() {
     if (!lead) return
     const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'letter' })
     const W = doc.internal.pageSize.getWidth()
