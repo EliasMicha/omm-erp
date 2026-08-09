@@ -67,6 +67,27 @@ function encHeader(s: string): string {
   if (/^[\x00-\x7F]*$/.test(s)) return s
   return '=?UTF-8?B?' + Buffer.from(s, 'utf-8').toString('base64') + '?='
 }
+// Arma el MIME del correo. Si hay adjuntos → multipart/mixed; si no → texto plano.
+function buildMime(to: string, subject: string, text: string, attachments: any[]): string {
+  const head = [to ? `To: ${to}` : '', `Subject: ${encHeader(subject)}`, 'MIME-Version: 1.0'].filter(Boolean)
+  if (!attachments || attachments.length === 0) {
+    return head.concat(['Content-Type: text/plain; charset=UTF-8', 'Content-Transfer-Encoding: 8bit', '', text]).join('\r\n')
+  }
+  const boundary = 'omm_' + Math.random().toString(36).slice(2) + Date.now().toString(36)
+  const parts: string[] = []
+  parts.push(head.concat([`Content-Type: multipart/mixed; boundary="${boundary}"`, '']).join('\r\n'))
+  parts.push([`--${boundary}`, 'Content-Type: text/plain; charset=UTF-8', 'Content-Transfer-Encoding: 8bit', '', text].join('\r\n'))
+  for (const a of attachments) {
+    const b64 = String((a && a.dataB64) || '').replace(/\s+/g, '')
+    if (!b64) continue
+    const wrapped = b64.replace(/(.{76})/g, '$1\r\n')
+    const fname = (a && a.filename) || 'adjunto.pdf'
+    const mime = (a && a.mime) || 'application/pdf'
+    parts.push([`--${boundary}`, `Content-Type: ${mime}; name="${fname}"`, 'Content-Transfer-Encoding: base64', `Content-Disposition: attachment; filename="${fname}"`, '', wrapped].join('\r\n'))
+  }
+  parts.push(`--${boundary}--`)
+  return parts.join('\r\n')
+}
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Access-Control-Allow-Origin', '*')
@@ -146,13 +167,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const t = await getStoredToken()
       if (!t) return res.status(400).json({ ok: false, error: 'Gmail no está conectado. Da clic en "Conectar Gmail" primero.' })
       const at = await accessTokenFromRefresh(t.refresh_token)
-      const mime = [
-        to ? `To: ${to}` : '',
-        `Subject: ${encHeader(subject)}`,
-        'MIME-Version: 1.0',
-        'Content-Type: text/plain; charset=UTF-8',
-        'Content-Transfer-Encoding: 8bit',
-      ].filter(Boolean).join('\r\n') + '\r\n\r\n' + text
+      const attachments = Array.isArray(body.attachments) ? body.attachments : []
+      const mime = buildMime(to, subject, text, attachments)
       const dr = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/drafts', {
         method: 'POST',
         headers: { Authorization: `Bearer ${at}`, 'Content-Type': 'application/json' },
