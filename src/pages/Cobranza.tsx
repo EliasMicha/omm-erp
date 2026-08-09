@@ -81,6 +81,8 @@ export default function Cobranza() {
   const [tc, setTc] = useState(tcForYear(new Date().getFullYear()))
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [showFin, setShowFin] = useState(false)
+  const [draft, setDraft] = useState<{ L: LeadRow; subject: string; text: string } | null>(null)
+  const [copied, setCopied] = useState<'' | 'subject' | 'text'>('')
 
   useEffect(() => {
     (async () => {
@@ -177,6 +179,49 @@ export default function Cobranza() {
     setObraTrack(prev => ({ ...prev, [leadId]: { ...(prev[leadId] || {}), lead_id: leadId, ...patch } }))
   }
 
+  // ── Generador de borrador de cobro (tono cálido, personalizado, editable) ──
+  function buildDraft(L: LeadRow): { subject: string; text: string } {
+    const esperado = esperadoDe(L)
+    // ¿El proyecto es esencialmente en dólares? Entonces expresamos en USD nativo.
+    const soloUSD = L.vUSD > 0 && (L.vTot - L.vUSD * tc) < Math.max(1, L.vTot * 0.02)
+    const fM = (mxnVal: number, usdNative?: number) =>
+      soloUSD ? ('US$' + Math.round(usdNative ?? mxnVal / tc).toLocaleString('es-MX')) : money(mxnVal)
+    const lineasFase = L.quotes.map(q => {
+      const f = faseByKey(q.fase)
+      return `• ${q.name}: ${f ? `${f.label} (${f.pct}% del proyecto)` : 'etapa por definir'}`
+    }).join('\n')
+    const saldoTxt = (!soloUSD && L.pcUSD > 0)
+      ? `${money(L.porCobrar)} (incluye US$${Math.round(L.pcUSD).toLocaleString('es-MX')} en dólares)`
+      : fM(L.porCobrar, L.pcUSD)
+    const ask = esperado > 0 ? fM(esperado, esperado / tc) : fM(L.porCobrar, L.pcUSD)
+    const subject = `Avance y estado de cuenta — ${L.lead}`
+    const text = [
+      `Hola ${L.lead},`,
+      ``,
+      `Espero que te encuentres muy bien. Te comparto un breve avance de tu proyecto y el estado de cuenta a la fecha.`,
+      ``,
+      `Avance actual:`,
+      lineasFase || '• (etapas por definir)',
+      ``,
+      `De acuerdo con la etapa en que vamos, en este momento correspondería un pago de ${ask}.`,
+      ``,
+      `Resumen de cuenta:`,
+      `• Contratado: ${fM(L.vTot, L.vUSD)}`,
+      `• Pagado a la fecha: ${fM(L.cTot, L.cUSD)}`,
+      `• Saldo pendiente: ${saldoTxt}`,
+      ``,
+      `Te adjunto el estado de cuenta con el detalle. Si tienes cualquier duda, con gusto lo revisamos juntos.`,
+      ``,
+      `Gracias como siempre por la confianza. Quedo al pendiente.`,
+      ``,
+      `Un saludo,`,
+    ].join('\n')
+    return { subject, text }
+  }
+  async function copy(kind: 'subject' | 'text', value: string) {
+    try { await navigator.clipboard.writeText(value); setCopied(kind); setTimeout(() => setCopied(''), 1500) } catch {}
+  }
+
   const th: React.CSSProperties = { fontSize: 10, color: '#666', textTransform: 'uppercase', letterSpacing: '0.03em', padding: '8px 7px', textAlign: 'right', whiteSpace: 'nowrap' }
   const thL: React.CSSProperties = { ...th, textAlign: 'left' }
   const td: React.CSSProperties = { padding: '9px 7px', fontSize: 12, textAlign: 'right', whiteSpace: 'nowrap' }
@@ -229,7 +274,10 @@ export default function Cobranza() {
           <td style={{ ...td, color: atras ? '#EF4444' : '#10B981', fontWeight: 600 }}>{atras ? money(L.gap) : '✓'}</td>
           <td style={{ ...td, textAlign: 'center', color: L.fasesSet === L.nQuotes ? '#10B981' : '#D97706' }}>{L.fasesSet}/{L.nQuotes}</td>
           <td style={{ ...td, textAlign: 'center' }} onClick={e => e.stopPropagation()}>
-            <button onClick={() => navigate('/crm/' + L.leadId)} title="Abrir en CRM" style={{ background: 'none', border: '1px solid #333', borderRadius: 6, padding: '4px 6px', color: '#888', cursor: 'pointer' }}><ExternalLink size={12} /></button>
+            <div style={{ display: 'flex', gap: 4, justifyContent: 'center' }}>
+              <button onClick={() => { const d = buildDraft(L); setDraft({ L, subject: d.subject, text: d.text }) }} title="Redactar cobro (borrador)" style={{ background: 'none', border: '1px solid #10B98155', borderRadius: 6, padding: '4px 7px', color: '#10B981', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12 }}>✉︎</button>
+              <button onClick={() => navigate('/crm/' + L.leadId)} title="Abrir en CRM" style={{ background: 'none', border: '1px solid #333', borderRadius: 6, padding: '4px 6px', color: '#888', cursor: 'pointer' }}><ExternalLink size={12} /></button>
+            </div>
           </td>
         </tr>
         {open && L.quotes.map(q => {
@@ -373,6 +421,40 @@ export default function Cobranza() {
             </>
           )}
         </>
+      )}
+
+      {/* Modal: borrador de cobro */}
+      {draft && (
+        <div onClick={() => setDraft(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.78)', zIndex: 9998, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: isMobile ? 0 : '24px', overflow: 'auto' }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: '#0f0f0f', border: '1px solid #222', borderRadius: isMobile ? 0 : 12, width: '100%', maxWidth: 720, display: 'flex', flexDirection: 'column' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 16px', borderBottom: '1px solid #222' }}>
+              <span style={{ fontSize: 15, fontWeight: 700, color: '#fff' }}>Borrador de cobro</span>
+              <span style={{ fontSize: 11, color: '#666' }}>{draft.L.lead}</span>
+              <button onClick={() => setDraft(null)} style={{ marginLeft: 'auto', background: 'none', border: 'none', color: '#888', cursor: 'pointer', fontSize: 18 }}>✕</button>
+            </div>
+            <div style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                  <span style={{ fontSize: 10, color: '#666', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 600 }}>Asunto</span>
+                  <button onClick={() => copy('subject', draft.subject)} style={{ marginLeft: 'auto', fontSize: 10, color: copied === 'subject' ? '#10B981' : '#888', background: 'none', border: '1px solid #333', borderRadius: 5, padding: '2px 8px', cursor: 'pointer', fontFamily: 'inherit' }}>{copied === 'subject' ? '✓ copiado' : 'Copiar'}</button>
+                </div>
+                <input value={draft.subject} onChange={e => setDraft(d => d ? { ...d, subject: e.target.value } : d)} style={{ width: '100%', padding: '8px 10px', background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 8, color: '#ddd', fontSize: 13, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }} />
+              </div>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                  <span style={{ fontSize: 10, color: '#666', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 600 }}>Mensaje (editable)</span>
+                  <button onClick={() => copy('text', draft.text)} style={{ marginLeft: 'auto', fontSize: 10, color: copied === 'text' ? '#10B981' : '#888', background: 'none', border: '1px solid #333', borderRadius: 5, padding: '2px 8px', cursor: 'pointer', fontFamily: 'inherit' }}>{copied === 'text' ? '✓ copiado' : 'Copiar mensaje'}</button>
+                </div>
+                <textarea value={draft.text} onChange={e => setDraft(d => d ? { ...d, text: e.target.value } : d)} rows={16} style={{ width: '100%', padding: '10px 12px', background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 8, color: '#ddd', fontSize: 12.5, lineHeight: 1.5, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box', resize: 'vertical' }} />
+              </div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                <button onClick={() => navigate('/crm/' + draft.L.leadId)} style={{ fontSize: 12, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer', borderRadius: 8, border: '1px solid #333', background: 'transparent', color: '#ccc', padding: '8px 12px' }}>Ver / exportar estado de cuenta (CRM)</button>
+                <button disabled title="Requiere conectar tu correo (Gmail) — lo habilitamos con tus credenciales" style={{ fontSize: 12, fontWeight: 600, fontFamily: 'inherit', cursor: 'default', borderRadius: 8, border: '1px solid #222', background: '#161616', color: '#555', padding: '8px 12px' }}>Crear borrador en Gmail (próximamente)</button>
+                <span style={{ fontSize: 10, color: '#555', marginLeft: 'auto' }}>Copia el mensaje y adjunta el estado de cuenta desde tu correo.</span>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )
