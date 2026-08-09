@@ -1,5 +1,10 @@
 {
-  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }],
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ],
   "functions": {
     "api/ai-chat.ts": {
       "maxDuration": 300
@@ -10,12 +15,6 @@
     "api/agent.ts": {
       "maxDuration": 60,
       "memory": 1024
-    },
-    "api/belvo.ts": {
-      "maxDuration": 60
     }
-  },
-  "crons": [
-    { "path": "/api/belvo?action=sync&days=30", "schedule": "0 12 * * *" }
-  ]
+  }
 }
