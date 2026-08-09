@@ -5,7 +5,7 @@ import { useIsMobile } from '../lib/useIsMobile'
 import { tcForYear } from '../lib/fx'
 import { SectionHeader, Loading, KpiCard } from '../components/layout/UI'
 import { ChevronRight, ChevronDown, ExternalLink } from 'lucide-react'
-import jsPDF from 'jspdf'
+import { generarEstadoCuentaPdf } from '../lib/estadoCuentaPdf'
 
 // ── Módulo Cobranza ──────────────────────────────────────────────────────────
 // Cada cotización tiene su propia fase según su ESPECIALIDAD. Totales en MXN
@@ -51,46 +51,6 @@ const faseColor = (pct: number) => pct >= 100 ? '#EF4444' : pct >= 90 ? '#10B981
 const money = (n: number) => (n ? '$' + Math.round(n).toLocaleString('es-MX') : '—')
 const moneyU = (n: number) => (n ? 'US$' + Math.round(n).toLocaleString('es-MX') : '—')
 const pctS = (f: number) => (f * 100).toFixed(0) + '%'
-
-// Genera el PDF de estado de cuenta (resumen por cotización) y devuelve su base64.
-function buildEstadoCuentaPdf(L: LeadRow): { filename: string; dataB64: string; mime: string } {
-  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'letter' })
-  const W = doc.internal.pageSize.getWidth()
-  const M = 15
-  let y = 20
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(16); doc.setTextColor(30)
-  doc.text('Estado de cuenta', M, y)
-  doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(120)
-  doc.text('OMM Technologies', W - M, y, { align: 'right' })
-  y += 9
-  doc.setTextColor(40); doc.setFontSize(11); doc.text(`Cliente / Proyecto: ${L.lead}`, M, y); y += 6
-  doc.setTextColor(120); doc.setFontSize(9); doc.text(`Fecha: ${new Date().toLocaleDateString('es-MX')}`, M, y); y += 9
-  // Encabezado de tabla
-  doc.setFillColor(16, 185, 129); doc.rect(M, y - 4.5, W - 2 * M, 7, 'F')
-  doc.setTextColor(255); doc.setFontSize(8.5); doc.setFont('helvetica', 'bold')
-  doc.text('Cotización', M + 1, y); doc.text('Etapa', M + 74, y)
-  doc.text('Contratado', M + 132, y, { align: 'right' }); doc.text('Pagado', M + 162, y, { align: 'right' }); doc.text('Saldo', W - M - 1, y, { align: 'right' })
-  y += 8
-  doc.setFont('helvetica', 'normal'); doc.setTextColor(40); doc.setFontSize(8.5)
-  L.quotes.forEach(q => {
-    const f = faseByKey(q.fase); const saldo = Math.max(0, q.vendido - q.cobrado); const pfx = q.cur === 'USD' ? 'US$' : '$'
-    const nm = q.name.length > 44 ? q.name.slice(0, 42) + '…' : q.name
-    doc.text(nm, M + 1, y); doc.text(f ? `${f.label} ${f.pct}%` : '—', M + 74, y)
-    doc.text(pfx + Math.round(q.vendido).toLocaleString('es-MX'), M + 132, y, { align: 'right' })
-    doc.text(pfx + Math.round(q.cobrado).toLocaleString('es-MX'), M + 162, y, { align: 'right' })
-    doc.text(pfx + Math.round(saldo).toLocaleString('es-MX'), W - M - 1, y, { align: 'right' })
-    y += 6; if (y > 250) { doc.addPage(); y = 20 }
-  })
-  y += 3; doc.setDrawColor(210); doc.line(M, y, W - M, y); y += 7
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5); doc.setTextColor(20)
-  doc.text(`Total (MXN)   Contratado $${Math.round(L.vTot).toLocaleString('es-MX')}    Pagado $${Math.round(L.cTot).toLocaleString('es-MX')}    Saldo $${Math.round(L.porCobrar).toLocaleString('es-MX')}`, M, y)
-  if (L.vUSD > 0) { y += 6; doc.setTextColor(80); doc.setFontSize(8.5); doc.setFont('helvetica', 'normal'); doc.text(`Parte en USD   Contratado US$${Math.round(L.vUSD).toLocaleString('es-MX')}    Pagado US$${Math.round(L.cUSD).toLocaleString('es-MX')}    Saldo US$${Math.round(L.pcUSD).toLocaleString('es-MX')}`, M, y) }
-  y += 10; doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(140)
-  doc.text('Los totales en MXN incluyen la parte en dólares convertida al tipo de cambio de referencia. Cualquier aclaración con gusto la revisamos.', M, y, { maxWidth: W - 2 * M })
-  const uri = doc.output('datauristring')
-  const dataB64 = uri.substring(uri.indexOf('base64,') + 7)
-  return { filename: `Estado_de_cuenta_${(L.lead || 'proyecto').replace(/[^\w]+/g, '_')}.pdf`, dataB64, mime: 'application/pdf' }
-}
 
 interface QRow { id: string; name: string; specialty: string; cur: 'USD' | 'MXN'; vendido: number; cobrado: number; fase: string | null }
 interface LeadRow {
@@ -138,12 +98,12 @@ export default function Cobranza() {
       const [leads, quots, pa, cm, track, obra] = await Promise.all([
         supabase.from('leads').select('id,name,company,tipo_cambio_ref').then(r => r.data || []),
         supabase.from('quotations').select('id,name,stage,notes,total,total_final,specialty,commercial_year').eq('stage', 'contrato').then(r => r.data || []),
-        supabase.from('payment_allocations').select('quotation_id, monto, bank_movement_id').then(r => r.data || []),
-        supabase.from('cash_movements').select('quotation_id, tipo, monto, moneda').then(r => r.data || []),
+        supabase.from('payment_allocations').select('quotation_id, monto, bank_movement_id, tc_aplicado, monto_origen, moneda_origen').then(r => r.data || []),
+        supabase.from('cash_movements').select('quotation_id, tipo, monto, moneda, fecha, concepto, persona, lead_id, tc_aplicado, monto_cotizacion, moneda_cotizacion').then(r => r.data || []),
         supabase.from('cobranza_tracking').select('*').then(r => r.data || []),
         supabase.from('cobranza_obra').select('*').then(r => r.data || []),
       ])
-      const bm = await fetchAll('bank_movements', 'id, quotation_id, tipo, monto, moneda')
+      const bm = await fetchAll('bank_movements', 'id, quotation_id, tipo, monto, moneda, fecha, concepto, lead_id')
       const tm: Record<string, any> = {}; track.forEach((t: any) => { tm[t.quotation_id] = t })
       const om: Record<string, any> = {}; obra.forEach((t: any) => { om[t.lead_id] = t })
       setTracking(tm); setObraTrack(om); setRaw({ leads, quots, pa, cm, bm }); setLoading(false)
@@ -271,12 +231,26 @@ export default function Cobranza() {
     try { await navigator.clipboard.writeText(value); setCopied(kind); setTimeout(() => setCopied(''), 1500) } catch {}
   }
   function conectarGmail() { window.open('/api/gmail?action=connect', '_blank') }
+  // Genera el estado de cuenta detallado (mismo del CRM) para el lead y lo devuelve en base64.
+  function estadoCuentaAdjunto(L: LeadRow): { filename: string; dataB64: string; mime: string } | null {
+    if (!raw) return null
+    const { quots, pa, bm, cm } = raw
+    const leadOf = (q: any): string | null => { try { return JSON.parse(q.notes || '{}').lead_id || null } catch { return null } }
+    const quotsLead = quots.filter((q: any) => leadOf(q) === L.leadId)
+    const qids = new Set(quotsLead.map((q: any) => q.id))
+    const bmLead = bm.filter((m: any) => m.lead_id === L.leadId || qids.has(m.quotation_id))
+    const cmLead = cm.filter((m: any) => m.lead_id === L.leadId || qids.has(m.quotation_id))
+    const paLead = pa.filter((x: any) => qids.has(x.quotation_id))
+    const doc = generarEstadoCuentaPdf({ lead: { name: L.lead, company: '' }, quotations: quotsLead, bankMovements: bmLead, cashMovements: cmLead, paymentAllocations: paLead })
+    const uri = doc.output('datauristring')
+    return { filename: `Estado_de_Cuenta_${(L.lead || 'Lead').replace(/\s+/g, '_')}.pdf`, dataB64: uri.substring(uri.indexOf('base64,') + 7), mime: 'application/pdf' }
+  }
   async function crearBorradorGmail() {
     if (!draft) return
     setGmailBusy(true); setGmailMsg(null)
     try {
       let attachments: any[] = []
-      try { attachments = [buildEstadoCuentaPdf(draft.L)] } catch { attachments = [] }
+      try { const a = estadoCuentaAdjunto(draft.L); if (a) attachments = [a] } catch { attachments = [] }
       const r = await fetch('/api/gmail?action=create_draft', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ to: para.trim(), subject: draft.subject, body: draft.text, attachments }),
