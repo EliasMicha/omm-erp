@@ -689,9 +689,19 @@ export default function LeadDashboard() {
           const rawTotal = espItems.reduce((s, i) => s + (Number(i.total) || 0), 0)
           const multiplier = (1 - desc / 100) * 1.16
 
+          const customSys: any[] = Array.isArray(espMeta.customSystems) ? espMeta.customSystems : []
           const sysTotals: Record<string, { raw: number; count: number }> = {}
           espItems.forEach(item => {
-            const sys = item.system || 'Sin sistema'
+            let sys = item.system || 'Sin sistema'
+            // Sistemas custom: en la BD el item.system se guarda como 'General'; el id real
+            // vive en item.notes.customSystemId y el nombre en la cotización (notes.customSystems).
+            try {
+              const inotes = typeof item.notes === 'string' ? JSON.parse(item.notes) : (item.notes || {})
+              if (inotes && inotes.customSystemId) {
+                const cs = customSys.find((c: any) => c && c.id === inotes.customSystemId)
+                if (cs && cs.name) sys = cs.name
+              }
+            } catch {}
             if (!sysTotals[sys]) sysTotals[sys] = { raw: 0, count: 0 }
             sysTotals[sys].raw += Number(item.total) || 0
             sysTotals[sys].count += 1
