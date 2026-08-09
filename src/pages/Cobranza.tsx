@@ -83,6 +83,14 @@ export default function Cobranza() {
   const [showFin, setShowFin] = useState(false)
   const [draft, setDraft] = useState<{ L: LeadRow; subject: string; text: string } | null>(null)
   const [copied, setCopied] = useState<'' | 'subject' | 'text'>('')
+  const [para, setPara] = useState('')
+  const [gmailBusy, setGmailBusy] = useState(false)
+  const [gmailMsg, setGmailMsg] = useState<{ ok: boolean; text: string; url?: string } | null>(null)
+  const [gmailConn, setGmailConn] = useState<boolean | null>(null)  // null = aún no se sabe
+
+  useEffect(() => {
+    fetch('/api/gmail?action=status').then(r => r.json()).then(j => setGmailConn(!!j.connected)).catch(() => setGmailConn(false))
+  }, [])
 
   useEffect(() => {
     (async () => {
@@ -221,6 +229,21 @@ export default function Cobranza() {
   async function copy(kind: 'subject' | 'text', value: string) {
     try { await navigator.clipboard.writeText(value); setCopied(kind); setTimeout(() => setCopied(''), 1500) } catch {}
   }
+  function conectarGmail() { window.open('/api/gmail?action=connect', '_blank') }
+  async function crearBorradorGmail() {
+    if (!draft) return
+    setGmailBusy(true); setGmailMsg(null)
+    try {
+      const r = await fetch('/api/gmail?action=create_draft', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ to: para.trim(), subject: draft.subject, body: draft.text }),
+      })
+      const j = await r.json()
+      if (j.ok) { setGmailMsg({ ok: true, text: 'Borrador creado en tu Gmail' + (j.email ? ` (${j.email})` : ''), url: j.url }); setGmailConn(true) }
+      else { setGmailMsg({ ok: false, text: j.error || 'No se pudo crear el borrador' }); if (String(j.error || '').toLowerCase().includes('conect')) setGmailConn(false) }
+    } catch (e: any) { setGmailMsg({ ok: false, text: String((e && e.message) || e) }) }
+    finally { setGmailBusy(false) }
+  }
 
   const th: React.CSSProperties = { fontSize: 10, color: '#666', textTransform: 'uppercase', letterSpacing: '0.03em', padding: '8px 7px', textAlign: 'right', whiteSpace: 'nowrap' }
   const thL: React.CSSProperties = { ...th, textAlign: 'left' }
@@ -275,7 +298,7 @@ export default function Cobranza() {
           <td style={{ ...td, textAlign: 'center', color: L.fasesSet === L.nQuotes ? '#10B981' : '#D97706' }}>{L.fasesSet}/{L.nQuotes}</td>
           <td style={{ ...td, textAlign: 'center' }} onClick={e => e.stopPropagation()}>
             <div style={{ display: 'flex', gap: 4, justifyContent: 'center' }}>
-              <button onClick={() => { const d = buildDraft(L); setDraft({ L, subject: d.subject, text: d.text }) }} title="Redactar cobro (borrador)" style={{ background: 'none', border: '1px solid #10B98155', borderRadius: 6, padding: '4px 7px', color: '#10B981', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12 }}>✉︎</button>
+              <button onClick={() => { const d = buildDraft(L); setDraft({ L, subject: d.subject, text: d.text }); setPara(''); setGmailMsg(null) }} title="Redactar cobro (borrador)" style={{ background: 'none', border: '1px solid #10B98155', borderRadius: 6, padding: '4px 7px', color: '#10B981', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12 }}>✉︎</button>
               <button onClick={() => navigate('/crm/' + L.leadId)} title="Abrir en CRM" style={{ background: 'none', border: '1px solid #333', borderRadius: 6, padding: '4px 6px', color: '#888', cursor: 'pointer' }}><ExternalLink size={12} /></button>
             </div>
           </td>
@@ -447,11 +470,26 @@ export default function Cobranza() {
                 </div>
                 <textarea value={draft.text} onChange={e => setDraft(d => d ? { ...d, text: e.target.value } : d)} rows={16} style={{ width: '100%', padding: '10px 12px', background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 8, color: '#ddd', fontSize: 12.5, lineHeight: 1.5, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box', resize: 'vertical' }} />
               </div>
+              <div>
+                <div style={{ fontSize: 10, color: '#666', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 600, marginBottom: 4 }}>Para (correo del cliente) — opcional</div>
+                <input value={para} onChange={e => setPara(e.target.value)} placeholder="cliente@correo.com (puedes dejarlo vacío y ponerlo en Gmail)" style={{ width: '100%', padding: '8px 10px', background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 8, color: '#ddd', fontSize: 13, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }} />
+              </div>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                 <button onClick={() => navigate('/crm/' + draft.L.leadId)} style={{ fontSize: 12, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer', borderRadius: 8, border: '1px solid #333', background: 'transparent', color: '#ccc', padding: '8px 12px' }}>Ver / exportar estado de cuenta (CRM)</button>
-                <button disabled title="Requiere conectar tu correo (Gmail) — lo habilitamos con tus credenciales" style={{ fontSize: 12, fontWeight: 600, fontFamily: 'inherit', cursor: 'default', borderRadius: 8, border: '1px solid #222', background: '#161616', color: '#555', padding: '8px 12px' }}>Crear borrador en Gmail (próximamente)</button>
-                <span style={{ fontSize: 10, color: '#555', marginLeft: 'auto' }}>Copia el mensaje y adjunta el estado de cuenta desde tu correo.</span>
+                {gmailConn === false ? (
+                  <button onClick={conectarGmail} style={{ fontSize: 12, fontWeight: 700, fontFamily: 'inherit', cursor: 'pointer', borderRadius: 8, border: '1px solid #3B82F655', background: '#3B82F622', color: '#60A5FA', padding: '8px 12px' }}>Conectar Gmail</button>
+                ) : (
+                  <button onClick={crearBorradorGmail} disabled={gmailBusy} style={{ fontSize: 12, fontWeight: 700, fontFamily: 'inherit', cursor: gmailBusy ? 'default' : 'pointer', borderRadius: 8, border: '1px solid #10B98155', background: '#10B98122', color: '#10B981', padding: '8px 12px' }}>{gmailBusy ? 'Creando…' : '✉︎ Crear borrador en Gmail'}</button>
+                )}
+                {gmailConn === false && <span style={{ fontSize: 10, color: '#888' }}>Un solo clic; autorizas una vez y listo.</span>}
+                <span style={{ fontSize: 10, color: '#555', marginLeft: 'auto' }}>Recuerda adjuntar el estado de cuenta antes de enviar.</span>
               </div>
+              {gmailMsg && (
+                <div style={{ fontSize: 12, color: gmailMsg.ok ? '#10B981' : '#EF4444', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span>{gmailMsg.ok ? '✓' : '⚠'} {gmailMsg.text}</span>
+                  {gmailMsg.ok && gmailMsg.url && <a href={gmailMsg.url} target="_blank" rel="noreferrer" style={{ color: '#60A5FA' }}>Abrir borradores de Gmail</a>}
+                </div>
+              )}
             </div>
           </div>
         </div>
