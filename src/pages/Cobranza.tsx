@@ -5,6 +5,7 @@ import { useIsMobile } from '../lib/useIsMobile'
 import { tcForYear } from '../lib/fx'
 import { SectionHeader, Loading, KpiCard } from '../components/layout/UI'
 import { ChevronRight, ChevronDown, ExternalLink } from 'lucide-react'
+import jsPDF from 'jspdf'
 
 // ── Módulo Cobranza ──────────────────────────────────────────────────────────
 // Cada cotización tiene su propia fase según su ESPECIALIDAD. Totales en MXN
@@ -50,6 +51,46 @@ const faseColor = (pct: number) => pct >= 100 ? '#EF4444' : pct >= 90 ? '#10B981
 const money = (n: number) => (n ? '$' + Math.round(n).toLocaleString('es-MX') : '—')
 const moneyU = (n: number) => (n ? 'US$' + Math.round(n).toLocaleString('es-MX') : '—')
 const pctS = (f: number) => (f * 100).toFixed(0) + '%'
+
+// Genera el PDF de estado de cuenta (resumen por cotización) y devuelve su base64.
+function buildEstadoCuentaPdf(L: LeadRow): { filename: string; dataB64: string; mime: string } {
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'letter' })
+  const W = doc.internal.pageSize.getWidth()
+  const M = 15
+  let y = 20
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(16); doc.setTextColor(30)
+  doc.text('Estado de cuenta', M, y)
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(120)
+  doc.text('OMM Technologies', W - M, y, { align: 'right' })
+  y += 9
+  doc.setTextColor(40); doc.setFontSize(11); doc.text(`Cliente / Proyecto: ${L.lead}`, M, y); y += 6
+  doc.setTextColor(120); doc.setFontSize(9); doc.text(`Fecha: ${new Date().toLocaleDateString('es-MX')}`, M, y); y += 9
+  // Encabezado de tabla
+  doc.setFillColor(16, 185, 129); doc.rect(M, y - 4.5, W - 2 * M, 7, 'F')
+  doc.setTextColor(255); doc.setFontSize(8.5); doc.setFont('helvetica', 'bold')
+  doc.text('Cotización', M + 1, y); doc.text('Etapa', M + 74, y)
+  doc.text('Contratado', M + 132, y, { align: 'right' }); doc.text('Pagado', M + 162, y, { align: 'right' }); doc.text('Saldo', W - M - 1, y, { align: 'right' })
+  y += 8
+  doc.setFont('helvetica', 'normal'); doc.setTextColor(40); doc.setFontSize(8.5)
+  L.quotes.forEach(q => {
+    const f = faseByKey(q.fase); const saldo = Math.max(0, q.vendido - q.cobrado); const pfx = q.cur === 'USD' ? 'US$' : '$'
+    const nm = q.name.length > 44 ? q.name.slice(0, 42) + '…' : q.name
+    doc.text(nm, M + 1, y); doc.text(f ? `${f.label} ${f.pct}%` : '—', M + 74, y)
+    doc.text(pfx + Math.round(q.vendido).toLocaleString('es-MX'), M + 132, y, { align: 'right' })
+    doc.text(pfx + Math.round(q.cobrado).toLocaleString('es-MX'), M + 162, y, { align: 'right' })
+    doc.text(pfx + Math.round(saldo).toLocaleString('es-MX'), W - M - 1, y, { align: 'right' })
+    y += 6; if (y > 250) { doc.addPage(); y = 20 }
+  })
+  y += 3; doc.setDrawColor(210); doc.line(M, y, W - M, y); y += 7
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5); doc.setTextColor(20)
+  doc.text(`Total (MXN)   Contratado $${Math.round(L.vTot).toLocaleString('es-MX')}    Pagado $${Math.round(L.cTot).toLocaleString('es-MX')}    Saldo $${Math.round(L.porCobrar).toLocaleString('es-MX')}`, M, y)
+  if (L.vUSD > 0) { y += 6; doc.setTextColor(80); doc.setFontSize(8.5); doc.setFont('helvetica', 'normal'); doc.text(`Parte en USD   Contratado US$${Math.round(L.vUSD).toLocaleString('es-MX')}    Pagado US$${Math.round(L.cUSD).toLocaleString('es-MX')}    Saldo US$${Math.round(L.pcUSD).toLocaleString('es-MX')}`, M, y) }
+  y += 10; doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(140)
+  doc.text('Los totales en MXN incluyen la parte en dólares convertida al tipo de cambio de referencia. Cualquier aclaración con gusto la revisamos.', M, y, { maxWidth: W - 2 * M })
+  const uri = doc.output('datauristring')
+  const dataB64 = uri.substring(uri.indexOf('base64,') + 7)
+  return { filename: `Estado_de_cuenta_${(L.lead || 'proyecto').replace(/[^\w]+/g, '_')}.pdf`, dataB64, mime: 'application/pdf' }
+}
 
 interface QRow { id: string; name: string; specialty: string; cur: 'USD' | 'MXN'; vendido: number; cobrado: number; fase: string | null }
 interface LeadRow {
@@ -234,12 +275,14 @@ export default function Cobranza() {
     if (!draft) return
     setGmailBusy(true); setGmailMsg(null)
     try {
+      let attachments: any[] = []
+      try { attachments = [buildEstadoCuentaPdf(draft.L)] } catch { attachments = [] }
       const r = await fetch('/api/gmail?action=create_draft', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ to: para.trim(), subject: draft.subject, body: draft.text }),
+        body: JSON.stringify({ to: para.trim(), subject: draft.subject, body: draft.text, attachments }),
       })
       const j = await r.json()
-      if (j.ok) { setGmailMsg({ ok: true, text: 'Borrador creado en tu Gmail' + (j.email ? ` (${j.email})` : ''), url: j.url }); setGmailConn(true) }
+      if (j.ok) { setGmailMsg({ ok: true, text: 'Borrador creado en tu Gmail con el estado de cuenta adjunto' + (j.email ? ` (${j.email})` : ''), url: j.url }); setGmailConn(true) }
       else { setGmailMsg({ ok: false, text: j.error || 'No se pudo crear el borrador' }); if (String(j.error || '').toLowerCase().includes('conect')) setGmailConn(false) }
     } catch (e: any) { setGmailMsg({ ok: false, text: String((e && e.message) || e) }) }
     finally { setGmailBusy(false) }
@@ -482,7 +525,7 @@ export default function Cobranza() {
                   <button onClick={crearBorradorGmail} disabled={gmailBusy} style={{ fontSize: 12, fontWeight: 700, fontFamily: 'inherit', cursor: gmailBusy ? 'default' : 'pointer', borderRadius: 8, border: '1px solid #10B98155', background: '#10B98122', color: '#10B981', padding: '8px 12px' }}>{gmailBusy ? 'Creando…' : '✉︎ Crear borrador en Gmail'}</button>
                 )}
                 {gmailConn === false && <span style={{ fontSize: 10, color: '#888' }}>Un solo clic; autorizas una vez y listo.</span>}
-                <span style={{ fontSize: 10, color: '#555', marginLeft: 'auto' }}>Recuerda adjuntar el estado de cuenta antes de enviar.</span>
+                <span style={{ fontSize: 10, color: '#555', marginLeft: 'auto' }}>El estado de cuenta (PDF) se adjunta automáticamente al borrador.</span>
               </div>
               {gmailMsg && (
                 <div style={{ fontSize: 12, color: gmailMsg.ok ? '#10B981' : '#EF4444', display: 'flex', alignItems: 'center', gap: 8 }}>
