@@ -471,7 +471,7 @@ function SystemBlock({ sysDef, products, collapsed, onToggle, onUpdate, onRemove
 // ═══════════════════════════════════════════════════════════════════
 // AREA BLOCK
 // ═══════════════════════════════════════════════════════════════════
-function AreaBlock({ area, activeSystems, products, allProducts, collapsedSys, onToggleArea, onToggleSys, onUpdateProd, onRemoveProd, onUpdateAll, onAddProd, onAddService, showInt, onCopyTo, onDetail, selectedIds, onToggleSelect, onSubstitute, onRemoveArea, onMoveUp, onMoveDown, onUpdateAreaNotes, systemNotes, onUpdateSystemNote }: {
+function AreaBlock({ area, activeSystems, products, allProducts, collapsedSys, onToggleArea, onToggleSys, onUpdateProd, onRemoveProd, onUpdateAll, onAddProd, onAddService, showInt, onCopyTo, onDetail, selectedIds, onToggleSelect, onSubstitute, onRemoveArea, onMoveUp, onMoveDown, onUpdateAreaNotes, systemNotes, onUpdateSystemNote, noSumaSysIds }: {
   area: EspArea; activeSystems: EspSystemDef[]; products: EspProduct[]; allProducts: EspProduct[]
   collapsedSys: Record<string, boolean>; onToggleArea: () => void; onToggleSys: (k: string) => void
   onUpdateProd: (id: string, f: string, v: number | string) => void; onRemoveProd: (id: string) => void
@@ -483,10 +483,12 @@ function AreaBlock({ area, activeSystems, products, allProducts, collapsedSys, o
   onUpdateAreaNotes?: (areaId: string, notes: string) => void
   systemNotes?: Record<string, string>
   onUpdateSystemNote?: (areaId: string, sysId: string, note: string) => void
+  noSumaSysIds?: string[]
 }) {
   const [editingNote, setEditingNote] = useState(false)
   const areaProds = products.filter(p => p.areaId === area.id)
-  const areaTotal = areaProds.reduce((s, p) => s + calcLine(p).total, 0)
+  const noSuma = noSumaSysIds || []
+  const areaTotal = areaProds.reduce((s, p) => s + (noSuma.includes(p.systemId) ? 0 : calcLine(p).total), 0)
   const sysWithProds = activeSystems.filter(sys => areaProds.some(p => p.systemId === sys.id))
   const sysEmpty = activeSystems.filter(sys => !areaProds.some(p => p.systemId === sys.id))
 
@@ -1783,13 +1785,15 @@ IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
 // ═══════════════════════════════════════════════════════════════════
 // SUMMARY PANEL
 // ═══════════════════════════════════════════════════════════════════
-function SummaryPanel({ products, areas, config, activeSystems, showInt, onConfigChange, onSystemClick }: {
+function SummaryPanel({ products, areas, config, activeSystems, showInt, noSumaSysIds = [], onConfigChange, onSystemClick }: {
   products: EspProduct[]; areas: EspArea[]; config: EspQuoteConfig; activeSystems: EspSystemDef[]; showInt: boolean
+  noSumaSysIds?: string[]
   onConfigChange: (f: string, v: number) => void
   onSystemClick?: (sysId: string) => void
 }) {
   let eqTotal = 0, inst = 0, svcTotal = 0
   products.forEach(p => {
+    if (noSumaSysIds.includes(p.systemId)) return   // sistema excluido del total
     if (p.isService) { svcTotal += p.price * p.quantity }
     else { eqTotal += p.price * p.quantity; inst += p.laborCost * p.quantity }
   })
@@ -2080,6 +2084,8 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
   const isMobile = useIsMobile()
   const [areas, setAreas] = useState<EspArea[]>([])
   const [activeSysIds, setActiveSysIds] = useState<string[]>([])
+  // Sistemas EXCLUIDOS del total (siguen existiendo pero no suman a la cotización)
+  const [noSumaSysIds, setNoSumaSysIds] = useState<string[]>([])
   const [products, setProducts] = useState<EspProduct[]>([])
   const [loading, setLoading] = useState(true)
   const [config, setConfig] = useState<EspQuoteConfig>({ currency: 'USD', ivaRate: 16, programacion: 0, descuento: 0, tipoCambio: 20.5, nominaPct: 20, paymentSchedule: [{ label: 'Anticipo', percentage: 80 }, { label: 'Entrega de equipos', percentage: 10 }, { label: 'Finalización de Obra', percentage: 10 }], version: '1.0' })
@@ -2126,6 +2132,7 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
       try {
         noteMeta = JSON.parse(cot.notes || '{}')
         if (noteMeta.systems) setActiveSysIds(noteMeta.systems)
+        if (Array.isArray(noteMeta.systems_no_suma)) setNoSumaSysIds(noteMeta.systems_no_suma)
         if (noteMeta.currency || noteMeta.tipoCambio || noteMeta.descuento !== undefined || noteMeta.programacion !== undefined) {
           setConfig(c => ({ ...c, currency: noteMeta.currency || c.currency, tipoCambio: noteMeta.tipoCambio || c.tipoCambio, descuento: noteMeta.descuento ?? c.descuento, programacion: noteMeta.programacion ?? c.programacion, nominaPct: noteMeta.nominaPct ?? c.nominaPct }))
         }
@@ -2249,12 +2256,12 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
     return revenueBilled > 0 ? Math.round(((revenueBilled - cost - nomina) / revenueBilled) * 1000) / 10 : 0
   }, [products, config.nominaPct, config.descuento])
   const total = useMemo(() => {
-    let eq = 0, mo = 0; products.forEach(p => { eq += p.price * p.quantity; mo += p.laborCost * p.quantity })
+    let eq = 0, mo = 0; products.forEach(p => { if (noSumaSysIds.includes(p.systemId)) return; eq += p.price * p.quantity; mo += p.laborCost * p.quantity })
     const sub = eq + mo + config.programacion;
     const descuentoAmt = sub * config.descuento / 100;
     const subConDesc = sub - descuentoAmt;
     return subConDesc + subConDesc * config.ivaRate / 100
-  }, [products, config])
+  }, [products, config, noSumaSysIds])
 
   // Sync total to quotations table whenever it changes
   useEffect(() => {
@@ -2334,14 +2341,14 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
     await supabase.from('quotations').update({ notes: JSON.stringify(merged) }).eq('id', cotId)
   }
 
-  async function saveNotes(overrides?: Partial<{ systems: string[]; currency: string; tipoCambio: number; descuento: number; programacion: number; nominaPct: number }>) {
+  async function saveNotes(overrides?: Partial<{ systems: string[]; systems_no_suma: string[]; currency: string; tipoCambio: number; descuento: number; programacion: number; nominaPct: number }>) {
     // Preserve existing notes fields (lead_id, source, etc.)
     let existing: any = {}
     try {
       const { data: q } = await supabase.from('quotations').select('notes').eq('id', cotId).single()
       if (q?.notes) existing = JSON.parse(q.notes)
     } catch (_) { /* ignore */ }
-    const merged = { ...existing, systems: overrides?.systems ?? activeSysIds, currency: overrides?.currency ?? config.currency, tipoCambio: overrides?.tipoCambio ?? config.tipoCambio, descuento: overrides?.descuento ?? config.descuento, programacion: overrides?.programacion ?? config.programacion, nominaPct: overrides?.nominaPct ?? config.nominaPct, customSystems }
+    const merged = { ...existing, systems: overrides?.systems ?? activeSysIds, systems_no_suma: overrides?.systems_no_suma ?? noSumaSysIds, currency: overrides?.currency ?? config.currency, tipoCambio: overrides?.tipoCambio ?? config.tipoCambio, descuento: overrides?.descuento ?? config.descuento, programacion: overrides?.programacion ?? config.programacion, nominaPct: overrides?.nominaPct ?? config.nominaPct, customSystems }
     await supabase.from('quotations').update({ notes: JSON.stringify(merged) }).eq('id', cotId)
   }
 
@@ -2349,6 +2356,13 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
     const next = activeSysIds.includes(sysId) ? activeSysIds.filter(s => s !== sysId) : [...activeSysIds, sysId]
     setActiveSysIds(next)
     saveNotes({ systems: next })
+  }
+
+  // Excluir/incluir un sistema del TOTAL de la cotización (sin borrar sus productos).
+  function toggleNoSuma(sysId: string) {
+    const next = noSumaSysIds.includes(sysId) ? noSumaSysIds.filter(s => s !== sysId) : [...noSumaSysIds, sysId]
+    setNoSumaSysIds(next)
+    saveNotes({ systems_no_suma: next })
   }
 
   function updateConfig(field: string, value: number) {
@@ -3210,13 +3224,14 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
               onMoveDown={idx < areas.length - 1 ? () => moveArea(idx, 1) : undefined}
               onUpdateAreaNotes={updateAreaNotes}
               systemNotes={systemNotes}
-              onUpdateSystemNote={updateSystemNote} />
+              onUpdateSystemNote={updateSystemNote}
+              noSumaSysIds={noSumaSysIds} />
             )
           })}
           <div onClick={addArea} style={{ padding: '12px', border: '1px dashed #333', borderRadius: 10, textAlign: 'center', cursor: 'pointer', color: '#444', fontSize: 12 }}>+ Agregar área</div>
         </div>
         {!isMobile && <div style={{ borderLeft: '1px solid #222', overflowY: 'auto', padding: '14px 10px', background: '#0e0e0e' }}>
-          <SummaryPanel products={products} areas={areas} config={config} activeSystems={activeSystems} showInt={showInt} onConfigChange={updateConfig} onSystemClick={setViewSystemId} />
+          <SummaryPanel products={products} areas={areas} config={config} activeSystems={activeSystems} showInt={showInt} noSumaSysIds={noSumaSysIds} onConfigChange={updateConfig} onSystemClick={setViewSystemId} />
         </div>}
       </div>
 
@@ -3353,24 +3368,32 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
               <div style={{ fontSize: isMobile ? 13 : 14, fontWeight: 600, color: '#fff' }}>Sistemas de la cotización</div>
               <button onClick={() => setShowSystemPicker(false)} style={{ background: 'none', border: 'none', color: '#999', cursor: 'pointer', padding: 4 }}><X size={isMobile ? 16 : 18} /></button>
             </div>
-            <div style={{ fontSize: isMobile ? 10 : 11, color: '#555', padding: isMobile ? '8px 16px 0' : '10px 24px 0', flexShrink: 0 }}>Aplican para todas las áreas.</div>
+            <div style={{ fontSize: isMobile ? 10 : 11, color: '#555', padding: isMobile ? '8px 16px 0' : '10px 24px 0', flexShrink: 0 }}>Aplican para todas las áreas. El interruptor muestra/oculta el sistema; el botón "$" lo excluye del total (sin borrar sus productos).</div>
             {/* Lista scrollable */}
             <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 5, padding: isMobile ? '10px 16px' : '12px 24px', overflowY: 'auto', flex: 1, minHeight: 0 }}>
               {mergedSystems.map(sys => {
                 const on = activeSysIds.includes(sys.id)
+                const noSuma = noSumaSysIds.includes(sys.id)
                 const cnt = products.filter(p => p.systemId === sys.id).length
                 const isCustom = sys.id.startsWith('custom_')
                 return (
                   <div key={sys.id} style={{ display: 'flex', alignItems: 'stretch', gap: 4 }}>
-                    <button onClick={() => toggleGlobalSystem(sys.id)} style={{
+                    <button onClick={() => toggleGlobalSystem(sys.id)} title={on ? 'Visible — clic para ocultar (sigue sumando si no lo excluyes)' : 'Oculto — clic para mostrar'} style={{
                       flex: 1, display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', background: on ? sys.color + '11' : '#1a1a1a',
                       border: '1px solid ' + (on ? sys.color + '44' : '#222'), borderRadius: 10, cursor: 'pointer', color: on ? '#fff' : '#666', fontSize: 13, fontFamily: 'inherit', textAlign: 'left' as const,
                     }}>
                       <span style={{ width: 8, height: 8, borderRadius: '50%', background: on ? sys.color : '#333' }} />
-                      <span style={{ flex: 1 }}>{sys.name}{isCustom && <span style={{ fontSize: 9, color: '#666', marginLeft: 6 }}>custom</span>}</span>
+                      <span style={{ flex: 1, textDecoration: noSuma ? 'line-through' : 'none' }}>{sys.name}{isCustom && <span style={{ fontSize: 9, color: '#666', marginLeft: 6 }}>custom</span>}</span>
+                      {noSuma && <span style={{ fontSize: 9, fontWeight: 700, color: '#DC2626', background: '#DC262618', border: '1px solid #DC262644', borderRadius: 5, padding: '1px 5px' }}>NO SUMA</span>}
                       {cnt > 0 && <span style={{ fontSize: 10, color: '#555' }}>{cnt}</span>}
                       <span style={{ fontSize: 14, color: on ? sys.color : '#333' }}>{on ? '✓' : '○'}</span>
                     </button>
+                    {cnt > 0 && (
+                      <button onClick={() => toggleNoSuma(sys.id)} title={noSuma ? 'No suma al total — clic para volver a sumar' : 'Excluir del total (no borra productos)'}
+                        style={{ width: 42, display: 'flex', alignItems: 'center', justifyContent: 'center', background: noSuma ? '#2a1414' : '#14251a', border: '1px solid ' + (noSuma ? '#DC262655' : '#10B98144'), borderRadius: 10, cursor: 'pointer', color: noSuma ? '#DC2626' : '#10B981', fontSize: 13, fontFamily: 'inherit', fontWeight: 700 }}>
+                        {noSuma ? '✕$' : '$'}
+                      </button>
+                    )}
                     {isCustom && cnt === 0 && (
                       <button onClick={() => removeCustomSystem(sys.id)} title="Eliminar sistema custom"
                         style={{ width: 32, background: '#1a1a1a', border: '1px solid #222', borderRadius: 10, cursor: 'pointer', color: '#666', fontSize: 14, fontFamily: 'inherit' }}>×</button>
