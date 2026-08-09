@@ -288,6 +288,11 @@ interface CashMovement {
   proyecto_nombre?: string
   lead_id?: string | null
   quotation_id?: string | null
+  moneda?: 'MXN' | 'USD'
+  // Cobro cruzado: pago en una moneda distinta a la de la cotización
+  tc_aplicado?: number | null
+  monto_cotizacion?: number | null
+  moneda_cotizacion?: string | null
   lead_name?: string  // hydrated from leads table
   quotation_name?: string  // hydrated from quotations table
 }
@@ -5097,6 +5102,8 @@ function TabEfectivo() {
     quotation_id: '' as string,
     moneda: 'MXN' as 'MXN' | 'USD',
   })
+  // TC para cobro cruzado (pago en moneda distinta a la de la cotización)
+  const [convTc, setConvTc] = useState('')
 
   const startEdit = (m: CashMovement) => {
     setEditingId(m.id)
@@ -5111,6 +5118,7 @@ function TabEfectivo() {
       quotation_id: m.quotation_id || '',
       moneda: (m as any).moneda || 'MXN',
     })
+    setConvTc(m.tc_aplicado ? String(m.tc_aplicado) : '')
     setShowForm(true)
   }
   const handleDelete = async (m: CashMovement) => {
@@ -5140,6 +5148,9 @@ function TabEfectivo() {
       concepto: m.concepto, monto: Number(m.monto), fecha: m.fecha, proyecto_nombre: m.proyecto_nombre,
       lead_id: m.lead_id, quotation_id: m.quotation_id,
       moneda: (m.moneda || 'MXN') as 'MXN' | 'USD',
+      tc_aplicado: m.tc_aplicado ?? null,
+      monto_cotizacion: m.monto_cotizacion ?? null,
+      moneda_cotizacion: m.moneda_cotizacion ?? null,
       lead_name: m.lead_id ? (leadsMap.get(m.lead_id)?.name || '') : '',
       quotation_name: m.quotation_id ? (cotsMap.get(m.quotation_id)?.name || '') : '',
     })))
@@ -5178,10 +5189,26 @@ function TabEfectivo() {
       })
     : quotations
 
+  // Moneda de una cotización (de notes.currency; default MXN)
+  const quoteCur = (q: any): 'MXN' | 'USD' => {
+    try { const n = JSON.parse(q?.notes || '{}'); return n.currency === 'USD' ? 'USD' : 'MXN' } catch { return 'MXN' }
+  }
+  const selectedQuote = form.quotation_id ? quotations.find(q => q.id === form.quotation_id) : null
+  const quoteCurrency = selectedQuote ? quoteCur(selectedQuote) : null
+  // ¿El cobro es en una moneda distinta a la de la cotización? (solo aplica a cobros de cliente)
+  const needsConversion = !!(form.tipo === 'cobro_cliente' && quoteCurrency && quoteCurrency !== form.moneda)
+  const tcNum = parseFloat(convTc) || 0
+  const montoNum = parseFloat(form.monto) || 0
+  const montoCotizacion = !needsConversion || !tcNum ? 0
+    : form.moneda === 'MXN' && quoteCurrency === 'USD' ? Math.round((montoNum / tcNum) * 100) / 100
+    : form.moneda === 'USD' && quoteCurrency === 'MXN' ? Math.round((montoNum * tcNum) * 100) / 100
+    : montoNum
+
   const handleSave = async () => {
     const monto = parseFloat(form.monto)
     if (!monto || monto <= 0) { alert('Ingresa un monto válido'); return }
     if (!form.persona.trim()) { alert('Ingresa la persona'); return }
+    if (needsConversion && (!tcNum || tcNum <= 0)) { alert(`El cobro es en ${form.moneda} pero la cotización está en ${quoteCurrency}. Ingresa el tipo de cambio para convertir.`); return }
     setSaving(true)
     const direccion = (form.tipo === 'cobro_cliente' || form.tipo === 'aportacion') ? 'ingreso' : 'egreso'
     const payload = {
@@ -5191,6 +5218,10 @@ function TabEfectivo() {
       lead_id: form.lead_id || null,
       quotation_id: form.quotation_id || null,
       moneda: form.moneda,
+      // Cobro cruzado: guarda TC + equivalente en la moneda de la cotización
+      tc_aplicado: needsConversion ? tcNum : null,
+      moneda_cotizacion: needsConversion ? quoteCurrency : null,
+      monto_cotizacion: needsConversion ? montoCotizacion : null,
     }
     let error
     if (editingId) {
@@ -5200,6 +5231,7 @@ function TabEfectivo() {
     }
     if (error) { alert('Error: ' + error.message); setSaving(false); return }
     setForm({ tipo: 'cobro_cliente', persona: '', concepto: '', monto: '', fecha: new Date().toISOString().substring(0, 10), proyecto_nombre: '', lead_id: '', quotation_id: '', moneda: 'MXN' })
+    setConvTc('')
     setEditingId(null)
     setShowForm(false)
     setSaving(false)
@@ -5367,7 +5399,7 @@ function TabEfectivo() {
         <div style={{ display: 'flex', gap: 8, width: isMobile ? '100%' : 'auto' }}>
           <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" style={{ display: 'none' }} onChange={handleFileUpload} />
           <Btn size="sm" style={{ flex: isMobile ? 1 : 'initial' }} onClick={() => fileRef.current?.click()}><Upload size={12} /> Subir Excel</Btn>
-          <Btn size="sm" variant="primary" style={{ flex: isMobile ? 1 : 'initial' }} onClick={() => setShowForm(true)}><Plus size={12} /> Registrar movimiento</Btn>
+          <Btn size="sm" variant="primary" style={{ flex: isMobile ? 1 : 'initial' }} onClick={() => { setEditingId(null); setConvTc(''); setShowForm(true) }}><Plus size={12} /> Registrar movimiento</Btn>
         </div>
       </div>
 
@@ -5419,11 +5451,11 @@ function TabEfectivo() {
 
       {/* Modal de registro / edición */}
       {showForm && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => { setShowForm(false); setEditingId(null); setForm({ tipo: 'cobro_cliente', persona: '', concepto: '', monto: '', fecha: new Date().toISOString().substring(0, 10), proyecto_nombre: '', lead_id: '', quotation_id: '' }) }}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => { setShowForm(false); setEditingId(null); setForm({ tipo: 'cobro_cliente', persona: '', concepto: '', monto: '', fecha: new Date().toISOString().substring(0, 10), proyecto_nombre: '', lead_id: '', quotation_id: '' }); setConvTc('') }}>
           <div onClick={e => e.stopPropagation()} style={{ background: '#1a1a1a', border: '1px solid #333', borderRadius: 12, padding: 24, width: Math.min(440, window.innerWidth - 32), maxHeight: '90vh', overflow: 'auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
               <span style={{ fontSize: 16, fontWeight: 700, color: '#fff' }}>{editingId ? 'Editar movimiento de efectivo' : 'Registrar movimiento de efectivo'}</span>
-              <button onClick={() => { setShowForm(false); setEditingId(null); setForm({ tipo: 'cobro_cliente', persona: '', concepto: '', monto: '', fecha: new Date().toISOString().substring(0, 10), proyecto_nombre: '', lead_id: '', quotation_id: '' }) }} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', fontSize: 18 }}><X size={18} /></button>
+              <button onClick={() => { setShowForm(false); setEditingId(null); setForm({ tipo: 'cobro_cliente', persona: '', concepto: '', monto: '', fecha: new Date().toISOString().substring(0, 10), proyecto_nombre: '', lead_id: '', quotation_id: '' }); setConvTc('') }} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', fontSize: 18 }}><X size={18} /></button>
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -5534,6 +5566,26 @@ function TabEfectivo() {
                   ))}
                 </select>
               </div>
+              {/* Cobro cruzado: pago en moneda distinta a la de la cotización */}
+              {form.quotation_id && quoteCurrency && form.tipo === 'cobro_cliente' && (
+                <div style={{ background: needsConversion ? '#1a1710' : '#101010', border: '1px solid ' + (needsConversion ? '#D9770655' : '#222'), borderRadius: 8, padding: '10px 12px' }}>
+                  {!needsConversion ? (
+                    <div style={{ fontSize: 10, color: '#666' }}>Cotización en <b style={{ color: '#aaa' }}>{quoteCurrency}</b> · el cobro es en {form.moneda} · sin conversión necesaria.</div>
+                  ) : (
+                    <>
+                      <div style={{ fontSize: 11, color: '#D97706', fontWeight: 600, marginBottom: 6 }}>Cobro cruzado — pago en {form.moneda}, cotización en {quoteCurrency}</div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                        <label style={{ fontSize: 11, color: '#888' }}>Tipo de cambio *</label>
+                        <input type="number" step="0.0001" value={convTc} onChange={e => setConvTc(e.target.value)} placeholder="TC" style={{ ...inputStyle, width: 110 }} />
+                        {tcNum > 0 && montoNum > 0 && (
+                          <span style={{ fontSize: 12, color: '#ccc' }}>{form.moneda} {F(montoNum)} → <b style={{ color: '#10B981' }}>{quoteCurrency} {F(montoCotizacion)}</b></span>
+                        )}
+                      </div>
+                      <div style={{ fontSize: 9, color: '#666', marginTop: 6 }}>El cobrado de la cotización se cuenta con este equivalente ({quoteCurrency}). El movimiento físico se guarda en {form.moneda}.</div>
+                    </>
+                  )}
+                </div>
+              )}
               <div>
                 <label style={{ fontSize: 11, color: '#888', marginBottom: 4, display: 'block' }}>Proyecto (texto libre, opcional)</label>
                 <input value={form.proyecto_nombre} onChange={e => setForm({ ...form, proyecto_nombre: e.target.value })} placeholder="Se autocompleta de la cotización si la eliges arriba" style={inputStyle} />
@@ -5541,7 +5593,7 @@ function TabEfectivo() {
             </div>
 
             <div style={{ display: 'flex', gap: 8, marginTop: 20, justifyContent: 'flex-end' }}>
-              <Btn size="sm" onClick={() => { setShowForm(false); setEditingId(null); setForm({ tipo: 'cobro_cliente', persona: '', concepto: '', monto: '', fecha: new Date().toISOString().substring(0, 10), proyecto_nombre: '', lead_id: '', quotation_id: '' }) }}>Cancelar</Btn>
+              <Btn size="sm" onClick={() => { setShowForm(false); setEditingId(null); setForm({ tipo: 'cobro_cliente', persona: '', concepto: '', monto: '', fecha: new Date().toISOString().substring(0, 10), proyecto_nombre: '', lead_id: '', quotation_id: '' }); setConvTc('') }}>Cancelar</Btn>
               <Btn size="sm" variant="primary" disabled={saving} onClick={handleSave}>
                 {saving ? <><Loader2 size={12} className="spin" /> Guardando...</> : (editingId ? 'Guardar cambios' : 'Guardar')}
               </Btn>
