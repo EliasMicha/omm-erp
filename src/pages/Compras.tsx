@@ -132,6 +132,31 @@ const PAYMENT_TERMS_CFG: Record<PaymentTerms, string> = {
 
 const SYSTEM_OPTIONS = ['Redes', 'CCTV', 'Audio', 'Lutron', 'Acceso', 'Somfy', 'Electrico', 'Iluminacion', 'Cortinas', 'General']
 
+// Al marcar una OC como PEDIDA, la orden cotejada es la definitiva: vuelca los
+// valores reales (real_*) a los campos canónicos (quantity/modelo/etc.) para que
+// "lo pedido" use cantidades/modelos cotejados, no los originales.
+// Fuente = filas de DB (usado por el flujo de pago que auto-marca pedida).
+async function commitCotejadoItemsDB(poId: string) {
+  const { data } = await supabase.from('po_items').select('*').eq('purchase_order_id', poId)
+  for (const it of ((data as any[]) || [])) {
+    const cot = it.cotejo_status === 'cotejado' || it.cotejo_status === 'sustituido'
+    if (!cot) continue
+    const f: any = {}
+    if (it.real_quantity != null) f.quantity = it.real_quantity
+    if (it.real_unit_cost != null) f.unit_cost = it.real_unit_cost
+    if (it.real_total != null) f.total = it.real_total
+    else if (it.real_quantity != null || it.real_unit_cost != null) {
+      const q = it.real_quantity != null ? it.real_quantity : it.quantity
+      const c = it.real_unit_cost != null ? it.real_unit_cost : it.unit_cost
+      f.total = Math.round(q * c * 100) / 100
+    }
+    if (it.real_name) f.name = it.real_name
+    if (it.real_marca) f.marca = it.real_marca
+    if (it.real_modelo) f.modelo = it.real_modelo
+    if (Object.keys(f).length) await supabase.from('po_items').update(f).eq('id', it.id)
+  }
+}
+
 // Modo logístico — cómo llega el material de una PO
 const LOGISTICS_CFG: Record<LogisticsMode, { label: string; short: string; color: string; needsObra: boolean; description: string }> = {
   pending:            { label: 'Por decidir',              short: 'Pendiente',     color: '#6B7280', needsObra: false, description: 'Aún no se decide cómo llega' },
@@ -2200,6 +2225,29 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
     if (newStatus === 'recibida') {
       updates.delivered_at = new Date().toISOString()
     }
+    // Al marcar como PEDIDA, la orden cotejada es la definitiva: vuelca real_* → campos
+    // canónicos (cantidad/modelo/costo/total) para cada ítem cotejado o sustituido, usando
+    // el estado en memoria (captura cotejo aún sin guardar). Y fija los totales cotejados.
+    if (newStatus === 'pedida') {
+      for (const it of items) {
+        const cot = it.cotejo_status === 'cotejado' || it.cotejo_status === 'sustituido'
+        if (!cot) continue
+        const f: any = {}
+        if (it.real_quantity != null) f.quantity = it.real_quantity
+        if (it.real_unit_cost != null) f.unit_cost = it.real_unit_cost
+        if (it.real_total != null) f.total = it.real_total
+        else if (it.real_quantity != null || it.real_unit_cost != null) {
+          const q = it.real_quantity != null ? it.real_quantity : it.quantity
+          const c = it.real_unit_cost != null ? it.real_unit_cost : it.unit_cost
+          f.total = Math.round(q * c * 100) / 100
+        }
+        if (it.real_name) f.name = it.real_name
+        if (it.real_marca) f.marca = it.real_marca
+        if (it.real_modelo) f.modelo = it.real_modelo
+        if (Object.keys(f).length) await supabase.from('po_items').update(f).eq('id', it.id)
+      }
+      updates.subtotal = subtotal; updates.iva = iva; updates.total = total
+    }
     await supabase.from('purchase_orders').update(updates).eq('id', po.id)
     load()
   }
@@ -3122,6 +3170,8 @@ function RegistrarPagoModal({ poId, poCurrency, poTotal, totalPaid, poStatus, on
     // Si la OC estaba en borrador o aprobada, pasarla a 'pedida' al primer pago (Opción B)
     let newStatus: POStatus | null = null
     if (poStatus === 'borrador' || poStatus === 'aprobada') {
+      // La orden cotejada es la definitiva: vuelca real_* → canónico antes de marcar pedida
+      await commitCotejadoItemsDB(poId)
       const { error: updErr } = await supabase.from('purchase_orders').update({ status: 'pedida' }).eq('id', poId)
       if (!updErr) newStatus = 'pedida'
     }
