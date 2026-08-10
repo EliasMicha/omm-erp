@@ -2215,6 +2215,40 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
     load()
   }
 
+  // Convierte la OC entre MXN y USD con un TC fijo (para que la OC quede en la moneda
+  // del proveedor y cuadre con las transferencias). Multiplica/divide costos y totales.
+  async function convertirMonedaOC() {
+    if (!po) return
+    const target: 'MXN' | 'USD' = po.currency === 'USD' ? 'MXN' : 'USD'
+    const tcStr = prompt(`Convertir la OC de ${po.currency} a ${target}.\n\nTipo de cambio (MXN por 1 USD):`, '18')
+    if (tcStr == null) return
+    const tc = parseFloat(tcStr)
+    if (!tc || tc <= 0) { alert('Tipo de cambio inválido.'); return }
+    const factor = target === 'USD' ? 1 / tc : tc   // MXN→USD divide entre TC; USD→MXN multiplica
+    const r2 = (n: any) => Math.round((Number(n) || 0) * factor * 100) / 100
+    const updated = items.map(it => ({
+      ...it,
+      unit_cost: r2(it.unit_cost),
+      total: r2(it.total),
+      real_unit_cost: it.real_unit_cost != null ? r2(it.real_unit_cost) : it.real_unit_cost,
+      real_total: it.real_total != null ? r2(it.real_total) : it.real_total,
+    }))
+    setItems(updated)
+    for (const it of updated) {
+      await supabase.from('po_items').update({ unit_cost: it.unit_cost, total: it.total, real_unit_cost: it.real_unit_cost ?? null, real_total: it.real_total ?? null }).eq('id', it.id)
+    }
+    // Convertir extras fijos (fletes/importación) y recomputar totales
+    const extrasArr: any[] = Array.isArray((po as any).extras) ? (po as any).extras : []
+    const extrasConv = extrasArr.map(e => e.tipo === 'fijo' ? { ...e, valor: r2(e.valor) } : e)
+    const sub = updated.reduce((s, it) => s + (((it.cotejo_status === 'cotejado' || it.cotejo_status === 'sustituido') && it.real_total != null) ? Number(it.real_total) : (Number(it.total) || 0)), 0)
+    const extrasTot = extrasConv.reduce((s, e) => e.tipo === 'porcentaje' ? s + sub * ((Number(e.valor) || 0) / 100) : s + (Number(e.valor) || 0), 0)
+    const subTot = sub + extrasTot
+    const ivaV = Math.round(subTot * 0.16)
+    const totV = subTot + ivaV
+    await supabase.from('purchase_orders').update({ currency: target, extras: extrasConv, subtotal: subTot, iva: ivaV, total: totV, updated_at: new Date().toISOString() }).eq('id', po.id)
+    setPO({ ...po, currency: target, extras: extrasConv, subtotal: subTot, iva: ivaV, total: totV } as any)
+  }
+
   async function changeStatus(newStatus: POStatus) {
     if (!po) return
     const updates: any = { status: newStatus, updated_at: new Date().toISOString() }
@@ -2394,6 +2428,13 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
             }))
             generatePOPdf(po as any, enriched, { sinCostos: true })
           }}><FileText size={14} /> PDF sin costos</Btn>
+          {canEdit && (
+            <Btn size="sm" variant="ghost" title="Convierte la OC a la moneda del proveedor con un TC fijo (para que cuadre con las transferencias)"
+              onClick={convertirMonedaOC}
+              style={{ borderColor: po.currency === 'USD' ? '#06B6D455' : '#10B98155', color: po.currency === 'USD' ? '#06B6D4' : '#10B981' }}>
+              {po.currency === 'USD' ? '→ MXN' : '→ USD'}
+            </Btn>
+          )}
           {/* Botón Dispatcher de agentes — solo si supplier tiene playbook activo */}
           {(() => {
             const pb = getPlaybookForSupplier(po.supplier_id)
