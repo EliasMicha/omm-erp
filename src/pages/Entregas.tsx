@@ -1406,10 +1406,10 @@ function TareaModal({ init, obras, leads, empleados, onClose, onSaved }: any) {
       setLoadingReco(true)
       const { data: pR } = await supabase.from('purchase_orders').select('id, po_number, supplier_id, quotation_id, status, logistics_mode').neq('status', 'cancelada')
       // Recolección = las que NOSOTROS recogemos (modo pickup) o sin modo definido; nunca borrador
-      const pos = ((pR.data as any[]) || []).filter(p => p.status !== 'borrador' && (!p.logistics_mode || String(p.logistics_mode).startsWith('pickup')))
+      const pos = (((pR as any[]) || [])).filter(p => p.status !== 'borrador' && (!p.logistics_mode || String(p.logistics_mode).startsWith('pickup')))
       setRecoPos(pos)
       const supIds = [...new Set(pos.map(p => p.supplier_id).filter(Boolean))]
-      if (supIds.length) { const { data: sR } = await supabase.from('suppliers').select('id, name').in('id', supIds); const m: any = {}; ((sR.data as any[]) || []).forEach(s => m[s.id] = s.name); setSupMap(m) }
+      if (supIds.length) { const { data: sR } = await supabase.from('suppliers').select('id, name').in('id', supIds); const m: any = {}; ((sR as any[]) || []).forEach(s => m[s.id] = s.name); setSupMap(m) }
       setRecoLoaded(true); setLoadingReco(false)
     })()
   }, [tipo])
