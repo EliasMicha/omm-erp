@@ -16,5 +16,11 @@
       "maxDuration": 60,
       "memory": 1024
     }
-  }
+  },
+  "crons": [
+    {
+      "path": "/api/extract?action=daily_brief",
+      "schedule": "0 13 * * *"
+    }
+  ]
 }
