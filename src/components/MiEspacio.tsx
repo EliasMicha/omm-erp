@@ -31,7 +31,7 @@ const EST_CFG: Record<string, { label: string; color: string }> = {
 }
 const CANAL_LABEL: Record<string, string> = { whatsapp: 'WhatsApp', llamada: 'Llamada', correo: 'Correo', reunion: 'Reunión', mensaje: 'Mensaje', otro: 'Otro' }
 
-interface Pendiente { id: string; title: string; status: string; priority: number; due_date: string | null }
+interface Pendiente { id: string; title: string; status: string; priority: number; due_date: string | null; due_time?: string | null; tags?: string[] | null }
 interface Prospecto {
   id: string; nombre: string; empresa: string | null; telefono: string | null; email: string | null
   canal: string | null; notas: string | null; estado: string; prioridad: number; proxima_accion: string | null; lead_id: string | null
@@ -60,7 +60,7 @@ export default function MiEspacio({ userId, employeeId, isMobile = false }: { us
   const [showDonePend, setShowDonePend] = useState(false)
 
   async function loadPendientes() {
-    const { data } = await supabase.from('action_items').select('id, title, status, priority, due_date')
+    const { data } = await supabase.from('action_items').select('id, title, status, priority, due_date, due_time, tags')
       .eq('area', 'DG').eq('source_type', 'dashboard').order('created_at', { ascending: false })
     setPendientes((data || []) as Pendiente[])
   }
@@ -351,12 +351,16 @@ export default function MiEspacio({ userId, employeeId, isMobile = false }: { us
             {pendVisibles.length === 0 && <div style={{ color: '#555', fontSize: 12, padding: '12px 4px' }}>Sin pendientes. Agrega uno arriba.</div>}
             {pendVisibles.map(p => {
               const done = p.status === 'completada'; const vencida = !done && p.due_date && p.due_date < hoy
+              const esCita = (p.tags || []).includes('cita') || !!p.due_time
               return (
                 <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 8px', borderRadius: 8, background: '#0d0d0d', border: '1px solid #1a1a1a' }}>
                   <button onClick={() => togglePendiente(p)} title="Marcar" style={{ width: 18, height: 18, borderRadius: 5, border: `1.5px solid ${done ? '#57FF9A' : '#444'}`, background: done ? '#57FF9A' : 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto', padding: 0 }}>{done && <Check size={12} color="#000" />}</button>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13, color: done ? '#666' : '#eee', textDecoration: done ? 'line-through' : 'none', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.title}</div>
-                    {p.due_date && <div style={{ fontSize: 10, color: vencida ? '#DC2626' : '#777', marginTop: 1 }}>{vencida ? '⚠ ' : ''}{p.due_date}</div>}
+                    <div style={{ fontSize: 13, color: done ? '#666' : '#eee', textDecoration: done ? 'line-through' : 'none', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'flex', alignItems: 'center', gap: 6 }}>
+                      {esCita && <span style={{ fontSize: 9, fontWeight: 700, color: '#10B981', background: '#10B98122', borderRadius: 5, padding: '1px 5px', flex: '0 0 auto' }}>📅 CITA</span>}
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.title}</span>
+                    </div>
+                    {p.due_date && <div style={{ fontSize: 10, color: vencida ? '#DC2626' : '#777', marginTop: 1 }}>{vencida ? '⚠ ' : ''}{p.due_date}{p.due_time ? ` · ${String(p.due_time).slice(0, 5)}` : ''}</div>}
                   </div>
                   <span style={{ width: 6, height: 6, borderRadius: '50%', background: PRIO_COLOR[p.priority] || '#666', flex: '0 0 auto' }} title={PRIO_LABEL[p.priority]} />
                   <button onClick={() => delPendiente(p.id)} style={{ background: 'transparent', border: 'none', color: '#555', cursor: 'pointer', padding: 2 }}><Trash2 size={13} /></button>
