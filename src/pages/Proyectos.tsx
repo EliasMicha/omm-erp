@@ -164,7 +164,7 @@ export default function Proyectos() {
   const [employees, setEmployees] = useState<EmployeeRow[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
-  const [view, setView] = useState<'list' | 'detail' | 'cockpit'>('list')
+  const [view, setView] = useState<'list' | 'detail' | 'cockpit' | 'plantillas'>('list')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [filtroStatus, setFiltroStatus] = useState<'todos' | ProjectStatus>('todos')
   const [areaTab, setAreaTab] = useState<'TODAS' | Specialty>('TODAS')
@@ -253,7 +253,8 @@ export default function Proyectos() {
             title="Proyectos — Ingeniería y Diseño"
             subtitle={`${stats.total} proyectos${areaTab !== 'TODAS' ? ' · ' + (SPECIALTY_CONFIG[areaTab]?.label || '') : ''}`}
             action={
-              <div style={{ display: 'flex', gap: 6 }}>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                <Btn onClick={() => setView('plantillas')} style={{ borderColor: '#2563EB55', color: '#60A5FA' }}>📋 Plantillas de proceso</Btn>
                 <Btn onClick={() => setView('cockpit')} style={{ borderColor: '#7C3AED55', color: '#A78BFA' }}>👥 Cockpit del director</Btn>
                 <Btn variant="primary" onClick={() => setShowNewModal(true)}><Plus size={12} /> Nuevo proyecto</Btn>
               </div>
@@ -334,6 +335,8 @@ export default function Proyectos() {
           onBack={() => { setView('list'); loadAll() }}
         />
       )}
+
+      {view === 'plantillas' && <TemplatesManager onBack={() => setView('list')} />}
 
       {view === 'cockpit' && (
         <DirectorCockpit
@@ -431,6 +434,129 @@ function ProjectCard({ project, phases, tasks, onClick }: {
 // ═══════════════════════════════════════════════════════════════════
 // PROJECT DETAIL
 // ═══════════════════════════════════════════════════════════════════
+
+// ═══════════════════════════════════════════════════════════════════
+// GESTOR DE PLANTILLAS DE PROCESO — entregable + instrucciones + checklist por especialidad
+// ═══════════════════════════════════════════════════════════════════
+interface TemplateRow {
+  id: string; specialty: string; name: string; description: string | null
+  default_subtasks: string[] | null; expands_by_system: boolean
+  start_phase_order: number | null; end_phase_order: number | null; order_index: number
+}
+function TemplatesManager({ onBack }: { onBack: () => void }) {
+  const [templates, setTemplates] = useState<TemplateRow[]>([])
+  const [loading, setLoading] = useState(true)
+  const [spec, setSpec] = useState<string>('esp')
+  const [edit, setEdit] = useState<TemplateRow | null>(null)
+  const [saving, setSaving] = useState(false)
+
+  const lblS: any = { display: 'block', fontSize: 10, color: '#666', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 600, marginBottom: 4, marginTop: 10 }
+  const inpS: any = { width: '100%', padding: '8px 10px', background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 8, color: '#ddd', fontSize: 13, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box', marginBottom: 8 }
+  const miniBtn: any = { background: '#161616', border: '1px solid #2a2a2a', borderRadius: 5, color: '#888', cursor: 'pointer', fontSize: 10, padding: '4px 7px', fontFamily: 'inherit' }
+
+  async function load() {
+    setLoading(true)
+    const { data } = await supabase.from('project_task_templates').select('id,specialty,name,description,default_subtasks,expands_by_system,start_phase_order,end_phase_order,order_index').order('specialty').order('order_index')
+    setTemplates((data as TemplateRow[]) || []); setLoading(false)
+  }
+  useEffect(() => { load() }, [])
+
+  const specTabs: [string, string][] = [['esp', 'Especialidades'], ['ilum', 'Iluminación'], ['elec', 'Eléctrico'], ['postventa', 'Post-venta']]
+  const list = templates.filter(t => t.specialty === spec).sort((a, b) => a.order_index - b.order_index)
+  const setChecklist = (arr: string[]) => setEdit(e => e ? { ...e, default_subtasks: arr } : e)
+
+  function nueva() {
+    const maxOrd = Math.max(0, ...templates.filter(t => t.specialty === spec).map(t => t.order_index))
+    setEdit({ id: '', specialty: spec, name: '', description: '', default_subtasks: [], expands_by_system: false, start_phase_order: 1, end_phase_order: 1, order_index: maxOrd + 1 })
+  }
+  async function guardar() {
+    if (!edit || !edit.name.trim()) { alert('Ponle nombre al entregable.'); return }
+    setSaving(true)
+    const payload = { specialty: edit.specialty, name: edit.name.trim(), description: (edit.description || '').trim() || null, default_subtasks: (edit.default_subtasks || []).map(s => s.trim()).filter(Boolean), expands_by_system: edit.expands_by_system, start_phase_order: edit.start_phase_order, end_phase_order: edit.end_phase_order, order_index: edit.order_index }
+    if (edit.id) await supabase.from('project_task_templates').update(payload).eq('id', edit.id)
+    else await supabase.from('project_task_templates').insert(payload)
+    setSaving(false); setEdit(null); load()
+  }
+  async function borrar() {
+    if (!edit?.id || !confirm(`¿Eliminar la plantilla "${edit.name}"? No afecta proyectos ya creados.`)) return
+    await supabase.from('project_task_templates').delete().eq('id', edit.id)
+    setEdit(null); load()
+  }
+
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
+        <Btn onClick={onBack}><ArrowLeft size={14} /> Proyectos</Btn>
+        <span style={{ fontSize: 18, fontWeight: 700, color: '#fff' }}>Plantillas de proceso</span>
+        <Btn variant="primary" style={{ marginLeft: 'auto' }} onClick={nueva}><Plus size={12} /> Nueva plantilla</Btn>
+      </div>
+      <div style={{ fontSize: 11, color: '#666', marginBottom: 14 }}>El proceso e instrucciones + checklist estándar de cada entregable. Al crear un proyecto de esa especialidad, estas tareas y sus checklists se cargan solos — así queda claro qué se espera en cada entregable, sin depender de la memoria de nadie.</div>
+      <div style={{ display: 'flex', gap: 4, marginBottom: 16, flexWrap: 'wrap' }}>
+        {specTabs.map(([id, label]) => { const on = spec === id; return <button key={id} onClick={() => setSpec(id)} style={{ padding: '6px 14px', borderRadius: 8, fontSize: 12, fontWeight: on ? 700 : 500, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid ' + (on ? '#2563EB' : '#2a2a2a'), background: on ? '#2563EB22' : 'transparent', color: on ? '#60A5FA' : '#888' }}>{label} <span style={{ fontSize: 10, color: '#555' }}>({templates.filter(t => t.specialty === id).length})</span></button> })}
+      </div>
+      {loading ? <Loading /> : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {list.length === 0 && <EmptyState message="Sin plantillas para esta especialidad." />}
+          {list.map(t => (
+            <div key={t.id} onClick={() => setEdit({ ...t, default_subtasks: t.default_subtasks || [] })} style={{ border: '1px solid #1e1e1e', borderRadius: 10, background: '#0f0f0f', padding: '11px 14px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 12 }}>
+              <span style={{ fontSize: 11, color: '#555', fontWeight: 700, minWidth: 22 }}>{t.order_index}</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13.5, fontWeight: 600, color: '#fff' }}>{t.name}</div>
+                <div style={{ fontSize: 10, color: '#666', display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 2 }}>
+                  <span>Fase {t.start_phase_order}{t.end_phase_order !== t.start_phase_order ? `–${t.end_phase_order}` : ''}</span>
+                  {t.expands_by_system && <span style={{ color: '#A78BFA' }}>· uno por sistema</span>}
+                  <span>· {(t.default_subtasks || []).length} pasos</span>
+                  <span style={{ color: t.description ? '#10B981' : '#D97706' }}>· {t.description ? 'con instrucciones' : 'sin instrucciones'}</span>
+                </div>
+              </div>
+              <span style={{ fontSize: 11, color: '#555' }}>Editar ›</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {edit && (
+        <div onClick={() => setEdit(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.78)', zIndex: 9998, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '24px', overflow: 'auto' }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: '#0f0f0f', border: '1px solid #222', borderRadius: 12, width: '100%', maxWidth: 680, padding: 20 }}>
+            <div style={{ display: 'flex', alignItems: 'center', marginBottom: 8 }}>
+              <span style={{ fontSize: 15, fontWeight: 700, color: '#fff' }}>{edit.id ? 'Editar plantilla' : 'Nueva plantilla'}</span>
+              <button onClick={() => setEdit(null)} style={{ marginLeft: 'auto', background: 'none', border: 'none', color: '#888', cursor: 'pointer' }}><X size={18} /></button>
+            </div>
+            <label style={lblS}>Entregable (nombre de la tarea)</label>
+            <input value={edit.name} onChange={e => setEdit({ ...edit, name: e.target.value })} placeholder="ej. Plano de CCTV" style={inpS} />
+            <label style={lblS}>Instrucciones / proceso — qué se espera y cuándo se da por terminado</label>
+            <textarea value={edit.description || ''} onChange={e => setEdit({ ...edit, description: e.target.value })} rows={3} placeholder="Describe el proceso, criterios de calidad y definición de terminado…" style={{ ...inpS, resize: 'vertical' }} />
+            <label style={lblS}>Checklist (pasos)</label>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 8 }}>
+              {(edit.default_subtasks || []).map((s, i) => (
+                <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                  <span style={{ color: '#555', fontSize: 11, minWidth: 16 }}>{i + 1}.</span>
+                  <input value={s} onChange={e => { const a = [...(edit.default_subtasks || [])]; a[i] = e.target.value; setChecklist(a) }} style={{ ...inpS, marginBottom: 0 }} />
+                  <button onClick={() => { const a = [...(edit.default_subtasks || [])]; if (i > 0) { [a[i - 1], a[i]] = [a[i], a[i - 1]]; setChecklist(a) } }} style={miniBtn}>▲</button>
+                  <button onClick={() => { const a = [...(edit.default_subtasks || [])]; if (i < a.length - 1) { [a[i + 1], a[i]] = [a[i], a[i + 1]]; setChecklist(a) } }} style={miniBtn}>▼</button>
+                  <button onClick={() => setChecklist((edit.default_subtasks || []).filter((_, j) => j !== i))} style={{ ...miniBtn, color: '#DC2626' }}>✕</button>
+                </div>
+              ))}
+            </div>
+            <button onClick={() => setChecklist([...(edit.default_subtasks || []), ''])} style={{ fontSize: 11, color: '#10B981', background: 'none', border: '1px dashed #10B98155', borderRadius: 6, padding: '5px 10px', cursor: 'pointer', fontFamily: 'inherit', marginBottom: 14 }}>+ Agregar paso</button>
+            <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 16, alignItems: 'center' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#ccc', cursor: 'pointer' }}>
+                <input type="checkbox" checked={edit.expands_by_system} onChange={e => setEdit({ ...edit, expands_by_system: e.target.checked })} style={{ accentColor: '#A78BFA' }} /> Uno por sistema
+              </label>
+              <label style={{ fontSize: 11, color: '#888', display: 'inline-flex', alignItems: 'center', gap: 6 }}>Fase inicio <input type="number" value={edit.start_phase_order || 1} onChange={e => setEdit({ ...edit, start_phase_order: parseInt(e.target.value) || 1 })} style={{ ...inpS, width: 56, marginBottom: 0 }} /></label>
+              <label style={{ fontSize: 11, color: '#888', display: 'inline-flex', alignItems: 'center', gap: 6 }}>Fase fin <input type="number" value={edit.end_phase_order || 1} onChange={e => setEdit({ ...edit, end_phase_order: parseInt(e.target.value) || 1 })} style={{ ...inpS, width: 56, marginBottom: 0 }} /></label>
+            </div>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <Btn variant="primary" onClick={guardar} disabled={saving}>{saving ? 'Guardando…' : 'Guardar'}</Btn>
+              <Btn onClick={() => setEdit(null)}>Cancelar</Btn>
+              {edit.id && <Btn onClick={borrar} style={{ marginLeft: 'auto', borderColor: '#DC262655', color: '#DC2626' }}><Trash2 size={14} /> Eliminar</Btn>}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
 
 // ═══════════════════════════════════════════════════════════════════
 // COCKPIT DEL DIRECTOR — 3 lentes: Por proyecto / Por persona / Próximas entregas
