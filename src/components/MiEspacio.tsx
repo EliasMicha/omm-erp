@@ -171,9 +171,11 @@ export default function MiEspacio({ userId, employeeId, isMobile = false }: { us
   }, [interacciones])
 
   async function addProspecto() {
-    if (!np.nombre.trim()) return
+    // Muchos prospectos son despachos: si no hay nombre de persona, se guarda con la empresa.
+    const nombre = np.nombre.trim() || np.empresa.trim()
+    if (!nombre) { alert('Pon al menos un nombre o una empresa.'); return }
     await supabase.from('prospectos').insert({
-      nombre: np.nombre.trim(), empresa: np.empresa.trim() || null, telefono: np.telefono.trim() || null,
+      nombre, empresa: np.empresa.trim() || null, telefono: np.telefono.trim() || null,
       email: np.email.trim() || null, canal: np.canal.trim() || null, notas: np.notas.trim() || null,
       prioridad: np.prioridad, proxima_accion: np.proxima_accion || null, estado: 'por_contactar', created_by: userId || null,
     })
@@ -434,7 +436,7 @@ export default function MiEspacio({ userId, employeeId, isMobile = false }: { us
                     <span style={{ width: 4, alignSelf: 'stretch', borderRadius: 4, background: PRIO_COLOR[p.prioridad], flex: '0 0 auto' }} />
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 13, fontWeight: 600, color: '#fff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {p.nombre}{p.empresa ? <span style={{ color: '#888', fontWeight: 400 }}> · {p.empresa}</span> : ''}
+                        {p.nombre}{p.empresa && p.empresa !== p.nombre ? <span style={{ color: '#888', fontWeight: 400 }}> · {p.empresa}</span> : ''}
                       </div>
                       <div style={{ display: 'flex', gap: 10, marginTop: 2, flexWrap: 'wrap' }}>
                         <span style={{ fontSize: 11, color: est.color, fontWeight: 600 }}>{est.label}</span>
