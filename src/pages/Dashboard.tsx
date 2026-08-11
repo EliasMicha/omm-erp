@@ -5,6 +5,7 @@ import { Project, PaymentMilestone, WorkReport } from '../types'
 import { F, STATUS_CONFIG, STAGE_CONFIG, formatDate } from '../lib/utils'
 import { KpiCard, Table, Th, Td, ProgressBar, Badge, Loading, SectionHeader } from '../components/layout/UI'
 import RadarVentas from '../components/RadarVentas'
+import MiEspacio from '../components/MiEspacio'
 import { useIsMobile } from '../lib/useIsMobile'
 import { tcForYear } from '../lib/fx'
 import { useAuth } from '../contexts/AuthContext'
@@ -107,6 +108,11 @@ export default function Dashboard() {
             <div style={{ marginTop: 'auto', fontSize: 10, color: '#555', fontWeight: 600 }}>Próximamente</div>
           </div>
         </div>
+      )}
+
+      {/* ── MI ESPACIO: pendientes + prospectos por contactar (solo DG) ── */}
+      {area === 'DG' && (
+        <MiEspacio userId={authUser?.id} employeeId={authUser?.employee_id} isMobile={isMobile} />
       )}
 
       {/* ── KPI CARDS ── */}
