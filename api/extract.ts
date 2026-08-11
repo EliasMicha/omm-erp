@@ -97,12 +97,72 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*')
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-omm-token')
   if (req.method === 'OPTIONS') return res.status(200).end()
   if (req.method !== 'POST') return res.status(405).json({ ok: false, error: 'Method not allowed' })
 
   const apiKey = process.env.ANTHROPIC_KEY || process.env.VITE_ANTHROPIC_KEY
   if (!apiKey) return res.status(500).json({ ok: false, error: 'ANTHROPIC_KEY no configurada en el servidor' })
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Captura de PROSPECTO desde screenshot (Atajo de iOS "Enviar a OMM").
+  //   POST /api/extract?action=prospecto
+  //   headers: { x-omm-token: <CAPTURE_TOKEN> }
+  //   body: { image: base64, mediaType?: 'image/jpeg', text?: string }
+  // Lee los datos de contacto con visión y crea la fila en `prospectos`.
+  // ═══════════════════════════════════════════════════════════════════════════
+  const isProspecto = (req.query?.action === 'prospecto') || (req.body && (req.body as any).action === 'prospecto')
+  if (isProspecto) {
+    const token = (req.headers['x-omm-token'] as string) || (req.body as any)?.token || (req.query?.token as string)
+    const expected = process.env.CAPTURE_TOKEN
+    if (!expected || token !== expected) return res.status(401).json({ ok: false, error: 'Token invalido' })
+
+    const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL
+    const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY
+    if (!supabaseUrl || !supabaseKey) return res.status(500).json({ ok: false, error: 'Supabase env vars no configuradas' })
+
+    const { image, mediaType: mt, text } = (req.body || {}) as { image?: string; mediaType?: string; text?: string }
+    if (!image && !text) return res.status(400).json({ ok: false, error: 'Falta image o text' })
+
+    const shape = `{"nombre":"persona o despacho/estudio ('' si no hay)","empresa":"","telefono":"con lada si aparece, si no ''","email":"","instagram":"@handle o URL si aparece","web":"sitio si aparece","canal":"como/donde contactarlo (ej. 'Instagram @estudio','DM Instagram','pagina web','referido')","notas":"resumen: a que se dedican, ciudad, tipo de proyecto, # seguidores, etc."}`
+    const instr = `Eres asistente comercial de OMM (integracion/automatizacion, iluminacion, audio, CCTV, cortinas para arquitectura de alto nivel). Del screenshot y/o texto de un posible cliente (arquitecto, despacho, interiorista), extrae sus datos de contacto. Devuelve EXCLUSIVAMENTE un objeto JSON (sin markdown) con esta forma:\n${shape}\n\nContexto:\n${text || '(sin texto, usa la imagen)'}`
+    const cnt: any[] = []
+    if (image) cnt.push({ type: 'image', source: { type: 'base64', media_type: mt || 'image/jpeg', data: image } })
+    cnt.push({ type: 'text', text: instr })
+
+    const cr = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 1000, messages: [{ role: 'user', content: cnt }] }),
+    })
+    if (!cr.ok) return res.status(cr.status).json({ ok: false, error: 'Claude API: ' + (await cr.text()).substring(0, 300) })
+    const cd = await cr.json()
+    const tb = (cd.content || []).filter((b: any) => b.type === 'text').map((b: any) => b.text).join('\n')
+    const m = tb.replace(/```json|```/g, '').match(/\{[\s\S]*\}/)
+    if (!m) return res.status(422).json({ ok: false, error: 'No se pudieron leer datos del screenshot' })
+    let j: any
+    try { j = JSON.parse(m[0]) } catch { return res.status(422).json({ ok: false, error: 'JSON invalido de la IA' }) }
+
+    const canal = j.canal || [j.instagram, j.web].filter(Boolean).join(' · ') || null
+    const row = {
+      nombre: (j.nombre || '').trim() || 'Prospecto sin nombre',
+      empresa: (j.empresa || '').trim() || null,
+      telefono: (j.telefono || '').trim() || null,
+      email: (j.email || '').trim() || null,
+      canal,
+      notas: (j.notas || '').trim() || null,
+      estado: 'por_contactar',
+      prioridad: 2,
+    }
+    const ins = await fetch(`${supabaseUrl}/rest/v1/prospectos`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}`, Prefer: 'return=representation' },
+      body: JSON.stringify(row),
+    })
+    if (!ins.ok) return res.status(ins.status).json({ ok: false, error: 'Supabase insert: ' + (await ins.text()).substring(0, 300) })
+    const created = await ins.json()
+    return res.status(200).json({ ok: true, prospecto: Array.isArray(created) ? created[0] : created })
+  }
 
   try {
     const { kind, payload, mediaType, context } = req.body as { kind: string; payload: string; mediaType?: string; context?: string }
