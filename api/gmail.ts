@@ -17,7 +17,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node'
 const REDIRECT_URI = 'https://omm-erp.vercel.app/api/gmail'
 const APP_URL = 'https://omm-erp.vercel.app'
 // gmail.compose = solo crear/editar borradores (no leer ni enviar). openid+email = para saber la cuenta.
-const SCOPES = ['https://www.googleapis.com/auth/gmail.compose', 'https://www.googleapis.com/auth/calendar.events', 'openid', 'email']
+const SCOPES = ['https://www.googleapis.com/auth/gmail.compose', 'https://www.googleapis.com/auth/gmail.send', 'https://www.googleapis.com/auth/calendar.events', 'openid', 'email']
 
 function sb() {
   const url = (process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '').replace(/\/$/, '')
