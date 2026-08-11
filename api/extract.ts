@@ -226,7 +226,48 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (!ins.ok) return res.status(ins.status).json({ ok: false, error: 'Supabase insert: ' + (await ins.text()).substring(0, 300) })
     const created = await ins.json()
     const it = Array.isArray(created) ? created[0] : created
-    return res.status(200).json({ ok: true, tipo: esCita ? 'cita' : 'pendiente', titulo: row.title, fecha: row.due_date, hora: row.due_time, persona: j.persona || '', lugar: j.lugar || '', item: it })
+
+    // Si es cita con fecha → crear evento en Google Calendar (usa el mismo Google conectado para Gmail).
+    let calendar: any = { creado: false }
+    if (esCita && row.due_date) {
+      try {
+        const svcKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+        const gcid = process.env.GMAIL_CLIENT_ID, gsec = process.env.GMAIL_CLIENT_SECRET
+        if (!svcKey || !gcid || !gsec) { calendar = { creado: false, error: 'Faltan credenciales de Google en el servidor' } }
+        else {
+          const tr = await fetch(`${supabaseUrl}/rest/v1/gmail_tokens?id=eq.default&select=refresh_token`, { headers: { apikey: svcKey, Authorization: `Bearer ${svcKey}` } })
+          const trows: any = await tr.json()
+          const refresh = Array.isArray(trows) && trows[0] && trows[0].refresh_token
+          if (!refresh) { calendar = { creado: false, error: 'Google no conectado' } }
+          else {
+            const atr = await fetch('https://oauth2.googleapis.com/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ client_id: gcid, client_secret: gsec, refresh_token: refresh, grant_type: 'refresh_token' }) })
+            const atj: any = await atr.json()
+            if (!atj.access_token) { calendar = { creado: false, error: 'No se pudo renovar acceso de Google' } }
+            else {
+              const tz = 'America/Mexico_City'
+              const ev: any = { summary: row.title, description: desc || undefined, location: (j.lugar || '') || undefined }
+              if (row.due_time) {
+                const t = row.due_time.length === 5 ? row.due_time + ':00' : row.due_time
+                const [hh, mm] = t.split(':').map((x: string) => parseInt(x, 10))
+                let eh = hh + 1, em = mm
+                if (eh > 23) { eh = 23; em = 59 }
+                ev.start = { dateTime: `${row.due_date}T${t}`, timeZone: tz }
+                ev.end = { dateTime: `${row.due_date}T${String(eh).padStart(2, '0')}:${String(em).padStart(2, '0')}:00`, timeZone: tz }
+              } else {
+                const next = new Date(new Date(row.due_date + 'T00:00:00').getTime() + 86400000).toISOString().slice(0, 10)
+                ev.start = { date: row.due_date }
+                ev.end = { date: next }
+              }
+              const evr = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${atj.access_token}` }, body: JSON.stringify(ev) })
+              if (evr.ok) { const evj: any = await evr.json(); calendar = { creado: true, htmlLink: evj.htmlLink } }
+              else { calendar = { creado: false, error: 'Calendar: ' + (await evr.text()).substring(0, 160) } }
+            }
+          }
+        }
+      } catch (e: any) { calendar = { creado: false, error: e.message } }
+    }
+
+    return res.status(200).json({ ok: true, tipo: esCita ? 'cita' : 'pendiente', titulo: row.title, fecha: row.due_date, hora: row.due_time, persona: j.persona || '', lugar: j.lugar || '', calendar, item: it })
   }
 
   try {
