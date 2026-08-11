@@ -333,6 +333,74 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(200).json({ ok: true, tipo: esCita ? 'cita' : 'pendiente', titulo: row.title, fecha: row.due_date, hora: row.due_time, persona: j.persona || '', lugar: j.lugar || '', calendar, item: it })
   }
 
+  // ── Cobranza: respuesta del cliente desde screenshot (Atajo iOS) ──
+  //   POST /api/extract?action=cobranza  → clasifica + liga a obra + guarda seguimiento
+  const isCobranza = (req.query?.action === 'cobranza') || (req.body && (req.body as any).action === 'cobranza')
+  if (isCobranza) {
+    let pb: any = req.body
+    if (typeof pb === 'string') { try { pb = JSON.parse(pb) } catch { pb = {} } }
+    const token = (req.headers['x-omm-token'] as string) || pb?.token || (req.query?.token as string)
+    if (!process.env.CAPTURE_TOKEN || token !== process.env.CAPTURE_TOKEN) return res.status(401).json({ ok: false, error: 'Token invalido' })
+    const svcKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+    const sUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL
+    if (!svcKey || !sUrl) return res.status(500).json({ ok: false, error: 'Supabase env vars no configuradas' })
+    const { image, mediaType: mt, text } = (pb || {}) as { image?: string; mediaType?: string; text?: string }
+    if (!image && !text) return res.status(400).json({ ok: false, error: 'Falta image o text' })
+    let clean = (image || '').replace(/\s/g, '')
+    if (clean.startsWith('data:')) { const c = clean.indexOf(','); if (c > -1) clean = clean.slice(c + 1) }
+    let rm = mt || 'image/jpeg'
+    if (clean.startsWith('iVBOR')) rm = 'image/png'
+    else if (clean.startsWith('/9j/')) rm = 'image/jpeg'
+    else if (clean.startsWith('UklGR')) rm = 'image/webp'
+    else if (clean.startsWith('R0lGOD')) rm = 'image/gif'
+    const hoyC = new Date(Date.now() - 6 * 3600 * 1000).toISOString().slice(0, 10)
+    const shapeC = `{"cliente":"nombre de la persona/contacto del chat","estado":"promesa_pago|pidio_info|objecion|sin_respuesta|pagado|otro","resumen":"que dijo el cliente en 1 linea","fecha_promesa":"YYYY-MM-DD si prometio pagar en fecha, si no ''","monto_prometido":"numero si menciona monto, si no ''","proximo_paso":"que deberia hacer OMM ahora","proxima_fecha":"YYYY-MM-DD para el siguiente seguimiento si aplica o ''"}`
+    const instrC = `Eres asistente de cobranza de OMM. Del screenshot de una conversacion (usualmente WhatsApp) con un cliente sobre un pago/cobro, extrae el estado y el siguiente paso. Hoy es ${hoyC}; resuelve fechas relativas. Devuelve EXCLUSIVAMENTE un JSON:\n${shapeC}\n\nContexto:\n${text || '(sin texto, usa la imagen)'}`
+    const cntC: any[] = []
+    if (clean) cntC.push({ type: 'image', source: { type: 'base64', media_type: rm, data: clean } })
+    cntC.push({ type: 'text', text: instrC })
+    const crC = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' }, body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 700, messages: [{ role: 'user', content: cntC }] }) })
+    if (!crC.ok) return res.status(crC.status).json({ ok: false, error: 'Claude API: ' + (await crC.text()).substring(0, 300) })
+    const cdC = await crC.json()
+    const tbC = (cdC.content || []).filter((b: any) => b.type === 'text').map((b: any) => b.text).join('\n')
+    const mC = tbC.replace(/```json|```/g, '').match(/\{[\s\S]*\}/)
+    if (!mC) return res.status(422).json({ ok: false, error: 'No se pudo leer la conversacion' })
+    let jc: any
+    try { jc = JSON.parse(mC[0]) } catch { return res.status(422).json({ ok: false, error: 'JSON invalido' }) }
+    const norm = (x: any) => String(x || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim()
+    const HC: any = { apikey: svcKey, Authorization: `Bearer ${svcKey}` }
+    const [lr, ob] = await Promise.all([
+      fetch(`${sUrl}/rest/v1/leads?select=id,name,contact_name`, { headers: HC }).then(r => r.json()),
+      fetch(`${sUrl}/rest/v1/cobranza_obra?select=lead_id,contactos`, { headers: HC }).then(r => r.json()),
+    ])
+    const aliasByLead: Record<string, string> = {}
+    if (Array.isArray(ob)) ob.forEach((o: any) => { if (o.lead_id) aliasByLead[o.lead_id] = o.contactos || '' })
+    const cli = norm(jc.cliente)
+    let leadId: string | null = null, leadName: string | null = null
+    if (cli && Array.isArray(lr)) {
+      for (const l of lr) {
+        const hay = [l.name, l.contact_name, aliasByLead[l.id]].map(norm).filter(Boolean)
+        const hit = hay.some((h: string) => h && (h.includes(cli) || cli.includes(h) || h.split(' ').some((w: string) => w.length > 3 && cli.includes(w))))
+        if (hit) { leadId = l.id; leadName = l.name; break }
+      }
+    }
+    const rowC: any = {
+      lead_id: leadId,
+      cliente_nombre: jc.cliente || null,
+      tipo: 'whatsapp',
+      contenido: jc.resumen || null,
+      estado: jc.estado || 'otro',
+      fecha_promesa_pago: (jc.fecha_promesa || '').trim() || null,
+      monto_prometido: jc.monto_prometido && !isNaN(Number(jc.monto_prometido)) ? Number(jc.monto_prometido) : null,
+      proximo_paso: jc.proximo_paso || null,
+      proxima_fecha: (jc.proxima_fecha || '').trim() || null,
+    }
+    const insC = await fetch(`${sUrl}/rest/v1/cobranza_seguimiento`, { method: 'POST', headers: { ...HC, 'Content-Type': 'application/json', Prefer: 'return=representation' }, body: JSON.stringify(rowC) })
+    if (!insC.ok) return res.status(insC.status).json({ ok: false, error: 'Supabase insert: ' + (await insC.text()).substring(0, 300) })
+    const createdC = await insC.json()
+    return res.status(200).json({ ok: true, matched: !!leadId, obra: leadName, cliente: jc.cliente || '', estado: rowC.estado, proximo_paso: rowC.proximo_paso, proxima_fecha: rowC.proxima_fecha, seguimiento: Array.isArray(createdC) ? createdC[0] : createdC })
+  }
+
   try {
     const { kind, payload, mediaType, context } = req.body as { kind: string; payload: string; mediaType?: string; context?: string }
     if (!kind || !payload) return res.status(400).json({ ok: false, error: 'Faltan parámetros kind/payload' })
