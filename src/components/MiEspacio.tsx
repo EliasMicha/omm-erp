@@ -11,7 +11,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { Plus, Check, Trash2, Phone, Mail, MapPin, ChevronDown, ChevronRight, UserPlus, Calendar, MessageCircle, Clock, ExternalLink } from 'lucide-react'
+import { Plus, Check, Trash2, Phone, Mail, MapPin, ChevronDown, ChevronRight, UserPlus, Calendar, MessageCircle, Clock, ExternalLink, Sparkles, Upload } from 'lucide-react'
 
 // ── estilos base ──
 const card: React.CSSProperties = { background: '#111', border: '1px solid #222', borderRadius: 12, padding: 16 }
@@ -87,6 +87,64 @@ export default function MiEspacio({ userId, employeeId, isMobile = false }: { us
   const [showCerrados, setShowCerrados] = useState(false)
   const [expandProsp, setExpandProsp] = useState<string | null>(null)
   const [np, setNp] = useState({ nombre: '', empresa: '', telefono: '', email: '', canal: '', proxima_accion: '', prioridad: 2, notas: '' })
+
+  // ── Captura con IA (screenshot / texto / URL) ──
+  const [showCapture, setShowCapture] = useState(false)
+  const [capImg, setCapImg] = useState<{ data: string; media: string; preview: string } | null>(null)
+  const [capText, setCapText] = useState('')
+  const [capWeb, setCapWeb] = useState(false)
+  const [capLoading, setCapLoading] = useState(false)
+  const [capError, setCapError] = useState('')
+
+  function fileToImg(file: File) {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const dataUrl = String(reader.result || '')
+      setCapImg({ data: dataUrl.split(',')[1] || '', media: file.type || 'image/png', preview: dataUrl })
+    }
+    reader.readAsDataURL(file)
+  }
+  function onPasteCap(e: React.ClipboardEvent) {
+    const items = Array.from(e.clipboardData?.items || [])
+    for (const it of items) {
+      if (it.type.startsWith('image/')) { const f = it.getAsFile(); if (f) { fileToImg(f); e.preventDefault(); return } }
+    }
+  }
+  async function extraerConIA() {
+    if (!capImg && !capText.trim()) { setCapError('Pega un screenshot o algo de texto/URL primero.'); return }
+    setCapLoading(true); setCapError('')
+    const jsonShape = `{
+  "nombre": "nombre de la persona o del despacho/estudio ('' si no hay)",
+  "empresa": "despacho/estudio/empresa si aplica",
+  "telefono": "con lada si aparece, si no ''",
+  "email": "",
+  "instagram": "@handle o URL de instagram si aparece",
+  "web": "sitio web si aparece",
+  "canal": "cómo contactarlo / dónde se encontró (ej. 'Instagram @estudio', 'DM de Instagram', 'página web', 'referido')",
+  "notas": "resumen útil: a qué se dedican, ciudad, tipo de proyecto que podrían traer, # de seguidores, etc."
+}`
+    const instruccion = `Eres asistente comercial de OMM (integración/automatización, iluminación, audio, CCTV, cortinas para arquitectura de alto nivel). Del screenshot y/o texto de un posible cliente (arquitecto, despacho, interiorista), extrae sus datos de contacto para darle seguimiento.${capWeb ? ' Si falta teléfono, correo o sitio web, búscalo en internet a partir del nombre/handle.' : ''} Devuelve EXCLUSIVAMENTE un objeto JSON con esta forma (sin texto adicional ni markdown):\n${jsonShape}\n\nContexto/texto del usuario:\n${capText || '(sin texto, usa solo la imagen)'}`
+    const content: any[] = []
+    if (capImg) content.push({ type: 'image', source: { type: 'base64', media_type: capImg.media, data: capImg.data } })
+    content.push({ type: 'text', text: instruccion })
+    const payload: any = { model: 'claude-sonnet-4-6', max_tokens: 1200, messages: [{ role: 'user', content }] }
+    if (capWeb) payload.tools = [{ type: 'web_search_20250305', name: 'web_search', max_uses: 3 }]
+    const call = async (p: any) => (await fetch('/api/anthropic', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(p) })).json()
+    try {
+      let data = await call(payload)
+      if (data.error && capWeb) { const p2 = { ...payload }; delete p2.tools; data = await call(p2) } // fallback si web_search no está disponible
+      if (data.error) throw new Error(data.error.message || 'Error de IA')
+      const txt = (data.content || []).filter((b: any) => b.type === 'text').map((b: any) => b.text).join('\n')
+      const s = txt.indexOf('{'), e = txt.lastIndexOf('}')
+      if (s === -1 || e === -1) throw new Error('La IA no devolvió datos claros. Prueba con un screenshot más nítido.')
+      const j = JSON.parse(txt.slice(s, e + 1))
+      const canal = j.canal || [j.instagram, j.web].filter(Boolean).join(' · ')
+      setNp({ nombre: j.nombre || '', empresa: j.empresa || '', telefono: j.telefono || '', email: j.email || '', canal: canal || '', notas: j.notas || '', prioridad: 2, proxima_accion: '' })
+      setShowCapture(false); setShowAddProsp(true); setCapImg(null); setCapText(''); setCapWeb(false)
+    } catch (err: any) {
+      setCapError(err.message || 'No se pudo extraer. Puedes capturarlo manual.')
+    } finally { setCapLoading(false) }
+  }
 
   async function loadProspectos() {
     const { data } = await supabase.from('prospectos')
@@ -315,9 +373,30 @@ export default function MiEspacio({ userId, employeeId, isMobile = false }: { us
             </div>
             <div style={{ display: 'flex', gap: 6 }}>
               <button onClick={() => setShowCerrados(s => !s)} style={{ ...btnGhost, padding: '4px 8px', fontSize: 11 }}>{showCerrados ? 'Solo activos' : 'Ver todos'}</button>
-              <button onClick={() => setShowAddProsp(s => !s)} style={{ background: '#57FF9A', border: 'none', color: '#000', borderRadius: 8, padding: '4px 10px', fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}><Plus size={14} /> Nuevo</button>
+              <button onClick={() => { setShowCapture(s => !s); setShowAddProsp(false); setCapError('') }} style={{ background: 'transparent', border: '1px solid #2a5a3f', color: '#57FF9A', borderRadius: 8, padding: '4px 10px', fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}><Sparkles size={14} /> Capturar con IA</button>
+              <button onClick={() => { setShowAddProsp(s => !s); setShowCapture(false) }} style={{ background: '#57FF9A', border: 'none', color: '#000', borderRadius: 8, padding: '4px 10px', fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}><Plus size={14} /> Nuevo</button>
             </div>
           </div>
+
+          {showCapture && (
+            <div style={{ background: '#0d0d0d', border: '1px solid #1e3a2a', borderRadius: 10, padding: 12, marginBottom: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div style={{ fontSize: 12, color: '#57FF9A', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}><Sparkles size={14} /> Capturar con IA</div>
+              <div style={{ fontSize: 11, color: '#888' }}>Pega un screenshot (perfil de Instagram, DM, tarjeta, página web) o pega el link/texto. La IA llena los datos y tú los revisas antes de guardar.</div>
+              {capImg && (
+                <div style={{ position: 'relative', alignSelf: 'flex-start' }}>
+                  <img src={capImg.preview} alt="captura" style={{ maxHeight: 120, borderRadius: 8, border: '1px solid #333' }} />
+                  <button onClick={() => setCapImg(null)} style={{ position: 'absolute', top: -8, right: -8, background: '#222', border: '1px solid #444', color: '#fff', borderRadius: '50%', width: 22, height: 22, cursor: 'pointer', lineHeight: '18px', padding: 0 }}>×</button>
+                </div>
+              )}
+              <textarea value={capText} onChange={e => setCapText(e.target.value)} onPaste={onPasteCap} placeholder="Pega aquí un screenshot (Ctrl+V) o escribe/pega: link de Instagram, nombre del despacho, notas…" rows={3} style={{ ...input, resize: 'vertical' }} />
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                <label style={{ ...btnGhost, cursor: 'pointer' }}><Upload size={13} /> Subir imagen<input type="file" accept="image/*" onChange={e => { const f = e.target.files?.[0]; if (f) fileToImg(f) }} style={{ display: 'none' }} /></label>
+                <label style={{ fontSize: 12, color: '#aaa', display: 'inline-flex', alignItems: 'center', gap: 5, cursor: 'pointer' }}><input type="checkbox" checked={capWeb} onChange={e => setCapWeb(e.target.checked)} /> Buscar también en internet</label>
+                <button onClick={extraerConIA} disabled={capLoading} style={{ marginLeft: 'auto', background: '#57FF9A', border: 'none', color: '#000', borderRadius: 8, padding: '7px 16px', fontWeight: 600, fontSize: 13, cursor: capLoading ? 'default' : 'pointer', opacity: capLoading ? 0.6 : 1, display: 'inline-flex', alignItems: 'center', gap: 6 }}>{capLoading ? 'Extrayendo…' : 'Extraer datos'}</button>
+              </div>
+              {capError && <div style={{ fontSize: 11, color: '#DC2626' }}>{capError}</div>}
+            </div>
+          )}
 
           {showAddProsp && (
             <div style={{ background: '#0d0d0d', border: '1px solid #1e1e1e', borderRadius: 10, padding: 12, marginBottom: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
