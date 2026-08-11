@@ -232,3 +232,5 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(500).json({ ok: false, error: err.message || 'Error interno' })
   }
 }
+
+// redeploy: activar CAPTURE_TOKEN (2026-08-11T14:45:49Z)
