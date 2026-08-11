@@ -57,6 +57,8 @@ interface TaskRow {
   area: string | null
   order_index: number
   notes: string | null
+  created_at?: string
+  completed_at?: string | null
 }
 
 interface SubtaskRow {
@@ -162,7 +164,7 @@ export default function Proyectos() {
   const [employees, setEmployees] = useState<EmployeeRow[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
-  const [view, setView] = useState<'list' | 'detail'>('list')
+  const [view, setView] = useState<'list' | 'detail' | 'cockpit'>('list')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [filtroStatus, setFiltroStatus] = useState<'todos' | ProjectStatus>('todos')
   const [areaTab, setAreaTab] = useState<'TODAS' | Specialty>('TODAS')
@@ -179,7 +181,7 @@ export default function Proyectos() {
         supabase.from('projects').select('*').order('created_at', { ascending: false }),
         supabase.from('employees').select('id,name,role,area').eq('is_active', true),
         supabase.from('project_phases').select('*'),
-        supabase.from('project_tasks').select('id,project_id,phase_id,template_id,name,description,assignee_id,status,priority,progress,due_date,system,area,order_index,notes'),
+        supabase.from('project_tasks').select('id,project_id,phase_id,template_id,name,description,assignee_id,status,priority,progress,due_date,system,area,order_index,notes,created_at,completed_at'),
       ])
       if (projRes.error) throw new Error('projects: ' + projRes.error.message)
       if (empRes.error) throw new Error('employees: ' + empRes.error.message)
@@ -251,7 +253,10 @@ export default function Proyectos() {
             title="Proyectos — Ingeniería y Diseño"
             subtitle={`${stats.total} proyectos${areaTab !== 'TODAS' ? ' · ' + (SPECIALTY_CONFIG[areaTab]?.label || '') : ''}`}
             action={
-              <Btn variant="primary" onClick={() => setShowNewModal(true)}><Plus size={12} /> Nuevo proyecto</Btn>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <Btn onClick={() => setView('cockpit')} style={{ borderColor: '#7C3AED55', color: '#A78BFA' }}>👥 Cockpit del director</Btn>
+                <Btn variant="primary" onClick={() => setShowNewModal(true)}><Plus size={12} /> Nuevo proyecto</Btn>
+              </div>
             }
           />
 
@@ -327,6 +332,18 @@ export default function Proyectos() {
           project={selected}
           employees={employees}
           onBack={() => { setView('list'); loadAll() }}
+        />
+      )}
+
+      {view === 'cockpit' && (
+        <DirectorCockpit
+          projects={projects}
+          employees={employees}
+          tasks={allTasks}
+          phases={allPhases}
+          onBack={() => setView('list')}
+          onOpenProject={(pid) => { setSelectedId(pid); setView('detail') }}
+          onReload={loadAll}
         />
       )}
 
@@ -414,6 +431,169 @@ function ProjectCard({ project, phases, tasks, onClick }: {
 // ═══════════════════════════════════════════════════════════════════
 // PROJECT DETAIL
 // ═══════════════════════════════════════════════════════════════════
+
+// ═══════════════════════════════════════════════════════════════════
+// COCKPIT DEL DIRECTOR — vista transversal por persona (asignar/redistribuir/carga)
+// ═══════════════════════════════════════════════════════════════════
+function DirectorCockpit({ projects, employees, tasks, phases, onBack, onOpenProject, onReload }: {
+  projects: ProjectRow[]; employees: EmployeeRow[]; tasks: TaskRow[]; phases: PhaseRow[]
+  onBack: () => void; onOpenProject: (pid: string) => void; onReload: () => void
+}) {
+  const isMobile = useIsMobile()
+  const [areaFilter, setAreaFilter] = useState<'TODAS' | Specialty>('TODAS')
+  const [soloActivas, setSoloActivas] = useState(true)
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const [reasignando, setReasignando] = useState<string | null>(null)
+
+  const projById = useMemo(() => new Map(projects.map(p => [p.id, p])), [projects])
+  const phaseById = useMemo(() => new Map(phases.map(p => [p.id, p])), [phases])
+  const empById = useMemo(() => new Map(employees.map(e => [e.id, e])), [employees])
+  const today = new Date(); today.setHours(0, 0, 0, 0)
+
+  // Proyectos "en curso" (activo/pausado) — la carga se mide sobre estos
+  const enCursoIds = useMemo(() => new Set(projects.filter(p => p.status === 'activo' || p.status === 'pausado').map(p => p.id)), [projects])
+
+  const inArea = (t: TaskRow) => {
+    if (areaFilter === 'TODAS') return true
+    return projById.get(t.project_id)?.specialty === areaFilter
+  }
+  const isOverdue = (t: TaskRow) => !!t.due_date && new Date(t.due_date) < today && t.status !== 'completada'
+
+  // Tareas en curso, dentro del área filtrada
+  const scope = useMemo(() => tasks.filter(t => enCursoIds.has(t.project_id) && inArea(t)), [tasks, enCursoIds, areaFilter, projById])
+  const activas = scope.filter(t => t.status !== 'completada')
+
+  // Empleados de ingeniería (para el dropdown de reasignar)
+  const engAreas = new Set(['INGENIERIAS ESPECIALES', 'INGENIERIAS ELECTRICAS', 'ILUMINACION'])
+  const ingenieros = employees.filter(e => e.area && engAreas.has(e.area))
+  const dropdownEmps = ingenieros.length ? ingenieros : employees
+
+  // Métricas automáticas (tiempo de ciclo y % a tiempo) sobre tareas completadas del área
+  const metricas = useMemo(() => {
+    const completadas = tasks.filter(t => t.status === 'completada' && inArea(t) && t.completed_at && t.created_at)
+    let sumDias = 0
+    completadas.forEach(t => { sumDias += (new Date(t.completed_at!).getTime() - new Date(t.created_at!).getTime()) / 86400000 })
+    const cicloProm = completadas.length ? Math.round(sumDias / completadas.length) : null
+    const conFecha = tasks.filter(t => t.status === 'completada' && inArea(t) && t.completed_at && t.due_date)
+    const aTiempo = conFecha.filter(t => new Date(t.completed_at!) <= new Date(t.due_date! + 'T23:59:59'))
+    const pctATiempo = conFecha.length ? Math.round((aTiempo.length / conFecha.length) * 100) : null
+    return { cicloProm, pctATiempo, completadasN: completadas.length }
+  }, [tasks, areaFilter, projById])
+
+  // Agrupar por persona
+  const grupos = useMemo(() => {
+    const list = soloActivas ? activas : scope
+    const byPerson = new Map<string, TaskRow[]>()
+    list.forEach(t => { const k = t.assignee_id || '__none__'; if (!byPerson.has(k)) byPerson.set(k, []); byPerson.get(k)!.push(t) })
+    const arr = Array.from(byPerson.entries()).map(([k, ts]) => {
+      const act = ts.filter(t => t.status !== 'completada')
+      return {
+        key: k,
+        nombre: k === '__none__' ? 'Sin asignar' : (empById.get(k)?.name || 'Empleado'),
+        area: k === '__none__' ? '' : (empById.get(k)?.area || ''),
+        tasks: ts.sort((a, b) => (a.due_date || '9999').localeCompare(b.due_date || '9999')),
+        activas: act.length,
+        vencidas: ts.filter(isOverdue).length,
+        enProg: ts.filter(t => t.status === 'en_progreso').length,
+        bloq: ts.filter(t => t.status === 'bloqueada').length,
+      }
+    })
+    // Sin asignar primero, luego por más activas
+    arr.sort((a, b) => (a.key === '__none__' ? -1 : b.key === '__none__' ? 1 : b.activas - a.activas))
+    return arr
+  }, [scope, activas, soloActivas, empById])
+
+  async function reasignar(taskId: string, nuevo: string) {
+    setReasignando(taskId)
+    await supabase.from('project_tasks').update({ assignee_id: nuevo || null }).eq('id', taskId)
+    setReasignando(null)
+    onReload()
+  }
+
+  const kpi = { activas: activas.length, vencidas: activas.filter(isOverdue).length, sinAsignar: activas.filter(t => !t.assignee_id).length }
+  const cargaColor = (n: number) => n === 0 ? '#6B7280' : n <= 4 ? '#10B981' : n <= 8 ? '#D97706' : '#DC2626'
+
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
+        <Btn onClick={onBack}><ArrowLeft size={14} /> Proyectos</Btn>
+        <span style={{ fontSize: 18, fontWeight: 700, color: '#fff' }}>Cockpit del director</span>
+        <div style={{ display: 'flex', gap: 4, marginLeft: 'auto', flexWrap: 'wrap' }}>
+          {(['TODAS', 'esp', 'ilum', 'elec'] as const).map(a => {
+            const on = areaFilter === a
+            const cfg = a !== 'TODAS' ? SPECIALTY_CONFIG[a] : null
+            const c = cfg ? cfg.color : '#888'
+            return <button key={a} onClick={() => setAreaFilter(a as any)} style={{ padding: '6px 12px', borderRadius: 8, fontSize: 12, fontWeight: on ? 700 : 400, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid ' + (on ? c : '#2a2a2a'), background: on ? c + '18' : 'transparent', color: on ? c : '#666' }}>{cfg ? cfg.label : 'Todas'}</button>
+          })}
+          <button onClick={() => setSoloActivas(s => !s)} style={{ padding: '6px 12px', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid ' + (soloActivas ? '#10B98155' : '#2a2a2a'), background: soloActivas ? '#10B98118' : 'transparent', color: soloActivas ? '#10B981' : '#666' }}>{soloActivas ? 'Solo activas ✓' : 'Todas'}</button>
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2,1fr)' : 'repeat(5,1fr)', gap: 12, marginBottom: 18 }}>
+        <KpiBox label="Tareas activas" value={kpi.activas} color="#2563EB" />
+        <KpiBox label="Vencidas" value={kpi.vencidas} color={kpi.vencidas ? '#DC2626' : '#6B7280'} />
+        <KpiBox label="Sin asignar" value={kpi.sinAsignar} color={kpi.sinAsignar ? '#D97706' : '#6B7280'} />
+        <KpiBox label="Ciclo prom." value={metricas.cicloProm != null ? metricas.cicloProm + ' d' : '—'} color="#A78BFA" />
+        <KpiBox label="% a tiempo" value={metricas.pctATiempo != null ? metricas.pctATiempo + '%' : '—'} color={metricas.pctATiempo != null && metricas.pctATiempo >= 80 ? '#10B981' : '#D97706'} />
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {grupos.length === 0 && <EmptyState message="Sin tareas en curso para este filtro." />}
+        {grupos.map(g => {
+          const open = expanded.has(g.key)
+          const esNone = g.key === '__none__'
+          return (
+            <div key={g.key} style={{ border: '1px solid ' + (esNone ? '#D9770644' : '#1e1e1e'), borderRadius: 12, background: esNone ? '#1a140a' : '#0f0f0f', overflow: 'hidden' }}>
+              <div onClick={() => setExpanded(p => { const n = new Set(p); n.has(g.key) ? n.delete(g.key) : n.add(g.key); return n })}
+                style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 14px', cursor: 'pointer' }}>
+                <span style={{ color: '#666', display: 'inline-flex' }}>{open ? <ChevronDown size={16} /> : <ChevronDown size={16} style={{ transform: 'rotate(-90deg)' }} />}</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: esNone ? '#D97706' : '#fff' }}>{g.nombre}</div>
+                  {g.area && <div style={{ fontSize: 10, color: '#555' }}>{g.area}</div>}
+                </div>
+                {g.vencidas > 0 && <span style={{ fontSize: 11, fontWeight: 700, color: '#DC2626', background: '#DC262618', border: '1px solid #DC262644', borderRadius: 6, padding: '2px 8px' }}>{g.vencidas} vencida{g.vencidas > 1 ? 's' : ''}</span>}
+                {g.enProg > 0 && <span style={{ fontSize: 11, color: '#2563EB' }}>{g.enProg} en progreso</span>}
+                {g.bloq > 0 && <span style={{ fontSize: 11, color: '#DC2626' }}>{g.bloq} bloqueada{g.bloq > 1 ? 's' : ''}</span>}
+                <span title="Carga (tareas activas)" style={{ fontSize: 12, fontWeight: 700, color: '#000', background: cargaColor(g.activas), borderRadius: 20, padding: '3px 11px', minWidth: 26, textAlign: 'center' }}>{g.activas}</span>
+              </div>
+              {open && (
+                <div style={{ borderTop: '1px solid #1a1a1a' }}>
+                  {g.tasks.map(t => {
+                    const proj = projById.get(t.project_id)
+                    const ph = phaseById.get(t.phase_id)
+                    const spec = proj?.specialty ? SPECIALTY_CONFIG[proj.specialty] : null
+                    const stc = TASK_STATUS_CONFIG[t.status]
+                    const over = isOverdue(t)
+                    return (
+                      <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px 8px 40px', borderTop: '1px solid #141414', flexWrap: 'wrap' }}>
+                        <div style={{ flex: 1, minWidth: 180 }}>
+                          <div style={{ fontSize: 12.5, color: '#ddd', fontWeight: 500 }}>{t.name}</div>
+                          <div style={{ fontSize: 10, color: '#666', display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                            <span onClick={() => onOpenProject(t.project_id)} style={{ color: spec ? spec.color : '#888', cursor: 'pointer' }} title="Abrir proyecto">{proj?.name || 'Proyecto'}</span>
+                            {ph && <span>· {ph.name}</span>}
+                            {t.system && <span>· {t.system}</span>}
+                          </div>
+                        </div>
+                        <span style={{ fontSize: 11, color: over ? '#DC2626' : '#888', fontWeight: over ? 700 : 400, minWidth: 78 }}>{t.due_date ? formatDate(t.due_date) : 'Sin fecha'}</span>
+                        <Badge label={stc?.label || t.status} color={stc?.color || '#666'} />
+                        <select value={t.assignee_id || ''} disabled={reasignando === t.id} onChange={e => reasignar(t.id, e.target.value)} onClick={e => e.stopPropagation()}
+                          style={{ background: '#161616', border: '1px solid #2a2a2a', borderRadius: 6, color: '#ccc', fontSize: 11, padding: '4px 6px', fontFamily: 'inherit', maxWidth: 150 }}>
+                          <option value="">— Sin asignar —</option>
+                          {dropdownEmps.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+                        </select>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+      <div style={{ fontSize: 11, color: '#555', marginTop: 12 }}>Carga = tareas activas de cada persona (proyectos en curso). <b>Ciclo prom.</b> = días de creada a completada · <b>% a tiempo</b> = completadas dentro de su fecha, sobre {metricas.completadasN} completadas. Reasigna con el selector de cada tarea.</div>
+    </div>
+  )
+}
 
 function ProjectDetail({ project, employees, onBack }: {
   project: ProjectRow; employees: EmployeeRow[]; onBack: () => void
