@@ -245,7 +245,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             if (!atj.access_token) { calendar = { creado: false, error: 'No se pudo renovar acceso de Google' } }
             else {
               const tz = 'America/Mexico_City'
-              const ev: any = { summary: row.title, description: desc || undefined, location: (j.lugar || '') || undefined }
+              const ev: any = {
+                summary: row.title,
+                description: desc || undefined,
+                location: (j.lugar || '') || undefined,
+                reminders: { useDefault: false, overrides: [{ method: 'popup', minutes: 60 }, { method: 'popup', minutes: 10 }] },
+              }
               if (row.due_time) {
                 const t = row.due_time.length === 5 ? row.due_time + ':00' : row.due_time
                 const [hh, mm] = t.split(':').map((x: string) => parseInt(x, 10))
