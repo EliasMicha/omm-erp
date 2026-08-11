@@ -267,6 +267,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       } catch (e: any) { calendar = { creado: false, error: e.message } }
     }
 
+    if (esCita && row.due_date && !calendar.creado) console.error('[cita/calendar] NO creado:', JSON.stringify(calendar))
     return res.status(200).json({ ok: true, tipo: esCita ? 'cita' : 'pendiente', titulo: row.title, fecha: row.due_date, hora: row.due_time, persona: j.persona || '', lugar: j.lugar || '', calendar, item: it })
   }
 
