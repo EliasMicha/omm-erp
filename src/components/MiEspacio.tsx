@@ -330,7 +330,7 @@ export default function MiEspacio({ userId, employeeId, isMobile = false }: { us
 
         {/* PANEL A — MIS PENDIENTES */}
         <div style={card}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <div style={{ fontSize: 14, fontWeight: 700, color: '#fff' }}>Mis pendientes</div>
               <span style={{ fontSize: 11, color: '#666', background: '#1a1a1a', borderRadius: 20, padding: '2px 8px' }}>{pendAbiertas}</span>
@@ -366,12 +366,12 @@ export default function MiEspacio({ userId, employeeId, isMobile = false }: { us
 
         {/* PANEL B — PROSPECTOS POR CONTACTAR */}
         <div style={card}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <div style={{ fontSize: 14, fontWeight: 700, color: '#fff' }}>Prospectos por contactar</div>
               <span style={{ fontSize: 11, color: '#666', background: '#1a1a1a', borderRadius: 20, padding: '2px 8px' }}>{prospActivos}</span>
             </div>
-            <div style={{ display: 'flex', gap: 6 }}>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
               <button onClick={() => setShowCerrados(s => !s)} style={{ ...btnGhost, padding: '4px 8px', fontSize: 11 }}>{showCerrados ? 'Solo activos' : 'Ver todos'}</button>
               <button onClick={() => { setShowCapture(s => !s); setShowAddProsp(false); setCapError('') }} style={{ background: 'transparent', border: '1px solid #2a5a3f', color: '#57FF9A', borderRadius: 8, padding: '4px 10px', fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}><Sparkles size={14} /> Capturar con IA</button>
               <button onClick={() => { setShowAddProsp(s => !s); setShowCapture(false) }} style={{ background: '#57FF9A', border: 'none', color: '#000', borderRadius: 8, padding: '4px 10px', fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}><Plus size={14} /> Nuevo</button>
@@ -498,7 +498,7 @@ export default function MiEspacio({ userId, employeeId, isMobile = false }: { us
             const vencido = r.motivo === 'vencido'
             return (
               <div key={logKey} style={{ borderRadius: 10, background: '#0d0d0d', border: `1px solid ${vencido ? '#3a1f1f' : '#1a1a1a'}` }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 10px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 10px', flexWrap: 'wrap' }}>
                   <span style={{ fontSize: 10, fontWeight: 700, color: vencido ? '#DC2626' : '#D97706', background: vencido ? '#2a1414' : '#241c10', borderRadius: 6, padding: '3px 7px', flex: '0 0 auto' }}>{vencido ? 'VENCIDO' : 'FRÍO'}</span>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 13, fontWeight: 600, color: '#fff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
