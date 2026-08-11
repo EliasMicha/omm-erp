@@ -6,6 +6,7 @@ import { F, STATUS_CONFIG, STAGE_CONFIG, formatDate } from '../lib/utils'
 import { KpiCard, Table, Th, Td, ProgressBar, Badge, Loading, SectionHeader } from '../components/layout/UI'
 import RadarVentas from '../components/RadarVentas'
 import MiEspacio from '../components/MiEspacio'
+import CobranzaPendientes from '../components/CobranzaPendientes'
 import { useIsMobile } from '../lib/useIsMobile'
 import { tcForYear } from '../lib/fx'
 import { useAuth } from '../contexts/AuthContext'
@@ -115,11 +116,13 @@ export default function Dashboard() {
         <MiEspacio userId={authUser?.id} employeeId={authUser?.employee_id} isMobile={isMobile} />
       )}
 
+      {/* ── COBRANZA como pendientes (solo DG) ── */}
+      {area === 'DG' && <CobranzaPendientes isMobile={isMobile} />}
+
       {/* ── KPI CARDS ── */}
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : isFinancial ? 'repeat(4, 1fr)' : 'repeat(2, 1fr)', gap: 12, marginBottom: 24 }}>
         <KpiCard label="Proyectos activos" value={projects.length} icon={<FolderOpen size={16} />} />
         {isFinancial && <KpiCard label="Pipeline total" value={F(pipeline)} color="#2563EB" icon={<DollarSign size={16} />} />}
-        {isFinancial && <KpiCard label="Cobros vencidos" value={vencidos.length} color={vencidos.length > 0 ? '#DC2626' : '#10B981'} icon={<AlertTriangle size={16} />} />}
         {area === 'DG' && <KpiCard label="Leads recientes" value={recentLeads.length} color="#2563EB" icon={<TrendingUp size={16} />} />}
         <KpiCard label="Empleados activos" value={empCount} color="#A78BFA" icon={<Users size={16} />} />
       </div>
@@ -164,25 +167,7 @@ export default function Dashboard() {
 
         {/* ── Cobranza (DG/Admin) O Leads recientes (Ventas) ── */}
         <div>
-          {isFinancial ? (<>
-            <SectionHeader title="Cobranza pendiente" />
-            <div style={{ overflowX: 'auto' }}>
-              <Table>
-              <thead><tr><Th>Hito</Th><Th>Proyecto</Th><Th>Vence</Th><Th right>Monto</Th></tr></thead>
-              <tbody>
-                {milestones.length===0&&<tr><Td colSpan={4} muted>Sin cobros pendientes</Td></tr>}
-                {milestones.slice(0,6).map(m => (
-                  <tr key={m.id}>
-                    <Td><span style={{fontWeight:500,color:m.status==='vencido'?'#DC2626':'#ccc'}}>{m.name}</span></Td>
-                    <Td muted>{(m.project as any)?.name||'-'}</Td>
-                    <Td muted>{m.due_date?formatDate(m.due_date):'-'}</Td>
-                    <Td right style={{color:'#10B981',fontWeight:600}}>{F(m.amount)}</Td>
-                  </tr>
-                ))}
-              </tbody>
-              </Table>
-            </div>
-          </>) : (area === 'DG') ? (<>
+          {(area === 'DG') ? (<>
             <SectionHeader title="Leads recientes" />
             <div style={{ overflowX: 'auto' }}>
               <Table>
@@ -232,9 +217,6 @@ export default function Dashboard() {
       </div>
       </div>
 
-      {/* ── COBRANZA POR PROYECTO (solo DG) ── */}
-      {area === 'DG' && <ProyeccionCobranza />}
-      {area === 'DG' && <CobranzaPorProyecto />}
 
       {/* ── PROYECCIÓN DE CIERRE DE VENTAS (solo DG) ── */}
       {area === 'DG' && <ProyeccionCierreVentas />}
