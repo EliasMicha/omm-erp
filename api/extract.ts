@@ -175,6 +175,60 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(200).json({ ok: true, prospecto: Array.isArray(created) ? created[0] : created })
   }
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Captura de PENDIENTE / CITA desde screenshot (Atajo iOS, típico WhatsApp).
+  //   POST /api/extract?action=pendiente  → inserta en action_items (Mis pendientes)
+  // ═══════════════════════════════════════════════════════════════════════════
+  const isPendiente = (req.query?.action === 'pendiente') || (req.body && (req.body as any).action === 'pendiente')
+  if (isPendiente) {
+    let pb: any = req.body
+    if (typeof pb === 'string') { try { pb = JSON.parse(pb) } catch { pb = {} } }
+    const token = (req.headers['x-omm-token'] as string) || pb?.token || (req.query?.token as string)
+    if (!process.env.CAPTURE_TOKEN || token !== process.env.CAPTURE_TOKEN) return res.status(401).json({ ok: false, error: 'Token invalido' })
+    const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL
+    const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY
+    if (!supabaseUrl || !supabaseKey) return res.status(500).json({ ok: false, error: 'Supabase env vars no configuradas' })
+    const { image, mediaType: mt, text } = (pb || {}) as { image?: string; mediaType?: string; text?: string }
+    if (!image && !text) return res.status(400).json({ ok: false, error: 'Falta image o text' })
+    let clean = (image || '').replace(/\s/g, '')
+    if (clean.startsWith('data:')) { const c = clean.indexOf(','); if (c > -1) clean = clean.slice(c + 1) }
+    let rm = mt || 'image/jpeg'
+    if (clean.startsWith('iVBOR')) rm = 'image/png'
+    else if (clean.startsWith('/9j/')) rm = 'image/jpeg'
+    else if (clean.startsWith('UklGR')) rm = 'image/webp'
+    else if (clean.startsWith('R0lGOD')) rm = 'image/gif'
+    const hoy = new Date().toISOString().slice(0, 10)
+    const shape = `{"tipo":"cita|pendiente","titulo":"resumen corto y accionable","fecha":"YYYY-MM-DD si aplica o ''","hora":"HH:MM en 24h si aplica o ''","persona":"con quien","lugar":"lugar si es cita o ''","notas":"detalle relevante"}`
+    const instr = `Eres asistente de la Direccion General de OMM. Del screenshot (usualmente una conversacion de WhatsApp), identifica un PENDIENTE o una CITA que se deba registrar. Si hay fecha/hora concreta o se habla de reunirse, verse, visita o junta => tipo "cita". Si es una tarea por hacer => "pendiente". Hoy es ${hoy}; resuelve fechas relativas ("manana", "el jueves") a fecha absoluta. Devuelve EXCLUSIVAMENTE un JSON (sin markdown):\n${shape}\n\nContexto:\n${text || '(sin texto, usa la imagen)'}`
+    const cnt: any[] = []
+    if (clean) cnt.push({ type: 'image', source: { type: 'base64', media_type: rm, data: clean } })
+    cnt.push({ type: 'text', text: instr })
+    const cr = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 800, messages: [{ role: 'user', content: cnt }] }),
+    })
+    if (!cr.ok) return res.status(cr.status).json({ ok: false, error: 'Claude API: ' + (await cr.text()).substring(0, 300) })
+    const cd = await cr.json()
+    const tb = (cd.content || []).filter((b: any) => b.type === 'text').map((b: any) => b.text).join('\n')
+    const m = tb.replace(/```json|```/g, '').match(/\{[\s\S]*\}/)
+    if (!m) return res.status(422).json({ ok: false, error: 'No se pudo leer el pendiente' })
+    let j: any
+    try { j = JSON.parse(m[0]) } catch { return res.status(422).json({ ok: false, error: 'JSON invalido' }) }
+    const esCita = (j.tipo || '').toLowerCase() === 'cita'
+    const desc = [esCita ? 'Cita' : '', j.persona ? `Con: ${j.persona}` : '', j.lugar ? `Lugar: ${j.lugar}` : '', j.notas || ''].filter(Boolean).join(' · ') || null
+    const row: any = { title: (j.titulo || '').trim() || 'Pendiente', area: 'DG', source_type: 'dashboard', status: 'pendiente', priority: esCita ? 3 : 2, due_date: (j.fecha || '').trim() || null, due_time: (j.hora || '').trim() || null, description: desc }
+    const ins = await fetch(`${supabaseUrl}/rest/v1/action_items`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}`, Prefer: 'return=representation' },
+      body: JSON.stringify(row),
+    })
+    if (!ins.ok) return res.status(ins.status).json({ ok: false, error: 'Supabase insert: ' + (await ins.text()).substring(0, 300) })
+    const created = await ins.json()
+    const it = Array.isArray(created) ? created[0] : created
+    return res.status(200).json({ ok: true, tipo: esCita ? 'cita' : 'pendiente', titulo: row.title, fecha: row.due_date, hora: row.due_time, persona: j.persona || '', lugar: j.lugar || '', item: it })
+  }
+
   try {
     const { kind, payload, mediaType, context } = req.body as { kind: string; payload: string; mediaType?: string; context?: string }
     if (!kind || !payload) return res.status(400).json({ ok: false, error: 'Faltan parámetros kind/payload' })
