@@ -403,3 +403,5 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 }
 
 // redeploy: activar CAPTURE_TOKEN (2026-08-11T14:45:49Z)
+
+// redeploy: activar CRON_SECRET (2026-08-11T17:28:27Z)
