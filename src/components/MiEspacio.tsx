@@ -326,7 +326,7 @@ export default function MiEspacio({ userId, employeeId, isMobile = false }: { us
     <div style={{ marginBottom: 24, display: 'flex', flexDirection: 'column', gap: 12 }}>
 
       {/* ══════════ FILA 1: pendientes + prospectos ══════════ */}
-      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1.2fr', gap: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'minmax(0,1fr)' : 'minmax(0,1fr) minmax(0,1.2fr)', gap: 12 }}>
 
         {/* PANEL A — MIS PENDIENTES */}
         <div style={card}>
