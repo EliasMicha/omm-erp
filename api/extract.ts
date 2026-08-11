@@ -113,7 +113,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // ═══════════════════════════════════════════════════════════════════════════
   const isProspecto = (req.query?.action === 'prospecto') || (req.body && (req.body as any).action === 'prospecto')
   if (isProspecto) {
-    const token = (req.headers['x-omm-token'] as string) || (req.body as any)?.token || (req.query?.token as string)
+    let pbody: any = req.body
+    if (typeof pbody === 'string') { try { pbody = JSON.parse(pbody) } catch { pbody = {} } }
+    const token = (req.headers['x-omm-token'] as string) || pbody?.token || (req.query?.token as string)
     const expected = process.env.CAPTURE_TOKEN
     if (!expected || token !== expected) return res.status(401).json({ ok: false, error: 'Token invalido' })
 
@@ -121,8 +123,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY
     if (!supabaseUrl || !supabaseKey) return res.status(500).json({ ok: false, error: 'Supabase env vars no configuradas' })
 
-    const { image, mediaType: mt, text } = (req.body || {}) as { image?: string; mediaType?: string; text?: string }
-    if (!image && !text) return res.status(400).json({ ok: false, error: 'Falta image o text' })
+    const { image, mediaType: mt, text } = (pbody || {}) as { image?: string; mediaType?: string; text?: string }
+    if (!image && !text) { console.error('[prospecto] sin image/text; typeof req.body=', typeof req.body); return res.status(400).json({ ok: false, error: 'Falta image o text' }) }
 
     const shape = `{"nombre":"persona o despacho/estudio ('' si no hay)","empresa":"","telefono":"con lada si aparece, si no ''","email":"","instagram":"@handle o URL si aparece","web":"sitio si aparece","canal":"como/donde contactarlo (ej. 'Instagram @estudio','DM Instagram','pagina web','referido')","notas":"resumen: a que se dedican, ciudad, tipo de proyecto, # seguidores, etc."}`
     const instr = `Eres asistente comercial de OMM (integracion/automatizacion, iluminacion, audio, CCTV, cortinas para arquitectura de alto nivel). Del screenshot y/o texto de un posible cliente (arquitecto, despacho, interiorista), extrae sus datos de contacto. Devuelve EXCLUSIVAMENTE un objeto JSON (sin markdown) con esta forma:\n${shape}\n\nContexto:\n${text || '(sin texto, usa la imagen)'}`
@@ -145,7 +147,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const canal = j.canal || [j.instagram, j.web].filter(Boolean).join(' · ') || null
     const row = {
-      nombre: (j.nombre || '').trim() || 'Prospecto sin nombre',
+      nombre: (j.nombre || '').trim() || (j.empresa || '').trim() || 'Prospecto sin nombre',
       empresa: (j.empresa || '').trim() || null,
       telefono: (j.telefono || '').trim() || null,
       email: (j.email || '').trim() || null,
