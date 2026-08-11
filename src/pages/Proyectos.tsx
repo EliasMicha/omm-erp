@@ -433,46 +433,55 @@ function ProjectCard({ project, phases, tasks, onClick }: {
 // ═══════════════════════════════════════════════════════════════════
 
 // ═══════════════════════════════════════════════════════════════════
-// COCKPIT DEL DIRECTOR — vista transversal por persona (asignar/redistribuir/carga)
+// COCKPIT DEL DIRECTOR — 3 lentes: Por proyecto / Por persona / Próximas entregas
 // ═══════════════════════════════════════════════════════════════════
 function DirectorCockpit({ projects, employees, tasks, phases, onBack, onOpenProject, onReload }: {
   projects: ProjectRow[]; employees: EmployeeRow[]; tasks: TaskRow[]; phases: PhaseRow[]
   onBack: () => void; onOpenProject: (pid: string) => void; onReload: () => void
 }) {
   const isMobile = useIsMobile()
+  const [lens, setLens] = useState<'proyecto' | 'persona' | 'entregas'>('proyecto')
   const [areaFilter, setAreaFilter] = useState<'TODAS' | Specialty>('TODAS')
   const [soloActivas, setSoloActivas] = useState(true)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const [expandedTask, setExpandedTask] = useState<Set<string>>(new Set())
   const [reasignando, setReasignando] = useState<string | null>(null)
+  const [subs, setSubs] = useState<SubtaskRow[]>([])
 
   const projById = useMemo(() => new Map(projects.map(p => [p.id, p])), [projects])
   const phaseById = useMemo(() => new Map(phases.map(p => [p.id, p])), [phases])
   const empById = useMemo(() => new Map(employees.map(e => [e.id, e])), [employees])
   const today = new Date(); today.setHours(0, 0, 0, 0)
 
-  // Proyectos "en curso" (activo/pausado) — la carga se mide sobre estos
   const enCursoIds = useMemo(() => new Set(projects.filter(p => p.status === 'activo' || p.status === 'pausado').map(p => p.id)), [projects])
-
-  const inArea = (t: TaskRow) => {
-    if (areaFilter === 'TODAS') return true
-    return projById.get(t.project_id)?.specialty === areaFilter
-  }
+  const inArea = (t: TaskRow) => areaFilter === 'TODAS' || projById.get(t.project_id)?.specialty === areaFilter
   const isOverdue = (t: TaskRow) => !!t.due_date && new Date(t.due_date) < today && t.status !== 'completada'
 
-  // Tareas en curso, dentro del área filtrada
   const scope = useMemo(() => tasks.filter(t => enCursoIds.has(t.project_id) && inArea(t)), [tasks, enCursoIds, areaFilter, projById])
   const activas = scope.filter(t => t.status !== 'completada')
 
-  // Empleados de ingeniería (para el dropdown de reasignar)
+  // Cargar subtasks (checklist) de las tareas en curso
+  useEffect(() => {
+    const ids = Array.from(new Set(tasks.filter(t => enCursoIds.has(t.project_id)).map(t => t.id)))
+    if (ids.length === 0) { setSubs([]); return }
+    ;(async () => {
+      const out: SubtaskRow[] = []
+      for (let i = 0; i < ids.length; i += 300) {
+        const { data } = await supabase.from('project_task_subtasks').select('*').in('task_id', ids.slice(i, i + 300))
+        if (data) out.push(...(data as SubtaskRow[]))
+      }
+      setSubs(out)
+    })()
+  }, [tasks, enCursoIds])
+  const subsByTask = useMemo(() => { const m = new Map<string, SubtaskRow[]>(); subs.forEach(s => { if (!m.has(s.task_id)) m.set(s.task_id, []); m.get(s.task_id)!.push(s) }); return m }, [subs])
+
   const engAreas = new Set(['INGENIERIAS ESPECIALES', 'INGENIERIAS ELECTRICAS', 'ILUMINACION'])
   const ingenieros = employees.filter(e => e.area && engAreas.has(e.area))
   const dropdownEmps = ingenieros.length ? ingenieros : employees
 
-  // Métricas automáticas (tiempo de ciclo y % a tiempo) sobre tareas completadas del área
   const metricas = useMemo(() => {
     const completadas = tasks.filter(t => t.status === 'completada' && inArea(t) && t.completed_at && t.created_at)
-    let sumDias = 0
-    completadas.forEach(t => { sumDias += (new Date(t.completed_at!).getTime() - new Date(t.created_at!).getTime()) / 86400000 })
+    let sumDias = 0; completadas.forEach(t => { sumDias += (new Date(t.completed_at!).getTime() - new Date(t.created_at!).getTime()) / 86400000 })
     const cicloProm = completadas.length ? Math.round(sumDias / completadas.length) : null
     const conFecha = tasks.filter(t => t.status === 'completada' && inArea(t) && t.completed_at && t.due_date)
     const aTiempo = conFecha.filter(t => new Date(t.completed_at!) <= new Date(t.due_date! + 'T23:59:59'))
@@ -480,53 +489,140 @@ function DirectorCockpit({ projects, employees, tasks, phases, onBack, onOpenPro
     return { cicloProm, pctATiempo, completadasN: completadas.length }
   }, [tasks, areaFilter, projById])
 
-  // Agrupar por persona
-  const grupos = useMemo(() => {
-    const list = soloActivas ? activas : scope
-    const byPerson = new Map<string, TaskRow[]>()
-    list.forEach(t => { const k = t.assignee_id || '__none__'; if (!byPerson.has(k)) byPerson.set(k, []); byPerson.get(k)!.push(t) })
-    const arr = Array.from(byPerson.entries()).map(([k, ts]) => {
-      const act = ts.filter(t => t.status !== 'completada')
-      return {
-        key: k,
-        nombre: k === '__none__' ? 'Sin asignar' : (empById.get(k)?.name || 'Empleado'),
-        area: k === '__none__' ? '' : (empById.get(k)?.area || ''),
-        tasks: ts.sort((a, b) => (a.due_date || '9999').localeCompare(b.due_date || '9999')),
-        activas: act.length,
-        vencidas: ts.filter(isOverdue).length,
-        enProg: ts.filter(t => t.status === 'en_progreso').length,
-        bloq: ts.filter(t => t.status === 'bloqueada').length,
-      }
-    })
-    // Sin asignar primero, luego por más activas
-    arr.sort((a, b) => (a.key === '__none__' ? -1 : b.key === '__none__' ? 1 : b.activas - a.activas))
-    return arr
-  }, [scope, activas, soloActivas, empById])
-
   async function reasignar(taskId: string, nuevo: string) {
     setReasignando(taskId)
     await supabase.from('project_tasks').update({ assignee_id: nuevo || null }).eq('id', taskId)
-    setReasignando(null)
-    onReload()
+    setReasignando(null); onReload()
   }
 
   const kpi = { activas: activas.length, vencidas: activas.filter(isOverdue).length, sinAsignar: activas.filter(t => !t.assignee_id).length }
   const cargaColor = (n: number) => n === 0 ? '#6B7280' : n <= 4 ? '#10B981' : n <= 8 ? '#D97706' : '#DC2626'
+  const iniciales = (n: string) => n.split(' ').filter(Boolean).slice(0, 2).map(w => w[0]).join('').toUpperCase()
+
+  // Fila de tarea reutilizable (con checklist expandible + reasignar)
+  function renderTask(t: TaskRow, opts?: { showPerson?: boolean }) {
+    const proj = projById.get(t.project_id); const ph = phaseById.get(t.phase_id)
+    const spec = proj?.specialty ? SPECIALTY_CONFIG[proj.specialty] : null
+    const stc = TASK_STATUS_CONFIG[t.status]; const over = isOverdue(t)
+    const cl = subsByTask.get(t.id) || []; const done = cl.filter(s => s.completed).length
+    const tOpen = expandedTask.has(t.id)
+    const asig = t.assignee_id ? (empById.get(t.assignee_id)?.name || '—') : 'Sin asignar'
+    return (
+      <div key={t.id} style={{ borderTop: '1px solid #141414' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px 8px 22px', flexWrap: 'wrap' }}>
+          <div style={{ flex: 1, minWidth: 180 }}>
+            <div style={{ fontSize: 12.5, color: '#ddd', fontWeight: 500 }}>{t.name}</div>
+            <div style={{ fontSize: 10, color: '#666', display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+              <span onClick={() => onOpenProject(t.project_id)} style={{ color: spec ? spec.color : '#888', cursor: 'pointer' }} title="Abrir proyecto">{proj?.name || 'Proyecto'}</span>
+              {ph && <span>· {ph.name}</span>}
+              {t.system && <span>· {t.system}</span>}
+              {opts?.showPerson && <span style={{ color: t.assignee_id ? '#8FA9FF' : '#D97706' }}>· {asig}</span>}
+            </div>
+          </div>
+          {cl.length > 0 && (
+            <span onClick={() => setExpandedTask(p => { const n = new Set(p); n.has(t.id) ? n.delete(t.id) : n.add(t.id); return n })}
+              title="Ver checklist" style={{ fontSize: 10, color: done === cl.length ? '#10B981' : '#888', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              <span style={{ width: 42, height: 5, background: '#222', borderRadius: 3, display: 'inline-block', position: 'relative' }}>
+                <span style={{ position: 'absolute', left: 0, top: 0, height: 5, borderRadius: 3, width: (cl.length ? (done / cl.length) * 42 : 0), background: done === cl.length ? '#10B981' : '#2563EB' }} />
+              </span>
+              {done}/{cl.length}
+            </span>
+          )}
+          <span style={{ fontSize: 11, color: over ? '#DC2626' : '#888', fontWeight: over ? 700 : 400, minWidth: 78 }}>{t.due_date ? formatDate(t.due_date) : 'Sin fecha'}</span>
+          <Badge label={stc?.label || t.status} color={stc?.color || '#666'} />
+          <select value={t.assignee_id || ''} disabled={reasignando === t.id} onChange={e => reasignar(t.id, e.target.value)} onClick={e => e.stopPropagation()}
+            style={{ background: '#161616', border: '1px solid #2a2a2a', borderRadius: 6, color: '#ccc', fontSize: 11, padding: '4px 6px', fontFamily: 'inherit', maxWidth: 140 }}>
+            <option value="">— Sin asignar —</option>
+            {dropdownEmps.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+          </select>
+        </div>
+        {tOpen && cl.length > 0 && (
+          <div style={{ padding: '2px 14px 10px 40px', display: 'flex', flexDirection: 'column', gap: 3 }}>
+            {cl.sort((a, b) => a.order_index - b.order_index).map(s => (
+              <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11 }}>
+                <span style={{ color: s.completed ? '#10B981' : '#555' }}>{s.completed ? '☑' : '☐'}</span>
+                <span style={{ color: s.completed ? '#888' : '#ccc', textDecoration: s.completed ? 'line-through' : 'none', flex: 1 }}>{s.text}</span>
+                {s.review_status === 'cambios' && <span style={{ fontSize: 9, color: '#DC2626', border: '1px solid #DC262644', borderRadius: 4, padding: '0 5px' }}>cambios</span>}
+                {s.review_status === 'aprobado' && <span style={{ fontSize: 9, color: '#10B981' }}>✓ aprobado</span>}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  // ── Datos por lente ──
+  const porProyecto = useMemo(() => {
+    const list = projects.filter(p => enCursoIds.has(p.id) && (areaFilter === 'TODAS' || p.specialty === areaFilter))
+    return list.map(p => {
+      const phs = phases.filter(ph => ph.project_id === p.id)
+      const ts = tasks.filter(t => t.project_id === p.id)
+      const act = ts.filter(t => t.status !== 'completada')
+      const venc = ts.filter(isOverdue)
+      const nextDue = act.filter(t => t.due_date).map(t => t.due_date!).sort()[0] || null
+      const responsables = [...new Set(act.map(t => t.assignee_id).filter(Boolean))].map(id => empById.get(id!)?.name || '—')
+      return { p, fase: getActivePhase(phs, ts), progreso: calcProjectProgress(phs, ts), act: act.length, venc: venc.length, nextDue, responsables, phs, ts }
+    }).sort((a, b) => (b.venc - a.venc) || (a.nextDue || '9999').localeCompare(b.nextDue || '9999'))
+  }, [projects, phases, tasks, enCursoIds, areaFilter, empById])
+
+  // Cumplimiento por persona: de sus tareas completadas con fecha, cuántas a tiempo
+  const cumplByPerson = useMemo(() => {
+    const m = new Map<string, { done: number; onTime: number }>()
+    tasks.filter(t => t.status === 'completada' && inArea(t) && t.completed_at && t.due_date && t.assignee_id).forEach(t => {
+      const e = m.get(t.assignee_id!) || { done: 0, onTime: 0 }
+      e.done++; if (new Date(t.completed_at!) <= new Date(t.due_date! + 'T23:59:59')) e.onTime++
+      m.set(t.assignee_id!, e)
+    })
+    return m
+  }, [tasks, areaFilter, projById])
+
+  const grupos = useMemo(() => {
+    const list = soloActivas ? activas : scope
+    const byPerson = new Map<string, TaskRow[]>()
+    list.forEach(t => { const k = t.assignee_id || '__none__'; if (!byPerson.has(k)) byPerson.set(k, []); byPerson.get(k)!.push(t) })
+    return Array.from(byPerson.entries()).map(([k, ts]) => ({
+      key: k, nombre: k === '__none__' ? 'Sin asignar' : (empById.get(k)?.name || 'Empleado'),
+      area: k === '__none__' ? '' : (empById.get(k)?.area || ''),
+      tasks: ts.sort((a, b) => (a.due_date || '9999').localeCompare(b.due_date || '9999')),
+      activas: ts.filter(t => t.status !== 'completada').length, vencidas: ts.filter(isOverdue).length,
+      cumpl: cumplByPerson.get(k) || { done: 0, onTime: 0 },
+    })).sort((a, b) => (a.key === '__none__' ? -1 : b.key === '__none__' ? 1 : b.activas - a.activas))
+  }, [scope, activas, soloActivas, empById, cumplByPerson])
+
+  // Próximas entregas: activas con fecha, agrupadas por urgencia
+  const entregas = useMemo(() => {
+    const in7 = new Date(today); in7.setDate(in7.getDate() + 7)
+    const in30 = new Date(today); in30.setDate(in30.getDate() + 30)
+    const withDate = activas.filter(t => t.due_date).sort((a, b) => a.due_date!.localeCompare(b.due_date!))
+    const g = { vencidas: [] as TaskRow[], semana: [] as TaskRow[], mes: [] as TaskRow[], despues: [] as TaskRow[] }
+    withDate.forEach(t => { const d = new Date(t.due_date!); if (d < today) g.vencidas.push(t); else if (d <= in7) g.semana.push(t); else if (d <= in30) g.mes.push(t); else g.despues.push(t) })
+    return { ...g, sinFecha: activas.filter(t => !t.due_date) }
+  }, [activas])
+
+  const chevron = (open: boolean) => open ? <ChevronDown size={16} /> : <ChevronDown size={16} style={{ transform: 'rotate(-90deg)' }} />
+  const lensBtn = (id: 'proyecto' | 'persona' | 'entregas', label: string) => (
+    <button onClick={() => setLens(id)} style={{ padding: '6px 14px', borderRadius: 8, fontSize: 12, fontWeight: lens === id ? 700 : 500, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid ' + (lens === id ? '#7C3AED' : '#2a2a2a'), background: lens === id ? '#7C3AED22' : 'transparent', color: lens === id ? '#A78BFA' : '#888' }}>{label}</button>
+  )
 
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
         <Btn onClick={onBack}><ArrowLeft size={14} /> Proyectos</Btn>
         <span style={{ fontSize: 18, fontWeight: 700, color: '#fff' }}>Cockpit del director</span>
         <div style={{ display: 'flex', gap: 4, marginLeft: 'auto', flexWrap: 'wrap' }}>
           {(['TODAS', 'esp', 'ilum', 'elec'] as const).map(a => {
-            const on = areaFilter === a
-            const cfg = a !== 'TODAS' ? SPECIALTY_CONFIG[a] : null
-            const c = cfg ? cfg.color : '#888'
+            const on = areaFilter === a; const cfg = a !== 'TODAS' ? SPECIALTY_CONFIG[a] : null; const c = cfg ? cfg.color : '#888'
             return <button key={a} onClick={() => setAreaFilter(a as any)} style={{ padding: '6px 12px', borderRadius: 8, fontSize: 12, fontWeight: on ? 700 : 400, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid ' + (on ? c : '#2a2a2a'), background: on ? c + '18' : 'transparent', color: on ? c : '#666' }}>{cfg ? cfg.label : 'Todas'}</button>
           })}
-          <button onClick={() => setSoloActivas(s => !s)} style={{ padding: '6px 12px', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid ' + (soloActivas ? '#10B98155' : '#2a2a2a'), background: soloActivas ? '#10B98118' : 'transparent', color: soloActivas ? '#10B981' : '#666' }}>{soloActivas ? 'Solo activas ✓' : 'Todas'}</button>
         </div>
+      </div>
+
+      <div style={{ display: 'flex', gap: 6, marginBottom: 16, flexWrap: 'wrap' }}>
+        {lensBtn('proyecto', '📁 Por proyecto')}
+        {lensBtn('persona', '👤 Por persona')}
+        {lensBtn('entregas', '📅 Próximas entregas')}
+        {lens === 'persona' && <button onClick={() => setSoloActivas(s => !s)} style={{ padding: '6px 12px', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid ' + (soloActivas ? '#10B98155' : '#2a2a2a'), background: soloActivas ? '#10B98118' : 'transparent', color: soloActivas ? '#10B981' : '#666' }}>{soloActivas ? 'Solo activas ✓' : 'Todas'}</button>}
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2,1fr)' : 'repeat(5,1fr)', gap: 12, marginBottom: 18 }}>
@@ -537,60 +633,101 @@ function DirectorCockpit({ projects, employees, tasks, phases, onBack, onOpenPro
         <KpiBox label="% a tiempo" value={metricas.pctATiempo != null ? metricas.pctATiempo + '%' : '—'} color={metricas.pctATiempo != null && metricas.pctATiempo >= 80 ? '#10B981' : '#D97706'} />
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        {grupos.length === 0 && <EmptyState message="Sin tareas en curso para este filtro." />}
-        {grupos.map(g => {
-          const open = expanded.has(g.key)
-          const esNone = g.key === '__none__'
-          return (
-            <div key={g.key} style={{ border: '1px solid ' + (esNone ? '#D9770644' : '#1e1e1e'), borderRadius: 12, background: esNone ? '#1a140a' : '#0f0f0f', overflow: 'hidden' }}>
-              <div onClick={() => setExpanded(p => { const n = new Set(p); n.has(g.key) ? n.delete(g.key) : n.add(g.key); return n })}
-                style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 14px', cursor: 'pointer' }}>
-                <span style={{ color: '#666', display: 'inline-flex' }}>{open ? <ChevronDown size={16} /> : <ChevronDown size={16} style={{ transform: 'rotate(-90deg)' }} />}</span>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: esNone ? '#D97706' : '#fff' }}>{g.nombre}</div>
-                  {g.area && <div style={{ fontSize: 10, color: '#555' }}>{g.area}</div>}
+      {/* ── LENTE: POR PROYECTO ── */}
+      {lens === 'proyecto' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {porProyecto.length === 0 && <EmptyState message="Sin proyectos en curso para este filtro." />}
+          {porProyecto.map(row => {
+            const open = expanded.has(row.p.id); const spec = row.p.specialty ? SPECIALTY_CONFIG[row.p.specialty] : null
+            const nextOver = row.nextDue && new Date(row.nextDue) < today
+            return (
+              <div key={row.p.id} style={{ border: '1px solid #1e1e1e', borderRadius: 12, background: '#0f0f0f', overflow: 'hidden' }}>
+                <div onClick={() => setExpanded(p => { const n = new Set(p); n.has(row.p.id) ? n.delete(row.p.id) : n.add(row.p.id); return n })} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 14px', cursor: 'pointer', flexWrap: 'wrap' }}>
+                  <span style={{ color: '#666', display: 'inline-flex' }}>{chevron(open)}</span>
+                  {spec && <span style={{ fontSize: 10, fontWeight: 700, color: spec.color, background: spec.color + '18', borderRadius: 5, padding: '2px 7px' }}>{spec.short}</span>}
+                  <div style={{ flex: 1, minWidth: 160 }}>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: '#fff' }}>{row.p.name}</div>
+                    <div style={{ fontSize: 10, color: '#666' }}>{row.p.client_name} {row.fase && <span style={{ color: '#A78BFA' }}>· Fase: {row.fase.name}</span>}</div>
+                  </div>
+                  <div style={{ minWidth: 110 }}>
+                    <div style={{ fontSize: 9, color: '#555', marginBottom: 2 }}>Avance {row.progreso}%</div>
+                    <ProgressBar value={row.progreso} />
+                  </div>
+                  <div style={{ textAlign: 'right', minWidth: 90 }}>
+                    <div style={{ fontSize: 9, color: '#555' }}>Próxima entrega</div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: nextOver ? '#DC2626' : '#ccc' }}>{row.nextDue ? formatDate(row.nextDue) : '—'}</div>
+                  </div>
+                  {row.venc > 0 && <span style={{ fontSize: 11, fontWeight: 700, color: '#DC2626', background: '#DC262618', border: '1px solid #DC262644', borderRadius: 6, padding: '2px 8px' }}>{row.venc} vencida{row.venc > 1 ? 's' : ''}</span>}
+                  <span title="Tareas activas" style={{ fontSize: 12, fontWeight: 700, color: '#000', background: cargaColor(row.act), borderRadius: 20, padding: '3px 11px', minWidth: 26, textAlign: 'center' }}>{row.act}</span>
+                  <div style={{ display: 'flex', gap: 3 }} title={row.responsables.join(', ')}>
+                    {row.responsables.slice(0, 4).map((n, i) => <span key={i} style={{ width: 20, height: 20, borderRadius: '50%', background: '#2a2a2a', color: '#bbb', fontSize: 8, fontWeight: 700, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>{iniciales(n)}</span>)}
+                  </div>
                 </div>
-                {g.vencidas > 0 && <span style={{ fontSize: 11, fontWeight: 700, color: '#DC2626', background: '#DC262618', border: '1px solid #DC262644', borderRadius: 6, padding: '2px 8px' }}>{g.vencidas} vencida{g.vencidas > 1 ? 's' : ''}</span>}
-                {g.enProg > 0 && <span style={{ fontSize: 11, color: '#2563EB' }}>{g.enProg} en progreso</span>}
-                {g.bloq > 0 && <span style={{ fontSize: 11, color: '#DC2626' }}>{g.bloq} bloqueada{g.bloq > 1 ? 's' : ''}</span>}
-                <span title="Carga (tareas activas)" style={{ fontSize: 12, fontWeight: 700, color: '#000', background: cargaColor(g.activas), borderRadius: 20, padding: '3px 11px', minWidth: 26, textAlign: 'center' }}>{g.activas}</span>
-              </div>
-              {open && (
-                <div style={{ borderTop: '1px solid #1a1a1a' }}>
-                  {g.tasks.map(t => {
-                    const proj = projById.get(t.project_id)
-                    const ph = phaseById.get(t.phase_id)
-                    const spec = proj?.specialty ? SPECIALTY_CONFIG[proj.specialty] : null
-                    const stc = TASK_STATUS_CONFIG[t.status]
-                    const over = isOverdue(t)
-                    return (
-                      <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px 8px 40px', borderTop: '1px solid #141414', flexWrap: 'wrap' }}>
-                        <div style={{ flex: 1, minWidth: 180 }}>
-                          <div style={{ fontSize: 12.5, color: '#ddd', fontWeight: 500 }}>{t.name}</div>
-                          <div style={{ fontSize: 10, color: '#666', display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-                            <span onClick={() => onOpenProject(t.project_id)} style={{ color: spec ? spec.color : '#888', cursor: 'pointer' }} title="Abrir proyecto">{proj?.name || 'Proyecto'}</span>
-                            {ph && <span>· {ph.name}</span>}
-                            {t.system && <span>· {t.system}</span>}
-                          </div>
+                {open && (
+                  <div style={{ borderTop: '1px solid #1a1a1a' }}>
+                    {row.phs.filter(ph => ph.is_unlocked).sort((a, b) => a.order_index - b.order_index).map(ph => {
+                      const phTasks = row.ts.filter(t => t.phase_id === ph.id && (soloActivas ? t.status !== 'completada' : true)).sort((a, b) => (a.due_date || '9999').localeCompare(b.due_date || '9999'))
+                      if (phTasks.length === 0) return null
+                      return (
+                        <div key={ph.id}>
+                          <div style={{ fontSize: 10, fontWeight: 700, color: '#888', textTransform: 'uppercase', letterSpacing: '0.05em', padding: '7px 14px 3px 22px', background: '#0c0c0c' }}>{ph.name}</div>
+                          {phTasks.map(t => renderTask(t, { showPerson: true }))}
                         </div>
-                        <span style={{ fontSize: 11, color: over ? '#DC2626' : '#888', fontWeight: over ? 700 : 400, minWidth: 78 }}>{t.due_date ? formatDate(t.due_date) : 'Sin fecha'}</span>
-                        <Badge label={stc?.label || t.status} color={stc?.color || '#666'} />
-                        <select value={t.assignee_id || ''} disabled={reasignando === t.id} onChange={e => reasignar(t.id, e.target.value)} onClick={e => e.stopPropagation()}
-                          style={{ background: '#161616', border: '1px solid #2a2a2a', borderRadius: 6, color: '#ccc', fontSize: 11, padding: '4px 6px', fontFamily: 'inherit', maxWidth: 150 }}>
-                          <option value="">— Sin asignar —</option>
-                          {dropdownEmps.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
-                        </select>
-                      </div>
-                    )
-                  })}
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {/* ── LENTE: POR PERSONA ── */}
+      {lens === 'persona' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {grupos.length === 0 && <EmptyState message="Sin tareas para este filtro." />}
+          {grupos.map(g => {
+            const open = expanded.has(g.key); const esNone = g.key === '__none__'
+            return (
+              <div key={g.key} style={{ border: '1px solid ' + (esNone ? '#D9770644' : '#1e1e1e'), borderRadius: 12, background: esNone ? '#1a140a' : '#0f0f0f', overflow: 'hidden' }}>
+                <div onClick={() => setExpanded(p => { const n = new Set(p); n.has(g.key) ? n.delete(g.key) : n.add(g.key); return n })} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 14px', cursor: 'pointer' }}>
+                  <span style={{ color: '#666', display: 'inline-flex' }}>{chevron(open)}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: esNone ? '#D97706' : '#fff' }}>{g.nombre}</div>
+                    {g.area && <div style={{ fontSize: 10, color: '#555' }}>{g.area}</div>}
+                  </div>
+                  {g.cumpl.done > 0 && (() => { const pct = Math.round((g.cumpl.onTime / g.cumpl.done) * 100); const col = pct >= 85 ? '#10B981' : pct >= 60 ? '#D97706' : '#DC2626'; return <span title={`${g.cumpl.onTime} de ${g.cumpl.done} entregas a tiempo`} style={{ fontSize: 11, fontWeight: 700, color: col, background: col + '18', border: '1px solid ' + col + '44', borderRadius: 6, padding: '2px 8px' }}>{pct}% a tiempo</span> })()}
+                  {g.vencidas > 0 && <span style={{ fontSize: 11, fontWeight: 700, color: '#DC2626', background: '#DC262618', border: '1px solid #DC262644', borderRadius: 6, padding: '2px 8px' }}>{g.vencidas} vencida{g.vencidas > 1 ? 's' : ''}</span>}
+                  <span title="Carga (tareas activas)" style={{ fontSize: 12, fontWeight: 700, color: '#000', background: cargaColor(g.activas), borderRadius: 20, padding: '3px 11px', minWidth: 26, textAlign: 'center' }}>{g.activas}</span>
                 </div>
-              )}
-            </div>
-          )
-        })}
+                {open && <div style={{ borderTop: '1px solid #1a1a1a' }}>{g.tasks.map(t => renderTask(t))}</div>}
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {/* ── LENTE: PRÓXIMAS ENTREGAS ── */}
+      {lens === 'entregas' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          {([['vencidas', 'Vencidas', '#DC2626'], ['semana', 'Esta semana', '#D97706'], ['mes', 'Próximos 30 días', '#2563EB'], ['despues', 'Más adelante', '#6B7280'], ['sinFecha', 'Sin fecha comprometida', '#6B7280']] as const).map(([k, label, color]) => {
+            const arr = (entregas as any)[k] as TaskRow[]
+            if (!arr || arr.length === 0) return null
+            return (
+              <div key={k}>
+                <div style={{ fontSize: 12, fontWeight: 700, color, marginBottom: 6, display: 'flex', alignItems: 'center', gap: 8 }}>{label} <span style={{ fontSize: 10, color: '#555' }}>({arr.length})</span></div>
+                <div style={{ border: '1px solid #1e1e1e', borderRadius: 12, background: '#0f0f0f', overflow: 'hidden' }}>{arr.map(t => renderTask(t, { showPerson: true }))}</div>
+              </div>
+            )
+          })}
+          {entregas.vencidas.length + entregas.semana.length + entregas.mes.length + entregas.despues.length + entregas.sinFecha.length === 0 && <EmptyState message="Sin entregas pendientes." />}
+        </div>
+      )}
+
+      <div style={{ fontSize: 11, color: '#555', marginTop: 14 }}>
+        <b>Por proyecto</b>: obra, fase actual, avance, próxima entrega y responsables. <b>Por persona</b>: carga y compromisos de cada quien. <b>Próximas entregas</b>: qué se entrega y cuándo. La barra por tarea es el checklist (clic para ver los pasos). Reasigna con el selector. <b>Ciclo</b>/<b>% a tiempo</b> = automáticos sobre {metricas.completadasN} completadas.
       </div>
-      <div style={{ fontSize: 11, color: '#555', marginTop: 12 }}>Carga = tareas activas de cada persona (proyectos en curso). <b>Ciclo prom.</b> = días de creada a completada · <b>% a tiempo</b> = completadas dentro de su fecha, sobre {metricas.completadasN} completadas. Reasigna con el selector de cada tarea.</div>
     </div>
   )
 }
