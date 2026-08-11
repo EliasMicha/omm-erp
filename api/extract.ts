@@ -128,8 +128,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const shape = `{"nombre":"persona o despacho/estudio ('' si no hay)","empresa":"","telefono":"con lada si aparece, si no ''","email":"","instagram":"@handle o URL si aparece","web":"sitio si aparece","canal":"como/donde contactarlo (ej. 'Instagram @estudio','DM Instagram','pagina web','referido')","notas":"resumen: a que se dedican, ciudad, tipo de proyecto, # seguidores, etc."}`
     const instr = `Eres asistente comercial de OMM (integracion/automatizacion, iluminacion, audio, CCTV, cortinas para arquitectura de alto nivel). Del screenshot y/o texto de un posible cliente (arquitecto, despacho, interiorista), extrae sus datos de contacto. Devuelve EXCLUSIVAMENTE un objeto JSON (sin markdown) con esta forma:\n${shape}\n\nContexto:\n${text || '(sin texto, usa la imagen)'}`
+    // Limpiar el base64: el Atajo de iOS mete saltos de línea y a veces prefijo data URL.
+    let cleanImage = (image || '').replace(/\s/g, '')
+    if (cleanImage.startsWith('data:')) { const c = cleanImage.indexOf(','); if (c > -1) cleanImage = cleanImage.slice(c + 1) }
+    // Detectar el media_type real por los primeros bytes (evita mismatch png/jpeg).
+    let realMedia = mt || 'image/jpeg'
+    if (cleanImage.startsWith('iVBOR')) realMedia = 'image/png'
+    else if (cleanImage.startsWith('/9j/')) realMedia = 'image/jpeg'
+    else if (cleanImage.startsWith('UklGR')) realMedia = 'image/webp'
+    else if (cleanImage.startsWith('R0lGOD')) realMedia = 'image/gif'
     const cnt: any[] = []
-    if (image) cnt.push({ type: 'image', source: { type: 'base64', media_type: mt || 'image/jpeg', data: image } })
+    if (cleanImage) cnt.push({ type: 'image', source: { type: 'base64', media_type: realMedia, data: cleanImage } })
     cnt.push({ type: 'text', text: instr })
 
     const cr = await fetch('https://api.anthropic.com/v1/messages', {
