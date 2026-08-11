@@ -217,7 +217,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     try { j = JSON.parse(m[0]) } catch { return res.status(422).json({ ok: false, error: 'JSON invalido' }) }
     const esCita = (j.tipo || '').toLowerCase() === 'cita'
     const desc = [esCita ? 'Cita' : '', j.persona ? `Con: ${j.persona}` : '', j.lugar ? `Lugar: ${j.lugar}` : '', j.notas || ''].filter(Boolean).join(' · ') || null
-    const row: any = { title: (j.titulo || '').trim() || 'Pendiente', area: 'DG', source_type: 'dashboard', status: 'pendiente', priority: esCita ? 3 : 2, due_date: (j.fecha || '').trim() || null, due_time: (j.hora || '').trim() || null, description: desc }
+    const row: any = { title: (j.titulo || '').trim() || 'Pendiente', area: 'DG', source_type: 'dashboard', status: 'pendiente', priority: esCita ? 3 : 2, due_date: (j.fecha || '').trim() || null, due_time: (j.hora || '').trim() || null, description: desc, tags: esCita ? ['cita'] : ['pendiente'] }
     const ins = await fetch(`${supabaseUrl}/rest/v1/action_items`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}`, Prefer: 'return=representation' },
