@@ -96,8 +96,65 @@ REGLAS:
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   // CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*')
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-omm-token')
+  // ── Brief diario (cron 7am CDMX) — GET /api/extract?action=daily_brief ──
+  if (req.query && (req.query as any).action === 'daily_brief') {
+    const auth = String(req.headers.authorization || '')
+    const okCron = !!process.env.CRON_SECRET && auth === `Bearer ${process.env.CRON_SECRET}`
+    const okTok = (req.query as any).token && (req.query as any).token === process.env.CAPTURE_TOKEN
+    if (!okCron && !okTok) { res.status(401).json({ ok: false, error: 'No autorizado' }); return }
+    try {
+      const svcKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+      const sUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL
+      const gcid = process.env.GMAIL_CLIENT_ID, gsec = process.env.GMAIL_CLIENT_SECRET
+      if (!svcKey || !sUrl || !gcid || !gsec) { res.status(500).json({ ok: false, error: 'Faltan envs (service role / gmail)' }); return }
+      const H: any = { apikey: svcKey, Authorization: `Bearer ${svcKey}` }
+      const listR = await fetch(`${sUrl}/rest/v1/action_items?area=eq.DG&source_type=eq.dashboard&status=neq.completada&select=title,due_date,due_time,tags,priority&order=due_date.asc.nullslast`, { headers: H })
+      const items: any[] = await listR.json()
+      const cdmx = new Date(Date.now() - 6 * 3600 * 1000)
+      const hoy = cdmx.toISOString().slice(0, 10)
+      const finSem = new Date(cdmx.getTime() + 7 * 86400000).toISOString().slice(0, 10)
+      const esCita = (it: any) => (Array.isArray(it.tags) && it.tags.indexOf('cita') >= 0) || !!it.due_time
+      const fmt = (it: any) => {
+        const hora = it.due_time ? ' ' + String(it.due_time).slice(0, 5) : ''
+        const tag = esCita(it) ? '<span style="background:#10B98122;color:#0a7d4f;font-size:11px;font-weight:700;border-radius:5px;padding:1px 6px;margin-right:6px">CITA</span>' : ''
+        const fecha = it.due_date ? `<span style="color:#888;font-size:12px">${it.due_date}${hora}</span>` : ''
+        const t = String(it.title || '').split('<').join('&lt;')
+        return `<li style="margin:7px 0;list-style:none;border-left:3px solid #eee;padding-left:10px">${tag}<b>${t}</b> ${fecha}</li>`
+      }
+      const vencidos = items.filter(it => it.due_date && it.due_date < hoy)
+      const deHoy = items.filter(it => it.due_date === hoy)
+      const semana = items.filter(it => it.due_date && it.due_date > hoy && it.due_date <= finSem)
+      const sinFecha = items.filter(it => !it.due_date)
+      const sec = (titulo: string, arr: any[], color: string) => arr.length ? `<h3 style="color:${color};font-size:15px;margin:18px 0 6px">${titulo} (${arr.length})</h3><ul style="padding-left:0;margin:0">${arr.map(fmt).join('')}</ul>` : ''
+      const html = `<div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;max-width:600px;margin:0 auto;color:#1a1a1a">
+        <h2 style="margin:0 0 2px">Tu dia en OMM</h2>
+        <div style="color:#888;font-size:13px;margin-bottom:8px">${hoy}</div>
+        ${sec('Vencidos', vencidos, '#DC2626')}
+        ${sec('Hoy', deHoy, '#0a7d4f')}
+        ${sec('Esta semana', semana, '#2563EB')}
+        ${sec('Sin fecha', sinFecha, '#999')}
+        ${items.length === 0 ? '<p style="color:#888">Sin pendientes abiertos por hoy.</p>' : ''}
+        <p style="color:#bbb;font-size:11px;margin-top:26px">Enviado automaticamente por tu ERP OMM</p>
+      </div>`
+      const tR = await fetch(`${sUrl}/rest/v1/gmail_tokens?id=eq.default&select=email,refresh_token`, { headers: H })
+      const tRows: any[] = await tR.json()
+      const tk: any = Array.isArray(tRows) && tRows[0]
+      if (!tk || !tk.refresh_token) { res.status(500).json({ ok: false, error: 'Google no conectado' }); return }
+      const atR = await fetch('https://oauth2.googleapis.com/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ client_id: gcid, client_secret: gsec, refresh_token: tk.refresh_token, grant_type: 'refresh_token' }) })
+      const atJ: any = await atR.json()
+      if (!atJ.access_token) { res.status(500).json({ ok: false, error: 'No se pudo renovar Google (reconecta con permiso de enviar correo)' }); return }
+      const to = tk.email
+      const subject = 'Tus pendientes y citas de hoy - OMM'
+      const mime = [`To: ${to}`, `Subject: ${subject}`, 'MIME-Version: 1.0', 'Content-Type: text/html; charset=UTF-8'].join('\r\n') + '\r\n\r\n' + html
+      const raw = Buffer.from(mime, 'utf-8').toString('base64').split('+').join('-').split('/').join('_').split('=').join('')
+      const sR = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${atJ.access_token}` }, body: JSON.stringify({ raw }) })
+      if (!sR.ok) { const et = await sR.text(); console.error('[daily_brief] gmail send:', et.substring(0, 300)); res.status(sR.status).json({ ok: false, error: 'Gmail send: ' + et.substring(0, 200) }); return }
+      res.status(200).json({ ok: true, enviado_a: to, total: items.length, vencidos: vencidos.length, hoy: deHoy.length, semana: semana.length })
+      return
+    } catch (e: any) { console.error('[daily_brief]', e && e.message); res.status(500).json({ ok: false, error: e.message }); return }
+  }
   if (req.method === 'OPTIONS') return res.status(200).end()
   if (req.method !== 'POST') return res.status(405).json({ ok: false, error: 'Method not allowed' })
 
