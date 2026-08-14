@@ -32,6 +32,18 @@ const EST_CFG: Record<string, { label: string; color: string }> = {
 const CANAL_LABEL: Record<string, string> = { whatsapp: 'WhatsApp', llamada: 'Llamada', correo: 'Correo', reunion: 'Reunión', mensaje: 'Mensaje', otro: 'Otro' }
 
 interface Pendiente { id: string; title: string; status: string; priority: number; due_date: string | null; due_time?: string | null; tags?: string[] | null }
+interface Rutina {
+  id: string; titulo: string; descripcion: string | null; frecuencia: 'semanal' | 'quincenal' | 'mensual'
+  dia_semana: number | null; fecha_ancla: string | null; dias_mes: number[] | null; hora: string | null
+  prioridad: number; estado: 'activa' | 'pausada' | 'borrada'; gcal_event_id: string | null
+}
+const DIAS_SEM = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado']
+function descRutina(r: Rutina): string {
+  if (r.frecuencia === 'semanal') return `Cada ${DIAS_SEM[r.dia_semana ?? 1].toLowerCase()}`
+  if (r.frecuencia === 'quincenal') return `Cada 2 semanas${r.fecha_ancla ? ` (desde ${r.fecha_ancla})` : ''}`
+  const ds = (r.dias_mes || []).map(d => d === -1 ? 'último' : `${d}`).join(', ')
+  return `Los días ${ds || '1'} de cada mes`
+}
 interface Prospecto {
   id: string; nombre: string; empresa: string | null; telefono: string | null; email: string | null
   canal: string | null; notas: string | null; estado: string; prioridad: number; proxima_accion: string | null; lead_id: string | null
@@ -78,6 +90,47 @@ export default function MiEspacio({ userId, employeeId, isMobile = false }: { us
   async function delPendiente(id: string) { await supabase.from('action_items').delete().eq('id', id); loadPendientes() }
   const pendVisibles = useMemo(() => pendientes.filter(p => showDonePend ? true : p.status !== 'completada'), [pendientes, showDonePend])
   const pendAbiertas = pendientes.filter(p => p.status !== 'completada').length
+
+  // ══════════════════ RUTINAS (pendientes recurrentes) ══════════════════
+  const [rutinas, setRutinas] = useState<Rutina[]>([])
+  const [showRutinas, setShowRutinas] = useState(false)
+  const [nr, setNr] = useState({ titulo: '', frecuencia: 'semanal' as Rutina['frecuencia'], dia_semana: 1, fecha_ancla: '', dias_mes: '15, último', hora: '', prioridad: 2 })
+  const [rutSaving, setRutSaving] = useState(false)
+
+  async function loadRutinas() {
+    const { data } = await supabase.from('rutinas').select('*').neq('estado', 'borrada').order('created_at', { ascending: false })
+    setRutinas((data || []) as Rutina[])
+  }
+  // Crea el evento recurrente en Google Calendar y materializa el pendiente si hoy toca
+  function syncRutinas() { fetch('/api/extract?action=rutinas_sync', { method: 'POST' }).then(() => { loadRutinas(); loadPendientes() }).catch(() => {}) }
+
+  function parseDiasMes(s: string): number[] {
+    return s.split(/[,;]/).map(x => x.trim().toLowerCase()).map(x => (x === 'último' || x === 'ultimo' || x === 'fin' ? -1 : parseInt(x, 10)))
+      .filter(n => n === -1 || (n >= 1 && n <= 31))
+  }
+  async function addRutina() {
+    const t = nr.titulo.trim(); if (!t) { alert('Ponle un título a la rutina.'); return }
+    if (nr.frecuencia === 'quincenal' && !nr.fecha_ancla) { alert('Para "cada 2 semanas" elige la fecha de la primera vez.'); return }
+    const dias = nr.frecuencia === 'mensual' ? parseDiasMes(nr.dias_mes) : null
+    if (nr.frecuencia === 'mensual' && (!dias || !dias.length)) { alert('Pon al menos un día del mes (ej. 15, último).'); return }
+    setRutSaving(true)
+    await supabase.from('rutinas').insert({
+      titulo: t, frecuencia: nr.frecuencia,
+      dia_semana: nr.frecuencia === 'semanal' ? nr.dia_semana : null,
+      fecha_ancla: nr.frecuencia === 'quincenal' ? nr.fecha_ancla : null,
+      dias_mes: dias, hora: nr.hora || null, prioridad: nr.prioridad, estado: 'activa', created_by: userId || null,
+    })
+    setNr({ titulo: '', frecuencia: 'semanal', dia_semana: 1, fecha_ancla: '', dias_mes: '15, último', hora: '', prioridad: 2 })
+    setRutSaving(false)
+    await loadRutinas()
+    syncRutinas()
+  }
+  async function setEstadoRutina(r: Rutina, estado: Rutina['estado']) {
+    if (estado === 'borrada' && !confirm(`¿Borrar la rutina "${r.titulo}"? También se quita su evento repetido del calendario.`)) return
+    await supabase.from('rutinas').update({ estado }).eq('id', r.id)
+    await loadRutinas()
+    syncRutinas()
+  }
 
   // ══════════════════ PROSPECTOS + INTERACCIONES + LEADS ══════════════════
   const [prospectos, setProspectos] = useState<Prospecto[]>([])
@@ -274,7 +327,7 @@ export default function MiEspacio({ userId, employeeId, isMobile = false }: { us
     return rows
   }, [prospectos, leads, interacciones, interByEntity, hoy])
 
-  useEffect(() => { loadPendientes(); loadProspectos(); loadInteracciones(); loadLeads() }, [])
+  useEffect(() => { loadPendientes(); loadRutinas(); loadProspectos(); loadInteracciones(); loadLeads() }, [])
 
   // ── mini-form de interacción reutilizable ──
   const [logOpen, setLogOpen] = useState<string | null>(null) // key `${type}:${id}`
@@ -337,7 +390,10 @@ export default function MiEspacio({ userId, employeeId, isMobile = false }: { us
               <div style={{ fontSize: 14, fontWeight: 700, color: '#fff' }}>Mis pendientes</div>
               <span style={{ fontSize: 11, color: '#666', background: '#1a1a1a', borderRadius: 20, padding: '2px 8px' }}>{pendAbiertas}</span>
             </div>
-            <button onClick={() => setShowDonePend(s => !s)} style={{ ...btnGhost, padding: '4px 8px', fontSize: 11 }}>{showDonePend ? 'Ocultar hechas' : 'Ver hechas'}</button>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              <button onClick={() => setShowRutinas(s => !s)} style={{ ...btnGhost, padding: '4px 8px', fontSize: 11, color: showRutinas ? '#57FF9A' : '#aaa', borderColor: showRutinas ? '#2a5a3f' : '#333' }}>↻ Rutinas{rutinas.filter(r => r.estado === 'activa').length ? ` (${rutinas.filter(r => r.estado === 'activa').length})` : ''}</button>
+              <button onClick={() => setShowDonePend(s => !s)} style={{ ...btnGhost, padding: '4px 8px', fontSize: 11 }}>{showDonePend ? 'Ocultar hechas' : 'Ver hechas'}</button>
+            </div>
           </div>
           <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
             <input value={nuevoPend} onChange={e => setNuevoPend(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') addPendiente() }} placeholder="Agregar pendiente…" style={{ ...input, flex: '1 1 160px' }} />
@@ -347,17 +403,68 @@ export default function MiEspacio({ userId, employeeId, isMobile = false }: { us
             </select>
             <button onClick={addPendiente} style={{ background: '#57FF9A', border: 'none', color: '#000', borderRadius: 8, padding: '0 12px', cursor: 'pointer', display: 'flex', alignItems: 'center' }}><Plus size={16} /></button>
           </div>
+
+          {/* ── RUTINAS: cosas que haces cada semana / quincena / mes ── */}
+          {showRutinas && (
+            <div style={{ background: '#0d0d0d', border: '1px solid #1e3a2a', borderRadius: 10, padding: 12, marginBottom: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div style={{ fontSize: 12, color: '#57FF9A', fontWeight: 600 }}>↻ Rutinas — se repiten solas</div>
+              <div style={{ fontSize: 11, color: '#888' }}>El día que toca aparece como pendiente aquí (y en tu correo de las 7am), y se crea un evento repetido en tu Google Calendar.</div>
+              <input value={nr.titulo} onChange={e => setNr({ ...nr, titulo: e.target.value })} placeholder="¿Qué haces siempre? (ej. Revisar cobranza, Pagar nómina…)" style={input} />
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                <select value={nr.frecuencia} onChange={e => setNr({ ...nr, frecuencia: e.target.value as Rutina['frecuencia'] })} style={{ ...selectStyle, width: 150, flex: '0 0 auto' }}>
+                  <option value="semanal">Cada semana</option>
+                  <option value="quincenal">Cada 2 semanas</option>
+                  <option value="mensual">Cada mes</option>
+                </select>
+                {nr.frecuencia === 'semanal' && (
+                  <select value={nr.dia_semana} onChange={e => setNr({ ...nr, dia_semana: Number(e.target.value) })} style={{ ...selectStyle, width: 130, flex: '0 0 auto' }}>
+                    {DIAS_SEM.map((d, i) => <option key={i} value={i}>{d}</option>)}
+                  </select>
+                )}
+                {nr.frecuencia === 'quincenal' && (
+                  <label style={{ fontSize: 11, color: '#888', display: 'inline-flex', alignItems: 'center', gap: 5 }}>Primera vez:
+                    <input type="date" value={nr.fecha_ancla} onChange={e => setNr({ ...nr, fecha_ancla: e.target.value })} style={{ ...input, width: 145 }} />
+                  </label>
+                )}
+                {nr.frecuencia === 'mensual' && (
+                  <input value={nr.dias_mes} onChange={e => setNr({ ...nr, dias_mes: e.target.value })} placeholder="Días (ej. 15, último)" title='Días del mes separados por coma. Escribe "último" para fin de mes (ej. 15, último = cada quincena de pago).' style={{ ...input, width: 150, flex: '0 0 auto' }} />
+                )}
+                <input type="time" value={nr.hora} onChange={e => setNr({ ...nr, hora: e.target.value })} title="Hora (opcional)" style={{ ...input, width: 110, flex: '0 0 auto' }} />
+                <select value={nr.prioridad} onChange={e => setNr({ ...nr, prioridad: Number(e.target.value) })} style={{ ...selectStyle, width: 90, flex: '0 0 auto' }}>
+                  <option value={1}>Baja</option><option value={2}>Media</option><option value={3}>Alta</option>
+                </select>
+                <button onClick={addRutina} disabled={rutSaving} style={{ marginLeft: 'auto', background: '#57FF9A', border: 'none', color: '#000', borderRadius: 8, padding: '7px 14px', fontWeight: 600, fontSize: 12, cursor: rutSaving ? 'default' : 'pointer', opacity: rutSaving ? 0.6 : 1 }}>{rutSaving ? 'Creando…' : 'Crear rutina'}</button>
+              </div>
+              {rutinas.length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 2 }}>
+                  {rutinas.map(r => (
+                    <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', borderRadius: 8, background: '#0a0a0a', border: '1px solid #1a1a1a', opacity: r.estado === 'pausada' ? 0.55 : 1 }}>
+                      <span style={{ color: '#57FF9A', fontSize: 12, flex: '0 0 auto' }}>↻</span>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 12, color: '#eee', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.titulo}</div>
+                        <div style={{ fontSize: 10, color: '#777' }}>{descRutina(r)}{r.hora ? ` · ${String(r.hora).slice(0, 5)}` : ''}{r.estado === 'pausada' ? ' · EN PAUSA' : ''}{r.gcal_event_id ? ' · 📅' : ''}</div>
+                      </div>
+                      <span style={{ width: 6, height: 6, borderRadius: '50%', background: PRIO_COLOR[r.prioridad] || '#666', flex: '0 0 auto' }} title={PRIO_LABEL[r.prioridad]} />
+                      <button onClick={() => setEstadoRutina(r, r.estado === 'pausada' ? 'activa' : 'pausada')} title={r.estado === 'pausada' ? 'Reanudar' : 'Pausar'} style={{ ...btnGhost, padding: '2px 7px', fontSize: 10 }}>{r.estado === 'pausada' ? 'Reanudar' : 'Pausar'}</button>
+                      <button onClick={() => setEstadoRutina(r, 'borrada')} style={{ background: 'transparent', border: 'none', color: '#555', cursor: 'pointer', padding: 2 }}><Trash2 size={13} /></button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 320, overflowY: 'auto' }}>
             {pendVisibles.length === 0 && <div style={{ color: '#555', fontSize: 12, padding: '12px 4px' }}>Sin pendientes. Agrega uno arriba.</div>}
             {pendVisibles.map(p => {
               const done = p.status === 'completada'; const vencida = !done && p.due_date && p.due_date < hoy
-              const esCita = (p.tags || []).includes('cita') || !!p.due_time
+              const esCita = (p.tags || []).includes('cita') || (!!p.due_time && !(p.tags || []).includes('rutina'))
               return (
                 <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 8px', borderRadius: 8, background: '#0d0d0d', border: '1px solid #1a1a1a' }}>
                   <button onClick={() => togglePendiente(p)} title="Marcar" style={{ width: 18, height: 18, borderRadius: 5, border: `1.5px solid ${done ? '#57FF9A' : '#444'}`, background: done ? '#57FF9A' : 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto', padding: 0 }}>{done && <Check size={12} color="#000" />}</button>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 13, color: done ? '#666' : '#eee', textDecoration: done ? 'line-through' : 'none', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'flex', alignItems: 'center', gap: 6 }}>
                       {esCita && <span style={{ fontSize: 9, fontWeight: 700, color: '#10B981', background: '#10B98122', borderRadius: 5, padding: '1px 5px', flex: '0 0 auto' }}>📅 CITA</span>}
+                      {(p.tags || []).includes('rutina') && <span style={{ fontSize: 9, fontWeight: 700, color: '#57FF9A', background: '#57FF9A18', borderRadius: 5, padding: '1px 5px', flex: '0 0 auto' }}>↻</span>}
                       <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.title}</span>
                     </div>
                     {p.due_date && <div style={{ fontSize: 10, color: vencida ? '#DC2626' : '#777', marginTop: 1 }}>{vencida ? '⚠ ' : ''}{p.due_date}{p.due_time ? ` · ${String(p.due_time).slice(0, 5)}` : ''}</div>}
