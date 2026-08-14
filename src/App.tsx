@@ -26,6 +26,7 @@ import LeadDashboard from './pages/LeadDashboard'
 import RadarVentas from './components/RadarVentas'
 import Cobranza from './pages/Cobranza'
 import Usuarios from './pages/Usuarios'
+import Archivados from './pages/Archivados'
 import Mantenimiento from './pages/Mantenimiento'
 import ObraApp from './obra-app/ObraApp'
 import ChatBot from './components/ChatBot'
@@ -95,6 +96,7 @@ export default function App() {
                         <Finanzas />
                       </ProtectedRoute>
                     } />
+                    <Route path="/archivados" element={<Archivados />} />
                     <Route path="/clientes" element={<Clientes />} />
                     <Route path="/catalogo" element={<Catalogo />} />
                     <Route path="/design-rules" element={<DesignRules />} />
