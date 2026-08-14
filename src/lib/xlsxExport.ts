@@ -100,7 +100,10 @@ function hojaXml(h: HojaXlsx): string {
       if (v === null || v === undefined || v === '') return ''
       if (typeof v === 'number' && isFinite(v)) {
         const s = moneda ? (negrita ? 3 : 2) : (negrita ? 1 : 0)
-        return `<c r="${ref}" s="${s}"><v>${v}</v></c>`
+        // los importes se redondean a centavos: sin esto una suma de floats
+        // deja celdas como 132129.81999999998 al hacer clic en ellas
+        const n = moneda ? Math.round(v * 100) / 100 : v
+        return `<c r="${ref}" s="${s}"><v>${n}</v></c>`
       }
       return `<c r="${ref}" s="${negrita ? 1 : 0}" t="inlineStr"><is><t>${esc(v)}</t></is></c>`
     }).join('')
