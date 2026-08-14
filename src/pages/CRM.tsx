@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import { archivarLead } from '../lib/archivo'
 import { Badge, Btn, Table, Th, Td, Loading, SectionHeader, EmptyState } from '../components/layout/UI'
 import { useIsMobile } from '../lib/useIsMobile'
 import { Plus, X, Search, Trash2, Save, Sparkles, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
@@ -361,6 +362,7 @@ function LeadModal({ lead, onClose, onUpdated, onDeleted }: {
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [deleteError, setDeleteError] = useState('')
   const [dirty, setDirty] = useState(false)
   const [clientes, setClientes] = useState<Array<{ id: string; nombre_comercial: string; razon_social: string; rfc: string; regimen_fiscal: string; codigo_postal: string; uso_cfdi_clave: string; email: string }>>([])
   const [clientSearch, setClientSearch] = useState(form.client_final || '')
@@ -442,10 +444,17 @@ function LeadModal({ lead, onClose, onUpdated, onDeleted }: {
     onUpdated()
   }
 
+  // "Eliminar" ARCHIVA en vez de borrar: el lead desaparece de todas las listas
+  // (CRM, tableros, cobranza, proyectos) pero sus pagos y facturas siguen
+  // cuadrando en Contabilidad, y se puede restaurar desde /archivados.
+  // Antes esto hacía un .delete() cuyo error nunca se revisaba: si el lead
+  // tenía un proyecto colgando, Postgres lo rechazaba y la app fingía que sí.
   async function eliminar() {
     setDeleting(true)
-    await supabase.from('leads').delete().eq('id', lead.id)
+    setDeleteError('')
+    const r = await archivarLead(lead.id, null)
     setDeleting(false)
+    if (!r.ok) { setDeleteError(r.error || 'No se pudo archivar'); return }
     onDeleted()
   }
 
@@ -644,10 +653,14 @@ function LeadModal({ lead, onClose, onUpdated, onDeleted }: {
         {/* Footer */}
         <div style={{ padding: '12px 22px', borderTop: '1px solid #1a1a1a', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           {confirmDelete ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontSize: 12, color: '#DC2626' }}>Eliminar este lead?</span>
-              <Btn size="sm" onClick={() => setConfirmDelete(false)}>No</Btn>
-              <Btn size="sm" variant="danger" onClick={eliminar}>{deleting ? 'Eliminando...' : 'Si, eliminar'}</Btn>
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, flexWrap: 'wrap', maxWidth: 420 }}>
+              <div style={{ fontSize: 11, color: '#999', lineHeight: 1.45, width: '100%' }}>
+                Dejara de aparecer en el CRM, tableros y cobranza — junto con sus cotizaciones.
+                Lo puedes recuperar en <b style={{ color: '#57FF9A' }}>Archivados</b>.
+              </div>
+              <Btn size="sm" onClick={() => { setConfirmDelete(false); setDeleteError('') }}>Cancelar</Btn>
+              <Btn size="sm" variant="danger" onClick={eliminar}>{deleting ? 'Archivando...' : 'Si, eliminar'}</Btn>
+              {deleteError && <div style={{ fontSize: 11, color: '#DC2626', width: '100%' }}>{deleteError}</div>}
             </div>
           ) : (
             <button onClick={() => setConfirmDelete(true)} style={{ background: 'none', border: 'none', color: '#444', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, padding: '4px 0' }}>
