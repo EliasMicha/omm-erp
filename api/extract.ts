@@ -93,6 +93,113 @@ REGLAS:
 - No inventes precios ni medidas.
 - Devuelve SOLO el JSON.`
 
+// ═══════════════════════════════════════════════════════════════════════════
+// RUTINAS — pendientes recurrentes (semanal / quincenal / mensual)
+//   Definiciones en tabla `rutinas`. Cada día que "toca", se materializa un
+//   action_item (Mis pendientes + correo 7am) y al crearse la rutina se genera
+//   UN evento recurrente (RRULE) en Google Calendar.
+// ═══════════════════════════════════════════════════════════════════════════
+function cdmxHoy(): string { return new Date(Date.now() - 6 * 3600 * 1000).toISOString().slice(0, 10) }
+
+function rutinaTocaEl(r: any, fecha: string): boolean {
+  const d = new Date(fecha + 'T00:00:00Z')
+  const dow = d.getUTCDay()
+  const dom = d.getUTCDate()
+  const lastDom = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate()
+  if (r.frecuencia === 'semanal') return r.dia_semana === dow
+  if (r.frecuencia === 'quincenal') {
+    if (!r.fecha_ancla) return false
+    const a = new Date(String(r.fecha_ancla).slice(0, 10) + 'T00:00:00Z')
+    const diff = Math.round((d.getTime() - a.getTime()) / 86400000)
+    return diff >= 0 && diff % 14 === 0
+  }
+  if (r.frecuencia === 'mensual') {
+    const dias: number[] = Array.isArray(r.dias_mes) ? r.dias_mes : []
+    return dias.indexOf(dom) >= 0 || (dias.indexOf(-1) >= 0 && dom === lastDom)
+  }
+  return false
+}
+
+function rutinaProxima(r: any, desde: string): string {
+  const base = new Date(desde + 'T00:00:00Z').getTime()
+  for (let i = 0; i < 62; i++) {
+    const f = new Date(base + i * 86400000).toISOString().slice(0, 10)
+    if (rutinaTocaEl(r, f)) return f
+  }
+  return desde
+}
+
+function rutinaRRule(r: any): string {
+  const BY = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA']
+  if (r.frecuencia === 'semanal') return `RRULE:FREQ=WEEKLY;BYDAY=${BY[r.dia_semana != null ? r.dia_semana : 1]}`
+  if (r.frecuencia === 'quincenal') return 'RRULE:FREQ=WEEKLY;INTERVAL=2'
+  const dias: number[] = Array.isArray(r.dias_mes) && r.dias_mes.length ? r.dias_mes : [1]
+  return `RRULE:FREQ=MONTHLY;BYMONTHDAY=${dias.join(',')}`
+}
+
+async function syncRutinas(sUrl: string, svcKey: string, gcid?: string, gsec?: string) {
+  const H: any = { apikey: svcKey, Authorization: `Bearer ${svcKey}` }
+  const JH: any = { ...H, 'Content-Type': 'application/json' }
+  const hoy = cdmxHoy()
+  const rutinas: any[] = await fetch(`${sUrl}/rest/v1/rutinas?select=*`, { headers: H }).then(r => r.json())
+  if (!Array.isArray(rutinas)) return { materializadas: 0, eventos_creados: 0, eventos_borrados: 0 }
+  let mat = 0, evC = 0, evB = 0
+  // 1) Materializar el pendiente de HOY para rutinas activas que tocan hoy (idempotente por last_materialized)
+  for (const r of rutinas) {
+    if (r.estado !== 'activa' || r.last_materialized === hoy || !rutinaTocaEl(r, hoy)) continue
+    const row = { title: r.titulo, area: 'DG', source_type: 'dashboard', status: 'pendiente', priority: r.prioridad || 2, due_date: hoy, due_time: r.hora || null, description: r.descripcion || null, tags: ['rutina'] }
+    const ins = await fetch(`${sUrl}/rest/v1/action_items`, { method: 'POST', headers: JH, body: JSON.stringify(row) })
+    if (ins.ok) { mat++; await fetch(`${sUrl}/rest/v1/rutinas?id=eq.${r.id}`, { method: 'PATCH', headers: JH, body: JSON.stringify({ last_materialized: hoy }) }) }
+    else console.error('[rutinas/materializar]', (await ins.text()).substring(0, 200))
+  }
+  // 2) Google Calendar: crear evento recurrente para rutinas activas sin evento; borrar el de pausadas/borradas
+  const pendCrear = rutinas.filter(r => r.estado === 'activa' && !r.gcal_event_id)
+  const pendBorrar = rutinas.filter(r => r.estado !== 'activa' && r.gcal_event_id)
+  if ((pendCrear.length || pendBorrar.length) && gcid && gsec) {
+    const tr = await fetch(`${sUrl}/rest/v1/gmail_tokens?id=eq.default&select=refresh_token`, { headers: H })
+    const trows: any = await tr.json()
+    const refresh = Array.isArray(trows) && trows[0] && trows[0].refresh_token
+    if (refresh) {
+      const atr = await fetch('https://oauth2.googleapis.com/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ client_id: gcid, client_secret: gsec, refresh_token: refresh, grant_type: 'refresh_token' }) })
+      const atj: any = await atr.json()
+      if (atj.access_token) {
+        const gH: any = { 'Content-Type': 'application/json', Authorization: `Bearer ${atj.access_token}` }
+        const tz = 'America/Mexico_City'
+        for (const r of pendCrear) {
+          const f0 = rutinaProxima(r, hoy)
+          const ev: any = { summary: r.titulo, description: r.descripcion || undefined, recurrence: [rutinaRRule(r)], reminders: { useDefault: false, overrides: [{ method: 'popup', minutes: 60 }, { method: 'popup', minutes: 10 }] } }
+          if (r.hora) {
+            const t = String(r.hora).length === 5 ? String(r.hora) + ':00' : String(r.hora)
+            const parts = t.split(':')
+            const hh = parseInt(parts[0], 10), mm = parseInt(parts[1], 10)
+            let eh = hh + 1, em = mm
+            if (eh > 23) { eh = 23; em = 59 }
+            ev.start = { dateTime: `${f0}T${t}`, timeZone: tz }
+            ev.end = { dateTime: `${f0}T${String(eh).padStart(2, '0')}:${String(em).padStart(2, '0')}:00`, timeZone: tz }
+          } else {
+            const next = new Date(new Date(f0 + 'T00:00:00Z').getTime() + 86400000).toISOString().slice(0, 10)
+            ev.start = { date: f0 }
+            ev.end = { date: next }
+          }
+          const evr = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', { method: 'POST', headers: gH, body: JSON.stringify(ev) })
+          if (evr.ok) { const evj: any = await evr.json(); evC++; await fetch(`${sUrl}/rest/v1/rutinas?id=eq.${r.id}`, { method: 'PATCH', headers: JH, body: JSON.stringify({ gcal_event_id: evj.id }) }) }
+          else console.error('[rutinas/gcal crear]', (await evr.text()).substring(0, 200))
+        }
+        for (const r of pendBorrar) {
+          const dr = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(r.gcal_event_id)}`, { method: 'DELETE', headers: gH })
+          if (dr.ok || dr.status === 404 || dr.status === 410) { evB++; await fetch(`${sUrl}/rest/v1/rutinas?id=eq.${r.id}`, { method: 'PATCH', headers: JH, body: JSON.stringify({ gcal_event_id: null }) }) }
+          else console.error('[rutinas/gcal borrar]', (await dr.text()).substring(0, 200))
+        }
+      }
+    }
+  }
+  // 3) Limpieza: rutinas borradas que ya no tienen evento en Calendar → fuera de la tabla
+  for (const r of rutinas) {
+    if (r.estado === 'borrada' && !r.gcal_event_id) await fetch(`${sUrl}/rest/v1/rutinas?id=eq.${r.id}`, { method: 'DELETE', headers: H })
+  }
+  return { materializadas: mat, eventos_creados: evC, eventos_borrados: evB }
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   // CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*')
@@ -109,13 +216,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const sUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL
       const gcid = process.env.GMAIL_CLIENT_ID, gsec = process.env.GMAIL_CLIENT_SECRET
       if (!svcKey || !sUrl || !gcid || !gsec) { res.status(500).json({ ok: false, error: 'Faltan envs (service role / gmail)' }); return }
+      // Rutinas: materializar los pendientes de hoy ANTES de armar el correo (así salen en "Hoy")
+      try { await syncRutinas(sUrl, svcKey, gcid, gsec) } catch (e: any) { console.error('[daily_brief/rutinas]', e && e.message) }
       const H: any = { apikey: svcKey, Authorization: `Bearer ${svcKey}` }
       const listR = await fetch(`${sUrl}/rest/v1/action_items?area=eq.DG&source_type=eq.dashboard&status=neq.completada&select=title,due_date,due_time,tags,priority&order=due_date.asc.nullslast`, { headers: H })
       const items: any[] = await listR.json()
       const cdmx = new Date(Date.now() - 6 * 3600 * 1000)
       const hoy = cdmx.toISOString().slice(0, 10)
       const finSem = new Date(cdmx.getTime() + 7 * 86400000).toISOString().slice(0, 10)
-      const esCita = (it: any) => (Array.isArray(it.tags) && it.tags.indexOf('cita') >= 0) || !!it.due_time
+      const esCita = (it: any) => (Array.isArray(it.tags) && it.tags.indexOf('cita') >= 0) || (!!it.due_time && !(Array.isArray(it.tags) && it.tags.indexOf('rutina') >= 0))
       const fmt = (it: any) => {
         const hora = it.due_time ? ' ' + String(it.due_time).slice(0, 5) : ''
         const tag = esCita(it) ? '<span style="background:#10B98122;color:#0a7d4f;font-size:11px;font-weight:700;border-radius:5px;padding:1px 6px;margin-right:6px">CITA</span>' : ''
@@ -156,6 +265,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     } catch (e: any) { console.error('[daily_brief]', e && e.message); res.status(500).json({ ok: false, error: e.message }); return }
   }
   if (req.method === 'OPTIONS') return res.status(200).end()
+
+  // ── Rutinas: sincronizar (la UI lo llama al crear/pausar/borrar una rutina; el cron 7am también corre esto) ──
+  //   GET/POST /api/extract?action=rutinas_sync
+  if (req.query && (req.query as any).action === 'rutinas_sync') {
+    try {
+      const svcKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+      const sUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL
+      if (!svcKey || !sUrl) return res.status(500).json({ ok: false, error: 'Faltan envs' })
+      const out = await syncRutinas(sUrl, svcKey, process.env.GMAIL_CLIENT_ID, process.env.GMAIL_CLIENT_SECRET)
+      return res.status(200).json({ ok: true, ...out })
+    } catch (e: any) { return res.status(500).json({ ok: false, error: e.message }) }
+  }
+
   if (req.method !== 'POST') return res.status(405).json({ ok: false, error: 'Method not allowed' })
 
   const apiKey = process.env.ANTHROPIC_KEY || process.env.VITE_ANTHROPIC_KEY
