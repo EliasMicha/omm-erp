@@ -1,7 +1,9 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react'
 import { MOCK_CLIENTES } from './Clientes'
 import type { ClienteFiscal } from './Clientes'
-import { supabase } from '../lib/supabase'
+import { supabase, supabaseAll } from '../lib/supabase'
+// supabaseAll = ve también leads/cotizaciones archivados: aquí los movimientos y
+// facturas ya asignados deben seguir mostrando su nombre y sumando para cuadrar.
 import { SectionHeader, KpiCard, Table, Th, Td, ThFilter, useColumnFilters, Badge, Btn, EmptyState } from '../components/layout/UI'
 import { F, formatDate } from '../lib/utils'
 import { useIsMobile } from '../lib/useIsMobile'
@@ -2019,7 +2021,7 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
   //    de lead_id (evita falsos positivos por UUIDs similares en otros campos).
   async function loadQuotesForLead(leadId: string): Promise<any[]> {
     if (!leadId) return []
-    const { data, error } = await supabase
+    const { data, error } = await supabaseAll
       .from('quotations')
       .select('id,name,notes,specialty,total,updated_at')
       .ilike('notes', `%${leadId}%`)
@@ -2045,7 +2047,7 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
 
   // Recarga global (legacy) — usado por focus listener y botón manual
   async function reloadQuotations() {
-    const { data } = await supabase
+    const { data } = await supabaseAll
       .from('quotations')
       .select('id,name,notes,specialty,total,updated_at')
       .order('updated_at', { ascending: false })
@@ -2058,8 +2060,8 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
 
   useEffect(() => {
     Promise.all([
-      supabase.from('leads').select('id,name,company').order('name'),
-      supabase.from('quotations').select('id,name,notes,specialty,total,updated_at').order('updated_at', { ascending: false }),
+      supabaseAll.from('leads').select('id,name,company').order('name'),
+      supabaseAll.from('quotations').select('id,name,notes,specialty,total,updated_at').order('updated_at', { ascending: false }),
       supabase.from('purchase_orders').select('id,po_number,quotation_id,project_id,supplier_id,total,currency,purchase_phase,status').order('po_number', { ascending: false }),
       supabase.from('suppliers').select('id,name,rfc,clabe,cuenta_bancaria,banco,bnet_codigo').order('name'),
       supabase.from('clientes').select('id,razon_social,nombre_comercial,rfc,clabe,cuenta_bancaria,banco').eq('activo', true).order('razon_social'),
@@ -5138,8 +5140,8 @@ function TabEfectivo() {
   const load = async () => {
     const [{ data: movsData }, { data: leadsData }, { data: cotsData }] = await Promise.all([
       supabase.from('cash_movements').select('*').order('fecha', { ascending: false }),
-      supabase.from('leads').select('id, name, company').order('name'),
-      supabase.from('quotations').select('id, name, specialty, total, notes').order('updated_at', { ascending: false }),
+      supabaseAll.from('leads').select('id, name, company').order('name'),
+      supabaseAll.from('quotations').select('id, name, specialty, total, notes').order('updated_at', { ascending: false }),
     ])
     const leadsMap = new Map((leadsData || []).map((l: any) => [l.id, l]))
     const cotsMap = new Map((cotsData || []).map((c: any) => [c.id, c]))
@@ -5162,8 +5164,8 @@ function TabEfectivo() {
   // Refresca SOLO los catálogos de lead/cotización (sin recargar toda la lista)
   const loadCatalogs = async () => {
     const [{ data: leadsData }, { data: cotsData }] = await Promise.all([
-      supabase.from('leads').select('id, name, company').order('name'),
-      supabase.from('quotations').select('id, name, specialty, total, notes').order('updated_at', { ascending: false }),
+      supabaseAll.from('leads').select('id, name, company').order('name'),
+      supabaseAll.from('quotations').select('id, name, specialty, total, notes').order('updated_at', { ascending: false }),
     ])
     if (leadsData) setLeads(leadsData)
     if (cotsData) setQuotations(cotsData)
