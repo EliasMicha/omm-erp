@@ -378,11 +378,27 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const cli = norm(jc.cliente)
     let leadId: string | null = null, leadName: string | null = null
     if (cli && Array.isArray(lr)) {
+      // Scoring: alias explicito (contactos) > match completo de nombre > 2+ palabras compartidas.
+      // Una sola palabra compartida (ej. "jose") NO basta — mejor "Sin asignar" que obra equivocada.
+      const cliWords = cli.split(' ').filter((w: string) => w.length > 3)
+      let best: { id: string; name: string; score: number } | null = null
       for (const l of lr) {
-        const hay = [l.name, l.contact_name, aliasByLead[l.id]].map(norm).filter(Boolean)
-        const hit = hay.some((h: string) => h && (h.includes(cli) || cli.includes(h) || h.split(' ').some((w: string) => w.length > 3 && cli.includes(w))))
-        if (hit) { leadId = l.id; leadName = l.name; break }
+        const alias = norm(aliasByLead[l.id])
+        let score = 0
+        if (alias && (alias.includes(cli) || cli.includes(alias) || alias.split(' ').some((w: string) => w.length > 3 && cliWords.includes(w)))) score = 100
+        else {
+          for (const h of [norm(l.name), norm(l.contact_name)]) {
+            if (!h) continue
+            if (h.includes(cli) || (cli.length > 7 && cli.includes(h))) { score = Math.max(score, 50); continue }
+            const hw = h.split(' ')
+            const shared = cliWords.filter((w: string) => hw.includes(w)).length
+            if (shared >= 2) score = Math.max(score, 20)
+          }
+        }
+        if (score > 0 && l.id in aliasByLead) score += 10 // obra activa en cobranza
+        if (score > (best ? best.score : 0)) best = { id: l.id, name: l.name, score }
       }
+      if (best && best.score >= 20) { leadId = best.id; leadName = best.name }
     }
     const rowC: any = {
       lead_id: leadId,
