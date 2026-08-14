@@ -1,5 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
-import { supabase } from '../lib/supabase'
+import { supabase, supabaseAll } from '../lib/supabase'
+// supabaseAll: los P&L y KPIs históricos incluyen lo archivado para que el
+// vendido/cobrado del año siga cuadrando con el banco.
 import { KpiCard, Table, Th, Td, Badge, Loading, SectionHeader, ProgressBar } from '../components/layout/UI'
 import { DollarSign, TrendingUp, TrendingDown, AlertTriangle, Receipt, Users, ShoppingCart, PieChart, ArrowUpRight, ArrowDownRight, Calendar, ChevronLeft, ChevronRight, BarChart3 } from 'lucide-react'
 import { useIsMobile } from '../lib/useIsMobile'
@@ -145,9 +147,9 @@ export default function Finanzas() {
       // Quotation items costs (for "Total Compras" = what needs to be purchased)
       supabase.from('quotation_items').select('id,quotation_id,cost,quantity,type'),
       // Leads (active)
-      supabase.from('leads').select('id,name,company,status,estimated_value').not('status', 'in', '("perdido","descartado")'),
+      supabaseAll.from('leads').select('id,name,company,status,estimated_value').not('status', 'in', '("perdido","descartado")'),
       // All quotations with lead_id from notes
-      supabase.from('quotations').select('id,name,specialty,stage,total,notes,project_id'),
+      supabaseAll.from('quotations').select('id,name,specialty,stage,total,notes,project_id'),
     ])
 
     setFacturasEmitidas(femRes.data || [])
