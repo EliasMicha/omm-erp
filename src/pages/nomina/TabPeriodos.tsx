@@ -4,11 +4,12 @@ import { F } from '../../lib/utils'
 import { Btn, Table, Th, Td, Loading, KpiCard, EmptyState, Badge } from '../../components/layout/UI'
 import {
   Calendar, DollarSign, Banknote, Clock, Plus, ChevronLeft, ChevronRight,
-  Save, RefreshCw, Lock, AlertCircle, CheckCircle2, Gift, Upload, FileText
+  Save, RefreshCw, Lock, AlertCircle, CheckCircle2, Gift, Upload, FileText, FileSpreadsheet
 } from 'lucide-react'
 import { parseSFacilNominaPDF, matchEmployeeByName, parseComprobantePagos } from '../../lib/nominaPdfParser'
 import { useIsMobile } from '../../lib/useIsMobile'
 import { OMNIIOUS_LOGO } from '../../assets/logo'
+import { descargarXlsx } from '../../lib/xlsxExport'
 
 /* ─────────────── Types ─────────────── */
 
@@ -654,6 +655,58 @@ export default function TabPeriodos() {
     setTimeout(() => { w.focus(); w.print() }, 400)
   }
 
+  // Mismo contenido que el PDF de efectivo pero en Excel, con el desglose
+  // abierto en columnas y los montos como números (para poder sumar y filtrar).
+  const descargarExcelEfectivo = () => {
+    const rows = mergedItems
+      .map(it => {
+        const emp = (it as any)._emp as Employee | undefined
+        const desc = (Number((it as any).descuento_infonavit_efectivo) || 0) + (Number((it as any).descuento_faltas) || 0)
+        return {
+          emp,
+          base: Number((it as any)._efectivoBase) || 0,
+          caja: Number((it as any).caja_chica) || 0,
+          he: Number((it as any).horas_extras_monto) || 0,
+          bonos: Number((it as any).bono_puntualidad) || 0,
+          desc,
+          total: Number((it as any)._totalEfectivo) || 0,
+        }
+      })
+      .filter(r => r.emp && r.total > 0.005)
+    if (rows.length === 0) { alert('No hay pagos en efectivo en este periodo.'); return }
+
+    const titulo = periodLabel(viewMode, range.start, range.end)
+    const suma = (f: (r: typeof rows[0]) => number) => rows.reduce((s, r) => s + f(r), 0)
+
+    descargarXlsx(`Efectivo ${titulo}`, [{
+      nombre: 'Efectivo',
+      columnas: [
+        { titulo: '#', ancho: 5 },
+        { titulo: 'Empleado', ancho: 34 },
+        { titulo: 'Puesto', ancho: 28 },
+        { titulo: 'Banco', ancho: 14 },
+        { titulo: 'Cuenta', ancho: 18 },
+        { titulo: 'CLABE', ancho: 22 },
+        { titulo: 'Efectivo base', ancho: 15, moneda: true },
+        { titulo: 'Cajas chicas', ancho: 14, moneda: true },
+        { titulo: 'Horas extra', ancho: 13, moneda: true },
+        { titulo: 'Bonos', ancho: 11, moneda: true },
+        { titulo: 'Descuentos', ancho: 13, moneda: true },
+        { titulo: 'Total efectivo', ancho: 15, moneda: true },
+        { titulo: 'Firma', ancho: 22 },
+      ],
+      filas: rows.map((r, i) => [
+        i + 1, r.emp!.nombre, r.emp!.puesto || '', r.emp!.banco || '', r.emp!.cuenta || '', r.emp!.clabe || '',
+        r.base, r.caja, r.he, r.bonos, r.desc ? -r.desc : 0, r.total, '',
+      ]),
+      totales: [
+        '', `TOTAL (${rows.length} empleados)`, '', '', '', '',
+        suma(r => r.base), suma(r => r.caja), suma(r => r.he), suma(r => r.bonos),
+        -suma(r => r.desc), suma(r => r.total), '',
+      ],
+    }])
+  }
+
   // ── Comprobante de transferencia (a nivel periodo) ──
   // Al subirlo, marca la transferencia como pagada y concilia todos los items.
   const subirComprobanteTransferencia = async (file: File) => {
@@ -1002,6 +1055,9 @@ export default function TabPeriodos() {
             </Btn>
             <Btn onClick={descargarPdfEfectivo} variant="ghost" style={{ fontSize: 12, color: '#f59e0b' }} title="PDF con los pagos en efectivo por empleado y su cuenta de depósito.">
               <FileText size={13} /> PDF Efectivo
+            </Btn>
+            <Btn onClick={descargarExcelEfectivo} variant="ghost" style={{ fontSize: 12, color: '#34d399' }} title="Excel (.xlsx) con el mismo efectivo, desglosado en columnas y con los montos como números para sumar y filtrar.">
+              <FileSpreadsheet size={13} /> Excel Efectivo
             </Btn>
 
             {!isClosed && (
