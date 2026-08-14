@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef, useMemo, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
+import { archivarCotizacion } from '../lib/archivo'
 import { fetchAllActiveCatalog } from '../lib/catalog'
 import { ANTHROPIC_API_KEY } from '../lib/config'
 import { Quotation, QuotationArea, QuotationItem, CatalogProduct, Project, ProjectLine, PurchasePhase } from '../types'
@@ -190,13 +191,20 @@ function CotDashboard({ onOpen, preferVersionId }: { onOpen: (id: string, specia
     return ''
   }
 
+  // "Eliminar" ARCHIVA: la cotización desaparece de esta lista y de todas las
+  // demás (CRM, tableros, cobranza, proyectos), pero sus pagos y facturas
+  // siguen cuadrando en Contabilidad. Se recupera en /archivados.
+  //
+  // Lo anterior borraba partidas y áreas ANTES de la cotización sin revisar
+  // ningún error: si la cotización estaba amarrada a un proyecto u orden de
+  // compra, Postgres rechazaba el último paso y quedaba una cotización vacía
+  // con el total intacto. Además el `setCots` optimista la quitaba de la
+  // pantalla aunque en la base siguiera viva.
   async function deleteQuotation(id: string, name: string) {
-    if (!confirm(`¿Eliminar la cotización "${name || 'Sin nombre'}"?\n\nEsta acción no se puede deshacer.`)) return
-    // Cascade: delete items → areas → quotation
-    await supabase.from('quotation_items').delete().eq('quotation_id', id)
-    await supabase.from('quotation_areas').delete().eq('quotation_id', id)
-    await supabase.from('quotations').delete().eq('id', id)
-    setCots(prev => prev.filter(q => q.id !== id))
+    if (!confirm(`¿Eliminar la cotización "${name || 'Sin nombre'}"?\n\nDejará de aparecer en todas las listas del ERP. La puedes recuperar en Archivados.`)) return
+    const r = await archivarCotizacion(id, authUser?.id)
+    if (!r.ok) { alert('No se pudo archivar: ' + r.error); return }
+    await loadCots()
   }
 
   // Available years from quotations
@@ -549,10 +557,10 @@ function CotDashboard({ onOpen, preferVersionId }: { onOpen: (id: string, specia
                   <Td>
                     <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                       <Btn size="sm" onClick={e => { e?.stopPropagation(); onOpen(c.id, c.specialty) }}>Abrir</Btn>
-                      {c.stage === 'oportunidad' && (
+                      {(
                         <button
                           onClick={e => { e.stopPropagation(); deleteQuotation(c.id, c.name) }}
-                          title="Eliminar cotización (solo en etapa Oportunidad)"
+                          title="Eliminar: la archiva y deja de aparecer en todas las listas (recuperable en Archivados)"
                           style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer', padding: 4, borderRadius: 4, display: 'flex', alignItems: 'center' }}
                           onMouseEnter={e => (e.currentTarget.style.color = '#DC2626')}
                           onMouseLeave={e => (e.currentTarget.style.color = '#555')}
