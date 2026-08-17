@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef, useMemo } from 'react'
 import { supabase } from '../lib/supabase'
+import { insertarOC } from '../lib/oc'
 import { fetchAllActiveCatalog } from '../lib/catalog'
 import { ANTHROPIC_API_KEY } from '../lib/config'
 import { Project, CatalogProduct, ProjectLine, PurchasePhase } from '../types'
@@ -204,34 +205,6 @@ function SelectField({ label, value, onChange, options, placeholder }: {
       </select>
     </label>
   )
-}
-
-// ════════════════════════════════════════════════════════════════════════════
-// Folio de OC — se derivaba de COUNT(*) de las OC del mes, así que en cuanto se
-// borraba una el contador quedaba POR DEBAJO del último folio usado y chocaba
-// con el UNIQUE de po_number. Caso real 2026-08: 15 OCs en el mes pero el
-// máximo era OC-2608-016, así que todo intento devolvía
-// "duplicate key value violates unique constraint purchase_orders_po_number_key".
-// Ahora se deriva del MÁXIMO y, si aun así choca (dos personas guardando a la
-// vez), reintenta con el siguiente folio libre.
-// ════════════════════════════════════════════════════════════════════════════
-async function insertarOC(payload: Record<string, any>, intentos = 15): Promise<any> {
-  const now = new Date()
-  const prefix = `OC-${String(now.getFullYear()).slice(2)}${String(now.getMonth() + 1).padStart(2, '0')}`
-  const { data } = await supabase.from('purchase_orders').select('po_number')
-    .like('po_number', `${prefix}%`).order('po_number', { ascending: false }).limit(1)
-  const ultimo = (data && (data as any[])[0]?.po_number) || ''
-  let n = (parseInt(String(ultimo).split('-')[2] || '0', 10) || 0) + 1
-  let ultimoRes: any = null
-  for (let i = 0; i < intentos; i++, n++) {
-    const res = await supabase.from('purchase_orders')
-      .insert({ ...payload, po_number: `${prefix}-${String(n).padStart(3, '0')}` })
-      .select().single()
-    if (!res.error) return res
-    ultimoRes = res
-    if ((res.error as any).code !== '23505') return res   // otro error: no insistir
-  }
-  return ultimoRes
 }
 
 // ════════════════════════════════════════════════════════════════════════════
