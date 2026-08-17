@@ -288,6 +288,41 @@ async function callFacturapi(action: string, opts: { method?: string; query?: Re
   return { ok: res.ok, status: res.status, data }
 }
 
+
+// ════════════════════════════════════════════════════════════════════════════
+// syncFacturapiCustomer — deja el cliente de FacturAPI IDÉNTICO al del ERP
+// ANTES de timbrar.
+//
+// Por qué existe: el payload de la factura manda solo `customer: <id>`, así que
+// FacturAPI sella con SU propia copia del cliente. Antes solo se creaba el
+// customer la primera vez y nunca se volvía a tocar → si corregías el régimen
+// fiscal en el ERP, el CFDI seguía saliendo con el régimen del alta original.
+// (Caso real: OC RESIDENCIAL, 603 en el ERP y 601 en el CFDI timbrado.)
+// ════════════════════════════════════════════════════════════════════════════
+async function syncFacturapiCustomer(cliente: any): Promise<{ id: string | null; error?: string }> {
+  if (!cliente) return { id: null, error: 'Cliente no encontrado' }
+  const payload: any = {
+    legal_name: cliente.razon_social,
+    tax_id: cliente.rfc,
+    tax_system: cliente.regimen_fiscal_clave || cliente.regimen_fiscal || '601',
+    address: { zip: cliente.codigo_postal || '01000' },
+  }
+  if (cliente.email) payload.email = cliente.email
+  if (!cliente.facturapi_customer_id) {
+    const cr = await callFacturapi('create_customer', { method: 'POST', body: { payload } })
+    if (!cr.ok) return { id: null, error: 'No se pudo crear el cliente en FacturAPI: ' + (cr.data?.message || 'desconocido') }
+    await supabase.from('clientes').update({ facturapi_customer_id: cr.data.id }).eq('id', cliente.id)
+    return { id: cr.data.id }
+  }
+  const ur = await callFacturapi('update_customer', { method: 'POST', query: { id: cliente.facturapi_customer_id }, body: { payload } })
+  if (!ur.ok) {
+    // NO timbramos a ciegas: si no podemos garantizar que los datos fiscales del
+    // CFDI son los del ERP, es preferible detenerse que emitir un CFDI incorrecto.
+    return { id: null, error: 'No se pudieron sincronizar los datos fiscales del cliente con FacturAPI: ' + (ur.data?.message || 'desconocido') + '. No se timbró para no emitir un CFDI con datos viejos.' }
+  }
+  return { id: cliente.facturapi_customer_id }
+}
+
 // ============================================================
 // Componente principal
 // ============================================================
@@ -480,20 +515,13 @@ function ListaTodas({ onEditar }: { onEditar?: (f: Factura) => void } = {}) {
     if (!confirm(`Timbrar la factura borrador?\n\nSerie: ${f.serie || '--'} Folio: ${f.folio || '--'}\nCliente: ${f.receptor_nombre}\nTotal: $${(f.total || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}\n\nEsta accion enviará el CFDI al SAT.`)) return
     setTimbrandoId(f.id)
     try {
+      // Sincroniza SIEMPRE los datos fiscales del cliente antes de timbrar.
       let facturapiCustomerId = f.facturapi_customer_id
-      if (!facturapiCustomerId && f.cliente_id) {
+      if (f.cliente_id) {
         const { data: clienteData } = await supabase.from('clientes').select('*').eq('id', f.cliente_id).single()
-        if (clienteData) {
-          const customerPayload = {
-            legal_name: clienteData.razon_social, tax_id: clienteData.rfc,
-            tax_system: clienteData.regimen_fiscal_clave || clienteData.regimen_fiscal || '601',
-            email: '', address: { zip: clienteData.codigo_postal || '01000' }
-          }
-          const cr = await callFacturapi('create_customer', { method: 'POST', body: { payload: customerPayload } })
-          if (!cr.ok) { alert('Error al crear cliente en FacturAPI: ' + (cr.data?.message || 'desconocido')); setTimbrandoId(null); return }
-          facturapiCustomerId = cr.data.id
-          await supabase.from('clientes').update({ facturapi_customer_id: facturapiCustomerId }).eq('id', f.cliente_id)
-        }
+        const sync = await syncFacturapiCustomer(clienteData)
+        if (!sync.id) { alert(sync.error || 'No se pudo preparar el cliente en FacturAPI'); setTimbrandoId(null); return }
+        facturapiCustomerId = sync.id
       }
       if (!facturapiCustomerId) { alert('No se pudo obtener el ID de FacturAPI del cliente'); setTimbrandoId(null); return }
       let invoicePayload: any
@@ -1367,23 +1395,13 @@ function ListaEmitidas({ onNueva, onEditar }: { onNueva: () => void; onEditar?: 
     setTimbrandoId(f.id)
 
     try {
-      // 1. Ensure FacturAPI customer exists
+      // 1. Sincroniza los datos fiscales del cliente con FacturAPI (crea o actualiza)
       let facturapiCustomerId = f.facturapi_customer_id
-      if (!facturapiCustomerId && f.cliente_id) {
+      if (f.cliente_id) {
         const { data: clienteData } = await supabase.from('clientes').select('*').eq('id', f.cliente_id).single()
-        if (clienteData) {
-          const customerPayload = {
-            legal_name: clienteData.razon_social,
-            tax_id: clienteData.rfc,
-            tax_system: clienteData.regimen_fiscal_clave || clienteData.regimen_fiscal || '601',
-            email: '',
-            address: { zip: clienteData.codigo_postal || '01000' }
-          }
-          const cr = await callFacturapi('create_customer', { method: 'POST', body: { payload: customerPayload } })
-          if (!cr.ok) { alert('Error al crear cliente en FacturAPI: ' + (cr.data?.message || 'desconocido')); setTimbrandoId(null); return }
-          facturapiCustomerId = cr.data.id
-          await supabase.from('clientes').update({ facturapi_customer_id: facturapiCustomerId }).eq('id', f.cliente_id)
-        }
+        const sync = await syncFacturapiCustomer(clienteData)
+        if (!sync.id) { alert(sync.error || 'No se pudo preparar el cliente en FacturAPI'); setTimbrandoId(null); return }
+        facturapiCustomerId = sync.id
       }
       if (!facturapiCustomerId) { alert('No se pudo obtener el ID de FacturAPI del cliente'); setTimbrandoId(null); return }
 
@@ -2342,25 +2360,15 @@ function NuevaFactura({ onCancel, onCreated, editingFactura }: { onCancel: () =>
     setEmitting(true)
 
     try {
-      let facturapiCustomerId = cliente.facturapi_customer_id
-
-      if (!facturapiCustomerId) {
-        const customerPayload = {
-          legal_name: cliente.razon_social,
-          tax_id: cliente.rfc,
-          tax_system: cliente.regimen_fiscal_clave || cliente.regimen_fiscal || '601',
-          email: '',
-          address: { zip: cliente.codigo_postal || '01000' }
-        }
-        const cr = await callFacturapi('create_customer', { method: 'POST', body: { payload: customerPayload } })
-        if (!cr.ok) {
-          setError('Error al crear cliente en FacturAPI: ' + (cr.data?.message || 'desconocido'))
-          setEmitting(false)
-          return
-        }
-        facturapiCustomerId = cr.data.id
-        await supabase.from('clientes').update({ facturapi_customer_id: facturapiCustomerId }).eq('id', clienteId)
+      // Sincroniza el cliente en FacturAPI (crea si no existe, actualiza si cambió)
+      // para que el CFDI se selle con los datos fiscales que están en el ERP.
+      const sync = await syncFacturapiCustomer(cliente)
+      if (!sync.id) {
+        setError(sync.error || 'No se pudo preparar el cliente en FacturAPI')
+        setEmitting(false)
+        return
       }
+      const facturapiCustomerId = sync.id
 
       // Construir payload segun tipo de comprobante
       let invoicePayload: any
@@ -2486,7 +2494,9 @@ function NuevaFactura({ onCancel, onCreated, editingFactura }: { onCancel: () =>
         receptor_rfc: cliente.rfc,
         receptor_nombre: cliente.razon_social,
         receptor_uso_cfdi: usoCfdi,
-        receptor_regimen_fiscal: cliente.regimen_fiscal_clave || cliente.regimen_fiscal,
+        // El régimen que quedó EN EL CFDI (lo que devuelve FacturAPI), no el local:
+        // si difieren, el ERP debe mostrar la verdad del comprobante.
+        receptor_regimen_fiscal: (invoice as any).customer?.tax_system || cliente.regimen_fiscal_clave || cliente.regimen_fiscal,
         receptor_codigo_postal: cliente.codigo_postal,
         subtotal,
         iva,
@@ -2519,7 +2529,7 @@ function NuevaFactura({ onCancel, onCreated, editingFactura }: { onCancel: () =>
         receptor_rfc: cliente.rfc,
         receptor_nombre: cliente.razon_social,
         receptor_uso_cfdi: 'CP01',
-        receptor_regimen_fiscal: cliente.regimen_fiscal_clave || cliente.regimen_fiscal,
+        receptor_regimen_fiscal: (invoice as any).customer?.tax_system || cliente.regimen_fiscal_clave || cliente.regimen_fiscal,
         receptor_codigo_postal: cliente.codigo_postal,
         // En REP el header SAT va en 0; el monto real es el del complemento de pago.
         // Guardamos el monto agregado (suma de todos los pagos) en `total` para KPIs.
