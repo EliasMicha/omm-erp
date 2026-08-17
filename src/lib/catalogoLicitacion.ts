@@ -14,8 +14,9 @@
 // sirve IGUAL para los 6 cotizadores: todos persisten sus partidas ahí.
 //
 // Agrupación:
-//   • Especiales (esp) → UNA PESTAÑA POR SISTEMA + pestaña "Instalación y P. en
-//     marcha" + pestaña "Resumen" que suma todo con referencias entre hojas.
+//   • Especiales (esp) → UNA PESTAÑA POR SISTEMA (cada una cierra con su propio
+//     concepto de instalación y puesta en marcha) + pestaña "Resumen" que suma
+//     todo con referencias entre hojas.
 //   • Las demás especialidades → una sola pestaña, agrupada por área.
 //
 // CONSOLIDACIÓN: un mismo producto capturado en varias áreas sale UNA SOLA VEZ
@@ -25,8 +26,10 @@
 // INSTALACIÓN (solo Especiales): en el cotizador de Especiales la instalación NO
 // es una partida, va escondida dentro de cada producto (`installation_cost`) y la
 // programación es un monto suelto en la config. Aquí se extraen y se presentan
-// como partida propia — que es como se licita, y además evita que el catálogo se
-// quedara corto contra el total real de la cotización.
+// como CONCEPTO AL FINAL DE CADA SISTEMA — que es como se licita, y además evita
+// que el catálogo se quedara corto contra el total real de la cotización.
+// La programación (monto global) se prorratea entre los sistemas en proporción a
+// su instalación, para que cada pestaña quede autocontenida y el total cuadre.
 // ═══════════════════════════════════════════════════════════════════════════
 import { supabase } from './supabase'
 import { descargarXlsx, HojaXlsx, Fila, Celda } from './xlsxExport'
@@ -149,7 +152,26 @@ export async function exportarCatalogoLicitacion(cotId: string, opts: OpcionesCa
       }
     }
   }
-  const hayInstalacion = esESP && (instPorSistema.size > 0 || programacion > 0)
+  // Concepto de cierre por sistema: instalación + su parte proporcional de programación
+  interface Extra { descripcion: string; especificacion: string; monto: number }
+  const extraPorGrupo = new Map<string, Extra>()
+  if (esESP) {
+    const totalInst = Array.from(instPorSistema.values()).reduce((a, b) => a + b, 0)
+    const sistemas = instPorSistema.size > 0 ? Array.from(instPorSistema.keys()) : (programacion > 0 ? nombresGrupo : [])
+    for (const sis of sistemas) {
+      const inst = instPorSistema.get(sis) || 0
+      const prog = programacion > 0
+        ? (totalInst > 0 ? programacion * (inst / totalInst) : programacion / Math.max(1, sistemas.length))
+        : 0
+      const monto = Math.round((inst + prog) * 100) / 100
+      if (monto <= 0) continue
+      extraPorGrupo.set(sis, {
+        descripcion: `Instalación, programación y puesta en marcha — ${sis}`,
+        especificacion: `Mano de obra especializada, cableado de interconexión, montaje y fijación de equipos, configuración y programación, pruebas de funcionamiento y puesta en marcha del sistema de ${sis}. Incluye material de instalación menor${prog > 0 ? ' y la parte proporcional de programación e integración correspondiente a este sistema' : ''}.`,
+        monto,
+      })
+    }
+  }
 
   // ── Consolidación ──
   function consolidar(arr: ItemDB[]): Concepto[] {
@@ -269,11 +291,23 @@ export async function exportarCatalogoLicitacion(cotId: string, opts: OpcionesCa
           ],
         })
       })
+      // Concepto de cierre del sistema (instalación + programación prorrateada)
+      const extra = extraPorGrupo.get(g)
+      if (extra) {
+        const fila = r++
+        if (opts.conPrecios) total += extra.monto
+        filas.push({
+          estilo: 'dato',
+          celdas: [`${gi + 1}.${arr.length + 1}`, extra.descripcion, extra.especificacion, '', '', 'LOTE', 1,
+            opts.conPrecios ? extra.monto : '',
+            { f: `${COL_CANT}${fila}*${COL_PU}${fila}`, v: opts.conPrecios ? extra.monto : 0 }],
+        })
+      }
       const rUltimo = r - 1
-      const sumaGrupo = arr.reduce((s, c) => s + c.precio * c.cantidad, 0)
+      const sumaGrupo = arr.reduce((s, c) => s + c.precio * c.cantidad, 0) + (extra ? extra.monto : 0)
       const formula = rUltimo >= rPrimero ? `SUM(${COL_IMP}${rPrimero}:${COL_IMP}${rUltimo})` : '0'
       // la fila de grupo se inserta en su lugar (antes de sus conceptos)
-      filas.splice(filas.length - arr.length, 0, {
+      filas.splice(filas.length - arr.length - (extra ? 1 : 0), 0, {
         estilo: 'grupo',
         celdas: [String(gi + 1), g.toUpperCase(), '', '', '', '', '', '', { f: formula, v: opts.conPrecios ? sumaGrupo : 0 }],
       })
@@ -290,56 +324,11 @@ export async function exportarCatalogoLicitacion(cotId: string, opts: OpcionesCa
     }
   }
 
-  // ── Hoja de instalación / programación / puesta en marcha (solo Especiales) ──
-  function hojaInstalacion(nombre: string) {
-    const filas: Fila[] = []
-    let r = FILAS_PORTADA + 2
-    const rGrupo = r++
-    const rPrimero = r
-    let total = 0
-    let ii = 0
-    const linea = (desc: string, espec: string, monto: number) => {
-      const fila = r++
-      total += monto
-      ii++
-      filas.push({
-        estilo: 'dato',
-        celdas: [`1.${ii}`, desc, espec, '', '', 'LOTE', 1,
-          opts.conPrecios ? monto : '',
-          { f: `${COL_CANT}${fila}*${COL_PU}${fila}`, v: opts.conPrecios ? monto : 0 }],
-      })
-    }
-    for (const [sis, monto] of Array.from(instPorSistema.entries()).sort((a, b) => a[0].localeCompare(b[0], 'es'))) {
-      linea(`Instalación y puesta en marcha — ${sis}`,
-        `Mano de obra especializada, cableado de interconexión, montaje y fijación de equipos, configuración, pruebas de funcionamiento y puesta en marcha del sistema de ${sis}. Incluye material de instalación menor.`,
-        monto)
-    }
-    if (programacion > 0) {
-      linea('Programación y configuración de sistemas',
-        'Programación de procesadores y paneles de control, diseño e implementación de interfaces de usuario, integración entre sistemas, escenas y automatizaciones, pruebas integrales y capacitación al usuario final.',
-        programacion)
-    }
-    const rUltimo = r - 1
-    filas.splice(0, 0, {
-      estilo: 'grupo',
-      celdas: ['1', 'INSTALACIÓN, PROGRAMACIÓN Y PUESTA EN MARCHA', '', '', '', '', '', '',
-        { f: `SUM(${COL_IMP}${rPrimero}:${COL_IMP}${rUltimo})`, v: opts.conPrecios ? total : 0 }],
-    })
-    const { filas: tot, rTot } = bloqueTotales(r, `${COL_IMP}${rGrupo}`, total)
-    return {
-      hoja: {
-        nombre, columnas: COLS_BASE, preFilas: portada('Instalación, programación y puesta en marcha'),
-        filas: [...filas, ...tot], notas: notasPie(), congelarEn: FILAS_PORTADA + 1,
-      } as HojaXlsx,
-      rTot, total,
-    }
-  }
-
   // ── Armado del libro ──
   const hojas: HojaXlsx[] = []
   const usados = new Set<string>()
 
-  if (esESP && (nombresGrupo.length > 1 || hayInstalacion)) {
+  if (esESP && nombresGrupo.length > 1) {
     const nombreResumen = nombreHoja('Resumen', usados)
     const construidas: { nombre: string; etiqueta: string; conceptos: number; piezas: number; rSubtotalGrupo: number; total: number }[] = []
 
@@ -348,14 +337,13 @@ export async function exportarCatalogoLicitacion(cotId: string, opts: OpcionesCa
       const { hoja, total } = hojaConceptos(nom, [g], g)
       hojas.push(hoja)
       const arr = consolidar(grupos.get(g) || [])
-      construidas.push({ nombre: nom, etiqueta: g.toUpperCase(), conceptos: arr.length, piezas: arr.reduce((s, c) => s + c.cantidad, 0), rSubtotalGrupo: FILAS_PORTADA + 2, total })
-    }
-    if (hayInstalacion) {
-      const nom = nombreHoja('Instalación y P. en marcha', usados)
-      const { hoja, total } = hojaInstalacion(nom)
-      hojas.push(hoja)
-      const n = instPorSistema.size + (programacion > 0 ? 1 : 0)
-      construidas.push({ nombre: nom, etiqueta: 'INSTALACIÓN, PROGRAMACIÓN Y PUESTA EN MARCHA', conceptos: n, piezas: n, rSubtotalGrupo: FILAS_PORTADA + 2, total })
+      const extra = extraPorGrupo.get(g)
+      construidas.push({
+        nombre: nom, etiqueta: g.toUpperCase(),
+        conceptos: arr.length + (extra ? 1 : 0),
+        piezas: arr.reduce((s, c) => s + c.cantidad, 0),
+        rSubtotalGrupo: FILAS_PORTADA + 2, total,
+      })
     }
 
     // Resumen: cada renglón apunta al subtotal de su hoja (fórmula entre hojas)
