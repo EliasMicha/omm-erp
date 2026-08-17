@@ -22,7 +22,9 @@ const TIPO_CFG: Record<Tipo, { label: string; color: string; icon: string; desc:
 
 interface Obra { id: string; nombre: string; project_id?: string | null }
 interface Emp { id: string; nombre: string }
-interface Linea { key: string; catalog_product_id: string | null; descripcion: string; marca: string | null; modelo: string | null; qty: number; unit: string }
+// `po_item_id` y `maxQty` solo se llenan cuando el renglón viene de una OC:
+// maxQty es lo PENDIENTE de recibir (pedido − ya recibido) y es el tope duro.
+interface Linea { key: string; catalog_product_id: string | null; descripcion: string; marca: string | null; modelo: string | null; qty: number; unit: string; po_item_id?: string | null; maxQty?: number | null }
 
 const F = (n: number) => Number(n || 0).toLocaleString('es-MX', { maximumFractionDigits: 2 })
 const fechaCorta = (d: string) => new Date((d || '').includes('T') ? d : d + 'T12:00:00').toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: '2-digit' })
@@ -531,6 +533,7 @@ function TabRegistrar({ obras, empleados, pos, catalog, obraProject, isMobile, o
   const [notas, setNotas] = useState('')
   const [fecha, setFecha] = useState(new Date().toISOString().slice(0, 10))
   const [lineas, setLineas] = useState<Linea[]>([])
+  const [avisoOC, setAvisoOC] = useState('')
   const [saving, setSaving] = useState(false)
 
   // Si venimos del Dashboard con una OC preseleccionada → recepción precargada
@@ -555,20 +558,64 @@ function TabRegistrar({ obras, empleados, pos, catalog, obraProject, isMobile, o
   const updLinea = (key: string, patch: Partial<Linea>) => setLineas(x => x.map(l => l.key === key ? { ...l, ...patch } : l))
   const rmLinea = (key: string) => setLineas(x => x.filter(l => l.key !== key))
 
+  // Precarga los renglones de una OC con lo que FALTA por recibir, no con lo
+  // pedido: si ya hubo una parcialidad, solo se ofrece el sobrante. Así una
+  // recepción duplicada (pasó con OC-2608-005, recibida dos veces) ya no puede
+  // volver a inflar el inventario.
   async function cargarDesdeOC(id: string) {
-    setPoId(id)
-    if (!id) { setPoQuotationId(null); return }
-    const [itR, poR] = await Promise.all([
-      supabase.from('po_items').select('catalog_product_id, name, marca, modelo, quantity, unit').eq('purchase_order_id', id),
+    setPoId(id); setAvisoOC('')
+    if (!id) { setPoQuotationId(null); setLineas([]); return }
+    const [itR, poR, mvR] = await Promise.all([
+      supabase.from('po_items').select('id, catalog_product_id, name, marca, modelo, quantity, unit').eq('purchase_order_id', id),
       supabase.from('purchase_orders').select('quotation_id').eq('id', id).single(),
+      supabase.from('stock_movements').select('po_item_id, catalog_product_id, modelo, descripcion, qty')
+        .eq('po_id', id).eq('tipo', 'recepcion_compra').eq('anulado', false),
     ])
     setPoQuotationId((poR.data as any)?.quotation_id || null)
-    setLineas(((itR.data as any[]) || []).map((it: any) => ({ key: Math.random().toString(36).slice(2), catalog_product_id: it.catalog_product_id || null, descripcion: it.name || '', marca: it.marca || '', modelo: it.modelo || '', qty: Number(it.quantity) || 1, unit: it.unit || 'pza' })))
+
+    // Los movimientos viejos no guardaban po_item_id; para esos se empata por
+    // producto de catálogo y, si no hay, por modelo/descripción.
+    const clave = (o: any) => o.catalog_product_id
+      ? 'c:' + o.catalog_product_id
+      : 'm:' + String(o.modelo || o.descripcion || o.name || '').trim().toLowerCase()
+    const porItem = new Map<string, number>()
+    const porClave = new Map<string, number>()
+    for (const m of ((mvR.data as any[]) || [])) {
+      const q = Number(m.qty) || 0
+      if (m.po_item_id) porItem.set(m.po_item_id, (porItem.get(m.po_item_id) || 0) + q)
+      else porClave.set(clave(m), (porClave.get(clave(m)) || 0) + q)
+    }
+
+    const nuevas: Linea[] = []
+    let completos = 0
+    for (const it of ((itR.data as any[]) || [])) {
+      const pedido = Number(it.quantity) || 0
+      const recibido = (porItem.get(it.id) || 0) + (porClave.get(clave(it)) || 0)
+      const pendiente = Math.round((pedido - recibido) * 100) / 100
+      if (pendiente <= 0) { completos++; continue }
+      nuevas.push({
+        key: Math.random().toString(36).slice(2),
+        catalog_product_id: it.catalog_product_id || null,
+        descripcion: it.name || '', marca: it.marca || '', modelo: it.modelo || '',
+        qty: pendiente, unit: it.unit || 'pza',
+        po_item_id: it.id, maxQty: pendiente,
+      })
+    }
+    setLineas(nuevas)
+    setAvisoOC(
+      nuevas.length === 0
+        ? '⚠ Esta orden ya está recibida por completo — no queda nada pendiente.'
+        : completos > 0
+          ? `Se cargó solo lo pendiente. ${completos} renglón(es) ya estaban recibidos completos y no se muestran.`
+          : ''
+    )
   }
 
   function validar(): string | null {
     if (lineas.length === 0) return 'Agrega al menos un producto.'
     if (lineas.some(l => !l.descripcion.trim() || !(l.qty > 0))) return 'Cada renglón necesita descripción y cantidad mayor a 0.'
+    const excede = lineas.find(l => l.maxQty != null && Number(l.qty) > (l.maxQty as number))
+    if (excede) return `"${excede.descripcion || excede.modelo}" excede lo pendiente de la orden de compra: máximo ${excede.maxQty}. Si de verdad llegó de más, quita el renglón de la OC y captúralo como renglón manual.`
     if (tipo === 'recepcion_compra' && destinoKind === 'obra' && !destinoObra) return 'Elige la obra destino.'
     if (tipo === 'bodega_a_obra' && !destinoObra) return 'Elige la obra destino.'
     if (tipo === 'obra_a_obra' && (!origenObra || !destinoObra)) return 'Elige obra origen y destino.'
@@ -607,6 +654,7 @@ function TabRegistrar({ obras, empleados, pos, catalog, obraProject, isMobile, o
         qty: Number(l.qty), unit: l.unit || 'pza', tipo,
         origen_tipo, origen_obra_id, destino_tipo, destino_obra_id, bucket_destino, proyecto_id,
         po_id: tipo === 'recepcion_compra' ? (poId || null) : null,
+        po_item_id: tipo === 'recepcion_compra' ? (l.po_item_id || null) : null,
         quotation_id: tipo === 'recepcion_compra' ? (poQuotationId || null) : null,
         motivo: tipo === 'obra_a_bodega' ? motivo : null,
         movido_por: movidoPor || null, movido_por_nombre: empName || null, recibido_por: recibidoPor || null,
@@ -655,6 +703,7 @@ function TabRegistrar({ obras, empleados, pos, catalog, obraProject, isMobile, o
                 <option value="">— Sin OC / captura manual —</option>
                 {pos.map((p: any) => <option key={p.id} value={p.id}>{[p.po_number, p._lead, p._prov].filter(Boolean).join('  ·  ')}</option>)}
               </select>
+              {avisoOC && <div style={{ fontSize: 11, color: avisoOC.startsWith('⚠') ? '#D97706' : '#888', marginTop: 6, lineHeight: 1.4 }}>{avisoOC}</div>}
             </div>
             <div>
               <label style={labelStyle}>¿A dónde llega?</label>
@@ -726,7 +775,12 @@ function TabRegistrar({ obras, empleados, pos, catalog, obraProject, isMobile, o
                   <td style={{ padding: '4px 6px' }}><input value={l.marca || ''} onChange={e => updLinea(l.key, { marca: e.target.value })} style={{ ...inputStyle, padding: '5px 7px' }} /></td>
                   <td style={{ padding: '4px 6px' }}><input value={l.modelo || ''} onChange={e => updLinea(l.key, { modelo: e.target.value })} style={{ ...inputStyle, padding: '5px 7px' }} /></td>
                   <td style={{ padding: '4px 6px' }}><input value={l.descripcion} onChange={e => updLinea(l.key, { descripcion: e.target.value })} style={{ ...inputStyle, padding: '5px 7px' }} /></td>
-                  <td style={{ padding: '4px 6px' }}><input type="number" min={0} value={l.qty} onChange={e => updLinea(l.key, { qty: Number(e.target.value) })} style={{ ...inputStyle, padding: '5px 7px', textAlign: 'center', fontWeight: 700 }} /></td>
+                  <td style={{ padding: '4px 6px' }}>
+                    <input type="number" min={0} max={l.maxQty ?? undefined} value={l.qty}
+                      onChange={e => { const v = Number(e.target.value); updLinea(l.key, { qty: l.maxQty != null ? Math.min(v, l.maxQty as number) : v }) }}
+                      style={{ ...inputStyle, padding: '5px 7px', textAlign: 'center', fontWeight: 700, borderColor: l.maxQty != null && l.qty > (l.maxQty as number) ? '#DC2626' : (inputStyle as any).borderColor }} />
+                    {l.maxQty != null && <div style={{ fontSize: 9, color: '#666', textAlign: 'center', marginTop: 2 }}>pendiente {F(l.maxQty)}</div>}
+                  </td>
                   <td style={{ padding: '4px 6px', textAlign: 'center' }}><button onClick={() => rmLinea(l.key)} style={{ background: 'none', border: 'none', color: '#DC2626', cursor: 'pointer' }}><Trash2 size={14} /></button></td>
                 </tr>
               ))}
