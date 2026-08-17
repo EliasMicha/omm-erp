@@ -6,6 +6,29 @@ import { Users2, Plus, Search, Edit, Trash2, X, CheckCircle, Building2, Upload }
 import { ANTHROPIC_API_KEY } from '../lib/config'
 import { useIsMobile } from '../lib/useIsMobile'
 
+// Empuja los datos fiscales a FacturAPI cuando el cliente ya está dado de alta allá.
+// Sin esto, editar el régimen/CP/razón social en el ERP no cambia nada en los CFDI:
+// al timbrar solo se manda el ID del customer y FacturAPI sella con SU copia.
+async function pushFiscalAFacturapi(c: any): Promise<string | null> {
+  if (!c || !c.facturapi_customer_id) return null
+  try {
+    const payload: any = {
+      legal_name: c.razon_social,
+      tax_id: c.rfc,
+      tax_system: c.regimen_fiscal_clave || '601',
+      address: { zip: c.codigo_postal || '01000' },
+    }
+    if (c.email) payload.email = c.email
+    const mode = (c as any).sandbox ? 'test' : 'live'
+    const r = await fetch(`/api/facturapi?action=update_customer&mode=${mode}&id=${encodeURIComponent(c.facturapi_customer_id)}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ payload }),
+    })
+    const j = await r.json().catch(() => ({}))
+    if (!r.ok) return j?.message || j?.error || 'FacturAPI rechazó la actualización'
+    return null
+  } catch (e: any) { return String(e?.message || e) }
+}
+
 interface ClienteFiscal {
   id: string
   rfc: string
@@ -163,6 +186,14 @@ export default function Clientes() {
         }
         if (data) {
           setClientes(clientes.map(c => c.id === editId ? { ...c, ...data, activo: data.activo !== false } : c))
+          // Propagar a FacturAPI: si no, los CFDI siguen saliendo con los datos viejos.
+          const err = await pushFiscalAFacturapi(data)
+          if (err) {
+            setSaveError('Se guardó en el ERP, pero NO se pudo actualizar en FacturAPI: ' + err +
+              '. Las facturas nuevas podrían salir con los datos anteriores — vuelve a guardar o avísale a soporte.')
+            setSaving(false)
+            return
+          }
         }
       } else {
         const { data, error } = await supabase.from('clientes')
