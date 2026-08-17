@@ -206,6 +206,66 @@ function SelectField({ label, value, onChange, options, placeholder }: {
   )
 }
 
+// ════════════════════════════════════════════════════════════════════════════
+// Folio de OC — se derivaba de COUNT(*) de las OC del mes, así que en cuanto se
+// borraba una el contador quedaba POR DEBAJO del último folio usado y chocaba
+// con el UNIQUE de po_number. Caso real 2026-08: 15 OCs en el mes pero el
+// máximo era OC-2608-016, así que todo intento devolvía
+// "duplicate key value violates unique constraint purchase_orders_po_number_key".
+// Ahora se deriva del MÁXIMO y, si aun así choca (dos personas guardando a la
+// vez), reintenta con el siguiente folio libre.
+// ════════════════════════════════════════════════════════════════════════════
+async function insertarOC(payload: Record<string, any>, intentos = 15): Promise<any> {
+  const now = new Date()
+  const prefix = `OC-${String(now.getFullYear()).slice(2)}${String(now.getMonth() + 1).padStart(2, '0')}`
+  const { data } = await supabase.from('purchase_orders').select('po_number')
+    .like('po_number', `${prefix}%`).order('po_number', { ascending: false }).limit(1)
+  const ultimo = (data && (data as any[])[0]?.po_number) || ''
+  let n = (parseInt(String(ultimo).split('-')[2] || '0', 10) || 0) + 1
+  let ultimoRes: any = null
+  for (let i = 0; i < intentos; i++, n++) {
+    const res = await supabase.from('purchase_orders')
+      .insert({ ...payload, po_number: `${prefix}-${String(n).padStart(3, '0')}` })
+      .select().single()
+    if (!res.error) return res
+    ultimoRes = res
+    if ((res.error as any).code !== '23505') return res   // otro error: no insistir
+  }
+  return ultimoRes
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Selector de OBRA para una OC. Antes solo listaba `projects`, que es el
+// catálogo de planos y casi nunca es lo que se busca. Una OC se compra CONTRA
+// una obra vendida, así que la lista se arma desde las cotizaciones en
+// propuesta/contrato y muestra CLIENTE (lead) — COTIZACIÓN · proyecto.
+// Al elegir se guardan de una vez quotation_id, lead_id y project_id.
+// ════════════════════════════════════════════════════════════════════════════
+export interface OpcionObra { value: string; label: string; projectId: string | null; leadId: string | null }
+
+async function cargarObras(): Promise<OpcionObra[]> {
+  const [{ data: quots }, { data: leads }] = await Promise.all([
+    supabase.from('quotations')
+      .select('id,name,stage,specialty,notes,updated_at,project:projects!quotations_project_id_fkey(id,name)')
+      .in('stage', ['propuesta', 'contrato']).order('updated_at', { ascending: false }),
+    supabase.from('leads').select('id,name,company'),
+  ])
+  const nombreLead = new Map<string, string>()
+  for (const l of (leads || []) as any[]) nombreLead.set(l.id, l.company || l.name || '')
+  return ((quots || []) as any[]).map(q => {
+    let leadId: string | null = null
+    try { leadId = JSON.parse(q.notes || '{}').lead_id || null } catch { /* notas libres */ }
+    const lead = leadId ? (nombreLead.get(leadId) || '') : ''
+    const proj = (q.project as any)?.name || ''
+    return {
+      value: q.id,
+      projectId: (q.project as any)?.id || null,
+      leadId,
+      label: `${lead || '(sin cliente)'} — ${q.name || 'Cotización'}${proj ? ` · ${proj}` : ''} · ${q.stage === 'contrato' ? 'Contrato' : 'Propuesta'}`,
+    }
+  })
+}
+
 function SearchableSelect({ label, value, onChange, options, placeholder }: {
   label: string; value: string; onChange: (v: string) => void
   options: { value: string; label: string }[]; placeholder?: string
@@ -1142,7 +1202,7 @@ function POFromPDFModal({ onClose, onCreated }: { onClose: () => void; onCreated
   const [error, setError] = useState('')
   const [extracted, setExtracted] = useState<any>(null)
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
-  const [projects, setProjects] = useState<Project[]>([])
+  const [obras, setObras] = useState<OpcionObra[]>([])
   const [saving, setSaving] = useState(false)
 
   // Form state for review step
@@ -1160,10 +1220,10 @@ function POFromPDFModal({ onClose, onCreated }: { onClose: () => void; onCreated
   useEffect(() => {
     Promise.all([
       supabase.from('suppliers').select('*').eq('is_active', true).order('name'),
-      supabase.from('projects').select('*').order('name'),
-    ]).then(([s, p]) => {
-      setSuppliers((s.data as Supplier[]) || [])
-      setProjects((p.data as Project[]) || [])
+      cargarObras(),
+    ]).then(([s, o]) => {
+      setSuppliers(((s as any).data as Supplier[]) || [])
+      setObras(o as OpcionObra[])
     })
   }, [])
 
@@ -1349,16 +1409,13 @@ REGLAS:
       return
     }
 
-    // Generate folio
-    const now = new Date()
-    const prefix = `OC-${String(now.getFullYear()).slice(2)}${String(now.getMonth() + 1).padStart(2, '0')}`
-    const { count } = await supabase.from('purchase_orders').select('id', { count: 'exact', head: true }).like('po_number', `${prefix}%`)
-    const num = String((count || 0) + 1).padStart(3, '0')
-    const po_number = `${prefix}-${num}`
+    // `projectId` guarda el id de la COTIZACIÓN elegida; de ahí salen proyecto y lead.
+    const obra = obras.find(o => o.value === projectId)
 
-    const { data: po, error: err } = await supabase.from('purchase_orders').insert({
-      po_number,
-      project_id: projectId || null,
+    const { data: po, error: err } = await insertarOC({
+      project_id: obra?.projectId || null,
+      quotation_id: projectId || null,
+      lead_id: obra?.leadId || null,
       supplier_id: finalSupplierId,
       specialty,
       status: 'borrador',
@@ -1369,7 +1426,7 @@ REGLAS:
       currency,
       supplier_doc_number: docNumber || null,
       notes: notes || null,
-    }).select().single()
+    })
 
     if (err || !po) {
       setError(err?.message || 'Error al crear OC')
@@ -1481,8 +1538,8 @@ REGLAS:
             {/* Proyecto + Especialidad + Fase + Moneda */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
               <div>
-                <SearchableSelect label="Obra / Proyecto" value={projectId} onChange={setProjectId}
-                  options={projects.map(p => ({ value: p.id, label: p.name }))} placeholder="-- Sin proyecto --" />
+                <SearchableSelect label="Obra (cliente — cotización)" value={projectId} onChange={setProjectId}
+                  options={obras} placeholder="-- Sin obra --" />
               </div>
               <div>
                 <label style={labelStyle}>Moneda</label>
@@ -1551,36 +1608,30 @@ REGLAS:
 //  NUEVA PO (MANUAL)
 // ═══════════════════════════════════════════════════════════════════════════════
 function NuevaPOModal({ onClose, onCreated }: { onClose: () => void; onCreated: (id: string) => void }) {
-  const [projects, setProjects] = useState<Project[]>([])
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
+  const [obras, setObras] = useState<OpcionObra[]>([])
   const [form, setForm] = useState({ project_id: '', supplier_id: '', specialty: 'esp' as ProjectLine, notes: '' })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
   useEffect(() => {
-    supabase.from('projects').select('*').eq('status', 'activo').order('name').then(({ data }) => setProjects(data || []))
+    cargarObras().then(setObras)
     supabase.from('suppliers').select('*').eq('is_active', true).order('name').then(({ data }) => setSuppliers(data || []))
   }, [])
 
   async function crear() {
     setSaving(true); setError('')
-    // Generate PO number: OC-YYMM-NNN
-    const now = new Date()
-    const prefix = `OC-${String(now.getFullYear()).slice(2)}${String(now.getMonth() + 1).padStart(2, '0')}`
-    const { count } = await supabase.from('purchase_orders').select('id', { count: 'exact', head: true })
-      .like('po_number', `${prefix}%`)
-    const num = String((count || 0) + 1).padStart(3, '0')
-    const po_number = `${prefix}-${num}`
-
-    const { data, error: err } = await supabase.from('purchase_orders').insert({
-      po_number,
-      project_id: form.project_id || null,
+    const obra = obras.find(o => o.value === form.project_id)
+    const { data, error: err } = await insertarOC({
+      project_id: obra?.projectId || null,
+      quotation_id: form.project_id || null,
+      lead_id: obra?.leadId || null,
       supplier_id: form.supplier_id || null,
       specialty: form.specialty,
       status: 'borrador',
       subtotal: 0, iva: 0, total: 0,
       notes: form.notes || null,
-    }).select().single()
+    })
 
     setSaving(false)
     if (err) { setError(err.message); return }
@@ -1595,8 +1646,8 @@ function NuevaPOModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer' }}><X size={18} /></button>
         </div>
         <div style={{ display: 'grid', gap: 14 }}>
-          <SelectField label="Proyecto" value={form.project_id} onChange={v => setForm(f => ({ ...f, project_id: v }))}
-            options={projects.map(p => ({ value: p.id, label: `${p.name} — ${p.client_name}` }))} placeholder="-- Seleccionar proyecto --" />
+          <SearchableSelect label="Obra (cliente — cotización)" value={form.project_id} onChange={v => setForm(f => ({ ...f, project_id: v }))}
+            options={obras} placeholder="-- Seleccionar obra --" />
           <SelectField label="Proveedor" value={form.supplier_id} onChange={v => setForm(f => ({ ...f, supplier_id: v }))}
             options={suppliers.map(s => ({ value: s.id, label: s.name }))} placeholder="-- Seleccionar proveedor --" />
           <label style={{ fontSize: 11, color: '#555', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
@@ -1822,12 +1873,6 @@ function POFromQuoteModal({ onClose, onCreated }: { onClose: () => void; onCreat
     const quote = quotations.find(q => q.id === selectedQuote)
     if (!quote) { setError('Cotización no encontrada'); setSaving(false); return }
 
-    const now = new Date()
-    const prefix = `OC-${String(now.getFullYear()).slice(2)}${String(now.getMonth() + 1).padStart(2, '0')}`
-    const { count } = await supabase.from('purchase_orders').select('id', { count: 'exact', head: true }).like('po_number', `${prefix}%`)
-    const num = String((count || 0) + 1).padStart(3, '0')
-    const po_number = `${prefix}-${num}`
-
     const supplierName = suppliers.find(s => s.id === selectedSupplier)?.name || ''
     const phaseCfg = PHASE_CONFIG[selectedPhase]
 
@@ -1840,18 +1885,15 @@ function POFromQuoteModal({ onClose, onCreated }: { onClose: () => void; onCreat
 
     const currencies = (['MXN','USD'] as const).filter(c => itemsByCurrency[c].length > 0)
     let createdIds: string[] = []
-    let baseCount = count || 0
 
     for (let ci = 0; ci < currencies.length; ci++) {
       const cur = currencies[ci]
       const groupItems = itemsByCurrency[cur]
       const groupSubtotal = groupItems.reduce((s: number, it: any) => s + (it.cost * it.quantity), 0)
       const groupIva = Math.round(groupSubtotal * 0.16)
-      const thisNum = String(baseCount + 1 + ci).padStart(3, '0')
-      const thisPoNumber = `${prefix}-${thisNum}`
-
-      const { data: po, error: err } = await supabase.from('purchase_orders').insert({
-        po_number: thisPoNumber,
+      // insertarOC resuelve el folio libre en cada llamada, así que dos OC
+      // seguidas (MXN y USD) salen consecutivas sin chocar.
+      const { data: po, error: err } = await insertarOC({
         project_id: quote.project_id || null,
         supplier_id: selectedSupplier || null,
         quotation_id: quote.id,
@@ -1863,7 +1905,7 @@ function POFromQuoteModal({ onClose, onCreated }: { onClose: () => void; onCreat
         total: groupSubtotal + groupIva,
         currency: cur,
         notes: `${quote.name} | ${supplierName} | ${phaseCfg?.label || selectedPhase}${currencies.length > 1 ? ' | ' + cur : ''}`,
-      }).select().single()
+      })
 
       if (err || !po) { setError(err?.message || 'Error al crear'); setSaving(false); return }
       createdIds.push(po.id)
