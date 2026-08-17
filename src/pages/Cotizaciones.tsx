@@ -21,6 +21,7 @@ import { useAuth } from '../contexts/AuthContext'
 import CotEditorProyecto from './CotEditorProyecto'
 import { autoCreateProjectFromQuotation } from '../lib/projectUtils'
 import { DEFAULT_TC } from '../lib/fx'
+import BotonCatalogo from '../components/BotonCatalogo'
 
 interface Supplier { id: string; name: string }
 
@@ -2255,6 +2256,7 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
             <Btn size="sm" onClick={() => setShowPdfPicker(true)} style={{marginLeft:4}}>
               <FileText size={12}/> Exportar PDF
             </Btn>
+            <span style={{marginLeft:4,display:'inline-flex'}}><BotonCatalogo cotId={cotId} /></span>
             {cot.stage === 'contrato' && (
               <Btn size="sm" onClick={generatePurchaseOrders} disabled={generating} style={{marginLeft:4}}>
                 <Zap size={12}/> {generating ? 'Generando...' : 'Regenerar OC'}
