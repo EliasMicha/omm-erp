@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef } from 'react'
 import { supabase } from '../lib/supabase'
+import BotonCatalogo from '../components/BotonCatalogo'
 import { F, FUSD } from '../lib/utils'
 import { ChevronLeft, Plus, Trash2, Printer, Upload, Search, Loader2 } from 'lucide-react'
 import VersionManager from '../components/VersionManager'
@@ -268,6 +269,7 @@ export default function CotEditorDistribucion({ cotId, onBack, onSwitchVersion }
             style={{ ...inp, width: 52, padding: '3px 6px', textAlign: 'right' }} />
         </label>
         <button onClick={exportPdf} style={{ padding: '4px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #67E8F9', background: '#67E8F922', color: '#67E8F9', display: 'flex', alignItems: 'center', gap: 4 }}><Printer size={12} /> PDF</button>
+<BotonCatalogo cotId={cotId} />
         <VersionManager cotId={cotId} getCurrentSnapshot={() => JSON.stringify({ items, config })} onSwitchVersion={onSwitchVersion || (() => {})} accentColor="#F59E0B" compact={isMobile} />
       </div>
 
