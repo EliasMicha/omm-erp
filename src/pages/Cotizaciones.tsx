@@ -2339,8 +2339,41 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
             )}
             {!isIlum && filtering && <span style={{fontSize:10,color:'#666'}}>{displayItems.length} ítem(s) en {new Set(displayItems.map(i=>i.area_id)).size} área(s)</span>}
             {propMsg && <span style={{fontSize:10,color:'#10B981',background:'#0f2a1a',border:'1px solid #1f3a2a',borderRadius:6,padding:'2px 8px'}}>↻ {propMsg}</span>}
+            <div style={{position:'relative',marginLeft:'auto'}}>
+              <button onClick={() => setMonedaMenu(v => !v)} title="Cambiar la moneda de esta cotización"
+                style={{fontSize:10,fontWeight:700,fontFamily:'inherit',cursor:'pointer',borderRadius:8,padding:'4px 10px',
+                  color: config.currency === 'USD' ? '#06B6D4' : '#F59E0B',
+                  background: config.currency === 'USD' ? '#06B6D418' : '#F59E0B18',
+                  border: '1px solid ' + (config.currency === 'USD' ? '#06B6D455' : '#F59E0B55')}}>
+                Moneda: {config.currency} ⇄
+              </button>
+              {monedaMenu && (
+                <div style={{position:'absolute',right:0,top:28,zIndex:60,width:270,background:'#141414',border:'1px solid #333',borderRadius:10,padding:12,boxShadow:'0 10px 30px rgba(0,0,0,0.65)'}}>
+                  <div style={{fontSize:11,color:'#ccc',fontWeight:600,marginBottom:8}}>Pasar de {config.currency} a {monedaDestino}</div>
+                  <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:10}}>
+                    <span style={{fontSize:10,color:'#888'}}>Tipo de cambio</span>
+                    <input type="number" step={0.01} min={0} value={config.tipoCambio}
+                      onChange={e => setConfig(c => ({ ...c, tipoCambio: parseFloat(e.target.value) || 0 }))}
+                      style={{width:70,padding:'3px 6px',background:'#0e0e0e',border:'1px solid #333',borderRadius:5,color:'#fff',fontSize:11,fontFamily:'inherit',textAlign:'right'}}/>
+                  </div>
+                  <button onClick={() => cambiarMoneda(monedaDestino, true)} disabled={monedaBusy}
+                    style={{width:'100%',marginBottom:6,padding:'7px 10px',borderRadius:7,fontSize:11,fontWeight:700,fontFamily:'inherit',cursor:monedaBusy?'default':'pointer',border:'1px solid #10B98155',background:'#10B98122',color:'#10B981'}}>
+                    {monedaBusy ? 'Convirtiendo…' : `Convertir los montos a ${monedaDestino}`}
+                  </button>
+                  <button onClick={() => cambiarMoneda(monedaDestino, false)} disabled={monedaBusy}
+                    style={{width:'100%',padding:'7px 10px',borderRadius:7,fontSize:11,fontWeight:600,fontFamily:'inherit',cursor:'pointer',border:'1px solid #333',background:'transparent',color:'#aaa'}}>
+                    Solo cambiar la etiqueta
+                  </button>
+                  <div style={{fontSize:9,color:'#666',marginTop:8,lineHeight:1.45}}>
+                    <b style={{color:'#888'}}>Convertir</b> recalcula precio, costo e instalación de las {items.length} partidas al TC.
+                    <b style={{color:'#888'}}> Solo etiqueta</b> deja los números igual — úsalo si ya estaban capturados en {monedaDestino}.
+                  </div>
+                  <div onClick={() => setMonedaMenu(false)} style={{fontSize:10,color:'#666',marginTop:8,cursor:'pointer',textAlign:'right'}}>Cerrar</div>
+                </div>
+              )}
+            </div>
             <button onClick={()=>setVistaAvanzada(v=>!v)} title="Muestra/oculta info administrativa (márgenes internos, distribuidor, fase, tipo)"
-              style={{marginLeft:'auto',fontSize:10,fontWeight:600,fontFamily:'inherit',cursor:'pointer',padding:'4px 10px',borderRadius:8,
+              style={{fontSize:10,fontWeight:600,fontFamily:'inherit',cursor:'pointer',padding:'4px 10px',borderRadius:8,
                 border:'1px solid '+(vistaAvanzada?'#D9770655':'#333'),background:vistaAvanzada?'#D9770618':'transparent',color:vistaAvanzada?'#D97706':'#777'}}>
               {vistaAvanzada?'Vista avanzada ✓':'Vista avanzada'}
             </button>
@@ -2471,42 +2504,7 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
           <div style={{borderTop:'1px solid #222',padding:'10px 14px',flexShrink:0,background:'#0e0e0e',fontSize:11,display:'grid',gridTemplateColumns: vistaAvanzada ? '1fr 1fr 1fr' : '1fr',gap:14}}>
             {/* Columna 1: Totales + IVA/Descuento editables */}
             <div style={{display:'flex',flexDirection:'column',gap:4}}>
-              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:2}}>
-                <span style={{fontSize:9,color:'#555',textTransform:'uppercase',letterSpacing:'0.06em',fontWeight:600}}>Totales</span>
-                <div style={{position:'relative'}}>
-                  <button onClick={() => setMonedaMenu(v => !v)} title="Cambiar la moneda de esta cotización"
-                    style={{fontSize:10,fontWeight:700,fontFamily:'inherit',cursor:'pointer',borderRadius:5,padding:'2px 8px',
-                      color: config.currency === 'USD' ? '#06B6D4' : '#F59E0B',
-                      background: config.currency === 'USD' ? '#06B6D422' : '#F59E0B22',
-                      border: '1px solid ' + (config.currency === 'USD' ? '#06B6D455' : '#F59E0B55')}}>
-                    {config.currency} ⇄
-                  </button>
-                  {monedaMenu && (
-                    <div style={{position:'absolute',right:0,bottom:26,zIndex:60,width:262,background:'#141414',border:'1px solid #333',borderRadius:10,padding:12,boxShadow:'0 10px 30px rgba(0,0,0,0.65)'}}>
-                      <div style={{fontSize:11,color:'#ccc',fontWeight:600,marginBottom:8}}>Pasar de {config.currency} a {monedaDestino}</div>
-                      <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:10}}>
-                        <span style={{fontSize:10,color:'#888'}}>Tipo de cambio</span>
-                        <input type="number" step={0.01} min={0} value={config.tipoCambio}
-                          onChange={e => setConfig(c => ({ ...c, tipoCambio: parseFloat(e.target.value) || 0 }))}
-                          style={{width:70,padding:'3px 6px',background:'#0e0e0e',border:'1px solid #333',borderRadius:5,color:'#fff',fontSize:11,fontFamily:'inherit',textAlign:'right'}}/>
-                      </div>
-                      <button onClick={() => cambiarMoneda(monedaDestino, true)} disabled={monedaBusy}
-                        style={{width:'100%',marginBottom:6,padding:'7px 10px',borderRadius:7,fontSize:11,fontWeight:700,fontFamily:'inherit',cursor:monedaBusy?'default':'pointer',border:'1px solid #10B98155',background:'#10B98122',color:'#10B981'}}>
-                        {monedaBusy ? 'Convirtiendo…' : `Convertir los montos a ${monedaDestino}`}
-                      </button>
-                      <button onClick={() => cambiarMoneda(monedaDestino, false)} disabled={monedaBusy}
-                        style={{width:'100%',padding:'7px 10px',borderRadius:7,fontSize:11,fontWeight:600,fontFamily:'inherit',cursor:'pointer',border:'1px solid #333',background:'transparent',color:'#aaa'}}>
-                        Solo cambiar la etiqueta
-                      </button>
-                      <div style={{fontSize:9,color:'#666',marginTop:8,lineHeight:1.45}}>
-                        <b style={{color:'#888'}}>Convertir</b> recalcula precio, costo e instalación de las {items.length} partidas al TC.
-                        <b style={{color:'#888'}}> Solo etiqueta</b> deja los números igual — úsalo si ya estaban capturados en {monedaDestino}.
-                      </div>
-                      <div onClick={() => setMonedaMenu(false)} style={{fontSize:10,color:'#666',marginTop:8,cursor:'pointer',textAlign:'right'}}>Cerrar</div>
-                    </div>
-                  )}
-                </div>
-              </div>
+              <div style={{fontSize:9,color:'#555',textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:2,fontWeight:600}}>Totales</div>
               <div style={{display:'flex',justifyContent:'space-between'}}>
                 <span style={{color:'#888'}}>Subtotal</span>
                 <span style={{color:'#ccc',fontWeight:600}}>{FC(kpiVenta)}</span>
