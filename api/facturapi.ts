@@ -105,6 +105,18 @@ export default async function handler(req: any, res: any) {
       return
     }
 
+    // Actualiza los datos fiscales del cliente en FacturAPI.
+    // Crítico: al timbrar se manda solo el ID del customer, así que FacturAPI
+    // sella con SU copia. Si el ERP cambia el régimen y no se sincroniza aquí,
+    // el CFDI sale con el régimen viejo.
+    if (action === 'update_customer') {
+      const id = req.query.id || req.body?.id
+      if (!id) { res.status(400).json({ error: 'id required' }); return }
+      const r = await facturapi('PUT', `/customers/${id}`, mode, req.body.payload)
+      res.status(r.status).json(r.data)
+      return
+    }
+
     if (action === 'get_customer') {
       const id = req.query.id
       if (!id) { res.status(400).json({ error: 'id required' }); return }
