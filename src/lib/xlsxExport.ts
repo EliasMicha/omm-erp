@@ -12,7 +12,11 @@
 // columnas y una fila de totales.
 // ═══════════════════════════════════════════════════════════════════════════
 
-export type Celda = string | number | null | undefined
+/** Celda con fórmula viva de Excel. `v` es el valor precalculado (para que se
+ *  vea el número aun antes de que Excel recalcule al abrir). */
+export interface CeldaFormula { f: string; v?: number }
+export type Celda = string | number | null | undefined | CeldaFormula
+const esFormula = (v: any): v is CeldaFormula => !!v && typeof v === 'object' && typeof (v as any).f === 'string'
 
 // Estilos de fila disponibles:
 //   titulo      → texto grande en negrita (portada del documento)
@@ -150,6 +154,11 @@ function hojaXml(h: HojaXlsx): string {
       const s = estiloCelda(estilo, moneda)
       if (v === null || v === undefined || v === '') {
         if (conBorde) cs.push(`<c r="${ref}" s="${s}"/>`)
+        continue
+      }
+      if (esFormula(v)) {
+        const val = typeof v.v === 'number' && isFinite(v.v) ? `<v>${Math.round(v.v * 100) / 100}</v>` : ''
+        cs.push(`<c r="${ref}" s="${s}"><f>${esc(v.f)}</f>${val}</c>`)
         continue
       }
       if (typeof v === 'number' && isFinite(v)) {
