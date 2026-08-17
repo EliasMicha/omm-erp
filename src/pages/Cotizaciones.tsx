@@ -21,7 +21,6 @@ import { useAuth } from '../contexts/AuthContext'
 import CotEditorProyecto from './CotEditorProyecto'
 import { autoCreateProjectFromQuotation } from '../lib/projectUtils'
 import { DEFAULT_TC } from '../lib/fx'
-import BotonCatalogo from '../components/BotonCatalogo'
 
 interface Supplier { id: string; name: string }
 
@@ -2205,7 +2204,7 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
 
   return (
     <div style={{display:'flex',flexDirection:'column',height:'100vh',overflow:'hidden'}}>
-      <div style={{padding:'8px 16px',borderBottom:'1px solid #222',display:'flex',alignItems:'center',gap:10,flexShrink:0,background:'#111'}}>
+      <div style={{padding:'8px 16px',borderBottom:'1px solid #222',display:'flex',alignItems:'center',gap:10,flexShrink:0,background:'#111',flexWrap:'wrap',rowGap:6}}>
         <button onClick={onBack} style={{background:'none',border:'none',color:'#666',cursor:'pointer',display:'flex',alignItems:'center',gap:4,fontSize:12}}>
           <ChevronLeft size={14}/> Cotizaciones
         </button>
@@ -2233,7 +2232,7 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
           ))}
         </div>
 
-        <div style={{marginLeft:'auto',display:'flex',gap:4,alignItems:'center'}}>
+        <div style={{marginLeft:'auto',display:'flex',gap:4,alignItems:'center',flexWrap:'wrap',rowGap:6,justifyContent:'flex-end'}}>
           {(Object.entries(STAGE_CONFIG) as any[]).map(([s,cfg]) => (
             <button key={s} onClick={()=>setStage(s)} style={{
               padding:'3px 10px',borderRadius:20,fontSize:10,fontWeight:600,cursor:'pointer',fontFamily:'inherit',
@@ -2256,7 +2255,6 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
             <Btn size="sm" onClick={() => setShowPdfPicker(true)} style={{marginLeft:4}}>
               <FileText size={12}/> Exportar PDF
             </Btn>
-            <span style={{marginLeft:4,display:'inline-flex'}}><BotonCatalogo cotId={cotId} /></span>
             {cot.stage === 'contrato' && (
               <Btn size="sm" onClick={generatePurchaseOrders} disabled={generating} style={{marginLeft:4}}>
                 <Zap size={12}/> {generating ? 'Generando...' : 'Regenerar OC'}
