@@ -20,6 +20,7 @@ import CotEditorDistribucion from './CotEditorDistribucion'
 import { useAuth } from '../contexts/AuthContext'
 import CotEditorProyecto from './CotEditorProyecto'
 import { autoCreateProjectFromQuotation } from '../lib/projectUtils'
+import { DEFAULT_TC } from '../lib/fx'
 
 interface Supplier { id: string; name: string }
 
@@ -999,9 +1000,12 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
   // Persistido en quotation.notes JSON.
   // Defaults eléctricos OMM: material 25% del subtotal, nómina 40% (máximo).
   // Esto deja un margen bruto de 35% antes de descuento.
-  const [config, setConfig] = useState<{ ivaRate: number; descuento: number; materialPct: number; nominaPct: number }>({
-    ivaRate: 16, descuento: 0, materialPct: 25, nominaPct: 40
+  const [config, setConfig] = useState<{ ivaRate: number; descuento: number; materialPct: number; nominaPct: number; currency: 'MXN' | 'USD'; tipoCambio: number }>({
+    ivaRate: 16, descuento: 0, materialPct: 25, nominaPct: 40, currency: 'MXN', tipoCambio: DEFAULT_TC
   })
+  // Cambio de moneda de la cotización (elec y demás especialidades del editor genérico)
+  const [monedaMenu, setMonedaMenu] = useState(false)
+  const [monedaBusy, setMonedaBusy] = useState(false)
 
   // Oculta el bot flotante mientras el editor está abierto (estorba sobre la tabla/totales)
   useEffect(() => {
@@ -1042,6 +1046,8 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
           descuento: typeof meta.descuento === 'number' ? meta.descuento : prev.descuento,
           materialPct: typeof meta.materialPct === 'number' ? meta.materialPct : prev.materialPct,
           nominaPct: typeof meta.nominaPct === 'number' ? meta.nominaPct : prev.nominaPct,
+          currency: meta.currency === 'USD' ? 'USD' : 'MXN',
+          tipoCambio: typeof meta.tipoCambio === 'number' && meta.tipoCambio > 0 ? meta.tipoCambio : prev.tipoCambio,
         }))
       } catch {}
       // Load change orders for Obra Real tab
@@ -1057,7 +1063,7 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
   }, [cotId])
 
   // Persistir cambios de config a notes JSON
-  async function saveConfig(patch: Partial<{ ivaRate: number; descuento: number; materialPct: number; nominaPct: number }>) {
+  async function saveConfig(patch: Partial<{ ivaRate: number; descuento: number; materialPct: number; nominaPct: number; currency: 'MXN' | 'USD'; tipoCambio: number }>) {
     const next = { ...config, ...patch }
     setConfig(next)
     if (!cot) return
@@ -1067,6 +1073,8 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
     meta.descuento = next.descuento
     meta.materialPct = next.materialPct
     meta.nominaPct = next.nominaPct
+    meta.currency = next.currency
+    meta.tipoCambio = next.tipoCambio
     await supabase.from('quotations').update({ notes: JSON.stringify(meta) }).eq('id', cotId)
     setCot(c => c ? { ...c, notes: JSON.stringify(meta) } : c)
   }
@@ -1414,6 +1422,44 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
   // Total de línea SIEMPRE derivado: precio × cantidad (no confiar en el campo `total` guardado,
   // que en cotizaciones viejas/importadas puede estar desfasado).
   const lineTot = (i: QuotationItem) => Math.round((Number(i.price) || 0) * (Number(i.quantity) || 0) * 100) / 100
+
+  // ─── Cambio de moneda de la cotización ───────────────────────────────────
+  // Dos caminos distintos a propósito, porque los dos casos reales son distintos:
+  //   • convertir = true  → la cotización SÍ estaba en la otra moneda y hay que
+  //     recalcular precios/costos al tipo de cambio (toca todas las partidas).
+  //   • convertir = false → los números ya están bien, lo que estaba mal era la
+  //     etiqueta (p. ej. una eléctrica capturada en pesos marcada como USD).
+  // La moneda vive en notes.currency, que es lo que leen Cobranza, CRM y el PDF.
+  async function cambiarMoneda(destino: 'MXN' | 'USD', convertir: boolean) {
+    if (!cot || destino === config.currency) { setMonedaMenu(false); return }
+    const tc = Number(config.tipoCambio) || 0
+    if (convertir) {
+      if (!(tc > 0)) { alert('Pon un tipo de cambio válido antes de convertir.'); return }
+      const factor = destino === 'MXN' ? tc : 1 / tc
+      const ok = confirm(
+        `¿Convertir TODOS los montos de ${config.currency} a ${destino} con TC ${tc}?\n\n` +
+        `Se recalculan precio, costo, instalación y total de ${items.length} partidas.\n` +
+        `Esto SÍ cambia el dinero de la cotización y no se deshace solo.`)
+      if (!ok) return
+      setMonedaBusy(true)
+      try {
+        const cv = (n: any) => (n === null || n === undefined || n === '') ? n : Math.round(Number(n) * factor * 100) / 100
+        const nuevos = items.map(i => ({
+          ...i,
+          price: cv(i.price),
+          cost: cv(i.cost),
+          installation_cost: cv((i as any).installation_cost),
+          total: cv(i.total),
+        })) as QuotationItem[]
+        await Promise.all(nuevos.map(i => supabase.from('quotation_items').update({
+          price: i.price, cost: i.cost, installation_cost: (i as any).installation_cost, total: i.total,
+        }).eq('id', i.id)))
+        setItems(nuevos)   // dispara el sync de quotations.total / total_final
+      } finally { setMonedaBusy(false) }
+    }
+    await saveConfig({ currency: destino, tipoCambio: tc > 0 ? tc : DEFAULT_TC })
+    setMonedaMenu(false)
+  }
 
   async function syncQuotationTotal(updatedItems: QuotationItem[]) {
     const sub = Math.round(updatedItems.reduce((s, i) => s + lineTot(i), 0) * 100) / 100
@@ -2120,6 +2166,9 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
   // IVA aplicado sobre subtotal con descuento
   const ivaAmt = ventaConDesc * (config.ivaRate || 0) / 100
   const totalConIva = ventaConDesc + ivaAmt
+  // Formateador que respeta la moneda de la cotización (US$ vs $)
+  const FC = (n: number) => FCUR(n, config.currency)
+  const monedaDestino: 'MXN' | 'USD' = config.currency === 'USD' ? 'MXN' : 'USD'
 
   // ─── COSTOS REALES REGISTRADOS (suma de cost × qty de cada item) ─────────
   const realMaterial = items
@@ -2422,10 +2471,45 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
           <div style={{borderTop:'1px solid #222',padding:'10px 14px',flexShrink:0,background:'#0e0e0e',fontSize:11,display:'grid',gridTemplateColumns: vistaAvanzada ? '1fr 1fr 1fr' : '1fr',gap:14}}>
             {/* Columna 1: Totales + IVA/Descuento editables */}
             <div style={{display:'flex',flexDirection:'column',gap:4}}>
-              <div style={{fontSize:9,color:'#555',textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:2,fontWeight:600}}>Totales</div>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:2}}>
+                <span style={{fontSize:9,color:'#555',textTransform:'uppercase',letterSpacing:'0.06em',fontWeight:600}}>Totales</span>
+                <div style={{position:'relative'}}>
+                  <button onClick={() => setMonedaMenu(v => !v)} title="Cambiar la moneda de esta cotización"
+                    style={{fontSize:10,fontWeight:700,fontFamily:'inherit',cursor:'pointer',borderRadius:5,padding:'2px 8px',
+                      color: config.currency === 'USD' ? '#06B6D4' : '#F59E0B',
+                      background: config.currency === 'USD' ? '#06B6D422' : '#F59E0B22',
+                      border: '1px solid ' + (config.currency === 'USD' ? '#06B6D455' : '#F59E0B55')}}>
+                    {config.currency} ⇄
+                  </button>
+                  {monedaMenu && (
+                    <div style={{position:'absolute',right:0,bottom:26,zIndex:60,width:262,background:'#141414',border:'1px solid #333',borderRadius:10,padding:12,boxShadow:'0 10px 30px rgba(0,0,0,0.65)'}}>
+                      <div style={{fontSize:11,color:'#ccc',fontWeight:600,marginBottom:8}}>Pasar de {config.currency} a {monedaDestino}</div>
+                      <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:10}}>
+                        <span style={{fontSize:10,color:'#888'}}>Tipo de cambio</span>
+                        <input type="number" step={0.01} min={0} value={config.tipoCambio}
+                          onChange={e => setConfig(c => ({ ...c, tipoCambio: parseFloat(e.target.value) || 0 }))}
+                          style={{width:70,padding:'3px 6px',background:'#0e0e0e',border:'1px solid #333',borderRadius:5,color:'#fff',fontSize:11,fontFamily:'inherit',textAlign:'right'}}/>
+                      </div>
+                      <button onClick={() => cambiarMoneda(monedaDestino, true)} disabled={monedaBusy}
+                        style={{width:'100%',marginBottom:6,padding:'7px 10px',borderRadius:7,fontSize:11,fontWeight:700,fontFamily:'inherit',cursor:monedaBusy?'default':'pointer',border:'1px solid #10B98155',background:'#10B98122',color:'#10B981'}}>
+                        {monedaBusy ? 'Convirtiendo…' : `Convertir los montos a ${monedaDestino}`}
+                      </button>
+                      <button onClick={() => cambiarMoneda(monedaDestino, false)} disabled={monedaBusy}
+                        style={{width:'100%',padding:'7px 10px',borderRadius:7,fontSize:11,fontWeight:600,fontFamily:'inherit',cursor:'pointer',border:'1px solid #333',background:'transparent',color:'#aaa'}}>
+                        Solo cambiar la etiqueta
+                      </button>
+                      <div style={{fontSize:9,color:'#666',marginTop:8,lineHeight:1.45}}>
+                        <b style={{color:'#888'}}>Convertir</b> recalcula precio, costo e instalación de las {items.length} partidas al TC.
+                        <b style={{color:'#888'}}> Solo etiqueta</b> deja los números igual — úsalo si ya estaban capturados en {monedaDestino}.
+                      </div>
+                      <div onClick={() => setMonedaMenu(false)} style={{fontSize:10,color:'#666',marginTop:8,cursor:'pointer',textAlign:'right'}}>Cerrar</div>
+                    </div>
+                  )}
+                </div>
+              </div>
               <div style={{display:'flex',justifyContent:'space-between'}}>
                 <span style={{color:'#888'}}>Subtotal</span>
-                <span style={{color:'#ccc',fontWeight:600}}>{F(kpiVenta)}</span>
+                <span style={{color:'#ccc',fontWeight:600}}>{FC(kpiVenta)}</span>
               </div>
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
                 <span style={{color: config.descuento > 0 ? '#DC2626' : '#888'}}>Descuento %</span>
@@ -2433,13 +2517,13 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
                   <input type="number" min={0} max={100} step={1} value={config.descuento}
                     onChange={e => saveConfig({ descuento: Math.min(100, Math.max(0, parseFloat(e.target.value) || 0)) })}
                     style={{width:48,padding:'2px 6px',background:'#1a1a1a',border:'1px solid #333',borderRadius:4,color:'#fff',fontSize:11,fontFamily:'inherit',textAlign:'right'}}/>
-                  {config.descuento > 0 && <span style={{color:'#DC2626',fontWeight:600,minWidth:80,textAlign:'right'}}>-{F(descAmt)}</span>}
+                  {config.descuento > 0 && <span style={{color:'#DC2626',fontWeight:600,minWidth:80,textAlign:'right'}}>-{FC(descAmt)}</span>}
                 </div>
               </div>
               {config.descuento > 0 && (
                 <div style={{display:'flex',justifyContent:'space-between'}}>
                   <span style={{color:'#888'}}>Subtotal c/ desc.</span>
-                  <span style={{color:'#ccc',fontWeight:600}}>{F(ventaConDesc)}</span>
+                  <span style={{color:'#ccc',fontWeight:600}}>{FC(ventaConDesc)}</span>
                 </div>
               )}
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
@@ -2448,12 +2532,12 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
                   <input type="number" min={0} max={16} step={1} value={config.ivaRate}
                     onChange={e => saveConfig({ ivaRate: Math.min(16, Math.max(0, parseFloat(e.target.value) || 0)) })}
                     style={{width:48,padding:'2px 6px',background:'#1a1a1a',border:'1px solid #333',borderRadius:4,color:'#fff',fontSize:11,fontFamily:'inherit',textAlign:'right'}}/>
-                  <span style={{color:'#888',minWidth:80,textAlign:'right'}}>{F(ivaAmt)}</span>
+                  <span style={{color:'#888',minWidth:80,textAlign:'right'}}>{FC(ivaAmt)}</span>
                 </div>
               </div>
               <div style={{display:'flex',justifyContent:'space-between',borderTop:'1px solid #333',paddingTop:4,marginTop:2}}>
                 <span style={{color:'#888',fontWeight:600}}>TOTAL</span>
-                <span style={{color:'#10B981',fontWeight:700,fontSize:13}}>{F(totalConIva)}</span>
+                <span style={{color:'#10B981',fontWeight:700,fontSize:13}}>{FC(totalConIva)} <span style={{fontSize:9,color:'#666',fontWeight:600}}>{config.currency}</span></span>
               </div>
             </div>
 
