@@ -21,6 +21,7 @@ import { useAuth } from '../contexts/AuthContext'
 import CotEditorProyecto from './CotEditorProyecto'
 import { autoCreateProjectFromQuotation } from '../lib/projectUtils'
 import { DEFAULT_TC } from '../lib/fx'
+import { insertarOC } from '../lib/oc'
 import BotonCatalogo from '../components/BotonCatalogo'
 
 interface Supplier { id: string; name: string }
@@ -1123,19 +1124,9 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
     }
 
     let created = 0
-    const now = new Date()
-    const prefix = `OC-${String(now.getFullYear()).slice(2)}${String(now.getMonth() + 1).padStart(2, '0')}`
-
-    // Get current count for numbering
-    const { count: baseCount } = await supabase.from('purchase_orders')
-      .select('id', { count: 'exact', head: true })
-      .like('po_number', `${prefix}%`)
-    let seq = (baseCount || 0)
 
     for (const [key, groupItems] of Object.entries(groups)) {
       const [supplierId, phase] = key.split('__')
-      seq++
-      const po_number = `${prefix}-${String(seq).padStart(3, '0')}`
 
       const subtotal = groupItems.reduce((s, it) => s + (it.cost * it.quantity), 0)
       const iva = Math.round(subtotal * 0.16)
@@ -1143,8 +1134,8 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
       const phaseCfg = PHASE_CONFIG[phase as PurchasePhase]
       const supplierName = suppliers.find(s => s.id === supplierId)?.name || ''
 
-      const { data: po, error: poErr } = await supabase.from('purchase_orders').insert({
-        po_number,
+      // insertarOC asigna el folio libre (antes se derivaba de COUNT y chocaba)
+      const { data: po, error: poErr } = await insertarOC({
         project_id: cot.project_id || null,
         supplier_id: supplierId,
         quotation_id: cotId,
@@ -1153,7 +1144,7 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
         purchase_phase: phase,
         subtotal, iva, total: subtotal + iva,
         notes: `Auto-generada | ${cot.name} | ${phaseCfg?.label || phase} | ${supplierName}`,
-      }).select().single()
+      })
 
       if (poErr || !po) continue
 
