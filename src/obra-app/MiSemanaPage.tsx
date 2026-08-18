@@ -85,8 +85,10 @@ export default function MiSemanaPage({ employeeId }: { employeeId: string }) {
     const dow = i === 6 ? 0 : i + 1 // Mon=1, Tue=2, ..., Sun=0
     const dayDate = new Date(weekStart)
     dayDate.setDate(dayDate.getDate() + i)
-    const assignment = assignments.find(a => a.day_of_week === dow)
-    return { dow, date: dayDate, assignment }
+    // Un instalador puede tener VARIAS obras el mismo día (Alfredo tiene 4 los
+    // lunes). Antes se usaba .find() y solo se veía la primera.
+    const delDia = assignments.filter(a => a.day_of_week === dow)
+    return { dow, date: dayDate, asignaciones: delDia, assignment: delDia[0] }
   })
 
   const urgenciaColor = (u: string) =>
@@ -157,7 +159,7 @@ export default function MiSemanaPage({ employeeId }: { employeeId: string }) {
         <div style={{ textAlign: 'center', padding: 40 }}>
           <Loader2 size={24} className="spin" />
         </div>
-      ) : daysOfWeek.filter(d => d.assignment).length === 0 ? (
+      ) : daysOfWeek.filter(d => d.asignaciones.length > 0).length === 0 ? (
         <div style={{
           padding: 24, textAlign: 'center',
           background: '#1a1a1a', border: '1px solid #2a2a2a',
@@ -168,7 +170,7 @@ export default function MiSemanaPage({ employeeId }: { employeeId: string }) {
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {daysOfWeek.map(({ dow, date, assignment }) => {
+          {daysOfWeek.map(({ dow, date, asignaciones, assignment }) => {
             const isToday = dow === todayDow && date.toDateString() === new Date().toDateString()
             const expanded = expandedDay === dow
             return (
@@ -201,9 +203,17 @@ export default function MiSemanaPage({ employeeId }: { employeeId: string }) {
                     {assignment?.obras ? (
                       <>
                         <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                          {assignment.obras.nombre}
+                          {asignaciones.length > 1
+                            ? `${asignaciones.length} obras`
+                            : assignment.obras.nombre}
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          {asignaciones.length > 1 && (
+                            <span style={{
+                              fontSize: 9, padding: '2px 6px', borderRadius: 8,
+                              background: '#a78bfa22', color: '#a78bfa', fontWeight: 700,
+                            }}>{asignaciones.map(a => a.obras?.nombre).filter(Boolean).join(' · ').slice(0, 40)}</span>
+                          )}
                           {assignment.urgencia !== 'normal' && (
                             <span style={{
                               fontSize: 9, padding: '2px 6px', borderRadius: 8,
@@ -230,24 +240,34 @@ export default function MiSemanaPage({ employeeId }: { employeeId: string }) {
                 </div>
 
                 {/* Expanded content */}
-                {expanded && assignment && (
-                  <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid #1f2a1f' }}>
-                    {(assignment.obras?.direccion_completa || assignment.obras?.direccion) && (
-                      <div style={{ display: 'flex', gap: 6, fontSize: 12, color: '#888', marginBottom: 8 }}>
-                        <MapPin size={13} style={{ flexShrink: 0, marginTop: 1 }} />
-                        <span>{(assignment.obras?.direccion_completa || assignment.obras?.direccion)}</span>
+                {expanded && asignaciones.length > 0 && (
+                  <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid #1f2a1f', display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    {asignaciones.map((a, k) => (
+                      <div key={a.id} style={{ paddingTop: k ? 12 : 0, borderTop: k ? '1px solid #161616' : 'none' }}>
+                        {asignaciones.length > 1 && (
+                          <div style={{ fontSize: 13, fontWeight: 700, color: '#fff', marginBottom: 4 }}>
+                            {a.obras?.nombre}
+                          </div>
+                        )}
+                        {(a.obras?.direccion_completa || a.obras?.direccion) && (
+                          <div style={{ display: 'flex', gap: 6, fontSize: 12, color: '#888', marginBottom: 6 }}>
+                            <MapPin size={13} style={{ flexShrink: 0, marginTop: 1 }} />
+                            <span>{a.obras?.direccion_completa || a.obras?.direccion}</span>
+                          </div>
+                        )}
+                        <div style={{ fontSize: 13, color: a.tareas ? '#ccc' : '#666', lineHeight: 1.5, fontStyle: a.tareas ? 'normal' : 'italic' }}>
+                          {a.tareas || 'Sin tareas específicas'}
+                        </div>
+                        {a.obras?.id && (
+                          <button onClick={e => { e.stopPropagation(); navigate(`/obra-app/mis-obras/${a.obras!.id}`) }}
+                            style={{
+                              marginTop: 8, padding: '7px 12px', background: 'transparent',
+                              border: '1px solid #2a2a2a', borderRadius: 8, color: '#aaa',
+                              fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+                            }}>Ver obra</button>
+                        )}
                       </div>
-                    )}
-                    {assignment.tareas && (
-                      <div style={{ fontSize: 13, color: '#ccc', lineHeight: 1.5 }}>
-                        {assignment.tareas}
-                      </div>
-                    )}
-                    {!assignment.tareas && (
-                      <div style={{ fontSize: 12, color: '#666', fontStyle: 'italic' }}>
-                        Sin tareas específicas
-                      </div>
-                    )}
+                    ))}
                   </div>
                 )}
               </div>
