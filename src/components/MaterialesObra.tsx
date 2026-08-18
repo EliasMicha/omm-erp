@@ -148,6 +148,7 @@ export default function MaterialesObra({ obra, onLinked }: {
             <th style={{ ...th, width: 110 }}>Sistema</th>
             <th style={{ ...thNum, color: '#aaa' }}>Cotizado</th>
             <th style={{ ...thNum, color: '#FBBF24' }}>Pedido</th>
+            <th style={{ ...thNum, color: '#4ADE80' }}>En bodega</th>
             <th style={{ ...thNum, color: '#A78BFA' }}>Solicitado</th>
             <th style={{ ...thNum, color: '#60A5FA' }}>Recibido</th>
             <th style={{ ...th, width: 140 }}>Status</th>
@@ -178,14 +179,21 @@ export default function MaterialesObra({ obra, onLinked }: {
                   </td>
                   <td style={{ fontSize: 11, color: '#888', padding: '6px' }}>{r.sistema}</td>
                   <td style={{ ...tdNum, color: '#fff' }}>{cot || '—'}</td>
-                  <td style={{ ...tdNum, color: r.pedido ? '#FBBF24' : '#3a3a3a' }}>{r.pedido || '—'}</td>
+                  <td style={{ ...tdNum, color: r.pedido ? '#FBBF24' : '#3a3a3a' }}
+                    title={r.enBorrador ? `${r.enBorrador} más en OC de borrador (sin mandar al proveedor)` : undefined}>
+                    {r.pedido || '—'}{r.enBorrador ? <span style={{ fontSize: 9, color: '#DC2626' }}> +{r.enBorrador}b</span> : null}
+                  </td>
+                  <td style={{ ...tdNum, color: r.enBodega ? '#4ADE80' : '#3a3a3a' }}
+                    title={r.enBodegaGeneral ? `${r.enBodegaGeneral} más en bodega general (de otra obra)` : undefined}>
+                    {r.enBodega || '—'}{r.enBodegaGeneral ? <span style={{ fontSize: 9, color: '#666' }}> ({r.enBodegaGeneral})</span> : null}
+                  </td>
                   <td style={{ ...tdNum, color: r.solicitado ? '#A78BFA' : '#3a3a3a' }}>{r.solicitado || '—'}</td>
                   <td style={{ ...tdNum, color: r.recibido ? '#60A5FA' : '#3a3a3a' }}>{r.recibido || '—'}</td>
                   <td style={{ padding: '6px' }}><Badge label={cfg.label} color={cfg.color} /></td>
                 </tr>
                 {ab && (
                   <tr style={{ background: '#0d0d0d' }}>
-                    <td colSpan={7} style={{ padding: '8px 6px 12px 22px' }}>
+                    <td colSpan={8} style={{ padding: '8px 6px 12px 22px' }}>
                       {r.eventos.length === 0
                         ? <div style={{ fontSize: 11, color: '#555' }}>Todavía no se pide ni se recibe nada de este producto.</div>
                         : (
@@ -291,6 +299,7 @@ export default function MaterialesObra({ obra, onLinked }: {
         <div style={card}>
           <div style={{ fontSize: 11, color: '#666', marginBottom: 8 }}>
             Un renglón por producto con la suma de todas las áreas. Haz clic en cualquiera para ver quién pidió, quién recibió y cuándo.
+            <br />«Pedido» solo cuenta OC mandadas al proveedor; <span style={{ color: '#DC2626' }}>+Nb</span> son piezas que siguen en una OC de borrador. En «En bodega», el número entre paréntesis es stock general de otra obra.
           </div>
           <Tabla filas={enCatalogo} />
         </div>

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
+import SolicitudesObra from '../components/SolicitudesObra'
 import { Btn, KpiCard, SectionHeader, EmptyState, Loading } from '../components/layout/UI'
 import { fetchAllActiveCatalog } from '../lib/catalog'
 import { SPECIALTY_CONFIG } from '../lib/utils'
@@ -37,7 +38,7 @@ const labelStyle: React.CSSProperties = { fontSize: 10, fontWeight: 600, color: 
 
 export default function Entregas() {
   const isMobile = useIsMobile()
-  const [tab, setTab] = useState<'dashboard' | 'agenda' | 'porlead' | 'inventario' | 'movimientos' | 'registrar' | 'herramienta'>('dashboard')
+  const [tab, setTab] = useState<'dashboard' | 'agenda' | 'solicitudes' | 'porlead' | 'inventario' | 'movimientos' | 'registrar' | 'herramienta'>('dashboard')
   const [preselectPo, setPreselectPo] = useState<string>('')
   const [loading, setLoading] = useState(true)
 
@@ -119,6 +120,7 @@ export default function Entregas() {
         {([
           { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard size={14} /> },
           { id: 'agenda', label: 'Agenda / Ruta', icon: <CalendarDays size={14} /> },
+          { id: 'solicitudes', label: 'Solicitudes de obra', icon: <PackagePlus size={14} /> },
           { id: 'porlead', label: 'Inventario por lead', icon: <ClipboardList size={14} /> },
           { id: 'inventario', label: 'Bodega / Obra', icon: <Warehouse size={14} /> },
           { id: 'movimientos', label: 'Movimientos', icon: <ClipboardList size={14} /> },
@@ -136,6 +138,7 @@ export default function Entregas() {
 
       {tab === 'dashboard' && <TabDashboard isMobile={isMobile} onOperar={(poId: string) => { setPreselectPo(poId); setTab('registrar') }} onIr={(t: any) => setTab(t)} />}
       {tab === 'agenda' && <TabAgenda isMobile={isMobile} obras={obras} empleados={empleados} />}
+      {tab === 'solicitudes' && <SolicitudesObra isMobile={isMobile} />}
       {tab === 'porlead' && <TabInventarioLead obras={obras} isMobile={isMobile} />}
       {tab === 'inventario' && <TabInventario movimientos={movimientos} obras={leadsInv} isMobile={isMobile} />}
       {tab === 'movimientos' && <TabMovimientos movimientos={movimientos} obras={leadsInv} isMobile={isMobile} />}

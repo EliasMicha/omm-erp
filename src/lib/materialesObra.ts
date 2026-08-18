@@ -74,9 +74,16 @@ export interface RenglonMaterial {
   /** id de un quotation_item representativo (para ligar la solicitud) */
   quotation_item_id: string | null
   cotizado: number
+  /** realmente comprado: OC pedida / aprobada / recibida */
   pedido: number
+  /** OC preparada pero sin mandar al proveedor (status borrador) */
+  enBorrador: number
   solicitado: number
   recibido: number
+  /** de esta obra, esperando en bodega OMM (entradas a bodega − salidas de bodega) */
+  enBodega: number
+  /** del mismo producto, sin dueño, disponible en bodega general */
+  enBodegaGeneral: number
   /** cuánto queda por pedir en obra = cotizado − solicitado (nunca negativo) */
   porSolicitar: number
   /** desglose por área: nombre de área → cantidad cotizada */
@@ -153,9 +160,11 @@ export async function cargarMaterialesObra(obra: {
         `quotation_id.in.(${cotIds.join(',')})`,
         `logistics_target_obra_id.eq.${obra.id}`,
       ].filter(Boolean).join(',')),
+    // Todo el libro de movimientos que toca a esta obra: lo que llegó a la obra
+    // Y lo que está esperando en bodega apartado para ella.
     supabase.from('stock_movements')
-      .select('id,fecha,catalog_product_id,descripcion,marca,modelo,qty,unit,tipo,destino_tipo,destino_obra_id,folio,movido_por_nombre,recibido_por,notas')
-      .eq('destino_tipo', 'obra').eq('anulado', false).or(filtroMovs),
+      .select('id,fecha,catalog_product_id,descripcion,marca,modelo,qty,unit,tipo,origen_tipo,destino_tipo,destino_obra_id,bucket_destino,quotation_id,folio,movido_por_nombre,recibido_por,notas')
+      .eq('anulado', false).or(filtroMovs),
     supabase.from('obra_material_solicitud_items')
       .select('id,clave,cantidad,cantidad_surtida,descripcion,obra_material_solicitudes!inner(id,folio,fecha,status,solicitante_nombre)')
       .eq('obra_id', obra.id),
@@ -163,6 +172,26 @@ export async function cargarMaterialesObra(obra: {
 
   const err = [areasRes, itemsRes, poRes, movRes, solRes]
     .map((r: any) => r?.error?.message).filter(Boolean)[0] || null
+
+  // Saldo de bodega de TODA la empresa por producto. Lo que no está apartado
+  // para esta obra sigue siendo material que el almacén podría mandar, así que
+  // vale la pena verlo: "no es tuyo, pero hay 3 en bodega".
+  const bodegaTotal = new Map<string, number>()
+  {
+    const { data: bod } = await supabase.from('stock_movements')
+      .select('catalog_product_id,marca,modelo,descripcion,qty,origen_tipo,destino_tipo')
+      .eq('anulado', false)
+      .or('destino_tipo.eq.bodega,origen_tipo.eq.bodega')
+      .limit(20000)
+    ;((bod || []) as any[]).forEach(m => {
+      const k = claveMaterial(m)
+      const q = Number(m.qty) || 0
+      let v = bodegaTotal.get(k) || 0
+      if (m.destino_tipo === 'bodega') v += q
+      if (m.origen_tipo === 'bodega') v -= q
+      bodegaTotal.set(k, v)
+    })
+  }
 
   const areas = ((areasRes as any).data || []).map((a: any) => ({ id: a.id, name: a.name || 'Sin nombre', order_index: a.order_index || 0 }))
   const areaName = new Map<string, string>(areas.map((a: any) => [a.id, a.name]))
@@ -178,7 +207,7 @@ export async function cargarMaterialesObra(obra: {
     sistema: base.system || base.sistema || 'General',
     catalog_product_id: base.catalog_product_id || null,
     quotation_item_id: null,
-    cotizado: 0, pedido: 0, solicitado: 0, recibido: 0, porSolicitar: 0,
+    cotizado: 0, pedido: 0, enBorrador: 0, solicitado: 0, recibido: 0, enBodega: 0, enBodegaGeneral: 0, porSolicitar: 0,
     porArea: {}, areas: [], eventos: [], etapa: 'falta_pedir', fueraDeCatalogo: false,
   })
 
@@ -198,8 +227,12 @@ export async function cargarMaterialesObra(obra: {
     })
 
   // ── Pedido (órdenes de compra de la obra) ──
+  // 'borrador' NO es una compra: es una OC preparada que nadie mandó al
+  // proveedor (más de la mitad de las OC están así). Contarla como "pedido"
+  // haría creer que el material ya viene en camino.
+  const COMPRADA = ['pedida', 'aprobada', 'recibida']
   const pos = (((poRes as any).data || []) as any[])
-    .filter(po => String(po.status || '').toLowerCase() !== 'cancelada')
+    .filter(po => ['borrador', ...COMPRADA].includes(String(po.status || '').toLowerCase()))
   const poById = new Map<string, any>(pos.map(po => [po.id, po]))
   let poItems: any[] = []
   if (pos.length) {
@@ -213,32 +246,41 @@ export async function cargarMaterialesObra(obra: {
     const k = claveMaterial(p)
     const r = mapa.get(k) || nuevo(p, k)
     const q = Number(p.quantity) || 0
-    r.pedido += q
+    const comprada = COMPRADA.includes(String(po.status || '').toLowerCase())
+    if (comprada) r.pedido += q
+    else r.enBorrador += q
     if (!r.unidad || r.unidad === 'pza') r.unidad = p.unit || r.unidad
     r.eventos.push({
       etapa: 'pedido', cantidad: q,
       fecha: String(po.created_at || '').substring(0, 10) || null,
       quien: po.requested_by || 'Compras',
       ref: po.po_number || '',
-      detalle: po.expected_delivery ? `Llega ~${String(po.expected_delivery).substring(0, 10)}` : undefined,
+      detalle: comprada
+        ? (po.expected_delivery ? `Llega ~${String(po.expected_delivery).substring(0, 10)}` : `OC ${po.status}`)
+        : 'OC en borrador — todavía no se manda al proveedor',
     })
     mapa.set(k, r)
   })
 
-  // ── Recibido en obra (libro de movimientos) ──
+  // ── Recibido en obra + apartado en bodega (libro de movimientos) ──
   ;(((movRes as any).data || []) as any[]).forEach(m => {
-    if (m.destino_tipo !== 'obra') return
     const k = claveMaterial(m)
     const r = mapa.get(k) || nuevo(m, k)
     const q = Number(m.qty) || 0
-    r.recibido += q
-    r.eventos.push({
-      etapa: 'recibido', cantidad: q,
-      fecha: m.fecha || null,
-      quien: m.recibido_por || m.movido_por_nombre || 'Obra',
-      ref: m.folio || '',
-      detalle: m.tipo === 'bodega_a_obra' ? 'Salió de bodega' : 'Entrega directa de proveedor',
-    })
+
+    if (m.destino_tipo === 'obra') {
+      r.recibido += q
+      r.eventos.push({
+        etapa: 'recibido', cantidad: q,
+        fecha: m.fecha || null,
+        quien: m.recibido_por || m.movido_por_nombre || 'Obra',
+        ref: m.folio || '',
+        detalle: m.tipo === 'bodega_a_obra' ? 'Salió de bodega' : 'Entrega directa de proveedor',
+      })
+    }
+    // Saldo en bodega: entró a bodega menos lo que ya salió de bodega.
+    if (m.destino_tipo === 'bodega') r.enBodega += q
+    if (m.origen_tipo === 'bodega') r.enBodega -= q
     mapa.set(k, r)
   })
 
@@ -281,6 +323,8 @@ export async function cargarMaterialesObra(obra: {
   }
 
   const renglones = Array.from(mapa.values()).map(r => {
+    r.enBodega = Math.max(0, Math.round(r.enBodega * 100) / 100)
+    r.enBodegaGeneral = Math.max(0, Math.round(((bodegaTotal.get(r.clave) || 0) - r.enBodega) * 100) / 100)
     r.porSolicitar = Math.max(0, r.cotizado - r.solicitado)
     r.etapa = etapaDe(r)
     r.eventos.sort((a, b) => String(a.fecha || '').localeCompare(String(b.fecha || '')))

@@ -22,6 +22,20 @@ import {
 
 interface LineaExtra { id: string; texto: string; cantidad: number }
 
+const avisoBase: React.CSSProperties = {
+  fontSize: 11, padding: '6px 9px', borderRadius: 8, marginBottom: 9, lineHeight: 1.35,
+}
+
+/** Cifra + etiqueta corta: el instalador tiene que leerlo de un vistazo. */
+function Chip({ n, t, c }: { n: number; t: string; c: string }) {
+  return (
+    <div style={{ padding: '4px 9px', borderRadius: 8, background: '#0a0a0a', border: '1px solid #1f1f1f', textAlign: 'center', minWidth: 62 }}>
+      <div style={{ fontSize: 15, fontWeight: 800, color: c, lineHeight: 1.1 }}>{n}</div>
+      <div style={{ fontSize: 9, color: '#666', marginTop: 1 }}>{t}</div>
+    </div>
+  )
+}
+
 export default function SolicitarMaterialPage({ employeeId }: { employeeId: string }) {
   const { obraId = '' } = useParams()
   const navigate = useNavigate()
@@ -268,6 +282,34 @@ export default function SolicitarMaterialPage({ employeeId }: { employeeId: stri
             </div>
           )}
 
+          {/* Resumen de la obra — para que el instalador sepa qué decirle al cliente */}
+          {renglones.length > 0 && (() => {
+            const cat = renglones.filter(r => !r.fueraDeCatalogo)
+            const enObra = cat.filter(r => r.recibido > 0).length
+            const completos = cat.filter(r => r.cotizado > 0 && r.recibido >= r.cotizado).length
+            const pedidos = cat.filter(r => r.solicitado > 0).length
+            const enBodega = cat.filter(r => r.recibido < r.cotizado && (r.enBodega > 0 || r.enBodegaGeneral > 0)).length
+            const celda = (n: number, t: string, c: string) => (
+              <div style={{ flex: 1, minWidth: 78, padding: '10px 8px', background: '#0f0f0f', border: '1px solid #1a1a1a', borderRadius: 10, textAlign: 'center' }}>
+                <div style={{ fontSize: 20, fontWeight: 800, color: c }}>{n}</div>
+                <div style={{ fontSize: 10, color: '#777', lineHeight: 1.25, marginTop: 2 }}>{t}</div>
+              </div>
+            )
+            return (
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  {celda(completos, 'completos en obra', '#10B981')}
+                  {celda(enObra, 'con algo en obra', '#60A5FA')}
+                  {celda(pedidos, 'ya solicitados', '#A78BFA')}
+                  {celda(enBodega, 'hay en bodega', '#FBBF24')}
+                </div>
+                <div style={{ fontSize: 10, color: '#666', marginTop: 6, lineHeight: 1.4 }}>
+                  De {cat.length} productos de esta obra. «Hay en bodega» = todavía te falta en obra pero ya está en el almacén.
+                </div>
+              </div>
+            )
+          })()}
+
           {/* Buscador */}
           <div style={{ position: 'relative', marginBottom: 10 }}>
             <Search size={15} color="#555" style={{ position: 'absolute', left: 12, top: 12 }} />
@@ -298,10 +340,50 @@ export default function SolicitarMaterialPage({ employeeId }: { employeeId: stri
                     background: n > 0 ? '#0d1a12' : '#0f0f0f',
                   }}>
                     <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 3, lineHeight: 1.3 }}>{r.descripcion}</div>
-                    <div style={{ fontSize: 10, color: '#666', marginBottom: 8 }}>
+                    <div style={{ fontSize: 10, color: '#666', marginBottom: 7 }}>
                       {[r.marca, r.modelo].filter(Boolean).join(' · ') || r.sistema}
-                      {' · '}cotizado {r.cotizado} · en obra {r.recibido} · te faltan por pedir {tope}
                     </div>
+                    {/* Los cuatro números que el instalador necesita para contestarle al cliente */}
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
+                      <Chip n={r.cotizado} t="del proyecto" c="#888" />
+                      <Chip n={r.recibido} t="ya en obra" c={r.recibido > 0 ? '#4ADE80' : '#555'} />
+                      <Chip n={r.solicitado} t="solicitado" c={r.solicitado > 0 ? '#A78BFA' : '#555'} />
+                      <Chip n={Math.max(0, r.cotizado - r.recibido)} t="te falta" c={r.cotizado - r.recibido > 0 ? '#FBBF24' : '#4ADE80'} />
+                    </div>
+                    {/* Disponibilidad — qué decirle al cliente */}
+                    {(() => {
+                      const falta = Math.max(0, r.cotizado - r.recibido)
+                      if (falta === 0) return (
+                        <div style={{ ...avisoBase, background: '#0d1a12', border: '1px solid #10B98133', color: '#4ADE80' }}>
+                          Completo en obra, ya está todo aquí.
+                        </div>
+                      )
+                      if (r.enBodega > 0) return (
+                        <div style={{ ...avisoBase, background: '#1a1508', border: '1px solid #D9770644', color: '#FBBF24' }}>
+                          Hay {r.enBodega} en bodega apartado para esta obra — solo falta que lo manden.
+                        </div>
+                      )
+                      if (r.enBodegaGeneral > 0) return (
+                        <div style={{ ...avisoBase, background: '#12131a', border: '1px solid #60A5FA33', color: '#93c5fd' }}>
+                          Hay {r.enBodegaGeneral} en bodega general (de otra obra). Se puede pedir prestado.
+                        </div>
+                      )
+                      if (r.pedido > r.recibido) return (
+                        <div style={{ ...avisoBase, background: '#141414', border: '1px solid #333', color: '#aaa' }}>
+                          Ya está comprado, todavía no llega a bodega.
+                        </div>
+                      )
+                      if (r.enBorrador > 0) return (
+                        <div style={{ ...avisoBase, background: '#1a0d0d', border: '1px solid #DC262633', color: '#f87171' }}>
+                          La orden de compra está en borrador: todavía no se le pide al proveedor.
+                        </div>
+                      )
+                      return (
+                        <div style={{ ...avisoBase, background: '#1a0d0d', border: '1px solid #DC262633', color: '#f87171' }}>
+                          No hay en bodega y no está comprado todavía.
+                        </div>
+                      )
+                    })()}
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                       <button onClick={() => set(r, n - 1)} disabled={n === 0} style={{
                         width: 38, height: 38, borderRadius: 10, border: '1px solid #262626',
