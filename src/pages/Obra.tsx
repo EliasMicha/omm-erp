@@ -1582,6 +1582,9 @@ function AutogenWizard({ obra, instaladores, onClose, onTasksCreated }: {
   const [input, setInput] = useState('')
   const [phase, setPhase] = useState<'loading' | 'dates' | 'team' | 'confirm' | 'generating' | 'done'>('loading')
   const [cotContext, setCotContext] = useState('')
+  // Los mismos datos partidos por área: la generación se manda en lotes para
+  // no pasarse de los 60 s que aguanta la función de Vercel (Hobby).
+  const [cotBloques, setCotBloques] = useState<{ area: string; texto: string; n: number }[]>([])
   const [phaseDates, setPhaseDates] = useState({ roughin: '', acabados: '', cierre: '' })
   const [selectedInstaladores, setSelectedInstaladores] = useState<string[]>([])
   const [pendingTasks, setPendingTasks] = useState<any[]>([])
@@ -1604,11 +1607,25 @@ function AutogenWizard({ obra, instaladores, onClose, onTasksCreated }: {
         addAI('La cotización no tiene productos. No puedo generar tareas.')
         return
       }
-      const ctx = areas.map(area => {
+      const bloques = areas.map(area => {
         const areaItems = items.filter((it: any) => it.area_id === area.id)
-        return `ÁREA: ${area.name}\n${areaItems.map((it: any) => `  - ${it.quantity}x ${it.name} [${it.system || 'General'}]`).join('\n')}`
-      }).join('\n\n')
-      setCotContext(ctx)
+        return {
+          area: area.name as string,
+          n: areaItems.length,
+          texto: `ÁREA: ${area.name}\n${areaItems.map((it: any) => `  - ${it.quantity}x ${it.name} [${it.system || 'General'}]`).join('\n')}`,
+        }
+      }).filter(b => b.n > 0)
+      // Productos sin área: no se pueden perder
+      const huerfanos = items.filter((it: any) => !areas.some(a => a.id === it.area_id))
+      if (huerfanos.length) {
+        bloques.push({
+          area: 'Sin área',
+          n: huerfanos.length,
+          texto: `ÁREA: Sin área\n${huerfanos.map((it: any) => `  - ${it.quantity}x ${it.name} [${it.system || 'General'}]`).join('\n')}`,
+        })
+      }
+      setCotBloques(bloques)
+      setCotContext(bloques.map(b => b.texto).join('\n\n'))
 
       // Detect systems in this quote
       const systems = new Set(items.map((it: any) => it.system || '').filter(Boolean))
@@ -1665,7 +1682,7 @@ function AutogenWizard({ obra, instaladores, onClose, onTasksCreated }: {
   const handleGenerate = async () => {
     addUser('Generar tareas')
     setPhase('generating')
-    addAI('Generando tareas con AI... esto toma unos segundos.')
+    addAI('Generando tareas con AI… voy área por área para que no se corte.')
 
     try {
       const systemMap = `Mapeo de sistemas de cotización a sistemas de obra:
@@ -1699,12 +1716,7 @@ ${teamInfo.map((t: any) => `- ${t.nombre} (id: "${t.id}") — Habilidades: ${t.h
 Asigna cada tarea al instalador más apropiado según el sistema de la tarea y las habilidades del instalador.`
       }
 
-      const response = await fetch('/api/anthropic', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-6', max_tokens: 16000,
-          system: `Eres coordinador de obra de instalaciones especiales. A partir de la cotización, genera las TAREAS DE INSTALACIÓN en campo.
+      const sistemaPrompt = `Eres coordinador de obra de instalaciones especiales. A partir de la cotización, genera las TAREAS DE INSTALACIÓN en campo.
 
 REGLAS:
 1. Cada producto en cada área genera una tarea. El formato es: "[Acción] de [producto] - [área]"
@@ -1714,38 +1726,102 @@ REGLAS:
 2. Si un producto tiene quantity > 1, menciona la cantidad: "Colocación de 4 access points - Recámara Principal"
 3. Agrupa cables/canalizaciones del mismo tipo en la misma área en UNA sola tarea
 4. Agrega tareas de infraestructura implícitas: canalización, cableado, montaje de rack, pruebas
-5. Agrega tarea de programación/configuración por sistema al final (área "General")
-6. Agrega tarea de pruebas y puesta en marcha por sistema (área "General")
+5. La descripción es una LÍNEA CORTA de máximo 90 caracteres, como la escribiría un
+   coordinador en un tablero. NADA de explicaciones, ni pasos, ni justificaciones.
+   Bien: "Colocación de 2 access points - Sala"
+   Mal: "Instalar y configurar el primer Access Point incluyendo montaje en techo…"
 
 ${systemMap}
 ${dateInstruction}
 ${teamInstruction}
 
 Devuelve SOLO un JSON array, sin markdown:
-[{"descripcion":"texto","sistema":"Audio|Redes|CCTV|Control|Acceso|Electrico","area":"nombre del área","fase":"roughin|acabados|cierre"${phaseDates.roughin || phaseDates.acabados || phaseDates.cierre ? ',"fecha_fin_plan":"YYYY-MM-DD"' : ''}${selectedInstaladores.length > 0 ? ',"instalador_id":"uuid-del-instalador"' : ''}}]`,
-          messages: [{ role: 'user', content: `Cotización de obra: ${obra.nombre}\n\n${cotContext}` }],
-        }),
-      })
+[{"descripcion":"texto","sistema":"Audio|Redes|CCTV|Control|Acceso|Electrico","area":"nombre del área","fase":"roughin|acabados|cierre"${phaseDates.roughin || phaseDates.acabados || phaseDates.cierre ? ',"fecha_fin_plan":"YYYY-MM-DD"' : ''}${selectedInstaladores.length > 0 ? ',"instalador_id":"uuid-del-instalador"' : ''}}]`
 
-      if (!response.ok) {
-        addAI(`Error de API: ${response.status}. Intenta de nuevo.`)
-        setPhase('confirm')
-        return
+      // ── Lotes ────────────────────────────────────────────────────────────
+      // Antes se mandaba TODA la cotización en una sola llamada con
+      // max_tokens 16000. En obras grandes eso tarda más de los 60 s que
+      // aguanta Vercel (Hobby) y el gateway devolvía 504 sin importar el
+      // maxDuration declarado. Ahora se manda por lotes de áreas: cada llamada
+      // es corta, y si una falla se reintenta sola sin tirar todo el proceso.
+      // El proxy escribe ~50 tokens/s, así que un lote no debe pedir más de
+      // ~2500 tokens si queremos terminar bien debajo de los 60 s del gateway.
+      const MAX_ITEMS_LOTE = 14
+      const lotes: { texto: string; areas: string[] }[] = []
+      let actual: { texto: string; areas: string[]; n: number } | null = null
+      for (const b of (cotBloques.length ? cotBloques : [{ area: 'Cotización', texto: cotContext, n: 99 }])) {
+        if (actual && actual.n + b.n > MAX_ITEMS_LOTE) { lotes.push({ texto: actual.texto, areas: actual.areas }); actual = null }
+        if (!actual) actual = { texto: b.texto, areas: [b.area], n: b.n }
+        else { actual.texto += '\n\n' + b.texto; actual.areas.push(b.area); actual.n += b.n }
+      }
+      if (actual) lotes.push({ texto: actual.texto, areas: actual.areas })
+
+      async function pedirLote(texto: string, extra: string, intento = 1): Promise<any[] | null> {
+        // Cortamos a los 55 s desde el cliente: si el gateway va a tronar,
+        // preferimos reintentar nosotros que esperar el 504.
+        const ctrl = new AbortController()
+        const corte = setTimeout(() => ctrl.abort(), 55000)
+        try {
+          const r = await fetch('/api/anthropic', {
+            method: 'POST',
+            signal: ctrl.signal,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              model: 'claude-sonnet-4-6',
+              max_tokens: 2500,
+              system: sistemaPrompt + extra,
+              messages: [{ role: 'user', content: `Obra: ${obra.nombre}\n\n${texto}` }],
+            }),
+          })
+          if (!r.ok) throw new Error('HTTP ' + r.status)
+          const d = await r.json()
+          const t = (d.content || []).filter((b: any) => b.type === 'text').map((b: any) => b.text).join('')
+          const arr = extractJsonArray(t)
+          if (!Array.isArray(arr)) throw new Error('respuesta sin JSON')
+          return arr
+        } catch (e: any) {
+          if (intento < 3) {
+            await new Promise(res => setTimeout(res, intento * 1500))
+            return pedirLote(texto, extra, intento + 1)
+          }
+          console.error('Autogen lote falló:', e?.message || e)
+          return null
+        } finally {
+          clearTimeout(corte)
+        }
       }
 
-      const data = await response.json()
-      const text = (data.content || []).filter((b: any) => b.type === 'text').map((b: any) => b.text).join('')
-      const parsed = extractJsonArray(text)
-
-      if (!parsed) {
-        const stop = data?.stop_reason ? ` [stop: ${data.stop_reason}]` : ''
-        console.error('Autogen tareas — respuesta sin JSON parseable:', JSON.stringify(data).slice(0, 1500))
-        addAI('No pude parsear la respuesta.' + stop + '\n\nLo que devolvió el modelo:\n' + (text ? text.slice(0, 500) : '(vacío — ' + JSON.stringify(data).slice(0, 300) + ')'))
-        setPhase('confirm')
-        return
+      const parsed: any[] = []
+      const fallidos: string[] = []
+      for (let k = 0; k < lotes.length; k++) {
+        const L = lotes[k]
+        addAI(`Generando ${k + 1} de ${lotes.length}: ${L.areas.join(', ')}…`)
+        const arr = await pedirLote(L.texto, '')
+        if (arr) parsed.push(...arr)
+        else fallidos.push(L.areas.join(', '))
       }
-      if (!Array.isArray(parsed) || parsed.length === 0) {
-        addAI('No se generaron tareas.')
+
+      // Programación, pruebas y puesta en marcha: una sola llamada al final,
+      // con la lista de sistemas ya detectados (antes iba mezclada y se perdía).
+      const sistemasCot = Array.from(new Set(
+        (cotBloques.length ? cotBloques : []).flatMap(b =>
+          (b.texto.match(/\[([^\]]+)\]/g) || []).map(x => x.slice(1, -1)))
+      )).filter(x => x && x !== 'General')
+      if (sistemasCot.length) {
+        addAI('Agregando programación, pruebas y puesta en marcha…')
+        const cierre = await pedirLote(
+          `Sistemas de esta obra: ${sistemasCot.join(', ')}`,
+          `\n\nAHORA SOLO genera, por CADA sistema listado, una tarea de programación/configuración y una de pruebas y puesta en marcha. Usa area "General". No repitas tareas de instalación.`,
+        )
+        if (cierre) parsed.push(...cierre)
+      }
+
+      if (fallidos.length) {
+        addAI(`⚠ No pude generar estas áreas: ${fallidos.join(' · ')}. Las demás sí se generaron; puedes volver a correr el asistente para completarlas.`)
+      }
+
+      if (parsed.length === 0) {
+        addAI('No se generaron tareas. Vuelve a intentar en un momento.')
         setPhase('confirm')
         return
       }
