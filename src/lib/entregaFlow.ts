@@ -95,16 +95,37 @@ export async function destinoDeObra(obraId: string): Promise<DestinoEntrega | nu
 
 /** Cuando la entrega se arma desde Entregas (por lead + cotización) y hay que
  *  averiguar a qué obra pertenece, para que la app de obra la vea. */
-export async function destinoDeCotizacion(quotationId: string, leadId?: string | null, nombreFallback?: string): Promise<DestinoEntrega> {
-  const { data } = await supabase.from('obras')
-    .select('id,nombre,quotation_id,quotation_ids,project_id,direccion,direccion_completa')
-    .or(`quotation_id.eq.${quotationId},quotation_ids.cs.{${quotationId}}`)
-    .limit(1)
-  const o: any = ((data as any[]) || [])[0]
+export async function destinoDeCotizacion(quotationId: string | null, leadId?: string | null, nombreFallback?: string): Promise<DestinoEntrega> {
+  // Hay tareas de ruta viejas sin cotización. En ese caso se busca la obra por
+  // el lead; si tampoco hay, se entrega igual pero sin obra (no aparecerá en la
+  // app del instalador, y así se le avisa a quien programa).
+  let o: any = null
+  if (quotationId) {
+    const { data } = await supabase.from('obras')
+      .select('id,nombre,quotation_id,quotation_ids,project_id,direccion,direccion_completa')
+      .or(`quotation_id.eq.${quotationId},quotation_ids.cs.{${quotationId}}`)
+      .limit(1)
+    o = ((data as any[]) || [])[0] || null
+  }
+  if (!o && leadId) {
+    // `quotations` no tiene columna lead_id: el lead viaja dentro de `notes`
+    // como JSON, así que se busca por texto y se confirma al parsear.
+    const { data: qs } = await supabase.from('quotations')
+      .select('id,notes').ilike('notes', `%${leadId}%`).limit(20)
+    const ids = ((qs as any[]) || []).filter(q => {
+      try { return JSON.parse(q.notes || '{}').lead_id === leadId } catch { return false }
+    }).map(q => q.id)
+    if (ids.length) {
+      const { data } = await supabase.from('obras')
+        .select('id,nombre,quotation_id,quotation_ids,project_id,direccion,direccion_completa')
+        .in('quotation_id', ids).limit(1)
+      o = ((data as any[]) || [])[0] || null
+    }
+  }
   return {
     obra_id: o?.id || null,
     obra_nombre: o?.nombre || nombreFallback || 'Obra',
-    quotation_id: quotationId,
+    quotation_id: quotationId || o?.quotation_id || null,
     lead_id: leadId || await leadDeCotizacion(quotationId),
     project_id: o?.project_id || null,
     direccion: o?.direccion_completa || o?.direccion || null,
