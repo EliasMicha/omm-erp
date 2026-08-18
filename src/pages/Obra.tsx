@@ -11,7 +11,7 @@ import {
   HardHat, Users, ClipboardList, Calendar, AlertTriangle, CheckCircle, CheckCircle2,
   Clock, ChevronRight, ArrowLeft, Plus, Upload, Camera, X, Eye,
   Wrench, Wifi, Volume2, Shield, Sun, MapPin, FileText, TrendingUp,
-  Loader2, MessageSquare, Lock, ChevronDown, Package, Truck, ShoppingCart,
+  Loader2, MessageSquare, Lock, ChevronDown, Package, Truck, ShoppingCart, Search,
   Flame, Server, Phone, Radio, Blinds
 } from 'lucide-react'
 
@@ -1166,6 +1166,7 @@ function SubActividades({ obra, instaladores, updateObra, showNew, setShowNew }:
   const [showWizard, setShowWizard] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [deleting, setDeleting] = useState(false)
+  const [buscaAct, setBuscaAct] = useState('')
   const [bulkInst, setBulkInst] = useState('')
   const [bulkFecha, setBulkFecha] = useState('')
   const [asignando, setAsignando] = useState(false)
@@ -1278,11 +1279,18 @@ function SubActividades({ obra, instaladores, updateObra, showNew, setShowNew }:
 
   // Filter + Group activities
   const hoy = hoyISO()
-  const filteredActs =
+  const porStatus =
     statusFilter === 'all' ? obra.actividades
     : statusFilter === 'sin_resp' ? obra.actividades.filter(a => !a.instalador_id)
     : statusFilter === 'vencidas' ? obra.actividades.filter(a => a.status !== 'completada' && a.fecha_fin_plan && a.fecha_fin_plan < hoy)
     : obra.actividades.filter(a => a.status === statusFilter)
+  // Búsqueda por texto: con 300+ tareas, encontrar una a mano es imposible.
+  // Busca en descripción, área, sistema y nombre del responsable.
+  const q = buscaAct.trim().toLowerCase()
+  const filteredActs = !q ? porStatus : porStatus.filter(a => {
+    const inst = instaladores.find(i => i.id === a.instalador_id)
+    return `${a.descripcion} ${a.area || ''} ${a.sistema} ${inst?.nombre || ''}`.toLowerCase().includes(q)
+  })
   const grouped = new Map<string, Actividad[]>()
   filteredActs.forEach(a => {
     const key = groupBy === 'sistema' ? a.sistema : (a.area || 'Sin área')
@@ -1321,6 +1329,22 @@ function SubActividades({ obra, instaladores, updateObra, showNew, setShowNew }:
           <Btn size="sm" variant="primary" onClick={() => setShowNew(true)}><Plus size={12} /> Nueva actividad</Btn>
         </div>
       </div>
+
+      {/* Buscador de tareas */}
+      {obra.actividades.length > 0 && (
+        <div style={{ position: 'relative', marginBottom: 10 }}>
+          <Search size={13} color="#555" style={{ position: 'absolute', left: 10, top: 9 }} />
+          <input value={buscaAct} onChange={e => setBuscaAct(e.target.value)}
+            placeholder="Buscar tarea por descripción, área, sistema o responsable"
+            style={{ ...inputStyle, paddingLeft: 30, fontSize: 12 }} />
+          {buscaAct && (
+            <button onClick={() => setBuscaAct('')} title="Limpiar"
+              style={{ position: 'absolute', right: 8, top: 7, background: 'none', border: 'none', color: '#666', cursor: 'pointer' }}>
+              <X size={13} />
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Status filter */}
       {obra.actividades.length > 0 && (
@@ -1450,6 +1474,11 @@ function SubActividades({ obra, instaladores, updateObra, showNew, setShowNew }:
           )}
         </div>
       ) : (
+        filteredActs.length === 0 && q ? (
+          <div style={{ padding: 24, textAlign: 'center', fontSize: 12, color: '#666' }}>
+            Ninguna tarea coincide con «{buscaAct}».
+          </div>
+        ) :
         Array.from(grouped.entries()).sort((a, b) => a[0].localeCompare(b[0])).map(([groupKey, acts]) => {
 
           const isSystemGroup = groupBy === 'sistema'
@@ -1585,6 +1614,9 @@ function AutogenWizard({ obra, instaladores, onClose, onTasksCreated }: {
   // Los mismos datos partidos por área: la generación se manda en lotes para
   // no pasarse de los 60 s que aguanta la función de Vercel (Hobby).
   const [cotBloques, setCotBloques] = useState<{ area: string; texto: string; n: number }[]>([])
+  // La especialidad manda en qué tareas tienen sentido: en ESPECIALES OMM no
+  // hace canalización (la hace el electricista o la constructora).
+  const [especialidad, setEspecialidad] = useState<string>('')
   const [phaseDates, setPhaseDates] = useState({ roughin: '', acabados: '', cierre: '' })
   const [selectedInstaladores, setSelectedInstaladores] = useState<string[]>([])
   const [pendingTasks, setPendingTasks] = useState<any[]>([])
@@ -1597,10 +1629,13 @@ function AutogenWizard({ obra, instaladores, onClose, onTasksCreated }: {
   useEffect(() => {
     async function loadCot() {
       if (!obra.cotizacion_id) return
-      const [areasRes, itemsRes] = await Promise.all([
+      const [areasRes, itemsRes, cotRes] = await Promise.all([
         supabase.from('quotation_areas').select('*').eq('quotation_id', obra.cotizacion_id).order('order_index'),
         supabase.from('quotation_items').select('*').eq('quotation_id', obra.cotizacion_id).order('order_index'),
+        supabase.from('quotations').select('specialty').eq('id', obra.cotizacion_id).maybeSingle(),
       ])
+      const spec = ((cotRes as any)?.data?.specialty || '') as string
+      setEspecialidad(spec)
       const areas = areasRes.data || []
       const items = itemsRes.data || []
       if (items.length === 0) {
@@ -1716,6 +1751,19 @@ ${teamInfo.map((t: any) => `- ${t.nombre} (id: "${t.id}") — Habilidades: ${t.h
 Asigna cada tarea al instalador más apropiado según el sistema de la tarea y las habilidades del instalador.`
       }
 
+      // ── Alcance por especialidad ──────────────────────────────────────
+      // En ESPECIALES (audio, redes, CCTV, control) OMM no hace obra civil:
+      // llega a cablear sobre canalización que ya existe. Generar tareas de
+      // canalización ahí es trabajo que no nos toca y ensucia el tablero.
+      const esElectrico = especialidad === 'elec'
+      const alcance = esElectrico
+        ? `   SÍ incluye: canalización, tubería, registros, cableado, centros de carga, montaje y pruebas.`
+        : `   ⛔ NO generes tareas de CANALIZACIÓN, ranurado, tubería, registros, cajas,
+   albañilería ni obra civil: en especiales eso lo hace el electricista o la
+   constructora, NO nosotros. Damos por hecho que la canalización ya existe.
+   SÍ incluye: tendido/guiado de cable por canalización existente, montaje de
+   equipos y racks, conexión, ponchado, configuración y pruebas.`
+
       const sistemaPrompt = `Eres coordinador de obra de instalaciones especiales. A partir de la cotización, genera las TAREAS DE INSTALACIÓN en campo.
 
 REGLAS:
@@ -1725,7 +1773,8 @@ REGLAS:
    Ejemplo: "Tendido de cable Cat6 (3 corridas) - Sala"
 2. Si un producto tiene quantity > 1, menciona la cantidad: "Colocación de 4 access points - Recámara Principal"
 3. Agrupa cables/canalizaciones del mismo tipo en la misma área en UNA sola tarea
-4. Agrega tareas de infraestructura implícitas: canalización, cableado, montaje de rack, pruebas
+4. Agrega tareas de infraestructura implícitas que SÍ estén en nuestro alcance
+${alcance}
 5. La descripción es una LÍNEA CORTA de máximo 90 caracteres, como la escribiría un
    coordinador en un tablero. NADA de explicaciones, ni pasos, ni justificaciones.
    Bien: "Colocación de 2 access points - Sala"
