@@ -45,7 +45,9 @@ export default function SolicitarMaterialPage({ employeeId }: { employeeId: stri
   const [renglones, setRenglones] = useState<RenglonMaterial[]>([])
   const [cant, setCant] = useState<Record<string, number>>({})
   const [busqueda, setBusqueda] = useState('')
-  const [soloPendientes, setSoloPendientes] = useState(true)
+  // 'faltantes' = lo que todavía no está completo en obra (arranca aquí, que es
+  // lo que el instalador viene a resolver). 'todo' = el catálogo completo.
+  const [modo, setModo] = useState<'faltantes' | 'todo'>('faltantes')
   const [fSistema, setFSistema] = useState('todos')
   const [extras, setExtras] = useState<LineaExtra[]>([])
   const [requeridoPara, setRequeridoPara] = useState('')
@@ -92,9 +94,9 @@ export default function SolicitarMaterialPage({ employeeId }: { employeeId: stri
     return renglones
       .filter(r => !r.fueraDeCatalogo)
       .filter(r => fSistema === 'todos' || r.sistema === fSistema)
-      .filter(r => !soloPendientes || r.porSolicitar > 0 || (cant[r.clave] || 0) > 0)
+      .filter(r => modo === 'todo' || r.cotizado - r.recibido > 0 || (cant[r.clave] || 0) > 0)
       .filter(r => !q || `${r.descripcion} ${r.marca} ${r.modelo} ${r.sistema}`.toLowerCase().includes(q))
-  }, [renglones, busqueda, soloPendientes, cant, fSistema])
+  }, [renglones, busqueda, modo, cant, fSistema])
 
   // Sistemas que de verdad tienen material en esta obra
   const sistemas = useMemo(() => Array.from(new Set(
@@ -347,16 +349,37 @@ export default function SolicitarMaterialPage({ employeeId }: { employeeId: stri
               placeholder="Buscar material de esta obra"
               style={{ ...input, paddingLeft: 36 }} />
           </div>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: '#888', marginBottom: 12 }}>
-            <input type="checkbox" checked={soloPendientes} onChange={e => setSoloPendientes(e.target.checked)} style={{ accentColor: '#10B981', width: 16, height: 16 }} />
-            Ocultar lo que ya pedí completo
-          </label>
+          {(() => {
+            const cat = renglones.filter(r => !r.fueraDeCatalogo && (fSistema === 'todos' || r.sistema === fSistema))
+            const nFalt = cat.filter(r => r.cotizado - r.recibido > 0).length
+            const op = (k: 'faltantes' | 'todo', l: string, n: number) => {
+              const act = modo === k
+              return (
+                <button key={k} onClick={() => setModo(k)} style={{
+                  flex: 1, padding: '11px 8px', borderRadius: 9, border: 'none',
+                  background: act ? '#10B981' : 'transparent',
+                  color: act ? '#04120a' : '#888',
+                  fontSize: 13, fontWeight: 700, fontFamily: 'inherit', cursor: 'pointer',
+                }}>{l} <span style={{ opacity: 0.7 }}>{n}</span></button>
+              )
+            }
+            return (
+              <div style={{ display: 'flex', gap: 3, marginBottom: 12, background: '#0f0f0f', border: '1px solid #1a1a1a', borderRadius: 12, padding: 3 }}>
+                {op('faltantes', 'Solo faltantes', nFalt)}
+                {op('todo', 'Todo el proyecto', cat.length)}
+              </div>
+            )
+          })()}
 
           {/* Catálogo */}
           {catalogo.length === 0 ? (
             <div style={{ ...box, textAlign: 'center', color: '#777', fontSize: 13, padding: 28 }}>
               <Package2 size={28} style={{ opacity: 0.3, marginBottom: 8 }} />
-              <div>{renglones.length === 0 ? 'Esta obra todavía no tiene catálogo de materiales cargado.' : 'Nada que mostrar con ese filtro.'}</div>
+              <div>{renglones.length === 0
+                ? 'Esta obra todavía no tiene catálogo de materiales cargado.'
+                : modo === 'faltantes'
+                  ? 'No falta nada aquí: todo el material de este filtro ya está en obra.'
+                  : 'Nada que mostrar con ese filtro.'}</div>
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
@@ -392,13 +415,14 @@ export default function SolicitarMaterialPage({ employeeId }: { employeeId: stri
                     {/* Los cuatro números que el instalador necesita para contestarle al cliente */}
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
                       <Chip n={r.cotizado} t="del proyecto" c="#888" />
-                      <Chip n={r.recibido} t="ya en obra" c={r.recibido > 0 ? '#4ADE80' : '#555'} />
+                      <Chip n={r.enBodega} t="en bodega" c={r.enBodega > 0 ? '#FBBF24' : '#555'} />
                       <Chip n={r.solicitado} t="solicitado" c={r.solicitado > 0 ? '#A78BFA' : '#555'} />
                       <Chip n={Math.max(0, r.cotizado - r.recibido)} t="te falta" c={r.cotizado - r.recibido > 0 ? '#FBBF24' : '#4ADE80'} />
                     </div>
                     {/* Disponibilidad — qué decirle al cliente */}
                     {(() => {
                       const falta = Math.max(0, r.cotizado - r.recibido)
+                      const yaEnObra = r.recibido > 0 ? ` Ya tienes ${r.recibido} en obra.` : ''
                       if (falta === 0) return (
                         <div style={{ ...avisoBase, background: '#0d1a12', border: '1px solid #10B98133', color: '#4ADE80' }}>
                           Completo en obra, ya está todo aquí.
@@ -406,27 +430,27 @@ export default function SolicitarMaterialPage({ employeeId }: { employeeId: stri
                       )
                       if (r.enBodega > 0) return (
                         <div style={{ ...avisoBase, background: '#1a1508', border: '1px solid #D9770644', color: '#FBBF24' }}>
-                          Hay {r.enBodega} en bodega apartado para esta obra — solo falta que lo manden.
+                          Hay {r.enBodega} en bodega apartado para esta obra — solo falta que lo manden.{yaEnObra}
                         </div>
                       )
                       if (r.enBodegaGeneral > 0) return (
                         <div style={{ ...avisoBase, background: '#12131a', border: '1px solid #60A5FA33', color: '#93c5fd' }}>
-                          Hay {r.enBodegaGeneral} en bodega general (de otra obra). Se puede pedir prestado.
+                          Hay {r.enBodegaGeneral} en bodega general (de otra obra). Se puede pedir prestado.{yaEnObra}
                         </div>
                       )
                       if (r.pedido > r.recibido) return (
                         <div style={{ ...avisoBase, background: '#141414', border: '1px solid #333', color: '#aaa' }}>
-                          Ya está comprado, todavía no llega a bodega.
+                          Ya está comprado, todavía no llega a bodega.{yaEnObra}
                         </div>
                       )
                       if (r.enBorrador > 0) return (
                         <div style={{ ...avisoBase, background: '#1a0d0d', border: '1px solid #DC262633', color: '#f87171' }}>
-                          La orden de compra está en borrador: todavía no se le pide al proveedor.
+                          La orden de compra está en borrador: todavía no se le pide al proveedor.{yaEnObra}
                         </div>
                       )
                       return (
                         <div style={{ ...avisoBase, background: '#1a0d0d', border: '1px solid #DC262633', color: '#f87171' }}>
-                          No hay en bodega y no está comprado todavía.
+                          No hay en bodega y no está comprado todavía.{yaEnObra}
                         </div>
                       )
                     })()}
