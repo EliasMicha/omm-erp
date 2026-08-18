@@ -106,6 +106,21 @@ export default function MaterialCard({ r, cantidad, onCantidad }: {
           {aviso.t}
         </div>
 
+        {/* Lo que compras acabó comprando puede no ser lo que se cotizó.
+            En obra tienen que instalar lo que REALMENTE llegó. */}
+        {r.sustituciones.map((su, i) => (
+          <div key={i} style={{
+            ...avisoBase, background: '#1a1206', border: '1px solid #F59E0B55', color: '#FBBF24',
+          }}>
+            <div style={{ fontWeight: 800, marginBottom: 2 }}>⚠ Este equipo se sustituyó</div>
+            <div style={{ color: '#a8a29e', textDecoration: 'line-through' }}>{su.pedido}</div>
+            <div style={{ color: '#FDE68A', fontWeight: 700 }}>→ Queda: {su.llego}</div>
+            <div style={{ color: '#8a7a5a', fontSize: 10, marginTop: 2 }}>
+              {su.cantidad} pza · {su.oc}{su.notas ? ` · ${su.notas}` : ''}
+            </div>
+          </div>
+        ))}
+
         {!abierto && recepciones.length > 0 && (
           <div style={{ fontSize: 10, color: '#60A5FA', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 5 }}>
             <PackageCheck size={11} />

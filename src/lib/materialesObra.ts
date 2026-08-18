@@ -63,6 +63,15 @@ export interface EventoMaterial {
   detalle?: string
 }
 
+/** Cambio detectado en el cotejo de una OC: se pidió una cosa y llegó otra. */
+export interface Sustitucion {
+  pedido: string
+  llego: string
+  oc: string
+  cantidad: number
+  notas?: string | null
+}
+
 export interface RenglonMaterial {
   clave: string
   descripcion: string
@@ -93,6 +102,8 @@ export interface RenglonMaterial {
   etapa: EtapaMaterial
   /** true = llegó material a la obra que no tiene renglón en la cotización */
   fueraDeCatalogo: boolean
+  /** el proveedor mandó otro producto: obra tiene que saber cuál quedó */
+  sustituciones: Sustitucion[]
   /** pista del renglón cotizado más parecido (NO se fusiona solo: se sugiere) */
   parecidoA?: string
 }
@@ -216,7 +227,7 @@ export async function cargarMaterialesObra(obra: {
     catalog_product_id: base.catalog_product_id || null,
     quotation_item_id: null,
     cotizado: 0, pedido: 0, enBorrador: 0, solicitado: 0, recibido: 0, enBodega: 0, enBodegaGeneral: 0, porSolicitar: 0,
-    porArea: {}, areas: [], eventos: [], etapa: 'falta_pedir', fueraDeCatalogo: false,
+    porArea: {}, areas: [], eventos: [], etapa: 'falta_pedir', fueraDeCatalogo: false, sustituciones: [],
   })
 
   ;(((itemsRes as any).data || []) as any[])
@@ -245,7 +256,7 @@ export async function cargarMaterialesObra(obra: {
   let poItems: any[] = []
   if (pos.length) {
     const { data } = await supabase.from('po_items')
-      .select('id,purchase_order_id,catalog_product_id,name,marca,modelo,quantity,unit')
+      .select('id,purchase_order_id,catalog_product_id,name,marca,modelo,quantity,unit,real_name,real_marca,real_modelo,real_quantity,cotejo_status,cotejo_notes')
       .in('purchase_order_id', pos.map(p => p.id))
     poItems = (data as any[]) || []
   }
@@ -267,6 +278,27 @@ export async function cargarMaterialesObra(obra: {
         ? (po.expected_delivery ? `Llega ~${String(po.expected_delivery).substring(0, 10)}` : `OC ${po.status}`)
         : 'OC en borrador — todavía no se manda al proveedor',
     })
+
+    // Sustitución: el cotejo de la OC guarda lo que REALMENTE llegó. Se detecta
+    // por diferencia de nombre/marca/modelo, no solo por cotejo_status: hay
+    // renglones marcados 'cotejado' donde el producto sí cambió (UDM-Pro →
+    // UCG-MAX). Obra necesita saber cuál quedó definitivo.
+    const etiq = (n?: string | null, ma?: string | null, mo?: string | null) =>
+      [mo, ma, n].filter(Boolean).join(' · ').trim()
+    const pedidoTxt = etiq(p.name, p.marca, p.modelo)
+    const llegoTxt = etiq(p.real_name || p.name, p.real_marca || p.marca, p.real_modelo || p.modelo)
+    const cambio = (p.real_name && norm(p.real_name) !== norm(p.name))
+      || (p.real_modelo && norm(p.real_modelo) !== norm(p.modelo))
+      || (p.real_marca && norm(p.real_marca) !== norm(p.marca))
+    if (comprada && (cambio || p.cotejo_status === 'sustituido') && llegoTxt !== pedidoTxt) {
+      r.sustituciones.push({
+        pedido: pedidoTxt || p.name || '',
+        llego: llegoTxt || p.real_name || '',
+        oc: po.po_number || '',
+        cantidad: Number(p.real_quantity ?? p.quantity) || 0,
+        notas: p.cotejo_notes || null,
+      })
+    }
     mapa.set(k, r)
   })
 

@@ -174,6 +174,11 @@ export default function MaterialesObra({ obra, onLinked }: {
                       {r.descripcion}
                       {r.areas.length > 1 && <span style={{ color: '#555' }}> · en {r.areas.length} áreas</span>}
                     </div>
+                    {r.sustituciones.length > 0 && (
+                      <div style={{ fontSize: 10, color: '#FBBF24', marginLeft: 16, marginTop: 2 }}>
+                        ⚠ Sustituido — llegó «{r.sustituciones[r.sustituciones.length - 1].llego}»
+                      </div>
+                    )}
                     {r.fueraDeCatalogo && r.parecidoA && (
                       <div style={{ fontSize: 10, color: '#D97706', marginLeft: 16, marginTop: 2 }}>
                         ¿Es el mismo que «{r.parecidoA}»? Se recibió con otro nombre.
@@ -217,6 +222,21 @@ export default function MaterialesObra({ obra, onLinked }: {
                             })}
                           </div>
                         )}
+                      {r.sustituciones.length > 0 && (
+                        <div style={{ marginTop: 8, padding: '7px 9px', background: '#1a1206', border: '1px solid #F59E0B44', borderRadius: 7 }}>
+                          <div style={{ fontSize: 10, fontWeight: 700, color: '#FBBF24', marginBottom: 4 }}>
+                            SUSTITUCIONES DEL COTEJO
+                          </div>
+                          {r.sustituciones.map((su, i) => (
+                            <div key={i} style={{ fontSize: 11, color: '#bbb', marginBottom: 2 }}>
+                              <span style={{ color: '#888', textDecoration: 'line-through' }}>{su.pedido}</span>
+                              {' → '}
+                              <span style={{ color: '#FDE68A', fontWeight: 700 }}>{su.llego}</span>
+                              <span style={{ color: '#666' }}> · {su.cantidad} · {su.oc}{su.notas ? ` · ${su.notas}` : ''}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                       {Object.keys(r.porArea).length > 0 && (
                         <div style={{ fontSize: 10, color: '#666', marginTop: 8 }}>
                           Cotizado por área: {Object.entries(r.porArea).map(([a, n]) => `${a} (${n})`).join(' · ')}

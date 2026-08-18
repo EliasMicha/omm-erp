@@ -12,7 +12,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 import { Fragment, useEffect, useState } from 'react'
 import {
-  Truck, ChevronDown, ChevronRight, AlertTriangle, PackageCheck, Package, Loader2, RefreshCw,
+  Truck, ChevronDown, ChevronRight, AlertTriangle, PackageCheck, Package, Loader2, RefreshCw, ShoppingCart,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { cargarMaterialesObra, STATUS_SOLICITUD, type RenglonMaterial } from '../lib/materialesObra'
@@ -46,7 +46,11 @@ interface Solicitud {
   obra_material_solicitud_items: any[]
 }
 
-export default function SolicitudesObra({ isMobile }: { isMobile?: boolean }) {
+export default function SolicitudesObra({ isMobile, onIrACompras }: {
+  isMobile?: boolean
+  /** lleva al módulo de Compras para levantar la OC de lo que falta */
+  onIrACompras?: () => void
+}) {
   const [sols, setSols] = useState<Solicitud[]>([])
   const [cargando, setCargando] = useState(true)
   const [filtro, setFiltro] = useState<'abiertas' | 'todas'>('abiertas')
@@ -107,14 +111,16 @@ export default function SolicitudesObra({ isMobile }: { isMobile?: boolean }) {
           <div>{filtro === 'abiertas' ? 'No hay solicitudes abiertas de obra.' : 'Todavía no llega ninguna solicitud desde la app de obra.'}</div>
         </div>
       ) : visibles.map(s => (
-        <SolicitudCard key={s.id} sol={s} isMobile={isMobile} onCambio={cargar} />
+        <SolicitudCard key={s.id} sol={s} isMobile={isMobile} onCambio={cargar} onIrACompras={onIrACompras} />
       ))}
     </div>
   )
 }
 
 /* ── Una solicitud, con el cruce contra inventario de su obra ── */
-function SolicitudCard({ sol, isMobile, onCambio }: { sol: Solicitud; isMobile?: boolean; onCambio: () => void }) {
+function SolicitudCard({ sol, isMobile, onCambio, onIrACompras }: {
+  sol: Solicitud; isMobile?: boolean; onCambio: () => void; onIrACompras?: () => void
+}) {
   const [abierto, setAbierto] = useState(false)
   const [mat, setMat] = useState<Map<string, RenglonMaterial> | null>(null)
   const [cargandoMat, setCargandoMat] = useState(false)
@@ -161,10 +167,16 @@ function SolicitudCard({ sol, isMobile, onCambio }: { sol: Solicitud; isMobile?:
     return { label: 'No hay — falta comprarlo', color: '#DC2626', detalle: '' }
   }
 
-  const surtibles = mat ? items.filter(i => {
-    const d = disponibilidad(i)
-    return d.color === '#10B981'
-  }).length : null
+  const surtibles = mat ? items.filter(i => disponibilidad(i).color === '#10B981').length : null
+  // Renglones que no se pueden surtir de ningún lado: hay que comprarlos.
+  const hayQueComprar = mat
+    ? items.filter(i => {
+        if (i.es_extra) return false
+        const r = mat.get(i.clave)
+        if (!r) return false
+        return r.enBodega <= 0 && r.enBodegaGeneral <= 0 && r.pedido <= r.recibido
+      }).length
+    : 0
 
   async function programar() {
     if (!fecha) { setErr('Pon la fecha de entrega.'); return }
@@ -271,6 +283,11 @@ function SolicitudCard({ sol, isMobile, onCambio }: { sol: Solicitud; isMobile?:
                             {i.sistema && <Pill label={i.sistema} color="#4ADE80" />}
                           </div>
                           <div style={{ fontSize: 10, color: '#666', lineHeight: 1.35 }}>{i.descripcion}</div>
+                          {(r?.sustituciones || []).map((su, k) => (
+                            <div key={k} style={{ fontSize: 10, color: '#FBBF24', marginTop: 3 }}>
+                              ⚠ Sustituido en {su.oc}: llegó <b>{su.llego}</b>
+                            </div>
+                          ))}
                         </td>
                         <td style={{ textAlign: 'center', fontSize: 13, fontWeight: 700, color: '#fff', padding: '7px 6px' }}>
                           {i.cantidad} <span style={{ fontSize: 10, color: '#666' }}>{i.unidad}</span>
@@ -315,6 +332,12 @@ function SolicitudCard({ sol, isMobile, onCambio }: { sol: Solicitud; isMobile?:
                 {busy === 'surt' ? 'Guardando…' : 'Marcar surtida'}
               </button>
               <button disabled={!!busy} onClick={() => cambiar('rechazada')} style={btn('#888')}>Rechazar</button>
+              {/* Si no hay de dónde surtir, el siguiente paso es comprarlo */}
+              {hayQueComprar && onIrACompras && (
+                <button onClick={onIrACompras} style={{ ...btn('#DC2626'), marginLeft: 'auto', fontWeight: 700 }}>
+                  <ShoppingCart size={12} /> Levantar orden de compra ({hayQueComprar})
+                </button>
+              )}
             </div>
           )}
           {err && <div style={{ fontSize: 11, color: '#f87171', marginTop: 8 }}><AlertTriangle size={11} /> {err}</div>}

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import SolicitudesObra from '../components/SolicitudesObra'
 import { Btn, KpiCard, SectionHeader, EmptyState, Loading } from '../components/layout/UI'
@@ -38,6 +39,7 @@ const labelStyle: React.CSSProperties = { fontSize: 10, fontWeight: 600, color: 
 
 export default function Entregas() {
   const isMobile = useIsMobile()
+  const navigate = useNavigate()
   const [tab, setTab] = useState<'dashboard' | 'agenda' | 'solicitudes' | 'porlead' | 'inventario' | 'movimientos' | 'registrar' | 'herramienta'>('dashboard')
   const [preselectPo, setPreselectPo] = useState<string>('')
   const [loading, setLoading] = useState(true)
@@ -138,7 +140,7 @@ export default function Entregas() {
 
       {tab === 'dashboard' && <TabDashboard isMobile={isMobile} onOperar={(poId: string) => { setPreselectPo(poId); setTab('registrar') }} onIr={(t: any) => setTab(t)} />}
       {tab === 'agenda' && <TabAgenda isMobile={isMobile} obras={obras} empleados={empleados} />}
-      {tab === 'solicitudes' && <SolicitudesObra isMobile={isMobile} />}
+      {tab === 'solicitudes' && <SolicitudesObra isMobile={isMobile} onIrACompras={() => navigate('/compras')} />}
       {tab === 'porlead' && <TabInventarioLead obras={obras} isMobile={isMobile} />}
       {tab === 'inventario' && <TabInventario movimientos={movimientos} obras={leadsInv} isMobile={isMobile} />}
       {tab === 'movimientos' && <TabMovimientos movimientos={movimientos} obras={leadsInv} isMobile={isMobile} />}
