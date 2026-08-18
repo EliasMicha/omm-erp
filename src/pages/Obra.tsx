@@ -6,6 +6,7 @@ import { supabase } from '../lib/supabase'
 import { useIsMobile } from '../lib/useIsMobile'
 import jsPDF from 'jspdf'
 import { useAuth } from '../contexts/AuthContext'
+import MaterialesObra, { ProximasEntregas } from '../components/MaterialesObra'
 import {
   HardHat, Users, ClipboardList, Calendar, AlertTriangle, CheckCircle, CheckCircle2,
   Clock, ChevronRight, ArrowLeft, Plus, Upload, Camera, X, Eye,
@@ -63,7 +64,23 @@ interface ReporteObra {
   ai_avances?: string[]
   ai_faltantes?: string[]
   ai_bloqueos?: string[]
+  ai_actividades_sugeridas?: ActividadSugerida[]
+  ai_pendientes?: { descripcion: string; sistema?: string; area?: string | null }[]
+  sugerencias_aplicadas?: boolean
   procesado: boolean
+}
+
+// Lo que la IA PROPONE cerrar a partir de un reporte. No se aplica solo:
+// el coordinador confirma. Cerrar actividades mueve el avance de la obra y
+// eso no puede depender de cómo estaba redactado un reporte de campo.
+export interface ActividadSugerida {
+  actividad_id: string
+  descripcion: string
+  sistema?: string | null
+  area?: string | null
+  porcentaje: number
+  evidencia?: string
+  confianza?: number | null
 }
 
 interface EntregaDocumento {
@@ -79,6 +96,7 @@ interface ObraData {
   status: ObraStatus
   cotizacion_ref?: string
   cotizacion_id?: string
+  quotation_ids?: string[]
   project_id?: string
   coordinador: string
   sistemas: Sistema[]
@@ -224,6 +242,7 @@ function rowToObra(o: any, coordinadorName: string): ObraData {
     direccion: o.direccion || '',
     status: (o.status || 'entrega_pendiente') as ObraStatus,
     cotizacion_id: o.quotation_id || undefined,
+    quotation_ids: (o.quotation_ids || []) as string[],
     cotizacion_ref: o.quotation_id ? '' : undefined, // se hidrata si hace falta
     project_id: o.project_id || undefined,
     coordinador: coordinadorName,
@@ -670,6 +689,9 @@ function ObraDetail({ obra, instaladores, hideMoney, onBack, updateObra }: {
           ai_avances: r.ai_avances || undefined,
           ai_faltantes: r.ai_faltantes || undefined,
           ai_bloqueos: r.ai_bloqueos || undefined,
+          ai_actividades_sugeridas: (r.ai_actividades_sugeridas || undefined) as any,
+          ai_pendientes: (r.ai_pendientes || undefined) as any,
+          sugerencias_aplicadas: r.sugerencias_aplicadas || false,
           procesado: r.procesado || false,
         }))
         // Si hay docs en DB, úsalos; si no, arranca con la lista default (DOCS_ENTREGA)
@@ -773,6 +795,8 @@ function ObraDetail({ obra, instaladores, hideMoney, onBack, updateObra }: {
 
       <FichaObra obra={obra} onGuardar={guardarFicha} />
 
+      <ProximasEntregas obraId={obra.id} />
+
       {/* La obra nunca llegaba a "completada": aquí es donde se cierra. */}
       {hydrated && obra.actividades.length > 0 && avanceReal === 100 && obra.status !== 'completada' && (
         <div style={{ marginBottom: 16, padding: '10px 14px', background: 'rgba(37,99,235,0.06)', border: '1px solid rgba(37,99,235,0.25)', borderRadius: 10, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
@@ -854,7 +878,118 @@ function ObraDetail({ obra, instaladores, hideMoney, onBack, updateObra }: {
       {subTab === 'documentacion' && <SubDocumentacion obra={obra} />}
       {subTab === 'entrega' && <SubEntrega obra={obra} updateObra={updateObra} />}
       {subTab === 'equipo' && <SubEquipo obra={obra} instaladores={instaladores} obraInstaladores={obraInstaladores} updateObra={updateObra} />}
-      {subTab === 'materiales' && <SubMateriales obra={obra} onLinked={(cotId) => updateObra(o => ({ ...o, cotizacion_id: cotId }))} />}
+      {subTab === 'materiales' && <MaterialesObra obra={obra as any} onLinked={(cotId) => updateObra(o => ({ ...o, cotizacion_id: cotId }))} />}
+    </div>
+  )
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   SugerenciasCierre — "según este reporte, estas actividades ya están
+   terminadas". Se confirman de un clic (todas o una por una). Nunca se
+   aplican solas: el avance de la obra no puede moverse por cómo quedó
+   redactado un reporte de campo.
+   ═══════════════════════════════════════════════════════════════════ */
+
+function SugerenciasCierre({ reporte, obra, updateObra }: {
+  reporte: ReporteObra
+  obra: ObraData
+  updateObra: (fn: (o: ObraData) => ObraData) => void
+}) {
+  const [aplicando, setAplicando] = useState(false)
+  const [hechas, setHechas] = useState<Set<string>>(new Set())
+  const [error, setError] = useState('')
+  const [oculto, setOculto] = useState(!!reporte.sugerencias_aplicadas)
+
+  const sugeridas = (reporte.ai_actividades_sugeridas || [])
+    // Si la actividad ya se cerró por otro lado, la propuesta sobra.
+    .filter(sg => {
+      const a = obra.actividades.find(x => x.id === sg.actividad_id)
+      return a ? a.status !== 'completada' : false
+    })
+    .filter(sg => !hechas.has(sg.actividad_id))
+
+  if (oculto || sugeridas.length === 0) return null
+
+  async function aplicar(lista: ActividadSugerida[]) {
+    if (lista.length === 0) return
+    setAplicando(true); setError('')
+    const hoy = hoyISO()
+    try {
+      for (const sg of lista) {
+        const completa = sg.porcentaje >= 100
+        const patch: any = { porcentaje: sg.porcentaje, status: completa ? 'completada' : 'en_progreso' }
+        if (completa) patch.fecha_fin_real = hoy
+        const { error: e } = await supabase.from('obra_actividades').update(patch).eq('id', sg.actividad_id)
+        if (e) throw e
+      }
+      const ids = new Set(lista.map(l => l.actividad_id))
+      updateObra(o => {
+        const nuevas = o.actividades.map(a => {
+          const sg = lista.find(l => l.actividad_id === a.id)
+          if (!sg) return a
+          return {
+            ...a,
+            porcentaje: sg.porcentaje,
+            status: (sg.porcentaje >= 100 ? 'completada' : 'en_progreso') as ActividadStatus,
+            fecha_fin_real: sg.porcentaje >= 100 ? hoy : a.fecha_fin_real,
+          }
+        })
+        return { ...o, actividades: nuevas, avance_global: avanceDe(nuevas) }
+      })
+      const nuevas = obra.actividades.map(a => {
+        const sg = lista.find(l => l.actividad_id === a.id)
+        return sg ? { ...a, porcentaje: sg.porcentaje, status: (sg.porcentaje >= 100 ? 'completada' : 'en_progreso') as ActividadStatus } : a
+      })
+      await supabase.from('obras').update({ avance_global: avanceDe(nuevas) }).eq('id', obra.id)
+      setHechas(prev => { const n = new Set(prev); ids.forEach(i => n.add(i)); return n })
+      if (lista.length === sugeridas.length) {
+        await supabase.from('obra_reportes').update({ sugerencias_aplicadas: true }).eq('id', reporte.id)
+        setOculto(true)
+      }
+    } catch (e: any) {
+      setError(e?.message || String(e))
+    }
+    setAplicando(false)
+  }
+
+  return (
+    <div style={{ marginTop: 10, padding: '10px 12px', background: 'rgba(16,185,129,0.05)', borderRadius: 8, border: '1px solid rgba(16,185,129,0.22)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+        <CheckCircle2 size={13} color="#10B981" />
+        <span style={{ fontSize: 11, fontWeight: 700, color: '#4ADE80' }}>
+          Según este reporte, {sugeridas.length} actividad{sugeridas.length === 1 ? '' : 'es'} ya {sugeridas.length === 1 ? 'está lista' : 'están listas'}
+        </span>
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+          <Btn size="sm" variant="primary" disabled={aplicando} onClick={() => aplicar(sugeridas)}>
+            {aplicando ? <Loader2 size={10} /> : <CheckCircle size={10} />} Confirmar todas
+          </Btn>
+          <Btn size="sm" variant="default" disabled={aplicando} onClick={async () => {
+            setOculto(true)
+            await supabase.from('obra_reportes').update({ sugerencias_aplicadas: true }).eq('id', reporte.id)
+          }}>Descartar</Btn>
+        </div>
+      </div>
+      {sugeridas.map(sg => (
+        <div key={sg.actividad_id} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', padding: '5px 0', borderTop: '1px solid rgba(16,185,129,0.12)' }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 11, color: '#ddd' }}>
+              {sg.descripcion}
+              {sg.area && <span style={{ color: '#666' }}> — {sg.area}</span>}
+            </div>
+            {sg.evidencia && <div style={{ fontSize: 10, color: '#777', fontStyle: 'italic', marginTop: 2 }}>«{sg.evidencia}»</div>}
+          </div>
+          <span style={{ fontSize: 11, fontWeight: 700, color: sg.porcentaje >= 100 ? '#10B981' : '#D97706', minWidth: 34, textAlign: 'right' }}>
+            {sg.porcentaje}%
+          </span>
+          {typeof sg.confianza === 'number' && (
+            <span title="Qué tan segura está la IA" style={{ fontSize: 9, color: sg.confianza >= 0.75 ? '#10B981' : '#D97706', minWidth: 28 }}>
+              {Math.round(sg.confianza * 100)}%
+            </span>
+          )}
+          <Btn size="sm" variant="default" disabled={aplicando} onClick={() => aplicar([sg])}>Confirmar</Btn>
+        </div>
+      ))}
+      {error && <div style={{ fontSize: 10, color: '#f87171', marginTop: 6 }}>⚠ {error}</div>}
     </div>
   )
 }
@@ -2398,7 +2533,29 @@ function SubReportes({ obra, instaladores, updateObra, showNew, setShowNew }: {
           reporte.ai_avances = procData.avances || []
           reporte.ai_faltantes = procData.faltantes || []
           reporte.ai_bloqueos = procData.bloqueos || []
+          reporte.ai_actividades_sugeridas = procData.actividades_sugeridas || []
+          reporte.ai_pendientes = procData.pendientes || []
           reporte.procesado = true
+          // Los pendientes nuevos se dieron de alta en el server: volvemos a
+          // leer las actividades para que aparezcan sin recargar la página.
+          if (procData.pendientes_creados > 0) {
+            const { data: acts } = await supabase.from('obra_actividades').select('*').eq('obra_id', obra.id).order('order_index')
+            if (acts) {
+              updateObra(o => ({
+                ...o,
+                actividades: (acts as any[]).map(a => ({
+                  id: a.id, obra_id: a.obra_id, sistema: a.sistema as Sistema, area: a.area || undefined,
+                  descripcion: a.descripcion, status: a.status as ActividadStatus,
+                  instalador_id: a.instalador_id || undefined,
+                  fecha_inicio: a.fecha_inicio || undefined,
+                  fecha_fin_plan: a.fecha_fin_plan || undefined,
+                  fecha_fin_real: a.fecha_fin_real || undefined,
+                  notas: a.notas || undefined,
+                  porcentaje: a.porcentaje || 0,
+                })),
+              }))
+            }
+          }
         }
       }
     } catch (err) {
@@ -2546,6 +2703,29 @@ function SubReportes({ obra, instaladores, updateObra, showNew, setShowNew }: {
                         </div>
                       )}
                     </div>
+                  )}
+
+                  {/* Pendientes que el reporte destapó y ya quedaron como tareas */}
+                  {r.procesado && r.ai_pendientes && r.ai_pendientes.length > 0 && (
+                    <div style={{ marginTop: 10, padding: '8px 10px', background: 'rgba(167,139,250,0.05)', borderRadius: 6, border: '1px solid rgba(167,139,250,0.18)' }}>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: '#A78BFA', marginBottom: 6 }}>
+                        + Pendientes nuevos — ya quedaron dados de alta como actividades
+                      </div>
+                      {r.ai_pendientes.map((p, i) => (
+                        <div key={i} style={{ fontSize: 11, color: '#aaa', marginBottom: 3 }}>
+                          • {p.descripcion}{p.area ? ` — ${p.area}` : ''}{p.sistema ? ` (${p.sistema})` : ''}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Propuesta de cierre de actividades */}
+                  {r.procesado && r.ai_actividades_sugeridas && r.ai_actividades_sugeridas.length > 0 && (
+                    <SugerenciasCierre
+                      reporte={r}
+                      obra={obra}
+                      updateObra={updateObra}
+                    />
                   )}
                 </div>
               )}
@@ -4563,469 +4743,3 @@ function SubDocumentacion({ obra }: { obra: ObraData }) {
     </div>
   )
 }
-
-/* ═══════════════════════════════════════════════════════════════════
-   SUB: MATERIALES — Resumen de materiales de la obra agrupado por área
-   ═══════════════════════════════════════════════════════════════════ */
-
-interface MatArea { id: string; name: string; order_index: number }
-interface MatItem {
-  id: string
-  area_id: string
-  name: string
-  description: string | null
-  system: string | null
-  provider: string | null
-  purchase_phase: string | null
-  quantity: number
-  price: number
-  total: number
-  type: string
-  catalog_product_id: string | null
-}
-interface MatPOItem {
-  id: string
-  purchase_order_id: string
-  catalog_product_id: string | null
-  name: string
-  quantity: number
-  po_status: string | null
-  po_project_id: string | null
-}
-interface MatDelItem {
-  id: string
-  po_item_id: string | null
-  product_id: string | null
-  description: string
-  qty: number
-  direction: 'in_bodega' | 'in_obra' | 'out_bodega_to_obra'
-  obra_id: string | null
-  po_id: string | null
-  po_project_id: string | null
-}
-
-// Bucket key for matching quotation_items ↔ po_items ↔ delivery_items.
-// Prefer catalog_product_id (strict match); fallback to normalized name.
-function matBucket(it: { catalog_product_id?: string | null; product_id?: string | null; name?: string; description?: string }): string {
-  const cpId = it.catalog_product_id || it.product_id
-  if (cpId) return `cat:${cpId}`
-  const label = (it.name || it.description || '').trim().toLowerCase()
-  return label ? `name:${label}` : '__unknown__'
-}
-
-function SubMateriales({ obra, onLinked }: { obra: ObraData; onLinked?: (cotId: string) => void }) {
-  const [loading, setLoading] = useState(true)
-  const [areas, setAreas] = useState<MatArea[]>([])
-  const [items, setItems] = useState<MatItem[]>([])
-  const [poItems, setPoItems] = useState<MatPOItem[]>([])
-  const [delItems, setDelItems] = useState<MatDelItem[]>([])
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
-  const [filterSystem, setFilterSystem] = useState<string>('')
-  const [filterStatus, setFilterStatus] = useState<'' | 'falta_pedir' | 'falta_recibir' | 'falta_entregar' | 'completo'>('')
-  const [search, setSearch] = useState('')
-  const [error, setError] = useState<string | null>(null)
-  const [availableCots, setAvailableCots] = useState<Array<{ id: string; name: string; specialty: string; total: number }>>([])
-  const [linking, setLinking] = useState(false)
-
-  useEffect(() => {
-    if (!obra.cotizacion_id) {
-      // Load available quotations so user can link one
-      supabase.from('quotations').select('id,name,specialty,total').order('updated_at', { ascending: false })
-        .then(({ data }) => { setAvailableCots(data || []); setLoading(false) })
-      setError('Esta obra no tiene cotización vinculada')
-      return
-    }
-    setLoading(true)
-    setError(null)
-
-    const projectId = obra.project_id || null
-    const obraId = obra.id
-
-    Promise.all([
-      supabase.from('quotation_areas').select('id, name, order_index').eq('quotation_id', obra.cotizacion_id).order('order_index'),
-      supabase.from('quotation_items').select('id, area_id, name, description, system, provider, purchase_phase, quantity, price, total, type, catalog_product_id').eq('quotation_id', obra.cotizacion_id).order('order_index'),
-      // po_items: filtramos por POs del proyecto (si existe). Si no hay project_id, no podemos filtrar — traemos vacío.
-      projectId
-        ? supabase.from('po_items').select('id, purchase_order_id, catalog_product_id, name, quantity, purchase_orders!inner(id, status, project_id)').eq('purchase_orders.project_id', projectId)
-        : Promise.resolve({ data: [], error: null }),
-      // delivery_items: los que son para esta obra (entregado) + los cuyo PO sea de este proyecto (recibido en bodega por OMM para este proyecto)
-      projectId
-        ? supabase.from('delivery_items').select('id, po_item_id, product_id, description, qty, direction, obra_id, po_id, purchase_orders:po_id(id, project_id)').or(`obra_id.eq.${obraId},purchase_orders.project_id.eq.${projectId}`)
-        : supabase.from('delivery_items').select('id, po_item_id, product_id, description, qty, direction, obra_id, po_id').eq('obra_id', obraId),
-    ]).then(([areasRes, itemsRes, poRes, delRes]: any[]) => {
-      if (areasRes.error) setError('Error cargando áreas: ' + areasRes.error.message)
-      if (itemsRes.error) setError('Error cargando materiales: ' + itemsRes.error.message)
-      if (poRes.error) console.warn('Error cargando po_items:', poRes.error)
-      if (delRes.error) console.warn('Error cargando delivery_items:', delRes.error)
-
-      setAreas((areasRes.data || []) as MatArea[])
-      // Solo materiales (no mano de obra)
-      const materialItems = ((itemsRes.data || []) as MatItem[]).filter(it => it.type !== 'labor')
-      setItems(materialItems)
-
-      // Normalizar po_items (aplanamos el embed de purchase_orders)
-      const poNorm: MatPOItem[] = ((poRes.data || []) as any[]).map(p => ({
-        id: p.id,
-        purchase_order_id: p.purchase_order_id,
-        catalog_product_id: p.catalog_product_id || null,
-        name: p.name || '',
-        quantity: Number(p.quantity) || 0,
-        po_status: p.purchase_orders?.status || null,
-        po_project_id: p.purchase_orders?.project_id || null,
-      }))
-      setPoItems(poNorm)
-
-      // Normalizar delivery_items
-      const delNorm: MatDelItem[] = ((delRes.data || []) as any[]).map(d => ({
-        id: d.id,
-        po_item_id: d.po_item_id || null,
-        product_id: d.product_id || null,
-        description: d.description || '',
-        qty: Number(d.qty) || 0,
-        direction: d.direction,
-        obra_id: d.obra_id || null,
-        po_id: d.po_id || null,
-        po_project_id: d.purchase_orders?.project_id || null,
-      }))
-      setDelItems(delNorm)
-
-      setLoading(false)
-    })
-  }, [obra.cotizacion_id, obra.project_id, obra.id])
-
-  if (loading) return <Loading />
-
-  if (error && !obra.cotizacion_id) {
-    return (
-      <div style={{ padding: 20, background: '#2a1414', border: '1px solid #3a2020', borderRadius: 10, fontSize: 13 }}>
-        <div style={{ color: '#f87171', marginBottom: 12 }}>
-          <AlertTriangle size={14} style={{ verticalAlign: 'middle', marginRight: 6 }} />
-          {error}
-        </div>
-        {availableCots.length > 0 && (
-          <div>
-            <div style={{ fontSize: 11, color: '#888', marginBottom: 8 }}>Selecciona una cotización para vincular a esta obra:</div>
-            <select
-              disabled={linking}
-              onChange={async e => {
-                const cotId = e.target.value
-                if (!cotId) return
-                setLinking(true)
-                await supabase.from('obras').update({ quotation_id: cotId }).eq('id', obra.id)
-                onLinked?.(cotId)
-                setLinking(false)
-              }}
-              style={{
-                width: '100%', padding: '8px 10px', background: '#1e1e1e', border: '1px solid #333',
-                borderRadius: 8, color: '#fff', fontSize: 12, fontFamily: 'inherit',
-              }}
-            >
-              <option value="">-- Seleccionar cotización --</option>
-              {availableCots.map(c => (
-                <option key={c.id} value={c.id}>
-                  {c.name} ({c.specialty?.toUpperCase()}) — ${(c.specialty === 'elec' ? (c.total || 0) * 1.16 : (c.total || 0)).toLocaleString()}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
-      </div>
-    )
-  }
-
-  if (error) {
-    return (
-      <div style={{ padding: 20, background: '#2a1414', border: '1px solid #3a2020', borderRadius: 10, color: '#f87171', fontSize: 13 }}>
-        <AlertTriangle size={14} style={{ verticalAlign: 'middle', marginRight: 6 }} />
-        {error}
-      </div>
-    )
-  }
-
-  if (items.length === 0) {
-    return <EmptyState message="Esta cotización no tiene materiales registrados" />
-  }
-
-  // ═══════════════ AGREGACIONES POR BUCKET ═══════════════
-  // Sumas totales de pedido / recibido / entregado agrupadas por bucket key
-  // (catalog_product_id si existe, si no por nombre normalizado).
-  const pedidoByBucket: Record<string, number> = {}
-  poItems.forEach(p => {
-    // Excluir POs canceladas o en borrador — las demás cuentan como "pedido"
-    if (p.po_status === 'cancelada') return
-    const k = matBucket({ catalog_product_id: p.catalog_product_id, name: p.name })
-    pedidoByBucket[k] = (pedidoByBucket[k] || 0) + p.quantity
-  })
-
-  // Recibido: llegó al inventario OMM para este proyecto (bodega o directo a obra)
-  //   direction IN ('in_bodega', 'in_obra')
-  const recibidoByBucket: Record<string, number> = {}
-  // Entregado: físicamente está en ESTA obra
-  //   direction IN ('in_obra', 'out_bodega_to_obra') AND obra_id = obra.id
-  const entregadoByBucket: Record<string, number> = {}
-
-  delItems.forEach(d => {
-    const k = matBucket({ product_id: d.product_id, description: d.description })
-    if (d.direction === 'in_bodega' || d.direction === 'in_obra') {
-      recibidoByBucket[k] = (recibidoByBucket[k] || 0) + d.qty
-    }
-    if ((d.direction === 'in_obra' || d.direction === 'out_bodega_to_obra') && d.obra_id === obra.id) {
-      entregadoByBucket[k] = (entregadoByBucket[k] || 0) + d.qty
-    }
-  })
-
-  // Helper: estado por item
-  function getItemStatus(it: MatItem): 'falta_pedir' | 'falta_recibir' | 'falta_entregar' | 'completo' {
-    const k = matBucket({ catalog_product_id: it.catalog_product_id, name: it.name })
-    const cot = Number(it.quantity) || 0
-    const ped = pedidoByBucket[k] || 0
-    const rec = recibidoByBucket[k] || 0
-    const ent = entregadoByBucket[k] || 0
-    if (ent >= cot && cot > 0) return 'completo'
-    if (rec >= cot && cot > 0) return 'falta_entregar'
-    if (ped >= cot && cot > 0) return 'falta_recibir'
-    return 'falta_pedir'
-  }
-
-  // ═══════════════ FILTROS ═══════════════
-  const filteredItems = items.filter(it => {
-    if (filterSystem && it.system !== filterSystem) return false
-    if (filterStatus && getItemStatus(it) !== filterStatus) return false
-    if (search) {
-      const q = search.toLowerCase()
-      if (!it.name.toLowerCase().includes(q) &&
-          !(it.description || '').toLowerCase().includes(q) &&
-          !(it.provider || '').toLowerCase().includes(q)) return false
-    }
-    return true
-  })
-
-  // Sistemas únicos para el filtro
-  const uniqueSystems: string[] = Array.from(new Set(items.map(it => it.system || '').filter(Boolean))).sort()
-
-  // ═══════════════ KPIs ═══════════════
-  // Conteo por estado (sobre todos los items, no solo filtrados)
-  let kpiCompletos = 0
-  let kpiFaltaPedir = 0
-  let kpiFaltaRecibir = 0
-  let kpiFaltaEntregar = 0
-  items.forEach(it => {
-    const st = getItemStatus(it)
-    if (st === 'completo') kpiCompletos++
-    else if (st === 'falta_pedir') kpiFaltaPedir++
-    else if (st === 'falta_recibir') kpiFaltaRecibir++
-    else if (st === 'falta_entregar') kpiFaltaEntregar++
-  })
-
-  // Agrupar por área
-  const areasWithItems = areas
-    .map(a => ({ area: a, items: filteredItems.filter(it => it.area_id === a.id) }))
-    .filter(g => g.items.length > 0)
-
-  // Items sin área (huérfanos)
-  const orphanItems = filteredItems.filter(it => !areas.some(a => a.id === it.area_id))
-  if (orphanItems.length > 0) {
-    areasWithItems.push({
-      area: { id: '__orphan__', name: 'Sin área asignada', order_index: 9999 },
-      items: orphanItems,
-    })
-  }
-
-  function toggleArea(id: string) {
-    setCollapsed(p => ({ ...p, [id]: !p[id] }))
-  }
-
-  function expandAll() { setCollapsed({}) }
-  function collapseAll() {
-    const all: Record<string, boolean> = {}
-    areasWithItems.forEach(g => { all[g.area.id] = true })
-    setCollapsed(all)
-  }
-
-  const inputStyle: React.CSSProperties = {
-    padding: '6px 10px', background: '#0e0e0e', border: '1px solid #2a2a2a',
-    borderRadius: 6, color: '#ccc', fontSize: 12, fontFamily: 'inherit', outline: 'none',
-  }
-
-  return (
-    <div>
-      {/* KPIs por estado — matriz 4 estados */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 16 }}>
-        <KpiCard label="Falta pedir"     value={String(kpiFaltaPedir)}     color="#F87171" icon={<AlertTriangle size={16} />} />
-        <KpiCard label="Falta recibir"   value={String(kpiFaltaRecibir)}   color="#D97706" icon={<ShoppingCart size={16} />} />
-        <KpiCard label="Falta entregar"  value={String(kpiFaltaEntregar)}  color="#2563EB" icon={<Truck size={16} />} />
-        <KpiCard label="Completos"       value={String(kpiCompletos)}      color="#10B981" icon={<CheckCircle2 size={16} />} />
-      </div>
-
-      {/* Controles */}
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 14, flexWrap: 'wrap' }}>
-        <input
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          placeholder="Buscar por nombre, descripción, proveedor..."
-          style={{ ...inputStyle, width: 260 }}
-        />
-        <select
-          value={filterSystem}
-          onChange={e => setFilterSystem(e.target.value)}
-          style={{ ...inputStyle, width: 150 }}
-        >
-          <option value="">Todos los sistemas</option>
-          {uniqueSystems.map(s => <option key={s} value={s}>{s}</option>)}
-        </select>
-        <select
-          value={filterStatus}
-          onChange={e => setFilterStatus(e.target.value as any)}
-          style={{ ...inputStyle, width: 170 }}
-        >
-          <option value="">Todos los estados</option>
-          <option value="falta_pedir">Falta pedir</option>
-          <option value="falta_recibir">Falta recibir</option>
-          <option value="falta_entregar">Falta entregar</option>
-          <option value="completo">Completos</option>
-        </select>
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
-          <Btn size="sm" variant="default" onClick={expandAll}>Expandir todo</Btn>
-          <Btn size="sm" variant="default" onClick={collapseAll}>Colapsar todo</Btn>
-        </div>
-      </div>
-
-      {/* Áreas */}
-      {areasWithItems.length === 0 && (
-        <EmptyState message="Sin resultados con los filtros aplicados" />
-      )}
-
-      {areasWithItems.map(({ area, items: areaItems }) => {
-        // Resúmenes del área: contador por estado
-        let areaFaltaPedir = 0, areaFaltaRecibir = 0, areaFaltaEntregar = 0, areaCompletos = 0
-        areaItems.forEach(it => {
-          const st = getItemStatus(it)
-          if (st === 'falta_pedir') areaFaltaPedir++
-          else if (st === 'falta_recibir') areaFaltaRecibir++
-          else if (st === 'falta_entregar') areaFaltaEntregar++
-          else if (st === 'completo') areaCompletos++
-        })
-        const areaPiezasCot = areaItems.reduce((s, it) => s + (Number(it.quantity) || 0), 0)
-        const isCollapsed = collapsed[area.id] || false
-
-        // Agrupar items por sistema dentro del área
-        const bySystem: Record<string, MatItem[]> = {}
-        areaItems.forEach(it => {
-          const sys = it.system || 'Sin sistema'
-          if (!bySystem[sys]) bySystem[sys] = []
-          bySystem[sys].push(it)
-        })
-        const systemOrder = Object.keys(bySystem).sort()
-
-        return (
-          <div key={area.id} style={{ marginBottom: 12, background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 10, overflow: 'hidden' }}>
-            {/* Header del área */}
-            <div
-              onClick={() => toggleArea(area.id)}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px',
-                cursor: 'pointer', background: '#141414', borderLeft: '3px solid #10B981',
-              }}
-            >
-              {isCollapsed ? <ChevronRight size={14} color="#10B981" /> : <ChevronDown size={14} color="#10B981" />}
-              <span style={{ fontSize: 13, fontWeight: 700, color: '#fff', flex: 1, textTransform: 'uppercase' as const }}>
-                {area.name}
-              </span>
-              <span style={{ fontSize: 10, color: '#666' }}>{areaItems.length} items · {areaPiezasCot} pz cot.</span>
-              {/* Mini-contadores de estado por área */}
-              <span style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 10, fontFamily: 'monospace' }}>
-                {areaFaltaPedir > 0    && <span style={{ color: '#F87171' }} title="Falta pedir">●{areaFaltaPedir}</span>}
-                {areaFaltaRecibir > 0  && <span style={{ color: '#FBBF24' }} title="Falta recibir">●{areaFaltaRecibir}</span>}
-                {areaFaltaEntregar > 0 && <span style={{ color: '#60A5FA' }} title="Falta entregar">●{areaFaltaEntregar}</span>}
-                {areaCompletos > 0     && <span style={{ color: '#10B981' }} title="Completos">✓{areaCompletos}</span>}
-              </span>
-            </div>
-
-            {/* Items agrupados por sistema */}
-            {!isCollapsed && (
-              <div style={{ padding: '8px 14px 14px' }}>
-                {systemOrder.map(sysName => {
-                  const sysItems = bySystem[sysName]
-                  const sysColor = SISTEMAS_CONFIG[sysName as Sistema]?.color || '#888'
-                  return (
-                    <div key={sysName} style={{ marginTop: 10 }}>
-                      <div style={{
-                        fontSize: 10, fontWeight: 700, color: sysColor, textTransform: 'uppercase' as const,
-                        letterSpacing: '0.06em', marginBottom: 6, paddingBottom: 4, borderBottom: '1px solid #1a1a1a',
-                        display: 'flex', alignItems: 'center', gap: 6,
-                      }}>
-                        <span style={{ width: 6, height: 6, borderRadius: '50%', background: sysColor }} />
-                        {sysName}
-                        <span style={{ color: '#555', marginLeft: 'auto', fontWeight: 400 }}>
-                          {sysItems.length} items
-                        </span>
-                      </div>
-                      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                        <thead>
-                          <tr>
-                            <th style={{ textAlign: 'left',   fontSize: 9, color: '#444', fontWeight: 600, padding: '4px 6px', textTransform: 'uppercase' as const, letterSpacing: '0.06em' }}>Producto</th>
-                            <th style={{ textAlign: 'left',   fontSize: 9, color: '#444', fontWeight: 600, padding: '4px 6px', textTransform: 'uppercase' as const, letterSpacing: '0.06em', width: 130 }}>Proveedor</th>
-                            <th style={{ textAlign: 'center', fontSize: 9, color: '#F87171', fontWeight: 700, padding: '4px 6px', textTransform: 'uppercase' as const, letterSpacing: '0.06em', width: 80 }}>Cotizado</th>
-                            <th style={{ textAlign: 'center', fontSize: 9, color: '#FBBF24', fontWeight: 700, padding: '4px 6px', textTransform: 'uppercase' as const, letterSpacing: '0.06em', width: 80 }}>Pedido</th>
-                            <th style={{ textAlign: 'center', fontSize: 9, color: '#60A5FA', fontWeight: 700, padding: '4px 6px', textTransform: 'uppercase' as const, letterSpacing: '0.06em', width: 80 }}>Recibido</th>
-                            <th style={{ textAlign: 'center', fontSize: 9, color: '#10B981', fontWeight: 700, padding: '4px 6px', textTransform: 'uppercase' as const, letterSpacing: '0.06em', width: 80 }}>Entregado</th>
-                            <th style={{ textAlign: 'center', fontSize: 9, color: '#444', fontWeight: 600, padding: '4px 6px', textTransform: 'uppercase' as const, letterSpacing: '0.06em', width: 60 }}>Estado</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {sysItems.map(it => {
-                            const k = matBucket({ catalog_product_id: it.catalog_product_id, name: it.name })
-                            const cot = Number(it.quantity) || 0
-                            const ped = pedidoByBucket[k] || 0
-                            const rec = recibidoByBucket[k] || 0
-                            const ent = entregadoByBucket[k] || 0
-                            const st = getItemStatus(it)
-                            const stCfg = {
-                              falta_pedir:     { color: '#F87171', label: '●', title: 'Falta pedir' },
-                              falta_recibir:   { color: '#FBBF24', label: '●', title: 'Falta recibir' },
-                              falta_entregar:  { color: '#60A5FA', label: '●', title: 'Falta entregar' },
-                              completo:        { color: '#10B981', label: '✓', title: 'Completo' },
-                            }[st]
-                            // Helpers de color por comparación con cotizado
-                            const pedColor = ped >= cot ? '#FBBF24' : (ped > 0 ? '#fbbf2480' : '#3a3a3a')
-                            const recColor = rec >= cot ? '#60A5FA' : (rec > 0 ? '#60a5fa80' : '#3a3a3a')
-                            const entColor = ent >= cot ? '#10B981' : (ent > 0 ? '#57ff9a80' : '#3a3a3a')
-                            return (
-                              <tr key={it.id} style={{ borderTop: '1px solid #141414' }}>
-                                <td style={{ fontSize: 12, color: '#ddd', padding: '6px' }}>
-                                  <div style={{ fontWeight: 500 }}>{it.name}</div>
-                                  {it.description && <div style={{ fontSize: 10, color: '#555', marginTop: 1 }}>{it.description}</div>}
-                                </td>
-                                <td style={{ fontSize: 11, color: '#888', padding: '6px' }}>{it.provider || '—'}</td>
-                                <td style={{ textAlign: 'center', fontSize: 12, color: '#fff', fontWeight: 600, padding: '6px', fontVariantNumeric: 'tabular-nums' as const }}>
-                                  {cot}
-                                </td>
-                                <td style={{ textAlign: 'center', fontSize: 12, color: pedColor, fontWeight: 600, padding: '6px', fontVariantNumeric: 'tabular-nums' as const }}>
-                                  {ped}
-                                </td>
-                                <td style={{ textAlign: 'center', fontSize: 12, color: recColor, fontWeight: 600, padding: '6px', fontVariantNumeric: 'tabular-nums' as const }}>
-                                  {rec}
-                                </td>
-                                <td style={{ textAlign: 'center', fontSize: 12, color: entColor, fontWeight: 600, padding: '6px', fontVariantNumeric: 'tabular-nums' as const }}>
-                                  {ent}
-                                </td>
-                                <td style={{ textAlign: 'center', padding: '6px' }} title={stCfg.title}>
-                                  <span style={{ color: stCfg.color, fontSize: 14, fontWeight: 700 }}>{stCfg.label}</span>
-                                </td>
-                              </tr>
-                            )
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-          </div>
-        )
-      })}
-    </div>
-  )
-}
-
