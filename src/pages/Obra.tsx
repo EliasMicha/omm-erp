@@ -85,6 +85,12 @@ interface ObraData {
   instaladores_ids: string[]
   fecha_inicio?: string
   fecha_fin_plan?: string
+  fecha_fin_real?: string
+  latitude?: number
+  longitude?: number
+  radio_checada_metros?: number
+  direccion_completa?: string
+  google_maps_url?: string
   avance_global: number
   actividades: Actividad[]
   reportes: ReporteObra[]
@@ -137,6 +143,53 @@ const DOCS_ENTREGA: string[] = [
   'Contacto residente de obra',
 ]
 
+/* ── Avance / fechas ────────────────────────────────────────────────
+   El avance NUNCA se lee de la columna guardada: se calcula del
+   promedio del % de las actividades (una actividad "completada"
+   cuenta 100 aunque su % haya quedado en otro valor). La columna
+   obras.avance_global se conserva solo como cache para otros módulos
+   y se repara sola cuando difiere. */
+export function avanceDe(acts: { porcentaje?: number | null; status?: string | null }[]): number {
+  if (!acts.length) return 0
+  const suma = acts.reduce((s, a) => s + (a.status === 'completada' ? 100 : (Number(a.porcentaje) || 0)), 0)
+  return Math.round(suma / acts.length)
+}
+
+const hoyISO = () => new Date().toISOString().substring(0, 10)
+
+const diasEntre = (desde: string, hasta: string): number =>
+  Math.round((new Date(hasta + 'T00:00:00').getTime() - new Date(desde + 'T00:00:00').getTime()) / 86400000)
+
+// Semáforo de la fecha compromiso de la obra.
+function semaforoObra(o: { fecha_fin_plan?: string; status?: string; avance?: number }):
+  { label: string; color: string } | null {
+  if (!o.fecha_fin_plan) return null
+  if (o.status === 'completada') return { label: 'Entregada', color: '#2563EB' }
+  const d = diasEntre(hoyISO(), o.fecha_fin_plan)
+  if (d < 0) return { label: `${Math.abs(d)} d de atraso`, color: '#DC2626' }
+  if (d === 0) return { label: 'Vence hoy', color: '#DC2626' }
+  if (d <= 7) return { label: `Vence en ${d} d`, color: '#D97706' }
+  return { label: `${d} d restantes`, color: '#10B981' }
+}
+
+// Saca lat/lng de un link de Google Maps pegado por el usuario.
+export function coordsDeUrl(url: string): { lat: number; lng: number } | null {
+  const t = String(url || '')
+  const pats = [/@(-?\d+\.\d+),(-?\d+\.\d+)/, /!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/, /[?&]q=(-?\d+\.\d+),\s*(-?\d+\.\d+)/, /^\s*(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)\s*$/]
+  for (const re of pats) {
+    const m = t.match(re)
+    if (m) {
+      const lat = parseFloat(m[1]), lng = parseFloat(m[2])
+      if (!isNaN(lat) && !isNaN(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180) return { lat, lng }
+    }
+  }
+  return null
+}
+
+export interface StatsObra {
+  total: number; hechas: number; bloq: number; sinResp: number; avance: number; vencidas: number
+}
+
 /* ═══════════════════════════════════════════════════════════════════
    DATA LOADERS — Supabase (commit 1)
    Las subtablas (actividades, reportes, entrega_docs) siguen en memoria
@@ -178,6 +231,12 @@ function rowToObra(o: any, coordinadorName: string): ObraData {
     instaladores_ids: (o.instaladores_ids || []) as string[],
     fecha_inicio: o.fecha_inicio || undefined,
     fecha_fin_plan: o.fecha_fin_plan || undefined,
+    fecha_fin_real: o.fecha_fin_real || undefined,
+    latitude: o.latitude != null ? Number(o.latitude) : undefined,
+    longitude: o.longitude != null ? Number(o.longitude) : undefined,
+    radio_checada_metros: o.radio_checada_metros != null ? Number(o.radio_checada_metros) : undefined,
+    direccion_completa: o.direccion_completa || undefined,
+    google_maps_url: o.google_maps_url || undefined,
     avance_global: o.avance_global || 0,
     actividades: [], // mock por ahora — Commit 2 carga de obra_actividades
     reportes: [],    // mock por ahora — Commit 2 carga de obra_reportes
@@ -218,6 +277,9 @@ export default function Obra() {
   const [showNewInstalador, setShowNewInstalador] = useState(false)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
+  // Estadísticas reales por obra, calculadas de obra_actividades (no de la
+  // columna guardada). Se cargan de una sola query para las 18 obras.
+  const [stats, setStats] = useState<Record<string, StatsObra>>({})
 
   // Carga inicial: obras + employees (instaladores + coordinadores)
   useEffect(() => {
@@ -226,11 +288,12 @@ export default function Obra() {
       setLoading(true)
       setLoadError(null)
       try {
-        const [obrasRes, empRes] = await Promise.all([
+        const [obrasRes, empRes, actsRes] = await Promise.all([
           supabase.from('obras').select('*').order('created_at', { ascending: false }),
           // Excluye bajas: RRHH marca la baja en activo/estado_empleado; obra usa is_active.
           // Filtramos por ambos para que un dado de baja no reaparezca aunque un flag quede desincronizado.
           supabase.from('employees').select('id,name,phone,role,level,skills,disponible,foto_url,calificacion,notes,is_active,activo,estado_empleado,tipo_trabajo,area').eq('is_active', true).or('activo.is.null,activo.eq.true').order('name'),
+          supabase.from('obra_actividades').select('obra_id,status,porcentaje,instalador_id,fecha_fin_plan').limit(20000),
         ])
         if (cancelled) return
         if (obrasRes.error) {
@@ -259,10 +322,43 @@ export default function Obra() {
         const coordMap = new Map<string, string>()
         empleados.forEach((e: any) => coordMap.set(e.id, e.name || ''))
         const obrasMapped = (obrasRes.data || []).map((o: any) => rowToObra(o, coordMap.get(o.coordinador_id || '') || ''))
+
+        // Agregados reales por obra
+        const porObra = new Map<string, any[]>()
+        ;((actsRes as any)?.data || []).forEach((a: any) => {
+          const arr = porObra.get(a.obra_id) || []
+          arr.push(a)
+          porObra.set(a.obra_id, arr)
+        })
+        const hoy = hoyISO()
+        const st: Record<string, StatsObra> = {}
+        obrasMapped.forEach((o: ObraData) => {
+          const acts = porObra.get(o.id) || []
+          st[o.id] = {
+            total: acts.length,
+            hechas: acts.filter(a => a.status === 'completada').length,
+            bloq: acts.filter(a => a.status === 'bloqueada').length,
+            sinResp: acts.filter(a => !a.instalador_id).length,
+            avance: avanceDe(acts),
+            vencidas: acts.filter(a => a.status !== 'completada' && a.fecha_fin_plan && a.fecha_fin_plan < hoy).length,
+          }
+        })
+        // Sobrescribimos el avance guardado con el real para que TODO lo que
+        // consume `obras` (panel, PDF, resumen con IA) hable del mismo número.
+        obrasMapped.forEach((o: ObraData) => { o.avance_global = st[o.id]?.avance ?? 0 })
         setInstaladores(insts)
         setCoordinadores(coords)
         setObras(obrasMapped)
+        setStats(st)
         setLoading(false)
+
+        // Repara en silencio la columna cache que quedó desfasada
+        ;(obrasRes.data || []).forEach((row: any) => {
+          const real = st[row.id]?.avance ?? 0
+          if (real !== (row.avance_global || 0)) {
+            supabase.from('obras').update({ avance_global: real }).eq('id', row.id).then(() => {}, () => {})
+          }
+        })
       } catch (err: any) {
         if (cancelled) return
         console.error('Excepción cargando obras:', err)
@@ -357,10 +453,30 @@ export default function Obra() {
   }
 
   // KPIs
+  // Si la obra ya está hidratada (se abrió su ficha) usamos sus actividades en
+  // memoria, que están más frescas que el agregado inicial.
+  const statsDe = (o: ObraData): StatsObra => {
+    if (o.actividades.length) {
+      const hoy = hoyISO()
+      return {
+        total: o.actividades.length,
+        hechas: o.actividades.filter(a => a.status === 'completada').length,
+        bloq: o.actividades.filter(a => a.status === 'bloqueada').length,
+        sinResp: o.actividades.filter(a => !a.instalador_id).length,
+        avance: avanceDe(o.actividades),
+        vencidas: o.actividades.filter(a => a.status !== 'completada' && a.fecha_fin_plan && a.fecha_fin_plan < hoy).length,
+      }
+    }
+    return stats[o.id] || { total: 0, hechas: 0, bloq: 0, sinResp: 0, avance: o.avance_global || 0, vencidas: 0 }
+  }
+  const avanceDeObra = (o: ObraData) => statsDe(o).avance
   const activas = obras.filter(o => o.status === 'en_ejecucion').length
   const pendientesEntrega = obras.filter(o => o.status === 'entrega_pendiente').length
-  const bloqueadas = obras.flatMap(o => o.actividades).filter(a => a.status === 'bloqueada').length
-  const avgAvance = obras.filter(o => o.status === 'en_ejecucion').reduce((s, o) => s + o.avance_global, 0) / (activas || 1)
+  const bloqueadas = obras.reduce((s, o) => s + statsDe(o).bloq, 0)
+  const enCurso = obras.filter(o => o.status === 'en_ejecucion')
+  const avgAvance = enCurso.length ? enCurso.reduce((s, o) => s + avanceDeObra(o), 0) / enCurso.length : 0
+  const sinResponsable = obras.reduce((s, o) => s + statsDe(o).sinResp, 0)
+  const atrasadas = obras.filter(o => o.status !== 'completada' && o.fecha_fin_plan && o.fecha_fin_plan < hoyISO()).length
 
   if (obra) {
     return <ObraDetail
@@ -390,11 +506,13 @@ export default function Obra() {
       {loading && <div style={{ marginBottom: 16 }}><Loading /></div>}
 
       {/* KPIs */}
-      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(3, 1fr)', gap: 12, marginBottom: 20 }}>
         <KpiCard label="Obras activas" value={activas} icon={<HardHat size={16} />} />
         <KpiCard label="Entrega pendiente" value={pendientesEntrega} color="#D97706" icon={<FileText size={16} />} />
+        <KpiCard label="Obras atrasadas" value={atrasadas} color={atrasadas > 0 ? '#DC2626' : '#10B981'} icon={<Clock size={16} />} />
         <KpiCard label="Actividades bloqueadas" value={bloqueadas} color="#DC2626" icon={<AlertTriangle size={16} />} />
-        <KpiCard label="Avance promedio" value={`${Math.round(avgAvance)}%`} color="#2563EB" icon={<TrendingUp size={16} />} />
+        <KpiCard label="Tareas sin responsable" value={sinResponsable} color={sinResponsable > 0 ? '#D97706' : '#10B981'} icon={<Users size={16} />} />
+        <KpiCard label="Avance promedio (activas)" value={`${Math.round(avgAvance)}%`} color="#2563EB" icon={<TrendingUp size={16} />} />
       </div>
 
       {/* Tabs */}
@@ -428,7 +546,10 @@ export default function Obra() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {obras.map(o => {
                 const st = STATUS_CONFIG[o.status]
-                const bloq = o.actividades.filter(a => a.status === 'bloqueada').length
+                const es = statsDe(o)
+                const bloq = es.bloq
+                const pct = avanceDeObra(o)
+                const sem = semaforoObra({ fecha_fin_plan: o.fecha_fin_plan, status: o.status })
                 return (
                   <div key={o.id} onClick={() => setSelectedObra(o.id)} style={{
                     ...cardStyle, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 16,
@@ -442,9 +563,19 @@ export default function Obra() {
                         <span style={{ fontSize: 14, fontWeight: 600, color: '#fff' }}>{o.nombre}</span>
                         <Badge label={st.label} color={st.color} />
                         {bloq > 0 && <Badge label={`${bloq} bloqueada${bloq > 1 ? 's' : ''}`} color="#DC2626" />}
+                        {sem && <Badge label={sem.label} color={sem.color} />}
+                        {!o.latitude && <Badge label="Sin ubicación" color="#6B7280" />}
                       </div>
                       <div style={{ fontSize: 11, color: '#666', marginBottom: 6 }}>
                         {o.cliente} · {o.coordinador} · {o.direccion}
+                      </div>
+                      <div style={{ fontSize: 10, color: '#555', marginBottom: 6, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                        <span>{es.hechas}/{es.total} tareas</span>
+                        {!!es.sinResp && <span style={{ color: '#D97706' }}>{es.sinResp} sin responsable</span>}
+                        {!!es.vencidas && <span style={{ color: '#DC2626' }}>{es.vencidas} tareas vencidas</span>}
+                        {o.fecha_inicio
+                          ? <span>Inició {formatDate(o.fecha_inicio)} · {diasEntre(o.fecha_inicio, hoyISO())} d en obra</span>
+                          : <span style={{ color: '#D97706' }}>Sin fecha de inicio</span>}
                       </div>
                       <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
                         {o.sistemas.map(s => {
@@ -455,8 +586,8 @@ export default function Obra() {
                     </div>
                     <div style={{ textAlign: 'right', minWidth: 120 }}>
                       <div style={{ fontSize: 11, color: '#666', marginBottom: 4 }}>Avance</div>
-                      <div style={{ fontSize: 20, fontWeight: 700, color: '#fff', marginBottom: 4 }}>{o.avance_global}%</div>
-                      <ProgressBar pct={o.avance_global} />
+                      <div style={{ fontSize: 20, fontWeight: 700, color: '#fff', marginBottom: 4 }}>{pct}%</div>
+                      <ProgressBar pct={pct} />
                       {!hideMoney && <div style={{ fontSize: 10, color: '#555', marginTop: 6 }}>{F(o.valor_contrato)}</div>}
                     </div>
                     <ChevronRight size={16} color="#444" />
@@ -577,7 +708,36 @@ function ObraDetail({ obra, instaladores, hideMoney, onBack, updateObra }: {
   const st = STATUS_CONFIG[obra.status]
   const completadas = obra.actividades.filter(a => a.status === 'completada').length
   const bloqueadas = obra.actividades.filter(a => a.status === 'bloqueada').length
+  const sinResponsable = obra.actividades.filter(a => !a.instalador_id).length
   const docsRecibidos = obra.entrega_docs.filter(d => d.recibido).length
+  // Avance calculado, no el guardado
+  const avanceReal = hydrated ? avanceDe(obra.actividades) : (obra.avance_global || 0)
+  const sem = semaforoObra({ fecha_fin_plan: obra.fecha_fin_plan, status: obra.status })
+
+  // Cambio de estado con las fechas que le corresponden a cada transición.
+  async function cambiarStatus(nuevo: ObraStatus) {
+    if (nuevo === obra.status) return
+    const patch: any = { status: nuevo }
+    if (nuevo === 'en_ejecucion' && !obra.fecha_inicio) patch.fecha_inicio = hoyISO()
+    if (nuevo === 'completada' && !obra.fecha_fin_real) patch.fecha_fin_real = hoyISO()
+    if (nuevo !== 'completada' && obra.fecha_fin_real) patch.fecha_fin_real = null
+    updateObra(o => ({
+      ...o, status: nuevo,
+      fecha_inicio: patch.fecha_inicio || o.fecha_inicio,
+      fecha_fin_real: patch.fecha_fin_real === null ? undefined : (patch.fecha_fin_real || o.fecha_fin_real),
+    }))
+    const { error } = await supabase.from('obras').update(patch).eq('id', obra.id)
+    if (error) setSyncError('Error al cambiar estado: ' + error.message)
+    else setSyncError(null)
+  }
+
+  // Guarda campos sueltos de la ficha (fechas, ubicación)
+  async function guardarFicha(patch: Record<string, any>) {
+    updateObra(o => ({ ...o, ...patch }))
+    const { error } = await supabase.from('obras').update(patch).eq('id', obra.id)
+    if (error) setSyncError('Error al guardar: ' + error.message)
+    else setSyncError(null)
+  }
 
   const obraInstaladores = instaladores.filter(i => obra.instaladores_ids.includes(i.id))
 
@@ -592,20 +752,39 @@ function ObraDetail({ obra, instaladores, hideMoney, onBack, updateObra }: {
           <h2 style={{ fontSize: 20, fontWeight: 700, color: '#fff', margin: 0 }}>{obra.nombre}</h2>
           <Badge label={st.label} color={st.color} />
           {obra.status === 'entrega_pendiente' && (
-            <Btn size="sm" variant="primary" onClick={async () => {
-              updateObra(o => ({ ...o, status: 'en_ejecucion' }))
-              const { error } = await supabase.from('obras').update({ status: 'en_ejecucion' }).eq('id', obra.id)
-              if (error) setSyncError('Error al cambiar estado: ' + error.message)
-            }}>
-              <CheckCircle size={11} /> Marcar entrega completa
+            <Btn size="sm" variant="primary" onClick={() => cambiarStatus('en_ejecucion')}>
+              <CheckCircle size={11} /> Arrancar obra
             </Btn>
           )}
+          {/* Ciclo completo: la obra ya puede pausarse y cerrarse, no solo arrancar */}
+          <select value={obra.status} onChange={e => cambiarStatus(e.target.value as ObraStatus)}
+            title="Estado de la obra"
+            style={{ padding: '4px 8px', fontSize: 11, background: '#0a0a0a', border: `1px solid ${st.color}55`, borderRadius: 6, color: st.color, fontFamily: 'inherit', cursor: 'pointer' }}>
+            {Object.entries(STATUS_CONFIG).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+          </select>
         </div>
-        <div style={{ fontSize: 12, color: '#666' }}>
-          {obra.cliente} · <MapPin size={11} style={{ verticalAlign: 'middle' }} /> {obra.direccion} · Coord: {obra.coordinador}
-          {obra.cotizacion_ref && <> · Cot: {obra.cotizacion_ref}</>}
+        <div style={{ fontSize: 12, color: '#666', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <span>{obra.cliente} · <MapPin size={11} style={{ verticalAlign: 'middle' }} /> {obra.direccion} · Coord: {obra.coordinador}</span>
+          {obra.cotizacion_ref && <span>· Cot: {obra.cotizacion_ref}</span>}
+          {obra.fecha_inicio && <span style={{ color: '#888' }}>· <Clock size={11} style={{ verticalAlign: 'middle' }} /> {diasEntre(obra.fecha_inicio, hoyISO())} d en obra</span>}
+          {sem && <Badge label={sem.label} color={sem.color} />}
         </div>
       </div>
+
+      <FichaObra obra={obra} onGuardar={guardarFicha} />
+
+      {/* La obra nunca llegaba a "completada": aquí es donde se cierra. */}
+      {hydrated && obra.actividades.length > 0 && avanceReal === 100 && obra.status !== 'completada' && (
+        <div style={{ marginBottom: 16, padding: '10px 14px', background: 'rgba(37,99,235,0.06)', border: '1px solid rgba(37,99,235,0.25)', borderRadius: 10, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <CheckCircle2 size={15} color="#2563EB" />
+          <span style={{ fontSize: 12, color: '#93c5fd', flex: 1 }}>
+            Las {obra.actividades.length} actividades están al 100%. Si ya se entregó, ciérrala para que salga del tablero de obras activas.
+          </span>
+          <Btn size="sm" variant="primary" onClick={() => cambiarStatus('completada')}>
+            <CheckCircle size={11} /> Cerrar obra
+          </Btn>
+        </div>
+      )}
 
       {syncError && (
         <div style={{ marginBottom: 16, padding: '10px 12px', background: '#2a1414', border: '1px solid #5a2828', borderRadius: 8, color: '#f87171', fontSize: 12, display: 'flex', gap: 8 }}>
@@ -616,9 +795,10 @@ function ObraDetail({ obra, instaladores, hideMoney, onBack, updateObra }: {
 
       {/* KPIs */}
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : `repeat(${hideMoney ? 4 : 5}, 1fr)`, gap: 12, marginBottom: 20 }}>
-        <KpiCard label="Avance global" value={`${obra.avance_global}%`} icon={<TrendingUp size={16} />} />
+        <KpiCard label="Avance global" value={`${avanceReal}%`} icon={<TrendingUp size={16} />} />
         <KpiCard label="Actividades" value={`${completadas}/${obra.actividades.length}`} color="#2563EB" icon={<ClipboardList size={16} />} />
-        <KpiCard label="Bloqueadas" value={bloqueadas} color={bloqueadas > 0 ? '#DC2626' : '#10B981'} icon={<AlertTriangle size={16} />} />
+        <KpiCard label={bloqueadas > 0 ? 'Bloqueadas' : 'Sin responsable'} value={bloqueadas > 0 ? bloqueadas : sinResponsable}
+          color={bloqueadas > 0 ? '#DC2626' : sinResponsable > 0 ? '#D97706' : '#10B981'} icon={<AlertTriangle size={16} />} />
         <KpiCard label="Documentos" value={`${docsRecibidos}/${obra.entrega_docs.length}`} color="#D97706" icon={<FileText size={16} />} />
         {!hideMoney && <KpiCard label="Contrato" value={F(obra.valor_contrato)} color="#A78BFA" icon={<HardHat size={16} />} />}
       </div>
@@ -680,6 +860,162 @@ function ObraDetail({ obra, instaladores, hideMoney, onBack, updateObra }: {
 }
 
 /* ═══════════════════════════════════════════════════════════════════
+   FICHA DE OBRA — fechas, atraso y ubicación para la checada en campo
+   ═══════════════════════════════════════════════════════════════════ */
+
+function FichaObra({ obra, onGuardar }: {
+  obra: ObraData
+  onGuardar: (patch: Record<string, any>) => Promise<void> | void
+}) {
+  const isMobile = useIsMobile()
+  const [abierto, setAbierto] = useState(false)
+  const [urlMaps, setUrlMaps] = useState(obra.google_maps_url || '')
+  const [avisoMaps, setAvisoMaps] = useState('')
+  const [localizando, setLocalizando] = useState(false)
+
+  const faltantes: string[] = []
+  if (!obra.fecha_inicio) faltantes.push('fecha de inicio')
+  if (!obra.fecha_fin_plan) faltantes.push('fecha compromiso')
+  if (obra.latitude == null || obra.longitude == null) faltantes.push('ubicación')
+
+  const dias = obra.fecha_inicio ? diasEntre(obra.fecha_inicio, obra.fecha_fin_real || hoyISO()) : null
+  const sem = semaforoObra({ fecha_fin_plan: obra.fecha_fin_plan, status: obra.status })
+
+  function aplicarUrl(v: string) {
+    setUrlMaps(v)
+    const c = coordsDeUrl(v)
+    if (!v.trim()) { setAvisoMaps(''); return }
+    if (c) {
+      setAvisoMaps(`Coordenadas detectadas: ${c.lat.toFixed(6)}, ${c.lng.toFixed(6)}`)
+      onGuardar({ google_maps_url: v.trim(), latitude: c.lat, longitude: c.lng, ...(obra.radio_checada_metros == null ? { radio_checada_metros: 500 } : {}) })
+    } else {
+      setAvisoMaps('No pude leer coordenadas de ese texto. Pega el link de Google Maps o escribe "19.4326, -99.1332".')
+    }
+  }
+
+  function usarMiUbicacion() {
+    if (!navigator.geolocation) { setAvisoMaps('Este navegador no da ubicación.'); return }
+    setLocalizando(true)
+    navigator.geolocation.getCurrentPosition(
+      pos => {
+        setLocalizando(false)
+        const lat = Number(pos.coords.latitude.toFixed(6)), lng = Number(pos.coords.longitude.toFixed(6))
+        setAvisoMaps(`Coordenadas tomadas de tu dispositivo: ${lat}, ${lng}`)
+        onGuardar({ latitude: lat, longitude: lng, ...(obra.radio_checada_metros == null ? { radio_checada_metros: 500 } : {}) })
+      },
+      err => { setLocalizando(false); setAvisoMaps('No se pudo obtener la ubicación: ' + err.message) },
+      { enableHighAccuracy: true, timeout: 10000 },
+    )
+  }
+
+  const campo: React.CSSProperties = { ...inputStyle, padding: '5px 8px', fontSize: 11 }
+
+  return (
+    <div style={{ ...cardStyle, padding: 0, marginBottom: 16, overflow: 'hidden' }}>
+      <button onClick={() => setAbierto(v => !v)} style={{
+        width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px',
+        background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left',
+      }}>
+        <ChevronDown size={14} color="#666" style={{ transform: abierto ? 'none' : 'rotate(-90deg)', transition: 'transform .15s' }} />
+        <span style={{ fontSize: 12, fontWeight: 600, color: '#fff' }}>Ficha de la obra</span>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+          {obra.fecha_inicio
+            ? <span style={{ fontSize: 10, color: '#888' }}>Inicio {formatDate(obra.fecha_inicio)}{dias != null ? ` · ${dias} d` : ''}</span>
+            : <Badge label="Sin fecha de inicio" color="#D97706" />}
+          {obra.fecha_fin_plan
+            ? sem && <Badge label={sem.label} color={sem.color} />
+            : <Badge label="Sin fecha compromiso" color="#D97706" />}
+          {obra.latitude == null && <Badge label="Sin ubicación (no hay checada)" color="#6B7280" />}
+          {obra.fecha_fin_real && <Badge label={`Entregada ${formatDate(obra.fecha_fin_real)}`} color="#2563EB" />}
+        </div>
+        {!abierto && faltantes.length > 0 && (
+          <span style={{ marginLeft: 'auto', fontSize: 10, color: '#D97706' }}>Falta capturar: {faltantes.join(', ')}</span>
+        )}
+      </button>
+
+      {abierto && (
+        <div style={{ padding: '0 14px 14px', borderTop: '1px solid #222' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(4, 1fr)', gap: 10, marginTop: 12 }}>
+            <div>
+              <div style={labelStyle}>Fecha de inicio en obra</div>
+              <input type="date" value={obra.fecha_inicio || ''} style={campo}
+                onChange={e => onGuardar({ fecha_inicio: e.target.value || null })} />
+            </div>
+            <div>
+              <div style={labelStyle}>Fecha compromiso de entrega</div>
+              <input type="date" value={obra.fecha_fin_plan || ''} style={campo}
+                onChange={e => onGuardar({ fecha_fin_plan: e.target.value || null })} />
+            </div>
+            <div>
+              <div style={labelStyle}>Fecha real de entrega</div>
+              <input type="date" value={obra.fecha_fin_real || ''} style={campo}
+                onChange={e => onGuardar({ fecha_fin_real: e.target.value || null })} />
+            </div>
+            <div>
+              <div style={labelStyle}>Días en obra</div>
+              <div style={{ ...campo, color: dias == null ? '#555' : '#fff', display: 'flex', alignItems: 'center' }}>
+                {dias == null ? 'Captura la fecha de inicio' : `${dias} día${dias === 1 ? '' : 's'}`}
+              </div>
+            </div>
+          </div>
+
+          <div style={{ fontSize: 11, fontWeight: 600, color: '#ccc', margin: '16px 0 8px', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <MapPin size={12} color="#10B981" /> Ubicación para la checada de la app de obra
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '2fr 1fr 1fr 1fr', gap: 10 }}>
+            <div>
+              <div style={labelStyle}>Dirección completa</div>
+              {/* No controlado a propósito: se guarda al salir del campo, no en cada tecla */}
+              <input defaultValue={obra.direccion_completa || ''} placeholder="Calle, número, colonia, CP" style={campo}
+                key={'dir-' + obra.id}
+                onBlur={e => { if (e.target.value !== (obra.direccion_completa || '')) onGuardar({ direccion_completa: e.target.value || null }) }} />
+            </div>
+            <div>
+              <div style={labelStyle}>Latitud</div>
+              <input type="number" step="0.000001" defaultValue={obra.latitude ?? ''} style={campo} key={'lat-' + obra.id + '-' + String(obra.latitude)}
+                onBlur={e => onGuardar({ latitude: e.target.value === '' ? null : Number(e.target.value) })} />
+            </div>
+            <div>
+              <div style={labelStyle}>Longitud</div>
+              <input type="number" step="0.000001" defaultValue={obra.longitude ?? ''} style={campo} key={'lng-' + obra.id + '-' + String(obra.longitude)}
+                onBlur={e => onGuardar({ longitude: e.target.value === '' ? null : Number(e.target.value) })} />
+            </div>
+            <div>
+              <div style={labelStyle}>Radio de checada (m)</div>
+              {/* La app de obra usa 500 m cuando este campo está vacío */}
+              <input type="number" step="10" min={20} placeholder="500" defaultValue={obra.radio_checada_metros ?? ''} style={campo} key={'rad-' + obra.id + '-' + String(obra.radio_checada_metros)}
+                onBlur={e => onGuardar({ radio_checada_metros: e.target.value === '' ? null : Number(e.target.value) })} />
+            </div>
+          </div>
+
+          <div style={{ marginTop: 10 }}>
+            <div style={labelStyle}>Pega el link de Google Maps (o "lat, lng") y lleno las coordenadas solo</div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <input value={urlMaps} onChange={e => setUrlMaps(e.target.value)}
+                onBlur={e => aplicarUrl(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') aplicarUrl((e.target as HTMLInputElement).value) }}
+                placeholder="https://maps.google.com/... o 19.4326, -99.1332"
+                style={{ ...campo, flex: 1, minWidth: 240 }} />
+              <Btn size="sm" variant="default" onClick={usarMiUbicacion} disabled={localizando}>
+                {localizando ? <Loader2 size={11} /> : <MapPin size={11} />} Usar mi ubicación
+              </Btn>
+              {obra.latitude != null && obra.longitude != null && (
+                <a href={`https://www.google.com/maps?q=${obra.latitude},${obra.longitude}`} target="_blank" rel="noreferrer"
+                  style={{ fontSize: 11, color: '#10B981', alignSelf: 'center', textDecoration: 'none' }}>Ver en el mapa ↗</a>
+              )}
+            </div>
+            {avisoMaps && <div style={{ fontSize: 10, color: avisoMaps.startsWith('Coordenadas') ? '#10B981' : '#D97706', marginTop: 6 }}>{avisoMaps}</div>}
+            <div style={{ fontSize: 10, color: '#555', marginTop: 6 }}>
+              Sin latitud y longitud la app de obra no puede validar que el instalador esté en el sitio: la checada se queda sin geocerca.
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* ═══════════════════════════════════════════════════════════════════
    SUB: ACTIVIDADES
    ═══════════════════════════════════════════════════════════════════ */
 
@@ -689,12 +1025,40 @@ function SubActividades({ obra, instaladores, updateObra, showNew, setShowNew }:
 }) {
   const [newAct, setNewAct] = useState({ sistema: 'CCTV' as Sistema, descripcion: '', instalador_id: '', fecha_fin_plan: '', area: '' })
   const [groupBy, setGroupBy] = useState<'sistema' | 'area'>('sistema')
-  const [statusFilter, setStatusFilter] = useState<'all' | ActividadStatus>('all')
+  const [statusFilter, setStatusFilter] = useState<'all' | ActividadStatus | 'sin_resp' | 'vencidas'>('all')
   const [generating, setGenerating] = useState(false)
   const [genStatus, setGenStatus] = useState('')
   const [showWizard, setShowWizard] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [deleting, setDeleting] = useState(false)
+  const [bulkInst, setBulkInst] = useState('')
+  const [bulkFecha, setBulkFecha] = useState('')
+  const [asignando, setAsignando] = useState(false)
+
+  // Asigna responsable y/o fecha compromiso a todas las tareas seleccionadas
+  // de un solo golpe: repartir 100+ tareas una por una no era viable.
+  const asignarMasivo = async () => {
+    const ids = Array.from(selected)
+    if (!ids.length) return
+    const patch: any = {}
+    if (bulkInst) patch.instalador_id = bulkInst === '__none__' ? null : bulkInst
+    if (bulkFecha) patch.fecha_fin_plan = bulkFecha
+    if (!Object.keys(patch).length) { alert('Elige un responsable o una fecha para aplicar.'); return }
+    setAsignando(true)
+    const { error } = await supabase.from('obra_actividades').update(patch).in('id', ids)
+    setAsignando(false)
+    if (error) { alert('Error al asignar: ' + error.message); return }
+    updateObra(o => ({
+      ...o,
+      actividades: o.actividades.map(a => ids.includes(a.id) ? {
+        ...a,
+        instalador_id: bulkInst ? (bulkInst === '__none__' ? undefined : bulkInst) : a.instalador_id,
+        fecha_fin_plan: bulkFecha || a.fecha_fin_plan,
+      } : a),
+    }))
+    setSelected(new Set())
+    setBulkInst(''); setBulkFecha('')
+  }
 
   const addActividad = async () => {
     if (!newAct.descripcion.trim()) return
@@ -732,6 +1096,16 @@ function SubActividades({ obra, instaladores, updateObra, showNew, setShowNew }:
   }
 
   const updateActividad = async (actId: string, updates: Partial<Actividad>) => {
+    // El status y el porcentaje tienen que contar la misma historia: si marcas
+    // una tarea como completada desde el selector, su avance es 100 (antes se
+    // quedaba en 0 y el avance de la obra salía mal).
+    if (updates.status !== undefined && updates.porcentaje === undefined) {
+      if (updates.status === 'completada') {
+        updates = { ...updates, porcentaje: 100, fecha_fin_real: updates.fecha_fin_real || hoyISO() }
+      } else if (updates.status === 'pendiente') {
+        updates = { ...updates, porcentaje: 0, fecha_fin_real: undefined }
+      }
+    }
     // Map to DB columns
     const dbUpdates: any = {}
     if (updates.status !== undefined) dbUpdates.status = updates.status
@@ -742,19 +1116,19 @@ function SubActividades({ obra, instaladores, updateObra, showNew, setShowNew }:
     if (updates.descripcion !== undefined) dbUpdates.descripcion = updates.descripcion
     if (updates.notas !== undefined) dbUpdates.notas = updates.notas
     // Optimistic update
-    updateObra(o => {
-      const nuevasActs = o.actividades.map(a => a.id === actId ? { ...a, ...updates } : a)
-      const avance = Math.round(nuevasActs.reduce((s, a) => s + a.porcentaje, 0) / (nuevasActs.length || 1))
-      return { ...o, actividades: nuevasActs, avance_global: avance }
-    })
+    const nuevasActs = obra.actividades.map(a => a.id === actId ? { ...a, ...updates } : a)
+    const avance = avanceDe(nuevasActs)
+    updateObra(o => ({
+      ...o,
+      actividades: o.actividades.map(a => a.id === actId ? { ...a, ...updates } : a),
+      avance_global: avanceDe(o.actividades.map(a => a.id === actId ? { ...a, ...updates } : a)),
+    }))
     const { error } = await supabase.from('obra_actividades').update(dbUpdates).eq('id', actId)
     if (error) {
       console.error('Error actualizando actividad:', error)
       alert('Error al actualizar: ' + error.message)
     }
-    // Persist avance_global recalculated
-    const nuevasActs = obra.actividades.map(a => a.id === actId ? { ...a, ...updates } : a)
-    const avance = Math.round(nuevasActs.reduce((s, a) => s + a.porcentaje, 0) / (nuevasActs.length || 1))
+    // La columna es solo cache para otros módulos; la vista ya usa el calculado.
     await supabase.from('obras').update({ avance_global: avance }).eq('id', obra.id)
   }
 
@@ -768,7 +1142,12 @@ function SubActividades({ obra, instaladores, updateObra, showNew, setShowNew }:
   }
 
   // Filter + Group activities
-  const filteredActs = statusFilter === 'all' ? obra.actividades : obra.actividades.filter(a => a.status === statusFilter)
+  const hoy = hoyISO()
+  const filteredActs =
+    statusFilter === 'all' ? obra.actividades
+    : statusFilter === 'sin_resp' ? obra.actividades.filter(a => !a.instalador_id)
+    : statusFilter === 'vencidas' ? obra.actividades.filter(a => a.status !== 'completada' && a.fecha_fin_plan && a.fecha_fin_plan < hoy)
+    : obra.actividades.filter(a => a.status === statusFilter)
   const grouped = new Map<string, Actividad[]>()
   filteredActs.forEach(a => {
     const key = groupBy === 'sistema' ? a.sistema : (a.area || 'Sin área')
@@ -817,6 +1196,8 @@ function SubActividades({ obra, instaladores, updateObra, showNew, setShowNew }:
             { key: 'en_progreso' as const, label: 'En progreso', color: ACT_STATUS_CONFIG.en_progreso.color, count: obra.actividades.filter(a => a.status === 'en_progreso').length },
             { key: 'bloqueada' as const, label: 'Bloqueadas', color: ACT_STATUS_CONFIG.bloqueada.color, count: obra.actividades.filter(a => a.status === 'bloqueada').length },
             { key: 'completada' as const, label: 'Completadas', color: ACT_STATUS_CONFIG.completada.color, count: obra.actividades.filter(a => a.status === 'completada').length },
+            { key: 'sin_resp' as const, label: 'Sin responsable', color: '#D97706', count: obra.actividades.filter(a => !a.instalador_id).length },
+            { key: 'vencidas' as const, label: 'Vencidas', color: '#DC2626', count: obra.actividades.filter(a => a.status !== 'completada' && a.fecha_fin_plan && a.fecha_fin_plan < hoy).length },
           ]).map(f => (
             <button key={f.key} onClick={() => setStatusFilter(f.key)}
               style={{
@@ -843,18 +1224,29 @@ function SubActividades({ obra, instaladores, updateObra, showNew, setShowNew }:
                 Sel. todo ({filteredActs.length})
               </label>
               {selected.size > 0 && (
+                <>
+                  <select value={bulkInst} onChange={e => setBulkInst(e.target.value)} title="Responsable para las tareas seleccionadas"
+                    style={{ padding: '3px 6px', fontSize: 10, background: '#0a0a0a', border: '1px solid #333', borderRadius: 4, color: bulkInst ? '#10B981' : '#666', fontFamily: 'inherit', maxWidth: 140 }}>
+                    <option value="">Responsable…</option>
+                    {instaladores.map(i => <option key={i.id} value={i.id}>{i.nombre}</option>)}
+                    <option value="__none__">— Quitar responsable —</option>
+                  </select>
+                  <input type="date" value={bulkFecha} onChange={e => setBulkFecha(e.target.value)} title="Fecha compromiso para las tareas seleccionadas"
+                    style={{ padding: '3px 6px', fontSize: 10, background: '#0a0a0a', border: '1px solid #333', borderRadius: 4, color: bulkFecha ? '#fff' : '#666', fontFamily: 'inherit' }} />
+                  <Btn size="sm" variant="primary" disabled={asignando} onClick={asignarMasivo}>
+                    {asignando ? <Loader2 size={10} /> : <Users size={10} />} Asignar ({selected.size})
+                  </Btn>
+                </>
+              )}
+              {selected.size > 0 && (
                 <Btn size="sm" variant="default" disabled={deleting} onClick={async () => {
                   if (!confirm(`¿Eliminar ${selected.size} tarea${selected.size > 1 ? 's' : ''}?`)) return
                   setDeleting(true)
                   const ids = Array.from(selected)
                   const { error } = await supabase.from('obra_actividades').delete().in('id', ids)
                   if (error) { alert('Error: ' + error.message); setDeleting(false); return }
-                  updateObra(o => {
-                    const nuevas = o.actividades.filter(a => !ids.includes(a.id))
-                    const avance = nuevas.length > 0 ? Math.round(nuevas.reduce((s, a) => s + a.porcentaje, 0) / nuevas.length) : 0
-                    return { ...o, actividades: nuevas, avance_global: avance }
-                  })
-                  supabase.from('obras').update({ avance_global: Math.round(obra.actividades.filter(a => !ids.includes(a.id)).reduce((s, a) => s + a.porcentaje, 0) / (obra.actividades.filter(a => !ids.includes(a.id)).length || 1)) }).eq('id', obra.id)
+                  updateObra(o => ({ ...o, actividades: o.actividades.filter(a => !ids.includes(a.id)), avance_global: avanceDe(o.actividades.filter(a => !ids.includes(a.id))) }))
+                  supabase.from('obras').update({ avance_global: avanceDe(obra.actividades.filter(a => !ids.includes(a.id))) }).eq('id', obra.id)
                   setSelected(new Set())
                   setDeleting(false)
                 }}>
@@ -929,13 +1321,15 @@ function SubActividades({ obra, instaladores, updateObra, showNew, setShowNew }:
           const cfg = isSystemGroup ? SISTEMAS_CONFIG[groupKey as Sistema] : null
           const Icon = cfg?.icon || ClipboardList
           const groupColor = cfg?.color || '#888'
-          const avgPct = Math.round(acts.reduce((s, a) => s + a.porcentaje, 0) / acts.length)
+          const avgPct = avanceDe(acts)
+          const sinResp = acts.filter(a => !a.instalador_id).length
           return (
             <div key={groupKey} style={{ marginBottom: 16 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
                 <Icon size={14} color={groupColor} />
                 <span style={{ fontSize: 13, fontWeight: 600, color: groupColor }}>{isSystemGroup ? cfg?.label || groupKey : groupKey}</span>
                 <span style={{ fontSize: 11, color: '#555' }}>{acts.length} tarea{acts.length > 1 ? 's' : ''} · {avgPct}%</span>
+                {sinResp > 0 && <span style={{ fontSize: 10, color: '#D97706' }}>{sinResp} sin responsable</span>}
               </div>
               {acts.map(a => {
                 const actSt = ACT_STATUS_CONFIG[a.status]
@@ -953,7 +1347,11 @@ function SubActividades({ obra, instaladores, updateObra, showNew, setShowNew }:
                           {!isSystemGroup && aSistCfg && <span style={{ color: aSistCfg.color }}>{aSistCfg.label}</span>}
                           {isSystemGroup && a.area && <span style={{ color: '#888' }}>📍 {a.area}</span>}
                           {inst && <span><Users size={10} style={{ verticalAlign: 'middle' }} /> {inst.nombre}</span>}
-                          {a.fecha_fin_plan && <span><Calendar size={10} style={{ verticalAlign: 'middle' }} /> {formatDate(a.fecha_fin_plan)}</span>}
+                          {!inst && <span style={{ color: '#D97706' }}><Users size={10} style={{ verticalAlign: 'middle' }} /> Sin responsable</span>}
+                          {a.fecha_fin_plan && (() => {
+                            const vencida = a.status !== 'completada' && a.fecha_fin_plan < hoy
+                            return <span style={{ color: vencida ? '#DC2626' : undefined }}><Calendar size={10} style={{ verticalAlign: 'middle' }} /> {formatDate(a.fecha_fin_plan)}{vencida ? ' · vencida' : ''}</span>
+                          })()}
                         </div>
                         {a.bloqueo && (
                           <div style={{ fontSize: 10, color: '#DC2626', marginTop: 4, padding: '3px 8px', background: 'rgba(239,68,68,0.06)', borderRadius: 4 }}>
@@ -992,12 +1390,8 @@ function SubActividades({ obra, instaladores, updateObra, showNew, setShowNew }:
                           if (!confirm('¿Eliminar esta tarea?')) return
                           const { error } = await supabase.from('obra_actividades').delete().eq('id', a.id)
                           if (error) { alert('Error: ' + error.message); return }
-                          updateObra(o => {
-                            const nuevas = o.actividades.filter(x => x.id !== a.id)
-                            const avance = nuevas.length > 0 ? Math.round(nuevas.reduce((s, x) => s + x.porcentaje, 0) / nuevas.length) : 0
-                            return { ...o, actividades: nuevas, avance_global: avance }
-                          })
-                          supabase.from('obras').update({ avance_global: Math.round(obra.actividades.filter(x => x.id !== a.id).reduce((s, x) => s + x.porcentaje, 0) / (obra.actividades.filter(x => x.id !== a.id).length || 1)) }).eq('id', obra.id)
+                          updateObra(o => ({ ...o, actividades: o.actividades.filter(x => x.id !== a.id), avance_global: avanceDe(o.actividades.filter(x => x.id !== a.id)) }))
+                          supabase.from('obras').update({ avance_global: avanceDe(obra.actividades.filter(x => x.id !== a.id)) }).eq('id', obra.id)
                         }} style={{ background: 'none', border: 'none', color: '#444', cursor: 'pointer', padding: 2 }}>
                           <X size={12} />
                         </button>
@@ -2236,8 +2630,10 @@ function SubEntrega({ obra, updateObra }: { obra: ObraData; updateObra: (fn: (o:
         <div style={{ padding: 16, background: 'rgba(87,255,154,0.05)', border: '1px solid rgba(87,255,154,0.15)', borderRadius: 10, textAlign: 'center' }}>
           <div style={{ fontSize: 13, color: '#10B981', fontWeight: 600, marginBottom: 8 }}>Todos los documentos recibidos</div>
           <Btn size="sm" variant="primary" onClick={async () => {
-            updateObra(o => ({ ...o, status: 'en_ejecucion' }))
-            await supabase.from('obras').update({ status: 'en_ejecucion' }).eq('id', obra.id)
+            const patch: any = { status: 'en_ejecucion' }
+            if (!obra.fecha_inicio) patch.fecha_inicio = hoyISO()
+            updateObra(o => ({ ...o, status: 'en_ejecucion', fecha_inicio: o.fecha_inicio || patch.fecha_inicio }))
+            await supabase.from('obras').update(patch).eq('id', obra.id)
           }}>
             <CheckCircle size={12} /> Iniciar ejecución de obra
           </Btn>
