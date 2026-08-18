@@ -52,7 +52,8 @@ export default function MaterialCard({ r, cantidad, onCantidad }: {
   const n = cantidad || 0
   const tope = r.porSolicitar > 0 ? r.porSolicitar : r.cotizado
   const falta = Math.max(0, r.cotizado - r.recibido)
-  const yaEnObra = r.recibido > 0 ? ` Ya tienes ${r.recibido} en obra.` : ''
+  // El "en obra" ya tiene su propio indicador arriba, no hace falta repetirlo aquí.
+  const yaEnObra = ''
 
   const recepciones = r.eventos.filter(e => e.etapa === 'recibido')
   const solicitudes = r.eventos.filter(e => e.etapa === 'solicitado')
@@ -95,6 +96,7 @@ export default function MaterialCard({ r, cantidad, onCantidad }: {
 
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
           <Chip n={r.cotizado} t="del proyecto" c="#888" />
+          <Chip n={r.recibido} t="en obra" c={r.recibido > 0 ? '#60A5FA' : '#555'} />
           <Chip n={r.enBodega} t="en bodega" c={r.enBodega > 0 ? '#FBBF24' : '#555'} />
           <Chip n={r.solicitado} t="solicitado" c={r.solicitado > 0 ? '#A78BFA' : '#555'} />
           <Chip n={falta} t="te falta" c={falta > 0 ? '#FBBF24' : '#4ADE80'} />
