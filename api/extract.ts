@@ -290,6 +290,100 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   //   body: { image: base64, mediaType?: 'image/jpeg', text?: string }
   // Lee los datos de contacto con visión y crea la fila en `prospectos`.
   // ═══════════════════════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════════════════════
+  // EXTRA DE MATERIAL desde la app de obra.
+  //   POST /api/extract?action=extra_material
+  //   body: { obra_id, obra_nombre, solicitante, lineas:[{texto,cantidad}], catalogo:[{d,s}] }
+  // El instalador escribe en corto ("2 rollos de cat6 blindado, se acabó");
+  // aquí lo normalizamos a producto + cantidad + unidad + sistema y lo
+  // registramos en `obra_extras`, que es la bandeja de la que Compras arma el
+  // adendum. Devuelve los extras ya creados para ligarlos a la solicitud.
+  // ═══════════════════════════════════════════════════════════════════════════
+  const isExtraMat = (req.query?.action === 'extra_material') || (req.body && (req.body as any).action === 'extra_material')
+  if (isExtraMat) {
+    let b: any = req.body
+    if (typeof b === 'string') { try { b = JSON.parse(b) } catch { b = {} } }
+    const lineas: any[] = Array.isArray(b?.lineas) ? b.lineas : []
+    if (!b?.obra_id || lineas.length === 0) return res.status(400).json({ ok: false, error: 'Faltan obra_id o lineas' })
+
+    const sUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL
+    const sKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY
+    if (!sUrl || !sKey) return res.status(500).json({ ok: false, error: 'Supabase no configurado' })
+
+    const catalogo: any[] = Array.isArray(b.catalogo) ? b.catalogo.slice(0, 300) : []
+    const sysPrompt = `Eres el almacenista de OMM Technologies (instalaciones especiales: CCTV, audio, redes, Lutron, control de acceso, detección de humo, BMS, telefonía, eléctrico).
+
+Un instalador pidió material EXTRA desde la obra, escrito informalmente. Normalízalo.
+
+Devuelve SOLO un JSON, sin markdown:
+{"extras":[{"descripcion":"nombre claro y comercial del producto","cantidad":número,"unidad":"pza|m|rollo|caja|lote|hr","sistema":"CCTV|Audio|Redes|Control|Acceso|Electrico|Humo|BMS|Telefonia|Celular|General","marca":"si la menciona, si no null","modelo":"si lo menciona, si no null","motivo":"por qué lo pide, en una frase corta","ya_en_catalogo":"la descripción EXACTA del catálogo si en realidad sí está en la lista, o null"}]}
+
+REGLAS:
+- Una entrada de salida por cada línea de entrada. Respeta la cantidad que mandó salvo que el texto diga otra cosa más específica.
+- NO inventes marca ni modelo: si no los dijo, null.
+- Si el producto claramente YA está en el catálogo que te paso, pon su descripción exacta en "ya_en_catalogo" (el almacén lo va a surtir de lo cotizado en vez de comprarlo).
+- "descripcion" debe servirle a Compras para cotizar: producto, calibre/medida/capacidad si la dice.
+- Escribe en español de México, sin abreviaturas raras.`
+
+    const userTxt = `Obra: ${b.obra_nombre || ''}\nSolicita: ${b.solicitante || 'instalador'}\n\nLíneas pedidas:\n` +
+      lineas.map((l: any, i: number) => `${i + 1}. (cantidad ${l.cantidad || 1}) ${String(l.texto || '').substring(0, 400)}`).join('\n') +
+      (catalogo.length ? `\n\nCatálogo ya cotizado de esta obra (para detectar si en realidad sí está):\n` + catalogo.map((c: any) => `- ${c.d}${c.s ? ` [${c.s}]` : ''}`).join('\n') : '')
+
+    let extras: any[] = []
+    try {
+      const cr = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+        body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 2000, system: sysPrompt, messages: [{ role: 'user', content: userTxt }] }),
+      })
+      if (cr.ok) {
+        const cd: any = await cr.json()
+        const txt = (cd.content || []).filter((x: any) => x.type === 'text').map((x: any) => x.text).join('\n').replace(/```json|```/g, '').trim()
+        const m = txt.match(/\{[\s\S]*\}/)
+        if (m) extras = JSON.parse(m[0]).extras || []
+      }
+    } catch (e: any) { console.error('[extra_material] claude:', e && e.message) }
+
+    // Si la IA no respondió, guardamos el texto tal cual: nunca perdemos la petición.
+    if (extras.length === 0) {
+      extras = lineas.map((l: any) => ({ descripcion: String(l.texto || '').substring(0, 400), cantidad: Number(l.cantidad) || 1, unidad: 'pza', sistema: null, motivo: 'Capturado sin procesar' }))
+    }
+
+    const H: any = { 'Content-Type': 'application/json', apikey: sKey, Authorization: `Bearer ${sKey}`, Prefer: 'return=representation' }
+    const creados: any[] = []
+    for (const ex of extras) {
+      if (!ex || !ex.descripcion) continue
+      const payload = {
+        obra_id: b.obra_id,
+        tipo: 'material',
+        descripcion: String(ex.descripcion).substring(0, 500),
+        cantidad: Number(ex.cantidad) || 1,
+        unidad: ex.unidad || 'pza',
+        sistema: ex.sistema || null,
+        precio_estimado: 0,
+        moneda: 'MXN',
+        status: 'pendiente_revision',
+        detectado_por: 'app_obra',
+        texto_original: `Pedido por ${b.solicitante || 'obra'}: ${ex.motivo || ''}`.substring(0, 500),
+      }
+      try {
+        const r = await fetch(`${sUrl}/rest/v1/obra_extras`, { method: 'POST', headers: H, body: JSON.stringify(payload) })
+        const rows: any = r.ok ? await r.json() : null
+        creados.push({
+          descripcion: payload.descripcion,
+          cantidad: payload.cantidad,
+          unidad: payload.unidad,
+          sistema: payload.sistema,
+          marca: ex.marca || null,
+          modelo: ex.modelo || null,
+          ya_en_catalogo: ex.ya_en_catalogo || null,
+          obra_extra_id: Array.isArray(rows) && rows[0] ? rows[0].id : null,
+        })
+      } catch (e: any) { console.error('[extra_material] insert:', e && e.message) }
+    }
+    return res.status(200).json({ ok: true, extras: creados })
+  }
+
   const isProspecto = (req.query?.action === 'prospecto') || (req.body && (req.body as any).action === 'prospecto')
   if (isProspecto) {
     let pbody: any = req.body
