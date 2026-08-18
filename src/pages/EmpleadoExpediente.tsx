@@ -726,6 +726,43 @@ function SectionObraApp({ form, set, employeeId }: { form: Partial<Employee>; se
     <>
       <SectionTitle icon={Smartphone} title="Acceso App de Obra" />
 
+      {/* ── Usuario REAL de la app ─────────────────────────────────────────
+          El celular de abajo es solo el dato interno del ERP. La app entra
+          contra Supabase Auth, y varias cuentas se dieron de alta con un
+          correo distinto al patrón <telefono>@obra.omm.app — por eso el ERP
+          llegó a mostrar credenciales que no existían. Aquí se muestra lo que
+          de verdad hay que teclear. */}
+      {hasAuth && (() => {
+        const real = (form.obra_app_email || '').trim()
+        const tel = (form.obra_app_phone || '').replace(/\D/g, '')
+        const esperado = tel ? tel + '@obra.omm.app' : ''
+        const cuadra = !!real && !!esperado && real.toLowerCase() === esperado.toLowerCase()
+        return (
+          <div style={{
+            background: real ? '#0f1a12' : '#1a1206',
+            border: '1px solid ' + (real ? '#1f3a2a' : '#3a2a10'),
+            borderRadius: 10, padding: 14, marginBottom: 16,
+          }}>
+            <div style={{ fontSize: 10, color: '#888', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 700, marginBottom: 6 }}>
+              Usuario para entrar a la app
+            </div>
+            {real ? (
+              <div style={{ fontSize: 16, fontWeight: 700, color: '#4ADE80', userSelect: 'all', wordBreak: 'break-all' }}>{real}</div>
+            ) : (
+              <div style={{ fontSize: 13, color: '#D97706' }}>Esta cuenta no tiene registrado su correo de acceso. Pídeselo o restablécele la contraseña.</div>
+            )}
+            {real && !cuadra && (
+              <div style={{ fontSize: 11, color: '#D97706', marginTop: 6, lineHeight: 1.45 }}>
+                ⚠ No coincide con el celular capturado abajo. Si le pasas el teléfono, la app le dirá "usuario o contraseña incorrectos" — tiene que teclear el correo de arriba.
+              </div>
+            )}
+            <div style={{ fontSize: 10, color: '#666', marginTop: 6 }}>
+              En la app puede escribir este correo; el teléfono solo funciona si el correo termina en @obra.omm.app.
+            </div>
+          </div>
+        )
+      })()}
+
       {/* Status banner */}
       <div style={{
         display: 'flex', alignItems: 'center', gap: 12, padding: 16, marginBottom: 20,
