@@ -63,6 +63,8 @@ export default function HomePage({ employee, onLogout }: { employee: Employee; o
   const [plan, setPlan] = useState<TodayAssignment[]>([])
   const [obraSel, setObraSel] = useState<string>('')
   const [entregas, setEntregas] = useState<EntregaHoy[]>([])
+  // Plan del siguiente día con trabajo — se muestra al checar salida.
+  const [planSig, setPlanSig] = useState<{ fecha: string; asignaciones: TodayAssignment[] } | null>(null)
   const [todayAttendance, setTodayAttendance] = useState<AttendanceRecord[]>([])
   const [loading, setLoading] = useState(true)
   const [checkInState, setCheckInState] = useState<'idle' | 'locating' | 'uploading' | 'success' | 'error'>('idle')
@@ -73,56 +75,82 @@ export default function HomePage({ employee, onLogout }: { employee: Employee; o
     setLoading(true)
     const today = getWorkDate()
 
-    // ── Plan del día ────────────────────────────────────────────────────
+    // ── Plan del día y del siguiente día con trabajo ────────────────────
     // `installer_daily_assignment` está VACÍA (0 filas): nadie la usa, por eso
     // la app siempre decía "no tienes obra asignada". La planeación real vive
     // en weekly_plan_assignments (week_start = lunes, day_of_week = getDay()).
     // Se leen las dos: si algún día se llena la diaria, manda esa.
     const OBRA_SEL = 'id, nombre, latitude, longitude, direccion_completa, direccion, radio_checada_metros'
-    let asignaciones: TodayAssignment[] = []
+    const iso = (d: Date) => d.toISOString().slice(0, 10)
+    const hoyD = new Date(today + 'T12:00:00')
+    const dowHoy = hoyD.getDay()                        // 0=dom … 6=sáb
+    const lunes = new Date(hoyD)
+    lunes.setDate(hoyD.getDate() - (dowHoy === 0 ? 6 : dowHoy - 1))
+    const lunesSig = new Date(lunes)
+    lunesSig.setDate(lunes.getDate() + 7)
 
+    // Traemos ESTA semana y la SIGUIENTE: el "mañana" del domingo cae en el
+    // plan de la otra semana, y sin eso el instalador no vería nada al salir.
+    const { data: planes } = await supabase.from('weekly_plans')
+      .select('id, week_start').in('week_start', [iso(lunes), iso(lunesSig)])
+
+    const porFecha = new Map<string, TodayAssignment[]>()
+    if (planes && planes.length) {
+      const { data: wpa } = await supabase.from('weekly_plan_assignments')
+        .select(`id, tareas, urgencia, day_of_week, plan_id, obras(${OBRA_SEL})`)
+        .eq('employee_id', employee.id)
+        .in('plan_id', planes.map((x: any) => x.id))
+      const inicioDe = new Map<string, string>(planes.map((x: any) => [x.id, x.week_start]))
+      ;((wpa || []) as any[]).forEach(a => {
+        const ws = inicioDe.get(a.plan_id)
+        if (!ws) return
+        // day_of_week usa getDay(): lunes=1 … domingo=0 (que es el 7º día)
+        const off = a.day_of_week === 0 ? 6 : a.day_of_week - 1
+        const d = new Date(ws + 'T12:00:00')
+        d.setDate(d.getDate() + off)
+        const f = iso(d)
+        const arr = porFecha.get(f) || []
+        arr.push({ id: a.id, fecha: f, tareas: a.tareas, urgencia: a.urgencia, obras: a.obras })
+        porFecha.set(f, arr)
+      })
+    }
+
+    // La asignación diaria, si algún día se empieza a usar, manda sobre el plan
     const { data: diarias } = await supabase
       .from('installer_daily_assignment')
       .select(`id, fecha, tareas, urgencia, obras(${OBRA_SEL})`)
       .eq('employee_id', employee.id)
-      .eq('fecha', today)
-    if (diarias && diarias.length) asignaciones = diarias as any
-
-    if (asignaciones.length === 0) {
-      // Lunes de la semana de trabajo (today viene con el corte de las 4am)
-      const d = new Date(today + 'T12:00:00')
-      const dow = d.getDay()                       // 0=dom … 6=sáb
-      const lunes = new Date(d)
-      lunes.setDate(d.getDate() - (dow === 0 ? 6 : dow - 1))
-      const weekStart = lunes.toISOString().slice(0, 10)
-
-      const { data: wp } = await supabase.from('weekly_plans')
-        .select('id').eq('week_start', weekStart).maybeSingle()
-      if (wp) {
-        const { data: wpa } = await supabase.from('weekly_plan_assignments')
-          .select(`id, tareas, urgencia, day_of_week, obras(${OBRA_SEL})`)
-          .eq('plan_id', wp.id)
-          .eq('employee_id', employee.id)
-          .eq('day_of_week', dow)
-        asignaciones = ((wpa || []) as any[]).map(a => ({
-          id: a.id, fecha: today, tareas: a.tareas, urgencia: a.urgencia, obras: a.obras,
-        }))
-      }
-    }
-    // Una obra puede venir repetida entre las dos fuentes
-    const vistas = new Set<string>()
-    asignaciones = asignaciones.filter(a => {
-      const k = a.obras?.id || a.id
-      if (vistas.has(k)) return false
-      vistas.add(k); return true
+      .gte('fecha', today)
+    ;((diarias || []) as any[]).forEach(d => {
+      porFecha.set(d.fecha, [d as any, ...(porFecha.get(d.fecha) || [])])
     })
+
+    const dedupe = (arr: TodayAssignment[]) => {
+      const vistas = new Set<string>()
+      return arr.filter(a => {
+        const k = a.obras?.id || a.id
+        if (vistas.has(k)) return false
+        vistas.add(k); return true
+      })
+    }
+
+    const asignaciones = dedupe(porFecha.get(today) || [])
     setPlan(asignaciones)
     setObraSel(prev => (prev && asignaciones.some(a => a.obras?.id === prev))
       ? prev
       : (asignaciones[0]?.obras?.id || ''))
 
-    // ── Entregas que logística ya programó a esas obras ──
-    const obraIds = asignaciones.map(a => a.obras?.id).filter(Boolean) as string[]
+    // El siguiente día CON TRABAJO (se salta domingos y días vacíos)
+    const siguiente = Array.from(porFecha.keys())
+      .filter(f => f > today && (porFecha.get(f) || []).length > 0)
+      .sort()[0] || null
+    setPlanSig(siguiente ? { fecha: siguiente, asignaciones: dedupe(porFecha.get(siguiente) || []) } : null)
+
+    // ── Entregas que logística ya programó (hoy y las que vienen) ──
+    const obraIds = Array.from(new Set(
+      [...asignaciones, ...(siguiente ? porFecha.get(siguiente) || [] : [])]
+        .map(a => a.obras?.id).filter(Boolean) as string[]
+    ))
     if (obraIds.length) {
       const { data: dels } = await supabase.from('deliveries')
         .select('id, obra_id, delivery_date, scheduled_time, status, folio, notes, obras(nombre), delivery_items(id, description, qty, unit)')
@@ -258,6 +286,11 @@ export default function HomePage({ employee, onLogout }: { employee: Employee; o
   const entregasHoy = entregas.filter(e => e.delivery_date === hoyStr)
   const entregasProximas = entregas.filter(e => e.delivery_date > hoyStr)
   const horaCorta = (t: string | null) => (t ? String(t).substring(0, 5) : null)
+  const esManana = (f: string) => {
+    const d = new Date(hoyStr + 'T12:00:00')
+    d.setDate(d.getDate() + 1)
+    return d.toISOString().slice(0, 10) === f
+  }
   const fechaCorta = (f: string) => {
     try {
       return new Date(f + 'T12:00:00').toLocaleDateString('es-MX', { weekday: 'long', day: 'numeric', month: 'long' })
@@ -329,6 +362,80 @@ export default function HomePage({ employee, onLogout }: { employee: Employee; o
         </button>
       </div>
 
+      {/* ═══ MAÑANA (aparece al terminar la jornada) ═══ */}
+      {nextAction === 'done' && planSig && planSig.asignaciones.length > 0 && (
+        <div style={{
+          background: 'linear-gradient(135deg, #101a2e 0%, #0a1424 100%)',
+          border: '1px solid #3b82f655', borderRadius: 16, padding: 16, marginBottom: 16,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 4 }}>
+            <Calendar size={15} color="#60A5FA" />
+            <span style={{ fontSize: 11, fontWeight: 700, color: '#93c5fd', textTransform: 'uppercase', letterSpacing: 0.6 }}>
+              {esManana(planSig.fecha) ? 'Mañana te toca' : 'Tu próximo día de trabajo'}
+            </span>
+          </div>
+          <div style={{ fontSize: 15, fontWeight: 800, color: '#fff', marginBottom: 12, textTransform: 'capitalize' }}>
+            {fechaCorta(planSig.fecha)}
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {planSig.asignaciones.map(a => {
+              const o = a.obras
+              if (!o) return null
+              const dels = entregas.filter(e => e.obra_id === o.id && e.delivery_date === planSig.fecha)
+              return (
+                <div key={a.id} style={{ paddingTop: 10, borderTop: '1px solid #1a2432' }}>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: '#fff' }}>{o.nombre}</div>
+                  {(o.direccion_completa || o.direccion) && (
+                    <div style={{ display: 'flex', gap: 6, fontSize: 11, color: '#7a8ba0', marginTop: 3 }}>
+                      <MapPin size={12} style={{ flexShrink: 0, marginTop: 1 }} />
+                      <span>{o.direccion_completa || o.direccion}</span>
+                    </div>
+                  )}
+                  <div style={{ fontSize: 13, color: a.tareas ? '#cbd5e1' : '#556', lineHeight: 1.45, marginTop: 6, fontStyle: a.tareas ? 'normal' : 'italic' }}>
+                    {a.tareas || 'Sin instrucciones específicas todavía.'}
+                  </div>
+                  {dels.length > 0 && (
+                    <div style={{ fontSize: 11, color: '#60A5FA', marginTop: 6, display: 'flex', alignItems: 'center', gap: 5 }}>
+                      <Truck size={12} />
+                      Ese día te llega material{horaCorta(dels[0].scheduled_time) ? ` a las ${horaCorta(dels[0].scheduled_time)}` : ''}
+                    </div>
+                  )}
+                  <div style={{ display: 'flex', gap: 6, marginTop: 9 }}>
+                    <button onClick={() => navigate(`/obra-app/mis-obras/${o.id}`)}
+                      style={{
+                        flex: 1, padding: '9px 8px', background: 'transparent',
+                        border: '1px solid #24344a', borderRadius: 9, color: '#93c5fd',
+                        fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+                      }}>Ver obra</button>
+                    <button onClick={() => navigate(`/obra-app/mis-obras/${o.id}/material`)}
+                      style={{
+                        flex: 1, padding: '9px 8px', background: '#10B98118',
+                        border: '1px solid #10B98155', borderRadius: 9, color: '#4ADE80',
+                        fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
+                      }}><Package2 size={12} /> Revisar material</button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+
+          <div style={{ fontSize: 10, color: '#5a6b80', marginTop: 12, lineHeight: 1.4 }}>
+            Revisa hoy qué material te falta: si lo pides ahora, logística alcanza a programarlo.
+          </div>
+        </div>
+      )}
+
+      {nextAction === 'done' && !planSig && (
+        <div style={{
+          background: '#0f1420', border: '1px solid #24344a', borderRadius: 16,
+          padding: 16, marginBottom: 16, textAlign: 'center', fontSize: 13, color: '#7a8ba0',
+        }}>
+          Todavía no hay plan cargado para tu siguiente día.
+        </div>
+      )}
+
       {/* ═══ PLAN DEL DÍA ═══ */}
       {plan.length > 0 ? (
         <div style={{ marginBottom: 16 }}>
@@ -336,7 +443,7 @@ export default function HomePage({ employee, onLogout }: { employee: Employee; o
             fontSize: 10, textTransform: 'uppercase', letterSpacing: 1,
             color: '#10B981', fontWeight: 700, marginBottom: 8,
           }}>
-            Tu plan de hoy · {plan.length} {plan.length === 1 ? 'obra' : 'obras'}
+            {nextAction === 'done' ? 'Lo que hiciste hoy' : 'Tu plan de hoy'} · {plan.length} {plan.length === 1 ? 'obra' : 'obras'}
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
