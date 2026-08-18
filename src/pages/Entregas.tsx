@@ -843,7 +843,7 @@ function TabInventarioLead({ isMobile }: any) {
       ])
       setLeads((lR.data as any[]) || [])
       const cotsParsed = ((qR.data as any[]) || [])
-        .filter(c => c.specialty !== 'proy' && c.specialty !== 'cort')  // Proyecto = ingeniería (sin material); Cortinas = fuera por ahora
+        .filter(c => c.specialty !== 'proy')  // 'cort' sí entra: también se entrega material  // Proyecto = ingeniería (sin material); Cortinas = fuera por ahora
         .map(c => {
           let lead_id: string | null = null
           try { lead_id = JSON.parse(c.notes || '{}').lead_id || null } catch {}
@@ -1520,15 +1520,25 @@ function TareaModal({ init, obras, leads, empleados, onClose, onSaved }: any) {
     const movs = [...mv1, ...mv2.filter((m: any) => !mv1.find((x: any) => x.id === m.id))]
     const keyOf = (it: any) => it.catalog_product_id || `${(it.marca || '').toLowerCase()}|${(it.modelo || '').toLowerCase()}|${(it.name || it.descripcion || '').toLowerCase()}`
     const leadName = (lid: string) => (leads.find((l: any) => l.id === lid)?.name) || 'Lead'
+    // ⚠️ Se agrupa por LEAD + COTIZACIÓN, no por lead. Un mismo lead
+    // (Cero5cien O402 - KIBRIT) tiene cotización de Especiales y otra de
+    // Instalaciones Eléctricas, cada una con su obra y su inventario. Cuando se
+    // agrupaba solo por lead, el material eléctrico se entregaba "a la obra" y
+    // terminaba contado dentro de Especiales.
     const byLead: Record<string, any> = {}
-    const ensureLead = (lid: string) => { if (!byLead[lid]) byLead[lid] = { name: leadName(lid), map: new Map() }; return byLead[lid] }
-    const ensureLine = (lid: string, cot: any, it: any) => { const L = ensureLead(lid); const k = cot.id + '::' + keyOf(it); if (!L.map.has(k)) L.map.set(k, { key: k, quotation_id: cot.id, cotName: cot.name, specialty: cot.specialty, marca: it.marca || '', modelo: it.modelo || '', descripcion: it.name || it.descripcion || '', comprado: 0, recibido: 0, entregado: 0 }); return L.map.get(k) }
+    const grupoKey = (lid: string, cot: any) => lid + '::' + cot.id
+    const ensureLead = (lid: string, cot: any) => {
+      const gk = grupoKey(lid, cot)
+      if (!byLead[gk]) byLead[gk] = { name: cot.name || leadName(lid), leadName: leadName(lid), lead_id: lid, quotation_id: cot.id, specialty: cot.specialty, map: new Map() }
+      return byLead[gk]
+    }
+    const ensureLine = (lid: string, cot: any, it: any) => { const L = ensureLead(lid, cot); const k = cot.id + '::' + keyOf(it); if (!L.map.has(k)) L.map.set(k, { key: k, quotation_id: cot.id, cotName: cot.name, specialty: cot.specialty, marca: it.marca || '', modelo: it.modelo || '', descripcion: it.name || it.descripcion || '', comprado: 0, recibido: 0, entregado: 0 }); return L.map.get(k) }
     cots.forEach(cot => { poItems.filter(pi => poCot[pi.purchase_order_id] === cot.id).forEach(pi => { const r = ensureLine(cot.lead_id!, cot, pi); r.comprado += Number(pi.quantity) || 0 }) })
     movs.forEach((m: any) => { const mCot = m.quotation_id || (m.po_id ? poCot[m.po_id] : null); const cot = cots.find(c => c.id === mCot); if (!cot) return; const r = ensureLine(cot.lead_id!, cot, m); if (m.tipo === 'recepcion_compra') r.recibido += Number(m.qty) || 0; if (m.destino_tipo === 'obra') r.entregado += Number(m.qty) || 0 })
     const out: Record<string, any> = {}
-    Object.entries(byLead).forEach(([lid, v]: any) => {
-      const lines = Array.from(v.map.values()).map((r: any) => ({ ...r, en_bodega: Math.max(0, r.recibido - r.entregado), por_recibir: Math.max(0, r.comprado - r.recibido), por_entregar: Math.max(0, r.comprado - r.entregado) })).filter((r: any) => r.por_entregar > 0).sort((a: any, b: any) => (a.specialty || '').localeCompare(b.specialty || '') || (a.descripcion || '').localeCompare(b.descripcion || ''))
-      if (lines.length) out[lid] = { name: v.name, lines }
+    Object.entries(byLead).forEach(([gk, v]: any) => {
+      const lines = Array.from(v.map.values()).map((r: any) => ({ ...r, en_bodega: Math.max(0, r.recibido - r.entregado), por_recibir: Math.max(0, r.comprado - r.recibido), por_entregar: Math.max(0, r.comprado - r.entregado) })).filter((r: any) => r.por_entregar > 0).sort((a: any, b: any) => (a.descripcion || '').localeCompare(b.descripcion || ''))
+      if (lines.length) out[gk] = { name: v.name, leadName: v.leadName, lead_id: v.lead_id, quotation_id: v.quotation_id, specialty: v.specialty, lines }
     })
     return out
   }
@@ -1546,7 +1556,7 @@ function TareaModal({ init, obras, leads, empleados, onClose, onSaved }: any) {
     if (hQ.trim() && !(`${a.nombre} ${a.marca || ''} ${a.modelo || ''} ${a.serie || ''}`.toLowerCase().includes(hQ.toLowerCase()))) return false
     return true
   })
-  const leadsInv = invByLead ? Object.entries(invByLead).map(([id, v]: any) => ({ id, name: v.name, n: v.lines.length })).sort((a, b) => a.name.localeCompare(b.name)) : []
+  const leadsInv = invByLead ? Object.entries(invByLead).map(([id, v]: any) => ({ id, name: v.name, leadName: v.leadName, specialty: v.specialty, n: v.lines.length })).sort((a, b) => (a.leadName || '').localeCompare(b.leadName || '') || a.name.localeCompare(b.name)) : []
   const lineas = (entLead && invByLead && invByLead[entLead]) ? invByLead[entLead].lines : []
   const leadNameEnt = invByLead && invByLead[entLead] ? invByLead[entLead].name : ''
 
@@ -1585,7 +1595,10 @@ function TareaModal({ init, obras, leads, empleados, onClose, onSaved }: any) {
       setSaving(true)
       const folio = init.folio || ('ENT-' + fecha.slice(2).replace(/-/g, '') + '-' + Math.floor(Math.random() * 900 + 100))
       const chofer = empleados.find((e: any) => e.id === asignado)?.nombre || ''
-      const row: any = { tipo: 'entrega', titulo: (titulo.trim() || ('Entrega — ' + leadNameEnt)), fecha, hora: hora || null, ubicacion: ubicacion || null, prioridad, lead_id: entLead, obra_id: null, po_id: null, asignado_a: asignado || null, asignado_nombre: chofer || null, notas: notas || null, items, recibe_nombre: recibeNombre || null, recibe_rol: recibeRol || null, folio }
+      // entLead ahora es la llave "lead::cotización": hay que desdoblarla para
+      // guardar el lead real y, sobre todo, la cotización a la que pertenece.
+      const grp: any = (invByLead && invByLead[entLead]) || {}
+      const row: any = { tipo: 'entrega', titulo: (titulo.trim() || ('Entrega — ' + leadNameEnt)), fecha, hora: hora || null, ubicacion: ubicacion || null, prioridad, lead_id: grp.lead_id || null, quotation_id: grp.quotation_id || null, obra_id: null, po_id: null, asignado_a: asignado || null, asignado_nombre: chofer || null, notas: notas || null, items, recibe_nombre: recibeNombre || null, recibe_rol: recibeRol || null, folio }
       const res = init.id ? await supabase.from('logistics_tasks').update(row).eq('id', init.id) : await supabase.from('logistics_tasks').insert(row)
       if (res.error) { alert('Error: ' + res.error.message); setSaving(false); return }
       generarRecibosEntrega({ folio, fecha, leadName: leadNameEnt, ubicacion, chofer, recibeNombre, recibeRol, items, notas })
@@ -1759,7 +1772,12 @@ function TareaModal({ init, obras, leads, empleados, onClose, onSaved }: any) {
             {loadingInv ? <div style={{ fontSize: 12, color: '#888', padding: '8px 0', marginBottom: 12 }}>Cargando inventario entregable…</div> : (
               <select value={entLead} onChange={e => { setEntLead(e.target.value); setSel({}) }} style={{ ...inputStyle, marginBottom: 12 }}>
                 <option value="">Selecciona…</option>
-                {leadsInv.map(l => <option key={l.id} value={l.id}>{l.name} ({l.n} {l.n === 1 ? 'artículo' : 'artículos'})</option>)}
+                {/* Cada renglón es una obra real: lead + cotización */}
+                {leadsInv.map(l => (
+                  <option key={l.id} value={l.id}>
+                    {l.name}{l.specialty ? ` [${String(l.specialty).toUpperCase()}]` : ''} ({l.n} {l.n === 1 ? 'artículo' : 'artículos'})
+                  </option>
+                ))}
               </select>
             )}
             {!loadingInv && leadsInv.length === 0 && <div style={{ fontSize: 12, color: '#D97706', marginBottom: 12 }}>No hay obras con inventario pendiente de entregar (comprado o en bodega).</div>}

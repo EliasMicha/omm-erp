@@ -134,8 +134,16 @@ export async function cargarMaterialesObra(obra: {
   // OJO: `stock_movements.destino_obra_id` NO guarda el id de `obras` — guarda
   // el id del LEAD (el selector de "obra" del módulo de Entregas es en realidad
   // un selector de leads). El puente es la cotización: quotations.notes trae
-  // lead_id. Sin esto, la pestaña de Materiales veía cero recibido en obras que
-  // sí tienen material entregado.
+  // lead_id.
+  //
+  // ⚠️ Y un lead puede tener VARIAS obras, una por especialidad: "Cero5cien
+  // O402 - KIBRIT" (Especiales) y "Cero5cien O402 - KIBRIT - Electrico" cuelgan
+  // del mismo lead. Por eso el cruce manda por COTIZACIÓN, no por lead: si se
+  // filtrara por lead, el material eléctrico aparecería dentro de la obra de
+  // especiales (que es justo lo que pasaba).
+  //
+  // El lead solo se usa como red de seguridad para movimientos viejos que no
+  // traen cotización — ahí no hay forma de saber a qué especialidad pertenecen.
   const { data: cotRows } = await supabase.from('quotations').select('id,notes').in('id', cotIds)
   const leadIds = Array.from(new Set(((cotRows || []) as any[]).map(q => {
     try { return JSON.parse(q.notes || '{}').lead_id || null } catch { return null }
@@ -143,7 +151,7 @@ export async function cargarMaterialesObra(obra: {
 
   const filtroMovs = [
     `quotation_id.in.(${cotIds.join(',')})`,
-    leadIds.length ? `destino_obra_id.in.(${leadIds.join(',')})` : '',
+    leadIds.length ? `and(destino_obra_id.in.(${leadIds.join(',')}),quotation_id.is.null)` : '',
   ].filter(Boolean).join(',')
 
   const [areasRes, itemsRes, poRes, movRes, solRes] = await Promise.all([
