@@ -13,28 +13,15 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import {
-  ArrowLeft, Loader2, Search, Plus, Minus, Check, Package2, Sparkles, Trash2, Clock, Truck,
+  ArrowLeft, Loader2, Search, Plus, Check, Package2, Sparkles, Trash2, Clock, Truck,
 } from 'lucide-react'
 import {
   cargarMaterialesObra, folioSolicitud, STATUS_SOLICITUD,
   type RenglonMaterial,
 } from '../lib/materialesObra'
+import MaterialCard from './MaterialCard'
 
 interface LineaExtra { id: string; texto: string; cantidad: number }
-
-const avisoBase: React.CSSProperties = {
-  fontSize: 11, padding: '6px 9px', borderRadius: 8, marginBottom: 9, lineHeight: 1.35,
-}
-
-/** Cifra + etiqueta corta: el instalador tiene que leerlo de un vistazo. */
-function Chip({ n, t, c }: { n: number; t: string; c: string }) {
-  return (
-    <div style={{ padding: '4px 9px', borderRadius: 8, background: '#0a0a0a', border: '1px solid #1f1f1f', textAlign: 'center', minWidth: 62 }}>
-      <div style={{ fontSize: 15, fontWeight: 800, color: c, lineHeight: 1.1 }}>{n}</div>
-      <div style={{ fontSize: 9, color: '#666', marginTop: 1 }}>{t}</div>
-    </div>
-  )
-}
 
 export default function SolicitarMaterialPage({ employeeId }: { employeeId: string }) {
   const { obraId = '' } = useParams()
@@ -383,102 +370,11 @@ export default function SolicitarMaterialPage({ employeeId }: { employeeId: stri
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
-              {catalogo.map(r => {
-                const n = cant[r.clave] || 0
-                const tope = r.porSolicitar > 0 ? r.porSolicitar : r.cotizado
-                return (
-                  <div key={r.clave} style={{
-                    ...box, marginBottom: 0, padding: 12,
-                    borderColor: n > 0 ? '#10B98155' : '#1a1a1a',
-                    background: n > 0 ? '#0d1a12' : '#0f0f0f',
-                  }}>
-                    {/* Lo primero es marca · modelo · sistema: es como el
-                        instalador identifica el equipo en la caja. La
-                        descripción larga del catálogo va debajo, en chico. */}
-                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, flexWrap: 'wrap', marginBottom: 2 }}>
-                      <span style={{ fontSize: 15, fontWeight: 800, color: '#fff', lineHeight: 1.2 }}>
-                        {r.modelo || r.marca || r.descripcion.slice(0, 40)}
-                      </span>
-                      {r.marca && r.modelo && (
-                        <span style={{ fontSize: 12, fontWeight: 600, color: '#aaa' }}>{r.marca}</span>
-                      )}
-                      {r.sistema && (
-                        <span style={{
-                          fontSize: 10, fontWeight: 700, color: '#4ADE80', background: '#10B98115',
-                          border: '1px solid #10B98133', padding: '1px 7px', borderRadius: 6,
-                        }}>{r.sistema}</span>
-                      )}
-                    </div>
-                    <div style={{ fontSize: 11, color: '#777', marginBottom: 8, lineHeight: 1.35 }}>
-                      {r.descripcion}
-                    </div>
-                    {/* Los cuatro números que el instalador necesita para contestarle al cliente */}
-                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
-                      <Chip n={r.cotizado} t="del proyecto" c="#888" />
-                      <Chip n={r.enBodega} t="en bodega" c={r.enBodega > 0 ? '#FBBF24' : '#555'} />
-                      <Chip n={r.solicitado} t="solicitado" c={r.solicitado > 0 ? '#A78BFA' : '#555'} />
-                      <Chip n={Math.max(0, r.cotizado - r.recibido)} t="te falta" c={r.cotizado - r.recibido > 0 ? '#FBBF24' : '#4ADE80'} />
-                    </div>
-                    {/* Disponibilidad — qué decirle al cliente */}
-                    {(() => {
-                      const falta = Math.max(0, r.cotizado - r.recibido)
-                      const yaEnObra = r.recibido > 0 ? ` Ya tienes ${r.recibido} en obra.` : ''
-                      if (falta === 0) return (
-                        <div style={{ ...avisoBase, background: '#0d1a12', border: '1px solid #10B98133', color: '#4ADE80' }}>
-                          Completo en obra, ya está todo aquí.
-                        </div>
-                      )
-                      if (r.enBodega > 0) return (
-                        <div style={{ ...avisoBase, background: '#1a1508', border: '1px solid #D9770644', color: '#FBBF24' }}>
-                          Hay {r.enBodega} en bodega apartado para esta obra — solo falta que lo manden.{yaEnObra}
-                        </div>
-                      )
-                      if (r.enBodegaGeneral > 0) return (
-                        <div style={{ ...avisoBase, background: '#12131a', border: '1px solid #60A5FA33', color: '#93c5fd' }}>
-                          Hay {r.enBodegaGeneral} en bodega general (de otra obra). Se puede pedir prestado.{yaEnObra}
-                        </div>
-                      )
-                      if (r.pedido > r.recibido) return (
-                        <div style={{ ...avisoBase, background: '#141414', border: '1px solid #333', color: '#aaa' }}>
-                          Ya está comprado, todavía no llega a bodega.{yaEnObra}
-                        </div>
-                      )
-                      if (r.enBorrador > 0) return (
-                        <div style={{ ...avisoBase, background: '#1a0d0d', border: '1px solid #DC262633', color: '#f87171' }}>
-                          La orden de compra está en borrador: todavía no se le pide al proveedor.{yaEnObra}
-                        </div>
-                      )
-                      return (
-                        <div style={{ ...avisoBase, background: '#1a0d0d', border: '1px solid #DC262633', color: '#f87171' }}>
-                          No hay en bodega y no está comprado todavía.{yaEnObra}
-                        </div>
-                      )
-                    })()}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <button onClick={() => set(r, n - 1)} disabled={n === 0} style={{
-                        width: 38, height: 38, borderRadius: 10, border: '1px solid #262626',
-                        background: '#141414', color: n === 0 ? '#333' : '#fff', cursor: n === 0 ? 'default' : 'pointer',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      }}><Minus size={16} /></button>
-                      <input type="number" inputMode="numeric" value={n || ''} placeholder="0"
-                        onChange={e => set(r, Number(e.target.value))}
-                        style={{ ...input, width: 74, textAlign: 'center', padding: '9px 4px', fontWeight: 700 }} />
-                      <button onClick={() => set(r, n + 1)} style={{
-                        width: 38, height: 38, borderRadius: 10, border: '1px solid #10B98155',
-                        background: '#10B98118', color: '#4ADE80', cursor: 'pointer',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      }}><Plus size={16} /></button>
-                      <span style={{ fontSize: 11, color: '#666' }}>{r.unidad}</span>
-                      {tope > 0 && (
-                        <button onClick={() => set(r, tope)} style={{
-                          marginLeft: 'auto', fontSize: 11, color: '#4ADE80', background: 'transparent',
-                          border: 'none', cursor: 'pointer', fontFamily: 'inherit', textDecoration: 'underline',
-                        }}>Todo ({tope})</button>
-                      )}
-                    </div>
-                  </div>
-                )
-              })}
+              {catalogo.map(r => (
+                <MaterialCard key={r.clave} r={r}
+                  cantidad={cant[r.clave] || 0}
+                  onCantidad={(n) => set(r, n)} />
+              ))}
             </div>
           )}
 

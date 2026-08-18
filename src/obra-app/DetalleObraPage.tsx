@@ -1,6 +1,8 @@
 import { useEffect, useState, useMemo } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import { cargarMaterialesObra, type RenglonMaterial } from '../lib/materialesObra'
+import MaterialCard from './MaterialCard'
 import {
   ArrowLeft, MapPin, Info, Package2, FileText, ClipboardList,
   Loader2, Calendar, ExternalLink, CheckCircle2, Clock,
@@ -57,7 +59,7 @@ interface Reporte {
 // Se conserva la clave para no romper los links que ya circulan, pero de cara
 // al instalador se llama "Actividades" — el material real vive en la pantalla
 // de "Pedir material".
-type Tab = 'info' | 'materiales' | 'documentos' | 'reportes'
+type Tab = 'info' | 'materiales' | 'equipo' | 'documentos' | 'reportes'
 
 const DOC_TIPO_CONFIG: Record<string, { label: string; icon: any; color: string }> = {
   plano: { label: 'Planos', icon: FileImage, color: '#3b82f6' },
@@ -80,10 +82,16 @@ export default function DetalleObraPage() {
   const [searchParams] = useSearchParams()
   const initialTab = (searchParams.get('tab') as Tab) || 'info'
   const [tab, setTab] = useState<Tab>(
-    ['info', 'materiales', 'documentos', 'reportes'].includes(initialTab) ? initialTab : 'info'
+    ['info', 'materiales', 'equipo', 'documentos', 'reportes'].includes(initialTab) ? initialTab : 'info'
   )
   const [obra, setObra] = useState<Obra | null>(null)
   const [actividades, setActividades] = useState<Actividad[]>([])
+  // Materiales reales de la obra (equipo), separados de las actividades.
+  const [materiales, setMateriales] = useState<RenglonMaterial[]>([])
+  const [matCargando, setMatCargando] = useState(true)
+  const [matSistema, setMatSistema] = useState('todos')
+  const [matModo, setMatModo] = useState<'faltantes' | 'todo'>('todo')
+  const [matBusca, setMatBusca] = useState('')
   const [documentos, setDocumentos] = useState<Documento[]>([])
   const [reportes, setReportes] = useState<Reporte[]>([])
   const [loading, setLoading] = useState(true)
@@ -109,13 +117,39 @@ export default function DetalleObraPage() {
           .order('created_at', { ascending: false })
           .limit(50),
       ])
-      setObra((oRes.data as Obra) || null)
+      const o = (oRes.data as any) || null
+      setObra(o)
       setActividades((aRes.data as Actividad[]) || [])
       setDocumentos((dRes.data as Documento[]) || [])
       setReportes((rRes.data as Reporte[]) || [])
       setLoading(false)
+
+      // El catálogo de materiales va aparte: son varias queries y no debe
+      // frenar el resto de la ficha.
+      if (o) {
+        setMatCargando(true)
+        cargarMaterialesObra({
+          id: o.id, cotizacion_id: o.quotation_id,
+          quotation_ids: o.quotation_ids, project_id: o.project_id,
+        })
+          .then(d => setMateriales(d.renglones.filter(r => !r.fueraDeCatalogo)))
+          .catch(() => setMateriales([]))
+          .finally(() => setMatCargando(false))
+      } else setMatCargando(false)
     })()
   }, [obraId])
+
+  const matSistemas = useMemo(
+    () => Array.from(new Set(materiales.map(r => r.sistema).filter(Boolean))).sort(),
+    [materiales])
+
+  const matFiltrados = useMemo(() => {
+    const q = matBusca.trim().toLowerCase()
+    return materiales
+      .filter(r => matSistema === 'todos' || r.sistema === matSistema)
+      .filter(r => matModo === 'todo' || r.cotizado - r.recibido > 0)
+      .filter(r => !q || `${r.descripcion} ${r.marca} ${r.modelo} ${r.sistema}`.toLowerCase().includes(q))
+  }, [materiales, matSistema, matModo, matBusca])
 
   // Group activities by area
   const actividadesByArea = useMemo(() => {
@@ -208,6 +242,7 @@ export default function DetalleObraPage() {
   const tabs: { key: Tab; label: string; icon: any; count?: number }[] = [
     { key: 'info', label: 'Info', icon: Info },
     { key: 'materiales', label: 'Actividades', icon: ClipboardList, count: actividades.length },
+    { key: 'equipo', label: 'Materiales', icon: Package2, count: materiales.length },
     { key: 'documentos', label: 'Documentos', icon: FileText, count: documentos.length },
     { key: 'reportes', label: 'Reportes', icon: ClipboardList, count: reportes.length },
   ]
@@ -358,6 +393,95 @@ export default function DetalleObraPage() {
         </div>
       )}
 
+
+      {/* ═══ MATERIALES (equipo real de la obra) ═══ */}
+      {tab === 'equipo' && (
+        <div>
+          <button onClick={() => navigate(`/obra-app/mis-obras/${obra.id}/material`)}
+            style={{
+              width: '100%', padding: 14, marginBottom: 14, borderRadius: 12,
+              border: '1px solid #10B98155', background: '#0d1a12', color: '#4ADE80',
+              fontSize: 14, fontWeight: 700, fontFamily: 'inherit', cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+            }}>
+            <Package2 size={17} /> Pedir material para esta obra
+          </button>
+
+          {matCargando ? (
+            <div style={{ textAlign: 'center', padding: 30, color: '#666', fontSize: 12 }}>Cargando materiales…</div>
+          ) : materiales.length === 0 ? (
+            <div style={{ padding: 32, textAlign: 'center', background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 16, color: '#888', fontSize: 13 }}>
+              <Package2 size={30} style={{ marginBottom: 10, opacity: 0.3 }} />
+              <div>Esta obra todavía no tiene catálogo de materiales.</div>
+            </div>
+          ) : (
+            <>
+              {/* Faltantes vs todo */}
+              <div style={{ display: 'flex', gap: 3, marginBottom: 10, background: '#0f0f0f', border: '1px solid #1a1a1a', borderRadius: 12, padding: 3 }}>
+                {([['faltantes', 'Solo faltantes'], ['todo', 'Todo el proyecto']] as const).map(([k, l]) => {
+                  const act = matModo === k
+                  const n = k === 'faltantes'
+                    ? materiales.filter(r => (matSistema === 'todos' || r.sistema === matSistema) && r.cotizado - r.recibido > 0).length
+                    : materiales.filter(r => matSistema === 'todos' || r.sistema === matSistema).length
+                  return (
+                    <button key={k} onClick={() => setMatModo(k)} style={{
+                      flex: 1, padding: '11px 8px', borderRadius: 9, border: 'none',
+                      background: act ? '#10B981' : 'transparent', color: act ? '#04120a' : '#888',
+                      fontSize: 13, fontWeight: 700, fontFamily: 'inherit', cursor: 'pointer',
+                    }}>{l} <span style={{ opacity: 0.7 }}>{n}</span></button>
+                  )
+                })}
+              </div>
+
+              {/* Filtro por sistema */}
+              {matSistemas.length > 1 && (
+                <div style={{ display: 'flex', gap: 6, marginBottom: 10, overflowX: 'auto', paddingBottom: 4 }}>
+                  {['todos', ...matSistemas].map(sis => {
+                    const act = matSistema === sis
+                    const n = sis === 'todos' ? materiales.length : materiales.filter(r => r.sistema === sis).length
+                    return (
+                      <button key={sis} onClick={() => setMatSistema(sis)} style={{
+                        flexShrink: 0, padding: '8px 13px', borderRadius: 20,
+                        background: act ? '#0f2a1a' : '#0f0f0f',
+                        border: `1px solid ${act ? '#10B981' : '#1f1f1f'}`,
+                        color: act ? '#10B981' : '#888',
+                        fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap',
+                        display: 'flex', alignItems: 'center', gap: 4,
+                      }}>
+                        {sis !== 'todos' && <span>{SISTEMA_EMOJI[sis] || '📦'}</span>}
+                        <span>{sis === 'todos' ? 'Todos' : sis}</span>
+                        <span style={{ opacity: 0.6, fontWeight: 500 }}>{n}</span>
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+
+              <input value={matBusca} onChange={e => setMatBusca(e.target.value)}
+                placeholder="Buscar por modelo, marca o descripción"
+                style={{
+                  width: '100%', padding: '10px 12px', marginBottom: 12, boxSizing: 'border-box',
+                  background: '#0a0a0a', border: '1px solid #262626', borderRadius: 10,
+                  color: '#fff', fontSize: 14, fontFamily: 'inherit',
+                }} />
+
+              <div style={{ fontSize: 11, color: '#666', marginBottom: 10 }}>
+                Toca cualquier equipo para ver quién lo recibió y cuándo.
+              </div>
+
+              {matFiltrados.length === 0 ? (
+                <div style={{ padding: 26, textAlign: 'center', color: '#666', fontSize: 12 }}>
+                  {matModo === 'faltantes' ? 'No falta nada con este filtro: ya está todo en obra.' : 'Nada que mostrar con este filtro.'}
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, paddingBottom: 20 }}>
+                  {matFiltrados.map(r => <MaterialCard key={r.clave} r={r} />)}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
 
       {/* ACTIVIDADES, agrupadas por área (la clave del tab sigue siendo 'materiales') */}
       {tab === 'materiales' && (
