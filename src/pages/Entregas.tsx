@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import { useAuth } from '../contexts/AuthContext'
 import SolicitudesObra from '../components/SolicitudesObra'
+import AvisosEntregas from '../components/AvisosEntregas'
 import { Btn, KpiCard, SectionHeader, EmptyState, Loading } from '../components/layout/UI'
 import { fetchAllActiveCatalog } from '../lib/catalog'
 import { SPECIALTY_CONFIG } from '../lib/utils'
@@ -40,6 +42,7 @@ const labelStyle: React.CSSProperties = { fontSize: 10, fontWeight: 600, color: 
 export default function Entregas() {
   const isMobile = useIsMobile()
   const navigate = useNavigate()
+  const { user } = useAuth()
   const [tab, setTab] = useState<'dashboard' | 'agenda' | 'solicitudes' | 'porlead' | 'inventario' | 'movimientos' | 'registrar' | 'herramienta'>('dashboard')
   const [preselectPo, setPreselectPo] = useState<string>('')
   const [loading, setLoading] = useState(true)
@@ -115,7 +118,18 @@ export default function Entregas() {
 
   return (
     <div style={{ padding: isMobile ? 12 : 24, maxWidth: 1400, margin: '0 auto' }}>
-      <SectionHeader title="Entregas e Inventario" subtitle="Movimientos de material con trazabilidad total — bodega, obras y compras" />
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
+        <div style={{ flex: 1, minWidth: 240 }}>
+          <SectionHeader title="Entregas e Inventario" subtitle="Movimientos de material con trazabilidad total — bodega, obras y compras" />
+        </div>
+        {/* Campana: lo que llegó solo (solicitudes, OC confirmadas, entregas de hoy) */}
+        <div style={{ paddingTop: 4 }}>
+          <AvisosEntregas
+            userKey={user?.id || user?.email || 'anon'}
+            onIr={(d) => { if (d === 'compras') navigate('/compras'); else setTab(d as any) }}
+          />
+        </div>
+      </div>
 
       {/* Tabs */}
       <div style={{ display: 'flex', gap: 4, marginBottom: 20, background: '#0f0f0f', borderRadius: 10, padding: 4, border: '1px solid #1f1f1f', flexWrap: 'wrap' }}>
