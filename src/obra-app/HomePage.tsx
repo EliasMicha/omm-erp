@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { getCurrentPosition, haversineDistance, formatDistance } from './lib/geolocation'
 import { getWorkDate } from './lib/workDate'
+import { confirmarEntrega } from '../lib/entregaFlow'
 import {
   LogOut, MapPin, AlertCircle, CheckCircle2, Clock,
   FileText, Calendar, Package2, Receipt, Loader2,
@@ -63,6 +64,7 @@ export default function HomePage({ employee, onLogout }: { employee: Employee; o
   const [plan, setPlan] = useState<TodayAssignment[]>([])
   const [obraSel, setObraSel] = useState<string>('')
   const [entregas, setEntregas] = useState<EntregaHoy[]>([])
+  const [recibiendo, setRecibiendo] = useState<string>('')
   // Plan del siguiente día con trabajo — se muestra al checar salida.
   const [planSig, setPlanSig] = useState<{ fecha: string; asignaciones: TodayAssignment[] } | null>(null)
   const [todayAttendance, setTodayAttendance] = useState<AttendanceRecord[]>([])
@@ -190,6 +192,27 @@ export default function HomePage({ employee, onLogout }: { employee: Employee; o
   }
 
   useEffect(() => { loadData() }, [employee.id])
+
+  // Confirmar desde la obra: es el momento real en que el material dejó la
+  // bodega y quedó en el proyecto. Cierra la entrega, la parada de la ruta y
+  // la solicitud que la originó, todo con el mismo movimiento de inventario.
+  async function recibirEntrega(e: EntregaHoy) {
+    if (!confirm(`¿Confirmas que ya recibiste este material en ${e.obra_nombre}?`)) return
+    setRecibiendo(e.id)
+    try {
+      const r = await confirmarEntrega(e.id, {
+        recibido_por: employee.nombre,
+        movido_por_nombre: employee.nombre,
+      })
+      alert(r.yaEstaba
+        ? 'Esta entrega ya estaba registrada como recibida.'
+        : `Listo, quedó registrado. ${r.piezas} pza(s) ya cuentan como material en obra.`)
+      await loadData()
+    } catch (err: any) {
+      alert('No se pudo registrar: ' + (err?.message || err))
+    }
+    setRecibiendo('')
+  }
 
   const hasEntrada = todayAttendance.some(a => a.tipo === 'entrada')
   const hasSalida = todayAttendance.some(a => a.tipo === 'salida')
@@ -583,6 +606,16 @@ export default function HomePage({ employee, onLogout }: { employee: Employee; o
                     <div style={{ fontSize: 11, color: '#666' }}>+{e.items.length - 6} artículos más</div>
                   )}
                 </div>
+                <button
+                  onClick={() => recibirEntrega(e)}
+                  disabled={recibiendo === e.id}
+                  style={{
+                    marginTop: 9, width: '100%', padding: '11px 12px', borderRadius: 12,
+                    border: '1px solid #10B98166', background: '#10B98118', color: '#4ADE80',
+                    fontSize: 13, fontWeight: 800, fontFamily: 'inherit', cursor: 'pointer',
+                  }}>
+                  {recibiendo === e.id ? 'Registrando…' : '✓ Ya lo recibí en obra'}
+                </button>
               </div>
             )
           })}

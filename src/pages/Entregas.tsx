@@ -6,6 +6,10 @@ import SolicitudesObra from '../components/SolicitudesObra'
 import AvisosEntregas from '../components/AvisosEntregas'
 import { Btn, KpiCard, SectionHeader, EmptyState, Loading } from '../components/layout/UI'
 import { fetchAllActiveCatalog } from '../lib/catalog'
+import {
+  programarEntrega, confirmarEntrega, destinoDeCotizacion, generarRecibosEntrega,
+  type ItemEntrega,
+} from '../lib/entregaFlow'
 import { SPECIALTY_CONFIG } from '../lib/utils'
 import { Plus, X, Trash2, Warehouse, Building2, ArrowRight, ClipboardList, PackagePlus, ChevronRight, ChevronLeft, LayoutDashboard, Truck, Calendar, CalendarDays, Clock, Inbox, PackageCheck, MapPin, Wrench, Laptop, Pencil } from 'lucide-react'
 import { useIsMobile } from '../lib/useIsMobile'
@@ -1314,7 +1318,56 @@ function TabAgenda({ isMobile, obras, empleados }: any) {
 
   async function cycleEstatus(t: any) {
     const next = t.estatus === 'pendiente' ? 'en_ruta' : t.estatus === 'en_ruta' ? 'completada' : 'pendiente'
+
+    // ── Completar una ENTREGA mueve el inventario de verdad ──
+    // Es el momento en que el material dejó la bodega y quedó en la obra. Si la
+    // tarea no traía entrega ligada (se programó antes de que esto existiera),
+    // se crea aquí para que el rastro quede completo: entrega, renglones y
+    // movimiento de bodega → obra.
+    if (next === 'completada' && t.tipo === 'entrega') {
+      try {
+        let deliveryId = t.delivery_id
+        if (!deliveryId) {
+          const items: ItemEntrega[] = (Array.isArray(t.items) ? t.items : []).map((i: any) => ({
+            clave: i.clave || null,
+            catalog_product_id: catalogIdDeKey(i.key),
+            marca: i.marca || null, modelo: i.modelo || null,
+            descripcion: i.descripcion || i.description || '',
+            unidad: i.unidad || 'pza', qty: Number(i.qty) || 0,
+          })).filter((i: ItemEntrega) => i.qty > 0)
+          if (!items.length) { alert('Esta tarea no tiene renglones: no hay qué mover de bodega.'); return }
+          const destino = await destinoDeCotizacion(t.quotation_id, t.lead_id, t.titulo)
+          const res = await programarEntrega({
+            destino, fecha: t.fecha, hora: t.hora, items,
+            chofer: { id: t.asignado_a, nombre: t.asignado_nombre },
+            recibe: { nombre: t.recibe_nombre, rol: t.recibe_rol },
+            notas: t.notas, titulo: t.titulo, folio: t.folio, task_id: t.id,
+            solicitud_id: t.solicitud_id || null,
+          })
+          deliveryId = res.delivery_id
+        }
+        const r = await confirmarEntrega(deliveryId, {
+          fecha: t.fecha,
+          movido_por: t.asignado_a || null,
+          movido_por_nombre: t.asignado_nombre || null,
+          recibido_por: t.recibe_nombre || null,
+        })
+        alert(r.yaEstaba
+          ? 'Esta entrega ya había movido inventario: no se duplicó nada.'
+          : `✅ Entrega ${r.folio} cerrada. ${r.piezas} pza(s) salieron de bodega y ya cuentan como recibidas en la obra.`)
+        load(); return
+      } catch (e: any) {
+        alert('No se pudo cerrar la entrega: ' + (e?.message || e))
+        return
+      }
+    }
+
     await supabase.from('logistics_tasks').update({ estatus: next }).eq('id', t.id)
+    if (next !== 'completada' && t.tipo === 'entrega' && t.delivery_id) {
+      await supabase.from('deliveries')
+        .update({ status: next === 'en_ruta' ? 'en_ruta' : 'pendiente', updated_at: new Date().toISOString() })
+        .eq('id', t.delivery_id)
+    }
     // Al completar un movimiento de herramienta → actualizar ubicación + responsable de cada equipo
     if (next === 'completada' && t.tipo === 'herramienta' && Array.isArray(t.items) && t.extras) {
       const ex = t.extras
@@ -1362,8 +1415,16 @@ function TabAgenda({ isMobile, obras, empleados }: any) {
                       {(t.hora || t.ubicacion) && <div style={{ fontSize: 9, color: '#888', marginTop: 2 }}>{t.hora ? t.hora.slice(0, 5) + ' ' : ''}{t.ubicacion ? '· ' + t.ubicacion : ''}</div>}
                       <div style={{ display: 'flex', gap: 4, marginTop: 4, flexWrap: 'wrap' }}>
                         <button onClick={e => { e.stopPropagation(); cycleEstatus(t) }} style={{ fontSize: 9, fontWeight: 600, padding: '1px 6px', borderRadius: 4, border: 'none', cursor: 'pointer', fontFamily: 'inherit', background: done ? '#10B98122' : t.estatus === 'en_ruta' ? '#2563EB22' : '#33333366', color: done ? '#10B981' : t.estatus === 'en_ruta' ? '#60A5FA' : '#999' }}>
-                          {done ? '✓ Completada' : t.estatus === 'en_ruta' ? '● En ruta' : 'Pendiente'}
+                          {done ? '✓ Entregada' : t.estatus === 'en_ruta' ? '● En ruta' : 'Pendiente'}
                         </button>
+                        {/* Una entrega completada ya descontó el material de bodega:
+                            conviene que se vea, si no parece que solo se "palomeó". */}
+                        {t.tipo === 'entrega' && done && (
+                          <span style={{ fontSize: 9, fontWeight: 600, padding: '1px 6px', borderRadius: 4, background: '#8B5CF622', color: '#C4B5FD' }} title="El material salió de bodega y ya cuenta como recibido en la obra">📦 Inventario movido</span>
+                        )}
+                        {t.tipo === 'entrega' && !done && t.estatus === 'en_ruta' && (
+                          <span style={{ fontSize: 9, fontWeight: 600, padding: '1px 6px', borderRadius: 4, background: '#D9770622', color: '#FBBF24' }} title="Al marcarla como entregada se descuenta de bodega">Al cerrar mueve inventario</span>
+                        )}
                         {t.tipo === 'entrega' && Array.isArray(t.items) && t.items.length > 0 && (
                           <button onClick={e => { e.stopPropagation(); generarRecibosEntrega({ folio: t.folio || t.id.slice(0, 8), fecha: t.fecha, leadName: leads.find((l: any) => l.id === t.lead_id)?.name || t.titulo, ubicacion: t.ubicacion, chofer: t.asignado_nombre, recibeNombre: t.recibe_nombre, recibeRol: t.recibe_rol, items: t.items, notas: t.notas }) }} style={{ fontSize: 9, fontWeight: 600, padding: '1px 6px', borderRadius: 4, border: 'none', cursor: 'pointer', fontFamily: 'inherit', background: '#57FF9A22', color: '#57FF9A' }}>🧾 Recibos</button>
                         )}
@@ -1385,53 +1446,11 @@ function TabAgenda({ isMobile, obras, empleados }: any) {
 const fmtQ = (n: number) => Number(n).toLocaleString('es-MX', { maximumFractionDigits: 2 })
 
 // Genera 2 recibos imprimibles (chofer + obra) — uno por entrega, consolidando orígenes
-function generarRecibosEntrega({ folio, fecha, leadName, ubicacion, chofer, recibeNombre, recibeRol, items, notas }: any) {
-  const rolLabel: any = { instalador: 'Instalador OMM', residente: 'Residente de obra', cliente: 'Cliente' }
-  const fechaTxt = (() => { try { return new Date(fecha + 'T12:00:00').toLocaleDateString('es-MX', { day: '2-digit', month: 'long', year: 'numeric' }) } catch { return fecha } })()
-  const filas = items.map((it: any, i: number) => `<tr><td style="text-align:center">${i + 1}</td><td>${it.marca || ''}</td><td>${it.modelo || ''}</td><td>${it.descripcion || ''}</td><td style="text-align:center;font-weight:700">${fmtQ(it.qty)}</td></tr>`).join('')
-  const totalPzs = items.reduce((s: number, it: any) => s + Number(it.qty || 0), 0)
-  const bloque = (titulo: string, quienLabel: string, quienNombre: string, leyenda: string) => `
-    <div class="recibo">
-      <div class="hd"><div><div class="logo">OMM</div><div class="sub">OMM Technologies · Entrega de material</div></div>
-        <div style="text-align:right"><div class="folio">${folio}</div><div class="sub">${fechaTxt}</div></div></div>
-      <div class="tt">${titulo}</div>
-      <table class="meta"><tr><td style="width:55%"><b>Obra / Lead:</b> ${leadName}</td><td><b>Ubicación:</b> ${ubicacion || '—'}</td></tr>
-        <tr><td><b>Chofer:</b> ${chofer || '—'}</td><td><b>${quienLabel}:</b> ${quienNombre || '—'}</td></tr></table>
-      <table class="items"><thead><tr><th style="width:34px">#</th><th>Marca</th><th>Modelo</th><th>Descripción</th><th style="width:60px">Cant.</th></tr></thead>
-        <tbody>${filas}</tbody>
-        <tfoot><tr><td colspan="4" style="text-align:right"><b>Total de piezas</b></td><td style="text-align:center"><b>${fmtQ(totalPzs)}</b></td></tr></tfoot></table>
-      ${notas ? `<div class="notas"><b>Notas:</b> ${notas}</div>` : ''}
-      <div class="leyenda">${leyenda}</div>
-      <div class="firmas"><div class="fw"><div class="ln"></div>${quienNombre || quienLabel}<div class="sub">Firma de quien recibe</div></div>
-        <div class="fw"><div class="ln"></div>OMM Technologies<div class="sub">Entregó</div></div></div>
-    </div>`
-  const html = `<!doctype html><html><head><meta charset="utf-8"><title>Recibos ${folio}</title><style>
-    *{box-sizing:border-box;font-family:Arial,Helvetica,sans-serif}
-    body{margin:0;color:#111}
-    .recibo{padding:34px 40px;page-break-after:always}
-    .hd{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #111;padding-bottom:10px}
-    .logo{font-size:30px;font-weight:800;letter-spacing:1px}
-    .sub{font-size:11px;color:#666;margin-top:2px}
-    .folio{font-size:15px;font-weight:700}
-    .tt{font-size:16px;font-weight:800;margin:18px 0 12px;text-transform:uppercase}
-    table{width:100%;border-collapse:collapse;font-size:12px}
-    .meta td{padding:3px 0;font-size:12px}
-    .items{margin-top:8px}
-    .items th{background:#111;color:#fff;padding:7px 8px;text-align:left;font-size:11px}
-    .items td{border-bottom:1px solid #ddd;padding:6px 8px}
-    .items tfoot td{border:none;padding-top:8px}
-    .notas{margin-top:12px;font-size:12px}
-    .leyenda{margin-top:20px;font-size:11px;color:#333;line-height:1.5;border:1px solid #ccc;border-radius:6px;padding:10px}
-    .firmas{display:flex;gap:60px;margin-top:54px}
-    .fw{flex:1;text-align:center;font-size:12px}
-    .ln{border-top:1px solid #111;margin-bottom:6px;height:1px}
-    @media print{.recibo{padding:24px 30px}}
-  </style></head><body>
-  ${bloque('Recibo del chofer', 'Recibe (chofer)', chofer, 'El chofer confirma que RECIBE la mercancía descrita, en buen estado y en las cantidades indicadas, haciéndose responsable de su traslado hasta la obra destino.')}
-  ${bloque('Recibo en obra', (rolLabel[recibeRol] || 'Recibe en obra'), recibeNombre, 'Quien recibe en obra confirma haber RECIBIDO la mercancía descrita en las cantidades indicadas y en buen estado.')}
-  <script>window.onload=function(){setTimeout(function(){window.print()},250)}</script>
-  </body></html>`
-  const w = window.open('', '_blank'); if (w) { w.document.write(html); w.document.close() }
+/** La llave de un renglón es "cotización::keyOf", y keyOf es el
+ *  catalog_product_id cuando el producto existe en catálogo. */
+function catalogIdDeKey(key: any): string | null {
+  const k = String(key || '').split('::').pop() || ''
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(k) ? k : null
 }
 
 function TareaModal({ init, obras, leads, empleados, onClose, onSaved }: any) {
@@ -1611,12 +1630,55 @@ function TareaModal({ init, obras, leads, empleados, onClose, onSaved }: any) {
       setSaving(true)
       const folio = init.folio || ('ENT-' + fecha.slice(2).replace(/-/g, '') + '-' + Math.floor(Math.random() * 900 + 100))
       const chofer = empleados.find((e: any) => e.id === asignado)?.nombre || ''
-      // entLead ahora es la llave "lead::cotización": hay que desdoblarla para
+      // entLead es la llave "lead::cotización": hay que desdoblarla para
       // guardar el lead real y, sobre todo, la cotización a la que pertenece.
       const grp: any = (invByLead && invByLead[entLead]) || {}
-      const row: any = { tipo: 'entrega', titulo: (titulo.trim() || ('Entrega — ' + leadNameEnt)), fecha, hora: hora || null, ubicacion: ubicacion || null, prioridad, lead_id: grp.lead_id || null, quotation_id: grp.quotation_id || null, obra_id: null, po_id: null, asignado_a: asignado || null, asignado_nombre: chofer || null, notas: notas || null, items, recibe_nombre: recibeNombre || null, recibe_rol: recibeRol || null, folio }
-      const res = init.id ? await supabase.from('logistics_tasks').update(row).eq('id', init.id) : await supabase.from('logistics_tasks').insert(row)
-      if (res.error) { alert('Error: ' + res.error.message); setSaving(false); return }
+
+      if (init.id) {
+        // Editar una entrega ya programada: se corrige la parada de la ruta y,
+        // si ya tenía entrega ligada, también lo que ve el instalador.
+        const row: any = { tipo: 'entrega', titulo: (titulo.trim() || ('Entrega — ' + leadNameEnt)), fecha, hora: hora || null, ubicacion: ubicacion || null, prioridad, lead_id: grp.lead_id || null, quotation_id: grp.quotation_id || null, obra_id: init.obra_id || null, po_id: null, asignado_a: asignado || null, asignado_nombre: chofer || null, notas: notas || null, items, recibe_nombre: recibeNombre || null, recibe_rol: recibeRol || null, folio }
+        const res = await supabase.from('logistics_tasks').update(row).eq('id', init.id)
+        if (res.error) { alert('Error: ' + res.error.message); setSaving(false); return }
+        if (init.delivery_id) {
+          await supabase.from('deliveries').update({
+            delivery_date: fecha, scheduled_time: hora || null, driver_id: asignado || null,
+            driver_nombre: chofer || null, recibe_nombre: recibeNombre || null, notes: notas || null,
+            updated_at: new Date().toISOString(),
+          }).eq('id', init.delivery_id)
+        }
+        setSaving(false)
+        generarRecibosEntrega({ folio, fecha, leadName: leadNameEnt, ubicacion, chofer, recibeNombre, recibeRol, items, notas })
+        onSaved(); return
+      }
+
+      // Programar una entrega nueva arrastra TODO: la entrega que ve el
+      // instalador en su celular, sus renglones con marca y modelo, la parada
+      // en la ruta del día y los recibos. El inventario se descuenta después,
+      // cuando la tarea se marca completada.
+      try {
+        const destino = await destinoDeCotizacion(grp.quotation_id, grp.lead_id, leadNameEnt)
+        if (!destino.obra_id) {
+          const seguir = confirm(`Esta cotización no tiene obra dada de alta, así que el instalador no la verá en su app. ¿Programo la entrega de todos modos?`)
+          if (!seguir) { setSaving(false); return }
+        }
+        const envio: ItemEntrega[] = items.map((i: any) => ({
+          clave: null,
+          catalog_product_id: catalogIdDeKey(i.key),
+          marca: i.marca || null, modelo: i.modelo || null,
+          descripcion: i.descripcion || '', unidad: 'pza', qty: Number(i.qty) || 0,
+        }))
+        await programarEntrega({
+          destino, fecha, hora: hora || null, items: envio,
+          chofer: asignado ? { id: asignado, nombre: chofer } : null,
+          recibe: { nombre: recibeNombre || null, rol: recibeRol || null },
+          notas: notas || null,
+          titulo: titulo.trim() || ('Entrega — ' + leadNameEnt),
+          folio, prioridad, ubicacion: ubicacion || null,
+        })
+      } catch (e: any) {
+        alert('Error: ' + (e?.message || e)); setSaving(false); return
+      }
       generarRecibosEntrega({ folio, fecha, leadName: leadNameEnt, ubicacion, chofer, recibeNombre, recibeRol, items, notas })
       setSaving(false); onSaved(); return
     }

@@ -13,9 +13,14 @@
 import { Fragment, useEffect, useState } from 'react'
 import {
   Truck, ChevronDown, ChevronRight, AlertTriangle, PackageCheck, Package, Loader2, RefreshCw, ShoppingCart,
+  CheckCircle2, Printer, Route,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { cargarMaterialesObra, STATUS_SOLICITUD, type RenglonMaterial } from '../lib/materialesObra'
+import {
+  programarEntrega, confirmarEntrega, destinoDeObra, generarRecibosEntrega,
+  type ItemEntrega,
+} from '../lib/entregaFlow'
 
 const card: React.CSSProperties = {
   background: '#0f0f0f', border: '1px solid #1f1f1f', borderRadius: 12, padding: 14, marginBottom: 12,
@@ -52,6 +57,7 @@ export default function SolicitudesObra({ isMobile, onIrACompras }: {
   onIrACompras?: () => void
 }) {
   const [sols, setSols] = useState<Solicitud[]>([])
+  const [empleados, setEmpleados] = useState<{ id: string; nombre: string }[]>([])
   const [cargando, setCargando] = useState(true)
   const [filtro, setFiltro] = useState<'abiertas' | 'todas'>('abiertas')
   const [error, setError] = useState('')
@@ -59,13 +65,19 @@ export default function SolicitudesObra({ isMobile, onIrACompras }: {
   async function cargar() {
     setCargando(true); setError('')
     const { data, error: e } = await supabase.from('obra_material_solicitudes')
-      .select('id,folio,fecha,status,solicitante_nombre,requerido_para,notas,delivery_id,obra_id,obras(id,nombre,quotation_id,quotation_ids,project_id),obra_material_solicitud_items(id,clave,descripcion,marca,modelo,unidad,sistema,cantidad,cantidad_surtida,es_extra)')
+      .select('id,folio,fecha,status,solicitante_nombre,requerido_para,notas,delivery_id,obra_id,obras(id,nombre,quotation_id,quotation_ids,project_id),obra_material_solicitud_items(id,clave,descripcion,marca,modelo,unidad,sistema,cantidad,cantidad_surtida,es_extra,catalog_product_id,quotation_item_id)')
       .order('created_at', { ascending: false }).limit(200)
     if (e) setError(e.message)
     setSols(((data || []) as any[]).map(s => ({ ...s, obra: s.obras })) as Solicitud[])
     setCargando(false)
   }
   useEffect(() => { cargar() }, [])
+
+  // Choferes / personal para asignar la parada de la ruta.
+  useEffect(() => {
+    supabase.from('employees').select('id,nombre,name').order('nombre')
+      .then(({ data }) => setEmpleados(((data as any[]) || []).map(e => ({ id: e.id, nombre: e.nombre || e.name || 'Sin nombre' }))))
+  }, [])
 
   const visibles = filtro === 'abiertas'
     ? sols.filter(s => ['solicitada', 'aprobada', 'surtida_parcial'].includes(s.status))
@@ -111,25 +123,32 @@ export default function SolicitudesObra({ isMobile, onIrACompras }: {
           <div>{filtro === 'abiertas' ? 'No hay solicitudes abiertas de obra.' : 'Todavía no llega ninguna solicitud desde la app de obra.'}</div>
         </div>
       ) : visibles.map(s => (
-        <SolicitudCard key={s.id} sol={s} isMobile={isMobile} onCambio={cargar} onIrACompras={onIrACompras} />
+        <SolicitudCard key={s.id} sol={s} isMobile={isMobile} empleados={empleados} onCambio={cargar} onIrACompras={onIrACompras} />
       ))}
     </div>
   )
 }
 
 /* ── Una solicitud, con el cruce contra inventario de su obra ── */
-function SolicitudCard({ sol, isMobile, onCambio, onIrACompras }: {
-  sol: Solicitud; isMobile?: boolean; onCambio: () => void; onIrACompras?: () => void
+function SolicitudCard({ sol, isMobile, empleados, onCambio, onIrACompras }: {
+  sol: Solicitud; isMobile?: boolean; empleados: { id: string; nombre: string }[]
+  onCambio: () => void; onIrACompras?: () => void
 }) {
   const [abierto, setAbierto] = useState(false)
   const [mat, setMat] = useState<Map<string, RenglonMaterial> | null>(null)
   const [cargandoMat, setCargandoMat] = useState(false)
   const [busy, setBusy] = useState('')
   const [err, setErr] = useState('')
-  const [fecha, setFecha] = useState(sol.requerido_para || '')
+  const [ok, setOk] = useState('')
+  const [fecha, setFecha] = useState(sol.requerido_para || new Date().toISOString().slice(0, 10))
   const [hora, setHora] = useState('10:00')
+  const [chofer, setChofer] = useState('')
+  const [recibe, setRecibe] = useState(sol.solicitante_nombre || '')
+  /** cuánto se va a mandar de cada renglón — permite entregas parciales */
+  const [aEntregar, setAEntregar] = useState<Record<string, number>>({})
 
   const st = STATUS_SOLICITUD[sol.status] || { label: sol.status, color: '#666' }
+  const cerrada = ['surtida', 'rechazada', 'cancelada'].includes(sol.status)
   const items: any[] = sol.obra_material_solicitud_items || []
   const pedido = items.reduce((a, i) => a + Number(i.cantidad || 0), 0)
   const surtido = items.reduce((a, i) => a + Number(i.cantidad_surtida || 0), 0)
@@ -149,6 +168,18 @@ function SolicitudCard({ sol, isMobile, onCambio, onIrACompras }: {
       const m = new Map<string, RenglonMaterial>()
       d.renglones.forEach(r => m.set(r.clave, r))
       setMat(m)
+      // Sugerencia por renglón: lo que falta, topado con lo que de verdad hay
+      // apartado en bodega. Así el almacén no promete lo que no puede sacar.
+      setAEntregar(prev => {
+        if (Object.keys(prev).length) return prev
+        const init: Record<string, number> = {}
+        ;(sol.obra_material_solicitud_items || []).forEach((i: any) => {
+          const falta = Math.max(0, Number(i.cantidad || 0) - Number(i.cantidad_surtida || 0))
+          const hay = m.get(i.clave)?.enBodega ?? 0
+          init[i.id] = i.es_extra ? 0 : Math.max(0, Math.min(falta, hay))
+        })
+        return init
+      })
       setCargandoMat(false)
     }).catch(() => setCargandoMat(false))
   }, [abierto, mat, sol.obra])
@@ -178,44 +209,93 @@ function SolicitudCard({ sol, isMobile, onCambio, onIrACompras }: {
       }).length
     : 0
 
-  async function programar() {
+  /** Los renglones que de verdad van a subir a la camioneta. */
+  function itemsAEntregar(): ItemEntrega[] {
+    return items
+      .filter(i => (aEntregar[i.id] || 0) > 0)
+      .map(i => {
+        const r = mat?.get(i.clave)
+        return {
+          clave: i.clave,
+          catalog_product_id: i.catalog_product_id || r?.catalog_product_id || null,
+          quotation_item_id: i.quotation_item_id || r?.quotation_item_id || null,
+          solicitud_item_id: i.id,
+          marca: i.marca || r?.marca || null,
+          modelo: i.modelo || r?.modelo || null,
+          descripcion: i.descripcion,
+          unidad: i.unidad || 'pza',
+          qty: Number(aEntregar[i.id]) || 0,
+        }
+      })
+  }
+
+  const totalAEntregar = items.reduce((a, i) => a + (aEntregar[i.id] || 0), 0)
+
+  // ── Programar: entrega + parada en la ruta + recibos ────────────────────
+  // No mueve inventario todavía: mientras la camioneta no salga, el material
+  // sigue físicamente en bodega. El descuento pasa al confirmar.
+  async function programar(imprimir = true) {
     if (!fecha) { setErr('Pon la fecha de entrega.'); return }
-    setBusy('prog'); setErr('')
+    const envio = itemsAEntregar()
+    if (!envio.length) { setErr('Pon cuánto se va a entregar de cada renglón (todos están en 0).'); return }
+    setBusy('prog'); setErr(''); setOk('')
     try {
-      const { data: d, error: e1 } = await supabase.from('deliveries').insert({
-        obra_id: sol.obra_id,
+      const destino = await destinoDeObra(sol.obra_id)
+      if (!destino) throw new Error('No encontré la obra de esta solicitud.')
+      const emp = empleados.find(e => e.id === chofer)
+      const res = await programarEntrega({
+        destino, fecha, hora,
+        items: envio,
+        chofer: emp ? { id: emp.id, nombre: emp.nombre } : null,
+        recibe: { nombre: recibe || sol.solicitante_nombre || null, rol: 'instalador' },
         solicitud_id: sol.id,
-        delivery_date: fecha,
-        scheduled_time: hora || null,
-        type: 'entrega',
-        status: 'pendiente',
-        origin: 'Bodega OMM',
-        destination: sol.obra?.nombre || 'Obra',
-        folio: sol.folio ? `ENT-${sol.folio}` : null,
-        material_description: items.map(i => `${i.cantidad} ${i.unidad || 'pza'} ${i.descripcion}`).join(' | ').substring(0, 900),
-        notes: sol.notas || null,
-      }).select().single()
-      if (e1) throw e1
-      const { error: e2 } = await supabase.from('delivery_items').insert(items.map(i => ({
-        delivery_id: d.id, obra_id: sol.obra_id, description: i.descripcion,
-        qty: Number(i.cantidad) || 0, unit: i.unidad || 'pza', direction: 'out_bodega_to_obra',
-      })))
-      if (e2) throw e2
-      await supabase.from('obra_material_solicitudes')
-        .update({ status: 'aprobada', delivery_id: d.id, revisado_at: new Date().toISOString() }).eq('id', sol.id)
+        notas: sol.notas || null,
+        titulo: `Entrega ${sol.folio || ''} — ${destino.obra_nombre}`.trim(),
+      })
+      if (imprimir) {
+        generarRecibosEntrega({
+          folio: res.folio, fecha, leadName: destino.obra_nombre, ubicacion: destino.direccion,
+          chofer: emp?.nombre || '', recibeNombre: recibe || sol.solicitante_nombre || '',
+          recibeRol: 'instalador', items: envio, notas: sol.notas,
+        })
+      }
+      setOk(`Entrega ${res.folio} programada: ya está en la ruta del ${fecha} y el instalador la ve en su celular.`)
       onCambio()
     } catch (e: any) { setErr(e?.message || String(e)) }
     setBusy('')
   }
 
-  async function marcarSurtida() {
-    setBusy('surt'); setErr('')
+  // ── Confirmar: AQUÍ se mueve el inventario de bodega a la obra ──────────
+  async function confirmar() {
+    setBusy('conf'); setErr(''); setOk('')
     try {
-      for (const i of items) {
-        await supabase.from('obra_material_solicitud_items').update({ cantidad_surtida: i.cantidad }).eq('id', i.id)
+      let deliveryId = sol.delivery_id
+      // Surtido de mostrador: se lo llevan hoy mismo sin ruta previa. Se
+      // programa y se confirma de un golpe para que quede el mismo rastro.
+      if (!deliveryId) {
+        const envio = itemsAEntregar()
+        if (!envio.length) { throw new Error('Pon cuánto se entrega de cada renglón antes de confirmar.') }
+        const destino = await destinoDeObra(sol.obra_id)
+        if (!destino) throw new Error('No encontré la obra de esta solicitud.')
+        const emp = empleados.find(e => e.id === chofer)
+        const res = await programarEntrega({
+          destino, fecha: new Date().toISOString().slice(0, 10), hora,
+          items: envio,
+          chofer: emp ? { id: emp.id, nombre: emp.nombre } : null,
+          recibe: { nombre: recibe || sol.solicitante_nombre || null, rol: 'instalador' },
+          solicitud_id: sol.id, notas: sol.notas || null,
+          titulo: `Entrega ${sol.folio || ''} — ${destino.obra_nombre}`.trim(),
+        })
+        deliveryId = res.delivery_id
       }
-      await supabase.from('obra_material_solicitudes')
-        .update({ status: 'surtida', revisado_at: new Date().toISOString() }).eq('id', sol.id)
+      const r = await confirmarEntrega(deliveryId!, {
+        movido_por: chofer || null,
+        movido_por_nombre: empleados.find(e => e.id === chofer)?.nombre || null,
+        recibido_por: recibe || sol.solicitante_nombre || null,
+      })
+      setOk(r.yaEstaba
+        ? 'Esta entrega ya había movido inventario: no se duplicó nada.'
+        : `Listo: ${r.piezas} pza(s) salieron de bodega y ya cuentan como recibidas en la obra (folio ${r.folio}).`)
       onCambio()
     } catch (e: any) { setErr(e?.message || String(e)) }
     setBusy('')
@@ -261,9 +341,9 @@ function SolicitudCard({ sol, isMobile, onCambio, onIrACompras }: {
             <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: isMobile ? 520 : undefined }}>
               <thead>
                 <tr>
-                  {['Producto', 'Piden', 'En bodega', 'Ya en obra', '¿Se puede surtir?'].map((h, i) => (
+                  {['Producto', 'Piden', 'Surtido', 'En bodega', 'Ya en obra', 'A entregar', '¿Se puede surtir?'].map((h, i) => (
                     <th key={h} style={{
-                      textAlign: i === 0 || i === 4 ? 'left' : 'center', fontSize: 9, color: '#555',
+                      textAlign: i === 0 || i === 6 ? 'left' : 'center', fontSize: 9, color: '#555',
                       fontWeight: 600, padding: '5px 6px', textTransform: 'uppercase', letterSpacing: '.06em',
                     }}>{h}</th>
                   ))}
@@ -292,11 +372,27 @@ function SolicitudCard({ sol, isMobile, onCambio, onIrACompras }: {
                         <td style={{ textAlign: 'center', fontSize: 13, fontWeight: 700, color: '#fff', padding: '7px 6px' }}>
                           {i.cantidad} <span style={{ fontSize: 10, color: '#666' }}>{i.unidad}</span>
                         </td>
+                        <td style={{ textAlign: 'center', fontSize: 13, fontWeight: 700, color: Number(i.cantidad_surtida) > 0 ? '#4ADE80' : '#444', padding: '7px 6px' }}>
+                          {Number(i.cantidad_surtida) || 0}
+                        </td>
                         <td style={{ textAlign: 'center', fontSize: 13, fontWeight: 700, color: (r?.enBodega || 0) > 0 ? '#4ADE80' : '#444', padding: '7px 6px' }}>
                           {r ? r.enBodega : '—'}
                         </td>
                         <td style={{ textAlign: 'center', fontSize: 13, fontWeight: 700, color: (r?.recibido || 0) > 0 ? '#60A5FA' : '#444', padding: '7px 6px' }}>
                           {r ? r.recibido : '—'}
+                        </td>
+                        <td style={{ textAlign: 'center', padding: '7px 6px' }}>
+                          {cerrada ? (
+                            <span style={{ fontSize: 12, color: '#555' }}>—</span>
+                          ) : (
+                            <input
+                              type="number" min={0} step="any"
+                              value={aEntregar[i.id] ?? 0}
+                              onChange={e => setAEntregar(v => ({ ...v, [i.id]: Math.max(0, Number(e.target.value) || 0) }))}
+                              style={{ ...inp, width: 62, textAlign: 'center', padding: '4px 6px' }}
+                              title="Cuánto se va a mandar de este renglón en esta entrega"
+                            />
+                          )}
                         </td>
                         <td style={{ padding: '7px 6px' }}>
                           <Pill label={d.label} color={d.color} />
@@ -316,28 +412,55 @@ function SolicitudCard({ sol, isMobile, onCambio, onIrACompras }: {
             </div>
           )}
 
-          {!['surtida', 'rechazada', 'cancelada'].includes(sol.status) && (
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginTop: 14 }}>
-              {!sol.delivery_id && (
-                <>
-                  <input type="date" value={fecha} onChange={e => setFecha(e.target.value)} style={inp} title="Fecha de entrega en obra" />
-                  <input type="time" value={hora} onChange={e => setHora(e.target.value)} style={inp} title="Hora estimada" />
-                  <button disabled={!!busy} onClick={programar} style={btn('#10B981')}>
-                    <Truck size={12} /> {busy === 'prog' ? 'Programando…' : 'Programar entrega'}
-                  </button>
-                </>
-              )}
-              {sol.delivery_id && <Pill label="El instalador ya ve la fecha en su celular" color="#2563EB" />}
-              <button disabled={!!busy} onClick={marcarSurtida} style={btn('#2563EB')}>
-                {busy === 'surt' ? 'Guardando…' : 'Marcar surtida'}
-              </button>
-              <button disabled={!!busy} onClick={() => cambiar('rechazada')} style={btn('#888')}>Rechazar</button>
-              {/* Si no hay de dónde surtir, el siguiente paso es comprarlo */}
-              {hayQueComprar && onIrACompras && (
-                <button onClick={onIrACompras} style={{ ...btn('#DC2626'), marginLeft: 'auto', fontWeight: 700 }}>
-                  <ShoppingCart size={12} /> Levantar orden de compra ({hayQueComprar})
+          {!cerrada && (
+            <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid #191919' }}>
+              {/* Lo que se dispara al programar, dicho sin rodeos: el almacén
+                  tiene que saber que esto no es solo "apuntar una fecha". */}
+              <div style={{ fontSize: 10, color: '#666', marginBottom: 8, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                <span><Route size={10} style={{ verticalAlign: -1 }} /> entra a la ruta del día</span>
+                <span><Printer size={10} style={{ verticalAlign: -1 }} /> salen los dos recibos</span>
+                <span><Truck size={10} style={{ verticalAlign: -1 }} /> el instalador la ve en su celular</span>
+                <span><PackageCheck size={10} style={{ verticalAlign: -1 }} /> al confirmar se descuenta de bodega</span>
+              </div>
+
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                {!sol.delivery_id && (
+                  <>
+                    <input type="date" value={fecha} onChange={e => setFecha(e.target.value)} style={inp} title="Fecha de entrega en obra" />
+                    <input type="time" value={hora} onChange={e => setHora(e.target.value)} style={inp} title="Hora estimada" />
+                    <select value={chofer} onChange={e => setChofer(e.target.value)} style={{ ...inp, maxWidth: 190 }} title="Quién la lleva">
+                      <option value="">Chofer / quién la lleva…</option>
+                      {empleados.map(e => <option key={e.id} value={e.id}>{e.nombre}</option>)}
+                    </select>
+                    <input value={recibe} onChange={e => setRecibe(e.target.value)} placeholder="Recibe en obra" style={{ ...inp, maxWidth: 170 }} />
+                    <button disabled={!!busy || totalAEntregar <= 0} onClick={() => programar(true)}
+                      style={{ ...btn('#10B981'), opacity: totalAEntregar > 0 ? 1 : .45 }}>
+                      <Truck size={12} /> {busy === 'prog' ? 'Programando…' : `Programar entrega (${totalAEntregar})`}
+                    </button>
+                  </>
+                )}
+
+                {sol.delivery_id && <Pill label="Programada · ya está en la ruta y en el celular del instalador" color="#2563EB" />}
+
+                <button disabled={!!busy} onClick={confirmar} style={btn('#2563EB')} title="Descuenta el material de bodega y lo cuenta como recibido en la obra">
+                  <CheckCircle2 size={12} /> {busy === 'conf' ? 'Moviendo inventario…' : sol.delivery_id ? 'Confirmar entregado' : 'Entregar hoy en bodega'}
                 </button>
+
+                <button disabled={!!busy} onClick={() => cambiar('rechazada')} style={btn('#888')}>Rechazar</button>
+
+                {hayQueComprar > 0 && onIrACompras && (
+                  <button onClick={onIrACompras} style={{ ...btn('#DC2626'), marginLeft: 'auto', fontWeight: 700 }}>
+                    <ShoppingCart size={12} /> Levantar orden de compra ({hayQueComprar})
+                  </button>
+                )}
+              </div>
+
+              {totalAEntregar <= 0 && !sol.delivery_id && (
+                <div style={{ fontSize: 10, color: '#666', marginTop: 6 }}>
+                  Pon en «A entregar» cuánto sale de cada renglón. Se precarga con lo que hay apartado en bodega, y se puede entregar parcial.
+                </div>
               )}
+              {ok && <div style={{ fontSize: 11, color: '#4ADE80', marginTop: 8 }}><CheckCircle2 size={11} style={{ verticalAlign: -2 }} /> {ok}</div>}
             </div>
           )}
           {err && <div style={{ fontSize: 11, color: '#f87171', marginTop: 8 }}><AlertTriangle size={11} /> {err}</div>}
