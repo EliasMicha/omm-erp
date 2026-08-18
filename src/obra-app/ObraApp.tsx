@@ -7,6 +7,7 @@ import HomePage from './HomePage'
 import MiSemanaPage from './MiSemanaPage'
 import MisObrasPage from './MisObrasPage'
 import DetalleObraPage from './DetalleObraPage'
+import SolicitarMaterialPage from './SolicitarMaterialPage'
 import ReportesPage from './ReportesPage'
 import SubirReportePage from './SubirReportePage'
 import MiAsistenciaPage from './MiAsistenciaPage'
@@ -93,6 +94,7 @@ export default function ObraApp() {
       <Route path="/mi-semana" element={<MiSemanaPage employeeId={employee.id} />} />
       <Route path="/mis-obras" element={<MisObrasPage employeeId={employee.id} />} />
       <Route path="/mis-obras/:obraId" element={<DetalleObraPage />} />
+      <Route path="/mis-obras/:obraId/material" element={<SolicitarMaterialPage employeeId={employee.id} />} />
       <Route path="/reportes" element={<ReportesPage employeeId={employee.id} />} />
       <Route path="/reportes/nuevo" element={<SubirReportePage employeeId={employee.id} />} />
       {employee.mantenimiento_app && <Route path="/visitas" element={<MisVisitasPage employeeId={employee.id} />} />}
