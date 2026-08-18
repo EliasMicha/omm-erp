@@ -163,13 +163,16 @@ export default function MaterialesObra({ obra, onLinked }: {
               <Fragment key={r.clave}>
                 <tr onClick={() => toggle(r.clave)} style={{ borderTop: '1px solid #191919', cursor: 'pointer' }}>
                   <td style={{ fontSize: 12, color: '#ddd', padding: '6px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                    {/* Marca y modelo primero: es como se identifica el equipo
+                        en la caja y en la OC. La descripción va debajo. */}
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 5, flexWrap: 'wrap' }}>
                       {ab ? <ChevronDown size={11} color="#555" /> : <ChevronRight size={11} color="#555" />}
-                      <span style={{ fontWeight: 500 }}>{r.descripcion}</span>
+                      <span style={{ fontWeight: 700, color: '#fff' }}>{r.modelo || r.marca || '—'}</span>
+                      {r.marca && r.modelo && <span style={{ fontSize: 11, color: '#999' }}>{r.marca}</span>}
                     </div>
-                    <div style={{ fontSize: 10, color: '#555', marginLeft: 16 }}>
-                      {[r.marca, r.modelo].filter(Boolean).join(' · ') || '—'}
-                      {r.areas.length > 1 && <> · en {r.areas.length} áreas</>}
+                    <div style={{ fontSize: 10, color: '#666', marginLeft: 16, lineHeight: 1.35 }}>
+                      {r.descripcion}
+                      {r.areas.length > 1 && <span style={{ color: '#555' }}> · en {r.areas.length} áreas</span>}
                     </div>
                     {r.fueraDeCatalogo && r.parecidoA && (
                       <div style={{ fontSize: 10, color: '#D97706', marginLeft: 16, marginTop: 2 }}>

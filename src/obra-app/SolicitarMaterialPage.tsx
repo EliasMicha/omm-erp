@@ -46,6 +46,7 @@ export default function SolicitarMaterialPage({ employeeId }: { employeeId: stri
   const [cant, setCant] = useState<Record<string, number>>({})
   const [busqueda, setBusqueda] = useState('')
   const [soloPendientes, setSoloPendientes] = useState(true)
+  const [fSistema, setFSistema] = useState('todos')
   const [extras, setExtras] = useState<LineaExtra[]>([])
   const [requeridoPara, setRequeridoPara] = useState('')
   const [notas, setNotas] = useState('')
@@ -90,9 +91,15 @@ export default function SolicitarMaterialPage({ employeeId }: { employeeId: stri
     const q = busqueda.trim().toLowerCase()
     return renglones
       .filter(r => !r.fueraDeCatalogo)
+      .filter(r => fSistema === 'todos' || r.sistema === fSistema)
       .filter(r => !soloPendientes || r.porSolicitar > 0 || (cant[r.clave] || 0) > 0)
       .filter(r => !q || `${r.descripcion} ${r.marca} ${r.modelo} ${r.sistema}`.toLowerCase().includes(q))
-  }, [renglones, busqueda, soloPendientes, cant])
+  }, [renglones, busqueda, soloPendientes, cant, fSistema])
+
+  // Sistemas que de verdad tienen material en esta obra
+  const sistemas = useMemo(() => Array.from(new Set(
+    renglones.filter(r => !r.fueraDeCatalogo).map(r => r.sistema).filter(Boolean)
+  )).sort(), [renglones])
 
   const seleccionados = renglones.filter(r => (cant[r.clave] || 0) > 0)
   const totalLineas = seleccionados.length + extras.filter(e => e.texto.trim()).length
@@ -310,6 +317,29 @@ export default function SolicitarMaterialPage({ employeeId }: { employeeId: stri
             )
           })()}
 
+          {/* Filtro por sistema */}
+          {sistemas.length > 1 && (
+            <div style={{ display: 'flex', gap: 6, marginBottom: 10, overflowX: 'auto', paddingBottom: 4 }}>
+              {['todos', ...sistemas].map(sis => {
+                const act = fSistema === sis
+                const n = sis === 'todos'
+                  ? renglones.filter(r => !r.fueraDeCatalogo).length
+                  : renglones.filter(r => !r.fueraDeCatalogo && r.sistema === sis).length
+                return (
+                  <button key={sis} onClick={() => setFSistema(sis)} style={{
+                    flexShrink: 0, padding: '8px 13px', borderRadius: 20,
+                    background: act ? '#0f2a1a' : '#0f0f0f',
+                    border: `1px solid ${act ? '#10B981' : '#1f1f1f'}`,
+                    color: act ? '#10B981' : '#888',
+                    fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap',
+                  }}>
+                    {sis === 'todos' ? 'Todos' : sis} <span style={{ opacity: 0.6, fontWeight: 500 }}>{n}</span>
+                  </button>
+                )
+              })}
+            </div>
+          )}
+
           {/* Buscador */}
           <div style={{ position: 'relative', marginBottom: 10 }}>
             <Search size={15} color="#555" style={{ position: 'absolute', left: 12, top: 12 }} />
@@ -339,9 +369,25 @@ export default function SolicitarMaterialPage({ employeeId }: { employeeId: stri
                     borderColor: n > 0 ? '#10B98155' : '#1a1a1a',
                     background: n > 0 ? '#0d1a12' : '#0f0f0f',
                   }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 3, lineHeight: 1.3 }}>{r.descripcion}</div>
-                    <div style={{ fontSize: 10, color: '#666', marginBottom: 7 }}>
-                      {[r.marca, r.modelo].filter(Boolean).join(' · ') || r.sistema}
+                    {/* Lo primero es marca · modelo · sistema: es como el
+                        instalador identifica el equipo en la caja. La
+                        descripción larga del catálogo va debajo, en chico. */}
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, flexWrap: 'wrap', marginBottom: 2 }}>
+                      <span style={{ fontSize: 15, fontWeight: 800, color: '#fff', lineHeight: 1.2 }}>
+                        {r.modelo || r.marca || r.descripcion.slice(0, 40)}
+                      </span>
+                      {r.marca && r.modelo && (
+                        <span style={{ fontSize: 12, fontWeight: 600, color: '#aaa' }}>{r.marca}</span>
+                      )}
+                      {r.sistema && (
+                        <span style={{
+                          fontSize: 10, fontWeight: 700, color: '#4ADE80', background: '#10B98115',
+                          border: '1px solid #10B98133', padding: '1px 7px', borderRadius: 6,
+                        }}>{r.sistema}</span>
+                      )}
+                    </div>
+                    <div style={{ fontSize: 11, color: '#777', marginBottom: 8, lineHeight: 1.35 }}>
+                      {r.descripcion}
                     </div>
                     {/* Los cuatro números que el instalador necesita para contestarle al cliente */}
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>

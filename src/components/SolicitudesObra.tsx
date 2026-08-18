@@ -265,10 +265,12 @@ function SolicitudCard({ sol, isMobile, onCambio }: { sol: Solicitud; isMobile?:
                     <Fragment key={i.id}>
                       <tr style={{ borderTop: '1px solid #191919' }}>
                         <td style={{ fontSize: 12, color: '#ddd', padding: '7px 6px' }}>
-                          {i.descripcion}
-                          <div style={{ fontSize: 10, color: '#555' }}>
-                            {[i.marca, i.modelo].filter(Boolean).join(' · ') || i.sistema || '—'}
+                          <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, flexWrap: 'wrap' }}>
+                            <span style={{ fontWeight: 700, color: '#fff' }}>{i.modelo || i.marca || '—'}</span>
+                            {i.marca && i.modelo && <span style={{ fontSize: 11, color: '#999' }}>{i.marca}</span>}
+                            {i.sistema && <Pill label={i.sistema} color="#4ADE80" />}
                           </div>
+                          <div style={{ fontSize: 10, color: '#666', lineHeight: 1.35 }}>{i.descripcion}</div>
                         </td>
                         <td style={{ textAlign: 'center', fontSize: 13, fontWeight: 700, color: '#fff', padding: '7px 6px' }}>
                           {i.cantidad} <span style={{ fontSize: 10, color: '#666' }}>{i.unidad}</span>

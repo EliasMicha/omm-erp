@@ -53,6 +53,10 @@ interface Reporte {
   created_at: string
 }
 
+// OJO: la pestaña 'materiales' SIEMPRE mostró actividades (obra_actividades).
+// Se conserva la clave para no romper los links que ya circulan, pero de cara
+// al instalador se llama "Actividades" — el material real vive en la pantalla
+// de "Pedir material".
 type Tab = 'info' | 'materiales' | 'documentos' | 'reportes'
 
 const DOC_TIPO_CONFIG: Record<string, { label: string; icon: any; color: string }> = {
@@ -203,7 +207,7 @@ export default function DetalleObraPage() {
 
   const tabs: { key: Tab; label: string; icon: any; count?: number }[] = [
     { key: 'info', label: 'Info', icon: Info },
-    { key: 'materiales', label: 'Materiales', icon: Package2, count: actividades.length },
+    { key: 'materiales', label: 'Actividades', icon: ClipboardList, count: actividades.length },
     { key: 'documentos', label: 'Documentos', icon: FileText, count: documentos.length },
     { key: 'reportes', label: 'Reportes', icon: ClipboardList, count: reportes.length },
   ]
@@ -355,7 +359,7 @@ export default function DetalleObraPage() {
       )}
 
 
-      {/* MATERIALES TAB (actividades agrupadas por área) */}
+      {/* ACTIVIDADES, agrupadas por área (la clave del tab sigue siendo 'materiales') */}
       {tab === 'materiales' && (
         <div>
           {/* Filtro por sistema */}
@@ -397,17 +401,19 @@ export default function DetalleObraPage() {
             </div>
           )}
 
-          {/* Banner entregas */}
-          <div style={{
-            padding: 12, marginBottom: 16,
-            background: '#1a1530', border: '1px solid #3a2a5a',
-            borderRadius: 10, display: 'flex', gap: 8, alignItems: 'flex-start',
-          }}>
+          {/* Estas son tareas. El material está en su propia pantalla. */}
+          <button onClick={() => navigate(`/obra-app/mis-obras/${obra.id}/material`)}
+            style={{
+              width: '100%', padding: 12, marginBottom: 16, textAlign: 'left',
+              background: '#1a1530', border: '1px solid #3a2a5a', borderRadius: 10,
+              display: 'flex', gap: 8, alignItems: 'flex-start', cursor: 'pointer', fontFamily: 'inherit',
+            }}>
             <Info size={14} color="#a78bfa" style={{ flexShrink: 0, marginTop: 1 }} />
             <div style={{ fontSize: 11, color: '#c4b5fd', lineHeight: 1.5 }}>
-              Pronto verás aquí el estado de entrega (bodega / camino / obra) de cada material.
+              Aquí van las <b>tareas</b> de la obra. Para ver el equipo (qué hay en bodega, qué ya llegó)
+              y pedirlo, entra a <b>Pedir material</b>. →
             </div>
-          </div>
+          </button>
 
           {actividades.length === 0 ? (
             <div style={{
