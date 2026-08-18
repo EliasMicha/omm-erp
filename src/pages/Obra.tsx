@@ -3955,11 +3955,29 @@ const DOC_TIPO_LABEL: Record<string, string> = {
   otro: 'Otro',
 }
 
+// Adivina el tipo del documento por el nombre del archivo. Es solo el valor
+// inicial: el enum doc_tipo se puede corregir después desde Proyectos.
+function tipoPorNombre(nombre: string): string {
+  const n = nombre.toLowerCase()
+  if (/\.(dwg|dxf|rvt|skp)$/.test(n) || /plano|planta|arquitect|corte|alzado|isometric/.test(n)) return 'plano'
+  if (/ficha|datasheet|spec|hoja[_ -]?tecnica/.test(n)) return 'ficha_tecnica'
+  if (/diagrama|unifilar|topolog|cableado/.test(n)) return 'diagrama'
+  if (/render|vista3d|3d/.test(n)) return 'render'
+  if (/memoria|calculo|cálculo/.test(n)) return 'memoria_calculo'
+  if (/manual|instructivo|guia|guía/.test(n)) return 'manual'
+  return 'otro'
+}
+
 function SubDocumentacion({ obra }: { obra: ObraData }) {
   const [docs, setDocs] = useState<DocDB[]>([])
   const [loading, setLoading] = useState(true)
   const [projectId, setProjectId] = useState<string | null>(null)
   const [filterTipo, setFilterTipo] = useState<string>('')
+  // ── subida por drag & drop ──
+  const [dragOver, setDragOver] = useState(false)
+  const [subiendo, setSubiendo] = useState('')
+  const [errUp, setErrUp] = useState('')
+  const fileRef = useRef<HTMLInputElement>(null)
   const [filterSistema, setFilterSistema] = useState<string>('')
 
   useEffect(() => {
@@ -3992,6 +4010,56 @@ function SubDocumentacion({ obra }: { obra: ObraData }) {
     load()
   }, [obra.id, obra.cotizacion_id])
 
+  // Sube al bucket `obra-documentos` y registra el renglón en obra_documentos.
+  // Se guarda la URL pública en drive_url para reusar la misma tarjeta que los
+  // documentos que vienen de Drive desde el módulo de Proyectos.
+  async function subirArchivos(files: File[]) {
+    if (!files.length || subiendo) return
+    setErrUp('')
+    const nuevos: DocDB[] = []
+    for (let i = 0; i < files.length; i++) {
+      const f = files[i]
+      setSubiendo(`Subiendo ${i + 1} de ${files.length} — ${f.name}`)
+      try {
+        if (f.size > 50 * 1024 * 1024) throw new Error('pesa más de 50 MB')
+        const limpio = f.name.replace(/[^\w.\-]+/g, '_')
+        const ruta = `${obra.id}/${Date.now()}-${limpio}`
+        const { error: upErr } = await supabase.storage.from('obra-documentos').upload(ruta, f, { cacheControl: '31536000' })
+        if (upErr) throw upErr
+        const { data: pub } = supabase.storage.from('obra-documentos').getPublicUrl(ruta)
+        const esImagen = (f.type || '').startsWith('image/')
+        const { data: row, error: insErr } = await supabase.from('obra_documentos').insert({
+          obra_id: obra.id,
+          project_id: projectId,
+          nombre: f.name,
+          tipo: tipoPorNombre(f.name),
+          drive_url: pub.publicUrl,
+          drive_thumbnail_url: esImagen ? pub.publicUrl : null,
+        }).select().single()
+        if (insErr) throw insErr
+        nuevos.push(row as DocDB)
+      } catch (e: any) {
+        setErrUp(`No se pudo subir "${f.name}": ${e?.message || e}`)
+      }
+    }
+    if (nuevos.length) setDocs(d => [...nuevos, ...d])
+    setSubiendo('')
+    if (fileRef.current) fileRef.current.value = ''
+  }
+
+  async function borrarDoc(d: DocDB) {
+    if (!confirm(`¿Quitar "${d.nombre}" de la documentación de esta obra?`)) return
+    const marca = '/obra-documentos/'
+    const i = d.drive_url.indexOf(marca)
+    if (i >= 0) {
+      const ruta = decodeURIComponent(d.drive_url.slice(i + marca.length).split('?')[0])
+      await supabase.storage.from('obra-documentos').remove([ruta])
+    }
+    const { error } = await supabase.from('obra_documentos').delete().eq('id', d.id)
+    if (error) { alert('No se pudo quitar: ' + error.message); return }
+    setDocs(x => x.filter(y => y.id !== d.id))
+  }
+
   const filtered = docs.filter(d =>
     (!filterTipo || d.tipo === filterTipo) &&
     (!filterSistema || d.sistema === filterSistema)
@@ -4008,7 +4076,7 @@ function SubDocumentacion({ obra }: { obra: ObraData }) {
           <div style={{ fontSize: 13, fontWeight: 600, color: '#fff' }}>Documentación técnica</div>
           <div style={{ fontSize: 11, color: '#666' }}>
             {projectId ? 'Ligada al proyecto desde la cotización.' : 'Esta obra no tiene proyecto ligado — muestra solo documentos directos.'}
-            {' '}Para agregar documentos, ve al módulo de <strong>Proyectos</strong>.
+            {' '}Arrastra archivos aquí para subirlos, o agrégalos desde el módulo de <strong>Proyectos</strong>.
           </div>
         </div>
         <div style={{ display: 'flex', gap: 6 }}>
@@ -4025,12 +4093,56 @@ function SubDocumentacion({ obra }: { obra: ObraData }) {
         </div>
       </div>
 
+      {/* ── Zona de arrastre ── */}
+      <div
+        onDragOver={e => { e.preventDefault(); if (!dragOver) setDragOver(true) }}
+        onDragLeave={e => { e.preventDefault(); setDragOver(false) }}
+        onDrop={e => {
+          e.preventDefault(); setDragOver(false)
+          const fs = Array.from(e.dataTransfer.files || [])
+          if (fs.length) subirArchivos(fs)
+        }}
+        onClick={() => !subiendo && fileRef.current?.click()}
+        style={{
+          border: `1.5px dashed ${dragOver ? '#10B981' : '#2a2a2a'}`,
+          background: dragOver ? '#10B98114' : 'transparent',
+          borderRadius: 12, padding: subiendo ? '14px 16px' : '20px 16px', marginBottom: 16,
+          textAlign: 'center', cursor: subiendo ? 'progress' : 'pointer', transition: 'all 0.12s',
+        }}
+      >
+        <input ref={fileRef} type="file" multiple style={{ display: 'none' }}
+          onChange={e => { const fs = Array.from(e.target.files || []); if (fs.length) subirArchivos(fs) }} />
+        {subiendo ? (
+          <div style={{ fontSize: 12, color: '#10B981', fontWeight: 600 }}>{subiendo}</div>
+        ) : (
+          <>
+            <div style={{ fontSize: 13, color: dragOver ? '#10B981' : '#888', fontWeight: 600 }}>
+              {dragOver ? 'Suelta los archivos aquí' : 'Arrastra planos, fichas o manuales aquí'}
+            </div>
+            <div style={{ fontSize: 10, color: '#555', marginTop: 4 }}>
+              o da clic para elegirlos · PDF, DWG, imágenes, Excel… hasta 50 MB c/u · puedes soltar varios a la vez
+            </div>
+          </>
+        )}
+      </div>
+      {errUp && <div style={{ fontSize: 11, color: '#EF4444', marginBottom: 12 }}>⚠ {errUp}</div>}
+
       {filtered.length === 0 ? (
         <EmptyState message={docs.length === 0 ? "No hay documentos técnicos para esta obra" : "Sin resultados con los filtros aplicados"} />
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 12 }}>
-          {filtered.map(d => (
-            <a key={d.id} href={d.drive_url} target="_blank" rel="noopener noreferrer" style={{
+          {filtered.map(d => {
+            const propio = d.drive_url.includes('/obra-documentos/')
+            return (
+            <div key={d.id} style={{ position: 'relative' }}>
+            {propio && (
+              <button onClick={e => { e.preventDefault(); e.stopPropagation(); borrarDoc(d) }}
+                title="Quitar este documento"
+                style={{ position: 'absolute', top: 6, right: 6, zIndex: 2, width: 22, height: 22, lineHeight: '20px',
+                  borderRadius: 6, border: '1px solid #3a1a1a', background: '#1a0d0d', color: '#EF4444',
+                  cursor: 'pointer', fontSize: 13, fontFamily: 'inherit', padding: 0 }}>×</button>
+            )}
+            <a href={d.drive_url} target="_blank" rel="noopener noreferrer" style={{
               ...cardStyle, textDecoration: 'none', display: 'block', transition: 'border-color 0.12s',
             }}
               onMouseEnter={e => (e.currentTarget.style.borderColor = '#10B98144')}
@@ -4046,9 +4158,10 @@ function SubDocumentacion({ obra }: { obra: ObraData }) {
               </div>
               <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 4 }}>{d.nombre}</div>
               {d.notas && <div style={{ fontSize: 10, color: '#666' }}>{d.notas}</div>}
-              <div style={{ fontSize: 9, color: '#444', marginTop: 6 }}>↗ Abrir en Drive</div>
+              <div style={{ fontSize: 9, color: '#444', marginTop: 6 }}>{propio ? '↗ Abrir archivo' : '↗ Abrir en Drive'}</div>
             </a>
-          ))}
+            </div>
+          )})}
         </div>
       )}
     </div>
