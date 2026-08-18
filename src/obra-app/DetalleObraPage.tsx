@@ -257,6 +257,17 @@ export default function DetalleObraPage() {
         )}
       </div>
 
+      {/* Pedir material — la acción que más va a usar el instalador */}
+      <button onClick={() => navigate(`/obra-app/mis-obras/${obra.id}/material`)}
+        style={{
+          width: '100%', padding: 14, marginBottom: 16, borderRadius: 12,
+          border: '1px solid #10B98155', background: '#0d1a12', color: '#4ADE80',
+          fontSize: 14, fontWeight: 700, fontFamily: 'inherit', cursor: 'pointer',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+        }}>
+        <Package2 size={17} /> Pedir material para esta obra
+      </button>
+
       {/* Tabs */}
       <div style={{
         display: 'flex', gap: 4, marginBottom: 16,
