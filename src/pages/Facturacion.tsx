@@ -111,6 +111,14 @@ interface DocRelacionadoPago {
   base_dr: number                 // base gravable del DR (subtotal del pago sobre esta factura)
   iva_tasa: number                // tasa aplicable (0.16 default) - solo si objeto '02'
   iva_trasladado: number          // monto IVA del pago sobre esta factura (auto o editable)
+  // ── Datos de la factura de origen, solo para cotejar contra el CFDI ──
+  fecha_doc?: string | null       // fecha de emisión de la PPD
+  metodo_doc?: string | null      // debe ser PPD para que aplique complemento
+  subtotal_doc?: number | null
+  iva_doc?: number | null
+  tc_doc?: number | null          // tipo de cambio con el que se emitió la factura
+  pagado_previo?: number | null   // suma de REPs timbrados anteriores sobre esta factura
+  reps_previos?: number | null    // cuántos complementos ya se le hicieron
 }
 
 // REP: un pago individual dentro del complemento (un REP puede tener varios)
@@ -125,25 +133,44 @@ interface PagoREP {
 }
 
 /**
- * Último candado antes de timbrar un REP: la moneda del pago tiene que ser la
- * misma que la de las facturas que paga. Si la PPD se emitió en dólares el
- * complemento va en dólares, y si fue en pesos va en pesos — el SAT trata la
- * moneda del pago (MonedaP) y la del documento (MonedaDR) como datos distintos,
- * y timbrar con la moneda cambiada obliga a cancelar y rehacer el complemento.
+ * Último candado antes de timbrar un REP. Un complemento con la moneda
+ * equivocada solo se arregla cancelando y rehaciendo, así que se revisa aquí:
+ *
+ *  · Lo normal es que el pago vaya en la misma moneda que la factura, y
+ *    entonces EquivalenciaDR = 1.
+ *  · Pero es válido que una factura en dólares se liquide con transferencia en
+ *    pesos. En ese caso MonedaDR ≠ MonedaP y el SAT exige EquivalenciaDR en
+ *    cada documento relacionado: si se quedó en 1 por descuido, el importe del
+ *    CFDI sale con el orden de magnitud cambiado.
+ *  · Si MonedaP no es MXN, TipoCambioP es obligatorio.
+ *
  * Devuelve el mensaje de error, o null si todo cuadra.
  */
 function revisarMonedasREP(pagos: any[]): string | null {
   for (let i = 0; i < pagos.length; i++) {
     const p = pagos[i]
     const etiqueta = pagos.length > 1 ? `Pago ${i + 1}: ` : ''
-    const monedas = Array.from(new Set((p.docsPago || []).map((d: any) => d.moneda_doc || 'MXN')))
+    const docs = p.docsPago || []
+    const monedas = Array.from(new Set(docs.map((d: any) => d.moneda_doc || 'MXN')))
     if (monedas.length === 0) continue
-    if (monedas.length > 1) return `${etiqueta}un pago no puede mezclar monedas (${monedas.join(', ')}). Captura un pago por moneda.`
-    if (monedas[0] !== p.monedaPago) {
-      return `${etiqueta}la factura relacionada está en ${monedas[0]} y el pago quedó en ${p.monedaPago}. El complemento debe ir en la misma moneda que la factura.`
-    }
+    if (monedas.length > 1) return `${etiqueta}un pago no puede mezclar facturas de distintas monedas (${monedas.join(', ')}). Captura un pago por moneda.`
     if (p.monedaPago !== 'MXN' && !(parseFloat(p.tipoCambioPago) > 0)) {
       return `${etiqueta}falta el tipo de cambio del pago (${p.monedaPago} → MXN).`
+    }
+    if (monedas[0] !== p.monedaPago) {
+      const malo = docs.find((d: any) => !(Number(d.equivalencia_dr) > 0) || Number(d.equivalencia_dr) === 1)
+      if (malo) {
+        return `${etiqueta}la factura está en ${malo.moneda_doc} y el pago en ${p.monedaPago}, pero la Equiv. DR quedó en 1. Captura cuántos ${malo.moneda_doc} equivalen a 1 ${p.monedaPago}.`
+      }
+    }
+    // El monto declarado tiene que cuadrar con lo pagado, ya convertido.
+    const suma = docs.reduce((s: number, d: any) => {
+      const eq = Number(d.equivalencia_dr) || 1
+      return s + (eq > 0 ? Number(d.imp_pagado || 0) / eq : 0)
+    }, 0)
+    const dif = Math.round(((parseFloat(p.montoPago) || 0) - suma) * 100) / 100
+    if (Math.abs(dif) > 0.01) {
+      return `${etiqueta}lo pagado convertido a ${p.monedaPago} da ${suma.toFixed(2)} y el monto declarado es ${(parseFloat(p.montoPago) || 0).toFixed(2)}. Diferencia ${dif.toFixed(2)}.`
     }
   }
   return null
@@ -2151,7 +2178,7 @@ function NuevaFactura({ onCancel, onCreated, editingFactura }: { onCancel: () =>
     if (uuidsPPDTemporales.length === 0) return
     const { data, error: err } = await supabase
       .from('facturas')
-      .select('id,uuid_fiscal,serie,folio,moneda,total,tipo_cambio')
+      .select('id,uuid_fiscal,serie,folio,moneda,total,subtotal,iva,tipo_cambio,fecha_emision,metodo_pago')
       .in('uuid_fiscal', uuidsPPDTemporales)
     if (err || !data) {
       setError('Error al cargar facturas PPD: ' + (err?.message || 'desconocido'))
@@ -2162,52 +2189,82 @@ function NuevaFactura({ onCancel, onCreated, editingFactura }: { onCancel: () =>
     const aAgregar = (data as any[]).filter(f => !uuidsYa.has(f.uuid_fiscal))
     if (aAgregar.length === 0) { setUuidsPPDTemporales([]); setMostrarSelectorPPD(false); return }
 
-    // Un pago del complemento no puede mezclar monedas: MonedaP es una sola y
-    // EquivalenciaDR tendría que traer el tipo de cambio de cada factura.
+    // Un pago del complemento no puede mezclar monedas de factura: MonedaP es
+    // una sola y cada MonedaDR distinta necesitaría su propia EquivalenciaDR.
     const monedasNuevas = new Set(aAgregar.map(f => f.moneda || 'MXN'))
     const monedasYa = new Set(docsPago.map(d => d.moneda_doc || 'MXN'))
     const todas = new Set([...monedasNuevas, ...monedasYa])
     if (todas.size > 1) {
       setError(
         `Estas facturas están en monedas distintas (${Array.from(todas).join(', ')}). ` +
-        'Un complemento de pago lleva una sola moneda: captura un pago por cada moneda ' +
-        'con «Guardar pago y agregar otro».'
+        'Captura un pago por cada moneda de factura con «Guardar pago y agregar otro».'
       )
       return
     }
 
+    // La moneda del pago se propone desde la factura, pero se puede cambiar:
+    // pasa que una factura en dólares se liquide con una transferencia en pesos.
     const monedaFacturas = Array.from(todas)[0] || 'MXN'
-    // La moneda del pago manda la de las facturas relacionadas, siempre.
-    if (monedaFacturas !== monedaPago) {
+    if (docsPago.length === 0 && monedaFacturas !== monedaPago) {
       setMonedaPago(monedaFacturas)
-      if (monedaFacturas === 'MXN') {
-        setTipoCambioPago('1')
-      } else {
-        // Se propone el tipo de cambio con el que se emitió la factura; el
-        // usuario lo ajusta al del día en que entró el dinero.
+      if (monedaFacturas === 'MXN') setTipoCambioPago('1')
+      else {
         const tcFactura = aAgregar.map(f => Number(f.tipo_cambio) || 0).find(t => t > 0)
         if (tcFactura) setTipoCambioPago(String(tcFactura))
       }
     }
 
-    const nuevos: DocRelacionadoPago[] = aAgregar.map(f => ({
-      factura_local_id: f.id,
-      uuid: f.uuid_fiscal,
-      serie: f.serie,
-      folio: f.folio,
-      moneda_doc: f.moneda || 'MXN',
-      total_doc: Number(f.total) || 0,
-      // MonedaDR == MonedaP (se acaba de igualar), así que EquivalenciaDR es 1.
-      equivalencia_dr: 1,
-      num_parcialidad: 1,
-      imp_saldo_anterior: Number(f.total) || 0, // default = total — usuario edita si ya hay pagos previos
-      imp_pagado: 0,
-      imp_saldo_insoluto: Number(f.total) || 0,
-      objeto_imp: '02',
-      base_dr: 0,
-      iva_tasa: 0.16,
-      iva_trasladado: 0,
-    }))
+    // Complementos ya timbrados sobre estas mismas facturas: sirve para saber
+    // qué parcialidad toca y cuánto queda realmente por pagar.
+    const previos: Record<string, { monto: number; n: number }> = {}
+    try {
+      const { data: reps } = await supabase
+        .from('facturas')
+        .select('total,moneda,uuids_relacionados')
+        .eq('tipo_comprobante', 'P')
+        .eq('status', 'timbrada')
+        .overlaps('uuids_relacionados', aAgregar.map(f => f.uuid_fiscal))
+      ;((reps as any[]) || []).forEach(r => {
+        ;(r.uuids_relacionados || []).forEach((u: string) => {
+          if (!previos[u]) previos[u] = { monto: 0, n: 0 }
+          previos[u].n += 1
+          // Si el REP cubrió varias facturas no se puede repartir sin el detalle,
+          // así que solo se suma cuando fue el único documento del complemento.
+          if ((r.uuids_relacionados || []).length === 1) previos[u].monto += Number(r.total) || 0
+        })
+      })
+    } catch { /* el cotejo de previos es informativo: si falla, no bloquea */ }
+
+    const nuevos: DocRelacionadoPago[] = aAgregar.map(f => {
+      const prev = previos[f.uuid_fiscal] || { monto: 0, n: 0 }
+      const saldo = Math.round(((Number(f.total) || 0) - prev.monto) * 100) / 100
+      return {
+        factura_local_id: f.id,
+        uuid: f.uuid_fiscal,
+        serie: f.serie,
+        folio: f.folio,
+        moneda_doc: f.moneda || 'MXN',
+        total_doc: Number(f.total) || 0,
+        // 1 cuando la factura y el pago van en la misma moneda. Si el cliente
+        // paga en otra, aquí va la EquivalenciaDR y el usuario la confirma.
+        equivalencia_dr: 1,
+        num_parcialidad: prev.n + 1,
+        imp_saldo_anterior: saldo > 0 ? saldo : (Number(f.total) || 0),
+        imp_pagado: 0,
+        imp_saldo_insoluto: saldo > 0 ? saldo : (Number(f.total) || 0),
+        objeto_imp: '02',
+        base_dr: 0,
+        iva_tasa: 0.16,
+        iva_trasladado: 0,
+        fecha_doc: f.fecha_emision || null,
+        metodo_doc: f.metodo_pago || null,
+        subtotal_doc: Number(f.subtotal) || 0,
+        iva_doc: Number(f.iva) || 0,
+        tc_doc: Number(f.tipo_cambio) || null,
+        pagado_previo: prev.monto,
+        reps_previos: prev.n,
+      }
+    })
     setError(null)
     setDocsPago([...docsPago, ...nuevos])
     setUuidsPPDTemporales([])
@@ -2244,8 +2301,23 @@ function NuevaFactura({ onCancel, onCreated, editingFactura }: { onCancel: () =>
     setDocsPago(docsPago.filter((_, i) => i !== idx))
   }
 
-  // Suma de imp_pagado × equivalencia_dr (debe matchear monto pago)
-  const sumaDocsEnMonedaPago = docsPago.reduce((s, d) => s + (d.imp_pagado * d.equivalencia_dr), 0)
+  // Moneda común de las facturas relacionadas (null si están mezcladas)
+  const monedaDocs = (() => {
+    const m = Array.from(new Set(docsPago.map(d => d.moneda_doc || 'MXN')))
+    return m.length === 1 ? m[0] : null
+  })()
+  const mismaMoneda = monedaDocs === monedaPago
+
+  // ImpPagado va SIEMPRE en la moneda de la factura (MonedaDR). Para compararlo
+  // contra el monto del pago hay que traerlo a la moneda del pago (MonedaP).
+  // EquivalenciaDR, según el SAT, es "el número de unidades de la moneda del
+  // documento relacionado que equivalen a una unidad de la moneda del pago":
+  // por eso se DIVIDE, no se multiplica. Con la misma moneda vale 1 y da igual.
+  const enMonedaPago = (d: DocRelacionadoPago) => {
+    const eq = Number(d.equivalencia_dr) || 1
+    return eq > 0 ? d.imp_pagado / eq : 0
+  }
+  const sumaDocsEnMonedaPago = docsPago.reduce((s, d) => s + enMonedaPago(d), 0)
   const montoPagoNum = parseFloat(montoPago) || 0
   const diferenciaPago = Math.round((montoPagoNum - sumaDocsEnMonedaPago) * 100) / 100
 
@@ -2262,9 +2334,17 @@ function NuevaFactura({ onCancel, onCreated, editingFactura }: { onCancel: () =>
     const monedasDoc = Array.from(new Set(p.docsPago.map(d => d.moneda_doc || 'MXN')))
     if (monedasDoc.length > 1) return `Un pago no puede mezclar monedas (${monedasDoc.join(', ')}). Captura un pago por moneda.`
     if (monedasDoc[0] !== p.monedaPago) {
-      return `La factura relacionada está en ${monedasDoc[0]} y el pago quedó en ${p.monedaPago}. Deben ser la misma moneda.`
+      // Caso legítimo: factura en USD liquidada con transferencia en pesos.
+      // Lo que NO puede pasar es dejar la equivalencia en 1 sin darse cuenta.
+      const sinEquiv = p.docsPago.find(d => !(Number(d.equivalencia_dr) > 0) || Number(d.equivalencia_dr) === 1)
+      if (sinEquiv) {
+        return `La factura ${sinEquiv.serie || ''}${sinEquiv.folio || ''} está en ${sinEquiv.moneda_doc} y el pago en ${p.monedaPago}: captura la Equiv. DR (cuántos ${sinEquiv.moneda_doc} equivalen a 1 ${p.monedaPago}). No puede quedarse en 1.`
+      }
     }
-    const suma = p.docsPago.reduce((s, d) => s + (d.imp_pagado * d.equivalencia_dr), 0)
+    const suma = p.docsPago.reduce((s, d) => {
+      const eq = Number(d.equivalencia_dr) || 1
+      return s + (eq > 0 ? d.imp_pagado / eq : 0)
+    }, 0)
     const dif = Math.round((monto - suma) * 100) / 100
     if (Math.abs(dif) > 0.01) return `La suma de imp. pagado × equivalencia (${suma.toFixed(2)}) no coincide con el monto del pago (${monto.toFixed(2)}). Diferencia: ${dif.toFixed(2)}`
     if (p.docsPago.some(d => d.imp_pagado <= 0)) return 'Todos los documentos relacionados deben tener imp. pagado > 0'
@@ -3086,19 +3166,25 @@ function NuevaFactura({ onCancel, onCreated, editingFactura }: { onCancel: () =>
           <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr 1fr', gap: 12 }}>
             <div>
               <label style={lblStyle}>Moneda del pago *</label>
-              {/* Con facturas relacionadas la moneda ya no se elige: la manda
-                  la PPD que se está pagando. */}
-              <select value={monedaPago} onChange={e => setMonedaPago(e.target.value)}
-                disabled={docsPago.length > 0}
-                style={{ ...inpStyle, opacity: docsPago.length > 0 ? 0.7 : 1, cursor: docsPago.length > 0 ? 'not-allowed' : 'pointer' }}>
+              {/* Se propone la moneda de la factura, pero se puede cambiar: hay
+                  facturas en dólares que el cliente liquida con transferencia en
+                  pesos. Si difieren, el SAT pide EquivalenciaDR en cada DR. */}
+              <select value={monedaPago} onChange={e => setMonedaPago(e.target.value)} style={inpStyle}>
                 <option value="MXN">MXN</option>
                 <option value="USD">USD</option>
                 <option value="EUR">EUR</option>
               </select>
               {docsPago.length > 0 && (
-                <div style={{ fontSize: 10, color: '#A78BFA', marginTop: 4 }}>
-                  Heredada de la factura relacionada — el complemento va en la misma moneda que la PPD.
-                </div>
+                monedaDocs && monedaDocs === monedaPago ? (
+                  <div style={{ fontSize: 10, color: '#10B981', marginTop: 4 }}>
+                    Igual que la factura ({monedaDocs}) · EquivalenciaDR = 1
+                  </div>
+                ) : (
+                  <div style={{ fontSize: 10, color: '#FBBF24', marginTop: 4, lineHeight: 1.4 }}>
+                    La factura está en <b>{monedaDocs}</b> y el pago en <b>{monedaPago}</b>.
+                    Captura la <b>Equiv. DR</b> de cada factura abajo.
+                  </div>
+                )
               )}
             </div>
             <div>
@@ -3168,15 +3254,79 @@ function NuevaFactura({ onCancel, onCreated, editingFactura }: { onCancel: () =>
           {docsPago.map((d, idx) => (
             <div key={d.uuid} style={{ background: '#0a0a0a', border: '1px solid #1a1a1a', borderRadius: 8, padding: 14, marginBottom: 10 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                <div style={{ fontSize: 11, color: '#A78BFA', fontFamily: 'monospace' }}>
-                  {d.serie || ''}{d.folio || '-'} — {d.uuid.slice(0, 8)}... <span style={{ color: '#666' }}>({d.total_doc.toLocaleString('es-MX', { minimumFractionDigits: 2 })} {d.moneda_doc})</span>
+                <div style={{ fontSize: 12, color: '#A78BFA', fontWeight: 600 }}>
+                  Factura {d.serie || ''}{d.folio || '-'}
                 </div>
                 <button onClick={() => removeDocPago(idx)} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', padding: 0 }}><Trash2 size={12} /></button>
               </div>
+
+              {/* ── Datos de la factura de origen, tal como se timbró ──
+                  Están aquí para cotejar contra el CFDI sin salirse de la
+                  pantalla: si algo no cuadra, se ve antes de timbrar el REP. */}
+              <div style={{ background: '#080808', border: '1px solid #1f1f1f', borderRadius: 6, padding: '9px 11px', marginBottom: 10 }}>
+                <div style={{ fontSize: 9, color: '#666', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 600, marginBottom: 6 }}>
+                  Factura de origen
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4, 1fr)', gap: 8, fontSize: 11 }}>
+                  <div>
+                    <div style={{ color: '#555', fontSize: 9 }}>Fecha de emisión</div>
+                    <div style={{ color: '#ccc' }}>{d.fecha_doc ? String(d.fecha_doc).slice(0, 10) : '—'}</div>
+                  </div>
+                  <div>
+                    <div style={{ color: '#555', fontSize: 9 }}>Método</div>
+                    <div style={{ color: d.metodo_doc === 'PPD' ? '#10B981' : '#FBBF24' }}>
+                      {d.metodo_doc || '—'}{d.metodo_doc && d.metodo_doc !== 'PPD' ? ' ⚠' : ''}
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ color: '#555', fontSize: 9 }}>Moneda de la factura</div>
+                    <div style={{ color: d.moneda_doc === monedaPago ? '#10B981' : '#FBBF24', fontWeight: 700 }}>
+                      {d.moneda_doc}{d.tc_doc ? `  ·  T.C. ${d.tc_doc}` : ''}
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ color: '#555', fontSize: 9 }}>Total facturado</div>
+                    <div style={{ color: '#fff', fontWeight: 700, fontFamily: 'monospace' }}>
+                      {d.total_doc.toLocaleString('es-MX', { minimumFractionDigits: 2 })} {d.moneda_doc}
+                    </div>
+                  </div>
+                </div>
+                {(d.subtotal_doc || d.iva_doc) ? (
+                  <div style={{ fontSize: 10, color: '#666', marginTop: 6 }}>
+                    Subtotal {Number(d.subtotal_doc || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })} · IVA {Number(d.iva_doc || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })} {d.moneda_doc}
+                  </div>
+                ) : null}
+                <div style={{ fontSize: 10, color: '#555', marginTop: 5, fontFamily: 'monospace', wordBreak: 'break-all' }}>
+                  UUID {d.uuid}
+                </div>
+                {(d.reps_previos || 0) > 0 && (
+                  <div style={{ fontSize: 10, color: '#93c5fd', marginTop: 5 }}>
+                    Ya tiene {d.reps_previos} complemento(s) timbrado(s)
+                    {(d.pagado_previo || 0) > 0 ? ` por ${Number(d.pagado_previo).toLocaleString('es-MX', { minimumFractionDigits: 2 })} ${d.moneda_doc}` : ''}
+                    {' '}— por eso va la parcialidad {d.num_parcialidad}.
+                  </div>
+                )}
+                {d.moneda_doc !== monedaPago && (
+                  <div style={{ fontSize: 10, color: '#FBBF24', marginTop: 6, lineHeight: 1.45 }}>
+                    ⚠ La factura es en <b>{d.moneda_doc}</b> y el pago se está registrando en <b>{monedaPago}</b>.
+                    «Imp. pagado» va en {d.moneda_doc} (la moneda de la factura) y «Equiv. DR» son los {d.moneda_doc} que
+                    equivalen a 1 {monedaPago}. Convertido: <b style={{ fontFamily: 'monospace' }}>
+                      {(Number(d.equivalencia_dr) > 0 ? d.imp_pagado / Number(d.equivalencia_dr) : 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })} {monedaPago}
+                    </b>
+                  </div>
+                )}
+              </div>
               <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : '1fr 1fr 1fr 1fr', gap: 8, marginBottom: 8 }}>
                 <div>
-                  <label style={lblStyle}>Equiv. DR</label>
-                  <input type="number" step="0.0001" value={d.equivalencia_dr} onChange={e => updateDocPago(idx, 'equivalencia_dr', parseFloat(e.target.value) || 1)} style={inpStyle} />
+                  <label style={lblStyle}>Equiv. DR {d.moneda_doc !== monedaPago ? '*' : ''}</label>
+                  <input type="number" step="0.000001" value={d.equivalencia_dr}
+                    onChange={e => updateDocPago(idx, 'equivalencia_dr', parseFloat(e.target.value) || 1)}
+                    disabled={d.moneda_doc === monedaPago}
+                    title={d.moneda_doc === monedaPago
+                      ? 'Misma moneda que el pago: siempre 1'
+                      : `Cuántos ${d.moneda_doc} equivalen a 1 ${monedaPago}`}
+                    style={{ ...inpStyle, opacity: d.moneda_doc === monedaPago ? 0.5 : 1,
+                      borderColor: d.moneda_doc !== monedaPago && Number(d.equivalencia_dr) === 1 ? '#DC2626' : undefined }} />
                 </div>
                 <div>
                   <label style={lblStyle}>Parcialidad #</label>
@@ -3187,7 +3337,7 @@ function NuevaFactura({ onCancel, onCreated, editingFactura }: { onCancel: () =>
                   <input type="number" step="0.01" value={d.imp_saldo_anterior} onChange={e => updateDocPago(idx, 'imp_saldo_anterior', parseFloat(e.target.value) || 0)} style={inpStyle} />
                 </div>
                 <div>
-                  <label style={lblStyle}>Imp. pagado *</label>
+                  <label style={lblStyle}>Imp. pagado * ({d.moneda_doc})</label>
                   <input type="number" step="0.01" value={d.imp_pagado} onChange={e => updateDocPago(idx, 'imp_pagado', parseFloat(e.target.value) || 0)} style={{ ...inpStyle, borderColor: '#A78BFA44' }} />
                 </div>
               </div>
@@ -3235,9 +3385,16 @@ function NuevaFactura({ onCancel, onCreated, editingFactura }: { onCancel: () =>
         <div style={{ background: Math.abs(diferenciaPago) < 0.01 ? '#0a1f0e' : '#3a1a1a', border: '1px solid ' + (Math.abs(diferenciaPago) < 0.01 ? '#1a3a1f' : '#5a2a2a'), borderRadius: 8, padding: 14, marginBottom: 20 }}>
           <div style={{ fontSize: 11, color: '#888', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 600 }}>Validacion del complemento</div>
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#888', marginBottom: 4 }}>
-            <span>Σ (Imp. pagado × Equiv. DR)</span>
+            <span>{mismaMoneda || !monedaDocs ? 'Σ Imp. pagado' : `Σ (Imp. pagado en ${monedaDocs} ÷ Equiv. DR)`}</span>
             <span style={{ fontFamily: 'monospace' }}>{sumaDocsEnMonedaPago.toLocaleString('es-MX', { minimumFractionDigits: 2 })} {monedaPago}</span>
           </div>
+          {monedaDocs && !mismaMoneda && (
+            <div style={{ fontSize: 10, color: '#FBBF24', marginBottom: 6, lineHeight: 1.45 }}>
+              Pago en moneda distinta a la factura. «Equiv. DR» = cuántos {monedaDocs} equivalen a 1 {monedaPago}
+              (con T.C. {tipoCambioPago || '?'} {monedaDocs}/{monedaPago} sería {(parseFloat(tipoCambioPago) > 0 ? 1 / parseFloat(tipoCambioPago) : 0).toFixed(6)}).
+              Revisa la conversión de arriba antes de timbrar: un REP con la equivalencia al revés solo se corrige cancelando.
+            </div>
+          )}
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#888', marginBottom: 4 }}>
             <span>Monto del pago declarado</span>
             <span style={{ fontFamily: 'monospace' }}>{montoPagoNum.toLocaleString('es-MX', { minimumFractionDigits: 2 })} {monedaPago}</span>
