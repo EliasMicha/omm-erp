@@ -12,7 +12,7 @@ import {
   Clock, ChevronRight, ArrowLeft, Plus, Upload, Camera, X, Eye,
   Wrench, Wifi, Volume2, Shield, Sun, MapPin, FileText, TrendingUp,
   Loader2, MessageSquare, Lock, ChevronDown, Package, Truck, ShoppingCart, Search,
-  Flame, Server, Phone, Radio, Blinds
+  Flame, Server, Phone, Radio, Blinds, Pencil, CalendarDays
 } from 'lucide-react'
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -99,6 +99,9 @@ interface ObraData {
   quotation_ids?: string[]
   project_id?: string
   coordinador: string
+  coordinador_id?: string
+  cliente_id?: string
+  moneda?: string
   sistemas: Sistema[]
   instaladores_ids: string[]
   fecha_inicio?: string
@@ -246,6 +249,9 @@ function rowToObra(o: any, coordinadorName: string): ObraData {
     cotizacion_ref: o.quotation_id ? '' : undefined, // se hidrata si hace falta
     project_id: o.project_id || undefined,
     coordinador: coordinadorName,
+    coordinador_id: o.coordinador_id || undefined,
+    cliente_id: o.cliente_id || undefined,
+    moneda: o.moneda || 'MXN',
     sistemas: (o.sistemas || []) as Sistema[],
     instaladores_ids: (o.instaladores_ids || []) as string[],
     fecha_inicio: o.fecha_inicio || undefined,
@@ -501,6 +507,7 @@ export default function Obra() {
     return <ObraDetail
       obra={obra}
       instaladores={instaladores}
+      coordinadores={coordinadores}
       hideMoney={hideMoney}
       onBack={() => setSelectedObra(null)}
       updateObra={(updater) => updateObra(obra.id, updater)}
@@ -644,9 +651,10 @@ export default function Obra() {
    OBRA DETAIL VIEW
    ═══════════════════════════════════════════════════════════════════ */
 
-function ObraDetail({ obra, instaladores, hideMoney, onBack, updateObra }: {
+function ObraDetail({ obra, instaladores, coordinadores, hideMoney, onBack, updateObra }: {
   obra: ObraData
   instaladores: Instalador[]
+  coordinadores: Array<{ id: string; name: string }>
   hideMoney?: boolean
   onBack: () => void
   updateObra: (updater: (o: ObraData) => ObraData) => void
@@ -755,7 +763,14 @@ function ObraDetail({ obra, instaladores, hideMoney, onBack, updateObra }: {
 
   // Guarda campos sueltos de la ficha (fechas, ubicación)
   async function guardarFicha(patch: Record<string, any>) {
-    updateObra(o => ({ ...o, ...patch }))
+    // La pantalla muestra el NOMBRE del coordinador pero la base guarda su id:
+    // al cambiar el id hay que refrescar el nombre en memoria o el encabezado
+    // se queda con el coordinador anterior hasta recargar.
+    const local: Record<string, any> = { ...patch }
+    if ('coordinador_id' in patch) {
+      local.coordinador = coordinadores.find(c => c.id === patch.coordinador_id)?.name || ''
+    }
+    updateObra(o => ({ ...o, ...local }))
     const { error } = await supabase.from('obras').update(patch).eq('id', obra.id)
     if (error) setSyncError('Error al guardar: ' + error.message)
     else setSyncError(null)
@@ -793,7 +808,7 @@ function ObraDetail({ obra, instaladores, hideMoney, onBack, updateObra }: {
         </div>
       </div>
 
-      <FichaObra obra={obra} onGuardar={guardarFicha} />
+      <FichaObra obra={obra} coordinadores={coordinadores} onGuardar={guardarFicha} />
 
       <ProximasEntregas obraId={obra.id} />
 
@@ -998,8 +1013,9 @@ function SugerenciasCierre({ reporte, obra, updateObra }: {
    FICHA DE OBRA — fechas, atraso y ubicación para la checada en campo
    ═══════════════════════════════════════════════════════════════════ */
 
-function FichaObra({ obra, onGuardar }: {
+function FichaObra({ obra, coordinadores, onGuardar }: {
   obra: ObraData
+  coordinadores: Array<{ id: string; name: string }>
   onGuardar: (patch: Record<string, any>) => Promise<void> | void
 }) {
   const isMobile = useIsMobile()
@@ -1007,6 +1023,57 @@ function FichaObra({ obra, onGuardar }: {
   const [urlMaps, setUrlMaps] = useState(obra.google_maps_url || '')
   const [avisoMaps, setAvisoMaps] = useState('')
   const [localizando, setLocalizando] = useState(false)
+  // Cotizaciones: se cargan solo cuando se abre la ficha (son cientos de filas)
+  const [cots, setCots] = useState<Array<{ id: string; name: string; specialty: string; total: number; lead_id: string | null; cliente: string }>>([])
+  const [leadsMap, setLeadsMap] = useState<Record<string, string>>({})
+  const [cargandoCots, setCargandoCots] = useState(false)
+  const [buscaCot, setBuscaCot] = useState('')
+
+  useEffect(() => {
+    if (!abierto || cots.length || cargandoCots) return
+    setCargandoCots(true)
+    Promise.all([
+      supabase.from('quotations').select('id,name,specialty,total,notes,client_name').order('created_at', { ascending: false }).limit(600),
+      supabase.from('leads').select('id,name').order('name'),
+    ]).then(([q, l]) => {
+      setLeadsMap(Object.fromEntries((((l as any).data || []) as any[]).map(x => [x.id, x.name])))
+      setCots((((q as any).data || []) as any[]).map(c => {
+        let lead: string | null = null
+        try { lead = JSON.parse(c.notes || '{}').lead_id || null } catch { /* notes no siempre es JSON */ }
+        return { id: c.id, name: c.name || 'Sin nombre', specialty: c.specialty || '', total: Number(c.total) || 0, lead_id: lead, cliente: c.client_name || '' }
+      }))
+      setCargandoCots(false)
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [abierto])
+
+  // Las cotizaciones ligadas: la principal (quotation_id) va primero.
+  const ligadas = Array.from(new Set([obra.cotizacion_id, ...(obra.quotation_ids || [])].filter(Boolean))) as string[]
+
+  function toggleCot(id: string) {
+    const ya = ligadas.includes(id)
+    const nuevas = ya ? ligadas.filter(x => x !== id) : [...ligadas, id]
+    onGuardar({ quotation_id: nuevas[0] || null, quotation_ids: nuevas })
+  }
+  function hacerPrincipal(id: string) {
+    const nuevas = [id, ...ligadas.filter(x => x !== id)]
+    onGuardar({ quotation_id: id, quotation_ids: nuevas })
+  }
+
+  const cotsFiltradas = (() => {
+    const q = buscaCot.trim().toLowerCase()
+    // Sin búsqueda: solo lo ya ligado y las del mismo cliente, para no volcar 600 filas.
+    if (!q) {
+      const cli = (obra.cliente || '').toLowerCase()
+      return cots.filter(c => ligadas.includes(c.id) || (cli && (`${c.cliente} ${c.name}`.toLowerCase().includes(cli))))
+    }
+    return cots.filter(c => `${c.name} ${c.cliente} ${leadsMap[c.lead_id || ''] || ''}`.toLowerCase().includes(q)).slice(0, 40)
+  })()
+
+  function toggleSistema(sis: Sistema) {
+    const actuales = obra.sistemas || []
+    onGuardar({ sistemas: actuales.includes(sis) ? actuales.filter(x => x !== sis) : [...actuales, sis] })
+  }
 
   const faltantes: string[] = []
   if (!obra.fecha_inicio) faltantes.push('fecha de inicio')
@@ -1070,7 +1137,132 @@ function FichaObra({ obra, onGuardar }: {
 
       {abierto && (
         <div style={{ padding: '0 14px 14px', borderTop: '1px solid #222' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(4, 1fr)', gap: 10, marginTop: 12 }}>
+
+          {/* ── Datos generales ─────────────────────────────────────────
+              Todo esto se capturaba al dar de alta la obra y después no
+              había forma de corregirlo: un nombre mal escrito, el cliente
+              equivocado o una cotización que no se ligó se quedaban así. */}
+          <div style={{ fontSize: 11, fontWeight: 600, color: '#ccc', margin: '14px 0 8px', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Pencil size={12} color="#10B981" /> Datos generales
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(4, 1fr)', gap: 10 }}>
+            <div>
+              <div style={labelStyle}>Nombre de la obra</div>
+              <input defaultValue={obra.nombre} style={campo} key={'nom-' + obra.id}
+                onBlur={e => { const v = e.target.value.trim(); if (v && v !== obra.nombre) onGuardar({ nombre: v }) }} />
+            </div>
+            <div>
+              <div style={labelStyle}>Cliente</div>
+              <input defaultValue={obra.cliente} style={campo} key={'cli-' + obra.id}
+                onBlur={e => { if (e.target.value !== obra.cliente) onGuardar({ cliente: e.target.value || null }) }} />
+            </div>
+            <div>
+              <div style={labelStyle}>Coordinador</div>
+              <select value={obra.coordinador_id || ''} style={campo}
+                onChange={e => onGuardar({ coordinador_id: e.target.value || null })}>
+                <option value="">Sin asignar</option>
+                {coordinadores.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <div style={labelStyle}>Valor de contrato</div>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <input type="number" step="0.01" defaultValue={obra.valor_contrato || ''} style={{ ...campo, flex: 1 }} key={'val-' + obra.id + '-' + String(obra.valor_contrato)}
+                  onBlur={e => onGuardar({ valor_contrato: e.target.value === '' ? 0 : Number(e.target.value) })} />
+                <select value={obra.moneda || 'MXN'} style={{ ...campo, width: 74 }}
+                  onChange={e => onGuardar({ moneda: e.target.value })}>
+                  <option value="MXN">MXN</option>
+                  <option value="USD">USD</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '2fr 3fr', gap: 10, marginTop: 10 }}>
+            <div>
+              <div style={labelStyle}>Dirección (referencia corta)</div>
+              <input defaultValue={obra.direccion || ''} style={campo} key={'dircorta-' + obra.id}
+                onBlur={e => { if (e.target.value !== (obra.direccion || '')) onGuardar({ direccion: e.target.value || null }) }} />
+            </div>
+            <div>
+              <div style={labelStyle}>Sistemas que incluye esta obra</div>
+              <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+                {(Object.keys(SISTEMAS_CONFIG) as Sistema[]).map(sis => {
+                  const on = (obra.sistemas || []).includes(sis)
+                  const cfg = SISTEMAS_CONFIG[sis]
+                  return (
+                    <button key={sis} onClick={() => toggleSistema(sis)} style={{
+                      padding: '4px 9px', borderRadius: 7, cursor: 'pointer', fontFamily: 'inherit',
+                      fontSize: 10, fontWeight: 600,
+                      background: on ? cfg.color + '22' : '#0e0e0e',
+                      border: `1px solid ${on ? cfg.color + '66' : '#2a2a2a'}`,
+                      color: on ? cfg.color : '#777',
+                    }}>{cfg.label}</button>
+                  )
+                })}
+              </div>
+            </div>
+          </div>
+
+          <div style={{ marginTop: 10 }}>
+            <div style={labelStyle}>Notas de la obra</div>
+            <textarea defaultValue={obra.notas || ''} rows={2} key={'not-' + obra.id}
+              style={{ ...campo, width: '100%', resize: 'vertical', fontFamily: 'inherit' }}
+              onBlur={e => { if (e.target.value !== (obra.notas || '')) onGuardar({ notas: e.target.value || null }) }} />
+          </div>
+
+          {/* ── Cotizaciones ligadas ───────────────────────────────────
+              De aquí cuelga TODO el material: sin cotización, la obra no
+              tiene catálogo, ni inventario, ni entregas separadas. */}
+          <div style={{ fontSize: 11, fontWeight: 600, color: '#ccc', margin: '16px 0 8px', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <FileText size={12} color="#10B981" /> Cotizaciones ligadas
+            {ligadas.length === 0 && <Badge label="Sin cotización: no hay materiales ni inventario" color="#DC2626" />}
+          </div>
+          <input value={buscaCot} onChange={e => setBuscaCot(e.target.value)}
+            placeholder="Busca una cotización por nombre, cliente o lead…"
+            style={{ ...campo, width: '100%', marginBottom: 8 }} />
+          {cargandoCots && <div style={{ fontSize: 10, color: '#666' }}>Cargando cotizaciones…</div>}
+          {!cargandoCots && cotsFiltradas.length === 0 && (
+            <div style={{ fontSize: 10, color: '#666' }}>
+              {buscaCot ? 'Ninguna cotización coincide.' : 'Escribe arriba para buscar la cotización de esta obra.'}
+            </div>
+          )}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 190, overflowY: 'auto' }}>
+            {cotsFiltradas.map(c => {
+              const on = ligadas.includes(c.id)
+              const principal = obra.cotizacion_id === c.id
+              return (
+                <div key={c.id} style={{
+                  display: 'flex', alignItems: 'center', gap: 8, padding: '5px 8px', borderRadius: 7,
+                  background: on ? 'rgba(16,185,129,0.07)' : '#0e0e0e',
+                  border: `1px solid ${on ? '#10B98144' : '#1f1f1f'}`,
+                }}>
+                  <input type="checkbox" checked={on} onChange={() => toggleCot(c.id)} style={{ cursor: 'pointer' }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 11, color: on ? '#fff' : '#bbb', fontWeight: on ? 600 : 400 }}>
+                      {c.name}
+                      {c.specialty && <span style={{ fontSize: 9, color: '#777', marginLeft: 6 }}>{c.specialty}</span>}
+                    </div>
+                    <div style={{ fontSize: 9, color: '#666' }}>
+                      {c.cliente || leadsMap[c.lead_id || ''] || '—'}{c.total ? ` · $${c.total.toLocaleString('es-MX', { maximumFractionDigits: 0 })}` : ''}
+                    </div>
+                  </div>
+                  {on && (principal
+                    ? <Badge label="Principal" color="#10B981" />
+                    : <button onClick={() => hacerPrincipal(c.id)} style={{ fontSize: 9, color: '#888', background: 'none', border: '1px solid #333', borderRadius: 5, padding: '2px 7px', cursor: 'pointer', fontFamily: 'inherit' }}>Hacer principal</button>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+          <div style={{ fontSize: 10, color: '#555', marginTop: 6 }}>
+            La principal manda: es la que define el catálogo de materiales y por la que se separa el inventario de esta obra frente a las otras especialidades del mismo cliente.
+          </div>
+
+          <div style={{ fontSize: 11, fontWeight: 600, color: '#ccc', margin: '16px 0 8px', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <CalendarDays size={12} color="#10B981" /> Fechas
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(4, 1fr)', gap: 10 }}>
             <div>
               <div style={labelStyle}>Fecha de inicio en obra</div>
               <input type="date" value={obra.fecha_inicio || ''} style={campo}
