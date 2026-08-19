@@ -1033,14 +1033,17 @@ function FichaObra({ obra, coordinadores, onGuardar }: {
     if (!abierto || cots.length || cargandoCots) return
     setCargandoCots(true)
     Promise.all([
-      supabase.from('quotations').select('id,name,specialty,total,notes,client_name').order('created_at', { ascending: false }).limit(600),
+      // total_final = con descuento e IVA (lo que ve el cliente). `total` es el
+      // subtotal de lista: leerlo aquí era lo que inflaba el valor del contrato.
+      supabase.from('quotations').select('id,name,specialty,total,total_final,notes,client_name').order('created_at', { ascending: false }).limit(600),
       supabase.from('leads').select('id,name').order('name'),
     ]).then(([q, l]) => {
       setLeadsMap(Object.fromEntries((((l as any).data || []) as any[]).map(x => [x.id, x.name])))
       setCots((((q as any).data || []) as any[]).map(c => {
         let lead: string | null = null
         try { lead = JSON.parse(c.notes || '{}').lead_id || null } catch { /* notes no siempre es JSON */ }
-        return { id: c.id, name: c.name || 'Sin nombre', specialty: c.specialty || '', total: Number(c.total) || 0, lead_id: lead, cliente: c.client_name || '' }
+        const monto = (c.total_final != null && c.total_final !== '') ? Number(c.total_final) : (Number(c.total) || 0)
+        return { id: c.id, name: c.name || 'Sin nombre', specialty: c.specialty || '', total: monto, lead_id: lead, cliente: c.client_name || '' }
       }))
       setCargandoCots(false)
     })
@@ -1069,6 +1072,12 @@ function FichaObra({ obra, coordinadores, onGuardar }: {
     }
     return cots.filter(c => `${c.name} ${c.cliente} ${leadsMap[c.lead_id || ''] || ''}`.toLowerCase().includes(q)).slice(0, 40)
   })()
+
+  // Lo que suman las cotizaciones ligadas (con descuento e IVA). `valor_contrato`
+  // se copió una sola vez al dar de alta la obra y desde entonces nunca se volvió
+  // a mover: si la cotización se renegoció, la obra sigue mostrando el número viejo.
+  const sumaCots = ligadas.reduce((a, id) => a + (cots.find(c => c.id === id)?.total || 0), 0)
+  const desfase = sumaCots > 0 && Math.abs(sumaCots - (obra.valor_contrato || 0)) > 1
 
   function toggleSistema(sis: Sistema) {
     const actuales = obra.sistemas || []
@@ -1175,6 +1184,20 @@ function FichaObra({ obra, coordinadores, onGuardar }: {
                   <option value="USD">USD</option>
                 </select>
               </div>
+              {desfase && (
+                <div style={{ fontSize: 10, color: '#D97706', marginTop: 4, lineHeight: 1.4 }}>
+                  Las cotizaciones ligadas suman{' '}
+                  <b style={{ color: '#FBBF24' }}>${sumaCots.toLocaleString('es-MX', { maximumFractionDigits: 2 })}</b>{' '}
+                  (con descuento e IVA).{' '}
+                  <button onClick={() => onGuardar({ valor_contrato: Math.round(sumaCots * 100) / 100 })}
+                    style={{ background: 'none', border: '1px solid #D9770666', borderRadius: 5, color: '#FBBF24', fontSize: 10, padding: '1px 6px', cursor: 'pointer', fontFamily: 'inherit' }}>
+                    Usar ese
+                  </button>
+                </div>
+              )}
+              {!desfase && sumaCots > 0 && (
+                <div style={{ fontSize: 10, color: '#4ADE80', marginTop: 4 }}>Coincide con las cotizaciones ligadas.</div>
+              )}
             </div>
           </div>
 
@@ -4036,6 +4059,9 @@ function NuevaObraModal({ coordinadores, onClose, onSubmit, onCreated }: {
   })
   const [leads, setLeads] = useState<Array<{ id: string; name: string; company: string; address?: string }>>([])
   const [cotizaciones, setCotizaciones] = useState<Array<{ id: string; name: string; total: number; project_name?: string; client_name?: string; notes?: string; stage?: string; specialty?: string }>>([])
+  // `total` en quotations es el SUBTOTAL de lista (sin descuento ni IVA).
+  // El número que vale es `total_final`, que es el que ve el cliente y el que
+  // usan CRM, Cotizaciones y Cobranza. Obra era la única que leía el crudo.
   const [loadingCots, setLoadingCots] = useState(false)
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
@@ -4062,13 +4088,14 @@ function NuevaObraModal({ coordinadores, onClose, onSubmit, onCreated }: {
     setLoadingCots(true)
     Promise.all([
       supabase.from('leads').select('id,name,company').order('name'),
-      supabase.from('quotations').select('id, name, total, project_id, client_name, notes, stage, specialty, projects:projects!quotations_project_id_fkey(name)')
+      supabase.from('quotations').select('id, name, total, total_final, project_id, client_name, notes, stage, specialty, projects:projects!quotations_project_id_fkey(name)')
         .order('created_at', { ascending: false }),
     ]).then(([lRes, qRes]) => {
       setLeads((lRes.data || []) as any)
       if (qRes.data) {
         setCotizaciones(qRes.data.map((q: any) => ({
-          id: q.id, name: q.name, total: q.total || 0,
+          id: q.id, name: q.name,
+          total: (q.total_final != null && q.total_final !== '') ? Number(q.total_final) : (Number(q.total) || 0),
           project_name: q.projects?.name || '', client_name: q.client_name || '',
           notes: q.notes || '', stage: q.stage || '', specialty: q.specialty || '',
         })))
