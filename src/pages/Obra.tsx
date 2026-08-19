@@ -292,7 +292,10 @@ export default function Obra() {
   const isMobile = useIsMobile()
   const { user } = useAuth()
   // El Coordinador de Obra (y roles de campo) no deben ver montos de dinero.
-  const hideMoney = user?.permission_area === 'Coordinador_Obra'
+  // Obra NO ve montos. Ni el coordinador, ni dirección, ni nadie: el dinero se
+  // consulta en Cotizaciones, CRM y Cobranza, que son los dueños del número.
+  // Aquí sobraba y encima invitaba a comparar contra un `valor_contrato`
+  // congelado que casi nunca coincidía con la cotización.
   const [tab, setTab] = useState<Tab>('dashboard')
   const [obras, setObras] = useState<ObraData[]>([])
   const [instaladores, setInstaladores] = useState<Instalador[]>([])
@@ -508,7 +511,6 @@ export default function Obra() {
       obra={obra}
       instaladores={instaladores}
       coordinadores={coordinadores}
-      hideMoney={hideMoney}
       onBack={() => setSelectedObra(null)}
       updateObra={(updater) => updateObra(obra.id, updater)}
     />
@@ -614,7 +616,6 @@ export default function Obra() {
                       <div style={{ fontSize: 11, color: '#666', marginBottom: 4 }}>Avance</div>
                       <div style={{ fontSize: 20, fontWeight: 700, color: '#fff', marginBottom: 4 }}>{pct}%</div>
                       <ProgressBar pct={pct} />
-                      {!hideMoney && <div style={{ fontSize: 10, color: '#555', marginTop: 6 }}>{F(o.valor_contrato)}</div>}
                     </div>
                     <ChevronRight size={16} color="#444" />
                   </div>
@@ -627,7 +628,7 @@ export default function Obra() {
 
       {tab === 'instaladores' && <TabInstaladores instaladores={instaladores} setInstaladores={setInstaladores} showNew={showNewInstalador} setShowNew={setShowNewInstalador} />}
 
-      {tab === 'planeacion' && <TabPlaneacion obras={obras} instaladores={instaladores} hideMoney={hideMoney} />}
+      {tab === 'planeacion' && <TabPlaneacion obras={obras} instaladores={instaladores} />}
 
       {/* Modal nueva obra — usa crearObraEnDB */}
       {showNewObra && <NuevaObraModal
@@ -651,11 +652,10 @@ export default function Obra() {
    OBRA DETAIL VIEW
    ═══════════════════════════════════════════════════════════════════ */
 
-function ObraDetail({ obra, instaladores, coordinadores, hideMoney, onBack, updateObra }: {
+function ObraDetail({ obra, instaladores, coordinadores, onBack, updateObra }: {
   obra: ObraData
   instaladores: Instalador[]
   coordinadores: Array<{ id: string; name: string }>
-  hideMoney?: boolean
   onBack: () => void
   updateObra: (updater: (o: ObraData) => ObraData) => void
 }) {
@@ -833,13 +833,12 @@ function ObraDetail({ obra, instaladores, coordinadores, hideMoney, onBack, upda
       {!hydrated && <div style={{ marginBottom: 16 }}><Loading /></div>}
 
       {/* KPIs */}
-      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : `repeat(${hideMoney ? 4 : 5}, 1fr)`, gap: 12, marginBottom: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
         <KpiCard label="Avance global" value={`${avanceReal}%`} icon={<TrendingUp size={16} />} />
         <KpiCard label="Actividades" value={`${completadas}/${obra.actividades.length}`} color="#2563EB" icon={<ClipboardList size={16} />} />
         <KpiCard label={bloqueadas > 0 ? 'Bloqueadas' : 'Sin responsable'} value={bloqueadas > 0 ? bloqueadas : sinResponsable}
           color={bloqueadas > 0 ? '#DC2626' : sinResponsable > 0 ? '#D97706' : '#10B981'} icon={<AlertTriangle size={16} />} />
         <KpiCard label="Documentos" value={`${docsRecibidos}/${obra.entrega_docs.length}`} color="#D97706" icon={<FileText size={16} />} />
-        {!hideMoney && <KpiCard label="Contrato" value={F(obra.valor_contrato)} color="#A78BFA" icon={<HardHat size={16} />} />}
       </div>
 
       {/* Sub-tabs */}
@@ -1073,12 +1072,6 @@ function FichaObra({ obra, coordinadores, onGuardar }: {
     return cots.filter(c => `${c.name} ${c.cliente} ${leadsMap[c.lead_id || ''] || ''}`.toLowerCase().includes(q)).slice(0, 40)
   })()
 
-  // Lo que suman las cotizaciones ligadas (con descuento e IVA). `valor_contrato`
-  // se copió una sola vez al dar de alta la obra y desde entonces nunca se volvió
-  // a mover: si la cotización se renegoció, la obra sigue mostrando el número viejo.
-  const sumaCots = ligadas.reduce((a, id) => a + (cots.find(c => c.id === id)?.total || 0), 0)
-  const desfase = sumaCots > 0 && Math.abs(sumaCots - (obra.valor_contrato || 0)) > 1
-
   function toggleSistema(sis: Sistema) {
     const actuales = obra.sistemas || []
     onGuardar({ sistemas: actuales.includes(sis) ? actuales.filter(x => x !== sis) : [...actuales, sis] })
@@ -1154,7 +1147,7 @@ function FichaObra({ obra, coordinadores, onGuardar }: {
           <div style={{ fontSize: 11, fontWeight: 600, color: '#ccc', margin: '14px 0 8px', display: 'flex', alignItems: 'center', gap: 6 }}>
             <Pencil size={12} color="#10B981" /> Datos generales
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(4, 1fr)', gap: 10 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, 1fr)', gap: 10 }}>
             <div>
               <div style={labelStyle}>Nombre de la obra</div>
               <input defaultValue={obra.nombre} style={campo} key={'nom-' + obra.id}
@@ -1172,32 +1165,6 @@ function FichaObra({ obra, coordinadores, onGuardar }: {
                 <option value="">Sin asignar</option>
                 {coordinadores.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
-            </div>
-            <div>
-              <div style={labelStyle}>Valor de contrato</div>
-              <div style={{ display: 'flex', gap: 6 }}>
-                <input type="number" step="0.01" defaultValue={obra.valor_contrato || ''} style={{ ...campo, flex: 1 }} key={'val-' + obra.id + '-' + String(obra.valor_contrato)}
-                  onBlur={e => onGuardar({ valor_contrato: e.target.value === '' ? 0 : Number(e.target.value) })} />
-                <select value={obra.moneda || 'MXN'} style={{ ...campo, width: 74 }}
-                  onChange={e => onGuardar({ moneda: e.target.value })}>
-                  <option value="MXN">MXN</option>
-                  <option value="USD">USD</option>
-                </select>
-              </div>
-              {desfase && (
-                <div style={{ fontSize: 10, color: '#D97706', marginTop: 4, lineHeight: 1.4 }}>
-                  Las cotizaciones ligadas suman{' '}
-                  <b style={{ color: '#FBBF24' }}>${sumaCots.toLocaleString('es-MX', { maximumFractionDigits: 2 })}</b>{' '}
-                  (con descuento e IVA).{' '}
-                  <button onClick={() => onGuardar({ valor_contrato: Math.round(sumaCots * 100) / 100 })}
-                    style={{ background: 'none', border: '1px solid #D9770666', borderRadius: 5, color: '#FBBF24', fontSize: 10, padding: '1px 6px', cursor: 'pointer', fontFamily: 'inherit' }}>
-                    Usar ese
-                  </button>
-                </div>
-              )}
-              {!desfase && sumaCots > 0 && (
-                <div style={{ fontSize: 10, color: '#4ADE80', marginTop: 4 }}>Coincide con las cotizaciones ligadas.</div>
-              )}
             </div>
           </div>
 
@@ -1267,7 +1234,7 @@ function FichaObra({ obra, coordinadores, onGuardar }: {
                       {c.specialty && <span style={{ fontSize: 9, color: '#777', marginLeft: 6 }}>{c.specialty}</span>}
                     </div>
                     <div style={{ fontSize: 9, color: '#666' }}>
-                      {c.cliente || leadsMap[c.lead_id || ''] || '—'}{c.total ? ` · $${c.total.toLocaleString('es-MX', { maximumFractionDigits: 0 })}` : ''}
+                      {c.cliente || leadsMap[c.lead_id || ''] || '—'}
                     </div>
                   </div>
                   {on && (principal
@@ -3481,7 +3448,7 @@ function TabCoordinacion({ obras, onOpenObra }: { obras: ObraData[]; onOpenObra:
   )
 }
 
-function TabPlaneacion({ obras, instaladores, hideMoney }: { obras: ObraData[]; instaladores: Instalador[]; hideMoney?: boolean }) {
+function TabPlaneacion({ obras, instaladores }: { obras: ObraData[]; instaladores: Instalador[] }) {
   const [weekOffset, setWeekOffset] = useState(0)
   const [processing, setProcessing] = useState(false)
   const [assignments, setAssignments] = useState<Map<string, Map<number, AsgItem[]>>>(new Map())
@@ -4263,21 +4230,16 @@ function NuevaObraModal({ coordinadores, onClose, onSubmit, onCreated }: {
                     <span style={{ color: checked ? '#10B981' : '#ccc', flex: 1 }}>{c.name}</span>
                     {c.specialty && <span style={{ fontSize: 9, color: '#888', background: '#222', padding: '1px 5px', borderRadius: 4, textTransform: 'uppercase' }}>{c.specialty}</span>}
                     {c.stage && <span style={{ fontSize: 9, color: c.stage === 'contrato' ? '#10B981' : c.stage === 'propuesta' ? '#D97706' : '#666', background: '#1a1a1a', padding: '1px 5px', borderRadius: 4 }}>{c.stage}</span>}
-                    <span style={{ color: '#666', fontSize: 11 }}>{F(c.specialty === 'elec' ? c.total * 1.16 : c.total)}</span>
                   </label>
                 )
               })}
             </div>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-            <div>
-              <div style={labelStyle}>Valor contrato</div>
-              <input type="number" value={form.valor_contrato} onChange={e => setForm(f => ({ ...f, valor_contrato: e.target.value }))} style={inputStyle} />
-            </div>
-            <div>
-              <div style={labelStyle}>Fecha fin planeada</div>
-              <input type="date" value={form.fecha_fin_plan} onChange={e => setForm(f => ({ ...f, fecha_fin_plan: e.target.value }))} style={inputStyle} />
-            </div>
+          <div>
+            {/* El valor del contrato se toma solo de las cotizaciones ligadas y
+                se guarda para Cobranza, pero Obra no lo muestra ni lo edita. */}
+            <div style={labelStyle}>Fecha fin planeada</div>
+            <input type="date" value={form.fecha_fin_plan} onChange={e => setForm(f => ({ ...f, fecha_fin_plan: e.target.value }))} style={inputStyle} />
           </div>
           <div>
             <div style={labelStyle}>Sistemas</div>
@@ -4756,7 +4718,7 @@ function SubExtras({ obra }: { obra: ObraData }) {
       // 5. Refresh local state
       setExtras(prev => prev.map(e => selected.has(e.id) ? { ...e, status: 'cotizado', cotizacion_adendum_id: cotizacionId } : e))
       setSelected(new Set())
-      alert(`Cotización adendum creada con ${selectedExtras.length} items. Total: $${totalAdendumConIva.toFixed(2)} (con IVA 16%). Puedes editarla desde el módulo de Cotizaciones.`)
+      alert(`Cotización adendum creada con ${selectedExtras.length} item(s). Ábrela desde el módulo de Cotizaciones para revisar precios y mandarla.`)
     } catch (err: any) {
       console.error('Error generando adendum:', err)
       setError('Error al generar adendum: ' + (err?.message || String(err)))
@@ -4816,7 +4778,6 @@ function SubExtras({ obra }: { obra: ObraData }) {
                     </div>
                     <div style={{ fontSize: 12, color: '#ccc', marginBottom: 4 }}>{ex.descripcion}</div>
                     {ex.texto_original && <div style={{ fontSize: 10, color: '#666', fontStyle: 'italic', marginBottom: 6 }}>"{ex.texto_original}"</div>}
-                    {ex.precio_estimado > 0 && <div style={{ fontSize: 11, color: '#10B981' }}>Precio estimado: ${ex.precio_estimado.toFixed(2)} {ex.moneda}</div>}
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                     <button onClick={() => aprobarInterno(ex.id)} style={{ padding: '3px 8px', fontSize: 9, background: 'rgba(87,255,154,0.1)', border: '1px solid rgba(87,255,154,0.3)', borderRadius: 4, color: '#10B981', cursor: 'pointer', fontFamily: 'inherit' }}>Aprobar interno</button>
