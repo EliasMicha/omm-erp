@@ -124,6 +124,31 @@ interface PagoREP {
   docsPago: DocRelacionadoPago[]
 }
 
+/**
+ * Último candado antes de timbrar un REP: la moneda del pago tiene que ser la
+ * misma que la de las facturas que paga. Si la PPD se emitió en dólares el
+ * complemento va en dólares, y si fue en pesos va en pesos — el SAT trata la
+ * moneda del pago (MonedaP) y la del documento (MonedaDR) como datos distintos,
+ * y timbrar con la moneda cambiada obliga a cancelar y rehacer el complemento.
+ * Devuelve el mensaje de error, o null si todo cuadra.
+ */
+function revisarMonedasREP(pagos: any[]): string | null {
+  for (let i = 0; i < pagos.length; i++) {
+    const p = pagos[i]
+    const etiqueta = pagos.length > 1 ? `Pago ${i + 1}: ` : ''
+    const monedas = Array.from(new Set((p.docsPago || []).map((d: any) => d.moneda_doc || 'MXN')))
+    if (monedas.length === 0) continue
+    if (monedas.length > 1) return `${etiqueta}un pago no puede mezclar monedas (${monedas.join(', ')}). Captura un pago por moneda.`
+    if (monedas[0] !== p.monedaPago) {
+      return `${etiqueta}la factura relacionada está en ${monedas[0]} y el pago quedó en ${p.monedaPago}. El complemento debe ir en la misma moneda que la factura.`
+    }
+    if (p.monedaPago !== 'MXN' && !(parseFloat(p.tipoCambioPago) > 0)) {
+      return `${etiqueta}falta el tipo de cambio del pago (${p.monedaPago} → MXN).`
+    }
+  }
+  return null
+}
+
 // ============================================================
 // API Helper + FacturAPI mode (Sesion B - dual test/live)
 // ============================================================
@@ -551,6 +576,8 @@ function ListaTodas({ onEditar }: { onEditar?: (f: Factura) => void } = {}) {
           pagos.push({ fechaPago: dd.fechaPago, formaPagoREP: dd.formaPagoREP, monedaPago: dd.monedaPago, tipoCambioPago: dd.tipoCambioPago, montoPago: dd.montoPago, numOperacion: dd.numOperacion, docsPago: dd.docsPago })
         }
         if (pagos.length === 0) { alert('El borrador de REP no tiene pagos'); setTimbrandoId(null); return }
+        const errMon = revisarMonedasREP(pagos)
+        if (errMon) { alert('No se timbró — ' + errMon); setTimbrandoId(null); return }
         invoicePayload = {
           customer: facturapiCustomerId, type: 'P',
           complements: [{ type: 'pago', data: pagos.map((p: any) => ({
@@ -1288,54 +1315,71 @@ function ListaEmitidas({ onNueva, onEditar }: { onNueva: () => void; onEditar?: 
       }
 
       // REP: datos del pago
+      // El borrador solo imprimía el pago que estaba en el formulario: si ya se
+      // habían guardado pagos con «Guardar pago y agregar otro», la prefactura
+      // salía vacía o en MXN. Ahora se imprime cada pago con SU moneda.
       if (f.tipo_comprobante === 'P' && f.draft_data) {
         const dd = f.draft_data
-        doc.setDrawColor(200, 200, 200)
-        doc.line(mx, y, w - mx, y)
-        y += 5
-        doc.setFont('helvetica', 'bold')
-        doc.setFontSize(8)
-        doc.setTextColor(150, 150, 150)
-        doc.text('DATOS DEL PAGO', mx, y)
-        y += 5
-        doc.setFont('helvetica', 'normal')
-        doc.setFontSize(9)
-        doc.setTextColor(80, 80, 80)
-        doc.text(`Fecha: ${dd.fechaPago || '--'}`, mx, y)
-        doc.text(`Forma de pago: ${dd.formaPagoREP || '--'}`, w / 2 + 5, y)
-        y += 4
-        doc.text(`Moneda: ${dd.monedaPago || 'MXN'}`, mx, y)
-        doc.text(`Monto: $${Number(dd.montoPago || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}`, w / 2 + 5, y)
-        y += 4
-        if (dd.numOperacion) { doc.text(`Num. operación: ${dd.numOperacion}`, mx, y); y += 4 }
-        y += 2
+        const guardados: any[] = Array.isArray(dd.pagosGuardados) ? dd.pagosGuardados : []
+        const enCurso = (Array.isArray(dd.docsPago) && dd.docsPago.length > 0 && Number(dd.montoPago) > 0)
+          ? [{ fechaPago: dd.fechaPago, formaPagoREP: dd.formaPagoREP, monedaPago: dd.monedaPago, tipoCambioPago: dd.tipoCambioPago, montoPago: dd.montoPago, numOperacion: dd.numOperacion, docsPago: dd.docsPago }]
+          : []
+        const pagosPdf = [...guardados, ...enCurso]
 
-        // Documentos relacionados del pago
-        if (Array.isArray(dd.docsPago) && dd.docsPago.length > 0) {
+        pagosPdf.forEach((pg: any, iPg: number) => {
+          const mon = pg.monedaPago || 'MXN'
+          doc.setDrawColor(200, 200, 200)
+          doc.line(mx, y, w - mx, y)
+          y += 5
           doc.setFont('helvetica', 'bold')
           doc.setFontSize(8)
           doc.setTextColor(150, 150, 150)
-          doc.text('DOCUMENTOS RELACIONADOS', mx, y)
+          doc.text(pagosPdf.length > 1 ? `DATOS DEL PAGO ${iPg + 1} DE ${pagosPdf.length}` : 'DATOS DEL PAGO', mx, y)
+          y += 5
+          doc.setFont('helvetica', 'normal')
+          doc.setFontSize(9)
+          doc.setTextColor(80, 80, 80)
+          doc.text(`Fecha: ${pg.fechaPago || '--'}`, mx, y)
+          doc.text(`Forma de pago: ${pg.formaPagoREP || '--'}`, w / 2 + 5, y)
+          y += 4
+          // La moneda es la de la factura relacionada, y se imprime junto al monto
+          // para que no quede duda de en qué se cobró.
+          doc.setFont('helvetica', 'bold')
+          doc.text(`Moneda: ${mon}${mon !== 'MXN' && pg.tipoCambioPago ? `   T.C.: ${pg.tipoCambioPago}` : ''}`, mx, y)
+          doc.text(`Monto: ${Number(pg.montoPago || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })} ${mon}`, w / 2 + 5, y)
+          doc.setFont('helvetica', 'normal')
+          y += 4
+          if (pg.numOperacion) { doc.text(`Num. operacion: ${pg.numOperacion}`, mx, y); y += 4 }
           y += 2
 
-          autoTable(doc, {
-            startY: y,
-            margin: { left: mx, right: mx },
-            head: [['UUID', 'Serie/Folio', 'Parcialidad', 'Saldo Ant.', 'Imp. Pagado', 'Saldo Ins.']],
-            body: dd.docsPago.map((d: any) => [
-              (d.uuid || '').slice(0, 12) + '...',
-              `${d.serie || ''}${d.folio || '--'}`,
-              d.num_parcialidad || 1,
-              '$' + (d.imp_saldo_anterior || 0).toLocaleString('en-US', { minimumFractionDigits: 2 }),
-              '$' + (d.imp_pagado || 0).toLocaleString('en-US', { minimumFractionDigits: 2 }),
-              '$' + (d.imp_saldo_insoluto || 0).toLocaleString('en-US', { minimumFractionDigits: 2 }),
-            ]),
-            styles: { fontSize: 8, cellPadding: 2, textColor: [60, 60, 60] },
-            headStyles: { fillColor: [30, 30, 30], textColor: [200, 200, 200], fontSize: 7, fontStyle: 'bold' },
-            alternateRowStyles: { fillColor: [248, 248, 248] },
-          })
-          y = (doc as any).lastAutoTable.finalY + 6
-        }
+          // Documentos relacionados del pago
+          if (Array.isArray(pg.docsPago) && pg.docsPago.length > 0) {
+            doc.setFont('helvetica', 'bold')
+            doc.setFontSize(8)
+            doc.setTextColor(150, 150, 150)
+            doc.text('DOCUMENTOS RELACIONADOS', mx, y)
+            y += 2
+
+            autoTable(doc, {
+              startY: y,
+              margin: { left: mx, right: mx },
+              head: [['UUID', 'Serie/Folio', 'Mon.', 'Parc.', 'Saldo Ant.', 'Imp. Pagado', 'Saldo Ins.']],
+              body: pg.docsPago.map((d: any) => [
+                (d.uuid || '').slice(0, 12) + '...',
+                `${d.serie || ''}${d.folio || '--'}`,
+                d.moneda_doc || mon,
+                d.num_parcialidad || 1,
+                (d.imp_saldo_anterior || 0).toLocaleString('en-US', { minimumFractionDigits: 2 }),
+                (d.imp_pagado || 0).toLocaleString('en-US', { minimumFractionDigits: 2 }),
+                (d.imp_saldo_insoluto || 0).toLocaleString('en-US', { minimumFractionDigits: 2 }),
+              ]),
+              styles: { fontSize: 8, cellPadding: 2, textColor: [60, 60, 60] },
+              headStyles: { fillColor: [30, 30, 30], textColor: [200, 200, 200], fontSize: 7, fontStyle: 'bold' },
+              alternateRowStyles: { fillColor: [248, 248, 248] },
+            })
+            y = (doc as any).lastAutoTable.finalY + 6
+          }
+        })
       }
 
       // Totales
@@ -1447,6 +1491,8 @@ function ListaEmitidas({ onNueva, onEditar }: { onNueva: () => void; onEditar?: 
           pagos.push({ fechaPago: dd.fechaPago, formaPagoREP: dd.formaPagoREP, monedaPago: dd.monedaPago, tipoCambioPago: dd.tipoCambioPago, montoPago: dd.montoPago, numOperacion: dd.numOperacion, docsPago: dd.docsPago })
         }
         if (pagos.length === 0) { alert('El borrador de REP no tiene pagos'); setTimbrandoId(null); return }
+        const errMonedas = revisarMonedasREP(pagos)
+        if (errMonedas) { alert('No se timbró — ' + errMonedas); setTimbrandoId(null); return }
         invoicePayload = {
           customer: facturapiCustomerId,
           type: 'P',
@@ -2094,12 +2140,18 @@ function NuevaFactura({ onCancel, onCreated, editingFactura }: { onCancel: () =>
   const total = subtotal + iva
 
   // REP: helpers para manejar documentos relacionados en el complemento de pagos
+  //
+  // ⚠️ La moneda del pago NO se elige: se hereda de la factura que se está
+  // pagando. Si la PPD se emitió en dólares, el complemento va en dólares; si
+  // fue en pesos, en pesos. Antes el selector arrancaba en MXN y se quedaba en
+  // MXN aunque la factura relacionada fuera USD, así que el REP salía con la
+  // moneda equivocada (y el SAT lo toma como otra operación).
   async function agregarDocsPago() {
     // Cargar datos completos de las facturas PPD seleccionadas desde Supabase
     if (uuidsPPDTemporales.length === 0) return
     const { data, error: err } = await supabase
       .from('facturas')
-      .select('id,uuid_fiscal,serie,folio,moneda,total')
+      .select('id,uuid_fiscal,serie,folio,moneda,total,tipo_cambio')
       .in('uuid_fiscal', uuidsPPDTemporales)
     if (err || !data) {
       setError('Error al cargar facturas PPD: ' + (err?.message || 'desconocido'))
@@ -2107,25 +2159,56 @@ function NuevaFactura({ onCancel, onCreated, editingFactura }: { onCancel: () =>
     }
     // Agregar solo las que no estan ya en docsPago
     const uuidsYa = new Set(docsPago.map(d => d.uuid))
-    const nuevos: DocRelacionadoPago[] = (data as any[])
-      .filter(f => !uuidsYa.has(f.uuid_fiscal))
-      .map(f => ({
-        factura_local_id: f.id,
-        uuid: f.uuid_fiscal,
-        serie: f.serie,
-        folio: f.folio,
-        moneda_doc: f.moneda || 'MXN',
-        total_doc: Number(f.total) || 0,
-        equivalencia_dr: f.moneda === monedaPago ? 1 : 1, // default 1 — usuario edita
-        num_parcialidad: 1,
-        imp_saldo_anterior: Number(f.total) || 0, // default = total — usuario edita si ya hay pagos previos
-        imp_pagado: 0,
-        imp_saldo_insoluto: Number(f.total) || 0,
-        objeto_imp: '02',
-        base_dr: 0,
-        iva_tasa: 0.16,
-        iva_trasladado: 0,
-      }))
+    const aAgregar = (data as any[]).filter(f => !uuidsYa.has(f.uuid_fiscal))
+    if (aAgregar.length === 0) { setUuidsPPDTemporales([]); setMostrarSelectorPPD(false); return }
+
+    // Un pago del complemento no puede mezclar monedas: MonedaP es una sola y
+    // EquivalenciaDR tendría que traer el tipo de cambio de cada factura.
+    const monedasNuevas = new Set(aAgregar.map(f => f.moneda || 'MXN'))
+    const monedasYa = new Set(docsPago.map(d => d.moneda_doc || 'MXN'))
+    const todas = new Set([...monedasNuevas, ...monedasYa])
+    if (todas.size > 1) {
+      setError(
+        `Estas facturas están en monedas distintas (${Array.from(todas).join(', ')}). ` +
+        'Un complemento de pago lleva una sola moneda: captura un pago por cada moneda ' +
+        'con «Guardar pago y agregar otro».'
+      )
+      return
+    }
+
+    const monedaFacturas = Array.from(todas)[0] || 'MXN'
+    // La moneda del pago manda la de las facturas relacionadas, siempre.
+    if (monedaFacturas !== monedaPago) {
+      setMonedaPago(monedaFacturas)
+      if (monedaFacturas === 'MXN') {
+        setTipoCambioPago('1')
+      } else {
+        // Se propone el tipo de cambio con el que se emitió la factura; el
+        // usuario lo ajusta al del día en que entró el dinero.
+        const tcFactura = aAgregar.map(f => Number(f.tipo_cambio) || 0).find(t => t > 0)
+        if (tcFactura) setTipoCambioPago(String(tcFactura))
+      }
+    }
+
+    const nuevos: DocRelacionadoPago[] = aAgregar.map(f => ({
+      factura_local_id: f.id,
+      uuid: f.uuid_fiscal,
+      serie: f.serie,
+      folio: f.folio,
+      moneda_doc: f.moneda || 'MXN',
+      total_doc: Number(f.total) || 0,
+      // MonedaDR == MonedaP (se acaba de igualar), así que EquivalenciaDR es 1.
+      equivalencia_dr: 1,
+      num_parcialidad: 1,
+      imp_saldo_anterior: Number(f.total) || 0, // default = total — usuario edita si ya hay pagos previos
+      imp_pagado: 0,
+      imp_saldo_insoluto: Number(f.total) || 0,
+      objeto_imp: '02',
+      base_dr: 0,
+      iva_tasa: 0.16,
+      iva_trasladado: 0,
+    }))
+    setError(null)
     setDocsPago([...docsPago, ...nuevos])
     setUuidsPPDTemporales([])
     setMostrarSelectorPPD(false)
@@ -2171,6 +2254,16 @@ function NuevaFactura({ onCancel, onCreated, editingFactura }: { onCancel: () =>
     const monto = parseFloat(p.montoPago) || 0
     if (p.docsPago.length === 0) return 'Agrega al menos una factura PPD al pago'
     if (monto <= 0) return 'El monto del pago debe ser mayor a 0'
+    // El SAT exige TipoCambioP siempre que MonedaP no sea MXN.
+    if (p.monedaPago !== 'MXN' && !(parseFloat(p.tipoCambioPago) > 0)) {
+      return `Falta el tipo de cambio del pago (${p.monedaPago} → MXN)`
+    }
+    // La moneda del complemento tiene que ser la de las facturas que paga.
+    const monedasDoc = Array.from(new Set(p.docsPago.map(d => d.moneda_doc || 'MXN')))
+    if (monedasDoc.length > 1) return `Un pago no puede mezclar monedas (${monedasDoc.join(', ')}). Captura un pago por moneda.`
+    if (monedasDoc[0] !== p.monedaPago) {
+      return `La factura relacionada está en ${monedasDoc[0]} y el pago quedó en ${p.monedaPago}. Deben ser la misma moneda.`
+    }
     const suma = p.docsPago.reduce((s, d) => s + (d.imp_pagado * d.equivalencia_dr), 0)
     const dif = Math.round((monto - suma) * 100) / 100
     if (Math.abs(dif) > 0.01) return `La suma de imp. pagado × equivalencia (${suma.toFixed(2)}) no coincide con el monto del pago (${monto.toFixed(2)}). Diferencia: ${dif.toFixed(2)}`
@@ -2231,6 +2324,38 @@ function NuevaFactura({ onCancel, onCreated, editingFactura }: { onCancel: () =>
 
     setSavingDraft(true)
     try {
+      // El borrador salía en MXN y en 0 cuando el pago ya se había mandado a la
+      // lista con «Guardar pago y agregar otro»: el formulario se limpia a MXN
+      // y esto solo miraba el formulario. Ahora resume TODOS los pagos del REP,
+      // igual que hace el timbrado.
+      const pagosBorrador = [...pagosGuardados, ...(docsPago.length > 0 && montoPagoNum > 0 ? [pagoEnCurso()] : [])]
+      const repBorrador = (() => {
+        if (tipoComprobante !== 'P' || pagosBorrador.length === 0) {
+          return { moneda: monedaPago || 'MXN', monto: montoPagoNum, tipoCambio: monedaPago !== 'MXN' ? (parseFloat(tipoCambioPago) || 1) : null, formaPago: formaPagoREP }
+        }
+        const monedas = new Set(pagosBorrador.map(p => p.monedaPago))
+        if (monedas.size === 1) {
+          const m = pagosBorrador[0].monedaPago
+          return {
+            moneda: m,
+            monto: Math.round(pagosBorrador.reduce((s2, p) => s2 + (parseFloat(p.montoPago) || 0), 0) * 100) / 100,
+            tipoCambio: m !== 'MXN' ? (parseFloat(pagosBorrador[0].tipoCambioPago) || 1) : null,
+            formaPago: pagosBorrador[0].formaPagoREP,
+          }
+        }
+        // Monedas mixtas (varios pagos): el resumen del borrador se expresa en MXN
+        return {
+          moneda: 'MXN',
+          monto: Math.round(pagosBorrador.reduce((s2, p) => {
+            const m = parseFloat(p.montoPago) || 0
+            const tc = p.monedaPago !== 'MXN' ? (parseFloat(p.tipoCambioPago) || 1) : 1
+            return s2 + m * tc
+          }, 0) * 100) / 100,
+          tipoCambio: null,
+          formaPago: pagosBorrador[0].formaPagoREP,
+        }
+      })()
+
       const draftPayload: any = {
         direccion: 'emitida',
         cliente_id: clienteId,
@@ -2248,15 +2373,15 @@ function NuevaFactura({ onCancel, onCreated, editingFactura }: { onCancel: () =>
         emisor_regimen_fiscal: '601',
         serie: serie || null,
         folio: folio || null,
-        moneda: tipoComprobante === 'P' ? (monedaPago || 'MXN') : moneda,
+        moneda: tipoComprobante === 'P' ? repBorrador.moneda : moneda,
         tipo_cambio: tipoComprobante === 'P'
-          ? (monedaPago !== 'MXN' ? (parseFloat(tipoCambioPago) || 1) : null)
+          ? repBorrador.tipoCambio
           : (moneda !== 'MXN' ? (parseFloat(tipoCambio) || 1) : null),
-        forma_pago: tipoComprobante === 'P' ? formaPagoREP : formaPago,
+        forma_pago: tipoComprobante === 'P' ? (repBorrador.formaPago || formaPagoREP) : formaPago,
         metodo_pago: tipoComprobante === 'P' ? 'PUE' : metodoPago,
-        subtotal: tipoComprobante === 'P' ? montoPagoNum : subtotal,
+        subtotal: tipoComprobante === 'P' ? repBorrador.monto : subtotal,
         iva: tipoComprobante === 'P' ? 0 : iva,
-        total: tipoComprobante === 'P' ? montoPagoNum : total,
+        total: tipoComprobante === 'P' ? repBorrador.monto : total,
         quotation_id: cotizacionId || null,
         notas: notas || null,
         tipo_relacion: tipoRelacion || null,
@@ -2961,15 +3086,32 @@ function NuevaFactura({ onCancel, onCreated, editingFactura }: { onCancel: () =>
           <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr 1fr', gap: 12 }}>
             <div>
               <label style={lblStyle}>Moneda del pago *</label>
-              <select value={monedaPago} onChange={e => setMonedaPago(e.target.value)} style={inpStyle}>
+              {/* Con facturas relacionadas la moneda ya no se elige: la manda
+                  la PPD que se está pagando. */}
+              <select value={monedaPago} onChange={e => setMonedaPago(e.target.value)}
+                disabled={docsPago.length > 0}
+                style={{ ...inpStyle, opacity: docsPago.length > 0 ? 0.7 : 1, cursor: docsPago.length > 0 ? 'not-allowed' : 'pointer' }}>
                 <option value="MXN">MXN</option>
                 <option value="USD">USD</option>
                 <option value="EUR">EUR</option>
               </select>
+              {docsPago.length > 0 && (
+                <div style={{ fontSize: 10, color: '#A78BFA', marginTop: 4 }}>
+                  Heredada de la factura relacionada — el complemento va en la misma moneda que la PPD.
+                </div>
+              )}
             </div>
             <div>
-              <label style={lblStyle}>Tipo de cambio del pago</label>
-              <input type="number" value={tipoCambioPago} onChange={e => setTipoCambioPago(e.target.value)} disabled={monedaPago === 'MXN'} style={{ ...inpStyle, opacity: monedaPago === 'MXN' ? 0.4 : 1 }} />
+              <label style={lblStyle}>Tipo de cambio del pago{monedaPago !== 'MXN' ? ' *' : ''}</label>
+              <input type="number" step="0.0001" value={tipoCambioPago} onChange={e => setTipoCambioPago(e.target.value)} disabled={monedaPago === 'MXN'}
+                style={{ ...inpStyle, opacity: monedaPago === 'MXN' ? 0.4 : 1, borderColor: monedaPago !== 'MXN' && !(parseFloat(tipoCambioPago) > 0) ? '#DC2626' : undefined }} />
+              {monedaPago !== 'MXN' && (
+                <div style={{ fontSize: 10, color: parseFloat(tipoCambioPago) > 0 ? '#666' : '#f87171', marginTop: 4 }}>
+                  {parseFloat(tipoCambioPago) > 0
+                    ? `${monedaPago} → MXN del día en que entró el dinero.`
+                    : 'Obligatorio: el SAT pide TipoCambioP cuando el pago no es en pesos.'}
+                </div>
+              )}
             </div>
             <div>
               <label style={lblStyle}>Monto del pago * ({monedaPago})</label>
