@@ -1,9 +1,8 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
-import BotonCatalogo from '../components/BotonCatalogo'
 import { F, STAGE_CONFIG } from '../lib/utils'
 import { Badge, Btn, Loading } from '../components/layout/UI'
-import { ChevronLeft, ChevronDown, ChevronRight, Settings, X, Printer, Download, Save, Check, Pencil, BookOpen } from 'lucide-react'
+import { ChevronLeft, ChevronDown, ChevronRight, Settings, X, Printer, Download, Save, Check, Pencil, BookOpen, Plus, Trash2 } from 'lucide-react'
 import EditCotInfoModal from '../components/EditCotInfoModal'
 import VersionManager, { VersionSnapshot } from '../components/VersionManager'
 import { OMNIIOUS_LOGO } from '../assets/logo'
@@ -32,6 +31,14 @@ interface ProyItem {
   entregablesActivos: string[]
   included: boolean
   order: number
+  /** Nombre del renglón. Los del catálogo lo toman del sistema; los que agrega
+   *  el usuario (p.ej. «Levantamiento») lo traen aquí. */
+  nombre?: string
+  /** Lista de alcances de ESTE renglón. Si no viene, se usa la del catálogo.
+   *  Permite agregar alcances propios sin tocar el catálogo. */
+  entregablesDisponibles?: string[]
+  /** true = lo dio de alta el usuario, no viene del catálogo */
+  custom?: boolean
 }
 
 interface ProySystem {
@@ -724,7 +731,8 @@ function ProyPdfModal({
   }
 
   // Build entregables rows
-  const hasEntregables = includedItems.some(it => systemsMap.get(it.systemId)?.entregables.length)
+  const alcancesDe = (it: any): string[] => it.entregablesDisponibles ?? systemsMap.get(it.systemId)?.entregables ?? []
+  const hasEntregables = includedItems.some(it => alcancesDe(it).length > 0 && it.entregablesActivos.length > 0)
 
   return (
     <div
@@ -893,7 +901,7 @@ function ProyPdfModal({
                 const importe = it.m2 * it.precioM2
                 return (
                   <tr key={it.id}>
-                    <td style={{ padding: '5px 8px', borderBottom: '1px solid #eee', fontSize: 10, fontWeight: 600, verticalAlign: 'top' }}>{system?.name || 'Sistema'}</td>
+                    <td style={{ padding: '5px 8px', borderBottom: '1px solid #eee', fontSize: 10, fontWeight: 600, verticalAlign: 'top' }}>{(it as any).nombre || system?.name || it.descripcion}</td>
                     <td style={{ padding: '5px 8px', borderBottom: '1px solid #eee', fontSize: 10, textAlign: 'right', verticalAlign: 'top' }}>{it.m2.toFixed(2)}</td>
                     <td style={{ padding: '5px 8px', borderBottom: '1px solid #eee', fontSize: 10, textAlign: 'right', verticalAlign: 'top' }}>${it.precioM2.toFixed(2)}</td>
                     <td style={{ padding: '5px 8px', borderBottom: '1px solid #eee', fontSize: 10, textAlign: 'right', fontWeight: 500, verticalAlign: 'top' }}>${importe.toFixed(2)}</td>
@@ -938,15 +946,15 @@ function ProyPdfModal({
             </h2>
             <div style={{ fontSize: 9, color: '#888', marginBottom: 12 }}>Solamente artículos incluidos en esta cotización</div>
             {includedItems
-              .filter(it => systemsMap.get(it.systemId)?.entregables.length)
+              .filter(it => alcancesDe(it).length > 0)
               .map(it => {
-                const system = systemsMap.get(it.systemId)!
-                const activeEntregables = it.entregablesActivos.filter(e => system.entregables.includes(e))
+                const system = systemsMap.get(it.systemId)
+                const activeEntregables = it.entregablesActivos.filter(e => alcancesDe(it).includes(e))
                 if (activeEntregables.length === 0) return null
                 return (
                   <div key={it.id} style={{ marginBottom: 14 }}>
                     <div style={{ background: '#f0f0f0', padding: '6px 12px', marginBottom: 4, borderLeft: '3px solid #111', borderRadius: 2 }}>
-                      <span style={{ fontSize: 11, fontWeight: 600, color: '#111' }}>{system.name}</span>
+                      <span style={{ fontSize: 11, fontWeight: 600, color: '#111' }}>{(it as any).nombre || system?.name || it.descripcion}</span>
                     </div>
                     <div style={{ paddingLeft: 16 }}>
                       {activeEntregables.map((e, i) => (
@@ -1001,14 +1009,29 @@ function ProyItemRow({
   onUpdate,
   onToggleExpanded,
   expanded,
+  onAddEntregable,
+  onRemoveEntregable,
+  onDelete,
+  onRename,
 }: {
   item: ProyItem
-  system: ProySystem
+  system?: ProySystem
   onUpdate: (id: string, field: string, value: any) => void
   onToggleExpanded: (id: string) => void
   expanded: boolean
+  onAddEntregable: (itemId: string, texto: string) => void
+  onRemoveEntregable: (itemId: string, texto: string) => void
+  onDelete: (item: ProyItem) => void
+  onRename: (item: ProyItem, nombre: string) => void
 }) {
   const importe = item.m2 * item.precioM2
+  const [nuevoEnt, setNuevoEnt] = useState('')
+  const [editandoNombre, setEditandoNombre] = useState(false)
+  const [nombreTmp, setNombreTmp] = useState(item.nombre || system?.name || '')
+  // Los alcances salen del renglón cuando los hay (conceptos propios o
+  // alcances agregados a mano); si no, del catálogo.
+  const alcances = item.entregablesDisponibles ?? system?.entregables ?? []
+  const titulo = item.nombre || system?.name || item.descripcion || 'Concepto'
 
   return (
     <>
@@ -1039,8 +1062,25 @@ function ProyItemRow({
             }}
           >
             {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-            {system.name}
+            {editandoNombre ? (
+              <input
+                value={nombreTmp}
+                autoFocus
+                onClick={e => e.stopPropagation()}
+                onChange={e => setNombreTmp(e.target.value)}
+                onBlur={() => { onRename(item, nombreTmp); setEditandoNombre(false) }}
+                onKeyDown={e => { if (e.key === 'Enter') { onRename(item, nombreTmp); setEditandoNombre(false) } }}
+                style={{ ...S.input, width: 220 }}
+              />
+            ) : titulo}
           </button>
+          {item.custom && !editandoNombre && (
+            <button onClick={() => { setNombreTmp(titulo); setEditandoNombre(true) }}
+              title="Renombrar concepto"
+              style={{ background: 'none', border: 'none', color: '#444', cursor: 'pointer', padding: 2 }}>
+              <Pencil size={11} />
+            </button>
+          )}
         </td>
         <td style={S.tdR}>
           <input
@@ -1087,18 +1127,27 @@ function ProyItemRow({
           />
         </td>
         <td style={{ ...S.tdM, textAlign: 'right' }}>
-          ${(importe || 0).toFixed(2)}
+          <span style={{ marginRight: 6 }}>${(importe || 0).toFixed(2)}</span>
+          <button onClick={() => onDelete(item)} title="Quitar de la cotización"
+            style={{ background: 'none', border: 'none', color: '#3a3a3a', cursor: 'pointer', padding: 0, verticalAlign: 'middle' }}>
+            <Trash2 size={12} />
+          </button>
         </td>
       </tr>
-      {expanded && item.included && system.entregables.length > 0 && (
+      {expanded && item.included && (
         <tr style={{ background: '#0a0a0a' }}>
           <td colSpan={6} style={{ padding: '12px 16px' }}>
             <div style={{ marginLeft: 24 }}>
               <div style={{ fontSize: 10, fontWeight: 600, color: '#555', textTransform: 'uppercase', marginBottom: 8 }}>
                 Entregables
               </div>
+              {alcances.length === 0 && (
+                <div style={{ fontSize: 11, color: '#555', fontStyle: 'italic', marginBottom: 8 }}>
+                  Todavía no tiene alcances. Agrégalos abajo — así salen en la propuesta.
+                </div>
+              )}
               <div style={{ display: 'grid', gap: 6 }}>
-                {system.entregables.map((ent, i) => (
+                {alcances.map((ent, i) => (
                   <label
                     key={i}
                     style={{
@@ -1121,9 +1170,34 @@ function ProyItemRow({
                       }}
                       style={{ cursor: 'pointer' }}
                     />
-                    {ent}
+                    <span style={{ flex: 1 }}>{ent}</span>
+                    <button onClick={() => onRemoveEntregable(item.id, ent)} title="Quitar este alcance"
+                      style={{ background: 'none', border: 'none', color: '#3a3a3a', cursor: 'pointer', padding: 0, display: 'flex' }}>
+                      <X size={11} />
+                    </button>
                   </label>
                 ))}
+              </div>
+              {/* Agregar alcances a mano — sirve para conceptos propios y para
+                  añadir uno que el catálogo no traía. */}
+              <div style={{ display: 'flex', gap: 6, marginTop: 10, alignItems: 'center' }}>
+                <input
+                  value={nuevoEnt}
+                  onChange={e => setNuevoEnt(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') { onAddEntregable(item.id, nuevoEnt); setNuevoEnt('') } }}
+                  placeholder="Agregar alcance… (ej. Reporte fotográfico)"
+                  style={{ ...S.input, flex: 1, maxWidth: 420 }}
+                />
+                <button
+                  onClick={() => { onAddEntregable(item.id, nuevoEnt); setNuevoEnt('') }}
+                  disabled={!nuevoEnt.trim()}
+                  style={{
+                    padding: '4px 12px', borderRadius: 6, fontSize: 11, fontWeight: 600, fontFamily: 'inherit',
+                    cursor: nuevoEnt.trim() ? 'pointer' : 'not-allowed',
+                    background: nuevoEnt.trim() ? '#67E8F922' : 'transparent',
+                    border: '1px solid ' + (nuevoEnt.trim() ? '#67E8F955' : '#2a2a2a'),
+                    color: nuevoEnt.trim() ? '#67E8F9' : '#444',
+                  }}>Agregar</button>
               </div>
             </div>
           </td>
@@ -1229,7 +1303,7 @@ function ProySummary({
             const importe = it.m2 * it.precioM2
             return (
               <div key={it.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10 }}>
-                <span style={{ color: '#888' }}>{system?.name || 'Sistema'}</span>
+                <span style={{ color: '#888' }}>{it.nombre || system?.name || it.descripcion || 'Concepto'}</span>
                 <span style={{ color: '#ccc', fontWeight: 500 }}>${importe.toFixed(2)}</span>
               </div>
             )
@@ -1308,7 +1382,11 @@ export default function CotEditorProyecto({ cotId, onBack, specialty = 'proy', o
   const [tipoProyecto, setTipoProyecto] = useState<TipoProyecto>(fallbackTipo)
 
   const tipoCfg = TIPO_PROYECTO_CONFIG[tipoProyecto]
-  const SYSTEMS = tipoCfg.systems
+  // Sistemas dados de alta a mano en esta cotización (p.ej. «Levantamiento»).
+  // Viven en las notas de la cotización, no en el catálogo, porque son de este
+  // trabajo en particular.
+  const [customSystems, setCustomSystems] = useState<ProySystem[]>([])
+  const SYSTEMS = useMemo(() => [...tipoCfg.systems, ...customSystems], [tipoCfg, customSystems])
   const BADGE_LABEL = tipoCfg.badgeLabel
   const BADGE_COLOR = tipoCfg.color
   const TITLE_PREFIX = tipoCfg.titlePrefix
@@ -1364,6 +1442,9 @@ export default function CotEditorProyecto({ cotId, onBack, specialty = 'proy', o
         if (meta.tipoProyecto && TIPO_PROYECTO_CONFIG[meta.tipoProyecto as TipoProyecto]) {
           setTipoProyecto(meta.tipoProyecto as TipoProyecto)
         }
+        if (Array.isArray(meta.proyCustomSystems)) {
+          setCustomSystems(meta.proyCustomSystems.filter((x: any) => x && x.id && x.name))
+        }
       } catch {}
     }
 
@@ -1391,9 +1472,29 @@ export default function CotEditorProyecto({ cotId, onBack, specialty = 'proy', o
           entregablesActivos: meta.entregablesActivos || [],
           included: meta.included !== false,
           order: it.order_index || 0,
+          nombre: meta.nombre,
+          entregablesDisponibles: meta.entregablesDisponibles,
+          custom: meta.custom === true,
         } as ProyItem
       })
       setItems(loaded)
+      // Los renglones a la medida se autodescriben: si la cotización perdió la
+      // lista de sistemas custom, se reconstruye desde los propios renglones.
+      const rescatados = loaded
+        .filter(l => l.custom && l.systemId)
+        .map(l => ({
+          id: l.systemId,
+          name: l.nombre || l.descripcion || 'Sistema',
+          defaultPrecioM2: l.precioM2,
+          defaultDesc: l.descripcion,
+          entregables: l.entregablesDisponibles || [],
+        } as ProySystem))
+      if (rescatados.length) {
+        setCustomSystems(prev => {
+          const ids = new Set(prev.map(x => x.id))
+          return [...prev, ...rescatados.filter(r => !ids.has(r.id))]
+        })
+      }
     } else {
       let initialM2 = 0
       try {
@@ -1464,8 +1565,45 @@ export default function CotEditorProyecto({ cotId, onBack, specialty = 'proy', o
   const saveAll = useCallback(async () => {
     setSaving(true)
     try {
-      // 1. Save each item to DB
-      const promises = items.map(it => {
+      // 1. Guardar cada renglón.
+      // Los que se agregaron en pantalla todavía no existen en la base: su id
+      // es temporal, no un uuid. Antes se les hacía UPDATE contra un id que no
+      // existía, no afectaban ninguna fila y el cambio se perdía en silencio.
+      // Ahora esos se INSERTAN y adoptan su id real.
+      const esUuid = (v: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v)
+      const notasDe = (it: ProyItem) => JSON.stringify({
+        systemId: it.systemId,
+        m2: it.m2,
+        precioM2: it.precioM2,
+        descripcion: it.descripcion,
+        entregablesActivos: it.entregablesActivos,
+        included: it.included,
+        nombre: it.nombre,
+        entregablesDisponibles: it.entregablesDisponibles,
+        custom: it.custom,
+      })
+
+      const nuevos = items.filter(it => !esUuid(it.id))
+      if (nuevos.length) {
+        const { data: areaRow } = await supabase.from('quotation_areas').select('id').eq('quotation_id', cotId).limit(1).maybeSingle()
+        const areaId = (areaRow as any)?.id || null
+        const idsNuevos: Record<string, string> = {}
+        for (const it of nuevos) {
+          const { data, error } = await supabase.from('quotation_items').insert({
+            quotation_id: cotId, area_id: areaId, system: 'General', type: 'material',
+            name: it.descripcion, quantity: it.m2, cost: 0, price: it.precioM2,
+            total: it.m2 * it.precioM2, markup: 0, installation_cost: 0,
+            order_index: it.order, notes: notasDe(it),
+          }).select('id').single()
+          if (error) throw error
+          if (data?.id) idsNuevos[it.id] = data.id
+        }
+        if (Object.keys(idsNuevos).length) {
+          setItems(prev => prev.map(x => idsNuevos[x.id] ? { ...x, id: idsNuevos[x.id] } : x))
+        }
+      }
+
+      const promises = items.filter(it => esUuid(it.id)).map(it => {
         const importe = it.m2 * it.precioM2
         return supabase
           .from('quotation_items')
@@ -1475,14 +1613,7 @@ export default function CotEditorProyecto({ cotId, onBack, specialty = 'proy', o
             price: it.precioM2,
             total: importe,
             order_index: it.order,
-            notes: JSON.stringify({
-              systemId: it.systemId,
-              m2: it.m2,
-              precioM2: it.precioM2,
-              descripcion: it.descripcion,
-              entregablesActivos: it.entregablesActivos,
-              included: it.included,
-            }),
+            notes: notasDe(it),
           })
           .eq('id', it.id)
       })
@@ -1495,7 +1626,8 @@ export default function CotEditorProyecto({ cotId, onBack, specialty = 'proy', o
         .from('quotations')
         .update({
           total: Math.round(grandTotal * 100) / 100,
-          notes: JSON.stringify({ ...existingNotes, proyConfig: config }),
+          total_final: Math.round(grandTotal * 100) / 100,
+          notes: JSON.stringify({ ...existingNotes, proyConfig: config, proyCustomSystems: customSystems }),
         })
         .eq('id', cotId)
 
@@ -1529,8 +1661,106 @@ export default function CotEditorProyecto({ cotId, onBack, specialty = 'proy', o
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [saveAll])
 
+  // ── Autoguardado ──
+  // Este editor era el único que exigía apretar «Guardar»: cambiabas el
+  // precio/m², el total se actualizaba en pantalla y si te salías sin guardar
+  // se perdía. Los demás cotizadores (especiales, iluminación, cortinas)
+  // persisten solos. Ahora éste también, ~1s después de dejar de teclear.
+  useEffect(() => {
+    if (loading || !dirty || saving) return
+    const t = setTimeout(() => { saveAll() }, 1000)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items, config, dirty, loading])
+
+  // Red de seguridad: si cierra la pestaña con cambios sin guardar, avisar.
+  useEffect(() => {
+    if (!dirty) return
+    const aviso = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = '' }
+    window.addEventListener('beforeunload', aviso)
+    return () => window.removeEventListener('beforeunload', aviso)
+  }, [dirty])
+
   function updateConfig(field: string, value: any) {
     setConfig(prev => ({ ...prev, [field]: value }))
+    setDirty(true)
+  }
+
+  // ── Sistemas a la medida ────────────────────────────────────────────
+  // El catálogo no cubre todo: hay trabajos como «Levantamiento» que se
+  // cotizan por proyecto. Se dan de alta aquí y viven en esta cotización.
+  function agregarSistema() {
+    const nombre = prompt('¿Cómo se llama el concepto?\n\nEjemplo: Levantamiento')
+    if (!nombre || !nombre.trim()) return
+    const sysId = 'custom_' + uid()
+    const nuevoSys: ProySystem = {
+      id: sysId,
+      name: nombre.trim(),
+      defaultPrecioM2: 0,
+      defaultDesc: nombre.trim(),
+      entregables: [],
+    }
+    setCustomSystems(prev => [...prev, nuevoSys])
+    setItems(prev => [...prev, {
+      id: uid(),
+      systemId: sysId,
+      m2: globalM2 || 0,
+      precioM2: 0,
+      descripcion: nombre.trim(),
+      entregablesActivos: [],
+      included: true,
+      order: prev.length,
+      nombre: nombre.trim(),
+      entregablesDisponibles: [],
+      custom: true,
+    }])
+    setExpandedItems(prev => new Set(prev).add(sysId))
+    setDirty(true)
+  }
+
+  /** Agrega un alcance a un renglón (queda disponible y marcado). */
+  function agregarEntregable(itemId: string, texto: string) {
+    const t = texto.trim()
+    if (!t) return
+    setItems(prev => prev.map(it => {
+      if (it.id !== itemId) return it
+      const base = it.entregablesDisponibles ?? (SYSTEMS.find(x => x.id === it.systemId)?.entregables || [])
+      if (base.includes(t)) return it
+      return { ...it, entregablesDisponibles: [...base, t], entregablesActivos: [...it.entregablesActivos, t] }
+    }))
+    setDirty(true)
+  }
+
+  function quitarEntregable(itemId: string, texto: string) {
+    setItems(prev => prev.map(it => {
+      if (it.id !== itemId) return it
+      const base = it.entregablesDisponibles ?? (SYSTEMS.find(x => x.id === it.systemId)?.entregables || [])
+      return {
+        ...it,
+        entregablesDisponibles: base.filter(x => x !== texto),
+        entregablesActivos: it.entregablesActivos.filter(x => x !== texto),
+      }
+    }))
+    setDirty(true)
+  }
+
+  async function borrarRenglon(item: ProyItem) {
+    const sys = SYSTEMS.find(x => x.id === item.systemId)
+    if (!confirm(`¿Quitar «${item.nombre || sys?.name || item.descripcion}» de la cotización?`)) return
+    if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(item.id)) {
+      await supabase.from('quotation_items').delete().eq('id', item.id)
+    }
+    setItems(prev => prev.filter(x => x.id !== item.id))
+    if (item.custom) setCustomSystems(prev => prev.filter(x => x.id !== item.systemId))
+    setDirty(true)
+  }
+
+  /** Renombrar un concepto propio. */
+  function renombrarSistema(item: ProyItem, nombre: string) {
+    const t = nombre.trim()
+    if (!t) return
+    setCustomSystems(prev => prev.map(x => x.id === item.systemId ? { ...x, name: t } : x))
+    setItems(prev => prev.map(x => x.id === item.id ? { ...x, nombre: t } : x))
     setDirty(true)
   }
 
@@ -1623,7 +1853,6 @@ export default function CotEditorProyecto({ cotId, onBack, specialty = 'proy', o
         {projectName && <span style={{ fontSize: 10, color: '#555' }}>| {projectName}</span>}
         <button onClick={() => setShowEditInfo(true)} style={{background:'none',border:'none',color:'#555',cursor:'pointer',padding:2,display:'flex',alignItems:'center'}} title="Editar info"><Pencil size={12}/></button>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 4, alignItems: 'center' }}>
-          <BotonCatalogo cotId={cotId} />
           {(Object.entries(STAGE_CONFIG) as Array<[string, { label: string; color: string }]>).map(([s, cfg]) => (
             <button
               key={s}
@@ -1817,7 +2046,9 @@ export default function CotEditorProyecto({ cotId, onBack, specialty = 'proy', o
             </thead>
             <tbody>
               {items.map(item => {
-                const system = SYSTEMS.find(s => s.id === item.systemId)!
+                // Puede no estar en el catálogo: los conceptos propios se
+                // describen a sí mismos desde el renglón.
+                const system = SYSTEMS.find(s => s.id === item.systemId)
                 return (
                   <ProyItemRow
                     key={item.id}
@@ -1826,9 +2057,28 @@ export default function CotEditorProyecto({ cotId, onBack, specialty = 'proy', o
                     onUpdate={updateItem}
                     onToggleExpanded={toggleExpanded}
                     expanded={expandedItems.has(item.id)}
+                    onAddEntregable={agregarEntregable}
+                    onRemoveEntregable={quitarEntregable}
+                    onDelete={borrarRenglon}
+                    onRename={renombrarSistema}
                   />
                 )
               })}
+              <tr>
+                <td colSpan={6} style={{ padding: '10px 16px' }}>
+                  <button onClick={agregarSistema} style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 6,
+                    padding: '6px 12px', borderRadius: 8, cursor: 'pointer', fontFamily: 'inherit',
+                    fontSize: 11, fontWeight: 600,
+                    background: '#67E8F915', border: '1px dashed #67E8F955', color: '#67E8F9',
+                  }}>
+                    <Plus size={12} /> Agregar concepto
+                  </button>
+                  <span style={{ fontSize: 10, color: '#444', marginLeft: 10 }}>
+                    Para lo que no está en el catálogo — levantamiento, visitas, lo que haga falta.
+                  </span>
+                </td>
+              </tr>
             </tbody>
           </table>
         </div>
