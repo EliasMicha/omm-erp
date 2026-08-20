@@ -259,7 +259,7 @@ export default function AIQuoteChat({ onClose, onCreated }: {
         const [catRes, precRes] = await Promise.all([
           catQ,
           supabase.from('quotations').select('id,name,specialty,total,notes')
-            .eq('specialty', 'esp').neq('total', 0)
+            .eq('specialty', 'esp').neq('total', 0).eq('vigente', true)
             .order('updated_at', { ascending: false }).limit(5),
         ])
 

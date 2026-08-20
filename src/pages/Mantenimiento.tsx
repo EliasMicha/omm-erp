@@ -2411,10 +2411,10 @@ function CreateFromLeadModal({ onClose, onCreated }: { onClose: () => void; onCr
     setLoadingQuots(true)
     const found = new Map<string, QuotOpt>()
     if (l.project_id) {
-      const { data } = await supabase.from('quotations').select('id, name, specialty, total, stage').eq('project_id', l.project_id)
+      const { data } = await supabase.from('quotations').select('id, name, specialty, total, stage').eq('project_id', l.project_id).eq('vigente', true)
       ;(data || []).forEach((q: any) => found.set(q.id, q))
     }
-    const { data: byNotes } = await supabase.from('quotations').select('id, name, specialty, total, stage').ilike('notes', `%${id}%`).limit(20)
+    const { data: byNotes } = await supabase.from('quotations').select('id, name, specialty, total, stage').ilike('notes', `%${id}%`).eq('vigente', true).limit(20)
     ;(byNotes || []).forEach((q: any) => found.set(q.id, q))
     const list = Array.from(found.values())
     setQuots(list)

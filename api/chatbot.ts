@@ -344,7 +344,9 @@ async function executeFunction(name: string, args: any): Promise<string> {
     switch (name) {
       case 'search_quotations': {
         const { query, specialty, stage, limit = 20 } = args
-        let filters = `order=created_at.desc&limit=${limit}`
+        // Solo versiones vigentes: una cotización con 5 versiones no son 5
+        // cotizaciones distintas, y el chatbot las reportaba como tales.
+        let filters = `vigente=eq.true&order=created_at.desc&limit=${limit}`
         if (query) filters += `&or=(name.ilike.%${query}%,client_name.ilike.%${query}%)`
         if (specialty) filters += `&specialty=eq.${encodeURIComponent(specialty)}`
         if (stage) filters += `&stage=eq.${encodeURIComponent(stage)}`
@@ -456,7 +458,9 @@ async function executeFunction(name: string, args: any): Promise<string> {
 
       case 'get_sales_report': {
         const { period = 'month' } = args
-        const quotations = await supabaseQuery('quotations', '')
+        // Sin el filtro de vigencia este reporte sumaba cada versión como una
+        // venta aparte y el pipeline salía inflado.
+        const quotations = await supabaseQuery('quotations', 'vigente=eq.true')
 
         // Group by stage and specialty
         const byStage: Record<string, number> = {}
@@ -561,7 +565,7 @@ async function executeFunction(name: string, args: any): Promise<string> {
 
       case 'get_dashboard_summary': {
         const [quotations, obras, milestones, employees] = await Promise.all([
-          supabaseQuery('quotations', ''),
+          supabaseQuery('quotations', 'vigente=eq.true'),
           supabaseQuery('obras', 'status=neq.completado'),
           supabaseQuery('payment_milestones', ''),
           supabaseQuery('employees', 'is_active=eq.true'),

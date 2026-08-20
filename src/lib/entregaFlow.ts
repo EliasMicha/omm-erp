@@ -111,7 +111,7 @@ export async function destinoDeCotizacion(quotationId: string | null, leadId?: s
     // `quotations` no tiene columna lead_id: el lead viaja dentro de `notes`
     // como JSON, así que se busca por texto y se confirma al parsear.
     const { data: qs } = await supabase.from('quotations')
-      .select('id,notes').ilike('notes', `%${leadId}%`).limit(20)
+      .select('id,notes').ilike('notes', `%${leadId}%`).eq('vigente', true).limit(20)
     const ids = ((qs as any[]) || []).filter(q => {
       try { return JSON.parse(q.notes || '{}').lead_id === leadId } catch { return false }
     }).map(q => q.id)

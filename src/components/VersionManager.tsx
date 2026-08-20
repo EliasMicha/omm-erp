@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
+import { marcarVigente } from '../lib/versionesCotizacion'
 import { GitBranch, Copy, Eye, X, ChevronDown, ChevronRight, ArrowRight, Plus, Minus, Pencil, Check, Trash2 } from 'lucide-react'
 
 // ═══════════════════════════════════════════════════════════════════
@@ -28,6 +29,7 @@ interface SiblingVersion {
   stage: string
   created_at: string
   specialty: string | null
+  vigente?: boolean | null
 }
 
 interface VersionManagerProps {
@@ -74,7 +76,7 @@ export default function VersionManager({ cotId, getCurrentSnapshot, onSwitchVers
       // Load all siblings in the group
       const { data: sibs } = await supabase
         .from('quotations')
-        .select('id, name, version_label, total, stage, created_at, specialty')
+        .select('id, name, version_label, total, stage, created_at, specialty, vigente')
         .eq('version_group_id', gid)
         .order('version_label')
       setSiblings((sibs || []) as SiblingVersion[])
@@ -100,11 +102,33 @@ export default function VersionManager({ cotId, getCurrentSnapshot, onSwitchVers
     await supabase.from('quotation_areas').delete().eq('quotation_id', s.id)
     const { error } = await supabase.from('quotations').delete().eq('id', s.id)
     if (error) { alert('Error al eliminar la versión: ' + error.message); return }
+    // Si la borrada era la vigente, el grupo se queda sin dueño: se promueve
+    // otra en el acto para que ningún módulo se quede sin cotización.
+    if (s.vigente) {
+      const otra = siblings.find(x => x.id !== s.id)
+      if (otra) await marcarVigente(otra.id)
+    }
     // Si borramos la versión que estamos viendo, cambiar a otra hermana
     if (s.id === cotId) {
       const other = siblings.find(x => x.id !== s.id)
       if (other) { setShowPanel(false); onSwitchVersion(other.id); return }
     }
+    loadSiblings()
+  }
+
+  // La versión vigente es la que ve TODO el ERP: Cobranza, obras, compras,
+  // entregas y los tableros. Cambiarla aquí cambia de qué versión cuelga el
+  // proyecto en todos lados, por eso se pide confirmación.
+  async function hacerVigente(s: SiblingVersion) {
+    if (s.vigente) return
+    const otra = siblings.find(x => x.vigente)
+    if (!confirm(
+      `¿Dejar la versión "${s.version_label || ''} — ${s.name}" como la vigente?\n\n` +
+      (otra ? `Ahora mismo la vigente es "${otra.version_label || ''} — ${otra.name}".\n\n` : '') +
+      'Es la versión que van a usar Cobranza, Compras, Entregas, las obras y los tableros. Las demás quedan como histórico.'
+    )) return
+    const r = await marcarVigente(s.id)
+    if (!r.ok) { alert('No se pudo cambiar la versión vigente: ' + r.error); return }
     loadSiblings()
   }
 
@@ -124,7 +148,7 @@ export default function VersionManager({ cotId, getCurrentSnapshot, onSwitchVers
         vgId = crypto.randomUUID()
         isFirstVersion = true
         // Set group + label "A" on the original quotation
-        await supabase.from('quotations').update({ version_group_id: vgId, version_label: 'A' }).eq('id', cotId)
+        await supabase.from('quotations').update({ version_group_id: vgId, version_label: 'A', vigente: true }).eq('id', cotId)
         setCurrentLabel('A')
       }
 
@@ -151,11 +175,16 @@ export default function VersionManager({ cotId, getCurrentSnapshot, onSwitchVers
 
       // 4. Clone the quotation row
       const { id: _, created_at: __, version_label: ___, ...cotClone } = cot
+      // La copia NACE como histórica, no como vigente. Si el original ya está
+      // en contrato, promoverla sola dejaría a Cobranza y a la obra colgando de
+      // una propuesta sin firmar. Cuando esta versión sea la buena, se marca
+      // con «Hacer vigente» — y ahí sí cambia para todo el ERP.
       const { data: newCot, error: cotErr } = await supabase.from('quotations').insert({
         ...cotClone,
         name: cot.name + ` (${finalLabel})`,
         version_group_id: vgId,
         version_label: finalLabel,
+        vigente: false,
       }).select().single()
       if (cotErr || !newCot) { alert('Error clonando cotización: ' + (cotErr?.message || 'unknown')); return }
 
@@ -364,6 +393,7 @@ export default function VersionManager({ cotId, getCurrentSnapshot, onSwitchVers
                     }}
                     onRenamed={loadSiblings}
                     onDelete={() => deleteVersion(s)}
+                    onHacerVigente={() => hacerVigente(s)}
                   />
                 ))
               )}
@@ -378,8 +408,9 @@ export default function VersionManager({ cotId, getCurrentSnapshot, onSwitchVers
 // ═══════════════════════════════════════════════════════════════════
 // SIBLING ROW
 // ═══════════════════════════════════════════════════════════════════
-function SiblingRow({ sibling: s, isCurrent, accentColor, canDelete, onSwitch, onRenamed, onDelete }: {
-  sibling: SiblingVersion; isCurrent: boolean; accentColor: string; canDelete: boolean; onSwitch: () => void; onRenamed: () => void; onDelete: () => void
+function SiblingRow({ sibling: s, isCurrent, accentColor, canDelete, onSwitch, onRenamed, onDelete, onHacerVigente }: {
+  sibling: SiblingVersion; isCurrent: boolean; accentColor: string; canDelete: boolean
+  onSwitch: () => void; onRenamed: () => void; onDelete: () => void; onHacerVigente: () => void
 }) {
   const [editing, setEditing] = useState(false)
   const [editName, setEditName] = useState(s.name)
@@ -460,6 +491,18 @@ function SiblingRow({ sibling: s, isCurrent, accentColor, canDelete, onSwitch, o
               {s.name}
             </span>
             {isCurrent && <span style={{ fontSize: 9, color: accentColor }}>● Actual</span>}
+            {s.vigente ? (
+              <span title="Es la versión que usa todo el ERP: cobranza, compras, entregas, obras y tableros"
+                style={{ fontSize: 9, fontWeight: 800, color: '#111', background: '#10B981', padding: '1px 7px', borderRadius: 5, flexShrink: 0 }}>
+                VIGENTE
+              </span>
+            ) : (
+              <button onClick={e => { e.stopPropagation(); onHacerVigente() }}
+                title="Dejar esta versión como la vigente para todo el ERP"
+                style={{ fontSize: 9, fontWeight: 700, color: '#888', background: 'transparent', border: '1px solid #333', borderRadius: 5, padding: '1px 7px', cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0 }}>
+                Hacer vigente
+              </button>
+            )}
             <button
               onClick={e => { e.stopPropagation(); setEditName(s.name); setEditing(true) }}
               style={{ background: 'none', border: 'none', color: '#444', cursor: 'pointer', padding: 2, display: 'flex', flexShrink: 0 }}

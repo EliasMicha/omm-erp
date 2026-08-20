@@ -1034,7 +1034,7 @@ function FichaObra({ obra, coordinadores, onGuardar }: {
     Promise.all([
       // total_final = con descuento e IVA (lo que ve el cliente). `total` es el
       // subtotal de lista: leerlo aquí era lo que inflaba el valor del contrato.
-      supabase.from('quotations').select('id,name,specialty,total,total_final,notes,client_name').order('created_at', { ascending: false }).limit(600),
+      supabase.from('quotations').select('id,name,specialty,total,total_final,notes,client_name').eq('vigente', true).order('created_at', { ascending: false }).limit(600),
       supabase.from('leads').select('id,name').order('name'),
     ]).then(([q, l]) => {
       setLeadsMap(Object.fromEntries((((l as any).data || []) as any[]).map(x => [x.id, x.name])))
@@ -4056,6 +4056,7 @@ function NuevaObraModal({ coordinadores, onClose, onSubmit, onCreated }: {
     Promise.all([
       supabase.from('leads').select('id,name,company').order('name'),
       supabase.from('quotations').select('id, name, total, total_final, project_id, client_name, notes, stage, specialty, projects:projects!quotations_project_id_fkey(name)')
+        .eq('vigente', true)
         .order('created_at', { ascending: false }),
     ]).then(([lRes, qRes]) => {
       setLeads((lRes.data || []) as any)

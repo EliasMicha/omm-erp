@@ -9,6 +9,7 @@ import { SPECIALTY_CONFIG } from '../lib/utils'
 import { tcForYear, DEFAULT_TC } from '../lib/fx'
 import { ProjectLine } from '../types'
 import { useAuth } from '../contexts/AuthContext'
+import { soloVigentes } from '../lib/versionesCotizacion'
 
 type LeadStatus = 'nuevo' | 'contactado' | 'diagnostico' | 'cotizando' | 'ganado' | 'perdido' | 'pausado'
 type LeadOrigin = 'inbound' | 'outbound' | 'referido' | 'arquitecto' | 'desarrolladora'
@@ -1001,7 +1002,7 @@ export default function CRM() {
     ])
     Promise.all([
       supabase.from('leads').select('*').order('updated_at', { ascending: false }),
-      supabase.from('quotations').select('id,client_name,stage,total,total_final,notes,specialty,version_group_id,version_label,updated_at,created_at,commercial_year'),
+      supabase.from('quotations').select('id,client_name,stage,total,total_final,notes,specialty,version_group_id,version_label,vigente,updated_at,created_at,commercial_year'),
       supabase.from('cash_movements').select('lead_id, quotation_id, monto, fecha, tipo, direccion'),
       supabase.from('payment_allocations').select('quotation_id, monto, monto_origen, moneda_origen, bank_movement_id'),
     ]).then(([{ data: ld }, { data: qt }, { data: cm }, { data: pa }]) => {
@@ -1124,21 +1125,11 @@ export default function CRM() {
         const getCurrency = (q: any): 'USD' | 'MXN' => {
           try { const m = JSON.parse(q.notes || '{}'); return m.currency === 'MXN' ? 'MXN' : 'USD' } catch { return 'USD' }
         }
-        // Dedupe versiones: si varias quotations comparten version_group_id,
-        // solo cuenta la mas reciente (por updated_at). Las que no tienen
-        // version_group_id se consideran unicas.
-        const dedupeVersions = (quotes: any[]): any[] => {
-          const byGroup = new Map<string, any>()
-          const noGroup: any[] = []
-          for (const q of quotes) {
-            if (!q.version_group_id) { noGroup.push(q); continue }
-            const existing = byGroup.get(q.version_group_id)
-            if (!existing || (q.updated_at || '') > (existing.updated_at || '')) {
-              byGroup.set(q.version_group_id, q)
-            }
-          }
-          return [...byGroup.values(), ...noGroup]
-        }
+        // Dedupe de versiones: se usa la MISMA regla que el resto del ERP
+        // (quotations.vigente). Antes aquí se tomaba "la más reciente por
+        // updated_at", que no es lo mismo: Pico Love tiene la version 2.0 más
+        // nueva pero en propuesta, y la vendida es la A que está en contrato.
+        const dedupeVersions = (quotes: any[]): any[] => soloVigentes(quotes)
         for (const lead of ld) {
           const leadQuotesAll = qt.filter(q => {
             let meta: any = {}

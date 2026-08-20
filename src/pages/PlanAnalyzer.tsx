@@ -117,7 +117,7 @@ export default function PlanAnalyzer({ onBack }: { onBack: () => void }) {
       try {
         const [catRes, precRes] = await Promise.all([
           supabase.from('catalog_products').select('id,name,description,marca,modelo,system,provider,moneda,cost,markup').eq('is_active', true),
-          supabase.from('quotations').select('id,name,specialty,total,notes').eq('specialty', 'esp').order('updated_at', { ascending: false }).limit(10),
+          supabase.from('quotations').select('id,name,specialty,total,notes').eq('specialty', 'esp').eq('vigente', true).order('updated_at', { ascending: false }).limit(10),
         ])
 
         setCatalog((catRes.data || []) as CatalogProduct[])

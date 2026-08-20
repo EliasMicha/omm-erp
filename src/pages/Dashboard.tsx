@@ -58,7 +58,7 @@ export default function Dashboard() {
       }
       // Load sales data for DG
       if (area === 'DG') {
-        promises.push(supabase.from('quotations').select('id, stage, specialty').order('created_at', { ascending: false }))
+        promises.push(supabase.from('quotations').select('id, stage, specialty').eq('vigente', true).order('created_at', { ascending: false }))
         promises.push(supabase.from('leads').select('id, name, company, status, created_at').order('created_at', { ascending: false }).limit(10))
       }
 
@@ -473,7 +473,7 @@ function ProyeccionCobranza() {
       const [pmRes, qRes, leadsRes] = await Promise.all([
         // Trae milestones con su quotation embebida para mostrar contexto
         supabase.from('payment_milestones').select('*'),
-        supabase.from('quotations').select('id, name, notes, stage').eq('stage', 'contrato'),
+        supabase.from('quotations').select('id, name, notes, stage').eq('stage', 'contrato').eq('vigente', true),
         supabase.from('leads').select('id, name, company'),
       ])
       const qList = (qRes.data || []).map((q: any) => {
@@ -784,7 +784,7 @@ function CobranzaPorProyecto() {
       //    para descubrir movs que solo están vinculados via factura → lead.
       const [leadsRes, qRes, poRes, bmRes, cmRes, invRes, linksRes] = await Promise.all([
         supabase.from('leads').select('id, name, company'),
-        supabase.from('quotations').select('id, name, notes, specialty, stage, total').order('updated_at', { ascending: false }),
+        supabase.from('quotations').select('id, name, notes, specialty, stage, total').eq('vigente', true).order('updated_at', { ascending: false }),
         supabase.from('purchase_orders').select('id, po_number, total, status, lead_id, quotation_id, currency'),
         // BUG FIX: la columna real es `categoria` (no `categoria_sugerida`).
         // Antes el SELECT fallaba y bankMovs quedaba vacío → Cobrado siempre $0.

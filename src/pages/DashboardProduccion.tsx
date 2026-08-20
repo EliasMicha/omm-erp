@@ -56,7 +56,7 @@ export default function DashboardProduccion() {
         // Active projects
         supabase.from('projects').select('id, name, client_name, specialty, advance_pct, start_date').eq('status', 'activo').order('created_at', { ascending: false }),
         // Cotizaciones in production (propuesta + contrato)
-        supabase.from('quotations').select('id, client_name, stage, specialty, created_at, notes').in('stage', ['propuesta', 'contrato']).order('created_at', { ascending: false }),
+        supabase.from('quotations').select('id, client_name, stage, specialty, created_at, notes').in('stage', ['propuesta', 'contrato']).eq('vigente', true).order('created_at', { ascending: false }),
         allTaskQuery,
       ])
 

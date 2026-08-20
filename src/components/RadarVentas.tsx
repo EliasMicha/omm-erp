@@ -62,7 +62,7 @@ function useNudges() {
     (async () => {
       const [{ data: leads }, { data: quots }] = await Promise.all([
         supabase.from('leads').select('id,name,company,status,close_probability,expected_close_date,contact_phone,contact_email,updated_at'),
-        supabase.from('quotations').select('id,name,client_name,stage,notes,updated_at'),
+        supabase.from('quotations').select('id,name,client_name,stage,notes,updated_at').eq('vigente', true),
       ])
       setNudges(buildNudges(leads || [], quots || [])); setLoading(false)
     })()

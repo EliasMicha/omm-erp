@@ -149,7 +149,7 @@ export default function Finanzas() {
       // Leads (active)
       supabaseAll.from('leads').select('id,name,company,status,estimated_value').not('status', 'in', '("perdido","descartado")'),
       // All quotations with lead_id from notes
-      supabaseAll.from('quotations').select('id,name,specialty,stage,total,notes,project_id'),
+      supabaseAll.from('quotations').select('id,name,specialty,stage,total,notes,project_id').eq('vigente', true),
     ])
 
     setFacturasEmitidas(femRes.data || [])

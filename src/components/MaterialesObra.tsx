@@ -75,7 +75,7 @@ export default function MaterialesObra({ obra, onLinked }: {
       setSolicitudes(((sols as any).data || []) as any[])
       setLoading(false)
       if (d.sinCotizacion) {
-        supabase.from('quotations').select('id,name,specialty').order('updated_at', { ascending: false }).limit(200)
+        supabase.from('quotations').select('id,name,specialty').eq('vigente', true).order('updated_at', { ascending: false }).limit(200)
           .then(({ data: q }) => { if (!cancel) setCots((q || []) as any[]) })
       }
     })

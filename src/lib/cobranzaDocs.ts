@@ -126,6 +126,7 @@ export async function adjuntoEstadoCuenta(leadId: string, leadName: string): Pro
     .from('quotations')
     .select('id,name,stage,notes,total,total_final,specialty,commercial_year')
     .eq('stage', 'contrato')
+    .eq('vigente', true)
   const leadOf = (q: any): string | null => { try { return JSON.parse(q.notes || '{}').lead_id || null } catch { return null } }
   const quots = ((quotsAll || []) as any[]).filter(q => leadOf(q) === leadId)
   const qids = quots.map(q => q.id)

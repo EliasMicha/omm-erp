@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef, useMemo, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
+import { soloVigentes } from '../lib/versionesCotizacion'
 import { archivarCotizacion } from '../lib/archivo'
 import { fetchAllActiveCatalog } from '../lib/catalog'
 import { ANTHROPIC_API_KEY } from '../lib/config'
@@ -233,44 +234,13 @@ function CotDashboard({ onOpen, preferVersionId }: { onOpen: (id: string, specia
     setCots(prev => prev.map(c => c.id === id ? { ...c, commercial_year: year } : c))
   }
 
-  // Hide version clones — show the preferred (last-viewed) or first version per group
-  const cotsVisible = useMemo(() => {
-    // Find which group the preferred version belongs to
-    const preferredGroup = preferVersionId
-      ? (cots.find(c => c.id === preferVersionId) as any)?.version_group_id
-      : null
-    // First pass: pick the best version per group
-    // Priority: 1) lastViewedId (same session), 2) most recent updated_at (survives refresh)
-    const bestInGroup = new Map<string, string>()
-    const bestUpdated = new Map<string, string>()
-    cots.forEach(c => {
-      const gid = (c as any).version_group_id
-      if (!gid) return
-      if (gid === preferredGroup && c.id === preferVersionId) {
-        bestInGroup.set(gid, c.id) // explicit user choice — always wins
-      } else if (!bestInGroup.has(gid)) {
-        // Pick most recently updated as fallback (for page refresh)
-        const prev = bestUpdated.get(gid)
-        if (!prev || c.updated_at > prev) {
-          bestInGroup.set(gid, c.id)
-          bestUpdated.set(gid, c.updated_at)
-        }
-      } else if (!preferredGroup || gid !== preferredGroup) {
-        // Not the preferred group — still check updated_at
-        const prev = bestUpdated.get(gid)
-        if (prev && c.updated_at > prev) {
-          bestInGroup.set(gid, c.id)
-          bestUpdated.set(gid, c.updated_at)
-        }
-      }
-    })
-    // Second pass: filter
-    return cots.filter(c => {
-      const gid = (c as any).version_group_id
-      if (!gid) return true
-      return c.id === bestInGroup.get(gid)
-    })
-  }, [cots, preferVersionId])
+  // De cada grupo de versiones se muestra LA VIGENTE, nunca "la última que
+  // tocaste". Esa heurística vivía solo aquí y el resto del ERP la desconocía:
+  // Cobranza sumaba las dos versiones en contrato de Casa Cúspide, y Obra
+  // ofrecía las cinco versiones de Reserva Santa Fe como cotizaciones ligables.
+  // Ahora la vigencia es un dato de la base (quotations.vigente) y se cambia
+  // desde el panel de versiones.
+  const cotsVisible = useMemo(() => soloVigentes(cots as any) as typeof cots, [cots])
 
   // Base set filtered by year
   const cotsYear = filtroYear === 'todos' ? cotsVisible : cotsVisible.filter(c => getYear(c) === filtroYear)

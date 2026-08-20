@@ -97,7 +97,7 @@ export default function Cobranza() {
     (async () => {
       const [leads, quots, pa, cm, track, obra] = await Promise.all([
         supabase.from('leads').select('id,name,company,tipo_cambio_ref').then(r => r.data || []),
-        supabase.from('quotations').select('id,name,stage,notes,total,total_final,specialty,commercial_year').eq('stage', 'contrato').then(r => r.data || []),
+        supabase.from('quotations').select('id,name,stage,notes,total,total_final,specialty,commercial_year').eq('stage', 'contrato').eq('vigente', true).then(r => r.data || []),
         supabase.from('payment_allocations').select('quotation_id, monto, bank_movement_id, tc_aplicado, monto_origen, moneda_origen').then(r => r.data || []),
         supabase.from('cash_movements').select('quotation_id, tipo, monto, moneda, fecha, concepto, persona, lead_id, tc_aplicado, monto_cotizacion, moneda_cotizacion').then(r => r.data || []),
         supabase.from('cobranza_tracking').select('*').then(r => r.data || []),

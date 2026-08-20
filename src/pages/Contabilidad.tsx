@@ -2025,6 +2025,7 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
       .from('quotations')
       .select('id,name,notes,specialty,total,updated_at')
       .ilike('notes', `%${leadId}%`)
+      .eq('vigente', true)
       .order('updated_at', { ascending: false })
     if (error) {
       console.error('loadQuotesForLead error:', error)
@@ -2050,6 +2051,7 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
     const { data } = await supabaseAll
       .from('quotations')
       .select('id,name,notes,specialty,total,updated_at')
+      .eq('vigente', true)
       .order('updated_at', { ascending: false })
     if (data) {
       setAssignQuotations((data as any[]).map(q => ({ ...q, lead_id: extractLeadId(q), currency: extractCurrency(q) })))
@@ -2061,7 +2063,7 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
   useEffect(() => {
     Promise.all([
       supabaseAll.from('leads').select('id,name,company').order('name'),
-      supabaseAll.from('quotations').select('id,name,notes,specialty,total,updated_at').order('updated_at', { ascending: false }),
+      supabaseAll.from('quotations').select('id,name,notes,specialty,total,updated_at').eq('vigente', true).order('updated_at', { ascending: false }),
       supabase.from('purchase_orders').select('id,po_number,quotation_id,project_id,supplier_id,total,currency,purchase_phase,status').order('po_number', { ascending: false }),
       supabase.from('suppliers').select('id,name,rfc,clabe,cuenta_bancaria,banco,bnet_codigo').order('name'),
       supabase.from('clientes').select('id,razon_social,nombre_comercial,rfc,clabe,cuenta_bancaria,banco').eq('activo', true).order('razon_social'),
@@ -5141,7 +5143,7 @@ function TabEfectivo() {
     const [{ data: movsData }, { data: leadsData }, { data: cotsData }] = await Promise.all([
       supabase.from('cash_movements').select('*').order('fecha', { ascending: false }),
       supabaseAll.from('leads').select('id, name, company').order('name'),
-      supabaseAll.from('quotations').select('id, name, specialty, total, notes').order('updated_at', { ascending: false }),
+      supabaseAll.from('quotations').select('id, name, specialty, total, notes').eq('vigente', true).order('updated_at', { ascending: false }),
     ])
     const leadsMap = new Map((leadsData || []).map((l: any) => [l.id, l]))
     const cotsMap = new Map((cotsData || []).map((c: any) => [c.id, c]))

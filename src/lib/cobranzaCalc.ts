@@ -36,7 +36,9 @@ async function fetchAllBM(): Promise<any[]> {
 export async function loadObrasPorCobrar(tc: number = DEFAULT_TC): Promise<ObraPorCobrar[]> {
   const [leadsR, quotsR, paR, cmR] = await Promise.all([
     supabase.from('leads').select('id,name').then(r => r.data || []),
-    supabase.from('quotations').select('id,notes,total,total_final,specialty').eq('stage', 'contrato').then(r => r.data || []),
+    // Solo la version vigente: Casa Cuspide tiene DOS versiones en contrato y
+    // sin este filtro ese ingreso se contaba dos veces.
+    supabase.from('quotations').select('id,notes,total,total_final,specialty').eq('stage', 'contrato').eq('vigente', true).then(r => r.data || []),
     supabase.from('payment_allocations').select('quotation_id, monto, bank_movement_id').then(r => r.data || []),
     supabase.from('cash_movements').select('quotation_id, tipo, monto, moneda').then(r => r.data || []),
   ])

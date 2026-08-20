@@ -220,7 +220,7 @@ async function cargarObras(): Promise<OpcionObra[]> {
   const [{ data: quots }, { data: leads }] = await Promise.all([
     supabase.from('quotations')
       .select('id,name,stage,specialty,notes,updated_at,project:projects!quotations_project_id_fkey(id,name)')
-      .in('stage', ['propuesta', 'contrato']).order('updated_at', { ascending: false }),
+      .in('stage', ['propuesta', 'contrato']).eq('vigente', true).order('updated_at', { ascending: false }),
     supabase.from('leads').select('id,name,company'),
   ])
   const nombreLead = new Map<string, string>()
@@ -539,6 +539,7 @@ function ProcurementTracker({ onOpenPO, onOpenDetail }: { onOpenPO: (id: string)
         .from('quotations')
         .select('id, name, client_name, notes, specialty')
         .eq('stage', 'contrato')
+        .eq('vigente', true)
         .neq('specialty', 'proy')
         .order('updated_at', { ascending: false })
 
@@ -1685,7 +1686,7 @@ function POFromQuoteModal({ onClose, onCreated }: { onClose: () => void; onCreat
   useEffect(() => {
     Promise.all([
       supabase.from('leads').select('id,name,company').order('name'),
-      supabase.from('quotations').select('*,project:projects!quotations_project_id_fkey(name,client_name)').in('stage', ['propuesta', 'contrato']).order('updated_at', { ascending: false }),
+      supabase.from('quotations').select('*,project:projects!quotations_project_id_fkey(name,client_name)').in('stage', ['propuesta', 'contrato']).eq('vigente', true).order('updated_at', { ascending: false }),
       supabase.from('suppliers').select('*').eq('is_active', true).order('name'),
     ]).then(([lRes, qRes, sRes]) => {
       setLeads(lRes.data || [])
@@ -2082,7 +2083,7 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
       supabase.from('projects').select('*').eq('status', 'activo').order('name'),
       supabase.from('obras').select('id,nombre,project_id').order('nombre'),
       supabase.from('leads').select('id,name,company').order('updated_at', { ascending: false }),
-      supabase.from('quotations').select('id,name,notes,specialty,total,updated_at').order('updated_at', { ascending: false }),
+      supabase.from('quotations').select('id,name,notes,specialty,total,updated_at').eq('vigente', true).order('updated_at', { ascending: false }),
       supabase.from('supplier_quote_playbooks').select('*').eq('active', true),
     ]).then(([poRes, itemsRes, catRes, supRes, projRes, obrRes, leadRes, quoRes, pbRes]) => {
       setPO(poRes.data)
@@ -2127,6 +2128,7 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
       .from('quotations')
       .select('id,name,notes,specialty,total,updated_at')
       .ilike('notes', `%${leadId}%`)
+      .eq('vigente', true)
       .order('updated_at', { ascending: false })
     if (error) {
       console.error('loadQuotesForLead error:', error)

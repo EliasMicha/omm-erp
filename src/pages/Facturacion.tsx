@@ -2054,7 +2054,7 @@ function NuevaFactura({ onCancel, onCreated, editingFactura }: { onCancel: () =>
   useEffect(() => {
     Promise.all([
       supabase.from('clientes').select('id,razon_social,rfc,uso_cfdi,uso_cfdi_clave,regimen_fiscal,regimen_fiscal_clave,codigo_postal,email,telefono,calle,num_exterior,num_interior,colonia,municipio,estado,facturapi_customer_id').eq('activo', true).order('razon_social'),
-      supabase.from('quotations').select('id,name,client_name,specialty').order('created_at', { ascending: false }).limit(200)
+      supabase.from('quotations').select('id,name,client_name,specialty').eq('vigente', true).order('created_at', { ascending: false }).limit(200)
     ]).then(([cli, cot]) => {
       setClientes((cli.data as ClienteFiscal[]) || [])
       setCotizaciones((cot.data as QuotationLite[]) || [])

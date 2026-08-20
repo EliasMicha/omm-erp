@@ -6,6 +6,7 @@ import { Loading, Badge, SectionHeader } from '../components/layout/UI'
 import { useIsMobile } from '../lib/useIsMobile'
 import { tcForYear } from '../lib/fx'
 import { useAuth } from '../contexts/AuthContext'
+import { soloVigentes } from '../lib/versionesCotizacion'
 import {
   ArrowLeft, FileText, DollarSign, ShoppingCart, Briefcase,
   HardHat, AlertTriangle, ChevronDown, ChevronRight, ExternalLink,
@@ -146,19 +147,9 @@ export default function LeadDashboard() {
         return n?.lead_id === id
       } catch { return false }
     })
-    // Deduplicate versions: keep only the most recently updated per version_group_id
-    const bestInGroup = new Map<string, any>()
-    leadQuotsAll.forEach(q => {
-      const gid = q.version_group_id
-      if (!gid) return
-      const prev = bestInGroup.get(gid)
-      if (!prev || q.updated_at > prev.updated_at) bestInGroup.set(gid, q)
-    })
-    const leadQuots = leadQuotsAll.filter(q => {
-      const gid = q.version_group_id
-      if (!gid) return true // no version group → always show
-      return q.id === bestInGroup.get(gid)?.id
-    })
+    // De cada grupo de versiones, solo la vigente — la misma que muestra
+    // Cotizaciones y la misma que suman Cobranza y los tableros.
+    const leadQuots = soloVigentes(leadQuotsAll)
     setQuotations(leadQuots)
     const quotIds = new Set(leadQuots.map(q => q.id))
 

@@ -901,7 +901,7 @@ function ProjectDetail({ project, employees, onBack }: {
         const { data: cot } = await supabase.from('quotations').select('stage').eq('id', project.cotizacion_id).maybeSingle()
         setHasContractedQuote(cot?.stage === 'contrato')
       } else {
-        const { data: cots } = await supabase.from('quotations').select('id,stage').eq('project_id', project.id)
+        const { data: cots } = await supabase.from('quotations').select('id,stage').eq('project_id', project.id).eq('vigente', true)
         setHasContractedQuote((cots || []).some((c: any) => c.stage === 'contrato'))
       }
       setHydrated(true)
@@ -1951,7 +1951,7 @@ function NewProjectModal({ employees, onClose, onCreated }: {
           supabase.from('leads').select('id,name,company,contact_name,status')
             .not('status', 'in', '("perdido","ganado")')
             .order('updated_at', { ascending: false }),
-          supabase.from('quotations').select('id,name,specialty,stage,project_id,notes,client_name,total')
+          supabase.from('quotations').select('id,name,specialty,stage,project_id,notes,client_name,total').eq('vigente', true)
             .order('created_at', { ascending: false }),
         ])
         if (cancelled) return

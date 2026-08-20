@@ -181,6 +181,7 @@ export default function DashboardVentasIng() {
       const [quotRes, taskRes, projRes, empRes, slaRes] = await Promise.all([
         supabase.from('quotations')
           .select('id, name, client_name, stage, specialty, total, created_at, updated_at, stage_changed_at, assignee_id, notes')
+          .eq('vigente', true)
           .order('created_at', { ascending: false }),
         taskQuery,
         supabase.from('projects')

@@ -69,7 +69,7 @@ export default function Entregas() {
       supabase.from('obras').select('id, nombre, project_id').order('nombre'),
       supabase.from('employees').select('id, nombre, puesto, area').order('nombre'),
       supabase.from('purchase_orders').select('id, po_number, project_id, status, supplier_id, quotation_id, lead_id').neq('status', 'cancelada').order('po_number', { ascending: false }).limit(300),
-      supabase.from('quotations').select('notes, specialty').eq('stage', 'contrato'),
+      supabase.from('quotations').select('notes, specialty').eq('stage', 'contrato').eq('vigente', true),
     ])
     setObras((oR.data as any) || [])
     setEmpleados((eR.data as any) || [])
@@ -859,7 +859,7 @@ function TabInventarioLead({ isMobile }: any) {
       setLoading(true)
       const [lR, qR] = await Promise.all([
         supabase.from('leads').select('id, name, status').order('name'),
-        supabase.from('quotations').select('id, name, specialty, notes, created_at, updated_at').eq('stage', 'contrato'),
+        supabase.from('quotations').select('id, name, specialty, notes, created_at, updated_at').eq('stage', 'contrato').eq('vigente', true),
       ])
       setLeads((lR.data as any[]) || [])
       const cotsParsed = ((qR.data as any[]) || [])
@@ -1539,7 +1539,9 @@ function TareaModal({ init, obras, leads, empleados, onClose, onSaved }: any) {
   }, [])
 
   async function cargarInventarioEntregable(): Promise<Record<string, any>> {
-    const { data: cotsRaw } = await supabase.from('quotations').select('id,name,specialty,notes,created_at').eq('stage', 'contrato')
+    // Solo versiones vigentes: si no, el selector de entregas lista la misma
+    // obra varias veces (una por version) y el inventario se parte entre ellas.
+    const { data: cotsRaw } = await supabase.from('quotations').select('id,name,specialty,notes,created_at').eq('stage', 'contrato').eq('vigente', true)
     const cots = ((cotsRaw as any[]) || []).filter(c => c.specialty !== 'proy' && c.specialty !== 'cort').map(c => { let lead_id: string | null = null; try { lead_id = JSON.parse(c.notes || '{}').lead_id || null } catch { }; return { id: c.id, name: c.name, specialty: c.specialty, lead_id } }).filter(c => c.lead_id)
     const cotIds = cots.map(c => c.id)
     if (!cotIds.length) return {}
