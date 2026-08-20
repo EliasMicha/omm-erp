@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef, useMemo } from 'react'
 import { supabase } from '../lib/supabase'
+import { soloSistemasVendidos, sistemasApagados } from '../lib/sistemasVendidos'
 import { insertarOC } from '../lib/oc'
 import { fetchAllActiveCatalog } from '../lib/catalog'
 import { ANTHROPIC_API_KEY } from '../lib/config'
@@ -1682,6 +1683,8 @@ function POFromQuoteModal({ onClose, onCreated }: { onClose: () => void; onCreat
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set())
   // Items ya ordenados (de POs previas de la misma cotización) — key → cantidad ordenada
   const [ordenadoPrevio, setOrdenadoPrevio] = useState<Map<string, number>>(new Map())
+  // Renglones que quedaron fuera por pertenecer a un sistema apagado
+  const [omitidosNoSuma, setOmitidosNoSuma] = useState(0)
 
   useEffect(() => {
     Promise.all([
@@ -1730,6 +1733,14 @@ function POFromQuoteModal({ onClose, onCreated }: { onClose: () => void; onCreat
         const { data } = await supabase.from('quotation_items').select('*').in('area_id', areaIds).eq('type', 'material').order('order_index')
         items = data || []
       }
+
+      // ── Fuera lo que no se vendió ──
+      // Si en la cotización se apagó un sistema para que NO sume al total,
+      // ese sistema no se vendió y no hay que comprarle nada. Si más adelante
+      // se vende, se vuelve a prender en la cotización y reaparece aquí.
+      const antesDeFiltrar = items.length
+      items = soloSistemasVendidos(items, selQ?.notes)
+      setOmitidosNoSuma(antesDeFiltrar - items.length)
 
       // Enrich items with catalog data (provider, moneda, cost) for filtering and correct pricing
       const catIds = [...new Set(items.map(it => it.catalog_product_id).filter(Boolean))]
@@ -1964,6 +1975,17 @@ function POFromQuoteModal({ onClose, onCreated }: { onClose: () => void; onCreat
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                 <div style={{ fontSize: 11, color: '#888', fontWeight: 600 }}>
                   {finalItems.length} de {previewItems.length} productos seleccionados — Costo: {F(finalItems.reduce((s: number, it: any) => s + it.cost * it.quantity, 0))}
+                  {omitidosNoSuma > 0 && (
+                    <div style={{ fontSize: 10, color: '#FBBF24', fontWeight: 400, marginTop: 3 }}>
+                      {omitidosNoSuma} producto{omitidosNoSuma > 1 ? 's' : ''} fuera: pertenecen a un sistema apagado en la cotización
+                      {(() => {
+                        const q = quotations.find((x: any) => x.id === selectedQuote)
+                        const ap = sistemasApagados(q?.notes)
+                        return ap.length ? ` (${ap.map(x => x.replace(/^custom_/, '').replace(/_/g, ' ')).join(', ')})` : ''
+                      })()}
+                      {' '}— no se vendieron, así que no hay que comprarlos.
+                    </div>
+                  )}
                 </div>
                 <div style={{ display: 'flex', gap: 6 }}>
                   <button
