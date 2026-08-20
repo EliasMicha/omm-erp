@@ -119,17 +119,29 @@ export default function VersionManager({ cotId, getCurrentSnapshot, onSwitchVers
   // La versión vigente es la que ve TODO el ERP: Cobranza, obras, compras,
   // entregas y los tableros. Cambiarla aquí cambia de qué versión cuelga el
   // proyecto en todos lados, por eso se pide confirmación.
-  async function hacerVigente(s: SiblingVersion) {
-    if (s.vigente) return
-    const otra = siblings.find(x => x.vigente)
-    if (!confirm(
-      `¿Dejar la versión "${s.version_label || ''} — ${s.name}" como la vigente?\n\n` +
-      (otra ? `Ahora mismo la vigente es "${otra.version_label || ''} — ${otra.name}".\n\n` : '') +
-      'Es la versión que van a usar Cobranza, Compras, Entregas, las obras y los tableros. Las demás quedan como histórico.'
-    )) return
+  /**
+   * Te cambia a otra versión y la deja como la vigente. Devuelve false si el
+   * usuario se arrepiente en la confirmación.
+   *
+   * Único freno: si la que está vigente ya se firmó (contrato) y te vas a una
+   * que no, se avisa — porque eso mueve de dónde cuelgan cobranza, compras,
+   * entregas y la obra, hacia una versión que todavía no se vende.
+   */
+  async function cambiarYHacerVigente(s: SiblingVersion): Promise<boolean> {
+    if (s.vigente) return true
+    const actual = siblings.find(x => x.vigente)
+    if (actual?.stage === 'contrato' && s.stage !== 'contrato') {
+      const seguir = confirm(
+        `La versión vigente es "${actual.version_label || ''} — ${actual.name}" y está en CONTRATO.\n\n` +
+        `Si te cambias a "${s.version_label || ''} — ${s.name}" (${s.stage}), esa pasa a ser la vigente: ` +
+        'cobranza, compras, entregas, la obra y los tableros van a colgar de ella.\n\n¿Continúo?'
+      )
+      if (!seguir) return false
+    }
     const r = await marcarVigente(s.id)
-    if (!r.ok) { alert('No se pudo cambiar la versión vigente: ' + r.error); return }
-    loadSiblings()
+    if (!r.ok) { alert('No se pudo dejar esta versión como vigente: ' + r.error); return false }
+    await loadSiblings()
+    return true
   }
 
   async function createVersion() {
@@ -387,13 +399,19 @@ export default function VersionManager({ cotId, getCurrentSnapshot, onSwitchVers
                     isCurrent={s.id === cotId}
                     accentColor={accentColor}
                     canDelete={siblings.length > 1}
-                    onSwitch={() => {
+                    onSwitch={async () => {
+                      // La versión que seleccionas aquí es la que manda en todo
+                      // el ERP: al cambiarte a ella queda vigente. Antes esto
+                      // solo cambiaba lo que veías en pantalla y cada módulo
+                      // seguía leyendo otra versión distinta.
+                      const ok = await cambiarYHacerVigente(s)
+                      if (!ok) return
                       setShowPanel(false)
                       onSwitchVersion(s.id)
                     }}
                     onRenamed={loadSiblings}
                     onDelete={() => deleteVersion(s)}
-                    onHacerVigente={() => hacerVigente(s)}
+                    onHacerVigente={() => cambiarYHacerVigente(s)}
                   />
                 ))
               )}
