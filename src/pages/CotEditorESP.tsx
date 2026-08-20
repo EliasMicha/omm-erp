@@ -1,6 +1,5 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
-import BotonCatalogo from '../components/BotonCatalogo'
 import { fetchAllActiveCatalog } from '../lib/catalog'
 import { F, STAGE_CONFIG } from '../lib/utils'
 import { Badge, Btn, Loading } from '../components/layout/UI'
@@ -2134,8 +2133,8 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
         noteMeta = JSON.parse(cot.notes || '{}')
         if (noteMeta.systems) setActiveSysIds(noteMeta.systems)
         if (Array.isArray(noteMeta.systems_no_suma)) setNoSumaSysIds(noteMeta.systems_no_suma)
-        if (noteMeta.currency || noteMeta.tipoCambio || noteMeta.descuento !== undefined || noteMeta.programacion !== undefined) {
-          setConfig(c => ({ ...c, currency: noteMeta.currency || c.currency, tipoCambio: noteMeta.tipoCambio || c.tipoCambio, descuento: noteMeta.descuento ?? c.descuento, programacion: noteMeta.programacion ?? c.programacion, nominaPct: noteMeta.nominaPct ?? c.nominaPct }))
+        if (noteMeta.currency || noteMeta.tipoCambio || noteMeta.descuento !== undefined || noteMeta.programacion !== undefined || noteMeta.ivaRate !== undefined) {
+          setConfig(c => ({ ...c, currency: noteMeta.currency || c.currency, tipoCambio: noteMeta.tipoCambio || c.tipoCambio, descuento: noteMeta.descuento ?? c.descuento, programacion: noteMeta.programacion ?? c.programacion, nominaPct: noteMeta.nominaPct ?? c.nominaPct, ivaRate: noteMeta.ivaRate ?? c.ivaRate }))
         }
         if (noteMeta.systemNotes && typeof noteMeta.systemNotes === 'object') {
           setSystemNotes(noteMeta.systemNotes)
@@ -2342,14 +2341,14 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
     await supabase.from('quotations').update({ notes: JSON.stringify(merged) }).eq('id', cotId)
   }
 
-  async function saveNotes(overrides?: Partial<{ systems: string[]; systems_no_suma: string[]; currency: string; tipoCambio: number; descuento: number; programacion: number; nominaPct: number }>) {
+  async function saveNotes(overrides?: Partial<{ systems: string[]; systems_no_suma: string[]; currency: string; tipoCambio: number; descuento: number; programacion: number; nominaPct: number; ivaRate: number }>) {
     // Preserve existing notes fields (lead_id, source, etc.)
     let existing: any = {}
     try {
       const { data: q } = await supabase.from('quotations').select('notes').eq('id', cotId).single()
       if (q?.notes) existing = JSON.parse(q.notes)
     } catch (_) { /* ignore */ }
-    const merged = { ...existing, systems: overrides?.systems ?? activeSysIds, systems_no_suma: overrides?.systems_no_suma ?? noSumaSysIds, currency: overrides?.currency ?? config.currency, tipoCambio: overrides?.tipoCambio ?? config.tipoCambio, descuento: overrides?.descuento ?? config.descuento, programacion: overrides?.programacion ?? config.programacion, nominaPct: overrides?.nominaPct ?? config.nominaPct, customSystems }
+    const merged = { ...existing, systems: overrides?.systems ?? activeSysIds, systems_no_suma: overrides?.systems_no_suma ?? noSumaSysIds, currency: overrides?.currency ?? config.currency, tipoCambio: overrides?.tipoCambio ?? config.tipoCambio, descuento: overrides?.descuento ?? config.descuento, programacion: overrides?.programacion ?? config.programacion, nominaPct: overrides?.nominaPct ?? config.nominaPct, ivaRate: overrides?.ivaRate ?? config.ivaRate, customSystems }
     await supabase.from('quotations').update({ notes: JSON.stringify(merged) }).eq('id', cotId)
   }
 
@@ -2368,10 +2367,14 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
 
   function updateConfig(field: string, value: number) {
     setConfig(prev => ({ ...prev, [field]: value }))
+    // Cada campo de configuración tiene que persistirse aquí. El IVA no estaba
+    // en la lista: se recalculaba en pantalla pero nunca se escribía en `notes`,
+    // así que al recargar la cotización volvía al 16% por defecto.
     if (field === 'tipoCambio') saveNotes({ tipoCambio: value })
     if (field === 'descuento') saveNotes({ descuento: value })
     if (field === 'programacion') saveNotes({ programacion: value })
     if (field === 'nominaPct') saveNotes({ nominaPct: value })
+    if (field === 'ivaRate') saveNotes({ ivaRate: value })
   }
 
   // Map EspProduct field to quotation_items column
@@ -3035,7 +3038,6 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
           return <span key={sys.id} onClick={() => setViewSystemId(sys.id)} style={{ padding: isMobile ? '1px 4px' : '2px 7px', borderRadius: 5, fontSize: isMobile ? 8 : 10, fontWeight: 600, background: sys.color + '18', color: sys.color, border: '1px solid ' + sys.color + '33', cursor: 'pointer', transition: 'opacity 0.1s', whiteSpace: 'nowrap' }} onMouseEnter={e => (e.currentTarget.style.opacity = '0.8')} onMouseLeave={e => (e.currentTarget.style.opacity = '1')}>{isMobile ? sys.name.slice(0, 4) : sys.name} {isMobile ? st.toFixed(0) : (config.currency === 'MXN' ? '$' : 'US$') + st.toFixed(0)}</span>
         })}
         <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: isMobile ? 3 : 6, flexWrap: isMobile ? 'wrap' : 'nowrap' }}>
-          <BotonCatalogo cotId={cotId} />
           <span style={{ fontSize: isMobile ? 8 : 10, fontWeight: 600, color: config.currency === 'USD' ? '#06B6D4' : '#D97706', background: config.currency === 'USD' ? '#06B6D422' : '#D9770622', padding: isMobile ? '1px 4px' : '2px 8px', borderRadius: 5 }}>{config.currency}</span>
           {!isMobile && <span style={{ fontSize: 9, color: '#555' }}>TC:</span>}
           <input type="number" value={config.tipoCambio} step={0.1}
