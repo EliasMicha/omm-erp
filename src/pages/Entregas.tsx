@@ -892,13 +892,22 @@ function TabInventarioLead({ isMobile }: any) {
 
     const [qiR, poR] = await Promise.all([
       supabase.from('quotation_items').select('quotation_id, catalog_product_id, name, marca, modelo, quantity').in('quotation_id', cotIds),
-      supabase.from('purchase_orders').select('id, quotation_id, created_at, approved_at').in('quotation_id', cotIds),
+      supabase.from('purchase_orders').select('id, quotation_id, status, po_number, created_at, approved_at').in('quotation_id', cotIds),
     ])
     const qItems = (qiR.data as any[]) || []
     const posData = (poR.data as any[]) || []
     const poIds = posData.map(p => p.id)
     const poCot: Record<string, string> = {}; posData.forEach(p => { poCot[p.id] = p.quotation_id })
     const poFecha: Record<string, string> = {}; posData.forEach(p => { poFecha[p.id] = (p.approved_at || p.created_at || '').slice(0, 10) })
+    // Una OC en BORRADOR no es una compra: todavía no se le mandó nada al
+    // proveedor. Solo cuenta como comprado lo que ya se pidió.
+    // Las canceladas tampoco, obviamente.
+    const OC_COMPRADA = new Set(['pedida', 'aprobada', 'recibida'])
+    const poComprada: Record<string, boolean> = {}
+    posData.forEach(p => { poComprada[p.id] = OC_COMPRADA.has(String(p.status || '')) })
+    const poBorrador: Record<string, boolean> = {}
+    posData.forEach(p => { poBorrador[p.id] = String(p.status || '') === 'borrador' })
+    const poNum: Record<string, string> = {}; posData.forEach(p => { poNum[p.id] = p.po_number || '' })
 
     let poItems: any[] = []
     if (poIds.length) { const { data } = await supabase.from('po_items').select('purchase_order_id, catalog_product_id, name, marca, modelo, quantity').in('purchase_order_id', poIds); poItems = data || [] }
@@ -916,13 +925,24 @@ function TabInventarioLead({ isMobile }: any) {
       const map = new Map<string, any>()
       const ensure = (it: any) => {
         const k = keyOf(it)
-        if (!map.has(k)) map.set(k, { key: k, marca: it.marca || '', modelo: it.modelo || '', descripcion: it.name || it.descripcion || '', vendido: mkFase(), comprado: mkFase(), recibido: mkFase(), entregado: mkFase() })
+        if (!map.has(k)) map.set(k, { key: k, marca: it.marca || '', modelo: it.modelo || '', descripcion: it.name || it.descripcion || '', vendido: mkFase(), comprado: mkFase(), recibido: mkFase(), entregado: mkFase(), enBorrador: 0, ocsBorrador: [] as string[] })
         return map.get(k)
       }
       // Vendido (una fecha: la del contrato) — omitido para eléctricas
       if (!esElec) qItems.filter(i => i.quotation_id === cot.id).forEach(i => { const r = ensure(i); addParte(r.vendido, Number(i.quantity) || 0, (cot.created_at || '').slice(0, 10)) })
-      // Comprado (una parcialidad por OC / fecha de OC)
-      poItems.filter(pi => poCot[pi.purchase_order_id] === cot.id).forEach(pi => { const r = ensure(pi); addParte(r.comprado, Number(pi.quantity) || 0, poFecha[pi.purchase_order_id] || null) })
+      // Comprado (una parcialidad por OC / fecha de OC). Los borradores se
+      // apartan: se muestran como aviso, no como compra.
+      poItems.filter(pi => poCot[pi.purchase_order_id] === cot.id).forEach(pi => {
+        const r = ensure(pi)
+        const poId = pi.purchase_order_id
+        if (poComprada[poId]) {
+          addParte(r.comprado, Number(pi.quantity) || 0, poFecha[poId] || null)
+        } else if (poBorrador[poId]) {
+          r.enBorrador += Number(pi.quantity) || 0
+          const folio = poNum[poId]
+          if (folio && !r.ocsBorrador.includes(folio)) r.ocsBorrador.push(folio)
+        }
+      })
       // Recibido + Entregado (una parcialidad por movimiento del libro / su fecha)
       movs.forEach((m: any) => {
         const mCot = m.quotation_id || (m.po_id ? poCot[m.po_id] : null)
@@ -1004,7 +1024,7 @@ function TabInventarioLead({ isMobile }: any) {
                           <td style={{ padding: '6px 10px' }}>{a.modelo || '—'}</td>
                           <td style={{ padding: '6px 10px', color: '#eee' }}>{a.descripcion || '—'}</td>
                           <FaseCell f={a.vendido} />
-                          <FaseCell f={a.comprado} ref_={d.esElec ? undefined : a.vendido.total} />
+                          <FaseCell f={a.comprado} ref_={d.esElec ? undefined : a.vendido.total} borrador={a.enBorrador} ocsBorrador={a.ocsBorrador} />
                           <FaseCell f={a.recibido} ref_={a.comprado.total} />
                           <FaseCell f={a.entregado} ref_={a.recibido.total} />
                         </tr>
@@ -1021,7 +1041,7 @@ function TabInventarioLead({ isMobile }: any) {
   )
 }
 
-function FaseCell({ f, ref_ }: { f: Fase; ref_?: number }) {
+function FaseCell({ f, ref_, borrador, ocsBorrador }: { f: Fase; ref_?: number; borrador?: number; ocsBorrador?: string[] }) {
   // color: si esta fase quedó por debajo de la fase anterior (ref_), marcar en ámbar (falta)
   const falta = ref_ !== undefined && f.total < ref_
   const color = f.total === 0 ? '#555' : falta ? '#D97706' : '#10B981'
@@ -1035,6 +1055,14 @@ function FaseCell({ f, ref_ }: { f: Fase; ref_?: number }) {
       {partes.length > 1 && partes.map((p, i) => (
         <div key={i} style={{ fontSize: 9, color: '#888' }}>{fmt(p.qty)} · {p.fecha ? fechaCorta(p.fecha) : '—'}</div>
       ))}
+      {/* Lo que está en una OC sin mandar al proveedor todavía no se compró,
+          pero conviene verlo: es lo que falta autorizar. */}
+      {(borrador || 0) > 0 && (
+        <div style={{ fontSize: 9, color: '#DC2626', marginTop: 2 }}
+          title={`En orden de compra sin mandar al proveedor${ocsBorrador && ocsBorrador.length ? ': ' + ocsBorrador.join(', ') : ''}`}>
+          {fmt(borrador!)} en borrador
+        </div>
+      )}
     </td>
   )
 }
