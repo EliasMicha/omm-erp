@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
+import { alturaDeCorte } from '../lib/pdfPaginado'
 import { F, STAGE_CONFIG } from '../lib/utils'
 import { Badge, Btn, Loading } from '../components/layout/UI'
 import { ChevronLeft, ChevronDown, ChevronRight, Settings, X, Printer, Download, Save, Check, Pencil, BookOpen, Plus, Trash2 } from 'lucide-react'
@@ -708,7 +709,9 @@ function ProyPdfModal({
 
       while (yOffset < imgH) {
         if (page > 0) doc.addPage()
-        const sliceH = Math.min(pageHeightPx, imgH - yOffset)
+        // El corte se ajusta al hueco más cercano para no partir un título
+        // ni una fila de tabla por la mitad.
+        const sliceH = alturaDeCorte(canvas, yOffset, pageHeightPx)
         const pageCanvas = document.createElement('canvas')
         pageCanvas.width = imgW
         pageCanvas.height = sliceH

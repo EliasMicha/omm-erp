@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import { alturaDeCorte } from '../lib/pdfPaginado'
 import { OMNIIOUS_LOGO } from '../assets/logo'
 import { Download, Loader2, ArrowLeft, FileText, RefreshCw, CheckCircle } from 'lucide-react'
 import html2canvas from 'html2canvas'
@@ -266,7 +267,9 @@ export default function MemoriaTecnica() {
 
       while (yOffset < imgH) {
         if (page > 0) doc.addPage()
-        const sliceH = Math.min(pageHeightPx, imgH - yOffset)
+        // El corte se ajusta al hueco más cercano para no partir un título
+        // ni una fila de tabla por la mitad.
+        const sliceH = alturaDeCorte(canvas, yOffset, pageHeightPx)
         const pageCanvas = document.createElement('canvas')
         pageCanvas.width = imgW
         pageCanvas.height = sliceH
