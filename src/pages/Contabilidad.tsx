@@ -12,7 +12,7 @@ import {
   FileText, Building2, ArrowLeftRight, ShieldCheck,
   Banknote, Users, TrendingUp, Plus, Upload, Search,
   ChevronRight, AlertTriangle, CheckCircle, Clock,
-  DollarSign, X, Loader2, Download, Pencil, Trash2
+  DollarSign, X, Loader2, Download, Pencil, Trash2, Receipt, Paperclip
 } from 'lucide-react'
 
 /* --------- Types ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ */
@@ -297,6 +297,13 @@ interface CashMovement {
   moneda_cotizacion?: string | null
   lead_name?: string  // hydrated from leads table
   quotation_name?: string  // hydrated from quotations table
+  // Respaldo del movimiento: el recibo que emite OMM y el comprobante que
+  // devuelve la contraparte (hoja firmada, ticket, foto de la transferencia).
+  folio_recibo?: string | null
+  recibo_emitido_at?: string | null
+  comprobante_path?: string | null
+  comprobante_nombre?: string | null
+  comprobante_subido_at?: string | null
 }
 
 
@@ -5125,6 +5132,84 @@ function TabEfectivo() {
     setConvTc(m.tc_aplicado ? String(m.tc_aplicado) : '')
     setShowForm(true)
   }
+  // ── Recibo ──────────────────────────────────────────────────────────
+  // El efectivo no deja rastro solo: el recibo firmado es la prueba de que el
+  // dinero se entregó o se recibió. El folio se guarda para poder volver a
+  // imprimir EL MISMO documento, no uno nuevo cada vez.
+  const emitirRecibo = async (m: CashMovement) => {
+    let folio = m.folio_recibo || ''
+    if (!folio) {
+      folio = folioRecibo(m.direccion, m.fecha)
+      const { error } = await supabase.from('cash_movements')
+        .update({ folio_recibo: folio, recibo_emitido_at: new Date().toISOString() }).eq('id', m.id)
+      if (error) { alert('No se pudo asignar el folio del recibo: ' + error.message); return }
+      setMovements(prev => prev.map(x => x.id === m.id ? { ...x, folio_recibo: folio, recibo_emitido_at: new Date().toISOString() } : x))
+    }
+    generarReciboEfectivo({
+      folio,
+      direccion: m.direccion,
+      tipo: m.tipo,
+      persona: m.persona,
+      concepto: m.concepto,
+      monto: m.monto,
+      moneda: m.moneda || 'MXN',
+      fecha: m.fecha,
+      proyecto: m.proyecto_nombre || null,
+      lead: m.lead_name || null,
+      cotizacion: m.quotation_name || null,
+    })
+  }
+
+  // ── Comprobante ─────────────────────────────────────────────────────
+  // Lo que devuelve la contraparte: la hoja firmada escaneada, el ticket, la
+  // foto del depósito. Se guarda en el bucket `payment-receipts`.
+  const compRef = useRef<HTMLInputElement>(null)
+  const [movParaComprobante, setMovParaComprobante] = useState<CashMovement | null>(null)
+  const [subiendoComp, setSubiendoComp] = useState<string>('')
+
+  const pedirComprobante = (m: CashMovement) => { setMovParaComprobante(m); compRef.current?.click() }
+
+  const subirComprobante = async (file: File) => {
+    const m = movParaComprobante
+    if (!m || !file) return
+    if (file.size > 15 * 1024 * 1024) { alert('El archivo pesa más de 15 MB. Comprímelo o toma la foto en menor calidad.'); return }
+    setSubiendoComp(m.id)
+    try {
+      const ext = (file.name.split('.').pop() || 'jpg').toLowerCase()
+      const path = `efectivo/${m.id}/${Date.now()}.${ext}`
+      const { error: upErr } = await supabase.storage.from('payment-receipts').upload(path, file, { upsert: true })
+      if (upErr) throw upErr
+      const patch = {
+        comprobante_path: path,
+        comprobante_nombre: file.name,
+        comprobante_tipo: file.type || null,
+        comprobante_subido_at: new Date().toISOString(),
+      }
+      const { error } = await supabase.from('cash_movements').update(patch).eq('id', m.id)
+      if (error) throw error
+      setMovements(prev => prev.map(x => x.id === m.id ? { ...x, ...patch } : x))
+    } catch (e: any) {
+      alert('No se pudo subir el comprobante: ' + (e?.message || e))
+    }
+    setSubiendoComp('')
+    setMovParaComprobante(null)
+    if (compRef.current) compRef.current.value = ''
+  }
+
+  const verComprobante = (m: CashMovement) => {
+    if (!m.comprobante_path) return
+    const url = supabase.storage.from('payment-receipts').getPublicUrl(m.comprobante_path).data.publicUrl
+    window.open(url, '_blank')
+  }
+
+  const quitarComprobante = async (m: CashMovement) => {
+    if (!confirm(`¿Quitar el comprobante «${m.comprobante_nombre || 'archivo'}» de este movimiento?`)) return
+    if (m.comprobante_path) await supabase.storage.from('payment-receipts').remove([m.comprobante_path])
+    const patch = { comprobante_path: null, comprobante_nombre: null, comprobante_tipo: null, comprobante_subido_at: null }
+    await supabase.from('cash_movements').update(patch).eq('id', m.id)
+    setMovements(prev => prev.map(x => x.id === m.id ? { ...x, ...patch } : x))
+  }
+
   const handleDelete = async (m: CashMovement) => {
     if (!confirm(`¿Eliminar movimiento de ${m.persona} por ${F(m.monto)} del ${formatDate(m.fecha)}?\n\nEsta acción no se puede deshacer.`)) return
     const { error } = await supabase.from('cash_movements').delete().eq('id', m.id)
@@ -5157,6 +5242,11 @@ function TabEfectivo() {
       moneda_cotizacion: m.moneda_cotizacion ?? null,
       lead_name: m.lead_id ? (leadsMap.get(m.lead_id)?.name || '') : '',
       quotation_name: m.quotation_id ? (cotsMap.get(m.quotation_id)?.name || '') : '',
+      folio_recibo: m.folio_recibo ?? null,
+      recibo_emitido_at: m.recibo_emitido_at ?? null,
+      comprobante_path: m.comprobante_path ?? null,
+      comprobante_nombre: m.comprobante_nombre ?? null,
+      comprobante_subido_at: m.comprobante_subido_at ?? null,
     })))
     setLeads(leadsData || [])
     setQuotations(cotsData || [])
@@ -5402,6 +5492,9 @@ function TabEfectivo() {
         </div>
         <div style={{ display: 'flex', gap: 8, width: isMobile ? '100%' : 'auto' }}>
           <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" style={{ display: 'none' }} onChange={handleFileUpload} />
+          {/* Comprobante de un movimiento: foto del ticket, hoja firmada o PDF */}
+          <input ref={compRef} type="file" accept="image/*,application/pdf" capture="environment" style={{ display: 'none' }}
+            onChange={e => { const f = e.target.files?.[0]; if (f) subirComprobante(f) }} />
           <Btn size="sm" style={{ flex: isMobile ? 1 : 'initial' }} onClick={() => fileRef.current?.click()}><Upload size={12} /> Subir Excel</Btn>
           <Btn size="sm" variant="primary" style={{ flex: isMobile ? 1 : 'initial' }} onClick={() => { setEditingId(null); setConvTc(''); setShowForm(true) }}><Plus size={12} /> Registrar movimiento</Btn>
         </div>
@@ -5647,7 +5740,37 @@ function TabEfectivo() {
                   {m.direccion === 'ingreso' ? '+' : '-'}{F(m.monto)}
                 </Td>
                 <Td>
-                  <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                  <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', alignItems: 'center' }}>
+                    {/* Recibo: se emite una vez y conserva su folio */}
+                    <button
+                      onClick={() => emitirRecibo(m)}
+                      title={m.folio_recibo
+                        ? `Reimprimir el recibo ${m.folio_recibo}`
+                        : `Generar ${m.direccion === 'ingreso' ? 'recibo de ingreso' : 'recibo de pago'}`}
+                      style={{ background: 'none', border: 'none', color: m.folio_recibo ? '#10B981' : '#666', cursor: 'pointer', padding: 4, display: 'inline-flex', alignItems: 'center', borderRadius: 4 }}
+                      onMouseEnter={e => (e.currentTarget.style.color = '#10B981')}
+                      onMouseLeave={e => (e.currentTarget.style.color = m.folio_recibo ? '#10B981' : '#666')}
+                    ><Receipt size={13} /></button>
+
+                    {/* Comprobante que devuelve la contraparte */}
+                    {m.comprobante_path ? (
+                      <button
+                        onClick={() => verComprobante(m)}
+                        onContextMenu={e => { e.preventDefault(); quitarComprobante(m) }}
+                        title={`Ver ${m.comprobante_nombre || 'comprobante'} · clic derecho para quitarlo`}
+                        style={{ background: 'none', border: 'none', color: '#67E8F9', cursor: 'pointer', padding: 4, display: 'inline-flex', alignItems: 'center', borderRadius: 4 }}
+                      ><Paperclip size={13} /></button>
+                    ) : (
+                      <button
+                        onClick={() => pedirComprobante(m)}
+                        disabled={subiendoComp === m.id}
+                        title="Subir comprobante (hoja firmada, ticket, foto del depósito)"
+                        style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', padding: 4, display: 'inline-flex', alignItems: 'center', borderRadius: 4, opacity: subiendoComp === m.id ? 0.4 : 1 }}
+                        onMouseEnter={e => (e.currentTarget.style.color = '#67E8F9')}
+                        onMouseLeave={e => (e.currentTarget.style.color = '#666')}
+                      >{subiendoComp === m.id ? <Loader2 size={13} /> : <Paperclip size={13} />}</button>
+                    )}
+
                     <button
                       onClick={() => startEdit(m)}
                       title="Editar"
