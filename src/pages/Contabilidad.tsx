@@ -5136,28 +5136,44 @@ function TabEfectivo() {
   // El efectivo no deja rastro solo: el recibo firmado es la prueba de que el
   // dinero se entregó o se recibió. El folio se guarda para poder volver a
   // imprimir EL MISMO documento, no uno nuevo cada vez.
+  const [reciboHtml, setReciboHtml] = useState<string | null>(null)
+  const reciboIframe = useRef<HTMLIFrameElement>(null)
+
   const emitirRecibo = async (m: CashMovement) => {
-    let folio = m.folio_recibo || ''
-    if (!folio) {
-      folio = folioRecibo(m.direccion, m.fecha)
-      const { error } = await supabase.from('cash_movements')
-        .update({ folio_recibo: folio, recibo_emitido_at: new Date().toISOString() }).eq('id', m.id)
-      if (error) { alert('No se pudo asignar el folio del recibo: ' + error.message); return }
-      setMovements(prev => prev.map(x => x.id === m.id ? { ...x, folio_recibo: folio, recibo_emitido_at: new Date().toISOString() } : x))
+    // La ventana se abre AQUÍ, todavía dentro del clic. Si se abriera después
+    // de guardar el folio, el bloqueador de ventanas emergentes la mataría sin
+    // avisar y el botón parecería no hacer nada — que es justo lo que pasaba.
+    const ventana = window.open('', '_blank')
+    try {
+      let folio = m.folio_recibo || ''
+      if (!folio) {
+        folio = folioRecibo(m.direccion, m.fecha)
+        const { error } = await supabase.from('cash_movements')
+          .update({ folio_recibo: folio, recibo_emitido_at: new Date().toISOString() }).eq('id', m.id)
+        if (error) throw error
+        setMovements(prev => prev.map(x => x.id === m.id ? { ...x, folio_recibo: folio, recibo_emitido_at: new Date().toISOString() } : x))
+      }
+      const datos = {
+        folio,
+        direccion: m.direccion,
+        tipo: m.tipo,
+        persona: m.persona,
+        concepto: m.concepto,
+        monto: m.monto,
+        moneda: m.moneda || 'MXN',
+        fecha: m.fecha,
+        proyecto: m.proyecto_nombre || null,
+        lead: m.lead_name || null,
+        cotizacion: m.quotation_name || null,
+      }
+      if (!abrirRecibo(construirReciboHTML(datos), ventana)) {
+        // Sin ventana emergente: se enseña dentro de la app y se imprime desde ahí.
+        setReciboHtml(construirReciboHTML(datos, { autoPrint: false }))
+      }
+    } catch (e: any) {
+      ventana?.close()
+      alert('No se pudo generar el recibo: ' + (e?.message || e))
     }
-    generarReciboEfectivo({
-      folio,
-      direccion: m.direccion,
-      tipo: m.tipo,
-      persona: m.persona,
-      concepto: m.concepto,
-      monto: m.monto,
-      moneda: m.moneda || 'MXN',
-      fecha: m.fecha,
-      proyecto: m.proyecto_nombre || null,
-      lead: m.lead_name || null,
-      cotizacion: m.quotation_name || null,
-    })
   }
 
   // ── Comprobante ─────────────────────────────────────────────────────
@@ -5499,6 +5515,27 @@ function TabEfectivo() {
           <Btn size="sm" variant="primary" style={{ flex: isMobile ? 1 : 'initial' }} onClick={() => { setEditingId(null); setConvTc(''); setShowForm(true) }}><Plus size={12} /> Registrar movimiento</Btn>
         </div>
       </div>
+
+      {/* Recibo dentro de la app — respaldo cuando el navegador bloquea la
+          ventana emergente. Se imprime desde aquí igual que desde la ventana. */}
+      {reciboHtml && (
+        <div onClick={() => setReciboHtml(null)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div onClick={e => e.stopPropagation()}
+            style={{ background: '#fff', borderRadius: 12, width: 'min(820px, 96vw)', height: 'min(90vh, 1000px)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderBottom: '1px solid #ddd', background: '#f5f5f5' }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: '#111', flex: 1 }}>Recibo</span>
+              <button onClick={() => { reciboIframe.current?.contentWindow?.focus(); reciboIframe.current?.contentWindow?.print() }}
+                style={{ padding: '6px 14px', borderRadius: 7, border: 'none', background: '#111', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
+                Imprimir
+              </button>
+              <button onClick={() => setReciboHtml(null)}
+                style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', display: 'flex' }}><X size={18} /></button>
+            </div>
+            <iframe ref={reciboIframe} srcDoc={reciboHtml} title="Recibo" style={{ flex: 1, border: 'none', width: '100%' }} />
+          </div>
+        </div>
+      )}
 
       {/* Error de upload */}
       {uploadError && (

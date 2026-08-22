@@ -87,8 +87,12 @@ export interface DatosRecibo {
 
 const esc = (s: any) => String(s ?? '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c] as string))
 
-/** Abre el recibo en una ventana nueva, listo para imprimir o guardar en PDF. */
-export function generarReciboEfectivo(d: DatosRecibo) {
+/**
+ * Arma el HTML del recibo. Se devuelve como texto (en vez de abrirlo aquí)
+ * porque quien llama tiene que poder decidir dónde mostrarlo: en una ventana
+ * nueva si el navegador la deja, o dentro de la app si la bloquea.
+ */
+export function construirReciboHTML(d: DatosRecibo, opts?: { autoPrint?: boolean }): string {
   const esIngreso = d.direccion === 'ingreso'
   const titulo = esIngreso ? 'RECIBO DE INGRESO' : 'RECIBO DE PAGO'
   const moneda = d.moneda || 'MXN'
@@ -164,10 +168,32 @@ export function generarReciboEfectivo(d: DatosRecibo) {
       ${d.emitidoPor ? `Emitido por ${esc(d.emitidoPor)}.` : ''}
     </div>
   </div>
-  <script>window.onload=function(){setTimeout(function(){window.print()},250)}</script>
+  ${opts?.autoPrint === false ? '' : '<script>window.onload=function(){setTimeout(function(){window.print()},250)}</script>'}
   </body></html>`
 
-  const w = window.open('', '_blank')
-  if (w) { w.document.write(html); w.document.close() }
-  else alert('El navegador bloqueó la ventana del recibo. Permite las ventanas emergentes de este sitio.')
+  return html
+}
+
+/**
+ * Abre el recibo en una ventana nueva. Devuelve false si el navegador la
+ * bloqueó, para que quien llama lo enseñe dentro de la app.
+ *
+ * ⚠️ Los bloqueadores solo dejan pasar window.open si sale del clic del
+ * usuario. Si hay un await antes (guardar el folio, por ejemplo), la ventana
+ * se bloquea en silencio y parece que el botón no hace nada — que es
+ * exactamente lo que pasaba. Por eso se admite una ventana YA ABIERTA por
+ * quien llama, antes de tocar la base.
+ */
+export function abrirRecibo(html: string, ventana?: Window | null): boolean {
+  const w = ventana ?? window.open('', '_blank')
+  if (!w) return false
+  w.document.open()
+  w.document.write(html)
+  w.document.close()
+  return true
+}
+
+/** Atajo para los casos sin await de por medio. */
+export function generarReciboEfectivo(d: DatosRecibo) {
+  return abrirRecibo(construirReciboHTML(d))
 }
