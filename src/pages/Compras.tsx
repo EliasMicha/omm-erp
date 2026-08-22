@@ -3467,7 +3467,9 @@ function SupplierList({ onOpen }: { onOpen: (id: string) => void }) {
                 <Td muted>{s.contact_name || '--'}</Td>
                 <Td muted>{s.contact_phone || '--'}</Td>
                 <Td muted>{s.rfc || '--'}</Td>
-                <Td><Badge label={PAYMENT_TERMS_CFG[s.payment_terms]} color="#2563EB" /></Td>
+                <Td>{s.payment_terms
+                  ? <Badge label={PAYMENT_TERMS_CFG[s.payment_terms]} color="#2563EB" />
+                  : <span style={{ fontSize: 11, color: '#D97706' }} title="Sin condiciones no se puede sugerir la fecha máxima de pago de sus OC">Sin definir</span>}</Td>
                 <Td>
                   <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
                     {(s.systems || []).slice(0, 3).map(sys => (
