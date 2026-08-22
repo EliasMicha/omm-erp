@@ -10,6 +10,7 @@ import { Badge, Btn, KpiCard, Table, Th, Td, Loading, SectionHeader, EmptyState 
 import { useIsMobile } from '../lib/useIsMobile'
 import { Plus, ChevronLeft, X, Search, Trash2, Save, ShoppingCart, Truck, Package, Users2, FileText, Copy, Sparkles, Upload, ClipboardList, CheckCircle2, Circle, Clock, Download } from 'lucide-react'
 import { generatePOPdf } from '../lib/poPdf'
+import { sugerirFechaMaximaPago, estadoPago } from '../lib/pagoProveedor'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type POStatus = 'borrador' | 'aprobada' | 'pedida' | 'recibida_parcial' | 'recibida' | 'cancelada'
@@ -63,6 +64,8 @@ interface PurchaseOrder {
   approved_by?: string
   approved_at?: string
   expected_delivery?: string
+  fecha_maxima_pago?: string | null
+  pagada_at?: string | null
   delivered_at?: string
   project?: Project
   supplier?: Supplier
@@ -974,6 +977,8 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
   const [search, setSearch] = useState('')
   const [filterStatus, setFilterStatus] = useState<string>('todas')
   const [filterSpec, setFilterSpec] = useState<string>('todas')
+  // Filtro de pago: para poder ver de un jalón lo que hay que pagar esta semana.
+  const [filterPago, setFilterPago] = useState<'todas' | 'vencido' | 'semana' | 'sin_fecha'>('todas')
   const [showNew, setShowNew] = useState(false)
   const [showFromQuote, setShowFromQuote] = useState(false)
   const [showFromPDF, setShowFromPDF] = useState(false)
@@ -1037,6 +1042,16 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
   let lista = orders
   if (filterStatus !== 'todas') lista = lista.filter(o => o.status === filterStatus)
   if (filterSpec !== 'todas') lista = lista.filter(o => o.specialty === filterSpec)
+  if (filterPago !== 'todas') {
+    // Las canceladas y las ya pagadas nunca son deuda pendiente.
+    lista = lista.filter(o => {
+      if (o.status === 'cancelada' || o.pagada_at) return false
+      const ep = estadoPago(o.fecha_maxima_pago)
+      if (filterPago === 'sin_fecha') return ep.estado === 'sin_fecha'
+      if (filterPago === 'vencido') return ep.estado === 'vencido' || ep.estado === 'hoy'
+      return ep.estado === 'vencido' || ep.estado === 'hoy' || ep.estado === 'proximo'
+    })
+  }
   if (search) {
     const q = search.toLowerCase()
     lista = lista.filter(o =>
@@ -1108,16 +1123,34 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
             )
           })}
         </div>
+        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+          {([
+            { k: 'todas', label: 'Todo pago', color: '#10B981' },
+            { k: 'vencido', label: 'Pago vencido', color: '#DC2626' },
+            { k: 'semana', label: 'Por pagar ≤7d', color: '#D97706' },
+            { k: 'sin_fecha', label: 'Sin fecha de pago', color: '#6B7280' },
+          ] as const).map(c => {
+            const on = filterPago === c.k
+            return (
+              <button key={c.k} onClick={() => setFilterPago(c.k)} style={{
+                padding: '4px 10px', borderRadius: 20, fontSize: 10, cursor: 'pointer', fontFamily: 'inherit',
+                border: `1px solid ${on ? c.color : '#333'}`,
+                background: on ? c.color + '22' : 'transparent',
+                color: on ? c.color : '#555', fontWeight: on ? 600 : 400,
+              }}>{c.label}</button>
+            )
+          })}
+        </div>
       </div>
 
       {loading ? <Loading /> : (
         <div style={{ overflowX: 'auto' }}>
           <Table>
             <thead><tr>
-              <Th>OC #</Th><Th>Descripción</Th><Th>Proveedor</Th><Th>Cotización</Th><Th>Lead</Th><Th>Especialidad</Th><Th>Fase</Th><Th>Estado</Th><Th>Cotejo</Th><Th>Fecha</Th><Th right>Total MXN</Th><Th right>Total USD</Th><Th></Th>
+              <Th>OC #</Th><Th>Descripción</Th><Th>Proveedor</Th><Th>Cotización</Th><Th>Lead</Th><Th>Especialidad</Th><Th>Fase</Th><Th>Estado</Th><Th>Cotejo</Th><Th>Fecha</Th><Th>Pago límite</Th><Th right>Total MXN</Th><Th right>Total USD</Th><Th></Th>
           </tr></thead>
           <tbody>
-            {lista.length === 0 && <tr><td colSpan={13}><EmptyState message="Sin órdenes de compra" /></td></tr>}
+            {lista.length === 0 && <tr><td colSpan={14}><EmptyState message="Sin órdenes de compra" /></td></tr>}
             {lista.map(o => {
               const st = PO_STATUS_CFG[o.status]
               const esp = SPECIALTY_CONFIG[o.specialty]
@@ -1146,6 +1179,20 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
                   <Td><Badge label={st.label} color={st.color} /></Td>
                   <Td><Badge label={cotejoLabel} color={cotejoColor} /></Td>
                   <Td muted>{formatDate(o.created_at)}</Td>
+                  <Td>{(() => {
+                    // Pago límite: la fecha, y debajo qué tan cerca está. Una OC
+                    // cancelada no debe nada, así que no se pinta en rojo.
+                    const ep = estadoPago(o.fecha_maxima_pago, { pagadaAt: o.pagada_at, cancelada: o.status === 'cancelada' })
+                    if (ep.estado === 'sin_fecha') return <span style={{ color: '#333' }}>—</span>
+                    return (
+                      <div style={{ lineHeight: 1.3 }}>
+                        <div style={{ fontSize: 11, color: ep.estado === 'pagada' ? '#666' : '#ccc', textDecoration: ep.estado === 'pagada' ? 'line-through' : 'none' }}>
+                          {formatDate(o.fecha_maxima_pago!)}
+                        </div>
+                        <div style={{ fontSize: 10, color: ep.color, fontWeight: ep.estado === 'vencido' || ep.estado === 'hoy' ? 700 : 400 }}>{ep.label}</div>
+                      </div>
+                    )
+                  })()}</Td>
                   <Td right>{o.currency === 'MXN' ? <span style={{ fontWeight: 600, color: allCotejado ? '#10B981' : noCotejado ? '#ccc' : '#D97706' }} title={allCotejado ? 'Total cotejado' : noCotejado ? 'Total catálogo (sin cotejar)' : 'Mezcla de catálogo + cotejado'}>{F(displayTotal)}</span> : <span style={{ color: '#333' }}>—</span>}</Td>
                   <Td right>{o.currency === 'USD' ? <span style={{ fontWeight: 600, color: allCotejado ? '#10B981' : noCotejado ? '#ccc' : '#D97706' }} title={allCotejado ? 'Total cotejado' : noCotejado ? 'Total catálogo (sin cotejar)' : 'Mezcla de catálogo + cotejado'}>{FUSD(displayTotal)}</span> : <span style={{ color: '#333' }}>—</span>}</Td>
                   <Td><div style={{ display: 'flex', gap: 4 }}>
@@ -2246,6 +2293,8 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
       descripcion: po.descripcion || null,
       supplier_doc_number: po.supplier_doc_number || null,
       expected_delivery: po.expected_delivery || null,
+      fecha_maxima_pago: po.fecha_maxima_pago || null,
+      pagada_at: po.pagada_at || null,
       logistics_mode: po.logistics_mode || 'pending',
       logistics_target_obra_id: po.logistics_target_obra_id || null,
       updated_at: new Date().toISOString(),
@@ -2604,17 +2653,61 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
         )
       })()}
 
-      {/* PO info row 2: Entrega esperada + Folio del proveedor */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 2fr', gap: 12, marginBottom: 12 }}>
-        <Field label="Entrega esperada" value={po.expected_delivery || ''} type="date"
-          onChange={v => { setPO(p => p ? { ...p, expected_delivery: v } : p); setDirty(true) }} />
-        <Field label="Folio / cotización del proveedor" value={po.supplier_doc_number || ''}
-          onChange={v => { setPO(p => p ? { ...p, supplier_doc_number: v } : p); setDirty(true) }}
-          placeholder="ej. OV-12345 / Cot-2024-789" />
-        <Field label="Descripción general" value={po.descripcion || ''}
-          onChange={v => { setPO(p => p ? { ...p, descripcion: v } : p); setDirty(true) }}
-          placeholder="ej. Redes A101" />
-      </div>
+      {/* PO info row 2: Entrega esperada + Fecha máxima de pago + Folio del proveedor */}
+      {(() => {
+        // La fecha de entrega y la de pago no son la misma cosa: la OC puede
+        // llegar el martes y pagarse a 30 días. Por eso son dos campos.
+        const supPO = suppliers.find(s => s.id === po.supplier_id) || (po.supplier as Supplier | undefined)
+        const sug = sugerirFechaMaximaPago(supPO?.payment_terms as any, {
+          entregaEsperada: po.expected_delivery,
+          fechaOC: po.created_at,
+        })
+        const est = estadoPago(po.fecha_maxima_pago, {
+          pagadaAt: po.pagada_at,
+          cancelada: po.status === 'cancelada',
+        })
+        return (
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 2fr', gap: 12, marginBottom: 12 }}>
+            <Field label="Entrega esperada" value={po.expected_delivery || ''} type="date"
+              onChange={v => { setPO(p => p ? { ...p, expected_delivery: v } : p); setDirty(true) }} />
+            <div>
+              <Field label="Fecha máxima de pago" value={po.fecha_maxima_pago || ''} type="date"
+                onChange={v => { setPO(p => p ? { ...p, fecha_maxima_pago: v || null } : p); setDirty(true) }} />
+              <div style={{ marginTop: 4, fontSize: 10, lineHeight: 1.5 }}>
+                {po.fecha_maxima_pago ? (
+                  <span style={{ color: est.color, fontWeight: est.estado === 'vencido' || est.estado === 'hoy' ? 700 : 500 }}>
+                    {est.estado === 'pagada' ? 'Ya pagada' : est.label}
+                  </span>
+                ) : sug ? (
+                  <span
+                    onClick={() => { setPO(p => p ? { ...p, fecha_maxima_pago: sug.fecha } : p); setDirty(true) }}
+                    title={`${PAYMENT_TERMS_CFG[supPO!.payment_terms]} contados desde ${sug.base === 'entrega' ? 'la entrega esperada' : 'la fecha de la OC'} (${sug.baseFecha})`}
+                    style={{ color: '#2563EB', cursor: 'pointer', textDecoration: 'underline' }}>
+                    Sugerir {formatDate(sug.fecha)} ({PAYMENT_TERMS_CFG[supPO!.payment_terms]})
+                  </span>
+                ) : (
+                  <span style={{ color: '#444' }}>
+                    {po.supplier_id ? 'El proveedor no tiene condiciones de pago' : 'Asigna proveedor para sugerirla'}
+                  </span>
+                )}
+                {po.fecha_maxima_pago && (
+                  <span
+                    onClick={() => { setPO(p => p ? { ...p, pagada_at: p.pagada_at ? null : new Date().toISOString() } : p); setDirty(true) }}
+                    style={{ marginLeft: 8, color: '#666', cursor: 'pointer', textDecoration: 'underline' }}>
+                    {po.pagada_at ? 'Marcar sin pagar' : 'Marcar pagada'}
+                  </span>
+                )}
+              </div>
+            </div>
+            <Field label="Folio / cotización del proveedor" value={po.supplier_doc_number || ''}
+              onChange={v => { setPO(p => p ? { ...p, supplier_doc_number: v } : p); setDirty(true) }}
+              placeholder="ej. OV-12345 / Cot-2024-789" />
+            <Field label="Descripción general" value={po.descripcion || ''}
+              onChange={v => { setPO(p => p ? { ...p, descripcion: v } : p); setDirty(true) }}
+              placeholder="ej. Redes A101" />
+          </div>
+        )
+      })()}
 
       {/* Logística row (Entregas v2) */}
       <div style={{

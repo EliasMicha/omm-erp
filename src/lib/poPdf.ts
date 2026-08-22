@@ -17,6 +17,7 @@ interface POForPdf {
   notes?: string
   supplier_doc_number?: string
   expected_delivery?: string
+  fecha_maxima_pago?: string | null
   supplier?: { name: string; contact_name?: string; contact_phone?: string; contact_email?: string; rfc?: string; address?: string }
   project?: { name: string; client_name?: string }
   quotation?: { name: string }
@@ -110,6 +111,9 @@ export function generatePOPdf(po: POForPdf, items: POItemForPdf[], opts?: POPdfO
   if (po.purchase_phase) infoLeft.push(['Fase', po.purchase_phase])
   if (!sinCostos && po.supplier_doc_number) infoLeft.push(['Doc proveedor', po.supplier_doc_number])
   if (po.expected_delivery) infoLeft.push(['Entrega esperada', fmtDate(po.expected_delivery)])
+  // La fecha limite de pago solo va en la version con costos: en la copia
+  // que va a almacen no pinta nada y solo estorba.
+  if (!sinCostos && po.fecha_maxima_pago) infoLeft.push(['Fecha maxima de pago', fmtDate(po.fecha_maxima_pago)])
   if (po.quotation?.name) infoLeft.push(['Cotizacion', po.quotation.name])
   if (po.project?.name) infoLeft.push(['Proyecto', po.project.name])
 
