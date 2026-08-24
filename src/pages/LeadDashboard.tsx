@@ -15,6 +15,7 @@ import {
 import jsPDF from 'jspdf'
 import { generarEstadoCuentaPdf } from '../lib/estadoCuentaPdf'
 import PaymentPlanModal from '../components/PaymentPlanModal'
+import EstimacionesLead from '../components/EstimacionesLead'
 
 // ═══════════════════════════════════════════════════════════════════
 // TYPES
@@ -1158,6 +1159,9 @@ export default function LeadDashboard() {
                   </div>
                 )
               })()}
+
+              {/* ── Estimaciones (obra eléctrica: se cobra por avance) ── */}
+              <EstimacionesLead cotizaciones={quotations as any} />
 
               {/* ── Desglose de cobros por cotización (mini estado de cuenta) ── */}
               {quotBalances.some(qb => qb.pagos.length > 0) && (

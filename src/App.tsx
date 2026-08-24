@@ -6,6 +6,7 @@ import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import CRM from './pages/CRM'
 import Cotizaciones from './pages/Cotizaciones'
+import EstimacionEditor from './pages/EstimacionEditor'
 import Proyectos from './pages/Proyectos'
 import OtrosModulos from './pages/OtrosModulos'
 import Contabilidad from './pages/Contabilidad'
@@ -61,6 +62,7 @@ export default function App() {
                     } />
                     <Route path="/crm/:id" element={<LeadDashboard />} />
                     <Route path="/cotizaciones" element={<Cotizaciones />} />
+                    <Route path="/estimacion/:id" element={<EstimacionEditor />} />
                     <Route path="/compras" element={<Compras />} />
                     <Route path="/proyectos" element={<Proyectos />} />
                     <Route path="/contabilidad" element={
