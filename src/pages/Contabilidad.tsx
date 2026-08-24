@@ -3,6 +3,7 @@ import { MOCK_CLIENTES } from './Clientes'
 import type { ClienteFiscal } from './Clientes'
 import { supabase, supabaseAll } from '../lib/supabase'
 import EstadoCuentaProveedor from '../components/EstadoCuentaProveedor'
+import { paraConciliar, etiquetaElegible, noArchivada } from '../lib/versionesCotizacion'
 // supabaseAll = ve también leads/cotizaciones archivados: aquí los movimientos y
 // facturas ya asignados deben seguir mostrando su nombre y sumando para cuadrar.
 import { SectionHeader, KpiCard, Table, Th, Td, ThFilter, useColumnFilters, Badge, Btn, EmptyState } from '../components/layout/UI'
@@ -1871,7 +1872,7 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
   const [repExpanded, setRepExpanded] = useState<Set<string>>(new Set())
   // Asignacion en cascada Lead -> Cotizacion -> OC
   const [assignLeads, setAssignLeads] = useState<{ id: string; name: string; company?: string }[]>([])
-  const [assignQuotations, setAssignQuotations] = useState<{ id: string; name: string; lead_id: string; specialty?: string; total?: number; currency?: string }[]>([])
+  const [assignQuotations, setAssignQuotations] = useState<{ id: string; name: string; lead_id: string; specialty?: string; total?: number; currency?: string; stage?: string | null; archived_at?: string | null; vigente?: boolean | null; version_group_id?: string | null }[]>([])
   const [assignPOs, setAssignPOs] = useState<{ id: string; po_number: string; quotation_id?: string; project_id?: string; supplier_id?: string; total?: number; currency?: string; purchase_phase?: string; status?: string }[]>([])
   const [assignSuppliers, setAssignSuppliers] = useState<{ id: string; name: string; rfc?: string; clabe?: string; cuenta_bancaria?: string; banco?: string; bnet_codigo?: string }[]>([])
   // Cuentas bancarias relacionadas — 1 supplier puede tener N cuentas con distinto BNET/CLABE
@@ -2040,7 +2041,7 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
     if (!leadId) return []
     const { data, error } = await supabaseAll
       .from('quotations')
-      .select('id,name,notes,specialty,total,updated_at')
+      .select('id,name,notes,specialty,total,updated_at,stage,archived_at,vigente,version_group_id')
       .ilike('notes', `%${leadId}%`)
       .eq('vigente', true)
       .order('updated_at', { ascending: false })
@@ -2067,7 +2068,7 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
   async function reloadQuotations() {
     const { data } = await supabaseAll
       .from('quotations')
-      .select('id,name,notes,specialty,total,updated_at')
+      .select('id,name,notes,specialty,total,updated_at,stage,archived_at,vigente,version_group_id')
       .eq('vigente', true)
       .order('updated_at', { ascending: false })
     if (data) {
@@ -2080,7 +2081,7 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
   useEffect(() => {
     Promise.all([
       supabaseAll.from('leads').select('id,name,company').order('name'),
-      supabaseAll.from('quotations').select('id,name,notes,specialty,total,updated_at').eq('vigente', true).order('updated_at', { ascending: false }),
+      supabaseAll.from('quotations').select('id,name,notes,specialty,total,updated_at,stage,archived_at,vigente,version_group_id').eq('vigente', true).order('updated_at', { ascending: false }),
       supabase.from('purchase_orders').select('id,po_number,quotation_id,project_id,supplier_id,total,currency,purchase_phase,status').order('po_number', { ascending: false }),
       supabase.from('suppliers').select('id,name,rfc,clabe,cuenta_bancaria,banco,bnet_codigo').order('name'),
       supabase.from('clientes').select('id,razon_social,nombre_comercial,rfc,clabe,cuenta_bancaria,banco').eq('activo', true).order('razon_social'),
@@ -3513,7 +3514,7 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
               </label>
               <span style={{ fontSize: 11, color: '#555' }}>→ reasignar a:</span>
               <div style={{ width: 190 }}><SearchSelect value={genBulkLead} options={assignLeads.map(l => ({ id: l.id, label: l.name + (l.company ? ` · ${l.company}` : '') }))} placeholder="Lead destino…" onChange={v => { setGenBulkLead(v); setGenBulkQuote('') }} /></div>
-              <div style={{ width: 220 }}><SearchSelect value={genBulkQuote} disabled={!genBulkLead} options={assignQuotations.filter(q => q.lead_id === genBulkLead).map(q => ({ id: q.id, label: q.name }))} placeholder={genBulkLead ? 'Cotización destino…' : 'Elige lead primero'} onChange={v => setGenBulkQuote(v)} /></div>
+              <div style={{ width: 220 }}><SearchSelect value={genBulkQuote} disabled={!genBulkLead} options={paraConciliar(assignQuotations.filter(q => q.lead_id === genBulkLead)).map(q => ({ id: q.id, label: q.name }))} placeholder={genBulkLead ? 'Contrato destino…' : 'Elige lead primero'} onChange={v => setGenBulkQuote(v)} /></div>
               <button disabled={savingGen || genSel.size === 0} onClick={bulkAsignarGeneral} style={{ padding: '6px 12px', fontSize: 11, fontWeight: 700, fontFamily: 'inherit', cursor: (savingGen || genSel.size === 0) ? 'default' : 'pointer', borderRadius: 6, border: '1px solid #10B98155', background: genSel.size ? '#10B98122' : '#161616', color: genSel.size ? '#10B981' : '#555', whiteSpace: 'nowrap' }}>{savingGen ? 'Asignando…' : `Asignar ${genSel.size || ''}`}</button>
             </div>
 
@@ -3580,7 +3581,7 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
                         <td style={{ ...genCell, minWidth: 340 }}>
                           <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
                             <div style={{ width: 130 }}><SearchSelect value={rowLead} options={assignLeads.map(l => ({ id: l.id, label: l.name }))} placeholder="Lead…" onChange={v => { setGenRowLead(p => ({ ...p, [m.id]: v })); setGenRowQuote(p => ({ ...p, [m.id]: '' })) }} /></div>
-                            <div style={{ width: 145 }}><SearchSelect value={rowQuote} disabled={!rowLead} options={assignQuotations.filter(q => q.lead_id === rowLead).map(q => ({ id: q.id, label: q.name }))} placeholder={rowLead ? 'Cotización…' : 'Lead primero'} onChange={v => setGenRowQuote(p => ({ ...p, [m.id]: v }))} /></div>
+                            <div style={{ width: 145 }}><SearchSelect value={rowQuote} disabled={!rowLead} options={paraConciliar(assignQuotations.filter(q => q.lead_id === rowLead), rowQuote).map(q => ({ id: q.id, label: q.name + etiquetaElegible(q as any) }))} placeholder={rowLead ? 'Contrato…' : 'Lead primero'} onChange={v => setGenRowQuote(p => ({ ...p, [m.id]: v }))} /></div>
                             <button onClick={async () => { const ok = await asignarMovGeneral(m.id, rowLead, rowQuote, rowQuote ? quoteNameOf(rowQuote) : undefined); if (ok) { setGenRowLead(p => { const n = { ...p }; delete n[m.id]; return n }); setGenRowQuote(p => { const n = { ...p }; delete n[m.id]; return n }) } }} disabled={!rowLead && !rowQuote} title="Guardar el vínculo de este movimiento" style={{ padding: '4px 8px', fontSize: 11, fontWeight: 700, fontFamily: 'inherit', cursor: (rowLead || rowQuote) ? 'pointer' : 'default', borderRadius: 5, border: '1px solid #10B98155', background: (rowLead || rowQuote) ? '#10B98122' : '#161616', color: (rowLead || rowQuote) ? '#10B981' : '#555' }}>✓</button>
                           </div>
                         </td>
@@ -3605,7 +3606,7 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
         const repBank = repLead ? bankMovements.filter(m => m.lead_id === repLead).map(m => norm(m.quotation_id, m.fecha, m.beneficiario || m.concepto, m.concepto, m.monto || 0, m.moneda || 'MXN', m.tipo === 'abono' ? 'ingreso' : 'egreso', 'Banco')) : []
         const repEfec = repLead ? repCash.map((c: any) => norm(c.quotation_id, c.fecha, c.persona || c.concepto, c.concepto, Number(c.monto) || 0, c.moneda || 'MXN', c.direccion === 'ingreso' ? 'ingreso' : 'egreso', 'Efectivo')) : []
         const repAll = [...repBank, ...repEfec]
-        const quotesLead = assignQuotations.filter(q => q.lead_id === repLead)
+        const quotesLead = noArchivada(assignQuotations.filter(q => q.lead_id === repLead))
         const baseGroups = [...quotesLead.map(q => ({ id: q.id, name: q.name })), { id: '', name: 'Sin cotización asignada' }]
         const repGroups = baseGroups.map(g => {
           const items = repAll.filter(r => (r.quotation_id || '') === g.id).sort((a, b) => (a.fecha < b.fecha ? 1 : a.fecha > b.fecha ? -1 : 0))
@@ -3927,7 +3928,7 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
                 style={{ width: '100%', padding: '6px 8px', fontSize: 12, background: '#0a0a0a', border: '1px solid #333', borderRadius: 6, color: manual.lead_id ? '#fff' : '#555', fontFamily: 'inherit', opacity: manual.lead_id ? 1 : 0.5 }}
               >
                 <option value="">{manual.lead_id ? 'Sin cotización' : 'Elige lead primero'}</option>
-                {manual.lead_id && assignQuotations.filter(q => q.lead_id === manual.lead_id).map(q => (
+                {manual.lead_id && paraConciliar(assignQuotations.filter(q => q.lead_id === manual.lead_id), manual.quotation_id).map(q => (
                   <option key={q.id} value={q.id}>{q.name}{q.specialty ? ` · ${q.specialty}` : ''}</option>
                 ))}
               </select>
@@ -4364,8 +4365,11 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
                         // query directa a Supabase). Fallback a assignQuotations si aún
                         // no se ha cargado el lead.
                         const cachedQuotes = m.lead_id ? quotesByLead[m.lead_id] : undefined
+                        // Solo CONTRATOS: amarrarle dinero a una estimación o a
+                        // una propuesta perdida ensucia el estado de cuenta del
+                        // proyecto. Las archivadas ya no existen para el ERP.
                         const filteredQuotes = m.lead_id
-                          ? (cachedQuotes ?? assignQuotations.filter(q => q.lead_id === m.lead_id))
+                          ? paraConciliar(cachedQuotes ?? assignQuotations.filter(q => q.lead_id === m.lead_id), m.quotation_id)
                           : []
                         const filteredPOs = m.quotation_id ? assignPOs.filter(p => p.quotation_id === m.quotation_id) : []
                         const filledCount = (m.lead_id ? 1 : 0) + (m.quotation_id ? 1 : 0) + (m.purchase_order_id ? 1 : 0)
@@ -4409,8 +4413,8 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
                                 </div>
                                 <SearchSelect
                                   value={m.quotation_id || ''}
-                                  options={filteredQuotes.map(q => ({ id: q.id, label: `${q.name}${q.specialty ? ` (${q.specialty})` : ''}${q.total ? ` - ${F(q.total)} ${q.currency || ''}` : ''}` }))}
-                                  placeholder={m.lead_id ? (filteredQuotes.length === 0 ? 'Sin cotizaciones — click ↻ para recargar' : 'Buscar cotización...') : 'Selecciona lead primero'}
+                                  options={filteredQuotes.map(q => ({ id: q.id, label: `${q.name}${q.specialty ? ` (${q.specialty})` : ''}${q.total ? ` - ${F(q.total)} ${q.currency || ''}` : ''}${etiquetaElegible(q as any)}` }))}
+                                  placeholder={m.lead_id ? (filteredQuotes.length === 0 ? 'Este lead no tiene cotización en contrato' : 'Buscar contrato...') : 'Selecciona lead primero'}
                                   disabled={isSaving || !m.lead_id}
                                   onChange={val => updateAssignment(m.id, 'quotation_id', val || null)}
                                 />
@@ -5382,7 +5386,7 @@ function TabEfectivo() {
   }
   // Catálogos para los dropdowns de lead y cotización
   const [leads, setLeads] = useState<Array<{ id: string; name: string; company?: string }>>([])
-  const [quotations, setQuotations] = useState<Array<{ id: string; name: string; specialty: string; total: number; notes?: string | null }>>([])
+  const [quotations, setQuotations] = useState<Array<{ id: string; name: string; specialty: string; total: number; notes?: string | null; stage?: string | null; archived_at?: string | null; vigente?: boolean | null; version_group_id?: string | null }>>([])
   const fileRef = useRef<HTMLInputElement>(null)
   const [uploadPreview, setUploadPreview] = useState<any[] | null>(null)
   const [uploading, setUploading] = useState(false)
@@ -5392,7 +5396,7 @@ function TabEfectivo() {
     const [{ data: movsData }, { data: leadsData }, { data: cotsData }] = await Promise.all([
       supabase.from('cash_movements').select('*').order('fecha', { ascending: false }),
       supabaseAll.from('leads').select('id, name, company').order('name'),
-      supabaseAll.from('quotations').select('id, name, specialty, total, notes').eq('vigente', true).order('updated_at', { ascending: false }),
+      supabaseAll.from('quotations').select('id, name, specialty, total, notes, stage, archived_at, vigente, version_group_id').eq('vigente', true).order('updated_at', { ascending: false }),
     ])
     const leadsMap = new Map((leadsData || []).map((l: any) => [l.id, l]))
     const cotsMap = new Map((cotsData || []).map((c: any) => [c.id, c]))
@@ -5421,7 +5425,7 @@ function TabEfectivo() {
   const loadCatalogs = async () => {
     const [{ data: leadsData }, { data: cotsData }] = await Promise.all([
       supabaseAll.from('leads').select('id, name, company').order('name'),
-      supabaseAll.from('quotations').select('id, name, specialty, total, notes').order('updated_at', { ascending: false }),
+      supabaseAll.from('quotations').select('id, name, specialty, total, notes, stage, archived_at, vigente, version_group_id').order('updated_at', { ascending: false }),
     ])
     if (leadsData) setLeads(leadsData)
     if (cotsData) setQuotations(cotsData)
@@ -5438,14 +5442,16 @@ function TabEfectivo() {
   }, [])
 
   // Cotizaciones filtradas por lead seleccionado (via notes.lead_id en quotations)
-  const quotationsForLead = form.lead_id
+  // Las archivadas ("borradas") no se ofrecen nunca; el vínculo que ya tenga el
+  // movimiento sí se conserva para no dejar el campo en blanco.
+  const quotationsForLead = noArchivada(form.lead_id
     ? quotations.filter(q => {
         try {
           const meta = JSON.parse(q.notes || '{}')
           return meta.lead_id === form.lead_id
         } catch { return false }
       })
-    : quotations
+    : quotations).filter(q => !q.archived_at || q.id === form.quotation_id)
 
   // Moneda de una cotización (de notes.currency; default MXN)
   const quoteCur = (q: any): 'MXN' | 'USD' => {

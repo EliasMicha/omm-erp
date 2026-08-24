@@ -133,3 +133,51 @@ export function etiquetaVersion(c: CotVersionable): { texto: string; vigente: bo
   const v = c.vigente === true
   return { texto: `${c.version_label || '?'} · ${v ? 'vigente' : 'histórica'}`, vigente: v }
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Qué cotizaciones se pueden ELEGIR (no es lo mismo que cuáles existen)
+//
+// En conciliación se amarra dinero real a una cotización. Ahí no cabe todo:
+//   · Una cotización archivada ("borrada") no debe volver a aparecer en una
+//     lista. Contabilidad lee con `supabaseAll` a propósito —para que el dinero
+//     histórico siga cuadrando— y por eso las archivadas se le colaban a los
+//     selectores. El filtro tiene que ser explícito aquí.
+//   · Una estimación o una propuesta perdida no es una venta: amarrarle un
+//     pago ensucia el estado de cuenta del proyecto. Solo el CONTRATO manda.
+//
+// La única excepción es la cotización a la que el movimiento YA está amarrado:
+// esa se deja en la lista aunque no cumpla, porque si desaparece el usuario ve
+// un campo vacío y no entiende a qué estaba ligado su movimiento.
+// ═══════════════════════════════════════════════════════════════════════════
+
+export interface CotElegible extends CotVersionable {
+  name?: string | null
+}
+
+/** Un contrato vivo: en etapa contrato, no archivado y versión vigente. */
+export function esContratoVivo(c: CotElegible): boolean {
+  if (c.archived_at) return false
+  if (String(c.stage || '') !== 'contrato') return false
+  return esVigente(c)
+}
+
+/** No archivada. El mínimo que debe cumplir cualquier lista operativa. */
+export function noArchivada<T extends { archived_at?: string | null }>(cots: T[]): T[] {
+  return cots.filter(c => !c.archived_at)
+}
+
+/**
+ * Las opciones válidas para amarrar dinero. `actualId` es la cotización a la
+ * que el movimiento ya está ligado: se conserva siempre para no dejar al
+ * usuario mirando un campo en blanco.
+ */
+export function paraConciliar<T extends CotElegible>(cots: T[], actualId?: string | null): T[] {
+  return cots.filter(c => esContratoVivo(c) || (!!actualId && c.id === actualId))
+}
+
+/** Marca las que están en la lista solo por ser el vínculo actual. */
+export function etiquetaElegible(c: CotElegible): string {
+  if (esContratoVivo(c)) return ''
+  if (c.archived_at) return ' · ARCHIVADA'
+  return ` · ${String(c.stage || 'sin etapa')}`
+}
