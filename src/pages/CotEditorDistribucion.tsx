@@ -1,11 +1,11 @@
 import { useEffect, useState, useRef } from 'react'
 import { supabase } from '../lib/supabase'
-import BotonCatalogo from '../components/BotonCatalogo'
 import { F, FUSD } from '../lib/utils'
-import { ChevronLeft, Plus, Trash2, Printer, Upload, Search, Loader2 } from 'lucide-react'
+import { ChevronLeft, Plus, Trash2, Printer, Upload, Search, Loader2, Sparkles } from 'lucide-react'
 import VersionManager from '../components/VersionManager'
 import { useIsMobile } from '../lib/useIsMobile'
 import { fetchAllActiveCatalog } from '../lib/catalog'
+import CotizarConIA, { PartidaLista } from '../components/CotizarConIA'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Cotizador de DISTRIBUCIÓN — reventa de equipo (Lutron u otras marcas).
@@ -39,6 +39,7 @@ export default function CotEditorDistribucion({ cotId, onBack, onSwitchVersion }
   const [catalog, setCatalog] = useState<any[]>([])
   const [catQuery, setCatQuery] = useState('')
   const [showCat, setShowCat] = useState(false)
+  const [showIA, setShowIA] = useState(false)
 
   useEffect(() => {
     (async () => {
@@ -242,6 +243,27 @@ export default function CotEditorDistribucion({ cotId, onBack, onSwitchVersion }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      {showIA && (
+        <CotizarConIA
+          catalogo={catalog}
+          moneda={config.currency}
+          onCerrar={() => setShowIA(false)}
+          onAgregar={(partidas: PartidaLista[]) => {
+            setItems(prev => [...prev, ...partidas.map(p => ({
+              id: uid(), name: p.name, marca: p.marca, modelo: p.modelo,
+              cantidad: p.cantidad, costo: p.costo, precioPublico: p.precioPublico,
+            }))])
+          }}
+          onCargos={c => setConfig(cfg => ({
+            ...cfg,
+            currency: c.moneda || cfg.currency,
+            // Los fletes y el fee de importación que trae la orden son montos:
+            // se SUMAN a lo que ya hubiera, no lo pisan (pueden venir de varias hojas).
+            fletes: c.fletes ? r2((cfg.fletes || 0) + c.fletes) : cfg.fletes,
+            descuentoPct: c.descuentoPct ?? cfg.descuentoPct,
+          }))}
+        />
+      )}
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: isMobile ? '10px 12px' : '12px 18px', borderBottom: '1px solid #1e1e1e', flexWrap: 'wrap' }}>
         <button onClick={onBack} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', display: 'flex' }}><ChevronLeft size={20} /></button>
@@ -249,9 +271,14 @@ export default function CotEditorDistribucion({ cotId, onBack, onSwitchVersion }
           <div style={{ fontSize: 15, fontWeight: 700, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{cotName || 'Cotización de distribución'}</div>
           <div style={{ fontSize: 11, color: '#F59E0B' }}>⇄ Distribución{clientName ? ' · ' + clientName : ''}</div>
         </div>
+        <button onClick={() => setShowIA(true)}
+          title="Sube el PDF, las fotos o el Excel que te mandó el proveedor: la IA saca las partidas y las empareja con tu catálogo"
+          style={{ padding: '4px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #A78BFA', background: '#A78BFA22', color: '#A78BFA', display: 'flex', alignItems: 'center', gap: 4 }}>
+          <Sparkles size={12} /> Cotizar con IA
+        </button>
         <button onClick={() => fileRef.current?.click()} disabled={importing}
-          style={{ padding: '4px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600, cursor: importing ? 'wait' : 'pointer', fontFamily: 'inherit', border: '1px solid #A78BFA', background: '#A78BFA22', color: '#A78BFA', display: 'flex', alignItems: 'center', gap: 4 }}>
-          {importing ? <Loader2 size={12} className="spin" /> : <Upload size={12} />} {importing ? 'Importando…' : 'Importar'}
+          style={{ padding: '4px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600, cursor: importing ? 'wait' : 'pointer', fontFamily: 'inherit', border: '1px solid #2a2a2a', background: 'transparent', color: '#777', display: 'flex', alignItems: 'center', gap: 4 }}>
+          {importing ? <Loader2 size={12} className="spin" /> : <Upload size={12} />} {importing ? 'Importando…' : 'Importar (1 archivo)'}
         </button>
         <input ref={fileRef} type="file" accept=".pdf,image/*,.csv,.txt" style={{ display: 'none' }}
           onChange={e => { const f = e.target.files?.[0]; if (f) importarOrden(f); e.currentTarget.value = '' }} />
@@ -269,7 +296,6 @@ export default function CotEditorDistribucion({ cotId, onBack, onSwitchVersion }
             style={{ ...inp, width: 52, padding: '3px 6px', textAlign: 'right' }} />
         </label>
         <button onClick={exportPdf} style={{ padding: '4px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #67E8F9', background: '#67E8F922', color: '#67E8F9', display: 'flex', alignItems: 'center', gap: 4 }}><Printer size={12} /> PDF</button>
-<BotonCatalogo cotId={cotId} />
         <VersionManager cotId={cotId} getCurrentSnapshot={() => JSON.stringify({ items, config })} onSwitchVersion={onSwitchVersion || (() => {})} accentColor="#F59E0B" compact={isMobile} />
       </div>
 
