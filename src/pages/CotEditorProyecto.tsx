@@ -21,6 +21,18 @@ interface ProyConfig {
   tipoCambio: number
   ivaRate: number
   descuento: number // percentage discount
+  // ── SCOPE de esta cotización ──────────────────────────────────────────
+  // La propuesta ya trae exclusiones estándar (no suministro, no instalación,
+  // no trámites…), pero esas son iguales para todos. El scope es lo que hace
+  // única a ESTA venta: qué edificio, qué niveles, qué sistemas, sobre qué
+  // información se cotizó y qué se dejó fuera A PROPÓSITO en este caso.
+  //
+  // Sin eso, cuando el cliente pide algo de más, la discusión es contra la
+  // memoria de quien estuvo en la junta. Con esto, es contra un documento.
+  scopeAlcance?: string      // el alcance en prosa: qué se va a hacer
+  scopeIncluye?: string[]    // lo que SÍ, específico de este proyecto
+  scopeNoIncluye?: string[]  // lo que NO, además de las exclusiones estándar
+  scopeSupuestos?: string[]  // sobre qué se cotizó: planos, superficie, criterios
 }
 
 interface ProyItem {
@@ -973,6 +985,45 @@ function ProyPdfModal({
           </div>
         )}
 
+        {/* ── SCOPE DE ESTA COTIZACIÓN ──
+             Va ANTES de los términos estándar: primero lo que se acordó para
+             este proyecto, después la letra chica que aplica a todos. Si el
+             scope quedara hasta abajo, nadie lo leería — y es justo lo que se
+             discute cuando el cliente pide algo de más. */}
+        {(() => {
+          const alc = (config.scopeAlcance || '').trim()
+          const inc = (config.scopeIncluye || []).filter(x => x.trim())
+          const noInc = (config.scopeNoIncluye || []).filter(x => x.trim())
+          const sup = (config.scopeSupuestos || []).filter(x => x.trim())
+          if (!alc && !inc.length && !noInc.length && !sup.length) return null
+          const lista = (titulo: string, items: string[]) => items.length === 0 ? null : (
+            <div style={{ marginTop: 10 }}>
+              <div style={{ fontSize: 10.5, fontWeight: 700, color: '#111', marginBottom: 3 }}>{titulo}</div>
+              {items.map((x, i) => (
+                <div key={i} style={{ fontSize: 10, color: '#555', lineHeight: 1.7, paddingLeft: 10, position: 'relative' }}>
+                  <span style={{ position: 'absolute', left: 0 }}>•</span>{x}
+                </div>
+              ))}
+            </div>
+          )
+          return (
+            <div style={{ marginBottom: 20 }}>
+              <h2 style={{ fontSize: 13, color: '#111', marginBottom: 10, paddingBottom: 4, borderBottom: '1px solid #ddd', fontWeight: 600 }}>
+                Alcance de esta propuesta
+              </h2>
+              {alc && <div style={{ fontSize: 10.5, color: '#444', lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>{alc}</div>}
+              {lista('Incluye', inc)}
+              {lista('No incluye', noInc)}
+              {lista('Esta propuesta se elaboró sobre los siguientes supuestos', sup)}
+              {sup.length > 0 && (
+                <div style={{ fontSize: 9.5, color: '#777', marginTop: 8, fontStyle: 'italic' }}>
+                  Cualquier variación respecto de estos supuestos se considera un cambio de alcance y puede ajustar costo y tiempos.
+                </div>
+              )}
+            </div>
+          )
+        })()}
+
         {/* ── CONDICIONES Y TÉRMINOS ── */}
         <div style={{ marginBottom: 20 }}>
           <h2 style={{ fontSize: 13, color: '#111', marginBottom: 10, paddingBottom: 4, borderBottom: '1px solid #ddd', fontWeight: 600 }}>
@@ -1214,6 +1265,119 @@ function ProyItemRow({
 // SUMMARY PANEL
 // ═══════════════════════════════════════════════════════════════════
 
+// ═══════════════════════════════════════════════════════════════════
+// SCOPE — el alcance de ESTA cotización
+//
+// La propuesta ya trae exclusiones estándar, iguales para todos. Esto es lo
+// que hace única a esta venta: qué se va a hacer, sobre qué información se
+// cotizó y qué quedó fuera a propósito en este caso.
+//
+// Se escribe una línea por renglón. Enter agrega la siguiente: capturar un
+// alcance no debe requerir tocar el mouse entre punto y punto.
+// ═══════════════════════════════════════════════════════════════════
+
+function ListaScope({ titulo, ayuda, color, valores, placeholder, onChange }: {
+  titulo: string
+  ayuda: string
+  color: string
+  valores: string[]
+  placeholder: string
+  onChange: (v: string[]) => void
+}) {
+  const lineas = valores.length > 0 ? valores : ['']
+  const set = (i: number, v: string) => {
+    const next = [...lineas]
+    next[i] = v
+    onChange(next.filter((x, j) => x.trim() !== '' || j === i))
+  }
+  const agregar = () => onChange([...lineas.filter(x => x.trim() !== ''), ''])
+  const quitar = (i: number) => onChange(lineas.filter((_, j) => j !== i).filter(x => x.trim() !== ''))
+
+  return (
+    <div style={{ flex: '1 1 260px', minWidth: 240 }}>
+      <div style={{ fontSize: 10, fontWeight: 700, color, textTransform: 'uppercase', letterSpacing: '.06em' }}>{titulo}</div>
+      <div style={{ fontSize: 9, color: '#555', marginBottom: 6 }}>{ayuda}</div>
+      {lineas.map((l, i) => (
+        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 4 }}>
+          <span style={{ color, fontSize: 11 }}>•</span>
+          <input
+            value={l}
+            placeholder={i === 0 ? placeholder : ''}
+            onChange={e => set(i, e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); agregar() } }}
+            style={{ flex: 1, background: '#141414', color: '#ddd', border: '1px solid #242424', borderRadius: 5, padding: '4px 7px', fontSize: 11, fontFamily: 'inherit', outline: 'none' }} />
+          {lineas.length > 1 && (
+            <button onClick={() => quitar(i)} style={{ background: 'none', border: 'none', color: '#444', cursor: 'pointer', padding: 0, display: 'flex' }}>
+              <X size={11} />
+            </button>
+          )}
+        </div>
+      ))}
+      <button onClick={agregar} style={{ background: 'none', border: 'none', color: color, cursor: 'pointer', fontSize: 10, padding: 0, fontFamily: 'inherit' }}>+ agregar</button>
+    </div>
+  )
+}
+
+function ScopeEditor({ config, onChange }: {
+  config: ProyConfig
+  onChange: (patch: Partial<ProyConfig>) => void
+}) {
+  const [abierto, setAbierto] = useState(true)
+  const lleno = !!(config.scopeAlcance?.trim() || (config.scopeIncluye || []).length || (config.scopeNoIncluye || []).length || (config.scopeSupuestos || []).length)
+
+  return (
+    <div style={{ margin: '14px 16px 24px', background: '#0d0d0d', border: '1px solid #1f1f1f', borderRadius: 10, overflow: 'hidden' }}>
+      <div onClick={() => setAbierto(a => !a)}
+        style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', cursor: 'pointer', borderBottom: abierto ? '1px solid #1a1a1a' : 'none' }}>
+        <span style={{ fontSize: 11, color: '#666' }}>{abierto ? '▾' : '▸'}</span>
+        <div style={{ fontSize: 12, fontWeight: 700, color: '#fff', letterSpacing: '.04em' }}>SCOPE DEL PROYECTO</div>
+        <div style={{ fontSize: 10, color: '#555' }}>lo que hace única a esta cotización — va en la propuesta</div>
+        {!lleno && <span style={{ marginLeft: 'auto', fontSize: 10, color: '#D9A441' }}>sin capturar</span>}
+        {lleno && <span style={{ marginLeft: 'auto', fontSize: 10, color: '#10B981' }}>✓ en la propuesta</span>}
+      </div>
+
+      {abierto && (
+        <div style={{ padding: '12px 14px' }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: '#67E8F9', textTransform: 'uppercase', letterSpacing: '.06em' }}>Alcance</div>
+          <div style={{ fontSize: 9, color: '#555', marginBottom: 6 }}>En prosa: qué se va a desarrollar, para qué inmueble, qué niveles o áreas.</div>
+          <textarea
+            value={config.scopeAlcance || ''}
+            onChange={e => onChange({ scopeAlcance: e.target.value })}
+            placeholder="ej. Desarrollo de la ingeniería eléctrica ejecutiva para el edificio de oficinas de 8,800 m² en Tres Cañadas, niveles B2 a N5, incluyendo áreas comunes y azotea. No incluye el estacionamiento externo."
+            rows={3}
+            style={{ width: '100%', background: '#141414', color: '#ddd', border: '1px solid #242424', borderRadius: 6, padding: '8px 10px', fontSize: 11.5, fontFamily: 'inherit', outline: 'none', resize: 'vertical', lineHeight: 1.55, marginBottom: 14 }} />
+
+          <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap' }}>
+            <ListaScope
+              titulo="Sí incluye" color="#10B981"
+              ayuda="Lo específico de este proyecto que quieres dejar por escrito."
+              placeholder="ej. Dos visitas de levantamiento en sitio"
+              valores={config.scopeIncluye || []}
+              onChange={v => onChange({ scopeIncluye: v })} />
+            <ListaScope
+              titulo="No incluye" color="#DC2626"
+              ayuda="Se suma a las exclusiones estándar de la propuesta."
+              placeholder="ej. Ingeniería de la subestación existente"
+              valores={config.scopeNoIncluye || []}
+              onChange={v => onChange({ scopeNoIncluye: v })} />
+            <ListaScope
+              titulo="Supuestos" color="#D9A441"
+              ayuda="Sobre qué se cotizó. Si cambia, cambia el precio."
+              placeholder="ej. Arquitectónicos rev. B del 12/ago"
+              valores={config.scopeSupuestos || []}
+              onChange={v => onChange({ scopeSupuestos: v })} />
+          </div>
+
+          <div style={{ marginTop: 12, fontSize: 10, color: '#555', lineHeight: 1.6 }}>
+            Los supuestos son la parte que más se te olvida y la que más te salva: si cotizaste sobre unos planos rev. B y llega la rev. D,
+            eso es un cambio de alcance — pero solo si quedó escrito de qué versión partiste.
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function ProySummary({
   items,
   config,
@@ -1404,6 +1568,10 @@ export default function CotEditorProyecto({ cotId, onBack, specialty = 'proy', o
     tipoCambio: 20.5,
     ivaRate: 16,
     descuento: 0,
+    scopeAlcance: '',
+    scopeIncluye: [],
+    scopeNoIncluye: [],
+    scopeSupuestos: [],
   })
   const [stage, setStage] = useState('oportunidad')
   const [cotName, setCotName] = useState('')
@@ -2084,6 +2252,8 @@ export default function CotEditorProyecto({ cotId, onBack, specialty = 'proy', o
               </tr>
             </tbody>
           </table>
+
+          <ScopeEditor config={config} onChange={patch => { setConfig(c => ({ ...c, ...patch })); setDirty(true) }} />
         </div>
         {!isMobile && <div style={{ borderLeft: '1px solid #222', overflowY: 'auto', padding: '14px 10px', background: '#0e0e0e' }}>
           <ProySummary items={items} config={config} onConfigChange={updateConfig} systems={SYSTEMS} />
