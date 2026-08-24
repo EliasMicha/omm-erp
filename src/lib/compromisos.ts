@@ -272,3 +272,128 @@ export async function vecesMovido(entregableId: string): Promise<number> {
   }
   return n
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Solicitudes de dirección
+//
+// El plan semanal no se escribe en el vacío: se escribe contra lo que se le
+// pidió al área. Esta es la mitad que faltaba — sin ella, un director puede
+// entregar una semana impecable de cosas que nadie le pidió, y el encargo que
+// sí importaba lleva tres semanas sin que nadie lo note.
+// ═══════════════════════════════════════════════════════════════════════════
+
+export type EstadoSolicitud = 'abierta' | 'en_plan' | 'entregada' | 'cancelada'
+export type Prioridad = 'alta' | 'normal' | 'baja'
+
+export const ESTADO_SOLICITUD_CFG: Record<EstadoSolicitud, { label: string; color: string }> = {
+  abierta:   { label: 'Sin planear', color: '#DC2626' },
+  en_plan:   { label: 'En el plan',  color: '#2563EB' },
+  entregada: { label: 'Entregada',   color: '#10B981' },
+  cancelada: { label: 'Cancelada',   color: '#555' },
+}
+
+export const PRIORIDAD_CFG: Record<Prioridad, { label: string; color: string }> = {
+  alta:   { label: 'Alta',   color: '#DC2626' },
+  normal: { label: 'Normal', color: '#888' },
+  baja:   { label: 'Baja',   color: '#555' },
+}
+
+export interface Solicitud {
+  id: string
+  area: string
+  titulo: string
+  detalle?: string | null
+  criterio_calidad?: string | null
+  proyecto_ref?: string | null
+  prioridad: Prioridad
+  fecha_requerida?: string | null
+  estado: EstadoSolicitud
+  solicitado_por?: string | null
+  created_at?: string
+}
+
+export async function cargarSolicitudes(opts?: { area?: string; incluirCerradas?: boolean }): Promise<Solicitud[]> {
+  let q = supabase.from('solicitudes_direccion').select('*')
+  if (opts?.area) q = q.eq('area', opts.area)
+  if (!opts?.incluirCerradas) q = q.in('estado', ['abierta', 'en_plan'])
+  const { data } = await q.order('prioridad').order('fecha_requerida', { ascending: true, nullsFirst: false })
+  return ((data as any[]) || []) as Solicitud[]
+}
+
+export async function crearSolicitud(s: Partial<Solicitud> & { area: string; titulo: string }): Promise<{ id?: string; error?: string }> {
+  const { data, error } = await supabase.from('solicitudes_direccion').insert({
+    area: s.area,
+    titulo: s.titulo,
+    detalle: s.detalle || null,
+    criterio_calidad: s.criterio_calidad || null,
+    proyecto_ref: s.proyecto_ref || null,
+    prioridad: s.prioridad || 'normal',
+    fecha_requerida: s.fecha_requerida || null,
+    solicitado_por: s.solicitado_por || null,
+  }).select('id').single()
+  if (error) return { error: error.message }
+  return { id: (data as any).id }
+}
+
+/**
+ * Cuántas semanas lleva una solicitud sin que nadie la planee. Es el número
+ * que convierte "siento que no avanzan" en un hecho conversable.
+ */
+export function semanasSinPlanear(s: Solicitud, hoy = new Date()): number {
+  if (s.estado !== 'abierta' || !s.created_at) return 0
+  const dias = (hoy.getTime() - new Date(s.created_at).getTime()) / 86400000
+  return Math.max(0, Math.floor(dias / 7))
+}
+
+/** ¿Ya se pasó la fecha en que se necesitaba? */
+export function solicitudVencida(s: Solicitud, hoy = new Date().toISOString().slice(0, 10)): boolean {
+  return !!s.fecha_requerida && s.fecha_requerida < hoy && (s.estado === 'abierta' || s.estado === 'en_plan')
+}
+
+/**
+ * Convierte una solicitud en un entregable de la semana. El director elige
+ * quién y qué día; el criterio de calidad viene de quien la pidió, que es
+ * quien sabe cómo se ve bien.
+ */
+export async function planearSolicitud(
+  solicitud: Solicitud,
+  compromisoId: string,
+  responsableId: string,
+  fecha: string,
+  criterioCalidad: string,
+  orden = 0,
+): Promise<{ ok: boolean; error?: string }> {
+  const { error } = await supabase.from('compromiso_entregables').insert({
+    compromiso_id: compromisoId,
+    titulo: solicitud.titulo,
+    responsable_id: responsableId,
+    fecha_compromiso: fecha,
+    criterio_calidad: criterioCalidad || solicitud.criterio_calidad || 'Según lo solicitado',
+    proyecto_ref: solicitud.proyecto_ref || null,
+    solicitud_id: solicitud.id,
+    order_index: orden,
+  })
+  if (error) return { ok: false, error: error.message }
+  await supabase.from('solicitudes_direccion')
+    .update({ estado: 'en_plan', updated_at: new Date().toISOString() }).eq('id', solicitud.id)
+  return { ok: true }
+}
+
+/**
+ * Al marcar entregado un entregable ligado a una solicitud, la solicitud se
+ * cierra sola. Si no se entregó, regresa a 'abierta' para que vuelva a
+ * aparecer en la lista de lo que falta — que es donde tiene que estar.
+ */
+export async function sincronizarSolicitud(solicitudId: string | null | undefined, estadoEntregable: EstadoEntregable): Promise<void> {
+  if (!solicitudId) return
+  if (estadoEntregable === 'entregado') {
+    await supabase.from('solicitudes_direccion')
+      .update({ estado: 'entregada', cerrada_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+      .eq('id', solicitudId)
+  } else if (estadoEntregable === 'no_entregado') {
+    await supabase.from('solicitudes_direccion')
+      .update({ estado: 'abierta', updated_at: new Date().toISOString() })
+      .eq('id', solicitudId)
+  }
+  // 'movido' se queda en_plan: sigue planeada, solo que en otra semana.
+}

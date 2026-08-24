@@ -15,12 +15,15 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { Loading, Badge } from '../components/layout/UI'
 import {
-  ChevronLeft, ChevronRight, Plus, Check, X, AlertTriangle, ArrowRight, Trash2, Lock, Users,
+  ChevronLeft, ChevronRight, Plus, Check, X, AlertTriangle, ArrowRight, Trash2, Lock, Users, Inbox, Send,
 } from 'lucide-react'
 import {
   AREAS, CompromisoSemana, Entregable, ESTADO_ENTREGABLE_CFG, ESTADO_SEMANA_CFG,
   lunesDe, sumarSemanas, rangoSemana, diasDeSemana, cumplimientoDe,
   cargarTodasLasAreas, abrirSemana, comprometer, cerrarSemana, moverASiguiente, puedeComprometer,
+  Solicitud, Prioridad, ESTADO_SOLICITUD_CFG, PRIORIDAD_CFG,
+  cargarSolicitudes, crearSolicitud, planearSolicitud, sincronizarSolicitud,
+  semanasSinPlanear, solicitudVencida,
 } from '../lib/compromisos'
 
 interface Emp { id: string; name: string; area?: string | null; puesto?: string | null }
@@ -33,7 +36,9 @@ export default function Compromisos() {
   const [areas, setAreas] = useState<CompromisoSemana[]>([])
   const [empleados, setEmpleados] = useState<Emp[]>([])
   const [cargando, setCargando] = useState(true)
-  const [vista, setVista] = useState<'tablero' | 'mio'>('tablero')
+  const [vista, setVista] = useState<'tablero' | 'mio' | 'pedidos'>('tablero')
+  const [solicitudes, setSolicitudes] = useState<Solicitud[]>([])
+  const [nuevaSol, setNuevaSol] = useState({ area: '', titulo: '', detalle: '', calidad: '', proyecto: '', prioridad: 'normal' as Prioridad, fecha: '' })
   const [nuevo, setNuevo] = useState<Record<string, { titulo: string; responsable_id: string; fecha: string; calidad: string; proyecto: string }>>({})
 
   const esDG = user?.permission_area === 'DG'
@@ -41,12 +46,14 @@ export default function Compromisos() {
 
   async function cargar() {
     setCargando(true)
-    const [as, { data: emps }] = await Promise.all([
+    const [as, { data: emps }, sols] = await Promise.all([
       cargarTodasLasAreas(semana),
       supabase.from('employees').select('id,name,area,puesto').eq('is_active', true).order('name'),
+      cargarSolicitudes(),
     ])
     setAreas(as)
     setEmpleados((emps as any[]) || [])
+    setSolicitudes(sols)
     setCargando(false)
   }
   useEffect(() => { cargar() }, [semana])
@@ -107,6 +114,9 @@ export default function Compromisos() {
       upd.motivo = m
     }
     await supabase.from('compromiso_entregables').update(upd).eq('id', e.id)
+    // Si este entregable contestaba una solicitud, la solicitud se mueve con él:
+    // entregado la cierra, no entregado la regresa a la lista de lo que falta.
+    await sincronizarSolicitud((e as any).solicitud_id, estado)
     cargar()
   }
 
@@ -127,7 +137,14 @@ export default function Compromisos() {
   async function comprometerSemana(c: CompromisoSemana) {
     const permiso = await puedeComprometer(c.area, c.week_start)
     if (!permiso.ok) { alert(permiso.motivo); return }
-    if (!confirm(`Comprometer la semana de ${c.area} con ${(c.entregables || []).length} entregables?\n\nA partir de aquí el equipo lo ve como el plan de la semana.`)) return
+    const pendientes = solicitudes.filter(x => x.area === c.area && x.estado === 'abierta')
+    const aviso = pendientes.length > 0
+      ? `\n\nOJO: quedan ${pendientes.length} cosa(s) pedidas fuera del plan:\n` +
+        pendientes.slice(0, 6).map(x => `· ${x.titulo}`).join('\n') +
+        (pendientes.length > 6 ? `\n· …y ${pendientes.length - 6} más` : '') +
+        '\n\nSi no caben esta semana está bien, pero que sea a propósito.'
+      : ''
+    if (!confirm(`Comprometer la semana de ${c.area} con ${(c.entregables || []).length} entregables?\n\nA partir de aquí el equipo lo ve como el plan de la semana.${aviso}`)) return
     const r = await comprometer(c.id, user?.nombre || 'sistema')
     if (!r.ok) { alert(r.error); return }
     cargar()
@@ -148,6 +165,57 @@ export default function Compromisos() {
     }
     return out.sort((a, b) => a.e.fecha_compromiso.localeCompare(b.e.fecha_compromiso))
   }, [areas, miEmpleado])
+
+  const solsDe = (area: string) => solicitudes.filter(x => x.area === area)
+  const sinPlanearDe = (area: string) => solsDe(area).filter(x => x.estado === 'abierta')
+
+  async function pedir() {
+    if (!nuevaSol.area) { alert('¿A qué área se lo pides?'); return }
+    if (!nuevaSol.titulo.trim()) { alert('Escribe qué estás pidiendo.'); return }
+    const r = await crearSolicitud({
+      area: nuevaSol.area, titulo: nuevaSol.titulo.trim(), detalle: nuevaSol.detalle.trim() || null,
+      criterio_calidad: nuevaSol.calidad.trim() || null, proyecto_ref: nuevaSol.proyecto.trim() || null,
+      prioridad: nuevaSol.prioridad, fecha_requerida: nuevaSol.fecha || null,
+      solicitado_por: user?.nombre || 'Dirección',
+    })
+    if (r.error) { alert(r.error); return }
+    setNuevaSol({ area: nuevaSol.area, titulo: '', detalle: '', calidad: '', proyecto: '', prioridad: 'normal', fecha: '' })
+    cargar()
+  }
+
+  /** Baja una solicitud al plan de la semana: el director dice quién y cuándo. */
+  async function planear(sol: Solicitud, c: CompromisoSemana) {
+    const equipo = equipoDe(sol.area)
+    if (equipo.length === 0) { alert('Esa área no tiene personas dadas de alta.'); return }
+    const quien = prompt(
+      `¿Quién entrega "${sol.titulo}"?\n\n` + equipo.map((e, i) => `${i + 1}. ${e.name}`).join('\n'),
+      '1',
+    )
+    if (quien === null) return
+    const emp = equipo[(parseInt(quien, 10) || 1) - 1]
+    if (!emp) { alert('Número fuera de rango.'); return }
+    const dias2 = diasDeSemana(semana)
+    const dia = prompt(
+      `¿Qué día lo entrega?\n\n` + dias2.map((d, i) => `${i + 1}. ${d.label}`).join('\n'),
+      String(dias2.length),
+    )
+    if (dia === null) return
+    const d = dias2[(parseInt(dia, 10) || dias2.length) - 1]
+    if (!d) { alert('Número fuera de rango.'); return }
+    const calidad = prompt('¿En qué calidad? (cómo se ve bien)', sol.criterio_calidad || '') || sol.criterio_calidad || ''
+    if (!calidad.trim()) { alert('Sin criterio de calidad no se puede planear.'); return }
+    const r = await planearSolicitud(sol, c.id, emp.id, d.fecha, calidad.trim(), (c.entregables || []).length)
+    if (!r.ok) { alert(r.error); return }
+    cargar()
+  }
+
+  async function cancelarSolicitud(sol: Solicitud) {
+    const m = prompt(`¿Por qué se cancela "${sol.titulo}"?`)
+    if (m === null) return
+    await supabase.from('solicitudes_direccion')
+      .update({ estado: 'cancelada', motivo_cierre: m, cerrada_at: new Date().toISOString() }).eq('id', sol.id)
+    cargar()
+  }
 
   const esSemanaActual = semana === lunesDe()
   const dias = diasDeSemana(semana)
@@ -174,7 +242,7 @@ export default function Compromisos() {
           {!esSemanaActual && <button onClick={() => setSemana(lunesDe())} style={{ background: 'rgba(87,255,154,0.08)', border: '1px solid rgba(87,255,154,0.3)', borderRadius: 6, color: '#10B981', cursor: 'pointer', padding: '5px 10px', fontSize: 11, fontFamily: 'inherit' }}>Hoy</button>}
         </div>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 4 }}>
-          {([['tablero', 'Tablero de áreas'], ['mio', `Lo mío (${mios.length})`]] as const).map(([k, l]) => (
+          {([['tablero', 'Tablero de áreas'], ['pedidos', `Lo que pedí (${solicitudes.filter(x => x.estado === 'abierta').length})`], ['mio', `Lo mío (${mios.length})`]] as const).map(([k, l]) => (
             <button key={k} onClick={() => setVista(k as any)} style={{
               padding: '6px 14px', fontSize: 11, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer', borderRadius: 6,
               border: '1px solid ' + (vista === k ? '#3B82F6' : '#2a2a2a'),
@@ -220,6 +288,108 @@ export default function Compromisos() {
         </div>
       )}
 
+      {/* ── Lo que pedí ── */}
+      {vista === 'pedidos' && (
+        <div>
+          {/* Alta de solicitud: solo dirección pide */}
+          {esDG && (
+            <div style={{ padding: '12px 14px', background: '#0f0f0f', border: '1px solid #1f1f1f', borderRadius: 10, marginBottom: 14 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 9 }}>
+                <Send size={13} style={{ color: '#60A5FA' }} />
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#fff' }}>Pedir algo a un área</div>
+                <div style={{ fontSize: 10, color: '#666' }}>queda por escrito; el director tiene que decir cuándo lo atiende</div>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '180px 1fr 130px 120px', gap: 7, marginBottom: 7 }}>
+                <select value={nuevaSol.area} onChange={e => setNuevaSol(v => ({ ...v, area: e.target.value }))} style={inp}>
+                  <option value="">¿A qué área?</option>
+                  {AREAS.map(a => <option key={a.key} value={a.key}>{a.label}</option>)}
+                </select>
+                <input value={nuevaSol.titulo} placeholder="Qué le estás pidiendo" onChange={e => setNuevaSol(v => ({ ...v, titulo: e.target.value }))} style={inp} />
+                <select value={nuevaSol.prioridad} onChange={e => setNuevaSol(v => ({ ...v, prioridad: e.target.value as Prioridad }))} style={inp}>
+                  {(['alta', 'normal', 'baja'] as const).map(p => <option key={p} value={p}>Prioridad {PRIORIDAD_CFG[p].label.toLowerCase()}</option>)}
+                </select>
+                <input type="date" value={nuevaSol.fecha} title="Para cuándo lo necesitas" onChange={e => setNuevaSol(v => ({ ...v, fecha: e.target.value }))} style={inp} />
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 180px 110px', gap: 7 }}>
+                <input value={nuevaSol.calidad} placeholder="Qué esperas recibir — cómo se ve bien" onChange={e => setNuevaSol(v => ({ ...v, calidad: e.target.value }))} style={inp} />
+                <input value={nuevaSol.detalle} placeholder="Contexto (opcional)" onChange={e => setNuevaSol(v => ({ ...v, detalle: e.target.value }))} style={inp} />
+                <input value={nuevaSol.proyecto} placeholder="Obra / cliente (opcional)" onChange={e => setNuevaSol(v => ({ ...v, proyecto: e.target.value }))} style={inp} />
+                <button onClick={pedir} style={{ padding: '5px 12px', fontSize: 11, fontWeight: 700, fontFamily: 'inherit', borderRadius: 6, cursor: 'pointer', border: '1px solid #2563EB55', background: '#2563EB22', color: '#60A5FA' }}>
+                  <Plus size={11} style={{ verticalAlign: -1 }} /> Pedir
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Lo pedido, por área */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(320px,1fr))', gap: 12, alignItems: 'start' }}>
+            {AREAS.map(a => {
+              const sols = solsDe(a.key)
+              const c = porArea.get(a.key)
+              const editable = puedeEditar(a.key)
+              return (
+                <div key={a.key} style={{ background: '#0f0f0f', border: '1px solid #1f1f1f', borderRadius: 10, overflow: 'hidden' }}>
+                  <div style={{ padding: '10px 12px', borderBottom: '1px solid #1a1a1a', background: a.color + '11', display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <div style={{ width: 8, height: 8, borderRadius: 2, background: a.color }} />
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>{a.label}</div>
+                    <div style={{ marginLeft: 'auto', fontSize: 11 }}>
+                      {sinPlanearDe(a.key).length > 0
+                        ? <span style={{ color: '#DC2626', fontWeight: 700 }}>{sinPlanearDe(a.key).length} sin planear</span>
+                        : <span style={{ color: '#10B981' }}>todo planeado</span>}
+                    </div>
+                  </div>
+                  {sols.length === 0 && <div style={{ padding: 18, textAlign: 'center', fontSize: 11, color: '#555' }}>No hay nada pedido a esta área.</div>}
+                  {sols.map(sol => {
+                    const cfg = ESTADO_SOLICITUD_CFG[sol.estado]
+                    const pr = PRIORIDAD_CFG[sol.prioridad] || PRIORIDAD_CFG.normal
+                    const vencida = solicitudVencida(sol)
+                    const semanas = semanasSinPlanear(sol)
+                    return (
+                      <div key={sol.id} style={{ padding: '9px 12px', borderBottom: '1px solid #151515', background: vencida ? '#1c1212' : 'transparent' }}>
+                        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 12, color: '#fff' }}>{sol.titulo}</div>
+                            {sol.criterio_calidad && <div style={{ fontSize: 10, color: '#666', marginTop: 2 }}>✓ {sol.criterio_calidad}</div>}
+                            <div style={{ fontSize: 10, color: '#777', marginTop: 3, display: 'flex', gap: 7, flexWrap: 'wrap' }}>
+                              {sol.prioridad !== 'normal' && <span style={{ color: pr.color, fontWeight: 700 }}>{pr.label}</span>}
+                              {sol.fecha_requerida && <span style={{ color: vencida ? '#DC2626' : '#777' }}>para el {sol.fecha_requerida}{vencida ? ' · vencida' : ''}</span>}
+                              {sol.proyecto_ref && <span>{sol.proyecto_ref}</span>}
+                              {sol.estado === 'abierta' && semanas >= 1 && (
+                                <span style={{ color: '#DC2626', fontWeight: 700 }}>{semanas} semana{semanas > 1 ? 's' : ''} sin planear</span>
+                              )}
+                            </div>
+                          </div>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-end' }}>
+                            <span style={{ fontSize: 9, fontWeight: 700, padding: '1px 6px', borderRadius: 4, background: cfg.color + '22', color: cfg.color, whiteSpace: 'nowrap' }}>{cfg.label}</span>
+                            {sol.estado === 'abierta' && editable && c && c.estado !== 'cerrado' && (
+                              <button onClick={() => planear(sol, c)} style={{ padding: '3px 9px', fontSize: 10, fontWeight: 700, fontFamily: 'inherit', borderRadius: 5, cursor: 'pointer', border: '1px solid ' + a.color + '55', background: a.color + '22', color: a.color, whiteSpace: 'nowrap' }}>
+                                Planear esta semana
+                              </button>
+                            )}
+                            {sol.estado === 'abierta' && editable && !c && (
+                              <span style={{ fontSize: 9, color: '#666' }}>abre el plan de la semana</span>
+                            )}
+                            {esDG && sol.estado !== 'entregada' && (
+                              <button onClick={() => cancelarSolicitud(sol)} style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer', fontSize: 9, textDecoration: 'underline', padding: 0 }}>cancelar</button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )
+            })}
+          </div>
+
+          <div style={{ marginTop: 16, padding: '10px 14px', background: '#0f0f0f', border: '1px solid #1f1f1f', borderRadius: 8, fontSize: 11, color: '#777', lineHeight: 1.6 }}>
+            <Inbox size={12} style={{ verticalAlign: -2, marginRight: 5, color: '#666' }} />
+            Lo que pides queda aquí hasta que un director lo baja a su plan semanal. Lo que nadie planea acumula semanas a la vista de todos —
+            ese contador es la conversación que hoy no se puede tener. Cuando el entregable se marca entregado, la solicitud se cierra sola.
+          </div>
+        </div>
+      )}
+
       {/* ── Tablero ── */}
       {vista === 'tablero' && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(320px,1fr))', gap: 12, alignItems: 'start' }}>
@@ -255,6 +425,11 @@ export default function Compromisos() {
                       <AlertTriangle size={10} style={{ verticalAlign: -1 }} /> {cum.vencidos} pasaron su día y siguen abiertos
                     </div>
                   )}
+                  {sinPlanearDe(a.key).length > 0 && (
+                    <div onClick={() => setVista('pedidos')} style={{ fontSize: 10, color: '#DC2626', marginTop: 3, fontWeight: 600, cursor: 'pointer', textDecoration: 'underline' }}>
+                      <Inbox size={10} style={{ verticalAlign: -1 }} /> {sinPlanearDe(a.key).length} cosa(s) pedidas que no están en el plan
+                    </div>
+                  )}
                 </div>
 
                 {!c ? (
@@ -279,6 +454,7 @@ export default function Compromisos() {
                                 <div style={{ fontSize: 12, color: e.estado === 'entregado' ? '#666' : '#fff', textDecoration: e.estado === 'entregado' ? 'line-through' : 'none' }}>
                                   {e.titulo}
                                   {e.movido_de_id && <span title="Viene arrastrado de la semana pasada" style={{ color: '#D9A441', marginLeft: 5 }}>↻</span>}
+                                  {(e as any).solicitud_id && <span title="Contesta algo que pidió dirección" style={{ color: '#60A5FA', marginLeft: 5 }}>◆</span>}
                                 </div>
                                 <div style={{ fontSize: 10, color: '#777', marginTop: 2 }}>{nombre(e.responsable_id)} · {dia}{e.proyecto_ref ? ` · ${e.proyecto_ref}` : ''}</div>
                                 <div style={{ fontSize: 10, color: '#555', marginTop: 2 }}>✓ {e.criterio_calidad}</div>
@@ -367,6 +543,7 @@ export default function Compromisos() {
           <b style={{ color: '#aaa' }}>El ritual:</b> el viernes cada director cierra la semana —marca qué se entregó, qué no y por qué— y escribe la siguiente.
           El lunes el equipo lo ve aquí. No se puede comprometer una semana nueva sin cerrar la anterior, y no se puede cerrar dejando entregables sin resolver.
           Lo que se mueve queda marcado con ↻ y sigue contando como no cumplido en la semana en que se prometió.
+          Los entregables con ◆ contestan algo que pidió dirección; lo pedido que no entró al plan se ve en «Lo que pedí».
         </div>
       )}
     </div>
