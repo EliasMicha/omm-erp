@@ -1,9 +1,10 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 import { alturaDeCorte } from '../lib/pdfPaginado'
+import { redactarScope, ScopeTexto, ResultadoScope, ContextoScope } from '../lib/scopeIA'
 import { F, STAGE_CONFIG } from '../lib/utils'
 import { Badge, Btn, Loading } from '../components/layout/UI'
-import { ChevronLeft, ChevronDown, ChevronRight, Settings, X, Printer, Download, Save, Check, Pencil, BookOpen, Plus, Trash2 } from 'lucide-react'
+import { ChevronLeft, ChevronDown, ChevronRight, Settings, X, Printer, Download, Save, Check, Pencil, BookOpen, Plus, Trash2, Sparkles, Loader2 } from 'lucide-react'
 import EditCotInfoModal from '../components/EditCotInfoModal'
 import VersionManager, { VersionSnapshot } from '../components/VersionManager'
 import { OMNIIOUS_LOGO } from '../assets/logo'
@@ -1318,12 +1319,44 @@ function ListaScope({ titulo, ayuda, color, valores, placeholder, onChange }: {
   )
 }
 
-function ScopeEditor({ config, onChange }: {
+function ScopeEditor({ config, onChange, contexto }: {
   config: ProyConfig
   onChange: (patch: Partial<ProyConfig>) => void
+  contexto: ContextoScope
 }) {
   const [abierto, setAbierto] = useState(true)
+  const [redactando, setRedactando] = useState(false)
+  const [propuesta, setPropuesta] = useState<ResultadoScope | null>(null)
+  const [errorIA, setErrorIA] = useState('')
   const lleno = !!(config.scopeAlcance?.trim() || (config.scopeIncluye || []).length || (config.scopeNoIncluye || []).length || (config.scopeSupuestos || []).length)
+
+  const actual: ScopeTexto = {
+    alcance: config.scopeAlcance || '',
+    incluye: config.scopeIncluye || [],
+    noIncluye: config.scopeNoIncluye || [],
+    supuestos: config.scopeSupuestos || [],
+  }
+
+  async function pedirRedaccion() {
+    setRedactando(true); setErrorIA(''); setPropuesta(null)
+    try {
+      setPropuesta(await redactarScope(actual, contexto))
+    } catch (e: any) {
+      setErrorIA(e?.message || String(e))
+    } finally { setRedactando(false) }
+  }
+
+  /** Nunca se pisa el texto del usuario sin que lo vea: aplicar es un acto aparte. */
+  function aplicar(campos: Array<'alcance' | 'incluye' | 'noIncluye' | 'supuestos'>) {
+    if (!propuesta) return
+    const patch: Partial<ProyConfig> = {}
+    if (campos.includes('alcance')) patch.scopeAlcance = propuesta.alcance
+    if (campos.includes('incluye')) patch.scopeIncluye = propuesta.incluye
+    if (campos.includes('noIncluye')) patch.scopeNoIncluye = propuesta.noIncluye
+    if (campos.includes('supuestos')) patch.scopeSupuestos = propuesta.supuestos
+    onChange(patch)
+    setPropuesta(null)
+  }
 
   return (
     <div style={{ margin: '14px 16px 24px', background: '#0d0d0d', border: '1px solid #1f1f1f', borderRadius: 10, overflow: 'hidden' }}>
@@ -1334,7 +1367,26 @@ function ScopeEditor({ config, onChange }: {
         <div style={{ fontSize: 10, color: '#555' }}>lo que hace única a esta cotización — va en la propuesta</div>
         {!lleno && <span style={{ marginLeft: 'auto', fontSize: 10, color: '#D9A441' }}>sin capturar</span>}
         {lleno && <span style={{ marginLeft: 'auto', fontSize: 10, color: '#10B981' }}>✓ en la propuesta</span>}
+        <button
+          onClick={e => { e.stopPropagation(); setAbierto(true); pedirRedaccion() }}
+          disabled={redactando}
+          title={lleno
+            ? 'Toma tus notas y las redacta como van en una propuesta. No inventa compromisos: solo usa lo que escribiste y los sistemas cotizados.'
+            : 'Propone un scope a partir de los sistemas que ya cotizaste.'}
+          style={{
+            marginLeft: 10, display: 'inline-flex', alignItems: 'center', gap: 5,
+            padding: '4px 11px', borderRadius: 20, fontSize: 10.5, fontWeight: 700, fontFamily: 'inherit',
+            cursor: redactando ? 'wait' : 'pointer',
+            border: '1px solid #A78BFA55', background: '#A78BFA1A', color: '#A78BFA',
+          }}>
+          {redactando ? <Loader2 size={11} className="spin" /> : <Sparkles size={11} />}
+          {redactando ? 'Redactando…' : lleno ? 'Mejorar con IA' : 'Proponer con IA'}
+        </button>
       </div>
+
+      {errorIA && (
+        <div style={{ padding: '8px 14px', background: '#DC262611', borderBottom: '1px solid #DC262633', fontSize: 11, color: '#DC2626' }}>{errorIA}</div>
+      )}
 
       {abierto && (
         <div style={{ padding: '12px 14px' }}>
@@ -1372,6 +1424,80 @@ function ScopeEditor({ config, onChange }: {
             Los supuestos son la parte que más se te olvida y la que más te salva: si cotizaste sobre unos planos rev. B y llega la rev. D,
             eso es un cambio de alcance — pero solo si quedó escrito de qué versión partiste.
           </div>
+
+          {/* ── Propuesta de la IA ──
+              Se enseña AL LADO de lo que había, campo por campo, y se aplica a
+              mano. Redactar es de la máquina; decidir qué se le promete a un
+              cliente, no. */}
+          {propuesta && (
+            <div style={{ marginTop: 16, border: '1px solid #A78BFA44', borderRadius: 10, overflow: 'hidden', background: '#0f0d14' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 12px', background: '#A78BFA14', borderBottom: '1px solid #A78BFA33' }}>
+                <Sparkles size={13} style={{ color: '#A78BFA' }} />
+                <div style={{ fontSize: 11.5, fontWeight: 700, color: '#C4B5FD' }}>Redacción propuesta</div>
+                <div style={{ fontSize: 10, color: '#7C6BA8' }}>revísala; nada se aplica hasta que tú lo digas</div>
+                <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+                  <button onClick={() => aplicar(['alcance', 'incluye', 'noIncluye', 'supuestos'])}
+                    style={{ padding: '4px 12px', fontSize: 10.5, fontWeight: 700, fontFamily: 'inherit', borderRadius: 6, cursor: 'pointer', border: '1px solid #10B98155', background: '#10B98122', color: '#10B981' }}>
+                    Aplicar todo
+                  </button>
+                  <button onClick={() => setPropuesta(null)}
+                    style={{ padding: '4px 10px', fontSize: 10.5, fontFamily: 'inherit', borderRadius: 6, cursor: 'pointer', border: '1px solid #2a2a2a', background: 'transparent', color: '#888' }}>
+                    Descartar
+                  </button>
+                </div>
+              </div>
+
+              {propuesta.notaRevision && (
+                <div style={{ padding: '8px 12px', background: '#D9A44111', borderBottom: '1px solid #D9A44133', fontSize: 10.5, color: '#D9A441' }}>
+                  ⚠ {propuesta.notaRevision}
+                </div>
+              )}
+
+              <div style={{ padding: '10px 12px' }}>
+                {([
+                  ['alcance', 'Alcance', '#67E8F9', actual.alcance ? [actual.alcance] : [], propuesta.alcance ? [propuesta.alcance] : []],
+                  ['incluye', 'Sí incluye', '#10B981', actual.incluye.filter(Boolean), propuesta.incluye],
+                  ['noIncluye', 'No incluye', '#DC2626', actual.noIncluye.filter(Boolean), propuesta.noIncluye],
+                  ['supuestos', 'Supuestos', '#D9A441', actual.supuestos.filter(Boolean), propuesta.supuestos],
+                ] as const).map(([campo, titulo, color, antes, despues]) => {
+                  if (despues.length === 0 && antes.length === 0) return null
+                  return (
+                    <div key={campo} style={{ marginBottom: 12, paddingBottom: 12, borderBottom: '1px solid #191622' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5 }}>
+                        <div style={{ fontSize: 10, fontWeight: 700, color, textTransform: 'uppercase', letterSpacing: '.06em' }}>{titulo}</div>
+                        <button onClick={() => aplicar([campo as any])}
+                          style={{ fontSize: 9.5, fontFamily: 'inherit', padding: '2px 8px', borderRadius: 5, cursor: 'pointer', border: '1px solid ' + color + '44', background: color + '15', color }}>
+                          usar esta
+                        </button>
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: antes.length ? '1fr 1fr' : '1fr', gap: 12 }}>
+                        {antes.length > 0 && (
+                          <div>
+                            <div style={{ fontSize: 9, color: '#4a4a4a', marginBottom: 3 }}>LO QUE ESCRIBISTE</div>
+                            {antes.map((x, i) => (
+                              <div key={i} style={{ fontSize: 10.5, color: '#666', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{campo === 'alcance' ? x : '• ' + x}</div>
+                            ))}
+                          </div>
+                        )}
+                        <div>
+                          <div style={{ fontSize: 9, color: '#7C6BA8', marginBottom: 3 }}>PROPUESTA</div>
+                          {despues.length === 0
+                            ? <div style={{ fontSize: 10.5, color: '#444', fontStyle: 'italic' }}>(vacío — la IA no encontró de dónde sacarlo)</div>
+                            : despues.map((x, i) => (
+                              <div key={i} style={{ fontSize: 10.5, color: '#ddd', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{campo === 'alcance' ? x : '• ' + x}</div>
+                            ))}
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+                <div style={{ fontSize: 9.5, color: '#555', lineHeight: 1.6 }}>
+                  La IA solo redacta con lo que escribiste y con los sistemas que ya cotizaste — tiene prohibido inventar entregables, plazos o cantidades.
+                  Aun así, léelo: lo que aquí se apruebe es lo que el cliente va a firmar.
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -2253,7 +2379,27 @@ export default function CotEditorProyecto({ cotId, onBack, specialty = 'proy', o
             </tbody>
           </table>
 
-          <ScopeEditor config={config} onChange={patch => { setConfig(c => ({ ...c, ...patch })); setDirty(true) }} />
+          <ScopeEditor
+            config={config}
+            onChange={patch => { setConfig(c => ({ ...c, ...patch })); setDirty(true) }}
+            contexto={{
+              tipoProyecto: tipoCfg.label,
+              proyecto: projectName || cotName,
+              cliente: clientName,
+              moneda: config.currency,
+              // Solo los sistemas PRENDIDOS: lo apagado no se vendió y no debe
+              // aparecer en el alcance.
+              sistemas: items.filter(it => it.included).map(it => {
+                const sys = SYSTEMS.find(x => x.id === it.systemId)
+                return {
+                  nombre: (it as any).nombre || sys?.name || it.systemId,
+                  m2: Number(it.m2) || 0,
+                  descripcion: it.descripcion || sys?.defaultDesc,
+                  entregables: it.entregablesActivos || [],
+                }
+              }),
+            }}
+          />
         </div>
         {!isMobile && <div style={{ borderLeft: '1px solid #222', overflowY: 'auto', padding: '14px 10px', background: '#0e0e0e' }}>
           <ProySummary items={items} config={config} onConfigChange={updateConfig} systems={SYSTEMS} />
