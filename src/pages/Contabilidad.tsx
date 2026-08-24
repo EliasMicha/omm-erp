@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useMemo } from 'react'
 import { MOCK_CLIENTES } from './Clientes'
 import type { ClienteFiscal } from './Clientes'
 import { supabase, supabaseAll } from '../lib/supabase'
+import EstadoCuentaProveedor from '../components/EstadoCuentaProveedor'
 // supabaseAll = ve también leads/cotizaciones archivados: aquí los movimientos y
 // facturas ya asignados deben seguir mostrando su nombre y sumando para cuadrar.
 import { SectionHeader, KpiCard, Table, Th, Td, ThFilter, useColumnFilters, Badge, Btn, EmptyState } from '../components/layout/UI'
@@ -1849,6 +1850,15 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
   const [genSel, setGenSel] = useState<Set<string>>(new Set())
   const [genBulkLead, setGenBulkLead] = useState('')
   const [genBulkQuote, setGenBulkQuote] = useState('')
+  // Beneficiario en la vista general. El autodetect falla seguido (a veces
+  // Syscom, a veces 'sistemas', a veces nada) y sin beneficiario correcto no
+  // hay estado de cuenta de proveedor que cuadre. Por eso se puede corregir
+  // en masa y, de paso, enseñarle la cuenta al catálogo para que ya no falle.
+  const [showEdoProv, setShowEdoProv] = useState(false)
+  const [genBulkBenef, setGenBulkBenef] = useState('')
+  const [genBenefFiltro, setGenBenefFiltro] = useState('')   // '' todos · '__none__' sin beneficiario · 'tipo:id'
+  const [genAprender, setGenAprender] = useState(true)
+  const [savingBenef, setSavingBenef] = useState(false)
   const [genRowLead, setGenRowLead] = useState<Record<string, string>>({})  // movId -> lead elegido (cascada)
   const [genRowQuote, setGenRowQuote] = useState<Record<string, string>>({})
   const [savingGen, setSavingGen] = useState(false)
@@ -2111,6 +2121,88 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
     return Array.from(map.entries()).map(([name, v]) => ({ name, ...v })).sort((a, b) => b.count - a.count)
   }, [bankMovements, assignQuotations])
 
+  // Catálogo unificado de beneficiarios. Un movimiento se liga a la FICHA
+  // (proveedor / cliente / empleado), no a un texto suelto: es lo único que
+  // permite después sumar "cuánto le he pagado a este proveedor".
+  const benefOpciones = useMemo(() => ([
+    ...assignSuppliers.map(x => ({ id: 'proveedor:' + x.id, label: 'Prov · ' + x.name, tipo: 'proveedor' as const, nombre: x.name })),
+    ...assignClientes.map(x => ({ id: 'cliente:' + x.id, label: 'Cli · ' + (x.nombre_comercial || x.razon_social), tipo: 'cliente' as const, nombre: x.nombre_comercial || x.razon_social })),
+    ...assignEmpleados.map(x => ({ id: 'empleado:' + x.id, label: 'Emp · ' + x.name, tipo: 'empleado' as const, nombre: x.name })),
+  ]), [assignSuppliers, assignClientes, assignEmpleados])
+
+  const benefKeyDeMov = (m: BankMovement) => m.beneficiario_id ? `${m.beneficiario_tipo || 'proveedor'}:${m.beneficiario_id}` : ''
+
+  // Nombre a mostrar: la ficha manda; si no hay ficha, el texto que se haya
+  // guardado; si tampoco, lo que el extractor creyó ver.
+  const benefNombreDeMov = (m: BankMovement) => {
+    const k = benefKeyDeMov(m)
+    if (k) { const o = benefOpciones.find(x => x.id === k); if (o) return o.nombre }
+    return m.beneficiario || ''
+  }
+
+  // Guarda el beneficiario de N movimientos y, si se pide, le enseña al catálogo
+  // la cuenta/BNET que venía en esos conceptos para que el autodetect deje de
+  // equivocarse la próxima vez.
+  async function aplicarBeneficiario(ids: string[], opcionId: string) {
+    if (ids.length === 0) { alert('Selecciona al menos un movimiento.'); return false }
+    const opt = benefOpciones.find(o => o.id === opcionId)
+    if (!opcionId) {
+      if (!confirm(`Quitar el beneficiario de ${ids.length} movimiento(s)?`)) return false
+    } else if (!opt) { alert('Elige un beneficiario del catálogo.'); return false }
+
+    setSavingBenef(true)
+    try {
+      const upd = {
+        beneficiario_id: opt ? opt.id.split(':')[1] : null,
+        beneficiario_tipo: opt ? opt.tipo : null,
+        beneficiario: opt ? opt.nombre : null,
+      }
+      for (let i = 0; i < ids.length; i += 200) {
+        const { error } = await supabase.from('bank_movements').update(upd).in('id', ids.slice(i, i + 200))
+        if (error) { alert('Error guardando beneficiario: ' + error.message); return false }
+      }
+      const idset = new Set(ids)
+      setBankMovements(prev => prev.map(bm => idset.has(bm.id)
+        ? ({ ...bm, beneficiario_id: upd.beneficiario_id || undefined, beneficiario_tipo: (upd.beneficiario_tipo as any) || undefined, beneficiario: upd.beneficiario || undefined })
+        : bm))
+
+      // Aprender: solo para proveedores y solo con cargos (a un proveedor se le paga).
+      if (opt && opt.tipo === 'proveedor' && genAprender) {
+        const movs = bankMovements.filter(m => idset.has(m.id) && m.tipo === 'cargo')
+        const nuevas = new Map<string, { bnet?: string; cuenta?: string }>()
+        for (const m of movs) {
+          const bnet = extractBnetFromConcepto(m.concepto || '') || m.bnet_codigo_detectado || null
+          const cuenta = extractCuentaTerceroFromConcepto(m.concepto || '') || m.cuenta_destino_detectada || m.clabe_contraparte || null
+          if (!bnet && !cuenta) continue
+          // Ya conocida por CUALQUIER proveedor: no se toca. Si está mal ligada,
+          // eso se corrige en la ficha del proveedor, no a ciegas desde aquí.
+          const yaExiste = supplierAccounts.some(a =>
+            (bnet && a.bnet_codigo === bnet) || (cuenta && (a.clabe === cuenta || a.cuenta_bancaria === cuenta)))
+          if (yaExiste) continue
+          const clave = `${bnet || ''}|${cuenta || ''}`
+          if (!nuevas.has(clave)) nuevas.set(clave, { bnet: bnet || undefined, cuenta: cuenta || undefined })
+        }
+        if (nuevas.size > 0) {
+          const lista = Array.from(nuevas.values())
+            .map(v => `· ${v.bnet ? 'BNET ' + v.bnet : ''}${v.bnet && v.cuenta ? ' / ' : ''}${v.cuenta ? 'cuenta ' + v.cuenta : ''}`).join('\n')
+          if (confirm(`Guardar ${nuevas.size} dato(s) bancario(s) en la ficha de ${opt.nombre}?\n\n${lista}\n\nCon esto los próximos movimientos con esos datos se detectan solos.`)) {
+            const filas = Array.from(nuevas.values()).map(v => ({
+              supplier_id: opt.id.split(':')[1],
+              etiqueta: v.bnet ? `BNET ${v.bnet}` : `Cuenta ${v.cuenta}`,
+              moneda: 'MXN',
+              bnet_codigo: v.bnet || null,
+              cuenta_bancaria: v.cuenta || null,
+            }))
+            const { data, error } = await supabase.from('supplier_bank_accounts').insert(filas).select()
+            if (error) alert('El beneficiario sí se guardó, pero no pude registrar la cuenta: ' + error.message)
+            else if (data) setSupplierAccounts(prev => [...prev, ...(data as any[])])
+          }
+        }
+      }
+      return true
+    } finally { setSavingBenef(false) }
+  }
+
   // Movimientos filtrados para la vista general (todas las fechas)
   const genFiltered = useMemo(() => {
     if (!showGeneral) return [] as BankMovement[]
@@ -2121,13 +2213,15 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
       if (genProy === '__none__') { if (p) return false }
       else if (pf) { if (!p.toLowerCase().includes(pf)) return false }
       if (genTipo !== 'todos' && m.tipo !== genTipo) return false
+      if (genBenefFiltro === '__none__') { if (m.beneficiario_id || m.beneficiario) return false }
+      else if (genBenefFiltro) { if (benefKeyDeMov(m) !== genBenefFiltro) return false }
       if (q) {
         const h = `${m.concepto || ''} ${m.beneficiario || ''} ${p} ${m.referencia || ''} ${leadNameOf(m.lead_id)} ${quoteNameOf(m.quotation_id)} ${m.monto}`.toLowerCase()
         if (!h.includes(q)) return false
       }
       return true
     }).sort((a, b) => (a.fecha < b.fecha ? 1 : a.fecha > b.fecha ? -1 : 0))
-  }, [showGeneral, bankMovements, genSearch, genProy, genTipo, assignLeads, assignQuotations])
+  }, [showGeneral, bankMovements, genSearch, genProy, genTipo, genBenefFiltro, benefOpciones, assignLeads, assignQuotations])
 
   // Asignar lead+cotización (y opcionalmente el indicador de proyecto) a UN movimiento
   async function asignarMovGeneral(movId: string, leadId: string, quoteId: string, proyectoNombre?: string) {
@@ -3401,6 +3495,13 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
                   <button key={t} onClick={() => setGenTipo(t)} style={{ padding: '5px 10px', fontSize: 11, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer', borderRadius: 6, border: '1px solid ' + (genTipo === t ? '#3B82F6' : '#2a2a2a'), background: genTipo === t ? '#3B82F622' : 'transparent', color: genTipo === t ? '#60A5FA' : '#888' }}>{t === 'todos' ? 'Todos' : t === 'abono' ? 'Abonos' : 'Cargos'}</button>
                 ))}
               </div>
+              <div style={{ width: 220 }}>
+                <SearchSelect
+                  value={genBenefFiltro}
+                  options={[{ id: '__none__', label: '— Sin beneficiario —' }, ...benefOpciones.map(o => ({ id: o.id, label: o.label }))]}
+                  placeholder="Filtrar por beneficiario…"
+                  onChange={v => setGenBenefFiltro(v)} />
+              </div>
               <span style={{ marginLeft: 'auto', fontSize: 11, color: '#666' }}>{genFiltered.length} movimiento(s)</span>
             </div>
 
@@ -3416,11 +3517,35 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
               <button disabled={savingGen || genSel.size === 0} onClick={bulkAsignarGeneral} style={{ padding: '6px 12px', fontSize: 11, fontWeight: 700, fontFamily: 'inherit', cursor: (savingGen || genSel.size === 0) ? 'default' : 'pointer', borderRadius: 6, border: '1px solid #10B98155', background: genSel.size ? '#10B98122' : '#161616', color: genSel.size ? '#10B981' : '#555', whiteSpace: 'nowrap' }}>{savingGen ? 'Asignando…' : `Asignar ${genSel.size || ''}`}</button>
             </div>
 
+            {/* Barra de beneficiario masivo — el autodetect se equivoca seguido y
+                sin beneficiario correcto no hay estado de cuenta de proveedor. */}
+            <div style={{ padding: '10px 16px', borderBottom: '1px solid #1e1e1e', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', background: '#121212' }}>
+              <span style={{ fontSize: 11, color: '#555', whiteSpace: 'nowrap' }}>Beneficiario de los seleccionados:</span>
+              <div style={{ width: 260 }}>
+                <SearchSelect value={genBulkBenef} options={benefOpciones.map(o => ({ id: o.id, label: o.label }))} placeholder="Proveedor / cliente / empleado…" onChange={v => setGenBulkBenef(v)} />
+              </div>
+              <button disabled={savingBenef || genSel.size === 0 || !genBulkBenef} onClick={async () => {
+                const opt = benefOpciones.find(o => o.id === genBulkBenef)
+                if (!opt) return
+                if (!confirm(`Poner a ${opt.nombre} como beneficiario de ${genSel.size} movimiento(s)?`)) return
+                const ok = await aplicarBeneficiario(Array.from(genSel), genBulkBenef)
+                if (ok) setGenSel(new Set())
+              }} style={{ padding: '6px 12px', fontSize: 11, fontWeight: 700, fontFamily: 'inherit', cursor: (savingBenef || !genSel.size || !genBulkBenef) ? 'default' : 'pointer', borderRadius: 6, border: '1px solid #D9A44155', background: (genSel.size && genBulkBenef) ? '#D9A44122' : '#161616', color: (genSel.size && genBulkBenef) ? '#D9A441' : '#555', whiteSpace: 'nowrap' }}>{savingBenef ? 'Guardando…' : `Asignar beneficiario ${genSel.size || ''}`}</button>
+              <button disabled={savingBenef || genSel.size === 0} onClick={async () => {
+                const ok = await aplicarBeneficiario(Array.from(genSel), '')
+                if (ok) setGenSel(new Set())
+              }} title="Dejar sin beneficiario los movimientos seleccionados" style={{ padding: '6px 10px', fontSize: 11, fontFamily: 'inherit', cursor: (savingBenef || !genSel.size) ? 'default' : 'pointer', borderRadius: 6, border: '1px solid #2a2a2a', background: 'transparent', color: genSel.size ? '#888' : '#444', whiteSpace: 'nowrap' }}>Quitar</button>
+              <label title="Al corregir un proveedor, guarda en su ficha el BNET o la cuenta que traía el concepto, para que los próximos movimientos se detecten solos" style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, color: '#888', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                <input type="checkbox" checked={genAprender} onChange={e => setGenAprender(e.target.checked)} style={{ accentColor: '#D9A441' }} />
+                Aprender la cuenta bancaria
+              </label>
+            </div>
+
             {/* Tabla */}
             <div style={{ overflow: 'auto', maxHeight: isMobile ? '70vh' : '60vh' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead><tr style={{ background: '#161616', position: 'sticky', top: 0, zIndex: 1 }}>
-                  {['', 'Fecha', 'Cuenta', 'Concepto / Beneficiario', 'Monto', 'Proyecto (indicador)', 'Lead', 'Cotización', 'Reasignar'].map((h, i) => (<th key={i} style={{ padding: '6px 8px', fontSize: 9, fontWeight: 600, color: '#555', textTransform: 'uppercase', textAlign: h === 'Monto' ? 'right' : 'left', borderBottom: '1px solid #222', whiteSpace: 'nowrap' }}>{h}</th>))}
+                  {['', 'Fecha', 'Cuenta', 'Concepto', 'Monto', 'Beneficiario', 'Proyecto (indicador)', 'Lead', 'Cotización', 'Reasignar'].map((h, i) => (<th key={i} style={{ padding: '6px 8px', fontSize: 9, fontWeight: 600, color: '#555', textTransform: 'uppercase', textAlign: h === 'Monto' ? 'right' : 'left', borderBottom: '1px solid #222', whiteSpace: 'nowrap' }}>{h}</th>))}
                 </tr></thead>
                 <tbody>
                   {genFiltered.slice(0, 400).map(m => {
@@ -3431,8 +3556,24 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
                         <td style={genCell}><input type="checkbox" checked={genSel.has(m.id)} onChange={() => setGenSel(prev => { const n = new Set(prev); n.has(m.id) ? n.delete(m.id) : n.add(m.id); return n })} style={{ accentColor: '#10B981' }} /></td>
                         <td style={{ ...genCell, whiteSpace: 'nowrap', color: '#999', fontSize: 10 }}>{formatDate(m.fecha)}</td>
                         <td style={{ ...genCell, fontSize: 10, color: '#888', whiteSpace: 'nowrap' }}>{m.banco || '—'}{m.moneda === 'USD' ? ' · USD' : ''}</td>
-                        <td style={{ ...genCell, fontSize: 11, color: '#ccc', maxWidth: 240 }}><div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.beneficiario || m.concepto}</div>{m.beneficiario ? <div style={{ fontSize: 9, color: '#555', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.concepto}</div> : null}</td>
+                        <td style={{ ...genCell, fontSize: 11, color: '#ccc', maxWidth: 240 }}><div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.concepto || '—'}</div>{m.concepto_detectado && !m.beneficiario_id ? <div style={{ fontSize: 9, color: '#555', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>detectado: {m.concepto_detectado}</div> : null}</td>
                         <td style={{ ...genCell, textAlign: 'right', fontWeight: 600, whiteSpace: 'nowrap', color: m.tipo === 'abono' ? '#10B981' : '#DC2626' }}>{m.tipo === 'abono' ? '+' : '−'}{F(m.monto)}</td>
+                        <td style={{ ...genCell, minWidth: 190 }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                            <div style={{ width: 180 }}>
+                              <SearchSelect
+                                value={benefKeyDeMov(m)}
+                                options={benefOpciones.map(o => ({ id: o.id, label: o.label }))}
+                                placeholder={m.beneficiario ? m.beneficiario : 'Sin beneficiario…'}
+                                onChange={async v => { await aplicarBeneficiario([m.id], v) }} />
+                            </div>
+                            {/* Texto suelto sin ficha: sirve de pista pero NO suma en el
+                                estado de cuenta, así que se marca en ámbar. */}
+                            {!m.beneficiario_id && m.beneficiario && (
+                              <div style={{ fontSize: 9, color: '#D9A441' }} title="Texto sin ficha de catálogo: no suma en el estado de cuenta del proveedor">⚠ {m.beneficiario} · sin ficha</div>
+                            )}
+                          </div>
+                        </td>
                         <td style={{ ...genCell, fontSize: 10, color: proyOf(m) ? '#D9A441' : '#555', maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{proyOf(m) || '—'}</td>
                         <td style={{ ...genCell, fontSize: 10, color: m.lead_id ? '#8FA9FF' : '#555', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{leadNameOf(m.lead_id) || (m.lead_id ? '(lead)' : '—')}</td>
                         <td style={{ ...genCell, fontSize: 10, color: m.quotation_id ? '#10B981' : '#555', maxWidth: 130, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{quoteNameOf(m.quotation_id) || (m.quotation_id ? '(cotización)' : '—')}</td>
@@ -3446,7 +3587,7 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
                       </tr>
                     )
                   })}
-                  {genFiltered.length === 0 && <tr><td colSpan={9} style={{ padding: 30, textAlign: 'center', color: '#555', fontSize: 12 }}>No hay movimientos con esos filtros.</td></tr>}
+                  {genFiltered.length === 0 && <tr><td colSpan={10} style={{ padding: 30, textAlign: 'center', color: '#555', fontSize: 12 }}>No hay movimientos con esos filtros.</td></tr>}
                 </tbody>
               </table>
               {genFiltered.length > 400 && <div style={{ padding: '8px 16px', fontSize: 10, color: '#666', textAlign: 'center' }}>Mostrando 400 de {genFiltered.length}. Afina el filtro para ver el resto.</div>}
@@ -3454,6 +3595,8 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
           </div>
         </div>
       )}
+      {showEdoProv && <EstadoCuentaProveedor onClose={() => setShowEdoProv(false)} />}
+
       {/* ─── Reporte de ingresos y egresos por proyecto (desglose por cotización) ─── */}
       {showReport && (() => {
         const leadName = leadNameOf(repLead)
@@ -3599,6 +3742,11 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
             title="Reporte de ingresos y egresos de un proyecto, desglosado por cotización (banco + efectivo)"
             style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '5px 12px', fontSize: 11, fontWeight: 600, background: 'rgba(168,85,247,0.10)', border: '1px solid rgba(168,85,247,0.4)', borderRadius: 6, color: '#C084FC', cursor: 'pointer', fontFamily: 'inherit' }}
           ><TrendingUp size={12} /> Reporte por proyecto</button>
+          <button
+            onClick={() => setShowEdoProv(true)}
+            title="Qué le compré, qué me facturó y cuánto le he pagado a un proveedor"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '5px 12px', fontSize: 11, fontWeight: 600, background: 'rgba(217,164,65,0.10)', border: '1px solid rgba(217,164,65,0.4)', borderRadius: 6, color: '#D9A441', cursor: 'pointer', fontFamily: 'inherit' }}
+          ><Building2 size={12} /> Estado de cuenta proveedor</button>
           <button
             onClick={exportExcel}
             disabled={exporting || movsCuenta.length === 0}
