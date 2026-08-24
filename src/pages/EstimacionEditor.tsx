@@ -16,11 +16,13 @@ import { useEffect, useMemo, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { Btn, Badge, Loading } from '../components/layout/UI'
-import { ChevronLeft, Save, Plus, Trash2, AlertTriangle, CheckCircle2 } from 'lucide-react'
+import { ChevronLeft, Save, Plus, Trash2, AlertTriangle, CheckCircle2, Download } from 'lucide-react'
 import {
   Estimacion, EstimacionItem, ESTADO_CFG, ESTIMACION_EN_FIRME,
   totalesDe, excedenteDe, disponibleDe, avanceDe,
+  contratoEstimadoAntes, contextoDeContrato,
 } from '../lib/estimaciones'
+import { generarEstimacionPdf } from '../lib/estimacionPdf'
 
 const n = (v: any) => Number(v) || 0
 const F = (v: number, mon = 'MXN') =>
@@ -41,6 +43,7 @@ export default function EstimacionEditor() {
   const [sucio, setSucio] = useState(false)
   const [colapsadas, setColapsadas] = useState<Set<string>>(new Set())
   const [soloConAvance, setSoloConAvance] = useState(false)
+  const [exportando, setExportando] = useState(false)
 
   async function cargar() {
     if (!id) return
@@ -177,6 +180,43 @@ export default function EstimacionEditor() {
     setEst({ ...est, estado: nuevo as any })
   }
 
+  /**
+   * El PDF que se le entrega al cliente. Solo lleva lo EJECUTADO: los conceptos
+   * del contrato en cero no aportan nada y entierran lo que sí se cobra. El
+   * saldo por ejecutar se resume arriba, en el bloque de avance.
+   */
+  async function exportarPdf() {
+    if (!est) return
+    setExportando(true)
+    try {
+      if (sucio) await guardar()
+      const [ctx, antes] = await Promise.all([
+        contextoDeContrato(est.quotation_id),
+        contratoEstimadoAntes(est.quotation_id, est.numero),
+      ])
+      const doc = generarEstimacionPdf({
+        numero: est.numero,
+        fecha: est.fecha,
+        periodoInicio: est.periodo_inicio,
+        periodoFin: est.periodo_fin,
+        estado: est.estado,
+        moneda,
+        ivaPct: n(est.iva_pct),
+        amortizacionPct: n(est.amortizacion_pct),
+        contrato: { nombre: ctx.nombre, total: ctx.total },
+        cliente: ctx.cliente,
+        obra: ctx.obra,
+        estimadoAnterior: antes,
+        notas: est.notas || null,
+        items: items as any,
+      })
+      const limpio = (ctx.obra || 'obra').replace(/[^\w]+/g, '_')
+      doc.save(`Estimacion_${est.numero}_${limpio}.pdf`)
+    } catch (e: any) {
+      alert('No se pudo generar el PDF: ' + (e?.message || e))
+    } finally { setExportando(false) }
+  }
+
   if (cargando) return <div style={{ padding: 24 }}><Loading /></div>
   if (!est) return <div style={{ padding: 24, color: '#888' }}>No encontré esa estimación.</div>
 
@@ -207,6 +247,7 @@ export default function EstimacionEditor() {
         <Badge label={cfg.label} color={cfg.color} />
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
           {!bloqueada && <Btn size="sm" variant="primary" onClick={guardar} disabled={guardando}><Save size={12} /> {guardando ? 'Guardando…' : sucio ? 'Guardar cambios' : 'Guardado'}</Btn>}
+          <Btn size="sm" onClick={exportarPdf} disabled={exportando}><Download size={12} /> {exportando ? 'Generando…' : 'Exportar PDF'}</Btn>
           {est.estado === 'borrador' && <Btn size="sm" onClick={() => cambiarEstado('revision')}>Mandar a revisión</Btn>}
           {(est.estado === 'borrador' || est.estado === 'revision') && <Btn size="sm" variant="primary" onClick={() => cambiarEstado('aprobada')}><CheckCircle2 size={12} /> Aprobar</Btn>}
           {est.estado === 'aprobada' && <Btn size="sm" onClick={() => cambiarEstado('revision')}>Reabrir</Btn>}

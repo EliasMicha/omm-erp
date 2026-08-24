@@ -298,3 +298,39 @@ export async function resumenDeContrato(quotationId: string): Promise<ResumenCon
     estimaciones: ((ests as any[]) || []).length,
   }
 }
+
+/**
+ * Cuánto de OBRA CONTRATADA se estimó en las estimaciones anteriores a ésta.
+ * Solo cuenta renglones de contrato: los extras no consumen el contrato, y
+ * meterlos aquí haría que el "saldo por ejecutar" de la carátula mintiera.
+ */
+export async function contratoEstimadoAntes(quotationId: string, numero: number): Promise<number> {
+  const { data } = await supabase.from('estimaciones')
+    .select('numero,estado,estimacion_items(cant_periodo,precio_unitario,origen)')
+    .eq('quotation_id', quotationId).neq('estado', 'cancelada').lt('numero', numero)
+  let s = 0
+  for (const e of ((data as any[]) || [])) {
+    for (const it of (e.estimacion_items || [])) {
+      if (it.origen !== 'contrato') continue
+      s += num(it.cant_periodo) * num(it.precio_unitario)
+    }
+  }
+  return s
+}
+
+/** Cliente y obra para la carátula: el lead vive en notes, no como FK. */
+export async function contextoDeContrato(quotationId: string): Promise<{ cliente: string; obra: string; nombre: string; total: number }> {
+  const { data: q } = await supabase.from('quotations')
+    .select('id,name,notes,total,total_final,client_name').eq('id', quotationId).maybeSingle()
+  const nombre = (q as any)?.name || 'Contrato'
+  const total = num((q as any)?.total_final ?? (q as any)?.total)
+  let leadId = ''
+  try { leadId = JSON.parse((q as any)?.notes || '{}')?.lead_id || '' } catch { /* notas libres */ }
+  let cliente = (q as any)?.client_name || ''
+  let obra = nombre
+  if (leadId) {
+    const { data: l } = await supabase.from('leads').select('name,company').eq('id', leadId).maybeSingle()
+    if (l) { cliente = (l as any).company || (l as any).name || cliente; obra = (l as any).name || obra }
+  }
+  return { cliente: cliente || '—', obra, nombre, total }
+}
