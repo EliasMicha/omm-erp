@@ -40,6 +40,9 @@ export default function CotEditorDistribucion({ cotId, onBack, onSwitchVersion }
   const [catQuery, setCatQuery] = useState('')
   const [showCat, setShowCat] = useState(false)
   const [showIA, setShowIA] = useState(false)
+  // Datos del cliente que compra: si es distribuidor, su descuento se propone solo.
+  const [distribuidor, setDistribuidor] = useState<{ nombre: string; descuento: number } | null>(null)
+  const [descAplicado, setDescAplicado] = useState(false)
 
   useEffect(() => {
     (async () => {
@@ -52,6 +55,21 @@ export default function CotEditorDistribucion({ cotId, onBack, onSwitchVersion }
         if (meta.distConfig) setConfig(c => ({ ...c, ...meta.distConfig }))
         if (meta.currency) setConfig(c => ({ ...c, currency: meta.currency }))
         setClientName(meta.client_name || meta.lead_name || cot.client_name || '')
+
+        // El lead vive en las notas (no es FK). Si está dado de alta como
+        // distribuidor, su descuento se propone en cuanto se abre la
+        // cotización — pero NO se pisa un descuento ya capturado: una
+        // negociación puntual manda sobre el default.
+        if (meta.lead_id) {
+          const { data: lead } = await supabase.from('leads')
+            .select('name,company,es_distribuidor,descuento_distribuidor').eq('id', meta.lead_id).maybeSingle()
+          const d = Number((lead as any)?.descuento_distribuidor) || 0
+          if ((lead as any)?.es_distribuidor && d > 0) {
+            setDistribuidor({ nombre: (lead as any).company || (lead as any).name || 'Distribuidor', descuento: d })
+            const yaTiene = Number(meta.distConfig?.descuentoPct) || 0
+            if (yaTiene === 0) { setConfig(c => ({ ...c, descuentoPct: d })); setDescAplicado(true) }
+          }
+        }
       }
       const { data: its } = await supabase.from('quotation_items').select('*').eq('quotation_id', cotId).order('order_index')
       setItems((its || []).map((i: any) => ({
@@ -373,6 +391,21 @@ export default function CotEditorDistribucion({ cotId, onBack, onSwitchVersion }
             </span>
             <span style={{ fontSize: 12, color: descuentoAmt > 0 ? '#DC2626' : '#ccc', fontWeight: 500 }}>{descuentoAmt > 0 ? '-' : ''}{F2(descuentoAmt)}</span>
           </div>
+          {distribuidor && (
+            <div style={{ fontSize: 10, color: '#F59E0B', marginTop: -2, marginBottom: 4, textAlign: 'right' }}>
+              {descAplicado
+                ? `Descuento de distribuidor de ${distribuidor.nombre} (${distribuidor.descuento}%)`
+                : config.descuentoPct === distribuidor.descuento
+                  ? `Coincide con el ${distribuidor.descuento}% pactado con ${distribuidor.nombre}`
+                  : (
+                    <span>
+                      {distribuidor.nombre} tiene {distribuidor.descuento}% pactado ·{' '}
+                      <span onClick={() => { setConfig(c => ({ ...c, descuentoPct: distribuidor.descuento })); setDescAplicado(true) }}
+                        style={{ textDecoration: 'underline', cursor: 'pointer' }}>aplicarlo</span>
+                    </span>
+                  )}
+            </div>
+          )}
           {(config.descuentoPct || 0) > 0 && <Row label="Subtotal con descuento" value={F2(subtotalConDesc)} />}
           <div style={{ borderTop: '1px dashed #2a2a2a', margin: '6px 0' }} />
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '3px 0' }}>

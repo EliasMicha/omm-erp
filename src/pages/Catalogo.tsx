@@ -6,6 +6,7 @@ import { ANTHROPIC_API_KEY } from '../lib/config'
 import { Package, Plus, Search, Edit, X, Tag, Layers, Upload, Loader2, Sparkles, BoxesIcon, Trash2 } from 'lucide-react'
 import { PurchasePhase } from '../types'
 import ImageUpload from '../components/ImageUpload'
+import ImportarCatalogo from '../components/ImportarCatalogo'
 import { useIsMobile } from '../lib/useIsMobile'
 
 interface Supplier { id: string; name: string }
@@ -243,8 +244,7 @@ IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
     }
   }
 
-  useEffect(() => {
-    const load = async () => {
+  const cargarCatalogo = async () => {
       // Paginado: Supabase devuelve máx 1000 por consulta; con +1000 productos hay que traer por lotes
       const PAGE = 1000
       let from = 0
@@ -261,9 +261,9 @@ IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
       setProducts(all.map((p: any) => ({...p, cost: Number(p.cost)||0, markup: Number(p.markup)||35, precio_venta: Number(p.precio_venta)||0, iva_rate: Number(p.iva_rate)||0.16})))
       const { data: sups } = await supabase.from('suppliers').select('id,name').eq('is_active', true).order('name')
       if (sups) setSuppliers(sups)
-    }
-    load()
-  }, [])
+  }
+
+  useEffect(() => { cargarCatalogo() }, [])
 
   const filtered = products.filter(p => {
     if (p.is_active === false) return false   // ocultar productos borrados (soft delete)
@@ -506,10 +506,18 @@ IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
         </div>
         <div style={{ display: 'flex', gap: 8, flexDirection: isMobile ? 'column' : 'row' }}>
           <input type="file" ref={importRef} accept=".csv,.txt,.xlsx,.tsv" style={{ display: 'none' }} onChange={handleAIImport} />
-          <Btn size="sm" variant="default" onClick={() => importRef.current?.click()}>{importing ? <><Loader2 size={12} style={{animation:'spin 1s linear infinite'}} /> Procesando con IA...</> : <><Upload size={12} /> Importar con IA</>}</Btn>
+          <Btn size="sm" variant="default" onClick={() => setShowImport(true)}><Upload size={12} /> Importar lista de precios</Btn>
+          <Btn size="sm" variant="default" onClick={() => importRef.current?.click()}>{importing ? <><Loader2 size={12} style={{animation:'spin 1s linear infinite'}} /> Procesando con IA...</> : <><Sparkles size={12} /> Importar con IA</>}</Btn>
           <Btn size="sm" variant="primary" onClick={openNew}><Plus size={12} /> Nuevo producto</Btn>
         </div>
       </div>
+
+      {showImport && (
+        <ImportarCatalogo
+          onCerrar={() => setShowImport(false)}
+          onListo={() => cargarCatalogo()}
+        />
+      )}
 
       {/* Bulk actions bar */}
       {selectedIds.size > 0 && (

@@ -29,6 +29,8 @@ interface Lead {
   notes?: string
   estimated_value?: number
   close_probability?: number  // 0-100, opcional; default por status si null
+  es_distribuidor?: boolean
+  descuento_distribuidor?: number | null
   commercial_year?: number    // año comercial editable; si null, se usa created_at
   expected_close_date?: string // fecha estimada de cierre — usada en Proyección de ventas
   lost_reason?: string
@@ -358,6 +360,8 @@ function LeadModal({ lead, onClose, onUpdated, onDeleted }: {
       expected_close_date: lead.expected_close_date || '',
       close_probability: lead.close_probability?.toString() || '',
       priority: lead.priority || 'media' as Priority,
+      es_distribuidor: !!lead.es_distribuidor,
+      descuento_distribuidor: lead.descuento_distribuidor != null ? String(lead.descuento_distribuidor) : '',
     }
   })
   const [saving, setSaving] = useState(false)
@@ -438,6 +442,9 @@ function LeadModal({ lead, onClose, onUpdated, onDeleted }: {
       expected_close_date: form.expected_close_date || null,
       close_probability: form.close_probability !== '' ? Math.max(0, Math.min(100, parseInt(form.close_probability, 10) || 0)) : null,
       lost_reason: form.lost_reason || null, priority: form.priority,
+      es_distribuidor: !!form.es_distribuidor,
+      descuento_distribuidor: form.es_distribuidor && form.descuento_distribuidor !== ''
+        ? Math.max(0, Math.min(100, parseFloat(form.descuento_distribuidor) || 0)) : null,
       updated_at: new Date().toISOString(),
     }).eq('id', lead.id)
     setSaving(false)
@@ -634,6 +641,31 @@ function LeadModal({ lead, onClose, onUpdated, onDeleted }: {
               <Field label="Cierre estimado" value={form.expected_close_date} onChange={s('expected_close_date')} type="date" />
               <div />
             </div>
+
+            {/* Distribuidor: OMM revende Lutron y a un distribuidor se le da un
+                descuento pactado sobre el precio público. Guardarlo aquí hace
+                que la cotización de distribución lo ponga sola, en vez de que
+                cada quien lo teclee distinto cada vez. */}
+            <div style={{ padding: '10px 12px', background: '#111', border: '1px solid #1f1f1f', borderRadius: 8 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                <input type="checkbox" checked={!!form.es_distribuidor}
+                  onChange={e => { setForm(f => ({ ...f, es_distribuidor: e.target.checked })); setDirty(true) }}
+                  style={{ accentColor: '#F59E0B' }} />
+                <span style={{ fontSize: 12, color: '#fff', fontWeight: 600 }}>Es distribuidor</span>
+                <span style={{ fontSize: 10, color: '#666' }}>compra para revender — se le cotiza con descuento</span>
+              </label>
+              {form.es_distribuidor && (
+                <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <div style={{ width: 150 }}>
+                    <Field label="Descuento pactado (%)" value={form.descuento_distribuidor} onChange={s('descuento_distribuidor')} type="number" placeholder="ej. 25" />
+                  </div>
+                  <span style={{ fontSize: 10, color: '#666', paddingTop: 14 }}>
+                    Se propone solo en sus cotizaciones de distribución. Sigue siendo editable por cotización.
+                  </span>
+                </div>
+              )}
+            </div>
+
             {form.status === 'perdido' && (
               <Field label="Razon de perdida" value={form.lost_reason} onChange={s('lost_reason')} placeholder="ej. Precio, competencia, proyecto cancelado..." />
             )}
