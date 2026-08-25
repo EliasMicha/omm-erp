@@ -4,6 +4,7 @@ import type { ClienteFiscal } from './Clientes'
 import { supabase, supabaseAll } from '../lib/supabase'
 import EstadoCuentaProveedor from '../components/EstadoCuentaProveedor'
 import { paraConciliar, etiquetaElegible, noArchivada } from '../lib/versionesCotizacion'
+import { folioRecibo, construirReciboHTML, abrirRecibo } from '../lib/reciboEfectivo'
 // supabaseAll = ve también leads/cotizaciones archivados: aquí los movimientos y
 // facturas ya asignados deben seguir mostrando su nombre y sumando para cuadrar.
 import { SectionHeader, KpiCard, Table, Th, Td, ThFilter, useColumnFilters, Badge, Btn, EmptyState } from '../components/layout/UI'
