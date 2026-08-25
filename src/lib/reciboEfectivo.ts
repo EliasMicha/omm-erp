@@ -1,14 +1,23 @@
 // ═══════════════════════════════════════════════════════════════════════════
 // reciboEfectivo — el papel que respalda un movimiento en efectivo.
 //
-// El efectivo no deja rastro solo: si Pablo recibe $30,000 para Arcos Bosques,
-// lo único que prueba que se entregó es un recibo firmado. Aquí se genera ese
-// documento, listo para imprimir y firmar, con folio propio para poder
-// referenciarlo después.
+// El efectivo no deja rastro solo: si Pablo recibe $30,000, lo único que
+// prueba que se entregó es un recibo firmado. Aquí se genera ese documento,
+// listo para imprimir y firmar, con folio propio para poder referenciarlo
+// después.
 //
-// Dos formas del mismo papel:
-//   RECIBO DE PAGO     (egreso)  — OMM entrega dinero. Firma quien lo recibe.
-//   RECIBO DE INGRESO  (ingreso) — OMM recibe dinero. Firma quien lo entrega.
+// ⚠ EL RECIBO NO LLEVA EMPRESA. Ni razón social, ni nombre comercial, ni RFC,
+// ni logotipo. Es un acuse entre dos PERSONAS: quien entrega y quien recibe.
+// Un movimiento en efectivo no debe quedar asociado a la empresa en un papel
+// que circula y se firma a mano — esa liga vive en el ERP, no en el documento.
+//
+// Por eso el recibo tampoco imprime lead, cotización ni proyecto: esos datos
+// se siguen guardando en el sistema para el control interno, pero identifican
+// a la empresa y no tienen por qué salir impresos.
+//
+// Dos formas del mismo papel, según de qué lado va el dinero:
+//   RECIBO DE PAGO     (egreso)  — la persona nombrada RECIBE el dinero.
+//   RECIBO DE INGRESO  (ingreso) — la persona nombrada ENTREGA el dinero.
 //
 // El monto va también con letra: es lo que hace que un recibo no se pueda
 // alterar con un trazo de pluma, y es lo que se acostumbra pedir en México.
@@ -103,24 +112,25 @@ export function construirReciboHTML(d: DatosRecibo, opts?: { autoPrint?: boolean
   })()
   const importe = Number(d.monto || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
-  // Quién firma cambia según la dirección del dinero: en un pago firma quien
-  // lo recibe, en un ingreso firma quien lo entrega.
-  const leyenda = esIngreso
-    ? `OMM Technologies SA de CV declara haber <b>RECIBIDO</b> de <b>${esc(d.persona)}</b> la cantidad indicada, por el concepto que se describe.`
-    : `Recibí de <b>OMM Technologies SA de CV</b> la cantidad indicada, por el concepto que se describe, quedando conforme y sin nada más que reclamar por este concepto.`
-  const etiquetaFirma = esIngreso ? 'Entregó' : 'Recibió'
-  const nombreFirma = d.persona
+  // El recibo tiene dos lados y ninguno es la empresa: quien entrega y quien
+  // recibe. La persona nombrada cambia de lado según hacia dónde va el dinero.
+  //   ingreso → la persona ENTREGA, y quien emite el recibo recibe
+  //   egreso  → la persona RECIBE, y quien emite el recibo entrega
+  const quienEntrega = esIngreso ? d.persona : (d.emitidoPor || '')
+  const quienRecibe  = esIngreso ? (d.emitidoPor || '') : d.persona
+
+  // Redactada en primera persona por quien recibe: es la firma que da valor al
+  // papel. Sin razón social, sin RFC, sin "la empresa".
+  const leyenda = `Recibí de <b>${esc(quienEntrega) || '_______________________'}</b> la cantidad indicada, por el concepto que se describe, quedando conforme y sin nada más que reclamar por este concepto.`
 
   const html = `<!doctype html><html><head><meta charset="utf-8"><title>${esc(d.folio)}</title><style>
     *{box-sizing:border-box;font-family:Arial,Helvetica,sans-serif}
     body{margin:0;color:#111}
     .hoja{padding:38px 44px;page-break-after:always}
     .hd{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #111;padding-bottom:10px}
-    .logo{font-size:32px;font-weight:800;letter-spacing:1px}
     .sub{font-size:11px;color:#666;margin-top:2px}
     .folio{font-size:16px;font-weight:700}
     .tt{font-size:17px;font-weight:800;margin:22px 0 4px;text-transform:uppercase;letter-spacing:.5px}
-    .linea{height:2px;background:#111;width:64px;margin-bottom:18px}
     table.meta{width:100%;border-collapse:collapse;font-size:12.5px}
     table.meta td{padding:5px 0;vertical-align:top}
     table.meta td.k{color:#666;width:150px}
@@ -136,18 +146,14 @@ export function construirReciboHTML(d: DatosRecibo, opts?: { autoPrint?: boolean
   </style></head><body>
   <div class="hoja">
     <div class="hd">
-      <div><div class="logo">OMM</div><div class="sub">OMM Technologies SA de CV · RFC OTE210910PW5</div></div>
+      <div><div class="tt" style="margin:0">${titulo}</div></div>
       <div style="text-align:right"><div class="folio">${esc(d.folio)}</div><div class="sub">${esc(fechaTxt)}</div></div>
     </div>
 
-    <div class="tt">${titulo}</div><div class="linea"></div>
-
-    <table class="meta">
-      <tr><td class="k">${esIngreso ? 'Recibido de' : 'Pagado a'}</td><td><b>${esc(d.persona)}</b></td></tr>
+    <table class="meta" style="margin-top:22px">
+      <tr><td class="k">Entrega</td><td><b>${esc(quienEntrega) || '_______________________'}</b></td></tr>
+      <tr><td class="k">Recibe</td><td><b>${esc(quienRecibe) || '_______________________'}</b></td></tr>
       <tr><td class="k">Concepto</td><td>${esc(d.concepto) || '—'}</td></tr>
-      ${d.lead ? `<tr><td class="k">Cliente / Lead</td><td>${esc(d.lead)}</td></tr>` : ''}
-      ${d.cotizacion ? `<tr><td class="k">Cotización</td><td>${esc(d.cotizacion)}</td></tr>` : ''}
-      ${d.proyecto ? `<tr><td class="k">Proyecto</td><td>${esc(d.proyecto)}</td></tr>` : ''}
       <tr><td class="k">Forma</td><td>Efectivo</td></tr>
     </table>
 
@@ -159,13 +165,13 @@ export function construirReciboHTML(d: DatosRecibo, opts?: { autoPrint?: boolean
     <div class="leyenda">${leyenda}</div>
 
     <div class="firmas">
-      <div class="fw"><div class="ln"></div>${esc(nombreFirma) || etiquetaFirma}<div class="sub">${etiquetaFirma} · Nombre y firma</div></div>
-      <div class="fw"><div class="ln"></div>OMM Technologies<div class="sub">${esIngreso ? 'Recibió' : 'Entregó'} · Nombre y firma</div></div>
+      <div class="fw"><div class="ln"></div>${esc(quienEntrega) || '&nbsp;'}<div class="sub">Entregó · Nombre y firma</div></div>
+      <div class="fw"><div class="ln"></div>${esc(quienRecibe) || '&nbsp;'}<div class="sub">Recibió · Nombre y firma</div></div>
     </div>
 
     <div class="pie">
-      Documento interno de control de efectivo. No es un comprobante fiscal digital (CFDI).
-      ${d.emitidoPor ? `Emitido por ${esc(d.emitidoPor)}.` : ''}
+      Este documento ampara únicamente la entrega de efectivo entre las personas que lo firman.
+      No es un comprobante fiscal digital (CFDI).
     </div>
   </div>
   ${opts?.autoPrint === false ? '' : '<script>window.onload=function(){setTimeout(function(){window.print()},250)}</script>'}
