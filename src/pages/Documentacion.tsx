@@ -23,9 +23,10 @@ import { useAuth } from '../contexts/AuthContext'
 import { AREAS_TRABAJO } from '../lib/tareas'
 import {
   DocIndex, Entregable, TipoEntregable, ChecklistItem, ESTADO_CFG,
-  cargarDocumentacion, cargarTipos, guardarTipo, pendientesDeRevision, revisar,
+  cargarDocumentacion, cargarTipos, guardarTipo, pendientesDeRevision,
   diasEsperando, colorEspera, urlDe, pesoLegible,
 } from '../lib/entregables'
+import RevisarEntregable from '../components/RevisarEntregable'
 import { FileText, Search, ExternalLink, Check, RotateCcw, Clock, BookOpen, Inbox, Archive, Plus, X } from 'lucide-react'
 
 const card: React.CSSProperties = { background: '#111', border: '1px solid #222', borderRadius: 12, padding: 16 }
@@ -208,18 +209,6 @@ function PorRevisar({ pend, nombreDe, employeeId, tipos, onCambio }: {
   tipos: TipoEntregable[]
   onCambio: () => void
 }) {
-  const [txt, setTxt] = useState<Record<string, string>>({})
-  const [busy, setBusy] = useState('')
-  const [err, setErr] = useState('')
-
-  async function resolver(e: Entregable, estado: 'aceptado' | 'corregir') {
-    setErr(''); setBusy(e.id)
-    const r = await revisar(e.id, estado, { revisadoPorId: employeeId, correcciones: txt[e.id] })
-    setBusy('')
-    if (!r.ok) return setErr(r.error || 'No se pudo guardar.')
-    onCambio()
-  }
-
   const viejo = pend.filter(e => diasEsperando(e) >= 3).length
 
   return (
@@ -232,8 +221,6 @@ function PorRevisar({ pend, nombreDe, employeeId, tipos, onCambio }: {
           {viejo > 0 && <span style={{ color: '#DC2626' }}> {viejo} llevan 3 días o más esperando respuesta.</span>}
         </p>
       </div>
-
-      {err && <div style={{ ...card, borderColor: '#3a1a1a', color: '#DC2626', fontSize: 12, marginBottom: 12 }}>{err}</div>}
 
       {pend.length === 0 && (
         <div style={{ ...card, textAlign: 'center', color: '#666', padding: 34, fontSize: 13 }}>
@@ -270,14 +257,8 @@ function PorRevisar({ pend, nombreDe, employeeId, tipos, onCambio }: {
                 {url && <a href={url} target="_blank" rel="noreferrer" style={{ ...btn, textDecoration: 'none', alignSelf: 'flex-start' }}><ExternalLink size={13} /> Abrir</a>}
               </div>
 
-              <textarea value={txt[e.id] || ''} onChange={ev => setTxt(t => ({ ...t, [e.id]: ev.target.value }))}
-                placeholder="Qué hay que corregir (obligatorio para devolver)"
-                style={{ ...inp, width: '100%', minHeight: 50, marginTop: 10, resize: 'vertical' }} />
-              <div style={{ display: 'flex', gap: 7, marginTop: 8 }}>
-                <button onClick={() => resolver(e, 'aceptado')} disabled={busy === e.id}
-                  style={{ ...btn, borderColor: '#10B981', color: '#10B981' }}><Check size={13} /> Aceptar</button>
-                <button onClick={() => resolver(e, 'corregir')} disabled={busy === e.id}
-                  style={{ ...btn, borderColor: '#DC2626', color: '#DC2626' }}><RotateCcw size={13} /> Corregir</button>
+              <div style={{ marginTop: 10, borderTop: '1px solid #1c1c1c', paddingTop: 10 }}>
+                <RevisarEntregable e={e} tipos={tipos} employeeId={employeeId} nombreDe={nombreDe} onResuelto={onCambio} compacto />
               </div>
             </div>
           )
@@ -297,17 +278,18 @@ function Recetas({ tipos, employeeId, onCambio }: {
   const [edit, setEdit] = useState('')
   const [desc, setDesc] = useState('')
   const [items, setItems] = useState<ChecklistItem[]>([])
+  const [dias, setDias] = useState(2)
   const [nuevo, setNuevo] = useState('')
   const [busy, setBusy] = useState(false)
 
   function abrir(t: TipoEntregable) {
     if (edit === t.id) { setEdit(''); return }
-    setEdit(t.id); setDesc(t.descripcion || ''); setItems(t.checklist.map(i => ({ ...i })))
+    setEdit(t.id); setDesc(t.descripcion || ''); setItems(t.checklist.map(i => ({ ...i }))); setDias(t.dias_revision ?? 2)
   }
 
   async function guardar(t: TipoEntregable) {
     setBusy(true)
-    await guardarTipo(t.id, { descripcion: desc, checklist: items.map(i => ({ texto: i.texto, obligatorio: !!i.obligatorio })) as any }, employeeId)
+    await guardarTipo(t.id, { descripcion: desc, dias_revision: dias, checklist: items.map(i => ({ texto: i.texto, obligatorio: !!i.obligatorio })) as any }, employeeId)
     setBusy(false); setEdit(''); onCambio()
   }
 
@@ -344,7 +326,7 @@ function Recetas({ tipos, employeeId, onCambio }: {
                     )}
                     <div style={{ fontSize: 11, color: '#666', marginTop: 5 }}>
                       {t.checklist.length} punto(s) · {t.checklist.filter(i => i.obligatorio).length} obligatorio(s)
-                      {t.formato ? ` · ${t.formato}` : ''}
+                      {t.formato ? ` · ${t.formato}` : ''} · revisión en {t.dias_revision ?? 2} día(s)
                     </div>
                   </div>
                   <span style={{ ...btn, pointerEvents: 'none' }}>{edit === t.id ? 'Cerrar' : 'Editar'}</span>
@@ -355,6 +337,15 @@ function Recetas({ tipos, employeeId, onCambio }: {
                     <div style={{ fontSize: 10, color: '#666', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 5 }}>Instructivo</div>
                     <textarea value={desc} onChange={e => setDesc(e.target.value)}
                       style={{ ...inp, width: '100%', minHeight: 70, resize: 'vertical' }} />
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginTop: 10 }}>
+                      <span style={{ fontSize: 10, color: '#666', textTransform: 'uppercase', letterSpacing: 0.6 }}>Días para revisarlo</span>
+                      <input type="number" min={0} value={dias} onChange={e => setDias(Number(e.target.value))}
+                        style={{ ...inp, width: 62 }} />
+                      <span style={{ fontSize: 10.5, color: '#666' }}>
+                        Es el compromiso del que REVISA. La actividad de revisión nace con esa fecha.
+                      </span>
+                    </div>
 
                     <div style={{ fontSize: 10, color: '#666', textTransform: 'uppercase', letterSpacing: 0.6, margin: '12px 0 6px' }}>Checklist</div>
                     {items.map((it, i) => (

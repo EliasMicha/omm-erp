@@ -30,7 +30,11 @@ import {
   cargarTareasKPI, cargarEntregablesKPI, revisionDe, PERIODOS, desdeDe,
   colorCumplimiento, colorCiclo, colorRespuesta, fmtPct, fmtDias,
 } from '../lib/kpis'
-import { Target, Clock, Shuffle, Activity, Info, AlertTriangle, RotateCcw, Inbox } from 'lucide-react'
+import {
+  TipoEntregable, Entregable, CalidadTipo,
+  cargarTipos, cargarEntregablesCalidad, calidadPorTipo, contarFallas,
+} from '../lib/entregables'
+import { Target, Clock, Shuffle, Activity, Info, AlertTriangle, RotateCcw, Inbox, ClipboardCheck } from 'lucide-react'
 
 const card: React.CSSProperties = { background: '#111', border: '1px solid #222', borderRadius: 12, padding: 16 }
 const th: React.CSSProperties = { textAlign: 'left', fontSize: 10, letterSpacing: 0.6, textTransform: 'uppercase', color: '#666', padding: '8px 10px', borderBottom: '1px solid #222', whiteSpace: 'nowrap' }
@@ -66,6 +70,8 @@ export default function Desempeno() {
   const { user } = useAuth()
   const [tareas, setTareas] = useState<TareaKPI[]>([])
   const [ents, setEnts] = useState<EntregableKPI[]>([])
+  const [entCal, setEntCal] = useState<Entregable[]>([])
+  const [tiposEnt, setTiposEnt] = useState<TipoEntregable[]>([])
   const [empleados, setEmpleados] = useState<Emp[]>([])
   const [periodo, setPeriodo] = useState('90')
   const [cargando, setCargando] = useState(true)
@@ -76,14 +82,18 @@ export default function Desempeno() {
     ;(async () => {
       setCargando(true)
       const desde = desdeDe(periodo)
-      const [ts, es, { data: emps }] = await Promise.all([
+      const [ts, es, ec, tp, { data: emps }] = await Promise.all([
         cargarTareasKPI(desde),
         cargarEntregablesKPI(desde),
+        cargarEntregablesCalidad(desde),
+        cargarTipos(),
         supabase.from('employees').select('id,name,area,puesto').eq('is_active', true).order('name'),
       ])
       if (!vivo) return
       setTareas(ts)
       setEnts(es)
+      setEntCal(ec)
+      setTiposEnt(tp)
       setEmpleados((emps as any[]) || [])
       setCargando(false)
     })()
@@ -128,6 +138,9 @@ export default function Desempeno() {
       .map(([id, es]) => ({ id, nombre: nombreDe(id), r: revisionDe(es) }))
       .sort((a, b) => b.r.revisados - a.r.revisados)
   }, [ents, empleados])
+
+  const calidad = useMemo(() => calidadPorTipo(entCal, tiposEnt), [entCal, tiposEnt])
+  const fallasGlobales = useMemo(() => contarFallas(entCal).slice(0, 12), [entCal])
 
   const vacio = global.entregadas === 0
 
@@ -405,6 +418,70 @@ export default function Desempeno() {
                     <td style={{ ...td, textAlign: 'right', color: '#777' }}>{fmtPct(f.r.pctEn24h)}</td>
                     <td style={{ ...td, textAlign: 'right', color: '#777' }}>{fmtPct(f.r.pctDevueltos)}</td>
                     <td style={{ ...td, textAlign: 'right', color: f.r.esperando > 0 ? '#D9A441' : '#555' }}>{f.r.esperando}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* ═══ 4. CALIDAD: QUÉ FALLA, NO QUIÉN ═══ */}
+          <h2 style={{ fontSize: 14, color: '#ddd', fontWeight: 600, margin: '26px 0 4px' }}>4 · Qué falla</h2>
+          <p style={{ fontSize: 12, color: '#777', margin: '0 0 12px', maxWidth: 760, lineHeight: 1.6 }}>
+            Cuando un director devuelve un entregable marca qué puntos del checklist no se cumplieron. Esas marcas
+            son el indicador de calidad, y lo que se reporta primero es <b style={{ color: '#aaa' }}>el punto</b>,
+            no la persona: si el mismo punto falla en toda la organización, el problema es el proceso —
+            una plantilla que falta, un formato que nadie definió— y señalar personas lo esconde.
+          </p>
+
+          <div style={{ ...card, marginBottom: 14 }}>
+            <div style={{ fontSize: 12, color: '#888', fontWeight: 500, marginBottom: 10 }}>Los puntos que más regresan trabajo</div>
+            {fallasGlobales.length === 0 ? (
+              <div style={{ fontSize: 12, color: '#666', lineHeight: 1.7 }}>
+                Todavía no hay revisiones con puntos marcados. Este es el bloque que se llena solo en cuanto los
+                directores empiecen a devolver marcando el checklist — dos clics por devolución.
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+                {fallasGlobales.map((f, i) => (
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div style={{ flex: 1, minWidth: 0, fontSize: 12.5, color: '#ddd' }}>{f.texto}</div>
+                    <div style={{ width: 160, height: 7, background: '#1c1c1c', borderRadius: 4, overflow: 'hidden', flexShrink: 0 }}>
+                      <div style={{ width: `${Math.min(100, f.pct * 100)}%`, height: '100%', background: f.pct > 0.4 ? '#DC2626' : f.pct > 0.2 ? '#D9A441' : '#60A5FA' }} />
+                    </div>
+                    <div style={{ width: 108, textAlign: 'right', fontSize: 11.5, color: '#888', flexShrink: 0 }}>
+                      {f.veces} de {f.deCuantas} ({Math.round(f.pct * 100)}%)
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div style={{ ...card, padding: 0, marginBottom: 16, overflowX: 'auto' }}>
+            <div style={{ padding: '12px 14px 0', fontSize: 12, color: '#888', fontWeight: 500 }}>Por tipo de entregable</div>
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 760, marginTop: 8 }}>
+              <thead><tr>
+                <th style={th}>Entregable</th>
+                <th style={{ ...th, textAlign: 'right' }}>Entregas</th>
+                <th style={{ ...th, textAlign: 'right' }}>Revisadas</th>
+                <th style={{ ...th, textAlign: 'right' }}>A la 1ª</th>
+                <th style={{ ...th, textAlign: 'right' }}>Vueltas prom.</th>
+                <th style={th}>El punto que más falla</th>
+              </tr></thead>
+              <tbody>
+                {calidad.length === 0 && (
+                  <tr><td style={{ ...td, color: '#666', textAlign: 'center' }} colSpan={6}>Todavía no se ha entregado nada.</td></tr>
+                )}
+                {calidad.map(c => (
+                  <tr key={c.tipoId || 'sin'}>
+                    <td style={{ ...td, color: '#ddd' }}>{c.nombre}</td>
+                    <td style={{ ...td, textAlign: 'right', color: '#aaa' }}>{c.entregas}</td>
+                    <td style={{ ...td, textAlign: 'right', color: '#777' }}>{c.revisadas}</td>
+                    <td style={{ ...td, textAlign: 'right', color: colorCumplimiento(c.pctALaPrimera), fontWeight: 600 }}>{fmtPct(c.pctALaPrimera)}</td>
+                    <td style={{ ...td, textAlign: 'right', color: '#777' }}>{c.vueltasProm == null ? '—' : c.vueltasProm.toFixed(1)}</td>
+                    <td style={{ ...td, color: '#999', whiteSpace: 'normal' }}>
+                      {c.fallas[0] ? `${c.fallas[0].texto} (${c.fallas[0].veces})` : '—'}
+                    </td>
                   </tr>
                 ))}
               </tbody>

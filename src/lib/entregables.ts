@@ -39,6 +39,8 @@ export interface TipoEntregable {
   descripcion?: string | null
   formato?: string | null
   checklist: ChecklistItem[]
+  /** Días que tiene el revisor para contestar. Es SU compromiso. */
+  dias_revision: number
   activo: boolean
   orden: number
 }
@@ -63,6 +65,8 @@ export interface Entregable {
   revisado_por_id?: string | null
   revisado_at?: string | null
   correcciones?: string | null
+  /** Puntos del checklist que el revisor marcó como NO cumplidos. */
+  fallas?: string[] | null
   project_id?: string | null
   lead_id?: string | null
   specialty?: string | null
@@ -79,9 +83,9 @@ export const ESTADO_CFG: Record<EstadoEntregable, { label: string; color: string
 
 export async function cargarTipos(): Promise<TipoEntregable[]> {
   const { data } = await supabase.from('entregable_tipos')
-    .select('id,clave,nombre,specialty,descripcion,formato,checklist,activo,orden')
+    .select('id,clave,nombre,specialty,descripcion,formato,checklist,dias_revision,activo,orden')
     .eq('activo', true).order('orden')
-  return ((data as any[]) || []).map(t => ({ ...t, checklist: normalizarChecklist(t.checklist) }))
+  return ((data as any[]) || []).map(t => ({ ...t, dias_revision: Number(t.dias_revision) || 2, checklist: normalizarChecklist(t.checklist) }))
 }
 
 export async function guardarTipo(id: string, patch: Partial<TipoEntregable>, porId?: string | null): Promise<{ ok: boolean; error?: string }> {
@@ -168,18 +172,21 @@ export async function entregablesDe(taskId: string): Promise<Entregable[]> {
 export async function revisar(
   id: string,
   estado: 'aceptado' | 'corregir',
-  opts: { revisadoPorId?: string | null; correcciones?: string },
+  opts: { revisadoPorId?: string | null; correcciones?: string; fallas?: string[] },
 ): Promise<{ ok: boolean; error?: string }> {
-  // Rechazar sin decir qué corregir es devolver el trabajo sin información:
-  // obliga a una vuelta más y no deja rastro de qué estuvo mal.
-  if (estado === 'corregir' && !opts.correcciones?.trim()) {
-    return { ok: false, error: 'Escribe qué hay que corregir: sin eso, la vuelta se repite.' }
+  const fallas = (opts.fallas || []).filter(Boolean)
+  // Devolver sin decir qué está mal obliga a otra vuelta y no deja rastro.
+  // Basta con marcar puntos del checklist —dos clics— o escribirlo; exigir
+  // ambas cosas convertiría la revisión en trámite y dejaría de hacerse.
+  if (estado === 'corregir' && fallas.length === 0 && !opts.correcciones?.trim()) {
+    return { ok: false, error: 'Marca qué puntos fallaron o escribe qué corregir: sin eso, la vuelta se repite.' }
   }
   const { error } = await supabase.from('entregables').update({
     estado,
     revisado_por_id: opts.revisadoPorId || null,
     revisado_at: new Date().toISOString(),
-    correcciones: estado === 'corregir' ? opts.correcciones!.trim() : (opts.correcciones?.trim() || null),
+    correcciones: opts.correcciones?.trim() || null,
+    fallas,
   }).eq('id', id)
   return error ? { ok: false, error: error.message } : { ok: true }
 }
@@ -287,4 +294,102 @@ export async function cargarDocumentacion(): Promise<DocIndex[]> {
   }))
 
   return [...a, ...b].sort((x, y) => String(y.fecha).localeCompare(String(x.fecha)))
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CALIDAD — medida en lo que falla, no en una opinión.
+//
+// El checklist de cada tipo de entregable ya es estándar. Cuando el revisor
+// marca qué puntos no se cumplieron, esas marcas se vuelven el único
+// indicador de calidad que sirve para hacer algo:
+//
+//   "el 60% de los sembrados regresa por falta de nube de cambios"
+//     → se corrige con una plantilla o media hora de capacitación
+//
+//   "hay que tener más cuidado"
+//     → no se corrige nunca
+//
+// Por eso lo que se reporta no es una calificación por persona sino un
+// RANKING DE PUNTOS QUE FALLAN. La lectura por persona existe, pero abajo y
+// en segundo plano: si el mismo punto falla en toda la organización, el
+// problema es el proceso y señalar personas lo esconde.
+// ═══════════════════════════════════════════════════════════════════════════
+
+export interface FallaContada {
+  texto: string
+  veces: number
+  /** De cuántas entregas revisadas de ese tipo. */
+  deCuantas: number
+  pct: number
+}
+
+export interface CalidadTipo {
+  tipoId: string | null
+  nombre: string
+  entregas: number
+  revisadas: number
+  aceptadasALaPrimera: number
+  pctALaPrimera: number | null
+  vueltasProm: number | null
+  fallas: FallaContada[]
+}
+
+/** Cuenta las fallas de un conjunto de entregables ya revisados. */
+export function contarFallas(es: Entregable[]): FallaContada[] {
+  const revisados = es.filter(e => e.estado !== 'en_revision')
+  const m = new Map<string, number>()
+  for (const e of revisados) for (const f of (e.fallas || [])) m.set(f, (m.get(f) || 0) + 1)
+  return [...m.entries()]
+    .map(([texto, veces]) => ({ texto, veces, deCuantas: revisados.length, pct: revisados.length ? veces / revisados.length : 0 }))
+    .sort((a, b) => b.veces - a.veces)
+}
+
+/**
+ * Calidad por tipo de entregable. "A la primera" se calcula por TAREA, no por
+ * archivo: si una tarea tuvo v1 devuelta y v2 aceptada, no fue a la primera
+ * aunque el segundo archivo se haya aceptado sin peros.
+ */
+export function calidadPorTipo(es: Entregable[], tipos: TipoEntregable[]): CalidadTipo[] {
+  const g = new Map<string, Entregable[]>()
+  for (const e of es) {
+    const k = e.tipo_id || 'sin_tipo'
+    const arr = g.get(k); if (arr) arr.push(e); else g.set(k, [e])
+  }
+  const out: CalidadTipo[] = []
+  for (const [k, lista] of g.entries()) {
+    const revisadas = lista.filter(e => e.estado !== 'en_revision')
+    // Agrupar por tarea para saber cuántas cadenas llegaron limpias.
+    const porTarea = new Map<string, Entregable[]>()
+    for (const e of lista) {
+      const t = e.task_id || e.id
+      const arr = porTarea.get(t); if (arr) arr.push(e); else porTarea.set(t, [e])
+    }
+    const cadenas = [...porTarea.values()]
+    const cerradas = cadenas.filter(c => c.some(e => e.estado === 'aceptado'))
+    const limpias = cerradas.filter(c => c.length === 1 && c[0].estado === 'aceptado')
+    const vueltas = cerradas.map(c => c.filter(e => e.estado === 'corregir').length)
+
+    out.push({
+      tipoId: k === 'sin_tipo' ? null : k,
+      nombre: tipos.find(t => t.id === k)?.nombre || 'Sin tipo definido',
+      entregas: lista.length,
+      revisadas: revisadas.length,
+      aceptadasALaPrimera: limpias.length,
+      pctALaPrimera: cerradas.length ? limpias.length / cerradas.length : null,
+      vueltasProm: vueltas.length ? vueltas.reduce((a, b) => a + b, 0) / vueltas.length : null,
+      fallas: contarFallas(lista),
+    })
+  }
+  return out.sort((a, b) => b.entregas - a.entregas)
+}
+
+/** Todo lo entregado en el periodo, para los indicadores de calidad. */
+export async function cargarEntregablesCalidad(desde?: string): Promise<Entregable[]> {
+  let q = supabase.from('entregables')
+    .select('id,task_id,tipo_id,nombre,version,estado,fallas,subido_por_id,subido_at,revisado_por_id,revisado_at,specialty')
+    .order('subido_at', { ascending: false }).limit(3000)
+  if (desde) q = q.gte('subido_at', desde)
+  const { data } = await q
+  return ((data as any[]) || []) as Entregable[]
 }

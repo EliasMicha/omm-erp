@@ -31,6 +31,7 @@ import {
 } from '../lib/plantillas'
 import { sugerirPlan, PlanPropuesto, sinDuenoDe } from '../lib/actividadesIA'
 import EntregablesTarea from '../components/EntregablesTarea'
+import RevisarEntregable from '../components/RevisarEntregable'
 import {
   ListChecks, Users, Sparkles, LayoutTemplate, AlertTriangle, Clock, RotateCcw,
   Check, ExternalLink, Upload, Trash2, Plus, Play, Save, ChevronRight,
@@ -228,6 +229,13 @@ function LoMio({ tareas, corregir, esperando, tipos, employeeId, nombreDe, onCam
                     <div style={{ fontSize: 11, color: '#888', marginTop: 3 }}>
                       {nombreDe(e.revisado_por_id)} · {e.revisado_at ? new Date(e.revisado_at).toLocaleDateString('es-MX', { day: 'numeric', month: 'short' }) : ''}
                     </div>
+                    {(e.fallas && e.fallas.length > 0) && (
+                      <div style={{ marginTop: 7, display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+                        {e.fallas.map((f, i) => (
+                          <span key={i} style={{ fontSize: 11, color: '#f4a5a5', border: '1px solid #DC262655', background: '#2a1010', borderRadius: 6, padding: '2px 7px' }}>✕ {f}</span>
+                        ))}
+                      </div>
+                    )}
                     {e.correcciones && (
                       <div style={{ fontSize: 12.5, color: '#f4a5a5', marginTop: 7, lineHeight: 1.6, whiteSpace: 'pre-wrap', borderLeft: '2px solid #DC2626', paddingLeft: 10 }}>
                         {e.correcciones}
@@ -342,14 +350,11 @@ function LoMio({ tareas, corregir, esperando, tipos, employeeId, nombreDe, onCam
 
 // ═══ MI EQUIPO ═════════════════════════════════════════════════════════════
 
-function MiEquipo({ area, emps, miSpecialty, esDG, porRevisar, employeeId, nombreDe, onCambio }: {
+function MiEquipo({ area, emps, miSpecialty, esDG, porRevisar, employeeId, nombreDe, tipos, onCambio }: {
   area: Tarea[]; emps: EmpleadoRol[]; miSpecialty: string; esDG: boolean
   porRevisar: Entregable[]; employeeId: string; nombreDe: (id?: string | null) => string
   tipos: TipoEntregable[]; onCambio: () => void
 }) {
-  const [txt, setTxt] = useState<Record<string, string>>({})
-  const [busy, setBusy] = useState('')
-  const [err, setErr] = useState('')
   const hoy = hoyISO()
 
   const areaNombre = AREAS_TRABAJO.find(a => a.specialty === miSpecialty)?.area
@@ -367,14 +372,6 @@ function MiEquipo({ area, emps, miSpecialty, esDG, porRevisar, employeeId, nombr
     }
   }).sort((a, b) => (ROL_CFG[a.p.rol].orden - ROL_CFG[b.p.rol].orden) || b.total - a.total), [equipo, area])
 
-  async function resolver(e: Entregable, estado: 'aceptado' | 'corregir') {
-    setErr(''); setBusy(e.id)
-    const r = await revisar(e.id, estado, { revisadoPorId: employeeId, correcciones: txt[e.id] })
-    setBusy('')
-    if (!r.ok) return setErr(r.error || 'No se pudo guardar.')
-    onCambio()
-  }
-
   async function repartir(t: Tarea, aQuien: string) {
     await delegar(t.id, aQuien, employeeId)
     onCambio()
@@ -391,7 +388,6 @@ function MiEquipo({ area, emps, miSpecialty, esDG, porRevisar, employeeId, nombr
         Trabajo terminado que espera tu palabra. Cada día aquí es un día que alguien no puede avanzar ni cerrar —
         y ese reloj es tuyo, no suyo.
       </p>
-      {err && <div style={{ ...card, borderColor: '#3a1a1a', color: '#DC2626', fontSize: 12, marginBottom: 10 }}>{err}</div>}
       {porRevisar.length === 0 ? (
         <div style={{ ...card, color: '#666', fontSize: 12.5, marginBottom: 22 }}>Nada esperando tu revisión.</div>
       ) : (
@@ -410,12 +406,8 @@ function MiEquipo({ area, emps, miSpecialty, esDG, porRevisar, employeeId, nombr
                   </div>
                   {url && <a href={url} target="_blank" rel="noreferrer" style={{ ...btn, alignSelf: 'flex-start', textDecoration: 'none' }}><ExternalLink size={13} /> Abrir</a>}
                 </div>
-                <textarea value={txt[e.id] || ''} onChange={ev => setTxt(t => ({ ...t, [e.id]: ev.target.value }))}
-                  placeholder="Qué hay que corregir (obligatorio para devolver)"
-                  style={{ ...inp, width: '100%', minHeight: 46, marginTop: 9, resize: 'vertical' }} />
-                <div style={{ display: 'flex', gap: 7, marginTop: 7 }}>
-                  <button onClick={() => resolver(e, 'aceptado')} disabled={busy === e.id} style={{ ...btn, borderColor: '#10B981', color: '#10B981' }}><Check size={13} /> Aceptar</button>
-                  <button onClick={() => resolver(e, 'corregir')} disabled={busy === e.id} style={{ ...btn, borderColor: '#DC2626', color: '#DC2626' }}><RotateCcw size={13} /> Corregir</button>
+                <div style={{ marginTop: 9, borderTop: '1px solid #1c1c1c', paddingTop: 9 }}>
+                  <RevisarEntregable e={e} tipos={tipos} employeeId={employeeId} nombreDe={nombreDe} onResuelto={onCambio} compacto />
                 </div>
               </div>
             )

@@ -11,12 +11,13 @@
 // revisa. Marcar en falso es más caro que no marcar.
 // ═══════════════════════════════════════════════════════════════════════════
 import { useEffect, useMemo, useState } from 'react'
-import { Upload, Link2, FileText, Check, RotateCcw, Clock, AlertTriangle, ExternalLink } from 'lucide-react'
+import { Upload, Link2, FileText, Check, Clock, AlertTriangle, ExternalLink } from 'lucide-react'
 import {
   Entregable, TipoEntregable, ChecklistItem, ESTADO_CFG,
-  cargarTipos, entregablesDe, subirArchivo, registrar, revisar,
+  cargarTipos, entregablesDe, subirArchivo, registrar,
   faltantesObligatorios, urlDe, pesoLegible, diasEsperando, colorEspera,
 } from '../lib/entregables'
+import RevisarEntregable from './RevisarEntregable'
 
 const box: React.CSSProperties = { background: '#0e0e0e', border: '1px solid #222', borderRadius: 10, padding: 12 }
 const btn: React.CSSProperties = { border: '1px solid #333', background: '#161616', color: '#ccc', borderRadius: 8, padding: '7px 12px', fontSize: 12, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }
@@ -51,7 +52,6 @@ export default function EntregablesTarea({ tarea, employeeId, puedeRevisar, nomb
   const [archivo, setArchivo] = useState<File | null>(null)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
-  const [correcciones, setCorrecciones] = useState<Record<string, string>>({})
   const [abriendo, setAbriendo] = useState('')
 
   const tipo = useMemo(() => tipos.find(t => t.id === tipoId), [tipos, tipoId])
@@ -103,17 +103,6 @@ export default function EntregablesTarea({ tarea, employeeId, puedeRevisar, nomb
     if (r.error) return setErr(r.error)
     setArchivo(null); setLink(''); setNombre(''); setNotas('')
     setCheck(c => c.map(i => ({ ...i, marcado: false })))
-    entregablesDe(tarea.id).then(setLista)
-    onCambio?.()
-  }
-
-  async function resolver(e: Entregable, estado: 'aceptado' | 'corregir') {
-    setErr('')
-    setBusy(true)
-    const r = await revisar(e.id, estado, { revisadoPorId: employeeId, correcciones: correcciones[e.id] })
-    setBusy(false)
-    if (!r.ok) return setErr(r.error || 'No se pudo guardar la revisión.')
-    setCorrecciones(c => ({ ...c, [e.id]: '' }))
     entregablesDe(tarea.id).then(setLista)
     onCambio?.()
   }
@@ -266,17 +255,8 @@ export default function EntregablesTarea({ tarea, employeeId, puedeRevisar, nomb
                       {dias < 1 ? 'Esperando revisión desde hoy' : `Esperando revisión desde hace ${Math.floor(dias)} día(s)`}
                     </div>
                     {puedeRevisar && (
-                      <>
-                        <textarea value={correcciones[e.id] || ''} onChange={ev => setCorrecciones(c => ({ ...c, [e.id]: ev.target.value }))}
-                          placeholder="Qué hay que corregir (obligatorio si lo devuelves)"
-                          style={{ ...input, minHeight: 54, resize: 'vertical', fontFamily: 'inherit' }} />
-                        <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
-                          <button onClick={() => resolver(e, 'aceptado')} disabled={busy}
-                            style={{ ...btn, borderColor: '#10B981', color: '#10B981' }}><Check size={13} /> Aceptar</button>
-                          <button onClick={() => resolver(e, 'corregir')} disabled={busy}
-                            style={{ ...btn, borderColor: '#DC2626', color: '#DC2626' }}><RotateCcw size={13} /> Corregir</button>
-                        </div>
-                      </>
+                      <RevisarEntregable e={e} tipos={tipos} employeeId={employeeId} nombreDe={nombreDe}
+                        onResuelto={() => { entregablesDe(tarea.id).then(setLista); onCambio?.() }} compacto />
                     )}
                   </div>
                 ) : (
@@ -284,6 +264,13 @@ export default function EntregablesTarea({ tarea, employeeId, puedeRevisar, nomb
                     {cfg.label} por {nombreDe?.(e.revisado_por_id) || 'alguien'}
                     {e.revisado_at && ` · ${new Date(e.revisado_at).toLocaleDateString('es-MX', { day: 'numeric', month: 'short' })}`}
                     {e.revisado_at && ` · respondido en ${Math.max(0, Math.round(diasEsperando(e, new Date(e.revisado_at).getTime()) * 10) / 10)} d`}
+                    {(e.fallas && e.fallas.length > 0) && (
+                      <div style={{ marginTop: 5, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                        {e.fallas.map((f, i) => (
+                          <span key={i} style={{ fontSize: 10.5, color: '#f4a5a5', border: '1px solid #DC262655', background: '#2a1010', borderRadius: 6, padding: '1px 6px' }}>✕ {f}</span>
+                        ))}
+                      </div>
+                    )}
                     {e.correcciones && (
                       <div style={{ color: e.estado === 'corregir' ? '#f4a5a5' : '#999', marginTop: 4, whiteSpace: 'pre-wrap' }}>{e.correcciones}</div>
                     )}
