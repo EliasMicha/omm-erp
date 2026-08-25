@@ -6,6 +6,7 @@ import { F, STATUS_CONFIG, STAGE_CONFIG, formatDate } from '../lib/utils'
 import { KpiCard, Table, Th, Td, ProgressBar, Badge, Loading, SectionHeader } from '../components/layout/UI'
 import RadarVentas from '../components/RadarVentas'
 import MiEspacio from '../components/MiEspacio'
+import MisTareas from '../components/MisTareas'
 import CobranzaPendientes from '../components/CobranzaPendientes'
 import { useIsMobile } from '../lib/useIsMobile'
 import { tcForYear } from '../lib/fx'
@@ -110,6 +111,14 @@ export default function Dashboard() {
           </div>
         </div>
       )}
+
+      {/* ── MIS TAREAS: la bandeja de cada quien, sin importar su área ── */}
+      <MisTareas
+        employeeId={authUser?.employee_id}
+        nombre={authUser?.nombre}
+        esDG={area === 'DG'}
+        isMobile={isMobile}
+      />
 
       {/* ── MI ESPACIO: pendientes + prospectos por contactar (solo DG) ── */}
       {area === 'DG' && (
