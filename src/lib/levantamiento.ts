@@ -77,6 +77,8 @@ export interface LevantamientoArea {
   levantamiento_id: string
   specialty: string
   director_id?: string | null
+  /** Qué se le está pidiendo al área: cotizacion | proyecto | levantamiento | licitacion */
+  tipo_encargo?: string | null
   alcance?: string | null
   fecha_compromiso?: string | null
   fecha_respuesta_limite?: string | null

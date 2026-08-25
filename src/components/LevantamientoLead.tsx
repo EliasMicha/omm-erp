@@ -15,6 +15,7 @@ import { supabase } from '../lib/supabase'
 import { Badge, Btn } from './layout/UI'
 import { ClipboardList, Plus, Send, Trash2, AlertTriangle, ArrowRight, Check, Sparkles } from 'lucide-react'
 import SugerirActividades from './SugerirActividades'
+import { TIPOS_ENCARGO } from '../lib/roles'
 import {
   Levantamiento, LevantamientoArea, Urgencia, URGENCIA_CFG, ESTADO_AREA_CFG, ESPECIALIDADES,
   cargarLevantamientos, crearLevantamiento, canalizar, derivarArea,
@@ -298,6 +299,16 @@ export default function LevantamientoLead({ leadId, leadNombre, quien }: {
                             {(Object.keys(URGENCIA_CFG) as Urgencia[]).map(u => <option key={u} value={u}>{URGENCIA_CFG[u].label}</option>)}
                           </select>
                         </div>
+                        {/* Qué se está pidiendo. No es lo mismo "cotiza esto"
+                            que "haz el proyecto ejecutivo": son cadenas de
+                            trabajo distintas y el plan cambia entero. */}
+                        <div>
+                          <div style={lbl}>Qué se está pidiendo</div>
+                          <select value={a.tipo_encargo || 'proyecto'}
+                            onChange={ev => updArea(a.id, { tipo_encargo: ev.target.value })} style={inp}>
+                            {TIPOS_ENCARGO.map(t => <option key={t.key} value={t.key}>{t.label}</option>)}
+                          </select>
+                        </div>
                       </div>
 
                       <div style={{ marginBottom: 8 }}>
@@ -337,9 +348,10 @@ export default function LevantamientoLead({ leadId, leadNombre, quien }: {
                               lev.origen_texto ? `LO QUE LLEGÓ:\n${lev.origen_texto}` : '',
                               lev.indicaciones ? `INDICACIONES DE LA DIRECCIÓN:\n${lev.indicaciones}` : '',
                               a.alcance ? `LO QUE SE ESPERA DE ESTA ÁREA:\n${a.alcance}` : '',
+                              `NOTA: el encargo puede mencionar otras especialidades. Cada una recibe su propio plan aparte; aquí SOLO planeas ${e?.label}.`,
                               lev.contacto_rfi ? `Contacto para dudas técnicas: ${lev.contacto_rfi}` : '',
                             ].filter(Boolean).join('\n\n'),
-                            tipo: 'proyecto',
+                            tipo: a.tipo_encargo || 'proyecto',
                             specialty: a.specialty,
                             fechaObjetivo: a.fecha_compromiso || lev.fecha_compromiso_cliente || null,
                             titulo: leadNombre,

@@ -22,7 +22,7 @@
 //      la casa, no el criterio del modelo.
 // ═══════════════════════════════════════════════════════════════════════════
 import { supabase } from './supabase'
-import { Rol, ROLES_GABINETE, ROL_CFG, EmpleadoRol } from './roles'
+import { Rol, ROLES_GABINETE, ROL_CFG, EmpleadoRol, ALCANCE_ROL, TIPOS_ENCARGO } from './roles'
 import { AREAS_TRABAJO, UrgenciaTarea } from './tareas'
 import { ActividadPlantilla } from './plantillas'
 
@@ -88,13 +88,16 @@ export interface PlanPropuesto {
 const SISTEMA = `Eres el jefe de planeación de OMM Technologies, una empresa mexicana de ingeniería eléctrica, iluminación e instalaciones especiales (audio, redes, CCTV, control de acceso, control de iluminación, detección de humo, BMS). Conviertes un encargo en una cadena de actividades ejecutables.
 
 REGLAS ABSOLUTAS:
-1. SOLO puedes usar los roles y los entregables que se te dan en el contexto. No inventes roles ("arquitecto", "supervisor") ni entregables que no estén en la lista. Si algo que hace falta no existe en el catálogo, no lo inventes: menciónalo en "advertencias".
-2. NO asignes personas. Solo roles. No sabes quién está saturado.
-3. Las actividades deben ser ACCIONES CONCRETAS con un entregable identificable, no fases abstractas. Mal: "Etapa de diseño". Bien: "Elaborar sembrado de iluminación de planta baja".
-4. Respeta la cadena real de responsabilidad de un despacho de ingeniería: quien EJECUTA no es quien REVISA. Toda entrega técnica importante lleva su actividad de revisión a cargo del rol director, después de la ejecución y antes del compromiso con el cliente.
-5. Los días son de calendario y realistas para un despacho pequeño (menos de 40 personas). No propongas planes de 30 actividades: entre 3 y 9 según el tamaño del encargo. Prefiere pocas actividades reales a muchas decorativas.
-6. Usa "dias_antes_entrega" cuando exista fecha objetivo — el plan se cuenta hacia atrás desde el compromiso con el cliente. La última actividad (la entrega o su revisión final) va con dias_antes_entrega 0 o 1.
-7. Español de México, directo, sin relleno. Los nombres de actividad empiezan con verbo en infinitivo.
+1. PLANEAS PARA UNA SOLA ÁREA. El contexto te dice cuál. Aunque el encargo mencione otras especialidades —eléctrico, iluminación, especiales—, tú NO propones actividades de esas áreas: cada una recibe su propio plan por separado y duplicarlas crea trabajo fantasma que alguien tiene que cerrar. Si el encargo pide cosas de otra área, no las planees: menciónalo en "advertencias".
+2. RESPETA EL ALCANCE DE LO QUE SE PIDIÓ. El contexto te dice si es solo una cotización, un proyecto ejecutivo, un levantamiento o una licitación. Una cotización NO lleva planos ejecutivos ni memorias: se cuantifica sobre lo que el cliente mandó y se cotiza. Inflar el plan no es inofensivo — son actividades reales que ensucian el cumplimiento de todos.
+3. CADA ROL HACE LO SUYO. El contexto trae el alcance exacto de cada rol en OMM, incluido lo que NO hace. Nunca le asignes a un rol algo de su lista de "no hace": un dibujante no cotiza, un director no dibuja, y la revisión final SIEMPRE es del director.
+4. SOLO puedes usar los roles y los entregables que se te dan en el contexto. No inventes roles ("arquitecto", "supervisor") ni entregables fuera de la lista. Si hace falta algo que no existe en el catálogo, no lo inventes: dilo en "advertencias".
+5. NO asignes personas. Solo roles. No sabes quién está saturado.
+6. Las actividades deben ser ACCIONES CONCRETAS con un entregable identificable, no fases abstractas. Mal: "Etapa de diseño". Bien: "Elaborar sembrado de iluminación de planta baja".
+7. Quien EJECUTA no es quien REVISA. Toda entrega importante lleva su actividad de revisión a cargo del rol director, después de la ejecución y antes del compromiso con el cliente.
+8. Los días son de calendario y realistas para un despacho pequeño. Respeta el máximo de actividades que te da el contexto según el tipo de encargo. Prefiere pocas actividades reales a muchas decorativas.
+9. Usa "dias_antes_entrega" cuando exista fecha objetivo — el plan se cuenta hacia atrás desde el compromiso con el cliente. La última actividad (la entrega o su revisión final) va con dias_antes_entrega 0 o 1.
+10. Español de México, directo, sin relleno. Los nombres de actividad empiezan con verbo en infinitivo.
 
 Devuelve EXCLUSIVAMENTE un JSON (sin markdown, sin backticks, sin texto antes ni después) con esta forma exacta:
 {
@@ -117,35 +120,54 @@ Devuelve EXCLUSIVAMENTE un JSON (sin markdown, sin backticks, sin texto antes ni
   "advertencias": ["cosas que faltan por definir, supuestos que tomaste, o entregables que no existen en el catálogo"]
 }`
 
+/** Los entregables que esta área PUEDE producir: los suyos y los transversales. */
+export function entregablesDe(c: ContextoNegocio, specialty: string) {
+  return c.entregables.filter(e => !e.specialty || e.specialty === specialty)
+}
+
 function contextoTexto(c: ContextoNegocio, p: PeticionPlan): string {
-  const areas = c.areas.map(a =>
-    `- ${a.label} (specialty "${a.specialty}"): ${a.roles.map(r => `${r.cuantos} ${ROL_CFG[r.rol].plural.toLowerCase()}`).join(', ') || 'sin gente registrada'}`
-  ).join('\n')
-
-  const ents = c.entregables.map(e =>
-    `- clave "${e.clave}" — ${e.nombre}${e.specialty ? ` [${e.specialty}]` : ' [cualquier área]'}${e.descripcion ? `: ${e.descripcion.slice(0, 160)}` : ''}`
-  ).join('\n')
-
-  const plts = c.plantillas.length
-    ? c.plantillas.map(x => `- ${x.nombre} (${x.tipo}${x.specialty ? `, ${x.specialty}` : ''}) — ${x.actividades} actividades`).join('\n')
-    : '(todavía no hay plantillas guardadas)'
-
   const areaLabel = AREAS_TRABAJO.find(a => a.specialty === p.specialty)?.label || p.specialty
+  const miArea = c.areas.find(a => a.specialty === p.specialty)
+
+  // Solo los roles que EXISTEN en esta área, con su alcance real. Si al área
+  // no le queda ningún rol, el plan no puede repartirse y hay que decirlo.
+  const rolesArea = (miArea?.roles || []).map(r => {
+    const al = ALCANCE_ROL[r.rol]
+    return `- ${ROL_CFG[r.rol].label} (rol "${r.rol}", ${r.cuantos} persona(s)): ${al.resumen}\n` +
+      `    Hace: ${al.hace.join('; ')}\n` +
+      `    NO hace: ${al.noHace.join('; ')}`
+  }).join('\n')
+
+  // Solo los entregables que ESTA área produce. Si no ve los de otras áreas,
+  // no puede proponerlos — que es el punto.
+  const ents = entregablesDe(c, p.specialty).map(e =>
+    `- clave "${e.clave}" — ${e.nombre}${e.specialty ? '' : ' [transversal]'}${e.descripcion ? `: ${e.descripcion.slice(0, 160)}` : ''}`
+  ).join('\n')
+
+  const plts = c.plantillas.filter(x => !x.specialty || x.specialty === p.specialty)
+  const plantillasTxt = plts.length
+    ? plts.map(x => `- ${x.nombre} (${x.tipo}) — ${x.actividades} actividades`).join('\n')
+    : '(todavía no hay plantillas guardadas para esta área)'
+
+  const tipo = TIPOS_ENCARGO.find(t => t.key === p.tipo)
 
   return `CONTEXTO DE OMM
 
-Áreas y gente disponible:
-${areas}
+ÁREA PARA LA QUE PLANEAS: ${areaLabel} (specialty "${p.specialty}")
+Otras áreas de la empresa existen y reciben SU PROPIO plan por separado. No planees para ellas.
 
-Entregables definidos con su instructivo (usa SOLO estas claves):
+Roles que hay en esta área, y de qué responde cada uno:
+${rolesArea || '(esta área no tiene gente de gabinete registrada — dilo en advertencias)'}
+
+Entregables que ESTA área produce (usa SOLO estas claves):
 ${ents}
 
-Plantillas que ya existen:
-${plts}
+Plantillas que ya existen para esta área:
+${plantillasTxt}
 
 ENCARGO A PLANEAR
-Tipo: ${p.tipo}
-Área responsable: ${areaLabel} (specialty "${p.specialty}")
+Qué se está pidiendo: ${tipo ? `${tipo.label} — ${tipo.descripcion}` : p.tipo}
+${tipo ? `Este encargo TERMINA EN: ${tipo.termina_en}. Máximo ${tipo.maxActividades} actividades.` : ''}
 ${p.titulo ? `Proyecto/cliente: ${p.titulo}` : ''}
 ${p.fechaObjetivo ? `Fecha comprometida con el cliente: ${p.fechaObjetivo} (hoy es ${new Date().toISOString().slice(0, 10)})` : 'Sin fecha comprometida: usa dias_desde_inicio.'}
 ${p.documentos && p.documentos.length
@@ -191,10 +213,13 @@ export async function sugerirPlan(p: PeticionPlan): Promise<{ plan?: PlanPropues
   let j: any
   try { j = JSON.parse(m[0]) } catch { return { error: 'La IA devolvió un JSON inválido.' } }
 
-  // ── Filtro: solo lo que existe de verdad ──
-  const porClave = new Map(ctx.entregables.map(e => [e.clave, e.id]))
+  // ── Filtro: solo lo que existe de verdad Y es de esta área ──
+  // El catálogo que se le mandó ya venía acotado; esto es el segundo candado,
+  // por si el modelo recuerda una clave de otra área de su propio contexto.
+  const porClave = new Map(entregablesDe(ctx, p.specialty).map(e => [e.clave, e.id]))
   const descartadas: string[] = []
   const actividades: ActividadPlantilla[] = []
+  const rolesDelArea = new Set((ctx.areas.find(a => a.specialty === p.specialty)?.roles || []).map(r => r.rol))
 
   for (const a of (Array.isArray(j.actividades) ? j.actividades : [])) {
     const nombre = String(a?.nombre || '').trim()
@@ -203,6 +228,12 @@ export async function sugerirPlan(p: PeticionPlan): Promise<{ plan?: PlanPropues
     if (!ROLES_GABINETE.includes(rol)) {
       descartadas.push(`${nombre} — rol "${a?.rol}" no existe en OMM`)
       continue
+    }
+    // Un rol que no existe en esta área nace huérfano y nadie lo reclama.
+    // Se conserva la actividad pero se avisa, porque a veces es legítimo
+    // (el director revisa aunque el área no tenga más gente).
+    if (!rolesDelArea.has(rol)) {
+      descartadas.push(`${nombre} — no hay ${ROL_CFG[rol].label.toLowerCase()} en esta área: la actividad nace sin dueño`)
     }
     let entregableId: string | null = null
     if (a?.entregable_clave) {
@@ -218,7 +249,9 @@ export async function sugerirPlan(p: PeticionPlan): Promise<{ plan?: PlanPropues
       nombre: nombre.slice(0, 180),
       descripcion: a?.descripcion ? String(a.descripcion).slice(0, 600) : null,
       rol,
-      specialty: null,
+      // El área la manda quien pidió el plan, nunca el modelo: así una
+      // actividad no puede acabar colgada de otra especialidad.
+      specialty: p.specialty,
       tipo_entregable_id: entregableId,
       urgencia: urg,
       dias_desde_inicio: nOrNull(a?.dias_desde_inicio),

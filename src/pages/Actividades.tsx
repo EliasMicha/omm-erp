@@ -24,7 +24,7 @@ import {
   Entregable, ESTADO_CFG, entregablesDe, pendientesDeRevision, revisar,
   diasEsperando, colorEspera, urlDe, cargarTipos, TipoEntregable,
 } from '../lib/entregables'
-import { Rol, ROL_CFG, ROLES_GABINETE, EmpleadoRol, conRol } from '../lib/roles'
+import { Rol, ROL_CFG, ROLES_GABINETE, EmpleadoRol, conRol, ALCANCE_ROL, TIPOS_ENCARGO } from '../lib/roles'
 import {
   PlantillaEncargo, ActividadPlantilla, cargarPlantillas, actividadesDe,
   guardarPlantilla, borrarPlantilla, aplicarPlantilla, crearActividades, fechaDe,
@@ -550,11 +550,9 @@ function NuevoEncargo({ emps, tipos, miSpecialty, employeeId, nombre, onCreado }
 
       <div style={{ ...card, marginBottom: 14 }}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(160px,1fr))', gap: 9, marginBottom: 9 }}>
-          <select value={tipo} onChange={e => setTipo(e.target.value)} style={inp}>
-            <option value="proyecto">Proyecto</option>
-            <option value="cotizacion">Cotización</option>
-            <option value="levantamiento">Levantamiento</option>
-            <option value="licitacion">Licitación</option>
+          <select value={tipo} onChange={e => setTipo(e.target.value)} style={inp}
+            title={TIPOS_ENCARGO.find(t => t.key === tipo)?.descripcion}>
+            {TIPOS_ENCARGO.map(t => <option key={t.key} value={t.key}>{t.label}</option>)}
             <option value="mejora">Mejora interna</option>
             <option value="repetida">Actividad repetida</option>
           </select>
@@ -567,9 +565,22 @@ function NuevoEncargo({ emps, tipos, miSpecialty, employeeId, nombre, onCreado }
             <input type="date" value={objetivo} onChange={e => setObjetivo(e.target.value)} style={{ ...inp, width: '100%' }} />
           </div>
         </div>
+        {(() => {
+          const t = TIPOS_ENCARGO.find(x => x.key === tipo)
+          if (!t) return null
+          return (
+            <div style={{ fontSize: 11.5, color: '#888', marginBottom: 9, lineHeight: 1.6 }}>
+              <b style={{ color: '#aaa' }}>{t.label}:</b> {t.descripcion} Termina en {t.termina_en}.
+            </div>
+          )
+        })()}
         <textarea value={texto} onChange={e => setTexto(e.target.value)}
-          placeholder="Ej: Casa en Valle de Bravo, 620 m2. Necesitan sembrado eléctrico e iluminación para arrancar obra. El arquitecto manda planos el lunes. Quieren presupuesto también."
+          placeholder="Ej: Casa en Valle de Bravo, 620 m2. Necesitan sembrado eléctrico para arrancar obra. El arquitecto manda planos el lunes."
           style={{ ...inp, width: '100%', minHeight: 110, resize: 'vertical', lineHeight: 1.6 }} />
+        <div style={{ fontSize: 11, color: '#777', marginTop: 6, lineHeight: 1.6 }}>
+          El plan es <b style={{ color: '#aaa' }}>de una sola área</b>. Si el encargo toca varias, corre la sugerencia
+          una vez por cada una: cada director recibe su cadena y nadie hereda trabajo de otro.
+        </div>
         <button onClick={pensar} disabled={pensando || !texto.trim()}
           style={{ ...btn, marginTop: 10, borderColor: '#3b82f6', color: '#93c5fd', opacity: pensando || !texto.trim() ? .5 : 1 }}>
           <Sparkles size={13} /> {pensando ? 'Pensando el plan…' : 'Sugerir actividades'}
@@ -653,6 +664,33 @@ function Plantillas({ emps, tipos, miSpecialty, employeeId, nombre, onAplicada }
         si cada uno se improvisa, no hay nada que comparar.
       </p>
       {msg && <div style={{ ...card, marginBottom: 12, fontSize: 12, color: msg.startsWith('Error') ? '#DC2626' : '#10B981' }}>{msg}</div>}
+
+      {/* Quién responde de qué. Es la frontera que usa el sistema para
+          repartir y la que lee la IA antes de proponer un plan. Lo que dice
+          "no hace" pesa tanto como lo de arriba: un rol definido solo por lo
+          que hace se expande hasta comerse el de al lado. */}
+      <details style={{ ...card, marginBottom: 14 }}>
+        <summary style={{ cursor: 'pointer', fontSize: 12.5, color: '#93c5fd', fontWeight: 500 }}>
+          Quién es responsable de qué
+        </summary>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(260px,1fr))', gap: 12, marginTop: 12 }}>
+          {ROLES_GABINETE.map(r => {
+            const al = ALCANCE_ROL[r]
+            return (
+              <div key={r} style={{ background: '#0e0e0e', border: '1px solid #1f1f1f', borderRadius: 9, padding: 12 }}>
+                <div style={{ fontSize: 12.5, fontWeight: 600, color: ROL_CFG[r].color }}>{ROL_CFG[r].label}</div>
+                <div style={{ fontSize: 11.5, color: '#999', margin: '4px 0 8px', lineHeight: 1.55 }}>{al.resumen}</div>
+                <ul style={{ margin: 0, paddingLeft: 16, fontSize: 11.5, color: '#bbb', lineHeight: 1.6 }}>
+                  {al.hace.map((h, i) => <li key={i}>{h}</li>)}
+                </ul>
+                <div style={{ fontSize: 10.5, color: '#a06a6a', marginTop: 7, lineHeight: 1.6 }}>
+                  <b>No hace:</b> {al.noHace.join(' · ')}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </details>
 
       {lista.length === 0 && (
         <div style={{ ...card, color: '#666', fontSize: 12.5, lineHeight: 1.7 }}>
