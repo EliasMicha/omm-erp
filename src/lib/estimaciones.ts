@@ -477,7 +477,17 @@ export async function borrarEstimacion(est: Pick<Estimacion, 'id' | 'numero' | '
 // trabajo.
 
 export interface SaldoAnticipo {
+  /** Lo capturado, tal cual. */
   anticipo: number
+  /** true = lo capturado es efectivo recibido y ya trae IVA. */
+  conIva: boolean
+  /**
+   * Lo que de verdad se puede amortizar. La amortización vive ANTES del IVA,
+   * así que si el anticipo se capturó con IVA hay que bajarlo a subtotal.
+   * Amortizar el importe bruto descuenta de más y deja sin cobrar justo el
+   * IVA del anticipo — un error que solo se ve al cerrar la obra.
+   */
+  amortizable: number
   amortizadoAntes: number
   saldo: number
   /** Lo que conviene amortizar aquí: el saldo, o lo que dé la estimación. */
@@ -485,20 +495,89 @@ export interface SaldoAnticipo {
 }
 
 export async function saldoDeAnticipo(quotationId: string, numero: number, subtotalActual = 0): Promise<SaldoAnticipo> {
-  const [{ data: q }, { data: prev }] = await Promise.all([
-    supabase.from('quotations').select('anticipo_monto').eq('id', quotationId).maybeSingle(),
+  const [{ data: q }, { data: prev }, cond] = await Promise.all([
+    supabase.from('quotations').select('anticipo_monto,anticipo_con_iva').eq('id', quotationId).maybeSingle(),
     supabase.from('estimaciones')
       .select('numero,estado,amortizacion_monto')
       .eq('quotation_id', quotationId).neq('estado', 'cancelada').lt('numero', numero),
+    condicionesDelContrato(quotationId),
   ])
   const anticipo = num((q as any)?.anticipo_monto)
+  const conIva = !!(q as any)?.anticipo_con_iva
+  const amortizable = conIva ? anticipo / (1 + num(cond.ivaPct) / 100) : anticipo
   const amortizadoAntes = ((prev as any[]) || []).reduce((s, e) => s + Math.abs(num(e.amortizacion_monto)), 0)
-  const saldo = Math.max(0, anticipo - amortizadoAntes)
-  return { anticipo, amortizadoAntes, saldo, sugerido: Math.min(saldo, Math.max(0, subtotalActual)) }
+  const saldo = Math.max(0, amortizable - amortizadoAntes)
+  return {
+    anticipo, conIva,
+    amortizable: Math.round(amortizable * 100) / 100,
+    amortizadoAntes, saldo,
+    sugerido: Math.round(Math.min(saldo, Math.max(0, subtotalActual)) * 100) / 100,
+  }
 }
 
-export async function guardarAnticipo(quotationId: string, monto: number): Promise<{ ok: boolean; error?: string }> {
-  const { error } = await supabase.from('quotations')
-    .update({ anticipo_monto: Math.abs(num(monto)) || null }).eq('id', quotationId)
+export async function guardarAnticipo(quotationId: string, monto: number, conIva?: boolean): Promise<{ ok: boolean; error?: string }> {
+  const patch: any = { anticipo_monto: Math.abs(num(monto)) || null }
+  if (conIva !== undefined) patch.anticipo_con_iva = !!conIva
+  const { error } = await supabase.from('quotations').update(patch).eq('id', quotationId)
   return error ? { ok: false, error: error.message } : { ok: true }
+}
+
+// ── El cuadre del contrato ─────────────────────────────────────────────────
+//
+// La pregunta que ningún ERP contesta y que decide si se cobró todo: SI SE
+// EJECUTA EL 100% DE LA OBRA, ¿la suma de anticipo + estimaciones da el
+// contrato pactado?
+//
+// Debe dar exacto. Si no da, hay un supuesto mal puesto —casi siempre el
+// anticipo capturado con IVA y amortizado como si fuera subtotal— y la
+// diferencia es dinero que no se va a cobrar. Verlo al inicio cuesta un
+// minuto; verlo al final cuesta el importe.
+
+export interface CuadreContrato {
+  lista: number              // subtotal contratado a precio de lista
+  descuentoPct: number
+  descuento: number
+  neto: number               // subtotal contratado ya con descuento
+  ivaPct: number
+  contratoConIva: number     // lo que el cliente debe pagar en total
+  anticipoCapturado: number
+  anticipoConIva: boolean
+  anticipoEfectivo: number   // lo que el cliente entrega/entregó de anticipo
+  anticipoAmortizable: number
+  sumaEstimaciones: number   // lo que sumarán TODAS las estimaciones al 100%
+  totalProyectado: number
+  diferencia: number         // debe ser 0
+  cuadra: boolean
+}
+
+export async function cuadreDeContrato(quotationId: string): Promise<CuadreContrato> {
+  const [{ data: q }, cond] = await Promise.all([
+    supabase.from('quotations').select('total,anticipo_monto,anticipo_con_iva').eq('id', quotationId).maybeSingle(),
+    condicionesDelContrato(quotationId),
+  ])
+  const r2 = (n: number) => Math.round(n * 100) / 100
+  const lista = num((q as any)?.total)
+  const ivaPct = num(cond.ivaPct)
+  const descuentoPct = num(cond.descuentoPct)
+  const descuento = r2(lista * descuentoPct / 100)
+  const neto = r2(lista - descuento)
+  const contratoConIva = r2(neto * (1 + ivaPct / 100))
+
+  const anticipoCapturado = num((q as any)?.anticipo_monto)
+  const anticipoConIva = !!(q as any)?.anticipo_con_iva
+  const anticipoAmortizable = r2(anticipoConIva ? anticipoCapturado / (1 + ivaPct / 100) : anticipoCapturado)
+  const anticipoEfectivo = r2(anticipoConIva ? anticipoCapturado : anticipoCapturado * (1 + ivaPct / 100))
+
+  // Al 100% de avance, las estimaciones facturan el neto menos lo ya
+  // amortizado, más su IVA.
+  const sumaEstimaciones = r2((neto - anticipoAmortizable) * (1 + ivaPct / 100))
+  const totalProyectado = r2(anticipoEfectivo + sumaEstimaciones)
+  const diferencia = r2(totalProyectado - contratoConIva)
+
+  return {
+    lista, descuentoPct, descuento, neto, ivaPct, contratoConIva,
+    anticipoCapturado, anticipoConIva, anticipoEfectivo, anticipoAmortizable,
+    sumaEstimaciones, totalProyectado, diferencia,
+    cuadra: Math.abs(diferencia) < 1,
+  }
 }

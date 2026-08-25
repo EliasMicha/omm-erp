@@ -22,6 +22,7 @@ import {
   totalesDe, excedenteDe, disponibleDe, avanceDe,
   contratoEstimadoAntes, contextoDeContrato, borrarEstimacion,
   saldoDeAnticipo, guardarAnticipo, SaldoAnticipo,
+  cuadreDeContrato, CuadreContrato,
 } from '../lib/estimaciones'
 import { generarEstimacionPdf } from '../lib/estimacionPdf'
 
@@ -48,6 +49,7 @@ export default function EstimacionEditor() {
   const [borrando, setBorrando] = useState(false)
   const [saldo, setSaldo] = useState<SaldoAnticipo | null>(null)
   const [anticipoTxt, setAnticipoTxt] = useState('')
+  const [cuadre, setCuadre] = useState<CuadreContrato | null>(null)
 
   async function cargar() {
     if (!id) return
@@ -73,6 +75,7 @@ export default function EstimacionEditor() {
       setSaldo(s)
       setAnticipoTxt(s.anticipo ? String(s.anticipo) : '')
     })
+    cuadreDeContrato(est.quotation_id).then(setCuadre)
   }, [est?.quotation_id, est?.numero, T.subtotal])
 
   // Aviso al salir con cambios sin guardar: una estimación a medio capturar
@@ -358,10 +361,25 @@ export default function EstimacionEditor() {
                 if (!est) return
                 const v = Number(e.target.value) || 0
                 if (v === n(saldo?.anticipo)) return
-                await guardarAnticipo(est.quotation_id, v)
+                await guardarAnticipo(est.quotation_id, v, saldo?.conIva)
                 setSaldo(await saldoDeAnticipo(est.quotation_id, est.numero, T.subtotal))
+                setCuadre(await cuadreDeContrato(est.quotation_id))
               }}
               placeholder="0.00" style={{ ...inp, width: 120 }} />
+            {/* La amortización va antes del IVA, así que hay que saber si el
+                monto capturado es efectivo (con IVA) o ya es subtotal. */}
+            <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 9.5, color: '#888', cursor: 'pointer', maxWidth: 92, lineHeight: 1.3 }}
+              title="Marca esto si capturaste el dinero que entró al banco. El sistema le quita el IVA para amortizar el subtotal, que es lo correcto.">
+              <input type="checkbox" disabled={bloqueada} checked={!!saldo?.conIva}
+                onChange={async e => {
+                  if (!est) return
+                  await guardarAnticipo(est.quotation_id, Number(anticipoTxt) || 0, e.target.checked)
+                  setSaldo(await saldoDeAnticipo(est.quotation_id, est.numero, T.subtotal))
+                  setCuadre(await cuadreDeContrato(est.quotation_id))
+                }}
+                style={{ accentColor: '#A78BFA' }} />
+              ya incluye IVA
+            </label>
           </div>
         </div>
         <label style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, color: '#888', cursor: 'pointer' }}>
@@ -375,7 +393,8 @@ export default function EstimacionEditor() {
       {saldo && saldo.anticipo > 0 && (
         <div style={{ marginBottom: 14, padding: '10px 12px', background: '#0f0f0f', border: '1px solid #1f1f1f', borderRadius: 8, display: 'flex', gap: 18, flexWrap: 'wrap', alignItems: 'center' }}>
           {([
-            ['Anticipo recibido', saldo.anticipo, '#A78BFA'],
+            [saldo.conIva ? 'Anticipo recibido (con IVA)' : 'Anticipo recibido', saldo.anticipo, '#A78BFA'],
+            ...(saldo.conIva ? [['Amortizable (sin IVA)', saldo.amortizable, '#8B7FD4'] as const] : []),
             ['Amortizado antes', -saldo.amortizadoAntes, '#888'],
             ['Amortizando aquí', T.amortizacion, '#A78BFA'],
             ['Saldo después de ésta', Math.max(0, saldo.saldo - Math.abs(T.amortizacion)), saldo.saldo - Math.abs(T.amortizacion) > 0.5 ? '#D9A441' : '#10B981'],
@@ -397,6 +416,40 @@ export default function EstimacionEditor() {
               estimaciones siguientes, al cerrar la obra ya no hay contra qué descontarlos.
             </div>
           )}
+        </div>
+      )}
+
+      {/* Cuadre del contrato: si se ejecuta el 100%, ¿la suma da lo pactado?
+          Debe dar exacto. Si no da, hay un supuesto mal puesto y la diferencia
+          es dinero que no se va a cobrar — visible ahora, no al cerrar la obra. */}
+      {cuadre && cuadre.lista > 0 && (
+        <div style={{ marginBottom: 14, padding: '10px 12px', borderRadius: 8,
+          background: cuadre.cuadra ? '#0d1410' : '#1a1210',
+          border: `1px solid ${cuadre.cuadra ? '#1d3326' : '#4a2320'}` }}>
+          <div style={{ fontSize: 10, color: '#666', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 7 }}>
+            Si se ejecuta el 100% del contrato
+          </div>
+          <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', alignItems: 'center' }}>
+            {([
+              ['Anticipo (efectivo)', cuadre.anticipoEfectivo, '#A78BFA'],
+              ['+ Todas las estimaciones', cuadre.sumaEstimaciones, '#60A5FA'],
+              ['= Total a cobrar', cuadre.totalProyectado, cuadre.cuadra ? '#10B981' : '#DC2626'],
+              ['Contrato pactado', cuadre.contratoConIva, '#ccc'],
+            ] as const).map(([l, v, c], i) => (
+              <div key={i}>
+                <div style={{ fontSize: 9, color: '#666', textTransform: 'uppercase', letterSpacing: '.05em' }}>{l}</div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: c as string }}>{F(v as number, moneda)}</div>
+              </div>
+            ))}
+          </div>
+          <div style={{ fontSize: 10.5, color: cuadre.cuadra ? '#6b9e7f' : '#e08a80', marginTop: 8, lineHeight: 1.6 }}>
+            {cuadre.cuadra
+              ? `Cuadra al centavo: ${F(cuadre.lista, moneda)} de lista − ${cuadre.descuentoPct}% de descuento + ${cuadre.ivaPct}% de IVA = ${F(cuadre.contratoConIva, moneda)}.`
+              : `Faltan ${F(Math.abs(cuadre.diferencia), moneda)} para llegar al contrato. ` +
+                (cuadre.anticipoCapturado > 0 && !cuadre.anticipoConIva
+                  ? 'Lo más probable: el anticipo capturado es el efectivo que entró al banco (con IVA) y se está amortizando como si fuera subtotal. Marca «ya incluye IVA» arriba.'
+                  : 'Revisa el anticipo, el descuento y el IVA del contrato.')}
+          </div>
         </div>
       )}
 
