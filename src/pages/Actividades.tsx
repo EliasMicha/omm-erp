@@ -11,7 +11,7 @@
 //   2. Lo que debo entregar — ordenado por lo que se está perdiendo.
 //   3. Lo que entregué y está esperando respuesta — para que sepa que no es suyo.
 // ═══════════════════════════════════════════════════════════════════════════
-import { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
@@ -182,20 +182,36 @@ function LoMio({ tareas, corregir, esperando, tipos, employeeId, nombreDe, onCam
   puedeRevisar: boolean; emps: EmpleadoRol[]; nav: any
 }) {
   const [abierta, setAbierta] = useState('')
+  // El punto de esta pantalla NO es ver todo: es ver lo de hoy. Con 29
+  // actividades por proyecto y varios proyectos encima, una lista completa
+  // es tan inútil como no tener lista — se cierra y se sigue trabajando de
+  // memoria. Por eso el horizonte arranca en la semana.
+  const [horizonte, setHorizonte] = useState<'hoy' | 'semana' | 'todo'>('semana')
   const hoy = hoyISO()
-  const lista = ordenarTareas(tareas)
-  const vencidas = lista.filter(t => t.due_date && t.due_date < hoy).length
-  const semana = lista.filter(t => t.due_date && t.due_date >= hoy && t.due_date <= new Date(Date.now() + 7 * 864e5).toISOString().slice(0, 10)).length
-  const sinFecha = lista.filter(t => !t.due_date).length
+  const finSemana = new Date(Date.now() + 7 * 864e5).toISOString().slice(0, 10)
+  const todas = ordenarTareas(tareas)
+
+  const enHorizonte = (t: Tarea) => {
+    if (horizonte === 'todo') return true
+    // Lo vencido y lo que no tiene fecha SIEMPRE se ve: es justo lo que se
+    // pierde, y esconderlo detrás de un filtro sería el peor de los favores.
+    if (!t.due_date || t.due_date < hoy) return true
+    if (t.status === 'entregada') return true
+    return horizonte === 'hoy' ? t.due_date === hoy : t.due_date <= finSemana
+  }
+  const lista = todas.filter(enHorizonte)
+  const vencidas = todas.filter(t => t.due_date && t.due_date < hoy).length
+  const semana = todas.filter(t => t.due_date && t.due_date >= hoy && t.due_date <= finSemana).length
+  const sinFecha = todas.filter(t => !t.due_date).length
 
   const proyectos = useMemo(() => {
     const m = new Map<string, number>()
-    for (const t of lista) {
+    for (const t of todas) {
       const k = (t as any).project?.name || t.titulo_cliente || 'Sin proyecto'
       m.set(k, (m.get(k) || 0) + 1)
     }
     return [...m.entries()].sort((a, b) => b[1] - a[1])
-  }, [lista])
+  }, [todas])
 
   const nombreTipo = (id?: string | null) => tipos.find(t => t.id === id)?.nombre || null
 
@@ -254,10 +270,33 @@ function LoMio({ tareas, corregir, esperando, tipos, employeeId, nombreDe, onCam
       )}
 
       {/* 2. Lo que debo entregar */}
-      <h2 style={h2}>Mis próximas entregas</h2>
-      <p style={sub}>Ordenadas por lo que se está perdiendo: primero lo vencido, después lo que no tiene fecha.</p>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap', marginBottom: 4 }}>
+        <h2 style={{ ...h2, margin: 0 }}>Qué necesito entregar</h2>
+        <div style={{ display: 'flex', gap: 5, marginLeft: 'auto' }}>
+          {([['hoy', 'Hoy'], ['semana', 'Esta semana'], ['todo', `Todo (${todas.length})`]] as const).map(([k, l]) => (
+            <button key={k} onClick={() => setHorizonte(k)} style={{
+              ...btn, padding: '4px 11px', fontSize: 11,
+              borderColor: horizonte === k ? '#3b82f6' : '#333',
+              background: horizonte === k ? '#111a26' : 'transparent',
+              color: horizonte === k ? '#93c5fd' : '#888',
+            }}>{l}</button>
+          ))}
+        </div>
+      </div>
+      <p style={sub}>
+        Ordenadas por lo que se está perdiendo: primero lo vencido, después lo que no tiene fecha.
+        {horizonte !== 'todo' && ' Lo vencido y lo que no tiene fecha se ve siempre, aunque cambies el horizonte.'}
+      </p>
       <div style={{ ...card, padding: 0, marginBottom: 22 }}>
-        {lista.length === 0 && <div style={{ padding: 28, textAlign: 'center', color: '#666', fontSize: 12.5 }}>No tienes actividades abiertas.</div>}
+        {lista.length === 0 && (
+          <div style={{ padding: 28, textAlign: 'center', color: '#666', fontSize: 12.5, lineHeight: 1.7 }}>
+            {todas.length === 0
+              ? 'No tienes actividades abiertas.'
+              : horizonte === 'hoy'
+                ? `Nada vence hoy. Tienes ${todas.length} actividad(es) más adelante.`
+                : `Nada vence esta semana. Tienes ${todas.length} actividad(es) más adelante.`}
+          </div>
+        )}
         {lista.map(t => {
           const ef = estadoFecha(t)
           const tcfg = TIPO_CFG[t.tipo] || TIPO_CFG.otro
@@ -416,6 +455,11 @@ function MiEquipo({ area, emps, miSpecialty, esDG, porRevisar, employeeId, nombr
         </div>
       )}
 
+      {/* Proyectos del área: el proceso ya corre, lo que falta es fecharlo.
+          Sin fecha, una actividad no aparece en la semana de nadie — y hoy
+          hay proyectos activos con las 29 actividades sin un solo día. */}
+      <ProyectosDelArea area={area} onCambio={onCambio} />
+
       {huerfanas.length > 0 && (
         <>
           <h2 style={h2}>Sin repartir ({huerfanas.length})</h2>
@@ -471,6 +515,110 @@ function MiEquipo({ area, emps, miSpecialty, esDG, porRevisar, employeeId, nombr
                 <td style={{ fontSize: 12.5, color: r.sinFecha > 0 ? '#D9A441' : '#555', padding: '9px 10px', textAlign: 'right', borderBottom: '1px solid #1a1a1a' }}>{r.sinFecha}</td>
                 <td style={{ fontSize: 12.5, color: r.enRevision > 0 ? '#A78BFA' : '#555', padding: '9px 10px', textAlign: 'right', borderBottom: '1px solid #1a1a1a' }}>{r.enRevision}</td>
               </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
+  )
+}
+
+function ProyectosDelArea({ area, onCambio }: { area: Tarea[]; onCambio: () => void }) {
+  const [abierto, setAbierto] = useState('')
+  const [fecha, setFecha] = useState('')
+  const [busy, setBusy] = useState(false)
+  const hoy = hoyISO()
+
+  const porProyecto = useMemo(() => {
+    const m = new Map<string, { nombre: string; tareas: Tarea[] }>()
+    for (const t of area) {
+      if (!t.project_id) continue
+      const k = t.project_id
+      const g = m.get(k)
+      if (g) g.tareas.push(t)
+      else m.set(k, { nombre: (t as any).project?.name || 'Proyecto', tareas: [t] })
+    }
+    return [...m.entries()]
+      .map(([id, v]) => ({
+        id, nombre: v.nombre, total: v.tareas.length,
+        sinFecha: v.tareas.filter(t => !t.due_date).length,
+        sinDueno: v.tareas.filter(t => !t.assignee_id).length,
+        vencidas: v.tareas.filter(t => t.due_date && t.due_date < hoy).length,
+        tareas: v.tareas,
+      }))
+      .sort((a, b) => b.sinFecha - a.sinFecha)
+  }, [area])
+
+  if (porProyecto.length === 0) return null
+
+  /**
+   * Fechar de golpe lo que no tiene día. No inventa un cronograma: pone la
+   * misma fecha límite a todo lo que está en blanco, para sacarlo del limbo
+   * en un movimiento. Afinar cada fecha después es barato; que 29 actividades
+   * sigan sin día no lo es.
+   */
+  async function fecharTodo(p: { tareas: Tarea[] }) {
+    if (!fecha) return
+    setBusy(true)
+    const sinFecha = p.tareas.filter(t => !t.due_date)
+    for (let i = 0; i < sinFecha.length; i += 25) {
+      await Promise.all(sinFecha.slice(i, i + 25).map(t => actualizarTarea(t.id, { due_date: fecha })))
+    }
+    setBusy(false); setAbierto(''); setFecha('')
+    onCambio()
+  }
+
+  return (
+    <>
+      <h2 style={h2}>Proyectos de tu área</h2>
+      <p style={sub}>
+        El proceso ya viene armado con sus fases y revisiones. Lo único que hace falta para que aparezca en la
+        semana de alguien es que tenga <b style={{ color: '#aaa' }}>fecha</b> — sin día, una actividad no existe
+        para nadie.
+      </p>
+      <div style={{ ...card, padding: 0, marginBottom: 22, overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 660 }}>
+          <thead><tr>
+            {['Proyecto', 'Actividades', 'Sin fecha', 'Sin dueño', 'Vencidas', ''].map((h, i) => (
+              <th key={i} style={{ textAlign: i === 0 ? 'left' : 'right', fontSize: 10, letterSpacing: .6, textTransform: 'uppercase', color: '#666', padding: '8px 10px', borderBottom: '1px solid #222' }}>{h}</th>
+            ))}
+          </tr></thead>
+          <tbody>
+            {porProyecto.map(p => (
+              <React.Fragment key={p.id}>
+                <tr>
+                  <td style={{ fontSize: 12.5, color: '#ddd', padding: '9px 10px', borderBottom: '1px solid #1a1a1a' }}>{p.nombre}</td>
+                  <td style={{ fontSize: 12.5, color: '#aaa', padding: '9px 10px', textAlign: 'right', borderBottom: '1px solid #1a1a1a' }}>{p.total}</td>
+                  <td style={{ fontSize: 12.5, color: p.sinFecha > 0 ? '#DC2626' : '#10B981', fontWeight: 600, padding: '9px 10px', textAlign: 'right', borderBottom: '1px solid #1a1a1a' }}>{p.sinFecha}</td>
+                  <td style={{ fontSize: 12.5, color: p.sinDueno > 0 ? '#D9A441' : '#555', padding: '9px 10px', textAlign: 'right', borderBottom: '1px solid #1a1a1a' }}>{p.sinDueno}</td>
+                  <td style={{ fontSize: 12.5, color: p.vencidas > 0 ? '#DC2626' : '#555', padding: '9px 10px', textAlign: 'right', borderBottom: '1px solid #1a1a1a' }}>{p.vencidas}</td>
+                  <td style={{ padding: '9px 10px', textAlign: 'right', borderBottom: '1px solid #1a1a1a' }}>
+                    {p.sinFecha > 0 && (
+                      <button onClick={() => setAbierto(abierto === p.id ? '' : p.id)} style={{ ...btn, padding: '4px 9px', fontSize: 11 }}>
+                        Poner fecha a las {p.sinFecha}
+                      </button>
+                    )}
+                  </td>
+                </tr>
+                {abierto === p.id && (
+                  <tr>
+                    <td colSpan={6} style={{ padding: '10px 12px', background: '#0c0c0c', borderBottom: '1px solid #1a1a1a' }}>
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: 11.5, color: '#999' }}>Fecha límite para las {p.sinFecha} sin día:</span>
+                        <input type="date" value={fecha} onChange={e => setFecha(e.target.value)} style={{ ...inp, width: 140 }} />
+                        <button onClick={() => fecharTodo(p)} disabled={!fecha || busy}
+                          style={{ ...btn, borderColor: '#10B981', color: '#10B981', opacity: !fecha || busy ? .5 : 1 }}>
+                          {busy ? 'Guardando…' : 'Aplicar'}
+                        </button>
+                        <span style={{ fontSize: 10.5, color: '#666', flex: 1, minWidth: 220 }}>
+                          Pone la misma fecha a todo lo que está en blanco. Sirve para sacarlas del limbo hoy;
+                          afinar cada una después es barato — dejarlas sin día no.
+                        </span>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </React.Fragment>
             ))}
           </tbody>
         </table>
