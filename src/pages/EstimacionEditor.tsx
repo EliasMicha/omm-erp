@@ -20,7 +20,7 @@ import { ChevronLeft, Save, Plus, Trash2, AlertTriangle, CheckCircle2, Download 
 import {
   Estimacion, EstimacionItem, ESTADO_CFG, ESTIMACION_EN_FIRME,
   totalesDe, excedenteDe, disponibleDe, avanceDe,
-  contratoEstimadoAntes, contextoDeContrato,
+  contratoEstimadoAntes, contextoDeContrato, borrarEstimacion,
 } from '../lib/estimaciones'
 import { generarEstimacionPdf } from '../lib/estimacionPdf'
 
@@ -44,6 +44,7 @@ export default function EstimacionEditor() {
   const [colapsadas, setColapsadas] = useState<Set<string>>(new Set())
   const [soloConAvance, setSoloConAvance] = useState(false)
   const [exportando, setExportando] = useState(false)
+  const [borrando, setBorrando] = useState(false)
 
   async function cargar() {
     if (!id) return
@@ -76,7 +77,7 @@ export default function EstimacionEditor() {
   const deContrato = useMemo(() => items.filter(i => i.origen === 'contrato'), [items])
   const deExtras = useMemo(() => items.filter(i => i.origen !== 'contrato'), [items])
   const excedentes = useMemo(() => deContrato.filter(i => excedenteDe(i) > 0), [deContrato])
-  const T = useMemo(() => totalesDe(items, { amortizacionPct: est?.amortizacion_pct, ivaPct: est?.iva_pct }), [items, est])
+  const T = useMemo(() => totalesDe(items, { amortizacionPct: est?.amortizacion_pct, ivaPct: est?.iva_pct, descuentoPct: est?.descuento_pct }), [items, est])
 
   const porArea = useMemo(() => {
     const m = new Map<string, EstimacionItem[]>()
@@ -111,6 +112,7 @@ export default function EstimacionEditor() {
       await supabase.from('estimaciones').update({
         subtotal_contrato: T.contrato, subtotal_extras: T.extras, subtotal_deductivas: T.deductivas,
         subtotal: T.subtotal, amortizacion_monto: T.amortizacion, iva: T.iva, total: T.total,
+        descuento_pct: n(est.descuento_pct),
         periodo_inicio: est.periodo_inicio || null, periodo_fin: est.periodo_fin || null,
         amortizacion_pct: n(est.amortizacion_pct), notas: est.notas || null,
         updated_at: new Date().toISOString(),
@@ -181,6 +183,26 @@ export default function EstimacionEditor() {
   }
 
   /**
+   * Borrar una estimación. Solo mientras sea borrador o esté en revisión: una
+   * aprobada o facturada ya salió del edificio y ahí se cancela, no se borra.
+   * Al borrar, los folios posteriores se recorren para no dejar hueco.
+   */
+  async function borrar() {
+    if (!est) return
+    const cuantos = items.filter(i => n(i.cant_periodo) !== 0).length
+    const aviso = cuantos > 0
+      ? `Esta estimación tiene ${cuantos} concepto(s) con avance capturado. Al borrarla se pierde esa captura y el avance vuelve a quedar disponible para la siguiente estimación.`
+      : 'Esta estimación no tiene avance capturado.'
+    if (!confirm(`¿Borrar la estimación ${est.numero}?\n\n${aviso}\n\nEsto no se puede deshacer.`)) return
+    setBorrando(true)
+    const r = await borrarEstimacion(est)
+    setBorrando(false)
+    if (!r.ok) { alert(r.error); return }
+    if (r.renumeradas) alert(`Listo. Se recorrieron ${r.renumeradas} folio(s) posteriores para no dejar hueco en la numeración.`)
+    navigate(-1)
+  }
+
+  /**
    * El PDF que se le entrega al cliente. Solo lleva lo EJECUTADO: los conceptos
    * del contrato en cero no aportan nada y entierran lo que sí se cobra. El
    * saldo por ejecutar se resume arriba, en el bloque de avance.
@@ -203,6 +225,7 @@ export default function EstimacionEditor() {
         moneda,
         ivaPct: n(est.iva_pct),
         amortizacionPct: n(est.amortizacion_pct),
+        descuentoPct: n(est.descuento_pct),
         contrato: { nombre: ctx.nombre, total: ctx.total },
         cliente: ctx.cliente,
         obra: ctx.obra,
@@ -251,6 +274,11 @@ export default function EstimacionEditor() {
           {est.estado === 'borrador' && <Btn size="sm" onClick={() => cambiarEstado('revision')}>Mandar a revisión</Btn>}
           {(est.estado === 'borrador' || est.estado === 'revision') && <Btn size="sm" variant="primary" onClick={() => cambiarEstado('aprobada')}><CheckCircle2 size={12} /> Aprobar</Btn>}
           {est.estado === 'aprobada' && <Btn size="sm" onClick={() => cambiarEstado('revision')}>Reabrir</Btn>}
+          {!bloqueada && (
+            <Btn size="sm" variant="danger" onClick={borrar} disabled={borrando}>
+              <Trash2 size={12} /> {borrando ? 'Borrando…' : 'Borrar'}
+            </Btn>
+          )}
         </div>
       </div>
 
@@ -268,6 +296,21 @@ export default function EstimacionEditor() {
           <div style={{ fontSize: 9, color: '#666', textTransform: 'uppercase', marginBottom: 3 }} title="Porcentaje de esta estimación que se descuenta para devolver el anticipo">Amortización de anticipo %</div>
           <input type="number" disabled={bloqueada} value={est.amortizacion_pct ?? 0}
             onChange={e => { setEst({ ...est, amortizacion_pct: Number(e.target.value) }); setSucio(true) }}
+            style={inp} />
+        </div>
+        {/* Descuento e IVA vienen del contrato, no de fábrica. Se pueden
+            corregir aquí, pero se heredan al crear la estimación para que
+            nadie tenga que acordarse. */}
+        <div>
+          <div style={{ fontSize: 9, color: '#666', textTransform: 'uppercase', marginBottom: 3 }} title="El descuento pactado al cerrar. Aplica a lo contratado, no a los extras.">Descuento de contrato %</div>
+          <input type="number" disabled={bloqueada} value={est.descuento_pct ?? 0}
+            onChange={e => { setEst({ ...est, descuento_pct: Number(e.target.value) }); setSucio(true) }}
+            style={inp} />
+        </div>
+        <div>
+          <div style={{ fontSize: 9, color: '#666', textTransform: 'uppercase', marginBottom: 3 }} title="El de la cotización de cierre: 8% en frontera, 16% en el resto">IVA %</div>
+          <input type="number" disabled={bloqueada} value={est.iva_pct ?? 16}
+            onChange={e => { setEst({ ...est, iva_pct: Number(e.target.value) }); setSucio(true) }}
             style={inp} />
         </div>
         {contrato?.anticipo_monto ? <div style={{ fontSize: 10, color: '#666' }}>Anticipo del contrato: {F(n(contrato.anticipo_monto), moneda)}</div> : null}
@@ -434,7 +477,8 @@ export default function EstimacionEditor() {
 
       {/* Cierre */}
       <div style={{ marginTop: 18, padding: '12px 14px', background: '#0f0f0f', border: '1px solid #222', borderRadius: 8, maxWidth: 420, marginLeft: 'auto' }}>
-        {([['Obra contratada ejecutada', T.contrato, '#ccc'], ['Extras', T.extras, '#D9A441'], ['Deductivas', T.deductivas, '#DC2626'],
+        {([['Obra contratada ejecutada', T.contrato, '#ccc'], ['Deductivas', T.deductivas, '#DC2626'],
+           [`Descuento de contrato (${n(est.descuento_pct)}%)`, T.descuento, '#DC2626'], ['Extras', T.extras, '#D9A441'],
            ['Subtotal', T.subtotal, '#ccc'], [`Amortización de anticipo (${n(est.amortizacion_pct)}%)`, T.amortizacion, '#A78BFA'],
            ['Base gravable', T.baseIva, '#ccc'], [`IVA ${n(est.iva_pct)}%`, T.iva, '#888']] as const).map(([l, v, c], i) => (
           <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, padding: '3px 0', color: '#888' }}>

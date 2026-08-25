@@ -1,6 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { supabase } from '../lib/supabase'
-import BotonCatalogo from '../components/BotonCatalogo'
 import { fetchAllActiveCatalog } from '../lib/catalog'
 import { F, STAGE_CONFIG } from '../lib/utils'
 import { Btn, Loading } from '../components/layout/UI'
@@ -877,16 +876,48 @@ export default function CotEditorIlum({ cotId, onBack, onSwitchVersion }: { cotI
   }
 
   // Update product field
+  //
+  // COSTO, MG% y PRECIO son tres caras del mismo número: precio = costo / (1 − mg).
+  // Antes cada celda se guardaba sola, así que mover el margen dejaba el precio
+  // igual y la cotización salía con un margen que no era el que decía. Ahora al
+  // tocar una, la que sobra se recalcula:
+  //
+  //   MG%   → recalcula PRECIO   (subir margen sube lo que cobras: lo esperado)
+  //   PRECIO → recalcula MG%     (cerraste en un precio; el margen es lo que resulte)
+  //   COSTO  → recalcula MG%     (el precio ya se le dijo al cliente; lo que cambia
+  //                               es tu margen, y ahí es donde quieres verlo)
   async function updateProduct(id: string, field: string, value: number | string) {
     const p = products.find(x => x.id === id)
     if (!p) return
-    const updated = { ...p, [field]: value }
+    const updated: any = { ...p, [field]: value }
+
+    const num = typeof value === 'number' ? value : parseFloat(String(value))
+    const r2 = (n: number) => Math.round(n * 100) / 100
+
+    if (field === 'markup') {
+      // Sin costo no hay de dónde sacar el precio; margen sobre 0 daría 0 y
+      // borraría el precio capturado a mano.
+      const mg = Math.min(Math.max(num || 0, -900), 99)
+      updated.markup = mg
+      if (updated.cost > 0) updated.price = r2(updated.cost / (1 - mg / 100))
+    } else if (field === 'price') {
+      updated.price = num || 0
+      updated.markup = updated.cost > 0 && updated.price > 0
+        ? Math.round((1 - updated.cost / updated.price) * 100)
+        : updated.markup
+    } else if (field === 'cost') {
+      updated.cost = num || 0
+      updated.markup = updated.cost > 0 && updated.price > 0
+        ? Math.round((1 - updated.cost / updated.price) * 100)
+        : updated.markup
+    }
+
     setProducts(products.map(x => x.id === id ? updated : x))
-    const dbField = field === 'quantity' ? 'quantity' : field === 'cost' ? 'cost' : field === 'markup' ? 'markup' : field === 'price' ? 'price' : field
-    const payload: any = { [dbField]: value }
-    // Always recalculate total
+
     const { total } = calcLine(updated)
-    payload.total = total
+    const payload: any = { total }
+    if (field === 'quantity') payload.quantity = updated.quantity
+    else { payload.cost = updated.cost; payload.markup = updated.markup; payload.price = updated.price }
     await supabase.from('quotation_items').update(payload).eq('id', id)
   }
 
@@ -1262,7 +1293,6 @@ export default function CotEditorIlum({ cotId, onBack, onSwitchVersion }: { cotI
                 {(quote?.client_name) && <div style={{ fontSize: 11, color: '#666', marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{quote.client_name}</div>}
               </div>
               <button onClick={() => setShowEditInfo(true)} title="Editar datos de la cotización (cliente, lead, proyecto)" style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', padding: 4, display: 'flex', alignItems: 'center', flexShrink: 0 }}><Pencil size={14} /></button>
-              <BotonCatalogo cotId={cotId} />
             </div>
           </div>
           {/* Renglón 2: etapas + acciones */}

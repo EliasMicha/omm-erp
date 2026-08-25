@@ -32,6 +32,7 @@ export interface DatosEstimacionPdf {
   moneda: string
   ivaPct: number
   amortizacionPct: number
+  descuentoPct?: number
   contrato: { nombre: string; total: number }
   cliente: string
   obra: string
@@ -137,7 +138,12 @@ export function generarEstimacionPdf(d: DatosEstimacionPdf): jsPDF {
   const subContrato = deContrato.reduce((s, i) => s + impDe(i), 0)
   const subExtras = deExtras.filter(i => i.origen === 'extra').reduce((s, i) => s + impDe(i), 0)
   const subDeduct = deExtras.filter(i => i.origen === 'deductiva').reduce((s, i) => s + impDe(i), 0)
-  const subtotal = subContrato + subExtras + subDeduct
+  // El descuento pactado al cerrar aplica a lo contratado, no a los extras
+  // (un extra se cotiza a precio nuevo). Va como renglón visible y no
+  // prorrateado en cada P.U.: el precio unitario de la estimación tiene que
+  // ser el mismo que firmó el cliente.
+  const descuento = -Math.abs((subContrato + subDeduct) * (n(d.descuentoPct) / 100))
+  const subtotal = subContrato + subDeduct + descuento + subExtras
   const amortizacion = -Math.abs(subtotal * (n(d.amortizacionPct) / 100))
   const base = subtotal + amortizacion
   const iva = base * (n(d.ivaPct) / 100)
@@ -147,6 +153,9 @@ export function generarEstimacionPdf(d: DatosEstimacionPdf): jsPDF {
   const acumulado = n(d.estimadoAnterior) + subContrato
   const saldo = Math.max(0, n(d.contrato.total) - acumulado)
   const pct = n(d.contrato.total) > 0 ? acumulado / n(d.contrato.total) : 0
+  // Nota: `contrato.total` es el subtotal contratado a precio de lista, que es
+  // la misma base en la que están los renglones. Comparar contra el total con
+  // IVA daría un avance falsamente bajo.
   const celdas: Array<[string, string, [number, number, number]]> = [
     ['Importe contratado', money(d.contrato.total), DARK],
     ['Estimado anterior', money(d.estimadoAnterior), GRAY],
@@ -286,8 +295,9 @@ export function generarEstimacionPdf(d: DatosEstimacionPdf): jsPDF {
     y += bold ? 6.5 : 5.5
   }
   linea('Obra contratada ejecutada', subContrato)
-  if (subExtras !== 0) linea('Extras', subExtras, false, AMBER)
   if (subDeduct !== 0) linea('Deductivas', subDeduct, false, [180, 40, 40])
+  if (descuento !== 0) linea(`Descuento de contrato (${n(d.descuentoPct)}%)`, descuento, false, [180, 40, 40])
+  if (subExtras !== 0) linea('Extras', subExtras, false, AMBER)
   fill([220, 222, 222]); doc.rect(xL, y - 3, R - xL, 0.3, 'F'); y += 1
   linea('Subtotal', subtotal, true)
   if (amortizacion !== 0) linea(`Amortización de anticipo (${n(d.amortizacionPct)}%)`, amortizacion)

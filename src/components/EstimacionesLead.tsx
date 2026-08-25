@@ -69,7 +69,11 @@ export default function EstimacionesLead({ cotizaciones }: { cotizaciones: Cot[]
         const r = resumen[q.id]
         const lista = ests[q.id] || []
         const mon = monedaDe(q)
-        const contratado = n(q.total_final ?? q.total)
+        // El avance se mide contra el SUBTOTAL contratado a precio de lista,
+        // que es la base en la que están los renglones de las estimaciones.
+        // `total_final` trae IVA y descuento: comparar contra él hacía que un
+        // contrato al 90% se viera al 75%.
+        const contratado = r ? r.contratado : n(q.total)
         const pctEstimado = contratado > 0 && r ? r.estimadoEnFirme / contratado : 0
         return (
           <div key={q.id} style={{ marginBottom: 12, border: '1px solid #222', borderRadius: 8, background: '#0f0f0f' }}>
@@ -84,7 +88,7 @@ export default function EstimacionesLead({ cotizaciones }: { cotizaciones: Cot[]
             {r && (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(120px,1fr))', gap: 8, padding: '10px 12px' }}>
                 {([
-                  ['Contratado', contratado, '#60A5FA', ''],
+                  ['Contratado', contratado, '#60A5FA', r.descuentoPct > 0 ? `antes de ${r.descuentoPct}% de descuento` : 'subtotal, sin IVA'],
                   ['Estimado en firme', r.estimadoEnFirme, '#10B981', `${Math.round(pctEstimado * 100)}% del contrato`],
                   ['En borrador', r.estimadoBorrador, '#6B7280', ''],
                   ['Por estimar', r.porEstimar, '#D97706', ''],

@@ -48,6 +48,7 @@ export interface Estimacion {
   estado: EstadoEstimacion
   amortizacion_pct: number
   amortizacion_monto: number
+  descuento_pct: number
   iva_pct: number
   subtotal_contrato: number
   subtotal_extras: number
@@ -88,6 +89,8 @@ export interface TotalesEstimacion {
   contrato: number
   extras: number
   deductivas: number
+  /** Descuento de contrato, negativo. Aplica a lo contratado, no a los extras. */
+  descuento: number
   subtotal: number
   amortizacion: number
   baseIva: number
@@ -96,11 +99,29 @@ export interface TotalesEstimacion {
 }
 
 /**
- * Los totales de una estimación. La amortización del anticipo se descuenta
- * ANTES del IVA porque es una devolución de dinero ya cobrado (y ya
- * facturado con su IVA); volver a gravarla lo cobraría dos veces.
+ * Los totales de una estimación.
+ *
+ * ORDEN DE OPERACIONES, que es donde se pierde el dinero:
+ *
+ *   contrato ejecutado (a P.U. de la cotización firmada)
+ *   + deductivas
+ *   − DESCUENTO DE CONTRATO        ← el % que se pactó al cerrar
+ *   + extras                        ← precio nuevo: el descuento no los toca
+ *   = subtotal
+ *   − amortización de anticipo      ← antes del IVA: es devolución de dinero
+ *                                     ya cobrado y ya facturado con su IVA;
+ *                                     volver a gravarla lo cobraría dos veces
+ *   = base gravable
+ *   + IVA del contrato              ← 8% en frontera, 16% en el resto. NO se
+ *                                     asume: sale de la cotización de cierre
+ *
+ * El descuento va como RENGLÓN y no prorrateado en cada P.U. a propósito: el
+ * precio unitario de la estimación tiene que ser idéntico al del contrato que
+ * el cliente firmó. Prorratearlo lo esconde, descuadra por centavos contra el
+ * contrato y obliga a explicar en obra por qué una salida vale distinto aquí
+ * que allá.
  */
-export function totalesDe(items: EstimacionItem[], opts: { amortizacionPct?: number; ivaPct?: number }): TotalesEstimacion {
+export function totalesDe(items: EstimacionItem[], opts: { amortizacionPct?: number; ivaPct?: number; descuentoPct?: number }): TotalesEstimacion {
   let contrato = 0, extras = 0, deductivas = 0
   for (const it of items) {
     const imp = num(it.cant_periodo) * num(it.precio_unitario)
@@ -108,11 +129,30 @@ export function totalesDe(items: EstimacionItem[], opts: { amortizacionPct?: num
     else if (it.origen === 'deductiva') deductivas += imp   // ya viene negativo
     else contrato += imp
   }
-  const subtotal = contrato + extras + deductivas
+  const descuento = -Math.abs((contrato + deductivas) * (num(opts.descuentoPct) / 100))
+  const subtotal = contrato + deductivas + descuento + extras
   const amortizacion = -Math.abs(subtotal * (num(opts.amortizacionPct) / 100))
   const baseIva = subtotal + amortizacion
   const iva = baseIva * (num(opts.ivaPct ?? 16) / 100)
-  return { contrato, extras, deductivas, subtotal, amortizacion, baseIva, iva, total: baseIva + iva }
+  return { contrato, extras, deductivas, descuento, subtotal, amortizacion, baseIva, iva, total: baseIva + iva }
+}
+
+/**
+ * Las condiciones comerciales del contrato: moneda, IVA y descuento. Viven en
+ * `quotations.notes` como JSON — no como columnas— así que hay que leerlas de
+ * ahí. Si no se puede parsear, se devuelve lo neutro y se dice: inventar un
+ * 16% donde había 8% factura de más.
+ */
+export async function condicionesDelContrato(quotationId: string): Promise<{ ivaPct: number; descuentoPct: number; moneda: string }> {
+  const { data } = await supabase.from('quotations').select('notes').eq('id', quotationId).maybeSingle()
+  let cfg: any = {}
+  try { cfg = JSON.parse((data as any)?.notes || '{}') } catch { cfg = {} }
+  const nz = (v: any, def: number) => (v === null || v === undefined || v === '' || isNaN(Number(v)) ? def : Number(v))
+  return {
+    ivaPct: nz(cfg.ivaRate, 16),
+    descuentoPct: nz(cfg.descuento, 0),
+    moneda: cfg.currency || 'MXN',
+  }
 }
 
 // ── Armado de una estimación nueva ─────────────────────────────────────────
@@ -187,6 +227,7 @@ export async function crearEstimacion(quotationId: string, opts: {
   moneda?: string
   amortizacionPct?: number
   ivaPct?: number
+  descuentoPct?: number
   periodoInicio?: string | null
   periodoFin?: string | null
 }): Promise<{ id?: string; error?: string }> {
@@ -194,13 +235,19 @@ export async function crearEstimacion(quotationId: string, opts: {
   if (error) return { error }
   if (renglones.length === 0) return { error: 'La cotización no tiene conceptos que estimar.' }
 
+  // Las condiciones se heredan del contrato: IVA, descuento y moneda. Antes
+  // toda estimación nacía con 16% y sin descuento, cobrara lo que cobrara el
+  // contrato — y una obra de frontera al 8% salía facturada al doble de IVA.
+  const cond = await condicionesDelContrato(quotationId)
+
   const numero = await siguienteNumero(quotationId)
   const { data: est, error: e1 } = await supabase.from('estimaciones').insert({
     quotation_id: quotationId,
     numero,
-    moneda: opts.moneda || 'MXN',
+    moneda: opts.moneda || cond.moneda,
     amortizacion_pct: num(opts.amortizacionPct),
-    iva_pct: opts.ivaPct ?? 16,
+    iva_pct: opts.ivaPct ?? cond.ivaPct,
+    descuento_pct: opts.descuentoPct ?? cond.descuentoPct,
     periodo_inicio: opts.periodoInicio || null,
     periodo_fin: opts.periodoFin || null,
   }).select('id').single()
@@ -254,7 +301,11 @@ export function avanceDe(it: EstimacionItem): number {
 // ── Lectura para tableros ──────────────────────────────────────────────────
 
 export interface ResumenContrato {
+  /** Subtotal contratado a precio de lista, sin descuento ni IVA. */
   contratado: number
+  /** Lo mismo, ya con el descuento del contrato aplicado. */
+  contratadoNeto: number
+  descuentoPct: number
   estimadoEnFirme: number      // aprobada|facturada|pagada
   estimadoBorrador: number
   extrasAcumulados: number
@@ -269,13 +320,18 @@ export interface ResumenContrato {
  * los extras no reducen el saldo del contrato original, lo aumentan.
  */
 export async function resumenDeContrato(quotationId: string): Promise<ResumenContrato> {
-  const [{ data: q }, { data: ests }] = await Promise.all([
+  const [{ data: q }, { data: ests }, cond] = await Promise.all([
     supabase.from('quotations').select('total,total_final').eq('id', quotationId).maybeSingle(),
     supabase.from('estimaciones')
       .select('id,estado,estimacion_items(cant_periodo,precio_unitario,origen)')
       .eq('quotation_id', quotationId).neq('estado', 'cancelada'),
+    condicionesDelContrato(quotationId),
   ])
-  const contratado = num((q as any)?.total_final ?? (q as any)?.total)
+  // OJO: `total_final` trae IVA y descuento; los renglones de estimación son
+  // subtotales a precio de lista. Comparar uno contra otro daba un saldo por
+  // estimar que no significaba nada. Aquí se compara lista contra lista.
+  const contratado = num((q as any)?.total)
+  const contratadoNeto = contratado * (1 - num(cond.descuentoPct) / 100)
   let enFirme = 0, borrador = 0, extras = 0, deduct = 0, contratoEstimado = 0
   for (const e of ((ests as any[]) || [])) {
     let sub = 0
@@ -290,6 +346,8 @@ export async function resumenDeContrato(quotationId: string): Promise<ResumenCon
   }
   return {
     contratado,
+    contratadoNeto,
+    descuentoPct: num(cond.descuentoPct),
     estimadoEnFirme: enFirme,
     estimadoBorrador: borrador,
     extrasAcumulados: extras,
@@ -318,12 +376,19 @@ export async function contratoEstimadoAntes(quotationId: string, numero: number)
   return s
 }
 
-/** Cliente y obra para la carátula: el lead vive en notes, no como FK. */
+/**
+ * Cliente y obra para la carátula: el lead vive en notes, no como FK.
+ *
+ * `total` es el SUBTOTAL contratado a precio de lista —la misma base en la que
+ * están los renglones de la estimación—. Antes devolvía `total_final`, que
+ * trae IVA y descuento, y el "avance del contrato" salía siempre bajo porque
+ * comparaba subtotales contra un total con impuestos.
+ */
 export async function contextoDeContrato(quotationId: string): Promise<{ cliente: string; obra: string; nombre: string; total: number }> {
   const { data: q } = await supabase.from('quotations')
     .select('id,name,notes,total,total_final,client_name').eq('id', quotationId).maybeSingle()
   const nombre = (q as any)?.name || 'Contrato'
-  const total = num((q as any)?.total_final ?? (q as any)?.total)
+  const total = num((q as any)?.total ?? (q as any)?.total_final)
   let leadId = ''
   try { leadId = JSON.parse((q as any)?.notes || '{}')?.lead_id || '' } catch { /* notas libres */ }
   let cliente = (q as any)?.client_name || ''
@@ -333,4 +398,51 @@ export async function contextoDeContrato(quotationId: string): Promise<{ cliente
     if (l) { cliente = (l as any).company || (l as any).name || cliente; obra = (l as any).name || obra }
   }
   return { cliente: cliente || '—', obra, nombre, total }
+}
+
+
+// ── Borrar una estimación ──────────────────────────────────────────────────
+//
+// Se puede borrar de verdad mientras sea BORRADOR o esté EN REVISIÓN. Una vez
+// aprobada, facturada o pagada ya salió del edificio: ahí se cancela, no se
+// borra, para que no desaparezca un documento que alguien tiene en la mano.
+//
+// El folio es lo delicado. Si se borra la #2 de 3, la #3 tiene que bajar a #2
+// o el cliente pregunta dónde quedó la que falta. Pero renumerar una
+// estimación ya facturada rompe la correspondencia con su factura — así que
+// si alguna posterior está en firme, no se borra y se dice por qué.
+
+export async function puedeBorrarse(est: Pick<Estimacion, 'id' | 'numero' | 'estado' | 'quotation_id'>): Promise<{ ok: boolean; motivo?: string }> {
+  if (ESTIMACION_EN_FIRME.includes(est.estado)) {
+    return { ok: false, motivo: `Esta estimación está ${ESTADO_CFG[est.estado].label.toLowerCase()}. Una estimación que ya salió no se borra: se cancela, para que quede el rastro de que existió.` }
+  }
+  const { data } = await supabase.from('estimaciones')
+    .select('numero,estado').eq('quotation_id', est.quotation_id).gt('numero', est.numero)
+  const enFirme = ((data as any[]) || []).filter(e => ESTIMACION_EN_FIRME.includes(e.estado))
+  if (enFirme.length > 0) {
+    return {
+      ok: false,
+      motivo: `Hay ${enFirme.length} estimación(es) posterior(es) ya en firme (#${enFirme.map(e => e.numero).join(', #')}). ` +
+        'Borrar ésta obligaría a recorrer sus folios, y un folio que cambia deja de cuadrar con la factura que ya se emitió.',
+    }
+  }
+  return { ok: true }
+}
+
+export async function borrarEstimacion(est: Pick<Estimacion, 'id' | 'numero' | 'estado' | 'quotation_id'>): Promise<{ ok: boolean; error?: string; renumeradas?: number }> {
+  const permiso = await puedeBorrarse(est)
+  if (!permiso.ok) return { ok: false, error: permiso.motivo }
+
+  // Los renglones se van solos (ON DELETE CASCADE en estimacion_items).
+  const { error } = await supabase.from('estimaciones').delete().eq('id', est.id)
+  if (error) return { ok: false, error: error.message }
+
+  // Recorrer los folios posteriores para no dejar hueco.
+  const { data: posteriores } = await supabase.from('estimaciones')
+    .select('id,numero').eq('quotation_id', est.quotation_id).gt('numero', est.numero).order('numero')
+  const lista = ((posteriores as any[]) || [])
+  for (const e of lista) {
+    await supabase.from('estimaciones').update({ numero: e.numero - 1, updated_at: new Date().toISOString() }).eq('id', e.id)
+  }
+  return { ok: true, renumeradas: lista.length }
 }
