@@ -70,6 +70,10 @@ export interface PeticionPlan {
   fechaObjetivo?: string | null
   /** Nombre del proyecto o cliente, si lo hay. */
   titulo?: string | null
+  /** Documentos que YA tenemos. Cambian el plan: si el arquitectónico ya
+   *  llegó, no hay que pedirlo; si no está, la primera actividad es
+   *  conseguirlo. */
+  documentos?: string[]
 }
 
 export interface PlanPropuesto {
@@ -144,6 +148,9 @@ Tipo: ${p.tipo}
 Área responsable: ${areaLabel} (specialty "${p.specialty}")
 ${p.titulo ? `Proyecto/cliente: ${p.titulo}` : ''}
 ${p.fechaObjetivo ? `Fecha comprometida con el cliente: ${p.fechaObjetivo} (hoy es ${new Date().toISOString().slice(0, 10)})` : 'Sin fecha comprometida: usa dias_desde_inicio.'}
+${p.documentos && p.documentos.length
+  ? `Documentos que YA tenemos:\n${p.documentos.map(d => `- ${d}`).join('\n')}\nNo propongas actividades para conseguir lo que ya está en esta lista.`
+  : 'No tenemos ningún documento todavía: si el plan necesita información base del cliente, la primera actividad es conseguirla.'}
 
 Lo que se pidió, tal como llegó:
 """

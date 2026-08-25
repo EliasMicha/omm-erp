@@ -13,7 +13,8 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { Badge, Btn } from './layout/UI'
-import { ClipboardList, Plus, Send, Trash2, AlertTriangle, ArrowRight, Check } from 'lucide-react'
+import { ClipboardList, Plus, Send, Trash2, AlertTriangle, ArrowRight, Check, Sparkles } from 'lucide-react'
+import SugerirActividades from './SugerirActividades'
 import {
   Levantamiento, LevantamientoArea, Urgencia, URGENCIA_CFG, ESTADO_AREA_CFG, ESPECIALIDADES,
   cargarLevantamientos, crearLevantamiento, canalizar, derivarArea,
@@ -32,6 +33,9 @@ export default function LevantamientoLead({ leadId, leadNombre, quien }: {
   const [abierto, setAbierto] = useState<string>('')
   const [avances, setAvances] = useState<Record<string, { total: number; conFecha: number; conResponsable: number }>>({})
   const [guardando, setGuardando] = useState(false)
+  const [sugiriendo, setSugiriendo] = useState('')   // id del área
+  const [docs, setDocs] = useState<string[]>([])
+  const [aviso, setAviso] = useState('')
 
   async function cargar() {
     const [ls, { data: emps }] = await Promise.all([
@@ -40,6 +44,10 @@ export default function LevantamientoLead({ leadId, leadNombre, quien }: {
     ])
     setLista(ls)
     setEmpleados((emps as any[]) || [])
+    // Los documentos que ya tenemos son contexto para la IA: si el
+    // arquitectónico ya llegó no hay que proponer conseguirlo.
+    supabase.from('obra_documentos').select('nombre,tipo').eq('lead_id', leadId)
+      .then(({ data }) => setDocs(((data as any[]) || []).map(d => `${d.nombre} (${d.tipo})`)))
     // Avance de fechado de cada área ya derivada
     const av: Record<string, any> = {}
     for (const l of ls) for (const a of (l.areas || [])) {
@@ -299,6 +307,12 @@ export default function LevantamientoLead({ leadId, leadNombre, quien }: {
                       </div>
 
                       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                        {/* La IA lee lo que YA está escrito aquí: el texto que
+                            llegó, tus indicaciones, lo que se espera del área y
+                            los documentos que tenemos. No hay que repetir nada. */}
+                        <Btn size="sm" onClick={() => { setAviso(''); setSugiriendo(sugiriendo === a.id ? '' : a.id) }}>
+                          <Sparkles size={11} /> {sugiriendo === a.id ? 'Cerrar sugerencia' : 'Sugerir actividades con IA'}
+                        </Btn>
                         {!a.project_id && (
                           <Btn size="sm" variant="primary" onClick={() => derivar(lev, a)} disabled={guardando}>
                             <ArrowRight size={11} /> Derivar actividades
@@ -315,9 +329,49 @@ export default function LevantamientoLead({ leadId, leadNombre, quien }: {
                           </span>
                         )}
                       </div>
+
+                      {sugiriendo === a.id && (
+                        <SugerirActividades
+                          peticion={{
+                            texto: [
+                              lev.origen_texto ? `LO QUE LLEGÓ:\n${lev.origen_texto}` : '',
+                              lev.indicaciones ? `INDICACIONES DE LA DIRECCIÓN:\n${lev.indicaciones}` : '',
+                              a.alcance ? `LO QUE SE ESPERA DE ESTA ÁREA:\n${a.alcance}` : '',
+                              lev.contacto_rfi ? `Contacto para dudas técnicas: ${lev.contacto_rfi}` : '',
+                            ].filter(Boolean).join('\n\n'),
+                            tipo: 'proyecto',
+                            specialty: a.specialty,
+                            fechaObjetivo: a.fecha_compromiso || lev.fecha_compromiso_cliente || null,
+                            titulo: leadNombre,
+                            documentos: docs,
+                            ctx: {
+                              leadId,
+                              levantamientoId: lev.id,
+                              tituloCliente: leadNombre,
+                              prefijo: leadNombre,
+                              solicitadaPor: quien,
+                              instrucciones: lev.indicaciones || a.alcance || null,
+                            },
+                          }}
+                          onCreado={r => {
+                            setSugiriendo('')
+                            setAviso(`${r.creadas} actividad(es) creadas para ${e?.label}.` +
+                              (r.sinDueno ? ` ${r.sinDueno} sin dueño: las reparte el director en Actividades.` : '') +
+                              (r.enElPasado ? ` ${r.enElPasado} nacieron con fecha vencida: el encargo llegó tarde para ese compromiso.` : ''))
+                            cargar()
+                          }}
+                          onCerrar={() => setSugiriendo('')}
+                        />
+                      )}
                     </div>
                   )
                 })}
+
+                {aviso && (
+                  <div style={{ background: '#0d1410', border: '1px solid #1d3326', borderRadius: 8, padding: '9px 12px', fontSize: 11.5, color: '#7fbf9a', marginBottom: 8, lineHeight: 1.6 }}>
+                    {aviso}
+                  </div>
+                )}
 
                 <div style={{ display: 'flex', gap: 6, marginTop: 10, alignItems: 'center' }}>
                   <Btn size="sm" variant="primary" onClick={() => canalizarLev(lev)}>
