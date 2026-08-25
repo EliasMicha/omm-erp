@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth, PermissionArea, UserNivel } from '../contexts/AuthContext'
+import { rolDe, ROL_CFG } from '../lib/roles'
 
 interface AppUser {
   id: string
@@ -20,7 +21,7 @@ interface Employee {
   email: string | null
   puesto: string | null
   area: string | null
-  activo: boolean | null
+  is_active: boolean | null
 }
 
 const AREAS: { value: PermissionArea; label: string }[] = [
@@ -66,7 +67,10 @@ export default function Usuarios() {
   }
 
   async function loadEmployees() {
-    const { data } = await supabase.from('employees').select('id, name, nombre, email, puesto, area, activo').order('name')
+    // is_active es la columna que usa el resto del ERP (Actividades, Tareas,
+    // Documentación). `employees.activo` existe también y no siempre coincide;
+    // leer dos verdades distintas era parte del problema.
+    const { data } = await supabase.from('employees').select('id, name, nombre, email, puesto, area, is_active').order('name')
     setEmployees((data as Employee[]) || [])
   }
 
@@ -74,7 +78,7 @@ export default function Usuarios() {
 
   // Employees that don't already have a user account
   const usedEmployeeIds = new Set(users.map(u => u.employee_id).filter(Boolean))
-  const availableEmployees = employees.filter(e => !usedEmployeeIds.has(e.id) && e.activo !== false)
+  const availableEmployees = employees.filter(e => !usedEmployeeIds.has(e.id) && e.is_active !== false)
 
   function handleSelectEmployee(empId: string) {
     setSelectedEmployee(empId)
@@ -124,17 +128,40 @@ export default function Usuarios() {
   }
 
   async function toggleActivo(u: AppUser) {
-    await supabase.from('app_users').update({ activo: !u.activo }).eq('id', u.id)
+    const { error: err } = await supabase.from('app_users').update({ activo: !u.activo }).eq('id', u.id)
+    if (err) { setError('No se pudo guardar: ' + err.message); return }
     loadUsers()
   }
 
   async function updateArea(userId: string, area: PermissionArea) {
-    await supabase.from('app_users').update({ permission_area: area }).eq('id', userId)
+    const { error: err } = await supabase.from('app_users').update({ permission_area: area }).eq('id', userId)
+    if (err) { setError('No se pudo guardar: ' + err.message); return }
     loadUsers()
   }
 
   async function updateNivel(userId: string, nivel: UserNivel) {
-    await supabase.from('app_users').update({ nivel }).eq('id', userId)
+    const { error: err } = await supabase.from('app_users').update({ nivel }).eq('id', userId)
+    if (err) { setError('No se pudo guardar: ' + err.message); return }
+    loadUsers()
+  }
+
+  /**
+   * Ligar el usuario a su ficha de empleado. De aquí sale TODO lo demás: qué
+   * actividades son suyas, qué rol tiene (del puesto de la ficha) y en qué
+   * área se le reparte trabajo. Un usuario sin ficha no existe para el módulo
+   * de Actividades, aunque pueda entrar al sistema.
+   */
+  async function updateEmpleado(userId: string, empId: string) {
+    setError(''); setSuccess('')
+    const { error: err } = await supabase.from('app_users')
+      .update({ employee_id: empId || null }).eq('id', userId)
+    if (err) {
+      setError(err.message.includes('app_users_employee_unico')
+        ? 'Esa ficha de empleado ya está ligada a otro usuario. Un empleado solo puede tener una cuenta: si tuviera dos, sus actividades aparecerían duplicadas y el indicador contaría doble.'
+        : 'No se pudo guardar: ' + err.message)
+      return
+    }
+    setSuccess(empId ? 'Usuario ligado a su ficha.' : 'Usuario desligado.')
     loadUsers()
   }
 
@@ -170,6 +197,12 @@ export default function Usuarios() {
         <div>
           <h1 style={{ fontSize: 22, fontWeight: 700, color: '#fff', margin: 0 }}>Usuarios del Sistema</h1>
           <div style={{ fontSize: 13, color: '#666', marginTop: 4 }}>{users.length} usuarios · {users.filter(u => u.activo).length} activos</div>
+          <div style={{ fontSize: 11.5, color: '#777', marginTop: 6, maxWidth: 640, lineHeight: 1.6 }}>
+            La <b style={{ color: '#aaa' }}>ficha de empleado</b> es lo que amarra todo: de ahí salen las actividades
+            que son tuyas y el <b style={{ color: '#aaa' }}>rol</b> con el que se te reparte trabajo. El rol se deduce
+            del puesto de la ficha, así que se cambia en <b style={{ color: '#aaa' }}>Empleados</b>, no aquí.
+            Un usuario sin ficha puede entrar al sistema pero no existe para Actividades.
+          </div>
         </div>
         <button onClick={() => { setShowForm(!showForm); setError(''); setSuccess('') }} style={btnStyle}>
           {showForm ? 'Cancelar' : '+ Nuevo usuario'}
@@ -243,6 +276,21 @@ export default function Usuarios() {
         </form>
       )}
 
+      {(() => {
+        const sinCuenta = employees.filter(e => e.is_active !== false && !usedEmployeeIds.has(e.id)
+          && /DIRECTOR|DIRECCION|INGENIERO|DIBUJANTE|DISENAD|DISEÑAD|ADMINISTRATIV|COORDINADOR/i.test(e.puesto || ''))
+        if (sinCuenta.length === 0) return null
+        return (
+          <div style={{ background: '#141109', border: '1px solid #2a2416', borderRadius: 8, padding: '10px 14px', fontSize: 12, color: '#c9b78a', marginBottom: 16, lineHeight: 1.7 }}>
+            <b style={{ color: '#e8d5a3' }}>{sinCuenta.length} persona(s) de oficina no tienen cuenta:</b>{' '}
+            {sinCuenta.map(e => (e.nombre || e.name)).join(', ')}.
+            <br />
+            Mientras no puedan entrar, no pueden subir entregables ni recibir actividades — y cualquier indicador
+            que los incluya va a estar incompleto.
+          </div>
+        )
+      })()}
+
       {loading ? (
         <div style={{ color: '#666', padding: 20 }}>Cargando...</div>
       ) : (
@@ -251,7 +299,8 @@ export default function Usuarios() {
             <tr style={{ borderBottom: '1px solid #333', color: '#888', textAlign: 'left' }}>
               <th style={{ padding: '10px 12px', fontWeight: 500 }}>Nombre</th>
               <th style={{ padding: '10px 12px', fontWeight: 500 }}>Email</th>
-              <th style={{ padding: '10px 12px', fontWeight: 500 }}>Empleado</th>
+              <th style={{ padding: '10px 12px', fontWeight: 500 }}>Empleado (ficha)</th>
+              <th style={{ padding: '10px 12px', fontWeight: 500 }}>Rol</th>
               <th style={{ padding: '10px 12px', fontWeight: 500 }}>Área</th>
               <th style={{ padding: '10px 12px', fontWeight: 500 }}>Nivel</th>
               <th style={{ padding: '10px 12px', fontWeight: 500 }}>Estado</th>
@@ -263,8 +312,32 @@ export default function Usuarios() {
               <tr key={u.id} style={{ borderBottom: '1px solid #1a1a1a', opacity: u.activo ? 1 : 0.5 }}>
                 <td style={{ padding: '10px 12px', color: '#fff' }}>{u.nombre}</td>
                 <td style={{ padding: '10px 12px', color: '#aaa' }}>{u.email}</td>
-                <td style={{ padding: '10px 12px', color: u.employee_id ? '#10B981' : '#555' }}>
-                  {u.employee_id ? getEmployeeName(u.employee_id) || 'Vinculado' : 'Sin vincular'}
+                <td style={{ padding: '10px 12px' }}>
+                  <select value={u.employee_id || ''} onChange={e => updateEmpleado(u.id, e.target.value)}
+                    style={{
+                      background: '#1a1a1a', borderRadius: 6, color: u.employee_id ? '#ccc' : '#D9A441',
+                      padding: '4px 8px', fontSize: 12, maxWidth: 230,
+                      border: `1px solid ${u.employee_id ? '#333' : '#7a5c1e'}`,
+                    }}>
+                    <option value="">— Sin ficha —</option>
+                    {employees
+                      .filter(e => e.is_active !== false || e.id === u.employee_id)
+                      .map(e => {
+                        const tomada = usedEmployeeIds.has(e.id) && e.id !== u.employee_id
+                        return (
+                          <option key={e.id} value={e.id} disabled={tomada}>
+                            {(e.nombre || e.name)}{e.puesto ? ` · ${e.puesto.trim()}` : ''}{tomada ? ' (ya ligado)' : ''}
+                          </option>
+                        )
+                      })}
+                  </select>
+                </td>
+                <td style={{ padding: '10px 12px' }}>
+                  {u.employee_id ? (() => {
+                    const emp = employees.find(e => e.id === u.employee_id)
+                    const r = rolDe(emp?.puesto)
+                    return <span style={{ fontSize: 12, color: ROL_CFG[r].color }}>{ROL_CFG[r].label}</span>
+                  })() : <span style={{ fontSize: 12, color: '#555' }}>—</span>}
                 </td>
                 <td style={{ padding: '10px 12px' }}>
                   <select value={u.permission_area} onChange={e => updateArea(u.id, e.target.value as PermissionArea)}
