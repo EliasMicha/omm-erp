@@ -32,6 +32,9 @@ export interface DatosEstimacionPdf {
   moneda: string
   ivaPct: number
   amortizacionPct: number
+  /** Monto ya calculado (negativo). Si viene, manda sobre el porcentaje: el
+   *  anticipo se amortiza por cantidad y el % es solo la forma de decirlo. */
+  amortizacionMonto?: number
   descuentoPct?: number
   contrato: { nombre: string; total: number }
   cliente: string
@@ -144,7 +147,9 @@ export function generarEstimacionPdf(d: DatosEstimacionPdf): jsPDF {
   // ser el mismo que firmó el cliente.
   const descuento = -Math.abs((subContrato + subDeduct) * (n(d.descuentoPct) / 100))
   const subtotal = subContrato + subDeduct + descuento + subExtras
-  const amortizacion = -Math.abs(subtotal * (n(d.amortizacionPct) / 100))
+  const amortizacion = d.amortizacionMonto != null
+    ? -Math.abs(n(d.amortizacionMonto))
+    : -Math.abs(subtotal * (n(d.amortizacionPct) / 100))
   const base = subtotal + amortizacion
   const iva = base * (n(d.ivaPct) / 100)
   const total = base + iva
@@ -300,7 +305,10 @@ export function generarEstimacionPdf(d: DatosEstimacionPdf): jsPDF {
   if (subExtras !== 0) linea('Extras', subExtras, false, AMBER)
   fill([220, 222, 222]); doc.rect(xL, y - 3, R - xL, 0.3, 'F'); y += 1
   linea('Subtotal', subtotal, true)
-  if (amortizacion !== 0) linea(`Amortización de anticipo (${n(d.amortizacionPct)}%)`, amortizacion)
+  if (amortizacion !== 0) {
+    const pctEfectivo = subtotal > 0 ? Math.abs(amortizacion) / subtotal * 100 : n(d.amortizacionPct)
+    linea(`Amortización de anticipo (${pctEfectivo.toFixed(2)}%)`, amortizacion)
+  }
   linea('Base gravable', base)
   linea(`IVA ${n(d.ivaPct)}%`, iva)
   fill(DARK); doc.rect(xL, y - 3, R - xL, 0.6, 'F'); y += 2

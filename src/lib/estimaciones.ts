@@ -48,6 +48,8 @@ export interface Estimacion {
   estado: EstadoEstimacion
   amortizacion_pct: number
   amortizacion_monto: number
+  amortizacion_modo: 'pct' | 'monto'
+  amortizacion_fija?: number | null
   descuento_pct: number
   iva_pct: number
   subtotal_contrato: number
@@ -121,7 +123,14 @@ export interface TotalesEstimacion {
  * contrato y obliga a explicar en obra por qué una salida vale distinto aquí
  * que allá.
  */
-export function totalesDe(items: EstimacionItem[], opts: { amortizacionPct?: number; ivaPct?: number; descuentoPct?: number }): TotalesEstimacion {
+export function totalesDe(items: EstimacionItem[], opts: {
+  amortizacionPct?: number
+  ivaPct?: number
+  descuentoPct?: number
+  /** 'monto' amortiza una cantidad fija; 'pct' un porcentaje del subtotal. */
+  amortizacionModo?: 'pct' | 'monto'
+  amortizacionFija?: number | null
+}): TotalesEstimacion {
   let contrato = 0, extras = 0, deductivas = 0
   for (const it of items) {
     const imp = num(it.cant_periodo) * num(it.precio_unitario)
@@ -131,7 +140,12 @@ export function totalesDe(items: EstimacionItem[], opts: { amortizacionPct?: num
   }
   const descuento = -Math.abs((contrato + deductivas) * (num(opts.descuentoPct) / 100))
   const subtotal = contrato + deductivas + descuento + extras
-  const amortizacion = -Math.abs(subtotal * (num(opts.amortizacionPct) / 100))
+  // Por monto: el anticipo es dinero, no un porcentaje. Nunca más que el
+  // subtotal — devolver de más dejaría la estimación en negativo y le
+  // regresaría al cliente dinero que no dio en este periodo.
+  const amortizacion = opts.amortizacionModo === 'monto'
+    ? -Math.min(Math.abs(num(opts.amortizacionFija)), Math.max(0, subtotal))
+    : -Math.abs(subtotal * (num(opts.amortizacionPct) / 100))
   const baseIva = subtotal + amortizacion
   const iva = baseIva * (num(opts.ivaPct ?? 16) / 100)
   return { contrato, extras, deductivas, descuento, subtotal, amortizacion, baseIva, iva, total: baseIva + iva }
@@ -445,4 +459,46 @@ export async function borrarEstimacion(est: Pick<Estimacion, 'id' | 'numero' | '
     await supabase.from('estimaciones').update({ numero: e.numero - 1, updated_at: new Date().toISOString() }).eq('id', e.id)
   }
   return { ok: true, renumeradas: lista.length }
+}
+
+
+// ── El saldo del anticipo ──────────────────────────────────────────────────
+//
+// Un anticipo se devuelve hasta agotarse, así que lo que importa no es el
+// porcentaje de esta estimación sino CUÁNTO QUEDA. Sin este saldo a la vista,
+// el error clásico es amortizar de menos: se teclea un % que cuadraba con el
+// subtotal de hace dos semanas, el subtotal cambia, y el anticipo nunca
+// aterriza. Al final de la obra falta dinero por devolver y ya no hay contra
+// qué descontarlo.
+//
+// OJO con qué se cuenta como anticipo: SOLO el dinero que entró por adelantado.
+// Lo que el cliente pagó de estimaciones anteriores NO va aquí — eso se cobró
+// contra obra ejecutada, y volver a netearlo cobraría dos veces el mismo
+// trabajo.
+
+export interface SaldoAnticipo {
+  anticipo: number
+  amortizadoAntes: number
+  saldo: number
+  /** Lo que conviene amortizar aquí: el saldo, o lo que dé la estimación. */
+  sugerido: number
+}
+
+export async function saldoDeAnticipo(quotationId: string, numero: number, subtotalActual = 0): Promise<SaldoAnticipo> {
+  const [{ data: q }, { data: prev }] = await Promise.all([
+    supabase.from('quotations').select('anticipo_monto').eq('id', quotationId).maybeSingle(),
+    supabase.from('estimaciones')
+      .select('numero,estado,amortizacion_monto')
+      .eq('quotation_id', quotationId).neq('estado', 'cancelada').lt('numero', numero),
+  ])
+  const anticipo = num((q as any)?.anticipo_monto)
+  const amortizadoAntes = ((prev as any[]) || []).reduce((s, e) => s + Math.abs(num(e.amortizacion_monto)), 0)
+  const saldo = Math.max(0, anticipo - amortizadoAntes)
+  return { anticipo, amortizadoAntes, saldo, sugerido: Math.min(saldo, Math.max(0, subtotalActual)) }
+}
+
+export async function guardarAnticipo(quotationId: string, monto: number): Promise<{ ok: boolean; error?: string }> {
+  const { error } = await supabase.from('quotations')
+    .update({ anticipo_monto: Math.abs(num(monto)) || null }).eq('id', quotationId)
+  return error ? { ok: false, error: error.message } : { ok: true }
 }

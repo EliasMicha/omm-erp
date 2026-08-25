@@ -21,6 +21,7 @@ import {
   Estimacion, EstimacionItem, ESTADO_CFG, ESTIMACION_EN_FIRME,
   totalesDe, excedenteDe, disponibleDe, avanceDe,
   contratoEstimadoAntes, contextoDeContrato, borrarEstimacion,
+  saldoDeAnticipo, guardarAnticipo, SaldoAnticipo,
 } from '../lib/estimaciones'
 import { generarEstimacionPdf } from '../lib/estimacionPdf'
 
@@ -45,6 +46,8 @@ export default function EstimacionEditor() {
   const [soloConAvance, setSoloConAvance] = useState(false)
   const [exportando, setExportando] = useState(false)
   const [borrando, setBorrando] = useState(false)
+  const [saldo, setSaldo] = useState<SaldoAnticipo | null>(null)
+  const [anticipoTxt, setAnticipoTxt] = useState('')
 
   async function cargar() {
     if (!id) return
@@ -62,6 +65,16 @@ export default function EstimacionEditor() {
   }
   useEffect(() => { cargar() }, [id])
 
+  // El saldo del anticipo se recalcula con el subtotal vivo, para que el
+  // "sugerido" sea lo que de verdad cabe amortizar hoy.
+  useEffect(() => {
+    if (!est) return
+    saldoDeAnticipo(est.quotation_id, est.numero, T.subtotal).then(s => {
+      setSaldo(s)
+      setAnticipoTxt(s.anticipo ? String(s.anticipo) : '')
+    })
+  }, [est?.quotation_id, est?.numero, T.subtotal])
+
   // Aviso al salir con cambios sin guardar: una estimación a medio capturar
   // son horas de trabajo de alguien.
   useEffect(() => {
@@ -77,7 +90,10 @@ export default function EstimacionEditor() {
   const deContrato = useMemo(() => items.filter(i => i.origen === 'contrato'), [items])
   const deExtras = useMemo(() => items.filter(i => i.origen !== 'contrato'), [items])
   const excedentes = useMemo(() => deContrato.filter(i => excedenteDe(i) > 0), [deContrato])
-  const T = useMemo(() => totalesDe(items, { amortizacionPct: est?.amortizacion_pct, ivaPct: est?.iva_pct, descuentoPct: est?.descuento_pct }), [items, est])
+  const T = useMemo(() => totalesDe(items, {
+    amortizacionPct: est?.amortizacion_pct, ivaPct: est?.iva_pct, descuentoPct: est?.descuento_pct,
+    amortizacionModo: est?.amortizacion_modo, amortizacionFija: est?.amortizacion_fija,
+  }), [items, est])
 
   const porArea = useMemo(() => {
     const m = new Map<string, EstimacionItem[]>()
@@ -113,6 +129,8 @@ export default function EstimacionEditor() {
         subtotal_contrato: T.contrato, subtotal_extras: T.extras, subtotal_deductivas: T.deductivas,
         subtotal: T.subtotal, amortizacion_monto: T.amortizacion, iva: T.iva, total: T.total,
         descuento_pct: n(est.descuento_pct),
+        amortizacion_modo: est.amortizacion_modo || 'pct',
+        amortizacion_fija: est.amortizacion_modo === 'monto' ? n(est.amortizacion_fija) : null,
         periodo_inicio: est.periodo_inicio || null, periodo_fin: est.periodo_fin || null,
         amortizacion_pct: n(est.amortizacion_pct), notas: est.notas || null,
         updated_at: new Date().toISOString(),
@@ -224,7 +242,8 @@ export default function EstimacionEditor() {
         estado: est.estado,
         moneda,
         ivaPct: n(est.iva_pct),
-        amortizacionPct: n(est.amortizacion_pct),
+        amortizacionPct: T.subtotal > 0 ? Math.abs(T.amortizacion) / T.subtotal * 100 : 0,
+        amortizacionMonto: T.amortizacion,
         descuentoPct: n(est.descuento_pct),
         contrato: { nombre: ctx.nombre, total: ctx.total },
         cliente: ctx.cliente,
@@ -292,11 +311,28 @@ export default function EstimacionEditor() {
               style={{ ...inp, width: 130, textAlign: 'left' }} />
           </div>
         ))}
+        {/* Amortización: por MONTO o por %. El anticipo es dinero y se devuelve
+            hasta agotarse; el % es solo una comodidad cuando se quiere repartir
+            parejo. Por eso el saldo va a la vista. */}
         <div>
-          <div style={{ fontSize: 9, color: '#666', textTransform: 'uppercase', marginBottom: 3 }} title="Porcentaje de esta estimación que se descuenta para devolver el anticipo">Amortización de anticipo %</div>
-          <input type="number" disabled={bloqueada} value={est.amortizacion_pct ?? 0}
-            onChange={e => { setEst({ ...est, amortizacion_pct: Number(e.target.value) }); setSucio(true) }}
-            style={inp} />
+          <div style={{ fontSize: 9, color: '#666', textTransform: 'uppercase', marginBottom: 3 }}>Amortización</div>
+          <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+            <select disabled={bloqueada} value={est.amortizacion_modo || 'pct'}
+              onChange={e => { setEst({ ...est, amortizacion_modo: e.target.value as any }); setSucio(true) }}
+              style={{ ...inp, width: 78, textAlign: 'left' }}>
+              <option value="monto">Monto</option>
+              <option value="pct">%</option>
+            </select>
+            {(est.amortizacion_modo || 'pct') === 'monto' ? (
+              <input type="number" disabled={bloqueada} value={est.amortizacion_fija ?? 0}
+                onChange={e => { setEst({ ...est, amortizacion_fija: Number(e.target.value) }); setSucio(true) }}
+                style={{ ...inp, width: 110 }} />
+            ) : (
+              <input type="number" disabled={bloqueada} value={est.amortizacion_pct ?? 0}
+                onChange={e => { setEst({ ...est, amortizacion_pct: Number(e.target.value) }); setSucio(true) }}
+                style={inp} />
+            )}
+          </div>
         </div>
         {/* Descuento e IVA vienen del contrato, no de fábrica. Se pueden
             corregir aquí, pero se heredan al crear la estimación para que
@@ -313,19 +349,64 @@ export default function EstimacionEditor() {
             onChange={e => { setEst({ ...est, iva_pct: Number(e.target.value) }); setSucio(true) }}
             style={inp} />
         </div>
-        {contrato?.anticipo_monto ? <div style={{ fontSize: 10, color: '#666' }}>Anticipo del contrato: {F(n(contrato.anticipo_monto), moneda)}</div> : null}
+        <div>
+          <div style={{ fontSize: 9, color: '#666', textTransform: 'uppercase', marginBottom: 3 }} title="Solo el dinero recibido POR ADELANTADO. Los pagos de estimaciones anteriores no van aquí: eso ya se cobró contra obra ejecutada.">Anticipo recibido</div>
+          <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+            <input type="number" disabled={bloqueada} value={anticipoTxt}
+              onChange={e => setAnticipoTxt(e.target.value)}
+              onBlur={async e => {
+                if (!est) return
+                const v = Number(e.target.value) || 0
+                if (v === n(saldo?.anticipo)) return
+                await guardarAnticipo(est.quotation_id, v)
+                setSaldo(await saldoDeAnticipo(est.quotation_id, est.numero, T.subtotal))
+              }}
+              placeholder="0.00" style={{ ...inp, width: 120 }} />
+          </div>
+        </div>
         <label style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, color: '#888', cursor: 'pointer' }}>
           <input type="checkbox" checked={soloConAvance} onChange={e => setSoloConAvance(e.target.checked)} style={{ accentColor: '#10B981' }} />
           Ver solo lo que se ejecutó
         </label>
       </div>
 
+      {/* Saldo del anticipo: lo que falta por devolver. Sin esto, el error
+          clásico es amortizar de menos y darse cuenta al final de la obra. */}
+      {saldo && saldo.anticipo > 0 && (
+        <div style={{ marginBottom: 14, padding: '10px 12px', background: '#0f0f0f', border: '1px solid #1f1f1f', borderRadius: 8, display: 'flex', gap: 18, flexWrap: 'wrap', alignItems: 'center' }}>
+          {([
+            ['Anticipo recibido', saldo.anticipo, '#A78BFA'],
+            ['Amortizado antes', -saldo.amortizadoAntes, '#888'],
+            ['Amortizando aquí', T.amortizacion, '#A78BFA'],
+            ['Saldo después de ésta', Math.max(0, saldo.saldo - Math.abs(T.amortizacion)), saldo.saldo - Math.abs(T.amortizacion) > 0.5 ? '#D9A441' : '#10B981'],
+          ] as const).map(([l, v, c], i) => (
+            <div key={i}>
+              <div style={{ fontSize: 9, color: '#666', textTransform: 'uppercase', letterSpacing: '.05em' }}>{l}</div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: c as string }}>{F(v as number, moneda)}</div>
+            </div>
+          ))}
+          {!bloqueada && saldo.sugerido > 0 && Math.abs(Math.abs(T.amortizacion) - saldo.sugerido) > 0.5 && (
+            <Btn size="sm" variant="primary" style={{ marginLeft: 'auto' }}
+              onClick={() => { setEst({ ...est, amortizacion_modo: 'monto', amortizacion_fija: Math.round(saldo.sugerido * 100) / 100 } as any); setSucio(true) }}>
+              Amortizar {F(saldo.sugerido, moneda)}
+            </Btn>
+          )}
+          {saldo.saldo - Math.abs(T.amortizacion) > 0.5 && (
+            <div style={{ width: '100%', fontSize: 10, color: '#997', lineHeight: 1.6 }}>
+              Quedan {F(saldo.saldo - Math.abs(T.amortizacion), moneda)} de anticipo por devolver. Si no se amortizan en
+              estimaciones siguientes, al cerrar la obra ya no hay contra qué descontarlos.
+            </div>
+          )}
+        </div>
+      )}
+
       {/* KPIs */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 10, marginBottom: 14 }}>
         <Kpi label="Contrato (esta estim.)" valor={F(T.contrato, moneda)} color="#60A5FA" />
         <Kpi label="Extras" valor={F(T.extras, moneda)} color={T.extras > 0 ? '#D9A441' : '#666'} nota={`${deExtras.filter(i => i.origen === 'extra').length} renglón(es)`} />
         <Kpi label="Deductivas" valor={F(T.deductivas, moneda)} color={T.deductivas < 0 ? '#DC2626' : '#666'} />
-        <Kpi label="Amortización" valor={F(T.amortizacion, moneda)} color={T.amortizacion < 0 ? '#A78BFA' : '#666'} />
+        <Kpi label="Amortización" valor={F(T.amortizacion, moneda)} color={T.amortizacion < 0 ? '#A78BFA' : '#666'}
+          nota={(est.amortizacion_modo || 'pct') === 'monto' ? 'monto fijo del anticipo' : `${n(est.amortizacion_pct)}% del subtotal`} />
         <Kpi label="Subtotal a cobrar" valor={F(T.baseIva, moneda)} color="#ccc" />
         <Kpi label="Total con IVA" valor={F(T.total, moneda)} color="#10B981" />
       </div>
@@ -479,7 +560,10 @@ export default function EstimacionEditor() {
       <div style={{ marginTop: 18, padding: '12px 14px', background: '#0f0f0f', border: '1px solid #222', borderRadius: 8, maxWidth: 420, marginLeft: 'auto' }}>
         {([['Obra contratada ejecutada', T.contrato, '#ccc'], ['Deductivas', T.deductivas, '#DC2626'],
            [`Descuento de contrato (${n(est.descuento_pct)}%)`, T.descuento, '#DC2626'], ['Extras', T.extras, '#D9A441'],
-           ['Subtotal', T.subtotal, '#ccc'], [`Amortización de anticipo (${n(est.amortizacion_pct)}%)`, T.amortizacion, '#A78BFA'],
+           ['Subtotal', T.subtotal, '#ccc'],
+           [(est.amortizacion_modo || 'pct') === 'monto'
+             ? `Amortización de anticipo (${T.subtotal > 0 ? (Math.abs(T.amortizacion) / T.subtotal * 100).toFixed(2) : '0'}%)`
+             : `Amortización de anticipo (${n(est.amortizacion_pct)}%)`, T.amortizacion, '#A78BFA'],
            ['Base gravable', T.baseIva, '#ccc'], [`IVA ${n(est.iva_pct)}%`, T.iva, '#888']] as const).map(([l, v, c], i) => (
           <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, padding: '3px 0', color: '#888' }}>
             <span>{l}</span><span style={{ color: c as string, fontWeight: 600 }}>{F(v as number, moneda)}</span>
