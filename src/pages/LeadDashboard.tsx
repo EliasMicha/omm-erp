@@ -16,6 +16,7 @@ import jsPDF from 'jspdf'
 import { generarEstadoCuentaPdf } from '../lib/estadoCuentaPdf'
 import PaymentPlanModal from '../components/PaymentPlanModal'
 import EstimacionesLead from '../components/EstimacionesLead'
+import LevantamientoLead from '../components/LevantamientoLead'
 
 // ═══════════════════════════════════════════════════════════════════
 // TYPES
@@ -1159,6 +1160,9 @@ export default function LeadDashboard() {
                   </div>
                 )
               })()}
+
+              {/* ── Levantamiento: de dónde salen las actividades y sus fechas ── */}
+              <LevantamientoLead leadId={id!} leadNombre={lead?.name || ''} quien={authUser?.nombre || 'Dirección'} />
 
               {/* ── Estimaciones (obra eléctrica: se cobra por avance) ── */}
               <EstimacionesLead cotizaciones={quotations as any} />

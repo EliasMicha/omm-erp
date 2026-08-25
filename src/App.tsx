@@ -8,7 +8,6 @@ import CRM from './pages/CRM'
 import Cotizaciones from './pages/Cotizaciones'
 import EstimacionEditor from './pages/EstimacionEditor'
 import Proyectos from './pages/Proyectos'
-import Compromisos from './pages/Compromisos'
 import OtrosModulos from './pages/OtrosModulos'
 import Contabilidad from './pages/Contabilidad'
 import Clientes from './pages/Clientes'
@@ -66,7 +65,6 @@ export default function App() {
                     <Route path="/estimacion/:id" element={<EstimacionEditor />} />
                     <Route path="/compras" element={<Compras />} />
                     <Route path="/proyectos" element={<Proyectos />} />
-                    <Route path="/compromisos" element={<Compromisos />} />
                     <Route path="/contabilidad" element={
                       <ProtectedRoute allowedAreas={['Administracion']}>
                         <Contabilidad />
