@@ -28,6 +28,7 @@ import RadarVentas from './components/RadarVentas'
 import Cobranza from './pages/Cobranza'
 import Usuarios from './pages/Usuarios'
 import Archivados from './pages/Archivados'
+import Desempeno from './pages/Desempeno'
 import Mantenimiento from './pages/Mantenimiento'
 import ObraApp from './obra-app/ObraApp'
 import ChatBot from './components/ChatBot'
@@ -98,6 +99,7 @@ export default function App() {
                         <Finanzas />
                       </ProtectedRoute>
                     } />
+                    <Route path="/desempeno" element={<Desempeno />} />
                     <Route path="/archivados" element={<Archivados />} />
                     <Route path="/clientes" element={<Clientes />} />
                     <Route path="/catalogo" element={<Catalogo />} />
