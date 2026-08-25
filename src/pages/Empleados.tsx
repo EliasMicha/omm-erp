@@ -63,19 +63,39 @@ export default function Empleados() {
   const [filtroNivel, setFiltroNivel] = useState('todos')
   const [view, setView] = useState<'tabla' | 'organigrama'>('tabla')
   const [editingId, setEditingId] = useState<string | null>(null)
+  // Las bajas NO salen en ningún listado operativo del ERP. Aquí sí se pueden
+  // ver, a propósito y en su propia vista: es el único lugar donde tiene
+  // sentido consultar a quien ya no está —o reactivarlo si fue un error.
+  const [verBajas, setVerBajas] = useState(false)
 
   async function load() {
     setLoading(true)
     const { data } = await supabase
       .from('employees')
-      .select('id,nombre,puesto,area,nivel,email,phone,foto_url,reporta_a_id,activo,estado_empleado')
-      .eq('activo', true)
+      .select('id,nombre,puesto,area,nivel,email,phone,foto_url,reporta_a_id,activo,is_active,estado_empleado')
+      .eq('is_active', !verBajas)
       .order('nombre')
     setEmps(data || [])
     setLoading(false)
   }
 
-  useEffect(() => { load() }, [])
+  useEffect(() => { load() }, [verBajas])
+
+  /**
+   * Dar de baja apaga TODO de una vez: deja de aparecer en los listados, se
+   * le quita el acceso a las apps y se desactiva su usuario del ERP. Antes la
+   * baja se marcaba en una pantalla y el acceso vivía en otra columna que
+   * nadie volvía a tocar.
+   */
+  async function cambiarAlta(id: string, alta: boolean) {
+    const emp = emps.find(e => e.id === id)
+    if (!alta && !confirm(`¿Dar de baja a ${emp?.nombre}?\n\nDeja de aparecer en todos los listados, pierde el acceso a la app de obra y su usuario del ERP se desactiva. Su historial (tareas, entregas, nómina) se conserva.`)) return
+    if (alta && !confirm(`¿Reactivar a ${emp?.nombre}?\n\nVuelve a los listados, pero el acceso a las apps NO se le devuelve solo: eso se habilita aparte.`)) return
+    const { error } = await supabase.from('employees')
+      .update({ is_active: alta, estado_empleado: alta ? 'activo' : 'baja' }).eq('id', id)
+    if (error) { alert('No se pudo guardar: ' + error.message); return }
+    load()
+  }
 
   async function updateField(id: string, field: string, value: any) {
     setEmps(prev => prev.map(e => e.id === id ? { ...e, [field]: value } : e))
@@ -213,10 +233,24 @@ export default function Empleados() {
             color: filtroNivel === k ? v.color : '#555', fontWeight: 600,
           }}>{v.icon} {v.label}</button>
         ))}
+        <button onClick={() => { setVerBajas(v => !v); setEditingId(null) }} style={{
+          padding: '4px 10px', borderRadius: 20, fontSize: 10, cursor: 'pointer', fontFamily: 'inherit', marginLeft: 'auto',
+          border: `1px solid ${verBajas ? '#DC2626' : '#333'}`,
+          background: verBajas ? '#DC262622' : 'transparent',
+          color: verBajas ? '#DC2626' : '#555', fontWeight: 600,
+        }}>{verBajas ? '← Volver a los activos' : 'Ver bajas'}</button>
       </div>
 
+      {verBajas && (
+        <div style={{ background: '#1a1210', border: '1px solid #3a1a1a', borderRadius: 8, padding: '9px 13px', fontSize: 11.5, color: '#e0a0a0', marginBottom: 14, lineHeight: 1.6 }}>
+          Estás viendo personal <b>dado de baja</b>. No aparece en ningún listado operativo del ERP —ni para asignar
+          actividades, ni en entregas, ni en obra— y no puede entrar a las apps. Su historial se conserva completo.
+        </div>
+      )}
+
       {loading ? <Loading /> : view === 'tabla' ? (
-        <EmpTable emps={filtered} allEmps={emps} onUpdate={updateField} editingId={editingId} setEditingId={setEditingId} inputS={inputS} />
+        <EmpTable emps={filtered} allEmps={emps} onUpdate={updateField} editingId={editingId} setEditingId={setEditingId} inputS={inputS}
+          verBajas={verBajas} onAlta={cambiarAlta} />
       ) : (
         <OrgChart emps={emps} />
       )}
@@ -229,7 +263,7 @@ export default function Empleados() {
 // ═══════════════════════════════════════════════════════════════════
 
 function EmpTable({
-  emps, allEmps, onUpdate, editingId, setEditingId, inputS,
+  emps, allEmps, onUpdate, editingId, setEditingId, inputS, verBajas, onAlta,
 }: {
   emps: Emp[]
   allEmps: Emp[]
@@ -237,6 +271,8 @@ function EmpTable({
   editingId: string | null
   setEditingId: (id: string | null) => void
   inputS: React.CSSProperties
+  verBajas: boolean
+  onAlta: (id: string, alta: boolean) => void
 }) {
   const thS: React.CSSProperties = {
     padding: '8px 8px', fontSize: 9, fontWeight: 600, color: '#444',
@@ -261,12 +297,13 @@ function EmpTable({
             <th style={thS}>Nivel</th>
             <th style={thS}>Reporta a</th>
             <th style={thS}>Contacto</th>
+            <th style={{ ...thS, width: 90 }}>Alta</th>
             <th style={{ ...thS, width: 40 }}></th>
           </tr>
         </thead>
         <tbody>
           {emps.length === 0 && (
-            <tr><td colSpan={7}><EmptyState message="No se encontraron empleados con estos filtros" /></td></tr>
+            <tr><td colSpan={8}><EmptyState message={verBajas ? 'No hay personal dado de baja.' : 'No se encontraron empleados con estos filtros'} /></td></tr>
           )}
           {emps.map(e => {
             const isEditing = editingId === e.id
@@ -349,6 +386,20 @@ function EmpTable({
                   <span style={{ fontSize: 10, color: '#555' }}>
                     {e.email || e.phone || '—'}
                   </span>
+                </td>
+
+                {/* Alta / baja */}
+                <td style={tdS}>
+                  <button
+                    onClick={() => onAlta(e.id, verBajas)}
+                    style={{
+                      background: 'none', border: `1px solid ${verBajas ? '#10B98155' : '#DC262655'}`,
+                      borderRadius: 6, padding: '3px 8px', fontSize: 10, cursor: 'pointer',
+                      color: verBajas ? '#10B981' : '#DC2626', fontFamily: 'inherit', fontWeight: 600,
+                    }}
+                  >
+                    {verBajas ? 'Reactivar' : 'Dar de baja'}
+                  </button>
                 </td>
 
                 {/* Edit toggle */}

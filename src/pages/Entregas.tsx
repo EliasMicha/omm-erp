@@ -67,7 +67,8 @@ export default function Entregas() {
   async function loadBase() {
     const [oR, eR, pR, cotR] = await Promise.all([
       supabase.from('obras').select('id, nombre, project_id').order('nombre'),
-      supabase.from('employees').select('id, nombre, puesto, area').order('nombre'),
+      // Sin bajas: quien ya no trabaja aquí no puede recibir ni firmar una entrega.
+      supabase.from('employees').select('id, nombre, puesto, area').eq('is_active', true).order('nombre'),
       supabase.from('purchase_orders').select('id, po_number, project_id, status, supplier_id, quotation_id, lead_id').neq('status', 'cancelada').order('po_number', { ascending: false }).limit(300),
       supabase.from('quotations').select('notes, specialty').eq('stage', 'contrato').eq('vigente', true),
     ])

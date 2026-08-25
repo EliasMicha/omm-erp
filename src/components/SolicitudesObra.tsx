@@ -75,7 +75,8 @@ export default function SolicitudesObra({ isMobile, onIrACompras }: {
 
   // Choferes / personal para asignar la parada de la ruta.
   useEffect(() => {
-    supabase.from('employees').select('id,nombre,name').order('nombre')
+    // Solo gente en activo: un dado de baja no puede recibir una parada de ruta.
+    supabase.from('employees').select('id,nombre,name').eq('is_active', true).order('nombre')
       .then(({ data }) => setEmpleados(((data as any[]) || []).map(e => ({ id: e.id, nombre: e.nombre || e.name || 'Sin nombre' }))))
   }, [])
 

@@ -33,10 +33,13 @@ export default function ObraApp() {
   const [loading, setLoading] = useState(true)
 
   const loadEmployee = async (userId: string) => {
+    // is_active en el filtro, no solo en el select: una sesión abierta de
+    // alguien dado de baja deja de resolver empleado y la app lo saca.
     const { data } = await supabase
       .from('employees')
-      .select('id, nombre, puesto, area, foto_url, app_activo, mantenimiento_app')
+      .select('id, nombre, puesto, area, foto_url, app_activo, mantenimiento_app, is_active')
       .eq('auth_user_id', userId)
+      .eq('is_active', true)
       .maybeSingle()
     setEmployee(data as Employee | null)
   }

@@ -57,15 +57,22 @@ export default function LoginPage({ onLogin }: { onLogin: () => void }) {
       setError('No se pudo iniciar sesión')
       return
     }
-    // Check that this user is linked to an employee and is app_activo
+    // El empleado tiene que existir, seguir dado de alta y tener la app
+    // habilitada. Antes solo se miraba `app_activo`, así que alguien dado de
+    // baja seguía entrando mientras nadie se acordara de apagar esa casilla.
     const { data: emp } = await supabase
       .from('employees')
-      .select('id, nombre, app_activo, app_role')
+      .select('id, nombre, app_activo, app_role, is_active')
       .eq('auth_user_id', data.user!.id)
       .single()
     if (!emp) {
       await supabase.auth.signOut()
       setError('Este usuario no está vinculado a un empleado. Contacta al administrador.')
+      return
+    }
+    if (emp.is_active === false) {
+      await supabase.auth.signOut()
+      setError('Tu cuenta está dada de baja. Contacta al administrador.')
       return
     }
     if (!emp.app_activo) {
