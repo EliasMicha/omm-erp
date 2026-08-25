@@ -250,14 +250,19 @@ export interface DocIndex {
 }
 
 export async function cargarDocumentacion(): Promise<DocIndex[]> {
-  const [{ data: ents }, { data: tec }, { data: tipos }, { data: proys }] = await Promise.all([
+  const [{ data: ents }, { data: tec }, { data: tipos }, { data: proys }, { data: leads }] = await Promise.all([
     supabase.from('entregables').select('*').order('subido_at', { ascending: false }).limit(2000),
     supabase.from('obra_documentos').select('*').order('fecha_subida', { ascending: false }).limit(2000),
     supabase.from('entregable_tipos').select('id,nombre'),
     supabase.from('projects').select('id,name'),
+    // Los planos que llegan CON el lead, antes de que exista proyecto: se
+    // indexan igual, porque quien busca un plano meses después no se acuerda
+    // de si en ese momento ya había proyecto abierto.
+    supabase.from('leads').select('id,name,company'),
   ])
   const nombreTipo = new Map(((tipos as any[]) || []).map(t => [t.id, t.nombre]))
   const nombreProy = new Map(((proys as any[]) || []).map(p => [p.id, p.name]))
+  const nombreLead = new Map(((leads as any[]) || []).map(l => [l.id, l.name || l.company]))
 
   const a: DocIndex[] = ((ents as any[]) || []).map(e => ({
     id: e.id,
@@ -283,7 +288,7 @@ export async function cargarDocumentacion(): Promise<DocIndex[]> {
     tipo: d.tipo || 'Documento técnico',
     fecha: d.fecha_subida || d.created_at || new Date(0).toISOString(),
     project_id: d.project_id,
-    proyecto: nombreProy.get(d.project_id) || null,
+    proyecto: nombreProy.get(d.project_id) || nombreLead.get(d.lead_id) || null,
     specialty: d.sistema || null,
     estado: null,
     version: d.version || null,

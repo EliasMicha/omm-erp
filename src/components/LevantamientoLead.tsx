@@ -224,6 +224,16 @@ export default function LevantamientoLead({ leadId, leadNombre, quien }: {
                     style={{ ...inp, resize: 'vertical', lineHeight: 1.5 }} />
                 </div>
 
+                {/* A quién se le pregunta. Un ingeniero atorado con una duda
+                    técnica no tiene por qué buscar en el CRM quién factura. */}
+                <div style={{ marginBottom: 12 }}>
+                  <div style={lbl}>Contacto para dudas técnicas (RFI)</div>
+                  <input value={lev.contacto_rfi || ''}
+                    onChange={e => upd(lev.id, { contacto_rfi: e.target.value })}
+                    placeholder="Nombre y teléfono de a quién se le pregunta cuando el plano no dice algo"
+                    style={inp} />
+                </div>
+
                 {/* Áreas */}
                 <div style={lbl}>Qué áreas entran</div>
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>

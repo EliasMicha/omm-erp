@@ -17,6 +17,7 @@ import { generarEstadoCuentaPdf } from '../lib/estadoCuentaPdf'
 import PaymentPlanModal from '../components/PaymentPlanModal'
 import EstimacionesLead from '../components/EstimacionesLead'
 import LevantamientoLead from '../components/LevantamientoLead'
+import DocsLead from '../components/DocsLead'
 
 // ═══════════════════════════════════════════════════════════════════
 // TYPES
@@ -907,6 +908,20 @@ export default function LeadDashboard() {
       </>)}
 
       {/* ══════════ 1. COTIZACIONES ══════════ */}
+      {/* ══════════ LEVANTAMIENTO / SCOPE ══════════
+          Va ANTES de cotizaciones y fuera del bloque financiero. Estaba
+          metido dentro de "Saldo por cotización", que hace return temprano
+          cuando el lead no tiene contrato: justo los leads nuevos —los que
+          necesitan levantamiento— eran los únicos que no lo veían. */}
+      <div style={{ marginBottom: 16 }}>
+        <LevantamientoLead leadId={id!} leadNombre={lead?.name || ''} quien={authUser?.nombre || 'Dirección'} />
+      </div>
+
+      {/* ══════════ PLANOS Y DOCUMENTOS DEL LEAD ══════════ */}
+      <div style={{ marginBottom: 16, background: '#0f0f0f', border: '1px solid #1f1f1f', borderRadius: 10, padding: '12px 14px' }}>
+        <DocsLead leadId={id!} />
+      </div>
+
       <Section title="Cotizaciones" icon={<FileText size={14} />} count={quotations.length} expanded={expanded.cotizaciones} onToggle={() => toggle('cotizaciones')}>
         {quotations.length === 0 ? (
           <Empty text="Sin cotizaciones vinculadas" />
@@ -1160,9 +1175,6 @@ export default function LeadDashboard() {
                   </div>
                 )
               })()}
-
-              {/* ── Levantamiento: de dónde salen las actividades y sus fechas ── */}
-              <LevantamientoLead leadId={id!} leadNombre={lead?.name || ''} quien={authUser?.nombre || 'Dirección'} />
 
               {/* ── Estimaciones (obra eléctrica: se cobra por avance) ── */}
               <EstimacionesLead cotizaciones={quotations as any} />

@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase'
 import { archivarLead } from '../lib/archivo'
 import { Badge, Btn, Table, Th, Td, Loading, SectionHeader, EmptyState } from '../components/layout/UI'
 import { useIsMobile } from '../lib/useIsMobile'
+import { DOC_TIPOS, guardarDocLead } from '../components/DocsLead'
 import { Plus, X, Search, Trash2, Save, Sparkles, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
 import { SPECIALTY_CONFIG } from '../lib/utils'
 import { tcForYear, DEFAULT_TC } from '../lib/fx'
@@ -118,7 +119,13 @@ function NuevoLeadModal({ onClose, onCreated }: { onClose: () => void; onCreated
     origin: 'inbound' as LeadOrigin, needs: [] as ProjectLine[], notes: '', estimated_value: '',
     commercial_year: String(new Date().getFullYear()),
     expected_close_date: '', close_probability: '50',
+    // Lo que el equipo necesita para arrancar sin volver a preguntar
+    scope: '', contacto_rfi: '',
   })
+  // Documentos que ya tenemos del proyecto. Se guardan colgados del lead en
+  // cuanto se crea; no hay que esperar a que exista proyecto.
+  const [docs, setDocs] = useState<Array<{ nombre: string; tipo: string; url: string }>>([])
+  const [docTmp, setDocTmp] = useState({ nombre: '', tipo: 'plano', url: '' })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [clientes, setClientes] = useState<Array<{ id: string; nombre_comercial: string; razon_social: string; rfc: string; regimen_fiscal: string; codigo_postal: string; uso_cfdi_clave: string; email: string }>>([])
@@ -175,7 +182,7 @@ function NuevoLeadModal({ onClose, onCreated }: { onClose: () => void; onCreated
     setSaving(true); setError('')
     const notesData = form.notes || ''
     const notesWithClient = (form.client_final || form.client_id) ? JSON.stringify({ client_final: form.client_final, client_id: form.client_id || '', text: notesData }) : notesData
-    const { error: err } = await supabase.from('leads').insert({
+    const { data: nuevoLead, error: err } = await supabase.from('leads').insert({
       name: form.name.trim(), company: form.company || null,
       contact_name: form.contact_name || null, contact_phone: form.contact_phone || null,
       contact_email: form.contact_email || null, origin: form.origin, status: 'nuevo',
@@ -184,9 +191,25 @@ function NuevoLeadModal({ onClose, onCreated }: { onClose: () => void; onCreated
       commercial_year: form.commercial_year ? parseInt(form.commercial_year, 10) || null : null,
       expected_close_date: form.expected_close_date || null,
       close_probability: form.close_probability ? Math.max(0, Math.min(100, parseInt(form.close_probability, 10))) : null,
-    })
+    }).select('id').single()
+    if (err) { setSaving(false); setError(err.message); return }
+
+    const leadId = (nuevoLead as any)?.id
+    if (leadId) {
+      // Si vino alcance o contacto de RFI, el levantamiento nace ya: es el
+      // documento del que después salen las actividades y sus fechas.
+      if (form.scope.trim() || form.contacto_rfi.trim()) {
+        await supabase.from('levantamientos').insert({
+          lead_id: leadId,
+          indicaciones: form.scope.trim() || null,
+          contacto_rfi: form.contacto_rfi.trim() || null,
+          // origen/estado/urgencia toman su default: 'oficina' / 'borrador' / 'normal'.
+        })
+      }
+      for (const d of docs) await guardarDocLead(leadId, d)
+    }
+
     setSaving(false)
-    if (err) { setError(err.message); return }
     onCreated()
   }
 
@@ -326,6 +349,69 @@ function NuevoLeadModal({ onClose, onCreated }: { onClose: () => void; onCreated
           <Chips label="Especialidades de interes" value={form.needs}
             onChange={toggleNeed as (v: string) => void}
             options={Object.entries(SPECIALTY_CONFIG).map(([k, v]) => ({ key: k as ProjectLine, label: v.label, color: v.color }))} />
+          {/* ── Lo que el equipo necesita para arrancar ──
+              Va aquí y no "después", porque después es cuando alguien vuelve
+              a pedir la carpeta de planos por WhatsApp. */}
+          <div style={{ borderTop: '1px solid #242424', paddingTop: 14 }}>
+            <div style={{ fontSize: 11, color: '#67E8F9', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 3 }}>
+              Para que el equipo arranque
+            </div>
+            <div style={{ fontSize: 11, color: '#666', marginBottom: 10, lineHeight: 1.5 }}>
+              Opcional, pero cada dato que pongas aquí es una pregunta que nadie va a tener que hacer después.
+            </div>
+
+            <label style={{ fontSize: 11, color: '#555', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+              Alcance / lo que se necesita
+              <textarea value={form.scope} onChange={e => s('scope')(e.target.value)} rows={3}
+                placeholder="Pega aquí lo que te llegó por WhatsApp o correo: qué piden, superficie, niveles, qué sistemas, tiempos..."
+                style={{ display: 'block', width: '100%', marginTop: 4, padding: '8px 10px', background: '#1e1e1e', border: '1px solid #333', borderRadius: 8, color: '#fff', fontSize: 13, fontFamily: 'inherit', resize: 'vertical' as const, boxSizing: 'border-box' as const }} />
+            </label>
+
+            <div style={{ marginTop: 12 }}>
+              <Field label="Contacto para dudas técnicas (RFI)" value={form.contacto_rfi} onChange={s('contacto_rfi')}
+                placeholder="Nombre y teléfono de a quién se le pregunta" />
+              <div style={{ fontSize: 10.5, color: '#666', marginTop: 4, lineHeight: 1.5 }}>
+                No es el contacto comercial: es a quién le pregunta el ingeniero cuando el plano no dice algo.
+              </div>
+            </div>
+
+            <div style={{ marginTop: 14 }}>
+              <div style={{ fontSize: 11, color: '#555', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>
+                Planos y documentos que ya tenemos
+              </div>
+              {docs.map((d, i) => (
+                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 0', borderBottom: '1px solid #1e1e1e' }}>
+                  <span style={{ fontSize: 12, color: '#ddd', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.nombre}</span>
+                  <span style={{ fontSize: 10, color: '#666' }}>{DOC_TIPOS.find(t => t.key === d.tipo)?.label}</span>
+                  <button onClick={() => setDocs(x => x.filter((_, j) => j !== i))}
+                    style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer', display: 'flex' }}><X size={13} /></button>
+                </div>
+              ))}
+              <div style={{ display: 'flex', gap: 6, marginTop: 7, flexWrap: 'wrap' }}>
+                <input value={docTmp.url} onChange={e => setDocTmp(d => ({ ...d, url: e.target.value }))}
+                  placeholder="https://drive.google.com/…"
+                  style={{ flex: 1, minWidth: 170, padding: '7px 9px', background: '#1e1e1e', border: '1px solid #333', borderRadius: 8, color: '#fff', fontSize: 12, fontFamily: 'inherit', boxSizing: 'border-box' as const }} />
+                <input value={docTmp.nombre} onChange={e => setDocTmp(d => ({ ...d, nombre: e.target.value }))}
+                  placeholder="Nombre"
+                  style={{ width: 150, padding: '7px 9px', background: '#1e1e1e', border: '1px solid #333', borderRadius: 8, color: '#fff', fontSize: 12, fontFamily: 'inherit', boxSizing: 'border-box' as const }} />
+                <select value={docTmp.tipo} onChange={e => setDocTmp(d => ({ ...d, tipo: e.target.value }))}
+                  style={{ width: 130, padding: '7px 9px', background: '#1e1e1e', border: '1px solid #333', borderRadius: 8, color: '#fff', fontSize: 12, fontFamily: 'inherit' }}>
+                  {DOC_TIPOS.map(t => <option key={t.key} value={t.key}>{t.label}</option>)}
+                </select>
+                <button onClick={() => {
+                  if (!/^https?:\/\//i.test(docTmp.url)) return
+                  setDocs(x => [...x, { ...docTmp, nombre: docTmp.nombre.trim() || 'Documento' }])
+                  setDocTmp({ nombre: '', tipo: 'plano', url: '' })
+                }} style={{ padding: '7px 12px', background: '#10B98122', border: '1px solid #10B98155', borderRadius: 8, color: '#10B981', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
+                  Agregar
+                </button>
+              </div>
+              <div style={{ fontSize: 10.5, color: '#666', marginTop: 5, lineHeight: 1.5 }}>
+                Links de Drive aquí; los archivos pesados se suben dentro del lead una vez creado.
+              </div>
+            </div>
+          </div>
+
           <label style={{ fontSize: 11, color: '#555', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
             Notas
             <textarea value={form.notes} onChange={e => s('notes')(e.target.value)} rows={3} placeholder="Contexto del lead, quien refirio, detalles del proyecto..."

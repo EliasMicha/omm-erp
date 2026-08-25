@@ -63,6 +63,8 @@ export interface Levantamiento {
   origen_texto?: string | null
   urgencia: Urgencia
   indicaciones?: string | null
+  /** A quién se le preguntan las dudas técnicas. No es el contacto comercial. */
+  contacto_rfi?: string | null
   estado: EstadoLev
   derivado_at?: string | null
   notas?: string | null
