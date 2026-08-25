@@ -18,16 +18,21 @@
 // ═══════════════════════════════════════════════════════════════════════════
 import { supabase } from './supabase'
 
-export type TipoTarea = 'proyecto' | 'cotizacion' | 'levantamiento' | 'licitacion' | 'revision' | 'otro'
+export type TipoTarea = 'proyecto' | 'cotizacion' | 'levantamiento' | 'licitacion' | 'revision' | 'mejora' | 'interna' | 'otro'
 export type UrgenciaTarea = 'urgente' | 'alta' | 'normal' | 'baja'
 
-export const TIPO_CFG: Record<TipoTarea, { label: string; color: string; icono: string }> = {
-  proyecto:      { label: 'Proyecto',      color: '#2563EB', icono: '▣' },
-  cotizacion:    { label: 'Cotización',    color: '#10B981', icono: '$' },
-  levantamiento: { label: 'Levantamiento', color: '#67E8F9', icono: '⌕' },
-  licitacion:    { label: 'Licitación',    color: '#A78BFA', icono: '⚖' },
-  revision:      { label: 'Revisión',      color: '#D9A441', icono: '✓' },
-  otro:          { label: 'Otro',          color: '#6B7280', icono: '•' },
+export const TIPO_CFG: Record<TipoTarea, { label: string; color: string; icono: string; deCliente: boolean }> = {
+  // De un cliente: nacen de un lead o de un proyecto.
+  proyecto:      { label: 'Proyecto',      color: '#2563EB', icono: '▣', deCliente: true },
+  cotizacion:    { label: 'Cotización',    color: '#10B981', icono: '$', deCliente: true },
+  levantamiento: { label: 'Levantamiento', color: '#67E8F9', icono: '⌕', deCliente: true },
+  licitacion:    { label: 'Licitación',    color: '#A78BFA', icono: '⚖', deCliente: true },
+  revision:      { label: 'Revisión',      color: '#D9A441', icono: '✓', deCliente: true },
+  // De la casa: no hay cliente detrás y por eso son las primeras que se
+  // posponen. Existen aquí justamente para que dejen de ser invisibles.
+  mejora:        { label: 'Mejora',        color: '#F472B6', icono: '↑', deCliente: false },
+  interna:       { label: 'Interna',       color: '#94A3B8', icono: '⚙', deCliente: false },
+  otro:          { label: 'Otro',          color: '#6B7280', icono: '•', deCliente: false },
 }
 
 export const URGENCIA_TAREA_CFG: Record<UrgenciaTarea, { label: string; color: string; prioridad: number }> = {
@@ -205,4 +210,60 @@ export function resumir(ts: Tarea[]): ResumenTareas {
     hoy: ts.filter(t => e(t) === 'hoy').length,
     aTiempo: ts.filter(t => ['proxima', 'lejana'].includes(e(t))).length,
   }
+}
+
+
+// ── Pasos (checklist de la tarea) ──────────────────────────────────────────
+//
+// Una mejora —"documentar el proceso de compras", "montar la plantilla de
+// memorias"— no es una sola acción: son cinco pasos que se hacen en semanas.
+// Sin pasos, o se queda eternamente en 0% o alguien la marca terminada sin
+// estarlo. Los pasos ya existían para las tareas de proyecto; aquí se abren a
+// cualquier tarea.
+
+export interface Paso {
+  id: string
+  task_id: string
+  text: string
+  completed: boolean
+  order_index: number
+}
+
+export async function pasosDe(tareaId: string): Promise<Paso[]> {
+  const { data } = await supabase.from('project_task_subtasks')
+    .select('id,task_id,text,completed,order_index').eq('task_id', tareaId).order('order_index')
+  return ((data as any[]) || []) as Paso[]
+}
+
+export async function agregarPaso(tareaId: string, texto: string, orden: number): Promise<{ ok: boolean; error?: string }> {
+  if (!texto.trim()) return { ok: false, error: 'El paso necesita texto.' }
+  const { error } = await supabase.from('project_task_subtasks')
+    .insert({ task_id: tareaId, text: texto.trim(), completed: false, order_index: orden })
+  return error ? { ok: false, error: error.message } : { ok: true }
+}
+
+export async function borrarPaso(pasoId: string): Promise<void> {
+  await supabase.from('project_task_subtasks').delete().eq('id', pasoId)
+}
+
+/**
+ * Marca un paso y recalcula el avance de la tarea. El progreso deja de ser un
+ * número que alguien teclea: sale de los pasos que de verdad se cerraron.
+ * Si se cierran todos, la tarea se da por terminada; si se reabre uno, la
+ * tarea vuelve a estar en curso — sin eso, una tarea "completada" con pasos
+ * abiertos miente.
+ */
+export async function marcarPaso(pasoId: string, tareaId: string, hecho: boolean): Promise<number> {
+  await supabase.from('project_task_subtasks').update({ completed: hecho }).eq('id', pasoId)
+  const pasos = await pasosDe(tareaId)
+  if (pasos.length === 0) return 0
+  const listos = pasos.filter(p => p.completed).length
+  const pct = Math.round((listos / pasos.length) * 100)
+  await supabase.from('project_tasks').update({
+    progress: pct,
+    status: pct === 100 ? 'completada' : 'en_progreso',
+    completed_at: pct === 100 ? new Date().toISOString() : null,
+    updated_at: new Date().toISOString(),
+  }).eq('id', tareaId)
+  return pct
 }

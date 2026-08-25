@@ -13,11 +13,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { Badge } from './layout/UI'
-import { Check, AlertTriangle, Plus, Users } from 'lucide-react'
+import { Check, AlertTriangle, Plus, Users, X, ListChecks } from 'lucide-react'
 import {
-  Tarea, TipoTarea, UrgenciaTarea, TIPO_CFG, URGENCIA_TAREA_CFG, AREAS_TRABAJO,
+  Tarea, TipoTarea, UrgenciaTarea, Paso, TIPO_CFG, URGENCIA_TAREA_CFG, AREAS_TRABAJO,
   tareasDe, tareasDeArea, delegar, actualizarTarea, crearTarea,
   estadoFecha, ordenarTareas, resumir,
+  pasosDe, agregarPaso, borrarPaso, marcarPaso,
 } from '../lib/tareas'
 
 interface Emp { id: string; name: string; area?: string | null; puesto?: string | null }
@@ -35,6 +36,10 @@ export default function MisTareas({ employeeId, nombre, esDG, isMobile }: {
   const [cargando, setCargando] = useState(true)
   const [nueva, setNueva] = useState(false)
   const [form, setForm] = useState({ name: '', tipo: 'cotizacion' as TipoTarea, specialty: '', urgencia: 'normal' as UrgenciaTarea, due_date: '', assignee_id: '' })
+  const [expandida, setExpandida] = useState('')
+  const [pasos, setPasos] = useState<Record<string, Paso[]>>({})
+  const [nuevoPaso, setNuevoPaso] = useState('')
+  const [soloCasa, setSoloCasa] = useState(false)
 
   const yo = useMemo(() => empleados.find(e => e.id === employeeId), [empleados, employeeId])
   const miSpecialty = useMemo(
@@ -55,7 +60,12 @@ export default function MisTareas({ employeeId, nombre, esDG, isMobile }: {
     if (vista === 'area' && miSpecialty) tareasDeArea(miSpecialty).then(setArea)
   }, [vista, miSpecialty])
 
-  const lista = ordenarTareas(vista === 'mias' ? mias : area)
+  const base = vista === 'mias' ? mias : area
+  // «De la casa» = lo que no tiene cliente detrás: mejoras e internas. Son las
+  // primeras que se posponen porque nadie las reclama, así que tienen su
+  // propio filtro para poder mirarlas a solas.
+  const lista = ordenarTareas(soloCasa ? base.filter(t => !TIPO_CFG[t.tipo]?.deCliente) : base)
+  const deCasa = base.filter(t => !TIPO_CFG[t.tipo]?.deCliente).length
   const res = resumir(lista)
   const nombreDe = (id?: string | null) => empleados.find(e => e.id === id)?.name || '—'
   const equipo = empleados.filter(e => e.area === yo?.area)
@@ -75,6 +85,37 @@ export default function MisTareas({ employeeId, nombre, esDG, isMobile }: {
     await delegar(t.id, aQuien, employeeId || null)
     if (vista === 'area' && miSpecialty) tareasDeArea(miSpecialty).then(setArea)
     if (employeeId) tareasDe(employeeId).then(setMias)
+  }
+
+  async function abrirPasos(t: Tarea) {
+    if (expandida === t.id) { setExpandida(''); return }
+    setExpandida(t.id)
+    const ps = await pasosDe(t.id)
+    setPasos(p => ({ ...p, [t.id]: ps }))
+  }
+
+  async function togglePaso(t: Tarea, paso: Paso) {
+    const pct = await marcarPaso(paso.id, t.id, !paso.completed)
+    setPasos(p => ({ ...p, [t.id]: (p[t.id] || []).map(x => x.id === paso.id ? { ...x, completed: !paso.completed } : x) }))
+    const patch = { progress: pct, status: pct === 100 ? 'completada' : 'en_progreso' }
+    setMias(p => p.map(x => x.id === t.id ? { ...x, ...patch } as Tarea : x))
+    setArea(p => p.map(x => x.id === t.id ? { ...x, ...patch } as Tarea : x))
+    if (pct === 100) cargar()
+  }
+
+  async function nuevoPasoEn(t: Tarea) {
+    if (!nuevoPaso.trim()) return
+    const orden = (pasos[t.id] || []).length
+    const r = await agregarPaso(t.id, nuevoPaso, orden)
+    if (r.error) { alert(r.error); return }
+    setNuevoPaso('')
+    const ps = await pasosDe(t.id)
+    setPasos(p => ({ ...p, [t.id]: ps }))
+  }
+
+  async function quitarPaso(t: Tarea, pasoId: string) {
+    await borrarPaso(pasoId)
+    setPasos(p => ({ ...p, [t.id]: (p[t.id] || []).filter(x => x.id !== pasoId) }))
   }
 
   async function guardarNueva() {
@@ -123,6 +164,15 @@ export default function MisTareas({ employeeId, nombre, esDG, isMobile }: {
               <Users size={11} style={{ verticalAlign: -1 }} /> {vista === 'area' ? 'Ver solo lo mío' : 'Ver toda mi área'}
             </button>
           )}
+          {deCasa > 0 && (
+            <button onClick={() => setSoloCasa(v => !v)}
+              title="Mejoras y tareas internas: las que no tienen cliente detrás"
+              style={{ padding: '4px 11px', fontSize: 11, fontFamily: 'inherit', cursor: 'pointer', borderRadius: 6,
+                border: '1px solid ' + (soloCasa ? '#F472B6' : '#2a2a2a'),
+                background: soloCasa ? '#F472B622' : 'transparent', color: soloCasa ? '#F472B6' : '#888' }}>
+              De la casa ({deCasa})
+            </button>
+          )}
           <button onClick={() => setNueva(n => !n)}
             style={{ padding: '4px 11px', fontSize: 11, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer', borderRadius: 6, border: '1px solid #10B98155', background: '#10B98122', color: '#10B981' }}>
             <Plus size={11} style={{ verticalAlign: -1 }} /> Nueva tarea
@@ -134,7 +184,14 @@ export default function MisTareas({ employeeId, nombre, esDG, isMobile }: {
         <div style={{ padding: '10px 12px', background: '#0f0f0f', border: '1px solid #1f1f1f', borderRadius: 10, marginBottom: 10, display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '2fr 130px 140px 120px 110px 90px', gap: 7 }}>
           <input value={form.name} placeholder="Qué hay que hacer" onChange={e => setForm(f => ({ ...f, name: e.target.value }))} style={inp} />
           <select value={form.tipo} onChange={e => setForm(f => ({ ...f, tipo: e.target.value as TipoTarea }))} style={inp}>
-            {(Object.keys(TIPO_CFG) as TipoTarea[]).filter(t => t !== 'proyecto').map(t => <option key={t} value={t}>{TIPO_CFG[t].label}</option>)}
+            <optgroup label="De un cliente">
+              {(Object.keys(TIPO_CFG) as TipoTarea[]).filter(t => t !== 'proyecto' && TIPO_CFG[t].deCliente)
+                .map(t => <option key={t} value={t}>{TIPO_CFG[t].label}</option>)}
+            </optgroup>
+            <optgroup label="De la casa">
+              {(Object.keys(TIPO_CFG) as TipoTarea[]).filter(t => !TIPO_CFG[t].deCliente)
+                .map(t => <option key={t} value={t}>{TIPO_CFG[t].label}</option>)}
+            </optgroup>
           </select>
           <select value={form.specialty || miSpecialty} onChange={e => setForm(f => ({ ...f, specialty: e.target.value }))} style={inp}>
             <option value="">Área…</option>
@@ -166,7 +223,8 @@ export default function MisTareas({ employeeId, nombre, esDG, isMobile }: {
           const ucfg = URGENCIA_TAREA_CFG[t.urgencia] || URGENCIA_TAREA_CFG.normal
           const proyecto = (t as any).project?.name
           return (
-            <div key={t.id} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', padding: '9px 12px', borderBottom: '1px solid #161616', background: ef.estado === 'vencida' ? '#1c1212' : ef.estado === 'sin_fecha' ? '#1a1710' : 'transparent' }}>
+            <div key={t.id} style={{ borderBottom: '1px solid #161616', background: ef.estado === 'vencida' ? '#1c1212' : ef.estado === 'sin_fecha' ? '#1a1710' : 'transparent' }}>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start', padding: '9px 12px' }}>
               <button onClick={() => completar(t)} title="Marcar terminada"
                 style={{ marginTop: 2, width: 16, height: 16, borderRadius: 4, border: '1px solid #333', background: 'transparent', cursor: 'pointer', color: '#10B981', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                 <Check size={10} />
@@ -180,6 +238,9 @@ export default function MisTareas({ employeeId, nombre, esDG, isMobile }: {
                   {t.urgencia !== 'normal' && <span style={{ color: ucfg.color, fontWeight: 700 }}>· {ucfg.label}</span>}
                   {vista === 'area' && <span>· {nombreDe(t.assignee_id)}</span>}
                   {t.solicitada_por && <span style={{ color: '#555' }}>· pidió {t.solicitada_por}</span>}
+                  <span onClick={() => abrirPasos(t)} style={{ color: '#67E8F9', cursor: 'pointer' }}>
+                    · <ListChecks size={10} style={{ verticalAlign: -1 }} /> pasos{typeof t.progress === 'number' && t.progress > 0 ? ` ${t.progress}%` : ''}
+                  </span>
                 </div>
               </div>
               <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexShrink: 0 }}>
@@ -194,6 +255,31 @@ export default function MisTareas({ employeeId, nombre, esDG, isMobile }: {
                   title="Fecha de entrega" style={{ ...inp, width: 122, fontSize: 10, borderColor: ef.estado === 'sin_fecha' ? '#DC262666' : '#242424' }} />
                 <Badge label={ef.label} color={ef.color} />
               </div>
+            </div>
+
+            {/* Pasos — el checklist. Una mejora no es una acción: son cinco
+                pasos en tres semanas. Sin esto se queda en 0% para siempre,
+                o alguien la da por hecha sin estarlo. */}
+            {expandida === t.id && (
+              <div style={{ padding: '2px 12px 10px 40px' }}>
+                {(pasos[t.id] || []).map(ps => (
+                  <div key={ps.id} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '3px 0' }}>
+                    <input type="checkbox" checked={ps.completed} onChange={() => togglePaso(t, ps)} style={{ accentColor: '#10B981' }} />
+                    <span style={{ fontSize: 11, color: ps.completed ? '#555' : '#ccc', textDecoration: ps.completed ? 'line-through' : 'none', flex: 1 }}>{ps.text}</span>
+                    <button onClick={() => quitarPaso(t, ps.id)} style={{ background: 'none', border: 'none', color: '#444', cursor: 'pointer', display: 'flex' }}><X size={11} /></button>
+                  </div>
+                ))}
+                {(pasos[t.id] || []).length === 0 && (
+                  <div style={{ fontSize: 10, color: '#555', padding: '3px 0' }}>Sin pasos. Agrégalos si la tarea es de varias sentadas.</div>
+                )}
+                <div style={{ display: 'flex', gap: 6, marginTop: 5 }}>
+                  <input value={nuevoPaso} placeholder="Agregar paso y Enter"
+                    onChange={e => setNuevoPaso(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); nuevoPasoEn(t) } }}
+                    style={{ ...inp, flex: 1, maxWidth: 340 }} />
+                </div>
+              </div>
+            )}
             </div>
           )
         })}
