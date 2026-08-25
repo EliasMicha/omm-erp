@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth, PermissionArea, UserNivel } from '../contexts/AuthContext'
-import { rolDe, ROL_CFG } from '../lib/roles'
+import { rolesDe, ROL_CFG } from '../lib/roles'
 
 interface AppUser {
   id: string
@@ -22,6 +22,7 @@ interface Employee {
   puesto: string | null
   area: string | null
   is_active: boolean | null
+  roles_extra?: string[] | null
 }
 
 const AREAS: { value: PermissionArea; label: string }[] = [
@@ -70,7 +71,7 @@ export default function Usuarios() {
     // is_active es la columna que usa el resto del ERP (Actividades, Tareas,
     // Documentación). `employees.activo` existe también y no siempre coincide;
     // leer dos verdades distintas era parte del problema.
-    const { data } = await supabase.from('employees').select('id, name, nombre, email, puesto, area, is_active').order('name')
+    const { data } = await supabase.from('employees').select('id, name, nombre, email, puesto, area, is_active, roles_extra').order('name')
     setEmployees((data as Employee[]) || [])
   }
 
@@ -335,8 +336,12 @@ export default function Usuarios() {
                 <td style={{ padding: '10px 12px' }}>
                   {u.employee_id ? (() => {
                     const emp = employees.find(e => e.id === u.employee_id)
-                    const r = rolDe(emp?.puesto)
-                    return <span style={{ fontSize: 12, color: ROL_CFG[r].color }}>{ROL_CFG[r].label}</span>
+                    const rs = rolesDe(emp || {})
+                    return (
+                      <span style={{ fontSize: 12 }}>
+                        {rs.map((r, i) => <span key={r} style={{ color: ROL_CFG[r].color }}>{i > 0 ? ' + ' : ''}{ROL_CFG[r].label}</span>)}
+                      </span>
+                    )
                   })() : <span style={{ fontSize: 12, color: '#555' }}>—</span>}
                 </td>
                 <td style={{ padding: '10px 12px' }}>

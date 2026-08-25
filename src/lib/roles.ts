@@ -52,11 +52,33 @@ export interface EmpleadoRol {
   name: string
   area?: string | null
   puesto?: string | null
+  /** El rol principal, el que sale del puesto. */
   rol: Rol
+  /** Todos los sombreros que trae, incluido el principal. */
+  roles: Rol[]
 }
 
-export const conRol = (e: { id: string; name: string; area?: string | null; puesto?: string | null }): EmpleadoRol =>
-  ({ ...e, rol: rolDe(e.puesto) })
+/**
+ * Los roles de una persona: el que sale del puesto más los adicionales.
+ *
+ * En un despacho chico una persona trae varios sombreros —el director de
+ * Eléctricas es además el ingeniero del área— y forzar un solo rol hacía que
+ * el sistema creyera que esa área no tenía ingeniero. Los extras se capturan
+ * en Empleados; el puesto sigue mandando para el principal.
+ */
+export function rolesDe(e: { puesto?: string | null; roles_extra?: string[] | null }): Rol[] {
+  const principal = rolDe(e.puesto)
+  const extras = (e.roles_extra || []).filter((r): r is Rol => (ROLES_GABINETE as string[]).includes(r) || r in ROL_CFG)
+  return [principal, ...extras.filter(r => r !== principal)]
+}
+
+export const conRol = (e: { id: string; name: string; area?: string | null; puesto?: string | null; roles_extra?: string[] | null }): EmpleadoRol =>
+  ({ ...e, rol: rolDe(e.puesto), roles: rolesDe(e) })
+
+export const tieneRol = (e: EmpleadoRol, rol: Rol) => (e.roles || [e.rol]).includes(rol)
+
+/** Quién trae más de un sombrero, para poder decirlo en vez de esconderlo. */
+export const rolesDobles = (e: EmpleadoRol) => (e.roles || []).length > 1
 
 /**
  * A quién le toca una actividad de rol X en el área Y.
@@ -67,12 +89,26 @@ export const conRol = (e: { id: string; name: string; area?: string | null; pues
  * porque adivinar a quién le toca es justo lo que rompe la responsabilidad.
  */
 export function resolverResponsable(empleados: EmpleadoRol[], rol: Rol, area?: string | null): string | null {
-  const candidatos = empleados.filter(e => e.rol === rol && (!area || e.area === area))
+  const candidatos = empleados.filter(e => tieneRol(e, rol) && (!area || e.area === area))
   if (candidatos.length === 1) return candidatos[0].id
   // El director de un área es único por definición; si el área no tiene, se
   // deja sin dueño en vez de colgárselo a un director de otra área.
   if (rol === 'director' && candidatos.length > 1) return candidatos[0].id
   return null
+}
+
+/**
+ * Cuando la misma persona ejecuta y revisa, la revisión no es independiente.
+ * No es un error —en un área de dos personas es inevitable— pero tiene que
+ * decirse: un "aceptado a la primera" donde el autor se aprobó a sí mismo no
+ * significa lo mismo que uno revisado por otro.
+ */
+export function revisionNoIndependiente(empleados: EmpleadoRol[], rolEjecuta: Rol, area?: string | null): boolean {
+  if (rolEjecuta === 'director') return true
+  const ejecutan = empleados.filter(e => tieneRol(e, rolEjecuta) && (!area || e.area === area))
+  const revisan = empleados.filter(e => tieneRol(e, 'director') && (!area || e.area === area))
+  if (ejecutan.length === 0 || revisan.length === 0) return false
+  return ejecutan.every(e => revisan.some(r => r.id === e.id))
 }
 
 

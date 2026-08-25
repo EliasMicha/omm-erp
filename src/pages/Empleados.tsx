@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase'
 import { SectionHeader, Badge, Loading, EmptyState } from '../components/layout/UI'
 import { Search, X, Users, ChevronDown, ChevronRight } from 'lucide-react'
 import { useIsMobile } from '../lib/useIsMobile'
+import { Rol, ROL_CFG, ROLES_GABINETE, rolDe, rolesDe } from '../lib/roles'
 
 // ═══════════════════════════════════════════════════════════════════
 // TYPES & CONFIG
@@ -18,6 +19,7 @@ interface Emp {
   phone: string | null
   foto_url: string | null
   reporta_a_id: string | null
+  roles_extra?: string[] | null
   activo: boolean
   estado_empleado: string | null
 }
@@ -72,7 +74,7 @@ export default function Empleados() {
     setLoading(true)
     const { data } = await supabase
       .from('employees')
-      .select('id,nombre,puesto,area,nivel,email,phone,foto_url,reporta_a_id,activo,is_active,estado_empleado')
+      .select('id,nombre,puesto,area,nivel,email,phone,foto_url,reporta_a_id,activo,is_active,estado_empleado,roles_extra')
       .eq('is_active', !verBajas)
       .order('nombre')
     setEmps(data || [])
@@ -295,6 +297,7 @@ function EmpTable({
             <th style={thS}>Puesto</th>
             <th style={thS}>Área</th>
             <th style={thS}>Nivel</th>
+            <th style={thS}>Roles</th>
             <th style={thS}>Reporta a</th>
             <th style={thS}>Contacto</th>
             <th style={{ ...thS, width: 90 }}>Alta</th>
@@ -303,7 +306,7 @@ function EmpTable({
         </thead>
         <tbody>
           {emps.length === 0 && (
-            <tr><td colSpan={8}><EmptyState message={verBajas ? 'No hay personal dado de baja.' : 'No se encontraron empleados con estos filtros'} /></td></tr>
+            <tr><td colSpan={9}><EmptyState message={verBajas ? 'No hay personal dado de baja.' : 'No se encontraron empleados con estos filtros'} /></td></tr>
           )}
           {emps.map(e => {
             const isEditing = editingId === e.id
@@ -361,6 +364,44 @@ function EmpTable({
                   ) : (
                     <span style={{ fontSize: 10, fontWeight: 600, color: nivelCfg.color }}>
                       {nivelCfg.icon} {nivelCfg.label}
+                    </span>
+                  )}
+                </td>
+
+                {/* Roles — el principal sale del puesto; los extra se marcan
+                    aquí. En un área chica una persona trae dos sombreros y
+                    forzar uno solo hace que el sistema crea que falta gente. */}
+                <td style={tdS}>
+                  {isEditing ? (
+                    <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap', maxWidth: 220 }}>
+                      {ROLES_GABINETE.map(r => {
+                        const principal = rolDe(e.puesto) === r
+                        const activo = rolesDe(e as any).includes(r)
+                        return (
+                          <button key={r} disabled={principal}
+                            title={principal ? 'Viene del puesto: se cambia editando el puesto' : undefined}
+                            onClick={() => {
+                              const actuales = (e.roles_extra || []).filter(x => x !== rolDe(e.puesto))
+                              const next = actuales.includes(r) ? actuales.filter(x => x !== r) : [...actuales, r]
+                              onUpdate(e.id, 'roles_extra', next)
+                            }}
+                            style={{
+                              padding: '2px 7px', borderRadius: 20, fontSize: 9.5, cursor: principal ? 'default' : 'pointer',
+                              fontFamily: 'inherit', fontWeight: 600, opacity: principal ? 0.7 : 1,
+                              border: `1px solid ${activo ? ROL_CFG[r].color : '#333'}`,
+                              background: activo ? ROL_CFG[r].color + '22' : 'transparent',
+                              color: activo ? ROL_CFG[r].color : '#555',
+                            }}>
+                            {principal ? '•' : ''}{ROL_CFG[r].label}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  ) : (
+                    <span style={{ fontSize: 11 }}>
+                      {rolesDe(e as any).map((r, i) => (
+                        <span key={r} style={{ color: ROL_CFG[r].color }}>{i > 0 ? ' + ' : ''}{ROL_CFG[r].label}</span>
+                      ))}
                     </span>
                   )}
                 </td>

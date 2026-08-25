@@ -24,7 +24,7 @@ import {
   Entregable, ESTADO_CFG, entregablesDe, pendientesDeRevision, revisar,
   diasEsperando, colorEspera, urlDe, cargarTipos, TipoEntregable,
 } from '../lib/entregables'
-import { Rol, ROL_CFG, ROLES_GABINETE, EmpleadoRol, conRol, ALCANCE_ROL, TIPOS_ENCARGO } from '../lib/roles'
+import { Rol, ROL_CFG, ROLES_GABINETE, EmpleadoRol, conRol, tieneRol, ALCANCE_ROL, TIPOS_ENCARGO } from '../lib/roles'
 import {
   PlantillaEncargo, ActividadPlantilla, cargarPlantillas, actividadesDe,
   guardarPlantilla, borrarPlantilla, aplicarPlantilla, crearActividades, fechaDe,
@@ -71,7 +71,7 @@ export default function Actividades() {
   async function cargar() {
     setCargando(true)
     const [{ data: e }, ts] = await Promise.all([
-      supabase.from('employees').select('id,name,area,puesto').eq('is_active', true).order('name'),
+      supabase.from('employees').select('id,name,area,puesto,roles_extra').eq('is_active', true).order('name'),
       employeeId ? tareasDe(employeeId) : Promise.resolve([] as Tarea[]),
     ])
     setEmps(((e as any[]) || []).map(conRol))
@@ -359,7 +359,7 @@ function MiEquipo({ area, emps, miSpecialty, esDG, porRevisar, employeeId, nombr
   const hoy = hoyISO()
 
   const areaNombre = AREAS_TRABAJO.find(a => a.specialty === miSpecialty)?.area
-  const equipo = emps.filter(e => (!areaNombre || e.area === areaNombre) && ROLES_GABINETE.includes(e.rol))
+  const equipo = emps.filter(e => (!areaNombre || e.area === areaNombre) && (e.roles || [e.rol]).some(r => ROLES_GABINETE.includes(r)))
   const huerfanas = area.filter(t => !t.assignee_id)
 
   const porPersona = useMemo(() => equipo.map(p => {
@@ -434,9 +434,13 @@ function MiEquipo({ area, emps, miSpecialty, esDG, porRevisar, employeeId, nombr
                   style={{ ...inp, width: 128, fontSize: 11, borderColor: t.due_date ? '#242424' : '#DC262666' }} />
                 <select defaultValue="" onChange={e => e.target.value && repartir(t, e.target.value)} style={{ ...inp, width: 190, fontSize: 11 }}>
                   <option value="">Asignar a…</option>
-                  {equipo.filter(x => !t.rol || x.rol === t.rol).map(x => <option key={x.id} value={x.id}>{x.name} · {ROL_CFG[x.rol].label}</option>)}
+                  {equipo.filter(x => !t.rol || tieneRol(x, t.rol as Rol)).map(x => (
+                    <option key={x.id} value={x.id}>{x.name} · {(x.roles || [x.rol]).map(r => ROL_CFG[r].label).join(' + ')}</option>
+                  ))}
                   <optgroup label="Otros roles">
-                    {equipo.filter(x => t.rol && x.rol !== t.rol).map(x => <option key={x.id} value={x.id}>{x.name} · {ROL_CFG[x.rol].label}</option>)}
+                    {equipo.filter(x => t.rol && !tieneRol(x, t.rol as Rol)).map(x => (
+                      <option key={x.id} value={x.id}>{x.name} · {(x.roles || [x.rol]).map(r => ROL_CFG[r].label).join(' + ')}</option>
+                    ))}
                   </optgroup>
                 </select>
               </div>
@@ -459,7 +463,9 @@ function MiEquipo({ area, emps, miSpecialty, esDG, porRevisar, employeeId, nombr
             {porPersona.map(r => (
               <tr key={r.p.id}>
                 <td style={{ fontSize: 12.5, color: '#ddd', padding: '9px 10px', borderBottom: '1px solid #1a1a1a' }}>{r.p.name}</td>
-                <td style={{ fontSize: 11.5, color: ROL_CFG[r.p.rol].color, padding: '9px 10px', borderBottom: '1px solid #1a1a1a' }}>{ROL_CFG[r.p.rol].label}</td>
+                <td style={{ fontSize: 11.5, color: ROL_CFG[r.p.rol].color, padding: '9px 10px', borderBottom: '1px solid #1a1a1a' }}>
+                  {(r.p.roles || [r.p.rol]).map(x => ROL_CFG[x].label).join(' + ')}
+                </td>
                 <td style={{ fontSize: 12.5, color: '#aaa', padding: '9px 10px', textAlign: 'right', borderBottom: '1px solid #1a1a1a' }}>{r.total}</td>
                 <td style={{ fontSize: 12.5, color: r.vencidas > 0 ? '#DC2626' : '#555', padding: '9px 10px', textAlign: 'right', borderBottom: '1px solid #1a1a1a' }}>{r.vencidas}</td>
                 <td style={{ fontSize: 12.5, color: r.sinFecha > 0 ? '#D9A441' : '#555', padding: '9px 10px', textAlign: 'right', borderBottom: '1px solid #1a1a1a' }}>{r.sinFecha}</td>

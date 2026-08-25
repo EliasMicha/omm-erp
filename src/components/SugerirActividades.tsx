@@ -48,7 +48,7 @@ export default function SugerirActividades({ peticion, onCreado, onCerrar }: {
 
   useEffect(() => {
     cargarTipos().then(setTipos)
-    supabase.from('employees').select('id,name,area,puesto').eq('is_active', true).order('name')
+    supabase.from('employees').select('id,name,area,puesto,roles_extra').eq('is_active', true).order('name')
       .then(({ data }) => setEmps(((data as any[]) || []).map(conRol)))
   }, [])
 

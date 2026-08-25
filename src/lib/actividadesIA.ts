@@ -22,32 +22,43 @@
 //      la casa, no el criterio del modelo.
 // ═══════════════════════════════════════════════════════════════════════════
 import { supabase } from './supabase'
-import { Rol, ROLES_GABINETE, ROL_CFG, EmpleadoRol, ALCANCE_ROL, TIPOS_ENCARGO } from './roles'
+import { Rol, ROLES_GABINETE, ROL_CFG, EmpleadoRol, ALCANCE_ROL, TIPOS_ENCARGO, tieneRol } from './roles'
 import { AREAS_TRABAJO, UrgenciaTarea } from './tareas'
 import { ActividadPlantilla } from './plantillas'
 
 export interface ContextoNegocio {
-  areas: Array<{ specialty: string; label: string; roles: Array<{ rol: Rol; cuantos: number }> }>
+  areas: Array<{
+    specialty: string
+    label: string
+    roles: Array<{ rol: Rol; cuantos: number }>
+    /** Gente que cubre más de un rol, en texto legible. */
+    dobles: string[]
+  }>
   entregables: Array<{ id: string; clave: string; nombre: string; specialty?: string | null; descripcion?: string | null }>
   plantillas: Array<{ nombre: string; tipo: string; specialty?: string | null; actividades: number }>
 }
 
 export async function contextoDelNegocio(): Promise<ContextoNegocio> {
   const [{ data: emps }, { data: tipos }, { data: plts }] = await Promise.all([
-    supabase.from('employees').select('id,name,area,puesto').eq('is_active', true),
+    supabase.from('employees').select('id,name,area,puesto,roles_extra').eq('is_active', true),
     supabase.from('entregable_tipos').select('id,clave,nombre,specialty,descripcion').eq('activo', true).order('orden'),
     supabase.from('plantillas_encargo').select('nombre,tipo,specialty,plantilla_actividades(id)').eq('activo', true),
   ])
-  const { rolDe } = await import('./roles')
+  const { rolesDe } = await import('./roles')
 
   const areas = AREAS_TRABAJO.map(a => {
-    const gente = ((emps as any[]) || []).filter(e => e.area === a.area).map(e => rolDe(e.puesto))
+    // Una persona puede traer varios sombreros: en un área chica el director
+    // es además el ingeniero. Contar solo el rol principal hacía creer que el
+    // área no tenía ingeniero y toda su ingeniería nacía sin dueño.
+    const gente = ((emps as any[]) || []).filter(e => e.area === a.area).map(e => rolesDe(e))
     return {
       specialty: a.specialty,
       label: a.label,
       roles: ROLES_GABINETE
-        .map(r => ({ rol: r, cuantos: gente.filter(g => g === r).length }))
+        .map(r => ({ rol: r, cuantos: gente.filter(rs => rs.includes(r)).length }))
         .filter(r => r.cuantos > 0),
+      dobles: ((emps as any[]) || []).filter(e => e.area === a.area && rolesDe(e).length > 1)
+        .map(e => `${e.name}: ${rolesDe(e).map(r => ROL_CFG[r].label).join(' + ')}`),
     }
   })
 
@@ -131,6 +142,9 @@ function contextoTexto(c: ContextoNegocio, p: PeticionPlan): string {
 
   // Solo los roles que EXISTEN en esta área, con su alcance real. Si al área
   // no le queda ningún rol, el plan no puede repartirse y hay que decirlo.
+  // Si una misma persona cubre dos roles, se dice: cambia quién puede revisar
+  // a quién, y el plan tiene que salir sabiéndolo.
+  const dobles = (miArea?.dobles || [])
   const rolesArea = (miArea?.roles || []).map(r => {
     const al = ALCANCE_ROL[r.rol]
     return `- ${ROL_CFG[r.rol].label} (rol "${r.rol}", ${r.cuantos} persona(s)): ${al.resumen}\n` +
@@ -158,6 +172,7 @@ Otras áreas de la empresa existen y reciben SU PROPIO plan por separado. No pla
 
 Roles que hay en esta área, y de qué responde cada uno:
 ${rolesArea || '(esta área no tiene gente de gabinete registrada — dilo en advertencias)'}
+${dobles.length ? `\nOJO: en esta área hay gente que cubre VARIOS roles a la vez (${dobles.join('; ')}). El área todavía es chica. Planea igual —cada actividad a su rol— pero si el mismo rol ejecuta y revisa, dilo en "advertencias": esa revisión no es independiente.` : ''}
 
 Entregables que ESTA área produce (usa SOLO estas claves):
 ${ents}
@@ -284,7 +299,7 @@ export async function sugerirPlan(p: PeticionPlan): Promise<{ plan?: PlanPropues
 export function sinDuenoDe(acts: ActividadPlantilla[], empleados: EmpleadoRol[], specialty: string): number {
   const area = AREAS_TRABAJO.find(a => a.specialty === specialty)?.area
   return acts.filter(a => {
-    const cand = empleados.filter(e => e.rol === a.rol && (!area || e.area === area))
+    const cand = empleados.filter(e => tieneRol(e, a.rol) && (!area || e.area === area))
     return cand.length !== 1 && !(a.rol === 'director' && cand.length > 0)
   }).length
 }
