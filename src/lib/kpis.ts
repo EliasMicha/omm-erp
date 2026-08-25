@@ -37,6 +37,9 @@ export interface TareaKPI {
   due_date_cambios?: number | null
   asignada_at?: string | null
   fechada_at?: string | null
+  entregado_at?: string | null
+  aceptado_at?: string | null
+  rondas_revision?: number | null
   completed_at?: string | null
   created_at?: string | null
   solicitada_por_id?: string | null
@@ -71,6 +74,11 @@ export interface Desempeno {
   cambiosProm: number | null
   /** % de tareas a las que se les movió la fecha al menos una vez. */
   pctMovidas: number | null
+  // ── Calidad: el "cómo", medido en reprocesos y no en estrellas ──
+  /** % de entregas aceptadas sin una sola vuelta de correcciones. */
+  aLaPrimera: number | null
+  /** Vueltas de corrección por entrega, en promedio. */
+  rondasProm: number | null
   // ── Higiene: foto de hoy, no promedio del mes ──
   abiertas: number
   sinDueno: number
@@ -78,30 +86,41 @@ export interface Desempeno {
   vencidas: number
 }
 
+/**
+ * La fecha que cuenta como entrega. `entregado_at` es cuándo se subió el
+ * PRIMER entregable — no cuándo el revisor lo aceptó. Si se juzgara por la
+ * aceptación, el que entregó a tiempo cargaría con los tres días que su
+ * director tardó en abrir el archivo. Esa demora se mide aparte, y le toca
+ * a quien revisa.
+ */
+const fechaEntrega = (t: TareaKPI): string | null | undefined => t.entregado_at || t.completed_at
+
 export function calcular(tareas: TareaKPI[], hoy = new Date().toISOString().slice(0, 10)): Desempeno {
-  const entregadas = tareas.filter(t => t.status === 'completada' && t.completed_at)
+  const entregadas = tareas.filter(t => fechaEntrega(t))
   const conMeta = entregadas.filter(t => t.due_date_original || t.due_date)
 
   const aTiempo = conMeta.filter(t => {
     const meta = t.due_date_original || t.due_date!
-    return String(t.completed_at).slice(0, 10) <= meta
+    return String(fechaEntrega(t)).slice(0, 10) <= meta
   }).length
   const aTiempoUltima = conMeta.filter(t => {
     const meta = t.due_date || t.due_date_original!
-    return String(t.completed_at).slice(0, 10) <= meta
+    return String(fechaEntrega(t)).slice(0, 10) <= meta
   }).length
 
   const ciclos = entregadas
-    .map(t => dias(t.asignada_at || t.created_at, t.completed_at))
+    .map(t => dias(t.asignada_at || t.created_at, fechaEntrega(t)))
     .filter((x): x is number => x != null && x >= 0)
 
   const retrasos = conMeta
     .map(t => {
       const meta = t.due_date_original || t.due_date!
-      const d = dias(meta + 'T12:00:00', t.completed_at)
+      const d = dias(meta + 'T12:00:00', fechaEntrega(t))
       return d != null && d > 0 ? d : null
     })
     .filter((x): x is number => x != null)
+
+  const rondas = entregadas.map(t => Number(t.rondas_revision) || 0)
 
   const cambios = tareas.map(t => Number(t.due_date_cambios) || 0)
   const abiertas = tareas.filter(t => t.status !== 'completada' && t.status !== 'cancelada')
@@ -114,6 +133,8 @@ export function calcular(tareas: TareaKPI[], hoy = new Date().toISOString().slic
     retrasoProm: retrasos.length ? retrasos.reduce((a, b) => a + b, 0) / retrasos.length : null,
     cambiosProm: cambios.length ? cambios.reduce((a, b) => a + b, 0) / cambios.length : null,
     pctMovidas: tareas.length ? cambios.filter(c => c > 0).length / tareas.length : null,
+    aLaPrimera: rondas.length ? rondas.filter(r => r === 0).length / rondas.length : null,
+    rondasProm: rondas.length ? rondas.reduce((a, b) => a + b, 0) / rondas.length : null,
     abiertas: abiertas.length,
     sinDueno: abiertas.filter(t => !t.assignee_id).length,
     sinFecha: abiertas.filter(t => !t.due_date).length,
@@ -133,7 +154,7 @@ export function brechaDeFechas(d: Desempeno): number | null {
 
 export async function cargarTareasKPI(desde?: string): Promise<TareaKPI[]> {
   const cols = 'id,name,assignee_id,specialty,tipo,urgencia,status,due_date,due_date_original,due_date_cambios,' +
-    'asignada_at,fechada_at,completed_at,created_at,solicitada_por_id,project_id'
+    'asignada_at,fechada_at,entregado_at,aceptado_at,rondas_revision,completed_at,created_at,solicitada_por_id,project_id'
   const todas: TareaKPI[] = []
   for (let off = 0; off < 20000; off += 1000) {
     let q = supabase.from('project_tasks').select(cols).order('id').range(off, off + 999)
@@ -266,3 +287,77 @@ export function colorCiclo(dias: number | null): string {
 
 export const fmtPct = (v: number | null): string => v == null ? '—' : `${Math.round(v * 100)}%`
 export const fmtDias = (v: number | null): string => v == null ? '—' : `${v.toFixed(v < 10 ? 1 : 0)} d`
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// RESPUESTA A LA REVISIÓN — el reloj del que revisa.
+//
+// Faltaba el otro lado del trato. Si al que entrega se le mide la fecha, al
+// que revisa se le tiene que medir la respuesta: mientras un entregable está
+// "en revisión" el trabajo está detenido y la culpa no se ve en ningún lado.
+//
+// No hace falta que el director califique nada con estrellas. Solo dos cosas:
+// cuánto tardó en contestar, y qué pidió corregir. Con eso se puede dirigir.
+// ═══════════════════════════════════════════════════════════════════════════
+
+export interface EntregableKPI {
+  id: string
+  subido_at: string
+  revisado_at?: string | null
+  revisado_por_id?: string | null
+  estado: string
+  specialty?: string | null
+  subido_por_id?: string | null
+}
+
+export interface Revision {
+  /** Entregables que sí recibieron respuesta en el periodo. */
+  revisados: number
+  /** Mediana de días entre subir y recibir respuesta. */
+  respuesta: number | null
+  /** El peor caso del periodo: nadie recuerda la mediana, recuerda esto. */
+  peorRespuesta: number | null
+  /** % contestados dentro de 24 h. */
+  pctEn24h: number | null
+  /** Foto de hoy: esperando respuesta, y desde hace cuánto el más viejo. */
+  esperando: number
+  masViejo: number | null
+  /** % de las respuestas que fueron devoluciones. */
+  pctDevueltos: number | null
+}
+
+export function revisionDe(es: EntregableKPI[], ahora = Date.now()): Revision {
+  const resueltos = es.filter(e => e.revisado_at)
+  const tiempos = resueltos
+    .map(e => dias(e.subido_at, e.revisado_at))
+    .filter((x): x is number => x != null && x >= 0)
+  const pendientes = es.filter(e => e.estado === 'en_revision')
+  const esperas = pendientes.map(e => (ahora - new Date(e.subido_at).getTime()) / 86400000)
+
+  return {
+    revisados: resueltos.length,
+    respuesta: mediana(tiempos),
+    peorRespuesta: tiempos.length ? Math.max(...tiempos) : null,
+    pctEn24h: tiempos.length ? tiempos.filter(t => t <= 1).length / tiempos.length : null,
+    esperando: pendientes.length,
+    masViejo: esperas.length ? Math.max(...esperas) : null,
+    pctDevueltos: resueltos.length ? resueltos.filter(e => e.estado === 'corregir').length / resueltos.length : null,
+  }
+}
+
+export async function cargarEntregablesKPI(desde?: string): Promise<EntregableKPI[]> {
+  let q = supabase.from('entregables')
+    .select('id,subido_at,revisado_at,revisado_por_id,estado,specialty,subido_por_id')
+    .order('subido_at', { ascending: false }).limit(3000)
+  if (desde) q = q.gte('subido_at', desde)
+  const { data } = await q
+  return ((data as any[]) || []) as EntregableKPI[]
+}
+
+/** Semáforo de la respuesta: un día es sano, tres ya frenó a alguien. */
+export function colorRespuesta(dias: number | null): string {
+  if (dias == null) return '#555'
+  if (dias <= 1) return '#10B981'
+  if (dias <= 3) return '#D9A441'
+  return '#DC2626'
+}

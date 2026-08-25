@@ -25,12 +25,12 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { AREAS_TRABAJO } from '../lib/tareas'
 import {
-  TareaKPI, Desempeno as Desemp,
+  TareaKPI, EntregableKPI, Desempeno as Desemp,
   calcular, brechaDeFechas, claridad, agrupar, creadasDesde,
-  cargarTareasKPI, PERIODOS, desdeDe,
-  colorCumplimiento, colorCiclo, fmtPct, fmtDias,
+  cargarTareasKPI, cargarEntregablesKPI, revisionDe, PERIODOS, desdeDe,
+  colorCumplimiento, colorCiclo, colorRespuesta, fmtPct, fmtDias,
 } from '../lib/kpis'
-import { Target, Clock, Shuffle, Activity, Info, AlertTriangle } from 'lucide-react'
+import { Target, Clock, Shuffle, Activity, Info, AlertTriangle, RotateCcw, Inbox } from 'lucide-react'
 
 const card: React.CSSProperties = { background: '#111', border: '1px solid #222', borderRadius: 12, padding: 16 }
 const th: React.CSSProperties = { textAlign: 'left', fontSize: 10, letterSpacing: 0.6, textTransform: 'uppercase', color: '#666', padding: '8px 10px', borderBottom: '1px solid #222', whiteSpace: 'nowrap' }
@@ -65,6 +65,7 @@ function Indicador({ icono, titulo, valor, color, contrapeso, explica }: {
 export default function Desempeno() {
   const { user } = useAuth()
   const [tareas, setTareas] = useState<TareaKPI[]>([])
+  const [ents, setEnts] = useState<EntregableKPI[]>([])
   const [empleados, setEmpleados] = useState<Emp[]>([])
   const [periodo, setPeriodo] = useState('90')
   const [cargando, setCargando] = useState(true)
@@ -75,12 +76,14 @@ export default function Desempeno() {
     ;(async () => {
       setCargando(true)
       const desde = desdeDe(periodo)
-      const [ts, { data: emps }] = await Promise.all([
+      const [ts, es, { data: emps }] = await Promise.all([
         cargarTareasKPI(desde),
+        cargarEntregablesKPI(desde),
         supabase.from('employees').select('id,name,area,puesto').eq('is_active', true).order('name'),
       ])
       if (!vivo) return
       setTareas(ts)
+      setEnts(es)
       setEmpleados((emps as any[]) || [])
       setCargando(false)
     })()
@@ -117,6 +120,14 @@ export default function Desempeno() {
       .map(([id, ts]) => ({ id, nombre: nombreDe(id), d: calcular(ts) }))
       .sort((a, b) => (b.d.entregadas - a.d.entregadas) || (b.d.abiertas - a.d.abiertas))
   }, [tareas, empleados])
+
+  const revGlobal = useMemo(() => revisionDe(ents), [ents])
+  const porRevisor = useMemo(() => {
+    const g = agrupar(ents.filter(e => e.revisado_por_id), e => e.revisado_por_id!)
+    return [...g.entries()]
+      .map(([id, es]) => ({ id, nombre: nombreDe(id), r: revisionDe(es) }))
+      .sort((a, b) => b.r.revisados - a.r.revisados)
+  }, [ents, empleados])
 
   const vacio = global.entregadas === 0
 
@@ -287,6 +298,7 @@ export default function Desempeno() {
                 <th style={{ ...th, textAlign: 'right' }}>Brecha</th>
                 <th style={{ ...th, textAlign: 'right' }}>Ciclo</th>
                 <th style={{ ...th, textAlign: 'right' }}>Fechas movidas</th>
+                <th style={{ ...th, textAlign: 'right' }}>A la 1ª</th>
                 <th style={{ ...th, textAlign: 'right' }}>Abiertas</th>
                 <th style={{ ...th, textAlign: 'right' }}>Sin fecha</th>
                 <th style={{ ...th, textAlign: 'right' }}>Vencidas</th>
@@ -308,16 +320,92 @@ export default function Desempeno() {
                 <th style={{ ...th, textAlign: 'right' }}>Brecha</th>
                 <th style={{ ...th, textAlign: 'right' }}>Ciclo</th>
                 <th style={{ ...th, textAlign: 'right' }}>Fechas movidas</th>
+                <th style={{ ...th, textAlign: 'right' }}>A la 1ª</th>
                 <th style={{ ...th, textAlign: 'right' }}>Abiertas</th>
                 <th style={{ ...th, textAlign: 'right' }}>Sin fecha</th>
                 <th style={{ ...th, textAlign: 'right' }}>Vencidas</th>
               </tr></thead>
               <tbody>
                 {porPersona.length === 0 && (
-                  <tr><td style={{ ...td, color: '#666', textAlign: 'center' }} colSpan={10}>Nadie tiene tareas asignadas todavía.</td></tr>
+                  <tr><td style={{ ...td, color: '#666', textAlign: 'center' }} colSpan={11}>Nadie tiene tareas asignadas todavía.</td></tr>
                 )}
                 {porPersona.map(p => (
                   <FilaDesempeno key={p.id} etiqueta={p.nombre} color="#555" d={p.d} resaltar={p.id === user?.employee_id} />
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* ═══ 3. REVISIÓN Y CALIDAD ═══ */}
+          <h2 style={{ fontSize: 14, color: '#ddd', fontWeight: 600, margin: '26px 0 4px' }}>3 · Revisión y calidad</h2>
+          <p style={{ fontSize: 12, color: '#777', margin: '0 0 12px', maxWidth: 760, lineHeight: 1.6 }}>
+            El otro lado del trato. Si al que entrega se le mide la fecha, al que revisa se le mide la
+            respuesta: mientras un entregable está "en revisión", el trabajo está detenido y hasta ahora
+            eso no aparecía en ningún lado. La calidad se mide en <b style={{ color: '#aaa' }}>vueltas de corrección</b>,
+            no en una calificación del 1 al 5 — el número de veces que algo regresó es un hecho; una estrella es una opinión.
+          </p>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: 12, marginBottom: 14 }}>
+            <Indicador
+              icono={Clock}
+              titulo="Tiempo de respuesta"
+              valor={fmtDias(revGlobal.respuesta)}
+              color={colorRespuesta(revGlobal.respuesta)}
+              contrapeso={{ label: 'Peor caso del periodo', valor: fmtDias(revGlobal.peorRespuesta) }}
+              explica="Mediana de días entre subir un entregable y recibir respuesta. La mediana se olvida; el peor caso es el que la gente recuerda."
+            />
+            <Indicador
+              icono={Inbox}
+              titulo="Esperando respuesta hoy"
+              valor={String(revGlobal.esperando)}
+              color={revGlobal.masViejo != null && revGlobal.masViejo >= 3 ? '#DC2626' : revGlobal.esperando > 0 ? '#D9A441' : '#10B981'}
+              contrapeso={{ label: 'El más viejo lleva', valor: fmtDias(revGlobal.masViejo) }}
+              explica="Trabajo terminado que nadie ha abierto. Cada día aquí es un día que el que entregó no puede avanzar ni cerrar."
+            />
+            <Indicador
+              icono={Target}
+              titulo="Aceptado a la primera"
+              valor={fmtPct(global.aLaPrimera)}
+              color={colorCumplimiento(global.aLaPrimera)}
+              contrapeso={{ label: 'Vueltas por entrega', valor: global.rondasProm == null ? '—' : global.rondasProm.toFixed(1) }}
+              explica="Esta es la calidad, medida en reprocesos. Si sube demasiado rápido, revisa que no sea que nadie esté revisando en serio."
+            />
+            <Indicador
+              icono={RotateCcw}
+              titulo="Devueltos a corregir"
+              valor={fmtPct(revGlobal.pctDevueltos)}
+              color={revGlobal.pctDevueltos == null ? '#555' : revGlobal.pctDevueltos > 0.5 ? '#DC2626' : revGlobal.pctDevueltos > 0.25 ? '#D9A441' : '#10B981'}
+              contrapeso={{ label: 'Contestados en 24 h', valor: fmtPct(revGlobal.pctEn24h) }}
+              explica="Devolver mucho puede ser rigor o puede ser un encargo mal explicado. Míralo junto a la claridad al origen del que lo pidió."
+            />
+          </div>
+
+          <div style={{ ...card, padding: 0, marginBottom: 16, overflowX: 'auto' }}>
+            <div style={{ padding: '12px 14px 0', fontSize: 12, color: '#888', fontWeight: 500 }}>Por quien revisa</div>
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 720, marginTop: 8 }}>
+              <thead><tr>
+                <th style={th}>Revisor</th>
+                <th style={{ ...th, textAlign: 'right' }}>Revisados</th>
+                <th style={{ ...th, textAlign: 'right' }}>Respuesta</th>
+                <th style={{ ...th, textAlign: 'right' }}>Peor caso</th>
+                <th style={{ ...th, textAlign: 'right' }}>En 24 h</th>
+                <th style={{ ...th, textAlign: 'right' }}>Devueltos</th>
+                <th style={{ ...th, textAlign: 'right' }}>Esperando hoy</th>
+              </tr></thead>
+              <tbody>
+                {porRevisor.length === 0 && (
+                  <tr><td style={{ ...td, color: '#666', textAlign: 'center' }} colSpan={7}>Nadie ha revisado un entregable todavía.</td></tr>
+                )}
+                {porRevisor.map(f => (
+                  <tr key={f.id} style={f.id === user?.employee_id ? { background: '#0f1620' } : undefined}>
+                    <td style={{ ...td, color: '#ddd' }}>{f.nombre}{f.id === user?.employee_id && <span style={{ color: '#3b82f6', fontSize: 10, marginLeft: 6 }}>tú</span>}</td>
+                    <td style={{ ...td, textAlign: 'right', color: '#aaa' }}>{f.r.revisados}</td>
+                    <td style={{ ...td, textAlign: 'right', color: colorRespuesta(f.r.respuesta), fontWeight: 600 }}>{fmtDias(f.r.respuesta)}</td>
+                    <td style={{ ...td, textAlign: 'right', color: '#777' }}>{fmtDias(f.r.peorRespuesta)}</td>
+                    <td style={{ ...td, textAlign: 'right', color: '#777' }}>{fmtPct(f.r.pctEn24h)}</td>
+                    <td style={{ ...td, textAlign: 'right', color: '#777' }}>{fmtPct(f.r.pctDevueltos)}</td>
+                    <td style={{ ...td, textAlign: 'right', color: f.r.esperando > 0 ? '#D9A441' : '#555' }}>{f.r.esperando}</td>
+                  </tr>
                 ))}
               </tbody>
             </table>
@@ -350,6 +438,7 @@ function FilaDesempeno({ etiqueta, color, d, resaltar }: { etiqueta: string; col
       <td style={{ ...td, textAlign: 'right', color: brecha == null ? '#555' : brecha > 0.1 ? '#D9A441' : '#555' }}>{brecha == null ? '—' : brecha === 0 ? '—' : `+${fmtPct(brecha)}`}</td>
       <td style={{ ...td, textAlign: 'right', color: colorCiclo(d.ciclo) }}>{fmtDias(d.ciclo)}</td>
       <td style={{ ...td, textAlign: 'right', color: '#777' }}>{fmtPct(d.pctMovidas)}</td>
+      <td style={{ ...td, textAlign: 'right', color: colorCumplimiento(d.aLaPrimera) }}>{fmtPct(d.aLaPrimera)}</td>
       <td style={{ ...td, textAlign: 'right', color: '#aaa' }}>{d.abiertas}</td>
       <td style={{ ...td, textAlign: 'right', color: d.sinFecha > 0 ? '#D9A441' : '#555' }}>{d.sinFecha}</td>
       <td style={{ ...td, textAlign: 'right', color: d.vencidas > 0 ? '#DC2626' : '#555' }}>{d.vencidas}</td>

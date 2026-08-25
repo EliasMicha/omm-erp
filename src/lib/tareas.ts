@@ -72,6 +72,13 @@ export interface Tarea {
   notes?: string | null
   created_at?: string
   completed_at?: string | null
+  // ── El "cómo": qué se espera y en qué va la revisión ──
+  tipo_entregable_id?: string | null
+  instrucciones?: string | null
+  entregado_at?: string | null
+  entregado_ultimo_at?: string | null
+  aceptado_at?: string | null
+  rondas_revision?: number | null
 }
 
 export interface NuevaTarea {
@@ -87,6 +94,8 @@ export interface NuevaTarea {
   titulo_cliente?: string | null
   solicitada_por?: string | null
   solicitada_por_id?: string | null
+  tipo_entregable_id?: string | null
+  instrucciones?: string | null
 }
 
 /**
@@ -115,6 +124,8 @@ export async function crearTarea(t: NuevaTarea): Promise<{ id?: string; error?: 
     titulo_cliente: t.titulo_cliente || null,
     solicitada_por: t.solicitada_por || null,
     solicitada_por_id: t.solicitada_por_id || null,
+    tipo_entregable_id: t.tipo_entregable_id || null,
+    instrucciones: t.instrucciones?.trim() || null,
     status: 'pendiente',
     progress: 0,
     order_index: 0,
@@ -124,7 +135,8 @@ export async function crearTarea(t: NuevaTarea): Promise<{ id?: string; error?: 
 }
 
 const COLS = 'id,name,description,tipo,specialty,urgencia,status,progress,due_date,assignee_id,' +
-  'delegada_por_id,solicitada_por,solicitada_por_id,lead_id,project_id,phase_id,titulo_cliente,notes,created_at,completed_at'
+  'delegada_por_id,solicitada_por,solicitada_por_id,lead_id,project_id,phase_id,titulo_cliente,notes,created_at,completed_at,' +
+  'tipo_entregable_id,instrucciones,entregado_at,entregado_ultimo_at,aceptado_at,rondas_revision'
 
 /** Todo lo que trae una persona en la mano: de proyecto y suelto, junto. */
 export async function tareasDe(employeeId: string, opts?: { incluirCompletadas?: boolean }): Promise<Tarea[]> {

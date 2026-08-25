@@ -29,6 +29,7 @@ import Cobranza from './pages/Cobranza'
 import Usuarios from './pages/Usuarios'
 import Archivados from './pages/Archivados'
 import Desempeno from './pages/Desempeno'
+import Documentacion from './pages/Documentacion'
 import Mantenimiento from './pages/Mantenimiento'
 import ObraApp from './obra-app/ObraApp'
 import ChatBot from './components/ChatBot'
@@ -100,6 +101,7 @@ export default function App() {
                       </ProtectedRoute>
                     } />
                     <Route path="/desempeno" element={<Desempeno />} />
+                    <Route path="/documentacion" element={<Documentacion />} />
                     <Route path="/archivados" element={<Archivados />} />
                     <Route path="/clientes" element={<Clientes />} />
                     <Route path="/catalogo" element={<Catalogo />} />

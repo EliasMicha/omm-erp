@@ -13,13 +13,15 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { Badge } from './layout/UI'
-import { Check, AlertTriangle, Plus, Users, X, ListChecks } from 'lucide-react'
+import { Check, AlertTriangle, Plus, Users, X, ListChecks, Upload } from 'lucide-react'
 import {
   Tarea, TipoTarea, UrgenciaTarea, Paso, TIPO_CFG, URGENCIA_TAREA_CFG, AREAS_TRABAJO,
   tareasDe, tareasDeArea, delegar, actualizarTarea, crearTarea,
   estadoFecha, ordenarTareas, resumir,
   pasosDe, agregarPaso, borrarPaso, marcarPaso,
 } from '../lib/tareas'
+import EntregablesTarea from './EntregablesTarea'
+import { TipoEntregable, cargarTipos } from '../lib/entregables'
 
 interface Emp { id: string; name: string; area?: string | null; puesto?: string | null }
 
@@ -35,11 +37,13 @@ export default function MisTareas({ employeeId, nombre, esDG, isMobile }: {
   const [vista, setVista] = useState<'mias' | 'area'>('mias')
   const [cargando, setCargando] = useState(true)
   const [nueva, setNueva] = useState(false)
-  const [form, setForm] = useState({ name: '', tipo: 'cotizacion' as TipoTarea, specialty: '', urgencia: 'normal' as UrgenciaTarea, due_date: '', assignee_id: '' })
+  const [form, setForm] = useState({ name: '', tipo: 'cotizacion' as TipoTarea, specialty: '', urgencia: 'normal' as UrgenciaTarea, due_date: '', assignee_id: '', tipo_entregable_id: '', instrucciones: '' })
   const [expandida, setExpandida] = useState('')
   const [pasos, setPasos] = useState<Record<string, Paso[]>>({})
   const [nuevoPaso, setNuevoPaso] = useState('')
   const [soloCasa, setSoloCasa] = useState(false)
+  const [entregando, setEntregando] = useState('')
+  const [tiposEnt, setTiposEnt] = useState<TipoEntregable[]>([])
 
   const yo = useMemo(() => empleados.find(e => e.id === employeeId), [empleados, employeeId])
   const miSpecialty = useMemo(
@@ -55,6 +59,7 @@ export default function MisTareas({ employeeId, nombre, esDG, isMobile }: {
     setCargando(false)
   }
   useEffect(() => { cargar() }, [employeeId])
+  useEffect(() => { cargarTipos().then(setTiposEnt) }, [])
 
   useEffect(() => {
     if (vista === 'area' && miSpecialty) tareasDeArea(miSpecialty).then(setArea)
@@ -129,7 +134,7 @@ export default function MisTareas({ employeeId, nombre, esDG, isMobile }: {
     })
     if (r.error) { alert(r.error); return }
     setNueva(false)
-    setForm({ name: '', tipo: 'cotizacion', specialty: '', urgencia: 'normal', due_date: '', assignee_id: '' })
+    setForm({ name: '', tipo: 'cotizacion', specialty: '', urgencia: 'normal', due_date: '', assignee_id: '', tipo_entregable_id: '', instrucciones: '' })
     cargar(); if (vista === 'area' && miSpecialty) tareasDeArea(miSpecialty).then(setArea)
   }
 
@@ -207,6 +212,22 @@ export default function MisTareas({ employeeId, nombre, esDG, isMobile }: {
           </select>
           <input type="date" value={form.due_date} onChange={e => setForm(f => ({ ...f, due_date: e.target.value }))} style={inp} />
           <button onClick={guardarNueva} style={{ ...inp, cursor: 'pointer', background: '#10B98122', color: '#10B981', border: '1px solid #10B98155', fontWeight: 700 }}>Crear</button>
+
+          {/* El "cómo", desde el origen: qué entregable se espera y qué
+              indicaciones lleva. Quien lo reciba lo lee antes de empezar. */}
+          <select value={form.tipo_entregable_id} onChange={e => setForm(f => ({ ...f, tipo_entregable_id: e.target.value }))}
+            style={{ ...inp, gridColumn: isMobile ? 'auto' : 'span 2' }}>
+            <option value="">Qué entregable se espera… (opcional pero recomendado)</option>
+            {tiposEnt.filter(x => !x.specialty || x.specialty === (form.specialty || miSpecialty))
+              .map(x => <option key={x.id} value={x.id}>{x.nombre}</option>)}
+            <optgroup label="Otras áreas">
+              {tiposEnt.filter(x => x.specialty && x.specialty !== (form.specialty || miSpecialty))
+                .map(x => <option key={x.id} value={x.id}>{x.nombre}</option>)}
+            </optgroup>
+          </select>
+          <input value={form.instrucciones} placeholder="Indicaciones: qué necesitas exactamente"
+            onChange={e => setForm(f => ({ ...f, instrucciones: e.target.value }))}
+            style={{ ...inp, gridColumn: isMobile ? 'auto' : 'span 4' }} />
         </div>
       )}
 
@@ -241,6 +262,18 @@ export default function MisTareas({ employeeId, nombre, esDG, isMobile }: {
                   <span onClick={() => abrirPasos(t)} style={{ color: '#67E8F9', cursor: 'pointer' }}>
                     · <ListChecks size={10} style={{ verticalAlign: -1 }} /> pasos{typeof t.progress === 'number' && t.progress > 0 ? ` ${t.progress}%` : ''}
                   </span>
+                  <span onClick={() => setEntregando(v => v === t.id ? '' : t.id)} style={{ color: '#10B981', cursor: 'pointer' }}>
+                    · <Upload size={10} style={{ verticalAlign: -1 }} /> entregar
+                  </span>
+                  {t.status === 'entregada' && <span style={{ color: '#D9A441', fontWeight: 700 }}>· en revisión</span>}
+                  {(t.rondas_revision || 0) > 0 && (
+                    <span style={{ color: '#DC2626' }} title="Veces que se devolvió para corregir">
+                      · {t.rondas_revision} corrección(es)
+                    </span>
+                  )}
+                  {t.tipo_entregable_id && (
+                    <span style={{ color: '#888' }}>· {tiposEnt.find(x => x.id === t.tipo_entregable_id)?.nombre || 'entregable'}</span>
+                  )}
                 </div>
               </div>
               <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexShrink: 0 }}>
@@ -278,6 +311,29 @@ export default function MisTareas({ employeeId, nombre, esDG, isMobile }: {
                     onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); nuevoPasoEn(t) } }}
                     style={{ ...inp, flex: 1, maxWidth: 340 }} />
                 </div>
+              </div>
+            )}
+
+            {/* Entregables: el instructivo, el checklist y el archivo, en el
+                mismo lugar. Se puede revisar aquí si eres quien lo pidió, el
+                director del área o la DG. */}
+            {entregando === t.id && (
+              <div style={{ padding: '2px 12px 14px 40px' }}>
+                <EntregablesTarea
+                  tarea={{
+                    id: t.id, name: t.name,
+                    tipo_entregable_id: t.tipo_entregable_id,
+                    instrucciones: t.instrucciones,
+                    specialty: t.specialty,
+                    project_id: t.project_id,
+                    lead_id: t.lead_id,
+                    titulo_cliente: t.titulo_cliente,
+                  }}
+                  employeeId={employeeId}
+                  puedeRevisar={!!esDG || soyDirector || t.solicitada_por_id === employeeId}
+                  nombreDe={nombreDe}
+                  onCambio={() => { cargar(); if (vista === 'area' && miSpecialty) tareasDeArea(miSpecialty).then(setArea) }}
+                />
               </div>
             )}
             </div>
