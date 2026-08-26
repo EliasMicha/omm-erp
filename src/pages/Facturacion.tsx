@@ -2235,8 +2235,23 @@ function NuevaFactura({ onCancel, onCreated, editingFactura }: { onCancel: () =>
       })
     } catch { /* el cotejo de previos es informativo: si falla, no bloquea */ }
 
+    // Y lo que ya se capturó en ESTE mismo complemento: un REP puede llevar
+    // varios pagos sobre la misma factura (tres transferencias en el mes), y
+    // si no se cuenta, la segunda parcialidad sale numerada 1 y con el saldo
+    // anterior equivocado — que es exactamente lo que el SAT rechaza.
+    const enEsteREP: Record<string, { monto: number; n: number }> = {}
+    for (const pg of pagosGuardados) {
+      for (const d of (pg.docsPago || [])) {
+        if (!enEsteREP[d.uuid]) enEsteREP[d.uuid] = { monto: 0, n: 0 }
+        enEsteREP[d.uuid].n += 1
+        enEsteREP[d.uuid].monto += Number(d.imp_pagado) || 0
+      }
+    }
+
     const nuevos: DocRelacionadoPago[] = aAgregar.map(f => {
-      const prev = previos[f.uuid_fiscal] || { monto: 0, n: 0 }
+      const timbrados = previos[f.uuid_fiscal] || { monto: 0, n: 0 }
+      const esteRep = enEsteREP[f.uuid_fiscal] || { monto: 0, n: 0 }
+      const prev = { monto: timbrados.monto + esteRep.monto, n: timbrados.n + esteRep.n }
       const saldo = Math.round(((Number(f.total) || 0) - prev.monto) * 100) / 100
       return {
         factura_local_id: f.id,
@@ -3132,7 +3147,21 @@ function NuevaFactura({ onCancel, onCreated, editingFactura }: { onCancel: () =>
             {pagosGuardados.map((p, i) => (
               <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#12101a', border: '1px solid #A78BFA33', borderRadius: 8, padding: '10px 14px', marginBottom: 8 }}>
                 <div style={{ fontSize: 12, color: '#ccc' }}>
-                  <b style={{ color: '#A78BFA' }}>Pago {i + 1}</b> · {(parseFloat(p.montoPago) || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })} {p.monedaPago} · {p.docsPago.length} factura(s) · {(p.fechaPago || '').replace('T', ' ')}
+                  <b style={{ color: '#A78BFA' }}>Pago {i + 1}</b> · {(parseFloat(p.montoPago) || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })} {p.monedaPago} · {(p.fechaPago || '').replace('T', ' ')}
+                  {/* Qué factura y qué parcialidad liquidó: es lo que hay que
+                      poder leer de un vistazo cuando una factura se paga en
+                      varias transferencias. */}
+                  <div style={{ fontSize: 10.5, color: '#8a80a8', marginTop: 3 }}>
+                    {p.docsPago.map((d, j) => (
+                      <span key={j}>
+                        {j > 0 ? ' · ' : ''}
+                        {[d.serie, d.folio].filter(Boolean).join('') || (d.uuid || '').slice(0, 8)}
+                        {' parc. '}{d.num_parcialidad}
+                        {' — '}{(Number(d.imp_pagado) || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })} {d.moneda_doc}
+                        {Number(d.imp_saldo_insoluto) > 0.009 ? ` (queda ${Number(d.imp_saldo_insoluto).toLocaleString('es-MX', { minimumFractionDigits: 2 })})` : ' (liquidada)'}
+                      </span>
+                    ))}
+                  </div>
                 </div>
                 <button onClick={() => removePagoGuardado(i)} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', padding: 0 }} title="Quitar este pago"><Trash2 size={13} /></button>
               </div>
@@ -3201,7 +3230,20 @@ function NuevaFactura({ onCancel, onCreated, editingFactura }: { onCancel: () =>
             </div>
             <div>
               <label style={lblStyle}>Monto del pago * ({monedaPago})</label>
-              <input type="number" value={montoPago} onChange={e => setMontoPago(e.target.value)} style={inpStyle} />
+              <input type="number" value={montoPago} onChange={e => setMontoPago(e.target.value)}
+                onFocus={e => e.currentTarget.select()} style={inpStyle} />
+              {/* El monto del pago es lo que ENTRÓ AL BANCO en esa transferencia,
+                  no el total de la factura. Confundir los dos es el error más
+                  común aquí, y deja el complemento sin cuadrar sin decir por qué. */}
+              <div style={{ fontSize: 10.5, color: '#666', marginTop: 4, lineHeight: 1.5 }}>
+                Lo que entró al banco en <b style={{ color: '#888' }}>esta</b> transferencia. No es el total de la factura.
+              </div>
+              {docsPago.length > 0 && Math.abs(diferenciaPago) >= 0.01 && (
+                <button onClick={() => setMontoPago(String(Math.round(sumaDocsEnMonedaPago * 100) / 100))}
+                  style={{ marginTop: 6, padding: '4px 9px', background: '#1e1e2e', color: '#A78BFA', border: '1px solid #A78BFA55', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
+                  Usar la suma capturada: {sumaDocsEnMonedaPago.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -3338,7 +3380,19 @@ function NuevaFactura({ onCancel, onCreated, editingFactura }: { onCancel: () =>
                 </div>
                 <div>
                   <label style={lblStyle}>Imp. pagado * ({d.moneda_doc})</label>
-                  <input type="number" step="0.01" value={d.imp_pagado} onChange={e => updateDocPago(idx, 'imp_pagado', parseFloat(e.target.value) || 0)} style={{ ...inpStyle, borderColor: '#A78BFA44' }} />
+                  {/* value vacío cuando es 0: con `0` precargado, teclear encima
+                      produce "013238.51" — el usuario ve un número raro y el
+                      complemento no cuadra por una razón invisible. */}
+                  <input type="number" step="0.01" value={d.imp_pagado || ''} placeholder="0.00"
+                    onFocus={e => e.currentTarget.select()}
+                    onChange={e => updateDocPago(idx, 'imp_pagado', parseFloat(e.target.value) || 0)}
+                    style={{ ...inpStyle, borderColor: '#A78BFA44' }} />
+                  {d.imp_saldo_anterior > 0 && (
+                    <button onClick={() => updateDocPago(idx, 'imp_pagado', d.imp_saldo_anterior)}
+                      style={{ marginTop: 4, padding: '2px 7px', background: 'transparent', color: '#666', border: '1px solid #2a2a2a', borderRadius: 5, fontSize: 10, cursor: 'pointer', fontFamily: 'inherit' }}>
+                      Liquidar todo el saldo
+                    </button>
+                  )}
                 </div>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : '1fr 1fr 1fr 1fr 1fr', gap: 8 }}>
@@ -3404,14 +3458,36 @@ function NuevaFactura({ onCancel, onCreated, editingFactura }: { onCancel: () =>
             <span style={{ fontFamily: 'monospace' }}>{diferenciaPago.toLocaleString('es-MX', { minimumFractionDigits: 2 })} {monedaPago}</span>
           </div>
           {Math.abs(diferenciaPago) >= 0.01 && (
-            <div style={{ fontSize: 10, color: '#f87171', fontStyle: 'italic', marginTop: 6 }}>
-              La suma de imp_pagado × equivalencia debe ser igual al monto del pago (tolerancia ±0.01).
+            <div style={{ fontSize: 11, color: '#f8a5a5', marginTop: 8, lineHeight: 1.7 }}>
+              <b style={{ color: '#f87171' }}>Este pago todavía no cuadra</b>, y hasta que cuadre no se puede
+              guardar ni timbrar. Cada <i>pago</i> del complemento tiene que repartirse completo entre las
+              facturas que liquida.
+              <div style={{ marginTop: 6, color: '#c98f8f' }}>
+                {diferenciaPago > 0
+                  ? <>Declaraste <b>{montoPagoNum.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</b> pero
+                    solo repartiste <b>{sumaDocsEnMonedaPago.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</b>.
+                    O el monto es más chico de lo que pusiste (usa el botón de arriba), o falta capturar cuánto
+                    de este pago se fue a cada factura.</>
+                  : <>Repartiste <b>{sumaDocsEnMonedaPago.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</b> entre
+                    las facturas, más que los <b>{montoPagoNum.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</b> que
+                    dice el pago. Un pago no puede liquidar más de lo que entró.</>}
+              </div>
+              <div style={{ marginTop: 6, color: '#a08080' }}>
+                ¿Son varias transferencias sobre la misma factura? No las sumes en un solo pago: captura la
+                primera, dale «Guardar este pago y agregar otro», y vuelve a agregar la misma factura para la
+                siguiente. El sistema le pone la parcialidad y el saldo anterior que le tocan.
+              </div>
             </div>
           )}
         </div>
 
         {/* Multi-pago: guardar el pago actual y capturar otro en el mismo REP */}
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 20 }}>
+          <div style={{ fontSize: 10.5, color: '#666', flex: 1, minWidth: 240, lineHeight: 1.55 }}>
+            Un mismo complemento puede llevar <b style={{ color: '#888' }}>varios pagos</b> —tres transferencias
+            del mes, cada una con su fecha— y la misma factura puede aparecer en más de uno, con su propia
+            parcialidad. Guarda este pago para capturar el siguiente.
+          </div>
           <button onClick={guardarPagoYAgregarOtro} disabled={docsPago.length === 0 || Math.abs(diferenciaPago) >= 0.01}
             style={{ padding: '8px 14px', background: (docsPago.length > 0 && Math.abs(diferenciaPago) < 0.01) ? '#1e1e2e' : '#181818', color: (docsPago.length > 0 && Math.abs(diferenciaPago) < 0.01) ? '#A78BFA' : '#555', border: '1px solid #A78BFA44', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: (docsPago.length > 0 && Math.abs(diferenciaPago) < 0.01) ? 'pointer' : 'not-allowed', display: 'flex', alignItems: 'center', gap: 6 }}>
             <Plus size={13} /> Guardar este pago y agregar otro
