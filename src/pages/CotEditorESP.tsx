@@ -5,6 +5,7 @@ import { F, STAGE_CONFIG } from '../lib/utils'
 import { Badge, Btn, Loading } from '../components/layout/UI'
 import { ANTHROPIC_API_KEY } from '../lib/config'
 import { Plus, ChevronLeft, ChevronRight, ChevronDown, X, Trash2, Image as ImageIcon, Search, RefreshCw, Sparkles, Upload, Loader2, FileText, Package, ArrowLeftRight, BookOpen } from 'lucide-react'
+import BotonCatalogo from '../components/BotonCatalogo'
 import ImageUpload from '../components/ImageUpload'
 import VersionManager, { VersionSnapshot } from '../components/VersionManager'
 import { useIsMobile } from '../lib/useIsMobile'
@@ -3038,6 +3039,7 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
           return <span key={sys.id} onClick={() => setViewSystemId(sys.id)} style={{ padding: isMobile ? '1px 4px' : '2px 7px', borderRadius: 5, fontSize: isMobile ? 8 : 10, fontWeight: 600, background: sys.color + '18', color: sys.color, border: '1px solid ' + sys.color + '33', cursor: 'pointer', transition: 'opacity 0.1s', whiteSpace: 'nowrap' }} onMouseEnter={e => (e.currentTarget.style.opacity = '0.8')} onMouseLeave={e => (e.currentTarget.style.opacity = '1')}>{isMobile ? sys.name.slice(0, 4) : sys.name} {isMobile ? st.toFixed(0) : (config.currency === 'MXN' ? '$' : 'US$') + st.toFixed(0)}</span>
         })}
         <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: isMobile ? 3 : 6, flexWrap: isMobile ? 'wrap' : 'nowrap' }}>
+          <BotonCatalogo cotId={cotId} />
           <span style={{ fontSize: isMobile ? 8 : 10, fontWeight: 600, color: config.currency === 'USD' ? '#06B6D4' : '#D97706', background: config.currency === 'USD' ? '#06B6D422' : '#D9770622', padding: isMobile ? '1px 4px' : '2px 8px', borderRadius: 5 }}>{config.currency}</span>
           {!isMobile && <span style={{ fontSize: 9, color: '#555' }}>TC:</span>}
           <input type="number" value={config.tipoCambio} step={0.1}

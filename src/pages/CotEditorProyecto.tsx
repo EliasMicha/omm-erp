@@ -5,6 +5,7 @@ import { redactarScope, ScopeTexto, ResultadoScope, ContextoScope } from '../lib
 import { F, STAGE_CONFIG } from '../lib/utils'
 import { Badge, Btn, Loading } from '../components/layout/UI'
 import { ChevronLeft, ChevronDown, ChevronRight, Settings, X, Printer, Download, Save, Check, Pencil, BookOpen, Plus, Trash2, Sparkles, Loader2 } from 'lucide-react'
+import BotonCatalogo from '../components/BotonCatalogo'
 import EditCotInfoModal from '../components/EditCotInfoModal'
 import VersionManager, { VersionSnapshot } from '../components/VersionManager'
 import { OMNIIOUS_LOGO } from '../assets/logo'
@@ -2150,6 +2151,7 @@ export default function CotEditorProyecto({ cotId, onBack, specialty = 'proy', o
         {projectName && <span style={{ fontSize: 10, color: '#555' }}>| {projectName}</span>}
         <button onClick={() => setShowEditInfo(true)} style={{background:'none',border:'none',color:'#555',cursor:'pointer',padding:2,display:'flex',alignItems:'center'}} title="Editar info"><Pencil size={12}/></button>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 4, alignItems: 'center' }}>
+          <BotonCatalogo cotId={cotId} />
           {(Object.entries(STAGE_CONFIG) as Array<[string, { label: string; color: string }]>).map(([s, cfg]) => (
             <button
               key={s}

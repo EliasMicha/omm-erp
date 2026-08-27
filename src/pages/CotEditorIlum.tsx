@@ -4,6 +4,7 @@ import { fetchAllActiveCatalog } from '../lib/catalog'
 import { F, STAGE_CONFIG } from '../lib/utils'
 import { Btn, Loading } from '../components/layout/UI'
 import { Plus, ChevronDown, ChevronRight, X, Trash2, Image as ImageIcon, Search, ArrowLeftRight, Sparkles, Upload, Loader2, FileText, RefreshCw, BookOpen, Pencil } from 'lucide-react'
+import BotonCatalogo from '../components/BotonCatalogo'
 import VersionManager, { VersionSnapshot } from '../components/VersionManager'
 import EditCotInfoModal from '../components/EditCotInfoModal'
 import { useIsMobile } from '../lib/useIsMobile'
@@ -1293,6 +1294,7 @@ export default function CotEditorIlum({ cotId, onBack, onSwitchVersion }: { cotI
                 {(quote?.client_name) && <div style={{ fontSize: 11, color: '#666', marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{quote.client_name}</div>}
               </div>
               <button onClick={() => setShowEditInfo(true)} title="Editar datos de la cotización (cliente, lead, proyecto)" style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', padding: 4, display: 'flex', alignItems: 'center', flexShrink: 0 }}><Pencil size={14} /></button>
+              <BotonCatalogo cotId={cotId} />
             </div>
           </div>
           {/* Renglón 2: etapas + acciones */}
