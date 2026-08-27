@@ -14,6 +14,72 @@ O via Read tool: `Read /Users/eliasmicha/Documents/Claude/Projects/OMM-ERP/.clau
 
 Si el PAT está expirado (curl da 401), avisar al user y pedirle que genere uno nuevo en https://github.com/settings/tokens y lo guarde en ese archivo.
 
+## 🚨 EL CLON LOCAL ESTÁ ATRASADO Y EL DEPLOY SOBREESCRIBE ARCHIVOS COMPLETOS (LEER ANTES DE TOCAR CÓDIGO)
+
+**Esto ya borró una feature de producción en 5 archivos. No es teórico.**
+
+El clon en `/tmp/repo` está anclado a un commit viejo y **no se sincroniza**: el
+bootstrap prohíbe `git pull` / `git stash` / `git checkout -- .`, y el puente de
+deploy (`/tmp/deploy.py`) escribe vía la GitHub Data API sin pasar por el working
+tree. Consecuencia:
+
+> **`/tmp/deploy.py` sube el archivo local COMPLETO y pisa el remoto. No hace merge.**
+> Todo lo que otra sesión haya agregado a ese archivo y no esté en la copia local
+> **se borra en silencio**, sin conflicto, sin aviso, y el build pasa igual.
+
+Los commits hechos desde otras sesiones/máquinas **no están en el historial de este
+clon**, así que `git log` NO sirve para detectar lo que falta.
+
+### Antes de desplegar CUALQUIER archivo que no hayas creado en esta sesión
+
+1. Bajar el bundle desplegado:
+   `mcp__Vercel__web_fetch_vercel_url` → `https://omm-erp.vercel.app/index.html`
+   (saca el nombre de `/assets/index-XXXX.js`) y luego ese `.js`.
+2. Comparar la copia local contra el bundle usando **texto visible al usuario**
+   (etiquetas, títulos, mensajes en español). Eso sobrevive la minificación;
+   los objetos de estilo y los nombres de variable NO — compararlos da falsos negativos.
+3. Si alguna frase de un archivo remoto **no** está en tu copia local, hay trabajo
+   remoto más nuevo: recupéralo antes de desplegar o no despliegues ese archivo.
+
+```bash
+# Verificación rápida: ¿mi copia local coincide con lo desplegado?
+python3 - "$BUNDLE" <<'EOF'
+import sys, re
+b = open(sys.argv[1], encoding='utf-8', errors='replace').read()
+for f in ['CotEditorESP','CotEditorIlum']:           # los archivos a desplegar
+    src = open(f'/tmp/repo/src/pages/{f}.tsx', encoding='utf-8').read()
+    frases = sorted({m.strip() for m in re.findall(
+        r"[>'\"]([A-ZÁÉÍÓÚÑ][a-záéíóúñA-ZÁÉÍÓÚÑ ,¿?¡!:%\.\-]{14,55})[<'\"]", src)})
+    muestra = frases[::max(1, len(frases)//10)][:10]
+    print(f, sum(1 for x in muestra if x in b), '/', len(muestra))
+EOF
+```
+
+### Si el usuario reporta que "desapareció" algo (un botón, una columna, una validación)
+
+Asumir **este** mecanismo antes que un cambio deliberado. Cómo recuperarlo:
+
+```bash
+git log --oneline -S "NombreDelComponente" --all    # aparece aunque no esté en HEAD
+git show <commit> -U4 | grep -B4 -A4 "NombreDelComponente"   # posición exacta original
+```
+
+Restaurarlo **en la misma posición** que tenía y decirle al usuario cuál fue la causa.
+
+**Caso real (2026-08-27):** `<BotonCatalogo />` (Exportar catálogo de licitación)
+estaba montado en los 5 cotizadores por commits de otra sesión (`a9016fe`, `954554c`,
+`6776166`, `ce2139c`, `bc48bec`). Al redesplegar `CotEditorIlum.tsx` y
+`CotEditorProyecto.tsx` por cambios sin relación, el botón se fue con ellos.
+Quedó solo en `Cotizaciones.tsx`. Restaurado en `594092a`.
+
+### Al iniciar sesión
+
+Si se van a tocar archivos grandes ya existentes, hacer el cotejo del punto 1-2
+**antes** de empezar, no después. Cuesta un minuto; recuperar una feature borrada
+cuesta encontrarla primero — y solo se encuentra si el usuario la extraña.
+
+---
+
 ## Last updated: 2026-05-21 (Sesión catch-up + documentación de 304 commits no documentados)
 
 ---
