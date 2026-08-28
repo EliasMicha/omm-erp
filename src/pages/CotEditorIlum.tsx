@@ -8,6 +8,7 @@ import BotonCatalogo from '../components/BotonCatalogo'
 import VersionManager, { VersionSnapshot } from '../components/VersionManager'
 import EditCotInfoModal from '../components/EditCotInfoModal'
 import { useIsMobile } from '../lib/useIsMobile'
+import { tcForYear } from '../lib/fx'
 import { normalizarMoneda, monedaDeCosto, convertir, convertirSiSePuede, simbolo, type Moneda } from '../lib/moneda'
 
 // ═══════════════════════════════════════════════════════════════════
@@ -44,11 +45,30 @@ const SUBSECTION_PRESETS = ['Luminarias', 'Fuentes de Poder', 'Perfiles', 'Drive
 function uid(): string { return Math.random().toString(36).slice(2, 10) }
 function fmt(n: number): string { return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }
 
-function calcLine(p: IlumProduct) {
-  const costReal = p.cost > 0 ? p.cost : p.price * (1 - p.markup / 100)
+/**
+ * Totales de un renglón.
+ *
+ * OJO con las monedas: `p.price` está en la moneda de VENTA de la cotización y
+ * `p.cost` en la del PROVEEDOR, que no tienen por qué ser la misma. Para que
+ * `costReal` y `utilidad` signifiquen algo hay que pasar el costo a moneda de
+ * venta primero — si no, se resta un costo en pesos de una venta en dólares y
+ * el margen sale en −384%, que es exactamente lo que estaba pasando en el
+ * bloque de análisis interno.
+ *
+ * `monedaCot` y `tc` son opcionales para no romper a quien solo quiere `total`
+ * (que nunca depende de la moneda del costo).
+ */
+function calcLine(p: IlumProduct, monedaCot?: Moneda, tc?: number) {
+  const nativo = p.cost > 0 ? p.cost : p.price * (1 - p.markup / 100)
+  const mCosto = normalizarMoneda(p.monedaCosto)
+  let costReal = nativo
+  if (monedaCot && mCosto !== monedaCot) {
+    const conv = convertirSiSePuede(nativo, mCosto, monedaCot, Number(tc) || 0)
+    if (conv !== null) costReal = conv
+  }
   const total = p.price * p.quantity
   const utilidad = p.price - costReal
-  return { costReal, total, utilidad }
+  return { costReal, total, utilidad, costNativo: nativo, monedaCosto: mCosto }
 }
 
 const S = {
@@ -73,7 +93,9 @@ function ProductRow({ p, onUpdate, onRemove, selected, onToggleSelect, onSubstit
   // fila enseña 782.45 junto a 1203.77 y parece que son la misma moneda.
   const monCosto = normalizarMoneda(p.monedaCosto)
   const cruzado = !!monedaCot && monCosto !== monedaCot
-  const { total, costReal, utilidad } = calcLine(p)
+  // Solo el total: costReal y utilidad se sacaban aquí y no se usaban, y sin
+  // la moneda de venta habrían salido mal de todas formas.
+  const { total } = calcLine(p)
   return (
     <tr style={{ background: selected ? '#10B9810D' : undefined }}>
       {onToggleSelect && (
@@ -1287,12 +1309,14 @@ export default function CotEditorIlum({ cotId, onBack, onSwitchVersion }: { cotI
   // si falta el TC para poder convertirlas. Va antes de `overallMargin` porque
   // la barra de moneda lo pinta arriba de la tabla.
   const productosCruzados = products.filter(p => normalizarMoneda(p.monedaCosto) !== monedaCot).length
+  const tcSugerido = tcForYear(new Date().getFullYear())
   const necesitaTC = productosCruzados > 0 && !(tcCot > 0)
 
   const overallMargin = useMemo(() => {
     let revenue = 0, cost = 0
     products.forEach(p => {
-      const c = calcLine(p)
+      // El costo se compara YA convertido a la moneda de venta.
+      const c = calcLine(p, monedaCot, tcCot)
       revenue += p.price * p.quantity
       cost += c.costReal * p.quantity
     })
@@ -1300,7 +1324,7 @@ export default function CotEditorIlum({ cotId, onBack, onSwitchVersion }: { cotI
     const revenueBilled = revenue * descFactor
     const nomina = revenueBilled * (ilumConfig.nominaPct || 0) / 100
     return revenueBilled > 0 ? Math.round(((revenueBilled - cost - nomina) / revenueBilled) * 1000) / 10 : 0
-  }, [products, ilumConfig.descuento, ilumConfig.nominaPct])
+  }, [products, ilumConfig.descuento, ilumConfig.nominaPct, monedaCot, tcCot])
 
   // Bulk-margin: escala precios proporcionalmente para que MG Real llegue al target.
   //   newRevenueBilled = totalCost / (1 − (target + nomPct)/100)
@@ -1313,7 +1337,7 @@ export default function CotEditorIlum({ cotId, onBack, onSwitchVersion }: { cotI
     }
     let totalCost = 0, productRev = 0
     products.forEach(p => {
-      const c = calcLine(p)
+      const c = calcLine(p, monedaCot, tcCot)
       totalCost += c.costReal * p.quantity
       productRev += p.price * p.quantity
     })
@@ -1377,7 +1401,7 @@ export default function CotEditorIlum({ cotId, onBack, onSwitchVersion }: { cotI
       config: { ...ilumConfig },
       areas: subsections.map(s => ({ id: s.id, name: s.name, order: s.order })),
       items: products.map(p => {
-        const { total, costReal } = calcLine(p)
+        const { total, costReal } = calcLine(p, monedaCot, tcCot)
         return {
           id: p.id, areaId: p.subsectionId, name: p.name,
           description: [p.marca, p.modelo, p.watts ? p.watts + 'W' : null].filter(Boolean).join(' | ') || p.description,
@@ -1451,12 +1475,12 @@ export default function CotEditorIlum({ cotId, onBack, onSwitchVersion }: { cotI
                 title={`MG Real = (revenue − costo productos − nómina ${ilumConfig.nominaPct}%) / revenue billed. Click para ajustar.`}
                 style={{
                   padding: '6px 12px', borderRadius: 20, fontSize: 10, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
-                  border: '1px solid ' + (overallMargin >= 25 ? '#10B981' : overallMargin >= 15 ? '#D97706' : '#DC2626'),
-                  background: (overallMargin >= 25 ? '#10B981' : overallMargin >= 15 ? '#D97706' : '#DC2626') + '22',
-                  color: overallMargin >= 25 ? '#10B981' : overallMargin >= 15 ? '#D97706' : '#DC2626',
+                  border: '1px solid ' + (necesitaTC ? '#555' : overallMargin >= 25 ? '#10B981' : overallMargin >= 15 ? '#D97706' : '#DC2626'),
+                  background: (necesitaTC ? '#555' : overallMargin >= 25 ? '#10B981' : overallMargin >= 15 ? '#D97706' : '#DC2626') + '22',
+                  color: necesitaTC ? '#888' : overallMargin >= 25 ? '#10B981' : overallMargin >= 15 ? '#D97706' : '#DC2626',
                   display: 'inline-flex', alignItems: 'center', gap: 4,
                 }}
-              >MG Real {overallMargin}%</button>
+              >MG Real {necesitaTC ? '—' : overallMargin + '%'}</button>
               {showBulkMargin && (
                 <div style={{ position: 'absolute', top: '110%', right: 0, zIndex: 30, background: '#141414', border: '1px solid #333', borderRadius: 10, padding: 12, minWidth: 320, boxShadow: '0 10px 30px rgba(0,0,0,0.6)' }}>
                   <div style={{ fontSize: 11, fontWeight: 700, color: '#fff', marginBottom: 6 }}>Ajustar margen real del proyecto</div>
@@ -1511,14 +1535,23 @@ export default function CotEditorIlum({ cotId, onBack, onSwitchVersion }: { cotI
               }}>{m}</button>
           ))}
           <span style={{ fontSize: 9.5, color: '#666', textTransform: 'uppercase', letterSpacing: '.06em', marginLeft: 6 }}>Tipo de cambio</span>
-          <input type="number" step={0.01} value={tcCot || ''} placeholder="18.00"
+          <input type="number" step={0.01} value={tcCot || ''} placeholder={tcSugerido.toFixed(2)}
             onChange={e => setTcCot(parseFloat(e.target.value) || 0)}
             onBlur={e => guardarMoneda({ tipoCambio: parseFloat(e.target.value) || 0 })}
             style={{ ...S.input, width: 80, fontSize: 11, textAlign: 'right' }} />
           <span style={{ fontSize: 9.5, color: '#666' }}>MXN por dólar</span>
+          {/* El TC se sugiere pero NUNCA se aplica solo: un tipo de cambio que
+              nadie eligió es justo el tipo de suposición silenciosa que dejó
+              cotizaciones con pesos contados como dólares. */}
+          {!tcCot && (
+            <button onClick={() => guardarMoneda({ tipoCambio: tcSugerido })}
+              style={{ padding: '3px 9px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #333', background: 'transparent', color: '#888' }}>
+              Usar {tcSugerido}
+            </button>
+          )}
           {necesitaTC ? (
             <span style={{ fontSize: 10, color: '#DC2626', fontWeight: 600, marginLeft: 'auto' }}>
-              Hay {productosCruzados} producto(s) costeados en la otra moneda. Sin tipo de cambio no se puede convertir su precio de venta.
+              Hay {productosCruzados} producto(s) costeados en la otra moneda. Captura el tipo de cambio para poder convertir su precio de venta.
             </span>
           ) : productosCruzados > 0 ? (
             <span style={{ fontSize: 10, color: '#888', marginLeft: 'auto' }}>
@@ -1656,10 +1689,20 @@ export default function CotEditorIlum({ cotId, onBack, onSwitchVersion }: { cotI
           {/* Análisis Interno — margen real con nómina y descuento */}
           <div style={{ marginTop: 16, padding: 12, background: '#1a1414', border: '1px solid #332222', borderRadius: 10 }}>
             <div style={{ fontSize: 10, fontWeight: 600, color: '#D97706', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Análisis Interno</div>
-            {(() => {
+            {/* Sin tipo de cambio no se puede restar un costo en pesos de una
+                venta en dólares. Antes se restaba de todos modos y salía un
+                MG real de −404%, que no es un margen: es una resta de dos
+                monedas distintas. Más vale no dar el número que darlo mal. */}
+            {necesitaTC ? (
+              <div style={{ fontSize: 11, color: '#DC2626', lineHeight: 1.6 }}>
+                No se puede calcular el margen todavía: {productosCruzados} producto(s) están costeados en {monedaCot === 'USD' ? 'pesos' : 'dólares'} y esta cotización se cobra en {monedaCot}. Captura el tipo de cambio arriba y aparece.
+              </div>
+            ) : (() => {
               let vtProd = 0, ctProd = 0
               products.forEach(p => {
-                const c = calcLine(p)
+                // Costo convertido a la moneda de venta: aquí es donde salía
+                // el −384%, restando pesos de una venta en dólares.
+                const c = calcLine(p, monedaCot, tcCot)
                 vtProd += p.price * p.quantity
                 ctProd += c.costReal * p.quantity
               })
