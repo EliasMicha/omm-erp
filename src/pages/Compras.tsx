@@ -11,6 +11,7 @@ import { useIsMobile } from '../lib/useIsMobile'
 import { Plus, ChevronLeft, X, Search, Trash2, Save, ShoppingCart, Truck, Package, Users2, FileText, Copy, Sparkles, Upload, ClipboardList, CheckCircle2, Circle, Clock, Download } from 'lucide-react'
 import { generatePOPdf } from '../lib/poPdf'
 import { sugerirFechaMaximaPago, estadoPago } from '../lib/pagoProveedor'
+import { normalizarMoneda, monedaDeCosto, type Moneda } from '../lib/moneda'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type POStatus = 'borrador' | 'aprobada' | 'pedida' | 'recibida_parcial' | 'recibida' | 'cancelada'
@@ -1632,7 +1633,7 @@ REGLAS:
 function NuevaPOModal({ onClose, onCreated }: { onClose: () => void; onCreated: (id: string) => void }) {
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
   const [obras, setObras] = useState<OpcionObra[]>([])
-  const [form, setForm] = useState({ project_id: '', supplier_id: '', specialty: 'esp' as ProjectLine, notes: '' })
+  const [form, setForm] = useState({ project_id: '', supplier_id: '', specialty: 'esp' as ProjectLine, notes: '', currency: 'MXN' as Moneda })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
@@ -1651,6 +1652,10 @@ function NuevaPOModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
       supplier_id: form.supplier_id || null,
       specialty: form.specialty,
       status: 'borrador',
+      // Una OC nace con moneda. Antes se creaba sin `currency` y quedaba en
+      // null: el PDF la imprimía con signo de peso, los reportes la contaban
+      // donde no era, y al agregarle renglones no había contra qué validar.
+      currency: form.currency,
       subtotal: 0, iva: 0, total: 0,
       notes: form.notes || null,
     })
@@ -1688,6 +1693,23 @@ function NuevaPOModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
                     {v.icon} {v.label}
                   </button>
                 ))}
+            </div>
+          </label>
+          <label style={{ fontSize: 11, color: '#555', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+            Moneda de la orden
+            <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
+              {(['MXN', 'USD'] as Moneda[]).map(m => (
+                <button key={m} onClick={() => setForm(f => ({ ...f, currency: m }))}
+                  style={{
+                    flex: 1, padding: '7px 10px', borderRadius: 8, cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, fontWeight: 600,
+                    border: `1px solid ${form.currency === m ? '#57FF9A' : '#333'}`,
+                    background: form.currency === m ? '#57FF9A22' : 'transparent',
+                    color: form.currency === m ? '#57FF9A' : '#666',
+                  }}>{m === 'MXN' ? 'MXN — Pesos' : 'USD — Dólares'}</button>
+              ))}
+            </div>
+            <div style={{ fontSize: 10, color: '#666', marginTop: 4, textTransform: 'none', letterSpacing: 0 }}>
+              La moneda en que este proveedor nos factura. Una orden no mezcla pesos con dólares: si hace falta comprar en las dos, son dos órdenes.
             </div>
           </label>
           <label style={{ fontSize: 11, color: '#555', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
@@ -2323,7 +2345,11 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
     }))
     setItems(updated)
     for (const it of updated) {
-      await supabase.from('po_items').update({ unit_cost: it.unit_cost, total: it.total, real_unit_cost: it.real_unit_cost ?? null, real_total: it.real_total ?? null }).eq('id', it.id)
+      // `currency` va aquí también. Sin esto la orden quedaba en la moneda
+      // nueva y sus renglones etiquetados con la vieja: la OC decía USD y cada
+      // po_item decía MXN, y los reportes que suman por renglón contaban ese
+      // dinero en la moneda equivocada.
+      await supabase.from('po_items').update({ unit_cost: it.unit_cost, total: it.total, currency: target, real_unit_cost: it.real_unit_cost ?? null, real_total: it.real_total ?? null }).eq('id', it.id)
     }
     // Convertir extras fijos (fletes/importación) y recomputar totales
     const extrasArr: any[] = Array.isArray((po as any).extras) ? (po as any).extras : []
@@ -2375,8 +2401,22 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
   }
 
   async function addItemFromCatalog(product: CatalogProduct) {
+    // Una OC no mezcla monedas. Si el producto lo factura el proveedor en otra
+    // moneda que la de esta orden, no entra aquí: va en su propia OC. Antes se
+    // insertaba sin más, y el importe quedaba etiquetado con la moneda de la
+    // orden aunque fuera de la otra.
+    const monedaOC: Moneda = normalizarMoneda(po?.currency)
+    const monedaProd = monedaDeCosto(product)
+    if (monedaProd !== monedaOC) {
+      alert(
+        `"${product.name}" está costeado en ${monedaProd} y esta orden es en ${monedaOC}.\n\n` +
+        `Una orden de compra no puede mezclar pesos con dólares: el proveedor factura en una sola moneda. ` +
+        `Crea una orden aparte en ${monedaProd} para este producto.`)
+      return
+    }
     const newItem = {
       purchase_order_id: po!.id,
+      currency: monedaOC,
       catalog_product_id: product.id,
       name: product.name,
       description: product.description || null,
@@ -2400,6 +2440,7 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
   async function addManualItem() {
     const newItem = {
       purchase_order_id: po!.id,
+      currency: normalizarMoneda(po?.currency),
       name: 'Nuevo artículo',
       unit: 'pza',
       quantity: 1,

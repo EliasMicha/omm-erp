@@ -4,6 +4,7 @@ import { F, formatDate } from '../lib/utils'
 import { KpiCard, Table, Th, Td, Badge, Btn, EmptyState, Loading } from '../components/layout/UI'
 import { Plus, X, Search, FileText, Trash2, DollarSign, Clock, CheckCircle, Loader2, AlertTriangle } from 'lucide-react'
 import { OMNIIOUS_LOGO } from '../assets/logo'
+import { normalizarMoneda, monedaDeCosto, precioNativo, convertir, TipoCambioFaltante } from '../lib/moneda'
 
 // Mismos datos/term que el PDF oficial de cotizaciones (configurables en CotizacionPdf → localStorage)
 const OMM_DEFAULTS = {
@@ -129,14 +130,21 @@ export function QuoteEditorModal({ quoteId, prefill, properties, onClose, onSave
     if (from === 'MXN' && currency === 'USD') return amount / tc
     return amount
   }
+  // Precio de lista en la moneda del proveedor.
+  //
+  // Antes: `cost * (1 + markup)`. En este ERP `markup` es MARGEN sobre precio
+  // (35 = 35%), no un recargo sobre costo, así que un producto de $1,000 con
+  // markup 35 salía en $36,000. La fórmula correcta vive en precioNativo().
   function priceCatalogo(p: CatProd): number {
-    const base = p.precio_venta && p.precio_venta > 0 ? Number(p.precio_venta) : (Number(p.cost) || 0) * (1 + (Number(p.markup) || 0))
-    return base
+    return precioNativo(p)
   }
 
   function addFromCatalog(p: CatProd) {
     const nativePrice = priceCatalogo(p)
-    const unit = Math.round(toQuoteCur(nativePrice, p.moneda || 'MXN') * 100) / 100
+    // El costo se queda en la moneda del proveedor; sólo se convierte el precio.
+    let unit: number
+    try { unit = convertir(nativePrice, monedaDeCosto(p), normalizarMoneda(currency), tc) }
+    catch (e: any) { if (e instanceof TipoCambioFaltante) { alert(e.message); return } throw e }
     // La mano de obra del catálogo se asume en MXN
     const inst = Math.round(toQuoteCur(Number(p.costo_mano_obra) || 0, 'MXN') * 100) / 100
     setItems(its => [...its, {

@@ -22,6 +22,7 @@ import { useAuth } from '../contexts/AuthContext'
 import CotEditorProyecto from './CotEditorProyecto'
 import { autoCreateProjectFromQuotation } from '../lib/projectUtils'
 import { DEFAULT_TC } from '../lib/fx'
+import { normalizarMoneda, monedaDeCosto, convertir, TipoCambioFaltante, type Moneda } from '../lib/moneda'
 import { insertarOC } from '../lib/oc'
 import BotonCatalogo from '../components/BotonCatalogo'
 
@@ -1076,10 +1077,21 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
       return
     }
 
-    // Group by supplier_id × purchase_phase
+    // Se agrupa por distribuidor × fase × MONEDA DEL COSTO.
+    //
+    // La moneda entra en la llave a propósito: una OC nunca mezcla pesos con
+    // dólares. Un proveedor que nos vende las dos cosas genera dos órdenes,
+    // cada una en la moneda en que nos va a facturar. Antes la llave era solo
+    // distribuidor × fase, así que ese proveedor producía UNA orden con los
+    // importes de ambas monedas sumados en crudo y sin campo `currency`.
+    //
+    // La moneda sale de `provider_currency`, que se copia del catálogo al
+    // agregar la partida — no de la moneda de la cotización, que es la de
+    // venta y no tiene por qué coincidir.
     const groups: Record<string, QuotationItem[]> = {}
     materialItems.forEach(it => {
-      const key = `${it.supplier_id}__${it.purchase_phase || 'inicio'}`
+      const monedaCosto = normalizarMoneda((it as any).provider_currency)
+      const key = `${it.supplier_id}__${it.purchase_phase || 'inicio'}__${monedaCosto}`
       if (!groups[key]) groups[key] = []
       groups[key].push(it)
     })
@@ -1096,7 +1108,8 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
     let created = 0
 
     for (const [key, groupItems] of Object.entries(groups)) {
-      const [supplierId, phase] = key.split('__')
+      const [supplierId, phase, moneda] = key.split('__')
+      const cur = (moneda === 'USD' ? 'USD' : 'MXN') as Moneda
 
       const subtotal = groupItems.reduce((s, it) => s + (it.cost * it.quantity), 0)
       const iva = Math.round(subtotal * 0.16)
@@ -1112,8 +1125,9 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
         specialty: cot.specialty,
         status: 'borrador',
         purchase_phase: phase,
+        currency: cur,
         subtotal, iva, total: subtotal + iva,
-        notes: `Auto-generada | ${cot.name} | ${phaseCfg?.label || phase} | ${supplierName}`,
+        notes: `Auto-generada | ${cot.name} | ${phaseCfg?.label || phase} | ${supplierName} | ${cur}`,
       })
 
       if (poErr || !po) continue
@@ -1129,6 +1143,7 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
         quantity: it.quantity,
         unit_cost: it.cost,
         total: it.cost * it.quantity,
+        currency: cur,
         quantity_received: 0,
         order_index: i,
       }))
@@ -1136,7 +1151,7 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
       created++
     }
 
-    setGenResult(`Se generaron ${created} órdenes de compra agrupadas por distribuidor y fase.`)
+    setGenResult(`Se generaron ${created} órdenes de compra agrupadas por distribuidor, fase y moneda. Cada orden va en la moneda en que factura el proveedor: nunca se mezclan pesos con dólares.`)
     setGenerating(false)
   }
 
@@ -1314,11 +1329,24 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
         else if (prod.type === 'labor' || prod.type === 'mano_de_obra') { itemCost = Math.round(price * 0.40 * 100) / 100; itemMarkup = 150 }
       }
     }
+    // ── Moneda ───────────────────────────────────────────────────────────
+    // El costo se queda en la moneda del proveedor (así nos factura y así se
+    // le compra). Lo que se convierte es el PRECIO, a la moneda de esta
+    // cotización, con el TC pactado aquí. Ver src/lib/moneda.ts.
+    const monedaCosto = monedaDeCosto(prod)
+    const monedaCot: Moneda = normalizarMoneda(config.currency)
+    try {
+      priceFinal = convertir(priceFinal, monedaCosto, monedaCot, config.tipoCambio)
+    } catch (e: any) {
+      if (e instanceof TipoCambioFaltante) { alert(e.message); return }
+      throw e
+    }
     const item = {
       area_id: areaActiva, quotation_id: cotId, catalog_product_id: prod.id,
       name: prod.name, description: prod.description, system: prod.system,
       type: prod.type, provider: prod.provider, quantity: 1,
       cost: itemCost, markup: itemMarkup, mo_pct: moPct, util_pct: utilPct,
+      provider_currency: monedaCosto,
       supplier_id: prod.supplier_id || null,
       purchase_phase: prod.purchase_phase || 'inicio',
       price: priceFinal, total: priceFinal,
@@ -1349,12 +1377,16 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
       if (prod.type === 'material' || prod.type === 'servicio') { itemCost = Math.round(price * 0.25 * 100) / 100; itemMarkup = 300 }
       else if (prod.type === 'labor' || prod.type === 'mano_de_obra') { itemCost = Math.round(price * 0.40 * 100) / 100; itemMarkup = 150 }
     }
+    // Mismo cruce de moneda que addFromCatalog: precio a la moneda de la
+    // cotización, costo intacto en la del proveedor.
+    const monedaCosto = monedaDeCosto(prod)
+    const precioCot = convertir(price, monedaCosto, normalizarMoneda(config.currency), config.tipoCambio)
     return {
       catalog_product_id: prod.id, name: prod.name, description: prod.description ?? null, system: prod.system ?? null,
       type: prod.type, provider: prod.provider ?? null, cost: itemCost, markup: itemMarkup,
-      supplier_id: prod.supplier_id || null, purchase_phase: prod.purchase_phase || 'inicio', price,
+      supplier_id: prod.supplier_id || null, purchase_phase: prod.purchase_phase || 'inicio', price: precioCot,
       marca: prod.marca ?? null, modelo: prod.modelo ?? null, sku: prod.sku ?? null, image_url: prod.image_url ?? null,
-      provider_currency: prod.moneda || prod.provider_currency || 'USD',
+      provider_currency: monedaCosto,
     }
   }
 
@@ -1400,21 +1432,32 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
       const factor = destino === 'MXN' ? tc : 1 / tc
       const ok = confirm(
         `¿Convertir TODOS los montos de ${config.currency} a ${destino} con TC ${tc}?\n\n` +
-        `Se recalculan precio, costo, instalación y total de ${items.length} partidas.\n` +
+        `Se recalcula el PRECIO DE VENTA (y su instalación y total) de ${items.length} partidas.\n` +
+        `El COSTO no se toca: sigue en la moneda en que nos factura el proveedor.\n` +
         `Esto SÍ cambia el dinero de la cotización y no se deshace solo.`)
       if (!ok) return
       setMonedaBusy(true)
       try {
+        // ⚠️ NO se convierte `cost`.
+        //
+        // Antes sí se convertía, y era un error caro: `cost` está en la moneda
+        // del proveedor y `provider_currency` dice cuál es, pero esta función
+        // nunca actualizaba esa etiqueta. Convertir una cotización USD→MXN
+        // dejaba el costo ya en pesos con la etiqueta 'USD', y Compras emitía
+        // la orden en dólares con importes que ya eran pesos: 18 veces de más.
+        //
+        // La moneda del costo no se mueve porque no depende de nosotros; es
+        // como nos factura el proveedor. Lo único que cambia de moneda es el
+        // precio de venta.
         const cv = (n: any) => (n === null || n === undefined || n === '') ? n : Math.round(Number(n) * factor * 100) / 100
         const nuevos = items.map(i => ({
           ...i,
           price: cv(i.price),
-          cost: cv(i.cost),
           installation_cost: cv((i as any).installation_cost),
           total: cv(i.total),
         })) as QuotationItem[]
         await Promise.all(nuevos.map(i => supabase.from('quotation_items').update({
-          price: i.price, cost: i.cost, installation_cost: (i as any).installation_cost, total: i.total,
+          price: i.price, installation_cost: (i as any).installation_cost, total: i.total,
         }).eq('id', i.id)))
         setItems(nuevos)   // dispara el sync de quotations.total / total_final
       } finally { setMonedaBusy(false) }

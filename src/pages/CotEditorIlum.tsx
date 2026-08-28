@@ -8,6 +8,7 @@ import BotonCatalogo from '../components/BotonCatalogo'
 import VersionManager, { VersionSnapshot } from '../components/VersionManager'
 import EditCotInfoModal from '../components/EditCotInfoModal'
 import { useIsMobile } from '../lib/useIsMobile'
+import { normalizarMoneda, convertir, convertirSiSePuede, type Moneda } from '../lib/moneda'
 
 // ═══════════════════════════════════════════════════════════════════
 // TYPES
@@ -537,6 +538,24 @@ function AIImportModalIlum({ cotId, subsections, onClose, onImported }: {
   async function handleConfirm() {
     setStep('inserting'); setError(null); setInsertedCount(0)
     try {
+      // 0) Moneda y tipo de cambio de ESTA cotización.
+      //    Viven en quotations.notes (currency / tipoCambio), igual que en los
+      //    demás cotizadores. Si la cotización es en dólares y hay productos
+      //    costeados en pesos, sin TC no se puede convertir: se avisa y se
+      //    detiene, en vez de importar precios en la moneda equivocada.
+      const { data: cotNotes } = await supabase.from('quotations').select('notes').eq('id', cotId).maybeSingle()
+      let metaCot: any = {}
+      try { metaCot = JSON.parse((cotNotes as any)?.notes || '{}') } catch { metaCot = {} }
+      const monedaCot: Moneda = normalizarMoneda(metaCot.currency)
+      const tcCot = Number(metaCot.tipoCambio) || 0
+      // Conservador a propósito: una fila SIN moneda declarada también cuenta
+      // como cruce posible, porque su moneda la va a resolver el catálogo
+      // renglón por renglón y aquí todavía no se sabe.
+      const hayCruce = items.some(it => !it.moneda || normalizarMoneda(it.moneda) !== monedaCot)
+      if (hayCruce && !(tcCot > 0)) {
+        throw new Error(`Esta cotización es en ${monedaCot} y hay partidas costeadas en la otra moneda, pero la cotización no tiene tipo de cambio. Captúralo en la cotización antes de importar.`)
+      }
+
       // 1) Ensure subsections exist
       setProgress('Sincronizando subsecciones...')
       const subCache: Record<string, string> = {}
@@ -616,11 +635,20 @@ function AIImportModalIlum({ cotId, subsections, onClose, onImported }: {
         }
 
         const defaultMarkup = 35
-        let precio: number
-        if (it.precio_unitario && it.precio_unitario > 0) { precio = it.precio_unitario }
-        else if (prodCost > 0) { precio = Math.round(prodCost / (1 - defaultMarkup / 100) * 100) / 100 }
-        else { precio = 0 }
-        const margin = prodCost > 0 && precio > 0 ? Math.round((1 - prodCost / precio) * 100) : defaultMarkup
+        // ── Moneda ─────────────────────────────────────────────────────────
+        // El precio del proveedor viene en SU moneda (Illux factura en pesos,
+        // otras marcas en dólares) y así se queda el costo: es lo que se le va
+        // a comprar. Lo que se convierte es el precio de venta, a la moneda de
+        // ESTA cotización y con SU tipo de cambio. Antes no había conversión
+        // alguna aquí: una cotización en dólares terminaba con luminarias
+        // valuadas en pesos bajo el signo de dólar.
+        const monedaProd: Moneda = normalizarMoneda(prodMoneda)
+        let precioNat: number
+        if (it.precio_unitario && it.precio_unitario > 0) { precioNat = it.precio_unitario }
+        else if (prodCost > 0) { precioNat = Math.round(prodCost / (1 - defaultMarkup / 100) * 100) / 100 }
+        else { precioNat = 0 }
+        const margin = prodCost > 0 && precioNat > 0 ? Math.round((1 - prodCost / precioNat) * 100) : defaultMarkup
+        const precio = convertir(precioNat, monedaProd, monedaCot, tcCot)
 
         const subId = subCache[(it.subsection || 'Luminarias').toLowerCase().trim()]
         if (!subId) { console.warn('Sin subsección para item', it); continue }
@@ -630,6 +658,7 @@ function AIImportModalIlum({ cotId, subsections, onClose, onImported }: {
           quotation_id: cotId, area_id: subId, catalog_product_id: catalogProductId,
           name: itemName, description: it.descripcion || null, system: 'Iluminacion', type: 'material',
           quantity: it.cantidad, cost: prodCost, markup: margin, price: precio, total: precio * it.cantidad,
+          provider_currency: monedaProd,
           installation_cost: 0, order_index: inserted,
           marca: it.marca || null, modelo: it.modelo || null, sku: it.sku || null,
           notes: JSON.stringify({ watts: it.watts, lumens: it.lumens, cct: it.cct }),

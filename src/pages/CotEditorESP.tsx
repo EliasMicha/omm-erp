@@ -2513,19 +2513,31 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
     if (!confirm(
       `Convertir toda la cotización a ${toMXN ? 'PESOS (MXN)' : 'DÓLARES (USD)'}\n\n` +
       `• Tipo de cambio fijo: ${tc}\n` +
-      `• Precios, costos, M.O. y programación se ${toMXN ? 'multiplican ×' : 'dividen ÷'} ${tc}\n` +
-      `• Los márgenes se mantienen igual\n` +
+      `• Precios de venta, M.O. y programación se ${toMXN ? 'multiplican ×' : 'dividen ÷'} ${tc}\n` +
+      `• Los COSTOS no se tocan: se quedan en la moneda en que factura cada proveedor\n` +
       `• ${products.length} partida(s) se actualizarán\n\n` +
-      `Esto reescribe los valores en ${targetCur}. ¿Continuar?`
+      `Esto reescribe los precios en ${targetCur}. ¿Continuar?`
     )) return
 
     const r2 = (n: number) => Math.round(n * 100) / 100
+    // ⚠️ NO se convierte `cost`.
+    //
+    // Cada partida guarda su costo en la moneda del proveedor y su
+    // `provider_currency` dice cuál es. Esta función convertía el costo pero
+    // nunca actualizaba esa etiqueta: una cotización pasada de USD a MXN
+    // quedaba con el costo ya en pesos etiquetado 'USD', y Compras emitía la
+    // orden en dólares con importes que ya eran pesos — 18 veces de más.
+    //
+    // La moneda del costo no la decidimos nosotros: es como nos factura el
+    // proveedor y es la moneda en que se le va a comprar. Lo único que cambia
+    // de moneda al cerrar el trato es el precio de venta.
     const updated = products.map(p => ({
       ...p,
       price: r2(p.price * factor),
-      cost: r2(p.cost * factor),
       laborCost: r2(p.laborCost * factor),
-      // margin se mantiene: price y cost escalan por el mismo factor
+      // El margen SÍ cambia de valor aparente porque el costo se queda en su
+      // moneda. Para el margen real cruzando monedas está el helper de margen
+      // en src/lib/moneda.ts.
     }))
     setProducts(updated)
 
@@ -2534,7 +2546,6 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
       const total = p.isService ? p.price * p.quantity : (p.price + p.laborCost) * p.quantity
       const { error } = await supabase.from('quotation_items').update({
         price: p.price,
-        cost: p.cost,
         installation_cost: p.laborCost,
         total: r2(total),
       }).eq('id', p.id)
