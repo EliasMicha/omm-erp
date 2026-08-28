@@ -982,6 +982,7 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
   const [filterPago, setFilterPago] = useState<'todas' | 'vencido' | 'semana' | 'sin_fecha'>('todas')
   const [showNew, setShowNew] = useState(false)
   const [showFromQuote, setShowFromQuote] = useState(false)
+  const [showMasivas, setShowMasivas] = useState(false)
   const [showFromPDF, setShowFromPDF] = useState(false)
 
   const load = () => {
@@ -1081,6 +1082,7 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
           <div style={{ display: 'flex', gap: 8 }}>
             <Btn onClick={() => setShowFromPDF(true)} style={{ borderColor: '#7C3AED', color: '#A78BFA' }}><Sparkles size={14} /> Desde PDF (IA)</Btn>
           <Btn onClick={() => setShowFromQuote(true)}><Copy size={14} /> Desde cotización</Btn>
+            <Btn onClick={() => setShowMasivas(true)} style={{ borderColor: '#10B981', color: '#10B981' }}><ClipboardList size={14} /> Generar en bloque</Btn>
             <Btn variant="primary" onClick={() => setShowNew(true)}><Plus size={14} /> Nueva OC</Btn>
           </div>
         } />
@@ -1210,6 +1212,7 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
 
       {showNew && <NuevaPOModal onClose={() => setShowNew(false)} onCreated={id => { setShowNew(false); onOpen(id) }} />}
       {showFromQuote && <POFromQuoteModal onClose={() => setShowFromQuote(false)} onCreated={id => { setShowFromQuote(false); onOpen(id) }} />}
+      {showMasivas && <OCMasivasModal onClose={() => setShowMasivas(false)} onCreadas={() => { setShowMasivas(false); load() }} />}
       {showFromPDF && <POFromPDFModal onClose={() => setShowFromPDF(false)} onCreated={(id) => { setShowFromPDF(false); load(); onOpen(id) }} />}
     </div>
   )
@@ -1633,22 +1636,33 @@ REGLAS:
 function NuevaPOModal({ onClose, onCreated }: { onClose: () => void; onCreated: (id: string) => void }) {
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
   const [obras, setObras] = useState<OpcionObra[]>([])
-  const [form, setForm] = useState({ project_id: '', supplier_id: '', specialty: 'esp' as ProjectLine, notes: '', currency: 'MXN' as Moneda })
+  const [leads, setLeads] = useState<any[]>([])
+  const [form, setForm] = useState({ lead_id: '', project_id: '', supplier_id: '', specialty: 'esp' as ProjectLine, notes: '', currency: 'MXN' as Moneda })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
   useEffect(() => {
     cargarObras().then(setObras)
+    supabase.from('leads').select('id,name,company').order('name').then(({ data }) => setLeads(data || []))
     supabase.from('suppliers').select('*').eq('is_active', true).order('name').then(({ data }) => setSuppliers(data || []))
   }, [])
 
+  // La OC se cuelga del CLIENTE. La cotización es opcional: hay compras que no
+  // salen de una cotización (una herramienta, un material de emergencia) y
+  // antes no había forma de registrarlas, porque el único selector listaba
+  // cotizaciones vigentes en propuesta o contrato. Si el cliente no tiene
+  // ninguna, no se podía crear la orden.
+  const obrasDelLead = form.lead_id ? obras.filter(o => o.leadId === form.lead_id) : obras
+  const nombreLead = (id: string) => { const l = leads.find(x => x.id === id); return l ? (l.company || l.name) : '' }
+
   async function crear() {
+    if (!form.lead_id) { setError('Elige el cliente al que se le carga esta orden.'); return }
     setSaving(true); setError('')
     const obra = obras.find(o => o.value === form.project_id)
     const { data, error: err } = await insertarOC({
       project_id: obra?.projectId || null,
       quotation_id: form.project_id || null,
-      lead_id: obra?.leadId || null,
+      lead_id: form.lead_id,
       supplier_id: form.supplier_id || null,
       specialty: form.specialty,
       status: 'borrador',
@@ -1673,8 +1687,19 @@ function NuevaPOModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer' }}><X size={18} /></button>
         </div>
         <div style={{ display: 'grid', gap: 14 }}>
-          <SearchableSelect label="Obra (cliente — cotización)" value={form.project_id} onChange={v => setForm(f => ({ ...f, project_id: v }))}
-            options={obras} placeholder="-- Seleccionar obra --" />
+          <SearchableSelect label="Cliente (lead)" value={form.lead_id}
+            onChange={v => setForm(f => ({ ...f, lead_id: v, project_id: '' }))}
+            options={leads.map(l => ({ value: l.id, label: l.company || l.name || 'Sin nombre' }))}
+            placeholder="-- Seleccionar cliente --" />
+          <div>
+            <SearchableSelect label="Cotización (opcional)" value={form.project_id} onChange={v => setForm(f => ({ ...f, project_id: v }))}
+              options={obrasDelLead} placeholder="-- Sin cotización: compra directa al cliente --" />
+            <div style={{ fontSize: 10, color: '#666', marginTop: 4 }}>
+              {form.lead_id && obrasDelLead.length === 0
+                ? `${nombreLead(form.lead_id)} no tiene cotizaciones vigentes en propuesta o contrato. La orden se puede crear igual, colgada del cliente.`
+                : 'Déjala vacía si la compra no sale de una cotización.'}
+            </div>
+          </div>
           <SelectField label="Proveedor" value={form.supplier_id} onChange={v => setForm(f => ({ ...f, supplier_id: v }))}
             options={suppliers.map(s => ({ value: s.id, label: s.name }))} placeholder="-- Seleccionar proveedor --" />
           <label style={{ fontSize: 11, color: '#555', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
@@ -1728,6 +1753,327 @@ function NuevaPOModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
           <Btn onClick={onClose}>Cancelar</Btn>
           <Btn variant="primary" onClick={crear}>{saving ? 'Creando...' : 'Crear OC'}</Btn>
         </div>
+      </div>
+    </div>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  OC MASIVAS DESDE UNA COTIZACIÓN
+//
+//  "Desde cotización" crea UNA orden: hay que elegir proveedor y fase, y
+//  repetirlo tantas veces como proveedores tenga la obra. En una cotización de
+//  iluminación con ocho marcas eso son ocho pasadas y es donde se olvida una.
+//
+//  Aquí se arma TODO el plan de compra de una cotización de un jalón, agrupado
+//  por PROVEEDOR y por MONEDA DE COMPRA, se enseña antes de crear nada, y se
+//  crea solo lo que se aprueba.
+//
+//  La moneda sale del catálogo (es como factura el proveedor), no de la moneda
+//  de la cotización. Un proveedor que nos vende en pesos y en dólares aparece
+//  como dos órdenes distintas: una OC nunca mezcla monedas.
+// ═══════════════════════════════════════════════════════════════════════════════
+type GrupoOC = {
+  key: string
+  supplierId: string | null
+  supplierName: string
+  moneda: Moneda
+  fases: PurchasePhase[]
+  items: any[]
+  subtotal: number
+}
+
+function OCMasivasModal({ onClose, onCreadas }: { onClose: () => void; onCreadas: (n: number) => void }) {
+  const [leads, setLeads] = useState<any[]>([])
+  const [quotations, setQuotations] = useState<any[]>([])
+  const [suppliers, setSuppliers] = useState<Supplier[]>([])
+  const [lead, setLead] = useState('')
+  const [quote, setQuote] = useState('')
+  const [cargando, setCargando] = useState(true)
+  const [analizando, setAnalizando] = useState(false)
+  const [creando, setCreando] = useState(false)
+  const [error, setError] = useState('')
+  const [grupos, setGrupos] = useState<GrupoOC[]>([])
+  const [aprobados, setAprobados] = useState<Set<string>>(new Set())
+  const [sinProveedor, setSinProveedor] = useState<any[]>([])
+  const [yaOrdenado, setYaOrdenado] = useState(0)
+  const [omitidos, setOmitidos] = useState(0)
+  const [analizado, setAnalizado] = useState(false)
+
+  useEffect(() => {
+    Promise.all([
+      supabase.from('leads').select('id,name,company').order('name'),
+      supabase.from('quotations').select('id,name,specialty,notes,stage,project:projects!quotations_project_id_fkey(id,name)')
+        .in('stage', ['propuesta', 'contrato']).eq('vigente', true).order('updated_at', { ascending: false }),
+      supabase.from('suppliers').select('*').eq('is_active', true).order('name'),
+    ]).then(([l, q, sup]) => {
+      setLeads(l.data || []); setQuotations(q.data || []); setSuppliers(sup.data || []); setCargando(false)
+    })
+  }, [])
+
+  const cotsDelLead = lead
+    ? quotations.filter(q => { try { return JSON.parse(q.notes || '{}').lead_id === lead } catch { return false } })
+    : []
+
+  async function analizar() {
+    if (!quote) return
+    setAnalizando(true); setError(''); setGrupos([]); setSinProveedor([]); setAnalizado(false)
+    try {
+      const cot: any = quotations.find(q => q.id === quote)
+      const esDist = cot?.specialty === 'dist'
+      let monedaDist: Moneda = 'USD'
+      if (esDist) { try { monedaDist = normalizarMoneda(JSON.parse(cot?.notes || '{}').currency, 'USD') } catch { /* notas libres */ } }
+
+      // Mismos criterios que "Desde cotización": Distribución guarda sus
+      // renglones sin área y sin type='material'.
+      let items: any[] = []
+      if (esDist) {
+        const { data } = await supabase.from('quotation_items').select('*').eq('quotation_id', quote).order('order_index')
+        items = data || []
+      } else {
+        const { data: areas } = await supabase.from('quotation_areas').select('id').eq('quotation_id', quote)
+        const areaIds = (areas || []).map((a: any) => a.id)
+        if (!areaIds.length) { setAnalizado(true); setAnalizando(false); return }
+        const { data } = await supabase.from('quotation_items').select('*').in('area_id', areaIds).eq('type', 'material').order('order_index')
+        items = data || []
+      }
+
+      // Un sistema apagado en la cotización no se vendió: no se le compra nada.
+      const antes = items.length
+      items = soloSistemasVendidos(items, cot?.notes)
+      setOmitidos(antes - items.length)
+
+      // El catálogo manda en proveedor, moneda y costo.
+      const catIds = [...new Set(items.map(i => i.catalog_product_id).filter(Boolean))]
+      const catMap = new Map<string, any>()
+      if (catIds.length) {
+        const { data: cps } = await supabase.from('catalog_products').select('id,provider,supplier_id,moneda,cost,unit').in('id', catIds)
+        ;(cps || []).forEach((c: any) => catMap.set(c.id, c))
+      }
+
+      // Lo que ya se pidió en OCs anteriores de esta misma cotización no se
+      // vuelve a pedir: si no, cada vez que se corre esto se duplica la compra.
+      const { data: posPrev } = await supabase.from('purchase_orders').select('id,status').eq('quotation_id', quote)
+      const poIds = (posPrev || []).filter((p: any) => p.status !== 'cancelada').map((p: any) => p.id)
+      const ordenado = new Map<string, number>()
+      if (poIds.length) {
+        const { data: prev } = await supabase.from('po_items').select('catalog_product_id,name,quantity').in('purchase_order_id', poIds)
+        ;(prev || []).forEach((pi: any) => {
+          const k = pi.catalog_product_id || pi.name
+          ordenado.set(k, (ordenado.get(k) || 0) + (Number(pi.quantity) || 0))
+        })
+      }
+
+      // Consolidar el mismo producto repetido en varias áreas.
+      const consolidado = new Map<string, any>()
+      for (const it of items) {
+        const cat = it.catalog_product_id ? catMap.get(it.catalog_product_id) : null
+        const costo = esDist ? (Number(it.cost) || 0) : (Number(cat?.cost) || Number(it.cost) || 0)
+        const moneda: Moneda = esDist ? monedaDist : monedaDeCosto(cat || { moneda: (it as any).provider_currency })
+        const supplierId: string | null = cat?.supplier_id || it.supplier_id || null
+        const proveedor = cat?.provider || it.provider || (esDist ? it.marca : '') || ''
+        const k = it.catalog_product_id || it.name
+        const prev = consolidado.get(k)
+        if (prev) { prev.cantidad += Number(it.quantity) || 0; continue }
+        consolidado.set(k, {
+          key: k, catalog_product_id: it.catalog_product_id || null,
+          name: it.name, description: it.description || null,
+          marca: it.marca || null, modelo: it.modelo || null, system: it.system || null,
+          unit: cat?.unit || 'pza', purchase_phase: (it.purchase_phase || 'inicio') as PurchasePhase,
+          cantidad: Number(it.quantity) || 0, costo, moneda, supplierId, proveedor,
+        })
+      }
+
+      // Descontar lo ya ordenado.
+      let cerrados = 0
+      const pendientes: any[] = []
+      for (const it of consolidado.values()) {
+        const falta = it.cantidad - (ordenado.get(it.key) || 0)
+        if (falta <= 0) { cerrados++; continue }
+        pendientes.push({ ...it, cantidad: falta })
+      }
+      setYaOrdenado(cerrados)
+
+      // Sin proveedor no hay a quién comprarle: se aparta y se dice cuáles.
+      const conProv = pendientes.filter(i => i.supplierId)
+      setSinProveedor(pendientes.filter(i => !i.supplierId))
+
+      // ── Agrupar: PROVEEDOR × MONEDA ──
+      const mapa = new Map<string, GrupoOC>()
+      for (const it of conProv) {
+        const k = `${it.supplierId}__${it.moneda}`
+        const g = mapa.get(k)
+        if (g) {
+          g.items.push(it); g.subtotal += it.costo * it.cantidad
+          if (!g.fases.includes(it.purchase_phase)) g.fases.push(it.purchase_phase)
+        } else {
+          mapa.set(k, {
+            key: k, supplierId: it.supplierId, moneda: it.moneda,
+            supplierName: suppliers.find(sp => sp.id === it.supplierId)?.name || it.proveedor || 'Proveedor',
+            fases: [it.purchase_phase], items: [it], subtotal: it.costo * it.cantidad,
+          })
+        }
+      }
+      const lista = Array.from(mapa.values()).sort((a, b) =>
+        a.supplierName.localeCompare(b.supplierName) || a.moneda.localeCompare(b.moneda))
+      lista.forEach(g => g.fases.sort((x, y) => (PHASE_CONFIG[x]?.order ?? 9) - (PHASE_CONFIG[y]?.order ?? 9)))
+      setGrupos(lista)
+      setAprobados(new Set(lista.map(g => g.key)))
+      setAnalizado(true)
+    } catch (e: any) { setError(e?.message || String(e)) }
+    setAnalizando(false)
+  }
+
+  async function crear() {
+    const aCrear = grupos.filter(g => aprobados.has(g.key))
+    if (!aCrear.length) return
+    setCreando(true); setError('')
+    const cot: any = quotations.find(q => q.id === quote)
+    let hechas = 0
+    try {
+      for (const g of aCrear) {
+        const iva = Math.round(g.subtotal * 0.16)
+        // La fase de la orden es la más temprana del grupo: si algo de ese
+        // proveedor se necesita en Inicio, la orden no puede esperar a Cierre.
+        const fase = g.fases[0] || 'inicio'
+        const { data: po, error: err } = await insertarOC({
+          project_id: (cot?.project as any)?.id || null,
+          quotation_id: quote,
+          lead_id: lead || null,
+          supplier_id: g.supplierId,
+          specialty: cot?.specialty || 'esp',
+          status: 'borrador',
+          purchase_phase: fase,
+          currency: g.moneda,
+          subtotal: g.subtotal, iva, total: g.subtotal + iva,
+          notes: `Generada en bloque | ${cot?.name || ''} | ${g.supplierName} | ${g.moneda}`,
+        })
+        if (err || !po) { setError('No se pudo crear la orden de ' + g.supplierName + (err ? ': ' + err.message : '')); break }
+        const filas = g.items.map((it: any, i: number) => ({
+          purchase_order_id: po.id,
+          catalog_product_id: it.catalog_product_id,
+          name: it.name, description: it.description, system: it.system,
+          marca: it.marca, modelo: it.modelo,
+          unit: it.unit || 'pza', quantity: it.cantidad,
+          unit_cost: it.costo, total: it.costo * it.cantidad,
+          currency: g.moneda, quantity_received: 0, order_index: i,
+          cotejo_status: 'pendiente',
+        }))
+        const { error: itErr } = await supabase.from('po_items').insert(filas)
+        if (itErr) { setError('La orden de ' + g.supplierName + ' se creó pero sus renglones fallaron: ' + itErr.message); break }
+        hechas++
+      }
+    } catch (e: any) { setError(e?.message || String(e)) }
+    setCreando(false)
+    if (hechas > 0) onCreadas(hechas)
+  }
+
+  const totalPorMoneda = (['MXN', 'USD'] as Moneda[]).map(m => ({
+    m, monto: grupos.filter(g => aprobados.has(g.key) && g.moneda === m).reduce((s, g) => s + g.subtotal, 0),
+  })).filter(x => x.monto > 0)
+  const nAprob = grupos.filter(g => aprobados.has(g.key)).length
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16 }}>
+      <div style={{ background: '#141414', border: '1px solid #2a2a2a', borderRadius: 16, padding: 24, width: 780, maxWidth: '100%', maxHeight: '90vh', overflowY: 'auto' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+          <div style={{ fontSize: 16, fontWeight: 600, color: '#fff' }}>Generar órdenes de compra en bloque</div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer' }}><X size={18} /></button>
+        </div>
+        <div style={{ fontSize: 11, color: '#666', marginBottom: 18 }}>
+          Todo el plan de compra de una cotización, agrupado por proveedor y por moneda. Se enseña antes de crear nada.
+        </div>
+
+        {cargando ? <Loading /> : (
+          <div style={{ display: 'grid', gap: 14 }}>
+            <SearchableSelect label="Cliente (lead)" value={lead}
+              onChange={v => { setLead(v); setQuote(''); setGrupos([]); setAnalizado(false) }}
+              options={leads.map(l => ({ value: l.id, label: l.company || l.name || 'Sin nombre' }))}
+              placeholder="-- Seleccionar cliente --" />
+            <SearchableSelect label="Cotización" value={quote}
+              onChange={v => { setQuote(v); setGrupos([]); setAnalizado(false) }}
+              options={cotsDelLead.map(q => ({ value: q.id, label: `${q.name} · ${q.stage === 'contrato' ? 'Contrato' : 'Propuesta'}` }))}
+              placeholder={lead ? '-- Seleccionar cotización --' : 'Elige primero el cliente'} />
+
+            {quote && !analizado && (
+              <Btn variant="primary" onClick={analizar} disabled={analizando}>
+                {analizando ? 'Revisando la cotización…' : 'Ver qué órdenes se generarían'}
+              </Btn>
+            )}
+
+            {analizado && (
+              <>
+                {(omitidos > 0 || yaOrdenado > 0 || sinProveedor.length > 0) && (
+                  <div style={{ background: '#0f0f0f', border: '1px solid #222', borderRadius: 8, padding: '10px 12px', fontSize: 11, color: '#888', display: 'grid', gap: 4 }}>
+                    {omitidos > 0 && <div>{omitidos} renglón(es) fuera: pertenecen a un sistema apagado en la cotización, o sea que no se vendió.</div>}
+                    {yaOrdenado > 0 && <div>{yaOrdenado} producto(s) ya están completamente pedidos en órdenes anteriores de esta cotización. No se repiten.</div>}
+                    {sinProveedor.length > 0 && (
+                      <div style={{ color: '#FBBF24' }}>
+                        {sinProveedor.length} producto(s) sin distribuidor asignado quedan fuera: {sinProveedor.slice(0, 4).map(i => i.name).join(', ')}{sinProveedor.length > 4 ? '…' : ''}. Asígnales distribuidor en el catálogo y vuelve a correr esto.
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {grupos.length === 0 ? (
+                  <div style={{ color: '#888', fontSize: 12, padding: '14px 0' }}>
+                    No queda nada por comprar en esta cotización.
+                  </div>
+                ) : (
+                  <div style={{ border: '1px solid #222', borderRadius: 10, overflow: 'hidden' }}>
+                    {grupos.map(g => {
+                      const on = aprobados.has(g.key)
+                      return (
+                        <div key={g.key}
+                          onClick={() => setAprobados(prev => { const n = new Set(prev); if (n.has(g.key)) n.delete(g.key); else n.add(g.key); return n })}
+                          style={{
+                            display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px',
+                            borderBottom: '1px solid #1a1a1a', cursor: 'pointer',
+                            background: on ? '#101a13' : 'transparent', opacity: on ? 1 : 0.5,
+                          }}>
+                          <input type="checkbox" checked={on} readOnly style={{ cursor: 'pointer' }} />
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 13, color: '#eee', fontWeight: 600 }}>{g.supplierName}</div>
+                            <div style={{ fontSize: 10.5, color: '#777', marginTop: 2 }}>
+                              {g.items.length} producto(s) · {g.fases.map(f => PHASE_CONFIG[f]?.label || f).join(' + ')}
+                              {g.fases.length > 1 ? ' (la orden se emite en la fase más temprana)' : ''}
+                            </div>
+                          </div>
+                          <span style={{
+                            fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 12,
+                            background: g.moneda === 'USD' ? '#2563EB22' : '#10B98122',
+                            color: g.moneda === 'USD' ? '#60A5FA' : '#10B981',
+                          }}>{g.moneda}</span>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: '#fff', minWidth: 110, textAlign: 'right' }}>
+                            {FCUR(g.subtotal, g.moneda)}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+
+                {grupos.length > 0 && (
+                  <div style={{ fontSize: 11, color: '#888' }}>
+                    Se van a crear <b style={{ color: '#fff' }}>{nAprob}</b> orden(es) en borrador
+                    {totalPorMoneda.length > 0 && <> · subtotal {totalPorMoneda.map(t => FCUR(t.monto, t.m) + ' ' + t.m).join(' + ')}</>}.
+                    Ninguna mezcla pesos con dólares: la moneda es la que factura cada proveedor según el catálogo.
+                  </div>
+                )}
+              </>
+            )}
+
+            {error && <div style={{ color: '#DC2626', fontSize: 12 }}>{error}</div>}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 4 }}>
+              <Btn onClick={onClose}>Cancelar</Btn>
+              {analizado && grupos.length > 0 && (
+                <Btn variant="primary" onClick={crear} disabled={creando || nAprob === 0}>
+                  {creando ? 'Creando…' : `Crear ${nAprob} orden(es)`}
+                </Btn>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )
