@@ -28,6 +28,7 @@
 // solicitud) no duplica la salida.
 // ═══════════════════════════════════════════════════════════════════════════
 import { supabase } from './supabase'
+import { unidadCanonica, totalesPorUnidad, etiquetaUnidad } from './unidades'
 
 export interface ItemEntrega {
   clave?: string | null
@@ -63,6 +64,7 @@ export function folioEntrega(fecha: string) {
 }
 
 const fmtQ = (n: any) => Number(n || 0).toLocaleString('es-MX', { maximumFractionDigits: 2 })
+const etq = (u: string, n: number) => etiquetaUnidad(u, n)
 
 /* ────────────────────────────────────────────────────────────────────────────
    Resolver el destino
@@ -182,7 +184,7 @@ export async function programarEntrega(a: ArgsProgramar): Promise<ResultadoProgr
     driver_nombre: a.chofer?.nombre || null,
     recibe_nombre: a.recibe?.nombre || null,
     created_by_id: a.creado_por || null,
-    material_description: items.map(i => `${fmtQ(i.qty)} ${i.unidad || 'pza'} ${i.modelo || i.descripcion}`).join(' | ').slice(0, 900),
+    material_description: items.map(i => `${fmtQ(i.qty)} ${unidadCanonica(i.unidad)} ${i.modelo || i.descripcion}`).join(' | ').slice(0, 900),
     notes: a.notas || null,
   }).select('id').single()
   if (e1) throw e1
@@ -421,8 +423,12 @@ export function generarRecibosEntrega({ folio, fecha, leadName, ubicacion, chofe
   const rolLabel: any = { instalador: 'Instalador OMM', residente: 'Residente de obra', cliente: 'Cliente' }
   const fechaTxt = (() => { try { return new Date(fecha + 'T12:00:00').toLocaleDateString('es-MX', { day: '2-digit', month: 'long', year: 'numeric' }) } catch { return fecha } })()
   const lista: any[] = items || []
-  const filas = lista.map((it: any, i: number) => `<tr><td style="text-align:center">${i + 1}</td><td>${it.marca || ''}</td><td>${it.modelo || ''}</td><td>${it.descripcion || it.description || ''}</td><td style="text-align:center;font-weight:700">${fmtQ(it.qty)}</td></tr>`).join('')
-  const totalPzs = lista.reduce((s: number, it: any) => s + Number(it.qty || 0), 0)
+  const filas = lista.map((it: any, i: number) => `<tr><td style="text-align:center">${i + 1}</td><td>${it.marca || ''}</td><td>${it.modelo || ''}</td><td>${it.descripcion || it.description || ''}</td><td style="text-align:center;font-weight:700">${fmtQ(it.qty)}</td><td style="text-align:center">${unidadCanonica(it.unidad ?? it.unit)}</td></tr>`).join('')
+  // Sumar todo en un solo "total de piezas" mezclaba 400 metros de cable con
+  // 260 conectores y 6 rollos de cinta: el número no le servía ni al chofer
+  // para contar la camioneta ni a quien firma en obra. Se totaliza por unidad.
+  const totales = totalesPorUnidad(lista)
+  const chips = totales.map(t => `<span class="chip"><b>${fmtQ(t.cantidad)}</b> ${etq(t.unidad, t.cantidad)}</span>`).join('')
   const bloque = (titulo: string, quienLabel: string, quienNombre: string, leyenda: string) => `
     <div class="recibo">
       <div class="hd"><div><div class="logo">OMM</div><div class="sub">OMM Technologies · Entrega de material</div></div>
@@ -430,9 +436,9 @@ export function generarRecibosEntrega({ folio, fecha, leadName, ubicacion, chofe
       <div class="tt">${titulo}</div>
       <table class="meta"><tr><td style="width:55%"><b>Obra / Lead:</b> ${leadName}</td><td><b>Ubicación:</b> ${ubicacion || '—'}</td></tr>
         <tr><td><b>Chofer:</b> ${chofer || '—'}</td><td><b>${quienLabel}:</b> ${quienNombre || '—'}</td></tr></table>
-      <table class="items"><thead><tr><th style="width:34px">#</th><th>Marca</th><th>Modelo</th><th>Descripción</th><th style="width:60px">Cant.</th></tr></thead>
+      <table class="items"><thead><tr><th style="width:34px">#</th><th>Marca</th><th>Modelo</th><th>Descripción</th><th style="width:56px;text-align:center">Cant.</th><th style="width:64px;text-align:center">Unidad</th></tr></thead>
         <tbody>${filas}</tbody>
-        <tfoot><tr><td colspan="4" style="text-align:right"><b>Total de piezas</b></td><td style="text-align:center"><b>${fmtQ(totalPzs)}</b></td></tr></tfoot></table>
+        <tfoot><tr><td colspan="6"><div class="tot"><span class="totlbl">Totales por unidad</span>${chips}<span class="totn">${lista.length} renglones</span></div></td></tr></tfoot></table>
       ${notas ? `<div class="notas"><b>Notas:</b> ${notas}</div>` : ''}
       <div class="leyenda">${leyenda}</div>
       <div class="firmas"><div class="fw"><div class="ln"></div>${quienNombre || quienLabel}<div class="sub">Firma de quien recibe</div></div>
@@ -452,7 +458,12 @@ export function generarRecibosEntrega({ folio, fecha, leadName, ubicacion, chofe
     .items{margin-top:8px}
     .items th{background:#111;color:#fff;padding:7px 8px;text-align:left;font-size:11px}
     .items td{border-bottom:1px solid #ddd;padding:6px 8px}
-    .items tfoot td{border:none;padding-top:8px}
+    .items tfoot td{border:none;padding-top:10px}
+    .tot{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+    .totlbl{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:#111}
+    .chip{border:1.5px solid #111;border-radius:14px;padding:3px 10px;font-size:12.5px}
+    .chip b{font-size:13.5px}
+    .totn{margin-left:auto;font-size:11px;color:#666}
     .notas{margin-top:12px;font-size:12px}
     .leyenda{margin-top:20px;font-size:11px;color:#333;line-height:1.5;border:1px solid #ccc;border-radius:6px;padding:10px}
     .firmas{display:flex;gap:60px;margin-top:54px}

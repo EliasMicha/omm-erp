@@ -13,6 +13,7 @@ import {
 import { SPECIALTY_CONFIG } from '../lib/utils'
 import { Plus, X, Trash2, Warehouse, Building2, ArrowRight, ClipboardList, PackagePlus, ChevronRight, ChevronLeft, LayoutDashboard, Truck, Calendar, CalendarDays, Clock, Inbox, PackageCheck, MapPin, Wrench, Laptop, Pencil } from 'lucide-react'
 import { useIsMobile } from '../lib/useIsMobile'
+import { unidadCanonica } from '../lib/unidades'
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Módulo Entregas / Inventario — sobre el libro de movimientos (stock_movements)
@@ -1362,7 +1363,7 @@ function TabAgenda({ isMobile, obras, empleados }: any) {
             catalog_product_id: catalogIdDeKey(i.key),
             marca: i.marca || null, modelo: i.modelo || null,
             descripcion: i.descripcion || i.description || '',
-            unidad: i.unidad || 'pza', qty: Number(i.qty) || 0,
+            unidad: unidadCanonica(i.unidad), qty: Number(i.qty) || 0,
           })).filter((i: ItemEntrega) => i.qty > 0)
           if (!items.length) { alert('Esta tarea no tiene renglones: no hay qué mover de bodega.'); return }
           const destino = await destinoDeCotizacion(t.quotation_id, t.lead_id, t.titulo)
@@ -1580,7 +1581,7 @@ function TareaModal({ init, obras, leads, empleados, onClose, onSaved }: any) {
     const confirmedPoIds = pos.filter(p => p.status !== 'borrador').map(p => p.id)
     const allPoIds = pos.map(p => p.id)
     let poItems: any[] = []
-    if (confirmedPoIds.length) { const { data } = await supabase.from('po_items').select('purchase_order_id,catalog_product_id,name,marca,modelo,quantity').in('purchase_order_id', confirmedPoIds); poItems = data || [] }
+    if (confirmedPoIds.length) { const { data } = await supabase.from('po_items').select('purchase_order_id,catalog_product_id,name,marca,modelo,quantity,unit').in('purchase_order_id', confirmedPoIds); poItems = data || [] }
     const mv1 = (await supabase.from('stock_movements').select('*').eq('anulado', false).in('quotation_id', cotIds)).data || []
     const mv2 = allPoIds.length ? ((await supabase.from('stock_movements').select('*').eq('anulado', false).in('po_id', allPoIds)).data || []) : []
     const movs = [...mv1, ...mv2.filter((m: any) => !mv1.find((x: any) => x.id === m.id))]
@@ -1598,7 +1599,19 @@ function TareaModal({ init, obras, leads, empleados, onClose, onSaved }: any) {
       if (!byLead[gk]) byLead[gk] = { name: cot.name || leadName(lid), leadName: leadName(lid), lead_id: lid, quotation_id: cot.id, specialty: cot.specialty, map: new Map() }
       return byLead[gk]
     }
-    const ensureLine = (lid: string, cot: any, it: any) => { const L = ensureLead(lid, cot); const k = cot.id + '::' + keyOf(it); if (!L.map.has(k)) L.map.set(k, { key: k, quotation_id: cot.id, cotName: cot.name, specialty: cot.specialty, marca: it.marca || '', modelo: it.modelo || '', descripcion: it.name || it.descripcion || '', comprado: 0, recibido: 0, entregado: 0 }); return L.map.get(k) }
+    // La unidad viaja con el renglón desde la orden de compra. Antes se perdía
+    // aquí y más abajo se reponía como 'pza' para todo, así que el recibo de
+    // obra sumaba metros de cable con piezas de conector. Si el primer registro
+    // que crea la línea no trae unidad (un movimiento de bodega viejo), se
+    // completa en cuanto aparezca uno que sí la traiga.
+    const ensureLine = (lid: string, cot: any, it: any) => {
+      const L = ensureLead(lid, cot); const k = cot.id + '::' + keyOf(it)
+      const u = (it.unit || it.unidad || '').trim()
+      if (!L.map.has(k)) L.map.set(k, { key: k, quotation_id: cot.id, cotName: cot.name, specialty: cot.specialty, marca: it.marca || '', modelo: it.modelo || '', descripcion: it.name || it.descripcion || '', unidad: u, comprado: 0, recibido: 0, entregado: 0 })
+      const r = L.map.get(k)
+      if (!r.unidad && u) r.unidad = u
+      return r
+    }
     cots.forEach(cot => { poItems.filter(pi => poCot[pi.purchase_order_id] === cot.id).forEach(pi => { const r = ensureLine(cot.lead_id!, cot, pi); r.comprado += Number(pi.quantity) || 0 }) })
     movs.forEach((m: any) => { const mCot = m.quotation_id || (m.po_id ? poCot[m.po_id] : null); const cot = cots.find(c => c.id === mCot); if (!cot) return; const r = ensureLine(cot.lead_id!, cot, m); if (m.tipo === 'recepcion_compra') r.recibido += Number(m.qty) || 0; if (m.destino_tipo === 'obra') r.entregado += Number(m.qty) || 0 })
     const out: Record<string, any> = {}
@@ -1628,7 +1641,7 @@ function TareaModal({ init, obras, leads, empleados, onClose, onSaved }: any) {
 
   function toggle(ln: any) { setSel(s => { const cur = s[ln.key]; if (cur?.on) return { ...s, [ln.key]: { ...cur, on: false } }; const def = ln.en_bodega > 0 ? ln.en_bodega : ln.por_entregar; return { ...s, [ln.key]: { qty: cur?.qty || def, on: true } } }) }
   function setQty(k: string, v: number) { setSel(s => ({ ...s, [k]: { qty: v, on: true } })) }
-  const itemsSel = () => lineas.filter((l: any) => sel[l.key]?.on && (sel[l.key]?.qty || 0) > 0).map((l: any) => ({ key: l.key, quotation_id: l.quotation_id, marca: l.marca, modelo: l.modelo, descripcion: l.descripcion, qty: Number(sel[l.key].qty) }))
+  const itemsSel = () => lineas.filter((l: any) => sel[l.key]?.on && (sel[l.key]?.qty || 0) > 0).map((l: any) => ({ key: l.key, quotation_id: l.quotation_id, marca: l.marca, modelo: l.modelo, descripcion: l.descripcion, unidad: unidadCanonica(l.unidad), qty: Number(sel[l.key].qty) }))
 
   async function guardar() {
     if (esHerr) {
@@ -1697,7 +1710,7 @@ function TareaModal({ init, obras, leads, empleados, onClose, onSaved }: any) {
           clave: null,
           catalog_product_id: catalogIdDeKey(i.key),
           marca: i.marca || null, modelo: i.modelo || null,
-          descripcion: i.descripcion || '', unidad: 'pza', qty: Number(i.qty) || 0,
+          descripcion: i.descripcion || '', unidad: unidadCanonica(i.unidad), qty: Number(i.qty) || 0,
         }))
         await programarEntrega({
           destino, fecha, hora: hora || null, items: envio,
@@ -1919,6 +1932,7 @@ function TareaModal({ init, obras, leads, empleados, onClose, onSaved }: any) {
                             </td>
                             <td style={{ padding: '6px 8px', textAlign: 'center' }}>
                               <input type="number" min={0} max={l.por_entregar} value={sel[l.key]?.qty ?? ''} placeholder={String(l.en_bodega > 0 ? l.en_bodega : l.por_entregar)} onChange={e => setQty(l.key, Math.min(l.por_entregar, Number(e.target.value) || 0))} style={{ ...inputStyle, width: 60, padding: '4px 6px', textAlign: 'center' }} />
+                              <span style={{ fontSize: 10, color: '#888', marginLeft: 5 }}>{unidadCanonica(l.unidad)}</span>
                             </td>
                           </tr>
                         )

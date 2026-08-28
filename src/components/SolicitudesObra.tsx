@@ -21,6 +21,7 @@ import {
   programarEntrega, confirmarEntrega, destinoDeObra, generarRecibosEntrega,
   type ItemEntrega,
 } from '../lib/entregaFlow'
+import { unidadCanonica } from '../lib/unidades'
 
 const card: React.CSSProperties = {
   background: '#0f0f0f', border: '1px solid #1f1f1f', borderRadius: 12, padding: 14, marginBottom: 12,
@@ -224,7 +225,7 @@ function SolicitudCard({ sol, isMobile, empleados, onCambio, onIrACompras }: {
           marca: i.marca || r?.marca || null,
           modelo: i.modelo || r?.modelo || null,
           descripcion: i.descripcion,
-          unidad: i.unidad || 'pza',
+          unidad: unidadCanonica(i.unidad),
           qty: Number(aEntregar[i.id]) || 0,
         }
       })
