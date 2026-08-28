@@ -10,12 +10,15 @@
 // Estructura (la que se acostumbra en obra en México):
 //   1. Carátula — obra, cliente, número de estimación, periodo
 //   2. Avance del contrato — contratado, estimado anterior, este periodo, saldo
-//   3. Conceptos ejecutados, agrupados por área, con cantidad de contrato,
-//      anterior, del periodo y acumulado (el "generador" resumido)
-//   4. EXTRAS — aparte, nunca revueltos con el contrato: es lo que se autoriza
+//   3. Semáforo — cuántos conceptos van completos, parciales y sin iniciar
+//   4. Conceptos del contrato, agrupados por área, con cantidad de contrato,
+//      anterior, del periodo, acumulado, lo que falta y su estatus (el
+//      "generador" resumido). Se listan TODOS, no sólo los que tuvieron
+//      avance: lo que falta tiene que verse en la misma hoja.
+//   5. EXTRAS — aparte, nunca revueltos con el contrato: es lo que se autoriza
 //      por separado y lo que más se discute
-//   5. Resumen de cobro — subtotal, amortización de anticipo, IVA, total
-//   6. Firmas de elaboró / revisó / autorizó
+//   6. Resumen de cobro — subtotal, amortización de anticipo, IVA, total
+//   7. Firmas de elaboró / revisó / autorizó
 // ═══════════════════════════════════════════════════════════════════════════
 import jsPDF from 'jspdf'
 import { montoConLetra } from './reciboEfectivo'
@@ -67,6 +70,7 @@ export function generarEstimacionPdf(d: DatosEstimacionPdf): jsPDF {
   const DARK: [number, number, number] = [26, 26, 26]
   const GREEN: [number, number, number] = [16, 185, 129]
   const AMBER: [number, number, number] = [180, 120, 20]
+  const RED: [number, number, number] = [193, 58, 48]
   const GRAY: [number, number, number] = [120, 120, 120]
   const HEAD: [number, number, number] = [238, 241, 240]
   const ZEBRA: [number, number, number] = [248, 249, 249]
@@ -215,9 +219,59 @@ export function generarEstimacionPdf(d: DatosEstimacionPdf): jsPDF {
   doc.text(lineas, M, y)
   y += lineas.length * 2.6 + 3
 
-  // ── 3. Conceptos ejecutados ──────────────────────────────────────────────
-  // Columnas: concepto | unidad | P.U. | contrato | ant. | periodo | acum. | importe
-  const cX = { con: M + 1, uni: M + 85, pu: M + 112, ctr: M + 129, ant: M + 143, per: M + 156, acu: M + 170, imp: R - 1 }
+  // ── 3. Semáforo del contrato ─────────────────────────────────────────────
+  //
+  // Un concepto está completo cuando lo acumulado alcanza lo contratado,
+  // parcial cuando lleva algo, y sin iniciar cuando no lleva nada. La
+  // tolerancia de 0.001 es por los redondeos de cantidades fraccionarias
+  // (m, kg): sin ella un concepto de 275.00 estimado en 274.9999 salía
+  // eternamente "parcial" y nadie entendía por qué.
+  //
+  // Se listan TODOS los conceptos del contrato, no sólo los que tuvieron
+  // avance: el cliente necesita ver en la misma hoja lo que falta.
+  const contratoTodo = d.items.filter(i =>
+    i.origen === 'contrato' && (n(i.cant_contratada) !== 0 || n(i.cant_periodo) !== 0))
+  type Sem = { label: string; color: [number, number, number]; plural: string; singular: string }
+  const COMPLETO: Sem = { label: 'Completo', color: GREEN, plural: 'completos', singular: 'completo' }
+  const PARCIAL: Sem = { label: 'Parcial', color: AMBER, plural: 'parciales', singular: 'parcial' }
+  const SIN: Sem = { label: 'Sin iniciar', color: RED, plural: 'sin iniciar', singular: 'sin iniciar' }
+  const acumDe = (it: any) => n(it.cant_anterior) + n(it.cant_periodo)
+  const faltaDe = (it: any) => Math.max(0, n(it.cant_contratada) - acumDe(it))
+  const semDe = (it: any): Sem => {
+    const c = n(it.cant_contratada)
+    const a = acumDe(it)
+    if (c <= 0) return a > 0 ? COMPLETO : SIN
+    if (a <= 0) return SIN
+    return a + 0.001 >= c ? COMPLETO : PARCIAL
+  }
+  const nCompleto = contratoTodo.filter(i => semDe(i) === COMPLETO).length
+  const nParcial = contratoTodo.filter(i => semDe(i) === PARCIAL).length
+  const nSin = contratoTodo.filter(i => semDe(i) === SIN).length
+  const faltaDinero = contratoTodo.reduce((s2, i) => s2 + faltaDe(i) * n(i.precio_unitario), 0) * factorNeto
+
+  if (contratoTodo.length > 0) {
+    espacio(16)
+    const semCeldas: Array<[Sem, number]> = [[COMPLETO, nCompleto], [PARCIAL, nParcial], [SIN, nSin]]
+    let sx = M
+    semCeldas.forEach(([sem, cuantos]) => {
+      fill(sem.color); doc.circle(sx + 1.5, y - 1, 1.5, 'F')
+      txt(DARK); doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5)
+      doc.text(String(cuantos), sx + 4.5, y)
+      txt(GRAY); doc.setFont('helvetica', 'normal'); doc.setFontSize(7)
+      const anchoNum = doc.getTextWidth(String(cuantos))
+      doc.text(cuantos === 1 ? sem.singular : sem.plural, sx + 6 + anchoNum, y)
+      sx += 34
+    })
+    txt(GRAY); doc.setFont('helvetica', 'normal'); doc.setFontSize(7)
+    doc.text(`${contratoTodo.length} conceptos del contrato`, sx, y)
+    txt(AMBER); doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5)
+    doc.text(`Falta por ejecutar: ${money(faltaDinero)}`, R, y, { align: 'right' })
+    y += 6
+  }
+
+  // ── 4. Conceptos del contrato ────────────────────────────────────────────
+  // Columnas: concepto | unidad | P.U. | contr. | ant. | periodo | acum. | falta | estatus | importe
+  const cX = { con: M + 1, uni: M + 61, pu: M + 86, ctr: M + 99, ant: M + 110, per: M + 122, acu: M + 133, fal: M + 144, est: M + 148, imp: R - 1 }
   const encabezado = () => {
     espacio(12)
     fill(HEAD); doc.rect(M, y, R - M, 6.5, 'F')
@@ -229,11 +283,13 @@ export function generarEstimacionPdf(d: DatosEstimacionPdf): jsPDF {
     doc.text('ANT.', cX.ant, y + 4.3, { align: 'right' })
     doc.text('PERIODO', cX.per, y + 4.3, { align: 'right' })
     doc.text('ACUM.', cX.acu, y + 4.3, { align: 'right' })
+    doc.text('FALTA', cX.fal, y + 4.3, { align: 'right' })
+    doc.text('ESTATUS', cX.est + 3, y + 4.3)
     doc.text('IMPORTE', cX.imp, y + 4.3, { align: 'right' })
     y += 6.5
   }
   const renglon = (it: any, z: boolean) => {
-    const nombre = doc.splitTextToSize(it.concepto || '—', 80)
+    const nombre = doc.splitTextToSize(it.concepto || '—', 57)
     const alto = Math.max(6, nombre.length * 3.4 + 2.6)
     espacio(alto + 4)
     if (z) { fill(ZEBRA); doc.rect(M, y, R - M, alto, 'F') }
@@ -247,19 +303,29 @@ export function generarEstimacionPdf(d: DatosEstimacionPdf): jsPDF {
     txt(DARK); doc.setFont('helvetica', 'bold'); doc.setFontSize(7)
     doc.text(qty(it.cant_periodo), cX.per, y + 4, { align: 'right' })
     doc.setFont('helvetica', 'normal'); txt(GRAY); doc.setFontSize(6.8)
-    doc.text(qty(n(it.cant_anterior) + n(it.cant_periodo)), cX.acu, y + 4, { align: 'right' })
+    doc.text(qty(acumDe(it)), cX.acu, y + 4, { align: 'right' })
+    const falta = faltaDe(it)
+    txt(falta > 0 ? AMBER : GRAY); doc.setFontSize(6.8)
+    doc.text(falta > 0 ? qty(falta) : '—', cX.fal, y + 4, { align: 'right' })
+    const sem = semDe(it)
+    fill(sem.color); doc.circle(cX.est + 1.3, y + 3.2, 1.15, 'F')
+    txt(sem.color); doc.setFont('helvetica', 'bold'); doc.setFontSize(6)
+    doc.text(sem.label, cX.est + 3.4, y + 4)
     txt(DARK); doc.setFont('helvetica', 'bold'); doc.setFontSize(7)
     doc.text(money(impDe(it)), cX.imp, y + 4, { align: 'right' })
     y += alto
   }
 
-  titulo('Conceptos ejecutados en el periodo')
-  if (deContrato.length === 0) {
+  titulo('Conceptos del contrato')
+  if (contratoTodo.length === 0) {
     txt(GRAY); doc.setFont('helvetica', 'italic'); doc.setFontSize(8)
-    doc.text('Sin avance de contrato en este periodo.', M, y + 3); y += 10
+    doc.text('Este contrato no tiene conceptos capturados.', M, y + 3); y += 10
   } else {
+    txt(GRAY); doc.setFont('helvetica', 'italic'); doc.setFontSize(6.5)
+    doc.text('Se listan todos los conceptos del contrato. La columna IMPORTE es lo ejecutado en este periodo; los conceptos sin avance aparecen en $0.00 con su estatus.', M, y + 2)
+    y += 6
     const areas = new Map<string, any[]>()
-    for (const it of deContrato) {
+    for (const it of contratoTodo) {
       const a = it.area || 'GENERAL'
       const arr = areas.get(a); if (arr) arr.push(it); else areas.set(a, [it])
     }
@@ -284,7 +350,7 @@ export function generarEstimacionPdf(d: DatosEstimacionPdf): jsPDF {
     y += 12
   }
 
-  // ── 4. Extras ────────────────────────────────────────────────────────────
+  // ── 5. Extras ────────────────────────────────────────────────────────────
   if (deExtras.length > 0) {
     titulo('Extras y deductivas del periodo')
     txt(GRAY); doc.setFont('helvetica', 'italic'); doc.setFontSize(7)
@@ -321,7 +387,7 @@ export function generarEstimacionPdf(d: DatosEstimacionPdf): jsPDF {
     y += 12
   }
 
-  // ── 5. Resumen de cobro ──────────────────────────────────────────────────
+  // ── 6. Resumen de cobro ──────────────────────────────────────────────────
   espacio(70)
   titulo('Resumen de cobro')
   const xL = R - 85
@@ -362,7 +428,7 @@ export function generarEstimacionPdf(d: DatosEstimacionPdf): jsPDF {
     doc.text(t, M, y); y += t.length * 3.6 + 4
   }
 
-  // ── 6. Firmas ────────────────────────────────────────────────────────────
+  // ── 7. Firmas ────────────────────────────────────────────────────────────
   espacio(34)
   y += 10
   const firmas = ['Elaboró — OMM Technologies', 'Revisó — Supervisión de obra', 'Autorizó — Cliente']
@@ -378,7 +444,7 @@ export function generarEstimacionPdf(d: DatosEstimacionPdf): jsPDF {
   y += 16
   txt(GRAY); doc.setFont('helvetica', 'italic'); doc.setFontSize(6.5)
   doc.text(
-    'Este documento ampara únicamente los trabajos ejecutados en el periodo indicado. Los conceptos del contrato sin avance en el periodo no se listan; su saldo se refleja en el bloque de avance del contrato. Los extras requieren autorización expresa del cliente y no sustituyen al contrato original.',
+    'Este documento ampara únicamente los trabajos ejecutados en el periodo indicado, que son los que aparecen con importe. Los conceptos sin avance se listan en $0.00 para dejar ver lo que falta por ejecutar. Los extras requieren autorización expresa del cliente y no sustituyen al contrato original.',
     M, y, { maxWidth: R - M },
   )
 
