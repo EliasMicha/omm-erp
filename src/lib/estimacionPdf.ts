@@ -155,16 +155,28 @@ export function generarEstimacionPdf(d: DatosEstimacionPdf): jsPDF {
   const total = base + iva
 
   titulo('Avance del contrato')
-  const acumulado = n(d.estimadoAnterior) + subContrato
-  const saldo = Math.max(0, n(d.contrato.total) - acumulado)
-  const pct = n(d.contrato.total) > 0 ? acumulado / n(d.contrato.total) : 0
-  // Nota: `contrato.total` es el subtotal contratado a precio de lista, que es
-  // la misma base en la que están los renglones. Comparar contra el total con
-  // IVA daría un avance falsamente bajo.
+  // Este bloque va en NETO: con el descuento de cierre ya aplicado.
+  //
+  // `contrato.total` y los renglones vienen a precio de lista, porque el P.U.
+  // que firmó el cliente no se toca. Pero anunciar "importe contratado
+  // $2,137,637.55" cuando el contrato se firmó en $1,945,250.17 confunde a
+  // quien lo lee: parece que se está cobrando sobre otra base. El descuento
+  // sigue apareciendo como renglón visible en el resumen de cobro; aquí sólo
+  // se muestra el efecto ya hecho.
+  //
+  // El porcentaje de avance no cambia: lista y neto están escalados por el
+  // mismo factor.
+  const factorNeto = 1 - Math.abs(n(d.descuentoPct)) / 100
+  const contratoNeto = n(d.contrato.total) * factorNeto
+  const anteriorNeto = n(d.estimadoAnterior) * factorNeto
+  const periodoNeto = subContrato * factorNeto
+  const acumulado = anteriorNeto + periodoNeto
+  const saldo = Math.max(0, contratoNeto - acumulado)
+  const pct = contratoNeto > 0 ? acumulado / contratoNeto : 0
   const celdas: Array<[string, string, [number, number, number]]> = [
-    ['Importe contratado', money(d.contrato.total), DARK],
-    ['Estimado anterior', money(d.estimadoAnterior), GRAY],
-    ['Este periodo (contrato)', money(subContrato), GREEN],
+    ['Importe contratado', money(contratoNeto), DARK],
+    ['Estimado anterior', money(anteriorNeto), GRAY],
+    ['Este periodo (contrato)', money(periodoNeto), GREEN],
     ['Acumulado', `${money(acumulado)}  (${Math.round(pct * 100)}%)`, DARK],
     ['Saldo por ejecutar', money(saldo), AMBER],
   ]
@@ -181,6 +193,11 @@ export function generarEstimacionPdf(d: DatosEstimacionPdf): jsPDF {
   fill([230, 232, 232]); doc.rect(M, y, R - M, 3, 'F')
   fill(GREEN); doc.rect(M, y, (R - M) * Math.min(pct, 1), 3, 'F')
   y += 10
+  if (n(d.descuentoPct) > 0) {
+    txt(GRAY); doc.setFont('helvetica', 'italic'); doc.setFontSize(6)
+    doc.text(`Importes netos: incluyen el descuento de contrato de ${n(d.descuentoPct)}%. Los precios unitarios del generador van a precio de lista y el descuento se desglosa en el resumen de cobro.`, M, y)
+    y += 6
+  }
 
   // ── 3. Conceptos ejecutados ──────────────────────────────────────────────
   // Columnas: concepto | unidad | P.U. | contrato | ant. | periodo | acum. | importe
