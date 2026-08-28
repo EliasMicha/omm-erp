@@ -173,12 +173,15 @@ export function generarEstimacionPdf(d: DatosEstimacionPdf): jsPDF {
   const acumulado = anteriorNeto + periodoNeto
   const saldo = Math.max(0, contratoNeto - acumulado)
   const pct = contratoNeto > 0 ? acumulado / contratoNeto : 0
-  const celdas: Array<[string, string, [number, number, number]]> = [
-    ['Importe contratado', money(contratoNeto), DARK],
-    ['Estimado anterior', money(anteriorNeto), GRAY],
-    ['Este periodo (contrato)', money(periodoNeto), GREEN],
-    ['Acumulado', `${money(acumulado)}  (${Math.round(pct * 100)}%)`, DARK],
-    ['Saldo por ejecutar', money(saldo), AMBER],
+  // Cada monto se desglosa: neto, su IVA y el valor con IVA. Sin esto hay que
+  // sacar la calculadora para saber cuánto vale el contrato facturado.
+  const ivaF = n(d.ivaPct) / 100
+  const celdas: Array<[string, number, [number, number, number]]> = [
+    ['Importe contratado', contratoNeto, DARK],
+    ['Estimado anterior', anteriorNeto, GRAY],
+    ['Este periodo (contrato)', periodoNeto, GREEN],
+    [`Acumulado (${Math.round(pct * 100)}%)`, acumulado, DARK],
+    ['Saldo por ejecutar', saldo, AMBER],
   ]
   const anchoCelda = (R - M) / celdas.length
   celdas.forEach(([k, v, c], i) => {
@@ -186,18 +189,31 @@ export function generarEstimacionPdf(d: DatosEstimacionPdf): jsPDF {
     txt(GRAY); doc.setFont('helvetica', 'normal'); doc.setFontSize(6.5)
     doc.text(k.toUpperCase(), x, y)
     txt(c); doc.setFont('helvetica', 'bold'); doc.setFontSize(9)
-    doc.text(v, x, y + 5)
+    doc.text(money(v), x, y + 5)
+    txt(GRAY); doc.setFont('helvetica', 'normal'); doc.setFontSize(5.8)
+    doc.text(`IVA ${n(d.ivaPct)}%   ${money(v * ivaF)}`, x, y + 9.4)
+    txt(DARK); doc.setFont('helvetica', 'bold'); doc.setFontSize(6.3)
+    doc.text(`Con IVA   ${money(v * (1 + ivaF))}`, x, y + 13.4)
   })
-  y += 12
+  y += 20
   // Barra de avance
   fill([230, 232, 232]); doc.rect(M, y, R - M, 3, 'F')
   fill(GREEN); doc.rect(M, y, (R - M) * Math.min(pct, 1), 3, 'F')
   y += 10
-  if (n(d.descuentoPct) > 0) {
-    txt(GRAY); doc.setFont('helvetica', 'italic'); doc.setFontSize(6)
-    doc.text(`Importes netos: incluyen el descuento de contrato de ${n(d.descuentoPct)}%. Los precios unitarios del generador van a precio de lista y el descuento se desglosa en el resumen de cobro.`, M, y)
-    y += 6
-  }
+  // Aclaración obligada: el "con IVA" de este bloque es el valor de la obra,
+  // no lo que se cobra en esta estimación. La amortización del anticipo baja
+  // antes del IVA, así que el total a pagar del resumen es menor. Sin esta
+  // línea alguien compara los dos números y cree que falta dinero.
+  const aclara = [
+    n(d.descuentoPct) > 0
+      ? `Importes netos: ya incluyen el descuento de contrato de ${n(d.descuentoPct)}%. Los precios unitarios del generador van a precio de lista y el descuento se desglosa como renglón en el resumen de cobro.`
+      : '',
+    `El "con IVA" de este bloque es el valor de la obra. El total a pagar de esta estimación es menor: la amortización del anticipo se descuenta antes de calcular el IVA.`,
+  ].filter(Boolean).join(' ')
+  txt(GRAY); doc.setFont('helvetica', 'italic'); doc.setFontSize(6)
+  const lineas = doc.splitTextToSize(aclara, R - M) as string[]
+  doc.text(lineas, M, y)
+  y += lineas.length * 2.6 + 3
 
   // ── 3. Conceptos ejecutados ──────────────────────────────────────────────
   // Columnas: concepto | unidad | P.U. | contrato | ant. | periodo | acum. | importe
