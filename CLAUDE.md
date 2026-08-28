@@ -105,7 +105,151 @@ cuesta encontrarla primero — y solo se encuentra si el usuario la extraña.
 
 ---
 
-## Last updated: 2026-05-21 (Sesión catch-up + documentación de 304 commits no documentados)
+## 💱 REGLA DE MONEDAS (LEER ANTES DE TOCAR CATÁLOGO, COTIZADORES O COMPRAS)
+
+**Vive en `src/lib/moneda.ts`. Es la única fuente de verdad. No duplicar el algoritmo.**
+
+Hay dos monedas y NO son la misma cosa:
+
+| | Quién la dicta | Se mueve |
+|---|---|---|
+| **Moneda de COSTO** | el CATÁLOGO (`catalog_products.moneda`) | **NUNCA.** Es como nos factura el proveedor. |
+| **Moneda de VENTA** | la COTIZACIÓN (`notes.currency`) | Cambia de un trato a otro. |
+
+La conversión ocurre en **UN SOLO PUNTO**: al calcular el precio de venta de un
+producto dentro de una cotización, con el TC pactado de esa cotización
+(`notes.tipoCambio`). Nunca al revés y nunca sobre el costo.
+
+Consecuencias que hay que respetar en cualquier código nuevo:
+
+1. `quotation_items.cost` va en la moneda del proveedor y `quotation_items.price`
+   en la de la cotización. **Están en monedas distintas en la misma fila, a
+   propósito.** `provider_currency` documenta la del costo.
+2. Cualquier cálculo que reste `price − cost` (márgenes, utilidad, "costo de
+   productos") tiene que convertir primero. Ver `margenReal()` y `calcLine()`.
+3. Cambiar la moneda de una cotización convierte SOLO el precio de venta, la
+   instalación y el total. **Jamás el costo.**
+4. La orden de compra se emite en la moneda del COSTO, no en la de la cotización.
+5. **Una OC nunca mezcla pesos con dólares.** Si una cotización trae de las dos,
+   salen dos órdenes. La llave de agrupación siempre incluye la moneda.
+6. Si falta el TC y hay cruce de moneda, `convertir()` **revienta**. No devolver
+   el monto sin tocar: ese error silencioso de 18x es lo que dejó cotizaciones
+   con pesos contados como dólares hasta llegar a la factura.
+7. Nunca inventar un TC. Se puede sugerir (`tcForYear()` en `src/lib/fx.ts`) con
+   un botón, pero el usuario lo elige.
+
+**Excepción documentada — Distribución (`specialty = 'dist'`):** ahí el costo es
+el PACTADO, ya en la moneda de la cotización, y `Compras.tsx` tiene una excepción
+explícita para no pisarlo con el costo del catálogo. **No tocar sin preguntar.**
+
+### Default de moneda: MXN
+
+`MONEDA_DEFAULT = 'MXN'` en `moneda.ts`. Antes cada módulo tenía el suyo
+(`|| 'USD'` en Cobranza/Finanzas/Compras, `|| 'MXN'` en Dashboard/Contabilidad),
+así que **una cotización sin moneda se contaba como USD y como MXN al mismo
+tiempo**. Cambiar este default reclasifica dinero histórico: no hacerlo sin
+avisar.
+
+## 🏷️ `leads.name` vs `leads.company`
+
+`name` es el lead como vive en el CRM ("Cero5cien O402 - KIBRIT", "Pico Love").
+`company` es el despacho o contacto que lo trajo ("Niz + Chauvet Arquitectos").
+
+**Los selectores muestran `name`.** Poner `company || name` lista despachos en
+vez de leads: el mismo despacho aparece repetido y el lead que se busca no está.
+Usar `etiquetaLead()` de `src/pages/Compras.tsx`.
+
+---
+
+## Last updated: 2026-08-28 (Sesión monedas + entregables + estimaciones)
+
+---
+
+## 🔥 Sesión 2026-08-28 — Monedas, estimaciones PDF, recibos de entrega, OCs en bloque
+
+**Estado: TODO DESPLEGADO EN PRODUCCIÓN. Pendiente de revisión cruzada — ver
+"Qué falta revisar" al final.**
+
+### 1. `src/lib/moneda.ts` (NUEVO) — la regla de monedas
+
+Ver la sección "REGLA DE MONEDAS" arriba. Exporta: `Moneda`, `MONEDA_DEFAULT`,
+`normalizarMoneda()`, `monedaDeCosto()`, `convertir()` (revienta sin TC),
+`convertirSiSePuede()`, `precioNativo()`, `renglonDeCatalogo()`, `margenReal()`,
+`separarPorMonedaDeCosto()`, `simbolo()`, `TipoCambioFaltante`.
+
+Unifica 6 copias del mismo helper que estaban en CotEditorESP (×2), Dashboard
+(×2), MaintQuotes y Contabilidad, cada una con su propio default.
+
+### 2. Bugs de moneda corregidos
+
+| Dónde | Qué estaba mal |
+|---|---|
+| `Cotizaciones.cambiarMoneda` y `CotEditorESP.convertQuoteCurrency` | Convertían el COSTO sin actualizar `provider_currency` → Compras emitía la OC en dólares con importes que ya eran pesos (18x). **Ya no tocan el costo.** |
+| `CotEditorIlum` (importador, alta desde catálogo, sustituir, sync catálogo) | Cero conversión y sin `provider_currency`. Caso real: Marriot Ixtapa, cotización USD con fuentes ILUMILEDS en MXN metidas con el número tal cual. |
+| `CotEditorIlum.calcLine` | Devolvía `costReal` en moneda del proveedor y `total` en moneda de venta → MG real de −404%. Ahora recibe `monedaCot` y `tc`. |
+| `CotEditorIlum` | No tenía moneda ni TC. Se agregó la barra "Se cobra en" (MXN/USD + TC), que guarda en la raíz de `notes`. |
+| `Cotizaciones.addFromCatalog` | Agregaba sin convertir y sin `provider_currency` (solo lo hacía al sustituir). |
+| `MaintQuotes.priceCatalogo` | `cost * (1 + markup)`. `markup` es MARGEN sobre precio: un producto de $1,000 con markup 35 salía en $36,000. |
+| `Cotizaciones.generatePurchaseOrders` | Agrupaba por proveedor × fase. Un proveedor que vende en las dos monedas producía UNA orden con importes sumados en crudo y sin `currency`. Ahora la llave incluye la moneda. |
+| `Compras` — OC manual, `addItemFromCatalog`, `addManualItem` | Creaban sin `currency`. Ahora la OC manual tiene selector de moneda y agregar un producto de otra moneda se rechaza con el motivo. |
+| `Compras.convertirMonedaOC` | Actualizaba `purchase_orders.currency` pero dejaba `po_items.currency` con la moneda vieja (14 renglones así en producción). |
+
+### 3. `src/lib/estimacionPdf.ts` — bloque de avance
+
+- El avance del contrato va en **montos netos** (con el descuento de cierre ya
+  aplicado). Antes decía "Importe contratado $2,137,637.55" cuando Cero5Cien O402
+  se firmó en $1,945,250.17.
+- Cada monto se desglosa: neto, su IVA y el valor con IVA.
+- **Semáforo por concepto**: verde Completo / ámbar Parcial / rojo Sin iniciar,
+  con columna FALTA. Se listan TODOS los conceptos del contrato, no solo los que
+  tuvieron avance; los sin avance salen en $0.00.
+- Tolerancia de 0.001 al comparar acumulado vs contratado (cantidades
+  fraccionarias dejaban conceptos eternamente "parciales").
+- Aclaración obligada en el bloque: el "con IVA" es el valor de la obra, NO el
+  total a pagar — la amortización del anticipo baja antes del IVA.
+
+### 4. `src/lib/unidades.ts` (NUEVO) — unidades en los recibos de entrega
+
+El recibo decía "Total de piezas: 682" para una entrega de 400 m de cable + 276
+piezas + 6 rollos. Causa raíz: `Entregas.tsx` armaba el envío con
+`unidad: 'pza'` quemado, así que `delivery_items` quedó con 'pza' en sus 33 filas.
+
+Normaliza la escritura (pza/PIEZA/Pzas., m/ml/MTS/Metro, rollo/ROLLO) **sin
+convertir unidades físicas** y totaliza por unidad. "ml" = metro lineal.
+La unidad ahora viaja desde `po_items.unit` hasta el recibo.
+
+### 5. `Compras.tsx` — OCs en bloque
+
+Botón **"Generar en bloque"**: todo el plan de compra de una cotización de un
+jalón, agrupado por **proveedor × moneda**, con preview y palomitas antes de
+crear nada. Descuenta lo ya pedido en OCs anteriores, deja fuera los sistemas
+apagados, y aparta los productos sin distribuidor diciendo cuáles.
+
+La OC manual ahora es **por cliente (lead)**, con la cotización opcional.
+
+### 6. Otros
+
+- `EstimacionEditor.tsx`: bug de zona muerta temporal (useEffect con `[T.subtotal]`
+  arriba de `const T = useMemo`) → pantalla en blanco. Ver `/tmp/tdz.py`.
+- `etiquetaLead()` en Compras: los selectores mostraban despachos, no leads.
+
+### ⚠️ Qué falta revisar (NO HECHO)
+
+1. **Revisión cruzada de todo lo de arriba** contra lo que ya funcionaba. Fue
+   una sesión larga y muy compactada; varios archivos grandes se tocaron por
+   parches de texto. Prioridad: `CotEditorIlum.tsx`, `Compras.tsx`,
+   `Cotizaciones.tsx`, `CotEditorESP.tsx`.
+2. **320 `quotation_items` cuya `provider_currency` contradice al catálogo**
+   (250 son costo MXN marcado USD). NO se tocaron: corregirlos cambia importes
+   de documentos que ya circularon.
+3. **14 `po_items` con moneda distinta a su OC.**
+4. **Marriot Ixtapa - Iluminación Cabeceras**: 2 renglones ILUMILEDS con costo
+   MXN 782.45 marcados USD. Falta que Elias diga el TC.
+5. **33 `delivery_items` con 'pza'** aunque su `po_item` diga MTS.
+6. **Distribución** quedó como estaba a propósito (costo pactado en moneda de
+   cotización). Falta que Elias confirme si ese modelo sigue siendo el correcto.
+7. **75 de 76 cotizaciones de iluminación no tienen TC.** Cuando tengan producto
+   cruzado, la barra sale en rojo hasta que se capture.
 
 ---
 
