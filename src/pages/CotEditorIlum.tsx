@@ -8,7 +8,7 @@ import BotonCatalogo from '../components/BotonCatalogo'
 import VersionManager, { VersionSnapshot } from '../components/VersionManager'
 import EditCotInfoModal from '../components/EditCotInfoModal'
 import { useIsMobile } from '../lib/useIsMobile'
-import { normalizarMoneda, convertir, convertirSiSePuede, type Moneda } from '../lib/moneda'
+import { normalizarMoneda, monedaDeCosto, convertir, convertirSiSePuede, simbolo, type Moneda } from '../lib/moneda'
 
 // ═══════════════════════════════════════════════════════════════════
 // TYPES
@@ -17,6 +17,8 @@ interface IlumProduct {
   id: string; subsectionId: string; catalogId: string | null
   name: string; description: string; imageUrl: string | null
   quantity: number; cost: number; markup: number; price: number; order: number
+  /** Moneda del COSTO. La dicta el catálogo y no cambia con la cotización. */
+  monedaCosto: Moneda
   marca?: string | null; modelo?: string | null; sku?: string | null
   watts?: number | null; lumens?: number | null; cct?: string | null
   nomenclatura?: string | null
@@ -60,10 +62,17 @@ const S = {
 // ═══════════════════════════════════════════════════════════════════
 // PRODUCT ROW
 // ═══════════════════════════════════════════════════════════════════
-function ProductRow({ p, onUpdate, onRemove, selected, onToggleSelect, onSubstitute }: {
+function ProductRow({ p, onUpdate, onRemove, selected, onToggleSelect, onSubstitute, monedaCot }: {
   p: IlumProduct; onUpdate: (id: string, f: string, v: number | string) => void; onRemove: (id: string) => void
   selected?: boolean; onToggleSelect?: (id: string) => void; onSubstitute?: (p: IlumProduct) => void
+  /** Moneda de venta de la cotización, para marcar los costos que vienen en otra. */
+  monedaCot?: Moneda
 }) {
+  // El COSTO es del proveedor y va en SU moneda; el PRECIO va en la de la
+  // cotización. Cuando no coinciden hay que decirlo en el renglón: si no, la
+  // fila enseña 782.45 junto a 1203.77 y parece que son la misma moneda.
+  const monCosto = normalizarMoneda(p.monedaCosto)
+  const cruzado = !!monedaCot && monCosto !== monedaCot
   const { total, costReal, utilidad } = calcLine(p)
   return (
     <tr style={{ background: selected ? '#10B9810D' : undefined }}>
@@ -96,7 +105,18 @@ function ProductRow({ p, onUpdate, onRemove, selected, onToggleSelect, onSubstit
       <td style={S.td}>
         <input key={`qty-${p.id}-${p.quantity}`} type="number" defaultValue={p.quantity} min={1} onBlur={e => onUpdate(p.id, 'quantity', parseInt(e.target.value) || 1)} style={{ ...S.input, width: '100%', boxSizing: 'border-box' }} />
       </td>
-      <td style={S.tdR}><input key={`cost-${p.id}-${p.cost}`} type="number" defaultValue={p.cost} step={0.01} onBlur={e => onUpdate(p.id, 'cost', parseFloat(e.target.value) || 0)} style={{ ...S.input, width: '100%', boxSizing: 'border-box' }} /></td>
+      <td style={S.tdR}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+          <input key={`cost-${p.id}-${p.cost}`} type="number" defaultValue={p.cost} step={0.01} onBlur={e => onUpdate(p.id, 'cost', parseFloat(e.target.value) || 0)}
+            style={{ ...S.input, width: '100%', boxSizing: 'border-box', color: cruzado ? '#FBBF24' : undefined }} />
+          {cruzado && (
+            <span title={`Este producto está costeado en ${monCosto}. El precio de venta ya está convertido a ${monedaCot}.`}
+              style={{ fontSize: 8.5, fontWeight: 700, color: '#FBBF24', border: '1px solid #FBBF2455', borderRadius: 4, padding: '1px 3px', flexShrink: 0 }}>
+              {monCosto}
+            </span>
+          )}
+        </div>
+      </td>
       <td style={S.tdR}><input key={`markup-${p.id}-${p.markup}`} type="number" defaultValue={p.markup} step={1} onBlur={e => onUpdate(p.id, 'markup', parseFloat(e.target.value) || 0)} style={{ ...S.input, width: '100%', boxSizing: 'border-box', color: p.markup >= 25 ? '#10B981' : p.markup >= 15 ? '#D97706' : '#DC2626' }} /></td>
       <td style={S.tdR}><input key={`price-${p.id}-${p.price}`} type="number" defaultValue={p.price} step={0.01} onBlur={e => onUpdate(p.id, 'price', parseFloat(e.target.value) || 0)} style={{ ...S.input, width: '100%', boxSizing: 'border-box' }} /></td>
       <td style={{ ...S.tdM, color: '#10B981' }}>${fmt(total)}</td>
@@ -193,11 +213,12 @@ function IlumCatalogModal({ onClose, onSelect, subsectionName }: {
 // ═══════════════════════════════════════════════════════════════════
 // SUBSECTION BLOCK
 // ═══════════════════════════════════════════════════════════════════
-function SubsectionBlock({ subsection, products, onToggle, onUpdate, onRemove, onAdd, allProducts, selectedIds, onToggleSelect, onSelectAll, onSubstitute }: {
+function SubsectionBlock({ subsection, products, onToggle, onUpdate, onRemove, onAdd, allProducts, selectedIds, onToggleSelect, onSelectAll, onSubstitute, monedaCot }: {
   subsection: IlumSubsection; products: IlumProduct[]; onToggle: () => void
   onUpdate: (id: string, f: string, v: number | string) => void; onRemove: (id: string) => void
   onAdd: () => void; allProducts: IlumProduct[]
   selectedIds?: Set<string>; onToggleSelect?: (id: string) => void; onSelectAll?: (ids: string[], select: boolean) => void; onSubstitute?: (p: IlumProduct) => void
+  monedaCot?: Moneda
 }) {
   const subTotal = products.reduce((s, p) => s + calcLine(p).total, 0)
   return (
@@ -255,7 +276,7 @@ function SubsectionBlock({ subsection, products, onToggle, onUpdate, onRemove, o
           </tr></thead>
           <tbody>
             {products.map(p => (
-              <ProductRow key={p.id} p={p} onUpdate={onUpdate} onRemove={onRemove} selected={selectedIds?.has(p.id)} onToggleSelect={onToggleSelect} onSubstitute={onSubstitute} />
+              <ProductRow key={p.id} p={p} onUpdate={onUpdate} onRemove={onRemove} selected={selectedIds?.has(p.id)} onToggleSelect={onToggleSelect} onSubstitute={onSubstitute} monedaCot={monedaCot} />
             ))}
           </tbody>
         </table>
@@ -810,6 +831,11 @@ export default function CotEditorIlum({ cotId, onBack, onSwitchVersion }: { cotI
   const [showAIImport, setShowAIImport] = useState(false)
   const [showPdfPicker, setShowPdfPicker] = useState(false)
   const [ilumConfig, setIlumConfig] = useState({ ivaRate: 16, descuento: 0, nominaPct: 20 })
+  // Moneda de VENTA de esta cotización y su tipo de cambio pactado. Viven en
+  // la raíz de quotations.notes, igual que en los demás cotizadores, para que
+  // el PDF y el catálogo de licitación los lean.
+  const [monedaCot, setMonedaCot] = useState<Moneda>('MXN')
+  const [tcCot, setTcCot] = useState<number>(0)
   const [showBulkMargin, setShowBulkMargin] = useState(false)
   const [bulkMarginInput, setBulkMarginInput] = useState('')
   const [showEditInfo, setShowEditInfo] = useState(false)
@@ -830,6 +856,8 @@ export default function CotEditorIlum({ cotId, onBack, onSwitchVersion }: { cotI
         try {
           const n = typeof quoteData.notes === 'string' ? JSON.parse(quoteData.notes) : (quoteData.notes || {})
           if (n.ilumConfig) setIlumConfig(c => ({ ...c, ...n.ilumConfig }))
+          setMonedaCot(normalizarMoneda(n.currency))
+          setTcCot(Number(n.tipoCambio) || 0)
         } catch {}
       }
 
@@ -845,6 +873,7 @@ export default function CotEditorIlum({ cotId, onBack, onSwitchVersion }: { cotI
             id: p.id, subsectionId: p.area_id, catalogId: p.catalog_product_id,
             name: p.name, description: p.description || '', imageUrl: p.image_url,
             quantity: p.quantity || 1, cost: p.cost || 0, markup: p.markup || 0, price: p.price || 0, order: p.order_index || 0,
+            monedaCosto: normalizarMoneda(p.provider_currency),
             marca: p.marca, modelo: p.modelo, sku: p.sku,
             watts: notes.watts || null, lumens: notes.lumens || null, cct: notes.cct || null,
             nomenclatura: p.nomenclatura || null,
@@ -905,6 +934,31 @@ export default function CotEditorIlum({ cotId, onBack, onSwitchVersion }: { cotI
     setSubsections(subsections.map(s => s.id === id ? { ...s, collapsed: !s.collapsed } : s))
   }
 
+  /**
+   * El costo de una partida expresado en la moneda de la COTIZACIÓN.
+   *
+   * El costo guardado nunca se mueve de la moneda del proveedor; esto es solo
+   * para poder compararlo contra el precio de venta. Si falta el TC devuelve
+   * el costo tal cual: es lo único que se puede hacer, y el aviso de que falta
+   * el tipo de cambio ya sale arriba, en la barra de moneda.
+   */
+  function costoEnMonedaCot(p: { cost: number; monedaCosto?: Moneda }): number {
+    const m = normalizarMoneda(p.monedaCosto)
+    if (m === monedaCot) return Number(p.cost) || 0
+    const c = convertirSiSePuede(Number(p.cost) || 0, m, monedaCot, tcCot)
+    return c === null ? (Number(p.cost) || 0) : c
+  }
+
+  /** Guarda moneda y TC en la raíz de notes, que es donde los busca el PDF. */
+  async function guardarMoneda(next: { currency?: Moneda; tipoCambio?: number }) {
+    if (next.currency !== undefined) setMonedaCot(next.currency)
+    if (next.tipoCambio !== undefined) setTcCot(next.tipoCambio)
+    const { data } = await supabase.from('quotations').select('notes').eq('id', cotId).maybeSingle()
+    let n: any = {}
+    try { n = JSON.parse((data as any)?.notes || '{}') } catch { n = {} }
+    await supabase.from('quotations').update({ notes: JSON.stringify({ ...n, ...next }) }).eq('id', cotId)
+  }
+
   // Update product field
   //
   // COSTO, MG% y PRECIO son tres caras del mismo número: precio = costo / (1 − mg).
@@ -924,21 +978,31 @@ export default function CotEditorIlum({ cotId, onBack, onSwitchVersion }: { cotI
     const num = typeof value === 'number' ? value : parseFloat(String(value))
     const r2 = (n: number) => Math.round(n * 100) / 100
 
+    // El COSTO está en la moneda del proveedor y el PRECIO en la de la
+    // cotización. Para relacionarlos hay que pasar el costo a la moneda de
+    // venta primero — si no, un producto costeado en pesos dentro de una
+    // cotización en dólares producía un margen y un precio absurdos: el margen
+    // salía negativo de miles por ciento, o el precio quedaba en el número de
+    // pesos con signo de dólar.
+    const costoVenta = costoEnMonedaCot(updated)
+
     if (field === 'markup') {
       // Sin costo no hay de dónde sacar el precio; margen sobre 0 daría 0 y
       // borraría el precio capturado a mano.
       const mg = Math.min(Math.max(num || 0, -900), 99)
       updated.markup = mg
-      if (updated.cost > 0) updated.price = r2(updated.cost / (1 - mg / 100))
+      if (costoVenta > 0) updated.price = r2(costoVenta / (1 - mg / 100))
     } else if (field === 'price') {
       updated.price = num || 0
-      updated.markup = updated.cost > 0 && updated.price > 0
-        ? Math.round((1 - updated.cost / updated.price) * 100)
+      updated.markup = costoVenta > 0 && updated.price > 0
+        ? Math.round((1 - costoVenta / updated.price) * 100)
         : updated.markup
     } else if (field === 'cost') {
+      // Lo que se teclea aquí es el costo del proveedor, en SU moneda.
       updated.cost = num || 0
-      updated.markup = updated.cost > 0 && updated.price > 0
-        ? Math.round((1 - updated.cost / updated.price) * 100)
+      const cv = costoEnMonedaCot(updated)
+      updated.markup = cv > 0 && updated.price > 0
+        ? Math.round((1 - cv / updated.price) * 100)
         : updated.markup
     }
 
@@ -961,12 +1025,21 @@ export default function CotEditorIlum({ cotId, onBack, onSwitchVersion }: { cotI
   // Add product from catalog
   async function addProductFromCatalog(subsectionId: string, catProduct: CatProduct) {
     const markup = catProduct.markup || 35
-    const price = catProduct.precio_venta > 0 ? catProduct.precio_venta : (catProduct.cost > 0 && markup < 100 ? Math.round(catProduct.cost / (1 - markup / 100) * 100) / 100 : 0)
+    // El precio de lista viene en la moneda del proveedor. Si esta cotización
+    // es en otra, se CONVIERTE. Antes se metía tal cual: un producto dado de
+    // alta en pesos entraba a una cotización en dólares con el número de pesos
+    // bajo el signo de dólar, y el total de la cotización quedaba inflado ~18x
+    // sin que nada lo delatara.
+    const monedaCosto = monedaDeCosto(catProduct)
+    const precioNat = catProduct.precio_venta > 0 ? catProduct.precio_venta : (catProduct.cost > 0 && markup < 100 ? Math.round(catProduct.cost / (1 - markup / 100) * 100) / 100 : 0)
+    let price: number
+    try { price = convertir(precioNat, monedaCosto, monedaCot, tcCot) }
+    catch (e: any) { alert(e.message); return }
     const total = price * 1
     const { data, error } = await supabase.from('quotation_items').insert({
       quotation_id: cotId, area_id: subsectionId, catalog_product_id: catProduct.id,
       name: catProduct.name, description: catProduct.description || null, image_url: catProduct.image_url || null,
-      quantity: 1, cost: catProduct.cost || 0, markup, price,
+      quantity: 1, cost: catProduct.cost || 0, markup, price, provider_currency: monedaCosto,
       total, order_index: products.filter(p => p.subsectionId === subsectionId).length,
       system: 'Iluminacion', type: 'material',
       marca: catProduct.marca || null, modelo: catProduct.modelo || null, sku: catProduct.sku || null,
@@ -978,7 +1051,7 @@ export default function CotEditorIlum({ cotId, onBack, onSwitchVersion }: { cotI
         id: data.id, subsectionId, catalogId: catProduct.id,
         name: catProduct.name, description: catProduct.description || '',
         imageUrl: catProduct.image_url || null,
-        quantity: 1, cost: catProduct.cost || 0, markup, price,
+        quantity: 1, cost: catProduct.cost || 0, markup, price, monedaCosto,
         order: products.filter(p => p.subsectionId === subsectionId).length,
         marca: catProduct.marca, modelo: catProduct.modelo, sku: catProduct.sku,
         watts: catProduct.watts, lumens: catProduct.lumens, cct: catProduct.cct,
@@ -996,17 +1069,23 @@ export default function CotEditorIlum({ cotId, onBack, onSwitchVersion }: { cotI
     if (!confirm(`¿Sustituir "${oldProduct.name}" por "${newCatProd.name}" en ${count} ubicación(es)?`)) return
 
     const markup = newCatProd.markup || 35
-    const price = newCatProd.precio_venta > 0 ? newCatProd.precio_venta : (newCatProd.cost > 0 && markup < 100 ? Math.round(newCatProd.cost / (1 - markup / 100) * 100) / 100 : 0)
+    // Mismo cruce de moneda que al agregar: precio a la moneda de la
+    // cotización, costo intacto en la del proveedor.
+    const monedaCosto = monedaDeCosto(newCatProd)
+    const precioNat = newCatProd.precio_venta > 0 ? newCatProd.precio_venta : (newCatProd.cost > 0 && markup < 100 ? Math.round(newCatProd.cost / (1 - markup / 100) * 100) / 100 : 0)
+    let price: number
+    try { price = convertir(precioNat, monedaCosto, monedaCot, tcCot) }
+    catch (e: any) { alert(e.message); return }
 
     setProducts(prev => prev.map(p => {
       if (p.catalogId !== oldCatalogId) return p
-      return { ...p, catalogId: newCatProd.id, name: newCatProd.name, description: newCatProd.description || '', imageUrl: newCatProd.image_url || null, cost: newCatProd.cost || 0, markup, price, marca: newCatProd.marca || null, modelo: newCatProd.modelo || null, sku: newCatProd.sku || null, watts: newCatProd.watts, lumens: newCatProd.lumens, cct: newCatProd.cct }
+      return { ...p, catalogId: newCatProd.id, name: newCatProd.name, description: newCatProd.description || '', imageUrl: newCatProd.image_url || null, cost: newCatProd.cost || 0, markup, price, monedaCosto, marca: newCatProd.marca || null, modelo: newCatProd.modelo || null, sku: newCatProd.sku || null, watts: newCatProd.watts, lumens: newCatProd.lumens, cct: newCatProd.cct }
     }))
 
     for (const p of affected) {
       await supabase.from('quotation_items').update({
         catalog_product_id: newCatProd.id, name: newCatProd.name, description: newCatProd.description || null,
-        image_url: newCatProd.image_url || null, cost: newCatProd.cost || 0, markup, price,
+        image_url: newCatProd.image_url || null, cost: newCatProd.cost || 0, markup, price, provider_currency: monedaCosto,
         total: price * p.quantity, marca: newCatProd.marca || null, modelo: newCatProd.modelo || null, sku: newCatProd.sku || null,
         notes: JSON.stringify({ watts: newCatProd.watts, lumens: newCatProd.lumens, cct: newCatProd.cct }),
       }).eq('id', p.id)
@@ -1054,18 +1133,24 @@ export default function CotEditorIlum({ cotId, onBack, onSwitchVersion }: { cotI
       const cat = catMap.get(p.catalogId!)
       if (!cat) continue
       const markup = cat.markup > 0 ? cat.markup : (p.markup || 35)
-      const price = cat.precio_venta > 0 ? cat.precio_venta : (cat.cost > 0 && markup < 100 ? Math.round(cat.cost / (1 - markup / 100) * 100) / 100 : 0)
+      // Sincronizar con el catálogo también cruza la moneda: el catálogo está
+      // en la del proveedor y la cotización en la de venta.
+      const monedaCosto = monedaDeCosto(cat)
+      const precioNat = cat.precio_venta > 0 ? cat.precio_venta : (cat.cost > 0 && markup < 100 ? Math.round(cat.cost / (1 - markup / 100) * 100) / 100 : 0)
+      let price: number
+      try { price = convertir(precioNat, monedaCosto, monedaCot, tcCot) }
+      catch (e: any) { alert(e.message); return }
       const total = price * p.quantity
 
       setProducts(prev => prev.map(pr => pr.id === p.id ? {
-        ...pr, cost: cat.cost || 0, price, markup,
+        ...pr, cost: cat.cost || 0, price, markup, monedaCosto,
         imageUrl: cat.image_url || pr.imageUrl,
         marca: cat.marca || pr.marca, modelo: cat.modelo || pr.modelo, sku: cat.sku || pr.sku,
         watts: cat.watts ?? pr.watts, lumens: cat.lumens ?? pr.lumens, cct: cat.cct || pr.cct,
       } : pr))
 
       await supabase.from('quotation_items').update({
-        cost: cat.cost || 0, price, markup, total,
+        cost: cat.cost || 0, price, markup, total, provider_currency: monedaCosto,
         image_url: cat.image_url || null,
         marca: cat.marca || null, modelo: cat.modelo || null, sku: cat.sku || null,
       }).eq('id', p.id)
@@ -1198,6 +1283,12 @@ export default function CotEditorIlum({ cotId, onBack, onSwitchVersion }: { cotI
   // ─── MG Real del proyecto (con descuento + nómina) ─────────────────
   // revenueBilled = subtotal × (1 − desc/100); nomina = revenueBilled × nomPct/100
   // MG Real = (revenueBilled − costoProductos − nomina) / revenueBilled
+  // Cuántas partidas están costeadas en una moneda distinta a la de venta, y
+  // si falta el TC para poder convertirlas. Va antes de `overallMargin` porque
+  // la barra de moneda lo pinta arriba de la tabla.
+  const productosCruzados = products.filter(p => normalizarMoneda(p.monedaCosto) !== monedaCot).length
+  const necesitaTC = productosCruzados > 0 && !(tcCot > 0)
+
   const overallMargin = useMemo(() => {
     let revenue = 0, cost = 0
     products.forEach(p => {
@@ -1399,8 +1490,41 @@ export default function CotEditorIlum({ cotId, onBack, onSwitchVersion }: { cotI
               )}
             </div>
           )}
-          <div style={{ fontSize: isMobile ? 14 : 16, fontWeight: 700, color: '#10B981' }}>${fmt(grandTotal)}</div>
+          <div style={{ fontSize: isMobile ? 14 : 16, fontWeight: 700, color: '#10B981' }}>{simbolo(monedaCot)}{fmt(grandTotal)} {monedaCot}</div>
           </div>
+        </div>
+
+        {/* ── Moneda de venta y tipo de cambio ─────────────────────────────
+            Iluminación no tenía dónde declarar esto, así que el editor no
+            sabía en qué moneda estaba cobrando: los productos entraban con el
+            número del catálogo tal cual y una cotización en dólares terminaba
+            sumando pesos. */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '8px 10px', marginTop: 8, background: '#0f0f0f', border: '1px solid ' + (necesitaTC ? '#DC2626' : '#1f1f1f'), borderRadius: 8 }}>
+          <span style={{ fontSize: 9.5, color: '#666', textTransform: 'uppercase', letterSpacing: '.06em' }}>Se cobra en</span>
+          {(['MXN', 'USD'] as Moneda[]).map(m => (
+            <button key={m} onClick={() => guardarMoneda({ currency: m })}
+              style={{
+                padding: '4px 12px', borderRadius: 20, fontSize: 10, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
+                border: '1px solid ' + (monedaCot === m ? '#10B981' : '#333'),
+                background: monedaCot === m ? '#10B98122' : 'transparent',
+                color: monedaCot === m ? '#10B981' : '#666',
+              }}>{m}</button>
+          ))}
+          <span style={{ fontSize: 9.5, color: '#666', textTransform: 'uppercase', letterSpacing: '.06em', marginLeft: 6 }}>Tipo de cambio</span>
+          <input type="number" step={0.01} value={tcCot || ''} placeholder="18.00"
+            onChange={e => setTcCot(parseFloat(e.target.value) || 0)}
+            onBlur={e => guardarMoneda({ tipoCambio: parseFloat(e.target.value) || 0 })}
+            style={{ ...S.input, width: 80, fontSize: 11, textAlign: 'right' }} />
+          <span style={{ fontSize: 9.5, color: '#666' }}>MXN por dólar</span>
+          {necesitaTC ? (
+            <span style={{ fontSize: 10, color: '#DC2626', fontWeight: 600, marginLeft: 'auto' }}>
+              Hay {productosCruzados} producto(s) costeados en la otra moneda. Sin tipo de cambio no se puede convertir su precio de venta.
+            </span>
+          ) : productosCruzados > 0 ? (
+            <span style={{ fontSize: 10, color: '#888', marginLeft: 'auto' }}>
+              {productosCruzados} producto(s) costeados en la otra moneda, convertidos a {monedaCot} al TC {tcCot}.
+            </span>
+          ) : null}
         </div>
 
         {/* Subsection Presets */}
@@ -1462,6 +1586,7 @@ export default function CotEditorIlum({ cotId, onBack, onSwitchVersion }: { cotI
           subsections.map(sub => (
             <div key={sub.id} style={{ marginBottom: 16 }}>
               <SubsectionBlock
+                monedaCot={monedaCot}
                 subsection={sub}
                 products={products.filter(p => p.subsectionId === sub.id)}
                 onToggle={() => toggleSubsection(sub.id)}
