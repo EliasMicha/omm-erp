@@ -3,7 +3,7 @@ import { MOCK_CLIENTES } from './Clientes'
 import type { ClienteFiscal } from './Clientes'
 import { supabase, supabaseAll } from '../lib/supabase'
 import EstadoCuentaProveedor from '../components/EstadoCuentaProveedor'
-import { paraConciliar, etiquetaElegible, noArchivada } from '../lib/versionesCotizacion'
+import { paraConciliar, etiquetaElegible, noArchivada, soloVigentes } from '../lib/versionesCotizacion'
 import { folioRecibo, construirReciboHTML, abrirRecibo } from '../lib/reciboEfectivo'
 // supabaseAll = ve también leads/cotizaciones archivados: aquí los movimientos y
 // facturas ya asignados deben seguir mostrando su nombre y sumando para cuadrar.
@@ -5443,16 +5443,32 @@ function TabEfectivo() {
   }, [])
 
   // Cotizaciones filtradas por lead seleccionado (via notes.lead_id en quotations)
-  // Las archivadas ("borradas") no se ofrecen nunca; el vínculo que ya tenga el
-  // movimiento sí se conserva para no dejar el campo en blanco.
-  const quotationsForLead = noArchivada(form.lead_id
-    ? quotations.filter(q => {
-        try {
-          const meta = JSON.parse(q.notes || '{}')
-          return meta.lead_id === form.lead_id
-        } catch { return false }
-      })
-    : quotations).filter(q => !q.archived_at || q.id === form.quotation_id)
+  //
+  // Tres filtros, en este orden:
+  //   1. Del lead elegido.
+  //   2. No archivadas ("borradas").
+  //   3. SOLO LA VERSIÓN VIGENTE de cada grupo. Sin esto, una cotización con
+  //      tres versiones se ofrecía tres veces —A, FOT y V2 de KIBRIT
+  //      Iluminación— como si fueran tres ventas distintas, y el cobro podía
+  //      quedar colgado de una versión muerta. Hay 22 grupos de versiones en
+  //      la base: son 30 renglones fantasma en cualquier lista sin filtrar.
+  //
+  // La que YA tiene ligada el movimiento se conserva aunque esté archivada o
+  // sea una versión vieja: quitarla dejaría el campo en blanco y perdería el
+  // vínculo real al guardar.
+  const quotationsForLead = (() => {
+    const delLead = form.lead_id
+      ? quotations.filter(q => {
+          try {
+            const meta = JSON.parse(q.notes || '{}')
+            return meta.lead_id === form.lead_id
+          } catch { return false }
+        })
+      : quotations
+    const vivas = soloVigentes(noArchivada(delLead).filter(q => !q.archived_at))
+    const ligada = form.quotation_id ? quotations.find(q => q.id === form.quotation_id) : null
+    return ligada && !vivas.some(q => q.id === ligada.id) ? [ligada, ...vivas] : vivas
+  })()
 
   // Moneda de una cotización (de notes.currency; default MXN)
   const quoteCur = (q: any): 'MXN' | 'USD' => {
