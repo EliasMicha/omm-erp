@@ -221,6 +221,23 @@ function SelectField({ label, value, onChange, options, placeholder }: {
 // ════════════════════════════════════════════════════════════════════════════
 export interface OpcionObra { value: string; label: string; projectId: string | null; leadId: string | null }
 
+/**
+ * Cómo se llama un lead.
+ *
+ * En `leads`, `name` es el lead tal como vive en el CRM ("Cero5cien O402 -
+ * KIBRIT", "Pico Love") y `company` es el despacho o el contacto que lo trajo
+ * ("Niz + Chauvet Arquitectos"). Los selectores que ponían `company || name`
+ * listaban despachos en vez de leads: el mismo despacho aparecía varias veces
+ * y el lead que se buscaba no estaba por ningún lado. El nombre manda; el
+ * despacho va detrás para poder buscar por él.
+ */
+export function etiquetaLead(l: any): string {
+  const nombre = (l?.name || '').trim()
+  const desp = (l?.company || '').trim()
+  if (!nombre) return desp || 'Sin nombre'
+  return desp && desp !== nombre ? `${nombre} · ${desp}` : nombre
+}
+
 async function cargarObras(): Promise<OpcionObra[]> {
   const [{ data: quots }, { data: leads }] = await Promise.all([
     supabase.from('quotations')
@@ -229,7 +246,7 @@ async function cargarObras(): Promise<OpcionObra[]> {
     supabase.from('leads').select('id,name,company'),
   ])
   const nombreLead = new Map<string, string>()
-  for (const l of (leads || []) as any[]) nombreLead.set(l.id, l.company || l.name || '')
+  for (const l of (leads || []) as any[]) nombreLead.set(l.id, l.name || l.company || '')
   return ((quots || []) as any[]).map(q => {
     let leadId: string | null = null
     try { leadId = JSON.parse(q.notes || '{}').lead_id || null } catch { /* notas libres */ }
@@ -1653,7 +1670,7 @@ function NuevaPOModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
   // cotizaciones vigentes en propuesta o contrato. Si el cliente no tiene
   // ninguna, no se podía crear la orden.
   const obrasDelLead = form.lead_id ? obras.filter(o => o.leadId === form.lead_id) : obras
-  const nombreLead = (id: string) => { const l = leads.find(x => x.id === id); return l ? (l.company || l.name) : '' }
+  const nombreLead = (id: string) => { const l = leads.find(x => x.id === id); return l ? (l.name || l.company) : '' }
 
   async function crear() {
     if (!form.lead_id) { setError('Elige el cliente al que se le carga esta orden.'); return }
@@ -1689,7 +1706,7 @@ function NuevaPOModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
         <div style={{ display: 'grid', gap: 14 }}>
           <SearchableSelect label="Cliente (lead)" value={form.lead_id}
             onChange={v => setForm(f => ({ ...f, lead_id: v, project_id: '' }))}
-            options={leads.map(l => ({ value: l.id, label: l.company || l.name || 'Sin nombre' }))}
+            options={leads.map(l => ({ value: l.id, label: etiquetaLead(l) }))}
             placeholder="-- Seleccionar cliente --" />
           <div>
             <SearchableSelect label="Cotización (opcional)" value={form.project_id} onChange={v => setForm(f => ({ ...f, project_id: v }))}
@@ -1988,7 +2005,7 @@ function OCMasivasModal({ onClose, onCreadas }: { onClose: () => void; onCreadas
           <div style={{ display: 'grid', gap: 14 }}>
             <SearchableSelect label="Cliente (lead)" value={lead}
               onChange={v => { setLead(v); setQuote(''); setGrupos([]); setAnalizado(false) }}
-              options={leads.map(l => ({ value: l.id, label: l.company || l.name || 'Sin nombre' }))}
+              options={leads.map(l => ({ value: l.id, label: etiquetaLead(l) }))}
               placeholder="-- Seleccionar cliente --" />
             <SearchableSelect label="Cotización" value={quote}
               onChange={v => { setQuote(v); setGrupos([]); setAnalizado(false) }}
