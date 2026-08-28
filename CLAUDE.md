@@ -72,6 +72,31 @@ estaba montado en los 5 cotizadores por commits de otra sesión (`a9016fe`, `954
 `CotEditorProyecto.tsx` por cambios sin relación, el botón se fue con ellos.
 Quedó solo en `Cotizaciones.tsx`. Restaurado en `594092a`.
 
+### Verificaciones OBLIGATORIAS antes de cada deploy
+
+`vite build` NO corre `tsc`, así que el build pasa con errores que solo
+explotan en el navegador. Ya se colaron dos, ambos dejando pantalla en blanco
+en producción:
+
+| Fallo | Ejemplo real | Lo caza |
+|---|---|---|
+| Símbolo usado sin importar | `folioRecibo` en Contabilidad | `python3 /tmp/chk.py` |
+| Zona muerta temporal (TDZ) | `useEffect(..., [T.subtotal])` puesto ARRIBA de `const T = useMemo(...)` en EstimacionEditor | `python3 /tmp/tdz.py` |
+
+Los dos son `ReferenceError` en tiempo de ejecución, no errores de sintaxis:
+**esbuild los compila sin una sola queja**. Correr SIEMPRE los tres:
+
+```bash
+npx esbuild src/main.tsx --bundle --packages=external --loader:.tsx=tsx --jsx=automatic --outfile=/tmp/x/bundle.js
+python3 /tmp/chk.py      # imports faltantes
+python3 /tmp/tdz.py      # deps que usan una const declarada más abajo
+```
+
+Si `/tmp/chk.py` o `/tmp/tdz.py` no existen en la sesión, volver a escribirlos
+antes de desplegar: son ~40 líneas cada uno y han pagado su costo dos veces.
+`tdz.py` busca arreglos de dependencias `}, [...])` que referencien una `const`
+de la misma función declarada en una línea posterior.
+
 ### Al iniciar sesión
 
 Si se van a tocar archivos grandes ya existentes, hacer el cotejo del punto 1-2
