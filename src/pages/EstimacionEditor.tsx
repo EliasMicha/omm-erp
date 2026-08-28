@@ -67,17 +67,6 @@ export default function EstimacionEditor() {
   }
   useEffect(() => { cargar() }, [id])
 
-  // El saldo del anticipo se recalcula con el subtotal vivo, para que el
-  // "sugerido" sea lo que de verdad cabe amortizar hoy.
-  useEffect(() => {
-    if (!est) return
-    saldoDeAnticipo(est.quotation_id, est.numero, T.subtotal).then(s => {
-      setSaldo(s)
-      setAnticipoTxt(s.anticipo ? String(s.anticipo) : '')
-    })
-    cuadreDeContrato(est.quotation_id).then(setCuadre)
-  }, [est?.quotation_id, est?.numero, T.subtotal])
-
   // Aviso al salir con cambios sin guardar: una estimación a medio capturar
   // son horas de trabajo de alguien.
   useEffect(() => {
@@ -97,6 +86,23 @@ export default function EstimacionEditor() {
     amortizacionPct: est?.amortizacion_pct, ivaPct: est?.iva_pct, descuentoPct: est?.descuento_pct,
     amortizacionModo: est?.amortizacion_modo, amortizacionFija: est?.amortizacion_fija,
   }), [items, est])
+
+  // El saldo del anticipo se recalcula con el subtotal vivo, para que el
+  // "sugerido" sea lo que de verdad cabe amortizar hoy.
+  //
+  // OJO: va DESPUÉS de `T`. Estaba arriba y el arreglo de dependencias
+  // ([... T.subtotal]) se evalúa durante el render, cuando `T` todavía no
+  // existe: ReferenceError y pantalla en blanco al abrir cualquier
+  // estimación. esbuild compila esto sin quejarse — es zona muerta temporal,
+  // no un error de sintaxis.
+  useEffect(() => {
+    if (!est) return
+    saldoDeAnticipo(est.quotation_id, est.numero, T.subtotal).then(s => {
+      setSaldo(s)
+      setAnticipoTxt(s.anticipo ? String(s.anticipo) : '')
+    })
+    cuadreDeContrato(est.quotation_id).then(setCuadre)
+  }, [est?.quotation_id, est?.numero, T.subtotal])
 
   const porArea = useMemo(() => {
     const m = new Map<string, EstimacionItem[]>()
