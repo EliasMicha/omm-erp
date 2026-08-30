@@ -1006,7 +1006,18 @@ export default function CotEditorIlum({ cotId, onBack, onSwitchVersion }: { cotI
     // cotización en dólares producía un margen y un precio absurdos: el margen
     // salía negativo de miles por ciento, o el precio quedaba en el número de
     // pesos con signo de dólar.
-    const costoVenta = costoEnMonedaCot(updated)
+    // Si este renglón está costeado en la otra moneda y no hay TC, el costo no
+    // se puede llevar a la moneda de venta. Derivar margen o precio con el
+    // número crudo escribe en la base un importe 18x fuera. Se deja capturar el
+    // costo (que es dato del proveedor, en su moneda) pero no se deriva nada.
+    const monedaProd = normalizarMoneda(updated.monedaCosto)
+    const sinTC = monedaProd !== monedaCot && !(tcCot > 0)
+    if (sinTC && (field === 'markup' || field === 'price')) {
+      alert(`Este producto está costeado en ${monedaProd} y la cotización se cobra en ${monedaCot}.\n\nCaptura el tipo de cambio en la barra de arriba para poder mover margen o precio; si no, el número que se guarda queda fuera por el factor del TC.`)
+      return
+    }
+
+    const costoVenta = sinTC ? 0 : costoEnMonedaCot(updated)
 
     if (field === 'markup') {
       // Sin costo no hay de dónde sacar el precio; margen sobre 0 daría 0 y
@@ -1022,7 +1033,7 @@ export default function CotEditorIlum({ cotId, onBack, onSwitchVersion }: { cotI
     } else if (field === 'cost') {
       // Lo que se teclea aquí es el costo del proveedor, en SU moneda.
       updated.cost = num || 0
-      const cv = costoEnMonedaCot(updated)
+      const cv = sinTC ? 0 : costoEnMonedaCot(updated)
       updated.markup = cv > 0 && updated.price > 0
         ? Math.round((1 - cv / updated.price) * 100)
         : updated.markup
@@ -1335,6 +1346,13 @@ export default function CotEditorIlum({ cotId, onBack, onSwitchVersion }: { cotI
       alert('Margen inválido. Usa un valor entre 0 y 99.9 (%).')
       return
     }
+    // Sin TC no se puede comparar un costo en pesos contra un precio en
+    // dólares: el margen sale de miles por ciento y esta función reescribe el
+    // precio de TODAS las partidas sin forma de deshacerlo.
+    if (necesitaTC) {
+      alert(`No se puede ajustar el margen todavía: hay ${productosCruzados} producto(s) costeados en la otra moneda y falta el tipo de cambio. Captúralo en la barra de arriba.`)
+      return
+    }
     let totalCost = 0, productRev = 0
     products.forEach(p => {
       const c = calcLine(p, monedaCot, tcCot)
@@ -1373,7 +1391,10 @@ export default function CotEditorIlum({ cotId, onBack, onSwitchVersion }: { cotI
 
     const updated = products.map(p => {
       const newPrice = Math.round(p.price * scale * 100) / 100
-      const newMarkup = (p.cost > 0 && newPrice > 0) ? Math.round((1 - p.cost / newPrice) * 100) : p.markup
+      // El costo vive en la moneda del proveedor y newPrice en la de venta:
+      // hay que pasarlo a la moneda de la cotización antes de dividir.
+      const cVenta = costoEnMonedaCot(p)
+      const newMarkup = (cVenta > 0 && newPrice > 0) ? Math.round((1 - cVenta / newPrice) * 100) : p.markup
       return { ...p, price: newPrice, markup: newMarkup }
     })
     setProducts(updated)
@@ -1819,7 +1840,7 @@ export default function CotEditorIlum({ cotId, onBack, onSwitchVersion }: { cotI
               if (prodData) {
                 const prods = prodData.map((p: any) => {
                   let notes: any = {}; try { notes = JSON.parse(p.notes || '{}') } catch {}
-                  return { id: p.id, subsectionId: p.area_id, catalogId: p.catalog_product_id, name: p.name, description: p.description || '', imageUrl: p.image_url, quantity: p.quantity || 1, cost: p.cost || 0, markup: p.markup || 0, price: p.price || 0, order: p.order_index || 0, marca: p.marca, modelo: p.modelo, sku: p.sku, watts: notes.watts || null, lumens: notes.lumens || null, cct: notes.cct || null }
+                  return { id: p.id, subsectionId: p.area_id, catalogId: p.catalog_product_id, name: p.name, description: p.description || '', imageUrl: p.image_url, quantity: p.quantity || 1, cost: p.cost || 0, markup: p.markup || 0, price: p.price || 0, order: p.order_index || 0, monedaCosto: normalizarMoneda(p.provider_currency), marca: p.marca, modelo: p.modelo, sku: p.sku, watts: notes.watts || null, lumens: notes.lumens || null, cct: notes.cct || null, nomenclatura: p.nomenclatura || null }
                 })
                 setProducts(prods)
               }
