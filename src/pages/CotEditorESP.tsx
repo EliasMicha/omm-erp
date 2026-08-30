@@ -2433,10 +2433,19 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
       alert('Margen inválido. Usa un valor entre 0 y 99.9 (%).')
       return
     }
+    // El costo vive en la moneda del proveedor (monedaOrigen) y el precio en la
+    // de la cotización. Sumarlos crudos mezclaba pesos con dólares: en una
+    // cotización convertida, el scale salía ~1/TC y esta función desplomaba
+    // TODOS los precios sin forma de deshacerlo.
+    const cruzados = products.filter(p => !p.isService && p.monedaOrigen !== config.currency).length
+    if (cruzados > 0 && !(config.tipoCambio > 0)) {
+      alert(`No se puede ajustar el margen todavía: hay ${cruzados} producto(s) costeados en la otra moneda y esta cotización no tiene tipo de cambio. Captúralo en la configuración de la cotización.`)
+      return
+    }
     let totalCost = 0, productRev = 0, laborRev = 0, servicesRev = 0
     products.forEach(p => {
       if (p.isService) { servicesRev += p.price * p.quantity; return }
-      totalCost += p.cost * p.quantity
+      totalCost += convertToQuoteCurrency(p.cost, p.monedaOrigen) * p.quantity
       productRev += p.price * p.quantity
       laborRev += p.laborCost * p.quantity
     })
@@ -2485,7 +2494,8 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
     const updated = products.map(p => {
       if (p.isService) return p
       const newPrice = Math.round(p.price * scale * 100) / 100
-      const newMargin = (p.cost > 0 && newPrice > 0) ? Math.round((1 - p.cost / newPrice) * 100) : p.margin
+      const cVenta = convertToQuoteCurrency(p.cost, p.monedaOrigen)
+      const newMargin = (cVenta > 0 && newPrice > 0) ? Math.round((1 - cVenta / newPrice) * 100) : p.margin
       return { ...p, price: newPrice, margin: newMargin }
     })
     setProducts(updated)
