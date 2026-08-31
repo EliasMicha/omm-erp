@@ -56,6 +56,8 @@ interface PurchaseOrder {
   status: POStatus
   subtotal: number
   iva: number
+  /** 'material' (compra) | 'servicio' (destajo / mano de obra: sin IVA, sin inventario) */
+  tipo?: 'material' | 'servicio'
   total: number
   currency: 'MXN' | 'USD'
   supplier_doc_number?: string
@@ -256,70 +258,9 @@ async function cargarObras(): Promise<OpcionObra[]> {
       value: q.id,
       projectId: (q.project as any)?.id || null,
       leadId,
-      label: `${lead || '(sin lead)'} — ${q.name || 'Cotización'}${proj ? ` · ${proj}` : ''} · ${q.stage === 'contrato' ? 'Contrato' : 'Propuesta'}`,
+      label: `${lead || '(sin cliente)'} — ${q.name || 'Cotización'}${proj ? ` · ${proj}` : ''} · ${q.stage === 'contrato' ? 'Contrato' : 'Propuesta'}`,
     }
   })
-}
-
-/**
- * Borra una OC — pero solo si no tiene nada colgando.
- *
- * En la base TODAS las llaves foraneas que apuntan a purchase_orders son
- * CASCADE o SET NULL, asi que un delete siempre "funciona": se lleva los pagos
- * de la OC por cascada y deja sueltos, sin aviso, los movimientos bancarios,
- * las recepciones de almacen y las entregas. Por eso aqui se revisa primero y
- * se niega el borrado explicando que tiene; para esas OCs el camino correcto
- * es cancelarlas, no borrarlas.
- *
- * Devuelve true solo si la OC quedo borrada.
- */
-async function borrarOCSiEstaLimpia(poId: string, poNumber: string): Promise<boolean> {
-  const cuenta = async (tabla: string, col: string, val: any) => {
-    const { count } = await supabase.from(tabla).select('id', { count: 'exact', head: true }).eq(col, val)
-    return count || 0
-  }
-  const cuentaIn = async (tabla: string, col: string, vals: string[]) => {
-    if (!vals.length) return 0
-    const { count } = await supabase.from(tabla).select('id', { count: 'exact', head: true }).in(col, vals)
-    return count || 0
-  }
-
-  const { data: its } = await supabase.from('po_items').select('id').eq('purchase_order_id', poId)
-  const itemIds = ((its as any[]) || []).map(x => x.id)
-
-  const [pagos, banco, recepPO, recepItem, entregas, entItems, logistica] = await Promise.all([
-    cuenta('purchase_order_payments', 'purchase_order_id', poId),
-    cuenta('bank_movements', 'purchase_order_id', poId),
-    cuenta('stock_movements', 'po_id', poId),
-    cuentaIn('stock_movements', 'po_item_id', itemIds),
-    cuenta('deliveries', 'po_id', poId),
-    cuenta('delivery_items', 'po_id', poId),
-    cuenta('logistics_tasks', 'po_id', poId),
-  ])
-
-  const frenos: string[] = []
-  if (pagos) frenos.push(`${pagos} pago(s) registrado(s)`)
-  if (banco) frenos.push(`${banco} movimiento(s) bancario(s) ligado(s)`)
-  if (recepPO + recepItem) frenos.push(`${recepPO + recepItem} movimiento(s) de almacen (material ya recibido)`)
-  if (entregas + entItems) frenos.push(`${entregas + entItems} entrega(s) a obra`)
-  if (logistica) frenos.push(`${logistica} tarea(s) de logistica`)
-
-  if (frenos.length) {
-    alert(
-      `La OC ${poNumber} no se puede borrar porque ya tiene movimiento:\n\n` +
-      frenos.map(f => '  • ' + f).join('\n') +
-      `\n\nBorrarla se llevaria los pagos y dejaria sueltos los movimientos de banco y almacen. ` +
-      `Si ya no va, cambiale el estado a Cancelada: se queda el historial y deja de contar como pendiente.`)
-    return false
-  }
-
-  if (!confirm(`Borrar la OC ${poNumber} y sus ${itemIds.length} renglon(es)?\n\nNo tiene pagos, ni recepciones, ni entregas. Esto no se puede deshacer.`)) return false
-
-  const { error: itErr } = await supabase.from('po_items').delete().eq('purchase_order_id', poId)
-  if (itErr) { alert('No se pudieron borrar los renglones: ' + itErr.message); return false }
-  const { error: poErr } = await supabase.from('purchase_orders').delete().eq('id', poId)
-  if (poErr) { alert('No se pudo borrar la orden: ' + poErr.message); return false }
-  return true
 }
 
 function SearchableSelect({ label, value, onChange, options, placeholder }: {
@@ -1240,14 +1181,22 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
               const cotejoPct = summary && summary.total > 0 ? (summary.cotejados / summary.total) : 0
               const allCotejado = summary && summary.cotejados > 0 && summary.cotejados === summary.total
               const noCotejado = !summary || summary.cotejados === 0
-              const cotejoColor = allCotejado ? '#10B981' : noCotejado ? '#6B7280' : '#D97706'
-              const cotejoLabel = !summary || summary.total === 0
+              const cotejoColor = (o as any).tipo === 'servicio' ? '#A78BFA' : allCotejado ? '#10B981' : noCotejado ? '#6B7280' : '#D97706'
+              // Una orden de SERVICIO no se coteja contra catálogo (el concepto
+              // es abierto) y no lleva IVA. Marcarla "sin cotejar" en rojo y
+              // subirle 16% al total sería inventarle deuda.
+              const esServ = (o as any).tipo === 'servicio'
+              const cotejoLabel = esServ
+                ? 'Servicio'
+                : !summary || summary.total === 0
                 ? 'Sin items'
                 : allCotejado ? `✓ ${summary.cotejados}/${summary.total}`
                 : noCotejado ? `Sin cotejar`
                 : `${summary.cotejados}/${summary.total}`
               // Total con IVA 16% para mostrar al usuario (igual a pagos reales / o.total)
-              const displayTotal = summary?.sumCotejo != null ? summary.sumCotejo * 1.16 : o.total
+              const displayTotal = esServ
+                ? (summary?.sumCotejo != null ? summary.sumCotejo : o.total)
+                : summary?.sumCotejo != null ? summary.sumCotejo * 1.16 : o.total
               return (
                 <tr key={o.id} style={{ cursor: 'pointer' }} onClick={() => onOpen(o.id)}>
                   <Td><span style={{ fontWeight: 600, color: '#fff' }}>{o.po_number}</span></Td>
@@ -1279,7 +1228,6 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
                   <Td><div style={{ display: 'flex', gap: 4 }}>
                     <Btn size="sm" onClick={e => { e?.stopPropagation(); downloadPdf(o) }}><Download size={13} /></Btn>
                     <Btn size="sm" onClick={e => { e?.stopPropagation(); onOpen(o.id) }}>Abrir</Btn>
-                    <Btn size="sm" variant="danger" onClick={async e => { e?.stopPropagation(); if (await borrarOCSiEstaLimpia(o.id, o.po_number)) load() }}><Trash2 size={13} /></Btn>
                   </div></Td>
                 </tr>
               )
@@ -1643,7 +1591,7 @@ REGLAS:
             {/* Proyecto + Especialidad + Fase + Moneda */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
               <div>
-                <SearchableSelect label="Lead — cotización" value={projectId} onChange={setProjectId}
+                <SearchableSelect label="Obra (cliente — cotización)" value={projectId} onChange={setProjectId}
                   options={obras} placeholder="-- Sin obra --" />
               </div>
               <div>
@@ -1716,7 +1664,7 @@ function NuevaPOModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
   const [obras, setObras] = useState<OpcionObra[]>([])
   const [leads, setLeads] = useState<any[]>([])
-  const [form, setForm] = useState({ lead_id: '', project_id: '', supplier_id: '', specialty: 'esp' as ProjectLine, notes: '', currency: 'MXN' as Moneda })
+  const [form, setForm] = useState({ lead_id: '', project_id: '', supplier_id: '', specialty: 'esp' as ProjectLine, notes: '', currency: 'MXN' as Moneda, tipo: 'material' as 'material' | 'servicio' })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
@@ -1731,16 +1679,11 @@ function NuevaPOModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
   // antes no había forma de registrarlas, porque el único selector listaba
   // cotizaciones vigentes en propuesta o contrato. Si el cliente no tiene
   // ninguna, no se podía crear la orden.
-  // La obra manda. Antes se pedia el cliente primero y las obras se filtraban
-  // por el, asi que una cotizacion sin `lead_id` en sus notas no aparecia nunca.
-  const nombreLead = (id: string) => { const l = leads.find(x => x.id === id); return l ? etiquetaLead(l) : '' }
-  // El LEAD acota la lista de cotizaciones; no es requisito. Sin lead salen
-  // todas — incluidas las que no traen lead_id en sus notas, que con el filtro
-  // obligatorio de antes no aparecian nunca.
-  const obrasFiltradas = form.lead_id ? obras.filter(o => o.leadId === form.lead_id) : obras
+  const obrasDelLead = form.lead_id ? obras.filter(o => o.leadId === form.lead_id) : obras
+  const nombreLead = (id: string) => { const l = leads.find(x => x.id === id); return l ? (l.name || l.company) : '' }
 
   async function crear() {
-    if (!form.project_id && !form.lead_id) { setError('Elige el lead. Si la compra no sale de ninguna cotización, con el lead basta.'); return }
+    if (!form.lead_id) { setError('Elige el cliente al que se le carga esta orden.'); return }
     setSaving(true); setError('')
     const obra = obras.find(o => o.value === form.project_id)
     const { data, error: err } = await insertarOC({
@@ -1750,6 +1693,7 @@ function NuevaPOModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
       supplier_id: form.supplier_id || null,
       specialty: form.specialty,
       status: 'borrador',
+      tipo: form.tipo,
       // Una OC nace con moneda. Antes se creaba sin `currency` y quedaba en
       // null: el PDF la imprimía con signo de peso, los reportes la contaban
       // donde no era, y al agregarle renglones no había contra qué validar.
@@ -1771,26 +1715,41 @@ function NuevaPOModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer' }}><X size={18} /></button>
         </div>
         <div style={{ display: 'grid', gap: 14 }}>
-          <div>
-            <SearchableSelect label="Lead" value={form.lead_id}
-              onChange={v => setForm(f => ({ ...f, lead_id: v, project_id: '' }))}
-              options={leads.map(l => ({ value: l.id, label: etiquetaLead(l) }))}
-              placeholder="-- Todos los leads --" />
-            <div style={{ fontSize: 10, color: '#666', marginTop: 4 }}>
-              Acota la lista de abajo. Si la compra no sale de ninguna cotización, la orden se cuelga del lead.
+          {/* Material vs servicio. No es un matiz: una orden de servicio no
+              lleva IVA, no genera inventario, no se coteja contra catálogo y
+              no entra a recolecciones. Es un registro económico de destajo. */}
+          <label style={{ fontSize: 11, color: '#555', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+            Tipo de orden
+            <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
+              {([['material', 'Material', 'Producto que entra a bodega'], ['servicio', 'Servicio / destajo', 'Mano de obra contratada']] as const).map(([k, label, hint]) => (
+                <button key={k} onClick={() => setForm(f => ({ ...f, tipo: k }))}
+                  style={{
+                    flex: 1, padding: '8px 10px', borderRadius: 8, cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left',
+                    border: `1px solid ${form.tipo === k ? '#57FF9A' : '#333'}`,
+                    background: form.tipo === k ? '#57FF9A22' : 'transparent',
+                  }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: form.tipo === k ? '#57FF9A' : '#888' }}>{label}</div>
+                  <div style={{ fontSize: 9.5, color: '#666', textTransform: 'none', letterSpacing: 0, marginTop: 2 }}>{hint}</div>
+                </button>
+              ))}
             </div>
-          </div>
+            {form.tipo === 'servicio' && (
+              <div style={{ fontSize: 10, color: '#888', marginTop: 5, textTransform: 'none', letterSpacing: 0, lineHeight: 1.5 }}>
+                Conceptos abiertos, <b>sin IVA</b>. No genera inventario, ni cotejo, ni recolección: solo el registro del costo y su saldo por pagar. El folio va en serie propia (OS-).
+              </div>
+            )}
+          </label>
+          <SearchableSelect label="Cliente (lead)" value={form.lead_id}
+            onChange={v => setForm(f => ({ ...f, lead_id: v, project_id: '' }))}
+            options={leads.map(l => ({ value: l.id, label: etiquetaLead(l) }))}
+            placeholder="-- Seleccionar cliente --" />
           <div>
-            <SearchableSelect label="Cotización" value={form.project_id}
-              onChange={v => {
-                const o = obras.find(x => x.value === v)
-                setForm(f => ({ ...f, project_id: v, lead_id: o?.leadId || f.lead_id }))
-              }}
-              options={obrasFiltradas} placeholder="-- Buscar por lead o cotización --" />
+            <SearchableSelect label="Cotización (opcional)" value={form.project_id} onChange={v => setForm(f => ({ ...f, project_id: v }))}
+              options={obrasDelLead} placeholder="-- Sin cotización: compra directa al cliente --" />
             <div style={{ fontSize: 10, color: '#666', marginTop: 4 }}>
-              {form.lead_id && obrasFiltradas.length === 0
-                ? `${nombreLead(form.lead_id)} no tiene cotizaciones vigentes en propuesta o contrato. La orden se puede crear igual, colgada del lead.`
-                : `${obrasFiltradas.length} cotización(es) vigentes${form.lead_id ? ' de ese lead' : ''}. Déjala vacía si la compra no sale de una cotización.`}
+              {form.lead_id && obrasDelLead.length === 0
+                ? `${nombreLead(form.lead_id)} no tiene cotizaciones vigentes en propuesta o contrato. La orden se puede crear igual, colgada del cliente.`
+                : 'Déjala vacía si la compra no sale de una cotización.'}
             </div>
           </div>
           <SelectField label="Proveedor" value={form.supplier_id} onChange={v => setForm(f => ({ ...f, supplier_id: v }))}
@@ -1881,8 +1840,6 @@ function OCMasivasModal({ onClose, onCreadas }: { onClose: () => void; onCreadas
   const [quotations, setQuotations] = useState<any[]>([])
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
   const [lead, setLead] = useState('')
-  // Filtro, no requisito: acota la lista de cotizaciones. Vacio = todas.
-  const [filtroLead, setFiltroLead] = useState('')
   const [quote, setQuote] = useState('')
   const [cargando, setCargando] = useState(true)
   const [analizando, setAnalizando] = useState(false)
@@ -1906,29 +1863,9 @@ function OCMasivasModal({ onClose, onCreadas }: { onClose: () => void; onCreadas
     })
   }, [])
 
-  // El LEAD manda: primero acota por lead, luego se elige su cotizacion.
-  //
-  // Antes el lead era REQUISITO y la cotizacion se filtraba por
-  // `notes.lead_id`. Eso pedia un dato que no viene al caso (la compra es de
-  // una obra) y dejaba fuera del selector a cualquier cotizacion cuyas notas
-  // no traen lead_id — imposible de alcanzar aunque existiera.
-  const nombrePorLead = new Map<string, string>(leads.map(l => [l.id, etiquetaLead(l)]))
-  const leadDeCot = (q: any): string | null => {
-    try { return JSON.parse(q.notes || '{}').lead_id || null } catch { return null }
-  }
-  const opcionesObra = quotations
-    .filter(q => !filtroLead || leadDeCot(q) === filtroLead)
-    .map(q => {
-      const lid = leadDeCot(q)
-      const nombre = lid ? (nombrePorLead.get(lid) || '') : ''
-      return {
-        value: q.id,
-        label: `${nombre || '(sin lead)'} — ${q.name || 'Cotización'} · ${q.stage === 'contrato' ? 'Contrato' : 'Propuesta'}`,
-      }
-    })
-  // Solo los leads que de verdad tienen cotizacion vigente: filtrar por uno
-  // que no tiene nada deja la lista de abajo vacia sin explicar por que.
-  const leadsConCot = leads.filter(l => quotations.some(q => leadDeCot(q) === l.id))
+  const cotsDelLead = lead
+    ? quotations.filter(q => { try { return JSON.parse(q.notes || '{}').lead_id === lead } catch { return false } })
+    : []
 
   async function analizar() {
     if (!quote) return
@@ -2101,30 +2038,14 @@ function OCMasivasModal({ onClose, onCreadas }: { onClose: () => void; onCreadas
 
         {cargando ? <Loading /> : (
           <div style={{ display: 'grid', gap: 14 }}>
-            <div>
-              <SearchableSelect label="Lead" value={filtroLead}
-                onChange={v => { setFiltroLead(v); setQuote(''); setLead(''); setGrupos([]); setAnalizado(false) }}
-                options={leadsConCot.map(l => ({ value: l.id, label: etiquetaLead(l) }))}
-                placeholder="-- Todos los leads --" />
-              <div style={{ fontSize: 10, color: '#666', marginTop: 4 }}>
-                Opcional: acota la lista de abajo. Déjalo en blanco y salen todas las cotizaciones.
-              </div>
-            </div>
-            <div>
-              <SearchableSelect label="Cotización" value={quote}
-                onChange={v => {
-                  setQuote(v); setGrupos([]); setAnalizado(false)
-                  const q = quotations.find(x => x.id === v)
-                  setLead(q ? (leadDeCot(q) || filtroLead || '') : '')
-                }}
-                options={opcionesObra}
-                placeholder="-- Buscar por lead o cotización --" />
-              <div style={{ fontSize: 10, color: '#666', marginTop: 4 }}>
-                {quote
-                  ? (lead ? `Se cuelga del lead ${nombrePorLead.get(lead) || ''}.` : 'Esta cotización no trae lead en sus notas: la orden se crea sin lead.')
-                  : `${opcionesObra.length} cotización(es) vigentes en propuesta o contrato${filtroLead ? ' de ese lead' : ''}.`}
-              </div>
-            </div>
+            <SearchableSelect label="Cliente (lead)" value={lead}
+              onChange={v => { setLead(v); setQuote(''); setGrupos([]); setAnalizado(false) }}
+              options={leads.map(l => ({ value: l.id, label: etiquetaLead(l) }))}
+              placeholder="-- Seleccionar cliente --" />
+            <SearchableSelect label="Cotización" value={quote}
+              onChange={v => { setQuote(v); setGrupos([]); setAnalizado(false) }}
+              options={cotsDelLead.map(q => ({ value: q.id, label: `${q.name} · ${q.stage === 'contrato' ? 'Contrato' : 'Propuesta'}` }))}
+              placeholder={lead ? '-- Seleccionar cotización --' : 'Elige primero el cliente'} />
 
             {quote && !analizado && (
               <Btn variant="primary" onClick={analizar} disabled={analizando}>
@@ -2761,7 +2682,9 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
     return s + (Number(e.valor) || 0)
   }, 0)
   const subtotal = subtotalItems + extrasTotal
-  const iva = Math.round(subtotal * 0.16)
+  // Una orden de servicio es destajo: se paga lo pactado y no lleva IVA.
+  const esServicio = (po as any)?.tipo === 'servicio'
+  const iva = esServicio ? 0 : Math.round(subtotal * 0.16)
   const total = subtotal + iva
 
   async function guardar() {
@@ -2834,7 +2757,7 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
     const sub = updated.reduce((s, it) => s + (((it.cotejo_status === 'cotejado' || it.cotejo_status === 'sustituido') && it.real_total != null) ? Number(it.real_total) : (Number(it.total) || 0)), 0)
     const extrasTot = extrasConv.reduce((s, e) => e.tipo === 'porcentaje' ? s + sub * ((Number(e.valor) || 0) / 100) : s + (Number(e.valor) || 0), 0)
     const subTot = sub + extrasTot
-    const ivaV = Math.round(subTot * 0.16)
+    const ivaV = (po as any).tipo === 'servicio' ? 0 : Math.round(subTot * 0.16)
     const totV = subTot + ivaV
     await supabase.from('purchase_orders').update({ currency: target, extras: extrasConv, subtotal: subTot, iva: ivaV, total: totV, updated_at: new Date().toISOString() }).eq('id', po.id)
     setPO({ ...po, currency: target, extras: extrasConv, subtotal: subTot, iva: ivaV, total: totV } as any)
@@ -2915,11 +2838,12 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
   }
 
   async function addManualItem() {
+    const servicio = (po as any)?.tipo === 'servicio'
     const newItem = {
       purchase_order_id: po!.id,
       currency: normalizarMoneda(po?.currency),
-      name: 'Nuevo artículo',
-      unit: 'pza',
+      name: servicio ? 'Nuevo concepto' : 'Nuevo artículo',
+      unit: servicio ? 'servicio' : 'pza',
       quantity: 1,
       unit_cost: 0,
       total: 0,
@@ -2951,7 +2875,9 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
   }
 
   async function deletePO() {
-    if (await borrarOCSiEstaLimpia(po!.id, po!.po_number)) onBack()
+    await supabase.from('po_items').delete().eq('purchase_order_id', po!.id)
+    await supabase.from('purchase_orders').delete().eq('id', po!.id)
+    onBack()
   }
 
   const canEdit = po.status === 'borrador' || po.status === 'aprobada'
@@ -2963,8 +2889,11 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
   const partialCotejado = cotejados > 0 && cotejados < totalItems
   const cotejoComplete = allCotejado || totalItems === 0
   // Labels dinamicos del panel de totales
-  const subtotalLabel = allCotejado ? 'Subtotal cotejado' : partialCotejado ? `Subtotal (${cotejados}/${totalItems} cotejados)` : 'Subtotal catálogo'
-  const totalLabel = allCotejado ? 'Total cotejado' : partialCotejado ? 'Total mixto' : 'Total catálogo'
+  // En una orden de servicio no hay catálogo contra el cual cotejar: el
+  // concepto es abierto y el importe es el pactado. Los rótulos de cotejo
+  // ahí solo confunden.
+  const subtotalLabel = esServicio ? 'Subtotal' : allCotejado ? 'Subtotal cotejado' : partialCotejado ? `Subtotal (${cotejados}/${totalItems} cotejados)` : 'Subtotal catálogo'
+  const totalLabel = esServicio ? 'Total' : allCotejado ? 'Total cotejado' : partialCotejado ? 'Total mixto' : 'Total catálogo'
 
   // Status action buttons
   const statusActions: { label: string; target: POStatus; variant: 'primary' | 'default' | 'danger'; disabled?: boolean; tooltip?: string }[] = []
@@ -3004,6 +2933,7 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <span style={{ fontSize: 18, fontWeight: 700, color: '#fff' }}>{po.po_number}</span>
             <Badge label={stCfg.label} color={stCfg.color} />
+            {esServicio && <Badge label="🔧 Servicio" color="#A78BFA" />}
             <Badge label={esp.icon + ' ' + esp.label} color={esp.color} />
             {po.purchase_phase && PHASE_CONFIG[po.purchase_phase] && <Badge label={PHASE_CONFIG[po.purchase_phase].label} color={PHASE_CONFIG[po.purchase_phase].color} />}
           </div>
@@ -3287,11 +3217,15 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
                 Cotejo: {cotejados}/{totalItems} {allCotejado ? '✓' : ''}
               </div>
             )}
+            {esServicio && (
+              <span style={{ fontSize: 10, color: '#666' }}>Conceptos abiertos · sin IVA · no genera inventario</span>
+            )}
           </div>
           {canEdit && (
             <div style={{ display: 'flex', gap: 6 }}>
-              <Btn size="sm" onClick={addManualItem}><Plus size={12} /> Manual</Btn>
-              <Btn size="sm" variant="primary" onClick={() => setShowAddItem(true)}><Package size={12} /> Del catálogo</Btn>
+              <Btn size="sm" variant={esServicio ? 'primary' : 'default'} onClick={addManualItem}><Plus size={12} /> {esServicio ? 'Concepto' : 'Manual'}</Btn>
+              {/* El catálogo es de productos: en una orden de servicio no aplica. */}
+              {!esServicio && <Btn size="sm" variant="primary" onClick={() => setShowAddItem(true)}><Package size={12} /> Del catálogo</Btn>}
             </div>
           )}
         </div>
@@ -3553,8 +3487,8 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
           )}
 
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-            <span style={{ fontSize: 12, color: '#888' }}>IVA (16%)</span>
-            <span style={{ fontSize: 12, color: '#ccc' }}>{F(iva)}</span>
+            <span style={{ fontSize: 12, color: '#888' }}>{esServicio ? 'IVA' : 'IVA (16%)'}</span>
+            <span style={{ fontSize: 12, color: esServicio ? '#555' : '#ccc' }}>{esServicio ? 'No aplica' : F(iva)}</span>
           </div>
           <div style={{ borderTop: '1px solid #333', paddingTop: 8, display: 'flex', justifyContent: 'space-between', marginBottom: subtotal !== subtotalCatalogo ? 10 : 0 }}>
             <span style={{ fontSize: 14, fontWeight: 700, color: '#fff' }}>{totalLabel}</span>
@@ -3582,7 +3516,7 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
       <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 20, paddingTop: 16, borderTop: '1px solid #222' }}>
         <div>
           {po.status === 'borrador' && (
-            <Btn variant="danger" size="sm" onClick={() => deletePO()}>
+            <Btn variant="danger" size="sm" onClick={() => { if (confirm('Eliminar esta OC?')) deletePO() }}>
               <Trash2 size={14} /> Eliminar OC
             </Btn>
           )}

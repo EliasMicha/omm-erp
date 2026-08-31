@@ -1526,7 +1526,10 @@ function TareaModal({ init, obras, leads, empleados, onClose, onSaved }: any) {
     if (tipo !== 'recoleccion' || recoLoaded) return
     (async () => {
       setLoadingReco(true)
-      const { data: pR } = await supabase.from('purchase_orders').select('id, po_number, supplier_id, quotation_id, status, logistics_mode').neq('status', 'cancelada')
+      // Las órdenes de SERVICIO (destajo, mano de obra) no traen mercancía:
+      // no hay nada que recolectar del proveedor ni que dar de alta en bodega.
+      // Son solo el registro económico del costo.
+      const { data: pR } = await supabase.from('purchase_orders').select('id, po_number, supplier_id, quotation_id, status, logistics_mode, tipo').neq('status', 'cancelada').neq('tipo', 'servicio')
       // Recolección = las que NOSOTROS recogemos (modo pickup) o sin modo definido; nunca borrador
       const pos = (((pR as any[]) || [])).filter(p => p.status !== 'borrador' && (!p.logistics_mode || String(p.logistics_mode).startsWith('pickup')))
       setRecoPos(pos)
@@ -1575,7 +1578,9 @@ function TareaModal({ init, obras, leads, empleados, onClose, onSaved }: any) {
     const cots = ((cotsRaw as any[]) || []).filter(c => c.specialty !== 'proy' && c.specialty !== 'cort').map(c => { let lead_id: string | null = null; try { lead_id = JSON.parse(c.notes || '{}').lead_id || null } catch { }; return { id: c.id, name: c.name, specialty: c.specialty, lead_id } }).filter(c => c.lead_id)
     const cotIds = cots.map(c => c.id)
     if (!cotIds.length) return {}
-    const { data: posRaw } = await supabase.from('purchase_orders').select('id,quotation_id,status').in('quotation_id', cotIds)
+    // Sin órdenes de servicio: un destajo no compra material, así que sus
+    // conceptos no deben aparecer como inventario "comprado" por entregar.
+    const { data: posRaw } = await supabase.from('purchase_orders').select('id,quotation_id,status,tipo').in('quotation_id', cotIds).neq('tipo', 'servicio')
     const pos = ((posRaw as any[]) || []).filter(p => p.status !== 'cancelada')
     const poCot: any = {}; pos.forEach(p => poCot[p.id] = p.quotation_id)
     const confirmedPoIds = pos.filter(p => p.status !== 'borrador').map(p => p.id)

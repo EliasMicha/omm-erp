@@ -11,6 +11,8 @@ interface POForPdf {
   specialty: string
   purchase_phase?: string
   currency: 'MXN' | 'USD'
+  /** 'servicio' imprime ORDEN DE SERVICIO y sin IVA. */
+  tipo?: 'material' | 'servicio'
   subtotal: number
   iva: number
   total: number
@@ -79,7 +81,8 @@ export function generatePOPdf(po: POForPdf, items: POItemForPdf[], opts?: POPdfO
   doc.setFontSize(16)
   doc.setFont('helvetica', 'bold')
   doc.setTextColor(30, 30, 30)
-  doc.text(sinCostos ? 'Solicitud de Cotización' : 'Orden de Compra', pageW - margin, y + 6, { align: 'right' })
+  const esServicio = po.tipo === 'servicio'
+  doc.text(sinCostos ? 'Solicitud de Cotización' : esServicio ? 'Orden de Servicio' : 'Orden de Compra', pageW - margin, y + 6, { align: 'right' })
 
   doc.setFontSize(20)
   doc.setTextColor(0, 120, 80)
@@ -228,7 +231,9 @@ export function generatePOPdf(po: POForPdf, items: POItemForPdf[], opts?: POPdfO
 
     const totals = [
       ['Subtotal', fmtMoney(po.subtotal, po.currency)],
-      ['IVA (16%)', fmtMoney(po.iva, po.currency)],
+      // Un destajo no lleva IVA: se paga lo pactado. Imprimir "IVA (16%) $0.00"
+      // invita a que alguien lo capture y se lo sume.
+      ...(po.tipo === 'servicio' ? [] : [['IVA (16%)', fmtMoney(po.iva, po.currency)]]),
       ['TOTAL', fmtMoney(po.total, po.currency)],
     ]
 

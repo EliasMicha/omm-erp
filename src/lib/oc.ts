@@ -14,12 +14,19 @@
 // ═══════════════════════════════════════════════════════════════════════════
 import { supabase } from './supabase'
 
-export function prefijoOC(fecha = new Date()): string {
-  return `OC-${String(fecha.getFullYear()).slice(2)}${String(fecha.getMonth() + 1).padStart(2, '0')}`
+/**
+ * Prefijo del folio. Las órdenes de SERVICIO llevan su propia serie (OS-) para
+ * que no se confundan con las de material en la lista, en el PDF ni cuando el
+ * proveedor pregunta por "la orden 041": son documentos distintos, con formato
+ * distinto y sin IVA.
+ */
+export function prefijoOC(fecha = new Date(), tipo: 'material' | 'servicio' = 'material'): string {
+  const serie = tipo === 'servicio' ? 'OS' : 'OC'
+  return `${serie}-${String(fecha.getFullYear()).slice(2)}${String(fecha.getMonth() + 1).padStart(2, '0')}`
 }
 
 export async function insertarOC(payload: Record<string, any>, intentos = 15): Promise<any> {
-  const prefix = prefijoOC()
+  const prefix = prefijoOC(new Date(), payload.tipo === 'servicio' ? 'servicio' : 'material')
   const { data } = await supabase.from('purchase_orders').select('po_number')
     .like('po_number', `${prefix}%`).order('po_number', { ascending: false }).limit(1)
   const ultimo = (data && (data as any[])[0]?.po_number) || ''
