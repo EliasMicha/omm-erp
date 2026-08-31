@@ -261,6 +261,67 @@ async function cargarObras(): Promise<OpcionObra[]> {
   })
 }
 
+/**
+ * Borra una OC — pero solo si no tiene nada colgando.
+ *
+ * En la base TODAS las llaves foraneas que apuntan a purchase_orders son
+ * CASCADE o SET NULL, asi que un delete siempre "funciona": se lleva los pagos
+ * de la OC por cascada y deja sueltos, sin aviso, los movimientos bancarios,
+ * las recepciones de almacen y las entregas. Por eso aqui se revisa primero y
+ * se niega el borrado explicando que tiene; para esas OCs el camino correcto
+ * es cancelarlas, no borrarlas.
+ *
+ * Devuelve true solo si la OC quedo borrada.
+ */
+async function borrarOCSiEstaLimpia(poId: string, poNumber: string): Promise<boolean> {
+  const cuenta = async (tabla: string, col: string, val: any) => {
+    const { count } = await supabase.from(tabla).select('id', { count: 'exact', head: true }).eq(col, val)
+    return count || 0
+  }
+  const cuentaIn = async (tabla: string, col: string, vals: string[]) => {
+    if (!vals.length) return 0
+    const { count } = await supabase.from(tabla).select('id', { count: 'exact', head: true }).in(col, vals)
+    return count || 0
+  }
+
+  const { data: its } = await supabase.from('po_items').select('id').eq('purchase_order_id', poId)
+  const itemIds = ((its as any[]) || []).map(x => x.id)
+
+  const [pagos, banco, recepPO, recepItem, entregas, entItems, logistica] = await Promise.all([
+    cuenta('purchase_order_payments', 'purchase_order_id', poId),
+    cuenta('bank_movements', 'purchase_order_id', poId),
+    cuenta('stock_movements', 'po_id', poId),
+    cuentaIn('stock_movements', 'po_item_id', itemIds),
+    cuenta('deliveries', 'po_id', poId),
+    cuenta('delivery_items', 'po_id', poId),
+    cuenta('logistics_tasks', 'po_id', poId),
+  ])
+
+  const frenos: string[] = []
+  if (pagos) frenos.push(`${pagos} pago(s) registrado(s)`)
+  if (banco) frenos.push(`${banco} movimiento(s) bancario(s) ligado(s)`)
+  if (recepPO + recepItem) frenos.push(`${recepPO + recepItem} movimiento(s) de almacen (material ya recibido)`)
+  if (entregas + entItems) frenos.push(`${entregas + entItems} entrega(s) a obra`)
+  if (logistica) frenos.push(`${logistica} tarea(s) de logistica`)
+
+  if (frenos.length) {
+    alert(
+      `La OC ${poNumber} no se puede borrar porque ya tiene movimiento:\n\n` +
+      frenos.map(f => '  • ' + f).join('\n') +
+      `\n\nBorrarla se llevaria los pagos y dejaria sueltos los movimientos de banco y almacen. ` +
+      `Si ya no va, cambiale el estado a Cancelada: se queda el historial y deja de contar como pendiente.`)
+    return false
+  }
+
+  if (!confirm(`Borrar la OC ${poNumber} y sus ${itemIds.length} renglon(es)?\n\nNo tiene pagos, ni recepciones, ni entregas. Esto no se puede deshacer.`)) return false
+
+  const { error: itErr } = await supabase.from('po_items').delete().eq('purchase_order_id', poId)
+  if (itErr) { alert('No se pudieron borrar los renglones: ' + itErr.message); return false }
+  const { error: poErr } = await supabase.from('purchase_orders').delete().eq('id', poId)
+  if (poErr) { alert('No se pudo borrar la orden: ' + poErr.message); return false }
+  return true
+}
+
 function SearchableSelect({ label, value, onChange, options, placeholder }: {
   label: string; value: string; onChange: (v: string) => void
   options: { value: string; label: string }[]; placeholder?: string
@@ -1218,6 +1279,7 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
                   <Td><div style={{ display: 'flex', gap: 4 }}>
                     <Btn size="sm" onClick={e => { e?.stopPropagation(); downloadPdf(o) }}><Download size={13} /></Btn>
                     <Btn size="sm" onClick={e => { e?.stopPropagation(); onOpen(o.id) }}>Abrir</Btn>
+                    <Btn size="sm" variant="danger" onClick={async e => { e?.stopPropagation(); if (await borrarOCSiEstaLimpia(o.id, o.po_number)) load() }}><Trash2 size={13} /></Btn>
                   </div></Td>
                 </tr>
               )
@@ -2837,9 +2899,7 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
   }
 
   async function deletePO() {
-    await supabase.from('po_items').delete().eq('purchase_order_id', po!.id)
-    await supabase.from('purchase_orders').delete().eq('id', po!.id)
-    onBack()
+    if (await borrarOCSiEstaLimpia(po!.id, po!.po_number)) onBack()
   }
 
   const canEdit = po.status === 'borrador' || po.status === 'aprobada'
@@ -3470,7 +3530,7 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
       <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 20, paddingTop: 16, borderTop: '1px solid #222' }}>
         <div>
           {po.status === 'borrador' && (
-            <Btn variant="danger" size="sm" onClick={() => { if (confirm('Eliminar esta OC?')) deletePO() }}>
+            <Btn variant="danger" size="sm" onClick={() => deletePO()}>
               <Trash2 size={14} /> Eliminar OC
             </Btn>
           )}
