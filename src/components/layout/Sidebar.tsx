@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
-import { LayoutDashboard, FileText, ClipboardList, Users, Truck, FolderOpen, Users2, BookOpen, ShoppingCart, TrendingUp, Building2, Package, Receipt, BrainCircuit, ChevronLeft, ChevronRight, Menu, X, LogOut, Shield, Wrench, Archive, Gauge, FolderArchive, ListChecks } from 'lucide-react'
+import { LayoutDashboard, FileText, ClipboardList, Users, Truck, FolderOpen, Users2, BookOpen, ShoppingCart, TrendingUp, Building2, Package, Receipt, BrainCircuit, ChevronLeft, ChevronRight, Menu, X, LogOut, Shield, Wrench, Archive, Gauge, FolderArchive, ListChecks, GraduationCap } from 'lucide-react'
 import { useIsMobile } from '../../lib/useIsMobile'
 import { useAuth, PermissionArea, RESTRICTED_AREA_ROUTES } from '../../contexts/AuthContext'
 
@@ -27,6 +27,7 @@ const NAV: NavItem[] = [
   { to: '/mantenimiento', icon: Wrench, label: 'Mantenimiento' },
   { to: '/documentacion', icon: FolderArchive, label: 'Documentacion' },
   { to: '/desempeno', icon: Gauge, label: 'Desempeno' },
+  { to: '/capacitaciones', icon: GraduationCap, label: 'Capacitaciones' },
   { to: '/empleados', icon: BookOpen, label: 'Empleados', allowedAreas: ['Administracion'] },
   { to: '/catalogo', icon: Package, label: 'Catalogo' },
   { to: '/clientes', icon: Users2, label: 'Clientes' },

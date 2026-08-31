@@ -29,6 +29,7 @@ import Cobranza from './pages/Cobranza'
 import Usuarios from './pages/Usuarios'
 import Archivados from './pages/Archivados'
 import Desempeno from './pages/Desempeno'
+import Capacitaciones from './pages/Capacitaciones'
 import Documentacion from './pages/Documentacion'
 import Actividades from './pages/Actividades'
 import Mantenimiento from './pages/Mantenimiento'
@@ -102,6 +103,7 @@ export default function App() {
                       </ProtectedRoute>
                     } />
                     <Route path="/desempeno" element={<Desempeno />} />
+                    <Route path="/capacitaciones" element={<Capacitaciones />} />
                     <Route path="/actividades" element={<Actividades />} />
                     <Route path="/documentacion" element={<Documentacion />} />
                     <Route path="/archivados" element={<Archivados />} />
