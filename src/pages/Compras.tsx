@@ -1731,11 +1731,12 @@ function NuevaPOModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
   // antes no había forma de registrarlas, porque el único selector listaba
   // cotizaciones vigentes en propuesta o contrato. Si el cliente no tiene
   // ninguna, no se podía crear la orden.
-  const obrasDelLead = form.lead_id ? obras.filter(o => o.leadId === form.lead_id) : obras
-  const nombreLead = (id: string) => { const l = leads.find(x => x.id === id); return l ? (l.name || l.company) : '' }
+  // La obra manda. Antes se pedia el cliente primero y las obras se filtraban
+  // por el, asi que una cotizacion sin `lead_id` en sus notas no aparecia nunca.
+  const nombreLead = (id: string) => { const l = leads.find(x => x.id === id); return l ? etiquetaLead(l) : '' }
 
   async function crear() {
-    if (!form.lead_id) { setError('Elige el cliente al que se le carga esta orden.'); return }
+    if (!form.project_id && !form.lead_id) { setError('Elige la obra, o el cliente si la compra no sale de una cotización.'); return }
     setSaving(true); setError('')
     const obra = obras.find(o => o.value === form.project_id)
     const { data, error: err } = await insertarOC({
@@ -1766,17 +1767,26 @@ function NuevaPOModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer' }}><X size={18} /></button>
         </div>
         <div style={{ display: 'grid', gap: 14 }}>
-          <SearchableSelect label="Cliente (lead)" value={form.lead_id}
-            onChange={v => setForm(f => ({ ...f, lead_id: v, project_id: '' }))}
-            options={leads.map(l => ({ value: l.id, label: etiquetaLead(l) }))}
-            placeholder="-- Seleccionar cliente --" />
           <div>
-            <SearchableSelect label="Cotización (opcional)" value={form.project_id} onChange={v => setForm(f => ({ ...f, project_id: v }))}
-              options={obrasDelLead} placeholder="-- Sin cotización: compra directa al cliente --" />
+            <SearchableSelect label="Obra / cotización" value={form.project_id}
+              onChange={v => {
+                const o = obras.find(x => x.value === v)
+                setForm(f => ({ ...f, project_id: v, lead_id: o?.leadId || (v ? f.lead_id : '') }))
+              }}
+              options={obras} placeholder="-- Buscar por obra, cotización o cliente --" />
             <div style={{ fontSize: 10, color: '#666', marginTop: 4 }}>
-              {form.lead_id && obrasDelLead.length === 0
-                ? `${nombreLead(form.lead_id)} no tiene cotizaciones vigentes en propuesta o contrato. La orden se puede crear igual, colgada del cliente.`
-                : 'Déjala vacía si la compra no sale de una cotización.'}
+              Déjala vacía solo si la compra no sale de una cotización (una herramienta, un material de emergencia).
+            </div>
+          </div>
+          <div>
+            <SearchableSelect label={form.project_id ? 'Cliente (sale de la obra)' : 'Cliente'} value={form.lead_id}
+              onChange={v => setForm(f => ({ ...f, lead_id: v }))}
+              options={leads.map(l => ({ value: l.id, label: etiquetaLead(l) }))}
+              placeholder="-- Seleccionar cliente --" />
+            <div style={{ fontSize: 10, color: '#666', marginTop: 4 }}>
+              {form.project_id
+                ? (form.lead_id ? 'Se llenó con el cliente de la cotización. Cámbialo solo si la factura va a otro.' : 'Esta cotización no trae cliente en sus notas: elígelo a mano.')
+                : 'Sin cotización, la orden se cuelga del cliente.'}
             </div>
           </div>
           <SelectField label="Proveedor" value={form.supplier_id} onChange={v => setForm(f => ({ ...f, supplier_id: v }))}
@@ -1890,9 +1900,24 @@ function OCMasivasModal({ onClose, onCreadas }: { onClose: () => void; onCreadas
     })
   }, [])
 
-  const cotsDelLead = lead
-    ? quotations.filter(q => { try { return JSON.parse(q.notes || '{}').lead_id === lead } catch { return false } })
-    : []
+  // Se elige la OBRA, no el cliente. El lead sale de la cotizacion elegida.
+  //
+  // Antes habia dos pasos: primero cliente, luego cotizacion filtrada por
+  // `notes.lead_id`. Eso pedia un dato que no viene al caso (la compra es de
+  // una obra) y dejaba fuera del selector a cualquier cotizacion cuyas notas
+  // no traen lead_id — imposible de alcanzar aunque existiera.
+  const nombrePorLead = new Map<string, string>(leads.map(l => [l.id, etiquetaLead(l)]))
+  const leadDeCot = (q: any): string | null => {
+    try { return JSON.parse(q.notes || '{}').lead_id || null } catch { return null }
+  }
+  const opcionesObra = quotations.map(q => {
+    const lid = leadDeCot(q)
+    const cliente = lid ? (nombrePorLead.get(lid) || '') : ''
+    return {
+      value: q.id,
+      label: `${cliente || '(sin cliente)'} — ${q.name || 'Cotización'} · ${q.stage === 'contrato' ? 'Contrato' : 'Propuesta'}`,
+    }
+  })
 
   async function analizar() {
     if (!quote) return
@@ -2065,14 +2090,21 @@ function OCMasivasModal({ onClose, onCreadas }: { onClose: () => void; onCreadas
 
         {cargando ? <Loading /> : (
           <div style={{ display: 'grid', gap: 14 }}>
-            <SearchableSelect label="Cliente (lead)" value={lead}
-              onChange={v => { setLead(v); setQuote(''); setGrupos([]); setAnalizado(false) }}
-              options={leads.map(l => ({ value: l.id, label: etiquetaLead(l) }))}
-              placeholder="-- Seleccionar cliente --" />
-            <SearchableSelect label="Cotización" value={quote}
-              onChange={v => { setQuote(v); setGrupos([]); setAnalizado(false) }}
-              options={cotsDelLead.map(q => ({ value: q.id, label: `${q.name} · ${q.stage === 'contrato' ? 'Contrato' : 'Propuesta'}` }))}
-              placeholder={lead ? '-- Seleccionar cotización --' : 'Elige primero el cliente'} />
+            <div>
+              <SearchableSelect label="Obra / cotización" value={quote}
+                onChange={v => {
+                  setQuote(v); setGrupos([]); setAnalizado(false)
+                  const q = quotations.find(x => x.id === v)
+                  setLead(q ? (leadDeCot(q) || '') : '')
+                }}
+                options={opcionesObra}
+                placeholder="-- Buscar por obra, cotización o cliente --" />
+              <div style={{ fontSize: 10, color: '#666', marginTop: 4 }}>
+                {quote
+                  ? (lead ? `Se cuelga de ${nombrePorLead.get(lead) || 'el cliente de la cotización'}.` : 'Esta cotización no trae cliente en sus notas: la orden se crea sin cliente.')
+                  : `${opcionesObra.length} cotización(es) vigentes en propuesta o contrato.`}
+              </div>
+            </div>
 
             {quote && !analizado && (
               <Btn variant="primary" onClick={analizar} disabled={analizando}>
