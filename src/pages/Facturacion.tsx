@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { Plus, X, FileText, RefreshCw, Download, Trash2, Search, Loader2, CheckCircle2, AlertCircle, Ban, FolderDown } from 'lucide-react'
 import { useIsMobile } from '../lib/useIsMobile'
+import { soloSistemasVendidos } from '../lib/sistemasVendidos'
 
 // ============================================================
 // Tipos
@@ -1984,6 +1985,7 @@ function NuevaFactura({ onCancel, onCreated, editingFactura }: { onCancel: () =>
   const [cotizacionId, setCotizacionId] = useState('')
   const [modoConceptos, setModoConceptos] = useState<'manual' | 'desde_cotizacion'>('manual')
   const [importingItems, setImportingItems] = useState(false)
+  const [resumenImport, setResumenImport] = useState<{ ok: boolean; texto: string } | null>(null)
   const [conceptos, setConceptos] = useState<Concepto[]>([
     { descripcion: '', clave_prod_serv: '81111500', clave_unidad: 'E48', unidad: 'Unidad de servicio', cantidad: 1, valor_unitario: 0, iva_tasa: 0.16 }
   ])
@@ -2110,14 +2112,46 @@ function NuevaFactura({ onCancel, onCreated, editingFactura }: { onCancel: () =>
     })
   }, [editingFactura])
 
-  // Importar items de cotizacion como conceptos facturables
+  /**
+   * Importar los items de una cotización como conceptos facturables.
+   *
+   * ── El descuento NO se desglosa en la factura ────────────────────────────
+   * Un descuento desglosado en un CFDI tiene implicaciones fiscales que aquí
+   * no se quieren. Se factura directo: el descuento pactado se aplica al
+   * PRECIO UNITARIO de cada renglón y la factura sale limpia, sin línea de
+   * descuento. El total de la factura tiene que dar el mismo total de la
+   * cotización ya con descuento.
+   *
+   * ── El IVA sale de la cotización, no del catálogo ────────────────────────
+   * Si la cotización se cerró al 8% (frontera) y se factura al 16% del
+   * catálogo, el total no cuadra. La tasa contractual es la de la cotización.
+   * Sólo se respeta el catálogo cuando el producto está marcado como EXENTO
+   * (iva_rate = 0), que es un dato del producto y no del trato.
+   *
+   * ── No se factura lo que no se vendió ────────────────────────────────────
+   * Los sistemas apagados en la cotización (systems_no_suma) no suman a su
+   * total, así que tampoco entran a la factura.
+   */
   async function importarItemsDeCotizacion() {
     if (!cotizacionId) { setError('Selecciona primero una cotizacion'); return }
     setImportingItems(true)
     setError(null)
+    setResumenImport(null)
+
+    // Condiciones comerciales del trato: viven en quotations.notes como JSON.
+    const { data: cotRow } = await supabase
+      .from('quotations').select('total,notes').eq('id', cotizacionId).maybeSingle()
+    let meta: any = {}
+    try { meta = JSON.parse((cotRow as any)?.notes || '{}') } catch { meta = {} }
+    const nz = (v: any, def: number) => (v === null || v === undefined || v === '' || isNaN(Number(v)) ? def : Number(v))
+    const descPct = Math.abs(nz(meta.descuento, 0))
+    const ivaPct = nz(meta.ivaRate, 16)
+    const factor = 1 - descPct / 100
+    const totalLista = nz((cotRow as any)?.total, 0)
+
     const { data, error: err } = await supabase
       .from('quotation_items')
-      .select('id,name,description,quantity,cost,markup,price,catalog_product_id,catalog_product:catalog_products(clave_prod_serv,clave_unidad,unit,iva_rate)')
+      .select('id,name,description,quantity,cost,markup,price,system,notes,catalog_product_id,catalog_product:catalog_products(clave_prod_serv,clave_unidad,unit,iva_rate)')
       .eq('quotation_id', cotizacionId)
       .order('order_index')
     if (err) {
@@ -2125,26 +2159,67 @@ function NuevaFactura({ onCancel, onCreated, editingFactura }: { onCancel: () =>
       setImportingItems(false)
       return
     }
-    const items = (data as any[]) || []
+    let items = (data as any[]) || []
     if (items.length === 0) {
       setError('Esta cotizacion no tiene items')
       setImportingItems(false)
       return
     }
+    const antesDeFiltrar = items.length
+    items = soloSistemasVendidos(items, (cotRow as any)?.notes)
+    const omitidos = antesDeFiltrar - items.length
+    if (items.length === 0) {
+      setError('Todos los renglones de esta cotización pertenecen a sistemas apagados: no hay nada que facturar.')
+      setImportingItems(false)
+      return
+    }
+
+    // 4 decimales en el precio unitario: el SAT acepta hasta 6 y así el
+    // descuento prorrateado no deja centavos regados por redondeo.
+    const r4 = (n: number) => Math.round(n * 10000) / 10000
     const nuevosConceptos: Concepto[] = items.map(it => {
       const cat = it.catalog_product || {}
-      const valorUnit = it.price || (it.cost * (1 + (it.markup || 0) / 100)) || 0
+      const listaUnit = Number(it.price) || (Number(it.cost) * (1 + (Number(it.markup) || 0) / 100)) || 0
+      const exento = cat.iva_rate !== null && cat.iva_rate !== undefined && Number(cat.iva_rate) === 0
       return {
         descripcion: it.name + (it.description ? ' - ' + it.description : ''),
         clave_prod_serv: cat.clave_prod_serv || '81111500',
         clave_unidad: cat.clave_unidad || 'E48',
         unidad: cat.unit || 'Unidad de servicio',
-        cantidad: it.quantity || 1,
-        valor_unitario: Math.round(valorUnit * 100) / 100,
-        iva_tasa: cat.iva_rate ? Number(cat.iva_rate) : 0.16,
+        cantidad: Number(it.quantity) || 1,
+        valor_unitario: r4(listaUnit * factor),
+        iva_tasa: exento ? 0 : ivaPct / 100,
       }
     })
+
+    // Cuadre contra la cotización. El objetivo es su subtotal YA con descuento.
+    const objetivo = Math.round(totalLista * factor * 100) / 100
+    const suma = () => nuevosConceptos.reduce((s2, c) => s2 + c.cantidad * c.valor_unitario, 0)
+    let dif = Math.round((objetivo - suma()) * 100) / 100
+    // Residuo de redondeo: se absorbe en el último renglón para que el total
+    // cuadre al centavo. Sólo si es residuo — una diferencia grande significa
+    // otra cosa (renglones apagados, total desincronizado) y hay que decirla,
+    // no taparla.
+    const toleranciaRedondeo = Math.max(0.05, nuevosConceptos.length * 0.01)
+    const ultimo = nuevosConceptos[nuevosConceptos.length - 1]
+    if (dif !== 0 && Math.abs(dif) <= toleranciaRedondeo && ultimo.cantidad > 0) {
+      ultimo.valor_unitario = r4(ultimo.valor_unitario + dif / ultimo.cantidad)
+      dif = Math.round((objetivo - suma()) * 100) / 100
+    }
+
     setConceptos(nuevosConceptos)
+    const fmt2 = (n: number) => n.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    const partes: string[] = []
+    partes.push(descPct > 0
+      ? `Descuento de ${descPct}% ya aplicado en los precios unitarios (no se desglosa en la factura).`
+      : 'Esta cotización no tiene descuento pactado.')
+    partes.push(`IVA ${ivaPct}% tomado de la cotización.`)
+    if (omitidos > 0) partes.push(`${omitidos} renglón(es) fuera: pertenecen a sistemas apagados en la cotización.`)
+    const cuadra = Math.abs(dif) < 0.01
+    partes.push(cuadra
+      ? `Subtotal ${fmt2(suma())} — cuadra con la cotización.`
+      : `Subtotal ${fmt2(suma())} vs ${fmt2(objetivo)} de la cotización: difiere ${fmt2(Math.abs(dif))}. Revísalo antes de timbrar.`)
+    setResumenImport({ ok: cuadra, texto: partes.join(' ') })
     setImportingItems(false)
   }
 
@@ -3009,8 +3084,10 @@ function NuevaFactura({ onCancel, onCreated, editingFactura }: { onCancel: () =>
         </div>
         {modoConceptos === 'desde_cotizacion' && (
           <div style={{ marginTop: 10, padding: 12, background: '#0a0a0a', border: '1px solid #1a1a1a', borderRadius: 8 }}>
-            <div style={{ fontSize: 11, color: '#888', marginBottom: 8 }}>
+            <div style={{ fontSize: 11, color: '#888', marginBottom: 8, lineHeight: 1.6 }}>
               Selecciona la cotizacion arriba e importa sus items. Cada producto del catalogo se convertira en un concepto facturable editable.
+              <br />
+              <span style={{ color: '#A78BFA' }}>El descuento pactado llega ya aplicado en el precio unitario</span>, no como renglon aparte: la factura sale limpia y cuadra con el total de la cotizacion.
             </div>
             <button onClick={importarItemsDeCotizacion} disabled={!cotizacionId || importingItems} style={{
               padding: '8px 14px', background: '#1e1e1e', color: cotizacionId ? '#A78BFA' : '#444', border: `1px solid ${cotizacionId ? '#A78BFA44' : '#2a2a2a'}`, borderRadius: 8,
@@ -3019,6 +3096,18 @@ function NuevaFactura({ onCancel, onCreated, editingFactura }: { onCancel: () =>
             }}>
               {importingItems ? <><Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> Importando...</> : <>Importar items de la cotizacion seleccionada</>}
             </button>
+            {/* Qué se importó y si cuadra. Sin esto hay que sacar la
+                calculadora para saber si la factura da el total del trato. */}
+            {resumenImport && (
+              <div style={{
+                marginTop: 10, padding: '8px 10px', borderRadius: 8, fontSize: 11, lineHeight: 1.6,
+                background: resumenImport.ok ? '#10B98111' : '#D9770611',
+                border: `1px solid ${resumenImport.ok ? '#10B98144' : '#D9770655'}`,
+                color: resumenImport.ok ? '#8FE7BE' : '#FBBF24',
+              }}>
+                {resumenImport.texto}
+              </div>
+            )}
           </div>
         )}
       </div>
