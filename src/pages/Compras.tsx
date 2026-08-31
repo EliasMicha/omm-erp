@@ -256,7 +256,7 @@ async function cargarObras(): Promise<OpcionObra[]> {
       value: q.id,
       projectId: (q.project as any)?.id || null,
       leadId,
-      label: `${lead || '(sin cliente)'} — ${q.name || 'Cotización'}${proj ? ` · ${proj}` : ''} · ${q.stage === 'contrato' ? 'Contrato' : 'Propuesta'}`,
+      label: `${lead || '(sin lead)'} — ${q.name || 'Cotización'}${proj ? ` · ${proj}` : ''} · ${q.stage === 'contrato' ? 'Contrato' : 'Propuesta'}`,
     }
   })
 }
@@ -1643,7 +1643,7 @@ REGLAS:
             {/* Proyecto + Especialidad + Fase + Moneda */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
               <div>
-                <SearchableSelect label="Obra (cliente — cotización)" value={projectId} onChange={setProjectId}
+                <SearchableSelect label="Lead — cotización" value={projectId} onChange={setProjectId}
                   options={obras} placeholder="-- Sin obra --" />
               </div>
               <div>
@@ -1734,13 +1734,13 @@ function NuevaPOModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
   // La obra manda. Antes se pedia el cliente primero y las obras se filtraban
   // por el, asi que una cotizacion sin `lead_id` en sus notas no aparecia nunca.
   const nombreLead = (id: string) => { const l = leads.find(x => x.id === id); return l ? etiquetaLead(l) : '' }
-  // El cliente ACOTA la lista de obras; no es requisito. Sin cliente salen todas
-  // — incluidas las cotizaciones cuyas notas no traen lead_id, que con el filtro
+  // El LEAD acota la lista de cotizaciones; no es requisito. Sin lead salen
+  // todas — incluidas las que no traen lead_id en sus notas, que con el filtro
   // obligatorio de antes no aparecian nunca.
   const obrasFiltradas = form.lead_id ? obras.filter(o => o.leadId === form.lead_id) : obras
 
   async function crear() {
-    if (!form.project_id && !form.lead_id) { setError('Elige la obra, o el cliente si la compra no sale de una cotización.'); return }
+    if (!form.project_id && !form.lead_id) { setError('Elige el lead. Si la compra no sale de ninguna cotización, con el lead basta.'); return }
     setSaving(true); setError('')
     const obra = obras.find(o => o.value === form.project_id)
     const { data, error: err } = await insertarOC({
@@ -1772,25 +1772,25 @@ function NuevaPOModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
         </div>
         <div style={{ display: 'grid', gap: 14 }}>
           <div>
-            <SearchableSelect label="Cliente" value={form.lead_id}
+            <SearchableSelect label="Lead" value={form.lead_id}
               onChange={v => setForm(f => ({ ...f, lead_id: v, project_id: '' }))}
               options={leads.map(l => ({ value: l.id, label: etiquetaLead(l) }))}
-              placeholder="-- Todos los clientes --" />
+              placeholder="-- Todos los leads --" />
             <div style={{ fontSize: 10, color: '#666', marginTop: 4 }}>
-              Acota la lista de abajo. Si la compra no sale de ninguna cotización, la orden se cuelga de aquí.
+              Acota la lista de abajo. Si la compra no sale de ninguna cotización, la orden se cuelga del lead.
             </div>
           </div>
           <div>
-            <SearchableSelect label="Obra / cotización" value={form.project_id}
+            <SearchableSelect label="Cotización" value={form.project_id}
               onChange={v => {
                 const o = obras.find(x => x.value === v)
                 setForm(f => ({ ...f, project_id: v, lead_id: o?.leadId || f.lead_id }))
               }}
-              options={obrasFiltradas} placeholder="-- Buscar por obra, cotización o cliente --" />
+              options={obrasFiltradas} placeholder="-- Buscar por lead o cotización --" />
             <div style={{ fontSize: 10, color: '#666', marginTop: 4 }}>
               {form.lead_id && obrasFiltradas.length === 0
-                ? `${nombreLead(form.lead_id)} no tiene cotizaciones vigentes en propuesta o contrato. La orden se puede crear igual, colgada del cliente.`
-                : `${obrasFiltradas.length} cotización(es) vigentes${form.lead_id ? ' de ese cliente' : ''}. Déjala vacía si la compra no sale de una cotización.`}
+                ? `${nombreLead(form.lead_id)} no tiene cotizaciones vigentes en propuesta o contrato. La orden se puede crear igual, colgada del lead.`
+                : `${obrasFiltradas.length} cotización(es) vigentes${form.lead_id ? ' de ese lead' : ''}. Déjala vacía si la compra no sale de una cotización.`}
             </div>
           </div>
           <SelectField label="Proveedor" value={form.supplier_id} onChange={v => setForm(f => ({ ...f, supplier_id: v }))}
@@ -1906,9 +1906,9 @@ function OCMasivasModal({ onClose, onCreadas }: { onClose: () => void; onCreadas
     })
   }, [])
 
-  // Se elige la OBRA, no el cliente. El lead sale de la cotizacion elegida.
+  // El LEAD manda: primero acota por lead, luego se elige su cotizacion.
   //
-  // Antes habia dos pasos: primero cliente, luego cotizacion filtrada por
+  // Antes el lead era REQUISITO y la cotizacion se filtraba por
   // `notes.lead_id`. Eso pedia un dato que no viene al caso (la compra es de
   // una obra) y dejaba fuera del selector a cualquier cotizacion cuyas notas
   // no traen lead_id — imposible de alcanzar aunque existiera.
@@ -1920,13 +1920,13 @@ function OCMasivasModal({ onClose, onCreadas }: { onClose: () => void; onCreadas
     .filter(q => !filtroLead || leadDeCot(q) === filtroLead)
     .map(q => {
       const lid = leadDeCot(q)
-      const cliente = lid ? (nombrePorLead.get(lid) || '') : ''
+      const nombre = lid ? (nombrePorLead.get(lid) || '') : ''
       return {
         value: q.id,
-        label: `${cliente || '(sin cliente)'} — ${q.name || 'Cotización'} · ${q.stage === 'contrato' ? 'Contrato' : 'Propuesta'}`,
+        label: `${nombre || '(sin lead)'} — ${q.name || 'Cotización'} · ${q.stage === 'contrato' ? 'Contrato' : 'Propuesta'}`,
       }
     })
-  // Solo los clientes que de verdad tienen cotizacion vigente: filtrar por uno
+  // Solo los leads que de verdad tienen cotizacion vigente: filtrar por uno
   // que no tiene nada deja la lista de abajo vacia sin explicar por que.
   const leadsConCot = leads.filter(l => quotations.some(q => leadDeCot(q) === l.id))
 
@@ -2102,27 +2102,27 @@ function OCMasivasModal({ onClose, onCreadas }: { onClose: () => void; onCreadas
         {cargando ? <Loading /> : (
           <div style={{ display: 'grid', gap: 14 }}>
             <div>
-              <SearchableSelect label="Cliente (filtro)" value={filtroLead}
+              <SearchableSelect label="Lead" value={filtroLead}
                 onChange={v => { setFiltroLead(v); setQuote(''); setLead(''); setGrupos([]); setAnalizado(false) }}
                 options={leadsConCot.map(l => ({ value: l.id, label: etiquetaLead(l) }))}
-                placeholder="-- Todos los clientes --" />
+                placeholder="-- Todos los leads --" />
               <div style={{ fontSize: 10, color: '#666', marginTop: 4 }}>
                 Opcional: acota la lista de abajo. Déjalo en blanco y salen todas las cotizaciones.
               </div>
             </div>
             <div>
-              <SearchableSelect label="Obra / cotización" value={quote}
+              <SearchableSelect label="Cotización" value={quote}
                 onChange={v => {
                   setQuote(v); setGrupos([]); setAnalizado(false)
                   const q = quotations.find(x => x.id === v)
                   setLead(q ? (leadDeCot(q) || filtroLead || '') : '')
                 }}
                 options={opcionesObra}
-                placeholder="-- Buscar por obra, cotización o cliente --" />
+                placeholder="-- Buscar por lead o cotización --" />
               <div style={{ fontSize: 10, color: '#666', marginTop: 4 }}>
                 {quote
-                  ? (lead ? `Se cuelga de ${nombrePorLead.get(lead) || 'el cliente de la cotización'}.` : 'Esta cotización no trae cliente en sus notas: la orden se crea sin cliente.')
-                  : `${opcionesObra.length} cotización(es) vigentes en propuesta o contrato${filtroLead ? ' de ese cliente' : ''}.`}
+                  ? (lead ? `Se cuelga del lead ${nombrePorLead.get(lead) || ''}.` : 'Esta cotización no trae lead en sus notas: la orden se crea sin lead.')
+                  : `${opcionesObra.length} cotización(es) vigentes en propuesta o contrato${filtroLead ? ' de ese lead' : ''}.`}
               </div>
             </div>
 
