@@ -233,6 +233,31 @@ La OC manual ahora es **por cliente (lead)**, con la cotización opcional.
   arriba de `const T = useMemo`) → pantalla en blanco. Ver `/tmp/tdz.py`.
 - `etiquetaLead()` en Compras: los selectores mostraban despachos, no leads.
 
+### 7. Órdenes de SERVICIO (destajo / mano de obra) — `purchase_orders.tipo`
+
+Migración aplicada en Supabase: `purchase_orders.tipo text not null default
+'material'`, check `(material|servicio)`. Las 78 OC existentes quedaron
+`material`.
+
+Una orden de servicio **es otro formato**, no una variante:
+
+| | Material | Servicio |
+|---|---|---|
+| Folio | `OC-2608-nnn` | **`OS-2608-nnn`** (serie propia) |
+| IVA | 16% | **No aplica** (el PDF omite la línea) |
+| Partidas | catálogo + manual | **solo manual**, conceptos abiertos |
+| Cotejo | sí | **no** (no hay catálogo contra qué cotejar) |
+| Inventario / recolección | sí | **NO** — excluidas en `Entregas.tsx` en dos puntos: el picker de recolección y `cargarInventarioEntregable` |
+| Total en la lista | × 1.16 | **sin multiplicar** |
+
+Sigue siendo una `purchase_order`: conserva proveedor, lead, cotización,
+moneda, `fecha_maxima_pago` y estatus, así que entra igual a los totales por
+moneda, al saldo por pagar y a los reportes. Ese es el punto: que el costo real
+de la obra incluya el destajo.
+
+**Cualquier consulta nueva a `purchase_orders` que alimente inventario,
+recolecciones o cotejo tiene que filtrar `.neq('tipo','servicio')`.**
+
 ### ⚠️ Qué falta revisar (NO HECHO)
 
 1. **Revisión cruzada de todo lo de arriba** contra lo que ya funcionaba. Fue
@@ -250,6 +275,14 @@ La OC manual ahora es **por cliente (lead)**, con la cotización opcional.
    cotización). Falta que Elias confirme si ese modelo sigue siendo el correcto.
 7. **75 de 76 cotizaciones de iluminación no tienen TC.** Cuando tengan producto
    cruzado, la barra sale en rojo hasta que se capture.
+8. **Órdenes de servicio**: revisar que ningún otro consumidor de
+   `purchase_orders` las cuente como material. Los que ya se filtraron son los
+   dos de `Entregas.tsx`. Falta revisar `Finanzas.tsx`, `Contabilidad.tsx` y
+   `Dashboard.tsx` — ahí probablemente SÍ deben contar (son costo real), pero
+   hay que confirmarlo caso por caso.
+9. **Un commit ajeno (`16e79d8`) apareció como base del último deploy.** Otra
+   sesión empujó cambios. El cotejo contra el bundle pasó para los archivos
+   tocados, pero conviene revisar qué trajo ese commit.
 
 ---
 
