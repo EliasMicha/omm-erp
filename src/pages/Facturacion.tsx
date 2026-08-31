@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase'
 import { Plus, X, FileText, RefreshCw, Download, Trash2, Search, Loader2, CheckCircle2, AlertCircle, Ban, FolderDown } from 'lucide-react'
 import { useIsMobile } from '../lib/useIsMobile'
 import { soloSistemasVendidos } from '../lib/sistemasVendidos'
+import { condicionesDeCotizacion, reconstruirCobro, factorNetoDeCobro } from '../lib/condicionesCotizacion'
 
 // ============================================================
 // Tipos
@@ -2138,16 +2139,13 @@ function NuevaFactura({ onCancel, onCreated, editingFactura }: { onCancel: () =>
     setError(null)
     setResumenImport(null)
 
-    // Condiciones comerciales del trato: viven en quotations.notes como JSON.
+    // Condiciones comerciales del trato. El descuento vive en un lugar distinto
+    // según el cotizador; condicionesDeCotizacion() lo busca en los cinco.
     const { data: cotRow } = await supabase
-      .from('quotations').select('total,notes').eq('id', cotizacionId).maybeSingle()
-    let meta: any = {}
-    try { meta = JSON.parse((cotRow as any)?.notes || '{}') } catch { meta = {} }
-    const nz = (v: any, def: number) => (v === null || v === undefined || v === '' || isNaN(Number(v)) ? def : Number(v))
-    const descPct = Math.abs(nz(meta.descuento, 0))
-    const ivaPct = nz(meta.ivaRate, 16)
-    const factor = 1 - descPct / 100
-    const totalLista = nz((cotRow as any)?.total, 0)
+      .from('quotations').select('total,total_final,notes').eq('id', cotizacionId).maybeSingle()
+    const cond = condicionesDeCotizacion((cotRow as any)?.notes)
+    const descPct = cond.descuentoPct
+    const ivaPct = cond.ivaPct
 
     const { data, error: err } = await supabase
       .from('quotation_items')
@@ -2174,12 +2172,21 @@ function NuevaFactura({ onCancel, onCreated, editingFactura }: { onCancel: () =>
       return
     }
 
+    // El precio guardado en quotation_items es el de LISTA, antes del descuento
+    // (en Distribución es literalmente el "precio público"). El factor neto
+    // mete el descuento y —en Distribución— los fletes y el factor de
+    // importación en un solo número, para que la factura salga con un renglón
+    // por producto y nada más, y aun así cuadre al centavo.
+    const listaDe = (it: any) => Number(it.price) || (Number(it.cost) * (1 + (Number(it.markup) || 0) / 100)) || 0
+    const sumaLista = items.reduce((s2, it) => s2 + listaDe(it) * (Number(it.quantity) || 1), 0)
+    const cobro = reconstruirCobro(sumaLista, cond)
+    const factor = factorNetoDeCobro(sumaLista, cond)
+
     // 4 decimales en el precio unitario: el SAT acepta hasta 6 y así el
     // descuento prorrateado no deja centavos regados por redondeo.
     const r4 = (n: number) => Math.round(n * 10000) / 10000
     const nuevosConceptos: Concepto[] = items.map(it => {
       const cat = it.catalog_product || {}
-      const listaUnit = Number(it.price) || (Number(it.cost) * (1 + (Number(it.markup) || 0) / 100)) || 0
       const exento = cat.iva_rate !== null && cat.iva_rate !== undefined && Number(cat.iva_rate) === 0
       return {
         descripcion: it.name + (it.description ? ' - ' + it.description : ''),
@@ -2187,13 +2194,13 @@ function NuevaFactura({ onCancel, onCreated, editingFactura }: { onCancel: () =>
         clave_unidad: cat.clave_unidad || 'E48',
         unidad: cat.unit || 'Unidad de servicio',
         cantidad: Number(it.quantity) || 1,
-        valor_unitario: r4(listaUnit * factor),
+        valor_unitario: r4(listaDe(it) * factor),
         iva_tasa: exento ? 0 : ivaPct / 100,
       }
     })
 
-    // Cuadre contra la cotización. El objetivo es su subtotal YA con descuento.
-    const objetivo = Math.round(totalLista * factor * 100) / 100
+    // Cuadre: el objetivo es la BASE GRAVABLE de la cotización.
+    const objetivo = cobro.baseGravable
     const suma = () => nuevosConceptos.reduce((s2, c) => s2 + c.cantidad * c.valor_unitario, 0)
     let dif = Math.round((objetivo - suma()) * 100) / 100
     // Residuo de redondeo: se absorbe en el último renglón para que el total
@@ -2211,13 +2218,16 @@ function NuevaFactura({ onCancel, onCreated, editingFactura }: { onCancel: () =>
     const fmt2 = (n: number) => n.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
     const partes: string[] = []
     partes.push(descPct > 0
-      ? `Descuento de ${descPct}% ya aplicado en los precios unitarios (no se desglosa en la factura).`
+      ? `Precio de lista ${fmt2(sumaLista)} · descuento de ${descPct}% ya aplicado en cada precio unitario (no se desglosa en la factura).`
       : 'Esta cotización no tiene descuento pactado.')
+    if (cobro.cargos > 0) {
+      partes.push(`Se prorratearon ${fmt2(cobro.cargos)} de fletes y factor de importación en los precios unitarios, para no meterlos como renglón aparte.`)
+    }
     partes.push(`IVA ${ivaPct}% tomado de la cotización.`)
     if (omitidos > 0) partes.push(`${omitidos} renglón(es) fuera: pertenecen a sistemas apagados en la cotización.`)
     const cuadra = Math.abs(dif) < 0.01
     partes.push(cuadra
-      ? `Subtotal ${fmt2(suma())} — cuadra con la cotización.`
+      ? `Subtotal ${fmt2(suma())} + IVA = ${fmt2(cobro.total)} — cuadra con la cotización.`
       : `Subtotal ${fmt2(suma())} vs ${fmt2(objetivo)} de la cotización: difiere ${fmt2(Math.abs(dif))}. Revísalo antes de timbrar.`)
     setResumenImport({ ok: cuadra, texto: partes.join(' ') })
     setImportingItems(false)
