@@ -17,7 +17,11 @@ import type { VercelRequest, VercelResponse } from '@vercel/node'
 const REDIRECT_URI = 'https://omm-erp.vercel.app/api/gmail'
 const APP_URL = 'https://omm-erp.vercel.app'
 // gmail.compose = solo crear/editar borradores (no leer ni enviar). openid+email = para saber la cuenta.
-const SCOPES = ['https://www.googleapis.com/auth/gmail.compose', 'https://www.googleapis.com/auth/gmail.send', 'https://www.googleapis.com/auth/calendar.events', 'openid', 'email']
+// gmail.readonly se agregó para RECLUTAMIENTO: leer los correos de postulación
+// de Indeed y bajar el CV adjunto. Es de solo lectura; no permite borrar ni
+// modificar nada del buzón. Al agregarlo hay que RECONECTAR Gmail una vez: un
+// refresh_token viejo no trae el permiso nuevo y la búsqueda devuelve 403.
+const SCOPES = ['https://www.googleapis.com/auth/gmail.compose', 'https://www.googleapis.com/auth/gmail.send', 'https://www.googleapis.com/auth/gmail.readonly', 'https://www.googleapis.com/auth/calendar.events', 'openid', 'email']
 
 function sb() {
   const url = (process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '').replace(/\/$/, '')
@@ -180,9 +184,106 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(200).json({ ok: true, draftId: dj.id, url: openUrl, email: t.email })
     }
 
+    // ── RECLUTAMIENTO: postulaciones que llegan por correo ──────────────────
+    //
+    // Indeed manda un correo por cada postulación, con el CV adjunto. El
+    // remitente es distinto en cada uno (37e2b74d-…@indeedemail.com,
+    // willevargas549qi_g4w@indeedemail.com), así que se filtra por DOMINIO.
+    if (action === 'postulaciones') {
+      const t = await getStoredToken()
+      if (!t) return res.status(200).json({ ok: true, connected: false, mensajes: [] })
+      const at = await accessTokenFromRefresh(t.refresh_token)
+      const dias = Math.min(Math.max(parseInt(String(q.dias || '30'), 10) || 30, 1), 365)
+      const query = `from:indeedemail.com newer_than:${dias}d`
+      const lr = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=50&q=${encodeURIComponent(query)}`,
+        { headers: { Authorization: `Bearer ${at}` } })
+      const lj: any = await lr.json()
+      if (!lr.ok) {
+        const msg = (lj && lj.error && lj.error.message) || JSON.stringify(lj)
+        // 403 casi siempre significa que el token es anterior al permiso de lectura.
+        const falta = /insufficient|scope|permission/i.test(msg)
+        return res.status(200).json({ ok: false, connected: true, reconectar: falta, error: falta ? 'Gmail está conectado pero sin permiso de lectura. Vuelve a conectarlo para autorizarlo.' : msg })
+      }
+      const ids: string[] = ((lj.messages || []) as any[]).map(m => m.id)
+      const mensajes: any[] = []
+      for (const id of ids) {
+        const mr = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${id}?format=full`,
+          { headers: { Authorization: `Bearer ${at}` } })
+        const mj: any = await mr.json()
+        if (!mr.ok) continue
+        mensajes.push(resumirCorreo(mj))
+      }
+      return res.status(200).json({ ok: true, connected: true, email: t.email, mensajes })
+    }
+
+    // Baja UN adjunto en base64 (el CV). Se pide aparte para no cargar todos
+    // los PDFs de la bandeja de un jalón.
+    if (action === 'postulacion_adjunto') {
+      const t = await getStoredToken()
+      if (!t) return res.status(400).json({ ok: false, error: 'Gmail no está conectado' })
+      const at = await accessTokenFromRefresh(t.refresh_token)
+      const mid = String(q.messageId || ''); const aid = String(q.attachmentId || '')
+      if (!mid || !aid) return res.status(400).json({ ok: false, error: 'Faltan messageId / attachmentId' })
+      const ar = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${mid}/attachments/${aid}`,
+        { headers: { Authorization: `Bearer ${at}` } })
+      const aj: any = await ar.json()
+      if (!ar.ok) return res.status(500).json({ ok: false, error: (aj && aj.error && aj.error.message) || 'No se pudo bajar el adjunto' })
+      // Gmail entrega base64url; se normaliza a base64 estándar.
+      const b64 = String(aj.data || '').replace(/-/g, '+').replace(/_/g, '/')
+      return res.status(200).json({ ok: true, base64: b64, size: aj.size })
+    }
+
     return res.status(400).json({ ok: false, error: 'Acción no válida' })
   } catch (e: any) {
     return res.status(500).json({ ok: false, error: String((e && e.message) || e) })
+  }
+}
+
+/**
+ * Aplana un correo de Gmail a lo que necesita el ERP: encabezados, texto plano
+ * y los adjuntos que parezcan un CV.
+ *
+ * El cuerpo puede venir en `payload.body` o repartido en `parts` (y en partes
+ * anidadas cuando el correo trae texto + HTML + adjunto). Hay que recorrerlo
+ * completo o el texto se pierde y el extractor se queda sin nada que leer.
+ */
+function resumirCorreo(m: any) {
+  const H: Record<string, string> = {}
+  for (const h of (m.payload?.headers || [])) H[String(h.name || '').toLowerCase()] = h.value || ''
+  let texto = ''
+  const adjuntos: any[] = []
+  const anda = (p: any) => {
+    if (!p) return
+    const mt = String(p.mimeType || '')
+    if (p.filename && p.body?.attachmentId) {
+      adjuntos.push({ filename: p.filename, mimeType: mt, size: p.body.size || 0, attachmentId: p.body.attachmentId })
+    } else if (mt === 'text/plain' && p.body?.data) {
+      texto += Buffer.from(String(p.body.data).replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf-8') + '\n'
+    }
+    for (const c of (p.parts || [])) anda(c)
+  }
+  anda(m.payload)
+  // Si sólo vino HTML, se desviste a texto: mejor eso que quedarse sin cuerpo.
+  if (!texto.trim()) {
+    const soloHtml = (p: any): string => {
+      if (!p) return ''
+      if (String(p.mimeType) === 'text/html' && p.body?.data) {
+        return Buffer.from(String(p.body.data).replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf-8')
+      }
+      for (const c of (p.parts || [])) { const r = soloHtml(c); if (r) return r }
+      return ''
+    }
+    texto = soloHtml(m.payload).replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s{2,}/g, ' ')
+  }
+  return {
+    id: m.id,
+    threadId: m.threadId,
+    fecha: H['date'] || '',
+    internalDate: m.internalDate || null,
+    de: H['from'] || '',
+    asunto: H['subject'] || '',
+    texto: texto.slice(0, 8000),
+    adjuntos,
   }
 }
 

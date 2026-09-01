@@ -30,6 +30,7 @@ import Usuarios from './pages/Usuarios'
 import Archivados from './pages/Archivados'
 import Desempeno from './pages/Desempeno'
 import Capacitaciones from './pages/Capacitaciones'
+import Reclutamiento from './pages/Reclutamiento'
 import Documentacion from './pages/Documentacion'
 import Actividades from './pages/Actividades'
 import Mantenimiento from './pages/Mantenimiento'
@@ -104,6 +105,7 @@ export default function App() {
                     } />
                     <Route path="/desempeno" element={<Desempeno />} />
                     <Route path="/capacitaciones" element={<Capacitaciones />} />
+                    <Route path="/reclutamiento" element={<Reclutamiento />} />
                     <Route path="/actividades" element={<Actividades />} />
                     <Route path="/documentacion" element={<Documentacion />} />
                     <Route path="/archivados" element={<Archivados />} />
