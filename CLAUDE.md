@@ -75,27 +75,39 @@ Quedó solo en `Cotizaciones.tsx`. Restaurado en `594092a`.
 ### Verificaciones OBLIGATORIAS antes de cada deploy
 
 `vite build` NO corre `tsc`, así que el build pasa con errores que solo
-explotan en el navegador. Ya se colaron dos, ambos dejando pantalla en blanco
-en producción:
+explotan en el navegador. Ya se colaron tres, los tres dejando la pantalla
+en blanco o en negro en producción:
 
 | Fallo | Ejemplo real | Lo caza |
 |---|---|---|
 | Símbolo usado sin importar | `folioRecibo` en Contabilidad | `python3 /tmp/chk.py` |
 | Zona muerta temporal (TDZ) | `useEffect(..., [T.subtotal])` puesto ARRIBA de `const T = useMemo(...)` en EstimacionEditor | `python3 /tmp/tdz.py` |
+| **Hook debajo de un `return` temprano** | el `useEffect` del folio duplicado quedó abajo de `if (loading \|\| !po) return <Loading/>` en `POEditor` → pantalla negra al abrir cualquier OC | `python3 /tmp/hooks.py` |
 
-Los dos son `ReferenceError` en tiempo de ejecución, no errores de sintaxis:
-**esbuild los compila sin una sola queja**. Correr SIEMPRE los tres:
+Los tres revientan en tiempo de ejecución, no son errores de sintaxis:
+**esbuild los compila sin una sola queja**. Correr SIEMPRE los cuatro:
 
 ```bash
 npx esbuild src/main.tsx --bundle --packages=external --loader:.tsx=tsx --jsx=automatic --outfile=/tmp/x/bundle.js
 python3 /tmp/chk.py      # imports faltantes
 python3 /tmp/tdz.py      # deps que usan una const declarada más abajo
+python3 /tmp/hooks.py    # hooks declarados despues de un early return
 ```
 
-Si `/tmp/chk.py` o `/tmp/tdz.py` no existen en la sesión, volver a escribirlos
-antes de desplegar: son ~40 líneas cada uno y han pagado su costo dos veces.
+Si esos scripts no existen en la sesión, volver a escribirlos antes de
+desplegar: son ~40 líneas cada uno y ya pagaron su costo tres veces.
 `tdz.py` busca arreglos de dependencias `}, [...])` que referencien una `const`
-de la misma función declarada en una línea posterior.
+de la misma función declarada en una línea posterior. `hooks.py` recorre cada
+`function Componente(` y marca cualquier `useState/useEffect/useMemo/...` que
+aparezca después del primer `if (...) return` a nivel del cuerpo.
+
+**Por qué el hook debajo del `return` mata la pantalla:** React exige el mismo
+número de hooks en cada render. Mientras `loading` es `true` el componente sale
+por el `return` temprano y ejecuta N hooks; cuando llegan los datos pasa de
+largo y ejecuta N+1. React aborta el árbol completo — no solo el componente —
+y la página queda negra. **Regla: TODO hook va arriba del primer `return`, sin
+excepción.** Si el efecto necesita datos que aún no llegan, se guarda por
+dentro (`if (!po?.id) return`), nunca moviéndolo hacia abajo.
 
 ### Al iniciar sesión
 
@@ -161,7 +173,7 @@ Usar `etiquetaLead()` de `src/pages/Compras.tsx`.
 
 ---
 
-## Last updated: 2026-08-28 (Sesión monedas + entregables + estimaciones)
+## Last updated: 2026-09-01 (fix pantalla negra en Compras — ver "Regresión 2026-09-01")
 
 ---
 
@@ -283,6 +295,22 @@ recolecciones o cotejo tiene que filtrar `.neq('tipo','servicio')`.**
 9. **Un commit ajeno (`16e79d8`) apareció como base del último deploy.** Otra
    sesión empujó cambios. El cotejo contra el bundle pasó para los archivos
    tocados, pero conviene revisar qué trajo ese commit.
+
+### Regresión 2026-09-01 — pantalla negra en Compras (RESUELTA, commit `b6e1ed5`)
+
+El aviso de folio duplicado se desplegó con el `useEffect` **debajo** del
+`if (loading || !po) return <Loading/>` de `POEditor`. Resultado: al abrir
+cualquier orden de compra, React cambiaba de N a N+1 hooks entre renders y
+tiraba el árbol completo — pantalla negra, no un error visible.
+
+Ni esbuild, ni `chk.py`, ni `tdz.py` lo detectaban. Se escribió
+`/tmp/hooks.py` para esta clase y se corrió sobre todo `src/`: no hay otro
+caso. Queda como cuarta verificación obligatoria (ver la tabla de arriba).
+
+Lección para la revisión cruzada pendiente: los parches por texto insertados
+"justo antes de `async function guardar()`" caen del lado equivocado del
+early return. Los otros archivos grandes de la sesión ya pasaron `hooks.py`
+limpios, pero el punto 1 sigue abierto por lo demás.
 
 ---
 
