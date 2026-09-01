@@ -12,6 +12,7 @@ import { Plus, ChevronLeft, X, Search, Trash2, Save, ShoppingCart, Truck, Packag
 import { generatePOPdf } from '../lib/poPdf'
 import { sugerirFechaMaximaPago, estadoPago } from '../lib/pagoProveedor'
 import { normalizarMoneda, monedaDeCosto, type Moneda } from '../lib/moneda'
+import { ivaDeOrden, redondearCentavos } from '../lib/ivaCompra'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type POStatus = 'borrador' | 'aprobada' | 'pedida' | 'recibida_parcial' | 'recibida' | 'cancelada'
@@ -1418,8 +1419,8 @@ REGLAS:
   }
 
   const subtotal = items.reduce((s, it) => s + (Number(it.total) || 0), 0)
-  const iva = Math.round(subtotal * 0.16)
-  const total = subtotal + iva
+  const iva = ivaDeOrden(subtotal)
+  const total = redondearCentavos(subtotal + iva)
 
   async function crear() {
     setSaving(true)
@@ -1984,7 +1985,7 @@ function OCMasivasModal({ onClose, onCreadas }: { onClose: () => void; onCreadas
     let hechas = 0
     try {
       for (const g of aCrear) {
-        const iva = Math.round(g.subtotal * 0.16)
+        const iva = ivaDeOrden(g.subtotal)
         // La fase de la orden es la más temprana del grupo: si algo de ese
         // proveedor se necesita en Inicio, la orden no puede esperar a Cierre.
         const fase = g.fases[0] || 'inicio'
@@ -1997,7 +1998,7 @@ function OCMasivasModal({ onClose, onCreadas }: { onClose: () => void; onCreadas
           status: 'borrador',
           purchase_phase: fase,
           currency: g.moneda,
-          subtotal: g.subtotal, iva, total: g.subtotal + iva,
+          subtotal: redondearCentavos(g.subtotal), iva, total: redondearCentavos(g.subtotal + iva),
           notes: `Generada en bloque | ${cot?.name || ''} | ${g.supplierName} | ${g.moneda}`,
         })
         if (err || !po) { setError('No se pudo crear la orden de ' + g.supplierName + (err ? ': ' + err.message : '')); break }
@@ -2342,7 +2343,7 @@ function POFromQuoteModal({ onClose, onCreated }: { onClose: () => void; onCreat
       const cur = currencies[ci]
       const groupItems = itemsByCurrency[cur]
       const groupSubtotal = groupItems.reduce((s: number, it: any) => s + (it.cost * it.quantity), 0)
-      const groupIva = Math.round(groupSubtotal * 0.16)
+      const groupIva = ivaDeOrden(groupSubtotal)
       // insertarOC resuelve el folio libre en cada llamada, así que dos OC
       // seguidas (MXN y USD) salen consecutivas sin chocar.
       const { data: po, error: err } = await insertarOC({
@@ -2352,9 +2353,9 @@ function POFromQuoteModal({ onClose, onCreated }: { onClose: () => void; onCreat
         specialty: quote.specialty,
         status: 'borrador',
         purchase_phase: selectedPhase,
-        subtotal: groupSubtotal,
+        subtotal: redondearCentavos(groupSubtotal),
         iva: groupIva,
-        total: groupSubtotal + groupIva,
+        total: redondearCentavos(groupSubtotal + groupIva),
         currency: cur,
         notes: `${quote.name} | ${supplierName} | ${phaseCfg?.label || selectedPhase}${currencies.length > 1 ? ' | ' + cur : ''}`,
       })
@@ -2684,8 +2685,8 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
   const subtotal = subtotalItems + extrasTotal
   // Una orden de servicio es destajo: se paga lo pactado y no lleva IVA.
   const esServicio = (po as any)?.tipo === 'servicio'
-  const iva = esServicio ? 0 : Math.round(subtotal * 0.16)
-  const total = subtotal + iva
+  const iva = ivaDeOrden(subtotal, esServicio ? 'servicio' : 'material')
+  const total = redondearCentavos(subtotal + iva)
 
   async function guardar() {
     if (!po) return
@@ -2757,8 +2758,8 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
     const sub = updated.reduce((s, it) => s + (((it.cotejo_status === 'cotejado' || it.cotejo_status === 'sustituido') && it.real_total != null) ? Number(it.real_total) : (Number(it.total) || 0)), 0)
     const extrasTot = extrasConv.reduce((s, e) => e.tipo === 'porcentaje' ? s + sub * ((Number(e.valor) || 0) / 100) : s + (Number(e.valor) || 0), 0)
     const subTot = sub + extrasTot
-    const ivaV = (po as any).tipo === 'servicio' ? 0 : Math.round(subTot * 0.16)
-    const totV = subTot + ivaV
+    const ivaV = ivaDeOrden(subTot, (po as any).tipo)
+    const totV = redondearCentavos(subTot + ivaV)
     await supabase.from('purchase_orders').update({ currency: target, extras: extrasConv, subtotal: subTot, iva: ivaV, total: totV, updated_at: new Date().toISOString() }).eq('id', po.id)
     setPO({ ...po, currency: target, extras: extrasConv, subtotal: subTot, iva: ivaV, total: totV } as any)
   }

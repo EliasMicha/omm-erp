@@ -25,6 +25,7 @@ import { DEFAULT_TC } from '../lib/fx'
 import { normalizarMoneda, monedaDeCosto, convertir, TipoCambioFaltante, type Moneda } from '../lib/moneda'
 import { insertarOC } from '../lib/oc'
 import BotonCatalogo from '../components/BotonCatalogo'
+import { ivaDeOrden, redondearCentavos } from '../lib/ivaCompra'
 
 interface Supplier { id: string; name: string }
 
@@ -1112,7 +1113,7 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
       const cur = (moneda === 'USD' ? 'USD' : 'MXN') as Moneda
 
       const subtotal = groupItems.reduce((s, it) => s + (it.cost * it.quantity), 0)
-      const iva = Math.round(subtotal * 0.16)
+      const iva = ivaDeOrden(subtotal)
 
       const phaseCfg = PHASE_CONFIG[phase as PurchasePhase]
       const supplierName = suppliers.find(s => s.id === supplierId)?.name || ''
@@ -1126,7 +1127,7 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
         status: 'borrador',
         purchase_phase: phase,
         currency: cur,
-        subtotal, iva, total: subtotal + iva,
+        subtotal: redondearCentavos(subtotal), iva, total: redondearCentavos(subtotal + iva),
         notes: `Auto-generada | ${cot.name} | ${phaseCfg?.label || phase} | ${supplierName} | ${cur}`,
       })
 
@@ -1514,30 +1515,14 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
     else if (campo === 'util_pct') utilPct = val
     else if (campo === 'price') price = val
 
-    // El COSTO se guarda en la moneda del proveedor (provider_currency) y el
-    // PRECIO en la de la cotización. Para derivar uno del otro hay que pasar el
-    // costo a la moneda de venta primero: si no, un producto costeado en
-    // dólares dentro de una cotización en pesos hacía que cambiar la CANTIDAD
-    // reescribiera el precio dividido entre el TC — y ese precio se propaga a
-    // todas las áreas y se persiste.
-    const monedaItem = normalizarMoneda((item as any).provider_currency)
-    const monedaVenta = normalizarMoneda(config.currency)
-    const tcCot = Number(config.tipoCambio) || 0
-    const cruzado = monedaItem !== monedaVenta
-    if (cruzado && !(tcCot > 0)) {
-      alert(`"${item.name}" está costeado en ${monedaItem} y esta cotización se cobra en ${monedaVenta}.\n\nCaptura el tipo de cambio de la cotización para poder recalcular precio y margen; sin él, el número que se guardaría queda fuera por el factor del TC.`)
-      return
-    }
-    const costVenta = cruzado ? convertir(cost, monedaItem, monedaVenta, tcCot) : cost
-
     let updated: any
     if (campo === 'price') {
-      const subtotal = costVenta + costVenta * (moPct / 100)
+      const subtotal = cost + cost * (moPct / 100)
       utilPct = price > 0 ? Math.round((1 - subtotal / price) * 10000) / 100 : 0
-      const markup = price > 0 ? Math.round((1 - costVenta / price) * 10000) / 100 : 0
+      const markup = price > 0 ? Math.round((1 - cost / price) * 10000) / 100 : 0
       updated = { ...item, cost, mo_pct: moPct, util_pct: utilPct, markup, price, total: Math.round(price * qty * 100) / 100 }
     } else {
-      const r = elecLine(costVenta, moPct, utilPct, qty)
+      const r = elecLine(cost, moPct, utilPct, qty)
       updated = { ...item, cost, mo_pct: moPct, util_pct: utilPct, quantity: qty, markup: r.markup, price: r.price, total: r.total }
     }
 
