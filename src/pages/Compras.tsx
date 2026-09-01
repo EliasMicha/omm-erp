@@ -176,6 +176,41 @@ const LOGISTICS_CFG: Record<LogisticsMode, { label: string; short: string; color
 }
 
 // ─── Reusable Field ───────────────────────────────────────────────────────────
+/**
+ * ¿Ya capturamos este folio del proveedor en otra orden?
+ *
+ * El folio se compara NORMALIZADO —sin espacios, guiones ni acentos y en
+ * mayúsculas— porque el mismo documento se teclea de formas distintas:
+ * "OV-12345", "ov 12345" y "OV12345" son el mismo papel del proveedor.
+ *
+ * Se avisa, no se bloquea: hay casos legítimos (el proveedor reusa folio, o
+ * una orden se partió en dos por moneda). Pero pagar dos veces la misma
+ * cotización es un error caro y silencioso.
+ */
+export const normalizarFolioProv = (v: any) =>
+  String(v ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Za-z0-9]/g, '').toUpperCase()
+
+export interface FolioRepetido { id: string; po_number: string; status: string; mismoProveedor: boolean; supplierName: string }
+
+async function buscarFolioRepetido(folio: string, poId: string, supplierId?: string | null): Promise<FolioRepetido[]> {
+  const norm = normalizarFolioProv(folio)
+  if (norm.length < 3) return []   // dos caracteres dan demasiados falsos positivos
+  const { data } = await supabase.from('purchase_orders')
+    .select('id,po_number,status,supplier_id,supplier_doc_number,supplier:suppliers(name)')
+    .not('supplier_doc_number', 'is', null)
+    .neq('status', 'cancelada')
+    .limit(500)
+  return ((data as any[]) || [])
+    .filter(o => o.id !== poId && normalizarFolioProv(o.supplier_doc_number) === norm)
+    .map(o => ({
+      id: o.id, po_number: o.po_number, status: o.status,
+      mismoProveedor: !!supplierId && o.supplier_id === supplierId,
+      supplierName: (o.supplier as any)?.name || 'otro proveedor',
+    }))
+    // Primero el mismo proveedor: ahí la duplicidad es casi segura.
+    .sort((a, b) => Number(b.mismoProveedor) - Number(a.mismoProveedor))
+}
+
 function Field({ label, value, onChange, placeholder = '', type = 'text', disabled = false }: {
   label: string; value: string; onChange?: (v: string) => void
   placeholder?: string; type?: string; disabled?: boolean
@@ -338,7 +373,7 @@ export default function Compras() {
   const [editingSupplier, setEditingSupplier] = useState<string | null>(null)
   const [seguimientoDetail, setSeguimientoDetail] = useState<string | null>(null)
 
-  if (editingPO) return <POEditor poId={editingPO} onBack={() => { setEditingPO(null); setView('lista') }} />
+  if (editingPO) return <POEditor poId={editingPO} onBack={() => { setEditingPO(null); setView('lista') }} onAbrirOtra={id => setEditingPO(id)} />
   if (editingSupplier) return <SupplierDetail supplierId={editingSupplier} onBack={() => { setEditingSupplier(null); setView('proveedores') }} />
 
   return (
@@ -2541,7 +2576,7 @@ function POFromQuoteModal({ onClose, onCreated }: { onClose: () => void; onCreat
 // ═══════════════════════════════════════════════════════════════════════════════
 //  PO EDITOR (Detail view)
 // ═══════════════════════════════════════════════════════════════════════════════
-function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
+function POEditor({ poId, onBack, onAbrirOtra }: { poId: string; onBack: () => void; onAbrirOtra?: (id: string) => void }) {
   const [po, setPO] = useState<PurchaseOrder | null>(null)
   const [items, setItems] = useState<POItem[]>([])
   const [catalog, setCatalog] = useState<CatalogProduct[]>([])
@@ -2556,6 +2591,8 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
   const [quotesByLead, setQuotesByLead] = useState<Record<string, Array<{ id: string; name: string; lead_id: string; specialty?: string; total?: number; currency?: string }>>>({})
   const [loading, setLoading] = useState(true)
   const [dirty, setDirty] = useState(false)
+  // Aviso de duplicidad del folio del proveedor. Ver buscarFolioRepetido().
+  const [folioRepes, setFolioRepes] = useState<FolioRepetido[]>([])
   const [saving, setSaving] = useState(false)
   const [showAddItem, setShowAddItem] = useState(false)
   const [catalogSearch, setCatalogSearch] = useState('')
@@ -2687,6 +2724,19 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
   const esServicio = (po as any)?.tipo === 'servicio'
   const iva = ivaDeOrden(subtotal, esServicio ? 'servicio' : 'material')
   const total = redondearCentavos(subtotal + iva)
+
+  // Se revisa con retraso mientras se teclea: no tiene caso consultar en cada
+  // letra, y el aviso llega antes de guardar, que es cuando sirve.
+  useEffect(() => {
+    const folio = po?.supplier_doc_number || ''
+    if (!po?.id || !folio.trim()) { setFolioRepes([]); return }
+    let vivo = true
+    const t = setTimeout(() => {
+      buscarFolioRepetido(folio, po.id, po.supplier_id)
+        .then(r => { if (vivo) setFolioRepes(r) })
+    }, 450)
+    return () => { vivo = false; clearTimeout(t) }
+  }, [po?.id, po?.supplier_doc_number, po?.supplier_id])
 
   async function guardar() {
     if (!po) return
@@ -3146,9 +3196,39 @@ function POEditor({ poId, onBack }: { poId: string; onBack: () => void }) {
                 )}
               </div>
             </div>
-            <Field label="Folio / cotización del proveedor" value={po.supplier_doc_number || ''}
-              onChange={v => { setPO(p => p ? { ...p, supplier_doc_number: v } : p); setDirty(true) }}
-              placeholder="ej. OV-12345 / Cot-2024-789" />
+            <div>
+              <Field label="Folio / cotización del proveedor" value={po.supplier_doc_number || ''}
+                onChange={v => { setPO(p => p ? { ...p, supplier_doc_number: v } : p); setDirty(true) }}
+                placeholder="ej. OV-12345 / Cot-2024-789" />
+              {folioRepes.length > 0 && (() => {
+                const mismo = folioRepes.filter(r => r.mismoProveedor)
+                const otros = folioRepes.filter(r => !r.mismoProveedor)
+                const grave = mismo.length > 0
+                return (
+                  <div style={{
+                    marginTop: 6, padding: '7px 9px', borderRadius: 7, fontSize: 11, lineHeight: 1.55,
+                    background: grave ? '#DC262614' : '#D9770614',
+                    border: `1px solid ${grave ? '#DC262655' : '#D9770655'}`,
+                    color: grave ? '#F87171' : '#FBBF24',
+                  }}>
+                    {grave ? (
+                      <><b>Este folio ya está capturado con el mismo proveedor.</b>{' '}
+                        {mismo.map(r => r.po_number).join(', ')}. Revisa que no sea la misma cotización subida dos veces.</>
+                    ) : (
+                      <>Este folio ya existe, pero en una orden de <b>{otros[0].supplierName}</b> ({otros.map(r => r.po_number).join(', ')}). Puede ser coincidencia entre proveedores.</>
+                    )}
+                    <div style={{ marginTop: 4, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                      {onAbrirOtra && folioRepes.slice(0, 4).map(r => (
+                        <button key={r.id} onClick={() => onAbrirOtra(r.id)}
+                          style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'inherit', textDecoration: 'underline', fontFamily: 'inherit', fontSize: 11 }}>
+                          Ver {r.po_number}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })()}
+            </div>
             <Field label="Descripción general" value={po.descripcion || ''}
               onChange={v => { setPO(p => p ? { ...p, descripcion: v } : p); setDirty(true) }}
               placeholder="ej. Redes A101" />
