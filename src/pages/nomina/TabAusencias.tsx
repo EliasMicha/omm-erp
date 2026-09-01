@@ -5,6 +5,7 @@ import {
   Calendar, CheckCircle2, XCircle, Clock, AlertCircle,
   Filter, X, Eye, ThumbsUp, ThumbsDown, User, FileText
 } from 'lucide-react'
+import { cargarPlantilla } from '../../lib/empleados'
 
 interface Ausencia {
   id: string
@@ -85,12 +86,15 @@ export default function TabAusencias() {
 
   async function loadData() {
     setLoading(true)
-    const [ausR, empR] = await Promise.all([
+    // OJO: esto pedía `nombre_completo`, que NO existe en `employees`. La
+    // consulta fallaba en silencio y el selector de empleado salía vacío.
+    // Ahora la plantilla viene del mismo lugar que la de Nómina.
+    const [ausR, plantilla] = await Promise.all([
       supabase.from('ausencias').select('*').order('solicitado_at', { ascending: false }),
-      supabase.from('employees').select('id, nombre_completo, puesto'),
+      cargarPlantilla({ incluirBajas: true }),
     ])
     if (ausR.data) setAusencias(ausR.data as Ausencia[])
-    if (empR.data) setEmployees(empR.data as Employee[])
+    setEmployees(plantilla.map(p => ({ id: p.id, nombre_completo: p.nombre, puesto: p.puesto })) as Employee[])
     setLoading(false)
   }
 

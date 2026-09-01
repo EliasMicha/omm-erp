@@ -35,6 +35,7 @@ import {
   cargarTipos, cargarEntregablesCalidad, calidadPorTipo, contarFallas,
 } from '../lib/entregables'
 import { Target, Clock, Shuffle, Activity, Info, AlertTriangle, RotateCcw, Inbox, ClipboardCheck } from 'lucide-react'
+import { cargarPlantilla } from '../lib/empleados'
 
 const card: React.CSSProperties = { background: '#111', border: '1px solid #222', borderRadius: 12, padding: 16 }
 const th: React.CSSProperties = { textAlign: 'left', fontSize: 10, letterSpacing: 0.6, textTransform: 'uppercase', color: '#666', padding: '8px 10px', borderBottom: '1px solid #222', whiteSpace: 'nowrap' }
@@ -82,12 +83,12 @@ export default function Desempeno() {
     ;(async () => {
       setCargando(true)
       const desde = desdeDe(periodo)
-      const [ts, es, ec, tp, { data: emps }] = await Promise.all([
+      const [ts, es, ec, tp, emps] = await Promise.all([
         cargarTareasKPI(desde),
         cargarEntregablesKPI(desde),
         cargarEntregablesCalidad(desde),
         cargarTipos(),
-        supabase.from('employees').select('id,name,area,puesto').eq('is_active', true).order('name'),
+        cargarPlantilla(),
       ])
       if (!vivo) return
       setTareas(ts)

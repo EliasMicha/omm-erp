@@ -14,6 +14,7 @@ import { SPECIALTY_CONFIG } from '../lib/utils'
 import { Plus, X, Trash2, Warehouse, Building2, ArrowRight, ClipboardList, PackagePlus, ChevronRight, ChevronLeft, LayoutDashboard, Truck, Calendar, CalendarDays, Clock, Inbox, PackageCheck, MapPin, Wrench, Laptop, Pencil } from 'lucide-react'
 import { useIsMobile } from '../lib/useIsMobile'
 import { unidadCanonica } from '../lib/unidades'
+import { cargarPlantilla } from '../lib/empleados'
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Módulo Entregas / Inventario — sobre el libro de movimientos (stock_movements)
@@ -68,13 +69,14 @@ export default function Entregas() {
   async function loadBase() {
     const [oR, eR, pR, cotR] = await Promise.all([
       supabase.from('obras').select('id, nombre, project_id').order('nombre'),
-      // Sin bajas: quien ya no trabaja aquí no puede recibir ni firmar una entrega.
-      supabase.from('employees').select('id, nombre, puesto, area').eq('is_active', true).order('nombre'),
+      // Sin bajas: quien ya no trabaja aquí no puede recibir ni firmar una
+      // entrega. La plantilla sale de la misma fuente que Nómina.
+      cargarPlantilla(),
       supabase.from('purchase_orders').select('id, po_number, project_id, status, supplier_id, quotation_id, lead_id').neq('status', 'cancelada').order('po_number', { ascending: false }).limit(300),
       supabase.from('quotations').select('notes, specialty').eq('stage', 'contrato').eq('vigente', true),
     ])
     setObras((oR.data as any) || [])
-    setEmpleados((eR.data as any) || [])
+    setEmpleados(eR as any)
     const posRaw = (pR.data as any[]) || []
     // El "destino" del inventario es el LEAD con cotización en contrato (con material) — no la tabla obras
     const ids = new Set<string>()

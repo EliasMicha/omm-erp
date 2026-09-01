@@ -37,6 +37,7 @@ import {
   ListChecks, Users, Sparkles, LayoutTemplate, AlertTriangle, Clock, RotateCcw,
   Check, ExternalLink, Upload, Trash2, Plus, Play, Save, ChevronRight,
 } from 'lucide-react'
+import { cargarPlantilla } from '../lib/empleados'
 
 const card: React.CSSProperties = { background: '#111', border: '1px solid #222', borderRadius: 12, padding: 16 }
 const inp: React.CSSProperties = { background: '#141414', color: '#ddd', border: '1px solid #242424', borderRadius: 8, padding: '7px 10px', fontSize: 12, fontFamily: 'inherit', outline: 'none' }
@@ -70,8 +71,8 @@ export default function Actividades() {
 
   async function cargar() {
     setCargando(true)
-    const [{ data: e }, ts] = await Promise.all([
-      supabase.from('employees').select('id,name,area,puesto,roles_extra').eq('is_active', true).order('name'),
+    const [e, ts] = await Promise.all([
+      cargarPlantilla(),
       employeeId ? tareasDe(employeeId) : Promise.resolve([] as Tarea[]),
     ])
     setEmps(((e as any[]) || []).map(conRol))

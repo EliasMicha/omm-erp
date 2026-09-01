@@ -25,6 +25,7 @@ import { supabase } from './supabase'
 import { Rol, ROLES_GABINETE, ROL_CFG, EmpleadoRol, ALCANCE_ROL, TIPOS_ENCARGO, tieneRol } from './roles'
 import { AREAS_TRABAJO, UrgenciaTarea } from './tareas'
 import { ActividadPlantilla } from './plantillas'
+import { cargarPlantilla } from './empleados'
 
 export interface ContextoNegocio {
   areas: Array<{
@@ -39,8 +40,8 @@ export interface ContextoNegocio {
 }
 
 export async function contextoDelNegocio(): Promise<ContextoNegocio> {
-  const [{ data: emps }, { data: tipos }, { data: plts }] = await Promise.all([
-    supabase.from('employees').select('id,name,area,puesto,roles_extra').eq('is_active', true),
+  const [emps, { data: tipos }, { data: plts }] = await Promise.all([
+    cargarPlantilla(),
     supabase.from('entregable_tipos').select('id,clave,nombre,specialty,descripcion').eq('activo', true).order('orden'),
     supabase.from('plantillas_encargo').select('nombre,tipo,specialty,plantilla_actividades(id)').eq('activo', true),
   ])

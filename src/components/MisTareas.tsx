@@ -22,6 +22,7 @@ import {
 } from '../lib/tareas'
 import EntregablesTarea from './EntregablesTarea'
 import { TipoEntregable, cargarTipos } from '../lib/entregables'
+import { cargarPlantilla } from '../lib/empleados'
 
 interface Emp { id: string; name: string; area?: string | null; puesto?: string | null }
 
@@ -53,7 +54,7 @@ export default function MisTareas({ employeeId, nombre, esDG, isMobile }: {
 
   async function cargar() {
     setCargando(true)
-    const { data: emps } = await supabase.from('employees').select('id,name,area,puesto').eq('is_active', true).order('name')
+    const emps = await cargarPlantilla()
     setEmpleados((emps as any[]) || [])
     if (employeeId) setMias(await tareasDe(employeeId))
     setCargando(false)

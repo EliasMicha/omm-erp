@@ -28,6 +28,7 @@ import {
 } from '../lib/entregables'
 import RevisarEntregable from '../components/RevisarEntregable'
 import { FileText, Search, ExternalLink, Check, RotateCcw, Clock, BookOpen, Inbox, Archive, Plus, X } from 'lucide-react'
+import { cargarPlantilla } from '../lib/empleados'
 
 const card: React.CSSProperties = { background: '#111', border: '1px solid #222', borderRadius: 12, padding: 16 }
 const inp: React.CSSProperties = { background: '#141414', color: '#ddd', border: '1px solid #242424', borderRadius: 8, padding: '7px 10px', fontSize: 12, fontFamily: 'inherit', outline: 'none' }
@@ -48,9 +49,9 @@ export default function Documentacion() {
 
   async function cargar() {
     setCargando(true)
-    const [d, p, t, { data: e }] = await Promise.all([
+    const [d, p, t, e] = await Promise.all([
       cargarDocumentacion(), pendientesDeRevision(), cargarTipos(),
-      supabase.from('employees').select('id,name,area,puesto').eq('is_active', true).order('name'),
+      cargarPlantilla(),
     ])
     setDocs(d); setPend(p); setTipos(t); setEmps((e as any[]) || [])
     setCargando(false)

@@ -21,6 +21,7 @@ import {
   cargarLevantamientos, crearLevantamiento, canalizar, derivarArea,
   limiteRespuesta, respuestaVencida, diasSinResponder, avanceFechado, marcarFechada,
 } from '../lib/levantamiento'
+import { cargarPlantilla } from '../lib/empleados'
 
 interface Emp { id: string; name: string; area?: string | null; puesto?: string | null }
 
@@ -39,9 +40,9 @@ export default function LevantamientoLead({ leadId, leadNombre, quien }: {
   const [aviso, setAviso] = useState('')
 
   async function cargar() {
-    const [ls, { data: emps }] = await Promise.all([
+    const [ls, emps] = await Promise.all([
       cargarLevantamientos(leadId),
-      supabase.from('employees').select('id,name,area,puesto').eq('is_active', true).order('name'),
+      cargarPlantilla(),
     ])
     setLista(ls)
     setEmpleados((emps as any[]) || [])

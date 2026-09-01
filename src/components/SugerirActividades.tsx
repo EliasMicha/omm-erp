@@ -18,6 +18,7 @@ import { EmpleadoRol, conRol } from '../lib/roles'
 import { ActividadPlantilla, crearActividades, guardarPlantilla, ContextoEncargo } from '../lib/plantillas'
 import { sugerirPlan, PlanPropuesto, sinDuenoDe } from '../lib/actividadesIA'
 import PlanEditable from './PlanEditable'
+import { cargarPlantilla } from '../lib/empleados'
 
 const btn: React.CSSProperties = { border: '1px solid #333', background: '#161616', color: '#ccc', borderRadius: 8, padding: '6px 11px', fontSize: 12, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, fontFamily: 'inherit' }
 
@@ -48,8 +49,7 @@ export default function SugerirActividades({ peticion, onCreado, onCerrar }: {
 
   useEffect(() => {
     cargarTipos().then(setTipos)
-    supabase.from('employees').select('id,name,area,puesto,roles_extra').eq('is_active', true).order('name')
-      .then(({ data }) => setEmps(((data as any[]) || []).map(conRol)))
+    cargarPlantilla().then(ps => setEmps((ps as any[]).map(conRol)))
   }, [])
 
   async function pensar() {
