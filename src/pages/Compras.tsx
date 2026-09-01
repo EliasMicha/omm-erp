@@ -2638,6 +2638,22 @@ function POEditor({ poId, onBack, onAbrirOtra }: { poId: string; onBack: () => v
   }
   useEffect(load, [poId])
 
+  // OJO: este efecto va ARRIBA del `if (loading || !po) return ...`.
+  // Si se declara despues del early return, React ejecuta un hook de mas en
+  // cuanto carga la orden y truena la pantalla completa. Ver CLAUDE.md.
+  // Se revisa con retraso mientras se teclea: no tiene caso consultar en cada
+  // letra, y el aviso llega antes de guardar, que es cuando sirve.
+  useEffect(() => {
+    const folio = po?.supplier_doc_number || ''
+    if (!po?.id || !folio.trim()) { setFolioRepes([]); return }
+    let vivo = true
+    const t = setTimeout(() => {
+      buscarFolioRepetido(folio, po.id, po.supplier_id!)
+        .then(r => { if (vivo) setFolioRepes(r) })
+    }, 450)
+    return () => { vivo = false; clearTimeout(t) }
+  }, [po?.id, po?.supplier_doc_number, po?.supplier_id])
+
   // Helper dispatcher: devuelve el playbook activo para un supplier_id, o null
   const getPlaybookForSupplier = (supplierId: string | null | undefined) => {
     if (!supplierId) return null
@@ -2724,19 +2740,6 @@ function POEditor({ poId, onBack, onAbrirOtra }: { poId: string; onBack: () => v
   const esServicio = (po as any)?.tipo === 'servicio'
   const iva = ivaDeOrden(subtotal, esServicio ? 'servicio' : 'material')
   const total = redondearCentavos(subtotal + iva)
-
-  // Se revisa con retraso mientras se teclea: no tiene caso consultar en cada
-  // letra, y el aviso llega antes de guardar, que es cuando sirve.
-  useEffect(() => {
-    const folio = po?.supplier_doc_number || ''
-    if (!po?.id || !folio.trim()) { setFolioRepes([]); return }
-    let vivo = true
-    const t = setTimeout(() => {
-      buscarFolioRepetido(folio, po.id, po.supplier_id)
-        .then(r => { if (vivo) setFolioRepes(r) })
-    }, 450)
-    return () => { vivo = false; clearTimeout(t) }
-  }, [po?.id, po?.supplier_doc_number, po?.supplier_id])
 
   async function guardar() {
     if (!po) return
