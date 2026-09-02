@@ -13,6 +13,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 import jsPDF from 'jspdf'
 import { montoConLetra } from './reciboEfectivo'
+import { LOGO_OMM_PNG } from './logoOmm'
 
 const EMPRESA = 'OMM TECHNOLOGIES S.A. DE C.V.'
 const RFC = 'OTE210910PW5'
@@ -91,17 +92,23 @@ export function generarCotizacionPdf(d: DatosCotizacionPdf): jsPDF {
   const espacio = (need: number) => { if (y + need > 250) nuevaPagina() }
 
   // ── Membrete ─────────────────────────────────────────────────────────────
-  txt(DARK); doc.setFont('helvetica', 'bold'); doc.setFontSize(20)
-  doc.text('OMM', M, y)
-  fill(GREEN); doc.rect(M + 20.5, y - 4.2, 4, 4, 'F')
-  doc.setFontSize(8); doc.setFont('helvetica', 'normal'); txt(GRAY)
-  doc.text(`${EMPRESA} · RFC ${RFC}`, M, y + 5)
+  // El logo va incrustado (logoOmm.ts): si se bajara por red, un fallo dejaría
+  // el documento sin membrete y nadie se enteraría hasta que el cliente lo abre.
+  const LOGO = 16
+  y = 13
+  try { doc.addImage(LOGO_OMM_PNG, 'PNG', M, y, LOGO, LOGO) } catch { /* sin logo, el resto se imprime igual */ }
+
+  const xTxt = M + LOGO + 4
+  txt(DARK); doc.setFont('helvetica', 'bold'); doc.setFontSize(12)
+  doc.text('OMM TECHNOLOGIES', xTxt, y + 7)
+  txt(GRAY); doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5)
+  doc.text(`S.A. DE C.V.  ·  RFC ${RFC}`, xTxt, y + 12)
 
   txt(DARK); doc.setFont('helvetica', 'bold'); doc.setFontSize(15)
-  doc.text('COTIZACIÓN', R, y, { align: 'right' })
+  doc.text('COTIZACIÓN', R, y + 7, { align: 'right' })
   doc.setFontSize(8.5); doc.setFont('helvetica', 'normal'); txt(GRAY)
-  doc.text(d.folio, R, y + 5, { align: 'right' })
-  y += 10
+  doc.text(d.folio, R, y + 12, { align: 'right' })
+  y += LOGO + 3
   fill(DARK); doc.rect(M, y, R - M, 0.8, 'F'); y += 8
 
   // ── Bloque de datos: a quién va y bajo qué condiciones ───────────────────
