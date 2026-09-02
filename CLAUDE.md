@@ -109,6 +109,26 @@ y la página queda negra. **Regla: TODO hook va arriba del primer `return`, sin
 excepción.** Si el efecto necesita datos que aún no llegan, se guarda por
 dentro (`if (!po?.id) return`), nunca moviéndolo hacia abajo.
 
+### 🚫 Reglas duras de `/api`
+
+1. **No agregar archivos a `/api`.** El plan Hobby tope en 12 funciones y hoy
+   hay 13 archivos ahí. Una acción nueva se cuelga de un archivo existente con
+   `?action=`.
+2. **Una función de `/api` NO puede importar de `src/`.** Vercel transpila cada
+   archivo de `api/` por separado y **no traza ni copia `src/`** al bundle de la
+   función. Un `import { x } from '../src/lib/y'` compila local, pasa el build
+   de Vercel, y la función arranca en producción con `ERR_MODULE_NOT_FOUND`
+   devolviendo **500 en TODAS sus acciones**, no solo en la nueva. Ya pasó con
+   `api/gmail.ts` el 2026-09-02: se cayeron `connect`, `status` y `create_draft`
+   por importar el prompt de reclutamiento. Solo `node_modules` y la propia
+   carpeta `api/`.
+3. Si por eso hay que duplicar algo, la copia lleva el aviso de mantenerla
+   sincronizada y el comando de `diff` para cotejarla. Hoy está duplicado el
+   prompt de análisis de candidatos entre `api/gmail.ts` y
+   `src/lib/analisisPrompt.ts` — si divergen, dos candidatos analizados por
+   caminos distintos dejan de ser comparables y el orden por compatibilidad no
+   significa nada.
+
 ### Al iniciar sesión
 
 Si se van a tocar archivos grandes ya existentes, hacer el cotejo del punto 1-2
@@ -173,7 +193,7 @@ Usar `etiquetaLead()` de `src/pages/Compras.tsx`.
 
 ---
 
-## Last updated: 2026-09-01 (fix pantalla negra en Compras — ver "Regresión 2026-09-01")
+## Last updated: 2026-09-02 (estados de cuenta, cadena de mando, reclutamiento con IA)
 
 ---
 
@@ -295,6 +315,44 @@ recolecciones o cotejo tiene que filtrar `.neq('tipo','servicio')`.**
 9. **Un commit ajeno (`16e79d8`) apareció como base del último deploy.** Otra
    sesión empujó cambios. El cotejo contra el bundle pasó para los archivos
    tocados, pero conviene revisar qué trajo ese commit.
+
+### Sesión 2026-09-02 — estados de cuenta, cadena de mando, reclutamiento con IA
+
+**Estado de cuenta (`src/lib/estadoCuentaPdf.ts`, commit `da8ac71`)**
+El resumen final filtraba `pagos.length > 0`, así que una cotización sin un solo
+cobro desaparecía del PDF. En Cero5cien L202 salía 1 de 8 contratos y el
+documento se contradecía: arriba decía pendiente $387,965.69 y abajo solo
+explicaba $171,782.89. Ahora salen todas; las de cero con franja roja, insignia
+SIN PAGOS y "Adeudo del 100%". También se recorta el nombre del lead cuando la
+cotización lo repite como prefijo (dos contratos se cortaban iguales).
+
+**Cadena de mando en Actividades (`src/lib/cadenaDeMando.ts` NUEVO, commit `dd08129`)**
+El DG solo podía delegar en Administración: las tareas se cargaban con
+`tareasDeArea(miSpecialty)` y la gente se filtraba por `e.area === su area`.
+Ahora `mandoTotal` (permiso DG **o** puesto "DIRECTOR GENERAL") ve las cuatro
+áreas, pero por niveles: sin dueño solo se ofrecen **directores**; ya con dueño
+aparece "Bajar un nivel" y ahí solo sale gente **de esa misma área**. La carga
+va agrupada por área con la cabeza arriba. `tareasDeAreas()` nueva en tareas.ts.
+
+**Reclutamiento con análisis IA (`src/lib/analisisPrompt.ts` + `analisisCandidato.ts` NUEVOS, commits `0595d5a`, `a75bc8b`, `b4a4eb1`)**
+Al abrir Reclutamiento corre solo: correo → candidato con CV → análisis del PDF
+contra la vacante → lista ordenada por ajuste. Columnas nuevas en `candidatos`:
+`compatibilidad`, `analisis` (jsonb), `analisis_at`, `analisis_error`,
+`analisis_modelo`. También corre sin nadie enfrente:
+`/api/gmail?action=ingesta` con cron diario en vercel.json.
+
+⚠️ **La edad NO entra en `compatibilidad`.** Se reporta en `analisis.contexto`
+porque Elias la pidió, pero el prompt prohíbe usarla para calificar: la LFT
+art. 133 prohíbe negar trabajo por edad y una lista ordenada por un número que
+descuenta por edad es la evidencia que nadie quiere tener. Verificado con el
+mismo CV a 31 y a 58 años: 72 y 72. El traslado va aparte en
+`contexto.riesgo_traslado` — predice ausentismo, pero se pondera aparte.
+
+⏳ **Falta que Elias reconecte Gmail una vez**: el `refresh_token` guardado es
+anterior al scope `gmail.readonly`, así que la ingesta responde
+`reconectar: true` y no trae nada. Se hace en Reclutamiento → Bandeja.
+
+---
 
 ### Regresión 2026-09-01 — pantalla negra en Compras (RESUELTA, commit `b6e1ed5`)
 
