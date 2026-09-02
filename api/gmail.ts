@@ -21,12 +21,6 @@ const APP_URL = 'https://omm-erp.vercel.app'
 // de Indeed y bajar el CV adjunto. Es de solo lectura; no permite borrar ni
 // modificar nada del buzón. Al agregarlo hay que RECONECTAR Gmail una vez: un
 // refresh_token viejo no trae el permiso nuevo y la búsqueda devuelve 403.
-// El prompt del análisis y el de extracción se importan del módulo compartido:
-// una sola redacción para el navegador y para este cron, o los veredictos
-// dejan de ser comparables entre sí. analisisPrompt.ts no importa nada, por eso
-// se puede usar desde una función de servidor.
-import { promptDeAnalisis, promptDeExtraccion } from '../src/lib/analisisPrompt'
-
 const SCOPES = ['https://www.googleapis.com/auth/gmail.compose', 'https://www.googleapis.com/auth/gmail.send', 'https://www.googleapis.com/auth/gmail.readonly', 'https://www.googleapis.com/auth/calendar.events', 'openid', 'email']
 
 function sb() {
@@ -255,6 +249,128 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   } catch (e: any) {
     return res.status(500).json({ ok: false, error: String((e && e.message) || e) })
   }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  ⚠️  COPIA DE src/lib/analisisPrompt.ts — MANTENER IDÉNTICA
+//
+//  Se intentó importarla (`import ... from '../src/lib/analisisPrompt'`) y
+//  Vercel NO arrastra src/ dentro del bundle de una función de api/: la
+//  función arrancó con ERR_MODULE_NOT_FOUND y TODO /api/gmail devolvió 500,
+//  no solo la ingesta. Por eso vive copiada aquí.
+//
+//  Si se toca el prompt de allá, se toca aquí. Si divergen, dos candidatos
+//  analizados por caminos distintos dejan de ser comparables y el orden por
+//  compatibilidad de la pantalla deja de significar algo. Para cotejarlas:
+//    diff <(sed -n '/^function promptDeAnalisis/,/^}/p' api/gmail.ts) \
+//         <(sed -n '/^export function promptDeAnalisis/,/^}/p' src/lib/analisisPrompt.ts)
+// ═══════════════════════════════════════════════════════════════════════════
+
+function promptDeAnalisis(c: any, v: any): string {
+  const vac = v
+    ? `PUESTO: ${v.titulo || v.puesto || '—'}
+ÁREA: ${v.area || '—'}
+UBICACIÓN DEL TRABAJO: ${v.ubicacion || 'no especificada'}
+JORNADA: ${v.tipo_jornada || 'no especificada'}
+DESCRIPCIÓN:
+${v.descripcion || '(sin descripción)'}
+REQUISITOS:
+${v.requisitos || '(sin requisitos capturados)'}`
+    : `No hay vacante ligada. Evalúa contra el puesto al que dice postularse: "${c.puesto_solicitado || 'no especificado'}".`
+
+  return `Eres el reclutador de OMM Technologies, un despacho mexicano de ingeniería eléctrica, instalaciones especiales e iluminación arquitectónica. Analiza a este candidato contra la vacante y devuelve un veredicto que se pueda defender.
+
+── VACANTE ──
+${vac}
+
+── CANDIDATO ──
+NOMBRE: ${c.nombre}
+SE POSTULÓ A: ${c.puesto_solicitado || '—'}
+${c.carta ? `CARTA DE PRESENTACIÓN:\n${c.carta.slice(0, 2000)}` : 'Sin carta de presentación.'}
+
+El CV va adjunto a este mensaje. Léelo completo antes de contestar.
+
+── CÓMO CALIFICAR ──
+"compatibilidad" (0-100) mide SOLO el ajuste al trabajo:
+  · qué tanto de lo que pide la vacante sabe hacer, con evidencia en el CV
+  · profundidad y años en ese tipo de trabajo específico
+  · señales de que termina lo que empieza (permanencia, crecimiento, responsabilidades)
+  · qué tanto de lo que dice saber está respaldado por dónde estuvo y qué hizo
+
+NUNCA metas en "compatibilidad": edad, sexo, estado civil, si tiene hijos,
+apariencia, escuela de origen por prestigio, ni dónde vive. Reportas esos datos
+en "contexto" porque el director los pidió, pero el número no los toca. Un
+número que castiga por edad es discriminación laboral (LFT art. 133) y además
+no predice desempeño.
+
+El traslado va aparte, en "contexto.riesgo_traslado": un trayecto muy largo
+predice ausentismo y renuncia temprana. Es información de logística que el
+director pondera aparte — no la mezcles con el ajuste técnico.
+
+── REGLAS ──
+· No inventes. Si el CV no lo dice, usa null o "no_dice" y ponlo en "falta_saber".
+· Distingue lo que DICE saber de lo que el CV RESPALDA. Un CV que dice "dominio
+  de AutoCAD" sin un solo puesto de dibujante es "mencionada", no "respaldada".
+· Calcula los meses reales de cada empleo. Si solo hay años, estima y dilo.
+· Un hueco de más de 6 meses sin explicar es una bandera; no lo interpretes tú,
+  ponlo como pregunta de entrevista.
+· Trabajo de campo (electricistas, instaladores) NO se juzga con la vara de
+  gabinete: ahí pesa el oficio, las obras hechas y las certificaciones, no los
+  títulos.
+· "distancia": estima el trayecto entre donde vive y la ubicación del trabajo en
+  palabras ("~1 h en transporte público desde Ecatepec"). Si falta cualquiera de
+  las dos, pon null y riesgo_traslado "no_se_sabe". No inventes kilómetros.
+· Español de México, directo, sin adornos.
+
+── FORMATO ──
+Responde SOLO con este JSON, sin texto antes ni después:
+{
+  "compatibilidad": 0,
+  "veredicto": "recomendado|con_reservas|no_cumple",
+  "resumen": "2-3 renglones: quién es y por qué sí o por qué no",
+  "puesto_actual": "su puesto más reciente o null",
+  "anos_experiencia": 0,
+  "dice_saber": [{"habilidad":"", "evidencia":"respaldada|mencionada|sin_respaldo", "nota":""}],
+  "trayectoria": [{"empresa":"", "puesto":"", "desde":"AAAA-MM o AAAA", "hasta":"AAAA-MM, AAAA o actual", "meses":0, "nota":""}],
+  "permanencia": {"promedio_meses":0, "empleos":0, "patron":"una línea: estable, brinca cada año, etc."},
+  "requisitos": [{"requisito":"", "cumple":"si|parcial|no|no_dice", "por_que":""}],
+  "fortalezas": [""],
+  "riesgos": [""],
+  "banderas": [{"senal":"", "severidad":"alta|media|baja", "por_que":""}],
+  "preguntas": [""],
+  "contexto": {
+    "edad": null,
+    "ubicacion": "colonia/municipio/estado o null",
+    "distancia": "estimación en palabras o null",
+    "riesgo_traslado": "bajo|medio|alto|no_se_sabe",
+    "nota_traslado": "o null"
+  },
+  "falta_saber": [""]
+}`
+}
+
+function promptDeExtraccion(correo: any): string {
+  return `Este es un correo de aviso de postulación de una bolsa de trabajo. Saca los datos del CANDIDATO.
+
+ASUNTO: ${correo.asunto || ''}
+DE: ${correo.de || ''}
+CUERPO:
+${String(correo.texto || '').slice(0, 6000)}
+
+Responde SOLO con este JSON, sin texto alrededor:
+{
+  "nombre": "nombre completo del candidato",
+  "puesto": "el puesto al que se postuló",
+  "email_real": "su correo personal si aparece, o null",
+  "email_relay": "el correo que termina en @indeedemail.com si aparece, o null",
+  "telefono": "su teléfono si aparece en el cuerpo, solo dígitos, o null",
+  "carta": "el mensaje o carta de presentación que escribió, o null"
+}
+
+Reglas:
+- El nombre del candidato NO es el de la empresa ni el del puesto.
+- Un correo que termina en @indeedemail.com es un alias, va en email_relay, NUNCA en email_real.
+- Si un dato no está, pon null. No inventes.`
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
