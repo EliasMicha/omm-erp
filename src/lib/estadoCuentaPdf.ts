@@ -54,9 +54,20 @@ export function generarEstadoCuentaPdf(input: EstadoCuentaInput): jsPDF {
   const GRAY: [number, number, number] = [120, 120, 120]
   const HEADFILL: [number, number, number] = [238, 241, 240]
   const ZEBRA: [number, number, number] = [248, 249, 249]
+  const ROJO: [number, number, number] = [220, 38, 38]
+  const AMBAR: [number, number, number] = [217, 119, 6]
   const setTxt = (c: [number, number, number]) => doc.setTextColor(c[0], c[1], c[2])
   const setFill = (c: [number, number, number]) => doc.setFillColor(c[0], c[1], c[2])
   const money = (n: number, cur: string) => (cur === 'USD' ? 'US$' : '$') + (Number(n) || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  // El nombre del lead ya esta en el encabezado del documento; repetirlo en cada
+  // renglon solo come el ancho y hace que dos cotizaciones distintas se corten
+  // igual ("... - Adicionales C" y "... - Adicionales E"). Se recorta el prefijo.
+  const nombreCorto = (n: any): string => {
+    const t = String(n || '—').trim()
+    const pre = String(lead.name || '').trim()
+    if (pre && t.toLowerCase().startsWith(pre.toLowerCase() + ' - ')) return t.slice(pre.length + 3).trim() || t
+    return t
+  }
   const addPage = () => { doc.addPage(); y = 18 }
   const checkPage = (need: number) => { if (y + need > 258) addPage() }
   const sectionTitle = (t: string) => {
@@ -138,7 +149,7 @@ export function generarEstadoCuentaPdf(input: EstadoCuentaInput): jsPDF {
       checkPage(7)
       if (i % 2 === 1) { setFill(ZEBRA); doc.rect(M, y, RIGHT - M, 6, 'F') }
       setTxt(DARK); doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5)
-      doc.text((q.name || '—').substring(0, 46), cX.nom, y + 4)
+      doc.text(nombreCorto(q.name).substring(0, 46), cX.nom, y + 4)
       setTxt(GRAY); doc.setFontSize(7.5); doc.text((q.specialty || '—').toUpperCase(), cX.esp, y + 4); doc.text(cur, cX.mon, y + 4)
       setTxt(DARK); doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); doc.text(money(total, cur), RIGHT - 3, y + 4, { align: 'right' })
       y += 6
@@ -186,24 +197,43 @@ export function generarEstadoCuentaPdf(input: EstadoCuentaInput): jsPDF {
 
   // Cobros por cotización (mini estado de cuenta)
   sectionTitle('Cobros por cotización')
-  const conCobros = quoteData.filter(d => d.pagos.length > 0)
+  // Se listan TODOS los contratos, hayan pagado o no. Una cotizacion sin un solo
+  // cobro es justamente la que hay que ver en un estado de cuenta: sale con
+  // adeudo al 100% y en rojo. Antes se filtraban por `pagos.length > 0` y
+  // desaparecian del documento, que es como no tener el adeudo.
+  const conCobros = quoteData.filter(d => d.pagos.length > 0 || d.total > 0)
   if (conCobros.length === 0) {
-    setTxt(GRAY); doc.setFont('helvetica', 'italic'); doc.setFontSize(9); doc.text('Aún no hay cobros adjudicados a cotizaciones', M + 3, y); y += 8
+    setTxt(GRAY); doc.setFont('helvetica', 'italic'); doc.setFontSize(9); doc.text('Aún no hay contratos con importe registrado', M + 3, y); y += 8
   } else {
     conCobros.forEach(({ q, cur, total, cobrado, pagos }) => {
       const pend = Math.max(0, total - cobrado)
       const pct = total > 0 ? Math.min(cobrado / total, 1) : 0
-      checkPage(10 + pagos.length * 5.4 + 22)
-      setFill([243, 245, 244]); doc.rect(M, y, RIGHT - M, 8.5, 'F')
-      setFill(GREEN); doc.rect(M, y, 1.6, 8.5, 'F')
+      const sinPagos = pagos.length === 0
+      const acento = sinPagos ? ROJO : GREEN
+      checkPage(10 + Math.max(pagos.length, 1) * 5.4 + 22)
+      setFill(sinPagos ? [253, 242, 242] : [243, 245, 244]); doc.rect(M, y, RIGHT - M, 8.5, 'F')
+      setFill(acento); doc.rect(M, y, 1.6, 8.5, 'F')
       setTxt(DARK); doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5)
-      doc.text((q.name || '—').substring(0, 52), M + 4, y + 5.6)
+      doc.text(nombreCorto(q.name).substring(0, sinPagos ? 40 : 52), M + 4, y + 5.6)
+      if (sinPagos) {
+        setFill(ROJO); doc.roundedRect(RIGHT - 40, y + 2.4, 19, 4.6, 1, 1, 'F')
+        setTxt([255, 255, 255]); doc.setFont('helvetica', 'bold'); doc.setFontSize(6.5)
+        doc.text('SIN PAGOS', RIGHT - 30.5, y + 5.5, { align: 'center' })
+      }
       setFill(cur === 'USD' ? [6, 182, 212] : [167, 139, 250]); doc.roundedRect(RIGHT - 18, y + 2.4, 14, 4.6, 1, 1, 'F')
       setTxt([255, 255, 255]); doc.setFont('helvetica', 'bold'); doc.setFontSize(7); doc.text(cur, RIGHT - 11, y + 5.6, { align: 'center' })
       y += 10
       setTxt([150, 150, 150]); doc.setFont('helvetica', 'bold'); doc.setFontSize(6.5)
       doc.text('FECHA', M + 6, y + 2); doc.text('CONCEPTO', M + 28, y + 2); doc.text('ORIGEN', RIGHT - 34, y + 2, { align: 'right' }); doc.text('MONTO', RIGHT - 3, y + 2, { align: 'right' })
       y += 4
+      if (sinPagos) {
+        setFill([252, 248, 248]); doc.rect(M + 3, y, RIGHT - M - 3, 5.2, 'F')
+        setTxt([150, 150, 150]); doc.setFont('helvetica', 'italic'); doc.setFontSize(7.5)
+        doc.text('Sin pagos registrados a la fecha', M + 6, y + 3.6)
+        setTxt(ROJO); doc.setFont('helvetica', 'bold'); doc.setFontSize(8)
+        doc.text(money(0, cur), RIGHT - 3, y + 3.6, { align: 'right' })
+        y += 5.2
+      }
       pagos.forEach((p, i) => {
         const cruce = !!(p.tc && p.montoOrigen && p.monedaOrigen)
         const rh = cruce ? 9 : 5.2
@@ -222,12 +252,14 @@ export function generarEstadoCuentaPdf(input: EstadoCuentaInput): jsPDF {
       })
       y += 2
       const barX = M + 4, barW = RIGHT - M - 8
-      setFill([228, 228, 228]); doc.rect(barX, y, barW, 4, 'F')
-      setFill(pct >= 1 ? GREEN : [37, 99, 235]); doc.rect(barX, y, barW * pct, 4, 'F')
+      setFill(sinPagos ? [252, 226, 226] : [228, 228, 228]); doc.rect(barX, y, barW, 4, 'F')
+      if (pct > 0) { setFill(pct >= 1 ? GREEN : [37, 99, 235]); doc.rect(barX, y, barW * pct, 4, 'F') }
       y += 8
-      setTxt([90, 90, 90]); doc.setFont('helvetica', 'normal'); doc.setFontSize(8)
-      doc.text(`${Math.round(pct * 100)}% cobrado  ·  ${money(cobrado, cur)} de ${money(total, cur)}`, M + 4, y)
-      setTxt([217, 119, 6]); doc.setFont('helvetica', 'bold'); doc.setFontSize(11)
+      setTxt(sinPagos ? ROJO : [90, 90, 90]); doc.setFont('helvetica', sinPagos ? 'bold' : 'normal'); doc.setFontSize(8)
+      doc.text(sinPagos
+        ? `Adeudo del 100%  ·  ${money(0, cur)} cobrado de ${money(total, cur)}`
+        : `${Math.round(pct * 100)}% cobrado  ·  ${money(cobrado, cur)} de ${money(total, cur)}`, M + 4, y)
+      setTxt(sinPagos ? ROJO : AMBAR); doc.setFont('helvetica', 'bold'); doc.setFontSize(11)
       doc.text(`Por cobrar  ${money(pend, cur)}`, RIGHT - 3, y + 0.3, { align: 'right' })
       y += 11
     })
