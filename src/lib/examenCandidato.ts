@@ -156,8 +156,17 @@ export async function examenPorToken(token: string): Promise<ExamenPublico | nul
   ])
   if (!cap) return null
 
-  const todas = await cargarPreguntas((asig as any).capacitacion_id)
-  const preguntas = todas.map(p => ({ ...p, respuesta_correcta: null, explicacion: null }))
+  // ⚠️ NUNCA usar cargarPreguntas() aquí. Esa trae select('*'), o sea que la
+  // respuesta correcta VIAJA al navegador del candidato y se ve en la pestaña
+  // de red aunque después se borre en JavaScript. Se piden solo las columnas
+  // que puede ver: la clave se queda en el servidor.
+  const { data: pgs } = await supabase.from('capacitacion_preguntas')
+    .select('id, capacitacion_id, pregunta, tipo, opciones, puntos, order_index')
+    .eq('capacitacion_id', (asig as any).capacitacion_id)
+    .order('order_index')
+  const preguntas = (((pgs as any[]) || []).map(p => ({
+    ...p, respuesta_correcta: null, explicacion: null,
+  }))) as PreguntaCapacitacion[]
 
   const vence = (asig as any).vence_at ? new Date((asig as any).vence_at) : null
   if (!(asig as any).abierto_at) {

@@ -35,7 +35,10 @@ import {
   ExamenAsignado, BorradorExamen, examenesDisponibles, cargarAsignaciones,
   asignarExamen, quitarAsignacion, redactarInvitacion, enviarInvitacion, ligaDelExamen,
 } from '../lib/examenCandidato'
-import { Capacitacion } from '../lib/capacitaciones'
+import { Capacitacion, IntentoCapacitacion, cargarPreguntas, PreguntaCapacitacion } from '../lib/capacitaciones'
+import {
+  RevisionIA, VeredictoIA, VEREDICTO_IA_CFG, revisarConIA, confirmarRevision, ajustar,
+} from '../lib/calificacionIA'
 import { Plus, X, Inbox, RefreshCw, FileText, ChevronLeft, Trash2, Download, Sparkles, AlertTriangle, Upload, Mail, Send, ClipboardCheck, Copy } from 'lucide-react'
 
 const card: React.CSSProperties = { background: '#0f0f0f', border: '1px solid #1f1f1f', borderRadius: 12, padding: 14 }
@@ -975,11 +978,7 @@ function PanelExamenes({ cand, vacantes }: { cand: Candidato; vacantes: Vacante[
                   </div>
                 )}
 
-                {it?.pendiente_revision && (
-                  <div style={{ fontSize: 10.5, color: '#D9A441', marginTop: 7, lineHeight: 1.6 }}>
-                    Trae preguntas abiertas: el porcentaje solo cuenta las de opción. Revísalas en Capacitaciones antes de decidir.
-                  </div>
-                )}
+                {it && <RevisionAbiertas intento={it} capacitacion={cap || null} onListo={recargar} />}
               </div>
             )
           })}
@@ -994,6 +993,138 @@ function PanelExamenes({ cand, vacantes }: { cand: Candidato; vacantes: Vacante[
           enviando={!!trabajando}
           onCambio={b => setBorrador({ ...borrador, b })}
           onEnviar={mandar} onCerrar={() => setBorrador(null)} />
+      )}
+    </div>
+  )
+}
+
+/**
+ * Revisión asistida de las preguntas abiertas.
+ *
+ * El examen de Asistente Contable es casi todo abierto, así que sin esto el
+ * resultado sale siempre en "pendiente de revisión" y filtrar sigue siendo leer
+ * veinte respuestas a mano. La IA compara contra la clave del evaluador que ya
+ * trae el examen y PROPONE puntos; la calificación oficial no se mueve hasta
+ * que alguien confirma. De esto depende que una persona entre o no a una
+ * entrevista: no lo decide un modelo solo.
+ */
+function RevisionAbiertas({ intento, capacitacion, onListo }: {
+  intento: any; capacitacion: Capacitacion | null; onListo: () => void
+}) {
+  const { user } = useAuth()
+  const [abierto, setAbierto] = useState(false)
+  const [preguntas, setPreguntas] = useState<PreguntaCapacitacion[]>([])
+  const [rev, setRev] = useState<RevisionIA | null>((intento.revision_ia as RevisionIA) || null)
+  const [trabajando, setTrabajando] = useState(false)
+  const [err, setErr] = useState('')
+
+  useEffect(() => {
+    if (abierto && preguntas.length === 0) cargarPreguntas(intento.capacitacion_id).then(setPreguntas).catch(() => {})
+  }, [abierto, intento.capacitacion_id])
+
+  const hayAbiertas = preguntas.some(p => p.tipo === 'abierta') || !!rev
+  const confirmada = !!intento.confirmado_at
+
+  async function revisar() {
+    setTrabajando(true); setErr('')
+    try { setRev(await revisarConIA(intento as IntentoCapacitacion)) }
+    catch (e: any) { setErr(e?.message || String(e)) }
+    setTrabajando(false)
+  }
+
+  async function confirmar() {
+    if (!rev || !capacitacion) return
+    setTrabajando(true); setErr('')
+    try {
+      await confirmarRevision(intento as IntentoCapacitacion, rev, capacitacion.calificacion_minima, user?.nombre || '')
+      onListo()
+    } catch (e: any) { setErr(e?.message || String(e)) }
+    setTrabajando(false)
+  }
+
+  const resp = (intento.respuestas || {}) as Record<string, string>
+  const textoDe = (id: string) => (resp[id] || '').trim()
+
+  return (
+    <div style={{ marginTop: 8, borderTop: '1px solid #1c1c1c', paddingTop: 8 }}>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        {intento.pendiente_revision && !confirmada && (
+          <span style={{ fontSize: 10.5, color: '#D9A441' }}>
+            Trae preguntas abiertas: el porcentaje de arriba solo cuenta las de opción.
+          </span>
+        )}
+        {confirmada && (
+          <span style={{ fontSize: 10.5, color: '#10B981' }}>
+            Revisión confirmada por {intento.confirmado_por || '—'}.
+          </span>
+        )}
+        <Btn size="sm" onClick={() => setAbierto(v => !v)} style={{ marginLeft: 'auto' }}>
+          {abierto ? 'Ocultar respuestas' : 'Ver y calificar respuestas'}
+        </Btn>
+      </div>
+
+      {abierto && (
+        <div style={{ marginTop: 9 }}>
+          {!rev && hayAbiertas && (
+            <Btn size="sm" variant="primary" onClick={revisar} disabled={trabajando}>
+              <Sparkles size={12} /> {trabajando ? 'Revisando contra la clave…' : 'Revisar con IA contra la clave'}
+            </Btn>
+          )}
+
+          {rev && (
+            <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', marginBottom: 9 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: colorCompat(rev.calificacion) }}>
+                {rev.puntos} / {rev.posibles} pts · {rev.calificacion}%
+              </div>
+              <span style={{ fontSize: 10.5, color: '#777' }}>Propuesta de la IA — ajústala si no estás de acuerdo.</span>
+              {!confirmada && (
+                <Btn size="sm" variant="primary" onClick={confirmar} disabled={trabajando}>
+                  {trabajando ? 'Guardando…' : 'Confirmar calificación'}
+                </Btn>
+              )}
+              <Btn size="sm" onClick={revisar} disabled={trabajando}><RefreshCw size={12} /> Volver a revisar</Btn>
+            </div>
+          )}
+
+          <div style={{ display: 'grid', gap: 9 }}>
+            {preguntas.map((p, i) => {
+              const r = rev?.preguntas.find(x => x.pregunta_id === p.id)
+              const cfg = r ? VEREDICTO_IA_CFG[r.veredicto] : null
+              return (
+                <div key={p.id} style={{ border: '1px solid #1a1a1a', borderRadius: 8, padding: '9px 11px', background: '#0d0d0d' }}>
+                  <div style={{ fontSize: 11.5, color: '#bbb', marginBottom: 5, lineHeight: 1.6 }}>
+                    <span style={{ color: '#555' }}>{i + 1}. </span>{p.pregunta.split('\n')[0]}
+                  </div>
+                  <div style={{ fontSize: 11.5, color: textoDe(p.id) ? '#ddd' : '#666', whiteSpace: 'pre-wrap', lineHeight: 1.7, background: '#131313', borderRadius: 6, padding: '7px 9px' }}>
+                    {textoDe(p.id) || '(en blanco)'}
+                  </div>
+                  {r && (
+                    <div style={{ display: 'flex', gap: 7, alignItems: 'center', flexWrap: 'wrap', marginTop: 7 }}>
+                      {(['completa', 'parcial', 'nula'] as VeredictoIA[]).map(v => {
+                        const puesto = r.veredicto === v
+                        const c = VEREDICTO_IA_CFG[v]
+                        return (
+                          <button key={v} disabled={confirmada}
+                            onClick={() => rev && setRev(ajustar(rev, p.id, v))}
+                            style={{
+                              padding: '3px 10px', borderRadius: 14, fontSize: 10.5, fontFamily: 'inherit',
+                              cursor: confirmada ? 'default' : 'pointer',
+                              border: `1px solid ${puesto ? c.color : '#262626'}`,
+                              background: puesto ? c.color + '22' : 'transparent',
+                              color: puesto ? c.color : '#777',
+                            }}>{c.label}</button>
+                        )
+                      })}
+                      <span style={{ fontSize: 10.5, color: '#777' }}>{r.puntos}/{r.posibles} pts</span>
+                      {r.por_que && <span style={{ fontSize: 10.5, color: '#888', flex: 1, minWidth: 160 }}>{r.por_que}</span>}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+          {err && <div style={{ fontSize: 11.5, color: '#DC2626', marginTop: 8 }}>{err}</div>}
+        </div>
       )}
     </div>
   )
