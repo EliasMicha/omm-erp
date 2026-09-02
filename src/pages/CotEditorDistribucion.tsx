@@ -1,12 +1,13 @@
 import { useEffect, useState, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { F, FUSD } from '../lib/utils'
-import { ChevronLeft, Plus, Trash2, Printer, Upload, Search, Loader2, Sparkles } from 'lucide-react'
+import { ChevronLeft, Plus, Trash2, Download, Upload, Search, Loader2, Sparkles } from 'lucide-react'
 import BotonCatalogo from '../components/BotonCatalogo'
 import VersionManager from '../components/VersionManager'
 import { useIsMobile } from '../lib/useIsMobile'
 import { fetchAllActiveCatalog } from '../lib/catalog'
 import CotizarConIA, { PartidaLista } from '../components/CotizarConIA'
+import { generarCotizacionPdf, folioDeCotizacion, RenglonTotal } from '../lib/cotizacionPdf'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Cotizador de DISTRIBUCIÓN — reventa de equipo (Lutron u otras marcas).
@@ -44,12 +45,19 @@ export default function CotEditorDistribucion({ cotId, onBack, onSwitchVersion }
   // Datos del cliente que compra: si es distribuidor, su descuento se propone solo.
   const [distribuidor, setDistribuidor] = useState<{ nombre: string; descuento: number } | null>(null)
   const [descAplicado, setDescAplicado] = useState(false)
+  // Datos del membrete del PDF: folio estable y quién la elaboró.
+  const [anioComercial, setAnioComercial] = useState<number | null>(null)
+  const [versionLabel, setVersionLabel] = useState<string | null>(null)
+  const [autorNombre, setAutorNombre] = useState('')
 
   useEffect(() => {
     (async () => {
       const { data: cot } = await supabase.from('quotations').select('*').eq('id', cotId).single()
       if (cot) {
         setCotName(cot.name || '')
+        setAnioComercial(cot.commercial_year || null)
+        setVersionLabel(cot.version_label || null)
+        setAutorNombre(cot.created_by || '')
         let meta: any = {}
         try { meta = typeof cot.notes === 'string' ? JSON.parse(cot.notes) : (cot.notes || {}) } catch {}
         notesRef.current = meta
@@ -217,42 +225,50 @@ export default function CotEditorDistribucion({ cotId, onBack, onSwitchVersion }
     }
   }
 
+  /**
+   * Antes esto abría una ventana y llamaba a window.print(): el navegador le
+   * estampaba su encabezado y su pie con la URL, y el PDF que recibía el
+   * cliente parecía una página web impresa. Ahora se dibuja el documento con
+   * el formato de la casa (el mismo de las estimaciones).
+   */
   function exportPdf() {
-    const cur = config.currency
-    const fmt = (n: number) => (cur === 'USD' ? 'US$' : '$') + (Number(n) || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-    const rows = items.filter(i => i.name.trim()).map(i => `
-      <tr>
-        <td>${esc(i.name)}${i.modelo ? `<div style="font-size:9px;color:#888">${esc(i.modelo)}</div>` : ''}</td>
-        <td>${esc(i.marca)}</td>
-        <td style="text-align:center">${i.cantidad}</td>
-        <td style="text-align:right">${fmt(i.precioPublico)}</td>
-        <td style="text-align:right;font-weight:600">${fmt(i.precioPublico * i.cantidad)}</td>
-      </tr>`).join('')
-    const totRows = [
-      `<div><span>Subtotal (precio público)</span><span>${fmt(subtotalPublico)}</span></div>`,
-      (config.descuentoPct || 0) > 0 ? `<div style="color:#c00"><span>Descuento (${config.descuentoPct}%)</span><span>-${fmt(descuentoAmt)}</span></div>` : '',
-      (config.descuentoPct || 0) > 0 ? `<div><span>Subtotal con descuento</span><span>${fmt(subtotalConDesc)}</span></div>` : '',
-      (config.fletes || 0) > 0 ? `<div><span>Fletes</span><span>${fmt(config.fletes)}</span></div>` : '',
-      (config.factorImport || 0) > 0 ? `<div><span>Factor de importación (${config.factorImport}%)</span><span>${fmt(factorImportAmt)}</span></div>` : '',
-      `<div><span>IVA (${config.ivaRate}%)</span><span>${fmt(iva)}</span></div>`,
-      `<div class="grand"><span>Total</span><span>${fmt(total)} ${cur}</span></div>`,
-    ].filter(Boolean).join('')
-    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${esc(cotName)}</title>
-      <style>*{font-family:Arial,sans-serif}body{margin:28px;color:#111}h1{font-size:20px;margin:0}
-      .sub{color:#666;font-size:12px;margin-bottom:16px}table{width:100%;border-collapse:collapse;font-size:12px}
-      th{background:#f2f2f2;text-align:left;padding:6px 8px;border-bottom:2px solid #ccc}td{padding:6px 8px;border-bottom:1px solid #eee}
-      .tot{margin-top:14px;margin-left:auto;width:320px;font-size:13px}.tot div{display:flex;justify-content:space-between;padding:3px 0}
-      .grand{border-top:2px solid #000;font-weight:700;font-size:15px;padding-top:6px}</style></head><body>
-      <h1>Cotización de Distribución</h1>
-      <div class="sub">OMM Technologies SA de CV${clientName ? ' · Cliente: ' + esc(clientName) : ''} · ${new Date().toLocaleDateString('es-MX', { day: '2-digit', month: 'long', year: 'numeric' })} · Moneda: ${cur}</div>
-      <table><thead><tr><th>Producto</th><th>Marca</th><th style="text-align:center">Cant.</th><th style="text-align:right">Precio público U.</th><th style="text-align:right">Importe</th></tr></thead><tbody>${rows}</tbody></table>
-      <div class="tot">${totRows}</div>
-      <div style="margin-top:24px;font-size:10px;color:#888">Precios sujetos a disponibilidad. Vigencia 15 días.</div>
-      <script>window.onload=()=>window.print()</script></body></html>`
-    const w = window.open('', '_blank')
-    if (w) { w.document.write(html); w.document.close() }
+    const partidas = items.filter(i => i.name.trim()).map(i => ({
+      name: i.name, marca: i.marca, modelo: i.modelo,
+      cantidad: i.cantidad, precioUnitario: i.precioPublico,
+    }))
+    if (partidas.length === 0) { alert('No hay partidas que cotizar.'); return }
+
+    const totales: RenglonTotal[] = [
+      { label: 'Subtotal (precio de lista)', monto: subtotalPublico },
+      ...((config.descuentoPct || 0) > 0 ? [
+        { label: `Descuento ${config.descuentoPct}%`, monto: descuentoAmt, tono: 'resta' as const },
+        { label: 'Subtotal con descuento', monto: subtotalConDesc, tono: 'fuerte' as const },
+      ] : []),
+      ...((config.fletes || 0) > 0 ? [{ label: 'Fletes', monto: config.fletes }] : []),
+      ...((config.factorImport || 0) > 0 ? [{ label: `Factor de importación ${config.factorImport}%`, monto: factorImportAmt }] : []),
+      { label: `IVA ${config.ivaRate}%`, monto: iva },
+    ]
+
+    const doc = generarCotizacionPdf({
+      tipo: 'Cotización de distribución',
+      folio: folioDeCotizacion(cotId, anioComercial, versionLabel),
+      nombre: cotName || 'Cotización de distribución',
+      cliente: clientName || null,
+      proyecto: cotName && clientName && cotName !== clientName ? cotName : null,
+      moneda: config.currency,
+      tipoCambio: config.currency === 'USD' ? (config.tipoCambio || null) : null,
+      partidas,
+      totales,
+      total,
+      condiciones: [
+        'Los precios de lista corresponden al precio público vigente del fabricante.',
+        'El descuento aplicado es exclusivo para este pedido y no constituye precio de lista.',
+      ],
+      elaboro: autorNombre || null,
+    })
+    doc.save(`${(cotName || 'Cotizacion').replace(/[^\w\s-]/g, '').trim() || 'Cotizacion'}.pdf`)
   }
-  const esc = (s: string) => String(s || '').replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' } as any)[c])
+
 
   const inp: React.CSSProperties = { background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 4, color: '#fff', fontSize: 12, padding: '5px 7px', fontFamily: 'inherit', width: '100%' }
   const th: React.CSSProperties = { fontSize: 9, color: '#666', textTransform: 'uppercase', letterSpacing: '0.05em', padding: '4px 6px', textAlign: 'left' }
@@ -314,7 +330,7 @@ export default function CotEditorDistribucion({ cotId, onBack, onSwitchVersion }
           <input type="number" value={config.ivaRate} onChange={e => setConfig(c => ({ ...c, ivaRate: parseFloat(e.target.value) || 0 }))}
             style={{ ...inp, width: 52, padding: '3px 6px', textAlign: 'right' }} />
         </label>
-        <button onClick={exportPdf} style={{ padding: '4px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #67E8F9', background: '#67E8F922', color: '#67E8F9', display: 'flex', alignItems: 'center', gap: 4 }}><Printer size={12} /> PDF</button>
+        <button onClick={exportPdf} style={{ padding: '4px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #67E8F9', background: '#67E8F922', color: '#67E8F9', display: 'flex', alignItems: 'center', gap: 4 }}><Download size={12} /> PDF</button>
         <BotonCatalogo cotId={cotId} />
         <VersionManager cotId={cotId} getCurrentSnapshot={() => JSON.stringify({ items, config })} onSwitchVersion={onSwitchVersion || (() => {})} accentColor="#F59E0B" compact={isMobile} />
       </div>
