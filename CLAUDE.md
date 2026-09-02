@@ -316,6 +316,33 @@ recolecciones o cotejo tiene que filtrar `.neq('tipo','servicio')`.**
    sesión empujó cambios. El cotejo contra el bundle pasó para los archivos
    tocados, pero conviene revisar qué trajo ese commit.
 
+### 🪣 Buckets: "público" NO quiere decir que se pueda escribir
+
+Crear un bucket marcado como `public` en Supabase **solo abre la lectura por
+URL**. Escribir sigue pasando por RLS sobre `storage.objects`, y si el bucket no
+tiene políticas, cualquier subida truena con:
+
+    new row violates row-level security policy
+
+Ya pasó con `reclutamiento` y con `capacitaciones` (2026-09-02): los dos se
+crearon públicos y sin una sola política, así que subir un CV o el documento de
+una capacitación fallaba. Es la misma familia del caso de `app_users`: **RLS
+prendida sin política = tabla muda**.
+
+Al crear un bucket nuevo, crear también sus cuatro políticas, igual que el
+resto del ERP (`entregables`, `employee-documents`, `nomina-comprobantes`):
+
+```sql
+create policy <b>_select on storage.objects for select using (bucket_id = '<b>');
+create policy <b>_insert on storage.objects for insert with check (bucket_id = '<b>');
+create policy <b>_update on storage.objects for update using (bucket_id = '<b>');
+create policy <b>_delete on storage.objects for delete using (bucket_id = '<b>');
+```
+
+Para comprobarlo NO basta con mirar la tabla: hay que subir un archivo de
+prueba con la llave **anon** (no con la service key, que se salta RLS y siempre
+pasa) y luego borrarlo.
+
 ### Reclutamiento — lo que NO hace Indeed (importante)
 
 **Los correos de postulación de Indeed NO traen el CV adjunto.** Verificado
