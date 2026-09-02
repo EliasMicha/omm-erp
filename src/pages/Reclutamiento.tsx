@@ -117,7 +117,9 @@ export default function Reclutamiento() {
           <Sparkles size={14} color={motor ? '#57FF9A' : '#666'} />
           <div style={{ flex: 1, minWidth: 220, fontSize: 11.5, color: motor ? '#57FF9A' : '#888', lineHeight: 1.6 }}>
             {motor || (ultima && (
-              ultima.bandeja && !ultima.bandeja.connected
+              ultima.bandeja?.reconectar
+                ? <>Gmail está conectado pero <b>sin permiso de lectura</b>, así que no puedo traer las postulaciones. Reconéctalo una vez en la pestaña <b>Bandeja</b> y esto queda automático.{ultima.analizados ? ` Mientras tanto analicé ${ultima.analizados} candidato(s) ya capturados.` : ''}</>
+                : ultima.bandeja && !ultima.bandeja.connected
                 ? <>El correo no está conectado, así que no puedo traer postulaciones solo. Conéctalo en la pestaña <b>Bandeja</b>.{ultima.analizados ? ` Aun así analicé ${ultima.analizados} candidato(s) que ya estaban capturados.` : ''}</>
                 : <>
                     {ultima.importados > 0 ? `${ultima.importados} candidato(s) nuevos del correo. ` : 'Sin postulaciones nuevas en el correo. '}

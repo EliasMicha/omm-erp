@@ -480,7 +480,15 @@ async function ingestaReclutamiento() {
       const lr = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=30&q=${encodeURIComponent('from:indeedemail.com newer_than:14d')}`,
         { headers: { Authorization: `Bearer ${at}` } })
       const lj: any = await lr.json()
-      if (!lr.ok) throw new Error((lj && lj.error && lj.error.message) || 'Gmail no respondió')
+      if (!lr.ok) {
+        const msg = (lj && lj.error && lj.error.message) || 'Gmail no respondió'
+        // El refresh_token guardado puede ser anterior al permiso de lectura.
+        if (/insufficient|scope|permission/i.test(msg)) {
+          out.reconectar = true
+          throw new Error('Gmail está conectado pero sin permiso de lectura. Hay que reconectarlo una vez desde Reclutamiento → Bandeja para autorizarlo.')
+        }
+        throw new Error(msg)
+      }
       const ids: string[] = ((lj.messages || []) as any[]).map((m: any) => m.id)
 
       let yaTengo = new Set<string>()
