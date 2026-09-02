@@ -316,6 +316,30 @@ recolecciones o cotejo tiene que filtrar `.neq('tipo','servicio')`.**
    sesión empujó cambios. El cotejo contra el bundle pasó para los archivos
    tocados, pero conviene revisar qué trajo ese commit.
 
+### 🎓 Los dos exámenes de Asistente Contable
+
+Salieron del documento "Asistente Contable — Perfil, Examen, Capacitación" que
+trajo Elias (sep 2026). Quedaron partidos en dos a propósito:
+
+| | Filtro técnico | Examen completo |
+|---|---|---|
+| Dónde | En línea, liga pública | En oficina, supervisado |
+| Qué mide | Conocimientos básicos | A: fiscal · B: conciliación · C: detalle · D: criterio |
+| Formato | 15 de opción múltiple y V/F | 21 abiertas |
+| Puntos | 15 · mínimo 75% | 81 · mínimo 70% |
+| Califica | El ERP, solo y al instante | La IA propone contra la clave, Elias confirma |
+
+**Por qué el filtro es de opción múltiple y no de criterio.** La primera versión
+puso en línea los 5 casos de "qué harías" del documento. Elias los rechazó:
+*"están muy ambiguos y no hacen el trabajo que queremos"*. Tenía razón — filtran
+a quien redacta bien, no a quien sabe. Los casos de criterio se movieron al
+examen presencial (Parte D), que es donde una respuesta así se puede repreguntar.
+
+**Lo que el filtro en línea NO puede hacer:** impedir que lo contesten con una
+IA. Es inevitable en cualquier examen no supervisado. Su trabajo es quitar
+volumen —quien no tiene ni la base ni se molesta en buscarla— no certificar
+conocimiento. Eso lo hace el presencial.
+
 ### 🪣 Buckets: "público" NO quiere decir que se pueda escribir
 
 Crear un bucket marcado como `public` en Supabase **solo abre la lectura por
