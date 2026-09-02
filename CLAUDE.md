@@ -316,6 +316,19 @@ recolecciones o cotejo tiene que filtrar `.neq('tipo','servicio')`.**
    sesión empujó cambios. El cotejo contra el bundle pasó para los archivos
    tocados, pero conviene revisar qué trajo ese commit.
 
+### Reclutamiento — lo que NO hace Indeed (importante)
+
+**Los correos de postulación de Indeed NO traen el CV adjunto.** Verificado
+contra la bandeja real: llegan con `adjuntos: []`. El texto dice "su CV adjunto
+(si se proporcionó uno)" pero el mensaje solo trae el nombre, el alias
+`@indeedemail.com` y una liga al portal de empleadores. El CV vive detrás de esa
+liga, en Indeed, con sesión.
+
+Consecuencia: **ningún candidato de Indeed se puede analizar sin que alguien baje
+el CV y lo suba a mano** (caja de CV en la ficha del candidato). No es un bug del
+importador; es lo que manda Indeed. Antes de "arreglar" el importador de
+adjuntos, revisar esto.
+
 ### Sesión 2026-09-02 — estados de cuenta, cadena de mando, reclutamiento con IA
 
 **Estado de cuenta (`src/lib/estadoCuentaPdf.ts`, commit `da8ac71`)**
@@ -347,6 +360,20 @@ art. 133 prohíbe negar trabajo por edad y una lista ordenada por un número que
 descuenta por edad es la evidencia que nadie quiere tener. Verificado con el
 mismo CV a 31 y a 58 años: 72 y 72. El traslado va aparte en
 `contexto.riesgo_traslado` — predice ausentismo, pero se pondera aparte.
+
+**Referencias y exámenes (commits `d4f7bdd`, `d20a9e3`)**
+El análisis saca del CV a quién pedirle referencia; se guardan en
+`candidato_referencias`. La IA redacta el correo y se manda por Gmail
+(`/api/gmail?action=send`), **siempre con vista previa editable**: va a nombre de
+OMM, a un tercero, y no se deshace. Se guarda el `threadId` para leer la
+respuesta después (`action=hilo`) y resumirla — incluido si CONTRADICE el CV.
+Las referencias marcadas como empleador ACTUAL llevan advertencia: escribirles
+sin permiso del candidato le puede costar el trabajo.
+
+Examen previo a la entrevista: `/examen/:token` es pública, FUERA de
+ProtectedRoute. Las preguntas se mandan sin la respuesta correcta, la
+calificación se hace releyendo la base (no con lo que mande el navegador), y al
+candidato no se le devuelve su calificación.
 
 ⏳ **Falta que Elias reconecte Gmail una vez**: el `refresh_token` guardado es
 anterior al scope `gmail.readonly`, así que la ingesta responde
