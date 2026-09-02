@@ -154,6 +154,21 @@ export async function tareasDeArea(specialty: string, opts?: { incluirCompletada
   return ((data as any[]) || []) as Tarea[]
 }
 
+/**
+ * Las actividades de VARIAS áreas de una sola consulta. El DG las necesita
+ * todas: con `tareasDeArea` sola solo veía la suya, y por eso solo podía
+ * repartir dentro de Administración.
+ */
+export async function tareasDeAreas(specialties: string[], opts?: { incluirCompletadas?: boolean }): Promise<Tarea[]> {
+  const lista = specialties.filter(Boolean)
+  if (lista.length === 0) return []
+  if (lista.length === 1) return tareasDeArea(lista[0], opts)
+  let q = supabase.from('project_tasks').select(COLS + ',project:projects(name,specialty)').in('specialty', lista)
+  if (!opts?.incluirCompletadas) q = q.neq('status', 'completada')
+  const { data } = await q.order('due_date', { ascending: true, nullsFirst: false })
+  return ((data as any[]) || []) as Tarea[]
+}
+
 /** Delegar: el director la pasa a alguien de su equipo y queda el rastro. */
 export async function delegar(tareaId: string, aQuien: string, directorId?: string | null): Promise<{ ok: boolean; error?: string }> {
   const { error } = await supabase.from('project_tasks').update({

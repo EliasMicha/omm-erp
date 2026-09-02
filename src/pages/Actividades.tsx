@@ -18,8 +18,11 @@ import { useAuth } from '../contexts/AuthContext'
 import { Badge } from '../components/layout/UI'
 import {
   Tarea, TIPO_CFG, URGENCIA_TAREA_CFG, AREAS_TRABAJO,
-  tareasDe, tareasDeArea, delegar, actualizarTarea, estadoFecha, ordenarTareas,
+  tareasDe, tareasDeArea, tareasDeAreas, delegar, actualizarTarea, estadoFecha, ordenarTareas,
 } from '../lib/tareas'
+import {
+  AreaDeMando, cadenaDeMando, esDirectorGeneral, aQuienPuedoPasarla, areaDePersona, areasSinCabeza,
+} from '../lib/cadenaDeMando'
 import {
   Entregable, ESTADO_CFG, entregablesDe, pendientesDeRevision, revisar,
   diasEsperando, colorEspera, urlDe, cargarTipos, TipoEntregable,
@@ -65,6 +68,10 @@ export default function Actividades() {
   const miRol: Rol = yo?.rol || 'admin'
   const esDG = user?.permission_area === 'DG'
   const mando = esDG || miRol === 'director'
+  // Manda sobre TODAS las areas: por permiso o porque el puesto dice Director
+  // General. Antes solo se miraba el permiso, y con el permiso de area
+  // ADMINISTRACION el DG quedaba encerrado en su propia area.
+  const mandoTotal = esDG || esDirectorGeneral(yo)
   const miSpecialty = useMemo(
     () => AREAS_TRABAJO.find(a => a.area === yo?.area)?.specialty || '', [yo])
   const nombreDe = (id?: string | null) => emps.find(e => e.id === id)?.name || '—'
@@ -90,9 +97,11 @@ export default function Actividades() {
 
   useEffect(() => {
     if (!mando) return
-    if (miSpecialty) tareasDeArea(miSpecialty).then(setArea)
-    pendientesDeRevision(esDG ? undefined : miSpecialty || undefined).then(setPorRevisar)
-  }, [mando, miSpecialty, esDG])
+    // El DG manda sobre todas las areas; un director, sobre la suya.
+    if (mandoTotal) tareasDeAreas(AREAS_TRABAJO.map(a => a.specialty)).then(setArea)
+    else if (miSpecialty) tareasDeArea(miSpecialty).then(setArea)
+    pendientesDeRevision(mandoTotal ? undefined : miSpecialty || undefined).then(setPorRevisar)
+  }, [mando, mandoTotal, miSpecialty])
 
   const corregir = misEnt.filter(x => x.estado === 'corregir')
   const esperando = misEnt.filter(x => x.estado === 'en_revision')
@@ -152,10 +161,11 @@ export default function Actividades() {
           )}
           {tab === 'equipo' && (
             <MiEquipo
-              area={area} emps={emps} miSpecialty={miSpecialty} esDG={esDG}
+              area={area} emps={emps} miSpecialty={miSpecialty} esDG={esDG} mandoTotal={mandoTotal}
               porRevisar={porRevisar} employeeId={employeeId} nombreDe={nombreDe} tipos={tipos}
               onCambio={() => {
-                if (miSpecialty) tareasDeArea(miSpecialty).then(setArea)
+                if (mandoTotal) tareasDeAreas(AREAS_TRABAJO.map(a => a.specialty)).then(setArea)
+                else if (miSpecialty) tareasDeArea(miSpecialty).then(setArea)
                 pendientesDeRevision(esDG ? undefined : miSpecialty || undefined).then(setPorRevisar)
                 cargar()
               }}
@@ -391,27 +401,38 @@ function LoMio({ tareas, corregir, esperando, tipos, employeeId, nombreDe, onCam
 
 // ═══ MI EQUIPO ═════════════════════════════════════════════════════════════
 
-function MiEquipo({ area, emps, miSpecialty, esDG, porRevisar, employeeId, nombreDe, tipos, onCambio }: {
-  area: Tarea[]; emps: EmpleadoRol[]; miSpecialty: string; esDG: boolean
+function MiEquipo({ area, emps, miSpecialty, esDG, mandoTotal, porRevisar, employeeId, nombreDe, tipos, onCambio }: {
+  area: Tarea[]; emps: EmpleadoRol[]; miSpecialty: string; esDG: boolean; mandoTotal: boolean
   porRevisar: Entregable[]; employeeId: string; nombreDe: (id?: string | null) => string
   tipos: TipoEntregable[]; onCambio: () => void
 }) {
   const hoy = hoyISO()
 
-  const areaNombre = AREAS_TRABAJO.find(a => a.specialty === miSpecialty)?.area
-  const equipo = emps.filter(e => (!areaNombre || e.area === areaNombre) && (e.roles || [e.rol]).some(r => ROLES_GABINETE.includes(r)))
+  // El DG ve las cuatro areas con su cabeza; un director, solo la suya.
+  const cadena = useMemo(
+    () => cadenaDeMando(emps, mandoTotal ? undefined : [miSpecialty]),
+    [emps, mandoTotal, miSpecialty])
+  const sinCabeza = areasSinCabeza(cadena)
   const huerfanas = area.filter(t => !t.assignee_id)
 
-  const porPersona = useMemo(() => equipo.map(p => {
-    const suyas = area.filter(t => t.assignee_id === p.id)
-    return {
-      p,
-      total: suyas.length,
-      vencidas: suyas.filter(t => t.due_date && t.due_date < hoy).length,
-      sinFecha: suyas.filter(t => !t.due_date).length,
-      enRevision: suyas.filter(t => t.status === 'entregada').length,
+  const conteos = (suyas: Tarea[]) => ({
+    total: suyas.length,
+    vencidas: suyas.filter(t => t.due_date && t.due_date < hoy).length,
+    sinFecha: suyas.filter(t => !t.due_date).length,
+    enRevision: suyas.filter(t => t.status === 'entregada').length,
+  })
+  // La carga se lee por area: primero la cabeza, debajo su gente. Una lista
+  // plana de 15 nombres no dice de quien depende quien.
+  const porArea = useMemo(() => cadena.map(a => {
+    const fila = (p: EmpleadoRol) => {
+      const suyas = area.filter(t => t.assignee_id === p.id)
+      return { p, suyas, ...conteos(suyas) }
     }
-  }).sort((a, b) => (ROL_CFG[a.p.rol].orden - ROL_CFG[b.p.rol].orden) || b.total - a.total), [equipo, area])
+    const equipo = a.equipo
+      .map(fila)
+      .sort((x, y) => (ROL_CFG[x.p.rol].orden - ROL_CFG[y.p.rol].orden) || y.total - x.total)
+    return { a, director: a.director ? fila(a.director) : null, equipo }
+  }), [cadena, area])
 
   async function repartir(t: Tarea, aQuien: string) {
     await delegar(t.id, aQuien, employeeId)
@@ -459,12 +480,16 @@ function MiEquipo({ area, emps, miSpecialty, esDG, porRevisar, employeeId, nombr
       {/* Proyectos del área: el proceso ya corre, lo que falta es fecharlo.
           Sin fecha, una actividad no aparece en la semana de nadie — y hoy
           hay proyectos activos con las 29 actividades sin un solo día. */}
-      <ProyectosDelArea area={area} onCambio={onCambio} />
+      <ProyectosDelArea area={area} onCambio={onCambio} todasLasAreas={mandoTotal} />
 
       {huerfanas.length > 0 && (
         <>
           <h2 style={h2}>Sin repartir ({huerfanas.length})</h2>
-          <p style={sub}>Actividades de tu área que no tienen nombre y apellido. Nadie reclama lo que no tiene dueño.</p>
+          <p style={sub}>
+            {mandoTotal
+              ? 'Actividades sin nombre y apellido. Se encargan al director del área; él las reparte adentro. Nadie reclama lo que no tiene dueño.'
+              : 'Actividades de tu área que no tienen nombre y apellido. Nadie reclama lo que no tiene dueño.'}
+          </p>
           <div style={{ ...card, padding: 0, marginBottom: 22 }}>
             {huerfanas.map(t => (
               <div key={t.id} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '9px 13px', borderBottom: '1px solid #1a1a1a', flexWrap: 'wrap' }}>
@@ -477,54 +502,158 @@ function MiEquipo({ area, emps, miSpecialty, esDG, porRevisar, employeeId, nombr
                 </div>
                 <input type="date" value={t.due_date || ''} onChange={e => ponerFecha(t, e.target.value)}
                   style={{ ...inp, width: 128, fontSize: 11, borderColor: t.due_date ? '#242424' : '#DC262666' }} />
-                <select defaultValue="" onChange={e => e.target.value && repartir(t, e.target.value)} style={{ ...inp, width: 190, fontSize: 11 }}>
-                  <option value="">Asignar a…</option>
-                  {equipo.filter(x => !t.rol || tieneRol(x, t.rol as Rol)).map(x => (
-                    <option key={x.id} value={x.id}>{x.name} · {(x.roles || [x.rol]).map(r => ROL_CFG[r].label).join(' + ')}</option>
-                  ))}
-                  <optgroup label="Otros roles">
-                    {equipo.filter(x => t.rol && !tieneRol(x, t.rol as Rol)).map(x => (
-                      <option key={x.id} value={x.id}>{x.name} · {(x.roles || [x.rol]).map(r => ROL_CFG[r].label).join(' + ')}</option>
-                    ))}
-                  </optgroup>
-                </select>
+                <PasarLaEstafeta t={t} cadena={cadena} onPasar={repartir} />
               </div>
             ))}
           </div>
         </>
       )}
 
-      <h2 style={h2}>Carga por persona</h2>
-      <p style={sub}>Quién trae qué. Si alguien tiene cero, o no le has repartido o no lo estás midiendo.</p>
-      <div style={{ ...card, padding: 0, overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 620 }}>
-          <thead><tr>
-            {['Persona', 'Rol', 'Abiertas', 'Vencidas', 'Sin fecha', 'En revisión'].map((h, i) => (
-              <th key={i} style={{ textAlign: i > 1 ? 'right' : 'left', fontSize: 10, letterSpacing: .6, textTransform: 'uppercase', color: '#666', padding: '8px 10px', borderBottom: '1px solid #222' }}>{h}</th>
-            ))}
-          </tr></thead>
-          <tbody>
-            {porPersona.length === 0 && <tr><td colSpan={6} style={{ padding: 26, textAlign: 'center', color: '#666', fontSize: 12.5 }}>Tu área no tiene gente de gabinete registrada.</td></tr>}
-            {porPersona.map(r => (
-              <tr key={r.p.id}>
-                <td style={{ fontSize: 12.5, color: '#ddd', padding: '9px 10px', borderBottom: '1px solid #1a1a1a' }}>{r.p.name}</td>
-                <td style={{ fontSize: 11.5, color: ROL_CFG[r.p.rol].color, padding: '9px 10px', borderBottom: '1px solid #1a1a1a' }}>
-                  {(r.p.roles || [r.p.rol]).map(x => ROL_CFG[x].label).join(' + ')}
-                </td>
-                <td style={{ fontSize: 12.5, color: '#aaa', padding: '9px 10px', textAlign: 'right', borderBottom: '1px solid #1a1a1a' }}>{r.total}</td>
-                <td style={{ fontSize: 12.5, color: r.vencidas > 0 ? '#DC2626' : '#555', padding: '9px 10px', textAlign: 'right', borderBottom: '1px solid #1a1a1a' }}>{r.vencidas}</td>
-                <td style={{ fontSize: 12.5, color: r.sinFecha > 0 ? '#D9A441' : '#555', padding: '9px 10px', textAlign: 'right', borderBottom: '1px solid #1a1a1a' }}>{r.sinFecha}</td>
-                <td style={{ fontSize: 12.5, color: r.enRevision > 0 ? '#A78BFA' : '#555', padding: '9px 10px', textAlign: 'right', borderBottom: '1px solid #1a1a1a' }}>{r.enRevision}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <h2 style={h2}>Carga por área</h2>
+      <p style={sub}>
+        Cada área con su cabeza y su gente debajo. Abre a una persona para ver sus actividades
+        y pasar una en concreto — de ahí solo bajas dentro de su propia área, para no perder el hilo.
+      </p>
+      {sinCabeza.length > 0 && (
+        <div style={{ ...card, borderColor: '#3a2a15', color: '#D9A441', fontSize: 12, marginBottom: 10 }}>
+          Sin director nombrado: {sinCabeza.map(a => a.label).join(', ')}. Hasta que alguien de esa
+          área tenga puesto de director en Nómina, no hay a quién encargarle su trabajo.
+        </div>
+      )}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {porArea.filter(g => g.director || g.equipo.length > 0).map(g => (
+          <div key={g.a.specialty} style={{ ...card, padding: 0, overflow: 'hidden' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 13px', borderBottom: '1px solid #1c1c1c', background: '#141414' }}>
+              <span style={{ width: 3, height: 14, background: g.a.color, borderRadius: 2 }} />
+              <span style={{ fontSize: 12.5, color: '#ddd', fontWeight: 600 }}>{g.a.label}</span>
+              <span style={{ fontSize: 11, color: '#666' }}>
+                {g.director ? `Responde ${g.director.p.name}` : 'Sin director'}
+              </span>
+            </div>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 620 }}>
+                <thead><tr>
+                  {['Persona', 'Rol', 'Abiertas', 'Vencidas', 'Sin fecha', 'En revisión'].map((h, i) => (
+                    <th key={i} style={{ textAlign: i > 1 ? 'right' : 'left', fontSize: 10, letterSpacing: .6, textTransform: 'uppercase', color: '#666', padding: '8px 10px', borderBottom: '1px solid #222' }}>{h}</th>
+                  ))}
+                </tr></thead>
+                <tbody>
+                  {g.director && <FilaPersona key={g.director.p.id} r={g.director} cabeza cadena={cadena} onPasar={repartir} nombreDe={nombreDe} />}
+                  {g.equipo.map(r => <FilaPersona key={r.p.id} r={r} cadena={cadena} onPasar={repartir} nombreDe={nombreDe} />)}
+                  {!g.director && g.equipo.length === 0 && (
+                    <tr><td colSpan={6} style={{ padding: 20, textAlign: 'center', color: '#666', fontSize: 12 }}>Sin gente de gabinete registrada.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ))}
       </div>
     </>
   )
 }
 
-function ProyectosDelArea({ area, onCambio }: { area: Tarea[]; onCambio: () => void }) {
+/**
+ * Un renglon de la carga. Al abrirlo salen sus actividades, y cada una se puede
+ * pasar por la cadena: nunca a media empresa de golpe, solo dentro de su area
+ * o de vuelta a un director.
+ */
+function FilaPersona({ r, cabeza, cadena, onPasar, nombreDe }: {
+  r: { p: EmpleadoRol; suyas: Tarea[]; total: number; vencidas: number; sinFecha: number; enRevision: number }
+  cabeza?: boolean; cadena: AreaDeMando[]; onPasar: (t: Tarea, aQuien: string) => void
+  nombreDe: (id?: string | null) => string
+}) {
+  const [abierta, setAbierta] = useState(false)
+  const td: React.CSSProperties = { padding: '9px 10px', borderBottom: '1px solid #1a1a1a', fontSize: 12.5 }
+  return (
+    <>
+      <tr onClick={() => r.total > 0 && setAbierta(v => !v)} style={{ cursor: r.total > 0 ? 'pointer' : 'default' }}>
+        <td style={{ ...td, color: '#ddd', paddingLeft: cabeza ? 10 : 26 }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            {r.total > 0 && <ChevronRight size={11} style={{ color: '#666', transform: abierta ? 'rotate(90deg)' : 'none', transition: 'transform .12s' }} />}
+            {cabeza && <span style={{ fontSize: 9, color: '#2563EB', letterSpacing: .5 }}>▸</span>}
+            {r.p.name}
+          </span>
+        </td>
+        <td style={{ ...td, fontSize: 11.5, color: ROL_CFG[r.p.rol].color }}>
+          {(r.p.roles || [r.p.rol]).map(x => ROL_CFG[x].label).join(' + ')}
+        </td>
+        <td style={{ ...td, color: '#aaa', textAlign: 'right' }}>{r.total}</td>
+        <td style={{ ...td, color: r.vencidas > 0 ? '#DC2626' : '#555', textAlign: 'right' }}>{r.vencidas}</td>
+        <td style={{ ...td, color: r.sinFecha > 0 ? '#D9A441' : '#555', textAlign: 'right' }}>{r.sinFecha}</td>
+        <td style={{ ...td, color: r.enRevision > 0 ? '#A78BFA' : '#555', textAlign: 'right' }}>{r.enRevision}</td>
+      </tr>
+      {abierta && r.suyas.map(t => (
+        <tr key={t.id}>
+          <td colSpan={6} style={{ padding: '7px 10px 7px 34px', borderBottom: '1px solid #1a1a1a', background: '#0e0e0e' }}>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <div style={{ flex: 1, minWidth: 200 }}>
+                <div style={{ fontSize: 12, color: '#ccc' }}>{t.name}</div>
+                <div style={{ fontSize: 10.5, color: '#777', marginTop: 2 }}>
+                  {t.due_date ? t.due_date : 'Sin fecha'}
+                  {t.titulo_cliente ? ` · ${t.titulo_cliente}` : ''}
+                  {t.delegada_por_id ? ` · la bajó ${nombreDe(t.delegada_por_id)}` : ''}
+                </div>
+              </div>
+              <PasarLaEstafeta t={t} cadena={cadena} onPasar={onPasar} />
+            </div>
+          </td>
+        </tr>
+      ))}
+    </>
+  )
+}
+
+/**
+ * El control de mando. Sin dueño solo ofrece directores: el trabajo se encarga
+ * al área. Ya con dueño, deja bajar un nivel DENTRO de esa misma área, o
+ * devolverla a otro director — nunca brincar de un área a la gente de otra.
+ */
+function PasarLaEstafeta({ t, cadena, onPasar }: {
+  t: Tarea; cadena: AreaDeMando[]; onPasar: (t: Tarea, aQuien: string) => void
+}) {
+  const [bajando, setBajando] = useState(false)
+  const { directores, equipo, areaActual } = aQuienPuedoPasarla(cadena, t.assignee_id)
+  const puedeBajar = equipo.length > 0
+
+  if (bajando && puedeBajar) {
+    return (
+      <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+        <select defaultValue="" onChange={e => e.target.value && onPasar(t, e.target.value)}
+          style={{ ...inp, width: 210, fontSize: 11 }}>
+          <option value="">Bajar dentro de {areaActual?.label}…</option>
+          {equipo.filter(x => !t.rol || x.rol === t.rol).map(x => (
+            <option key={x.id} value={x.id}>{x.nombre} · {x.rolLabel}</option>
+          ))}
+          <optgroup label="Otros roles del área">
+            {equipo.filter(x => t.rol && x.rol !== t.rol).map(x => (
+              <option key={x.id} value={x.id}>{x.nombre} · {x.rolLabel}</option>
+            ))}
+          </optgroup>
+        </select>
+        <button onClick={() => setBajando(false)} style={{ ...btn, padding: '5px 8px', fontSize: 10.5 }}>Cancelar</button>
+      </span>
+    )
+  }
+
+  return (
+    <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+      <select defaultValue="" onChange={e => e.target.value && onPasar(t, e.target.value)}
+        style={{ ...inp, width: 200, fontSize: 11 }}>
+        <option value="">{t.assignee_id ? 'Pasar a otro director…' : 'Encargar al director…'}</option>
+        {directores.map(x => (
+          <option key={x.id} value={x.id}>{x.areaLabel} · {x.nombre}</option>
+        ))}
+      </select>
+      {puedeBajar && (
+        <button onClick={() => setBajando(true)} title={`Asignar a alguien del equipo de ${areaActual?.label}`}
+          style={{ ...btn, padding: '5px 8px', fontSize: 10.5 }}>Bajar un nivel</button>
+      )}
+    </span>
+  )
+}
+
+function ProyectosDelArea({ area, onCambio, todasLasAreas }: { area: Tarea[]; onCambio: () => void; todasLasAreas?: boolean }) {
   const [abierto, setAbierto] = useState('')
   const [fecha, setFecha] = useState('')
   const [busy, setBusy] = useState(false)
@@ -571,7 +700,7 @@ function ProyectosDelArea({ area, onCambio }: { area: Tarea[]; onCambio: () => v
 
   return (
     <>
-      <h2 style={h2}>Proyectos de tu área</h2>
+      <h2 style={h2}>{todasLasAreas ? 'Proyectos de la casa' : 'Proyectos de tu área'}</h2>
       <p style={sub}>
         El proceso ya viene armado con sus fases y revisiones. Lo único que hace falta para que aparezca en la
         semana de alguien es que tenga <b style={{ color: '#aaa' }}>fecha</b> — sin día, una actividad no existe
