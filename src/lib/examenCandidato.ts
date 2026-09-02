@@ -42,8 +42,10 @@ export const ligaDelExamen = (token: string) =>
 
 /** Los exámenes que se pueden mandar: publicados y con al menos una pregunta. */
 export async function examenesDisponibles(): Promise<Array<Capacitacion & { preguntas: number }>> {
+  // Solo exámenes de contratación: una capacitación es material de personal ya
+  // contratado y no se le manda a un candidato.
   const { data: caps } = await supabase.from('capacitaciones').select('*')
-    .eq('estado', 'publicada').order('titulo')
+    .eq('estado', 'publicada').eq('tipo', 'examen_contratacion').order('titulo')
   const lista = ((caps as any[]) || []) as Capacitacion[]
   if (!lista.length) return []
   const { data: pgs } = await supabase.from('capacitacion_preguntas')

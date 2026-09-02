@@ -36,8 +36,32 @@ export type TipoBloque = 'texto' | 'video' | 'youtube' | 'documento' | 'diagrama
 export type TipoPregunta = 'opcion_multiple' | 'verdadero_falso' | 'abierta'
 export type MotivoIntento = 'capacitacion' | 'contratacion'
 
+/**
+ * Una capacitación y un examen de contratación NO son lo mismo:
+ *  · capacitacion        → personal YA contratado. Se reparte por área/puesto,
+ *                          puede ser obligatoria y lleva contenido que estudiar.
+ *  · examen_contratacion → candidatos. No se le asigna a ningún empleado.
+ *
+ * Vivían revueltos. El riesgo no era estético: leToca() reparte por PUESTO, así
+ * que al contratar a alguien como "ASISTENTE CONTABLE" le habría aparecido el
+ * examen de contratación como capacitación pendiente.
+ */
+export type TipoCapacitacion = 'capacitacion' | 'examen_contratacion'
+
+export const TIPO_CAP_CFG: Record<TipoCapacitacion, { label: string; plural: string; color: string; ayuda: string }> = {
+  capacitacion: {
+    label: 'Capacitación', plural: 'Capacitaciones', color: '#57FF9A',
+    ayuda: 'Para personal ya contratado. Se asigna por área o puesto y aparece en "Lo mío" de cada quien.',
+  },
+  examen_contratacion: {
+    label: 'Examen de contratación', plural: 'Exámenes de contratación', color: '#A78BFA',
+    ayuda: 'Para candidatos, desde Reclutamiento. NUNCA se le asigna a un empleado ni cuenta como capacitación.',
+  },
+}
+
 export interface Capacitacion {
   id: string
+  tipo: TipoCapacitacion
   titulo: string
   descripcion: string | null
   alcance: AlcanceCapacitacion
@@ -121,6 +145,10 @@ const sinAcentos = (s: string) => (s || '').normalize('NFD').replace(/[̀-ͯ]/g,
  * la nómina). Se comparan normalizados o nadie coincidiría con nadie.
  */
 export function leToca(c: Capacitacion, persona: { area?: string | null; puesto?: string | null }): boolean {
+  // Un examen de contratación NUNCA le toca a un empleado. Va primero: es la
+  // regla que impide que al contratar a alguien como "Asistente Contable" le
+  // aparezca su propio examen de contratación como capacitación pendiente.
+  if (c.tipo === 'examen_contratacion') return false
   if (c.estado !== 'publicada') return false
   if (c.alcance === 'general') return true
   if (c.alcance === 'area') return !!c.area && sinAcentos(c.area) === sinAcentos(persona.area || '')
@@ -159,8 +187,9 @@ export async function areasDeLaNomina(): Promise<string[]> {
 
 // ── Carga ───────────────────────────────────────────────────────────────────
 
-export async function cargarCapacitaciones(incluirBorradores = true): Promise<Capacitacion[]> {
+export async function cargarCapacitaciones(incluirBorradores = true, tipo?: TipoCapacitacion): Promise<Capacitacion[]> {
   let q = supabase.from('capacitaciones').select('*').order('orden').order('created_at', { ascending: false })
+  if (tipo) q = q.eq('tipo', tipo)
   if (!incluirBorradores) q = q.eq('estado', 'publicada')
   const { data } = await q
   return ((data as any[]) || []).map(normalizarCap)

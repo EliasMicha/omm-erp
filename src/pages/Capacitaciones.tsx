@@ -16,6 +16,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { Badge, Btn, Loading, SectionHeader, EmptyState } from '../components/layout/UI'
 import { ROL_CFG, type Rol } from '../lib/roles'
 import {
+  TipoCapacitacion, TIPO_CAP_CFG,
   cargarCapacitaciones, cargarBloques, cargarPreguntas, cargarIntentos,
   puestosDeLaNomina, areasDeLaNomina, guardarIntento, calificar, avanceDe,
   subirArchivo, idDeYouTube,
@@ -31,7 +32,7 @@ const card: React.CSSProperties = { background: '#0f0f0f', border: '1px solid #1
 const inp: React.CSSProperties = { width: '100%', background: '#1a1a1a', color: '#fff', border: '1px solid #2a2a2a', borderRadius: 6, padding: '7px 9px', fontSize: 12, fontFamily: 'inherit', boxSizing: 'border-box', outline: 'none' }
 const lbl: React.CSSProperties = { fontSize: 9.5, color: '#666', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 4 }
 
-type Tab = 'mio' | 'catalogo' | 'resultados'
+type Tab = 'mio' | 'catalogo' | 'examenes' | 'resultados'
 
 export default function Capacitaciones() {
   const { user } = useAuth()
@@ -70,9 +71,15 @@ export default function Capacitaciones() {
     return <EditorCapacitacion cap={editando} autor={user?.nombre || ''} onSalir={() => { setEditando(null); recargar() }} />
   }
 
+  // Las dos cosas viven en la misma tabla pero NO son lo mismo: una capacitación
+  // es para quien ya trabaja aquí, un examen de contratación es para candidatos.
+  const capacitaciones = caps.filter(c => c.tipo !== 'examen_contratacion')
+  const examenes = caps.filter(c => c.tipo === 'examen_contratacion')
+
   const tabs: Array<[Tab, string, number]> = [
     ['mio', 'Lo mío', mias.filter(m => !m.aprobada).length],
-    ['catalogo', 'Catálogo', caps.length],
+    ['catalogo', 'Capacitaciones', capacitaciones.length],
+    ['examenes', 'Exámenes de contratación', examenes.length],
     ['resultados', 'Resultados', intentos.filter(i => i.pendiente_revision && i.aprobado == null).length],
   ]
 
@@ -81,7 +88,11 @@ export default function Capacitaciones() {
       <SectionHeader
         title="Capacitaciones"
         subtitle="El conocimiento de cada área y cada puesto, escrito y evaluado"
-        action={<Btn variant="primary" onClick={() => setEditando(nuevaCap(user?.nombre || ''))}><Plus size={14} /> Nueva capacitación</Btn>}
+        action={
+          <Btn variant="primary" onClick={() => setEditando(nuevaCap(user?.nombre || '', tab === 'examenes' ? 'examen_contratacion' : 'capacitacion'))}>
+            <Plus size={14} /> {tab === 'examenes' ? 'Nuevo examen' : 'Nueva capacitación'}
+          </Btn>
+        }
       />
 
       <div style={{ display: 'flex', gap: 6, marginBottom: 16, flexWrap: 'wrap' }}>
@@ -145,17 +156,31 @@ export default function Capacitaciones() {
         )
       )}
 
-      {tab === 'catalogo' && (
-        caps.length === 0 ? <EmptyState message="Todavía no hay capacitaciones. Crea la primera." /> : (
+      {(tab === 'catalogo' || tab === 'examenes') && (() => {
+        const esExamen = tab === 'examenes'
+        const lista = esExamen ? examenes : capacitaciones
+        const cfg = TIPO_CAP_CFG[esExamen ? 'examen_contratacion' : 'capacitacion']
+        return (<>
+          <div style={{ ...card, marginBottom: 12, padding: '9px 12px', display: 'flex', gap: 9, alignItems: 'center', borderColor: cfg.color + '33' }}>
+            <span style={{ width: 3, height: 15, background: cfg.color, borderRadius: 2, flexShrink: 0 }} />
+            <span style={{ fontSize: 11.5, color: '#888', lineHeight: 1.6 }}>{cfg.ayuda}</span>
+          </div>
+          {lista.length === 0 ? (
+            <EmptyState message={esExamen
+              ? 'Sin exámenes de contratación. Crea el primero y aparecerá en la ficha de cada candidato.'
+              : 'Todavía no hay capacitaciones. Crea la primera.'} />
+          ) : (
           <div style={{ display: 'grid', gap: 10 }}>
-            {caps.map(c => {
+            {lista.map(c => {
               const n = intentos.filter(i => i.capacitacion_id === c.id).length
               return (
                 <div key={c.id} style={{ ...card, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
                   <div style={{ flex: 1, minWidth: 240 }}>
                     <div style={{ fontSize: 13.5, fontWeight: 600, color: '#eee' }}>{c.titulo}</div>
                     <div style={{ fontSize: 10.5, color: '#666', marginTop: 3 }}>
-                      {c.alcance === 'general' ? 'Toda la empresa'
+                      {c.tipo === 'examen_contratacion'
+                        ? `Se aplica a candidatos${c.puestos.length ? ' de ' + c.puestos.join(' · ') : ''} desde Reclutamiento`
+                        : c.alcance === 'general' ? 'Toda la empresa'
                         : c.alcance === 'area' ? `Área: ${c.area || '—'}`
                         : c.puestos.length ? c.puestos.join(' · ')
                         : c.roles.map(r => ROL_CFG[r as Rol]?.plural || r).join(' · ') || 'Sin puestos asignados'}
@@ -173,18 +198,23 @@ export default function Capacitaciones() {
               )
             })}
           </div>
-        )
-      )}
+          )}
+        </>)
+      })()}
 
       {tab === 'resultados' && <Resultados caps={caps} intentos={intentos} esDG={esDG} onCambio={recargar} />}
     </div>
   )
 }
 
-function nuevaCap(autor: string): Capacitacion {
+function nuevaCap(autor: string, tipo: TipoCapacitacion = 'capacitacion'): Capacitacion {
   return {
-    id: '', titulo: '', descripcion: '', alcance: 'puesto', area: null, puestos: [], roles: [],
-    estado: 'borrador', obligatoria: true, minutos_estimados: null, calificacion_minima: 80,
+    id: '', tipo, titulo: '', descripcion: '', alcance: 'puesto', area: null, puestos: [], roles: [],
+    estado: 'borrador',
+    // Un examen de contratación nunca es obligatorio para la plantilla: no se
+    // le asigna a ningún empleado.
+    obligatoria: tipo === 'capacitacion',
+    minutos_estimados: null, calificacion_minima: 80,
     autor_id: null, autor_nombre: autor, orden: 0,
   }
 }
@@ -194,6 +224,7 @@ function nuevaCap(autor: string): Capacitacion {
 // ═══════════════════════════════════════════════════════════════════════════
 function EditorCapacitacion({ cap, autor, onSalir }: { cap: Capacitacion; autor: string; onSalir: () => void }) {
   const [c, setC] = useState<Capacitacion>(cap)
+  const esExamen = (cap.tipo || 'capacitacion') === 'examen_contratacion'
   const [bloques, setBloques] = useState<BloqueCapacitacion[]>([])
   const [preguntas, setPreguntas] = useState<PreguntaCapacitacion[]>([])
   const [puestos, setPuestos] = useState<Array<{ puesto: string; area: string; rol: Rol; personas: number }>>([])
@@ -215,22 +246,25 @@ function EditorCapacitacion({ cap, autor, onSalir }: { cap: Capacitacion; autor:
     if (!c.titulo.trim()) { setError('Ponle un título.'); return }
     const estado = nuevoEstado || c.estado
     if (estado === 'publicada') {
-      if (c.alcance === 'area' && !c.area) { setError('Elige el área a la que le toca antes de publicar.'); return }
-      if (c.alcance === 'puesto' && c.puestos.length === 0 && c.roles.length === 0) {
+      // Un examen de contratación no se le asigna a nadie de la plantilla, así
+      // que no se le exige área ni puesto: se manda desde Reclutamiento.
+      if (!esExamen && c.alcance === 'area' && !c.area) { setError('Elige el área a la que le toca antes de publicar.'); return }
+      if (!esExamen && c.alcance === 'puesto' && c.puestos.length === 0 && c.roles.length === 0) {
         setError('Elige al menos un puesto (o un rol) antes de publicar. Si no, no le llega a nadie.'); return
       }
-      if (preguntas.length === 0) { setError('Una capacitación publicada necesita su examen. Agrega al menos una pregunta.'); return }
+      if (preguntas.length === 0) { setError(esExamen ? 'Un examen necesita preguntas. Agrega al menos una.' : 'Una capacitación publicada necesita su examen. Agrega al menos una pregunta.'); return }
       const sinRespuesta = preguntas.filter(p => p.tipo !== 'abierta' && !p.respuesta_correcta)
       if (sinRespuesta.length) { setError(`${sinRespuesta.length} pregunta(s) no tienen marcada la respuesta correcta.`); return }
     }
     setGuardando(true); setError('')
     try {
       const fila = {
+        tipo: c.tipo || 'capacitacion',
         titulo: c.titulo.trim(), descripcion: c.descripcion || null, alcance: c.alcance,
         area: c.alcance === 'area' ? c.area : null,
         puestos: c.alcance === 'puesto' ? c.puestos : [],
         roles: c.alcance === 'puesto' ? c.roles : [],
-        estado, obligatoria: c.obligatoria, minutos_estimados: c.minutos_estimados,
+        estado, obligatoria: esExamen ? false : c.obligatoria, minutos_estimados: c.minutos_estimados,
         calificacion_minima: c.calificacion_minima, autor_nombre: c.autor_nombre || autor,
         updated_at: new Date().toISOString(),
       }
@@ -722,7 +756,7 @@ function Resultados({ caps, intentos, esDG, onCambio }: { caps: Capacitacion[]; 
   return (
     <div>
       <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
-        {([['todos', 'Todos'], ['capacitacion', 'Empleados'], ['contratacion', 'Candidatos'], ['pendientes', 'Por revisar']] as const).map(([k, l]) => (
+        {([['todos', 'Todos'], ['capacitacion', 'Capacitación de empleados'], ['contratacion', 'Exámenes de contratación'], ['pendientes', 'Por revisar']] as const).map(([k, l]) => (
           <button key={k} onClick={() => setFiltro(k)}
             style={{
               padding: '4px 12px', borderRadius: 16, fontSize: 10.5, cursor: 'pointer', fontFamily: 'inherit',
@@ -735,6 +769,10 @@ function Resultados({ caps, intentos, esDG, onCambio }: { caps: Capacitacion[]; 
         <div style={{ display: 'grid', gap: 8 }}>
           {lista.map(i => (
             <div key={i.id} style={{ ...card, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', padding: '10px 12px' }}>
+              {/* La franja de color dice de un vistazo si es empleado o candidato:
+                  en la vista "Todos" son dos cosas distintas revueltas. */}
+              <span style={{ width: 3, alignSelf: 'stretch', minHeight: 26, borderRadius: 2, flexShrink: 0,
+                background: i.motivo === 'contratacion' ? '#A78BFA' : '#57FF9A' }} />
               <div style={{ flex: 1, minWidth: 220 }}>
                 <div style={{ fontSize: 12.5, color: '#eee', fontWeight: 600 }}>
                   {i.employee_id ? (empleados[i.employee_id] || 'Empleado') : (i.candidato_nombre || 'Candidato')}
