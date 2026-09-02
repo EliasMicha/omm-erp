@@ -31,7 +31,12 @@ import {
   guardarReferencia, borrarReferencia, redactarCorreo, enviarCorreo, revisarRespuesta,
   BorradorCorreo, estadoDeReferencias,
 } from '../lib/referencias'
-import { Plus, X, Inbox, RefreshCw, FileText, ChevronLeft, Trash2, Download, Sparkles, AlertTriangle, Upload, Mail, Send, Check } from 'lucide-react'
+import {
+  ExamenAsignado, BorradorExamen, examenesDisponibles, cargarAsignaciones,
+  asignarExamen, quitarAsignacion, redactarInvitacion, enviarInvitacion, ligaDelExamen,
+} from '../lib/examenCandidato'
+import { Capacitacion } from '../lib/capacitaciones'
+import { Plus, X, Inbox, RefreshCw, FileText, ChevronLeft, Trash2, Download, Sparkles, AlertTriangle, Upload, Mail, Send, ClipboardCheck, Copy } from 'lucide-react'
 
 const card: React.CSSProperties = { background: '#0f0f0f', border: '1px solid #1f1f1f', borderRadius: 12, padding: 14 }
 const inp: React.CSSProperties = { width: '100%', background: '#1a1a1a', color: '#fff', border: '1px solid #2a2a2a', borderRadius: 6, padding: '7px 9px', fontSize: 12, fontFamily: 'inherit', boxSizing: 'border-box', outline: 'none' }
@@ -499,6 +504,8 @@ function FichaCandidato({ c, vacantes, onSalir }: { c: Candidato; vacantes: Vaca
 
       <PanelReferencias cand={cand} vacantes={vacantes} />
 
+      <PanelExamenes cand={cand} vacantes={vacantes} />
+
       {cand.carta && (
         <div style={{ ...card, marginTop: 12 }}>
           <div style={{ fontSize: 12.5, fontWeight: 600, color: '#eee', marginBottom: 6 }}>Lo que escribió</div>
@@ -827,6 +834,167 @@ function ModalBorrador({ borrador, enviando, onCambio, onEnviar, onCerrar }: {
           <Btn onClick={onCerrar}>Cancelar</Btn>
         </div>
       </div>
+    </div>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  EXAMEN PREVIO A LA ENTREVISTA
+// ═══════════════════════════════════════════════════════════════════════════
+/**
+ * Lo que pidió Elias: comprobar que saben lo que dicen saber ANTES de sentarse
+ * con ellos. El examen se arma en Capacitaciones; aquí solo se asigna, se manda
+ * la liga y se ve el resultado.
+ */
+function PanelExamenes({ cand, vacantes }: { cand: Candidato; vacantes: Vacante[] }) {
+  const { user } = useAuth()
+  const [disponibles, setDisponibles] = useState<Array<Capacitacion & { preguntas: number }>>([])
+  const [asigs, setAsigs] = useState<ExamenAsignado[]>([])
+  const [cargando, setCargando] = useState(true)
+  const [elegido, setElegido] = useState('')
+  const [trabajando, setTrabajando] = useState('')
+  const [err, setErr] = useState('')
+  const [copiada, setCopiada] = useState('')
+  const [borrador, setBorrador] = useState<{ a: ExamenAsignado; cap: Capacitacion; b: BorradorExamen } | null>(null)
+
+  async function recargar() { setAsigs(await cargarAsignaciones(cand.id)); setCargando(false) }
+  useEffect(() => {
+    examenesDisponibles().then(setDisponibles).catch(() => {})
+    recargar()
+  }, [cand.id])
+
+  const correo = cand.email || cand.email_relay || ''
+  const vac = vacantes.find(v => v.id === cand.vacante_id) || null
+
+  async function asignar() {
+    if (!elegido) return
+    setTrabajando('nuevo'); setErr('')
+    try { await asignarExamen(cand.id, elegido); setElegido(''); await recargar() }
+    catch (e: any) { setErr(e?.message || String(e)) }
+    setTrabajando('')
+  }
+
+  async function redactar(a: ExamenAsignado) {
+    const cap = (a.capacitacion || disponibles.find(c => c.id === a.capacitacion_id)) as Capacitacion | undefined
+    if (!cap) { setErr('Ese examen ya no existe.'); return }
+    setTrabajando(a.id); setErr('')
+    try {
+      const vence = a.vence_at ? new Date(a.vence_at).toLocaleDateString('es-MX', { day: '2-digit', month: 'long' }) : null
+      setBorrador({ a, cap, b: await redactarInvitacion(cand, cap, ligaDelExamen(a.token), vac, user?.nombre || 'OMM Technologies', vence) })
+    } catch (e: any) { setErr(e?.message || String(e)) }
+    setTrabajando('')
+  }
+
+  async function mandar() {
+    if (!borrador) return
+    setTrabajando(borrador.a.id); setErr('')
+    try { await enviarInvitacion(borrador.a, correo, borrador.b); setBorrador(null); await recargar() }
+    catch (e: any) { setErr(e?.message || String(e)) }
+    setTrabajando('')
+  }
+
+  function copiar(a: ExamenAsignado) {
+    navigator.clipboard?.writeText(ligaDelExamen(a.token))
+      .then(() => { setCopiada(a.id); setTimeout(() => setCopiada(''), 2000) })
+      .catch(() => setErr('No se pudo copiar; selecciona la liga a mano.'))
+  }
+
+  return (
+    <div style={{ ...card, marginTop: 12 }}>
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8 }}>
+        <ClipboardCheck size={14} color="#57FF9A" />
+        <div style={{ fontSize: 12.5, fontWeight: 600, color: '#eee', flex: 1 }}>
+          Evaluación antes de la entrevista
+          {asigs.length > 0 && <span style={{ color: '#666', fontWeight: 400 }}> · {asigs.length}</span>}
+        </div>
+      </div>
+
+      {disponibles.length === 0 ? (
+        <div style={{ fontSize: 11.5, color: '#777', lineHeight: 1.7 }}>
+          No hay evaluaciones publicadas con preguntas. Se arman en <b>Capacitaciones</b>:
+          crea una, agrégale preguntas y publícala; aquí aparece sola.
+        </div>
+      ) : (
+        <div style={{ display: 'flex', gap: 7, alignItems: 'center', flexWrap: 'wrap', marginBottom: asigs.length ? 12 : 0 }}>
+          <select value={elegido} onChange={e => setElegido(e.target.value)} style={{ ...inp, flex: 1, minWidth: 220, fontSize: 11.5 }}>
+            <option value="">Escoge la evaluación…</option>
+            {disponibles.map(c => <option key={c.id} value={c.id}>{c.titulo} · {c.preguntas} pregunta(s)</option>)}
+          </select>
+          <Btn size="sm" variant="primary" onClick={asignar} disabled={!elegido || trabajando === 'nuevo'}>
+            <Plus size={12} /> {trabajando === 'nuevo' ? 'Creando…' : 'Asignar'}
+          </Btn>
+        </div>
+      )}
+
+      {cargando ? null : (
+        <div style={{ display: 'grid', gap: 9 }}>
+          {asigs.map(a => {
+            const cap = a.capacitacion
+            const it: any = a.intento
+            const vencida = !!a.vence_at && new Date(a.vence_at).getTime() < Date.now() && !it
+            return (
+              <div key={a.id} style={{ border: '1px solid #1e1e1e', borderRadius: 9, padding: '10px 12px', background: '#101010' }}>
+                <div style={{ display: 'flex', gap: 9, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+                  <div style={{ flex: 1, minWidth: 200 }}>
+                    <div style={{ fontSize: 12.5, color: '#eee', fontWeight: 600 }}>{cap?.titulo || 'Evaluación'}</div>
+                    <div style={{ fontSize: 10.5, color: '#777', marginTop: 2 }}>
+                      {!a.enviado_at ? 'Sin enviar' : `Enviada el ${new Date(a.enviado_at).toLocaleDateString('es-MX')}`}
+                      {a.abierto_at ? ' · la abrió' : ''}
+                      {a.vence_at ? ` · vence ${new Date(a.vence_at).toLocaleDateString('es-MX')}` : ''}
+                    </div>
+                  </div>
+                  {it ? (
+                    <Badge
+                      label={it.pendiente_revision ? `${it.calificacion}% · falta revisar abiertas` : it.aprobado ? `Aprobó · ${it.calificacion}%` : `No aprobó · ${it.calificacion}%`}
+                      color={it.pendiente_revision ? '#D9A441' : it.aprobado ? '#10B981' : '#DC2626'} />
+                  ) : (
+                    <Badge label={vencida ? 'Vencida' : a.enviado_at ? 'Esperando respuesta' : 'Sin enviar'}
+                      color={vencida ? '#DC2626' : a.enviado_at ? '#2563EB' : '#6B7280'} />
+                  )}
+                  {!it && (
+                    <button onClick={async () => { await quitarAsignacion(a.id); recargar() }} title="Quitar"
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#555', padding: 2 }}><Trash2 size={12} /></button>
+                  )}
+                </div>
+
+                {!it && (
+                  <div style={{ display: 'flex', gap: 7, alignItems: 'center', marginTop: 9, flexWrap: 'wrap' }}>
+                    <Btn size="sm" onClick={() => copiar(a)}>
+                      <Copy size={12} /> {copiada === a.id ? 'Copiada' : 'Copiar liga'}
+                    </Btn>
+                    {correo ? (
+                      <Btn size="sm" variant="primary" onClick={() => redactar(a)} disabled={trabajando === a.id}>
+                        <Sparkles size={12} /> {trabajando === a.id ? 'Redactando…' : a.enviado_at ? 'Volver a enviar' : 'Redactar y enviar'}
+                      </Btn>
+                    ) : (
+                      <span style={{ fontSize: 10.5, color: '#D9A441' }}>Sin correo del candidato — copia la liga y mándasela tú.</span>
+                    )}
+                    {correo === cand.email_relay && cand.email_relay && (
+                      <span style={{ fontSize: 10.5, color: '#777' }}>Se mandará al alias de Indeed; él lo recibe igual.</span>
+                    )}
+                  </div>
+                )}
+
+                {it?.pendiente_revision && (
+                  <div style={{ fontSize: 10.5, color: '#D9A441', marginTop: 7, lineHeight: 1.6 }}>
+                    Trae preguntas abiertas: el porcentaje solo cuenta las de opción. Revísalas en Capacitaciones antes de decidir.
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {err && <div style={{ fontSize: 11.5, color: '#DC2626', marginTop: 8 }}>{err}</div>}
+
+      {borrador && (
+        <ModalBorrador
+          borrador={{ ref: { id: borrador.a.id, nombre: cand.nombre, email: correo } as any, b: borrador.b }}
+          enviando={!!trabajando}
+          onCambio={b => setBorrador({ ...borrador, b })}
+          onEnviar={mandar} onCerrar={() => setBorrador(null)} />
+      )}
     </div>
   )
 }

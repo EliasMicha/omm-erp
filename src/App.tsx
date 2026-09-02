@@ -35,6 +35,7 @@ import Documentacion from './pages/Documentacion'
 import Actividades from './pages/Actividades'
 import Mantenimiento from './pages/Mantenimiento'
 import ObraApp from './obra-app/ObraApp'
+import ExamenPublicoPage from './pages/ExamenPublico'
 import ChatBot from './components/ChatBot'
 
 
@@ -50,6 +51,10 @@ export default function App() {
           <Route path="/cotizacion/:id/memoria-tecnica" element={<MemoriaTecnica />} />
           {/* App móvil para instaladores — sin sidebar */}
           <Route path="/obra-app/*" element={<ObraApp />} />
+          {/* Examen de contratación: lo abre el candidato con su liga, sin
+              cuenta. Va FUERA de ProtectedRoute a propósito: pedirle registrarse
+              para contestar un examen mata la respuesta. */}
+          <Route path="/examen/:token" element={<ExamenPublicoPage />} />
           {/* Layout principal con sidebar para el resto */}
           <Route path="/*" element={
             <ProtectedRoute>
