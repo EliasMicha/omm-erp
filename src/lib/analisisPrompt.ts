@@ -49,6 +49,20 @@ export interface Analisis {
   }
   /** Lo que el CV no dice y hace falta para decidir. */
   falta_saber: string[]
+  /** A quién se le puede pedir referencia. Sale del CV, si lo trae. */
+  referencias: ReferenciaExtraida[]
+}
+
+export interface ReferenciaExtraida {
+  nombre: string
+  puesto?: string | null
+  empresa?: string | null
+  /** Jefe directo, colega, cliente, profesor… tal como lo diga el CV. */
+  relacion?: string | null
+  telefono?: string | null
+  email?: string | null
+  /** Si es de su trabajo ACTUAL: contactarlo sin permiso le puede costar el empleo. */
+  es_empleador_actual: boolean
 }
 
 export const VEREDICTO_CFG: Record<Analisis['veredicto'], { label: string; color: string }> = {
@@ -124,6 +138,12 @@ director pondera aparte — no la mezcles con el ajuste técnico.
 · "distancia": estima el trayecto entre donde vive y la ubicación del trabajo en
   palabras ("~1 h en transporte público desde Ecatepec"). Si falta cualquiera de
   las dos, pon null y riesgo_traslado "no_se_sabe". No inventes kilómetros.
+· "referencias": saca a las personas que el CV ofrezca como referencia, con su
+  nombre, dónde y qué relación tuvieron. Si trae teléfono o correo, inclúyelos
+  tal cual. Marca es_empleador_actual en true SOLO si esa persona sigue siendo
+  su jefe o su empresa actual. Si el CV no ofrece referencias, devuelve [] y
+  ponlo en "falta_saber" — no inventes nombres ni correos JAMÁS: un correo
+  inventado manda una carta a un desconocido a nombre de OMM.
 · Español de México, directo, sin adornos.
 
 ── FORMATO ──
@@ -149,7 +169,8 @@ Responde SOLO con este JSON, sin texto antes ni después:
     "riesgo_traslado": "bajo|medio|alto|no_se_sabe",
     "nota_traslado": "o null"
   },
-  "falta_saber": [""]
+  "falta_saber": [""],
+  "referencias": [{"nombre":"", "puesto":"", "empresa":"", "relacion":"", "telefono":null, "email":null, "es_empleador_actual":false}]
 }`
 }
 
@@ -203,7 +224,24 @@ export function normalizarAnalisis(d: any): Analisis {
       nota_traslado: ctx.nota_traslado ? String(ctx.nota_traslado) : null,
     },
     falta_saber: arr(d?.falta_saber).map((x: any) => String(x)).filter(Boolean),
+    referencias: arr(d?.referencias).map((x: any) => ({
+      nombre: String(x?.nombre || '').trim(),
+      puesto: x?.puesto ? String(x.puesto).trim() : null,
+      empresa: x?.empresa ? String(x.empresa).trim() : null,
+      relacion: x?.relacion ? String(x.relacion).trim() : null,
+      telefono: soloDigitos(x?.telefono),
+      email: correoValido(x?.email),
+      es_empleador_actual: x?.es_empleador_actual === true,
+    })).filter((x: any) => x.nombre),
   }
+}
+
+const soloDigitos = (v: any) => { const s = String(v ?? '').replace(/\D/g, ''); return s.length >= 10 ? s : null }
+// Solo pasa lo que de verdad parece correo: de aquí sale una carta a un tercero
+// a nombre de OMM, y mandarla a una dirección inventada es peor que no mandarla.
+const correoValido = (v: any) => {
+  const s = String(v ?? '').trim()
+  return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(s) ? s : null
 }
 
 

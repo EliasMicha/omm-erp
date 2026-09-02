@@ -61,6 +61,13 @@ export async function analizarCandidato(c: Candidato, v: Vacante | null): Promis
 }
 
 export async function guardarAnalisis(candidatoId: string, a: Analisis) {
+  // Las referencias que trae el CV se siembran aquí: es el único momento en que
+  // se conocen. sincronizarReferencias no pisa lo capturado a mano ni lo ya
+  // contestado, así que re-analizar es seguro.
+  try {
+    const { sincronizarReferencias } = await import('./referencias')
+    await sincronizarReferencias(candidatoId, a.referencias || [])
+  } catch { /* el veredicto vale aunque las referencias fallen */ }
   await supabase.from('candidatos').update({
     compatibilidad: a.compatibilidad,
     analisis: a,

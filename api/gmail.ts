@@ -184,6 +184,48 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(200).json({ ok: true, draftId: dj.id, url: openUrl, email: t.email })
     }
 
+    // ── Enviar un correo de verdad (no borrador) ───────────────────────────
+    // Lo usa reclutamiento para pedir referencias. Devuelve threadId para poder
+    // buscar la respuesta después: sin él, monitorear la contestación implicaría
+    // adivinar por remitente y asunto, que falla en cuanto alguien reenvía.
+    if (action === 'send') {
+      const body: any = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {})
+      const to = String(body.to || '').trim()
+      const subject = String(body.subject || '').trim()
+      const text = String(body.body || '')
+      if (!to || !subject) return res.status(400).json({ ok: false, error: 'Faltan destinatario o asunto' })
+      const t = await getStoredToken()
+      if (!t) return res.status(400).json({ ok: false, error: 'Gmail no está conectado.' })
+      const at = await accessTokenFromRefresh(t.refresh_token)
+      const mime = buildMime(to, subject, text, Array.isArray(body.attachments) ? body.attachments : [])
+      const sr = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${at}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ raw: b64url(mime) }),
+      })
+      const sj: any = await sr.json()
+      if (!sr.ok) return res.status(500).json({ ok: false, error: (sj && sj.error && sj.error.message) || JSON.stringify(sj) })
+      return res.status(200).json({ ok: true, messageId: sj.id, threadId: sj.threadId, email: t.email })
+    }
+
+    // Los mensajes de un hilo, para leer la respuesta de una referencia.
+    if (action === 'hilo') {
+      const t = await getStoredToken()
+      if (!t) return res.status(200).json({ ok: true, connected: false, mensajes: [] })
+      const at = await accessTokenFromRefresh(t.refresh_token)
+      const tid = String(q.threadId || '')
+      if (!tid) return res.status(400).json({ ok: false, error: 'Falta threadId' })
+      const hr = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/threads/${tid}?format=full`,
+        { headers: { Authorization: `Bearer ${at}` } })
+      const hj: any = await hr.json()
+      if (!hr.ok) {
+        const msg = (hj && hj.error && hj.error.message) || 'No se pudo leer el hilo'
+        return res.status(200).json({ ok: false, connected: true, reconectar: /insufficient|scope|permission/i.test(msg), error: msg, mensajes: [] })
+      }
+      const mensajes = ((hj.messages || []) as any[]).map(m => resumirCorreo(m))
+      return res.status(200).json({ ok: true, connected: true, email: t.email, mensajes })
+    }
+
     // ── RECLUTAMIENTO: postulaciones que llegan por correo ──────────────────
     //
     // Indeed manda un correo por cada postulación, con el CV adjunto. El
@@ -320,6 +362,12 @@ director pondera aparte — no la mezcles con el ajuste técnico.
 · "distancia": estima el trayecto entre donde vive y la ubicación del trabajo en
   palabras ("~1 h en transporte público desde Ecatepec"). Si falta cualquiera de
   las dos, pon null y riesgo_traslado "no_se_sabe". No inventes kilómetros.
+· "referencias": saca a las personas que el CV ofrezca como referencia, con su
+  nombre, dónde y qué relación tuvieron. Si trae teléfono o correo, inclúyelos
+  tal cual. Marca es_empleador_actual en true SOLO si esa persona sigue siendo
+  su jefe o su empresa actual. Si el CV no ofrece referencias, devuelve [] y
+  ponlo en "falta_saber" — no inventes nombres ni correos JAMÁS: un correo
+  inventado manda una carta a un desconocido a nombre de OMM.
 · Español de México, directo, sin adornos.
 
 ── FORMATO ──
@@ -345,7 +393,8 @@ Responde SOLO con este JSON, sin texto antes ni después:
     "riesgo_traslado": "bajo|medio|alto|no_se_sabe",
     "nota_traslado": "o null"
   },
-  "falta_saber": [""]
+  "falta_saber": [""],
+  "referencias": [{"nombre":"", "puesto":"", "empresa":"", "relacion":"", "telefono":null, "email":null, "es_empleador_actual":false}]
 }`
 }
 

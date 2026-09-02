@@ -275,3 +275,33 @@ export async function moverEtapa(id: string, etapa: EtapaCandidato, motivo?: str
     updated_at: new Date().toISOString(),
   }).eq('id', id)
 }
+
+/**
+ * Sube el CV a mano.
+ *
+ * Hace falta porque los correos de Indeed NO traen el CV adjunto: solo el
+ * nombre, el alias de correo y una liga al portal. El texto dice "su CV adjunto
+ * (si se proporcionó uno)" pero el mensaje llega con cero adjuntos —
+ * verificado contra la bandeja real. Así que el CV se baja de Indeed y se sube
+ * aquí; sin esto, ningún candidato de Indeed se puede analizar.
+ */
+export async function subirCV(candidatoId: string, file: File): Promise<{ cv_path: string; cv_nombre: string }> {
+  const MAX = 20 * 1024 * 1024
+  if (file.size > MAX) throw new Error(`"${file.name}" pesa ${(file.size / 1024 / 1024).toFixed(1)} MB y el tope es 20 MB.`)
+  const limpio = file.name.trim().replace(/[^\w.\-]+/g, '_')
+  const path = `manual/${candidatoId}/${Date.now()}_${limpio}`
+  const { error } = await supabase.storage.from(BUCKET_CV).upload(path, file, { upsert: false, contentType: file.type || undefined })
+  if (error) throw new Error(error.message)
+  // Se limpia el veredicto anterior: decía "no se pudo leer el CV" y con el CV
+  // nuevo esa conclusión ya no vale. Dejarlo confundiría más que ayudar.
+  const { error: e2 } = await supabase.from('candidatos').update({
+    cv_path: path, cv_nombre: file.name.trim(),
+    analisis: null, compatibilidad: null, analisis_at: null, analisis_error: null,
+    updated_at: new Date().toISOString(),
+  }).eq('id', candidatoId)
+  if (e2) throw new Error(e2.message)
+  return { cv_path: path, cv_nombre: file.name.trim() }
+}
+
+/** El CV es PDF? El modelo solo lee PDF como documento. */
+export const esPdf = (nombreOPath?: string | null) => /\.pdf$/i.test(String(nombreOPath || ''))

@@ -10,14 +10,14 @@
 //  El examen de contratación NO vive aquí: ya existe en Capacitaciones, y
 //  desde ahí se aplica a un candidato. Aquí sólo se marca la etapa.
 // ═══════════════════════════════════════════════════════════════════════════
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { Badge, Btn, Loading, SectionHeader, EmptyState } from '../components/layout/UI'
 import { puestosDeLaNomina, areasDeLaNomina } from '../lib/capacitaciones'
 import {
   cargarVacantes, cargarCandidatos, buscarPostulaciones, messageIdsImportados,
-  extraerDeCorreo, importarPostulacion, adjuntoDelCV, moverEtapa, urlDelCV,
+  extraerDeCorreo, importarPostulacion, adjuntoDelCV, moverEtapa, urlDelCV, subirCV, esPdf,
   ETAPA_CFG, ESTADO_VACANTE_CFG, FUENTE_CFG,
   type Vacante, type Candidato, type EtapaCandidato, type EstadoVacante,
   type CorreoPostulacion, type EstadoBandeja,
@@ -26,7 +26,12 @@ import {
   Analisis, VEREDICTO_CFG, colorCompat, porCompatibilidad, analizarCandidato,
   ingestaAutomatica, vacanteParaPuesto, ResultadoIngesta,
 } from '../lib/analisisCandidato'
-import { Plus, X, Inbox, RefreshCw, FileText, ChevronLeft, Trash2, Download, Sparkles, AlertTriangle } from 'lucide-react'
+import {
+  Referencia, ESTADO_REF_CFG, TONO_CFG, cargarReferencias, agregarReferencia,
+  guardarReferencia, borrarReferencia, redactarCorreo, enviarCorreo, revisarRespuesta,
+  BorradorCorreo, estadoDeReferencias,
+} from '../lib/referencias'
+import { Plus, X, Inbox, RefreshCw, FileText, ChevronLeft, Trash2, Download, Sparkles, AlertTriangle, Upload, Mail, Send, Check } from 'lucide-react'
 
 const card: React.CSSProperties = { background: '#0f0f0f', border: '1px solid #1f1f1f', borderRadius: 12, padding: 14 }
 const inp: React.CSSProperties = { width: '100%', background: '#1a1a1a', color: '#fff', border: '1px solid #2a2a2a', borderRadius: 6, padding: '7px 9px', fontSize: 12, fontFamily: 'inherit', boxSizing: 'border-box', outline: 'none' }
@@ -488,7 +493,11 @@ function FichaCandidato({ c, vacantes, onSalir }: { c: Candidato; vacantes: Vaca
         </div>
       </div>
 
+      <CajaCV cand={cand} vacantes={vacantes} onCambio={setCand} />
+
       <PanelAnalisis cand={cand} vacantes={vacantes} onAnalizado={setCand} />
+
+      <PanelReferencias cand={cand} vacantes={vacantes} />
 
       {cand.carta && (
         <div style={{ ...card, marginTop: 12 }}>
@@ -496,6 +505,328 @@ function FichaCandidato({ c, vacantes, onSalir }: { c: Candidato; vacantes: Vaca
           <div style={{ fontSize: 12, color: '#bbb', whiteSpace: 'pre-wrap', lineHeight: 1.7 }}>{cand.carta}</div>
         </div>
       )}
+    </div>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  EL CV
+// ═══════════════════════════════════════════════════════════════════════════
+/**
+ * Subir el CV a mano.
+ *
+ * Hace falta de verdad: los correos de Indeed NO traen el CV adjunto. El texto
+ * dice "su CV adjunto (si se proporcionó uno)" pero el mensaje llega con cero
+ * adjuntos — solo el nombre, el alias de correo y una liga al portal de Indeed.
+ * Sin esta caja, ningún candidato de Indeed se puede analizar.
+ */
+function CajaCV({ cand, vacantes, onCambio }: {
+  cand: Candidato; vacantes: Vacante[]; onCambio: (c: Candidato) => void
+}) {
+  const [subiendo, setSubiendo] = useState(false)
+  const [err, setErr] = useState('')
+  const ref = useRef<HTMLInputElement>(null)
+  const cv = urlDelCV(cand.cv_path)
+
+  async function subir(file: File) {
+    setSubiendo(true); setErr('')
+    try {
+      const { cv_path, cv_nombre } = await subirCV(cand.id, file)
+      const actualizado = { ...cand, cv_path, cv_nombre, analisis: null, compatibilidad: null, analisis_at: null, analisis_error: null }
+      onCambio(actualizado)
+      // Con CV nuevo, el veredicto se rehace solo: nadie quiere subir un archivo
+      // y luego acordarse de apretar otro botón.
+      const v = vacantes.find(x => x.id === cand.vacante_id) || vacanteParaPuesto(cand.puesto_solicitado, vacantes)
+      const r = await analizarCandidato(actualizado, v || null)
+      if (r.ok && r.analisis) {
+        onCambio({ ...actualizado, analisis: r.analisis, compatibilidad: r.analisis.compatibilidad, analisis_at: new Date().toISOString() })
+      } else {
+        onCambio({ ...actualizado, analisis_error: r.error || 'falló', analisis_at: new Date().toISOString() })
+      }
+    } catch (e: any) { setErr(e?.message || String(e)) }
+    setSubiendo(false)
+  }
+
+  const faltaPdf = !!cand.cv_path && !esPdf(cand.cv_path)
+
+  return (
+    <div style={{ ...card, marginTop: 12, borderColor: cand.cv_path ? '#222' : '#3a2a15' }}>
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+        <FileText size={14} color={cand.cv_path ? '#57FF9A' : '#D9A441'} />
+        <div style={{ flex: 1, minWidth: 240, fontSize: 12, color: '#ccc', lineHeight: 1.6 }}>
+          {cand.cv_path ? (
+            <>CV: <b>{cand.cv_nombre || 'archivo'}</b>
+              {faltaPdf && <span style={{ color: '#D9A441' }}> · no es PDF, el análisis solo lee PDF</span>}</>
+          ) : (
+            <>Sin CV. <span style={{ color: '#888' }}>
+              Los correos de Indeed no traen el CV adjunto: solo mandan el nombre y una liga a su portal.
+              Bájalo de Indeed y súbelo aquí — al subirlo se vuelve a analizar solo.</span></>
+          )}
+        </div>
+        {cv && <a href={cv} target="_blank" rel="noreferrer"><Btn size="sm"><Download size={12} /> Ver</Btn></a>}
+        <input ref={ref} type="file" accept=".pdf,.doc,.docx" style={{ display: 'none' }}
+          onChange={e => { const f = e.target.files?.[0]; if (f) subir(f); e.target.value = '' }} />
+        <Btn size="sm" variant={cand.cv_path ? 'default' : 'primary'} onClick={() => ref.current?.click()} disabled={subiendo}>
+          <Upload size={12} /> {subiendo ? 'Subiendo y analizando…' : cand.cv_path ? 'Reemplazar' : 'Subir CV'}
+        </Btn>
+      </div>
+      {err && <div style={{ fontSize: 11.5, color: '#DC2626', marginTop: 7 }}>{err}</div>}
+    </div>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  REFERENCIAS
+// ═══════════════════════════════════════════════════════════════════════════
+const CONFIRMA_CFG: Record<string, { label: string; color: string }> = {
+  si: { label: 'Confirma', color: '#10B981' },
+  no: { label: 'NO confirma', color: '#DC2626' },
+  no_dice: { label: 'No dice', color: '#666' },
+}
+const RECONTRATA_CFG: Record<string, { label: string; color: string }> = {
+  si: { label: 'Sí lo recontrataría', color: '#10B981' },
+  con_reservas: { label: 'Con reservas', color: '#D9A441' },
+  no: { label: 'NO lo recontrataría', color: '#DC2626' },
+  no_dice: { label: 'No lo dijo', color: '#666' },
+}
+
+function PanelReferencias({ cand, vacantes }: { cand: Candidato; vacantes: Vacante[] }) {
+  const { user } = useAuth()
+  const [refs, setRefs] = useState<Referencia[]>([])
+  const [cargando, setCargando] = useState(true)
+  const [borrador, setBorrador] = useState<{ ref: Referencia; b: BorradorCorreo } | null>(null)
+  const [trabajando, setTrabajando] = useState('')
+  const [err, setErr] = useState('')
+  const [nueva, setNueva] = useState(false)
+
+  async function recargar() { setRefs(await cargarReferencias(cand.id)); setCargando(false) }
+  useEffect(() => { recargar() }, [cand.id])
+
+  const vac = vacantes.find(v => v.id === cand.vacante_id) || null
+
+  async function redactar(r: Referencia) {
+    setTrabajando(r.id); setErr('')
+    try { setBorrador({ ref: r, b: await redactarCorreo(cand, r, vac, user?.nombre || 'OMM Technologies') }) }
+    catch (e: any) { setErr(e?.message || String(e)) }
+    setTrabajando('')
+  }
+
+  async function mandar() {
+    if (!borrador) return
+    setTrabajando(borrador.ref.id); setErr('')
+    try { await enviarCorreo(borrador.ref, borrador.b); setBorrador(null); await recargar() }
+    catch (e: any) { setErr(e?.message || String(e)) }
+    setTrabajando('')
+  }
+
+  async function revisar() {
+    setTrabajando('todas'); setErr('')
+    try {
+      const cuenta = user?.email || ''
+      let hubo = false
+      for (const r of refs.filter(x => x.estado === 'enviado' && x.thread_id)) {
+        if (await revisarRespuesta(r, cuenta, cand)) hubo = true
+      }
+      await recargar()
+      if (!hubo) setErr('Todavía no contestan.')
+    } catch (e: any) { setErr(e?.message || String(e)) }
+    setTrabajando('')
+  }
+
+  const esperando = refs.filter(r => r.estado === 'enviado').length
+
+  return (
+    <div style={{ ...card, marginTop: 12 }}>
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8 }}>
+        <Mail size={14} color="#57FF9A" />
+        <div style={{ fontSize: 12.5, fontWeight: 600, color: '#eee', flex: 1 }}>
+          Referencias {refs.length > 0 && <span style={{ color: '#666', fontWeight: 400 }}>· {refs.length}</span>}
+        </div>
+        {esperando > 0 && (
+          <Btn size="sm" onClick={revisar} disabled={!!trabajando}>
+            <RefreshCw size={12} /> {trabajando === 'todas' ? 'Revisando…' : `Revisar respuestas (${esperando})`}
+          </Btn>
+        )}
+        <Btn size="sm" onClick={() => setNueva(true)}><Plus size={12} /> Agregar</Btn>
+      </div>
+
+      {cargando ? <div style={{ fontSize: 11.5, color: '#666' }}>Cargando…</div> : refs.length === 0 && !nueva ? (
+        <div style={{ fontSize: 11.5, color: '#777', lineHeight: 1.7 }}>
+          El CV no ofreció referencias, o todavía no se ha analizado. Puedes capturarlas a mano con “Agregar”.
+        </div>
+      ) : null}
+
+      {nueva && <FormaReferencia onGuardar={async d => { await agregarReferencia(cand.id, d); setNueva(false); recargar() }} onCancelar={() => setNueva(false)} />}
+
+      <div style={{ display: 'grid', gap: 9 }}>
+        {refs.map(r => (
+          <RenglonReferencia key={r.id} r={r} trabajando={trabajando === r.id}
+            onRedactar={() => redactar(r)}
+            onGuardar={async campos => { await guardarReferencia(r.id, campos); recargar() }}
+            onBorrar={async () => { await borrarReferencia(r.id); recargar() }} />
+        ))}
+      </div>
+
+      {err && <div style={{ fontSize: 11.5, color: err === 'Todavía no contestan.' ? '#888' : '#DC2626', marginTop: 8 }}>{err}</div>}
+
+      {borrador && (
+        <ModalBorrador borrador={borrador} enviando={!!trabajando}
+          onCambio={b => setBorrador({ ...borrador, b })}
+          onEnviar={mandar} onCerrar={() => setBorrador(null)} />
+      )}
+    </div>
+  )
+}
+
+function RenglonReferencia({ r, trabajando, onRedactar, onGuardar, onBorrar }: {
+  r: Referencia; trabajando: boolean
+  onRedactar: () => void; onGuardar: (c: Partial<Referencia>) => void; onBorrar: () => void
+}) {
+  const [correo, setCorreo] = useState(r.email || '')
+  const cfg = ESTADO_REF_CFG[r.estado]
+  const res = r.resumen
+
+  return (
+    <div style={{ border: '1px solid #1e1e1e', borderRadius: 9, padding: '10px 12px', background: '#101010' }}>
+      <div style={{ display: 'flex', gap: 9, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+        <div style={{ flex: 1, minWidth: 210 }}>
+          <div style={{ fontSize: 12.5, color: '#eee', fontWeight: 600 }}>
+            {r.nombre}
+            {r.es_empleador_actual && <span style={{ fontSize: 10, color: '#DC2626', marginLeft: 7 }}>· empleador ACTUAL</span>}
+          </div>
+          <div style={{ fontSize: 10.5, color: '#777', marginTop: 2 }}>
+            {[r.puesto, r.empresa, r.relacion].filter(Boolean).join(' · ') || 'Sin datos del puesto'}
+            {r.telefono ? ` · tel ${r.telefono}` : ''}
+          </div>
+        </div>
+        <Badge label={cfg.label} color={cfg.color} />
+        <button onClick={onBorrar} title="Quitar" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#555', padding: 2 }}><Trash2 size={12} /></button>
+      </div>
+
+      {r.es_empleador_actual && r.estado === 'pendiente' && (
+        <div style={{ fontSize: 10.5, color: '#D9A441', marginTop: 6, lineHeight: 1.6 }}>
+          Es su trabajo actual. Escribirle sin que el candidato lo autorice le puede costar el empleo — pregúntale primero.
+        </div>
+      )}
+
+      {(r.estado === 'pendiente' || r.estado === 'sin_datos') && (
+        <div style={{ display: 'flex', gap: 7, alignItems: 'center', marginTop: 8, flexWrap: 'wrap' }}>
+          <input value={correo} onChange={e => setCorreo(e.target.value)}
+            onBlur={() => correo !== (r.email || '') && onGuardar({ email: correo.trim() || null })}
+            placeholder="correo de la referencia" style={{ ...inp, flex: 1, minWidth: 200, fontSize: 11.5 }} />
+          <Btn size="sm" variant="primary" onClick={onRedactar} disabled={!correo.trim() || trabajando}>
+            <Sparkles size={12} /> {trabajando ? 'Redactando…' : 'Redactar correo'}
+          </Btn>
+        </div>
+      )}
+
+      {r.estado === 'enviado' && (
+        <div style={{ fontSize: 10.5, color: '#666', marginTop: 6 }}>
+          Enviado a {r.email} el {r.enviado_at ? new Date(r.enviado_at).toLocaleDateString('es-MX') : '—'}. Sin respuesta todavía.
+        </div>
+      )}
+
+      {r.estado === 'respondido' && (
+        <div style={{ marginTop: 9, borderTop: '1px solid #1c1c1c', paddingTop: 9 }}>
+          {res ? (
+            <>
+              <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', marginBottom: 7 }}>
+                {res.tono && <Badge label={TONO_CFG[res.tono]?.label || res.tono} color={TONO_CFG[res.tono]?.color || '#888'} />}
+                <Badge label={`Puesto: ${CONFIRMA_CFG[res.confirma_puesto]?.label || '—'}`} color={CONFIRMA_CFG[res.confirma_puesto]?.color || '#666'} />
+                <Badge label={`Fechas: ${CONFIRMA_CFG[res.confirma_fechas]?.label || '—'}`} color={CONFIRMA_CFG[res.confirma_fechas]?.color || '#666'} />
+                <Badge label={RECONTRATA_CFG[res.lo_recontrataria]?.label || '—'} color={RECONTRATA_CFG[res.lo_recontrataria]?.color || '#666'} />
+              </div>
+              {res.desempeno && <div style={{ fontSize: 11.5, color: '#ccc', lineHeight: 1.7 }}>{res.desempeno}</div>}
+              {!!res.contradice_el_cv?.length && (
+                <div style={{ marginTop: 7 }}>
+                  {res.contradice_el_cv.map((c, i) => (
+                    <div key={i} style={{ fontSize: 11.5, color: '#DC2626', display: 'flex', gap: 5, alignItems: 'flex-start' }}>
+                      <AlertTriangle size={11} style={{ marginTop: 2, flexShrink: 0 }} /> Contradice el CV: {c}
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div style={{ display: 'grid', gap: 10, gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', marginTop: 7 }}>
+                {!!res.fortalezas?.length && <div>{res.fortalezas.map((f, i) => <div key={i} style={{ fontSize: 11, color: '#10B981' }}>+ {f}</div>)}</div>}
+                {!!res.reservas?.length && <div>{res.reservas.map((f, i) => <div key={i} style={{ fontSize: 11, color: '#D9A441' }}>− {f}</div>)}</div>}
+              </div>
+            </>
+          ) : null}
+          {r.respuesta_texto && (
+            <details style={{ marginTop: 8 }}>
+              <summary style={{ fontSize: 10.5, color: '#666', cursor: 'pointer' }}>Ver la respuesta completa</summary>
+              <div style={{ fontSize: 11, color: '#999', whiteSpace: 'pre-wrap', lineHeight: 1.7, marginTop: 6 }}>{r.respuesta_texto}</div>
+            </details>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function FormaReferencia({ onGuardar, onCancelar }: {
+  onGuardar: (d: Partial<Referencia>) => void; onCancelar: () => void
+}) {
+  const [d, setD] = useState<Partial<Referencia>>({ nombre: '', empresa: '', relacion: '', email: '', telefono: '' })
+  const campo = (k: keyof Referencia, ph: string) => (
+    <input value={(d[k] as string) || ''} onChange={e => setD({ ...d, [k]: e.target.value })}
+      placeholder={ph} style={{ ...inp, fontSize: 11.5 }} />
+  )
+  return (
+    <div style={{ border: '1px solid #242424', borderRadius: 9, padding: 11, marginBottom: 10, display: 'grid', gap: 7 }}>
+      <div style={{ display: 'grid', gap: 7, gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))' }}>
+        {campo('nombre', 'Nombre *')}
+        {campo('empresa', 'Empresa')}
+        {campo('relacion', 'Relación (jefe directo, colega…)')}
+        {campo('email', 'Correo')}
+        {campo('telefono', 'Teléfono')}
+      </div>
+      <label style={{ fontSize: 11, color: '#888', display: 'flex', gap: 6, alignItems: 'center' }}>
+        <input type="checkbox" checked={!!d.es_empleador_actual} onChange={e => setD({ ...d, es_empleador_actual: e.target.checked })} />
+        Es su empleador actual (no escribirle sin permiso del candidato)
+      </label>
+      <div style={{ display: 'flex', gap: 7 }}>
+        <Btn size="sm" variant="primary" onClick={() => d.nombre?.trim() && onGuardar(d)}>Guardar</Btn>
+        <Btn size="sm" onClick={onCancelar}>Cancelar</Btn>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * El correo SIEMPRE se ve antes de mandarse. Va a nombre de OMM, a un tercero,
+ * y no se puede deshacer: que la IA lo redacte no significa que lo mande sola.
+ */
+function ModalBorrador({ borrador, enviando, onCambio, onEnviar, onCerrar }: {
+  borrador: { ref: Referencia; b: BorradorCorreo }; enviando: boolean
+  onCambio: (b: BorradorCorreo) => void; onEnviar: () => void; onCerrar: () => void
+}) {
+  return (
+    <div onClick={onCerrar} style={{ position: 'fixed', inset: 0, background: '#000c', display: 'grid', placeItems: 'center', zIndex: 90, padding: 18 }}>
+      <div onClick={e => e.stopPropagation()} style={{ ...card, width: 'min(680px, 100%)', maxHeight: '86vh', overflowY: 'auto' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 10 }}>
+          <Mail size={15} color="#57FF9A" />
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 13.5, fontWeight: 600, color: '#eee' }}>Correo a {borrador.ref.nombre}</div>
+            <div style={{ fontSize: 11, color: '#777' }}>{borrador.ref.email}</div>
+          </div>
+          <button onClick={onCerrar} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#666' }}><X size={16} /></button>
+        </div>
+        <div style={lbl}>Asunto</div>
+        <input value={borrador.b.asunto} onChange={e => onCambio({ ...borrador.b, asunto: e.target.value })} style={{ ...inp, marginBottom: 9 }} />
+        <div style={lbl}>Mensaje</div>
+        <textarea value={borrador.b.cuerpo} onChange={e => onCambio({ ...borrador.b, cuerpo: e.target.value })}
+          rows={14} style={{ ...inp, resize: 'vertical', lineHeight: 1.7 }} />
+        <div style={{ fontSize: 10.5, color: '#777', margin: '9px 0', lineHeight: 1.6 }}>
+          Se manda desde tu Gmail. Léelo antes: sale a nombre de OMM y no se puede deshacer.
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <Btn variant="primary" onClick={onEnviar} disabled={enviando || !borrador.b.cuerpo.trim()}>
+            <Send size={13} /> {enviando ? 'Enviando…' : 'Enviar'}
+          </Btn>
+          <Btn onClick={onCerrar}>Cancelar</Btn>
+        </div>
+      </div>
     </div>
   )
 }
