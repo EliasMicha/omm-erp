@@ -45,8 +45,7 @@ export default function CotEditorDistribucion({ cotId, onBack, onSwitchVersion }
   // Datos del cliente que compra: si es distribuidor, su descuento se propone solo.
   const [distribuidor, setDistribuidor] = useState<{ nombre: string; descuento: number } | null>(null)
   const [descAplicado, setDescAplicado] = useState(false)
-  // Datos del membrete del PDF: folio estable y quién la elaboró.
-  const [anioComercial, setAnioComercial] = useState<number | null>(null)
+  // Datos del membrete del PDF: versión y quién la elaboró.
   const [versionLabel, setVersionLabel] = useState<string | null>(null)
   const [autorNombre, setAutorNombre] = useState('')
 
@@ -55,7 +54,6 @@ export default function CotEditorDistribucion({ cotId, onBack, onSwitchVersion }
       const { data: cot } = await supabase.from('quotations').select('*').eq('id', cotId).single()
       if (cot) {
         setCotName(cot.name || '')
-        setAnioComercial(cot.commercial_year || null)
         setVersionLabel(cot.version_label || null)
         setAutorNombre(cot.created_by || '')
         let meta: any = {}
@@ -251,7 +249,7 @@ export default function CotEditorDistribucion({ cotId, onBack, onSwitchVersion }
 
     const doc = generarCotizacionPdf({
       tipo: 'Cotización de distribución',
-      folio: folioDeCotizacion(cotId, anioComercial, versionLabel),
+      folio: folioDeCotizacion(cotId, null, versionLabel),
       nombre: cotName || 'Cotización de distribución',
       cliente: clientName || null,
       proyecto: cotName && clientName && cotName !== clientName ? cotName : null,

@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { FCUR } from '../lib/utils'
 import { OMNIIOUS_LOGO } from '../assets/logo'
+import { IDENTIDAD_DEFAULT } from '../lib/identidadOmm'
 import { Download, Loader2, Settings } from 'lucide-react'
 import html2canvas from 'html2canvas'
 import jsPDF from 'jspdf'
@@ -12,19 +13,9 @@ import jsPDF from 'jspdf'
 // Los valores default son placeholders. Elias los sustituye en producción.
 // ═══════════════════════════════════════════════════════════════════════════
 
-const OMM_DEFAULTS = {
-  razonSocial: 'OMM Technologies SA de CV',
-  rfc: '[RFC PENDIENTE]',
-  domicilio: '[Dirección fiscal pendiente]',
-  codigoPostal: '[CP]',
-  ciudad: 'Ciudad de México, México',
-  regimenFiscal: '601 — General de Ley Personas Morales',
-  telefono: '[Teléfono pendiente]',
-  email: '[email pendiente]',
-  web: 'www.ommtechnologies.mx',
-  responsableNombre: 'Elias Gabriel Micha Cohen',
-  responsablePuesto: 'Director General',
-}
+// Los datos de la casa viven en src/lib/identidadOmm.ts: los comparte con el
+// PDF de cotizaciones para que el RFC se corrija en un solo lugar.
+const OMM_DEFAULTS = IDENTIDAD_DEFAULT
 
 const TERMINOS_DEFAULTS = {
   vigenciaDias: 30,

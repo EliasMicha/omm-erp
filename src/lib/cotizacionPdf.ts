@@ -13,10 +13,9 @@
 // ═══════════════════════════════════════════════════════════════════════════
 import jsPDF from 'jspdf'
 import { montoConLetra } from './reciboEfectivo'
-import { LOGO_OMM_PNG } from './logoOmm'
+import { OMNIIOUS_LOGO } from '../assets/logo'
+import { identidadOmm, sinPlaceholder, folioOmm } from './identidadOmm'
 
-const EMPRESA = 'OMM TECHNOLOGIES S.A. DE C.V.'
-const RFC = 'OTE210910PW5'
 
 export interface PartidaCot {
   name: string
@@ -56,9 +55,13 @@ export interface DatosCotizacionPdf {
   notaPie?: string | null
 }
 
-/** Folio legible y estable a partir del id de la cotización. */
-export const folioDeCotizacion = (id: string, anio?: number | null, version?: string | null) =>
-  `COT-${anio || new Date().getFullYear()}-${String(id || '').replace(/-/g, '').slice(0, 6).toUpperCase()}${version ? `-${version}` : ''}`
+/**
+ * Folio de la casa. Es el MISMO formato que ya muestra la vista de
+ * cotizaciones (`OMM-XXXXXXXX`): dos folios distintos para el mismo documento
+ * es la manera más fácil de perder un pedido.
+ */
+export const folioDeCotizacion = (id: string, _anio?: number | null, version?: string | null) =>
+  folioOmm(id) + (version ? `-${version}` : '')
 
 export function generarCotizacionPdf(d: DatosCotizacionPdf): jsPDF {
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'letter' })
@@ -92,24 +95,41 @@ export function generarCotizacionPdf(d: DatosCotizacionPdf): jsPDF {
   const espacio = (need: number) => { if (y + need > 250) nuevaPagina() }
 
   // ── Membrete ─────────────────────────────────────────────────────────────
-  // El logo va incrustado (logoOmm.ts): si se bajara por red, un fallo dejaría
-  // el documento sin membrete y nadie se enteraría hasta que el cliente lo abre.
-  const LOGO = 16
+  // Mismo logo y mismos datos fiscales que las órdenes de compra, las facturas
+  // y la vista de cotizaciones: OMNIIOUS_LOGO y lo capturado en el membrete.
+  // Si el RFC se corrige en la pantalla, se corrige también aquí.
+  const id = identidadOmm()
+  const LOGO_W = 22
+  const LOGO_H = LOGO_W / 1.15   // el original es 400×347
   y = 13
-  try { doc.addImage(LOGO_OMM_PNG, 'PNG', M, y, LOGO, LOGO) } catch { /* sin logo, el resto se imprime igual */ }
+  try { doc.addImage(OMNIIOUS_LOGO, 'JPEG', M, y, LOGO_W, LOGO_H) } catch { /* sin logo, el resto se imprime igual */ }
 
-  const xTxt = M + LOGO + 4
-  txt(DARK); doc.setFont('helvetica', 'bold'); doc.setFontSize(12)
-  doc.text('OMM TECHNOLOGIES', xTxt, y + 7)
-  txt(GRAY); doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5)
-  doc.text(`S.A. DE C.V.  ·  RFC ${RFC}`, xTxt, y + 12)
+  // A la derecha, la ficha fiscal. Los campos que sigan como placeholder
+  // ("[RFC PENDIENTE]") NO se imprimen: se ven peor que no estar.
+  const fichaEmpresa = [
+    sinPlaceholder(id.rfc) ? `RFC ${sinPlaceholder(id.rfc)}` : '',
+    sinPlaceholder(id.domicilio),
+    [sinPlaceholder(id.codigoPostal), sinPlaceholder(id.ciudad)].filter(Boolean).join(' · '),
+    [sinPlaceholder(id.telefono), sinPlaceholder(id.email)].filter(Boolean).join(' · '),
+    sinPlaceholder(id.web),
+  ].filter(Boolean)
 
-  txt(DARK); doc.setFont('helvetica', 'bold'); doc.setFontSize(15)
-  doc.text('COTIZACIÓN', R, y + 7, { align: 'right' })
-  doc.setFontSize(8.5); doc.setFont('helvetica', 'normal'); txt(GRAY)
-  doc.text(d.folio, R, y + 12, { align: 'right' })
-  y += LOGO + 3
+  txt(DARK); doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5)
+  doc.text(sinPlaceholder(id.razonSocial) || 'OMM Technologies SA de CV', R, y + 3.5, { align: 'right' })
+  txt(GRAY); doc.setFont('helvetica', 'normal'); doc.setFontSize(7)
+  fichaEmpresa.forEach((l, k) => doc.text(l, R, y + 8 + k * 3.4, { align: 'right' }))
+
+  y += Math.max(LOGO_H, 8 + fichaEmpresa.length * 3.4) + 3
   fill(DARK); doc.rect(M, y, R - M, 0.8, 'F'); y += 8
+
+  // El título del documento va debajo del membrete, no encimado al logo.
+  txt(GRAY); doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5)
+  doc.text(d.tipo.toUpperCase(), M, y)
+  txt(DARK); doc.setFont('helvetica', 'bold'); doc.setFontSize(14)
+  doc.text('COTIZACIÓN', R, y + 1, { align: 'right' })
+  txt(GRAY); doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5)
+  doc.text(d.folio, R, y + 6, { align: 'right' })
+  y += 11
 
   // ── Bloque de datos: a quién va y bajo qué condiciones ───────────────────
   const cajaH = 26
@@ -285,7 +305,10 @@ export function generarCotizacionPdf(d: DatosCotizacionPdf): jsPDF {
     fill(GREEN); doc.rect(M, 264, R - M, 0.5, 'F')
     txt(GRAY); doc.setFont('helvetica', 'normal'); doc.setFontSize(7)
     // Dos bloques y no tres: con el centro, el RFC y el tipo se encimaban.
-    doc.text(`${EMPRESA} · RFC ${RFC}`, M, 269)
+    const pieIzq = [sinPlaceholder(id.razonSocial) || 'OMM Technologies SA de CV',
+      sinPlaceholder(id.rfc) ? `RFC ${sinPlaceholder(id.rfc)}` : '',
+      sinPlaceholder(id.web)].filter(Boolean).join(' · ')
+    doc.text(pieIzq, M, 269)
     doc.text(`${d.tipo} · ${d.folio} · Pág. ${p}/${paginas}`, R, 269, { align: 'right' })
   }
 
