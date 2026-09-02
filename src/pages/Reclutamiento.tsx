@@ -22,7 +22,11 @@ import {
   type Vacante, type Candidato, type EtapaCandidato, type EstadoVacante,
   type CorreoPostulacion, type EstadoBandeja,
 } from '../lib/reclutamiento'
-import { Plus, X, Inbox, RefreshCw, FileText, ChevronLeft, Trash2, Download } from 'lucide-react'
+import {
+  Analisis, VEREDICTO_CFG, colorCompat, porCompatibilidad, analizarCandidato,
+  ingestaAutomatica, vacanteParaPuesto, ResultadoIngesta,
+} from '../lib/analisisCandidato'
+import { Plus, X, Inbox, RefreshCw, FileText, ChevronLeft, Trash2, Download, Sparkles, AlertTriangle } from 'lucide-react'
 
 const card: React.CSSProperties = { background: '#0f0f0f', border: '1px solid #1f1f1f', borderRadius: 12, padding: 14 }
 const inp: React.CSSProperties = { width: '100%', background: '#1a1a1a', color: '#fff', border: '1px solid #2a2a2a', borderRadius: 6, padding: '7px 9px', fontSize: 12, fontFamily: 'inherit', boxSizing: 'border-box', outline: 'none' }
@@ -39,17 +43,48 @@ export default function Reclutamiento() {
   const [editVacante, setEditVacante] = useState<Vacante | null>(null)
   const [verCand, setVerCand] = useState<Candidato | null>(null)
 
+  const [motor, setMotor] = useState('')
+  const [ultima, setUltima] = useState<ResultadoIngesta | null>(null)
+
   async function recargar() {
     setCargando(true)
     const [v, c] = await Promise.all([cargarVacantes(), cargarCandidatos()])
     setVacantes(v); setCands(c); setCargando(false)
+    return v
   }
-  useEffect(() => { recargar() }, [])
+
+  /**
+   * Correo → candidato → análisis, sin que nadie apriete nada. Corre al abrir
+   * la pantalla y desde el botón. Es idempotente, así que correrlo de más no
+   * duplica ni re-analiza.
+   */
+  async function correrMotor(vacs?: Vacante[]) {
+    if (motor) return
+    setMotor('Revisando el correo…')
+    try {
+      const r = await ingestaAutomatica({
+        vacantes: vacs || vacantes,
+        buscar: buscarPostulaciones,
+        yaImportados: messageIdsImportados,
+        extraer: extraerDeCorreo,
+        importar: importarPostulacion,
+        avance: setMotor,
+      })
+      setUltima(r)
+      if (r.importados || r.analizados) await recargar()
+    } catch (e: any) {
+      setUltima({ revisados: 0, importados: 0, analizados: 0, fallos: [{ quien: 'el proceso', error: e?.message || String(e) }] })
+    }
+    setMotor('')
+  }
+
+  useEffect(() => { recargar().then(v => correrMotor(v)) }, [])
 
   if (cargando) return <div style={{ padding: 24 }}><Loading /></div>
   if (editVacante) return <EditorVacante v={editVacante} autor={user?.nombre || ''} onSalir={() => { setEditVacante(null); recargar() }} />
   if (verCand) return <FichaCandidato c={verCand} vacantes={vacantes} onSalir={() => { setVerCand(null); recargar() }} />
 
+  const sinAnalisis = cands.filter(c => !c.analisis_at).length
   const nuevos = cands.filter(c => c.etapa === 'nuevo').length
   const abiertas = vacantes.filter(v => v.estado === 'abierta').length
   const tabs: Array<[Tab, string, number]> = [
@@ -63,8 +98,40 @@ export default function Reclutamiento() {
       <SectionHeader
         title="Reclutamiento"
         subtitle="Las postulaciones llegan por correo con su CV; aquí se vuelven candidatos"
-        action={<Btn variant="primary" onClick={() => setEditVacante(nuevaVacante(user?.nombre || ''))}><Plus size={14} /> Nueva vacante</Btn>}
+        action={
+          <span style={{ display: 'inline-flex', gap: 8 }}>
+            <Btn size="sm" onClick={() => correrMotor()} disabled={!!motor}>
+              <Sparkles size={13} /> {motor ? 'Trabajando…' : 'Revisar y analizar'}
+            </Btn>
+            <Btn variant="primary" onClick={() => setEditVacante(nuevaVacante(user?.nombre || ''))}><Plus size={14} /> Nueva vacante</Btn>
+          </span>
+        }
       />
+
+      {/* El motor: correo → candidato → análisis. Corre solo al abrir. */}
+      {(motor || ultima) && (
+        <div style={{
+          ...card, marginBottom: 12, padding: '9px 12px', display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap',
+          borderColor: motor ? '#1f3a2a' : (ultima?.fallos.length ? '#3a2a15' : '#222'),
+        }}>
+          <Sparkles size={14} color={motor ? '#57FF9A' : '#666'} />
+          <div style={{ flex: 1, minWidth: 220, fontSize: 11.5, color: motor ? '#57FF9A' : '#888', lineHeight: 1.6 }}>
+            {motor || (ultima && (
+              ultima.bandeja && !ultima.bandeja.connected
+                ? <>El correo no está conectado, así que no puedo traer postulaciones solo. Conéctalo en la pestaña <b>Bandeja</b>.{ultima.analizados ? ` Aun así analicé ${ultima.analizados} candidato(s) que ya estaban capturados.` : ''}</>
+                : <>
+                    {ultima.importados > 0 ? `${ultima.importados} candidato(s) nuevos del correo. ` : 'Sin postulaciones nuevas en el correo. '}
+                    {ultima.analizados > 0 ? `${ultima.analizados} analizado(s) y ordenados por compatibilidad.` : (sinAnalisis === 0 ? 'Todos tienen análisis.' : '')}
+                  </>
+            ))}
+          </div>
+          {!motor && !!ultima?.fallos.length && (
+            <span style={{ fontSize: 10.5, color: '#D9A441', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              <AlertTriangle size={11} /> {ultima.fallos.length} sin procesar: {ultima.fallos[0].error.slice(0, 60)}
+            </span>
+          )}
+        </div>
+      )}
 
       <div style={{ display: 'flex', gap: 6, marginBottom: 16, flexWrap: 'wrap' }}>
         {tabs.map(([k, label, n]) => (
@@ -231,14 +298,34 @@ function Bandeja({ vacantes, onImportado }: { vacantes: Vacante[]; onImportado: 
 // ═══════════════════════════════════════════════════════════════════════════
 //  EMBUDO
 // ═══════════════════════════════════════════════════════════════════════════
+/** El número de ajuste al puesto, a la izquierda, para poder barrer la lista. */
+function ChipCompat({ c }: { c: Candidato }) {
+  const n = c.compatibilidad
+  const col = colorCompat(n)
+  return (
+    <div title={c.analisis_error ? `No se pudo analizar: ${c.analisis_error}` : c.analisis?.veredicto ? VEREDICTO_CFG[c.analisis.veredicto as keyof typeof VEREDICTO_CFG]?.label : 'Sin analizar todavía'}
+      style={{
+        width: 42, height: 42, borderRadius: 10, flexShrink: 0, display: 'grid', placeItems: 'center',
+        border: `1px solid ${col}55`, background: col + '14',
+      }}>
+      <span style={{ fontSize: n == null ? 13 : 15, fontWeight: 700, color: col, lineHeight: 1 }}>
+        {n == null ? (c.analisis_error ? '!' : '—') : n}
+      </span>
+      {n != null && <span style={{ fontSize: 7.5, color: col, opacity: .8, marginTop: 1 }}>AJUSTE</span>}
+    </div>
+  )
+}
+
 function Embudo({ cands, vacantes, onVer }: { cands: Candidato[]; vacantes: Vacante[]; onVer: (c: Candidato) => void }) {
   const [filtro, setFiltro] = useState<EtapaCandidato | 'todos'>('todos')
   const [vac, setVac] = useState('')
   const vacNombre = (id?: string | null) => vacantes.find(v => v.id === id)?.titulo || null
 
-  const lista = cands
+  // El mejor ajuste arriba. Sin analizar se van al final: un candidato sin
+  // veredicto no vale 0, es que todavía no se sabe.
+  const lista = porCompatibilidad(cands
     .filter(c => filtro === 'todos' ? true : c.etapa === filtro)
-    .filter(c => !vac || c.vacante_id === vac)
+    .filter(c => !vac || c.vacante_id === vac))
 
   const porEtapa = useMemo(() => {
     const m: Record<string, number> = {}
@@ -272,11 +359,22 @@ function Embudo({ cands, vacantes, onVer }: { cands: Candidato[]; vacantes: Vaca
           {lista.map(c => (
             <div key={c.id} onClick={() => onVer(c)}
               style={{ ...card, padding: '10px 12px', display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', cursor: 'pointer' }}>
+              <ChipCompat c={c} />
               <div style={{ flex: 1, minWidth: 200 }}>
                 <div style={{ fontSize: 12.5, color: '#eee', fontWeight: 600 }}>{c.nombre}</div>
                 <div style={{ fontSize: 10.5, color: '#666', marginTop: 2 }}>
                   {[c.puesto_solicitado, vacNombre(c.vacante_id), c.telefono].filter(Boolean).join(' · ') || '—'}
                 </div>
+                {c.analisis?.resumen && (
+                  <div style={{ fontSize: 10.5, color: '#8a8a8a', marginTop: 4, lineHeight: 1.5 }}>
+                    {String(c.analisis.resumen).slice(0, 150)}{String(c.analisis.resumen).length > 150 ? '…' : ''}
+                  </div>
+                )}
+                {!!c.analisis?.banderas?.filter((b: any) => b.severidad === 'alta').length && (
+                  <div style={{ fontSize: 10, color: '#DC2626', marginTop: 3, display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <AlertTriangle size={10} /> {c.analisis.banderas.filter((b: any) => b.severidad === 'alta')[0].senal}
+                  </div>
+                )}
               </div>
               {c.cv_path && <FileText size={13} color="#57FF9A" />}
               <span style={{ fontSize: 10, color: '#555' }}>{FUENTE_CFG[c.fuente]}</span>
@@ -388,11 +486,217 @@ function FichaCandidato({ c, vacantes, onSalir }: { c: Candidato; vacantes: Vaca
         </div>
       </div>
 
+      <PanelAnalisis cand={cand} vacantes={vacantes} onAnalizado={setCand} />
+
       {cand.carta && (
         <div style={{ ...card, marginTop: 12 }}>
           <div style={{ fontSize: 12.5, fontWeight: 600, color: '#eee', marginBottom: 6 }}>Lo que escribió</div>
           <div style={{ fontSize: 12, color: '#bbb', whiteSpace: 'pre-wrap', lineHeight: 1.7 }}>{cand.carta}</div>
         </div>
+      )}
+    </div>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  ANÁLISIS IA
+// ═══════════════════════════════════════════════════════════════════════════
+const CUMPLE_CFG: Record<string, { label: string; color: string }> = {
+  si:      { label: 'Cumple',   color: '#10B981' },
+  parcial: { label: 'A medias', color: '#D9A441' },
+  no:      { label: 'No',       color: '#DC2626' },
+  no_dice: { label: 'No dice',  color: '#666' },
+}
+const EVID_CFG: Record<string, { label: string; color: string }> = {
+  respaldada:  { label: 'respaldada en el CV', color: '#10B981' },
+  mencionada:  { label: 'solo mencionada',     color: '#D9A441' },
+  sin_respaldo:{ label: 'sin respaldo',        color: '#DC2626' },
+}
+const SEV_COLOR: Record<string, string> = { alta: '#DC2626', media: '#D9A441', baja: '#777' }
+const TRASLADO_CFG: Record<string, { label: string; color: string }> = {
+  bajo: { label: 'Traslado corto', color: '#10B981' },
+  medio: { label: 'Traslado medio', color: '#D9A441' },
+  alto: { label: 'Traslado largo', color: '#DC2626' },
+  no_se_sabe: { label: 'Traslado desconocido', color: '#666' },
+}
+
+const meses = (n?: number | null) =>
+  n == null ? '—' : n < 12 ? `${n} m` : `${Math.floor(n / 12)} a ${n % 12 ? `${n % 12} m` : ''}`.trim()
+
+function Titulo({ children }: { children: any }) {
+  return <div style={{ fontSize: 11, letterSpacing: .5, textTransform: 'uppercase', color: '#666', margin: '14px 0 7px' }}>{children}</div>
+}
+
+function PanelAnalisis({ cand, vacantes, onAnalizado }: {
+  cand: Candidato; vacantes: Vacante[]; onAnalizado: (c: Candidato) => void
+}) {
+  const [corriendo, setCorriendo] = useState(false)
+  const a: Analisis | null = (cand.analisis as Analisis) || null
+
+  async function analizar() {
+    setCorriendo(true)
+    const v = vacantes.find(x => x.id === cand.vacante_id) || vacanteParaPuesto(cand.puesto_solicitado, vacantes)
+    const r = await analizarCandidato(cand, v || null)
+    setCorriendo(false)
+    if (r.ok && r.analisis) onAnalizado({ ...cand, analisis: r.analisis, compatibilidad: r.analisis.compatibilidad, analisis_at: new Date().toISOString(), analisis_error: null })
+    else onAnalizado({ ...cand, analisis_error: r.error || 'falló', analisis_at: new Date().toISOString() })
+  }
+
+  const vac = vacantes.find(x => x.id === cand.vacante_id)
+  const ver = a ? VEREDICTO_CFG[a.veredicto] : null
+
+  return (
+    <div style={{ ...card, marginTop: 12 }}>
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 4 }}>
+        <Sparkles size={14} color="#57FF9A" />
+        <div style={{ fontSize: 12.5, fontWeight: 600, color: '#eee', flex: 1 }}>
+          Análisis contra el puesto
+          {vac ? <span style={{ color: '#666', fontWeight: 400 }}> · {vac.titulo}</span>
+               : <span style={{ color: '#D9A441', fontWeight: 400 }}> · sin vacante ligada, se evaluó contra lo que dijo postularse</span>}
+        </div>
+        <Btn size="sm" onClick={analizar} disabled={corriendo}>
+          <RefreshCw size={12} /> {corriendo ? 'Analizando…' : a ? 'Volver a analizar' : 'Analizar'}
+        </Btn>
+      </div>
+
+      {!a && !cand.analisis_error && !corriendo && (
+        <div style={{ fontSize: 11.5, color: '#777', lineHeight: 1.7 }}>
+          Todavía no tiene análisis. Se hace solo al abrir Reclutamiento, o aquí con el botón.
+        </div>
+      )}
+      {cand.analisis_error && !a && (
+        <div style={{ fontSize: 11.5, color: '#DC2626', lineHeight: 1.7 }}>
+          No se pudo analizar: {cand.analisis_error}
+          {!cand.cv_path && ' · Este candidato no trae CV adjunto.'}
+        </div>
+      )}
+
+      {a && (
+        <>
+          <div style={{ display: 'flex', gap: 14, alignItems: 'center', flexWrap: 'wrap', marginTop: 8 }}>
+            <div style={{ display: 'grid', placeItems: 'center', width: 62, height: 62, borderRadius: 12, border: `1px solid ${colorCompat(a.compatibilidad)}55`, background: colorCompat(a.compatibilidad) + '14' }}>
+              <span style={{ fontSize: 22, fontWeight: 700, color: colorCompat(a.compatibilidad), lineHeight: 1 }}>{a.compatibilidad}</span>
+              <span style={{ fontSize: 7.5, color: colorCompat(a.compatibilidad), opacity: .8 }}>AJUSTE</span>
+            </div>
+            <div style={{ flex: 1, minWidth: 220 }}>
+              {ver && <Badge label={ver.label} color={ver.color} />}
+              <div style={{ fontSize: 12.5, color: '#ccc', lineHeight: 1.7, marginTop: 6 }}>{a.resumen}</div>
+              <div style={{ fontSize: 10.5, color: '#666', marginTop: 5 }}>
+                {[a.puesto_actual, a.anos_experiencia != null ? `${a.anos_experiencia} año(s) de experiencia` : null,
+                  a.permanencia?.promedio_meses != null ? `promedio ${meses(a.permanencia.promedio_meses)} por empleo` : null]
+                  .filter(Boolean).join(' · ')}
+              </div>
+            </div>
+          </div>
+
+          {/* Datos de contexto. Van aparte a propósito: no entran en el número. */}
+          <Titulo>Contexto — no cuenta para el ajuste</Titulo>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+            {a.contexto.edad != null && <Badge label={`${a.contexto.edad} años`} color="#6B7280" />}
+            {a.contexto.ubicacion && <Badge label={a.contexto.ubicacion} color="#6B7280" />}
+            <Badge label={TRASLADO_CFG[a.contexto.riesgo_traslado].label} color={TRASLADO_CFG[a.contexto.riesgo_traslado].color} />
+            {a.contexto.distancia && <span style={{ fontSize: 11, color: '#888' }}>{a.contexto.distancia}</span>}
+          </div>
+          {a.contexto.nota_traslado && <div style={{ fontSize: 10.5, color: '#777', marginTop: 5 }}>{a.contexto.nota_traslado}</div>}
+          <div style={{ fontSize: 10, color: '#555', marginTop: 6, lineHeight: 1.6 }}>
+            La edad se reporta porque la pediste, pero el número de ajuste no la usa: calificar por edad
+            es discriminación laboral (LFT art. 133). El traslado sí predice ausentismo — pondéralo tú.
+          </div>
+
+          {a.requisitos.length > 0 && (<>
+            <Titulo>Requisito por requisito</Titulo>
+            <div style={{ display: 'grid', gap: 6 }}>
+              {a.requisitos.map((r, i) => (
+                <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 11.5 }}>
+                  <span style={{ flexShrink: 0, minWidth: 62, fontSize: 10, fontWeight: 600, color: CUMPLE_CFG[r.cumple].color }}>{CUMPLE_CFG[r.cumple].label}</span>
+                  <span style={{ color: '#ccc', flex: 1 }}>
+                    <b style={{ color: '#ddd', fontWeight: 500 }}>{r.requisito}</b>
+                    {r.por_que && <span style={{ color: '#888' }}> — {r.por_que}</span>}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </>)}
+
+          {a.trayectoria.length > 0 && (<>
+            <Titulo>Dónde ha estado y cuánto duró</Titulo>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 480 }}>
+                <tbody>
+                  {a.trayectoria.map((t, i) => (
+                    <tr key={i}>
+                      <td style={{ fontSize: 11.5, color: '#ddd', padding: '5px 8px 5px 0', borderBottom: '1px solid #1a1a1a' }}>
+                        {t.empresa}
+                        <div style={{ fontSize: 10.5, color: '#777' }}>{t.puesto}{t.nota ? ` · ${t.nota}` : ''}</div>
+                      </td>
+                      <td style={{ fontSize: 10.5, color: '#777', padding: '5px 8px', borderBottom: '1px solid #1a1a1a', whiteSpace: 'nowrap' }}>
+                        {[t.desde, t.hasta].filter(Boolean).join(' → ') || '—'}
+                      </td>
+                      <td style={{ fontSize: 11, color: (t.meses != null && t.meses < 12) ? '#D9A441' : '#aaa', padding: '5px 0 5px 8px', borderBottom: '1px solid #1a1a1a', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                        {meses(t.meses)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {a.permanencia?.patron && <div style={{ fontSize: 11, color: '#888', marginTop: 6 }}>{a.permanencia.patron}</div>}
+          </>)}
+
+          {a.dice_saber.length > 0 && (<>
+            <Titulo>Lo que dice saber, y si el CV lo respalda</Titulo>
+            <div style={{ display: 'grid', gap: 5 }}>
+              {a.dice_saber.map((h, i) => (
+                <div key={i} style={{ fontSize: 11.5, color: '#ccc' }}>
+                  {h.habilidad}
+                  <span style={{ color: EVID_CFG[h.evidencia].color, fontSize: 10.5 }}> · {EVID_CFG[h.evidencia].label}</span>
+                  {h.nota && <span style={{ color: '#777', fontSize: 10.5 }}> — {h.nota}</span>}
+                </div>
+              ))}
+            </div>
+          </>)}
+
+          {a.banderas.length > 0 && (<>
+            <Titulo>Indicadores a observar</Titulo>
+            <div style={{ display: 'grid', gap: 6 }}>
+              {a.banderas.map((b, i) => (
+                <div key={i} style={{ display: 'flex', gap: 7, alignItems: 'flex-start', fontSize: 11.5 }}>
+                  <AlertTriangle size={12} color={SEV_COLOR[b.severidad]} style={{ marginTop: 2, flexShrink: 0 }} />
+                  <span style={{ color: '#ccc' }}><b style={{ fontWeight: 500, color: SEV_COLOR[b.severidad] }}>{b.senal}</b> — {b.por_que}</span>
+                </div>
+              ))}
+            </div>
+          </>)}
+
+          <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }}>
+            {a.fortalezas.length > 0 && (
+              <div><Titulo>A favor</Titulo>
+                {a.fortalezas.map((f, i) => <div key={i} style={{ fontSize: 11.5, color: '#10B981', marginBottom: 4 }}>+ {f}</div>)}
+              </div>
+            )}
+            {a.riesgos.length > 0 && (
+              <div><Titulo>En contra</Titulo>
+                {a.riesgos.map((r, i) => <div key={i} style={{ fontSize: 11.5, color: '#D9A441', marginBottom: 4 }}>− {r}</div>)}
+              </div>
+            )}
+          </div>
+
+          {a.preguntas.length > 0 && (<>
+            <Titulo>Qué preguntarle en la entrevista</Titulo>
+            {a.preguntas.map((q, i) => <div key={i} style={{ fontSize: 11.5, color: '#ccc', marginBottom: 5, lineHeight: 1.6 }}>{i + 1}. {q}</div>)}
+          </>)}
+
+          {a.falta_saber.length > 0 && (<>
+            <Titulo>Lo que el CV no dice</Titulo>
+            {a.falta_saber.map((f, i) => <div key={i} style={{ fontSize: 11.5, color: '#888', marginBottom: 4 }}>· {f}</div>)}
+          </>)}
+
+          <div style={{ fontSize: 10, color: '#444', marginTop: 12, borderTop: '1px solid #1a1a1a', paddingTop: 8 }}>
+            {cand.analisis_at && `Analizado el ${new Date(cand.analisis_at).toLocaleString('es-MX')}`}
+            {cand.analisis_modelo ? ` · ${cand.analisis_modelo}` : ''}
+            {' · '}Es una lectura del CV, no un dictamen. Verifica en la entrevista.
+          </div>
+        </>
       )}
     </div>
   )

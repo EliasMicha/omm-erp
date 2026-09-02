@@ -33,6 +33,7 @@
  */
 
 import { supabase } from './supabase'
+import { promptDeExtraccion } from './analisisPrompt'
 
 export const BUCKET_CV = 'reclutamiento'
 
@@ -80,6 +81,13 @@ export interface Candidato {
   origen_message_id: string | null
   recibido_at: string | null
   created_at?: string
+  // Veredicto de la IA. La forma vive en analisisCandidato.ts; aquí se declara
+  // suelto para no cruzar los dos módulos (ese importa de éste).
+  compatibilidad?: number | null
+  analisis?: any | null
+  analisis_at?: string | null
+  analisis_error?: string | null
+  analisis_modelo?: string | null
 }
 
 export const ETAPA_CFG: Record<EtapaCandidato, { label: string; color: string; orden: number }> = {
@@ -174,27 +182,7 @@ export interface DatosExtraidos {
  * lo capture a mano que meter a la base un candidato llamado "undefined".
  */
 export async function extraerDeCorreo(correo: CorreoPostulacion): Promise<DatosExtraidos | null> {
-  const prompt = `Este es un correo de aviso de postulación de una bolsa de trabajo. Saca los datos del CANDIDATO.
-
-ASUNTO: ${correo.asunto}
-DE: ${correo.de}
-CUERPO:
-${correo.texto.slice(0, 6000)}
-
-Responde SOLO con este JSON, sin texto alrededor:
-{
-  "nombre": "nombre completo del candidato",
-  "puesto": "el puesto al que se postuló",
-  "email_real": "su correo personal si aparece, o null",
-  "email_relay": "el correo que termina en @indeedemail.com si aparece, o null",
-  "telefono": "su teléfono si aparece en el cuerpo, solo dígitos, o null",
-  "carta": "el mensaje o carta de presentación que escribió, o null"
-}
-
-Reglas:
-- El nombre del candidato NO es el de la empresa ni el del puesto.
-- Un correo que termina en @indeedemail.com es un alias, va en email_relay, NUNCA en email_real.
-- Si un dato no está, pon null. No inventes.`
+  const prompt = promptDeExtraccion(correo)
 
   try {
     const r = await fetch('/api/anthropic', {

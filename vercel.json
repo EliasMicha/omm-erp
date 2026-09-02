@@ -21,6 +21,10 @@
     {
       "path": "/api/extract?action=daily_brief",
       "schedule": "0 13 * * *"
+    },
+    {
+      "path": "/api/gmail?action=ingesta",
+      "schedule": "0 12 * * *"
     }
   ],
   "headers": [

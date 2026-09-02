@@ -21,6 +21,12 @@ const APP_URL = 'https://omm-erp.vercel.app'
 // de Indeed y bajar el CV adjunto. Es de solo lectura; no permite borrar ni
 // modificar nada del buzón. Al agregarlo hay que RECONECTAR Gmail una vez: un
 // refresh_token viejo no trae el permiso nuevo y la búsqueda devuelve 403.
+// El prompt del análisis y el de extracción se importan del módulo compartido:
+// una sola redacción para el navegador y para este cron, o los veredictos
+// dejan de ser comparables entre sí. analisisPrompt.ts no importa nada, por eso
+// se puede usar desde una función de servidor.
+import { promptDeAnalisis, promptDeExtraccion } from '../src/lib/analisisPrompt'
+
 const SCOPES = ['https://www.googleapis.com/auth/gmail.compose', 'https://www.googleapis.com/auth/gmail.send', 'https://www.googleapis.com/auth/gmail.readonly', 'https://www.googleapis.com/auth/calendar.events', 'openid', 'email']
 
 function sb() {
@@ -233,10 +239,234 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(200).json({ ok: true, base64: b64, size: aj.size })
     }
 
+    // ── Ingesta automática de reclutamiento ────────────────────────────────
+    // Correo → candidato → análisis, sin nadie enfrente. La dispara el cron de
+    // Vercel (ver vercel.json). El mismo trabajo lo hace el navegador al abrir
+    // Reclutamiento; esto es para que también corra de madrugada.
+    //
+    // Es idempotente: `origen_message_id` es único y solo analiza a quien no
+    // tiene veredicto, así que dispararlo de más no duplica ni recobra.
+    if (action === 'ingesta') {
+      const r = await ingestaReclutamiento()
+      return res.status(200).json(r)
+    }
+
     return res.status(400).json({ ok: false, error: 'Acción no válida' })
   } catch (e: any) {
     return res.status(500).json({ ok: false, error: String((e && e.message) || e) })
   }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  INGESTA AUTOMÁTICA DE RECLUTAMIENTO
+// ═══════════════════════════════════════════════════════════════════════════
+
+const MAX_POR_CORRIDA = 12   // techo por corrida: cada CV es una llamada al modelo
+
+async function anthropic(body: any): Promise<any> {
+  const key = process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_KEY
+  if (!key) throw new Error('ANTHROPIC_API_KEY no configurada')
+  const r = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01' },
+    body: JSON.stringify(body),
+  })
+  const j: any = await r.json()
+  if (!r.ok) throw new Error((j && j.error && j.error.message) || 'Anthropic falló')
+  return j
+}
+
+const jsonDeLaRespuesta = (j: any): any => {
+  const txt = (j && j.content && j.content[0] && j.content[0].text) || ''
+  const m = txt.match(/\{[\s\S]*\}/)
+  if (!m) throw new Error('El modelo no devolvió JSON')
+  return JSON.parse(m[0])
+}
+
+async function sbGet(path: string): Promise<any[]> {
+  const { url, headers } = sb()
+  const r = await fetch(`${url}/rest/v1/${path}`, { headers })
+  const j: any = await r.json().catch(() => [])
+  return Array.isArray(j) ? j : []
+}
+
+async function sbPost(tabla: string, fila: any, prefer = 'return=representation'): Promise<any> {
+  const { url, headers } = sb()
+  const r = await fetch(`${url}/rest/v1/${tabla}`, {
+    method: 'POST', headers: { ...headers, Prefer: prefer }, body: JSON.stringify(fila),
+  })
+  const j: any = await r.json().catch(() => null)
+  if (!r.ok) throw new Error((j && (j.message || j.error)) || `No se pudo insertar en ${tabla}`)
+  return Array.isArray(j) ? j[0] : j
+}
+
+async function sbPatch(tabla: string, filtro: string, campos: any) {
+  const { url, headers } = sb()
+  await fetch(`${url}/rest/v1/${tabla}?${filtro}`, {
+    method: 'PATCH', headers: { ...headers, Prefer: 'return=minimal' }, body: JSON.stringify(campos),
+  })
+}
+
+/** Sube el CV al bucket con la service key. Devuelve el path o null. */
+async function subirCV(nombreArchivo: string, b64: string, tipo: string): Promise<string | null> {
+  const { url, key } = sb()
+  const limpio = nombreArchivo.replace(/[^a-zA-Z0-9._-]/g, '_').slice(-80)
+  const path = `cv/${Date.now()}_${limpio}`
+  const bytes = Buffer.from(b64, 'base64')
+  const r = await fetch(`${url}/storage/v1/object/reclutamiento/${path}`, {
+    method: 'POST',
+    headers: { apikey: key, Authorization: `Bearer ${key}`, 'Content-Type': tipo || 'application/octet-stream' },
+    body: bytes as any,
+  })
+  return r.ok ? path : null
+}
+
+/** El adjunto que más parece un CV. Misma regla que el cliente. */
+function adjuntoCV(adjuntos: any[]): any | null {
+  const cands = (adjuntos || []).filter((a: any) =>
+    /pdf|word|document|msword|officedocument/i.test(a.mimeType) || /\.(pdf|docx?|rtf)$/i.test(a.filename))
+  if (!cands.length) return null
+  const conCV = cands.filter((a: any) => /cv|curriculum|resume/i.test(a.filename))
+  const lista = conCV.length ? conCV : cands
+  return lista.sort((a: any, b: any) => (b.size || 0) - (a.size || 0))[0]
+}
+
+const sinAcento = (v: any) => String(v || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+
+/** La vacante abierta que corresponde al puesto. Misma regla que el cliente. */
+function vacanteDelPuesto(puesto: string, vacantes: any[]): any | null {
+  const p = sinAcento(puesto).trim()
+  if (!p) return null
+  const abiertas = vacantes.filter(v => v.estado === 'abierta')
+  const pool = abiertas.length ? abiertas : vacantes
+  const exacta = pool.find(v => sinAcento(v.titulo) === p || sinAcento(v.puesto) === p)
+  if (exacta) return exacta
+  const palabras = p.split(/\W+/).filter(w => w.length > 3)
+  let mejor: any = null
+  for (const v of pool) {
+    const t = sinAcento(v.titulo) + ' ' + sinAcento(v.puesto)
+    const n = palabras.filter(w => t.includes(w)).length
+    if (n > 0 && (!mejor || n > mejor.n)) mejor = { v, n }
+  }
+  return mejor ? mejor.v : null
+}
+
+async function ingestaReclutamiento() {
+  const out: any = { ok: true, importados: 0, analizados: 0, fallos: [] as any[] }
+
+  const vacantes = await sbGet('vacantes?select=*')
+  const t = await getStoredToken()
+
+  // ── 1. Correo → candidato ────────────────────────────────────────────────
+  if (t) {
+    try {
+      const at = await accessTokenFromRefresh(t.refresh_token)
+      const lr = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=30&q=${encodeURIComponent('from:indeedemail.com newer_than:14d')}`,
+        { headers: { Authorization: `Bearer ${at}` } })
+      const lj: any = await lr.json()
+      if (!lr.ok) throw new Error((lj && lj.error && lj.error.message) || 'Gmail no respondió')
+      const ids: string[] = ((lj.messages || []) as any[]).map((m: any) => m.id)
+
+      let yaTengo = new Set<string>()
+      if (ids.length) {
+        const filas = await sbGet(`candidatos?select=origen_message_id&origen_message_id=in.(${ids.join(',')})`)
+        yaTengo = new Set(filas.map((c: any) => c.origen_message_id))
+      }
+      const nuevos = ids.filter(id => !yaTengo.has(id)).slice(0, MAX_POR_CORRIDA)
+
+      for (const id of nuevos) {
+        try {
+          const mr = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${id}?format=full`,
+            { headers: { Authorization: `Bearer ${at}` } })
+          const mj: any = await mr.json()
+          if (!mr.ok) continue
+          const correo: any = resumirCorreo(mj)
+
+          const d = jsonDeLaRespuesta(await anthropic({
+            model: 'claude-sonnet-4-6', max_tokens: 1200,
+            messages: [{ role: 'user', content: promptDeExtraccion(correo) }],
+          }))
+          const nombre = String(d.nombre || '').trim()
+          if (!nombre) { out.fallos.push({ quien: correo.asunto, error: 'sin nombre' }); continue }
+
+          const esRelay = (v: any) => /@indeedemail\.com$/i.test(String(v || ''))
+          const digitos = (v: any) => { const x = String(v == null ? '' : v).replace(/\D/g, ''); return x.length >= 10 ? x : null }
+
+          let cv_path: string | null = null, cv_nombre: string | null = null
+          const adj = adjuntoCV(correo.adjuntos)
+          if (adj) {
+            const ar = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${id}/attachments/${adj.attachmentId}`,
+              { headers: { Authorization: `Bearer ${at}` } })
+            const aj: any = await ar.json()
+            if (ar.ok && aj.data) {
+              const b64 = String(aj.data).replace(/-/g, '+').replace(/_/g, '/')
+              cv_path = await subirCV(adj.filename, b64, adj.mimeType)
+              if (cv_path) cv_nombre = adj.filename
+            }
+          }
+
+          const vac = vacanteDelPuesto(String(d.puesto || ''), vacantes)
+          await sbPost('candidatos', {
+            vacante_id: vac ? vac.id : null,
+            nombre,
+            email: d.email_real && !esRelay(d.email_real) ? String(d.email_real).trim() : null,
+            email_relay: esRelay(d.email_relay) ? String(d.email_relay).trim() : (esRelay(d.email_real) ? String(d.email_real).trim() : null),
+            telefono: digitos(d.telefono),
+            fuente: 'indeed',
+            puesto_solicitado: String(d.puesto || '').trim() || null,
+            carta: d.carta ? String(d.carta).trim() : null,
+            cv_path, cv_nombre,
+            etapa: 'nuevo',
+            origen_message_id: id,
+            recibido_at: correo.fecha || new Date().toISOString(),
+          }, 'return=minimal,resolution=ignore-duplicates')
+          out.importados++
+        } catch (e: any) {
+          out.fallos.push({ quien: id, error: String((e && e.message) || e) })
+        }
+      }
+    } catch (e: any) {
+      out.fallos.push({ quien: 'gmail', error: String((e && e.message) || e) })
+    }
+  } else {
+    out.gmail = 'no conectado'
+  }
+
+  // ── 2. Análisis de quien no lo tenga ─────────────────────────────────────
+  const pendientes = await sbGet(`candidatos?select=*&analisis_at=is.null&limit=${MAX_POR_CORRIDA}`)
+  const { url, key } = sb()
+  for (const c of pendientes) {
+    try {
+      const contenido: any[] = []
+      if (c.cv_path && /\.pdf$/i.test(c.cv_path)) {
+        const dr = await fetch(`${url}/storage/v1/object/reclutamiento/${c.cv_path}`,
+          { headers: { apikey: key, Authorization: `Bearer ${key}` } })
+        if (dr.ok) {
+          const b64 = Buffer.from(await dr.arrayBuffer()).toString('base64')
+          contenido.push({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: b64 } })
+        }
+      }
+      const vac = vacantes.find((v: any) => v.id === c.vacante_id) || vacanteDelPuesto(c.puesto_solicitado || '', vacantes)
+      contenido.push({ type: 'text', text: promptDeAnalisis(c, vac || null) + (contenido.length ? '' : '\n\nNOTA: no se pudo leer el CV. Analiza con lo que hay y sé explícito en "falta_saber".') })
+
+      const d = jsonDeLaRespuesta(await anthropic({
+        model: 'claude-sonnet-4-6', max_tokens: 4000, messages: [{ role: 'user', content: contenido }],
+      }))
+      const compat = Math.max(0, Math.min(100, Math.round(Number(d.compatibilidad) || 0)))
+      await sbPatch('candidatos', `id=eq.${c.id}`, {
+        compatibilidad: compat, analisis: d,
+        analisis_at: new Date().toISOString(), analisis_error: null, analisis_modelo: 'claude-sonnet-4-6',
+      })
+      out.analizados++
+    } catch (e: any) {
+      await sbPatch('candidatos', `id=eq.${c.id}`, {
+        analisis_error: String((e && e.message) || e), analisis_at: new Date().toISOString(),
+      })
+      out.fallos.push({ quien: c.nombre, error: String((e && e.message) || e) })
+    }
+  }
+
+  return out
 }
 
 /**
