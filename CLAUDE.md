@@ -83,6 +83,7 @@ en blanco o en negro en producción:
 | Símbolo usado sin importar | `folioRecibo` en Contabilidad | `python3 /tmp/chk.py` |
 | Zona muerta temporal (TDZ) | `useEffect(..., [T.subtotal])` puesto ARRIBA de `const T = useMemo(...)` en EstimacionEditor | `python3 /tmp/tdz.py` |
 | **Hook debajo de un `return` temprano** | el `useEffect` del folio duplicado quedó abajo de `if (loading \|\| !po) return <Loading/>` en `POEditor` → pantalla negra al abrir cualquier OC | `python3 /tmp/hooks.py` |
+| **Componente JSX sin importar** | `<ChevronRight>` usado en Compras sin agregarlo al import de `lucide-react` | `python3 /tmp/jsx.py` |
 
 Los tres revientan en tiempo de ejecución, no son errores de sintaxis:
 **esbuild los compila sin una sola queja**. Correr SIEMPRE los cuatro:
@@ -92,6 +93,7 @@ npx esbuild src/main.tsx --bundle --packages=external --loader:.tsx=tsx --jsx=au
 python3 /tmp/chk.py      # imports faltantes
 python3 /tmp/tdz.py      # deps que usan una const declarada más abajo
 python3 /tmp/hooks.py    # hooks declarados despues de un early return
+python3 /tmp/jsx.py      # <Componentes> usados sin importar
 ```
 
 Si esos scripts no existen en la sesión, volver a escribirlos antes de
@@ -99,7 +101,13 @@ desplegar: son ~40 líneas cada uno y ya pagaron su costo tres veces.
 `tdz.py` busca arreglos de dependencias `}, [...])` que referencien una `const`
 de la misma función declarada en una línea posterior. `hooks.py` recorre cada
 `function Componente(` y marca cualquier `useState/useEffect/useMemo/...` que
-aparezca después del primer `if (...) return` a nivel del cuerpo.
+aparezca después del primer `if (...) return` a nivel del cuerpo. `jsx.py` cubre el
+hueco de `chk.py`: éste solo conoce lo que exportan `src/lib` y
+`src/components`, así que un icono de `lucide-react` sin importar se le pasa.
+Lo difícil ahí es no confundir JSX con genéricos de TypeScript —
+`useState<Ticket[]>` no es una etiqueta— y se resuelve mirando si el `<` viene
+pegado a una letra o no. Está calibrado a **cero falsos positivos** sobre todo
+`src/`: si marca algo, es de verdad.
 
 **Por qué el hook debajo del `return` mata la pantalla:** React exige el mismo
 número de hooks en cada render. Mientras `loading` es `true` el componente sale

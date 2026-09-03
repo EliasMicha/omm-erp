@@ -8,7 +8,7 @@ import { Project, CatalogProduct, ProjectLine, PurchasePhase } from '../types'
 import { F, FUSD, FCUR, SPECIALTY_CONFIG, PHASE_CONFIG, formatDate } from '../lib/utils'
 import { Badge, Btn, KpiCard, Table, Th, Td, Loading, SectionHeader, EmptyState } from '../components/layout/UI'
 import { useIsMobile } from '../lib/useIsMobile'
-import { Plus, ChevronLeft, X, Search, Trash2, Save, ShoppingCart, Truck, Package, Users2, FileText, Copy, Sparkles, Upload, ClipboardList, CheckCircle2, Circle, Clock, Download } from 'lucide-react'
+import { Plus, ChevronLeft, X, Search, Trash2, Save, ShoppingCart, Truck, Package, Users2, FileText, Copy, Sparkles, Upload, ClipboardList, ChevronRight, CheckCircle2, Circle, Clock, Download } from 'lucide-react'
 import { generatePOPdf } from '../lib/poPdf'
 import { sugerirFechaMaximaPago, estadoPago } from '../lib/pagoProveedor'
 import { normalizarMoneda, monedaDeCosto, type Moneda } from '../lib/moneda'
@@ -804,6 +804,7 @@ function ProcurementTracker({ onOpenPO, onOpenDetail }: { onOpenPO: (id: string)
 
 interface DetailItem {
   qi_id: string
+  catalog_product_id: string | null
   name: string
   quantity: number
   cost: number
@@ -824,9 +825,78 @@ interface DetailItem {
   proc_status: 'vendido' | 'oc_generada' | 'pedido'
 }
 
+/**
+ * Producto juntado de todos los sistemas donde aparece.
+ *
+ * Una cotización parte el mismo detector en seis renglones porque va a seis
+ * áreas distintas. Para comprar, eso estorba: lo que se necesita saber es
+ * cuántos van en total y cuántos ya tienen OC. El desglose por sistema sigue
+ * ahí, guardado en `renglones`, a un clic.
+ */
+interface ProductoAgrupado {
+  clave: string
+  name: string
+  renglones: DetailItem[]
+  cantidad: number
+  costoTotal: number
+  currency: string
+  /** Los sistemas donde aparece, para poder verlo sin abrir el detalle. */
+  sistemas: string[]
+  proveedores: string[]
+  /** Cuántas PIEZAS (no renglones) van en cada estado. */
+  porEstado: { vendido: number; oc_generada: number; pedido: number }
+  /** Las OCs que ya lo cubren, sin repetir. */
+  ocs: Array<{ id: string; numero: string }>
+  /** Si los renglones traen precios unitarios distintos, hay que decirlo. */
+  costoMixto: boolean
+  monedaMixta: boolean
+}
+
+function agruparPorProducto(items: DetailItem[]): ProductoAgrupado[] {
+  // Se agrupa por producto de catálogo; si el renglón no trae catálogo (concepto
+  // escrito a mano), se cae al nombre normalizado. Dos renglones capturados a
+  // mano con el mismo texto son el mismo producto para efectos de compra.
+  const clave = (i: DetailItem) =>
+    i.catalog_product_id || 'txt:' + i.name.trim().toLowerCase().replace(/\s+/g, ' ')
+
+  const mapa = new Map<string, ProductoAgrupado>()
+  for (const i of items) {
+    const k = clave(i)
+    let g = mapa.get(k)
+    if (!g) {
+      g = {
+        clave: k, name: i.name, renglones: [], cantidad: 0, costoTotal: 0,
+        currency: i.currency, sistemas: [], proveedores: [],
+        porEstado: { vendido: 0, oc_generada: 0, pedido: 0 },
+        ocs: [], costoMixto: false, monedaMixta: false,
+      }
+      mapa.set(k, g)
+    }
+    g.renglones.push(i)
+    g.cantidad += i.quantity
+    g.costoTotal += i.cost * i.quantity
+    // Las piezas, no los renglones: 6 renglones de 1 pieza cada uno son 6 piezas.
+    g.porEstado[i.proc_status] += i.quantity
+    if (i.system && !g.sistemas.includes(i.system)) g.sistemas.push(i.system)
+    if (i.supplier && !g.proveedores.includes(i.supplier)) g.proveedores.push(i.supplier)
+    if (i.po_id && i.po_number && !g.ocs.some(o => o.id === i.po_id)) g.ocs.push({ id: i.po_id, numero: i.po_number })
+    if (i.currency !== g.currency) g.monedaMixta = true
+  }
+  for (const g of mapa.values()) {
+    const unitarios = new Set(g.renglones.map(r => Math.round(r.cost * 100)))
+    g.costoMixto = unitarios.size > 1
+    g.renglones.sort((a, b) => (a.system || '').localeCompare(b.system || ''))
+  }
+  // Primero lo que falta comprar: es la lista de trabajo, no un reporte.
+  return Array.from(mapa.values()).sort((a, b) =>
+    (b.porEstado.vendido - a.porEstado.vendido) || b.cantidad - a.cantidad)
+}
+
 function ProcurementDetail({ quotationId, onBack, onOpenPO }: { quotationId: string; onBack: () => void; onOpenPO: (id: string) => void }) {
   const isMobile = useIsMobile()
   const [items, setItems] = useState<DetailItem[]>([])
+  // Qué productos están desplegados mostrando su desglose por sistema.
+  const [abiertos, setAbiertos] = useState<Set<string>>(new Set())
   const [quotInfo, setQuotInfo] = useState<{ name: string; lead_name: string; specialty: string }>({ name: '', lead_name: '', specialty: '' })
   const [loading, setLoading] = useState(true)
 
@@ -896,6 +966,7 @@ function ProcurementDetail({ quotationId, onBack, onOpenPO }: { quotationId: str
         }
         return {
           qi_id: qi.id,
+          catalog_product_id: qi.catalog_product_id || null,
           name: qi.name,
           quantity: Number(qi.quantity),
           cost: Number(qi.cost),
@@ -926,6 +997,7 @@ function ProcurementDetail({ quotationId, onBack, onOpenPO }: { quotationId: str
   const espCfg = SPECIALTY_CONFIG[quotInfo.specialty as ProjectLine]
   const statusColors: Record<string, string> = { vendido: '#D97706', oc_generada: '#2563EB', pedido: '#10B981' }
   const statusLabels: Record<string, string> = { vendido: 'Sin OC', oc_generada: 'OC Generada', pedido: 'Pedido' }
+  const grupos = agruparPorProducto(items)
 
   return (
     <div>
@@ -943,23 +1015,29 @@ function ProcurementDetail({ quotationId, onBack, onOpenPO }: { quotationId: str
         </div>
       </div>
 
-      {/* Summary bar */}
-      <div style={{ display: 'flex', gap: 16, marginBottom: 16, flexWrap: 'wrap' }}>
-        {(['vendido', 'oc_generada', 'pedido'] as const).map(s => {
-          const cnt = items.filter(i => i.proc_status === s).length
-          return cnt > 0 ? (
-            <div key={s} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
-              <div style={{ width: 8, height: 8, borderRadius: 4, background: statusColors[s] }} />
-              <span style={{ color: statusColors[s], fontWeight: 600 }}>{cnt}</span>
-              <span style={{ color: '#555' }}>{statusLabels[s]}</span>
+      {/* Resumen: en PIEZAS, no en renglones. El mismo detector partido en seis
+          áreas son seis renglones pero una sola cosa que comprar. */}
+      <div style={{ display: 'flex', gap: 16, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
+        {(['vendido', 'oc_generada', 'pedido'] as const).map(st => {
+          const pzs = items.filter(i => i.proc_status === st).reduce((n, i) => n + i.quantity, 0)
+          return pzs > 0 ? (
+            <div key={st} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+              <div style={{ width: 8, height: 8, borderRadius: 4, background: statusColors[st] }} />
+              <span style={{ color: statusColors[st], fontWeight: 600 }}>{pzs}</span>
+              <span style={{ color: '#555' }}>{statusLabels[st]}</span>
             </div>
           ) : null
         })}
         <span style={{ color: '#333' }}>|</span>
-        <span style={{ fontSize: 12, color: '#888' }}>{items.length} productos total</span>
+        <span style={{ fontSize: 12, color: '#888' }}>
+          {grupos.length} producto(s) distinto(s) · {items.reduce((n, i) => n + i.quantity, 0)} pieza(s)
+          {items.length !== grupos.length && (
+            <span style={{ color: '#555' }}> · {items.length} renglones en la cotización</span>
+          )}
+        </span>
       </div>
 
-      {/* Detail table */}
+      {/* Un renglón por PRODUCTO, no por área. Abajo, si se abre, el desglose. */}
       <div style={{ overflowX: 'auto' }}>
         <Table>
           <thead><tr>
@@ -969,55 +1047,131 @@ function ProcurementDetail({ quotationId, onBack, onOpenPO }: { quotationId: str
             <Th right>Cant</Th>
             <Th right>Costo</Th>
             <Th>OC Interna</Th>
-            <Th>Proveedor OC</Th>
             <Th>Doc Proveedor</Th>
             <Th>Fecha OC</Th>
             <Th>Entrega esperada</Th>
             <Th>Recibido</Th>
           </tr></thead>
           <tbody>
-            {items.map(item => (
-              <tr key={item.qi_id}>
-                <Td>
-                  <span style={{
-                    fontSize: 10, fontWeight: 600, color: statusColors[item.proc_status],
-                    padding: '2px 8px', borderRadius: 10,
-                    background: statusColors[item.proc_status] + '18',
-                  }}>
-                    {statusLabels[item.proc_status]}
-                  </span>
-                </Td>
-                <Td>
-                  <div style={{ maxWidth: 250, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12, color: '#ccc' }}>
-                    {item.name}
-                  </div>
-                </Td>
-                <Td muted>{item.supplier || '--'}</Td>
-                <Td right>{item.quantity}</Td>
-                <Td right><span style={{ fontWeight: 600, color: '#ccc' }} title="Costo (proveedor) = costo unitario × cantidad">{FCUR(item.cost * item.quantity, item.currency)}</span></Td>
-                <Td>
-                  {item.po_number ? (
-                    <span onClick={() => { if (item.po_id) onOpenPO(item.po_id) }}
-                      style={{ fontSize: 11, color: '#2563EB', cursor: 'pointer', textDecoration: 'underline', fontWeight: 600 }}>
-                      {item.po_number}
-                    </span>
-                  ) : <span style={{ color: '#333' }}>—</span>}
-                </Td>
-                <Td muted>{item.po_supplier_name || '--'}</Td>
-                <Td muted>{item.supplier_doc || '--'}</Td>
-                <Td muted>{item.po_date ? formatDate(item.po_date) : '--'}</Td>
-                <Td muted>{item.expected_delivery ? formatDate(item.expected_delivery) : '--'}</Td>
-                <Td>
-                  {item.delivered_at
-                    ? <span style={{ color: '#10B981', fontSize: 11 }}>{formatDate(item.delivered_at)}</span>
-                    : <span style={{ color: '#333' }}>—</span>}
-                </Td>
-              </tr>
+            {grupos.map(g => (
+              <RenglonProducto key={g.clave} g={g} abierto={abiertos.has(g.clave)}
+                onAbrir={() => setAbiertos(prev => {
+                  const n = new Set(prev)
+                  n.has(g.clave) ? n.delete(g.clave) : n.add(g.clave)
+                  return n
+                })}
+                onOpenPO={onOpenPO} statusColors={statusColors} statusLabels={statusLabels} />
             ))}
           </tbody>
         </Table>
       </div>
     </div>
+  )
+}
+
+/**
+ * Un producto con todo lo que se compró de él. El status ya no es un solo
+ * estado: 6 piezas pueden ir 4 con OC y 2 sin ella, y eso es exactamente lo que
+ * hay que ver para saber qué falta.
+ */
+function RenglonProducto({ g, abierto, onAbrir, onOpenPO, statusColors, statusLabels }: {
+  g: ProductoAgrupado; abierto: boolean; onAbrir: () => void; onOpenPO: (id: string) => void
+  statusColors: Record<string, string>; statusLabels: Record<string, string>
+}) {
+  const estados = (['vendido', 'oc_generada', 'pedido'] as const).filter(st => g.porEstado[st] > 0)
+  const uno = estados.length === 1
+  const variosRenglones = g.renglones.length > 1
+  // Datos de OC: solo se muestran si TODOS los renglones coinciden; si no,
+  // ponerlos sería mentir sobre a cuál se refieren.
+  const unico = <T,>(f: (r: DetailItem) => T | null | undefined): T | null => {
+    const vals = Array.from(new Set(g.renglones.map(f).filter(Boolean) as T[]))
+    return vals.length === 1 ? vals[0] : null
+  }
+  const doc = unico(r => r.supplier_doc)
+  const fechaOC = unico(r => r.po_date)
+  const entrega = unico(r => r.expected_delivery)
+  const recibido = unico(r => r.delivered_at)
+
+  return (
+    <>
+      <tr onClick={variosRenglones ? onAbrir : undefined} style={{ cursor: variosRenglones ? 'pointer' : 'default' }}>
+        <Td>
+          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+            {estados.map(st => (
+              <span key={st} style={{
+                fontSize: 10, fontWeight: 600, color: statusColors[st],
+                padding: '2px 8px', borderRadius: 10, background: statusColors[st] + '18', whiteSpace: 'nowrap',
+              }}>
+                {uno ? statusLabels[st] : `${g.porEstado[st]} ${statusLabels[st]}`}
+              </span>
+            ))}
+          </div>
+        </Td>
+        <Td>
+          <div style={{ maxWidth: 260, fontSize: 12, color: '#ccc', display: 'flex', alignItems: 'center', gap: 5 }}>
+            {variosRenglones && (
+              <ChevronRight size={11} style={{ color: '#666', flexShrink: 0, transform: abierto ? 'rotate(90deg)' : 'none', transition: 'transform .12s' }} />
+            )}
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{g.name}</span>
+          </div>
+          {variosRenglones && (
+            <div style={{ fontSize: 10, color: '#555', marginTop: 2, marginLeft: 16 }}>
+              en {g.renglones.length} renglones{g.sistemas.length ? ` · ${g.sistemas.slice(0, 3).join(', ')}${g.sistemas.length > 3 ? '…' : ''}` : ''}
+            </div>
+          )}
+        </Td>
+        <Td muted>{g.proveedores.length === 0 ? '--' : g.proveedores.length === 1 ? g.proveedores[0] : `${g.proveedores.length} proveedores`}</Td>
+        <Td right><span style={{ fontWeight: 600, color: '#ddd' }}>{g.cantidad}</span></Td>
+        <Td right>
+          <span style={{ fontWeight: 600, color: '#ccc' }} title={g.costoMixto ? 'Los renglones traen precios unitarios distintos; esto es la suma.' : 'Costo (proveedor) = costo unitario × cantidad'}>
+            {FCUR(g.costoTotal, g.currency)}{g.costoMixto && <span style={{ color: '#D9A441' }}> *</span>}
+          </span>
+        </Td>
+        <Td>
+          {g.ocs.length === 0 ? <span style={{ color: '#333' }}>—</span> : (
+            <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+              {g.ocs.slice(0, 3).map(o => (
+                <span key={o.id} onClick={e => { e.stopPropagation(); onOpenPO(o.id) }}
+                  style={{ fontSize: 11, color: '#2563EB', cursor: 'pointer', textDecoration: 'underline', fontWeight: 600 }}>
+                  {o.numero}
+                </span>
+              ))}
+              {g.ocs.length > 3 && <span style={{ fontSize: 10, color: '#555' }}>+{g.ocs.length - 3}</span>}
+            </div>
+          )}
+        </Td>
+        <Td muted>{doc || (g.ocs.length > 1 ? 'varios' : '--')}</Td>
+        <Td muted>{fechaOC ? formatDate(fechaOC) : g.ocs.length > 1 ? 'varias' : '--'}</Td>
+        <Td muted>{entrega ? formatDate(entrega) : '--'}</Td>
+        <Td>{recibido ? <span style={{ color: '#10B981', fontSize: 11 }}>{formatDate(recibido)}</span> : <span style={{ color: '#333' }}>—</span>}</Td>
+      </tr>
+
+      {abierto && g.renglones.map(r => (
+        <tr key={r.qi_id} style={{ background: '#0c0c0c' }}>
+          <Td>
+            <span style={{ fontSize: 9.5, fontWeight: 600, color: statusColors[r.proc_status], padding: '1px 7px', borderRadius: 9, background: statusColors[r.proc_status] + '14', marginLeft: 10 }}>
+              {statusLabels[r.proc_status]}
+            </span>
+          </Td>
+          <Td>
+            <div style={{ fontSize: 11, color: '#888', marginLeft: 26 }}>{r.system || 'Sin sistema'}</div>
+          </Td>
+          <Td muted>{r.supplier || '--'}</Td>
+          <Td right><span style={{ color: '#999' }}>{r.quantity}</span></Td>
+          <Td right><span style={{ color: '#999' }}>{FCUR(r.cost * r.quantity, r.currency)}</span></Td>
+          <Td>
+            {r.po_number ? (
+              <span onClick={e => { e.stopPropagation(); if (r.po_id) onOpenPO(r.po_id) }}
+                style={{ fontSize: 10.5, color: '#2563EB', cursor: 'pointer', textDecoration: 'underline' }}>{r.po_number}</span>
+            ) : <span style={{ color: '#333' }}>—</span>}
+          </Td>
+          <Td muted>{r.supplier_doc || '--'}</Td>
+          <Td muted>{r.po_date ? formatDate(r.po_date) : '--'}</Td>
+          <Td muted>{r.expected_delivery ? formatDate(r.expected_delivery) : '--'}</Td>
+          <Td>{r.delivered_at ? <span style={{ color: '#10B981', fontSize: 10.5 }}>{formatDate(r.delivered_at)}</span> : <span style={{ color: '#333' }}>—</span>}</Td>
+        </tr>
+      ))}
+    </>
   )
 }
 
