@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef } from 'react'
+import { useState, useMemo, useEffect, useRef, createContext, useContext } from 'react'
 import { supabase } from '../lib/supabase'
 import { fetchAllActiveCatalog } from '../lib/catalog'
 import { F, STAGE_CONFIG } from '../lib/utils'
@@ -112,7 +112,47 @@ function uid(): string { return Math.random().toString(36).slice(2, 10) }
 /** Format number with commas and 2 decimals: 54448.22 → "54,448.22" */
 function fmt(n: number): string { return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }
 
-function calcLine(p: EspProduct) {
+/**
+ * El costo del producto EXPRESADO EN LA MONEDA DE LA COTIZACIÓN.
+ *
+ * El precio de venta ya se convierte al agregarlo (convertToQuoteCurrency), pero
+ * el costo NO: se guarda en la moneda en que está dado de alta el producto,
+ * porque esa es la moneda en que se le compra al proveedor y Compras la
+ * necesita tal cual. El resultado era un margen comparando peras con manzanas:
+ * un KEF de $23,988 MXN contra un precio de $1,989 USD daba una utilidad de
+ * −$21,998.
+ *
+ * Aquí NO se toca lo guardado. Solo se convierte para calcular y mostrar dentro
+ * de la cotización, que es donde el margen tiene que cuadrar. La orden de
+ * compra sigue saliendo en pesos.
+ */
+function costoEnMonedaCot(p: EspProduct, monedaCot: string, tipoCambio: number): number {
+  const costo = p.cost > 0 ? p.cost : p.price * (1 - p.margin / 100)
+  const origen = p.monedaOrigen || 'USD'
+  if (!costo || origen === monedaCot) return costo
+  const tc = Number(tipoCambio) || 0
+  // Sin tipo de cambio no se inventa uno: se devuelve el costo sin convertir y
+  // la pantalla marca el renglón. Inventarlo sería un margen falso que se ve bien.
+  if (tc <= 0) return costo
+  if (origen === 'USD' && monedaCot === 'MXN') return Math.round(costo * tc * 100) / 100
+  if (origen === 'MXN' && monedaCot === 'USD') return Math.round(costo / tc * 100) / 100
+  return costo
+}
+
+/**
+ * La moneda y el TC de la cotización, disponibles en cualquier renglón sin
+ * pasarlos por tres niveles de props. Los usan los componentes que calculan
+ * margen: el renglón y el modal de detalle.
+ */
+const MonedaCot = createContext<{ moneda: string; tc: number }>({ moneda: 'USD', tc: 0 })
+
+/** true si el renglón necesita tipo de cambio y la cotización no lo tiene. */
+function faltaTC(p: EspProduct, monedaCot: string, tipoCambio: number): boolean {
+  return !p.isService && p.cost > 0
+    && (p.monedaOrigen || 'USD') !== monedaCot && !(Number(tipoCambio) > 0)
+}
+
+function calcLine(p: EspProduct, monedaCot = 'USD', tipoCambio = 0) {
   if (p.isService) {
     // Servicios: precio = total del servicio, sin M.O. separada, sin costo de producto
     const total = p.price * p.quantity
@@ -121,8 +161,9 @@ function calcLine(p: EspProduct) {
   const precioAmp = p.price * p.quantity
   const moAmp = p.laborCost * p.quantity
   const total = precioAmp + moAmp
-  // Usar costo real almacenado, no back-calculate del margen
-  const costReal = p.cost > 0 ? p.cost : p.price * (1 - p.margin / 100)
+  // El costo va convertido a la moneda de la cotización; si no, el margen
+  // compara un costo en pesos contra un precio en dólares.
+  const costReal = costoEnMonedaCot(p, monedaCot, tipoCambio)
   const utilidad = p.price - costReal
   return { precioAmp, moAmp, total, costReal, utilidad }
 }
@@ -192,7 +233,9 @@ function ProductRow({ p, onUpdate, onRemove, onUpdateAll, showInt, duplicateCoun
   onCopyTo?: (id: string) => void; onDetail?: (p: EspProduct) => void
   selected?: boolean; onToggleSelect?: (id: string) => void; onSubstitute?: (p: EspProduct) => void
 }) {
-  const { precioAmp, moAmp, total, costReal, utilidad } = calcLine(p)
+  const { moneda: monedaCot, tc } = useContext(MonedaCot)
+  const { precioAmp, moAmp, total, costReal, utilidad } = calcLine(p, monedaCot, tc)
+  const sinTC = faltaTC(p, monedaCot, tc)
   const handleBlur = (field: string, value: number) => {
     onUpdate(p.id, field, value)
     if (duplicateCount > 1 && p.catalogId && (field === 'price' || field === 'laborCost' || field === 'margin')) {
@@ -234,7 +277,11 @@ function ProductRow({ p, onUpdate, onRemove, onUpdateAll, showInt, duplicateCoun
         <td style={{ ...S.tdM, color: '#10B981' }}>${fmt(total)}</td>
       </>)}
       {showInt && (<>
-        <td style={{ ...S.tdR, color: '#555', fontSize: 10 }}>${fmt(costReal)}</td>
+        <td style={{ ...S.tdR, color: sinTC ? '#DC2626' : '#555', fontSize: 10 }}
+          title={sinTC ? `Está dado de alta en ${p.monedaOrigen} y la cotización va en ${monedaCot}. Captura el tipo de cambio.`
+            : (p.monedaOrigen || 'USD') !== monedaCot ? `Convertido de ${p.monedaOrigen} $${fmt(p.cost)} al TC ${tc}` : undefined}>
+          {sinTC ? 'sin TC' : '$' + fmt(costReal)}
+        </td>
         <td style={S.tdR}><input key={`margin-${p.id}-${p.margin}`} type="number" defaultValue={p.margin} step={1} onBlur={e => handleBlur('margin', parseFloat(e.target.value) || 0)} style={{ ...S.input, width: 40, color: p.margin >= 25 ? '#10B981' : p.margin >= 15 ? '#D97706' : '#DC2626' }} /></td>
         <td style={{ ...S.tdR, fontSize: 10, color: utilidad >= 0 ? '#10B981' : '#DC2626' }}>${fmt(utilidad)}</td>
       </>)}
@@ -254,7 +301,10 @@ function ProductDetailModal({ product, onClose, onUpdate }: {
   const isMobile = useIsMobile()
   const [catalogData, setCatalogData] = useState<any>(null)
   const [loading, setLoading] = useState(false)
-  const { costReal, utilidad, precioAmp, moAmp, total } = calcLine(product)
+  const { moneda: monedaCot, tc } = useContext(MonedaCot)
+  const { costReal, utilidad, precioAmp, moAmp, total } = calcLine(product, monedaCot, tc)
+  const sinTC = faltaTC(product, monedaCot, tc)
+  const costoConvertido = (product.monedaOrigen || 'USD') !== monedaCot && product.cost > 0
 
   useEffect(() => {
     if (product.catalogId) {
@@ -318,8 +368,20 @@ function ProductDetailModal({ product, onClose, onUpdate }: {
           <div style={{ fontSize: 11, fontWeight: 700, color: '#10B981', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>Pricing</div>
           <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 4 }}>
             <div style={gridCell}>
-              <div style={labelStyle}>Costo Real</div>
-              <div style={{ ...valueStyle, color: '#D97706' }}>${fmt(product.cost || costReal)}</div>
+              <div style={labelStyle}>Costo Real{costoConvertido ? ` (${monedaCot})` : ''}</div>
+              <div style={{ ...valueStyle, color: sinTC ? '#DC2626' : '#D97706' }}>
+                {sinTC ? 'Falta TC' : '$' + fmt(costReal)}
+              </div>
+              {costoConvertido && !sinTC && (
+                <div style={{ fontSize: 9.5, color: '#666', marginTop: 2 }}>
+                  Dado de alta en {product.monedaOrigen}: ${fmt(product.cost)} · TC {tc}
+                </div>
+              )}
+              {sinTC && (
+                <div style={{ fontSize: 9.5, color: '#DC2626', marginTop: 2 }}>
+                  Está en {product.monedaOrigen} y la cotización en {monedaCot}. Captura el tipo de cambio.
+                </div>
+              )}
             </div>
             <div style={gridCell}>
               <div style={labelStyle}>Precio Venta</div>
@@ -371,6 +433,11 @@ function ProductDetailModal({ product, onClose, onUpdate }: {
               <div style={gridCell}>
                 <div style={labelStyle}>Costo Catálogo ({catMoneda})</div>
                 <div style={{ ...valueStyle, color: '#888' }}>${fmt(catCost)}</div>
+                {catMoneda !== monedaCot && (
+                  <div style={{ fontSize: 9.5, color: '#666', marginTop: 2 }}>
+                    Así se compra y así sale la orden de compra.
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -1883,7 +1950,7 @@ function SummaryPanel({ products, areas, config, activeSystems, showInt, noSumaS
         {activeSystems.map(sys => {
           const sysProds = products.filter(p => p.systemId === sys.id)
           const t = sysProds.reduce((s, p) => s + calcLine(p).total, 0)
-          const sysCost = sysProds.reduce((s, p) => { const c = calcLine(p); return s + c.costReal * p.quantity }, 0)
+          const sysCost = sysProds.reduce((s, p) => { const c = calcLine(p, config.currency, config.tipoCambio); return s + c.costReal * p.quantity }, 0)
           const sysVenta = sysProds.reduce((s, p) => s + p.price * p.quantity, 0)
           const sysMg = sysVenta > 0 ? Math.round((sysVenta - sysCost) / sysVenta * 100) : 0
           return <div key={sys.id} onClick={() => onSystemClick?.(sys.id)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '3px 4px', fontSize: 10, cursor: 'pointer', borderRadius: 4, transition: 'background 0.1s' }} onMouseEnter={e => (e.currentTarget.style.background = '#1e1e1e')} onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
@@ -1901,7 +1968,7 @@ function SummaryPanel({ products, areas, config, activeSystems, showInt, noSumaS
           {(() => {
             let vtProd = 0, ctProd = 0, vtMO = 0, vtSvc = 0
             products.forEach(p => {
-              const c = calcLine(p)
+              const c = calcLine(p, config.currency, config.tipoCambio)
               if (p.isService) { vtSvc += p.price * p.quantity; return }
               vtProd += p.price * p.quantity
               ctProd += c.costReal * p.quantity
@@ -2249,13 +2316,15 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
     let revenue = 0, cost = 0
     products.forEach(p => {
       revenue += p.price * p.quantity + p.laborCost * p.quantity
-      cost += p.cost * p.quantity
+      // Convertido: el precio ya está en la moneda de la cotización y el costo
+      // se guarda en la del proveedor. Sumarlos crudos da un margen inventado.
+      cost += costoEnMonedaCot(p, config.currency, config.tipoCambio) * p.quantity
     })
     const descFactor = 1 - (config.descuento || 0) / 100
     const revenueBilled = revenue * descFactor
     const nomina = revenueBilled * (config.nominaPct || 0) / 100
     return revenueBilled > 0 ? Math.round(((revenueBilled - cost - nomina) / revenueBilled) * 1000) / 10 : 0
-  }, [products, config.nominaPct, config.descuento])
+  }, [products, config.nominaPct, config.descuento, config.currency, config.tipoCambio])
   const total = useMemo(() => {
     let eq = 0, mo = 0; products.forEach(p => { if (noSumaSysIds.includes(p.systemId)) return; eq += p.price * p.quantity; mo += p.laborCost * p.quantity })
     const sub = eq + mo + config.programacion;
@@ -2433,19 +2502,10 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
       alert('Margen inválido. Usa un valor entre 0 y 99.9 (%).')
       return
     }
-    // El costo vive en la moneda del proveedor (monedaOrigen) y el precio en la
-    // de la cotización. Sumarlos crudos mezclaba pesos con dólares: en una
-    // cotización convertida, el scale salía ~1/TC y esta función desplomaba
-    // TODOS los precios sin forma de deshacerlo.
-    const cruzados = products.filter(p => !p.isService && p.monedaOrigen !== config.currency).length
-    if (cruzados > 0 && !(config.tipoCambio > 0)) {
-      alert(`No se puede ajustar el margen todavía: hay ${cruzados} producto(s) costeados en la otra moneda y esta cotización no tiene tipo de cambio. Captúralo en la configuración de la cotización.`)
-      return
-    }
     let totalCost = 0, productRev = 0, laborRev = 0, servicesRev = 0
     products.forEach(p => {
       if (p.isService) { servicesRev += p.price * p.quantity; return }
-      totalCost += convertToQuoteCurrency(p.cost, p.monedaOrigen) * p.quantity
+      totalCost += costoEnMonedaCot(p, config.currency, config.tipoCambio) * p.quantity
       productRev += p.price * p.quantity
       laborRev += p.laborCost * p.quantity
     })
@@ -2494,8 +2554,8 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
     const updated = products.map(p => {
       if (p.isService) return p
       const newPrice = Math.round(p.price * scale * 100) / 100
-      const cVenta = convertToQuoteCurrency(p.cost, p.monedaOrigen)
-      const newMargin = (cVenta > 0 && newPrice > 0) ? Math.round((1 - cVenta / newPrice) * 100) : p.margin
+      const costoCot = costoEnMonedaCot(p, config.currency, config.tipoCambio)
+      const newMargin = (costoCot > 0 && newPrice > 0) ? Math.round((1 - costoCot / newPrice) * 100) : p.margin
       return { ...p, price: newPrice, margin: newMargin }
     })
     setProducts(updated)
@@ -2971,6 +3031,7 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
   if (loading) return <Loading />
 
   return (
+    <MonedaCot.Provider value={{ moneda: config.currency, tc: Number(config.tipoCambio) || 0 }}>
     <div style={{ display: 'flex', flexDirection: 'column' as const, height: '100vh', overflow: 'hidden' }}>
       {/* Top bar */}
       <div style={{ padding: isMobile ? '7px 12px' : '7px 16px', borderBottom: '1px solid #222', display: 'flex', alignItems: 'center', gap: isMobile ? 6 : 10, flexShrink: 0, background: '#111', flexWrap: 'wrap' }}>
@@ -3459,6 +3520,7 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
         onClose={() => setShowEditCot(false)}
         onSaved={(n, cl, pId, pName) => { setCotName(n); setClientName(cl); setProjectId(pId); setProjectName(pName); setShowEditCot(false) }} />}
     </div>
+    </MonedaCot.Provider>
   )
 }
 
