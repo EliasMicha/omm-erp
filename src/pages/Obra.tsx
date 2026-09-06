@@ -1337,11 +1337,19 @@ function FichaObra({ obra, coordinadores, onGuardar }: {
    SUB: ACTIVIDADES
    ═══════════════════════════════════════════════════════════════════ */
 
+// Campo de fecha en linea dentro del renglon de actividad: se ve como texto
+// hasta que lo tocas, para no llenar la lista de cajas.
+const fechaChip: React.CSSProperties = {
+  background: 'transparent', border: '1px solid transparent', borderRadius: 4,
+  padding: '1px 3px', fontSize: 10, fontFamily: 'inherit', cursor: 'pointer',
+  colorScheme: 'dark',
+}
+
 function SubActividades({ obra, instaladores, updateObra, showNew, setShowNew }: {
   obra: ObraData; instaladores: Instalador[]; updateObra: (fn: (o: ObraData) => ObraData) => void
   showNew: boolean; setShowNew: (v: boolean) => void
 }) {
-  const [newAct, setNewAct] = useState({ sistema: 'CCTV' as Sistema, descripcion: '', instalador_id: '', fecha_fin_plan: '', area: '' })
+  const [newAct, setNewAct] = useState({ sistema: 'CCTV' as Sistema, descripcion: '', instalador_id: '', fecha_inicio: '', fecha_fin_plan: '', area: '' })
   const [groupBy, setGroupBy] = useState<'sistema' | 'area'>('sistema')
   const [verGantt, setVerGantt] = useState(false)
   const [statusFilter, setStatusFilter] = useState<'all' | ActividadStatus | 'sin_resp' | 'vencidas'>('all')
@@ -1352,6 +1360,7 @@ function SubActividades({ obra, instaladores, updateObra, showNew, setShowNew }:
   const [deleting, setDeleting] = useState(false)
   const [buscaAct, setBuscaAct] = useState('')
   const [bulkInst, setBulkInst] = useState('')
+  const [bulkIni, setBulkIni] = useState('')
   const [bulkFecha, setBulkFecha] = useState('')
   const [asignando, setAsignando] = useState(false)
 
@@ -1362,7 +1371,9 @@ function SubActividades({ obra, instaladores, updateObra, showNew, setShowNew }:
     if (!ids.length) return
     const patch: any = {}
     if (bulkInst) patch.instalador_id = bulkInst === '__none__' ? null : bulkInst
+    if (bulkIni) patch.fecha_inicio = bulkIni
     if (bulkFecha) patch.fecha_fin_plan = bulkFecha
+    if (bulkIni && bulkFecha && bulkFecha < bulkIni) { alert('La fecha compromiso no puede ser anterior a la de inicio.'); return }
     if (!Object.keys(patch).length) { alert('Elige un responsable o una fecha para aplicar.'); return }
     setAsignando(true)
     const { error } = await supabase.from('obra_actividades').update(patch).in('id', ids)
@@ -1373,11 +1384,12 @@ function SubActividades({ obra, instaladores, updateObra, showNew, setShowNew }:
       actividades: o.actividades.map(a => ids.includes(a.id) ? {
         ...a,
         instalador_id: bulkInst ? (bulkInst === '__none__' ? undefined : bulkInst) : a.instalador_id,
+        fecha_inicio: bulkIni || a.fecha_inicio,
         fecha_fin_plan: bulkFecha || a.fecha_fin_plan,
       } : a),
     }))
     setSelected(new Set())
-    setBulkInst(''); setBulkFecha('')
+    setBulkInst(''); setBulkFecha(''); setBulkIni('')
   }
 
   const addActividad = async () => {
@@ -1388,6 +1400,7 @@ function SubActividades({ obra, instaladores, updateObra, showNew, setShowNew }:
       descripcion: newAct.descripcion.trim(),
       status: 'pendiente',
       instalador_id: newAct.instalador_id || null,
+      fecha_inicio: newAct.fecha_inicio || null,
       fecha_fin_plan: newAct.fecha_fin_plan || null,
       area: newAct.area || null,
       porcentaje: 0,
@@ -1405,6 +1418,7 @@ function SubActividades({ obra, instaladores, updateObra, showNew, setShowNew }:
         id: data.id, obra_id: data.obra_id, sistema: data.sistema as Sistema,
         descripcion: data.descripcion, status: data.status as ActividadStatus,
         instalador_id: data.instalador_id || undefined,
+        fecha_inicio: data.fecha_inicio || undefined,
         fecha_fin_plan: data.fecha_fin_plan || undefined,
         area: data.area || undefined,
         porcentaje: data.porcentaje || 0,
@@ -1431,6 +1445,7 @@ function SubActividades({ obra, instaladores, updateObra, showNew, setShowNew }:
     if (updates.status !== undefined) dbUpdates.status = updates.status
     if (updates.porcentaje !== undefined) dbUpdates.porcentaje = updates.porcentaje
     if (updates.instalador_id !== undefined) dbUpdates.instalador_id = updates.instalador_id || null
+    if (updates.fecha_inicio !== undefined) dbUpdates.fecha_inicio = updates.fecha_inicio || null
     if (updates.fecha_fin_plan !== undefined) dbUpdates.fecha_fin_plan = updates.fecha_fin_plan || null
     if (updates.fecha_fin_real !== undefined) dbUpdates.fecha_fin_real = updates.fecha_fin_real || null
     if (updates.descripcion !== undefined) dbUpdates.descripcion = updates.descripcion
@@ -1580,8 +1595,11 @@ function SubActividades({ obra, instaladores, updateObra, showNew, setShowNew }:
                     {instaladores.map(i => <option key={i.id} value={i.id}>{i.nombre}</option>)}
                     <option value="__none__">— Quitar responsable —</option>
                   </select>
+                  <input type="date" value={bulkIni} onChange={e => setBulkIni(e.target.value)} title="Fecha de inicio para las tareas seleccionadas"
+                    style={{ padding: '3px 6px', fontSize: 10, background: '#0a0a0a', border: '1px solid #333', borderRadius: 4, color: bulkIni ? '#fff' : '#666', fontFamily: 'inherit', colorScheme: 'dark' }} />
+                  <span style={{ fontSize: 10, color: '#444' }}>→</span>
                   <input type="date" value={bulkFecha} onChange={e => setBulkFecha(e.target.value)} title="Fecha compromiso para las tareas seleccionadas"
-                    style={{ padding: '3px 6px', fontSize: 10, background: '#0a0a0a', border: '1px solid #333', borderRadius: 4, color: bulkFecha ? '#fff' : '#666', fontFamily: 'inherit' }} />
+                    style={{ padding: '3px 6px', fontSize: 10, background: '#0a0a0a', border: '1px solid #333', borderRadius: 4, color: bulkFecha ? '#fff' : '#666', fontFamily: 'inherit', colorScheme: 'dark' }} />
                   <Btn size="sm" variant="primary" disabled={asignando} onClick={asignarMasivo}>
                     {asignando ? <Loader2 size={10} /> : <Users size={10} />} Asignar ({selected.size})
                   </Btn>
@@ -1611,7 +1629,7 @@ function SubActividades({ obra, instaladores, updateObra, showNew, setShowNew }:
       {showNew && (
         <div style={{ ...cardStyle, borderColor: '#10B98133' }}>
           <div style={{ fontSize: 13, fontWeight: 600, color: '#fff', marginBottom: 12 }}>Nueva actividad</div>
-          <div style={{ display: 'grid', gridTemplateColumns: '130px 1fr 150px 150px 130px', gap: 8, marginBottom: 10 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '130px 1fr 150px 150px 130px 130px', gap: 8, marginBottom: 10 }}>
             <div>
               <div style={labelStyle}>Sistema</div>
               <select value={newAct.sistema} onChange={e => setNewAct(n => ({ ...n, sistema: e.target.value as Sistema }))} style={inputStyle}>
@@ -1633,6 +1651,10 @@ function SubActividades({ obra, instaladores, updateObra, showNew, setShowNew }:
                 <option value="">Sin asignar</option>
                 {instaladores.filter(i => i.habilidades.includes(newAct.sistema)).map(i => <option key={i.id} value={i.id}>{i.nombre}</option>)}
               </select>
+            </div>
+            <div>
+              <div style={labelStyle}>Inicio</div>
+              <input type="date" value={newAct.fecha_inicio} onChange={e => setNewAct(n => ({ ...n, fecha_inicio: e.target.value }))} style={inputStyle} />
             </div>
             <div>
               <div style={labelStyle}>Fecha límite</div>
@@ -1702,9 +1724,29 @@ function SubActividades({ obra, instaladores, updateObra, showNew, setShowNew }:
                           {isSystemGroup && a.area && <span style={{ color: '#888' }}>📍 {a.area}</span>}
                           {inst && <span><Users size={10} style={{ verticalAlign: 'middle' }} /> {inst.nombre}</span>}
                           {!inst && <span style={{ color: '#D97706' }}><Users size={10} style={{ verticalAlign: 'middle' }} /> Sin responsable</span>}
-                          {a.fecha_fin_plan && (() => {
-                            const vencida = a.status !== 'completada' && a.fecha_fin_plan < hoy
-                            return <span style={{ color: vencida ? '#DC2626' : undefined }}><Calendar size={10} style={{ verticalAlign: 'middle' }} /> {formatDate(a.fecha_fin_plan)}{vencida ? ' · vencida' : ''}</span>
+                          {(() => {
+                            // Las dos fechas, editables aqui mismo. Antes solo se
+                            // veia la de compromiso y de solo lectura: no habia
+                            // forma de capturar el arranque, y sin arranque el
+                            // Gantt no puede dibujar duracion.
+                            const vencida = a.status !== 'completada' && !!a.fecha_fin_plan && a.fecha_fin_plan < hoy
+                            const dias = a.fecha_inicio && a.fecha_fin_plan && a.fecha_fin_plan >= a.fecha_inicio
+                              ? diasEntre(a.fecha_inicio, a.fecha_fin_plan) + 1 : null
+                            return (
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                <Calendar size={10} style={{ color: vencida ? '#DC2626' : '#555' }} />
+                                <input type="date" value={a.fecha_inicio || ''} title="Fecha de inicio"
+                                  onChange={e => updateActividad(a.id, { fecha_inicio: e.target.value || undefined } as any)}
+                                  style={{ ...fechaChip, color: a.fecha_inicio ? '#aaa' : '#4a4a4a' }} />
+                                <span style={{ color: '#444' }}>→</span>
+                                <input type="date" value={a.fecha_fin_plan || ''} title="Fecha compromiso"
+                                  onChange={e => updateActividad(a.id, { fecha_fin_plan: e.target.value || undefined } as any)}
+                                  style={{ ...fechaChip, color: vencida ? '#DC2626' : a.fecha_fin_plan ? '#aaa' : '#4a4a4a' }} />
+                                {dias != null && <span style={{ color: '#555' }}>{dias} d</span>}
+                                {vencida && <span style={{ color: '#DC2626' }}>· vencida</span>}
+                                {!a.fecha_inicio && a.fecha_fin_plan && <span style={{ color: '#D97706' }}>· sin inicio</span>}
+                              </span>
+                            )
                           })()}
                         </div>
                         {a.bloqueo && (
