@@ -7,6 +7,7 @@ import { useIsMobile } from '../lib/useIsMobile'
 import jsPDF from 'jspdf'
 import { useAuth } from '../contexts/AuthContext'
 import MaterialesObra, { ProximasEntregas } from '../components/MaterialesObra'
+import GanttObra from '../components/GanttObra'
 import {
   HardHat, Users, ClipboardList, Calendar, AlertTriangle, CheckCircle, CheckCircle2,
   Clock, ChevronRight, ArrowLeft, Plus, Upload, Camera, X, Eye,
@@ -1342,6 +1343,7 @@ function SubActividades({ obra, instaladores, updateObra, showNew, setShowNew }:
 }) {
   const [newAct, setNewAct] = useState({ sistema: 'CCTV' as Sistema, descripcion: '', instalador_id: '', fecha_fin_plan: '', area: '' })
   const [groupBy, setGroupBy] = useState<'sistema' | 'area'>('sistema')
+  const [verGantt, setVerGantt] = useState(false)
   const [statusFilter, setStatusFilter] = useState<'all' | ActividadStatus | 'sin_resp' | 'vencidas'>('all')
   const [generating, setGenerating] = useState(false)
   const [genStatus, setGenStatus] = useState('')
@@ -1484,6 +1486,11 @@ function SubActividades({ obra, instaladores, updateObra, showNew, setShowNew }:
   // Get unique areas for the new activity form
   const uniqueAreas = Array.from(new Set(obra.actividades.map(a => a.area).filter(Boolean))) as string[]
 
+  // El Gantt reemplaza la lista de actividades mientras esta abierto.
+  // Va DESPUES de todos los hooks de este componente: si se pusiera arriba
+  // cambiaria el conteo de hooks entre renders y tumbaria el arbol completo.
+  if (verGantt) return <GanttObra obra={obra} onCerrar={() => setVerGantt(false)} />
+
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
@@ -1508,6 +1515,7 @@ function SubActividades({ obra, instaladores, updateObra, showNew, setShowNew }:
               {generating ? <><Loader2 size={12} /> Generando...</> : <>🤖 Autogenerar desde cotización</>}
             </Btn>
           )}
+          <Btn size="sm" variant="default" onClick={() => setVerGantt(true)}>📅 Programa (Gantt)</Btn>
           <Btn size="sm" variant="primary" onClick={() => setShowNew(true)}><Plus size={12} /> Nueva actividad</Btn>
         </div>
       </div>
