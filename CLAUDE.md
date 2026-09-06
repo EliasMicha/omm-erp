@@ -1350,3 +1350,37 @@ luminaria→plafon pintado.
 `deObraActividad` no llena `specialty`, asi que el filtro por especialidad del
 catalogo es hoy un no-op; mandan las palabras clave. No estorba, pero si algun
 dia se quiere afinar, ahi esta el hilo.
+
+
+---
+
+## 📆 Fecha de inicio en actividades de obra (2026-09-06)
+
+Elias: *"¿Donde veo fechas de inicio y terminacion de cada pendiente?"*
+
+**No se veian.** El renglon de actividad mostraba solo `fecha_fin_plan`, como
+texto de solo lectura. `fecha_inicio` existia en la columna, en la interfaz
+`Actividad` y en el mapeo de carga — pero **ningun control de la UI la
+escribia**. Un campo que se lee y nunca se llena.
+
+Peor: `updateActividad()` no incluia `fecha_inicio` en `dbUpdates`. Agregar el
+input sin arreglar eso hubiera dado el peor bug posible — la fecha se ve
+guardada en pantalla (update optimista) y se pierde al recargar.
+
+### Que se agrego
+- Renglon: las dos fechas editables en linea, `inicio → compromiso`, con
+  duracion en dias y aviso "· sin inicio".
+- `updateActividad`: mapeo de `fecha_inicio`.
+- Asignacion masiva: fecha de inicio, y rechazo si el compromiso es anterior.
+- Alta de actividad: campo Inicio (form y payload del insert).
+- Echo del insert: `fecha_inicio` en el objeto `Actividad` que se agrega al
+  estado (si no, la actividad recien creada aparecia sin su fecha).
+
+### Por que importa mas alla de la captura
+Era la causa raiz de que el Gantt dibujara **todo** como marca de un dia:
+`construirBarras` marca `soloFin` cuando no hay arranque. Sin este cambio no
+habia manera de salir de ese estado desde la UI.
+
+**Leccion:** antes de agregar un input, seguir la columna de punta a punta —
+select de carga → mapeo al tipo → funcion de update → payload del insert →
+echo del insert. Aqui fallaban dos de los cinco eslabones.
