@@ -1280,3 +1280,73 @@ recibida I: 307  sum $4,108,168.15  zero=3 (BBVA edge case)
 recibida P:  20  sum $223,768.09    zero=0
 TOTAL:     685 facturas, $12,821,594, conceptos=1204
 ```
+
+
+---
+
+## 📅 Gantt de obra + condiciones del sitio (2026-09-06)
+
+Elias: *"dame la posiblidad de sacar un Gant interno y para cliente ... me es
+importante que venga listado porque asi podemos explicarle al cliente, y que no
+venga el tipico, tu dijiste este dia, y ese dia tiene que quedar, aunque no sea
+posible todavia"*.
+
+### La idea
+Una fecha de OMM no es una promesa incondicional: corre **a partir de** que el
+sitio esta en condicion. Eso ahora esta escrito en el documento que ve el
+cliente, con nombre y responsable, en vez de discutirse en obra.
+
+### Tablas
+| Tabla | Para que |
+|---|---|
+| `tarea_prerequisitos` | condicion concreta de UNA actividad (FK → `obra_actividades`) |
+| `prerequisitos_catalogo` | 15 reglas con `palabras_clave text[]` que proponen condiciones |
+
+Ambas con RLS ON + una politica abierta (el patron de la casa).
+
+### `alcance`: el detalle que evita el ruido
+- `'actividad'` → se pega a la tarea que la necesita.
+- `'obra'` → aplica a TODO el proyecto y se lista **una sola vez**.
+
+Sin esa distincion salian 598 condiciones sobre 176 actividades (cada tarea
+repetia "acceso al inmueble"). Con ella: **150 condiciones sobre 107 de 176
+actividades (61%)**.
+
+### ⚠️ `obra_actividades`, NO `project_tasks`
+Las actividades de Obra viven en `obra_actividades` (ya traia `fecha_inicio` y
+`fecha_fin_plan`). Agregarle columnas a `project_tasks` no sirve de nada aqui.
+
+### `soloFin`: no inventar duraciones
+Casi ninguna actividad tiene `fecha_inicio`, solo `fecha_fin_plan`. Escribir
+"30-sep – 30-sep" afirma una duracion de un dia que nadie capturo. Cuando solo
+hay compromiso, `BarraGantt.soloFin = true` y se muestra **una sola fecha**.
+
+### Bugs que solo se vieron renderizando el PDF
+1. **Dos textos encimados.** La fecha se dibujaba en `x + w + 1.5` y "sujeto a
+   condicion" en `x + 1.5`. Con barras de un dia (w ≈ 1.6mm) quedaban uno
+   sobre otro e ilegibles. → una sola etiqueta compuesta a la derecha.
+2. **Guion colgando** ("...de acceso) -"). `limpiar()` corria ANTES de
+   `splitTextToSize`, pero el guion lo dejaba el corte. → limpiar DESPUES y
+   agregar "…".
+3. **Encabezado huerfano** al pie de la hoja de condiciones: `espacio(16)`
+   alcanzaba para el titulo pero no para su primer renglon. → `espacio(26)`.
+4. **Las condiciones generales no salian en el PDF.** `condicionesDelProyecto()`
+   solo recorre prerequisitos por tarea, y las de `alcance='obra'` nunca se
+   pegan a una tarea. Justo las 4 mas importantes para el cliente (acceso,
+   internet, resguardo de equipo, piso libre) faltaban. → `DatosGantt.generales`
+   y el bloque "DE TODA LA OBRA".
+
+**Ninguno de los cuatro lo detecta esbuild ni los checkers.** El unico modo fue
+armar el PDF en node con datos reales y verlo: bundle → parche de jspdf →
+`pdftoppm -r 110 -png` → leer el PNG.
+
+### Verificacion (obra real Cero5cien A101 - Zury Attie)
+176 actividades · 150 condiciones · 107 actividades con condicion · 10 paginas
+por documento. Los cuatro ejemplos de Elias caen donde deben:
+bocinas→luminarias, Lutron→circuitos probados, perno/chapa→marco de puerta,
+luminaria→plafon pintado.
+
+### Pendiente
+`deObraActividad` no llena `specialty`, asi que el filtro por especialidad del
+catalogo es hoy un no-op; mandan las palabras clave. No estorba, pero si algun
+dia se quiere afinar, ahi esta el hilo.
