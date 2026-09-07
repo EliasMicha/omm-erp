@@ -59,12 +59,28 @@ export interface BarraGantt {
   soloFin: boolean
 }
 
+/** Cada cuanto se pone una marca en el encabezado. */
+export type Paso = 'dia' | 'semana' | 'mes'
+
+export interface Marca {
+  label: string
+  offset: number
+  dias: number
+  /** Sabado o domingo: se sombrea. Solo aplica al paso 'dia'. */
+  finde?: boolean
+  /** Primer dia de un mes: lleva linea mas marcada. */
+  cortaMes?: boolean
+}
+
 export interface Escala {
   inicio: Date
   fin: Date
   dias: number
-  /** Marcas de mes para el encabezado. */
-  meses: Array<{ label: string; offset: number; dias: number }>
+  paso: Paso
+  /** Fila de arriba: el mes con anio de 4 cifras ("septiembre 2026"). */
+  bandas: Marca[]
+  /** Fila de abajo: dias, semanas o meses segun que tan largo sea el plan. */
+  marcas: Marca[]
 }
 
 const D = 86400000
@@ -122,27 +138,72 @@ export function construirBarras(
 }
 
 /** El rango del plan y sus marcas de mes. */
+/**
+ * La escala del encabezado. Se adapta al largo del plan:
+ *
+ *   hasta 45 dias  → una columna por DIA (una obra de dos semanas necesita
+ *                    ver dias, no un solo bloque que diga "septiembre")
+ *   hasta 240 dias → una columna por SEMANA
+ *   mas            → una columna por MES
+ *
+ * La fila de arriba siempre lleva el mes con el anio de 4 cifras. Antes decia
+ * "SEP 26" (mes corto + anio de 2 cifras) y se leia como "26 de septiembre".
+ */
 export function escalaDe(barras: BarraGantt[]): Escala | null {
   if (!barras.length) return null
   const inicio = new Date(Math.min(...barras.map(b => b.inicio.getTime())))
   const fin = new Date(Math.max(...barras.map(b => b.fin.getTime())))
   const dias = Math.max(1, diasEntre(inicio, fin) + 1)
 
-  const meses: Escala['meses'] = []
+  const bandas: Marca[] = []
   let cur = new Date(inicio.getFullYear(), inicio.getMonth(), 1)
   while (cur.getTime() <= fin.getTime()) {
     const sig = new Date(cur.getFullYear(), cur.getMonth() + 1, 1)
     const desde = Math.max(0, diasEntre(inicio, cur))
     const hasta = Math.min(dias, diasEntre(inicio, sig))
     if (hasta > desde) {
-      meses.push({
-        label: cur.toLocaleDateString('es-MX', { month: 'short', year: '2-digit' }),
+      bandas.push({
+        label: `${cur.toLocaleDateString('es-MX', { month: 'long' })} ${cur.getFullYear()}`,
         offset: desde, dias: hasta - desde,
       })
     }
     cur = sig
   }
-  return { inicio, fin, dias, meses }
+
+  const paso: Paso = dias <= 45 ? 'dia' : dias <= 240 ? 'semana' : 'mes'
+  const marcas: Marca[] = []
+
+  if (paso === 'dia') {
+    for (let i = 0; i < dias; i++) {
+      const d = masDias(inicio, i)
+      const dow = d.getDay()
+      marcas.push({
+        label: String(d.getDate()),
+        offset: i, dias: 1,
+        finde: dow === 0 || dow === 6,
+        cortaMes: d.getDate() === 1,
+      })
+    }
+  } else if (paso === 'semana') {
+    // Arranca en el lunes de la semana del inicio, recortado al rango.
+    const off0 = -(((inicio.getDay() + 6) % 7))
+    for (let i = off0; i < dias; i += 7) {
+      const desde = Math.max(0, i)
+      const hasta = Math.min(dias, i + 7)
+      if (hasta <= desde) continue
+      const d = masDias(inicio, desde)
+      marcas.push({
+        label: fechaCorta(d), offset: desde, dias: hasta - desde,
+        cortaMes: d.getDate() <= 7,
+      })
+    }
+  } else {
+    for (const b of bandas) {
+      marcas.push({ ...b, label: b.label.split(' ')[0].slice(0, 3), cortaMes: true })
+    }
+  }
+
+  return { inicio, fin, dias, paso, bandas, marcas }
 }
 
 /** Agrupa por sistema o por área, como ya se ve la pantalla de actividades. */

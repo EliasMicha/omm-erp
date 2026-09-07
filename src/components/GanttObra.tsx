@@ -76,6 +76,9 @@ export default function GanttObra({ obra, onCerrar }: {
   if (cargando) return <div style={{ padding: 24 }}><Loading /></div>
 
   const px = (dias: number) => esc ? `${(dias / esc.dias) * 100}%` : '0%'
+  // Porcentaje de ancho de una columna del encabezado: si es muy angosta se
+  // dibuja la linea pero no el numero, para que no se encimen.
+  const anchoMarca = esc ? ((esc.marcas[0]?.dias || 1) / esc.dias) * 100 : 0
   const hoyOff = esc ? diasEntre(esc.inicio, new Date()) : -1
 
   return (
@@ -140,16 +143,27 @@ export default function GanttObra({ obra, onCerrar }: {
         </div>
       ) : (
         <div style={{ ...card, padding: 0, overflow: 'hidden' }}>
-          {/* Escala */}
+          {/* Escala: mes arriba (con anio de 4 cifras) y dias/semanas abajo */}
           <div style={{ display: 'flex', borderBottom: '1px solid #1e1e1e', background: '#0e0e0e' }}>
-            <div style={{ width: 260, flexShrink: 0, padding: '6px 10px', fontSize: 9.5, color: '#555', textTransform: 'uppercase', letterSpacing: '.06em' }}>Actividad</div>
-            <div style={{ flex: 1, position: 'relative', height: 24 }}>
-              {esc.meses.map((m, i) => (
-                <div key={i} style={{
-                  position: 'absolute', left: px(m.offset), width: px(m.dias), top: 0, bottom: 0,
-                  borderLeft: '1px solid #1e1e1e', fontSize: 9, color: '#555', padding: '6px 0 0 4px',
-                  overflow: 'hidden', whiteSpace: 'nowrap',
+            <div style={{ width: 260, flexShrink: 0, padding: '14px 10px 6px', fontSize: 9.5, color: '#555', textTransform: 'uppercase', letterSpacing: '.06em' }}>Actividad</div>
+            <div style={{ flex: 1, position: 'relative', height: 38 }}>
+              {esc.bandas.map((m, i) => (
+                <div key={'b' + i} style={{
+                  position: 'absolute', left: px(m.offset), width: px(m.dias), top: 0, height: 19,
+                  borderLeft: '1px solid #262626', fontSize: 9.5, color: '#9a9a9a', fontWeight: 600,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  overflow: 'hidden', whiteSpace: 'nowrap', textTransform: 'capitalize',
                 }}>{m.label}</div>
+              ))}
+              {esc.marcas.map((m, i) => (
+                <div key={'m' + i} style={{
+                  position: 'absolute', left: px(m.offset), width: px(m.dias), top: 19, bottom: 0,
+                  borderLeft: m.cortaMes ? '1px solid #333' : '1px solid #1b1b1b',
+                  background: m.finde ? '#141414' : 'transparent',
+                  fontSize: 8.5, color: m.finde ? '#4a4a4a' : '#6a6a6a',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  overflow: 'hidden', whiteSpace: 'nowrap',
+                }}>{anchoMarca >= 3 ? m.label : ''}</div>
               ))}
             </div>
           </div>
@@ -232,6 +246,16 @@ function RenglonGantt({ b, esc, px, hoyOff, paraCliente, prereqs, abierta, onAbr
           )}
         </div>
         <div style={{ flex: 1, position: 'relative', height: 26 }}>
+          {/* Rejilla del calendario: sin ella no se puede seguir la columna
+              del encabezado hacia abajo. */}
+          {esc.paso !== 'mes' && esc.marcas.map((m, i) => (
+            <div key={'g' + i} style={{
+              position: 'absolute', left: px(m.offset), width: px(m.dias), top: 0, bottom: 0,
+              borderLeft: m.cortaMes ? '1px solid #232323' : '1px solid #171717',
+              background: m.finde ? 'rgba(255,255,255,.018)' : 'transparent',
+              pointerEvents: 'none',
+            }} />
+          ))}
           {hoyOff >= 0 && hoyOff <= esc.dias && (
             <div style={{ position: 'absolute', left: px(hoyOff), top: 0, bottom: 0, width: 1, background: '#DC262666' }} />
           )}

@@ -69,7 +69,11 @@ export function generarGanttPdf(d: DatosGantt): jsPDF {
     fill(DARK); doc.rect(M, y, R - M, 0.6, 'F'); y += 6
   }
 
-  const nuevaPagina = (titulo: string) => { doc.addPage(); y = 12; membrete(titulo) }
+  let enGrafica = false
+  const nuevaPagina = (titulo: string) => {
+    doc.addPage(); y = 12; membrete(titulo)
+    if (enGrafica) encabezadoEscala()
+  }
   const espacio = (need: number, titulo: string) => { if (y + need > H - 16) nuevaPagina(titulo) }
 
   const TITULO = d.paraCliente ? 'Programa de obra' : 'Programa de obra — interno'
@@ -94,18 +98,63 @@ export function generarGanttPdf(d: DatosGantt): jsPDF {
   }
 
   // ── Encabezado de la escala ───────────────────────────────────────────────
+  // Dos filas: el mes con anio de 4 cifras arriba, y abajo dias / semanas /
+  // meses segun el largo del plan. Una obra de dos semanas necesita ver dias.
+  const ALTO_ESC = 10
   function encabezadoEscala() {
-    fill([245, 246, 246]); doc.rect(M + LABEL, y, PISTA, 6, 'F')
+    const yB = y, yM = y + 5
+    fill([242, 243, 243]); doc.rect(M + LABEL, yB, PISTA, 5, 'F')
+    fill([250, 250, 250]); doc.rect(M + LABEL, yM, PISTA, 5, 'F')
     doc.setDrawColor(LINEA[0], LINEA[1], LINEA[2]); doc.setLineWidth(0.2)
-    txt(GRAY); doc.setFont('helvetica', 'bold'); doc.setFontSize(6.5)
-    for (const mes of esc!.meses) {
-      const x = M + LABEL + px(mes.offset)
-      doc.line(x, y, x, y + 6)
-      if (px(mes.dias) > 12) doc.text(mes.label.toUpperCase(), x + 1.5, y + 4)
+
+    // Fila del mes
+    txt(DARK); doc.setFont('helvetica', 'bold'); doc.setFontSize(6.8)
+    for (const b of esc!.bandas) {
+      const x = M + LABEL + px(b.offset)
+      doc.line(x, yB, x, yB + 5)
+      const w = px(b.dias)
+      const et = b.label.toUpperCase()
+      if (w > doc.getTextWidth(et) + 3) doc.text(et, x + w / 2, yB + 3.4, { align: 'center' })
+      else if (w > 10) doc.text(et.slice(0, 3), x + 1.5, yB + 3.4)
     }
-    y += 6
+
+    // Fila de dias / semanas
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(5.4)
+    const anchoMarca = px(esc!.marcas[0]?.dias || 1)
+    // Con muchas columnas no cabe un numero en cada una: se etiquetan salteadas.
+    const salto = anchoMarca >= 3.2 ? 1 : anchoMarca >= 1.8 ? 2 : 5
+    esc!.marcas.forEach((m, i) => {
+      const x = M + LABEL + px(m.offset)
+      const w = px(m.dias)
+      if (m.finde) { fill([234, 236, 236]); doc.rect(x, yM, w, 5, 'F') }
+      doc.setDrawColor(LINEA[0], LINEA[1], LINEA[2])
+      doc.setLineWidth(m.cortaMes ? 0.4 : 0.15)
+      doc.line(x, yM, x, yM + 5)
+      if (i % salto === 0) {
+        txt(m.finde ? [150, 150, 150] : GRAY)
+        doc.text(m.label, x + w / 2, yM + 3.4, { align: 'center' })
+      }
+    })
+    doc.setLineWidth(0.2)
+    y += ALTO_ESC
   }
   encabezadoEscala()
+  enGrafica = true
+
+  // Rayado vertical del calendario detras de las barras: sin el, las columnas
+  // del encabezado no se pueden seguir hacia abajo.
+  const rejilla = (desde: number, hasta: number) => {
+    if (esc!.paso === 'mes') return
+    for (const m of esc!.marcas) {
+      const x = M + LABEL + px(m.offset)
+      if (m.finde) {
+        fill([246, 247, 247]); doc.rect(x, desde, px(m.dias), hasta - desde, 'F')
+      }
+      doc.setDrawColor(238, 240, 240); doc.setLineWidth(m.cortaMes ? 0.3 : 0.1)
+      doc.line(x, desde, x, hasta)
+    }
+    doc.setLineWidth(0.2)
+  }
 
   // Línea de hoy, si cae dentro del plan
   const hoy = new Date()
@@ -142,6 +191,7 @@ export function generarGanttPdf(d: DatosGantt): jsPDF {
 
       // pista
       fill([250, 250, 250]); doc.rect(M + LABEL, y, PISTA, ALTO - 1.4, 'F')
+      rejilla(y, y + ALTO - 1.4)
       const x = M + LABEL + px(b.offset)
       const w = Math.max(2.4, px(b.dias))
       // Bloqueada por el sitio = ámbar rayado: la fecha no depende de nosotros.
@@ -159,8 +209,16 @@ export function generarGanttPdf(d: DatosGantt): jsPDF {
       const etiqueta = b.sitio.bloqueada ? `${cuando}  ·  sujeto a condición` : cuando
       doc.setFont('helvetica', b.sitio.bloqueada ? 'bold' : 'normal'); doc.setFontSize(5.6)
       txt(b.sitio.bloqueada ? AMBAR : GRAY)
+      const anchoEt = doc.getTextWidth(etiqueta)
       const ex = x + w + 1.8
-      if (ex + doc.getTextWidth(etiqueta) < R) doc.text(etiqueta, ex, y + 3.4)
+      if (ex + anchoEt < R) {
+        doc.text(etiqueta, ex, y + 3.4)
+      } else if (x - 1.8 - anchoEt > M + LABEL) {
+        doc.text(etiqueta, x - 1.8, y + 3.4, { align: 'right' })
+      } else if (w > anchoEt + 3) {
+        // Ni a un lado ni al otro: va dentro de la barra, en blanco.
+        txt([255, 255, 255]); doc.text(etiqueta, x + w - 1.5, y + 3.4, { align: 'right' })
+      }
       y += ALTO
       dibujarHoy(yTop, y)
     }
@@ -182,6 +240,7 @@ export function generarGanttPdf(d: DatosGantt): jsPDF {
   y += 8
 
   // ── Hoja de condiciones ───────────────────────────────────────────────────
+  enGrafica = false
   const condiciones = condicionesDelProyecto(d.barras, d.prereqs)
   const generales = d.generales || []
   if (condiciones.length || generales.length) {
