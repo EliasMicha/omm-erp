@@ -1500,3 +1500,44 @@ exactamente lo que paso aqui.
 
 Verificado contra el caso real: antes 0 cambios, ahora 94 de 96 (las otras 2
 ya tenian esa fecha).
+
+
+---
+
+## 📆 La escala del Gantt: "namas sale 26 de septiembre" (2026-09-06)
+
+Elias abrio el programa de Oficinas Exitus y vio **una sola columna** que decia
+`SEP 26`. Dos defectos, y el segundo explica la confusion.
+
+### 1. La escala solo sabia meses
+`escalaDe()` generaba unicamente marcas de mes. Oficinas Exitus dura 12 dias y
+cabe en septiembre → **una columna para todo el programa**. Un Gantt sin
+divisiones de tiempo no es un Gantt.
+
+Ahora el paso se elige por el rango:
+
+| Rango | Paso | Ejemplo real |
+|---|---|---|
+| ≤ 45 dias | **dia** | Oficinas Exitus, 12 d → 12 columnas |
+| ≤ 240 dias | **semana** | Zury Attie 168 d, KIBRIT 123 d, Sacal 52 d |
+| mas | **mes** | — |
+
+### 2. `SEP 26` se lee como "26 de septiembre"
+`{ month: 'short', year: '2-digit' }`. Mes abreviado pegado a un anio de dos
+cifras es **indistinguible de una fecha con dia**. Ahora son dos filas: arriba
+`SEPTIEMBRE 2026` completo, abajo los dias o las semanas.
+
+**Regla:** en un encabezado de calendario el anio va con 4 cifras. Un numero de
+2 cifras junto a un mes siempre se va a leer como dia.
+
+### Lo demas que salio al revisar el PDF renderizado
+- **Sin rejilla vertical** no se podia seguir una columna del encabezado hacia
+  abajo. Se agrego, con el fin de semana sombreado.
+- **La escala solo salia en la hoja 1.** Las hojas 2-6 eran barras flotando sin
+  calendario. `nuevaPagina()` ahora la repite mientras `enGrafica` este activo.
+- **Las barras pegadas al borde derecho salian sin fecha**: la etiqueta no
+  cabia a su derecha y se omitia en silencio. Ahora cae a la izquierda, y si
+  tampoco cabe, dentro de la barra en blanco.
+
+Los tres solo aparecieron viendo el PDF renderizado pagina por pagina. Ninguno
+lo detecta un compilador.
