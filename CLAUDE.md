@@ -1455,3 +1455,48 @@ no clasifica o inventa una fase, `clasificarFase()` local lo resuelve.
 ### Estado
 976 actividades quedaron clasificadas. 1 sin fase:
 "Identificar modulos de control site SPA".
+
+
+---
+
+## 🐛 "No persiste cuando pones las fechas masivamente" (2026-09-06)
+
+No era persistencia. Los rangos **si** se guardaban — `obra_fases` tenia las 3
+filas de Oficinas Exitus. El defecto estaba en una sola linea de
+`calcularFechas`:
+
+```ts
+if (soloVacias && (t.fecha_inicio || t.fecha_fin_plan)) continue
+```
+
+La condicion era **por tarea**. Las 96 tareas de esa obra ya traian
+`fecha_fin_plan` de la generacion, asi que la casilla — **prendida por
+defecto** — las saltaba enteras y ninguna recibia fecha de inicio.
+Diagnostico rapido en la base:
+
+```
+Oficinas Exitus - Especiales | 96 tareas | con_inicio: 2 | con_fin: 96
+```
+
+Ese `con_inicio: 2` contra `con_fin: 96` fue lo que lo delato.
+
+### La correccion
+1. La proteccion va **por campo**: conserva el dato que existe, rellena el
+   vacio. Una tarea con inicio manual y fin vacio conserva su inicio y toma el
+   fin del rango.
+2. La casilla arranca **apagada**. Si el usuario acaba de capturar el rango de
+   la fase, espera que mande.
+3. `calcularFechas` devuelve un **resumen** — cambian / ya iguales /
+   protegidas / sin rango / sin fase — y el panel lo enseña siempre, con un
+   aviso explicito cuando el resultado seria cero y por que.
+
+### La leccion que importa
+El bug de logica se arregla en una linea. **El defecto de verdad era el modo
+silencioso:** el unico indicio era un numero dentro del boton
+`Guardar y aplicar (0)`, sin decir por que era cero. Toda accion en bloque
+tiene que explicar a cuantos renglones alcanzo *y a cuantos no, y por que* —
+si no, el usuario no puede distinguir "no aplico" de "no persistio", que es
+exactamente lo que paso aqui.
+
+Verificado contra el caso real: antes 0 cambios, ahora 94 de 96 (las otras 2
+ya tenian esa fecha).
