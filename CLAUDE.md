@@ -1384,3 +1384,74 @@ habia manera de salir de ese estado desde la UI.
 **Leccion:** antes de agregar un input, seguir la columna de punta a punta —
 select de carga → mapeo al tipo → funcion de update → payload del insert →
 echo del insert. Aqui fallaban dos de los cinco eslabones.
+
+
+---
+
+## 🔨 Las 4 fases de obra y las fechas por fase (2026-09-06)
+
+Elias: *"existen 4 fases a un proyecto. Cableado, instalacion, programacion y
+detallado ... podriamos categorizar tambien por fases para que podamos poner
+fechas por fase. y si es necesario entrar mas a detalle por sistema o por
+tarea."*
+
+### El hallazgo
+**El asistente de IA ya clasificaba cada tarea por fase y el ERP tiraba el
+dato.** `parsed.forEach(... byFase[t.fase]++)` lo contaba para el mensaje final
+y nunca lo escribia. La mitad del trabajo ya existia, sin persistir.
+
+### El modelo: global con excepciones por area
+Decision de Elias entre cuatro opciones. La fase corre pareja en toda la obra,
+y un area puede llevar su propio rango **encima** del global — la recamara se
+instala cuando SU plafon quedo, no cuando quedo el de la cocina.
+`rangoAplicable()` busca primero por area y cae al global.
+
+| Tabla | Para que |
+|---|---|
+| `obra_actividades.fase` | la fase de cada tarea |
+| `obra_fases` | rango por (obra, fase, area). area='' = global |
+
+### ⚠️ El upsert y la constraint
+`upsert(..., { onConflict: 'obra_id,fase,area' })` **no funciona contra un
+indice de expresion**. El primer intento fue
+`unique (obra_id, fase, (coalesce(area,'')))` y hubiera fallado en runtime.
+Peor: con `area` NULL, Postgres considera cada fila distinta, asi que los
+rangos globales se duplicaban en silencio. Solucion: `area NOT NULL DEFAULT ''`
+y `unique (obra_id, fase, area)`. El global se guarda con `''` y se lee como
+`null` en la app.
+
+### El clasificador — lo que enseño revisar los grupos
+Corrido contra las **977 actividades reales**: cableado 107, instalacion 689,
+programacion 179, detallado 1, sin fase 1.
+
+La regla que manda es el **verbo inicial**, no las palabras sueltas: "Tendido
+de cable Cat6 y pruebas" es cableado aunque diga pruebas.
+
+Falsos positivos que solo aparecieron leyendo muestras de cada grupo:
+- "organizador de cable", "charola" → caian en **cableado** siendo montaje de
+  rack. Se agrego `NO_ES_CABLEADO`.
+- "estacion **manual** de emergencia" → caia en **detallado** porque `manual`
+  estaba entre sus palabras clave. Se cambio por `manuales`.
+
+Contar cobertura no habria encontrado ninguno de los dos: el primer intento ya
+clasificaba el 99.9%, y estaba mal.
+
+**Verificacion cruzada:** prototipo en Python y la implementacion TS coinciden
+en las 966 descripciones distintas, **cero discrepancias**. El TS se probo
+compilando el modulo real, no una copia.
+
+### El modelo ya no pone fechas
+Antes se le pedian `fecha_fin_plan` al modelo. Ahora **solo devuelve la fase** y
+las fechas las pone el codigo desde el rango de esa fase. Si el modelo inventa
+una fecha, se desalinea del calendario que capturo Elias. Ademas, si el modelo
+no clasifica o inventa una fase, `clasificarFase()` local lo resuelve.
+
+### Detalles que evitan pisar trabajo
+- `soloVacias` (prendido por defecto): no toca tareas que ya tienen fecha.
+- El panel enseña **cuantas tareas cambian antes de escribir**.
+- `aplicarFechas` agrupa por fecha: 176 renglones son 4 peticiones, no 176.
+- `clasificarPendientes` es idempotente — segunda corrida asigna 0.
+
+### Estado
+976 actividades quedaron clasificadas. 1 sin fase:
+"Identificar modulos de control site SPA".
