@@ -8,6 +8,8 @@ import jsPDF from 'jspdf'
 import { useAuth } from '../contexts/AuthContext'
 import MaterialesObra, { ProximasEntregas } from '../components/MaterialesObra'
 import GanttObra from '../components/GanttObra'
+import FasesObra from '../components/FasesObra'
+import { FASES, FASE_CFG, FaseKey, esFase, clasificarFase } from '../lib/fases'
 import {
   HardHat, Users, ClipboardList, Calendar, AlertTriangle, CheckCircle, CheckCircle2,
   Clock, ChevronRight, ArrowLeft, Plus, Upload, Camera, X, Eye,
@@ -46,6 +48,8 @@ interface Actividad {
   descripcion: string
   status: ActividadStatus
   instalador_id?: string
+  /** Fase de obra: cableado → instalacion → programacion → detallado. */
+  fase?: FaseKey
   fecha_inicio?: string
   fecha_fin_plan?: string
   fecha_fin_real?: string
@@ -683,6 +687,7 @@ function ObraDetail({ obra, instaladores, coordinadores, onBack, updateObra }: {
           id: a.id, obra_id: a.obra_id, sistema: a.sistema as Sistema, area: a.area || undefined,
           descripcion: a.descripcion, status: a.status as ActividadStatus,
           instalador_id: a.instalador_id || undefined,
+          fase: esFase(a.fase) ? a.fase : undefined,
           fecha_inicio: a.fecha_inicio || undefined,
           fecha_fin_plan: a.fecha_fin_plan || undefined,
           fecha_fin_real: a.fecha_fin_real || undefined,
@@ -1352,6 +1357,8 @@ function SubActividades({ obra, instaladores, updateObra, showNew, setShowNew }:
   const [newAct, setNewAct] = useState({ sistema: 'CCTV' as Sistema, descripcion: '', instalador_id: '', fecha_inicio: '', fecha_fin_plan: '', area: '' })
   const [groupBy, setGroupBy] = useState<'sistema' | 'area'>('sistema')
   const [verGantt, setVerGantt] = useState(false)
+  const [verFases, setVerFases] = useState(false)
+  const [faseFiltro, setFaseFiltro] = useState<FaseKey | 'todas' | 'sin'>('todas')
   const [statusFilter, setStatusFilter] = useState<'all' | ActividadStatus | 'sin_resp' | 'vencidas'>('all')
   const [generating, setGenerating] = useState(false)
   const [genStatus, setGenStatus] = useState('')
@@ -1392,6 +1399,28 @@ function SubActividades({ obra, instaladores, updateObra, showNew, setShowNew }:
     setBulkInst(''); setBulkFecha(''); setBulkIni('')
   }
 
+  // Tras una escritura en bloque (fases, fechas) hay que releer: el estado
+  // local no sabe que 176 renglones cambiaron en la base.
+  const recargarActividades = async () => {
+    const { data } = await supabase.from('obra_actividades')
+      .select('*').eq('obra_id', obra.id).order('order_index')
+    if (!data) return
+    updateObra(o => ({
+      ...o,
+      actividades: data.map((a: any) => ({
+        id: a.id, obra_id: a.obra_id, sistema: a.sistema as Sistema, area: a.area || undefined,
+        descripcion: a.descripcion, status: a.status as ActividadStatus,
+        instalador_id: a.instalador_id || undefined,
+        fase: esFase(a.fase) ? a.fase : undefined,
+        fecha_inicio: a.fecha_inicio || undefined,
+        fecha_fin_plan: a.fecha_fin_plan || undefined,
+        fecha_fin_real: a.fecha_fin_real || undefined,
+        notas: a.notas || undefined,
+        porcentaje: a.porcentaje || 0,
+      })),
+    }))
+  }
+
   const addActividad = async () => {
     if (!newAct.descripcion.trim()) return
     const payload: any = {
@@ -1418,6 +1447,7 @@ function SubActividades({ obra, instaladores, updateObra, showNew, setShowNew }:
         id: data.id, obra_id: data.obra_id, sistema: data.sistema as Sistema,
         descripcion: data.descripcion, status: data.status as ActividadStatus,
         instalador_id: data.instalador_id || undefined,
+        fase: esFase(data.fase) ? data.fase : undefined,
         fecha_inicio: data.fecha_inicio || undefined,
         fecha_fin_plan: data.fecha_fin_plan || undefined,
         area: data.area || undefined,
@@ -1445,6 +1475,7 @@ function SubActividades({ obra, instaladores, updateObra, showNew, setShowNew }:
     if (updates.status !== undefined) dbUpdates.status = updates.status
     if (updates.porcentaje !== undefined) dbUpdates.porcentaje = updates.porcentaje
     if (updates.instalador_id !== undefined) dbUpdates.instalador_id = updates.instalador_id || null
+    if (updates.fase !== undefined) dbUpdates.fase = updates.fase || null
     if (updates.fecha_inicio !== undefined) dbUpdates.fecha_inicio = updates.fecha_inicio || null
     if (updates.fecha_fin_plan !== undefined) dbUpdates.fecha_fin_plan = updates.fecha_fin_plan || null
     if (updates.fecha_fin_real !== undefined) dbUpdates.fecha_fin_real = updates.fecha_fin_real || null
@@ -1483,10 +1514,14 @@ function SubActividades({ obra, instaladores, updateObra, showNew, setShowNew }:
     : statusFilter === 'sin_resp' ? obra.actividades.filter(a => !a.instalador_id)
     : statusFilter === 'vencidas' ? obra.actividades.filter(a => a.status !== 'completada' && a.fecha_fin_plan && a.fecha_fin_plan < hoy)
     : obra.actividades.filter(a => a.status === statusFilter)
+  // Filtro por fase de obra, encima del de status.
+  const porFase = faseFiltro === 'todas' ? porStatus
+    : faseFiltro === 'sin' ? porStatus.filter(a => !a.fase)
+    : porStatus.filter(a => a.fase === faseFiltro)
   // Búsqueda por texto: con 300+ tareas, encontrar una a mano es imposible.
   // Busca en descripción, área, sistema y nombre del responsable.
   const q = buscaAct.trim().toLowerCase()
-  const filteredActs = !q ? porStatus : porStatus.filter(a => {
+  const filteredActs = !q ? porFase : porFase.filter(a => {
     const inst = instaladores.find(i => i.id === a.instalador_id)
     return `${a.descripcion} ${a.area || ''} ${a.sistema} ${inst?.nombre || ''}`.toLowerCase().includes(q)
   })
@@ -1504,6 +1539,7 @@ function SubActividades({ obra, instaladores, updateObra, showNew, setShowNew }:
   // El Gantt reemplaza la lista de actividades mientras esta abierto.
   // Va DESPUES de todos los hooks de este componente: si se pusiera arriba
   // cambiaria el conteo de hooks entre renders y tumbaria el arbol completo.
+  if (verFases) return <FasesObra obra={obra as any} onCerrar={() => setVerFases(false)} onCambio={recargarActividades} />
   if (verGantt) return <GanttObra obra={obra} onCerrar={() => setVerGantt(false)} />
 
   return (
@@ -1530,6 +1566,7 @@ function SubActividades({ obra, instaladores, updateObra, showNew, setShowNew }:
               {generating ? <><Loader2 size={12} /> Generando...</> : <>🤖 Autogenerar desde cotización</>}
             </Btn>
           )}
+          <Btn size="sm" variant="default" onClick={() => setVerFases(true)}>🔨 Fases y fechas</Btn>
           <Btn size="sm" variant="default" onClick={() => setVerGantt(true)}>📅 Programa (Gantt)</Btn>
           <Btn size="sm" variant="primary" onClick={() => setShowNew(true)}><Plus size={12} /> Nueva actividad</Btn>
         </div>
@@ -1548,6 +1585,29 @@ function SubActividades({ obra, instaladores, updateObra, showNew, setShowNew }:
               <X size={13} />
             </button>
           )}
+        </div>
+      )}
+
+      {/* Filtro por fase de obra: cableado → instalacion → programacion → detallado */}
+      {obra.actividades.length > 0 && (
+        <div style={{ display: 'flex', gap: 4, marginBottom: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+          <span style={{ fontSize: 9.5, color: '#444', textTransform: 'uppercase', letterSpacing: '.06em', marginRight: 2 }}>Fase</span>
+          {([
+            { key: 'todas' as const, label: 'Todas', color: '#888', count: obra.actividades.length },
+            ...FASES.map(f => ({ key: f.key, label: f.label, color: f.color, count: obra.actividades.filter(a => a.fase === f.key).length })),
+            { key: 'sin' as const, label: 'Sin fase', color: '#D97706', count: obra.actividades.filter(a => !a.fase).length },
+          ]).map(f => (
+            <button key={f.key} onClick={() => setFaseFiltro(f.key as any)}
+              style={{
+                padding: '3px 9px', fontSize: 10, borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit',
+                background: faseFiltro === f.key ? `${f.color}18` : 'transparent',
+                border: faseFiltro === f.key ? `1px solid ${f.color}40` : '1px solid #1e1e1e',
+                color: faseFiltro === f.key ? f.color : '#4a4a4a',
+                fontWeight: faseFiltro === f.key ? 600 : 400,
+              }}>
+              {f.label} ({f.count})
+            </button>
+          ))}
         </div>
       )}
 
@@ -1756,6 +1816,14 @@ function SubActividades({ obra, instaladores, updateObra, showNew, setShowNew }:
                         )}
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 320, flexWrap: 'wrap' }}>
+                        <select value={a.fase || ''}
+                          onChange={e => updateActividad(a.id, { fase: (e.target.value || undefined) as any })}
+                          title="Fase de obra"
+                          style={{ padding: '3px 6px', fontSize: 10, background: '#0a0a0a', border: '1px solid #333', borderRadius: 4, color: a.fase ? FASE_CFG[a.fase].color : '#555', fontFamily: 'inherit', maxWidth: 108 }}
+                        >
+                          <option value="">Sin fase</option>
+                          {FASES.map(f => <option key={f.key} value={f.key}>{f.label}</option>)}
+                        </select>
                         <select value={a.instalador_id || ''}
                           onChange={e => updateActividad(a.id, { instalador_id: e.target.value || undefined } as any)}
                           title="Asignar instalador"
@@ -1849,7 +1917,13 @@ function AutogenWizard({ obra, instaladores, onClose, onTasksCreated }: {
   // La especialidad manda en qué tareas tienen sentido: en ESPECIALES OMM no
   // hace canalización (la hace el electricista o la constructora).
   const [especialidad, setEspecialidad] = useState<string>('')
-  const [phaseDates, setPhaseDates] = useState({ roughin: '', acabados: '', cierre: '' })
+  // Cuatro fases, cada una con arranque y compromiso. Antes eran tres y solo
+  // fecha limite, por eso todas las tareas nacian sin fecha de inicio.
+  const [phaseDates, setPhaseDates] = useState<Record<FaseKey, { ini: string; fin: string }>>({
+    cableado: { ini: '', fin: '' }, instalacion: { ini: '', fin: '' },
+    programacion: { ini: '', fin: '' }, detallado: { ini: '', fin: '' },
+  })
+  const hayFechas = () => FASES.some(f => phaseDates[f.key].ini || phaseDates[f.key].fin)
   const [selectedInstaladores, setSelectedInstaladores] = useState<string[]>([])
   const [pendingTasks, setPendingTasks] = useState<any[]>([])
   const chatEndRef = useRef<HTMLDivElement>(null)
@@ -1898,7 +1972,7 @@ function AutogenWizard({ obra, instaladores, onClose, onTasksCreated }: {
       const systems = new Set(items.map((it: any) => it.system || '').filter(Boolean))
       const systemsList = Array.from(systems).join(', ')
 
-      addAI(`Leí la cotización: ${items.length} productos en ${areas.length} áreas.\nSistemas detectados: ${systemsList || 'General'}.\n\nPara asignar fechas a cada tarea, necesito saber las fechas aproximadas de las fases de obra:\n\n• **Roughin** (primera fijación, canalización, cableado)\n• **Acabados** (colocación de equipos, montaje)\n• **Cierre** (programación, pruebas, puesta en marcha)\n\nPuedes escribirlas abajo o seleccionar directamente:`)
+      addAI(`Leí la cotización: ${items.length} productos en ${areas.length} áreas.\nSistemas detectados: ${systemsList || 'General'}.\n\nUna obra corre en 4 fases. Dame el arranque y el compromiso de cada una y le pongo fechas a cada tarea según la fase que le toque:\n\n• **Cableado** — tendido, canalización, ponchado. Va con la obra gris.\n• **Instalación** — montaje y colocación de equipo. Depende de que el área esté terminada.\n• **Programación** — configuración, pruebas y puesta en marcha.\n• **Detallado** — ajuste fino, limpieza y entrega.\n\nLas que dejes en blanco se generan sin fecha; después las pones desde Fases y fechas.`)
       setPhase('dates')
     }
     loadCot()
@@ -1912,14 +1986,12 @@ function AutogenWizard({ obra, instaladores, onClose, onTasksCreated }: {
   }
 
   const handleDatesNext = () => {
-    if (!phaseDates.roughin && !phaseDates.acabados && !phaseDates.cierre) {
+    if (!hayFechas()) {
       addUser('Sin fechas por ahora, generar sin fechas')
     } else {
-      const parts: string[] = []
-      if (phaseDates.roughin) parts.push(`Roughin: ${phaseDates.roughin}`)
-      if (phaseDates.acabados) parts.push(`Acabados: ${phaseDates.acabados}`)
-      if (phaseDates.cierre) parts.push(`Cierre: ${phaseDates.cierre}`)
-      addUser(parts.join(' · '))
+      addUser(FASES.filter(f => phaseDates[f.key].ini || phaseDates[f.key].fin)
+        .map(f => `${f.label}: ${phaseDates[f.key].ini || '?'} → ${phaseDates[f.key].fin || '?'}`)
+        .join(' · '))
     }
 
     // Move to team selection
@@ -1942,7 +2014,7 @@ function AutogenWizard({ obra, instaladores, onClose, onTasksCreated }: {
     } else {
       addUser('Sin equipo asignado por ahora')
     }
-    addAI(`Listo. Voy a generar las tareas de instalación con:\n• Fechas por fase: ${phaseDates.roughin || phaseDates.acabados || phaseDates.cierre ? 'Sí' : 'Sin fechas'}\n• Equipo: ${names.length > 0 ? names.join(', ') : 'Sin asignar'}\n\n¿Confirmas para generar?`)
+    addAI(`Listo. Voy a generar las tareas de instalación con:\n• Fechas por fase: ${hayFechas() ? 'Sí' : 'Sin fechas'}\n• Equipo: ${names.length > 0 ? names.join(', ') : 'Sin asignar'}\n\n¿Confirmas para generar?`)
     setPhase('confirm')
   }
 
@@ -1961,14 +2033,16 @@ Control de Acceso, lector, HID, cerradura, chapa = "Acceso"
 Eléctrico, canalización, registro, contacto, apagador, centro de carga = "Electrico"`
 
       // Build date context for AI
-      let dateInstruction = ''
-      if (phaseDates.roughin || phaseDates.acabados || phaseDates.cierre) {
-        dateInstruction = `\n\nFECHAS DE FASE (asigna fecha_fin_plan a cada tarea según su fase):
-${phaseDates.roughin ? `- Roughin (canalización, cableado, primera fijación): fecha límite ${phaseDates.roughin}` : ''}
-${phaseDates.acabados ? `- Acabados (colocación de equipos, montaje final): fecha límite ${phaseDates.acabados}` : ''}
-${phaseDates.cierre ? `- Cierre (programación, pruebas, puesta en marcha): fecha límite ${phaseDates.cierre}` : ''}
-Decide a qué fase pertenece cada tarea y asigna la fecha correspondiente como "fecha_fin_plan" en formato YYYY-MM-DD.`
-      }
+      // El modelo solo decide la FASE. Las fechas las pone el codigo a partir
+      // del rango de esa fase: si el modelo inventa fechas, se desalinean del
+      // calendario que capturo Elias.
+      const dateInstruction = `\n\nFASES DE OBRA — clasifica CADA tarea en una de estas cuatro:
+- "cableado": tendido, canalizacion, ponchado, patcheo, preparacion. Es lo primero, va con obra gris.
+- "instalacion": montaje y colocacion fisica del equipo. Requiere el area terminada.
+- "programacion": configuracion, pruebas, certificacion, puesta en marcha. Requiere el equipo montado.
+- "detallado": ajuste fino, limpieza, capacitacion, entrega. Es lo ultimo.
+Regla de desempate: manda el verbo principal de la tarea. "Tendido de cable y pruebas" es cableado.
+Devuelve la fase en el campo "fase". NO inventes fechas: las fechas las pone el sistema.`
 
       // Build team context
       let teamInstruction = ''
@@ -2017,7 +2091,7 @@ ${dateInstruction}
 ${teamInstruction}
 
 Devuelve SOLO un JSON array, sin markdown:
-[{"descripcion":"texto","sistema":"Audio|Redes|CCTV|Control|Acceso|Electrico","area":"nombre del área","fase":"roughin|acabados|cierre"${phaseDates.roughin || phaseDates.acabados || phaseDates.cierre ? ',"fecha_fin_plan":"YYYY-MM-DD"' : ''}${selectedInstaladores.length > 0 ? ',"instalador_id":"uuid-del-instalador"' : ''}}]`
+[{"descripcion":"texto","sistema":"Audio|Redes|CCTV|Control|Acceso|Electrico","area":"nombre del área","fase":"cableado|instalacion|programacion|detallado"${selectedInstaladores.length > 0 ? ',"instalador_id":"uuid-del-instalador"' : ''}}]`
 
       // ── Lotes ────────────────────────────────────────────────────────────
       // Antes se mandaba TODA la cotización en una sola llamada con
@@ -2123,6 +2197,9 @@ Devuelve SOLO un JSON array, sin markdown:
           else sistema = 'Redes'
         }
         const instId = t.instalador_id && validInstIds.has(t.instalador_id) ? t.instalador_id : null
+        // Si el modelo no clasifico (o invento una fase), lo resuelve el
+        // clasificador local, que esta validado contra las tareas reales.
+        const fase: FaseKey | null = esFase(t.fase) ? t.fase : clasificarFase(t.descripcion || '')
         return {
           obra_id: obra.id,
           sistema,
@@ -2132,7 +2209,10 @@ Devuelve SOLO un JSON array, sin markdown:
           porcentaje: 0,
           origen: 'cotizacion',
           order_index: obra.actividades.length + i,
-          fecha_fin_plan: t.fecha_fin_plan || null,
+          fase,
+          // Las fechas salen del rango de la fase, no de lo que diga el modelo.
+          fecha_inicio: fase ? (phaseDates[fase].ini || null) : null,
+          fecha_fin_plan: fase ? (phaseDates[fase].fin || null) : null,
           instalador_id: instId,
         }
       })
@@ -2148,17 +2228,22 @@ Devuelve SOLO un JSON array, sin markdown:
         id: a.id, obra_id: a.obra_id, sistema: a.sistema as Sistema,
         descripcion: a.descripcion, status: a.status as ActividadStatus,
         instalador_id: a.instalador_id || undefined,
+        fase: esFase(a.fase) ? a.fase : undefined,
+        fecha_inicio: a.fecha_inicio || undefined,
         fecha_fin_plan: a.fecha_fin_plan || undefined,
         area: a.area || undefined,
         porcentaje: a.porcentaje || 0,
       }))
 
       // Count by phase
-      const byFase = { roughin: 0, acabados: 0, cierre: 0 }
-      parsed.forEach((t: any) => { if (t.fase && byFase[t.fase as keyof typeof byFase] !== undefined) byFase[t.fase as keyof typeof byFase]++ })
       const assigned = newActs.filter(a => a.instalador_id).length
+      const conFecha = newActs.filter(a => a.fecha_fin_plan).length
+      const resumenFases = FASES
+        .map(f => `• ${f.label}: ${newActs.filter(a => a.fase === f.key).length} tareas`)
+        .join('\n')
+      const sinFase = newActs.filter(a => !a.fase).length
 
-      addAI(`✅ ${newActs.length} tareas creadas exitosamente.\n\n• Roughin: ${byFase.roughin} tareas\n• Acabados: ${byFase.acabados} tareas\n• Cierre: ${byFase.cierre} tareas\n• Con instalador asignado: ${assigned}/${newActs.length}\n\nCerrando en 2 segundos...`)
+      addAI(`✅ ${newActs.length} tareas creadas.\n\n${resumenFases}${sinFase ? `\n• Sin fase: ${sinFase}` : ''}\n• Con fecha: ${conFecha}/${newActs.length}\n• Con instalador asignado: ${assigned}/${newActs.length}\n\nCerrando en 2 segundos...`)
       setPhase('done')
       setTimeout(() => onTasksCreated(newActs), 2000)
 
@@ -2183,12 +2268,20 @@ Devuelve SOLO un JSON array, sin markdown:
         const y = match[3] ? (match[3].length === 2 ? '20' + match[3] : match[3]) : new Date().getFullYear().toString()
         found.push(`${y}-${match[2].padStart(2, '0')}-${match[1].padStart(2, '0')}`)
       }
-      if (found.length >= 3) {
-        setPhaseDates({ roughin: found[0], acabados: found[1], cierre: found[2] })
-        addAI(`Entendido:\n• Roughin: ${found[0]}\n• Acabados: ${found[1]}\n• Cierre: ${found[2]}\n\nPasemos al equipo.`)
+      const pares = Math.floor(found.length / 2)
+      if (pares >= 1) {
+        const siguiente = { ...phaseDates }
+        FASES.forEach((f, i) => {
+          if (i < pares) siguiente[f.key] = { ini: found[i * 2], fin: found[i * 2 + 1] }
+        })
+        setPhaseDates(siguiente)
+        addAI('Entendido:\n' + FASES.slice(0, pares)
+          .map(f => `• ${f.label}: ${siguiente[f.key].ini} → ${siguiente[f.key].fin}`).join('\n')
+          + (pares < FASES.length ? `\n\nLas otras ${FASES.length - pares} fase(s) quedan sin fecha; puedes llenarlas arriba.` : '')
+          + '\n\nPasemos al equipo.')
         setTimeout(() => handleDatesNext(), 100)
       } else {
-        addAI('Puedo entender fechas como "15/05, 30/06, 15/08" o usa los campos de fecha abajo.')
+        addAI('Dame las fechas en pares, arranque y compromiso de cada fase: "01/09 20/09, 15/10 20/11, 21/11 30/11, 01/12 10/12". O usa los campos de arriba.')
       }
     }
     setInput('')
@@ -2250,22 +2343,26 @@ Devuelve SOLO un JSON array, sin markdown:
           {phase === 'dates' && (
             <div style={{ background: '#0a0a0a', border: '1px solid #222', borderRadius: 12, padding: 16 }}>
               <div style={{ fontSize: 11, fontWeight: 600, color: '#888', marginBottom: 10, textTransform: 'uppercase' as const, letterSpacing: '0.05em' }}>Fechas por fase</div>
-              <div style={{ display: 'grid', gap: 8 }}>
-                {[
-                  { key: 'roughin' as const, label: 'Roughin', desc: 'Canalización, cableado, primera fijación' },
-                  { key: 'acabados' as const, label: 'Acabados', desc: 'Colocación de equipos, montaje final' },
-                  { key: 'cierre' as const, label: 'Cierre', desc: 'Programación, pruebas, puesta en marcha' },
-                ].map(p => (
-                  <div key={p.key} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: 12, fontWeight: 600, color: '#fff' }}>{p.label}</div>
-                      <div style={{ fontSize: 10, color: '#555' }}>{p.desc}</div>
+              <div style={{ display: 'grid', gap: 10 }}>
+                {FASES.map(f => {
+                  const r = phaseDates[f.key]
+                  const mal = !!(r.ini && r.fin && r.fin < r.ini)
+                  return (
+                    <div key={f.key} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', borderLeft: `2px solid ${f.color}`, paddingLeft: 10 }}>
+                      <div style={{ flex: 1, minWidth: 190 }}>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: f.color }}>{f.label}</div>
+                        <div style={{ fontSize: 10, color: '#555' }}>{f.ayuda}</div>
+                      </div>
+                      <input type="date" value={r.ini} title="Arranque"
+                        onChange={e => setPhaseDates(d => ({ ...d, [f.key]: { ...d[f.key], ini: e.target.value } }))}
+                        style={{ ...inputStyle, width: 132, fontSize: 11, colorScheme: 'dark' }} />
+                      <span style={{ color: '#444', fontSize: 11 }}>→</span>
+                      <input type="date" value={r.fin} title="Compromiso"
+                        onChange={e => setPhaseDates(d => ({ ...d, [f.key]: { ...d[f.key], fin: e.target.value } }))}
+                        style={{ ...inputStyle, width: 132, fontSize: 11, colorScheme: 'dark', borderColor: mal ? '#DC2626' : undefined }} />
                     </div>
-                    <input type="date" value={phaseDates[p.key]}
-                      onChange={e => setPhaseDates(d => ({ ...d, [p.key]: e.target.value }))}
-                      style={{ ...inputStyle, width: 150, fontSize: 11 }} />
-                  </div>
-                ))}
+                  )
+                })}
               </div>
               <div style={{ display: 'flex', gap: 8, marginTop: 12, justifyContent: 'flex-end' }}>
                 <Btn size="sm" variant="default" onClick={() => { addUser('Sin fechas por ahora'); handleDatesNext() }}>Omitir</Btn>
