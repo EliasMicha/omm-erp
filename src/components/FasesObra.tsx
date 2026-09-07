@@ -37,7 +37,9 @@ export default function FasesObra({ obra, onCerrar, onCambio }: {
   const [cargando, setCargando] = useState(true)
   const [guardando, setGuardando] = useState(false)
   const [msg, setMsg] = useState('')
-  const [soloVacias, setSoloVacias] = useState(true)
+  // Por defecto el rango de la fase MANDA. Antes venia protegido y como
+  // todas las tareas ya traian fecha compromiso, no cambiaba nada nunca.
+  const [respetar, setRespetar] = useState(false)
   const [nuevaArea, setNuevaArea] = useState<Record<string, string>>({})
 
   const cargar = async () => {
@@ -60,9 +62,10 @@ export default function FasesObra({ obra, onCerrar, onCambio }: {
   const sinFase = porFase._sin.length
 
   // Cuantas tareas cambiarian de fecha con los rangos de ahorita.
-  const cambios = useMemo(
-    () => calcularFechas(acts as any, rangos, soloVacias),
-    [acts, rangos, soloVacias])
+  const resumen = useMemo(
+    () => calcularFechas(acts as any, rangos, respetar),
+    [acts, rangos, respetar])
+  const cambios = resumen.cambios
 
   const get = (fase: FaseKey, area: string | null): RangoFase =>
     rangos.find(r => r.fase === fase && (r.area || null) === area)
@@ -87,7 +90,9 @@ export default function FasesObra({ obra, onCerrar, onCambio }: {
       await cargar()
       setMsg(n > 0
         ? `Listo: ${n} tarea(s) tomaron las fechas de su fase.`
-        : 'Los rangos quedaron guardados. Ninguna tarea necesitaba cambio de fecha.')
+        : respetar && resumen.respetadas > 0
+          ? `Los rangos quedaron guardados, pero ninguna tarea cambió: ${resumen.respetadas} tienen fecha propia y la casilla "no pisar" las protegió. Desmárcala y vuelve a aplicar.`
+          : 'Los rangos quedaron guardados. Ninguna tarea necesitaba cambio de fecha.')
     } catch (e: any) { setMsg('Error: ' + (e?.message || String(e))) }
     setGuardando(false)
   }
@@ -165,11 +170,37 @@ export default function FasesObra({ obra, onCerrar, onCambio }: {
         </div>
       )}
 
-      <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: '#888', marginBottom: 12, cursor: 'pointer' }}>
-        <input type="checkbox" checked={soloVacias} onChange={e => setSoloVacias(e.target.checked)}
+      <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: '#888', marginBottom: 8, cursor: 'pointer' }}>
+        <input type="checkbox" checked={respetar} onChange={e => setRespetar(e.target.checked)}
           style={{ accentColor: '#10B981' }} />
-        Solo tocar las tareas que no tienen fecha (respeta lo que capturaste a mano)
+        No pisar fechas capturadas a mano — solo rellenar las que faltan
       </label>
+
+      {/* El desglose evita el caso de "le di aplicar y no paso nada". */}
+      <div style={{ ...card, marginBottom: 12, padding: '9px 12px', fontSize: 11.5, display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+        <span style={{ color: cambios.length ? '#10B981' : '#666', fontWeight: cambios.length ? 600 : 400 }}>
+          {cambios.length} cambian de fecha
+        </span>
+        {resumen.yaIguales > 0 && <span style={{ color: '#666' }}>{resumen.yaIguales} ya tienen esa fecha</span>}
+        {resumen.respetadas > 0 && (
+          <span style={{ color: '#D9A441' }}>
+            {resumen.respetadas} protegidas por la casilla de arriba
+          </span>
+        )}
+        {resumen.sinRango > 0 && <span style={{ color: '#666' }}>{resumen.sinRango} sin rango en su fase</span>}
+        {resumen.sinFase > 0 && <span style={{ color: '#D97706' }}>{resumen.sinFase} sin fase</span>}
+      </div>
+
+      {cambios.length === 0 && (resumen.respetadas > 0 || resumen.sinRango > 0 || sinFase > 0) && (
+        <div style={{ ...card, marginBottom: 12, borderColor: '#3a2f15', background: '#161208' }}>
+          <div style={{ fontSize: 11.5, color: '#D9A441', lineHeight: 1.7 }}>
+            <b>Nada va a cambiar.</b>{' '}
+            {resumen.respetadas > 0 && <>Hay {resumen.respetadas} tarea(s) con fecha propia y la casilla de arriba las está protegiendo: desmárcala para que el rango de la fase mande. </>}
+            {resumen.sinRango > 0 && <>Hay {resumen.sinRango} tarea(s) cuya fase todavía no tiene rango. </>}
+            {sinFase > 0 && <>Hay {sinFase} sin fase. </>}
+          </div>
+        </div>
+      )}
 
       <div style={{ display: 'grid', gap: 10 }}>
         {FASES.map(f => {

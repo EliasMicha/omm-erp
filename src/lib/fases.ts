@@ -145,29 +145,61 @@ export interface CambioFecha {
   fecha_fin_plan: string | null
 }
 
+export interface Resumen {
+  cambios: CambioFecha[]
+  /** Ya tienen exactamente esa fecha: no hay nada que escribir. */
+  yaIguales: number
+  /** Protegidas por "no pisar": tienen fecha propia distinta a la de la fase. */
+  respetadas: number
+  /** Su fase no tiene rango capturado. */
+  sinRango: number
+  /** Sin fase: ningun rango las alcanza. */
+  sinFase: number
+}
+
 /**
  * Calcula que tareas cambiarian de fecha al aplicar los rangos. No escribe:
  * devuelve la lista para poder enseniarla antes de tocar 176 renglones.
+ *
+ * `respetarCapturadas` va POR CAMPO, no por tarea. Antes era por tarea y ese
+ * fue un error caro: casi todas las tareas ya traian fecha compromiso de la
+ * generacion, asi que "solo las que no tienen fecha" las saltaba enteras y
+ * ninguna recibia fecha de inicio. Desde afuera parecia que no persistia.
+ * Ahora protege el campo que ya tiene dato y rellena el que esta vacio.
  */
 export function calcularFechas(
-  tareas: TareaFechable[], rangos: RangoFase[], soloVacias: boolean,
-): CambioFecha[] {
-  const out: CambioFecha[] = []
+  tareas: TareaFechable[], rangos: RangoFase[], respetarCapturadas: boolean,
+): Resumen {
+  const cambios: CambioFecha[] = []
+  let yaIguales = 0, respetadas = 0, sinRango = 0, sinFase = 0
+
   for (const t of tareas) {
-    if (!t.fase || !esFase(t.fase)) continue
+    if (!t.fase || !esFase(t.fase)) { sinFase++; continue }
     const r = rangoAplicable(rangos, t.fase, t.area || null)
-    if (!r) continue
-    const ini = r.fecha_inicio || null
-    const fin = r.fecha_fin || null
-    if (!ini && !fin) continue
-    // "Solo las que no tienen fecha" respeta lo que ya capturaste a mano.
-    if (soloVacias && (t.fecha_inicio || t.fecha_fin_plan)) continue
-    const nuevoIni = ini ?? t.fecha_inicio ?? null
-    const nuevoFin = fin ?? t.fecha_fin_plan ?? null
-    if (nuevoIni === (t.fecha_inicio || null) && nuevoFin === (t.fecha_fin_plan || null)) continue
-    out.push({ id: t.id, fecha_inicio: nuevoIni, fecha_fin_plan: nuevoFin })
+    if (!r || (!r.fecha_inicio && !r.fecha_fin)) { sinRango++; continue }
+
+    const actualIni = t.fecha_inicio || null
+    const actualFin = t.fecha_fin_plan || null
+
+    // Por campo: si ya hay dato y estamos respetando, se queda como esta.
+    const nuevoIni = respetarCapturadas && actualIni
+      ? actualIni : (r.fecha_inicio || actualIni)
+    const nuevoFin = respetarCapturadas && actualFin
+      ? actualFin : (r.fecha_fin || actualFin)
+
+    if (nuevoIni === actualIni && nuevoFin === actualFin) {
+      // Distinguir "ya estaba igual" de "la protegi" ayuda a explicar por que
+      // el boton dice 0 cuando el usuario esperaba que cambiara todo.
+      const habriaCambiado =
+        (r.fecha_inicio && r.fecha_inicio !== actualIni) ||
+        (r.fecha_fin && r.fecha_fin !== actualFin)
+      if (habriaCambiado && respetarCapturadas) respetadas++
+      else yaIguales++
+      continue
+    }
+    cambios.push({ id: t.id, fecha_inicio: nuevoIni, fecha_fin_plan: nuevoFin })
   }
-  return out
+  return { cambios, yaIguales, respetadas, sinRango, sinFase }
 }
 
 /** Escribe los cambios en bloque, de 200 en 200 para no reventar la peticion. */
