@@ -549,6 +549,13 @@ function MovimientoDetalleModal({ m, items, refInterna, ordenProv, provNombre, l
 // ═══════════════════════════ REGISTRAR MOVIMIENTO ═══════════════════════════
 function TabRegistrar({ obras, empleados, pos, catalog, obraProject, isMobile, onSaved, initialPoId }: any) {
   const [tipo, setTipo] = useState<Tipo>('recepcion_compra')
+  // Bodega → Obra NO se captura aquí. Esa salida se hace programando la entrega
+  // en Agenda/Ruta y marcándola completada: ese camino crea la entrega, sus
+  // renglones, el recibo, lo que ve el instalador y el movimiento, todo ligado
+  // por delivery_id (y protegido por el índice único). Tenerlo también aquí
+  // daba dos puertas para la misma salida y descargaba el material dos veces,
+  // igual que pasó con las recepciones entre Compras y Entregas.
+  const TIPOS_MANUALES: Tipo[] = ['recepcion_compra', 'obra_a_obra', 'obra_a_bodega']
   const [poId, setPoId] = useState('')
   const [poQuotationId, setPoQuotationId] = useState<string | null>(null)
   const [destinoKind, setDestinoKind] = useState<'bodega' | 'obra'>('bodega') // solo recepción
@@ -707,8 +714,8 @@ function TabRegistrar({ obras, empleados, pos, catalog, obraProject, isMobile, o
     <div style={{ maxWidth: 900 }}>
       {/* Tipo de movimiento */}
       <label style={labelStyle}>Tipo de movimiento</label>
-      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4,1fr)', gap: 8, marginBottom: 20 }}>
-        {(Object.keys(TIPO_CFG) as Tipo[]).map(t => (
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(3,1fr)', gap: 8, marginBottom: 20 }}>
+        {TIPOS_MANUALES.map(t => (
           <button key={t} onClick={() => { setTipo(t); setLineas([]); setPoId(''); setPoQuotationId(null) }} style={{
             padding: '12px 10px', borderRadius: 10, cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left',
             background: tipo === t ? TIPO_CFG[t].color + '18' : '#0e0e0e', border: `1px solid ${tipo === t ? TIPO_CFG[t].color : '#2a2a2a'}`,
@@ -718,6 +725,17 @@ function TabRegistrar({ obras, empleados, pos, catalog, obraProject, isMobile, o
             <div style={{ fontSize: 10, color: '#777', marginTop: 3, lineHeight: 1.3 }}>{TIPO_CFG[t].desc}</div>
           </button>
         ))}
+      </div>
+
+      {/* Dónde quedó la salida a obra */}
+      <div style={{ background: '#0e1420', border: '1px solid #1e3a5f', borderRadius: 10, padding: '10px 14px', marginBottom: 16, display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+        <span style={{ fontSize: 15 }}>🚚</span>
+        <div style={{ fontSize: 11.5, color: '#8fb3d9', lineHeight: 1.6 }}>
+          <b style={{ color: '#bcd6f5' }}>¿Vas a surtir material de bodega a una obra?</b> Eso ya no se captura aquí.
+          Prográmalo en <b>Agenda / Ruta</b> como entrega y márcala completada: ahí se genera el recibo,
+          lo que ve el instalador y la salida de inventario, todo de una vez.
+          Tenerlo en los dos lados descargaba el material dos veces.
+        </div>
       </div>
 
       {/* Origen / destino contextual */}

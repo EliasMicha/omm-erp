@@ -1789,3 +1789,49 @@ dos recepciones eran identicas de 138 y la regla no alcanzaba). Verificacion:
 **0 productos con recibido > comprado** (antes 21). 115 exactos, 61 parciales.
 
 Nada se borro: todo quedo `anulado=true` con nota del motivo.
+
+
+---
+
+## 🚪 Salidas: cerrar la segunda puerta (2026-09-08)
+
+Elias: *"en las salidas tenemos el mismo tema. si registro la salida desde la
+planeacion o desde movimientos, duplica la salida"*.
+
+Tenia razon en el diagnostico, aunque el danio todavia no estaba hecho.
+
+### Lo que dijeron los datos
+- 226 salidas `bodega_a_obra` con `delivery_id` (camino de planeacion).
+- **1 sola** sin `delivery_id`, del 11-ago... y apunta a un LEAD, o sea que es
+  del flujo de planeacion viejo, de antes de que existiera la columna.
+- **Cero salidas duplicadas.** El camino manual practicamente no se ha usado.
+
+O sea: la puerta estaba abierta pero casi nadie habia pasado. Se cerro antes de
+que costara.
+
+### Una hipotesis que los datos tumbaron
+Al ver que `entregaFlow` escribe `destino_obra_id: D.lead_id` y el registro
+manual escribe `destino_obra_id = destinoObra`, di por hecho que la misma
+columna guardaba dos tipos de id y que por eso los duplicados serian invisibles.
+**Falso:** `TabRegistrar` recibe `obras={leadsInv}`, asi que el "obra" de ese
+select ya es un lead. Los 343 movimientos apuntan a leads, ninguno a obras.
+Leer el render antes de acusar al modelo de datos.
+
+### El cambio
+`Bodega → Obra` se quito del registro manual. Quedan ahi solo recepcion de
+compra, obra→obra y obra→bodega (traspasos y devoluciones, que no tienen flujo
+de planeacion).
+
+Surtir a obra ahora tiene **un solo camino**: programar la entrega en
+Agenda/Ruta y marcarla completada. Ese camino crea la entrega, sus renglones, el
+recibo, lo que ve el instalador y el movimiento — todo ligado por `delivery_id`
+y protegido por `uq_stock_mov_delivery_producto`.
+
+Se dejo un aviso en el tab explicando a donde se movio, para que nadie lo busque.
+El tipo sigue existiendo en `TIPO_CFG` y en el union: lo leen los 226
+movimientos historicos.
+
+### Hallazgo aparte, sin resolver
+Hay productos con salidas mayores a sus entradas (CABLE DESNUDO CAL.14: 1030
+salidas contra 530 recibidas; varios con salidas y **cero** recepciones). No es
+duplicacion — es material que salio sin registrar su entrada. Queda pendiente.
