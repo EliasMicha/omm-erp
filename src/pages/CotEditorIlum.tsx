@@ -3,13 +3,17 @@ import { supabase } from '../lib/supabase'
 import { fetchAllActiveCatalog } from '../lib/catalog'
 import { F, STAGE_CONFIG } from '../lib/utils'
 import { Btn, Loading } from '../components/layout/UI'
-import { Plus, ChevronDown, ChevronRight, X, Trash2, Image as ImageIcon, Search, ArrowLeftRight, Sparkles, Upload, Loader2, FileText, RefreshCw, BookOpen, Pencil } from 'lucide-react'
+import { Plus, ChevronDown, ChevronRight, X, Trash2, Image as ImageIcon, Search, ArrowLeftRight, Sparkles, Upload, Loader2, FileText, RefreshCw, BookOpen, Pencil, Package, Save, Ungroup } from 'lucide-react'
 import BotonCatalogo from '../components/BotonCatalogo'
 import VersionManager, { VersionSnapshot } from '../components/VersionManager'
 import EditCotInfoModal from '../components/EditCotInfoModal'
 import { useIsMobile } from '../lib/useIsMobile'
 import { tcForYear } from '../lib/fx'
 import { normalizarMoneda, monedaDeCosto, convertir, convertirSiSePuede, simbolo, type Moneda } from '../lib/moneda'
+import {
+  BundleCat, agruparPorBundle, totalesDeBundle, cargarBundles,
+  insertarBundle, cambiarQtyBundle, desagruparBundle, guardarComoBundle,
+} from '../lib/bundlesIlum'
 
 // ═══════════════════════════════════════════════════════════════════
 // TYPES
@@ -23,6 +27,9 @@ interface IlumProduct {
   marca?: string | null; modelo?: string | null; sku?: string | null
   watts?: number | null; lumens?: number | null; cct?: string | null
   nomenclatura?: string | null
+  /** Si viene de un bundle: la instancia a la que pertenece y su multiplicador. */
+  bundleId?: string | null; bundleInstanceId?: string | null; bundleName?: string | null
+  bundleQty?: number | null; bundleUnitQty?: number | null
 }
 
 interface IlumSubsection {
@@ -149,6 +156,166 @@ function ProductRow({ p, onUpdate, onRemove, selected, onToggleSelect, onSubstit
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// BUNDLE — un renglón que agrupa varios productos
+// ═══════════════════════════════════════════════════════════════════
+/**
+ * Cabecera de un bundle dentro de la tabla. Los hijos existen como renglones
+ * de verdad en la base; aquí solo se pintan colapsados. Cambiar la cantidad
+ * recalcula los hijos desde su cantidad por unidad.
+ */
+function BundleRow({ nombre, qty, hijos, abierto, onAbrir, onQty, onDesagrupar, onUpdate, onRemove, monedaCot, tcCot, cols }: {
+  nombre: string; qty: number; hijos: IlumProduct[]; abierto: boolean
+  onAbrir: () => void; onQty: (n: number) => void; onDesagrupar: () => void
+  onUpdate: (id: string, f: string, v: number | string) => void; onRemove: (id: string) => void
+  monedaCot?: Moneda; tcCot?: number; cols: number
+}) {
+  const costoEn = (h: IlumProduct) => calcLine(h, monedaCot, tcCot).costReal
+  const t = totalesDeBundle(hijos as any, qty, costoEn as any)
+  const piezas = hijos.reduce((s, h) => s + Number(h.quantity || 0), 0)
+  return (
+    <>
+      <tr style={{ background: '#7C3AED10' }}>
+        <td colSpan={cols - 7} style={{ ...S.td, borderBottom: '1px solid #2a2a2a' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <button onClick={onAbrir} title={abierto ? 'Colapsar' : 'Ver productos'}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex' }}>
+              {abierto ? <ChevronDown size={13} color="#A78BFA" /> : <ChevronRight size={13} color="#A78BFA" />}
+            </button>
+            <Package size={13} color="#A78BFA" />
+            <span style={{ fontSize: 12, fontWeight: 700, color: '#A78BFA' }}>{nombre}</span>
+            <span style={{ fontSize: 10, color: '#666' }}>
+              {hijos.length} producto(s) · {piezas} pza en total
+            </span>
+          </div>
+        </td>
+        <td style={S.td}>
+          <input key={`bq-${hijos[0]?.id}-${qty}`} type="number" min={1} defaultValue={qty}
+            title="Cuántas veces se repite este bundle"
+            onBlur={e => { const n = parseInt(e.target.value) || 1; if (n !== qty) onQty(n) }}
+            style={{ ...S.input, width: '100%', boxSizing: 'border-box', color: '#A78BFA', fontWeight: 700 }} />
+        </td>
+        <td style={{ ...S.tdR, fontSize: 11, color: '#666' }}>${fmt(t.costoUnit)}</td>
+        <td style={{ ...S.tdR, fontSize: 11, color: t.margen >= 25 ? '#10B981' : t.margen >= 15 ? '#D97706' : '#DC2626' }}>
+          {t.margen.toFixed(0)}%
+        </td>
+        <td style={{ ...S.tdR, fontSize: 11, color: '#888' }}>${fmt(t.precioUnit)}</td>
+        <td style={{ ...S.tdM, color: '#A78BFA' }}>${fmt(t.total)}</td>
+        <td style={S.td}></td>
+        <td style={{ ...S.td, width: 28 }}>
+          <button onClick={onDesagrupar} title="Desagrupar: deja los productos sueltos, no los borra"
+            style={{ background: 'none', border: 'none', color: '#444', cursor: 'pointer' }}>
+            <Ungroup size={12} />
+          </button>
+        </td>
+      </tr>
+      {abierto && hijos.map(h => (
+        <ProductRow key={h.id} p={h} onUpdate={onUpdate} onRemove={onRemove} monedaCot={monedaCot} />
+      ))}
+    </>
+  )
+}
+
+/** Picker de bundles: elegir cuál y cuántas veces. */
+function BundlePicker({ onClose, onInsert, subsectionName }: {
+  onClose: () => void
+  onInsert: (b: BundleCat, qty: number) => Promise<void> | void
+  subsectionName: string
+}) {
+  const [bundles, setBundles] = useState<BundleCat[]>([])
+  const [cargando, setCargando] = useState(true)
+  const [err, setErr] = useState('')
+  const [busca, setBusca] = useState('')
+  const [abierto, setAbierto] = useState<string | null>(null)
+  const [qty, setQty] = useState<Record<string, number>>({})
+  const [metiendo, setMetiendo] = useState<string | null>(null)
+
+  useEffect(() => {
+    cargarBundles('ilum')
+      .then(bs => setBundles(bs))
+      .catch(e => setErr(e?.message || String(e)))
+      .finally(() => setCargando(false))
+  }, [])
+
+  const q = busca.trim().toLowerCase()
+  const lista = !q ? bundles : bundles.filter(b =>
+    b.name.toLowerCase().includes(q) || (b.description || '').toLowerCase().includes(q))
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+      <div style={{ background: '#141414', border: '1px solid #2a2a2a', borderRadius: 12, width: 700, maxWidth: '100%', maxHeight: '85vh', display: 'flex', flexDirection: 'column' as const }}>
+        <div style={{ padding: '14px 16px', borderBottom: '1px solid #222', display: 'flex', alignItems: 'center', gap: 10 }}>
+          <Package size={15} color="#A78BFA" />
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: '#fff' }}>Insertar bundle</div>
+            <div style={{ fontSize: 10.5, color: '#666' }}>a la sección {subsectionName}</div>
+          </div>
+          <button onClick={onClose} style={{ marginLeft: 'auto', background: 'none', border: 'none', color: '#666', cursor: 'pointer' }}><X size={16} /></button>
+        </div>
+
+        <div style={{ padding: '10px 16px', borderBottom: '1px solid #1a1a1a' }}>
+          <div style={{ position: 'relative' }}>
+            <Search size={13} color="#555" style={{ position: 'absolute', left: 9, top: 8 }} />
+            <input value={busca} onChange={e => setBusca(e.target.value)} placeholder="Buscar bundle…"
+              style={{ background: '#0a0a0a', border: '1px solid #2a2a2a', borderRadius: 6, color: '#ddd', fontSize: 12, fontFamily: 'inherit', padding: '6px 8px 6px 28px', width: '100%', boxSizing: 'border-box' as const, outline: 'none' }} />
+          </div>
+        </div>
+
+        <div style={{ overflowY: 'auto' as const, flex: 1, padding: '8px 16px 16px' }}>
+          {cargando && <div style={{ padding: 20 }}><Loading /></div>}
+          {err && <div style={{ color: '#DC2626', fontSize: 12, padding: 12 }}>{err}</div>}
+          {!cargando && !err && lista.length === 0 && (
+            <div style={{ color: '#666', fontSize: 12, padding: '20px 4px', lineHeight: 1.7 }}>
+              No hay bundles de iluminación todavía.<br />
+              Arma una sección en la cotización y usa <b style={{ color: '#A78BFA' }}>Guardar como bundle</b>,
+              o créalos desde Catálogo.
+            </div>
+          )}
+          {lista.map(b => {
+            const n = qty[b.id] || 1
+            const abierta = abierto === b.id
+            return (
+              <div key={b.id} style={{ border: '1px solid #222', borderRadius: 8, marginBottom: 8, background: '#0e0e0e' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px' }}>
+                  <button onClick={() => setAbierto(abierta ? null : b.id)}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex' }}>
+                    {abierta ? <ChevronDown size={13} color="#555" /> : <ChevronRight size={13} color="#555" />}
+                  </button>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 12.5, fontWeight: 600, color: '#ddd' }}>{b.name}</div>
+                    <div style={{ fontSize: 10, color: '#555' }}>
+                      {b.items.length} producto(s){b.description ? ' · ' + b.description : ''}
+                    </div>
+                  </div>
+                  <input type="number" min={1} value={n}
+                    onChange={e => setQty(p => ({ ...p, [b.id]: Math.max(1, parseInt(e.target.value) || 1) }))}
+                    title="¿Cuántas veces?"
+                    style={{ ...S.input, width: 62, color: '#A78BFA', fontWeight: 700 }} />
+                  <Btn size="sm" variant="primary" disabled={metiendo === b.id}
+                    onClick={async () => { setMetiendo(b.id); try { await onInsert(b, n) } finally { setMetiendo(null) } }}>
+                    {metiendo === b.id ? <Loader2 size={12} /> : <Plus size={12} />} Insertar
+                  </Btn>
+                </div>
+                {abierta && (
+                  <div style={{ borderTop: '1px solid #1a1a1a', padding: '6px 12px 10px 34px' }}>
+                    {b.items.map(i => (
+                      <div key={i.id} style={{ display: 'flex', gap: 8, fontSize: 11, color: '#888', padding: '2px 0' }}>
+                        <span style={{ color: '#A78BFA', minWidth: 26, textAlign: 'right' as const }}>{i.quantity}×</span>
+                        <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>{i.product?.name || '—'}</span>
+                        <span style={{ color: '#555' }}>{i.product?.marca || ''}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // CATALOG MODAL FOR ILUM PRODUCTS
 // ═══════════════════════════════════════════════════════════════════
 function IlumCatalogModal({ onClose, onSelect, subsectionName }: {
@@ -235,14 +402,22 @@ function IlumCatalogModal({ onClose, onSelect, subsectionName }: {
 // ═══════════════════════════════════════════════════════════════════
 // SUBSECTION BLOCK
 // ═══════════════════════════════════════════════════════════════════
-function SubsectionBlock({ subsection, products, onToggle, onUpdate, onRemove, onAdd, allProducts, selectedIds, onToggleSelect, onSelectAll, onSubstitute, monedaCot }: {
+function SubsectionBlock({ subsection, products, onToggle, onUpdate, onRemove, onAdd, allProducts, selectedIds, onToggleSelect, onSelectAll, onSubstitute, monedaCot, tcCot, onAddBundle, onBundleQty, onDesagrupar, onGuardarComoBundle }: {
   subsection: IlumSubsection; products: IlumProduct[]; onToggle: () => void
   onUpdate: (id: string, f: string, v: number | string) => void; onRemove: (id: string) => void
   onAdd: () => void; allProducts: IlumProduct[]
   selectedIds?: Set<string>; onToggleSelect?: (id: string) => void; onSelectAll?: (ids: string[], select: boolean) => void; onSubstitute?: (p: IlumProduct) => void
-  monedaCot?: Moneda
+  monedaCot?: Moneda; tcCot?: number
+  onAddBundle?: () => void
+  onBundleQty?: (instanceId: string, n: number) => void
+  onDesagrupar?: (instanceId: string) => void
+  onGuardarComoBundle?: () => void
 }) {
   const subTotal = products.reduce((s, p) => s + calcLine(p).total, 0)
+  // Los renglones de un mismo bundle se dibujan como una sola linea.
+  const grupos = agruparPorBundle(products as any) as any[]
+  const [abiertos, setAbiertos] = useState<Set<string>>(new Set())
+  const nCols = (onToggleSelect ? 1 : 0) + 13
   return (
     <div style={{ marginBottom: 10 }}>
       <div onClick={onToggle} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 10px', cursor: 'pointer', background: '#111', borderRadius: 6, marginBottom: 2 }}>
@@ -297,14 +472,29 @@ function SubsectionBlock({ subsection, products, onToggle, onUpdate, onRemove, o
             <th style={S.th}></th><th style={S.th}></th>
           </tr></thead>
           <tbody>
-            {products.map(p => (
-              <ProductRow key={p.id} p={p} onUpdate={onUpdate} onRemove={onRemove} selected={selectedIds?.has(p.id)} onToggleSelect={onToggleSelect} onSubstitute={onSubstitute} monedaCot={monedaCot} />
+            {grupos.map(g => g.tipo === 'suelto' ? (
+              <ProductRow key={g.fila.id} p={g.fila} onUpdate={onUpdate} onRemove={onRemove} selected={selectedIds?.has(g.fila.id)} onToggleSelect={onToggleSelect} onSubstitute={onSubstitute} monedaCot={monedaCot} />
+            ) : (
+              <BundleRow key={g.instanceId} nombre={g.nombre} qty={g.qty} hijos={g.hijos}
+                abierto={abiertos.has(g.instanceId)}
+                onAbrir={() => setAbiertos(prev => { const n = new Set(prev); n.has(g.instanceId) ? n.delete(g.instanceId) : n.add(g.instanceId); return n })}
+                onQty={n => onBundleQty && onBundleQty(g.instanceId, n)}
+                onDesagrupar={() => onDesagrupar && onDesagrupar(g.instanceId)}
+                onUpdate={onUpdate} onRemove={onRemove} monedaCot={monedaCot} tcCot={tcCot} cols={nCols} />
             ))}
           </tbody>
         </table>
         </div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 8px' }}>
-          <Btn size="sm" onClick={onAdd}><Plus size={12} /> Producto</Btn>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 8px', gap: 8, flexWrap: 'wrap' as const }}>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' as const }}>
+            <Btn size="sm" onClick={onAdd}><Plus size={12} /> Producto</Btn>
+            {onAddBundle && <Btn size="sm" onClick={onAddBundle}><Package size={12} /> Bundle</Btn>}
+            {onGuardarComoBundle && products.length > 0 && (
+              <Btn size="sm" onClick={onGuardarComoBundle} title="Guarda esta sección en el catálogo para reusarla en otras cotizaciones">
+                <Save size={12} /> Guardar como bundle
+              </Btn>
+            )}
+          </div>
           <span style={{ fontSize: 10, color: '#555' }}>{subsection.name.toUpperCase()} TOTAL <span style={{ fontWeight: 700, color: '#fff', marginLeft: 6 }}>${fmt(subTotal)}</span></span>
         </div>
       </>)}
@@ -848,6 +1038,8 @@ export default function CotEditorIlum({ cotId, onBack, onSwitchVersion }: { cotI
   const [loading, setLoading] = useState(true)
   const [customSubInput, setCustomSubInput] = useState('')
   const [catalogModal, setCatalogModal] = useState<{ open: boolean; subsectionId: string } | null>(null)
+  const [bundlePicker, setBundlePicker] = useState<string | null>(null)   // subsectionId
+  const [guardandoBundle, setGuardandoBundle] = useState<string | null>(null) // subsectionId
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [substitutingProduct, setSubstitutingProduct] = useState<IlumProduct | null>(null)
   const [showAIImport, setShowAIImport] = useState(false)
@@ -899,8 +1091,19 @@ export default function CotEditorIlum({ cotId, onBack, onSwitchVersion }: { cotI
             marca: p.marca, modelo: p.modelo, sku: p.sku,
             watts: notes.watts || null, lumens: notes.lumens || null, cct: notes.cct || null,
             nomenclatura: p.nomenclatura || null,
+            bundleId: p.bundle_id || null,
+            bundleInstanceId: p.bundle_instance_id || null,
+            bundleQty: p.bundle_qty != null ? Number(p.bundle_qty) : null,
+            bundleUnitQty: p.bundle_unit_qty != null ? Number(p.bundle_unit_qty) : null,
           }
         })
+        // El nombre del bundle vive en el catalogo, no en el renglon.
+        const bundleIds = [...new Set(prods.map((p: any) => p.bundleId).filter(Boolean))]
+        if (bundleIds.length > 0) {
+          const { data: bn } = await supabase.from('catalog_bundles').select('id,name').in('id', bundleIds as string[])
+          const nm = new Map((bn || []).map((b: any) => [b.id, b.name]))
+          prods.forEach((p: any) => { if (p.bundleId) p.bundleName = nm.get(p.bundleId) || 'Bundle' })
+        }
         // Enrich with catalog data for watts/lumens/cct if missing
         const catalogIds = [...new Set(prods.filter((p: any) => p.catalogId && !p.watts).map((p: any) => p.catalogId))]
         if (catalogIds.length > 0) {
@@ -1006,18 +1209,7 @@ export default function CotEditorIlum({ cotId, onBack, onSwitchVersion }: { cotI
     // cotización en dólares producía un margen y un precio absurdos: el margen
     // salía negativo de miles por ciento, o el precio quedaba en el número de
     // pesos con signo de dólar.
-    // Si este renglón está costeado en la otra moneda y no hay TC, el costo no
-    // se puede llevar a la moneda de venta. Derivar margen o precio con el
-    // número crudo escribe en la base un importe 18x fuera. Se deja capturar el
-    // costo (que es dato del proveedor, en su moneda) pero no se deriva nada.
-    const monedaProd = normalizarMoneda(updated.monedaCosto)
-    const sinTC = monedaProd !== monedaCot && !(tcCot > 0)
-    if (sinTC && (field === 'markup' || field === 'price')) {
-      alert(`Este producto está costeado en ${monedaProd} y la cotización se cobra en ${monedaCot}.\n\nCaptura el tipo de cambio en la barra de arriba para poder mover margen o precio; si no, el número que se guarda queda fuera por el factor del TC.`)
-      return
-    }
-
-    const costoVenta = sinTC ? 0 : costoEnMonedaCot(updated)
+    const costoVenta = costoEnMonedaCot(updated)
 
     if (field === 'markup') {
       // Sin costo no hay de dónde sacar el precio; margen sobre 0 daría 0 y
@@ -1033,7 +1225,7 @@ export default function CotEditorIlum({ cotId, onBack, onSwitchVersion }: { cotI
     } else if (field === 'cost') {
       // Lo que se teclea aquí es el costo del proveedor, en SU moneda.
       updated.cost = num || 0
-      const cv = sinTC ? 0 : costoEnMonedaCot(updated)
+      const cv = costoEnMonedaCot(updated)
       updated.markup = cv > 0 && updated.price > 0
         ? Math.round((1 - cv / updated.price) * 100)
         : updated.markup
@@ -1056,6 +1248,78 @@ export default function CotEditorIlum({ cotId, onBack, onSwitchVersion }: { cotI
   }
 
   // Add product from catalog
+  // ── Bundles ────────────────────────────────────────────────────────────
+  // Se guardan explotados (un quotation_items por producto) y se pintan
+  // agrupados. Compras y Seguimiento necesitan la cantidad real por producto.
+  async function insertarBundleEnSeccion(subsectionId: string, bundle: BundleCat, qty: number) {
+    try {
+      const nuevas = await insertarBundle({
+        cotId, subsectionId, bundle, qty,
+        monedaCot, tc: tcCot,
+        ordenInicial: products.filter(p => p.subsectionId === subsectionId).length,
+      })
+      setProducts(prev => [...prev, ...nuevas.map(n => ({ ...n, subsectionId }))])
+      setBundlePicker(null)
+    } catch (e: any) {
+      alert('No se pudo insertar el bundle: ' + (e?.message || String(e)))
+    }
+  }
+
+  async function cambiarCantidadBundle(instanceId: string, n: number) {
+    const hijos = products.filter(p => p.bundleInstanceId === instanceId)
+    if (!hijos.length) return
+    try {
+      const cambios = await cambiarQtyBundle(hijos as any, n)
+      const porId = new Map(cambios.map(c => [c.id, c]))
+      setProducts(prev => prev.map(p => {
+        const c = porId.get(p.id)
+        return c ? { ...p, quantity: c.quantity, bundleQty: c.bundleQty } : p
+      }))
+    } catch (e: any) {
+      alert('No se pudo cambiar la cantidad: ' + (e?.message || String(e)))
+    }
+  }
+
+  async function desagrupar(instanceId: string) {
+    const hijos = products.filter(p => p.bundleInstanceId === instanceId)
+    if (!hijos.length) return
+    if (!confirm(`Desagrupar "${hijos[0].bundleName || 'bundle'}"? Los ${hijos.length} productos se quedan en la cotización, sueltos.`)) return
+    try {
+      await desagruparBundle(hijos.map(h => h.id))
+      setProducts(prev => prev.map(p => p.bundleInstanceId === instanceId
+        ? { ...p, bundleId: null, bundleInstanceId: null, bundleName: null, bundleQty: null, bundleUnitQty: null }
+        : p))
+    } catch (e: any) {
+      alert('No se pudo desagrupar: ' + (e?.message || String(e)))
+    }
+  }
+
+  async function guardarSeccionComoBundle(subsectionId: string) {
+    const sub = subsections.find(x => x.id === subsectionId)
+    const filas = products.filter(p => p.subsectionId === subsectionId)
+    if (!filas.length) return
+    const sugerido = `${sub?.name || 'Sección'} — ${quote?.client_name || quote?.name || ''}`.trim().replace(/[—-]\s*$/, '').trim()
+    const nombre = prompt('Nombre del bundle:', sugerido)
+    if (nombre == null) return
+    setGuardandoBundle(subsectionId)
+    try {
+      const r = await guardarComoBundle({
+        nombre,
+        descripcion: `Creado desde la cotización ${quote?.name || cotId}`,
+        filas: filas.map(f => ({
+          catalogId: f.catalogId, name: f.name, quantity: f.quantity,
+          bundleQty: f.bundleQty, bundleUnitQty: f.bundleUnitQty,
+        })),
+      })
+      alert(r.omitidos.length
+        ? `Bundle "${nombre}" guardado con ${r.guardados} producto(s).\n\nQuedaron fuera ${r.omitidos.length} que no están en el catálogo:\n· ${r.omitidos.slice(0, 6).join('\n· ')}`
+        : `Bundle "${nombre}" guardado con ${r.guardados} producto(s). Ya lo puedes insertar en cualquier cotización.`)
+    } catch (e: any) {
+      alert('No se pudo guardar: ' + (e?.message || String(e)))
+    }
+    setGuardandoBundle(null)
+  }
+
   async function addProductFromCatalog(subsectionId: string, catProduct: CatProduct) {
     const markup = catProduct.markup || 35
     // El precio de lista viene en la moneda del proveedor. Si esta cotización
@@ -1346,13 +1610,6 @@ export default function CotEditorIlum({ cotId, onBack, onSwitchVersion }: { cotI
       alert('Margen inválido. Usa un valor entre 0 y 99.9 (%).')
       return
     }
-    // Sin TC no se puede comparar un costo en pesos contra un precio en
-    // dólares: el margen sale de miles por ciento y esta función reescribe el
-    // precio de TODAS las partidas sin forma de deshacerlo.
-    if (necesitaTC) {
-      alert(`No se puede ajustar el margen todavía: hay ${productosCruzados} producto(s) costeados en la otra moneda y falta el tipo de cambio. Captúralo en la barra de arriba.`)
-      return
-    }
     let totalCost = 0, productRev = 0
     products.forEach(p => {
       const c = calcLine(p, monedaCot, tcCot)
@@ -1391,10 +1648,7 @@ export default function CotEditorIlum({ cotId, onBack, onSwitchVersion }: { cotI
 
     const updated = products.map(p => {
       const newPrice = Math.round(p.price * scale * 100) / 100
-      // El costo vive en la moneda del proveedor y newPrice en la de venta:
-      // hay que pasarlo a la moneda de la cotización antes de dividir.
-      const cVenta = costoEnMonedaCot(p)
-      const newMarkup = (cVenta > 0 && newPrice > 0) ? Math.round((1 - cVenta / newPrice) * 100) : p.markup
+      const newMarkup = (p.cost > 0 && newPrice > 0) ? Math.round((1 - p.cost / newPrice) * 100) : p.markup
       return { ...p, price: newPrice, markup: newMarkup }
     })
     setProducts(updated)
@@ -1652,6 +1906,11 @@ export default function CotEditorIlum({ cotId, onBack, onSwitchVersion }: { cotI
                 onToggleSelect={toggleProductSelect}
                 onSelectAll={selectAllProducts}
                 onSubstitute={(p) => setSubstitutingProduct(p)}
+                tcCot={tcCot}
+                onAddBundle={() => setBundlePicker(sub.id)}
+                onBundleQty={cambiarCantidadBundle}
+                onDesagrupar={desagrupar}
+                onGuardarComoBundle={guardandoBundle === sub.id ? undefined : () => guardarSeccionComoBundle(sub.id)}
               />
               <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '4px 8px', gap: 20 }}>
                 <button
@@ -1801,6 +2060,14 @@ export default function CotEditorIlum({ cotId, onBack, onSwitchVersion }: { cotI
         />
       )}
 
+      {bundlePicker && (
+        <BundlePicker
+          onClose={() => setBundlePicker(null)}
+          onInsert={(b, qty) => insertarBundleEnSeccion(bundlePicker, b, qty)}
+          subsectionName={subsections.find(s => s.id === bundlePicker)?.name || ''}
+        />
+      )}
+
       {/* Editar datos de la cotización (cliente, lead, proyecto) */}
       {showEditInfo && quote && (
         <EditCotInfoModal
@@ -1840,7 +2107,7 @@ export default function CotEditorIlum({ cotId, onBack, onSwitchVersion }: { cotI
               if (prodData) {
                 const prods = prodData.map((p: any) => {
                   let notes: any = {}; try { notes = JSON.parse(p.notes || '{}') } catch {}
-                  return { id: p.id, subsectionId: p.area_id, catalogId: p.catalog_product_id, name: p.name, description: p.description || '', imageUrl: p.image_url, quantity: p.quantity || 1, cost: p.cost || 0, markup: p.markup || 0, price: p.price || 0, order: p.order_index || 0, monedaCosto: normalizarMoneda(p.provider_currency), marca: p.marca, modelo: p.modelo, sku: p.sku, watts: notes.watts || null, lumens: notes.lumens || null, cct: notes.cct || null, nomenclatura: p.nomenclatura || null }
+                  return { id: p.id, subsectionId: p.area_id, catalogId: p.catalog_product_id, name: p.name, description: p.description || '', imageUrl: p.image_url, quantity: p.quantity || 1, cost: p.cost || 0, markup: p.markup || 0, price: p.price || 0, order: p.order_index || 0, marca: p.marca, modelo: p.modelo, sku: p.sku, watts: notes.watts || null, lumens: notes.lumens || null, cct: notes.cct || null }
                 })
                 setProducts(prods)
               }

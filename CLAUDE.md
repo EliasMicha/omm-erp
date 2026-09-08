@@ -1541,3 +1541,71 @@ cifras es **indistinguible de una fecha con dia**. Ahora son dos filas: arriba
 
 Los tres solo aparecieron viendo el PDF renderizado pagina por pagina. Ninguno
 lo detecta un compilador.
+
+
+---
+
+## 📦 Bundles en el cotizador de Iluminacion (2026-09-08)
+
+Elias: *"Me puedes habilitar la posiblidad de hacer y cotizar con Bundles en el
+cotizador de Iluminacion?"*
+
+Ya existia `catalog_bundles` (lo usa Especiales) y ya habia **un bundle de
+iluminacion cargado** — "Habitacion A - Marriott Ixtapa", 10 productos — que
+nadie podia usar porque el cotizador de Ilum no sabia leerlo. Ilum usa el mismo
+`catalog_products` que ESP, asi que las tablas se reusaron tal cual.
+
+### La decision de fondo: guardar explotado, pintar agrupado
+Un bundle de iluminacion es un **tipo de espacio**: se arma una habitacion y se
+aplica a las 120 del hotel.
+
+Cada producto sigue siendo su propio `quotation_items`, etiquetado con
+`bundle_instance_id`. En pantalla los renglones de una instancia se dibujan como
+**una sola linea desplegable**. Guardarlo como un renglon opaco habria roto
+Compras, Seguimiento y Entregas, que trabajan por producto: para comprar hay que
+saber que son **840 bases GU10** (7 x 120), no "120 habitaciones".
+
+### El invariante
+```
+quantity = bundle_unit_qty * bundle_qty
+```
+Dos columnas nuevas en `quotation_items`. `bundle_unit_qty` (cantidad por UNA
+unidad del bundle) es lo que permite recalcular al cambiar el multiplicador sin
+dividir — y sin dividir no hay deriva por redondeo.
+
+Ese mismo dato evita el bug obvio de "guardar como bundle": si metes
+"Habitacion A" x120 y vuelves a guardar la seccion, sin `bundle_unit_qty`
+generarias un bundle de **840 bases GU10** en vez de 7.
+
+### Archivos
+- `src/lib/bundlesIlum.ts` (nuevo) — `agruparPorBundle`, `totalesDeBundle`,
+  `insertarBundle`, `cambiarQtyBundle`, `desagruparBundle`, `guardarComoBundle`.
+  Toda la logica fuera del componente para poderla correr en node.
+- `src/pages/CotEditorIlum.tsx` — `BundleRow` (cabecera desplegable),
+  `BundlePicker`, botones "Bundle" y "Guardar como bundle" por seccion.
+
+### `insertarBundle` calcula TODO antes de escribir
+Si un producto no se puede convertir de moneda, revienta antes del insert.
+Medio bundle metido es peor que ninguno.
+
+### ⚠️ El colSpan que esbuild no ve
+`BundleRow` emite 7 celdas despues del bloque del nombre, no 5. Con
+`colSpan={cols - 5}` la fila salia **2 celdas mas ancha** que el encabezado y
+descuadraba toda la tabla. Se verifico contando el JSX contra el `<colgroup>`
+con un script, no a ojo.
+
+### Verificacion (bundle real Marriott, cotizacion USD tc=18)
+| Prueba | Resultado |
+|---|---|
+| filtro `specialty='ilum'` | 1 bundle (deja fuera kits de rack y redes) |
+| insertar x120 | 10 renglones, invariante OK |
+| precio / costo / margen por habitacion | $405.59 / $229.68 / 43.4% |
+| total agrupado == suma de renglones en DB | $48,670.80 == $48,670.80 |
+| cambiar 120 → 85 | proporcion exacta, $34,475.15 |
+| guardar como bundle desde la cotizacion | identico al original (por unidad) |
+| desagrupar | conserva cantidades, no borra |
+
+**Nota sobre la prueba:** el caso de "guardar como bundle" fallo al principio
+por un error DEL TEST — emparejaba `filas` con un `select` por indice y
+Supabase no garantiza orden. Emparejar por id lo resolvio. Vale la pena
+recordarlo: un select sin `order by` no tiene orden.

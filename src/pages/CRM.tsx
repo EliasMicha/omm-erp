@@ -883,7 +883,7 @@ function SortTh({ label, sortKey, currentKey, currentDir, onSort, right: isRight
 function ListView({ leads, onOpen, onEdit, onPriorityChange, onProbabilityChange, quoteTotals, cobrosByLead, displayCur, tc }: {
   leads: Lead[]; onOpen: (l: Lead) => void; onEdit: (l: Lead) => void; onPriorityChange: (id: string, p: Priority) => void
   onProbabilityChange: (id: string, prob: number | null) => void
-  quoteTotals: Record<string, { cotizadoUSD: number; cotizadoMXN: number; vendidoUSD: number; vendidoMXN: number }>
+  quoteTotals: Record<string, { cotizadoUSD: number; cotizadoMXN: number; vendidoUSD: number; vendidoMXN: number; porCerrarUSD?: number; porCerrarMXN?: number }>
   cobrosByLead: Record<string, number>  // suma de cobros por lead (en MXN)
   displayCur: string; tc: number
 }) {
@@ -1084,7 +1084,7 @@ export default function CRM() {
   // Totales separados por moneda — cada cotización puede estar en USD o MXN,
   // sumarlas requiere conocer la moneda nativa de cada una. La conversión a la
   // moneda de display se hace al render con el tipo de cambio actual.
-  const [quoteTotals, setQuoteTotals] = useState<Record<string, { cotizadoUSD: number; cotizadoMXN: number; vendidoUSD: number; vendidoMXN: number }>>({})
+  const [quoteTotals, setQuoteTotals] = useState<Record<string, { cotizadoUSD: number; cotizadoMXN: number; vendidoUSD: number; vendidoMXN: number; porCerrarUSD: number; porCerrarMXN: number }>>({})
   const [displayCur, setDisplayCur] = useState<'USD' | 'MXN'>('MXN')
   const [tc, setTc] = useState(DEFAULT_TC)
   const [filterYear, setFilterYear] = useState<number | 'todos'>(new Date().getFullYear())
@@ -1095,6 +1095,11 @@ export default function CRM() {
   // Vendido/Cotizado por AÑO DE CIERRE de cada cotización (eje independiente de la fecha de cobro)
   const [vendidoByYear, setVendidoByYear] = useState<Record<number, { usd: number; mxn: number }>>({})
   const [cotizadoByYear, setCotizadoByYear] = useState<Record<number, { usd: number; mxn: number }>>({})
+  // "Por cerrar" = cotizaciones en etapa 'propuesta' (asi se llama en la UI).
+  const [porCerrarByYear, setPorCerrarByYear] = useState<Record<number, { usd: number; mxn: number }>>({})
+  // Cobros que NO se pudieron amarrar a un lead. No se restan de ninguna
+  // cartera, asi que hay que decirlo en vez de dejarlo invisible.
+  const [cobrosSinLead, setCobrosSinLead] = useState(0)
   // Cobrado del año partido en cierres de este año (nuevo) vs años anteriores (arrastre/finiquitos)
   const [cobradoVintage, setCobradoVintage] = useState<Record<number, { nuevo: number; arrastre: number }>>({})
   // Paginado: Supabase corta a 1000 filas por request. bank_movements ya pasa de 1000,
@@ -1176,10 +1181,12 @@ export default function CRM() {
       const cobrosLead: Record<string, number> = {}
       const cobrosYear: Record<number, number> = {}
       const vintage: Record<number, { nuevo: number; arrastre: number }> = {}
+      let sinLead = 0
       const addCobro = (leadId: string | null | undefined, quotationId: string | null | undefined, monto: number, fecha: string | null) => {
         const payYear = fecha ? parseInt(fecha.slice(0, 4)) : 0
         cobrosYear[payYear] = (cobrosYear[payYear] || 0) + monto
         if (leadId) cobrosLead[leadId] = (cobrosLead[leadId] || 0) + monto
+        else sinLead += monto
         // añada: año de la cotización ligada, o del lead
         let saleY = 0
         if (quotationId && quotYear.get(quotationId)) saleY = quotYear.get(quotationId)!
@@ -1225,13 +1232,15 @@ export default function CRM() {
           : Number(x.monto || 0)
         addCobro(leadId, x.quotation_id, mxn, fecha)
       })
+      setCobrosSinLead(sinLead)
       setCobrosByLead(cobrosLead)
       setCobrosTotalByYear(cobrosYear)
       setCobradoVintage(vintage)
       setLeads(ld || [])
-      const totals: Record<string, { cotizadoUSD: number; cotizadoMXN: number; vendidoUSD: number; vendidoMXN: number }> = {}
+      const totals: Record<string, { cotizadoUSD: number; cotizadoMXN: number; vendidoUSD: number; vendidoMXN: number; porCerrarUSD: number; porCerrarMXN: number }> = {}
       const vByYear: Record<number, { usd: number; mxn: number }> = {}
       const cByYear: Record<number, { usd: number; mxn: number }> = {}
+      const pByYear: Record<number, { usd: number; mxn: number }> = {}
       if (ld && qt) {
         const quotTotalIva = (q: any) => {
           // esp/cort/ilum/proy/dist guardan total CON IVA; elec guarda subtotal crudo.
@@ -1262,7 +1271,7 @@ export default function CRM() {
           // ⚠️ Dedupe versiones para no inflar Cotizado/Vendido cuando un lead
           // tiene multiples versiones de la misma cotizacion
           const leadQuotes = dedupeVersions(leadQuotesAll)
-          let cotizadoUSD = 0, cotizadoMXN = 0, vendidoUSD = 0, vendidoMXN = 0
+          let cotizadoUSD = 0, cotizadoMXN = 0, vendidoUSD = 0, vendidoMXN = 0, porCerrarUSD = 0, porCerrarMXN = 0
           leadQuotes.forEach(q => {
             // Las cotizaciones perdidas no suman en ningún lado (ni Cotizado ni Vendido).
             if (q.stage === 'perdida') return
@@ -1275,20 +1284,23 @@ export default function CRM() {
               cotizadoUSD += total
               if (y) cByYear[y].usd += total
               if (q.stage === 'contrato') { vendidoUSD += total; if (y) { if (!vByYear[y]) vByYear[y] = { usd: 0, mxn: 0 }; vByYear[y].usd += total } }
+              if (q.stage === 'propuesta') { porCerrarUSD += total; if (y) { if (!pByYear[y]) pByYear[y] = { usd: 0, mxn: 0 }; pByYear[y].usd += total } }
             } else {
               cotizadoMXN += total
               if (y) cByYear[y].mxn += total
               if (q.stage === 'contrato') { vendidoMXN += total; if (y) { if (!vByYear[y]) vByYear[y] = { usd: 0, mxn: 0 }; vByYear[y].mxn += total } }
+              if (q.stage === 'propuesta') { porCerrarMXN += total; if (y) { if (!pByYear[y]) pByYear[y] = { usd: 0, mxn: 0 }; pByYear[y].mxn += total } }
             }
           })
-          if (cotizadoUSD || cotizadoMXN || vendidoUSD || vendidoMXN) {
-            totals[lead.id] = { cotizadoUSD, cotizadoMXN, vendidoUSD, vendidoMXN }
+          if (cotizadoUSD || cotizadoMXN || vendidoUSD || vendidoMXN || porCerrarUSD || porCerrarMXN) {
+            totals[lead.id] = { cotizadoUSD, cotizadoMXN, vendidoUSD, vendidoMXN, porCerrarUSD, porCerrarMXN }
           }
         }
       }
       setQuoteTotals(totals)
       setVendidoByYear(vByYear)
       setCotizadoByYear(cByYear)
+      setPorCerrarByYear(pByYear)
       setLoading(false)
     })
   }
@@ -1412,11 +1424,37 @@ Devuelve solo el JSON, sin explicaciones. Si no hay filtro para un campo, omitel
   const vint = filterYear === 'todos'
     ? Object.values(cobradoVintage).reduce((a, v) => ({ nuevo: a.nuevo + v.nuevo, arrastre: a.arrastre + v.arrastre }), { nuevo: 0, arrastre: 0 })
     : (cobradoVintage[filterYear as number] || { nuevo: 0, arrastre: 0 })
-  // 6. Cartera (backlog) — vendido histórico menos cobrado histórico (todos los años, en MXN).
-  // Es el flujo futuro comprometido: finiquitos y saldos por cobrar de contratos ya cerrados.
-  const vendidoTotalMXNall = Object.values(vendidoByYear).reduce((s, v) => s + v.usd * tc + v.mxn, 0)
-  const cobradoTotalAll = Object.values(cobrosTotalByYear).reduce((s, v) => s + v, 0)
-  const carteraMXN = Math.max(0, vendidoTotalMXNall - cobradoTotalAll)
+  // 6. Por cerrar — cotizaciones en etapa 'propuesta' (la UI las llama asi).
+  let porCerrarUSD = 0, porCerrarMXN = 0
+  if (filterYear === 'todos') {
+    Object.values(porCerrarByYear).forEach(p => { porCerrarUSD += p.usd; porCerrarMXN += p.mxn })
+  } else {
+    const p = porCerrarByYear[filterYear as number]; if (p) { porCerrarUSD = p.usd; porCerrarMXN = p.mxn }
+  }
+  const leadsPorCerrar = Object.values(quoteTotals).filter(t => t.porCerrarUSD || t.porCerrarMXN).length
+
+  // 7. Cartera (por cobrar) — LEAD POR LEAD: Σ max(0, vendido − cobrado).
+  //
+  // Antes era "vendido historico total − cobrado historico total" y eso comparaba
+  // dos universos distintos: el vendido solo cuenta cotizaciones vigentes, en
+  // contrato y amarradas a un lead, mientras que el cobrado suma TODO cobro de
+  // cliente de la empresa. El cobrado salia mayor, el max(0,...) lo aplastaba a
+  // cero y la tarjeta mostraba "—" aunque la columna Por cobrar de la tabla si
+  // traia saldos. Sumar renglon por renglon usa exactamente los mismos numeros
+  // que la columna, asi que tarjeta y tabla ya no pueden contradecirse; ademas
+  // un lead sobrecobrado deja de tapar el saldo de otro.
+  let carteraMXN = 0, leadsConSaldo = 0, sobrecobradoMXN = 0
+  for (const [leadId, t] of Object.entries(quoteTotals)) {
+    const vendido = t.vendidoUSD * tc + t.vendidoMXN
+    if (vendido <= 0) continue
+    const saldo = vendido - (cobrosByLead[leadId] || 0)
+    if (saldo > 0.01) { carteraMXN += saldo; leadsConSaldo++ }
+    else sobrecobradoMXN += -saldo
+  }
+  // Si una parte grande del cobro no amarro a un lead, la cartera sale inflada:
+  // ese dinero entro pero no se le pudo restar a ningun contrato. Se avisa en
+  // vez de presentar un numero limpio que no lo es.
+  const carteraDudosa = cobrosSinLead > carteraMXN * 0.1
 
   // Helper para mostrar monto MXN en displayCur
   function mxnToDisplay(amount: number): string {
@@ -1461,19 +1499,24 @@ Devuelve solo el JSON, sin explicaciones. Si no hay filtro para un campo, omitel
 
       {/* KPIs financieros (5 cards) - solo visibles para DG */}
       {showFinancialKPIs && (
-        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(6, 1fr)', gap: 10, marginBottom: 12 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(7, 1fr)', gap: 10, marginBottom: 12 }}>
           {[
             { label: 'Valor de leads', value: mxnToDisplay(valorLeadsMXN), sub: `${leadsActivosYear.length} en pipeline · estimado`, color: '#2563EB' },
             { label: 'Cierre estimado', value: mxnToDisplay(cierreEstimadoMXN), sub: `Σ(estimado × prob) — ${leadsConProbabilidad}/${leadsActivosYear.length} c/ prob`, color: '#A78BFA' },
             { label: 'Cotizado', value: mixedToDisplay(cotizadoUSD, cotizadoMXN), sub: filterYear === 'todos' ? 'todas etapas · histórico' : `por año de cierre · ${filterYear}`, color: '#D97706' },
+            { label: 'Por cerrar', value: mixedToDisplay(porCerrarUSD, porCerrarMXN), sub: `${leadsPorCerrar} lead(s) · propuesta entregada`, color: '#2563EB' },
             { label: 'Vendido', value: mixedToDisplay(vendidoUSD, vendidoMXN), sub: filterYear === 'todos' ? 'contratos cerrados · histórico' : `cerrado en ${filterYear}`, color: '#10B981' },
             { label: 'Cobrado', value: mxnToDisplay(cobradoMXN), sub: `${mxnToDisplay(vint.nuevo)} nuevo · ${mxnToDisplay(vint.arrastre)} arrastre`, color: '#10B981' },
-            { label: 'Cartera (por cobrar)', value: mxnToDisplay(carteraMXN), sub: 'vendido − cobrado · histórico', color: '#06B6D4' },
-          ].map(k => (
+            { label: 'Cartera (por cobrar)', value: mxnToDisplay(carteraMXN),
+              sub: carteraDudosa
+                ? `${leadsConSaldo} contratos · ⚠ ${mxnToDisplay(cobrosSinLead)} de cobros sin lead lo inflan`
+                : `${leadsConSaldo} contratos con saldo`,
+              color: '#06B6D4', subColor: carteraDudosa ? '#D9A441' : undefined },
+          ].map((k: any) => (
             <div key={k.label} style={{ background: '#141414', border: '1px solid #1e1e1e', borderRadius: 10, padding: '12px 14px', borderTop: `2px solid ${k.color}` }}>
               <div style={{ fontSize: 9, color: '#555', textTransform: 'uppercase' as const, letterSpacing: '0.06em', marginBottom: 4 }}>{k.label}</div>
               <div style={{ fontSize: isMobile ? 16 : 19, fontWeight: 700, color: '#fff', wordBreak: 'break-word' as const }}>{k.value}</div>
-              <div style={{ fontSize: 9, color: '#444', marginTop: 2 }}>{k.sub}</div>
+              <div style={{ fontSize: 9, color: k.subColor || '#444', marginTop: 2 }}>{k.sub}</div>
             </div>
           ))}
         </div>
