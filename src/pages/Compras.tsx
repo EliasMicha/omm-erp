@@ -1217,6 +1217,17 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
     return redondearCentavos(subtotal + ivaDeOrden(subtotal, esServ ? 'servicio' : 'material'))
   }
 
+  // Una OC esta pagada si los pagos registrados cubren el total mostrado.
+  // NO se usa purchase_orders.pagada_at: solo 6 de 54 ordenes con pagos lo
+  // tienen puesto, y una lo tiene puesto SIN pagos. El mayor (la tabla de
+  // pagos) manda; asi la etiqueta de Pago, la fecha limite y los filtros
+  // dicen todos lo mismo.
+  const estaPagada = (o: PurchaseOrder) => {
+    const pagado = pagosPorOC[o.id]?.pagado || 0
+    const meta = totalMostrado(o)
+    return pagado > 0 && meta > 0 && pagado >= meta - 0.5
+  }
+
   const load = () => {
     setLoading(true)
     Promise.all([
@@ -1288,7 +1299,7 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
   if (filterPago !== 'todas') {
     // Las canceladas y las ya pagadas nunca son deuda pendiente.
     lista = lista.filter(o => {
-      if (o.status === 'cancelada' || o.pagada_at) return false
+      if (o.status === 'cancelada' || estaPagada(o)) return false
       const ep = estadoPago(o.fecha_maxima_pago)
       if (filterPago === 'sin_fecha') return ep.estado === 'sin_fecha'
       if (filterPago === 'vencido') return ep.estado === 'vencido' || ep.estado === 'hoy'
@@ -1308,12 +1319,12 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
 
   // Helper: total cotejado de una OC con IVA 16% (real_total cuando aplique, sino catálogo)
   // sumCotejo es SUBTOTAL — se multiplica por 1.16 para igualar a o.total que ya incluye IVA
-  const getCotejoTotal = (o: PurchaseOrder) => {
-    const s = cotejoSummary[o.id]?.sumCotejo
-    return s != null ? s * 1.16 : o.total
-  }
-  const totalFilteredMXN = lista.filter(o => o.currency === 'MXN').reduce((s, o) => s + getCotejoTotal(o), 0)
-  const totalFilteredUSD = lista.filter(o => o.currency === 'USD').reduce((s, o) => s + getCotejoTotal(o), 0)
+  // Las sumas del encabezado usan totalMostrado, la misma funcion que la
+  // columna Total. Antes tenian su propia formula (sin extras, y con IVA
+  // hasta a los servicios), asi que el encabezado no cuadraba con la suma
+  // de los renglones que estaba mostrando.
+  const totalFilteredMXN = lista.filter(o => o.currency === 'MXN').reduce((s, o) => s + totalMostrado(o), 0)
+  const totalFilteredUSD = lista.filter(o => o.currency === 'USD').reduce((s, o) => s + totalMostrado(o), 0)
 
   return (
     <div>
@@ -1436,7 +1447,7 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
                     const pg = pagosPorOC[o.id]
                     const pagado = pg?.pagado || 0
                     const meta = displayTotal || 0
-                    const completo = pagado > 0 && meta > 0 && pagado >= meta - 0.5
+                    const completo = estaPagada(o)
                     // Una OC cancelada sin pagos no debe nada: decir "Pendiente"
                     // junto a un Estado que dice "Cancelada" se contradice.
                     if (o.status === 'cancelada' && pagado <= 0) return <span style={{ color: '#333' }}>—</span>
@@ -1471,6 +1482,9 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
                   <Td>{(() => {
                     // Pago límite: la fecha, y debajo qué tan cerca está. Una OC
                     // cancelada no debe nada, así que no se pinta en rojo.
+                    // Si ya se pago, la fecha limite dejo de existir: mostrar
+                    // "Vence hoy" junto a una etiqueta "Pagado" se contradice.
+                    if (estaPagada(o)) return <CheckCircle2 size={16} color="#10B981" />
                     const ep = estadoPago(o.fecha_maxima_pago, { pagadaAt: o.pagada_at, cancelada: o.status === 'cancelada' })
                     if (ep.estado === 'sin_fecha') return <span style={{ color: '#333' }}>—</span>
                     return (
