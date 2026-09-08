@@ -1609,3 +1609,41 @@ con un script, no a ojo.
 por un error DEL TEST — emparejaba `filas` con un `select` por indice y
 Supabase no garantiza orden. Emparejar por id lo resolvio. Vale la pena
 recordarlo: un select sin `order by` no tiene orden.
+
+
+---
+
+## 📄 Bundles en el PDF de cotizacion (2026-09-08)
+
+Elias: *"cuando hay bundles, venga en un renglon el bundle, precio total, y la
+cantidad de bundles y el total por eso... Y abajo el desglose de lo que lleva 1
+bundle. y la multiplicacion de las cantidades para el total de piezas."*
+
+El PDF listaba las piezas **ya multiplicadas** y sin contexto: el cliente veia
+"70 bases GU10" sin saber que son 7 por habitacion en 10 habitaciones.
+
+### Como queda
+```
+📦 Habitación A - Marriott Ixtapa          10    $380.49   $3,804.90
+   Paquete de 10 productos · contenido de 1 paquete desglosado abajo
+   ├ Difusor paga GU10 mini IP65        60 (6×10)   $8.40     $504.00
+   ├ AC01, BASE GU10                    70 (7×10)   $1.87     $130.90
+   └ …
+```
+La celda de cantidad lleva el total arriba y la multiplicacion abajo en chico.
+
+### ⚠️ El colSpan, otra vez
+El renglon del bundle cubre con `colSpan` todas las columnas antes de "Cant", y
+esa cuenta depende de `specialty === 'ilum'` (columna Nomenclatura) y de
+`mostrarCostosInternos` (3 columnas del formato tecnico). Se expreso como
+`colsAntesDeCant` y se **verifico con un script contra el `<thead>` real**, no a
+ojo: 1 + (ilum?1:0) + 3 + (internas?3:0) = 8 en el ejecutivo de iluminacion.
+
+Es el segundo colSpan de la semana. Regla: cuando una fila usa colSpan sobre una
+tabla con columnas condicionales, contar el thead con un script.
+
+### Verificacion (cotizacion real OMM-8B18230E)
+32 renglones, 10 en un bundle. El calculo reproduce exacto:
+$380.49 x 10 = **$3,804.90**, que es identico al total del area HABITACIÓN A que
+ya mostraba el PDF anterior. La suma de los 10 renglones cuadra al centavo con
+el total del renglon de bundle.

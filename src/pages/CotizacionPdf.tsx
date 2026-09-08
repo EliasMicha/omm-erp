@@ -2,6 +2,7 @@ import React, { useEffect, useState, useRef } from 'react'
 import { useParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { FCUR } from '../lib/utils'
+import { agruparPorBundle } from '../lib/bundlesIlum'
 import { OMNIIOUS_LOGO } from '../assets/logo'
 import { IDENTIDAD_DEFAULT } from '../lib/identidadOmm'
 import { Download, Loader2, Settings } from 'lucide-react'
@@ -52,6 +53,10 @@ interface ItemRow {
   sku?: string | null
   image_url?: string | null
   nomenclatura?: string | null
+  bundle_id?: string | null
+  bundle_instance_id?: string | null
+  bundle_qty?: number | null
+  bundle_unit_qty?: number | null
 }
 
 interface QuotationFull {
@@ -190,6 +195,8 @@ function CotizacionPdfInner() {
   const [cot, setCot] = useState<QuotationFull | null>(null)
   const [areas, setAreas] = useState<AreaRow[]>([])
   const [items, setItems] = useState<ItemRow[]>([])
+  // El nombre del bundle vive en el catalogo, no en el renglon.
+  const [bundleNames, setBundleNames] = useState<Record<string, string>>({})
   const [leadName, setLeadName] = useState('')
   const [architect, setArchitect] = useState('')
   const [showSettings, setShowSettings] = useState(false)
@@ -248,6 +255,13 @@ function CotizacionPdfInner() {
             installation_cost: Number(it.installation_cost) || 0,
           }
         }) as ItemRow[])
+
+        // Nombres de los bundles presentes en la cotizacion
+        const bIds = [...new Set((itemsData || []).map((it: any) => it.bundle_id).filter(Boolean))] as string[]
+        if (bIds.length > 0) {
+          const { data: bs } = await supabase.from('catalog_bundles').select('id,name').in('id', bIds)
+          if (bs) setBundleNames(Object.fromEntries(bs.map((b: any) => [b.id, b.name])))
+        }
 
         // Cargar lead + arquitecto
         try {
@@ -676,8 +690,17 @@ function CotizacionPdfInner() {
   }[formato]
 
   const mostrarCostosInternos = formato === 'tecnico'
+  // Columnas ANTES de la de "Cant": imagen + (nomenclatura solo en ilum) + marca
+  // + modelo + descripcion + las tres internas del formato tecnico. El renglon
+  // del bundle las cubre con colSpan; si esta cuenta se desfasa, la tabla entera
+  // se descuadra y no hay compilador que lo detecte.
+  const colsAntesDeCant = 1
+    + (cot?.specialty === 'ilum' ? 1 : 0)
+    + 3
+    + (mostrarCostosInternos ? 3 : 0)
   const mostrarTablaPlana = formato === 'lista'
   const esResumen = formato === 'resumen'  // mismo layout agrupado que ejecutivo, pero SIN precios
+
 
   // ─── Estilos print-optimized ─────────────────────────────────────────────
   // ─── Estilos — usar min-height en px, NO vh (Safari print bug) ──────────
@@ -1097,36 +1120,92 @@ function CotizacionPdfInner() {
                           </tr>
                         </thead>
                         <tbody>
-                          {sysItems.map(it => (
-                            <tr key={it.id}>
-                              <td style={{ textAlign: 'center' }}>
-                                {it.image_url ? (
-                                  <img src={it.image_url} alt="" style={{ width: 36, height: 36, objectFit: 'contain', border: '1px solid #eee', borderRadius: 3, background: '#fff' }} />
-                                ) : (
-                                  <div style={{ width: 36, height: 36, border: '1px dashed #ddd', borderRadius: 3, background: '#fafafa' }}></div>
-                                )}
-                              </td>
-                              {cot?.specialty === 'ilum' && <td style={{ fontSize: 9, fontWeight: 700, color: '#111' }}>{it.nomenclatura || '—'}</td>}
-                              <td style={{ fontSize: 9, fontWeight: 500 }}>{it.marca || '—'}</td>
-                              <td style={{ fontSize: 9 }}>{it.modelo || '—'}</td>
-                              <td>
-                                <div style={{ fontWeight: 500, fontSize: 10 }}>{it.name}</div>
-                                {it.description && <div style={{ fontSize: 9, color: '#888', marginTop: 2, lineHeight: 1.4 }}>{it.description}</div>}
-                              </td>
-                              {mostrarCostosInternos && (
-                                <td style={{ fontSize: 9, color: '#666' }}>
-                                  {it.sku || '—'}
-                                  {it.provider && <div>{it.provider}</div>}
-                                  {it.purchase_phase && <div style={{ fontSize: 8, color: '#999' }}>Fase: {it.purchase_phase}</div>}
-                                </td>
-                              )}
-                              {mostrarCostosInternos && <td style={{ textAlign: 'right', color: '#888' }}>{FCUR(it.cost || 0, currency)}</td>}
-                              {mostrarCostosInternos && <td style={{ textAlign: 'center', color: '#888', fontSize: 9 }}>{it.markup || 0}%</td>}
-                              <td style={{ textAlign: 'center', ...(esResumen ? { fontWeight: 800, fontSize: 15, color: '#111' } : {}) }}>{it.quantity}</td>
-                              {!esResumen && <td style={{ textAlign: 'right', fontWeight: 500 }}>{FCUR(it.price, currency)}</td>}
-                              {!esResumen && <td style={{ textAlign: 'right', fontWeight: 600 }}>{FCUR(it.price * it.quantity, currency)}</td>}
-                            </tr>
-                          ))}
+                          {(() => {
+                            // Los renglones de un mismo bundle se presentan como
+                            // una linea con su total, y debajo el contenido de UNA
+                            // unidad con la multiplicacion a la vista. Sin esto el
+                            // cliente ve "70 bases GU10" sin saber que son 7 por
+                            // habitacion en 10 habitaciones.
+                            const vista = sysItems.map(it => ({
+                              ...it,
+                              bundleInstanceId: (it as any).bundle_instance_id || null,
+                              bundleId: (it as any).bundle_id || null,
+                              bundleName: (it as any).bundle_id ? (bundleNames[(it as any).bundle_id] || 'Bundle') : null,
+                              bundleQty: (it as any).bundle_qty != null ? Number((it as any).bundle_qty) : null,
+                              bundleUnitQty: (it as any).bundle_unit_qty != null ? Number((it as any).bundle_unit_qty) : null,
+                            }))
+                            const grupos = agruparPorBundle(vista as any) as any[]
+                            const filas: any[] = []
+                            for (const g of grupos) {
+                              if (g.tipo === 'suelto') { filas.push({ k: 'item', it: g.fila }); continue }
+                              const qtyB = g.qty || 1
+                              const unit = g.hijos.reduce((sum: number, h: any) => {
+                                const uq = h.bundleUnitQty != null ? h.bundleUnitQty : (qtyB > 0 ? h.quantity / qtyB : h.quantity)
+                                return sum + h.price * uq
+                              }, 0)
+                              filas.push({ k: 'bundle', inst: g.instanceId, nombre: g.nombre, qty: qtyB, unit, total: unit * qtyB, n: g.hijos.length })
+                              for (const h of g.hijos) filas.push({ k: 'item', it: h, dentroDeBundle: true, qtyB })
+                            }
+                            return filas.map(f => {
+                              if (f.k === 'bundle') return (
+                                <tr key={'b-' + f.inst} style={{ background: '#f5f3ff' }}>
+                                  <td style={{ textAlign: 'center', fontSize: 15 }}>&#128230;</td>
+                                  <td colSpan={colsAntesDeCant - 1}>
+                                    <div style={{ fontWeight: 700, fontSize: 10.5, color: '#5b21b6' }}>{f.nombre}</div>
+                                    <div style={{ fontSize: 8.5, color: '#7c6aa8', marginTop: 1 }}>
+                                      Paquete de {f.n} producto(s) &middot; contenido de 1 paquete desglosado abajo
+                                    </div>
+                                  </td>
+                                  <td style={{ textAlign: 'center', fontWeight: 800, fontSize: 12, color: '#5b21b6' }}>{f.qty}</td>
+                                  {!esResumen && <td style={{ textAlign: 'right', fontWeight: 600, color: '#5b21b6' }}>{FCUR(f.unit, currency)}</td>}
+                                  {!esResumen && <td style={{ textAlign: 'right', fontWeight: 700, color: '#5b21b6' }}>{FCUR(f.total, currency)}</td>}
+                                </tr>
+                              )
+                              const it = f.it
+                              const enBundle = !!f.dentroDeBundle
+                              // Cantidad por UNA unidad del paquete; el total ya viene multiplicado.
+                              const uq = enBundle
+                                ? (it.bundleUnitQty != null ? it.bundleUnitQty : (f.qtyB > 0 ? it.quantity / f.qtyB : it.quantity))
+                                : it.quantity
+                              return (
+                                <tr key={it.id} style={enBundle ? { background: '#fcfbff' } : undefined}>
+                                  <td style={{ textAlign: 'center' }}>
+                                    {it.image_url ? (
+                                      <img src={it.image_url} alt="" style={{ width: enBundle ? 30 : 36, height: enBundle ? 30 : 36, objectFit: 'contain', border: '1px solid #eee', borderRadius: 3, background: '#fff' }} />
+                                    ) : (
+                                      <div style={{ width: enBundle ? 30 : 36, height: enBundle ? 30 : 36, border: '1px dashed #ddd', borderRadius: 3, background: '#fafafa' }}></div>
+                                    )}
+                                  </td>
+                                  {cot?.specialty === 'ilum' && <td style={{ fontSize: 9, fontWeight: 700, color: '#111' }}>{it.nomenclatura || '\u2014'}</td>}
+                                  <td style={{ fontSize: 9, fontWeight: 500 }}>{it.marca || '\u2014'}</td>
+                                  <td style={{ fontSize: 9 }}>{it.modelo || '\u2014'}</td>
+                                  <td style={enBundle ? { paddingLeft: 14, borderLeft: '2px solid #ddd6fe' } : undefined}>
+                                    <div style={{ fontWeight: 500, fontSize: enBundle ? 9.5 : 10 }}>{it.name}</div>
+                                    {it.description && <div style={{ fontSize: 9, color: '#888', marginTop: 2, lineHeight: 1.4 }}>{it.description}</div>}
+                                  </td>
+                                  {mostrarCostosInternos && (
+                                    <td style={{ fontSize: 9, color: '#666' }}>
+                                      {it.sku || '\u2014'}
+                                      {it.provider && <div>{it.provider}</div>}
+                                      {it.purchase_phase && <div style={{ fontSize: 8, color: '#999' }}>Fase: {it.purchase_phase}</div>}
+                                    </td>
+                                  )}
+                                  {mostrarCostosInternos && <td style={{ textAlign: 'right', color: '#888' }}>{FCUR(it.cost || 0, currency)}</td>}
+                                  {mostrarCostosInternos && <td style={{ textAlign: 'center', color: '#888', fontSize: 9 }}>{it.markup || 0}%</td>}
+                                  <td style={{ textAlign: 'center', ...(esResumen ? { fontWeight: 800, fontSize: 15, color: '#111' } : {}) }}>
+                                    {enBundle ? (
+                                      <>
+                                        <div style={{ fontWeight: 700 }}>{it.quantity}</div>
+                                        <div style={{ fontSize: 8, color: '#7c6aa8', whiteSpace: 'nowrap' }}>{uq} &times; {f.qtyB}</div>
+                                      </>
+                                    ) : it.quantity}
+                                  </td>
+                                  {!esResumen && <td style={{ textAlign: 'right', fontWeight: 500 }}>{FCUR(it.price, currency)}</td>}
+                                  {!esResumen && <td style={{ textAlign: 'right', fontWeight: 600 }}>{FCUR(it.price * it.quantity, currency)}</td>}
+                                </tr>
+                              )
+                            })
+                          })()}
                         </tbody>
                       </table>
                     </div>
