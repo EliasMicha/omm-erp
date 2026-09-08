@@ -1718,3 +1718,57 @@ es un enum: `in_bodega | in_obra | out_bodega_to_obra`). Sin esa verificacion el
 ### Datos corregidos
 Los 4 movimientos sobrantes de ENT-260702-676 quedaron `anulado=true` con nota
 del motivo — no se borraron. La entrega quedo en 2 movimientos / 2 piezas.
+
+
+---
+
+## 🚚 Un solo lugar recibe material: Entregas (2026-09-08)
+
+Elias, despues de que arregle la carrera del doble clic: *"se puede 'recibir'
+desde compras y desde entregas. Creo es lo que esta generando duplicidad ...
+Todos los movimientos de materiales se hacen desde el modulo de entregas,
+compras se queda hasta 'Pagada'"*.
+
+Tenia razon, y era un problema mas grande que el que yo habia encontrado.
+
+### La evidencia
+La OC de Concorde Iluminacion mostraba **Recibido 276 contra Vendido 138 y
+Comprado 138** — exactamente el doble, con dos fechas: `138 · 18 ago` y
+`138 · 08 sep`. En la base:
+
+```
+AC01, BASE GU10 | comprado 154 | recibido 276 | 2 batches
+                | 1 movimiento SIN OC (18 ago) + 1 CON OC (08 sep)
+```
+
+**21 productos** con recibido > comprado, casi todos al doble.
+
+### ⚠️ Por que mi primer diagnostico no lo vio
+Busque sobre-recepciones con:
+```sql
+join po_items i on i.id = r.po_item_id
+```
+y **el join tira los movimientos con `po_item_id` nulo** — que son justo la
+mitad de cada duplicado, los capturados sin ligar a la OC. La consulta devolvio
+vacio y conclui "recepciones limpias". Estaba midiendo con el instrumento
+equivocado.
+
+**Leccion:** al buscar duplicados, un INNER JOIN por la llave que puede faltar
+esconde exactamente los casos que se buscan. Agrupar por descripcion/modelo
+(que siempre estan) los encontro de inmediato.
+
+### El cambio
+Compras **ya no recibe**. Llega hasta pedida/pagada.
+- Se quitaron los botones "Recepcion parcial" y "Recibida completa".
+- El input editable de `quantity_received` es ahora un **indicador de solo
+  lectura** que suma `stock_movements` de esa OC, con la etiqueta "desde
+  Entregas" en el encabezado.
+- Todo movimiento de material entra por Entregas, que es quien escribe
+  `stock_movements`.
+
+Es el mismo patron que ya mordio en la Cartera del CRM y en el Gantt: **un
+hecho con dos duenios termina contandose dos veces.**
+
+### Pendiente para Elias
+Los 21 productos sobre-recibidos NO se tocaron: hay que decidir caso por caso
+cual recepcion es la buena, y algunas podrian ser recompras legitimas.

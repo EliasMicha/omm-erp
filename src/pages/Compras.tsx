@@ -2753,6 +2753,9 @@ function POEditor({ poId, onBack, onAbrirOtra }: { poId: string; onBack: () => v
   // Agentes/playbooks de cotización por proveedor (dispatcher)
   const [playbooks, setPlaybooks] = useState<Array<{ id: string; supplier_id: string; name: string; method: string; config: any; active: boolean }>>([])
   const [showAgentModal, setShowAgentModal] = useState(false)
+  // Lo recibido por partida NO se guarda en Compras: se lee de los movimientos
+  // que escribe Entregas. Una sola fuente de verdad para el material.
+  const [recibidoPorItem, setRecibidoPorItem] = useState<Record<string, number>>({})
 
   const load = () => {
     setLoading(true)
@@ -2766,7 +2769,9 @@ function POEditor({ poId, onBack, onAbrirOtra }: { poId: string; onBack: () => v
       supabase.from('leads').select('id,name,company').order('updated_at', { ascending: false }),
       supabase.from('quotations').select('id,name,notes,specialty,total,updated_at').eq('vigente', true).order('updated_at', { ascending: false }),
       supabase.from('supplier_quote_playbooks').select('*').eq('active', true),
-    ]).then(([poRes, itemsRes, catRes, supRes, projRes, obrRes, leadRes, quoRes, pbRes]) => {
+      supabase.from('stock_movements').select('po_item_id, qty')
+        .eq('po_id', poId).eq('tipo', 'recepcion_compra').eq('anulado', false),
+    ]).then(([poRes, itemsRes, catRes, supRes, projRes, obrRes, leadRes, quoRes, pbRes, movRes]) => {
       setPO(poRes.data)
       setItems(itemsRes.data || [])
       setCatalog(catRes.data || [])
@@ -2787,6 +2792,13 @@ function POEditor({ poId, onBack, onAbrirOtra }: { poId: string; onBack: () => v
       })
       setQuotations(qList)
       setPlaybooks((pbRes?.data as any[]) || [])
+      // Suma por partida de lo que Entregas ya registró como recibido.
+      const rec: Record<string, number> = {}
+      for (const m of ((movRes as any)?.data as any[]) || []) {
+        if (!m.po_item_id) continue
+        rec[m.po_item_id] = (rec[m.po_item_id] || 0) + (Number(m.qty) || 0)
+      }
+      setRecibidoPorItem(rec)
       setLoading(false)
     })
   }
@@ -3115,12 +3127,12 @@ function POEditor({ poId, onBack, onAbrirOtra }: { poId: string; onBack: () => v
     })
   } else if (po.status === 'aprobada') {
     statusActions.push({ label: 'Marcar como pedida', target: 'pedida', variant: 'primary' })
-  } else if (po.status === 'pedida') {
-    statusActions.push({ label: 'Recepción parcial', target: 'recibida_parcial', variant: 'default' })
-    statusActions.push({ label: 'Recibida completa', target: 'recibida', variant: 'primary' })
-  } else if (po.status === 'recibida_parcial') {
-    statusActions.push({ label: 'Recibida completa', target: 'recibida', variant: 'primary' })
   }
+  // La recepción NO se hace desde Compras. Todo movimiento de material entra por
+  // el módulo de Entregas, que es el que escribe stock_movements. Cuando esto
+  // vivía en los dos lados, la misma mercancía se recibía dos veces: la OC de
+  // Concorde quedó con 276 piezas recibidas contra 138 compradas.
+  // Aquí el estatus de recepción solo se REFLEJA, no se captura.
   if (!['recibida', 'cancelada'].includes(po.status)) {
     statusActions.push({ label: 'Cancelar', target: 'cancelada', variant: 'danger' })
   }
@@ -3475,7 +3487,7 @@ function POEditor({ poId, onBack, onAbrirOtra }: { poId: string; onBack: () => v
             {po.status === 'borrador' && (<>
               <Th>Artículo real</Th><Th right>Cant real</Th><Th right>P.U. real</Th><Th right>Total real</Th><Th right>Δ</Th><Th>Estado</Th>
             </>)}
-            {(po.status === 'pedida' || po.status === 'recibida_parcial') && <Th right>Recibido</Th>}
+            {(po.status === 'pedida' || po.status === 'recibida_parcial') && <Th right>Recibido<div style={{ fontSize: 8, fontWeight: 400, color: '#555', textTransform: 'none' }}>desde Entregas</div></Th>}
             {canEdit && <Th></Th>}
           </tr></thead>
           <tbody>
@@ -3591,18 +3603,23 @@ function POEditor({ poId, onBack, onAbrirOtra }: { poId: string; onBack: () => v
                   </Td>
                 </>)}
 
-                {(po.status === 'pedida' || po.status === 'recibida_parcial') && (
-                  <Td right>
-                    <input type="number" value={it.quantity_received}
-                      onChange={e => updateItem(it.id, 'quantity_received', parseFloat(e.target.value) || 0)}
-                      style={{
-                        background: it.quantity_received >= it.quantity ? 'rgba(87,255,154,0.1)' : 'rgba(245,158,11,0.1)',
-                        border: `1px solid ${it.quantity_received >= it.quantity ? '#10B98144' : '#D9770644'}`,
-                        borderRadius: 4, color: it.quantity_received >= it.quantity ? '#10B981' : '#D97706',
-                        fontSize: 12, fontFamily: 'inherit', width: 60, textAlign: 'right', padding: '2px 6px',
-                      }} />
-                  </Td>
-                )}
+                {(po.status === 'pedida' || po.status === 'recibida_parcial') && (() => {
+                  // Solo lectura: lo que de verdad llegó lo dice Entregas.
+                  const rec = recibidoPorItem[it.id] ?? 0
+                  const completo = rec >= Number(it.quantity)
+                  return (
+                    <Td right>
+                      <span title="Lo recibido se registra en el módulo de Entregas"
+                        style={{
+                          display: 'inline-block', minWidth: 44, textAlign: 'right',
+                          fontSize: 12, fontWeight: 600,
+                          color: rec === 0 ? '#555' : completo ? '#10B981' : '#D97706',
+                        }}>
+                        {rec === 0 ? '—' : rec}
+                      </span>
+                    </Td>
+                  )
+                })()}
                 {canEdit && (
                   <Td>
                     <button onClick={() => removeItem(it.id)}
