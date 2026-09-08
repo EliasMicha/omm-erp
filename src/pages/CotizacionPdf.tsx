@@ -1153,12 +1153,20 @@ function CotizacionPdfInner() {
                                   <td colSpan={colsAntesDeCant - 1}>
                                     <div style={{ fontWeight: 700, fontSize: 10.5, color: '#5b21b6' }}>{f.nombre}</div>
                                     <div style={{ fontSize: 8.5, color: '#7c6aa8', marginTop: 1 }}>
-                                      Paquete de {f.n} producto(s) &middot; contenido de 1 paquete desglosado abajo
+                                      Cada paquete lleva {f.n} {f.n === 1 ? 'producto' : 'productos'} &middot; desglose abajo
                                     </div>
                                   </td>
-                                  <td style={{ textAlign: 'center', fontWeight: 800, fontSize: 12, color: '#5b21b6' }}>{f.qty}</td>
-                                  {!esResumen && <td style={{ textAlign: 'right', fontWeight: 600, color: '#5b21b6' }}>{FCUR(f.unit, currency)}</td>}
-                                  {!esResumen && <td style={{ textAlign: 'right', fontWeight: 700, color: '#5b21b6' }}>{FCUR(f.total, currency)}</td>}
+                                  <td style={{ textAlign: 'center', color: '#5b21b6' }}>
+                                    <div style={{ fontWeight: 800, fontSize: 12 }}>{f.qty}</div>
+                                    <div style={{ fontSize: 7.5, textTransform: 'uppercase', letterSpacing: '0.04em' }}>paquetes</div>
+                                  </td>
+                                  {!esResumen && (
+                                    <td style={{ textAlign: 'right', color: '#5b21b6', whiteSpace: 'nowrap' }}>
+                                      <div style={{ fontWeight: 600 }}>{FCUR(f.unit, currency)}</div>
+                                      <div style={{ fontSize: 7.5 }}>por paquete</div>
+                                    </td>
+                                  )}
+                                  {!esResumen && <td style={{ textAlign: 'right', fontWeight: 700, color: '#5b21b6', whiteSpace: 'nowrap' }}>{FCUR(f.total, currency)}</td>}
                                 </tr>
                               )
                               const it = f.it
@@ -1182,6 +1190,13 @@ function CotizacionPdfInner() {
                                   <td style={enBundle ? { paddingLeft: 14, borderLeft: '2px solid #ddd6fe' } : undefined}>
                                     <div style={{ fontWeight: 500, fontSize: enBundle ? 9.5 : 10 }}>{it.name}</div>
                                     {it.description && <div style={{ fontSize: 9, color: '#888', marginTop: 2, lineHeight: 1.4 }}>{it.description}</div>}
+                                    {enBundle && (
+                                      /* La cuenta escrita con palabras. "6 x 10" solo, sin decir
+                                         que son piezas y paquetes, no se entiende. */
+                                      <div style={{ fontSize: 8.5, color: '#6d28d9', marginTop: 3, fontWeight: 600 }}>
+                                        {uq} {uq === 1 ? 'pieza' : 'piezas'} por paquete &times; {f.qtyB} paquetes = {it.quantity} {it.quantity === 1 ? 'pieza' : 'piezas'}
+                                      </div>
+                                    )}
                                   </td>
                                   {mostrarCostosInternos && (
                                     <td style={{ fontSize: 9, color: '#666' }}>
@@ -1196,12 +1211,12 @@ function CotizacionPdfInner() {
                                     {enBundle ? (
                                       <>
                                         <div style={{ fontWeight: 700 }}>{it.quantity}</div>
-                                        <div style={{ fontSize: 8, color: '#7c6aa8', whiteSpace: 'nowrap' }}>{uq} &times; {f.qtyB}</div>
+                                        <div style={{ fontSize: 7.5, color: '#7c6aa8' }}>pzas</div>
                                       </>
                                     ) : it.quantity}
                                   </td>
-                                  {!esResumen && <td style={{ textAlign: 'right', fontWeight: 500 }}>{FCUR(it.price, currency)}</td>}
-                                  {!esResumen && <td style={{ textAlign: 'right', fontWeight: 600 }}>{FCUR(it.price * it.quantity, currency)}</td>}
+                                  {!esResumen && <td style={{ textAlign: 'right', fontWeight: 500, whiteSpace: 'nowrap' }}>{FCUR(it.price, currency)}</td>}
+                                  {!esResumen && <td style={{ textAlign: 'right', fontWeight: 600, whiteSpace: 'nowrap' }}>{FCUR(it.price * it.quantity, currency)}</td>}
                                 </tr>
                               )
                             })

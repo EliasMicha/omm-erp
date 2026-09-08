@@ -1630,7 +1630,19 @@ El PDF listaba las piezas **ya multiplicadas** y sin contexto: el cliente veia
    ├ AC01, BASE GU10                    70 (7×10)   $1.87     $130.90
    └ …
 ```
-La celda de cantidad lleva el total arriba y la multiplicacion abajo en chico.
+**La primera version no se entendia.** La celda de cantidad llevaba "60" arriba
+y "6 x 10" abajo en chico, y Elias lo dijo claro: *"Sigue sin entenderse al 100
+que son 6 unidades por bundle y 60 totales"*. Simbolos sin sustantivos no se
+leen solos: el lector no sabe si el 6 son piezas, paquetes o pesos.
+
+La cuenta se escribio **con palabras**, en la columna de Descripcion que es la
+ancha:
+```
+6 piezas por paquete × 10 paquetes = 60 piezas
+```
+y la cabecera etiqueta sus numeros: `10 PAQUETES`, `$380.49 por paquete`.
+Tambien se cambio "Paquete de 10 productos" por "Cada paquete lleva 10
+productos", porque junto a "10 paquetes" los dos dieces se confundian.
 
 ### ⚠️ El colSpan, otra vez
 El renglon del bundle cubre con `colSpan` todas las columnas antes de "Cant", y
