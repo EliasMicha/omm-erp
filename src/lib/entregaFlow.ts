@@ -292,10 +292,36 @@ export async function confirmarEntrega(deliveryId: string, a: ArgsConfirmar = {}
   const D: any = del
   const folio = D.folio || folioEntrega(D.delivery_date || hoyISO())
 
-  // ── Idempotencia: ¿ya se movió el inventario de esta entrega? ──
-  const { data: yaMov } = await supabase.from('stock_movements')
-    .select('id').eq('delivery_id', deliveryId).eq('anulado', false).limit(1)
-  const yaEstaba = ((yaMov as any[]) || []).length > 0
+  // ── Idempotencia: RECLAMO ATOMICO, no "consulto y luego escribo" ──
+  //
+  // Antes esto era un SELECT seguido de un INSERT. Con dos clics seguidos las
+  // llamadas corren encimadas: las dos leen "todavia no hay movimientos" antes
+  // de que la primera alcance a insertar, y las dos insertan. Paso de verdad:
+  // la entrega ENT-260702-676 salio 3 veces en 2 segundos (18:44:16, :17 y :18,
+  // tres batch_id distintos) y descargo 6 piezas de bodega en vez de 2.
+  //
+  // Ahora el candado lo pone Postgres: solo UNA llamada logra mover la entrega
+  // de "no entregado" a "entregado", porque el UPDATE bloquea el renglon. La
+  // que gana devuelve su id y es la unica que inserta; las demas reciben cero
+  // filas y se van por el camino de "ya estaba".
+  const marcadoEn = new Date().toISOString()
+  const { data: reclamo, error: eR } = await supabase.from('deliveries')
+    .update({ status: 'entregado', delivered_at: marcadoEn, folio, updated_at: marcadoEn })
+    .eq('id', deliveryId)
+    .neq('status', 'entregado')
+    .select('id')
+  if (eR) throw eR
+  const gane = ((reclamo as any[]) || []).length > 0
+
+  // Si no gane el reclamo puede ser (a) que otra llamada ya lo hizo, o (b) que
+  // la entrega quedo marcada como entregada en algun intento viejo pero sin
+  // movimientos. Solo en el caso (b) hay que escribir.
+  let yaEstaba = !gane
+  if (!gane) {
+    const { data: yaMov } = await supabase.from('stock_movements')
+      .select('id').eq('delivery_id', deliveryId).eq('anulado', false).limit(1)
+    if (((yaMov as any[]) || []).length === 0) yaEstaba = false
+  }
 
   const { data: itemsRaw } = await supabase.from('delivery_items')
     .select('id,description,marca,modelo,qty,unit,product_id,clave,solicitud_item_id')
@@ -337,19 +363,22 @@ export async function confirmarEntrega(deliveryId: string, a: ArgsConfirmar = {}
       delivery_id: deliveryId,
     }))
     const { error: eM } = await supabase.from('stock_movements').insert(rows)
-    if (eM) throw eM
-    movimientos = rows.length
-    piezas = rows.reduce((s, r) => s + Number(r.qty || 0), 0)
+    if (eM) {
+      // 23505 = el indice unico uq_stock_mov_delivery_producto rechazo la fila.
+      // Significa que otra llamada simultanea ya escribio los movimientos de
+      // esta entrega: no es un error que el usuario deba ver, es justo lo que
+      // queriamos que pasara. Se reporta como "ya estaba".
+      const esDuplicado = (eM as any).code === '23505'
+        || /duplicate key|uq_stock_mov_delivery/i.test((eM as any).message || '')
+      if (!esDuplicado) throw eM
+      yaEstaba = true
+    } else {
+      movimientos = rows.length
+      piezas = rows.reduce((s, r) => s + Number(r.qty || 0), 0)
+    }
   }
 
-  // ── La entrega y su parada en la ruta quedan cerradas ──
-  await supabase.from('deliveries').update({
-    status: 'entregado',
-    delivered_at: new Date().toISOString(),
-    folio,
-    updated_at: new Date().toISOString(),
-  }).eq('id', deliveryId)
-
+  // La entrega ya quedo cerrada arriba, en el reclamo atomico.
   if (D.logistics_task_id) {
     await supabase.from('logistics_tasks').update({ estatus: 'completada' }).eq('id', D.logistics_task_id)
   } else {

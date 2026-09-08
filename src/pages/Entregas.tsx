@@ -1348,7 +1348,23 @@ function TabAgenda({ isMobile, obras, empleados }: any) {
     return p(a.prioridad) - p(b.prioridad)
   })
 
+  // Tareas con un cambio de estatus en vuelo. Cerrar una entrega toma ~1s
+  // (destino, entrega, movimientos) y el boton no estaba bloqueado: dos clics
+  // seguidos disparaban dos ejecuciones encimadas. El candado de verdad esta en
+  // la base (reclamo atomico + indice unico); esto ademas evita el doble viaje.
+  const [enVuelo, setEnVuelo] = useState<Set<string>>(new Set())
+
   async function cycleEstatus(t: any) {
+    if (enVuelo.has(t.id)) return
+    setEnVuelo(prev => new Set(prev).add(t.id))
+    try {
+      await cycleEstatusInterno(t)
+    } finally {
+      setEnVuelo(prev => { const n = new Set(prev); n.delete(t.id); return n })
+    }
+  }
+
+  async function cycleEstatusInterno(t: any) {
     const next = t.estatus === 'pendiente' ? 'en_ruta' : t.estatus === 'en_ruta' ? 'completada' : 'pendiente'
 
     // ── Completar una ENTREGA mueve el inventario de verdad ──
@@ -1446,7 +1462,7 @@ function TabAgenda({ isMobile, obras, empleados }: any) {
                       </div>
                       {(t.hora || t.ubicacion) && <div style={{ fontSize: 9, color: '#888', marginTop: 2 }}>{t.hora ? t.hora.slice(0, 5) + ' ' : ''}{t.ubicacion ? '· ' + t.ubicacion : ''}</div>}
                       <div style={{ display: 'flex', gap: 4, marginTop: 4, flexWrap: 'wrap' }}>
-                        <button onClick={e => { e.stopPropagation(); cycleEstatus(t) }} style={{ fontSize: 9, fontWeight: 600, padding: '1px 6px', borderRadius: 4, border: 'none', cursor: 'pointer', fontFamily: 'inherit', background: done ? '#10B98122' : t.estatus === 'en_ruta' ? '#2563EB22' : '#33333366', color: done ? '#10B981' : t.estatus === 'en_ruta' ? '#60A5FA' : '#999' }}>
+                        <button disabled={enVuelo.has(t.id)} onClick={e => { e.stopPropagation(); cycleEstatus(t) }} style={{ fontSize: 9, fontWeight: 600, padding: '1px 6px', borderRadius: 4, border: 'none', cursor: enVuelo.has(t.id) ? 'wait' : 'pointer', opacity: enVuelo.has(t.id) ? 0.5 : 1, fontFamily: 'inherit', background: done ? '#10B98122' : t.estatus === 'en_ruta' ? '#2563EB22' : '#33333366', color: done ? '#10B981' : t.estatus === 'en_ruta' ? '#60A5FA' : '#999' }}>
                           {done ? '✓ Entregada' : t.estatus === 'en_ruta' ? '● En ruta' : 'Pendiente'}
                         </button>
                         {/* Una entrega completada ya descontó el material de bodega:

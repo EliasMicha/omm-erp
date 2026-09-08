@@ -1659,3 +1659,62 @@ tabla con columnas condicionales, contar el thead con un script.
 $380.49 x 10 = **$3,804.90**, que es identico al total del area HABITACIÓN A que
 ya mostraba el PDF anterior. La suma de los 10 renglones cuadra al centavo con
 el total del renglon de bundle.
+
+
+---
+
+## 📦 Entregas: la salida de inventario se duplicaba (2026-09-08)
+
+Elias: *"cuando registro movimientos en ruta al momento de registrar duplica el
+registro ... duplica la salida de inventario, no esta bien coordinado todo"*.
+
+### Lo que encontraron los datos
+La entrega **ENT-260702-676** tenia **6 movimientos y 6 piezas donde debian ser
+2**, con **3 batch_id distintos** creados a las 18:44:**16**, **:17** y **:18**.
+Tres ejecuciones completas de `confirmarEntrega` en dos segundos: un doble
+(triple) clic.
+
+Lo demas estaba sano: cero recepciones que excedan lo ordenado, cero entregas
+duplicadas por tarea, y la maquina de estados entrega↔tarea coherente. El
+defecto era uno solo.
+
+### La causa: check-then-act
+```ts
+const { data: yaMov } = await supabase.from('stock_movements')
+  .select('id').eq('delivery_id', deliveryId)...     // 1. consulto
+const yaEstaba = yaMov.length > 0
+if (!yaEstaba) await supabase.from('stock_movements').insert(rows)  // 2. escribo
+```
+Entre el paso 1 y el 2 caben otras llamadas. Las tres leyeron "no hay
+movimientos" antes de que la primera insertara. **Una guarda de idempotencia
+que consulta y luego escribe no es una guarda.**
+
+Y el boton no tenia `disabled`: cerrar una entrega toma ~1s (destino, entrega,
+movimientos) y nada impedia el segundo clic.
+
+### El arreglo, en tres capas
+1. **Reclamo atomico** — `update deliveries set status='entregado' where id=?
+   and status<>'entregado' returning id`. Postgres bloquea el renglon: solo UNA
+   llamada recibe filas y es la unica que inserta.
+2. **Indice unico** `uq_stock_mov_delivery_producto` sobre
+   `(delivery_id, catalog_product_id, descripcion)` donde no esta anulado. Es la
+   red que hace la duplicacion **fisicamente imposible**, venga de donde venga.
+   El 23505 se atrapa y se reporta como "ya estaba", no como error.
+3. **Guarda de vuelo en la UI** — el boton se deshabilita mientras corre.
+
+Las capas 1 y 3 evitan el viaje de mas; la capa 2 es la que garantiza el dato.
+
+### Verificacion
+Se probaron **3 llamadas simultaneas reales** contra la base con una entrega de
+prueba: 1 escribe (2 movimientos), 2 devuelven `yaEstaba: true` sin error.
+Resultado en la base: 2 movimientos, 2 piezas, 1 batch. Una cuarta llamada en
+frio tambien devuelve `yaEstaba`.
+
+**El test fallo dos veces primero, y por el test:** no verificaba que los
+renglones de prueba se hubieran creado (`delivery_items.direction` es NOT NULL y
+es un enum: `in_bodega | in_obra | out_bodega_to_obra`). Sin esa verificacion el
+"0 movimientos" se habria leido como exito del arreglo.
+
+### Datos corregidos
+Los 4 movimientos sobrantes de ENT-260702-676 quedaron `anulado=true` con nota
+del motivo — no se borraron. La entrega quedo en 2 movimientos / 2 piezas.
