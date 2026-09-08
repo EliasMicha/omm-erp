@@ -1193,6 +1193,29 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
   const [showFromQuote, setShowFromQuote] = useState(false)
   const [showMasivas, setShowMasivas] = useState(false)
   const [showFromPDF, setShowFromPDF] = useState(false)
+  // Pagos por OC: la lista necesita saber si ya se pagó sin abrir cada orden.
+  const [pagosPorOC, setPagosPorOC] = useState<Record<string, { n: number; pagado: number }>>({})
+  // OC sobre la que se está registrando un pago desde la lista.
+  const [pagandoOC, setPagandoOC] = useState<PurchaseOrder | null>(null)
+
+  // Total que se le muestra al usuario. Replica la misma aritmetica del
+  // detalle de la OC (subtotal cotejado + extras, luego IVA) para que la
+  // lista, la etiqueta de pago y el modal no digan tres numeros distintos.
+  // Los extras (flete, importacion) NO son opcionales: sin ellos 8 ordenes
+  // en USD se mostraban ~3% abajo y sus pagos completos salian "Parcial".
+  const totalMostrado = (o: PurchaseOrder) => {
+    const s = cotejoSummary[o.id]
+    if (s?.sumCotejo == null) return o.total
+    const extras: Array<{ tipo?: string; valor?: any }> = Array.isArray((o as any).extras) ? (o as any).extras : []
+    const extrasTotal = extras.reduce((acc, e) => (
+      e?.tipo === 'porcentaje'
+        ? acc + s.sumCotejo * ((Number(e.valor) || 0) / 100)
+        : acc + (Number(e?.valor) || 0)
+    ), 0)
+    const subtotal = s.sumCotejo + extrasTotal
+    const esServ = (o as any).tipo === 'servicio'
+    return redondearCentavos(subtotal + ivaDeOrden(subtotal, esServ ? 'servicio' : 'material'))
+  }
 
   const load = () => {
     setLoading(true)
@@ -1200,7 +1223,8 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
       supabase.from('purchase_orders').select('*,project:projects(name,client_name),supplier:suppliers(name),quotation:quotations(name,client_name,notes)')
         .order('created_at', { ascending: false }),
       supabase.from('po_items').select('purchase_order_id, total, real_total, cotejo_status'),
-    ]).then(([poRes, itemsRes]) => {
+      supabase.from('purchase_order_payments').select('purchase_order_id, amount'),
+    ]).then(([poRes, itemsRes, pagosRes]) => {
       setOrders(poRes.data || [])
       // Calcular resumen de cotejo por OC. sumCotejo y sumCatalogo son SUBTOTALES.
       // Los totales mostrados al usuario incluyen IVA 16% (sumCotejo * 1.16).
@@ -1217,6 +1241,14 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
         summary[pid].sumCotejo += valor
       }
       setCotejoSummary(summary)
+      const pg: Record<string, { n: number; pagado: number }> = {}
+      for (const p of (pagosRes.data as any[]) || []) {
+        const k = p.purchase_order_id
+        if (!pg[k]) pg[k] = { n: 0, pagado: 0 }
+        pg[k].n += 1
+        pg[k].pagado += Number(p.amount) || 0
+      }
+      setPagosPorOC(pg)
       setLoading(false)
     })
   }
@@ -1359,10 +1391,10 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
         <div style={{ overflowX: 'auto' }}>
           <Table>
             <thead><tr>
-              <Th>OC #</Th><Th>Descripción</Th><Th>Proveedor</Th><Th>Cotización</Th><Th>Lead</Th><Th>Especialidad</Th><Th>Fase</Th><Th>Estado</Th><Th>Cotejo</Th><Th>Fecha</Th><Th>Pago límite</Th><Th right>Total MXN</Th><Th right>Total USD</Th><Th></Th>
+              <Th>OC #</Th><Th>Descripción</Th><Th>Proveedor</Th><Th>Cotización</Th><Th>Lead</Th><Th>Especialidad</Th><Th>Fase</Th><Th>Estado</Th><Th>Cotejo</Th><Th>Pago</Th><Th>Fecha</Th><Th>Pago límite</Th><Th right>Total MXN</Th><Th right>Total USD</Th><Th></Th>
           </tr></thead>
           <tbody>
-            {lista.length === 0 && <tr><td colSpan={14}><EmptyState message="Sin órdenes de compra" /></td></tr>}
+            {lista.length === 0 && <tr><td colSpan={15}><EmptyState message="Sin órdenes de compra" /></td></tr>}
             {lista.map(o => {
               const st = PO_STATUS_CFG[o.status]
               const esp = SPECIALTY_CONFIG[o.specialty]
@@ -1384,9 +1416,7 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
                 : noCotejado ? `Sin cotejar`
                 : `${summary.cotejados}/${summary.total}`
               // Total con IVA 16% para mostrar al usuario (igual a pagos reales / o.total)
-              const displayTotal = esServ
-                ? (summary?.sumCotejo != null ? summary.sumCotejo : o.total)
-                : summary?.sumCotejo != null ? summary.sumCotejo * 1.16 : o.total
+              const displayTotal = totalMostrado(o)
               return (
                 <tr key={o.id} style={{ cursor: 'pointer' }} onClick={() => onOpen(o.id)}>
                   <Td><span style={{ fontWeight: 600, color: '#fff' }}>{o.po_number}</span></Td>
@@ -1398,6 +1428,45 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
                   <Td>{phaseCfg ? <Badge label={phaseCfg.label} color={phaseCfg.color} /> : <span style={{color:'#555',fontSize:11}}>--</span>}</Td>
                   <Td><Badge label={st.label} color={st.color} /></Td>
                   <Td><Badge label={cotejoLabel} color={cotejoColor} /></Td>
+                  <Td>{(() => {
+                    // Pagado / Parcial / Pendiente segun lo que hay registrado en
+                    // purchase_order_payments. Se compara contra el total que ya
+                    // muestra el renglon (cotejado con IVA), no contra o.total,
+                    // para que la etiqueta no contradiga la columna de al lado.
+                    const pg = pagosPorOC[o.id]
+                    const pagado = pg?.pagado || 0
+                    const meta = displayTotal || 0
+                    const completo = pagado > 0 && meta > 0 && pagado >= meta - 0.5
+                    // Una OC cancelada sin pagos no debe nada: decir "Pendiente"
+                    // junto a un Estado que dice "Cancelada" se contradice.
+                    if (o.status === 'cancelada' && pagado <= 0) return <span style={{ color: '#333' }}>—</span>
+                    const falta = meta - pagado
+                    const fmt = o.currency === 'USD' ? FUSD : F
+                    const label = pagado <= 0 ? 'Pendiente' : completo ? 'Pagado' : 'Parcial'
+                    const color = pagado <= 0 ? '#6B7280' : completo ? '#10B981' : '#D97706'
+                    return (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                        {/* En "Parcial" se dice cuanto falta: si no, un faltante
+                            de $49 por tipo de cambio se ve igual que uno de $50,000. */}
+                        <div style={{ lineHeight: 1.3 }}>
+                          <Badge label={label} color={color} />
+                          {!completo && pagado > 0 && falta > 0.5 && (
+                            <div style={{ fontSize: 10, color: '#D97706', marginTop: 2, whiteSpace: 'nowrap' }}>Faltan {fmt(falta)}</div>
+                          )}
+                        </div>
+                        {!completo && o.status !== 'cancelada' && (
+                          <button
+                            title="Registrar un pago de esta orden"
+                            onClick={e => { e.stopPropagation(); setPagandoOC(o) }}
+                            style={{
+                              background: '#10B98118', border: '1px solid #10B98144', borderRadius: 6,
+                              color: '#10B981', cursor: 'pointer', fontFamily: 'inherit',
+                              fontSize: 10, fontWeight: 600, padding: '2px 6px', whiteSpace: 'nowrap',
+                            }}>+ Pago</button>
+                        )}
+                      </div>
+                    )
+                  })()}</Td>
                   <Td muted>{formatDate(o.created_at)}</Td>
                   <Td>{(() => {
                     // Pago límite: la fecha, y debajo qué tan cerca está. Una OC
@@ -1431,6 +1500,20 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
       {showFromQuote && <POFromQuoteModal onClose={() => setShowFromQuote(false)} onCreated={id => { setShowFromQuote(false); onOpen(id) }} />}
       {showMasivas && <OCMasivasModal onClose={() => setShowMasivas(false)} onCreadas={() => { setShowMasivas(false); load() }} />}
       {showFromPDF && <POFromPDFModal onClose={() => setShowFromPDF(false)} onCreated={(id) => { setShowFromPDF(false); load(); onOpen(id) }} />}
+      {pagandoOC && (
+        // Mismo modal que vive dentro del detalle de la OC (PaymentsSection).
+        // Al guardar puede mover la OC a 'pedida', asi que recargamos la lista
+        // completa: el Estado y la etiqueta de Pago quedan al dia juntos.
+        <RegistrarPagoModal
+          poId={pagandoOC.id}
+          poCurrency={pagandoOC.currency}
+          poTotal={totalMostrado(pagandoOC)}
+          totalPaid={pagosPorOC[pagandoOC.id]?.pagado || 0}
+          poStatus={pagandoOC.status}
+          onClose={() => setPagandoOC(null)}
+          onCreated={() => { setPagandoOC(null); load() }}
+        />
+      )}
     </div>
   )
 }
