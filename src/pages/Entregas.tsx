@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import SolicitudesObra from '../components/SolicitudesObra'
 import AvisosEntregas from '../components/AvisosEntregas'
+import BodegaGeneral from '../components/BodegaGeneral'
 import { Btn, KpiCard, SectionHeader, EmptyState, Loading } from '../components/layout/UI'
 import { fetchAllActiveCatalog } from '../lib/catalog'
 import {
@@ -49,7 +50,7 @@ export default function Entregas() {
   const isMobile = useIsMobile()
   const navigate = useNavigate()
   const { user } = useAuth()
-  const [tab, setTab] = useState<'dashboard' | 'agenda' | 'solicitudes' | 'porlead' | 'inventario' | 'movimientos' | 'registrar' | 'herramienta'>('dashboard')
+  const [tab, setTab] = useState<'dashboard' | 'agenda' | 'solicitudes' | 'porlead' | 'bodega' | 'inventario' | 'movimientos' | 'registrar' | 'herramienta'>('dashboard')
   const [preselectPo, setPreselectPo] = useState<string>('')
   const [loading, setLoading] = useState(true)
 
@@ -146,6 +147,7 @@ export default function Entregas() {
           { id: 'agenda', label: 'Agenda / Ruta', icon: <CalendarDays size={14} /> },
           { id: 'solicitudes', label: 'Solicitudes de obra', icon: <PackagePlus size={14} /> },
           { id: 'porlead', label: 'Inventario por lead', icon: <ClipboardList size={14} /> },
+          { id: 'bodega', label: 'Bodega general', icon: <Warehouse size={14} /> },
           { id: 'inventario', label: 'Bodega / Obra', icon: <Warehouse size={14} /> },
           { id: 'movimientos', label: 'Movimientos', icon: <ClipboardList size={14} /> },
           { id: 'registrar', label: 'Registrar', icon: <PackagePlus size={14} /> },
@@ -164,6 +166,7 @@ export default function Entregas() {
       {tab === 'agenda' && <TabAgenda isMobile={isMobile} obras={obras} empleados={empleados} />}
       {tab === 'solicitudes' && <SolicitudesObra isMobile={isMobile} onIrACompras={() => navigate('/compras')} />}
       {tab === 'porlead' && <TabInventarioLead obras={obras} isMobile={isMobile} />}
+      {tab === 'bodega' && <BodegaGeneral isMobile={isMobile} />}
       {tab === 'inventario' && <TabInventario movimientos={movimientos} obras={leadsInv} isMobile={isMobile} />}
       {tab === 'movimientos' && <TabMovimientos movimientos={movimientos} obras={leadsInv} isMobile={isMobile} />}
       {tab === 'registrar' && (
@@ -209,8 +212,11 @@ function TabInventario({ movimientos, obras, isMobile }: any) {
     for (const m of movimientos) {
       const x = ensure(m); const qy = Number(m.qty) || 0; const L = leadOf(m); const t = m.tipo
       const addLead = (lid: string, d: number) => x.byLead.set(lid, (x.byLead.get(lid) || 0) + d)
-      if (t === 'recepcion_compra' || t === 'ajuste') { if (L) addLead(L, qy); else x.general += qy }
-      else if (t === 'instalado' || t === 'baja') { if (L) addLead(L, -qy); else x.general -= qy }
+      // 'ajuste' no existe: el CHECK de stock_movements solo acepta
+      // ajuste_entrada / ajuste_salida. Esta rama nunca se ejecutaba y el
+      // inventario cargado a mano no aparecia en el consolidado.
+      if (t === 'recepcion_compra' || t === 'ajuste_entrada') { if (L) addLead(L, qy); else x.general += qy }
+      else if (t === 'instalado' || t === 'baja' || t === 'ajuste_salida') { if (L) addLead(L, -qy); else x.general -= qy }
       else if (t === 'obra_a_bodega') { if (m.origen_obra_id) addLead(m.origen_obra_id, -qy); x.general += qy } // devolución → remanente
       // bodega_a_obra / obra_a_obra: reubicación física, no cambia la propiedad por OC → no altera los totales
     }
