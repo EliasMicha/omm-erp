@@ -1769,6 +1769,23 @@ Compras **ya no recibe**. Llega hasta pedida/pagada.
 Es el mismo patron que ya mordio en la Cartera del CRM y en el Gantt: **un
 hecho con dos duenios termina contandose dos veces.**
 
-### Pendiente para Elias
-Los 21 productos sobre-recibidos NO se tocaron: hay que decidir caso por caso
-cual recepcion es la buena, y algunas podrian ser recompras legitimas.
+### Limpieza de los 21 productos (mismo dia)
+Elias: *"La recepcion vieja es la anterior"* — vale la mas antigua.
+
+**Aplicarlo al pie de la letra habria dejado 6 productos por DEBAJO de lo
+comprado.** Al desglosar aparecieron dos situaciones distintas:
+
+| Caso | Patron | Regla correcta |
+|---|---|---|
+| Captura duplicada | dos fechas separadas, misma cantidad (18-ago s/OC + 08-sep c/OC) | anular la segunda |
+| Parciales del 17-ago | 3 recepciones el mismo dia, p.ej. 2000+400+400 contra 2400 comprados | **no** anular todo menos la primera: eso dejaria 2000 de 2400. Anular solo el excedente |
+
+Regla final: **conservar recepciones en orden de fecha hasta cubrir lo comprado,
+anular el resto.** Respeta la intencion ("vale la mas antigua") y aterriza cada
+producto exactamente en lo comprado.
+
+Resultado: 21 movimientos anulados (20 por la regla + AC01 BASE GU10, donde las
+dos recepciones eran identicas de 138 y la regla no alcanzaba). Verificacion:
+**0 productos con recibido > comprado** (antes 21). 115 exactos, 61 parciales.
+
+Nada se borro: todo quedo `anulado=true` con nota del motivo.
