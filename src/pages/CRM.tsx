@@ -1397,15 +1397,6 @@ Devuelve solo el JSON, sin explicaciones. Si no hay filtro para un campo, omitel
   // leads en pipeline activo para forecasting (excluye ganado/perdido/pausado).
   const leadsActivosYear = leadsByYear.filter(l => !['ganado', 'perdido', 'pausado'].includes(l.status))
   const valorLeadsMXN = leadsActivosYear.reduce((s, l) => s + (l.estimated_value || 0), 0)
-  // 2. Cierre estimado = sum(estimated_value × close_probability/100) por lead activo.
-  // Si el lead no tiene probabilidad, se asume 0 (no contribuye al forecast).
-  // Asi cada lead aporta segun su probabilidad real, no un promedio global.
-  const cierreEstimadoMXN = leadsActivosYear.reduce((s, l) => {
-    const prob = l.close_probability ?? 0
-    return s + (l.estimated_value || 0) * (prob / 100)
-  }, 0)
-  // Cantidad de leads con probabilidad asignada (para info en sub-label)
-  const leadsConProbabilidad = leadsActivosYear.filter(l => l.close_probability != null).length
   // 3-4. Cotizado y Vendido por AÑO DE CIERRE de cada cotización (no por año del lead).
   // Así una obra que cerró en 2025 aporta a 2025 aunque el lead siga vivo o cobre en 2026.
   let cotizadoUSD = 0, cotizadoMXN = 0, vendidoUSD = 0, vendidoMXN = 0
@@ -1497,12 +1488,11 @@ Devuelve solo el JSON, sin explicaciones. Si no hay filtro para un campo, omitel
         </span>
       </div>
 
-      {/* KPIs financieros (5 cards) - solo visibles para DG */}
+      {/* KPIs financieros - solo visibles para DG */}
       {showFinancialKPIs && (
-        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(7, 1fr)', gap: 10, marginBottom: 12 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(6, 1fr)', gap: 10, marginBottom: 12 }}>
           {[
             { label: 'Valor de leads', value: mxnToDisplay(valorLeadsMXN), sub: `${leadsActivosYear.length} en pipeline · estimado`, color: '#2563EB' },
-            { label: 'Cierre estimado', value: mxnToDisplay(cierreEstimadoMXN), sub: `Σ(estimado × prob) — ${leadsConProbabilidad}/${leadsActivosYear.length} c/ prob`, color: '#A78BFA' },
             { label: 'Cotizado', value: mixedToDisplay(cotizadoUSD, cotizadoMXN), sub: filterYear === 'todos' ? 'todas etapas · histórico' : `por año de cierre · ${filterYear}`, color: '#D97706' },
             { label: 'Por cerrar', value: mixedToDisplay(porCerrarUSD, porCerrarMXN), sub: `${leadsPorCerrar} lead(s) · propuesta entregada`, color: '#2563EB' },
             { label: 'Vendido', value: mixedToDisplay(vendidoUSD, vendidoMXN), sub: filterYear === 'todos' ? 'contratos cerrados · histórico' : `cerrado en ${filterYear}`, color: '#10B981' },
