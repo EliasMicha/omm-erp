@@ -90,11 +90,19 @@ const S = {
 // ═══════════════════════════════════════════════════════════════════
 // PRODUCT ROW
 // ═══════════════════════════════════════════════════════════════════
-function ProductRow({ p, onUpdate, onRemove, selected, onToggleSelect, onSubstitute, monedaCot }: {
+function ProductRow({ p, onUpdate, onRemove, selected, onToggleSelect, onSubstitute, monedaCot, conSeleccion }: {
   p: IlumProduct; onUpdate: (id: string, f: string, v: number | string) => void; onRemove: (id: string) => void
   selected?: boolean; onToggleSelect?: (id: string) => void; onSubstitute?: (p: IlumProduct) => void
   /** Moneda de venta de la cotización, para marcar los costos que vienen en otra. */
   monedaCot?: Moneda
+  /**
+   * Si la TABLA tiene columna de selección. No es lo mismo que si ESTE renglón
+   * se puede seleccionar: los hijos de un bundle no se seleccionan, pero la
+   * columna existe y hay que ocuparla. Sin esto el renglón traia una celda
+   * menos que el encabezado y TODO se recorria una columna a la izquierda: el
+   * input de cantidad quedaba bajo MODELO y no se podia editar nada.
+   */
+  conSeleccion?: boolean
 }) {
   // El COSTO es del proveedor y va en SU moneda; el PRECIO va en la de la
   // cotización. Cuando no coinciden hay que decirlo en el renglón: si no, la
@@ -106,9 +114,11 @@ function ProductRow({ p, onUpdate, onRemove, selected, onToggleSelect, onSubstit
   const { total } = calcLine(p)
   return (
     <tr style={{ background: selected ? '#10B9810D' : undefined }}>
-      {onToggleSelect && (
+      {(conSeleccion ?? !!onToggleSelect) && (
         <td style={{ ...S.td, width: 28, textAlign: 'center', padding: '6px 4px' }}>
-          <input type="checkbox" checked={!!selected} onChange={() => onToggleSelect(p.id)} style={{ accentColor: '#10B981', cursor: 'pointer' }} />
+          {onToggleSelect
+            ? <input type="checkbox" checked={!!selected} onChange={() => onToggleSelect(p.id)} style={{ accentColor: '#10B981', cursor: 'pointer' }} />
+            : null}
         </td>
       )}
       <td style={{ ...S.td, width: 44, textAlign: 'center' }}>
@@ -164,11 +174,12 @@ function ProductRow({ p, onUpdate, onRemove, selected, onToggleSelect, onSubstit
  * de verdad en la base; aquí solo se pintan colapsados. Cambiar la cantidad
  * recalcula los hijos desde su cantidad por unidad.
  */
-function BundleRow({ nombre, qty, hijos, abierto, onAbrir, onQty, onDesagrupar, onUpdate, onRemove, monedaCot, tcCot, cols }: {
+function BundleRow({ nombre, qty, hijos, abierto, onAbrir, onQty, onDesagrupar, onUpdate, onRemove, monedaCot, tcCot, cols, conSeleccion }: {
   nombre: string; qty: number; hijos: IlumProduct[]; abierto: boolean
   onAbrir: () => void; onQty: (n: number) => void; onDesagrupar: () => void
   onUpdate: (id: string, f: string, v: number | string) => void; onRemove: (id: string) => void
   monedaCot?: Moneda; tcCot?: number; cols: number
+  conSeleccion?: boolean
 }) {
   const costoEn = (h: IlumProduct) => calcLine(h, monedaCot, tcCot).costReal
   const t = totalesDeBundle(hijos as any, qty, costoEn as any)
@@ -210,7 +221,7 @@ function BundleRow({ nombre, qty, hijos, abierto, onAbrir, onQty, onDesagrupar, 
         </td>
       </tr>
       {abierto && hijos.map(h => (
-        <ProductRow key={h.id} p={h} onUpdate={onUpdate} onRemove={onRemove} monedaCot={monedaCot} />
+        <ProductRow key={h.id} p={h} onUpdate={onUpdate} onRemove={onRemove} monedaCot={monedaCot} conSeleccion={conSeleccion} />
       ))}
     </>
   )
@@ -481,7 +492,8 @@ function SubsectionBlock({ subsection, products, onToggle, onUpdate, onRemove, o
                 onAbrir={() => setAbiertos(prev => { const n = new Set(prev); n.has(g.instanceId) ? n.delete(g.instanceId) : n.add(g.instanceId); return n })}
                 onQty={n => onBundleQty && onBundleQty(g.instanceId, n)}
                 onDesagrupar={() => onDesagrupar && onDesagrupar(g.instanceId)}
-                onUpdate={onUpdate} onRemove={onRemove} monedaCot={monedaCot} tcCot={tcCot} cols={nCols} />
+                onUpdate={onUpdate} onRemove={onRemove} monedaCot={monedaCot} tcCot={tcCot} cols={nCols}
+                conSeleccion={!!onToggleSelect} />
             ))}
           </tbody>
         </table>
@@ -1320,11 +1332,24 @@ export default function CotEditorIlum({ cotId, onBack, onSwitchVersion }: { cotI
         : updated.markup
     }
 
+    // Si el renglon vive dentro de un bundle, la cantidad por unidad de paquete
+    // TIENE que seguir a la cantidad total. El encabezado del bundle calcula su
+    // precio con bundle_unit_qty: si se queda vieja, subes de 6 a 8 piezas y el
+    // total del bundle no se mueve — el encabezado y sus hijos dicen numeros
+    // distintos. Invariante: quantity = bundle_unit_qty * bundle_qty.
+    if (field === 'quantity' && updated.bundleInstanceId) {
+      const bq = Number(updated.bundleQty) || 1
+      updated.bundleUnitQty = (Number(updated.quantity) || 0) / bq
+    }
+
     setProducts(products.map(x => x.id === id ? updated : x))
 
     const { total } = calcLine(updated)
     const payload: any = { total }
-    if (field === 'quantity') payload.quantity = updated.quantity
+    if (field === 'quantity') {
+      payload.quantity = updated.quantity
+      if (updated.bundleInstanceId) payload.bundle_unit_qty = updated.bundleUnitQty
+    }
     else { payload.cost = updated.cost; payload.markup = updated.markup; payload.price = updated.price }
     await supabase.from('quotation_items').update(payload).eq('id', id)
   }

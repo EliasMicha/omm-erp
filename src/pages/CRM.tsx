@@ -1512,13 +1512,27 @@ Devuelve solo el JSON, sin explicaciones. Si no hay filtro para un campo, omitel
                 ? `${leadsConSaldo} contratos · ⚠ ${mxnToDisplay(cobrosSinLead)} de cobros sin lead lo inflan`
                 : `${leadsConSaldo} contratos con saldo`,
               color: '#06B6D4', subColor: carteraDudosa ? '#D9A441' : undefined },
-          ].map((k: any) => (
-            <div key={k.label} style={{ background: '#141414', border: '1px solid #1e1e1e', borderRadius: 10, padding: '12px 14px', borderTop: `2px solid ${k.color}` }}>
-              <div style={{ fontSize: 9, color: '#555', textTransform: 'uppercase' as const, letterSpacing: '0.06em', marginBottom: 4 }}>{k.label}</div>
-              <div style={{ fontSize: isMobile ? 16 : 19, fontWeight: 700, color: '#fff', wordBreak: 'break-word' as const }}>{k.value}</div>
-              <div style={{ fontSize: 9, color: k.subColor || '#444', marginTop: 2 }}>{k.sub}</div>
+          ].map((k: any) => {
+            // El tamano se ajusta al largo del numero. Antes era fijo con
+            // wordBreak: 'break-word', asi que $108,859,850 se partia como
+            // "$108,859,85 / 0" — un numero cortado a media cifra se lee mal
+            // y por un momento parece otra cantidad. Nunca se parte: si no
+            // cabe, encoge.
+            const largo = String(k.value || '').length
+            const tam = isMobile
+              ? (largo > 13 ? 12.5 : largo > 11 ? 14 : 16)
+              : (largo > 17 ? 13 : largo > 14 ? 15 : largo > 11 ? 16.5 : 19)
+            return (
+            <div key={k.label} style={{ background: '#141414', border: '1px solid #1e1e1e', borderRadius: 10, padding: '12px 12px', borderTop: `2px solid ${k.color}`, minWidth: 0 }}>
+              <div style={{ fontSize: 9, color: '#555', textTransform: 'uppercase' as const, letterSpacing: '0.05em', marginBottom: 4, whiteSpace: 'nowrap' as const, overflow: 'hidden', textOverflow: 'ellipsis' }} title={k.label}>{k.label}</div>
+              <div title={k.value}
+                style={{ fontSize: tam, fontWeight: 700, color: '#fff', whiteSpace: 'nowrap' as const,
+                         overflow: 'hidden', textOverflow: 'ellipsis', letterSpacing: '-0.01em',
+                         fontVariantNumeric: 'tabular-nums' as const, lineHeight: 1.25 }}>{k.value}</div>
+              <div style={{ fontSize: 9, color: k.subColor || '#444', marginTop: 3, lineHeight: 1.35 }}>{k.sub}</div>
             </div>
-          ))}
+            )
+          })}
         </div>
       )}
 
