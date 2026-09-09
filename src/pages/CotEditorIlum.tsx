@@ -10,6 +10,7 @@ import EditCotInfoModal from '../components/EditCotInfoModal'
 import { useIsMobile } from '../lib/useIsMobile'
 import { tcForYear } from '../lib/fx'
 import { normalizarMoneda, monedaDeCosto, convertir, convertirSiSePuede, simbolo, type Moneda } from '../lib/moneda'
+import { leerCargos, sumaCargos, calcularTotales, margenReal, escalaParaMargen, CONCEPTOS_SUGERIDOS, type Cargo } from '../lib/cargosCotizacion'
 import {
   BundleCat, agruparPorBundle, totalesDeBundle, cargarBundles,
   insertarBundle, cambiarQtyBundle, desagruparBundle, guardarComoBundle,
@@ -1050,6 +1051,8 @@ export default function CotEditorIlum({ cotId, onBack, onSwitchVersion }: { cotI
   // el PDF y el catálogo de licitación los lean.
   const [monedaCot, setMonedaCot] = useState<Moneda>('MXN')
   const [tcCot, setTcCot] = useState<number>(0)
+  // Cargos adicionales (envio, viaticos...). Viven en la raiz de notes.
+  const [cargos, setCargos] = useState<Cargo[]>([])
   const [showBulkMargin, setShowBulkMargin] = useState(false)
   const [bulkMarginInput, setBulkMarginInput] = useState('')
   const [showEditInfo, setShowEditInfo] = useState(false)
@@ -1071,6 +1074,7 @@ export default function CotEditorIlum({ cotId, onBack, onSwitchVersion }: { cotI
           const n = typeof quoteData.notes === 'string' ? JSON.parse(quoteData.notes) : (quoteData.notes || {})
           if (n.ilumConfig) setIlumConfig(c => ({ ...c, ...n.ilumConfig }))
           setMonedaCot(normalizarMoneda(n.currency))
+          setCargos(leerCargos(n))
           setTcCot(Number(n.tipoCambio) || 0)
         } catch {}
       }
@@ -1237,6 +1241,27 @@ export default function CotEditorIlum({ cotId, onBack, onSwitchVersion }: { cotI
     setProducts(convertidos)
     await guardarMoneda({ currency: destino, tipoCambio: tc })
   }
+
+  /**
+   * Guarda los cargos en la raiz de notes, donde el PDF los va a buscar.
+   * Se lee notes fresco antes de escribir para no pisar lo que otra parte de
+   * la pantalla haya guardado mientras tanto (moneda, TC, ilumConfig).
+   */
+  async function guardarCargos(next: Cargo[]) {
+    setCargos(next)
+    const { data } = await supabase.from('quotations').select('notes').eq('id', cotId).maybeSingle()
+    let n: any = {}
+    try { n = JSON.parse((data as any)?.notes || '{}') } catch { n = {} }
+    await supabase.from('quotations').update({ notes: JSON.stringify({ ...n, cargos: next }) }).eq('id', cotId)
+  }
+
+  const agregarCargo = () => guardarCargos([
+    ...cargos,
+    { id: 'c' + Date.now().toString(36), concepto: '', monto: 0, costo: 0 },
+  ])
+  const cambiarCargo = (id: string, campo: keyof Cargo, valor: string | number) =>
+    setCargos(cs => cs.map(c => c.id === id ? { ...c, [campo]: valor } : c))
+  const quitarCargo = (id: string) => guardarCargos(cargos.filter(c => c.id !== id))
 
   /** Guarda moneda y TC en la raíz de notes, que es donde los busca el PDF. */
   async function guardarMoneda(next: { currency?: Moneda; tipoCambio?: number }) {
@@ -1629,10 +1654,18 @@ export default function CotEditorIlum({ cotId, onBack, onSwitchVersion }: { cotI
 
   // Calculate totals
   const subtotal = useMemo(() => products.reduce((s, p) => s + calcLine(p).total, 0), [products])
-  const descuentoAmt = Math.round(subtotal * (ilumConfig.descuento || 0) / 100 * 100) / 100
-  const subtotalDesc = subtotal - descuentoAmt
-  const ivaAmt = Math.round(subtotalDesc * ilumConfig.ivaRate / 100 * 100) / 100
-  const grandTotal = subtotalDesc + ivaAmt
+  // La cadena de totales vive en lib/cargosCotizacion y la comparte el PDF:
+  // si cada uno sumara por su cuenta, el papel y la pantalla acabarian
+  // diciendo dos totales distintos.
+  const cargosSuma = useMemo(() => sumaCargos(cargos), [cargos])
+  const T = useMemo(
+    () => calcularTotales(subtotal, ilumConfig.descuento || 0, ilumConfig.ivaRate || 0, cargosSuma.monto),
+    [subtotal, ilumConfig.descuento, ilumConfig.ivaRate, cargosSuma.monto],
+  )
+  const descuentoAmt = T.descuentoAmt
+  const subtotalDesc = T.subtotalConDescuento
+  const ivaAmt = T.iva
+  const grandTotal = T.total
 
   // Sync total to quotation record
   useEffect(() => {
@@ -1659,11 +1692,12 @@ export default function CotEditorIlum({ cotId, onBack, onSwitchVersion }: { cotI
       revenue += p.price * p.quantity
       cost += c.costReal * p.quantity
     })
-    const descFactor = 1 - (ilumConfig.descuento || 0) / 100
-    const revenueBilled = revenue * descFactor
-    const nomina = revenueBilled * (ilumConfig.nominaPct || 0) / 100
-    return revenueBilled > 0 ? Math.round(((revenueBilled - cost - nomina) / revenueBilled) * 1000) / 10 : 0
-  }, [products, ilumConfig.descuento, ilumConfig.nominaPct, monedaCot, tcCot])
+    return margenReal({
+      ventaProductos: revenue, costoProductos: cost,
+      descuentoPct: ilumConfig.descuento || 0, nominaPct: ilumConfig.nominaPct || 0,
+      cargosMonto: cargosSuma.monto, cargosCosto: cargosSuma.costo,
+    }).pct
+  }, [products, ilumConfig.descuento, ilumConfig.nominaPct, monedaCot, tcCot, cargosSuma])
 
   // Bulk-margin: escala precios proporcionalmente para que MG Real llegue al target.
   //   newRevenueBilled = totalCost / (1 − (target + nomPct)/100)
@@ -1685,24 +1719,37 @@ export default function CotEditorIlum({ cotId, onBack, onSwitchVersion }: { cotI
 
     const nomPct = ilumConfig.nominaPct || 0
     const descPct = ilumConfig.descuento || 0
-    const effectiveDenom = 1 - (targetPct + nomPct) / 100
-    if (effectiveDenom <= 0) {
+    const descFactor = 1 - descPct / 100
+    if (descFactor <= 0) { alert('Descuento inválido (debe ser < 100%).'); return }
+
+    // Los cargos entran a la ecuacion como revenue y costo fijos: si no, el
+    // target se calcularia sobre un margen que ya no es el que se muestra.
+    const r = escalaParaMargen({
+      ventaProductos: productRev, costoProductos: totalCost,
+      descuentoPct: descPct, nominaPct: nomPct,
+      cargosMonto: cargosSuma.monto, cargosCosto: cargosSuma.costo,
+      targetPct,
+    })
+    if (!r) {
       alert(`No alcanzable: target ${targetPct}% + nómina ${nomPct}% = ${targetPct + nomPct}% no deja revenue para costos. Reduce el target o ajusta nominaPct.`)
       return
     }
-    const descFactor = 1 - descPct / 100
-    if (descFactor <= 0) { alert('Descuento inválido (debe ser < 100%).'); return }
-    const newRevenueBilled = totalCost / effectiveDenom
-    const newRevenue = newRevenueBilled / descFactor
-    const scale = newRevenue / productRev
+    if (r.motivo === 'cargos_cubren_target') {
+      alert(`Los cargos adicionales por sí solos ya superan el margen de ${targetPct}%.\n\nPara llegar exactamente al target habría que vender los productos por debajo de cero, así que no se toca nada. Sube el target o baja el cargo.`)
+      return
+    }
+    const scale = r.escala
 
-    const currentRevBilled = productRev * descFactor
-    const currentNomina = currentRevBilled * nomPct / 100
-    const currentMg = currentRevBilled > 0 ? ((currentRevBilled - totalCost - currentNomina) / currentRevBilled) * 100 : 0
+    const currentMg = margenReal({
+      ventaProductos: productRev, costoProductos: totalCost,
+      descuentoPct: descPct, nominaPct: nomPct,
+      cargosMonto: cargosSuma.monto, cargosCosto: cargosSuma.costo,
+    }).pct
 
     if (!confirm(
       `Ajustar margen del proyecto:\n\n` +
       `• Actual: ${currentMg.toFixed(1)}% → Target: ${targetPct}%\n` +
+      (cargosSuma.monto > 0 ? `• Cargos adicionales incluidos: $${fmt(cargosSuma.monto)} (costo $${fmt(cargosSuma.costo)}) — no se escalan\n` : '') +
       `• Nómina prorrateada: ${nomPct}% del revenue\n` +
       (descPct > 0 ? `• Descuento aplicado: ${descPct}% (listprice sube extra para compensar)\n` : '') +
       `• Precios se escalarán × ${scale.toFixed(4)}\n` +
@@ -1991,6 +2038,63 @@ export default function CotEditorIlum({ cotId, onBack, onSwitchVersion }: { cotI
 
         {/* Summary Footer */}
         <div style={{ marginTop: 30, padding: '20px', background: '#111', borderRadius: 10, borderTop: '2px solid #10B981' }}>
+
+          {/* ── Cargos adicionales ─────────────────────────────────────────
+              Cada cargo lleva DOS numeros: lo que se cobra y lo que cuesta.
+              Un flete de $5,000 que cuesta $5,000 no es utilidad; capturar
+              solo el cobro subia el MG Real como si lo fuera. */}
+          <div style={{ marginBottom: 16, paddingBottom: 16, borderBottom: '1px solid #1f1f1f' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: cargos.length ? 8 : 0, gap: 10, flexWrap: 'wrap' }}>
+              <div style={{ fontSize: 10, fontWeight: 600, color: '#666', textTransform: 'uppercase', letterSpacing: '.06em' }}>
+                Cargos adicionales
+                <span style={{ textTransform: 'none', letterSpacing: 0, fontWeight: 400, color: '#444', marginLeft: 8 }}>
+                  envío, viáticos, maniobras… se suman después del descuento y causan IVA
+                </span>
+              </div>
+              <button onClick={agregarCargo}
+                style={{ padding: '4px 10px', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #333', background: '#1a1a1a', color: '#ccc' }}>
+                + Agregar cargo
+              </button>
+            </div>
+
+            <datalist id="conceptos-cargo">
+              {CONCEPTOS_SUGERIDOS.map(c => <option key={c} value={c} />)}
+            </datalist>
+
+            {cargos.map(c => {
+              const util = (Number(c.monto) || 0) - (Number(c.costo) || 0)
+              return (
+                <div key={c.id} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6, flexWrap: 'wrap' }}>
+                  <input list="conceptos-cargo" value={c.concepto} placeholder="Concepto (envío, viáticos…)"
+                    onChange={e => cambiarCargo(c.id, 'concepto', e.target.value)}
+                    onBlur={() => guardarCargos(cargos)}
+                    style={{ ...S.input, textAlign: 'left', flex: 1, minWidth: 180, width: 'auto' }} />
+                  <label style={{ fontSize: 9.5, color: '#666', display: 'flex', alignItems: 'center', gap: 4 }}>
+                    Cobras
+                    <input type="number" step={0.01} value={String(c.monto)}
+                      onChange={e => cambiarCargo(c.id, 'monto', parseFloat(e.target.value) || 0)}
+                      onBlur={() => guardarCargos(cargos)}
+                      style={{ ...S.input, width: 100 }} />
+                  </label>
+                  <label style={{ fontSize: 9.5, color: '#666', display: 'flex', alignItems: 'center', gap: 4 }}
+                    title="Lo que te cuesta a ti. Si lo trasladas tal cual, pon el mismo monto y el margen no se mueve.">
+                    Te cuesta
+                    <input type="number" step={0.01} value={String(c.costo)}
+                      onChange={e => cambiarCargo(c.id, 'costo', parseFloat(e.target.value) || 0)}
+                      onBlur={() => guardarCargos(cargos)}
+                      style={{ ...S.input, width: 100 }} />
+                  </label>
+                  <span style={{ fontSize: 10, fontWeight: 600, minWidth: 92, textAlign: 'right', color: util > 0 ? '#10B981' : util < 0 ? '#DC2626' : '#555' }}
+                    title="Lo que este cargo le aporta a la utilidad">
+                    {util === 0 ? 'sin utilidad' : (util > 0 ? '+' : '−') + '$' + fmt(Math.abs(util))}
+                  </span>
+                  <button onClick={() => quitarCargo(c.id)} title="Quitar cargo"
+                    style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', fontFamily: 'inherit', fontSize: 14, padding: '0 4px' }}>×</button>
+                </div>
+              )
+            })}
+          </div>
+
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: isMobile ? 20 : 40, flexWrap: 'wrap', alignItems: 'flex-start' }}>
             {/* Config inputs */}
             <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
@@ -2019,6 +2123,15 @@ export default function CotEditorIlum({ cotId, onBack, onSwitchVersion }: { cotI
                   <span>-${fmt(descuentoAmt)}</span>
                 </div>
               )}
+              {/* Los cargos van DESPUES del descuento y ANTES del IVA: el
+                  descuento se negocia sobre el material, el envio se cobra
+                  completo y causa impuesto. */}
+              {cargos.filter(c => c.monto !== 0).map(c => (
+                <div key={c.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#888', marginBottom: 4, gap: 10 }}>
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.concepto || 'Cargo adicional'}</span>
+                  <span style={{ color: '#ccc', whiteSpace: 'nowrap' }}>${fmt(c.monto)}</span>
+                </div>
+              ))}
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#888', marginBottom: 8 }}>
                 <span>IVA {ilumConfig.ivaRate}%</span>
                 <span style={{ color: '#ccc' }}>${fmt(ivaAmt)}</span>
@@ -2058,7 +2171,14 @@ export default function CotEditorIlum({ cotId, onBack, onSwitchVersion }: { cotI
               const nomPct = ilumConfig.nominaPct || 0
               const nomina = vtBilled * nomPct / 100
               const mgBruto = vtBilled > 0 ? Math.round((vtBilled - ctProd) / vtBilled * 1000) / 10 : 0
-              const mgReal = vtBilled > 0 ? Math.round((vtBilled - ctProd - nomina) / vtBilled * 1000) / 10 : 0
+              // El MG real usa la misma funcion que el indicador del encabezado
+              // para que los dos numeros no puedan diferir.
+              const MR = margenReal({
+                ventaProductos: vtProd, costoProductos: ctProd,
+                descuentoPct: descPct, nominaPct: nomPct,
+                cargosMonto: cargosSuma.monto, cargosCosto: cargosSuma.costo,
+              })
+              const mgReal = MR.pct
               return (
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14 }}>
                   <div>
@@ -2089,6 +2209,18 @@ export default function CotEditorIlum({ cotId, onBack, onSwitchVersion }: { cotI
                       </span>
                       <span style={{ color: '#DC2626' }}>−${fmt(nomina)}</span>
                     </div>
+                    {cargosSuma.monto !== 0 && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10, marginTop: 4, borderTop: '1px solid #332222', paddingTop: 5 }}>
+                        <span style={{ color: '#888' }}>+ Cargos adicionales</span>
+                        <span style={{ color: '#10B981' }}>+${fmt(cargosSuma.monto)}</span>
+                      </div>
+                    )}
+                    {cargosSuma.costo !== 0 && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}>
+                        <span style={{ color: '#888' }}>− Costo de esos cargos</span>
+                        <span style={{ color: '#DC2626' }}>−${fmt(cargosSuma.costo)}</span>
+                      </div>
+                    )}
                   </div>
                   <div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}>
@@ -2103,9 +2235,9 @@ export default function CotEditorIlum({ cotId, onBack, onSwitchVersion }: { cotI
                       <span style={{ color: '#D97706', fontWeight: 700 }}>MG real (c/ nómina{descPct > 0 ? ' y desc' : ''})</span>
                       <span style={{ color: mgReal >= 25 ? '#10B981' : mgReal >= 15 ? '#D97706' : '#DC2626', fontWeight: 700, fontSize: 15 }}>{mgReal}%</span>
                     </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}><span style={{ color: '#888' }}>Utilidad real</span><span style={{ color: mgReal >= 0 ? '#10B981' : '#DC2626', fontWeight: 600 }}>${fmt(vtBilled - ctProd - nomina)}</span></div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}><span style={{ color: '#888' }}>Utilidad real</span><span style={{ color: mgReal >= 0 ? '#10B981' : '#DC2626', fontWeight: 600 }}>${fmt(MR.utilidad)}</span></div>
                     <div style={{ fontSize: 8, color: '#555', marginTop: 6, lineHeight: 1.4 }}>
-                      MG productos = sin desc. MG bruto = con desc, sin nómina. MG real = con desc y nómina prorrateada. % nómina editable.
+                      MG productos = sin desc. MG bruto = con desc, sin nómina. MG real = con desc, nómina y cargos. La nómina se prorratea solo sobre la venta de productos: cobrarle 20% a un flete que se traslada al costo inventaría una pérdida.
                     </div>
                   </div>
                 </div>

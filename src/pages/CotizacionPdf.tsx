@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react'
+import { leerCargos, sumaCargos, calcularTotales } from '../lib/cargosCotizacion'
 import { useParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { FCUR } from '../lib/utils'
@@ -498,10 +499,17 @@ function CotizacionPdfInner() {
   // Mano de obra explícita (items type='labor') — solo para no-elec
   const subtotalManoObra = laborItems.reduce((s, i) => s + (i.total || (i.price * i.quantity)), 0)
   const subtotal = subtotalItems + subtotalInstalacion + subtotalManoObra + programacion
-  const descuentoAmt = subtotal * descuentoPct / 100
-  const subtotalConDesc = subtotal - descuentoAmt
-  const iva = subtotalConDesc * ivaRate / 100
-  const totalCon = subtotalConDesc + iva
+  // Cargos adicionales (envio, viaticos...) capturados en el cotizador. La
+  // cadena de totales la calcula lib/cargosCotizacion, la MISMA funcion que usa
+  // el editor: si el PDF sumara por su cuenta, el papel podria decir un total y
+  // la pantalla otro, que es justo lo que el cliente nota.
+  const cargosCot = leerCargos(cot?.notes)
+  const cargosMonto = sumaCargos(cargosCot).monto
+  const TT = calcularTotales(subtotal, descuentoPct, ivaRate, cargosMonto)
+  const descuentoAmt = TT.descuentoAmt
+  const subtotalConDesc = TT.subtotalConDescuento
+  const iva = TT.iva
+  const totalCon = TT.total
 
   // Deriva la unidad desde el nombre del concepto (no hay columna unit en BD)
   function deriveUnit(name: string): string {
@@ -973,6 +981,14 @@ function CotizacionPdfInner() {
                   <td style={{ textAlign: 'right', fontWeight: 600, paddingTop: 6 }}>{FCUR(subtotalConDesc, currency)}</td>
                 </tr>
               )}
+              {cargosCot.filter(c => c.monto !== 0).map(c => (
+                <tr key={c.id}>
+                  <td style={{ color: '#444' }}>{c.concepto || 'Cargo adicional'}</td>
+                  {isElec && <td colSpan={3}></td>}
+                  {!isElec && <td colSpan={2}></td>}
+                  <td style={{ textAlign: 'right', color: '#444' }}>{FCUR(c.monto, currency)}</td>
+                </tr>
+              ))}
               <tr>
                 <td style={{ color: '#888' }}>IVA {ivaRate}%</td>
                 {isElec && <td colSpan={3}></td>}
@@ -1274,6 +1290,12 @@ function CotizacionPdfInner() {
                   <td style={{ padding: '6px 0 4px 0', textAlign: 'right', fontWeight: 600 }}>{FCUR(subtotalConDesc, currency)}</td>
                 </tr>
               )}
+              {cargosCot.filter(c => c.monto !== 0).map(c => (
+                <tr key={c.id}>
+                  <td style={{ padding: '4px 0', color: '#444' }}>{c.concepto || 'Cargo adicional'}</td>
+                  <td style={{ padding: '4px 0', textAlign: 'right', color: '#444' }}>{FCUR(c.monto, currency)}</td>
+                </tr>
+              ))}
               <tr>
                 <td style={{ padding: '4px 0', color: '#888' }}>IVA {ivaRate}%</td>
                 <td style={{ padding: '4px 0', textAlign: 'right', color: '#888' }}>{FCUR(iva, currency)}</td>
