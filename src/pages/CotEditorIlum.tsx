@@ -1174,6 +1174,70 @@ export default function CotEditorIlum({ cotId, onBack, onSwitchVersion }: { cotI
     return c === null ? (Number(p.cost) || 0) : c
   }
 
+  /**
+   * Cambiar la moneda de VENTA de la cotizacion.
+   *
+   * Cambiar la etiqueta no cambia el dinero. Antes este boton solo escribia
+   * `currency` en notes: una cotizacion de USD 42 pasaba a decir "$42 MXN" y
+   * el margen real se desplomaba a −896% porque el costo seguia en dolares.
+   * Igual que en el cotizador ESP, hay que reescribir los precios.
+   *
+   *   USD → MXN: precio × TC        MXN → USD: precio ÷ TC
+   *
+   * Los COSTOS no se tocan: viven en la moneda en que factura cada proveedor y
+   * eso no lo decide la cotizacion, lo decide el proveedor. Es tambien la
+   * moneda en que Compras va a emitir la orden.
+   *
+   * El MG% tampoco se toca, y no es descuido: `costoEnMonedaCot` convierte el
+   * costo con el MISMO factor con el que se multiplica el precio, asi que la
+   * razon (precio − costo)/precio queda igual. Recalcularlo solo introduciria
+   * error de redondeo.
+   */
+  async function convertirMonedaCotizacion(destino: Moneda) {
+    if (destino === monedaCot) return
+
+    // Sin partidas no hay nada que convertir: solo se fija la moneda.
+    if (products.length === 0) { await guardarMoneda({ currency: destino }); return }
+
+    const tc = Number(tcCot) || 0
+    if (!(tc > 0)) {
+      alert('Escribe primero el tipo de cambio.\n\nSin TC no se pueden convertir los precios, y cambiar solo la etiqueta dejaria la cotizacion diciendo ' + destino + ' con numeros de ' + monedaCot + '.')
+      return
+    }
+
+    const aMXN = destino === 'MXN'
+    const factor = aMXN ? tc : 1 / tc
+    const r2 = (n: number) => Math.round(n * 100) / 100
+    const ejemplo = products[0]
+    if (!confirm(
+      'Convertir toda la cotizacion a ' + (aMXN ? 'PESOS (MXN)' : 'DOLARES (USD)') + '\n\n' +
+      '\u2022 Tipo de cambio fijo: ' + tc + '\n' +
+      '\u2022 Los precios de venta se ' + (aMXN ? 'multiplican \u00d7 ' : 'dividen \u00f7 ') + tc + '\n' +
+      '\u2022 Los COSTOS no se tocan: se quedan en la moneda en que factura cada proveedor\n' +
+      '\u2022 ' + products.length + ' partida(s) se actualizaran\n' +
+      '\u2022 Ejemplo: ' + simbolo(monedaCot) + fmt(ejemplo.price) + ' ' + monedaCot +
+        ' \u2192 ' + simbolo(destino) + fmt(r2(ejemplo.price * factor)) + ' ' + destino + '\n\n' +
+      'Esto reescribe los precios en ' + destino + '. \u00bfContinuar?'
+    )) return
+
+    const convertidos = products.map(p => ({ ...p, price: r2(p.price * factor) }))
+
+    // Se escribe la DB ANTES de mover la moneda en pantalla: si algo falla, la
+    // cotizacion se queda entera en su moneda original en vez de a medias.
+    for (const p of convertidos) {
+      const { error } = await supabase.from('quotation_items')
+        .update({ price: p.price, total: r2(p.price * p.quantity) })
+        .eq('id', p.id)
+      if (error) {
+        alert('Se detuvo la conversion: ' + error.message + '\n\nLa cotizacion sigue en ' + monedaCot + '. Vuelve a intentar.')
+        return
+      }
+    }
+
+    setProducts(convertidos)
+    await guardarMoneda({ currency: destino, tipoCambio: tc })
+  }
+
   /** Guarda moneda y TC en la raíz de notes, que es donde los busca el PDF. */
   async function guardarMoneda(next: { currency?: Moneda; tipoCambio?: number }) {
     if (next.currency !== undefined) setMonedaCot(next.currency)
@@ -1801,7 +1865,7 @@ export default function CotEditorIlum({ cotId, onBack, onSwitchVersion }: { cotI
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '8px 10px', marginTop: 8, background: '#0f0f0f', border: '1px solid ' + (necesitaTC ? '#DC2626' : '#1f1f1f'), borderRadius: 8 }}>
           <span style={{ fontSize: 9.5, color: '#666', textTransform: 'uppercase', letterSpacing: '.06em' }}>Se cobra en</span>
           {(['MXN', 'USD'] as Moneda[]).map(m => (
-            <button key={m} onClick={() => guardarMoneda({ currency: m })}
+            <button key={m} onClick={() => convertirMonedaCotizacion(m)}
               style={{
                 padding: '4px 12px', borderRadius: 20, fontSize: 10, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
                 border: '1px solid ' + (monedaCot === m ? '#10B981' : '#333'),
