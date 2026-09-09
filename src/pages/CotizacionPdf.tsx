@@ -1163,28 +1163,46 @@ function CotizacionPdfInner() {
                               for (const h of g.hijos) filas.push({ k: 'item', it: h, dentroDeBundle: true, qtyB })
                             }
                             return filas.map(f => {
-                              if (f.k === 'bundle') return (
+                              if (f.k === 'bundle') {
+                                // Un kit de UNO no se explica como paquete. De los 184
+                                // bundles en produccion, ninguno tiene cantidad mayor a 1:
+                                // decir "1 PAQUETES", repetir el precio como "por paquete"
+                                // y escribir "1 pieza por paquete x 1 paquetes = 1 pieza"
+                                // en cada hijo son tres renglones que no dicen nada.
+                                // La multiplicacion solo se pinta cuando hay multiplicador.
+                                const esKit = Number(f.qty) === 1
+                                return (
                                 <tr key={'b-' + f.inst} style={{ background: '#f5f3ff' }}>
                                   <td style={{ textAlign: 'center', fontSize: 15 }}>&#128230;</td>
                                   <td colSpan={colsAntesDeCant - 1}>
                                     <div style={{ fontWeight: 700, fontSize: 10.5, color: '#5b21b6' }}>{f.nombre}</div>
                                     <div style={{ fontSize: 8.5, color: '#7c6aa8', marginTop: 1 }}>
-                                      Cada paquete lleva {f.n} {f.n === 1 ? 'producto' : 'productos'} &middot; desglose abajo
+                                      {esKit
+                                        ? <>Incluye {f.n} {f.n === 1 ? 'producto' : 'productos'}</>
+                                        : <>Cada paquete incluye {f.n} {f.n === 1 ? 'producto' : 'productos'} &middot; desglose abajo</>}
                                     </div>
                                   </td>
                                   <td style={{ textAlign: 'center', color: '#5b21b6' }}>
-                                    <div style={{ fontWeight: 800, fontSize: 12 }}>{f.qty}</div>
-                                    <div style={{ fontSize: 7.5, textTransform: 'uppercase', letterSpacing: '0.04em' }}>paquetes</div>
+                                    {esKit ? (
+                                      <div style={{ fontSize: 8, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#7c6aa8' }}>kit</div>
+                                    ) : (
+                                      <>
+                                        <div style={{ fontWeight: 800, fontSize: 12 }}>{f.qty}</div>
+                                        <div style={{ fontSize: 7.5, textTransform: 'uppercase', letterSpacing: '0.04em', whiteSpace: 'nowrap' }}>paquetes</div>
+                                      </>
+                                    )}
                                   </td>
                                   {!esResumen && (
                                     <td style={{ textAlign: 'right', color: '#5b21b6', whiteSpace: 'nowrap' }}>
-                                      <div style={{ fontWeight: 600 }}>{FCUR(f.unit, currency)}</div>
-                                      <div style={{ fontSize: 7.5 }}>por paquete</div>
+                                      {/* Con un solo paquete, "por paquete" repetiria el total. */}
+                                      {!esKit && <div style={{ fontWeight: 600 }}>{FCUR(f.unit, currency)}</div>}
+                                      {!esKit && <div style={{ fontSize: 7.5 }}>por paquete</div>}
                                     </td>
                                   )}
                                   {!esResumen && <td style={{ textAlign: 'right', fontWeight: 700, color: '#5b21b6', whiteSpace: 'nowrap' }}>{FCUR(f.total, currency)}</td>}
                                 </tr>
-                              )
+                                )
+                              }
                               const it = f.it
                               const enBundle = !!f.dentroDeBundle
                               // Cantidad por UNA unidad del paquete; el total ya viene multiplicado.
@@ -1206,11 +1224,12 @@ function CotizacionPdfInner() {
                                   <td style={enBundle ? { paddingLeft: 14, borderLeft: '2px solid #ddd6fe' } : undefined}>
                                     <div style={{ fontWeight: 500, fontSize: enBundle ? 9.5 : 10 }}>{it.name}</div>
                                     {it.description && <div style={{ fontSize: 9, color: '#888', marginTop: 2, lineHeight: 1.4 }}>{it.description}</div>}
-                                    {enBundle && (
+                                    {enBundle && Number(f.qtyB) !== 1 && (
                                       /* La cuenta escrita con palabras. "6 x 10" solo, sin decir
-                                         que son piezas y paquetes, no se entiende. */
+                                         que son piezas y paquetes, no se entiende. Con un solo
+                                         paquete la cuenta sobra: la cantidad ya esta en su columna. */
                                       <div style={{ fontSize: 8.5, color: '#6d28d9', marginTop: 3, fontWeight: 600 }}>
-                                        {uq} {uq === 1 ? 'pieza' : 'piezas'} por paquete &times; {f.qtyB} paquetes = {it.quantity} {it.quantity === 1 ? 'pieza' : 'piezas'}
+                                        {uq} {uq === 1 ? 'pieza' : 'piezas'} por paquete &times; {f.qtyB} {Number(f.qtyB) === 1 ? 'paquete' : 'paquetes'} = {it.quantity} {it.quantity === 1 ? 'pieza' : 'piezas'}
                                       </div>
                                     )}
                                   </td>
@@ -1231,8 +1250,10 @@ function CotizacionPdfInner() {
                                       </>
                                     ) : it.quantity}
                                   </td>
-                                  {!esResumen && <td style={{ textAlign: 'right', fontWeight: 500, whiteSpace: 'nowrap' }}>{FCUR(it.price, currency)}</td>}
-                                  {!esResumen && <td style={{ textAlign: 'right', fontWeight: 600, whiteSpace: 'nowrap' }}>{FCUR(it.price * it.quantity, currency)}</td>}
+                                  {/* Los importes del desglose van en gris: ya estan sumados en
+                                      el renglon del kit, y en negro invitaban a sumarlos otra vez. */}
+                                  {!esResumen && <td style={{ textAlign: 'right', fontWeight: 500, whiteSpace: 'nowrap', color: enBundle ? '#777' : undefined }}>{FCUR(it.price, currency)}</td>}
+                                  {!esResumen && <td style={{ textAlign: 'right', fontWeight: 600, whiteSpace: 'nowrap', color: enBundle ? '#999' : undefined }}>{FCUR(it.price * it.quantity, currency)}</td>}
                                 </tr>
                               )
                             })
