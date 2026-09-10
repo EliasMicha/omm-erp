@@ -9,6 +9,7 @@ import { folioRecibo, construirReciboHTML, abrirRecibo } from '../lib/reciboEfec
 // facturas ya asignados deben seguir mostrando su nombre y sumando para cuadrar.
 import { SectionHeader, KpiCard, Table, Th, Td, ThFilter, useColumnFilters, Badge, Btn, EmptyState } from '../components/layout/UI'
 import TabComplementosPPD from '../components/TabComplementosPPD'
+import ExpedientesAnticipo from '../components/ExpedientesAnticipo'
 import { F, formatDate } from '../lib/utils'
 import { useIsMobile } from '../lib/useIsMobile'
 import { DEFAULT_TC } from '../lib/fx'
@@ -6042,6 +6043,9 @@ interface AnticipoGroup {
 function TabAnticipos({ invoices: _invoicesProp }: { invoices: Invoice[] }) {
   const isMobile = useIsMobile()
   const [direction, setDirection] = useState<'emitida' | 'recibida'>('emitida')
+  // Dos maneras de ver lo mismo: el listado plano de anticipos vivos, o el
+  // expediente completo (anticipo -> producto -> egreso) que exige el SAT.
+  const [vista, setVista] = useState<'listado' | 'expedientes'>('listado')
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
   // Carga propia para garantizar que conceptos + uuids_relacionados estén frescos.
   // No depender del state del padre (que puede no haber re-cargado conceptos
@@ -6206,6 +6210,15 @@ function TabAnticipos({ invoices: _invoicesProp }: { invoices: Invoice[] }) {
             borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit',
           }}>{d === 'emitida' ? 'Anticipos Emitidos' : 'Anticipos Recibidos'}</button>
         ))}
+        <div style={{ display: 'flex', gap: 2, background: '#141414', borderRadius: 8, padding: 2, border: '1px solid #222', marginLeft: 12 }}>
+          {([['listado', 'Listado'], ['expedientes', 'Expedientes']] as const).map(([k, l]) => (
+            <button key={k} onClick={() => setVista(k)} style={{
+              padding: '5px 12px', fontSize: 11.5, fontWeight: vista === k ? 600 : 400,
+              color: vista === k ? '#fff' : '#777', background: vista === k ? '#2a2a2a' : 'transparent',
+              border: 'none', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit',
+            }}>{l}</button>
+          ))}
+        </div>
         <button
           onClick={() => setReloadKey(k => k + 1)}
           disabled={loadingOwn}
@@ -6217,6 +6230,7 @@ function TabAnticipos({ invoices: _invoicesProp }: { invoices: Invoice[] }) {
           }}
         >{loadingOwn ? 'Cargando...' : '↻ Recargar'}</button>
       </div>
+      {vista === 'expedientes' ? <ExpedientesAnticipo direccion={direction} /> : (<>
       {invoices.length === 0 && !loadingOwn && (
         <div style={{ padding: 20, color: '#666', textAlign: 'center', fontSize: 12 }}>
           Sin facturas cargadas. Pica Recargar para volver a sincronizar.
@@ -6356,6 +6370,7 @@ function TabAnticipos({ invoices: _invoicesProp }: { invoices: Invoice[] }) {
           })}
         </div>
       )}
+      </>)}
     </div>
   )
 }
