@@ -11,7 +11,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { Plus, Check, Trash2, Phone, Mail, MapPin, ChevronDown, ChevronRight, UserPlus, Calendar, MessageCircle, Clock, ExternalLink, Sparkles, Upload } from 'lucide-react'
+import { Plus, Check, Trash2, Phone, Mail, MapPin, ChevronDown, ChevronRight, UserPlus, Calendar, MessageCircle, Clock, ExternalLink, Sparkles, Upload, Pencil } from 'lucide-react'
 
 // ── estilos base ──
 const card: React.CSSProperties = { background: '#111', border: '1px solid #222', borderRadius: 12, padding: 16 }
@@ -70,6 +70,15 @@ export default function MiEspacio({ userId, employeeId, isMobile = false }: { us
   const [nuevoPendFecha, setNuevoPendFecha] = useState('')
   const [nuevoPendPrio, setNuevoPendPrio] = useState(2)
   const [showDonePend, setShowDonePend] = useState(false)
+  // Edicion de un pendiente ya creado. Antes el renglon solo tenia palomita y
+  // bote de basura: para corregir una fecha o un titulo habia que borrarlo y
+  // volver a escribirlo.
+  const [editPend, setEditPend] = useState<string | null>(null)
+  const [editForm, setEditForm] = useState<{ title: string; due_date: string; due_time: string; priority: number }>(
+    { title: '', due_date: '', due_time: '', priority: 2 })
+  // Ningun error de guardado se veia: las llamadas ignoraban `error` y la
+  // pantalla se quedaba igual, como si no hubiera pasado nada.
+  const [pendError, setPendError] = useState('')
 
   async function loadPendientes() {
     const { data } = await supabase.from('action_items').select('id, title, status, priority, due_date, due_time, tags')
@@ -77,17 +86,55 @@ export default function MiEspacio({ userId, employeeId, isMobile = false }: { us
     setPendientes((data || []) as Pendiente[])
   }
   async function addPendiente() {
-    const t = nuevoPend.trim(); if (!t) return
+    const t = nuevoPend.trim()
+    if (!t) { setPendError('Escribe el pendiente antes de agregarlo.'); return }
+    setPendError('')
+    // No se limpia el formulario hasta saber que si se guardo: borrar lo que
+    // el usuario escribio y que ademas no se haya guardado es perder trabajo.
+    const { error } = await supabase.from('action_items').insert({
+      title: t, area: 'DG', source_type: 'dashboard', status: 'pendiente',
+      priority: nuevoPendPrio, due_date: nuevoPendFecha || null,
+      created_by: employeeId || null,
+    })
+    if (error) { setPendError('No se guardó: ' + error.message); return }
     setNuevoPend(''); setNuevoPendFecha(''); setNuevoPendPrio(2)
-    await supabase.from('action_items').insert({ title: t, area: 'DG', source_type: 'dashboard', status: 'pendiente', priority: nuevoPendPrio, due_date: nuevoPendFecha || null, created_by: employeeId || null })
     loadPendientes()
   }
   async function togglePendiente(p: Pendiente) {
     const done = p.status === 'completada'
-    await supabase.from('action_items').update({ status: done ? 'pendiente' : 'completada', completed_at: done ? null : new Date().toISOString(), updated_at: new Date().toISOString() }).eq('id', p.id)
-    loadPendientes()
+    const { error } = await supabase.from('action_items').update({ status: done ? 'pendiente' : 'completada', completed_at: done ? null : new Date().toISOString(), updated_at: new Date().toISOString() }).eq('id', p.id)
+    if (error) { setPendError('No se pudo marcar: ' + error.message); return }
+    setPendError(''); loadPendientes()
   }
-  async function delPendiente(id: string) { await supabase.from('action_items').delete().eq('id', id); loadPendientes() }
+  async function delPendiente(id: string) {
+    const { error } = await supabase.from('action_items').delete().eq('id', id)
+    if (error) { setPendError('No se pudo borrar: ' + error.message); return }
+    setPendError(''); loadPendientes()
+  }
+
+  function abrirEdicion(p: Pendiente) {
+    setPendError('')
+    setEditPend(p.id)
+    setEditForm({
+      title: p.title || '',
+      due_date: p.due_date || '',
+      due_time: p.due_time ? String(p.due_time).slice(0, 5) : '',
+      priority: p.priority || 2,
+    })
+  }
+  async function guardarEdicion(id: string) {
+    const t = editForm.title.trim()
+    if (!t) { setPendError('El pendiente necesita un título.'); return }
+    const { error } = await supabase.from('action_items').update({
+      title: t,
+      due_date: editForm.due_date || null,
+      due_time: editForm.due_time || null,
+      priority: editForm.priority,
+      updated_at: new Date().toISOString(),
+    }).eq('id', id)
+    if (error) { setPendError('No se guardó el cambio: ' + error.message); return }
+    setPendError(''); setEditPend(null); loadPendientes()
+  }
   const pendVisibles = useMemo(() => pendientes.filter(p => showDonePend ? true : p.status !== 'completada'), [pendientes, showDonePend])
   const pendAbiertas = pendientes.filter(p => p.status !== 'completada').length
 
@@ -453,15 +500,44 @@ export default function MiEspacio({ userId, employeeId, isMobile = false }: { us
               )}
             </div>
           )}
+          {pendError && (
+            <div style={{ background: '#3a1a1a', border: '1px solid #5a2a2a', borderRadius: 8, padding: '7px 10px', color: '#f87171', fontSize: 11, marginBottom: 8, display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+              <span>{pendError}</span>
+              <button onClick={() => setPendError('')} style={{ background: 'none', border: 'none', color: '#f87171', cursor: 'pointer', padding: 0, fontFamily: 'inherit' }}>×</button>
+            </div>
+          )}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 320, overflowY: 'auto' }}>
             {pendVisibles.length === 0 && <div style={{ color: '#555', fontSize: 12, padding: '12px 4px' }}>Sin pendientes. Agrega uno arriba.</div>}
             {pendVisibles.map(p => {
               const done = p.status === 'completada'; const vencida = !done && p.due_date && p.due_date < hoy
               const esCita = (p.tags || []).includes('cita') || (!!p.due_time && !(p.tags || []).includes('rutina'))
+              const esRutina = (p.tags || []).includes('rutina')
+              if (editPend === p.id) return (
+                <div key={p.id} style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '9px 8px', borderRadius: 8, background: '#0d0d0d', border: '1px solid #2a5a3f' }}>
+                  <input autoFocus value={editForm.title}
+                    onChange={e => setEditForm(f => ({ ...f, title: e.target.value }))}
+                    onKeyDown={e => { if (e.key === 'Enter') guardarEdicion(p.id); if (e.key === 'Escape') setEditPend(null) }}
+                    placeholder="Título del pendiente" style={{ ...input, width: '100%' }} />
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                    <input type="date" value={editForm.due_date} onChange={e => setEditForm(f => ({ ...f, due_date: e.target.value }))} style={{ ...input, width: 140, flex: '0 0 auto' }} />
+                    <input type="time" value={editForm.due_time} onChange={e => setEditForm(f => ({ ...f, due_time: e.target.value }))} title="Hora (opcional) — con hora se marca como cita" style={{ ...input, width: 110, flex: '0 0 auto' }} />
+                    <select value={editForm.priority} onChange={e => setEditForm(f => ({ ...f, priority: Number(e.target.value) }))} style={{ ...selectStyle, width: 90, flex: '0 0 auto' }}>
+                      <option value={1}>Baja</option><option value={2}>Media</option><option value={3}>Alta</option>
+                    </select>
+                    <button onClick={() => guardarEdicion(p.id)} style={{ marginLeft: 'auto', background: '#57FF9A', border: 'none', color: '#000', borderRadius: 8, padding: '6px 14px', fontWeight: 600, fontSize: 12, cursor: 'pointer' }}>Guardar</button>
+                    <button onClick={() => { setEditPend(null); setPendError('') }} style={{ ...btnGhost, padding: '6px 12px', fontSize: 12 }}>Cancelar</button>
+                  </div>
+                  {esRutina && (
+                    <div style={{ fontSize: 10, color: '#D97706' }}>
+                      Esto viene de una rutina. El cambio aplica solo a esta vez; para cambiarlo siempre, edita la rutina.
+                    </div>
+                  )}
+                </div>
+              )
               return (
                 <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 8px', borderRadius: 8, background: '#0d0d0d', border: '1px solid #1a1a1a' }}>
                   <button onClick={() => togglePendiente(p)} title="Marcar" style={{ width: 18, height: 18, borderRadius: 5, border: `1.5px solid ${done ? '#57FF9A' : '#444'}`, background: done ? '#57FF9A' : 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto', padding: 0 }}>{done && <Check size={12} color="#000" />}</button>
-                  <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ flex: 1, minWidth: 0, cursor: 'pointer' }} onClick={() => abrirEdicion(p)} title="Clic para editar">
                     <div style={{ fontSize: 13, color: done ? '#666' : '#eee', textDecoration: done ? 'line-through' : 'none', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'flex', alignItems: 'center', gap: 6 }}>
                       {esCita && <span style={{ fontSize: 9, fontWeight: 700, color: '#10B981', background: '#10B98122', borderRadius: 5, padding: '1px 5px', flex: '0 0 auto' }}>📅 CITA</span>}
                       {(p.tags || []).includes('rutina') && <span style={{ fontSize: 9, fontWeight: 700, color: '#57FF9A', background: '#57FF9A18', borderRadius: 5, padding: '1px 5px', flex: '0 0 auto' }}>↻</span>}
@@ -470,7 +546,8 @@ export default function MiEspacio({ userId, employeeId, isMobile = false }: { us
                     {p.due_date && <div style={{ fontSize: 10, color: vencida ? '#DC2626' : '#777', marginTop: 1 }}>{vencida ? '⚠ ' : ''}{p.due_date}{p.due_time ? ` · ${String(p.due_time).slice(0, 5)}` : ''}</div>}
                   </div>
                   <span style={{ width: 6, height: 6, borderRadius: '50%', background: PRIO_COLOR[p.priority] || '#666', flex: '0 0 auto' }} title={PRIO_LABEL[p.priority]} />
-                  <button onClick={() => delPendiente(p.id)} style={{ background: 'transparent', border: 'none', color: '#555', cursor: 'pointer', padding: 2 }}><Trash2 size={13} /></button>
+                  <button onClick={() => abrirEdicion(p)} title="Editar" style={{ background: 'transparent', border: 'none', color: '#555', cursor: 'pointer', padding: 2 }}><Pencil size={12} /></button>
+                  <button onClick={() => delPendiente(p.id)} title="Borrar" style={{ background: 'transparent', border: 'none', color: '#555', cursor: 'pointer', padding: 2 }}><Trash2 size={13} /></button>
                 </div>
               )
             })}
