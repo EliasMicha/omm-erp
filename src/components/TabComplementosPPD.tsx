@@ -35,6 +35,9 @@ export default function TabComplementosPPD() {
   const [filtro, setFiltro] = useState<EstatusPPD | 'todas'>('todas')
   const [abierta, setAbierta] = useState<string | null>(null)
   const [ligando, setLigando] = useState<PagoHuerfano | null>(null)
+  // Los huerfanos se colapsan: son 19 renglones que empujaban la tabla fuera
+  // de la pantalla. El conteo se queda a la vista para que no se olviden.
+  const [verHuerfanos, setVerHuerfanos] = useState(false)
   const [importando, setImportando] = useState(false)
   const [resultados, setResultados] = useState<ResultadoImport[] | null>(null)
   const [sync, setSync] = useState<{ hechos: number; total: number } | null>(null)
@@ -194,12 +197,23 @@ export default function TabComplementosPPD() {
 
       {/* Pagos cuyo IdDocumento no encontro factura */}
       {huerfanos.length > 0 && (
-        <div style={{ background: '#1a1010', border: '1px solid #5a2a2a', borderRadius: 10, padding: 12, marginBottom: 14 }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: '#f87171', marginBottom: 8 }}>
-            {huerfanos.length} pago(s) sin factura que les corresponda
+        <div style={{ background: '#1a1010', border: '1px solid #5a2a2a', borderRadius: 10, marginBottom: 14 }}>
+          <div onClick={() => setVerHuerfanos(v => !v)}
+            style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', cursor: 'pointer' }}>
+            {verHuerfanos ? <ChevronDown size={14} color="#f87171" /> : <ChevronRight size={14} color="#f87171" />}
+            <span style={{ fontSize: 12, fontWeight: 700, color: '#f87171' }}>
+              {huerfanos.length} pago(s) sin factura que les corresponda
+            </span>
+            <span style={{ fontSize: 11, color: '#a06060' }}>
+              {M(huerfanos.reduce((s2, h) => s2 + h.importe_pagado, 0))}
+            </span>
+            <span style={{ marginLeft: 'auto', fontSize: 10.5, color: '#a06060' }}>
+              {verHuerfanos ? 'ocultar' : 'ver y ligar ›'}
+            </span>
           </div>
+          {verHuerfanos && (<div style={{ padding: '0 12px 12px' }}>
           <div style={{ fontSize: 11, color: '#999', marginBottom: 8 }}>
-            El complemento dice que pagan un folio fiscal que no está en el sistema (o que no es PPD de esta vista).
+            El complemento dice que pagan un folio fiscal que no está en el sistema.
             Ligalos a mano para que dejen de estar sueltos.
           </div>
           {huerfanos.map(h => (
@@ -211,6 +225,7 @@ export default function TabComplementosPPD() {
               <Btn size="sm" onClick={() => setLigando(h)} style={{ marginLeft: 'auto' }}><Link2 size={12} /> Ligar a una factura</Btn>
             </div>
           ))}
+          </div>)}
         </div>
       )}
 
