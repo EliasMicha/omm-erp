@@ -283,6 +283,19 @@ export async function cargarPPD(direccion: 'emitida' | 'recibida'): Promise<{
   const porUuid = new Map<string, any>()
   for (const f of (facts as any[]) || []) if (f.uuid_fiscal) porUuid.set(String(f.uuid_fiscal).toLowerCase(), f)
 
+  // Los pagos se cargan TODOS, pero esta vista solo muestra una direccion. Un
+  // pago que apunta a una factura de la otra direccion no es huerfano: es de
+  // la otra pestania. Sin esta lista, 121 pagos legitimos salian en rojo como
+  // "sin factura que les corresponda", que es una alarma falsa — y una alarma
+  // que miente entrena a la gente a ignorarlas.
+  const uuidsConocidos = new Set<string>()
+  for (let from = 0; ; from += 1000) {
+    const { data } = await supabase.from('facturas').select('uuid_fiscal').not('uuid_fiscal', 'is', null).range(from, from + 999)
+    const d = (data as any[]) || []
+    for (const f of d) uuidsConocidos.add(String(f.uuid_fiscal).toLowerCase())
+    if (d.length < 1000) break
+  }
+
   const pagosPorFactura = new Map<string, PagoAplicado[]>()
   const huerfanos: PagoHuerfano[] = []
   for (const p of (pagos as any[]) || []) {
@@ -303,10 +316,9 @@ export async function cargarPPD(direccion: 'emitida' | 'recibida'): Promise<{
     if (f) {
       const arr = pagosPorFactura.get(f.id) || []
       arr.push(aplicado); pagosPorFactura.set(f.id, arr)
-    } else if (objetivo) {
-      // El IdDocumento apunta a una factura que no esta en el sistema, o que no
-      // es PPD de esta direccion. No se pierde: se muestra aparte para ligarlo
-      // a mano. Un pago que no aparece en ningun lado es como se pierde dinero.
+    } else if (objetivo && !uuidsConocidos.has(objetivo)) {
+      // Solo es huerfano si el IdDocumento no corresponde a NINGUNA factura del
+      // sistema. Si existe pero es de la otra direccion, se ve en su pestania.
       huerfanos.push({ ...aplicado, uuid_buscado: objetivo })
     }
   }
@@ -387,7 +399,7 @@ export async function guardarComplemento(c: ComplementoParseado, rfcPropio: stri
   }
   if (!filas.length) return 0
   const { error } = await supabase.from('factura_pagos')
-    .upsert(filas, { onConflict: 'factura_id,uuid_doc_relacionado,parcialidad' })
+    .upsert(filas, { onConflict: 'factura_id,uuid_doc_relacionado,parcialidad,importe_pagado' })
   if (error) throw error
   return filas.length
 }
@@ -412,4 +424,118 @@ export async function desvincularManual(pagoId: string) {
     vinculo_manual_at: null, vinculo_manual_nota: null,
   }).eq('id', pagoId)
   if (error) throw error
+}
+
+// ── Recuperar el detalle desde FacturAPI ─────────────────────────────────────
+//
+//  Un complemento timbrado DESDE el ERP no deja rastro de a que factura paga:
+//  no se guarda el XML, `uuids_relacionados` queda en null y factura_pagos
+//  nunca se escribio. Pero FacturAPI si lo tiene, en
+//  complements[].data[].related_documents[], y los 171 CFDI tipo P del sistema
+//  traen facturapi_id. O sea que el dato es recuperable sin pedirle nada a
+//  nadie: no hacen falta los XML.
+//
+//  Mapeo FacturAPI -> CFDI:
+//    payment_form            -> FormaDePagoP     date -> FechaPago
+//    currency / exchange     -> MonedaP / TipoCambioP
+//    related_documents[].uuid        -> IdDocumento   <- ESTA es la llave
+//    .amount                 -> ImpPagado      .installment -> NumParcialidad
+//    .last_balance           -> ImpSaldoAnt    .taxability  -> ObjetoImpDR
+//    El saldo insoluto no viene: se calcula (last_balance - amount).
+
+/**
+ * FacturAPI devuelve `date` unas veces como ISO ("2026-08-28T00:34:00.000Z") y
+ * otras como epoch en MILISEGUNDOS (1774634400000). Postgres rechaza el
+ * segundo con "date/time field value out of range", y asi fallaban 145 de los
+ * 171 complementos. Se normaliza siempre a ISO antes de guardar.
+ */
+export function fechaISO(v: any): string | null {
+  if (v == null || v === '') return null
+  if (typeof v === 'number' || /^\d+$/.test(String(v))) {
+    const n = Number(v)
+    // 13 digitos = milisegundos, 10 = segundos.
+    const ms = String(Math.trunc(n)).length <= 10 ? n * 1000 : n
+    const d = new Date(ms)
+    return isNaN(d.getTime()) ? null : d.toISOString()
+  }
+  const d = new Date(String(v))
+  return isNaN(d.getTime()) ? null : d.toISOString()
+}
+
+export interface ResultadoSync {
+  revisados: number
+  conRelacion: number
+  sinRelacion: number
+  renglones: number
+  errores: { folio: string; mensaje: string }[]
+}
+
+export async function sincronizarDesdeFacturapi(
+  mode: 'test' | 'live',
+  onAvance?: (hechos: number, total: number) => void,
+): Promise<ResultadoSync> {
+  const { data, error } = await supabase.from('facturas')
+    .select('id, uuid_fiscal, serie, folio, facturapi_id')
+    .eq('tipo_comprobante', 'P').not('facturapi_id', 'is', null)
+  if (error) throw error
+  const comps = ((data as any[]) || [])
+  const out: ResultadoSync = { revisados: 0, conRelacion: 0, sinRelacion: 0, renglones: 0, errores: [] }
+
+  for (const c of comps) {
+    out.revisados++
+    onAvance?.(out.revisados, comps.length)
+    const etiqueta = [c.serie, c.folio].filter(Boolean).join('-') || String(c.uuid_fiscal || '').slice(0, 8)
+    try {
+      const r = await fetch(`/api/facturapi?action=get_invoice&mode=${mode}&id=${c.facturapi_id}`)
+      const inv = await r.json()
+      if (!r.ok || inv?.error) throw new Error(inv?.error || `HTTP ${r.status}`)
+
+      // FacturAPI nombra el complemento "pago" (no "pay"); se acepta cualquiera
+      // que traiga related_documents para no depender de esa etiqueta.
+      const bloques: any[] = []
+      for (const comp of (inv.complements || [])) {
+        for (const d of (comp?.data || [])) if (Array.isArray(d?.related_documents)) bloques.push(d)
+      }
+      if (!bloques.length) { out.sinRelacion++; continue }
+
+      const filas: any[] = []
+      for (const b of bloques) {
+        const montoNodo = b.related_documents.reduce((s: number, d: any) => s + (Number(d.amount) || 0), 0)
+        for (const d of b.related_documents) {
+          const uuid = String(d.uuid || '').toLowerCase()
+          if (!uuid) continue
+          const pagado = Number(d.amount) || 0
+          const saldoAnt = d.last_balance != null ? Number(d.last_balance) : 0
+          filas.push({
+            factura_id: c.id,
+            fecha_pago: fechaISO(b.date),
+            forma_pago: b.payment_form || null,
+            moneda: d.currency || b.currency || null,
+            tipo_cambio: d.exchange != null ? Number(d.exchange) : (b.exchange != null ? Number(b.exchange) : null),
+            monto: montoNodo,
+            num_operacion: b.payment_id || b.number || null,
+            uuid_doc_relacionado: uuid,
+            parcialidad: Number(d.installment) || 1,
+            saldo_anterior: saldoAnt,
+            importe_pagado: pagado,
+            // FacturAPI no manda el insoluto; se deriva. Nunca negativo: si el
+            // pago excede el saldo anterior el dato viene mal y se deja en 0
+            // para no inventar un saldo al reves.
+            saldo_insoluto: Math.max(0, Math.round((saldoAnt - pagado) * 100) / 100),
+            objeto_imp_dr: d.taxability || null,
+          })
+        }
+      }
+      if (!filas.length) { out.sinRelacion++; continue }
+
+      const { error: e2 } = await supabase.from('factura_pagos')
+        .upsert(filas, { onConflict: 'factura_id,uuid_doc_relacionado,parcialidad,importe_pagado' })
+      if (e2) throw e2
+      out.conRelacion++
+      out.renglones += filas.length
+    } catch (e: any) {
+      out.errores.push({ folio: etiqueta, mensaje: e?.message || String(e) })
+    }
+  }
+  return out
 }

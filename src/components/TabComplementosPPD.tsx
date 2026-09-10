@@ -4,6 +4,7 @@ import { KpiCard, Badge, Btn, EmptyState } from './layout/UI'
 import { Upload, Search, Link2, Unlink, ChevronRight, ChevronDown, AlertTriangle, RefreshCw, FileText } from 'lucide-react'
 import {
   cargarPPD, parsearComplemento, guardarComplemento, vincularManual, desvincularManual,
+  sincronizarDesdeFacturapi,
   ESTATUS_CFG, type EstatusPPD, type FacturaPPD, type PagoHuerfano, type ResultadoImport,
 } from '../lib/complementosPago'
 
@@ -36,6 +37,8 @@ export default function TabComplementosPPD() {
   const [ligando, setLigando] = useState<PagoHuerfano | null>(null)
   const [importando, setImportando] = useState(false)
   const [resultados, setResultados] = useState<ResultadoImport[] | null>(null)
+  const [sync, setSync] = useState<{ hechos: number; total: number } | null>(null)
+  const [resumenSync, setResumenSync] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
   const load = async () => {
@@ -65,6 +68,19 @@ export default function TabComplementosPPD() {
     setResultados(res); setImportando(false)
     if (fileRef.current) fileRef.current.value = ''
     load()
+  }
+
+  async function sincronizar() {
+    setError(''); setResumenSync(null); setSync({ hechos: 0, total: 0 })
+    try {
+      const r = await sincronizarDesdeFacturapi('live', (hechos, total) => setSync({ hechos, total }))
+      setResumenSync(
+        `${r.revisados} complementos revisados · ${r.conRelacion} con relación (${r.renglones} pagos aplicados) · ` +
+        `${r.sinRelacion} sin documentos relacionados` +
+        (r.errores.length ? ` · ${r.errores.length} con error: ${r.errores.slice(0, 3).map(e => e.folio).join(', ')}` : ''))
+      await load()
+    } catch (e: any) { setError('Falló la sincronización: ' + (e?.message || String(e))) }
+    finally { setSync(null) }
   }
 
   const resumen = useMemo(() => {
@@ -106,8 +122,11 @@ export default function TabComplementosPPD() {
         </div>
         <input ref={fileRef} type="file" accept=".xml" multiple style={{ display: 'none' }}
           onChange={e => e.target.files?.length && importarXmls(e.target.files)} />
-        <Btn variant="primary" onClick={() => fileRef.current?.click()}>
-          <Upload size={13} /> {importando ? 'Importando…' : 'Importar XML de complementos'}
+        <Btn variant="primary" onClick={sincronizar} disabled={!!sync}>
+          <RefreshCw size={13} /> {sync ? `Sincronizando ${sync.hechos}/${sync.total || '…'}` : 'Traer de FacturAPI'}
+        </Btn>
+        <Btn onClick={() => fileRef.current?.click()}>
+          <Upload size={13} /> {importando ? 'Importando…' : 'Importar XML'}
         </Btn>
         <Btn onClick={load}><RefreshCw size={13} /> Recargar</Btn>
       </div>
@@ -122,9 +141,8 @@ export default function TabComplementosPPD() {
       {!loading && facturas.length > 0 && facturas.every(f => f.pagos.length === 0) && huerfanos.length === 0 && (
         <div style={{ background: '#1a1608', border: '1px solid #6b4c14', borderRadius: 10, padding: 14, marginBottom: 14, fontSize: 12.5, color: '#D9A441', lineHeight: 1.6 }}>
           <b>Todavía no hay ningún complemento con detalle cargado.</b><br />
-          En el sistema hay CFDI tipo P guardados, pero solo su encabezado: el <i>IdDocumento</i> que dice a qué
-          factura corresponde cada pago vive únicamente dentro del XML, y esos XML no se guardaron al importarlos.
-          Sube los XML de los complementos con el botón de arriba y el amarre se hace solo.
+          Los CFDI tipo P están guardados, pero solo su encabezado: nunca se guardó a qué factura paga cada uno.
+          El dato sí existe en FacturAPI — pícale a <b>Traer de FacturAPI</b> y el amarre se hace solo.
           Mientras tanto todas las facturas se ven como pendientes, que es lo que el sistema sabe hoy — no
           necesariamente lo que pasó.
         </div>
@@ -152,6 +170,13 @@ export default function TabComplementosPPD() {
         )}
         <span style={{ fontSize: 11, color: '#666' }}>{lista.length} de {facturas.length} facturas PPD</span>
       </div>
+
+      {resumenSync && (
+        <div style={{ background: '#0f1a12', border: '1px solid #2a5a3f', borderRadius: 10, padding: 12, marginBottom: 14, fontSize: 12, color: '#9fe7bd', display: 'flex', justifyContent: 'space-between', gap: 10 }}>
+          <span>{resumenSync}</span>
+          <button onClick={() => setResumenSync(null)} style={{ background: 'none', border: 'none', color: '#9fe7bd', cursor: 'pointer' }}>×</button>
+        </div>
+      )}
 
       {resultados && (
         <div style={{ background: '#0f0f0f', border: '1px solid #2a2a2a', borderRadius: 10, padding: 12, marginBottom: 14 }}>
