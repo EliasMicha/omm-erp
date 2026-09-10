@@ -8,6 +8,7 @@ import { folioRecibo, construirReciboHTML, abrirRecibo } from '../lib/reciboEfec
 // supabaseAll = ve también leads/cotizaciones archivados: aquí los movimientos y
 // facturas ya asignados deben seguir mostrando su nombre y sumando para cuadrar.
 import { SectionHeader, KpiCard, Table, Th, Td, ThFilter, useColumnFilters, Badge, Btn, EmptyState } from '../components/layout/UI'
+import TabComplementosPPD from '../components/TabComplementosPPD'
 import { F, formatDate } from '../lib/utils'
 import { useIsMobile } from '../lib/useIsMobile'
 import { DEFAULT_TC } from '../lib/fx'
@@ -15,12 +16,12 @@ import {
   FileText, Building2, ArrowLeftRight, ShieldCheck,
   Banknote, Users, TrendingUp, Plus, Upload, Search,
   ChevronRight, AlertTriangle, CheckCircle, Clock,
-  DollarSign, X, Loader2, Download, Pencil, Trash2, Receipt, Paperclip
+  DollarSign, X, Loader2, Download, Pencil, Trash2, Receipt, Paperclip, Link2
 } from 'lucide-react'
 
 /* --------- Types ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ */
 
-type Tab = 'facturacion' | 'conciliacion' | 'costos_obra' | 'supervision' | 'efectivo' | 'cobranza' | 'flujo' | 'anticipos'
+type Tab = 'facturacion' | 'conciliacion' | 'costos_obra' | 'supervision' | 'efectivo' | 'cobranza' | 'flujo' | 'anticipos' | 'ppd'
 
 // ═══════════════════════════════════════════════════════════════════════════
 // CATEGORÍAS ESTRUCTURADAS PARA REPORTE DE COSTOS POR OBRA
@@ -351,6 +352,7 @@ const TABS: { key: Tab; label: string; icon: typeof FileText }[] = [
   { key: 'cobranza', label: 'Cobranza', icon: DollarSign },
   { key: 'flujo', label: 'Flujo de efectivo', icon: TrendingUp },
   { key: 'anticipos', label: 'Anticipos', icon: AlertTriangle },
+  { key: 'ppd', label: 'Complementos PPD', icon: Link2 },
 ]
 
 const INVOICE_STATUS_CONFIG: Record<InvoiceStatus, { label: string; color: string }> = {
@@ -867,6 +869,7 @@ export default function Contabilidad() {
       {activeTab === 'cobranza' && <TabCobranza />}
       {activeTab === 'flujo' && <TabFlujo />}
       {activeTab === 'anticipos' && <TabAnticipos invoices={invoices} />}
+      {activeTab === 'ppd' && <TabComplementosPPD />}
     </div>
   )
 }
