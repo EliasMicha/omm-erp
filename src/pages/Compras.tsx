@@ -14,6 +14,7 @@ import { generatePOPdf } from '../lib/poPdf'
 import { sugerirFechaMaximaPago, estadoPago } from '../lib/pagoProveedor'
 import { normalizarMoneda, monedaDeCosto, type Moneda } from '../lib/moneda'
 import { ivaDeOrden, redondearCentavos } from '../lib/ivaCompra'
+import { totalDeOC, deudaDeOC, resumirDeuda, deudaPorProyecto, type DeudaOC } from '../lib/deudaCompras'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type POStatus = 'borrador' | 'aprobada' | 'pedida' | 'recibida_parcial' | 'recibida' | 'cancelada'
@@ -418,10 +419,32 @@ function ComprasDashboard({ onOpenPO, onGoToList }: { onOpenPO: (id: string) => 
   const [orders, setOrders] = useState<PurchaseOrder[]>([])
   const [loading, setLoading] = useState(true)
 
+  // Sin las partidas y los pagos no se puede saber cuanto se debe: el total de
+  // catalogo no es lo que se va a pagar, y lo ya pagado no estaba entrando.
+  const [cotejo, setCotejo] = useState<Record<string, { sumCotejo: number }>>({})
+  const [pagos, setPagos] = useState<Record<string, number>>({})
+
   useEffect(() => {
-    supabase.from('purchase_orders').select('*,project:projects(name),supplier:suppliers(name),quotation:quotations(name,client_name,notes)')
-      .order('created_at', { ascending: false })
-      .then(({ data }) => { setOrders(data || []); setLoading(false) })
+    Promise.all([
+      supabase.from('purchase_orders').select('*,project:projects(name),supplier:suppliers(name),quotation:quotations(name,client_name,notes)')
+        .order('created_at', { ascending: false }),
+      supabase.from('po_items').select('purchase_order_id, total, real_total, cotejo_status'),
+      supabase.from('purchase_order_payments').select('purchase_order_id, amount'),
+    ]).then(([poRes, itemsRes, pagosRes]) => {
+      setOrders(poRes.data || [])
+      const cj: Record<string, { sumCotejo: number }> = {}
+      for (const it of (itemsRes.data as any[]) || []) {
+        const k = it.purchase_order_id
+        if (!cj[k]) cj[k] = { sumCotejo: 0 }
+        const c = it.cotejo_status === 'cotejado' || it.cotejo_status === 'sustituido'
+        cj[k].sumCotejo += (c && it.real_total != null) ? Number(it.real_total) : (Number(it.total) || 0)
+      }
+      setCotejo(cj)
+      const pg: Record<string, number> = {}
+      for (const p of (pagosRes.data as any[]) || []) pg[p.purchase_order_id] = (pg[p.purchase_order_id] || 0) + (Number(p.amount) || 0)
+      setPagos(pg)
+      setLoading(false)
+    })
   }, [])
 
   // Helper to extract lead name from a PO (via quotation.notes JSON or quotation.client_name)
@@ -436,51 +459,83 @@ function ComprasDashboard({ onOpenPO, onGoToList }: { onOpenPO: (id: string) => 
   if (loading) return <Loading />
 
   const active = orders.filter(o => !['recibida', 'cancelada'].includes(o.status))
-  const totalPendienteMXN = active.filter(o => o.currency === 'MXN').reduce((s, o) => s + o.total, 0)
-  const totalPendienteUSD = active.filter(o => o.currency === 'USD').reduce((s, o) => s + o.total, 0)
-  const thisMonth = orders.filter(o => {
-    const d = new Date(o.created_at)
-    const now = new Date()
-    return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()
-  })
-  const totalMesMXN = thisMonth.filter(o => o.currency === 'MXN').reduce((s, o) => s + o.total, 0)
-  const totalMesUSD = thisMonth.filter(o => o.currency === 'USD').reduce((s, o) => s + o.total, 0)
-  const porRecibir = orders.filter(o => o.status === 'pedida' || o.status === 'recibida_parcial').length
+  // Deuda real: total cotejado + extras + IVA, menos lo pagado, y SOLO de las
+  // ordenes ya colocadas con el proveedor o ya recibidas.
+  const deudas: DeudaOC[] = orders.map(o => deudaDeOC(o as any, cotejo[o.id], pagos[o.id] || 0))
+  const R = resumirDeuda(deudas)
+  const porProyecto = deudaPorProyecto(
+    orders.map((o, i) => ({ deuda: deudas[i], proyecto: getLeadName(o) || (o.project as any)?.name || 'Sin proyecto' })))
+  const porRecibir = R.porRecibir
 
   // Group by supplier
+  // Proveedores por lo que se les DEBE, no por lo que se les ha comprado
+  // historicamente: la pregunta del tablero es a quien hay que pagarle.
   const bySupplier: Record<string, any> = {}
-  orders.forEach(o => {
+  orders.forEach((o, i) => {
+    const d = deudas[i]
+    if (!['pedida', 'recibida_parcial', 'recibida'].includes(d.status) || d.saldo <= 0.005) return
     const sn = (o.supplier as any)?.name || 'Sin proveedor'
     if (!bySupplier[sn]) bySupplier[sn] = { name: sn, totalMXN: 0, totalUSD: 0, count: 0 }
-    if (o.currency === 'USD') bySupplier[sn].totalUSD += o.total
-    else bySupplier[sn].totalMXN += o.total
+    if (d.moneda === 'USD') bySupplier[sn].totalUSD += d.saldo
+    else bySupplier[sn].totalMXN += d.saldo
     bySupplier[sn].count++
   })
-  const topSuppliers = Object.values(bySupplier).sort((a: any, b: any) => (b.totalMXN + b.totalUSD) - (a.totalMXN + a.totalUSD)).slice(0, 5) as any[]
+  const topSuppliers = Object.values(bySupplier).sort((a: any, b: any) => (b.totalMXN + b.totalUSD * 18) - (a.totalMXN + a.totalUSD * 18)).slice(0, 6) as any[]
 
-  // Group by lead (from quotation)
-  const byLead: Record<string, any> = {}
-  active.forEach(o => {
-    const ln = getLeadName(o) || (o.project as any)?.name || 'Sin lead'
-    if (!byLead[ln]) byLead[ln] = { name: ln, totalMXN: 0, totalUSD: 0 }
-    if (o.currency === 'USD') byLead[ln].totalUSD += o.total
-    else byLead[ln].totalMXN += o.total
-  })
-  const topLeads = Object.values(byLead).sort((a: any, b: any) => (b.totalMXN + b.totalUSD) - (a.totalMXN + a.totalUSD)).slice(0, 5) as any[]
+
 
   return (
     <div>
       <SectionHeader title="Compras" subtitle={`${orders.length} órdenes totales`}
         action={<Btn variant="primary" onClick={onGoToList}><Plus size={14} /> Nueva OC</Btn>} />
 
-      {/* KPIs */}
+      {/* LO QUE SE DEBE — la pregunta del tablero.
+          Solo ordenes ya colocadas o recibidas, con los pagos descontados. */}
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1.4fr 1fr 1fr', gap: 12, marginBottom: 14 }}>
+        <div style={{ background: '#141414', border: '1px solid #222', borderRadius: 12, padding: '14px 16px', borderTop: '3px solid #DC2626' }}>
+          <div style={{ fontSize: 10, color: '#666', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 6 }}>Lo que debo a proveedores</div>
+          <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', alignItems: 'baseline' }}>
+            <span style={{ fontSize: 24, fontWeight: 700, color: '#fff', fontVariantNumeric: 'tabular-nums' as const }}>{F(R.debo.mxn)}</span>
+            <span style={{ fontSize: 24, fontWeight: 700, color: '#A78BFA', fontVariantNumeric: 'tabular-nums' as const }}>{FUSD(R.debo.usd)}</span>
+          </div>
+          <div style={{ fontSize: 10.5, color: '#666', marginTop: 6 }}>
+            {R.debo.n} orden(es) pedidas o recibidas sin pagar · de {F(R.ordenado.mxn)} / {FUSD(R.ordenado.usd)} colocados, ya se pagaron {F(R.pagado.mxn)} / {FUSD(R.pagado.usd)}
+          </div>
+        </div>
+        <div style={{ background: '#141414', border: '1px solid #222', borderRadius: 12, padding: '14px 16px', borderTop: '3px solid #D97706' }}>
+          <div style={{ fontSize: 10, color: '#666', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 6 }}>Por comprometer</div>
+          <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'baseline' }}>
+            <span style={{ fontSize: 17, fontWeight: 700, color: '#eee', fontVariantNumeric: 'tabular-nums' as const }}>{F(R.porComprometer.mxn)}</span>
+            <span style={{ fontSize: 17, fontWeight: 700, color: '#A78BFA', fontVariantNumeric: 'tabular-nums' as const }}>{FUSD(R.porComprometer.usd)}</span>
+          </div>
+          <div style={{ fontSize: 10.5, color: '#666', marginTop: 6 }}>{R.porComprometer.n} aprobada(s) sin colocar. Todavía se puede no gastar.</div>
+        </div>
+        <div style={{ background: '#141414', border: '1px solid #222', borderRadius: 12, padding: '14px 16px', borderTop: '3px solid #6B7280' }}>
+          <div style={{ fontSize: 10, color: '#666', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 6 }}>En borrador</div>
+          <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'baseline' }}>
+            <span style={{ fontSize: 17, fontWeight: 700, color: '#888', fontVariantNumeric: 'tabular-nums' as const }}>{F(R.borrador.mxn)}</span>
+            <span style={{ fontSize: 17, fontWeight: 700, color: '#7c6aa8', fontVariantNumeric: 'tabular-nums' as const }}>{FUSD(R.borrador.usd)}</span>
+          </div>
+          <div style={{ fontSize: 10.5, color: '#666', marginTop: 6 }}>{R.borrador.n} sin aprobar. No es deuda.</div>
+        </div>
+      </div>
+
+      {(R.pagadoEnCanceladas.n > 0 || R.sobrepagos.n > 0) && (
+        <div style={{ background: '#1a1608', border: '1px solid #6b4c14', borderRadius: 10, padding: 10, marginBottom: 14, fontSize: 11.5, color: '#D9A441', lineHeight: 1.6 }}>
+          {R.pagadoEnCanceladas.n > 0 && (
+            <div>⚠ {R.pagadoEnCanceladas.n} orden(es) <b>canceladas con pagos</b>: {F(R.pagadoEnCanceladas.mxn)} / {FUSD(R.pagadoEnCanceladas.usd)} que salieron y no tienen orden viva detrás.</div>
+          )}
+          {R.sobrepagos.n > 0 && (
+            <div>⚠ {R.sobrepagos.n} orden(es) <b>pagadas de más</b> por {F(R.sobrepagos.mxn)} / {FUSD(R.sobrepagos.usd)}.</div>
+          )}
+        </div>
+      )}
+
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4,1fr)', gap: 12, marginBottom: 24 }}>
-        <KpiCard label="OC Activas" value={active.length} color="#2563EB" icon={<FileText size={16} />} />
-        <KpiCard label="Pendiente MXN" value={F(totalPendienteMXN)} color="#D97706" icon={<ShoppingCart size={16} />} />
-        <KpiCard label="Pendiente USD" value={FUSD(totalPendienteUSD)} color="#D97706" icon={<ShoppingCart size={16} />} />
-        <KpiCard label="Mes MXN" value={F(totalMesMXN)} color="#10B981" icon={<Package size={16} />} />
-        <KpiCard label="Mes USD" value={FUSD(totalMesUSD)} color="#10B981" icon={<Package size={16} />} />
+        <KpiCard label="OC activas" value={active.length} color="#2563EB" icon={<FileText size={16} />} />
         <KpiCard label="Por recibir" value={porRecibir} color="#A78BFA" icon={<Truck size={16} />} />
+        <KpiCard label="Proyectos con deuda" value={porProyecto.length} color="#DC2626" icon={<ShoppingCart size={16} />} />
+        <KpiCard label="Proveedores por pagar" value={topSuppliers.length} color="#D97706" icon={<Package size={16} />} />
       </div>
 
       {/* Status summary */}
@@ -502,7 +557,8 @@ function ComprasDashboard({ onOpenPO, onGoToList }: { onOpenPO: (id: string) => 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
         {/* Top suppliers */}
         <div style={{ background: '#141414', border: '1px solid #222', borderRadius: 12, padding: 16 }}>
-          <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 12 }}>Top proveedores</div>
+          <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 4 }}>A quién le debo</div>
+          <div style={{ fontSize: 10, color: '#555', marginBottom: 10 }}>Saldo por proveedor, no compras históricas</div>
           {topSuppliers.length === 0 ? <EmptyState message="Sin datos" /> :
             topSuppliers.map((s, i) => (
               <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #1e1e1e' }}>
@@ -516,16 +572,18 @@ function ComprasDashboard({ onOpenPO, onGoToList }: { onOpenPO: (id: string) => 
             ))
           }
         </div>
-        {/* By lead */}
+        {/* Deuda por proyecto */}
         <div style={{ background: '#141414', border: '1px solid #222', borderRadius: 12, padding: 16 }}>
-          <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 12 }}>Compras por lead (activas)</div>
-          {topLeads.length === 0 ? <EmptyState message="Sin datos" /> :
-            topLeads.map((p, i) => (
-              <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #1e1e1e' }}>
-                <span style={{ fontSize: 12, color: '#ccc' }}>{p.name}</span>
-                <span style={{ fontSize: 12, fontWeight: 600, display: 'flex', gap: 8, alignItems: 'baseline' }}>
-                  {p.totalMXN > 0 && <span style={{ color: '#D97706' }}>{F(p.totalMXN)}</span>}
-                  {p.totalUSD > 0 && <span style={{ color: '#A78BFA' }}>{FUSD(p.totalUSD)}</span>}
+          <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 4 }}>Lo que debo por proyecto</div>
+          <div style={{ fontSize: 10, color: '#555', marginBottom: 10 }}>Saldo de órdenes ya pedidas o recibidas</div>
+          {porProyecto.length === 0 ? <EmptyState message="Sin deuda pendiente" /> :
+            porProyecto.slice(0, 10).map((p, i) => (
+              <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '7px 0', borderBottom: '1px solid #1e1e1e', gap: 10 }}>
+                <span style={{ fontSize: 12, color: '#ccc', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={p.proyecto}>{p.proyecto}</span>
+                <span style={{ fontSize: 12, fontWeight: 600, display: 'flex', gap: 8, alignItems: 'baseline', whiteSpace: 'nowrap' }}>
+                  {p.mxn > 0.005 && <span style={{ color: '#D97706' }}>{F(p.mxn)}</span>}
+                  {p.usd > 0.005 && <span style={{ color: '#A78BFA' }}>{FUSD(p.usd)}</span>}
+                  <span style={{ color: '#555', fontWeight: 400, fontSize: 11 }}>({p.ordenes})</span>
                 </span>
               </div>
             ))
