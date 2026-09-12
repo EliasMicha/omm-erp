@@ -156,3 +156,92 @@ export function deudaPorProyecto(
     // siguen mostrando separados, sin convertir nada.
     .sort((a, b) => (b.mxn + b.usd * tcOrden) - (a.mxn + a.usd * tcOrden))
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Resumen por proyecto: lo presupuestado contra lo realmente comprado.
+//
+//  OJO CON LA MONEDA DEL COSTO. `quotation_items.provider_currency` no es
+//  confiable: de 3,215 partidas de contratos vigentes, 491 se contradicen con
+//  el catalogo. Un caso real — la cotizacion "Cero5Cien O402 - Instalaciones
+//  Electricas" trae sus 192 partidas marcadas USD con costo de 667,397, en una
+//  cotizacion vendida en PESOS por 2,137,637: ese costo es en pesos mal
+//  etiquetado, y creerle convertiria el teorico en 18 veces lo real.
+//
+//  La moneda del costo la dicta el CATALOGO (lib/moneda.ts es la regla unica
+//  del ERP). Aqui se respeta eso, y las partidas donde catalogo y renglon no
+//  coinciden se cuentan para poder decirlo en pantalla.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface FilaProyecto {
+  proyecto: string
+  /** Costo presupuestado en la(s) cotizacion(es) vendida(s). */
+  teoricoMXN: number
+  teoricoUSD: number
+  /** Suma de las OC no canceladas, al total cotejado + extras + IVA. */
+  ocMXN: number
+  ocUSD: number
+  ordenes: number
+  /** Cuantas OC traen saldo. */
+  ocPorPagar: number
+  pagadoMXN: number
+  pagadoUSD: number
+  pendienteMXN: number
+  pendienteUSD: number
+  /** Partidas cuya moneda de costo no coincide entre renglon y catalogo. */
+  monedasDudosas: number
+  ids: string[]
+}
+
+export interface EntradaTeorico {
+  proyecto: string
+  costo: number
+  monedaCatalogo: 'MXN' | 'USD'
+  monedaRenglon: 'MXN' | 'USD'
+}
+
+export function resumenPorProyecto(
+  ocs: Array<{ deuda: DeudaOC; proyecto: string }>,
+  teorico: EntradaTeorico[],
+): FilaProyecto[] {
+  const m = new Map<string, FilaProyecto>()
+  const get = (k: string): FilaProyecto => {
+    let g = m.get(k)
+    if (!g) {
+      g = { proyecto: k, teoricoMXN: 0, teoricoUSD: 0, ocMXN: 0, ocUSD: 0, ordenes: 0,
+            ocPorPagar: 0, pagadoMXN: 0, pagadoUSD: 0, pendienteMXN: 0, pendienteUSD: 0,
+            monedasDudosas: 0, ids: [] }
+      m.set(k, g)
+    }
+    return g
+  }
+
+  for (const t of teorico) {
+    const g = get(t.proyecto || 'Sin proyecto')
+    if (t.monedaCatalogo === 'USD') g.teoricoUSD += t.costo; else g.teoricoMXN += t.costo
+    if (t.monedaCatalogo !== t.monedaRenglon) g.monedasDudosas++
+  }
+
+  for (const { deuda: d, proyecto } of ocs) {
+    // Las canceladas no son ni costo ni deuda del proyecto.
+    if (d.status === 'cancelada') continue
+    const g = get(proyecto || 'Sin proyecto')
+    const pagado = Math.min(d.pagado, d.total)
+    if (d.moneda === 'USD') { g.ocUSD += d.total; g.pagadoUSD += pagado; g.pendienteUSD += d.saldo }
+    else { g.ocMXN += d.total; g.pagadoMXN += pagado; g.pendienteMXN += d.saldo }
+    g.ordenes++
+    if (d.saldo > 0.005) g.ocPorPagar++
+    g.ids.push(d.id)
+  }
+
+  const r2n = (n: number) => Math.round(n * 100) / 100
+  return [...m.values()]
+    .map(g => ({
+      ...g,
+      teoricoMXN: r2n(g.teoricoMXN), teoricoUSD: r2n(g.teoricoUSD),
+      ocMXN: r2n(g.ocMXN), ocUSD: r2n(g.ocUSD),
+      pagadoMXN: r2n(g.pagadoMXN), pagadoUSD: r2n(g.pagadoUSD),
+      pendienteMXN: r2n(g.pendienteMXN), pendienteUSD: r2n(g.pendienteUSD),
+    }))
+    .filter(g => g.ordenes > 0 || g.teoricoMXN > 0.5 || g.teoricoUSD > 0.5)
+    .sort((a, b) => (b.pendienteMXN + b.pendienteUSD * 18) - (a.pendienteMXN + a.pendienteUSD * 18))
+}

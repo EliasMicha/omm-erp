@@ -14,7 +14,7 @@ import { generatePOPdf } from '../lib/poPdf'
 import { sugerirFechaMaximaPago, estadoPago } from '../lib/pagoProveedor'
 import { normalizarMoneda, monedaDeCosto, type Moneda } from '../lib/moneda'
 import { ivaDeOrden, redondearCentavos } from '../lib/ivaCompra'
-import { totalDeOC, deudaDeOC, resumirDeuda, deudaPorProyecto, type DeudaOC } from '../lib/deudaCompras'
+import { totalDeOC, deudaDeOC, resumirDeuda, deudaPorProyecto, resumenPorProyecto, type DeudaOC, type FilaProyecto, type EntradaTeorico } from '../lib/deudaCompras'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type POStatus = 'borrador' | 'aprobada' | 'pedida' | 'recibida_parcial' | 'recibida' | 'cancelada'
@@ -438,6 +438,93 @@ function Monto({ n, moneda, size = 14, color, dim }: {
   )
 }
 
+/** Un par de montos MXN/USD apilados. Se omite el que es cero para no llenar
+ *  la tabla de ceros que no dicen nada; si los dos son cero, un guion. */
+function ParMoneda({ mxn, usd, color, bold }: { mxn: number; usd: number; color?: string; bold?: boolean }) {
+  const hayM = Math.abs(mxn) > 0.005, hayU = Math.abs(usd) > 0.005
+  if (!hayM && !hayU) return <span style={{ color: '#333' }}>—</span>
+  const est: React.CSSProperties = { fontSize: 11.5, fontWeight: bold ? 700 : 600, color: color || '#ccc', fontVariantNumeric: 'tabular-nums' }
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 1, whiteSpace: 'nowrap' }}>
+      {hayM && <span style={est}>{F(mxn)} <span style={{ fontSize: 8.5, color: '#57FF9A', fontWeight: 700 }}>MXN</span></span>}
+      {hayU && <span style={est}>{FUSD(usd)} <span style={{ fontSize: 8.5, color: '#A78BFA', fontWeight: 700 }}>USD</span></span>}
+    </div>
+  )
+}
+
+/** Desglose de un proyecto: sus ordenes, con lo pagado y el saldo de cada una. */
+function ModalProyecto({ fila, orders, deudas, onClose, onOpenPO }: {
+  fila: FilaProyecto; orders: PurchaseOrder[]; deudas: DeudaOC[]
+  onClose: () => void; onOpenPO: (id: string) => void
+}) {
+  const idx = new Map(deudas.map(d => [d.id, d]))
+  const suyas = orders.filter(o => fila.ids.includes(o.id))
+    .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100, padding: 16 }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: '#111', border: '1px solid #2a2a2a', borderRadius: 14, width: 'min(1040px,100%)', maxHeight: '88vh', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ padding: '16px 20px', borderBottom: '1px solid #1f1f1f', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+          <div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: '#fff' }}>{fila.proyecto}</div>
+            <div style={{ fontSize: 11, color: '#777', marginTop: 3 }}>{fila.ordenes} orden(es) de compra · {fila.ocPorPagar} con saldo</div>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer' }}><X size={18} /></button>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 10, padding: '14px 20px', borderBottom: '1px solid #1f1f1f' }}>
+          {([['Costo teórico', fila.teoricoMXN, fila.teoricoUSD, '#888'],
+             ['Costo en OC', fila.ocMXN, fila.ocUSD, '#ccc'],
+             ['Pagado', fila.pagadoMXN, fila.pagadoUSD, '#10B981'],
+             ['Pendiente', fila.pendienteMXN, fila.pendienteUSD, '#DC2626']] as const).map(([lab, m, u, c]) => (
+            <div key={lab}>
+              <div style={{ fontSize: 9.5, color: '#666', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 4 }}>{lab}</div>
+              <div style={{ textAlign: 'left' }}><ParMoneda mxn={m} usd={u} color={c} bold /></div>
+            </div>
+          ))}
+        </div>
+
+        <div style={{ flex: 1, overflowY: 'auto', padding: '0 20px 16px' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11.5 }}>
+            <thead><tr style={{ color: '#666', textAlign: 'left' }}>
+              <th style={{ padding: '8px 6px' }}>OC</th>
+              <th style={{ padding: '8px 6px' }}>Proveedor</th>
+              <th style={{ padding: '8px 6px' }}>Estado</th>
+              <th style={{ padding: '8px 6px' }}>Fecha</th>
+              <th style={{ padding: '8px 6px', textAlign: 'right' }}>Total</th>
+              <th style={{ padding: '8px 6px', textAlign: 'right' }}>Pagado</th>
+              <th style={{ padding: '8px 6px', textAlign: 'right' }}>Saldo</th>
+            </tr></thead>
+            <tbody>
+              {suyas.map(o => {
+                const d = idx.get(o.id)
+                if (!d) return null
+                const st = PO_STATUS_CFG[o.status]
+                const fmt = d.moneda === 'USD' ? FUSD : F
+                return (
+                  <tr key={o.id} onClick={() => { onClose(); onOpenPO(o.id) }}
+                    style={{ borderTop: '1px solid #1a1a1a', color: '#bbb', cursor: 'pointer' }}>
+                    <td style={{ padding: '7px 6px', fontWeight: 600, color: '#fff' }}>{o.po_number}</td>
+                    <td style={{ padding: '7px 6px', maxWidth: 230, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{(o.supplier as any)?.name || '—'}</td>
+                    <td style={{ padding: '7px 6px' }}><Badge label={st.label} color={st.color} /></td>
+                    <td style={{ padding: '7px 6px', color: '#777' }}>{formatDate(o.created_at)}</td>
+                    <td style={{ padding: '7px 6px', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                      {fmt(d.total)} <span style={{ fontSize: 8.5, fontWeight: 700, color: d.moneda === 'USD' ? '#A78BFA' : '#57FF9A' }}>{d.moneda}</span>
+                    </td>
+                    <td style={{ padding: '7px 6px', textAlign: 'right', color: '#10B981', whiteSpace: 'nowrap' }}>{fmt(d.pagado)}</td>
+                    <td style={{ padding: '7px 6px', textAlign: 'right', fontWeight: 700, color: d.saldo > 0.005 ? '#DC2626' : '#444', whiteSpace: 'nowrap' }}>
+                      {d.saldo > 0.005 ? fmt(d.saldo) : '—'}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function ComprasDashboard({ onOpenPO, onGoToList }: { onOpenPO: (id: string) => void; onGoToList: () => void }) {
   const isMobile = useIsMobile()
   const [orders, setOrders] = useState<PurchaseOrder[]>([])
@@ -454,8 +541,10 @@ function ComprasDashboard({ onOpenPO, onGoToList }: { onOpenPO: (id: string) => 
         .order('created_at', { ascending: false }),
       supabase.from('po_items').select('purchase_order_id, total, real_total, cotejo_status'),
       supabase.from('purchase_order_payments').select('purchase_order_id, amount'),
-    ]).then(([poRes, itemsRes, pagosRes]) => {
+      supabase.from('quotations').select('id, client_name, notes').eq('stage', 'contrato').eq('vigente', true),
+    ]).then(async ([poRes, itemsRes, pagosRes, cotRes]) => {
       setOrders(poRes.data || [])
+      cargarTeorico((cotRes.data as any[]) || [])
       const cj: Record<string, { sumCotejo: number }> = {}
       for (const it of (itemsRes.data as any[]) || []) {
         const k = it.purchase_order_id
@@ -470,6 +559,51 @@ function ComprasDashboard({ onOpenPO, onGoToList }: { onOpenPO: (id: string) => 
       setLoading(false)
     })
   }, [])
+
+  const [teorico, setTeorico] = useState<EntradaTeorico[]>([])
+  const [proyectoAbierto, setProyectoAbierto] = useState<FilaProyecto | null>(null)
+
+  // Costo presupuestado del proyecto: el costo de las partidas de las
+  // cotizaciones YA VENDIDAS (contrato vigente). La moneda la dicta el
+  // catalogo, no el renglon: 491 de 3,215 partidas se contradicen entre los
+  // dos, y creerle al renglon inflaba el teorico hasta 18 veces.
+  async function cargarTeorico(cots: any[]) {
+    if (!cots.length) { setTeorico([]); return }
+    const nombre = (q: any) => {
+      try { const n = typeof q.notes === 'string' ? JSON.parse(q.notes) : q.notes; if (n?.lead_name) return n.lead_name } catch {}
+      return q.client_name || 'Sin proyecto'
+    }
+    const porCot = new Map(cots.map(q => [q.id, nombre(q)]))
+    const ids = cots.map(q => q.id)
+    // Supabase corta en 1000 filas por consulta SIN avisar. Con lotes de
+    // cotizaciones se perdian 414 de 3,215 partidas y el costo teorico salia
+    // bajo sin que nada lo dijera. Hay que paginar DENTRO de cada lote hasta
+    // que devuelva menos de mil.
+    const partidas: any[] = []
+    for (let i = 0; i < ids.length; i += 40) {
+      const lote = ids.slice(i, i + 40)
+      for (let desde = 0; ; desde += 1000) {
+        const { data } = await supabase.from('quotation_items')
+          .select('quotation_id, cost, quantity, provider_currency, catalog_product_id')
+          .in('quotation_id', lote).gt('cost', 0).range(desde, desde + 999)
+        const d = (data as any[]) || []
+        partidas.push(...d)
+        if (d.length < 1000) break
+      }
+    }
+    const catIds = [...new Set(partidas.map(p => p.catalog_product_id).filter(Boolean))]
+    const monedaCat: Record<string, string> = {}
+    for (let i = 0; i < catIds.length; i += 200) {
+      const { data } = await supabase.from('catalog_products').select('id, moneda').in('id', catIds.slice(i, i + 200))
+      for (const c of (data as any[]) || []) monedaCat[c.id] = c.moneda || 'MXN'
+    }
+    setTeorico(partidas.map(p => ({
+      proyecto: porCot.get(p.quotation_id) || 'Sin proyecto',
+      costo: (Number(p.cost) || 0) * (Number(p.quantity) || 0),
+      monedaCatalogo: normalizarMoneda(p.catalog_product_id ? monedaCat[p.catalog_product_id] : p.provider_currency),
+      monedaRenglon: normalizarMoneda(p.provider_currency),
+    })))
+  }
 
   // Helper to extract lead name from a PO (via quotation.notes JSON or quotation.client_name)
   const getLeadName = (o: PurchaseOrder) => {
@@ -487,6 +621,10 @@ function ComprasDashboard({ onOpenPO, onGoToList }: { onOpenPO: (id: string) => 
   // ordenes ya colocadas con el proveedor o ya recibidas.
   const deudas: DeudaOC[] = orders.map(o => deudaDeOC(o as any, cotejo[o.id], pagos[o.id] || 0))
   const R = resumirDeuda(deudas)
+  const filasProyecto = resumenPorProyecto(
+    orders.map((o, i) => ({ deuda: deudas[i], proyecto: getLeadName(o) || (o.project as any)?.name || 'Sin proyecto' })),
+    teorico)
+  const dudosasTotal = filasProyecto.reduce((s2, p) => s2 + p.monedasDudosas, 0)
   const porProyecto = deudaPorProyecto(
     orders.map((o, i) => ({ deuda: deudas[i], proyecto: getLeadName(o) || (o.project as any)?.name || 'Sin proyecto' })))
   const porRecibir = R.porRecibir
@@ -617,36 +755,53 @@ function ComprasDashboard({ onOpenPO, onGoToList }: { onOpenPO: (id: string) => 
         </div>
       </div>
 
-      {/* Recent orders */}
-      {active.length > 0 && (
-        <div style={{ marginTop: 24 }}>
-          <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 10 }}>Órdenes activas recientes</div>
-          <Table>
-            <thead><tr>
-              <Th>OC #</Th><Th>Proveedor</Th><Th>Cotización</Th><Th>Lead</Th><Th>Especialidad</Th><Th>Fase</Th><Th>Estado</Th><Th right>Total MXN</Th><Th right>Total USD</Th>
+      {/* POR PROYECTO — presupuestado contra comprado, pagado y pendiente */}
+      <div style={{ marginTop: 24 }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 4, gap: 10, flexWrap: 'wrap' }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: '#fff' }}>Proyectos</div>
+          <div style={{ fontSize: 10, color: '#555' }}>Clic en un proyecto para ver sus órdenes</div>
+        </div>
+        <div style={{ fontSize: 10, color: '#555', marginBottom: 10 }}>
+          El costo teórico es el presupuestado en las cotizaciones ya vendidas. Lo demás sale de las órdenes de compra.
+        </div>
+        {dudosasTotal > 0 && (
+          <div style={{ background: '#1a1608', border: '1px solid #6b4c14', borderRadius: 8, padding: '7px 10px', marginBottom: 10, fontSize: 10.5, color: '#D9A441' }}>
+            ⚠ {dudosasTotal} partida(s) traen la moneda del costo distinta entre el renglón y el catálogo. Para el teórico manda el catálogo, que es la regla del sistema, pero conviene corregirlas.
+          </div>
+        )}
+        <div style={{ overflowX: 'auto', border: '1px solid #1f1f1f', borderRadius: 10 }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+            <thead><tr style={{ background: '#0f0f0f', color: '#777', textAlign: 'left' }}>
+              <th style={{ padding: '9px 12px' }}>Proyecto</th>
+              <th style={{ padding: '9px 12px', textAlign: 'right' }}>Costo teórico</th>
+              <th style={{ padding: '9px 12px', textAlign: 'right' }}>Costo en OC</th>
+              <th style={{ padding: '9px 12px', textAlign: 'center' }}>OC por pagar</th>
+              <th style={{ padding: '9px 12px', textAlign: 'right' }}>Pagado</th>
+              <th style={{ padding: '9px 12px', textAlign: 'right' }}>Pendiente</th>
             </tr></thead>
             <tbody>
-              {active.slice(0, 8).map(o => {
-                const st = PO_STATUS_CFG[o.status]
-                const esp = SPECIALTY_CONFIG[o.specialty]
-                const phaseCfg = o.purchase_phase ? PHASE_CONFIG[o.purchase_phase] : null
-                return (
-                  <tr key={o.id} style={{ cursor: 'pointer' }} onClick={() => onOpenPO(o.id)}>
-                    <Td><span style={{ fontWeight: 600, color: '#fff' }}>{o.po_number}</span></Td>
-                    <Td>{(o.supplier as any)?.name || '--'}</Td>
-                    <Td muted>{getQuotName(o) || '--'}</Td>
-                    <Td muted>{getLeadName(o) || '--'}</Td>
-                    <Td><Badge label={esp.icon + ' ' + esp.label} color={esp.color} /></Td>
-                    <Td>{phaseCfg ? <Badge label={phaseCfg.label} color={phaseCfg.color} /> : <span style={{color:'#555',fontSize:11}}>--</span>}</Td>
-                    <Td><Badge label={st.label} color={st.color} /></Td>
-                    <Td right>{o.currency === 'MXN' ? <span style={{ fontWeight: 600, color: '#10B981' }}>{F(o.total)}</span> : <span style={{ color: '#333' }}>—</span>}</Td>
-                  <Td right>{o.currency === 'USD' ? <span style={{ fontWeight: 600, color: '#10B981' }}>{FUSD(o.total)}</span> : <span style={{ color: '#333' }}>—</span>}</Td>
-                  </tr>
-                )
-              })}
+              {filasProyecto.length === 0 && <tr><td colSpan={6}><EmptyState message="Sin proyectos con compras" /></td></tr>}
+              {filasProyecto.map(p => (
+                <tr key={p.proyecto} onClick={() => setProyectoAbierto(p)}
+                  style={{ borderTop: '1px solid #1a1a1a', cursor: 'pointer' }}>
+                  <td style={{ padding: '9px 12px', color: '#eee', maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={p.proyecto}>{p.proyecto}</td>
+                  <td style={{ padding: '9px 12px', textAlign: 'right' }}><ParMoneda mxn={p.teoricoMXN} usd={p.teoricoUSD} color="#888" /></td>
+                  <td style={{ padding: '9px 12px', textAlign: 'right' }}><ParMoneda mxn={p.ocMXN} usd={p.ocUSD} color="#ccc" /></td>
+                  <td style={{ padding: '9px 12px', textAlign: 'center', color: p.ocPorPagar > 0 ? '#D97706' : '#444', fontWeight: 600 }}>
+                    {p.ocPorPagar > 0 ? `${p.ocPorPagar} de ${p.ordenes}` : `0 de ${p.ordenes}`}
+                  </td>
+                  <td style={{ padding: '9px 12px', textAlign: 'right' }}><ParMoneda mxn={p.pagadoMXN} usd={p.pagadoUSD} color="#10B981" /></td>
+                  <td style={{ padding: '9px 12px', textAlign: 'right' }}><ParMoneda mxn={p.pendienteMXN} usd={p.pendienteUSD} color="#DC2626" bold /></td>
+                </tr>
+              ))}
             </tbody>
-          </Table>
+          </table>
         </div>
+      </div>
+
+      {proyectoAbierto && (
+        <ModalProyecto fila={proyectoAbierto} orders={orders} deudas={deudas}
+          onClose={() => setProyectoAbierto(null)} onOpenPO={onOpenPO} />
       )}
     </div>
   )
