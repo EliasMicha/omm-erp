@@ -414,6 +414,30 @@ export default function Compras() {
 // ═══════════════════════════════════════════════════════════════════════════════
 //  DASHBOARD
 // ═══════════════════════════════════════════════════════════════════════════════
+// F() y FUSD() producen los DOS un "$": "$91,527.25" y "$30,048.79" se ven
+// igual y solo los separaba el color. El color no es una etiqueta — quien no
+// conoce la convencion no tiene como saber cual es cual. Aqui la moneda se
+// escribe siempre, pegada al numero.
+function Monto({ n, moneda, size = 14, color, dim }: {
+  n: number; moneda: 'MXN' | 'USD'; size?: number; color?: string; dim?: boolean
+}) {
+  const esUsd = moneda === 'USD'
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 4, whiteSpace: 'nowrap' }}>
+      <span style={{ fontSize: size, fontWeight: 700, color: color || (dim ? '#888' : '#fff'), fontVariantNumeric: 'tabular-nums' as const }}>
+        {esUsd ? FUSD(n) : F(n)}
+      </span>
+      <span style={{
+        fontSize: Math.max(9, size * 0.52), fontWeight: 700, letterSpacing: '.04em',
+        color: esUsd ? '#A78BFA' : '#57FF9A',
+        border: `1px solid ${esUsd ? '#A78BFA55' : '#57FF9A55'}`,
+        background: esUsd ? '#A78BFA12' : '#57FF9A12',
+        borderRadius: 4, padding: '0 4px', position: 'relative', top: -1,
+      }}>{moneda}</span>
+    </span>
+  )
+}
+
 function ComprasDashboard({ onOpenPO, onGoToList }: { onOpenPO: (id: string) => void; onGoToList: () => void }) {
   const isMobile = useIsMobile()
   const [orders, setOrders] = useState<PurchaseOrder[]>([])
@@ -494,27 +518,29 @@ function ComprasDashboard({ onOpenPO, onGoToList }: { onOpenPO: (id: string) => 
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1.4fr 1fr 1fr', gap: 12, marginBottom: 14 }}>
         <div style={{ background: '#141414', border: '1px solid #222', borderRadius: 12, padding: '14px 16px', borderTop: '3px solid #DC2626' }}>
           <div style={{ fontSize: 10, color: '#666', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 6 }}>Lo que debo a proveedores</div>
-          <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', alignItems: 'baseline' }}>
-            <span style={{ fontSize: 24, fontWeight: 700, color: '#fff', fontVariantNumeric: 'tabular-nums' as const }}>{F(R.debo.mxn)}</span>
-            <span style={{ fontSize: 24, fontWeight: 700, color: '#A78BFA', fontVariantNumeric: 'tabular-nums' as const }}>{FUSD(R.debo.usd)}</span>
+          <div style={{ display: 'flex', gap: 26, flexWrap: 'wrap', alignItems: 'baseline' }}>
+            <Monto n={R.debo.mxn} moneda="MXN" size={24} />
+            <Monto n={R.debo.usd} moneda="USD" size={24} />
           </div>
-          <div style={{ fontSize: 10.5, color: '#666', marginTop: 6 }}>
-            {R.debo.n} orden(es) pedidas o recibidas sin pagar · de {F(R.ordenado.mxn)} / {FUSD(R.ordenado.usd)} colocados, ya se pagaron {F(R.pagado.mxn)} / {FUSD(R.pagado.usd)}
+          <div style={{ fontSize: 10.5, color: '#666', marginTop: 8, lineHeight: 1.7 }}>
+            {R.debo.n} orden(es) pedidas o recibidas sin pagar.<br />
+            Pesos: se colocaron {F(R.ordenado.mxn)} y ya se pagaron {F(R.pagado.mxn)}.<br />
+            Dólares: se colocaron {FUSD(R.ordenado.usd)} y ya se pagaron {FUSD(R.pagado.usd)}.
           </div>
         </div>
         <div style={{ background: '#141414', border: '1px solid #222', borderRadius: 12, padding: '14px 16px', borderTop: '3px solid #D97706' }}>
           <div style={{ fontSize: 10, color: '#666', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 6 }}>Por comprometer</div>
-          <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'baseline' }}>
-            <span style={{ fontSize: 17, fontWeight: 700, color: '#eee', fontVariantNumeric: 'tabular-nums' as const }}>{F(R.porComprometer.mxn)}</span>
-            <span style={{ fontSize: 17, fontWeight: 700, color: '#A78BFA', fontVariantNumeric: 'tabular-nums' as const }}>{FUSD(R.porComprometer.usd)}</span>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+            <Monto n={R.porComprometer.mxn} moneda="MXN" size={16} color="#eee" />
+            <Monto n={R.porComprometer.usd} moneda="USD" size={16} color="#eee" />
           </div>
           <div style={{ fontSize: 10.5, color: '#666', marginTop: 6 }}>{R.porComprometer.n} aprobada(s) sin colocar. Todavía se puede no gastar.</div>
         </div>
         <div style={{ background: '#141414', border: '1px solid #222', borderRadius: 12, padding: '14px 16px', borderTop: '3px solid #6B7280' }}>
           <div style={{ fontSize: 10, color: '#666', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 6 }}>En borrador</div>
-          <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'baseline' }}>
-            <span style={{ fontSize: 17, fontWeight: 700, color: '#888', fontVariantNumeric: 'tabular-nums' as const }}>{F(R.borrador.mxn)}</span>
-            <span style={{ fontSize: 17, fontWeight: 700, color: '#7c6aa8', fontVariantNumeric: 'tabular-nums' as const }}>{FUSD(R.borrador.usd)}</span>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+            <Monto n={R.borrador.mxn} moneda="MXN" size={16} dim />
+            <Monto n={R.borrador.usd} moneda="USD" size={16} dim />
           </div>
           <div style={{ fontSize: 10.5, color: '#666', marginTop: 6 }}>{R.borrador.n} sin aprobar. No es deuda.</div>
         </div>
@@ -523,10 +549,10 @@ function ComprasDashboard({ onOpenPO, onGoToList }: { onOpenPO: (id: string) => 
       {(R.pagadoEnCanceladas.n > 0 || R.sobrepagos.n > 0) && (
         <div style={{ background: '#1a1608', border: '1px solid #6b4c14', borderRadius: 10, padding: 10, marginBottom: 14, fontSize: 11.5, color: '#D9A441', lineHeight: 1.6 }}>
           {R.pagadoEnCanceladas.n > 0 && (
-            <div>⚠ {R.pagadoEnCanceladas.n} orden(es) <b>canceladas con pagos</b>: {F(R.pagadoEnCanceladas.mxn)} / {FUSD(R.pagadoEnCanceladas.usd)} que salieron y no tienen orden viva detrás.</div>
+            <div>⚠ {R.pagadoEnCanceladas.n} orden(es) <b>canceladas con pagos</b>: {F(R.pagadoEnCanceladas.mxn)} MXN y {FUSD(R.pagadoEnCanceladas.usd)} USD que salieron y no tienen orden viva detrás.</div>
           )}
           {R.sobrepagos.n > 0 && (
-            <div>⚠ {R.sobrepagos.n} orden(es) <b>pagadas de más</b> por {F(R.sobrepagos.mxn)} / {FUSD(R.sobrepagos.usd)}.</div>
+            <div>⚠ {R.sobrepagos.n} orden(es) <b>pagadas de más</b> por {F(R.sobrepagos.mxn)} MXN y {FUSD(R.sobrepagos.usd)} USD.</div>
           )}
         </div>
       )}
@@ -563,10 +589,10 @@ function ComprasDashboard({ onOpenPO, onGoToList }: { onOpenPO: (id: string) => 
             topSuppliers.map((s, i) => (
               <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #1e1e1e' }}>
                 <span style={{ fontSize: 12, color: '#ccc' }}>{s.name}</span>
-                <span style={{ fontSize: 12, fontWeight: 600, color: '#10B981', display: 'flex', gap: 8, alignItems: 'baseline' }}>
-                  {s.totalMXN > 0 && <span>{F(s.totalMXN)}</span>}
-                  {s.totalUSD > 0 && <span style={{ color: '#A78BFA' }}>{FUSD(s.totalUSD)}</span>}
-                  <span style={{ color: '#555', fontWeight: 400 }}>({s.count})</span>
+                <span style={{ display: 'flex', gap: 10, alignItems: 'baseline', whiteSpace: 'nowrap' }}>
+                  {s.totalMXN > 0 && <Monto n={s.totalMXN} moneda="MXN" size={12} color="#10B981" />}
+                  {s.totalUSD > 0 && <Monto n={s.totalUSD} moneda="USD" size={12} color="#10B981" />}
+                  <span style={{ color: '#555', fontWeight: 400, fontSize: 11 }}>({s.count})</span>
                 </span>
               </div>
             ))
@@ -580,9 +606,9 @@ function ComprasDashboard({ onOpenPO, onGoToList }: { onOpenPO: (id: string) => 
             porProyecto.slice(0, 10).map((p, i) => (
               <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '7px 0', borderBottom: '1px solid #1e1e1e', gap: 10 }}>
                 <span style={{ fontSize: 12, color: '#ccc', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={p.proyecto}>{p.proyecto}</span>
-                <span style={{ fontSize: 12, fontWeight: 600, display: 'flex', gap: 8, alignItems: 'baseline', whiteSpace: 'nowrap' }}>
-                  {p.mxn > 0.005 && <span style={{ color: '#D97706' }}>{F(p.mxn)}</span>}
-                  {p.usd > 0.005 && <span style={{ color: '#A78BFA' }}>{FUSD(p.usd)}</span>}
+                <span style={{ display: 'flex', gap: 10, alignItems: 'baseline', whiteSpace: 'nowrap' }}>
+                  {p.mxn > 0.005 && <Monto n={p.mxn} moneda="MXN" size={12} color="#D97706" />}
+                  {p.usd > 0.005 && <Monto n={p.usd} moneda="USD" size={12} color="#D97706" />}
                   <span style={{ color: '#555', fontWeight: 400, fontSize: 11 }}>({p.ordenes})</span>
                 </span>
               </div>
