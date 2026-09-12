@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef, useMemo } from 'react'
 import { supabase } from '../lib/supabase'
+import { useAuth } from '../contexts/AuthContext'
 import { soloSistemasVendidos, sistemasApagados } from '../lib/sistemasVendidos'
 import { insertarOC } from '../lib/oc'
 import { fetchAllActiveCatalog } from '../lib/catalog'
@@ -8,7 +9,7 @@ import { Project, CatalogProduct, ProjectLine, PurchasePhase } from '../types'
 import { F, FUSD, FCUR, SPECIALTY_CONFIG, PHASE_CONFIG, formatDate } from '../lib/utils'
 import { Badge, Btn, KpiCard, Table, Th, Td, Loading, SectionHeader, EmptyState } from '../components/layout/UI'
 import { useIsMobile } from '../lib/useIsMobile'
-import { Plus, ChevronLeft, X, Search, Trash2, Save, ShoppingCart, Truck, Package, Users2, FileText, Copy, Sparkles, Upload, ClipboardList, ChevronRight, CheckCircle2, Circle, Clock, Download } from 'lucide-react'
+import { Plus, ChevronLeft, X, Search, Trash2, Save, ShoppingCart, Truck, Package, Users2, FileText, Copy, Sparkles, Upload, ClipboardList, ChevronRight, CheckCircle2, Circle, Clock, Download, Paperclip } from 'lucide-react'
 import { generatePOPdf } from '../lib/poPdf'
 import { sugerirFechaMaximaPago, estadoPago } from '../lib/pagoProveedor'
 import { normalizarMoneda, monedaDeCosto, type Moneda } from '../lib/moneda'
@@ -1197,6 +1198,9 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
   const [pagosPorOC, setPagosPorOC] = useState<Record<string, { n: number; pagado: number }>>({})
   // OC sobre la que se está registrando un pago desde la lista.
   const [pagandoOC, setPagandoOC] = useState<PurchaseOrder | null>(null)
+  // Cuantos documentos del proveedor trae cada OC, para no tener que abrirlas
+  // una por una nada mas para ver si ya llego el acuse.
+  const [docsPorOC, setDocsPorOC] = useState<Record<string, number>>({})
 
   // Total que se le muestra al usuario. Replica la misma aritmetica del
   // detalle de la OC (subtotal cotejado + extras, luego IVA) para que la
@@ -1235,7 +1239,8 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
         .order('created_at', { ascending: false }),
       supabase.from('po_items').select('purchase_order_id, total, real_total, cotejo_status'),
       supabase.from('purchase_order_payments').select('purchase_order_id, amount'),
-    ]).then(([poRes, itemsRes, pagosRes]) => {
+      supabase.from('po_documentos').select('purchase_order_id'),
+    ]).then(([poRes, itemsRes, pagosRes, docsRes]) => {
       setOrders(poRes.data || [])
       // Calcular resumen de cotejo por OC. sumCotejo y sumCatalogo son SUBTOTALES.
       // Los totales mostrados al usuario incluyen IVA 16% (sumCotejo * 1.16).
@@ -1260,6 +1265,9 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
         pg[k].pagado += Number(p.amount) || 0
       }
       setPagosPorOC(pg)
+      const dc: Record<string, number> = {}
+      for (const d of (docsRes.data as any[]) || []) dc[d.purchase_order_id] = (dc[d.purchase_order_id] || 0) + 1
+      setDocsPorOC(dc)
       setLoading(false)
     })
   }
@@ -1402,10 +1410,10 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
         <div style={{ overflowX: 'auto' }}>
           <Table>
             <thead><tr>
-              <Th>OC #</Th><Th>Descripción</Th><Th>Proveedor</Th><Th>Cotización</Th><Th>Lead</Th><Th>Especialidad</Th><Th>Fase</Th><Th>Estado</Th><Th>Cotejo</Th><Th>Pago</Th><Th>Fecha</Th><Th>Pago límite</Th><Th right>Total MXN</Th><Th right>Total USD</Th><Th></Th>
+              <Th>OC #</Th><Th>Descripción</Th><Th>Proveedor</Th><Th>Cotización</Th><Th>Lead</Th><Th>Especialidad</Th><Th>Fase</Th><Th>Estado</Th><Th>Cotejo</Th><Th>Pago</Th><Th>Docs</Th><Th>Fecha</Th><Th>Pago límite</Th><Th right>Total MXN</Th><Th right>Total USD</Th><Th></Th>
           </tr></thead>
           <tbody>
-            {lista.length === 0 && <tr><td colSpan={15}><EmptyState message="Sin órdenes de compra" /></td></tr>}
+            {lista.length === 0 && <tr><td colSpan={16}><EmptyState message="Sin órdenes de compra" /></td></tr>}
             {lista.map(o => {
               const st = PO_STATUS_CFG[o.status]
               const esp = SPECIALTY_CONFIG[o.specialty]
@@ -1477,6 +1485,12 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
                         )}
                       </div>
                     )
+                  })()}</Td>
+                  <Td>{(() => {
+                    const n = docsPorOC[o.id] || 0
+                    return n > 0
+                      ? <span title={`${n} documento(s) del proveedor`} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, color: '#A78BFA' }}><Paperclip size={11} />{n}</span>
+                      : <span style={{ color: '#333' }}>—</span>
                   })()}</Td>
                   <Td muted>{formatDate(o.created_at)}</Td>
                   <Td>{(() => {
@@ -4020,6 +4034,7 @@ function POEditor({ poId, onBack, onAbrirOtra }: { poId: string; onBack: () => v
         </div>
       )}
     {po && <PaymentsSection poId={po.id} poTotal={po.total} poCurrency={po.currency} poStatus={po.status} onStatusChange={(newStatus) => setPO({ ...po, status: newStatus })} />}
+    {po && <DocumentosSection poId={po.id} poNumero={po.po_number} />}
     </div>
   )
 }
@@ -4027,6 +4042,125 @@ function POEditor({ poId, onBack, onAbrirOtra }: { poId: string; onBack: () => v
 // ═══════════════════════════════════════════════════════════════════════════════
 //  PAYMENTS SECTION (inside POEditor)
 // ═══════════════════════════════════════════════════════════════════════════════
+
+// ═══════════════════════════ DOCUMENTOS DEL PROVEEDOR ═══════════════════════
+// El acuse que manda el proveedor, su remision, una revision posterior. Son
+// varios por orden: guardarlos en una sola columna obligaria a pisar el
+// anterior cada vez, y justo lo que sirve es el historial de lo que confirmo.
+interface PoDoc {
+  id: string; tipo: string; nombre: string; storage_path: string; url: string
+  bytes: number | null; notas: string | null; subido_por: string | null; created_at: string
+}
+
+const TIPO_DOC: Record<string, { label: string; color: string }> = {
+  confirmacion: { label: 'Confirmación del proveedor', color: '#10B981' },
+  remision:     { label: 'Remisión',                   color: '#2563EB' },
+  cotizacion:   { label: 'Cotización',                 color: '#A78BFA' },
+  factura:      { label: 'Factura',                    color: '#D97706' },
+  otro:         { label: 'Otro',                       color: '#6B7280' },
+}
+
+function DocumentosSection({ poId, poNumero }: { poId: string; poNumero?: string | null }) {
+  const { user } = useAuth()
+  const [docs, setDocs] = useState<PoDoc[]>([])
+  const [loading, setLoading] = useState(true)
+  const [subiendo, setSubiendo] = useState<string>('')
+  const [error, setError] = useState('')
+  const [tipo, setTipo] = useState('confirmacion')
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  const load = async () => {
+    setLoading(true)
+    const { data, error: e } = await supabase.from('po_documentos').select('*')
+      .eq('purchase_order_id', poId).order('created_at', { ascending: false })
+    if (e) setError('No se pudieron cargar los documentos: ' + e.message)
+    setDocs((data as any[]) || []); setLoading(false)
+  }
+  useEffect(() => { load() }, [poId])
+
+  async function subir(files: FileList) {
+    setError('')
+    for (const file of Array.from(files)) {
+      setSubiendo(file.name)
+      try {
+        // 20 MB: arriba de eso el navegador del usuario sufre y casi siempre es
+        // un escaneo sin comprimir que conviene volver a generar.
+        if (file.size > 20 * 1024 * 1024) throw new Error('Pesa más de 20 MB. Vuelve a escanearlo más ligero.')
+        const limpio = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
+        const path = `${poId}/${Date.now()}_${limpio}`
+        const { error: upErr } = await supabase.storage.from('oc-documentos').upload(path, file)
+        if (upErr) throw upErr
+        const { data: u } = supabase.storage.from('oc-documentos').getPublicUrl(path)
+        const { error: insErr } = await supabase.from('po_documentos').insert({
+          purchase_order_id: poId, tipo, nombre: file.name, storage_path: path,
+          url: u.publicUrl, bytes: file.size, content_type: file.type || null,
+          subido_por: user?.nombre || user?.email || null,
+        })
+        // Si el registro falla, el archivo ya subido queda huerfano en el
+        // bucket: se borra para no dejar basura que nadie va a poder ver.
+        if (insErr) { await supabase.storage.from('oc-documentos').remove([path]); throw insErr }
+      } catch (e: any) {
+        setError(`No se subió "${file.name}": ` + (e?.message || String(e)))
+      }
+    }
+    setSubiendo(''); if (fileRef.current) fileRef.current.value = ''
+    load()
+  }
+
+  async function borrar(d: PoDoc) {
+    if (!confirm(`¿Borrar "${d.nombre}"?`)) return
+    const { error: e } = await supabase.from('po_documentos').delete().eq('id', d.id)
+    if (e) { setError('No se pudo borrar: ' + e.message); return }
+    await supabase.storage.from('oc-documentos').remove([d.storage_path])
+    load()
+  }
+
+  const peso = (b: number | null) => b == null ? '' : b > 1048576 ? (b / 1048576).toFixed(1) + ' MB' : Math.round(b / 1024) + ' KB'
+
+  return (
+    <div style={{ marginTop: 20, background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 12, padding: 16 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, gap: 10, flexWrap: 'wrap' }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: '#fff' }}>
+          Documentos del proveedor ({docs.length})
+        </div>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <select value={tipo} onChange={e => setTipo(e.target.value)}
+            style={{ padding: '6px 10px', background: '#0e0e0e', border: '1px solid #2a2a2a', borderRadius: 8, color: '#eee', fontSize: 12, fontFamily: 'inherit' }}>
+            {Object.entries(TIPO_DOC).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+          </select>
+          <input ref={fileRef} type="file" multiple accept=".pdf,image/*" style={{ display: 'none' }}
+            onChange={e => e.target.files?.length && subir(e.target.files)} />
+          <Btn variant="primary" onClick={() => fileRef.current?.click()} disabled={!!subiendo}>
+            <Upload size={12} /> {subiendo ? 'Subiendo…' : 'Subir PDF'}
+          </Btn>
+        </div>
+      </div>
+
+      {error && <div style={{ background: '#3a1a1a', border: '1px solid #5a2a2a', borderRadius: 8, padding: 8, color: '#f87171', fontSize: 11, marginBottom: 10 }}>{error}</div>}
+
+      {loading ? <div style={{ fontSize: 11, color: '#555', padding: 10 }}>Cargando...</div>
+        : docs.length === 0 ? (
+        <div style={{ fontSize: 11, color: '#555', padding: '14px 10px', textAlign: 'center' as const }}>
+          Sin documentos. Sube aquí el acuse o la confirmación que te manda el proveedor de {poNumero || 'esta orden'}.
+        </div>
+      ) : docs.map(d => {
+        const cfg = TIPO_DOC[d.tipo] || TIPO_DOC.otro
+        return (
+          <div key={d.id} style={{ display: 'grid', gridTemplateColumns: '150px 1fr 80px 110px 24px', gap: 8, padding: '8px 0', borderBottom: '1px solid #1a1a1a', fontSize: 11, alignItems: 'center' }}>
+            <Badge label={cfg.label} color={cfg.color} />
+            <a href={d.url} target="_blank" rel="noopener noreferrer"
+              style={{ color: '#A78BFA', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={d.nombre}>
+              {d.nombre}
+            </a>
+            <span style={{ color: '#666' }}>{peso(d.bytes)}</span>
+            <span style={{ color: '#888' }}>{formatDate(d.created_at)}{d.subido_por ? ' · ' + d.subido_por.split(' ')[0] : ''}</span>
+            <button onClick={() => borrar(d)} title="Borrar" style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', padding: 2 }}><Trash2 size={12} /></button>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
 
 function PaymentsSection({ poId, poTotal, poCurrency, poStatus, onStatusChange }: { poId: string; poTotal: number; poCurrency: 'MXN' | 'USD'; poStatus: POStatus; onStatusChange: (newStatus: POStatus) => void }) {
   const [payments, setPayments] = useState<POPayment[]>([])
