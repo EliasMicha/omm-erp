@@ -1,6 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { createCipheriv, createHmac, createHash, randomBytes, timingSafeEqual } from 'node:crypto'
-import { requireSupabaseUser } from './_auth'
 
 export const config = {
   maxDuration: 60,
@@ -1146,8 +1145,6 @@ export default async function handler(
     res.status(405).json({ ok: false, error: 'Método no permitido' })
     return
   }
-
-  if (!(await requireSupabaseUser(req, res, { endpoint: 'chatbot' }))) return
 
   try {
     const apiKey = process.env.OPENAI_API_KEY
