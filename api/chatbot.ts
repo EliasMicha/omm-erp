@@ -1,6 +1,11 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
+import { createCipheriv, createHmac, createHash, randomBytes, timingSafeEqual } from 'node:crypto'
+import { requireSupabaseUser } from './_auth'
 
-export const config = { maxDuration: 60 }
+export const config = {
+  maxDuration: 60,
+  api: { bodyParser: false }, // Meta exige validar la firma contra los bytes originales.
+}
 
 const SUPABASE_URL = 'https://ubbumxommqjcpdozpunf.supabase.co'
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InViYnVteG9tbXFqY3Bkb3pwdW5mIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUwODA3MzAsImV4cCI6MjA5MDY1NjczMH0.GPKeRgjzjZ96Qo6lYMHKF68YK4y6ZmexvORsNT8VGns'
@@ -22,6 +27,329 @@ interface ChatResponse {
   conversationId: string
   actions?: any[]
   error?: string
+}
+
+interface WhatsAppSessionInfo {
+  waba_id?: string
+  phone_number_id?: string
+  business_id?: string
+  [key: string]: unknown
+}
+
+const WHATSAPP_CONFIG_ID = '2154303361815078'
+
+async function readRawBody(req: VercelRequest): Promise<string> {
+  if (Buffer.isBuffer(req.body)) return req.body.toString('utf8')
+  if (typeof req.body === 'string') return req.body
+  if (req.body && typeof req.body === 'object') return JSON.stringify(req.body)
+
+  const chunks: Buffer[] = []
+  for await (const chunk of req) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
+  return Buffer.concat(chunks).toString('utf8')
+}
+
+function parseJsonBody<T>(rawBody: string): T {
+  try {
+    return JSON.parse(rawBody || '{}') as T
+  } catch {
+    throw new Error('El cuerpo de la solicitud no contiene JSON válido')
+  }
+}
+
+function serverSupabaseConfig() {
+  const url = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || SUPABASE_URL).replace(/\/$/, '')
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || ''
+  if (!serviceKey) throw new Error('SUPABASE_SERVICE_ROLE_KEY no configurada')
+  return { url, serviceKey }
+}
+
+function serviceHeaders(prefer?: string) {
+  const { serviceKey } = serverSupabaseConfig()
+  return {
+    apikey: serviceKey,
+    Authorization: `Bearer ${serviceKey}`,
+    'Content-Type': 'application/json',
+    ...(prefer ? { Prefer: prefer } : {}),
+  }
+}
+
+function bearer(req: VercelRequest): string | null {
+  const match = String(req.headers.authorization || '').match(/^Bearer\s+(.+)$/i)
+  return match?.[1]?.trim() || null
+}
+
+async function requireDgUser(req: VercelRequest, res: VercelResponse): Promise<string | null> {
+  const accessToken = bearer(req)
+  if (!accessToken) {
+    res.status(401).json({ ok: false, error: 'Autenticación requerida' })
+    return null
+  }
+
+  const url = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || SUPABASE_URL).replace(/\/$/, '')
+  const anonKey = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || SUPABASE_KEY
+  const authResponse = await fetch(`${url}/auth/v1/user`, {
+    headers: { apikey: anonKey, Authorization: `Bearer ${accessToken}` },
+  })
+  if (!authResponse.ok) {
+    res.status(401).json({ ok: false, error: 'Sesión inválida o vencida' })
+    return null
+  }
+
+  const authUser = await authResponse.json() as { id?: string }
+  if (!authUser.id) {
+    res.status(401).json({ ok: false, error: 'No se pudo identificar al usuario' })
+    return null
+  }
+
+  const profileResponse = await fetch(`${url}/rest/v1/rpc/get_my_app_user`, {
+    method: 'POST',
+    headers: { apikey: anonKey, Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+    body: '{}',
+  })
+  const profiles = profileResponse.ok ? await profileResponse.json() as Array<{ permission_area?: string; activo?: boolean }> : []
+  if (!profiles[0]?.activo || profiles[0]?.permission_area !== 'DG') {
+    res.status(403).json({ ok: false, error: 'Solo Dirección General puede conectar WhatsApp Business' })
+    return null
+  }
+  return authUser.id
+}
+
+async function graphRequest(path: string, token: string, init: RequestInit = {}) {
+  const version = process.env.META_GRAPH_API_VERSION || 'v25.0'
+  const response = await fetch(`https://graph.facebook.com/${version}/${path.replace(/^\//, '')}`, {
+    ...init,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      ...(init.body ? { 'Content-Type': 'application/json' } : {}),
+      ...init.headers,
+    },
+  })
+  const body = await response.json().catch(() => ({})) as any
+  if (!response.ok || body?.error) {
+    const message = body?.error?.message || `Meta Graph API respondió ${response.status}`
+    throw new Error(message)
+  }
+  return body
+}
+
+function encryptWhatsAppToken(token: string) {
+  const encryptionSecret = process.env.WHATSAPP_TOKEN_ENCRYPTION_KEY || ''
+  if (encryptionSecret.length < 32) {
+    throw new Error('WHATSAPP_TOKEN_ENCRYPTION_KEY debe tener al menos 32 caracteres')
+  }
+  const key = createHash('sha256').update(encryptionSecret, 'utf8').digest()
+  const iv = randomBytes(12)
+  const cipher = createCipheriv('aes-256-gcm', key, iv)
+  const ciphertext = Buffer.concat([cipher.update(token, 'utf8'), cipher.final()])
+  return {
+    access_token_ciphertext: ciphertext.toString('base64'),
+    access_token_iv: iv.toString('base64'),
+    access_token_tag: cipher.getAuthTag().toString('base64'),
+  }
+}
+
+async function getWhatsAppConnection() {
+  const { url } = serverSupabaseConfig()
+  const response = await fetch(
+    `${url}/rest/v1/whatsapp_connections?id=eq.omm&select=waba_id,phone_number_id,business_id,display_phone_number,verified_name,platform_type,is_on_biz_app,token_expires_at,subscribed_at,connected_at,updated_at`,
+    { headers: serviceHeaders() },
+  )
+  if (!response.ok) {
+    if (response.status === 404) return null
+    throw new Error(`No se pudo consultar la conexión (${response.status})`)
+  }
+  const rows = await response.json() as unknown[]
+  return rows[0] || null
+}
+
+async function exchangeEmbeddedSignupCode(
+  code: string,
+  sessionInfo: WhatsAppSessionInfo,
+  connectedBy: string,
+) {
+  const appId = process.env.META_APP_ID || ''
+  const appSecret = process.env.META_APP_SECRET || ''
+  if (!appId || !appSecret) throw new Error('META_APP_ID o META_APP_SECRET no configurados')
+  if (!code) throw new Error('Meta no devolvió el código de autorización')
+  if (!sessionInfo.waba_id) throw new Error('Embedded Signup no devolvió el WABA ID')
+
+  const version = process.env.META_GRAPH_API_VERSION || 'v25.0'
+  const oauthUrl = new URL(`https://graph.facebook.com/${version}/oauth/access_token`)
+  oauthUrl.searchParams.set('client_id', appId)
+  oauthUrl.searchParams.set('client_secret', appSecret)
+  oauthUrl.searchParams.set('code', code)
+  const tokenResponse = await fetch(oauthUrl)
+  const tokenBody = await tokenResponse.json().catch(() => ({})) as any
+  if (!tokenResponse.ok || !tokenBody.access_token) {
+    throw new Error(tokenBody?.error?.message || 'No se pudo canjear el código de Meta')
+  }
+
+  const accessToken = String(tokenBody.access_token)
+  const wabaId = String(sessionInfo.waba_id)
+  let phones: any[] = []
+  try {
+    const phoneResult = await graphRequest(
+      `${wabaId}/phone_numbers?fields=id,display_phone_number,verified_name,quality_rating,platform_type,is_on_biz_app`,
+      accessToken,
+    )
+    phones = phoneResult.data || []
+  } catch {
+    const phoneResult = await graphRequest(
+      `${wabaId}/phone_numbers?fields=id,display_phone_number,verified_name,quality_rating`,
+      accessToken,
+    )
+    phones = phoneResult.data || []
+  }
+
+  const requestedPhoneId = sessionInfo.phone_number_id ? String(sessionInfo.phone_number_id) : ''
+  const phone = phones.find(p => String(p.id) === requestedPhoneId)
+    || phones.find(p => p.is_on_biz_app === true)
+    || (phones.length === 1 ? phones[0] : null)
+  if (!phone?.id) {
+    throw new Error('No se pudo identificar de forma inequívoca el número de WhatsApp conectado')
+  }
+
+  // En coexistencia estos campos viven en el nodo del número. Algunos WABA
+  // todavía no los aceptan en /phone_numbers, por eso esta consulta es best-effort.
+  try {
+    const phoneDetails = await graphRequest(
+      `${phone.id}?fields=id,display_phone_number,verified_name,platform_type,is_on_biz_app`,
+      accessToken,
+    )
+    Object.assign(phone, phoneDetails)
+  } catch {
+    // La conexión sigue siendo válida; la UI mostrará coexistencia por confirmar.
+  }
+
+  await graphRequest(`${wabaId}/subscribed_apps?subscribed_fields=messages`, accessToken, { method: 'POST' })
+
+  const encrypted = encryptWhatsAppToken(accessToken)
+  const expiresIn = Number(tokenBody.expires_in || 0)
+  const tokenExpiresAt = expiresIn > 0 ? new Date(Date.now() + expiresIn * 1000).toISOString() : null
+  const now = new Date().toISOString()
+  const row = {
+    id: 'omm',
+    waba_id: wabaId,
+    phone_number_id: String(phone.id),
+    business_id: sessionInfo.business_id ? String(sessionInfo.business_id) : null,
+    display_phone_number: phone.display_phone_number || null,
+    verified_name: phone.verified_name || null,
+    platform_type: phone.platform_type || null,
+    is_on_biz_app: typeof phone.is_on_biz_app === 'boolean' ? phone.is_on_biz_app : null,
+    ...encrypted,
+    token_expires_at: tokenExpiresAt,
+    subscribed_at: now,
+    connected_by: connectedBy,
+    connected_at: now,
+    updated_at: now,
+  }
+
+  const { url } = serverSupabaseConfig()
+  const saveResponse = await fetch(`${url}/rest/v1/whatsapp_connections?on_conflict=id`, {
+    method: 'POST',
+    headers: serviceHeaders('resolution=merge-duplicates,return=representation'),
+    body: JSON.stringify(row),
+  })
+  if (!saveResponse.ok) throw new Error(`No se pudo guardar la conexión (${saveResponse.status})`)
+  const saved = await saveResponse.json() as any[]
+  const { access_token_ciphertext: _ciphertext, access_token_iv: _iv, access_token_tag: _tag, ...safe } = saved[0] || row
+  return safe
+}
+
+function validMetaSignature(rawBody: string, signatureHeader: string | undefined): boolean {
+  const appSecret = process.env.META_APP_SECRET || ''
+  if (!appSecret || !signatureHeader?.startsWith('sha256=')) return false
+  const received = signatureHeader.slice(7)
+  const expected = createHmac('sha256', appSecret).update(rawBody, 'utf8').digest('hex')
+  const receivedBuffer = Buffer.from(received, 'utf8')
+  const expectedBuffer = Buffer.from(expected, 'utf8')
+  return receivedBuffer.length === expectedBuffer.length && timingSafeEqual(receivedBuffer, expectedBuffer)
+}
+
+async function saveWhatsAppWebhook(rawBody: string) {
+  const payload = parseJsonBody<any>(rawBody)
+  const firstValue = payload?.entry?.[0]?.changes?.[0]?.value
+  const messageId = firstValue?.messages?.[0]?.id || firstValue?.statuses?.[0]?.id
+  const eventKey = messageId
+    ? `${messageId}:${firstValue?.statuses?.[0]?.status || 'message'}`
+    : createHash('sha256').update(rawBody, 'utf8').digest('hex')
+  const row = {
+    event_key: eventKey,
+    object_type: payload?.object || null,
+    waba_id: payload?.entry?.[0]?.id || null,
+    phone_number_id: firstValue?.metadata?.phone_number_id || null,
+    payload,
+  }
+  const { url } = serverSupabaseConfig()
+  const response = await fetch(`${url}/rest/v1/whatsapp_webhook_events?on_conflict=event_key`, {
+    method: 'POST',
+    headers: serviceHeaders('resolution=ignore-duplicates,return=minimal'),
+    body: JSON.stringify(row),
+  })
+  if (!response.ok) throw new Error(`No se pudo registrar el webhook (${response.status})`)
+}
+
+async function handleWhatsAppAction(req: VercelRequest, res: VercelResponse, action: string): Promise<void> {
+  res.setHeader('Cache-Control', 'no-store')
+
+  if (action === 'whatsapp_webhook') {
+    if (req.method === 'GET') {
+      const mode = String(req.query['hub.mode'] || '')
+      const token = String(req.query['hub.verify_token'] || '')
+      const challenge = String(req.query['hub.challenge'] || '')
+      if (mode === 'subscribe' && token && token === process.env.WHATSAPP_VERIFY_TOKEN && challenge) {
+        res.status(200).send(challenge)
+      } else {
+        res.status(403).send('Forbidden')
+      }
+      return
+    }
+    if (req.method === 'POST') {
+      const rawBody = await readRawBody(req)
+      if (!validMetaSignature(rawBody, req.headers['x-hub-signature-256'] as string | undefined)) {
+        res.status(401).send('Invalid signature')
+        return
+      }
+      await saveWhatsAppWebhook(rawBody)
+      res.status(200).send('EVENT_RECEIVED')
+      return
+    }
+    res.setHeader('Allow', 'GET, POST')
+    res.status(405).send('Method not allowed')
+    return
+  }
+
+  const userId = await requireDgUser(req, res)
+  if (!userId) return
+
+  if (action === 'whatsapp_config' && req.method === 'GET') {
+    const host = String(req.headers['x-forwarded-host'] || req.headers.host || 'omm-erp.vercel.app')
+    const protocol = String(req.headers['x-forwarded-proto'] || 'https')
+    const appId = process.env.META_APP_ID || ''
+    res.status(200).json({
+      ok: true,
+      configured: !!appId
+        && !!process.env.META_APP_SECRET
+        && !!process.env.WHATSAPP_VERIFY_TOKEN
+        && !!process.env.WHATSAPP_TOKEN_ENCRYPTION_KEY
+        && !!process.env.SUPABASE_SERVICE_ROLE_KEY,
+      appId,
+      configId: process.env.META_WHATSAPP_CONFIG_ID || WHATSAPP_CONFIG_ID,
+      graphApiVersion: process.env.META_GRAPH_API_VERSION || 'v25.0',
+      callbackUrl: `${protocol}://${host}/api/webhooks/whatsapp`,
+      connection: process.env.SUPABASE_SERVICE_ROLE_KEY ? await getWhatsAppConnection() : null,
+    })
+    return
+  }
+
+  if (action === 'whatsapp_connect' && req.method === 'POST') {
+    const body = parseJsonBody<{ code?: string; sessionInfo?: WhatsAppSessionInfo }>(await readRawBody(req))
+    const connection = await exchangeEmbeddedSignupCode(body.code || '', body.sessionInfo || {}, userId)
+    res.status(200).json({ ok: true, connection })
+    return
+  }
+
+  res.status(405).json({ ok: false, error: 'Método no permitido' })
 }
 
 const tools = [
@@ -793,9 +1121,21 @@ export default async function handler(
   req: VercelRequest,
   res: VercelResponse,
 ): Promise<void> {
+  const action = String(req.query.action || '')
+  if (action.startsWith('whatsapp_')) {
+    try {
+      await handleWhatsAppAction(req, res, action)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Error inesperado en la integración de WhatsApp'
+      console.error('[whatsapp]', message)
+      if (!res.headersSent) res.status(500).json({ ok: false, error: message })
+    }
+    return
+  }
+
   res.setHeader('Access-Control-Allow-Origin', '*')
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
 
   if (req.method === 'OPTIONS') {
     res.status(200).end()
@@ -806,6 +1146,8 @@ export default async function handler(
     res.status(405).json({ ok: false, error: 'Método no permitido' })
     return
   }
+
+  if (!(await requireSupabaseUser(req, res, { endpoint: 'chatbot' }))) return
 
   try {
     const apiKey = process.env.OPENAI_API_KEY
@@ -819,7 +1161,7 @@ export default async function handler(
       return
     }
 
-    const { message, conversationId, history = [] } = req.body as ChatRequest
+    const { message, conversationId, history = [] } = parseJsonBody<ChatRequest>(await readRawBody(req))
 
     if (!message) {
       res.status(400).json({

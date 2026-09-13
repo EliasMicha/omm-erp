@@ -37,6 +37,7 @@ import Mantenimiento from './pages/Mantenimiento'
 import ObraApp from './obra-app/ObraApp'
 import ExamenPublicoPage from './pages/ExamenPublico'
 import ChatBot from './components/ChatBot'
+import WhatsAppIntegration from './pages/WhatsAppIntegration'
 
 
 export default function App() {
@@ -120,6 +121,11 @@ export default function App() {
                     <Route path="/usuarios" element={
                       <ProtectedRoute allowedAreas={[]}>
                         <Usuarios />
+                      </ProtectedRoute>
+                    } />
+                    <Route path="/integraciones/whatsapp" element={
+                      <ProtectedRoute allowedAreas={[]}>
+                        <WhatsAppIntegration />
                       </ProtectedRoute>
                     } />
                   </Routes>

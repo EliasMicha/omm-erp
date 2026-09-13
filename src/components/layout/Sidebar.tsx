@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
-import { LayoutDashboard, FileText, ClipboardList, Users, Truck, FolderOpen, Users2, BookOpen, ShoppingCart, TrendingUp, Building2, Package, Receipt, BrainCircuit, ChevronLeft, ChevronRight, Menu, X, LogOut, Shield, Wrench, Archive, Gauge, FolderArchive, ListChecks, GraduationCap, UserPlus } from 'lucide-react'
+import { LayoutDashboard, FileText, ClipboardList, Users, Truck, FolderOpen, Users2, BookOpen, ShoppingCart, TrendingUp, Building2, Package, Receipt, BrainCircuit, ChevronLeft, ChevronRight, Menu, X, LogOut, Shield, Wrench, Archive, Gauge, FolderArchive, ListChecks, GraduationCap, UserPlus, MessageCircle } from 'lucide-react'
 import { useIsMobile } from '../../lib/useIsMobile'
 import { useAuth, PermissionArea, RESTRICTED_AREA_ROUTES } from '../../contexts/AuthContext'
 
@@ -37,6 +37,7 @@ const NAV: NavItem[] = [
   { to: '/design-rules', icon: BrainCircuit, label: 'Reglas AI' },
   { to: '/archivados', icon: Archive, label: 'Archivados' },
   { to: '/usuarios', icon: Shield, label: 'Usuarios', allowedAreas: [] as PermissionArea[] },
+  { to: '/integraciones/whatsapp', icon: MessageCircle, label: 'WhatsApp Business', allowedAreas: [] as PermissionArea[] },
 ]
 
 export default function Sidebar() {
