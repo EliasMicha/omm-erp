@@ -2,10 +2,14 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 
+const isVercelPreview = process.env.VERCEL_ENV === 'preview'
+
 export default defineConfig({
   plugins: [
     react(),
-    VitePWA({
+    // Los previews se usan para validar integraciones y no necesitan instalar
+    // un service worker. Omitirlo evita que el build remoto compita por dist/sw.js.
+    !isVercelPreview && VitePWA({
       // Desactivamos el PWA: genera un SW que se auto-elimina y limpia todos los
       // caches en los clientes (soluciona los "no entra la actualización" por SW viejo).
       selfDestroying: true,
