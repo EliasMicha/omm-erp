@@ -3601,6 +3601,7 @@ function TabPlaneacion({ obras, instaladores }: { obras: ObraData[]; instaladore
   const [assignments, setAssignments] = useState<Map<string, Map<number, AsgItem[]>>>(new Map())
   const [selectedCell, setSelectedCell] = useState<{ instId: string; dayIdx: number } | null>(null)
   const [newTask, setNewTask] = useState({ obra_id: '', tarea: '' })
+  const [planError, setPlanError] = useState<string | null>(null)
 
   // Week calculation
   const today = new Date()
@@ -3627,20 +3628,42 @@ function TabPlaneacion({ obras, instaladores }: { obras: ObraData[]; instaladore
   }
 
   // ── Persistencia ──────────────────────────────────────────────────────────
+  // OJO: nunca usar .maybeSingle()/.single() para buscar el plan de la semana.
+  // Si por lo que sea existiera más de un renglón, PostgREST devuelve 406 y
+  // `data` llega en null: la pantalla se vaciaba y cada guardado creaba OTRO
+  // plan. La semana del 14-sep llegó a tener 41 planes y 114 asignaciones
+  // invisibles. Ahora hay índice único en weekly_plans(week_start).
+  async function buscarPlanId(): Promise<string | null> {
+    const { data, error } = await supabase.from('weekly_plans')
+      .select('id').eq('week_start', weekStartStr).order('created_at', { ascending: true }).limit(1)
+    if (error) { console.error('weekly_plans select', error); setPlanError('No se pudo leer el plan de la semana: ' + error.message); return null }
+    return (data as any[])?.[0]?.id || null
+  }
+
   async function ensureWeeklyPlan(): Promise<string | null> {
-    const { data: plan } = await supabase.from('weekly_plans').select('id').eq('week_start', weekStartStr).maybeSingle()
-    if (plan) return plan.id
-    const { data: created, error } = await supabase.from('weekly_plans').insert({ week_start: weekStartStr }).select('id').single()
-    if (error) { console.error('weekly_plans insert', error); return null }
-    return created.id
+    const existente = await buscarPlanId()
+    if (existente) return existente
+    const { data: created, error } = await supabase.from('weekly_plans')
+      .upsert({ week_start: weekStartStr }, { onConflict: 'week_start' }).select('id').limit(1)
+    if (error) {
+      console.error('weekly_plans upsert', error)
+      // Otra pestaña pudo haberlo creado entre la lectura y la escritura
+      const reintento = await buscarPlanId()
+      if (reintento) return reintento
+      setPlanError('No se pudo crear el plan de la semana: ' + error.message)
+      return null
+    }
+    return (created as any[])?.[0]?.id || await buscarPlanId()
   }
 
   async function loadWeek() {
-    const { data: plan } = await supabase.from('weekly_plans').select('id').eq('week_start', weekStartStr).maybeSingle()
-    if (!plan) { setAssignments(new Map()); return }
-    const { data: asns } = await supabase.from('weekly_plan_assignments')
+    setPlanError(null)
+    const planId = await buscarPlanId()
+    if (!planId) { setAssignments(new Map()); return }
+    const { data: asns, error } = await supabase.from('weekly_plan_assignments')
       .select('id, employee_id, obra_id, project_id, day_of_week, tareas, obras(id, nombre)')
-      .eq('plan_id', plan.id)
+      .eq('plan_id', planId)
+    if (error) { console.error('weekly_plan_assignments select', error); setPlanError('No se pudo cargar la planeación: ' + error.message); return }
     const map = new Map<string, Map<number, AsgItem[]>>()
     for (const a of (asns as any[]) || []) {
       const dayIdx = (a.day_of_week ?? 1) - 1
@@ -3672,8 +3695,14 @@ function TabPlaneacion({ obras, instaladores }: { obras: ObraData[]; instaladore
         })
       }
     }
-    if (wpa.length) await supabase.from('weekly_plan_assignments').insert(wpa)
-    if (ida.length) await supabase.from('installer_daily_assignment').insert(ida)
+    if (wpa.length) {
+      const { error } = await supabase.from('weekly_plan_assignments').insert(wpa)
+      if (error) { console.error('wpa insert', error); setPlanError('No se pudo guardar la planeación: ' + error.message); return }
+    }
+    if (ida.length) {
+      const { error } = await supabase.from('installer_daily_assignment').insert(ida)
+      if (error) console.error('ida insert', error)
+    }
     await loadWeek()
   }
 
@@ -3861,7 +3890,10 @@ function TabPlaneacion({ obras, instaladores }: { obras: ObraData[]; instaladore
   const removeAssignment = async (instId: string, dayIdx: number, taskIdx: number) => {
     const item = assignments.get(instId)?.get(dayIdx)?.[taskIdx]
     const fecha = ymdLocal(weekDays[dayIdx])
-    if (item?.id) await supabase.from('weekly_plan_assignments').delete().eq('id', item.id)
+    if (item?.id) {
+      const { error } = await supabase.from('weekly_plan_assignments').delete().eq('id', item.id)
+      if (error) { console.error('wpa delete', error); setPlanError('No se pudo borrar la asignación: ' + error.message); return }
+    }
 
     // Recalcular el espejo diario: queda el primero restante de ese día (o se borra)
     const remaining = (assignments.get(instId)?.get(dayIdx) || []).filter((_, i) => i !== taskIdx)
@@ -3981,6 +4013,14 @@ Responde SOLO con un JSON, sin markdown, sin explicación:
 
   return (
     <div>
+      {/* Aviso cuando la BD rechaza algo: antes fallaba en silencio */}
+      {planError && (
+        <div style={{ background: '#2A1215', border: '1px solid #DC2626', borderRadius: 6, padding: '8px 12px', marginBottom: 12, color: '#FCA5A5', fontSize: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <AlertTriangle size={14} />
+          <span style={{ flex: 1 }}>{planError}</span>
+          <button onClick={() => { setPlanError(null); loadWeek() }} style={{ background: 'transparent', border: '1px solid #DC2626', borderRadius: 4, color: '#FCA5A5', padding: '2px 8px', cursor: 'pointer', fontFamily: 'inherit', fontSize: 11 }}>Reintentar</button>
+        </div>
+      )}
       {/* Week navigation */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
         <button onClick={() => setWeekOffset(w => w - 1)} style={{ background: '#141414', border: '1px solid #333', borderRadius: 6, padding: '4px 10px', color: '#ccc', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12 }}>← Anterior</button>
