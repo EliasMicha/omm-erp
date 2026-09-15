@@ -788,19 +788,37 @@ export default function TabPeriodos() {
   const closePeriod = async () => {
     if (!period) return
     if (!confirm('¿Cerrar este periodo? Ya no se podrán editar los montos.\n\nLos tickets de caja chica aprobados de este rango se marcarán como PAGADOS (ya van dentro del efectivo de esta nómina).')) return
-    await supabase.from('payroll_periods').update({ estatus: 'cerrado' }).eq('id', period.id)
+    const { error: errPer } = await supabase.from('payroll_periods').update({ estatus: 'cerrado' }).eq('id', period.id)
+    if (errPer) { alert('No se pudo cerrar el periodo: ' + errPer.message); return }
     // Marcar como PAGADOS y ligar al item de nómina los tickets de caja chica aprobados del
     // rango. Así: (a) el estatus refleja que ya se pagaron dentro de la nómina, y (b) quedan
     // ligados a este período para que NO se vuelvan a jalar en otro período (evita doble conteo).
-    const { data: pitems } = await supabase.from('payroll_items').select('id, employee_id').eq('period_id', period.id)
+    // OJO: este bloque ignoraba `error`. Durante meses el CHECK de la BD rechazó 'pagado'
+    // (solo aceptaba 'reembolsado') y nadie se enteró: ningún ticket quedó ligado a su nómina,
+    // así que la protección contra doble conteo nunca estuvo activa. Ahora se revisa y se avisa.
+    const { data: pitems, error: errItems } = await supabase.from('payroll_items').select('id, employee_id').eq('period_id', period.id)
+    if (errItems) { alert('El periodo se cerró, pero no se pudieron leer los items de nómina: ' + errItems.message); await loadPeriod(); return }
+    let ligados = 0
+    const fallos: string[] = []
     for (const it of (pitems || []) as { id: string; employee_id: string }[]) {
-      await supabase.from('caja_chica_tickets')
+      const { data: upd, error } = await supabase.from('caja_chica_tickets')
         .update({ estatus: 'pagado', payroll_item_id: it.id })
         .eq('estatus', 'aprobado')
         .is('payroll_item_id', null)
         .eq('employee_id', it.employee_id)
         .gte('fecha', period.period_start)
         .lte('fecha', period.period_end)
+        .select('id')
+      if (error) fallos.push(error.message)
+      else ligados += (upd || []).length
+    }
+    if (fallos.length) {
+      alert(
+        'El periodo se cerró, pero ' + fallos.length + ' empleado(s) no pudieron ligar su caja chica a esta nómina.\n\n' +
+        fallos[0] + '\n\nEsos tickets siguen como APROBADOS y se volverán a jalar en el siguiente periodo. Revísalos antes de pagar.'
+      )
+    } else if (ligados > 0) {
+      alert('Periodo cerrado. Se marcaron como pagados ' + ligados + ' ticket(s) de caja chica y quedaron ligados a esta nómina.')
     }
     await loadPeriod()
   }
