@@ -9,6 +9,18 @@ export const FUSD = (n: number) =>
 export const FCUR = (n: number, currency?: string | null) =>
   (currency === 'USD' ? FUSD : F)(n)
 
+// Cantidades (piezas, paquetes), no dinero. Sin decimales cuando son enteras
+// —"535", no "535.00"— y con separador de miles para que 1234 se lea 1,234.
+// Hasta 2 decimales cuando la partida se vende por metro o por rollo.
+export const FQTY = (n: number | null | undefined) => {
+  const v = Number(n)
+  if (!isFinite(v)) return '0'
+  return new Intl.NumberFormat('es-MX', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: Number.isInteger(v) ? 0 : 2,
+  }).format(v)
+}
+
 
 export const PHASE_CONFIG: Record<PurchasePhase, { label: string; color: string; order: number }> = {
   inicio:   { label: 'Inicio',   color: '#2563EB', order: 0 },

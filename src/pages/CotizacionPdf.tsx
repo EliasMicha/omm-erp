@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef } from 'react'
 import { leerCargos, sumaCargos, calcularTotales } from '../lib/cargosCotizacion'
 import { useParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { FCUR } from '../lib/utils'
+import { FCUR, FQTY as fNum } from '../lib/utils'
 import { agruparPorBundle } from '../lib/bundlesIlum'
 import { OMNIIOUS_LOGO } from '../assets/logo'
 import { IDENTIDAD_DEFAULT } from '../lib/identidadOmm'
@@ -1057,7 +1057,7 @@ function CotizacionPdfInner() {
                 <th style={{ width: 95 }}>Modelo</th>
                 <th>Descripción</th>
                 <th style={{ width: 60 }}>Sistema</th>
-                <th style={{ textAlign: 'center', width: 36 }}>Cant</th>
+                <th style={{ textAlign: 'center', width: 72 }}>Cant</th>
                 <th style={{ textAlign: 'right', width: 70 }}>P. unit.</th>
                 <th style={{ textAlign: 'right', width: 70 }}>Total</th>
               </tr>
@@ -1080,7 +1080,7 @@ function CotizacionPdfInner() {
                     {it.description && <div style={{ fontSize: 9, color: '#888', marginTop: 2, lineHeight: 1.4 }}>{it.description}</div>}
                   </td>
                   <td style={{ fontSize: 9, color: '#666' }}>{it.system || '—'}</td>
-                  <td style={{ textAlign: 'center' }}>{it.quantity}</td>
+                  <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>{it.quantity}</td>
                   <td style={{ textAlign: 'right', fontWeight: 500 }}>{FCUR(it.price, currency)}</td>
                   <td style={{ textAlign: 'right', fontWeight: 600 }}>{FCUR(it.price * it.quantity, currency)}</td>
                 </tr>
@@ -1130,7 +1130,7 @@ function CotizacionPdfInner() {
                             {mostrarCostosInternos && <th style={{ width: 80 }}>SKU / Prov.</th>}
                             {mostrarCostosInternos && <th style={{ textAlign: 'right', width: 60 }}>Costo</th>}
                             {mostrarCostosInternos && <th style={{ textAlign: 'center', width: 36 }}>MUp</th>}
-                            <th style={{ textAlign: 'center', width: esResumen ? 70 : 36, fontSize: esResumen ? 11 : undefined }}>{esResumen ? 'Cantidad' : 'Cant'}</th>
+                            <th style={{ textAlign: 'center', width: esResumen ? 70 : 72, fontSize: esResumen ? 11 : undefined }}>{esResumen ? 'Cantidad' : 'Cant'}</th>
                             {!esResumen && <th style={{ textAlign: 'right', width: 70 }}>P. unit.</th>}
                             {!esResumen && <th style={{ textAlign: 'right', width: 70 }}>Total</th>}
                           </tr>
@@ -1182,13 +1182,16 @@ function CotizacionPdfInner() {
                                         : <>Cada paquete incluye {f.n} {f.n === 1 ? 'producto' : 'productos'} &middot; desglose abajo</>}
                                     </div>
                                   </td>
-                                  <td style={{ textAlign: 'center', color: '#5b21b6' }}>
+                                  <td style={{ textAlign: 'center', color: '#5b21b6', whiteSpace: 'nowrap' }}>
                                     {esKit ? (
                                       <div style={{ fontSize: 8, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#7c6aa8' }}>kit</div>
                                     ) : (
                                       <>
-                                        <div style={{ fontWeight: 800, fontSize: 12 }}>{f.qty}</div>
-                                        <div style={{ fontSize: 7.5, textTransform: 'uppercase', letterSpacing: '0.04em', whiteSpace: 'nowrap' }}>paquetes</div>
+                                        <div style={{ fontWeight: 800, fontSize: 12, whiteSpace: 'nowrap' }}>{fNum(f.qty)}</div>
+                                        {/* 7px sin letter-spacing: "PAQUETES" mide ~39px y la
+                                            columna deja 48px útiles. Antes no cabía y el
+                                            overflow:hidden lo dejaba en "PAQUE". */}
+                                        <div style={{ fontSize: 7, textTransform: 'uppercase', whiteSpace: 'nowrap', lineHeight: 1.2 }}>paquetes</div>
                                       </>
                                     )}
                                   </td>
@@ -1229,7 +1232,7 @@ function CotizacionPdfInner() {
                                          que son piezas y paquetes, no se entiende. Con un solo
                                          paquete la cuenta sobra: la cantidad ya esta en su columna. */
                                       <div style={{ fontSize: 8.5, color: '#6d28d9', marginTop: 3, fontWeight: 600 }}>
-                                        {uq} {uq === 1 ? 'pieza' : 'piezas'} por paquete &times; {f.qtyB} {Number(f.qtyB) === 1 ? 'paquete' : 'paquetes'} = {it.quantity} {it.quantity === 1 ? 'pieza' : 'piezas'}
+                                        {fNum(uq)} {uq === 1 ? 'pieza' : 'piezas'} por paquete &times; {fNum(f.qtyB)} {Number(f.qtyB) === 1 ? 'paquete' : 'paquetes'} = {fNum(it.quantity)} {it.quantity === 1 ? 'pieza' : 'piezas'}
                                       </div>
                                     )}
                                   </td>
@@ -1242,13 +1245,13 @@ function CotizacionPdfInner() {
                                   )}
                                   {mostrarCostosInternos && <td style={{ textAlign: 'right', color: '#888' }}>{FCUR(it.cost || 0, currency)}</td>}
                                   {mostrarCostosInternos && <td style={{ textAlign: 'center', color: '#888', fontSize: 9 }}>{it.markup || 0}%</td>}
-                                  <td style={{ textAlign: 'center', ...(esResumen ? { fontWeight: 800, fontSize: 15, color: '#111' } : {}) }}>
+                                  <td style={{ textAlign: 'center', whiteSpace: 'nowrap', ...(esResumen ? { fontWeight: 800, fontSize: 15, color: '#111' } : {}) }}>
                                     {enBundle ? (
                                       <>
-                                        <div style={{ fontWeight: 700 }}>{it.quantity}</div>
-                                        <div style={{ fontSize: 7.5, color: '#7c6aa8' }}>pzas</div>
+                                        <div style={{ fontWeight: 700, whiteSpace: 'nowrap' }}>{fNum(it.quantity)}</div>
+                                        <div style={{ fontSize: 7, color: '#7c6aa8', lineHeight: 1.2 }}>pzas</div>
                                       </>
-                                    ) : it.quantity}
+                                    ) : fNum(it.quantity)}
                                   </td>
                                   {/* Los importes del desglose van en gris: ya estan sumados en
                                       el renglon del kit, y en negro invitaban a sumarlos otra vez. */}
