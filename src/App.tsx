@@ -33,6 +33,7 @@ import Capacitaciones from './pages/Capacitaciones'
 import Reclutamiento from './pages/Reclutamiento'
 import Documentacion from './pages/Documentacion'
 import Actividades from './pages/Actividades'
+import MiTrabajo from './pages/MiTrabajo'
 import Mantenimiento from './pages/Mantenimiento'
 import ObraApp from './obra-app/ObraApp'
 import ExamenPublicoPage from './pages/ExamenPublico'
@@ -112,6 +113,7 @@ export default function App() {
                     <Route path="/capacitaciones" element={<Capacitaciones />} />
                     <Route path="/reclutamiento" element={<Reclutamiento />} />
                     <Route path="/actividades" element={<Actividades />} />
+                    <Route path="/mi-trabajo" element={<MiTrabajo />} />
                     <Route path="/documentacion" element={<Documentacion />} />
                     <Route path="/archivados" element={<Archivados />} />
                     <Route path="/clientes" element={<Clientes />} />
