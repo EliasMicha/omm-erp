@@ -32,6 +32,8 @@ import { unidadCanonica, totalesPorUnidad, etiquetaUnidad } from './unidades'
 
 export interface ItemEntrega {
   clave?: string | null
+  /** cuando el material viene de una OC que llega directo a obra */
+  po_item_id?: string | null
   catalog_product_id?: string | null
   quotation_item_id?: string | null
   solicitud_item_id?: string | null
@@ -155,7 +157,23 @@ export interface ArgsProgramar {
   /** si ya existe la tarea de ruta (se programó desde Agenda) no se duplica */
   task_id?: string | null
   creado_por?: string | null
+  /**
+   * De dónde sale el material:
+   *   'bodega'    → sale de inventario (el caso normal).
+   *   'proveedor' → el proveedor lo lleva directo a la obra, o lo recogemos y
+   *                 va derecho. Al confirmar se escribe UNA recepción de
+   *                 compra con destino obra: cuenta como recibido y como
+   *                 entregado a la vez.
+   *
+   * Existe porque registrar la llegada por separado en "Registrar" contaba el
+   * mismo material dos veces: 80 producto-obra así, unas 4,989 piezas.
+   */
+  origen?: OrigenEntrega
+  /** la orden de compra que llega, cuando origen = 'proveedor' */
+  po_id?: string | null
 }
+
+export type OrigenEntrega = 'bodega' | 'proveedor'
 
 export async function programarEntrega(a: ArgsProgramar): Promise<ResultadoPrograma> {
   const items = (a.items || []).filter(i => Number(i.qty) > 0)
@@ -177,7 +195,9 @@ export async function programarEntrega(a: ArgsProgramar): Promise<ResultadoProgr
     scheduled_time: a.hora || null,
     type: 'entrega',
     status: 'pendiente',
-    origin: 'Bodega OMM',
+    origen: a.origen || 'bodega',
+    po_id: a.po_id || null,
+    origin: a.origen === 'proveedor' ? 'Proveedor (directo a obra)' : 'Bodega OMM',
     destination: d.obra_nombre,
     folio,
     driver_id: a.chofer?.id || null,
@@ -200,12 +220,14 @@ export async function programarEntrega(a: ArgsProgramar): Promise<ResultadoProgr
       quotation_item_id: i.quotation_item_id || null,
       solicitud_item_id: i.solicitud_item_id || null,
       clave: i.clave || null,
+      po_item_id: i.po_item_id || null,
       marca: i.marca || null,
       modelo: i.modelo || null,
       description: i.descripcion,
       qty: Number(i.qty) || 0,
       unit: i.unidad || 'pza',
-      direction: 'out_bodega_to_obra',
+      po_id: i.po_item_id ? (a.po_id || null) : null,
+      direction: a.origen === 'proveedor' ? 'in_obra' : 'out_bodega_to_obra',
     })))
     if (e2) throw e2
 
@@ -234,6 +256,8 @@ export async function programarEntrega(a: ArgsProgramar): Promise<ResultadoProgr
       folio,
       delivery_id: deliveryId,
       solicitud_id: a.solicitud_id || null,
+      po_id: a.po_id || null,
+      origen: a.origen || 'bodega',
       estatus: 'pendiente',
     }
     if (taskId) {
@@ -281,11 +305,13 @@ export interface ResultadoConfirma {
   piezas: number
   folio: string
   yaEstaba: boolean
+  /** 'proveedor' = se registró como recepción directa a obra (recibido + entregado) */
+  origen: OrigenEntrega
 }
 
 export async function confirmarEntrega(deliveryId: string, a: ArgsConfirmar = {}): Promise<ResultadoConfirma> {
   const { data: del, error: eD } = await supabase.from('deliveries')
-    .select('id,folio,obra_id,project_id,quotation_id,lead_id,delivery_date,status,driver_nombre,recibe_nombre,solicitud_id,logistics_task_id,notes')
+    .select('id,folio,obra_id,project_id,quotation_id,lead_id,delivery_date,status,driver_nombre,recibe_nombre,solicitud_id,logistics_task_id,notes,origen,po_id')
     .eq('id', deliveryId).maybeSingle()
   if (eD) throw eD
   if (!del) throw new Error('No encontré esa entrega.')
@@ -324,7 +350,7 @@ export async function confirmarEntrega(deliveryId: string, a: ArgsConfirmar = {}
   }
 
   const { data: itemsRaw } = await supabase.from('delivery_items')
-    .select('id,description,marca,modelo,qty,unit,product_id,clave,solicitud_item_id')
+    .select('id,description,marca,modelo,qty,unit,product_id,clave,solicitud_item_id,po_item_id,po_id')
     .eq('delivery_id', deliveryId)
   const items = ((itemsRaw as any[]) || []).filter(i => Number(i.qty) > 0)
 
@@ -337,6 +363,16 @@ export async function confirmarEntrega(deliveryId: string, a: ArgsConfirmar = {}
       ? (globalThis.crypto as any).randomUUID()
       : undefined
 
+    // ── De dónde salió el material decide QUÉ movimiento se escribe ──
+    //
+    // 'bodega'    → salida de inventario (bodega_a_obra), como siempre.
+    // 'proveedor' → el material nunca pasó por bodega: se escribe la RECEPCIÓN
+    //               de compra con destino obra. Ese único renglón ya cuenta
+    //               como recibido (contra la OC) y como entregado (llegó a la
+    //               obra). Antes había que capturar la llegada aparte en
+    //               Registrar, y el material terminaba contado dos veces.
+    const directo = (D.origen || 'bodega') === 'proveedor'
+
     const rows = items.map(i => ({
       fecha,
       catalog_product_id: i.product_id || null,
@@ -345,8 +381,8 @@ export async function confirmarEntrega(deliveryId: string, a: ArgsConfirmar = {}
       modelo: i.modelo || null,
       qty: Number(i.qty),
       unit: i.unit || 'pza',
-      tipo: 'bodega_a_obra',
-      origen_tipo: 'bodega',
+      tipo: directo ? 'recepcion_compra' : 'bodega_a_obra',
+      origen_tipo: directo ? 'proveedor' : 'bodega',
       origen_obra_id: null,
       destino_tipo: 'obra',
       // ⚠️ el libro guarda el LEAD en destino_obra_id: así está todo el histórico.
@@ -354,6 +390,11 @@ export async function confirmarEntrega(deliveryId: string, a: ArgsConfirmar = {}
       bucket_destino: 'proyecto',
       proyecto_id: D.project_id || null,
       quotation_id: D.quotation_id || null,
+      // Solo la recepción se liga a la OC: así Compras descuenta lo pendiente
+      // de recibir. Una salida de bodega no cambia lo que se le debe al
+      // proveedor, y ligarla movía ese número sin razón.
+      po_id: directo ? (i.po_id || D.po_id || null) : null,
+      po_item_id: directo ? (i.po_item_id || null) : null,
       movido_por: a.movido_por || null,
       movido_por_nombre: a.movido_por_nombre || D.driver_nombre || null,
       recibido_por: a.recibido_por || D.recibe_nombre || null,
@@ -388,7 +429,51 @@ export async function confirmarEntrega(deliveryId: string, a: ArgsConfirmar = {}
   // ── La solicitud que originó la entrega: cuánto quedó surtido ──
   if (D.solicitud_id) await surtirSolicitud(D.solicitud_id, items)
 
-  return { movimientos, piezas, folio, yaEstaba }
+  return { movimientos, piezas, folio, yaEstaba, origen: (D.origen || 'bodega') as OrigenEntrega }
+}
+
+/**
+ * Lo que NO alcanza en bodega para una lista de renglones.
+ *
+ * Existe para avisar antes de cerrar una entrega: si la bodega no tiene el
+ * material, o alguien se equivocó de origen (viene directo del proveedor), o
+ * falta registrar una recepción. Sacar de bodega lo que nunca entró es lo que
+ * dejó productos con más salidas que entradas.
+ */
+export interface FaltanteBodega { descripcion: string; disponible: number; pide: number }
+
+export async function faltantesEnBodega(items: { catalog_product_id?: string | null; descripcion: string; qty: number }[]): Promise<FaltanteBodega[]> {
+  if (!items.length) return []
+  const llave = (p: string | null | undefined, d: string) => p || (d || '').trim().toLowerCase()
+  const saldo: Record<string, number> = {}
+  for (let desde = 0; ; desde += 1000) {
+    const { data, error } = await supabase.from('stock_movements')
+      .select('tipo,destino_tipo,catalog_product_id,descripcion,qty')
+      .eq('anulado', false).order('id').range(desde, desde + 999)
+    if (error) { console.error('[faltantesEnBodega]', error.message); return [] }
+    const pagina = (data as any[]) || []
+    for (const m of pagina) {
+      const k = llave(m.catalog_product_id, m.descripcion)
+      const q = Number(m.qty) || 0
+      // Entra a bodega: recepción con destino bodega y devoluciones de obra.
+      if ((m.tipo === 'recepcion_compra' && m.destino_tipo === 'bodega') || m.tipo === 'obra_a_bodega') saldo[k] = (saldo[k] || 0) + q
+      // Sale de bodega: lo que se surtió a obra.
+      if (m.tipo === 'bodega_a_obra') saldo[k] = (saldo[k] || 0) - q
+    }
+    if (pagina.length < 1000) break
+  }
+  const out: FaltanteBodega[] = []
+  const pedido: Record<string, { d: string; q: number }> = {}
+  for (const i of items) {
+    const k = llave(i.catalog_product_id, i.descripcion)
+    const p = pedido[k] || (pedido[k] = { d: i.descripcion, q: 0 })
+    p.q += Number(i.qty) || 0
+  }
+  for (const [k, p] of Object.entries(pedido)) {
+    const disp = saldo[k] || 0
+    if (p.q > disp + 0.001) out.push({ descripcion: p.d, disponible: disp, pide: p.q })
+  }
+  return out
 }
 
 /** Suma lo entregado a `cantidad_surtida` y recalcula el status de la solicitud. */

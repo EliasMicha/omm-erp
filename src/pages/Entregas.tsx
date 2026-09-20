@@ -8,7 +8,7 @@ import BodegaGeneral from '../components/BodegaGeneral'
 import { Btn, KpiCard, SectionHeader, EmptyState, Loading } from '../components/layout/UI'
 import { fetchAllActiveCatalog } from '../lib/catalog'
 import {
-  programarEntrega, confirmarEntrega, destinoDeCotizacion, generarRecibosEntrega,
+  programarEntrega, confirmarEntrega, destinoDeCotizacion, generarRecibosEntrega, faltantesEnBodega,
   type ItemEntrega,
 } from '../lib/entregaFlow'
 import { SPECIALTY_CONFIG } from '../lib/utils'
@@ -25,7 +25,7 @@ import { cargarPlantilla } from '../lib/empleados'
 type Tipo = 'recepcion_compra' | 'bodega_a_obra' | 'obra_a_obra' | 'obra_a_bodega'
 
 const TIPO_CFG: Record<Tipo, { label: string; color: string; icon: string; desc: string }> = {
-  recepcion_compra: { label: 'Recepción de compra', color: '#10B981', icon: '📥', desc: 'Llega material (de proveedor) a bodega o directo a obra' },
+  recepcion_compra: { label: 'Recepción de compra', color: '#10B981', icon: '📥', desc: 'Llega material del proveedor a bodega' },
   bodega_a_obra:    { label: 'Bodega → Obra',        color: '#2563EB', icon: '🚚', desc: 'Surtir material de bodega a una obra' },
   obra_a_obra:      { label: 'Obra → Obra',          color: '#D97706', icon: '🔄', desc: 'Reasignar material de una obra a otra' },
   obra_a_bodega:    { label: 'Obra → Bodega',        color: '#8B5CF6', icon: '↩️', desc: 'Devolver sobrante / cambio a inventario general' },
@@ -758,10 +758,18 @@ function TabRegistrar({ obras, empleados, pos, catalog, obraProject, isMobile, o
             </div>
             <div>
               <label style={labelStyle}>¿A dónde llega?</label>
-              <div style={{ display: 'flex', gap: 8 }}>
-                {([['bodega', 'Bodega'], ['obra', 'Directo a obra']] as const).map(([id, lbl]) => (
-                  <button key={id} onClick={() => setDestinoKind(id)} style={{ flex: 1, padding: '8px', borderRadius: 8, cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, fontWeight: 600, background: destinoKind === id ? '#1a1a1a' : '#0e0e0e', border: `1px solid ${destinoKind === id ? '#10B981' : '#2a2a2a'}`, color: destinoKind === id ? '#fff' : '#888' }}>{lbl}</button>
-                ))}
+              {/* Solo bodega. "Directo a obra" vivía aquí y contaba el material
+                  dos veces: la ruta ya lo había marcado como entregado y esta
+                  pantalla lo volvía a sumar como llegada a la obra. Fueron 80
+                  producto-obra así, ~4,989 piezas. El material que va directo
+                  se registra al cerrar la entrega en Agenda / Ruta. */}
+              <div style={{ padding: '8px 10px', borderRadius: 8, background: '#0e0e0e', border: '1px solid #2a2a2a', fontSize: 12, fontWeight: 600, color: '#ddd' }}>
+                Bodega
+              </div>
+              <div style={{ fontSize: 11, color: '#888', marginTop: 6, lineHeight: 1.45 }}>
+                ¿El material va <b style={{ color: '#bcd6f5' }}>directo a la obra</b>? No se captura aquí.
+                Prográmalo en <b style={{ color: '#bcd6f5' }}>Agenda / Ruta</b> como entrega, marca
+                “llega directo del proveedor”, y al cerrarla se registra recibido y entregado de una vez.
               </div>
             </div>
           </>
@@ -1415,8 +1423,34 @@ function TabAgenda({ isMobile, obras, empleados }: any) {
             recibe: { nombre: t.recibe_nombre, rol: t.recibe_rol },
             notas: t.notas, titulo: t.titulo, folio: t.folio, task_id: t.id,
             solicitud_id: t.solicitud_id || null,
+            origen: t.origen === 'proveedor' ? 'proveedor' : 'bodega',
+            po_id: t.origen === 'proveedor' ? (t.po_id || null) : null,
           })
           deliveryId = res.delivery_id
+        }
+
+        // ── Antes de descontar: ¿la bodega tiene ese material? ──
+        // Sacar de bodega lo que nunca entró es lo que dejó productos con más
+        // salidas que entradas (cable desnudo cal.14: 1,030 salidas contra 530
+        // entradas). No bloquea —a veces falta registrar la recepción— pero
+        // obliga a decidirlo a conciencia.
+        if ((t.origen || 'bodega') !== 'proveedor') {
+          const pide = (Array.isArray(t.items) ? t.items : []).map((i: any) => ({
+            catalog_product_id: catalogIdDeKey(i.key),
+            descripcion: i.descripcion || i.description || '',
+            qty: Number(i.qty) || 0,
+          })).filter((i: any) => i.qty > 0)
+          const faltan = await faltantesEnBodega(pide)
+          if (faltan.length) {
+            const lista = faltan.slice(0, 6).map(f => `· ${f.descripcion}: hay ${F(f.disponible)}, se piden ${F(f.pide)}`).join('\n')
+            const seguir = confirm(
+              'La bodega no tiene todo este material:\n\n' + lista +
+              (faltan.length > 6 ? `\n… y ${faltan.length - 6} más` : '') +
+              '\n\nSi lo trae el proveedor directo a la obra, cancela y edita la entrega: ' +
+              'marca “llega directo del proveedor” para que cuente como recibido y entregado, sin descontar bodega.\n\n' +
+              '¿Descontar de bodega de todos modos?')
+            if (!seguir) return
+          }
         }
         const r = await confirmarEntrega(deliveryId, {
           fecha: t.fecha,
@@ -1426,7 +1460,9 @@ function TabAgenda({ isMobile, obras, empleados }: any) {
         })
         alert(r.yaEstaba
           ? 'Esta entrega ya había movido inventario: no se duplicó nada.'
-          : `✅ Entrega ${r.folio} cerrada. ${r.piezas} pza(s) salieron de bodega y ya cuentan como recibidas en la obra.`)
+          : r.origen === 'proveedor'
+            ? `✅ Entrega ${r.folio} cerrada. ${r.piezas} pza(s) llegaron directo del proveedor: quedaron registradas como recibidas Y entregadas en la obra, sin tocar bodega. No hay que capturar la recepción por separado.`
+            : `✅ Entrega ${r.folio} cerrada. ${r.piezas} pza(s) salieron de bodega y ya cuentan como recibidas en la obra.`)
         load(); return
       } catch (e: any) {
         alert('No se pudo cerrar la entrega: ' + (e?.message || e))
@@ -1542,6 +1578,13 @@ function TareaModal({ init, obras, leads, empleados, onClose, onSaved }: any) {
   const [invByLead, setInvByLead] = useState<Record<string, any> | null>(null)
   const [loadingInv, setLoadingInv] = useState(false)
   const [entLead, setEntLead] = useState(init.tipo === 'entrega' ? (init.lead_id || '') : '')
+  // De dónde sale el material de ESTA entrega. Lo declara quien la programa,
+  // porque es el único que sabe de dónde va a salir la camioneta. El modo
+  // logístico de la OC no sirve para deducirlo: hoy hay 50 recepciones de
+  // órdenes marcadas "→ obra" que entraron a bodega y 21 al revés.
+  const [entOrigen, setEntOrigen] = useState<'bodega' | 'proveedor'>(init.origen === 'proveedor' ? 'proveedor' : 'bodega')
+  const [entPo, setEntPo] = useState<string>(init.po_id || '')
+  const [entPos, setEntPos] = useState<any[]>([])
   const [sel, setSel] = useState<Record<string, { qty: number; on: boolean }>>({})
   const [recibeNombre, setRecibeNombre] = useState(init.recibe_nombre || '')
   const [recibeRol, setRecibeRol] = useState(init.recibe_rol || 'instalador')
@@ -1580,6 +1623,17 @@ function TareaModal({ init, obras, leads, empleados, onClose, onSaved }: any) {
       setRecoLoaded(true); setLoadingReco(false)
     })()
   }, [tipo])
+
+  // Las órdenes abiertas de esa obra: sirven para ligar la recepción directa
+  // con su OC y que Compras descuente lo pendiente de recibir.
+  useEffect(() => {
+    const grp: any = (invByLead && invByLead[entLead]) || {}
+    if (tipo !== 'entrega' || entOrigen !== 'proveedor' || !grp.lead_id) { setEntPos([]); return }
+    supabase.from('purchase_orders')
+      .select('id, po_number, supplier_id, status, quotation_id, tipo')
+      .eq('lead_id', grp.lead_id).neq('status', 'cancelada').neq('status', 'borrador').neq('tipo', 'servicio')
+      .then(({ data }) => setEntPos((data as any[]) || []))
+  }, [tipo, entOrigen, entLead, invByLead])
 
   async function cargarRecoItems(poId: string) {
     setRecoPo(poId)
@@ -1688,6 +1742,10 @@ function TareaModal({ init, obras, leads, empleados, onClose, onSaved }: any) {
 
   function toggle(ln: any) { setSel(s => { const cur = s[ln.key]; if (cur?.on) return { ...s, [ln.key]: { ...cur, on: false } }; const def = ln.en_bodega > 0 ? ln.en_bodega : ln.por_entregar; return { ...s, [ln.key]: { qty: cur?.qty || def, on: true } } }) }
   function setQty(k: string, v: number) { setSel(s => ({ ...s, [k]: { qty: v, on: true } })) }
+  // Si lo marcado excede la existencia en bodega, el material casi seguro
+  // viene del proveedor. No se decide solo: se avisa y el usuario elige.
+  const sugiereProveedor = lineas.some((l: any) => sel[l.key]?.on && (Number(sel[l.key]?.qty) || 0) > (Number(l.en_bodega) || 0))
+
   const itemsSel = () => lineas.filter((l: any) => sel[l.key]?.on && (sel[l.key]?.qty || 0) > 0).map((l: any) => ({ key: l.key, quotation_id: l.quotation_id, marca: l.marca, modelo: l.modelo, descripcion: l.descripcion, unidad: unidadCanonica(l.unidad), qty: Number(sel[l.key].qty) }))
 
   async function guardar() {
@@ -1728,13 +1786,14 @@ function TareaModal({ init, obras, leads, empleados, onClose, onSaved }: any) {
       if (init.id) {
         // Editar una entrega ya programada: se corrige la parada de la ruta y,
         // si ya tenía entrega ligada, también lo que ve el instalador.
-        const row: any = { tipo: 'entrega', titulo: (titulo.trim() || ('Entrega — ' + leadNameEnt)), fecha, hora: hora || null, ubicacion: ubicacion || null, prioridad, lead_id: grp.lead_id || null, quotation_id: grp.quotation_id || null, obra_id: init.obra_id || null, po_id: null, asignado_a: asignado || null, asignado_nombre: chofer || null, notas: notas || null, items, recibe_nombre: recibeNombre || null, recibe_rol: recibeRol || null, folio }
+        const row: any = { tipo: 'entrega', titulo: (titulo.trim() || ('Entrega — ' + leadNameEnt)), fecha, hora: hora || null, ubicacion: ubicacion || null, prioridad, lead_id: grp.lead_id || null, quotation_id: grp.quotation_id || null, obra_id: init.obra_id || null, po_id: entOrigen === 'proveedor' ? (entPo || null) : null, origen: entOrigen, asignado_a: asignado || null, asignado_nombre: chofer || null, notas: notas || null, items, recibe_nombre: recibeNombre || null, recibe_rol: recibeRol || null, folio }
         const res = await supabase.from('logistics_tasks').update(row).eq('id', init.id)
         if (res.error) { alert('Error: ' + res.error.message); setSaving(false); return }
         if (init.delivery_id) {
           await supabase.from('deliveries').update({
             delivery_date: fecha, scheduled_time: hora || null, driver_id: asignado || null,
             driver_nombre: chofer || null, recibe_nombre: recibeNombre || null, notes: notas || null,
+            origen: entOrigen, po_id: entOrigen === 'proveedor' ? (entPo || null) : null,
             updated_at: new Date().toISOString(),
           }).eq('id', init.delivery_id)
         }
@@ -1753,12 +1812,30 @@ function TareaModal({ init, obras, leads, empleados, onClose, onSaved }: any) {
           const seguir = confirm(`Esta cotización no tiene obra dada de alta, así que el instalador no la verá en su app. ¿Programo la entrega de todos modos?`)
           if (!seguir) { setSaving(false); return }
         }
-        const envio: ItemEntrega[] = items.map((i: any) => ({
-          clave: null,
-          catalog_product_id: catalogIdDeKey(i.key),
-          marca: i.marca || null, modelo: i.modelo || null,
-          descripcion: i.descripcion || '', unidad: unidadCanonica(i.unidad), qty: Number(i.qty) || 0,
-        }))
+        // Cuando el material llega directo del proveedor y se ligó una OC, cada
+        // renglón se empata con su partida para que la recepción descuente lo
+        // pendiente de esa orden. El empate es por producto del catálogo y, si
+        // no hay, por descripción normalizada.
+        let porProducto: Record<string, string> = {}
+        if (entOrigen === 'proveedor' && entPo) {
+          const { data: pit } = await supabase.from('po_items')
+            .select('id, catalog_product_id, name').eq('purchase_order_id', entPo)
+          for (const it of ((pit as any[]) || [])) {
+            const k = it.catalog_product_id || (it.name || '').trim().toLowerCase()
+            if (k && !porProducto[k]) porProducto[k] = it.id
+          }
+        }
+        const envio: ItemEntrega[] = items.map((i: any) => {
+          const cid = catalogIdDeKey(i.key)
+          const k = cid || (i.descripcion || '').trim().toLowerCase()
+          return {
+            clave: null,
+            catalog_product_id: cid,
+            po_item_id: porProducto[k] || null,
+            marca: i.marca || null, modelo: i.modelo || null,
+            descripcion: i.descripcion || '', unidad: unidadCanonica(i.unidad), qty: Number(i.qty) || 0,
+          }
+        })
         await programarEntrega({
           destino, fecha, hora: hora || null, items: envio,
           chofer: asignado ? { id: asignado, nombre: chofer } : null,
@@ -1766,6 +1843,7 @@ function TareaModal({ init, obras, leads, empleados, onClose, onSaved }: any) {
           notas: notas || null,
           titulo: titulo.trim() || ('Entrega — ' + leadNameEnt),
           folio, prioridad, ubicacion: ubicacion || null,
+          origen: entOrigen, po_id: entOrigen === 'proveedor' ? (entPo || null) : null,
         })
       } catch (e: any) {
         alert('Error: ' + (e?.message || e)); setSaving(false); return
@@ -1950,6 +2028,40 @@ function TareaModal({ init, obras, leads, empleados, onClose, onSaved }: any) {
               </select>
             )}
             {!loadingInv && leadsInv.length === 0 && <div style={{ fontSize: 12, color: '#D97706', marginBottom: 12 }}>No hay obras con inventario pendiente de entregar (comprado o en bodega).</div>}
+
+            {entLead && (
+              <div style={{ marginBottom: 14 }}>
+                <label style={labelStyle}>¿De dónde sale el material?</label>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  {([['bodega', '🏭 Sale de bodega', 'Descuenta inventario al cerrarla'],
+                     ['proveedor', '🚚 Llega directo del proveedor', 'Cuenta como recibido y entregado a la vez']] as const).map(([id, lbl, sub]) => (
+                    <button key={id} onClick={() => setEntOrigen(id)} style={{
+                      flex: 1, padding: '8px 10px', borderRadius: 8, cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left',
+                      background: entOrigen === id ? '#1a1a1a' : '#0e0e0e',
+                      border: `1px solid ${entOrigen === id ? '#10B981' : '#2a2a2a'}`, color: entOrigen === id ? '#fff' : '#888',
+                    }}>
+                      <div style={{ fontSize: 12, fontWeight: 700 }}>{lbl}</div>
+                      <div style={{ fontSize: 10, color: '#777', marginTop: 2, lineHeight: 1.3 }}>{sub}</div>
+                    </button>
+                  ))}
+                </div>
+                {entOrigen === 'proveedor' && (
+                  <div style={{ marginTop: 10 }}>
+                    <label style={labelStyle}>Orden de compra que llega (opcional — descuenta lo pendiente de recibir)</label>
+                    <select value={entPo} onChange={e => setEntPo(e.target.value)} style={inputStyle}>
+                      <option value="">— Sin ligar a una OC —</option>
+                      {entPos.map((p: any) => <option key={p.id} value={p.id}>{p.po_number || p.id.slice(0, 8)}{p.status ? ' · ' + p.status : ''}</option>)}
+                    </select>
+                  </div>
+                )}
+                {sugiereProveedor && entOrigen === 'bodega' && (
+                  <div style={{ fontSize: 11, color: '#D97706', marginTop: 8, lineHeight: 1.45 }}>
+                    ⚠ Estás mandando más de lo que hay en bodega. Si el material lo trae el proveedor,
+                    marca “llega directo del proveedor”: así no se descuenta inventario que nunca entró.
+                  </div>
+                )}
+              </div>
+            )}
 
             {entLead && (
               <div style={{ marginBottom: 14 }}>
