@@ -1548,8 +1548,12 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
     }
 
     // 2) Persistencia en segundo plano (no bloquea la UI)
+    // La cantidad TIENE que ir en el update: antes no se guardaba, y la columna
+    // quantity se quedaba con el valor viejo mientras total ya traia el nuevo.
+    // La cotizacion se veia bien (el editor reconstruye desde total al recargar
+    // la lista), pero la estimacion lee quantity y sacaba "lo contratado" mal.
     const writes: Promise<any>[] = []
-    writes.push(supabase.from('quotation_items').update({ cost: updated.cost, mo_pct: updated.mo_pct, util_pct: updated.util_pct, markup: updated.markup, price: updated.price, total: updated.total }).eq('id', id) as any)
+    writes.push(supabase.from('quotation_items').update({ quantity: updated.quantity, cost: updated.cost, mo_pct: updated.mo_pct, util_pct: updated.util_pct, markup: updated.markup, price: updated.price, total: updated.total }).eq('id', id) as any)
     for (const t of targets) {
       const tTotal = Math.round(updated.price * (t.quantity || 0) * 100) / 100
       writes.push(supabase.from('quotation_items').update({ cost: updated.cost, mo_pct: updated.mo_pct, util_pct: updated.util_pct, markup: updated.markup, price: updated.price, total: tTotal }).eq('id', t.id) as any)
