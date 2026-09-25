@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect, useRef, createContext, useContext } from 'react'
 import { supabase } from '../lib/supabase'
+import { Viaticos, VIATICOS_VACIOS, leerViaticos, desgloseViaticos, totalViaticosMXN, totalViaticos, faltaTCViaticos } from '../lib/viaticos'
 import { fetchAllActiveCatalog } from '../lib/catalog'
 import { F, STAGE_CONFIG } from '../lib/utils'
 import { Badge, Btn, Loading } from '../components/layout/UI'
@@ -1851,11 +1852,85 @@ IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// VIÁTICOS — obra foránea: días, gente, hospedaje y transporte
+// Se captura en pesos, porque así se gasta. Si la cotización va en USD se
+// convierte al TC de la propia cotización al mostrarla.
+// ═══════════════════════════════════════════════════════════════════
+function ViaticosPanel({ v, moneda, tc, onChange }: {
+  v: Viaticos; moneda: string; tc: number
+  onChange: (patch: Partial<Viaticos>) => void
+}) {
+  const filas = desgloseViaticos(v)
+  const totalMXN = totalViaticosMXN(v)
+  const enMoneda = totalViaticos(v, moneda, tc)
+  const sinTC = faltaTCViaticos(v, moneda, tc)
+  const esUSD = (moneda || 'MXN').toUpperCase() === 'USD'
+
+  const campo = (label: string, key: keyof Viaticos, sufijo?: string, step = 1) => (
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '3px 0' }}>
+      <span style={{ fontSize: 10, color: '#777' }}>{label}</span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+        <input type="number" min={0} step={step} value={Number(v[key]) || 0}
+          onChange={e => onChange({ [key]: Math.max(0, parseFloat(e.target.value) || 0) } as Partial<Viaticos>)}
+          style={{ ...S.input, width: 78, fontSize: 11 }} />
+        {sufijo && <span style={{ fontSize: 9, color: '#555', width: 26 }}>{sufijo}</span>}
+      </div>
+    </div>
+  )
+
+  return (
+    <div style={{ background: '#141414', border: '1px solid #222', borderRadius: 12, padding: 14, marginBottom: 10 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+        <span style={{ fontSize: 10, fontWeight: 600, color: '#555', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Viáticos</span>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer' }}>
+          <input type="checkbox" checked={v.activo} onChange={e => onChange({ activo: e.target.checked })} />
+          <span style={{ fontSize: 10, color: v.activo ? '#06B6D4' : '#555' }}>{v.activo ? 'Incluidos' : 'Sin viáticos'}</span>
+        </label>
+      </div>
+      {v.activo && (<>
+        {campo('Días a laborar', 'dias', 'días')}
+        {campo('Personas', 'personas', 'pers')}
+        {campo('Viático por día (persona)', 'viaticoDia', 'MXN', 50)}
+        {campo('Noches de hospedaje', 'noches', 'noches')}
+        {campo('Hospedaje por noche (persona)', 'hospedajeNoche', 'MXN', 50)}
+        {campo('Transporte (todo el viaje)', 'transporte', 'MXN', 100)}
+        <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid #222' }}>
+          {filas.map((f, i) => (
+            <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}>
+              <span style={{ color: '#666' }}>{f.concepto}</span>
+              <span style={{ color: '#aaa' }}>${fmt(f.importeMXN)}</span>
+            </div>
+          ))}
+          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0 0 0', borderTop: '1px solid #222', marginTop: 4 }}>
+            <span style={{ fontSize: 10, color: '#ccc', fontWeight: 700 }}>TOTAL MXN</span>
+            <span style={{ fontSize: 11, color: '#fff', fontWeight: 700 }}>${fmt(totalMXN)}</span>
+          </div>
+          {esUSD && (
+            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0' }}>
+              <span style={{ fontSize: 10, color: sinTC ? '#DC2626' : '#06B6D4' }}>{sinTC ? 'Falta el TC' : `En USD (TC ${tc})`}</span>
+              <span style={{ fontSize: 11, color: sinTC ? '#DC2626' : '#fff' }}>{sinTC ? '—' : 'US$' + fmt(enMoneda)}</span>
+            </div>
+          )}
+        </div>
+        <textarea value={v.nota} onChange={e => onChange({ nota: e.target.value })} rows={2}
+          placeholder="Nota para el cliente (opcional)"
+          style={{ width: '100%', marginTop: 8, background: '#1e1e1e', border: '1px solid #333', borderRadius: 6, color: '#ccc', fontSize: 10, fontFamily: 'inherit', padding: '5px 8px', boxSizing: 'border-box', resize: 'vertical' }} />
+        <div style={{ fontSize: 9, color: '#444', marginTop: 6, lineHeight: 1.5 }}>
+          Se captura en pesos y se cobra al costo. Entra después del descuento y antes del IVA, desglosado en el PDF.
+        </div>
+      </>)}
+    </div>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // SUMMARY PANEL
 // ═══════════════════════════════════════════════════════════════════
-function SummaryPanel({ products, areas, config, activeSystems, showInt, noSumaSysIds = [], onConfigChange, onSystemClick }: {
+function SummaryPanel({ products, areas, config, activeSystems, showInt, noSumaSysIds = [], viaticosMonto = 0, onConfigChange, onSystemClick }: {
   products: EspProduct[]; areas: EspArea[]; config: EspQuoteConfig; activeSystems: EspSystemDef[]; showInt: boolean
   noSumaSysIds?: string[]
+  /** Viaticos ya convertidos a la moneda de la cotizacion. */
+  viaticosMonto?: number
   onConfigChange: (f: string, v: number) => void
   onSystemClick?: (sysId: string) => void
 }) {
@@ -1869,8 +1944,11 @@ function SummaryPanel({ products, areas, config, activeSystems, showInt, noSumaS
   const sub = eqTotal + moTotal + svcTotal
   const descuentoAmt = sub * config.descuento / 100
   const subConDesc = sub - descuentoAmt
-  const iva = subConDesc * (config.ivaRate / 100)
-  const total = subConDesc + iva
+  // Los viaticos entran despues del descuento: son gasto que ya salio, no se
+  // negocian. Causan IVA como todo lo demas.
+  const baseGravable = subConDesc + viaticosMonto
+  const iva = baseGravable * (config.ivaRate / 100)
+  const total = baseGravable + iva
 
   const rows: Array<{ l: string; v: number; b?: boolean; h?: boolean; ed?: string }> = [
     { l: 'EQUIPO TOTAL', v: eqTotal, b: true },
@@ -1888,6 +1966,7 @@ function SummaryPanel({ products, areas, config, activeSystems, showInt, noSumaS
   if (config.descuento > 0) {
     afterDiscountRows.push({ l: 'SUBTOTAL CON DESCUENTO', v: subConDesc, b: true })
   }
+
   afterDiscountRows.push({ l: 'TOTAL DEL PROYECTO', v: total, b: true, h: true })
 
   return (
@@ -1912,6 +1991,19 @@ function SummaryPanel({ products, areas, config, activeSystems, showInt, noSumaS
             </div>
           </div>
         ))}
+        {/* Viáticos — despues del descuento, antes del IVA */}
+        {viaticosMonto !== 0 && (
+          <>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '3px 4px', borderTop: '1px solid #222' }}>
+              <span style={{ fontSize: 10, color: '#06B6D4', fontWeight: 400 }}>VIÁTICOS</span>
+              <span style={{ fontSize: 11, color: '#fff' }}>${fmt(viaticosMonto)}</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '3px 4px' }}>
+              <span style={{ fontSize: 10, color: '#ccc', fontWeight: 700 }}>BASE GRAVABLE</span>
+              <span style={{ fontSize: 11, color: '#fff', fontWeight: 700 }}>${fmt(baseGravable)}</span>
+            </div>
+          </>
+        )}
         {/* IVA row — editable */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '3px 4px', borderTop: 'none' }}>
           <span style={{ fontSize: 10, color: '#555', fontWeight: 400 }}>TOTAL IVA</span>
@@ -2184,6 +2276,8 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
   const [filterAreaId, setFilterAreaId] = useState<string | null>(null)
   const [projectId, setProjectId] = useState<string | null>(null)
   const [projectName, setProjectName] = useState('')
+  // Viaticos de obra foranea. Se capturan en MXN y viven en notes.viaticos.
+  const [viaticos, setViaticos] = useState<Viaticos>(VIATICOS_VACIOS)
 
   async function load() {
     const [{ data: cot }, { data: qAreas }, { data: qItems }] = await Promise.all([
@@ -2201,6 +2295,7 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
         noteMeta = JSON.parse(cot.notes || '{}')
         if (noteMeta.systems) setActiveSysIds(noteMeta.systems)
         if (Array.isArray(noteMeta.systems_no_suma)) setNoSumaSysIds(noteMeta.systems_no_suma)
+        if (noteMeta.viaticos) setViaticos(leerViaticos(noteMeta))
         if (noteMeta.currency || noteMeta.tipoCambio || noteMeta.descuento !== undefined || noteMeta.programacion !== undefined || noteMeta.ivaRate !== undefined) {
           setConfig(c => ({ ...c, currency: noteMeta.currency || c.currency, tipoCambio: noteMeta.tipoCambio || c.tipoCambio, descuento: noteMeta.descuento ?? c.descuento, programacion: noteMeta.programacion ?? c.programacion, nominaPct: noteMeta.nominaPct ?? c.nominaPct, ivaRate: noteMeta.ivaRate ?? c.ivaRate }))
         }
@@ -2308,6 +2403,10 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
     const merged = { ...existing, systems: active, customSystems: custom }
     await supabase.from('quotations').update({ notes: JSON.stringify(merged) }).eq('id', cotId)
   }
+  // Viaticos convertidos a la moneda de la cotizacion (se capturan en MXN).
+  const viaticosMonto = useMemo(
+    () => totalViaticos(viaticos, config.currency, config.tipoCambio),
+    [viaticos, config.currency, config.tipoCambio])
   // Margen real del proyecto: (revenueBilled − costoProductos − nominaProrrateada) / revenueBilled × 100
   // revenueBilled = revenue × (1 − descuento/100) — lo que el cliente realmente paga
   // nomina = revenueBilled × nominaPct/100 — gasto operativo (área + admin) prorrateado
@@ -2322,16 +2421,22 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
     })
     const descFactor = 1 - (config.descuento || 0) / 100
     const revenueBilled = revenue * descFactor
+    // La nomina se prorratea solo sobre la venta de producto. Los viaticos se
+    // cobran al costo: entran igual como venta y como costo, asi que no
+    // inventan utilidad, solo diluyen el porcentaje — que es la verdad.
     const nomina = revenueBilled * (config.nominaPct || 0) / 100
-    return revenueBilled > 0 ? Math.round(((revenueBilled - cost - nomina) / revenueBilled) * 1000) / 10 : 0
-  }, [products, config.nominaPct, config.descuento, config.currency, config.tipoCambio])
+    const ingreso = revenueBilled + viaticosMonto
+    const costoTotal = cost + viaticosMonto
+    return ingreso > 0 ? Math.round(((ingreso - costoTotal - nomina) / ingreso) * 1000) / 10 : 0
+  }, [products, config.nominaPct, config.descuento, config.currency, config.tipoCambio, viaticosMonto])
   const total = useMemo(() => {
     let eq = 0, mo = 0; products.forEach(p => { if (noSumaSysIds.includes(p.systemId)) return; eq += p.price * p.quantity; mo += p.laborCost * p.quantity })
     const sub = eq + mo + config.programacion;
     const descuentoAmt = sub * config.descuento / 100;
     const subConDesc = sub - descuentoAmt;
-    return subConDesc + subConDesc * config.ivaRate / 100
-  }, [products, config, noSumaSysIds])
+    const baseGravable = subConDesc + viaticosMonto;
+    return baseGravable + baseGravable * config.ivaRate / 100
+  }, [products, config, noSumaSysIds, viaticosMonto])
 
   // Sync total to quotations table whenever it changes
   useEffect(() => {
@@ -2411,7 +2516,7 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
     await supabase.from('quotations').update({ notes: JSON.stringify(merged) }).eq('id', cotId)
   }
 
-  async function saveNotes(overrides?: Partial<{ systems: string[]; systems_no_suma: string[]; currency: string; tipoCambio: number; descuento: number; programacion: number; nominaPct: number; ivaRate: number }>) {
+  async function saveNotes(overrides?: Partial<{ systems: string[]; systems_no_suma: string[]; currency: string; tipoCambio: number; descuento: number; programacion: number; nominaPct: number; ivaRate: number; viaticos: Viaticos }>) {
     // Preserve existing notes fields (lead_id, source, etc.)
     let existing: any = {}
     try {
@@ -2433,6 +2538,19 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
     const next = noSumaSysIds.includes(sysId) ? noSumaSysIds.filter(s => s !== sysId) : [...noSumaSysIds, sysId]
     setNoSumaSysIds(next)
     saveNotes({ systems_no_suma: next })
+  }
+
+  // Los viaticos se guardan completos en notes.viaticos cada vez que cambian:
+  // si solo vivieran en pantalla, al recargar la cotizacion el gasto se perderia
+  // y el total bajaria solo.
+  function updateViaticos(patch: Partial<Viaticos>) {
+    setViaticos(prev => {
+      const next = { ...prev, ...patch }
+      // Sin noches capturadas se asume una noche por dia trabajado.
+      if (patch.dias !== undefined && (prev.noches === prev.dias || !prev.noches)) next.noches = patch.dias
+      saveNotes({ viaticos: next })
+      return next
+    })
   }
 
   function updateConfig(field: string, value: number) {
@@ -3319,7 +3437,8 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
           <div onClick={addArea} style={{ padding: '12px', border: '1px dashed #333', borderRadius: 10, textAlign: 'center', cursor: 'pointer', color: '#444', fontSize: 12 }}>+ Agregar área</div>
         </div>
         {!isMobile && <div style={{ borderLeft: '1px solid #222', overflowY: 'auto', padding: '14px 10px', background: '#0e0e0e' }}>
-          <SummaryPanel products={products} areas={areas} config={config} activeSystems={activeSystems} showInt={showInt} noSumaSysIds={noSumaSysIds} onConfigChange={updateConfig} onSystemClick={setViewSystemId} />
+          <SummaryPanel products={products} areas={areas} config={config} activeSystems={activeSystems} showInt={showInt} noSumaSysIds={noSumaSysIds} viaticosMonto={viaticosMonto} onConfigChange={updateConfig} onSystemClick={setViewSystemId} />
+          <ViaticosPanel v={viaticos} moneda={config.currency} tc={config.tipoCambio} onChange={updateViaticos} />
         </div>}
       </div>
 

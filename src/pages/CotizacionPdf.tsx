@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react'
 import { leerCargos, sumaCargos, calcularTotales } from '../lib/cargosCotizacion'
+import { leerViaticos, desgloseViaticos, importeEnMoneda, totalViaticos } from '../lib/viaticos'
 import { useParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { FCUR, FQTY as fNum } from '../lib/utils'
@@ -505,7 +506,13 @@ function CotizacionPdfInner() {
   // la pantalla otro, que es justo lo que el cliente nota.
   const cargosCot = leerCargos(cot?.notes)
   const cargosMonto = sumaCargos(cargosCot).monto
-  const TT = calcularTotales(subtotal, descuentoPct, ivaRate, cargosMonto)
+  // Viaticos de obra foranea: se capturan en MXN y se convierten al TC de la
+  // cotizacion. Van en el mismo escalon que los cargos — despues del descuento
+  // y antes del IVA — pero desglosados, que es lo que el cliente pidio ver.
+  const viaticosCot = leerViaticos(cot?.notes)
+  const viaticosFilas = desgloseViaticos(viaticosCot).map(f => ({ ...f, importe: importeEnMoneda(f.importeMXN, currency, tipoCambio) }))
+  const viaticosMonto = totalViaticos(viaticosCot, currency, tipoCambio)
+  const TT = calcularTotales(subtotal, descuentoPct, ivaRate, cargosMonto + viaticosMonto)
   const descuentoAmt = TT.descuentoAmt
   const subtotalConDesc = TT.subtotalConDescuento
   const iva = TT.iva
@@ -989,6 +996,30 @@ function CotizacionPdfInner() {
                   <td style={{ textAlign: 'right', color: '#444' }}>{FCUR(c.monto, currency)}</td>
                 </tr>
               ))}
+              {viaticosFilas.length > 0 && (
+                <tr>
+                  <td style={{ paddingTop: 6, fontWeight: 600, color: '#444' }}>Viáticos de obra</td>
+                  {isElec && <td colSpan={3}></td>}
+                  {!isElec && <td colSpan={2}></td>}
+                  <td></td>
+                </tr>
+              )}
+              {viaticosFilas.map((f, i) => (
+                <tr key={'v' + i}>
+                  <td style={{ color: '#444', paddingLeft: 10 }}>
+                    {f.concepto}
+                    <div style={{ fontSize: 8, color: '#888' }}>{f.detalle}</div>
+                  </td>
+                  {isElec && <td colSpan={3}></td>}
+                  {!isElec && <td colSpan={2}></td>}
+                  <td style={{ textAlign: 'right', color: '#444', verticalAlign: 'top' }}>{FCUR(f.importe, currency)}</td>
+                </tr>
+              ))}
+              {viaticosCot.nota && viaticosFilas.length > 0 && (
+                <tr>
+                  <td colSpan={isElec ? 5 : 4} style={{ fontSize: 8, color: '#888', paddingLeft: 10, fontStyle: 'italic' }}>{viaticosCot.nota}</td>
+                </tr>
+              )}
               <tr>
                 <td style={{ color: '#888' }}>IVA {ivaRate}%</td>
                 {isElec && <td colSpan={3}></td>}
@@ -1320,6 +1351,26 @@ function CotizacionPdfInner() {
                   <td style={{ padding: '4px 0', textAlign: 'right', color: '#444' }}>{FCUR(c.monto, currency)}</td>
                 </tr>
               ))}
+              {viaticosFilas.length > 0 && (
+                <tr>
+                  <td style={{ padding: '6px 0 2px 0', fontWeight: 600 }}>Viáticos de obra</td>
+                  <td></td>
+                </tr>
+              )}
+              {viaticosFilas.map((f, i) => (
+                <tr key={'vt' + i}>
+                  <td style={{ padding: '2px 0 2px 10px', color: '#444' }}>
+                    {f.concepto}
+                    <div style={{ fontSize: 9, color: '#888' }}>{f.detalle}</div>
+                  </td>
+                  <td style={{ padding: '2px 0', textAlign: 'right', color: '#444', verticalAlign: 'top' }}>{FCUR(f.importe, currency)}</td>
+                </tr>
+              ))}
+              {viaticosCot.nota && viaticosFilas.length > 0 && (
+                <tr>
+                  <td colSpan={2} style={{ padding: '0 0 4px 10px', fontSize: 9, color: '#888', fontStyle: 'italic' }}>{viaticosCot.nota}</td>
+                </tr>
+              )}
               <tr>
                 <td style={{ padding: '4px 0', color: '#888' }}>IVA {ivaRate}%</td>
                 <td style={{ padding: '4px 0', textAlign: 'right', color: '#888' }}>{FCUR(iva, currency)}</td>
