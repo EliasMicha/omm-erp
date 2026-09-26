@@ -56,3 +56,10 @@ create unique index if not exists uq_po_folio          on purchase_orders (folio
 -- cotizacion, toman su propio consecutivo OC-AAMM-nnn como folio: es el numero
 -- con el que ya salieron a los proveedores. El consecutivo se queda en la base
 -- para todas, pero ya no se muestra ni se imprime.
+
+-- 2026-09-25 (folios_omm_proyecto_por_ingenieria_v2): las cotizaciones de
+-- proyecto llevan la ingenieria en el folio — PR-IE electrica, PR-IESP
+-- especiales, PR-ILU iluminacion. El tipo sale de notes.tipoProyecto y, si
+-- falta, se infiere del nombre igual que lo hace Finanzas. Si el proyecto
+-- cambia de ingenieria el folio se rehace solo, salvo que ya tenga compras o
+-- transferencias colgando: un folio emitido manda sobre la prolijidad.

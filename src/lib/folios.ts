@@ -5,6 +5,14 @@
 //   Cotizacion  PILO-ES01        (se muestra COT-PILO-ES01 mientras no cierre)
 //   Compra      PILO-ES01-C03
 //
+//  Especialidades: ES especiales, IE electricas, IL iluminacion, CO cortinas,
+//  DI distribucion. Proyecto lleva la ingenieria en el folio, porque las tres
+//  las hacen areas distintas y se cobran distinto:
+//
+//   PILO-PR-IE01     Ingenieria Electrica
+//   PILO-PR-IESP01   Ingenierias Especiales
+//   PILO-PR-ILU01    Diseño de Iluminacion
+//
 //  El nucleo nunca cambia: al pasar a contrato solo se cae el prefijo COT-.
 //  Si el folio cambiara de verdad, las compras, transferencias y facturas
 //  hechas durante la cotizacion quedarian apuntando a un codigo muerto.
