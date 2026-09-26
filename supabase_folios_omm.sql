@@ -38,3 +38,11 @@ create unique index if not exists uq_po_folio          on purchase_orders (folio
 --   omm_folio_cotizacion, omm_tg_cot_folio
 --   omm_folio_compra,     omm_tg_po_folio
 --   omm_folio_en_concepto, omm_tg_movimiento_folio
+
+-- Edicion de la clave (migracion folios_omm_editar_clave_lead):
+--   omm_sugerir_codigo(nombre)                 propuesta para la pantalla de alta
+--   omm_codigo_disponible(codigo, lead)        validacion en vivo
+--   omm_cambiar_codigo_lead(lead, nuevo, forzar)
+--     Cambia la clave y arrastra los folios de cotizaciones y compras. Si algun
+--     folio ya aparece en un movimiento bancario, exige confirmacion: ese numero
+--     ya vive fuera del sistema (en el banco, en un correo, en un expediente).

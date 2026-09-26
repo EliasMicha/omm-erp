@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import ClaveLead, { CambiarClaveLead, claveValida, limpiaClave } from '../components/ClaveLead'
+import FolioChip from '../components/FolioChip'
 import { archivarLead } from '../lib/archivo'
 import { Badge, Btn, Table, Th, Td, Loading, SectionHeader, EmptyState } from '../components/layout/UI'
 import { useIsMobile } from '../lib/useIsMobile'
@@ -121,6 +123,8 @@ function NuevoLeadModal({ onClose, onCreated }: { onClose: () => void; onCreated
     expected_close_date: '', close_probability: '50',
     // Lo que el equipo necesita para arrancar sin volver a preguntar
     scope: '', contacto_rfi: '',
+    // Clave de 4 letras: de ella cuelgan los folios de cotizaciones y compras.
+    codigo: '',
   })
   // Documentos que ya tenemos del proyecto. Se guardan colgados del lead en
   // cuanto se crea; no hay que esperar a que exista proyecto.
@@ -182,8 +186,12 @@ function NuevoLeadModal({ onClose, onCreated }: { onClose: () => void; onCreated
     setSaving(true); setError('')
     const notesData = form.notes || ''
     const notesWithClient = (form.client_final || form.client_id) ? JSON.stringify({ client_final: form.client_final, client_id: form.client_id || '', text: notesData }) : notesData
+    const clave = limpiaClave(form.codigo)
+    if (clave && claveValida(clave)) { setSaving(false); setError('La clave no es válida: ' + claveValida(clave)); return }
     const { data: nuevoLead, error: err } = await supabase.from('leads').insert({
       name: form.name.trim(), company: form.company || null,
+      // Vacia, la genera la base de datos sola.
+      codigo: clave || null,
       contact_name: form.contact_name || null, contact_phone: form.contact_phone || null,
       contact_email: form.contact_email || null, origin: form.origin, status: 'nuevo',
       needs: form.needs, notes: notesWithClient || null,
@@ -222,6 +230,7 @@ function NuevoLeadModal({ onClose, onCreated }: { onClose: () => void; onCreated
         </div>
         <div style={{ display: 'grid', gap: 14 }}>
           <Field label="Nombre / Proyecto *" value={form.name} onChange={s('name')} placeholder="ej. Casa Salame" />
+          <ClaveLead nombre={form.name} valor={form.codigo} onChange={v => setForm(f => ({ ...f, codigo: v }))} />
 
           {/* Arquitecto / Despacho — autocompletado para evitar duplicados */}
           <label style={{ fontSize: 11, color: '#555', textTransform: 'uppercase' as const, letterSpacing: '0.06em' }}>
@@ -561,7 +570,10 @@ function LeadModal({ lead, onClose, onUpdated, onDeleted }: {
         {/* Header */}
         <div style={{ padding: '18px 22px 14px', borderBottom: '1px solid #222', display: 'flex', alignItems: 'flex-start', gap: 12 }}>
           <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 16, fontWeight: 700, color: '#fff', lineHeight: 1.3 }}>{lead.name}</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 16, fontWeight: 700, color: '#fff', lineHeight: 1.3 }}>{lead.name}</span>
+              <FolioChip folio={(lead as any).codigo} size={10} titulo="Clave del lead. De aquí cuelgan los folios de sus cotizaciones y compras." />
+            </div>
             {lead.company && <div style={{ fontSize: 12, color: '#555', marginTop: 3 }}>{lead.company}</div>}
             <div style={{ fontSize: 10, color: '#3a3a3a', marginTop: 4 }}>
               Creado {new Date(lead.created_at).toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: 'numeric' })}
@@ -609,6 +621,7 @@ function LeadModal({ lead, onClose, onUpdated, onDeleted }: {
         <div style={{ flex: 1, overflowY: 'auto' as const, padding: '18px 22px' }}>
           <div style={{ display: 'grid', gap: 14 }}>
             <Field label="Nombre / Proyecto" value={form.name} onChange={s('name')} />
+            <CambiarClaveLead leadId={lead.id} claveActual={(lead as any).codigo} onChanged={c => { (lead as any).codigo = c }} />
             {/* Arquitecto / Despacho — autocompletado contra arquitectos existentes */}
             <label style={{ fontSize: 11, color: '#555', textTransform: 'uppercase' as const, letterSpacing: '0.06em' }}>
               Arquitecto / Despacho
@@ -823,7 +836,10 @@ function KanbanView({ leads, onOpen }: { leads: Lead[]; onOpen: (l: Lead) => voi
                   style={{ background: '#141414', border: '1px solid #222', borderRadius: 8, padding: '10px 12px', cursor: 'pointer', transition: 'border-color 0.1s' }}
                   onMouseEnter={e => (e.currentTarget.style.borderColor = '#444')}
                   onMouseLeave={e => (e.currentTarget.style.borderColor = '#222')}>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: '#e8e8e8', marginBottom: 3, lineHeight: 1.3 }}>{lead.name}</div>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#e8e8e8', marginBottom: 3, lineHeight: 1.3 }}>
+                    {(lead as any).codigo && <span style={{ fontSize: 9.5, fontWeight: 700, color: '#06B6D4', fontFamily: 'ui-monospace, monospace', marginRight: 5, letterSpacing: '0.06em' }}>{(lead as any).codigo}</span>}
+                    {lead.name}
+                  </div>
                   {lead.company && <div style={{ fontSize: 10, color: '#555', marginBottom: 6 }}>{lead.company}</div>}
                   {lead.needs.length > 0 && (
                     <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' as const, marginBottom: 8 }}>
@@ -1005,6 +1021,7 @@ function ListView({ leads, onOpen, onEdit, onPriorityChange, onProbabilityChange
               </Td>
               <Td>
                 <div style={{ fontWeight: 600, color: '#e8e8e8' }}>{lead.name}</div>
+                {(lead as any).codigo && <div style={{ marginTop: 2 }}><FolioChip folio={(lead as any).codigo} size={9.5} /></div>}
               </Td>
               <Td muted>{lead.company || '—'}</Td>
               <Td><span style={{ color: clientFinal ? '#ccc' : '#333' }}>{clientFinal || '—'}</span></Td>
@@ -1359,7 +1376,7 @@ Devuelve solo el JSON, sin explicaciones. Si no hay filtro para un campo, omitel
     if (filtroStatus !== 'todos' && l.status !== filtroStatus) return false
     if (search) {
       const q = search.toLowerCase()
-      if (!l.name.toLowerCase().includes(q) && !(l.company || '').toLowerCase().includes(q) && !(l.contact_name || '').toLowerCase().includes(q)) return false
+      if (!l.name.toLowerCase().includes(q) && !(l.company || '').toLowerCase().includes(q) && !(l.contact_name || '').toLowerCase().includes(q) && !((l as any).codigo || '').toLowerCase().includes(q)) return false
     }
     if (aiFilter) {
       if (aiFilter.status && l.status !== aiFilter.status) return false
