@@ -15,20 +15,23 @@ import { useEffect, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { Check, AlertCircle, Loader2 } from 'lucide-react'
 
+// Hasta 8: las claves que usa el equipo son mas largas que las 4 letras del
+// automatico — L202T, RDA101, F2BA101 — y con 8 el folio sigue cabiendo de
+// sobra en el concepto de una transferencia (F2BA101-ES01-C03 son 16 de 40).
 export function limpiaClave(txt: string): string {
-  return (txt || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6)
+  return (txt || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8)
 }
 
 export function claveValida(c: string): string | null {
   if (c.length < 2) return 'Mínimo 2 caracteres'
-  if (c.length > 6) return 'Máximo 6 caracteres'
+  if (c.length > 8) return 'Máximo 8 caracteres'
   if (/^[0-9]/.test(c)) return 'Tiene que empezar con letra'
   return null
 }
 
 /** Campo de clave para el alta de un lead: se propone sola mientras escribes
  *  el nombre, hasta que la tocas. */
-export default function ClaveLead({ nombre, valor, onChange, leadId, ancho = 110 }: {
+export default function ClaveLead({ nombre, valor, onChange, leadId, ancho = 130 }: {
   nombre: string
   valor: string
   onChange: (v: string) => void

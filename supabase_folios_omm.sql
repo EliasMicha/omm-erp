@@ -46,3 +46,7 @@ create unique index if not exists uq_po_folio          on purchase_orders (folio
 --     Cambia la clave y arrastra los folios de cotizaciones y compras. Si algun
 --     folio ya aparece en un movimiento bancario, exige confirmacion: ese numero
 --     ya vive fuera del sistema (en el banco, en un correo, en un expediente).
+
+-- 2026-09-25 (folios_omm_clave_hasta_8): la clave admite hasta 8 caracteres.
+-- El limite de 6 era invento: las claves reales del equipo son L202T, RDA101,
+-- F2BA101. Con 8, F2BA101-ES01-C03 son 16 caracteres de los 40 del concepto.
