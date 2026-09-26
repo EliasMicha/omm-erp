@@ -1443,8 +1443,10 @@ function CotizacionPdfInner() {
         </div>
         )}
 
-        {/* Al cierre no se repite el desglose de viaticos: solo el total final,
-            para que el ultimo numero del documento sea el que el cliente paga. */}
+        {/* Al cierre se repite el desglose completo: los totales finales son la
+            hoja que el cliente arranca para autorizar, y ahi tiene que poder
+            ver de donde sale cada peso de viaticos sin regresarse. */}
+        {!esResumen && <TablaViaticos />}
         {!esResumen && <TotalFinal compacto />}
 
         {/* SECCIÓN 5 (términos) + FIRMA — ocultos en el Resumen de Equipos (uso interno) */}
