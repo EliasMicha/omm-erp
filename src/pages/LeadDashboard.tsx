@@ -5,7 +5,7 @@ import { SPECIALTY_CONFIG } from '../lib/utils'
 import { Loading, Badge, SectionHeader } from '../components/layout/UI'
 import { useIsMobile } from '../lib/useIsMobile'
 import { tcForYear } from '../lib/fx'
-import { useAuth } from '../contexts/AuthContext'
+import { useAuth, PermissionArea } from '../contexts/AuthContext'
 import { soloVigentes } from '../lib/versionesCotizacion'
 import {
   ArrowLeft, FileText, DollarSign, ShoppingCart, Briefcase,
@@ -58,7 +58,16 @@ const BLOQUEO_SEV_COLOR: Record<string, string> = {
 export default function LeadDashboard() {
   const isMobile = useIsMobile()
   const { user: authUser } = useAuth()
-  const showFinancials = authUser?.permission_area === 'DG' || authUser?.permission_area === 'Administracion'
+  // El bloque financiero del lead: la barra de T.C. y los totales de arriba,
+  // y la sección Estado de Cuenta — que es donde vive el botón que lo descarga.
+  // Abarca bank_movements, cash_movements y payment_allocations de ESTE lead,
+  // no los libros de la empresa.
+  //
+  // DG y Administración lo ven porque es su trabajo. Bot_CRM porque su encargo
+  // es justamente bajar estados de cuenta, y el botón no existe fuera de aquí:
+  // sin esto el bot abre la ficha del lead y no encuentra qué apretar.
+  const AREAS_CON_FINANZAS_DEL_LEAD: PermissionArea[] = ['DG', 'Administracion', 'Bot_CRM']
+  const showFinancials = !!authUser && AREAS_CON_FINANZAS_DEL_LEAD.includes(authUser.permission_area)
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const [loading, setLoading] = useState(true)
