@@ -837,7 +837,7 @@ function KanbanView({ leads, onOpen }: { leads: Lead[]; onOpen: (l: Lead) => voi
                   onMouseEnter={e => (e.currentTarget.style.borderColor = '#444')}
                   onMouseLeave={e => (e.currentTarget.style.borderColor = '#222')}>
                   <div style={{ fontSize: 12, fontWeight: 600, color: '#e8e8e8', marginBottom: 3, lineHeight: 1.3 }}>
-                    {(lead as any).codigo && <span style={{ fontSize: 9.5, fontWeight: 700, color: '#06B6D4', fontFamily: 'ui-monospace, monospace', marginRight: 5, letterSpacing: '0.06em' }}>{(lead as any).codigo}</span>}
+                    {(lead as any).codigo && <span style={{ fontSize: 9.5, fontWeight: 700, color: '#777', fontFamily: 'ui-monospace, monospace', marginRight: 5, letterSpacing: '0.06em' }}>{(lead as any).codigo}</span>}
                     {lead.name}
                   </div>
                   {lead.company && <div style={{ fontSize: 10, color: '#555', marginBottom: 6 }}>{lead.company}</div>}

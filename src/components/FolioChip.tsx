@@ -8,15 +8,18 @@
 import { useState } from 'react'
 import { Check, Copy } from 'lucide-react'
 
-export default function FolioChip({ folio, prefijo, color = '#06B6D4', size = 11, titulo }: {
+export default function FolioChip({ folio, prefijo, color, size = 11, titulo }: {
   folio?: string | null
   /** 'COT-' mientras la cotizacion no es contrato. */
   prefijo?: string
+  /** Solo para casos donde el folio SI es el protagonista. Por defecto va en
+   *  gris: es un dato de referencia, no una alerta. */
   color?: string
   size?: number
   titulo?: string
 }) {
   const [copiado, setCopiado] = useState(false)
+  const [hover, setHover] = useState(false)
   if (!folio) return null
   const texto = (prefijo || '') + folio
 
@@ -35,18 +38,22 @@ export default function FolioChip({ folio, prefijo, color = '#06B6D4', size = 11
     setTimeout(() => setCopiado(false), 1600)
   }
 
+  const tono = copiado ? '#10B981' : color || (hover ? '#ccc' : '#8a8a8a')
+
   return (
-    <span onClick={copiar} title={titulo || 'Copiar ' + texto + ' para el concepto de la transferencia'}
+    <span onClick={copiar}
+      onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
+      title={titulo || 'Copiar ' + texto}
       style={{
         display: 'inline-flex', alignItems: 'center', gap: 5, cursor: 'pointer',
-        fontSize: size, fontWeight: 700, letterSpacing: '0.04em',
-        color: copiado ? '#10B981' : color,
-        background: (copiado ? '#10B981' : color) + '14',
-        border: '1px solid ' + (copiado ? '#10B981' : color) + '44',
-        borderRadius: 6, padding: '2px 7px', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-        whiteSpace: 'nowrap',
+        fontSize: size, fontWeight: 600, letterSpacing: '0.04em', color: tono,
+        background: 'transparent',
+        border: '1px solid ' + (copiado ? '#10B98155' : hover ? '#3a3a3a' : '#282828'),
+        borderRadius: 5, padding: '2px 6px',
+        fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+        whiteSpace: 'nowrap', transition: 'color 0.12s, border-color 0.12s',
       }}>
-      {copiado ? <Check size={size - 1} /> : <Copy size={size - 1} style={{ opacity: 0.55 }} />}
+      {copiado ? <Check size={size - 1} /> : <Copy size={size - 1} style={{ opacity: hover ? 0.6 : 0.3 }} />}
       {copiado ? 'copiado' : texto}
     </span>
   )

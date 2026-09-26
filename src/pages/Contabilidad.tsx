@@ -4029,8 +4029,8 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
                         <span title={'Asignado automaticamente por el folio ' + m.folio_detectado + ' encontrado en el concepto'}
                           style={{
                             fontSize: 9, fontWeight: 700, padding: '2px 5px', borderRadius: 4, marginRight: 5,
-                            background: 'rgba(6,182,212,0.12)', border: '1px solid rgba(6,182,212,0.35)',
-                            color: '#06B6D4', fontFamily: 'monospace', letterSpacing: 0.3,
+                            background: 'transparent', border: '1px solid #2e2e2e',
+                            color: '#888', fontFamily: 'monospace', letterSpacing: 0.3,
                           }}>⚡ {m.folio_detectado}</span>
                       )}
                       {(m.proyecto_codigo || m.proyecto_sugerido) ? (

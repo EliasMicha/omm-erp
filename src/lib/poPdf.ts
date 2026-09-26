@@ -88,21 +88,21 @@ export function generatePOPdf(po: POForPdf, items: POItemForPdf[], opts?: POPdfO
   const esServicio = po.tipo === 'servicio'
   doc.text(sinCostos ? 'Solicitud de Cotización' : esServicio ? 'Orden de Servicio' : 'Orden de Compra', pageW - margin, y + 6, { align: 'right' })
 
+  // El numero grande es el folio OMM cuando existe: es el que amarra la orden
+  // con su cotizacion, su lead y el concepto de la transferencia. El
+  // consecutivo interno queda abajo, chico, para las ordenes viejas que el
+  // proveedor ya tiene con ese numero.
   doc.setFontSize(20)
   doc.setTextColor(0, 120, 80)
-  doc.text(po.po_number, pageW - margin, y + 14, { align: 'right' })
+  doc.text(po.folio || po.po_number, pageW - margin, y + 14, { align: 'right' })
 
-  // El folio va debajo del numero de orden: es lo que se copia al concepto de
-  // la transferencia para que el pago se amarre solo a esta orden.
   if (po.folio) {
-    doc.setFontSize(9)
-    doc.setTextColor(90, 90, 90)
-    doc.setFont('courier', 'bold')
-    doc.text(po.folio, pageW - margin, y + 19.5, { align: 'right' })
-    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(8)
+    doc.setTextColor(140, 140, 140)
+    doc.text(po.po_number, pageW - margin, y + 19, { align: 'right' })
   }
 
-  y += Math.max(logoH + 4, po.folio ? 26 : 22)
+  y += Math.max(logoH + 4, po.folio ? 25 : 22)
 
   // ── Separator ──
   doc.setDrawColor(200, 200, 200)
@@ -132,7 +132,6 @@ export function generatePOPdf(po: POForPdf, items: POItemForPdf[], opts?: POPdfO
   // que va a almacen no pinta nada y solo estorba.
   if (!sinCostos && po.fecha_maxima_pago) infoLeft.push(['Fecha maxima de pago', fmtDate(po.fecha_maxima_pago)])
   if (po.quotation?.name) infoLeft.push(['Cotizacion', po.quotation.name])
-  if (!sinCostos && po.folio) infoLeft.push(['Referencia de pago', po.folio])
   if (po.project?.name) infoLeft.push(['Proyecto', po.project.name])
 
   let yInfo = y

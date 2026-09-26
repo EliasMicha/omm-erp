@@ -149,7 +149,7 @@ export function CambiarClaveLead({ leadId, claveActual, onChanged }: {
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
         <span style={{ fontSize: 11, color: '#555', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Clave</span>
         <span style={{
-          fontSize: 13, fontWeight: 700, color: '#06B6D4', letterSpacing: '0.08em',
+          fontSize: 13, fontWeight: 700, color: '#bbb', letterSpacing: '0.08em',
           fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
         }}>{claveActual || '—'}</span>
         <button onClick={() => { setValor(claveActual || ''); setAbierto(true); setMsg('') }}

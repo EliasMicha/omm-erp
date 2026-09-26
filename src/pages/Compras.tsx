@@ -1681,10 +1681,12 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
               const displayTotal = totalMostrado(o)
               return (
                 <tr key={o.id} style={{ cursor: 'pointer' }} onClick={() => onOpen(o.id)}>
-                  <Td>
-                    <div style={{ fontWeight: 600, color: '#fff' }}>{o.po_number}</div>
-                    {(o as any).folio && <div style={{ marginTop: 2 }}><FolioChip folio={(o as any).folio} size={9.5} /></div>}
-                  </Td>
+                  {/* Un solo identificador por renglon: el folio nuevo cuando
+                      existe, y el consecutivo viejo solo en las compras de
+                      bodega, que no cuelgan de ninguna cotizacion. */}
+                  <Td>{(o as any).folio
+                    ? <FolioChip folio={(o as any).folio} size={10} color="#ddd" />
+                    : <span style={{ fontWeight: 600, color: '#fff' }}>{o.po_number}</span>}</Td>
                   <Td><span style={{ color: o.descripcion ? '#ccc' : '#555', fontSize: 12 }}>{o.descripcion || '--'}</span></Td>
                   <Td>{(o.supplier as any)?.name || <span style={{ color: '#555' }}>--</span>}</Td>
                   <Td muted>{getQuotName(o) || '--'}</Td>
@@ -3508,14 +3510,18 @@ function POEditor({ poId, onBack, onAbrirOtra }: { poId: string; onBack: () => v
         </button>
         <div style={{ flex: 1 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span style={{ fontSize: 18, fontWeight: 700, color: '#fff' }}>{po.po_number}</span>
-            <FolioChip folio={(po as any).folio} size={12} titulo="Este es el folio que va en el concepto de la transferencia. Click para copiarlo." />
+            <span style={{ fontSize: 18, fontWeight: 700, color: '#fff' }}>{(po as any).folio || po.po_number}</span>
+            {(po as any).folio && (
+              <FolioChip folio={(po as any).folio} size={11}
+                titulo="Copiar para el concepto de la transferencia" />
+            )}
             <Badge label={stCfg.label} color={stCfg.color} />
             {esServicio && <Badge label="🔧 Servicio" color="#A78BFA" />}
             <Badge label={esp.icon + ' ' + esp.label} color={esp.color} />
             {po.purchase_phase && PHASE_CONFIG[po.purchase_phase] && <Badge label={PHASE_CONFIG[po.purchase_phase].label} color={PHASE_CONFIG[po.purchase_phase].color} />}
           </div>
           <div style={{ fontSize: 12, color: '#555', marginTop: 2 }}>
+            {(po as any).folio && <span style={{ fontFamily: 'ui-monospace, monospace' }}>{po.po_number} · </span>}
             Creada {formatDate(po.created_at)}
             {po.approved_at && ` | Aprobada ${formatDate(po.approved_at)}`}
             {po.delivered_at && ` | Recibida ${formatDate(po.delivered_at)}`}
