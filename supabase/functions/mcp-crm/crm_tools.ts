@@ -46,9 +46,40 @@ export interface CrmToolResult {
   affected_entity_id?: string
 }
 
+/**
+ * Las tres clases, y no hay una cuarta. Es la forma de que el limite de
+ * "un bot opera el ERP, no lo reprograma" se pueda auditar despues: en
+ * agent_actions_log se puede separar lo que los bots LEYERON de lo que
+ * ESCRIBIERON sin leer el codigo de cada tool.
+ *   consulta   — lee. No cambia nada.
+ *   operacion  — escribe un registro operativo del negocio.
+ *   escalacion — no toca el registro: le abre un pendiente a un humano.
+ */
+export type ClaseDeTool = 'consulta' | 'operacion' | 'escalacion'
+
 export interface CrmTool {
+  clase: ClaseDeTool
   definition: { name: string; description: string; input_schema: Record<string, unknown> }
   handler: (input: any, ctx: CrmCtx) => Promise<CrmToolResult>
+}
+
+/**
+ * Lo que el CRM alcanza. Leer de mas es ruido; escribir de mas es un bot
+ * metido en el modulo de otro. app_users y employees se leen para resolver
+ * personas, pero son configuracion: acotar.ts bloquea su escritura aunque
+ * aqui se listaran por error.
+ */
+export const ALCANCE_CRM = {
+  modulo: 'mcp-crm',
+  lectura: [
+    'leads', 'prospectos', 'clientes', 'quotations',
+    'project_tasks', 'action_items', 'notifications',
+    'app_users', 'employees',
+  ],
+  escritura: [
+    'leads', 'prospectos',
+    'project_tasks', 'action_items', 'notifications',
+  ],
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -118,6 +149,7 @@ async function resolvePersona(
 
 // ═══ TOOL: crm_search_people ═══════════════════════════════════════════════
 const crmSearchPeople: CrmTool = {
+  clase: 'consulta',
   definition: {
     name: 'crm_search_people',
     description:
@@ -173,6 +205,7 @@ const crmSearchPeople: CrmTool = {
 
 // ═══ TOOL: crm_search_leads ════════════════════════════════════════════════
 const crmSearchLeads: CrmTool = {
+  clase: 'consulta',
   definition: {
     name: 'crm_search_leads',
     description:
@@ -222,6 +255,7 @@ const crmSearchLeads: CrmTool = {
 
 // ═══ TOOL: crm_create_lead ═════════════════════════════════════════════════
 const crmCreateLead: CrmTool = {
+  clase: 'operacion',
   definition: {
     name: 'crm_create_lead',
     description:
@@ -243,6 +277,7 @@ const crmCreateLead: CrmTool = {
         },
         notas: { type: 'string' },
         responsable_email: { type: 'string', description: 'Correo del comercial responsable' },
+        idempotency_key: { type: 'string', description: 'Identificador que TU inventas para esta operacion concreta (por ejemplo lead-frb-2026-09-26-01). Si la llamada se reintenta con la misma clave, el servidor devuelve el resultado original en vez de crear un duplicado. Mandalo siempre en escrituras reales.' },
         dry_run: { type: 'boolean', description: 'true = solo previsualiza, no escribe', default: false },
       },
       required: ['nombre'],
@@ -297,6 +332,7 @@ const crmCreateLead: CrmTool = {
 const AREAS = ['ELE', 'ESP', 'ILU', 'CORT', 'PROY'] as const
 
 const crmAssignTask: CrmTool = {
+  clase: 'operacion',
   definition: {
     name: 'crm_assign_task',
     description:
@@ -315,6 +351,7 @@ const crmAssignTask: CrmTool = {
         area: { type: 'string', enum: AREAS as unknown as string[], description: 'ELE electrico, ESP especiales, ILU iluminacion, CORT cortinas, PROY proyecto' },
         fecha: { type: 'string', description: 'Fecha limite en formato yyyy-mm-dd' },
         prioridad: { type: 'string', enum: ['baja', 'media', 'alta'], default: 'media' },
+        idempotency_key: { type: 'string', description: 'Identificador que TU inventas para esta operacion concreta (por ejemplo lead-frb-2026-09-26-01). Si la llamada se reintenta con la misma clave, el servidor devuelve el resultado original en vez de crear un duplicado. Mandalo siempre en escrituras reales.' },
         dry_run: { type: 'boolean', default: false },
       },
       required: ['lead_id', 'titulo', 'area'],
@@ -384,6 +421,7 @@ const crmAssignTask: CrmTool = {
 
 // ═══ TOOL: notify_user ═════════════════════════════════════════════════════
 const notifyUser: CrmTool = {
+  clase: 'operacion',
   definition: {
     name: 'notify_user',
     description:
@@ -398,6 +436,7 @@ const notifyUser: CrmTool = {
         titulo: { type: 'string' },
         mensaje: { type: 'string' },
         link: { type: 'string', description: 'Ruta del ERP, por ejemplo /crm o /mi-trabajo' },
+        idempotency_key: { type: 'string', description: 'Identificador que TU inventas para esta operacion concreta (por ejemplo lead-frb-2026-09-26-01). Si la llamada se reintenta con la misma clave, el servidor devuelve el resultado original en vez de crear un duplicado. Mandalo siempre en escrituras reales.' },
         dry_run: { type: 'boolean', default: false },
       },
       required: ['titulo', 'mensaje'],
@@ -443,6 +482,7 @@ const notifyUser: CrmTool = {
 
 // ═══ TOOL: crm_create_lead_with_task ═══════════════════════════════════════
 const crmCreateLeadWithTask: CrmTool = {
+  clase: 'operacion',
   definition: {
     name: 'crm_create_lead_with_task',
     description:
@@ -468,6 +508,7 @@ const crmCreateLeadWithTask: CrmTool = {
         tarea_fecha: { type: 'string', description: 'yyyy-mm-dd' },
         tarea_prioridad: { type: 'string', enum: ['baja', 'media', 'alta'], default: 'media' },
         notificar_a: { type: 'array', items: { type: 'string' }, description: 'Correos de quienes ademas deben enterarse' },
+        idempotency_key: { type: 'string', description: 'Identificador que TU inventas para esta operacion concreta (por ejemplo lead-frb-2026-09-26-01). Si la llamada se reintenta con la misma clave, el servidor devuelve el resultado original en vez de crear un duplicado. Mandalo siempre en escrituras reales.' },
         dry_run: { type: 'boolean', default: false },
       },
       required: ['nombre', 'tarea_titulo', 'tarea_area'],
@@ -556,6 +597,8 @@ export const CRM_TOOLS: Record<string, CrmTool> = {
 export function crmToolDefinitions() {
   return Object.values(CRM_TOOLS).map(t => t.definition)
 }
+
+export const claseDeTool = (name: string): ClaseDeTool | null => CRM_TOOLS[name]?.clase ?? null
 
 export async function executeCrmTool(name: string, input: unknown, ctx: CrmCtx): Promise<CrmToolResult> {
   const tool = CRM_TOOLS[name]

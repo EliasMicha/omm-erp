@@ -25,7 +25,9 @@
 //  con sesion; el porton es el Bearer de servicio.
 // ═══════════════════════════════════════════════════════════════════════════
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
-import { CRM_TOOLS, crmToolDefinitions, executeCrmTool, type CrmActor } from './crm_tools.ts'
+import { ALCANCE_CRM, CRM_TOOLS, claseDeTool, crmToolDefinitions, executeCrmTool, type CrmActor } from './crm_tools.ts'
+import { acotarSupabase } from './acotar.ts'
+import { unaSolaVez } from './idempotencia.ts'
 
 const PROTOCOL_VERSION = '2025-06-18'
 const SERVER_INFO = { name: 'omm-crm', version: '1.0.0' }
@@ -172,14 +174,40 @@ Deno.serve(async (req: Request) => {
         employee_id: cuenta.employee_id, permission_area: cuenta.permission_area, nivel: cuenta.nivel,
       }
 
+      // Las tools ven un cliente acotado a las tablas del CRM: una tool que
+      // por error pidiera design_rules o catalog_products revienta aqui, no
+      // en produccion. El limite es del servidor, no del prompt del bot.
+      const acotado = acotarSupabase(supabase, ALCANCE_CRM)
+
+      // Idempotencia solo para las escrituras reales. Una consulta no la
+      // necesita y un dry_run no escribe nada, asi que ninguno quema clave.
+      const clase = claseDeTool(nombre)
+      const claveIdem = clase === 'operacion' && args?.dry_run !== true
+        ? (typeof args?.idempotency_key === 'string' ? args.idempotency_key : null)
+        : null
+
       const t0 = Date.now()
-      const resultado = await executeCrmTool(nombre, args, { supabase, actor })
+      // La tabla de idempotencia es infraestructura, no datos del modulo: va
+      // con el cliente sin acotar.
+      const envuelto = await unaSolaVez(supabase, claveIdem,
+        { tool_name: nombre, actor_email: actor.email, origen: 'mcp-crm' },
+        async () => {
+          const r = await executeCrmTool(nombre, args, { supabase: acotado, actor })
+          return { ok: r.success, valor: r, error: r.error }
+        })
       const ms = Date.now() - t0
+
+      const resultado: any = envuelto.valor ?? { success: false, error: envuelto.error }
+      // Al bot se le dice que fue repetida, para que no lo reporte como si
+      // acabara de crear algo por segunda vez.
+      if (envuelto.repetido && resultado?.data && typeof resultado.data === 'object') {
+        resultado.data = { ...resultado.data, repetido: true, nota: 'Esta operacion ya se habia hecho con esa misma clave; es el resultado original, no uno nuevo.' }
+      }
 
       // Auditoria: quien, que, cuando, con que payload y que toco.
       await supabase.from('agent_actions_log').insert({
         tool_name: nombre,
-        tool_input: { ...args, _origen: 'mcp-crm', _actor: actor.email },
+        tool_input: { ...args, _origen: 'mcp-crm', _actor: actor.email, _clase: clase, _repetido: envuelto.repetido || undefined },
         tool_output: resultado.data ?? null,
         status: resultado.success ? 'success' : 'error',
         error_message: resultado.error ?? null,
