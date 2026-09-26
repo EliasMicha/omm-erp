@@ -1963,9 +1963,6 @@ function SummaryPanel({ products, areas, config, activeSystems, showInt, noSumaS
     { l: 'DESCUENTO', v: config.descuento, ed: 'descuento', pct: true },
   ]
   const afterDiscountRows: Array<{ l: string; v: number; b?: boolean; h?: boolean }> = []
-  if (config.descuento > 0) {
-    afterDiscountRows.push({ l: 'SUBTOTAL CON DESCUENTO', v: subConDesc, b: true })
-  }
 
   afterDiscountRows.push({ l: 'TOTAL DEL PROYECTO', v: total, b: true, h: true })
 
@@ -1992,6 +1989,12 @@ function SummaryPanel({ products, areas, config, activeSystems, showInt, noSumaS
           </div>
         ))}
         {/* Viáticos — despues del descuento, antes del IVA */}
+        {config.descuento > 0 && (
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '3px 4px', borderTop: '1px solid #222' }}>
+            <span style={{ fontSize: 10, color: '#ccc', fontWeight: 700 }}>SUBTOTAL CON DESCUENTO</span>
+            <span style={{ fontSize: 11, color: '#fff', fontWeight: 700 }}>${fmt(subConDesc)}</span>
+          </div>
+        )}
         {viaticosMonto !== 0 && (
           <>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '3px 4px', borderTop: '1px solid #222' }}>
@@ -2278,6 +2281,10 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
   const [projectName, setProjectName] = useState('')
   // Viaticos de obra foranea. Se capturan en MXN y viven en notes.viaticos.
   const [viaticos, setViaticos] = useState<Viaticos>(VIATICOS_VACIOS)
+  // El ref carga el valor vigente para el guardado con retraso y para que
+  // cualquier otro saveNotes (descuento, IVA, TC) no reescriba notes sin ellos.
+  const viaticosRef = useRef<Viaticos>(VIATICOS_VACIOS)
+  const viaticosTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   async function load() {
     const [{ data: cot }, { data: qAreas }, { data: qItems }] = await Promise.all([
@@ -2295,7 +2302,7 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
         noteMeta = JSON.parse(cot.notes || '{}')
         if (noteMeta.systems) setActiveSysIds(noteMeta.systems)
         if (Array.isArray(noteMeta.systems_no_suma)) setNoSumaSysIds(noteMeta.systems_no_suma)
-        if (noteMeta.viaticos) setViaticos(leerViaticos(noteMeta))
+        if (noteMeta.viaticos) { const v = leerViaticos(noteMeta); viaticosRef.current = v; setViaticos(v) }
         if (noteMeta.currency || noteMeta.tipoCambio || noteMeta.descuento !== undefined || noteMeta.programacion !== undefined || noteMeta.ivaRate !== undefined) {
           setConfig(c => ({ ...c, currency: noteMeta.currency || c.currency, tipoCambio: noteMeta.tipoCambio || c.tipoCambio, descuento: noteMeta.descuento ?? c.descuento, programacion: noteMeta.programacion ?? c.programacion, nominaPct: noteMeta.nominaPct ?? c.nominaPct, ivaRate: noteMeta.ivaRate ?? c.ivaRate }))
         }
@@ -2421,14 +2428,14 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
     })
     const descFactor = 1 - (config.descuento || 0) / 100
     const revenueBilled = revenue * descFactor
-    // La nomina se prorratea solo sobre la venta de producto. Los viaticos se
-    // cobran al costo: entran igual como venta y como costo, asi que no
-    // inventan utilidad, solo diluyen el porcentaje — que es la verdad.
+    // Los viaticos NO entran al margen. Se cobran al costo: son un reembolso,
+    // no una venta. Meterlos hundiria el porcentaje sin que la obra sea peor
+    // negocio — una obra foranea de $12,000 con $9,900 de viaticos marcaria 2%
+    // de margen cuando la venta real sigue dejando lo mismo — y ademas dejaria
+    // el MG del encabezado peleado con el del analisis interno.
     const nomina = revenueBilled * (config.nominaPct || 0) / 100
-    const ingreso = revenueBilled + viaticosMonto
-    const costoTotal = cost + viaticosMonto
-    return ingreso > 0 ? Math.round(((ingreso - costoTotal - nomina) / ingreso) * 1000) / 10 : 0
-  }, [products, config.nominaPct, config.descuento, config.currency, config.tipoCambio, viaticosMonto])
+    return revenueBilled > 0 ? Math.round(((revenueBilled - cost - nomina) / revenueBilled) * 1000) / 10 : 0
+  }, [products, config.nominaPct, config.descuento, config.currency, config.tipoCambio])
   const total = useMemo(() => {
     let eq = 0, mo = 0; products.forEach(p => { if (noSumaSysIds.includes(p.systemId)) return; eq += p.price * p.quantity; mo += p.laborCost * p.quantity })
     const sub = eq + mo + config.programacion;
@@ -2523,7 +2530,7 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
       const { data: q } = await supabase.from('quotations').select('notes').eq('id', cotId).single()
       if (q?.notes) existing = JSON.parse(q.notes)
     } catch (_) { /* ignore */ }
-    const merged = { ...existing, systems: overrides?.systems ?? activeSysIds, systems_no_suma: overrides?.systems_no_suma ?? noSumaSysIds, currency: overrides?.currency ?? config.currency, tipoCambio: overrides?.tipoCambio ?? config.tipoCambio, descuento: overrides?.descuento ?? config.descuento, programacion: overrides?.programacion ?? config.programacion, nominaPct: overrides?.nominaPct ?? config.nominaPct, ivaRate: overrides?.ivaRate ?? config.ivaRate, customSystems }
+    const merged = { ...existing, systems: overrides?.systems ?? activeSysIds, systems_no_suma: overrides?.systems_no_suma ?? noSumaSysIds, currency: overrides?.currency ?? config.currency, tipoCambio: overrides?.tipoCambio ?? config.tipoCambio, descuento: overrides?.descuento ?? config.descuento, programacion: overrides?.programacion ?? config.programacion, nominaPct: overrides?.nominaPct ?? config.nominaPct, ivaRate: overrides?.ivaRate ?? config.ivaRate, viaticos: overrides?.viaticos ?? viaticosRef.current, customSystems }
     await supabase.from('quotations').update({ notes: JSON.stringify(merged) }).eq('id', cotId)
   }
 
@@ -2540,18 +2547,40 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
     saveNotes({ systems_no_suma: next })
   }
 
-  // Los viaticos se guardan completos en notes.viaticos cada vez que cambian:
-  // si solo vivieran en pantalla, al recargar la cotizacion el gasto se perderia
-  // y el total bajaria solo.
+  // Los viaticos se guardan completos en notes.viaticos: si solo vivieran en
+  // pantalla, al recargar la cotizacion el gasto se perderia y el total bajaria
+  // solo.
+  //
+  // El guardado va con retraso a proposito. Cada save lee notes de la BD, le
+  // pega lo nuevo y lo regresa entero; teclear "45000" dispararia cinco de esos
+  // ciclos encimados y el ultimo en llegar podria ser el que leyo el valor mas
+  // viejo. Con la pausa se manda una sola escritura por captura.
   function updateViaticos(patch: Partial<Viaticos>) {
-    setViaticos(prev => {
-      const next = { ...prev, ...patch }
-      // Sin noches capturadas se asume una noche por dia trabajado.
-      if (patch.dias !== undefined && (prev.noches === prev.dias || !prev.noches)) next.noches = patch.dias
-      saveNotes({ viaticos: next })
-      return next
-    })
+    const prev = viaticosRef.current
+    const next = { ...prev, ...patch }
+    // Sin noches capturadas se asume una noche por dia trabajado.
+    if (patch.dias !== undefined && (prev.noches === prev.dias || !prev.noches)) next.noches = patch.dias
+    viaticosRef.current = next
+    setViaticos(next)
+    if (viaticosTimer.current) clearTimeout(viaticosTimer.current)
+    viaticosTimer.current = setTimeout(guardarViaticos, 600)
   }
+
+  // Escribe SOLO la llave de viaticos. No pasa por saveNotes a proposito: ese
+  // reescribe descuento, IVA, TC y moneda desde el estado de la pantalla, y una
+  // escritura que se dispara sola no tiene por que tocar esos campos.
+  async function guardarViaticos() {
+    viaticosTimer.current = null
+    let existing: any = {}
+    try {
+      const { data: q } = await supabase.from('quotations').select('notes').eq('id', cotId).single()
+      if (q?.notes) existing = JSON.parse(q.notes)
+    } catch (_) { /* ignore */ }
+    await supabase.from('quotations').update({ notes: JSON.stringify({ ...existing, viaticos: viaticosRef.current }) }).eq('id', cotId)
+  }
+
+  // Si se cierra la cotizacion antes de que corra el retraso, se guarda al salir.
+  useEffect(() => () => { if (viaticosTimer.current) { clearTimeout(viaticosTimer.current); guardarViaticos() } }, [])
 
   function updateConfig(field: string, value: number) {
     setConfig(prev => ({ ...prev, [field]: value }))
