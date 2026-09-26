@@ -50,3 +50,9 @@ create unique index if not exists uq_po_folio          on purchase_orders (folio
 -- 2026-09-25 (folios_omm_clave_hasta_8): la clave admite hasta 8 caracteres.
 -- El limite de 6 era invento: las claves reales del equipo son L202T, RDA101,
 -- F2BA101. Con 8, F2BA101-ES01-C03 son 16 caracteres de los 40 del concepto.
+
+-- 2026-09-25 (folios_omm_compras_sin_cotizacion): el folio es EL identificador
+-- de una orden de compra. Las compras de bodega, que no cuelgan de ninguna
+-- cotizacion, toman su propio consecutivo OC-AAMM-nnn como folio: es el numero
+-- con el que ya salieron a los proveedores. El consecutivo se queda en la base
+-- para todas, pero ya no se muestra ni se imprime.

@@ -73,7 +73,7 @@ export default function EstadoCuentaProveedor({ onClose, proveedorInicial }: {
     const rfc = (prov.rfc || '').replace(/[\s-]/g, '')
     Promise.all([
       supabase.from('purchase_orders')
-        .select('id,po_number,status,currency,total,created_at,expected_delivery,fecha_maxima_pago,pagada_at,descripcion,delivered_at')
+        .select('id,po_number,folio,status,currency,total,created_at,expected_delivery,fecha_maxima_pago,pagada_at,descripcion,delivered_at')
         .eq('supplier_id', sel).order('created_at', { ascending: false }),
       rfc
         ? supabase.from('facturas')
@@ -140,7 +140,7 @@ export default function EstadoCuentaProveedor({ onClose, proveedorInicial }: {
         ] : []),
       ]
       const hojaOC = ocs.map(o => ({
-        OC: o.po_number, Estado: ESTADO_OC[o.status]?.label || o.status, Descripcion: o.descripcion || '',
+        OC: (o as any).folio || o.po_number, Estado: ESTADO_OC[o.status]?.label || o.status, Descripcion: o.descripcion || '',
         Fecha: o.created_at?.slice(0, 10), Total: Number(o.total) || 0, Moneda: o.currency,
         'Entrega esperada': o.expected_delivery || '', 'Fecha maxima de pago': o.fecha_maxima_pago || '',
         Pagada: o.pagada_at ? 'Si' : 'No',
@@ -219,7 +219,7 @@ export default function EstadoCuentaProveedor({ onClose, proveedorInicial }: {
 
             {vencidas.length > 0 && (
               <div style={{ marginBottom: 12, padding: '8px 10px', background: '#DC262611', border: '1px solid #DC262644', borderRadius: 6, fontSize: 11, color: '#DC2626', fontWeight: 600 }}>
-                {vencidas.length} orden(es) con la fecha máxima de pago vencida: {vencidas.map(o => o.po_number).join(', ')}
+                {vencidas.length} orden(es) con la fecha máxima de pago vencida: {vencidas.map(o => (o as any).folio || o.po_number).join(', ')}
               </div>
             )}
 
@@ -238,7 +238,7 @@ export default function EstadoCuentaProveedor({ onClose, proveedorInicial }: {
                     const cfg = ESTADO_OC[o.status] || { label: o.status, color: '#666' }
                     return (
                       <tr key={o.id}>
-                        <td style={{ ...td, fontWeight: 600, color: '#fff' }}>{o.po_number}</td>
+                        <td style={{ ...td, fontWeight: 600, color: '#fff' }}>{(o as any).folio || o.po_number}</td>
                         <td style={{ ...td, color: '#999' }}>{o.descripcion || '—'}</td>
                         <td style={td}><span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 4, background: cfg.color + '22', color: cfg.color }}>{cfg.label}</span></td>
                         <td style={{ ...td, color: '#888' }}>{fDate(o.created_at)}</td>

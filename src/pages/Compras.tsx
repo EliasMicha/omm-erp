@@ -9,6 +9,7 @@ import { Project, CatalogProduct, ProjectLine, PurchasePhase } from '../types'
 import { F, FUSD, FCUR, SPECIALTY_CONFIG, PHASE_CONFIG, formatDate } from '../lib/utils'
 import { Badge, Btn, KpiCard, Table, Th, Td, Loading, SectionHeader, EmptyState } from '../components/layout/UI'
 import FolioChip from '../components/FolioChip'
+import { folioOC } from '../lib/folios'
 import { useIsMobile } from '../lib/useIsMobile'
 import { Plus, ChevronLeft, X, Search, Trash2, Save, ShoppingCart, Truck, Package, Users2, FileText, Copy, Sparkles, Upload, ClipboardList, ChevronRight, CheckCircle2, Circle, Clock, Download, Paperclip } from 'lucide-react'
 import { generatePOPdf } from '../lib/poPdf'
@@ -506,7 +507,7 @@ function ModalProyecto({ fila, orders, deudas, onClose, onOpenPO }: {
                 return (
                   <tr key={o.id} onClick={() => { onClose(); onOpenPO(o.id) }}
                     style={{ borderTop: '1px solid #1a1a1a', color: '#bbb', cursor: 'pointer' }}>
-                    <td style={{ padding: '7px 6px', fontWeight: 600, color: '#fff' }}>{o.po_number}</td>
+                    <td style={{ padding: '7px 6px', fontWeight: 600, color: '#fff' }}>{folioOC(o)}</td>
                     <td style={{ padding: '7px 6px', maxWidth: 230, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{(o.supplier as any)?.name || '—'}</td>
                     <td style={{ padding: '7px 6px' }}><Badge label={st.label} color={st.color} /></td>
                     <td style={{ padding: '7px 6px', color: '#777' }}>{formatDate(o.created_at)}</td>
@@ -1559,8 +1560,8 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
   if (search) {
     const q = search.toLowerCase()
     lista = lista.filter(o =>
+      folioOC(o).toLowerCase().includes(q) ||
       o.po_number.toLowerCase().includes(q) ||
-      ((o as any).folio || '').toLowerCase().includes(q) ||
       (o.supplier as any)?.name?.toLowerCase().includes(q) ||
       (o.project as any)?.name?.toLowerCase().includes(q) ||
       (o as any).quotation?.name?.toLowerCase().includes(q) ||
@@ -1684,9 +1685,7 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
                   {/* Un solo identificador por renglon: el folio nuevo cuando
                       existe, y el consecutivo viejo solo en las compras de
                       bodega, que no cuelgan de ninguna cotizacion. */}
-                  <Td>{(o as any).folio
-                    ? <FolioChip folio={(o as any).folio} size={10} color="#ddd" />
-                    : <span style={{ fontWeight: 600, color: '#fff' }}>{o.po_number}</span>}</Td>
+                  <Td><FolioChip folio={folioOC(o)} size={10} color="#ddd" /></Td>
                   <Td><span style={{ color: o.descripcion ? '#ccc' : '#555', fontSize: 12 }}>{o.descripcion || '--'}</span></Td>
                   <Td>{(o.supplier as any)?.name || <span style={{ color: '#555' }}>--</span>}</Td>
                   <Td muted>{getQuotName(o) || '--'}</Td>
@@ -3510,18 +3509,14 @@ function POEditor({ poId, onBack, onAbrirOtra }: { poId: string; onBack: () => v
         </button>
         <div style={{ flex: 1 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span style={{ fontSize: 18, fontWeight: 700, color: '#fff' }}>{(po as any).folio || po.po_number}</span>
-            {(po as any).folio && (
-              <FolioChip folio={(po as any).folio} size={11}
-                titulo="Copiar para el concepto de la transferencia" />
-            )}
+            <span style={{ fontSize: 18, fontWeight: 700, color: '#fff' }}>{folioOC(po)}</span>
+            <FolioChip folio={folioOC(po)} size={11} titulo="Copiar para el concepto de la transferencia" />
             <Badge label={stCfg.label} color={stCfg.color} />
             {esServicio && <Badge label="🔧 Servicio" color="#A78BFA" />}
             <Badge label={esp.icon + ' ' + esp.label} color={esp.color} />
             {po.purchase_phase && PHASE_CONFIG[po.purchase_phase] && <Badge label={PHASE_CONFIG[po.purchase_phase].label} color={PHASE_CONFIG[po.purchase_phase].color} />}
           </div>
           <div style={{ fontSize: 12, color: '#555', marginTop: 2 }}>
-            {(po as any).folio && <span style={{ fontFamily: 'ui-monospace, monospace' }}>{po.po_number} · </span>}
             Creada {formatDate(po.created_at)}
             {po.approved_at && ` | Aprobada ${formatDate(po.approved_at)}`}
             {po.delivered_at && ` | Recibida ${formatDate(po.delivered_at)}`}
@@ -4215,7 +4210,7 @@ function POEditor({ poId, onBack, onAbrirOtra }: { poId: string; onBack: () => v
                   </div>
                   <ol style={{ paddingLeft: 20, fontSize: 11, color: '#ccc', lineHeight: 1.7 }}>
                     <li>Abre <a href={config.portal_url} target="_blank" rel="noreferrer" style={{ color: '#A78BFA' }}>{config.portal_url}</a> y loguéate si no estás dentro</li>
-                    <li>Click "Add Project" — crea proyecto con nombre <code style={{ background: '#1a1a1a', padding: '1px 5px', borderRadius: 3, color: '#A78BFA' }}>OMM {po.po_number}</code></li>
+                    <li>Click "Add Project" — crea proyecto con nombre <code style={{ background: '#1a1a1a', padding: '1px 5px', borderRadius: 3, color: '#A78BFA' }}>OMM {folioOC(po)}</code></li>
                     <li>Para cada modelo de arriba: click "Add Product by Model Number" → mete modelo y qty → save</li>
                     <li>Lutron muestra el List Price en tiempo real. Anótalos.</li>
                     <li>Cuando termines, regresa al ERP y captura los precios reales en el cotejo de OC</li>
@@ -4287,7 +4282,7 @@ function POEditor({ poId, onBack, onAbrirOtra }: { poId: string; onBack: () => v
         </div>
       )}
     {po && <PaymentsSection poId={po.id} poTotal={po.total} poCurrency={po.currency} poStatus={po.status} onStatusChange={(newStatus) => setPO({ ...po, status: newStatus })} />}
-    {po && <DocumentosSection poId={po.id} poNumero={po.po_number} />}
+    {po && <DocumentosSection poId={po.id} poNumero={folioOC(po)} />}
     </div>
   )
 }
@@ -5009,7 +5004,7 @@ function SupplierDetail({ supplierId, onBack }: { supplierId: string; onBack: ()
                 return (
                   <div key={o.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', borderBottom: '1px solid #1e1e1e' }}>
                     <div>
-                      <div style={{ fontSize: 12, fontWeight: 600, color: '#fff' }}>{o.po_number}</div>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: '#fff' }}>{folioOC(o)}</div>
                       <div style={{ fontSize: 10, color: '#555' }}>{(o.project as any)?.name || 'Sin proyecto'} | {formatDate(o.created_at)}</div>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>

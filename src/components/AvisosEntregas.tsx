@@ -60,7 +60,7 @@ export default function AvisosEntregas({ userKey, onIr }: {
         .in('status', ['solicitada', 'aprobada', 'surtida_parcial'])
         .order('created_at', { ascending: false }).limit(40),
       supabase.from('purchase_orders')
-        .select('id,po_number,status,created_at,updated_at,expected_delivery,total,currency,suppliers(name)')
+        .select('id,po_number,folio,status,created_at,updated_at,expected_delivery,total,currency,suppliers(name)')
         .in('status', ['pedida', 'aprobada'])
         .order('updated_at', { ascending: false }).limit(40),
       supabase.from('deliveries')
@@ -86,7 +86,7 @@ export default function AvisosEntregas({ userKey, onIr }: {
       const retrasada = p.expected_delivery && p.expected_delivery < hoy
       out.push({
         id: 'oc-' + p.id, tipo: retrasada ? 'oc_retrasada' : 'oc',
-        titulo: `${p.po_number || 'OC'} · ${p.suppliers?.name || 'Proveedor'}`,
+        titulo: `${(p as any).folio || p.po_number || 'OC'} · ${p.suppliers?.name || 'Proveedor'}`,
         detalle: retrasada
           ? `Se esperaba el ${p.expected_delivery} y no se ha recibido`
           : `Confirmada${p.expected_delivery ? ` · llega ~${p.expected_delivery}` : ''}`,

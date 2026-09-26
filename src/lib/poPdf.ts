@@ -88,21 +88,14 @@ export function generatePOPdf(po: POForPdf, items: POItemForPdf[], opts?: POPdfO
   const esServicio = po.tipo === 'servicio'
   doc.text(sinCostos ? 'Solicitud de Cotización' : esServicio ? 'Orden de Servicio' : 'Orden de Compra', pageW - margin, y + 6, { align: 'right' })
 
-  // El numero grande es el folio OMM cuando existe: es el que amarra la orden
-  // con su cotizacion, su lead y el concepto de la transferencia. El
-  // consecutivo interno queda abajo, chico, para las ordenes viejas que el
-  // proveedor ya tiene con ese numero.
+  // El folio OMM es EL numero de la orden: amarra la compra con su cotizacion,
+  // su lead y el concepto de la transferencia. El consecutivo OC-AAMM-nnn sigue
+  // en la base como referencia historica, pero ya no se imprime.
   doc.setFontSize(20)
   doc.setTextColor(0, 120, 80)
   doc.text(po.folio || po.po_number, pageW - margin, y + 14, { align: 'right' })
 
-  if (po.folio) {
-    doc.setFontSize(8)
-    doc.setTextColor(140, 140, 140)
-    doc.text(po.po_number, pageW - margin, y + 19, { align: 'right' })
-  }
-
-  y += Math.max(logoH + 4, po.folio ? 25 : 22)
+  y += Math.max(logoH + 4, 22)
 
   // ── Separator ──
   doc.setDrawColor(200, 200, 200)
@@ -233,7 +226,7 @@ export function generatePOPdf(po: POForPdf, items: POItemForPdf[], opts?: POPdfO
       const pageH = doc.internal.pageSize.getHeight()
       doc.setFontSize(7)
       doc.setTextColor(160, 160, 160)
-      doc.text(`${po.po_number} — OMM Technologies`, margin, pageH - 8)
+      doc.text(`${po.folio || po.po_number} — OMM Technologies`, margin, pageH - 8)
       doc.text(`Pagina ${doc.getNumberOfPages()}`, pageW - margin, pageH - 8, { align: 'right' })
     },
   })
@@ -294,5 +287,5 @@ export function generatePOPdf(po: POForPdf, items: POItemForPdf[], opts?: POPdfO
 
   // ── Download ──
   const suffix = sinCostos ? '_cotizar' : ''
-  doc.save(`${po.po_number}${suffix}.pdf`)
+  doc.save(`${po.folio || po.po_number}${suffix}.pdf`)
 }

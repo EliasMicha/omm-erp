@@ -29,3 +29,15 @@ export function folioMostrado(folio?: string | null, stage?: string | null): str
 export function folioCompacto(txt?: string | null): string {
   return (txt || '').toUpperCase().replace(/[^A-Z0-9]/g, '')
 }
+
+/**
+ * El identificador visible de una orden de compra.
+ *
+ * De 2026-09 en adelante es el folio OMM (PILO-IE01-C03). El consecutivo
+ * OC-AAMM-nnn sigue en la base como referencia historica y es el folio de las
+ * compras de bodega, que no cuelgan de ninguna cotizacion — asi que leerlo
+ * desde aqui siempre da el numero correcto, sin tener que saber cual es cual.
+ */
+export function folioOC(po: any): string {
+  return po?.folio || po?.po_number || ''
+}

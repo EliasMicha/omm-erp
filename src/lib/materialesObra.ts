@@ -173,7 +173,7 @@ export async function cargarMaterialesObra(obra: {
     // Las OC de la obra no siempre traen project_id: también se ligan por la
     // cotización o porque la logística apunta a esta obra. Buscamos por las tres.
     supabase.from('purchase_orders')
-      .select('id,po_number,status,created_at,requested_by,expected_delivery,project_id,quotation_id,logistics_target_obra_id')
+      .select('id,po_number,folio,status,created_at,requested_by,expected_delivery,project_id,quotation_id,logistics_target_obra_id')
       .or([
         projectId ? `project_id.eq.${projectId}` : '',
         `quotation_id.in.(${cotIds.join(',')})`,
@@ -273,7 +273,7 @@ export async function cargarMaterialesObra(obra: {
       etapa: 'pedido', cantidad: q,
       fecha: String(po.created_at || '').substring(0, 10) || null,
       quien: po.requested_by || 'Compras',
-      ref: po.po_number || '',
+      ref: (po as any).folio || po.po_number || '',
       detalle: comprada
         ? (po.expected_delivery ? `Llega ~${String(po.expected_delivery).substring(0, 10)}` : `OC ${po.status}`)
         : 'OC en borrador — todavía no se manda al proveedor',
@@ -294,7 +294,7 @@ export async function cargarMaterialesObra(obra: {
       r.sustituciones.push({
         pedido: pedidoTxt || p.name || '',
         llego: llegoTxt || p.real_name || '',
-        oc: po.po_number || '',
+        oc: (po as any).folio || po.po_number || '',
         cantidad: Number(p.real_quantity ?? p.quantity) || 0,
         notas: p.cotejo_notes || null,
       })
