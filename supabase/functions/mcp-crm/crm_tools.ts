@@ -84,6 +84,9 @@ export const ALCANCE_CRM = {
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
+/** Los unicos origenes que acepta el check leads_origin_check. */
+const ORIGENES = ['inbound', 'outbound', 'referido', 'arquitecto', 'desarrolladora'] as const
+
 const s = (v: unknown): string => (typeof v === 'string' ? v.trim() : '')
 const esDryRun = (input: any): boolean => input?.dry_run === true
 
@@ -218,7 +221,7 @@ const crmSearchLeads: CrmTool = {
         query: { type: 'string', description: 'Nombre del proyecto, despacho o contacto' },
         estado: {
           type: 'string',
-          enum: ['nuevo', 'contactado', 'cotizando', 'ganado', 'perdido', 'pausado'],
+          enum: ['nuevo', 'contactado', 'diagnostico', 'cotizando', 'ganado', 'perdido', 'pausado'],
           description: 'Filtra por etapa comercial',
         },
         limit: { type: 'integer', default: 10 },
@@ -272,8 +275,9 @@ const crmCreateLead: CrmTool = {
         telefono: { type: 'string' },
         origen: {
           type: 'string',
-          enum: ['inbound', 'referido', 'repetido', 'prospeccion', 'otro'],
-          description: 'Como llego el lead', default: 'inbound',
+          enum: ORIGENES as unknown as string[],
+          description: 'Como llego el lead. En OMM la mayoria entra por arquitecto (el despacho trae la obra) o desarrolladora; inbound es que llegaron solos, outbound que los buscamos nosotros, referido que alguien nos recomendo.',
+          default: 'inbound',
         },
         notas: { type: 'string' },
         responsable_email: { type: 'string', description: 'Correo del comercial responsable' },
@@ -331,6 +335,18 @@ const crmCreateLead: CrmTool = {
 // ═══ TOOL: crm_assign_task ═════════════════════════════════════════════════
 const AREAS = ['ELE', 'ESP', 'ILU', 'CORT', 'PROY'] as const
 
+/**
+ * Valores que la base y la app YA usan; no son invencion de este archivo.
+ * TIPOS_TAREA sale de TipoTarea en src/lib/tareas.ts, que es lo que el
+ * tablero usa para pintar y agrupar. Un tipo fuera de esa lista no revienta
+ * el insert —la columna no tiene check— pero deja la tarea sin configuracion
+ * de pintado, o sea invisible. Es peor que un error.
+ */
+const TIPOS_TAREA = ['proyecto', 'cotizacion', 'levantamiento', 'licitacion', 'revision'] as const
+
+/** La escala de URGENCIA_TAREA_CFG: urgente 3 / alta 2 / normal 1 / baja 0. */
+const URGENCIAS: Record<string, number> = { urgente: 3, alta: 2, normal: 1, baja: 0 }
+
 const crmAssignTask: CrmTool = {
   clase: 'operacion',
   definition: {
@@ -350,7 +366,11 @@ const crmAssignTask: CrmTool = {
         asignado_email: { type: 'string', description: 'Alternativa al employee_id' },
         area: { type: 'string', enum: AREAS as unknown as string[], description: 'ELE electrico, ESP especiales, ILU iluminacion, CORT cortinas, PROY proyecto' },
         fecha: { type: 'string', description: 'Fecha limite en formato yyyy-mm-dd' },
-        prioridad: { type: 'string', enum: ['baja', 'media', 'alta'], default: 'media' },
+        tipo: {
+          type: 'string', enum: TIPOS_TAREA as unknown as string[], default: 'proyecto',
+          description: 'Que clase de trabajo es. Asi lo pinta y lo agrupa el tablero.',
+        },
+        urgencia: { type: 'string', enum: ['urgente', 'alta', 'normal', 'baja'], default: 'normal' },
         idempotency_key: { type: 'string', description: 'Identificador que TU inventas para esta operacion concreta (por ejemplo lead-frb-2026-09-26-01). Si la llamada se reintenta con la misma clave, el servidor devuelve el resultado original en vez de crear un duplicado. Mandalo siempre en escrituras reales.' },
         dry_run: { type: 'boolean', default: false },
       },
@@ -378,8 +398,9 @@ const crmAssignTask: CrmTool = {
       return { success: false, error: `${persona.nombre} tiene cuenta en el ERP pero no ficha de empleado, y las tareas se asignan a fichas. Escoge a alguien mas o pide que le liguen su ficha en Usuarios.` }
     }
 
-    const prioridadNum = { baja: 1, media: 2, alta: 3 }[s(input.prioridad) || 'media'] ?? 2
-    const urgencia = { baja: 'baja', media: 'normal', alta: 'urgente' }[s(input.prioridad) || 'media'] ?? 'normal'
+    const urgencia = s(input.urgencia) in URGENCIAS ? s(input.urgencia) : 'normal'
+    const prioridadNum = URGENCIAS[urgencia]
+    const tipo = (TIPOS_TAREA as readonly string[]).includes(s(input.tipo)) ? s(input.tipo) : 'proyecto'
 
     const fila = {
       name: titulo,
@@ -387,7 +408,7 @@ const crmAssignTask: CrmTool = {
       lead_id: leadId,
       assignee_id: persona.employee_id,
       specialty: area === 'ELE' ? 'elec' : area === 'ESP' ? 'esp' : area === 'ILU' ? 'ilum' : area === 'CORT' ? 'cort' : 'proy',
-      tipo: 'comercial',
+      tipo,
       urgencia,
       priority: prioridadNum,
       due_date: s(input.fecha) || null,
@@ -498,7 +519,7 @@ const crmCreateLeadWithTask: CrmTool = {
         contacto: { type: 'string' },
         email: { type: 'string' },
         telefono: { type: 'string' },
-        origen: { type: 'string', enum: ['inbound', 'referido', 'repetido', 'prospeccion', 'otro'], default: 'inbound' },
+        origen: { type: 'string', enum: ORIGENES as unknown as string[], default: 'inbound' },
         notas: { type: 'string' },
         tarea_titulo: { type: 'string', description: 'Que hay que hacer con este lead' },
         tarea_descripcion: { type: 'string' },
@@ -506,7 +527,8 @@ const crmCreateLeadWithTask: CrmTool = {
         tarea_asignado_employee_id: { type: 'string' },
         tarea_area: { type: 'string', enum: AREAS as unknown as string[], description: 'Obligatoria. Preguntala si no la dijeron.' },
         tarea_fecha: { type: 'string', description: 'yyyy-mm-dd' },
-        tarea_prioridad: { type: 'string', enum: ['baja', 'media', 'alta'], default: 'media' },
+        tarea_tipo: { type: 'string', enum: TIPOS_TAREA as unknown as string[], default: 'proyecto' },
+        tarea_urgencia: { type: 'string', enum: ['urgente', 'alta', 'normal', 'baja'], default: 'normal' },
         notificar_a: { type: 'array', items: { type: 'string' }, description: 'Correos de quienes ademas deben enterarse' },
         idempotency_key: { type: 'string', description: 'Identificador que TU inventas para esta operacion concreta (por ejemplo lead-frb-2026-09-26-01). Si la llamada se reintenta con la misma clave, el servidor devuelve el resultado original en vez de crear un duplicado. Mandalo siempre en escrituras reales.' },
         dry_run: { type: 'boolean', default: false },
@@ -533,7 +555,8 @@ const crmCreateLeadWithTask: CrmTool = {
       lead_id: dry ? leadId : leadId,
       titulo: input.tarea_titulo, descripcion: input.tarea_descripcion,
       asignado_email: input.tarea_asignado_email, asignado_employee_id: input.tarea_asignado_employee_id,
-      area: input.tarea_area, fecha: input.tarea_fecha, prioridad: input.tarea_prioridad,
+      area: input.tarea_area, fecha: input.tarea_fecha,
+      tipo: input.tarea_tipo, urgencia: input.tarea_urgencia,
       dry_run: dry,
     }, ctx)
 

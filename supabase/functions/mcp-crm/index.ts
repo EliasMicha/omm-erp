@@ -30,7 +30,7 @@ import { acotarSupabase } from './acotar.ts'
 import { unaSolaVez } from './idempotencia.ts'
 
 const PROTOCOL_VERSION = '2025-06-18'
-const SERVER_INFO = { name: 'omm-crm', version: '1.0.0' }
+const SERVER_INFO = { name: 'omm-crm', version: '1.3.0' }
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -122,7 +122,12 @@ Deno.serve(async (req: Request) => {
             'CRM de OMM Technologies. Antes de crear un lead busca con crm_search_leads para no duplicar, ' +
             'y resuelve a las personas con crm_search_people antes de asignar o notificar. ' +
             'Para el flujo completo usa crm_create_lead_with_task. ' +
-            'Corre siempre primero con dry_run: true y enseña el preview antes de escribir.',
+            'Corre siempre primero con dry_run: true y enseña el preview antes de escribir. ' +
+            'En las escrituras reales manda idempotency_key: si se reintenta la llamada, el servidor devuelve ' +
+            'el resultado original en vez de crear un duplicado. ' +
+            'Toda tarea que crees debe llevar fecha: en OMM un compromiso sin fecha no se puede cumplir ni incumplir. ' +
+            'Si el humano no la dijo, preguntasela. ' +
+            'Este servidor solo opera el CRM: no cambia reglas, precios, permisos ni plantillas del ERP.',
         },
       })
       continue
