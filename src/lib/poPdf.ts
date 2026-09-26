@@ -6,6 +6,10 @@ import { OMNIIOUS_LOGO } from '../assets/logo'
 
 interface POForPdf {
   po_number: string
+  /** Folio OMM ligado a cotizacion y lead: PILO-IE01-C03. Es la referencia que
+   *  se escribe en el concepto de la transferencia para que el pago se
+   *  autoasigne a esta orden. */
+  folio?: string | null
   created_at: string
   status: string
   specialty: string
@@ -88,7 +92,17 @@ export function generatePOPdf(po: POForPdf, items: POItemForPdf[], opts?: POPdfO
   doc.setTextColor(0, 120, 80)
   doc.text(po.po_number, pageW - margin, y + 14, { align: 'right' })
 
-  y += Math.max(logoH + 4, 22)
+  // El folio va debajo del numero de orden: es lo que se copia al concepto de
+  // la transferencia para que el pago se amarre solo a esta orden.
+  if (po.folio) {
+    doc.setFontSize(9)
+    doc.setTextColor(90, 90, 90)
+    doc.setFont('courier', 'bold')
+    doc.text(po.folio, pageW - margin, y + 19.5, { align: 'right' })
+    doc.setFont('helvetica', 'normal')
+  }
+
+  y += Math.max(logoH + 4, po.folio ? 26 : 22)
 
   // ── Separator ──
   doc.setDrawColor(200, 200, 200)
@@ -118,6 +132,7 @@ export function generatePOPdf(po: POForPdf, items: POItemForPdf[], opts?: POPdfO
   // que va a almacen no pinta nada y solo estorba.
   if (!sinCostos && po.fecha_maxima_pago) infoLeft.push(['Fecha maxima de pago', fmtDate(po.fecha_maxima_pago)])
   if (po.quotation?.name) infoLeft.push(['Cotizacion', po.quotation.name])
+  if (!sinCostos && po.folio) infoLeft.push(['Referencia de pago', po.folio])
   if (po.project?.name) infoLeft.push(['Proyecto', po.project.name])
 
   let yInfo = y

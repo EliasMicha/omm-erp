@@ -1,6 +1,8 @@
 import { useState, useMemo, useEffect, useRef, createContext, useContext } from 'react'
 import { supabase } from '../lib/supabase'
 import { Viaticos, VIATICOS_VACIOS, leerViaticos, desgloseViaticos, totalViaticosMXN, totalViaticos, faltaTCViaticos } from '../lib/viaticos'
+import FolioChip from '../components/FolioChip'
+import { prefijoFolio } from '../lib/folios'
 import { fetchAllActiveCatalog } from '../lib/catalog'
 import { F, STAGE_CONFIG } from '../lib/utils'
 import { Badge, Btn, Loading } from '../components/layout/UI'
@@ -2263,6 +2265,7 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
   const [customSystems, setCustomSystems] = useState<EspSystemDef[]>([])
   const [newSystemName, setNewSystemName] = useState('')
   const [cotName, setCotName] = useState('')
+  const [folio, setFolio] = useState<string | null>(null)
   const [clientName, setClientName] = useState('')
   const [addingTo, setAddingTo] = useState<{ areaId: string; systemId: string } | null>(null)
   const [creatingProduct, setCreatingProduct] = useState(false)
@@ -2294,6 +2297,7 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
     ])
     if (cot) {
       setCotName(cot.name || ''); setClientName(cot.client_name || ''); setStage(cot.stage || 'oportunidad')
+      setFolio((cot as any).folio || null)
       setProjectId(cot.project_id || null)
       const proj = cot.project as any
       setProjectName(proj?.name || '')
@@ -3185,6 +3189,7 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
         <button onClick={onBack} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, fontSize: isMobile ? 10 : 12 }}><ChevronLeft size={isMobile ? 12 : 14} /> {isMobile ? '' : 'Cotizaciones'}</button>
         {!isMobile && <span style={{ color: '#333' }}>/</span>}
         <span style={{ fontSize: isMobile ? 10 : 12, fontWeight: 500, color: '#10B981', cursor: 'pointer' }} onClick={() => setShowEditCot(true)}>◈ {isMobile ? (cotName || 'Cot').slice(0, 10) : (cotName || 'Cotización ESP')}</span>
+        <FolioChip folio={folio} prefijo={prefijoFolio(stage)} size={isMobile ? 9 : 10.5} />
         <Badge label="ESP" color="#10B981" />
         {!isMobile && clientName && <span style={{ fontSize: 11, color: '#888' }}>{clientName}</span>}
         {!isMobile && projectName && <span style={{ fontSize: 10, color: '#555' }}>| {projectName}</span>}

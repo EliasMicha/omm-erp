@@ -330,6 +330,9 @@ interface BankMovement {
   proveedor?: string; cliente?: string
   uuid_factura?: string; folio_serie?: string; uso_cfdi?: string; observaciones?: string
   confianza_autodetect?: 'alta' | 'media' | 'baja' | 'manual'
+  /** Folio OMM hallado en el concepto y asignacion hecha por el sistema. */
+  folio_detectado?: string | null
+  asignacion_auto?: boolean
   traspaso_usd_monto?: number; traspaso_pair_id?: string
   folio_spei?: string; clabe_contraparte?: string
   source?: 'pdf-monthly' | 'txt-tabular' | 'manual' | 'excel-import'
@@ -720,6 +723,8 @@ export default function Contabilidad() {
           moneda: m.moneda || 'MXN',
           cuenta_destino_detectada: m.cuenta_destino_detectada || undefined,
           bnet_codigo_detectado: m.bnet_codigo_detectado || undefined,
+          folio_detectado: m.folio_detectado || undefined,
+          asignacion_auto: m.asignacion_auto || false,
           concepto_detectado: m.concepto_detectado || undefined,
           beneficiario_id: m.beneficiario_id || undefined,
           beneficiario_tipo: m.beneficiario_tipo || undefined,
@@ -2446,7 +2451,9 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
     setSavingAssign(movId)
     try {
       // Si cambia el lead, limpiar quotation y PO. Si cambia quotation, limpiar PO.
-      const updates: any = { [field]: value }
+      // Y se cae la marca de automatico: a partir de aqui la asignacion es de
+      // una persona, y la auditoria tiene que poder distinguirlas.
+      const updates: any = { [field]: value, asignacion_auto: false }
       if (field === 'lead_id') { updates.quotation_id = null; updates.purchase_order_id = null }
       if (field === 'quotation_id') { updates.purchase_order_id = null }
       // Cuando se asigna/cambia el lead, actualizar proyecto con el nombre del lead
@@ -4016,6 +4023,16 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
                         const title = filled === 3 ? 'Asignacion completa (Lead + Cot + OC)' : `Asignacion parcial (${filled}/3)`
                         return <span title={title} style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: color, marginRight: 6, verticalAlign: 'middle' }} />
                       })()}
+                      {/* Lo asigno el folio del concepto, no una persona. Se
+                          marca para poder auditarlo y filtrarlo. */}
+                      {m.asignacion_auto && m.folio_detectado && (
+                        <span title={'Asignado automaticamente por el folio ' + m.folio_detectado + ' encontrado en el concepto'}
+                          style={{
+                            fontSize: 9, fontWeight: 700, padding: '2px 5px', borderRadius: 4, marginRight: 5,
+                            background: 'rgba(6,182,212,0.12)', border: '1px solid rgba(6,182,212,0.35)',
+                            color: '#06B6D4', fontFamily: 'monospace', letterSpacing: 0.3,
+                          }}>⚡ {m.folio_detectado}</span>
+                      )}
                       {(m.proyecto_codigo || m.proyecto_sugerido) ? (
                         <span style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}>
                           {m.proyecto_codigo && (

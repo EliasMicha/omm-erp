@@ -7,6 +7,8 @@ import { ANTHROPIC_API_KEY } from '../lib/config'
 import { Quotation, QuotationArea, QuotationItem, CatalogProduct, Project, ProjectLine, PurchasePhase } from '../types'
 import { F, FCUR, SPECIALTY_CONFIG, STAGE_CONFIG, PHASE_CONFIG, calcItemPrice, calcItemTotal } from '../lib/utils'
 import { Badge, Btn, Table, Th, Td, Loading, SectionHeader, EmptyState, ThFilter, useColumnFilters } from '../components/layout/UI'
+import FolioChip from '../components/FolioChip'
+import { prefijoFolio } from '../lib/folios'
 import { useIsMobile } from '../lib/useIsMobile'
 import { Plus, ChevronLeft, X, Zap, Loader2, Search, Trash2, Upload, RefreshCw, FileText, GitBranch, BarChart3, Pencil, ArrowLeftRight, Copy } from 'lucide-react'
 import EditCotInfoModal from '../components/EditCotInfoModal'
@@ -451,7 +453,10 @@ function CotDashboard({ onOpen, preferVersionId }: { onOpen: (id: string, specia
               const architect = getArchitect(c)
               return (
                 <tr key={c.id} style={{cursor:'pointer'}} onClick={() => onOpen(c.id, c.specialty)}>
-                  <Td><span style={{fontWeight:500,color:'#fff',fontSize: isMobile ? 12 : 'inherit'}}>{isMobile ? (c.name || '--').substring(0, 20) + (c.name && c.name.length > 20 ? '...' : '') : (c.name || '--')}{(c as any).version_label && <span style={{fontSize:9,fontWeight:700,background:esp.color+'33',color:esp.color,padding:'1px 4px',borderRadius:3,marginLeft:5}}>v{(c as any).version_label}</span>}</span></Td>
+                  <Td>
+                    <span style={{fontWeight:500,color:'#fff',fontSize: isMobile ? 12 : 'inherit'}}>{isMobile ? (c.name || '--').substring(0, 20) + (c.name && c.name.length > 20 ? '...' : '') : (c.name || '--')}{(c as any).version_label && <span style={{fontSize:9,fontWeight:700,background:esp.color+'33',color:esp.color,padding:'1px 4px',borderRadius:3,marginLeft:5}}>v{(c as any).version_label}</span>}</span>
+                    {(c as any).folio && <div style={{marginTop:3}}><FolioChip folio={(c as any).folio} prefijo={prefijoFolio(c.stage)} size={9.5} /></div>}
+                  </Td>
                   {!isMobile && <Td>
                     <LeadCell
                       cotId={c.id}
@@ -2220,6 +2225,7 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
         </button>
         <span style={{color:'#333'}}>/</span>
         <span style={{fontSize:12,fontWeight:500,color:esp.color}}>{esp.icon} {cot.name}</span>
+        <FolioChip folio={(cot as any).folio} prefijo={prefijoFolio(cot.stage)} size={10.5} />
         {proj && <span style={{fontSize:11,color:'#555'}}> {proj.client_name}</span>}
         <button onClick={() => setShowEditInfo(true)} style={{background:'none',border:'none',color:'#555',cursor:'pointer',padding:2,display:'flex',alignItems:'center'}} title="Editar info"><Pencil size={12}/></button>
 

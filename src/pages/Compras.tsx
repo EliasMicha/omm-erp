@@ -8,6 +8,7 @@ import { ANTHROPIC_API_KEY } from '../lib/config'
 import { Project, CatalogProduct, ProjectLine, PurchasePhase } from '../types'
 import { F, FUSD, FCUR, SPECIALTY_CONFIG, PHASE_CONFIG, formatDate } from '../lib/utils'
 import { Badge, Btn, KpiCard, Table, Th, Td, Loading, SectionHeader, EmptyState } from '../components/layout/UI'
+import FolioChip from '../components/FolioChip'
 import { useIsMobile } from '../lib/useIsMobile'
 import { Plus, ChevronLeft, X, Search, Trash2, Save, ShoppingCart, Truck, Package, Users2, FileText, Copy, Sparkles, Upload, ClipboardList, ChevronRight, CheckCircle2, Circle, Clock, Download, Paperclip } from 'lucide-react'
 import { generatePOPdf } from '../lib/poPdf'
@@ -50,6 +51,8 @@ interface PurchaseOrder {
   created_at: string
   updated_at: string
   po_number: string
+  /** Folio ligado a la cotizacion y al lead: PILO-IE01-C03. Es el que va en el concepto de la transferencia. */
+  folio?: string | null
   project_id?: string
   supplier_id?: string
   quotation_id?: string
@@ -1557,6 +1560,7 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
     const q = search.toLowerCase()
     lista = lista.filter(o =>
       o.po_number.toLowerCase().includes(q) ||
+      ((o as any).folio || '').toLowerCase().includes(q) ||
       (o.supplier as any)?.name?.toLowerCase().includes(q) ||
       (o.project as any)?.name?.toLowerCase().includes(q) ||
       (o as any).quotation?.name?.toLowerCase().includes(q) ||
@@ -1677,7 +1681,10 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
               const displayTotal = totalMostrado(o)
               return (
                 <tr key={o.id} style={{ cursor: 'pointer' }} onClick={() => onOpen(o.id)}>
-                  <Td><span style={{ fontWeight: 600, color: '#fff' }}>{o.po_number}</span></Td>
+                  <Td>
+                    <div style={{ fontWeight: 600, color: '#fff' }}>{o.po_number}</div>
+                    {(o as any).folio && <div style={{ marginTop: 2 }}><FolioChip folio={(o as any).folio} size={9.5} /></div>}
+                  </Td>
                   <Td><span style={{ color: o.descripcion ? '#ccc' : '#555', fontSize: 12 }}>{o.descripcion || '--'}</span></Td>
                   <Td>{(o.supplier as any)?.name || <span style={{ color: '#555' }}>--</span>}</Td>
                   <Td muted>{getQuotName(o) || '--'}</Td>
@@ -3502,6 +3509,7 @@ function POEditor({ poId, onBack, onAbrirOtra }: { poId: string; onBack: () => v
         <div style={{ flex: 1 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <span style={{ fontSize: 18, fontWeight: 700, color: '#fff' }}>{po.po_number}</span>
+            <FolioChip folio={(po as any).folio} size={12} titulo="Este es el folio que va en el concepto de la transferencia. Click para copiarlo." />
             <Badge label={stCfg.label} color={stCfg.color} />
             {esServicio && <Badge label="🔧 Servicio" color="#A78BFA" />}
             <Badge label={esp.icon + ' ' + esp.label} color={esp.color} />

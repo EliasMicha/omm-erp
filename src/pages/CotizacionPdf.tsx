@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react'
 import { leerCargos, sumaCargos, calcularTotales } from '../lib/cargosCotizacion'
 import { leerViaticos, desgloseViaticos, importeEnMoneda, totalViaticos } from '../lib/viaticos'
+import { folioMostrado } from '../lib/folios'
 import { useParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { FCUR, FQTY as fNum } from '../lib/utils'
@@ -966,7 +967,10 @@ function CotizacionPdfInner() {
             <tbody>
               <tr>
                 <td style={{ padding: '3px 12px 3px 0', color: '#888', width: 120 }}>Folio</td>
-                <td style={{ padding: '3px 0', fontWeight: 600 }}>OMM-{shortId(cot.id)}</td>
+                {/* El folio real de la cotizacion. El OMM-<id> de antes era un
+                    pedazo del identificador interno: no decia de quien era ni
+                    servia para amarrar un pago. */}
+                <td style={{ padding: '3px 0', fontWeight: 600 }}>{folioMostrado((cot as any).folio, cot.stage) || 'OMM-' + shortId(cot.id)}</td>
                 <td style={{ padding: '3px 12px 3px 0', color: '#888', width: 120 }}>Fecha</td>
                 <td style={{ padding: '3px 0' }}>{formatDate(cot.created_at)}</td>
               </tr>
