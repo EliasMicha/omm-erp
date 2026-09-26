@@ -506,17 +506,108 @@ function CotizacionPdfInner() {
   // la pantalla otro, que es justo lo que el cliente nota.
   const cargosCot = leerCargos(cot?.notes)
   const cargosMonto = sumaCargos(cargosCot).monto
-  // Viaticos de obra foranea: se capturan en MXN y se convierten al TC de la
-  // cotizacion. Van en el mismo escalon que los cargos — despues del descuento
-  // y antes del IVA — pero desglosados, que es lo que el cliente pidio ver.
-  const viaticosCot = leerViaticos(cot?.notes)
-  const viaticosFilas = desgloseViaticos(viaticosCot).map(f => ({ ...f, importe: importeEnMoneda(f.importeMXN, currency, tipoCambio) }))
-  const viaticosMonto = totalViaticos(viaticosCot, currency, tipoCambio)
-  const TT = calcularTotales(subtotal, descuentoPct, ivaRate, cargosMonto + viaticosMonto)
+  const TT = calcularTotales(subtotal, descuentoPct, ivaRate, cargosMonto)
   const descuentoAmt = TT.descuentoAmt
   const subtotalConDesc = TT.subtotalConDescuento
   const iva = TT.iva
   const totalCon = TT.total
+
+  // Viaticos de obra foranea. NO se mezclan con el resumen del proyecto: van en
+  // su propia tabla despues del total, en pesos (que es como se gastan) y
+  // convertidos, y hasta abajo el total final. Mezclarlos arriba dejaba al
+  // cliente sin entender que estaba leyendo.
+  const viaticosCot = leerViaticos(cot?.notes)
+  const viaticosFilas = desgloseViaticos(viaticosCot)
+  const viaticosSubMXN = viaticosFilas.reduce((s, f) => s + f.importeMXN, 0)
+  const viaticosSub = totalViaticos(viaticosCot, currency, tipoCambio)
+  const viaticosIvaMXN = Math.round(viaticosSubMXN * (ivaRate / 100) * 100) / 100
+  const viaticosIva = Math.round(viaticosSub * (ivaRate / 100) * 100) / 100
+  const viaticosTotalMXN = Math.round((viaticosSubMXN + viaticosIvaMXN) * 100) / 100
+  const viaticosTotal = Math.round((viaticosSub + viaticosIva) * 100) / 100
+  const hayViaticos = viaticosFilas.length > 0 && viaticosSub > 0
+  const totalFinal = Math.round((totalCon + viaticosTotal) * 100) / 100
+  const esUSD = currency === 'USD'
+
+  // La tabla de viaticos. Se usa igual despues del resumen por sistema y
+  // despues de los totales finales, para que el papel diga lo mismo en los dos
+  // lugares donde el cliente busca el numero.
+  const TablaViaticos = () => !hayViaticos ? null : (
+    <div style={{ marginTop: 16, marginBottom: 18 }}>
+      <h2 style={{ fontSize: 13, color: '#111', marginBottom: 8, paddingBottom: 4, borderBottom: '1px solid #ddd' }}>Viáticos de obra</h2>
+      <table className="pdf-table">
+        <thead>
+          <tr>
+            <th>Concepto</th>
+            <th style={{ textAlign: 'right', width: 130 }}>Importe (MXN)</th>
+            {esUSD && <th style={{ textAlign: 'right', width: 130 }}>Importe (USD)</th>}
+          </tr>
+        </thead>
+        <tbody>
+          {viaticosFilas.map((f, i) => (
+            <tr key={'v' + i}>
+              <td>
+                {f.concepto}
+                <div style={{ fontSize: 9, color: '#888' }}>{f.detalle}</div>
+              </td>
+              <td style={{ textAlign: 'right', verticalAlign: 'top' }}>{FCUR(f.importeMXN, 'MXN')}</td>
+              {esUSD && <td style={{ textAlign: 'right', verticalAlign: 'top' }}>{FCUR(importeEnMoneda(f.importeMXN, currency, tipoCambio), 'USD')}</td>}
+            </tr>
+          ))}
+          <tr style={{ borderTop: '1px solid #ddd' }}>
+            <td style={{ paddingTop: 6, fontWeight: 600 }}>Subtotal viáticos</td>
+            <td style={{ paddingTop: 6, textAlign: 'right', fontWeight: 600 }}>{FCUR(viaticosSubMXN, 'MXN')}</td>
+            {esUSD && <td style={{ paddingTop: 6, textAlign: 'right', fontWeight: 600 }}>{FCUR(viaticosSub, 'USD')}</td>}
+          </tr>
+          <tr>
+            <td style={{ color: '#888' }}>IVA {ivaRate}%</td>
+            <td style={{ textAlign: 'right', color: '#888' }}>{FCUR(viaticosIvaMXN, 'MXN')}</td>
+            {esUSD && <td style={{ textAlign: 'right', color: '#888' }}>{FCUR(viaticosIva, 'USD')}</td>}
+          </tr>
+          <tr style={{ borderTop: '1px solid #111' }}>
+            <td style={{ paddingTop: 6, fontWeight: 700 }}>Total viáticos</td>
+            <td style={{ paddingTop: 6, textAlign: 'right', fontWeight: 700 }}>{FCUR(viaticosTotalMXN, 'MXN')}</td>
+            {esUSD && <td style={{ paddingTop: 6, textAlign: 'right', fontWeight: 700 }}>{FCUR(viaticosTotal, 'USD')}</td>}
+          </tr>
+        </tbody>
+      </table>
+      {esUSD && (
+        <div style={{ fontSize: 9, color: '#888', marginTop: 4, fontStyle: 'italic' }}>
+          Los viáticos se erogan en pesos. La conversión es de referencia, al tipo de cambio de ${tipoCambio.toFixed(2)} MXN por USD.
+        </div>
+      )}
+      {viaticosCot.nota && <div style={{ fontSize: 9, color: '#666', marginTop: 4 }}>{viaticosCot.nota}</div>}
+    </div>
+  )
+
+  // El total final: proyecto + viaticos, los dos con su IVA.
+  const TotalFinal = ({ compacto = false }: { compacto?: boolean }) => !hayViaticos ? null : (
+    <div style={{ marginBottom: 20, padding: compacto ? '2px 0 10px 0' : '10px 0', borderTop: compacto ? 'none' : '2px solid #111' }}>
+      <table style={{ width: '100%', fontSize: 11 }}>
+        <tbody>
+          {!compacto && (
+          <tr>
+            <td style={{ padding: '3px 0', color: '#666' }}>Total del proyecto</td>
+            <td style={{ padding: '3px 0', textAlign: 'right' }}>{FCUR(totalCon, currency)}</td>
+          </tr>
+          )}
+          <tr>
+            <td style={{ padding: '3px 0', color: '#666' }}>Total viáticos</td>
+            <td style={{ padding: '3px 0', textAlign: 'right' }}>{FCUR(viaticosTotal, currency)}</td>
+          </tr>
+          <tr style={{ borderTop: '1px solid #111' }}>
+            <td style={{ padding: '8px 0 4px 0', fontWeight: 700, fontSize: 14, color: '#111' }}>TOTAL FINAL</td>
+            <td style={{ padding: '8px 0 4px 0', textAlign: 'right', fontWeight: 700, fontSize: 14, color: '#111' }}>{FCUR(totalFinal, currency)}</td>
+          </tr>
+          {esUSD && tipoCambio > 0 && (
+            <tr>
+              <td style={{ padding: '2px 0', fontSize: 10, color: '#888', fontStyle: 'italic' }}>Equivalente en MXN (TC ${tipoCambio.toFixed(2)})</td>
+              <td style={{ padding: '2px 0', textAlign: 'right', fontSize: 10, color: '#888', fontStyle: 'italic' }}>{FCUR(totalFinal * tipoCambio, 'MXN')}</td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+    </div>
+  )
 
   // Deriva la unidad desde el nombre del concepto (no hay columna unit en BD)
   function deriveUnit(name: string): string {
@@ -996,30 +1087,6 @@ function CotizacionPdfInner() {
                   <td style={{ textAlign: 'right', color: '#444' }}>{FCUR(c.monto, currency)}</td>
                 </tr>
               ))}
-              {viaticosFilas.length > 0 && (
-                <tr>
-                  <td style={{ paddingTop: 6, fontWeight: 600, color: '#444' }}>Viáticos de obra</td>
-                  {isElec && <td colSpan={3}></td>}
-                  {!isElec && <td colSpan={2}></td>}
-                  <td></td>
-                </tr>
-              )}
-              {viaticosFilas.map((f, i) => (
-                <tr key={'v' + i}>
-                  <td style={{ color: '#444', paddingLeft: 10 }}>
-                    {f.concepto}
-                    <div style={{ fontSize: 8, color: '#888' }}>{f.detalle}</div>
-                  </td>
-                  {isElec && <td colSpan={3}></td>}
-                  {!isElec && <td colSpan={2}></td>}
-                  <td style={{ textAlign: 'right', color: '#444', verticalAlign: 'top' }}>{FCUR(f.importe, currency)}</td>
-                </tr>
-              ))}
-              {viaticosCot.nota && viaticosFilas.length > 0 && (
-                <tr>
-                  <td colSpan={isElec ? 5 : 4} style={{ fontSize: 8, color: '#888', paddingLeft: 10, fontStyle: 'italic' }}>{viaticosCot.nota}</td>
-                </tr>
-              )}
               <tr>
                 <td style={{ color: '#888' }}>IVA {ivaRate}%</td>
                 {isElec && <td colSpan={3}></td>}
@@ -1036,6 +1103,10 @@ function CotizacionPdfInner() {
           </table>
         </div>
         )}
+
+        {/* VIÁTICOS — tabla aparte, despues del total del proyecto */}
+        {!esResumen && <TablaViaticos />}
+        {!esResumen && <TotalFinal />}
 
         {/* CONSOLIDADO DE EQUIPOS (solo Resumen) — total a recibir de cada uno, sin área ni foto */}
         {esResumen && (
@@ -1351,35 +1422,17 @@ function CotizacionPdfInner() {
                   <td style={{ padding: '4px 0', textAlign: 'right', color: '#444' }}>{FCUR(c.monto, currency)}</td>
                 </tr>
               ))}
-              {viaticosFilas.length > 0 && (
-                <tr>
-                  <td style={{ padding: '6px 0 2px 0', fontWeight: 600 }}>Viáticos de obra</td>
-                  <td></td>
-                </tr>
-              )}
-              {viaticosFilas.map((f, i) => (
-                <tr key={'vt' + i}>
-                  <td style={{ padding: '2px 0 2px 10px', color: '#444' }}>
-                    {f.concepto}
-                    <div style={{ fontSize: 9, color: '#888' }}>{f.detalle}</div>
-                  </td>
-                  <td style={{ padding: '2px 0', textAlign: 'right', color: '#444', verticalAlign: 'top' }}>{FCUR(f.importe, currency)}</td>
-                </tr>
-              ))}
-              {viaticosCot.nota && viaticosFilas.length > 0 && (
-                <tr>
-                  <td colSpan={2} style={{ padding: '0 0 4px 10px', fontSize: 9, color: '#888', fontStyle: 'italic' }}>{viaticosCot.nota}</td>
-                </tr>
-              )}
               <tr>
                 <td style={{ padding: '4px 0', color: '#888' }}>IVA {ivaRate}%</td>
                 <td style={{ padding: '4px 0', textAlign: 'right', color: '#888' }}>{FCUR(iva, currency)}</td>
               </tr>
               <tr>
-                <td style={{ padding: '8px 0 4px 0', fontWeight: 700, fontSize: 14, color: '#111', borderTop: '1px solid #111' }}>TOTAL</td>
+                <td style={{ padding: '8px 0 4px 0', fontWeight: 700, fontSize: 14, color: '#111', borderTop: '1px solid #111' }}>{hayViaticos ? 'Total del proyecto' : 'TOTAL'}</td>
                 <td style={{ padding: '8px 0 4px 0', textAlign: 'right', fontWeight: 700, fontSize: 14, color: '#111', borderTop: '1px solid #111' }}>{FCUR(totalCon, currency)}</td>
               </tr>
-              {currency === 'USD' && tipoCambio && (
+              {/* Con viaticos el equivalente en MXN se da hasta el total final,
+                  para no dar dos conversiones seguidas de numeros distintos. */}
+              {currency === 'USD' && tipoCambio && !hayViaticos && (
                 <tr>
                   <td style={{ padding: '2px 0', fontSize: 10, color: '#888', fontStyle: 'italic' }}>Equivalente en MXN (TC ${tipoCambio.toFixed(2)})</td>
                   <td style={{ padding: '2px 0', textAlign: 'right', fontSize: 10, color: '#888', fontStyle: 'italic' }}>{FCUR(totalCon * tipoCambio, 'MXN')}</td>
@@ -1389,6 +1442,10 @@ function CotizacionPdfInner() {
           </table>
         </div>
         )}
+
+        {/* Al cierre no se repite el desglose de viaticos: solo el total final,
+            para que el ultimo numero del documento sea el que el cliente paga. */}
+        {!esResumen && <TotalFinal compacto />}
 
         {/* SECCIÓN 5 (términos) + FIRMA — ocultos en el Resumen de Equipos (uso interno) */}
         {!esResumen && (<>
