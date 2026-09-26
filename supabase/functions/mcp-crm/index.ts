@@ -34,6 +34,7 @@ const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, content-type, mcp-session-id, mcp-protocol-version',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Expose-Headers': 'mcp-session-id',
 }
 
 function json(body: unknown, status = 200) {
@@ -58,12 +59,20 @@ function rpcError(id: unknown, code: number, message: string) {
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS })
 
-  // Streamable HTTP admite GET para abrir un stream SSE. Este server contesta
-  // en el mismo POST, asi que no hay stream que abrir.
-  if (req.method === 'GET') {
-    return json({ error: 'Este servidor MCP responde en el POST; no expone stream SSE.' }, 405)
+  // Streamable HTTP admite GET para abrir un stream SSE, pero es opcional: este
+  // server contesta en el mismo POST, asi que no hay stream que abrir.
+  //
+  // El 405 sale en TEXTO PLANO y sin cuerpo JSON a proposito. Un 405 con un
+  // cuerpo que parezca JSON-RPC algunos clientes lo emparejan con la peticion
+  // que tienen en vuelo —normalmente el tools/list— y se quedan creyendo que
+  // fallo. Sin cuerpo que parsear no hay con que confundirse. El Allow le dice
+  // al cliente por donde si.
+  if (req.method !== 'POST') {
+    return new Response(null, {
+      status: 405,
+      headers: { ...CORS, Allow: 'POST, OPTIONS' },
+    })
   }
-  if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405)
 
   // ── Auth ────────────────────────────────────────────────────────────────
   const esperado = Deno.env.get('GROK_MCP_CRM_TOKEN') || ''
