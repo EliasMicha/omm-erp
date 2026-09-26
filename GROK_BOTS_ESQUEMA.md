@@ -247,6 +247,10 @@ ejecutó una sola vez, dos llamadas recibieron "ya va en camino, no la repitas",
 una cuarta en frío recibió el mismo id marcado como repetido, y un error
 guardado se recuerda como error en vez de reintentarse a ciegas.
 
+Cuando exista la cola, la regla se endurece: **una escritura que viene de un
+pendiente y no trae clave se rechaza**. En el chat interactivo con un humano
+enfrente la genera el servidor, porque ahí sí hay quien vea el resultado.
+
 ---
 
 ## Qué contexto recibe cada bot
