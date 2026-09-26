@@ -90,3 +90,23 @@ BEGIN
 END;
 $function$;
 grant execute on function public.get_my_app_user() to anon, authenticated;
+
+-- ── 2026-09-26, segunda parte: el bot que SI entra por la pantalla ──────────
+alter table public.app_users
+  add column if not exists acceso_ui boolean not null default false;
+comment on column public.app_users.acceso_ui is
+  'Solo para cuentas de bot: si puede iniciar sesion en la pantalla. Las de servicio (MCP) van en false.';
+
+alter table public.app_users drop constraint if exists app_users_permission_area_check;
+alter table public.app_users add constraint app_users_permission_area_check
+  check (permission_area = any (array['DG','Administracion','Ventas_Ingenieria','Operaciones',
+                                      'Mantenimiento','Coordinador_Obra','Logistica','Bot_CRM']));
+
+insert into public.app_users (email, nombre, password_hash, permission_area, nivel, activo, es_bot, acceso_ui, modulo)
+values ('grok_ui_crm@omniious.com', 'Grok CRM (navegador)', 'SIN-CONTRASENA-AUN', 'Bot_CRM', 'ejecutor', true, true, true, 'crm')
+on conflict (email) do nothing;
+
+-- Las tres funciones de login pasan de "los bots nunca" a "los bots solo si
+-- tienen navegador". Ver el archivo de migracion aplicado para el cuerpo
+-- completo de verify_login, check_email_status, handle_new_auth_user y
+-- get_my_app_user (este ultimo ahora devuelve tambien acceso_ui).

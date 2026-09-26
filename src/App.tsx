@@ -118,7 +118,11 @@ export default function App() {
                     <Route path="/archivados" element={<Archivados />} />
                     <Route path="/clientes" element={<Clientes />} />
                     <Route path="/catalogo" element={<Catalogo />} />
-                    <Route path="/design-rules" element={<DesignRules />} />
+                    <Route path="/design-rules" element={
+                      <ProtectedRoute allowedAreas={['DG']}>
+                        <DesignRules />
+                      </ProtectedRoute>
+                    } />
                     <Route path="/usuarios" element={
                       <ProtectedRoute allowedAreas={[]}>
                         <Usuarios />

@@ -16,7 +16,7 @@ import { createContext, useContext, useEffect, useState, ReactNode } from 'react
 import { supabase } from '../lib/supabase'
 import type { Session } from '@supabase/supabase-js'
 
-export type PermissionArea = 'DG' | 'Administracion' | 'Ventas_Ingenieria' | 'Operaciones' | 'Mantenimiento' | 'Coordinador_Obra' | 'Logistica'
+export type PermissionArea = 'DG' | 'Administracion' | 'Ventas_Ingenieria' | 'Operaciones' | 'Mantenimiento' | 'Coordinador_Obra' | 'Logistica' | 'Bot_CRM'
 export type UserNivel = 'director' | 'ejecutor'
 
 // Roles "restringidos": solo pueden ver/entrar a las rutas listadas (whitelist).
@@ -30,12 +30,18 @@ export const RESTRICTED_AREA_ROUTES: Partial<Record<PermissionArea, string[]>> =
   Coordinador_Obra: ['/obra'],
   // Logística: solo Compras, Entregas y Obra.
   Logistica: ['/compras', '/entregas', '/obra'],
+  // Bot de CRM manejando la pantalla. Entra para lo que no tiene herramienta:
+  // subir un plano, bajar un estado de cuenta, tocar la ficha de un lead.
+  // Fuera de aquí el ERP lo rebota aunque escriba la URL — y esta lista es el
+  // ÚNICO límite que tiene, porque por el navegador no pasa por el MCP.
+  Bot_CRM: ['/crm'],
 }
 // Ruta "home" a la que se redirige un rol restringido si intenta abrir algo fuera de su whitelist
 export const RESTRICTED_AREA_HOME: Partial<Record<PermissionArea, string>> = {
   Mantenimiento: '/mantenimiento',
   Coordinador_Obra: '/obra',
   Logistica: '/compras',
+  Bot_CRM: '/crm',
 }
 
 export interface UserProfile {
@@ -86,10 +92,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(null)
       return null
     }
-    if (row.es_bot) {
-      // Cuenta de servicio de un bot. Existe para firmar lo que el bot escribe
-      // por MCP, no para que alguien entre con ella. El servidor ya la bloquea
-      // por tres lados; esto es el último, por si algún día se le crea sesión.
+    if (row.es_bot && !row.acceso_ui) {
+      // Cuenta de servicio de un bot: existe para firmar lo que el bot escribe
+      // por MCP, no para entrar. Las de navegador (acceso_ui) sí entran, y su
+      // límite es la lista blanca de su área.
       console.warn('[auth] cuenta de servicio, no inicia sesión:', row.email)
       await supabase.auth.signOut()
       setUser(null)

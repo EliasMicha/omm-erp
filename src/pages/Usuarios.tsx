@@ -13,6 +13,7 @@ interface AppUser {
   created_at: string
   employee_id: string | null
   es_bot: boolean
+  acceso_ui: boolean
   modulo: string | null
 }
 
@@ -35,6 +36,7 @@ const AREAS: { value: PermissionArea; label: string }[] = [
   { value: 'Mantenimiento', label: 'Mantenimiento (solo Mtto, Catálogo y Obra)' },
   { value: 'Coordinador_Obra', label: 'Coordinador de Obra (solo Obra)' },
   { value: 'Logistica', label: 'Logística (solo Compras, Entregas y Obra)' },
+  { value: 'Bot_CRM', label: 'Bot de CRM (solo CRM y leads)' },
 ]
 
 /**
@@ -82,7 +84,7 @@ export default function Usuarios() {
 
   async function loadUsers() {
     setLoading(true)
-    const { data } = await supabase.from('app_users').select('id, email, nombre, permission_area, nivel, activo, created_at, employee_id, es_bot, modulo').order('created_at', { ascending: true })
+    const { data } = await supabase.from('app_users').select('id, email, nombre, permission_area, nivel, activo, created_at, employee_id, es_bot, acceso_ui, modulo').order('created_at', { ascending: true })
     setUsers((data as AppUser[]) || [])
     setLoading(false)
   }
@@ -431,10 +433,12 @@ export default function Usuarios() {
             <span style={{ fontSize: 12, color: '#666' }}>{bots.length} · una por módulo</span>
           </div>
           <div style={{ fontSize: 12, color: '#888', lineHeight: 1.6, marginBottom: 14, maxWidth: 820 }}>
-            No son personas y <strong style={{ color: '#aaa' }}>no pueden iniciar sesión</strong>: existen para firmar
-            lo que su bot escribe por MCP, y para que el registro diga quién hizo qué. Lo que de verdad las limita no
-            es el área sino las tablas que alcanza su MCP, que es la columna de la derecha. Ninguna puede tocar reglas,
-            precios, permisos ni plantillas del ERP.
+            No son personas. Las de <strong style={{ color: '#aaa' }}>solo MCP</strong> no pueden iniciar sesión:
+            existen para firmar lo que su bot escribe por herramientas, y lo que las limita son las tablas que su MCP
+            alcanza. Las de <strong style={{ color: '#D9A441' }}>navegador</strong> sí entran con contraseña, para lo
+            que no tiene herramienta —subir un plano, bajar un PDF— y ahí el límite es la lista blanca de rutas de su
+            área, porque el navegador no pasa por el MCP. Ninguna de las dos puede tocar Reglas de Diseño AI ni
+            Usuarios.
           </div>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
@@ -443,6 +447,7 @@ export default function Usuarios() {
                 <th style={{ padding: '10px 12px', fontWeight: 500 }}>Correo</th>
                 <th style={{ padding: '10px 12px', fontWeight: 500 }}>Módulo</th>
                 <th style={{ padding: '10px 12px', fontWeight: 500 }}>Área (para el registro)</th>
+                <th style={{ padding: '10px 12px', fontWeight: 500 }}>Cómo entra</th>
                 <th style={{ padding: '10px 12px', fontWeight: 500 }}>Lo que alcanza</th>
                 <th style={{ padding: '10px 12px', fontWeight: 500 }}>Estado</th>
               </tr>
@@ -464,8 +469,28 @@ export default function Usuarios() {
                     <td style={{ padding: '10px 12px', color: '#888', fontSize: 12 }}>
                       {(AREAS.find(a => a.value === u.permission_area)?.label || u.permission_area).split(' (')[0]}
                     </td>
+                    <td style={{ padding: '10px 12px', fontSize: 12 }}>
+                      {u.acceso_ui ? (
+                        <>
+                          <span style={{ color: '#D9A441' }}>Navegador</span>
+                          <div style={{ fontSize: 11, color: '#7a5c1e', marginTop: 2 }}>tiene contraseña</div>
+                        </>
+                      ) : (
+                        <>
+                          <span style={{ color: '#9aa' }}>Solo MCP</span>
+                          <div style={{ fontSize: 11, color: '#555', marginTop: 2 }}>no puede entrar</div>
+                        </>
+                      )}
+                    </td>
                     <td style={{ padding: '10px 12px', fontSize: 12, maxWidth: 380 }}>
-                      {!al || !al.vivo ? (
+                      {u.acceso_ui ? (
+                        <div style={{ color: '#9aa' }}>
+                          Las pantallas de su área y nada más — fuera de ahí el ERP lo rebota.
+                          <div style={{ color: '#7a5c1e', marginTop: 3 }}>
+                            Por el navegador no pasa por el MCP: aquí el límite es el área, no la lista de tablas.
+                          </div>
+                        </div>
+                      ) : !al || !al.vivo ? (
                         <span style={{ color: '#666' }}>Su MCP todavía no está construido — la cuenta está lista, el bot no.</span>
                       ) : (
                         <>
@@ -477,10 +502,10 @@ export default function Usuarios() {
                     <td style={{ padding: '10px 12px' }}>
                       <span style={{
                         display: 'inline-block', padding: '2px 10px', borderRadius: 12, fontSize: 11, fontWeight: 600,
-                        background: al && al.vivo ? 'rgba(87,255,154,0.15)' : 'rgba(150,150,150,0.12)',
-                        color: al && al.vivo ? '#10B981' : '#888',
+                        background: u.acceso_ui ? 'rgba(217,164,65,0.15)' : (al && al.vivo ? 'rgba(87,255,154,0.15)' : 'rgba(150,150,150,0.12)'),
+                        color: u.acceso_ui ? '#D9A441' : (al && al.vivo ? '#10B981' : '#888'),
                       }}>
-                        {al && al.vivo ? 'Conectado' : 'Pendiente'}
+                        {u.acceso_ui ? 'Falta contraseña' : (al && al.vivo ? 'Conectado' : 'Pendiente')}
                       </span>
                     </td>
                   </tr>
