@@ -147,7 +147,9 @@ async function syncRutinas(sUrl: string, svcKey: string, gcid?: string, gsec?: s
   // 1) Materializar el pendiente de HOY para rutinas activas que tocan hoy (idempotente por last_materialized)
   for (const r of rutinas) {
     if (r.estado !== 'activa' || r.last_materialized === hoy || !rutinaTocaEl(r, hoy)) continue
-    const row = { title: r.titulo, area: 'DG', source_type: 'dashboard', status: 'pendiente', priority: r.prioridad || 2, due_date: hoy, due_time: r.hora || null, description: r.descripcion || null, tags: ['rutina'] }
+    // owner_user_id = el dueño de la rutina. El pendiente que nace de ella es
+    // suyo, no del area: en el panel cada quien ve solo los propios.
+    const row = { title: r.titulo, area: 'DG', source_type: 'dashboard', status: 'pendiente', priority: r.prioridad || 2, due_date: hoy, due_time: r.hora || null, description: r.descripcion || null, tags: ['rutina'], owner_user_id: r.created_by || null }
     const ins = await fetch(`${sUrl}/rest/v1/action_items`, { method: 'POST', headers: JH, body: JSON.stringify(row) })
     if (ins.ok) { mat++; await fetch(`${sUrl}/rest/v1/rutinas?id=eq.${r.id}`, { method: 'PATCH', headers: JH, body: JSON.stringify({ last_materialized: hoy }) }) }
     else console.error('[rutinas/materializar]', (await ins.text()).substring(0, 200))

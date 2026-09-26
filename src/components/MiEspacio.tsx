@@ -1,6 +1,11 @@
 // ═══════════════════════════════════════════════════════════════════════════
-// MiEspacio — panel personal del Dashboard (DG)
-//   A) Mis pendientes            → action_items (area='DG', source_type='dashboard')
+// MiEspacio — panel personal del Dashboard
+//   A) Mis pendientes            → action_items (source_type='dashboard') con
+//                                   owner_user_id = el usuario que esta viendo
+//
+//   Los pendientes son de cada quien, no del area. Antes se filtraban por
+//   area='DG' y cualquier usuario con permisos de DG veia —y podia borrar— los
+//   pendientes del director.
 //   B) Prospectos por contactar  → tabla prospectos (clientes pre-lead)
 //   C) Radar de seguimiento      → interacciones vencidas / conversaciones frías
 //                                   (prospectos + leads/arquitectos)
@@ -81,8 +86,10 @@ export default function MiEspacio({ userId, employeeId, isMobile = false }: { us
   const [pendError, setPendError] = useState('')
 
   async function loadPendientes() {
+    // Sin usuario no se muestra nada: mas vale un panel vacio que el de otro.
+    if (!userId) { setPendientes([]); return }
     const { data } = await supabase.from('action_items').select('id, title, status, priority, due_date, due_time, tags')
-      .eq('area', 'DG').eq('source_type', 'dashboard').order('created_at', { ascending: false })
+      .eq('source_type', 'dashboard').eq('owner_user_id', userId).order('created_at', { ascending: false })
     setPendientes((data || []) as Pendiente[])
   }
   async function addPendiente() {
@@ -91,10 +98,13 @@ export default function MiEspacio({ userId, employeeId, isMobile = false }: { us
     setPendError('')
     // No se limpia el formulario hasta saber que si se guardo: borrar lo que
     // el usuario escribio y que ademas no se haya guardado es perder trabajo.
+    if (!userId) { setPendError('No identifico tu usuario; vuelve a entrar.'); return }
     const { error } = await supabase.from('action_items').insert({
       title: t, area: 'DG', source_type: 'dashboard', status: 'pendiente',
       priority: nuevoPendPrio, due_date: nuevoPendFecha || null,
-      created_by: employeeId || null,
+      // El dueño es el usuario, no su ficha de empleado: no todos tienen una
+      // (created_by cuelga de employees y no sirve para esto).
+      owner_user_id: userId,
     })
     if (error) { setPendError('No se guardó: ' + error.message); return }
     setNuevoPend(''); setNuevoPendFecha(''); setNuevoPendPrio(2)
@@ -145,7 +155,9 @@ export default function MiEspacio({ userId, employeeId, isMobile = false }: { us
   const [rutSaving, setRutSaving] = useState(false)
 
   async function loadRutinas() {
-    const { data } = await supabase.from('rutinas').select('*').neq('estado', 'borrada').order('created_at', { ascending: false })
+    if (!userId) { setRutinas([]); return }
+    const { data } = await supabase.from('rutinas').select('*').neq('estado', 'borrada')
+      .eq('created_by', userId).order('created_at', { ascending: false })
     setRutinas((data || []) as Rutina[])
   }
   // Crea el evento recurrente en Google Calendar y materializa el pendiente si hoy toca
