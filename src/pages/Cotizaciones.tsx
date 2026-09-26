@@ -267,13 +267,12 @@ function CotDashboard({ onOpen, preferVersionId }: { onOpen: (id: string, specia
     // conserva el orden por fecha dentro de cada grupo)
     .sort((a, c) => (a.stage === 'perdida' ? 1 : 0) - (c.stage === 'perdida' ? 1 : 0))
 
-  // Filtros por columna (estilo Excel) — Lead, Arquitecto, Cliente, Etapa, Moneda
+  // Filtros por columna (estilo Excel) — Lead, Arquitecto, Etapa, Moneda
   const colFilters = useColumnFilters()
   const getColVal = (c: Quotation, col: string): string => {
     switch (col) {
       case 'lead': return getLeadName(c) || '--'
       case 'arq': return getArchitect(c) || '--'
-      case 'cliente': return c.client_name || '--'
       case 'etapa': return STAGE_CONFIG[c.stage]?.label || c.stage
       case 'moneda': return getCur(c)
       default: return ''
@@ -437,7 +436,7 @@ function CotDashboard({ onOpen, preferVersionId }: { onOpen: (id: string, specia
             <Th><span onClick={() => toggleSort('cotizacion')} style={{ cursor: 'pointer', userSelect: 'none' }}>Cotización{sortArrow('cotizacion')}</span></Th>
             {!isMobile && <ThFilter label="Lead" values={lista.map(c => getLeadName(c) || '--')} activeFilters={colFilters.getFilter('lead')} onFilterChange={s => colFilters.setFilter('lead', s)} />}
             {!isMobile && <ThFilter label="Arquitecto" values={lista.map(c => getArchitect(c) || '--')} activeFilters={colFilters.getFilter('arq')} onFilterChange={s => colFilters.setFilter('arq', s)} />}
-            <ThFilter label="Cliente" values={lista.map(c => c.client_name || '--')} activeFilters={colFilters.getFilter('cliente')} onFilterChange={s => colFilters.setFilter('cliente', s)} />
+            <Th>Folio</Th>
             <Th>Especialidad</Th>
             <ThFilter label="Etapa" values={lista.map(c => STAGE_CONFIG[c.stage]?.label || c.stage)} activeFilters={colFilters.getFilter('etapa')} onFilterChange={s => colFilters.setFilter('etapa', s)} />
             <Th><span onClick={() => toggleSort('fecha')} style={{ cursor: 'pointer', userSelect: 'none' }}>Fecha{sortArrow('fecha')}</span></Th><Th>Año</Th>
@@ -453,10 +452,7 @@ function CotDashboard({ onOpen, preferVersionId }: { onOpen: (id: string, specia
               const architect = getArchitect(c)
               return (
                 <tr key={c.id} style={{cursor:'pointer'}} onClick={() => onOpen(c.id, c.specialty)}>
-                  <Td>
-                    <span style={{fontWeight:500,color:'#fff',fontSize: isMobile ? 12 : 'inherit'}}>{isMobile ? (c.name || '--').substring(0, 20) + (c.name && c.name.length > 20 ? '...' : '') : (c.name || '--')}{(c as any).version_label && <span style={{fontSize:9,fontWeight:700,background:esp.color+'33',color:esp.color,padding:'1px 4px',borderRadius:3,marginLeft:5}}>v{(c as any).version_label}</span>}</span>
-                    {(c as any).folio && <div style={{marginTop:3}}><FolioChip folio={(c as any).folio} prefijo={prefijoFolio(c.stage)} size={9.5} /></div>}
-                  </Td>
+                  <Td><span style={{fontWeight:500,color:'#fff',fontSize: isMobile ? 12 : 'inherit'}}>{isMobile ? (c.name || '--').substring(0, 20) + (c.name && c.name.length > 20 ? '...' : '') : (c.name || '--')}{(c as any).version_label && <span style={{fontSize:9,fontWeight:700,background:esp.color+'33',color:esp.color,padding:'1px 4px',borderRadius:3,marginLeft:5}}>v{(c as any).version_label}</span>}</span></Td>
                   {!isMobile && <Td>
                     <LeadCell
                       cotId={c.id}
@@ -475,7 +471,11 @@ function CotDashboard({ onOpen, preferVersionId }: { onOpen: (id: string, specia
                     />
                   </Td>}
                   {!isMobile && <Td><span style={{color: architect ? '#F9A8D4' : '#333', fontSize: 12}}>{architect || '--'}</span></Td>}
-                  <Td muted>{isMobile ? (c.client_name || '--').substring(0, 20) + (c.client_name && c.client_name.length > 20 ? '...' : '') : (c.client_name || '--')}</Td>
+                  {/* El folio en su propia columna: encimado bajo el nombre de la
+                      cotizacion competia con el nombre y se leia peor. */}
+                  <Td>{(c as any).folio
+                    ? <FolioChip folio={(c as any).folio} prefijo={prefijoFolio(c.stage)} size={isMobile ? 9 : 10} />
+                    : <span style={{color:'#333'}}>--</span>}</Td>
                   <Td><Badge label={esp.icon+' '+esp.label} color={esp.color}/></Td>
                   <Td>
                     <select
