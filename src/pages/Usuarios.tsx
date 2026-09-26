@@ -12,6 +12,8 @@ interface AppUser {
   activo: boolean
   created_at: string
   employee_id: string | null
+  es_bot: boolean
+  modulo: string | null
 }
 
 interface Employee {
@@ -34,6 +36,24 @@ const AREAS: { value: PermissionArea; label: string }[] = [
   { value: 'Coordinador_Obra', label: 'Coordinador de Obra (solo Obra)' },
   { value: 'Logistica', label: 'Logística (solo Compras, Entregas y Obra)' },
 ]
+
+/**
+ * Lo que de verdad limita a un bot NO es su area: es la lista de tablas que
+ * su MCP alcanza, del lado del servidor. El area sirve para leer el log como
+ * se lee el de una persona. Aqui se enseñan las dos cosas para que la pantalla
+ * no prometa un control que no existe.
+ */
+const ALCANCE_BOT: Record<string, { mcp: string; lee: string; escribe: string; vivo: boolean }> = {
+  crm: {
+    mcp: 'mcp-crm',
+    lee: 'Leads, prospectos, clientes, cotizaciones, tareas, pendientes, personas',
+    escribe: 'Leads, prospectos, tareas y pendientes',
+    vivo: true,
+  },
+  contabilidad: { mcp: 'mcp-contabilidad', lee: '—', escribe: '—', vivo: false },
+  proyecto:     { mcp: 'mcp-proyectos',    lee: '—', escribe: '—', vivo: false },
+  obra:         { mcp: 'mcp-obra',         lee: '—', escribe: '—', vivo: false },
+}
 
 const inputStyle: React.CSSProperties = {
   background: '#1a1a1a', border: '1px solid #333', borderRadius: 8,
@@ -62,7 +82,7 @@ export default function Usuarios() {
 
   async function loadUsers() {
     setLoading(true)
-    const { data } = await supabase.from('app_users').select('id, email, nombre, permission_area, nivel, activo, created_at, employee_id').order('created_at', { ascending: true })
+    const { data } = await supabase.from('app_users').select('id, email, nombre, permission_area, nivel, activo, created_at, employee_id, es_bot, modulo').order('created_at', { ascending: true })
     setUsers((data as AppUser[]) || [])
     setLoading(false)
   }
@@ -78,6 +98,11 @@ export default function Usuarios() {
   useEffect(() => { loadUsers(); loadEmployees() }, [])
 
   // Employees that don't already have a user account
+  // Las cuentas de servicio se listan aparte: no son personas, no tienen ficha
+  // y no se les administra contraseña porque no pueden entrar.
+  const humanos = users.filter(u => !u.es_bot)
+  const bots = users.filter(u => u.es_bot)
+
   const usedEmployeeIds = new Set(users.map(u => u.employee_id).filter(Boolean))
   const availableEmployees = employees.filter(e => !usedEmployeeIds.has(e.id) && e.is_active !== false)
 
@@ -197,7 +222,7 @@ export default function Usuarios() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
         <div>
           <h1 style={{ fontSize: 22, fontWeight: 700, color: '#fff', margin: 0 }}>Usuarios del Sistema</h1>
-          <div style={{ fontSize: 13, color: '#666', marginTop: 4 }}>{users.length} usuarios · {users.filter(u => u.activo).length} activos</div>
+          <div style={{ fontSize: 13, color: '#666', marginTop: 4 }}>{humanos.length} personas · {humanos.filter(u => u.activo).length} activas · {bots.length} cuentas de bot</div>
           <div style={{ fontSize: 11.5, color: '#777', marginTop: 6, maxWidth: 640, lineHeight: 1.6 }}>
             La <b style={{ color: '#aaa' }}>ficha de empleado</b> es lo que amarra todo: de ahí salen las actividades
             que son tuyas y el <b style={{ color: '#aaa' }}>rol</b> con el que se te reparte trabajo. El rol se deduce
@@ -309,7 +334,7 @@ export default function Usuarios() {
             </tr>
           </thead>
           <tbody>
-            {users.map(u => (
+            {humanos.map(u => (
               <tr key={u.id} style={{ borderBottom: '1px solid #1a1a1a', opacity: u.activo ? 1 : 0.5 }}>
                 <td style={{ padding: '10px 12px', color: '#fff' }}>{u.nombre}</td>
                 <td style={{ padding: '10px 12px', color: '#aaa' }}>{u.email}</td>
@@ -397,6 +422,73 @@ export default function Usuarios() {
             ))}
           </tbody>
         </table>
+      )}
+
+      {bots.length > 0 && (
+        <div style={{ marginTop: 40 }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginBottom: 6 }}>
+            <h2 style={{ fontSize: 16, color: '#fff', margin: 0 }}>Cuentas de servicio (bots)</h2>
+            <span style={{ fontSize: 12, color: '#666' }}>{bots.length} · una por módulo</span>
+          </div>
+          <div style={{ fontSize: 12, color: '#888', lineHeight: 1.6, marginBottom: 14, maxWidth: 820 }}>
+            No son personas y <strong style={{ color: '#aaa' }}>no pueden iniciar sesión</strong>: existen para firmar
+            lo que su bot escribe por MCP, y para que el registro diga quién hizo qué. Lo que de verdad las limita no
+            es el área sino las tablas que alcanza su MCP, que es la columna de la derecha. Ninguna puede tocar reglas,
+            precios, permisos ni plantillas del ERP.
+          </div>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+            <thead>
+              <tr style={{ borderBottom: '1px solid #333', color: '#888', textAlign: 'left' }}>
+                <th style={{ padding: '10px 12px', fontWeight: 500 }}>Bot</th>
+                <th style={{ padding: '10px 12px', fontWeight: 500 }}>Correo</th>
+                <th style={{ padding: '10px 12px', fontWeight: 500 }}>Módulo</th>
+                <th style={{ padding: '10px 12px', fontWeight: 500 }}>Área (para el registro)</th>
+                <th style={{ padding: '10px 12px', fontWeight: 500 }}>Lo que alcanza</th>
+                <th style={{ padding: '10px 12px', fontWeight: 500 }}>Estado</th>
+              </tr>
+            </thead>
+            <tbody>
+              {bots.map(u => {
+                const al = ALCANCE_BOT[u.modulo || ''] || null
+                return (
+                  <tr key={u.id} style={{ borderBottom: '1px solid #1a1a1a', opacity: u.activo ? 1 : 0.5 }}>
+                    <td style={{ padding: '10px 12px', color: '#fff' }}>
+                      {u.nombre}
+                      <div style={{ fontSize: 11, color: '#555', marginTop: 2 }}>sin acceso a la pantalla</div>
+                    </td>
+                    <td style={{ padding: '10px 12px', color: '#aaa', fontFamily: 'ui-monospace, monospace', fontSize: 12 }}>{u.email}</td>
+                    <td style={{ padding: '10px 12px', color: '#ccc' }}>
+                      {u.modulo || '—'}
+                      {al && <div style={{ fontSize: 11, color: '#555', marginTop: 2, fontFamily: 'ui-monospace, monospace' }}>{al.mcp}</div>}
+                    </td>
+                    <td style={{ padding: '10px 12px', color: '#888', fontSize: 12 }}>
+                      {(AREAS.find(a => a.value === u.permission_area)?.label || u.permission_area).split(' (')[0]}
+                    </td>
+                    <td style={{ padding: '10px 12px', fontSize: 12, maxWidth: 380 }}>
+                      {!al || !al.vivo ? (
+                        <span style={{ color: '#666' }}>Su MCP todavía no está construido — la cuenta está lista, el bot no.</span>
+                      ) : (
+                        <>
+                          <div style={{ color: '#9aa' }}><span style={{ color: '#666' }}>Lee:</span> {al.lee}</div>
+                          <div style={{ color: '#9aa', marginTop: 2 }}><span style={{ color: '#666' }}>Escribe:</span> {al.escribe}</div>
+                        </>
+                      )}
+                    </td>
+                    <td style={{ padding: '10px 12px' }}>
+                      <span style={{
+                        display: 'inline-block', padding: '2px 10px', borderRadius: 12, fontSize: 11, fontWeight: 600,
+                        background: al && al.vivo ? 'rgba(87,255,154,0.15)' : 'rgba(150,150,150,0.12)',
+                        color: al && al.vivo ? '#10B981' : '#888',
+                      }}>
+                        {al && al.vivo ? 'Conectado' : 'Pendiente'}
+                      </span>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   )

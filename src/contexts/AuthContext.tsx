@@ -86,6 +86,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(null)
       return null
     }
+    if (row.es_bot) {
+      // Cuenta de servicio de un bot. Existe para firmar lo que el bot escribe
+      // por MCP, no para que alguien entre con ella. El servidor ya la bloquea
+      // por tres lados; esto es el último, por si algún día se le crea sesión.
+      console.warn('[auth] cuenta de servicio, no inicia sesión:', row.email)
+      await supabase.auth.signOut()
+      setUser(null)
+      return null
+    }
     const profile: UserProfile = {
       id: row.id,
       email: row.email,

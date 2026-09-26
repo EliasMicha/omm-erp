@@ -161,7 +161,7 @@ Deno.serve(async (req: Request) => {
       }
 
       // Actor: la cuenta de servicio del ERP a cuyo nombre escribe el bot.
-      const actorEmail = (Deno.env.get('MCP_CRM_ACTOR_EMAIL') || 'grok@omniious.com').toLowerCase()
+      const actorEmail = (Deno.env.get('MCP_CRM_ACTOR_EMAIL') || 'grok_crm@omniious.com').toLowerCase()
       const { data: cuenta } = await supabase.from('app_users')
         .select('id, nombre, email, employee_id, permission_area, nivel, activo')
         .eq('email', actorEmail).maybeSingle()

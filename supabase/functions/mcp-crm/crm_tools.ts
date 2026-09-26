@@ -371,6 +371,10 @@ const crmAssignTask: CrmTool = {
           description: 'Que clase de trabajo es. Asi lo pinta y lo agrupa el tablero.',
         },
         urgencia: { type: 'string', enum: ['urgente', 'alta', 'normal', 'baja'], default: 'normal' },
+        a_nombre_de_email: {
+          type: 'string',
+          description: 'Correo de la persona que PIDE el trabajo, normalmente quien te esta hablando. La tarea queda a su nombre y tu apareces como quien la capturo. Importa: una tarea firmada por el director general no pesa lo mismo que una firmada por un bot.',
+        },
         idempotency_key: { type: 'string', description: 'Identificador que TU inventas para esta operacion concreta (por ejemplo lead-frb-2026-09-26-01). Si la llamada se reintenta con la misma clave, el servidor devuelve el resultado original en vez de crear un duplicado. Mandalo siempre en escrituras reales.' },
         dry_run: { type: 'boolean', default: false },
       },
@@ -398,6 +402,19 @@ const crmAssignTask: CrmTool = {
       return { success: false, error: `${persona.nombre} tiene cuenta en el ERP pero no ficha de empleado, y las tareas se asignan a fichas. Escoge a alguien mas o pide que le liguen su ficha en Usuarios.` }
     }
 
+    // La autoridad es de quien pide; la captura es del bot. Si nadie la
+    // reclama, queda a nombre del bot y se nota.
+    let solicitante: any = null
+    if (s(input.a_nombre_de_email)) {
+      solicitante = await resolvePersona(ctx.supabase, { email: s(input.a_nombre_de_email) })
+      if (!solicitante) {
+        return { success: false, error: 'No encontre a "' + s(input.a_nombre_de_email) + '" para poner la tarea a su nombre. Busca con crm_search_people, o quitalo y la tarea queda a nombre del bot.' }
+      }
+    }
+    const firma = solicitante
+      ? solicitante.nombre + ' · capturado por ' + ctx.actor.nombre
+      : ctx.actor.nombre
+
     const urgencia = s(input.urgencia) in URGENCIAS ? s(input.urgencia) : 'normal'
     const prioridadNum = URGENCIAS[urgencia]
     const tipo = (TIPOS_TAREA as readonly string[]).includes(s(input.tipo)) ? s(input.tipo) : 'proyecto'
@@ -415,8 +432,8 @@ const crmAssignTask: CrmTool = {
       status: 'pendiente',
       progress: 0,
       order_index: 0,
-      solicitada_por: ctx.actor.nombre,
-      solicitada_por_id: ctx.actor.employee_id,
+      solicitada_por: firma,
+      solicitada_por_id: solicitante?.employee_id ?? ctx.actor.employee_id,
       titulo_cliente: lead.name,
     }
 
@@ -529,6 +546,7 @@ const crmCreateLeadWithTask: CrmTool = {
         tarea_fecha: { type: 'string', description: 'yyyy-mm-dd' },
         tarea_tipo: { type: 'string', enum: TIPOS_TAREA as unknown as string[], default: 'proyecto' },
         tarea_urgencia: { type: 'string', enum: ['urgente', 'alta', 'normal', 'baja'], default: 'normal' },
+        a_nombre_de_email: { type: 'string', description: 'Correo de quien pide el trabajo. La tarea queda a su nombre, capturada por ti.' },
         notificar_a: { type: 'array', items: { type: 'string' }, description: 'Correos de quienes ademas deben enterarse' },
         idempotency_key: { type: 'string', description: 'Identificador que TU inventas para esta operacion concreta (por ejemplo lead-frb-2026-09-26-01). Si la llamada se reintenta con la misma clave, el servidor devuelve el resultado original en vez de crear un duplicado. Mandalo siempre en escrituras reales.' },
         dry_run: { type: 'boolean', default: false },
@@ -557,6 +575,7 @@ const crmCreateLeadWithTask: CrmTool = {
       asignado_email: input.tarea_asignado_email, asignado_employee_id: input.tarea_asignado_employee_id,
       area: input.tarea_area, fecha: input.tarea_fecha,
       tipo: input.tarea_tipo, urgencia: input.tarea_urgencia,
+      a_nombre_de_email: input.a_nombre_de_email,
       dry_run: dry,
     }, ctx)
 
