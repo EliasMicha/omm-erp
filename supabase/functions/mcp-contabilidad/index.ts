@@ -1,36 +1,36 @@
 // ═══════════════════════════════════════════════════════════════════════════
-//  mcp-crm — servidor MCP (Streamable HTTP) del modulo CRM de OMM.
+//  mcp-contabilidad — servidor MCP (Streamable HTTP) del modulo de Contabilidad.
 //
 //  Lo consume Grok Bot como "custom MCP server". Expone SEIS tools de negocio
 //  —ni una mas— y ninguna recibe SQL: el modelo pide resultados, no consultas.
 //
 //  Por que un MCP por modulo y no uno con todo: un bot que ve 80 tools escoge
-//  mal. El de CRM no tiene por que enterarse de que existe nomina.
+//  mal. El de Contabilidad no tiene por que enterarse de que existe el CRM.
 //
-//  Auth: Authorization: Bearer <GROK_MCP_CRM_TOKEN>, comparado en tiempo
+//  Auth: Authorization: Bearer <GROK_MCP_CONTABILIDAD_TOKEN>, comparado en tiempo
 //  constante. El token NUNCA por query string: los parametros de URL se
 //  quedan escritos en logs, historiales y proxies.
 //
 //  Identidad de escritura: el token autentica al BOT, no a una persona. Todo
 //  lo que escribe queda a nombre de una cuenta de servicio del ERP
-//  (MCP_CRM_ACTOR_EMAIL, por defecto grok@omniious.com), y cada llamada se
+//  (MCP_CONTA_ACTOR_EMAIL, por defecto grok@omniious.com), y cada llamada se
 //  guarda en agent_actions_log con su input, su salida y lo que toco.
 //
 //  Secretos (Dashboard → Edge Functions → Secrets, los pone un humano):
-//    GROK_MCP_CRM_TOKEN    secreto largo y aleatorio
-//    MCP_CRM_ACTOR_EMAIL   opcional, default grok@omniious.com
+//    GROK_MCP_CONTABILIDAD_TOKEN    secreto largo y aleatorio
+//    MCP_CONTA_ACTOR_EMAIL   opcional, default grok@omniious.com
 //    SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY   los inyecta Supabase
 //
 //  verify_jwt: OFF para esta function. Quien llama es un bot, no un usuario
 //  con sesion; el porton es el Bearer de servicio.
 // ═══════════════════════════════════════════════════════════════════════════
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
-import { ALCANCE_CRM, CRM_TOOLS, claseDeTool, crmToolDefinitions, executeCrmTool, type CrmActor } from './crm_tools.ts'
+import { ALCANCE_CONTA, CONTA_TOOLS, claseDeTool, contaToolDefinitions, executeContaTool, type ContaActor } from './conta_tools.ts'
 import { acotarSupabase } from './acotar.ts'
 import { unaSolaVez } from './idempotencia.ts'
 
 const PROTOCOL_VERSION = '2025-06-18'
-const SERVER_INFO = { name: 'omm-crm', version: '1.4.0' }
+const SERVER_INFO = { name: 'omm-contabilidad', version: '1.0.0' }
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -77,9 +77,9 @@ Deno.serve(async (req: Request) => {
   }
 
   // ── Auth ────────────────────────────────────────────────────────────────
-  const esperado = Deno.env.get('GROK_MCP_CRM_TOKEN') || ''
+  const esperado = Deno.env.get('GROK_MCP_CONTABILIDAD_TOKEN') || ''
   if (!esperado) {
-    console.error('[mcp-crm] falta el secreto GROK_MCP_CRM_TOKEN')
+    console.error('[mcp-contabilidad] falta el secreto GROK_MCP_CONTABILIDAD_TOKEN')
     return json({ error: 'Servidor sin configurar' }, 500)
   }
   const auth = req.headers.get('authorization') || ''
@@ -119,15 +119,14 @@ Deno.serve(async (req: Request) => {
           capabilities: { tools: { listChanged: false } },
           serverInfo: SERVER_INFO,
           instructions:
-            'CRM de OMM Technologies. Antes de crear un lead busca con crm_search_leads para no duplicar, ' +
-            'y resuelve a las personas con crm_search_people antes de asignar o notificar. ' +
-            'Para el flujo completo usa crm_create_lead_with_task. ' +
-            'Corre siempre primero con dry_run: true y enseña el preview antes de escribir. ' +
-            'En las escrituras reales manda idempotency_key: si se reintenta la llamada, el servidor devuelve ' +
-            'el resultado original en vez de crear un duplicado. ' +
-            'Toda tarea que crees debe llevar fecha: en OMM un compromiso sin fecha no se puede cumplir ni incumplir. ' +
-            'Si el humano no la dijo, preguntasela. ' +
-            'Este servidor solo opera el CRM: no cambia reglas, precios, permisos ni plantillas del ERP.',
+            'Contabilidad y cobranza de OMM Technologies. Este servidor casi solo consulta: no emite, ' +
+            'no timbra, no cancela, no registra pagos y no concilia. Timbrar es irreversible y conciliar ' +
+            'toca tres tablas a la vez, asi que eso lo hace una persona. ' +
+            'Los montos van en su moneda nativa y el tipo de cambio se reporta aparte: si das un total en ' +
+            'pesos, di siempre a que TC lo convertiste, porque si no nadie puede cotejarlo. ' +
+            'Solo cuentan los contratos vigentes; las cotizaciones que no son contrato no son cobranza. ' +
+            'La unica escritura es el seguimiento de cobranza (fecha pronosticada y nota), que no mueve dinero. ' +
+            'Corre primero con dry_run: true y manda idempotency_key en las escrituras reales.',
         },
       })
       continue
@@ -144,7 +143,7 @@ Deno.serve(async (req: Request) => {
       respuestas.push({
         jsonrpc: '2.0', id,
         result: {
-          tools: crmToolDefinitions().map(d => ({
+          tools: contaToolDefinitions().map(d => ({
             name: d.name, description: d.description, inputSchema: d.input_schema,
           })),
         },
@@ -155,13 +154,13 @@ Deno.serve(async (req: Request) => {
     if (method === 'tools/call') {
       const nombre = params?.name
       const args = params?.arguments ?? {}
-      if (!nombre || !CRM_TOOLS[nombre]) {
+      if (!nombre || !CONTA_TOOLS[nombre]) {
         respuestas.push({ jsonrpc: '2.0', id, error: { code: -32602, message: `Tool desconocida: ${nombre}` } })
         continue
       }
 
       // Actor: la cuenta de servicio del ERP a cuyo nombre escribe el bot.
-      const actorEmail = (Deno.env.get('MCP_CRM_ACTOR_EMAIL') || 'grok_crm@omniious.com').toLowerCase()
+      const actorEmail = (Deno.env.get('MCP_CONTA_ACTOR_EMAIL') || 'grok_contabilidad@omniious.com').toLowerCase()
       const { data: cuenta } = await supabase.from('app_users')
         .select('id, nombre, email, employee_id, permission_area, nivel, activo')
         .eq('email', actorEmail).maybeSingle()
@@ -174,15 +173,15 @@ Deno.serve(async (req: Request) => {
         continue
       }
 
-      const actor: CrmActor = {
+      const actor: ContaActor = {
         app_user_id: cuenta.id, nombre: cuenta.nombre, email: cuenta.email,
         employee_id: cuenta.employee_id, permission_area: cuenta.permission_area, nivel: cuenta.nivel,
       }
 
-      // Las tools ven un cliente acotado a las tablas del CRM: una tool que
+      // Las tools ven un cliente acotado a las tablas de Contabilidad: una tool que
       // por error pidiera design_rules o catalog_products revienta aqui, no
       // en produccion. El limite es del servidor, no del prompt del bot.
-      const acotado = acotarSupabase(supabase, ALCANCE_CRM)
+      const acotado = acotarSupabase(supabase, ALCANCE_CONTA)
 
       // Idempotencia solo para las escrituras reales. Una consulta no la
       // necesita y un dry_run no escribe nada, asi que ninguno quema clave.
@@ -195,9 +194,9 @@ Deno.serve(async (req: Request) => {
       // La tabla de idempotencia es infraestructura, no datos del modulo: va
       // con el cliente sin acotar.
       const envuelto = await unaSolaVez(supabase, claveIdem,
-        { tool_name: nombre, actor_email: actor.email, origen: 'mcp-crm' },
+        { tool_name: nombre, actor_email: actor.email, origen: 'mcp-contabilidad' },
         async () => {
-          const r = await executeCrmTool(nombre, args, { supabase: acotado, actor })
+          const r = await executeContaTool(nombre, args, { supabase: acotado, actor })
           return { ok: r.success, valor: r, error: r.error }
         })
       const ms = Date.now() - t0
@@ -212,7 +211,7 @@ Deno.serve(async (req: Request) => {
       // Auditoria: quien, que, cuando, con que payload y que toco.
       await supabase.from('agent_actions_log').insert({
         tool_name: nombre,
-        tool_input: { ...args, _origen: 'mcp-crm', _actor: actor.email, _clase: clase, _repetido: envuelto.repetido || undefined },
+        tool_input: { ...args, _origen: 'mcp-contabilidad', _actor: actor.email, _clase: clase, _repetido: envuelto.repetido || undefined },
         tool_output: resultado.data ?? null,
         status: resultado.success ? 'success' : 'error',
         error_message: resultado.error ?? null,
