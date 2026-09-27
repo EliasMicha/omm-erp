@@ -395,7 +395,15 @@ REGLAS:
     if (!expected || token !== expected) return res.status(401).json({ ok: false, error: 'Token invalido' })
 
     const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL
-    const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY
+    // La llave de SERVICIO, no la anon. Esto corre en el servidor y escribe a
+    // nombre del dueño del CAPTURE_TOKEN, que ya autentico arriba.
+    //
+    // Antes usaba la anon y funcionaba solo porque action_items tenia una
+    // politica `using (true)`: o sea, porque cualquiera en internet podia
+    // escribirle. Al cerrar eso (2026-09-27) el atajo empezo a contestar
+    //   42501: new row violates row-level security policy for table action_items
+    // La anon queda de ultimo recurso; si se llega a usar, el error lo dice.
+    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY
     if (!supabaseUrl || !supabaseKey) return res.status(500).json({ ok: false, error: 'Supabase env vars no configuradas' })
 
     const { image, mediaType: mt, text } = (pbody || {}) as { image?: string; mediaType?: string; text?: string }
@@ -461,7 +469,15 @@ REGLAS:
     const token = (req.headers['x-omm-token'] as string) || pb?.token || (req.query?.token as string)
     if (!process.env.CAPTURE_TOKEN || token !== process.env.CAPTURE_TOKEN) return res.status(401).json({ ok: false, error: 'Token invalido' })
     const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL
-    const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY
+    // La llave de SERVICIO, no la anon. Esto corre en el servidor y escribe a
+    // nombre del dueño del CAPTURE_TOKEN, que ya autentico arriba.
+    //
+    // Antes usaba la anon y funcionaba solo porque action_items tenia una
+    // politica `using (true)`: o sea, porque cualquiera en internet podia
+    // escribirle. Al cerrar eso (2026-09-27) el atajo empezo a contestar
+    //   42501: new row violates row-level security policy for table action_items
+    // La anon queda de ultimo recurso; si se llega a usar, el error lo dice.
+    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY
     if (!supabaseUrl || !supabaseKey) return res.status(500).json({ ok: false, error: 'Supabase env vars no configuradas' })
     const { image, mediaType: mt, text } = (pb || {}) as { image?: string; mediaType?: string; text?: string }
     if (!image && !text) return res.status(400).json({ ok: false, error: 'Falta image o text' })
@@ -492,13 +508,37 @@ REGLAS:
     try { j = JSON.parse(m[0]) } catch { return res.status(422).json({ ok: false, error: 'JSON invalido' }) }
     const esCita = (j.tipo || '').toLowerCase() === 'cita'
     const desc = [esCita ? 'Cita' : '', j.persona ? `Con: ${j.persona}` : '', j.lugar ? `Lugar: ${j.lugar}` : '', j.notas || ''].filter(Boolean).join(' · ') || null
-    const row: any = { title: (j.titulo || '').trim() || 'Pendiente', area: 'DG', source_type: 'dashboard', status: 'pendiente', priority: esCita ? 3 : 2, due_date: (j.fecha || '').trim() || null, due_time: (j.hora || '').trim() || null, description: desc, tags: esCita ? ['cita'] : ['pendiente'] }
+    // El dueño va explicito. "Mis pendientes" (MiEspacio) filtra por
+    // source_type='dashboard' AND owner_user_id, asi que una fila sin dueño se
+    // guarda bien y no aparece en ningun lado — que para un atajo es lo peor
+    // que puede pasar: te avisa "listo" y no deja rastro.
+    const ownerEmail = (process.env.CAPTURE_ACTOR_EMAIL || 'elias@omniious.com').toLowerCase()
+    let ownerId: string | null = null
+    try {
+      const or_ = await fetch(`${supabaseUrl}/rest/v1/app_users?email=eq.${encodeURIComponent(ownerEmail)}&select=id`, {
+        headers: { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}` },
+      })
+      if (or_.ok) { const oj = await or_.json(); ownerId = Array.isArray(oj) && oj[0] ? oj[0].id : null }
+    } catch { /* si falla, se inserta sin dueño: mejor eso que perder la captura */ }
+
+    const row: any = { title: (j.titulo || '').trim() || 'Pendiente', area: 'DG', source_type: 'dashboard', status: 'pendiente', priority: esCita ? 3 : 2, due_date: (j.fecha || '').trim() || null, due_time: (j.hora || '').trim() || null, description: desc, tags: esCita ? ['cita'] : ['pendiente'], owner_user_id: ownerId }
     const ins = await fetch(`${supabaseUrl}/rest/v1/action_items`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}`, Prefer: 'return=representation' },
       body: JSON.stringify(row),
     })
-    if (!ins.ok) return res.status(ins.status).json({ ok: false, error: 'Supabase insert: ' + (await ins.text()).substring(0, 300) })
+    if (!ins.ok) {
+      const detalle = (await ins.text()).substring(0, 300)
+      // 42501 = RLS. Si sale, la funcion esta corriendo con la llave anon:
+      // falta SUPABASE_SERVICE_ROLE_KEY en las variables de Vercel.
+      const esRls = detalle.includes('42501') || detalle.includes('row-level security')
+      return res.status(ins.status).json({
+        ok: false,
+        error: esRls
+          ? 'No se pudo guardar: falta la llave de servicio (SUPABASE_SERVICE_ROLE_KEY) en Vercel.'
+          : 'Supabase insert: ' + detalle,
+      })
+    }
     const created = await ins.json()
     const it = Array.isArray(created) ? created[0] : created
 
