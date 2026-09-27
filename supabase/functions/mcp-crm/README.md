@@ -47,6 +47,20 @@ duplicar" y "corre con dry_run primero". En Compras diria lo que corresponda
 Compras, el de CRM sigue vivo. Y `verify_jwt: false` al desplegar, igual que
 aqui: quien llama es un bot, no un usuario con sesion; el porton es el Bearer.
 
+> ⚠️ **Una function nueva nace con `verify_jwt = TRUE`.** Hay que apagarlo a
+> mano en el Dashboard (Edge Functions → la function → Details → "Verify JWT
+> with legacy secret"); `supabase/config.toml` solo manda cuando el despliegue
+> va por el CLI, y no cambia una function que ya existe.
+>
+> El sintoma engaña y por eso vale la pena reconocerlo: el gateway contesta
+> `{"code":"UNAUTHORIZED_INVALID_JWT_FORMAT"}` con 401 y parece que el token del
+> bot esta mal. No lo esta — el token del bot NO es un JWT a proposito, y con
+> la bandera prendida el gateway lo rechaza sin que corra una linea del
+> servidor. La prueba que lo distingue: con `verify_jwt` apagado y sin haber
+> puesto todavia el secreto del token, la function contesta **500 "Servidor sin
+> configurar"**, que es su propio mensaje. 401 del gateway = bandera;
+> 500 = falta el secreto; 401 con `{"error":"No autorizado"}` = token incorrecto.
+
 ### 2. En `<modulo>_tools.ts`, el trabajo de verdad
 
 Se conservan `CrmActor`, `CrmCtx`, `CrmToolResult`, `CrmTool` (renombrando el

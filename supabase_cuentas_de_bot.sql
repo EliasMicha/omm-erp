@@ -110,3 +110,28 @@ on conflict (email) do nothing;
 -- tienen navegador". Ver el archivo de migracion aplicado para el cuerpo
 -- completo de verify_login, check_email_status, handle_new_auth_user y
 -- get_my_app_user (este ultimo ahora devuelve tambien acceso_ui).
+
+-- ── 2026-09-26, tercera parte: la cuenta del MCP de Cotizaciones ────────────
+-- Misma forma que las otras cuatro de servicio: es_bot, acceso_ui en false y
+-- sin usuario en auth.users, asi que el unico camino de entrada es el Bearer de
+-- la Edge Function mcp-cotizaciones.
+--
+-- password_hash es la columna heredada de antes de Supabase Auth y ya no la
+-- consulta el login. Va el mismo centinela que los demas bots de MCP:
+-- BOT-SIN-ACCESO no es un hash de bcrypt, asi que no hay contraseña que pueda
+-- coincidir con el, ni ahora ni si algun dia alguien resucita el login viejo.
+--
+-- permission_area Ventas_Ingenieria porque cotizar es de ese lado de la casa, y
+-- es la misma con la que ya entra grok_crm: si algun dia esta cuenta llegara a
+-- tener UI, veria lo que ve Ventas y nada mas.
+insert into app_users (email, nombre, password_hash, permission_area, nivel, activo, es_bot, acceso_ui, modulo)
+values ('grok_cotizaciones@omniious.com', 'Grok Cotizaciones', 'BOT-SIN-ACCESO', 'Ventas_Ingenieria', 'director', true, true, false, 'cotizaciones')
+on conflict (email) do update set
+  nombre = excluded.nombre,
+  password_hash = excluded.password_hash,
+  permission_area = excluded.permission_area,
+  nivel = excluded.nivel,
+  activo = true,
+  es_bot = true,
+  acceso_ui = false,
+  modulo = excluded.modulo;

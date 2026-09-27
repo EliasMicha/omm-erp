@@ -81,6 +81,15 @@ export interface Quotation {
   project?: Project
   version_group_id?: string | null
   version_label?: string | null
+  /** Dueno comercial. Lo lee DashboardVentasIng para la carga por persona. */
+  assignee_id?: string | null
+  /** Cuando entro a la etapa actual. De aqui cuelga el SLA. */
+  stage_changed_at?: string | null
+  folio?: string | null
+  /** Override del año para reportes comerciales. Vacio = año de created_at. */
+  commercial_year?: number | null
+  vigente?: boolean
+  total_final?: number | null
 }
 
 export interface QuotationArea {

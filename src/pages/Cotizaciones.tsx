@@ -123,6 +123,7 @@ function CotDashboard({ onOpen, preferVersionId }: { onOpen: (id: string, specia
   const showKPIs = authUser?.permission_area === 'DG' || authUser?.permission_area === 'Administracion'
   const [cots, setCots] = useState<Quotation[]>([])
   const [leadsMap, setLeadsMap] = useState<Record<string, LeadInfo>>({})
+  const [empleados, setEmpleados] = useState<{ id: string; nombre: string }[]>([])
   const [filtro, setFiltro] = useState<string>('todas')
   const [filtroYear, setFiltroYear] = useState<string>(String(new Date().getFullYear()))
   const [search, setSearch] = useState('')
@@ -133,11 +134,18 @@ function CotDashboard({ onOpen, preferVersionId }: { onOpen: (id: string, specia
 
   const loadCots = async () => {
     setLoading(true)
-    const [{ data: cotsData }, { data: leadsData }] = await Promise.all([
+    const [{ data: cotsData }, { data: leadsData }, { data: empData }] = await Promise.all([
       supabase.from('quotations').select('*,project:projects!quotations_project_id_fkey(name,client_name)').order('updated_at', { ascending: false }),
       supabase.from('leads').select('id,name,company'),
+      supabase.from('employees').select('id,name,nombre').eq('is_active', true),
     ])
     setCots(cotsData || [])
+    setEmpleados(
+      (empData || [])
+        .map((e: any) => ({ id: e.id, nombre: (e.nombre || e.name || '').trim() }))
+        .filter((e: any) => e.nombre)
+        .sort((a: any, b: any) => a.nombre.localeCompare(b.nombre, 'es')),
+    )
     const map: Record<string, LeadInfo> = {}
     ;(leadsData || []).forEach((l: any) => { map[l.id] = l })
     setLeadsMap(map)
@@ -267,13 +275,17 @@ function CotDashboard({ onOpen, preferVersionId }: { onOpen: (id: string, specia
     // conserva el orden por fecha dentro de cada grupo)
     .sort((a, c) => (a.stage === 'perdida' ? 1 : 0) - (c.stage === 'perdida' ? 1 : 0))
 
-  // Filtros por columna (estilo Excel) — Lead, Arquitecto, Etapa, Moneda
+  const nombreDueno = (c: Quotation): string =>
+    empleados.find(e => e.id === (c as any).assignee_id)?.nombre || ''
+
+  // Filtros por columna (estilo Excel) — Lead, Arquitecto, Etapa, Dueño, Moneda
   const colFilters = useColumnFilters()
   const getColVal = (c: Quotation, col: string): string => {
     switch (col) {
       case 'lead': return getLeadName(c) || '--'
       case 'arq': return getArchitect(c) || '--'
       case 'etapa': return STAGE_CONFIG[c.stage]?.label || c.stage
+      case 'dueno': return nombreDueno(c) || 'Sin asignar'
       case 'moneda': return getCur(c)
       default: return ''
     }
@@ -439,12 +451,17 @@ function CotDashboard({ onOpen, preferVersionId }: { onOpen: (id: string, specia
             <Th>Folio</Th>
             <Th>Especialidad</Th>
             <ThFilter label="Etapa" values={lista.map(c => STAGE_CONFIG[c.stage]?.label || c.stage)} activeFilters={colFilters.getFilter('etapa')} onFilterChange={s => colFilters.setFilter('etapa', s)} />
+            {/* Dueno: la columna que faltaba. assignee_id ya lo leia el tablero de
+                Ventas en tres lugares (carga por persona, "Sin asignar", "lo mio"),
+                pero ninguna pantalla lo escribia, asi que las 345 cotizaciones
+                estaban sin dueno y esas tres vistas salian vacias. */}
+            {!isMobile && <ThFilter label="Dueño" values={lista.map(c => nombreDueno(c) || 'Sin asignar')} activeFilters={colFilters.getFilter('dueno')} onFilterChange={s => colFilters.setFilter('dueno', s)} />}
             <Th><span onClick={() => toggleSort('fecha')} style={{ cursor: 'pointer', userSelect: 'none' }}>Fecha{sortArrow('fecha')}</span></Th><Th>Año</Th>
             <ThFilter label="Moneda" values={lista.map(c => getCur(c))} activeFilters={colFilters.getFilter('moneda')} onFilterChange={s => colFilters.setFilter('moneda', s)} />
             <Th right><span onClick={() => toggleSort('total')} style={{ cursor: 'pointer', userSelect: 'none' }}>Total{sortArrow('total')}</span></Th><Th></Th>
           </tr></thead>
           <tbody>
-            {listaFiltrada.length === 0 && (<tr><td colSpan={10}><EmptyState message={search || filtro !== "todas" || colFilters.activeCount > 0 ? "No se encontraron cotizaciones con estos filtros" : "Sin cotizaciones - crea la primera"}/></td></tr>)}
+            {listaFiltrada.length === 0 && (<tr><td colSpan={11}><EmptyState message={search || filtro !== "todas" || colFilters.activeCount > 0 ? "No se encontraron cotizaciones con estos filtros" : "Sin cotizaciones - crea la primera"}/></td></tr>)}
             {listaFiltrada.map(c => {
               const esp = SPECIALTY_CONFIG[c.specialty]; const stage = STAGE_CONFIG[c.stage]
               const cur = getCur(c)
@@ -483,8 +500,15 @@ function CotDashboard({ onOpen, preferVersionId }: { onOpen: (id: string, specia
                       onClick={e => e.stopPropagation()}
                       onChange={async e => {
                         const newStage = e.target.value
-                        await supabase.from('quotations').update({ stage: newStage }).eq('id', c.id)
-                        setCots(prev => prev.map(q => q.id === c.id ? { ...q, stage: newStage as any } : q))
+                        // stage_changed_at es el reloj del que cuelga el SLA de
+                        // DashboardVentasIng ("12d en Por cerrar"). Si no se mueve aqui,
+                        // se queda en la fecha de creacion y el tablero reporta dias
+                        // desde que nacio la cotizacion, no dias en su etapa.
+                        const ahora = new Date().toISOString()
+                        await supabase.from('quotations')
+                          .update({ stage: newStage, stage_changed_at: ahora })
+                          .eq('id', c.id)
+                        setCots(prev => prev.map(q => q.id === c.id ? { ...q, stage: newStage as any, stage_changed_at: ahora } : q))
                         // Auto-create project when proy quotation moves to contrato
                         if (newStage === 'contrato' && c.specialty === 'proy') {
                           const projId = await autoCreateProjectFromQuotation(c.id)
@@ -502,6 +526,30 @@ function CotDashboard({ onOpen, preferVersionId }: { onOpen: (id: string, specia
                       ))}
                     </select>
                   </Td>
+                  {!isMobile && <Td>
+                    <select
+                      value={(c as any).assignee_id || ''}
+                      onClick={e => e.stopPropagation()}
+                      onChange={async e => {
+                        const nuevo = e.target.value || null
+                        await supabase.from('quotations').update({ assignee_id: nuevo }).eq('id', c.id)
+                        setCots(prev => prev.map(q => q.id === c.id ? { ...q, assignee_id: nuevo } as any : q))
+                      }}
+                      title="Quién es responsable de mover esta cotización"
+                      style={{
+                        padding: '3px 8px', fontSize: 10, fontWeight: 600, borderRadius: 6,
+                        background: (c as any).assignee_id ? '#10B98118' : '#D9770618',
+                        border: '1px solid ' + ((c as any).assignee_id ? '#10B98144' : '#D9770644'),
+                        color: (c as any).assignee_id ? '#10B981' : '#D97706',
+                        cursor: 'pointer', fontFamily: 'inherit', maxWidth: 140,
+                      }}
+                    >
+                      <option value="">Sin asignar</option>
+                      {empleados.map(emp => (
+                        <option key={emp.id} value={emp.id}>{emp.nombre}</option>
+                      ))}
+                    </select>
+                  </Td>}
                   <Td><span style={{fontSize:11,color:'#888'}}>{c.created_at ? new Date(c.created_at).toLocaleDateString('es-MX',{day:'2-digit',month:'short',year:'numeric'}) : '--'}</span></Td>
                   <Td>
                     <div onClick={e => e.stopPropagation()} style={{ display: 'inline-block' }}>
@@ -1060,8 +1108,13 @@ function CotEditor({ cotId, onBack }: { cotId: string; onBack: () => void }) {
 
   async function setStage(stage: string) {
     const prevStage = cot?.stage
-    await supabase.from('quotations').update({ stage }).eq('id', cotId)
-    setCot(c => c ? {...c, stage: stage as any} : c)
+    // Solo se reinicia el reloj si la etapa de veras cambio: volver a picar la
+    // pastilla en la que ya estas no deberia borrar los dias que llevas ahi.
+    const ahora = new Date().toISOString()
+    const patch: Record<string, unknown> = { stage }
+    if (prevStage !== stage) patch.stage_changed_at = ahora
+    await supabase.from('quotations').update(patch).eq('id', cotId)
+    setCot(c => c ? {...c, stage: stage as any, ...(prevStage !== stage ? { stage_changed_at: ahora } : {})} : c)
 
     // Auto-generate POs when moving to "contrato"
     if (stage === 'contrato' && prevStage !== 'contrato') {

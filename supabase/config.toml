@@ -1,0 +1,33 @@
+# Configuracion de las Edge Functions del ERP.
+#
+# Esto lo lee el CLI de Supabase al desplegar. Se agrego por un tropiezo real:
+# al crear mcp-cotizaciones desde la API, la function nacio con
+# verify_jwt = TRUE, que es el default para una function nueva. Con esa bandera
+# prendida el gateway de Supabase rechaza la peticion ANTES de que corra una
+# sola linea del servidor:
+#
+#     {"code":"UNAUTHORIZED_INVALID_JWT_FORMAT","message":"Invalid JWT"}
+#
+# Y la rechaza justamente porque el bot manda su token de servicio en el
+# Authorization, que a proposito NO es un JWT. El sintoma engaña: parece que el
+# token del bot esta mal, cuando el servidor ni se enrero.
+#
+# Los MCP se autentican con su propio Bearer comparado en tiempo constante
+# (ver el encabezado de cada index.ts), asi que el JWT de Supabase no aplica:
+# quien llama es un bot, no un usuario con sesion.
+#
+# OJO: este archivo NO cambia una function que ya existe con la bandera
+# prendida. Eso se apaga una sola vez en el Dashboard
+# (Edge Functions → la function → Details → "Verify JWT with legacy secret").
+
+[functions.mcp-crm]
+verify_jwt = false
+
+[functions.mcp-contabilidad]
+verify_jwt = false
+
+[functions.mcp-cotizaciones]
+verify_jwt = false
+
+[functions.whatsapp-webhook]
+verify_jwt = false
