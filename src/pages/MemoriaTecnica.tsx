@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { supabase } from '../lib/supabase'
+import { supabase, headersConSesion } from '../lib/supabase'
 import { alturaDeCorte } from '../lib/pdfPaginado'
 import { OMNIIOUS_LOGO } from '../assets/logo'
 import { Download, Loader2, ArrowLeft, FileText, RefreshCw, CheckCircle } from 'lucide-react'
@@ -207,7 +207,7 @@ export default function MemoriaTecnica() {
 
       const res = await fetch('/api/memoria-tecnica', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: await headersConSesion(),
         body: JSON.stringify({ quotationId: id }),
       })
 

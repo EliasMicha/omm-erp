@@ -1,0 +1,110 @@
+-- ═══════════════════════════════════════════════════════════════════════════
+--  PERMISOS DE VERDAD EN LA BASE — 2026-09-27
+--
+--  Copia de repo de las migraciones aplicadas. Elias noto que
+--  grok_ui_crm@omniious.com "parecia tener acceso a todo". Lo tenia, pero el
+--  diagnostico era mas grande: no era el bot, era CUALQUIERA.
+--
+--  Lo que estaba pasando, comprobado con la llave anon y SIN sesion de nadie
+--  (esa llave viaja dentro del bundle de omm-erp.vercel.app):
+--    · payroll_periods  28 periodos, con los totales de la semana
+--    · facturas         4,064
+--    · bank_movements   3,808
+--    · employees        53, con sueldo, RFC, CURP e IMSS
+--    · candidatos       33
+--    · design_rules     28 (las reglas del cotizador)
+--    · y se podia INSERTAR y BORRAR un lead
+--
+--  Causa: 117 de 138 tablas tenian una politica `using (true)` para el rol
+--  publico. RLS prendida en 137 de 138 — el tablero de Supabase en verde — pero
+--  una politica que dice `true` no restringe nada. La unica tabla con politicas
+--  reales era app_users, de la migracion de Auth.
+--
+--  Habia una SEGUNDA familia que el primer barrido no atrapo porque no dice
+--  literalmente `true`: politicas con `auth.role() = 'anon'` como puerta
+--  trasera. Dejaban a un anonimo leyendo y escribiendo obras, planes semanales,
+--  asignacion diaria de instaladores, caja chica, ausencias, asistencia y
+--  live_locations (la ubicacion GPS de la gente).
+--
+--  Y dos vistas, v_cobranza_lead y v_cobranza_cotizacion, corrian con los
+--  derechos de su dueño (sin security_invoker), asi que se saltaban el RLS de
+--  las tablas de abajo: cualquier usuario con sesion leia por ahi la posicion
+--  completa de cobranza.
+--
+--  ── El modelo que quedo ──────────────────────────────────────────────────
+--
+--    CONFIG  — definen COMO funciona el ERP (design_rules, catalogo,
+--              plantillas, sla_config). Las lee cualquiera con sesion, las
+--              escribe solo DG. Misma regla que ya obedecen los bots.
+--    ADMIN   — dinero y personas (facturas, nomina, conciliacion, bancos,
+--              candidatos, la bitacora de los bots). Solo DG y Administracion.
+--    SESION  — el resto de la operacion: cualquiera con sesion activa.
+--    OBRA    — los instaladores de la app de campo, que entran con Supabase
+--              Auth pero NO tienen fila en app_users: alcanzan exactamente las
+--              27 tablas que consulta src/obra-app, y nada de dinero.
+--    ANONIMO — solo lo que necesita el examen publico de reclutamiento, que es
+--              el unico flujo sin login. candidatos, ademas, acotado a los que
+--              tienen un examen asignado.
+--    BOTS    — cero por la pantalla. Un bot opera por su MCP, que si esta
+--              acotado por tabla y por columna (ver acotar.ts).
+--
+--  ── Como se derivo, y como se verifico ──────────────────────────────────
+--
+--  Los niveles NO salieron de mi criterio: se mapeo cada tabla a las paginas
+--  que la consultan (siguiendo el grafo de imports desde App.tsx) y cada pagina
+--  a las areas que pueden abrirla. Las 11 tablas que hoy solo tocan paginas de
+--  DG/Administracion son las que quedaron en ADMIN.
+--
+--  La verificacion se hizo con los privilegios REALES de cada usuario, no con
+--  la llave de servicio:
+--      begin;
+--        select set_config('request.jwt.claims',
+--          json_build_object('sub', '<auth_user_id>', 'role','authenticated')::text, true);
+--        set local role authenticated;
+--        ... contar filas, intentar escrituras ...
+--      rollback;
+--  Es la misma leccion que la validacion de Cobranza aprendio a golpes: medir
+--  con los permisos del consumidor, no con los del que revisa.
+--
+--  Resultado final: las 9 personas ven 19 de 20 tablas operativas (la 20a,
+--  change_orders, esta vacia), DG y Administracion ven 9 de 9 de dinero, las
+--  otras cinco areas 0 de 9, los 10 instaladores activos 12 de 20 y 0 de dinero,
+--  los 2 bots 0 de 20, y un anonimo 0 en todo salvo el examen.
+--
+--  ── Dos tropiezos mios, anotados porque el patron se repite ─────────────
+--
+--  1. El paso que repone el nivel solo miraba tablas con CERO politicas. Las
+--     tablas de obra ya tenian la del instalador, asi que se las salto y la
+--     oficina quedo sin poder escribir obras ni planes semanales. De ahi salio
+--     la vista v_rls_sin_oficina, que lista cualquier tabla con RLS que ninguna
+--     politica abra a un usuario de oficina.
+--  2. Sonde escrituras con `update ... where id = '<uuid inexistente>'`. Eso
+--     SIEMPRE "funciona": RLS filtra RENGLONES, y filtrar a cero no es un error.
+--     Para medir permiso de escritura hay que INSERTAR (el WITH CHECK se evalua
+--     contra la fila nueva) o actualizar una fila que exista. Tres veces me dio
+--     un falso negativo por usar ademas una columna que no existia en la tabla.
+--
+--  ── Lo que quedo ABIERTO a proposito, y por que ─────────────────────────
+--
+--  · employees carga salary_base, salary_fiscal, rfc, curp e imss_numero en la
+--    misma fila que el nombre y el puesto. RLS es por RENGLON, no por columna,
+--    y el padron lo necesitan todas las pantallas para poner nombres. Asi que
+--    hoy cualquiera con sesion puede leer sueldos por la API. Se arregla
+--    moviendo esas columnas a su propia tabla: toca /nomina, /empleados y
+--    /finanzas, y va aparte.
+--  · bank_movements, cash_movements y payment_allocations quedaron en SESION y
+--    no en ADMIN porque /crm/:id las lee para el estado de cuenta del lead.
+--    Acotarlas bien es por RENGLON (solo los movimientos de ESE lead), no por
+--    area, y eso es una decision de producto: ¿Ventas debe ver el estado de
+--    cuenta de su cliente? Probablemente si — pero que lo diga Elias.
+-- ═══════════════════════════════════════════════════════════════════════════
+
+-- Ver las migraciones aplicadas para el cuerpo completo:
+--   rls_ayudantes_de_politica              hay_sesion, mi_area, soy_bot, es_area, usuario_real
+--   rls_permisos_por_area                  el barrido de las 117 + los tres niveles
+--   rls_examen_publico_anonimo             las 5 tablas del examen, y candidatos acotado
+--   rls_vistas_cobranza_security_invoker   las vistas dejan de saltarse el RLS
+--   rls_employees_padron_legible           el padron se lee parejo, se escribe desde Admin
+--   rls_instaladores_app_de_obra           soy_instalador() + sus 27 tablas
+--   rls_segunda_familia_puertas_de_anon    las politicas con auth.role() = 'anon'
+--   rls_reponer_nivel_en_tablas_de_obra    el tropiezo 1 + la vista v_rls_sin_oficina

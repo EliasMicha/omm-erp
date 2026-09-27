@@ -7,7 +7,23 @@ import type { VercelRequest, VercelResponse } from '@vercel/node'
 
 // Supabase config for fetching design rules
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || 'https://ubbumxommqjcpdozpunf.supabase.co'
-const SUPABASE_KEY = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InViYnVteG9tbXFqY3Bkb3pwdW5mIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUwODA3MzAsImV4cCI6MjA5MDY1NjczMH0.GPKeRgjzjZ96Qo6lYMHKF68YK4y6ZmexvORsNT8VGns'
+const SUPABASE_ANON = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || ''
+
+// ── Identidad de quien pregunta ────────────────────────────────────────────
+// Antes esto hablaba con Supabase usando la llave ANON, que es publica y
+// viajaba dentro del bundle. Con las politicas viejas (`using (true)`) eso
+// funcionaba y de paso convertia este endpoint en una puerta sin llave: nadie
+// validaba quien preguntaba.
+//
+// Ahora se reenvia el token del usuario que hizo la llamada. Dos cosas se
+// arreglan de un golpe: el endpoint exige sesion, y Supabase le contesta con
+// LOS PERMISOS DE ESA PERSONA — si quien pregunta es de Logistica, la base no
+// le da nomina aunque el modelo la pida.
+function tokenDeQuienLlama(req: any): string | null {
+  const h = String(req.headers?.authorization || '')
+  const t = h.toLowerCase().startsWith('bearer ') ? h.slice(7).trim() : ''
+  return t || null
+}
 
 // Static framework — everything except the per-system rules
 const PROMPT_FRAMEWORK_TOP = `Eres un ingeniero de diseño de OMM Technologies (CDMX), empresa de instalaciones especiales para proyectos residenciales y comerciales.
@@ -113,13 +129,13 @@ IMPORTANTE: NO incluyas el campo "positions" en los items. Solo áreas, equipos 
 Si estás CONVERSANDO (preguntas, resumen, comentarios), responde en texto normal en español. NUNCA mezcles texto y JSON en la misma respuesta.`
 
 // Fetch design rules from Supabase and format as prompt section
-async function fetchDesignRules(nivel?: string): Promise<string> {
+async function fetchDesignRules(jwt: string, nivel?: string): Promise<string> {
   try {
     const url = `${SUPABASE_URL}/rest/v1/design_rules?is_active=eq.true&order=system.asc,priority.desc`
     const r = await fetch(url, {
       headers: {
-        'apikey': SUPABASE_KEY,
-        'Authorization': `Bearer ${SUPABASE_KEY}`,
+        'apikey': SUPABASE_ANON,
+        'Authorization': `Bearer ${jwt}`,
         'Content-Type': 'application/json',
       },
     })
@@ -159,8 +175,8 @@ async function fetchDesignRules(nivel?: string): Promise<string> {
 }
 
 // Build the full system prompt with dynamic rules
-async function buildSystemPrompt(nivel?: string): Promise<string> {
-  const dynamicRules = await fetchDesignRules(nivel)
+async function buildSystemPrompt(jwt: string, nivel?: string): Promise<string> {
+  const dynamicRules = await fetchDesignRules(jwt, nivel)
   return PROMPT_FRAMEWORK_TOP + dynamicRules + PROMPT_FRAMEWORK_BOTTOM
 }
 
@@ -185,6 +201,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   const apiKey = process.env.ANTHROPIC_KEY || process.env.VITE_ANTHROPIC_KEY
   if (!apiKey) return res.status(500).json({ ok: false, error: 'ANTHROPIC_KEY no configurada en el servidor' })
+
+  // Sin sesion no se contesta. Este endpoint lee el ERP: antes cualquiera podia
+  // llamarlo y preguntarle lo que quisiera.
+  const jwt = tokenDeQuienLlama(req)
+  if (!jwt) return res.status(401).json({ ok: false, error: 'Necesitas iniciar sesion.' })
 
   try {
     const { messages, scope, planUrls, catalog, precedents } = req.body as {
@@ -305,7 +326,7 @@ ${precedentsCompact || '(sin precedentes)'}`
     }
 
     // Build system prompt with dynamic rules from Supabase
-    const systemPrompt = await buildSystemPrompt(scope?.nivel)
+    const systemPrompt = await buildSystemPrompt(jwt, scope?.nivel)
 
     const apiBody = {
       model: 'claude-sonnet-4-6',

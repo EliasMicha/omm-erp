@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react'
 import { SectionHeader, KpiCard, Table, Th, Td, Badge, Btn, EmptyState, ProgressBar, Loading } from '../components/layout/UI'
 import { F, formatDate } from '../lib/utils'
 import { ANTHROPIC_API_KEY } from '../lib/config'
-import { supabase } from '../lib/supabase'
+import { supabase, headersConSesion } from '../lib/supabase'
 import { useIsMobile } from '../lib/useIsMobile'
 import jsPDF from 'jspdf'
 import { useAuth } from '../contexts/AuthContext'
@@ -2970,7 +2970,7 @@ function SubReportes({ obra, instaladores, updateObra, showNew, setShowNew }: {
     try {
       const procResponse = await fetch('/api/process-obra-report', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: await headersConSesion(),
         body: JSON.stringify({
           reporte_id: inserted.id,
           obra_id: obra.id,

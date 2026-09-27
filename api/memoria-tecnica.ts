@@ -5,7 +5,17 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || 'https://ubbumxommqjcpdozpunf.supabase.co'
-const SUPABASE_KEY = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InViYnVteG9tbXFqY3Bkb3pwdW5mIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUwODA3MzAsImV4cCI6MjA5MDY1NjczMH0.GPKeRgjzjZ96Qo6lYMHKF68YK4y6ZmexvORsNT8VGns'
+const SUPABASE_ANON = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || ''
+
+// ── Identidad de quien llama ───────────────────────────────────────────────
+// Antes hablaba con Supabase con la llave ANON, que es publica. Ahora reenvia
+// el token del usuario: el endpoint exige sesion y la base contesta con los
+// permisos de esa persona.
+function tokenDeQuienLlama(req: any): string | null {
+  const h = String(req.headers?.authorization || '')
+  const t = h.toLowerCase().startsWith('bearer ') ? h.slice(7).trim() : ''
+  return t || null
+}
 
 const SYSTEM_PROMPT = `Eres un ingeniero senior de OMM Technologies (CDMX), especialista en documentación técnica de proyectos de instalaciones especiales, iluminación y eléctricos.
 
@@ -127,14 +137,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const apiKey = process.env.ANTHROPIC_KEY || process.env.VITE_ANTHROPIC_KEY
   if (!apiKey) return res.status(500).json({ ok: false, error: 'ANTHROPIC_KEY no configurada' })
 
+  // Sin sesion no se contesta: esto lee cotizaciones con sus precios.
+  const jwt = tokenDeQuienLlama(req)
+  if (!jwt) return res.status(401).json({ ok: false, error: 'Necesitas iniciar sesion.' })
+
   try {
     const { quotationId } = req.body as { quotationId: string }
     if (!quotationId) return res.status(400).json({ ok: false, error: 'Falta quotationId' })
 
     // ── Load all quotation data from Supabase ──
     const headers = {
-      'apikey': SUPABASE_KEY,
-      'Authorization': `Bearer ${SUPABASE_KEY}`,
+      'apikey': SUPABASE_ANON,
+      'Authorization': `Bearer ${jwt}`,
       'Content-Type': 'application/json',
     }
 

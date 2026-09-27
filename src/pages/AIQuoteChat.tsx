@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { supabase } from '../lib/supabase'
+import { supabase, headersConSesion } from '../lib/supabase'
 import { downloadSembradoPdf, type SembradoData, type DevicePosition as SembradoDevicePosition } from '../lib/sembradoPdf'
 import { Btn } from '../components/layout/UI'
 import { X, Zap, Loader2, Upload, Send, ChevronLeft, CheckCircle, Plus, Minus, Trash2, AlertTriangle, FileText, MessageSquare, Download } from 'lucide-react'
@@ -389,7 +389,7 @@ export default function AIQuoteChat({ onClose, onCreated }: {
 
         const r = await fetch('/api/ai-chat', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: await headersConSesion(),
           body: bodyStr,
           signal: controller.signal,
         })

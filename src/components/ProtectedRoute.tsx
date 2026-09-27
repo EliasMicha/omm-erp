@@ -40,6 +40,14 @@ export default function ProtectedRoute({ children, allowedAreas }: Props) {
 
   // Roles restringidos (ej. Mantenimiento): solo pueden abrir rutas de su whitelist.
   // Si intentan cualquier otra ruta por URL directa, se redirigen a su home.
+  //
+  // OJO con el orden: antes esto hacia `return children` aqui mismo, asi que un
+  // area con whitelist se saltaba por completo el chequeo de allowedAreas de
+  // abajo. Hoy ningun whitelist se cruza con una ruta que tenga allowedAreas,
+  // pero quedaba a UNA ruta nueva de volverse un hueco real — por ejemplo si
+  // /catalogo (que esta en el whitelist de Mantenimiento) llegara a limitarse a
+  // Administracion. Ahora la whitelist decide si la ruta esta permitida y el
+  // allowedAreas se sigue evaluando despues.
   const whitelist = RESTRICTED_AREA_ROUTES[user.permission_area]
   if (whitelist) {
     const path = location.pathname
@@ -47,7 +55,6 @@ export default function ProtectedRoute({ children, allowedAreas }: Props) {
     if (!permitido) {
       return <Navigate to={RESTRICTED_AREA_HOME[user.permission_area] || whitelist[0]} replace />
     }
-    return <>{children}</>
   }
 
   // Check specific area permissions

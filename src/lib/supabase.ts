@@ -52,3 +52,24 @@ export const supabase: typeof client = new Proxy(client, {
     return typeof valor === 'function' ? valor.bind(target) : valor
   },
 }) as any
+
+/**
+ * Cabeceras para llamar a las funciones de /api que leen el ERP.
+ *
+ * Esas funciones corren en el servidor y antes hablaban con Supabase usando la
+ * llave ANON, que es publica y viaja dentro del bundle. Con las politicas
+ * viejas (`using (true)`) eso funcionaba, y de paso dejaba /api/ai-chat como una
+ * puerta sin llave: nadie validaba quien preguntaba.
+ *
+ * Ahora se manda el token de la sesion. La funcion lo reenvia a Supabase, asi
+ * que la base le contesta con LOS PERMISOS DE ESTA PERSONA: si quien pregunta
+ * es de Logistica, no le da nomina aunque el modelo la pida.
+ */
+export async function headersConSesion(): Promise<Record<string, string>> {
+  const { data } = await client.auth.getSession()
+  const token = data.session?.access_token
+  return {
+    'Content-Type': 'application/json',
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  }
+}

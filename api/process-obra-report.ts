@@ -89,11 +89,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY
   if (!supabaseUrl || !supabaseKey) return res.status(500).json({ ok: false, error: 'Supabase env vars no configuradas' })
 
+  // Antes leia y ESCRIBIA obra_reportes con la llave anon, que es publica.
+  // Ahora reenvia el token de quien lo llama: exige sesion y escribe con sus
+  // permisos, no con los de un anonimo.
+  const authHeader = String(req.headers?.authorization || '')
+  const jwt = authHeader.toLowerCase().startsWith('bearer ') ? authHeader.slice(7).trim() : ''
+  if (!jwt) return res.status(401).json({ ok: false, error: 'Necesitas iniciar sesion.' })
+
   try {
     const { reporte_id, obra_id, obra_nombre, obra_sistemas, texto, fotos } = req.body as {
       reporte_id: string; obra_id: string; obra_nombre: string; obra_sistemas: string[]; texto: string; fotos?: string[]
     }
-    const H0: any = { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}` }
+    const H0: any = { apikey: supabaseKey, Authorization: `Bearer ${jwt}` }
     // Actividades abiertas de la obra: sin ellas la IA no puede proponer cierres.
     let abiertas: any[] = []
     try {
@@ -135,7 +142,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       // Marcar el reporte como fallido en Supabase
       await fetch(`${supabaseUrl}/rest/v1/obra_reportes?id=eq.${reporte_id}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}` },
+        headers: { 'Content-Type': 'application/json', apikey: supabaseKey, Authorization: `Bearer ${jwt}` },
         body: JSON.stringify({ procesamiento_error: 'Claude API error: ' + errText.substring(0, 300) }),
       })
       return res.status(500).json({ ok: false, error: 'Claude API: ' + errText.substring(0, 300) })
@@ -148,7 +155,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (!jsonMatch) {
       await fetch(`${supabaseUrl}/rest/v1/obra_reportes?id=eq.${reporte_id}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}` },
+        headers: { 'Content-Type': 'application/json', apikey: supabaseKey, Authorization: `Bearer ${jwt}` },
         body: JSON.stringify({ procesamiento_error: 'Claude no devolvió JSON parseable' }),
       })
       return res.status(500).json({ ok: false, error: 'Claude no devolvió JSON', raw: cleaned.substring(0, 300) })
@@ -194,7 +201,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // 1. Actualizar el reporte con los campos AI
     await fetch(`${supabaseUrl}/rest/v1/obra_reportes?id=eq.${reporte_id}`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json', apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}` },
+      headers: { 'Content-Type': 'application/json', apikey: supabaseKey, Authorization: `Bearer ${jwt}` },
       body: JSON.stringify({
         ai_resumen: resumen,
         ai_avances: avances,
@@ -230,7 +237,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         }))
         const r = await fetch(`${supabaseUrl}/rest/v1/obra_actividades`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}`, Prefer: 'return=minimal' },
+          headers: { 'Content-Type': 'application/json', apikey: supabaseKey, Authorization: `Bearer ${jwt}`, Prefer: 'return=minimal' },
           body: JSON.stringify(payload),
         })
         if (r.ok) pendientesCreados = payload.length
@@ -263,7 +270,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         headers: {
           'Content-Type': 'application/json',
           apikey: supabaseKey,
-          Authorization: `Bearer ${supabaseKey}`,
+          Authorization: `Bearer ${jwt}`,
           Prefer: 'return=minimal',
         },
         body: JSON.stringify(payload),
@@ -286,7 +293,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         headers: {
           'Content-Type': 'application/json',
           apikey: supabaseKey,
-          Authorization: `Bearer ${supabaseKey}`,
+          Authorization: `Bearer ${jwt}`,
           Prefer: 'return=minimal',
         },
         body: JSON.stringify(payload),

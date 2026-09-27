@@ -111,7 +111,14 @@ export default function App() {
                     } />
                     <Route path="/desempeno" element={<Desempeno />} />
                     <Route path="/capacitaciones" element={<Capacitaciones />} />
-                    <Route path="/reclutamiento" element={<Reclutamiento />} />
+                    {/* El menu ya lo limitaba a Administracion pero la ruta no, asi
+                        que cualquiera entraba escribiendo la URL. Aqui viven CVs,
+                        analisis de candidatos y referencias: datos de terceros. */}
+                    <Route path="/reclutamiento" element={
+                      <ProtectedRoute allowedAreas={['Administracion']}>
+                        <Reclutamiento />
+                      </ProtectedRoute>
+                    } />
                     <Route path="/actividades" element={<Actividades />} />
                     <Route path="/mi-trabajo" element={<MiTrabajo />} />
                     <Route path="/documentacion" element={<Documentacion />} />

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { supabase } from '../lib/supabase'
+import { supabase, headersConSesion } from '../lib/supabase'
 import { Btn } from '../components/layout/UI'
 import { useIsMobile } from '../lib/useIsMobile'
 import {
@@ -211,7 +211,7 @@ async function callAI(
   try {
     const r = await fetch('/api/ai-chat', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: await headersConSesion(),
       body: JSON.stringify({ messages, scope, planUrls, catalog, precedents }),
       signal: controller.signal,
     })
