@@ -1913,3 +1913,74 @@ que es justo el origen del desfase. Corregirlo —igualando `windowWidth` al anc
 real— cambiaría el aspecto y la paginación de TODAS las cotizaciones ya
 enviadas, así que no se tocó. Si algún día se quiere que la vista previa y el
 PDF se vean idénticos, ese es el hilo.
+
+---
+
+## 👥 Quién puede ser dueño de una cotización (2026-09-28)
+
+Elias: *"Los proyectos y cotizaciones solo lo hacen los equipos de proyecto de
+oficina. Iluminación es Juan Pablo y su equipo, Especiales Alfredo y su equipo,
+eléctricas Ricardo y su equipo. En todas puedo ser asignado yo."*
+
+El selector de **Dueño** que puse en Cotizaciones listaba el **padrón completo**:
+los 13 oficiales y chalanes de obra, los 8 instaladores, el chofer, y ventas de
+NULED y Casa Luce. 39 nombres donde debían ser 4.
+
+### ⚠️ Los dos Alfredos, y por qué esto no era solo ruido
+
+```
+ALFREDO SANCHEZ HUERTA         [DIRECTOR INSTALADORES]             ← obra
+LUIS ALFREDO ROSAS VILLICAÑA   [DIRECTOR INSTALACIONES ESPECIALES] ← el que cotiza
+```
+
+El primero sale **antes** en la lista alfabética. Un selector que ofrece la
+respuesta equivocada más arriba que la correcta invita al error, no solo lo
+permite.
+
+Lo mismo con las áreas, que se parecen y no son la misma:
+
+| área | qué es |
+|---|---|
+| `INGENIERIAS ESPECIALES` | oficina, cotiza (Alfredo Rosas) |
+| `INSTALACIONES ESPECIALES` | obra, no cotiza (Alfredo Sánchez) |
+| `INGENIERIAS ELECTRICAS` | oficina, cotiza (Ricardo) |
+| `ELECTRICO` | obra, 13 oficiales y chalanes |
+
+Por eso la comparación es sobre el **nombre completo del área**, exacto.
+
+### `src/lib/equiposDeProyecto.ts` (NUEVO) — una sola lista
+
+El mapeo ya existía como copia local en `Proyectos.tsx` (`SPECIALTY_AREAS`) y le
+faltaban dos cosas:
+
+1. **`dist` no estaba.** Caía en el `if (!allowedAreas) return employees` y
+   ofrecía el padrón entero. Son 17 cotizaciones. Elias lo definió: Especiales.
+2. **El DG quedaba fuera de TODOS los proyectos.** Elias está en
+   `ADMINISTRACION`, así que ningún filtro por área lo incluye — justo lo
+   contrario de lo que él pidió.
+
+Ahora vive en un solo archivo que usan Cotizaciones y Proyectos.
+
+**El DG se reconoce por `puesto`, no por `role`.** `employees.role` vale
+`'instalador'` para los 39 empleados, Elias incluido: no distingue nada. El dato
+bueno es `puesto = 'DIRECTOR GENERAL'`.
+
+### El detalle que evita borrar un dueño
+
+`equipoDe()` recibe el dueño actual y **siempre lo incluye**, aunque ya no sea
+del equipo. Si alguien cambia de área después de que le asignaron la cotización y
+su opción desaparece, el `<select>` se queda sin valor que empatar: el renglón se
+ve "Sin asignar" teniendo dueño en la base, y el primer clic en ese selector se
+lo borra de verdad.
+
+### Verificación (contra el padrón real de 39)
+
+| especialidad | ofrece | quién |
+|---|---|---|
+| Especiales / Distribución | 6 | Alfredo **Rosas**, 2 ingenieros, 2 dibujantes, Elias |
+| Eléctrico | 4 | Ricardo, 2 dibujantes, Elias |
+| Iluminación / Cortinas | 4 | Juan Pablo, Nimbe, Paulina, Elias |
+| Proyectos | 12 | las tres ingenierías + Elias |
+
+Cero personas de obra, Casa Luce o NULED en cualquiera de las seis. El DG en las
+seis. El dueño ajeno se conserva. **0 fallas.**

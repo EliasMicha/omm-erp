@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef, useMemo, useCallback } from 'react'
+import { equipoDe } from '../lib/equiposDeProyecto'
 import { supabase } from '../lib/supabase'
 import { soloVigentes } from '../lib/versionesCotizacion'
 import { archivarCotizacion } from '../lib/archivo'
@@ -123,7 +124,7 @@ function CotDashboard({ onOpen, preferVersionId }: { onOpen: (id: string, specia
   const showKPIs = authUser?.permission_area === 'DG' || authUser?.permission_area === 'Administracion'
   const [cots, setCots] = useState<Quotation[]>([])
   const [leadsMap, setLeadsMap] = useState<Record<string, LeadInfo>>({})
-  const [empleados, setEmpleados] = useState<{ id: string; nombre: string }[]>([])
+  const [empleados, setEmpleados] = useState<{ id: string; nombre: string; area: string | null; puesto: string | null }[]>([])
   const [filtro, setFiltro] = useState<string>('todas')
   const [filtroYear, setFiltroYear] = useState<string>(String(new Date().getFullYear()))
   const [search, setSearch] = useState('')
@@ -137,12 +138,12 @@ function CotDashboard({ onOpen, preferVersionId }: { onOpen: (id: string, specia
     const [{ data: cotsData }, { data: leadsData }, { data: empData }] = await Promise.all([
       supabase.from('quotations').select('*,project:projects!quotations_project_id_fkey(name,client_name)').order('updated_at', { ascending: false }),
       supabase.from('leads').select('id,name,company'),
-      supabase.from('employees').select('id,name,nombre').eq('is_active', true),
+      supabase.from('employees').select('id,name,nombre,area,puesto').eq('is_active', true),
     ])
     setCots(cotsData || [])
     setEmpleados(
       (empData || [])
-        .map((e: any) => ({ id: e.id, nombre: (e.nombre || e.name || '').trim() }))
+        .map((e: any) => ({ id: e.id, nombre: (e.nombre || e.name || '').trim(), area: e.area ?? null, puesto: e.puesto ?? null }))
         .filter((e: any) => e.nombre)
         .sort((a: any, b: any) => a.nombre.localeCompare(b.nombre, 'es')),
     )
@@ -545,7 +546,10 @@ function CotDashboard({ onOpen, preferVersionId }: { onOpen: (id: string, specia
                       }}
                     >
                       <option value="">Sin asignar</option>
-                      {empleados.map(emp => (
+                      {/* Solo el equipo de oficina de ESA especialidad, mas el DG.
+                          Ver src/lib/equiposDeProyecto.ts: el padron completo metia
+                          aqui a los 21 de obra, al chofer y a ventas. */}
+                      {equipoDe(c.specialty, empleados, (c as any).assignee_id).map(emp => (
                         <option key={emp.id} value={emp.id}>{emp.nombre}</option>
                       ))}
                     </select>

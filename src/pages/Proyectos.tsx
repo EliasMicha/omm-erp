@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from 'react'
+import { equipoDe } from '../lib/equiposDeProyecto'
 import { Badge, ProgressBar, Btn, SectionHeader, EmptyState, Loading } from '../components/layout/UI'
 import { useIsMobile } from '../lib/useIsMobile'
 import { X, ChevronDown, Check, Clock, Lock, Calendar, ArrowLeft, FileText, Plus, ExternalLink, Trash2, Star, AlertCircle, Filter } from 'lucide-react'
@@ -78,16 +79,14 @@ interface EmployeeRow {
   name: string
   role: string
   area: string | null
+  puesto: string | null
 }
 
-// Mapeo specialty del proyecto → área de empleados que pueden asignarse
-const SPECIALTY_AREAS: Record<string, string[]> = {
-  esp:  ['INGENIERIAS ESPECIALES'],
-  elec: ['INGENIERIAS ELECTRICAS'],
-  ilum: ['ILUMINACION'],
-  cort: ['ILUMINACION'],
-  proy: ['INGENIERIAS ESPECIALES', 'INGENIERIAS ELECTRICAS', 'ILUMINACION'],
-}
+// El mapeo specialty → areas vive en src/lib/equiposDeProyecto.ts, compartido
+// con el selector de Dueno de Cotizaciones. Estaba aqui en copia local y le
+// faltaban dos cosas: 'dist' (caia en "sin filtro" y ofrecia el padron entero) y
+// el DG, que esta en ADMINISTRACION y por eso quedaba fuera de TODOS los
+// proyectos aunque Elias puede tomar cualquiera.
 
 // ═══════════════════════════════════════════════════════════════════
 // CONFIG
@@ -179,7 +178,7 @@ export default function Proyectos() {
     try {
       const [projRes, empRes, phasesRes, tasksRes] = await Promise.all([
         supabase.from('projects').select('*').order('created_at', { ascending: false }),
-        supabase.from('employees').select('id,name,role,area').eq('is_active', true),
+        supabase.from('employees').select('id,name,role,area,puesto').eq('is_active', true),
         supabase.from('project_phases').select('*'),
         supabase.from('project_tasks').select('id,project_id,phase_id,template_id,name,description,assignee_id,status,priority,progress,due_date,system,area,order_index,notes,created_at,completed_at'),
       ])
@@ -1197,11 +1196,10 @@ function TaskTable({ project, phases, tasks, subtasks, employees, onChange, acti
   const isESP = project.specialty === 'esp'
 
   // Filtrar empleados por áreas relevantes al tipo de proyecto
-  const filteredEmployees = useMemo(() => {
-    const allowedAreas = project.specialty ? SPECIALTY_AREAS[project.specialty] : null
-    if (!allowedAreas) return employees
-    return employees.filter(e => e.area && allowedAreas.includes(e.area))
-  }, [employees, project.specialty])
+  const filteredEmployees = useMemo(
+    () => equipoDe(project.specialty, employees),
+    [employees, project.specialty],
+  )
 
   const sortedPhases = useMemo(() => {
     const s = [...phases].sort((a, b) => a.order_index - b.order_index)
