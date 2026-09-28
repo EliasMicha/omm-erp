@@ -333,12 +333,45 @@ function CotizacionPdfInner() {
       noPrintEls.forEach(el => el.style.display = 'none')
 
       const scale = 2
+
+      // ── Dónde se puede cortar una página, medido DONDE IMPORTA ──────────
+      // html2canvas no fotografía lo que está en pantalla: clona el documento
+      // en una ventana de 860px y lo vuelve a maquetar. El contenedor mide 956
+      // en pantalla (860 de contenido + 48 de padding por lado), así que en el
+      // clon TODO envuelve distinto y queda más alto: 6441px contra 5667.
+      //
+      // Medir los renglones en pantalla y aplicar esas coordenadas al canvas
+      // —que es lo que se hacía— desfasa el corte, y el desfase se ACUMULA
+      // hacia abajo: para el último renglón va 774px, dos tercios de página.
+      // Por eso las primeras hojas salían bien y las de en medio partían un
+      // renglón a la mitad. No dependía del ancho de la ventana: pasaba siempre.
+      //
+      // La única medición que corresponde al canvas es la del clon, y onclone
+      // la entrega ya maquetada. De ahí salen los cortes, en px del clon; el
+      // canvas es exactamente eso por `scale`.
+      let cortesDelClon: number[] | null = null
       const canvas = await html2canvas(contentRef.current, {
         scale,
         useCORS: true,
         backgroundColor: '#ffffff',
         logging: false,
         windowWidth: 860,
+        onclone: (docClon: Document) => {
+          const d = docClon.querySelector('[data-pdf-doc]') as HTMLElement | null
+          if (!d) return
+          const top = d.getBoundingClientRect().top
+          const cortes: number[] = []
+          d.querySelectorAll('tr, .page-break, h2, h3, [style*="break-inside"]').forEach(el => {
+            const e = el as HTMLElement
+            // Cortar justo debajo del encabezado de columnas o del título de un
+            // kit deja ese encabezado solo al pie de la hoja, explicando una
+            // tabla que empieza en la siguiente. No es un corte válido.
+            if (e.closest('thead')) return
+            if (e.classList.contains('fila-bundle')) return
+            cortes.push(e.getBoundingClientRect().bottom - top)
+          })
+          cortesDelClon = cortes
+        },
       })
 
       // Restaurar botones
@@ -357,18 +390,22 @@ function CotizacionPdfInner() {
       const ratio = contentW / imgW
       const pageHeightPx = contentH / ratio // px del canvas que caben en una página
 
-      // ── Collect safe break points (between rows, sections, divs) ──
-      // Scan all <tr>, section <div>, and page-break elements for their bottom edges
-      const containerTop = contentRef.current.getBoundingClientRect().top
+      // ── Los cortes, ya en px del canvas ─────────────────────────────────
       const breakCandidates: number[] = [0]
-      const breakEls = contentRef.current.querySelectorAll('tr, .page-break, h2, h3, div[style*="breakInside"]')
-      breakEls.forEach(el => {
-        const rect = (el as HTMLElement).getBoundingClientRect()
-        const bottomPx = (rect.bottom - containerTop) * scale
-        if (bottomPx > 0 && bottomPx < imgH) {
-          breakCandidates.push(Math.round(bottomPx))
-        }
-      })
+      const medidos: number[] = cortesDelClon && (cortesDelClon as number[]).length
+        ? (cortesDelClon as number[])
+        : (() => {
+            // Respaldo: si onclone no corrió (versión distinta de html2canvas),
+            // se mide en pantalla como antes. Desfasa, pero es mejor que una
+            // sola página kilométrica.
+            const top = contentRef.current!.getBoundingClientRect().top
+            return [...contentRef.current!.querySelectorAll('tr, .page-break, h2, h3')]
+              .map(el => (el as HTMLElement).getBoundingClientRect().bottom - top)
+          })()
+      for (const px of medidos) {
+        const y = Math.round(px * scale)
+        if (y > 0 && y < imgH) breakCandidates.push(y)
+      }
       // Also add the very end
       breakCandidates.push(imgH)
       // Sort and deduplicate
@@ -940,7 +977,7 @@ function CotizacionPdfInner() {
       )}
 
       {/* ═══════════ DOCUMENTO PDF ═══════════ */}
-      <div ref={contentRef} style={pageStyle}>
+      <div ref={contentRef} data-pdf-doc style={pageStyle}>
 
         {/* HEADER */}
         <div style={{ borderBottom: '2px solid #111', paddingBottom: 16, marginBottom: 20 }}>
@@ -1278,7 +1315,7 @@ function CotizacionPdfInner() {
                                 // La multiplicacion solo se pinta cuando hay multiplicador.
                                 const esKit = Number(f.qty) === 1
                                 return (
-                                <tr key={'b-' + f.inst} style={{ background: '#f5f3ff' }}>
+                                <tr key={'b-' + f.inst} className="fila-bundle" style={{ background: '#f5f3ff' }}>
                                   <td style={{ textAlign: 'center', fontSize: 15 }}>&#128230;</td>
                                   <td colSpan={colsAntesDeCant - 1}>
                                     <div style={{ fontWeight: 700, fontSize: 10.5, color: '#5b21b6' }}>{f.nombre}</div>

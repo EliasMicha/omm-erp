@@ -1835,3 +1835,81 @@ movimientos historicos.
 Hay productos con salidas mayores a sus entradas (CABLE DESNUDO CAL.14: 1030
 salidas contra 530 recibidas; varios con salidas y **cero** recepciones). No es
 duplicacion — es material que salio sin registrar su entrada. Queda pendiente.
+
+---
+
+## ✂️ "Se me están cortando las cotizaciones" — el corte a media fila (2026-09-28)
+
+Elias mandó tres capturas del PDF de propuesta: el renglón partido por la mitad,
+la mitad de arriba al pie de una hoja y la de abajo encabezando la siguiente.
+Ya había pasado antes ("de nuevo").
+
+### La causa: se medía en un layout y se cortaba en otro
+
+`CotizacionPdf.generatePdf()` buscaba los puntos de corte con
+`getBoundingClientRect()` sobre los `<tr>` **en pantalla**, y aplicaba esas
+coordenadas al canvas de html2canvas. Son dos maquetados distintos:
+
+> **html2canvas no fotografía la pantalla. Clona el documento en una ventana del
+> ancho que le digas (`windowWidth: 860`) y lo vuelve a maquetar.**
+
+El contenedor mide **956 px** en pantalla (`maxWidth: 860` de contenido + 48 de
+padding por lado, con `box-sizing` de contenido). En el clon cabe en **860**, así
+que todas las descripciones largas envuelven distinto y el documento crece:
+
+| | alto |
+|---|---|
+| en pantalla | 5,667 px |
+| en el clon (lo que se fotografía) | **6,441 px** |
+
+El desfase **se acumula hacia abajo**: para el último renglón va en 774 px, dos
+tercios de página. Por eso las primeras hojas salían bien y las de en medio
+partían un renglón. **No dependía del ancho de la ventana** — medido a 1600,
+1280, 1024 y 900 px el clon siempre queda en 6,441.
+
+### El arreglo
+
+Los cortes se miden **dentro del clon**, con el callback `onclone` de
+html2canvas, que lo entrega ya maquetado. Ahí las coordenadas corresponden al
+canvas por construcción (canvas = clon × `scale`, exacto). El contenedor lleva
+`data-pdf-doc` para poder encontrarlo en el clon, y queda un respaldo que mide en
+pantalla si `onclone` no corriera.
+
+De paso, dos cortes que ahora se prohíben porque dejan un encabezado huérfano al
+pie de la hoja: debajo de un `<thead>` y debajo de la cabecera de un kit
+(`.fila-bundle`).
+
+### Verificación — el número que importa
+
+Prueba en Chromium con una réplica de la tabla (91 renglones, descripciones que
+envuelven, bundles), comparando los cortes elegidos contra los bordes de fila
+reales medidos en el clon:
+
+| | cortes que parten una fila | desvío máximo |
+|---|---|---|
+| antes | **5 de 5** | 110 px |
+| después | **0 de 6** | **0 px** |
+
+Igual en las cuatro anchuras de ventana. Y se armó el PDF de verdad con jsPDF,
+se renderizó con `pdftoppm` y se miraron las hojas: la versión vieja arranca la
+hoja 3 con el sobrante de un renglón cortado; la nueva arranca limpia.
+
+### Los otros PDF no tienen este defecto, y por qué
+
+- `CotEditorCortinas` mide en pantalla igual, **pero no pasa `windowWidth`**.
+  Comprobado: sin esa opción el clon mide 5,667 — idéntico a la pantalla.
+- `MemoriaTecnica` y `CotEditorProyecto` usan `alturaDeCorte` de
+  `src/lib/pdfPaginado.ts`, que **escanea los pixeles del canvas** buscando un
+  renglón en blanco. No mide la pantalla, así que es inmune a esto.
+
+**Regla:** si a html2canvas se le pasa `windowWidth` (o `windowHeight`), CUALQUIER
+medición hecha en pantalla queda inservible para ese canvas. O se mide en
+`onclone`, o no se pasa `windowWidth`.
+
+### Lo que queda anotado, no arreglado
+
+El PDF sale más angosto que la vista previa (764 px de contenido contra 860),
+que es justo el origen del desfase. Corregirlo —igualando `windowWidth` al ancho
+real— cambiaría el aspecto y la paginación de TODAS las cotizaciones ya
+enviadas, así que no se tocó. Si algún día se quiere que la vista previa y el
+PDF se vean idénticos, ese es el hilo.
