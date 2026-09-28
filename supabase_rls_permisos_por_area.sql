@@ -108,3 +108,96 @@
 --   rls_instaladores_app_de_obra           soy_instalador() + sus 27 tablas
 --   rls_segunda_familia_puertas_de_anon    las politicas con auth.role() = 'anon'
 --   rls_reponer_nivel_en_tablas_de_obra    el tropiezo 1 + la vista v_rls_sin_oficina
+--   rls_retier_catalogo_operativo          el error de clasificacion del catalogo
+
+
+-- ═══════════════════════════════════════════════════════════════════════════
+--  2026-09-28 — El catalogo NO era configuracion. Correccion de un error mio.
+--
+--  Nimbe reporto: "Error al crear producto: new row violates row-level
+--  security policy for table catalog_products". Causa: yo puse esa tabla en el
+--  nivel CONFIG (escritura solo DG) razonando que es "el precio maestro".
+--
+--  ── Como se decide si una tabla es configuracion ────────────────────────
+--
+--  No por lo que la tabla SIGNIFICA — por eso me equivoque. "Precio maestro"
+--  suena a configuracion. Se decide por dos cosas medibles:
+--
+--    a) la frecuencia con que se escribe
+--    b) si su pantalla en el ERP tiene allowedAreas
+--
+--  catalog_products: 2,377 filas, 1,194 creadas en 90 dias, 243 en septiembre.
+--  /catalogo sin allowedAreas, y en la lista blanca de Mantenimiento a
+--  proposito. Las dos señales dicen operativo. Configuracion de verdad se ve
+--  distinto: design_rules, sla_config, project_phase_templates,
+--  prerequisitos_catalogo, entregable_tipos, plantilla_actividades,
+--  plantillas_encargo y supplier_quote_playbooks llevan CERO escrituras en 90
+--  dias, y /reglas-ai ya estaba en allowedAreas={['DG']}. Esas se quedan.
+--
+--  ── Lo que rompia ademas del catalogo, sin que nadie lo reportara ───────
+--
+--  Arreglar solo lo que se quejo habria dejado cuatro trampas puestas. Se
+--  buscaron rastreando quien ESCRIBE cada tabla en el codigo, no adivinando:
+--
+--    catalog_bundles / catalog_bundle_items  bundlesIlum.ts — "Guardar como
+--                                            bundle" en el cotizador de Ilum
+--    suppliers                               Compras.tsx, alta de distribuidor
+--    maintenance_settings                    MaintQuotes.savePrecio(), Axel
+--    project_task_templates                  TemplatesManager en /proyectos
+--
+--  Las cuatro primeras quedaron en escritura por cualquier usuario real (el
+--  nivel que su pantalla siempre tuvo). maintenance_settings paso a
+--  Mantenimiento, project_task_templates a Ventas_Ingenieria, y vacantes +
+--  capacitaciones/bloques/preguntas a Administracion, que es donde vive
+--  Reclutamiento. DELETE se queda en DG en las cuatro operativas: ninguna
+--  pantalla borra en duro (Catalogo apaga con is_active = false), asi que
+--  nadie pierde una funcion.
+--
+--  ── Lo que NO cambio, y es el punto ────────────────────────────────────
+--
+--  CONFIGURACION_DEL_ERP en acotar.ts sigue prohibiendo que CUALQUIER MCP
+--  escriba catalog_products, suppliers, design_rules y las demas. La regla de
+--  Elias — un bot opera el ERP, nunca cambia como funciona — se sostiene del
+--  lado del bot, que es donde tiene que sostenerse. RLS protege de las
+--  personas equivocadas; acotar.ts protege de los bots. Confundir las dos
+--  capas fue el error: le puse a las personas un candado que era para el bot.
+--
+--  ── Tercer tropiezo mio, y es el peor de los tres ───────────────────────
+--
+--  El script que verifico esto INSERTA de verdad (es la unica sonda valida —
+--  ver el tropiezo 2 arriba), y lo corri en un bloque DO sin transaccion. El
+--  MCP le hizo commit: quedaron 32 filas '_PRUEBA_RLS_' en catalog_products,
+--  catalog_bundles, suppliers, vacantes y capacitaciones. Se borraron y se
+--  confirmo cero, y que maintenance_settings conservara su unica fila real.
+--
+--  Regla: una sonda de escritura va SIEMPRE dentro de begin; ... rollback;.
+--  "Se revierte solo" no es cierto en un DO block — el bloque es una sola
+--  transaccion que el cliente confirma al terminar. set_config(...,true) es
+--  local a la transaccion, no la revierte.
+--
+--  ── Verificacion ───────────────────────────────────────────────────────
+--
+--  INSERT real simulando las 11 cuentas con auth_user_id, tabla por tabla:
+--  las 9 personas escriben catalog_products, catalog_bundles y suppliers; los
+--  2 bots 0 de 8. maintenance_settings solo Mantenimiento y DG;
+--  project_task_templates solo Ventas_Ingenieria y DG; vacantes y
+--  capacitaciones solo Administracion y DG; design_rules solo DG.
+--
+--  ── Hallazgo aparte, para Elias, no se puede arreglar desde aqui ───────
+--
+--  Nimbe no estaba usando su cuenta: nimbe@omniious.com no tiene fila en
+--  auth.users, asi que no puede iniciar sesion. Las CINCO cuentas de
+--  Operaciones estan asi (Nimbe, Adrian, Ernesto, Paulina, Felipe): entran
+--  con la cuenta de alguien mas. Mientras eso siga, los permisos por area no
+--  significan nada — cinco personas de Operaciones pueden estar entrando como
+--  Logistica — y el ERP no puede decir quien cambio un precio. Cada uno tiene
+--  que poner su propia contraseña en /login; el flujo ya existe.
+--
+--  ── El hueco que queda y es decision de producto ───────────────────────
+--
+--  Capacitaciones.tsx enseña el boton "Editar" a todos, no solo a DG. El RLS
+--  ahora lo limita a Administracion, asi que a los demas el boton los va a
+--  mandar a un error en vez de esconderse. Quien arma un examen no deberia ser
+--  quien lo contesta, pero el arreglo correcto es ocultar el boton — y eso es
+--  UI, no permisos.
+-- ═══════════════════════════════════════════════════════════════════════════
