@@ -1,0 +1,69 @@
+-- ═══════════════════════════════════════════════════════════════════════════
+--  Bitácora de movimientos de cotización (2026-09-29)
+--  Migración aplicada: `bitacora_de_cotizaciones`
+--
+--  Elias: "Ayer me mencionaron que yo me meto a hacer cambios y no les aviso a
+--  los directores, y que eso los destantea. Sería interesante un botón que
+--  pueda yo enviarles el resumen de sesión de movimientos consolidado. No
+--  quiero paso por paso porque sería mucho, sino algo procesado. Y que solo se
+--  mande si pico el botón."
+--
+--  ── Por qué TRIGGERS y no instrumentar los editores ─────────────────────
+--
+--  Una cotización se edita desde CINCO editores (ESP, Ilum, Cortinas,
+--  Proyecto, Distribución), desde Cotizaciones.tsx, desde ImportCotizaciones,
+--  desde CotizarConIA y desde el MCP del bot. Instrumentar cada punto de
+--  escritura serían decenas de llamadas, y la que se olvide no avisa NADA —
+--  sin forma de notarlo, porque un log que no registra se ve igual que un día
+--  sin cambios. El trigger no se puede olvidar: escriba quien escriba, por la
+--  UI o por SQL, queda.
+--
+--  `activity_log` ya existía con la forma exacta que hacía falta
+--  (entity_type, entity_id, action, actor_id, old_value, new_value, metadata)
+--  y con CERO filas: otra tabla construida y nunca conectada, como
+--  `notifications`. Se usa esa en vez de crear una nueva.
+--
+--  ── Decisiones ──────────────────────────────────────────────────────────
+--
+--  · entity_id es SIEMPRE la cotización, aunque el cambio sea de un renglón o
+--    de un área. El id del renglón vive en metadata. Si cada uno guardara su
+--    propio id, armar el resumen exigiría tres consultas encadenadas y las
+--    áreas ya borradas quedarían huérfanas.
+--  · NO se registra quotations.total ni updated_at: los mueve otro trigger en
+--    cada cambio de renglón, así que registrarlos duplicaría cada evento. El
+--    total se calcula al armar el resumen contra el del último aviso.
+--  · activity_log NO tiene política de INSERT. Lo llenan los triggers, que son
+--    SECURITY DEFINER. Así la bitácora no se puede manipular desde la app.
+--
+--  ── Qué se captura ──────────────────────────────────────────────────────
+--
+--  quotation_items  → item_agregado · item_quitado · item_cantidad ·
+--                     item_precio · item_sustituido
+--  quotation_areas  → area_agregada · area_quitada · area_renombrada
+--  quotations       → etapa · dueno · renombrada, y del JSON de `notes`:
+--                     sistema_agregado · sistema_quitado ·
+--                     sistema_apagado · sistema_prendido ·
+--                     ajuste_descuento · ajuste_tipoCambio · ajuste_currency ·
+--                     ajuste_ivaRate · ajuste_programacion · ajuste_nominaPct
+--
+--  `systems_no_suma` es lo que en el cotizador se ve como "apagar un sistema",
+--  y no es cosmético: significa que ese sistema no se vendió y Compras deja de
+--  comprarle (ver src/lib/sistemasVendidos.ts). Por eso tiene evento propio.
+--
+--  ── Tabla nueva: quotation_avisos ───────────────────────────────────────
+--
+--  Cada envío deja aquí su renglón: cuándo, quién, a quiénes, el texto que se
+--  mandó y el total de ese momento. Es la frontera de "desde el último aviso"
+--  —cada movimiento se reporta exactamente una vez, ni se repite ni se
+--  escapa— y de paso es el acuse de qué se le dijo a quién.
+--
+--  ── Verificación ────────────────────────────────────────────────────────
+--
+--  Contra una cotización real, dentro de una transacción revertida: se agregó
+--  un renglón, se le cambió la cantidad, se agregó un área, se apagó CCTV, se
+--  movió el descuento y se borró el renglón. Los 6 eventos quedaron con su
+--  área y su detalle. El rollback dejó activity_log en 0 filas.
+--
+--  Ver el cuerpo completo en la migración `bitacora_de_cotizaciones`.
+--  La consolidación a lenguaje humano vive en src/lib/bitacoraCotizacion.ts.
+-- ═══════════════════════════════════════════════════════════════════════════
