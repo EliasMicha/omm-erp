@@ -2056,3 +2056,66 @@ renglón ilegible en medio, y las tres combinaciones de cuenta.
 **Ojo con SheetJS:** `sheet_to_json(header:1)` devuelve **999 filas** para una
 hoja de 157 — rellena con vacías. Hay que saltarlas, no asumir que el largo del
 arreglo es el número de movimientos.
+
+---
+
+## 🧨 `auth.uid()` NO es `app_users.id` (2026-09-29)
+
+Elias: *"Está marcando error cuando creas un área."*
+
+```
+Error al crear área: insert or update on table "activity_log"
+violates foreign key constraint "activity_log_actor_id_fkey"
+```
+
+La bitácora de cotizaciones que se desplegó esa misma mañana guardaba
+`actor_id = auth.uid()`, y esa columna apunta a **`app_users(id)`**. En este ERP
+el id de la sesión de Supabase vive en **`app_users.auth_user_id`** — otra
+columna, que no coincide con `id` en ninguna de las 20 filas.
+
+Y como la captura cuelga de un **trigger**, el rechazo no se quedaba en el log:
+**abortaba la transacción completa del usuario.** No se podía crear un área, ni
+agregar un renglón, ni editar la cotización.
+
+**Regla:** toda columna que referencie `app_users(id)` se llena con
+`public.mi_app_user()` (helper nuevo: busca por `auth_user_id`), nunca con
+`auth.uid()`. Hoy son 4: `activity_log.actor_id`, `action_items.owner_user_id`,
+`notifications.user_id`, `sla_config.created_by`. Las otras tres ya estaban bien
+porque la app escribe `authUser.id`, que sale de `app_users.id`.
+
+### Por qué la verificación no lo detectó — y cómo se verifica de verdad
+
+La prueba corrió por el MCP de Supabase, o sea con la **service key**: ahí
+`auth.uid()` es NULL y **NULL satisface cualquier FK**. El navegador manda un uid
+real y truena.
+
+> **Una prueba corrida con la identidad equivocada no es una prueba.**
+
+Cualquier cosa que dependa de quién escribe —triggers con `auth.uid()`, RLS,
+`SECURITY DEFINER`— se verifica simulando la sesión:
+
+```sql
+begin;
+  set local role authenticated;
+  select set_config('request.jwt.claims',
+    json_build_object('sub','<auth uid real>','role','authenticated')::text, true);
+  -- ...la escritura de verdad...
+rollback;
+```
+
+Eso además ejercita las políticas de RLS, que la service key se salta. Y va
+dentro de `begin; ... rollback;` **explícito** — un bloque `DO $$` no se revierte
+solo (ya dejó 32 filas `_PRUEBA_RLS_` en producción ese mismo día).
+
+### Un log no puede tumbar lo que observa
+
+Segunda parte del arreglo: el insert de `bitacora_cot` va dentro de
+`begin ... exception when others then raise warning`. Si la bitácora falla se
+pierde el registro, **no el trabajo**, y queda el warning en el log de Postgres.
+
+Probado rompiéndola a propósito (un `CHECK` que falla, dentro de la transacción
+revertida): el área se crea igual, con 0 eventos registrados.
+
+Capturar por trigger es lo correcto —no se puede olvidar, escriba quien escriba—
+pero su costo es que **hereda la transacción del usuario**. Ese costo se paga con
+el manejador de excepción, en TODO trigger de auditoría que se agregue después.

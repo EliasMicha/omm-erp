@@ -67,3 +67,93 @@
 --  Ver el cuerpo completo en la migración `bitacora_de_cotizaciones`.
 --  La consolidación a lenguaje humano vive en src/lib/bitacoraCotizacion.ts.
 -- ═══════════════════════════════════════════════════════════════════════════
+
+-- ═══════════════════════════════════════════════════════════════════════════
+--  ⚠️ CORRECCIÓN EL MISMO DÍA — la bitácora rompió producción (2026-09-29)
+--  Migración: `bitacora_cot_actor_correcto_y_no_fatal`
+--
+--  Elias: "Está marcando error cuando creas un área."
+--
+--    Error al crear área: insert or update on table "activity_log" violates
+--    foreign key constraint "activity_log_actor_id_fkey"
+--
+--  ── La causa ────────────────────────────────────────────────────────────
+--
+--  `bitacora_cot` insertaba `actor_id = auth.uid()`. Pero:
+--
+--      activity_log_actor_id_fkey  FOREIGN KEY (actor_id) → app_users(id)
+--
+--  y en este ERP **`auth.uid()` NO es `app_users.id`**. El puente es
+--  `app_users.auth_user_id`; son dos columnas distintas de la misma tabla y
+--  no coinciden en ninguna de las 20 filas. Con un usuario real la inserción
+--  se rechazaba, y como el registro cuelga de un TRIGGER, el rechazo abortaba
+--  la transacción COMPLETA del usuario: no se podía crear un área, ni agregar
+--  un renglón, ni editar la cotización. Todas las escrituras registradas.
+--
+--  Los helpers de RLS que escribí el mismo día (`usuario_real`, `es_area`,
+--  `mi_area`, `soy_bot`) SÍ usan `auth_user_id`. El error fue solo aquí.
+--
+--  ── Por qué la verificación no lo vio ───────────────────────────────────
+--
+--  La corrí por el MCP de Supabase, o sea con la service key: ahí `auth.uid()`
+--  es NULL, y NULL satisface cualquier FK. Las 56 filas que dejó la carga del
+--  VIMAR tienen actor_id NULL por eso mismo. El navegador manda un uid real y
+--  se rechaza.
+--
+--    **Una prueba corrida con la identidad equivocada no es una prueba.**
+--    Un trigger que depende de quién escribe se verifica simulando la sesión:
+--      begin;
+--        set local role authenticated;
+--        select set_config('request.jwt.claims',
+--          json_build_object('sub','<auth uid real>','role','authenticated')::text, true);
+--        ...la escritura de verdad...
+--      rollback;
+--    Eso además ejercita las políticas de RLS, que la service key se salta.
+--
+--  ── El arreglo, en dos partes ───────────────────────────────────────────
+--
+--  1. `public.mi_app_user()` (NUEVA) — `app_users.id` del usuario en sesión,
+--     buscado por `auth_user_id`. NULL para la service key, los bots y un
+--     instalador sin fila en app_users; NULL es válido en la FK, así que esos
+--     casos quedan registrados sin nombre en vez de reventar. **Cualquier
+--     columna que apunte a app_users(id) tiene que pasar por aquí.**
+--     De paso es la identidad que el resumen necesita para decir quién movió
+--     qué: `auth.uid()` no se puede unir con nada que muestre un nombre.
+--
+--  2. El insert va dentro de `begin ... exception when others then raise
+--     warning`. **La bitácora ya no puede tumbar la operación que observa.**
+--     Si falla se pierde el registro, no el trabajo, y queda el warning en el
+--     log de Postgres para investigar el hueco.
+--
+--     Esto vale para cualquier trigger de auditoría futuro: el observador no
+--     puede ser un punto de falla de lo observado. La captura por trigger es
+--     lo correcto (no se puede olvidar), pero entonces su costo es que hereda
+--     la transacción del usuario, y eso se paga con el manejador.
+--
+--  ── Verificación (esta vez con la identidad correcta) ───────────────────
+--
+--  Simulando la sesión de Alfredo Rosas (Ventas_Ingenieria, no DG), todo
+--  dentro de begin/rollback:
+--
+--  | prueba                                    | resultado                    |
+--  |-------------------------------------------|------------------------------|
+--  | crear área                                | creada · 1 evento · actor OK |
+--  | agregar renglón / cambiar cantidad / borrar| 3 eventos · actor OK        |
+--  | reproducción del código viejo             | 23503, el error de Elias     |
+--  | log roto a propósito (CHECK que falla)    | **área creada · 0 eventos**  |
+--
+--  El cuarto es el que importa: con la bitácora inservible, la operación del
+--  usuario pasa igual. Se probó agregando un `check (action <> 'area_agregada')`
+--  dentro de la transacción revertida.
+--
+--  Después: activity_log en 56 filas (las de antes), 0 filas de prueba, 0
+--  constraints sobrevivientes.
+--
+--  ── Barrido de la misma clase de error ──────────────────────────────────
+--
+--  4 tablas apuntan a app_users(id): activity_log.actor_id (era la rota),
+--  action_items.owner_user_id, notifications.user_id, sla_config.created_by.
+--  Las otras tres se llenan desde la app con `authUser.id`, que sale de
+--  `app_users.id` en AuthContext — correctas. Ninguna otra función de la base
+--  inserta `auth.uid()` en una columna así.
+-- ═══════════════════════════════════════════════════════════════════════════
