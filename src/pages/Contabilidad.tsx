@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react'
+import { leerHojaBBVA, aTsvDelPortal, soloNuevos, resumir, cuentaCoincide } from '../lib/bbvaExcel'
 import { MOCK_CLIENTES } from './Clientes'
 import type { ClienteFiscal } from './Clientes'
 import { supabase, supabaseAll } from '../lib/supabase'
@@ -2494,6 +2495,9 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
   const [txtPayload, setTxtPayload] = useState('')
   const [txtPreview, setTxtPreview] = useState<any[] | null>(null)
   const [txtSummary, setTxtSummary] = useState<any | null>(null)
+  // Lectura del Excel del portal NUEVO de BBVA (ver src/lib/bbvaExcel.ts)
+  const [xlsResumen, setXlsResumen] = useState<any | null>(null)
+  const xlsInputRef = useRef<HTMLInputElement>(null)
 
   /* --- Supabase sync helpers --- */
   const toRow = (m: BankMovement) => ({
@@ -3136,6 +3140,59 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
     if (movs.length === 0) return null
     const sorted = [...movs].sort((a, b) => b.fecha.localeCompare(a.fecha))
     return sorted[0].fecha
+  }
+
+  /* --- Conciliacion v2: cargar el Excel del portal NUEVO de BBVA ---
+     BBVA cambió el portal: ya no da TXT, da .xlsx con otra forma (un solo
+     Importe con signo en vez de columnas cargo/Abono, y sin saldo corrido).
+     En vez de reescribir el importador, el Excel se traduce al mismo TSV de 5
+     columnas que ya sabía procesar y de ahí todo sigue igual: la IA sigue
+     sacando beneficiario, categoría, proyecto y RFC. Ver src/lib/bbvaExcel.ts */
+  const handleXlsBBVA = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file || !showTxtModal) return
+    if (e.target) e.target.value = '' // permite volver a elegir el mismo archivo
+    const accountId = showTxtModal as AccountId
+    const acc = ACCOUNTS[accountId]
+    setProcessing(true)
+    setStatus('Leyendo el Excel...')
+    try {
+      const XLSX: any = await import('https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs' as any)
+      const wb = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: true })
+      const hoja = wb.Sheets[wb.SheetNames[0]]
+      const matriz: unknown[][] = XLSX.utils.sheet_to_json(hoja, { header: 1, defval: '', raw: false })
+
+      const lec = leerHojaBBVA(matriz)
+      if (lec.movimientos.length === 0) {
+        setStatus('Error: ' + (lec.errores[0] || 'el archivo no trae movimientos'))
+        setProcessing(false); return
+      }
+      // Que no se importe el Excel de una cuenta en la pestaña de otra.
+      if (!cuentaCoincide(lec.meta.cuenta, acc.cuenta)) {
+        setStatus(`Error: el archivo es de la cuenta ${lec.meta.cuenta}, y estás en ${acc.label} (${acc.cuenta}). Cambia de pestaña o de archivo.`)
+        setProcessing(false); return
+      }
+      if (lec.meta.divisa && lec.meta.divisa.toUpperCase() !== acc.moneda) {
+        setStatus(`Error: el archivo viene en ${lec.meta.divisa} y esta cuenta es ${acc.moneda}.`)
+        setProcessing(false); return
+      }
+
+      const ultima = getUltimaFechaCuenta(accountId)
+      const nuevos = soloNuevos(lec.movimientos, ultima)
+      const resumen = resumir(lec.movimientos, nuevos)
+      setXlsResumen({ ...resumen, meta: lec.meta, errores: lec.errores, archivo: file.name })
+
+      if (nuevos.length === 0) {
+        setStatus(`El archivo trae ${resumen.total} movimientos y todos son del ${ultima} o antes: no hay nada nuevo que importar.`)
+        setProcessing(false); return
+      }
+      // A partir de aquí es el mismo camino del TXT pegado.
+      setTxtPayload(aTsvDelPortal(nuevos))
+      setStatus(`${resumen.nuevos} movimientos nuevos de ${resumen.total} en el archivo. Dale "Procesar con AI".`)
+    } catch (err) {
+      setStatus('Error leyendo el Excel: ' + (err as Error).message)
+    }
+    setProcessing(false)
   }
 
   /* --- Conciliacion v2: procesar TXT pegado (con chunking) --- */
@@ -4603,14 +4660,14 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
 
       {/* Modal TXT — Conciliacion v2 */}
       {showTxtModal && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: isMobile ? 0 : 20 }} onClick={() => { if (!processing) { setShowTxtModal(null); setTxtPayload(''); setTxtPreview(null); setTxtSummary(null); } }}>
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: isMobile ? 0 : 20 }} onClick={() => { if (!processing) { setShowTxtModal(null); setTxtPayload(''); setTxtPreview(null); setTxtSummary(null); setXlsResumen(null); } }}>
           <div style={{ background: '#141414', border: isMobile ? 'none' : '1px solid #2a2a2a', borderRadius: isMobile ? 0 : 14, padding: isMobile ? 16 : 24, width: isMobile ? '100vw' : '100%', height: isMobile ? '100vh' : 'auto', maxWidth: isMobile ? '100vw' : 1100, maxHeight: isMobile ? '100vh' : '90vh', overflowY: 'auto' as const }} onClick={e => e.stopPropagation()}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
               <div>
                 <div style={{ fontSize: 16, fontWeight: 700, color: '#fff' }}>Ingesta TXT — {ACCOUNTS[showTxtModal].label}</div>
                 <div style={{ fontSize: 11, color: '#777', marginTop: 2 }}>Cuenta {ACCOUNTS[showTxtModal].cuenta}</div>
               </div>
-              <button onClick={() => { setShowTxtModal(null); setTxtPayload(''); setTxtPreview(null); setTxtSummary(null); }} disabled={processing} style={{ background: 'none', border: 'none', color: '#666', cursor: processing ? 'not-allowed' : 'pointer', fontSize: 20 }}>×</button>
+              <button onClick={() => { setShowTxtModal(null); setTxtPayload(''); setTxtPreview(null); setTxtSummary(null); setXlsResumen(null); }} disabled={processing} style={{ background: 'none', border: 'none', color: '#666', cursor: processing ? 'not-allowed' : 'pointer', fontSize: 20 }}>×</button>
             </div>
 
             {(() => {
@@ -4626,7 +4683,58 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
 
             {!txtPreview && (
               <>
-                <div style={{ fontSize: 11, color: '#888', marginBottom: 6 }}>Pega el TSV del portal BBVA (Día ⇥ Concepto ⇥ cargo ⇥ Abono ⇥ Saldo):</div>
+                {/* Portal NUEVO de BBVA: entrega .xlsx, no TXT. Se lee aquí y se
+                    traduce al mismo TSV de abajo, que es lo que procesa la IA. */}
+                <input ref={xlsInputRef} type="file" accept=".xlsx,.xls" style={{ display: 'none' }} onChange={handleXlsBBVA} />
+                <div style={{ background: '#111827', border: '1px dashed #334155', borderRadius: 10, padding: 14, marginBottom: 14 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' as const }}>
+                    <div>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: '#e2e8f0' }}>📗 Excel del portal nuevo de BBVA</div>
+                      <div style={{ fontSize: 10.5, color: '#94a3b8', marginTop: 3 }}>
+                        Sube el .xlsx tal cual lo descargas. Reconoce la cuenta, descarta lo ya importado y lo prepara para procesar.
+                      </div>
+                    </div>
+                    <Btn size="sm" variant="primary" onClick={() => xlsInputRef.current?.click()} disabled={processing}>
+                      {processing ? '⏳ Leyendo...' : 'Elegir Excel'}
+                    </Btn>
+                  </div>
+                  {xlsResumen && (
+                    <div style={{ marginTop: 12, borderTop: '1px solid #1e293b', paddingTop: 10, fontSize: 11, color: '#cbd5e1' }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, 1fr)', gap: 8 }}>
+                        <div><span style={{ color: '#64748b' }}>Archivo:</span> {xlsResumen.archivo}</div>
+                        <div><span style={{ color: '#64748b' }}>Periodo BBVA:</span> {xlsResumen.meta?.periodo || '—'}</div>
+                        <div><span style={{ color: '#64748b' }}>Saldo final contable:</span>{' '}
+                          <b style={{ color: '#e2e8f0' }}>{xlsResumen.meta?.saldoFinal != null ? F(xlsResumen.meta.saldoFinal) : '—'}</b>
+                        </div>
+                        <div><span style={{ color: '#64748b' }}>En el archivo:</span> {xlsResumen.total}</div>
+                        <div><span style={{ color: '#10B981' }}>Nuevos:</span> <b>{xlsResumen.nuevos}</b></div>
+                        <div><span style={{ color: '#64748b' }}>Ya importados:</span> {xlsResumen.yaImportados}</div>
+                      </div>
+                      {xlsResumen.nuevos > 0 && (
+                        <div style={{ marginTop: 8, color: '#94a3b8' }}>
+                          Del {xlsResumen.desde} al {xlsResumen.hasta} ·{' '}
+                          <span style={{ color: '#f87171' }}>{xlsResumen.cargos} cargos {F(xlsResumen.sumaCargos)}</span> ·{' '}
+                          <span style={{ color: '#4ade80' }}>{xlsResumen.abonos} abonos {F(xlsResumen.sumaAbonos)}</span> ·{' '}
+                          neto {F(xlsResumen.neto)}
+                        </div>
+                      )}
+                      {/* El portal nuevo ya no trae saldo corrido, asi que el cuadre
+                          automatico por delta de saldo dejo de ser posible. Se dice. */}
+                      <div style={{ marginTop: 8, fontSize: 10, color: '#a16207', background: '#1c1917', border: '1px solid #422006', borderRadius: 6, padding: '6px 8px' }}>
+                        ⚠ El Excel del portal nuevo no trae saldo corrido, así que no se puede cuadrar solo.
+                        Compara a mano el saldo final contable de arriba contra tu banco.
+                      </div>
+                      {xlsResumen.errores?.length > 0 && (
+                        <div style={{ marginTop: 8, fontSize: 10, color: '#fca5a5' }}>
+                          {xlsResumen.errores.length} renglón(es) con problema: {xlsResumen.errores.slice(0, 3).join(' · ')}
+                          {xlsResumen.errores.length > 3 ? ` y ${xlsResumen.errores.length - 3} más` : ''}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                <div style={{ fontSize: 11, color: '#888', marginBottom: 6 }}>O pega el TSV del portal viejo (Día ⇥ Concepto ⇥ cargo ⇥ Abono ⇥ Saldo):</div>
                 <textarea
                   value={txtPayload}
                   onChange={e => setTxtPayload(e.target.value)}
@@ -4717,7 +4825,7 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <Btn size="sm" variant="default" onClick={() => { setTxtPreview(null); setTxtSummary(null); }}>← Volver a editar</Btn>
                   <div style={{ display: 'flex', gap: 8 }}>
-                    <Btn size="sm" variant="default" onClick={() => { setShowTxtModal(null); setTxtPayload(''); setTxtPreview(null); setTxtSummary(null); }}>Cancelar</Btn>
+                    <Btn size="sm" variant="default" onClick={() => { setShowTxtModal(null); setTxtPayload(''); setTxtPreview(null); setTxtSummary(null); setXlsResumen(null); }}>Cancelar</Btn>
                     <Btn size="sm" variant="primary" onClick={handleTxtConfirm}>✓ Importar {txtPreview.length} movimientos</Btn>
                   </div>
                 </div>

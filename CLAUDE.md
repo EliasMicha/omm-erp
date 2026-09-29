@@ -1984,3 +1984,75 @@ lo borra de verdad.
 
 Cero personas de obra, Casa Luce o NULED en cualquiera de las seis. El DG en las
 seis. El dueño ajeno se conserva. **0 fallas.**
+
+---
+
+## 🏦 BBVA cambió el portal: el estado de cuenta ahora es Excel (2026-09-29)
+
+Elias: *"cambió la plataforma de BBVA y ahora me arroja este Excel. Ojo con que
+todos vienen en consecutivo pero los números negativos son cargos y los
+positivos abonos"*.
+
+### Qué cambió
+
+| | portal viejo (TXT pegado) | portal nuevo (.xlsx) |
+|---|---|---|
+| Columnas | Día · Concepto/Referencia · cargo · Abono · Saldo | Fecha de operación · Concepto · Descripción · Importe |
+| Signo | dos columnas separadas | **un solo Importe con signo** (`-19477.58 MXN`) |
+| Texto | una columna | **dos**: comercio en `Descripción`, referencia en `Concepto` |
+| Saldo corrido | sí | **NO** |
+| Cabecera | — | Titular, Cuenta, Divisa, **Saldo final contable**, Periodo |
+
+### La decisión: traducir, no reescribir
+
+`src/lib/bbvaExcel.ts` (NUEVO) convierte el Excel **al mismo TSV de 5 columnas
+que el importador ya sabía procesar**. Así `/api/extract-bank-statement` no se
+toca y la IA sigue haciendo lo que de verdad aporta: beneficiario, categoría,
+proyecto, RFC, código BNET. Cambiar el formato de entrada no debía obligar a
+reescribir el resto.
+
+**El orden del texto importa.** Se manda `Descripción / Concepto`, con el
+comercio PRIMERO, porque así venía en el TXT viejo y de ahí saca el modelo el
+beneficiario. Al revés, cada renglón empieza con "RFC: ... AUT: ..." y el nombre
+del comercio queda sepultado.
+
+**La columna Saldo va vacía a propósito.** El portal nuevo no la entrega; un
+hueco honesto es mejor que un número inventado.
+
+### Lo que se pierde y cómo se avisa
+
+El cuadre automático por delta de saldo **ya no es posible** — necesitaba el
+saldo corrido. El modal lo dice explícitamente y muestra el **Saldo final
+contable** de la cabecera para cotejar a mano contra el banco.
+
+### Guardas que antes no había
+
+- **Cuenta.** BBVA escribe `007400480118270236` y el ERP `0118270236`: se
+  comparan por terminación. Subir el Excel de una cuenta en la pestaña de otra
+  se rechaza con el motivo. Antes nada lo impedía.
+- **Divisa.** Un archivo en USD en la pestaña MXN se rechaza.
+- **Renglón ilegible.** Se reporta con su número de fila y los demás siguen; no
+  se tira nada en silencio.
+- El lector **busca el encabezado por texto**, no por fila fija: BBVA ya movió
+  el formato una vez.
+
+### Hallazgo al revisar los datos
+
+Del **23 al 28 de septiembre ya se habían importado 31 movimientos con el
+formato nuevo** pegado en la caja vieja. Se cotejaron contra el Excel día por
+día y tipo por tipo: **cuadran al centavo** (24 cargos $868,992.22 · 7 abonos
+$347,778.42). El modelo leyó bien los signos. Lo único que se perdió fue
+`saldo_posterior`, que está nulo del 23-sep en adelante y poblado hasta el
+22-sep.
+
+### Verificación
+
+Contra el archivo real, con la salida real de SheetJS (no una simulación):
+143 movimientos, 0 errores, cabecera completa, y los 31 posteriores al corte
+coinciden exacto con lo que ya está en la base. Más 16 pruebas de casos límite:
+importes con coma de miles, importe cero, fecha `d/m/yyyy`, hoja equivocada,
+renglón ilegible en medio, y las tres combinaciones de cuenta.
+
+**Ojo con SheetJS:** `sheet_to_json(header:1)` devuelve **999 filas** para una
+hoja de 157 — rellena con vacías. Hay que saltarlas, no asumir que el largo del
+arreglo es el número de movimientos.
