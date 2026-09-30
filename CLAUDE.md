@@ -2161,3 +2161,81 @@ dejó de mandar folio.
   `length(folio) desc`, así que "DLANES01B" cae en la B y "DLANES01" en la A.
 - Los 65 folios de versiones ya emitidos se quedan como están. Seis tienen
   órdenes de compra colgando.
+
+---
+
+## 🤖 Que un bot pueda sacar un PDF: el patrón (2026-09-30)
+
+Elias: *"tiene acceso a la base de datos del ERP... pero el descargar y mandarme
+el PDF de un estado de cuenta no lo pueden hacer porque es un botón de
+frontend."*
+
+**El problema no era el permiso, era el domicilio del código.** El estado de
+cuenta se armaba dentro del navegador de Elias. Para un bot no había nada que
+llamar. De ahí la regla, que vale para todo lo que siga:
+
+> Lo que un bot tenga que poder hacer tiene que existir como **código de
+> servidor**, y el botón pasa a ser un cliente más de ese código. Uno de dos,
+> nunca dos implementaciones.
+
+### Lo que se movió
+
+`src/lib/estadoCuentaPdf.ts` → `supabase/functions/_shared/estadoCuentaPdf.ts`,
+y la consulta que estaba enterrada en `cobranzaDocs.adjuntoEstadoCuenta` salió a
+`_shared/estadoCuenta.ts` con el cliente de Supabase **inyectado** (así el mismo
+archivo sirve al navegador y al servidor). `src/lib/estadoCuentaPdf.ts` quedó
+como puente para no tocar a los tres que ya lo importaban.
+
+### ⚠️ `import jsPDF from 'jspdf'` NO funciona fuera del navegador
+
+El hallazgo de la sesión, y habría reventado en producción:
+
+```
+navegador (Vite → build ESM)  : default ES la clase      → funciona
+Node / Deno (build de Node)   : default es el módulo     → TypeError: not a constructor
+```
+
+El export **con nombre** existe en las dos builds:
+
+```ts
+import { jsPDF } from 'jspdf'   // el único que sirve de los dos lados
+```
+
+Los demás PDF del ERP (`cotizacionPdf`, `poPdf`, `estimacionPdf`…) siguen con el
+default y están bien: solo corren en el navegador. El día que uno de ellos se
+mueva a `_shared`, esta línea se cambia también.
+
+**Y `CotizacionPdf.tsx` no se puede mover**: usa html2canvas, o sea le toma una
+foto a una página ya dibujada. Ese necesita un navegador de verdad.
+
+### Cómo se verificó (y por qué así)
+
+1. Datos **reales** de Cero5cien L202 (9 contratos, 148 movimientos) sacados con
+   SQL a un JSON.
+2. El PDF generado en **Node** y en **Deno** con el mismo archivo y el mismo
+   mapa de imports que el Edge Function.
+3. Los dos PDF son **idénticos byte a byte** salvo la fecha de creación que
+   jsPDF estampa dentro. O sea: el documento del bot y el del botón son el mismo
+   documento, no dos que se parecen.
+4. Renderizado con `pdftoppm` y **mirado**: 4 páginas, los saldos cuadran con lo
+   que CLAUDE.md ya documentaba para esa obra ($387,965.69 pendiente).
+
+Un `deno run` local es barato y contesta la única pregunta que importaba —¿jsPDF
+corre fuera del navegador?—. Desplegar y ver qué pasa habría contestado lo mismo
+tres horas después y en producción.
+
+### El deploy del Edge Function con `_shared`
+
+La función estaba desplegada **en plano** (todos los archivos en la raíz), así
+que un `../_shared/x.ts` no resolvía. Se redesplegó con la estructura de
+carpetas del repo:
+
+```
+entrypoint_path : mcp-contabilidad/index.ts
+import_map_path : mcp-contabilidad/deno.json      ← mapea jspdf → npm:jspdf@4.2.1
+files           : mcp-contabilidad/*.ts + _shared/*.ts
+verify_jwt      : false   (la función autentica con su propio Bearer)
+```
+
+**Ojo al redesplegar cualquier MCP:** hay que mandar los 7 archivos con su ruta.
+Un deploy reemplaza la función completa; mandar solo el que cambió la deja coja.

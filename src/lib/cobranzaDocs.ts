@@ -20,9 +20,9 @@
 // ═══════════════════════════════════════════════════════════════════════════
 import { supabase } from './supabase'
 import { generarEstadoCuentaPdf } from './estadoCuentaPdf'
+import { datosEstadoCuenta, nombreArchivoEstadoCuenta } from '../../supabase/functions/_shared/estadoCuenta'
 
 const OMM_RFC = 'OTE210910PW5'
-const NIL_UUID = '00000000-0000-0000-0000-000000000000'
 
 export interface FacturaRow {
   id: string
@@ -122,43 +122,14 @@ export async function adjuntoFactura(f: FacturaRow, conXml = false): Promise<Adj
 
 // ── Adjunto: estado de cuenta del lead (mismo PDF del CRM) ──
 export async function adjuntoEstadoCuenta(leadId: string, leadName: string): Promise<Adjunto> {
-  const { data: quotsAll } = await supabase
-    .from('quotations')
-    .select('id,name,stage,notes,total,total_final,specialty,commercial_year')
-    .eq('stage', 'contrato')
-    .eq('vigente', true)
-  const leadOf = (q: any): string | null => { try { return JSON.parse(q.notes || '{}').lead_id || null } catch { return null } }
-  const quots = ((quotsAll || []) as any[]).filter(q => leadOf(q) === leadId)
-  const qids = quots.map(q => q.id)
-  const inList = '(' + (qids.length ? qids.join(',') : NIL_UUID) + ')'
-
-  const BM = 'id, quotation_id, tipo, monto, moneda, fecha, concepto, lead_id'
-  const CM = 'quotation_id, tipo, monto, moneda, fecha, concepto, persona, lead_id, tc_aplicado, monto_cotizacion, moneda_cotizacion'
-  const [bmA, bmB, cmA, cmB, paR] = await Promise.all([
-    supabase.from('bank_movements').select(BM).eq('lead_id', leadId).then(r => r.data || []),
-    supabase.from('bank_movements').select(BM).filter('quotation_id', 'in', inList).then(r => r.data || []),
-    supabase.from('cash_movements').select(CM).eq('lead_id', leadId).then(r => r.data || []),
-    supabase.from('cash_movements').select(CM).filter('quotation_id', 'in', inList).then(r => r.data || []),
-    supabase.from('payment_allocations').select('quotation_id, monto, bank_movement_id, tc_aplicado, monto_origen, moneda_origen').filter('quotation_id', 'in', inList).then(r => r.data || []),
-  ])
-  const dedupe = (rows: any[], key: (r: any) => string) => {
-    const m = new Map<string, any>()
-    rows.forEach(r => m.set(key(r), r))
-    return Array.from(m.values())
-  }
-  const bm = dedupe([...(bmA as any[]), ...(bmB as any[])], r => String(r.id))
-  const cm = dedupe([...(cmA as any[]), ...(cmB as any[])], r => [r.quotation_id, r.lead_id, r.fecha, r.monto, r.concepto].join('|'))
-
-  const doc = generarEstadoCuentaPdf({
-    lead: { name: leadName, company: '' },
-    quotations: quots,
-    bankMovements: bm,
-    cashMovements: cm,
-    paymentAllocations: paR as any[],
-  })
-  const uri = doc.output('datauristring')
+  // La consulta vive en supabase/functions/_shared/estadoCuenta.ts porque el
+  // Edge Function del MCP arma el MISMO documento para los bots. Si cada lado
+  // juntara los pagos por su cuenta, dos estados de cuenta del mismo cliente
+  // podrian no cuadrar y no habria forma de saber cual esta bien.
+  const datos = await datosEstadoCuenta(supabase, leadId, { name: leadName, company: '' })
+  const uri = generarEstadoCuentaPdf(datos).output('datauristring')
   return {
-    filename: `Estado_de_Cuenta_${(leadName || 'Obra').replace(/\s+/g, '_')}.pdf`,
+    filename: nombreArchivoEstadoCuenta(leadName),
     dataB64: uri.substring(uri.indexOf('base64,') + 7),
     mime: 'application/pdf',
   }

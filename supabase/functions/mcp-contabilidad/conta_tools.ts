@@ -19,6 +19,9 @@
 //  que nadie puede cotejar.
 // ═══════════════════════════════════════════════════════════════════════════
 
+import { generarEstadoCuentaPdf } from '../_shared/estadoCuentaPdf.ts'
+import { datosEstadoCuenta, nombreArchivoEstadoCuenta } from '../_shared/estadoCuenta.ts'
+
 export interface ContaActor {
   app_user_id: string
   nombre: string
@@ -403,6 +406,179 @@ const contaSeguimiento: ContaTool = {
   },
 }
 
+
+// ═══ TOOL: conta_estado_de_cuenta ══════════════════════════════════════════
+//
+//  El PDF que hasta hoy solo existia dentro del navegador de Elias.
+//
+//  Se arma con el MISMO generador del boton (_shared/estadoCuentaPdf.ts) y la
+//  MISMA consulta (_shared/estadoCuenta.ts). No hay una "version para el bot":
+//  eso es justo lo que se evito, porque dos copias del mismo documento se
+//  separan solas y quien lo nota es el cliente.
+//
+//  ── Por que es 'consulta' y no 'operacion' ──────────────────────────────
+//
+//  No cambia un solo dato del negocio: lee y dibuja. Escribe dos cosas —el PDF
+//  temporal y el renglon de bitacora— y las dos TIENEN que pasar cada vez. Si
+//  fuera 'operacion' entraria a la idempotencia, y la segunda llamada devolveria
+//  la respuesta guardada sin registrar nada: el log se quedaria corto justo
+//  donde mas importa, que es saber cuantas veces se saco el estado de cuenta de
+//  un cliente y quien lo pidio.
+//
+//  ── El permiso ──────────────────────────────────────────────────────────
+//
+//  No basta con tener el token del MCP. La cuenta del bot necesita
+//  `app_users.puede_estado_cuenta`, que nace apagada y se prende una por una
+//  desde Usuarios. Un token abre el modulo; esta bandera abre ESTE documento.
+const contaEstadoDeCuenta: ContaTool = {
+  clase: 'consulta',
+  definition: {
+    name: 'conta_estado_de_cuenta',
+    description:
+      'Genera el PDF del estado de cuenta de UN cliente y devuelve una liga firmada que caduca en 15 minutos. ' +
+      'Es el mismo documento que sale del boton del ERP: contratos vigentes, pagos recibidos y saldo por cobrar, ' +
+      'cada moneda por separado. Se pide un lead a la vez; no acepta listas. ' +
+      'Requiere que la cuenta del bot tenga el permiso de estado de cuenta prendido en el ERP. ' +
+      'Cada generacion queda registrada con quien la pidio y de que cliente.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        lead_id: { type: 'string', description: 'UUID del lead. Si no lo tienes, usa `lead` con el nombre.' },
+        lead: { type: 'string', description: 'Nombre del lead a buscar. Si empata con varios, se devuelven los candidatos y no se genera nada.' },
+      },
+    },
+  },
+  handler: async (input, ctx) => {
+    // ── 1. ¿Este bot puede? ───────────────────────────────────────────────
+    const { data: cuenta } = await ctx.supabase.from('app_users')
+      .select('id, nombre, email, es_bot, activo, puede_estado_cuenta')
+      .eq('id', ctx.actor.app_user_id).maybeSingle()
+
+    if (!cuenta || cuenta.activo === false) {
+      return { success: false, error: 'La cuenta de servicio no existe o esta inactiva en el ERP.' }
+    }
+    if (cuenta.puede_estado_cuenta !== true) {
+      return {
+        success: false,
+        error: 'Esta cuenta no tiene permiso para sacar estados de cuenta. Un estado de cuenta lleva los ' +
+          'contratos, los saldos y el historial de pagos de un cliente, asi que se prende bot por bot: ' +
+          'en el ERP, Usuarios > ' + (cuenta.nombre || cuenta.email) + ' > "Puede generar estados de cuenta". ' +
+          'No lo puedo prender yo.',
+      }
+    }
+
+    // ── 2. Un lead, y solo uno ────────────────────────────────────────────
+    let leadId = s(input?.lead_id)
+    let leadNombre = ''
+    let leadEmpresa = ''
+
+    if (leadId) {
+      const { data: l } = await ctx.supabase.from('leads')
+        .select('id, name, company').eq('id', leadId).maybeSingle()
+      if (!l) return { success: false, error: 'No existe un lead con ese id.' }
+      leadNombre = l.name || ''
+      leadEmpresa = l.company || ''
+    } else {
+      const q = likeSafe(s(input?.lead))
+      if (!q) return { success: false, error: 'Dime de que cliente: manda `lead_id` o `lead` con el nombre.' }
+      const { data: ls } = await ctx.supabase.from('leads')
+        .select('id, name, company').ilike('name', '%' + q + '%').limit(12)
+      const cand = (ls || []) as any[]
+      if (cand.length === 0) return { success: false, error: 'Ningun lead se llama asi: "' + q + '".' }
+      if (cand.length > 1) {
+        // No se elige por el bot. Mandar el estado de cuenta del cliente
+        // equivocado no se deshace: ya lo leyo quien no debia.
+        return {
+          success: false,
+          error: 'Hay ' + cand.length + ' leads que empatan con "' + q + '". Dime cual con `lead_id`.',
+          data: { candidatos: cand.map(c => ({ lead_id: c.id, nombre: c.name, despacho: c.company })) },
+        }
+      }
+      leadId = cand[0].id
+      leadNombre = cand[0].name || ''
+      leadEmpresa = cand[0].company || ''
+    }
+
+    // ── 3. El documento ───────────────────────────────────────────────────
+    const datos = await datosEstadoCuenta(ctx.supabase, leadId, { name: leadNombre, company: leadEmpresa })
+    if (!datos.quotations.length) {
+      return {
+        success: false,
+        error: '"' + leadNombre + '" no tiene contratos vigentes, asi que no hay estado de cuenta que sacar. ' +
+          'Una cotizacion que no llego a contrato no es cobranza.',
+      }
+    }
+
+    const bytes = new Uint8Array(generarEstadoCuentaPdf(datos).output('arraybuffer') as ArrayBuffer)
+    const archivo = nombreArchivoEstadoCuenta(leadNombre)
+    const ruta = leadId + '/' + new Date().toISOString().replace(/[:.]/g, '-') + '_' + archivo
+
+    // El bucket y la bitacora estan FUERA del alcance del modulo a proposito
+    // (acotar.ts solo deja pasar las tablas de Contabilidad), asi que van por
+    // `sinAcotar`, que es la puerta declarada para la auditoria.
+    const admin = ctx.supabase.sinAcotar
+
+    const { error: errSubida } = await admin.storage.from('documentos-cliente')
+      .upload(ruta, bytes, { contentType: 'application/pdf', upsert: false })
+    if (errSubida) return { success: false, error: 'No se pudo guardar el PDF: ' + errSubida.message }
+
+    const MINUTOS = 15
+    const { data: firmada, error: errFirma } = await admin.storage.from('documentos-cliente')
+      .createSignedUrl(ruta, MINUTOS * 60)
+    if (errFirma || !firmada?.signedUrl) {
+      return { success: false, error: 'El PDF se genero pero no se pudo firmar la liga: ' + (errFirma?.message || 'sin url') }
+    }
+
+    // ── 4. Que quede escrito quien lo saco ────────────────────────────────
+    //
+    // El bucket es privado y la liga caduca, pero el PDF ya salio: lo unico que
+    // queda despues es este renglon. Si falla, NO se tumba la entrega —el
+    // documento ya existe y negarlo no lo borra— pero se avisa en la respuesta,
+    // porque un estado de cuenta que salio sin registro es exactamente lo que
+    // este permiso pretende poder auditar.
+    let bitacora = true
+    try {
+      const { error } = await admin.from('activity_log').insert({
+        entity_type: 'lead', entity_id: leadId, action: 'estado_cuenta_bot',
+        actor_id: ctx.actor.app_user_id, new_value: leadNombre,
+        metadata: { archivo, ruta, contratos: datos.quotations.length, expira_min: MINUTOS, origen: 'mcp-contabilidad' },
+      })
+      if (error) bitacora = false
+    } catch { bitacora = false }
+
+    // ── 5. Limpieza ───────────────────────────────────────────────────────
+    //
+    // La liga caduca en 15 minutos pero el archivo se queda. Un estado de
+    // cuenta de un cliente viviendo ahi para siempre es un pasivo, no un
+    // respaldo: el ERP lo puede volver a generar cuando quiera. Se barre lo de
+    // mas de 24 horas del mismo lead, que es barato y no necesita un cron.
+    try {
+      const { data: viejos } = await admin.storage.from('documentos-cliente').list(leadId, { limit: 100 })
+      const corte = Date.now() - 24 * 60 * 60 * 1000
+      const aBorrar = ((viejos || []) as any[])
+        .filter(f => f.created_at && new Date(f.created_at).getTime() < corte)
+        .map(f => leadId + '/' + f.name)
+      if (aBorrar.length) await admin.storage.from('documentos-cliente').remove(aBorrar)
+    } catch { /* la limpieza no vale una entrega fallida */ }
+
+    return {
+      success: true,
+      affected_entity_type: 'lead',
+      affected_entity_id: leadId,
+      data: {
+        cliente: leadNombre,
+        contratos_vigentes: datos.quotations.length,
+        archivo,
+        url: firmada.signedUrl,
+        caduca_en_minutos: MINUTOS,
+        aviso: 'La liga caduca en ' + MINUTOS + ' minutos y el archivo se borra a las 24 horas. ' +
+          'Es un documento con los saldos de un cliente: no lo publiques ni lo reenvies fuera de OMM.' +
+          (bitacora ? '' : ' OJO: no se pudo dejar el registro en la bitacora de esta generacion.'),
+      },
+    }
+  },
+}
+
 // ═══ Registro ══════════════════════════════════════════════════════════════
 export const CONTA_TOOLS: Record<string, ContaTool> = {
   conta_cobranza: contaCobranza,
@@ -410,6 +586,7 @@ export const CONTA_TOOLS: Record<string, ContaTool> = {
   conta_buscar_facturas: contaBuscarFacturas,
   conta_movimientos_banco: contaMovimientos,
   conta_registrar_seguimiento_cobranza: contaSeguimiento,
+  conta_estado_de_cuenta: contaEstadoDeCuenta,
 }
 
 export function contaToolDefinitions() {

@@ -15,6 +15,7 @@ interface AppUser {
   es_bot: boolean
   acceso_ui: boolean
   modulo: string | null
+  puede_estado_cuenta: boolean
 }
 
 interface Employee {
@@ -84,7 +85,7 @@ export default function Usuarios() {
 
   async function loadUsers() {
     setLoading(true)
-    const { data } = await supabase.from('app_users').select('id, email, nombre, permission_area, nivel, activo, created_at, employee_id, es_bot, acceso_ui, modulo').order('created_at', { ascending: true })
+    const { data } = await supabase.from('app_users').select('id, email, nombre, permission_area, nivel, activo, created_at, employee_id, es_bot, acceso_ui, modulo, puede_estado_cuenta').order('created_at', { ascending: true })
     setUsers((data as AppUser[]) || [])
     setLoading(false)
   }
@@ -158,6 +159,29 @@ export default function Usuarios() {
   async function toggleActivo(u: AppUser) {
     const { error: err } = await supabase.from('app_users').update({ activo: !u.activo }).eq('id', u.id)
     if (err) { setError('No se pudo guardar: ' + err.message); return }
+    loadUsers()
+  }
+
+  /**
+   * El permiso para sacar estados de cuenta por el MCP.
+   *
+   * Nace apagado y se prende bot por bot. Un estado de cuenta lleva los
+   * contratos, los saldos y el historial de pagos de un cliente: que un bot
+   * tenga el token del modulo no deberia bastar para eso, y por eso es una
+   * bandera aparte y no parte del area de permiso.
+   */
+  async function toggleEstadoCuenta(u: AppUser) {
+    const prendiendo = !u.puede_estado_cuenta
+    if (prendiendo && !confirm(
+      `${u.nombre} va a poder generar el estado de cuenta de CUALQUIER cliente y recibir una liga para bajarlo.\n\n` +
+      'Ese documento lleva los contratos, los saldos y el historial de pagos del cliente. ' +
+      'Cada vez que lo saque queda registrado.\n\n¿Lo prendo?')) return
+    const { error: err } = await supabase.from('app_users')
+      .update({ puede_estado_cuenta: prendiendo }).eq('id', u.id)
+    if (err) { setError('No se pudo guardar: ' + err.message); return }
+    setSuccess(prendiendo
+      ? `${u.nombre} ya puede generar estados de cuenta.`
+      : `${u.nombre} ya no puede generar estados de cuenta.`)
     loadUsers()
   }
 
@@ -449,6 +473,7 @@ export default function Usuarios() {
                 <th style={{ padding: '10px 12px', fontWeight: 500 }}>Área (para el registro)</th>
                 <th style={{ padding: '10px 12px', fontWeight: 500 }}>Cómo entra</th>
                 <th style={{ padding: '10px 12px', fontWeight: 500 }}>Lo que alcanza</th>
+                <th style={{ padding: '10px 12px', fontWeight: 500 }}>Estado de cuenta</th>
                 <th style={{ padding: '10px 12px', fontWeight: 500 }}>Estado</th>
               </tr>
             </thead>
@@ -498,6 +523,26 @@ export default function Usuarios() {
                           <div style={{ color: '#9aa', marginTop: 2 }}><span style={{ color: '#666' }}>Escribe:</span> {al.escribe}</div>
                         </>
                       )}
+                    </td>
+                    <td style={{ padding: '10px 12px', fontSize: 12 }}>
+                      <button
+                        onClick={() => toggleEstadoCuenta(u)}
+                        title={u.puede_estado_cuenta
+                          ? 'Puede pedir el PDF del estado de cuenta de un cliente. Clic para quitarlo.'
+                          : 'No puede. Clic para permitirlo.'}
+                        style={{
+                          cursor: 'pointer', borderRadius: 12, padding: '2px 10px', fontSize: 11, fontWeight: 600,
+                          background: u.puede_estado_cuenta ? 'rgba(87,255,154,0.15)' : 'transparent',
+                          color: u.puede_estado_cuenta ? '#10B981' : '#777',
+                          border: '1px solid ' + (u.puede_estado_cuenta ? 'rgba(87,255,154,0.35)' : '#333'),
+                        }}>
+                        {u.puede_estado_cuenta ? 'Permitido' : 'No'}
+                      </button>
+                      <div style={{ fontSize: 10.5, color: '#555', marginTop: 3, maxWidth: 150, lineHeight: 1.4 }}>
+                        {u.puede_estado_cuenta
+                          ? 'Cada generación queda registrada'
+                          : 'Saldos e historial de pagos del cliente'}
+                      </div>
                     </td>
                     <td style={{ padding: '10px 12px' }}>
                       <span style={{

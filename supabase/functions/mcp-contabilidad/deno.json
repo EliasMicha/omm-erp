@@ -1,0 +1,5 @@
+{
+  "imports": {
+    "jspdf": "npm:jspdf@4.2.1"
+  }
+}
