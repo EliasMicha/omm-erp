@@ -29,23 +29,13 @@
 //  que ya se agendó.
 // ═══════════════════════════════════════════════════════════════════════════
 import { supabase } from './supabase'
+// El TEXTO del correo vive en api/_avisoPago.ts, no aquí: lo comparte con el
+// atajo del celular (api/extract.ts?action=comprobante_pago). Tiene que estar
+// de ese lado porque una función de Vercel no puede importar de src/, y al
+// revés sí. Un solo generador = un solo correo.
+import { construirAvisoPago, CORREO_LOGISTICA, CORREO_COPIA } from '../../api/_avisoPago'
 
-export const CORREO_LOGISTICA = 'logistica@omniious.com'
-export const CORREO_COPIA = 'elias@omniious.com'
-
-/** Los mismos textos que se ven en la pantalla de Compras (LOGISTICS_CFG). */
-const MODO_LOGISTICA: Record<string, string> = {
-  pending:            'todavía no se decide cómo llega',
-  pickup_to_bodega:   'OMM la recolecta y la lleva a bodega',
-  pickup_to_obra:     'OMM la recolecta y la lleva directo a la obra',
-  supplier_to_bodega: 'el proveedor la envía a bodega OMM',
-  supplier_to_obra:   'el proveedor la envía directo a la obra',
-}
-
-const ESPECIALIDAD: Record<string, string> = {
-  esp: 'Especiales', elec: 'Eléctrico', ilum: 'Iluminación',
-  cort: 'Cortinas', dist: 'Distribución', proy: 'Proyecto',
-}
+export { CORREO_LOGISTICA, CORREO_COPIA }
 
 export interface PagoRegistrado {
   poId: string
@@ -67,18 +57,6 @@ export interface ResultadoAviso {
   /** El correo que se armó, para poder enseñarlo o reenviarlo a mano. */
   asunto?: string
   cuerpo?: string
-}
-
-const dinero = (n: number, moneda: string) =>
-  new Intl.NumberFormat('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n) + ' ' + moneda
-
-const fechaLarga = (iso: string) => {
-  // Una fecha 'yyyy-mm-dd' con new Date() se interpreta en UTC y en México se
-  // ve un día antes. Se parte a mano.
-  const [a, m, d] = (iso || '').split('-').map(Number)
-  if (!a || !m || !d) return iso
-  const meses = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre']
-  return `${d} de ${meses[m - 1]} de ${a}`
 }
 
 /**
@@ -107,64 +85,27 @@ export async function avisarPagoALogistica(p: PagoRegistrado): Promise<Resultado
       supabase.from('po_items').select('name, quantity, unit').eq('purchase_order_id', p.poId).limit(60),
     ])
 
-    const folio = po.folio || po.po_number || 'sin folio'
-    const proveedor = prov?.name || 'proveedor sin nombre'
-    const obra = lead?.name || 'sin obra asignada'
-    const pagadoAhora = p.pagadoAntes + p.monto
-    const falta = Math.max(0, p.totalOC - pagadoAhora)
-    const saldada = falta < 0.01
-    const esServicio = po.tipo === 'servicio'
-
-    const partidas = (items as any[] | null) || []
-    const listado = partidas.slice(0, 12)
-      .map(i => `  · ${i.name}${i.quantity ? ` — ${i.quantity} ${i.unit || 'pza'}` : ''}`)
-      .join('\n')
-    const sobran = partidas.length - 12
-
-    const asunto =
-      (saldada ? 'OC saldada' : 'Pago registrado') +
-      ` · ${folio} · ${proveedor} · ${dinero(p.monto, p.moneda)}`
-
-    const cuerpo = [
-      saldada
-        ? `La orden ${folio} quedó SALDADA. Ya está pagada completa.`
-        : `Se registró un pago de la orden ${folio}.`,
-      '',
-      `Proveedor:  ${proveedor}`,
-      `Obra:       ${obra}${lead?.codigo ? ` (${lead.codigo})` : ''}`,
-      `Concepto:   ${po.descripcion || 'sin descripción'}`,
-      `Tipo:       ${esServicio ? 'Servicio / destajo' : 'Material'}${po.specialty ? ` · ${ESPECIALIDAD[po.specialty] || po.specialty}` : ''}`,
-      '',
-      `Pago:       ${dinero(p.monto, p.moneda)} el ${fechaLarga(p.fecha)}`,
-      `            ${p.metodo}${p.referencia ? ' · ref. ' + p.referencia : ''}`,
-      `Comprobante: ${p.conComprobante ? 'sí, está cargado en el ERP' : 'todavía no se carga'}`,
-      '',
-      `Total de la orden: ${dinero(p.totalOC, p.moneda)}`,
-      `Pagado:            ${dinero(pagadoAhora, p.moneda)}`,
-      saldada ? 'Saldo:             0.00 — queda saldada' : `FALTA:             ${dinero(falta, p.moneda)}`,
-      '',
-      esServicio
-        ? 'Es una orden de servicio (mano de obra), no lleva material que recolectar.'
-        : `Cómo llega: ${MODO_LOGISTICA[po.logistics_mode || 'pending'] || 'sin definir'}.`,
-      !esServicio && po.expected_delivery ? `Entrega esperada: ${fechaLarga(String(po.expected_delivery).slice(0, 10))}` : null,
-      !esServicio && partidas.length
-        ? `\nQué trae (${partidas.length} ${partidas.length === 1 ? 'partida' : 'partidas'}):\n${listado}${sobran > 0 ? `\n  · … y ${sobran} más` : ''}`
-        : null,
-      '',
-      !esServicio && !saldada
-        ? 'Ojo: la orden todavía trae saldo. Antes de ir por el material, confirma con el proveedor si suelta contra este pago.'
-        : null,
-      '',
-      'La orden completa está en el ERP: https://omm-erp.vercel.app/compras',
-      '',
-      '— Aviso automático del ERP de OMM. No hace falta contestarlo.',
-    // OJO: se filtra por null, NO por cadena vacía. Las cadenas vacías de esta
-    // lista son los renglones en blanco que separan los bloques del correo;
-    // filtrarlas deja un muro de texto ilegible (ya pasó al probarlo).
-    ].filter(l => l !== null).join('\n')
-      // Un renglón condicional que no aplica deja sus dos blancos pegados. En
-      // vez de encadenar condiciones por cada blanco, se colapsan al final.
-      .replace(/\n{3,}/g, '\n\n')
+    const { asunto, cuerpo } = construirAvisoPago({
+      folio: po.folio || po.po_number || 'sin folio',
+      proveedor: prov?.name || 'proveedor sin nombre',
+      obra: lead?.name || 'sin obra asignada',
+      claveLead: lead?.codigo || null,
+      concepto: po.descripcion,
+      esServicio: po.tipo === 'servicio',
+      especialidad: po.specialty,
+      monto: p.monto,
+      moneda: p.moneda,
+      fecha: p.fecha,
+      metodo: p.metodo,
+      referencia: p.referencia,
+      conComprobante: p.conComprobante,
+      totalOC: p.totalOC,
+      pagadoAntes: p.pagadoAntes,
+      modoLogistica: po.logistics_mode,
+      entregaEsperada: po.expected_delivery ? String(po.expected_delivery) : null,
+      partidas: ((items as any[] | null) || []),
+      origen: 'erp',
+    })
 
     const r = await fetch('/api/gmail?action=send', {
       method: 'POST',

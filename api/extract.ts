@@ -3,6 +3,7 @@
 // Devuelve: { ok: boolean, items?: any[], confidence?: string, warnings?: string[], error?: string }
 
 import type { VercelRequest, VercelResponse } from '@vercel/node'
+import { construirAvisoPago, CORREO_LOGISTICA, CORREO_COPIA } from './_avisoPago'
 
 const PROMPT_GENERIC = `Eres un asistente experto en listados de productos para instalaciones especiales (audio, redes, CCTV, control de acceso, control de iluminación, detección de humo, BMS, telefonía, red celular, cortinas/persianas).
 
@@ -207,6 +208,234 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Access-Control-Allow-Origin', '*')
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-omm-token')
+  // ── Comprobante de pago desde el celular (Atajo de iOS) ──────────────────
+  //
+  //  Elias: "quiero hacer un shortcut en mi celular para subirlos, que detecte
+  //  la referencia y se adjunte a su orden de compra y mande la notificación".
+  //
+  //  POST /api/extract?action=comprobante_pago&token=<CAPTURE_TOKEN>
+  //    { image: "<base64>", mediaType?: "image/png", oc?: "<folio ya elegido>" }
+  //
+  //  ⚠️ EL COMPROBANTE DEL BANCO NO DICE A QUÉ OC PERTENECE.
+  //
+  //  Se comprobó con uno real (30-sep-2026, $49,766.22): el Concepto decía
+  //  "CablePICOLOVE" —no un folio—, la Referencia es de BBVA hacia la cuenta
+  //  del beneficiario, y ese importe no cuadraba con NINGUNA orden. Por eso
+  //  esto no es "leer la referencia y listo": hay dos caminos.
+  //
+  //    1. Si el Concepto trae el folio OMM (PILO-ES01-C02), se amarra solo.
+  //       Es el camino bueno, y de paso hace que la conciliación del estado de
+  //       cuenta diario también lo reconozca — usa el MISMO detector.
+  //    2. Si no, se devuelven las órdenes candidatas por importe y proveedor
+  //       y el Atajo le pregunta a Elias cuál es. Su respuesta vuelve en `oc`.
+  //
+  //  Solo se registra el pago cuando NO hay duda. Un pago cargado a la orden
+  //  equivocada se borra a mano y ensucia dos obras a la vez.
+  if ((req.query as any)?.action === 'comprobante_pago') {
+    const tok = (req.query as any).token || (req.headers['x-omm-token'] as string)
+    if (!process.env.CAPTURE_TOKEN || tok !== process.env.CAPTURE_TOKEN) {
+      res.status(401).json({ ok: false, error: 'No autorizado' }); return
+    }
+    const sUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL
+    const svc = process.env.SUPABASE_SERVICE_ROLE_KEY
+    const apiKey2 = process.env.ANTHROPIC_API_KEY
+    if (!sUrl || !svc || !apiKey2) { res.status(500).json({ ok: false, error: 'Faltan variables de entorno' }); return }
+    const H2: any = { apikey: svc, Authorization: `Bearer ${svc}`, 'Content-Type': 'application/json' }
+
+    try {
+      const b: any = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {})
+
+      // 1. Leer el comprobante ------------------------------------------------
+      // El Atajo de iOS mete saltos de línea y a veces el prefijo data URL.
+      let img = String(b.image || '').replace(/\s/g, '')
+      if (img.startsWith('data:')) { const c = img.indexOf(','); if (c > -1) img = img.slice(c + 1) }
+      if (!img) { res.status(400).json({ ok: false, error: 'Falta la imagen del comprobante' }); return }
+      let media = b.mediaType || 'image/jpeg'
+      if (img.startsWith('iVBOR')) media = 'image/png'
+      else if (img.startsWith('/9j/')) media = 'image/jpeg'
+      else if (img.startsWith('UklGR')) media = 'image/webp'
+
+      const instr2 = `Este es un comprobante de transferencia bancaria mexicana. Devuelve EXCLUSIVAMENTE un objeto JSON (sin markdown) con esta forma:
+{"importe":number,"moneda":"MXN"|"USD","fecha":"yyyy-mm-dd","hora":"HH:MM o ''","beneficiario":"nombre de la cuenta destino","concepto":"","referencia":"","folio_operacion":"","banco":"","cuenta_origen":"ultimos digitos o ''"}
+Reglas: el importe va como número sin comas ni símbolo. La fecha en formato ISO. Copia "concepto", "referencia" y "folio_operacion" EXACTAMENTE como aparecen, sin interpretarlos. Si un campo no aparece, usa "". No inventes nada.`
+      const cr2 = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey2, 'anthropic-version': '2023-06-01' },
+        body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 700, messages: [{ role: 'user', content: [
+          { type: 'image', source: { type: 'base64', media_type: media, data: img } },
+          { type: 'text', text: instr2 },
+        ] }] }),
+      })
+      if (!cr2.ok) { res.status(cr2.status).json({ ok: false, error: 'Claude API: ' + (await cr2.text()).slice(0, 200) }); return }
+      const cd2: any = await cr2.json()
+      const tb2 = (cd2.content || []).filter((x: any) => x.type === 'text').map((x: any) => x.text).join('\n')
+      const mm = tb2.replace(/```json|```/g, '').match(/\{[\s\S]*\}/)
+      if (!mm) { res.status(422).json({ ok: false, error: 'No se pudo leer el comprobante' }); return }
+      const c: any = JSON.parse(mm[0])
+      const importe = Number(c.importe) || 0
+      if (importe <= 0) { res.status(422).json({ ok: false, error: 'No se pudo leer el importe del comprobante' }); return }
+      const moneda = c.moneda === 'USD' ? 'USD' : 'MXN'
+      const fecha = /^\d{4}-\d{2}-\d{2}$/.test(String(c.fecha || '')) ? c.fecha : new Date(Date.now() - 6 * 3600 * 1000).toISOString().slice(0, 10)
+
+      // 2. ¿A qué orden va? ---------------------------------------------------
+      const traer = async (q: string) => { const r = await fetch(`${sUrl}/rest/v1/${q}`, { headers: H2 }); return (await r.json()) as any[] }
+      const saldoDe = (po: any) => Number(po.total || 0) - (po.purchase_order_payments || []).reduce((a: number, x: any) => a + Number(x.amount || 0), 0)
+      const SEL = 'id,folio,po_number,descripcion,total,currency,status,tipo,specialty,logistics_mode,expected_delivery,supplier_id,lead_id,quotation_id,purchase_order_payments(amount)'
+
+      let elegida: any = null
+      let candidatas: any[] = []
+      let comoSeAmarro = ''
+
+      if (b.oc) {
+        const r = await traer(`purchase_orders?folio=eq.${encodeURIComponent(String(b.oc))}&select=${SEL}`)
+        elegida = r[0] || null
+        comoSeAmarro = 'la escogiste tú en el celular'
+        if (!elegida) { res.status(404).json({ ok: false, error: `No existe la orden ${b.oc}` }); return }
+      } else {
+        // 2a. El camino bueno: el folio escrito en el concepto. Se usa el MISMO
+        //     detector que la conciliación bancaria, no una copia.
+        const texto = [c.concepto, c.referencia, c.beneficiario].filter(Boolean).join(' ')
+        const rpc = await fetch(`${sUrl}/rest/v1/rpc/omm_folio_en_concepto`, {
+          method: 'POST', headers: H2, body: JSON.stringify({ p_concepto: texto }),
+        })
+        const det: any[] = rpc.ok ? await rpc.json() : []
+        const poId = det[0]?.purchase_order_id
+        if (poId) {
+          const r = await traer(`purchase_orders?id=eq.${poId}&select=${SEL}`)
+          elegida = r[0] || null
+          comoSeAmarro = `el concepto del banco traía el folio ${det[0].folio}`
+        }
+
+        // 2b. Sin folio: proponer por saldo pendiente y por proveedor.
+        if (!elegida) {
+          const abiertas = await traer(`purchase_orders?status=in.(borrador,aprobada,pedida,parcial)&currency=eq.${moneda}&select=${SEL}`)
+          const conSaldo = abiertas.filter(po => saldoDe(po) > 0.01)
+          const porImporte = conSaldo.filter(po => Math.abs(saldoDe(po) - importe) < 0.02 || Math.abs(Number(po.total) - importe) < 0.02)
+          candidatas = porImporte.length ? porImporte : conSaldo
+          if (porImporte.length === 1) {
+            elegida = porImporte[0]
+            comoSeAmarro = 'el importe cuadra exacto con el saldo de esa orden y no hay otra igual'
+          }
+        }
+      }
+
+      // 3. Sin certeza: se devuelven los candidatos y NO se toca nada ---------
+      if (!elegida) {
+        const provs = await traer('suppliers?select=id,name')
+        const nomProv = (id: string) => provs.find(p => p.id === id)?.name || ''
+        // Primero las del proveedor que dice el comprobante.
+        const norm = (s: string) => (s || '').toUpperCase().replace(/[^A-Z0-9]/g, '')
+        const ben = norm(c.beneficiario)
+        const orden = candidatas
+          .map(po => ({ po, mismoProv: !!ben && norm(nomProv(po.supplier_id)).startsWith(ben.slice(0, 12)) }))
+          .sort((a, x) => Number(x.mismoProv) - Number(a.mismoProv) || Math.abs(saldoDe(a.po) - importe) - Math.abs(saldoDe(x.po) - importe))
+          .slice(0, 12)
+        res.status(200).json({
+          ok: true, registrado: false,
+          mensaje: `Leí ${importe.toFixed(2)} ${moneda} a ${c.beneficiario || 'sin beneficiario'}, pero el comprobante no dice a qué orden va. Escoge una.`,
+          comprobante: { importe, moneda, fecha, concepto: c.concepto, referencia: c.referencia, folio_operacion: c.folio_operacion, beneficiario: c.beneficiario },
+          candidatos: orden.map(({ po }) => ({
+            folio: po.folio, proveedor: nomProv(po.supplier_id),
+            descripcion: po.descripcion || '', saldo: Number(saldoDe(po).toFixed(2)), moneda: po.currency,
+            etiqueta: `${po.folio} · ${nomProv(po.supplier_id)} · saldo ${saldoDe(po).toFixed(2)} ${po.currency}`,
+          })),
+        })
+        return
+      }
+
+      // 4. Con certeza: comprobante → pago → aviso ----------------------------
+      if (elegida.currency !== moneda) {
+        res.status(409).json({ ok: false, error: `El comprobante está en ${moneda} y la orden ${elegida.folio} en ${elegida.currency}. No los mezclo.` })
+        return
+      }
+      const pagadoAntes = (elegida.purchase_order_payments || []).reduce((a: number, x: any) => a + Number(x.amount || 0), 0)
+
+      // El comprobante se sube ANTES de registrar el pago: si falla la subida
+      // se aborta sin haber tocado el dinero. Al revés quedaría un pago sin su
+      // respaldo y nadie se enteraría.
+      const nombre = `comprobante_${fecha}_${(c.folio_operacion || Date.now())}.${media.split('/')[1] || 'jpg'}`
+      const ruta = `${elegida.id}/${Date.now()}_${nombre}`
+      const up = await fetch(`${sUrl}/storage/v1/object/payment-receipts/${ruta}`, {
+        method: 'POST',
+        headers: { apikey: svc, Authorization: `Bearer ${svc}`, 'Content-Type': media },
+        body: Buffer.from(img, 'base64'),
+      })
+      if (!up.ok) { res.status(500).json({ ok: false, error: 'No se pudo guardar el comprobante: ' + (await up.text()).slice(0, 160) }); return }
+      const receiptUrl = `${sUrl}/storage/v1/object/public/payment-receipts/${ruta}`
+
+      const ins = await fetch(`${sUrl}/rest/v1/purchase_order_payments`, {
+        method: 'POST', headers: { ...H2, Prefer: 'return=representation' },
+        body: JSON.stringify({
+          purchase_order_id: elegida.id, amount: importe, currency: moneda, payment_date: fecha,
+          method: 'transferencia', reference: c.referencia || c.folio_operacion || null,
+          receipt_url: receiptUrl, receipt_filename: nombre,
+          notes: `Comprobante subido desde el celular. Concepto del banco: "${c.concepto || '—'}". Folio de operación: ${c.folio_operacion || '—'}.`,
+        }),
+      })
+      if (!ins.ok) { res.status(500).json({ ok: false, error: 'No se pudo registrar el pago: ' + (await ins.text()).slice(0, 200) }); return }
+
+      // Al primer pago la orden pasa de borrador/aprobada a pedida, igual que
+      // cuando el pago se captura en Compras.
+      if (elegida.status === 'borrador' || elegida.status === 'aprobada') {
+        await fetch(`${sUrl}/rest/v1/purchase_orders?id=eq.${elegida.id}`, {
+          method: 'PATCH', headers: H2, body: JSON.stringify({ status: 'pedida' }),
+        })
+      }
+
+      // 5. El aviso a Logística, con el MISMO texto que manda el ERP ----------
+      const [prov2] = elegida.supplier_id ? await traer(`suppliers?id=eq.${elegida.supplier_id}&select=name`) : [null]
+      const [lead2] = elegida.lead_id ? await traer(`leads?id=eq.${elegida.lead_id}&select=name,codigo`) : [null]
+      const items2 = await traer(`po_items?purchase_order_id=eq.${elegida.id}&select=name,quantity,unit&limit=60`)
+
+      const aviso = construirAvisoPago({
+        folio: elegida.folio || elegida.po_number || 'sin folio',
+        proveedor: prov2?.name || c.beneficiario || 'proveedor sin nombre',
+        obra: lead2?.name || 'sin obra asignada',
+        claveLead: lead2?.codigo || null,
+        concepto: elegida.descripcion,
+        esServicio: elegida.tipo === 'servicio',
+        especialidad: elegida.specialty,
+        monto: importe, moneda, fecha, metodo: 'transferencia',
+        referencia: c.referencia || c.folio_operacion || null,
+        conComprobante: true,
+        totalOC: Number(elegida.total) || 0,
+        pagadoAntes,
+        modoLogistica: elegida.logistics_mode,
+        entregaEsperada: elegida.expected_delivery ? String(elegida.expected_delivery) : null,
+        partidas: items2 || [],
+        origen: 'comprobante',
+      })
+
+      // El correo va al final y NO puede deshacer el pago: ya está registrado
+      // y el comprobante guardado. Si falla, la respuesta lo dice para que
+      // Elias avise por otro lado — no para que lo capture otra vez.
+      let correoOk = true, correoErr = ''
+      try {
+        const base = `https://${req.headers.host || 'omm-erp.vercel.app'}`
+        const mr = await fetch(`${base}/api/gmail?action=send`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ to: CORREO_LOGISTICA, cc: CORREO_COPIA, subject: aviso.asunto, body: aviso.cuerpo }),
+        })
+        const mj: any = await mr.json().catch(() => ({}))
+        if (!mr.ok || !mj?.ok) { correoOk = false; correoErr = mj?.error || `respuesta ${mr.status}` }
+      } catch (e: any) { correoOk = false; correoErr = e?.message || 'error de red' }
+
+      res.status(200).json({
+        ok: true, registrado: true,
+        mensaje: `Listo: ${importe.toFixed(2)} ${moneda} a la orden ${elegida.folio}` +
+          (aviso.saldada ? ', que queda SALDADA' : '') +
+          `. Se amarró porque ${comoSeAmarro}.` +
+          (correoOk ? ' Logística ya fue avisada.' : ` OJO: el correo a Logística NO salió (${correoErr}) — avísale tú.`),
+        oc: elegida.folio, saldada: aviso.saldada, correo: correoOk,
+        comprobante: { importe, moneda, fecha, referencia: c.referencia, folio_operacion: c.folio_operacion },
+      })
+      return
+    } catch (e: any) {
+      res.status(500).json({ ok: false, error: e?.message || String(e) })
+      return
+    }
+  }
+
   // ── Brief diario (cron 7am CDMX) — GET /api/extract?action=daily_brief ──
   if (req.query && (req.query as any).action === 'daily_brief') {
     const auth = String(req.headers.authorization || '')
