@@ -186,13 +186,22 @@ export default function VersionManager({ cotId, getCurrentSnapshot, onSwitchVers
       }
 
       // 4. Clone the quotation row
-      const { id: _, created_at: __, version_label: ___, ...cotClone } = cot
+      //
+      // El FOLIO no se copia. Es único en la base (uq_quotations_folio), así
+      // que llevárselo hacía fallar la clonación entera:
+      //   duplicate key value violates unique constraint "uq_quotations_folio"
+      // Se manda en null y lo pone el trigger `tg_cot_folio`, que le pega la
+      // etiqueta al núcleo del original — DLAN-ES01 → DLAN-ES01-B. Una versión
+      // es la misma oferta con otra opción, no una cotización más del cliente:
+      // por eso hereda el número en vez de gastar el siguiente.
+      const { id: _, created_at: __, version_label: ___, folio: ____, ...cotClone } = cot
       // La copia NACE como histórica, no como vigente. Si el original ya está
       // en contrato, promoverla sola dejaría a Cobranza y a la obra colgando de
       // una propuesta sin firmar. Cuando esta versión sea la buena, se marca
       // con «Hacer vigente» — y ahí sí cambia para todo el ERP.
       const { data: newCot, error: cotErr } = await supabase.from('quotations').insert({
         ...cotClone,
+        folio: null,
         name: cot.name + ` (${finalLabel})`,
         version_group_id: vgId,
         version_label: finalLabel,

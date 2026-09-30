@@ -2119,3 +2119,45 @@ revertida): el área se crea igual, con 0 eventos registrados.
 Capturar por trigger es lo correcto —no se puede olvidar, escriba quien escriba—
 pero su costo es que **hereda la transacción del usuario**. Ese costo se paga con
 el manejador de excepción, en TODO trigger de auditoría que se agregue después.
+
+---
+
+## 🔢 Una versión hereda el folio, no gasta el siguiente (2026-09-29)
+
+Elias, duplicando una cotización: *"Error clonando cotización: duplicate key
+value violates unique constraint uq_quotations_folio"*.
+
+`VersionManager` copia la fila entera para hacer la versión, **folio incluido**,
+y `folio` es único. El botón «Nueva versión» llevaba roto desde que existen los
+folios OMM (2026-09-26) — nació con esa migración y nadie lo notó.
+
+**La regla, decidida por Elias:**
+
+```
+DLAN-ES01       original
+DLAN-ES01-B     versión B        ← NO DLAN-ES02
+DLAN-ES01-OP2   versión "OP 2"
+```
+
+Una versión es la misma oferta con otra opción, no una cotización más del lead.
+Con consecutivo propio el número miente: Landmark hoy aparenta tres cotizaciones
+de iluminación (IL01, IL02, IL03) cuando son dos, una con dos opciones. Es la
+misma regla que ya gobierna el prefijo `COT-`: **el núcleo nunca cambia.**
+
+Vive en `omm_tg_cot_folio` (ver `supabase_folios_omm.sql`), no en el botón:
+cinco archivos insertan en `quotations` y mañana habrá un bot. El botón solo
+dejó de mandar folio.
+
+### Lo que hay que recordar al tocar folios
+
+- **Un folio ya ocupado SIEMPRE se reasigna**, por encima de las protecciones de
+  compras y movimientos bancarios. Esas protegen contra renumerar por prolijidad;
+  un folio repetido es otra cosa: la alternativa no es "conservarlo", es que el
+  usuario no pueda guardar.
+- La cola NO gasta consecutivo porque `omm_folio_cotizacion` cuenta con
+  `^<clave>-<suf>[0-9]+$` y `DLAN-ES01-B` no empata. Si algún día se cambia ese
+  patrón, se cambia esto también.
+- La detección bancaria no se tocó: `omm_folio_en_concepto` ordena por
+  `length(folio) desc`, así que "DLANES01B" cae en la B y "DLANES01" en la A.
+- Los 65 folios de versiones ya emitidos se quedan como están. Seis tienen
+  órdenes de compra colgando.

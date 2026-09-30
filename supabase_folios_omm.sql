@@ -63,3 +63,79 @@ create unique index if not exists uq_po_folio          on purchase_orders (folio
 -- falta, se infiere del nombre igual que lo hace Finanzas. Si el proyecto
 -- cambia de ingenieria el folio se rehace solo, salvo que ya tenga compras o
 -- transferencias colgando: un folio emitido manda sobre la prolijidad.
+
+-- ═══════════════════════════════════════════════════════════════════════════
+--  Versiones: la copia HEREDA el núcleo del folio (2026-09-29)
+--  Migraciones: `folios_omm_version_hereda_el_nucleo`,
+--               `folios_omm_folio_repetido_se_reasigna`
+--
+--  Elias: "Error clonando cotización: duplicate key value violates unique
+--  constraint uq_quotations_folio".
+--
+--  `VersionManager` copiaba la fila entera para hacer una versión —folio
+--  incluido— y el índice único la rechazaba. **El botón «Nueva versión» estaba
+--  muerto desde que existen los folios OMM (2026-09-26)**: antes la columna no
+--  existía, así que el defecto nació con esta misma familia de migraciones y
+--  nadie lo notó hasta hoy.
+--
+--  ── La regla (decisión de Elias) ────────────────────────────────────────
+--
+--      DLAN-ES01     original
+--      DLAN-ES01-B   versión B          ← NO DLAN-ES02
+--      DLAN-ES01-OP2 versión "OP 2"
+--
+--  Una versión es la MISMA oferta con otra opción (con o sin instalación,
+--  Lutron o Control4), no una cotización más del cliente. Con consecutivo
+--  propio el número deja de decir cuántas cotizaciones distintas tiene el
+--  lead: hoy Landmark parece tener tres de iluminación (IL01, IL02, IL03)
+--  cuando son dos, una con dos opciones.
+--
+--  Es la misma regla que ya gobierna el prefijo COT-: **el núcleo nunca
+--  cambia, lo que cambia se pega a los lados.**
+--
+--  ── Cómo queda ──────────────────────────────────────────────────────────
+--
+--  `omm_cola_de_version(label)` (NUEVA) — la etiqueta lista para un folio:
+--  mayúsculas, solo letras y números, 4 caracteres a lo más. Las etiquetas que
+--  escribe la gente son sucias ("V 2", "2.0", "ML Slim") y un folio tiene que
+--  poder dictarse por teléfono. Si no queda nada utilizable devuelve NULL y se
+--  cae al consecutivo.
+--
+--  `omm_tg_cot_folio` ahora:
+--   1. Si la fila trae `version_group_id` y etiqueta, busca la RAÍZ —la
+--      hermana más vieja cuyo folio NO trae cola— y le pega la etiqueta. Por
+--      eso la versión de una versión cuelga del original: B→C da ES01-C, no
+--      ES01-B-C.
+--   2. Acepta como válido `^clave-SUF[0-9]+(-[A-Z0-9]{1,4})?$`, o si no
+--      reescribiría el folio de versión que acaba de poner.
+--   3. **Un folio ya ocupado SIEMPRE se reasigna**, aunque las protecciones de
+--      compras y movimientos digan que no se toque: ahí la disyuntiva es folio
+--      nuevo o nada, y "nada" significa que el usuario no puede guardar. Esto
+--      hace que CUALQUIER camino que clone una cotización quede bien —hay
+--      cinco que insertan en `quotations`, y mañana un bot— y no solo el botón.
+--   4. Dos versiones con la misma etiqueta caen al consecutivo. No se fuerza.
+--
+--  ── Lo que NO se tocó ───────────────────────────────────────────────────
+--
+--  Los 65 folios de versiones ya emitidos se quedan con su consecutivo. Seis
+--  tienen órdenes de compra colgando. Un folio que ya circuló no se renumera:
+--  esa es la razón de ser de la protección del punto 3, no una excepción a
+--  ella.
+--
+--  ── Verificación (sesión de Alfredo Rosas, dentro de begin/rollback) ─────
+--
+--  | prueba                                      | resultado          |
+--  |---------------------------------------------|--------------------|
+--  | clon tal como lo hace el botón HOY (con folio) | DLAN-ES01-B     |
+--  | etiqueta sucia "OP 2"                       | DLAN-ES01-OP2      |
+--  | versión de la versión (B → C)               | DLAN-ES01-C        |
+--  | etiqueta repetida (B otra vez)              | DLAN-ES02          |
+--  | cotización NUEVA de verdad                  | siguiente consecutivo |
+--  | editar la versión                           | folio intacto      |
+--
+--  Detección bancaria, con las tres formas que manda el banco:
+--   "REF DLAN-ES01-B" → versión B · "REF DLAN-ES01" → la A ·
+--   "DLANES01B" (sin guiones) → versión B.
+--  Funciona porque `omm_folio_en_concepto` ordena por `length(folio) desc`: la
+--  cola se lee sola, no hubo que tocar esa función.
+-- ═══════════════════════════════════════════════════════════════════════════
