@@ -2239,3 +2239,62 @@ verify_jwt      : false   (la función autentica con su propio Bearer)
 
 **Ojo al redesplegar cualquier MCP:** hay que mandar los 7 archivos con su ruta.
 Un deploy reemplaza la función completa; mandar solo el que cambió la deja coja.
+
+---
+
+## 📧 Aviso a Logística cuando se paga una OC (2026-09-30)
+
+Elias: *"Cuando se suba un pago aquí en compras, podemos hacer que
+automáticamente notifique a Logística... por correo, Logistica@omniious.com"*
+
+`src/lib/avisoPagoLogistica.ts` (NUEVO), enganchado en `RegistrarPagoModal` de
+`Compras.tsx`, que es el **único** lugar del ERP que inserta en
+`purchase_order_payments` — se verificó antes de escoger dónde colgarlo.
+
+### Las dos decisiones de Elias
+
+- **En cada pago**, no solo al saldar, y el correo dice **cuánto falta**. Varios
+  proveedores sueltan material contra el anticipo; esperar a la liquidación le
+  avisa a Gabriel días después de que ya se podía recoger.
+- **Copia a elias@omniious.com.** Se agregó soporte de `cc` en
+  `api/gmail?action=send` (opcional; quien ya la llamaba no cambia).
+
+El correo sale **a nombre de elias@omniious.com** porque es la cuenta conectada
+al ERP. No hay otra.
+
+### El aviso no puede tumbar el pago — pero tampoco callarse
+
+Un pago que no se guarda porque Gmail estaba caído es daño real; un correo que
+no sale se suple por WhatsApp. `avisarPagoALogistica()` **nunca lanza**:
+devuelve `{ ok:false, error }`.
+
+Y cuando falla, el modal lo dice en ámbar, con el pago ya guardado marcado en
+verde y la advertencia de **no volver a capturarlo**. Dar por avisada a
+Logística cuando nadie le avisó es peor que no tener el aviso: el material se
+queda en el proveedor y todos creen que ya se agendó.
+
+Es la misma regla que la bitácora de cotizaciones, con el matiz invertido: ahí
+el observador se calla para no tumbar la operación; aquí el aviso ES el
+producto, así que su falla se enseña.
+
+### ⚠️ El bug que solo se vio imprimiendo el correo
+
+El cuerpo se arma con un arreglo de renglones y se filtraba con
+`.filter(l => l !== '')` para quitar los condicionales que no aplican. Eso
+**borraba también los renglones en blanco que separan los bloques**, y el correo
+salía como un muro de texto de 25 líneas seguidas. Se cambió a devolver `null`
+en los condicionales y filtrar por `null`, dejando `''` como blanco de verdad.
+
+No lo detecta ningún compilador. Se vio corriendo la función con los datos
+reales de la OC MAT-IE01-C21 (PROCABLES, $89,937.82, 7 partidas) e imprimiendo
+el correo, en los cuatro casos: anticipo con saldo, pago que salda, orden de
+servicio, y sin comprobante ni referencia.
+
+**Regla: un correo automático se revisa leyéndolo impreso, no revisando el
+código que lo arma.**
+
+### Las consultas van sueltas, sin embeds
+
+`purchase_orders` tiene varias rutas hacia `leads`, y un embed ambiguo de
+PostgREST devuelve 300 (PGRST201) — el error que ya dejó pantallas vacías en
+este ERP. Tres consultas chicas cuestan menos que ese bug.

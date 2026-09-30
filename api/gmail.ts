@@ -72,8 +72,13 @@ function encHeader(s: string): string {
   return '=?UTF-8?B?' + Buffer.from(s, 'utf-8').toString('base64') + '?='
 }
 // Arma el MIME del correo. Si hay adjuntos → multipart/mixed; si no → texto plano.
-function buildMime(to: string, subject: string, text: string, attachments: any[]): string {
-  const head = [to ? `To: ${to}` : '', `Subject: ${encHeader(subject)}`, 'MIME-Version: 1.0'].filter(Boolean)
+function buildMime(to: string, subject: string, text: string, attachments: any[], cc = ''): string {
+  const head = [
+    to ? `To: ${to}` : '',
+    cc ? `Cc: ${cc}` : '',
+    `Subject: ${encHeader(subject)}`,
+    'MIME-Version: 1.0',
+  ].filter(Boolean)
   if (!attachments || attachments.length === 0) {
     return head.concat(['Content-Type: text/plain; charset=UTF-8', 'Content-Transfer-Encoding: 8bit', '', text]).join('\r\n')
   }
@@ -191,13 +196,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (action === 'send') {
       const body: any = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {})
       const to = String(body.to || '').trim()
+      // `cc` es opcional. Hoy solo lo usa el aviso de pago a Logistica, que va
+      // con copia. Quien ya llamaba a esta accion sin cc sale igual que antes.
+      const cc = String(body.cc || '').trim()
       const subject = String(body.subject || '').trim()
       const text = String(body.body || '')
       if (!to || !subject) return res.status(400).json({ ok: false, error: 'Faltan destinatario o asunto' })
       const t = await getStoredToken()
       if (!t) return res.status(400).json({ ok: false, error: 'Gmail no está conectado.' })
       const at = await accessTokenFromRefresh(t.refresh_token)
-      const mime = buildMime(to, subject, text, Array.isArray(body.attachments) ? body.attachments : [])
+      const mime = buildMime(to, subject, text, Array.isArray(body.attachments) ? body.attachments : [], cc)
       const sr = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
         method: 'POST',
         headers: { Authorization: `Bearer ${at}`, 'Content-Type': 'application/json' },

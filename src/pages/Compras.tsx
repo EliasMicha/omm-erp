@@ -17,6 +17,7 @@ import { sugerirFechaMaximaPago, estadoPago } from '../lib/pagoProveedor'
 import { normalizarMoneda, monedaDeCosto, type Moneda } from '../lib/moneda'
 import { ivaDeOrden, redondearCentavos } from '../lib/ivaCompra'
 import { totalDeOC, deudaDeOC, resumirDeuda, deudaPorProyecto, resumenPorProyecto, type DeudaOC, type FilaProyecto, type EntradaTeorico } from '../lib/deudaCompras'
+import { avisarPagoALogistica, CORREO_LOGISTICA } from '../lib/avisoPagoLogistica'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type POStatus = 'borrador' | 'aprobada' | 'pedida' | 'recibida_parcial' | 'recibida' | 'cancelada'
@@ -4482,6 +4483,11 @@ function RegistrarPagoModal({ poId, poCurrency, poTotal, totalPaid, poStatus, on
   const [file, setFile] = useState<File | null>(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  // El pago YA se guardó pero el aviso a Logística no salió. Se separa del
+  // `error` a propósito: si esto se pintara como error, el usuario creería que
+  // el pago no quedó y lo volvería a capturar.
+  const [avisoFallo, setAvisoFallo] = useState<string | null>(null)
+  const [cierrePendiente, setCierrePendiente] = useState<{ newStatus: POStatus | null } | null>(null)
 
   async function crear() {
     const numAmount = Number(amount)
@@ -4533,7 +4539,31 @@ function RegistrarPagoModal({ poId, poCurrency, poTotal, totalPaid, poStatus, on
       if (!updErr) newStatus = 'pedida'
     }
 
+    // ── Aviso a Logística ────────────────────────────────────────────────
+    //
+    // Va DESPUÉS del insert y no puede deshacerlo: el pago ya está guardado y
+    // un correo que no sale no justifica perderlo. Pero tampoco se calla — si
+    // falla, la pantalla lo dice, porque dar por avisado a Logística cuando
+    // nadie le avisó deja el material parado en el proveedor con todos
+    // creyendo que ya se agendó.
+    const aviso = await avisarPagoALogistica({
+      poId,
+      monto: numAmount,
+      moneda: poCurrency,
+      fecha: paymentDate,
+      metodo: method,
+      referencia: reference || null,
+      conComprobante: !!receipt_url,
+      totalOC: poTotal,
+      pagadoAntes: totalPaid,
+    })
+
     setSaving(false)
+    if (!aviso.ok) {
+      setAvisoFallo(aviso.error || 'No se pudo mandar el correo.')
+      setCierrePendiente({ newStatus })
+      return
+    }
     onCreated(newStatus)
   }
 
@@ -4551,6 +4581,16 @@ function RegistrarPagoModal({ poId, poCurrency, poTotal, totalPaid, poStatus, on
         </div>
 
         {error && <div style={{ background: '#3a1a1a', border: '1px solid #5a2a2a', borderRadius: 8, padding: 10, color: '#f87171', fontSize: 12, marginBottom: 12 }}>{error}</div>}
+
+        {avisoFallo && (
+          <div style={{ background: '#2e2410', border: '1px solid #6b5220', borderRadius: 8, padding: 12, fontSize: 12, marginBottom: 12, lineHeight: 1.6 }}>
+            <div style={{ color: '#10B981', fontWeight: 600, marginBottom: 4 }}>El pago SÍ se guardó.</div>
+            <div style={{ color: '#D9A441' }}>Lo que no salió fue el correo a {CORREO_LOGISTICA}: {avisoFallo}</div>
+            <div style={{ color: '#9a8250', marginTop: 6 }}>
+              Avísale a Logística por otro lado. No vuelvas a capturar el pago — ya está registrado y se duplicaría.
+            </div>
+          </div>
+        )}
 
         <div style={{ display: 'grid', gap: 12 }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
@@ -4594,8 +4634,14 @@ function RegistrarPagoModal({ poId, poCurrency, poTotal, totalPaid, poStatus, on
         </div>
 
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 20 }}>
-          <Btn onClick={onClose}>Cancelar</Btn>
-          <Btn variant="primary" onClick={crear} disabled={saving}>{saving ? 'Guardando...' : 'Guardar pago'}</Btn>
+          {avisoFallo ? (
+            <Btn variant="primary" onClick={() => onCreated(cierrePendiente?.newStatus ?? null)}>Entendido, cerrar</Btn>
+          ) : (
+            <>
+              <Btn onClick={onClose}>Cancelar</Btn>
+              <Btn variant="primary" onClick={crear} disabled={saving}>{saving ? 'Guardando...' : 'Guardar pago y avisar a Logística'}</Btn>
+            </>
+          )}
         </div>
       </div>
     </div>
