@@ -18,7 +18,7 @@ import { normalizarMoneda, monedaDeCosto, type Moneda } from '../lib/moneda'
 import { ivaDeOrden, redondearCentavos } from '../lib/ivaCompra'
 import { totalDeOC, deudaDeOC, resumirDeuda, deudaPorProyecto, resumenPorProyecto, type DeudaOC, type FilaProyecto, type EntradaTeorico } from '../lib/deudaCompras'
 import { avisarPagoALogistica, CORREO_LOGISTICA } from '../lib/avisoPagoLogistica'
-import { comoQuedo, camposCotejados } from '../lib/cotejo'
+import { comoQuedo, camposCotejados, estaCotejado } from '../lib/cotejo'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type POStatus = 'borrador' | 'aprobada' | 'pedida' | 'recibida_parcial' | 'recibida' | 'cancelada'
@@ -3452,6 +3452,24 @@ function POEditor({ poId, onBack, onAbrirOtra }: { poId: string; onBack: () => v
 
   const canEdit = po.status === 'borrador' || po.status === 'aprobada'
 
+  /**
+   * ¿Se enseña el bloque de cotejo?
+   *
+   * Antes solo en BORRADOR, y ese era el defecto que reportó Elias: al aprobar
+   * la orden, las columnas del cotejo desaparecían de la pantalla y solo
+   * quedaban "Artículo original / P.U. catálogo / Total catálogo". O sea que la
+   * tabla mostraba el producto y el precio que NO se compraron, mientras el
+   * panel de la derecha decía "Subtotal cotejado". La pantalla se contradecía
+   * sola, igual que el PDF.
+   *
+   * Ahora se ve mientras la orden se pueda editar, y también después si alguna
+   * partida trae cotejo: es lo que se compró, y se sigue viendo al lado de lo
+   * que se había cotizado.
+   */
+  const hayCotejo = items.some(it =>
+    estaCotejado(it as any) || !!it.real_name || it.real_unit_cost != null || it.real_quantity != null)
+  const verCotejo = canEdit || hayCotejo
+
   // Cotejo metrics
   const cotejados = items.filter(it => it.cotejo_status === 'cotejado' || it.cotejo_status === 'sustituido').length
   const totalItems = items.length
@@ -3841,7 +3859,7 @@ function POEditor({ poId, onBack, onAbrirOtra }: { poId: string; onBack: () => v
         <Table>
           <thead><tr>
             <Th>#</Th><Th>Artículo original</Th><Th>Modelo</Th><Th>Sistema</Th><Th>Unidad</Th><Th right>Cant</Th><Th right>P.U. catálogo</Th><Th right>Total catálogo</Th>
-            {po.status === 'borrador' && (<>
+            {verCotejo && (<>
               <Th>Artículo real</Th><Th right>Cant real</Th><Th right>P.U. real</Th><Th right>Total real</Th><Th right>Δ</Th><Th>Estado</Th>
             </>)}
             {(po.status === 'pedida' || po.status === 'recibida_parcial') && <Th right>Recibido<div style={{ fontSize: 8, fontWeight: 400, color: '#555', textTransform: 'none' }}>desde Entregas</div></Th>}
@@ -3894,11 +3912,14 @@ function POEditor({ poId, onBack, onAbrirOtra }: { poId: string; onBack: () => v
                 </Td>
                 <Td right><span style={{ fontWeight: 500, color: '#888' }}>{F(it.total)}</span></Td>
 
-                {/* ── COTEJO COLUMNS (borrador only) ── */}
-                {po.status === 'borrador' && (<>
+                {/* ── COTEJO: lo que de verdad se compró ──
+                    Se ve mientras se pueda editar, y después en solo lectura si
+                    la partida trae cotejo. Ocultarlo al aprobar dejaba en
+                    pantalla el precio que no se pagó. ── */}
+                {verCotejo && (<>
                   <Td>
                     <input value={it.real_name || ''} onChange={e => updateItem(it.id, 'real_name', e.target.value)}
-                      placeholder={it.name}
+                      readOnly={!canEdit} placeholder={it.name}
                       style={{
                         background: 'transparent', border: '1px solid #2a2a2a', borderRadius: 4,
                         color: it.real_name ? '#fff' : '#444', fontSize: 11, fontFamily: 'inherit',
@@ -3912,7 +3933,7 @@ function POEditor({ poId, onBack, onAbrirOtra }: { poId: string; onBack: () => v
                       updateItem(it.id, 'real_quantity', rq)
                       updateItem(it.id, 'real_total', Math.round(rq * rc * 100) / 100)
                     }}
-                      placeholder={String(it.quantity)}
+                      readOnly={!canEdit} placeholder={String(it.quantity)}
                       style={{
                         background: 'transparent', border: '1px solid #2a2a2a', borderRadius: 4,
                         color: it.real_quantity != null ? '#fff' : '#444', fontSize: 11,
@@ -3926,7 +3947,7 @@ function POEditor({ poId, onBack, onAbrirOtra }: { poId: string; onBack: () => v
                       updateItem(it.id, 'real_unit_cost', rc)
                       updateItem(it.id, 'real_total', Math.round(rq * rc * 100) / 100)
                     }}
-                      placeholder={String(it.unit_cost)}
+                      readOnly={!canEdit} placeholder={String(it.unit_cost)}
                       style={{
                         background: 'transparent', border: '1px solid #2a2a2a', borderRadius: 4,
                         color: it.real_unit_cost != null ? '#fff' : '#444', fontSize: 11,
@@ -3946,7 +3967,7 @@ function POEditor({ poId, onBack, onAbrirOtra }: { poId: string; onBack: () => v
                     )}
                   </Td>
                   <Td>
-                    <select value={it.cotejo_status || 'pendiente'}
+                    <select value={it.cotejo_status || 'pendiente'} disabled={!canEdit}
                       onChange={e => { updateItem(it.id, 'cotejo_status', e.target.value); setDirty(true) }}
                       style={{
                         background: cotejoColor + '15', border: `1px solid ${cotejoColor}44`,

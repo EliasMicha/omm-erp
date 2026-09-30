@@ -2395,6 +2395,29 @@ modelo que no corresponde al nombre — y eso se compra. Se deja en blanco.
 
 > Un dato faltante se pregunta; uno equivocado se compra.
 
+### La pantalla tenía el MISMO defecto, y fue lo siguiente que reportó
+
+Las columnas del cotejo —`Artículo real / Cant real / P.U. real / Total real /
+Δ / Estado`— se renderizaban **solo en `borrador`**:
+
+```tsx
+{po.status === 'borrador' && (<>   ← encabezado y celdas
+```
+
+Así que **al aprobar la orden desaparecían de la pantalla** y quedaba solo
+"Artículo original / P.U. catálogo / Total catálogo", mientras el panel de la
+derecha decía "Subtotal cotejado $3,824.73". La tabla mostraba el producto y el
+precio que NO se compraron. Misma enfermedad que el PDF, otra superficie.
+
+Ahora el bloque se ve mientras la orden se pueda editar **y también después, si
+alguna partida trae cotejo**, en solo lectura (`readOnly` / `disabled`).
+
+⚠️ El encabezado y la fila comparten las TRES condiciones (`verCotejo`,
+`pedida|parcial`, `canEdit`), así que no pueden desalinearse. Verificado
+contando: **16 `Th` contra 16 `Td`**. Es el tercer descuadre de columnas de este
+repo (los bundles de Ilum y el PDF de cotización fueron los otros dos); la regla
+sigue siendo contar con un script, no a ojo.
+
 ### Cómo se verificó
 
 Con las 5 partidas reales de `E102C-ES01-C05` corridas por el resolver en node:
