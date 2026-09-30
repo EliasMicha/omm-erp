@@ -139,3 +139,61 @@ create unique index if not exists uq_po_folio          on purchase_orders (folio
 --  Funciona porque `omm_folio_en_concepto` ordena por `length(folio) desc`: la
 --  cola se lee sola, no hubo que tocar esa función.
 -- ═══════════════════════════════════════════════════════════════════════════
+
+-- ═══════════════════════════════════════════════════════════════════════════
+--  La OC toma su folio al LIGARLE la cotización, no solo al nacer (2026-09-30)
+--  Migración: `folios_omm_oc_asciende_al_ligar_cotizacion`
+--
+--  Elias: "en algunas cotizaciones está siguiendo bien el foliado y en otras
+--  no, aunque sí estén adjudicadas a un proyecto".
+--
+--  ── La causa: CUÁNDO se liga la cotización ──────────────────────────────
+--
+--    · OC que nace con cotización        → MAT-IE01-C22        ✔ (156 de 170)
+--    · OC que nace sin ella y se liga
+--      después (la OC manual la trae
+--      OPCIONAL)                         → OC-2609-096, pegado ✘ (3)
+--
+--  El trigger escribía el consecutivo en `folio` como respaldo, y su primera
+--  línea decía "si ya tiene folio, no lo toques". Ligarle la cotización
+--  después no servía de nada.
+--
+--  Las tres se crearon sin cotización y se ligaron 115 segundos, 164 segundos
+--  y 5 días más tarde. Las 156 buenas nacieron con la suya.
+--
+--  ── Lo que NO es defecto ────────────────────────────────────────────────
+--
+--  11 órdenes traen OC-26xx-nnn y está bien: no cuelgan de cotización
+--  (herramienta, insumos de rack, compras de bodega, canceladas). Ahí el
+--  consecutivo ES el folio. El respaldo se conserva a propósito porque
+--  `omm_folio_en_concepto` lo usa para amarrar transferencias.
+--
+--  ── La regla nueva ──────────────────────────────────────────────────────
+--
+--  Una orden con folio de respaldo que recibe cotización se ASCIENDE, pero
+--  solo mientras nada dependa del número viejo: en borrador o aprobada, sin
+--  pagos y sin transferencia que ya lo traiga. Una 'pedida' ya salió con ese
+--  número impreso en el PDF del proveedor.
+--
+--  ⚠️ EL TRIGGER ES `BEFORE INSERT OR UPDATE **OF quotation_id**`.
+--
+--  Solo corre cuando `quotation_id` va en el SET. La primera prueba tocaba
+--  `updated_at` y no pasaba nada — parecía que el arreglo no servía, y lo que
+--  no servía era la prueba. Para reparar una fila a mano:
+--
+--      update purchase_orders set quotation_id = quotation_id where ...
+--
+--  ── Verificación (transacción revertida, 5 casos) ───────────────────────
+--
+--  | caso                                | resultado            |
+--  |-------------------------------------|----------------------|
+--  | borrador + cotización con folio     | R222-IE01-C03    ✔   |
+--  | borrador + cotización con folio     | OFP1-IE01-C09    ✔   |
+--  | **pedida** + cotización con folio   | no se toca       ✔   |
+--  | ya tenía folio OMM                  | no se toca       ✔   |
+--  | sin cotización                      | consecutivo      ✔   |
+--
+--  Aplicado a las dos en borrador. Quedan 158 correctas, 11 con consecutivo
+--  legítimo y 1 (OC-2609-092, ya pedida) esperando que Elias diga si se
+--  renumera o se deja.
+-- ═══════════════════════════════════════════════════════════════════════════

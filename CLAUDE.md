@@ -2298,3 +2298,47 @@ código que lo arma.**
 `purchase_orders` tiene varias rutas hacia `leads`, y un embed ambiguo de
 PostgREST devuelve 300 (PGRST201) — el error que ya dejó pantallas vacías en
 este ERP. Tres consultas chicas cuestan menos que ese bug.
+
+---
+
+## 🔢 El folio de la OC se pega si la cotización llega después (2026-09-30)
+
+Elias: *"en algunas cotizaciones está siguiendo bien el foliado y en otras no,
+aunque sí estén adjudicadas a un proyecto"*.
+
+No era aleatorio. Depende de **cuándo** se le liga la cotización a la orden:
+
+| | |
+|---|---|
+| Nace con cotización | `MAT-IE01-C22` ✔ (156 de 170) |
+| Nace sin ella y se liga después | `OC-2609-096`, pegado ✘ (3) |
+
+La OC manual trae la cotización **opcional**. Sin ella, el trigger caía al
+respaldo y escribía el consecutivo en `folio`; su primera línea era "si ya tiene
+folio, no lo toques", así que ligarla después no servía. Las tres malas se
+ligaron 115 s, 164 s y 5 días después de creadas.
+
+Ahora una orden con folio de respaldo que recibe cotización **se asciende**,
+pero solo en borrador o aprobada, sin pagos y sin transferencia que ya traiga el
+número: una `pedida` ya salió al proveedor con ese folio impreso.
+
+### ⚠️ `BEFORE INSERT OR UPDATE **OF quotation_id**`
+
+El trigger `tg_po_folio` solo corre cuando `quotation_id` va en el SET. La
+primera prueba actualizaba `updated_at` y no pasaba nada — parecía que el
+arreglo no servía, y lo que no servía era la prueba. Para reparar una fila:
+
+```sql
+update purchase_orders set quotation_id = quotation_id where ...
+```
+
+**Lección: antes de concluir que un arreglo no funciona, comprueba que el
+trigger siquiera se disparó.** `pg_get_triggerdef()` lo dice; el decodificado de
+`tgtype` que yo había hecho decía "INSERT UPDATE" y se comió el `OF quotation_id`.
+
+### Lo que NO es defecto
+
+11 órdenes traen `OC-26xx-nnn` con razón: no cuelgan de ninguna cotización
+(herramienta, insumos de rack, compras de bodega, canceladas). Ahí el
+consecutivo **es** el folio, y el respaldo se conserva porque
+`omm_folio_en_concepto` lo usa para amarrar transferencias.
