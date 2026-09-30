@@ -2342,3 +2342,62 @@ trigger siquiera se disparó.** `pg_get_triggerdef()` lo dice; el decodificado d
 (herramienta, insumos de rack, compras de bodega, canceladas). Ahí el
 consecutivo **es** el folio, y el respaldo se conserva porque
 `omm_folio_en_concepto` lo usa para amarrar transferencias.
+
+---
+
+## 🧾 El cotejo no llegaba al PDF de la orden de compra (2026-09-30)
+
+Elias: *"cuando hago el cotejo de precios y apruebo la OC con sustituciones o
+cantidades cotejadas, no me guarda eso, me guarda lo original"*.
+
+**El cotejo sí se guardaba.** Vive en las columnas `real_*` de `po_items`, y el
+encabezado de la orden ya traía los totales cotejados. El que no se enteraba era
+**el PDF**.
+
+`poPdf.ts` imprime cada renglón con los campos canónicos (los del catálogo) y el
+bloque de totales con `purchase_orders.subtotal/iva/total`. Resultado real en
+`E102C-ES01-C05`:
+
+```
+  1 x  514.85   Unifi Dream Machine Pro      ← cotejado a UCG-MAX $284
+  1 x  828.84   USW-PRO-24-POE               ← cotejado a $779.87
+ 12 x  342.68   U7-PRO                       ← cotejado a $180.67
+ ...
+ suma de renglones: 6,140.62
+ TOTAL al pie:      4,436.69        ← el cotejado
+```
+
+Una orden de compra que **no cuadra consigo misma**, firmada y enviada al
+proveedor. **23 órdenes estaban así.**
+
+### Por qué había dos verdades
+
+`real_* → canónico` se volcaba **solo al marcar "pedida"**. Pero el PDF se manda
+al **aprobar**, que es antes. Entre aprobar y pedir, los renglones traían el
+precio de catálogo y el total el cotejado.
+
+### El arreglo, por los dos lados
+
+- `src/lib/cotejo.ts` (NUEVO) — `comoQuedo(item)` resuelve el renglón para
+  quien lo pinte. Los **tres** puntos que generan PDF pasan por ahí, así que
+  las 23 órdenes viejas salen bien **sin tocar un solo dato**: se resuelve al
+  imprimir.
+- `changeStatus`: ahora vuelca también al **aprobar**, no solo al pedir.
+  Aprobar es decir "cómprala así", y "así" es lo cotejado.
+- `camposCotejados(item)` reemplaza la misma cuenta que estaba **copiada en dos
+  lugares** (`commitCotejadoItemsDB` y el bloque de `changeStatus`).
+
+### ⚠️ El modelo en una sustitución
+
+Si se sustituyó el producto (`real_name`) y no se capturó `real_modelo`, el
+`modelo` viejo es **de otro producto**. Imprimirlo le manda al proveedor un
+modelo que no corresponde al nombre — y eso se compra. Se deja en blanco.
+
+> Un dato faltante se pregunta; uno equivocado se compra.
+
+### Cómo se verificó
+
+Con las 5 partidas reales de `E102C-ES01-C05` corridas por el resolver en node:
+antes los renglones sumaban 6,140.62 contra un total de 3,824.73; después suman
+**3,824.73 exacto**. Y una partida sin cotejo no devuelve ningún campo a
+escribir.

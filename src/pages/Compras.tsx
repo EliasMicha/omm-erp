@@ -18,6 +18,7 @@ import { normalizarMoneda, monedaDeCosto, type Moneda } from '../lib/moneda'
 import { ivaDeOrden, redondearCentavos } from '../lib/ivaCompra'
 import { totalDeOC, deudaDeOC, resumirDeuda, deudaPorProyecto, resumenPorProyecto, type DeudaOC, type FilaProyecto, type EntradaTeorico } from '../lib/deudaCompras'
 import { avisarPagoALogistica, CORREO_LOGISTICA } from '../lib/avisoPagoLogistica'
+import { comoQuedo, camposCotejados } from '../lib/cotejo'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type POStatus = 'borrador' | 'aprobada' | 'pedida' | 'recibida_parcial' | 'recibida' | 'cancelada'
@@ -152,23 +153,18 @@ const SYSTEM_OPTIONS = ['Redes', 'CCTV', 'Audio', 'Lutron', 'Acceso', 'Somfy', '
 // valores reales (real_*) a los campos canónicos (quantity/modelo/etc.) para que
 // "lo pedido" use cantidades/modelos cotejados, no los originales.
 // Fuente = filas de DB (usado por el flujo de pago que auto-marca pedida).
+/**
+ * Vuelca lo cotejado a los campos canonicos: la orden cotejada es la
+ * definitiva. Lee de la base, asi que sirve cuando no hay estado en memoria.
+ *
+ * La resolucion vive en src/lib/cotejo.ts. Estaba copiada aqui y otra vez en
+ * `changeStatus`; dos copias de la misma cuenta son dos oportunidades de que
+ * una se corrija y la otra no.
+ */
 async function commitCotejadoItemsDB(poId: string) {
   const { data } = await supabase.from('po_items').select('*').eq('purchase_order_id', poId)
   for (const it of ((data as any[]) || [])) {
-    const cot = it.cotejo_status === 'cotejado' || it.cotejo_status === 'sustituido'
-    if (!cot) continue
-    const f: any = {}
-    if (it.real_quantity != null) f.quantity = it.real_quantity
-    if (it.real_unit_cost != null) f.unit_cost = it.real_unit_cost
-    if (it.real_total != null) f.total = it.real_total
-    else if (it.real_quantity != null || it.real_unit_cost != null) {
-      const q = it.real_quantity != null ? it.real_quantity : it.quantity
-      const c = it.real_unit_cost != null ? it.real_unit_cost : it.unit_cost
-      f.total = Math.round(q * c * 100) / 100
-    }
-    if (it.real_name) f.name = it.real_name
-    if (it.real_marca) f.marca = it.real_marca
-    if (it.real_modelo) f.modelo = it.real_modelo
+    const f = camposCotejados(it)
     if (Object.keys(f).length) await supabase.from('po_items').update(f).eq('id', it.id)
   }
 }
@@ -1529,7 +1525,8 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
       const { data: cats } = await supabase.from('catalog_products').select('id,marca,modelo').in('id', catIds)
       if (cats) catMap = new Map(cats.map(c => [c.id, c]))
     }
-    const enriched = poItems.map((it: any) => ({
+    // Igual que en el editor: el PDF imprime lo COTEJADO, no lo del catálogo.
+    const enriched = poItems.map((it: any) => comoQuedo({
       ...it,
       marca: it.catalog_product_id ? catMap.get(it.catalog_product_id)?.marca || '' : '',
       modelo: it.catalog_product_id ? catMap.get(it.catalog_product_id)?.modelo || '' : '',
@@ -3352,25 +3349,19 @@ function POEditor({ poId, onBack, onAbrirOtra }: { poId: string; onBack: () => v
     if (newStatus === 'recibida') {
       updates.delivered_at = new Date().toISOString()
     }
-    // Al marcar como PEDIDA, la orden cotejada es la definitiva: vuelca real_* → campos
-    // canónicos (cantidad/modelo/costo/total) para cada ítem cotejado o sustituido, usando
-    // el estado en memoria (captura cotejo aún sin guardar). Y fija los totales cotejados.
-    if (newStatus === 'pedida') {
+    // Al APROBAR o al marcar PEDIDA, la orden cotejada es la definitiva: vuelca
+    // real_* → campos canónicos (cantidad/modelo/costo/total) de cada partida
+    // cotejada o sustituida, con el estado en memoria (incluye cotejo aún sin
+    // guardar). Y fija los totales cotejados.
+    //
+    // Antes esto SOLO corría al marcar pedida, y el PDF se manda al aprobar:
+    // entre aprobar y pedir, los renglones traían el precio de catálogo y el
+    // total al pie el cotejado. El proveedor recibía una orden que no cuadraba
+    // consigo misma — 23 órdenes estaban así. Aprobar es decir "cómprala así",
+    // y "así" es lo cotejado.
+    if (newStatus === 'aprobada' || newStatus === 'pedida') {
       for (const it of items) {
-        const cot = it.cotejo_status === 'cotejado' || it.cotejo_status === 'sustituido'
-        if (!cot) continue
-        const f: any = {}
-        if (it.real_quantity != null) f.quantity = it.real_quantity
-        if (it.real_unit_cost != null) f.unit_cost = it.real_unit_cost
-        if (it.real_total != null) f.total = it.real_total
-        else if (it.real_quantity != null || it.real_unit_cost != null) {
-          const q = it.real_quantity != null ? it.real_quantity : it.quantity
-          const c = it.real_unit_cost != null ? it.real_unit_cost : it.unit_cost
-          f.total = Math.round(q * c * 100) / 100
-        }
-        if (it.real_name) f.name = it.real_name
-        if (it.real_marca) f.marca = it.real_marca
-        if (it.real_modelo) f.modelo = it.real_modelo
+        const f = camposCotejados(it as any)
         if (Object.keys(f).length) await supabase.from('po_items').update(f).eq('id', it.id)
       }
       updates.subtotal = subtotal; updates.iva = iva; updates.total = total
@@ -3526,20 +3517,26 @@ function POEditor({ poId, onBack, onAbrirOtra }: { poId: string; onBack: () => v
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
           <Btn size="sm" onClick={() => {
             const catMap = new Map(catalog.map(c => [c.id, c]))
-            const enriched = items.map(it => ({
+            // comoQuedo() resuelve el renglón al cotejo: sin esto el PDF
+            // imprime el precio de catálogo en las líneas y el total cotejado
+            // al pie, y no cuadra.
+            const enriched = items.map(it => comoQuedo({
               ...it,
               marca: it.catalog_product_id ? (catMap.get(it.catalog_product_id) as any)?.marca || '' : '',
               modelo: it.catalog_product_id ? (catMap.get(it.catalog_product_id) as any)?.modelo || '' : '',
-            }))
+            } as any))
             generatePOPdf(po as any, enriched)
           }}><Download size={14} /> PDF</Btn>
           <Btn size="sm" variant="ghost" onClick={() => {
             const catMap = new Map(catalog.map(c => [c.id, c]))
-            const enriched = items.map(it => ({
+            // comoQuedo() resuelve el renglón al cotejo: sin esto el PDF
+            // imprime el precio de catálogo en las líneas y el total cotejado
+            // al pie, y no cuadra.
+            const enriched = items.map(it => comoQuedo({
               ...it,
               marca: it.catalog_product_id ? (catMap.get(it.catalog_product_id) as any)?.marca || '' : '',
               modelo: it.catalog_product_id ? (catMap.get(it.catalog_product_id) as any)?.modelo || '' : '',
-            }))
+            } as any))
             generatePOPdf(po as any, enriched, { sinCostos: true })
           }}><FileText size={14} /> PDF sin costos</Btn>
           {canEdit && (
