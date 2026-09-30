@@ -76,3 +76,42 @@ on conflict (id) do update
 --  a cualquier llamada. Mientras no exista ese secreto, NINGÚN bot puede usar
 --  este MCP —ni esta herramienta ni las cinco que ya tenía—. Lo pone Elias;
 --  yo no manejo secretos.
+
+-- ═══════════════════════════════════════════════════════════════════════════
+--  Comprobante de pago desde el celular: la guarda contra duplicados
+--  (2026-09-30) · Migración `pago_no_se_puede_subir_dos_veces`
+--
+--  El atajo del celular (POST /api/extract?action=comprobante_pago) vuelve
+--  trivial subir un comprobante. Lo trivial se repite.
+--
+--  Lo destapó el segundo comprobante de prueba: $10,605.01 a PROCABLES con
+--  concepto "Material R222IE01C03". El detector lo amarra perfecto a
+--  R222-IE01-C03 y el importe cuadra AL CENTAVO con el total de la orden…
+--  pero ese pago YA estaba registrado a mano en Compras. Subirlo por el atajo
+--  habría dejado la orden pagada al doble.
+--
+--  Dos frenos, los dos necesarios:
+--
+--  1. `operacion_bancaria` + índice único parcial. El folio de operación del
+--     banco (0057363224) es único por transferencia y viene impreso en el
+--     comprobante; es el único dato que identifica el movimiento sin
+--     ambigüedad (el importe se repite, la fecha se repite, el proveedor se
+--     repite). Sin folio de operación se arma `oc:<id>|<fecha>|<importe>`.
+--     Las filas viejas y lo que se captura a mano en Compras van en NULL y no
+--     estorban: el índice es parcial.
+--
+--     Es índice único y no consulta previa porque consultar-y-luego-escribir
+--     NO es una guarda — es lo que triplicó las salidas de inventario en
+--     ENT-260702-676. El 23505 se atrapa y se contesta "ese comprobante ya lo
+--     subiste".
+--
+--  2. Freno de sobrepago: si el importe excede el saldo, no se registra. Puede
+--     ser comprobante repetido, pago capturado dos veces o una orden a la que
+--     le falta el aumento — tres cosas que se arreglan distinto, así que se
+--     devuelve el número y decide una persona.
+--
+--  Verificado en transacción revertida, 4 casos:
+--    1er comprobante → se registra · el mismo otra vez → 23505 ·
+--    dos pagos a mano sin llave → los dos pasan (no se estorba a Compras) ·
+--    otro comprobante distinto → se registra.
+-- ═══════════════════════════════════════════════════════════════════════════

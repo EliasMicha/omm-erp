@@ -231,6 +231,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   //
   //  Solo se registra el pago cuando NO hay duda. Un pago cargado a la orden
   //  equivocada se borra a mano y ensucia dos obras a la vez.
+  //
+  //  ⚠️ Y NO SE PUEDE SUBIR DOS VECES. El segundo comprobante de prueba
+  //  ($10,605.01, concepto "Material R222IE01C03") amarraba perfecto a su
+  //  orden… que YA estaba saldada porque el pago se había capturado a mano en
+  //  Compras. El atajo vuelve fácil lo que antes costaba, y lo fácil se repite:
+  //  sin la llave única del folio de operación, esto sería una máquina de pagos
+  //  duplicados. Ver la migración `pago_no_se_puede_subir_dos_veces`.
   if ((req.query as any)?.action === 'comprobante_pago') {
     const tok = (req.query as any).token || (req.headers['x-omm-token'] as string)
     if (!process.env.CAPTURE_TOKEN || tok !== process.env.CAPTURE_TOKEN) {
@@ -349,6 +356,25 @@ Reglas: el importe va como número sin comas ni símbolo. La fecha en formato IS
         return
       }
       const pagadoAntes = (elegida.purchase_order_payments || []).reduce((a: number, x: any) => a + Number(x.amount || 0), 0)
+      const saldoActual = Number(elegida.total || 0) - pagadoAntes
+
+      // Freno de sobrepago. El caso que lo destapó: un comprobante de $10,605.01
+      // cuya orden YA estaba saldada porque el pago se había capturado a mano en
+      // Compras. Registrarlo la habría dejado pagada al doble.
+      //
+      // Aquí no se adivina: puede ser un comprobante repetido, un pago capturado
+      // dos veces, o una orden a la que le falta capturar el aumento. Las tres se
+      // arreglan distinto, así que se devuelve el número y decide una persona.
+      if (importe > saldoActual + 0.02) {
+        res.status(409).json({
+          ok: false, registrado: false,
+          error: saldoActual <= 0.01
+            ? `La orden ${elegida.folio} ya está saldada (${Number(elegida.total).toFixed(2)} ${moneda} pagados). Si este comprobante es de otro pago, regístralo desde Compras; si ya lo habías capturado, no hay nada que hacer.`
+            : `El comprobante trae ${importe.toFixed(2)} ${moneda} y a la orden ${elegida.folio} solo le faltan ${saldoActual.toFixed(2)}. No lo registro solo: revísalo en Compras.`,
+          oc: elegida.folio, saldo: Number(saldoActual.toFixed(2)), importe,
+        })
+        return
+      }
 
       // El comprobante se sube ANTES de registrar el pago: si falla la subida
       // se aborta sin haber tocado el dinero. Al revés quedaría un pago sin su
@@ -363,16 +389,38 @@ Reglas: el importe va como número sin comas ni símbolo. La fecha en formato IS
       if (!up.ok) { res.status(500).json({ ok: false, error: 'No se pudo guardar el comprobante: ' + (await up.text()).slice(0, 160) }); return }
       const receiptUrl = `${sUrl}/storage/v1/object/public/payment-receipts/${ruta}`
 
+      // La llave que impide subirlo dos veces. El folio de operación del banco
+      // es único por transferencia; si el comprobante no lo trae, se arma una
+      // con orden + fecha + importe, que atrapa el caso común de mandar la
+      // misma captura dos veces. Un índice único en la base lo hace imposible:
+      // consultar antes y escribir después NO es una guarda (así se duplicaron
+      // las salidas de inventario en Entregas).
+      const llavePago = String(c.folio_operacion || '').trim()
+        ? `banco:${String(c.folio_operacion).trim()}`
+        : `oc:${elegida.id}|${fecha}|${importe.toFixed(2)}`
+
       const ins = await fetch(`${sUrl}/rest/v1/purchase_order_payments`, {
         method: 'POST', headers: { ...H2, Prefer: 'return=representation' },
         body: JSON.stringify({
           purchase_order_id: elegida.id, amount: importe, currency: moneda, payment_date: fecha,
           method: 'transferencia', reference: c.referencia || c.folio_operacion || null,
-          receipt_url: receiptUrl, receipt_filename: nombre,
+          receipt_url: receiptUrl, receipt_filename: nombre, operacion_bancaria: llavePago,
           notes: `Comprobante subido desde el celular. Concepto del banco: "${c.concepto || '—'}". Folio de operación: ${c.folio_operacion || '—'}.`,
         }),
       })
-      if (!ins.ok) { res.status(500).json({ ok: false, error: 'No se pudo registrar el pago: ' + (await ins.text()).slice(0, 200) }); return }
+      if (!ins.ok) {
+        const txt = await ins.text()
+        // 23505 = choque con el índice único: este comprobante ya se subió.
+        if (txt.includes('23505') || txt.includes('uq_pop_operacion_bancaria')) {
+          res.status(200).json({
+            ok: true, registrado: false, repetido: true, oc: elegida.folio,
+            mensaje: `Este comprobante ya lo habías subido (folio de operación ${c.folio_operacion || '—'}). No registré nada ni volví a avisar a Logística.`,
+          })
+          return
+        }
+        res.status(500).json({ ok: false, error: 'No se pudo registrar el pago: ' + txt.slice(0, 200) })
+        return
+      }
 
       // Al primer pago la orden pasa de borrador/aprobada a pedida, igual que
       // cuando el pago se captura en Compras.
