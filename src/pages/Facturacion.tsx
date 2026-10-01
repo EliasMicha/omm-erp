@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { supabase } from '../lib/supabase'
+import SearchSelect from '../components/SearchSelect'
 import { Plus, X, FileText, RefreshCw, Download, Trash2, Search, Loader2, CheckCircle2, AlertCircle, Ban, FolderDown } from 'lucide-react'
 import { useIsMobile } from '../lib/useIsMobile'
 import { soloSistemasVendidos } from '../lib/sistemasVendidos'
@@ -82,6 +83,12 @@ interface QuotationLite {
   name: string
   client_name: string
   specialty?: string
+  folio?: string | null
+  // El lead vive dentro de notes (JSON), no en una columna: asi lo guarda
+  // Cotizaciones. Lo resolvemos al cargar para poder buscar por obra.
+  lead_id?: string
+  lead_name?: string
+  lead_company?: string
 }
 
 interface QuotationItemLite {
@@ -1984,6 +1991,8 @@ function NuevaFactura({ onCancel, onCreated, editingFactura }: { onCancel: () =>
   const [cotizaciones, setCotizaciones] = useState<QuotationLite[]>([])
   const [clienteId, setClienteId] = useState('')
   const [cotizacionId, setCotizacionId] = useState('')
+  // Filtro opcional: elegir la obra acota la lista de cotizaciones.
+  const [leadFiltro, setLeadFiltro] = useState('')
   const [modoConceptos, setModoConceptos] = useState<'manual' | 'desde_cotizacion'>('manual')
   const [importingItems, setImportingItems] = useState(false)
   const [resumenImport, setResumenImport] = useState<{ ok: boolean; texto: string } | null>(null)
@@ -2036,6 +2045,37 @@ function NuevaFactura({ onCancel, onCreated, editingFactura }: { onCancel: () =>
     setUuidsRelacionados([])
   }, [clienteId])
 
+  // Solo las obras que tienen al menos una cotizacion vigente: ofrecer obras
+  // sin nada que facturar solo hace mas larga la lista.
+  const leadsConCotizacion = useMemo(() => {
+    const m = new Map<string, { id: string; label: string; sub?: string; buscar?: string }>()
+    for (const c of cotizaciones) {
+      if (!c.lead_id || m.has(c.lead_id)) continue
+      m.set(c.lead_id, {
+        id: c.lead_id,
+        label: c.lead_name || '(obra sin nombre)',
+        sub: c.lead_company || undefined,
+        buscar: c.lead_company || '',
+      })
+    }
+    return Array.from(m.values()).sort((a, b) => a.label.localeCompare(b.label))
+  }, [cotizaciones])
+
+  const cotizacionesFiltradas = useMemo(
+    () => (leadFiltro ? cotizaciones.filter(c => c.lead_id === leadFiltro) : cotizaciones),
+    [cotizaciones, leadFiltro]
+  )
+
+  // Al editar un borrador la cotizacion llega antes que la lista: en cuanto
+  // carga, mostramos su obra. Depende solo de [cotizaciones] a proposito, para
+  // que limpiar la obra a mano despues no la vuelva a poner sola.
+  useEffect(() => {
+    if (!cotizacionId || leadFiltro || cotizaciones.length === 0) return
+    const c = cotizaciones.find(x => x.id === cotizacionId)
+    if (c?.lead_id) setLeadFiltro(c.lead_id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cotizaciones])
+
   // Auto-popular serie desde cotizacion y calcular proximo folio
   useEffect(() => {
     if (!cotizacionId) { setSerie(''); setFolio(''); return }
@@ -2057,10 +2097,27 @@ function NuevaFactura({ onCancel, onCreated, editingFactura }: { onCancel: () =>
   useEffect(() => {
     Promise.all([
       supabase.from('clientes').select('id,razon_social,rfc,uso_cfdi,uso_cfdi_clave,regimen_fiscal,regimen_fiscal_clave,codigo_postal,email,telefono,calle,num_exterior,num_interior,colonia,municipio,estado,facturapi_customer_id').eq('activo', true).order('razon_social'),
-      supabase.from('quotations').select('id,name,client_name,specialty').eq('vigente', true).order('created_at', { ascending: false }).limit(200)
-    ]).then(([cli, cot]) => {
+      // 500 y no 200: hay ~300 cotizaciones vigentes y con el buscador se teclea
+      // el nombre de obras viejas, que con el tope anterior no aparecian nunca.
+      supabase.from('quotations').select('id,name,client_name,specialty,folio,notes').eq('vigente', true).order('created_at', { ascending: false }).limit(500),
+      supabase.from('leads').select('id,name,company')
+    ]).then(([cli, cot, lds]) => {
       setClientes((cli.data as ClienteFiscal[]) || [])
-      setCotizaciones((cot.data as QuotationLite[]) || [])
+      const leads = new Map<string, { name: string; company?: string }>(
+        ((lds.data as any[]) || []).map(l => [l.id as string, { name: l.name as string, company: l.company as string | undefined }])
+      )
+      setCotizaciones(((cot.data as any[]) || []).map(q => {
+        let lead_id = ''
+        try {
+          const n = typeof q.notes === 'string' ? JSON.parse(q.notes) : q.notes
+          if (n?.lead_id) lead_id = n.lead_id
+        } catch { /* notes libre: si no es JSON, la cotizacion simplemente no trae obra */ }
+        const l = lead_id ? leads.get(lead_id) : undefined
+        return {
+          id: q.id, name: q.name, client_name: q.client_name, specialty: q.specialty,
+          folio: q.folio, lead_id, lead_name: l?.name, lead_company: l?.company,
+        } as QuotationLite
+      }))
     })
   }, [])
 
@@ -2992,21 +3049,61 @@ function NuevaFactura({ onCancel, onCreated, editingFactura }: { onCancel: () =>
         <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : (tipoComprobante !== 'P' ? '1fr 1fr' : '1fr'), gap: 12 }}>
           <div>
             <label style={lblStyle}>Cliente *</label>
-            <select value={clienteId} onChange={e => setClienteId(e.target.value)} style={inpStyle}>
-              <option value="">-- Selecciona un cliente --</option>
-              {clientes.map(c => <option key={c.id} value={c.id}>{c.razon_social} ({c.rfc})</option>)}
-            </select>
+            <SearchSelect
+              size="md"
+              value={clienteId}
+              placeholder="Teclea razon social o RFC…"
+              options={clientes.map(c => ({ id: c.id, label: `${c.razon_social} (${c.rfc})`, buscar: c.rfc }))}
+              onChange={setClienteId}
+            />
           </div>
           {tipoComprobante !== 'P' && (
             <div>
-              <label style={lblStyle}>Cotizacion (opcional)</label>
-              <select value={cotizacionId} onChange={e => setCotizacionId(e.target.value)} style={inpStyle}>
-                <option value="">-- Sin vinculacion --</option>
-                {cotizaciones.map(c => <option key={c.id} value={c.id}>{c.name} - {c.client_name}</option>)}
-              </select>
+              <label style={lblStyle}>Obra / lead (filtra cotizaciones)</label>
+              <SearchSelect
+                size="md"
+                value={leadFiltro}
+                placeholder="Teclea la obra… (opcional)"
+                options={leadsConCotizacion}
+                onChange={v => {
+                  setLeadFiltro(v)
+                  // Si la cotizacion elegida ya no pertenece a esta obra, se suelta:
+                  // dejarla puesta mientras se ve otra obra en pantalla enganna.
+                  if (v && cotizacionId) {
+                    const c = cotizaciones.find(x => x.id === cotizacionId)
+                    if (c && c.lead_id !== v) setCotizacionId('')
+                  }
+                }}
+              />
             </div>
           )}
         </div>
+        {tipoComprobante !== 'P' && (
+          <div style={{ marginTop: 12 }}>
+            <label style={lblStyle}>
+              Cotizacion (opcional)
+              {leadFiltro && <span style={{ textTransform: 'none', letterSpacing: 0, color: '#10B981', fontWeight: 500 }}> — {cotizacionesFiltradas.length} de esta obra</span>}
+            </label>
+            <SearchSelect
+              size="md"
+              value={cotizacionId}
+              placeholder="Teclea folio, nombre de la cotizacion, obra o cliente…"
+              options={cotizacionesFiltradas.map(c => ({
+                id: c.id,
+                label: (c.folio ? c.folio + ' · ' : '') + c.name,
+                sub: [c.lead_name, c.client_name].filter(Boolean).join(' · '),
+                buscar: [c.lead_name, c.lead_company, c.client_name, c.specialty].filter(Boolean).join(' '),
+              }))}
+              onChange={v => {
+                setCotizacionId(v)
+                // Al elegir cotizacion, la obra se pone sola: asi el formulario
+                // queda coherente aunque se haya buscado directo por folio.
+                const c = cotizaciones.find(x => x.id === v)
+                if (c?.lead_id) setLeadFiltro(c.lead_id)
+              }}
+            />
+          </div>
+        )}
         {tipoComprobante !== 'P' && (
           <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '2fr 1fr', gap: 12, marginTop: 12 }}>
             <div>

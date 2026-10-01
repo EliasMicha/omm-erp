@@ -4,6 +4,7 @@ import { MOCK_CLIENTES } from './Clientes'
 import type { ClienteFiscal } from './Clientes'
 import { supabase, supabaseAll } from '../lib/supabase'
 import EstadoCuentaProveedor from '../components/EstadoCuentaProveedor'
+import SearchSelect from '../components/SearchSelect'
 import { paraConciliar, etiquetaElegible, noArchivada, soloVigentes } from '../lib/versionesCotizacion'
 import { folioRecibo, construirReciboHTML, abrirRecibo } from '../lib/reciboEfectivo'
 // supabaseAll = ve también leads/cotizaciones archivados: aquí los movimientos y
@@ -373,71 +374,6 @@ const CFDI_TYPE_LABELS: Record<CfdiType, string> = {
   I: 'Ingreso', E: 'Egreso', T: 'Traslado', P: 'Pago', N: 'Nomina'
 }
 
-function SearchSelect({ value, options, placeholder, disabled, onChange }: {
-  value: string; options: { id: string; label: string }[]; placeholder?: string; disabled?: boolean; onChange: (val: string) => void
-}) {
-  const [query, setQuery] = useState('')
-  const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
-  const selected = options.find(o => o.id === value)
-  const filtered = query ? options.filter(o => o.label.toLowerCase().includes(query.toLowerCase())) : options
-
-  useEffect(() => {
-    const handler = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false) }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [])
-
-  const inputStyle: React.CSSProperties = {
-    background: '#1a1a1a', color: '#fff', border: '1px solid #2a2a2a',
-    borderRadius: 4, padding: '4px 6px', fontSize: 11, fontFamily: 'inherit',
-    width: '100%', outline: 'none', opacity: disabled ? 0.4 : 1,
-  }
-
-  return (
-    <div ref={ref} style={{ position: 'relative' }}>
-      <input
-        style={inputStyle}
-        placeholder={placeholder || 'Buscar...'}
-        disabled={disabled}
-        value={open ? query : (selected?.label || '')}
-        onChange={e => { setQuery(e.target.value); if (!open) setOpen(true) }}
-        onFocus={() => { setOpen(true); setQuery('') }}
-      />
-      {value && !open && (
-        <span
-          onClick={() => { onChange(''); setQuery('') }}
-          style={{ position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)', color: '#666', cursor: 'pointer', fontSize: 12, lineHeight: 1 }}
-        >✕</span>
-      )}
-      {open && !disabled && (
-        <div style={{
-          position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 50,
-          background: '#111', border: '1px solid #2a2a2a', borderRadius: 4,
-          maxHeight: 200, overflowY: 'auto', marginTop: 2,
-        }}>
-          {filtered.length === 0 ? (
-            <div style={{ padding: 8, fontSize: 10, color: '#555', textAlign: 'center' }}>Sin resultados</div>
-          ) : filtered.slice(0, 50).map(o => (
-            <div
-              key={o.id}
-              onClick={() => { onChange(o.id); setOpen(false); setQuery('') }}
-              style={{
-                padding: '5px 8px', fontSize: 11, cursor: 'pointer', color: o.id === value ? '#10B981' : '#ccc',
-                background: o.id === value ? 'rgba(87,255,154,0.06)' : 'transparent',
-                borderBottom: '1px solid #1a1a1a',
-              }}
-              onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.05)')}
-              onMouseLeave={e => (e.currentTarget.style.background = o.id === value ? 'rgba(87,255,154,0.06)' : 'transparent')}
-            >
-              {o.label}
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // BeneficiarioCell — celda editable para asignar beneficiario REAL (proveedor/
