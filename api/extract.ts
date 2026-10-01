@@ -250,14 +250,49 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const H2: any = { apikey: svc, Authorization: `Bearer ${svc}`, 'Content-Type': 'application/json' }
 
     try {
-      const b: any = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {})
-
       // 1. Leer el comprobante ------------------------------------------------
-      // El Atajo de iOS mete saltos de línea y a veces el prefijo data URL.
-      let img = String(b.image || '').replace(/\s/g, '')
+      //
+      //  Dos formas de mandar la imagen, a proposito:
+      //
+      //  a) LA FOTO TAL CUAL en el cuerpo (Content-Type image/*). Es la que usa
+      //     el Atajo: "Obtener contenido de URL" con Cuerpo = Archivo. Sin
+      //     base64 y sin JSON, el Atajo baja de 12 acciones a 3. El folio ya
+      //     elegido viaja en la query (?oc=PILO-ES01-C02).
+      //  b) JSON { image: "<base64>", mediaType?, oc? }, que es como nacio.
+      //     Se conserva porque un bot o un script la tiene mas facil asi.
+      //
+      //  Vercel entrega el cuerpo como Buffer cuando no reconoce el tipo, que
+      //  es justo el caso de una imagen. Si el cliente manda multipart (algunas
+      //  versiones de Atajos lo hacen al adjuntar un archivo), se recorta la
+      //  parte del archivo: traer un parser completo por un solo campo seria
+      //  mas codigo que el handler.
+      const crudo: any = (req as any).body
+      const ctype = String(req.headers['content-type'] || '')
+      let bytes: Buffer | null = null
+      if (Buffer.isBuffer(crudo)) bytes = crudo
+      else if (crudo instanceof Uint8Array) bytes = Buffer.from(crudo)
+
+      if (bytes && ctype.includes('multipart/form-data')) {
+        const bm = ctype.match(/boundary=(?:"([^"]+)"|([^;]+))/i)
+        const bnd = bm ? (bm[1] || bm[2]).trim() : ''
+        if (bnd) {
+          const sep = Buffer.from('--' + bnd)
+          const ini = bytes.indexOf(sep)
+          const cab = bytes.indexOf(Buffer.from('\r\n\r\n'), ini)
+          const fin = bytes.indexOf(sep, cab > -1 ? cab : ini)
+          if (cab > -1 && fin > cab) bytes = bytes.subarray(cab + 4, fin - 2)
+        }
+      }
+
+      const b: any = bytes
+        ? { oc: (req.query as any)?.oc || '' }
+        : (typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {}))
+      if (!b.oc && (req.query as any)?.oc) b.oc = (req.query as any).oc
+
+      let img = bytes ? bytes.toString('base64') : String(b.image || '').replace(/\s/g, '')
       if (img.startsWith('data:')) { const c = img.indexOf(','); if (c > -1) img = img.slice(c + 1) }
       if (!img) { res.status(400).json({ ok: false, error: 'Falta la imagen del comprobante' }); return }
-      let media = b.mediaType || 'image/jpeg'
+      let media = b.mediaType || (ctype.startsWith('image/') ? ctype.split(';')[0] : 'image/jpeg')
       if (img.startsWith('iVBOR')) media = 'image/png'
       else if (img.startsWith('/9j/')) media = 'image/jpeg'
       else if (img.startsWith('UklGR')) media = 'image/webp'
@@ -372,6 +407,22 @@ Reglas: el importe va como número sin comas ni símbolo. La fecha en formato IS
             ? `La orden ${elegida.folio} ya está saldada (${Number(elegida.total).toFixed(2)} ${moneda} pagados). Si este comprobante es de otro pago, regístralo desde Compras; si ya lo habías capturado, no hay nada que hacer.`
             : `El comprobante trae ${importe.toFixed(2)} ${moneda} y a la orden ${elegida.folio} solo le faltan ${saldoActual.toFixed(2)}. No lo registro solo: revísalo en Compras.`,
           oc: elegida.folio, saldo: Number(saldoActual.toFixed(2)), importe,
+        })
+        return
+      }
+
+      // Modo prueba (?probar=1): dice exactamente que haria y no toca nada.
+      // Existe para poder armar el Atajo en el celular y verlo funcionar sin
+      // dejar un pago de verdad en una orden de verdad. Va aqui, despues de
+      // todas las validaciones, para que la prueba falle en lo mismo que
+      // fallaria el envio real.
+      if ((req.query as any)?.probar) {
+        res.status(200).json({
+          ok: true, registrado: false, prueba: true, oc: elegida.folio,
+          mensaje: `PRUEBA — no registre nada. Lei ${importe.toFixed(2)} ${moneda} del ${fecha} y los habria cargado a la orden ${elegida.folio}, porque ${comoSeAmarro}. Le quedarian ${(saldoActual - importe).toFixed(2)} ${moneda} de saldo. Logistica habria recibido el aviso.`,
+          comprobante: { importe, moneda, fecha, concepto: c.concepto, referencia: c.referencia, folio_operacion: c.folio_operacion, beneficiario: c.beneficiario },
+          saldo_antes: Number(saldoActual.toFixed(2)),
+          saldo_despues: Number((saldoActual - importe).toFixed(2)),
         })
         return
       }
