@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef, useMemo } from 'react'
+import { generarEstadoSubcontratoPdf } from '../lib/subcontratistaPdf'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { soloSistemasVendidos, sistemasApagados } from '../lib/sistemasVendidos'
@@ -4324,16 +4325,32 @@ function CuentaSubcontratista({ poId }: { poId: string }) {
   const [movs, setMovs] = useState<any[]>([])
   const [abierto, setAbierto] = useState(false)
 
+  const [etiquetas, setEtiquetas] = useState<{ proveedor: string; obra: string; descripcion: string }>({ proveedor: '', obra: '', descripcion: '' })
+
   useEffect(() => {
     let vivo = true
     Promise.all([
       supabase.from('v_subcontrato_saldo').select('*').eq('purchase_order_id', poId).maybeSingle(),
       supabase.from('v_subcontrato_movimientos').select('*').eq('purchase_order_id', poId),
-    ]).then(([s, m]) => {
+      // Los nombres se piden aparte: la orden tiene varias rutas hacia leads y
+      // un embed ambiguo de PostgREST devuelve 300 (PGRST201).
+      supabase.from('purchase_orders').select('descripcion,supplier_id,lead_id').eq('id', poId).maybeSingle(),
+    ]).then(async ([s, m, po]) => {
       if (!vivo) return
       setSaldo(s.data || null)
       setMovs(((m.data as any[]) || []).sort((a, b) =>
         String(a.fecha).localeCompare(String(b.fecha)) || (a.tipo === 'cargo' ? -1 : 1)))
+      const o: any = po.data || {}
+      const [prov, lead] = await Promise.all([
+        o.supplier_id ? supabase.from('suppliers').select('name').eq('id', o.supplier_id).maybeSingle() : Promise.resolve({ data: null }),
+        o.lead_id ? supabase.from('leads').select('name').eq('id', o.lead_id).maybeSingle() : Promise.resolve({ data: null }),
+      ])
+      if (!vivo) return
+      setEtiquetas({
+        proveedor: (prov.data as any)?.name || 'Subcontratista',
+        obra: (lead.data as any)?.name || '',
+        descripcion: o.descripcion || '',
+      })
     })
     return () => { vivo = false }
   }, [poId])
@@ -4358,9 +4375,25 @@ function CuentaSubcontratista({ poId }: { poId: string }) {
             {saldo.personas} {saldo.personas === 1 ? 'persona' : 'personas'} en nómina contra este contrato
           </span>
         </div>
-        <Btn variant="ghost" size="sm" onClick={() => setAbierto(a => !a)}>
-          {abierto ? 'Ocultar detalle' : 'Ver detalle'}
-        </Btn>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <Btn variant="ghost" size="sm" onClick={() => setAbierto(a => !a)}>
+            {abierto ? 'Ocultar detalle' : 'Ver detalle'}
+          </Btn>
+          <Btn variant="primary" size="sm" onClick={() => generarEstadoSubcontratoPdf({
+            folio: saldo.folio || '',
+            subcontratista: etiquetas.proveedor,
+            obra: etiquetas.obra,
+            descripcion: etiquetas.descripcion,
+            moneda: (saldo.moneda === 'USD' ? 'USD' : 'MXN'),
+            contrato, pagadoDirecto: directo, pagadoNomina: nomina, saldo: resta,
+            movimientos: movs.map(m => ({
+              fecha: m.fecha, tipo: m.tipo, origen: m.origen,
+              concepto: m.concepto, persona: m.persona, monto: Number(m.monto), moneda: m.moneda,
+            })),
+          })}>
+            <Download size={12} /> PDF para el subcontratista
+          </Btn>
+        </div>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10, marginBottom: 12 }}>
