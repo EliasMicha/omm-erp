@@ -4300,8 +4300,108 @@ function POEditor({ poId, onBack, onAbrirOtra }: { poId: string; onBack: () => v
           </div>
         </div>
       )}
+    {po && po.tipo === 'servicio' && <CuentaSubcontratista poId={po.id} />}
     {po && <PaymentsSection poId={po.id} poTotal={po.total} poCurrency={po.currency} poStatus={po.status} onStatusChange={(newStatus) => setPO({ ...po, status: newStatus })} />}
     {po && <DocumentosSection poId={po.id} poNumero={folioOC(po)} />}
+    </div>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  CUENTA DEL SUBCONTRATISTA
+//
+//  Elias subcontrata mano de obra y, porque la obra pide seguro, mete a la gente
+//  del subcontratista a la nomina de OMM al minimo. Ese neto es parte de lo que
+//  le paga, asi que baja el saldo del contrato igual que una transferencia.
+//
+//  Lo que se ve aqui NO se captura aqui: sale de las vistas v_subcontrato_*,
+//  que leen la orden, sus pagos y los renglones de nomina de la gente marcada
+//  como subcontratada en su ficha. Por eso no hay forma de que el saldo y la
+//  contabilidad se separen: es el mismo dato visto de otro lado.
+// ═══════════════════════════════════════════════════════════════════════════════
+function CuentaSubcontratista({ poId }: { poId: string }) {
+  const [saldo, setSaldo] = useState<any>(null)
+  const [movs, setMovs] = useState<any[]>([])
+  const [abierto, setAbierto] = useState(false)
+
+  useEffect(() => {
+    let vivo = true
+    Promise.all([
+      supabase.from('v_subcontrato_saldo').select('*').eq('purchase_order_id', poId).maybeSingle(),
+      supabase.from('v_subcontrato_movimientos').select('*').eq('purchase_order_id', poId),
+    ]).then(([s, m]) => {
+      if (!vivo) return
+      setSaldo(s.data || null)
+      setMovs(((m.data as any[]) || []).sort((a, b) =>
+        String(a.fecha).localeCompare(String(b.fecha)) || (a.tipo === 'cargo' ? -1 : 1)))
+    })
+    return () => { vivo = false }
+  }, [poId])
+
+  // Sin gente de nomina asignada no hay nada que esta pantalla agregue: el panel
+  // de Pagos de abajo ya cuenta esa historia completa.
+  if (!saldo || Number(saldo.pagado_nomina || 0) === 0) return null
+
+  const mon = (n: number) => (saldo.moneda === 'USD' ? FUSD(n) : F(n))
+  const contrato = Number(saldo.contrato || 0)
+  const nomina = Number(saldo.pagado_nomina || 0)
+  const directo = Number(saldo.pagado_directo || 0)
+  const resta = Number(saldo.saldo || 0)
+  const pct = contrato > 0 ? Math.min(100, ((contrato - resta) / contrato) * 100) : 0
+
+  return (
+    <div style={{ marginTop: 20, background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 12, padding: 16 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: '#fff' }}>
+          Cuenta del subcontratista
+          <span style={{ fontSize: 11, fontWeight: 400, color: '#666', marginLeft: 8 }}>
+            {saldo.personas} {saldo.personas === 1 ? 'persona' : 'personas'} en nómina contra este contrato
+          </span>
+        </div>
+        <Btn variant="ghost" size="sm" onClick={() => setAbierto(a => !a)}>
+          {abierto ? 'Ocultar detalle' : 'Ver detalle'}
+        </Btn>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10, marginBottom: 12 }}>
+        {[
+          { lbl: 'Contrato', val: contrato, color: '#ddd' },
+          { lbl: 'Pagado directo', val: directo, color: '#60a5fa' },
+          { lbl: 'Vía nómina de su gente', val: nomina, color: '#A78BFA' },
+          { lbl: 'Saldo', val: resta, color: resta <= 0.01 ? '#10B981' : '#D97706' },
+        ].map(c => (
+          <div key={c.lbl} style={{ background: '#0a0a0a', border: '1px solid #1a1a1a', borderRadius: 8, padding: '10px 12px' }}>
+            <div style={{ fontSize: 10, color: '#666', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>{c.lbl}</div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: c.color }}>{mon(c.val)}</div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ height: 6, background: '#1a1a1a', borderRadius: 4, overflow: 'hidden', marginBottom: 4 }}>
+        <div style={{ height: '100%', width: pct + '%', background: pct >= 100 ? '#10B981' : '#A78BFA', transition: 'width 0.3s' }} />
+      </div>
+      <div style={{ fontSize: 10, color: '#666', marginBottom: abierto ? 12 : 0 }}>
+        El neto de nómina de la gente marcada como subcontratada baja este saldo. No se registra como pago
+        a proveedor: esa plata ya está contada una vez en nómina.
+      </div>
+
+      {abierto && (
+        <div style={{ borderTop: '1px solid #1a1a1a', paddingTop: 10 }}>
+          {movs.map((m, i) => (
+            <div key={i} style={{
+              display: 'flex', justifyContent: 'space-between', gap: 10,
+              padding: '6px 0', borderBottom: i < movs.length - 1 ? '1px solid #141414' : 'none', fontSize: 11,
+            }}>
+              <span style={{ color: '#666', minWidth: 78 }}>{m.fecha || '—'}</span>
+              <span style={{ color: '#aaa', flex: 1 }}>{m.concepto}</span>
+              <span style={{
+                color: m.tipo === 'cargo' ? '#ddd' : m.origen === 'nomina' ? '#A78BFA' : '#60a5fa',
+                fontWeight: 600, whiteSpace: 'nowrap',
+              }}>{mon(Number(m.monto))}</span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

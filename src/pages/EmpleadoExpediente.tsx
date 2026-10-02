@@ -24,6 +24,13 @@ interface Employee {
   area?: string | null
   tipo_alta?: 'SEMANAL' | 'QUINCENAL' | null
   tipo_trabajo?: 'OFICINA' | 'OBRA' | 'MIXTO' | null
+  // Esta en la nomina de OMM por el seguro, pero su trabajo lo cubre un
+  // subcontratista y su neto baja el saldo de ese contrato.
+  es_subcontratado?: boolean | null
+  subcontratista_id?: string | null
+  subcontrato_po_id?: string | null
+  subcontrato_lead_id?: string | null
+  subcontrato_quotation_id?: string | null
   estado_empleado?: 'activo' | 'baja' | 'vacaciones' | 'incapacidad' | null
   reporta_a_id?: string | null
   level?: string | null
@@ -520,6 +527,9 @@ function SectionPuesto({ form, set, allEmployees, currentId }: {
         <Field label="Fecha de alta a la empresa">
           <Input type="date" value={form.fecha_alta || form.hire_date || ''} onChange={v => set('fecha_alta', v)} />
         </Field>
+
+        <Divider label="Subcontratado" />
+        <BloqueSubcontrato form={form} set={set} />
 
         <Divider label="EPP / uniforme (obra)" />
         <Field label="Talla de uniforme">
@@ -1096,6 +1106,122 @@ function SectionTitle({ icon: Icon, title, inline }: { icon: any; title: string;
 
 function Grid({ children }: { children: React.ReactNode }) {
   return <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>{children}</div>
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  BLOQUE SUBCONTRATADO
+//
+//  Elias: "no todos los empleados son subcontratados, seria checarlo en su
+//  ficha de empleado, es decir check a subcontratado, asignas lead, contrato
+//  y orden de compra".
+//
+//  Se elige el subcontratista y su orden de servicio; la obra y el contrato se
+//  llenan solos desde esa orden. Se hace asi a proposito: si se capturaran a
+//  mano podrian contradecir a la orden, y entonces el saldo diria una cosa y la
+//  obra otra.
+// ═══════════════════════════════════════════════════════════════════════════
+function BloqueSubcontrato({ form, set }: { form: Partial<Employee>; set: any }) {
+  const [provs, setProvs] = useState<{ id: string; name: string }[]>([])
+  const [ocs, setOcs] = useState<any[]>([])
+  const marcado = !!form.es_subcontratado
+
+  useEffect(() => {
+    if (!marcado) return
+    supabase.from('suppliers').select('id,name').order('name')
+      .then(({ data }) => setProvs((data as any[]) || []))
+  }, [marcado])
+
+  useEffect(() => {
+    if (!marcado || !form.subcontratista_id) { setOcs([]); return }
+    supabase.from('purchase_orders')
+      .select('id,folio,po_number,descripcion,total,currency,lead_id,quotation_id,leads(name)')
+      .eq('tipo', 'servicio').eq('supplier_id', form.subcontratista_id)
+      .order('created_at', { ascending: false })
+      .then(({ data }) => setOcs((data as any[]) || []))
+  }, [marcado, form.subcontratista_id])
+
+  const oc = ocs.find(o => o.id === form.subcontrato_po_id)
+
+  return (
+    <>
+      <Field label="¿Su mano de obra la cubre un subcontratista?" full>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, color: '#ddd' }}>
+          <input
+            type="checkbox"
+            checked={marcado}
+            onChange={e => {
+              const v = e.target.checked
+              set('es_subcontratado', v)
+              if (!v) {
+                // Se limpia todo: dejar la orden colgada haria que su neto
+                // siguiera bajando un saldo del que ya no forma parte.
+                set('subcontratista_id', null); set('subcontrato_po_id', null)
+                set('subcontrato_lead_id', null); set('subcontrato_quotation_id', null)
+              }
+            }}
+            style={{ width: 16, height: 16, accentColor: '#A78BFA', cursor: 'pointer' }}
+          />
+          Subcontratado — está en nuestra nómina por el seguro, y su neto se descuenta del saldo del subcontratista
+        </label>
+      </Field>
+
+      {marcado && (
+        <>
+          <Field label="Subcontratista">
+            <select value={form.subcontratista_id || ''} style={inputCss}
+              onChange={e => {
+                set('subcontratista_id', e.target.value || null)
+                set('subcontrato_po_id', null); set('subcontrato_lead_id', null); set('subcontrato_quotation_id', null)
+              }}>
+              <option value="">— Elige al subcontratista —</option>
+              {provs.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          </Field>
+
+          <Field label="Orden de servicio contra la que se descuenta">
+            <select value={form.subcontrato_po_id || ''} style={inputCss}
+              disabled={!form.subcontratista_id}
+              onChange={e => {
+                const elegida = ocs.find(o => o.id === e.target.value)
+                set('subcontrato_po_id', e.target.value || null)
+                set('subcontrato_lead_id', elegida?.lead_id || null)
+                set('subcontrato_quotation_id', elegida?.quotation_id || null)
+              }}>
+              <option value="">{form.subcontratista_id ? '— Elige la orden —' : 'Primero el subcontratista'}</option>
+              {ocs.map(o => (
+                <option key={o.id} value={o.id}>
+                  {(o.folio || o.po_number || 'sin folio')} · {o.descripcion || 'sin descripción'} · {Number(o.total || 0).toLocaleString('es-MX', { style: 'currency', currency: o.currency || 'MXN' })}
+                </option>
+              ))}
+            </select>
+          </Field>
+
+          {oc && (
+            <Field label="Obra y contrato" full>
+              <div style={{ background: '#0a0a0a', border: '1px solid #1a1a1a', borderRadius: 8, padding: '10px 12px', fontSize: 12, color: '#aaa' }}>
+                <div><span style={{ color: '#666' }}>Obra: </span>{oc.leads?.name || '— la orden no tiene obra asignada —'}</div>
+                <div style={{ marginTop: 4 }}>
+                  <span style={{ color: '#666' }}>Contrato: </span>
+                  {oc.quotation_id ? 'ligado a la cotización de la orden' : '— la orden no está ligada a una cotización —'}
+                </div>
+                <div style={{ marginTop: 6, fontSize: 10, color: '#666' }}>
+                  Se toman de la orden, no se capturan aquí: así el saldo y la obra no pueden decir cosas distintas.
+                </div>
+              </div>
+            </Field>
+          )}
+
+          {!form.subcontrato_po_id && (
+            <Field label="" full>
+              <div style={{ fontSize: 11, color: '#D97706' }}>
+                Mientras no elijas la orden, su nómina no se descuenta de ningún saldo.
+              </div>
+            </Field>
+          )}
+        </>
+      )}
+    </>
+  )
 }
 
 function Field({ label, children, full }: { label: string; children: React.ReactNode; full?: boolean }) {
