@@ -1,6 +1,9 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { createCipheriv, createHmac, createHash, randomBytes, timingSafeEqual } from 'node:crypto'
-import { requireSupabaseUser } from './_auth'
+// Vercel executes API functions as native ESM because package.json declares
+// `type: module`. Keep the emitted import fully qualified so Node can resolve
+// the compiled helper at runtime.
+import { requireSupabaseUser } from './_auth.js'
 
 export const config = {
   maxDuration: 60,
