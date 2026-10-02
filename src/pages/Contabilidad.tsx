@@ -5329,6 +5329,9 @@ function TabEfectivo() {
     persona: '', concepto: '', monto: '', fecha: new Date().toISOString().substring(0, 10), proyecto_nombre: '',
     lead_id: '' as string,
     quotation_id: '' as string,
+    // Orden de compra a la que se abona este egreso. Al guardarla, el disparador
+    // de la base crea el pago en la orden: no se captura en Compras otra vez.
+    purchase_order_id: '' as string,
     moneda: 'MXN' as 'MXN' | 'USD',
   })
   // TC para cobro cruzado (pago en moneda distinta a la de la cotización)
@@ -5345,6 +5348,7 @@ function TabEfectivo() {
       proyecto_nombre: m.proyecto_nombre || '',
       lead_id: m.lead_id || '',
       quotation_id: m.quotation_id || '',
+      purchase_order_id: (m as any).purchase_order_id || '',
       moneda: (m as any).moneda || 'MXN',
     })
     setConvTc(m.tc_aplicado ? String(m.tc_aplicado) : '')
@@ -5453,6 +5457,9 @@ function TabEfectivo() {
   // Catálogos para los dropdowns de lead y cotización
   const [leads, setLeads] = useState<Array<{ id: string; name: string; company?: string }>>([])
   const [quotations, setQuotations] = useState<Array<{ id: string; name: string; specialty: string; total: number; notes?: string | null; stage?: string | null; archived_at?: string | null; vigente?: boolean | null; version_group_id?: string | null }>>([])
+  // Ordenes de compra a las que se puede abonar un egreso de caja. El pago en la
+  // orden se crea solo; aqui solo se elige a cual.
+  const [ordenes, setOrdenes] = useState<any[]>([])
   const fileRef = useRef<HTMLInputElement>(null)
   const [uploadPreview, setUploadPreview] = useState<any[] | null>(null)
   const [uploading, setUploading] = useState(false)
@@ -5470,6 +5477,7 @@ function TabEfectivo() {
       id: m.id, tipo: m.tipo, direccion: m.direccion, persona: m.persona,
       concepto: m.concepto, monto: Number(m.monto), fecha: m.fecha, proyecto_nombre: m.proyecto_nombre,
       lead_id: m.lead_id, quotation_id: m.quotation_id,
+      purchase_order_id: m.purchase_order_id ?? null,
       moneda: (m.moneda || 'MXN') as 'MXN' | 'USD',
       tc_aplicado: m.tc_aplicado ?? null,
       monto_cotizacion: m.monto_cotizacion ?? null,
@@ -5485,6 +5493,13 @@ function TabEfectivo() {
     setLeads(leadsData || [])
     setQuotations(cotsData || [])
     setLoading(false)
+
+    // Las canceladas no: abonarle efectivo a una orden cancelada no significa nada.
+    supabaseAll.from('purchase_orders')
+      .select('id,folio,po_number,descripcion,total,currency,status,tipo,lead_id,supplier_id,suppliers(name),purchase_order_payments(amount)')
+      .neq('status', 'cancelada')
+      .order('created_at', { ascending: false })
+      .then(({ data }) => setOrdenes((data as any[]) || []))
   }
 
   // Refresca SOLO los catálogos de lead/cotización (sin recargar toda la lista)
@@ -5563,6 +5578,7 @@ function TabEfectivo() {
       proyecto_nombre: form.proyecto_nombre.trim() || null,
       lead_id: form.lead_id || null,
       quotation_id: form.quotation_id || null,
+      purchase_order_id: form.purchase_order_id || null,
       moneda: form.moneda,
       // Cobro cruzado: guarda TC + equivalente en la moneda de la cotización
       tc_aplicado: needsConversion ? tcNum : null,
@@ -5576,7 +5592,7 @@ function TabEfectivo() {
       ;({ error } = await supabase.from('cash_movements').insert(payload))
     }
     if (error) { alert('Error: ' + error.message); setSaving(false); return }
-    setForm({ tipo: 'cobro_cliente', persona: '', concepto: '', monto: '', fecha: new Date().toISOString().substring(0, 10), proyecto_nombre: '', lead_id: '', quotation_id: '', moneda: 'MXN' })
+    setForm({ tipo: 'cobro_cliente', persona: '', concepto: '', monto: '', fecha: new Date().toISOString().substring(0, 10), proyecto_nombre: '', lead_id: '', quotation_id: '', purchase_order_id: '', moneda: 'MXN' })
     setConvTc('')
     setEditingId(null)
     setShowForm(false)
@@ -5821,11 +5837,11 @@ function TabEfectivo() {
 
       {/* Modal de registro / edición */}
       {showForm && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => { setShowForm(false); setEditingId(null); setForm({ tipo: 'cobro_cliente', persona: '', concepto: '', monto: '', fecha: new Date().toISOString().substring(0, 10), proyecto_nombre: '', lead_id: '', quotation_id: '' }); setConvTc('') }}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => { setShowForm(false); setEditingId(null); setForm({ tipo: 'cobro_cliente', persona: '', concepto: '', monto: '', fecha: new Date().toISOString().substring(0, 10), proyecto_nombre: '', lead_id: '', quotation_id: '', purchase_order_id: '', moneda: 'MXN' }); setConvTc('') }}>
           <div onClick={e => e.stopPropagation()} style={{ background: '#1a1a1a', border: '1px solid #333', borderRadius: 12, padding: 24, width: Math.min(440, window.innerWidth - 32), maxHeight: '90vh', overflow: 'auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
               <span style={{ fontSize: 16, fontWeight: 700, color: '#fff' }}>{editingId ? 'Editar movimiento de efectivo' : 'Registrar movimiento de efectivo'}</span>
-              <button onClick={() => { setShowForm(false); setEditingId(null); setForm({ tipo: 'cobro_cliente', persona: '', concepto: '', monto: '', fecha: new Date().toISOString().substring(0, 10), proyecto_nombre: '', lead_id: '', quotation_id: '' }); setConvTc('') }} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', fontSize: 18 }}><X size={18} /></button>
+              <button onClick={() => { setShowForm(false); setEditingId(null); setForm({ tipo: 'cobro_cliente', persona: '', concepto: '', monto: '', fecha: new Date().toISOString().substring(0, 10), proyecto_nombre: '', lead_id: '', quotation_id: '', purchase_order_id: '', moneda: 'MXN' }); setConvTc('') }} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', fontSize: 18 }}><X size={18} /></button>
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -5936,6 +5952,55 @@ function TabEfectivo() {
                   ))}
                 </select>
               </div>
+              {/* Egreso ligado a una orden de compra: el pago aparece solo en la orden */}
+              {form.tipo !== 'cobro_cliente' && form.tipo !== 'aportacion' && (() => {
+                // Solo ordenes de la misma moneda: una orden en dolares no se abona
+                // con pesos de la caja, y el disparador lo rechaza de todos modos.
+                const candidatas = ordenes.filter(o =>
+                  (o.currency || 'MXN') === form.moneda &&
+                  (!form.lead_id || o.lead_id === form.lead_id))
+                const elegida = ordenes.find(o => o.id === form.purchase_order_id)
+                const saldoDe = (o: any) => Number(o.total || 0) -
+                  (o.purchase_order_payments || []).reduce((a: number, x: any) => a + Number(x.amount || 0), 0)
+                const monto = parseFloat(form.monto) || 0
+                const saldo = elegida ? saldoDe(elegida) : 0
+                return (
+                  <div>
+                    <label style={{ fontSize: 11, color: '#888', marginBottom: 4, display: 'block' }}>
+                      Orden de compra (opcional)
+                      {form.lead_id && (
+                        <span style={{ marginLeft: 6, color: '#10B981', fontSize: 10 }}>
+                          · filtrado por lead ({candidatas.length})
+                        </span>
+                      )}
+                    </label>
+                    <select
+                      value={form.purchase_order_id}
+                      onChange={e => setForm({ ...form, purchase_order_id: e.target.value })}
+                      style={{ ...inputStyle, cursor: 'pointer' }}
+                    >
+                      <option value="">— Sin vincular —</option>
+                      {candidatas.map(o => (
+                        <option key={o.id} value={o.id}>
+                          {(o.folio || o.po_number || 'sin folio')} · {o.suppliers?.name || 'sin proveedor'} · {o.descripcion || 'sin descripción'} · saldo {F(saldoDe(o))}
+                        </option>
+                      ))}
+                    </select>
+                    {form.purchase_order_id ? (
+                      <div style={{ fontSize: 10, color: monto > saldo + 0.01 ? '#D97706' : '#666', marginTop: 4 }}>
+                        {monto > saldo + 0.01
+                          ? `Ojo: el movimiento trae ${F(monto)} y a la orden solo le faltan ${F(saldo)}. Se registra igual, pero revísalo.`
+                          : 'Al guardar, el pago aparece solo en la orden. No lo captures otra vez en Compras.'}
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: 10, color: '#666', marginTop: 4 }}>
+                        Si lo ligas a una orden, el pago se registra ahí solo.
+                      </div>
+                    )}
+                  </div>
+                )
+              })()}
+
               {/* Cobro cruzado: pago en moneda distinta a la de la cotización */}
               {form.quotation_id && quoteCurrency && form.tipo === 'cobro_cliente' && (
                 <div style={{ background: needsConversion ? '#1a1710' : '#101010', border: '1px solid ' + (needsConversion ? '#D9770655' : '#222'), borderRadius: 8, padding: '10px 12px' }}>
@@ -5963,7 +6028,7 @@ function TabEfectivo() {
             </div>
 
             <div style={{ display: 'flex', gap: 8, marginTop: 20, justifyContent: 'flex-end' }}>
-              <Btn size="sm" onClick={() => { setShowForm(false); setEditingId(null); setForm({ tipo: 'cobro_cliente', persona: '', concepto: '', monto: '', fecha: new Date().toISOString().substring(0, 10), proyecto_nombre: '', lead_id: '', quotation_id: '' }); setConvTc('') }}>Cancelar</Btn>
+              <Btn size="sm" onClick={() => { setShowForm(false); setEditingId(null); setForm({ tipo: 'cobro_cliente', persona: '', concepto: '', monto: '', fecha: new Date().toISOString().substring(0, 10), proyecto_nombre: '', lead_id: '', quotation_id: '', purchase_order_id: '', moneda: 'MXN' }); setConvTc('') }}>Cancelar</Btn>
               <Btn size="sm" variant="primary" disabled={saving} onClick={handleSave}>
                 {saving ? <><Loader2 size={12} className="spin" /> Guardando...</> : (editingId ? 'Guardar cambios' : 'Guardar')}
               </Btn>
