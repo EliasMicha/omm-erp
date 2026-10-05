@@ -106,7 +106,10 @@ function armar(d: DatosEstadoSubcontrato): jsPDF {
   ]
   if (d.descripcion) info.push(['Concepto', d.descripcion])
   info.push(['Moneda', d.moneda])
-  info.push(['Fecha de corte', fmtFecha(new Date().toISOString())])
+  // toISOString() da UTC: un corte sacado el 4 de octubre a las 7 de la noche
+  // en CDMX se imprimia como 5 de octubre.
+  const hoy = new Date()
+  info.push(['Fecha de corte', hoy.toLocaleDateString('es-MX', { year: 'numeric', month: 'short', day: 'numeric' })])
 
   doc.setFontSize(8)
   for (const [label, valor] of info) {
@@ -134,19 +137,33 @@ function armar(d: DatosEstadoSubcontrato): jsPDF {
     doc.setTextColor(destacado ? 0 : 40, destacado ? 120 : 40, destacado ? 80 : 40)
     doc.text(fmtMoney(valor, d.moneda), x + 3, y + 12)
   }
-  const anchoCaja = (contentW - 9) / 4
-  caja(margin, anchoCaja, 'Contrato', d.contrato)
-  caja(margin + anchoCaja + 3, anchoCaja, 'Pagos directos', d.pagadoDirecto)
-  caja(margin + (anchoCaja + 3) * 2, anchoCaja, 'Vía nómina', d.pagadoNomina)
-  caja(margin + (anchoCaja + 3) * 3, anchoCaja, 'Saldo', d.saldo, true)
+  // La caja de nomina solo va si hubo nomina. En una obra donde su gente no
+  // entro a la nomina de OMM, un "$0.00" ahi no informa: confunde.
+  const cajas: [string, number, boolean][] = [
+    ['Contrato', d.contrato, false],
+    ['Pagos directos', d.pagadoDirecto, false],
+    ...(d.pagadoNomina > 0 ? [['Vía nómina', d.pagadoNomina, false] as [string, number, boolean]] : []),
+    ['Saldo', d.saldo, true],
+  ]
+  const anchoCaja = (contentW - 3 * (cajas.length - 1)) / cajas.length
+  cajas.forEach(([etiqueta, valor, destacado], i) => {
+    caja(margin + (anchoCaja + 3) * i, anchoCaja, etiqueta, valor, destacado)
+  })
   y += 22
 
   // ── Movimientos, con saldo corrido ──
   // El saldo corrido es lo que vuelve discutible un estado de cuenta: sin el,
   // el otro tiene que rehacer la suma para saber si coincide.
   const movs = [...d.movimientos].sort((a, b) => {
-    // Sin fecha se va al final: con '' se colaba arriba del contrato y el saldo
-    // corrido arrancaba en negativo.
+    // El contrato SIEMPRE abre, aunque la orden se haya capturado despues de
+    // los pagos. Pablo lleva cobrado desde julio y la orden de Pico Love se
+    // levanto en octubre: por fecha el contrato caia hasta abajo y el saldo
+    // corrido arrancaba en -30,000. Un estado de cuenta abre con lo que se
+    // debe y de ahi va bajando.
+    if ((a.origen === 'contrato') !== (b.origen === 'contrato')) {
+      return a.origen === 'contrato' ? -1 : 1
+    }
+    // Sin fecha se va al final: con '' se colaba arriba del resto.
     const fa = a.fecha || '9999-12-31', fb = b.fecha || '9999-12-31'
     if (fa !== fb) return fa.localeCompare(fb)
     return a.tipo === 'cargo' ? -1 : 1

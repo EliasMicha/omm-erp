@@ -4338,8 +4338,12 @@ function CuentaSubcontratista({ poId }: { poId: string }) {
     ]).then(async ([s, m, po]) => {
       if (!vivo) return
       setSaldo(s.data || null)
+      // Mismo orden que el PDF: el contrato abre aunque la orden se haya
+      // capturado despues de los pagos.
       setMovs(((m.data as any[]) || []).sort((a, b) =>
-        String(a.fecha).localeCompare(String(b.fecha)) || (a.tipo === 'cargo' ? -1 : 1)))
+        (a.origen === 'contrato' ? 0 : 1) - (b.origen === 'contrato' ? 0 : 1) ||
+        String(a.fecha ?? '9999').localeCompare(String(b.fecha ?? '9999')) ||
+        (a.tipo === 'cargo' ? -1 : 1)))
       const o: any = po.data || {}
       const [prov, lead] = await Promise.all([
         o.supplier_id ? supabase.from('suppliers').select('name').eq('id', o.supplier_id).maybeSingle() : Promise.resolve({ data: null }),
@@ -4355,14 +4359,16 @@ function CuentaSubcontratista({ poId }: { poId: string }) {
     return () => { vivo = false }
   }, [poId])
 
-  // Sin gente de nomina asignada no hay nada que esta pantalla agregue: el panel
-  // de Pagos de abajo ya cuenta esa historia completa.
-  if (!saldo || Number(saldo.pagado_nomina || 0) === 0) return null
+  // Esto solia pedir gente de nomina para aparecer, y por eso una orden de
+  // servicio sin nadie en nomina no tenia de donde sacar su estado de cuenta.
+  // La nomina no es lo que hace la cuenta: la hace el contrato. Basta con que
+  // la orden tenga algo que contar.
+  const contrato = Number(saldo?.contrato || 0)
+  const nomina = Number(saldo?.pagado_nomina || 0)
+  const directo = Number(saldo?.pagado_directo || 0)
+  if (!saldo || (contrato === 0 && directo === 0 && nomina === 0)) return null
 
   const mon = (n: number) => (saldo.moneda === 'USD' ? FUSD(n) : F(n))
-  const contrato = Number(saldo.contrato || 0)
-  const nomina = Number(saldo.pagado_nomina || 0)
-  const directo = Number(saldo.pagado_directo || 0)
   const resta = Number(saldo.saldo || 0)
   const pct = contrato > 0 ? Math.min(100, ((contrato - resta) / contrato) * 100) : 0
 
@@ -4371,9 +4377,11 @@ function CuentaSubcontratista({ poId }: { poId: string }) {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
         <div style={{ fontSize: 13, fontWeight: 600, color: '#fff' }}>
           Cuenta del subcontratista
-          <span style={{ fontSize: 11, fontWeight: 400, color: '#666', marginLeft: 8 }}>
-            {saldo.personas} {saldo.personas === 1 ? 'persona' : 'personas'} en nómina contra este contrato
-          </span>
+          {saldo.personas > 0 && (
+            <span style={{ fontSize: 11, fontWeight: 400, color: '#666', marginLeft: 8 }}>
+              {saldo.personas} {saldo.personas === 1 ? 'persona' : 'personas'} en nómina contra este contrato
+            </span>
+          )}
         </div>
         <div style={{ display: 'flex', gap: 6 }}>
           <Btn variant="ghost" size="sm" onClick={() => setAbierto(a => !a)}>
@@ -4400,7 +4408,9 @@ function CuentaSubcontratista({ poId }: { poId: string }) {
         {[
           { lbl: 'Contrato', val: contrato, color: '#ddd' },
           { lbl: 'Pagado directo', val: directo, color: '#60a5fa' },
-          { lbl: 'Vía nómina de su gente', val: nomina, color: '#A78BFA' },
+          // Un "$0.00" morado en una obra donde nadie entro a nomina solo
+          // invita a preguntar que falta capturar.
+          ...(nomina !== 0 ? [{ lbl: 'Vía nómina de su gente', val: nomina, color: '#A78BFA' }] : []),
           { lbl: 'Saldo', val: resta, color: resta <= 0.01 ? '#10B981' : '#D97706' },
         ].map(c => (
           <div key={c.lbl} style={{ background: '#0a0a0a', border: '1px solid #1a1a1a', borderRadius: 8, padding: '10px 12px' }}>
@@ -4413,10 +4423,12 @@ function CuentaSubcontratista({ poId }: { poId: string }) {
       <div style={{ height: 6, background: '#1a1a1a', borderRadius: 4, overflow: 'hidden', marginBottom: 4 }}>
         <div style={{ height: '100%', width: pct + '%', background: pct >= 100 ? '#10B981' : '#A78BFA', transition: 'width 0.3s' }} />
       </div>
-      <div style={{ fontSize: 10, color: '#666', marginBottom: abierto ? 12 : 0 }}>
-        El neto de nómina de la gente marcada como subcontratada baja este saldo. No se registra como pago
-        a proveedor: esa plata ya está contada una vez en nómina.
-      </div>
+      {nomina !== 0 && (
+        <div style={{ fontSize: 10, color: '#666', marginBottom: abierto ? 12 : 0 }}>
+          El neto de nómina de la gente marcada como subcontratada baja este saldo. No se registra como pago
+          a proveedor: esa plata ya está contada una vez en nómina.
+        </div>
+      )}
 
       {abierto && (
         <div style={{ borderTop: '1px solid #1a1a1a', paddingTop: 10 }}>
