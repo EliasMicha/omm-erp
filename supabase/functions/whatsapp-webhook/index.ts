@@ -54,9 +54,13 @@ Deno.serve(async (req) => {
     return new Response('Forbidden', { status: 403 });
   }
 
-  // Responder rápido a Meta (<5s) y procesar en background
+  // Responder rápido a Meta (<5s) y mantener viva la tarea en el runtime de
+  // Supabase hasta que el agente termine de procesar y contestar.
   const payload = JSON.parse(rawBody);
-  queueMicrotask(() => handleEvent(payload).catch(e => console.error('handleEvent error:', e)));
+  const task = handleEvent(payload).catch(e => console.error('handleEvent error:', e));
+  const edgeRuntime = (globalThis as any).EdgeRuntime;
+  if (edgeRuntime?.waitUntil) edgeRuntime.waitUntil(task);
+  else queueMicrotask(() => void task);
   return new Response('ok', { status: 200 });
 });
 

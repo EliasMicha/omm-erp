@@ -224,7 +224,17 @@ async function exchangeEmbeddedSignupCode(
     // La conexión sigue siendo válida; la UI mostrará coexistencia por confirmar.
   }
 
-  await graphRequest(`${wabaId}/subscribed_apps?subscribed_fields=messages`, accessToken, { method: 'POST' })
+  // Coexistence needs the regular message stream plus the Business App sync
+  // events documented by Meta.  Without these fields messages sent from the
+  // phone can be missing from the Cloud API conversation history.
+  const subscribedFields = [
+    'messages',
+    'account_update',
+    'history',
+    'smb_app_state_sync',
+    'smb_message_echoes',
+  ].join(',')
+  await graphRequest(`${wabaId}/subscribed_apps?subscribed_fields=${subscribedFields}`, accessToken, { method: 'POST' })
 
   const encrypted = encryptWhatsAppToken(accessToken)
   const expiresIn = Number(tokenBody.expires_in || 0)
@@ -292,6 +302,24 @@ async function saveWhatsAppWebhook(rawBody: string) {
   if (!response.ok) throw new Error(`No se pudo registrar el webhook (${response.status})`)
 }
 
+async function forwardWhatsAppWebhookToAgent(rawBody: string, signature: string) {
+  const configuredUrl = process.env.WHATSAPP_AGENT_WEBHOOK_URL?.trim()
+  const agentWebhookUrl = configuredUrl
+    || `${SUPABASE_URL}/functions/v1/whatsapp-webhook`
+  const response = await fetch(agentWebhookUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-hub-signature-256': signature,
+    },
+    body: rawBody,
+  })
+  if (!response.ok) {
+    const detail = await response.text().catch(() => '')
+    throw new Error(`El agente de WhatsApp rechazó el evento (${response.status})${detail ? `: ${detail}` : ''}`)
+  }
+}
+
 async function handleWhatsAppAction(req: VercelRequest, res: VercelResponse, action: string): Promise<void> {
   res.setHeader('Cache-Control', 'no-store')
 
@@ -309,11 +337,13 @@ async function handleWhatsAppAction(req: VercelRequest, res: VercelResponse, act
     }
     if (req.method === 'POST') {
       const rawBody = await readRawBody(req)
-      if (!validMetaSignature(rawBody, req.headers['x-hub-signature-256'] as string | undefined)) {
+      const signature = req.headers['x-hub-signature-256'] as string | undefined
+      if (!validMetaSignature(rawBody, signature)) {
         res.status(401).send('Invalid signature')
         return
       }
       await saveWhatsAppWebhook(rawBody)
+      await forwardWhatsAppWebhookToAgent(rawBody, signature!)
       res.status(200).send('EVENT_RECEIVED')
       return
     }
