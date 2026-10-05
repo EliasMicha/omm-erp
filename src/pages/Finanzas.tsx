@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
+import { traerTodo } from '../lib/paginado'
 import { supabase, supabaseAll } from '../lib/supabase'
 // supabaseAll: los P&L y KPIs históricos incluyen lo archivado para que el
 // vendido/cobrado del año siga cuadrando con el banco.
@@ -144,8 +145,11 @@ export default function Finanzas() {
       supabase.from('payment_milestones').select('id,name,amount,due_date,status,project_id,paid_at'),
       // ALL purchase orders (for project totals, not filtered by month)
       supabase.from('purchase_orders').select('id,total,status,project_id,currency').neq('status', 'cancelada'),
-      // Quotation items costs (for "Total Compras" = what needs to be purchased)
-      supabase.from('quotation_items').select('id,quotation_id,cost,quantity,type'),
+      // Costo de material por cotizacion, YA SUMADO del lado del servidor.
+      // Antes se bajaban los 13,716 renglones de quotation_items y PostgREST
+      // mandaba los primeros 1000: "Total Compras" salia con una fraccion de
+      // las cotizaciones y nadie se enteraba.
+      traerTodo(() => supabase.from('v_cotizacion_costo_material').select('*'), 'quotation_id'),
       // Leads (active)
       supabaseAll.from('leads').select('id,name,company,status,estimated_value').not('status', 'in', '("perdido","descartado")'),
       // All quotations with lead_id from notes
@@ -163,7 +167,7 @@ export default function Finanzas() {
     setCajaChica(ccRes.data || [])
     setMilestones(msRes.data || [])
     setAllPurchaseOrders(allPoRes.data || [])
-    setQuotationCosts(qiRes.data || [])
+    setQuotationCosts((qiRes as any[]) || [])
     setLeads(leadsRes.data || [])
     setQuotations(quotRes.data || [])
     setLoading(false)
@@ -331,7 +335,7 @@ export default function Finanzas() {
       // 4. Total Compras = costo materiales de cotizaciones (lo que hay que comprar)
       const totalCompras = quotationCosts
         .filter(qi => quotIds.has(qi.quotation_id))
-        .reduce((s, qi) => s + ((qi.cost || 0) * (qi.quantity || 0)), 0)
+        .reduce((s, qi) => s + (Number(qi.costo_material) || 0), 0)
 
       // 5. Total Comprado = POs ejercidas (convertidas a moneda del lead)
       let totalComprado = 0

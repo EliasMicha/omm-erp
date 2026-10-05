@@ -3,6 +3,7 @@ import { generarEstadoSubcontratoPdf } from '../lib/subcontratistaPdf'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { soloSistemasVendidos, sistemasApagados } from '../lib/sistemasVendidos'
+import { traerTodo } from '../lib/paginado'
 import { insertarOC } from '../lib/oc'
 import { fetchAllActiveCatalog } from '../lib/catalog'
 import { ANTHROPIC_API_KEY } from '../lib/config'
@@ -1478,24 +1479,26 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
     Promise.all([
       supabase.from('purchase_orders').select('*,project:projects(name,client_name),supplier:suppliers(name),quotation:quotations(name,client_name,notes)')
         .order('created_at', { ascending: false }),
-      supabase.from('po_items').select('purchase_order_id, total, real_total, cotejo_status'),
+      // El resumen de cotejo se pide YA SUMADO por orden. Antes se bajaban los
+      // renglones y se sumaban aqui, y cuando po_items cruzo los 1000 PostgREST
+      // empezo a mandarlos cortados sin avisar: la orden E102C-CO01-C01 recibio
+      // 8 de sus 29 renglones, decia "cotejo 8/8" y marcaba "Pagado" con
+      // $200,000 de $338,597.28.
+      traerTodo(() => supabase.from('v_po_cotejo_resumen').select('*'), 'purchase_order_id'),
       supabase.from('purchase_order_payments').select('purchase_order_id, amount'),
       supabase.from('po_documentos').select('purchase_order_id'),
-    ]).then(([poRes, itemsRes, pagosRes, docsRes]) => {
+    ]).then(([poRes, resumenRes, pagosRes, docsRes]) => {
       setOrders(poRes.data || [])
-      // Calcular resumen de cotejo por OC. sumCotejo y sumCatalogo son SUBTOTALES.
-      // Los totales mostrados al usuario incluyen IVA 16% (sumCotejo * 1.16).
+      // sumCotejo y sumCatalogo son SUBTOTALES. Los totales que ve el usuario
+      // llevan IVA encima (ver totalMostrado).
       const summary: Record<string, { total: number; cotejados: number; sumCotejo: number; sumCatalogo: number }> = {}
-      for (const it of (itemsRes.data as any[]) || []) {
-        const pid = it.purchase_order_id
-        if (!summary[pid]) summary[pid] = { total: 0, cotejados: 0, sumCotejo: 0, sumCatalogo: 0 }
-        summary[pid].total += 1
-        summary[pid].sumCatalogo += Number(it.total) || 0
-        const isCotejado = it.cotejo_status === 'cotejado' || it.cotejo_status === 'sustituido'
-        if (isCotejado) summary[pid].cotejados += 1
-        // Si cotejado y hay real_total, usar real_total; sino fallback al catálogo
-        const valor = isCotejado && it.real_total != null ? Number(it.real_total) : Number(it.total) || 0
-        summary[pid].sumCotejo += valor
+      for (const r of (resumenRes as any[]) || []) {
+        summary[r.purchase_order_id] = {
+          total: Number(r.renglones) || 0,
+          cotejados: Number(r.cotejados) || 0,
+          sumCotejo: Number(r.suma_cotejo) || 0,
+          sumCatalogo: Number(r.suma_catalogo) || 0,
+        }
       }
       setCotejoSummary(summary)
       const pg: Record<string, { n: number; pagado: number }> = {}
