@@ -1,8 +1,53 @@
-// Vercel Serverless Function: proxy seguro a FacturAPI
+// Vercel Serverless Function: proxy a FacturAPI
 // Las keys viven solo en variables de entorno de Vercel (FACTURAPI_KEY = live, FACTURAPI_KEY_TEST = test)
 // Endpoint: /api/facturapi?action=...&mode=test|live
+//
+// ─── QUIEN PUEDE LLAMAR ──────────────────────────────────────────────────────
+//
+// Esto corre en Vercel, fuera de Supabase: ninguna politica de RLS lo cubre.
+// Durante un tiempo no autentico a NADIE y respondia a internet con
+// Access-Control-Allow-Origin:*, asi que cualquiera que conociera la URL podia
+// timbrar o cancelar un CFDI contra el RFC de OMM. Las llaves nunca se filtran
+// —ese es el punto del proxy— pero tampoco hacen falta: el proxy las pone.
+//
+// Ahora toda accion exige la sesion real del ERP (ver api/_sesion.ts), y las que
+// mueven documentos fiscales exigen ademas DG o Administracion, que es la misma
+// regla que RLS ya aplica sobre la tabla `facturas`.
+//
+// ⚠️ PENDIENTE declarado: download_pdf y download_xml siguen sin exigir sesion.
+// No es un olvido — hoy se usan desde <a href> y window.open, que no pueden
+// mandar un header, y hay URLs de descarga guardadas en la base
+// (facturas.pdf_url / xml_url). Cerrarlas sin romper esos enlaces necesita un
+// ticket de descarga firmado y de vida corta. Mientras tanto: quien adivine un
+// facturapi_id puede BAJAR ese documento, pero nadie puede emitir ni cancelar.
+// Esa era la parte que de verdad quemaba.
+
+import { sesionDelErp, puedeOperarFiscal } from './_sesion'
 
 const FACTURAPI_BASE = 'https://www.facturapi.io/v2'
+
+/** Acciones que comprometen el RFC de OMM ante el SAT o tocan la identidad
+ *  fiscal del cliente. Exigen persona (no bot) de DG o Administracion. */
+const ACCIONES_FISCALES = new Set([
+  'create_invoice',
+  'cancel_invoice',
+  'create_customer',
+  'update_customer',
+])
+
+/** Lo unico que sigue abierto, y por que, esta explicado arriba. */
+const ACCIONES_SIN_SESION = new Set(['download_pdf', 'download_xml'])
+
+/** El ERP se sirve desde estos origenes. El front llama en el mismo origen, asi
+ *  que esto casi nunca aplica; aun asi no hay razon para contestarle a todos.
+ *  Ojo: CORS no protege contra un curl, solo contra otra pagina web. Lo que
+ *  protege de verdad es la sesion. */
+const ORIGENES = [
+  'https://omm-erp.vercel.app',
+  'https://omm-erp-eliasmichas-projects.vercel.app',
+  'https://omm-erp-git-main-eliasmichas-projects.vercel.app',
+  'http://localhost:5173',
+]
 
 function getKey(mode: string): string {
   const envName = mode === 'live' ? 'FACTURAPI_KEY' : 'FACTURAPI_KEY_TEST'
@@ -41,10 +86,13 @@ async function facturapi(method: string, path: string, mode: string, body?: any)
 }
 
 export default async function handler(req: any, res: any) {
-  // CORS para llamadas desde el frontend
-  res.setHeader('Access-Control-Allow-Origin', '*')
+  const origen = String(req.headers?.origin || '')
+  if (ORIGENES.includes(origen)) {
+    res.setHeader('Access-Control-Allow-Origin', origen)
+    res.setHeader('Vary', 'Origin')
+  }
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
   if (req.method === 'OPTIONS') {
     res.status(200).end()
     return
@@ -57,6 +105,28 @@ export default async function handler(req: any, res: any) {
     if (mode !== 'test' && mode !== 'live') {
       res.status(400).json({ error: 'mode must be test or live' })
       return
+    }
+
+    // ── Quien llama ──────────────────────────────────────────────────────────
+    // Antes del switch: una accion nueva nace cerrada, no abierta. Si manana
+    // alguien agrega 'borrar_todo' y olvida protegerlo, ya esta protegido.
+    if (!ACCIONES_SIN_SESION.has(action)) {
+      const sesion = await sesionDelErp(req)
+      if (!sesion) {
+        res.status(401).json({ error: 'Sesion del ERP requerida' })
+        return
+      }
+      if (ACCIONES_FISCALES.has(action) && !puedeOperarFiscal(sesion)) {
+        // No se dice que area tiene ni cual se necesita: eso le ensena a quien
+        // toca la puerta por donde seguir tocando.
+        res.status(403).json({ error: 'No tienes permiso para esta operacion fiscal' })
+        return
+      }
+      // Queda en el log de Vercel quien timbro o cancelo, con que modo. No es
+      // una auditoria de verdad —esa va en la base— pero hoy no habia ninguna.
+      if (ACCIONES_FISCALES.has(action)) {
+        console.log(`[facturapi] ${action} mode=${mode} por ${sesion.email} (${sesion.permissionArea})`)
+      }
     }
 
     // ============================================================

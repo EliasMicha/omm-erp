@@ -3,6 +3,7 @@ import { leerHojaBBVA, aTsvDelPortal, soloNuevos, resumir, cuentaCoincide } from
 import { MOCK_CLIENTES } from './Clientes'
 import type { ClienteFiscal } from './Clientes'
 import { supabase, supabaseAll } from '../lib/supabase'
+import { headersApi } from '../lib/sesionToken'
 import EstadoCuentaProveedor from '../components/EstadoCuentaProveedor'
 import SearchSelect from '../components/SearchSelect'
 import { paraConciliar, etiquetaElegible, noArchivada, soloVigentes } from '../lib/versionesCotizacion'
@@ -856,7 +857,7 @@ function TabFacturacion({ invoices, setInvoices, bankMovements, projectNames }: 
   // FacturAPI: cargar config + ping al montar (Sesion B)
   const loadFacturapiPing = async (mode: 'test' | 'live') => {
     try {
-      const r = await fetch('/api/facturapi?action=ping&mode=' + mode)
+      const r = await fetch('/api/facturapi?action=ping&mode=' + mode, { headers: await headersApi() })
       const data = await r.json()
       setFacturapiPing({ ok: !!data.ok, livemode: !!data.livemode, message: data.message || '' })
     } catch (e: any) {
@@ -867,7 +868,7 @@ function TabFacturacion({ invoices, setInvoices, bankMovements, projectNames }: 
     let cancelled = false
     ;(async () => {
       try {
-        const r = await fetch('/api/facturapi?action=get_config')
+        const r = await fetch('/api/facturapi?action=get_config', { headers: await headersApi() })
         const cfg = await r.json()
         if (cancelled) return
         setFacturapiConfig(cfg)
@@ -1111,7 +1112,7 @@ function TabFacturacion({ invoices, setInvoices, bankMovements, projectNames }: 
     try {
       const r = await fetch('/api/facturapi?action=create_invoice&mode=' + facturapiMode, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: await headersApi({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ payload }),
       })
       const result = await r.json()
@@ -1170,7 +1171,7 @@ function TabFacturacion({ invoices, setInvoices, bankMovements, projectNames }: 
     try {
       const r = await fetch('/api/facturapi?action=cancel_invoice&mode=' + facturaMode, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: await headersApi({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ id: cancelInvoice.facturapi_id, motive: cancelMotive }),
       })
       const result = await r.json()

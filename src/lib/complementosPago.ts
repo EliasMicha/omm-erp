@@ -1,4 +1,5 @@
 import { supabase } from './supabase'
+import { headersApi } from './sesionToken'
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Complementos de pago (CFDI tipo P) contra facturas PPD.
@@ -486,7 +487,7 @@ export async function sincronizarDesdeFacturapi(
     onAvance?.(out.revisados, comps.length)
     const etiqueta = [c.serie, c.folio].filter(Boolean).join('-') || String(c.uuid_fiscal || '').slice(0, 8)
     try {
-      const r = await fetch(`/api/facturapi?action=get_invoice&mode=${mode}&id=${c.facturapi_id}`)
+      const r = await fetch(`/api/facturapi?action=get_invoice&mode=${mode}&id=${c.facturapi_id}`, { headers: await headersApi() })
       const inv = await r.json()
       if (!r.ok || inv?.error) throw new Error(inv?.error || `HTTP ${r.status}`)
 

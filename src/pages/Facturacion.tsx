@@ -1,5 +1,6 @@
 import { useEffect, useState, useMemo } from 'react'
 import { supabase } from '../lib/supabase'
+import { headersApi } from '../lib/sesionToken'
 import SearchSelect from '../components/SearchSelect'
 import { Plus, X, FileText, RefreshCw, Download, Trash2, Search, Loader2, CheckCircle2, AlertCircle, Ban, FolderDown } from 'lucide-react'
 import { useIsMobile } from '../lib/useIsMobile'
@@ -339,9 +340,11 @@ async function callFacturapi(action: string, opts: { method?: string; query?: Re
   const method = opts.method || 'GET'
   const params = new URLSearchParams({ action, mode: currentFacturapiMode, ...(opts.query || {}) })
   const url = '/api/facturapi?' + params.toString()
+  // El token va en el header, nunca en la URL: los parametros de query se
+  // quedan escritos en logs, historiales y referers.
   const init: RequestInit = {
     method,
-    headers: { 'Content-Type': 'application/json' },
+    headers: await headersApi({ 'Content-Type': 'application/json' }),
   }
   if (opts.body) init.body = JSON.stringify(opts.body)
   const res = await fetch(url, init)
@@ -402,7 +405,7 @@ export default function Facturacion() {
     let cancelled = false
     ;(async () => {
       try {
-        const r = await fetch('/api/facturapi?action=get_config')
+        const r = await fetch('/api/facturapi?action=get_config', { headers: await headersApi() })
         const cfg = await r.json()
         if (cancelled) return
         setFacturapiConfig(cfg)
@@ -411,7 +414,7 @@ export default function Facturacion() {
         setFacturapiMode(initialMode)
         setCurrentFacturapiMode(initialMode)
         // Hacer el ping inicial
-        const pr = await fetch('/api/facturapi?action=ping&mode=' + initialMode)
+        const pr = await fetch('/api/facturapi?action=ping&mode=' + initialMode, { headers: await headersApi() })
         const pd = await pr.json()
         if (!cancelled) {
           setFacturapiPing({ ok: !!pd.ok, livemode: !!pd.livemode, message: pd.message || '' })
@@ -431,7 +434,7 @@ export default function Facturacion() {
     setFacturapiPing(null)
     setPingStatus('idle')
     try {
-      const pr = await fetch('/api/facturapi?action=ping&mode=' + newMode)
+      const pr = await fetch('/api/facturapi?action=ping&mode=' + newMode, { headers: await headersApi() })
       const pd = await pr.json()
       setFacturapiPing({ ok: !!pd.ok, livemode: !!pd.livemode, message: pd.message || '' })
       setPingStatus(pd.ok ? 'ok' : 'error')

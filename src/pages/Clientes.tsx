@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
+import { headersApi } from '../lib/sesionToken'
 import { SectionHeader, KpiCard, Table, Th, Td, Badge, Btn, EmptyState } from '../components/layout/UI'
 import { F, formatDate } from '../lib/utils'
 import { Users2, Plus, Search, Edit, Trash2, X, CheckCircle, Building2, Upload } from 'lucide-react'
@@ -21,7 +22,7 @@ async function pushFiscalAFacturapi(c: any): Promise<string | null> {
     if (c.email) payload.email = c.email
     const mode = (c as any).sandbox ? 'test' : 'live'
     const r = await fetch(`/api/facturapi?action=update_customer&mode=${mode}&id=${encodeURIComponent(c.facturapi_customer_id)}`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ payload }),
+      method: 'POST', headers: await headersApi({ 'Content-Type': 'application/json' }), body: JSON.stringify({ payload }),
     })
     const j = await r.json().catch(() => ({}))
     if (!r.ok) return j?.message || j?.error || 'FacturAPI rechazó la actualización'
