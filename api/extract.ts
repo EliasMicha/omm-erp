@@ -3,7 +3,15 @@
 // Devuelve: { ok: boolean, items?: any[], confidence?: string, warnings?: string[], error?: string }
 
 import type { VercelRequest, VercelResponse } from '@vercel/node'
-import { construirAvisoPago, CORREO_LOGISTICA, CORREO_COPIA } from './_avisoPago'
+// La extension .js NO sobra: Vercel compila cada archivo de api/ por separado a
+// ESM, y Node ESM no prueba extensiones. Sin ella esta funcion llevaba desde el
+// 30-sep devolviendo 500 en TODO con
+//   ERR_MODULE_NOT_FOUND: Cannot find module '/var/task/api/_avisoPago'
+// Compilaba limpio y el deploy quedaba READY; tronaba al primer request. Nadie
+// lo noto porque el Atajo del iPhone aun no se usa.
+// Se apunta al .js (la salida compilada), no al .ts: el import del frontend en
+// src/lib/avisoPagoLogistica.ts lo resuelve Vite y ese se queda como estaba.
+import { construirAvisoPago, CORREO_LOGISTICA, CORREO_COPIA } from './_avisoPago.js'
 
 const PROMPT_GENERIC = `Eres un asistente experto en listados de productos para instalaciones especiales (audio, redes, CCTV, control de acceso, control de iluminación, detección de humo, BMS, telefonía, red celular, cortinas/persianas).
 
