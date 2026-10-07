@@ -34,12 +34,19 @@ const SCOPE_ES: Record<string, string> = {
   email: 'Tu correo electrónico',
   profile: 'Tu nombre y datos de perfil',
   phone: 'Tu teléfono',
+  // No es un dato, es la DURACION. Decir "offline_access" no informa a nadie;
+  // lo que hay que entender es que el acceso no se acaba al cerrar la pestaña.
+  offline_access: 'Seguir entrando sin que vuelvas a autorizar (hasta que retires el acceso)',
 }
 
 interface Detalle {
   authorization_id: string
   redirect_uri: string
-  client: { client_id?: string; client_name?: string; client_uri?: string; logo_uri?: string }
+  // OJO: este es OAuthAuthorizationClient, que usa `name`. El otro tipo de
+  // Supabase, OAuthClient, usa `client_name` — copiar el campo de ese deja la
+  // pantalla diciendo "Una aplicacion sin nombre", que es justo el dato que
+  // mas importa aqui. Se aceptan los dos por si cambia.
+  client: { id?: string; name?: string; client_name?: string; uri?: string; logo_uri?: string }
   user: { id: string; email: string }
   scope: string
 }
@@ -140,7 +147,7 @@ export default function OAuthConsent() {
 
   if (!detalle) return <Pantalla><div style={{ color: '#666' }}>Sin datos de la solicitud.</div></Pantalla>
 
-  const nombreApp = detalle.client?.client_name || 'Una aplicación sin nombre'
+  const nombreApp = detalle.client?.name || detalle.client?.client_name || 'Una aplicación sin nombre'
   const scopes = (detalle.scope || '').split(/\s+/).filter(Boolean)
   const host = (() => { try { return new URL(detalle.redirect_uri).host } catch { return detalle.redirect_uri } })()
 
