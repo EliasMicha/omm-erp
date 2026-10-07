@@ -2494,3 +2494,85 @@ rollback;
 ⚠️ **Sacar el `auth_user_id` ANTES del `set local role`.** Si la subconsulta
 que lo busca corre ya como `authenticated`, RLS la bloquea y `sub` queda null
 — la prueba pasa por razones falsas. Me pasó en el primer intento.
+
+## 📄 El PDF de BBVA, y por qué el dedup no puede ser por fecha (2026-10-07)
+
+El portal nuevo de BBVA deja descargar el **mismo** estado de cuenta en `.xlsx`
+y en `.pdf`. Ahora la ingesta acepta los dos, y lo importante es que **no son
+dos lectores**: `bbvaPdf.ts` convierte el PDF en la misma matriz que entrega
+SheetJS y se la pasa a `leerHojaBBVA()` tal cual. Toda la validación —formato
+mexicano de números, cotejo de cuenta por terminación, divisa— se reusa.
+Dos lectores del mismo banco con dos reglas distintas es justo cómo se empieza
+a diferir sin que nadie lo note.
+
+### El PDF se lee por coordenada, no por línea
+
+Las celdas envuelven, y la descripción se parte **con un pedazo arriba y otro
+abajo** del renglón de la fecha:
+
+```
+y=548.9  x=301.4   "DEP.CHEQUES DE OTRO"      ← descripción, arriba
+y=542.6  x= 33.8   "05/10/2026"               ← la fecha
+y=542.6  x=140.8   "OCT05 12:56 MEXICO C07"   ← concepto
+y=536.3  x=301.4   "BANCO0005504"             ← descripción, abajo
+```
+
+Leer línea por línea parte ese movimiento en tres. Las dos anclas:
+
+1. Las tres primeras columnas van alineadas a la **izquierda** en una x fija que
+   se lee del encabezado (33.8 / 140.8 / 301.4). No se adivina.
+2. El importe va alineado a la **derecha**, en el mismo borde que su encabezado
+   (`x+ancho = 561.5`, exacto en los 251 movimientos). Por eso se reconoce por
+   el borde derecho: su x cambia con el largo del número.
+
+Verificado **251 de 251** contra una extracción independiente con `pdftotext`:
+0 errores, 0 campos vacíos, nada de columnas revueltas.
+
+### ⛔ No aflojar la llave del dedup a fecha+monto+tipo
+
+La tentación es obvia y está mal. En esta base hay **92 grupos** que comparten
+fecha, monto y tipo y **NO son duplicados**. El mismo día, por el mismo importe:
+
+```
+SPEI ENVIADO INBURSA /0048772099 036 ...
+SPEI ENVIADO SANTANDER/0048718272 014 ...
+```
+
+Con la llave floja se pierde una. **Un movimiento bancario que desaparece es
+peor que uno repetido**: el repetido se ve en la conciliación, el que falta no.
+
+Lo que sí distingue es la **referencia del banco** (AUT, BNET, CIE, la cuenta
+destino): es un dato del banco, no una redacción, así que sobrevive aunque la
+IA escriba el concepto de otra forma. Por eso se agregó `bank_movements.texto_banco`
+—el texto crudo— y se llena **solo cuando no hay ambigüedad**: si ese día por
+ese importe hubo un solo movimiento, es ese; si hubo dos, se deja vacío, porque
+un texto crudo pegado al movimiento equivocado envenena el dedup de la próxima.
+
+⚠️ **El `\b` del regex.** `\bAUT` no caza nada en `"USD 45.03TC017.9304AUT: 044699"`:
+entre el `4` y la `A` no hay frontera de palabra. Con `\b`, los cargos de
+Anthropic y Supabase quedaban sin referencia y caían a dudosos. Son 4 regex
+sin `\b` **a propósito** — no "limpiarlos".
+
+### ⚠️ Con archivo cargado, el corte por fecha NO aplica
+
+`/api/extract-bank-statement` recibe `ultima_fecha_importada` y el prompt dice
+*"ignora movimientos con fecha <= a esta"*. Ese corte es la protección del **TXT
+pegado a mano**, donde no hay nada contra lo que deduplicar. Si el lote vino del
+Excel o del PDF se manda **null**: el dedup por referencia ya decidió uno por
+uno, y el corte volvería a tirar justo lo que aprobó — incluidos los dudosos que
+Elias palomeó, que por definición caen en el rango ya importado. El aviso azul
+del modal cambia de texto según cuál de las dos reglas está corriendo, porque un
+aviso que miente sobre la regla es peor que no tenerlo.
+
+### Los tres montones
+
+`nuevos` se importan · `repetidos` se descartan con el motivo · `dudosos` **no se
+deciden solos**: se enseñan con el motivo y los palomea Elias. El tercer montón
+existe a propósito, por la misma lección de las fechas masivas de obra: una
+acción en bloque tiene que decir a cuántos renglones alcanzó **y a cuántos no y
+por qué**; si no, no se puede distinguir "no aplicó" de "no guardó".
+
+Contra los 228 `bank_movements` reales: **23 nuevos / 228 repetidos / 0 dudosos**,
+los 23 de octubre, ninguno con fecha ≤ 30-sep. Más 9 pruebas adversarias, entre
+ellas "dos SPEI distintos, mismo día e importe → los 2 nuevos" y "el mismo
+archivo dos veces → 0 nuevos".

@@ -29,7 +29,9 @@ export interface NominaPDFResult {
 
 let pdfjsLoaded: any = null
 
-async function loadPdfJs(): Promise<any> {
+/** Exportada para que el lector del estado de cuenta de BBVA (bbvaPdf.ts) use
+ *  EL MISMO cargador: una sola version de pdf.js y un solo workerSrc. */
+export async function loadPdfJs(): Promise<any> {
   if (pdfjsLoaded) return pdfjsLoaded
   return new Promise((resolve, reject) => {
     const script = document.createElement('script')

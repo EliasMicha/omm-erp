@@ -1,5 +1,10 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react'
-import { leerHojaBBVA, aTsvDelPortal, soloNuevos, resumir, cuentaCoincide } from '../lib/bbvaExcel'
+import { leerHojaBBVA, aTsvDelPortal, resumir, cuentaCoincide } from '../lib/bbvaExcel'
+import type { MovimientoBBVA } from '../lib/bbvaExcel'
+import { itemsDePdf, matrizDesdePdf } from '../lib/bbvaPdf'
+import { clasificar } from '../lib/bbvaDedup'
+import { loadPdfJs } from '../lib/nominaPdfParser'
+import type { Dudoso, MovExistente } from '../lib/bbvaDedup'
 import { MOCK_CLIENTES } from './Clientes'
 import type { ClienteFiscal } from './Clientes'
 import { supabase, supabaseAll } from '../lib/supabase'
@@ -317,6 +322,8 @@ interface CashMovement {
 
 interface BankMovement {
   id: string; fecha: string; concepto: string; referencia: string
+  /** Texto tal cual del estado de cuenta, antes de que la IA lo reescriba. */
+  texto_banco?: string
   monto: number; tipo: 'cargo' | 'abono'; saldo: number
   categoria_sugerida?: string; proyecto_sugerido?: string; conciliado: boolean
   categoria_manual?: boolean
@@ -2435,6 +2442,17 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
   // Lectura del Excel del portal NUEVO de BBVA (ver src/lib/bbvaExcel.ts)
   const [xlsResumen, setXlsResumen] = useState<any | null>(null)
   const xlsInputRef = useRef<HTMLInputElement>(null)
+  // El PDF es el MISMO documento que el Excel, solo que impreso. Ver src/lib/bbvaPdf.ts
+  const pdfInputRef = useRef<HTMLInputElement>(null)
+  /* Los movimientos tal como los dio el banco. Se guardan para poder
+     escribir `texto_banco` al confirmar: ese texto es lo unico estable
+     contra lo que deduplicar despues, porque el `concepto` lo reescribe la IA. */
+  const [bbvaFuente, setBbvaFuente] = useState<MovimientoBBVA[]>([])
+  /* Los que no se pudieron decidir solos. NO se importan sin que Elias los
+     palomee: ni tirarlos ni meterlos en silencio es aceptable. */
+  const [bbvaDudosos, setBbvaDudosos] = useState<Dudoso[]>([])
+  const [dudososSi, setDudososSi] = useState<Set<number>>(new Set())
+  const [bbvaNuevos, setBbvaNuevos] = useState<MovimientoBBVA[]>([])
 
   /* --- Supabase sync helpers --- */
   const toRow = (m: BankMovement) => ({
@@ -2459,6 +2477,7 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
     concepto_detectado: m.concepto_detectado || null,
     beneficiario_id: m.beneficiario_id || null,
     beneficiario_tipo: m.beneficiario_tipo || null,
+    texto_banco: m.texto_banco || null,
   })
 
   // Dedup key: cuenta+fecha+concepto+monto+tipo (matches DB unique index)
@@ -3085,12 +3104,69 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
      En vez de reescribir el importador, el Excel se traduce al mismo TSV de 5
      columnas que ya sabía procesar y de ahí todo sigue igual: la IA sigue
      sacando beneficiario, categoría, proyecto y RFC. Ver src/lib/bbvaExcel.ts */
+  /* Lo que sigue despues de leer el archivo, sea Excel o PDF: son el MISMO
+     documento de BBVA, asi que validan igual y deduplican igual. Una sola
+     funcion para los dos — dos caminos con reglas distintas es como se empieza
+     a diferir sin que nadie lo note. */
+  const procesarLecturaBBVA = (
+    lec: ReturnType<typeof leerHojaBBVA>,
+    nombreArchivo: string,
+    accountId: AccountId,
+  ): boolean => {
+    const acc = ACCOUNTS[accountId]
+    if (lec.movimientos.length === 0) {
+      setStatus('Error: ' + (lec.errores[0] || 'el archivo no trae movimientos'))
+      return false
+    }
+    // Que no se importe el archivo de una cuenta en la pestana de otra.
+    if (!cuentaCoincide(lec.meta.cuenta, acc.cuenta)) {
+      setStatus(`Error: el archivo es de la cuenta ${lec.meta.cuenta}, y estas en ${acc.label} (${acc.cuenta}). Cambia de pestana o de archivo.`)
+      return false
+    }
+    if (lec.meta.divisa && lec.meta.divisa.toUpperCase() !== acc.moneda) {
+      setStatus(`Error: el archivo viene en ${lec.meta.divisa} y esta cuenta es ${acc.moneda}.`)
+      return false
+    }
+
+    /* El dedup compara contra lo que YA esta en el ERP por la referencia del
+       banco (AUT, BNET, numero de cuenta), no por el concepto — ese lo
+       reescribe la IA y no es estable. Ver src/lib/bbvaDedup.ts: aflojar la
+       llave a fecha+monto+tipo tiraria movimientos reales, porque en esta base
+       hay 92 grupos que comparten esos tres datos y NO son duplicados. */
+    const existentes: MovExistente[] = bankMovements
+      .filter(m => m.banco === acc.banco && (m.moneda || 'MXN') === acc.moneda)
+      .map(m => ({
+        fecha: m.fecha, monto: m.monto, tipo: m.tipo, cuenta: m.cuenta,
+        concepto: m.concepto, referencia: m.referencia, texto_banco: m.texto_banco,
+      }))
+    const c = clasificar(lec.movimientos, existentes, acc.cuenta)
+    const resumen = resumir(lec.movimientos, c.nuevos)
+
+    setBbvaFuente(lec.movimientos)
+    setBbvaNuevos(c.nuevos)
+    setBbvaDudosos(c.dudosos)
+    setDudososSi(new Set())
+    setXlsResumen({ ...resumen, meta: lec.meta, errores: lec.errores, archivo: nombreArchivo, dudosos: c.dudosos.length })
+
+    if (c.nuevos.length === 0 && c.dudosos.length === 0) {
+      setStatus(`El archivo trae ${resumen.total} movimientos y todos ya estan en el ERP: no hay nada nuevo que importar.`)
+      setTxtPayload('')
+      return false
+    }
+    // A partir de aqui es el mismo camino del TXT pegado.
+    setTxtPayload(aTsvDelPortal(c.nuevos))
+    setStatus(
+      `${c.nuevos.length} movimientos nuevos de ${resumen.total} en el archivo` +
+      (c.dudosos.length ? `, y ${c.dudosos.length} que no pude decidir solo (revisalos abajo)` : '') +
+      '. Dale "Procesar con AI".')
+    return true
+  }
+
+  /* --- Conciliacion v2: cargar el Excel del portal NUEVO de BBVA --- */
   const handleXlsBBVA = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file || !showTxtModal) return
     if (e.target) e.target.value = '' // permite volver a elegir el mismo archivo
-    const accountId = showTxtModal as AccountId
-    const acc = ACCOUNTS[accountId]
     setProcessing(true)
     setStatus('Leyendo el Excel...')
     try {
@@ -3098,38 +3174,44 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
       const wb = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: true })
       const hoja = wb.Sheets[wb.SheetNames[0]]
       const matriz: unknown[][] = XLSX.utils.sheet_to_json(hoja, { header: 1, defval: '', raw: false })
-
-      const lec = leerHojaBBVA(matriz)
-      if (lec.movimientos.length === 0) {
-        setStatus('Error: ' + (lec.errores[0] || 'el archivo no trae movimientos'))
-        setProcessing(false); return
-      }
-      // Que no se importe el Excel de una cuenta en la pestaña de otra.
-      if (!cuentaCoincide(lec.meta.cuenta, acc.cuenta)) {
-        setStatus(`Error: el archivo es de la cuenta ${lec.meta.cuenta}, y estás en ${acc.label} (${acc.cuenta}). Cambia de pestaña o de archivo.`)
-        setProcessing(false); return
-      }
-      if (lec.meta.divisa && lec.meta.divisa.toUpperCase() !== acc.moneda) {
-        setStatus(`Error: el archivo viene en ${lec.meta.divisa} y esta cuenta es ${acc.moneda}.`)
-        setProcessing(false); return
-      }
-
-      const ultima = getUltimaFechaCuenta(accountId)
-      const nuevos = soloNuevos(lec.movimientos, ultima)
-      const resumen = resumir(lec.movimientos, nuevos)
-      setXlsResumen({ ...resumen, meta: lec.meta, errores: lec.errores, archivo: file.name })
-
-      if (nuevos.length === 0) {
-        setStatus(`El archivo trae ${resumen.total} movimientos y todos son del ${ultima} o antes: no hay nada nuevo que importar.`)
-        setProcessing(false); return
-      }
-      // A partir de aquí es el mismo camino del TXT pegado.
-      setTxtPayload(aTsvDelPortal(nuevos))
-      setStatus(`${resumen.nuevos} movimientos nuevos de ${resumen.total} en el archivo. Dale "Procesar con AI".`)
+      procesarLecturaBBVA(leerHojaBBVA(matriz), file.name, showTxtModal as AccountId)
     } catch (err) {
       setStatus('Error leyendo el Excel: ' + (err as Error).message)
     }
     setProcessing(false)
+  }
+
+  /* --- Conciliacion v2: cargar el PDF "Listado de movimientos" de BBVA ---
+     Es el mismo documento que el Excel, impreso. bbvaPdf.ts lo convierte en la
+     misma matriz que entrega SheetJS y de ahi sigue el camino identico. */
+  const handlePdfBBVA = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file || !showTxtModal) return
+    if (e.target) e.target.value = ''
+    setProcessing(true)
+    setStatus('Leyendo el PDF...')
+    try {
+      const pdfjsLib = await loadPdfJs()
+      const doc = await pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise
+      const matriz = matrizDesdePdf(await itemsDePdf(doc))
+      procesarLecturaBBVA(leerHojaBBVA(matriz), file.name, showTxtModal as AccountId)
+    } catch (err) {
+      setStatus('Error leyendo el PDF: ' + (err as Error).message)
+    }
+    setProcessing(false)
+  }
+
+  /* Palomear un dudoso lo agrega al lote que se va a procesar. El TSV se
+     vuelve a armar completo: asi lo que se manda a la IA es siempre lo que
+     se ve en pantalla, sin un segundo camino que pueda desalinearse. */
+  const alternarDudoso = (i: number) => {
+    const sel = new Set(dudososSi)
+    if (sel.has(i)) sel.delete(i); else sel.add(i)
+    setDudososSi(sel)
+    const extra = bbvaDudosos.filter((_, k) => sel.has(k)).map(d => d.mov)
+    const lote = [...bbvaNuevos, ...extra].sort((a, b) => a.fecha.localeCompare(b.fecha))
+    setTxtPayload(lote.length ? aTsvDelPortal(lote) : '')
+    setStatus(`${lote.length} movimientos listos para procesar` + (sel.size ? ` (incluye ${sel.size} que marcaste a mano)` : ''))
   }
 
   /* --- Conciliacion v2: procesar TXT pegado (con chunking) --- */
@@ -3138,7 +3220,14 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
     if (!txtPayload.trim()) { setStatus('Pega el TXT antes de procesar'); return }
     const accountId = showTxtModal as AccountId
     const acc = ACCOUNTS[accountId]
-    const ultimaFecha = getUltimaFechaCuenta(accountId)
+    /* El corte por fecha es la proteccion del TXT pegado a mano, donde no hay
+       nada contra lo que deduplicar. Si el lote vino del Excel o del PDF, NO
+       se aplica: el dedup por referencia ya decidio uno por uno, y el corte
+       volveria a tirar justo lo que aprobo — incluidos los dudosos que Elias
+       palomeo, que por definicion caen en el rango ya importado. Un renglon
+       que desaparece sin decirlo es el peor de los dos errores posibles.
+       Lo que sigue protegiendo: deduplicateAgainstExisting y el indice unico. */
+    const ultimaFecha = bbvaFuente.length ? null : getUltimaFechaCuenta(accountId)
     setProcessing(true)
 
     // Split into lines and chunk to avoid 504 timeouts
@@ -3231,6 +3320,23 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
       source: 'txt-tabular',
       conciliado: false,
     }))
+    /* El texto del banco se pega al movimiento SOLO cuando no hay ambiguedad:
+       si ese dia, por ese importe y de ese tipo hubo un solo movimiento en el
+       archivo, es ese. Si hubo dos o mas, no se puede saber cual fue cual
+       despues de que la IA los reescribio, y adivinar seria peor que dejarlo
+       vacio: un texto crudo pegado al movimiento equivocado envenena el
+       dedup de la proxima importacion. */
+    if (bbvaFuente.length) {
+      const porClave = new Map<string, MovimientoBBVA[]>()
+      for (const f of bbvaFuente) {
+        const k = `${f.fecha}|${Math.round(f.monto * 100)}|${f.tipo}`
+        const a = porClave.get(k); if (a) a.push(f); else porClave.set(k, [f])
+      }
+      for (const m of newMovs) {
+        const g = porClave.get(`${m.fecha}|${Math.round(m.monto * 100)}|${m.tipo}`)
+        if (g && g.length === 1) m.texto_banco = `${g[0].descripcion} / ${g[0].concepto}`.trim()
+      }
+    }
     // Dedup against existing movements before inserting
     const deduped = deduplicateAgainstExisting(newMovs)
     const skipped = newMovs.length - deduped.length
@@ -4597,23 +4703,28 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
 
       {/* Modal TXT — Conciliacion v2 */}
       {showTxtModal && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: isMobile ? 0 : 20 }} onClick={() => { if (!processing) { setShowTxtModal(null); setTxtPayload(''); setTxtPreview(null); setTxtSummary(null); setXlsResumen(null); } }}>
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: isMobile ? 0 : 20 }} onClick={() => { if (!processing) { setShowTxtModal(null); setTxtPayload(''); setTxtPreview(null); setTxtSummary(null); setXlsResumen(null); setBbvaDudosos([]); setDudososSi(new Set()); setBbvaFuente([]); setBbvaNuevos([]); } }}>
           <div style={{ background: '#141414', border: isMobile ? 'none' : '1px solid #2a2a2a', borderRadius: isMobile ? 0 : 14, padding: isMobile ? 16 : 24, width: isMobile ? '100vw' : '100%', height: isMobile ? '100vh' : 'auto', maxWidth: isMobile ? '100vw' : 1100, maxHeight: isMobile ? '100vh' : '90vh', overflowY: 'auto' as const }} onClick={e => e.stopPropagation()}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
               <div>
                 <div style={{ fontSize: 16, fontWeight: 700, color: '#fff' }}>Ingesta TXT — {ACCOUNTS[showTxtModal].label}</div>
                 <div style={{ fontSize: 11, color: '#777', marginTop: 2 }}>Cuenta {ACCOUNTS[showTxtModal].cuenta}</div>
               </div>
-              <button onClick={() => { setShowTxtModal(null); setTxtPayload(''); setTxtPreview(null); setTxtSummary(null); setXlsResumen(null); }} disabled={processing} style={{ background: 'none', border: 'none', color: '#666', cursor: processing ? 'not-allowed' : 'pointer', fontSize: 20 }}>×</button>
+              <button onClick={() => { setShowTxtModal(null); setTxtPayload(''); setTxtPreview(null); setTxtSummary(null); setXlsResumen(null); setBbvaDudosos([]); setDudososSi(new Set()); setBbvaFuente([]); setBbvaNuevos([]); }} disabled={processing} style={{ background: 'none', border: 'none', color: '#666', cursor: processing ? 'not-allowed' : 'pointer', fontSize: 20 }}>×</button>
             </div>
 
             {(() => {
               const ultima = getUltimaFechaCuenta(showTxtModal)
+              /* El aviso tiene que decir la regla que de verdad esta corriendo.
+                 Con archivo cargado manda el dedup por referencia, no la fecha. */
+              const porArchivo = bbvaFuente.length > 0
               return (
                 <div style={{ background: ultima ? '#0e1f2b' : '#1f1a0e', border: '1px solid ' + (ultima ? '#1e3a5f' : '#3a2d1e'), borderRadius: 8, padding: 10, marginBottom: 14, fontSize: 11, color: ultima ? '#7dd3fc' : '#fbbf24' }}>
-                  {ultima
-                    ? <>📅 Última transacción registrada: <b>{ultima}</b>. Se ignorarán movimientos con fecha ≤ a esta.</>
-                    : <>⚠️ Primera importación para esta cuenta. Se importarán todos los movimientos del TXT.</>}
+                  {porArchivo
+                    ? <>🔎 Archivo cargado: cada movimiento se comparó contra lo que ya está en el ERP por la referencia del banco, no por la fecha. Se importa lo que no estaba, aunque sea de días ya registrados.</>
+                    : ultima
+                      ? <>📅 Última transacción registrada: <b>{ultima}</b>. Se ignorarán movimientos con fecha ≤ a esta.</>
+                      : <>⚠️ Primera importación para esta cuenta. Se importarán todos los movimientos del TXT.</>}
                 </div>
               )
             })()}
@@ -4623,17 +4734,24 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
                 {/* Portal NUEVO de BBVA: entrega .xlsx, no TXT. Se lee aquí y se
                     traduce al mismo TSV de abajo, que es lo que procesa la IA. */}
                 <input ref={xlsInputRef} type="file" accept=".xlsx,.xls" style={{ display: 'none' }} onChange={handleXlsBBVA} />
+                <input ref={pdfInputRef} type="file" accept=".pdf" style={{ display: 'none' }} onChange={handlePdfBBVA} />
                 <div style={{ background: '#111827', border: '1px dashed #334155', borderRadius: 10, padding: 14, marginBottom: 14 }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' as const }}>
                     <div>
-                      <div style={{ fontSize: 12, fontWeight: 600, color: '#e2e8f0' }}>📗 Excel del portal nuevo de BBVA</div>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: '#e2e8f0' }}>📗 Portal nuevo de BBVA — Excel o PDF</div>
                       <div style={{ fontSize: 10.5, color: '#94a3b8', marginTop: 3 }}>
-                        Sube el .xlsx tal cual lo descargas. Reconoce la cuenta, descarta lo ya importado y lo prepara para procesar.
+                        Sube el .xlsx o el .pdf tal cual lo descargas: son el mismo documento. Reconoce la cuenta,
+                        descarta lo que ya está importado y lo prepara para procesar.
                       </div>
                     </div>
-                    <Btn size="sm" variant="primary" onClick={() => xlsInputRef.current?.click()} disabled={processing}>
-                      {processing ? '⏳ Leyendo...' : 'Elegir Excel'}
-                    </Btn>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <Btn size="sm" variant="primary" onClick={() => xlsInputRef.current?.click()} disabled={processing}>
+                        {processing ? '⏳ Leyendo...' : 'Elegir Excel'}
+                      </Btn>
+                      <Btn size="sm" variant="primary" onClick={() => pdfInputRef.current?.click()} disabled={processing}>
+                        {processing ? '⏳ Leyendo...' : 'Elegir PDF'}
+                      </Btn>
+                    </div>
                   </div>
                   {xlsResumen && (
                     <div style={{ marginTop: 12, borderTop: '1px solid #1e293b', paddingTop: 10, fontSize: 11, color: '#cbd5e1' }}>
@@ -4665,6 +4783,29 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
                         <div style={{ marginTop: 8, fontSize: 10, color: '#fca5a5' }}>
                           {xlsResumen.errores.length} renglón(es) con problema: {xlsResumen.errores.slice(0, 3).join(' · ')}
                           {xlsResumen.errores.length > 3 ? ` y ${xlsResumen.errores.length - 3} más` : ''}
+                        </div>
+                      )}
+                      {/* Los que no se pudieron decidir solos. Ni se tiran ni se meten
+                          en silencio: se enseñan con el motivo y los palomea Elias. */}
+                      {bbvaDudosos.length > 0 && (
+                        <div style={{ marginTop: 10, background: '#1c1917', border: '1px solid #422006', borderRadius: 8, padding: 10 }}>
+                          <div style={{ fontSize: 11, color: '#fbbf24', fontWeight: 600, marginBottom: 2 }}>
+                            ⚠ {bbvaDudosos.length} que no pude decidir solo
+                          </div>
+                          <div style={{ fontSize: 10, color: '#a8a29e', marginBottom: 8 }}>
+                            Coinciden en fecha, importe y tipo con algo que ya está en el ERP, pero traen una
+                            referencia del banco que no empata. Palomea los que SÍ haya que importar.
+                          </div>
+                          {bbvaDudosos.map((d, i) => (
+                            <label key={i} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', padding: '5px 0', borderTop: i ? '1px solid #292524' : 'none', cursor: 'pointer' }}>
+                              <input type="checkbox" checked={dudososSi.has(i)} onChange={() => alternarDudoso(i)} style={{ marginTop: 2 }} />
+                              <span style={{ fontSize: 10.5, color: '#d6d3d1', lineHeight: 1.45 }}>
+                                <b>{d.mov.fecha}</b> · {d.mov.tipo === 'cargo' ? '−' : '+'}{F(d.mov.monto)} ·{' '}
+                                {d.mov.descripcion}{d.mov.concepto ? ' / ' + d.mov.concepto : ''}
+                                <span style={{ display: 'block', color: '#78716c', fontSize: 9.5 }}>{d.porque}</span>
+                              </span>
+                            </label>
+                          ))}
                         </div>
                       )}
                     </div>
