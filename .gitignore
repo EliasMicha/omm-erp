@@ -5,3 +5,4 @@ dist
 # Claude — local secrets (no commitear)
 .claude/
 .claude-pat
+.claude-sbp
