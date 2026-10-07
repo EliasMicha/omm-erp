@@ -3,6 +3,7 @@ import { AuthProvider } from './contexts/AuthContext'
 import ProtectedRoute from './components/ProtectedRoute'
 import Sidebar from './components/layout/Sidebar'
 import Login from './pages/Login'
+import OAuthConsent from './pages/OAuthConsent'
 import Dashboard from './pages/Dashboard'
 import CRM from './pages/CRM'
 import Cotizaciones from './pages/Cotizaciones'
@@ -56,6 +57,12 @@ export default function App() {
               cuenta. Va FUERA de ProtectedRoute a propósito: pedirle registrarse
               para contestar un examen mata la respuesta. */}
           <Route path="/examen/:token" element={<ExamenPublicoPage />} />
+          {/* Consentimiento de OAuth: aqui se autoriza a una app externa a entrar
+              al ERP. Va FUERA de ProtectedRoute a proposito — ProtectedRoute
+              manda a /login con replace y PIERDE la URL, y con ella el
+              authorization_id. La pantalla pide sesion por su cuenta y se
+              regresa sola despues del login. */}
+          <Route path="/oauth/consent" element={<OAuthConsent />} />
           {/* Layout principal con sidebar para el resto */}
           <Route path="/*" element={
             <ProtectedRoute>

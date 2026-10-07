@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 
 type Mode = 'login' | 'first-time-setup'
@@ -14,6 +14,25 @@ export default function Login() {
   const [mode, setMode] = useState<Mode>('login')
   const { signIn, signUpExisting } = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
+
+  // A donde ir despues de entrar. Por default al tablero, pero si alguien llego
+  // aqui rebotado de otra pantalla (hoy: /oauth/consent, que necesita sesion y
+  // trae un authorization_id que no se puede perder), se regresa ahi.
+  //
+  // La guarda importa: sin ella, ?next=https://sitio-que-no-es-nuestro seria un
+  // redirect abierto, y esos se usan para phishing — el usuario ve omm-erp.app
+  // en la liga del correo y acaba en otro lado ya logueado. Solo se aceptan
+  // rutas de esta misma app: una diagonal, y no dos (//otrositio.com es una URL
+  // sin esquema, no una ruta) ni diagonal-contrabarra (algunos navegadores la
+  // normalizan a //).
+  function destinoTrasEntrar(): string {
+    const crudo = new URLSearchParams(location.search).get('next')
+    if (!crudo) return '/'
+    if (!crudo.startsWith('/')) return '/'
+    if (crudo.startsWith('//') || crudo.startsWith('/\\')) return '/'
+    return crudo
+  }
 
   // Helper: agrega timeout a una promesa (si no resuelve en N ms, rechaza)
   function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
@@ -47,7 +66,7 @@ export default function Login() {
         } else {
           // Sesión OK — redirigir. setLoading(false) para evitar "Entrando..." pegado
           setLoading(false)
-          navigate('/')
+          navigate(destinoTrasEntrar())
         }
       } else {
         // first-time-setup mode
@@ -67,7 +86,7 @@ export default function Login() {
           setLoading(false)
         } else {
           setLoading(false)
-          navigate('/')
+          navigate(destinoTrasEntrar())
         }
       }
     } catch (e: any) {
