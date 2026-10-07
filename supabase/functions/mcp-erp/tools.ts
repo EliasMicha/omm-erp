@@ -13,6 +13,7 @@ const TOPE = 200 // PostgREST corta en 1000 sin avisar; aqui se pide menos y exp
 export const DEFINICIONES = [
   {
     name: 'buscar_leads',
+    annotations: { readOnlyHint: true },
     description:
       'Busca leads (proyectos) en el CRM por nombre, clave, despacho o contacto. ' +
       'Uselo para encontrar el lead antes de cualquier otra cosa: casi todo en el ERP cuelga de un lead.',
@@ -27,6 +28,7 @@ export const DEFINICIONES = [
   },
   {
     name: 'ver_lead',
+    annotations: { readOnlyHint: true },
     description:
       'Devuelve un lead con su alcance capturado, sus cotizaciones y sus ordenes de compra. ' +
       'Acepta el id o la clave de 4 letras.',
@@ -40,6 +42,7 @@ export const DEFINICIONES = [
   },
   {
     name: 'crear_lead',
+    annotations: { readOnlyHint: false, destructiveHint: false },
     description:
       'Da de alta un lead nuevo en el CRM. Antes de crear, busca parecidos y, si encuentra uno, ' +
       'DEVUELVE EL CANDIDATO SIN CREAR NADA — para crearlo de todas formas hay que repetir con confirmar=true. ' +
@@ -64,6 +67,7 @@ export const DEFINICIONES = [
   },
   {
     name: 'agregar_nota_lead',
+    annotations: { readOnlyHint: false, destructiveHint: false },
     description:
       'Agrega texto a las notas de un lead sin borrar lo que ya tenia. ' +
       'Uselo para ir capturando el alcance conforme se levanta.',
@@ -78,6 +82,7 @@ export const DEFINICIONES = [
   },
   {
     name: 'mis_pendientes',
+    annotations: { readOnlyHint: true },
     description: 'Los pendientes del tablero de quien esta conectado. Son los mismos que ve en su pantalla.',
     inputSchema: {
       type: 'object',
@@ -88,6 +93,7 @@ export const DEFINICIONES = [
   },
   {
     name: 'crear_pendiente',
+    annotations: { readOnlyHint: false, destructiveHint: false },
     description: 'Agrega un pendiente al tablero de quien esta conectado. Aparece en su pantalla de inmediato.',
     inputSchema: {
       type: 'object',

@@ -72,6 +72,7 @@ async function ordenDe(sb: SupabaseClient, ref: string) {
 export const DEFINICIONES_COM = [
   {
     name: 'crear_orden_compra',
+    annotations: { readOnlyHint: false, destructiveHint: false },
     description:
       'Crea una orden de compra en BORRADOR con sus partidas. tipo=servicio para destajo y mano de obra ' +
       '(sin IVA, serie OS). UNA ORDEN NUNCA MEZCLA MONEDAS: si hay partidas en pesos y en dolares, salen ' +
@@ -146,6 +147,7 @@ export const DEFINICIONES_COM = [
   },
   {
     name: 'exportar_orden_compra',
+    annotations: { readOnlyHint: true },
     description:
       'Da la liga para descargar el PDF de la orden desde el ERP, y de paso avisa si la orden tiene algo ' +
       'que la haria salir mal impresa (partidas sin cotejar, totales que no cuadran con los renglones).',

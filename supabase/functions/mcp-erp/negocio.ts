@@ -34,6 +34,7 @@ async function leadDe(sb: SupabaseClient, ref: string) {
 export const DEFINICIONES_NEG = [
   {
     name: 'ver_obra',
+    annotations: { readOnlyHint: true },
     description:
       'La foto completa de un proyecto: sus cotizaciones, sus ordenes de compra, lo vendido contra lo ' +
       'cobrado, y como van sus tareas. Es la respuesta a "como va X". Acepta la clave de 4 letras.',
@@ -45,6 +46,7 @@ export const DEFINICIONES_NEG = [
   },
   {
     name: 'buscar_cotizaciones',
+    annotations: { readOnlyHint: true },
     description: 'Busca cotizaciones por lead, etapa, especialidad o nombre. Devuelve folio, etapa y total.',
     inputSchema: {
       type: 'object',
@@ -59,6 +61,7 @@ export const DEFINICIONES_NEG = [
   },
   {
     name: 'ver_cotizacion',
+    annotations: { readOnlyHint: true },
     description:
       'El detalle de una cotizacion: sus partidas con cantidades y precios, y su costo de material. ' +
       'Acepta el id o el folio. OJO con las monedas: el costo va en la del proveedor y el precio en la ' +
@@ -71,6 +74,7 @@ export const DEFINICIONES_NEG = [
   },
   {
     name: 'buscar_ordenes_compra',
+    annotations: { readOnlyHint: true },
     description:
       'Ordenes de compra por lead, proveedor, estado o tipo. tipo=servicio son las de mano de obra y ' +
       'destajo, que no llevan IVA ni cotejo. Devuelve folio, proveedor, total y moneda.',
@@ -87,6 +91,7 @@ export const DEFINICIONES_NEG = [
   },
   {
     name: 'ver_orden_compra',
+    annotations: { readOnlyHint: true },
     description:
       'El detalle de una orden: sus partidas, el cotejo contra lo que ofrecio el proveedor, lo que se le ' +
       'ha pagado y el saldo. Acepta id o folio.',
@@ -98,6 +103,7 @@ export const DEFINICIONES_NEG = [
   },
   {
     name: 'cobranza',
+    annotations: { readOnlyHint: true },
     description:
       'Lo vendido contra lo cobrado. Sin lead devuelve el panorama de todos; con lead, el desglose por ' +
       'cotizacion. Los montos vienen separados por moneda a proposito: sumar pesos con dolares es el ' +
@@ -112,6 +118,7 @@ export const DEFINICIONES_NEG = [
   },
   {
     name: 'buscar_catalogo',
+    annotations: { readOnlyHint: true },
     description:
       'Busca productos del catalogo. SIEMPRE devuelve la moneda del costo junto al costo: en este ERP la ' +
       'moneda del costo la dicta el catalogo y nunca se mueve, y un costo sin su moneda ya produjo ' +
@@ -128,6 +135,7 @@ export const DEFINICIONES_NEG = [
   },
   {
     name: 'buscar_facturas',
+    annotations: { readOnlyHint: true },
     description:
       'Facturas emitidas o recibidas, por cliente, mes o estado. OJO: el estado bueno es status; la ' +
       'columna estado de esta tabla es ruido y no se devuelve.',

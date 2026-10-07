@@ -45,6 +45,7 @@ function folio(): string {
 export const DEFINICIONES_LEV = [
   {
     name: 'crear_levantamiento',
+    annotations: { readOnlyHint: false, destructiveHint: false },
     description:
       'Crea un levantamiento (requerimiento) en BORRADOR colgado de un lead, con su folio RQ. ' +
       'No le avisa a nadie todavia: es el papel donde se captura que pidio el cliente. ' +
@@ -74,6 +75,7 @@ export const DEFINICIONES_LEV = [
   },
   {
     name: 'ver_levantamientos',
+    annotations: { readOnlyHint: true },
     description: 'Lista los levantamientos de un lead, con sus areas, a quien se le canalizo y si ya contestaron.',
     inputSchema: {
       type: 'object',

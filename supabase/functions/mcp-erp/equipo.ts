@@ -24,6 +24,7 @@ const TOPE = 200
 export const DEFINICIONES_EQ = [
   {
     name: 'panorama_equipo',
+    annotations: { readOnlyHint: true },
     description:
       'Como viene la carga del equipo: cuantas tareas abiertas, cuantas sin responsable, cuantas sin fecha y ' +
       'cuantas vencidas. Agrupa por persona, area, obra o por donde (oficina/campo). ' +
@@ -37,6 +38,7 @@ export const DEFINICIONES_EQ = [
   },
   {
     name: 'buscar_tareas',
+    annotations: { readOnlyHint: true },
     description:
       'Busca tareas del equipo en oficina y campo a la vez. Sirve para "que trae pendiente Ricardo", ' +
       '"que falta en la obra X", "que esta vencido". Use filtro=sin_dueno para lo que no tiene a quien ' +
@@ -77,6 +79,7 @@ export const DEFINICIONES_EQ = [
   },
   {
     name: 'directorio_equipo',
+    annotations: { readOnlyHint: true },
     description:
       'Quien es quien: empleados con su area y su puesto. Uselo para saber a quien se le puede asignar algo ' +
       'y para no confundir homonimos — hay dos Alfredos y uno es de obra y otro de oficina.',
