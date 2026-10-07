@@ -27,16 +27,19 @@
 //      usuario contra Supabase y de ahi saca una persona. Un token robado de
 //      aqui caduca y se revoca desde el dashboard; el de Grok era para siempre.
 //
-//  ── Estado: ESQUELETO, CERO HERRAMIENTAS ───────────────────────────────────
-//  tools/list devuelve una lista vacia a proposito. Primero hay que ver el
-//  apreton de manos completo —descubrimiento, consentimiento, token, sesion—
-//  funcionando de verdad. Colgarle herramientas que escriben antes de eso es
-//  justo el orden que deja un "ya quedo" sin comprobar.
+//  ── Estado: BLOQUE 1 ───────────────────────────────────────────────────────
+//  Siete herramientas: consultar el CRM, dar de alta un lead, capturar alcance,
+//  y los pendientes del tablero. Viven en tools.ts.
+//
+//  Son pocas a proposito. Un modelo que ve demasiadas herramientas escoge mal,
+//  y eso ya se vio con el servidor anterior. Cotizaciones, catalogo y facturas
+//  entran despues, cada bloque cuando el anterior se haya usado de verdad.
 // ═══════════════════════════════════════════════════════════════════════════
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { DEFINICIONES, ejecutar } from './tools.ts'
 
 const PROTOCOL_VERSION = '2025-06-18'
-const SERVER_INFO = { name: 'omm-erp', version: '0.1.0' }
+const SERVER_INFO = { name: 'omm-erp', version: '0.2.0' }
 
 const PROJECT = 'https://ubbumxommqjcpdozpunf.supabase.co'
 const ISSUER = `${PROJECT}/auth/v1`
@@ -158,8 +161,11 @@ Deno.serve(async (req: Request) => {
           capabilities: { tools: {} },
           serverInfo: SERVER_INFO,
           instructions:
-            `Conectado al ERP de OMM como ${cuenta.nombre || cuenta.email}. ` +
-            `Todavia no hay herramientas habilitadas: esta conexion esta en prueba.`,
+            `ERP de OMM Technologies, conectado como ${cuenta.nombre || cuenta.email}. ` +
+            `Casi todo cuelga de un LEAD (el proyecto): busquelo primero con buscar_leads. ` +
+            `Lo que se escriba queda a nombre de esta persona y sujeto a sus permisos. ` +
+            `No invente fechas, montos ni especialidades que no le hayan dicho: en este ERP ` +
+            `un dato faltante se pregunta, uno equivocado se compra.`,
         },
       })
 
@@ -171,11 +177,23 @@ Deno.serve(async (req: Request) => {
       return json({ jsonrpc: '2.0', id, result: {} })
 
     case 'tools/list':
-      // Vacia a proposito. Ver el encabezado de este archivo.
-      return json({ jsonrpc: '2.0', id, result: { tools: [] } })
+      return json({ jsonrpc: '2.0', id, result: { tools: DEFINICIONES } })
 
-    case 'tools/call':
-      return json({ jsonrpc: '2.0', id, error: { code: -32601, message: 'Este servidor todavia no expone herramientas.' } })
+    case 'tools/call': {
+      const quien = { id: cuenta.id, nombre: cuenta.nombre, email: cuenta.email }
+      try {
+        const r = await ejecutar(rpc?.params?.name, rpc?.params?.arguments || {}, sb, quien)
+        return json({ jsonrpc: '2.0', id, result: r })
+      } catch (e) {
+        // Un error de una herramienta se devuelve COMO RESULTADO, no como error
+        // de protocolo: asi el modelo lo lee, se lo explica a la persona y puede
+        // corregir. Un error de JSON-RPC lo deja sin texto que mostrar.
+        return json({
+          jsonrpc: '2.0', id,
+          result: { isError: true, content: [{ type: 'text', text: `Fallo la herramienta: ${(e as Error)?.message || e}` }] },
+        })
+      }
+    }
 
     default:
       return json({ jsonrpc: '2.0', id, error: { code: -32601, message: `Metodo no soportado: ${rpc?.method}` } })
