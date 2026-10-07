@@ -172,8 +172,13 @@ export async function ejecutarLev(nombre: string, args: any, sb: SupabaseClient,
         lead_id: (lead as any).id,
         folio: folio(),
         capturado_por: quien.nombre || quien.email,
-        capturado_por_id: quien.id,
       }
+      // capturado_por_id apunta a employees(id), NO a app_users(id). Mandar el
+      // segundo revienta levantamientos_capturado_por_id_fkey y el levantamiento
+      // no se guarda. Si esta cuenta no esta ligada a un empleado, la columna se
+      // OMITE: acepta null y el nombre ya quedo en capturado_por, que es lo que
+      // la pantalla del ERP ha escrito siempre.
+      if (quien.empleadoId) fila.capturado_por_id = quien.empleadoId
       for (const c of ['inmueble','direccion','niveles','tipo_inmueble','solicita','contacto_cliente',
                        'contacto_rfi','fecha_visita','fecha_compromiso_cliente','urgencia',
                        'indicaciones','origen_texto','origen_canal','notas']) {

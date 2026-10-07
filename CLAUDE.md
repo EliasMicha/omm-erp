@@ -2424,3 +2424,73 @@ Con las 5 partidas reales de `E102C-ES01-C05` corridas por el resolver en node:
 antes los renglones sumaban 6,140.62 contra un total de 3,824.73; después suman
 **3,824.73 exacto**. Y una partida sin cotejo no devuelve ningún campo a
 escribir.
+
+---
+
+## 🪪 Las TRES identidades, no dos (2026-10-06)
+
+CLAUDE.md ya decía "`auth.uid()` NO es `app_users.id`". Faltaba la tercera, y
+por eso volví a caer: **`employees.id`**.
+
+Elias, creando un levantamiento de SEVI desde dot:
+`levantamientos_capturado_por_id_fkey`. Yo mandaba `app_users.id` y esa columna
+apunta a `employees(id)`.
+
+| columna | apunta a |
+|---|---|
+| `action_items.owner_user_id` | **`app_users`** |
+| `action_items.assignee_id`, `created_by` | `employees` |
+| `levantamientos.capturado_por_id` | `employees` |
+| `levantamiento_areas.director_id` | `employees` |
+| `project_tasks.assignee_id`, `delegada_por_id`, `solicitada_por_id` | `employees` |
+| `obra_actividades.instalador_id` | `employees` |
+| `projects.area_lead_id`, `site_lead_id` | `employees` |
+
+**La única que pide `app_users` es `owner_user_id`.** Todo lo demás que nombra
+a una persona quiere `employees.id`. El puente es `app_users.employee_id`.
+
+### Cómo se verifica, de verdad
+
+No por el nombre de la columna: `owner_user_id` y `assignee_id` viven en la
+MISMA tabla y apuntan a tablas distintas. Se pregunta a `pg_constraint`:
+
+```sql
+select src.relname as tabla, a.attname as columna, tgt.relname as apunta_a
+from pg_constraint con
+join pg_class src on src.oid = con.conrelid
+join pg_class tgt on tgt.oid = con.confrelid
+join unnest(con.conkey) with ordinality as k(attnum, ord) on true
+join pg_attribute a on a.attrelid = con.conrelid and a.attnum = k.attnum
+where con.contype = 'f' and tgt.relname in ('employees','app_users','users');
+```
+
+### El detalle que importa: 6 de 9 `app_users` NO tienen `employee_id`
+
+Así que `employees.id` puede no existir para la persona conectada. Esas
+columnas aceptan null, y los 9 levantamientos que ya había tienen
+`capturado_por_id` en NULL — la pantalla del ERP nunca escribió esa columna,
+solo el nombre en `capturado_por` (texto).
+
+Regla: **si no hay `employee_id`, se OMITE la columna.** No se inventa, no se
+rellena con el id que se tenga a mano. El nombre ya quedó en la columna de
+texto, que es lo que el ERP ha hecho siempre.
+
+### Por qué el MCP no lo cazó antes de que Elias lo viera
+
+La prueba corrió con la service key, donde `auth.uid()` es NULL y **NULL
+satisface cualquier FK** — el mismo error de método que ya está documentado
+arriba en la sección de `activity_log`. La prueba buena simula la sesión y se
+revierte:
+
+```sql
+begin;
+  set local role authenticated;
+  select set_config('request.jwt.claims',
+    '{"sub":"<auth_user_id real>","role":"authenticated"}', true);
+  -- el insert de verdad
+rollback;
+```
+
+⚠️ **Sacar el `auth_user_id` ANTES del `set local role`.** Si la subconsulta
+que lo busca corre ya como `authenticated`, RLS la bloquea y `sub` queda null
+— la prueba pasa por razones falsas. Me pasó en el primer intento.

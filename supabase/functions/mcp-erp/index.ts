@@ -143,7 +143,7 @@ Deno.serve(async (req: Request) => {
   // app_users.id — se busca por auth_user_id, que es el enlace real.
   const { data: cuenta } = await sb
     .from('app_users')
-    .select('id,nombre,email,permission_area,activo,es_bot')
+    .select('id,nombre,email,permission_area,activo,es_bot,employee_id')
     .eq('auth_user_id', quien.user.id)
     .maybeSingle()
 
@@ -184,7 +184,15 @@ Deno.serve(async (req: Request) => {
       return json({ jsonrpc: '2.0', id, result: { tools: [...DEFINICIONES, ...DEFINICIONES_LEV, ...DEFINICIONES_EQ, ...DEFINICIONES_NEG, ...DEFINICIONES_COM] } })
 
     case 'tools/call': {
-      const quien = { id: cuenta.id, nombre: cuenta.nombre, email: cuenta.email }
+      // employee_id va aparte de id a proposito: son dos identidades
+      // distintas y cada columna del ERP pide una de las dos. Ver Quien
+      // en tools.ts para la tabla de cual va donde.
+      const quien = {
+        id: cuenta.id,
+        nombre: cuenta.nombre,
+        email: cuenta.email,
+        empleadoId: (cuenta as any).employee_id ?? null,
+      }
       try {
         const herramienta = rpc?.params?.name
         const argumentos = rpc?.params?.arguments || {}

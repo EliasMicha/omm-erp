@@ -6,7 +6,26 @@
 // la identidad no es un parametro, se deduce de la sesion.
 import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
-export interface Quien { id: string; nombre: string | null; email: string | null }
+/** Las TRES identidades de este ERP, que no coinciden entre si:
+ *
+ *    auth.uid()      la sesion de Supabase
+ *    app_users.id    el usuario del ERP      <- `id` de aqui
+ *    employees.id    la persona en el padron <- `empleadoId` de aqui
+ *
+ *  Cual se manda depende de la columna, no de cual se tenga a mano:
+ *    action_items.owner_user_id          -> app_users.id
+ *    levantamientos.capturado_por_id     -> employees.id
+ *    project_tasks.assignee_id           -> employees.id
+ *    obra_actividades.instalador_id      -> employees.id
+ *
+ *  empleadoId puede venir null: 6 de 9 app_users no tienen employee_id. Las
+ *  columnas que lo usan lo aceptan null, asi que se OMITE, no se inventa. */
+export interface Quien {
+  id: string
+  nombre: string | null
+  email: string | null
+  empleadoId?: string | null
+}
 
 const TOPE = 200 // PostgREST corta en 1000 sin avisar; aqui se pide menos y explicito.
 
