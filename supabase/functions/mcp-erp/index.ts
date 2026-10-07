@@ -38,6 +38,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { DEFINICIONES, ejecutar } from './tools.ts'
 import { DEFINICIONES_LEV, ejecutarLev } from './lev.ts'
+import { DEFINICIONES_EQ, ejecutarEq } from './equipo.ts'
 
 const PROTOCOL_VERSION = '2025-06-18'
 const SERVER_INFO = { name: 'omm-erp', version: '0.2.0' }
@@ -178,16 +179,17 @@ Deno.serve(async (req: Request) => {
       return json({ jsonrpc: '2.0', id, result: {} })
 
     case 'tools/list':
-      return json({ jsonrpc: '2.0', id, result: { tools: [...DEFINICIONES, ...DEFINICIONES_LEV] } })
+      return json({ jsonrpc: '2.0', id, result: { tools: [...DEFINICIONES, ...DEFINICIONES_LEV, ...DEFINICIONES_EQ] } })
 
     case 'tools/call': {
       const quien = { id: cuenta.id, nombre: cuenta.nombre, email: cuenta.email }
       try {
         const herramienta = rpc?.params?.name
         const argumentos = rpc?.params?.arguments || {}
-        const esDeLev = DEFINICIONES_LEV.some(d => d.name === herramienta)
-        const r = esDeLev
+        const r = DEFINICIONES_LEV.some(d => d.name === herramienta)
           ? await ejecutarLev(herramienta, argumentos, sb, quien)
+          : DEFINICIONES_EQ.some(d => d.name === herramienta)
+          ? await ejecutarEq(herramienta, argumentos, sb, quien)
           : await ejecutar(herramienta, argumentos, sb, quien)
         return json({ jsonrpc: '2.0', id, result: r })
       } catch (e) {
