@@ -39,6 +39,8 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { DEFINICIONES, ejecutar } from './tools.ts'
 import { DEFINICIONES_LEV, ejecutarLev } from './lev.ts'
 import { DEFINICIONES_EQ, ejecutarEq } from './equipo.ts'
+import { DEFINICIONES_NEG, ejecutarNeg } from './negocio.ts'
+import { DEFINICIONES_COM, ejecutarCom } from './compras.ts'
 
 const PROTOCOL_VERSION = '2025-06-18'
 const SERVER_INFO = { name: 'omm-erp', version: '0.2.0' }
@@ -179,7 +181,7 @@ Deno.serve(async (req: Request) => {
       return json({ jsonrpc: '2.0', id, result: {} })
 
     case 'tools/list':
-      return json({ jsonrpc: '2.0', id, result: { tools: [...DEFINICIONES, ...DEFINICIONES_LEV, ...DEFINICIONES_EQ] } })
+      return json({ jsonrpc: '2.0', id, result: { tools: [...DEFINICIONES, ...DEFINICIONES_LEV, ...DEFINICIONES_EQ, ...DEFINICIONES_NEG, ...DEFINICIONES_COM] } })
 
     case 'tools/call': {
       const quien = { id: cuenta.id, nombre: cuenta.nombre, email: cuenta.email }
@@ -190,6 +192,10 @@ Deno.serve(async (req: Request) => {
           ? await ejecutarLev(herramienta, argumentos, sb, quien)
           : DEFINICIONES_EQ.some(d => d.name === herramienta)
           ? await ejecutarEq(herramienta, argumentos, sb, quien)
+          : DEFINICIONES_NEG.some(d => d.name === herramienta)
+          ? await ejecutarNeg(herramienta, argumentos, sb, quien)
+          : DEFINICIONES_COM.some(d => d.name === herramienta)
+          ? await ejecutarCom(herramienta, argumentos, sb, quien)
           : await ejecutar(herramienta, argumentos, sb, quien)
         return json({ jsonrpc: '2.0', id, result: r })
       } catch (e) {
