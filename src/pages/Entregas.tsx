@@ -12,6 +12,7 @@ import {
   type ItemEntrega,
 } from '../lib/entregaFlow'
 import { SPECIALTY_CONFIG } from '../lib/utils'
+import { folioOC } from '../lib/folios'
 import { Plus, X, Trash2, Warehouse, Building2, ArrowRight, ClipboardList, PackagePlus, ChevronRight, ChevronLeft, LayoutDashboard, Truck, Calendar, CalendarDays, Clock, Inbox, PackageCheck, MapPin, Wrench, Laptop, Pencil } from 'lucide-react'
 import { useIsMobile } from '../lib/useIsMobile'
 import { unidadCanonica } from '../lib/unidades'
@@ -73,7 +74,7 @@ export default function Entregas() {
       // Sin bajas: quien ya no trabaja aquí no puede recibir ni firmar una
       // entrega. La plantilla sale de la misma fuente que Nómina.
       cargarPlantilla(),
-      supabase.from('purchase_orders').select('id, po_number, project_id, status, supplier_id, quotation_id, lead_id').neq('status', 'cancelada').order('po_number', { ascending: false }).limit(300),
+      supabase.from('purchase_orders').select('id, po_number, folio, project_id, status, supplier_id, quotation_id, lead_id').neq('status', 'cancelada').order('po_number', { ascending: false }).limit(300),
       supabase.from('quotations').select('notes, specialty').eq('stage', 'contrato').eq('vigente', true),
     ])
     setObras((oR.data as any) || [])
@@ -387,7 +388,7 @@ function TabMovimientos({ movimientos, obras, isMobile }: any) {
       const poIds = [...new Set(movimientos.map((m: any) => m.po_id).filter(Boolean))]
       const qIds = [...new Set(movimientos.map((m: any) => m.quotation_id).filter(Boolean))]
       const pR = poIds.length
-        ? await supabase.from('purchase_orders').select('id, po_number, supplier_doc_number, quotation_id, lead_id, supplier_id').in('id', poIds)
+        ? await supabase.from('purchase_orders').select('id, po_number, folio, supplier_doc_number, quotation_id, lead_id, supplier_id').in('id', poIds)
         : { data: [] as any[] }
       const pm: any = {}; ((pR.data as any[]) || []).forEach(p => pm[p.id] = p); setPoMap(pm)
       const allQ = [...new Set([...qIds, ...((pR.data as any[]) || []).map(p => p.quotation_id).filter(Boolean)])]
@@ -421,7 +422,7 @@ function TabMovimientos({ movimientos, obras, isMobile }: any) {
     const lid = (qid && q2l[qid]) || p?.lead_id
     return (lid && leadMap[lid]) || null
   }
-  const refInterna = (m: any) => po(m)?.po_number || m.folio || '—'
+  const refInterna = (m: any) => { const p = po(m); return (p && folioOC(p)) || m.folio || '—' }
   const ordenProv = (m: any) => po(m)?.supplier_doc_number || null
   const provNombre = (m: any) => { const p = po(m); return p ? supMap[p.supplier_id] : null }
 
@@ -752,7 +753,7 @@ function TabRegistrar({ obras, empleados, pos, catalog, obraProject, isMobile, o
               <label style={labelStyle}>Orden de compra (opcional — precarga los productos)</label>
               <select value={poId} onChange={e => cargarDesdeOC(e.target.value)} style={inputStyle}>
                 <option value="">— Sin OC / captura manual —</option>
-                {pos.map((p: any) => <option key={p.id} value={p.id}>{[p.po_number, p._lead, p._prov].filter(Boolean).join('  ·  ')}</option>)}
+                {pos.map((p: any) => <option key={p.id} value={p.id}>{[folioOC(p), p._lead, p._prov].filter(Boolean).join('  ·  ')}</option>)}
               </select>
               {avisoOC && <div style={{ fontSize: 11, color: avisoOC.startsWith('⚠') ? '#D97706' : '#888', marginTop: 6, lineHeight: 1.4 }}>{avisoOC}</div>}
             </div>
@@ -928,7 +929,7 @@ function TabInventarioLead({ isMobile }: any) {
 
     const [qiR, poR] = await Promise.all([
       supabase.from('quotation_items').select('quotation_id, catalog_product_id, name, marca, modelo, quantity').in('quotation_id', cotIds),
-      supabase.from('purchase_orders').select('id, quotation_id, status, po_number, created_at, approved_at').in('quotation_id', cotIds),
+      supabase.from('purchase_orders').select('id, quotation_id, status, po_number, folio, created_at, approved_at').in('quotation_id', cotIds),
     ])
     const qItems = (qiR.data as any[]) || []
     const posData = (poR.data as any[]) || []
@@ -943,7 +944,7 @@ function TabInventarioLead({ isMobile }: any) {
     posData.forEach(p => { poComprada[p.id] = OC_COMPRADA.has(String(p.status || '')) })
     const poBorrador: Record<string, boolean> = {}
     posData.forEach(p => { poBorrador[p.id] = String(p.status || '') === 'borrador' })
-    const poNum: Record<string, string> = {}; posData.forEach(p => { poNum[p.id] = p.po_number || '' })
+    const poNum: Record<string, string> = {}; posData.forEach(p => { poNum[p.id] = folioOC(p) })
 
     let poItems: any[] = []
     if (poIds.length) { const { data } = await supabase.from('po_items').select('purchase_order_id, catalog_product_id, name, marca, modelo, quantity').in('purchase_order_id', poIds); poItems = data || [] }
@@ -1121,7 +1122,7 @@ function TabDashboard({ isMobile, onOperar, onIr }: any) {
       setLoading(true)
       const hoyStr = new Date().toISOString().slice(0, 10)
       const [poR, sR, lR, oR, mR, mhR] = await Promise.all([
-        supabase.from('purchase_orders').select('id, po_number, status, logistics_mode, logistics_target_obra_id, expected_delivery, delivered_at, total, currency, supplier_id, lead_id, quotation_id, created_at').neq('status', 'cancelada').order('created_at', { ascending: false }).limit(500),
+        supabase.from('purchase_orders').select('id, po_number, folio, status, logistics_mode, logistics_target_obra_id, expected_delivery, delivered_at, total, currency, supplier_id, lead_id, quotation_id, created_at').neq('status', 'cancelada').order('created_at', { ascending: false }).limit(500),
         supabase.from('suppliers').select('id, name'),
         supabase.from('leads').select('id, name'),
         supabase.from('obras').select('id, nombre'),
@@ -1190,7 +1191,7 @@ function TabDashboard({ isMobile, onOperar, onIr }: any) {
             const venc = p.expected_delivery && p.expected_delivery < hoy
             return (
               <tr key={p.id} style={{ borderTop: '1px solid #1a1a1a', color: '#ccc' }}>
-                <td style={{ padding: '8px 10px' }}><button onClick={() => setVerPo(p)} style={{ background: 'none', border: 'none', color: '#67E8F9', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, padding: 0, textDecoration: 'underline' }}>{p.po_number}</button></td>
+                <td style={{ padding: '8px 10px' }}><button onClick={() => setVerPo(p)} style={{ background: 'none', border: 'none', color: '#67E8F9', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, padding: 0, textDecoration: 'underline' }}>{folioOC(p)}</button></td>
                 <td style={{ padding: '8px 10px' }}>{supMap[p.supplier_id] || '—'}</td>
                 <td style={{ padding: '8px 10px', color: '#aaa' }}>{leadName(p)}</td>
                 <td style={{ padding: '8px 10px', color: '#aaa' }}>{destino(p)}</td>
@@ -1304,7 +1305,7 @@ function PoContenidoModal({ po, supMap, leadName, confirmada, onClose, onRecibir
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 20 }}>
       <div onClick={e => e.stopPropagation()} style={{ background: '#141414', border: '1px solid #333', borderRadius: 14, width: 'min(760px, 96vw)', maxHeight: '85vh', overflow: 'auto', padding: 20 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-          <div style={{ fontSize: 16, fontWeight: 700, color: '#fff' }}>{po.po_number} · {supMap[po.supplier_id] || 'Sin proveedor'}</div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: '#fff' }}>{folioOC(po)} · {supMap[po.supplier_id] || 'Sin proveedor'}</div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer' }}><X size={18} /></button>
         </div>
         <div style={{ fontSize: 11, color: '#888', marginBottom: 14 }}>Lead: {leadName || '—'} · Contenido de la orden ({items.length} partidas)</div>
@@ -1614,7 +1615,7 @@ function TareaModal({ init, obras, leads, empleados, onClose, onSaved }: any) {
       // Las órdenes de SERVICIO (destajo, mano de obra) no traen mercancía:
       // no hay nada que recolectar del proveedor ni que dar de alta en bodega.
       // Son solo el registro económico del costo.
-      const { data: pR } = await supabase.from('purchase_orders').select('id, po_number, supplier_id, quotation_id, status, logistics_mode, tipo').neq('status', 'cancelada').neq('tipo', 'servicio')
+      const { data: pR } = await supabase.from('purchase_orders').select('id, po_number, folio, supplier_id, quotation_id, status, logistics_mode, tipo').neq('status', 'cancelada').neq('tipo', 'servicio')
       // Recolección = las que NOSOTROS recogemos (modo pickup) o sin modo definido; nunca borrador
       const pos = (((pR as any[]) || [])).filter(p => p.status !== 'borrador' && (!p.logistics_mode || String(p.logistics_mode).startsWith('pickup')))
       setRecoPos(pos)
@@ -1630,7 +1631,7 @@ function TareaModal({ init, obras, leads, empleados, onClose, onSaved }: any) {
     const grp: any = (invByLead && invByLead[entLead]) || {}
     if (tipo !== 'entrega' || entOrigen !== 'proveedor' || !grp.lead_id) { setEntPos([]); return }
     supabase.from('purchase_orders')
-      .select('id, po_number, supplier_id, status, quotation_id, tipo')
+      .select('id, po_number, folio, supplier_id, status, quotation_id, tipo')
       .eq('lead_id', grp.lead_id).neq('status', 'cancelada').neq('status', 'borrador').neq('tipo', 'servicio')
       .then(({ data }) => setEntPos((data as any[]) || []))
   }, [tipo, entOrigen, entLead, invByLead])
@@ -1767,7 +1768,7 @@ function TareaModal({ init, obras, leads, empleados, onClose, onSaved }: any) {
       if (!recoPo) { alert('Selecciona la orden de compra a recolectar.'); return }
       setSaving(true)
       const prov = supMap[recoPoObj?.supplier_id] || 'Proveedor'
-      const row: any = { tipo: 'recoleccion', titulo: (titulo.trim() || ('Recolección — ' + prov + (recoPoObj?.po_number ? ' · ' + recoPoObj.po_number : ''))), fecha, hora: hora || null, ubicacion: ubicacion || null, prioridad, lead_id: null, obra_id: null, po_id: recoPo, asignado_a: asignado || null, asignado_nombre: empleados.find((e: any) => e.id === asignado)?.nombre || null, notas: notas || null, items: recoItems }
+      const row: any = { tipo: 'recoleccion', titulo: (titulo.trim() || ('Recolección — ' + prov + (recoPoObj ? ' · ' + folioOC(recoPoObj) : ''))), fecha, hora: hora || null, ubicacion: ubicacion || null, prioridad, lead_id: null, obra_id: null, po_id: recoPo, asignado_a: asignado || null, asignado_nombre: empleados.find((e: any) => e.id === asignado)?.nombre || null, notas: notas || null, items: recoItems }
       const res = init.id ? await supabase.from('logistics_tasks').update(row).eq('id', init.id) : await supabase.from('logistics_tasks').insert(row)
       if (res.error) { alert('Error: ' + res.error.message); setSaving(false); return }
       setSaving(false); onSaved(); return
@@ -1976,7 +1977,7 @@ function TareaModal({ init, obras, leads, empleados, onClose, onSaved }: any) {
                 <label style={labelStyle}>Orden de compra</label>
                 <select value={recoPo} onChange={e => cargarRecoItems(e.target.value)} style={{ ...inputStyle, marginBottom: 12 }}>
                   <option value="">Selecciona OC…</option>
-                  {recoPos.filter(p => p.supplier_id === recoProv).map(p => <option key={p.id} value={p.id}>{p.po_number}</option>)}
+                  {recoPos.filter(p => p.supplier_id === recoProv).map(p => <option key={p.id} value={p.id}>{folioOC(p)}</option>)}
                 </select>
               </>
             )}
@@ -2050,7 +2051,7 @@ function TareaModal({ init, obras, leads, empleados, onClose, onSaved }: any) {
                     <label style={labelStyle}>Orden de compra que llega (opcional — descuenta lo pendiente de recibir)</label>
                     <select value={entPo} onChange={e => setEntPo(e.target.value)} style={inputStyle}>
                       <option value="">— Sin ligar a una OC —</option>
-                      {entPos.map((p: any) => <option key={p.id} value={p.id}>{p.po_number || p.id.slice(0, 8)}{p.status ? ' · ' + p.status : ''}</option>)}
+                      {entPos.map((p: any) => <option key={p.id} value={p.id}>{folioOC(p) || p.id.slice(0, 8)}{p.status ? ' · ' + p.status : ''}</option>)}
                     </select>
                   </div>
                 )}

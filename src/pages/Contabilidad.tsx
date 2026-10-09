@@ -18,7 +18,8 @@ import { folioRecibo, construirReciboHTML, abrirRecibo } from '../lib/reciboEfec
 import { SectionHeader, KpiCard, Table, Th, Td, ThFilter, useColumnFilters, Badge, Btn, EmptyState } from '../components/layout/UI'
 import TabComplementosPPD from '../components/TabComplementosPPD'
 import ExpedientesAnticipo from '../components/ExpedientesAnticipo'
-import { F, formatDate } from '../lib/utils'
+import { F, formatDate, PHASE_CONFIG } from '../lib/utils'
+import { folioOC } from '../lib/folios'
 import { useIsMobile } from '../lib/useIsMobile'
 import { DEFAULT_TC } from '../lib/fx'
 import {
@@ -1828,7 +1829,7 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
   // Asignacion en cascada Lead -> Cotizacion -> OC
   const [assignLeads, setAssignLeads] = useState<{ id: string; name: string; company?: string }[]>([])
   const [assignQuotations, setAssignQuotations] = useState<{ id: string; name: string; lead_id: string; specialty?: string; total?: number; currency?: string; stage?: string | null; archived_at?: string | null; vigente?: boolean | null; version_group_id?: string | null }[]>([])
-  const [assignPOs, setAssignPOs] = useState<{ id: string; po_number: string; quotation_id?: string; project_id?: string; supplier_id?: string; total?: number; currency?: string; purchase_phase?: string; status?: string }[]>([])
+  const [assignPOs, setAssignPOs] = useState<{ id: string; po_number: string; folio?: string; quotation_id?: string; project_id?: string; supplier_id?: string; total?: number; currency?: string; purchase_phase?: string; status?: string }[]>([])
   const [assignSuppliers, setAssignSuppliers] = useState<{ id: string; name: string; rfc?: string; clabe?: string; cuenta_bancaria?: string; banco?: string; bnet_codigo?: string }[]>([])
   // Cuentas bancarias relacionadas — 1 supplier puede tener N cuentas con distinto BNET/CLABE
   const [supplierAccounts, setSupplierAccounts] = useState<{ id: string; supplier_id: string; etiqueta?: string; moneda?: string; clabe?: string; cuenta_bancaria?: string; banco?: string; bnet_codigo?: string }[]>([])
@@ -2037,7 +2038,7 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
     Promise.all([
       supabaseAll.from('leads').select('id,name,company').order('name'),
       supabaseAll.from('quotations').select('id,name,notes,specialty,total,updated_at,stage,archived_at,vigente,version_group_id').eq('vigente', true).order('updated_at', { ascending: false }),
-      supabase.from('purchase_orders').select('id,po_number,quotation_id,project_id,supplier_id,total,currency,purchase_phase,status').order('po_number', { ascending: false }),
+      supabase.from('purchase_orders').select('id,po_number,folio,quotation_id,project_id,supplier_id,total,currency,purchase_phase,status').order('po_number', { ascending: false }),
       supabase.from('suppliers').select('id,name,rfc,clabe,cuenta_bancaria,banco,bnet_codigo').order('name'),
       supabase.from('clientes').select('id,razon_social,nombre_comercial,rfc,clabe,cuenta_bancaria,banco').eq('activo', true).order('razon_social'),
       supabase.from('employees').select('id,name,rfc,clabe,cuenta,banco').eq('is_active', true).order('name'),
@@ -3450,7 +3451,7 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
           'Cliente': cliente,
           'Proyecto': proyecto,
           'No. Factura': numFactura,
-          'No. Orden de Compra': po?.po_number || '',
+          'No. Orden de Compra': po ? folioOC(po) : '',
           'UUID': uuid,
           'UUID Relacionado': uuidRelacionado,
           'Tipo de Factura': tipoFactura,
@@ -4545,7 +4546,7 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
                                 <label style={labelStyle}>3. Orden de Compra</label>
                                 <SearchSelect
                                   value={m.purchase_order_id || ''}
-                                  options={filteredPOs.map(p => ({ id: p.id, label: `${p.po_number}${p.purchase_phase ? ` [${p.purchase_phase}]` : ''}${p.total ? ` - ${F(p.total)} ${p.currency || ''}` : ''}` }))}
+                                  options={filteredPOs.map(p => ({ id: p.id, label: `${folioOC(p)}${PHASE_CONFIG[p.purchase_phase as keyof typeof PHASE_CONFIG] ? ` [${PHASE_CONFIG[p.purchase_phase as keyof typeof PHASE_CONFIG].label}]` : ''}${p.total ? ` - ${F(p.total)} ${p.currency || ''}` : ''}` }))}
                                   placeholder={m.quotation_id ? (filteredPOs.length === 0 ? 'Sin OCs' : 'Buscar OC...') : 'Selecciona cotización primero'}
                                   disabled={isSaving || !m.quotation_id}
                                   onChange={val => updateAssignment(m.id, 'purchase_order_id', val || null)}

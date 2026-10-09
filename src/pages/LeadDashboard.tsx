@@ -2,6 +2,7 @@ import { useEffect, useState, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { SPECIALTY_CONFIG } from '../lib/utils'
+import { folioOC } from '../lib/folios'
 import { Loading, Badge, SectionHeader } from '../components/layout/UI'
 import { useIsMobile } from '../lib/useIsMobile'
 import { tcForYear } from '../lib/fx'
@@ -829,7 +830,7 @@ export default function LeadDashboard() {
       if (days > 7) {
         list.push({
           tipo: 'Compras', severidad: 'baja',
-          descripcion: `PO ${po.po_number} enviada hace ${days} días sin confirmar`,
+          descripcion: `PO ${folioOC(po)} enviada hace ${days} días sin confirmar`,
           fuente: 'Compras',
         })
       }
@@ -1492,7 +1493,7 @@ export default function LeadDashboard() {
                 const sym = po.currency === 'USD' ? 'US$' : '$'
                 return (
                   <tr key={po.id} style={{ ...trS, opacity: po.status === 'cancelada' ? 0.4 : 1 }}>
-                    <td style={tdS}><span style={{ color: '#fff', fontWeight: 500 }}>{po.po_number || '—'}</span></td>
+                    <td style={tdS}><span style={{ color: '#fff', fontWeight: 500 }}>{folioOC(po) || '—'}</span></td>
                     <td style={{ ...tdS, color: '#666', fontSize: 11 }}>{proj?.name || '—'}</td>
                     <td style={tdS}><Badge label={po.status} color={PO_STATUS_COLOR[po.status] || '#555'} /></td>
                     <td style={tdS}>
