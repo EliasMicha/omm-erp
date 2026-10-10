@@ -2721,3 +2721,127 @@ es jsPDF puro y **sí se puede mover a `_shared`** como se hizo con
 `estadoCuentaPdf` (cambiando `import jsPDF from 'jspdf'` por el export con
 nombre `import { jsPDF }`, que es el único que corre en Deno). Arrastra
 `montoConLetra`, `identidadOmm` y el logo. No se hizo todavía.
+
+## 🛒 El MCP levanta las OC de una cotización (2026-10-10)
+
+Elias: *"crear_orden_compra recibe cotizacion=CONC-ES01, pero falla porque
+purchase_orders.po_number llega nulo"*.
+
+### El defecto: `po_number` es NOT NULL y nadie se lo daba
+
+La pantalla lo resuelve con `insertarOC()` de `src/lib/oc.ts`. El MCP **no puede
+importar `src/`**, así que insertaba sin él y reventaba.
+
+La tentación era copiar el algoritmo a `compras.ts`. Eso es exactamente cómo el
+folio acabó calculado en **cuatro** lugares distintos, con el bug de `COUNT(*)`
+que eso trajo. Se bajó al único sitio que los dos caminos comparten: **la base**.
+
+`tg_po_consecutivo` (BEFORE INSERT) pone `po_number` **solo cuando llega NULL**.
+La pantalla sigue mandando el suyo, así que para ella no cambia nada. Deriva del
+MÁXIMO —no de `COUNT(*)`— y toma un `pg_advisory_xact_lock` por prefijo, así que
+donde el front reintentaba contra el 23505, aquí no hay carrera que perder.
+
+⚠️ **EL NOMBRE DEL TRIGGER IMPORTA.** Postgres dispara los BEFORE por orden
+alfabético y `omm_tg_po_folio` usa `new.po_number` como folio de respaldo cuando
+la orden no cuelga de una cotización. `tg_po_consecutivo` < `tg_po_folio`, así
+que corre primero. Al revés, las órdenes sin cotización quedarían con folio NULL.
+
+Verificado en rollback, los cuatro casos: sin po_number con cotización →
+`OC-2610-018` + folio `CONC-ES01-C01`; sin cotización → folio = consecutivo;
+servicio → serie `OS-`; con po_number explícito (la pantalla) → intacto.
+
+### `generar_ordenes_de_cotizacion` — el puerto de "Generar en bloque"
+
+Mismos criterios y mismo orden de decisiones que `Compras.tsx`:
+
+1. Partidas de la cotización (Distribución va sin área y sin `type='material'`:
+   se lee distinto, es la excepción documentada de la regla de monedas).
+2. `soloVendidos()` — un sistema apagado no se vendió, no se le compra nada.
+3. **El catálogo manda** en proveedor, moneda y costo. El renglón de la
+   cotización trae el precio de VENTA; comprar a ese precio sería pagarle al
+   proveedor nuestro propio margen.
+4. Consolida el mismo producto repetido en varias áreas.
+5. **Descuenta lo ya pedido** en órdenes anteriores de esa cotización. Sin esto,
+   cada corrida duplica la compra.
+6. Aparta lo que no tiene distribuidor y **dice cuáles**.
+7. Agrupa por **proveedor × moneda**. Una orden nunca mezcla monedas.
+8. La fase de la orden es la **más temprana** del grupo.
+
+El RPC `omm_mcp_oc_desde_cotizacion` crea todas las órdenes del lote en UNA
+transacción, idempotente por `purchase_orders.mcp_idem_key`.
+
+⚠️ **`po_items` NO tiene `purchase_phase`** (la fase vive en la ORDEN) y su
+`system` es **texto plano**, no el enum `product_system`. Las dos las inventé al
+portar el flujo y las cazó la prueba contra la base, no el type-check.
+
+### `cotejar_orden` — el Quote del proveedor de un jalón
+
+`cotejar_partida` era de una en una. Ahora se manda el Quote completo y cada
+renglón se empareja con su partida por id, modelo exacto o nombre.
+**Lo que empata con dos partidas, o con ninguna, se REPORTA — no se adivina:**
+cotejar el renglón equivocado cambia el precio de un producto que no era, y eso
+se compra.
+
+No pisa lo original: escribe en las columnas `real_*`, y los importes
+definitivos se vuelcan al **aprobar** (ver la sección del cotejo que no llegaba
+al PDF). El total cotejado incluye las partidas que el Quote no menciona, con su
+costo original: una orden parcialmente cotejada sigue siendo una orden completa.
+
+Si sustituye el producto y no manda el modelo nuevo, `real_modelo` queda en
+blanco **a propósito** y se avisa. Un dato faltante se pregunta; uno equivocado
+se compra.
+
+### Verificación (CONC-ES01, 46 renglones)
+
+Plan calculado aparte en SQL y comparado contra el módulo real corriendo con un
+cliente simulado que revienta si intenta escribir:
+
+```
+1 orden · LUTRON CN · USD · 9 productos de 46 renglones · 108 piezas
+subtotal 6,827.76 · IVA 1,092.44 · total 7,920.20   ✔ los tres exactos
+```
+
+Más: OC previa de 20 RRST → quedan 23 y el subtotal baja a 4,187.76; sistema
+apagado → no hay nada que comprar; un producto en MXN → salen 2 órdenes
+(121.20 + 6,706.56 = 6,827.76); sin distribuidor → se aparta y se nombra.
+Cotejo: Quote que baja precios y sustituye → −351.71 con el aviso del modelo;
+renglón que no empata → reportado; renglón ambiguo → reportado, nada escrito.
+
+**Ojo con un dato real:** `RR-PROC3-KIT` se cotizó con costo 274.45 y el catálogo
+hoy dice **329.40**. La orden sale con 329.40 porque el catálogo manda. Vale la
+pena revisar si el catálogo subió después de cotizar.
+
+### ⚠️ Desplegar el MCP: ahora va BUNDLEADO, no en 7 archivos
+
+Con `generar_ordenes_de_cotizacion` y `cotejar_orden`, los 7 módulos suman
+**161 KB** y ya **no caben inline** en una sola llamada de
+`deploy_edge_function` — y un deploy reemplaza la función entera, así que
+partirlo en dos llamadas la deja coja.
+
+La salida es bundlear. Un archivo, completo por construcción:
+
+```bash
+npx esbuild supabase/functions/mcp-erp/index.ts \
+  --bundle --format=esm --platform=neutral --external:https://* \
+  --outfile=/tmp/bundle-mcp.js          # ~132 KB
+# deploy: name 'mcp-erp', entrypoint_path 'index.ts',
+#         files = [{ name: 'index.ts', content: <el bundle> }], verify_jwt false
+```
+
+`--external:https://*` deja el import de `esm.sh/@supabase/supabase-js` como
+URL, que es lo que necesita Deno. **El repo sigue siendo la fuente**: los 7
+módulos con sus comentarios viven ahí; lo desplegado es el bundle.
+
+⚠️ **El md5 del bundle NO va a empatar con lo desplegado, y está bien.** El
+contenido pasa por dos capas de decodificación JSON y los 12 escapes `—`
+llegan como guion largo literal. En JavaScript `"—"` y `"—"` son la misma
+cadena, así que la desviación es semánticamente nula. Cotejar normalizando solo
+ese escape sí da idéntico. No perseguir el md5 exacto: el intento de escaparlo
+a mano arriesga dejar `\\u2014` literal, que **sí** rompería esas cadenas.
+
+**La vía buena, pendiente de Elias:** crear un PAT en
+https://supabase.com/dashboard/account/tokens y guardarlo en `.claude-sbp` (ya
+gitignored). Con eso el deploy sube los archivos **leídos del disco** por
+`POST /v1/projects/<ref>/functions/deploy?slug=mcp-erp` y deja de depender de
+transcribir 132 KB — que hoy cuesta ~11 minutos por deploy y es el único paso
+frágil del procedimiento.
