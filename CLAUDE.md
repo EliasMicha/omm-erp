@@ -2605,13 +2605,33 @@ cotización dice 1,554.68 en la lista y 1,803.43 en el editor — el defecto de 
 dos verdades que ya costó 23 órdenes de compra firmadas sin cuadrar consigo
 mismas. El RPC `omm_mcp_cotizacion_crear` lo pisa al final, a propósito.
 
-### ⚠️ Una partida de un sistema que no esté en `notes.systems` es INVISIBLE
+### ⚠️ Para que una partida SE VEA hacen falta DOS cosas, no una
 
-El editor dibuja `activeSystems = mergedSystems.filter(s => activeSysIds.includes(s.id))`.
-Una partida cuyo sistema no esté listado **no se ve en pantalla aunque sume en
-el total**. Por eso `notes.systems` se DERIVA de los productos que de verdad se
-insertaron, no se recibe como parámetro. El mapeo enum→id es copia de
-`SYSTEM_DB_NAME` de CotEditorESP; si allá cambia, aquí también.
+**a) Su sistema tiene que estar en `notes.systems`.** El editor dibuja
+`activeSystems = mergedSystems.filter(s => activeSysIds.includes(s.id))`, así que
+una partida cuyo sistema no esté listado **no se ve aunque sume en el total**.
+Por eso `notes.systems` se DERIVA de los productos insertados. El mapeo enum→id
+es copia de `SYSTEM_DB_NAME` de CotEditorESP; si allá cambia, aquí también.
+
+**b) Tiene que colgar de un ÁREA.** Los renglones se dibujan dentro del bloque
+de su área: `products.filter(p => p.areaId === area.id)`. Una partida con
+`area_id` NULL no cae en ningún bloque — invisible, y **sí suma en el total**.
+En la base sólo 86 de 14,232 partidas están así (0.6%): no es lo normal.
+
+⚠️ **Esto se me fue en la primera versión del MCP (v10).** `crear_cotizacion`
+insertaba con `area_id` NULL, así que la cotización habría mostrado su total y
+ni un renglón. Lo cazó Elias preguntando si dot podía "agregar áreas", no la
+prueba de aceptación — que verificó la aritmética y las filas en la base, pero
+nunca que se vieran. Corregido en v11: toda cotización nace con al menos un área
+(`General`, que es el nombre más usado del ERP con 227 apariciones), cada partida
+lleva su `area` opcional, `editar_cotizacion` crea el área que no exista, y el
+RPC tiene una red al final que cuelga de la primera área cualquier partida que
+se haya quedado suelta.
+
+**La lección, que ya es la tercera vez en este repo:** verificar que el dato
+quedó bien guardado NO es verificar que se ve. El Gantt, los bundles del PDF y
+ahora esto. Si la prueba no abre la pantalla, que al menos compruebe la
+condición que la pantalla exige para dibujarlo.
 
 ### Lo que NO hace, a propósito
 

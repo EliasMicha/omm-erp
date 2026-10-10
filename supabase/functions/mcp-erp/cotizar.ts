@@ -36,11 +36,17 @@
 //  el editor. Es el defecto de las dos verdades que ya costo 23 ordenes de
 //  compra firmadas sin cuadrar consigo mismas. El RPC lo pisa al final.
 //
-//  ── 4. LAS PARTIDAS TIENEN QUE VERSE ──────────────────────────────────────
-//  El editor solo dibuja los sistemas que esten en `notes.systems`. Una
-//  partida de un sistema que no este listado queda INVISIBLE en pantalla
-//  aunque sume en el total. Por eso `systems` se deriva de los productos que
-//  de verdad se metieron, no se recibe como parametro.
+//  ── 4. LAS PARTIDAS TIENEN QUE VERSE (y son DOS condiciones) ──────────────
+//  a) El editor solo dibuja los sistemas que esten en `notes.systems`. Una
+//     partida de un sistema que no este listado queda INVISIBLE en pantalla
+//     aunque sume en el total. Por eso `systems` se deriva de los productos
+//     que de verdad se metieron, no se recibe como parametro.
+//  b) Y los renglones se dibujan DENTRO de un area:
+//         products.filter(p => p.areaId === area.id)
+//     asi que una partida con area_id NULL tampoco se ve — y SI suma. Toda
+//     cotizacion nace con al menos un area ('General') y toda partida cuelga
+//     de una. Esto se me fue en la primera version: la cotizacion ensenaba el
+//     total y ni un renglon.
 //
 //  ── Y una de forma ────────────────────────────────────────────────────────
 //  Un SKU ambiguo NO se resuelve adivinando. CW-1-WH son dos productos
@@ -277,9 +283,11 @@ async function armarRenglones(sb: SupabaseClient, partidas: any[], monedaCot: st
         delBundle.push((r as any).renglon)
       }
 
+      const areaB = String(it.area || '').trim() || 'General'
+      for (const r of delBundle) r.area = areaB
       const importe = centavos(delBundle.reduce((s, r) => s + r.total, 0))
       detalle.push({
-        tipo: 'bundle',
+        tipo: 'bundle', area: areaB,
         bundle: (bundle as any).name,
         paquetes: cantidad,
         precio_por_paquete: centavos(importe / cantidad),
@@ -308,8 +316,9 @@ async function armarRenglones(sb: SupabaseClient, partidas: any[], monedaCot: st
     if ((r as any).aviso) avisos.push((r as any).aviso)
 
     const rg = (r as any).renglon
+    rg.area = String(it.area || '').trim() || 'General'
     detalle.push({
-      tipo: 'producto', nombre: rg.name, modelo: rg.modelo, sku: rg.sku,
+      tipo: 'producto', area: rg.area, nombre: rg.name, modelo: rg.modelo, sku: rg.sku,
       cantidad: rg.quantity, precio_unitario: rg.price, importe: rg.total,
       precio: (r as any).origen_precio,
       costo: rg.cost, moneda_costo: rg.provider_currency,
@@ -341,6 +350,8 @@ export const DEFINICIONES_COT = [
       'Las partidas van por catalogo_id o por bundle_id, NUNCA por texto libre: una partida sin id da de alta ' +
       'un producto nuevo en el catalogo por un trigger de la base, y asi se colaron 123 productos basura en un dia. ' +
       'Si el SKU es ambiguo devuelve los candidatos en vez de escoger. ' +
+      'Cada partida puede llevar su `area` (Cocina, Site, Recamara Principal...); si no la dan, todo cae en ' +
+      '"General". Las areas se crean solas. ' +
       'No convierte monedas, no aplica descuentos ni instalacion que no le hayan pedido, y no hereda nada de ' +
       'otra cotizacion. Crear un borrador NO lo manda al cliente, NO lo pasa a contrato y NO genera compras.',
     inputSchema: {
@@ -360,6 +371,7 @@ export const DEFINICIONES_COT = [
               sku: { type: 'string', description: 'SKU o modelo exacto. Si resulta ambiguo se devuelven los candidatos.' },
               bundle_id: { type: 'string', description: 'id del bundle. Se guarda explotado en sus componentes.' },
               cantidad: { type: 'number', description: 'Piezas; para un bundle, cuantos paquetes.' },
+              area: { type: 'string', description: 'En que area del proyecto va (Cocina, Recamara Principal, Site...). Por defecto "General". El editor dibuja los renglones DENTRO de un area: una partida sin area no se ve en pantalla aunque sume.' },
               precio_unitario: { type: 'number', description: 'Precio de venta explicito. Si se omite se deriva del catalogo con su margen.' },
               mano_obra_unitaria: { type: 'number', description: 'Instalacion por pieza. Por defecto CERO: no se aplica el 25% del editor sin que lo pidan.' },
               precios_componentes: {
@@ -401,7 +413,7 @@ export const DEFINICIONES_COT = [
       properties: {
         cotizacion: { type: 'string', description: 'id o folio.' },
         version: { type: 'string', description: 'El `version` que devolvio ver_cotizacion. Obligatorio para cambiar o quitar.' },
-        agregar: { type: 'array', description: 'Partidas nuevas, con el mismo formato que crear_cotizacion.', items: { type: 'object' } },
+        agregar: { type: 'array', description: 'Partidas nuevas, con el mismo formato que crear_cotizacion. Cada una puede traer `area`: si esa area no existe en la cotizacion se crea, y si no la dan cae en la primera.', items: { type: 'object' } },
         cambiar: {
           type: 'array', description: 'Solo los campos que cambien; lo demas del renglon se queda.',
           items: {
@@ -488,8 +500,10 @@ export async function ejecutarCot(nombre: string, args: any, sb: SupabaseClient,
 
       const t = totalesDe(renglones, ivaPct)
 
-      // Los sistemas salen de los productos que de verdad entraron. Ver regla 4.
+      // Los sistemas salen de los productos que de verdad entraron. Ver regla 4a.
       const sistemas = [...new Set(renglones.map((r: any) => idDeSistema(r.system)))]
+      // Y las areas, de las partidas. Ver regla 4b: sin area no se ven.
+      const areas = [...new Set(renglones.map((r: any) => r.area || 'General'))]
 
       if (!args?.confirmar) {
         return texto({
@@ -501,6 +515,7 @@ export async function ejecutarCot(nombre: string, args: any, sb: SupabaseClient,
           partidas: detalle,
           renglones_que_se_guardarian: renglones.length,
           totales: { ...t, moneda },
+          areas_que_se_crean: areas,
           sistemas_que_se_activan: sistemas,
           sin_heredar: 'descuento 0, programacion 0, viaticos apagados, instalacion solo la que usted pidio.',
           avisos: avisos.length ? avisos : undefined,
@@ -540,6 +555,7 @@ export async function ejecutarCot(nombre: string, args: any, sb: SupabaseClient,
             created_by: quien.empleadoId || null,
             assignee_id: quien.empleadoId || null,
           },
+          areas,
           items: renglones.map((r: any, i: number) => ({ ...r, order_index: i })),
           total: t.total,
         },
@@ -556,6 +572,7 @@ export async function ejecutarCot(nombre: string, args: any, sb: SupabaseClient,
         estado: (cot as any)?.stage,
         liga: `${ERP}/cotizaciones?open=${res.id}`,
         partidas: res.partidas ?? renglones.length,
+        areas: res.areas ?? areas.length,
         totales: { ...t, moneda },
         version: (cot as any)?.updated_at,
         que_NO_se_hizo: 'No se mando al cliente, no paso a contrato y no genero ordenes de compra. Es un borrador.',
