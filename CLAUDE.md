@@ -2576,3 +2576,128 @@ Contra los 228 `bank_movements` reales: **23 nuevos / 228 repetidos / 0 dudosos*
 los 23 de octubre, ninguno con fecha ≤ 30-sep. Más 9 pruebas adversarias, entre
 ellas "dos SPEI distintos, mismo día e importe → los 2 nuevos" y "el mismo
 archivo dos veces → 0 nuevos".
+
+## 🧾 El MCP ya cotiza: crear, editar, bundles (2026-10-10)
+
+Hasta la v9 el modelo podía LEER cotizaciones y nada más. Ahora hay cinco
+herramientas más (33 en total): `crear_cotizacion`, `editar_cotizacion`,
+`buscar_bundles`, `ver_bundle`, `exportar_cotizacion`. Viven en
+`supabase/functions/mcp-erp/cotizar.ts`.
+
+### ⛔ Una partida SIN catalog_product_id da de alta un producto
+
+`trg_sync_quotation_item_to_catalog` corre BEFORE INSERT sobre
+`quotation_items`: si la partida llega sin `catalog_product_id`, busca por
+(nombre, proveedor) y **si no empata inserta un producto nuevo en el catálogo**
+con `'pza'` y `'USD'` quemados. Así se colaron 123 productos basura en un día.
+
+Por eso `crear_cotizacion` **sólo acepta partidas por `catalogo_id` o por
+`bundle_id`**. Texto libre se rechaza con el motivo. Escribir en el catálogo es
+una decisión de catálogo, no un efecto colateral de cotizar. Cualquier
+herramienta nueva que inserte en `quotation_items` tiene que respetar esto.
+
+### ⚠️ El total se guarda dos veces y tienen que ser el mismo número
+
+`update_quotation_total()` deja `quotations.total` = **suma de renglones**.
+Pero el efecto de sincronización de `CotEditorESP` lo pisa con el total **CON
+IVA** (`total` y `total_final`). Si se inserta y no se corrige, la misma
+cotización dice 1,554.68 en la lista y 1,803.43 en el editor — el defecto de las
+dos verdades que ya costó 23 órdenes de compra firmadas sin cuadrar consigo
+mismas. El RPC `omm_mcp_cotizacion_crear` lo pisa al final, a propósito.
+
+### ⚠️ Una partida de un sistema que no esté en `notes.systems` es INVISIBLE
+
+El editor dibuja `activeSystems = mergedSystems.filter(s => activeSysIds.includes(s.id))`.
+Una partida cuyo sistema no esté listado **no se ve en pantalla aunque sume en
+el total**. Por eso `notes.systems` se DERIVA de los productos que de verdad se
+insertaron, no se recibe como parámetro. El mapeo enum→id es copia de
+`SYSTEM_DB_NAME` de CotEditorESP; si allá cambia, aquí también.
+
+### Lo que NO hace, a propósito
+
+- **No convierte monedas.** Costo en la del catálogo (`provider_currency`),
+  precio en la de la cotización, en la misma fila. Si el costo está en otra
+  moneda y no dieron precio explícito, se **rechaza** en vez de inventar un TC.
+- **`installation_cost` arranca en CERO.** El editor propone 25% del precio como
+  instalación para casi toda marca; aplicarlo sin que lo pidan le agrega al
+  cliente un cargo que nadie autorizó.
+- **No hereda nada**: descuento 0, programación 0, viáticos apagados.
+- **No adivina un SKU ambiguo.** `CW-1-WH` son dos productos distintos ($3.52 al
+  35% y $3.00 al 40%). Devuelve los candidatos, igual que `crear_orden_compra`
+  con proveedores homónimos.
+
+### Transacción e idempotencia
+
+Dos funciones nuevas, las dos **SECURITY INVOKER** (el MCP no usa service_role y
+RLS tiene que seguir mandando):
+
+| función | qué garantiza |
+|---|---|
+| `omm_mcp_cotizacion_crear(jsonb)` | cabecera + partidas + total en UNA transacción. Si falla una partida, la cabecera se va con ella. Idempotente por `quotations.mcp_idem_key` (índice único parcial). |
+| `omm_mcp_cotizacion_editar(jsonb)` | agregar/cambiar/quitar juntos o nada, con control de versión por `updated_at`. Si la versión no empata, **no escribe** y devuelve la actual. |
+
+`ver_cotizacion` devuelve `version` (= `updated_at`) con ese nombre justamente
+porque es el que pide `editar_cotizacion`. Dos nombres para el mismo dato es
+como se manda el campo equivocado.
+
+### Bundles: explotados al guardar, agrupados al pintar
+
+Igual que en Iluminación. Un renglón por componente, atados por
+`bundle_instance_id`, con `quantity = bundle_unit_qty × bundle_qty`.
+**Sin renglón de cabecera**: la cabecera se dibuja en pantalla, y un renglón
+extra por el paquete sería cobrarlo dos veces. `articulos_extra` cuelga
+artículos adicionales de la misma instancia (su cantidad es POR PAQUETE).
+
+### La prueba de aceptación (GV303 / L303 — Jafif, esp, USD)
+
+Corrida con el módulo real contra las filas reales de producción, con un cliente
+simulado que **revienta si el código intenta escribir** — así "sin escribir en
+producción" quedó comprobado, no prometido.
+
+```
+10 PD-6ANS-WH    x 90.00  = 900.00   (explícito; el catálogo daría 90.76)
+ 1 L-BDGPRO2-WH  x 180.00 = 180.00
+ 5 Pico Bundle   x 65.60  = 328.00   (45.00 Pico negro + 11.10 tapa Midnight + 9.50 adaptador)
+ 3 CW-4-WH       x 23.02  =  69.06
+ 4 CW-1-WH       x  5.42  =  21.68
+ 1 CW-5-WH       x 55.94  =  55.94
+ SUBTOTAL 1,554.68 · IVA 248.75 · TOTAL 1,803.43   ✔ los tres exactos
+```
+
+Ocho tapas blancas adicionales a las cinco Midnight de los bundles; el Pico de
+los paquetes sigue siendo el negro. Más: SKU ambiguo → candidatos; texto libre →
+rechazado; MXN con costo USD sin precio → rechazado sin inventar TC; bundle con
+tapa extra → 71.02 por paquete.
+
+El RPC se probó aparte **simulando la sesión** (`set local role authenticated` +
+`request.jwt.claims`, con el `auth_user_id` resuelto ANTES del `set local role`)
+dentro de `begin … rollback`: folio `L303-ES01` asignado por el trigger del ERP,
+reintento con la misma clave → `reusada: true` sin duplicar, versión vencida →
+rechazada sin borrar nada, y una FK rota se llevó la cabecera consigo (0
+huérfanas).
+
+### Desplegar el MCP: hay que mandar los SIETE archivos
+
+Un deploy **reemplaza la función completa**; mandar sólo el que cambió la deja
+coja. Van con la carpeta adelante (`mcp-erp/index.ts`, …) porque index los
+importa con rutas relativas, y `verify_jwt` se queda en **false** (la función
+hace su propia autenticación OAuth y debe contestar el descubrimiento sin
+credenciales).
+
+Después del deploy, **cotejar md5 de lo desplegado contra lo local**, archivo por
+archivo: `get_edge_function` devuelve ~136 KB en una línea, excede el límite del
+tool y el harness lo guarda en un archivo que hay que parsear con
+`json.loads` sobre `.files[].content`.
+
+⚠️ No hay token de Supabase en bash (`SUPABASE_ACCESS_TOKEN` ni `~/.supabase`),
+así que no se puede desplegar ni verificar por `curl` a la Management API. Si
+algún día se crea el PAT en `.claude-sbp`, el deploy podría subir los archivos
+desde disco y dejaría de depender de transcribirlos.
+
+### Pendiente
+
+`exportar_cotizacion` devuelve la liga al ERP, no el PDF. `src/lib/cotizacionPdf.ts`
+es jsPDF puro y **sí se puede mover a `_shared`** como se hizo con
+`estadoCuentaPdf` (cambiando `import jsPDF from 'jspdf'` por el export con
+nombre `import { jsPDF }`, que es el único que corre en Deno). Arrastra
+`montoConLetra`, `identidadOmm` y el logo. No se hizo todavía.

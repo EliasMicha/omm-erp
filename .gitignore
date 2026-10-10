@@ -6,3 +6,6 @@ dist
 .claude/
 .claude-pat
 .claude-sbp
+
+# artefacto de `deno check` al revisar las edge functions
+deno.lock

@@ -65,7 +65,8 @@ export const DEFINICIONES_NEG = [
     description:
       'El detalle de una cotizacion: sus partidas con cantidades y precios, y su costo de material. ' +
       'Acepta el id o el folio. OJO con las monedas: el costo va en la del proveedor y el precio en la ' +
-      'de la cotizacion — no los compare sin convertir.',
+      'de la cotizacion — no los compare sin convertir. Devuelve `version`, que es lo que pide ' +
+      'editar_cotizacion para no pisar cambios de otra persona.',
     inputSchema: {
       type: 'object',
       properties: { cotizacion: { type: 'string', description: 'id o folio (ej. MAT-IE01).' } },
@@ -220,6 +221,10 @@ export async function ejecutarNeg(nombre: string, args: any, sb: SupabaseClient,
       ])
       return texto({
         cotizacion: cot,
+        // `version` es el mismo updated_at, con el nombre que pide
+        // editar_cotizacion. Dos nombres para el mismo dato es como se
+        // manda el campo equivocado y la edicion se rechaza sin motivo claro.
+        version: (cot as any).updated_at,
         costo_material: costo.data || null,
         ojo_monedas: 'cost va en provider_currency (la del proveedor) y price en la moneda de la cotizacion. No los reste sin convertir.',
         partidas: items.data || [],

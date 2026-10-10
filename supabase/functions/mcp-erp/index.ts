@@ -41,9 +41,10 @@ import { DEFINICIONES_LEV, ejecutarLev } from './lev.ts'
 import { DEFINICIONES_EQ, ejecutarEq } from './equipo.ts'
 import { DEFINICIONES_NEG, ejecutarNeg } from './negocio.ts'
 import { DEFINICIONES_COM, ejecutarCom } from './compras.ts'
+import { DEFINICIONES_COT, ejecutarCot } from './cotizar.ts'
 
 const PROTOCOL_VERSION = '2025-06-18'
-const SERVER_INFO = { name: 'omm-erp', version: '0.2.0' }
+const SERVER_INFO = { name: 'omm-erp', version: '0.3.0' }
 
 const PROJECT = 'https://ubbumxommqjcpdozpunf.supabase.co'
 const ISSUER = `${PROJECT}/auth/v1`
@@ -181,7 +182,7 @@ Deno.serve(async (req: Request) => {
       return json({ jsonrpc: '2.0', id, result: {} })
 
     case 'tools/list':
-      return json({ jsonrpc: '2.0', id, result: { tools: [...DEFINICIONES, ...DEFINICIONES_LEV, ...DEFINICIONES_EQ, ...DEFINICIONES_NEG, ...DEFINICIONES_COM] } })
+      return json({ jsonrpc: '2.0', id, result: { tools: [...DEFINICIONES, ...DEFINICIONES_LEV, ...DEFINICIONES_EQ, ...DEFINICIONES_NEG, ...DEFINICIONES_COM, ...DEFINICIONES_COT] } })
 
     case 'tools/call': {
       // employee_id va aparte de id a proposito: son dos identidades
@@ -204,6 +205,8 @@ Deno.serve(async (req: Request) => {
           ? await ejecutarNeg(herramienta, argumentos, sb, quien)
           : DEFINICIONES_COM.some(d => d.name === herramienta)
           ? await ejecutarCom(herramienta, argumentos, sb, quien)
+          : DEFINICIONES_COT.some(d => d.name === herramienta)
+          ? await ejecutarCot(herramienta, argumentos, sb, quien)
           : await ejecutar(herramienta, argumentos, sb, quien)
         return json({ jsonrpc: '2.0', id, result: r })
       } catch (e) {
