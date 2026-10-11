@@ -2845,3 +2845,57 @@ gitignored). Con eso el deploy sube los archivos **leídos del disco** por
 `POST /v1/projects/<ref>/functions/deploy?slug=mcp-erp` y deja de depender de
 transcribir 132 KB — que hoy cuesta ~11 minutos por deploy y es el único paso
 frágil del procedimiento.
+
+## 👤 Eduardo Rico dirige Ingenierías Especiales; Alfredo Rosas dado de baja (2026-10-10)
+
+Elias: *"Alfredo Rosas se fue, y ya se dio de baja, ahora el director de
+ingenierías especiales es Eduardo Rico"*. El ERP no lo reflejaba: Alfredo seguía
+`activo = true`, sin `fecha_baja`, y **su usuario del ERP todavía podía entrar**.
+
+### Lo que se cambió en la base (producción, una transacción)
+
+| quién | cambio |
+|---|---|
+| Alfredo (`employees` 9547c5af, `app_users` 1a7b28a6) | `activo/is_active=false`, `estado_empleado='baja'`, `fecha_baja='2026-10-10'`, `app_activo=false`; `app_users.activo=false` |
+| Eduardo (`employees` b1ff1474, `app_users` eda4164d) | `puesto='DIRECTOR INSTALACIONES ESPECIALES'`, `nivel='direccion'`, `reporta_a_id` = Elias; `app_users.nivel='director'` |
+| los 4 que reportaban a Alfredo | `reporta_a_id` → Eduardo |
+| `levantamiento_areas.director_id` (3) y `project_tasks` pendientes (85) | → Eduardo (quedó con 86: 85 heredadas + 1 suya) |
+
+La nómina histórica (`payroll_items`, 10 renglones) y `activity_log` (5,390) no
+se tocan: son historia, no asignación.
+
+**Pendiente de Elias:** el correo de Eduardo en `app_users` es un outlook
+personal; dijo que después indica cuál queda.
+
+### ⚠️ El MCP no filtraba empleados ACTIVOS — ahora sí
+
+El front estaba protegido (`cargarPlantilla()` excluye bajas; Compromisos filtra
+`is_active`). El MCP **no**: `directorDe()` en `lev.ts` buscaba "DIRECTOR" por
+área sin filtrar activos, y con dos renglones DIRECTOR en INGENIERIAS ESPECIALES
+(Alfredo en baja + Eduardo) habría devuelto el primero que saliera. Lo mismo
+`empleadosPorNombre()` y `directorio_equipo` en `equipo.ts`: le habrían asignado
+tareas a alguien que ya no está. Los tres llevan ahora `.eq('activo', true)`.
+
+**Regla para cualquier consulta nueva a `employees` desde el MCP:** filtrar
+`activo = true` salvo que se esté leyendo historia (un `director_id` ya guardado,
+un pago). Una baja no borra el renglón; lo que lo saca de los selectores es ese
+filtro, y el MCP no pasa por los selectores del front.
+
+### En código (commit `0aaa765`, MCP v13)
+
+- `Proyectos.tsx`: `SPECIALTY_CONFIG.esp.leader = 'Eduardo Rico'` (el único
+  nombre quemado con efecto funcional).
+- Prompts del agente (`_shared/agent.ts`, `_shared/tools.ts`): los ejemplos
+  nombran a Eduardo. `resolveEmployee` ya filtraba `activo`; "Eduardo" resuelve
+  a una sola persona activa (verificado).
+- Diff de front: 1 literal + 2 comentarios, sin imports/hooks → no se corrieron
+  los 4 checadores esta vez; cualquier diff que toque lógica sí los corre.
+
+### Flujo que funcionó esta sesión (sin clon en la nube)
+
+El folder `~/omm-erp` conectado a la sesión; edición con python + asserts,
+commit y push **directo desde la Mac** con el PAT de `.claude-pat` leído en la
+misma línea de shell (nunca impreso). `git` necesita permiso de borrado para sus
+`.lock` (`device_request_delete_permission` sobre `~/omm-erp`). El folder viejo
+`~/Documents/Claude/Projects/OMM-ERP` es una copia de iCloud de junio con `.git`
+inservible y archivos evacuados: **no es el repo**.
