@@ -2931,3 +2931,57 @@ Reglas:
 - El archivo `.claude-sbp` se creó con un placeholder y Elias pegó el token
   **después** del placeholder (66 chars); se limpió a mano. Si un día el GET da
   401, revisar primero que el archivo tenga sólo el `sbp_…` (44 chars).
+
+## 🧭 Sistema de trabajo por áreas — fases 1 y 2 (2026-10-11)
+
+Propuesta completa (doc vivo, para la junta con los 3 directores):
+https://claude.ai/code/artifact/01739113-c2d1-4357-a606-3855f95dfa47 — sale de las
+"Fichas de Área" y las 34 "Solicitudes de cambio" de Juan Pablo (oct-2026).
+Estructura: **Mi trabajo** = portada por persona, **Proyectos** = vista de director,
+**Actividades** se retira (semana 3). Esqueleto común: contrato → etapa 0
+Recepción de material (compuerta) → etapas del área → entrega con acta → obra.
+
+### Fase 1 — errores del cotizador (commit `a90afdb`)
+- **COT-02 nomenclatura:** el commit `64bbf8d` (24-ago, "margen en iluminación")
+  cambió el payload de `updateProduct` en `CotEditorIlum` de `{[campo]: valor}` a
+  sólo cantidad/costo/margen/precio. Desde entonces la nomenclatura tecleada se
+  veía y se perdía al recargar; sólo persistía la de Auto-numerar. Ahora tiene su
+  rama propia. **Lección:** quien reescribe un payload genérico tiene que listar
+  qué campos pasaban por él antes — `grep "onUpdate(p.id, '"` da la lista.
+- **COT-08 rueda:** arreglo global en `src/main.tsx` (237 `type="number"`): un
+  listener de `wheel` le quita el foco al input numérico. No parchar uno por uno.
+
+### Fase 2 — plantillas (commit `3bc3b10` + datos)
+**No se reescribieron `project_*_templates`.** Ya existía un motor nuevo sin usar:
+`plantillas_encargo` + `plantilla_actividades` (`src/lib/plantillas.ts`): asigna
+por ROL contra el área, fechas desde el inicio o hacia atrás desde la entrega,
+dependencias, tipo de entregable. Estaba vacío y su única pantalla es Actividades.
+- Migración `etapa_en_plantillas_y_tareas`: `etapa text` en `plantilla_actividades`
+  y en `project_tasks`. `guardarPlantilla` y `crearActividades` la propagan.
+- `resolverResponsable(empleados, rol, area, carga?)`: varios con el rol → el de
+  menos tareas abiertas (`pendiente`/`en_progreso`); ninguno → el director del
+  área ("cubre el puesto"). `crearActividades` fija UNA persona por rol por encargo.
+- Cargadas 8 plantillas (claves `*_2026`), 97 actividades: Ilum proyecto (30),
+  contraespecificación (13), servicio rápido (3, tipo cotizacion); Elec ejecutivo
+  (16, duraciones de la ficha), obra (9); Esp proyecto (14), obra y soporte (7);
+  Cambio (5, specialty null = la del encargo). Entregables enlazados por
+  `entregable_tipos.clave`. Duraciones de Ilum/Esp son PROPUESTAS, a confirmar.
+- Simulación con el padrón real: 0 roles sin dueño. Ricardo cubre Proyectista
+  (`ingeniero`) y Residente (`campo`); Juan Pablo cubre asistente (`admin`).
+
+### Datos encontrados (fase 3, pendientes de Elias / directores)
+- Los 30 `projects` tienen TODAS sus fases en `pendiente`; sólo 3 movieron una
+  tarea. El ERP no sabe en qué etapa va ninguno → tabla en el doc para que cada
+  director la llene. Después: aplicar plantilla desde esa etapa, lo previo como
+  hecho, tareas viejas archivadas.
+- Sin usuario ERP: Marco Antonio Mendoza, Jonatan Díaz (Elec), Alejandra Álvarez
+  (Esp). Renata (asistente Ilum) no está en `employees`. Nimbe: padrón dice Jr,
+  ficha dice Sr. Jonatan ya tiene `reporta_a_id` = Ricardo (venía null).
+- Proyecto Ilum de RB205 se llama "Depto Roche Bobois 205 - Especiales" (error de nombre).
+
+### Siguiente (semana 3, código)
+1. Mover el editor de plantillas de Actividades a Proyectos (si no, retirar
+   Actividades deja el motor sin pantalla). 2. Mi trabajo portada + agrupado por
+   `etapa`. 3. Alta automática de proyecto al pasar cotización a contrato, con la
+   plantilla del área. 4. Visibilidad por área (GEN-02, COM-03, CAT-01, ENT-01).
+5. MCP: `derivar_levantamiento` (lev.ts) sigue usando `project_*_templates`.
