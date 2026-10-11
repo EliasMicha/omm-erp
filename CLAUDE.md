@@ -2899,3 +2899,35 @@ misma línea de shell (nunca impreso). `git` necesita permiso de borrado para su
 `.lock` (`device_request_delete_permission` sobre `~/omm-erp`). El folder viejo
 `~/Documents/Claude/Projects/OMM-ERP` es una copia de iCloud de junio con `.git`
 inservible y archivos evacuados: **no es el repo**.
+
+## ⚡ Deploy del MCP en 2 segundos: `.claude-sbp` ya existe (2026-10-11)
+
+Elias creó el token de Supabase (permiso: **sólo Edge Functions → Write**, nada
+más) y vive en `~/omm-erp/.claude-sbp` (gitignored). Con eso el deploy sube el
+bundle **desde disco** y dejó de costar ~10 min de transcripción:
+
+```bash
+cd ~/omm-erp   # en la Mac (device_bash: $HOME/mnt/omm-erp)
+npx -y esbuild@0.24.0 supabase/functions/mcp-erp/index.ts --bundle --format=esm \
+  --platform=neutral --external:https://* --outfile=/tmp/index.ts
+T=$(tr -d '[:space:]' < .claude-sbp)
+curl -sS -X POST -H "Authorization: Bearer $T" \
+  -F 'metadata={"name":"mcp-erp","entrypoint_path":"index.ts","verify_jwt":false};type=application/json' \
+  -F 'file=@/tmp/index.ts;filename=index.ts;type=application/typescript' \
+  "https://api.supabase.com/v1/projects/ubbumxommqjcpdozpunf/functions/deploy?slug=mcp-erp"
+# → 201 en ~2 s, devuelve {slug, version, status: ACTIVE, verify_jwt: false}
+```
+
+Reglas:
+- **El token nunca se imprime ni se pega en el chat.** Se lee en la misma línea
+  de shell (`T=$(...)`) y se usa ahí. Si aparece en el chat, se rota.
+- **Cotejar después:** `mcp__Supabase__get_edge_function` → `.files[0].content`
+  contra el bundle local. Por este camino el md5 empata **exacto** (v14:
+  `0f0e4587…` en los dos); ya no aplica la excepción de los escapes `—`.
+  El endpoint `GET …/functions/mcp-erp/body` NO sirve para eso: devuelve el
+  eszip compilado con dependencias (~600 KB).
+- `mcp__Supabase__deploy_edge_function` (contenido inline) queda sólo como
+  respaldo si la Mac no está conectada.
+- El archivo `.claude-sbp` se creó con un placeholder y Elias pegó el token
+  **después** del placeholder (66 chars); se limpió a mano. Si un día el GET da
+  401, revisar primero que el archivo tenga sólo el `sbp_…` (44 chars).
