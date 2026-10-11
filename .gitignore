@@ -9,3 +9,6 @@ dist
 
 # artefacto de `deno check` al revisar las edge functions
 deno.lock
+
+# cache del CLI de Supabase (lo crea cualquier comando, hasta --help)
+supabase/.temp/
