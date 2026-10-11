@@ -28,6 +28,20 @@ if ('serviceWorker' in navigator) {
   }).catch(() => { /* noop */ })
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// COT-08: la rueda del mouse cambia el valor de un <input type="number"> que
+// tiene el foco. Alguien escribe una cantidad, baja con la rueda para seguir
+// leyendo la cotización y la cantidad se mueve sin que lo note — y se guarda.
+// Hay 237 campos numéricos en el ERP; en vez de parchar uno por uno, aquí se
+// quita el foco del campo en cuanto llega la rueda: el navegador ya no tiene a
+// quién cambiarle el valor y la página se desplaza normal. El blur dispara el
+// onBlur de siempre, que guarda lo que la persona tecleó, no lo que movió la rueda.
+// ─────────────────────────────────────────────────────────────────────────────
+document.addEventListener('wheel', () => {
+  const el = document.activeElement
+  if (el instanceof HTMLInputElement && el.type === 'number') el.blur()
+}, { passive: true })
+
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <App />

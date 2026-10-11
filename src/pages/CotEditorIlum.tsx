@@ -1344,6 +1344,18 @@ export default function CotEditorIlum({ cotId, onBack, onSwitchVersion }: { cotI
 
     setProducts(products.map(x => x.id === id ? updated : x))
 
+    // COT-02: la nomenclatura es texto y no toca importes. Hasta el 24-ago se
+    // guardaba con un payload genérico { [campo]: valor }; el commit 64bbf8d
+    // (margen en iluminación) lo cambió a cantidad / costo / margen / precio y
+    // la nomenclatura dejó de escribirse: se veía en pantalla y se perdía al
+    // recargar. Sólo sobrevivía la de "Auto-numerar", que escribe directo.
+    if (field === 'nomenclatura') {
+      const { error } = await supabase.from('quotation_items')
+        .update({ nomenclatura: String(value).trim() || null }).eq('id', id)
+      if (error) alert('No se guardó la nomenclatura: ' + error.message)
+      return
+    }
+
     const { total } = calcLine(updated)
     const payload: any = { total }
     if (field === 'quantity') {
