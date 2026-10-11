@@ -152,13 +152,14 @@ async function leadDe(sb: SupabaseClient, ref: string) {
 }
 
 /** El director del area. Se busca por area + puesto, igual que el front.
- *  OJO: hay dos Alfredos en el padron y uno es de obra. El filtro por AREA es
- *  lo que distingue a Alfredo Rosas (INGENIERIAS ESPECIALES, cotiza) de
- *  Alfredo Sanchez (INSTALACIONES ESPECIALES, obra). No quitar. */
+ *  OJO: el filtro por AREA distingue INGENIERIAS ESPECIALES (oficina, cotiza —
+ *  hoy Eduardo Rico) de INSTALACIONES ESPECIALES (obra — Alfredo Sanchez). No quitar.
+ *  Y solo ACTIVOS: desde la baja de Alfredo Rosas (2026-10-10) hay dos renglones
+ *  con puesto DIRECTOR en la misma area; sin el filtro saldria el que ya no esta. */
 async function directorDe(sb: SupabaseClient, specialty: string) {
   const area = ESPECIALIDADES[specialty]?.area
   if (!area) return null
-  const { data } = await sb.from('employees').select('id,name,puesto').eq('area', area).limit(50)
+  const { data } = await sb.from('employees').select('id,name,puesto').eq('area', area).eq('activo', true).limit(50)
   return (data || []).find((e: any) => /DIRECTOR|DIRECCION/i.test(e.puesto || '')) || null
 }
 

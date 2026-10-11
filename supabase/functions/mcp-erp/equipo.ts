@@ -82,7 +82,7 @@ export const DEFINICIONES_EQ = [
     annotations: { readOnlyHint: true },
     description:
       'Quien es quien: empleados con su area y su puesto. Uselo para saber a quien se le puede asignar algo ' +
-      'y para no confundir homonimos — hay dos Alfredos y uno es de obra y otro de oficina.',
+      'y para no confundir homonimos. Solo lista gente ACTIVA: a quien ya se dio de baja no se le asigna nada.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -97,12 +97,14 @@ const texto = (o: unknown) => ({ content: [{ type: 'text', text: JSON.stringify(
 const esUuid = (s: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s)
 
 /** Busca un empleado por nombre. Devuelve TODOS los parecidos a proposito:
- *  si hay dos, quien pregunta tiene que elegir. Asignarle trabajo al Alfredo
- *  equivocado es un error que nadie detecta hasta que el trabajo no se hizo. */
+ *  si hay dos, quien pregunta tiene que elegir. Asignarle trabajo a la persona
+ *  equivocada es un error que nadie detecta hasta que el trabajo no se hizo.
+ *  Solo ACTIVOS: un empleado dado de baja (Alfredo Rosas, 2026-10-10) no debe
+ *  volver a recibir tareas por parecerse en el nombre. */
 async function empleadosPorNombre(sb: SupabaseClient, t: string) {
   const limpio = t.replace(/[,()]/g, ' ').trim()
   const { data } = await sb.from('employees').select('id,name,area,puesto')
-    .ilike('name', `%${limpio}%`).limit(10)
+    .ilike('name', `%${limpio}%`).eq('activo', true).limit(10)
   return data || []
 }
 
@@ -226,7 +228,7 @@ export async function ejecutarEq(nombre: string, args: any, sb: SupabaseClient, 
     }
 
     case 'directorio_equipo': {
-      let q = sb.from('employees').select('id,name,area,puesto,role').order('area').limit(TOPE)
+      let q = sb.from('employees').select('id,name,area,puesto,role').eq('activo', true).order('area').limit(TOPE)
       if (args?.area)  q = q.ilike('area', `%${String(args.area).replace(/[,()]/g,' ').trim()}%`)
       if (args?.texto) q = q.ilike('name', `%${String(args.texto).replace(/[,()]/g,' ').trim()}%`)
       const { data, error } = await q

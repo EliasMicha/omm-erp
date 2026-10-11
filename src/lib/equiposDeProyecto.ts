@@ -3,7 +3,7 @@
 //
 //  Regla de Elias: "Los proyectos y cotizaciones solo los hacen los equipos de
 //  proyecto de oficina. Iluminación es Juan Pablo y su equipo, Especiales
-//  Alfredo y su equipo, Eléctricas Ricardo y su equipo. En todas puedo ser
+//  Eduardo Rico y su equipo (antes Alfredo Rosas, baja 2026-10-10), Eléctricas Ricardo y su equipo. En todas puedo ser
 //  asignado yo."
 //
 //  El selector de Dueño listaba el padrón COMPLETO — los 13 oficiales y
@@ -17,7 +17,7 @@
 //  la respuesta equivocada más arriba que la correcta no es solo ruido.
 //
 //  ⚠️ Dos áreas se parecen y NO son la misma:
-//    'INGENIERIAS ESPECIALES'   → oficina, cotiza      (Alfredo Rosas)
+//    'INGENIERIAS ESPECIALES'   → oficina, cotiza      (Eduardo Rico; antes Alfredo Rosas)
 //    'INSTALACIONES ESPECIALES' → obra, NO cotiza      (Alfredo Sánchez)
 //  Por eso la comparación es exacta sobre el nombre completo del área.
 // ═══════════════════════════════════════════════════════════════════════════

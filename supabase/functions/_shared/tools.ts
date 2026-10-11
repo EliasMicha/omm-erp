@@ -192,7 +192,7 @@ const createTasksBatch: Tool = {
             properties: {
               name: { type: 'string', description: 'Título corto de la tarea' },
               description: { type: 'string', description: 'Detalle opcional' },
-              assignee_name: { type: 'string', description: 'Nombre del responsable (ej "Ricardo", "Alfredo")' },
+              assignee_name: { type: 'string', description: 'Nombre del responsable (ej "Ricardo", "Eduardo")' },
               priority: { type: 'integer', description: '1=baja, 2=media, 3=alta', default: 2 },
               due_date: { type: 'string', description: 'Fecha ISO yyyy-mm-dd' },
               system: { type: 'string', description: 'ELE/ESP/ILU/CORT/PROY' },

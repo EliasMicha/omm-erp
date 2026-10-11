@@ -93,7 +93,7 @@ interface EmployeeRow {
 // ═══════════════════════════════════════════════════════════════════
 
 const SPECIALTY_CONFIG: Record<Specialty, { label: string; short: string; color: string; icon: string; leader: string }> = {
-  esp:  { label: 'Especialidades', short: 'ESP',  color: '#10B981', icon: '◈', leader: 'Alfredo Rosas' },
+  esp:  { label: 'Especialidades', short: 'ESP',  color: '#10B981', icon: '◈', leader: 'Eduardo Rico' },
   ilum: { label: 'Iluminación',    short: 'ILU',  color: '#A78BFA', icon: '◇', leader: 'Juan Pablo' },
   elec: { label: 'Eléctrico',      short: 'ELEC', color: '#FFB347', icon: '◉', leader: 'Ricardo Flores' },
   cort: { label: 'Cortinas',       short: 'CORT', color: '#67E8F9', icon: '◐', leader: '' },
