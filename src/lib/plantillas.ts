@@ -17,7 +17,7 @@
 //      marca, porque significa que el encargo ya nació tarde.
 // ═══════════════════════════════════════════════════════════════════════════
 import { supabase } from './supabase'
-import { Rol, EmpleadoRol, resolverResponsable } from './roles'
+import { Rol, EmpleadoRol, resolverResponsable, tieneRol } from './roles'
 import { AREAS_TRABAJO, URGENCIA_TAREA_CFG, UrgenciaTarea, TipoTarea } from './tareas'
 
 export interface PlantillaEncargo {
@@ -47,6 +47,8 @@ export interface ActividadPlantilla {
   dias_antes_entrega?: number | null
   depende_de?: number | null
   obligatoria: boolean
+  /** Etapa del proceso del área ("1 Conceptual", "2 Canalizaciones"). */
+  etapa?: string | null
 }
 
 export const RECURRENCIAS = [
@@ -118,6 +120,7 @@ export async function guardarPlantilla(
     dias_antes_entrega: a.dias_antes_entrega ?? null,
     depende_de: a.depende_de ?? null,
     obligatoria: a.obligatoria !== false,
+    etapa: a.etapa || null,
   }))
   const { error: e2 } = await supabase.from('plantilla_actividades').insert(filas)
   if (e2) return { error: e2.message }
@@ -205,9 +208,32 @@ export async function crearActividades(
   // una frase en una junta y no un dato.
   const idsPorOrden = new Map<number, string>()
 
+  // UNA persona por rol en todo el encargo: el proyecto de Iluminación lo lleva
+  // una diseñadora, no se alterna tarea por tarea. Si hay varias con el rol,
+  // se elige la de menos tareas abiertas al momento de aplicar.
+  const elegido = new Map<string, string | null>()
+  const responsableDe = async (rol: Rol, area: string | null): Promise<string | null> => {
+    const k = `${rol}|${area || ''}`
+    if (elegido.has(k)) return elegido.get(k) || null
+    const cands = empleados.filter(e => tieneRol(e, rol) && (!area || e.area === area))
+    let carga: Map<string, number> | undefined
+    if (cands.length > 1 && rol !== 'director') {
+      carga = new Map()
+      for (const c of cands) {
+        const { count } = await supabase.from('project_tasks')
+          .select('id', { count: 'exact', head: true })
+          .eq('assignee_id', c.id).in('status', ['pendiente', 'en_progreso'])
+        carga.set(c.id, count || 0)
+      }
+    }
+    const r = resolverResponsable(empleados, rol, area, carga)
+    elegido.set(k, r)
+    return r
+  }
+
   for (const a of acts) {
     const sp = a.specialty || ctx.specialty
-    const responsable = resolverResponsable(empleados, a.rol, areaDe(sp))
+    const responsable = await responsableDe(a.rol, areaDe(sp))
     if (!responsable) sinDueno++
     const { fecha, enElPasado: tarde } = fechaDe(a, inicio, ctx.fechaObjetivo)
     if (tarde) enElPasado++
@@ -236,6 +262,7 @@ export async function crearActividades(
       solicitada_por: ctx.solicitadaPor || null,
       solicitada_por_id: ctx.solicitadaPorId || null,
       plantilla_id: plantillaId || null,
+      etapa: a.etapa || null,
       depende_de_id: a.depende_de != null ? (idsPorOrden.get(a.depende_de) || null) : null,
     }).select('id').single()
 

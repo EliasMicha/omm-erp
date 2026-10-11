@@ -88,12 +88,29 @@ export const rolesDobles = (e: EmpleadoRol) => (e.roles || []).length > 1
  * actividad nace SIN DUEÑO pero con el rol marcado, y el director reparte —
  * porque adivinar a quién le toca es justo lo que rompe la responsabilidad.
  */
-export function resolverResponsable(empleados: EmpleadoRol[], rol: Rol, area?: string | null): string | null {
+export function resolverResponsable(
+  empleados: EmpleadoRol[], rol: Rol, area?: string | null, carga?: Map<string, number>,
+): string | null {
   const candidatos = empleados.filter(e => tieneRol(e, rol) && (!area || e.area === area))
   if (candidatos.length === 1) return candidatos[0].id
   // El director de un área es único por definición; si el área no tiene, se
   // deja sin dueño en vez de colgárselo a un director de otra área.
   if (rol === 'director' && candidatos.length > 1) return candidatos[0].id
+  // Varios con el mismo rol (2 dibujantes, 2 diseñadoras): al de MENOS tareas
+  // abiertas. Antes se dejaba sin dueño, y por eso 453 de 858 tareas no tenían.
+  // Sin la carga a la mano se conserva el comportamiento viejo.
+  if (candidatos.length > 1) {
+    if (!carga) return null
+    return candidatos.slice().sort((a, b) => (carga.get(a.id) || 0) - (carga.get(b.id) || 0))[0].id
+  }
+  // Nadie con ese rol en el área (Proyectista vacante, Residente por contratar,
+  // asistente sin alta): lo cubre el director del área, como dicen las fichas
+  // de oct-2026. Queda asignado a alguien real en vez de a nadie, y su carga
+  // enseña el hueco del puesto.
+  if (rol !== 'director' && area) {
+    const dir = empleados.find(e => tieneRol(e, 'director') && e.area === area)
+    if (dir) return dir.id
+  }
   return null
 }
 
