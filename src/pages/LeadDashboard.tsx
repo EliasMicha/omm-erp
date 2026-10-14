@@ -102,6 +102,19 @@ export default function LeadDashboard() {
   const [showQuotPicker, setShowQuotPicker] = useState(false)
   const [cobrarModal, setCobrarModal] = useState<any>(null) // milestone being marked as cobrado
 
+  // ── RESUMEN DE INVERSION: que cotizaciones entran y que anticipo pide cada una ──
+  // Antes el resumen metia TODO lo que no estuviera en 'perdida', asi que para
+  // sacar el reporte de una parte habia que marcar perdida la otra — y eso miente
+  // en el CRM: la cotizacion no se perdio, nada mas no entra en ESTE reporte.
+  // Ahora se eligen con palomita y la etapa real no se toca.
+  const [cotSel, setCotSel] = useState<Set<string>>(new Set())
+  // Anticipo por cotizacion, en % del total c/IVA. Se precarga del hito 'Anticipo'
+  // del plan de cobranza cuando existe; si no, se captura aqui para el reporte.
+  const [anticipoPct, setAnticipoPct] = useState<Record<string, string>>({})
+  // Hitos ligados a la COTIZACION. Separados de `milestones` — ver el comentario
+  // en load(). Solo los lee la precarga del anticipo.
+  const [milestonesCot, setMilestonesCot] = useState<any[]>([])
+
   // (AI summary removed — replaced with computed consolidation)
 
   // Collapsible sections
@@ -111,6 +124,25 @@ export default function LeadDashboard() {
   const toggle = (k: string) => setExpanded(p => ({ ...p, [k]: !p[k] }))
 
   useEffect(() => { if (id) load() }, [id])
+
+  // Al cargar: entran las que no estan perdidas, que es como se comportaba antes.
+  // A partir de ahi manda la palomita.
+  useEffect(() => {
+    setCotSel(new Set(quotations.filter(q => q.stage !== 'perdida').map(q => q.id)))
+  }, [quotations])
+
+  // Precarga del anticipo desde el plan de cobranza. Solo rellena lo que el
+  // usuario no haya escrito ya: si el plan cambia no le borramos su captura.
+  useEffect(() => {
+    const delPlan: Record<string, string> = {}
+    ;[...milestones, ...milestonesCot].forEach((m: any) => {
+      if (!m.quotation_id || m.percentage == null) return
+      if (!/anticipo/i.test(m.name || '')) return
+      delPlan[m.quotation_id] = String(m.percentage)
+    })
+    if (Object.keys(delPlan).length === 0) return
+    setAnticipoPct(prev => ({ ...delPlan, ...prev }))
+  }, [milestones, milestonesCot])
 
   // Nómina asignada por obra (según la planeación semanal).
   // Cada instalador reparte su sueldo SEMANAL proporcional a los slots (día-obra)
@@ -175,7 +207,7 @@ export default function LeadDashboard() {
     const projIds = new Set(leadProjects.map(p => p.id))
 
     // 4. Parallel: POs, milestones, obras, tasks, phases, employees, quotation items, bank movements, cash movements
-    const [posRes, msRes, obrasRes, tasksRes, phasesRes, empRes, qiRes, bmRes, areasRes, paRes, cmRes] = await Promise.all([
+    const [posRes, msRes, obrasRes, tasksRes, phasesRes, empRes, qiRes, bmRes, areasRes, paRes, cmRes, msQRes] = await Promise.all([
       supabase.from('purchase_orders').select('*').in('project_id', [...projIds]),
       supabase.from('payment_milestones').select('*,currency,amount_paid_mxn,tipo_cambio_pago').in('project_id', [...projIds]),
       supabase.from('obras').select('*').in('project_id', [...projIds]),
@@ -187,9 +219,18 @@ export default function LeadDashboard() {
       supabase.from('quotation_areas').select('id,name,quotation_id').in('quotation_id', [...quotIds]),
       supabase.from('payment_allocations').select('*').in('quotation_id', [...quotIds]),
       supabase.from('cash_movements').select('*').eq('lead_id', id!).order('fecha', { ascending: false }),
+      // Hitos colgados de la COTIZACION, no del proyecto. En el ERP 21 de los 27
+      // hitos que existen son asi, y hasta hoy esta pantalla no los veia: solo
+      // cargaba por project_id. De aqui sale el anticipo del resumen de inversion.
+      supabase.from('payment_milestones').select('*,currency,amount_paid_mxn,tipo_cambio_pago').in('quotation_id', [...quotIds]),
     ])
     setPos(posRes.data || [])
     setMilestones(msRes.data || [])
+    // A PROPOSITO en su propio estado y no dentro de `milestones`: esa lista
+    // alimenta la seccion de Cobranza y los bloqueos automaticos, y meterle 21
+    // hitos que hoy no se ven cambiaria esos totales en otros leads sin que
+    // nadie lo haya pedido. Aqui solo se usan para precargar el anticipo.
+    setMilestonesCot(msQRes.data || [])
     setEmployees(empRes.data || [])
     // Enrich quotation items with area names
     const areaMap: Record<string, string> = {}
@@ -218,6 +259,23 @@ export default function LeadDashboard() {
     setLoading(false)
   }
 
+  // El nombre del lead ya va en el encabezado del PDF; repetirlo en cada renglon
+  // come el ancho y hace que dos cotizaciones distintas se corten iguales
+  // ("...Ingenierias Espec" / "...Ingenieria Electr"). Se compara normalizando,
+  // porque el lead se llama "Cero5cien I402" y las cotizaciones "Cero5cien I-402":
+  // un startsWith exacto no empata por el guion. Nunca deja el nombre vacio.
+  const nombreCorto = (n: any): string => {
+    const completo = String(n || '—').trim()
+    const norm = (t: string) => t.toLowerCase().replace(/[^a-z0-9áéíóúñ]/gi, '')
+    const lead_ = norm(String(lead?.name || ''))
+    if (!lead_) return completo
+    const partes = completo.split(' - ')
+    let i = 0
+    while (i < partes.length - 1 && norm(partes[i]) && lead_.includes(norm(partes[i]))) i++
+    const corto = partes.slice(i).join(' - ').trim()
+    return corto || completo
+  }
+
   // ── EXPORT ESTADO DE CUENTA PDF ──────────────────────────────
   function exportConsolidado() {
     if (!lead) return
@@ -244,6 +302,11 @@ export default function LeadDashboard() {
       if (summary.perQuot.length === 0) return
       const sym = cur === 'USD' ? 'US$' : '$'
       const fmtPDF = (n: number) => sym + n.toLocaleString('es-MX', { maximumFractionDigits: 0 })
+      const pctDe = (qid: string) => parseFloat(anticipoPct[qid] || '0') || 0
+      const anticipoTotal = summary.perQuot.reduce((a: number, pq: any) => a + pq.subtotalIva * pctDe(pq.id) / 100, 0)
+      // La columna de anticipo solo sale si alguna cotizacion de esta moneda lo
+      // pide. Una columna de ceros le pregunta al cliente algo que nadie dijo.
+      const hayAnticipo = anticipoTotal > 0
 
       checkPage(30)
       // Grand Total box
@@ -254,6 +317,12 @@ export default function LeadDashboard() {
       doc.text(`${fmtPDF(Math.round(summary.grandTotal))}`, 20, y + 16)
       doc.setFontSize(8); doc.setTextColor(120)
       doc.text(`c/IVA 16%  |  ${summary.perQuot.length} cotizacion${summary.perQuot.length > 1 ? 'es' : ''}`, 80, y + 16)
+      if (hayAnticipo) {
+        doc.setFontSize(9); doc.setFont('helvetica', 'bold'); doc.setTextColor(190, 110, 20)
+        doc.text(`Anticipo requerido  ${fmtPDF(Math.round(anticipoTotal))}`, W - 20, y + 9, { align: 'right' })
+        doc.setFontSize(8); doc.setFont('helvetica', 'normal'); doc.setTextColor(130)
+        doc.text(`${((anticipoTotal / summary.grandTotal) * 100).toFixed(0)}% del total  ·  resto ${fmtPDF(Math.round(summary.grandTotal - anticipoTotal))}`, W - 20, y + 16, { align: 'right' })
+      }
       doc.setTextColor(0); y += 28
 
       // Per-quotation breakdown
@@ -263,7 +332,8 @@ export default function LeadDashboard() {
       doc.setFontSize(8); doc.setFont('helvetica', 'bold'); doc.setTextColor(80)
       doc.text('Nombre', 18, y)
       doc.text('Especialidad', 110, y)
-      doc.text('Items', 140, y, { align: 'right' })
+      doc.text('Items', 142, y, { align: 'right' })
+      if (hayAnticipo) doc.text('Anticipo', 172, y, { align: 'right' })
       doc.text('Total c/IVA', W - 18, y, { align: 'right' })
       doc.setTextColor(0)
       y += 2; doc.setDrawColor(180); doc.line(15, y, W - 15, y); y += 4
@@ -271,9 +341,13 @@ export default function LeadDashboard() {
       doc.setFont('helvetica', 'normal'); doc.setFontSize(9)
       summary.perQuot.forEach((pq: any) => {
         checkPage(6)
-        doc.text((pq.name || '—').substring(0, 50), 18, y)
+        doc.text(nombreCorto(pq.name).substring(0, 52), 18, y)
         doc.text((pq.specialty || '—').toUpperCase(), 110, y)
-        doc.text(String(pq.items), 140, y, { align: 'right' })
+        doc.text(String(pq.items), 142, y, { align: 'right' })
+        if (hayAnticipo) {
+          const a = pq.subtotalIva * pctDe(pq.id) / 100
+          doc.text(a > 0 ? `${fmtPDF(Math.round(a))} (${pctDe(pq.id)}%)` : '—', 172, y, { align: 'right' })
+        }
         doc.text(fmtPDF(Math.round(pq.subtotalIva)), W - 18, y, { align: 'right' })
         y += 5.5
       })
@@ -296,7 +370,7 @@ export default function LeadDashboard() {
         summary.systems.forEach(([sys, data]: [string, any]) => {
           checkPage(6)
           const pct = summary.grandTotal > 0 ? (data.subtotal / summary.grandTotal) * 100 : 0
-          doc.text(sys, 18, y)
+          doc.text(nombreCorto(sys).substring(0, 52), 18, y)
           doc.text(`${pct.toFixed(0)}%`, 120, y, { align: 'right' })
           doc.text(fmtPDF(Math.round(data.subtotal)), W - 18, y, { align: 'right' })
           const barX = 125; const barW = 40; const barH = 3
@@ -680,7 +754,7 @@ export default function LeadDashboard() {
     }
 
     ;(['USD', 'MXN'] as const).forEach(cur => {
-      const curQuots = quotations.filter(q => getQuotCurrency(q) === cur && q.stage !== 'perdida')
+      const curQuots = quotations.filter(q => getQuotCurrency(q) === cur && cotSel.has(q.id))
       if (curQuots.length === 0) return
 
       result[cur].quotations = curQuots
@@ -770,6 +844,7 @@ export default function LeadDashboard() {
 
       // Per-quotation subtotals
       const perQuot = curQuots.map(q => ({
+        id: q.id,
         name: q.name,
         specialty: q.specialty,
         subtotalIva: getQuotTotalIva(q),
@@ -783,7 +858,7 @@ export default function LeadDashboard() {
     })
 
     return result
-  }, [quotations, quotItems])
+  }, [quotations, quotItems, cotSel])
 
   // Bloqueos automáticos
   const autoBloqueos = useMemo(() => {
@@ -936,20 +1011,50 @@ export default function LeadDashboard() {
         {quotations.length === 0 ? (
           <Empty text="Sin cotizaciones vinculadas" />
         ) : (<>
+          {/* Barra del resumen. El boton de Exportar PDF vivia DENTRO del bloque
+              de USD, asi que un lead con puras cotizaciones en pesos nunca lo
+              tuvo — y al marcar perdida la unica en dolares, desaparecia. El PDF
+              siempre exporto las dos monedas; el boton estaba mal colgado. */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 12, padding: '8px 12px', background: '#0e0e0e', border: '1px solid #1f1f1f', borderRadius: 8 }}>
+            <span style={{ fontSize: 11, color: '#888' }}>
+              Resumen de inversión: <strong style={{ color: '#fff' }}>{cotSel.size}</strong> de {quotations.length} cotizacion{quotations.length === 1 ? '' : 'es'}
+            </span>
+            <button onClick={() => setCotSel(new Set(quotations.map(q => q.id)))} style={linkBtnS}>Todas</button>
+            <button onClick={() => setCotSel(new Set())} style={linkBtnS}>Ninguna</button>
+            <button
+              onClick={exportConsolidado}
+              disabled={cotSel.size === 0}
+              title={cotSel.size === 0 ? 'Selecciona al menos una cotización' : 'Exportar el resumen de inversión'}
+              style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 5, padding: '6px 14px', fontSize: 11, fontWeight: 600, color: cotSel.size === 0 ? '#555' : '#57FF9A', background: cotSel.size === 0 ? '#141414' : '#57FF9A12', border: '1px solid ' + (cotSel.size === 0 ? '#222' : '#57FF9A33'), borderRadius: 6, cursor: cotSel.size === 0 ? 'not-allowed' : 'pointer' }}>
+              <Download size={12} /> Exportar PDF
+            </button>
+          </div>
+
           {/* Render separate table + summary per currency */}
           {(['USD', 'MXN'] as const).map(cur => {
-            const curQuots = quotations.filter(q => getQuotCurrency(q) === cur && q.stage !== 'perdida')
+            // Se listan TODAS las de esa moneda, perdidas incluidas: la palomita
+            // es la que decide si entran al resumen, no la etapa.
+            const curQuots = quotations.filter(q => getQuotCurrency(q) === cur)
             if (curQuots.length === 0) return null
             const sym = cur === 'USD' ? 'US$' : '$'
             const summary = quotSummaryByCur[cur]
             const accentColor = cur === 'USD' ? '#2563EB' : '#10B981'
+            const selDeEsta = curQuots.filter(q => cotSel.has(q.id))
+            const todasSel = selDeEsta.length === curQuots.length
+            const pctDe = (qid: string) => parseFloat(anticipoPct[qid] || '0') || 0
+            const anticipoTotal = summary.perQuot.reduce((a: number, pq: any) => a + pq.subtotalIva * pctDe(pq.id) / 100, 0)
+            const toggleCot = (qid: string) => setCotSel(prev => {
+              const n = new Set(prev); n.has(qid) ? n.delete(qid) : n.add(qid); return n
+            })
 
             return (
               <div key={cur} style={{ marginBottom: 20 }}>
                 {/* Currency header */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
                   <span style={{ fontSize: 12, fontWeight: 700, color: accentColor, padding: '2px 10px', borderRadius: 4, background: accentColor + '18', border: '1px solid ' + accentColor + '33' }}>{cur}</span>
-                  <span style={{ fontSize: 11, color: '#555' }}>{curQuots.length} cotizacion{curQuots.length > 1 ? 'es' : ''}</span>
+                  <span style={{ fontSize: 11, color: '#555' }}>
+                    {selDeEsta.length} de {curQuots.length} cotizacion{curQuots.length > 1 ? 'es' : ''} en el resumen
+                  </span>
                 </div>
 
                 {/* Quotation table */}
@@ -957,6 +1062,18 @@ export default function LeadDashboard() {
                   <table style={tblS}>
                   <thead>
                     <tr style={trHeadS}>
+                      <th style={{ ...thS, width: 34 }}>
+                        <input
+                          type="checkbox"
+                          checked={todasSel}
+                          title={todasSel ? 'Quitar todas del resumen' : 'Meter todas al resumen'}
+                          onChange={() => setCotSel(prev => {
+                            const n = new Set(prev)
+                            curQuots.forEach(q => todasSel ? n.delete(q.id) : n.add(q.id))
+                            return n
+                          })}
+                          style={{ cursor: 'pointer' }} />
+                      </th>
                       <th style={thS}>Nombre</th>
                       <th style={thS}>Especialidad</th>
                       <th style={thS}>Etapa</th>
@@ -965,8 +1082,13 @@ export default function LeadDashboard() {
                     </tr>
                   </thead>
                   <tbody>
-                    {curQuots.map(q => (
-                      <tr key={q.id} style={trS}>
+                    {curQuots.map(q => {
+                      const sel = cotSel.has(q.id)
+                      return (
+                      <tr key={q.id} style={{ ...trS, opacity: sel ? 1 : 0.45 }}>
+                        <td style={tdS}>
+                          <input type="checkbox" checked={sel} onChange={() => toggleCot(q.id)} style={{ cursor: 'pointer' }} />
+                        </td>
                         <td style={tdS}><span style={{ color: '#fff', fontWeight: 500 }}>{q.name}</span></td>
                         <td style={tdS}><Badge label={q.specialty?.toUpperCase() || '—'} color="#555" /></td>
                         <td style={tdS}><Badge label={STAGE_LABELS[q.stage] || q.stage} color={STAGE_COLORS[q.stage] || '#555'} /></td>
@@ -975,7 +1097,8 @@ export default function LeadDashboard() {
                         </td>
                         <td style={{ ...tdS, color: '#555' }}>{q.created_at?.slice(0, 10)}</td>
                       </tr>
-                    ))}
+                      )
+                    })}
                   </tbody>
                   </table>
                 </div>
@@ -992,9 +1115,17 @@ export default function LeadDashboard() {
                         </div>
                         <div style={{ fontSize: 11, color: '#888', marginTop: 2 }}>{summary.perQuot.length} cotizacion{summary.perQuot.length > 1 ? 'es' : ''}</div>
                       </div>
-                      {cur === 'USD' && <button onClick={exportConsolidado} style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 4, padding: '5px 12px', fontSize: 11, fontWeight: 600, color: accentColor, background: accentColor + '12', border: '1px solid ' + accentColor + '33', borderRadius: 6, cursor: 'pointer' }}>
-                        <Download size={12} /> Exportar PDF
-                      </button>}
+                      {anticipoTotal > 0 && (
+                        <div style={{ textAlign: 'right' }}>
+                          <div style={{ fontSize: 10, color: '#D97706', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600, marginBottom: 2 }}>Anticipo requerido</div>
+                          <div style={{ fontSize: 20, fontWeight: 700, color: '#D97706' }}>
+                            {sym}{anticipoTotal.toLocaleString('es-MX', { maximumFractionDigits: 0 })}
+                          </div>
+                          <div style={{ fontSize: 11, color: '#888', marginTop: 2 }}>
+                            {((anticipoTotal / summary.grandTotal) * 100).toFixed(0)}% del total · resto {sym}{(summary.grandTotal - anticipoTotal).toLocaleString('es-MX', { maximumFractionDigits: 0 })}
+                          </div>
+                        </div>
+                      )}
                     </div>
 
                     <div style={{ padding: 16 }}>
@@ -1011,6 +1142,22 @@ export default function LeadDashboard() {
                               <span style={{ fontSize: 9, color: '#555', marginLeft: 4, fontWeight: 400 }}>c/IVA</span>
                             </div>
                             <div style={{ fontSize: 10, color: '#666', marginTop: 4 }}>{pq.items} items</div>
+                            {/* Anticipo de ESTA cotizacion. Se precarga del plan de
+                                cobranza si lo tiene; si no, se captura aqui y solo
+                                vive en el reporte — no crea hitos ni compromete cobranza. */}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 8, paddingTop: 8, borderTop: '1px solid #1e1e1e' }}>
+                              <span style={{ fontSize: 10, color: '#666', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Anticipo</span>
+                              <input
+                                type="number" min={0} max={100} step={5}
+                                value={anticipoPct[pq.id] ?? ''}
+                                placeholder="0"
+                                onChange={e => setAnticipoPct(prev => ({ ...prev, [pq.id]: e.target.value }))}
+                                style={{ width: 52, padding: '3px 6px', fontSize: 11, background: '#0b0b0b', border: '1px solid #262626', borderRadius: 4, color: '#fff' }} />
+                              <span style={{ fontSize: 10, color: '#666' }}>%</span>
+                              <span style={{ marginLeft: 'auto', fontSize: 13, fontWeight: 700, color: pctDe(pq.id) > 0 ? '#D97706' : '#333' }}>
+                                {sym}{(pq.subtotalIva * pctDe(pq.id) / 100).toLocaleString('es-MX', { maximumFractionDigits: 0 })}
+                              </span>
+                            </div>
                           </div>
                         ))}
                       </div>
