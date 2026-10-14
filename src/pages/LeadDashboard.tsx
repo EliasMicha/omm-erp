@@ -15,6 +15,7 @@ import {
 } from 'lucide-react'
 import jsPDF from 'jspdf'
 import { generarEstadoCuentaPdf } from '../lib/estadoCuentaPdf'
+import { generarResumenInversionPdf } from '../lib/resumenInversionPdf'
 import PaymentPlanModal from '../components/PaymentPlanModal'
 import EstimacionesLead from '../components/EstimacionesLead'
 import LevantamientoLead from '../components/LevantamientoLead'
@@ -259,138 +260,41 @@ export default function LeadDashboard() {
     setLoading(false)
   }
 
-  // El nombre del lead ya va en el encabezado del PDF; repetirlo en cada renglon
-  // come el ancho y hace que dos cotizaciones distintas se corten iguales
-  // ("...Ingenierias Espec" / "...Ingenieria Electr"). Se compara normalizando,
-  // porque el lead se llama "Cero5cien I402" y las cotizaciones "Cero5cien I-402":
-  // un startsWith exacto no empata por el guion. Nunca deja el nombre vacio.
-  const nombreCorto = (n: any): string => {
-    const completo = String(n || '—').trim()
-    const norm = (t: string) => t.toLowerCase().replace(/[^a-z0-9áéíóúñ]/gi, '')
-    const lead_ = norm(String(lead?.name || ''))
-    if (!lead_) return completo
-    const partes = completo.split(' - ')
-    let i = 0
-    while (i < partes.length - 1 && norm(partes[i]) && lead_.includes(norm(partes[i]))) i++
-    const corto = partes.slice(i).join(' - ').trim()
-    return corto || completo
-  }
-
-  // ── EXPORT ESTADO DE CUENTA PDF ──────────────────────────────
+  // ── RESUMEN DE INVERSIÓN (PDF) ───────────────────────────────
+  // El documento se arma en `src/lib/resumenInversionPdf.ts`, con el mismo
+  // membrete, la misma retícula y las mismas barras que la cotización. Antes
+  // se dibujaba aquí a mano y era el único documento que el cliente recibe de
+  // OMM que no se parecía a los demás: sin logo, sin datos fiscales, sin pie.
+  // Aquí solo se junta el dato; el diseño vive en un lugar.
   function exportConsolidado() {
     if (!lead) return
-    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'letter' })
-    const W = doc.internal.pageSize.getWidth()
-    let y = 20
-
-    const addPage = () => { doc.addPage(); y = 20 }
-    const checkPage = (need: number) => { if (y + need > 260) addPage() }
-
-    // ── Header ──
-    doc.setFontSize(18); doc.setFont('helvetica', 'bold')
-    doc.text('Resumen de Inversión', 15, y); y += 8
-    doc.setFontSize(12); doc.setFont('helvetica', 'normal')
-    doc.text(lead.name || 'Proyecto', 15, y); y += 5
-    if (lead.company) { doc.text(lead.company, 15, y); y += 5 }
-    doc.setFontSize(9); doc.setTextColor(120)
-    doc.text(`Generado: ${new Date().toLocaleDateString('es-MX', { day: '2-digit', month: 'long', year: 'numeric' })}`, 15, y)
-    doc.setTextColor(0); y += 10
-
-    // ── Per currency sections ──
-    ;(['USD', 'MXN'] as const).forEach(cur => {
-      const summary = quotSummaryByCur[cur]
-      if (summary.perQuot.length === 0) return
-      const sym = cur === 'USD' ? 'US$' : '$'
-      const fmtPDF = (n: number) => sym + n.toLocaleString('es-MX', { maximumFractionDigits: 0 })
-      const pctDe = (qid: string) => parseFloat(anticipoPct[qid] || '0') || 0
-      const anticipoTotal = summary.perQuot.reduce((a: number, pq: any) => a + pq.subtotalIva * pctDe(pq.id) / 100, 0)
-      // La columna de anticipo solo sale si alguna cotizacion de esta moneda lo
-      // pide. Una columna de ceros le pregunta al cliente algo que nadie dijo.
-      const hayAnticipo = anticipoTotal > 0
-
-      checkPage(30)
-      // Grand Total box
-      doc.setFillColor(245, 250, 245); doc.roundedRect(15, y, W - 30, 22, 3, 3, 'F')
-      doc.setFontSize(10); doc.setFont('helvetica', 'bold'); doc.setTextColor(60)
-      doc.text(`INVERSIÓN ${cur}`, 20, y + 7)
-      doc.setFontSize(16); doc.setTextColor(34, 139, 34)
-      doc.text(`${fmtPDF(Math.round(summary.grandTotal))}`, 20, y + 16)
-      doc.setFontSize(8); doc.setTextColor(120)
-      doc.text(`c/IVA 16%  |  ${summary.perQuot.length} cotizacion${summary.perQuot.length > 1 ? 'es' : ''}`, 80, y + 16)
-      if (hayAnticipo) {
-        doc.setFontSize(9); doc.setFont('helvetica', 'bold'); doc.setTextColor(190, 110, 20)
-        doc.text(`Anticipo requerido  ${fmtPDF(Math.round(anticipoTotal))}`, W - 20, y + 9, { align: 'right' })
-        doc.setFontSize(8); doc.setFont('helvetica', 'normal'); doc.setTextColor(130)
-        doc.text(`${((anticipoTotal / summary.grandTotal) * 100).toFixed(0)}% del total  ·  resto ${fmtPDF(Math.round(summary.grandTotal - anticipoTotal))}`, W - 20, y + 16, { align: 'right' })
+    const bloques = (['USD', 'MXN'] as const).map(cur => {
+      const s = quotSummaryByCur[cur]
+      return {
+        moneda: cur,
+        total: s.grandTotal,
+        cotizaciones: s.perQuot.map((pq: any) => ({
+          id: pq.id,
+          nombre: pq.name,
+          especialidad: pq.specialty,
+          partidas: pq.items,
+          totalConIva: pq.subtotalIva,
+          anticipoPct: parseFloat(anticipoPct[pq.id] || '0') || 0,
+        })),
+        sistemas: s.systems.map(([nombre, data]: [string, any]) => ({ nombre, subtotal: data.subtotal })),
       }
-      doc.setTextColor(0); y += 28
+    }).filter(b => b.cotizaciones.length > 0)
+    // Sin nada palomeado no hay documento que sacar. El botón ya está
+    // deshabilitado en ese caso; esto es el cinturón.
+    if (bloques.length === 0) return
 
-      // Per-quotation breakdown
-      doc.setFontSize(11); doc.setFont('helvetica', 'bold')
-      doc.text(`Cotizaciones ${cur}`, 15, y); y += 6
-
-      doc.setFontSize(8); doc.setFont('helvetica', 'bold'); doc.setTextColor(80)
-      doc.text('Nombre', 18, y)
-      doc.text('Especialidad', 110, y)
-      doc.text('Items', 142, y, { align: 'right' })
-      if (hayAnticipo) doc.text('Anticipo', 172, y, { align: 'right' })
-      doc.text('Total c/IVA', W - 18, y, { align: 'right' })
-      doc.setTextColor(0)
-      y += 2; doc.setDrawColor(180); doc.line(15, y, W - 15, y); y += 4
-
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(9)
-      summary.perQuot.forEach((pq: any) => {
-        checkPage(6)
-        doc.text(nombreCorto(pq.name).substring(0, 52), 18, y)
-        doc.text((pq.specialty || '—').toUpperCase(), 110, y)
-        doc.text(String(pq.items), 142, y, { align: 'right' })
-        if (hayAnticipo) {
-          const a = pq.subtotalIva * pctDe(pq.id) / 100
-          doc.text(a > 0 ? `${fmtPDF(Math.round(a))} (${pctDe(pq.id)}%)` : '—', 172, y, { align: 'right' })
-        }
-        doc.text(fmtPDF(Math.round(pq.subtotalIva)), W - 18, y, { align: 'right' })
-        y += 5.5
-      })
-      y += 6
-
-      // System breakdown
-      if (summary.systems.length > 0) {
-        doc.setDrawColor(200); doc.line(15, y, W - 15, y); y += 8
-        doc.setFontSize(11); doc.setFont('helvetica', 'bold')
-        doc.text(`Desglose por Sistema (${cur})`, 15, y); y += 6
-
-        doc.setFontSize(8); doc.setFont('helvetica', 'bold'); doc.setTextColor(80)
-        doc.text('Sistema', 18, y)
-        doc.text('% del total', 120, y, { align: 'right' })
-        doc.text('Subtotal', W - 18, y, { align: 'right' })
-        doc.setTextColor(0)
-        y += 2; doc.setDrawColor(180); doc.line(15, y, W - 15, y); y += 4
-
-        doc.setFont('helvetica', 'normal'); doc.setFontSize(9)
-        summary.systems.forEach(([sys, data]: [string, any]) => {
-          checkPage(6)
-          const pct = summary.grandTotal > 0 ? (data.subtotal / summary.grandTotal) * 100 : 0
-          doc.text(nombreCorto(sys).substring(0, 52), 18, y)
-          doc.text(`${pct.toFixed(0)}%`, 120, y, { align: 'right' })
-          doc.text(fmtPDF(Math.round(data.subtotal)), W - 18, y, { align: 'right' })
-          const barX = 125; const barW = 40; const barH = 3
-          doc.setFillColor(230, 230, 230); doc.rect(barX, y - 3, barW, barH, 'F')
-          doc.setFillColor(87, 255, 154); doc.rect(barX, y - 3, barW * Math.min(pct, 100) / 100, barH, 'F')
-          y += 5.5
-        })
-      }
-      y += 10
+    const doc = generarResumenInversionPdf({
+      lead: lead.name || 'Proyecto',
+      cliente: lead.company,
+      fecha: new Date().toISOString().slice(0, 10),
+      bloques,
+      elaboro: authUser?.nombre || null,
     })
-
-    // ── Footer ──
-    const pageCount = doc.getNumberOfPages()
-    for (let i = 1; i <= pageCount; i++) {
-      doc.setPage(i)
-      doc.setFontSize(7); doc.setTextColor(150)
-      doc.text(`OMM ERP — Resumen de Inversión — ${lead.name}`, 15, 272)
-      doc.text(`Pág. ${i}/${pageCount}`, W - 15, 272, { align: 'right' })
-    }
-
     doc.save(`Resumen_Inversion_${(lead.name || 'Lead').replace(/\s+/g, '_')}.pdf`)
   }
 
