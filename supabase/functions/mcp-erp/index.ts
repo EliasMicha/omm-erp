@@ -42,6 +42,7 @@ import { DEFINICIONES_EQ, ejecutarEq } from './equipo.ts'
 import { DEFINICIONES_NEG, ejecutarNeg } from './negocio.ts'
 import { DEFINICIONES_COM, ejecutarCom } from './compras.ts'
 import { DEFINICIONES_COT, ejecutarCot } from './cotizar.ts'
+import { DEFINICIONES_CONTA, ejecutarConta } from './contabilidad.ts'
 
 const PROTOCOL_VERSION = '2025-06-18'
 const SERVER_INFO = { name: 'omm-erp', version: '0.3.0' }
@@ -144,7 +145,7 @@ Deno.serve(async (req: Request) => {
   // app_users.id — se busca por auth_user_id, que es el enlace real.
   const { data: cuenta } = await sb
     .from('app_users')
-    .select('id,nombre,email,permission_area,activo,es_bot,employee_id')
+    .select('id,nombre,email,permission_area,activo,es_bot,employee_id,nivel')
     .eq('auth_user_id', quien.user.id)
     .maybeSingle()
 
@@ -182,7 +183,7 @@ Deno.serve(async (req: Request) => {
       return json({ jsonrpc: '2.0', id, result: {} })
 
     case 'tools/list':
-      return json({ jsonrpc: '2.0', id, result: { tools: [...DEFINICIONES, ...DEFINICIONES_LEV, ...DEFINICIONES_EQ, ...DEFINICIONES_NEG, ...DEFINICIONES_COM, ...DEFINICIONES_COT] } })
+      return json({ jsonrpc: '2.0', id, result: { tools: [...DEFINICIONES, ...DEFINICIONES_LEV, ...DEFINICIONES_EQ, ...DEFINICIONES_NEG, ...DEFINICIONES_COM, ...DEFINICIONES_COT, ...DEFINICIONES_CONTA] } })
 
     case 'tools/call': {
       // employee_id va aparte de id a proposito: son dos identidades
@@ -193,6 +194,8 @@ Deno.serve(async (req: Request) => {
         nombre: cuenta.nombre,
         email: cuenta.email,
         empleadoId: (cuenta as any).employee_id ?? null,
+        area: (cuenta as any).permission_area ?? null,
+        nivel: (cuenta as any).nivel ?? null,
       }
       try {
         const herramienta = rpc?.params?.name
@@ -207,6 +210,8 @@ Deno.serve(async (req: Request) => {
           ? await ejecutarCom(herramienta, argumentos, sb, quien)
           : DEFINICIONES_COT.some(d => d.name === herramienta)
           ? await ejecutarCot(herramienta, argumentos, sb, quien)
+          : DEFINICIONES_CONTA.some(d => d.name === herramienta)
+          ? await ejecutarConta(herramienta, argumentos, sb, quien)
           : await ejecutar(herramienta, argumentos, sb, quien)
         return json({ jsonrpc: '2.0', id, result: r })
       } catch (e) {

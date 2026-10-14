@@ -2985,3 +2985,25 @@ dependencias, tipo de entregable. Estaba vacío y su única pantalla es Activida
    `etapa`. 3. Alta automática de proyecto al pasar cotización a contrato, con la
    plantilla del área. 4. Visibilidad por área (GEN-02, COM-03, CAT-01, ENT-01).
 5. MCP: `derivar_levantamiento` (lev.ts) sigue usando `project_*_templates`.
+
+## 🧮 Contabilidad en el MCP del ERP — acceso de Dafne (2026-10-14)
+
+**Qué:** Dafne Romero (`administracion@omniious.com`, área Administracion) usa el MCP `mcp-erp` desde SU Claude personal con SU login. RLS decide qué ve; no hay service role.
+
+**Conexión (Claude personal, no Team):** Customize → Connectors → Add custom connector → URL `https://ubbumxommqjcpdozpunf.supabase.co/functions/v1/mcp-erp` → "Usar tu propio cliente OAuth" → Client ID `fe70d3d0-bfac-46eb-80e2-52638623c8ec` (cliente OAuth público "CLAUDE" en Supabase, redirect `https://claude.ai/api/mcp/auth_callback`, PKCE, sin secret).
+
+**Código:** `supabase/functions/mcp-erp/contabilidad.ts` (nuevo), cableado en `index.ts` (`DEFINICIONES_CONTA` / `ejecutarConta`; `quien` ahora lleva `area` y `nivel`). Gate: sólo áreas `Administracion` y `DG`.
+- Reusa las 6 tools de `mcp-contabilidad/conta_tools.ts` (importa el archivo; una definición, no dos).
+- 12 nuevas: `conta_pendientes`, `conta_ver_movimiento`, `conta_clasificar_movimientos`, `conta_asignar_beneficiario` (con `aprender_cuenta` → `supplier_bank_accounts`), `conta_asignar_proyecto` (sólo contratos vivos), `conta_conciliar` (TC obligatorio en cruce de moneda), `conta_desconciliar`, `conta_prorratear_cobro` (reemplaza `payment_allocations`), `conta_registrar_efectivo` (guarda de duplicado; `forzar=true`), `conta_buscar_efectivo`, `conta_resumen_mes` (series correctas: CFDI I−E, banco+efectivo sin aportación, nómina = payroll_periods), `conta_nomina`.
+- Toda escritura devuelve vista previa salvo `confirmar=true`.
+- Fuera a propósito: timbrar/cancelar CFDI e importar estados de cuenta (siguen en la pantalla).
+
+**Bundle:** ahora lleva jspdf (por `estadoCuentaPdf`). Compilar con `--external:jspdf` y luego `sed -i.bak 's#from "jspdf"#from "npm:jspdf@4.2.1"#' /tmp/index.ts` antes de subir. Desplegado v15, arranca bien (401 sin token).
+
+**Verificado (sesión simulada de Dafne, rollback):** lee bank_movements 3928, facturas 4244, cash_movements 211, payroll_periods 31; puede actualizar bank_movements, payment_allocations, supplier_bank_accounts, cash_movements, facturas.
+
+**⏳ Pendiente — estado de cuenta en PDF para Dafne:** el bucket privado `documentos-cliente` NO tiene policies (antes sólo lo tocaba el bot con service role) y `app_users.puede_estado_cuenta` de Dafne está en false. Migración propuesta `documentos_cliente_estado_cuenta_usuarios` (función `puedo_estado_cuenta()` security definer + policies select/insert/delete en ese bucket + prender la bandera de Dafne). Se canceló al aplicarla; espera visto bueno de Elias. Sin eso, `conta_estado_de_cuenta` responde "no tiene permiso" y lo demás funciona.
+
+**Gotchas:**
+- `.neq('sandbox', true)` excluye los NULL (NULL ≠ true es NULL). Usar `.or('sandbox.is.null,sandbox.eq.false')`.
+- Deudas detectadas, no resueltas: `facturas.conciliada` no la mantiene nada; `estado` vs `status` divergen; `deleteSelected` borra sin limpiar ligas; `bank_movements`/`cash_movements` legibles por cualquier usuario con sesión; `/api/facturapi` (descargas) y `/api/extract-bank-statement` sin auth.
