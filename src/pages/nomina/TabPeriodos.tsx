@@ -6,7 +6,8 @@ import {
   Calendar, DollarSign, Banknote, Clock, Plus, ChevronLeft, ChevronRight,
   Save, RefreshCw, Lock, AlertCircle, CheckCircle2, Gift, Upload, FileText, FileSpreadsheet
 } from 'lucide-react'
-import { parseSFacilNominaPDF, matchEmployeeByName, parseComprobantePagos } from '../../lib/nominaPdfParser'
+import { parseSFacilNominaPDF, matchEmployeeByName } from '../../lib/nominaPdfParser'
+import { leerComprobantePagos, cruzarPagos } from '../../lib/comprobanteNomina'
 import { useIsMobile } from '../../lib/useIsMobile'
 import { OMNIIOUS_LOGO } from '../../assets/logo'
 import { descargarXlsx } from '../../lib/xlsxExport'
@@ -725,28 +726,25 @@ export default function TabPeriodos() {
         transferencia_pagada_at: new Date().toISOString(),
       }).eq('id', period.id)
 
-      const isPdf = /pdf$/i.test(file.type) || /\.pdf$/i.test(file.name)
-      if (!isPdf) {
-        await loadPeriod()
-        alert('Comprobante (imagen) guardado.\nComo es imagen no puedo detectar automáticamente quién se pagó — marca cada transferencia con el icono de billete en la columna Estado, o sube el PDF del comprobante para marcarlas solas.')
-        return
-      }
-
-      // 2. Leer el comprobante y marcar SOLO las cuentas que aparecen en él
-      const { accounts } = await parseComprobantePagos(file)
-      const { data: itemData } = await supabase.from('payroll_items').select('*').eq('period_id', period.id)
+      // 2. Leer el comprobante (PDF de BBVA viejo o nuevo, o captura de
+      //    pantalla vía IA) y marcar SOLO a quienes aparecen en él.
+      //    Ver src/lib/comprobanteNomina.ts para las reglas del cruce.
+      const { pagos, origen } = await leerComprobantePagos(file)
+      const { data: itemData, error: itemErr } = await supabase.from('payroll_items').select('*').eq('period_id', period.id)
+      if (itemErr) throw itemErr
       const its = (itemData as PayrollItem[]) || []
       const empById = new Map(employees.map(e => [e.id, e]))
-      const toMark: string[] = []
-      for (const it of its) {
-        const emp = empById.get(it.employee_id)
-        if (!emp) continue
-        const cuentaDig = ((emp.cuenta || '').replace(/\s/g, '').match(/\d+/) || [''])[0]
-        const clabeDig = (emp.clabe || '').replace(/\D/g, '')
-        if ((cuentaDig && accounts.has(cuentaDig)) || (clabeDig && accounts.has(clabeDig))) toMark.push(it.id)
-      }
+      const candidatos = its
+        .filter(it => Number(it.neto_a_pagar_cfdi) > 0 && empById.has(it.employee_id))
+        .map(it => {
+          const emp = empById.get(it.employee_id)
+          return { itemId: it.id, nombre: emp?.nombre || '', cuenta: emp?.cuenta || null, clabe: emp?.clabe || null, neto: Number(it.neto_a_pagar_cfdi) }
+        })
+      const cruce = cruzarPagos(pagos, candidatos)
+      const toMark = cruce.marcar
       if (toMark.length) {
-        await supabase.from('payroll_items').update({ conciliado_transferencia: true }).in('id', toMark)
+        const { error: updErr } = await supabase.from('payroll_items').update({ conciliado_transferencia: true }).in('id', toMark)
+        if (updErr) throw updErr
       }
 
       // 3. transferencia_pagada del periodo = true solo si TODOS los que transfieren ya están cubiertos
@@ -756,9 +754,13 @@ export default function TabPeriodos() {
       await supabase.from('payroll_periods').update({ transferencia_pagada: todosPagados }).eq('id', period.id)
 
       await loadPeriod()
-      const noEncontradas = accounts.size - toMark.length
-      let msg = `Comprobante procesado: ${toMark.length} transferencia(s) marcadas como pagadas.`
-      if (noEncontradas > 0) msg += `\n${noEncontradas} cuenta(s) del comprobante no coinciden con empleados de este periodo.`
+      let msg = `Comprobante procesado${origen === 'ia' ? ' (leído con IA)' : ''}: ${pagos.length} pago(s) en el comprobante, ${toMark.length} transferencia(s) marcadas como pagadas.`
+      if (!pagos.length) msg += `\n\nNo encontré renglones de pago en el archivo. Revisa que sea el comprobante de la transferencia.`
+      if (cruce.sinEmpleado.length) {
+        msg += `\n\nNo los encontré en este periodo:\n` + cruce.sinEmpleado.map(p =>
+          `· ${p.nombre || 'Sin nombre'} — cuenta ${p.parcial ? '•' : ''}${p.cuenta || '?'}${p.importe !== null ? ' — $' + p.importe.toLocaleString('es-MX', { minimumFractionDigits: 2 }) : ''}`).join('\n')
+      }
+      if (cruce.avisos.length) msg += `\n\nOjo:\n` + cruce.avisos.map(a => '· ' + a).join('\n')
       if (!todosPagados) msg += `\n\nAún faltan transferencias por comprobar (p. ej. las de otros bancos por SPEI). Sube su comprobante para marcarlas.`
       alert(msg)
     } catch (e: any) {
@@ -1142,7 +1144,7 @@ export default function TabPeriodos() {
                     <span style={{ fontSize: 12, color: '#888' }}>
                       {pagados > 0
                         ? <>Transferencias comprobadas: <b style={{ color: '#ccc' }}>{pagados}/{transf.length}</b>. Sube el comprobante del resto (p. ej. SPEI de otros bancos).</>
-                        : <>Sube el comprobante (PDF) de la transferencia para marcar como pagados solo a los que aparecen en él.</>}
+                        : <>Sube el comprobante de la transferencia (PDF del banco o captura de pantalla) para marcar como pagados solo a los que aparecen en él.</>}
                     </span>
                   )
                 })()}
