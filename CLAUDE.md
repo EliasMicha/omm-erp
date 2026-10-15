@@ -3007,3 +3007,18 @@ dependencias, tipo de entregable. Estaba vacío y su única pantalla es Activida
 **Gotchas:**
 - `.neq('sandbox', true)` excluye los NULL (NULL ≠ true es NULL). Usar `.or('sandbox.is.null,sandbox.eq.false')`.
 - Deudas detectadas, no resueltas: `facturas.conciliada` no la mantiene nada; `estado` vs `status` divergen; `deleteSelected` borra sin limpiar ligas; `bank_movements`/`cash_movements` legibles por cualquier usuario con sesión; `/api/facturapi` (descargas) y `/api/extract-bank-statement` sin auth.
+
+## 🧾 Nómina → "Subir comprobante": nuevo PDF de BBVA + capturas (2026-10-15)
+
+**Qué se rompió:** BBVA cambió el "Resumen general de grupo de Pago de nómina". Ya no trae la cuenta completa: trae `•5627` (últimos 4), el nombre del TITULAR de la cuenta, estado e importe. El parser viejo buscaba cuenta de 10/18 dígitos + importe → 0 coincidencias. Las capturas (SPEI a otros bancos) ni se intentaban leer.
+
+**Ahora** (`src/lib/comprobanteNomina.ts`, commit f4006ff; `TabPeriodos.tsx` sólo llama `leerComprobantePagos` + `cruzarPagos`):
+- PDF con texto → se lee por POSICIÓN con pdf.js (renglón = cuenta con fecha a la misma altura; la cuenta de origen •3020 queda fuera). Sigue leyendo el formato viejo. Gratis, sin IA.
+- Imagen, o PDF sin renglones → `/api/anthropic` (claude-sonnet-4-6, visión). La imagen se reduce a ≤1800 px JPEG por el tope de body de Vercel.
+- Cruce, en orden: cuenta/CLABE completa → últimos 4 + (importe igual o nombre parecido) → sin cuenta: nombre + importe. Sólo renglones "Exitoso". Sólo items con `neto_a_pagar_cfdi > 0`.
+- El nombre NO manda: Alfredo Sánchez cobra en la cuenta •9808 de Alejandra Roldán García (así está en `employees.cuenta`). Se marca por cuenta + importe y se avisa.
+- Nombres cortados de la banca en línea ("DAFNE ROMERO M...") cuentan como parecidos (cada palabra es inicio de una del empleado).
+
+**Verificado con los archivos reales del 15-oct (Q1 oct):** PDF → 18/18 renglones, 18 marcados, 1 aviso (Roldán→Sánchez). Captura → 4/4 (Dafne, Marco Antonio Mendoza, Nimbe, Juan Pablo). Total 22 de 23 que transfieren; falta **Marco Antonio Ruiz Ruiz** (Santander •0749), que no viene en ninguno de los dos.
+
+**Gotcha de los checadores:** `tsc --noEmit` del repo tiene 123 errores PREEXISTENTES (props `title`/`hint` en UI, etc.); Vercel sólo corre `vite build`. Comparar contra la línea base, no contra cero. Para `vite build` fuera del repo hay que copiar también `api/` y `supabase/functions/_shared/` (los importa `src/lib`).
