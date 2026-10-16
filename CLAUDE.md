@@ -3022,3 +3022,7 @@ dependencias, tipo de entregable. Estaba vacío y su única pantalla es Activida
 **Verificado con los archivos reales del 15-oct (Q1 oct):** PDF → 18/18 renglones, 18 marcados, 1 aviso (Roldán→Sánchez). Captura → 4/4 (Dafne, Marco Antonio Mendoza, Nimbe, Juan Pablo). Total 22 de 23 que transfieren; falta **Marco Antonio Ruiz Ruiz** (Santander •0749), que no viene en ninguno de los dos.
 
 **Gotcha de los checadores:** `tsc --noEmit` del repo tiene 123 errores PREEXISTENTES (props `title`/`hint` en UI, etc.); Vercel sólo corre `vite build`. Comparar contra la línea base, no contra cero. Para `vite build` fuera del repo hay que copiar también `api/` y `supabase/functions/_shared/` (los importa `src/lib`).
+
+### ✉️ Aviso por correo al subir el comprobante (2026-10-15)
+
+`src/lib/avisoComprobanteNomina.ts`: al terminar "Subir comprobante" se manda correo por `/api/gmail?action=send` (sale como elias@omniious.com, la cuenta conectada) a administracion@, contabilidad@ y elias@omniious.com. Lleva: quién lo subió, archivo (adjunto si ≤3 MB, si no sólo liga), marcados con ese comprobante, los que no están en el periodo, avisos (p. ej. cuenta a nombre de otra persona) y estado de la nómina (comprobadas X de Y, montos, quién falta). Nunca lanza: si Gmail falla, el mensaje en pantalla lo dice y pide avisar por otro medio. Destinatarios en `CORREOS_AVISO_NOMINA`.

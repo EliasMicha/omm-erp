@@ -8,6 +8,7 @@ import {
 } from 'lucide-react'
 import { parseSFacilNominaPDF, matchEmployeeByName } from '../../lib/nominaPdfParser'
 import { leerComprobantePagos, cruzarPagos } from '../../lib/comprobanteNomina'
+import { avisarComprobanteNomina, CORREOS_AVISO_NOMINA } from '../../lib/avisoComprobanteNomina'
 import { useIsMobile } from '../../lib/useIsMobile'
 import { OMNIIOUS_LOGO } from '../../assets/logo'
 import { descargarXlsx } from '../../lib/xlsxExport'
@@ -748,20 +749,45 @@ export default function TabPeriodos() {
       }
 
       // 3. transferencia_pagada del periodo = true solo si TODOS los que transfieren ya están cubiertos
-      const { data: fresh } = await supabase.from('payroll_items').select('neto_a_pagar_cfdi, conciliado_transferencia').eq('period_id', period.id)
+      const { data: fresh } = await supabase.from('payroll_items').select('id, employee_id, neto_a_pagar_cfdi, conciliado_transferencia').eq('period_id', period.id)
       const transfiriendo = (fresh || []).filter((i: any) => Number(i.neto_a_pagar_cfdi) > 0)
       const todosPagados = transfiriendo.length > 0 && transfiriendo.every((i: any) => i.conciliado_transferencia)
       await supabase.from('payroll_periods').update({ transferencia_pagada: todosPagados }).eq('id', period.id)
 
       await loadPeriod()
+
+      // 4. Aviso por correo a Administración, Contabilidad y Elias. No tumba
+      //    nada si falla: sólo se dice en el mensaje de abajo.
+      const fmtSin = (p: { nombre: string; parcial: boolean; cuenta: string; importe: number | null }) =>
+        `${p.nombre || 'Sin nombre'} — cuenta ${p.parcial ? '•' : ''}${p.cuenta || '?'}${p.importe !== null ? ' — $' + p.importe.toLocaleString('es-MX', { minimumFractionDigits: 2 }) : ''}`
+      const nombreDeItem = (it: any) => empById.get(it.employee_id)?.nombre || 'Empleado'
+      const candPorId = new Map(candidatos.map(c => [c.itemId, c]))
+      const comprobados = transfiriendo.filter((i: any) => i.conciliado_transferencia)
+      const aviso = await avisarComprobanteNomina({
+        periodo: periodLabel(viewMode, range.start, range.end),
+        archivo: file,
+        urlComprobante: pub.publicUrl || null,
+        origen,
+        pagosEnComprobante: pagos.length,
+        marcados: toMark.map(id => ({ nombre: candPorId.get(id)?.nombre || 'Empleado', importe: candPorId.get(id)?.neto || 0 })),
+        sinEmpleado: cruce.sinEmpleado.map(fmtSin),
+        avisos: cruce.avisos,
+        pendientes: transfiriendo.filter((i: any) => !i.conciliado_transferencia)
+          .map((i: any) => ({ nombre: nombreDeItem(i), importe: Number(i.neto_a_pagar_cfdi) })),
+        comprobadas: comprobados.length,
+        totalComprobado: comprobados.reduce((s: number, i: any) => s + Number(i.neto_a_pagar_cfdi), 0),
+        totalTransferencia: transfiriendo.reduce((s: number, i: any) => s + Number(i.neto_a_pagar_cfdi), 0),
+      })
       let msg = `Comprobante procesado${origen === 'ia' ? ' (leído con IA)' : ''}: ${pagos.length} pago(s) en el comprobante, ${toMark.length} transferencia(s) marcadas como pagadas.`
       if (!pagos.length) msg += `\n\nNo encontré renglones de pago en el archivo. Revisa que sea el comprobante de la transferencia.`
       if (cruce.sinEmpleado.length) {
-        msg += `\n\nNo los encontré en este periodo:\n` + cruce.sinEmpleado.map(p =>
-          `· ${p.nombre || 'Sin nombre'} — cuenta ${p.parcial ? '•' : ''}${p.cuenta || '?'}${p.importe !== null ? ' — $' + p.importe.toLocaleString('es-MX', { minimumFractionDigits: 2 }) : ''}`).join('\n')
+        msg += `\n\nNo los encontré en este periodo:\n` + cruce.sinEmpleado.map(p => '· ' + fmtSin(p)).join('\n')
       }
       if (cruce.avisos.length) msg += `\n\nOjo:\n` + cruce.avisos.map(a => '· ' + a).join('\n')
       if (!todosPagados) msg += `\n\nAún faltan transferencias por comprobar (p. ej. las de otros bancos por SPEI). Sube su comprobante para marcarlas.`
+      msg += aviso.ok
+        ? `\n\n✉️ Aviso enviado a ${CORREOS_AVISO_NOMINA.join(', ')}.`
+        : `\n\n⚠️ NO se pudo mandar el correo de aviso (${aviso.error}). Avísales por otro medio.`
       alert(msg)
     } catch (e: any) {
       alert('No se pudo subir el comprobante: ' + (e.message || e))
