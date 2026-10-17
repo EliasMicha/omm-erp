@@ -324,7 +324,6 @@ function CotDashboard({ onOpen, preferVersionId }: { onOpen: (id: string, specia
   // cada moneda (las monedas nunca se suman entre sí).
   const bySpecPerdidoAndCur = (spec: string, cur: string) => cotsYear.filter(c => c.specialty === spec && c.stage === 'perdida' && getCur(c) === cur).reduce((a, c) => a + getTotalConIva(c), 0)
   const contarSpecStage = (spec: string, stages: string[]) => cotsYear.filter(c => c.specialty === spec && stages.includes(c.stage)).length
-  const pctTexto = (gan: number, per: number) => (gan + per) > 0 ? Math.round(gan / (gan + per) * 100) + '%' : '—'
   const totalUSD = cotsYear.filter(c => getCur(c) === 'USD').reduce((s, c) => s + getTotalConIva(c), 0)
   const totalMXN = cotsYear.filter(c => getCur(c) === 'MXN').reduce((s, c) => s + getTotalConIva(c), 0)
 
@@ -370,6 +369,12 @@ function CotDashboard({ onOpen, preferVersionId }: { onOpen: (id: string, specia
               <div style={{fontSize: isMobile ? 9 : 10,color:'#555',textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:6,display:'flex',alignItems:'center',gap:4}}>
                 <span style={{color:cfg.color,fontSize: isMobile ? 10 : 14}}>{cfg.icon}</span> {isMobile ? '' : cfg.label}
               </div>
+              {/* Cotizado + Vendido a la izquierda; win rate a la derecha (en
+                  celular va abajo: no cabe de lado). */}
+              {/* flexWrap: si la tarjeta es angosta (pantalla chica), el win rate
+                  baja en vez de encimarse sobre los montos. */}
+              <div style={{display: 'flex', flexDirection: isMobile ? 'column' : 'row', flexWrap: 'wrap', gap: isMobile ? 0 : 10}}>
+              <div style={{flex: '1 1 150px', minWidth: 0}}>
               {/* Cotizado */}
               <div style={{marginBottom: 6}}>
                 <div style={{fontSize: 8, color: '#A78BFA', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600, marginBottom: 1}}>Cotizado</div>
@@ -390,33 +395,48 @@ function CotDashboard({ onOpen, preferVersionId }: { onOpen: (id: string, specia
                   </>
                 ) : <div style={{fontSize: isMobile ? 10 : 12, color: '#333'}}>—</div>}
               </div>
-              {/* Win rate */}
+              </div>
+              {/* Win rate = ganadas ÷ decididas (contrato + perdida). Una
+                  cotización mandada a "perdida" cuenta en contra; las abiertas
+                  (oportunidad, estimación, por cerrar) no cuentan todavía. */}
               {(() => {
                 const ganadas = contarSpecStage(spec, ['contrato'])
                 const perdidas = contarSpecStage(spec, ['perdida'])
                 const abiertas = contarSpecStage(spec, ['oportunidad', 'estimacion', 'propuesta'])
                 const decididas = ganadas + perdidas
-                const pct = decididas > 0 ? Math.round(ganadas / decididas * 100) : null
-                const color = pct === null ? '#333' : pct >= 60 ? '#10B981' : pct >= 40 ? '#D97706' : '#DC2626'
+                const colorDe = (pct: number | null) => pct === null ? '#444' : pct >= 60 ? '#10B981' : pct >= 40 ? '#D97706' : '#DC2626'
+                const pctDe = (gan: number, per: number): number | null => (gan + per) > 0 ? Math.round(gan / (gan + per) * 100) : null
                 const perUsd = bySpecPerdidoAndCur(spec, 'USD')
                 const perMxn = bySpecPerdidoAndCur(spec, 'MXN')
-                const porMonto: string[] = []
-                if (venUsd + perUsd > 0) porMonto.push('USD ' + pctTexto(venUsd, perUsd))
-                if (venMxn + perMxn > 0) porMonto.push('MXN ' + pctTexto(venMxn, perMxn))
+                const porMonto: { cur: string; pct: number | null }[] = []
+                if (venUsd + perUsd > 0) porMonto.push({ cur: 'USD', pct: pctDe(venUsd, perUsd) })
+                if (venMxn + perMxn > 0) porMonto.push({ cur: 'MXN', pct: pctDe(venMxn, perMxn) })
+                const pctCot = pctDe(ganadas, perdidas)
+                const etiqueta = {fontSize: 8, color: '#666', textTransform: 'uppercase' as const, letterSpacing: '0.05em', fontWeight: 600}
                 return (
-                  <div style={{borderTop: '1px solid #222', paddingTop: 4, marginTop: 6}}
-                    title={`Win rate = ganadas ÷ decididas (contrato + perdida).\n${ganadas} ganadas · ${perdidas} perdidas · ${abiertas} abiertas (no cuentan).\nPor monto: vendido ÷ (vendido + perdido), cada moneda por separado.`}>
-                    <div style={{fontSize: 8, color: '#F59E0B', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600, marginBottom: 1}}>Win rate</div>
-                    <div style={{display: 'flex', alignItems: 'baseline', gap: 6, flexWrap: 'wrap'}}>
-                      <span style={{fontSize: isMobile ? 13 : 16, fontWeight: 700, color}}>{pct === null ? '—' : pct + '%'}</span>
-                      <span style={{fontSize: isMobile ? 8 : 10, color: '#666'}}>{decididas > 0 ? `${ganadas} de ${decididas} decididas` : 'Sin decididas'}</span>
+                  <div
+                    style={isMobile
+                      ? {borderTop: '1px solid #222', paddingTop: 4, marginTop: 6}
+                      : {flex: '0 0 auto', minWidth: 96, borderLeft: '1px solid #222', paddingLeft: 10}}
+                    title={`Win rate = ganadas ÷ decididas (contrato + perdida).\n${ganadas} ganadas · ${perdidas} perdidas · ${abiertas} abiertas (todavía no cuentan).\nPor monto: vendido ÷ (vendido + perdido), cada moneda por separado.`}>
+                    <div style={{fontSize: 8, color: '#F59E0B', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600, marginBottom: 4}}>Win rate</div>
+                    <div style={etiqueta}>Por monto</div>
+                    {porMonto.length ? porMonto.map(m => (
+                      <div key={m.cur} style={{display: 'flex', alignItems: 'baseline', gap: 4, lineHeight: 1.25}}>
+                        <span style={{fontSize: isMobile ? 12 : 14, fontWeight: 700, color: colorDe(m.pct)}}>{m.pct === null ? '—' : m.pct + '%'}</span>
+                        <span style={{fontSize: 9, color: '#666'}}>{m.cur}</span>
+                      </div>
+                    )) : <div style={{fontSize: isMobile ? 12 : 14, fontWeight: 700, color: '#444'}}>—</div>}
+                    <div style={{...etiqueta, marginTop: 5}}>Por cotizaciones</div>
+                    <div style={{display: 'flex', alignItems: 'baseline', gap: 4, lineHeight: 1.25}}>
+                      <span style={{fontSize: isMobile ? 12 : 14, fontWeight: 700, color: colorDe(pctCot)}}>{pctCot === null ? '—' : pctCot + '%'}</span>
+                      <span style={{fontSize: 9, color: '#666'}}>{decididas > 0 ? `${ganadas}/${decididas}` : ''}</span>
                     </div>
-                    <div style={{fontSize: isMobile ? 8 : 9, color: '#555', marginTop: 1}}>
-                      {abiertas} abierta{abiertas === 1 ? '' : 's'}{porMonto.length ? ' · por monto ' + porMonto.join(' · ') : ''}
-                    </div>
+                    <div style={{fontSize: 9, color: '#555', marginTop: 3}}>{abiertas} abierta{abiertas === 1 ? '' : 's'}</div>
                   </div>
                 )
               })()}
+              </div>
             </div>
           )
         })}
