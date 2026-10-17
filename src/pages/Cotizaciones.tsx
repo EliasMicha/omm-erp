@@ -373,8 +373,10 @@ function CotDashboard({ onOpen, preferVersionId }: { onOpen: (id: string, specia
                   celular va abajo: no cabe de lado). */}
               {/* flexWrap: si la tarjeta es angosta (pantalla chica), el win rate
                   baja en vez de encimarse sobre los montos. */}
-              <div style={{display: 'flex', flexDirection: isMobile ? 'column' : 'row', flexWrap: 'wrap', gap: isMobile ? 0 : 10}}>
-              <div style={{flex: '1 1 150px', minWidth: 0}}>
+              <div style={{display: 'flex', flexDirection: isMobile ? 'column' : 'row', flexWrap: 'wrap', gap: isMobile ? 0 : 8, alignItems: 'flex-start'}}>
+              {/* flex '1 1 auto': la base es el ancho real de los montos, así el
+                  win rate sólo baja si de verdad no cabe al lado. */}
+              <div style={{flex: '1 1 auto', minWidth: 0}}>
               {/* Cotizado */}
               <div style={{marginBottom: 6}}>
                 <div style={{fontSize: 8, color: '#A78BFA', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600, marginBottom: 1}}>Cotizado</div>
@@ -412,27 +414,29 @@ function CotDashboard({ onOpen, preferVersionId }: { onOpen: (id: string, specia
                 if (venUsd + perUsd > 0) porMonto.push({ cur: 'USD', pct: pctDe(venUsd, perUsd) })
                 if (venMxn + perMxn > 0) porMonto.push({ cur: 'MXN', pct: pctDe(venMxn, perMxn) })
                 const pctCot = pctDe(ganadas, perdidas)
-                const etiqueta = {fontSize: 8, color: '#666', textTransform: 'uppercase' as const, letterSpacing: '0.05em', fontWeight: 600}
+                // Columna angosta a propósito: tiene que caber al lado de
+                // "USD $4,832,862.57" en una tarjeta de ~190 px.
+                const etiqueta = {fontSize: 7.5, color: '#666', textTransform: 'uppercase' as const, letterSpacing: '0.04em', fontWeight: 600, whiteSpace: 'nowrap' as const}
                 return (
                   <div
                     style={isMobile
                       ? {borderTop: '1px solid #222', paddingTop: 4, marginTop: 6}
-                      : {flex: '0 0 auto', minWidth: 96, borderLeft: '1px solid #222', paddingLeft: 10}}
+                      : {flex: '0 0 auto', borderLeft: '1px solid #222', paddingLeft: 8, whiteSpace: 'nowrap'}}
                     title={`Win rate = ganadas ÷ decididas (contrato + perdida).\n${ganadas} ganadas · ${perdidas} perdidas · ${abiertas} abiertas (todavía no cuentan).\nPor monto: vendido ÷ (vendido + perdido), cada moneda por separado.`}>
-                    <div style={{fontSize: 8, color: '#F59E0B', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600, marginBottom: 4}}>Win rate</div>
-                    <div style={etiqueta}>Por monto</div>
+                    <div style={{fontSize: 8, color: '#F59E0B', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600, marginBottom: 2}}>Win rate</div>
+                    <div style={etiqueta}>Monto</div>
                     {porMonto.length ? porMonto.map(m => (
-                      <div key={m.cur} style={{display: 'flex', alignItems: 'baseline', gap: 4, lineHeight: 1.25}}>
-                        <span style={{fontSize: isMobile ? 12 : 14, fontWeight: 700, color: colorDe(m.pct)}}>{m.pct === null ? '—' : m.pct + '%'}</span>
-                        <span style={{fontSize: 9, color: '#666'}}>{m.cur}</span>
+                      <div key={m.cur} style={{display: 'flex', alignItems: 'baseline', gap: 3, lineHeight: 1.2}}>
+                        <span style={{fontSize: isMobile ? 12 : 13, fontWeight: 700, color: colorDe(m.pct)}}>{m.pct === null ? '—' : m.pct + '%'}</span>
+                        <span style={{fontSize: 8, color: '#666'}}>{m.cur}</span>
                       </div>
-                    )) : <div style={{fontSize: isMobile ? 12 : 14, fontWeight: 700, color: '#444'}}>—</div>}
-                    <div style={{...etiqueta, marginTop: 5}}>Por cotizaciones</div>
-                    <div style={{display: 'flex', alignItems: 'baseline', gap: 4, lineHeight: 1.25}}>
-                      <span style={{fontSize: isMobile ? 12 : 14, fontWeight: 700, color: colorDe(pctCot)}}>{pctCot === null ? '—' : pctCot + '%'}</span>
-                      <span style={{fontSize: 9, color: '#666'}}>{decididas > 0 ? `${ganadas}/${decididas}` : ''}</span>
+                    )) : <div style={{fontSize: isMobile ? 12 : 13, fontWeight: 700, color: '#444'}}>—</div>}
+                    <div style={{...etiqueta, marginTop: 4}}>Cotizaciones</div>
+                    <div style={{display: 'flex', alignItems: 'baseline', gap: 3, lineHeight: 1.2}}>
+                      <span style={{fontSize: isMobile ? 12 : 13, fontWeight: 700, color: colorDe(pctCot)}}>{pctCot === null ? '—' : pctCot + '%'}</span>
+                      <span style={{fontSize: 8, color: '#666'}}>{decididas > 0 ? `${ganadas}/${decididas}` : ''}</span>
                     </div>
-                    <div style={{fontSize: 9, color: '#555', marginTop: 3}}>{abiertas} abierta{abiertas === 1 ? '' : 's'}</div>
+                    <div style={{fontSize: 8, color: '#555', marginTop: 2}}>{abiertas} abierta{abiertas === 1 ? '' : 's'}</div>
                   </div>
                 )
               })()}
