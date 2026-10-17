@@ -318,6 +318,13 @@ function CotDashboard({ onOpen, preferVersionId }: { onOpen: (id: string, specia
   const bySpecAndCur = (spec: string, cur: string) => cotsYear.filter(c => c.specialty === spec && getCur(c) === cur).reduce((a, c) => a + getTotalConIva(c), 0)
   // Solo vendido (stage = contrato)
   const bySpecVendidoAndCur = (spec: string, cur: string) => cotsYear.filter(c => c.specialty === spec && c.stage === 'contrato' && getCur(c) === cur).reduce((a, c) => a + getTotalConIva(c), 0)
+  // Win rate = ganadas / DECIDIDAS (contrato + perdida). Las abiertas
+  // (oportunidad, estimación, por cerrar) no cuentan ni a favor ni en contra:
+  // todavía no se deciden. Por número de cotizaciones y, aparte, por monto en
+  // cada moneda (las monedas nunca se suman entre sí).
+  const bySpecPerdidoAndCur = (spec: string, cur: string) => cotsYear.filter(c => c.specialty === spec && c.stage === 'perdida' && getCur(c) === cur).reduce((a, c) => a + getTotalConIva(c), 0)
+  const contarSpecStage = (spec: string, stages: string[]) => cotsYear.filter(c => c.specialty === spec && stages.includes(c.stage)).length
+  const pctTexto = (gan: number, per: number) => (gan + per) > 0 ? Math.round(gan / (gan + per) * 100) + '%' : '—'
   const totalUSD = cotsYear.filter(c => getCur(c) === 'USD').reduce((s, c) => s + getTotalConIva(c), 0)
   const totalMXN = cotsYear.filter(c => getCur(c) === 'MXN').reduce((s, c) => s + getTotalConIva(c), 0)
 
@@ -383,6 +390,33 @@ function CotDashboard({ onOpen, preferVersionId }: { onOpen: (id: string, specia
                   </>
                 ) : <div style={{fontSize: isMobile ? 10 : 12, color: '#333'}}>—</div>}
               </div>
+              {/* Win rate */}
+              {(() => {
+                const ganadas = contarSpecStage(spec, ['contrato'])
+                const perdidas = contarSpecStage(spec, ['perdida'])
+                const abiertas = contarSpecStage(spec, ['oportunidad', 'estimacion', 'propuesta'])
+                const decididas = ganadas + perdidas
+                const pct = decididas > 0 ? Math.round(ganadas / decididas * 100) : null
+                const color = pct === null ? '#333' : pct >= 60 ? '#10B981' : pct >= 40 ? '#D97706' : '#DC2626'
+                const perUsd = bySpecPerdidoAndCur(spec, 'USD')
+                const perMxn = bySpecPerdidoAndCur(spec, 'MXN')
+                const porMonto: string[] = []
+                if (venUsd + perUsd > 0) porMonto.push('USD ' + pctTexto(venUsd, perUsd))
+                if (venMxn + perMxn > 0) porMonto.push('MXN ' + pctTexto(venMxn, perMxn))
+                return (
+                  <div style={{borderTop: '1px solid #222', paddingTop: 4, marginTop: 6}}
+                    title={`Win rate = ganadas ÷ decididas (contrato + perdida).\n${ganadas} ganadas · ${perdidas} perdidas · ${abiertas} abiertas (no cuentan).\nPor monto: vendido ÷ (vendido + perdido), cada moneda por separado.`}>
+                    <div style={{fontSize: 8, color: '#F59E0B', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600, marginBottom: 1}}>Win rate</div>
+                    <div style={{display: 'flex', alignItems: 'baseline', gap: 6, flexWrap: 'wrap'}}>
+                      <span style={{fontSize: isMobile ? 13 : 16, fontWeight: 700, color}}>{pct === null ? '—' : pct + '%'}</span>
+                      <span style={{fontSize: isMobile ? 8 : 10, color: '#666'}}>{decididas > 0 ? `${ganadas} de ${decididas} decididas` : 'Sin decididas'}</span>
+                    </div>
+                    <div style={{fontSize: isMobile ? 8 : 9, color: '#555', marginTop: 1}}>
+                      {abiertas} abierta{abiertas === 1 ? '' : 's'}{porMonto.length ? ' · por monto ' + porMonto.join(' · ') : ''}
+                    </div>
+                  </div>
+                )
+              })()}
             </div>
           )
         })}
