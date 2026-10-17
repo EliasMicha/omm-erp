@@ -9,7 +9,7 @@ import { fetchAllActiveCatalog } from '../lib/catalog'
 import { ANTHROPIC_API_KEY } from '../lib/config'
 import { Project, CatalogProduct, ProjectLine, PurchasePhase } from '../types'
 import { F, FUSD, FCUR, SPECIALTY_CONFIG, PHASE_CONFIG, formatDate } from '../lib/utils'
-import { Badge, Btn, KpiCard, Table, Th, Td, Loading, SectionHeader, EmptyState } from '../components/layout/UI'
+import { Badge, Btn, KpiCard, Table, Th, Td, ThFilter, useColumnFilters, Loading, SectionHeader, EmptyState } from '../components/layout/UI'
 import FolioChip from '../components/FolioChip'
 import { folioOC } from '../lib/folios'
 import { useIsMobile } from '../lib/useIsMobile'
@@ -1443,6 +1443,9 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
   // Cuantos documentos del proveedor trae cada OC, para no tener que abrirlas
   // una por una nada mas para ver si ya llego el acuse.
   const [docsPorOC, setDocsPorOC] = useState<Record<string, number>>({})
+  // Filtros por columna tipo Excel (el mismo componente que Contabilidad):
+  // se combinan con la búsqueda y con los chips de arriba.
+  const colFilters = useColumnFilters()
 
   // Total que se le muestra al usuario. Replica la misma aritmetica del
   // detalle de la OC (subtotal cotejado + extras, luego IVA) para que la
@@ -1571,6 +1574,64 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
     )
   }
 
+  // ── Filtros por columna ──────────────────────────────────────────────
+  // El valor de cada columna como TEXTO, que es lo que filtra ThFilter.
+  // Las etiquetas salen de las mismas reglas que pinta el renglón (cotejo,
+  // pago, pago límite) para que el filtro diga lo mismo que la tabla.
+  const getColValue = (o: PurchaseOrder, col: string): string => {
+    switch (col) {
+      case 'proveedor': return (o.supplier as any)?.name || '(sin proveedor)'
+      case 'cotizacion': return getQuotName(o) || '(sin cotización)'
+      case 'lead': return getLeadName(o) || '(sin lead)'
+      case 'especialidad': return SPECIALTY_CONFIG[o.specialty]?.label || '(sin especialidad)'
+      case 'fase': return o.purchase_phase ? (PHASE_CONFIG[o.purchase_phase]?.label || o.purchase_phase) : '(sin fase)'
+      case 'estado': return PO_STATUS_CFG[o.status]?.label || o.status
+      case 'cotejo': {
+        if ((o as any).tipo === 'servicio') return 'Servicio'
+        const sm = cotejoSummary[o.id]
+        if (!sm || sm.total === 0) return 'Sin renglones'
+        if (sm.cotejados === 0) return 'Sin cotejar'
+        return sm.cotejados === sm.total ? 'Cotejada completa' : 'Cotejo parcial'
+      }
+      case 'pago': {
+        const pagado = pagosPorOC[o.id]?.pagado || 0
+        if (o.status === 'cancelada' && pagado <= 0) return 'Cancelada sin pagos'
+        if (pagado <= 0) return 'Pendiente'
+        return estaPagada(o) ? 'Pagado' : 'Parcial'
+      }
+      case 'docs': return (docsPorOC[o.id] || 0) > 0 ? 'Con documentos' : 'Sin documentos'
+      case 'fecha': {
+        // AAAA-MM primero para que el filtro las ordene por fecha, no por nombre.
+        const f = String(o.created_at || '').slice(0, 7)
+        if (!f) return '(sin fecha)'
+        const [y, m] = f.split('-')
+        const MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']
+        return `${f} (${MESES[Number(m) - 1] || m} ${y})`
+      }
+      case 'limite': {
+        if (o.status === 'cancelada') return 'Cancelada'
+        if (estaPagada(o)) return 'Pagada'
+        const ep = estadoPago(o.fecha_maxima_pago, { pagadaAt: o.pagada_at })
+        if (ep.estado === 'sin_fecha') return 'Sin fecha'
+        if (ep.estado === 'pagada') return 'Pagada'
+        if (ep.estado === 'vencido') return 'Vencida'
+        if (ep.estado === 'hoy') return 'Vence hoy'
+        if (ep.estado === 'proximo') return 'Vence en ≤7 días'
+        return 'Vence en más de 7 días'
+      }
+      case 'moneda': return o.currency || 'MXN'
+      default: return ''
+    }
+  }
+  // Los valores de cada filtro salen de lo que ya pasó búsqueda y chips.
+  const preFiltrada = lista
+  const valoresDe = (col: string) => preFiltrada.map(o => getColValue(o, col))
+  lista = colFilters.applyFilters(lista, getColValue)
+  const thf = (label: string, col: string, right?: boolean) => (
+    <ThFilter label={label} right={right} values={valoresDe(col)}
+      activeFilters={colFilters.getFilter(col)} onFilterChange={sel => colFilters.setFilter(col, sel)} />
+  )
+
   // Helper: total cotejado de una OC con IVA 16% (real_total cuando aplique, sino catálogo)
   // sumCotejo es SUBTOTAL — se multiplica por 1.16 para igualar a o.total que ya incluye IVA
   // Las sumas del encabezado usan totalMostrado, la misma funcion que la
@@ -1650,16 +1711,30 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
             )
           })}
         </div>
+        {colFilters.activeCount > 0 && (
+          <button onClick={colFilters.clearAll} title="Quitar los filtros puestos en los encabezados de la tabla" style={{
+            padding: '4px 10px', borderRadius: 20, fontSize: 10, cursor: 'pointer', fontFamily: 'inherit',
+            border: '1px solid #DC262666', background: '#DC262618', color: '#F87171', fontWeight: 600,
+          }}>✕ Quitar filtros de columna ({colFilters.activeCount})</button>
+        )}
+      </div>
+      <div style={{ fontSize: 10, color: '#555', margin: '-8px 0 10px' }}>
+        Tip: da clic en el encabezado de una columna (Proveedor, Lead, Fase, Pago, Pago límite…) para filtrar por sus valores.
       </div>
 
       {loading ? <Loading /> : (
         <div style={{ overflowX: 'auto' }}>
           <Table>
             <thead><tr>
-              <Th>OC #</Th><Th>Descripción</Th><Th>Proveedor</Th><Th>Cotización</Th><Th>Lead</Th><Th>Especialidad</Th><Th>Fase</Th><Th>Estado</Th><Th>Cotejo</Th><Th>Pago</Th><Th>Docs</Th><Th>Fecha</Th><Th>Pago límite</Th><Th right>Total MXN</Th><Th right>Total USD</Th><Th></Th>
+              <Th>OC #</Th><Th>Descripción</Th>
+              {thf('Proveedor', 'proveedor')}{thf('Cotización', 'cotizacion')}{thf('Lead', 'lead')}
+              {thf('Especialidad', 'especialidad')}{thf('Fase', 'fase')}{thf('Estado', 'estado')}
+              {thf('Cotejo', 'cotejo')}{thf('Pago', 'pago')}{thf('Docs', 'docs')}
+              {thf('Fecha', 'fecha')}{thf('Pago límite', 'limite')}
+              {thf('Total MXN', 'moneda', true)}{thf('Total USD', 'moneda', true)}<Th></Th>
           </tr></thead>
           <tbody>
-            {lista.length === 0 && <tr><td colSpan={16}><EmptyState message="Sin órdenes de compra" /></td></tr>}
+            {lista.length === 0 && <tr><td colSpan={16}><EmptyState message={colFilters.activeCount > 0 ? 'Ninguna orden cumple los filtros de columna' : 'Sin órdenes de compra'} /></td></tr>}
             {lista.map(o => {
               const st = PO_STATUS_CFG[o.status]
               const esp = SPECIALTY_CONFIG[o.specialty]
