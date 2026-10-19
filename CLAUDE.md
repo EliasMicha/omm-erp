@@ -3047,3 +3047,7 @@ El generador (`supabase/functions/_shared/estadoCuentaPdf.ts`, fuente única) ac
 - pie "(parcial)".
 Así "Total recibido" = "Cobrado". Verificado con Arcos Bosques (prorrateo de 1.296 M entre dos cotizaciones): cuadra.
 El MCP comparte el archivo; sin el parámetro se comporta igual, así que no hace falta redeploy.
+
+### ⚠️ Push desde la Mac (19-oct-2026): el PAT en la URL ya no sirve
+`git push https://$PAT@github.com/...` empezó a fallar con "could not read Username" + "warning: redirecting to https://github.com/EliasMicha/omm-erp.git/" (el redirect tira la credencial de la URL). El PAT es válido (api.github.com/user → 200). Lo que funciona: mandar la credencial como header, que sobrevive al redirect:
+`B=$(printf 'x-access-token:%s' "$P" | base64 | tr -d '\n'); git -c http.extraHeader="Authorization: Basic $B" push https://github.com/EliasMicha/omm-erp.git HEAD:main`
