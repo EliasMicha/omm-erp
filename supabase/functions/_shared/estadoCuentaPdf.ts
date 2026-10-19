@@ -37,10 +37,16 @@ export interface EstadoCuentaInput {
   bankMovements: any[]     // movimientos de banco del lead
   cashMovements: any[]     // movimientos de efectivo del lead
   paymentAllocations: any[]// prorrateos del lead
+  // Estado de cuenta PARCIAL (oct-2026): ids de las cotizaciones a incluir.
+  // Vacío o ausente = el general de siempre. Hay clientes que llevan cada
+  // proyecto por separado y el general los confunde.
+  soloCotizaciones?: string[]
 }
 
 export function generarEstadoCuentaPdf(input: EstadoCuentaInput): jsPDF {
   const { lead, quotations, bankMovements, cashMovements, paymentAllocations } = input
+  const seleccion = new Set((input.soloCotizaciones || []).filter(Boolean))
+  const parcial = seleccion.size > 0
 
   const getQuotCurrency = (q: any): 'USD' | 'MXN' => {
     try { const n = typeof q.notes === 'string' ? JSON.parse(q.notes) : q.notes; return n?.currency === 'MXN' ? 'MXN' : 'USD' } catch { return 'USD' }
@@ -120,10 +126,15 @@ export function generarEstadoCuentaPdf(input: EstadoCuentaInput): jsPDF {
   setTxt([60, 60, 60]); doc.setFont('helvetica', 'normal'); doc.setFontSize(12)
   doc.text(lead.name || 'Sin nombre', M, y + 2); y += 6
   if (lead.company) { setTxt(GRAY); doc.setFontSize(9.5); doc.text(lead.company, M, y + 1); y += 5 }
+  if (parcial) {
+    const n = quotations.filter(q => q.stage === 'contrato' && seleccion.has(q.id)).length
+    setTxt(GRAY); doc.setFont('helvetica', 'italic'); doc.setFontSize(9)
+    doc.text(`Estado de cuenta parcial: incluye ${n === 1 ? '1 cotización seleccionada' : n + ' cotizaciones seleccionadas'}.`, M, y + 1); y += 5
+  }
   setFill(GREEN); doc.rect(M, y + 1, RIGHT - M, 0.8, 'F'); y += 8
 
   // Datos consolidados
-  const contratos = quotations.filter(q => q.stage === 'contrato')
+  const contratos = quotations.filter(q => q.stage === 'contrato' && (!parcial || seleccion.has(q.id)))
   const resumen = { USD: { vendido: 0, cobrado: 0 }, MXN: { vendido: 0, cobrado: 0 } }
   const quoteData = contratos.map(q => {
     const cur = getQuotCurrency(q)
@@ -150,7 +161,7 @@ export function generarEstadoCuentaPdf(input: EstadoCuentaInput): jsPDF {
       setFill(c === 'USD' ? [6, 182, 212] : [167, 139, 250]); doc.roundedRect(x + 4, y + 4, 14, 5, 1, 1, 'F')
       setTxt([255, 255, 255]); doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); doc.text(c, x + 11, y + 7.6, { align: 'center' })
       setTxt(GRAY); doc.setFont('helvetica', 'normal'); doc.setFontSize(7)
-      doc.text('GENERAL', x + 21, y + 7.6)
+      doc.text(parcial ? 'SELECCIÓN' : 'GENERAL', x + 21, y + 7.6)
       const line = (label: string, val: string, cc: [number, number, number], yy: number) => {
         setTxt(GRAY); doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.text(label, x + 4, yy)
         setTxt(cc); doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.text(val, x + cardW - 4, yy, { align: 'right' })
@@ -187,10 +198,16 @@ export function generarEstadoCuentaPdf(input: EstadoCuentaInput): jsPDF {
   }
 
   // Movimientos de cobro recibidos
-  const ingresos = [
-    ...bankMovements.filter((m: any) => m.tipo === 'abono').map((m: any) => ({ fecha: m.fecha, concepto: m.concepto || 'Transferencia', moneda: (m.moneda === 'USD' ? 'USD' : 'MXN'), monto: Number(m.monto) || 0, metodo: 'Transf.' })),
-    ...cashMovements.filter((m: any) => m.tipo === 'cobro_cliente').map((m: any) => ({ fecha: m.fecha, concepto: m.concepto || m.persona || 'Efectivo', moneda: (m.moneda === 'USD' ? 'USD' : 'MXN'), monto: Number(m.monto) || 0, metodo: 'Efectivo' })),
-  ].sort((a, b) => (a.fecha || '').localeCompare(b.fecha || ''))
+  // En el PARCIAL no se listan todos los cobros del lead: sólo lo aplicado a las
+  // cotizaciones elegidas, por el monto que les tocó (una transferencia
+  // prorrateada entre dos proyectos aparece sólo con la parte de éste). Así el
+  // "Total recibido" cuadra con el "Cobrado" de las tarjetas.
+  const ingresos = (parcial
+    ? quoteData.flatMap(d => d.pagos.map(p => ({ fecha: p.date, concepto: (p.concepto || '').replace(/💵 /, ''), moneda: p.cur, monto: p.monto, metodo: p.source === 'efectivo' ? 'Efectivo' : 'Transf.' })))
+    : [
+      ...bankMovements.filter((m: any) => m.tipo === 'abono').map((m: any) => ({ fecha: m.fecha, concepto: m.concepto || 'Transferencia', moneda: (m.moneda === 'USD' ? 'USD' : 'MXN'), monto: Number(m.monto) || 0, metodo: 'Transf.' })),
+      ...cashMovements.filter((m: any) => m.tipo === 'cobro_cliente').map((m: any) => ({ fecha: m.fecha, concepto: m.concepto || m.persona || 'Efectivo', moneda: (m.moneda === 'USD' ? 'USD' : 'MXN'), monto: Number(m.monto) || 0, metodo: 'Efectivo' })),
+    ]).sort((a, b) => (a.fecha || '').localeCompare(b.fecha || ''))
   sectionTitle('Movimientos de cobro recibidos')
   if (ingresos.length === 0) {
     setTxt(GRAY); doc.setFont('helvetica', 'italic'); doc.setFontSize(9); doc.text('Sin cobros registrados', M + 3, y); y += 8
@@ -300,7 +317,7 @@ export function generarEstadoCuentaPdf(input: EstadoCuentaInput): jsPDF {
     doc.setPage(i)
     setFill(GREEN); doc.rect(M, 270, RIGHT - M, 0.5, 'F')
     doc.setFontSize(7); setTxt(GRAY)
-    doc.text(`OMM ERP · Estado de Cuenta · ${lead.name || ''}`, M, 274)
+    doc.text(`OMM ERP · Estado de Cuenta${parcial ? ' (parcial)' : ''} · ${lead.name || ''}`, M, 274)
     doc.text(`Página ${i} de ${pageCount}`, RIGHT, 274, { align: 'right' })
   }
 

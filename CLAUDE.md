@@ -3035,3 +3035,15 @@ dependencias, tipo de entregable. Estaba vacío y su única pantalla es Activida
 
 `src/pages/Cotizaciones.tsx`, a la DERECHA de Cotizado/Vendido (columna angosta ~55 px: etiquetas "Monto"/"Cotizaciones", 13 px; el bloque de montos va con flex '1 1 auto' para que su base sea su ancho real — con base fija de 150 px + minWidth 96 la columna se iba abajo en tarjetas de ~220 px; sólo baja si de verdad no cabe). Muestra "Por monto" (USD y MXN por separado) y "Por cotizaciones" (ganadas/decididas) + abiertas. **Win rate = contrato ÷ (contrato + perdida)**, contado por cotización vigente y respetando el filtro de año. Las abiertas (oportunidad, estimación, por cerrar) no cuentan y se muestran aparte. Debajo, el win rate **por monto** en cada moneda por separado (vendido ÷ vendido + perdido). Color: ≥60% verde, ≥40% ámbar, <40% rojo. Tooltip con el desglose.
 **Ojo al leerlo:** con datos 2026 sale inflado (esp 79%, elec 68%, ilum 95%, cort 84%, proy 87% al 17-oct): casi nada se marca "perdida" y parte de lo ganado se capturó ya ganado al migrar de Jetbuilt (ver memoria omm_ciclo_de_ventas). Se vuelve confiable cuando se marque perdida toda cotización muerta (regla de +90 días sin movimiento).
+
+## 📄 CRM → estado de cuenta PARCIAL por cotizaciones (2026-10-19)
+
+En el lead (`LeadDashboard.tsx`), tabla "Saldo por cotización": checkbox por cotización (y en el encabezado, todas). Sin selección, "Exportar PDF" saca el general de siempre. Con selección, saca uno parcial; aparecen "General" y "Quitar selección". Si están todas palomeadas sale el general, porque además lista los cobros sin asignar.
+El generador (`supabase/functions/_shared/estadoCuentaPdf.ts`, fuente única) acepta `soloCotizaciones?: string[]`. En modo parcial:
+- sólo esos contratos;
+- tarjeta "SELECCIÓN";
+- leyenda "Estado de cuenta parcial: incluye N cotizaciones";
+- en "Movimientos de cobro recibidos" sólo lo aplicado a esas cotizaciones y por el monto que les tocó: una transferencia prorrateada entre proyectos sale sólo con su parte, y un cobro en otra moneda sale convertido al TC acordado;
+- pie "(parcial)".
+Así "Total recibido" = "Cobrado". Verificado con Arcos Bosques (prorrateo de 1.296 M entre dos cotizaciones): cuadra.
+El MCP comparte el archivo; sin el parámetro se comporta igual, así que no hace falta redeploy.

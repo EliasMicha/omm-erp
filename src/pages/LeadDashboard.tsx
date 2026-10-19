@@ -101,6 +101,9 @@ export default function LeadDashboard() {
   const [selectedQuotForPlan, setSelectedQuotForPlan] = useState<string | null>(null)
   // Si el user da click en "Plan de pagos" y hay > 1 cot contrato, abrir el selector.
   const [showQuotPicker, setShowQuotPicker] = useState(false)
+  // Cotizaciones palomeadas en "Saldo por cotización" para sacar un estado de
+  // cuenta PARCIAL. Vacío = el general.
+  const [selEC, setSelEC] = useState<string[]>([])
   const [cobrarModal, setCobrarModal] = useState<any>(null) // milestone being marked as cobrado
 
   // ── RESUMEN DE INVERSION: que cotizaciones entran y que anticipo pide cada una ──
@@ -327,10 +330,25 @@ export default function LeadDashboard() {
     return items.sort((a, b) => (a.date || '').localeCompare(b.date || ''))
   }
 
-  function exportEstadoCuenta() {
+  // soloIds vacío = estado de cuenta general; con ids = parcial de esas cotizaciones.
+  function exportEstadoCuenta(soloIds?: string[]) {
     if (!lead) return
-    const doc = generarEstadoCuentaPdf({ lead, quotations, bankMovements, cashMovements, paymentAllocations })
-    doc.save(`Estado_de_Cuenta_${(lead.name || 'Lead').replace(/\s+/g, '_')}.pdf`)
+    const vivos = new Set(quotations.filter(q => q.stage === 'contrato').map(q => q.id))
+    const ids = (soloIds || []).filter(id => vivos.has(id))
+    // Todas palomeadas = el general (que además lista cobros sin asignar).
+    const parcial = ids.length > 0 && ids.length < vivos.size
+    const doc = generarEstadoCuentaPdf({ lead, quotations, bankMovements, cashMovements, paymentAllocations, soloCotizaciones: parcial ? ids : undefined })
+    const base = (lead.name || 'Lead').replace(/\s+/g, '_')
+    let sufijo = ''
+    if (parcial) {
+      const nombres = quotations.filter(q => ids.includes(q.id)).map(q => {
+        const n = String(q.name || '').trim()
+        const pre = String(lead.name || '').trim()
+        return (pre && n.toLowerCase().startsWith(pre.toLowerCase() + ' - ') ? n.slice(pre.length + 3) : n).replace(/[^\w\u00C0-\u017F-]+/g, '_')
+      })
+      sufijo = ids.length === 1 && nombres[0] ? '_' + nombres[0].slice(0, 40) : `_parcial_${ids.length}_cotizaciones`
+    }
+    doc.save(`Estado_de_Cuenta_${base}${sufijo}.pdf`)
   }
   // Cuerpo anterior conservado como referencia (no se usa; la generación vive en lib/estadoCuentaPdf).
   function __estadoCuentaLegacy_NO_USAR() {
@@ -1145,9 +1163,21 @@ export default function LeadDashboard() {
         {/* ── SALDO POR COTIZACIÓN ── */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
           <span style={{ fontSize: 11, fontWeight: 600, color: '#888', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Saldo por Cotización</span>
-          <button onClick={exportEstadoCuenta} style={{ ...linkBtnS, padding: '4px 10px', fontSize: 11, gap: 4, color: '#2563EB', borderColor: '#2563EB44' }}>
-            <Download size={12} /> Exportar PDF
-          </button>
+          {/* Sin selección: el estado de cuenta general de siempre. Con
+              cotizaciones palomeadas abajo: uno parcial sólo con ésas. */}
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+            {selEC.length > 0 && (
+              <>
+                <button onClick={() => setSelEC([])} style={{ ...linkBtnS, padding: '4px 10px', fontSize: 11, color: '#888', borderColor: '#33333388' }}>Quitar selección</button>
+                <button onClick={() => exportEstadoCuenta()} title="Todas las cotizaciones cerradas del lead" style={{ ...linkBtnS, padding: '4px 10px', fontSize: 11, gap: 4, color: '#888', borderColor: '#33333388' }}>
+                  <Download size={12} /> General
+                </button>
+              </>
+            )}
+            <button onClick={() => exportEstadoCuenta(selEC)} title={selEC.length ? 'Sólo las cotizaciones palomeadas, con sus cobros' : 'Todas las cotizaciones cerradas. Palomea cotizaciones abajo para sacar uno parcial.'} style={{ ...linkBtnS, padding: '4px 10px', fontSize: 11, gap: 4, color: '#2563EB', borderColor: '#2563EB44', fontWeight: selEC.length ? 600 : undefined }}>
+              <Download size={12} /> {selEC.length ? `Exportar PDF · ${selEC.length} seleccionada${selEC.length === 1 ? '' : 's'}` : 'Exportar PDF'}
+            </button>
+          </div>
         </div>
         {(() => {
           const contratos = quotations.filter(q => q.stage === 'contrato')
@@ -1189,6 +1219,12 @@ export default function LeadDashboard() {
               <table style={tblS}>
                 <thead>
                   <tr style={trHeadS}>
+                    <th style={{ ...thS, width: 28, textAlign: 'center' }}>
+                      <input type="checkbox" title="Seleccionar todas para el estado de cuenta"
+                        checked={quotBalances.length > 0 && quotBalances.every(qb => selEC.includes(qb.q.id))}
+                        onChange={e => setSelEC(e.target.checked ? quotBalances.map(qb => qb.q.id) : [])}
+                        style={{ cursor: 'pointer' }} />
+                    </th>
                     <th style={thS}>Cotización</th>
                     <th style={thS}>Especialidad</th>
                     <th style={thS}>Moneda</th>
@@ -1200,7 +1236,13 @@ export default function LeadDashboard() {
                 </thead>
                 <tbody>
                   {quotBalances.map(({ q, cur, total, pagado, pendiente, pctPagado }) => (
-                    <tr key={q.id} style={trS}>
+                    <tr key={q.id} style={{ ...trS, background: selEC.includes(q.id) ? '#2563EB12' : undefined }}>
+                      <td style={{ ...tdS, textAlign: 'center' }}>
+                        <input type="checkbox" title="Incluir en el estado de cuenta parcial"
+                          checked={selEC.includes(q.id)}
+                          onChange={e => setSelEC(prev => e.target.checked ? [...prev.filter(x => x !== q.id), q.id] : prev.filter(x => x !== q.id))}
+                          style={{ cursor: 'pointer' }} />
+                      </td>
                       <td style={tdS}><span style={{ color: '#fff', fontWeight: 500 }}>{q.name || 'Sin nombre'}</span></td>
                       <td style={tdS}><Badge label={SPECIALTY_CONFIG[q.specialty as keyof typeof SPECIALTY_CONFIG]?.label || q.specialty} color={SPECIALTY_CONFIG[q.specialty as keyof typeof SPECIALTY_CONFIG]?.color || '#555'} /></td>
                       <td style={tdS}><Badge label={cur} color={cur === 'USD' ? '#06B6D4' : '#A78BFA'} /></td>
