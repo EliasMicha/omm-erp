@@ -3051,3 +3051,22 @@ El MCP comparte el archivo; sin el parámetro se comporta igual, así que no hac
 ### ⚠️ Push desde la Mac (19-oct-2026): el PAT en la URL ya no sirve
 `git push https://$PAT@github.com/...` empezó a fallar con "could not read Username" + "warning: redirecting to https://github.com/EliasMicha/omm-erp.git/" (el redirect tira la credencial de la URL). El PAT es válido (api.github.com/user → 200). Lo que funciona: mandar la credencial como header, que sobrevive al redirect:
 `B=$(printf 'x-access-token:%s' "$P" | base64 | tr -d '\n'); git -c http.extraHeader="Authorization: Basic $B" push https://github.com/EliasMicha/omm-erp.git HEAD:main`
+
+## 🏦 Conciliación: "no guarda" = los vínculos pasaron de 1000 (2026-10-22)
+
+**Síntoma:** movimientos con "$0.00 vinculadas" aunque ya tenían factura, y al volver a vincular salía `duplicate key ... conciliacion_links_bank_movement_id_invoice_id_key`. Todo SÍ se guardaba: los 66 vínculos más nuevos no se cargaban.
+
+**Causa:** `conciliacion_links` llegó a 1,066 renglones y se leía con `select('*')` sin paginar (PostgREST corta en 1000). Además, `factura_conceptos` se leía con `range(0, 9999)`, pero el servidor corta en 1000 igual y hay más de 7,000.
+
+**Arreglo (commit ef1e7ce, `Contabilidad.tsx`):**
+- `traerTodo` para conciliacion_links (en Conciliación y en Supervisión), payment_allocations y factura_conceptos.
+- Desempate `.order('id')` en las paginaciones de bank_movements y facturas, porque ordenar sólo por fecha puede repetir o saltar renglones entre páginas.
+- Vincular una factura ya vinculada (23505) ya no es error: trae el vínculo existente.
+- Todos los `setBankMovements(bankMovements.map…)` y `setConcLinks(concLinks…)` pasaron a la forma funcional (`prev => …`); con la forma vieja, una acción con estado viejo pisaba en pantalla un comentario recién guardado.
+- El prop `setBankMovements` quedó tipado como `React.Dispatch<React.SetStateAction<BankMovement[]>>`.
+- Los errores de tsc en Contabilidad bajaron de 25 a 10.
+
+**Pendiente de datos:** 5 movimientos con vínculos que cubren el total pero `conciliado=false`: OpenMX 347,992.71, 97,593.93, 23,486.39, 5,181.26 y un Uber de 89.98.
+
+### Push SIN la Mac (22-oct)
+`add_repo` (EliasMicha/omm-erp, access push) desde la sesión en la nube funcionó; después, `git push origin HEAD:main` normal desde el clon del contenedor. El proxy inyecta la credencial y no hace falta el PAT.
