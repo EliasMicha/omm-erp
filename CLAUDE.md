@@ -3113,3 +3113,13 @@ En `TabPeriodos.tsx`, el botón "Borrar periodo" sólo aparece en periodos que n
 - **Desliga** `caja_chica_tickets.payroll_item_id` y `attendance_monthly_summary.payroll_item_id`; sus llaves no dejan borrar si siguen ligados.
 - Borra el comprobante en `nomina-comprobantes`, después los items y después el periodo. Luego se vuelve a "Crear periodo" + "Importar PDF nómina".
 - Probado con la sesión de Dafne en rollback (semana 19-oct): RLS deja borrar 16 items y el periodo.
+
+## 🔢 Folio de OC con código de otra obra (2026-10-23)
+
+**Caso:** dos OC de Oficinas Palmas Hills salieron como `MAT-IE01-C34/C35` (Maria Attie). Nacieron con la cotización de Maria Attie y luego se les cambió la cotización. El trigger `omm_tg_po_folio` no recalculaba ("ya trae folio OMM: no se toca nunca").
+
+**Arreglo (migración `po_folio_recalcula_al_cambiar_cotizacion`):**
+- Si en un UPDATE cambia `quotation_id`, la OC sigue en borrador o aprobada, no tiene pagos y el banco no ha visto su folio viejo, se recalcula el folio con la cotización nueva. Si ya circuló, el folio no se toca.
+- Las dos quedaron `OFP1-IE01-C18` (canaleta) y `OFP1-IE01-C19` (pijas). Probado en rollback.
+
+**Otra a revisar:** `PILO-IL03-C01` (estado pedida) cuelga de una cotización con folio `PILO-IL01-40`. No se tocó porque ya fue pedida.
