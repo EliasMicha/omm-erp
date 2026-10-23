@@ -8,6 +8,7 @@ import type { Dudoso, MovExistente } from '../lib/bbvaDedup'
 import { MOCK_CLIENTES } from './Clientes'
 import type { ClienteFiscal } from './Clientes'
 import { supabase, supabaseAll } from '../lib/supabase'
+import { traerTodo } from '../lib/paginado'
 import { headersApi } from '../lib/sesionToken'
 import EstadoCuentaProveedor from '../components/EstadoCuentaProveedor'
 import SearchSelect from '../components/SearchSelect'
@@ -623,7 +624,7 @@ export default function Contabilidad() {
     let from = 0
     let all: any[] = []
     while (true) {
-      const { data, error } = await supabase.from('bank_movements').select('*').order('fecha', { ascending: false }).range(from, from + PAGE - 1)
+      const { data, error } = await supabase.from('bank_movements').select('*').order('fecha', { ascending: false }).order('id', { ascending: true }).range(from, from + PAGE - 1)
       if (error || !data || data.length === 0) break
       all = all.concat(data)
       if (data.length < PAGE) break
@@ -699,7 +700,7 @@ export default function Contabilidad() {
       let from = 0
       const PAGE = 1000
       while (true) {
-        const { data } = await supabase.from('facturas').select('*').order('created_at', { ascending: false }).range(from, from + PAGE - 1)
+        const { data } = await supabase.from('facturas').select('*').order('created_at', { ascending: false }).order('id', { ascending: true }).range(from, from + PAGE - 1)
         if (!data || data.length === 0) break
         all = all.concat(data)
         if (data.length < PAGE) break
@@ -754,7 +755,8 @@ export default function Contabilidad() {
         })))
       }
       // Cargar conceptos en segundo plano
-      const { data: conceptos } = await supabase.from('factura_conceptos').select('*').range(0, 9999)
+      // range(0, 9999) NO trae 9999: el servidor corta en 1000 igual. Hay +7,000.
+      const conceptos = await traerTodo(() => supabase.from('factura_conceptos').select('*')).catch(() => [] as any[])
       if (conceptos && conceptos.length > 0) {
         const byFactura: Record<string, Concepto[]> = {}
         conceptos.forEach((cp: any) => {
@@ -1794,7 +1796,7 @@ function TabFacturacion({ invoices, setInvoices, bankMovements, projectNames }: 
 
 /* --------- Tab 2: Conciliaci--n Bancaria --------------------------------------------------------------------------------------------------- */
 
-function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNames, reloadMovements }: { bankMovements: BankMovement[]; setBankMovements: (m: BankMovement[]) => void; invoices: Invoice[]; projectNames: string[]; reloadMovements?: () => void }) {
+function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNames, reloadMovements }: { bankMovements: BankMovement[]; setBankMovements: React.Dispatch<React.SetStateAction<BankMovement[]>>; invoices: Invoice[]; projectNames: string[]; reloadMovements?: () => void }) {
   const isMobile = useIsMobile()
   const [processing, setProcessing] = useState(false)
   const concColFilters = useColumnFilters()
@@ -1864,9 +1866,12 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
   const totalLinkedForInv = (invId: string) => getLinksForInv(invId).reduce((s, l) => s + l.monto_aplicado, 0)
 
   useEffect(() => {
-    supabase.from('conciliacion_links').select('*').then(({ data }) => {
-      if (data) setConcLinks(data as ConcLink[])
-    })
+    // PAGINADO: conciliacion_links cruzó los 1000 renglones (oct-2026) y los que
+    // pasaban de mil no llegaban: el movimiento salía "$0 vinculado" aunque ya
+    // tenía su factura, y al volver a vincularla tronaba con duplicate key.
+    traerTodo(() => supabase.from('conciliacion_links').select('*'))
+      .then(data => setConcLinks(data as ConcLink[]))
+      .catch(e => console.error('[conc-links]', e))
   }, [])
 
   // ── Prorrateo de un pago entre varias cotizaciones (payment_allocations) ──
@@ -1878,9 +1883,9 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
   const [allocDraft, setAllocDraft] = useState<Record<string, { quotation_id: string; monto: number; tc?: number }[]>>({})
   const [savingAlloc, setSavingAlloc] = useState<string | null>(null)
   useEffect(() => {
-    supabase.from('payment_allocations').select('*').then(({ data }) => {
-      if (data) setPayAllocs(data as PayAlloc[])
-    })
+    traerTodo(() => supabase.from('payment_allocations').select('*'))
+      .then(data => setPayAllocs(data as PayAlloc[]))
+      .catch(e => console.error('[pay-allocs]', e))
   }, [])
   const getAllocsForMov = (movId: string) => payAllocs.filter(a => a.bank_movement_id === movId)
   // Inicializa el borrador del movimiento desde lo ya guardado (una sola vez)
@@ -2186,7 +2191,7 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
     if (proyectoNombre) upd.proyecto = proyectoNombre
     const { error } = await supabase.from('bank_movements').update(upd).eq('id', movId)
     if (error) { alert('Error al asignar: ' + error.message); return false }
-    setBankMovements(bankMovements.map(bm => bm.id === movId
+    setBankMovements(prev => prev.map(bm => bm.id === movId
       ? ({ ...bm, lead_id: leadId || undefined, quotation_id: quoteId || undefined, ...(proyectoNombre ? { proyecto_sugerido: proyectoNombre } : {}) } as any)
       : bm))
     return true
@@ -2206,7 +2211,7 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
       const { error } = await supabase.from('bank_movements').update(upd).in('id', ids)
       if (error) { alert('Error en asignación masiva: ' + error.message); return }
       const idset = new Set(ids)
-      setBankMovements(bankMovements.map(bm => idset.has(bm.id)
+      setBankMovements(prev => prev.map(bm => idset.has(bm.id)
         ? ({ ...bm, lead_id: genBulkLead || undefined, quotation_id: genBulkQuote || undefined, ...(proyNombre ? { proyecto_sugerido: proyNombre } : {}) } as any)
         : bm))
       setGenSel(new Set())
@@ -2307,16 +2312,23 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
         insertPayload.tc_aplicado = tcAplicado
         insertPayload.monto_en_moneda_factura = montoEnMonedaFactura
       }
-      const { data, error } = await supabase.from('conciliacion_links').insert(insertPayload).select().single()
-      if (error) { console.error('[add-link]', error); alert('Error: ' + error.message); return }
-      const newLinks = [...concLinks, data as ConcLink]
-      setConcLinks(newLinks)
+      let { data, error } = await supabase.from('conciliacion_links').insert(insertPayload).select().single()
+      // 23505 = esa factura YA estaba vinculada a este movimiento. No es un
+      // error para quien concilia: se trae el vínculo existente y se muestra.
+      if (error && (error as any).code === '23505') {
+        const ya = await supabase.from('conciliacion_links').select('*').eq('bank_movement_id', mov.id).eq('invoice_id', invId).maybeSingle()
+        if (ya.data) { data = ya.data; error = null }
+      }
+      if (error || !data) { console.error('[add-link]', error); alert('Error: ' + (error?.message || 'no se guardó el vínculo')); return }
+      const nuevo = data as ConcLink
+      const newLinks = [...concLinks.filter(l => l.id !== nuevo.id), nuevo]
+      setConcLinks(prev => [...prev.filter(l => l.id !== nuevo.id), nuevo])
       // Auto-conciliar si el total vinculado cubre el movimiento
       const totalNow = newLinks.filter(l => l.bank_movement_id === mov.id).reduce((s, l) => s + l.monto_aplicado, 0)
       const shouldConc = totalNow >= mov.monto - 0.01
       if (shouldConc && !mov.conciliado) {
         await supabase.from('bank_movements').update({ conciliado: true }).eq('id', mov.id)
-        setBankMovements(bankMovements.map(x => x.id === mov.id ? { ...x, conciliado: true } : x))
+        setBankMovements(prev => prev.map(x => x.id === mov.id ? { ...x, conciliado: true } : x))
       }
     } finally { setSavingMatch(null) }
   }
@@ -2327,12 +2339,12 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
       const { error } = await supabase.from('conciliacion_links').delete().eq('id', linkId)
       if (error) { console.error('[rm-link]', error); alert('Error: ' + error.message); return }
       const newLinks = concLinks.filter(l => l.id !== linkId)
-      setConcLinks(newLinks)
+      setConcLinks(prev => prev.filter(l => l.id !== linkId))
       // Si ya no cubre, desconciliar
       const totalNow = newLinks.filter(l => l.bank_movement_id === mov.id).reduce((s, l) => s + l.monto_aplicado, 0)
       if (totalNow < mov.monto - 0.01 && mov.conciliado) {
         await supabase.from('bank_movements').update({ conciliado: false }).eq('id', mov.id)
-        setBankMovements(bankMovements.map(x => x.id === mov.id ? { ...x, conciliado: false } : x))
+        setBankMovements(prev => prev.map(x => x.id === mov.id ? { ...x, conciliado: false } : x))
       }
     } finally { setSavingMatch(null) }
   }
@@ -2342,7 +2354,7 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
     if (!link) return
     const { error } = await supabase.from('conciliacion_links').update({ monto_aplicado: newMonto }).eq('id', linkId)
     if (error) { console.error('[upd-link]', error); return }
-    setConcLinks(concLinks.map(l => l.id === linkId ? { ...l, monto_aplicado: newMonto } : l))
+    setConcLinks(prev => prev.map(l => l.id === linkId ? { ...l, monto_aplicado: newMonto } : l))
   }
 
   // Guardar comentarios/observaciones del movimiento bancario.
@@ -2382,10 +2394,10 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
         const movLinks = getLinksForMov(mov.id)
         if (movLinks.length > 0) {
           await supabase.from('conciliacion_links').delete().eq('bank_movement_id', mov.id)
-          setConcLinks(concLinks.filter(l => l.bank_movement_id !== mov.id))
+          setConcLinks(prev => prev.filter(l => l.bank_movement_id !== mov.id))
         }
         await supabase.from('bank_movements').update({ conciliado: false, factura_match_id: null, factura_match_info: null }).eq('id', mov.id)
-        setBankMovements(bankMovements.map(x => x.id === mov.id ? { ...x, conciliado: false, factura_match_id: undefined, factura_match_info: undefined } : x))
+        setBankMovements(prev => prev.map(x => x.id === mov.id ? { ...x, conciliado: false, factura_match_id: undefined, factura_match_info: undefined } : x))
       } finally { setSavingMatch(null) }
     } else {
       await addLink(mov, invId)
@@ -2418,7 +2430,7 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
       // Actualizar el state local — sync proyecto_sugerido alias
       const localUpdates = { ...updates }
       if ('proyecto' in localUpdates) localUpdates.proyecto_sugerido = localUpdates.proyecto
-      setBankMovements(bankMovements.map(bm => bm.id === movId ? { ...bm, ...localUpdates } : bm))
+      setBankMovements(prev => prev.map(bm => bm.id === movId ? { ...bm, ...localUpdates } : bm))
     } finally {
       setSavingAssign(null)
     }
@@ -2570,7 +2582,7 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
       lead_id: manual.lead_id || undefined,
       quotation_id: manual.quotation_id || undefined,
     }
-    setBankMovements([newMov, ...bankMovements])
+    setBankMovements(prev => [newMov, ...prev])
     dbInsertMany([newMov])
     setManual({ fecha: new Date().toISOString().substring(0, 10), concepto: '', beneficiario: '', monto: '', tipo: 'cargo', categoria: 'otro', lead_id: '', quotation_id: '' })
     setShowManual(false)
@@ -2817,7 +2829,7 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
     }
     const { error } = await supabase.from('bank_movements').update(upd).eq('id', movId)
     if (error) { console.error('[upd-benef]', error); alert('Error guardando beneficiario: ' + error.message); return }
-    setBankMovements(bankMovements.map(x => x.id === movId
+    setBankMovements(prev => prev.map(x => x.id === movId
       ? { ...x, beneficiario_id: id || undefined, beneficiario_tipo: tipo || undefined, beneficiario: nombre || undefined }
       : x
     ))
@@ -2851,7 +2863,7 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
       }
       // Refrescar state local
       const updatesById = new Map(matches.map(({ mov, sug }) => [mov.id, sug]))
-      setBankMovements(bankMovements.map(m => {
+      setBankMovements(prev => prev.map(m => {
         const sug = updatesById.get(m.id)
         return sug ? { ...m, beneficiario_id: sug.id, beneficiario_tipo: sug.tipo, beneficiario: sug.nombre } : m
       }))
@@ -3346,7 +3358,7 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
       setShowTxtModal(null); setTxtPayload(''); setTxtPreview(null); setTxtSummary(null)
       return
     }
-    setBankMovements([...deduped, ...bankMovements])
+    setBankMovements(prev => [...deduped, ...prev])
     await dbInsertMany(deduped)
     setStatus(`Importados ${deduped.length} movimientos a ${acc.label}` + (skipped > 0 ? ` (${skipped} duplicados omitidos)` : ''))
     setShowTxtModal(null)
@@ -3541,14 +3553,14 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
   const deleteSelected = () => {
     if (selected.size === 0) return
     const ids = Array.from(selected)
-    setBankMovements(bankMovements.filter(m => !selected.has(m.id)))
+    setBankMovements(prev => prev.filter(m => !selected.has(m.id)))
     dbDeleteMany(ids)
     setSelected(new Set())
   }
   const conciliarSelected = () => {
     if (selected.size === 0) return
     const ids = Array.from(selected)
-    setBankMovements(bankMovements.map(m => selected.has(m.id) ? { ...m, conciliado: true } : m))
+    setBankMovements(prev => prev.map(m => selected.has(m.id) ? { ...m, conciliado: true } : m))
     dbUpdateMany(ids, { conciliado: true })
     setSelected(new Set())
   }
@@ -3557,7 +3569,7 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
   const toggleConciliar = (id: string) => {
     const mov = bankMovements.find(m => m.id === id)
     const newVal = !mov?.conciliado
-    setBankMovements(bankMovements.map(m => m.id === id ? { ...m, conciliado: newVal } : m))
+    setBankMovements(prev => prev.map(m => m.id === id ? { ...m, conciliado: newVal } : m))
     dbUpdate(id, { conciliado: newVal })
   }
 
@@ -4931,7 +4943,7 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
 //
 // Permite filtrar por mes. Muestra desglose por obra + KPIs mensuales.
 // ═══════════════════════════════════════════════════════════════════════════
-function TabCostosObra({ bankMovements, setBankMovements }: { bankMovements: BankMovement[]; setBankMovements: (m: BankMovement[]) => void }) {
+function TabCostosObra({ bankMovements, setBankMovements }: { bankMovements: BankMovement[]; setBankMovements: React.Dispatch<React.SetStateAction<BankMovement[]>> }) {
   const [selectedMonth, setSelectedMonth] = useState<string>(() => {
     const d = new Date()
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
@@ -5064,7 +5076,7 @@ function TabCostosObra({ bankMovements, setBankMovements }: { bankMovements: Ban
         ))
       }
       // Refrescar state local
-      setBankMovements(bankMovements.map(m => {
+      setBankMovements(prev => prev.map(m => {
         if (m.categoria_manual) return m
         const proyecto = m.proyecto_codigo || m.proyecto_sugerido || ''
         const rawCat = classifyConcepto(m.concepto || '', m.tipo)
@@ -5207,9 +5219,9 @@ function TabSupervision({ invoices, bankMovements }: { invoices: Invoice[]; bank
   const supPagFilters = useColumnFilters()
 
   useEffect(() => {
-    supabase.from('conciliacion_links').select('*').then(({ data }) => {
-      if (data) setConcLinks(data as any[])
-    })
+    traerTodo(() => supabase.from('conciliacion_links').select('*'))
+      .then(data => setConcLinks(data as any[]))
+      .catch(e => console.error('[conc-links]', e))
   }, [])
 
   // Mes
@@ -6332,7 +6344,7 @@ function TabAnticipos({ invoices: _invoicesProp }: { invoices: Invoice[] }) {
       let from = 0
       const PAGE = 1000
       while (true) {
-        const { data } = await supabase.from('facturas').select('*').order('created_at', { ascending: false }).range(from, from + PAGE - 1)
+        const { data } = await supabase.from('facturas').select('*').order('created_at', { ascending: false }).order('id', { ascending: true }).range(from, from + PAGE - 1)
         if (!data || data.length === 0) break
         all = all.concat(data)
         if (data.length < PAGE) break
@@ -6342,7 +6354,7 @@ function TabAnticipos({ invoices: _invoicesProp }: { invoices: Invoice[] }) {
       let allCp: any[] = []
       let fcFrom = 0
       while (true) {
-        const { data } = await supabase.from('factura_conceptos').select('*').range(fcFrom, fcFrom + PAGE - 1)
+        const { data } = await supabase.from('factura_conceptos').select('*').order('id', { ascending: true }).range(fcFrom, fcFrom + PAGE - 1)
         if (!data || data.length === 0) break
         allCp = allCp.concat(data)
         if (data.length < PAGE) break
