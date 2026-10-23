@@ -198,8 +198,8 @@ export default function MiTrabajo() {
       <style>{CSS}</style>
       <div className="mt-top">
         <div>
-          <h1>Mi trabajo <span className="beta">beta</span></h1>
-          <div className="sub">El rediseño de Proyectos con los datos de hoy, sin migrar nada. Lo que se vea vacío es porque así está la base.</div>
+          <h1>Mi trabajo</h1>
+          <div className="sub">Lo que te toca, con su fecha y su proyecto. Al palomear el último paso queda lista para que la revise quien te la encargó.</div>
         </div>
         <div className="mt-seg" role="tablist">
           <button className={vista === 'lista' && !abierta ? 'on' : ''} onClick={() => { setAbierta(null); setVista('lista') }}>Mi trabajo</button>

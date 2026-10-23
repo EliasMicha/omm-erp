@@ -1,5 +1,5 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom'
-import { AuthProvider } from './contexts/AuthContext'
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { AuthProvider, useAuth } from './contexts/AuthContext'
 import ProtectedRoute from './components/ProtectedRoute'
 import Sidebar from './components/layout/Sidebar'
 import Login from './pages/Login'
@@ -70,7 +70,8 @@ export default function App() {
                 <Sidebar />
                 <main style={{ flex: 1, overflowX: 'hidden', overflowY: 'auto', minHeight: '100vh', width: 0 }}>
                   <Routes>
-                    <Route path="/" element={<Dashboard />} />
+                    <Route path="/" element={<Inicio />} />
+                    <Route path="/tablero" element={<Dashboard />} />
                     <Route path="/radar-ventas" element={<RadarVentas mode="detail" />} />
                     <Route path="/crm" element={<CRM />} />
                     <Route path="/cobranza" element={
@@ -126,7 +127,7 @@ export default function App() {
                         <Reclutamiento />
                       </ProtectedRoute>
                     } />
-                    <Route path="/actividades" element={<Actividades />} />
+                    <Route path="/actividades" element={<ActividadesODirectores />} />
                     <Route path="/mi-trabajo" element={<MiTrabajo />} />
                     <Route path="/documentacion" element={<Documentacion />} />
                     <Route path="/archivados" element={<Archivados />} />
@@ -152,4 +153,24 @@ export default function App() {
       </AuthProvider>
     </BrowserRouter>
   )
+}
+
+// ── Sistema de trabajo por áreas, semana 3 (oct-2026) ─────────────────────
+// La portada de quien trabaja en proyectos (diseñadores, dibujantes y sus
+// directores) es SU lista: Mi trabajo. El tablero sigue en /tablero.
+// Dirección, Administración y las áreas de campo conservan su Dashboard.
+export const AREAS_CON_PORTADA_MI_TRABAJO = ['Operaciones', 'Ventas_Ingenieria']
+
+function Inicio() {
+  const { user } = useAuth()
+  if (user && AREAS_CON_PORTADA_MI_TRABAJO.includes(user.permission_area)) return <MiTrabajo />
+  return <Dashboard />
+}
+
+// Actividades se queda sólo para quien manda (Mi equipo, Nuevo encargo): a
+// quien no dirige se le manda a Mi trabajo, que es donde está lo suyo.
+function ActividadesODirectores() {
+  const { user } = useAuth()
+  if (user && user.permission_area !== 'DG' && user.nivel !== 'director') return <Navigate to="/mi-trabajo" replace />
+  return <Actividades />
 }

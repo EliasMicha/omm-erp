@@ -5,6 +5,12 @@ import { useIsMobile } from '../lib/useIsMobile'
 import { X, ChevronDown, Check, Clock, Lock, Calendar, ArrowLeft, FileText, Plus, ExternalLink, Trash2, Star, AlertCircle, Filter } from 'lucide-react'
 import { formatDate } from '../lib/utils'
 import { supabase } from '../lib/supabase'
+import EditorPlantillas from '../components/EditorPlantillas'
+import { cargarPlantilla } from '../lib/empleados'
+import { conRol, EmpleadoRol } from '../lib/roles'
+import { cargarTipos, TipoEntregable } from '../lib/entregables'
+import { AREAS_TRABAJO } from '../lib/tareas'
+import { useAuth } from '../contexts/AuthContext'
 
 // ═══════════════════════════════════════════════════════════════════
 // TYPES
@@ -253,7 +259,7 @@ export default function Proyectos() {
             subtitle={`${stats.total} proyectos${areaTab !== 'TODAS' ? ' · ' + (SPECIALTY_CONFIG[areaTab]?.label || '') : ''}`}
             action={
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                <Btn onClick={() => setView('plantillas')} style={{ borderColor: '#2563EB55', color: '#60A5FA' }}>📋 Plantillas de proceso</Btn>
+                <Btn onClick={() => setView('plantillas')} style={{ borderColor: '#2563EB55', color: '#60A5FA' }}>📋 Plantillas de cada área</Btn>
                 <Btn onClick={() => setView('cockpit')} style={{ borderColor: '#7C3AED55', color: '#A78BFA' }}>👥 Cockpit del director</Btn>
                 <Btn variant="primary" onClick={() => setShowNewModal(true)}><Plus size={12} /> Nuevo proyecto</Btn>
               </div>
@@ -335,7 +341,7 @@ export default function Proyectos() {
         />
       )}
 
-      {view === 'plantillas' && <TemplatesManager onBack={() => setView('list')} />}
+      {view === 'plantillas' && <PlantillasDeArea onBack={() => setView('list')} />}
 
       {view === 'cockpit' && (
         <DirectorCockpit
@@ -442,6 +448,38 @@ interface TemplateRow {
   default_subtasks: string[] | null; expands_by_system: boolean
   start_phase_order: number | null; end_phase_order: number | null; order_index: number
 }
+// Plantillas de trabajo de cada área (las de 2026: etapa, rol, duración).
+// Son las que arman el proyecto cuando una cotización de Proyectos pasa a
+// contrato (lib/projectUtils → aplicarPlantillaDeArea). Las plantillas viejas
+// de fases siguen consultables abajo, pero ya no arman proyectos nuevos de
+// las áreas que tienen la suya.
+function PlantillasDeArea({ onBack }: { onBack: () => void }) {
+  const { user } = useAuth()
+  const [emps, setEmps] = useState<EmpleadoRol[]>([])
+  const [tipos, setTipos] = useState<TipoEntregable[]>([])
+  const [verViejas, setVerViejas] = useState(false)
+  useEffect(() => {
+    cargarPlantilla().then(p => setEmps(((p as any[]) || []).map(conRol))).catch(() => setEmps([]))
+    cargarTipos().then(setTipos).catch(() => setTipos([]))
+  }, [])
+  const employeeId = user?.employee_id || ''
+  const yo = emps.find(e => e.id === employeeId)
+  const miSpecialty = AREAS_TRABAJO.find(a => a.area === yo?.area)?.specialty || ''
+  if (verViejas) return <TemplatesManager onBack={() => setVerViejas(false)} />
+  return (
+    <div>
+      <SectionHeader title="Plantillas de cada área"
+        subtitle="Con estas nace cada proyecto al pasar su cotización a contrato: etapas, rol, persona y fecha."
+        action={<div style={{ display: 'flex', gap: 6 }}>
+          <Btn onClick={() => setVerViejas(true)}>Plantillas anteriores</Btn>
+          <Btn onClick={onBack}><ArrowLeft size={12} /> Proyectos</Btn>
+        </div>} />
+      <EditorPlantillas emps={emps} tipos={tipos} miSpecialty={miSpecialty}
+        employeeId={employeeId} nombre={yo?.name} onAplicada={() => {}} />
+    </div>
+  )
+}
+
 function TemplatesManager({ onBack }: { onBack: () => void }) {
   const [templates, setTemplates] = useState<TemplateRow[]>([])
   const [loading, setLoading] = useState(true)

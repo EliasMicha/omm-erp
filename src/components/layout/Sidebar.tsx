@@ -14,8 +14,9 @@ interface NavItem {
 
 const NAV: NavItem[] = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
-  { to: '/mi-trabajo', icon: Inbox, label: 'Mi trabajo (beta)' },
-  { to: '/actividades', icon: ListChecks, label: 'Actividades' },
+  { to: '/mi-trabajo', icon: Inbox, label: 'Mi trabajo' },
+  { to: '/tablero', icon: Gauge, label: 'Tablero', allowedAreas: ['Operaciones', 'Ventas_Ingenieria'] },
+  { to: '/actividades', icon: ListChecks, label: 'Mi equipo y encargos' },
   { to: '/crm', icon: Users2, label: 'CRM y Ventas' },
   { to: '/cotizaciones', icon: FileText, label: 'Cotizaciones' },
   { to: '/proyectos', icon: FolderOpen, label: 'Proyectos' },
@@ -52,8 +53,13 @@ export default function Sidebar() {
   useEffect(() => { setMobileOpen(false) }, [location.pathname])
 
   // Filter nav based on permissions — DG sees everything
+  // Para quien tiene Mi trabajo como portada, "/" ES Mi trabajo: no se repite.
+  const portadaMiTrabajo = !!user && ['Operaciones', 'Ventas_Ingenieria'].includes(user.permission_area)
   const filteredNav = NAV.filter(item => {
     if (!user) return false
+    if (item.to === '/' && portadaMiTrabajo) return false
+    // Mi equipo y encargos (Actividades) es de quien dirige.
+    if (item.to === '/actividades' && user.permission_area !== 'DG' && user.nivel !== 'director') return false
     if (user.permission_area === 'DG') return true
     // Roles restringidos (ej. Mantenimiento): solo ven las rutas de su whitelist
     const whitelist = RESTRICTED_AREA_ROUTES[user.permission_area]
