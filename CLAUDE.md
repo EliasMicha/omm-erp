@@ -3104,3 +3104,12 @@ El MCP comparte el archivo; sin el parámetro se comporta igual, así que no hac
 - `derivar_levantamiento` del MCP con plantillas nuevas;
 - Kanban como vista;
 - primer contrato real para verificar `aplicarPlantillaDeArea` en producción.
+
+## 🗑️ Nómina: borrar un periodo en borrador (2026-10-23)
+
+En `TabPeriodos.tsx`, el botón "Borrar periodo" sólo aparece en periodos que no están cerrados.
+
+- **Bloquea** si hay `cash_movements` ligados a sus items: la llave borra en cascada y se perdería el registro del pago.
+- **Desliga** `caja_chica_tickets.payroll_item_id` y `attendance_monthly_summary.payroll_item_id`; sus llaves no dejan borrar si siguen ligados.
+- Borra el comprobante en `nomina-comprobantes`, después los items y después el periodo. Luego se vuelve a "Crear periodo" + "Importar PDF nómina".
+- Probado con la sesión de Dafne en rollback (semana 19-oct): RLS deja borrar 16 items y el periodo.

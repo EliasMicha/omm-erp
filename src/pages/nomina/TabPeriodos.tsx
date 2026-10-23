@@ -4,7 +4,7 @@ import { F } from '../../lib/utils'
 import { Btn, Table, Th, Td, Loading, KpiCard, EmptyState, Badge } from '../../components/layout/UI'
 import {
   Calendar, DollarSign, Banknote, Clock, Plus, ChevronLeft, ChevronRight,
-  Save, RefreshCw, Lock, AlertCircle, CheckCircle2, Gift, Upload, FileText, FileSpreadsheet
+  Save, RefreshCw, Lock, AlertCircle, CheckCircle2, Gift, Upload, FileText, FileSpreadsheet, Trash2
 } from 'lucide-react'
 import { parseSFacilNominaPDF, matchEmployeeByName } from '../../lib/nominaPdfParser'
 import { leerComprobantePagos, cruzarPagos } from '../../lib/comprobanteNomina'
@@ -812,6 +812,55 @@ export default function TabPeriodos() {
     await loadPeriod()
   }
 
+  // Borrar un periodo en BORRADOR para volverlo a jalar (oct-2026: se jaló
+  // con datos equivocados). Sólo borradores: uno cerrado ya se pagó y ligó sus
+  // tickets de caja chica. Antes de borrar se revisa lo que cuelga de él:
+  //  · efectivo registrado (cash_movements) → se BLOQUEA: la llave borra en
+  //    cascada y desaparecería el registro de un pago;
+  //  · tickets de caja chica y resúmenes de asistencia ligados → se desligan
+  //    (la llave no deja borrar si siguen ligados);
+  //  · el comprobante subido → se borra del almacenamiento.
+  const deletePeriod = async () => {
+    if (!period) return
+    if (period.estatus === 'cerrado') { alert('Este periodo ya está cerrado: no se puede borrar.'); return }
+    const etiqueta = periodLabel(viewMode, range.start, range.end)
+    if (!confirm(`¿Borrar el periodo "${etiqueta}" con sus ${items.length} empleados?\n\nSe pierde todo lo capturado en él (horas extra, bonos, descuentos, comprobante). Después puedes volver a crearlo con "Crear periodo" e importar el PDF de nómina.`)) return
+    setSaving(true)
+    try {
+      const { data: its, error: eIts } = await supabase.from('payroll_items').select('id').eq('period_id', period.id)
+      if (eIts) throw eIts
+      const ids = ((its as any[]) || []).map(i => i.id)
+      if (ids.length) {
+        const { count: nCash, error: eCash } = await supabase.from('cash_movements')
+          .select('id', { count: 'exact', head: true }).in('payroll_item_id', ids)
+        if (eCash) throw eCash
+        if ((nCash || 0) > 0) {
+          alert(`No se borró: este periodo ya tiene ${nCash} pago(s) en efectivo registrados en Contabilidad. Bórralos primero allá o corrige el periodo a mano.`)
+          return
+        }
+        const { error: eTk } = await supabase.from('caja_chica_tickets').update({ payroll_item_id: null }).in('payroll_item_id', ids)
+        if (eTk) throw eTk
+        const { error: eAs } = await supabase.from('attendance_monthly_summary').update({ payroll_item_id: null }).in('payroll_item_id', ids)
+        if (eAs) throw eAs
+        const { error: eDelIt } = await supabase.from('payroll_items').delete().eq('period_id', period.id)
+        if (eDelIt) throw eDelIt
+      }
+      if (period.comprobante_transferencia_path) {
+        await supabase.storage.from('nomina-comprobantes').remove([period.comprobante_transferencia_path])
+      }
+      const { error: eDel } = await supabase.from('payroll_periods').delete().eq('id', period.id)
+      if (eDel) throw eDel
+      setDirty({})
+      await loadPeriod()
+      alert('Periodo borrado. Ya puedes volver a crearlo.')
+    } catch (e: any) {
+      alert('No se pudo borrar el periodo: ' + (e?.message || e))
+      await loadPeriod()
+    } finally {
+      setSaving(false)
+    }
+  }
+
   // Close/lock period
   const closePeriod = async () => {
     if (!period) return
@@ -1127,6 +1176,9 @@ export default function TabPeriodos() {
                     <Save size={13} /> {saving ? 'Guardando...' : `Guardar cambios (${Object.keys(dirty).length})`}
                   </Btn>
                 )}
+                <Btn onClick={deletePeriod} variant="ghost" style={{ fontSize: 12, color: '#888' }} disabled={saving}>
+                  <Trash2 size={13} /> Borrar periodo
+                </Btn>
                 <Btn onClick={closePeriod} variant="ghost" style={{ fontSize: 12, color: '#ef4444' }}>
                   <Lock size={13} /> Cerrar periodo
                 </Btn>
