@@ -8,6 +8,7 @@ import { PurchasePhase } from '../types'
 import ImageUpload from '../components/ImageUpload'
 import ImportarCatalogo from '../components/ImportarCatalogo'
 import { useIsMobile } from '../lib/useIsMobile'
+import { useFiltroInicialDeArea } from '../lib/miArea'
 
 interface Supplier { id: string; name: string }
 
@@ -71,6 +72,8 @@ export default function Catalogo() {
   const [search, setSearch] = useState('')
   const [filterSystem, setFilterSystem] = useState('')
   const [filterSpecialty, setFilterSpecialty] = useState<'esp' | 'ilum' | 'elec' | 'proy'>('esp')
+  // Regla 7: el catálogo abre en el de su área.
+  useFiltroInicialDeArea(sp => setFilterSpecialty(sp as 'esp' | 'ilum' | 'elec'))
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
   const [showImport, setShowImport] = useState(false)
   const [importing, setImporting] = useState(false)

@@ -11,6 +11,7 @@ import { conRol, EmpleadoRol } from '../lib/roles'
 import { cargarTipos, TipoEntregable } from '../lib/entregables'
 import { AREAS_TRABAJO } from '../lib/tareas'
 import { useAuth } from '../contexts/AuthContext'
+import { useFiltroInicialDeArea } from '../lib/miArea'
 
 // ═══════════════════════════════════════════════════════════════════
 // TYPES
@@ -173,6 +174,8 @@ export default function Proyectos() {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [filtroStatus, setFiltroStatus] = useState<'todos' | ProjectStatus>('todos')
   const [areaTab, setAreaTab] = useState<'TODAS' | Specialty>('TODAS')
+  // Regla 7: quien es de un área entra viendo sus proyectos ("Todas" sigue ahí).
+  useFiltroInicialDeArea(sp => setAreaTab(sp as Specialty))
   const [showNewModal, setShowNewModal] = useState(false)
 
   const [allPhases, setAllPhases] = useState<PhaseRow[]>([])

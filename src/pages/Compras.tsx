@@ -2,6 +2,7 @@ import { useEffect, useState, useRef, useMemo } from 'react'
 import { generarEstadoSubcontratoPdf } from '../lib/subcontratistaPdf'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
+import { useFiltroInicialDeArea } from '../lib/miArea'
 import { soloSistemasVendidos, sistemasApagados } from '../lib/sistemasVendidos'
 import { traerTodo } from '../lib/paginado'
 import { insertarOC } from '../lib/oc'
@@ -1430,6 +1431,8 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
   const [search, setSearch] = useState('')
   const [filterStatus, setFilterStatus] = useState<string>('todas')
   const [filterSpec, setFilterSpec] = useState<string>('todas')
+  // Regla 7: quien es de un área entra viendo las órdenes de su especialidad.
+  useFiltroInicialDeArea(sp => setFilterSpec(sp))
   // Filtro de pago: para poder ver de un jalón lo que hay que pagar esta semana.
   const [filterPago, setFilterPago] = useState<'todas' | 'vencido' | 'semana' | 'sin_fecha'>('todas')
   const [showNew, setShowNew] = useState(false)

@@ -3072,3 +3072,35 @@ El MCP comparte el archivo; sin el parámetro se comporta igual, así que no hac
 `add_repo` (EliasMicha/omm-erp, access push) desde la sesión en la nube funcionó; después, `git push origin HEAD:main` normal desde el clon del contenedor. El proxy inyecta la credencial y no hace falta el PAT.
 
 **Segunda causa, comentarios (22-oct, commit siguiente):** `loadBankMovements` arma cada movimiento campo por campo y NO incluía `observaciones`. El comentario sí se guardaba (hay 1,043 movimientos con comentario), pero al recargar la caja salía vacía. Ahora se mapean `observaciones`, `texto_banco`, `saldo_posterior`, `proveedor`, `cliente`, `uuid_factura`, `folio_serie`, `uso_cfdi` y `confianza_autodetect`. **Regla:** si agregas una columna a `bank_movements` que la pantalla lee, agrégala también a ese mapeo.
+
+## 🧭 Sistema de trabajo por áreas — semana 3, pantallas (2026-10-22)
+
+**Hecho:**
+- **Eduardo Rico:**
+  - su login y su ficha ahora son `eduardo@omniious.com` (antes `eduardo_martinez.rico@outlook.com`); misma contraseña;
+  - se cambió auth.users.email + auth.identities.identity_data.email + app_users.email + employees.email.
+- **RB205 Iluminación:** el proyecto se llama "Depto Roche Bobois 205 - Diseño de Iluminación".
+- **El proyecto nace con la plantilla del área** (commit c8b49a0):
+  - `autoCreateProjectFromQuotation` (cotización `proy` → contrato) llama `aplicarPlantillaDeArea` en `lib/projectUtils.ts`;
+  - plantilla por área: esp → `esp_proyecto_2026`, elec → `elec_ejecutivo_2026`, ilum → `ilum_proyecto_2026`;
+  - cada etapa se vuelve una `project_phase` y las tareas se crean con `crearActividades` (rol → persona, fecha);
+  - las plantillas viejas (`project_phase_templates`/`project_task_templates`) quedan sólo de respaldo;
+  - la plantilla de obra se aplica al arrancar la obra, no al firmar.
+- **Mi trabajo es la portada:**
+  - "/" es `MiTrabajo` para `Operaciones` y `Ventas_Ingenieria`; el Dashboard de esas áreas está en `/tablero`;
+  - sin "beta";
+  - `/actividades` redirige a Mi trabajo a quien no es director; en el menú se llama "Mi equipo y encargos" y sólo lo ven directores y DG.
+- **Editor de plantillas:** salió a `src/components/EditorPlantillas.tsx` y se abre desde Proyectos → "Plantillas de cada área"; las viejas, en "Plantillas anteriores".
+- **Cada área ve lo suyo** (`src/lib/miArea.ts`, `useFiltroInicialDeArea`):
+  - aplica a `Ventas_Ingenieria`/`Operaciones` con ficha en un área de proyecto;
+  - abren Proyectos, Cotizaciones, Compras y Catálogo filtrados a su especialidad;
+  - en Cotizaciones el chip "★ Mi área" = su especialidad + las `proy` cuyo `notes.tipoProyecto` es de su área;
+  - es filtro de inicio, no candado ("Todas" sigue);
+  - Entregas no se tocó (no tiene filtro por especialidad y es de Logística).
+
+**Pendiente:**
+- tabla de los 34 proyectos (los directores la llenan en el doc);
+- cuentas de Marco Antonio, Jonatan, Alejandra y Renata;
+- `derivar_levantamiento` del MCP con plantillas nuevas;
+- Kanban como vista;
+- primer contrato real para verificar `aplicarPlantillaDeArea` en producción.

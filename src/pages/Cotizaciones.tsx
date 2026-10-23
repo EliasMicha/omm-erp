@@ -22,6 +22,7 @@ import CotEditorCortinas from './CotEditorCortinas'
 import CotEditorIlum from './CotEditorIlum'
 import CotEditorDistribucion from './CotEditorDistribucion'
 import { useAuth } from '../contexts/AuthContext'
+import { useFiltroInicialDeArea } from '../lib/miArea'
 import CotEditorProyecto from './CotEditorProyecto'
 import { autoCreateProjectFromQuotation } from '../lib/projectUtils'
 import { DEFAULT_TC } from '../lib/fx'
@@ -126,6 +127,16 @@ function CotDashboard({ onOpen, preferVersionId }: { onOpen: (id: string, specia
   const [leadsMap, setLeadsMap] = useState<Record<string, LeadInfo>>({})
   const [empleados, setEmpleados] = useState<{ id: string; nombre: string; area: string | null; puesto: string | null }[]>([])
   const [filtro, setFiltro] = useState<string>('todas')
+  // Regla 7: quien es de un área entra viendo SU área ("mi_area"): las
+  // cotizaciones de su especialidad + las de Proyectos (ingeniería) de su tipo.
+  const miArea = useFiltroInicialDeArea(() => setFiltro('mi_area'))
+  const TIPO_DE_AREA: Record<string, string> = { esp: 'especiales', elec: 'electrica', ilum: 'iluminacion' }
+  const esDeMiArea = (c: Quotation) => {
+    if (!miArea) return true
+    if (c.specialty === miArea) return true
+    if (c.specialty !== 'proy') return false
+    try { const n = JSON.parse(c.notes || '{}'); return (n.tipoProyecto || 'especiales') === TIPO_DE_AREA[miArea] } catch { return false }
+  }
   const [filtroYear, setFiltroYear] = useState<string>(String(new Date().getFullYear()))
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
@@ -260,7 +271,8 @@ function CotDashboard({ onOpen, preferVersionId }: { onOpen: (id: string, specia
 
   // Filtro por especialidad + búsqueda de texto
   const lista = cotsYear.filter(c => {
-    if (filtro !== 'todas' && c.specialty !== filtro) return false
+    if (filtro === 'mi_area') { if (!esDeMiArea(c)) return false }
+    else if (filtro !== 'todas' && c.specialty !== filtro) return false
     if (search.trim()) {
       const q = search.toLowerCase().trim()
       const hay =
@@ -468,6 +480,14 @@ function CotDashboard({ onOpen, preferVersionId }: { onOpen: (id: string, specia
       </div>
 
       <div style={{display:'flex',gap:6,marginBottom:16,flexWrap:'wrap',alignItems:'center',overflowX: isMobile ? 'auto' : 'visible',overflowY: 'hidden',paddingBottom: isMobile ? 4 : 0}}>
+        {miArea && (
+          <button onClick={() => setFiltro('mi_area')} title="Tu especialidad y los proyectos de ingeniería de tu área" style={{
+            padding:'5px 12px',borderRadius:20,fontSize: isMobile ? 10 : 11,cursor:'pointer',fontFamily:'inherit',
+            border:`1px solid ${filtro === 'mi_area' ? '#10B981' : '#333'}`,
+            background: filtro === 'mi_area' ? '#10B98122' : 'transparent',
+            color: filtro === 'mi_area' ? '#10B981' : '#555', fontWeight: filtro === 'mi_area' ? 600 : 400, whiteSpace:'nowrap',
+          }}>★ Mi área</button>
+        )}
         {['todas','esp','elec','ilum','cort','proy'].map(f => {
           const on = filtro === f
           const cfg = f !== 'todas' ? SPECIALTY_CONFIG[f as ProjectLine] : null
