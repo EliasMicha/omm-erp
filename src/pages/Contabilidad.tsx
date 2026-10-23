@@ -675,6 +675,18 @@ export default function Contabilidad() {
           concepto_detectado: m.concepto_detectado || undefined,
           beneficiario_id: m.beneficiario_id || undefined,
           beneficiario_tipo: m.beneficiario_tipo || undefined,
+          // Comentarios: SÍ se guardaban en bank_movements.observaciones, pero
+          // este mapeo no los traía de vuelta, así que al recargar la caja salía
+          // vacía y parecía que no se había guardado nada (22-oct-2026).
+          observaciones: m.observaciones || undefined,
+          texto_banco: m.texto_banco || undefined,
+          saldo_posterior: m.saldo_posterior ?? undefined,
+          proveedor: m.proveedor || undefined,
+          cliente: m.cliente || undefined,
+          uuid_factura: m.uuid_factura || undefined,
+          folio_serie: m.folio_serie || undefined,
+          uso_cfdi: m.uso_cfdi || undefined,
+          confianza_autodetect: m.confianza_autodetect || undefined,
           }
         }))
       }

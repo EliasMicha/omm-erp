@@ -3070,3 +3070,5 @@ El MCP comparte el archivo; sin el parámetro se comporta igual, así que no hac
 
 ### Push SIN la Mac (22-oct)
 `add_repo` (EliasMicha/omm-erp, access push) desde la sesión en la nube funcionó; después, `git push origin HEAD:main` normal desde el clon del contenedor. El proxy inyecta la credencial y no hace falta el PAT.
+
+**Segunda causa, comentarios (22-oct, commit siguiente):** `loadBankMovements` arma cada movimiento campo por campo y NO incluía `observaciones`. El comentario sí se guardaba (hay 1,043 movimientos con comentario), pero al recargar la caja salía vacía. Ahora se mapean `observaciones`, `texto_banco`, `saldo_posterior`, `proveedor`, `cliente`, `uuid_factura`, `folio_serie`, `uso_cfdi` y `confianza_autodetect`. **Regla:** si agregas una columna a `bank_movements` que la pantalla lee, agrégala también a ese mapeo.
