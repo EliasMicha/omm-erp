@@ -3133,3 +3133,46 @@ En `TabPeriodos.tsx`, el botón "Borrar periodo" sólo aparece en periodos que n
   - Al final restaura `total` y `total_final` del original, porque el trigger deja la suma de renglones (185k) y no el total del cotizador (214k).
 - **Reparada:** XENTER (B) quedó con 326 partidas y $214,647.79.
 - **Gotcha:** cualquier insert masivo a `quotation_items` desde el navegador con más de unos 200 renglones choca con el timeout por culpa de ese trigger. Afecta también a PlanAnalyzer, AIQuoteLive y CotEditorDistribucion. Arreglo de fondo pendiente: convertir `update_quotation_total` en trigger por sentencia (transition tables).
+
+## 💬 WhatsApp Cloud API — número dedicado (2026-10-23)
+
+Elias: *"Me urge ya conectar WhatsApp cloud api a mi erp"*. Decidió **número nuevo dedicado** (no coexistencia) para tres usos: agente interno del equipo, clientes → tickets de mantenimiento, avisos salientes a clientes.
+
+### Lo que ya existía (no se partió de cero)
+- `whatsapp-webhook` (Edge Function) **ya funcionaba** como agente interno: Elias platicó con él hasta el 18-sep (50 `agent_messages`). Solo atiende `agent_contacts` activos.
+- Codex dejó en la rama `codex/whatsapp-verified-preview-v2` (4-oct, **nunca en main**) un Embedded Signup en modo coexistencia (`WhatsAppIntegration.tsx`, `api/chatbot.ts?action=whatsapp_*`). Las tablas `whatsapp_connections` y `whatsapp_webhook_events` existen y están **vacías**: el registro con Meta nunca se terminó. **No se usó**; queda la rama por si algún día se quiere coexistencia.
+- La versión desplegada del webhook era más nueva que la del repo (layout plano + `delegation.ts`, el coach de delegación). El repo ya quedó igual a lo desplegado.
+
+### Credenciales: secretos de la Edge Function, nunca en el código
+`getWhatsAppCredentials()` busca primero la fila cifrada `whatsapp_connections` (id='omm') y si no hay, usa los secretos:
+`WHATSAPP_TOKEN` (usuario del sistema, sin caducidad), `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_WABA_ID` (para plantillas), `WHATSAPP_APP_SECRET` (firma HMAC), `WHATSAPP_VERIFY_TOKEN` (handshake). Se cargan con `create_edge_function_secret` (Elias pega el valor en el dashboard; no pasan por el chat).
+Webhook de Meta → `https://ubbumxommqjcpdozpunf.supabase.co/functions/v1/whatsapp-webhook`, campo `messages`.
+
+### Entrantes (`whatsapp-webhook`, verify_jwt=false)
+- Número en `agent_contacts` (compara las variantes `+52…`/`+521…`) → agente, igual que antes.
+- Si no → `clientes.ts`: busca en `maintenance_contacts` por **últimos 10 dígitos** (los teléfonos se capturan a mano). Si encuentra:
+  - ticket `source='whatsapp'` abierto de esa propiedad en las últimas 72 h → se agrega el mensaje a su descripción (y si estaba `esperando_cliente` vuelve a `abierto`);
+  - si no, Claude (haiku-4-5, respaldo sonnet-4-5) decide si es reporte; si sí, crea `maintenance_tickets` (asunto, categoría, prioridad, sistemas) y contesta con el folio; si no (saludo, "gracias"), contesta genérico máximo 1 vez cada 12 h.
+- Número desconocido → 1 respuesta al día pidiendo nombre y dirección; queda en la bitácora como `desconocido`. No se crea ticket porque `maintenance_tickets.property_id` es NOT NULL.
+- Fotos, video y documentos de clientes se guardan en el bucket `agent-documents` bajo `whatsapp/<10 dígitos>/`.
+- Los eventos `statuses` de Meta actualizan el estado del saliente (enviado/entregado/leído/fallido).
+
+### Salientes (`whatsapp-send`, verify_jwt=true)
+Acciones: `status`, `setup_templates` (DG/Admin), `send_template`, `send_text` (solo dentro de la ventana de 24 h), `visit_notify` (`programada`/`en_camino`; también la pueden llamar los instaladores de la obra-app).
+Plantillas UTILITY es_MX, definidas en `whatsapp-send/index.ts` y creadas en Meta desde la página: `omm_visita_programada`, `omm_tecnico_en_camino`, `omm_ticket_actualizado`, `omm_aviso_equipo`. Meta rechaza un cuerpo que empiece o termine con variable.
+`visit_notify` le escribe al contacto principal con teléfono de la propiedad; si no hay, devuelve el error sin romper nada.
+
+### Front
+- `/whatsapp` (`src/pages/WhatsApp.tsx`, DG/Admin): conexión, plantillas, equipo autorizado (alta en `agent_contacts`, guarda `+52` + 10 dígitos), envío de prueba y bitácora.
+- Mantenimiento → Programar visita: casilla "Avisar al cliente por WhatsApp" (prendida por omisión).
+- obra-app → "Voy en camino" manda `en_camino`.
+
+### Bitácora `whatsapp_messages`
+Entrantes y salientes; solo `service_role` escribe y `usuario_real()` lee. Migración en `supabase/migrations/20261023_whatsapp_messages.sql`.
+
+### ⏳ Pendiente (al cierre de la sesión)
+1. **Aplicar la migración `whatsapp_messages`** (Elias canceló/no aprobó la ventana de Supabase dos veces). Sin la tabla, el código no truena, pero no queda bitácora y los anti-spam (respuestas 1 vez al día / cada 12 h) no frenan.
+2. **Desplegar la nueva versión de `whatsapp-webhook`**, que tiene el flujo de clientes. Se dejó para después de la tabla; lo desplegado sigue siendo la versión del agente interno (v17). `whatsapp-send` ya está desplegada (v1).
+3. **Meta (Elias):** dar de alta el número, sacar el token de usuario del sistema, cargar método de pago y pasar la app a Live. Después, cargar los 5 secretos y crear las plantillas desde `/whatsapp`.
+4. Capturar el celular de los clientes en Mantenimiento → Expediente → Contactos. Hoy hay 3 contactos y ninguno tiene teléfono.
+5. `.claude-pat` está vencido (GitHub da 401); el push de esta sesión salió por `add_repo`.
