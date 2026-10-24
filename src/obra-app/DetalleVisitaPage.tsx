@@ -125,7 +125,13 @@ export default function DetalleVisitaPage() {
       .eq('id', visit.id)
     setBusy('')
     if (error) { flash(false, error.message); return }
-    flash(true, 'Marcado en camino. Se avisará al cliente.')
+    flash(true, 'Marcado en camino. Avisando al cliente por WhatsApp...')
+    supabase.functions.invoke('whatsapp-send', { body: { action: 'visit_notify', visit_id: visit.id, kind: 'en_camino' } })
+      .then(({ data }) => {
+        if (data && data.ok) flash(true, 'En camino ✓ — el cliente recibió el aviso por WhatsApp.')
+        else flash(false, 'En camino ✓, pero no salió el WhatsApp: ' + ((data && data.error) || 'sin respuesta'))
+      })
+      .catch(() => flash(false, 'En camino ✓, pero no salió el WhatsApp.'))
     load()
   }
 

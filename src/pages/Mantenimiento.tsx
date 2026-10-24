@@ -2983,6 +2983,7 @@ function ProgramarVisitaModal({ properties, tickets, contracts, technicians, onC
     visit_date: new Date().toISOString().slice(0, 10),
     scheduled_time: '09:00', route_order: '', notes: '', visit_kind: 'preventiva',
   })
+  const [avisarWa, setAvisarWa] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const set = (k: string) => (v: string) => setForm(f => ({ ...f, [k]: v }))
@@ -2999,7 +3000,7 @@ function ProgramarVisitaModal({ properties, tickets, contracts, technicians, onC
     const tech = technicians.find(t => t.id === form.technician_id)
     const activeContract = contracts.find(c => c.property_id === form.property_id && c.is_active)
 
-    const { error: err } = await supabase.from('maintenance_visits').insert({
+    const { data: nueva, error: err } = await supabase.from('maintenance_visits').insert({
       property_id: form.property_id,
       ticket_id: form.ticket_id || null,
       contract_id: activeContract?.id || null,
@@ -3012,9 +3013,16 @@ function ProgramarVisitaModal({ properties, tickets, contracts, technicians, onC
       status: 'programada',
       notes: form.notes.trim() || null,
       currency: 'MXN',
-    })
+    }).select('id').single()
+    if (err) { setSaving(false); setError(err.message); return }
+    if (avisarWa && nueva?.id) {
+      // Aviso al cliente por WhatsApp (plantilla omm_visita_programada). Si falla, la visita ya quedó.
+      try {
+        const { data: r } = await supabase.functions.invoke('whatsapp-send', { body: { action: 'visit_notify', visit_id: nueva.id, kind: 'programada' } })
+        if (r && r.ok === false) alert('Visita programada, pero no se mandó el WhatsApp: ' + r.error)
+      } catch (e) { console.error('whatsapp visit_notify', e) }
+    }
     setSaving(false)
-    if (err) { setError(err.message); return }
     onCreated()
   }
 
@@ -3071,6 +3079,11 @@ function ProgramarVisitaModal({ properties, tickets, contracts, technicians, onC
         </label>
 
         <TextArea label="Notas para el técnico" value={form.notes} onChange={set('notes')} placeholder="Instrucciones, acceso, contacto en sitio..." rows={2} />
+
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: '#aaa', cursor: 'pointer' }}>
+          <input type="checkbox" checked={avisarWa} onChange={e => setAvisarWa(e.target.checked)} />
+          Avisar al cliente por WhatsApp (contacto principal del expediente)
+        </label>
 
         {error && <div style={{ color: '#DC2626', fontSize: 12 }}>{error}</div>}
 

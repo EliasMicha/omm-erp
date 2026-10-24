@@ -31,3 +31,7 @@ verify_jwt = false
 
 [functions.whatsapp-webhook]
 verify_jwt = false
+
+# Salientes de WhatsApp desde el ERP: exige sesion (JWT de Supabase Auth).
+[functions.whatsapp-send]
+verify_jwt = true

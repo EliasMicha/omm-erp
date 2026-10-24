@@ -3,9 +3,12 @@
 // Deploy: supabase functions deploy whatsapp-webhook --no-verify-jwt
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.0';
-import { sendText, verifyWebhook, verifySignature, downloadMedia, markAsRead } from '../_shared/whatsapp.ts';
-import { runAgent } from '../_shared/agent.ts';
-import type { ClaudeMessage, ContentBlock } from '../_shared/types.ts';
+import { sendText, verifyWebhook, verifySignature, downloadMedia, markAsRead, phoneVariants } from './whatsapp.ts';
+import { handleClienteMessage } from './clientes.ts';
+import { logWa, applyStatuses, waIdFrom } from './log.ts';
+import { runAgent } from './agent.ts';
+import { isDelegationCoach } from './delegation.ts';
+import type { ClaudeMessage, ContentBlock } from './types.ts';
 
 const supabase = createClient(
   Deno.env.get('SUPABASE_URL')!,
@@ -56,7 +59,7 @@ Deno.serve(async (req) => {
 
   // Responder rápido a Meta (<5s) y procesar en background
   const payload = JSON.parse(rawBody);
-  queueMicrotask(() => handleEvent(payload).catch(e => console.error('handleEvent error:', e)));
+  EdgeRuntime.waitUntil(handleEvent(payload).catch(e => console.error('handleEvent error:', e)));
   return new Response('ok', { status: 200 });
 });
 
@@ -67,8 +70,13 @@ async function handleEvent(payload: any) {
       const value = change.value;
       const messages = value?.messages ?? [];
       for (const msg of messages) {
-        await processMessage(msg, value);
+        try {
+          await processMessage(msg, value);
+        } catch (e) {
+          console.error('processMessage error:', e);
+        }
       }
+      if (value?.statuses?.length) await applyStatuses(supabase, value.statuses);
     }
   }
 }
@@ -81,16 +89,22 @@ async function processMessage(msg: any, value: any) {
   const { data: contact } = await supabase
     .from('agent_contacts')
     .select('*')
-    .eq('phone_e164', fromPhone)
+    .in('phone_e164', phoneVariants(fromPhone))
     .eq('is_active', true)
+    .limit(1)
     .maybeSingle();
 
   if (!contact) {
-    console.log(`Unauthorized contact: ${fromPhone}`);
-    // Opcional: responder con mensaje de rechazo suave
-    await sendText(toReplyPhone(msg.from), 'Este número no está autorizado para usar el asistente de OMM. Contacta a Elias si necesitas acceso.');
+    // No es del equipo → flujo de clientes (tickets de mantenimiento)
+    await handleClienteMessage(supabase, msg);
     return;
   }
+
+  await logWa(supabase, {
+    direction: 'in', phone_e164: fromPhone, wa_message_id: waMessageId, kind: msg.type,
+    body: msg.text?.body || msg.image?.caption || msg.document?.caption || `[${msg.type}]`,
+    sender_type: 'equipo', agent_contact_id: contact.id,
+  });
 
   // 2. Marcar como leído
   try { await markAsRead(waMessageId); } catch (_) { /* no crítico */ }
@@ -123,7 +137,7 @@ async function processMessage(msg: any, value: any) {
   }
 
   // 5. Cargar historial reciente (para contexto)
-  const history = await loadHistory(conversation.id);
+  const history = await loadHistory(conversation.id, isDelegationCoach(contact));
 
   // 6. Correr el agente
   let result;
@@ -137,22 +151,25 @@ async function processMessage(msg: any, value: any) {
     });
   } catch (e) {
     console.error('Agent error:', e);
-    await sendText(toReplyPhone(msg.from), '⚠️ Tuve un error procesando tu mensaje. Ya estoy notificando al equipo.');
+    await sendText(toReplyPhone(msg.from), 'Tuve un error procesando tu mensaje. Por favor vuelve a intentarlo.');
     return;
   }
 
   // 7. Persistir mensajes nuevos
+  const persistedAt = Date.now();
   const rowsToInsert = result.allNewMessages.map((m, i) => ({
     conversation_id: conversation!.id,
     role: m.role === 'user' && Array.isArray(m.content) && m.content.some((b: any) => b.type === 'tool_result')
       ? 'tool'
       : m.role,
     content: m.content,
+    created_at: new Date(persistedAt + i).toISOString(),
     wa_message_id: i === 0 ? waMessageId : null,
     tokens_input: i === 0 ? result.totalInputTokens : null,
     tokens_output: i === result.allNewMessages.length - 1 ? result.totalOutputTokens : null,
   }));
-  await supabase.from('agent_messages').insert(rowsToInsert);
+  const { error: historyError } = await supabase.from('agent_messages').insert(rowsToInsert);
+  if (historyError) throw historyError;
 
   await supabase
     .from('agent_conversations')
@@ -161,7 +178,14 @@ async function processMessage(msg: any, value: any) {
 
   // 8. Enviar respuesta por WhatsApp
   if (result.finalText) {
-    await sendText(toReplyPhone(msg.from), result.finalText);
+    const to = toReplyPhone(msg.from);
+    try {
+      const resp = await sendText(to, result.finalText);
+      await logWa(supabase, { direction: 'out', phone_e164: '+' + to, wa_message_id: waIdFrom(resp), kind: 'text', body: result.finalText, status: 'enviado', sender_type: 'equipo', agent_contact_id: contact.id });
+    } catch (e) {
+      await logWa(supabase, { direction: 'out', phone_e164: '+' + to, kind: 'text', body: result.finalText, status: 'fallido', error: String(e), sender_type: 'equipo', agent_contact_id: contact.id });
+      throw e;
+    }
   }
 }
 
@@ -213,15 +237,24 @@ async function buildContentBlocks(msg: any, conversationId: string): Promise<Con
   return blocks;
 }
 
-async function loadHistory(conversationId: string): Promise<ClaudeMessage[]> {
-  const { data } = await supabase
+async function loadHistory(conversationId: string, coach = false): Promise<ClaudeMessage[]> {
+  const { data, error } = await supabase
     .from('agent_messages')
     .select('role, content')
     .eq('conversation_id', conversationId)
     .order('created_at', { ascending: false })
-    .limit(HISTORY_LIMIT);
+    .limit(coach ? 100 : HISTORY_LIMIT);
 
+  if (error) throw error;
   if (!data) return [];
+  // Reconsultamos ERP en el piloto. No reenviar pares de herramientas cortados
+  // por el límite ni adjuntos grandes de encargos anteriores.
+  if (coach) return data.reverse().flatMap((m: any) => {
+    if (m.role !== 'user' && m.role !== 'assistant') return [];
+    const text = typeof m.content === 'string' ? m.content : m.content
+      .filter((b: any) => b.type === 'text').map((b: any) => b.text).join('\n');
+    return text ? [{ role: m.role, content: text }] : [];
+  });
   return data
     .reverse()
     .map((m: any) => ({

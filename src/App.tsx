@@ -36,6 +36,7 @@ import Documentacion from './pages/Documentacion'
 import Actividades from './pages/Actividades'
 import MiTrabajo from './pages/MiTrabajo'
 import Mantenimiento from './pages/Mantenimiento'
+import WhatsApp from './pages/WhatsApp'
 import ObraApp from './obra-app/ObraApp'
 import ExamenPublicoPage from './pages/ExamenPublico'
 import ChatBot from './components/ChatBot'
@@ -136,6 +137,11 @@ export default function App() {
                     <Route path="/design-rules" element={
                       <ProtectedRoute allowedAreas={['DG']}>
                         <DesignRules />
+                      </ProtectedRoute>
+                    } />
+                    <Route path="/whatsapp" element={
+                      <ProtectedRoute allowedAreas={['Administracion']}>
+                        <WhatsApp />
                       </ProtectedRoute>
                     } />
                     <Route path="/usuarios" element={
