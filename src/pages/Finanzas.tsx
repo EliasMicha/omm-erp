@@ -118,6 +118,16 @@ export default function Finanzas() {
   }, [todos, rango, nMeses])
 
   const T = useMemo(() => sumar(delPeriodo), [delPeriodo])
+  // La razón nómina ÷ cobranza solo se calcula con meses de nómina COMPLETA
+  // (y cerrados): en los meses con solo la transferencia registrada la nómina
+  // sale a la mitad y la razón se ve sana cuando no lo es.
+  const nominaReal = useMemo(() => {
+    const ok = delPeriodo.filter(m => m.nominaCompleta && !m.enCurso)
+    const base = ok.length ? ok : delPeriodo
+    const nom = base.reduce((a, m) => a + m.nomina, 0)
+    const cob = base.reduce((a, m) => a + m.cobrado, 0)
+    return { meses: ok.length, total: delPeriodo.length, porMes: base.length ? nom / base.length : 0, cobroPorMes: base.length ? cob / base.length : 0, pct: cob > 0 ? nom / cob : NaN }
+  }, [delPeriodo])
   const P = useMemo(() => sumar(previos), [previos])
   // Una comparación solo vale si el periodo anterior tiene datos completos de
   // ese concepto. Los contratos se capturan en el ERP desde 2026; la nómina
@@ -173,9 +183,9 @@ export default function Finanzas() {
 
       {raw && (
         <div style={{ opacity: cargando ? 0.5 : 1, transition: 'opacity .15s' }}>
-          {pestana === 'resumen' && <TabResumen T={T} P={P} meses={grafica} raw={raw} nMeses={nMeses} comparable={comparable} />}
+          {pestana === 'resumen' && <TabResumen T={T} P={P} meses={grafica} raw={raw} nMeses={nMeses} comparable={comparable} nominaReal={nominaReal} />}
           {pestana === 'flujo' && <TabFlujo meses={delPeriodo} grafica={grafica} T={T} />}
-          {pestana === 'cartera' && <TabCartera raw={raw} nominaMensual={T.meses ? T.nomina / T.meses : 0} />}
+          {pestana === 'cartera' && <TabCartera raw={raw} nominaMensual={nominaReal.porMes} />}
           {pestana === 'cxp' && <TabCxp raw={raw} />}
           {pestana === 'areas' && <TabAreas meses={todos} desde={rango.desde} hasta={rango.hasta} />}
           {pestana === 'datos' && <TabDatos raw={raw} meses={grafica} onCambio={() => setRecarga(x => x + 1)} />}
@@ -194,17 +204,24 @@ export default function Finanzas() {
 // RESUMEN
 // ═══════════════════════════════════════════════════════════════════════
 interface Comparable { vendido: boolean; cobrado: boolean; nomina: boolean; proveedores: boolean }
+interface NominaReal { meses: number; total: number; porMes: number; cobroPorMes: number; pct: number }
 
-function TabResumen({ T, P, meses, raw, nMeses, comparable }: { T: Totales; P: Totales; meses: Mes[]; raw: TableroRaw; nMeses: number; comparable: Comparable }) {
+function TabResumen({ T, P, meses, raw, nMeses, comparable, nominaReal }: { T: Totales; P: Totales; meses: Mes[]; raw: TableroRaw; nMeses: number; comparable: Comparable; nominaReal: NominaReal }) {
   const tcHoy = meses.length ? meses[meses.length - 1].tc : 18
 
-  const nomPct = T.cobrado > 0 ? T.nomina / T.cobrado : NaN
+  const nomPct = nominaReal.pct
   const provPct = T.cobrado > 0 ? T.proveedores / T.cobrado : NaN
   const conv = T.vendido > 0 ? T.cobrado / T.vendido : NaN
-  const nominaMes = T.meses ? T.nomina / T.meses : 0
+  const nominaMes = nominaReal.porMes
   const cobroMes = T.meses ? T.cobrado / T.meses : 0
+  const cobroMesBase = nominaReal.cobroPorMes
   const necesaria = nominaMes / TOPE_NOMINA
-  const brecha = cobroMes - necesaria
+  const brecha = cobroMesBase - necesaria
+  const baseNomina = nominaReal.meses === nominaReal.total
+    ? ''
+    : nominaReal.meses > 0
+      ? ` Calculado con los ${nominaReal.meses} meses de nómina completa del periodo (de ${nominaReal.total}).`
+      : ' Ningún mes del periodo tiene la nómina completa: el % está subestimado.'
 
   // Cartera y CxP de hoy (no dependen del periodo)
   let carteraMxn = 0, carteraUsd = 0
@@ -251,7 +268,7 @@ function TabResumen({ T, P, meses, raw, nMeses, comparable }: { T: Totales; P: T
           detalle={<>{fmtPct(conv, 0)} de lo vendido en el periodo · {fmtM(cobroMes)} al mes</>}
           delta={comparable.cobrado ? deltaTxt(T.cobrado, P.cobrado, true) : null} />
         <Indicador etiqueta="Nómina" valor={fmtM(T.nomina)}
-          detalle={<>{fmtPct(nomPct)} de lo cobrado · tope 20%, zona segura 17%{!T.nominaCompleta ? ' · algún mes incompleto' : ''}</>}
+          detalle={<><b style={{ color: '#fff' }}>{fmtPct(nomPct)}</b> de lo cobrado · tope 20%, zona segura 17% · {fmtM(nominaMes)} al mes.{baseNomina}</>}
           estado={estadoNomina}
           estadoTexto={estadoNomina === 'bueno' ? 'En zona segura' : estadoNomina === 'alerta' ? 'Cerca del tope' : 'Arriba del tope'}
           delta={comparable.nomina ? deltaTxt(T.nomina, P.nomina, false) : null} />
@@ -266,7 +283,7 @@ function TabResumen({ T, P, meses, raw, nMeses, comparable }: { T: Totales; P: T
           estado={T.flujoOperativo >= 0 ? 'bueno' : 'critico'}
           estadoTexto={T.flujoOperativo >= 0 ? 'El negocio se paga solo' : 'Sale más de lo que entra'} />
         <Indicador etiqueta="Cobranza que pide la nómina" valor={fmtM(necesaria) + ' / mes'}
-          detalle={<>Para que la nómina sea el 20%. Se cobran {fmtM(cobroMes)} al mes: {brecha >= 0 ? 'sobran ' : 'faltan '}<b style={{ color: '#fff' }}>{fmtM(Math.abs(brecha))}</b> al mes.</>}
+          detalle={<>Para que la nómina sea el 20%. Se cobran {fmtM(cobroMesBase)} al mes: {brecha >= 0 ? 'sobran ' : 'faltan '}<b style={{ color: '#fff' }}>{fmtM(Math.abs(brecha))}</b> al mes.{baseNomina}</>}
           estado={brecha >= 0 ? 'bueno' : 'critico'} estadoTexto={brecha >= 0 ? 'Cubierta' : 'Brecha'} />
         <Indicador etiqueta="Cartera por cobrar (hoy)" valor={fmtM(cartera)}
           detalle={<>{fmt$(carteraMxn)} MXN + {fmt$(carteraUsd)} USD{nominaMes > 0 ? <> · equivale a {(cartera / nominaMes).toFixed(1)} meses de nómina</> : null}</>} />
