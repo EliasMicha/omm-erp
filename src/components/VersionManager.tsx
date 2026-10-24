@@ -235,8 +235,29 @@ export default function VersionManager({ cotId, getCurrentSnapshot, onSwitchVers
             area_id: areaIdMap[item.area_id] || item.area_id,
           }
         })
-        await supabase.from('quotation_items').insert(clonedItems)
+        // EN TANDAS, y revisando el error. Cada partida dispara un trigger que
+        // reescribe el total de la cotización; 326 partidas de un jalón tardan
+        // ~13 s y la base corta al usuario a los 8 s (statement_timeout). El
+        // insert fallaba completo, nadie lo revisaba y la versión nacía en ceros
+        // (XENTER (B), 23-oct-2026).
+        const TANDA = 40
+        for (let k = 0; k < clonedItems.length; k += TANDA) {
+          const { error: itErr } = await supabase.from('quotation_items').insert(clonedItems.slice(k, k + TANDA))
+          if (itErr) {
+            // No dejar una versión a medias: se borra completa y se avisa.
+            await supabase.from('quotation_items').delete().eq('quotation_id', newCot.id)
+            await supabase.from('quotation_areas').delete().eq('quotation_id', newCot.id)
+            await supabase.from('quotations').delete().eq('id', newCot.id)
+            alert('No se pudo copiar las partidas (' + k + ' de ' + clonedItems.length + '): ' + itErr.message + '\nLa versión no se creó; intenta de nuevo.')
+            return
+          }
+        }
       }
+
+      // El trigger de partidas deja `total` = suma de renglones, que no es el
+      // total del cotizador (instalación, descuentos, IVA). La copia arranca
+      // con el mismo total que el original.
+      await supabase.from('quotations').update({ total: cot.total, total_final: cot.total_final }).eq('id', newCot.id)
 
       // 7. Also save a snapshot in quotation_versions for comparison
       const snapshot = getCurrentSnapshot()

@@ -3123,3 +3123,13 @@ En `TabPeriodos.tsx`, el botón "Borrar periodo" sólo aparece en periodos que n
 - Las dos quedaron `OFP1-IE01-C18` (canaleta) y `OFP1-IE01-C19` (pijas). Probado en rollback.
 
 **Otra a revisar:** `PILO-IL03-C01` (estado pedida) cuelga de una cotización con folio `PILO-IL01-40`. No se tocó porque ya fue pedida.
+
+## 🧬 Versiones de cotización nacían en ceros (2026-10-23)
+
+**Caso:** XENTER (B) se creó con las 24 áreas pero sin ninguna de las 326 partidas, y quedó en $0.
+- **Causa:** `VersionManager.createVersion` insertaba todas las partidas en un solo insert sin revisar el error. El trigger `update_quotation_total` reescribe `quotations.total` por cada renglón: 326 renglones tardan ~13 s y `authenticated` tiene `statement_timeout=8s`, así que el insert se caía completo y en silencio.
+- **Arreglo:**
+  - Inserta en tandas de 40 y revisa el error de cada una. Si una falla, borra la versión a medias y avisa.
+  - Al final restaura `total` y `total_final` del original, porque el trigger deja la suma de renglones (185k) y no el total del cotizador (214k).
+- **Reparada:** XENTER (B) quedó con 326 partidas y $214,647.79.
+- **Gotcha:** cualquier insert masivo a `quotation_items` desde el navegador con más de unos 200 renglones choca con el timeout por culpa de ese trigger. Afecta también a PlanAnalyzer, AIQuoteLive y CotEditorDistribucion. Arreglo de fondo pendiente: convertir `update_quotation_total` en trigger por sentencia (transition tables).
