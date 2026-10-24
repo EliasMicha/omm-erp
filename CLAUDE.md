@@ -3187,3 +3187,54 @@ Entrantes y salientes; solo `service_role` escribe y `usuario_real()` lee. Migra
 3. **Meta (Elias):** dar de alta el número, sacar el token de usuario del sistema, cargar método de pago y pasar la app a Live. Después, cargar los 5 secretos y crear las plantillas desde `/whatsapp`.
 4. Capturar el celular de los clientes en Mantenimiento → Expediente → Contactos. Hoy hay 3 contactos y ninguno tiene teléfono.
 5. `.claude-pat` está vencido (GitHub da 401); el push de esta sesión salió por `add_repo`.
+
+## 📊 Finanzas reescrito desde cero (2026-10-24)
+
+**Por qué:** el módulo viejo medía el ingreso con CFDI emitidos, que lo inflan ~50% porque cuentan nómina timbrada (N) y complementos de pago (P). También usaba `projects.contract_value`, que se queda viejo, y era una vista de un solo mes.
+
+**Arquitectura**
+- **Una sola función SQL:** `finanzas_tablero(p_desde date, p_hasta date) returns jsonb`.
+  - Es SECURITY INVOKER: respeta RLS, y la nómina solo la ve Administración.
+  - EXECUTE revocado a public y anon; solo `authenticated`.
+  - Tarda ~200 ms.
+  - Devuelve `meses[]`, `cartera`, `cxp`, `lineas`, `frescura` y `por_confirmar`, todo en moneda nativa (mxn/usd separados).
+- **Cliente:** `src/lib/finanzasTablero.ts` convierte a MXN equivalente con `tcForYear` (fx.ts) por año de cada mes, y la pantalla siempre dice qué TC usó.
+- **Archivos:**
+  - `src/pages/Finanzas.tsx`: shell, Resumen y Flujo.
+  - `src/components/finanzas/FinanzasDetalle.tsx`: Cartera, CxP, Por área y Calidad de datos.
+  - `src/components/finanzas/Graficas.tsx`: SVG propio, sin dependencias nuevas.
+  - `src/components/finanzas/Piezas.tsx`.
+- **Migración versionada:** `supabase/migrations/20261024_finanzas_tablero.sql`.
+
+**Columna nueva:** `quotations.fecha_contrato` + `fecha_contrato_fuente`.
+- El trigger `trg_fecha_contrato` la llena al pasar a contrato.
+- Backfill aplicado: 88 por `etapa`, 43 por `primer_cobro`, 36 `por_confirmar`.
+- Las "por confirmar" son las capturadas ya como contrato entre abril y junio de 2026 sin anticipo previo. Se corrigen en Finanzas → Calidad de datos, que las guarda como `manual`.
+
+**Fuentes de cada serie**
+| Serie | Fuente |
+|---|---|
+| Vendido | `v_cobranza_cotizacion` (contrato + vigente) por `fecha_contrato` |
+| Cobrado | banco `cobro_cliente` − cargos `cobro_cliente` + efectivo `cobro_cliente` |
+| Nómina | `max(módulo, banco+caja)`; "completa" = periodo cerrado o efectivo capturado. 2025 = solo transferencias |
+| Proveedores | banco + caja, neto de devoluciones (abonos de proveedor) |
+| Flujo operativo | cobrado + otros − proveedores − nómina caja − impuestos − gastos − `otro` sin clasificar. Revolvente (`prestamo`/`pago_tdc`) y aportaciones van como financiamiento |
+| Cartera | por lead y moneda (vendido − cobrado), incluye cobros con solo `lead_id`. Estado por días desde el último cobro; si en esa moneda no hay cobro → `sin_cobro` (se corrige en el cliente porque `ultimo_cobro` viene por lead) |
+| CxP | OC aprobada, pedida o recibida no pagadas (`total − purchase_order_payments`); los borradores van aparte como "por aprobar" |
+| Por área | `omm_linea_negocio(spec, name)` y `omm_linea_de_area(area)`. Ventana recortada a meses con nómina cerrada (desde jul-2026) para no comparar 12 meses de cobranza contra 4 de nómina |
+
+**Reglas de negocio en pantalla**
+- Nómina ≤ 20% de la cobranza con IVA (tope); zona segura 17%.
+- Revolvente: meta menos de 4 disposiciones al año.
+- Las comparaciones "vs periodo anterior" solo se muestran si el periodo anterior es comparable: vendido desde 2026, nómina completa, sin clasificar menor a 20%.
+
+**Gotchas**
+- 2025 tiene casi todo el pago a proveedores y nómina en `otro`, así que el flujo total es correcto pero el desglose no.
+- La cuenta USD tiene compras sin clasificar cada mes.
+- El arnés visual se hizo con un fixture local y Playwright (sin login); no se commitea.
+
+**Pendientes**
+1. Confirmar las 36 fechas de contrato.
+2. Clasificar `otro` (sobre todo USD).
+3. El estado de cuenta Banorte lleva semanas sin cargar.
+4. CxP solo ve OC: los pagos a proveedor sin OC no generan deuda.

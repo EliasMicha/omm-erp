@@ -1,1049 +1,442 @@
-import { useState, useEffect, useMemo } from 'react'
-import { traerTodo } from '../lib/paginado'
-import { supabase, supabaseAll } from '../lib/supabase'
-// supabaseAll: los P&L y KPIs históricos incluyen lo archivado para que el
-// vendido/cobrado del año siga cuadrando con el banco.
-import { KpiCard, Table, Th, Td, Badge, Loading, SectionHeader, ProgressBar } from '../components/layout/UI'
-import { DollarSign, TrendingUp, TrendingDown, AlertTriangle, Receipt, Users, ShoppingCart, PieChart, ArrowUpRight, ArrowDownRight, Calendar, ChevronLeft, ChevronRight, BarChart3 } from 'lucide-react'
+// Finanzas — tablero de la salud del negocio.
+//
+// Reescrito el 24-oct-2026. El módulo anterior medía con CFDI emitidos (que
+// inflan el ingreso ~50%: cuenta nómina timbrada y complementos de pago) y con
+// projects.contract_value (que se queda viejo). Este lee las fuentes vivas a
+// través de UNA función SQL (finanzas_tablero) y responde una pregunta:
+// ¿cuánto vendemos, cuánto cobramos, cuánto nos cuesta la nómina y cuánto
+// debemos — y cómo se relacionan?
+import { useEffect, useMemo, useState } from 'react'
+import { SectionHeader } from '../components/layout/UI'
 import { useIsMobile } from '../lib/useIsMobile'
-import { tcForYear, DEFAULT_TC } from '../lib/fx'
+import {
+  cargarTablero, convertirMes, sumar, fmtM, fmtPct, fmt$, mesActual,
+  TableroRaw, Mes, Totales,
+} from '../lib/finanzasTablero'
+import { GraficaMensual, GraficaFlujo, Leyenda, COLOR } from '../components/finanzas/Graficas'
+import { Tarjeta, Indicador, Rejilla, Nota, thS, tdS } from '../components/finanzas/Piezas'
+import { TabCartera, TabCxp, TabAreas, TabDatos } from '../components/finanzas/FinanzasDetalle'
 
-const F = (n: number) => '$' + n.toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 0 })
-const F2 = (n: number) => '$' + n.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-const PCT = (n: number) => (n * 100).toFixed(1) + '%'
+type Periodo = 'mes' | '3m' | '6m' | '12m' | 'anio' | 'anio_ant'
+type Pestana = 'resumen' | 'flujo' | 'cartera' | 'cxp' | 'areas' | 'datos'
 
-const MONTHS = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
+const PERIODOS: { id: Periodo; label: string }[] = [
+  { id: 'mes', label: 'Este mes' },
+  { id: '3m', label: '3 meses' },
+  { id: '6m', label: '6 meses' },
+  { id: '12m', label: '12 meses' },
+  { id: 'anio', label: 'Año en curso' },
+  { id: 'anio_ant', label: 'Año anterior' },
+]
 
-// ═══════════════════════════════════════════════════════════════════
-// Categorías de gasto para facturas recibidas (por nombre de emisor)
-// ═══════════════════════════════════════════════════════════════════
-type GastoCategoria = 'material_obra' | 'nomina_fiscal' | 'impuestos_gobierno' | 'servicios' | 'gastos_generales'
+const PESTANAS: { id: Pestana; label: string }[] = [
+  { id: 'resumen', label: 'Resumen' },
+  { id: 'flujo', label: 'Flujo de efectivo' },
+  { id: 'cartera', label: 'Cartera por cobrar' },
+  { id: 'cxp', label: 'Cuentas por pagar' },
+  { id: 'areas', label: 'Por área' },
+  { id: 'datos', label: 'Calidad de datos' },
+]
 
-const GASTO_LABELS: Record<GastoCategoria, string> = {
-  material_obra: 'Material / Obra',
-  nomina_fiscal: 'Nómina fiscal',
-  impuestos_gobierno: 'Impuestos y Gobierno',
-  servicios: 'Servicios',
-  gastos_generales: 'Gastos generales',
-}
-const GASTO_COLORS: Record<GastoCategoria, string> = {
-  material_obra: '#2563EB',
-  nomina_fiscal: '#D97706',
-  impuestos_gobierno: '#DC2626',
-  servicios: '#8B5CF6',
-  gastos_generales: '#6B7280',
-}
+// Regla de Elias: la nómina no debe pasar del 20% de la cobranza (con IVA).
+// 17% es la zona segura: el 20% sobre bruto equivale a ~23% sobre neto.
+const TOPE_NOMINA = 0.20
+const ZONA_SEGURA = 0.17
 
-function categorizeByEmisor(emisor: string): GastoCategoria {
-  const e = (emisor || '').toUpperCase()
-  if (e.includes('SEGURO SOCIAL') || e.includes('IMSS')) return 'impuestos_gobierno'
-  if (e.includes('INFONAVIT') || e.includes('FONDO NACIONAL')) return 'impuestos_gobierno'
-  if (e.includes('GOBIERNO') || e.includes('SAT ') || e.includes('TESORERIA')) return 'impuestos_gobierno'
-  if (e.includes('TELMEX') || e.includes('TELCEL') || e.includes('CFE ') || e.includes('COMISION FEDERAL')) return 'servicios'
-  if (e.includes('CONTAD') || e.includes('AUDIT') || e.includes('NOTARI')) return 'servicios'
-  // Material/proveedores de obra — los más comunes
-  if (e.includes('PROCABLES') || e.includes('LUTRON') || e.includes('SOMFY') || e.includes('ILLUX') || e.includes('DEXTRA') || e.includes('TECNO BLIND') || e.includes('PINPOINT') || e.includes('REPRESENTACIONES DE AUDIO') || e.includes('SISTEMAS Y SERVICIO') || e.includes('CONSTRUCCIONES')) return 'material_obra'
-  return 'gastos_generales'
-}
-
-// ═══════════════════════════════════════════════════════════════════
-// Bank movement categories → display categories
-// ═══════════════════════════════════════════════════════════════════
-function bankCatLabel(cat: string): string {
-  const map: Record<string, string> = {
-    cobro_cliente: 'Cobro de cliente',
-    proveedor_obra: 'Pago a proveedor',
-    gasto_operativo: 'Gasto operativo',
-    impuestos: 'Impuestos',
-    nomina: 'Nómina',
-    servicio: 'Servicios',
-    comision_bancaria: 'Comisión bancaria',
-  }
-  return map[cat] || cat || 'Sin categoría'
-}
-function bankCatColor(cat: string): string {
-  const map: Record<string, string> = {
-    cobro_cliente: '#10B981',
-    proveedor_obra: '#2563EB',
-    gasto_operativo: '#D97706',
-    impuestos: '#DC2626',
-    nomina: '#A78BFA',
-    servicio: '#8B5CF6',
-    comision_bancaria: '#6B7280',
-  }
-  return map[cat] || '#444'
+function sumarMeses(ym: string, k: number): string {
+  const y = Number(ym.slice(0, 4))
+  const m = Number(ym.slice(5, 7)) - 1 + k
+  const d = new Date(y, m, 1)
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0')
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// COMPONENT
-// ═══════════════════════════════════════════════════════════════════
+function rangoDe(p: Periodo): { desde: string; hasta: string } {
+  const hoy = mesActual()
+  const y = Number(hoy.slice(0, 4))
+  if (p === 'mes') return { desde: hoy, hasta: hoy }
+  if (p === '3m') return { desde: sumarMeses(hoy, -2), hasta: hoy }
+  if (p === '6m') return { desde: sumarMeses(hoy, -5), hasta: hoy }
+  if (p === '12m') return { desde: sumarMeses(hoy, -11), hasta: hoy }
+  if (p === 'anio') return { desde: y + '-01', hasta: hoy }
+  return { desde: (y - 1) + '-01', hasta: (y - 1) + '-12' }
+}
+
+function deltaTxt(actual: number, previo: number, masEsMejor: boolean): { texto: string; bueno: boolean } | null {
+  if (!previo || Math.abs(previo) < 1) return null
+  const d = (actual - previo) / Math.abs(previo)
+  if (!isFinite(d)) return null
+  const flecha = d >= 0 ? '▲' : '▼'
+  return { texto: `${flecha} ${Math.abs(d * 100).toFixed(0)}% vs periodo anterior`, bueno: masEsMejor ? d >= 0 : d <= 0 }
+}
+
 export default function Finanzas() {
   const isMobile = useIsMobile()
-  const [loading, setLoading] = useState(true)
-  const [mes, setMes] = useState(() => {
-    const now = new Date()
-    return { year: now.getFullYear(), month: now.getMonth() } // 0-indexed
-  })
-  const [tipoCambio, setTipoCambio] = useState(tcForYear(new Date().getFullYear())) // USD → MXN, por año (src/lib/fx.ts)
-  // El TC sigue al año del mes navegado (2025→19.57 real, 2026→18 provisional). Editable a mano abajo.
-  useEffect(() => { setTipoCambio(tcForYear(mes.year)) }, [mes.year])
+  const [periodo, setPeriodo] = useState<Periodo>('12m')
+  const [pestana, setPestana] = useState<Pestana>('resumen')
+  const [raw, setRaw] = useState<TableroRaw | null>(null)
+  const [cargando, setCargando] = useState(true)
+  const [error, setError] = useState('')
+  const [recarga, setRecarga] = useState(0)
 
-  // Raw data
-  const [facturasEmitidas, setFacturasEmitidas] = useState<any[]>([])
-  const [facturasRecibidas, setFacturasRecibidas] = useState<any[]>([])
-  const [bankMovements, setBankMovements] = useState<any[]>([])
-  const [payrollPeriods, setPayrollPeriods] = useState<any[]>([])
-  const [payrollItems, setPayrollItems] = useState<any[]>([])
-  const [employees, setEmployees] = useState<any[]>([])
-  const [projects, setProjects] = useState<any[]>([])
-  const [purchaseOrders, setPurchaseOrders] = useState<any[]>([])
-  const [allPurchaseOrders, setAllPurchaseOrders] = useState<any[]>([]) // ALL POs (not filtered by month)
-  const [quotationCosts, setQuotationCosts] = useState<any[]>([]) // Costo de materiales por cotización
-  const [leads, setLeads] = useState<any[]>([])
-  const [quotations, setQuotations] = useState<any[]>([])
-  const [cajaChica, setCajaChica] = useState<any[]>([])
-  const [milestones, setMilestones] = useState<any[]>([])
+  const rango = useMemo(() => rangoDe(periodo), [periodo])
+  const nMeses = useMemo(() => {
+    const a = Number(rango.desde.slice(0, 4)) * 12 + Number(rango.desde.slice(5, 7))
+    const b = Number(rango.hasta.slice(0, 4)) * 12 + Number(rango.hasta.slice(5, 7))
+    return b - a + 1
+  }, [rango])
 
-  // Detail view
-  const [detailView, setDetailView] = useState<string | null>(null)
+  // Se trae el periodo, el periodo anterior de la misma duración (para
+  // comparar) y al menos 12 meses para las gráficas.
+  const desdeConsulta = useMemo(() => {
+    const previo = sumarMeses(rango.desde, -nMeses)
+    const doce = sumarMeses(rango.hasta, -11)
+    return previo < doce ? previo : doce
+  }, [rango, nMeses])
 
   useEffect(() => {
-    load()
-  }, [mes])
+    let vivo = true
+    setCargando(true)
+    setError('')
+    cargarTablero(desdeConsulta + '-01', rango.hasta + '-01')
+      .then(r => { if (vivo) setRaw(r) })
+      .catch((e: any) => { if (vivo) setError(e?.message || String(e)) })
+      .finally(() => { if (vivo) setCargando(false) })
+    return () => { vivo = false }
+  }, [desdeConsulta, rango.hasta, recarga])
 
-  async function load() {
-    setLoading(true)
-    const startDate = `${mes.year}-${String(mes.month + 1).padStart(2, '0')}-01`
-    const endDate = mes.month === 11
-      ? `${mes.year + 1}-01-01`
-      : `${mes.year}-${String(mes.month + 2).padStart(2, '0')}-01`
+  const todos: Mes[] = useMemo(() => (raw ? raw.meses.map(convertirMes) : []), [raw])
+  const delPeriodo = useMemo(() => todos.filter(m => m.mes >= rango.desde && m.mes <= rango.hasta), [todos, rango])
+  const previos = useMemo(() => {
+    const d = sumarMeses(rango.desde, -nMeses)
+    const h = sumarMeses(rango.desde, -1)
+    return todos.filter(m => m.mes >= d && m.mes <= h)
+  }, [todos, rango, nMeses])
+  // Gráficas: el periodo, o los últimos 12 meses si el periodo es más corto.
+  const grafica = useMemo(() => {
+    const d = nMeses >= 12 ? rango.desde : sumarMeses(rango.hasta, -11)
+    return todos.filter(m => m.mes >= d && m.mes <= rango.hasta)
+  }, [todos, rango, nMeses])
 
-    const [femRes, frecRes, bankRes, ppRes, piRes, empRes, projRes, poRes, ccRes, msRes, allPoRes, qiRes, leadsRes, quotRes] = await Promise.all([
-      // Facturas emitidas del mes
-      supabase.from('facturas').select('id,receptor_nombre,subtotal,iva,total,fecha_emision,status')
-        .eq('direccion', 'emitida').gte('fecha_emision', startDate).lt('fecha_emision', endDate),
-      // Facturas recibidas del mes
-      supabase.from('facturas').select('id,emisor_nombre,subtotal,iva,isr_retenido,total,fecha_emision,status,proveedor_id,orden_compra_id,project_id')
-        .eq('direccion', 'recibida').gte('fecha_emision', startDate).lt('fecha_emision', endDate),
-      // Bank movements del mes
-      supabase.from('bank_movements').select('*').gte('fecha', startDate).lt('fecha', endDate).order('fecha', { ascending: false }),
-      // Payroll periods del mes
-      supabase.from('payroll_periods').select('*').eq('anio', mes.year).eq('mes', mes.month + 1),
-      // Payroll items (all, for the periods in this month)
-      supabase.from('payroll_items').select('id,period_id,employee_id,sueldo_neto_pactado,neto_a_pagar_cfdi,total_efectivo_final,isr,cuotas_imss_obrero,horas_extras_monto,bono_puntualidad,caja_chica,descuento_infonavit_efectivo'),
-      // Employees (active)
-      supabase.from('employees').select('id,nombre,area,tipo_trabajo,sueldo_neto_semanal,sueldo_neto_quincenal,neto_mensual,tipo_alta,activo').eq('activo', true),
-      // Projects
-      supabase.from('projects').select('id,name,client_name,contract_value,status,specialty,advance_pct,cotizacion_id'),
-      // Purchase orders del mes
-      supabase.from('purchase_orders').select('id,po_number,total,iva,subtotal,status,currency,project_id,supplier_id,created_at')
-        .gte('created_at', startDate).lt('created_at', endDate),
-      // Caja chica del mes
-      supabase.from('caja_chica_tickets').select('id,monto,concepto,categoria,estatus,employee_id,fecha')
-        .gte('fecha', startDate).lt('fecha', endDate),
-      // Payment milestones (all)
-      supabase.from('payment_milestones').select('id,name,amount,due_date,status,project_id,paid_at'),
-      // ALL purchase orders (for project totals, not filtered by month)
-      supabase.from('purchase_orders').select('id,total,status,project_id,currency').neq('status', 'cancelada'),
-      // Costo de material por cotizacion, YA SUMADO del lado del servidor.
-      // Antes se bajaban los 13,716 renglones de quotation_items y PostgREST
-      // mandaba los primeros 1000: "Total Compras" salia con una fraccion de
-      // las cotizaciones y nadie se enteraba.
-      traerTodo(() => supabase.from('v_cotizacion_costo_material').select('*'), 'quotation_id'),
-      // Leads (active)
-      supabaseAll.from('leads').select('id,name,company,status,estimated_value').not('status', 'in', '("perdido","descartado")'),
-      // All quotations with lead_id from notes
-      supabaseAll.from('quotations').select('id,name,specialty,stage,total,notes,project_id').eq('vigente', true),
-    ])
-
-    setFacturasEmitidas(femRes.data || [])
-    setFacturasRecibidas(frecRes.data || [])
-    setBankMovements(bankRes.data || [])
-    setPayrollPeriods(ppRes.data || [])
-    setPayrollItems(piRes.data || [])
-    setEmployees(empRes.data || [])
-    setProjects(projRes.data || [])
-    setPurchaseOrders(poRes.data || [])
-    setCajaChica(ccRes.data || [])
-    setMilestones(msRes.data || [])
-    setAllPurchaseOrders(allPoRes.data || [])
-    setQuotationCosts((qiRes as any[]) || [])
-    setLeads(leadsRes.data || [])
-    setQuotations(quotRes.data || [])
-    setLoading(false)
-  }
-
-  // ── COMPUTED ──────────────────────────────────────────────────────
-
-  // Filter payroll items to this month's periods
-  const monthPeriodIds = useMemo(() => new Set(payrollPeriods.map((p: any) => p.id)), [payrollPeriods])
-  const monthPayrollItems = useMemo(() => payrollItems.filter((pi: any) => monthPeriodIds.has(pi.period_id)), [payrollItems, monthPeriodIds])
-
-  // INGRESOS
-  const ingresosFacturados = useMemo(() =>
-    facturasEmitidas.filter(f => f.status !== 'cancelada').reduce((s, f) => s + (f.total || 0), 0), [facturasEmitidas])
-  const ivaEmitido = useMemo(() =>
-    facturasEmitidas.filter(f => f.status !== 'cancelada').reduce((s, f) => s + (f.iva || 0), 0), [facturasEmitidas])
-
-  // EGRESOS — Facturas recibidas
-  const egresosFacturados = useMemo(() =>
-    facturasRecibidas.filter(f => f.status !== 'cancelada').reduce((s, f) => s + (f.total || 0), 0), [facturasRecibidas])
-  const ivaRecibido = useMemo(() =>
-    facturasRecibidas.filter(f => f.status !== 'cancelada').reduce((s, f) => s + (f.iva || 0), 0), [facturasRecibidas])
-
-  // NÓMINA — costo bruto real (neto pactado a todos)
-  const nominaBruta = useMemo(() =>
-    monthPayrollItems.reduce((s, pi) => s + (pi.sueldo_neto_pactado || 0), 0), [monthPayrollItems])
-  const nominaFiscal = useMemo(() =>
-    monthPayrollItems.reduce((s, pi) => s + (pi.neto_a_pagar_cfdi || 0), 0), [monthPayrollItems])
-  const nominaEfectivo = useMemo(() =>
-    monthPayrollItems.reduce((s, pi) => s + (pi.total_efectivo_final || 0), 0), [monthPayrollItems])
-
-  // NÓMINA MENSUAL ESTIMADA (desde employees, para meses sin payroll data)
-  const nominaMensualEstimada = useMemo(() =>
-    employees.reduce((s, e) => s + (e.neto_mensual || 0), 0), [employees])
-
-  // CAJA CHICA
-  const cajaChicaTotal = useMemo(() =>
-    cajaChica.reduce((s, t) => s + (t.monto || 0), 0), [cajaChica])
-
-  // COMPRAS del mes
-  const comprasTotal = useMemo(() =>
-    purchaseOrders.filter(po => po.status !== 'cancelada').reduce((s, po) => s + (po.total || 0), 0), [purchaseOrders])
-
-  // CATEGORIZACIÓN DE GASTOS (facturas recibidas)
-  const gastosPorCategoria = useMemo(() => {
-    const cats: Record<GastoCategoria, number> = {
-      material_obra: 0, nomina_fiscal: 0, impuestos_gobierno: 0, servicios: 0, gastos_generales: 0,
+  const T = useMemo(() => sumar(delPeriodo), [delPeriodo])
+  const P = useMemo(() => sumar(previos), [previos])
+  // Una comparación solo vale si el periodo anterior tiene datos completos de
+  // ese concepto. Los contratos se capturan en el ERP desde 2026; la nómina
+  // está completa solo en ciertos meses; y antes de jul-2026 muchos pagos a
+  // proveedor están "sin clasificar".
+  const comparable = useMemo(() => {
+    const lleno = previos.length === nMeses
+    return {
+      vendido: lleno && previos.every(m => m.mes >= '2026-01'),
+      cobrado: lleno,
+      nomina: lleno && previos.every(m => m.nominaCompleta),
+      proveedores: lleno && previos.every(m => m.egresosOperativos > 0 && m.sinClasificar / m.egresosOperativos < 0.2),
     }
-    facturasRecibidas.filter(f => f.status !== 'cancelada').forEach(f => {
-      cats[categorizeByEmisor(f.emisor_nombre)] += (f.total || 0)
-    })
-    // Add payroll fiscal if not in facturas
-    if (nominaFiscal > 0 && cats.nomina_fiscal === 0) {
-      cats.nomina_fiscal = nominaFiscal
-    }
-    return cats
-  }, [facturasRecibidas, nominaFiscal])
+  }, [previos, nMeses])
 
-  const totalGastos = Object.values(gastosPorCategoria).reduce((s, v) => s + v, 0)
+  return (
+    <div style={{ padding: isMobile ? '16px' : '24px 28px', maxWidth: 1400 }}>
+      <SectionHeader title="Finanzas"
+        subtitle="Venta, cobranza, nómina y lo que debemos — de las fuentes vivas del ERP (banco, efectivo, nómina, contratos y órdenes de compra)" />
 
-  // BANK MOVEMENTS — flujo
-  const bankIngresos = useMemo(() =>
-    bankMovements.filter(m => m.tipo === 'abono').reduce((s, m) => s + (m.monto || 0), 0), [bankMovements])
-  const bankEgresos = useMemo(() =>
-    bankMovements.filter(m => m.tipo === 'cargo').reduce((s, m) => s + (m.monto || 0), 0), [bankMovements])
-  const bankSaldo = useMemo(() => {
-    if (bankMovements.length === 0) return 0
-    return bankMovements[0]?.saldo || 0
-  }, [bankMovements])
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
+        {PERIODOS.map(p => (
+          <button key={p.id} onClick={() => setPeriodo(p.id)} style={{
+            padding: '6px 12px', borderRadius: 8, fontSize: 12, cursor: 'pointer', fontWeight: 600,
+            border: '1px solid ' + (periodo === p.id ? '#10B981' : '#2a2a2a'),
+            background: periodo === p.id ? '#10B98118' : '#141414', color: periodo === p.id ? '#10B981' : '#a9a8a1',
+          }}>{p.label}</button>
+        ))}
+      </div>
 
-  // Bank categories breakdown
-  const bankPorCategoria = useMemo(() => {
-    const cats: Record<string, { monto: number; count: number }> = {}
-    bankMovements.filter(m => m.tipo === 'cargo').forEach(m => {
-      const c = m.categoria || 'sin_categoria'
-      if (!cats[c]) cats[c] = { monto: 0, count: 0 }
-      cats[c].monto += m.monto || 0
-      cats[c].count++
-    })
-    return Object.entries(cats).sort((a, b) => b[1].monto - a[1].monto)
-  }, [bankMovements])
+      <div style={{ display: 'flex', gap: 2, borderBottom: '1px solid #222', marginBottom: 16, overflowX: 'auto' }}>
+        {PESTANAS.map(t => (
+          <button key={t.id} onClick={() => setPestana(t.id)} style={{
+            padding: '9px 14px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', background: 'none', border: 'none', whiteSpace: 'nowrap',
+            color: pestana === t.id ? '#fff' : '#77766f', borderBottom: '2px solid ' + (pestana === t.id ? '#10B981' : 'transparent'),
+          }}>
+            {t.label}
+            {t.id === 'datos' && raw && raw.por_confirmar.length > 0 && (
+              <span style={{ marginLeft: 6, fontSize: 10, background: '#fab21933', color: '#fab219', borderRadius: 10, padding: '1px 6px' }}>{raw.por_confirmar.length}</span>
+            )}
+          </button>
+        ))}
+      </div>
 
-  // COBRANZA
-  const cobranzaPendiente = useMemo(() =>
-    milestones.filter(m => m.status === 'pendiente' || m.status === 'vigente').reduce((s, m) => s + (m.amount || 0), 0), [milestones])
-  const cobranzaVencida = useMemo(() =>
-    milestones.filter(m => m.status === 'vencido').reduce((s, m) => s + (m.amount || 0), 0), [milestones])
+      {error && (
+        <div style={{ background: '#d03b3b22', border: '1px solid #d03b3b55', color: '#f2b8b8', borderRadius: 10, padding: 12, fontSize: 12, marginBottom: 16 }}>
+          No se pudo cargar Finanzas: {error}
+          <button onClick={() => setRecarga(x => x + 1)} style={{ marginLeft: 12, background: 'none', border: '1px solid #d03b3b88', color: '#f2b8b8', borderRadius: 6, padding: '2px 10px', cursor: 'pointer' }}>Reintentar</button>
+        </div>
+      )}
 
-  // MARGEN
-  const margenBruto = ingresosFacturados > 0 ? (ingresosFacturados - egresosFacturados) / ingresosFacturados : 0
+      {cargando && !raw && <div style={{ padding: 40, textAlign: 'center', color: '#555', fontSize: 13 }}>Cargando finanzas…</div>}
 
-  // Costo nómina real — usar payroll si hay, si no usar estimado
-  const costoNominaReal = nominaBruta > 0 ? nominaBruta : nominaMensualEstimada
+      {raw && (
+        <div style={{ opacity: cargando ? 0.5 : 1, transition: 'opacity .15s' }}>
+          {pestana === 'resumen' && <TabResumen T={T} P={P} meses={grafica} raw={raw} nMeses={nMeses} comparable={comparable} />}
+          {pestana === 'flujo' && <TabFlujo meses={delPeriodo} grafica={grafica} T={T} />}
+          {pestana === 'cartera' && <TabCartera raw={raw} nominaMensual={T.meses ? T.nomina / T.meses : 0} />}
+          {pestana === 'cxp' && <TabCxp raw={raw} />}
+          {pestana === 'areas' && <TabAreas meses={todos} desde={rango.desde} hasta={rango.hasta} />}
+          {pestana === 'datos' && <TabDatos raw={raw} meses={grafica} onCambio={() => setRecarga(x => x + 1)} />}
+          <Nota>
+            Montos con IVA, como se cobran y se pagan. Los dólares se convierten a pesos con el tipo de cambio del año
+            ({Array.from(new Set(grafica.map(m => m.mes.slice(0, 4) + ': ' + m.tc.toFixed(2)))).join(' · ')}), que es el costo real de compra de dólares de OMM.
+            El mes en curso se muestra atenuado: todavía no cierra.
+          </Nota>
+        </div>
+      )}
+    </div>
+  )
+}
 
-  // Top clientes por facturación del mes
-  const topClientes = useMemo(() => {
-    const map: Record<string, number> = {}
-    facturasEmitidas.filter(f => f.status !== 'cancelada').forEach(f => {
-      map[f.receptor_nombre] = (map[f.receptor_nombre] || 0) + (f.total || 0)
-    })
-    return Object.entries(map).sort((a, b) => b[1] - a[1]).slice(0, 8)
-  }, [facturasEmitidas])
+// ═══════════════════════════════════════════════════════════════════════
+// RESUMEN
+// ═══════════════════════════════════════════════════════════════════════
+interface Comparable { vendido: boolean; cobrado: boolean; nomina: boolean; proveedores: boolean }
 
-  // Top proveedores por gasto del mes
-  const topProveedores = useMemo(() => {
-    const map: Record<string, number> = {}
-    facturasRecibidas.filter(f => f.status !== 'cancelada').forEach(f => {
-      map[f.emisor_nombre] = (map[f.emisor_nombre] || 0) + (f.total || 0)
-    })
-    return Object.entries(map).sort((a, b) => b[1] - a[1]).slice(0, 8)
-  }, [facturasRecibidas])
+function TabResumen({ T, P, meses, raw, nMeses, comparable }: { T: Totales; P: Totales; meses: Mes[]; raw: TableroRaw; nMeses: number; comparable: Comparable }) {
+  const tcHoy = meses.length ? meses[meses.length - 1].tc : 18
 
-  // ── LEAD FINANCIERO ─────────────────────────────────────────────
-  // Helper: parse notes, get currency
-  const getQuotCurrency = (q: any): 'USD' | 'MXN' => {
-    try {
-      const n = typeof q.notes === 'string' ? JSON.parse(q.notes) : q.notes
-      return n?.currency === 'MXN' ? 'MXN' : 'USD'
-    } catch { return 'USD' }
-  }
-  const getQuotLeadId = (q: any): string | null => {
-    try {
-      const n = typeof q.notes === 'string' ? JSON.parse(q.notes) : q.notes
-      return n?.lead_id || null
-    } catch { return null }
-  }
+  const nomPct = T.cobrado > 0 ? T.nomina / T.cobrado : NaN
+  const provPct = T.cobrado > 0 ? T.proveedores / T.cobrado : NaN
+  const conv = T.vendido > 0 ? T.cobrado / T.vendido : NaN
+  const nominaMes = T.meses ? T.nomina / T.meses : 0
+  const cobroMes = T.meses ? T.cobrado / T.meses : 0
+  const necesaria = nominaMes / TOPE_NOMINA
+  const brecha = cobroMes - necesaria
 
-  // esp/cort/ilum/proy store total WITH IVA; elec stores raw subtotal
-  const quotTotalIva = (q: any) => {
-    if (q.specialty === 'esp' || q.specialty === 'cort' || q.specialty === 'ilum' || q.specialty === 'proy') return q.total || 0
-    return (q.total || 0) * 1.16
-  }
+  // Cartera y CxP de hoy (no dependen del periodo)
+  let carteraMxn = 0, carteraUsd = 0
+  raw.cartera.resumen.forEach(r => { if (r.cur === 'usd') carteraUsd += r.saldo; else carteraMxn += r.saldo })
+  const cartera = carteraMxn + carteraUsd * tcHoy
+  let cxpMxn = 0, cxpUsd = 0, vencMxn = 0, vencUsd = 0, porAprobar = 0
+  raw.cxp.resumen.forEach(r => {
+    if (r.bucket === 'por_aprobar') { porAprobar += r.cur === 'usd' ? r.saldo * tcHoy : r.saldo; return }
+    if (r.cur === 'usd') cxpUsd += r.saldo; else cxpMxn += r.saldo
+    if (r.bucket === 'vencida') { if (r.cur === 'usd') vencUsd += r.saldo; else vencMxn += r.saldo }
+  })
+  const cxp = cxpMxn + cxpUsd * tcHoy
+  const vencidas = vencMxn + vencUsd * tcHoy
 
-  // Agrupa por Lead: todas sus cotizaciones en contrato, proyectos, compras, cobros
-  const leadsFinancieros = useMemo(() => {
-    return leads.map(lead => {
-      // Solo cotizaciones en etapa "contrato" de este lead
-      const leadQuots = quotations.filter(q =>
-        q.stage === 'contrato' && getQuotLeadId(q) === lead.id
-      )
-      const quotIds = new Set(leadQuots.map(q => q.id))
+  const estadoNomina: 'bueno' | 'alerta' | 'critico' = !isFinite(nomPct) ? 'critico' : nomPct <= ZONA_SEGURA ? 'bueno' : nomPct <= TOPE_NOMINA ? 'alerta' : 'critico'
+  const dispAnual = T.meses ? T.disposiciones * 12 / T.meses : 0
+  const estadoRev: 'bueno' | 'alerta' | 'critico' = dispAnual < 4 ? 'bueno' : dispAnual <= 16 ? 'alerta' : 'critico'
 
-      // Proyectos ligados a las cotizaciones aprobadas
-      const leadProjects = projects.filter(p => p.cotizacion_id && quotIds.has(p.cotizacion_id))
-      const projIds = new Set(leadProjects.map(p => p.id))
+  // Serie para la gráfica de nómina ÷ cobranza
+  const pctMes = meses.map(m => m.cobrado > 0 ? m.nomina / m.cobrado : 0)
+  const pctMovil = meses.map((_, i) => {
+    const v = meses.slice(Math.max(0, i - 2), i + 1)
+    const c = v.reduce((s, x) => s + x.cobrado, 0)
+    const nn = v.reduce((s, x) => s + x.nomina, 0)
+    return c > 0 ? nn / c : 0
+  })
+  const recorte = 1.2 // un mes sin cobranza no debe aplastar la escala
+  const etiquetas = meses.map(m => m.etiqueta)
+  const tenues = meses.map(m => m.enCurso)
+  const nomIncompleta = meses.map(m => !m.nominaCompleta)
 
-      // Moneda dominante del lead (de la primera cotización)
-      const moneda = leadQuots.length > 0 ? getQuotCurrency(leadQuots[0]) : 'MXN'
+  // Acumulados
+  let aV = 0, aC = 0, aP = 0
+  const acV: number[] = [], acC: number[] = [], acP: number[] = []
+  meses.forEach(m => { aV += m.vendido; aC += m.cobrado; aP += m.nomina + m.proveedores; acV.push(aV); acC.push(aC); acP.push(aP) })
 
-      // 1. Total Vendido = contract_value de proyectos, o total de cotización si no hay proyecto
-      let totalVendido = 0
-      leadQuots.forEach(q => {
-        const proj = leadProjects.find(p => p.cotizacion_id === q.id)
-        totalVendido += proj ? (proj.contract_value || 0) : quotTotalIva(q)
-      })
+  return (
+    <div>
+      <Rejilla cols={4}>
+        <Indicador etiqueta="Vendido (contratado)" valor={fmtM(T.vendido)}
+          detalle={`${T.contratos} contratos · ${fmtM(T.meses ? T.vendido / T.meses : 0)} al mes`}
+          delta={comparable.vendido ? deltaTxt(T.vendido, P.vendido, true) : null} />
+        <Indicador etiqueta="Cobrado" valor={fmtM(T.cobrado)}
+          detalle={<>{fmtPct(conv, 0)} de lo vendido en el periodo · {fmtM(cobroMes)} al mes</>}
+          delta={comparable.cobrado ? deltaTxt(T.cobrado, P.cobrado, true) : null} />
+        <Indicador etiqueta="Nómina" valor={fmtM(T.nomina)}
+          detalle={<>{fmtPct(nomPct)} de lo cobrado · tope 20%, zona segura 17%{!T.nominaCompleta ? ' · algún mes incompleto' : ''}</>}
+          estado={estadoNomina}
+          estadoTexto={estadoNomina === 'bueno' ? 'En zona segura' : estadoNomina === 'alerta' ? 'Cerca del tope' : 'Arriba del tope'}
+          delta={comparable.nomina ? deltaTxt(T.nomina, P.nomina, false) : null} />
+        <Indicador etiqueta="Pagado a proveedores" valor={fmtM(T.proveedores)}
+          detalle={<>{fmtPct(provPct)} de lo cobrado</>}
+          delta={comparable.proveedores ? deltaTxt(T.proveedores, P.proveedores, false) : null} />
+      </Rejilla>
 
-      // 2. Total Cobrado = milestones cobrados
-      const totalCobrado = milestones
-        .filter(m => projIds.has(m.project_id) && m.status === 'cobrado')
-        .reduce((s, m) => s + (m.amount || 0), 0)
+      <Rejilla cols={4}>
+        <Indicador etiqueta="Flujo operativo" valor={fmtM(T.flujoOperativo)}
+          detalle={T.cobrado > 0 ? <>Por cada $100 cobrados salieron ${(T.egresosOperativos / T.cobrado * 100).toFixed(0)}</> : 'Sin cobranza en el periodo'}
+          estado={T.flujoOperativo >= 0 ? 'bueno' : 'critico'}
+          estadoTexto={T.flujoOperativo >= 0 ? 'El negocio se paga solo' : 'Sale más de lo que entra'} />
+        <Indicador etiqueta="Cobranza que pide la nómina" valor={fmtM(necesaria) + ' / mes'}
+          detalle={<>Para que la nómina sea el 20%. Se cobran {fmtM(cobroMes)} al mes: {brecha >= 0 ? 'sobran ' : 'faltan '}<b style={{ color: '#fff' }}>{fmtM(Math.abs(brecha))}</b> al mes.</>}
+          estado={brecha >= 0 ? 'bueno' : 'critico'} estadoTexto={brecha >= 0 ? 'Cubierta' : 'Brecha'} />
+        <Indicador etiqueta="Cartera por cobrar (hoy)" valor={fmtM(cartera)}
+          detalle={<>{fmt$(carteraMxn)} MXN + {fmt$(carteraUsd)} USD{nominaMes > 0 ? <> · equivale a {(cartera / nominaMes).toFixed(1)} meses de nómina</> : null}</>} />
+        <Indicador etiqueta="Cuentas por pagar (hoy)" valor={fmtM(cxp)}
+          detalle={<>Órdenes de compra emitidas sin pagar · {vencidas > 0 ? <b style={{ color: '#e66767' }}>{fmtM(vencidas)} vencidas</b> : 'nada vencido'} · {fmtM(porAprobar)} más por aprobar</>} />
+      </Rejilla>
 
-      // 3. % Avance cobro
-      const pctCobro = totalVendido > 0 ? totalCobrado / totalVendido : 0
+      <Rejilla cols={3}>
+        <Indicador etiqueta="Cartera menos lo que debemos" valor={fmtM(cartera - cxp)}
+          detalle="Lo que nos deben los clientes menos las OC por pagar. Es el colchón que la obra ya generó." />
+        <Indicador etiqueta="Revolvente de la tarjeta" valor={`${T.disposiciones} disposiciones`}
+          detalle={<>Neto del periodo {fmtM(T.revolventeNeto)} · ritmo de {dispAnual.toFixed(0)} al año (meta: menos de 4)</>}
+          estado={estadoRev} estadoTexto={estadoRev === 'bueno' ? 'Uso ocasional' : estadoRev === 'alerta' ? 'Uso frecuente' : 'Dependencia del revolvente'} />
+        <Indicador etiqueta="Aportaciones de socio" valor={fmtM(T.aportaciones)}
+          detalle="Capital que entró para cubrir flujo. No es venta ni cobranza." />
+      </Rejilla>
 
-      // 4. Total Compras = costo materiales de cotizaciones (lo que hay que comprar)
-      const totalCompras = quotationCosts
-        .filter(qi => quotIds.has(qi.quotation_id))
-        .reduce((s, qi) => s + (Number(qi.costo_material) || 0), 0)
+      <Tarjeta titulo="Vendido, cobrado, nómina y proveedores — por mes"
+        subtitulo="La relación central del negocio. Lo vendido se cobra en ~18 meses, por eso las barras no empatan mes a mes; lo que importa es la tendencia y que la cobranza alcance para la nómina y los proveedores.">
+        <Leyenda items={[
+          { nombre: 'Vendido', color: COLOR.vendido },
+          { nombre: 'Cobrado', color: COLOR.cobrado },
+          { nombre: 'Nómina', color: COLOR.nomina, forma: 'linea' },
+          { nombre: 'Proveedores', color: COLOR.proveedores, forma: 'linea' },
+        ]} />
+        <GraficaMensual etiquetas={etiquetas} formato={fmtM} tenues={tenues}
+          barras={[
+            { nombre: 'Vendido', color: COLOR.vendido, valores: meses.map(m => m.vendido) },
+            { nombre: 'Cobrado', color: COLOR.cobrado, valores: meses.map(m => m.cobrado) },
+          ]}
+          lineas={[
+            { nombre: 'Nómina', color: COLOR.nomina, valores: meses.map(m => m.nomina), incompletos: nomIncompleta },
+            { nombre: 'Proveedores', color: COLOR.proveedores, valores: meses.map(m => m.proveedores) },
+          ]}
+          extraTooltip={i => [{ nombre: 'Contratos firmados', color: 'transparent', valor: String(meses[i].contratos) }]} />
+      </Tarjeta>
 
-      // 5. Total Comprado = POs ejercidas (convertidas a moneda del lead)
-      let totalComprado = 0
-      allPurchaseOrders.filter(po => projIds.has(po.project_id)).forEach(po => {
-        const poTotal = po.total || 0
-        const poCurr = po.currency || 'MXN'
-        // Convertir a moneda del lead si difiere
-        if (moneda === 'USD' && poCurr === 'MXN') totalComprado += poTotal / tipoCambio
-        else if (moneda === 'MXN' && poCurr === 'USD') totalComprado += poTotal * tipoCambio
-        else totalComprado += poTotal
-      })
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(420px, 100%), 1fr))', gap: 16 }}>
+        <Tarjeta titulo="Nómina como % de lo cobrado"
+          subtitulo="Tu regla: la nómina no debe pasar del 20% de la cobranza con IVA. El promedio de 3 meses quita el ruido de los meses de cobranza baja. Punto hueco = nómina incompleta ese mes.">
+          <Leyenda items={[
+            { nombre: 'Mes', color: COLOR.nomina, forma: 'linea' },
+            { nombre: 'Promedio 3 meses', color: COLOR.nomina, forma: 'punteada' },
+            { nombre: 'Tope 20%', color: COLOR.critico, forma: 'punteada' },
+            { nombre: 'Zona segura 17%', color: COLOR.bueno, forma: 'punteada' },
+          ]} />
+          <GraficaMensual etiquetas={etiquetas} formato={v => fmtPct(v, 0)} tenues={tenues} alto={230}
+            barras={[]}
+            lineas={[
+              { nombre: 'Mes', color: COLOR.nomina, valores: pctMes.map(v => Math.min(v, recorte)), incompletos: nomIncompleta },
+              { nombre: 'Promedio 3 meses', color: COLOR.nomina, valores: pctMovil.map(v => Math.min(v, recorte)), punteada: true },
+            ]}
+            refs={[
+              { valor: TOPE_NOMINA, etiqueta: 'Tope 20%', color: COLOR.critico },
+              { valor: ZONA_SEGURA, etiqueta: 'Zona segura 17%', color: COLOR.bueno },
+            ]} />
+        </Tarjeta>
 
-      // 6. % Avance compras
-      const pctCompras = totalCompras > 0 ? totalComprado / totalCompras : 0
+        <Tarjeta titulo="Acumulado"
+          subtitulo="Cuánto se ha vendido, cobrado y pagado en nómina + proveedores desde el primer mes de la gráfica. La distancia entre cobrado y pagado es lo que queda para impuestos, gastos y utilidad.">
+          <Leyenda items={[
+            { nombre: 'Vendido', color: COLOR.vendido, forma: 'linea' },
+            { nombre: 'Cobrado', color: COLOR.cobrado, forma: 'linea' },
+            { nombre: 'Nómina + proveedores', color: COLOR.nomina, forma: 'linea' },
+          ]} />
+          <GraficaMensual etiquetas={etiquetas} formato={fmtM} alto={230} barras={[]}
+            lineas={[
+              { nombre: 'Vendido', color: COLOR.vendido, valores: acV },
+              { nombre: 'Cobrado', color: COLOR.cobrado, valores: acC },
+              { nombre: 'Nómina + proveedores', color: COLOR.nomina, valores: acP },
+            ]} />
+        </Tarjeta>
+      </div>
 
-      // 7. Por Comprar
-      const porComprar = Math.max(0, totalCompras - totalComprado)
+      {nMeses === 1 && <Nota>Con «Este mes» los indicadores son del mes en curso (incompleto); las gráficas muestran los últimos 12 meses para dar contexto.</Nota>}
+    </div>
+  )
+}
 
-      // 8. Por Cobrar
-      const porCobrar = Math.max(0, totalVendido - totalCobrado)
+// ═══════════════════════════════════════════════════════════════════════
+// FLUJO DE EFECTIVO
+// ═══════════════════════════════════════════════════════════════════════
+interface FilaFlujo { nombre: string; valor: (m: Mes) => number; signo: number; total?: boolean; color?: string; sub?: boolean }
 
-      return {
-        id: lead.id, name: lead.name, company: lead.company, status: lead.status,
-        moneda,
-        projectCount: leadProjects.length, quotCount: leadQuots.length,
-        totalVendido, totalCobrado, pctCobro,
-        totalCompras, totalComprado, pctCompras,
-        porComprar, porCobrar,
-        // Equivalentes en MXN para totales
-        totalVendidoMXN: moneda === 'USD' ? totalVendido * tipoCambio : totalVendido,
-        porCobrarMXN: moneda === 'USD' ? porCobrar * tipoCambio : porCobrar,
-        porComprarMXN: moneda === 'USD' ? porComprar * tipoCambio : porComprar,
-      }
-    })
-    .filter(l => l.totalVendido > 0 || l.quotCount > 0)
-    .sort((a, b) => b.totalVendidoMXN - a.totalVendidoMXN)
-  }, [leads, quotations, projects, milestones, allPurchaseOrders, quotationCosts, tipoCambio])
-
-  // ── REDITUABILIDAD POR ÁREA ──────────────────────────────────────
-  // Mapeo correcto:
-  //   ilum  → Suministro de Luminarias (sin nómina directa, costo = POs)
-  //   cort  → Cortinas y Persianas (sin nómina directa, costo = POs)
-  //   esp   → Instalaciones Especiales (nómina INSTALACIONES ESPECIALES + POs)
-  //   elec  → Instalaciones Eléctricas (nómina ELECTRICO + POs)
-  //   proy + "Especiales" en nombre → Ing. Especiales (nómina INGENIERIAS ESPECIALES)
-  //   proy + "Eléctric" en nombre  → Ing. Eléctricas (nómina INGENIERIAS ELECTRICAS)
-  //   proy + "Iluminac" en nombre  → Diseño de Iluminación (nómina ILUMINACION)
-
-  const AREAS_NEGOCIO = [
-    { key: 'proy_esp', label: 'Proyecto Ing. Especiales', payrollAreas: ['INGENIERIAS ESPECIALES'], tipo: 'proyecto' as const, color: '#10B981' },
-    { key: 'proy_elec', label: 'Proyecto Ing. Eléctricas', payrollAreas: ['INGENIERIAS ELECTRICAS'], tipo: 'proyecto' as const, color: '#34D399' },
-    { key: 'proy_ilum', label: 'Diseño de Iluminación', payrollAreas: ['ILUMINACION'], tipo: 'proyecto' as const, color: '#A78BFA' },
-    { key: 'ilum', label: 'Suministro de Luminarias', payrollAreas: [] as string[], tipo: 'suministro' as const, color: '#D97706' },
-    { key: 'cort', label: 'Cortinas y Persianas', payrollAreas: [] as string[], tipo: 'suministro' as const, color: '#EC4899' },
-    { key: 'esp', label: 'Instalaciones Especiales', payrollAreas: ['INSTALACIONES ESPECIALES'], tipo: 'ejecucion' as const, color: '#2563EB' },
-    { key: 'elec', label: 'Instalaciones Eléctricas', payrollAreas: ['ELECTRICO'], tipo: 'ejecucion' as const, color: '#FFB347' },
+function TabFlujo({ meses, grafica, T }: { meses: Mes[]; grafica: Mes[]; T: Totales }) {
+  const etiquetas = grafica.map(m => m.etiqueta)
+  const filas: FilaFlujo[] = [
+    { nombre: 'Cobranza en banco', valor: m => m.cobrado - m.cobradoEfectivo, signo: 1, sub: true },
+    { nombre: 'Cobranza en efectivo', valor: m => m.cobradoEfectivo, signo: 1, sub: true },
+    { nombre: 'Otros ingresos', valor: m => m.otrosIngresos, signo: 1, sub: true },
+    { nombre: 'Entradas', valor: m => m.cobrado + m.otrosIngresos, signo: 1, total: true, color: COLOR.cobrado },
+    { nombre: 'Proveedores', valor: m => m.proveedores, signo: -1, color: COLOR.proveedores, sub: true },
+    { nombre: 'Nómina (banco + efectivo)', valor: m => m.nominaCaja, signo: -1, color: COLOR.nomina, sub: true },
+    { nombre: 'Impuestos', valor: m => m.impuestos, signo: -1, color: COLOR.impuestos, sub: true },
+    { nombre: 'Gastos generales', valor: m => m.gastos, signo: -1, color: COLOR.gastos, sub: true },
+    { nombre: 'Salidas sin clasificar', valor: m => m.sinClasificar, signo: -1, color: COLOR.sinClasificar, sub: true },
+    { nombre: 'Salidas operativas', valor: m => m.egresosOperativos, signo: -1, total: true },
+    { nombre: 'FLUJO OPERATIVO', valor: m => m.flujoOperativo, signo: 1, total: true },
+    { nombre: 'Revolvente dispuesto', valor: m => m.revolventeDispuesto, signo: 1, sub: true },
+    { nombre: 'Revolvente pagado', valor: m => m.revolventePagado, signo: -1, sub: true },
+    { nombre: 'Aportaciones de socio', valor: m => m.aportaciones, signo: 1, sub: true },
+    { nombre: 'FLUJO DESPUÉS DE FINANCIAMIENTO', valor: m => m.flujoTotal, signo: 1, total: true },
   ]
-
-  // Classify a proy quotation by its name into the 3 engineering subtypes
-  function classifyProy(name: string): 'proy_esp' | 'proy_elec' | 'proy_ilum' {
-    const n = (name || '').toUpperCase()
-    if (n.includes('ELECTRIC') || n.includes('ELÉCTRIC')) return 'proy_elec'
-    if (n.includes('ILUMINAC') || n.includes('ILUMINACIÓN')) return 'proy_ilum'
-    return 'proy_esp' // default: Especiales
-  }
-
-  // Map specialty+name to area key
-  function quotToAreaKey(q: any): string {
-    if (q.specialty === 'proy') return classifyProy(q.name)
-    if (q.specialty === 'ilum') return 'ilum'
-    if (q.specialty === 'esp') return 'esp'
-    if (q.specialty === 'elec') return 'elec'
-    if (q.specialty === 'cort') return 'cort' // cortinas y persianas
-    return 'esp' // fallback
-  }
-
-  // Map project specialty to its execution area key (for POs)
-  function projToExecAreaKey(p: any): string {
-    if (p.specialty === 'ilum') return 'ilum'
-    if (p.specialty === 'esp') return 'esp'
-    if (p.specialty === 'elec') return 'elec'
-    if (p.specialty === 'cort') return 'cort'
-    return 'esp'
-  }
-
-  const areasNegocio = useMemo(() => {
-    const contratoQuots = quotations.filter(q => q.stage === 'contrato')
-
-    // Overhead % = (Gastos fijos + Gastos generales) / Ventas totales
-    // Gastos fijos: nómina admin, servicios (renta, luz, tel), impuestos patronales
-    // Gastos generales: todo lo que no es material directo ni nómina de área
-    const adminEmpIds = new Set(employees.filter((e: any) => e.area === 'ADMINISTRACION').map((e: any) => e.id))
-    const adminPayroll = monthPayrollItems
-      .filter((pi: any) => adminEmpIds.has(pi.employee_id))
-      .reduce((s: number, pi: any) => s + (pi.sueldo_neto_pactado || 0), 0)
-    const adminPayrollEst = employees.filter((e: any) => e.area === 'ADMINISTRACION').reduce((s: number, e: any) => s + (e.neto_mensual || 0), 0)
-    const gastosFijos = (adminPayroll > 0 ? adminPayroll : adminPayrollEst) + gastosPorCategoria.servicios
-    const gastosGenerales = gastosPorCategoria.gastos_generales + gastosPorCategoria.impuestos_gobierno
-    const overheadPool = gastosFijos + gastosGenerales
-
-    // Build per-area metrics
-    let totalRevenueAll = 0
-
-    const raw = AREAS_NEGOCIO.map(area => {
-      // ─── VENTAS ───
-      // Each contrato quotation maps to an area via quotToAreaKey
-      let ventas = 0
-      contratoQuots.filter(q => quotToAreaKey(q) === area.key).forEach(q => {
-        const proj = projects.find((p: any) => p.cotizacion_id === q.id)
-        const amount = proj ? (proj.contract_value || 0) : quotTotalIva(q)
-        const curr = getQuotCurrency(q)
-        ventas += curr === 'USD' ? amount * tipoCambio : amount
-      })
-
-      // ─── NÓMINA ───
-      const areaEmpIds = new Set(employees.filter((e: any) => area.payrollAreas.includes(e.area)).map((e: any) => e.id))
-      const nomina = monthPayrollItems
-        .filter((pi: any) => areaEmpIds.has(pi.employee_id))
-        .reduce((s: number, pi: any) => s + (pi.sueldo_neto_pactado || 0), 0)
-      const nominaEst = employees
-        .filter((e: any) => area.payrollAreas.includes(e.area))
-        .reduce((s: number, e: any) => s + (e.neto_mensual || 0), 0)
-      const costoNomina = nomina > 0 ? nomina : nominaEst
-
-      // ─── COMPRAS (POs) — for ejecución and suministro areas ───
-      let compras = 0
-      if (area.tipo === 'ejecucion' || area.tipo === 'suministro') {
-        // POs linked to projects whose execution area matches this area
-        allPurchaseOrders.forEach((po: any) => {
-          const proj = projects.find((p: any) => p.id === po.project_id)
-          if (proj && projToExecAreaKey(proj) === area.key) {
-            const t = po.total || 0
-            compras += (po.currency === 'USD') ? t * tipoCambio : t
-          }
-        })
-      }
-
-      // ─── HEADCOUNT ───
-      const headcount = employees.filter((e: any) => area.payrollAreas.includes(e.area)).length
-
-      totalRevenueAll += ventas
-      return { ...area, ventas, costoNomina, compras, headcount }
-    })
-
-    // Overhead % = overheadPool / totalRevenueAll
-    // Cada área absorbe: sus ventas × overhead%
-    const overheadPct = totalRevenueAll > 0 ? overheadPool / totalRevenueAll : 0
-
-    return raw.map(r => {
-      const overhead = r.ventas * overheadPct // proporcional a sus ventas
-      const costoTotal = r.costoNomina + r.compras + overhead
-      const margen = r.ventas - costoTotal
-      const pctMargen = r.ventas > 0 ? margen / r.ventas : (costoTotal > 0 ? -1 : 0)
-      return { ...r, overhead, costoTotal, margen, pctMargen, totalRevenueAll, overheadPct, gastosFijos, gastosGenerales, overheadPool }
-    })
-  }, [quotations, projects, employees, monthPayrollItems, allPurchaseOrders, gastosPorCategoria, tipoCambio])
-
-  // ── NAV ───────────────────────────────────────────────────────────
-  const prevMonth = () => setMes(m => m.month === 0 ? { year: m.year - 1, month: 11 } : { year: m.year, month: m.month - 1 })
-  const nextMonth = () => setMes(m => m.month === 11 ? { year: m.year + 1, month: 0 } : { year: m.year, month: m.month + 1 })
-
-  // ── RENDER ────────────────────────────────────────────────────────
-  if (loading) return <Loading />
-
+  const cob = T.cobrado || 1
   return (
-    <div style={{ padding: '24px 28px', maxWidth: 1400 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
-        <SectionHeader title="Finanzas" subtitle="Salud financiera del negocio" />
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <button onClick={prevMonth} style={navBtnS}><ChevronLeft size={16} /></button>
-          <div style={{ fontSize: 15, fontWeight: 600, color: '#fff', minWidth: 120, textAlign: 'center' }}>
-            <Calendar size={14} style={{ marginRight: 6, verticalAlign: -2 }} />
-            {MONTHS[mes.month]} {mes.year}
-          </div>
-          <button onClick={nextMonth} style={navBtnS}><ChevronRight size={16} /></button>
-        </div>
-      </div>
+    <div>
+      <Tarjeta titulo="Entradas y salidas por mes"
+        subtitulo="Arriba lo cobrado; abajo, apilado, todo lo que salió para operar. La línea blanca es el flujo operativo: arriba de cero el mes se pagó solo.">
+        <Leyenda items={[
+          { nombre: 'Cobrado', color: COLOR.cobrado },
+          { nombre: 'Proveedores', color: COLOR.proveedores },
+          { nombre: 'Nómina', color: COLOR.nomina },
+          { nombre: 'Impuestos', color: COLOR.impuestos },
+          { nombre: 'Gastos', color: COLOR.gastos },
+          { nombre: 'Sin clasificar', color: COLOR.sinClasificar },
+          { nombre: 'Flujo operativo', color: '#e8e7e3', forma: 'linea' },
+        ]} />
+        <GraficaFlujo etiquetas={etiquetas} formato={fmtM} tenues={grafica.map(m => m.enCurso)}
+          entradas={{ nombre: 'Cobrado', color: COLOR.cobrado, valores: grafica.map(m => m.cobrado + m.otrosIngresos) }}
+          salidas={[
+            { nombre: 'Proveedores', color: COLOR.proveedores, valores: grafica.map(m => m.proveedores) },
+            { nombre: 'Nómina', color: COLOR.nomina, valores: grafica.map(m => m.nominaCaja) },
+            { nombre: 'Impuestos', color: COLOR.impuestos, valores: grafica.map(m => m.impuestos) },
+            { nombre: 'Gastos', color: COLOR.gastos, valores: grafica.map(m => m.gastos) },
+            { nombre: 'Sin clasificar', color: COLOR.sinClasificar, valores: grafica.map(m => m.sinClasificar) },
+          ]}
+          neto={{ nombre: 'Flujo operativo', color: '#e8e7e3', valores: grafica.map(m => m.flujoOperativo) }} />
+      </Tarjeta>
 
-      {/* ── KPI ROW ─────────────────────────────────────────────── */}
-      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(5, 1fr)', gap: 12, marginBottom: 24 }}>
-        <KpiCard
-          label="Ingresos facturados"
-          value={F(ingresosFacturados)}
-          color="#10B981"
-          icon={<ArrowUpRight size={16} />}
-        />
-        <KpiCard
-          label="Egresos facturados"
-          value={F(egresosFacturados)}
-          color="#DC2626"
-          icon={<ArrowDownRight size={16} />}
-        />
-        <KpiCard
-          label="Margen bruto"
-          value={PCT(margenBruto)}
-          color={margenBruto >= 0.3 ? '#10B981' : margenBruto >= 0.15 ? '#D97706' : '#DC2626'}
-          icon={<TrendingUp size={16} />}
-        />
-        <KpiCard
-          label="Nómina bruta mensual"
-          value={F(costoNominaReal)}
-          color="#A78BFA"
-          icon={<Users size={16} />}
-        />
-        <KpiCard
-          label="Cuentas vencidas"
-          value={F(cobranzaVencida)}
-          color={cobranzaVencida > 0 ? '#DC2626' : '#10B981'}
-          icon={<AlertTriangle size={16} />}
-        />
-      </div>
-
-      {/* ── SECOND ROW: IVA + Saldo bancario + Cobranza pendiente ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)', gap: 12, marginBottom: 28 }}>
-        <SmallKpi label="IVA cobrado" value={F(ivaEmitido)} color="#10B981" />
-        <SmallKpi label="IVA pagado" value={F(ivaRecibido)} color="#DC2626" />
-        <SmallKpi label="Saldo bancario" value={F2(bankSaldo)} color="#2563EB" />
-        <SmallKpi label="Cobranza pendiente" value={F(cobranzaPendiente)} color="#D97706" />
-      </div>
-
-      {/* ── MAIN GRID ───────────────────────────────────────────── */}
-      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 20, marginBottom: 28 }}>
-
-        {/* LEFT: Categorización de gastos */}
-        <Card title="Categorización de gastos" icon={<PieChart size={14} />}>
-          {totalGastos === 0 ? (
-            <div style={{ padding: 20, textAlign: 'center', color: '#555', fontSize: 13 }}>Sin gastos registrados este mes</div>
-          ) : (
-            <>
-              {/* Bar chart */}
-              <div style={{ display: 'flex', height: 24, borderRadius: 8, overflow: 'hidden', marginBottom: 16 }}>
-                {(Object.keys(gastosPorCategoria) as GastoCategoria[]).filter(k => gastosPorCategoria[k] > 0).map(k => (
-                  <div key={k} style={{
-                    width: PCT(gastosPorCategoria[k] / totalGastos),
-                    background: GASTO_COLORS[k],
-                    transition: 'width 0.3s',
-                  }} title={`${GASTO_LABELS[k]}: ${F(gastosPorCategoria[k])}`} />
-                ))}
-              </div>
-              {/* Legend + amounts */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {(Object.keys(gastosPorCategoria) as GastoCategoria[]).filter(k => gastosPorCategoria[k] > 0).map(k => (
-                  <div key={k} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <div style={{ width: 10, height: 10, borderRadius: 2, background: GASTO_COLORS[k] }} />
-                      <span style={{ fontSize: 12, color: '#aaa' }}>{GASTO_LABELS[k]}</span>
-                    </div>
-                    <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-                      <span style={{ fontSize: 12, color: '#666' }}>{PCT(gastosPorCategoria[k] / totalGastos)}</span>
-                      <span style={{ fontSize: 13, color: '#fff', fontWeight: 500, fontVariantNumeric: 'tabular-nums', minWidth: 90, textAlign: 'right' }}>{F(gastosPorCategoria[k])}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid #222', display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ fontSize: 13, color: '#888', fontWeight: 600 }}>Total gastos</span>
-                <span style={{ fontSize: 14, color: '#fff', fontWeight: 600 }}>{F(totalGastos)}</span>
-              </div>
-            </>
-          )}
-        </Card>
-
-        {/* RIGHT: Desglose de nómina */}
-        <Card title="Costo de nómina" icon={<Users size={14} />}>
-          {costoNominaReal === 0 ? (
-            <div style={{ padding: 20, textAlign: 'center', color: '#555', fontSize: 13 }}>Sin datos de nómina este mes</div>
-          ) : (
-            <>
-              <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12, marginBottom: 16 }}>
-                <MiniStat label="Neto pactado total" value={F(nominaBruta > 0 ? nominaBruta : nominaMensualEstimada)} accent="#fff" />
-                <MiniStat label="Transferencia (fiscal)" value={F(nominaFiscal)} accent="#10B981" />
-                <MiniStat label="Efectivo" value={F(nominaEfectivo)} accent="#D97706" />
-                <MiniStat label="Caja chica del mes" value={F(cajaChicaTotal)} accent="#A78BFA" />
-              </div>
-              <div style={{ borderTop: '1px solid #222', paddingTop: 12 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-                  <span style={{ fontSize: 12, color: '#888' }}>Empleados activos</span>
-                  <span style={{ fontSize: 13, color: '#fff', fontWeight: 500 }}>{employees.length}</span>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-                  <span style={{ fontSize: 12, color: '#888' }}>Períodos de nómina este mes</span>
-                  <span style={{ fontSize: 13, color: '#fff', fontWeight: 500 }}>{payrollPeriods.length}</span>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ fontSize: 12, color: '#888' }}>Nómina estimada mensual</span>
-                  <span style={{ fontSize: 13, color: '#A78BFA', fontWeight: 500 }}>{F(nominaMensualEstimada)}</span>
-                </div>
-              </div>
-              {/* Nómina como % de ingresos */}
-              {ingresosFacturados > 0 && (
-                <div style={{ marginTop: 12, padding: '10px 12px', background: '#111', borderRadius: 8, border: '1px solid #1a1a1a' }}>
-                  <div style={{ fontSize: 11, color: '#666', marginBottom: 4 }}>Nómina como % de ingresos</div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <div style={{ flex: 1, height: 6, borderRadius: 3, background: '#1a1a1a' }}>
-                      <div style={{
-                        width: `${Math.min((costoNominaReal / ingresosFacturados) * 100, 100)}%`,
-                        height: '100%', borderRadius: 3,
-                        background: (costoNominaReal / ingresosFacturados) > 0.4 ? '#DC2626' : (costoNominaReal / ingresosFacturados) > 0.25 ? '#D97706' : '#10B981',
-                      }} />
-                    </div>
-                    <span style={{ fontSize: 13, fontWeight: 600, color: '#fff' }}>{PCT(costoNominaReal / ingresosFacturados)}</span>
-                  </div>
-                </div>
-              )}
-            </>
-          )}
-        </Card>
-      </div>
-
-      {/* ── SECOND GRID ROW ─────────────────────────────────────── */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 28 }}>
-
-        {/* TOP CLIENTES (ingresos) */}
-        <Card title="Ingresos por cliente" icon={<ArrowUpRight size={14} />}>
-          {topClientes.length === 0 ? (
-            <div style={{ padding: 20, textAlign: 'center', color: '#555', fontSize: 13 }}>Sin facturación este mes</div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {topClientes.map(([name, total], i) => (
-                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ fontSize: 10, color: '#444', minWidth: 14 }}>{i + 1}</span>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 12, color: '#ccc', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</div>
-                    <div style={{ height: 3, borderRadius: 2, background: '#1a1a1a', marginTop: 3 }}>
-                      <div style={{ height: '100%', borderRadius: 2, background: '#10B981', width: `${(total / topClientes[0][1]) * 100}%`, opacity: 1 - (i * 0.08) }} />
-                    </div>
-                  </div>
-                  <span style={{ fontSize: 12, color: '#fff', fontWeight: 500, fontVariantNumeric: 'tabular-nums', minWidth: 80, textAlign: 'right' }}>{F(total)}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </Card>
-
-        {/* TOP PROVEEDORES (egresos) */}
-        <Card title="Egresos por proveedor" icon={<ArrowDownRight size={14} />}>
-          {topProveedores.length === 0 ? (
-            <div style={{ padding: 20, textAlign: 'center', color: '#555', fontSize: 13 }}>Sin gastos registrados este mes</div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {topProveedores.map(([name, total], i) => (
-                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ fontSize: 10, color: '#444', minWidth: 14 }}>{i + 1}</span>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 12, color: '#ccc', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</div>
-                    <div style={{ height: 3, borderRadius: 2, background: '#1a1a1a', marginTop: 3 }}>
-                      <div style={{ height: '100%', borderRadius: 2, background: '#DC2626', width: `${(total / topProveedores[0][1]) * 100}%`, opacity: 1 - (i * 0.08) }} />
-                    </div>
-                  </div>
-                  <span style={{ fontSize: 12, color: '#fff', fontWeight: 500, fontVariantNumeric: 'tabular-nums', minWidth: 80, textAlign: 'right' }}>{F(total)}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </Card>
-      </div>
-
-      {/* ── THIRD ROW: Flujo bancario + Cobranza ────────────────── */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 28 }}>
-
-        {/* Flujo bancario */}
-        <Card title="Flujo de efectivo (banco)" icon={<DollarSign size={14} />}>
-          {bankMovements.length === 0 ? (
-            <div style={{ padding: 20, textAlign: 'center', color: '#555', fontSize: 13 }}>Sin movimientos bancarios este mes</div>
-          ) : (
-            <>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 16 }}>
-                <MiniStat label="Entradas" value={F2(bankIngresos)} accent="#10B981" />
-                <MiniStat label="Salidas" value={F2(bankEgresos)} accent="#DC2626" />
-                <MiniStat label="Flujo neto" value={F2(bankIngresos - bankEgresos)} accent={bankIngresos >= bankEgresos ? '#10B981' : '#DC2626'} />
-              </div>
-              <div style={{ fontSize: 11, color: '#666', marginBottom: 8 }}>Salidas por categoría</div>
-              {bankPorCategoria.map(([cat, data]) => (
-                <div key={cat} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <div style={{ width: 8, height: 8, borderRadius: 2, background: bankCatColor(cat) }} />
-                    <span style={{ fontSize: 12, color: '#aaa' }}>{bankCatLabel(cat)}</span>
-                    <span style={{ fontSize: 10, color: '#555' }}>({data.count})</span>
-                  </div>
-                  <span style={{ fontSize: 12, color: '#fff', fontWeight: 500, fontVariantNumeric: 'tabular-nums' }}>{F2(data.monto)}</span>
-                </div>
-              ))}
-              {/* Recent movements */}
-              <div style={{ marginTop: 12, borderTop: '1px solid #222', paddingTop: 12 }}>
-                <div style={{ fontSize: 11, color: '#666', marginBottom: 8 }}>Últimos movimientos</div>
-                {bankMovements.slice(0, 5).map((m: any) => (
-                  <div key={m.id} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontSize: 11 }}>
-                    <span style={{ color: '#888', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 200 }}>{m.concepto || m.beneficiario || '—'}</span>
-                    <span style={{ color: m.tipo === 'abono' ? '#10B981' : '#DC2626', fontWeight: 500, fontVariantNumeric: 'tabular-nums' }}>
-                      {m.tipo === 'abono' ? '+' : '-'}{F2(m.monto)}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </>
-          )}
-        </Card>
-
-        {/* Cobranza */}
-        <Card title="Cobranza" icon={<Receipt size={14} />}>
-          {milestones.length === 0 ? (
-            <div style={{ padding: 20, textAlign: 'center', color: '#555', fontSize: 13 }}>
-              Sin hitos de cobro registrados
-              <div style={{ marginTop: 8, fontSize: 11, color: '#444' }}>Los hitos se crean desde cada proyecto</div>
-            </div>
-          ) : (
-            <>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 16 }}>
-                <MiniStat label="Pendiente" value={F(cobranzaPendiente)} accent="#D97706" />
-                <MiniStat label="Vencida" value={F(cobranzaVencida)} accent="#DC2626" />
-                <MiniStat label="Hitos totales" value={String(milestones.length)} accent="#888" />
-              </div>
-              <Table>
-                <thead>
-                  <tr><Th>Hito</Th><Th>Vence</Th><Th>Estado</Th><Th right>Monto</Th></tr>
-                </thead>
-                <tbody>
-                  {milestones.filter(m => m.status !== 'cobrado').slice(0, 8).map((m: any) => {
-                    const proj = projects.find(p => p.id === m.project_id)
-                    return (
-                      <tr key={m.id}>
-                        <Td><div style={{ fontSize: 12 }}>{m.name}</div><div style={{ fontSize: 10, color: '#555' }}>{proj?.name || ''}</div></Td>
-                        <Td muted>{m.due_date || '—'}</Td>
-                        <Td><Badge label={m.status} color={m.status === 'vencido' ? '#DC2626' : m.status === 'vigente' ? '#10B981' : '#D97706'} /></Td>
-                        <Td right>{F(m.amount || 0)}</Td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </Table>
-            </>
-          )}
-        </Card>
-      </div>
-
-      {/* ── REDITUABILIDAD POR ÁREA ─────────────────────────────── */}
-      <div style={{ background: '#0f0f0f', border: '1px solid #1a1a1a', borderRadius: 12, padding: '16px 18px', marginBottom: 28 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 14, color: '#888', fontSize: 13, fontWeight: 600 }}>
-          <BarChart3 size={14} />
-          Redituabilidad por área de negocio
-        </div>
-
-        {(() => {
-          const totalRevenue = areasNegocio.reduce((s, a) => s + a.ventas, 0)
-          const totalCost = areasNegocio.reduce((s, a) => s + a.costoTotal, 0)
-          const totalMargen = totalRevenue - totalCost
-          return (
-            <>
-              {/* Summary KPIs */}
-              {(() => {
-                const oh = areasNegocio[0] // all rows carry the same overhead info
-                const overheadPctVal = oh?.overheadPct || 0
+      <Tarjeta titulo="Estado de flujo de efectivo"
+        subtitulo="Lo que realmente entró y salió de banco y caja. Los traspasos entre cuentas propias no cuentan. El revolvente se muestra aparte: es financiamiento, no gasto.">
+        <div style={{ overflowX: 'auto', border: '1px solid #222', borderRadius: 10 }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 300 + meses.length * 92 }}>
+            <thead>
+              <tr>
+                <th style={{ ...thS, textAlign: 'left', position: 'sticky', left: 0, zIndex: 1 }}>Concepto</th>
+                {meses.map(m => <th key={m.mes} style={{ ...thS, color: m.enCurso ? '#555' : '#77766f' }}>{m.etiqueta}{m.enCurso ? '*' : ''}</th>)}
+                <th style={thS}>Total</th>
+                <th style={thS}>Por $100 cobrados</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filas.map(f => {
+                const tot = meses.reduce((s, m) => s + f.valor(m), 0)
+                const fuerte = !!f.total
+                const clave = fuerte && f.nombre.startsWith('FLUJO')
                 return (
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12, marginBottom: 16 }}>
-                    <MiniStat label="Ventas totales (contratos)" value={F(totalRevenue)} accent="#10B981" />
-                    <MiniStat label="Gastos fijos" value={F(oh?.gastosFijos || 0)} accent="#D97706" />
-                    <MiniStat label="Gastos generales" value={F(oh?.gastosGenerales || 0)} accent="#DC2626" />
-                    <MiniStat label="Overhead %" value={overheadPctVal > 0 ? PCT(overheadPctVal) : '—'} accent={overheadPctVal <= 0.25 ? '#10B981' : overheadPctVal <= 0.4 ? '#D97706' : '#DC2626'} />
-                    <MiniStat label="Margen operativo" value={F(totalMargen)} accent={totalMargen >= 0 ? '#10B981' : '#DC2626'} />
-                  </div>
-                )
-              })()}
-
-              {/* Revenue share bar */}
-              {totalRevenue > 0 && (
-                <div style={{ marginBottom: 16 }}>
-                  <div style={{ fontSize: 11, color: '#555', marginBottom: 6 }}>Distribución de ventas por área</div>
-                  <div style={{ display: 'flex', height: 20, borderRadius: 6, overflow: 'hidden' }}>
-                    {areasNegocio.filter(a => a.ventas > 0).map(a => (
-                      <div key={a.key} style={{ width: `${(a.ventas / totalRevenue) * 100}%`, background: a.color, transition: 'width 0.3s', minWidth: 2 }}
-                        title={`${a.label}: ${F(a.ventas)} (${PCT(a.ventas / totalRevenue)})`} />
-                    ))}
-                  </div>
-                  <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 6 }}>
-                    {areasNegocio.filter(a => a.ventas > 0).map(a => (
-                      <div key={a.key} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, color: '#888' }}>
-                        <div style={{ width: 8, height: 8, borderRadius: 2, background: a.color }} />
-                        {a.label} ({PCT(a.ventas / totalRevenue)})
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Detail table */}
-              <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                  <thead>
-                    <tr style={{ borderBottom: '1px solid #333' }}>
-                      <th style={thS}>Área</th>
-                      <th style={{ ...thS, textAlign: 'center' }}>Tipo</th>
-                      <th style={{ ...thS, textAlign: 'center' }}>HC</th>
-                      <th style={{ ...thS, ...thRight }}>Ventas</th>
-                      <th style={{ ...thS, ...thRight }}>Nómina</th>
-                      <th style={{ ...thS, ...thRight }}>Compras</th>
-                      <th style={{ ...thS, ...thRight }}>Overhead</th>
-                      <th style={{ ...thS, ...thRight }}>Costo Total</th>
-                      <th style={{ ...thS, ...thRight }}>Margen</th>
-                      <th style={{ ...thS, textAlign: 'center' }}>% Margen</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {areasNegocio.map(a => {
-                      const tipoLabel = a.tipo === 'proyecto' ? 'Proyecto' : a.tipo === 'suministro' ? 'Suministro' : 'Ejecución'
-                      const tipoColor = a.tipo === 'proyecto' ? '#A78BFA' : a.tipo === 'suministro' ? '#D97706' : '#2563EB'
-                      return (
-                        <tr key={a.key} style={{ borderBottom: '1px solid #1a1a1a' }}>
-                          <td style={tdS}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                              <div style={{ width: 4, height: 24, borderRadius: 2, background: a.color }} />
-                              <span style={{ fontWeight: 500, color: '#fff' }}>{a.label}</span>
-                            </div>
-                          </td>
-                          <td style={{ ...tdS, textAlign: 'center' }}>
-                            <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 4, fontWeight: 600, background: `${tipoColor}20`, color: tipoColor }}>{tipoLabel}</span>
-                          </td>
-                          <td style={{ ...tdS, textAlign: 'center', color: '#888' }}>{a.headcount || '—'}</td>
-                          <td style={{ ...tdS, ...tdRight, color: a.ventas > 0 ? '#10B981' : '#444', fontWeight: a.ventas > 0 ? 600 : 400 }}>{a.ventas > 0 ? F(a.ventas) : '—'}</td>
-                          <td style={{ ...tdS, ...tdRight, color: a.costoNomina > 0 ? '#A78BFA' : '#444' }}>{a.costoNomina > 0 ? F(a.costoNomina) : '—'}</td>
-                          <td style={{ ...tdS, ...tdRight, color: a.compras > 0 ? '#D97706' : '#444' }}>{a.compras > 0 ? F(a.compras) : '—'}</td>
-                          <td style={{ ...tdS, ...tdRight, color: a.overhead > 0 ? '#888' : '#444' }}>{a.overhead > 0 ? F(a.overhead) : '—'}</td>
-                          <td style={{ ...tdS, ...tdRight, color: a.costoTotal > 0 ? '#DC2626' : '#444', fontWeight: 500 }}>{a.costoTotal > 0 ? F(a.costoTotal) : '—'}</td>
-                          <td style={{ ...tdS, ...tdRight, fontWeight: 600, color: a.margen > 0 ? '#10B981' : a.margen < 0 ? '#DC2626' : '#444' }}>
-                            {a.ventas > 0 || a.costoTotal > 0 ? F(a.margen) : '—'}
-                          </td>
-                          <td style={{ ...tdS, textAlign: 'center' }}>
-                            {a.ventas > 0 ? (
-                              <span style={{ fontSize: 12, fontWeight: 600, color: a.pctMargen >= 0.2 ? '#10B981' : a.pctMargen >= 0 ? '#D97706' : '#DC2626' }}>
-                                {PCT(a.pctMargen)}
-                              </span>
-                            ) : a.costoTotal > 0 ? (
-                              <span style={{ fontSize: 10, color: '#DC2626' }}>sin ventas</span>
-                            ) : '—'}
-                          </td>
-                        </tr>
-                      )
+                  <tr key={f.nombre} style={{ background: clave ? '#1a1a1a' : undefined }}>
+                    <td style={{ ...tdS, textAlign: 'left', position: 'sticky', left: 0, background: clave ? '#1a1a1a' : '#141414', fontWeight: fuerte ? 700 : 400, color: fuerte ? '#fff' : '#a9a8a1', paddingLeft: f.sub ? 18 : 10 }}>
+                      {f.color && <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 2, background: f.color, marginRight: 7 }} />}
+                      {f.nombre}
+                    </td>
+                    {meses.map(m => {
+                      const v = f.valor(m) * f.signo
+                      return <td key={m.mes} style={{ ...tdS, fontWeight: fuerte ? 700 : 400, color: clave ? (v < 0 ? '#e66767' : '#7fd17f') : v === 0 ? '#444' : '#d6d5d0', opacity: m.enCurso ? 0.6 : 1 }}>{v === 0 ? '—' : fmtM(v)}</td>
                     })}
-                    {/* Totals row */}
-                    <tr style={{ borderTop: '2px solid #333' }}>
-                      <td style={{ ...tdS, fontWeight: 600, color: '#888' }}>TOTAL</td>
-                      <td style={tdS} />
-                      <td style={{ ...tdS, textAlign: 'center', fontWeight: 600, color: '#888' }}>{areasNegocio.reduce((s, a) => s + a.headcount, 0)}</td>
-                      <td style={{ ...tdS, ...tdRight, fontWeight: 700, color: '#10B981' }}>{F(totalRevenue)}</td>
-                      <td style={{ ...tdS, ...tdRight, fontWeight: 600, color: '#A78BFA' }}>{F(areasNegocio.reduce((s, a) => s + a.costoNomina, 0))}</td>
-                      <td style={{ ...tdS, ...tdRight, fontWeight: 600, color: '#D97706' }}>{F(areasNegocio.reduce((s, a) => s + a.compras, 0))}</td>
-                      <td style={{ ...tdS, ...tdRight, fontWeight: 600, color: '#888' }}>{F(areasNegocio.reduce((s, a) => s + a.overhead, 0))}</td>
-                      <td style={{ ...tdS, ...tdRight, fontWeight: 700, color: '#DC2626' }}>{F(totalCost)}</td>
-                      <td style={{ ...tdS, ...tdRight, fontWeight: 700, color: totalMargen >= 0 ? '#10B981' : '#DC2626' }}>{F(totalMargen)}</td>
-                      <td style={{ ...tdS, textAlign: 'center', fontWeight: 700, color: totalRevenue > 0 && totalMargen >= 0 ? '#10B981' : '#DC2626' }}>
-                        {totalRevenue > 0 ? PCT(totalMargen / totalRevenue) : '—'}
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-
-              {/* Note about overhead */}
-              <div style={{ marginTop: 12, padding: '8px 12px', background: '#111', borderRadius: 6, border: '1px solid #1a1a1a', fontSize: 10, color: '#555' }}>
-                Overhead % = (Gastos fijos + Gastos generales) / Ventas totales → prorrateado proporcionalmente por ventas de cada área.
-                <br />Gastos fijos = nómina admin + servicios (renta, luz, tel). Gastos generales = otros gastos + impuestos patronales.
-                {areasNegocio.some(a => a.costoTotal > 0 && a.ventas === 0) && (
-                  <span style={{ color: '#D97706' }}> Áreas sin ventas absorben $0 de overhead (solo muestran costos directos).</span>
-                )}
-              </div>
-            </>
-          )
-        })()}
-      </div>
-
-      {/* ── LEAD FINANCIERO: tabla comparativa ───────────────────── */}
-      <div style={{ background: '#0f0f0f', border: '1px solid #1a1a1a', borderRadius: 12, padding: '16px 18px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#888', fontSize: 13, fontWeight: 600 }}>
-            <TrendingUp size={14} />
-            Comparativa financiera por proyecto
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 11, color: '#666' }}>TC USD→MXN:</span>
-            <input
-              type="number" step="0.1" value={tipoCambio}
-              onChange={e => setTipoCambio(Number(e.target.value) || DEFAULT_TC)}
-              style={{ width: 70, padding: '4px 8px', fontSize: 12, background: '#0a0a0a', border: '1px solid #333', borderRadius: 6, color: '#10B981', fontWeight: 600, textAlign: 'center', fontFamily: 'inherit' }}
-            />
-          </div>
+                    <td style={{ ...tdS, fontWeight: 700, color: clave ? (tot * f.signo < 0 ? '#e66767' : '#7fd17f') : '#fff' }}>{fmtM(tot * f.signo)}</td>
+                    <td style={{ ...tdS, color: '#a9a8a1' }}>{(tot * f.signo / cob * 100).toFixed(1)}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
         </div>
-        {leadsFinancieros.length === 0 ? (
-          <div style={{ padding: 20, textAlign: 'center', color: '#555', fontSize: 13 }}>Sin contratos cerrados</div>
-        ) : (
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-              <thead>
-                <tr style={{ borderBottom: '1px solid #333' }}>
-                  <th style={thS}>Proyecto</th>
-                  <th style={{ ...thS, textAlign: 'center', width: 40 }}>$</th>
-                  <th style={{ ...thS, ...thRight }}>Total Vendido</th>
-                  <th style={{ ...thS, ...thRight }}>Total Cobrado</th>
-                  <th style={{ ...thS, textAlign: 'center' }}>% Cobro</th>
-                  <th style={{ ...thS, ...thRight }}>Total Compras</th>
-                  <th style={{ ...thS, ...thRight }}>Total Comprado</th>
-                  <th style={{ ...thS, textAlign: 'center' }}>% Compras</th>
-                  <th style={{ ...thS, ...thRight }}>Por Comprar</th>
-                  <th style={{ ...thS, ...thRight }}>Por Cobrar</th>
-                </tr>
-              </thead>
-              <tbody>
-                {leadsFinancieros.map(l => {
-                  const sym = l.moneda === 'USD' ? 'US$' : '$'
-                  const Fm = (n: number) => sym + n.toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 0 })
-                  return (
-                    <tr key={l.id} style={{ borderBottom: '1px solid #1a1a1a' }}>
-                      <td style={tdS}>
-                        <div style={{ fontWeight: 500, color: '#fff' }}>{l.name}</div>
-                        <div style={{ fontSize: 10, color: '#555' }}>{l.company} · {l.projectCount} proy · {l.quotCount} cot</div>
-                      </td>
-                      <td style={{ ...tdS, textAlign: 'center' }}>
-                        <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 4, fontWeight: 600, background: l.moneda === 'USD' ? '#2563EB20' : '#10B98120', color: l.moneda === 'USD' ? '#2563EB' : '#10B981' }}>{l.moneda}</span>
-                      </td>
-                      <td style={{ ...tdS, ...tdRight, color: '#10B981', fontWeight: 600 }}>{Fm(l.totalVendido)}</td>
-                      <td style={{ ...tdS, ...tdRight, color: l.totalCobrado > 0 ? '#10B981' : '#555' }}>{Fm(l.totalCobrado)}</td>
-                      <td style={{ ...tdS, textAlign: 'center' }}>
-                        <MiniProgress pct={l.pctCobro} color="#10B981" />
-                      </td>
-                      <td style={{ ...tdS, ...tdRight, color: l.totalCompras > 0 ? '#2563EB' : '#555' }}>{Fm(l.totalCompras)}</td>
-                      <td style={{ ...tdS, ...tdRight, color: l.totalComprado > 0 ? '#D97706' : '#555' }}>{Fm(l.totalComprado)}</td>
-                      <td style={{ ...tdS, textAlign: 'center' }}>
-                        <MiniProgress pct={l.pctCompras} color="#2563EB" />
-                      </td>
-                      <td style={{ ...tdS, ...tdRight, color: l.porComprar > 0 ? '#D97706' : '#555' }}>{Fm(l.porComprar)}</td>
-                      <td style={{ ...tdS, ...tdRight, color: l.porCobrar > 0 ? '#DC2626' : '#10B981', fontWeight: l.porCobrar > 0 ? 600 : 400 }}>{Fm(l.porCobrar)}</td>
-                    </tr>
-                  )
-                })}
-                {/* Totals row — consolidated in MXN */}
-                <tr style={{ borderTop: '2px solid #333' }}>
-                  <td style={{ ...tdS, fontWeight: 600, color: '#888' }}>TOTAL (MXN)</td>
-                  <td style={{ ...tdS, textAlign: 'center' }}>
-                    <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 4, fontWeight: 600, background: '#10B98120', color: '#10B981' }}>MXN</span>
-                  </td>
-                  <td style={{ ...tdS, ...tdRight, fontWeight: 700, color: '#10B981' }}>{F(leadsFinancieros.reduce((s, l) => s + l.totalVendidoMXN, 0))}</td>
-                  <td style={{ ...tdS, ...tdRight, fontWeight: 600, color: '#10B981' }}>{F(leadsFinancieros.reduce((s, l) => s + (l.moneda === 'USD' ? l.totalCobrado * tipoCambio : l.totalCobrado), 0))}</td>
-                  <td style={tdS}>{' '}</td>
-                  <td style={{ ...tdS, ...tdRight, fontWeight: 600, color: '#2563EB' }}>{F(leadsFinancieros.reduce((s, l) => s + (l.moneda === 'USD' ? l.totalCompras * tipoCambio : l.totalCompras), 0))}</td>
-                  <td style={{ ...tdS, ...tdRight, fontWeight: 600, color: '#D97706' }}>{F(leadsFinancieros.reduce((s, l) => s + (l.moneda === 'USD' ? l.totalComprado * tipoCambio : l.totalComprado), 0))}</td>
-                  <td style={tdS}>{' '}</td>
-                  <td style={{ ...tdS, ...tdRight, fontWeight: 600, color: '#D97706' }}>{F(leadsFinancieros.reduce((s, l) => s + l.porComprarMXN, 0))}</td>
-                  <td style={{ ...tdS, ...tdRight, fontWeight: 700, color: '#DC2626' }}>{F(leadsFinancieros.reduce((s, l) => s + l.porCobrarMXN, 0))}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+        <Nota>
+          * Mes en curso. «Salidas sin clasificar» son cargos del banco con categoría «otro»: antes de julio de 2026 ahí vive buena parte
+          de los pagos a proveedores y de la nómina, por eso esos meses se ven con proveedores bajos. Se clasifican en Contabilidad → Conciliación.
+          La nómina aquí es lo que salió por banco y caja; en Resumen se usa el módulo de nómina cuando el mes está cerrado.
+        </Nota>
+      </Tarjeta>
     </div>
   )
 }
-
-// ═══════════════════════════════════════════════════════════════════
-// Small UI helpers
-// ═══════════════════════════════════════════════════════════════════
-
-function Card({ title, icon, children }: { title: string; icon?: React.ReactNode; children: React.ReactNode }) {
-  return (
-    <div style={{ background: '#0f0f0f', border: '1px solid #1a1a1a', borderRadius: 12, padding: '16px 18px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 14, color: '#888', fontSize: 13, fontWeight: 600 }}>
-        {icon}
-        {title}
-      </div>
-      {children}
-    </div>
-  )
-}
-
-function SmallKpi({ label, value, color }: { label: string; value: string; color: string }) {
-  return (
-    <div style={{ background: '#111', border: '1px solid #1a1a1a', borderRadius: 8, padding: '10px 12px' }}>
-      <div style={{ fontSize: 10, color: '#666', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>{label}</div>
-      <div style={{ fontSize: 16, fontWeight: 600, color, fontVariantNumeric: 'tabular-nums' }}>{value}</div>
-    </div>
-  )
-}
-
-function MiniStat({ label, value, accent }: { label: string; value: string; accent: string }) {
-  return (
-    <div style={{ padding: '8px 10px', background: '#111', borderRadius: 8, border: '1px solid #1a1a1a' }}>
-      <div style={{ fontSize: 10, color: '#555', marginBottom: 2 }}>{label}</div>
-      <div style={{ fontSize: 14, fontWeight: 600, color: accent, fontVariantNumeric: 'tabular-nums' }}>{value}</div>
-    </div>
-  )
-}
-
-function MiniProgress({ pct, color }: { pct: number; color: string }) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'center' }}>
-      <div style={{ width: 40, height: 5, borderRadius: 3, background: '#1a1a1a' }}>
-        <div style={{ width: `${Math.min(pct * 100, 100)}%`, height: '100%', borderRadius: 3, background: color, transition: 'width 0.3s' }} />
-      </div>
-      <span style={{ fontSize: 11, color: pct > 0 ? color : '#444', fontWeight: 500, fontVariantNumeric: 'tabular-nums', minWidth: 32 }}>{PCT(pct)}</span>
-    </div>
-  )
-}
-
-const navBtnS: React.CSSProperties = {
-  background: '#111', border: '1px solid #222', borderRadius: 6, padding: '6px 8px',
-  color: '#888', cursor: 'pointer', display: 'flex', alignItems: 'center',
-}
-
-// Table styles for the lead financial table
-const thS: React.CSSProperties = { padding: '8px 10px', fontSize: 10, fontWeight: 600, color: '#666', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'left', whiteSpace: 'nowrap' }
-const thRight: React.CSSProperties = { textAlign: 'right' }
-const tdS: React.CSSProperties = { padding: '10px 10px', fontSize: 12, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }
-const tdRight: React.CSSProperties = { textAlign: 'right' }
