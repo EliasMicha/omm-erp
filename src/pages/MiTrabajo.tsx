@@ -149,6 +149,25 @@ const CSS = `
 .mt-lm .v{font-family:var(--mono);font-size:15px;font-weight:600;margin-top:4px}
 .mt-lm .v small{font-size:10px;color:var(--ink-3);font-weight:400}
 .mt-err{color:var(--rojo);font-size:12px;margin-top:8px}
+.mt-kb{display:grid;grid-template-columns:repeat(4,minmax(230px,1fr));gap:12px;margin-top:16px;overflow-x:auto;padding-bottom:6px}
+.mt-kc{background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:10px;min-height:180px;display:flex;flex-direction:column;gap:8px;transition:border-color .12s,background .12s}
+.mt-kc.drop{border-color:var(--verde);background:color-mix(in srgb,var(--verde) 6%,var(--surface-2))}
+.mt-kc.nodrop{opacity:.55}
+.mt-kh{display:flex;align-items:baseline;gap:8px;padding:2px 4px 4px}
+.mt-kh .t{font-size:12px;font-weight:700}
+.mt-kh .n{font-family:var(--mono);font-size:11px;color:var(--ink-3)}
+.mt-kh .h{font-size:10.5px;color:var(--ink-3);margin-left:auto}
+.mt-kt{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:10px 11px;cursor:pointer;text-align:left;font-family:inherit;color:inherit;width:100%}
+.mt-kt:hover{border-color:color-mix(in srgb,var(--ink-3) 70%,transparent)}
+.mt-kt[draggable=true]{cursor:grab}
+.mt-kt.mov{opacity:.4}
+.mt-kt .nm{font-size:13px;font-weight:500;line-height:1.35;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.mt-kt .ctx{font-size:11px;color:var(--ink-3);display:flex;align-items:center;gap:6px;margin-top:6px;min-width:0}
+.mt-kt .ctx span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mt-kt .ft{display:flex;align-items:center;gap:8px;margin-top:8px;font-family:var(--mono);font-size:10.5px}
+.mt-kt .mv{margin-left:auto;appearance:none;border:1px solid var(--line);background:var(--surface-2);color:var(--ink-2);font:600 10.5px 'Inter',sans-serif;border-radius:5px;padding:2px 7px;cursor:pointer}
+.mt-kt .mv:hover{color:var(--ink);border-color:var(--ink-3)}
+.mt-kempty{font-size:11.5px;color:var(--ink-3);text-align:center;padding:16px 6px;border:1px dashed var(--line);border-radius:8px}
 `
 
 const titulo = (s?: string | null) => (s || '').toLowerCase().replace(/(^|\s)\S/g, m => m.toUpperCase())
@@ -261,7 +280,25 @@ function Grupo({ titulo, n, color, children }: { titulo: string; n: number; colo
 function Lista({ persona, visibles, setPersonaId, gente, onAbrir }: {
   persona: Persona | null; visibles: Persona[]; setPersonaId: (id: string) => void; gente: Persona[]; onAbrir: (t: TareaMT) => void
 }) {
-  const [modo, setModo] = useState<'fecha' | 'proyecto'>('fecha')
+  const [modo, setModo] = useState<'fecha' | 'proyecto' | 'kanban'>(() => {
+    try { const v = localStorage.getItem('mt_modo'); return v === 'proyecto' || v === 'kanban' ? v : 'fecha' } catch (e) { return 'fecha' }
+  })
+  const elegirModo = (m: 'fecha' | 'proyecto' | 'kanban') => { setModo(m); try { localStorage.setItem('mt_modo', m) } catch (e) { /* sin storage */ } }
+  const [errorMover, setErrorMover] = useState('')
+
+  // Mover entre "Por hacer" y "En proceso" desde el Kanban. Lo demás (entregar,
+  // corregir) pasa por la tarea, porque lleva archivo y revisor.
+  async function moverEstado(t: TareaMT, status: 'pendiente' | 'en_progreso') {
+    if (t.status === status) return
+    setErrorMover('')
+    const antes = t.status
+    setTareas(xs => xs.map(x => x.id === t.id ? { ...x, status } : x))
+    const { error } = await supabase.from('project_tasks').update({ status }).eq('id', t.id)
+    if (error) {
+      setTareas(xs => xs.map(x => x.id === t.id ? { ...x, status: antes } : x))
+      setErrorMover('No se pudo mover «' + t.name + '»: ' + error.message)
+    }
+  }
   const [tareas, setTareas] = useState<TareaMT[]>([])
   const [pasos, setPasos] = useState<Record<string, ConteoPasos>>({})
   const [ultimo, setUltimo] = useState<Record<string, Entregable>>({})
@@ -298,7 +335,9 @@ function Lista({ persona, visibles, setPersonaId, gente, onAbrir }: {
   const ctxFase = (t: TareaMT) => <span>{t.phase ? `Fase ${t.phase.name}` : 'Sin fase'}</span>
 
   let cuerpo: React.ReactNode
-  if (modo === 'fecha') {
+  if (modo === 'kanban') {
+    cuerpo = <Kanban tareas={tareas} pasos={pasos} ultimo={ultimo} ctx={ctxProyecto} onAbrir={onAbrir} onMover={moverEstado} />
+  } else if (modo === 'fecha') {
     cuerpo = CAJONES.map(c => {
       const xs = resto.filter(t => cajonDe(t) === c.k).sort((a, b) =>
         String(a.due_date || '').localeCompare(String(b.due_date || '')) ||
@@ -347,8 +386,9 @@ function Lista({ persona, visibles, setPersonaId, gente, onAbrir }: {
           </select>
         )}
         <div className="mt-seg" style={{ marginLeft: 'auto' }}>
-          <button className={modo === 'fecha' ? 'on' : ''} onClick={() => setModo('fecha')}>Por fecha</button>
-          <button className={modo === 'proyecto' ? 'on' : ''} onClick={() => setModo('proyecto')}>Por proyecto</button>
+          <button className={modo === 'fecha' ? 'on' : ''} onClick={() => elegirModo('fecha')}>Por fecha</button>
+          <button className={modo === 'proyecto' ? 'on' : ''} onClick={() => elegirModo('proyecto')}>Por proyecto</button>
+          <button className={modo === 'kanban' ? 'on' : ''} onClick={() => elegirModo('kanban')}>Kanban</button>
         </div>
       </div>
 
@@ -369,7 +409,8 @@ function Lista({ persona, visibles, setPersonaId, gente, onAbrir }: {
               </div>
             </div>
           )}
-          {devueltas.length > 0 && (
+          {errorMover && <div className="mt-err">{errorMover}</div>}
+          {modo !== 'kanban' && devueltas.length > 0 && (
             <div className="mt-block rojo">
               <div className="bh">Te la devolvieron · hay algo que corregir</div>
               <div className="mt-rows">
@@ -377,7 +418,7 @@ function Lista({ persona, visibles, setPersonaId, gente, onAbrir }: {
               </div>
             </div>
           )}
-          {esperando.length > 0 && (
+          {modo !== 'kanban' && esperando.length > 0 && (
             <div className="mt-block ambar">
               <div className="bh">⏸ Esperando respuesta · no es tuyo hasta que contesten</div>
               <div className="mt-rows">
@@ -392,17 +433,112 @@ function Lista({ persona, visibles, setPersonaId, gente, onAbrir }: {
             </div>
           )}
 
-          {resto.length === 0 && devueltas.length === 0 && esperando.length === 0
+          {tareas.length === 0
             ? <div className="mt-empty" style={{ marginTop: 18 }}>No hay ninguna tarea abierta a nombre de {titulo(persona.nombre)}.</div>
             : cuerpo}
 
           <div className="mt-note">
             <b>{tareas.length} tareas abiertas</b>{sinFecha > 0 && <> · <b>{sinFecha}</b> sin fecha de entrega</>}. “Sin fecha” se muestra a propósito: es la lista de lo que nadie ha comprometido.
-            Por fecha para saber qué urge hoy; por proyecto para despachar una obra completa.
+            Por fecha para saber qué urge hoy; por proyecto para despachar una obra completa; Kanban para ver en qué va cada una
+            (arrastra entre «Por hacer» y «En proceso»; para entregar, abre la tarea).
           </div>
         </>
       )}
     </>
+  )
+}
+
+// ── Kanban ─────────────────────────────────────────────────────────────────
+// Columnas por en qué va la tarea. Solo se arrastra entre "Por hacer" y "En
+// proceso": entregar lleva archivo y revisor, y la devolución la decide quien
+// revisa, así que esas dos columnas se llenan solas y una tarjeta soltada ahí
+// abre la tarea en lugar de fingir un cambio de estado.
+
+type ColKanban = 'por_hacer' | 'en_proceso' | 'corregir' | 'en_revision'
+
+const COLS_KANBAN: { k: ColKanban; t: string; h: string; color: string; arrastrable: boolean }[] = [
+  { k: 'por_hacer', t: 'Por hacer', h: 'sin empezar', color: 'var(--ink-2)', arrastrable: true },
+  { k: 'en_proceso', t: 'En proceso', h: 'ya empezó', color: 'var(--cyan)', arrastrable: true },
+  { k: 'corregir', t: 'Te la devolvieron', h: 'corregir', color: 'var(--rojo)', arrastrable: false },
+  { k: 'en_revision', t: 'En revisión', h: 'esperando respuesta', color: 'var(--ambar)', arrastrable: false },
+]
+
+function columnaDe(t: TareaMT, ultimo: Record<string, Entregable>): ColKanban {
+  const e = ultimo[t.id]?.estado
+  if (e === 'corregir') return 'corregir'
+  if (e === 'en_revision') return 'en_revision'
+  return t.status === 'en_progreso' ? 'en_proceso' : 'por_hacer'
+}
+
+function Kanban({ tareas, pasos, ultimo, ctx, onAbrir, onMover }: {
+  tareas: TareaMT[]
+  pasos: Record<string, ConteoPasos>
+  ultimo: Record<string, Entregable>
+  ctx: (t: TareaMT) => React.ReactNode
+  onAbrir: (t: TareaMT) => void
+  onMover: (t: TareaMT, status: 'pendiente' | 'en_progreso') => void
+}) {
+  const [arrastrando, setArrastrando] = useState<string | null>(null)
+  const [sobre, setSobre] = useState<ColKanban | null>(null)
+  const porFecha = (a: TareaMT, b: TareaMT) =>
+    String(a.due_date || '9999').localeCompare(String(b.due_date || '9999')) ||
+    String(a.project?.name || '').localeCompare(String(b.project?.name || ''), 'es')
+
+  const soltar = (col: ColKanban) => {
+    const t = tareas.find(x => x.id === arrastrando)
+    setArrastrando(null); setSobre(null)
+    if (!t) return
+    if (col === 'por_hacer') onMover(t, 'pendiente')
+    else if (col === 'en_proceso') onMover(t, 'en_progreso')
+    else onAbrir(t) // entregar / corregir se hace dentro de la tarea
+  }
+
+  return (
+    <div className="mt-kb">
+      {COLS_KANBAN.map(c => {
+        const xs = tareas.filter(t => columnaDe(t, ultimo) === c.k).sort(porFecha)
+        const cls = 'mt-kc' + (arrastrando && sobre === c.k ? ' drop' : '') + (arrastrando && !c.arrastrable ? ' nodrop' : '')
+        return (
+          <div key={c.k} className={cls}
+            onDragOver={e => { if (arrastrando) { e.preventDefault(); setSobre(c.k) } }}
+            onDragLeave={() => setSobre(s => (s === c.k ? null : s))}
+            onDrop={e => { e.preventDefault(); soltar(c.k) }}>
+            <div className="mt-kh">
+              <span className="t" style={{ color: c.color }}>{c.t}</span>
+              <span className="n">{xs.length}</span>
+              <span className="h">{c.h}</span>
+            </div>
+            {xs.length === 0 && <div className="mt-kempty">{c.arrastrable ? 'Arrastra aquí' : 'Nada por ahora'}</div>}
+            {xs.map(t => {
+              const f = etiquetaFecha(t)
+              const p = pasos[t.id]
+              const mueve = c.k === 'por_hacer' || c.k === 'en_proceso'
+              return (
+                <div key={t.id} role="button" tabIndex={0} className={'mt-kt' + (arrastrando === t.id ? ' mov' : '')}
+                  draggable={mueve}
+                  onDragStart={e => { setArrastrando(t.id); try { e.dataTransfer.setData('text/plain', t.id); e.dataTransfer.effectAllowed = 'move' } catch (er) { /* algunos navegadores */ } }}
+                  onDragEnd={() => { setArrastrando(null); setSobre(null) }}
+                  onClick={() => onAbrir(t)}
+                  onKeyDown={e => { if (e.key === 'Enter') onAbrir(t) }}>
+                  <div className="nm" title={t.name}>{t.name}</div>
+                  <div className="ctx">{ctx(t)}</div>
+                  <div className="ft">
+                    <span style={{ color: f.color }}>{f.txt}</span>
+                    {p && p.total > 0 && <span style={{ color: 'var(--ink-3)' }}>{p.hechos}/{p.total}</span>}
+                    {c.k === 'por_hacer' && (
+                      <button className="mv" type="button" onClick={e => { e.stopPropagation(); onMover(t, 'en_progreso') }}>Empezar ▸</button>
+                    )}
+                    {c.k === 'en_proceso' && (
+                      <button className="mv" type="button" onClick={e => { e.stopPropagation(); onMover(t, 'pendiente') }}>◂ Por hacer</button>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )
+      })}
+    </div>
   )
 }
 

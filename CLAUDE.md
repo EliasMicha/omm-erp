@@ -3238,3 +3238,31 @@ Entrantes y salientes; solo `service_role` escribe y `usuario_real()` lee. Migra
 2. Clasificar `otro` (sobre todo USD).
 3. El estado de cuenta Banorte lleva semanas sin cargar.
 4. CxP solo ve OC: los pagos a proveedor sin OC no generan deuda.
+
+## 🧭 Sistema de trabajo — un solo motor de plantillas y Kanban (2026-10-24)
+
+**Motor compartido: `src/lib/plantillaCore.ts`**
+- Recibe el cliente de Supabase como parámetro (`db: any`). No importa nada del navegador; solo `./roles`, que es puro.
+- Lo usan el ERP y el MCP:
+  - `plantillas.ts` (`crearActividades`, `fechaDe`) delega aquí;
+  - `projectUtils.ts` (`aplicarPlantillaDeArea`) también;
+  - el MCP lo importa con `../../../src/lib/plantillaCore.ts`, que esbuild empaqueta.
+- **Regla:** no metas imports con efectos (`./supabase`, `./tareas`) a ese archivo, o el bundle del MCP arrastra el cliente del navegador.
+- `AREA_DE_ESPECIALIDAD` y la prioridad por urgencia son copias de `AREAS_TRABAJO` y `URGENCIA_TAREA_CFG` (`tareas.ts`). Si allá cambian, aquí también.
+
+**MCP `derivar_levantamiento`**
+- Ya no usa `project_*_templates`.
+- La vista previa muestra la plantilla, las etapas, cuántas actividades crearía y quién llevaría cada rol.
+- Al confirmar, crea el proyecto y aplica `aplicarPlantillaDeAreaCon`: fases por etapa, responsable por rol y fecha.
+- ⚠️ **Falta desplegar el MCP.** El bundle compila (235 KB), pero no se publicó porque el token de despliegue (`.claude-sbp`) está en la Mac y la Mac no estaba conectada. El código del repo va adelante de la función publicada hasta que se despliegue.
+
+**Mi trabajo → vista Kanban**
+- Tercera opción junto a "Por fecha" y "Por proyecto". Se recuerda en `localStorage` (`mt_modo`).
+- Columnas: Por hacer (`pendiente`), En proceso (`en_progreso`), Te la devolvieron (entregable `corregir`) y En revisión (entregable `en_revision`).
+- Solo se arrastra entre las dos primeras; también hay botones "Empezar ▸" y "◂ Por hacer" para el celular.
+- Soltar una tarjeta en las columnas de revisión abre la tarea, porque entregar lleva archivo y revisor.
+
+**Pendiente**
+- **XENTER** (proyecto `e6d228b5…`): se creó el 21-oct con las plantillas viejas (29 tareas pendientes, sin fecha, sin etapa, intactas). Hay que confirmar con Elias si se borran y se le aplica `esp_proyecto_2026`.
+- **Cuentas ERP** para Marco Antonio Mendoza, Jonatan Díaz, Alejandra Álvarez y Renata: faltan sus correos. En `employees.email` están null; Nimbe también.
+- **Tabla de etapas de los 34 proyectos:** el doc sigue en la rev 16, sin llenar.

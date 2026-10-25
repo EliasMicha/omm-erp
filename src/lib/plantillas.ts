@@ -17,8 +17,13 @@
 //      marca, porque significa que el encargo ya nació tarde.
 // ═══════════════════════════════════════════════════════════════════════════
 import { supabase } from './supabase'
-import { Rol, EmpleadoRol, resolverResponsable, tieneRol } from './roles'
-import { AREAS_TRABAJO, URGENCIA_TAREA_CFG, UrgenciaTarea, TipoTarea } from './tareas'
+import { Rol, EmpleadoRol } from './roles'
+import { UrgenciaTarea, TipoTarea } from './tareas'
+import { crearActividadesCon, ContextoEncargo, ResultadoAplicar } from './plantillaCore'
+// El motor (fechas, reparto por rol, crear las tareas) vive en plantillaCore,
+// sin cliente propio, para que el MCP use exactamente el mismo.
+export { fechaDe } from './plantillaCore'
+export type { ContextoEncargo, ResultadoAplicar } from './plantillaCore'
 
 export interface PlantillaEncargo {
   id: string
@@ -131,53 +136,7 @@ export async function borrarPlantilla(id: string): Promise<void> {
   await supabase.from('plantillas_encargo').update({ activo: false }).eq('id', id)
 }
 
-// ── Fechas ─────────────────────────────────────────────────────────────────
-
-const iso = (d: Date) => d.toISOString().slice(0, 10)
-const sumar = (fecha: string, dias: number) => {
-  const d = new Date(fecha + 'T12:00:00')
-  d.setDate(d.getDate() + dias)
-  return iso(d)
-}
-
-/**
- * La fecha que le toca a una actividad. Si tiene `dias_antes_entrega` y hay
- * fecha objetivo, se cuenta hacia atrás desde el compromiso; si no, hacia
- * adelante desde el arranque. Devuelve también si quedó en el pasado.
- */
-export function fechaDe(a: ActividadPlantilla, inicio: string, objetivo?: string | null): { fecha: string | null; enElPasado: boolean } {
-  const hoy = iso(new Date())
-  let f: string | null = null
-  if (a.dias_antes_entrega != null && objetivo) f = sumar(objetivo, -Math.abs(a.dias_antes_entrega))
-  else if (a.dias_desde_inicio != null) f = sumar(inicio, Math.abs(a.dias_desde_inicio))
-  return { fecha: f, enElPasado: !!f && f < hoy }
-}
-
 // ── Aplicar ────────────────────────────────────────────────────────────────
-
-export interface ContextoEncargo {
-  specialty: string
-  /** Fecha comprometida con el cliente. Es la que manda. */
-  fechaObjetivo?: string | null
-  inicio?: string
-  leadId?: string | null
-  projectId?: string | null
-  phaseId?: string | null
-  levantamientoId?: string | null
-  tituloCliente?: string | null
-  /** Prefijo para el nombre de cada actividad: "Cúspide — Sembrado". */
-  prefijo?: string | null
-  solicitadaPor?: string | null
-  solicitadaPorId?: string | null
-  instrucciones?: string | null
-}
-
-export interface ResultadoAplicar {
-  creadas: number
-  sinDueno: number
-  enElPasado: number
-  error?: string
-}
 
 export async function aplicarPlantilla(
   plantillaId: string,
@@ -199,82 +158,5 @@ export async function crearActividades(
   empleados: EmpleadoRol[],
   plantillaId?: string,
 ): Promise<ResultadoAplicar> {
-  const inicio = ctx.inicio || iso(new Date())
-  const areaDe = (sp?: string | null) => AREAS_TRABAJO.find(a => a.specialty === (sp || ctx.specialty))?.area || null
-
-  let sinDueno = 0, enElPasado = 0
-  // Se crean en orden para poder ligar la dependencia con el id real de la
-  // actividad anterior — sin eso, "esto no arranca hasta que aquello esté" es
-  // una frase en una junta y no un dato.
-  const idsPorOrden = new Map<number, string>()
-
-  // UNA persona por rol en todo el encargo: el proyecto de Iluminación lo lleva
-  // una diseñadora, no se alterna tarea por tarea. Si hay varias con el rol,
-  // se elige la de menos tareas abiertas al momento de aplicar.
-  const elegido = new Map<string, string | null>()
-  const responsableDe = async (rol: Rol, area: string | null): Promise<string | null> => {
-    const k = `${rol}|${area || ''}`
-    if (elegido.has(k)) return elegido.get(k) || null
-    const cands = empleados.filter(e => tieneRol(e, rol) && (!area || e.area === area))
-    let carga: Map<string, number> | undefined
-    if (cands.length > 1 && rol !== 'director') {
-      carga = new Map()
-      for (const c of cands) {
-        const { count } = await supabase.from('project_tasks')
-          .select('id', { count: 'exact', head: true })
-          .eq('assignee_id', c.id).in('status', ['pendiente', 'en_progreso'])
-        carga.set(c.id, count || 0)
-      }
-    }
-    const r = resolverResponsable(empleados, rol, area, carga)
-    elegido.set(k, r)
-    return r
-  }
-
-  for (const a of acts) {
-    const sp = a.specialty || ctx.specialty
-    const responsable = await responsableDe(a.rol, areaDe(sp))
-    if (!responsable) sinDueno++
-    const { fecha, enElPasado: tarde } = fechaDe(a, inicio, ctx.fechaObjetivo)
-    if (tarde) enElPasado++
-
-    const nombre = ctx.prefijo ? `${ctx.prefijo} — ${a.nombre}` : a.nombre
-    const { data, error } = await supabase.from('project_tasks').insert({
-      name: nombre.slice(0, 200),
-      description: a.descripcion || null,
-      tipo: 'proyecto',
-      specialty: sp,
-      rol: a.rol,
-      urgencia: a.urgencia || 'normal',
-      priority: URGENCIA_TAREA_CFG[a.urgencia || 'normal']?.prioridad ?? 1,
-      status: 'pendiente',
-      progress: 0,
-      order_index: a.orden,
-      due_date: fecha,
-      assignee_id: responsable,
-      lead_id: ctx.leadId || null,
-      project_id: ctx.projectId || null,
-      phase_id: ctx.phaseId || null,
-      levantamiento_id: ctx.levantamientoId || null,
-      titulo_cliente: ctx.tituloCliente || null,
-      tipo_entregable_id: a.tipo_entregable_id || null,
-      instrucciones: ctx.instrucciones || null,
-      solicitada_por: ctx.solicitadaPor || null,
-      solicitada_por_id: ctx.solicitadaPorId || null,
-      plantilla_id: plantillaId || null,
-      etapa: a.etapa || null,
-      depende_de_id: a.depende_de != null ? (idsPorOrden.get(a.depende_de) || null) : null,
-    }).select('id').single()
-
-    if (error) return { creadas: idsPorOrden.size, sinDueno, enElPasado, error: error.message }
-    idsPorOrden.set(a.orden, (data as any).id)
-  }
-
-  if (plantillaId) {
-    const { data: p } = await supabase.from('plantillas_encargo').select('veces_usada').eq('id', plantillaId).maybeSingle()
-    await supabase.from('plantillas_encargo')
-      .update({ veces_usada: (Number((p as any)?.veces_usada) || 0) + 1 }).eq('id', plantillaId)
-  }
-
-  return { creadas: idsPorOrden.size, sinDueno, enElPasado }
+  return crearActividadesCon(supabase, acts, ctx, empleados, plantillaId)
 }

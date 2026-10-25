@@ -17,6 +17,11 @@
 // y que la persona apruebe eso y no una intencion vaga.
 import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import type { Quien } from './tools.ts'
+// El MISMO motor de plantillas que usa el ERP (src/lib/plantillaCore.ts): el
+// proyecto nace con las etapas del área, cada tarea con responsable por rol y
+// fecha. esbuild lo empaqueta en el bundle del MCP.
+import { plantillaDeArea, aplicarPlantillaDeAreaCon, empleadosConRol, AREA_DE_ESPECIALIDAD } from '../../../src/lib/plantillaCore.ts'
+import { tieneRol } from '../../../src/lib/roles.ts'
 
 // Mismo mapa que src/lib/levantamiento.ts. Si alla cambia, aqui tambien.
 const ESPECIALIDADES: Record<string, { label: string; area: string }> = {
@@ -126,10 +131,11 @@ export const DEFINICIONES_LEV = [
   {
     name: 'derivar_levantamiento',
     description:
-      'Convierte un area del levantamiento en PROYECTO y expande sus plantillas en actividades. ' +
-      'Es el paso mas pesado del ERP. SIN confirmar=true solo dice cuantas actividades crearia y como se ' +
-      'llamaria el proyecto, sin escribir nada. Las actividades nacen sin responsable y sin fecha a ' +
-      'proposito: las fecha el director.',
+      'Convierte un area del levantamiento en PROYECTO con la plantilla de proyecto del area (la misma que ' +
+      'aplica el ERP al firmar un contrato): una fase por etapa y cada actividad con responsable por rol ' +
+      '(el de menos carga si hay varios; si no hay nadie con el rol, el director del area) y fecha desde hoy. ' +
+      'SIN confirmar=true solo dice como se llamaria el proyecto, sus etapas, cuantas actividades y quien ' +
+      'las llevaria, sin escribir nada.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -312,26 +318,34 @@ export async function ejecutarLev(nombre: string, args: any, sb: SupabaseClient,
       const leadNombre = (lead as any)?.name || ''
       const nombreProy = `${(lev as any).inmueble || leadNombre} — ${ESPECIALIDADES[clave].label}`
 
-      // Se cuentan las actividades ANTES de escribir, con las mismas plantillas
-      // que usara el alta. Asi la vista previa dice el numero de verdad y no uno
-      // aproximado: "25-31" no es una cifra que alguien pueda aprobar.
-      const { data: fasesTpl } = await sb.from('project_phase_templates').select('*')
-        .in('specialty', [clave, 'postventa']).order('order_index')
-      const { data: tareasTpl } = await sb.from('project_task_templates').select('*')
-        .in('specialty', [clave, 'postventa']).order('order_index')
-      const ordenes = new Set((fasesTpl || []).map((f: any) => f.order_index))
-      let cuantas = 0
-      for (const tt of (tareasTpl || []) as any[]) {
-        for (let o = tt.start_phase_order; o <= tt.end_phase_order; o++) if (ordenes.has(o)) cuantas++
-      }
+      // La vista previa sale de la MISMA plantilla que se va a aplicar, así el
+      // número que se aprueba es el que se crea.
+      const pl = await plantillaDeArea(sb, clave)
+      if (!pl) return texto({ error: `El area ${clave} no tiene plantilla de proyecto activa. Revise Proyectos → Plantillas de cada area.` })
 
       if (!args?.confirmar) {
+        const emps = await empleadosConRol(sb)
+        const areaEmp = AREA_DE_ESPECIALIDAD[clave]
+        const roles = Array.from(new Set(pl.actividades.map(a => a.rol)))
+        const quienes = roles.map(rol => {
+          const cands = emps.filter(e => tieneRol(e, rol) && e.area === areaEmp).map(e => e.name)
+          const dir = emps.find(e => tieneRol(e, 'director') && e.area === areaEmp)
+          return {
+            rol,
+            actividades: pl.actividades.filter(a => a.rol === rol).length,
+            lo_llevaria: cands.length === 1 ? cands[0]
+              : cands.length > 1 ? `el de menos carga entre: ${cands.join(', ')}`
+              : dir ? `${dir.name} (director, cubre el puesto vacante)` : 'nadie: queda sin dueño',
+          }
+        })
         return texto({
           derivado: false,
-          revise_antes: 'Esto crea un proyecto y sus actividades. Las actividades nacen sin responsable y sin fecha; las fecha el director.',
+          revise_antes: 'Esto crea un proyecto con sus fases y actividades, ya asignadas y con fecha.',
           proyecto_se_llamaria: nombreProy,
-          fases: (fasesTpl || []).length,
-          actividades_que_crearia: cuantas,
+          plantilla: pl.clave,
+          etapas: pl.etapas,
+          actividades_que_crearia: pl.actividades.length,
+          quien_las_llevaria: quienes,
           para_ejecutar: 'repita con confirmar=true',
         })
       }
@@ -343,31 +357,9 @@ export async function ejecutarLev(nombre: string, args: any, sb: SupabaseClient,
       if (e1 || !proj) return texto({ derivado: false, error: e1?.message || 'No pude crear el proyecto.' })
       const projectId = (proj as any).id
 
-      const fases = (fasesTpl || []).map((pt: any) => ({
-        project_id: projectId, template_id: pt.id, name: pt.name,
-        order_index: pt.order_index, is_post_sale: pt.is_post_sale,
-        is_unlocked: !pt.is_post_sale, status: 'pendiente',
-      }))
-      const { data: fasesIns } = fases.length
-        ? await sb.from('project_phases').insert(fases).select()
-        : { data: [] as any[] }
-      const porOrden = new Map(((fasesIns as any[]) || []).map((f: any) => [f.order_index, f.id]))
-
-      const tareas: any[] = []
-      for (const tt of (tareasTpl || []) as any[]) {
-        for (let o = tt.start_phase_order; o <= tt.end_phase_order; o++) {
-          const faseId = porOrden.get(o)
-          if (!faseId) continue
-          tareas.push({
-            project_id: projectId, phase_id: faseId, template_id: tt.id,
-            name: tt.name, order_index: tt.order_index,
-            status: 'pendiente', progress: 0, priority: 0,
-          })
-        }
-      }
-      if (tareas.length) {
-        const { error: e2 } = await sb.from('project_tasks').insert(tareas)
-        if (e2) return texto({ derivado: 'a medias', project_id: projectId, error: e2.message })
+      const res = await aplicarPlantillaDeAreaCon(sb, projectId, clave, (lev as any).lead_id || null)
+      if (!res.aplicada || res.error) {
+        return texto({ derivado: 'a medias', project_id: projectId, fases: res.fases, actividades: res.creadas, error: res.error || 'No se aplico la plantilla.' })
       }
 
       await sb.from('levantamiento_areas').update({
@@ -378,9 +370,12 @@ export async function ejecutarLev(nombre: string, args: any, sb: SupabaseClient,
       }).eq('id', id)
 
       return texto({
-        derivado: true, project_id: projectId, proyecto: nombreProy,
-        fases: fases.length, actividades: tareas.length,
-        pendiente: 'Las actividades no tienen responsable ni fecha. El area no cuenta como atendida hasta que las tengan.',
+        derivado: true, project_id: projectId, proyecto: nombreProy, plantilla: pl.clave,
+        fases: res.fases, actividades: res.creadas,
+        sin_dueno: res.sinDueno,
+        nota: res.sinDueno > 0
+          ? `${res.sinDueno} actividades quedaron sin dueño: el area no tiene a nadie con ese rol ni director. Asignelas en Proyectos.`
+          : 'Todas las actividades quedaron con responsable y fecha.',
       })
     }
 
