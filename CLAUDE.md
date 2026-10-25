@@ -3337,8 +3337,8 @@ Entrantes y salientes; solo `service_role` escribe y `usuario_real()` lee. Migra
   - acumulado 2026 $6.15 M (−3.5% vs ene–sep 2025);
   - rotación 73% (27 bajas en 12 m);
   - ~51% de la nómina se paga en efectivo.
-- **Duplicados posibles en el Excel**, sin `employee_id` y con nombre escrito de dos formas; si son la misma persona, inflan altas/bajas. **Preguntar a Elias antes de unir:**
-  - GERARDO / GERARDO CERVANTEZ;
-  - JUAN CARLOS / JUAN CARLOS MORA;
-  - LUIS JAVIER / LUIS JAVIER MONDRAGON.
+- **Duplicados del Excel unidos** (Elias confirmó, 2026-10-25): GERARDO → GERARDO CERVANTEZ, JUAN CARLOS → JUAN CARLOS MORA, LUIS JAVIER → LUIS JAVIER MONDRAGON.
+  - Se renombraron 8 renglones de `nomina_historica` (con nota). Montos y renglones no cambian: 687 renglones, $12,782,683.99.
+  - El historial queda con 83 personas distintas (antes 86).
+  - Las altas y bajas de feb–jun 2025 bajan; la rotación de los últimos 12 meses no cambia, porque esos meses quedan fuera de la ventana.
 - **Manuel Casas** tiene $140 K en oct-25 y $100 K en nov-25 en el Excel (casi todo efectivo). Es dato del Excel, no error de carga; explica el pico de Administración.
