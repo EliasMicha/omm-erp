@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
-import { LayoutDashboard, FileText, ClipboardList, Users, Truck, FolderOpen, Users2, BookOpen, ShoppingCart, TrendingUp, Building2, Package, Receipt, BrainCircuit, ChevronLeft, ChevronRight, Menu, X, LogOut, Shield, Wrench, Archive, Gauge, FolderArchive, ListChecks, GraduationCap, UserPlus, Inbox, MessageCircle } from 'lucide-react'
+import { LayoutDashboard, FileText, ClipboardList, Users, Truck, FolderOpen, Users2, BookOpen, ShoppingCart, TrendingUp, Building2, Package, Receipt, BrainCircuit, ChevronLeft, ChevronRight, Menu, X, LogOut, Shield, Wrench, Archive, Gauge, FolderArchive, GraduationCap, UserPlus, Inbox, MessageCircle } from 'lucide-react'
 import { useIsMobile } from '../../lib/useIsMobile'
 import { useAuth, PermissionArea, RESTRICTED_AREA_ROUTES } from '../../contexts/AuthContext'
 
@@ -16,7 +16,6 @@ const NAV: NavItem[] = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
   { to: '/mi-trabajo', icon: Inbox, label: 'Mi trabajo' },
   { to: '/tablero', icon: Gauge, label: 'Tablero', allowedAreas: ['Operaciones', 'Ventas_Ingenieria'] },
-  { to: '/actividades', icon: ListChecks, label: 'Mi equipo y encargos' },
   { to: '/crm', icon: Users2, label: 'CRM y Ventas' },
   { to: '/cotizaciones', icon: FileText, label: 'Cotizaciones' },
   { to: '/proyectos', icon: FolderOpen, label: 'Proyectos' },
@@ -62,8 +61,6 @@ export default function Sidebar() {
     // /tablero ES el Dashboard: sólo existe para quien tiene Mi trabajo como
     // portada. Quien ya entra al Dashboard (DG, Administración) no lo ve dos veces.
     if (item.to === '/tablero' && !portadaMiTrabajo) return false
-    // Mi equipo y encargos (Actividades) es de quien dirige.
-    if (item.to === '/actividades' && user.permission_area !== 'DG' && user.nivel !== 'director') return false
     if (user.permission_area === 'DG') return true
     // Roles restringidos (ej. Mantenimiento): solo ven las rutas de su whitelist
     const whitelist = RESTRICTED_AREA_ROUTES[user.permission_area]

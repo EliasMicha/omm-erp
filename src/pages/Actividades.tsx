@@ -186,6 +186,64 @@ export default function Actividades() {
   )
 }
 
+// ═══ PANELES PARA MI TRABAJO ═══════════════════════════════════════════════
+// Mi trabajo absorbe "Mi equipo" y "Nuevo encargo" (sistema de trabajo por
+// áreas: Actividades se retira). Son los MISMOS componentes de siempre; estos
+// paneles solo cargan lo que necesitan por su cuenta, igual que lo hacía la
+// pantalla de Actividades.
+
+function useMando() {
+  const { user } = useAuth()
+  const [emps, setEmps] = useState<EmpleadoRol[]>([])
+  const [tipos, setTipos] = useState<TipoEntregable[]>([])
+  const [listo, setListo] = useState(false)
+  useEffect(() => {
+    let vivo = true
+    Promise.all([cargarPlantilla(), cargarTipos()]).then(([e, t]) => {
+      if (!vivo) return
+      setEmps(((e as any[]) || []).map(conRol))
+      setTipos(t)
+      setListo(true)
+    })
+    return () => { vivo = false }
+  }, [])
+  const employeeId = user?.employee_id || null
+  const yo = emps.find(e => e.id === employeeId)
+  const esDG = user?.permission_area === 'DG'
+  const mandoTotal = esDG || esDirectorGeneral(yo)
+  const miSpecialty = AREAS_TRABAJO.find(a => a.area === yo?.area)?.specialty || ''
+  const nombreDe = (id?: string | null) => emps.find(e => e.id === id)?.name || '—'
+  return { emps, tipos, listo, employeeId, yo, esDG, mandoTotal, miSpecialty, nombreDe }
+}
+
+export function PanelEquipo() {
+  const m = useMando()
+  const [area, setArea] = useState<Tarea[]>([])
+  const [cargando, setCargando] = useState(true)
+  const cargarArea = () => {
+    const p = m.mandoTotal
+      ? tareasDeAreas(AREAS_TRABAJO.map(a => a.specialty))
+      : m.miSpecialty ? tareasDeArea(m.miSpecialty) : Promise.resolve([] as Tarea[])
+    return p.then(ts => { setArea(ts); setCargando(false) })
+  }
+  useEffect(() => { if (m.listo) cargarArea() }, [m.listo, m.mandoTotal, m.miSpecialty])
+  if (!m.employeeId) return <div style={{ ...card, color: '#D9A441', fontSize: 12.5 }}>Tu usuario no está ligado a una ficha de empleado.</div>
+  if (!m.listo || cargando) return <div style={{ ...card, textAlign: 'center', color: '#666', padding: 40 }}>Cargando…</div>
+  return (
+    <MiEquipo area={area} emps={m.emps} miSpecialty={m.miSpecialty} esDG={m.esDG} mandoTotal={m.mandoTotal}
+      porRevisar={[]} employeeId={m.employeeId} nombreDe={m.nombreDe} tipos={m.tipos}
+      onCambio={() => { cargarArea() }} mostrarRevision={false} />
+  )
+}
+
+export function PanelNuevoEncargo({ onCreado }: { onCreado: () => void }) {
+  const m = useMando()
+  if (!m.employeeId) return <div style={{ ...card, color: '#D9A441', fontSize: 12.5 }}>Tu usuario no está ligado a una ficha de empleado.</div>
+  if (!m.listo) return <div style={{ ...card, textAlign: 'center', color: '#666', padding: 40 }}>Cargando…</div>
+  return <NuevoEncargo emps={m.emps} tipos={m.tipos} miSpecialty={m.miSpecialty}
+    employeeId={m.employeeId} nombre={m.yo?.name} onCreado={onCreado} />
+}
+
 // ═══ LO MÍO ════════════════════════════════════════════════════════════════
 
 function LoMio({ tareas, corregir, esperando, tipos, employeeId, nombreDe, onCambio, puedeRevisar, emps }: {
@@ -402,10 +460,12 @@ function LoMio({ tareas, corregir, esperando, tipos, employeeId, nombreDe, onCam
 
 // ═══ MI EQUIPO ═════════════════════════════════════════════════════════════
 
-function MiEquipo({ area, emps, miSpecialty, esDG, mandoTotal, porRevisar, employeeId, nombreDe, tipos, onCambio }: {
+function MiEquipo({ area, emps, miSpecialty, esDG, mandoTotal, porRevisar, employeeId, nombreDe, tipos, onCambio, mostrarRevision }: {
   area: Tarea[]; emps: EmpleadoRol[]; miSpecialty: string; esDG: boolean; mandoTotal: boolean
   porRevisar: Entregable[]; employeeId: string; nombreDe: (id?: string | null) => string
   tipos: TipoEntregable[]; onCambio: () => void
+  // En Mi trabajo la revisión ya sale en "Te toca revisar": no se repite.
+  mostrarRevision?: boolean
 }) {
   const hoy = hoyISO()
 
@@ -446,6 +506,7 @@ function MiEquipo({ area, emps, miSpecialty, esDG, mandoTotal, porRevisar, emplo
 
   return (
     <>
+      {mostrarRevision !== false && <>
       <h2 style={h2}>Tu respuesta pendiente ({porRevisar.length})</h2>
       <p style={sub}>
         Trabajo terminado que espera tu palabra. Cada día aquí es un día que alguien no puede avanzar ni cerrar —
@@ -477,6 +538,7 @@ function MiEquipo({ area, emps, miSpecialty, esDG, mandoTotal, porRevisar, emplo
           })}
         </div>
       )}
+      </>}
 
       {/* Proyectos del área: el proceso ya corre, lo que falta es fecharlo.
           Sin fecha, una actividad no aparece en la semana de nadie — y hoy

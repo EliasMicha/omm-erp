@@ -33,7 +33,6 @@ import Desempeno from './pages/Desempeno'
 import Capacitaciones from './pages/Capacitaciones'
 import Reclutamiento from './pages/Reclutamiento'
 import Documentacion from './pages/Documentacion'
-import Actividades from './pages/Actividades'
 import MiTrabajo from './pages/MiTrabajo'
 import Mantenimiento from './pages/Mantenimiento'
 import WhatsApp from './pages/WhatsApp'
@@ -128,7 +127,7 @@ export default function App() {
                         <Reclutamiento />
                       </ProtectedRoute>
                     } />
-                    <Route path="/actividades" element={<ActividadesODirectores />} />
+                    <Route path="/actividades" element={<ActividadesRetirada />} />
                     <Route path="/mi-trabajo" element={<MiTrabajo />} />
                     <Route path="/documentacion" element={<Documentacion />} />
                     <Route path="/archivados" element={<Archivados />} />
@@ -173,10 +172,9 @@ function Inicio() {
   return <Dashboard />
 }
 
-// Actividades se queda sólo para quien manda (Mi equipo, Nuevo encargo): a
-// quien no dirige se le manda a Mi trabajo, que es donde está lo suyo.
-function ActividadesODirectores() {
-  const { user } = useAuth()
-  if (user && user.permission_area !== 'DG' && user.nivel !== 'director') return <Navigate to="/mi-trabajo" replace />
-  return <Actividades />
+// Actividades se retiró (sistema de trabajo por áreas): "Mi equipo" y "Nuevo
+// encargo" viven ahora en Mi trabajo. La ruta vieja manda ahí, a "Mi equipo";
+// quien no dirige cae en su lista.
+function ActividadesRetirada() {
+  return <Navigate to="/mi-trabajo?vista=equipo" replace />
 }

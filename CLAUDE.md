@@ -3387,3 +3387,20 @@ Entrantes y salientes; solo `service_role` escribe y `usuario_real()` lee. Migra
   - 7 leads atrasados con $17.3 M de saldo.
 - **⚠ Cobertura baja:** cobranza de clientes ligada a un lead con contrato: 2024 49%, 2025 53%, 2026 77%. Lo no ligado hace que las obras se vean más lentas de lo real. **Ligar cobros en Conciliación es lo que más mejora este análisis.**
 - La especialidad "principal" se decide por monto, con USD a TC: varios leads eléctricos con contratos de especiales en USD salen como "Instalaciones especiales".
+
+## 🧭 Sistema de trabajo — se quitan los duplicados del menú (2026-10-25)
+- **Queja de Elias:** "Tablero y Dashboard tienen exactamente lo mismo; Mi trabajo y Mi equipo y encargos tienen exactamente lo mismo".
+- **Tablero = Dashboard** (la ruta `/tablero` renderiza `<Dashboard />`). Existe para quien tiene Mi trabajo de portada (Operaciones, Ventas_Ingenieria). El DG lo veía dos veces. Ahora el menú solo muestra Tablero cuando "/" es Mi trabajo (commit 4eaadcf).
+- **"Tu tablero" dentro de Mi trabajo** se llama ahora **"Detenido por director"**, para que no choque con el Tablero del menú.
+- **Actividades ("Mi equipo y encargos") se retiró**, como decía el doc:
+  - **Mi trabajo** absorbe "Mi equipo" (sin repartir con fecha y "encargar al director", carga por área, delegar/pasar la estafeta) y "+ Nuevo encargo" (plan sugerido por IA). Solo los ven DG y directores: puesto de director, o `nivel = director`.
+  - Son los **mismos componentes** (`MiEquipo`, `NuevoEncargo`), envueltos en `PanelEquipo` / `PanelNuevoEncargo`, exportados desde `Actividades.tsx`. Mismas tablas; no se movió ningún dato.
+  - "Tu respuesta pendiente" se oculta en el panel (`mostrarRevision={false}`), porque Mi trabajo ya muestra "Te toca revisar".
+  - "Lo mío" desaparece: era la misma lista de Mi trabajo.
+  - "Plantillas" queda solo en Proyectos → Plantillas de cada área.
+  - `/actividades` → `Navigate` a `/mi-trabajo?vista=equipo`. Mi trabajo lee `?vista=equipo|encargo`; quien no dirige ve su lista.
+  - El item salió del menú. `Actividades` (default export) ya no se monta en ninguna ruta, pero el archivo sigue ahí porque exporta los paneles.
+- **Menú resultante:**
+  - DG: Dashboard, Mi trabajo, …
+  - Operaciones/Ventas_Ingenieria: Mi trabajo (portada), Tablero, …
+- **No tengo el documento original de Juan Pablo** (las 34 solicitudes); en el doc del sistema de trabajo solo están los códigos agrupados. Pedirlo para cruzar punto por punto.

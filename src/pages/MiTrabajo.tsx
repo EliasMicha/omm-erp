@@ -17,6 +17,7 @@ import { AREAS_TRABAJO, Paso, pasosDe } from '../lib/tareas'
 import { Entregable, TipoEntregable, cargarTipos, entregablesDe } from '../lib/entregables'
 import EntregablesTarea from '../components/EntregablesTarea'
 import RevisarEntregable from '../components/RevisarEntregable'
+import { PanelEquipo, PanelNuevoEncargo } from './Actividades'
 import {
   TareaMT, ConteoPasos, CAJONES, COLOR_ESP, LABEL_ESP,
   tareasDePersona, tareasDeProyecto, tareasAbiertasDeTodos, conteoDePasos, ultimoEntregable,
@@ -174,14 +175,20 @@ const titulo = (s?: string | null) => (s || '').toLowerCase().replace(/(^|\s)\S/
 const colorDe = (esp?: string | null) => COLOR_ESP[esp || 'admin'] || '#94A3B8'
 const hoyCorto = () => fechaCorta(new Date().toISOString())
 
-type Vista = 'lista' | 'proyecto' | 'tablero'
+type Vista = 'lista' | 'proyecto' | 'tablero' | 'equipo' | 'encargo'
 
 export default function MiTrabajo() {
   const { user } = useAuth()
   const [gente, setGente] = useState<Persona[]>([])
   const [genteLista, setGenteLista] = useState(false)
   const [tipos, setTipos] = useState<TipoEntregable[]>([])
-  const [vista, setVista] = useState<Vista>('lista')
+  // /actividades redirige aquí con ?vista=equipo (Actividades se retiró).
+  const [vista, setVista] = useState<Vista>(() => {
+    try {
+      const v = new URLSearchParams(window.location.search).get('vista')
+      return v === 'equipo' || v === 'encargo' ? v : 'lista'
+    } catch (e) { return 'lista' }
+  })
   const [personaId, setPersonaId] = useState<string>('')
   const [abierta, setAbierta] = useState<TareaMT | null>(null)
   const [proyectoId, setProyectoId] = useState<string>('')
@@ -194,6 +201,8 @@ export default function MiTrabajo() {
   const yo = useMemo(() => gente.find(p => p.id === user?.employee_id) || null, [gente, user])
   const soyDG = user?.permission_area === 'DG' || esDG(yo)
   const soyDirector = esDirectorP(yo)
+  // Quien reparte trabajo: el DG y los directores (por puesto o por nivel de usuario).
+  const mando = soyDG || soyDirector || user?.nivel === 'director'
 
   // A quién puedo ver: el DG a todos, un director a su área, los demás a sí mismos.
   const visibles = useMemo(() => {
@@ -223,7 +232,9 @@ export default function MiTrabajo() {
         <div className="mt-seg" role="tablist">
           <button className={vista === 'lista' && !abierta ? 'on' : ''} onClick={() => { setAbierta(null); setVista('lista') }}>Mi trabajo</button>
           <button className={vista === 'proyecto' && !abierta ? 'on' : ''} onClick={() => { setAbierta(null); setVista('proyecto') }}>El proyecto</button>
+          {mando && <button className={vista === 'equipo' && !abierta ? 'on' : ''} onClick={() => { setAbierta(null); setVista('equipo') }}>Mi equipo</button>}
           {soyDG && <button className={vista === 'tablero' && !abierta ? 'on' : ''} onClick={() => { setAbierta(null); setVista('tablero') }}>Detenido por director</button>}
+          {mando && <button className={vista === 'encargo' && !abierta ? 'on' : ''} onClick={() => { setAbierta(null); setVista('encargo') }}>+ Nuevo encargo</button>}
         </div>
       </div>
 
@@ -236,8 +247,14 @@ export default function MiTrabajo() {
           <Lista persona={persona} visibles={visibles} setPersonaId={setPersonaId} gente={gente} onAbrir={abrir} />
         ) : vista === 'proyecto' ? (
           <ElProyecto proyectoId={proyectoId} setProyectoId={setProyectoId} gente={gente} onAbrir={abrir} />
-        ) : (
+        ) : vista === 'equipo' && mando ? (
+          <div className="mt-legacy"><PanelEquipo /></div>
+        ) : vista === 'encargo' && mando ? (
+          <div className="mt-legacy"><PanelNuevoEncargo onCreado={() => setVista('equipo')} /></div>
+        ) : vista === 'tablero' && soyDG ? (
           <Tablero gente={gente} />
+        ) : (
+          <Lista persona={persona} visibles={visibles} setPersonaId={setPersonaId} gente={gente} onAbrir={abrir} />
         )}
       </section>
     </div>
