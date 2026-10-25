@@ -2,13 +2,14 @@ import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { F } from '../lib/utils'
 import { Btn, Table, Th, Td, Loading, KpiCard, SectionHeader, EmptyState, Badge } from '../components/layout/UI'
-import { Users2, Calendar, Receipt, ClipboardList, BarChart3, Plus, Search } from 'lucide-react'
+import { Users2, Calendar, Receipt, ClipboardList, BarChart3, Plus, Search, TrendingUp } from 'lucide-react'
 import { useIsMobile } from '../lib/useIsMobile'
 import TabCajaChica from './nomina/TabCajaChica'
 import TabAsistencia from './nomina/TabAsistencia'
 import TabReportes from './nomina/TabReportes'
 import TabAusencias from './nomina/TabAusencias'
 import TabPeriodos from './nomina/TabPeriodos'
+import TabAnaliticos from './nomina/TabAnaliticos'
 
 type TipoAlta = 'SEMANAL' | 'QUINCENAL'
 
@@ -52,11 +53,12 @@ interface Employee {
   foto_url?: string | null
 }
 
-type Tab = 'empleados' | 'periodos' | 'caja_chica' | 'asistencia' | 'reportes' | 'ausencias'
+type Tab = 'empleados' | 'periodos' | 'analiticos' | 'caja_chica' | 'asistencia' | 'reportes' | 'ausencias'
 
 const TABS: { id: Tab; label: string; icon: any }[] = [
   { id: 'empleados', label: 'Empleados', icon: Users2 },
   { id: 'periodos', label: 'Períodos', icon: Calendar },
+  { id: 'analiticos', label: 'Analíticos', icon: TrendingUp },
   { id: 'caja_chica', label: 'Caja Chica', icon: Receipt },
   { id: 'asistencia', label: 'Asistencia', icon: ClipboardList },
   { id: 'reportes', label: 'Reportes', icon: BarChart3 },
@@ -93,6 +95,7 @@ export default function Nomina() {
       </div>
       {tab === 'empleados' && <TabEmpleados />}
       {tab === 'periodos' && <TabPeriodos />}
+      {tab === 'analiticos' && <TabAnaliticos />}
       {tab === 'caja_chica' && <TabCajaChica />}
       {tab === 'asistencia' && <TabAsistencia />}
       {tab === 'reportes' && <TabReportes />}

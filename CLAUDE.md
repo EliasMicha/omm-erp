@@ -3311,3 +3311,34 @@ Entrantes y salientes; solo `service_role` escribe y `usuario_real()` lee. Migra
 - **Archivos auxiliares:**
   - scripts de carga en el scratchpad de la sesión (no van al repo);
   - revisión entregada a Elias: `Revision_nomina_historica.xlsx`.
+
+## 📈 Nómina → pestaña "Analíticos" (2026-10-25)
+- **Pedido de Elias:** "un espacio para analíticos de nómina, con gráficas básicas: cómo ha cambiado, montos, áreas".
+- **RPC nuevo `nomina_analitica()`** (migración `nomina_analitica`, archivo `20261025_nomina_analitica.sql`):
+  - SECURITY INVOKER, solo `authenticated`;
+  - un renglón por persona y mes: mes, quien, nombre, linea, area, transferencia, efectivo, fuente, es_persona;
+  - misma regla que Finanzas: si el mes tiene un periodo cerrado se usa el módulo, si no el `nomina_historica`;
+  - solo lee y no toca periodos.
+  - Persona = `employee_id`; si ya no existe, `'h:'+nombre` del Excel.
+- **`src/lib/nominaAnalitica.ts`**: arma los meses (total, transferencia/efectivo, personas, por línea, altas/bajas).
+  - **Alta** = primer mes que cobra; **baja** = mes siguiente al último que cobró. Quien falta un mes y regresa no cuenta.
+  - Los bonos "sin desglose por persona" (oct/dic 2025, $217 K) van en su propia serie `bonos` para no inflar Administración.
+- **`src/pages/nomina/TabAnaliticos.tsx`** (tab después de Períodos). Contenido:
+  - KPIs: nómina del último mes cerrado vs mismo mes del año anterior; acumulado del año vs mismos meses del año anterior; plantilla; costo por persona; rotación 12 m;
+  - apilada mensual por área;
+  - plantilla por mes;
+  - costo por persona;
+  - altas y bajas con nombres en el tooltip;
+  - tabla por área de los últimos 12 meses;
+  - transferencia vs efectivo.
+- **Nuevo componente `GraficaApilada`** en `components/finanzas/Graficas.tsx`; `TooltipFila` ahora se exporta.
+- **Números a sep-2026:**
+  - $720 K/mes (−0.1% vs sep-25), 43 personas, $16.7 K por persona;
+  - acumulado 2026 $6.15 M (−3.5% vs ene–sep 2025);
+  - rotación 73% (27 bajas en 12 m);
+  - ~51% de la nómina se paga en efectivo.
+- **Duplicados posibles en el Excel**, sin `employee_id` y con nombre escrito de dos formas; si son la misma persona, inflan altas/bajas. **Preguntar a Elias antes de unir:**
+  - GERARDO / GERARDO CERVANTEZ;
+  - JUAN CARLOS / JUAN CARLOS MORA;
+  - LUIS JAVIER / LUIS JAVIER MONDRAGON.
+- **Manuel Casas** tiene $140 K en oct-25 y $100 K en nov-25 en el Excel (casi todo efectivo). Es dato del Excel, no error de carga; explica el pico de Administración.

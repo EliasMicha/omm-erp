@@ -117,7 +117,7 @@ export function Leyenda({ items }: { items: { nombre: string; color: string; for
   )
 }
 
-interface TooltipFila { nombre: string; color: string; valor: string; nota?: string }
+export interface TooltipFila { nombre: string; color: string; valor: string; nota?: string }
 
 function Tooltip({ x, ancho, titulo, filas }: { x: number; ancho: number; titulo: string; filas: TooltipFila[] }) {
   const w = 220
@@ -367,6 +367,81 @@ export function BarrasH({ filas, formato, colorPositivo, colorNegativo }: {
         <div style={{ position: 'absolute', top: m.t + hover * filaH + filaH, left: x0, background: '#1d1d1c', border: '1px solid #333', borderRadius: 6, padding: '4px 8px', fontSize: 11, color: TINTA2, pointerEvents: 'none', zIndex: 5 }}>
           {filas[hover].nota}
         </div>
+      )}
+    </div>
+  )
+}
+
+// ── Barras apiladas (una barra por mes, un tramo por serie) ──────────────
+// Para composición: cuánto aporta cada área al total del mes. El total va
+// en el tooltip; los meses en curso se dibujan atenuados.
+export function GraficaApilada({ etiquetas, series, formato, alto, tenues, extraTooltip }: {
+  etiquetas: string[]
+  series: Serie[]
+  formato: (v: number) => string
+  alto?: number
+  tenues?: boolean[]
+  extraTooltip?: (i: number) => TooltipFila[]
+}) {
+  const [ref, ancho] = useAncho()
+  const [hover, setHover] = useState<number | null>(null)
+  const H = alto || 280
+  const m = { t: 12, r: 12, b: 26, l: 58 }
+  const iw = ancho - m.l - m.r
+  const ih = H - m.t - m.b
+  const nM = etiquetas.length
+  const totales = etiquetas.map((_, i) => series.reduce((s, x) => s + Math.max(0, x.valores[i] || 0), 0))
+  const sc = escala(0, Math.max(0, ...totales), 4)
+  const y = (v: number) => m.t + ih - ((v - sc.min) / (sc.max - sc.min)) * ih
+  const banda = nM > 0 ? iw / nM : iw
+  const cx = (i: number) => m.l + banda * i + banda / 2
+  const bw = Math.max(3, Math.min(banda * 0.62, 34))
+  const cada = Math.ceil(nM / Math.max(1, Math.floor(iw / 52)))
+
+  return (
+    <div ref={ref} style={{ position: 'relative', width: '100%' }} onMouseLeave={() => setHover(null)}>
+      <svg width={ancho} height={H} style={{ display: 'block' }} role="img">
+        {sc.ticks.map(t => (
+          <g key={t}>
+            <line x1={m.l} x2={ancho - m.r} y1={y(t)} y2={y(t)} stroke={t === 0 ? BASE : GRID} strokeWidth={1} />
+            <text x={m.l - 8} y={y(t) + 4} textAnchor="end" fontSize="10" fill={MUTED} style={{ fontVariantNumeric: 'tabular-nums' }}>{formato(t)}</text>
+          </g>
+        ))}
+        {hover !== null && <rect x={m.l + banda * hover} y={m.t} width={banda} height={ih} fill="#ffffff" opacity={0.04} />}
+        {etiquetas.map((_, i) => {
+          const x = cx(i) - bw / 2
+          const op = tenues && tenues[i] ? 0.45 : 1
+          const visibles = series.filter(s => (s.valores[i] || 0) > 0)
+          let acc = 0
+          const piezas: ReactNode[] = []
+          visibles.forEach((s, k) => {
+            const v = s.valores[i]
+            const y0 = y(acc) - (acc > 0 ? 1 : 0)
+            const y1 = y(acc + v)
+            acc += v
+            if (y0 - y1 < 0.5) return
+            const d = k === visibles.length - 1 ? barraPath(x, y0, y1, bw) : `M${x},${y0} L${x + bw},${y0} L${x + bw},${y1} L${x},${y1} Z`
+            if (d) piezas.push(<path key={s.nombre} d={d} fill={s.color} opacity={op} />)
+          })
+          return <g key={i}>{piezas}</g>
+        })}
+        {etiquetas.map((e, i) => ((nM - 1 - i) % cada === 0) ? (
+          <text key={e + i} x={cx(i)} y={H - 8} textAnchor="middle" fontSize="10" fill={hover === i ? TINTA : MUTED}>{e}</text>
+        ) : null)}
+        {etiquetas.map((e, i) => (
+          <rect key={'h' + i} x={m.l + banda * i} y={m.t} width={banda} height={ih + m.b} fill="transparent"
+            onMouseEnter={() => setHover(i)} onTouchStart={() => setHover(i)} />
+        ))}
+      </svg>
+      {hover !== null && (
+        <Tooltip x={cx(hover)} ancho={ancho} titulo={etiquetas[hover] + (tenues && tenues[hover] ? ' (en curso)' : '') + ' · ' + formato(totales[hover])}
+          filas={[
+            ...series.slice().reverse().filter(s => (s.valores[hover] || 0) > 0).map(s => ({
+              nombre: s.nombre, color: s.color, valor: formato(s.valores[hover]),
+              nota: totales[hover] > 0 ? Math.round(s.valores[hover] / totales[hover] * 100) + '%' : undefined,
+            })),
+            ...(extraTooltip ? extraTooltip(hover) : []),
+          ]} />
       )}
     </div>
   )
