@@ -3254,7 +3254,7 @@ Entrantes y salientes; solo `service_role` escribe y `usuario_real()` lee. Migra
 - Ya no usa `project_*_templates`.
 - La vista previa muestra la plantilla, las etapas, cuántas actividades crearía y quién llevaría cada rol.
 - Al confirmar, crea el proyecto y aplica `aplicarPlantillaDeAreaCon`: fases por etapa, responsable por rol y fecha.
-- ⚠️ **Falta desplegar el MCP.** El bundle compila (235 KB), pero no se publicó porque el token de despliegue (`.claude-sbp`) está en la Mac y la Mac no estaba conectada. El código del repo va adelante de la función publicada hasta que se despliegue.
+- ✅ **MCP publicado v16 (2026-10-25)**: bundle hecho en el contenedor (md5 `34ce7f6f…`), copiado a `~/omm-erp/dist/` en la Mac (`.claude/` no se puede escribir por las herramientas remotas; `dist/` está en .gitignore) y subido con `.claude-sbp`. Responde 401 sin token, como debe.
 
 **Mi trabajo → vista Kanban**
 - Tercera opción junto a "Por fecha" y "Por proyecto". Se recuerda en `localStorage` (`mt_modo`).
