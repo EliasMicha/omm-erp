@@ -3342,3 +3342,12 @@ Entrantes y salientes; solo `service_role` escribe y `usuario_real()` lee. Migra
   - El historial queda con 83 personas distintas (antes 86).
   - Las altas y bajas de feb–jun 2025 bajan; la rotación de los últimos 12 meses no cambia, porque esos meses quedan fuera de la ventana.
 - **Manuel Casas** tiene $140 K en oct-25 y $100 K en nov-25 en el Excel (casi todo efectivo). Es dato del Excel, no error de carga; explica el pico de Administración.
+
+## ⚡ Finanzas: "statement timeout" a 12 meses → RLS por renglón (2026-10-25)
+- **Síntoma:** "No se pudo cargar Finanzas: canceling statement due to statement timeout" con 12 meses. Finanzas pide 24 meses: el periodo más el anterior, para comparar.
+- **Causa:** las políticas RLS llamaban `usuario_real()`, `soy_instalador()` y `es_area()` **una vez por renglón**. Son SECURITY DEFINER, Postgres no las puede inlinear, y cada llamada consulta `app_users`. `finanzas_tablero` lee `bank_movements` ~9 veces, más quotations, leads, etc. Resultado: 3.6 s para 24 meses, en el filo de los 8 s.
+- **Arreglo** (migración `rls_initplan_finanzas`): `alter policy … using ((select usuario_real()))`. Con el `(select …)` la función se evalúa una vez por consulta (InitPlan).
+  - Mismo permiso: anon sigue viendo 0 renglones.
+  - Tablas: bank_movements, cash_movements, payment_allocations, quotations (2 políticas), purchase_orders (2), leads (2), nomina_historica, payroll_items, payroll_periods.
+- **Resultado:** 24 meses en **0.31 s** (antes 3.6 s), mismo md5 del JSON; `nomina_analitica` en 0.03 s.
+- **Gotcha para el futuro:** toda política nueva va con `(select fn())`, nunca `fn()` desacoplada. Quedan otras tablas con el patrón viejo; si otra pantalla se pone lenta, este es el primer sospechoso. Revisar con `select tablename, policyname, qual from pg_policies where qual !~ '^\(\s*SELECT'`.
