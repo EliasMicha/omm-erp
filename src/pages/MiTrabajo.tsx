@@ -223,7 +223,7 @@ export default function MiTrabajo() {
         <div className="mt-seg" role="tablist">
           <button className={vista === 'lista' && !abierta ? 'on' : ''} onClick={() => { setAbierta(null); setVista('lista') }}>Mi trabajo</button>
           <button className={vista === 'proyecto' && !abierta ? 'on' : ''} onClick={() => { setAbierta(null); setVista('proyecto') }}>El proyecto</button>
-          {soyDG && <button className={vista === 'tablero' && !abierta ? 'on' : ''} onClick={() => { setAbierta(null); setVista('tablero') }}>Tu tablero</button>}
+          {soyDG && <button className={vista === 'tablero' && !abierta ? 'on' : ''} onClick={() => { setAbierta(null); setVista('tablero') }}>Detenido por director</button>}
         </div>
       </div>
 
@@ -827,7 +827,7 @@ function ElProyecto({ proyectoId, setProyectoId, gente, onAbrir }: {
   )
 }
 
-// ── 4 · TU TABLERO ─────────────────────────────────────────────────────────
+// ── 4 · DETENIDO POR DIRECTOR ─────────────────────────────────────────────────────────
 
 function Tablero({ gente }: { gente: Persona[] }) {
   const [ts, setTs] = useState<TareaMT[]>([])

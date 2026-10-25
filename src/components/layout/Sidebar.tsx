@@ -59,6 +59,9 @@ export default function Sidebar() {
   const filteredNav = NAV.filter(item => {
     if (!user) return false
     if (item.to === '/' && portadaMiTrabajo) return false
+    // /tablero ES el Dashboard: sólo existe para quien tiene Mi trabajo como
+    // portada. Quien ya entra al Dashboard (DG, Administración) no lo ve dos veces.
+    if (item.to === '/tablero' && !portadaMiTrabajo) return false
     // Mi equipo y encargos (Actividades) es de quien dirige.
     if (item.to === '/actividades' && user.permission_area !== 'DG' && user.nivel !== 'director') return false
     if (user.permission_area === 'DG') return true
