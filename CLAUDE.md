@@ -3266,3 +3266,11 @@ Entrantes y salientes; solo `service_role` escribe y `usuario_real()` lee. Migra
 - **XENTER** (proyecto `e6d228b5…`): se creó el 21-oct con las plantillas viejas (29 tareas pendientes, sin fecha, sin etapa, intactas). Hay que confirmar con Elias si se borran y se le aplica `esp_proyecto_2026`.
 - **Cuentas ERP** para Marco Antonio Mendoza, Jonatan Díaz, Alejandra Álvarez y Renata: faltan sus correos. En `employees.email` están null; Nimbe también.
 - **Tabla de etapas de los 34 proyectos:** el doc sigue en la rev 16, sin llenar.
+
+## 📊 Finanzas · Por área: depósitos de cliente marcados como "pago a proveedor" (2026-10-25)
+- **Caso:** abonos con categoría de proveedor (`pago_proveedor`, `proveedor_obra`, `proveedor` o `anticipo_proveedor`) que en realidad eran pagos de clientes. Ejemplo: "botoneras fede/robert" de Manuel Casas, $118 K + $126 K, ligados a cotizaciones de Distribución.
+- **Efecto:** `finanzas_tablero` los tomaba como devolución de proveedor. Se restaban de proveedores y no contaban como cobro.
+- **Regla nueva** (migración `finanzas_tablero_abonos_ligados_son_cobranza`): un abono con categoría de proveedor **que trae `quotation_id` o `lead_id`** cuenta como cobranza. Aplica en las series mensuales, en cartera, en último cobro y en por área. Sin liga, sigue contando como devolución.
+- `supabase/migrations/20261024_finanzas_tablero.sql` refleja la versión vigente.
+- **Distribución sigue con margen alto** (~64% en jul–sep). La causa es que muchos pagos a proveedor no traen cotización y caen en "Sin liga": $592 K en jul–sep. Se arregla ligándolos en Conciliación, no con código.
+- La columna "Personas*" cuenta personas distintas en el periodo, con altas y bajas (~45 contra ~41 promedio mensual).

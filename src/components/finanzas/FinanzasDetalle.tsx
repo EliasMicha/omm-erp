@@ -311,7 +311,7 @@ export function TabAreas({ meses, desde, hasta }: { meses: Mes[]; desde: string;
                 <th style={thS}>Cobrado</th>
                 <th style={thS}>Proveedores</th>
                 <th style={thS}>Nómina</th>
-                <th style={thS}>Personas</th>
+                <th style={thS} title="Personas distintas que cobraron nómina en el periodo, incluidas altas y bajas">Personas*</th>
                 <th style={thS}>Contribución</th>
                 <th style={thS}>Nómina ÷ cobrado</th>
               </tr>
@@ -347,6 +347,10 @@ export function TabAreas({ meses, desde, hasta }: { meses: Mes[]; desde: string;
           cotización (se puede ligar en Conciliación). La nómina sale del módulo de nómina según el área de cada empleado, así que solo
           cubre los meses cerrados ahí (desde julio de 2026). Proyecto de iluminación va junto con Iluminación
           porque es el mismo equipo. «Nómina de NULED / Casa Luce» son personas pagadas por OMM que trabajan para esas empresas.
+          *Personas = distintas que cobraron en el periodo, con altas y bajas; por eso suma más que la plantilla de un mes.
+          Un depósito de cliente ligado a una cotización cuenta como cobro aunque en Conciliación esté como «pago a proveedor».
+          Si un área se ve con margen muy alto (p. ej. Distribución), revisa que sus pagos a proveedor estén ligados a su cotización:
+          los que no, caen en «Sin liga».
         </Nota>
       </Tarjeta>
     </div>

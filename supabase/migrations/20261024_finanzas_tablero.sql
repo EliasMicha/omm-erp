@@ -85,6 +85,8 @@ begin
        when categoria in ('traspaso_interno','traspaso') then 'traspaso'
        when tipo='abono' and categoria='prestamo' then 'fin_entra'
        when tipo='cargo' and categoria in ('prestamo','pago_tdc') then 'fin_sale'
+       when tipo='abono' and categoria in ('pago_proveedor','proveedor_obra','proveedor','anticipo_proveedor')
+            and (quotation_id is not null or lead_id is not null) then 'cobranza'
        when tipo='abono' and categoria in ('pago_proveedor','proveedor_obra','proveedor','anticipo_proveedor') then 'prov_dev'
        when tipo='abono' then 'otros_ing'
        when categoria in ('pago_proveedor','proveedor','proveedor_obra','anticipo_proveedor') then 'proveedores'
@@ -164,7 +166,7 @@ begin
     where vc.lead_id is not null and q.archived_at is null group by 1,2),
   extra as (
     select lead_id, case when moneda='USD' then 'usd' else 'mxn' end cur, sum(monto) m from bank_movements b
-     where tipo='abono' and categoria='cobro_cliente' and quotation_id is null and lead_id is not null
+     where tipo='abono' and categoria in ('cobro_cliente','pago_proveedor','proveedor_obra','proveedor','anticipo_proveedor') and quotation_id is null and lead_id is not null
        and not exists (select 1 from payment_allocations pa where pa.bank_movement_id=b.id) group by 1,2
     union all
     select lead_id, case when moneda='USD' then 'usd' else 'mxn' end, sum(monto) from cash_movements
@@ -173,7 +175,7 @@ begin
     select lead_id, max(f) f from (
       select coalesce(b.lead_id, nullif(omm_notes_json(q.notes)->>'lead_id','')::uuid) lead_id, b.fecha f
         from bank_movements b left join quotations q on q.id=b.quotation_id
-       where b.tipo='abono' and b.categoria='cobro_cliente'
+       where b.tipo='abono' and (b.categoria='cobro_cliente' or (b.categoria in ('pago_proveedor','proveedor_obra','proveedor','anticipo_proveedor') and (b.quotation_id is not null or b.lead_id is not null)))
       union all
       select coalesce(m.lead_id, nullif(omm_notes_json(q.notes)->>'lead_id','')::uuid), m.fecha
         from cash_movements m left join quotations q on q.id=m.quotation_id where m.tipo='cobro_cliente'
@@ -238,7 +240,8 @@ begin
     select case when b.quotation_id is null then 'sin_liga' else omm_linea_negocio(qq.specialty::text, qq.name) end,
            case when b.moneda='USD' then 'usd' else 'mxn' end, b.monto
       from bank_movements b left join quotations qq on qq.id=b.quotation_id
-     where b.tipo='abono' and b.categoria='cobro_cliente' and b.fecha >= v_desde and b.fecha < v_hasta
+     where b.tipo='abono' and b.fecha >= v_desde and b.fecha < v_hasta
+       and (b.categoria='cobro_cliente' or (b.categoria in ('pago_proveedor','proveedor_obra','proveedor','anticipo_proveedor') and (b.quotation_id is not null or b.lead_id is not null)))
        and not exists (select 1 from payment_allocations pa where pa.bank_movement_id=b.id)
     union all
     select case when m.quotation_id is null then 'sin_liga' else omm_linea_negocio(qq.specialty::text, qq.name) end,
@@ -251,6 +254,7 @@ begin
            case when b.tipo='cargo' then b.monto else -b.monto end s
       from bank_movements b left join quotations qq on qq.id=b.quotation_id
      where b.categoria in ('pago_proveedor','proveedor','proveedor_obra','anticipo_proveedor') and b.fecha >= v_desde and b.fecha < v_hasta
+       and not (b.tipo='abono' and (b.quotation_id is not null or b.lead_id is not null))
     union all
     select case when m.quotation_id is null then 'sin_liga' else omm_linea_negocio(qq.specialty::text, qq.name) end,
            case when coalesce(m.moneda,'MXN')='USD' then 'usd' else 'mxn' end, m.monto
