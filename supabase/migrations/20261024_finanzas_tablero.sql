@@ -233,9 +233,9 @@ begin
 
   with cob as (
     select omm_linea_negocio(qq.specialty::text, qq.name) linea,
-           case when coalesce(omm_notes_json(qq.notes)->>'currency','USD')='MXN' then 'mxn' else 'usd' end cur, pa.monto s
+           case when b.moneda='USD' then 'usd' else 'mxn' end cur, coalesce(pa.monto_origen, pa.monto) s
       from payment_allocations pa join bank_movements b on b.id=pa.bank_movement_id join quotations qq on qq.id=pa.quotation_id
-     where b.fecha >= v_desde and b.fecha < v_hasta
+     where b.fecha >= v_desde and b.fecha < v_hasta and b.tipo='abono'
     union all
     select case when b.quotation_id is null then 'sin_liga' else omm_linea_negocio(qq.specialty::text, qq.name) end,
            case when b.moneda='USD' then 'usd' else 'mxn' end, b.monto
@@ -243,6 +243,11 @@ begin
      where b.tipo='abono' and b.fecha >= v_desde and b.fecha < v_hasta
        and (b.categoria='cobro_cliente' or (b.categoria in ('pago_proveedor','proveedor_obra','proveedor','anticipo_proveedor') and (b.quotation_id is not null or b.lead_id is not null)))
        and not exists (select 1 from payment_allocations pa where pa.bank_movement_id=b.id)
+    union all
+    select case when b.quotation_id is null then 'sin_liga' else omm_linea_negocio(qq.specialty::text, qq.name) end,
+           case when b.moneda='USD' then 'usd' else 'mxn' end, -b.monto
+      from bank_movements b left join quotations qq on qq.id=b.quotation_id
+     where b.tipo='cargo' and b.categoria='cobro_cliente' and b.fecha >= v_desde and b.fecha < v_hasta
     union all
     select case when m.quotation_id is null then 'sin_liga' else omm_linea_negocio(qq.specialty::text, qq.name) end,
            case when coalesce(m.moneda,'MXN')='USD' then 'usd' else 'mxn' end, m.monto

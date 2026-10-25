@@ -3274,3 +3274,7 @@ Entrantes y salientes; solo `service_role` escribe y `usuario_real()` lee. Migra
 - `supabase/migrations/20261024_finanzas_tablero.sql` refleja la versión vigente.
 - **Distribución sigue con margen alto** (~64% en jul–sep). La causa es que muchos pagos a proveedor no traen cotización y caen en "Sin liga": $592 K en jul–sep. Se arregla ligándolos en Conciliación, no con código.
 - La columna "Personas*" cuenta personas distintas en el periodo, con altas y bajas (~45 contra ~41 promedio mensual).
+- **Por área cuadra con Resumen** (2026-10-25, migración `finanzas_tablero_cobro_por_area_cuadra_con_banco`). Los cobros repartidos con `payment_allocations` ahora usan `coalesce(monto_origen, monto)` en la moneda del depósito, no en la de la cotización, y también se restan las devoluciones a cliente (cargos `cobro_cliente`). Verificado con 12 meses: vendido, cobrado y proveedores suman exactamente lo mismo en meses y en líneas ($54.60 M, $31.11 M y $12.78 M).
+- **La pestaña tiene dos bloques:**
+  1. Venta, cobranza y proveedores por área del **periodo elegido**; su total es el de Resumen.
+  2. Contribución (con nómina), **solo con los meses de nómina cerrada** (desde jul-2026), con la advertencia explícita de que sus totales no son los de Resumen.

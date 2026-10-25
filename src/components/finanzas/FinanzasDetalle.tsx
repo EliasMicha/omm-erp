@@ -6,7 +6,7 @@ import { supabase } from '../../lib/supabase'
 import { tcForYear } from '../../lib/fx'
 import {
   TableroRaw, Mes, LineaRaw, CarteraLead, CxpOc, PorConfirmar,
-  cargarTablero, fmtM, fmt$, fmtPct, NOMBRE_LINEA,
+  cargarTablero, fmtM, fmt$, fmtPct, NOMBRE_LINEA, etiquetaMes,
 } from '../../lib/finanzasTablero'
 import { BarrasH, Leyenda, COLOR } from './Graficas'
 import { Tarjeta, Indicador, Rejilla, Nota, Pildora, ESTADO_COLOR, thS, tdS } from './Piezas'
@@ -244,6 +244,97 @@ export function TabCxp({ raw }: { raw: TableroRaw }) {
 const ORDEN_LINEAS = ['esp', 'elec', 'ilum', 'cort', 'dist', 'proy_esp', 'proy_elec', 'sin_liga', 'estructura', 'otras_empresas']
 
 export function TabAreas({ meses, desde, hasta }: { meses: Mes[]; desde: string; hasta: string }) {
+  return (
+    <div>
+      <VentaPorArea desde={desde} hasta={hasta} />
+      <ContribucionPorArea meses={meses} desde={desde} hasta={hasta} />
+    </div>
+  )
+}
+
+// ── 1. Venta, cobranza y proveedores del periodo elegido ───────────────────
+// Mismo periodo y mismas fuentes que Resumen: el total de cada columna es el
+// mismo número que allá. Aquí solo se reparte por área.
+function VentaPorArea({ desde, hasta }: { desde: string; hasta: string }) {
+  const [lineas, setLineas] = useState<LineaRaw[] | null>(null)
+  const [error, setError] = useState('')
+  useEffect(() => {
+    let vivo = true
+    setLineas(null)
+    setError('')
+    cargarTablero(desde + '-01', hasta + '-01')
+      .then(r => { if (vivo) setLineas(r.lineas) })
+      .catch((e: any) => { if (vivo) setError(e?.message || String(e)) })
+    return () => { vivo = false }
+  }, [desde, hasta])
+
+  const periodo = etiquetaMes(desde) + (desde !== hasta ? ' a ' + etiquetaMes(hasta) : '')
+  if (error) return <Nota>No se pudo cargar: {error}</Nota>
+  if (!lineas) return <div style={{ padding: 30, color: '#555', fontSize: 12 }}>Cargando áreas…</div>
+
+  const tc = tcForYear(Number(hasta.slice(0, 4)))
+  const filas = lineas.map(l => ({
+    linea: l.linea,
+    nombre: NOMBRE_LINEA[l.linea] || l.linea,
+    vendido: l.vendido_mxn + l.vendido_usd * tc,
+    cobrado: l.cobrado_mxn + l.cobrado_usd * tc,
+    proveedores: l.proveedores_mxn + l.proveedores_usd * tc,
+  })).filter(f => Math.abs(f.vendido) + Math.abs(f.cobrado) + Math.abs(f.proveedores) > 0.5)
+    .sort((a, b) => {
+      const ia = ORDEN_LINEAS.indexOf(a.linea), ib = ORDEN_LINEAS.indexOf(b.linea)
+      return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib)
+    })
+  const tot = filas.reduce((s, f) => ({ vendido: s.vendido + f.vendido, cobrado: s.cobrado + f.cobrado, proveedores: s.proveedores + f.proveedores }),
+    { vendido: 0, cobrado: 0, proveedores: 0 })
+  const pct = (v: number, t: number) => (t ? fmtPct(v / t, 0) : '—')
+
+  return (
+    <Tarjeta titulo={`Venta, cobranza y proveedores por área · ${periodo}`}
+      subtitulo="El periodo que elegiste arriba, con las mismas fuentes que Resumen: los totales son los mismos números. Vendido = cotizaciones en contrato (vigentes) por su fecha de contrato. Cobrado = depósitos de clientes en banco más cobros en efectivo. Proveedores = pagos a proveedor en banco más efectivo. Cada peso va al área de la cotización a la que está ligado; lo que no trae cotización queda en «Sin liga».">
+      <div style={{ overflowX: 'auto', border: '1px solid #222', borderRadius: 10 }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 820 }}>
+          <thead>
+            <tr>
+              <th style={{ ...thS, textAlign: 'left' }}>Área</th>
+              <th style={thS}>Vendido</th>
+              <th style={thS}>% de la venta</th>
+              <th style={thS}>Cobrado</th>
+              <th style={thS}>% de lo cobrado</th>
+              <th style={thS}>Proveedores</th>
+              <th style={thS}>Cobrado − proveedores</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filas.map(f => (
+              <tr key={f.linea}>
+                <td style={{ ...tdS, textAlign: 'left', color: '#e8e7e3' }}>{f.nombre}</td>
+                <td style={tdS}>{f.vendido ? fmtM(f.vendido) : '—'}</td>
+                <td style={{ ...tdS, color: '#a9a8a1' }}>{f.vendido ? pct(f.vendido, tot.vendido) : '—'}</td>
+                <td style={tdS}>{f.cobrado ? fmtM(f.cobrado) : '—'}</td>
+                <td style={{ ...tdS, color: '#a9a8a1' }}>{f.cobrado ? pct(f.cobrado, tot.cobrado) : '—'}</td>
+                <td style={tdS}>{f.proveedores ? fmtM(f.proveedores) : '—'}</td>
+                <td style={{ ...tdS, color: f.cobrado - f.proveedores < 0 ? '#e66767' : '#d6d5d0' }}>{fmtM(f.cobrado - f.proveedores)}</td>
+              </tr>
+            ))}
+            <tr style={{ background: '#1a1a1a' }}>
+              <td style={{ ...tdS, textAlign: 'left', fontWeight: 700, color: '#fff' }}>Total <span style={{ fontWeight: 400, color: '#77766f' }}>(igual que Resumen)</span></td>
+              <td style={{ ...tdS, fontWeight: 700 }}>{fmtM(tot.vendido)}</td>
+              <td style={tdS}>100%</td>
+              <td style={{ ...tdS, fontWeight: 700 }}>{fmtM(tot.cobrado)}</td>
+              <td style={tdS}>100%</td>
+              <td style={{ ...tdS, fontWeight: 700 }}>{fmtM(tot.proveedores)}</td>
+              <td style={{ ...tdS, fontWeight: 700 }}>{fmtM(tot.cobrado - tot.proveedores)}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <Nota>La venta se cobra en ~18 meses, así que en un mismo periodo lo vendido y lo cobrado de un área no tienen por qué parecerse.</Nota>
+    </Tarjeta>
+  )
+}
+
+// ── 2. Contribución: lo cobrado menos proveedores menos nómina ──────────────
+function ContribucionPorArea({ meses, desde, hasta }: { meses: Mes[]; desde: string; hasta: string }) {
   // La contribución resta la nómina de cada área, y la nómina por empleado
   // solo existe en los meses cerrados del módulo de nómina. Si se tomara el
   // periodo completo, la cobranza de 12 meses se compararía contra 4 meses de
@@ -301,7 +392,8 @@ export function TabAreas({ meses, desde, hasta }: { meses: Mes[]; desde: string;
           }))} />
       </Tarjeta>
 
-      <Tarjeta titulo="Detalle por área">
+      <Tarjeta titulo={`Contribución por área, detalle · ${ventana.etiqueta}`}
+        subtitulo={`OJO: esta tabla y la gráfica de arriba usan solo ${ventana.etiqueta} (${ventana.n} mes${ventana.n === 1 ? '' : 'es'}), no todo el periodo: son los meses con la nómina cerrada en el módulo de nómina, para restar la nómina del mismo periodo. Por eso sus totales no son los de Resumen.`}>
         <div style={{ overflowX: 'auto', border: '1px solid #222', borderRadius: 10 }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 900 }}>
             <thead>
