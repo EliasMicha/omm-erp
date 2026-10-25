@@ -129,6 +129,7 @@ begin
            bool_or(coalesce(estatus, status::text) = 'cerrado') cerrado
     from payroll_periods group by 1
   ),
+  hist as (select date_trunc('month', mes)::date m, sum(transferencia + efectivo) s from nomina_historica group by 1),
   disp as (select m, count(*) n from b where es_disp group by 1)
   select jsonb_set(r, '{meses}', coalesce(jsonb_agg(jsonb_build_object(
     'mes', to_char(me.m, 'YYYY-MM'),
@@ -145,6 +146,7 @@ begin
     'nomina_efvo',   coalesce((select sum(s) from mov where m=me.m and k='efvo_nomina'),0),
     'nomina_modulo', coalesce((select s from nom where m=me.m),0),
     'nomina_cerrada', coalesce((select cerrado from nom where m=me.m), false),
+    'nomina_historica', coalesce((select s from hist where m=me.m),0),
     'impuestos', coalesce((select sum(s) from mov where m=me.m and k='impuestos'),0),
     'gastos_mxn', coalesce((select sum(s) from mov where m=me.m and cur='mxn' and k in ('gastos','efvo_gastos')),0),
     'gastos_usd', coalesce((select sum(s) from mov where m=me.m and cur='usd' and k in ('gastos','efvo_gastos')),0),
@@ -265,12 +267,21 @@ begin
            case when coalesce(m.moneda,'MXN')='USD' then 'usd' else 'mxn' end, m.monto
       from cash_movements m left join quotations qq on qq.id=m.quotation_id
      where m.tipo='pago_proveedor' and m.fecha >= v_desde and m.fecha < v_hasta),
+  cerrados as (
+    select make_date(anio, mes, 1) m from payroll_periods
+     group by 1 having bool_or(coalesce(estatus, status::text) = 'cerrado')),
   nom as (
-    select omm_linea_de_area(e.area) linea, sum(coalesce(pi.neto_a_pagar_cfdi,0) + coalesce(pi.total_efectivo_final,0)) s,
-           count(distinct pi.employee_id) personas
-      from payroll_items pi join payroll_periods pp on pp.id=pi.period_id join employees e on e.id=pi.employee_id
-     where make_date(pp.anio, pp.mes, 1) >= v_desde and make_date(pp.anio, pp.mes, 1) < v_hasta
-     group by 1),
+    select linea, sum(s) s, count(distinct quien) personas from (
+      select omm_linea_de_area(e.area) linea, coalesce(pi.neto_a_pagar_cfdi,0) + coalesce(pi.total_efectivo_final,0) s, pi.employee_id::text quien
+        from payroll_items pi join payroll_periods pp on pp.id=pi.period_id join employees e on e.id=pi.employee_id
+       where make_date(pp.anio, pp.mes, 1) >= v_desde and make_date(pp.anio, pp.mes, 1) < v_hasta
+         and make_date(pp.anio, pp.mes, 1) in (select m from cerrados)
+      union all
+      select h.linea, h.transferencia + h.efectivo, case when h.employee_id is null and h.nombre like 'Bonos y aguinaldos%' then null else coalesce(h.employee_id::text, h.nombre) end
+        from nomina_historica h
+       where h.mes >= v_desde and h.mes < v_hasta
+         and h.mes not in (select m from cerrados)
+    ) z group by 1),
   ven as (
     select omm_linea_negocio(q.specialty::text, q.name) linea, lower(v.moneda) cur, sum(v.vendido) s
       from v_cobranza_cotizacion v join quotations q on q.id=v.quotation_id

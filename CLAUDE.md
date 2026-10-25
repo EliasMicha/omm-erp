@@ -3278,3 +3278,36 @@ Entrantes y salientes; solo `service_role` escribe y `usuario_real()` lee. Migra
 - **La pestaña tiene dos bloques:**
   1. Venta, cobranza y proveedores por área del **periodo elegido**; su total es el de Resumen.
   2. Contribución (con nómina), **solo con los meses de nómina cerrada** (desde jul-2026), con la advertencia explícita de que sus totales no son los de Resumen.
+
+## 💼 Nómina histórica (Excel 2025–jun 2026) en Finanzas (2026-10-25)
+- **Origen:** Excel `CALCULOS_NOMINAS_2025` de Elias, con nómina de ene-2025 a jun-2026. Mucha gente ya no está en `employees`.
+- **Tabla nueva `nomina_historica`:** 687 renglones, 87 personas (510 renglones ligados a `employees`, el resto por nombre).
+  - Columnas: `mes`, `employee_id` (null si la persona ya no existe), `nombre`, `area_excel`, `linea`, `transferencia`, `efectivo`, `fuente`='excel_calculos_nominas', `nota`.
+  - RLS: solo select, con `es_area(array['Administracion'])`.
+  - **No se subieron cuentas bancarias, CLABEs ni datos personales del Excel.** Solo montos, área y nombre.
+  - Total $12.78 M. Los totales por mes cuadran al centavo con el Excel. 2025 cuadra con la hoja RESUMEN; oct y dic llevan renglones de ajuste para bonos y aguinaldos ("Bonos y aguinaldos…", sin employee_id, no cuentan como persona).
+- **Decisiones de Elias sobre los nombres:**
+  - Jonathan = Jonathan; José Ulises = Jesús Ulises.
+  - Raúl nunca llegó (registro erróneo, no se subió).
+  - Carlos y Alberto = Carlos Alberto; Gabriel = Gabriel Ruiz.
+  - Marco = Marco Mendoza; Ernesto = Ernesto Moreno.
+  - Ricardo Manuel es otra persona (NO Ricardo Flores).
+- **Regla dura (Elias): "Lo que ya venga hecho desde la plataforma, no se altera".** El historial vive aparte. **No se tocó** ningún `payroll_periods`/`payroll_items`.
+- **Regla de uso**, por mes:
+  - si el mes tiene un periodo **cerrado** en el módulo → se usa el módulo;
+  - si no → se usa el historial.
+  - Abr–jun 2026 tienen periodos en borrador o incompletos en el módulo, así que en Finanzas se usa el historial sin modificar esos periodos.
+- **`finanzas_tablero`** (migración `finanzas_tablero_nomina_historica`; el archivo `20261024_finanzas_tablero.sql` es idéntico a la BD, mismo md5 de prosrc):
+  - campo mensual `nomina_historica`;
+  - en `lineas`, la nómina es la unión de `payroll_items` (solo meses cerrados) + `nomina_historica` (meses no cerrados).
+  - Verificado: la nómina por área de ene-25 a sep-26 suma exactamente $14,946,227.02 = historial ene-25..jun-26 + módulo jul..sep-26.
+- **Cliente (`finanzasTablero.ts`):**
+  - `nomina` = módulo cerrado → historial → máx(módulo, banco+caja);
+  - `nominaCompleta` también es true cuando hay historial;
+  - nuevo campo `nominaHistorica`;
+  - el **flujo** sigue usando `nominaCaja` (lo que de verdad salió).
+- **Por área → Contribución:** la ventana incluye meses con nómina cerrada **o** con historial, así que ya cubre desde ene-2025.
+- **Calidad de datos:** columna "Nómina (historial)" y píldora "Completa (módulo / historial / banco + caja)".
+- **Archivos auxiliares:**
+  - scripts de carga en el scratchpad de la sesión (no van al repo);
+  - revisión entregada a Elias: `Revision_nomina_historica.xlsx`.

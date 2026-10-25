@@ -335,13 +335,14 @@ function VentaPorArea({ desde, hasta }: { desde: string; hasta: string }) {
 
 // ── 2. Contribución: lo cobrado menos proveedores menos nómina ──────────────
 function ContribucionPorArea({ meses, desde, hasta }: { meses: Mes[]; desde: string; hasta: string }) {
-  // La contribución resta la nómina de cada área, y la nómina por empleado
-  // solo existe en los meses cerrados del módulo de nómina. Si se tomara el
-  // periodo completo, la cobranza de 12 meses se compararía contra 4 meses de
-  // nómina y todas las áreas saldrían infladas. Por eso la ventana se recorta
-  // a los meses del periodo con nómina cerrada (y sin el mes en curso).
+  // La contribución resta la nómina de cada área. La nómina por persona existe
+  // en los meses cerrados del módulo de nómina y, antes de eso, en el historial
+  // cargado del Excel (Ene-2025 a Jun-2026). Si un mes no tiene ninguna de las
+  // dos, la cobranza se compararía contra cero nómina y el área saldría
+  // inflada; por eso la ventana se recorta a los meses con nómina por persona
+  // (y sin el mes en curso).
   const ventana = useMemo(() => {
-    const ok = meses.filter(m => m.mes >= desde && m.mes <= hasta && m.nominaCerrada && !m.enCurso)
+    const ok = meses.filter(m => m.mes >= desde && m.mes <= hasta && (m.nominaCerrada || m.nominaHistorica > 0) && !m.enCurso)
     if (ok.length === 0) return null
     return { desde: ok[0].mes, hasta: ok[ok.length - 1].mes, n: ok.length, etiqueta: ok[0].etiqueta + (ok.length > 1 ? ' a ' + ok[ok.length - 1].etiqueta : '') }
   }, [meses, desde, hasta])
@@ -360,7 +361,7 @@ function ContribucionPorArea({ meses, desde, hasta }: { meses: Mes[]; desde: str
 
   if (!ventana) return (
     <Tarjeta titulo="Contribución por área">
-      <Nota>El periodo elegido no tiene meses con la nómina cerrada en el módulo de nómina, así que no se puede restar la nómina de cada área. Elige «6 meses», «12 meses» o «Año en curso».</Nota>
+      <Nota>El periodo elegido no tiene meses con nómina por persona (ni cerrada en el módulo ni en el historial), así que no se puede restar la nómina de cada área. Elige «6 meses», «12 meses» o «Año en curso».</Nota>
     </Tarjeta>
   )
   if (error) return <Nota>No se pudo cargar: {error}</Nota>
@@ -384,7 +385,7 @@ function ContribucionPorArea({ meses, desde, hasta }: { meses: Mes[]; desde: str
   return (
     <div>
       <Tarjeta titulo={`Contribución por área · ${ventana.etiqueta}`}
-        subtitulo={`Lo que cobró cada área menos lo que pagó a sus proveedores y su propia nómina. Si un área queda en negativo, la están financiando las demás. Calculado sobre ${ventana.n} mes${ventana.n === 1 ? '' : 'es'} (${ventana.etiqueta}): solo los meses con la nómina cerrada en el módulo, para comparar cobranza y nómina del mismo periodo. Entre más meses, más confiable: la cobranza no es lineal y el gasto llega antes que el cobro.`}>
+        subtitulo={`Lo que cobró cada área menos lo que pagó a sus proveedores y su propia nómina. Si un área queda en negativo, la están financiando las demás. Calculado sobre ${ventana.n} mes${ventana.n === 1 ? '' : 'es'} (${ventana.etiqueta}): solo los meses con nómina por persona (módulo cerrado o historial), para comparar cobranza y nómina del mismo periodo. Entre más meses, más confiable: la cobranza no es lineal y el gasto llega antes que el cobro.`}>
         <BarrasH formato={fmtM}
           filas={filas.map(f => ({
             etiqueta: f.nombre, valor: f.contribucion,
@@ -393,7 +394,7 @@ function ContribucionPorArea({ meses, desde, hasta }: { meses: Mes[]; desde: str
       </Tarjeta>
 
       <Tarjeta titulo={`Contribución por área, detalle · ${ventana.etiqueta}`}
-        subtitulo={`OJO: esta tabla y la gráfica de arriba usan solo ${ventana.etiqueta} (${ventana.n} mes${ventana.n === 1 ? '' : 'es'}), no todo el periodo: son los meses con la nómina cerrada en el módulo de nómina, para restar la nómina del mismo periodo. Por eso sus totales no son los de Resumen.`}>
+        subtitulo={`OJO: esta tabla y la gráfica de arriba usan solo ${ventana.etiqueta} (${ventana.n} mes${ventana.n === 1 ? '' : 'es'}), no todo el periodo: son los meses con nómina por persona (módulo cerrado o historial), para restar la nómina del mismo periodo. Si la ventana es más corta que el periodo, sus totales no son los de Resumen.`}>
         <div style={{ overflowX: 'auto', border: '1px solid #222', borderRadius: 10 }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 900 }}>
             <thead>
@@ -436,8 +437,9 @@ function ContribucionPorArea({ meses, desde, hasta }: { meses: Mes[]; desde: str
         </div>
         <Nota>
           Cobros y pagos se asignan al área por la cotización a la que están ligados. «Sin liga a cotización» es dinero que no trae
-          cotización (se puede ligar en Conciliación). La nómina sale del módulo de nómina según el área de cada empleado, así que solo
-          cubre los meses cerrados ahí (desde julio de 2026). Proyecto de iluminación va junto con Iluminación
+          cotización (se puede ligar en Conciliación). La nómina sale del módulo de nómina según el área de cada empleado en los meses
+          cerrados ahí (desde julio de 2026); antes, del historial cargado del Excel de nómina (enero 2025 a junio 2026), con el área
+          que tenía cada persona. Los meses del módulo nunca se modifican: si un mes no está cerrado en el módulo, se usa el historial. Proyecto de iluminación va junto con Iluminación
           porque es el mismo equipo. «Nómina de NULED / Casa Luce» son personas pagadas por OMM que trabajan para esas empresas.
           *Personas = distintas que cobraron en el periodo, con altas y bajas; por eso suma más que la plantilla de un mes.
           Un depósito de cliente ligado a una cotización cuenta como cobro aunque en Conciliación esté como «pago a proveedor».
@@ -498,13 +500,14 @@ export function TabDatos({ raw, meses, onCambio }: { raw: TableroRaw; meses: Mes
       <Tarjeta titulo="Clasificación de las salidas, mes por mes"
         subtitulo="Cuánto de lo que salió del banco no tiene categoría. Mientras más alto, menos confiables son los indicadores de proveedores y nómina de ese mes (el flujo total sí es correcto). Meta: menos de 1%.">
         <div style={{ overflowX: 'auto', border: '1px solid #222', borderRadius: 10 }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 700 }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 820 }}>
             <thead><tr>
               <th style={{ ...thS, textAlign: 'left' }}>Mes</th>
               <th style={thS}>Salidas operativas</th>
               <th style={thS}>Sin clasificar</th>
               <th style={thS}>%</th>
               <th style={thS}>Nómina (módulo)</th>
+              <th style={thS}>Nómina (historial)</th>
               <th style={thS}>Nómina (banco + caja)</th>
               <th style={{ ...thS, textAlign: 'left' }}>Nómina</th>
             </tr></thead>
@@ -519,8 +522,9 @@ export function TabDatos({ raw, meses, onCambio }: { raw: TableroRaw; meses: Mes
                     <td style={tdS}>{fmtM(m.sinClasificar)}</td>
                     <td style={tdS}><Pildora texto={fmtPct(pct, 0)} color={ESTADO_COLOR[est]} /></td>
                     <td style={tdS}>{m.nominaModulo > 0 ? fmtM(m.nominaModulo) : '—'}</td>
+                    <td style={tdS}>{m.nominaHistorica > 0 ? fmtM(m.nominaHistorica) : '—'}</td>
                     <td style={tdS}>{fmtM(m.nominaCaja)}</td>
-                    <td style={{ ...tdS, textAlign: 'left' }}>{m.nominaCompleta ? <Pildora texto="Completa" color={ESTADO_COLOR.bueno} /> : <Pildora texto="Solo transferencias" color={ESTADO_COLOR.alerta} />}</td>
+                    <td style={{ ...tdS, textAlign: 'left' }}>{m.nominaCerrada ? <Pildora texto="Completa (módulo)" color={ESTADO_COLOR.bueno} /> : m.nominaHistorica > 0 ? <Pildora texto="Completa (historial)" color={ESTADO_COLOR.bueno} /> : m.nominaCompleta ? <Pildora texto="Completa (banco + caja)" color={ESTADO_COLOR.bueno} /> : <Pildora texto="Solo transferencias" color={ESTADO_COLOR.alerta} />}</td>
                   </tr>
                 )
               })}

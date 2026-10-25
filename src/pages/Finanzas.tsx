@@ -451,7 +451,7 @@ function TabFlujo({ meses, grafica, T }: { meses: Mes[]; grafica: Mes[]; T: Tota
         <Nota>
           * Mes en curso. «Salidas sin clasificar» son cargos del banco con categoría «otro»: antes de julio de 2026 ahí vive buena parte
           de los pagos a proveedores y de la nómina, por eso esos meses se ven con proveedores bajos. Se clasifican en Contabilidad → Conciliación.
-          La nómina aquí es lo que salió por banco y caja; en Resumen se usa el módulo de nómina cuando el mes está cerrado.
+          La nómina aquí es lo que salió por banco y caja; en Resumen se usa el módulo de nómina cuando el mes está cerrado y, antes, el historial del Excel de nómina (ene-2025 a jun-2026).
         </Nota>
       </Tarjeta>
     </div>

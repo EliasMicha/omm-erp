@@ -23,6 +23,7 @@ export interface MesRaw {
   vendido_mxn: number; vendido_usd: number; contratos: number
   proveedores_mxn: number; proveedores_usd: number
   nomina_banco: number; nomina_efvo: number; nomina_modulo: number; nomina_cerrada: boolean
+  nomina_historica: number
   impuestos: number
   gastos_mxn: number; gastos_usd: number
   sin_clasificar_mxn: number; sin_clasificar_usd: number
@@ -81,6 +82,7 @@ export interface Mes {
   nominaCaja: number     // lo que salió por banco + efectivo (para el flujo)
   nominaModulo: number   // lo capturado en el módulo de nómina
   nominaCerrada: boolean // el mes tiene periodos cerrados en el módulo
+  nominaHistorica: number // historial cargado del Excel (Ene-2025 a Jun-2026)
   nominaCompleta: boolean
   impuestos: number
   gastos: number
@@ -119,10 +121,13 @@ export function convertirMes(r: MesRaw): Mes {
   const proveedores = n(r.proveedores_mxn) + n(r.proveedores_usd) * tc
   const nominaCaja = n(r.nomina_banco) + n(r.nomina_efvo)
   const nominaModulo = n(r.nomina_modulo)
-  const nomina = Math.max(nominaModulo, nominaCaja)
-  // Completa si hay periodos cerrados en el módulo o si el efectivo de nómina
-  // está capturado (antes de 2026 solo se ve la transferencia: ~la mitad).
-  const nominaCompleta = (r.nomina_cerrada && nominaModulo > 0) || n(r.nomina_efvo) > 0
+  const nominaHistorica = n(r.nomina_historica)
+  const cerradaModulo = !!r.nomina_cerrada && nominaModulo > 0
+  // Prioridad: 1) módulo con periodos cerrados, 2) historial del Excel
+  // (meses antes de que el módulo estuviera completo), 3) lo mejor que haya.
+  // El historial no toca los periodos del módulo: solo se lee en otra tabla.
+  const nomina = cerradaModulo ? nominaModulo : (nominaHistorica > 0 ? nominaHistorica : Math.max(nominaModulo, nominaCaja))
+  const nominaCompleta = cerradaModulo || nominaHistorica > 0 || n(r.nomina_efvo) > 0
   const impuestos = n(r.impuestos)
   const gastos = n(r.gastos_mxn) + n(r.gastos_usd) * tc
   const sinClasificar = n(r.sin_clasificar_mxn) + n(r.sin_clasificar_usd) * tc
@@ -147,7 +152,8 @@ export function convertirMes(r: MesRaw): Mes {
     nomina,
     nominaCaja,
     nominaModulo,
-    nominaCerrada: !!r.nomina_cerrada && nominaModulo > 0,
+    nominaCerrada: cerradaModulo,
+    nominaHistorica,
     nominaCompleta,
     impuestos,
     gastos,
