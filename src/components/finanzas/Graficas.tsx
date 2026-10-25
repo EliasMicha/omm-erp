@@ -446,3 +446,92 @@ export function GraficaApilada({ etiquetas, series, formato, alto, tenues, extra
     </div>
   )
 }
+
+// ── Curvas con eje X numérico (meses desde el primer cobro) ──────────────
+// fondo: una línea tenue por elemento (p. ej. cada lead), sin tooltip.
+// series: líneas principales; valores[k] = valor en el mes k (NaN = sin dato).
+export function GraficaCurvas({ maxX, fondo, series, formatoY, etiquetaX, alto, maxY, extraTooltip, resaltar }: {
+  maxX: number
+  fondo: { puntos: { x: number; y: number }[]; color?: string }[]
+  series: Serie[]
+  formatoY: (v: number) => string
+  etiquetaX: (k: number) => string
+  alto?: number
+  maxY?: number
+  extraTooltip?: (k: number) => TooltipFila[]
+  resaltar?: number | null
+}) {
+  const [ref, ancho] = useAncho()
+  const [hover, setHover] = useState<number | null>(null)
+  const H = alto || 320
+  const m = { t: 12, r: 16, b: 28, l: 46 }
+  const iw = ancho - m.l - m.r
+  const ih = H - m.t - m.b
+  const topY = maxY || 1
+  const sc = escala(0, topY, 4)
+  const X = (v: number) => m.l + (Math.max(0, Math.min(maxX, v)) / Math.max(1, maxX)) * iw
+  const Y = (v: number) => m.t + ih - ((v - sc.min) / (sc.max - sc.min)) * ih
+  const pasoX = maxX <= 12 ? 1 : maxX <= 24 ? 3 : 6
+  const ticksX: number[] = []
+  for (let k = 0; k <= maxX; k += pasoX) ticksX.push(k)
+  const colW = iw / Math.max(1, maxX)
+
+  return (
+    <div ref={ref} style={{ position: 'relative', width: '100%' }} onMouseLeave={() => setHover(null)}>
+      <svg width={ancho} height={H} style={{ display: 'block' }} role="img">
+        {sc.ticks.map(t => (
+          <g key={t}>
+            <line x1={m.l} x2={ancho - m.r} y1={Y(t)} y2={Y(t)} stroke={t === 0 ? BASE : GRID} strokeWidth={1} />
+            <text x={m.l - 8} y={Y(t) + 4} textAnchor="end" fontSize="10" fill={MUTED} style={{ fontVariantNumeric: 'tabular-nums' }}>{formatoY(t)}</text>
+          </g>
+        ))}
+        {ticksX.map(k => (
+          <text key={k} x={X(k)} y={H - 9} textAnchor="middle" fontSize="10" fill={hover === k ? TINTA : MUTED}>{etiquetaX(k)}</text>
+        ))}
+        {hover !== null && <line x1={X(hover)} x2={X(hover)} y1={m.t} y2={m.t + ih} stroke="#ffffff" opacity={0.15} />}
+        {fondo.map((f, i) => {
+          if (f.puntos.length === 0) return null
+          let d = ''
+          f.puntos.forEach((p, j) => { d += (j === 0 ? 'M' : 'L') + X(p.x).toFixed(1) + ',' + Y(Math.min(topY, p.y)).toFixed(1) + ' ' })
+          const ult = f.puntos[f.puntos.length - 1]
+          const fuerte = resaltar === i
+          return (
+            <g key={'f' + i} opacity={fuerte ? 1 : 0.28}>
+              <path d={d} fill="none" stroke={f.color || '#6f6e69'} strokeWidth={fuerte ? 2 : 1} strokeLinejoin="round" />
+              <circle cx={X(ult.x)} cy={Y(Math.min(topY, ult.y))} r={fuerte ? 3.5 : 2} fill={f.color || '#6f6e69'} />
+            </g>
+          )
+        })}
+        {series.map(s => {
+          let d = ''
+          let abierto = false
+          s.valores.forEach((v, k) => {
+            if (!isFinite(v)) { abierto = false; return }
+            d += (abierto ? 'L' : 'M') + X(k).toFixed(1) + ',' + Y(v).toFixed(1) + ' '
+            abierto = true
+          })
+          return (
+            <g key={s.nombre}>
+              <path d={d} fill="none" stroke={SUPERFICIE} strokeWidth={5} strokeLinejoin="round" opacity={0.8} />
+              <path d={d} fill="none" stroke={s.color} strokeWidth={s.punteada ? 2 : 3} strokeDasharray={s.punteada ? '6 4' : undefined} strokeLinejoin="round" strokeLinecap="round" />
+              {hover !== null && isFinite(s.valores[hover]) && (
+                <circle cx={X(hover)} cy={Y(s.valores[hover])} r={4.5} fill={s.color} stroke={SUPERFICIE} strokeWidth={2} />
+              )}
+            </g>
+          )
+        })}
+        {Array.from({ length: maxX + 1 }, (_, k) => k).map(k => (
+          <rect key={'h' + k} x={X(k) - colW / 2} y={m.t} width={colW} height={ih + m.b} fill="transparent"
+            onMouseEnter={() => setHover(k)} onTouchStart={() => setHover(k)} />
+        ))}
+      </svg>
+      {hover !== null && (
+        <Tooltip x={X(hover)} ancho={ancho} titulo={etiquetaX(hover)}
+          filas={[
+            ...series.filter(s => isFinite(s.valores[hover])).map(s => ({ nombre: s.nombre, color: s.color, valor: formatoY(s.valores[hover]) })),
+            ...(extraTooltip ? extraTooltip(hover) : []),
+          ]} />
+      )}
+    </div>
+  )
+}

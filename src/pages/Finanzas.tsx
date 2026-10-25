@@ -16,9 +16,10 @@ import {
 import { GraficaMensual, GraficaFlujo, Leyenda, COLOR } from '../components/finanzas/Graficas'
 import { Tarjeta, Indicador, Rejilla, Nota, thS, tdS } from '../components/finanzas/Piezas'
 import { TabCartera, TabCxp, TabAreas, TabDatos } from '../components/finanzas/FinanzasDetalle'
+import { TabCiclo } from '../components/finanzas/CicloCobranza'
 
 type Periodo = 'mes' | '3m' | '6m' | '12m' | 'anio' | 'anio_ant'
-type Pestana = 'resumen' | 'flujo' | 'cartera' | 'cxp' | 'areas' | 'datos'
+type Pestana = 'resumen' | 'flujo' | 'cartera' | 'ciclo' | 'cxp' | 'areas' | 'datos'
 
 const PERIODOS: { id: Periodo; label: string }[] = [
   { id: 'mes', label: 'Este mes' },
@@ -33,6 +34,7 @@ const PESTANAS: { id: Pestana; label: string }[] = [
   { id: 'resumen', label: 'Resumen' },
   { id: 'flujo', label: 'Flujo de efectivo' },
   { id: 'cartera', label: 'Cartera por cobrar' },
+  { id: 'ciclo', label: 'Ciclo de cobranza' },
   { id: 'cxp', label: 'Cuentas por pagar' },
   { id: 'areas', label: 'Por área' },
   { id: 'datos', label: 'Calidad de datos' },
@@ -186,6 +188,7 @@ export default function Finanzas() {
           {pestana === 'resumen' && <TabResumen T={T} P={P} meses={grafica} raw={raw} nMeses={nMeses} comparable={comparable} nominaReal={nominaReal} />}
           {pestana === 'flujo' && <TabFlujo meses={delPeriodo} grafica={grafica} T={T} />}
           {pestana === 'cartera' && <TabCartera raw={raw} nominaMensual={nominaReal.porMes} />}
+          {pestana === 'ciclo' && <TabCiclo />}
           {pestana === 'cxp' && <TabCxp raw={raw} />}
           {pestana === 'areas' && <TabAreas meses={todos} desde={rango.desde} hasta={rango.hasta} />}
           {pestana === 'datos' && <TabDatos raw={raw} meses={grafica} onCambio={() => setRecarga(x => x + 1)} />}

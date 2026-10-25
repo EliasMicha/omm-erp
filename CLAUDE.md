@@ -3351,3 +3351,39 @@ Entrantes y salientes; solo `service_role` escribe y `usuario_real()` lee. Migra
   - Tablas: bank_movements, cash_movements, payment_allocations, quotations (2 políticas), purchase_orders (2), leads (2), nomina_historica, payroll_items, payroll_periods.
 - **Resultado:** 24 meses en **0.31 s** (antes 3.6 s), mismo md5 del JSON; `nomina_analitica` en 0.03 s.
 - **Gotcha para el futuro:** toda política nueva va con `(select fn())`, nunca `fn()` desacoplada. Quedan otras tablas con el patrón viejo; si otra pantalla se pone lenta, este es el primer sospechoso. Revisar con `select tablename, policyname, qual from pg_policies where qual !~ '^\(\s*SELECT'`.
+
+## 🔄 Finanzas → pestaña "Ciclo de cobranza" (2026-10-25)
+- **Pedido de Elias:** ciclo desde el primer cobro de un lead hasta que lo finiquita: cuánto tarda, cómo paga en promedio, pronóstico de los cierres actuales y un KPI para bajarlo. Eje Y = % cobrado, eje X = meses, "para evitar diferencia por montos".
+- **RPC `finanzas_ciclo_cobranza()`** (migraciones `finanzas_ciclo_cobranza` y `_cobertura`; archivo `20261025_finanzas_ciclo_cobranza.sql`). SECURITY INVOKER, solo `authenticated`.
+  - Por lead y moneda: contratado (`v_cobranza_cotizacion`, sin archivadas), especialidades y cada cobro con fecha.
+  - Los cobros se cuentan **igual que la cartera** de `finanzas_tablero`: repartos + abonos ligados a cotización + efectivo + abonos/efectivo ligados solo al lead.
+  - Verificado: 80 leads×moneda, $26,519,067.64, 0 diferencias contra cartera.
+  - Devuelve también `cobertura` por año: cobranza de clientes vs la ligada a un lead con contrato.
+- **`src/lib/cicloCobranza.ts`:**
+  - junta las monedas por lead con UN solo TC (`tcForYear` del año actual), para que el % no se mueva por tipo de cambio;
+  - **curva típica en cadena:** promedio del avance mes a mes de los leads que ya llegaron a ese mes; se corta con menos de 4 leads. Así no hay censura ni caídas por composición;
+  - **finiquito práctico = 90%**;
+  - curva meta = la misma forma comprimida para llegar al 90% en N meses;
+  - pronóstico por lead: desde su %, avanza al ritmo de la curva. Si va por debajo del arranque, los avances se escalan, para que no "brinque" a la curva;
+  - cobranza esperada 12 m: típica vs meta;
+  - patrón de pagos: anticipo, pago típico, días entre pagos.
+- **`src/components/finanzas/CicloCobranza.tsx`** (`TabCiclo`):
+  - filtros: Obras sin distribución (default) / Todo / por especialidad principal;
+  - meta editable (localStorage `fin_meta_ciclo_meses`, default 12);
+  - 5 KPIs;
+  - curva con una línea gris por lead + típica + meta;
+  - curvas por año de primer cobro ("¿estamos cobrando más rápido?");
+  - cobranza esperada 12 m;
+  - tabla de leads abiertos con estado (Arrancando < 2 meses / Al ritmo / Atrasado ≤ −15 pts / Adelantado / En finiquito), finiquito estimado y saldo; al pasar el cursor se resalta el lead en la curva;
+  - tabla por especialidad;
+  - cobertura.
+- **Nuevo componente `GraficaCurvas`** en Graficas.tsx: eje X numérico, líneas de fondo y series.
+- **Números (obras, oct-2026):**
+  - ciclo típico al 90% ≈ **25 meses** (meta 12);
+  - cobrado al mes 6: 49%; al mes 12: 69%;
+  - anticipo típico 30%, luego un pago cada ~38 días de ~8% del contrato;
+  - por año de primer cobro, al mes 12: 2024 → 57%, 2025 → 70%;
+  - cobranza esperada de la cartera actual, 12 m: $19.4 M al ritmo actual vs $28.6 M con meta de 12 meses (+$9.2 M);
+  - 7 leads atrasados con $17.3 M de saldo.
+- **⚠ Cobertura baja:** cobranza de clientes ligada a un lead con contrato: 2024 49%, 2025 53%, 2026 77%. Lo no ligado hace que las obras se vean más lentas de lo real. **Ligar cobros en Conciliación es lo que más mejora este análisis.**
+- La especialidad "principal" se decide por monto, con USD a TC: varios leads eléctricos con contratos de especiales en USD salen como "Instalaciones especiales".
