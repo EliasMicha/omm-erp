@@ -171,7 +171,7 @@ export default function Conversaciones({ enviar }: { enviar: (payload: Record<st
           {!cargando && chats.length === 0 && <div style={{ color: C.tenue, padding: 16, fontSize: 13 }}>Sin conversaciones.</div>}
           {chats.map(c => {
             const u = c.ultimo
-            const prefijo = u.direction === 'out' ? (u.template_name ? 'Plantilla: ' : 'Tú: ') : ''
+            const prefijo = u.direction === 'out' ? (u.template_name ? 'Plantilla: ' : u.sent_by ? 'Tú: ' : 'Bot: ') : ''
             return (
               <div key={c.key} onClick={() => setSel(c.key)}
                 style={{ display: 'flex', gap: 11, padding: '10px 12px', cursor: 'pointer', background: sel === c.key ? C.activo : 'transparent', borderBottom: `1px solid ${C.borde}` }}>
