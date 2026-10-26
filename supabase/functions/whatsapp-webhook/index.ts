@@ -108,6 +108,33 @@ async function processMessage(msg: any, value: any) {
   try { if (await intentarAprobacion(supabase, msg) === 'listo') return; }
   catch (e) { console.error('intentarAprobacion:', e); }
 
+  // 0. Bot en pausa (whatsapp_ajustes.bot_pausado). No se llama a ninguna IA: el
+  //    mensaje se guarda para que se vea en /wa y a quien tiene asistente se le avisa,
+  //    a lo más una vez cada 6 h. Lo de arriba (entregar pendientes, aprobaciones) no
+  //    usa IA y sigue funcionando.
+  if (await botPausado()) {
+    const esEquipo = !!contact || !!(await empleadoDeTelefono(supabase, msg.from).catch(() => null));
+    await logWa(supabase, {
+      direction: 'in', phone_e164: fromPhone, wa_message_id: waMessageId, kind: msg.type,
+      body: msg.text?.body || msg.image?.caption || msg.document?.caption || `[${msg.type}]`,
+      sender_type: esEquipo ? 'equipo' : 'desconocido', agent_contact_id: contact?.id ?? null,
+    });
+    try { await markAsRead(waMessageId); } catch (_) { /* no crítico */ }
+    if (contact) {
+      const aviso = 'El asistente está en pausa por ahora. Tu mensaje quedó guardado y lo ve el equipo en el ERP.';
+      const { data: ya } = await supabase.from('whatsapp_messages').select('id')
+        .eq('direction', 'out').eq('body', aviso).in('phone_e164', phoneVariants(fromPhone))
+        .gte('created_at', new Date(Date.now() - 6 * 3600e3).toISOString()).limit(1);
+      if (!ya?.length) {
+        try {
+          const resp = await sendText(toReplyPhone(msg.from), aviso);
+          await logWa(supabase, { direction: 'out', phone_e164: fromPhone, wa_message_id: waIdFrom(resp), kind: 'text', body: aviso, status: 'enviado', sender_type: 'equipo', agent_contact_id: contact.id });
+        } catch (e) { console.error('aviso pausa:', e); }
+      }
+    }
+    return;
+  }
+
   // 0c. El jefe de cuadrilla contestando qué actividades subir y con qué fecha.
   //     Si tiene asistente (modo coordinador), lo decide el agente con
   //     decidir_propuestas: entiende "la 2 y la 4 el jueves, y recuérdame…".
@@ -422,4 +449,13 @@ function recortarInicio(cronologico: any[]): any[] {
   const resto = cronologico.slice(i);
   if (!previos.length) return resto;
   return [{ role: 'user', content: [{ type: 'text', text: '[Contexto: mensajes automáticos que el asistente me mandó antes]\n' + previos.join('\n\n') }] }, ...resto];
+}
+
+// Interruptor del bot. Si la tabla no responde, se asume ENCENDIDO: un error de
+// lectura no debe dejar callado al bot sin que nadie lo haya pedido.
+async function botPausado(): Promise<boolean> {
+  try {
+    const { data } = await supabase.from('whatsapp_ajustes').select('valor').eq('clave', 'bot_pausado').maybeSingle();
+    return data?.valor === true;
+  } catch (_) { return false; }
 }

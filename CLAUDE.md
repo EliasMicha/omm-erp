@@ -3648,3 +3648,24 @@ Elias: *"que sea útil como un WhatsApp literalmente si lo veo en el celular… 
   - `whatsapp-reportes` acción **`plantillas`** (con la llave del cron o un DG/Admin; `solo_estado: true` sólo lee). Desde SQL: `select reportes_cron_llamar('plantillas')` y leer `net._http_response`.
   - La plantilla se creó así el 26-oct (id 1484968797021484, UTILITY, PENDING).
   - Desplegado: whatsapp-send v9, webhook v39, mcp-erp v25, whatsapp-reportes v8.
+
+## 💸 Costo del bot de WhatsApp y bot en pausa (2026-10-26)
+
+**Por qué era caro:** cada mensaje reenviaba instrucciones + 66 herramientas (~15 K tokens) + historial con resultados de consultas viejas (hasta 60 K caracteres cada uno) y fotos, sin caché: 30–95 K tokens de entrada por mensaje con Opus 5.5 ($4/M entrada, $20/M salida). El respaldo era Opus 4.6 (más caro) y se prendía con cualquier error que dijera "model" (un rate limit) para toda la vida del proceso.
+
+**Arreglado (webhook v40–v41, `agent.ts`):**
+- Prompt caching: system estático con `cache_control` (cubre también las herramientas), marca en el fin del historial y en el último mensaje (se marca una COPIA; agent_messages no guarda cache_control).
+- La hora y el contexto activo ya NO van en el system: van como primer bloque `[Sesión — …]` del mensaje del usuario y se guardan con él. Así el system es idéntico entre mensajes y el historial se lee de caché de un mensaje al siguiente.
+- `compactarHistorial()`: resultados de consultas de turnos anteriores recortados a 1,500 caracteres; imágenes/documentos viejos → texto.
+- Tope de resultado actual 25 K caracteres (antes 60 K).
+- Respaldo: `claude-sonnet-5-5`, sólo con 404/not_found_error.
+- `tokens_input` suma input + cache_creation + cache_read; cada llamada loguea `uso <modelo> {in, cache_w, cache_r, out}`.
+
+**Bot en pausa (v42, a petición de Elias):**
+- `whatsapp_ajustes` (clave, valor jsonb). `bot_pausado = true` → el webhook guarda el mensaje (se ve en /wa), lo marca leído y NO llama a ninguna IA. A quien tiene asistente le contesta un aviso fijo, máximo una vez cada 6 h. Clientes y desconocidos: sin respuesta, sin ticket.
+- Sigue funcionando lo que no usa IA: entregar pendientes ("ver") y aprobaciones de estado de cuenta. Mandar desde /wa, el ERP o el MCP no se afecta.
+- Si la tabla no responde, el bot se asume ENCENDIDO.
+- Los 6 cron `wa-*` (reportes pedir/insistir/resumen, domingo, domingo-insistir, recordatorios) apagados con `cron.alter_job(active := false)`. `update cron.job` directo da permission denied.
+- **Reanudar:** `update whatsapp_ajustes set valor='false' where clave='bot_pausado'; select cron.alter_job(job_id := jobid, active := true) from cron.job where jobname like 'wa-%';`
+
+**Siguientes ahorros propuestos (no hechos):** enrutar mensajes simples a Haiku 5.5 / todo a Sonnet 5.5; historial por ventana de tiempo (4 h); recortar resultados a 10 K; workspace y llave propios en la consola de Anthropic con límite mensual.
