@@ -8,6 +8,7 @@ import { handleClienteMessage } from './clientes.ts';
 import { logWa, applyStatuses, waIdFrom } from './log.ts';
 import { runAgent } from './agent.ts';
 import { isDelegationCoach } from './delegation.ts';
+import { sesionDe } from './sesion.ts';
 import type { ClaudeMessage, ContentBlock } from './types.ts';
 
 const supabase = createClient(
@@ -130,7 +131,7 @@ async function processMessage(msg: any, value: any) {
   }
 
   // 4. Construir bloques de contenido según tipo de mensaje
-  const userBlocks = await buildContentBlocks(msg, conversation.id);
+  const userBlocks = await buildContentBlocks(msg, conversation.id, contact);
   if (userBlocks.length === 0) {
     await sendText(toReplyPhone(msg.from), 'Recibí tu mensaje pero no pude procesarlo. ¿Puedes mandarlo como texto?');
     return;
@@ -189,7 +190,7 @@ async function processMessage(msg: any, value: any) {
   }
 }
 
-async function buildContentBlocks(msg: any, conversationId: string): Promise<ContentBlock[]> {
+async function buildContentBlocks(msg: any, conversationId: string, contact: any): Promise<ContentBlock[]> {
   const blocks: ContentBlock[] = [];
 
   switch (msg.type) {
@@ -199,8 +200,12 @@ async function buildContentBlocks(msg: any, conversationId: string): Promise<Con
 
     case 'image': {
       const { bytes, mimeType } = await downloadMedia(msg.image.id);
-      const base64 = toBase64(bytes);
-      blocks.push({ type: 'image', source: { type: 'base64', media_type: mimeType, data: base64 } });
+      // Claude acepta hasta ~5 MB por imagen y solo jpeg/png/gif/webp.
+      if (bytes.length > 4_500_000 || !/^image\/(jpeg|png|gif|webp)$/.test(mimeType)) {
+        blocks.push({ type: 'text', text: `[Foto que no pude abrir (${mimeType}, ${(bytes.length / 1e6).toFixed(1)} MB). Pídele que la mande más chica o como captura.]` });
+      } else {
+        blocks.push({ type: 'image', source: { type: 'base64', media_type: mimeType, data: toBase64(bytes) } });
+      }
       if (msg.image.caption) blocks.push({ type: 'text', text: msg.image.caption });
       await storeDocument(conversationId, 'inbound', 'image', bytes, mimeType, `wa-${msg.id}.jpg`);
       break;
@@ -226,9 +231,20 @@ async function buildContentBlocks(msg: any, conversationId: string): Promise<Con
     }
 
     case 'audio':
-    case 'voice':
-      blocks.push({ type: 'text', text: '[Usuario envió audio — transcripción aún no implementada]' });
+    case 'voice': {
+      const media = msg.audio || msg.voice;
+      const { bytes, mimeType } = await downloadMedia(media.id);
+      await storeDocument(conversationId, 'inbound', inferKind(`wa-${msg.id}.ogg`, mimeType), bytes, mimeType, `wa-${msg.id}.ogg`);
+      const t = await transcribirAudio(bytes, mimeType, contact);
+      if (t.ok) {
+        blocks.push({ type: 'text', text: `[Nota de voz transcrita]: ${t.texto}` });
+        // En la bitácora (y en la vista de chats) se lee lo que dijo, no "[audio]".
+        await supabase.from('whatsapp_messages').update({ body: '🎤 ' + t.texto }).eq('wa_message_id', msg.id);
+      } else {
+        blocks.push({ type: 'text', text: `[Nota de voz que no se pudo transcribir: ${t.error}. Pídele que lo mande por escrito.]` });
+      }
       break;
+    }
 
     default:
       blocks.push({ type: 'text', text: `[Mensaje tipo ${msg.type} no soportado aún]` });
@@ -264,6 +280,26 @@ async function loadHistory(conversationId: string, coach = false): Promise<Claud
       role: m.role === 'tool' ? 'user' : m.role,
       content: m.content,
     }));
+}
+
+// Notas de voz → texto. La llave de OpenAI vive en Vercel (api/chatbot.ts?action=transcribir);
+// se llama con el JWT de la persona, así que sin usuario del ERP ligado no hay transcripción.
+async function transcribirAudio(bytes: Uint8Array, mime: string, contact: any): Promise<{ ok: true; texto: string } | { ok: false; error: string }> {
+  try {
+    const ses = await sesionDe(supabase, contact);
+    if (!ses) return { ok: false, error: 'tu número no está ligado a un usuario del ERP' };
+    const r = await fetch('https://omm-erp.vercel.app/api/chatbot?action=transcribir', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${ses.token}` },
+      body: JSON.stringify({ audio_base64: toBase64(bytes), mime }),
+    });
+    const b = await r.json().catch(() => ({}));
+    if (!r.ok || !b?.ok) return { ok: false, error: b?.error || `transcripción ${r.status}` };
+    const texto = String(b.texto || '').trim();
+    return texto ? { ok: true, texto } : { ok: false, error: 'el audio venía vacío o sin voz' };
+  } catch (e) {
+    return { ok: false, error: String((e as Error)?.message || e).slice(0, 150) };
+  }
 }
 
 async function storeDocument(

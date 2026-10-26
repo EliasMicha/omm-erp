@@ -807,6 +807,13 @@ export default async function handler(
     return
   }
 
+  // Notas de voz del bot de WhatsApp. Vive aquí porque la llave de OpenAI está
+  // en Vercel (no en Supabase) y no se pueden agregar archivos a /api.
+  if (req.query?.action === 'transcribir') {
+    await transcribir(req, res)
+    return
+  }
+
   try {
     const apiKey = process.env.OPENAI_API_KEY
     if (!apiKey) {
@@ -969,5 +976,49 @@ IMPORTANTE: Cuando busques leads, clientes o cotizaciones, si el usuario no espe
       reply: 'Disculpa, ocurrió un error procesando tu solicitud.',
       conversationId: '',
     })
+  }
+}
+
+
+// ═══ action=transcribir ═══════════════════════════════════════════════════
+// Recibe { audio_base64, mime } y devuelve { ok, texto }. Exige el JWT de un
+// usuario del ERP (el bot de WhatsApp lo manda a nombre de la persona), para que
+// esto no sea un transcriptor gratis abierto a internet.
+async function transcribir(req: VercelRequest, res: VercelResponse): Promise<void> {
+  try {
+    const auth = String(req.headers.authorization || '')
+    if (!auth.toLowerCase().startsWith('bearer ')) { res.status(401).json({ ok: false, error: 'Falta el token' }); return }
+    const u = await fetch(`${SUPABASE_URL}/auth/v1/user`, { headers: { Authorization: auth, apikey: SUPABASE_KEY } })
+    if (!u.ok) { res.status(401).json({ ok: false, error: 'Token inválido' }); return }
+
+    const apiKey = process.env.OPENAI_API_KEY
+    if (!apiKey) { res.status(500).json({ ok: false, error: 'OPENAI_API_KEY no configurada en Vercel' }); return }
+
+    const { audio_base64, mime } = (req.body || {}) as { audio_base64?: string; mime?: string }
+    if (!audio_base64) { res.status(400).json({ ok: false, error: 'Falta audio_base64' }); return }
+    const bytes = Buffer.from(audio_base64, 'base64')
+    if (bytes.length > 20 * 1024 * 1024) { res.status(413).json({ ok: false, error: 'Audio demasiado grande' }); return }
+    const tipo = (mime || 'audio/ogg').split(';')[0]
+    const ext = tipo.includes('mpeg') ? 'mp3' : tipo.includes('mp4') || tipo.includes('m4a') ? 'm4a' : tipo.includes('wav') ? 'wav' : 'ogg'
+
+    // Vocabulario de la casa: sin esto "Lutron" sale "Lutrón" o "luz trón".
+    const pista = 'OMM, Omniious, Lutron, Sonos, UniFi, Hikvision, Somfy, Cero5cien, cotización, obra, lead, OC, prefactura, estado de cuenta, anticipo.'
+    let ultimoError = ''
+    for (const model of ['gpt-4o-transcribe', 'whisper-1']) {
+      const form = new FormData()
+      form.append('file', new Blob([bytes], { type: tipo }), `nota.${ext}`)
+      form.append('model', model)
+      form.append('language', 'es')
+      form.append('prompt', pista)
+      const r = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+        method: 'POST', headers: { Authorization: `Bearer ${apiKey}` }, body: form,
+      })
+      const b: any = await r.json().catch(() => ({}))
+      if (r.ok && typeof b.text === 'string') { res.status(200).json({ ok: true, texto: b.text.trim(), modelo: model }); return }
+      ultimoError = b?.error?.message || `OpenAI ${r.status}`
+    }
+    res.status(502).json({ ok: false, error: ultimoError })
+  } catch (e: any) {
+    res.status(500).json({ ok: false, error: String(e?.message || e) })
   }
 }
