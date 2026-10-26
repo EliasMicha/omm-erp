@@ -19,7 +19,11 @@ export default function ProtectedRoute({ children, allowedAreas }: Props) {
   }
 
   if (!user) {
-    return <Navigate to="/login" replace />
+    // Se regresa a donde iba después de entrar (Login valida que sea una ruta
+    // de esta misma app). Importa para la app /wa instalada en el celular: sin
+    // esto, el primer login la dejaba en el ERP en vez de en las conversaciones.
+    const destino = location.pathname + location.search
+    return <Navigate to={destino && destino !== '/' ? `/login?next=${encodeURIComponent(destino)}` : '/login'} replace />
   }
 
   if (!user.activo) {

@@ -36,6 +36,7 @@ import Documentacion from './pages/Documentacion'
 import MiTrabajo from './pages/MiTrabajo'
 import Mantenimiento from './pages/Mantenimiento'
 import WhatsApp from './pages/WhatsApp'
+import WhatsAppApp from './pages/WhatsAppApp'
 import Privacidad from './pages/Privacidad'
 import ObraApp from './obra-app/ObraApp'
 import ExamenPublicoPage from './pages/ExamenPublico'
@@ -58,6 +59,13 @@ export default function App() {
               cuenta. Va FUERA de ProtectedRoute a propósito: pedirle registrarse
               para contestar un examen mata la respuesta. */}
           <Route path="/examen/:token" element={<ExamenPublicoPage />} />
+          {/* WhatsApp como app del celular: pantalla completa, sin sidebar.
+              Misma regla de acceso que /whatsapp. */}
+          <Route path="/wa" element={
+            <ProtectedRoute allowedAreas={['Administracion']}>
+              <WhatsAppApp />
+            </ProtectedRoute>
+          } />
           {/* Aviso de privacidad público: lo pide Meta para publicar la app de WhatsApp. */}
           <Route path="/privacidad" element={<Privacidad />} />
           {/* Consentimiento de OAuth: aqui se autoriza a una app externa a entrar

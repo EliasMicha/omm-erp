@@ -1,0 +1,19 @@
+{
+  "id": "/wa",
+  "name": "WhatsApp OMM",
+  "short_name": "WhatsApp OMM",
+  "description": "Conversaciones del número de WhatsApp de OMM Technologies",
+  "start_url": "/wa",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0b141a",
+  "theme_color": "#111b21",
+  "lang": "es-MX",
+  "icons": [
+    { "src": "/wa-icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/wa-icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/wa-icon-maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "/wa-icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

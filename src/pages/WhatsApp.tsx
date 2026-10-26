@@ -3,6 +3,8 @@ import { MessageCircle, RefreshCw, Send, Trash2, Copy, CheckCircle2, TriangleAle
 import { supabase } from '../lib/supabase'
 import Conversaciones from '../components/whatsapp/Conversaciones'
 import ReportesObra from '../components/whatsapp/ReportesObra'
+import { enviarWhatsApp } from '../lib/whatsappSend'
+import { useIsMobile } from '../lib/useIsMobile'
 
 // WhatsApp Cloud API — número dedicado de OMM.
 // Entrantes: Edge Function whatsapp-webhook (equipo → agente; clientes → tickets de mantenimiento).
@@ -36,17 +38,10 @@ function normPhone(p: string): string {
 }
 function empName(e: Employee | undefined) { return e ? (e.nombre || e.name || '') : '' }
 
-async function callSend(payload: Record<string, unknown>) {
-  const { data, error } = await supabase.functions.invoke('whatsapp-send', { body: payload })
-  if (error) {
-    let msg = error.message
-    try { const ctx = (error as any).context; if (ctx?.json) { const b = await ctx.json(); msg = b.error || msg } } catch (_) { /* nada */ }
-    throw new Error(msg)
-  }
-  return data
-}
+const callSend = enviarWhatsApp
 
 export default function WhatsApp() {
+  const movil = useIsMobile()
   const [status, setStatus] = useState(null as StatusResp | null)
   const [statusLoading, setStatusLoading] = useState(true)
   const [contacts, setContacts] = useState([] as AgentContact[])
@@ -138,16 +133,19 @@ export default function WhatsApp() {
   const missingTpl = (status?.expected || []).filter(n => !tplByName[n])
 
   return (
-    <div style={{ padding: '28px 36px', maxWidth: tab === 'chats' ? 1400 : 1150 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
+    <div style={{ padding: movil ? '12px 10px' : '28px 36px', maxWidth: tab === 'chats' ? 1400 : 1150 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: movil ? 12 : 20 }}>
         <div style={{ width: 42, height: 42, borderRadius: 11, display: 'grid', placeItems: 'center', background: '#25D36620', color: '#25D366' }}><MessageCircle size={24} /></div>
         <div>
           <h1 style={{ margin: 0, color: '#fff', fontSize: 22 }}>WhatsApp</h1>
-          <div style={{ color: '#777', fontSize: 12.5, marginTop: 3 }}>Cloud API · número dedicado de OMM · agente del equipo, tickets de clientes y avisos</div>
+          {!movil && <div style={{ color: '#777', fontSize: 12.5, marginTop: 3 }}>Cloud API · número dedicado de OMM · agente del equipo, tickets de clientes y avisos</div>}
         </div>
+        <a href="/wa" style={{ marginLeft: 'auto', ...btnGhost, textDecoration: 'none' }} title="Abre las conversaciones a pantalla completa; en el celular, Compartir → Agregar a pantalla de inicio">
+          {movil ? 'Abrir como app' : 'Versión app (celular)'}
+        </a>
       </div>
 
-      <div style={{ display: 'flex', gap: 6, marginBottom: 16 }}>
+      <div style={{ display: 'flex', gap: 6, marginBottom: movil ? 10 : 16, overflowX: 'auto' }}>
         {[['chats', 'Conversaciones'], ['reportes', 'Reportes de obra'], ['config', 'Configuración']].map(([k, l]) => (
           <button key={k} onClick={() => cambiarTab(k)} style={{ ...btnGhost, borderColor: tab === k ? '#25D366' : '#333', color: tab === k ? '#25D366' : '#999' }}>{l}</button>
         ))}
