@@ -8,6 +8,7 @@ import { FCUR, FQTY as fNum } from '../lib/utils'
 import { agruparPorBundle } from '../lib/bundlesIlum'
 import { OMNIIOUS_LOGO } from '../assets/logo'
 import { IDENTIDAD_DEFAULT } from '../lib/identidadOmm'
+import { archivarPdfCotizacion } from '../lib/cotizacionPdfArchivo'
 import { Download, Loader2, Settings } from 'lucide-react'
 import html2canvas from 'html2canvas'
 import jsPDF from 'jspdf'
@@ -455,6 +456,18 @@ function CotizacionPdfInner() {
 
       const fileName = `${(cot.name || 'Cotizacion').replace(/[^a-zA-Z0-9áéíóúñÁÉÍÓÚÑ .-]/g, '')}_${formato}.pdf`
       doc.save(fileName)
+
+      // Copia para que el bot de WhatsApp pueda mandar este mismo documento.
+      // Si falla, la descarga ya ocurrió: solo se avisa en consola.
+      const tot = Number((cot as any).total_final ?? (cot as any).total)
+      archivarPdfCotizacion({
+        blob: doc.output('blob'),
+        quotationId: cot.id,
+        formato,
+        filename: fileName,
+        total: Number.isFinite(tot) ? tot : null,
+        moneda: getCurrency(cot),
+      }).then(r => { if (!r.ok) console.warn('No se guardó la copia del PDF para el bot:', r.error) })
     } catch (err) {
       console.error('Error generando PDF:', err)
       alert('Error al generar PDF. Intenta de nuevo.')

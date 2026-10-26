@@ -3,6 +3,7 @@
 // Todas las tools escriben en tablas existentes del ERP (project_tasks, obra_extras, facturas, etc.)
 
 import type { ToolDefinition, ToolExecutionContext, ToolResult } from './types.ts';
+import { enviarCotizacionDef, enviarCotizacion } from './cotizacion.ts';
 
 type ToolHandler = (input: any, ctx: ToolExecutionContext) => Promise<ToolResult>;
 
@@ -647,32 +648,12 @@ const updatePurchaseOrder: Tool = {
 };
 
 // ============================================================
-// TOOL: send_document_whatsapp
+// TOOL: enviar_cotizacion (cotizacion.ts)
 // ============================================================
-const sendDocumentWhatsapp: Tool = {
+const enviarCotizacionTool: Tool = {
   allowed_roles: ['admin', 'interno'],
-  definition: {
-    name: 'send_document_whatsapp',
-    description: 'Envía un documento ya generado (PDF, XML) por WhatsApp a un número específico. Úsalo después de generar una prefactura o cotización si el usuario pide "mándamelo" o "mándaselo al cliente".',
-    input_schema: {
-      type: 'object',
-      properties: {
-        storage_path: { type: 'string', description: 'Ruta en agent-documents bucket' },
-        recipient_phone: { type: 'string', description: 'Número destino en formato E.164 (+52...)' },
-        filename: { type: 'string' },
-        caption: { type: 'string' },
-      },
-      required: ['storage_path', 'recipient_phone', 'filename'],
-    },
-  },
-  handler: async (input, ctx) => {
-    // Placeholder: la implementación real descarga de storage, sube a WA media, y manda
-    // Lo implementamos en la siguiente iteración junto con el PDF generator
-    return {
-      success: false,
-      error: 'send_document_whatsapp todavía no implementado (requiere PDF generator)',
-    };
-  },
+  definition: enviarCotizacionDef,
+  handler: enviarCotizacion,
 };
 
 // ============================================================
@@ -689,7 +670,7 @@ export const TOOLS: Record<string, Tool> = {
   timbrar_prefactura: timbrarPrefactura,
   query_purchase_orders: queryPurchaseOrders,
   update_purchase_order: updatePurchaseOrder,
-  send_document_whatsapp: sendDocumentWhatsapp,
+  enviar_cotizacion: enviarCotizacionTool,
 };
 
 export function getToolsForContact(role: string, allowedOverride: string[] = []): ToolDefinition[] {
