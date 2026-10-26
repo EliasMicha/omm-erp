@@ -3449,7 +3449,7 @@ Entrantes y salientes; solo `service_role` escribe y `usuario_real()` lee. Migra
 - **Privacidad:** `/privacidad` es pública y es la que Meta tiene registrada.
 
 **Pendiente**
-1. Tarjeta en WhatsApp Manager (error 131042).
+1. ✅ Tarjeta (25-oct): Visa del portafolio ligada a la cuenta de WhatsApp 1067027219561432 en Billing & payments → Accounts → Messaging accounts (estar en el portafolio NO basta; hay que ligarla a esa cuenta). El primer envío justo después siguió dando 131042; al minuto ya salió y llegó a "leído". Prueba: plantilla `omm_aviso_equipo` a +52 55 1510 5711.
 2. Probar en el bot: estado de cuenta de "Tawil/L202", cotización (descargar primero un PDF en el ERP) y mensaje a Dafne.
 3. Dafne está dada de alta en el bot como **admin**; si solo debe consultar, cambiarla a **interno**.
 4. Celulares de clientes en Mantenimiento → Contactos (hoy ninguno tiene).
