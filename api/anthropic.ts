@@ -13,6 +13,8 @@
 // Env var requerida en Vercel: ANTHROPIC_API_KEY  (rotar la key vieja).
 // ═══════════════════════════════════════════════════════════════════════════
 
+import { timingSafeEqual } from 'crypto'
+
 export const config = {
   maxDuration: 120,
 }
@@ -20,9 +22,42 @@ export const config = {
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages'
 const ANTHROPIC_VERSION = '2023-06-01'
 
+// ── Candado (2026-10-26) ────────────────────────────────────────────────────
+// Este proxy respondía a CUALQUIERA que conociera la URL y con CUALQUIER modelo.
+// El 26-oct alguien gastó ~160 M tokens de Opus 5.5 con la llave del ERP en una
+// hora (el ERP solo usa Sonnet 4.6). Desde hoy:
+//   1. Solo atiende a un usuario del ERP con sesión (JWT de Supabase en
+//      Authorization) o a una función nuestra (llave de servicio en x-omm-internal).
+//   2. Solo deja pasar los modelos que el ERP usa, y con tope de max_tokens.
+// Mismo patrón que api/chatbot.ts?action=transcribir. El JWT lo agrega solo el
+// envoltorio de fetch de src/main.tsx a toda llamada a /api/*.
+// Una función de /api no puede importar de src/: estas constantes son copia.
+const SUPABASE_URL = 'https://ubbumxommqjcpdozpunf.supabase.co'
+const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InViYnVteG9tbXFqY3Bkb3pwdW5mIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUwODA3MzAsImV4cCI6MjA5MDY1NjczMH0.GPKeRgjzjZ96Qo6lYMHKF68YK4y6ZmexvORsNT8VGns'
+const MODELOS_PERMITIDOS = new Set(['claude-sonnet-4-6', 'claude-sonnet-4-5', 'claude-haiku-4-5'])
+const MAX_TOKENS_TOPE = 16000
+
+async function autorizado(req: any): Promise<boolean> {
+  const interna = String(req.headers['x-omm-internal'] || '')
+  const svc = process.env.SUPABASE_SERVICE_ROLE_KEY || ''
+  if (interna && svc && interna.length === svc.length && timingSafeEqual(Buffer.from(interna), Buffer.from(svc))) return true
+  const auth = String(req.headers.authorization || '')
+  if (!auth.toLowerCase().startsWith('bearer ')) return false
+  try {
+    const u = await fetch(`${SUPABASE_URL}/auth/v1/user`, { headers: { Authorization: auth, apikey: SUPABASE_ANON } })
+    if (!u.ok) return false
+    const j = await u.json()
+    return !!j?.id
+  } catch { return false }
+}
+
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') {
     res.status(405).json({ error: { message: 'Method not allowed (use POST)' } })
+    return
+  }
+  if (!(await autorizado(req))) {
+    res.status(401).json({ error: { message: 'Necesitas iniciar sesión en el ERP.' } })
     return
   }
 
@@ -37,8 +72,13 @@ export default async function handler(req: any, res: any) {
 
   try {
     // El body puede venir ya parseado (objeto) o como string según el runtime.
-    const body =
-      typeof req.body === 'string' ? req.body : JSON.stringify(req.body ?? {})
+    const datos = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body ?? {})
+    if (!MODELOS_PERMITIDOS.has(String(datos.model || ''))) {
+      res.status(400).json({ error: { message: `Modelo no permitido en el ERP: ${datos.model}` } })
+      return
+    }
+    if (!(Number(datos.max_tokens) > 0) || Number(datos.max_tokens) > MAX_TOKENS_TOPE) datos.max_tokens = Math.min(Number(datos.max_tokens) || 4000, MAX_TOKENS_TOPE)
+    const body = JSON.stringify(datos)
 
     // Permitir que el cliente pida betas vía header opcional sin exponer la key.
     const betaHeader = req.headers['anthropic-beta']

@@ -69,10 +69,17 @@ PENDIENTES NUEVOS:
 - Si el pendiente ya esta en la lista de actividades abiertas, no lo repitas.
 - Redactalo como tarea concreta: "Colocar placas en recamara principal", no "faltan placas".`
 
+// Llama directo a Anthropic con la llave de esta función. Antes pasaba por el
+// proxy público de Vercel (/api/anthropic), que desde el 2026-10-26 exige sesión;
+// si aquí no hubiera llave, se usa el proxy con la llave de servicio.
+const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? ""
 async function callClaude(content: any[]): Promise<Response> {
-  return await fetch(ANTHROPIC_PROXY, {
+  const directo = !!ANTHROPIC_API_KEY
+  return await fetch(directo ? "https://api.anthropic.com/v1/messages" : ANTHROPIC_PROXY, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: directo
+      ? { "content-type": "application/json", "x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" }
+      : { "content-type": "application/json", "x-omm-internal": SUPABASE_SERVICE_ROLE_KEY },
     body: JSON.stringify({
       model: MODEL,
       max_tokens: 3000,
