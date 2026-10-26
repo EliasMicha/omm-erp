@@ -3463,3 +3463,50 @@ Entrantes y salientes; solo `service_role` escribe y `usuario_real()` lee. Migra
   - El texto entra al modelo como `[Nota de voz transcrita]: …` y se guarda en `whatsapp_messages.body` con 🎤, así que la vista de Conversaciones muestra lo que se dijo.
   - Si falla, el bot pide que lo escriban; no inventa.
 - **Verificado:** 401 sin sesión y 200 con sesión (`gpt-4o-transcribe`). Un tono puro sin voz se "transcribió" como "OMM", eco del prompt de vocabulario: con audio sin habla puede salir texto fantasma.
+
+## 📋 Reportes diarios de obra por WhatsApp (2026-10-25)
+
+Elias: los instaladores no pueden estar en grupos con el número de la API (sólo con la API de grupos de Meta: palomita verde y máximo 8 personas). Así que el bot hace de grupo: le pide a cada uno su reporte y le reparte el resumen a la lista de cada obra.
+
+**Flujo**
+- **6:00 pm, pedir:** a cada persona de `reporte_diario_personas` (activa) se le pide el reporte de la obra donde está asignada ese día en `installer_daily_assignment`. Si ese día no tiene planeación, no se le pide.
+  - Se manda texto si escribió en las últimas 24 h; si no, la plantilla `omm_aviso_equipo`.
+  - Se crea una fila en `reporte_solicitudes` (persona × obra × día).
+- **El instalador contesta** (texto, fotos, nota de voz, documento o ubicación): lo atiende `whatsapp-webhook/reportes.ts`, **antes** que el agente y que el flujo de clientes.
+  - Todo cae en `obra_reportes`, con `origen='whatsapp'`, fotos en el bucket `obra-reportes` y notas de voz transcritas. Es lo mismo que hace la app de obra.
+  - Lo escribe `reporte_wa_agregar()`, que bloquea la solicitud: cinco fotos simultáneas no crean cinco reportes.
+  - Haiku clasifica el texto como reporte, no_fue, sin_obra o charla.
+  - **"No fui a esa obra":** pregunta a dónde fue y busca en obras, luego leads, luego mantenimiento (`buscarObra`). Con una obra probable, la usa y le avisa "si no es, dime cuál". Con varias, le da una lista numerada (estado `aclarando`). Si no encuentra nada, guarda el reporte con `obra_id` NULL y el nombre en `obra_texto`. **Nunca se tira un reporte.**
+  - Bodega, proveedor o falta se guardan como "Sin obra: …".
+  - Gente con asistente (Elias, directores) sólo entra a este flujo mientras su reporte está vivo, y la plática normal ("charla") pasa al agente.
+- **7:30 pm, insistir:** una vez, a quien sigue en `pedido`.
+- **9:00 pm, resumen:**
+  - Procesa con `process-obra-report` lo que llegó por WhatsApp (resumen, avances, faltantes, bloqueos, pendientes nuevos).
+  - Manda el resumen de cada obra a `reporte_obra_destinatarios`; si la obra no tiene lista, al coordinador (`obras.coordinador_id`).
+  - **Elias recibe un solo "cierre del día"** con todas las obras, quién no reportó y los reportes sin obra.
+  - Cierra las solicitudes (`cerrado` / `sin_respuesta`). Las fotos que lleguen tarde de un instalador se siguen agregando.
+
+**Piezas**
+- **Migraciones:** `20261025_reportes_whatsapp.sql` (tablas, RLS, `reporte_wa_agregar`, `reportes_cron_ok`, alias) y `reportes_whatsapp_cron`.
+  - `obra_reportes.obra_id` ya acepta NULL; columnas nuevas `obra_texto`, `origen`, `solicitud_id`.
+  - `reporte_diario_personas.alias` es cómo saluda el bot: el padrón trae nombres con el apellido primero ("PEREZ MEDINA CARLOS CAIN").
+- **Cron:** `pg_cron` + `pg_net` (habilitadas hoy). Jobs `wa-reportes-pedir` (00:00 UTC), `-insistir` (01:30) y `-resumen` (03:00), que llaman a `reportes_cron_llamar(accion)`.
+  - La llave va en el vault (`reportes_cron_key`), viaja en `x-cron-key` y la función la valida con `reportes_cron_ok()`. Nunca pasa por código ni chat.
+- **Edge Function `whatsapp-reportes`** (verify_jwt=false): acciones `pedir`, `insistir`, `resumen`, más `prueba_pedir` y `prueba_resumen`, que mandan sólo al número de quien llama (DG/Admin con su JWT).
+- **Teléfonos:** `telefonoDeEmpleado()` usa la ficha y, si está vacía, el número del asistente (`agent_contacts`). La ficha de Elias **no tiene teléfono**; sin este respaldo el cierre del día no le llegaría.
+- **Transcripción de instaladores (sin usuario del ERP):** `api/chatbot.ts?action=transcribir` acepta también `x-omm-internal` = `SUPABASE_SERVICE_ROLE_KEY`, comparado con `timingSafeEqual`.
+  - ⚠️ Si la llave de servicio de Vercel no es la misma que la de Supabase, la nota de voz se guarda sin transcribir. Verificarlo con la primera nota de voz real de un instalador.
+- **Pantalla:** `/whatsapp` → pestaña **Reportes de obra** (`src/components/whatsapp/ReportesObra.tsx`). Muestra:
+  - el estado de hoy;
+  - quién reporta, con su alias;
+  - la lista del resumen por obra;
+  - reportes sin obra, con el botón "Ligar" (los procesa con IA al ligarlos);
+  - los botones de prueba.
+
+**⚠️ Deploy por la Mac: `device_commit_files` a la MISMA ruta no sobrescribe.** Dijo "written", pero el archivo siguió siendo el viejo y se desplegó el bundle anterior dos veces. Hay que usar un nombre nuevo por deploy (`dist/wawebhook-v33.ts`) y cotejar md5 en la Mac **antes** del curl.
+
+**Pendiente**
+- Elias pasa la lista de quiénes reportan (con alias). Hasta entonces, el cron corre sin mandar nada.
+- La prueba de punta a punta con Elias (Pico Love) quedó pedida; falta su respuesta y el `prueba_resumen`.
+- Después de la prueba hay que **borrar** su solicitud y su reporte de Pico Love.
+- Plantilla propia para el resumen: hoy usa `omm_aviso_equipo` en una sola línea cuando la ventana de 24 h está cerrada.
