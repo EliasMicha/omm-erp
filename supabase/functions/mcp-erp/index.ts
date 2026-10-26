@@ -43,6 +43,7 @@ import { DEFINICIONES_NEG, ejecutarNeg } from './negocio.ts'
 import { DEFINICIONES_COM, ejecutarCom } from './compras.ts'
 import { DEFINICIONES_COT, ejecutarCot } from './cotizar.ts'
 import { DEFINICIONES_CONTA, ejecutarConta } from './contabilidad.ts'
+import { DEFINICIONES_WA, ejecutarWa } from './whatsapp.ts'
 
 const PROTOCOL_VERSION = '2025-06-18'
 const SERVER_INFO = { name: 'omm-erp', version: '0.3.0' }
@@ -183,7 +184,7 @@ Deno.serve(async (req: Request) => {
       return json({ jsonrpc: '2.0', id, result: {} })
 
     case 'tools/list':
-      return json({ jsonrpc: '2.0', id, result: { tools: [...DEFINICIONES, ...DEFINICIONES_LEV, ...DEFINICIONES_EQ, ...DEFINICIONES_NEG, ...DEFINICIONES_COM, ...DEFINICIONES_COT, ...DEFINICIONES_CONTA] } })
+      return json({ jsonrpc: '2.0', id, result: { tools: [...DEFINICIONES, ...DEFINICIONES_LEV, ...DEFINICIONES_EQ, ...DEFINICIONES_NEG, ...DEFINICIONES_COM, ...DEFINICIONES_COT, ...DEFINICIONES_CONTA, ...DEFINICIONES_WA] } })
 
     case 'tools/call': {
       // employee_id va aparte de id a proposito: son dos identidades
@@ -196,11 +197,15 @@ Deno.serve(async (req: Request) => {
         empleadoId: (cuenta as any).employee_id ?? null,
         area: (cuenta as any).permission_area ?? null,
         nivel: (cuenta as any).nivel ?? null,
+        // Solo lo usa el bloque de WhatsApp: manda vía whatsapp-send a nombre de la persona.
+        token,
       }
       try {
         const herramienta = rpc?.params?.name
         const argumentos = rpc?.params?.arguments || {}
-        const r = DEFINICIONES_LEV.some(d => d.name === herramienta)
+        const r = DEFINICIONES_WA.some(d => d.name === herramienta)
+          ? await ejecutarWa(herramienta, argumentos, sb, quien)
+          : DEFINICIONES_LEV.some(d => d.name === herramienta)
           ? await ejecutarLev(herramienta, argumentos, sb, quien)
           : DEFINICIONES_EQ.some(d => d.name === herramienta)
           ? await ejecutarEq(herramienta, argumentos, sb, quien)
