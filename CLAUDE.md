@@ -3406,3 +3406,51 @@ Entrantes y salientes; solo `service_role` escribe y `usuario_real()` lee. Migra
   - DG: Dashboard, Mi trabajo, …
   - Operaciones/Ventas_Ingenieria: Mi trabajo (portada), Tablero, …
 - **No tengo el documento original de Juan Pablo** (las 34 solicitudes); en el doc del sistema de trabajo solo están los códigos agrupados. Pedirlo para cruzar punto por punto.
+
+## 💬 WhatsApp — segunda etapa (2026-10-25)
+
+**Estado:** el bot ya contesta (Elias lo probó). Meta tiene todo listo: app Live, plantillas APPROVED, nombre "Omniious" en revisión. **Falta la tarjeta en WhatsApp Manager.** Sin ella todo lo que inicia OMM (plantillas, avisos a Dafne) sale y luego Meta lo marca `fallido` con el error **131042** (problema de pago). Las respuestas dentro de la ventana de 24 h sí salen.
+
+**Una sola implementación de las herramientas: el bot usa las del MCP**
+- `whatsapp-webhook/sesion.ts`: el bot actúa COMO la persona. Saca su JWT con `auth.admin.generateLink(magiclink)` + `verifyOtp` (no manda correo) y arma un cliente con la ANON key, así que aplica su RLS. Lo guarda en memoria hasta 5 min antes de que caduque.
+- **A quién busca**, en este orden: `agent_contacts.app_user_id` (columna nueva; Elias y Dafne ya ligados), luego `employee_id`, luego el teléfono en `employees`.
+- `whatsapp-webhook/mcp.ts` importa los bloques de `mcp-erp` y los corre con ese cliente. Si la persona tiene sesión, reemplazan a `query_obras/leads/cobranza/OCs` y a `mensaje_a_equipo` (`REEMPLAZADAS_POR_MCP` en tools.ts).
+- **Regla:** lo que se arregle en una herramienta del MCP queda arreglado también en el bot; no se duplica.
+- Quedan fuera del bot `exportar_cotizacion` y `conta_estado_de_cuenta`: en WhatsApp se usan `enviar_cotizacion` y `enviar_estado_de_cuenta`, que mandan el PDF al chat.
+- **El bundle del webhook ahora lleva jspdf.** Compílalo con `--external:jspdf` y luego `sed 's#from "jspdf"#from "npm:jspdf@4.2.1"#'`, igual que el MCP (~340 KB).
+- **Rollback:** `~/omm-erp/dist/whatsapp-webhook-prev.ts` es el v27, sin MCP.
+
+**Bot**
+- **Modelo:** `claude-opus-5-5`, con respaldo automático a `claude-opus-4-6` si la API no lo acepta.
+- **Contexto del ERP en el prompt:** el lead es la entidad maestra; Cero5cien es un edificio con muchos clientes; la cobranza va por lead y cotización, no por obra; antes de decir "no se puede" hay que probar otra ruta.
+- **El bot ya no timbra.** Se borró `timbrar_prefactura`; solo genera prefacturas en borrador.
+- **Modo delegación:** ya no reemplaza al asistente, solo le suma sus 2 herramientas. Su historial bajó de 100 a 30 mensajes: con 100 mensajes de "solo puedo leer", el modelo seguía negándose aunque ya tenía las herramientas.
+- **Formato:** `aFormatoWhatsApp()` en `sendText` convierte el Markdown del modelo al formato de WhatsApp (`*negrita*`, viñetas). Va en las dos copias de `whatsapp.ts`.
+- **Cotizaciones (`enviar_cotizacion`):** cada descarga del PDF en `/cotizacion/:id/pdf/:formato` guarda una copia en el bucket privado `cotizaciones-pdf` y en la tabla `cotizacion_pdfs` (con `total_al_generar` para avisar si el PDF quedó viejo, e `interno` = técnico). El bot manda la última copia, solo a quien la pide.
+
+**MCP (`mcp-erp` v21) — bloque WhatsApp (`mcp-erp/whatsapp.ts`)**
+- `whatsapp_conversaciones` y `whatsapp_leer` leen la bitácora con RLS.
+- `whatsapp_enviar` manda a través de `whatsapp-send` con el JWT de la persona, así que queda a su nombre (`sent_by`). Solo para DG y Administración.
+- **La aprobación la impone el servidor** (`motivosDeAprobacion`). Pide vista previa y `confirmar=true` si el mensaje:
+  - está marcado como importante,
+  - va a un cliente o a un número desconocido,
+  - menciona dinero, fechas, entregas, precios o pagos,
+  - pasa de 280 caracteres,
+  - o la ventana de 24 h está cerrada (sale como plantilla).
+- Lo sencillo para alguien del equipo sale directo.
+
+**ERP → `/whatsapp`**
+- La pestaña Conversaciones (`src/components/whatsapp/Conversaciones.tsx`) es una vista tipo WhatsApp Web:
+  - chats agrupados por los últimos 10 dígitos, con nombre sacado de agent_contacts, employees y maintenance_contacts;
+  - palomitas y motivo de falla;
+  - solo deja responder dentro de la ventana de 24 h;
+  - se refresca cada 8 s.
+- La configuración (conexión, plantillas, equipo, prueba) quedó en otra pestaña.
+- **Privacidad:** `/privacidad` es pública y es la que Meta tiene registrada.
+
+**Pendiente**
+1. Tarjeta en WhatsApp Manager (error 131042).
+2. Probar en el bot: estado de cuenta de "Tawil/L202", cotización (descargar primero un PDF en el ERP) y mensaje a Dafne.
+3. Dafne está dada de alta en el bot como **admin**; si solo debe consultar, cambiarla a **interno**.
+4. Celulares de clientes en Mantenimiento → Contactos (hoy ninguno tiene).
+5. El clon de la Mac (`~/omm-erp`) quedó con archivos sin rastrear porque un `git pull` se trabó (no deja borrar). Arreglarlo con `git stash -u && git pull && git stash drop` desde la Terminal.
