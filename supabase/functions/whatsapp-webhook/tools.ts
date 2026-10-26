@@ -400,7 +400,7 @@ const generatePrefacturaDraft: Tool = {
   allowed_roles: ['admin', 'interno'],
   definition: {
     name: 'generate_prefactura_draft',
-    description: 'Crea una PREFACTURA EN BORRADOR (no fiscal, no timbrada) para una obra. Si el usuario dice "prefactura del 40%", busca el hito que coincida con ese porcentaje. Insert en facturas con estado=borrador + factura_conceptos. Devuelve el id para poder timbrarla después.',
+    description: 'Crea una PREFACTURA EN BORRADOR (no fiscal, no timbrada) para una obra. Si el usuario dice "prefactura del 40%", busca el hito que coincida con ese porcentaje. Insert en facturas con estado=borrador + factura_conceptos. El bot NO timbra: el timbrado se hace en el ERP (Facturación).',
     input_schema: {
       type: 'object',
       properties: {
@@ -520,51 +520,7 @@ const generatePrefacturaDraft: Tool = {
       data: { factura_id: factura.id, subtotal, iva, total, moneda, cliente: cliente.razon_social },
       affected_entity_type: 'factura',
       affected_entity_id: factura.id,
-      user_facing_message: `📄 Prefactura BORRADOR creada:\n• ${cliente.razon_social}\n• ${conceptoTxt}\n• Subtotal: $${subtotal.toLocaleString('es-MX')} ${moneda}\n• IVA: $${iva.toLocaleString('es-MX')}\n• Total: $${total.toLocaleString('es-MX')} ${moneda}\n\nID: ${factura.id}\n\n⚠️ Es borrador, NO está timbrada. Dime "timbra la prefactura ${factura.id.slice(0, 8)}" cuando quieras emitir el CFDI real.`,
-    };
-  },
-};
-
-// ============================================================
-// TOOL: timbrar_prefactura (requiere confirmación explícita)
-// ============================================================
-const timbrarPrefactura: Tool = {
-  allowed_roles: ['admin'],
-  definition: {
-    name: 'timbrar_prefactura',
-    description: 'Timbra (emite CFDI real vía FacturAPI) una prefactura que está en estado borrador. ACCIÓN IRREVERSIBLE — solo ejecuta si el usuario confirmó explícitamente con palabras como "sí timbra", "confirma timbrado", "adelante timbra".',
-    input_schema: {
-      type: 'object',
-      properties: {
-        factura_id: { type: 'string', description: 'UUID de la factura borrador' },
-        confirmed: { type: 'boolean', description: 'true solo si el usuario confirmó explícitamente' },
-      },
-      required: ['factura_id', 'confirmed'],
-    },
-  },
-  handler: async (input, ctx) => {
-    if (!input.confirmed) {
-      return {
-        success: false,
-        error: 'Timbrado no confirmado. Pregunta al usuario antes de volver a llamar.',
-        requires_confirmation: true,
-      };
-    }
-    // Por ahora: solo cambiamos estado. La llamada real a FacturAPI la agregamos en la siguiente iteración.
-    const { data, error } = await ctx.supabase
-      .from('facturas')
-      .update({ estado: 'pendiente_timbrado_agent' })
-      .eq('id', input.factura_id)
-      .eq('estado', 'borrador')
-      .select()
-      .single();
-    if (error) return { success: false, error: error.message };
-    return {
-      success: true,
-      data,
-      affected_entity_type: 'factura',
-      affected_entity_id: input.factura_id,
-      user_facing_message: `⏳ Prefactura marcada para timbrado. (Integración con FacturAPI pendiente — por ahora el timbrado final lo debes hacer desde el ERP).`,
+      user_facing_message: `📄 Prefactura BORRADOR creada:\n• ${cliente.razon_social}\n• ${conceptoTxt}\n• Subtotal: $${subtotal.toLocaleString('es-MX')} ${moneda}\n• IVA: $${iva.toLocaleString('es-MX')}\n• Total: $${total.toLocaleString('es-MX')} ${moneda}\n\nID: ${factura.id}\n\n⚠️ Es borrador, NO está timbrada. Para emitir el CFDI, revísala y tímbrala en el ERP → Facturación.`,
     };
   },
 };
@@ -675,7 +631,6 @@ export const TOOLS: Record<string, Tool> = {
   create_obra_extras: createObraExtras,
   query_cobranza: queryCobranza,
   generate_prefactura_draft: generatePrefacturaDraft,
-  timbrar_prefactura: timbrarPrefactura,
   query_purchase_orders: queryPurchaseOrders,
   update_purchase_order: updatePurchaseOrder,
   enviar_cotizacion: enviarCotizacionTool,
