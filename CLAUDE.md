@@ -3519,7 +3519,7 @@ Elias: los instaladores no pueden estar en grupos con el número de la API (sól
   1. `CotizacionPdf.tsx`: el filtro por sistemas aplica **solo si `specialty === 'esp'`**.
   2. MCP `cotizar.ts`: `systems` se deriva solo en `esp`; en las demás especialidades, `[]`. **MCP v22** publicado desde la Mac (bundle md5 `51f8811d…`); responde 401 sin token.
   3. Dato: FIAM-IL01 `notes.systems` → `[]` (solo esa llave del JSON).
-- **Pregunta abierta a Elias:** en Especiales el filtro es intencional (apagar un sistema lo quita del PDF), pero `total`/`total_final` sí cuenta esas partidas. En contrato hay PDFs que esconden partidas de sistemas apagados:
+- **Especiales, comportamiento intencional:** el filtro es intencional (apagar un sistema lo quita del PDF), pero `total`/`total_final` sí cuenta esas partidas. En contrato hay PDFs que esconden partidas de sistemas apagados:
 
   | Cotización | Partidas ocultas | Precio × cantidad, sin IVA (USD) |
   |---|---|---|
@@ -3531,4 +3531,4 @@ Elias: los instaladores no pueden estar en grupos con el número de la API (sól
   | VEAT-ES01 | 3 | 2.3 K |
   | E402C-ES01 | 7 | 1.6 K |
 
-  Confirmar si el PDF debe mostrar todo lo que suma.
+  **Resuelto (Elias, 25-oct): se queda así.** Hay un botón para apagar el sistema (no sale en el PDF) y otro para que no sume; son decisiones distintas y es intencional.
