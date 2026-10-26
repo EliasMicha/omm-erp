@@ -3561,3 +3561,53 @@ Elias: *"Alfredo es el jefe… que a las 8-9 pm le llegue el resumen de lo que t
   | E402C-ES01 | 7 | 1.6 K |
 
   **Resuelto (Elias, 25-oct): se queda así.** Hay un botón para apagar el sistema (no sale en el PDF) y otro para que no sume; son decisiones distintas y es intencional.
+
+## 🧭 Coordinador de obra (Alfredo) + documentos por WhatsApp (2026-10-26)
+
+Elias: *"quiero generar un mega coordinador… que lo exponencialice, le ayude a acordarse de cosas… que sea realmente inteligente, no solamente un lugar para poner cosas y que se pierdan"*. Más: proactivo con reportes oficiales, domingo 5 pm de planeación, pedidos a Elias/Logística. Y aparte: mandar documentos (cotizaciones, estado de cuenta) desde el ERP y el MCP.
+
+**Decisiones de Elias (25-oct):**
+- Estado de cuenta que pide un cliente → **siempre pedirle OK a Elias** por WhatsApp.
+- Reporte oficial para residente/segurista/cliente → **sólo se le da a Alfredo** (PDF); él lo reenvía.
+- Pedidos a Logística → **WhatsApp a Gabriel + tarea en su Mi trabajo**.
+
+### Modo coordinador del asistente
+- Alfredo ya es `agent_contacts` (role `interno`, `metadata.modo = 'coordinador'`, ligado a su employee y app_user). Sus mensajes van al agente con **otro prompt** (`whatsapp-webhook/coordinadorPrompt.ts`) y **otro juego de herramientas** (`coordinador.ts`):
+  `panorama_obras`, `pendientes_obra`, `actualizar_actividad` (no reasigna: eso en el ERP), `crear_actividades`, `ver_planeacion`, `planear` / `quitar_planeacion` (weekly_plans + weekly_plan_assignments + espejo installer_daily_assignment, igual que la pantalla), `recordatorio`, `pedir_a` (elias → action_items en su tablero; logística → project_tasks de Gabriel; + WhatsApp + `coordinador_pedidos`), `reporte_oficial` (PDF `_shared/reporteOficialPdf.ts`, fotos de los reportes recientes, a su chat), `propuestas_pendientes` / `decidir_propuestas`.
+  De las propias sólo `set_conversation_context` y `create_obra_extras`; del MCP sólo lectura de obra/compras/catálogo/leads/cotizaciones + pendientes/levantamientos. Nada de cobranza, contabilidad, cotizar ni mandar WhatsApp a terceros.
+- "Sus obras" = activas con `coordinador_id` = él **o** donde su equipo (sus `reporte_supervisores.areas`) está planeado ±2 semanas.
+- Confirmación obligatoria (vista previa): planear, quitar_planeacion, pedir_a, altas de >5 actividades.
+- Con asistente, sus decisiones sobre propuestas las toma el agente (Opus) con `decidir_propuestas`; `intentarSupervisor` sólo corre para jefes SIN asistente.
+
+### Lo proactivo
+- **Domingo 17:00** (`wa-domingo`, 23:00 UTC dom) y **19:00** si no contestó (`wa-domingo-insistir`): Opus arma el mensaje con `panorama()` real (vencidas, gente sin asignar, compras por llegar, propuestas, recordatorios) y pregunta qué trae en mente. El primer intento salía cortado a media frase (max_tokens 900): ahora 3000 y, si se corta, se queda en la última línea completa.
+- **Resumen 9 pm**: además de las propuestas, `detectarComunicados()` (Sonnet) sugiere hasta 3 cosas para dejar por escrito a residente/segurista/cliente, con letras A/B/C ("¿te genero el reporte oficial?").
+- **Recordatorios**: `coordinador_recordatorios`, cron cada 15 min que sólo llama a la función si hay vencidos; se reclaman antes de mandar.
+- **Los mensajes automáticos entran a su historial** (`alHistorial()` en reportesComun): se guardan como mensaje del asistente con la marca "[Mensaje automático…]", así "la 2 el jueves" o "sí, la B" se entienden. `loadHistory` ahora recorta el inicio para que empiece con un mensaje del usuario (y conserva los automáticos cortados como contexto).
+
+### Documentos por WhatsApp
+- `whatsapp-send` acción **`send_document`**: `documento` = cotización (último PDF guardado en `cotizacion_pdfs`; rechaza si quedó viejo o si es el técnico hacia un cliente), estado de cuenta (generado con el cliente de la persona; requiere permiso), o archivo (base64, ≤15 MB). Ventana abierta → sale el archivo. Cerrada: a alguien del equipo le llega la plantilla y el archivo cuando conteste (`wa_pendientes_entrega` ahora guarda documentos); a un cliente no se puede (se explica). DG/Administración/Ventas_Ingeniería.
+- ERP → `/whatsapp` → Conversaciones: clip para adjuntar archivo, cotización o estado de cuenta.
+- MCP `whatsapp_enviar` acepta `documento` (siempre con vista previa y sí). El asistente de Elias lo usa para mandar a un cliente; `enviar_cotizacion`/`enviar_estado_de_cuenta` siguen siendo "a mí".
+- **`contactos_externos`** (lead u obra; rol cliente/arquitecto/residente/segurista/administración; celular; `recibe_estado_cuenta`). UI en el CRM (lead → Contactos). Sólo 3 de 181 leads tenían teléfono.
+
+### Estado de cuenta a petición del cliente (`aprobaciones.ts`)
+- El cliente escribe "estado de cuenta / cuánto debo / mi saldo…" (regex, sin IA). Si su número está en `contactos_externos` del lead (o `leads.contact_phone`): se le contesta "en un momento", se arma el PDF y **a Elias le llega el PDF con "¿Se lo mando? sí/no"** (`wa_aprobaciones`, numeradas). Número desconocido: no recibe nada; a Elias le llega el aviso para darlo de alta.
+- Elias contesta "sí" / "sí 2" / "no". Un "sí"/"ok" suelto sólo cuenta si lo último que se le mandó fue esa pregunta (contesta "ok" a muchas cosas). Se reclama antes de mandar; si al cliente se le cerró la ventana de 24 h, se avisa.
+
+### Verificado
+- PDF del reporte oficial renderizado y revisado (2 páginas, fotos con proporción, pies alineados).
+- Diagnóstico con datos reales de Alfredo (acción `diagnostico` de whatsapp-reportes, sólo con la llave del cron, sólo lectura): panorama (22 obras), planeación de la semana, pendientes vencidos de Sacal y el texto del domingo.
+- Regex de aprobación probada con 13 frases ("sí", "Si 2", "Sí, mándalo", "no sé", "nomás"…).
+- Desplegado: whatsapp-webhook v37, whatsapp-reportes v7, whatsapp-send v7 (verify_jwt true), mcp-erp v23. md5 cotejado en la Mac.
+- **No probado de punta a punta**: las herramientas que escriben (planear, pedir_a, recordatorio, reporte_oficial, decidir_propuestas) y la aprobación del estado de cuenta. Se prueban con la primera plática real de Alfredo y el primer cliente que lo pida.
+
+### Gotchas
+- `execute_sql` del MCP de Supabase **sí** hace commit, pero `net.http_post` tarda en procesarse: la respuesta aparece en `net._http_response` unos segundos (o un minuto con Opus) después.
+- Opus 5.5 con `max_tokens` 900 cortó un mensaje de 12 líneas a la mitad. Para textos que ve el usuario, dar margen y revisar `stop_reason`.
+- El bundle de `whatsapp-reportes` y `whatsapp-send` ahora también llevan jspdf: compilar con `--external:jspdf` y `sed` a `npm:jspdf@4.2.1`.
+
+### Pendiente
+- Que Alfredo le escriba al número (o esperar al domingo). Su primer uso real es la prueba de las herramientas de escritura.
+- Dar de alta contactos (celular) de los clientes en el CRM para que el flujo del estado de cuenta los reconozca.
+- Reportes de la app de obra: siguen sin dar de alta pendientes (origen `reporte` inválido) — decidir si también pasan por el jefe de cuadrilla.
