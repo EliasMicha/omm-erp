@@ -80,9 +80,24 @@ async function waRequest(path: string, body: unknown) {
   return res.json();
 }
 
+// El modelo escribe Markdown; WhatsApp usa *negrita*, _cursiva_ y ~tachado~ con UN símbolo.
+// Sin esto llegan los "**" y "##" tal cual al celular.
+export function aFormatoWhatsApp(t: string): string {
+  return t
+    .replace(/\*\*(.+?)\*\*/g, '*$1*')
+    .replace(/__(.+?)__/g, '*$1*')
+    .replace(/~~(.+?)~~/g, '~$1~')
+    .replace(/^#{1,6}\s+(.+)$/gm, '*$1*')
+    .replace(/^\s*---+\s*$/gm, '')
+    .replace(/^(\s*)[-*]\s+/gm, '$1• ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 export async function sendText(to: string, text: string) {
+  const limpio = aFormatoWhatsApp(text);
   // WhatsApp limita a ~4096 chars. Cortamos por seguridad.
-  const body = text.length > 4000 ? text.slice(0, 3990) + '…' : text;
+  const body = limpio.length > 4000 ? limpio.slice(0, 3990) + '…' : limpio;
   return waRequest('/messages', {
     messaging_product: 'whatsapp',
     recipient_type: 'individual',
