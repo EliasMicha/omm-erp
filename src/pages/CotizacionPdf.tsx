@@ -497,8 +497,12 @@ function CotizacionPdfInner() {
   const ivaRate = getIvaRate(cot)
   const programacion = getProgramacion(cot)
 
-  // Filter items by active systems (if toggled off in editor, exclude from PDF)
-  const activeSystemIds = getActiveSystems(cot)
+  // Filter items by active systems (if toggled off in editor, exclude from PDF).
+  // Solo Especiales tiene sistemas que se prenden y apagan en el editor. En las
+  // demás especialidades notes.systems no significa nada para el PDF: si algo
+  // lo llenó (p. ej. el MCP marcó 'control_iluminacion' en una de iluminación,
+  // cuyas partidas son 'Iluminacion'), el PDF salía en ceros.
+  const activeSystemIds = cot.specialty === 'esp' ? getActiveSystems(cot) : null
   const customSystemsList = getCustomSystems(cot)
   // Map: customSystemId → custom system definition (para etiquetar items y resolver nombre)
   const customSysMap: Record<string, { id: string; name: string; color?: string }> = {}

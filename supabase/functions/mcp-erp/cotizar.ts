@@ -501,7 +501,11 @@ export async function ejecutarCot(nombre: string, args: any, sb: SupabaseClient,
       const t = totalesDe(renglones, ivaPct)
 
       // Los sistemas salen de los productos que de verdad entraron. Ver regla 4a.
-      const sistemas = [...new Set(renglones.map((r: any) => idDeSistema(r.system)))]
+      // SOLO en Especiales: es el único editor con sistemas que se prenden y
+      // apagan. En iluminación, cortinas, etc. todas las cotizaciones llevan
+      // systems=[]; marcar 'control_iluminacion' en una de iluminación dejó su
+      // PDF en ceros (FIAM-IL01, 25-oct-2026).
+      const sistemas = esp === 'esp' ? [...new Set(renglones.map((r: any) => idDeSistema(r.system)))] : []
       // Y las areas, de las partidas. Ver regla 4b: sin area no se ven.
       const areas = [...new Set(renglones.map((r: any) => r.area || 'General'))]
 
