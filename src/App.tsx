@@ -36,6 +36,7 @@ import Documentacion from './pages/Documentacion'
 import MiTrabajo from './pages/MiTrabajo'
 import Mantenimiento from './pages/Mantenimiento'
 import WhatsApp from './pages/WhatsApp'
+import Privacidad from './pages/Privacidad'
 import ObraApp from './obra-app/ObraApp'
 import ExamenPublicoPage from './pages/ExamenPublico'
 import ChatBot from './components/ChatBot'
@@ -57,6 +58,8 @@ export default function App() {
               cuenta. Va FUERA de ProtectedRoute a propósito: pedirle registrarse
               para contestar un examen mata la respuesta. */}
           <Route path="/examen/:token" element={<ExamenPublicoPage />} />
+          {/* Aviso de privacidad público: lo pide Meta para publicar la app de WhatsApp. */}
+          <Route path="/privacidad" element={<Privacidad />} />
           {/* Consentimiento de OAuth: aqui se autoriza a una app externa a entrar
               al ERP. Va FUERA de ProtectedRoute a proposito — ProtectedRoute
               manda a /login con replace y PIERDE la URL, y con ella el
