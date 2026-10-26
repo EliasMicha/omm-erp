@@ -44,6 +44,8 @@ export interface ToolExecutionContext {
   contact: AgentContact;
   conversation: AgentConversation;
   supabase: any;
+  /** Cliente y datos de la PERSONA (RLS). Null si su número no está ligado a un usuario del ERP. */
+  sesion?: any;
 }
 
 export interface ToolResult {

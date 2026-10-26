@@ -2,11 +2,15 @@
 // Tono: asistente ejecutivo directo, ejecuta rápido, confirma antes de acciones irreversibles.
 
 import type { AgentContact, AgentConversation, ClaudeMessage, ContentBlock, ToolExecutionContext } from './types.ts';
-import { executeTool, getToolsForContact } from './tools.ts';
+import { executeTool, getToolsForContact, REEMPLAZADAS_POR_MCP } from './tools.ts';
+import { sesionDe } from './sesion.ts';
+import { definicionesMcp, esMcp, ejecutarMcp } from './mcp.ts';
 import { DELEGATION_PROMPT, delegationTools, executeDelegationTool, isDelegationCoach } from './delegation.ts';
 
 const ANTHROPIC_API_KEY = Deno.env.get('ANTHROPIC_API_KEY')!;
-const MODEL = 'claude-opus-4-6';
+// El más nuevo; si la API no lo acepta, se cae al anterior (MODELO_RESPALDO).
+const MODEL = 'claude-opus-5-5';
+const MODELO_RESPALDO = 'claude-opus-4-6';
 const MAX_TOOL_ITERATIONS = 10;
 
 const SYSTEM_PROMPT = `Eres el asistente ejecutivo de Elias Micha, Director General de OMM Technologies (CDMX). OMM hace instalaciones eléctricas, sistemas especiales (CCTV, audio, redes, control, cortinas) e iluminación arquitectónica.
@@ -14,14 +18,26 @@ const SYSTEM_PROMPT = `Eres el asistente ejecutivo de Elias Micha, Director Gene
 # Tu rol
 No eres un chatbot pasivo. Eres un asistente que EJECUTA acciones en el ERP de OMM en tiempo real mientras Elias está en juntas, en obras, o en movimiento. Tu trabajo es convertir sus indicaciones habladas/escritas en registros concretos en el ERP: tareas asignadas, extras por cotizar, prefacturas, consultas de status.
 
+# Cómo está armado el ERP (léelo antes de buscar)
+- **El LEAD es la entidad maestra.** Cotizaciones, compras, cobros y estado de cuenta cuelgan del lead. Busca primero el lead (buscar_leads / ver_lead) y desde ahí todo lo demás.
+- Los leads se llaman como el sitio + la unidad + el cliente: "Cero5cien L202 - Eduardo Tawil". Cero5cien es un EDIFICIO con muchos clientes distintos; la unidad (L202, O402, A101…) y el nombre son lo que identifica al cliente. Si te dicen "Tawil" o "L202", busca por esa palabra.
+- **Proyecto** = trabajo de oficina (planos, ingeniería). **Obra** = ejecución en sitio. No los confundas.
+- **La cobranza va por lead y cotización, NO por obra.** Una obra sin proyecto ligado NO impide sacar la cobranza: usa cobranza (MCP) o enviar_estado_de_cuenta con el lead.
+- Las cotizaciones tienen folio tipo "DLAN-ES01" (lead-especialidad-número). Vendido = cotizaciones en etapa contrato.
+- Montos en MXN y USD van SEPARADOS. No los sumes sin tipo de cambio.
+
 # Casos de uso principales
-1. **Captura de pendientes de junta** — "estoy en junta de [obra], pendientes: 1)..., 2)...". Fija contexto con set_conversation_context, luego create_tasks_batch con los pendientes mapeados a empleados.
-2. **Extras por cotizar** — "extras de [obra]: agregar X, cambiar Y". Usa create_obra_extras con los items estructurados.
-3. **Prefactura instantánea** — "mándame prefactura del 40% de [obra]". Usa generate_prefactura_draft. Tú SOLO generas el borrador: no puedes timbrar; el timbrado se hace en el ERP → Facturación.
-4. **Consultas en vivo** — status de obras, cobranza, OCs. Usa query_obras, query_cobranza, query_purchase_orders.
-5. **Acciones sobre OCs** — aprobar cotejo, cambiar status. Usa update_purchase_order.
-6. **Mandar una cotización** — "mándame la cotización de [cliente/folio]". Usa enviar_cotizacion: manda el PDF tal como se descargó del ERP a quien lo pide. Si regresa candidatas, pregunta cuál con folio y nombre. Si no hay PDF guardado, di que hay que descargarlo una vez en el ERP y pasa la liga. Por ahora NO se manda a clientes.
-7. **Escribirle a alguien del equipo** — "mándale a Dafne que…". Usa mensaje_a_equipo: primero la vista previa, la enseñas y preguntas "¿Lo mando?"; solo con un sí explícito la mandas con confirmado=true. Nunca la mandes sin ese sí.
+1. **Captura de pendientes de junta** — fija contexto con set_conversation_context y usa create_tasks_batch con los pendientes mapeados a empleados.
+2. **Extras por cotizar** — create_obra_extras.
+3. **Prefactura** — generate_prefactura_draft. Tú SOLO generas el borrador: no puedes timbrar; el timbrado se hace en el ERP → Facturación.
+4. **Consultas** — leads, cotizaciones, obras, cobranza, facturas, compras, tareas del equipo, contabilidad: usa las herramientas del ERP (buscar_leads, ver_lead, buscar_cotizaciones, ver_cotizacion, ver_obra, cobranza, buscar_facturas, buscar_ordenes_compra, panorama_equipo, buscar_tareas, conta_*…).
+5. **Documentos al chat** — enviar_cotizacion (PDF de cotización) y enviar_estado_de_cuenta (PDF del estado de cuenta de un lead). Se mandan a quien los pide.
+6. **WhatsApp** — whatsapp_conversaciones y whatsapp_leer para ver quién escribió; whatsapp_enviar para mandar un mensaje. Si la respuesta trae requiere_aprobacion, ENSEÑA la vista previa y pregunta "¿Lo mando?"; solo con un sí vuelve a llamar con confirmar=true.
+7. **Compras** — ver, cotejar, aprobar o generar órdenes de compra con las herramientas de compras.
+
+# Si algo no aparece
+- Antes de decir que no se puede, prueba otra ruta: por lead, por folio, por una sola palabra del nombre. No culpes a un dato faltante (como "no tiene project_id") si existe otra herramienta que lo resuelva.
+- Si una búsqueda da varios resultados, enséñalos y pregunta cuál. Nunca escojas el primero a ciegas.
 
 # Reglas de oro
 - **Contexto activo**: cuando Elias mencione una obra ("estoy en Oasis 5"), llama set_conversation_context ANTES de las demás acciones. Así las siguientes tareas/extras se vinculan automáticamente sin que él tenga que repetir el nombre.
@@ -66,12 +82,17 @@ interface RunAgentResult {
 
 export async function runAgent(args: RunAgentArgs): Promise<RunAgentResult> {
   const { contact, conversation, history, newUserMessage, supabase } = args;
-  const toolCtx: ToolExecutionContext = { contact, conversation, supabase };
+  // El bot actúa como la persona: con su JWT corren las herramientas del MCP.
+  const sesion = await sesionDe(supabase, contact);
+  const toolCtx: ToolExecutionContext = { contact, conversation, supabase, sesion };
   // El modo delegación SUMA herramientas al asistente; ya no lo reemplaza.
   // (Antes lo dejaba en solo-lectura: no podía crear tareas, mandar mensajes ni cotizaciones.)
   const coach = isDelegationCoach(contact);
+  const propias = getToolsForContact(contact.role, contact.allowed_tools)
+    .filter((t) => !(sesion && REEMPLAZADAS_POR_MCP.has(t.name)));
   const tools = [
-    ...getToolsForContact(contact.role, contact.allowed_tools),
+    ...propias,
+    ...(sesion ? definicionesMcp() : []),
     ...(coach ? delegationTools : []),
   ];
   const nombresDelegacion = new Set(delegationTools.map((t) => t.name));
@@ -158,6 +179,8 @@ ${activeContextLines.length > 0 ? '\n' + activeContextLines.join('\n') : coach ?
         const started = Date.now();
         const result = nombresDelegacion.has(tu.name)
           ? await executeDelegationTool(tu.name, tu.input, toolCtx)
+          : sesion && esMcp(tu.name)
+          ? await ejecutarMcp(tu.name, tu.input, sesion)
           : await executeTool(tu.name, tu.input, toolCtx);
         const duration = Date.now() - started;
 
@@ -191,7 +214,7 @@ ${activeContextLines.length > 0 ? '\n' + activeContextLines.join('\n') : coach ?
         const resultBlock: any = {
           type: 'tool_result',
           tool_use_id: tu.id,
-          content: JSON.stringify(result.success ? (result.data ?? {}) : { error: result.error }),
+          content: JSON.stringify(result.success ? (result.data ?? {}) : { error: result.error, ...(result.data ? { detalle: result.data } : {}) }).slice(0, 60000),
         };
         if (!result.success) {
           resultBlock.is_error = true;
@@ -212,7 +235,22 @@ ${activeContextLines.length > 0 ? '\n' + activeContextLines.join('\n') : coach ?
   return { finalText, allNewMessages, totalInputTokens, totalOutputTokens };
 }
 
-async function callClaude(system: string, messages: ClaudeMessage[], tools: any[]) {
+let modeloEnUso = MODEL;
+async function callClaude(system: string, messages: ClaudeMessage[], tools: any[]): Promise<any> {
+  try {
+    return await callClaudeCon(modeloEnUso, system, messages, tools);
+  } catch (e) {
+    // Si el modelo nuevo no existe para esta llave, se usa el anterior el resto de la vida del proceso.
+    if (modeloEnUso !== MODELO_RESPALDO && /model|not_found|404/i.test(String(e))) {
+      console.error('Modelo', modeloEnUso, 'no disponible; uso', MODELO_RESPALDO, String(e).slice(0, 200));
+      modeloEnUso = MODELO_RESPALDO;
+      return await callClaudeCon(modeloEnUso, system, messages, tools);
+    }
+    throw e;
+  }
+}
+
+async function callClaudeCon(model: string, system: string, messages: ClaudeMessage[], tools: any[]) {
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -221,7 +259,7 @@ async function callClaude(system: string, messages: ClaudeMessage[], tools: any[
       'content-type': 'application/json',
     },
     body: JSON.stringify({
-      model: MODEL,
+      model,
       max_tokens: 4096,
       system,
       messages,

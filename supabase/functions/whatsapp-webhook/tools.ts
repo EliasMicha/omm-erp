@@ -5,6 +5,7 @@
 import type { ToolDefinition, ToolExecutionContext, ToolResult } from './types.ts';
 import { enviarCotizacionDef, enviarCotizacion } from './cotizacion.ts';
 import { mensajeAEquipoDef, mensajeAEquipo } from './equipo.ts';
+import { enviarEstadoCuentaDef, enviarEstadoCuenta } from './estadoCuenta.ts';
 
 type ToolHandler = (input: any, ctx: ToolExecutionContext) => Promise<ToolResult>;
 
@@ -635,7 +636,12 @@ export const TOOLS: Record<string, Tool> = {
   update_purchase_order: updatePurchaseOrder,
   enviar_cotizacion: enviarCotizacionTool,
   mensaje_a_equipo: mensajeAEquipoTool,
+  enviar_estado_de_cuenta: { allowed_roles: ['admin', 'interno'], definition: enviarEstadoCuentaDef, handler: enviarEstadoCuenta },
 };
+
+// Herramientas propias del bot que tienen versión en el MCP. Si la persona tiene
+// sesión del ERP se usan las del MCP (una sola implementación, con su RLS).
+export const REEMPLAZADAS_POR_MCP = new Set(['query_obras', 'query_leads', 'query_cobranza', 'query_purchase_orders', 'update_purchase_order', 'mensaje_a_equipo']);
 
 export function getToolsForContact(role: string, allowedOverride: string[] = []): ToolDefinition[] {
   return Object.values(TOOLS)
