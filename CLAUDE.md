@@ -3669,3 +3669,30 @@ Elias: *"que sea útil como un WhatsApp literalmente si lo veo en el celular… 
 - **Reanudar:** `update whatsapp_ajustes set valor='false' where clave='bot_pausado'; select cron.alter_job(job_id := jobid, active := true) from cron.job where jobname like 'wa-%';`
 
 **Siguientes ahorros propuestos (no hechos):** enrutar mensajes simples a Haiku 5.5 / todo a Sonnet 5.5; historial por ventana de tiempo (4 h); recortar resultados a 10 K; workspace y llave propios en la consola de Anthropic con límite mensual.
+
+## 🔒 Incidente de gasto en la API de Anthropic y cierre de `/api/anthropic` (2026-10-26)
+
+**Qué pasó:** el 26-oct, entre 15:00 y 16:00 UTC (9–10 am CDMX), la llave **OMM-ERP-KEY** (la de Vercel) gastó ~160 M tokens de **Opus 5.5**, casi todos "prompt caching read", con ~480 K de salida. Fueron ~$112 en la consola; el mes llegó a **$246.10** contra el tope de **$200**, y Anthropic bloqueó el acceso hasta el 1-nov 00:00 UTC. Las 5 facturas del 26-oct (~$46–52 c/u) son recargas automáticas: con saldo menor a $5 se recarga a $50.
+
+**Descartado con datos:**
+- **El bot de WhatsApp:** usa la llave OMM-WHATSAPP-AGENT (es la del secreto `ANTHROPIC_API_KEY` de Supabase, creada el 17-sep). Esa llave suma $3.08 en total y el bot hizo 1 acción ese día.
+- **Las sesiones de Claude Code:** la consola marca 0.
+- **El código del ERP:** solo usa Sonnet 4.6.
+
+**Causa probable:** la única puerta que dejaba pedir Opus 5.5 con esa llave era el proxy `/api/anthropic`, que no pedía autenticación y aceptaba cualquier modelo. El patrón (mucho caché, poca salida) es el de un agente de código. No hay forma de saber quién; Vercel Hobby guarda 1 h de logs.
+
+**Arreglado (commit 4e11789):**
+- `api/anthropic.ts`:
+  - exige un JWT de Supabase válido (`/auth/v1/user`) o `x-omm-internal` = `SUPABASE_SERVICE_ROLE_KEY`;
+  - lista blanca de modelos: `claude-sonnet-4-6`, `claude-sonnet-4-5`, `claude-haiku-4-5`;
+  - `max_tokens` con tope de 16 000.
+  - Verificado: anónimo → 401; usuario con sesión → llega a Anthropic.
+- `src/main.tsx`: un envoltorio de `window.fetch` agrega `Authorization: Bearer <token de sesión>` a toda llamada a `/api/*` que no lo traiga. Por eso no se tocaron los ~30 lugares que llaman al proxy. **Si un modelo nuevo se usa desde el front, hay que agregarlo a `MODELOS_PERMITIDOS`.**
+- `process-obra-report` (v27) llama directo a Anthropic con su `ANTHROPIC_API_KEY` y ya no pasa por el proxy.
+
+**Pendiente (Elias):**
+- Crear una llave nueva y ponerla en Vercel (`ANTHROPIC_API_KEY`, `ANTHROPIC_KEY` y `VITE_ANTHROPIC_KEY`, la que exista). Redesplegar y desactivar OMM-ERP-KEY.
+- Revisar `JOSEG_ERP_KEY` (12-sep, $0, nadie sabe de quién es).
+- El bundle público no trae ninguna llave (revisado).
+
+**Pendiente (código):** las demás `/api/*` que llaman a Claude (`extract`, `extract-bank-statement`, `ai-chat`, `analyze-plan`, `memoria-tecnica`, `resumen-cotizaciones`, `process-obra-report`, `gmail`) usan Sonnet fijo pero tampoco piden sesión. Ya reciben el JWT por el envoltorio, así que se les puede agregar la misma guarda.
