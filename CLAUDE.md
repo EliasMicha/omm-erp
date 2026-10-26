@@ -3611,3 +3611,22 @@ Elias: *"quiero generar un mega coordinador… que lo exponencialice, le ayude a
 - Que Alfredo le escriba al número (o esperar al domingo). Su primer uso real es la prueba de las herramientas de escritura.
 - Dar de alta contactos (celular) de los clientes en el CRM para que el flujo del estado de cuenta los reconozca.
 - Reportes de la app de obra: siguen sin dar de alta pendientes (origen `reporte` inválido) — decidir si también pasan por el jefe de cuadrilla.
+
+## 📱 WhatsApp como app del celular: /wa (2026-10-26)
+
+Elias: *"que sea útil como un WhatsApp literalmente si lo veo en el celular… dame el link para bajarlo como app… agrupar las conversaciones entre clientes/ventas, coordinación/equipo, servicios, general"*.
+
+- **`/wa`** (`src/pages/WhatsAppApp.tsx`): conversaciones a pantalla completa, sin menú del ERP. Misma regla de acceso que `/whatsapp` (Administración + DG).
+- **Instalable:** mientras `/wa` está abierta, el `<head>` apunta a `public/wa-manifest.json` (`id` `/wa`, `start_url` `/wa`, `scope` `/`), al icono `wa-apple-touch-icon.png` y al título "WhatsApp OMM"; al salir se restaura. Iconos `public/wa-icon-*.png`.
+  - Instalar: abrir https://omm-erp.vercel.app/wa en Safari (iPhone) o Chrome (Android), entrar, y **Compartir → Agregar a pantalla de inicio** estando ya en la lista de chats.
+  - La app instalada guarda su propia sesión (en iPhone no comparte la de Safari): hay que entrar una vez dentro de la app.
+- **`ProtectedRoute`** ahora manda a `/login?next=<ruta>`; Login ya validaba `next`. Sin esto la app instalada caía en el ERP después del login.
+- **`Conversaciones.tsx`**:
+  - en el celular, un panel a la vez (lista → chat con flecha); el chat abierto vive en `?c=<10 dígitos>` para que el "atrás" del teléfono regrese a la lista;
+  - en el celular Enter hace salto de línea; se manda con el botón;
+  - no leídos por chat en `localStorage` (`wa_visto_v1`), sólo de ese dispositivo;
+  - el envío vive en `src/lib/whatsappSend.ts` (lo usan `/whatsapp` y `/wa`).
+- **Grupos** (chips arriba de la lista): Clientes/Ventas, Coordinación/Equipo, Servicios, General.
+  - Automático (`grupoAuto`): contacto de mantenimiento o chat con ticket → Servicios; equipo → Coordinación; contacto de un lead → Clientes (residente/segurista → Coordinación); desconocido → General.
+  - Se mueve a mano con ⋮ → "Mover a". Lo manual se guarda en **`whatsapp_chat_grupos`** (telefono10 PK, grupo; RLS: leen usuarios reales, escriben Administración/DG; migración `20261026_whatsapp_chat_grupos.sql`). Mover de vuelta al automático borra la fila.
+- Verificado con un arnés local (Playwright, supabase simulado) a 390 px y 1280 px; RLS de la tabla probada con la sesión de Elias en rollback.
