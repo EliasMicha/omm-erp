@@ -9,6 +9,8 @@ export interface AgentContact {
   obra_id: string | null;
   allowed_tools: string[];
   is_active: boolean;
+  /** metadata.modo = 'coordinador' → asistente del jefe de cuadrilla. */
+  metadata?: any;
 }
 
 export interface AgentConversation {

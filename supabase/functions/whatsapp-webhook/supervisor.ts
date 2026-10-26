@@ -18,7 +18,7 @@
 //                          24 h estaba cerrada, se le entrega cuando contesta.
 import { sendText, toSendPhone, last10, markAsRead, downloadMedia } from './whatsapp.ts';
 import { logWa, waIdFrom } from './log.ts';
-import { hoyCDMX, normalizar, empleadoDeTelefono, primerNombre, partirTexto } from './reportesComun.ts';
+import { hoyCDMX, normalizar, empleadoDeTelefono, primerNombre, partirTexto, mandarDocumento } from './reportesComun.ts';
 import { transcribir } from './reportes.ts';
 
 const ANTHROPIC_API_KEY = Deno.env.get('ANTHROPIC_API_KEY') ?? '';
@@ -119,7 +119,7 @@ export function textoPropuestas(ps: Propuesta[], hoy: string): string {
 
 // ── Leer la decisión del jefe ───────────────────────────────────────────────
 
-interface Decision { numeros: number[]; accion: 'subir' | 'descartar'; fecha: string | null }
+export interface Decision { numeros: number[]; accion: 'subir' | 'descartar'; fecha: string | null }
 interface Lectura { tipo: 'decision' | 'duda' | 'otro'; decisiones: Decision[] }
 
 function calendario(hoy: string): string {
@@ -194,7 +194,7 @@ async function ultimosDelBot(sb: any, telefono: string): Promise<string[]> {
 
 // ── Aplicar ─────────────────────────────────────────────────────────────────
 
-async function aplicar(sb: any, supervisor: any, ps: Propuesta[], decisiones: Decision[]) {
+export async function aplicar(sb: any, supervisor: any, ps: Propuesta[], decisiones: Decision[]) {
   const hoy = hoyCDMX();
   const porNumero = new Map(ps.map(p => [p.numero, p]));
   const subidas: { p: Propuesta; fecha: string }[] = [];
@@ -302,13 +302,72 @@ export async function entregarPendientes(sb: any, msg: any): Promise<'no' | 'lis
   const t10 = last10(String(msg.from || ''));
   const { data: pend } = await sb.from('wa_pendientes_entrega').update({ entregado_at: new Date().toISOString() })
     .eq('telefono10', t10).is('entregado_at', null).gte('created_at', new Date(Date.now() - 3 * 86400e3).toISOString())
-    .select('id, texto, created_at');
+    .select('id, texto, created_at, documento_path, documento_nombre, caption');
   if (!pend?.length) return 'no';
   const esAcuse = msg.type === 'text' && ACUSE.test(String(msg.text?.body || ''));
   if (esAcuse) await registrarEntrada(sb, msg);
   for (const p of [...pend].sort((a: any, b: any) => String(a.created_at).localeCompare(String(b.created_at)))) {
+    if (p.documento_path) {
+      const { data: blob } = await sb.storage.from('agent-documents').download(p.documento_path);
+      if (blob) {
+        const nombre = p.documento_nombre || 'documento.pdf';
+        await mandarDocumento(sb, msg.from, { bytes: new Uint8Array(await blob.arrayBuffer()), filename: nombre, mime: blob.type || (nombre.endsWith('.pdf') ? 'application/pdf' : 'application/octet-stream'), caption: p.caption || undefined });
+      } else await responder(sb, msg.from, `No encontré el archivo "${p.documento_nombre}" que te quería mandar. Pídemelo otra vez.`);
+      continue;
+    }
     for (const parte of partirTexto(p.texto)) await responder(sb, msg.from, parte);
   }
   return esAcuse ? 'listo' : 'no';
 }
 
+
+// ── Lo que convendría reportar a un tercero ─────────────────────────────────
+// Elias: "si detecta cosas que se deberían de reportar a algún segurista,
+// residente o cliente, que le pregunte si le genera un reporte oficial".
+// Se lee lo del día y se sugieren, como mucho, tres. Sólo casos claros: algo que
+// no depende de OMM o que conviene dejar por escrito.
+export interface Comunicado { para: 'residente' | 'segurista' | 'cliente'; obra: string; asunto: string; por_que: string }
+
+export async function detectarComunicados(reps: any[], nombreDe: (r: any) => string): Promise<Comunicado[]> {
+  if (!ANTHROPIC_API_KEY || !reps.length) return [];
+  const material = reps.slice(0, 25).map((r: any) => [
+    `### ${r.obra_nombre || 'obra'} — ${nombreDe(r)}`,
+    String(r.texto_raw || '').replace(/\[\d{2}:\d{2}\]\s*/g, '').slice(0, 1500),
+    r.ai_bloqueos?.length ? 'Bloqueos: ' + r.ai_bloqueos.join('; ') : '',
+    r.ai_faltantes?.length ? 'Faltantes: ' + r.ai_faltantes.join('; ') : '',
+  ].filter(Boolean).join('\n')).join('\n\n');
+  const prompt = `Eres el asistente del jefe de cuadrilla de OMM Technologies (instalaciones especiales: CCTV, audio, redes, control, acceso). Estos son los reportes de obra de hoy de su equipo:
+
+${material}
+
+¿Hay algo que convenga dejar por escrito en un REPORTE OFICIAL a un tercero? Sólo casos claros:
+- al RESIDENTE de obra (constructora/desarrolladora): otra contratista dañó o tapó trabajo de OMM, el área no está lista (plafón, pintura, electricidad, obra civil), no dejan trabajar, cambios de proyecto, falta de acceso o de energía.
+- al SEGURISTA (seguridad e higiene): riesgo de seguridad, accidente o casi accidente, falta de protecciones, condiciones inseguras.
+- al CLIENTE: un cambio que pidió, una decisión que falta y frena el trabajo, algo que va a afectar fecha o costo.
+NO cuentan: material que OMM tiene que comprar, trabajo normal, pendientes internos.
+
+Devuelve SOLO un JSON: {"comunicados": [{"para": "residente"|"segurista"|"cliente", "obra": "nombre tal cual", "asunto": "máx 70 caracteres", "por_que": "una línea"}]}. Máximo 3. Si no hay nada claro, lista vacía.`;
+  for (const model of ['claude-sonnet-4-6', 'claude-sonnet-4-5']) {
+    try {
+      const res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'x-api-key': ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+        body: JSON.stringify({ model, max_tokens: 600, messages: [{ role: 'user', content: prompt }] }),
+      });
+      if (!res.ok) continue;
+      const body = await res.json();
+      const raw = (body.content || []).map((b: any) => b.text || '').join('');
+      const j = JSON.parse(raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1));
+      return (Array.isArray(j.comunicados) ? j.comunicados : [])
+        .filter((x: any) => ['residente', 'segurista', 'cliente'].includes(x?.para) && x?.asunto)
+        .slice(0, 3).map((x: any) => ({ para: x.para, obra: String(x.obra || ''), asunto: String(x.asunto).slice(0, 90), por_que: String(x.por_que || '').slice(0, 200) }));
+    } catch (_) { /* siguiente modelo */ }
+  }
+  return [];
+}
+
+export function textoComunicados(cs: Comunicado[]): string {
+  if (!cs.length) return '';
+  const para: Record<string, string> = { residente: 'al residente', segurista: 'al segurista', cliente: 'al cliente' };
+  return `📣 *Esto convendría dejarlo por escrito:*\n${cs.map((x, i) => `${String.fromCharCode(65 + i)}) ${para[x.para]} de *${x.obra}* — ${x.asunto}`).join('\n')}\n¿Te genero el reporte oficial? Dime la letra.`;
+}

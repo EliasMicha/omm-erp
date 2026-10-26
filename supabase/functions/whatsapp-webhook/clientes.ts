@@ -5,6 +5,7 @@
 
 import { sendText, markAsRead, downloadMedia, last10, toSendPhone } from './whatsapp.ts';
 import { logWa, waIdFrom } from './log.ts';
+import { intentarEstadoCuentaCliente } from './aprobaciones.ts';
 
 const ANTHROPIC_API_KEY = Deno.env.get('ANTHROPIC_API_KEY') || '';
 const SISTEMAS = ['Audio', 'Redes', 'CCTV', 'Control de Acceso', 'Control de Iluminación', 'Lutron', 'Eléctrico'];
@@ -129,6 +130,9 @@ export async function handleClienteMessage(supabase: any, msg: any) {
   const texto = extractText(msg);
   const media = describeMedia(msg);
   const contenido = [texto, media].filter(Boolean).join(' ');
+  // ¿Pide su estado de cuenta? Se prepara y se le pide el OK a Elias (aprobaciones.ts).
+  try { if (await intentarEstadoCuentaCliente(supabase, msg, texto)) return; }
+  catch (e) { console.error('estado de cuenta cliente:', e); }
   try { await markAsRead(msg.id); } catch (_) { /* no crítico */ }
   const mediaPath = await storeMedia(supabase, msg);
 

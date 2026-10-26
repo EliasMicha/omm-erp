@@ -6,6 +6,16 @@ import { executeTool, getToolsForContact, REEMPLAZADAS_POR_MCP } from './tools.t
 import { sesionDe } from './sesion.ts';
 import { definicionesMcp, esMcp, ejecutarMcp } from './mcp.ts';
 import { DELEGATION_PROMPT, delegationTools, executeDelegationTool, isDelegationCoach } from './delegation.ts';
+import { COORDINADOR_PROMPT } from './coordinadorPrompt.ts';
+import { DEF_COORD, NOMBRES_COORD, ejecutarCoord } from './coordinador.ts';
+import { abiertasDe } from './supervisor.ts';
+
+// Modo coordinador (agent_contacts.metadata.modo = 'coordinador'): otro prompt y
+// otro juego de herramientas. De las propias y del MCP, sólo lo que le sirve en
+// obra: nada de cobranza, contabilidad, cotizar ni mandar WhatsApp a terceros.
+const COORD_PROPIAS = new Set(['set_conversation_context', 'create_obra_extras']);
+const COORD_MCP = new Set(['ver_obra', 'buscar_ordenes_compra', 'ver_orden_compra', 'buscar_catalogo', 'directorio_equipo', 'buscar_leads', 'ver_lead', 'buscar_cotizaciones', 'ver_cotizacion', 'mis_pendientes', 'crear_pendiente', 'actualizar_pendiente', 'ver_levantamientos', 'crear_levantamiento']);
+export const esCoordinador = (c: any) => c?.metadata?.modo === 'coordinador';
 
 const ANTHROPIC_API_KEY = Deno.env.get('ANTHROPIC_API_KEY')!;
 // El más nuevo; si la API no lo acepta, se cae al anterior (MODELO_RESPALDO).
@@ -31,7 +41,7 @@ No eres un chatbot pasivo. Eres un asistente que EJECUTA acciones en el ERP de O
 2. **Extras por cotizar** — create_obra_extras.
 3. **Prefactura** — generate_prefactura_draft. Tú SOLO generas el borrador: no puedes timbrar; el timbrado se hace en el ERP → Facturación.
 4. **Consultas** — leads, cotizaciones, obras, cobranza, facturas, compras, tareas del equipo, contabilidad: usa las herramientas del ERP (buscar_leads, ver_lead, buscar_cotizaciones, ver_cotizacion, ver_obra, cobranza, buscar_facturas, buscar_ordenes_compra, panorama_equipo, buscar_tareas, conta_*…).
-5. **Documentos al chat** — enviar_cotizacion (PDF de cotización) y enviar_estado_de_cuenta (PDF del estado de cuenta de un lead). Se mandan a quien los pide.
+5. **Documentos** — enviar_cotizacion y enviar_estado_de_cuenta te los mandan a TI. Para mandárselos a un cliente u otra persona: whatsapp_enviar con documento (cotización o estado de cuenta), siempre con vista previa y tu sí. Si un cliente pide su estado de cuenta por WhatsApp, te llega el PDF con la pregunta "¿Se lo mando?": contestas sí o no.
 6. **WhatsApp** — whatsapp_conversaciones y whatsapp_leer para ver quién escribió; whatsapp_enviar para mandar un mensaje. Si la respuesta trae requiere_aprobacion, ENSEÑA la vista previa y pregunta "¿Lo mando?"; solo con un sí vuelve a llamar con confirmar=true.
 7. **Compras** — ver, cotejar, aprobar o generar órdenes de compra con las herramientas de compras.
 
@@ -87,13 +97,16 @@ export async function runAgent(args: RunAgentArgs): Promise<RunAgentResult> {
   const toolCtx: ToolExecutionContext = { contact, conversation, supabase, sesion };
   // El modo delegación SUMA herramientas al asistente; ya no lo reemplaza.
   // (Antes lo dejaba en solo-lectura: no podía crear tareas, mandar mensajes ni cotizaciones.)
-  const coach = isDelegationCoach(contact);
+  const coord = esCoordinador(contact);
+  const coach = !coord && isDelegationCoach(contact);
   const propias = getToolsForContact(contact.role, contact.allowed_tools)
-    .filter((t) => !(sesion && REEMPLAZADAS_POR_MCP.has(t.name)));
+    .filter((t) => !(sesion && REEMPLAZADAS_POR_MCP.has(t.name)))
+    .filter((t) => !coord || COORD_PROPIAS.has(t.name));
   const tools = [
     ...propias,
-    ...(sesion ? definicionesMcp() : []),
+    ...(sesion ? definicionesMcp().filter((t) => !coord || COORD_MCP.has(t.name)) : []),
     ...(coach ? delegationTools : []),
+    ...(coord ? DEF_COORD : []),
   ];
   const nombresDelegacion = new Set(delegationTools.map((t) => t.name));
 
@@ -119,8 +132,16 @@ export async function runAgent(args: RunAgentArgs): Promise<RunAgentResult> {
   }
 
   const now = new Date().toLocaleString('es-MX', { timeZone: 'America/Mexico_City', dateStyle: 'full', timeStyle: 'short' });
+  if (coord && contact.employee_id) {
+    // Lo que tiene abierto, para que "la 3" o "el del jueves" se entiendan sin buscar.
+    const ps = await abiertasDe(supabase, contact.employee_id).catch(() => []);
+    if (ps.length) activeContextLines.push('Actividades detectadas por decidir: ' + ps.map((p) => `${p.numero}) ${p.obra}: ${p.descripcion} (${p.quien})`).join(' | '));
+    const { data: rec } = await supabase.from('coordinador_recordatorios').select('cuando, texto').eq('employee_id', contact.employee_id)
+      .is('enviado_at', null).eq('cancelado', false).lte('cuando', new Date(Date.now() + 3 * 86400e3).toISOString()).order('cuando').limit(8);
+    if (rec?.length) activeContextLines.push('Recordatorios próximos: ' + rec.map((r: any) => `${new Date(r.cuando).toLocaleString('es-MX', { timeZone: 'America/Mexico_City', weekday: 'short', hour: '2-digit', minute: '2-digit' })} ${r.texto}`).join(' | '));
+  }
 
-  const systemWithContext = `${SYSTEM_PROMPT}${coach ? '\n\n# Modo delegación (además de todo lo anterior)\n' + DELEGATION_PROMPT : ''}
+  const systemWithContext = `${coord ? COORDINADOR_PROMPT : SYSTEM_PROMPT}${coach ? '\n\n# Modo delegación (además de todo lo anterior)\n' + DELEGATION_PROMPT : ''}
 
 # Importante
 Si en mensajes anteriores de esta conversación dijiste que solo podías leer o preparar borradores, eso ya no aplica: hoy puedes ejecutar con las herramientas que tienes.
@@ -177,7 +198,9 @@ ${activeContextLines.length > 0 ? '\n' + activeContextLines.join('\n') : coach ?
     const toolResultBlocks: ContentBlock[] = await Promise.all(
       toolUses.map(async (tu) => {
         const started = Date.now();
-        const result = nombresDelegacion.has(tu.name)
+        const result = coord && NOMBRES_COORD.has(tu.name)
+          ? await ejecutarCoord(tu.name, tu.input, toolCtx)
+          : nombresDelegacion.has(tu.name)
           ? await executeDelegationTool(tu.name, tu.input, toolCtx)
           : sesion && esMcp(tu.name)
           ? await ejecutarMcp(tu.name, tu.input, sesion)

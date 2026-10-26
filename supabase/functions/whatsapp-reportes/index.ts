@@ -16,8 +16,9 @@
 //
 // Deploy: verify_jwt=false (la función revisa x-cron-key o el JWT).
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.0';
-import { hoyCDMX, telefonoDeEmpleado, avisar, primerNombre } from '../whatsapp-webhook/reportesComun.ts';
-import { armarPropuestas, abiertasDe, textoPropuestas, fechaCorta } from '../whatsapp-webhook/supervisor.ts';
+import { hoyCDMX, telefonoDeEmpleado, avisar, primerNombre, alHistorial, ZONA, empleadoDeTelefono } from '../whatsapp-webhook/reportesComun.ts';
+import { armarPropuestas, abiertasDe, textoPropuestas, fechaCorta, detectarComunicados, textoComunicados } from '../whatsapp-webhook/supervisor.ts';
+import { contextoCoord, panorama, ejecutarCoord } from '../whatsapp-webhook/coordinador.ts';
 
 const URL_SB = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -231,14 +232,19 @@ async function resumen(opts: { soloObra?: string; soloA?: { telefono: string; sa
             .map((x: any) => nombreCorto(x.employee_id, x.employees?.nombre));
           if (rs.length || fs.length) bloquesSup.push(bloqueObra(o.nombre, rs, fs).texto);
         }
+        // Lo que convendría reportar a residente / segurista / cliente.
+        const comunicados = await detectarComunicados(susReps.map((r: any) => ({ ...r, obra_nombre: obras.get(r.obra_id)?.nombre })), (r: any) => nombreCorto(r.instalador_id, r.employees?.nombre)).catch(() => []);
         if (!bloquesSup.length && !ps.length) continue;
         if (!sup.tel) { enviados.push({ obra: 'jefe de cuadrilla', a: primerNombre(sup.employees?.nombre), ok: false, error: 'sin teléfono' }); continue; }
         telSupervisores.add(sup.tel);
         const saludo = (ALIAS.get(sup.employee_id) || primerNombre(sup.employees?.nombre));
-        const texto = [`📋 *Resumen de tu equipo* · ${fechaTxt}`, ...(bloquesSup.length ? bloquesSup : ['Hoy no llegaron reportes de tu equipo.']), textoPropuestas(ps, fecha)].join('\n\n');
+        const texto = [`📋 *Resumen de tu equipo* · ${fechaTxt}`, ...(bloquesSup.length ? bloquesSup : ['Hoy no llegaron reportes de tu equipo.']), textoPropuestas(ps, fecha), textoComunicados(comunicados)].filter(Boolean).join('\n\n');
         const compacto = `resumen de tu equipo de hoy (${bloquesSup.length} obra${bloquesSup.length === 1 ? '' : 's'})` +
           (ps.length ? ` y ${ps.length} actividad${ps.length === 1 ? '' : 'es'} detectada${ps.length === 1 ? '' : 's'} para que decidas si las subo y con qué fecha` : '');
         const r = await avisar(sb, sup.tel, saludo, texto, compacto, 'supervisor');
+        // En su plática con el asistente, para que "la 2 el jueves" o "sí, la B" se entiendan.
+        if (r.ok && !opts.soloA) await alHistorial(sb, sup.employee_id, texto);
+        else if (r.ok && opts.supervisorPrueba) await alHistorial(sb, opts.supervisorPrueba.employee_id, texto);
         enviados.push({ obra: 'jefe de cuadrilla', a: saludo, ok: r.ok, error: r.error, propuestas: ps.length, diferido: r.diferido });
         if (ps.length) porDecidir.push(`${saludo}: ${ps.length}`);
       }
@@ -285,6 +291,7 @@ async function resumen(opts: { soloObra?: string; soloA?: { telefono: string; sa
     // avisar() parte lo que pase de 3,800 caracteres, y con la ventana cerrada
     // guarda el texto completo para entregarlo cuando conteste.
     const r = await avisar(sb, destDG.telefono, destDG.saludo, texto, compacto, 'cierre');
+    if (r.ok && !opts.soloA && dg?.id) await alHistorial(sb, dg.id, texto);
     enviados.push({ obra: 'cierre del día', a: destDG.saludo, ok: r.ok, error: r.error, diferido: r.diferido });
   }
 
@@ -297,6 +304,131 @@ async function resumen(opts: { soloObra?: string; soloA?: { telefono: string; sa
   return { fecha, obras: obras.size, procesados: pend?.length || 0, enviados };
 }
 
+// ── Domingo de planeación ───────────────────────────────────────────────────
+// Elias: "los domingos que planea la semana, le escriba desde las 5 pm para
+// preguntarle qué trae en mente, le recuerde los pendientes de las obras y
+// analice el avance general para ayudar a pelotear". El mensaje lo arma el
+// modelo con datos reales (panorama de sus obras); la plática que sigue la lleva
+// el asistente del coordinador (whatsapp-webhook, modo coordinador).
+const ANTHROPIC_API_KEY = Deno.env.get('ANTHROPIC_API_KEY') ?? '';
+
+async function redactar(prompt: string, max = 3000): Promise<string | null> {
+  if (!ANTHROPIC_API_KEY) return null;
+  for (const model of ['claude-opus-5-5', 'claude-sonnet-4-6']) {
+    try {
+      const res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'x-api-key': ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+        body: JSON.stringify({ model, max_tokens: max, messages: [{ role: 'user', content: prompt }] }),
+      });
+      if (!res.ok) continue;
+      const b = await res.json();
+      let t = (b.content || []).map((x: any) => x.text || '').join('').trim();
+      // Si se cortó por largo, se queda hasta la última línea completa: un
+      // mensaje que termina a media palabra se ve roto.
+      if (b.stop_reason === 'max_tokens' && t.includes('\n')) t = t.slice(0, t.lastIndexOf('\n')).trim() + '\n¿Qué traes en mente para la semana?';
+      if (t) return t;
+    } catch (_) { /* siguiente */ }
+  }
+  return null;
+}
+
+async function supervisoresActivos(soloId?: string | null) {
+  let q = sb.from('reporte_supervisores').select('employee_id, employees(id, nombre, telefono_personal, obra_app_phone, phone, activo)').eq('activo', true);
+  if (soloId) q = q.eq('employee_id', soloId);
+  const { data } = await q;
+  return (data || []).filter((x: any) => x.employees?.activo !== false);
+}
+
+async function domingo(opts: { soloA?: string | null; comoSupervisor?: string | null; soloTexto?: boolean }) {
+  const { data: al } = await sb.from('reporte_diario_personas').select('employee_id, alias');
+  ALIAS = new Map((al || []).filter((a: any) => a.alias).map((a: any) => [a.employee_id, a.alias]));
+  const sups = await supervisoresActivos(opts.comoSupervisor);
+  const res: any[] = [];
+  for (const sup of opts.soloA ? sups.slice(0, 1) : sups) {
+    const c = await contextoCoord(sb, sup.employee_id);
+    const pan = await panorama(sb, c);
+    const ps = await abiertasDe(sb, sup.employee_id);
+    const { data: rec } = await sb.from('coordinador_recordatorios').select('cuando, texto').eq('employee_id', sup.employee_id)
+      .is('enviado_at', null).eq('cancelado', false).lte('cuando', new Date(Date.now() + 7 * 86400e3).toISOString()).order('cuando');
+    const saludo = ALIAS.get(sup.employee_id) || primerNombre(sup.employees?.nombre);
+    const datos = {
+      semana_que_empieza: (pan as any).semana_que_empieza,
+      obras: ((pan as any).obras || []).map((o: any) => ({ obra: o.obra, estado: o.estado, actividades: o.actividades, vencidas_ejemplo: o.vencidas_mas_viejas, ultimo_reporte: o.ultimo_reporte?.fecha || null, bloqueos: o.bloqueos_recientes, faltantes: o.faltantes_recientes, gente_semana: o.gente_esta_semana, compras_por_llegar: o.compras_por_llegar })),
+      equipo_sin_planeacion: (pan as any).equipo_sin_planeacion_esta_semana,
+      actividades_por_aprobar: ps.map(p => `${p.numero}) ${p.obra}: ${p.descripcion}`),
+      recordatorios_de_la_semana: (rec || []).map((r: any) => `${new Date(r.cuando).toLocaleString('es-MX', { timeZone: ZONA, weekday: 'short', hour: '2-digit', minute: '2-digit' })} ${r.texto}`),
+    };
+    const prompt = `Eres el asistente de coordinación de obra de OMM Technologies. Es domingo a las 5 pm y vas a escribirle por WhatsApp a ${saludo}, jefe de cuadrilla de Instalaciones Especiales, para planear la semana que empieza mañana.
+
+Datos reales del ERP (JSON):
+${JSON.stringify(datos).slice(0, 14000)}
+
+Escribe SOLO el mensaje de WhatsApp (sin comillas ni explicación):
+- Saludo corto con su nombre.
+- 3 a 5 viñetas "•" con lo que MÁS importa para planear: obras con entregas o vencidas sin gente, bloqueos o faltantes que siguen, gente sin asignar, compras por llegar, actividades que tiene por aprobar, recordatorios de la semana. Con nombres de obra y números concretos. Si una obra tiene cientos de vencidas, dilo como "fechas que hay que actualizar", no como atraso.
+- Cierra preguntando qué trae en mente para la semana y ofreciendo armar el plan por persona y día con él.
+- Máximo 12 líneas. Español mexicano, directo, cálido sin exagerar. Usa *negritas* de WhatsApp sólo para nombres de obra. Nada de markdown con # ni tablas.`;
+    const texto = (await redactar(prompt)) || [
+      `Hola ${saludo} 👋 Es domingo de planeación.`,
+      ...((pan as any).obras || []).slice(0, 4).map((o: any) => `• *${o.obra}*: ${o.actividades.vencidas} vencidas, ${o.actividades.vencen_7_dias} vencen esta semana${o.gente_esta_semana.length ? '' : ', sin gente planeada'}`),
+      (pan as any).equipo_sin_planeacion_esta_semana?.length ? `• Sin asignar: ${(pan as any).equipo_sin_planeacion_esta_semana.join(', ')}` : '',
+      ps.length ? `• Tienes ${ps.length} actividades detectadas por aprobar.` : '',
+      '¿Qué traes en mente para esta semana? Armamos el plan por persona y día.',
+    ].filter(Boolean).join('\n');
+    if (opts.soloTexto) { res.push({ a: saludo, texto, datos }); continue; }
+    const tel = opts.soloA || await telefonoDeEmpleado(sb, sup.employees);
+    if (!tel) { res.push({ a: saludo, ok: false, error: 'sin teléfono' }); continue; }
+    const r = await avisar(sb, tel, saludo, texto, 'es domingo de planeación: tengo el panorama de tus obras para la semana. ¿Qué traes en mente?', 'domingo');
+    await alHistorial(sb, opts.soloA ? (await empleadoDelTelefono(opts.soloA)) : sup.employee_id, texto);
+    res.push({ a: saludo, ok: r.ok, error: r.error, diferido: r.diferido });
+  }
+  return { domingo: res };
+}
+
+async function empleadoDelTelefono(tel: string): Promise<string | null> {
+  return (await empleadoDeTelefono(sb, tel))?.id || null;
+}
+
+async function domingoInsistir() {
+  const { data: al } = await sb.from('reporte_diario_personas').select('employee_id, alias');
+  ALIAS = new Map((al || []).filter((a: any) => a.alias).map((a: any) => [a.employee_id, a.alias]));
+  const res: any[] = [];
+  for (const sup of await supervisoresActivos()) {
+    const tel = await telefonoDeEmpleado(sb, sup.employees);
+    if (!tel) continue;
+    const desde = new Date(Date.now() - 2.5 * 3600e3).toISOString();
+    const { data: escribio } = await sb.from('whatsapp_messages').select('id').eq('direction', 'in').ilike('phone_e164', '%' + tel.slice(-10)).gte('created_at', desde).limit(1);
+    if (escribio?.length) { res.push({ a: sup.employee_id, ya_contesto: true }); continue; }
+    const saludo = ALIAS.get(sup.employee_id) || primerNombre(sup.employees?.nombre);
+    const texto = `${saludo}, ¿le damos 5 minutos a la semana? Dime qué obras traes como prioridad y quién va a cada una, y yo te armo el plan por día para que lo confirmes.`;
+    const r = await avisar(sb, tel, saludo, texto, 'le damos 5 minutos a planear la semana? Dime prioridades y armo el plan', 'domingo');
+    await alHistorial(sb, sup.employee_id, texto);
+    res.push({ a: saludo, ok: r.ok, error: r.error });
+  }
+  return { insistidos: res };
+}
+
+// ── Recordatorios ───────────────────────────────────────────────────────────
+async function recordatorios() {
+  const { data } = await sb.from('coordinador_recordatorios').select('id, employee_id, texto, cuando, obras(nombre), employees(id, nombre, telefono_personal, obra_app_phone, phone)')
+    .is('enviado_at', null).eq('cancelado', false).lte('cuando', new Date().toISOString()).order('cuando').limit(50);
+  const res: any[] = [];
+  for (const r of data || []) {
+    // Reclamar primero: dos corridas del cron no lo mandan dos veces.
+    const { data: tomado } = await sb.from('coordinador_recordatorios').update({ enviado_at: new Date().toISOString() }).eq('id', r.id).is('enviado_at', null).select('id');
+    if (!tomado?.length) continue;
+    const tel = await telefonoDeEmpleado(sb, r.employees);
+    const saludo = primerNombre(r.employees?.nombre);
+    const texto = `⏰ *Recordatorio*${r.obras?.nombre ? ' · ' + r.obras.nombre : ''}\n${r.texto}`;
+    const env = tel ? await avisar(sb, tel, saludo, texto, `recordatorio${r.obras?.nombre ? ' de ' + r.obras.nombre : ''}: ${r.texto}`, 'recordatorio') : { ok: false, error: 'sin teléfono' };
+    if (!env.ok && tel) await sb.from('coordinador_recordatorios').update({ enviado_at: null }).eq('id', r.id);
+    else await alHistorial(sb, r.employee_id, texto);
+    res.push({ id: r.id, ok: env.ok, error: env.error });
+  }
+  return { recordatorios: res };
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   if (req.method !== 'POST') return json({ ok: false, error: 'POST' }, 405);
@@ -307,6 +439,29 @@ Deno.serve(async (req) => {
     switch (p.accion) {
       case 'pedir': return json({ ok: true, ...(await pedir({})) });
       case 'insistir': return json({ ok: true, ...(await insistir()) });
+      case 'domingo': case 'domingo_insistir': case 'recordatorios': {
+        const f = p.accion === 'domingo' ? () => domingo({}) : p.accion === 'domingo_insistir' ? domingoInsistir : recordatorios;
+        if (req.headers.get('x-cron-key')) {
+          EdgeRuntime.waitUntil(f().then(r => console.log(p.accion, JSON.stringify(r))).catch(e => console.error(p.accion, e)));
+          return json({ ok: true, en_proceso: true });
+        }
+        return json({ ok: true, ...(await f()) });
+      }
+      case 'diagnostico': {
+        // Sólo con la llave del cron (se llama desde SQL): corre herramientas de
+        // LECTURA del coordinador o arma el mensaje del domingo sin mandarlo.
+        if (!req.headers.get('x-cron-key')) return json({ ok: false, error: 'Sólo cron' }, 403);
+        if (p.herramienta === 'domingo') return json({ ok: true, ...(await domingo({ comoSupervisor: p.empleado, soloTexto: true })) });
+        const LECTURA = new Set(['panorama_obras', 'pendientes_obra', 'ver_planeacion', 'propuestas_pendientes']);
+        if (!LECTURA.has(p.herramienta)) return json({ ok: false, error: 'Sólo herramientas de lectura' }, 400);
+        const ctx: any = { supabase: sb, contact: { id: 'diagnostico', employee_id: p.empleado, phone_e164: '', role: 'interno' }, conversation: { id: null }, sesion: null };
+        return json(await ejecutarCoord(p.herramienta, p.args || {}, ctx));
+      }
+      case 'prueba_domingo': {
+        // Lo que recibe el jefe de cuadrilla el domingo, armado con SUS obras, a tu número.
+        if (!quien.telefono) return json({ ok: false, error: 'Tu usuario no tiene teléfono.' }, 400);
+        return json({ ok: true, ...(await domingo({ soloA: quien.telefono, comoSupervisor: p.supervisor_id || null })) });
+      }
       case 'resumen': {
         // Desde el cron se contesta al momento y se trabaja en segundo plano
         // (procesar con IA tarda); desde el ERP se espera el resultado.

@@ -65,17 +65,30 @@ export const DEFINICIONES_WA = [
       'Marque importante=true si el mensaje compromete algo (precios, montos, fechas, entregas, condiciones), ' +
       'va a un cliente, o puede molestar a alguien; en ese caso, y siempre que la respuesta traiga requiere_aprobacion, ' +
       'ENSEÑE la vista previa y pida el sí antes de volver a llamar con confirmar=true. ' +
-      'Respuestas sencillas a alguien del equipo ("recibido", "gracias", "ahorita lo veo") pueden ir directo.',
+      'Respuestas sencillas a alguien del equipo ("recibido", "gracias", "ahorita lo veo") pueden ir directo. ' +
+      'Con `documento` manda el PDF de una cotización o el estado de cuenta de un lead (siempre con vista previa y sí). ' +
+      'A un cliente sólo se le pueden mandar archivos si escribió en las últimas 24 h.',
     inputSchema: {
       type: 'object',
       properties: {
         telefono: { type: 'string' },
         persona: { type: 'string', description: 'Nombre (empleado o contacto de mantenimiento), si no se tiene el teléfono.' },
-        mensaje: { type: 'string' },
+        mensaje: { type: 'string', description: 'El texto. Si va con documento, es el pie del archivo (opcional).' },
+        documento: {
+          type: 'object',
+          description: 'Para mandar un archivo: la cotización (PDF tal como se descargó en el ERP) o el estado de cuenta de un lead. Siempre pide aprobación.',
+          properties: {
+            tipo: { type: 'string', enum: ['cotizacion', 'estado_cuenta'] },
+            cotizacion: { type: 'string', description: 'Folio (DLAN-ES01), nombre o id de la cotización.' },
+            formato: { type: 'string', enum: ['ejecutivo', 'lista', 'resumen'], description: 'Opcional. El técnico NO sale a clientes.' },
+            lead: { type: 'string', description: 'Para estado de cuenta: nombre o id del lead.' },
+            cotizaciones: { type: 'array', items: { type: 'string' }, description: 'Opcional: folios para un estado de cuenta PARCIAL.' },
+          },
+          required: ['tipo'],
+        },
         importante: { type: 'boolean', description: 'true si compromete algo o va a un cliente.' },
         confirmar: { type: 'boolean', description: 'true SOLO después de que la persona aprobó la vista previa.' },
       },
-      required: ['mensaje'],
     },
   },
 ]
@@ -84,6 +97,10 @@ interface Quien2 { nombre: string; tipo: 'equipo' | 'cliente' | 'desconocido'; d
 
 async function directorio(sb: SupabaseClient): Promise<Record<string, Quien2>> {
   const mapa: Record<string, Quien2> = {}
+  const { data: ce } = await sb.from('contactos_externos').select('nombre, telefono, rol, leads(name), obras(nombre)').eq('activo', true)
+  for (const c of (ce || []) as any[]) {
+    const k = ult10(c.telefono || ''); if (k.length === 10) mapa[k] = { nombre: c.nombre, tipo: 'cliente', detalle: [c.rol, c.leads?.name || c.obras?.nombre].filter(Boolean).join(' · ') }
+  }
   const [{ data: emps }, { data: mc }, { data: ac }] = await Promise.all([
     sb.from('employees').select('nombre, name, puesto, telefono_personal, obra_app_phone, phone').eq('activo', true),
     sb.from('maintenance_contacts').select('name, phone_e164, property:maintenance_properties(name)'),
@@ -202,10 +219,11 @@ export async function ejecutarWa(nombre: string, args: any, sb: SupabaseClient, 
 
     case 'whatsapp_enviar': {
       const area = quien.area || ''
-      if (!['DG', 'Administracion'].includes(area)) return texto({ error: 'Mandar WhatsApp desde el ERP es solo para Dirección y Administración.' })
+      const conDoc = !!args?.documento?.tipo
+      if (!['DG', 'Administracion', ...(conDoc ? ['Ventas_Ingenieria'] : [])].includes(area)) return texto({ error: conDoc ? 'Mandar documentos es para Dirección, Administración y Ventas/Ingeniería.' : 'Mandar WhatsApp desde el ERP es solo para Dirección y Administración.' })
       if (!quien.token) return texto({ error: 'Sin token de la sesión; no puedo mandar a tu nombre.' })
       const msg = String(args?.mensaje || '').trim()
-      if (!msg) return texto({ error: 'Falta el mensaje.' })
+      if (!msg && !conDoc) return texto({ error: 'Falta el mensaje.' })
       const dir = await directorio(sb)
       const r = await resolver(sb, args, dir)
       if ('error' in r) return texto({ error: r.error })
@@ -220,6 +238,8 @@ export async function ejecutarWa(nombre: string, args: any, sb: SupabaseClient, 
       if (!ventana && q.tipo !== 'equipo') {
         return texto({ error: `${q.nombre} no ha escrito en las últimas 24 h y no es del equipo: Meta solo permite plantillas, y no hay plantilla genérica para clientes. Pídele que escriba al número o usa los avisos de visita/ticket.` })
       }
+
+      if (conDoc) return await enviarDocumento(sb, quien.token, args, tel, q, ventana, msg)
 
       const primer = (q.nombre || '').split(/\s+/)[0] || 'equipo'
       const param = `de parte de ${quien.nombre || 'OMM'}: ${msg}`.replace(/[\r\n\t]+/g, ' · ').replace(/ {2,}/g, ' ').slice(0, 900)
@@ -248,4 +268,89 @@ export async function ejecutarWa(nombre: string, args: any, sb: SupabaseClient, 
     }
   }
   return texto({ error: `Herramienta desconocida: ${nombre}` })
+}
+
+// ── Documentos: cotización o estado de cuenta ──────────────────────────────
+const limpiar = (t: string) => t.replace(/[,()*%\\]/g, ' ').replace(/\s+/g, ' ').trim()
+
+async function resolverCotizacion(sb: SupabaseClient, t: string) {
+  const q = limpiar(t)
+  if (/^[0-9a-f-]{36}$/i.test(q)) {
+    const { data } = await sb.from('quotations').select('id, folio, name, stage, total_final, total').eq('id', q).maybeSingle()
+    return data ? { cot: data } : { error: 'No encontré esa cotización.' }
+  }
+  const { data: exacto } = await sb.from('quotations').select('id, folio, name, stage, total_final, total').ilike('folio', q).is('archived_at', null).limit(2)
+  if (exacto?.length === 1) return { cot: exacto[0] }
+  const { data } = await sb.from('quotations').select('id, folio, name, stage, total_final, total').is('archived_at', null)
+    .or(`folio.ilike.%${q}%,name.ilike.%${q}%`).order('updated_at', { ascending: false }).limit(8)
+  if (!data?.length) return { error: `No encontré cotizaciones con "${t}".` }
+  if (data.length === 1) return { cot: data[0] }
+  return { candidatas: data.map((c: any) => ({ folio: c.folio, nombre: c.name, etapa: c.stage })) }
+}
+
+async function resolverLead(sb: SupabaseClient, t: string) {
+  const q = limpiar(t)
+  if (/^[0-9a-f-]{36}$/i.test(q)) {
+    const { data } = await sb.from('leads').select('id, name').eq('id', q).maybeSingle()
+    return data ? { lead: data } : { error: 'No encontré ese lead.' }
+  }
+  let c = sb.from('leads').select('id, name, company').is('archived_at', null).limit(10)
+  for (const w of q.split(' ').filter(w => w.length >= 2)) c = c.ilike('name', `%${w}%`)
+  const { data } = await c
+  if (!data?.length) return { error: `Ningún lead se llama como "${t}".` }
+  if (data.length === 1) return { lead: data[0] }
+  return { candidatas: data.map((l: any) => ({ lead: l.name, despacho: l.company })) }
+}
+
+async function enviarDocumento(sb: SupabaseClient, token: string, args: any, tel: string, q: Quien2, ventana: boolean, msg: string) {
+  const d = args.documento || {}
+  if (!ventana && q.tipo !== 'equipo') {
+    return texto({ error: `${q.nombre} no ha escrito en las últimas 24 h: WhatsApp no deja mandarle archivos. Pídele que escriba al número de OMM y vuelve a intentarlo.` })
+  }
+  let documento: Record<string, unknown>
+  let descripcion: string
+  if (d.tipo === 'cotizacion') {
+    const r: any = await resolverCotizacion(sb, String(d.cotizacion || ''))
+    if (r.error) return texto({ error: r.error })
+    if (r.candidatas) return texto({ necesita_elegir: true, candidatas: r.candidatas })
+    if (d.formato === 'tecnico' && q.tipo !== 'equipo') return texto({ error: 'El formato técnico trae costos internos: no sale a un cliente.' })
+    const { data: pdfs } = await sb.from('cotizacion_pdfs').select('formato, interno, generado_at, total_al_generar').eq('quotation_id', r.cot.id).order('generado_at', { ascending: false })
+    const pdf = d.formato ? (pdfs || []).find((x: any) => x.formato === d.formato) : (pdfs || []).find((x: any) => !x.interno)
+    if (!pdf) return texto({ error: `${r.cot.folio || r.cot.name} no tiene PDF guardado${d.formato ? ' en formato ' + d.formato : ''}: hay que abrirla y darle "Descargar PDF" una vez en el ERP.` })
+    const hoy = Number(r.cot.total_final ?? r.cot.total)
+    const viejo = pdf.total_al_generar != null && Math.abs(hoy - Number(pdf.total_al_generar)) > 0.01
+    if (viejo) return texto({ error: `El PDF guardado de ${r.cot.folio} es anterior al último cambio (era ${pdf.total_al_generar}, hoy ${hoy}). Descárgalo otra vez en el ERP antes de mandarlo.` })
+    documento = { tipo: 'cotizacion', cotizacion_id: r.cot.id, formato: pdf.formato }
+    descripcion = `Cotización ${r.cot.folio || ''} ${r.cot.name} (PDF ${pdf.formato} del ${new Date(pdf.generado_at).toLocaleDateString('es-MX', { day: 'numeric', month: 'short', timeZone: 'America/Mexico_City' })})`
+  } else if (d.tipo === 'estado_cuenta') {
+    const r: any = await resolverLead(sb, String(d.lead || ''))
+    if (r.error) return texto({ error: r.error })
+    if (r.candidatas) return texto({ necesita_elegir: true, candidatas: r.candidatas })
+    let ids: string[] | undefined
+    if (Array.isArray(d.cotizaciones) && d.cotizaciones.length) {
+      const { data } = await sb.from('quotations').select('id, folio').in('folio', d.cotizaciones.map(String))
+      ids = (data || []).map((x: any) => x.id)
+      if (!ids.length) return texto({ error: 'Ninguno de esos folios existe.' })
+    }
+    documento = { tipo: 'estado_cuenta', lead_id: r.lead.id, ...(ids ? { cotizaciones: ids } : {}) }
+    descripcion = `Estado de cuenta${ids ? ' parcial (' + ids.length + ' cotizaciones)' : ''} de ${r.lead.name}`
+  } else return texto({ error: 'documento.tipo es cotizacion o estado_cuenta.' })
+
+  if (!args?.confirmar) {
+    return texto({
+      requiere_aprobacion: true,
+      por_que: ['manda un documento' + (q.tipo !== 'equipo' ? ' a alguien fuera del equipo' : '')],
+      para: { nombre: q.nombre, tipo: q.tipo, telefono: telBonito(tel) },
+      documento: descripcion,
+      pie: msg || '(el nombre del documento)',
+      como_sale: ventana ? 'el archivo, directo al chat' : 'aviso con plantilla; el archivo le llega cuando conteste',
+      instruccion: 'Enseña esto y pregunta "¿Lo mando?". Solo con un sí, vuelve a llamar con confirmar=true y lo mismo.',
+    })
+  }
+  try {
+    const r = await llamarSend(token, { action: 'send_document', to: '+52' + tel, documento, caption: msg || undefined })
+    return texto({ enviado: true, para: q.nombre, documento: descripcion, ...(r?.diferido ? { nota: r.nota } : {}) })
+  } catch (e) {
+    return texto({ enviado: false, error: (e as Error).message })
+  }
 }

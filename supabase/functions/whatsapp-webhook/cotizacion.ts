@@ -46,7 +46,7 @@ export const enviarCotizacionDef: ToolDefinition = {
     'Busca por folio (ej. DLAN-ES01), nombre de la cotización, cliente o lead; sin búsqueda usa el lead del contexto activo. ' +
     'Si devuelve candidatas, pregunta cuál (muestra folio y nombre) y vuelve a llamar con cotizacion_id. ' +
     'Si no hay PDF guardado, explícalo: hay que abrirla y descargarla una vez en el ERP. ' +
-    'NO la manda al cliente: solo a quien escribe.',
+    'NO la manda al cliente: solo a quien escribe. Para mandarla a un cliente o a otra persona usa whatsapp_enviar con documento={tipo:"cotizacion"}.',
   input_schema: {
     type: 'object',
     properties: {

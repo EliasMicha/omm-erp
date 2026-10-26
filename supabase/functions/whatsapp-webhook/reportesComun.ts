@@ -1,7 +1,7 @@
 // Piezas compartidas de los reportes diarios por WhatsApp: las usa el webhook
 // (lo que contesta el instalador) y la función whatsapp-reportes (el cron que
 // pide, insiste y manda el resumen).
-import { sendText, sendTemplate, toSendPhone, last10 } from './whatsapp.ts';
+import { sendText, sendTemplate, toSendPhone, last10, uploadMedia, sendDocument } from './whatsapp.ts';
 import { logWa, waIdFrom } from './log.ts';
 
 export const ZONA = 'America/Mexico_City';
@@ -159,4 +159,69 @@ export async function empleadoDeTelefono(sb: any, phone: string): Promise<any | 
     empId = au?.employee_id || null;
   }
   return empId ? (data || []).find((x: any) => x.id === empId) || null : null;
+}
+
+// ── Documentos al equipo, con o sin ventana ────────────────────────────────
+// Con la ventana abierta sale el archivo. Cerrada, Meta sólo deja plantilla de
+// texto: el archivo se guarda en agent-documents y se entrega cuando conteste
+// (supervisor.ts → entregarPendientes), igual que los textos largos.
+export interface DocWa { bytes: Uint8Array; filename: string; mime: string; caption?: string }
+
+export async function mandarDocumento(sb: any, telefono: string, doc: DocWa, extraLog: Record<string, unknown> = {}): Promise<{ ok: boolean; error?: string }> {
+  const to = toSendPhone(telefono);
+  try {
+    const mediaId = await uploadMedia(doc.bytes, doc.mime, doc.filename);
+    const resp = await sendDocument(to, mediaId, doc.filename, doc.caption);
+    await logWa(sb, { direction: 'out', phone_e164: '+' + to, wa_message_id: waIdFrom(resp), kind: 'document', body: (doc.caption ? doc.caption + ' ' : '') + `(${doc.filename})`, status: 'enviado', sender_type: 'equipo', ...extraLog });
+    return { ok: true };
+  } catch (e) {
+    const error = String((e as Error)?.message || e).slice(0, 300);
+    await logWa(sb, { direction: 'out', phone_e164: '+' + to, kind: 'document', body: doc.caption || doc.filename, status: 'fallido', error, sender_type: 'equipo', ...extraLog });
+    return { ok: false, error };
+  }
+}
+
+export async function avisarDocumento(sb: any, telefono: string, saludo: string, doc: DocWa, compacto: string, motivo = 'documento'): Promise<{ ok: boolean; error?: string; diferido?: boolean }> {
+  const to = toSendPhone(telefono);
+  if (await ventanaAbierta(sb, to)) return await mandarDocumento(sb, to, doc);
+  const path = `pendientes/${last10(to)}/${Date.now()}-${doc.filename.replace(/[^\w.\-]+/g, '_')}`;
+  const { error: eUp } = await sb.storage.from('agent-documents').upload(path, doc.bytes, { contentType: doc.mime, upsert: true });
+  if (eUp) return { ok: false, error: 'No pude guardar el archivo: ' + eUp.message };
+  await sb.from('wa_pendientes_entrega').insert({ telefono10: last10(to), texto: doc.caption || doc.filename, motivo, documento_path: path, documento_nombre: doc.filename, caption: doc.caption || null });
+  const p2 = (compacto.replace(/\s*\n+\s*/g, ' · ').slice(0, 820) + ' — contesta *ver* y te lo mando').trim();
+  try {
+    const resp = await sendTemplate(to, 'omm_aviso_equipo', [saludo || 'equipo', p2]);
+    await logWa(sb, { direction: 'out', phone_e164: '+' + to, wa_message_id: waIdFrom(resp), kind: 'template', template_name: 'omm_aviso_equipo', body: `Hola ${saludo || 'equipo'}, tienes un aviso del ERP de OMM: ${p2}.`, status: 'enviado', sender_type: 'equipo' });
+    return { ok: true, diferido: true };
+  } catch (e) {
+    return { ok: false, error: String((e as Error)?.message || e).slice(0, 300) };
+  }
+}
+
+// ── Lo que el bot le escribe por su cuenta, dentro de la plática del agente ─
+// Si la persona tiene asistente (agent_contacts), el mensaje automático (el
+// resumen de las 9 pm, el domingo, un recordatorio) se guarda en su historial
+// como mensaje del asistente. Así, cuando contesta "sí, el del residente" o
+// "la 2 para el jueves", el agente sabe de qué le está hablando.
+export async function alHistorial(sb: any, employeeId: string | null | undefined, texto: string): Promise<void> {
+  if (!employeeId || !texto) return;
+  try {
+    const { data: au } = await sb.from('app_users').select('id').eq('employee_id', employeeId).limit(1).maybeSingle();
+    let q = sb.from('agent_contacts').select('id').eq('is_active', true).limit(1);
+    q = au?.id ? q.or(`employee_id.eq.${employeeId},app_user_id.eq.${au.id}`) : q.eq('employee_id', employeeId);
+    const { data: ac } = await q.maybeSingle();
+    if (!ac) return;
+    let { data: conv } = await sb.from('agent_conversations').select('id').eq('contact_id', ac.id).eq('status', 'active')
+      .order('last_message_at', { ascending: false }).limit(1).maybeSingle();
+    if (!conv) {
+      const r = await sb.from('agent_conversations').insert({ contact_id: ac.id }).select('id').single();
+      conv = r.data;
+    }
+    if (!conv) return;
+    const hora = new Intl.DateTimeFormat('es-MX', { timeZone: ZONA, weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date());
+    await sb.from('agent_messages').insert({ conversation_id: conv.id, role: 'assistant', content: [{ type: 'text', text: `[Mensaje automático que le mandé por WhatsApp, ${hora}]\n${texto}` }] });
+    await sb.from('agent_conversations').update({ last_message_at: new Date().toISOString() }).eq('id', conv.id);
+  } catch (e) {
+    console.error('alHistorial', e);
+  }
 }

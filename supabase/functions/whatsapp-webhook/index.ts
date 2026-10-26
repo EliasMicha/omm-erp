@@ -7,6 +7,7 @@ import { sendText, verifyWebhook, verifySignature, downloadMedia, markAsRead, ph
 import { handleClienteMessage } from './clientes.ts';
 import { intentarReporte } from './reportes.ts';
 import { intentarSupervisor, entregarPendientes } from './supervisor.ts';
+import { intentarAprobacion } from './aprobaciones.ts';
 import { empleadoDeTelefono } from './reportesComun.ts';
 import { logWa, applyStatuses, waIdFrom } from './log.ts';
 import { runAgent } from './agent.ts';
@@ -103,11 +104,19 @@ async function processMessage(msg: any, value: any) {
   try { if (await entregarPendientes(supabase, msg) === 'listo') return; }
   catch (e) { console.error('entregarPendientes:', e); }
 
-  // 0b. El jefe de cuadrilla contestando qué actividades subir y con qué fecha.
-  try { if (await intentarSupervisor(supabase, msg) === 'listo') return; }
-  catch (e) { console.error('intentarSupervisor:', e); }
+  // 0b. Elias contestando "sí"/"no" a algo que pidió un cliente (estado de cuenta).
+  try { if (await intentarAprobacion(supabase, msg) === 'listo') return; }
+  catch (e) { console.error('intentarAprobacion:', e); }
 
-  // 0c. ¿Tiene un reporte de obra pendiente? (instaladores a los que el bot les
+  // 0c. El jefe de cuadrilla contestando qué actividades subir y con qué fecha.
+  //     Si tiene asistente (modo coordinador), lo decide el agente con
+  //     decidir_propuestas: entiende "la 2 y la 4 el jueves, y recuérdame…".
+  if (!contact) {
+    try { if (await intentarSupervisor(supabase, msg) === 'listo') return; }
+    catch (e) { console.error('intentarSupervisor:', e); }
+  }
+
+  // 0d. ¿Tiene un reporte de obra pendiente? (instaladores a los que el bot les
   //     pidió su reporte del día). Va antes que el agente y que clientes.
   let rep: 'no' | 'listo' | 'agente' = 'no';
   try { rep = await intentarReporte(supabase, msg, !!contact); }
@@ -290,6 +299,8 @@ async function loadHistory(conversationId: string, coach = false): Promise<Claud
 
   if (error) throw error;
   if (!data) return [];
+  const limpio = recortarInicio(data.slice().reverse()).reverse();
+  data.length = 0; data.push(...limpio);
   // Reconsultamos ERP en el piloto. No reenviar pares de herramientas cortados
   // por el límite ni adjuntos grandes de encargos anteriores.
   if (coach) return data.reverse().flatMap((m: any) => {
@@ -393,4 +404,22 @@ async function respuestaEquipo(msg: any, emp: any) {
   } catch (e) {
     await logWa(supabase, { direction: 'out', phone_e164: '+' + to, kind: 'text', body: texto, status: 'fallido', error: String(e).slice(0, 300), sender_type: 'equipo' });
   }
+}
+
+// El historial se corta por número de mensajes y puede empezar a media plática:
+// con un resultado de herramienta huérfano o con un mensaje del asistente (los
+// automáticos del cron se guardan así). La API pide empezar con un mensaje del
+// usuario que no sea un tool_result: se descarta lo que quede antes.
+function recortarInicio(cronologico: any[]): any[] {
+  const esToolResult = (m: any) => m.role === 'tool' || (Array.isArray(m.content) && m.content.some((b: any) => b?.type === 'tool_result'));
+  let i = 0;
+  while (i < cronologico.length && (cronologico[i].role !== 'user' || esToolResult(cronologico[i]))) i++;
+  // Los automáticos del asistente que quedaron antes del corte se conservan como
+  // contexto, en un solo mensaje del usuario, para que "la 3" siga teniendo sentido.
+  const previos = cronologico.slice(0, i).filter((m: any) => m.role === 'assistant')
+    .map((m: any) => (Array.isArray(m.content) ? m.content : [{ type: 'text', text: String(m.content || '') }]).filter((b: any) => b?.type === 'text').map((b: any) => b.text).join('\n'))
+    .filter((t: string) => t.startsWith('[Mensaje automático'));
+  const resto = cronologico.slice(i);
+  if (!previos.length) return resto;
+  return [{ role: 'user', content: [{ type: 'text', text: '[Contexto: mensajes automáticos que el asistente me mandó antes]\n' + previos.join('\n\n') }] }, ...resto];
 }

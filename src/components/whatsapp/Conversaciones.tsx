@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Search, Send, Bot, User, Wrench, HelpCircle, FileText, TriangleAlert, Check, CheckCheck } from 'lucide-react'
+import { Search, Send, Bot, User, Wrench, HelpCircle, FileText, TriangleAlert, Check, CheckCheck, Paperclip, X } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 
 // Vista tipo WhatsApp Web sobre la bitácora `whatsapp_messages`.
@@ -18,6 +18,10 @@ interface Msg {
 }
 interface Quien { nombre: string; tipo: 'equipo' | 'cliente' | 'desconocido'; detalle?: string }
 interface Chat { key: string; telefono: string; quien: Quien; msgs: Msg[]; ultimo: Msg; ultimoEntrante: Msg | null }
+// Lo que va pegado al mensaje: un archivo, una cotización (su último PDF del ERP)
+// o el estado de cuenta de un lead. Lo arma y lo manda whatsapp-send (send_document).
+interface Adjunto { etiqueta: string; documento: Record<string, unknown> }
+interface Opcion { id: string; titulo: string; detalle: string; deshabilitado?: string }
 
 const C = {
   fondo: '#0b141a', panel: '#111b21', cabecera: '#202c33', borde: '#222d34', hover: '#202c33', activo: '#2a3942',
@@ -81,6 +85,12 @@ export default function Conversaciones({ enviar }: { enviar: (payload: Record<st
   const [error, setError] = useState('')
   const [cargando, setCargando] = useState(true)
   const finRef = useRef(null as HTMLDivElement | null)
+  const archivoRef = useRef(null as HTMLInputElement | null)
+  const [adjunto, setAdjunto] = useState(null as Adjunto | null)
+  const [buscador, setBuscador] = useState(null as null | 'cotizacion' | 'estado_cuenta')
+  const [qDoc, setQDoc] = useState('')
+  const [opciones, setOpciones] = useState([] as Opcion[])
+  const [menuAdj, setMenuAdj] = useState(false)
 
   async function cargarMsgs() {
     const { data, error: e } = await supabase.from('whatsapp_messages')
@@ -105,6 +115,10 @@ export default function Conversaciones({ enviar }: { enviar: (payload: Record<st
     }
     for (const c of (mc || []) as any[]) {
       const k = ult10(c.phone_e164 || ''); if (k.length === 10) mapa[k] = { nombre: c.name, tipo: 'cliente', detalle: c.property?.name || undefined }
+    }
+    const { data: ce } = await supabase.from('contactos_externos').select('nombre, telefono, rol, leads(name), obras(nombre)').eq('activo', true)
+    for (const c of (ce || []) as any[]) {
+      const k = ult10(c.telefono || ''); if (k.length === 10) mapa[k] = { nombre: c.nombre, tipo: 'cliente', detalle: [c.rol, c.leads?.name || c.obras?.nombre].filter(Boolean).join(' · ') }
     }
     for (const a of (ac || []) as any[]) {
       const k = ult10(a.phone_e164 || ''); if (k.length === 10) mapa[k] = { nombre: a.display_name, tipo: 'equipo', detalle: a.role === 'admin' ? 'Asistente · admin' : 'Asistente' }
@@ -140,8 +154,26 @@ export default function Conversaciones({ enviar }: { enviar: (payload: Record<st
   const ventanaHasta = chat?.ultimoEntrante ? new Date(chat.ultimoEntrante.created_at).getTime() + VENTANA_MS : 0
   const ventanaAbierta = ventanaHasta > Date.now()
 
+  // A alguien del equipo se le puede mandar un archivo aunque la ventana esté
+  // cerrada: le llega el aviso y el archivo cuando conteste. A un cliente, no.
+  const puedeAdjuntar = !!chat && (ventanaAbierta || chat.quien.tipo === 'equipo')
+
   async function mandar() {
-    if (!chat || !texto.trim() || !ventanaAbierta) return
+    if (!chat) return
+    if (adjunto) {
+      if (!puedeAdjuntar) return
+      if (!confirm(`¿Mandar ${adjunto.etiqueta} a ${chat.quien.nombre}?`)) return
+      setEnviando(true); setError('')
+      try {
+        const r = await enviar({ action: 'send_document', to: '+52' + chat.key, documento: adjunto.documento, caption: texto.trim() || undefined })
+        if (r?.ok === false) setError('No salió: ' + r.error)
+        else { setTexto(''); setAdjunto(null); if (r?.diferido) setError('Le llegó el aviso; el archivo se le entrega cuando conteste.') }
+        await cargarMsgs()
+      } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
+      finally { setEnviando(false) }
+      return
+    }
+    if (!texto.trim() || !ventanaAbierta) return
     setEnviando(true); setError('')
     try {
       const r = await enviar({ action: 'send_text', to: '+52' + chat.key, text: texto.trim() })
@@ -151,6 +183,39 @@ export default function Conversaciones({ enviar }: { enviar: (payload: Record<st
     } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
     finally { setEnviando(false) }
   }
+
+  function elegirArchivo(f: File | undefined) {
+    if (!f) return
+    if (f.size > 6 * 1024 * 1024) { setError('El archivo pasa de 6 MB.'); return }
+    const lector = new FileReader()
+    lector.onload = () => {
+      const b64 = String(lector.result || '').split(',')[1] || ''
+      setAdjunto({ etiqueta: f.name, documento: { tipo: 'archivo', base64: b64, filename: f.name, mime: f.type || 'application/octet-stream' } })
+    }
+    lector.readAsDataURL(f)
+  }
+
+  useEffect(() => {
+    if (!buscador) return
+    const q = qDoc.trim().replace(/[,()*%]/g, ' ')
+    const t = setTimeout(async () => {
+      if (buscador === 'cotizacion') {
+        let c = supabase.from('quotations').select('id, folio, name, stage').is('archived_at', null).order('updated_at', { ascending: false }).limit(12)
+        if (q) c = c.or(`folio.ilike.%${q}%,name.ilike.%${q}%`)
+        const { data } = await c
+        const ids = ((data || []) as any[]).map(x => x.id)
+        const { data: pdfs } = ids.length ? await supabase.from('cotizacion_pdfs').select('quotation_id, interno').in('quotation_id', ids) : { data: [] as any[] }
+        const conPdf = new Set(((pdfs || []) as any[]).filter(p => !p.interno).map(p => p.quotation_id))
+        setOpciones(((data || []) as any[]).map(x => ({ id: x.id, titulo: `${x.folio || ''} ${x.name}`.trim(), detalle: x.stage, deshabilitado: conPdf.has(x.id) ? undefined : 'Sin PDF guardado: descárgala una vez en el ERP' })))
+      } else {
+        let c = supabase.from('leads').select('id, name, company').is('archived_at', null).order('updated_at', { ascending: false }).limit(12)
+        for (const w of q.split(/\s+/).filter(w => w.length >= 2)) c = c.ilike('name', `%${w}%`)
+        const { data } = await c
+        setOpciones(((data || []) as any[]).map(x => ({ id: x.id, titulo: x.name, detalle: x.company || '' })))
+      }
+    }, 250)
+    return () => clearTimeout(t)
+  }, [buscador, qDoc])
 
   const Icono = ({ tipo }: { tipo: Quien['tipo'] }) => tipo === 'equipo' ? <User size={20} /> : tipo === 'cliente' ? <Wrench size={19} /> : <HelpCircle size={20} />
   const colorTipo = (t: Quien['tipo']) => t === 'equipo' ? '#6ee7b7' : t === 'cliente' ? '#fbbf24' : C.tenue
@@ -253,14 +318,62 @@ export default function Conversaciones({ enviar }: { enviar: (payload: Record<st
           </div>
 
           {error && <div style={{ background: '#3b1d1d', color: '#fca5a5', fontSize: 12.5, padding: '6px 16px' }}>{error}</div>}
-          <div style={{ background: C.cabecera, padding: '10px 14px', display: 'flex', gap: 10, alignItems: 'flex-end' }}>
+          {buscador && (
+            <div style={{ background: C.panel, borderTop: `1px solid ${C.borde}`, padding: '10px 14px' }}>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+                <input autoFocus value={qDoc} onChange={e => setQDoc(e.target.value)} placeholder={buscador === 'cotizacion' ? 'Folio o nombre de la cotización' : 'Nombre del lead (ej. L202 Tawil)'}
+                  style={{ flex: 1, background: '#2a3942', border: 0, outline: 'none', borderRadius: 8, padding: '8px 10px', color: C.texto, fontSize: 13.5 }} />
+                <button onClick={() => { setBuscador(null); setQDoc('') }} style={{ background: 'none', border: 0, color: C.tenue, cursor: 'pointer' }}><X size={16} /></button>
+              </div>
+              <div style={{ maxHeight: 190, overflowY: 'auto' }}>
+                {opciones.length === 0 && <div style={{ color: C.tenue, fontSize: 12.5 }}>Sin resultados.</div>}
+                {opciones.map(o => (
+                  <div key={o.id} onClick={() => {
+                    if (o.deshabilitado) return
+                    setAdjunto(buscador === 'cotizacion'
+                      ? { etiqueta: `la cotización ${o.titulo}`, documento: { tipo: 'cotizacion', cotizacion_id: o.id } }
+                      : { etiqueta: `el estado de cuenta de ${o.titulo}`, documento: { tipo: 'estado_cuenta', lead_id: o.id } })
+                    setBuscador(null); setQDoc('')
+                  }} style={{ padding: '7px 8px', borderRadius: 6, cursor: o.deshabilitado ? 'not-allowed' : 'pointer', color: o.deshabilitado ? C.tenue : C.texto, fontSize: 13 }}
+                    onMouseEnter={e => { if (!o.deshabilitado) e.currentTarget.style.background = C.hover }} onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}>
+                    {o.titulo} <span style={{ color: C.tenue, fontSize: 11.5 }}>· {o.deshabilitado || o.detalle}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {adjunto && (
+            <div style={{ background: C.panel, borderTop: `1px solid ${C.borde}`, padding: '8px 14px', display: 'flex', alignItems: 'center', gap: 8, color: C.texto, fontSize: 13 }}>
+              <FileText size={16} color={C.verde} /> <span style={{ flex: 1 }}>Adjunto: {adjunto.etiqueta}{texto.trim() ? '' : ' · el texto que escribas va como pie'}</span>
+              <button onClick={() => setAdjunto(null)} style={{ background: 'none', border: 0, color: C.tenue, cursor: 'pointer' }}><X size={15} /></button>
+            </div>
+          )}
+          <div style={{ background: C.cabecera, padding: '10px 14px', display: 'flex', gap: 10, alignItems: 'flex-end', position: 'relative' }}>
+            <input ref={archivoRef} type="file" style={{ display: 'none' }} onChange={e => { elegirArchivo(e.target.files?.[0]); e.target.value = '' }} />
+            <button onClick={() => setMenuAdj(v => !v)} disabled={!puedeAdjuntar || enviando} title={puedeAdjuntar ? 'Adjuntar' : 'Ventana cerrada: a un cliente no se le pueden mandar archivos'}
+              style={{ width: 38, height: 42, border: 0, background: 'transparent', color: C.tenue, cursor: puedeAdjuntar ? 'pointer' : 'not-allowed', opacity: puedeAdjuntar ? 1 : 0.4 }}>
+              <Paperclip size={20} />
+            </button>
+            {menuAdj && (
+              <div style={{ position: 'absolute', bottom: 56, left: 12, background: C.panel, border: `1px solid ${C.borde}`, borderRadius: 10, padding: 6, zIndex: 5, minWidth: 220, boxShadow: '0 6px 20px rgba(0,0,0,.4)' }}>
+                {[
+                  { k: 'archivo', t: 'Archivo de tu computadora' },
+                  { k: 'cotizacion', t: 'Cotización (PDF del ERP)' },
+                  { k: 'estado_cuenta', t: 'Estado de cuenta de un lead' },
+                ].map(o => (
+                  <div key={o.k} onClick={() => { setMenuAdj(false); if (o.k === 'archivo') archivoRef.current?.click(); else { setBuscador(o.k as any); setQDoc('') } }}
+                    style={{ padding: '8px 10px', borderRadius: 6, cursor: 'pointer', color: C.texto, fontSize: 13.5 }}
+                    onMouseEnter={e => { e.currentTarget.style.background = C.hover }} onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}>{o.t}</div>
+                ))}
+              </div>
+            )}
             <textarea value={texto} onChange={e => setTexto(e.target.value)} rows={1}
               onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); mandar() } }}
-              disabled={!ventanaAbierta || enviando}
-              placeholder={ventanaAbierta ? 'Escribe un mensaje (sale desde el número de OMM)' : 'Han pasado más de 24 h desde su último mensaje: Meta solo permite plantillas'}
-              style={{ flex: 1, resize: 'none', background: '#2a3942', border: 0, outline: 'none', borderRadius: 8, padding: '10px 12px', color: C.texto, fontSize: 14, fontFamily: 'inherit', maxHeight: 120, opacity: ventanaAbierta ? 1 : 0.6 }} />
-            <button onClick={mandar} disabled={!ventanaAbierta || enviando || !texto.trim()}
-              style={{ width: 42, height: 42, borderRadius: '50%', border: 0, background: C.verde, color: '#0b141a', display: 'grid', placeItems: 'center', cursor: 'pointer', opacity: !ventanaAbierta || enviando || !texto.trim() ? 0.4 : 1 }}>
+              disabled={!(ventanaAbierta || (adjunto && puedeAdjuntar)) || enviando}
+              placeholder={adjunto ? 'Pie del documento (opcional)' : ventanaAbierta ? 'Escribe un mensaje (sale desde el número de OMM)' : 'Han pasado más de 24 h desde su último mensaje: Meta solo permite plantillas'}
+              style={{ flex: 1, resize: 'none', background: '#2a3942', border: 0, outline: 'none', borderRadius: 8, padding: '10px 12px', color: C.texto, fontSize: 14, fontFamily: 'inherit', maxHeight: 120, opacity: ventanaAbierta || adjunto ? 1 : 0.6 }} />
+            <button onClick={mandar} disabled={enviando || (adjunto ? !puedeAdjuntar : (!ventanaAbierta || !texto.trim()))}
+              style={{ width: 42, height: 42, borderRadius: '50%', border: 0, background: C.verde, color: '#0b141a', display: 'grid', placeItems: 'center', cursor: 'pointer', opacity: enviando || (adjunto ? !puedeAdjuntar : (!ventanaAbierta || !texto.trim())) ? 0.4 : 1 }}>
               <Send size={18} />
             </button>
           </div>

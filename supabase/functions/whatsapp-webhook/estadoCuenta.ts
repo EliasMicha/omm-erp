@@ -16,7 +16,8 @@ export const enviarEstadoCuentaDef: ToolDefinition = {
   description:
     'Manda por WhatsApp, a quien lo pide, el PDF del estado de cuenta de UN cliente (lead): contratos vigentes, ' +
     'pagos y saldo por moneda. Es el mismo documento del botón del ERP. La cobranza va por LEAD y cotización, ' +
-    'no por obra. Si el nombre empata con varios leads, devuelve candidatos: pregunta cuál y vuelve a llamar con lead_id.',
+    'no por obra. Si el nombre empata con varios leads, devuelve candidatos: pregunta cuál y vuelve a llamar con lead_id. ' +
+    'Va SOLO a quien lo pide; para mandárselo al cliente usa whatsapp_enviar con documento={tipo:"estado_cuenta"}.',
   input_schema: {
     type: 'object',
     properties: {

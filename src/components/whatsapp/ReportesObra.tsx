@@ -150,10 +150,11 @@ export default function ReportesObra() {
     setMsg(`Reporte ligado a ${nombreObra(obraId)}.`); cargar()
   }
 
-  async function prueba(accion: 'prueba_pedir' | 'prueba_resumen', supervisor = false) {
+  async function prueba(accion: 'prueba_pedir' | 'prueba_resumen' | 'prueba_domingo', supervisor = false) {
     setErr(''); setMsg(''); setBusy(accion + (supervisor ? '_sup' : ''))
     try {
-      const r = await llamar({ accion, obra_id: obraPrueba || undefined, supervisor })
+      const r = await llamar({ accion, obra_id: obraPrueba || undefined, supervisor, supervisor_id: sups.find(x => x.activo)?.employee_id })
+      if (accion === 'prueba_domingo') { setMsg(r.domingo?.[0]?.ok ? 'Te mandé el mensaje del domingo con las obras del jefe de cuadrilla.' : `No salió: ${JSON.stringify(r.domingo?.[0] || r)}`); return }
       setMsg(accion === 'prueba_pedir'
         ? (r.pedidos ? 'Te mandé la petición de reporte a tu WhatsApp. Contéstala como si fueras el instalador.' : `No se mandó: ${JSON.stringify(r.detalle?.[0] || r.nota)}`)
         : supervisor
@@ -210,6 +211,7 @@ export default function ReportesObra() {
           <button style={btnGhost} disabled={!obraPrueba || !!busy} onClick={() => prueba('prueba_pedir')}><Send size={13} /> {busy === 'prueba_pedir' ? 'Mandando…' : 'Pedirme el reporte'}</button>
           <button style={btnGhost} disabled={!!busy} onClick={() => prueba('prueba_resumen')}><Send size={13} /> {busy === 'prueba_resumen' ? 'Armando…' : 'Mandarme el resumen de hoy'}</button>
           <button style={btnGhost} disabled={!!busy} onClick={() => prueba('prueba_resumen', true)}><HardHat size={13} /> {busy === 'prueba_resumen_sup' ? 'Armando…' : 'Mandarme lo del jefe de cuadrilla'}</button>
+          <button style={btnGhost} disabled={!!busy || !sups.some(x => x.activo)} onClick={() => prueba('prueba_domingo')}><HardHat size={13} /> {busy === 'prueba_domingo' ? 'Armando…' : 'Mandarme el mensaje del domingo'}</button>
         </div>
       </div>
 

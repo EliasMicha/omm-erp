@@ -20,6 +20,7 @@ import PaymentPlanModal from '../components/PaymentPlanModal'
 import EstimacionesLead from '../components/EstimacionesLead'
 import LevantamientoLead from '../components/LevantamientoLead'
 import DocsLead from '../components/DocsLead'
+import ContactosExternos from '../components/ContactosExternos'
 
 // ═══════════════════════════════════════════════════════════════════
 // TYPES
@@ -922,6 +923,11 @@ export default function LeadDashboard() {
           necesitan levantamiento— eran los únicos que no lo veían. */}
       <div style={{ marginBottom: 16 }}>
         <LevantamientoLead leadId={id!} leadNombre={lead?.name || ''} quien={authUser?.nombre || 'Dirección'} />
+      </div>
+
+      {/* ══════════ CONTACTOS (WhatsApp los reconoce por su celular) ══════════ */}
+      <div style={{ marginBottom: 16, background: '#0f0f0f', border: '1px solid #1f1f1f', borderRadius: 10, padding: '12px 14px' }}>
+        <ContactosExternos leadId={id!} />
       </div>
 
       {/* ══════════ PLANOS Y DOCUMENTOS DEL LEAD ══════════ */}

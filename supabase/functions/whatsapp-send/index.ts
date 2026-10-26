@@ -5,8 +5,16 @@
 //   send_template   → { to, template, params[] }
 //   send_text       → { to, text }  (solo funciona si esa persona escribió en las últimas 24 h)
 //   visit_notify    → { visit_id, kind: 'programada' | 'en_camino' }
+//   send_document   → { to, documento: { tipo: 'cotizacion', cotizacion_id, formato? }
+//                                    | { tipo: 'estado_cuenta', lead_id, cotizaciones?: string[] }
+//                                    | { tipo: 'archivo', base64, filename, mime }, caption? }
+//                     Con la ventana de 24 h abierta sale el archivo. Cerrada: a alguien del
+//                     equipo le llega el aviso y el archivo cuando conteste; a un cliente no se
+//                     puede (Meta sólo deja plantillas de texto) y se explica.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.0';
-import { sendTemplate, sendText, graphGet, graphPost, getWhatsAppCredentials, toSendPhone } from './whatsapp.ts';
+import { sendTemplate, sendText, graphGet, graphPost, getWhatsAppCredentials, toSendPhone, uploadMedia, sendDocument } from './whatsapp.ts';
+import { generarEstadoCuentaPdf } from '../_shared/estadoCuentaPdf.ts';
+import { datosEstadoCuenta, nombreArchivoEstadoCuenta } from '../_shared/estadoCuenta.ts';
 import { logWa, waIdFrom } from './log.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
@@ -52,15 +60,15 @@ function render(name: string, params: string[]) {
   return t.text.replace(/\{\{(\d+)\}\}/g, (_, i) => params[Number(i) - 1] ?? '');
 }
 
-async function whoIs(req: Request): Promise<{ uid: string; area: string | null; installer: boolean } | null> {
+async function whoIs(req: Request): Promise<{ uid: string; area: string | null; installer: boolean; auth?: string; estadoCuenta?: boolean } | null> {
   const auth = req.headers.get('Authorization') || '';
   if (!auth.startsWith('Bearer ')) return null;
   const userClient = createClient(SUPABASE_URL, ANON_KEY, { global: { headers: { Authorization: auth } } });
   const { data } = await userClient.auth.getUser();
   const uid = data?.user?.id;
   if (!uid) return null;
-  const { data: au } = await admin.from('app_users').select('permission_area, activo, es_bot').eq('auth_user_id', uid).maybeSingle();
-  if (au && au.activo && !au.es_bot) return { uid, area: au.permission_area, installer: false };
+  const { data: au } = await admin.from('app_users').select('permission_area, activo, es_bot, puede_estado_cuenta').eq('auth_user_id', uid).maybeSingle();
+  if (au && au.activo && !au.es_bot) return { uid, area: au.permission_area, installer: false, auth, estadoCuenta: au.permission_area === 'DG' || !!au.puede_estado_cuenta };
   const { data: emp } = await admin.from('employees').select('id').eq('auth_user_id', uid).maybeSingle();
   if (emp) return { uid, area: null, installer: true };
   return null;
@@ -111,6 +119,90 @@ async function visitNotify(visitId: string, kind: string, uid: string) {
   const r = await sendAndLog(c.phone_e164, 'omm_visita_programada', [nombre, lugar, fechaLarga(v.visit_date), hora, tecnico], extra);
   if (r.ok) await admin.from('maintenance_visits').update({ client_notified_at: new Date().toISOString() }).eq('id', v.id);
   return r;
+}
+
+// ── Documentos ──────────────────────────────────────────────────────────────
+const ult10 = (t: string) => String(t || '').replace(/\D/g, '').slice(-10);
+const b64aBytes = (b64: string) => { const bin = atob(b64.replace(/^data:[^,]+,/, '')); const out = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i); return out; };
+
+async function esDelEquipo(tel10: string): Promise<{ id: string; nombre: string } | null> {
+  const { data } = await admin.from('employees').select('id, nombre, telefono_personal, obra_app_phone, phone').eq('activo', true);
+  const e = (data || []).find((x: any) => [x.telefono_personal, x.obra_app_phone, x.phone].some((t: string) => ult10(t) === tel10));
+  if (e) return e;
+  const { data: ac } = await admin.from('agent_contacts').select('display_name, phone_e164, employee_id').eq('is_active', true);
+  const a = (ac || []).find((x: any) => ult10(x.phone_e164) === tel10);
+  return a ? { id: a.employee_id || '', nombre: a.display_name } : null;
+}
+
+async function prepararDocumento(p: any, who: any): Promise<{ bytes: Uint8Array; filename: string; mime: string; caption: string; interno?: boolean } | { error: string }> {
+  const d = p.documento || {};
+  const user = createClient(SUPABASE_URL, ANON_KEY, { global: { headers: { Authorization: who.auth } } });
+  if (d.tipo === 'cotizacion') {
+    if (!d.cotizacion_id) return { error: 'Falta cotizacion_id.' };
+    // Con el cliente de la persona: si RLS no le deja ver la cotización, no la manda.
+    const { data: cot } = await user.from('quotations').select('id, folio, name, total_final, total').eq('id', d.cotizacion_id).maybeSingle();
+    if (!cot) return { error: 'No encontré esa cotización (o no tienes acceso).' };
+    const { data: pdfs } = await user.from('cotizacion_pdfs').select('formato, interno, storage_path, filename, total_al_generar, generado_at').eq('quotation_id', cot.id).order('generado_at', { ascending: false });
+    const pdf = d.formato ? (pdfs || []).find((x: any) => x.formato === d.formato) : ((pdfs || []).find((x: any) => !x.interno) || null);
+    if (!pdf) return { error: `${cot.folio || cot.name} no tiene PDF${d.formato ? ' ' + d.formato : ''} guardado: ábrela en el ERP y dale "Descargar PDF" una vez.` };
+    const { data: blob, error } = await admin.storage.from('cotizaciones-pdf').download(pdf.storage_path);
+    if (error || !blob) return { error: 'No pude leer el PDF guardado.' };
+    const hoy = Number(cot.total_final ?? cot.total), antes = pdf.total_al_generar == null ? null : Number(pdf.total_al_generar);
+    if (antes != null && Math.abs(hoy - antes) > 0.01 && !d.aunque_este_viejo) return { error: `El PDF guardado es anterior al último cambio de la cotización (era ${antes}, hoy ${hoy}). Descárgala otra vez en el ERP antes de mandarla.` };
+    return { bytes: new Uint8Array(await blob.arrayBuffer()), filename: pdf.filename, mime: 'application/pdf', caption: p.caption || `${cot.folio || ''} · ${cot.name}`.replace(/^ · /, ''), interno: !!pdf.interno };
+  }
+  if (d.tipo === 'estado_cuenta') {
+    if (!who.estadoCuenta) return { error: 'Tu usuario no tiene permiso de estados de cuenta.' };
+    if (!d.lead_id) return { error: 'Falta lead_id.' };
+    const { data: lead } = await user.from('leads').select('id, name, company').eq('id', d.lead_id).maybeSingle();
+    if (!lead) return { error: 'No encontré ese lead.' };
+    const datos = await datosEstadoCuenta(user, lead.id, { name: lead.name, company: lead.company });
+    if (!datos.quotations.length) return { error: `${lead.name} no tiene contratos vigentes: no hay estado de cuenta.` };
+    if (Array.isArray(d.cotizaciones) && d.cotizaciones.length) datos.soloCotizaciones = d.cotizaciones;
+    const bytes = new Uint8Array(generarEstadoCuentaPdf(datos).output('arraybuffer') as ArrayBuffer);
+    return { bytes, filename: nombreArchivoEstadoCuenta(lead.name), mime: 'application/pdf', caption: p.caption || `Estado de cuenta · ${lead.name}` };
+  }
+  if (d.tipo === 'archivo') {
+    if (!d.base64 || !d.filename) return { error: 'Falta el archivo.' };
+    const bytes = b64aBytes(String(d.base64));
+    if (bytes.length > 15 * 1024 * 1024) return { error: 'El archivo pasa de 15 MB.' };
+    return { bytes, filename: String(d.filename).replace(/[^\w.\- ()áéíóúñÁÉÍÓÚÑ]+/g, '_'), mime: String(d.mime || 'application/octet-stream'), caption: p.caption || '' };
+  }
+  return { error: 'documento.tipo es cotizacion, estado_cuenta o archivo.' };
+}
+
+async function sendDocumentAction(p: any, who: any) {
+  if (!['DG', 'Administracion', 'Ventas_Ingenieria'].includes(who.area || '')) return { ok: false, error: 'Mandar documentos es para Dirección, Administración y Ventas/Ingeniería.' };
+  if (!p.to) return { ok: false, error: 'Falta a quién (to).' };
+  const tel10 = ult10(p.to);
+  const doc = await prepararDocumento(p, who);
+  if ('error' in doc) return { ok: false, error: doc.error };
+  const equipo = await esDelEquipo(tel10);
+  if (doc.interno && !equipo) return { ok: false, error: 'Ese PDF es el formato técnico (trae costos internos): no sale a un cliente. Manda el ejecutivo.' };
+  const { data: rec } = await admin.from('whatsapp_messages').select('id').eq('direction', 'in').ilike('phone_e164', '%' + tel10)
+    .gte('created_at', new Date(Date.now() - 23.5 * 3600e3).toISOString()).limit(1);
+  const ventana = !!rec?.length;
+  // Copia de lo que salió, para la bitácora.
+  const path = `enviados/${tel10}/${Date.now()}-${doc.filename.replace(/[^\w.\-]+/g, '_')}`;
+  await admin.storage.from('agent-documents').upload(path, doc.bytes, { contentType: doc.mime, upsert: true });
+  const dest = toSendPhone('+52' + tel10);
+  if (!ventana) {
+    if (!equipo) return { ok: false, error: 'No ha escrito en las últimas 24 h: WhatsApp no deja mandarle archivos (sólo plantillas de texto). Pídele que escriba al número de OMM y vuelve a intentarlo.' };
+    await admin.from('wa_pendientes_entrega').insert({ telefono10: tel10, texto: doc.caption || doc.filename, motivo: 'documento', documento_path: path, documento_nombre: doc.filename, caption: doc.caption || null });
+    const nombre = (equipo.nombre || '').split(/\s+/)[0] || 'equipo';
+    const param = `te mandaron ${doc.caption || doc.filename} — contesta *ver* y te lo mando`.slice(0, 900);
+    const r = await sendAndLog(dest, 'omm_aviso_equipo', [nombre, param], { sender_type: 'equipo', sent_by: who.uid });
+    return { ...r, diferido: true, nota: 'Le llegó el aviso; el archivo se le entrega cuando conteste.' };
+  }
+  try {
+    const mediaId = await uploadMedia(doc.bytes, doc.mime, doc.filename);
+    const resp = await sendDocument(dest, mediaId, doc.filename, doc.caption || undefined);
+    await logWa(admin, { direction: 'out', phone_e164: '+' + dest, wa_message_id: waIdFrom(resp), kind: 'document', body: (doc.caption ? doc.caption + ' ' : '') + `(${doc.filename})`, media_path: path, status: 'enviado', sent_by: who.uid, sender_type: equipo ? 'equipo' : 'cliente' });
+    return { ok: true, archivo: doc.filename };
+  } catch (e) {
+    await logWa(admin, { direction: 'out', phone_e164: '+' + dest, kind: 'document', body: doc.caption || doc.filename, media_path: path, status: 'fallido', error: String(e), sent_by: who.uid });
+    return { ok: false, error: String(e) };
+  }
 }
 
 Deno.serve(async (req) => {
@@ -182,6 +274,7 @@ Deno.serve(async (req) => {
         return json({ ok: false, error: String(e) });
       }
     }
+    if (action === 'send_document') return json(await sendDocumentAction(p, who));
     return json({ ok: false, error: `Acción desconocida: ${action}` }, 400);
   } catch (e) {
     return json({ ok: false, error: String(e) }, 500);
