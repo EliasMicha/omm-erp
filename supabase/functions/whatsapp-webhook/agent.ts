@@ -18,9 +18,12 @@ const COORD_MCP = new Set(['ver_obra', 'buscar_ordenes_compra', 'ver_orden_compr
 export const esCoordinador = (c: any) => c?.metadata?.modo === 'coordinador';
 
 const ANTHROPIC_API_KEY = Deno.env.get('ANTHROPIC_API_KEY')!;
-// El más nuevo; si la API no lo acepta, se cae al anterior (MODELO_RESPALDO).
+// El más nuevo; si la API no lo conoce (404), se cae a MODELO_RESPALDO.
+// El respaldo era Opus 4.6, MÁS CARO que el principal ($5/$25 vs $4/$20 por millón):
+// cualquier error que mencionara "model" (un rate limit, por ejemplo) lo prendía para
+// el resto de la vida del proceso. Ahora es Sonnet 5.5 y sólo con un 404 de verdad.
 const MODEL = 'claude-opus-5-5';
-const MODELO_RESPALDO = 'claude-opus-4-6';
+const MODELO_RESPALDO = 'claude-sonnet-5-5';
 const MAX_TOOL_ITERATIONS = 10;
 
 const SYSTEM_PROMPT = `Eres el asistente ejecutivo de Elias Micha, Director General de OMM Technologies (CDMX). OMM hace instalaciones eléctricas, sistemas especiales (CCTV, audio, redes, control, cortinas) e iluminación arquitectónica.
@@ -141,19 +144,26 @@ export async function runAgent(args: RunAgentArgs): Promise<RunAgentResult> {
     if (rec?.length) activeContextLines.push('Recordatorios próximos: ' + rec.map((r: any) => `${new Date(r.cuando).toLocaleString('es-MX', { timeZone: 'America/Mexico_City', weekday: 'short', hour: '2-digit', minute: '2-digit' })} ${r.texto}`).join(' | '));
   }
 
-  const systemWithContext = `${coord ? COORDINADOR_PROMPT : SYSTEM_PROMPT}${coach ? '\n\n# Modo delegación (además de todo lo anterior)\n' + DELEGATION_PROMPT : ''}
+  const systemEstatico = `${coord ? COORDINADOR_PROMPT : SYSTEM_PROMPT}${coach ? '\n\n# Modo delegación (además de todo lo anterior)\n' + DELEGATION_PROMPT : ''}
 
 # Importante
 Si en mensajes anteriores de esta conversación dijiste que solo podías leer o preparar borradores, eso ya no aplica: hoy puedes ejecutar con las herramientas que tienes.
-
-# Sesión actual
+`;
+  // Lo de abajo cambia en cada mensaje (hora, obra activa): va en un bloque aparte para
+  // que el bloque de arriba —y las herramientas, que van antes— se lean de caché.
+  const systemDinamico = `# Sesión actual
 - Usuario: ${contact.display_name} (${contact.role})
 - Teléfono: ${contact.phone_e164}
 - Fecha/hora CDMX: ${now}
 ${activeContextLines.length > 0 ? '\n' + activeContextLines.join('\n') : coach ? '\n(Sin contexto activo; consulta el ERP para identificar el encargo.)' : '\n(Sin contexto activo — si el usuario menciona una obra, fíjala con set_conversation_context)'}`;
 
+  const system = [
+    { type: 'text', text: systemEstatico, cache_control: { type: 'ephemeral' } },
+    { type: 'text', text: systemDinamico },
+  ];
+
   const messages: ClaudeMessage[] = [
-    ...history,
+    ...compactarHistorial(history),
     { role: 'user', content: newUserMessage },
   ];
   const allNewMessages: ClaudeMessage[] = [{ role: 'user', content: newUserMessage }];
@@ -163,12 +173,14 @@ ${activeContextLines.length > 0 ? '\n' + activeContextLines.join('\n') : coach ?
   let finalText = '';
 
   for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration++) {
-    const response = await callClaude(systemWithContext, messages, tools);
-    totalInputTokens += response.usage.input_tokens;
+    const response = await callClaude(system, messages, tools);
+    const u = response.usage || {};
+    // input_tokens ya NO incluye lo leído/escrito en caché: se suma todo para que
+    // agent_messages.tokens_input siga siendo el tamaño real del contexto.
+    totalInputTokens += (u.input_tokens || 0) + (u.cache_creation_input_tokens || 0) + (u.cache_read_input_tokens || 0);
+    console.log('uso', response.model, JSON.stringify({ in: u.input_tokens, cache_w: u.cache_creation_input_tokens, cache_r: u.cache_read_input_tokens, out: u.output_tokens }));
     totalOutputTokens += response.usage.output_tokens;
 
-    // DEBUG: log what Claude returned
-    console.log('Claude raw content:', JSON.stringify(response.content));
 
     // Sanitizar blocks del assistant — remover campos extra como `cache_control`
     // que Claude puede devolver pero que NO se aceptan cuando los mandamos de vuelta.
@@ -177,7 +189,6 @@ ${activeContextLines.length > 0 ? '\n' + activeContextLines.join('\n') : coach ?
       if (b.type === 'tool_use') return { type: 'tool_use', id: b.id, name: b.name, input: b.input };
       return b;
     }) as ContentBlock[];
-    console.log('Sanitized assistant content:', JSON.stringify(assistantContent));
     messages.push({ role: 'assistant', content: assistantContent });
     allNewMessages.push({ role: 'assistant', content: assistantContent });
 
@@ -237,7 +248,7 @@ ${activeContextLines.length > 0 ? '\n' + activeContextLines.join('\n') : coach ?
         const resultBlock: any = {
           type: 'tool_result',
           tool_use_id: tu.id,
-          content: JSON.stringify(result.success ? (result.data ?? {}) : { error: result.error, ...(result.data ? { detalle: result.data } : {}) }).slice(0, 60000),
+          content: JSON.stringify(result.success ? (result.data ?? {}) : { error: result.error, ...(result.data ? { detalle: result.data } : {}) }).slice(0, 25000),
         };
         if (!result.success) {
           resultBlock.is_error = true;
@@ -258,13 +269,49 @@ ${activeContextLines.length > 0 ? '\n' + activeContextLines.join('\n') : coach ?
   return { finalText, allNewMessages, totalInputTokens, totalOutputTokens };
 }
 
+// Mensajes anteriores: se reenvían en CADA llamada, así que un resultado de consulta
+// viejo (hasta 60 mil caracteres) o una foto de hace tres mensajes se pagaban una y
+// otra vez. Lo del turno actual va completo; lo anterior, resumido.
+const MAX_RESULTADO_PREVIO = 1500;
+function compactarHistorial(history: ClaudeMessage[]): ClaudeMessage[] {
+  return history.map((m) => {
+    if (!Array.isArray(m.content)) return m;
+    return {
+      ...m,
+      content: (m.content as any[]).map((b: any) => {
+        if (b?.type === 'tool_result') {
+          const txt = typeof b.content === 'string' ? b.content : JSON.stringify(b.content ?? '');
+          return txt.length > MAX_RESULTADO_PREVIO
+            ? { ...b, content: txt.slice(0, MAX_RESULTADO_PREVIO) + ' …[recortado: resultado de una consulta anterior; vuelve a consultar si lo necesitas]' }
+            : b;
+        }
+        if (b?.type === 'image') return { type: 'text', text: '[Imagen que se envió antes en esta conversación]' };
+        if (b?.type === 'document') return { type: 'text', text: '[Documento que se envió antes en esta conversación]' };
+        return b;
+      }),
+    } as ClaudeMessage;
+  });
+}
+
+// Marca de caché en el último bloque del último mensaje. En el ciclo de herramientas,
+// cada vuelta reusa todo lo anterior a precio de caché (5% del precio normal).
+// Se marca una COPIA: lo que se guarda en agent_messages no lleva cache_control.
+function conMarcaDeCache(messages: ClaudeMessage[]): any[] {
+  if (!messages.length) return messages;
+  const last: any = messages[messages.length - 1];
+  const bloques = typeof last.content === 'string' ? [{ type: 'text', text: last.content }] : [...last.content];
+  if (!bloques.length) return messages;
+  bloques[bloques.length - 1] = { ...bloques[bloques.length - 1], cache_control: { type: 'ephemeral' } };
+  return [...messages.slice(0, -1), { ...last, content: bloques }];
+}
+
 let modeloEnUso = MODEL;
-async function callClaude(system: string, messages: ClaudeMessage[], tools: any[]): Promise<any> {
+async function callClaude(system: any, messages: ClaudeMessage[], tools: any[]): Promise<any> {
   try {
     return await callClaudeCon(modeloEnUso, system, messages, tools);
   } catch (e) {
     // Si el modelo nuevo no existe para esta llave, se usa el anterior el resto de la vida del proceso.
-    if (modeloEnUso !== MODELO_RESPALDO && /model|not_found|404/i.test(String(e))) {
+    if (modeloEnUso !== MODELO_RESPALDO && /error 404|not_found_error/i.test(String(e))) {
       console.error('Modelo', modeloEnUso, 'no disponible; uso', MODELO_RESPALDO, String(e).slice(0, 200));
       modeloEnUso = MODELO_RESPALDO;
       return await callClaudeCon(modeloEnUso, system, messages, tools);
@@ -273,7 +320,7 @@ async function callClaude(system: string, messages: ClaudeMessage[], tools: any[
   }
 }
 
-async function callClaudeCon(model: string, system: string, messages: ClaudeMessage[], tools: any[]) {
+async function callClaudeCon(model: string, system: any, messages: ClaudeMessage[], tools: any[]) {
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -285,7 +332,7 @@ async function callClaudeCon(model: string, system: string, messages: ClaudeMess
       model,
       max_tokens: 4096,
       system,
-      messages,
+      messages: conMarcaDeCache(messages),
       tools,
     }),
   });
