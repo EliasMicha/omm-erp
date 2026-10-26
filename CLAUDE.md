@@ -3510,3 +3510,25 @@ Elias: los instaladores no pueden estar en grupos con el número de la API (sól
 - La prueba de punta a punta con Elias (Pico Love) quedó pedida; falta su respuesta y el `prueba_resumen`.
 - Después de la prueba hay que **borrar** su solicitud y su reporte de Pico Love.
 - Plantilla propia para el resumen: hoy usa `omm_aviso_equipo` en una sola línea cuando la ventana de 24 h está cerrada.
+
+## 🧾 PDF de cotización en ceros (FIAM-IL01, 2026-10-25)
+- **Síntoma:** la Propuesta Ejecutiva de "Fiesta Americana Cancún - Luminarias Nora" (ilum, USD 104,400) salía en $0.
+- **Causa:** el PDF filtra partidas por `notes.systems` (lo que se prende o apaga en el editor de Especiales). El MCP `crear_cotizacion` derivaba `systems` de las partidas para **cualquier** especialidad. Mapeó la partida `Iluminacion` → `control_iluminacion`, y el PDF traduce eso a `Control de iluminacion` ≠ `Iluminacion` → partida filtrada.
+  - Las otras 100 cotizaciones de iluminación tienen `systems = []`.
+- **Arreglo (commit 79e2dbc):**
+  1. `CotizacionPdf.tsx`: el filtro por sistemas aplica **solo si `specialty === 'esp'`**.
+  2. MCP `cotizar.ts`: `systems` se deriva solo en `esp`; en las demás especialidades, `[]`. **MCP v22** publicado desde la Mac (bundle md5 `51f8811d…`); responde 401 sin token.
+  3. Dato: FIAM-IL01 `notes.systems` → `[]` (solo esa llave del JSON).
+- **Pregunta abierta a Elias:** en Especiales el filtro es intencional (apagar un sistema lo quita del PDF), pero `total`/`total_final` sí cuenta esas partidas. En contrato hay PDFs que esconden partidas de sistemas apagados:
+
+  | Cotización | Partidas ocultas | Precio × cantidad, sin IVA (USD) |
+  |---|---|---|
+  | OFP1-ES01 | 289 | 75.4 K |
+  | PILO-ES01 | 57 | 51.2 K |
+  | RD175-ES01 | 11 | 10.4 K |
+  | OFEX-ES01 | 13 | 6.1 K |
+  | A102T-ES01 | 10 | 3.8 K |
+  | VEAT-ES01 | 3 | 2.3 K |
+  | E402C-ES01 | 7 | 1.6 K |
+
+  Confirmar si el PDF debe mostrar todo lo que suma.
