@@ -3,9 +3,11 @@
 // Deploy: supabase functions deploy whatsapp-webhook --no-verify-jwt
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.0';
-import { sendText, verifyWebhook, verifySignature, downloadMedia, markAsRead, phoneVariants } from './whatsapp.ts';
+import { sendText, verifyWebhook, verifySignature, downloadMedia, markAsRead, phoneVariants, toSendPhone, last10 } from './whatsapp.ts';
 import { handleClienteMessage } from './clientes.ts';
 import { intentarReporte } from './reportes.ts';
+import { intentarSupervisor, entregarPendientes } from './supervisor.ts';
+import { empleadoDeTelefono } from './reportesComun.ts';
 import { logWa, applyStatuses, waIdFrom } from './log.ts';
 import { runAgent } from './agent.ts';
 import { isDelegationCoach } from './delegation.ts';
@@ -96,14 +98,28 @@ async function processMessage(msg: any, value: any) {
     .limit(1)
     .maybeSingle();
 
-  // 0. ¿Tiene un reporte de obra pendiente? (instaladores a los que el bot les
-  //    pidió su reporte del día). Va antes que el agente y que clientes.
+  // 0a. Lo que no se le pudo mandar completo porque su ventana de 24 h estaba
+  //     cerrada (le llegó sólo la plantilla): al contestar, se le entrega.
+  try { if (await entregarPendientes(supabase, msg) === 'listo') return; }
+  catch (e) { console.error('entregarPendientes:', e); }
+
+  // 0b. El jefe de cuadrilla contestando qué actividades subir y con qué fecha.
+  try { if (await intentarSupervisor(supabase, msg) === 'listo') return; }
+  catch (e) { console.error('intentarSupervisor:', e); }
+
+  // 0c. ¿Tiene un reporte de obra pendiente? (instaladores a los que el bot les
+  //     pidió su reporte del día). Va antes que el agente y que clientes.
   let rep: 'no' | 'listo' | 'agente' = 'no';
   try { rep = await intentarReporte(supabase, msg, !!contact); }
   catch (e) { console.error('intentarReporte:', e); }
   if (rep === 'listo') return;
 
   if (!contact) {
+    // Alguien del equipo sin asistente (un instalador fuera de su reporte): no es
+    // cliente. Se le contesta corto en vez de pedirle nombre y dirección.
+    let emp: any = null;
+    try { emp = await empleadoDeTelefono(supabase, msg.from); } catch (_) { /* sigue como cliente */ }
+    if (emp) { await respuestaEquipo(msg, emp); return; }
     // No es del equipo → flujo de clientes (tickets de mantenimiento)
     await handleClienteMessage(supabase, msg);
     return;
@@ -352,4 +368,29 @@ function toBase64(bytes: Uint8Array): string {
     binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
   }
   return btoa(binary);
+}
+
+// Empleado sin asistente que escribe fuera de su reporte del día. Queda en la
+// bitácora (Elias lo ve en /whatsapp) y se le contesta máximo una vez cada 12 h.
+async function respuestaEquipo(msg: any, emp: any) {
+  await logWa(supabase, {
+    direction: 'in', phone_e164: '+' + msg.from, wa_message_id: msg.id, kind: msg.type,
+    body: msg.text?.body || msg.image?.caption || msg.document?.caption || `[${msg.type}]`, sender_type: 'equipo',
+  });
+  try { await markAsRead(msg.id); } catch (_) { /* no crítico */ }
+  const desde = new Date(Date.now() - 12 * 3600e3).toISOString();
+  const { data: ya } = await supabase.from('whatsapp_messages').select('id').eq('direction', 'out')
+    .ilike('phone_e164', '%' + last10(msg.from)).like('body', 'Hola%este número es el asistente%').gte('created_at', desde).limit(1);
+  if (ya?.length) return;
+  const { data: al } = await supabase.from('reporte_diario_personas').select('alias').eq('employee_id', emp.id).maybeSingle();
+  const pn = String(emp.nombre || '').split(/\s+/)[0] || '';
+  const nombre = (al?.alias || '').trim() || (pn.charAt(0) + pn.slice(1).toLowerCase());
+  const texto = `Hola ${nombre}, este número es el asistente de OMM. Por aquí te pido tu reporte diario de obra a las 6 pm. Para cualquier otra cosa, avísale a tu jefe directo.`;
+  const to = toSendPhone(msg.from);
+  try {
+    const resp = await sendText(to, texto);
+    await logWa(supabase, { direction: 'out', phone_e164: '+' + to, wa_message_id: waIdFrom(resp), kind: 'text', body: texto, status: 'enviado', sender_type: 'equipo' });
+  } catch (e) {
+    await logWa(supabase, { direction: 'out', phone_e164: '+' + to, kind: 'text', body: texto, status: 'fallido', error: String(e).slice(0, 300), sender_type: 'equipo' });
+  }
 }

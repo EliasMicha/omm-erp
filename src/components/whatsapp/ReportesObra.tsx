@@ -1,11 +1,14 @@
 import { useEffect, useState } from 'react'
-import { RefreshCw, Send, Trash2, Link2, ClipboardList } from 'lucide-react'
+import { RefreshCw, Send, Trash2, Link2, ClipboardList, HardHat } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 
 // Reportes diarios de obra por WhatsApp.
 // 18:00 el bot pide el reporte a cada persona de la lista según su planeación
 // del día; 19:30 insiste; 21:00 manda el resumen de cada obra a su lista y a
 // Elias el cierre del día. Esto es el tablero para administrarlo.
+// El jefe de cuadrilla recibe además lo de su equipo con las actividades que
+// detectó la IA, numeradas; contesta cuáles subir y con qué fecha, y se dan de
+// alta en la obra asignadas a quien las reportó (whatsapp-webhook/supervisor.ts).
 
 interface Emp { id: string; nombre: string | null; area: string | null; puesto: string | null }
 interface Persona { employee_id: string; activo: boolean; alias: string | null }
@@ -13,6 +16,8 @@ interface Obra { id: string; nombre: string; status: string }
 interface Sol { id: string; fecha: string; employee_id: string; obra_id: string | null; obra_texto: string | null; estado: string; ultimo_mensaje_at: string | null; reporte_id: string | null }
 interface Rep { id: string; fecha: string; obra_id: string | null; obra_texto: string | null; instalador_id: string | null; texto_raw: string | null; fotos: string[] | null; ai_resumen: string | null; origen: string }
 interface Dest { id: string; obra_id: string; employee_id: string | null; telefono: string | null; nombre: string | null }
+interface Sup { employee_id: string; areas: string[] | null; activo: boolean }
+interface Prop { id: string; fecha: string; numero: number; supervisor_id: string | null; obra_id: string; employee_id: string | null; descripcion: string; estado: string; fecha_compromiso: string | null; actividad_id: string | null }
 
 const card: React.CSSProperties = { background: '#141414', border: '1px solid #252525', borderRadius: 12, padding: 18, marginBottom: 16 }
 const input: React.CSSProperties = { background: '#0d0d0d', border: '1px solid #2b2b2b', borderRadius: 8, padding: '7px 9px', color: '#ddd', fontSize: 13, fontFamily: 'inherit' }
@@ -49,6 +54,9 @@ export default function ReportesObra() {
   const [reps, setReps] = useState([] as Rep[])
   const [sinObra, setSinObra] = useState([] as Rep[])
   const [dests, setDests] = useState([] as Dest[])
+  const [sups, setSups] = useState([] as Sup[])
+  const [props, setProps] = useState([] as Prop[])
+  const [nuevoSup, setNuevoSup] = useState('')
   const [asignadosHoy, setAsignadosHoy] = useState({} as Record<string, string[]>)
   const [nuevo, setNuevo] = useState({ employee_id: '', alias: '' })
   const [obraDest, setObraDest] = useState('')
@@ -63,7 +71,8 @@ export default function ReportesObra() {
     setErr('')
     const hoy = hoyCDMX()
     const desde = new Date(Date.now() - 30 * 86400e3).toISOString().slice(0, 10)
-    const [e, p, o, s, r, so, d, a] = await Promise.all([
+    const hace7 = new Date(Date.now() - 7 * 86400e3).toISOString().slice(0, 10)
+    const [e, p, o, s, r, so, d, a, su, pr] = await Promise.all([
       supabase.from('employees').select('id, nombre, area, puesto').eq('activo', true).order('nombre'),
       supabase.from('reporte_diario_personas').select('employee_id, activo, alias'),
       supabase.from('obras').select('id, nombre, status').order('nombre'),
@@ -72,11 +81,14 @@ export default function ReportesObra() {
       supabase.from('obra_reportes').select('id, fecha, obra_id, obra_texto, instalador_id, texto_raw, fotos, ai_resumen, origen').is('obra_id', null).gte('fecha', desde).order('fecha', { ascending: false }),
       supabase.from('reporte_obra_destinatarios').select('id, obra_id, employee_id, telefono, nombre'),
       supabase.from('installer_daily_assignment').select('employee_id, obras(nombre)').eq('fecha', hoy).not('obra_id', 'is', null),
+      supabase.from('reporte_supervisores').select('employee_id, areas, activo'),
+      supabase.from('reporte_propuestas').select('id, fecha, numero, supervisor_id, obra_id, employee_id, descripcion, estado, fecha_compromiso, actividad_id').gte('fecha', hace7).order('fecha', { ascending: false }).order('numero'),
     ])
-    const fallo = [e, p, o, s, r, so, d, a].find((x: any) => x.error)
+    const fallo = [e, p, o, s, r, so, d, a, su, pr].find((x: any) => x.error)
     if (fallo) setErr((fallo as any).error.message)
     setEmps((e.data || []) as Emp[]); setPersonas((p.data || []) as Persona[]); setObras((o.data || []) as Obra[])
     setSols((s.data || []) as Sol[]); setReps((r.data || []) as Rep[]); setSinObra((so.data || []) as Rep[]); setDests((d.data || []) as Dest[])
+    setSups((su.data || []) as Sup[]); setProps((pr.data || []) as Prop[])
     const m: Record<string, string[]> = {}
     for (const x of (a.data || []) as any[]) m[x.employee_id] = [...(m[x.employee_id] || []), x.obras?.nombre || 'obra']
     setAsignadosHoy(m)
@@ -112,6 +124,21 @@ export default function ReportesObra() {
     if (error) setErr(error.message); else cargar()
   }
 
+  async function agregarSup() {
+    const e = emps.find(x => x.id === nuevoSup)
+    if (!e) return
+    const { error } = await supabase.from('reporte_supervisores').upsert({ employee_id: e.id, areas: e.area ? [e.area] : null, activo: true })
+    if (error) setErr(error.message); else { setNuevoSup(''); cargar() }
+  }
+  async function cambiarSup(x: Sup, cambios: Partial<Sup>) {
+    const { error } = await supabase.from('reporte_supervisores').update(cambios).eq('employee_id', x.employee_id)
+    if (error) setErr(error.message); else cargar()
+  }
+  async function quitarSup(x: Sup) {
+    const { error } = await supabase.from('reporte_supervisores').delete().eq('employee_id', x.employee_id)
+    if (error) setErr(error.message); else cargar()
+  }
+
   async function ligarReporte(r: Rep) {
     const obraId = ligar[r.id]
     if (!obraId) return
@@ -123,13 +150,15 @@ export default function ReportesObra() {
     setMsg(`Reporte ligado a ${nombreObra(obraId)}.`); cargar()
   }
 
-  async function prueba(accion: 'prueba_pedir' | 'prueba_resumen') {
-    setErr(''); setMsg(''); setBusy(accion)
+  async function prueba(accion: 'prueba_pedir' | 'prueba_resumen', supervisor = false) {
+    setErr(''); setMsg(''); setBusy(accion + (supervisor ? '_sup' : ''))
     try {
-      const r = await llamar({ accion, obra_id: obraPrueba || undefined })
+      const r = await llamar({ accion, obra_id: obraPrueba || undefined, supervisor })
       setMsg(accion === 'prueba_pedir'
         ? (r.pedidos ? 'Te mandé la petición de reporte a tu WhatsApp. Contéstala como si fueras el instalador.' : `No se mandó: ${JSON.stringify(r.detalle?.[0] || r.nota)}`)
-        : `Resumen enviado a tu WhatsApp (${r.obras} obra${r.obras === 1 ? '' : 's'}).`)
+        : supervisor
+          ? `Te mandé lo que recibe el jefe de cuadrilla${obraPrueba ? ' (sólo ' + nombreObra(obraPrueba) + ')' : ''}. Si contestas que se suban, SÍ se dan de alta en la obra.`
+          : `Resumen enviado a tu WhatsApp (${r.obras} obra${r.obras === 1 ? '' : 's'}).`)
       cargar()
     } catch (e) { setErr(e instanceof Error ? e.message : String(e)) }
     finally { setBusy('') }
@@ -180,7 +209,44 @@ export default function ReportesObra() {
           </select>
           <button style={btnGhost} disabled={!obraPrueba || !!busy} onClick={() => prueba('prueba_pedir')}><Send size={13} /> {busy === 'prueba_pedir' ? 'Mandando…' : 'Pedirme el reporte'}</button>
           <button style={btnGhost} disabled={!!busy} onClick={() => prueba('prueba_resumen')}><Send size={13} /> {busy === 'prueba_resumen' ? 'Armando…' : 'Mandarme el resumen de hoy'}</button>
+          <button style={btnGhost} disabled={!!busy} onClick={() => prueba('prueba_resumen', true)}><HardHat size={13} /> {busy === 'prueba_resumen_sup' ? 'Armando…' : 'Mandarme lo del jefe de cuadrilla'}</button>
         </div>
+      </div>
+
+      <div style={card}>
+        <h2 style={h2}><HardHat size={15} style={{ verticalAlign: -2 }} /> Jefe de cuadrilla</h2>
+        <div style={sub}>A las 9:00 pm recibe lo que reportó su equipo (las personas de su área) y las actividades que detectó la IA, numeradas. Contesta cuáles subir y con qué fecha ("todas para el viernes", "1 y 3 el 30, la 2 no"); se dan de alta en su obra asignadas a quien las reportó. Para cambiar al responsable se entra a Obra → Actividades.</div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12, alignItems: 'center' }}>
+          {sups.map(x => (
+            <span key={x.employee_id} style={{ display: 'inline-flex', gap: 8, alignItems: 'center', background: '#1d1d1d', border: '1px solid #333', borderRadius: 999, padding: '4px 8px 4px 12px', fontSize: 12.5, color: x.activo ? '#ddd' : '#666' }}>
+              {nombreEmp(x.employee_id)}
+              <span style={{ color: '#777', fontSize: 11 }}>{x.areas?.length ? x.areas.join(', ').toLowerCase() : 'todas las áreas'}</span>
+              <input type="checkbox" title="Activo" checked={x.activo} onChange={() => cambiarSup(x, { activo: !x.activo })} />
+              <button onClick={() => quitarSup(x)} style={{ background: 'none', border: 0, color: '#888', cursor: 'pointer', padding: 0 }}><Trash2 size={11} /></button>
+            </span>
+          ))}
+          <select style={{ ...input, minWidth: 240 }} value={nuevoSup} onChange={e => setNuevoSup(e.target.value)}>
+            <option value="">— agregar jefe de cuadrilla —</option>
+            {emps.filter(e => !sups.some(x => x.employee_id === e.id)).map(e => <option key={e.id} value={e.id}>{e.nombre}{e.area ? ` · ${e.area.toLowerCase()}` : ''}</option>)}
+          </select>
+          <button style={btn} disabled={!nuevoSup} onClick={agregarSup}>Agregar</button>
+        </div>
+        {props.length === 0 ? <div style={{ color: '#666', fontSize: 13 }}>Sin actividades detectadas en los últimos 7 días.</div> : (
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead><tr><th style={th}>Fecha</th><th style={th}>#</th><th style={th}>Obra</th><th style={th}>Actividad</th><th style={th}>Reportó</th><th style={th}>Estado</th><th style={th}>Compromiso</th></tr></thead>
+            <tbody>{props.map(x => (
+              <tr key={x.id}>
+                <td style={td}>{x.fecha}</td>
+                <td style={td}>{x.numero}</td>
+                <td style={td}>{nombreObra(x.obra_id)}</td>
+                <td style={{ ...td, maxWidth: 380 }}>{x.descripcion}</td>
+                <td style={td}>{nombreEmp(x.employee_id)}</td>
+                <td style={{ ...td, color: x.estado === 'aprobada' ? '#57FF9A' : x.estado === 'descartada' ? '#777' : '#fbbf24' }}>{x.estado === 'aprobada' ? 'Subida' : x.estado === 'descartada' ? 'No se subió' : 'Por decidir'}</td>
+                <td style={td}>{x.fecha_compromiso || '—'}</td>
+              </tr>
+            ))}</tbody>
+          </table>
+        )}
       </div>
 
       <div style={card}>

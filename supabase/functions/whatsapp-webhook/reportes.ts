@@ -47,7 +47,7 @@ async function solicitudesAbiertas(sb: any, employeeId: string, esAgente: boolea
 
 // Transcripción: la llave de OpenAI vive en Vercel. Los instaladores no tienen
 // usuario del ERP, así que la función se identifica con su llave de servicio.
-async function transcribir(bytes: Uint8Array, mime: string): Promise<string | null> {
+export async function transcribir(bytes: Uint8Array, mime: string): Promise<string | null> {
   try {
     let bin = '';
     for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));

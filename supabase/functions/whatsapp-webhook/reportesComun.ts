@@ -51,19 +51,43 @@ export async function ventanaAbierta(sb: any, telefono: string): Promise<boolean
 // Manda un aviso a alguien del equipo: texto si la ventana está abierta, si no,
 // la plantilla aprobada omm_aviso_equipo con el texto compactado en una línea
 // (Meta no deja saltos de línea en los parámetros).
-export async function avisar(sb: any, telefono: string, saludo: string, texto: string, compacto: string): Promise<{ ok: boolean; error?: string }> {
+//
+// Con la ventana cerrada un texto largo (el resumen, las actividades por
+// aprobar) no cabe bien en una plantilla de una línea. Se guarda completo en
+// wa_pendientes_entrega y se le entrega en cuanto conteste (whatsapp-webhook,
+// supervisor.ts → entregarPendientes). Con la ventana abierta, lo que pase de
+// 3,800 caracteres se manda en partes (WhatsApp corta en 4,096).
+export function partirTexto(texto: string, max = 3800): string[] {
+  const partes: string[] = [];
+  let actual = '';
+  for (const trozo of texto.split('\n\n')) {
+    if (actual && (actual + '\n\n' + trozo).length > max) { partes.push(actual); actual = trozo; }
+    else actual = actual ? actual + '\n\n' + trozo : trozo;
+  }
+  if (actual) partes.push(actual);
+  // Un solo bloque más largo que el máximo se corta a la fuerza.
+  return partes.flatMap(p => p.length <= max ? [p] : (p.match(new RegExp(`[\\s\\S]{1,${max}}`, 'g')) || [p]));
+}
+
+export async function avisar(sb: any, telefono: string, saludo: string, texto: string, compacto: string, motivo = 'aviso'): Promise<{ ok: boolean; error?: string; diferido?: boolean }> {
   const to = toSendPhone(telefono);
   const abierta = await ventanaAbierta(sb, to);
   try {
     if (abierta) {
-      const resp = await sendText(to, texto);
-      await logWa(sb, { direction: 'out', phone_e164: '+' + to, wa_message_id: waIdFrom(resp), kind: 'text', body: texto, status: 'enviado', sender_type: 'equipo' });
-    } else {
-      const p2 = compacto.replace(/\s*\n+\s*/g, ' · ').replace(/\s{2,}/g, ' ').slice(0, 880);
-      const resp = await sendTemplate(to, 'omm_aviso_equipo', [saludo || 'equipo', p2]);
-      await logWa(sb, { direction: 'out', phone_e164: '+' + to, wa_message_id: waIdFrom(resp), kind: 'template', template_name: 'omm_aviso_equipo', body: `Hola ${saludo || 'equipo'}, tienes un aviso del ERP de OMM: ${p2}.`, status: 'enviado', sender_type: 'equipo' });
+      for (const parte of partirTexto(texto)) {
+        const resp = await sendText(to, parte);
+        await logWa(sb, { direction: 'out', phone_e164: '+' + to, wa_message_id: waIdFrom(resp), kind: 'text', body: parte, status: 'enviado', sender_type: 'equipo' });
+      }
+      return { ok: true };
     }
-    return { ok: true };
+    const diferir = texto.length > 300;
+    if (diferir) await sb.from('wa_pendientes_entrega').insert({ telefono10: last10(to), texto, motivo });
+    let p2 = compacto.replace(/\s*\n+\s*/g, ' · ').replace(/\s{2,}/g, ' ');
+    const cola = diferir ? ' — contesta *ver* y te lo mando completo' : '';
+    p2 = (p2.length + cola.length > 880 ? p2.slice(0, 870 - cola.length) + '…' : p2) + cola;
+    const resp = await sendTemplate(to, 'omm_aviso_equipo', [saludo || 'equipo', p2]);
+    await logWa(sb, { direction: 'out', phone_e164: '+' + to, wa_message_id: waIdFrom(resp), kind: 'template', template_name: 'omm_aviso_equipo', body: `Hola ${saludo || 'equipo'}, tienes un aviso del ERP de OMM: ${p2}.`, status: 'enviado', sender_type: 'equipo' });
+    return { ok: true, diferido: diferir };
   } catch (e) {
     const error = String((e as Error)?.message || e).slice(0, 300);
     await logWa(sb, { direction: 'out', phone_e164: '+' + to, kind: abierta ? 'text' : 'template', body: texto.slice(0, 500), status: 'fallido', error, sender_type: 'equipo' });

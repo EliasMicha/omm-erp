@@ -6,7 +6,10 @@
 //                    según su planeación del día (installer_daily_assignment).
 //   insistir  19:30  a quien no ha contestado, una sola vez.
 //   resumen   21:00  procesa los reportes (process-obra-report), manda el
-//                    resumen de cada obra a su lista y a Elias el cierre del día.
+//                    resumen de cada obra a su lista, al jefe de cuadrilla el de
+//                    su equipo con las actividades detectadas para que decida
+//                    cuáles se suben y con qué fecha (supervisor.ts), y a Elias
+//                    el cierre del día.
 //   prueba           pedir/resumen sólo para una persona u obra, hacia el número
 //                    de quien llama. Para probar sin molestar a nadie.
 // Lo que contesta el instalador lo recibe whatsapp-webhook (reportes.ts).
@@ -14,6 +17,7 @@
 // Deploy: verify_jwt=false (la función revisa x-cron-key o el JWT).
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.0';
 import { hoyCDMX, telefonoDeEmpleado, avisar, primerNombre } from '../whatsapp-webhook/reportesComun.ts';
+import { armarPropuestas, abiertasDe, textoPropuestas, fechaCorta } from '../whatsapp-webhook/supervisor.ts';
 
 const URL_SB = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -117,12 +121,14 @@ async function insistir() {
 }
 
 // ── resumen ─────────────────────────────────────────────────────────────────
+// solo_proponer: los pendientes que detecte la IA NO se dan de alta solos; los
+// aprueba el jefe de cuadrilla por WhatsApp (reporte_propuestas).
 async function procesar(reporteId: string) {
   try {
     const r = await fetch(`${URL_SB}/functions/v1/process-obra-report`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${SERVICE_KEY}`, apikey: SERVICE_KEY },
-      body: JSON.stringify({ reporte_id: reporteId }),
+      body: JSON.stringify({ reporte_id: reporteId, solo_proponer: true }),
     });
     return r.ok;
   } catch { return false; }
@@ -151,7 +157,7 @@ function bloqueObra(nombre: string, reps: any[], faltan: string[]): { texto: str
   return { texto: partes.join('\n'), compacto: compacto.join(' ') };
 }
 
-async function resumen(opts: { soloObra?: string; soloA?: { telefono: string; saludo: string } | null }) {
+async function resumen(opts: { soloObra?: string; soloA?: { telefono: string; saludo: string } | null; supervisorPrueba?: { employee_id: string; nombre: string; telefono: string } | null }) {
   const fecha = hoyCDMX();
   const { data: al } = await sb.from('reporte_diario_personas').select('employee_id, alias');
   ALIAS = new Map((al || []).filter((a: any) => a.alias).map((a: any) => [a.employee_id, a.alias]));
@@ -168,7 +174,7 @@ async function resumen(opts: { soloObra?: string; soloA?: { telefono: string; sa
     .eq('fecha', fecha).neq('estado', 'cancelado');
   if (opts.soloObra) qs = qs.eq('obra_id', opts.soloObra);
   const { data: sols } = await qs;
-  let qr = sb.from('obra_reportes').select('id, obra_id, obra_texto, instalador_id, texto_raw, fotos, ai_resumen, ai_avances, ai_faltantes, ai_bloqueos, origen, employees:instalador_id(nombre)').eq('fecha', fecha);
+  let qr = sb.from('obra_reportes').select('id, obra_id, obra_texto, instalador_id, texto_raw, fotos, ai_resumen, ai_avances, ai_faltantes, ai_bloqueos, ai_pendientes, origen, employees:instalador_id(nombre)').eq('fecha', fecha);
   if (opts.soloObra) qr = qr.eq('obra_id', opts.soloObra);
   const { data: reps } = await qr;
 
@@ -195,6 +201,49 @@ async function resumen(opts: { soloObra?: string; soloA?: { telefono: string; sa
   const { data: dg } = await sb.from('employees').select('id, nombre, telefono_personal, obra_app_phone, phone').eq('puesto', 'DIRECTOR GENERAL').eq('activo', true).limit(1).maybeSingle();
   const telDG = await telefonoDeEmpleado(sb, dg);
   const enviados: any[] = [];
+
+  // 3a. Jefes de cuadrilla: un solo mensaje con lo de su equipo (su área) y las
+  //     actividades detectadas, numeradas, para que decida cuáles subir y con qué
+  //     fecha. Los de la lista de cada obra no se le repiten.
+  const telSupervisores = new Set<string>();
+  const porDecidir: string[] = [];
+  {
+    let sups: any[] = [];
+    if (opts.supervisorPrueba) sups = [{ employee_id: opts.supervisorPrueba.employee_id, areas: null, employees: { nombre: opts.supervisorPrueba.nombre }, tel: opts.supervisorPrueba.telefono }];
+    else if (!opts.soloA) {
+      const { data } = await sb.from('reporte_supervisores').select('employee_id, areas, employees(id, nombre, telefono_personal, obra_app_phone, phone, activo)').eq('activo', true);
+      for (const x of data || []) if (x.employees?.activo !== false) sups.push({ ...x, tel: await telefonoDeEmpleado(sb, { ...(x.employees || {}), id: x.employee_id }) });
+    }
+    if (sups.length) {
+      const ids = [...new Set([...(sols || []).map((x: any) => x.employee_id), ...(reps || []).map((x: any) => x.instalador_id)].filter(Boolean))];
+      const { data: ar } = ids.length ? await sb.from('employees').select('id, area').in('id', ids) : { data: [] };
+      const areaDe = new Map((ar || []).map((x: any) => [x.id, x.area]));
+      const fechaTxt = fechaCorta(fecha);
+      for (const sup of sups) {
+        const mia = (empId: string | null | undefined) => !sup.areas?.length || sup.areas.includes(areaDe.get(empId || '') || '');
+        const susReps = (reps || []).filter((r: any) => r.obra_id && mia(r.instalador_id));
+        await armarPropuestas(sb, sup.employee_id, fecha, susReps);
+        const ps = await abiertasDe(sb, sup.employee_id);
+        const bloquesSup: string[] = [];
+        for (const [obraId, o] of obras) {
+          const rs = o.reps.filter((r: any) => mia(r.instalador_id));
+          const fs = (sols || []).filter((x: any) => x.obra_id === obraId && !x.reporte_id && ['pedido', 'insistido'].includes(x.estado) && mia(x.employee_id))
+            .map((x: any) => nombreCorto(x.employee_id, x.employees?.nombre));
+          if (rs.length || fs.length) bloquesSup.push(bloqueObra(o.nombre, rs, fs).texto);
+        }
+        if (!bloquesSup.length && !ps.length) continue;
+        if (!sup.tel) { enviados.push({ obra: 'jefe de cuadrilla', a: primerNombre(sup.employees?.nombre), ok: false, error: 'sin teléfono' }); continue; }
+        telSupervisores.add(sup.tel);
+        const saludo = (ALIAS.get(sup.employee_id) || primerNombre(sup.employees?.nombre));
+        const texto = [`📋 *Resumen de tu equipo* · ${fechaTxt}`, ...(bloquesSup.length ? bloquesSup : ['Hoy no llegaron reportes de tu equipo.']), textoPropuestas(ps, fecha)].join('\n\n');
+        const compacto = `resumen de tu equipo de hoy (${bloquesSup.length} obra${bloquesSup.length === 1 ? '' : 's'})` +
+          (ps.length ? ` y ${ps.length} actividad${ps.length === 1 ? '' : 'es'} detectada${ps.length === 1 ? '' : 's'} para que decidas si las subo y con qué fecha` : '');
+        const r = await avisar(sb, sup.tel, saludo, texto, compacto, 'supervisor');
+        enviados.push({ obra: 'jefe de cuadrilla', a: saludo, ok: r.ok, error: r.error, propuestas: ps.length, diferido: r.diferido });
+        if (ps.length) porDecidir.push(`${saludo}: ${ps.length}`);
+      }
+    }
+  }
   const bloques: string[] = [];
   const compactos: string[] = [];
   for (const [obraId, o] of obras) {
@@ -212,7 +261,7 @@ async function resumen(opts: { soloObra?: string; soloA?: { telefono: string; sa
       const { data: c } = await sb.from('employees').select('nombre, telefono_personal, obra_app_phone, phone').eq('id', o.coordinador).maybeSingle();
       if (c) gente = [{ tel: (await telefonoDeEmpleado(sb, { ...c, id: o.coordinador })) || '', saludo: primerNombre(c.nombre) }];
     }
-    const vistos = new Set<string>([telDG || '']);
+    const vistos = new Set<string>([telDG || '', ...telSupervisores]);
     for (const g of gente) {
       if (!g.tel || vistos.has(g.tel)) continue;
       vistos.add(g.tel);
@@ -226,24 +275,17 @@ async function resumen(opts: { soloObra?: string; soloA?: { telefono: string; sa
   const sinRespuesta = (sols || []).filter((s: any) => !s.reporte_id && ['pedido', 'insistido'].includes(s.estado));
   const extra: string[] = [];
   if (sinObra.length) extra.push(`📌 *Reportes sin obra en el ERP*\n` + sinObra.map((r: any) => `• ${nombreCorto(r.instalador_id, r.employees?.nombre)}: ${r.obra_texto || 'sin nombre'}`).join('\n'));
+  if (porDecidir.length) extra.push(`🛠️ *Actividades detectadas, esperando decisión del jefe de cuadrilla*\n` + porDecidir.map(x => `• ${x}`).join('\n'));
   const destDG = opts.soloA || (telDG ? { telefono: telDG, saludo: primerNombre(dg?.nombre) } : null);
   if (destDG && (bloques.length || extra.length)) {
     const cab = `📋 *Cierre del día* · ${obras.size} obra${obras.size === 1 ? '' : 's'}` +
       (sinRespuesta.length ? ` · ${sinRespuesta.length} sin reporte` : '');
     const texto = [cab, ...bloques, ...extra].join('\n\n');
     const compacto = `cierre del día: ${compactos.join(' | ')}${sinObra.length ? ` | Sin obra en ERP: ${sinObra.map((r: any) => r.obra_texto).join(', ')}` : ''}`;
-    // WhatsApp corta en 4096: si no cabe, se manda en partes.
-    const partes: string[] = [];
-    let actual = '';
-    for (const trozo of texto.split('\n\n')) {
-      if ((actual + '\n\n' + trozo).length > 3800 && actual) { partes.push(actual); actual = trozo; } else actual = actual ? actual + '\n\n' + trozo : trozo;
-    }
-    if (actual) partes.push(actual);
-    for (let i = 0; i < partes.length; i++) {
-      const r = await avisar(sb, destDG.telefono, destDG.saludo, partes[i], i === 0 ? compacto : `continuación del cierre`);
-      enviados.push({ obra: 'cierre del día', a: destDG.saludo, ok: r.ok, error: r.error });
-      if (!r.ok) break;
-    }
+    // avisar() parte lo que pase de 3,800 caracteres, y con la ventana cerrada
+    // guarda el texto completo para entregarlo cuando conteste.
+    const r = await avisar(sb, destDG.telefono, destDG.saludo, texto, compacto, 'cierre');
+    enviados.push({ obra: 'cierre del día', a: destDG.saludo, ok: r.ok, error: r.error, diferido: r.diferido });
   }
 
   // 5. Cerrar el día (en prueba no se toca nada).
@@ -282,7 +324,11 @@ Deno.serve(async (req) => {
       }
       case 'prueba_resumen': {
         if (!quien.telefono) return json({ ok: false, error: 'Tu usuario no tiene teléfono.' }, 400);
-        return json({ ok: true, ...(await resumen({ soloObra: p.obra_id, soloA: { telefono: quien.telefono, saludo: primerNombre(quien.empleado?.nombre) } })) });
+        // supervisor=true: además te llega lo que recibe el jefe de cuadrilla, con
+        // las actividades detectadas a tu nombre. Si contestas "todas para el
+        // viernes", SÍ se dan de alta en la obra (es la prueba completa).
+        const sp = p.supervisor && quien.empleado ? { employee_id: quien.empleado.id, nombre: quien.empleado.nombre, telefono: quien.telefono } : null;
+        return json({ ok: true, ...(await resumen({ soloObra: p.obra_id, soloA: { telefono: quien.telefono, saludo: primerNombre(quien.empleado?.nombre) }, supervisorPrueba: sp })) });
       }
       default: return json({ ok: false, error: `Acción desconocida: ${p.accion}` }, 400);
     }

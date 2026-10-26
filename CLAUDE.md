@@ -3505,11 +3505,40 @@ Elias: los instaladores no pueden estar en grupos con el número de la API (sól
 
 **⚠️ Deploy por la Mac: `device_commit_files` a la MISMA ruta no sobrescribe.** Dijo "written", pero el archivo siguió siendo el viejo y se desplegó el bundle anterior dos veces. Hay que usar un nombre nuevo por deploy (`dist/wawebhook-v33.ts`) y cotejar md5 en la Mac **antes** del curl.
 
+**Quién reporta (25-oct):** los 8 instaladores activos de INSTALACIONES ESPECIALES, con alias. Los 10 eléctricos están dados de alta pero **apagados** ("déjamelos fuera de mientras"). Sus teléfonos salieron de su usuario de la app de obra.
+
+### 👷 Jefe de cuadrilla: aprueba las actividades por WhatsApp (2026-10-25)
+
+Elias: *"Alfredo es el jefe… que a las 8-9 pm le llegue el resumen de lo que todos dijeron… la pregunta clave: detecto estas actividades, las subo y si sí, qué fecha les pongo. Automáticamente se le asignará a la misma persona que lo reporta; si lo quiere cambiar, tiene que ingresar al sistema."*
+
+**Flujo (9:00 pm, dentro de `resumen`):**
+- Los reportes de WhatsApp se procesan con `process-obra-report` + `{ solo_proponer: true }`: los pendientes que detecta la IA se quedan en `obra_reportes.ai_pendientes` y **no** se dan de alta solos.
+- `armarPropuestas()` los convierte en `reporte_propuestas` numeradas por jefe. La numeración sigue a las que aún no decide (últimos 7 días), así que "la 3" siempre es la misma. No repite lo ya propuesto de ese reporte ni lo que ya es actividad abierta de la obra.
+- El jefe recibe UN mensaje: lo de su equipo (personas de sus `areas`; `null` = todas) + la lista numerada + "¿las subo y qué fecha les pongo?". No se le repiten los resúmenes por obra. Elias ve en su cierre cuántas quedan esperando decisión.
+- Contesta en texto o nota de voz: "todas para el viernes", "1 y 3 el 30, la 2 no", "súbelas" (→ le pregunta la fecha), "el lunes" (usa los números que se le preguntaron). Lo lee Sonnet con un calendario de 21 días; probado con 7 casos, todos bien, incluido "mi reporte… el viernes llega el material" → `otro` (no es decisión).
+- Al aprobar: se **reclama** la propuesta (`update … where estado='propuesta'`) y luego se inserta en `obra_actividades` con `instalador_id` = quien la reportó, `fecha_fin_plan` = la fecha, `origen = 'ai_reporte'`, `reporte_id`, y una nota de quién la aprobó. Contesta qué subió, a quién y para cuándo, y que el responsable se cambia en ERP → Obra → Actividades.
+
+**Piezas nuevas**
+- Migración `reportes_supervisor_propuestas` (archivo `20261025_reportes_supervisor_propuestas.sql`): `reporte_supervisores` (employee_id, areas text[], activo), `reporte_propuestas`, `wa_pendientes_entrega`. Alfredo Sánchez quedó como jefe de INSTALACIONES ESPECIALES.
+- `whatsapp-webhook/supervisor.ts`: `armarPropuestas`, `abiertasDe`, `textoPropuestas`, `leerDecision`, `intentarSupervisor`, `entregarPendientes`.
+- Orden en el webhook: `entregarPendientes` → `intentarSupervisor` → `intentarReporte` → agente / clientes.
+- **Empleado sin asistente que escribe fuera de su reporte** ya no cae al flujo de clientes (le pedía nombre y dirección): recibe una respuesta corta, máximo una vez cada 12 h.
+- `supabase/functions/process-obra-report/index.ts` **ya está en el repo** (antes sólo existía desplegado); se copió de la v24.
+- `/whatsapp` → Reportes de obra: tarjeta **Jefe de cuadrilla** (quién es, sus áreas, actividades de los últimos 7 días con su estado) y botón de prueba "Mandarme lo del jefe de cuadrilla" (`prueba_resumen` + `supervisor: true`, a tu número y a tu nombre; si contestas que se suban, **sí** se dan de alta).
+
+**Ventana de 24 h cerrada → entrega diferida.** `avisar()` ahora, con la ventana cerrada y un texto de más de 300 caracteres, guarda el texto completo en `wa_pendientes_entrega` y manda la plantilla con "contesta *ver* y te lo mando completo". Cuando la persona contesta, el webhook se lo entrega. Si sólo dijo "ver"/"ok", ahí para; si dijo otra cosa, se entrega y su mensaje sigue su camino. Con la ventana abierta, `avisar()` parte solo lo que pase de 3,800 caracteres.
+
+**⚠️ Hallazgo: `origen = 'reporte'` nunca pasó el check de `obra_actividades`.** Solo acepta `manual | cotizacion | ai_reporte | adendum`. El alta automática de pendientes de `process-obra-report` (ago-2026) **ha fallado siempre en silencio**: hay 0 actividades con origen de reporte. Lo nuevo usa `ai_reporte`. El camino de la app se dejó igual a propósito (ahora al menos registra el error) hasta que Elias decida si los reportes de la app también pasan por el jefe de cuadrilla o se dan de alta solos.
+
+**⚠️ `/api/anthropic` (Vercel) responde sin autenticación**: cualquiera con la URL usa la llave de Claude de OMM. Es de antes; queda anotado para cerrarlo (process-obra-report depende de él).
+
+**Desplegado:** whatsapp-webhook v35, whatsapp-reportes v5, process-obra-report v26 (md5 cotejados en la Mac antes del curl).
+
 **Pendiente**
-- Elias pasa la lista de quiénes reportan (con alias). Hasta entonces, el cron corre sin mandar nada.
-- La prueba de punta a punta con Elias (Pico Love) quedó pedida; falta su respuesta y el `prueba_resumen`.
-- Después de la prueba hay que **borrar** su solicitud y su reporte de Pico Love.
+- La prueba de punta a punta con Elias (Pico Love) quedó pedida; falta su respuesta. Luego "Mandarme lo del jefe de cuadrilla" y contestar. Después **borrar** su solicitud, su reporte y las actividades de prueba de Pico Love.
+- Decidir el camino de los reportes de la app (ver hallazgo de arriba).
 - Plantilla propia para el resumen: hoy usa `omm_aviso_equipo` en una sola línea cuando la ventana de 24 h está cerrada.
+- Avisarle al instalador cuando se le asigna una actividad aprobada (no se pidió; hoy sólo se entera en la app de obra).
 
 ## 🧾 PDF de cotización en ceros (FIAM-IL01, 2026-10-25)
 - **Síntoma:** la Propuesta Ejecutiva de "Fiesta Americana Cancún - Luminarias Nora" (ilum, USD 104,400) salía en $0.
