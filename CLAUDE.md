@@ -3454,3 +3454,12 @@ Entrantes y salientes; solo `service_role` escribe y `usuario_real()` lee. Migra
 3. Dafne está dada de alta en el bot como **admin**; si solo debe consultar, cambiarla a **interno**.
 4. Celulares de clientes en Mantenimiento → Contactos (hoy ninguno tiene).
 5. El clon de la Mac (`~/omm-erp`) quedó con archivos sin rastrear porque un `git pull` se trabó (no deja borrar). Arreglarlo con `git stash -u && git pull && git stash drop` desde la Terminal.
+
+**Fotos y notas de voz (webhook v29, commit f333ea8)**
+- **Fotos:** van al modelo como bloque de imagen (visión). Si pesan más de 4.5 MB o no son jpeg/png/gif/webp, el bot recibe un texto que lo explica y pide otra foto, en vez de reventar.
+- **Notas de voz:** se bajan de Meta, se guardan en `agent-documents` y se transcriben con OpenAI (`gpt-4o-transcribe`, respaldo `whisper-1`, en español, con vocabulario de OMM en el prompt).
+  - La transcripción corre en `api/chatbot.ts?action=transcribir`, porque `OPENAI_API_KEY` vive en Vercel. No se agregó archivo a `/api`.
+  - La llamada exige el JWT de la persona (sesion.ts); sin sesión responde 401. Por eso solo transcribe a quien tiene usuario del ERP.
+  - El texto entra al modelo como `[Nota de voz transcrita]: …` y se guarda en `whatsapp_messages.body` con 🎤, así que la vista de Conversaciones muestra lo que se dijo.
+  - Si falla, el bot pide que lo escriban; no inventa.
+- **Verificado:** 401 sin sesión y 200 con sesión (`gpt-4o-transcribe`). Un tono puro sin voz se "transcribió" como "OMM", eco del prompt de vocabulario: con audio sin habla puede salir texto fantasma.
