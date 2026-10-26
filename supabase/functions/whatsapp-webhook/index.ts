@@ -5,6 +5,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.0';
 import { sendText, verifyWebhook, verifySignature, downloadMedia, markAsRead, phoneVariants } from './whatsapp.ts';
 import { handleClienteMessage } from './clientes.ts';
+import { intentarReporte } from './reportes.ts';
 import { logWa, applyStatuses, waIdFrom } from './log.ts';
 import { runAgent } from './agent.ts';
 import { isDelegationCoach } from './delegation.ts';
@@ -95,20 +96,28 @@ async function processMessage(msg: any, value: any) {
     .limit(1)
     .maybeSingle();
 
+  // 0. ¿Tiene un reporte de obra pendiente? (instaladores a los que el bot les
+  //    pidió su reporte del día). Va antes que el agente y que clientes.
+  let rep: 'no' | 'listo' | 'agente' = 'no';
+  try { rep = await intentarReporte(supabase, msg, !!contact); }
+  catch (e) { console.error('intentarReporte:', e); }
+  if (rep === 'listo') return;
+
   if (!contact) {
     // No es del equipo → flujo de clientes (tickets de mantenimiento)
     await handleClienteMessage(supabase, msg);
     return;
   }
 
-  await logWa(supabase, {
-    direction: 'in', phone_e164: fromPhone, wa_message_id: waMessageId, kind: msg.type,
-    body: msg.text?.body || msg.image?.caption || msg.document?.caption || `[${msg.type}]`,
-    sender_type: 'equipo', agent_contact_id: contact.id,
-  });
-
-  // 2. Marcar como leído
-  try { await markAsRead(waMessageId); } catch (_) { /* no crítico */ }
+  if (rep !== 'agente') {
+    await logWa(supabase, {
+      direction: 'in', phone_e164: fromPhone, wa_message_id: waMessageId, kind: msg.type,
+      body: msg.text?.body || msg.image?.caption || msg.document?.caption || `[${msg.type}]`,
+      sender_type: 'equipo', agent_contact_id: contact.id,
+    });
+    // 2. Marcar como leído
+    try { await markAsRead(waMessageId); } catch (_) { /* no crítico */ }
+  }
 
   // 3. Obtener/crear conversación activa
   let { data: conversation } = await supabase

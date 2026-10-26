@@ -1,4 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
+import { timingSafeEqual } from 'crypto'
 
 export const config = { maxDuration: 60 }
 
@@ -986,10 +987,19 @@ IMPORTANTE: Cuando busques leads, clientes o cotizaciones, si el usuario no espe
 // esto no sea un transcriptor gratis abierto a internet.
 async function transcribir(req: VercelRequest, res: VercelResponse): Promise<void> {
   try {
-    const auth = String(req.headers.authorization || '')
-    if (!auth.toLowerCase().startsWith('bearer ')) { res.status(401).json({ ok: false, error: 'Falta el token' }); return }
-    const u = await fetch(`${SUPABASE_URL}/auth/v1/user`, { headers: { Authorization: auth, apikey: SUPABASE_KEY } })
-    if (!u.ok) { res.status(401).json({ ok: false, error: 'Token inválido' }); return }
+    // Dos formas de entrar: el JWT de un usuario del ERP, o la llave de servicio
+    // de Supabase en x-omm-internal (el bot de WhatsApp transcribiendo la nota de
+    // voz de un instalador, que no tiene usuario del ERP).
+    const interna = String(req.headers['x-omm-internal'] || '')
+    const svc = process.env.SUPABASE_SERVICE_ROLE_KEY || ''
+    const esInterna = !!svc && interna.length === svc.length &&
+      timingSafeEqual(Buffer.from(interna), Buffer.from(svc))
+    if (!esInterna) {
+      const auth = String(req.headers.authorization || '')
+      if (!auth.toLowerCase().startsWith('bearer ')) { res.status(401).json({ ok: false, error: 'Falta el token' }); return }
+      const u = await fetch(`${SUPABASE_URL}/auth/v1/user`, { headers: { Authorization: auth, apikey: SUPABASE_KEY } })
+      if (!u.ok) { res.status(401).json({ ok: false, error: 'Token inválido' }); return }
+    }
 
     const apiKey = process.env.OPENAI_API_KEY
     if (!apiKey) { res.status(500).json({ ok: false, error: 'OPENAI_API_KEY no configurada en Vercel' }); return }
