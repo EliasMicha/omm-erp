@@ -3172,7 +3172,7 @@ Entrantes y salientes; solo `service_role` escribe y `usuario_real()` lee. Migra
 
 ### ⏳ Pendiente (al cierre de la sesión)
 1. ✅ **Tabla `whatsapp_messages` creada** (23-oct, con `execute_sql`: la ventana de aprobación de `apply_migration` se cancelaba sola aunque Elias aprobó en el chat; él pidió revisar antes que no se duplicara con lo de ChatGPT/Codex, y no se duplica). Verificado con sesión simulada: el usuario lee, `authenticated` no puede escribir, `anon` sin permisos.
-2. **Desplegar la nueva versión de `whatsapp-webhook`** (la que trae el flujo de clientes). **NO se transcribió a mano**: son ~70 KB y un error tumbaría el agente que hoy funciona. Lo desplegado sigue siendo v17 (solo el agente interno). `whatsapp-send` ya está desplegada (v1). Con la Mac conectada, se despliega en 2 s desde el disco:
+2. ✅ (desplegado v18, md5 verificado) **Desplegar la nueva versión de `whatsapp-webhook`** (la que trae el flujo de clientes). **NO se transcribió a mano**: son ~70 KB y un error tumbaría el agente que hoy funciona. Lo desplegado sigue siendo v17 (solo el agente interno). `whatsapp-send` ya está desplegada (v1). Con la Mac conectada, se despliega en 2 s desde el disco:
    ```bash
    cd ~/omm-erp && git pull
    npx -y esbuild@0.24.0 supabase/functions/whatsapp-webhook/index.ts --bundle --format=esm \
@@ -3184,7 +3184,9 @@ Entrantes y salientes; solo `service_role` escribe y `usuario_real()` lee. Migra
      "https://api.supabase.com/v1/projects/ubbumxommqjcpdozpunf/functions/deploy?slug=whatsapp-webhook"
    ```
    `verify_jwt` **false** (Meta no manda JWT; la función valida la firma HMAC). Después, cotejar md5 con `get_edge_function`.
-3. **Meta (Elias):** dar de alta el número, sacar el token de usuario del sistema, cargar método de pago y pasar la app a Live. Después, cargar los 5 secretos y crear las plantillas desde `/whatsapp`.
+3. ✅ **Meta y secretos (25-oct):** número +52 55 2195 7571 registrado y VERIFIED (WABA `1067027219561432`, phone_number_id `1283032838236933`); app 1460443798917262 **publicada (Live)** con política en `/privacidad` (pública, fuera de ProtectedRoute); token del usuario del sistema "Claude" (sin caducidad) y los IDs cargados a mano en Supabase → Edge Functions → Secrets (la ventana `create_edge_function_secret` está pausada por Supabase). Las 4 plantillas creadas desde `/whatsapp`, **en revisión de Meta**. Webhook v18 ya desplegado y recibiendo.
+   - ⚠️ Al pegar el WABA ID se guardaron 16 "•" en vez del número (se copió de un campo enmascarado). Si `/whatsapp` muestra el WABA ID como puntitos, es el valor real del secreto, no la pantalla.
+   - **Falta:** tarjeta en WhatsApp Manager (sin ella Meta rechaza los salientes: la primera respuesta automática salió `fallido`), aprobación del nombre "Omniious" y de las plantillas, y la prueba completa (agente de Elias, ticket de cliente, aviso de visita).
 4. Capturar el celular de los clientes en Mantenimiento → Expediente → Contactos. Hoy hay 3 contactos y ninguno tiene teléfono.
 5. `.claude-pat` está vencido (GitHub da 401); el push de esta sesión salió por `add_repo`.
 
