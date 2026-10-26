@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { MessageCircle, RefreshCw, Send, Trash2, Copy, CheckCircle2, TriangleAlert } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import Conversaciones from '../components/whatsapp/Conversaciones'
+import ReportesObra from '../components/whatsapp/ReportesObra'
 
 // WhatsApp Cloud API — número dedicado de OMM.
 // Entrantes: Edge Function whatsapp-webhook (equipo → agente; clientes → tickets de mantenimiento).
@@ -147,7 +148,7 @@ export default function WhatsApp() {
       </div>
 
       <div style={{ display: 'flex', gap: 6, marginBottom: 16 }}>
-        {[['chats', 'Conversaciones'], ['config', 'Configuración']].map(([k, l]) => (
+        {[['chats', 'Conversaciones'], ['reportes', 'Reportes de obra'], ['config', 'Configuración']].map(([k, l]) => (
           <button key={k} onClick={() => cambiarTab(k)} style={{ ...btnGhost, borderColor: tab === k ? '#25D366' : '#333', color: tab === k ? '#25D366' : '#999' }}>{l}</button>
         ))}
       </div>
@@ -156,6 +157,8 @@ export default function WhatsApp() {
       {notice && <div style={{ padding: '10px 14px', borderRadius: 9, background: '#10B98116', border: '1px solid #10B98144', color: '#6ee7b7', fontSize: 13, marginBottom: 14 }}>{notice}</div>}
 
       {tab === 'chats' && <Conversaciones enviar={callSend} />}
+
+      {tab === 'reportes' && <ReportesObra />}
 
       {tab === 'config' && <>
       {/* Conexión */}
