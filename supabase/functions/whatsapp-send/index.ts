@@ -5,6 +5,10 @@
 //   send_template   → { to, template, params[] }
 //   send_text       → { to, text }  (solo funciona si esa persona escribió en las últimas 24 h)
 //   visit_notify    → { visit_id, kind: 'programada' | 'en_camino' }
+//   send_message    → { to, text, nombre? }  (DG/Administración) Nuevo chat o respuesta: con la
+//                     ventana de 24 h abierta sale como texto; cerrada, como plantilla —
+//                     omm_aviso_equipo si es del equipo, omm_mensaje_cliente si no. El ERP y el
+//                     MCP usan esta misma regla.
 //   send_document   → { to, documento: { tipo: 'cotizacion', cotizacion_id, formato? }
 //                                    | { tipo: 'estado_cuenta', lead_id, cotizaciones?: string[] }
 //                                    | { tipo: 'archivo', base64, filename, mime }, caption? }
@@ -46,6 +50,13 @@ const TEMPLATES = [
     name: 'omm_ticket_actualizado',
     text: 'Hola {{1}}, tu reporte #{{2}} con OMM Technologies cambió de estado: {{3}}. Responde a este mensaje si tienes dudas.',
     example: ['Ana', '128', 'resuelto'],
+  },
+  {
+    // Primer mensaje a un cliente que no ha escrito en 24 h (o nunca): Meta sólo
+    // deja abrir la conversación con plantilla. {{2}} es quien escribe, {{3}} el mensaje.
+    name: 'omm_mensaje_cliente',
+    text: 'Hola {{1}}, {{2}} de OMM Technologies te escribe:\n\n{{3}}\n\nPuedes responder a este mensaje para continuar la conversación.',
+    example: ['Ana', 'Elias', 'quería confirmar contigo la fecha de instalación'],
   },
   {
     name: 'omm_aviso_equipo',
@@ -205,6 +216,42 @@ async function sendDocumentAction(p: any, who: any) {
   }
 }
 
+// Un solo lugar decide cómo sale un mensaje escrito a mano (ERP o MCP):
+// ventana abierta → texto libre; cerrada → la plantilla que corresponde.
+async function sendMessageAction(p: any, who: any) {
+  if (!['DG', 'Administracion'].includes(who.area || '')) return { ok: false, error: 'Mandar WhatsApp desde el ERP es para Dirección y Administración.' };
+  const tel10 = ult10(p.to);
+  if (tel10.length !== 10) return { ok: false, error: 'El número debe tener 10 dígitos.' };
+  const text = String(p.text || '').trim();
+  if (!text) return { ok: false, error: 'Falta el mensaje.' };
+  const dest = toSendPhone('+52' + tel10);
+  const { data: rec } = await admin.from('whatsapp_messages').select('id').eq('direction', 'in').ilike('phone_e164', '%' + tel10)
+    .gte('created_at', new Date(Date.now() - 23.5 * 3600e3).toISOString()).limit(1);
+  const equipo = await esDelEquipo(tel10);
+  if (rec?.length) {
+    try {
+      const resp = await sendText(dest, text);
+      await logWa(admin, { direction: 'out', phone_e164: '+' + dest, wa_message_id: waIdFrom(resp), kind: 'text', body: text, status: 'enviado', sent_by: who.uid, sender_type: equipo ? 'equipo' : 'cliente' });
+      return { ok: true, como: 'texto' };
+    } catch (e) {
+      await logWa(admin, { direction: 'out', phone_e164: '+' + dest, kind: 'text', body: text, status: 'fallido', error: String(e), sent_by: who.uid });
+      return { ok: false, error: String(e) };
+    }
+  }
+  // Ventana cerrada: plantilla. Los parámetros no admiten saltos de línea.
+  const plano = text.replace(/[\r\n\t]+/g, ' · ').replace(/ {2,}/g, ' ').slice(0, 900).trim();
+  const { data: yo } = await admin.from('app_users').select('nombre').eq('auth_user_id', who.uid).maybeSingle();
+  const firma = String(yo?.nombre || 'OMM').split(/\s+/)[0];
+  const destinatario = String(p.nombre || equipo?.nombre || '').trim().split(/\s+/)[0].replace(/^\+.*/, '') || (equipo ? 'equipo' : 'buen día');
+  const r = equipo
+    ? await sendAndLog(dest, 'omm_aviso_equipo', [destinatario, `de parte de ${firma}: ${plano}`], { sender_type: 'equipo', sent_by: who.uid })
+    : await sendAndLog(dest, 'omm_mensaje_cliente', [destinatario, firma, plano], { sender_type: 'cliente', sent_by: who.uid });
+  if (!r.ok && /132001|does not exist|template name/i.test(String(r.error))) {
+    return { ...r, error: 'La plantilla para escribirle primero a un cliente (omm_mensaje_cliente) todavía no existe o Meta no la ha aprobado. Créala en WhatsApp → Configuración → Plantillas.' };
+  }
+  return { ...r, como: equipo ? 'plantilla omm_aviso_equipo' : 'plantilla omm_mensaje_cliente' };
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   if (req.method !== 'POST') return json({ ok: false, error: 'Method not allowed' }, 405);
@@ -248,7 +295,7 @@ Deno.serve(async (req) => {
         if (have.has(t.name)) { results.push({ name: t.name, skipped: true }); continue; }
         try {
           const r = await graphPost(`${wabaId}/message_templates`, {
-            name: t.name, language: 'es_MX', category: 'UTILITY',
+            name: t.name, language: 'es_MX', category: 'UTILITY', allow_category_change: true,
             components: [{ type: 'BODY', text: t.text, example: { body_text: [t.example] } }],
           });
           results.push({ name: t.name, ok: true, status: r.status });
@@ -274,6 +321,7 @@ Deno.serve(async (req) => {
         return json({ ok: false, error: String(e) });
       }
     }
+    if (action === 'send_message') return json(await sendMessageAction(p, who));
     if (action === 'send_document') return json(await sendDocumentAction(p, who));
     return json({ ok: false, error: `Acción desconocida: ${action}` }, 400);
   } catch (e) {

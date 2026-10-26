@@ -67,6 +67,8 @@ export const DEFINICIONES_WA = [
       'ENSEÑE la vista previa y pida el sí antes de volver a llamar con confirmar=true. ' +
       'Respuestas sencillas a alguien del equipo ("recibido", "gracias", "ahorita lo veo") pueden ir directo. ' +
       'Con `documento` manda el PDF de una cotización o el estado de cuenta de un lead (siempre con vista previa y sí). ' +
+      'Sirve también para INICIAR una conversación con alguien que nunca ha escrito (por teléfono o por nombre de empleado/contacto): ' +
+      'si no hay ventana de 24 h sale como plantilla (al equipo, aviso del ERP; a cualquier otro, omm_mensaje_cliente con tu nombre). ' +
       'A un cliente sólo se le pueden mandar archivos si escribió en las últimas 24 h.',
     inputSchema: {
       type: 'object',
@@ -235,15 +237,18 @@ export async function ejecutarWa(nombre: string, args: any, sb: SupabaseClient, 
       const { data: rec } = await sb.from('whatsapp_messages').select('id').eq('direction', 'in')
         .like('phone_e164', `%${tel}`).gte('created_at', hace24).limit(1)
       const ventana = (rec || []).length > 0
-      if (!ventana && q.tipo !== 'equipo') {
-        return texto({ error: `${q.nombre} no ha escrito en las últimas 24 h y no es del equipo: Meta solo permite plantillas, y no hay plantilla genérica para clientes. Pídele que escriba al número o usa los avisos de visita/ticket.` })
-      }
-
       if (conDoc) return await enviarDocumento(sb, quien.token, args, tel, q, ventana, msg)
 
-      const primer = (q.nombre || '').split(/\s+/)[0] || 'equipo'
-      const param = `de parte de ${quien.nombre || 'OMM'}: ${msg}`.replace(/[\r\n\t]+/g, ' · ').replace(/ {2,}/g, ' ').slice(0, 900)
-      const comoSale = ventana ? msg : `Hola ${primer}, tienes un aviso del ERP de OMM: ${param}. Responde a este mensaje para atenderlo con el asistente.`
+      // Ventana cerrada (o primera vez): sale como plantilla. Al equipo, el aviso
+      // del ERP; a cualquier otro, omm_mensaje_cliente. La regla vive en
+      // whatsapp-send (send_message); aquí sólo se arma la vista previa.
+      const primer = (q.tipo !== 'desconocido' && (q.nombre || '').split(/\s+/)[0]) || (q.tipo === 'equipo' ? 'equipo' : 'buen día')
+      const firma = String(quien.nombre || 'OMM').split(/\s+/)[0]
+      const plano = msg.replace(/[\r\n\t]+/g, ' · ').replace(/ {2,}/g, ' ').slice(0, 900).trim()
+      const comoSale = ventana ? msg
+        : q.tipo === 'equipo'
+          ? `Hola ${primer}, tienes un aviso del ERP de OMM: de parte de ${firma}: ${plano}. Responde a este mensaje para atenderlo con el asistente.`
+          : `Hola ${primer}, ${firma} de OMM Technologies te escribe:\n\n${plano}\n\nPuedes responder a este mensaje para continuar la conversación.`
       const motivos = motivosDeAprobacion(msg, q.tipo, !!args?.importante, ventana)
 
       if (motivos.length && !args?.confirmar) {
@@ -257,13 +262,12 @@ export async function ejecutarWa(nombre: string, args: any, sb: SupabaseClient, 
       }
 
       try {
-        if (ventana) await llamarSend(quien.token, { action: 'send_text', to: '+52' + tel, text: msg })
-        else await llamarSend(quien.token, { action: 'send_template', to: '+52' + tel, template: 'omm_aviso_equipo', params: [primer, param], sender_type: 'equipo' })
+        await llamarSend(quien.token, { action: 'send_message', to: '+52' + tel, text: msg, nombre: q.tipo !== 'desconocido' ? q.nombre : undefined })
       } catch (e) {
         const err = (e as Error).message
         return texto({ enviado: false, error: /131042|payment/i.test(err) ? 'Meta rechazó el envío por pago: falta la tarjeta en WhatsApp Manager.' : err })
       }
-      return texto({ enviado: true, para: q.nombre, telefono: telBonito(tel), como: ventana ? 'texto libre' : 'plantilla omm_aviso_equipo', aprobado: motivos.length ? 'sí, con confirmación' : 'no requería',
+      return texto({ enviado: true, para: q.nombre, telefono: telBonito(tel), como: ventana ? 'texto libre' : q.tipo === 'equipo' ? 'plantilla omm_aviso_equipo' : 'plantilla omm_mensaje_cliente', aprobado: motivos.length ? 'sí, con confirmación' : 'no requería',
         nota: 'Meta confirma la entrega unos segundos después; si la rechaza (p. ej. por pago), whatsapp_leer lo muestra como fallido.' })
     }
   }

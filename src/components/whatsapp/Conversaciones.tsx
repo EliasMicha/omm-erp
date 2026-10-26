@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
-import { Search, Send, Bot, User, Wrench, HelpCircle, FileText, TriangleAlert, Check, CheckCheck, Paperclip, X, ArrowLeft, MoreVertical, Home, Briefcase, HardHat } from 'lucide-react'
+import { Search, Send, Bot, User, Wrench, HelpCircle, FileText, TriangleAlert, Check, CheckCheck, Paperclip, X, ArrowLeft, MoreVertical, Home, Briefcase, HardHat, MessageSquarePlus } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useIsMobile } from '../../lib/useIsMobile'
+import { useAuth } from '../../contexts/AuthContext'
 
 // Vista tipo WhatsApp sobre la bitácora `whatsapp_messages`.
 // Agrupa por los últimos 10 dígitos del teléfono (Meta manda 521…, nosotros
@@ -31,7 +32,7 @@ type Fuente = 'empleado' | 'asistente' | 'mantenimiento' | 'contacto' | 'ninguna
 interface Quien { nombre: string; tipo: 'equipo' | 'cliente' | 'desconocido'; detalle?: string; fuente: Fuente; rol?: string }
 type Grupo = 'clientes' | 'coordinacion' | 'servicios' | 'general'
 interface Chat {
-  key: string; telefono: string; quien: Quien; msgs: Msg[]; ultimo: Msg; ultimoEntrante: Msg | null
+  key: string; telefono: string; quien: Quien; msgs: Msg[]; ultimo: Msg | null; ultimoEntrante: Msg | null
   grupo: Grupo; grupoAuto: Grupo; sinLeer: number
 }
 // Lo que va pegado al mensaje: un archivo, una cotización (su último PDF del ERP)
@@ -149,6 +150,11 @@ export default function Conversaciones({ enviar, modo = 'erp' }: { enviar: (payl
   const [opciones, setOpciones] = useState([] as Opcion[])
   const [menuAdj, setMenuAdj] = useState(false)
   const [menuChat, setMenuChat] = useState(false)
+  // Nuevo chat: elegir a alguien del directorio o teclear un número.
+  const [nuevo, setNuevo] = useState(false)
+  const [qNuevo, setQNuevo] = useState('')
+  const { user } = useAuth()
+  const miNombre = String((user as any)?.nombre || 'OMM').split(/\s+/)[0]
 
   async function cargarMsgs() {
     const { data, error: e } = await supabase.from('whatsapp_messages')
@@ -211,7 +217,7 @@ export default function Conversaciones({ enviar, modo = 'erp' }: { enviar: (payl
         sinLeer: k === sel ? 0 : entrantes.filter(m => m.created_at > desde).length,
       }
     })
-    lista.sort((a, b) => b.ultimo.created_at.localeCompare(a.ultimo.created_at))
+    lista.sort((a, b) => b.ultimo!.created_at.localeCompare(a.ultimo!.created_at))
     return lista
   }, [msgs, nombres, manual, visto, sel])
 
@@ -221,6 +227,22 @@ export default function Conversaciones({ enviar, modo = 'erp' }: { enviar: (payl
     if (q) l = l.filter(c => c.quien.nombre.toLowerCase().includes(q) || c.key.includes(q.replace(/\D/g, '') || '§') || c.msgs.some(m => (m.body || '').toLowerCase().includes(q)))
     return l
   }, [todos, grupoSel, buscar])
+
+  const conChat = useMemo(() => new Set(todos.map(c => c.key)), [todos])
+  const candidatos = useMemo(() => {
+    const q = qNuevo.trim().toLowerCase()
+    const dig = q.replace(/\D/g, '')
+    const l = Object.entries(nombres)
+      .filter(([k, v]) => !q || v.nombre.toLowerCase().includes(q) || (v.detalle || '').toLowerCase().includes(q) || (dig.length >= 3 && k.includes(dig)))
+      .sort((a, b) => a[1].nombre.localeCompare(b[1].nombre, 'es'))
+    return l.slice(0, 80)
+  }, [nombres, qNuevo])
+  const numeroTecleado = qNuevo.replace(/\D/g, '').slice(-10)
+
+  function empezarChat(key: string) {
+    setNuevo(false); setQNuevo('')
+    abrir(key)
+  }
 
   const porGrupo = useMemo(() => {
     const r: Record<string, { n: number; sinLeer: number }> = { todos: { n: 0, sinLeer: 0 } }
@@ -251,13 +273,18 @@ export default function Conversaciones({ enviar, modo = 'erp' }: { enviar: (payl
     if (!movil && !sel && chats.length) { const p = new URLSearchParams(params); p.set('c', chats[0].key); setParams(p, { replace: true }) }
   }, [movil, chats, sel])
 
-  const chat = todos.find(c => c.key === sel) || null
-  const ultimoId = chat?.ultimo.id
+  // Un chat abierto puede no tener mensajes todavía: es un "nuevo chat".
+  const chat: Chat | null = todos.find(c => c.key === sel) || (sel.length === 10 ? (() => {
+    const q: Quien = nombres[sel] || { nombre: telBonito(sel), tipo: 'desconocido', fuente: 'ninguna' }
+    const auto = grupoAuto(q, [])
+    return { key: sel, telefono: telBonito(sel), quien: q, msgs: [], ultimo: null, ultimoEntrante: null, grupoAuto: auto, grupo: manual[sel] || auto, sinLeer: 0 }
+  })() : null)
+  const ultimoId = chat?.ultimo?.id
   useEffect(() => { finRef.current?.scrollIntoView({ block: 'end' }) }, [sel, ultimoId])
 
   // Marca como visto lo que está en pantalla.
   useEffect(() => {
-    if (!chat) return
+    if (!chat || !chat.ultimo) return
     const ult = chat.ultimo.created_at
     if ((visto.chats[chat.key] || '') >= ult) return
     const nuevo = { ...visto, chats: { ...visto.chats, [chat.key]: ult } }
@@ -293,6 +320,16 @@ export default function Conversaciones({ enviar, modo = 'erp' }: { enviar: (payl
   // cerrada: le llega el aviso y el archivo cuando conteste. A un cliente, no.
   const puedeAdjuntar = !!chat && (ventanaAbierta || chat.quien.tipo === 'equipo')
 
+  // Cómo llega un mensaje con la ventana cerrada (espejo de send_message en whatsapp-send).
+  function comoSalePlantilla(t: string) {
+    if (!chat) return t
+    const plano = t.replace(/[\r\n\t]+/g, ' · ').replace(/ {2,}/g, ' ').trim()
+    const primer = (chat.quien.tipo !== 'desconocido' && chat.quien.nombre.split(/\s+/)[0]) || (chat.quien.tipo === 'equipo' ? 'equipo' : 'buen día')
+    return chat.quien.tipo === 'equipo'
+      ? `Hola ${primer}, tienes un aviso del ERP de OMM: de parte de ${miNombre}: ${plano}. Responde a este mensaje para atenderlo con el asistente.`
+      : `Hola ${primer}, ${miNombre} de OMM Technologies te escribe:\n\n${plano}\n\nPuedes responder a este mensaje para continuar la conversación.`
+  }
+
   async function mandar() {
     if (!chat) return
     if (adjunto) {
@@ -308,10 +345,13 @@ export default function Conversaciones({ enviar, modo = 'erp' }: { enviar: (payl
       finally { setEnviando(false) }
       return
     }
-    if (!texto.trim() || !ventanaAbierta) return
+    if (!texto.trim()) return
+    // Fuera de la ventana de 24 h el mensaje va dentro de una plantilla. A
+    // alguien que no es del equipo se le enseña cómo le va a llegar antes de mandar.
+    if (!ventanaAbierta && chat.quien.tipo !== 'equipo' && !confirm(`Le va a llegar así:\n\n${comoSalePlantilla(texto.trim())}\n\n¿Lo mando?`)) return
     setEnviando(true); setError('')
     try {
-      const r = await enviar({ action: 'send_text', to: '+52' + chat.key, text: texto.trim() })
+      const r = await enviar({ action: 'send_message', to: '+52' + chat.key, text: texto.trim(), nombre: chat.quien.tipo !== 'desconocido' ? chat.quien.nombre : undefined })
       if (r?.ok === false) setError('WhatsApp rechazó el mensaje: ' + r.error)
       else setTexto('')
       await cargarMsgs()
@@ -366,21 +406,73 @@ export default function Conversaciones({ enviar, modo = 'erp' }: { enviar: (payl
   const verChat = !unPanel || !!chat
   const tamTexto = movil ? 16 : 14
 
+  const panelNuevo = (
+    <div style={{ width: unPanel ? '100%' : 360, minWidth: unPanel ? 0 : 280, borderRight: unPanel ? 'none' : `1px solid ${C.borde}`, display: 'flex', flexDirection: 'column', background: C.panel, minHeight: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: `calc(${app ? 'env(safe-area-inset-top)' : '0px'} + 10px) 10px 6px 4px`, background: C.cabecera }}>
+        <button onClick={() => setNuevo(false)} aria-label="Cerrar" style={{ background: 'none', border: 0, color: C.texto, padding: 6, cursor: 'pointer', display: 'grid', placeItems: 'center' }}><ArrowLeft size={22} /></button>
+        <div style={{ color: C.texto, fontSize: 17, fontWeight: 600 }}>Nuevo chat</div>
+      </div>
+      <div style={{ padding: '10px 10px 6px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: C.cabecera, borderRadius: 20, padding: '8px 14px' }}>
+          <Search size={16} color={C.tenue} />
+          <input autoFocus value={qNuevo} onChange={e => setQNuevo(e.target.value)} placeholder="Nombre, obra o número de 10 dígitos" inputMode="text"
+            style={{ flex: 1, minWidth: 0, background: 'transparent', border: 0, outline: 'none', color: C.texto, fontSize: tamTexto }} />
+        </div>
+      </div>
+      <div style={{ overflowY: 'auto', flex: 1 }}>
+        {numeroTecleado.length === 10 && (
+          <div onClick={() => empezarChat(numeroTecleado)} style={{ display: 'flex', gap: 12, padding: '10px 14px', cursor: 'pointer', alignItems: 'center' }}>
+            <div style={{ width: 44, height: 44, borderRadius: '50%', background: C.verde, color: '#0b141a', display: 'grid', placeItems: 'center', flexShrink: 0 }}><MessageSquarePlus size={20} /></div>
+            <div>
+              <div style={{ color: C.texto, fontSize: 15.5 }}>Escribir a {telBonito(numeroTecleado)}</div>
+              <div style={{ color: C.tenue, fontSize: 12.5 }}>{nombres[numeroTecleado]?.nombre || 'Número que no está en el directorio'}</div>
+            </div>
+          </div>
+        )}
+        <div style={{ color: C.tenue, fontSize: 12, padding: '8px 16px 4px', textTransform: 'uppercase', letterSpacing: 0.4 }}>Contactos con celular</div>
+        {candidatos.length === 0 && <div style={{ color: C.tenue, padding: '6px 16px', fontSize: 13 }}>Nadie coincide. Teclea el número completo de 10 dígitos.</div>}
+        {candidatos.map(([k, q]) => {
+          const g = manual[k] || grupoAuto(q, [])
+          return (
+            <div key={k} onClick={() => empezarChat(k)} style={{ display: 'flex', gap: 12, padding: '9px 14px', cursor: 'pointer', alignItems: 'center' }}
+              onMouseEnter={e => { e.currentTarget.style.background = C.hover }} onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}>
+              <div style={{ width: 44, height: 44, borderRadius: '50%', background: '#2a3942', color: COLOR_GRUPO[g], display: 'grid', placeItems: 'center', flexShrink: 0 }}>
+                {g === 'servicios' ? <Wrench size={19} /> : g === 'clientes' ? <Briefcase size={19} /> : q.tipo === 'equipo' ? <User size={20} /> : <HardHat size={19} />}
+              </div>
+              <div style={{ flex: 1, minWidth: 0, borderBottom: `1px solid ${C.borde}`, paddingBottom: 9 }}>
+                <div style={{ color: C.texto, fontSize: 15.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{q.nombre}</div>
+                <div style={{ color: C.tenue, fontSize: 12.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {telBonito(k)}{q.detalle ? ` · ${q.detalle}` : ''}{conChat.has(k) ? ' · ya hay conversación' : ''}
+                </div>
+              </div>
+            </div>
+          )
+        })}
+        <div style={{ height: 'env(safe-area-inset-bottom)' }} />
+      </div>
+    </div>
+  )
+
   const lista = (
     <div style={{ width: unPanel ? '100%' : 360, minWidth: unPanel ? 0 : 280, borderRight: unPanel ? 'none' : `1px solid ${C.borde}`, display: 'flex', flexDirection: 'column', background: C.panel, minHeight: 0 }}>
       {app && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 'calc(env(safe-area-inset-top) + 12px) 16px 6px' }}>
           <div style={{ flex: 1, color: C.texto, fontSize: 22, fontWeight: 700 }}>WhatsApp OMM</div>
+          <button onClick={() => { setNuevo(true); setQNuevo('') }} title="Nuevo chat" aria-label="Nuevo chat" style={{ background: 'none', border: 0, color: C.texto, padding: 6, cursor: 'pointer' }}><MessageSquarePlus size={21} /></button>
           <button onClick={() => navigate('/')} title="Ir al ERP" style={{ background: 'none', border: 0, color: C.tenue, padding: 6, cursor: 'pointer' }}><Home size={20} /></button>
         </div>
       )}
-      <div style={{ padding: '8px 10px 6px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: C.cabecera, borderRadius: 20, padding: '8px 14px' }}>
+      <div style={{ padding: '8px 10px 6px', display: 'flex', alignItems: 'center' }}>
+        <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 8, background: C.cabecera, borderRadius: 20, padding: '8px 14px' }}>
           <Search size={16} color={C.tenue} />
           <input value={buscar} onChange={e => setBuscar(e.target.value)} placeholder="Buscar nombre, número o texto"
             style={{ flex: 1, minWidth: 0, background: 'transparent', border: 0, outline: 'none', color: C.texto, fontSize: tamTexto }} />
           {buscar && <button onClick={() => setBuscar('')} style={{ background: 'none', border: 0, color: C.tenue, padding: 0, cursor: 'pointer' }}><X size={15} /></button>}
         </div>
+        {!app && (
+          <button onClick={() => { setNuevo(true); setQNuevo('') }} title="Nuevo chat" aria-label="Nuevo chat"
+            style={{ marginLeft: 6, background: C.verde, border: 0, color: '#0b141a', borderRadius: '50%', width: 36, height: 36, display: 'grid', placeItems: 'center', cursor: 'pointer', flexShrink: 0 }}><MessageSquarePlus size={18} /></button>
+        )}
       </div>
       <div style={{ display: 'flex', gap: 6, padding: '4px 10px 8px', overflowX: 'auto', scrollbarWidth: 'none', flexShrink: 0 }}>
         {GRUPOS.map(g => {
@@ -402,7 +494,7 @@ export default function Conversaciones({ enviar, modo = 'erp' }: { enviar: (payl
         {cargando && <div style={{ color: C.tenue, padding: 16, fontSize: 13 }}>Cargando…</div>}
         {!cargando && chats.length === 0 && <div style={{ color: C.tenue, padding: 16, fontSize: 13 }}>{buscar ? 'Nada coincide con la búsqueda.' : 'Sin conversaciones en este grupo.'}</div>}
         {chats.map(c => {
-          const u = c.ultimo
+          const u = c.ultimo!
           const prefijo = u.direction === 'out' ? (u.template_name ? 'Plantilla: ' : u.sent_by ? 'Tú: ' : 'Bot: ') : ''
           return (
             <div key={c.key} onClick={() => abrir(c.key)}
@@ -444,7 +536,7 @@ export default function Conversaciones({ enviar, modo = 'erp' }: { enviar: (payl
             <div style={{ color: C.texto, fontSize: 16, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{chat.quien.nombre}</div>
             <div style={{ color: C.tenue, fontSize: 12.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {unPanel
-                ? (ventanaAbierta ? <span style={{ color: '#6ee7b7' }}>Puedes escribir · {NOMBRE_GRUPO[chat.grupo]}</span> : `Ventana cerrada · ${NOMBRE_GRUPO[chat.grupo]}`)
+                ? (ventanaAbierta ? <span style={{ color: '#6ee7b7' }}>Puedes escribir · {NOMBRE_GRUPO[chat.grupo]}</span> : `${chat.msgs.length ? 'Ventana cerrada' : 'Chat nuevo'}: sale como plantilla · ${NOMBRE_GRUPO[chat.grupo]}`)
                 : <>{chat.telefono}{chat.quien.detalle ? ` · ${chat.quien.detalle}` : ''} · <span style={{ color: COLOR_GRUPO[chat.grupo] }}>{NOMBRE_GRUPO[chat.grupo]}</span></>}
             </div>
           </div>
@@ -452,7 +544,7 @@ export default function Conversaciones({ enviar, modo = 'erp' }: { enviar: (payl
             <div style={{ color: ventanaAbierta ? '#6ee7b7' : C.tenue, fontSize: 12, textAlign: 'right' }}>
               {ventanaAbierta
                 ? `Puedes escribir hasta ${new Date(ventanaHasta).toLocaleString('es-MX', { weekday: 'short', hour: '2-digit', minute: '2-digit' })}`
-                : 'Ventana de 24 h cerrada'}
+                : chat.msgs.length ? 'Ventana de 24 h cerrada: sale como plantilla' : 'Chat nuevo: el primer mensaje sale como plantilla'}
             </div>
           )}
           <button onClick={() => setMenuChat(v => !v)} aria-label="Opciones" style={{ background: 'none', border: 0, color: C.tenue, padding: 6, cursor: 'pointer', display: 'grid', placeItems: 'center' }}><MoreVertical size={20} /></button>
@@ -474,6 +566,11 @@ export default function Conversaciones({ enviar, modo = 'erp' }: { enviar: (payl
         </div>
 
         <div onClick={() => { setMenuChat(false); setMenuAdj(false) }} style={{ flex: 1, overflowY: 'auto', padding: unPanel ? '10px 10px' : '14px 6%', background: C.fondo, minHeight: 0, WebkitOverflowScrolling: 'touch' as any }}>
+          {chat.msgs.length === 0 && (
+            <div style={{ textAlign: 'center', margin: '28px 12px', color: C.tenue, fontSize: 13.5 }}>
+              <span style={{ background: C.cabecera, padding: '8px 14px', borderRadius: 8, display: 'inline-block' }}>Sin mensajes con {chat.quien.nombre}. Escribe abajo para empezar.</span>
+            </div>
+          )}
           {chat.msgs.map((m, i) => {
             const nuevoDia = i === 0 || new Date(chat.msgs[i - 1].created_at).toDateString() !== new Date(m.created_at).toDateString()
             const sale = m.direction === 'out'
@@ -544,7 +641,7 @@ export default function Conversaciones({ enviar, modo = 'erp' }: { enviar: (payl
         )}
         {!ventanaAbierta && !adjunto && (
           <div style={{ background: C.panel, color: C.tenue, fontSize: 12.5, padding: '7px 14px', textAlign: 'center', flexShrink: 0 }}>
-            Pasaron más de 24 h desde su último mensaje: WhatsApp solo deja mandar plantillas.{chat.quien.tipo === 'equipo' ? ' Sí puedes mandarle un archivo (le llega cuando conteste).' : ''}
+            {chat.msgs.length ? 'Pasaron más de 24 h desde su último mensaje' : 'No hay conversación todavía'}: tu mensaje le llega dentro de una plantilla de WhatsApp («Hola…, {chat.quien.tipo === 'equipo' ? 'tienes un aviso del ERP de OMM' : `${miNombre} de OMM Technologies te escribe`}: …»). Cuando conteste, ya escribes libre.{chat.quien.tipo === 'equipo' ? ' A él sí le puedes mandar archivos (le llegan cuando conteste).' : ' Archivos, hasta que conteste.'}
           </div>
         )}
         <div style={{ background: unPanel ? C.fondo : C.cabecera, padding: unPanel ? '6px 6px calc(env(safe-area-inset-bottom) + 6px)' : '10px 14px', display: 'flex', gap: unPanel ? 6 : 10, alignItems: 'flex-end', position: 'relative', flexShrink: 0 }}>
@@ -556,9 +653,9 @@ export default function Conversaciones({ enviar, modo = 'erp' }: { enviar: (payl
             </button>
             <textarea value={texto} onChange={e => setTexto(e.target.value)} rows={Math.min(5, Math.max(1, texto.split('\n').length))}
               onKeyDown={e => { if (!movil && e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); mandar() } }}
-              disabled={!(ventanaAbierta || (adjunto && puedeAdjuntar)) || enviando}
-              placeholder={adjunto ? 'Pie del documento (opcional)' : ventanaAbierta ? 'Mensaje' : 'Ventana cerrada'}
-              style={{ flex: 1, minWidth: 0, resize: 'none', background: unPanel ? 'transparent' : '#2a3942', border: 0, outline: 'none', borderRadius: 8, padding: '11px 10px', color: C.texto, fontSize: tamTexto, fontFamily: 'inherit', maxHeight: 130, lineHeight: 1.35, opacity: ventanaAbierta || adjunto ? 1 : 0.6 }} />
+              disabled={enviando || (!!adjunto && !puedeAdjuntar)}
+              placeholder={adjunto ? 'Pie del documento (opcional)' : ventanaAbierta ? 'Mensaje' : 'Mensaje (sale como plantilla)'}
+              style={{ flex: 1, minWidth: 0, resize: 'none', background: unPanel ? 'transparent' : '#2a3942', border: 0, outline: 'none', borderRadius: 8, padding: '11px 10px', color: C.texto, fontSize: tamTexto, fontFamily: 'inherit', maxHeight: 130, lineHeight: 1.35 }} />
           </div>
           {menuAdj && (
             <div style={{ position: 'absolute', bottom: '100%', left: 8, marginBottom: 6, background: C.panel, border: `1px solid ${C.borde}`, borderRadius: 10, padding: 6, zIndex: 20, minWidth: 240, boxShadow: '0 6px 20px rgba(0,0,0,.5)' }}>
@@ -573,8 +670,8 @@ export default function Conversaciones({ enviar, modo = 'erp' }: { enviar: (payl
               ))}
             </div>
           )}
-          <button onClick={mandar} disabled={enviando || (adjunto ? !puedeAdjuntar : (!ventanaAbierta || !texto.trim()))} aria-label="Enviar"
-            style={{ width: 46, height: 46, borderRadius: '50%', border: 0, background: C.verde, color: '#0b141a', display: 'grid', placeItems: 'center', cursor: 'pointer', flexShrink: 0, opacity: enviando || (adjunto ? !puedeAdjuntar : (!ventanaAbierta || !texto.trim())) ? 0.4 : 1 }}>
+          <button onClick={mandar} disabled={enviando || (adjunto ? !puedeAdjuntar : !texto.trim())} aria-label="Enviar"
+            style={{ width: 46, height: 46, borderRadius: '50%', border: 0, background: C.verde, color: '#0b141a', display: 'grid', placeItems: 'center', cursor: 'pointer', flexShrink: 0, opacity: enviando || (adjunto ? !puedeAdjuntar : !texto.trim()) ? 0.4 : 1 }}>
             <Send size={19} />
           </button>
         </div>
@@ -588,8 +685,7 @@ export default function Conversaciones({ enviar, modo = 'erp' }: { enviar: (payl
 
   return (
     <div style={contenedor}>
-      {verLista && lista}
-      {verChat && conversacion}
+      {nuevo ? (unPanel ? panelNuevo : <>{panelNuevo}{conversacion}</>) : <>{verLista && lista}{verChat && conversacion}</>}
     </div>
   )
 }
