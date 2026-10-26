@@ -4,6 +4,7 @@
 
 import type { ToolDefinition, ToolExecutionContext, ToolResult } from './types.ts';
 import { enviarCotizacionDef, enviarCotizacion } from './cotizacion.ts';
+import { mensajeAEquipoDef, mensajeAEquipo } from './equipo.ts';
 
 type ToolHandler = (input: any, ctx: ToolExecutionContext) => Promise<ToolResult>;
 
@@ -656,6 +657,13 @@ const enviarCotizacionTool: Tool = {
   handler: enviarCotizacion,
 };
 
+// mensaje_a_equipo (equipo.ts) — a un tercero, siempre con confirmación.
+const mensajeAEquipoTool: Tool = {
+  allowed_roles: ['admin'],
+  definition: mensajeAEquipoDef,
+  handler: mensajeAEquipo,
+};
+
 // ============================================================
 // Registro central
 // ============================================================
@@ -671,6 +679,7 @@ export const TOOLS: Record<string, Tool> = {
   query_purchase_orders: queryPurchaseOrders,
   update_purchase_order: updatePurchaseOrder,
   enviar_cotizacion: enviarCotizacionTool,
+  mensaje_a_equipo: mensajeAEquipoTool,
 };
 
 export function getToolsForContact(role: string, allowedOverride: string[] = []): ToolDefinition[] {

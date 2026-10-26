@@ -21,6 +21,7 @@ No eres un chatbot pasivo. Eres un asistente que EJECUTA acciones en el ERP de O
 4. **Consultas en vivo** — status de obras, cobranza, OCs. Usa query_obras, query_cobranza, query_purchase_orders.
 5. **Acciones sobre OCs** — aprobar cotejo, cambiar status. Usa update_purchase_order.
 6. **Mandar una cotización** — "mándame la cotización de [cliente/folio]". Usa enviar_cotizacion: manda el PDF tal como se descargó del ERP a quien lo pide. Si regresa candidatas, pregunta cuál con folio y nombre. Si no hay PDF guardado, di que hay que descargarlo una vez en el ERP y pasa la liga. Por ahora NO se manda a clientes.
+7. **Escribirle a alguien del equipo** — "mándale a Dafne que…". Usa mensaje_a_equipo: primero la vista previa, la enseñas y preguntas "¿Lo mando?"; solo con un sí explícito la mandas con confirmado=true. Nunca la mandes sin ese sí.
 
 # Reglas de oro
 - **Contexto activo**: cuando Elias mencione una obra ("estoy en Oasis 5"), llama set_conversation_context ANTES de las demás acciones. Así las siguientes tareas/extras se vinculan automáticamente sin que él tenga que repetir el nombre.
@@ -67,8 +68,14 @@ interface RunAgentResult {
 export async function runAgent(args: RunAgentArgs): Promise<RunAgentResult> {
   const { contact, conversation, history, newUserMessage, supabase } = args;
   const toolCtx: ToolExecutionContext = { contact, conversation, supabase };
+  // El modo delegación SUMA herramientas al asistente; ya no lo reemplaza.
+  // (Antes lo dejaba en solo-lectura: no podía crear tareas, mandar mensajes ni cotizaciones.)
   const coach = isDelegationCoach(contact);
-  const tools = coach ? delegationTools : getToolsForContact(contact.role, contact.allowed_tools);
+  const tools = [
+    ...getToolsForContact(contact.role, contact.allowed_tools),
+    ...(coach ? delegationTools : []),
+  ];
+  const nombresDelegacion = new Set(delegationTools.map((t) => t.name));
 
   // Contexto dinámico que Claude ve
   const activeContextLines: string[] = [];
@@ -93,7 +100,10 @@ export async function runAgent(args: RunAgentArgs): Promise<RunAgentResult> {
 
   const now = new Date().toLocaleString('es-MX', { timeZone: 'America/Mexico_City', dateStyle: 'full', timeStyle: 'short' });
 
-  const systemWithContext = `${coach ? DELEGATION_PROMPT : SYSTEM_PROMPT}
+  const systemWithContext = `${SYSTEM_PROMPT}${coach ? '\n\n# Modo delegación (además de todo lo anterior)\n' + DELEGATION_PROMPT : ''}
+
+# Importante
+Si en mensajes anteriores de esta conversación dijiste que solo podías leer o preparar borradores, eso ya no aplica: hoy puedes ejecutar con las herramientas que tienes.
 
 # Sesión actual
 - Usuario: ${contact.display_name} (${contact.role})
@@ -147,7 +157,7 @@ ${activeContextLines.length > 0 ? '\n' + activeContextLines.join('\n') : coach ?
     const toolResultBlocks: ContentBlock[] = await Promise.all(
       toolUses.map(async (tu) => {
         const started = Date.now();
-        const result = coach
+        const result = nombresDelegacion.has(tu.name)
           ? await executeDelegationTool(tu.name, tu.input, toolCtx)
           : await executeTool(tu.name, tu.input, toolCtx);
         const duration = Date.now() - started;
@@ -197,9 +207,7 @@ ${activeContextLines.length > 0 ? '\n' + activeContextLines.join('\n') : coach ?
   }
 
   if (!finalText) {
-    finalText = coach
-      ? 'No pude terminar el borrador en este intento. No se asignaron tareas ni se enviaron mensajes a terceros. Retomemos el encargo con el proyecto y el resultado esperado.'
-      : 'Procesé tu solicitud pero no generé respuesta final. Revisa el log del ERP.';
+    finalText = 'Procesé tu solicitud pero no generé respuesta final. Revisa el log del ERP.';
   }
 
   return { finalText, allNewMessages, totalInputTokens, totalOutputTokens };
