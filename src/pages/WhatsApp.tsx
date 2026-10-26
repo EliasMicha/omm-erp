@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { MessageCircle, RefreshCw, Send, Trash2, Copy, CheckCircle2, TriangleAlert } from 'lucide-react'
 import { supabase } from '../lib/supabase'
+import Conversaciones from '../components/whatsapp/Conversaciones'
 
 // WhatsApp Cloud API — número dedicado de OMM.
 // Entrantes: Edge Function whatsapp-webhook (equipo → agente; clientes → tickets de mantenimiento).
@@ -9,12 +10,7 @@ import { supabase } from '../lib/supabase'
 const WEBHOOK_URL = 'https://ubbumxommqjcpdozpunf.supabase.co/functions/v1/whatsapp-webhook'
 
 interface AgentContact { id: string; phone_e164: string; display_name: string; role: string; employee_id: string | null; is_active: boolean }
-interface Employee { id: string; name: string | null; nombre: string | null; phone: string | null; area: string | null }
-interface WaMsg {
-  id: string; direction: string; phone_e164: string; kind: string; body: string | null; template_name: string | null
-  sender_type: string; status: string; error: string | null; created_at: string; ticket_id: string | null
-  ticket: { ticket_number: number } | null
-}
+interface Employee { id: string; name: string | null; nombre: string | null; phone: string | null; telefono_personal: string | null; area: string | null }
 interface Template { name: string; status: string; language: string; rejected_reason?: string }
 interface StatusResp {
   ok: boolean; configured: boolean; waba_id: string | null; error: string | null; expected: string[]
@@ -54,8 +50,7 @@ export default function WhatsApp() {
   const [statusLoading, setStatusLoading] = useState(true)
   const [contacts, setContacts] = useState([] as AgentContact[])
   const [employees, setEmployees] = useState([] as Employee[])
-  const [msgs, setMsgs] = useState([] as WaMsg[])
-  const [filter, setFilter] = useState('todos')
+  const [tab, setTab] = useState(() => { try { return localStorage.getItem('wa_tab') || 'chats' } catch { return 'chats' } })
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState('')
@@ -73,16 +68,11 @@ export default function WhatsApp() {
     if (err) setError('Equipo: ' + err.message); else setContacts((data || []) as AgentContact[])
   }
   async function loadEmployees() {
-    const { data } = await supabase.from('employees').select('id, name, nombre, phone, area').order('nombre')
+    const { data } = await supabase.from('employees').select('id, name, nombre, phone, telefono_personal, area').eq('activo', true).order('nombre')
     setEmployees((data || []) as Employee[])
   }
-  async function loadMsgs() {
-    const { data, error: err } = await supabase.from('whatsapp_messages')
-      .select('id, direction, phone_e164, kind, body, template_name, sender_type, status, error, created_at, ticket_id, ticket:maintenance_tickets(ticket_number)')
-      .order('created_at', { ascending: false }).limit(150)
-    if (err) setError('Bitácora: ' + err.message); else setMsgs((data || []) as unknown as WaMsg[])
-  }
-  useEffect(() => { loadStatus(); loadContacts(); loadEmployees(); loadMsgs() }, [])
+  useEffect(() => { loadStatus(); loadContacts(); loadEmployees() }, [])
+  function cambiarTab(t: string) { setTab(t); try { localStorage.setItem('wa_tab', t) } catch { /* nada */ } }
 
   async function setupTemplates() {
     setBusy('tpl'); setError(''); setNotice('')
@@ -133,23 +123,21 @@ export default function WhatsApp() {
       const r = await callSend({ action: 'send_template', to: phone, template: 'omm_aviso_equipo', params: ['equipo', test.text], sender_type: 'equipo' })
       if (r.ok) setNotice('Enviado a ' + r.to + '. Revisa el teléfono.')
       else setError('Meta rechazó el envío: ' + r.error)
-      loadMsgs()
     } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
     finally { setBusy('') }
   }
 
   function pickEmployee(id: string) {
     const e = employees.find(x => x.id === id)
-    setForm(f => ({ ...f, employee_id: id, display_name: e ? empName(e) : f.display_name, phone: e?.phone || f.phone }))
+    setForm(f => ({ ...f, employee_id: id, display_name: e ? empName(e) : f.display_name, phone: e?.phone || e?.telefono_personal || f.phone }))
   }
 
   const tplByName: Record<string, Template> = {}
   ;(status?.templates || []).forEach(t => { tplByName[t.name] = t })
   const missingTpl = (status?.expected || []).filter(n => !tplByName[n])
-  const shownMsgs = msgs.filter(m => filter === 'todos' || m.sender_type === filter)
 
   return (
-    <div style={{ padding: '28px 36px', maxWidth: 1150 }}>
+    <div style={{ padding: '28px 36px', maxWidth: tab === 'chats' ? 1400 : 1150 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
         <div style={{ width: 42, height: 42, borderRadius: 11, display: 'grid', placeItems: 'center', background: '#25D36620', color: '#25D366' }}><MessageCircle size={24} /></div>
         <div>
@@ -158,9 +146,18 @@ export default function WhatsApp() {
         </div>
       </div>
 
+      <div style={{ display: 'flex', gap: 6, marginBottom: 16 }}>
+        {[['chats', 'Conversaciones'], ['config', 'Configuración']].map(([k, l]) => (
+          <button key={k} onClick={() => cambiarTab(k)} style={{ ...btnGhost, borderColor: tab === k ? '#25D366' : '#333', color: tab === k ? '#25D366' : '#999' }}>{l}</button>
+        ))}
+      </div>
+
       {error && <div style={{ padding: '10px 14px', borderRadius: 9, background: '#ef444416', border: '1px solid #ef444444', color: '#f87171', fontSize: 13, marginBottom: 14 }}>{error}</div>}
       {notice && <div style={{ padding: '10px 14px', borderRadius: 9, background: '#10B98116', border: '1px solid #10B98144', color: '#6ee7b7', fontSize: 13, marginBottom: 14 }}>{notice}</div>}
 
+      {tab === 'chats' && <Conversaciones enviar={callSend} />}
+
+      {tab === 'config' && <>
       {/* Conexión */}
       <div style={card}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
@@ -265,37 +262,7 @@ export default function WhatsApp() {
         </div>
       </div>
 
-      {/* Bitácora */}
-      <div style={card}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, gap: 8, flexWrap: 'wrap' }}>
-          <div style={{ color: '#fff', fontWeight: 700, fontSize: 15 }}>Bitácora</div>
-          <div style={{ display: 'flex', gap: 6 }}>
-            {['todos', 'cliente', 'desconocido', 'equipo'].map(f => (
-              <button key={f} onClick={() => setFilter(f)} style={{ ...btnGhost, padding: '5px 10px', fontSize: 12, borderColor: filter === f ? '#25D366' : '#333', color: filter === f ? '#25D366' : '#999' }}>{f}</button>
-            ))}
-            <button style={{ ...btnGhost, padding: '5px 10px' }} onClick={loadMsgs}><RefreshCw size={13} /></button>
-          </div>
-        </div>
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 760 }}>
-            <thead><tr><th style={th}>Fecha</th><th style={th}></th><th style={th}>Teléfono</th><th style={th}>Quién</th><th style={th}>Mensaje</th><th style={th}>Ticket</th><th style={th}>Estado</th></tr></thead>
-            <tbody>
-              {shownMsgs.map(m => (
-                <tr key={m.id}>
-                  <td style={{ ...td, whiteSpace: 'nowrap', color: '#888' }}>{new Date(m.created_at).toLocaleString('es-MX', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</td>
-                  <td style={{ ...td, color: m.direction === 'in' ? '#60a5fa' : '#57FF9A' }}>{m.direction === 'in' ? '←' : '→'}</td>
-                  <td style={{ ...td, fontFamily: 'ui-monospace, Menlo, monospace', whiteSpace: 'nowrap' }}>{m.phone_e164}</td>
-                  <td style={td}>{m.sender_type}</td>
-                  <td style={{ ...td, maxWidth: 420, whiteSpace: 'pre-wrap' }}>{m.template_name ? <span style={{ color: '#777' }}>[{m.template_name}] </span> : null}{m.body}</td>
-                  <td style={td}>{m.ticket ? `#${m.ticket.ticket_number}` : ''}</td>
-                  <td style={{ ...td, color: STATUS_COLOR[m.status] || '#bbb' }} title={m.error || ''}>{m.status}{m.error ? ' ⚠' : ''}</td>
-                </tr>
-              ))}
-              {shownMsgs.length === 0 && <tr><td style={td} colSpan={7}>Sin mensajes todavía.</td></tr>}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      </>}
     </div>
   )
 }

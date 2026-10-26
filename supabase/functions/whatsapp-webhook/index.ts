@@ -243,7 +243,9 @@ async function loadHistory(conversationId: string, coach = false): Promise<Claud
     .select('role, content')
     .eq('conversation_id', conversationId)
     .order('created_at', { ascending: false })
-    .limit(coach ? 100 : HISTORY_LIMIT);
+    // Antes 100 en modo delegación: con tanto historial de "solo puedo leer" el modelo
+    // seguía negándose aunque ya tuviera las herramientas.
+    .limit(coach ? 30 : HISTORY_LIMIT);
 
   if (error) throw error;
   if (!data) return [];
