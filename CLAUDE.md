@@ -3641,3 +3641,10 @@ Elias: *"que sea útil como un WhatsApp literalmente si lo veo en el celular… 
 - **MCP `whatsapp_enviar`** ya no rechaza a clientes sin ventana: usa `send_message`; la vista previa reproduce la plantilla.
 - Desplegado: whatsapp-send v8, whatsapp-webhook v38 (lleva el MCP), mcp-erp v24 — md5 cotejado en la Mac.
 - ⏳ Falta crear la plantilla en Meta: `/whatsapp` → Configuración → crear plantillas (sólo crea las que faltan; va con `allow_category_change`). Hasta que Meta la apruebe, el primer mensaje a un cliente falla con el aviso; al equipo ya funciona.
+- **(26-oct, después)** La plantilla `omm_mensaje_cliente` no existía en Meta y el primer envío a David falló con 132001. Ahora:
+  - Las plantillas viven en un solo archivo, `_shared/waPlantillas.ts` (`TEMPLATES`, `crearPlantillasFaltantes`, `estadoPlantillas`), que usan whatsapp-send y whatsapp-reportes.
+  - Si al mandar a un cliente Meta no tiene la plantilla, `mensajeCliente()` la manda a crear en ese momento y devuelve un error claro ("ya la mandé a Meta; vuelve a intentarlo cuando la aprueben").
+  - **Documentos a un cliente con la ventana cerrada:** sale la plantilla ("te comparto X. Responde a este mensaje y te lo envío por aquí") y el archivo queda en `wa_pendientes_entrega`. Lo entrega `entregarPendientes`, que atiende a cualquier número, en cuanto el cliente contesta.
+  - `whatsapp-reportes` acción **`plantillas`** (con la llave del cron o un DG/Admin; `solo_estado: true` sólo lee). Desde SQL: `select reportes_cron_llamar('plantillas')` y leer `net._http_response`.
+  - La plantilla se creó así el 26-oct (id 1484968797021484, UTILITY, PENDING).
+  - Desplegado: whatsapp-send v9, webhook v39, mcp-erp v25, whatsapp-reportes v8.
