@@ -3620,6 +3620,10 @@ Elias: *"que sea útil como un WhatsApp literalmente si lo veo en el celular… 
 - **Instalable:** mientras `/wa` está abierta, el `<head>` apunta a `public/wa-manifest.json` (`id` `/wa`, `start_url` `/wa`, `scope` `/`), al icono `wa-apple-touch-icon.png` y al título "WhatsApp OMM"; al salir se restaura. Iconos `public/wa-icon-*.png`.
   - Instalar: abrir https://omm-erp.vercel.app/wa en Safari (iPhone) o Chrome (Android), entrar, y **Compartir → Agregar a pantalla de inicio** estando ya en la lista de chats.
   - La app instalada guarda su propia sesión (en iPhone no comparte la de Safari): hay que entrar una vez dentro de la app.
+- ⚠️ **iPhone lee el manifest al CARGAR la página y no ve cambios posteriores.** La primera versión cambiaba el `<link rel="manifest">` desde React: el icono sí cambió, pero el nombre y la URL salieron del manifest del ERP ("OMM ERP", `/login`). Ahora:
+  - el plugin PWA ya no genera ni inyecta manifest (`manifest: false` en `vite.config.ts`); el del ERP es estático en `public/manifest.webmanifest`;
+  - un `<script>` al inicio de `index.html` escribe manifest, icono y `apple-mobile-web-app-title` según la ruta con la que se cargó (`window.__appWA`);
+  - si se llega a `/wa` navegando dentro del ERP (p. ej. después del login), `WhatsAppApp` recarga la página una vez para que el HTML salga con el manifest de `/wa`.
 - **`ProtectedRoute`** ahora manda a `/login?next=<ruta>`; Login ya validaba `next`. Sin esto la app instalada caía en el ERP después del login.
 - **`Conversaciones.tsx`**:
   - en el celular, un panel a la vez (lista → chat con flecha); el chat abierto vive en `?c=<10 dígitos>` para que el "atrás" del teléfono regrese a la lista;

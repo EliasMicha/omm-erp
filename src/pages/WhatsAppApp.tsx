@@ -4,39 +4,35 @@ import { enviarWhatsApp } from '../lib/whatsappSend'
 
 // /wa — las conversaciones del número de OMM a pantalla completa, sin el menú
 // del ERP, para instalarla en el celular como app ("Agregar a pantalla de
-// inicio"). Mientras esta pantalla está abierta, el <head> apunta a su propio
-// manifest e icono: así el celular la instala como "WhatsApp OMM" y la abre
-// directo aquí, no en el login del ERP.
+// inicio") con el nombre "WhatsApp OMM".
+//
+// El manifest, el icono y el nombre los escoge index.html según la ruta con la
+// que se CARGÓ la página (window.__appWA). iPhone lee el manifest al cargar y
+// no ve cambios hechos después desde React: si se llegó aquí navegando dentro
+// del ERP (p. ej. desde el login), al agregarla a la pantalla de inicio quedaba
+// "OMM ERP" abriendo /login. Por eso, si la página no cargó ya en /wa, se
+// recarga una vez aquí mismo.
 
-function ponerHead(sel: string, crear: () => HTMLElement, attr: string, valor: string): () => void {
-  let el = document.head.querySelector(sel) as HTMLElement | null
-  const existia = !!el
-  const antes = el?.getAttribute(attr) ?? null
-  if (!el) { el = crear(); document.head.appendChild(el) }
-  el.setAttribute(attr, valor)
-  return () => {
-    if (!el) return
-    if (!existia) el.remove()
-    else if (antes !== null) el.setAttribute(attr, antes)
-  }
-}
+declare global { interface Window { __appWA?: boolean } }
 
 export default function WhatsAppApp() {
+  const recargar = typeof window !== 'undefined' && window.__appWA === false
   useEffect(() => {
+    if (recargar) { window.location.replace(window.location.pathname + window.location.search); return }
     const titulo = document.title
     document.title = 'WhatsApp OMM'
-    const link = (rel: string) => () => { const l = document.createElement('link'); l.rel = rel; return l }
-    const meta = (name: string) => () => { const m = document.createElement('meta'); m.name = name; return m }
-    const deshacer = [
-      ponerHead('link[rel="manifest"]', link('manifest'), 'href', '/wa-manifest.json'),
-      ponerHead('link[rel="apple-touch-icon"]', link('apple-touch-icon'), 'href', '/wa-apple-touch-icon.png'),
-      ponerHead('meta[name="apple-mobile-web-app-title"]', meta('apple-mobile-web-app-title'), 'content', 'WhatsApp OMM'),
-      ponerHead('meta[name="theme-color"]', meta('theme-color'), 'content', '#111b21'),
-    ]
     const fondo = document.body.style.background
     document.body.style.background = '#0b141a'
-    return () => { document.title = titulo; document.body.style.background = fondo; deshacer.forEach(f => f()) }
-  }, [])
+    const tc = document.head.querySelector('meta[name="theme-color"]')
+    const tcAntes = tc?.getAttribute('content') ?? null
+    tc?.setAttribute('content', '#111b21')
+    return () => {
+      document.title = titulo
+      document.body.style.background = fondo
+      if (tc && tcAntes !== null) tc.setAttribute('content', tcAntes)
+    }
+  }, [recargar])
 
+  if (recargar) return <div style={{ position: 'fixed', inset: 0, background: '#0b141a' }} />
   return <Conversaciones enviar={enviarWhatsApp} modo="app" />
 }

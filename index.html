@@ -4,7 +4,20 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, viewport-fit=cover" />
 
-  <!-- PWA: manifest se inyecta automáticamente por vite-plugin-pwa -->
+  <!-- PWA: manifest, icono y nombre según la ruta con la que se abrió la página.
+       /wa es la app "WhatsApp OMM"; todo lo demás es "OMM ERP". iPhone toma el
+       manifest al cargar y no ve cambios posteriores, por eso va aquí y no en React. -->
+  <script>
+    (function () {
+      var wa = /^\/wa(\/|$)/.test(location.pathname);
+      window.__appWA = wa;
+      document.write(
+        '<link rel="manifest" href="' + (wa ? '/wa-manifest.json' : '/manifest.webmanifest') + '">' +
+        '<link rel="apple-touch-icon" href="' + (wa ? '/wa-apple-touch-icon.png' : '/apple-touch-icon.png') + '">' +
+        '<meta name="apple-mobile-web-app-title" content="' + (wa ? 'WhatsApp OMM' : 'OMM ERP') + '">'
+      );
+    })();
+  </script>
   <meta name="theme-color" content="#57FF9A" />
   <meta name="color-scheme" content="dark" />
 
@@ -13,9 +26,7 @@
        "black-translucent" hace que el contenido se renderice DEBAJO del notch (bug clásico). -->
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black" />
-  <meta name="apple-mobile-web-app-title" content="OMM ERP" />
   <meta name="mobile-web-app-capable" content="yes" />
-  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
 
   <!-- Microsoft tile (Windows) -->
   <meta name="msapplication-TileColor" content="#57FF9A" />

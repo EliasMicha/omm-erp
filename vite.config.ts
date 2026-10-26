@@ -12,29 +12,12 @@ export default defineConfig({
       registerType: 'autoUpdate',
       // Incluir iconos en el manifest
       includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'omm-icon.svg'],
-      manifest: {
-        name: 'OMM ERP',
-        short_name: 'OMM ERP',
-        description: 'ERP de OMM Technologies — instalaciones especiales',
-        theme_color: '#10B981',
-        background_color: '#0a0a0a',
-        display: 'standalone',
-        orientation: 'portrait',
-        scope: '/',
-        start_url: '/login',
-        // Idiomas y dirección
-        lang: 'es-MX',
-        dir: 'ltr',
-        // Categorías ayudan al sistema operativo a clasificar la app
-        categories: ['business', 'productivity'],
-        // Iconos generados desde SVG en build
-        icons: [
-          { src: '/omm-icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
-          { src: '/omm-icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
-          { src: '/omm-icon-maskable-192.png', sizes: '192x192', type: 'image/png', purpose: 'maskable' },
-          { src: '/omm-icon-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
-        ],
-      },
+      // El manifest NO lo genera el plugin: vive en public/manifest.webmanifest
+      // y index.html escoge cuál ligar según la ruta con la que se abrió la
+      // página (/wa usa public/wa-manifest.json). iPhone lee el manifest al
+      // cargar y no se entera si se cambia después, así que tiene que salir
+      // bien desde el HTML.
+      manifest: false,
       workbox: {
         // CRÍTICO: el SW nuevo toma control inmediatamente y limpia caches viejos.
         // Sin esto, el SW viejo intercepta requests al endpoint /auth/v1/token y
