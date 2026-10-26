@@ -3532,7 +3532,7 @@ Elias: *"Alfredo es el jefe… que a las 8-9 pm le llegue el resumen de lo que t
 
 **⚠️ `/api/anthropic` (Vercel) responde sin autenticación**: cualquiera con la URL usa la llave de Claude de OMM. Es de antes; queda anotado para cerrarlo (process-obra-report depende de él).
 
-**Desplegado:** whatsapp-webhook v35, whatsapp-reportes v5, process-obra-report v26 (md5 cotejados en la Mac antes del curl).
+**Desplegado:** whatsapp-webhook v36 (incluye el arreglo de `mcp-erp/cotizar.ts` de la otra sesión: el bot usa esas herramientas, así que cada cambio al MCP pide volver a desplegar el webhook), whatsapp-reportes v5, process-obra-report v26. md5 cotejados en la Mac antes del curl.
 
 **Pendiente**
 - La prueba de punta a punta con Elias (Pico Love) quedó pedida; falta su respuesta. Luego "Mandarme lo del jefe de cuadrilla" y contestar. Después **borrar** su solicitud, su reporte y las actividades de prueba de Pico Love.
