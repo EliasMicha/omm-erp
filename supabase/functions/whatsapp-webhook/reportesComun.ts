@@ -106,3 +106,33 @@ export async function buscarObra(sb: any, texto: string): Promise<Candidato[]> {
   if (leads.length) return leads;
   return top((pr.data || []).map((p: any) => ({ tipo: 'propiedad' as const, id: p.id, nombre: `${p.name}${p.client_name ? ' (' + p.client_name + ')' : ''}`, score: calificar(palabras, `${p.name} ${p.client_name || ''}`) })));
 }
+
+// Teléfono de un empleado: su ficha, y si no lo tiene ahí, el número con el que
+// está dado de alta en el asistente (agent_contacts, por empleado o por usuario).
+export async function telefonoDeEmpleado(sb: any, e: any): Promise<string | null> {
+  const t = telefonoDe(e);
+  if (t || !e?.id) return t;
+  const { data: au } = await sb.from('app_users').select('id').eq('employee_id', e.id).limit(1).maybeSingle();
+  let q = sb.from('agent_contacts').select('phone_e164').eq('is_active', true).limit(1);
+  q = au?.id ? q.or(`employee_id.eq.${e.id},app_user_id.eq.${au.id}`) : q.eq('employee_id', e.id);
+  const { data: ac } = await q.maybeSingle();
+  const d = last10(ac?.phone_e164 || '');
+  return d.length === 10 ? '52' + d : null;
+}
+
+// Al revés: de un teléfono al empleado. Primero la ficha; si no, el asistente.
+export async function empleadoDeTelefono(sb: any, phone: string): Promise<any | null> {
+  const t = last10(phone);
+  const { data } = await sb.from('employees').select('id, nombre, telefono_personal, obra_app_phone, phone').eq('activo', true);
+  const e = (data || []).find((x: any) => [x.telefono_personal, x.obra_app_phone, x.phone].some((y: string) => last10(y || '') === t));
+  if (e) return e;
+  const { data: acs } = await sb.from('agent_contacts').select('phone_e164, employee_id, app_user_id').eq('is_active', true);
+  const ac = (acs || []).find((a: any) => last10(a.phone_e164) === t);
+  if (!ac) return null;
+  let empId = ac.employee_id;
+  if (!empId && ac.app_user_id) {
+    const { data: au } = await sb.from('app_users').select('employee_id').eq('id', ac.app_user_id).maybeSingle();
+    empId = au?.employee_id || null;
+  }
+  return empId ? (data || []).find((x: any) => x.id === empId) || null : null;
+}

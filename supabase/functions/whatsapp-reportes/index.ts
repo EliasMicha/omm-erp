@@ -13,7 +13,7 @@
 //
 // Deploy: verify_jwt=false (la función revisa x-cron-key o el JWT).
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.0';
-import { hoyCDMX, telefonoDe, avisar, primerNombre } from '../whatsapp-webhook/reportesComun.ts';
+import { hoyCDMX, telefonoDeEmpleado, avisar, primerNombre } from '../whatsapp-webhook/reportesComun.ts';
 
 const URL_SB = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -40,7 +40,7 @@ async function autorizado(req: Request): Promise<{ ok: boolean; telefono?: strin
   const { data: au } = await sb.from('app_users').select('permission_area, employee_id, activo').eq('auth_user_id', u.user.id).maybeSingle();
   if (!au?.activo || !['DG', 'Administracion'].includes(au.permission_area)) return { ok: false };
   const { data: e } = au.employee_id ? await sb.from('employees').select('id, nombre, telefono_personal, obra_app_phone, phone').eq('id', au.employee_id).maybeSingle() : { data: null };
-  return { ok: true, telefono: telefonoDe(e), empleado: e };
+  return { ok: true, telefono: await telefonoDeEmpleado(sb, e), empleado: e };
 }
 
 const saludoDe = (p: any, e: any) => (p?.alias || '').trim() || primerNombre(e?.nombre);
@@ -68,7 +68,7 @@ async function pedir(opts: { soloEmpleado?: string; telefonoPrueba?: string | nu
   for (const p of personas) {
     const e = (emps || []).find((x: any) => x.id === p.employee_id);
     if (!e || e.activo === false) { res.push({ persona: p.employee_id, omitido: 'inactivo' }); continue; }
-    const tel = opts.telefonoPrueba || telefonoDe(e);
+    const tel = opts.telefonoPrueba || await telefonoDeEmpleado(sb, e);
     if (!tel) { res.push({ persona: e.nombre, omitido: 'sin teléfono' }); continue; }
     const obras = new Map<string, string>();
     for (const a of (asig || []).filter((x: any) => x.employee_id === e.id)) obras.set(a.obra_id, a.obras?.nombre || 'obra');
@@ -193,7 +193,7 @@ async function resumen(opts: { soloObra?: string; soloA?: { telefono: string; sa
   // 3. Destinatarios: la lista de la obra, o coordinador. Elias (DG) recibe un
   //    solo cierre con todo, no uno por obra.
   const { data: dg } = await sb.from('employees').select('id, nombre, telefono_personal, obra_app_phone, phone').eq('puesto', 'DIRECTOR GENERAL').eq('activo', true).limit(1).maybeSingle();
-  const telDG = telefonoDe(dg);
+  const telDG = await telefonoDeEmpleado(sb, dg);
   const enviados: any[] = [];
   const bloques: string[] = [];
   const compactos: string[] = [];
@@ -204,10 +204,13 @@ async function resumen(opts: { soloObra?: string; soloA?: { telefono: string; sa
     const { data: dest } = await sb.from('reporte_obra_destinatarios').select('employee_id, telefono, nombre, employees(nombre, telefono_personal, obra_app_phone, phone)').eq('obra_id', obraId);
     let gente: { tel: string; saludo: string }[] = [];
     if (dest?.length) {
-      gente = dest.map((d: any) => ({ tel: d.telefono ? '52' + String(d.telefono).replace(/\D/g, '').slice(-10) : telefonoDe(d.employees) || '', saludo: primerNombre(d.nombre || d.employees?.nombre) }));
+      for (const d of dest) gente.push({
+        tel: d.telefono ? '52' + String(d.telefono).replace(/\D/g, '').slice(-10) : (await telefonoDeEmpleado(sb, { ...(d.employees || {}), id: d.employee_id })) || '',
+        saludo: primerNombre(d.nombre || d.employees?.nombre),
+      });
     } else if (o.coordinador) {
       const { data: c } = await sb.from('employees').select('nombre, telefono_personal, obra_app_phone, phone').eq('id', o.coordinador).maybeSingle();
-      if (c) gente = [{ tel: telefonoDe(c) || '', saludo: primerNombre(c.nombre) }];
+      if (c) gente = [{ tel: (await telefonoDeEmpleado(sb, { ...c, id: o.coordinador })) || '', saludo: primerNombre(c.nombre) }];
     }
     const vistos = new Set<string>([telDG || '']);
     for (const g of gente) {

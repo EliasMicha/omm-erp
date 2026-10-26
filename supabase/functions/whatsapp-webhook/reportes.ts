@@ -13,7 +13,7 @@
 //    cual y se avisa en el resumen. Nunca se tira un reporte.
 import { sendText, downloadMedia, last10, toSendPhone, markAsRead } from './whatsapp.ts';
 import { logWa, waIdFrom } from './log.ts';
-import { hoyCDMX, horaCDMX, diaAntes, buscarObra, type Candidato } from './reportesComun.ts';
+import { hoyCDMX, horaCDMX, diaAntes, buscarObra, empleadoDeTelefono, type Candidato } from './reportesComun.ts';
 
 const ANTHROPIC_API_KEY = Deno.env.get('ANTHROPIC_API_KEY') ?? '';
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
@@ -33,11 +33,7 @@ async function responder(sb: any, from: string, texto: string) {
   }
 }
 
-async function empleadoPorTelefono(sb: any, phone: string) {
-  const t = last10(phone);
-  const { data } = await sb.from('employees').select('id, nombre, telefono_personal, obra_app_phone, phone').eq('activo', true);
-  return (data || []).find((e: any) => [e.telefono_personal, e.obra_app_phone, e.phone].some((x: string) => last10(x || '') === t)) || null;
-}
+const empleadoPorTelefono = empleadoDeTelefono;
 
 async function solicitudesAbiertas(sb: any, employeeId: string, esAgente: boolean) {
   const hoy = hoyCDMX();
