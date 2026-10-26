@@ -149,31 +149,35 @@ export async function runAgent(args: RunAgentArgs): Promise<RunAgentResult> {
 # Importante
 Si en mensajes anteriores de esta conversación dijiste que solo podías leer o preparar borradores, eso ya no aplica: hoy puedes ejecutar con las herramientas que tienes.
 `;
-  // Lo de abajo cambia en cada mensaje (hora, obra activa): va en un bloque aparte para
-  // que el bloque de arriba —y las herramientas, que van antes— se lean de caché.
-  const systemDinamico = `# Sesión actual
+  // Lo que cambia en cada mensaje (hora, obra activa) NO va en el system: va pegado al
+  // mensaje nuevo y se guarda con él. Así el system queda idéntico entre mensajes y todo
+  // el historial anterior se lee de caché en el siguiente mensaje, no sólo dentro del turno.
+  // Las líneas viejas de "[Sesión …]" en el historial sirven además como marca de tiempo.
+  const system = [{
+    type: 'text',
+    text: `${systemEstatico}
+# Sesión
 - Usuario: ${contact.display_name} (${contact.role})
 - Teléfono: ${contact.phone_e164}
-- Fecha/hora CDMX: ${now}
-${activeContextLines.length > 0 ? '\n' + activeContextLines.join('\n') : coach ? '\n(Sin contexto activo; consulta el ERP para identificar el encargo.)' : '\n(Sin contexto activo — si el usuario menciona una obra, fíjala con set_conversation_context)'}`;
+- Cada mensaje del usuario empieza con una línea "[Sesión …]" con la fecha/hora de ese mensaje y el contexto activo. La del último mensaje es la vigente.`,
+    cache_control: { type: 'ephemeral' },
+  }];
+  const sesionAhora = `[Sesión — ${now} (CDMX)${activeContextLines.length > 0 ? ' · ' + activeContextLines.join(' · ') : coach ? ' · sin contexto activo; consulta el ERP para identificar el encargo' : ' · sin contexto activo — si menciona una obra, fíjala con set_conversation_context'}]`;
+  const mensajeNuevo: ContentBlock[] = [{ type: 'text', text: sesionAhora } as ContentBlock, ...newUserMessage];
 
-  const system = [
-    { type: 'text', text: systemEstatico, cache_control: { type: 'ephemeral' } },
-    { type: 'text', text: systemDinamico },
-  ];
-
+  const historial = compactarHistorial(history);
   const messages: ClaudeMessage[] = [
-    ...compactarHistorial(history),
-    { role: 'user', content: newUserMessage },
+    ...historial,
+    { role: 'user', content: mensajeNuevo },
   ];
-  const allNewMessages: ClaudeMessage[] = [{ role: 'user', content: newUserMessage }];
+  const allNewMessages: ClaudeMessage[] = [{ role: 'user', content: mensajeNuevo }];
 
   let totalInputTokens = 0;
   let totalOutputTokens = 0;
   let finalText = '';
 
   for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration++) {
-    const response = await callClaude(system, messages, tools);
+    const response = await callClaude(system, messages, tools, historial.length - 1);
     const u = response.usage || {};
     // input_tokens ya NO incluye lo leído/escrito en caché: se suma todo para que
     // agent_messages.tokens_input siga siendo el tamaño real del contexto.
@@ -296,31 +300,35 @@ function compactarHistorial(history: ClaudeMessage[]): ClaudeMessage[] {
 // Marca de caché en el último bloque del último mensaje. En el ciclo de herramientas,
 // cada vuelta reusa todo lo anterior a precio de caché (5% del precio normal).
 // Se marca una COPIA: lo que se guarda en agent_messages no lleva cache_control.
-function conMarcaDeCache(messages: ClaudeMessage[]): any[] {
-  if (!messages.length) return messages;
-  const last: any = messages[messages.length - 1];
-  const bloques = typeof last.content === 'string' ? [{ type: 'text', text: last.content }] : [...last.content];
-  if (!bloques.length) return messages;
-  bloques[bloques.length - 1] = { ...bloques[bloques.length - 1], cache_control: { type: 'ephemeral' } };
-  return [...messages.slice(0, -1), { ...last, content: bloques }];
+// Además se marca el fin del historial: de un mensaje al siguiente, la caché sólo
+// encuentra prefijos que se escribieron en una marca, y ésa es la que coincide.
+function conMarcaDeCache(messages: ClaudeMessage[], finHistorial = -1): any[] {
+  const marcar = (m: any) => {
+    const bloques = typeof m.content === 'string' ? [{ type: 'text', text: m.content }] : [...m.content];
+    if (!bloques.length) return m;
+    bloques[bloques.length - 1] = { ...bloques[bloques.length - 1], cache_control: { type: 'ephemeral' } };
+    return { ...m, content: bloques };
+  };
+  const ult = messages.length - 1;
+  return messages.map((m, i) => (i === ult || i === finHistorial ? marcar(m) : m));
 }
 
 let modeloEnUso = MODEL;
-async function callClaude(system: any, messages: ClaudeMessage[], tools: any[]): Promise<any> {
+async function callClaude(system: any, messages: ClaudeMessage[], tools: any[], finHistorial = -1): Promise<any> {
   try {
-    return await callClaudeCon(modeloEnUso, system, messages, tools);
+    return await callClaudeCon(modeloEnUso, system, messages, tools, finHistorial);
   } catch (e) {
     // Si el modelo nuevo no existe para esta llave, se usa el anterior el resto de la vida del proceso.
     if (modeloEnUso !== MODELO_RESPALDO && /error 404|not_found_error/i.test(String(e))) {
       console.error('Modelo', modeloEnUso, 'no disponible; uso', MODELO_RESPALDO, String(e).slice(0, 200));
       modeloEnUso = MODELO_RESPALDO;
-      return await callClaudeCon(modeloEnUso, system, messages, tools);
+      return await callClaudeCon(modeloEnUso, system, messages, tools, finHistorial);
     }
     throw e;
   }
 }
 
-async function callClaudeCon(model: string, system: any, messages: ClaudeMessage[], tools: any[]) {
+async function callClaudeCon(model: string, system: any, messages: ClaudeMessage[], tools: any[], finHistorial = -1) {
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -332,7 +340,7 @@ async function callClaudeCon(model: string, system: any, messages: ClaudeMessage
       model,
       max_tokens: 4096,
       system,
-      messages: conMarcaDeCache(messages),
+      messages: conMarcaDeCache(messages, finHistorial),
       tools,
     }),
   });
