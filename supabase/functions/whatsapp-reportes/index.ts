@@ -19,6 +19,8 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.0';
 import { hoyCDMX, telefonoDeEmpleado, avisar, primerNombre, alHistorial, ZONA, empleadoDeTelefono } from '../whatsapp-webhook/reportesComun.ts';
 import { armarPropuestas, abiertasDe, textoPropuestas, fechaCorta, detectarComunicados, textoComunicados } from '../whatsapp-webhook/supervisor.ts';
 import { contextoCoord, panorama, ejecutarCoord } from '../whatsapp-webhook/coordinador.ts';
+import { graphGet, graphPost } from '../whatsapp-webhook/whatsapp.ts';
+import { crearPlantillasFaltantes, estadoPlantillas } from '../_shared/waPlantillas.ts';
 
 const URL_SB = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -446,6 +448,15 @@ Deno.serve(async (req) => {
           return json({ ok: true, en_proceso: true });
         }
         return json({ ok: true, ...(await f()) });
+      }
+      case 'plantillas': {
+        // Crea en Meta las plantillas de OMM que falten y devuelve su estado.
+        // Con la llave del cron o un DG/Administración. Sólo crea las que no
+        // existen: no toca ni reenvía las aprobadas.
+        const wabaId = Deno.env.get('WHATSAPP_WABA_ID') || '';
+        if (!wabaId) return json({ ok: false, error: 'Falta WHATSAPP_WABA_ID' }, 400);
+        const creadas = p.solo_estado ? [] : await crearPlantillasFaltantes(graphGet, graphPost, wabaId);
+        return json({ ok: true, creadas, estado: await estadoPlantillas(graphGet, wabaId) });
       }
       case 'diagnostico': {
         // Sólo con la llave del cron (se llama desde SQL): corre herramientas de

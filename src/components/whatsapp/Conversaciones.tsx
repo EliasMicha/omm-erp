@@ -316,9 +316,9 @@ export default function Conversaciones({ enviar, modo = 'erp' }: { enviar: (payl
   const ventanaHasta = chat?.ultimoEntrante ? new Date(chat.ultimoEntrante.created_at).getTime() + VENTANA_MS : 0
   const ventanaAbierta = ventanaHasta > Date.now()
 
-  // A alguien del equipo se le puede mandar un archivo aunque la ventana esté
-  // cerrada: le llega el aviso y el archivo cuando conteste. A un cliente, no.
-  const puedeAdjuntar = !!chat && (ventanaAbierta || chat.quien.tipo === 'equipo')
+  // Con la ventana cerrada el archivo no sale directo: le llega un mensaje de
+  // plantilla y el archivo se le entrega en cuanto conteste (equipo o cliente).
+  const puedeAdjuntar = !!chat
 
   // Cómo llega un mensaje con la ventana cerrada (espejo de send_message en whatsapp-send).
   function comoSalePlantilla(t: string) {
@@ -337,9 +337,9 @@ export default function Conversaciones({ enviar, modo = 'erp' }: { enviar: (payl
       if (!confirm(`¿Mandar ${adjunto.etiqueta} a ${chat.quien.nombre}?`)) return
       setEnviando(true); setError('')
       try {
-        const r = await enviar({ action: 'send_document', to: '+52' + chat.key, documento: adjunto.documento, caption: texto.trim() || undefined })
+        const r = await enviar({ action: 'send_document', to: '+52' + chat.key, documento: adjunto.documento, caption: texto.trim() || undefined, nombre: chat.quien.tipo !== 'desconocido' ? chat.quien.nombre : undefined })
         if (r?.ok === false) setError('No salió: ' + r.error)
-        else { setTexto(''); setAdjunto(null); if (r?.diferido) setError('Le llegó el aviso; el archivo se le entrega cuando conteste.') }
+        else { setTexto(''); setAdjunto(null); if (r?.diferido) setError(r.nota || 'Le llegó el aviso; el archivo se le entrega cuando conteste.') }
         await cargarMsgs()
       } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
       finally { setEnviando(false) }
@@ -641,7 +641,7 @@ export default function Conversaciones({ enviar, modo = 'erp' }: { enviar: (payl
         )}
         {!ventanaAbierta && !adjunto && (
           <div style={{ background: C.panel, color: C.tenue, fontSize: 12.5, padding: '7px 14px', textAlign: 'center', flexShrink: 0 }}>
-            {chat.msgs.length ? 'Pasaron más de 24 h desde su último mensaje' : 'No hay conversación todavía'}: tu mensaje le llega dentro de una plantilla de WhatsApp («Hola…, {chat.quien.tipo === 'equipo' ? 'tienes un aviso del ERP de OMM' : `${miNombre} de OMM Technologies te escribe`}: …»). Cuando conteste, ya escribes libre.{chat.quien.tipo === 'equipo' ? ' A él sí le puedes mandar archivos (le llegan cuando conteste).' : ' Archivos, hasta que conteste.'}
+            {chat.msgs.length ? 'Pasaron más de 24 h desde su último mensaje' : 'No hay conversación todavía'}: tu mensaje le llega dentro de una plantilla de WhatsApp («Hola…, {chat.quien.tipo === 'equipo' ? 'tienes un aviso del ERP de OMM' : `${miNombre} de OMM Technologies te escribe`}: …»). Cuando conteste, ya escribes libre.{' Si le mandas un archivo, se le entrega en cuanto conteste.'}
           </div>
         )}
         <div style={{ background: unPanel ? C.fondo : C.cabecera, padding: unPanel ? '6px 6px calc(env(safe-area-inset-bottom) + 6px)' : '10px 14px', display: 'flex', gap: unPanel ? 6 : 10, alignItems: 'flex-end', position: 'relative', flexShrink: 0 }}>

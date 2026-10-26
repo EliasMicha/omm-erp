@@ -20,6 +20,7 @@ import { sendTemplate, sendText, graphGet, graphPost, getWhatsAppCredentials, to
 import { generarEstadoCuentaPdf } from '../_shared/estadoCuentaPdf.ts';
 import { datosEstadoCuenta, nombreArchivoEstadoCuenta } from '../_shared/estadoCuenta.ts';
 import { logWa, waIdFrom } from './log.ts';
+import { TEMPLATES, crearPlantillasFaltantes } from '../_shared/waPlantillas.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -33,37 +34,6 @@ const CORS = {
 };
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { ...CORS, 'Content-Type': 'application/json' } });
-
-// Plantillas de OMM (categoría UTILITY, español México). Meta no acepta que el texto empiece o termine con variable.
-const TEMPLATES = [
-  {
-    name: 'omm_visita_programada',
-    text: 'Hola {{1}}, confirmamos tu visita de servicio de OMM Technologies en {{2}} el {{3}} a las {{4}}. Te atenderá {{5}}. Si necesitas cambiar el horario, responde a este mensaje.',
-    example: ['Ana', 'Casa Lomas', 'lunes 27 de octubre', '10:00', 'Juan Pérez'],
-  },
-  {
-    name: 'omm_tecnico_en_camino',
-    text: 'Hola {{1}}, {{2}} de OMM Technologies va en camino a {{3}} para tu visita de servicio. Si necesitas algo, responde a este mensaje.',
-    example: ['Ana', 'Juan Pérez', 'Casa Lomas'],
-  },
-  {
-    name: 'omm_ticket_actualizado',
-    text: 'Hola {{1}}, tu reporte #{{2}} con OMM Technologies cambió de estado: {{3}}. Responde a este mensaje si tienes dudas.',
-    example: ['Ana', '128', 'resuelto'],
-  },
-  {
-    // Primer mensaje a un cliente que no ha escrito en 24 h (o nunca): Meta sólo
-    // deja abrir la conversación con plantilla. {{2}} es quien escribe, {{3}} el mensaje.
-    name: 'omm_mensaje_cliente',
-    text: 'Hola {{1}}, {{2}} de OMM Technologies te escribe:\n\n{{3}}\n\nPuedes responder a este mensaje para continuar la conversación.',
-    example: ['Ana', 'Elias', 'quería confirmar contigo la fecha de instalación'],
-  },
-  {
-    name: 'omm_aviso_equipo',
-    text: 'Hola {{1}}, tienes un aviso del ERP de OMM: {{2}}. Responde a este mensaje para atenderlo con el asistente.',
-    example: ['Ricardo', 'tienes 3 tareas por vencer hoy'],
-  },
-];
 
 function render(name: string, params: string[]) {
   const t = TEMPLATES.find(x => x.name === name);
@@ -198,7 +168,19 @@ async function sendDocumentAction(p: any, who: any) {
   await admin.storage.from('agent-documents').upload(path, doc.bytes, { contentType: doc.mime, upsert: true });
   const dest = toSendPhone('+52' + tel10);
   if (!ventana) {
-    if (!equipo) return { ok: false, error: 'No ha escrito en las últimas 24 h: WhatsApp no deja mandarle archivos (sólo plantillas de texto). Pídele que escriba al número de OMM y vuelve a intentarlo.' };
+    if (!equipo) {
+      // A un cliente: se le abre la conversación con la plantilla y el archivo
+      // queda guardado; se le entrega solo en cuanto conteste (entregarPendientes
+      // en whatsapp-webhook atiende a cualquier número).
+      const { data: yo } = await admin.from('app_users').select('nombre').eq('auth_user_id', who.uid).maybeSingle();
+      const firma = String(yo?.nombre || 'OMM').split(/\s+/)[0];
+      const destinatario = String(p.nombre || '').trim().split(/\s+/)[0].replace(/^\+.*/, '') || 'buen día';
+      const que = (doc.caption || doc.filename).replace(/[\r\n\t]+/g, ' ').slice(0, 300);
+      const r = await mensajeCliente(dest, destinatario, firma, `te comparto ${que}. Responde a este mensaje y te lo envío por aquí`, { sender_type: 'cliente', sent_by: who.uid });
+      if (!r.ok) return r;
+      await admin.from('wa_pendientes_entrega').insert({ telefono10: tel10, texto: doc.caption || doc.filename, motivo: 'documento', documento_path: path, documento_nombre: doc.filename, caption: doc.caption || null });
+      return { ...r, diferido: true, nota: 'Le llegó el mensaje para abrir la conversación; el archivo se le entrega solo en cuanto conteste.' };
+    }
     await admin.from('wa_pendientes_entrega').insert({ telefono10: tel10, texto: doc.caption || doc.filename, motivo: 'documento', documento_path: path, documento_nombre: doc.filename, caption: doc.caption || null });
     const nombre = (equipo.nombre || '').split(/\s+/)[0] || 'equipo';
     const param = `te mandaron ${doc.caption || doc.filename} — contesta *ver* y te lo mando`.slice(0, 900);
@@ -214,6 +196,22 @@ async function sendDocumentAction(p: any, who: any) {
     await logWa(admin, { direction: 'out', phone_e164: '+' + dest, kind: 'document', body: doc.caption || doc.filename, media_path: path, status: 'fallido', error: String(e), sent_by: who.uid });
     return { ok: false, error: String(e) };
   }
+}
+
+// Primer mensaje a un cliente (ventana cerrada). Si Meta no conoce la plantilla
+// todavía, se manda a crear en ese momento y se explica: la aprobación tarda de
+// minutos a horas y no hay forma de mandar texto libre mientras tanto.
+async function mensajeCliente(dest: string, destinatario: string, firma: string, plano: string, extra: Record<string, unknown>) {
+  const r = await sendAndLog(dest, 'omm_mensaje_cliente', [destinatario, firma, plano], extra);
+  if (r.ok || !/132001|does not exist|template name/i.test(String(r.error))) return r;
+  const wabaId = Deno.env.get('WHATSAPP_WABA_ID') || '';
+  let creada = '';
+  try {
+    const res = wabaId ? await crearPlantillasFaltantes(graphGet, graphPost, wabaId) : [];
+    const x = res.find((y: any) => y.name === 'omm_mensaje_cliente');
+    creada = x?.ok ? 'Ya la mandé a Meta para aprobación' : x?.skipped ? 'Ya está en Meta esperando aprobación' : `No se pudo crear: ${x?.error || 'falta WHATSAPP_WABA_ID'}`;
+  } catch (e) { creada = 'No se pudo crear: ' + String(e); }
+  return { ...r, error: `Meta todavía no tiene aprobada la plantilla para escribirle primero a un cliente (omm_mensaje_cliente). ${creada}; suele tardar de minutos a unas horas. Cuando esté aprobada, vuelve a mandarlo. No le llegó nada.` };
 }
 
 // Un solo lugar decide cómo sale un mensaje escrito a mano (ERP o MCP):
@@ -245,10 +243,7 @@ async function sendMessageAction(p: any, who: any) {
   const destinatario = String(p.nombre || equipo?.nombre || '').trim().split(/\s+/)[0].replace(/^\+.*/, '') || (equipo ? 'equipo' : 'buen día');
   const r = equipo
     ? await sendAndLog(dest, 'omm_aviso_equipo', [destinatario, `de parte de ${firma}: ${plano}`], { sender_type: 'equipo', sent_by: who.uid })
-    : await sendAndLog(dest, 'omm_mensaje_cliente', [destinatario, firma, plano], { sender_type: 'cliente', sent_by: who.uid });
-  if (!r.ok && /132001|does not exist|template name/i.test(String(r.error))) {
-    return { ...r, error: 'La plantilla para escribirle primero a un cliente (omm_mensaje_cliente) todavía no existe o Meta no la ha aprobado. Créala en WhatsApp → Configuración → Plantillas.' };
-  }
+    : await mensajeCliente(dest, destinatario, firma, plano, { sender_type: 'cliente', sent_by: who.uid });
   return { ...r, como: equipo ? 'plantilla omm_aviso_equipo' : 'plantilla omm_mensaje_cliente' };
 }
 
@@ -288,19 +283,7 @@ Deno.serve(async (req) => {
       if (!isAdmin) return json({ ok: false, error: 'Solo DG / Administración' }, 403);
       const wabaId = Deno.env.get('WHATSAPP_WABA_ID');
       if (!wabaId) return json({ ok: false, error: 'Falta el secreto WHATSAPP_WABA_ID' }, 400);
-      const existing = await graphGet(`${wabaId}/message_templates?fields=name&limit=200`);
-      const have = new Set((existing.data || []).map((x: any) => x.name));
-      const results: any[] = [];
-      for (const t of TEMPLATES) {
-        if (have.has(t.name)) { results.push({ name: t.name, skipped: true }); continue; }
-        try {
-          const r = await graphPost(`${wabaId}/message_templates`, {
-            name: t.name, language: 'es_MX', category: 'UTILITY', allow_category_change: true,
-            components: [{ type: 'BODY', text: t.text, example: { body_text: [t.example] } }],
-          });
-          results.push({ name: t.name, ok: true, status: r.status });
-        } catch (e) { results.push({ name: t.name, ok: false, error: String(e) }); }
-      }
+      const results = await crearPlantillasFaltantes(graphGet, graphPost, wabaId);
       return json({ ok: true, results });
     }
 

@@ -69,7 +69,7 @@ export const DEFINICIONES_WA = [
       'Con `documento` manda el PDF de una cotización o el estado de cuenta de un lead (siempre con vista previa y sí). ' +
       'Sirve también para INICIAR una conversación con alguien que nunca ha escrito (por teléfono o por nombre de empleado/contacto): ' +
       'si no hay ventana de 24 h sale como plantilla (al equipo, aviso del ERP; a cualquier otro, omm_mensaje_cliente con tu nombre). ' +
-      'A un cliente sólo se le pueden mandar archivos si escribió en las últimas 24 h.',
+      'A un cliente que no ha escrito en 24 h, el archivo se le entrega cuando conteste al mensaje de plantilla.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -308,9 +308,6 @@ async function resolverLead(sb: SupabaseClient, t: string) {
 
 async function enviarDocumento(sb: SupabaseClient, token: string, args: any, tel: string, q: Quien2, ventana: boolean, msg: string) {
   const d = args.documento || {}
-  if (!ventana && q.tipo !== 'equipo') {
-    return texto({ error: `${q.nombre} no ha escrito en las últimas 24 h: WhatsApp no deja mandarle archivos. Pídele que escriba al número de OMM y vuelve a intentarlo.` })
-  }
   let documento: Record<string, unknown>
   let descripcion: string
   if (d.tipo === 'cotizacion') {
@@ -347,12 +344,14 @@ async function enviarDocumento(sb: SupabaseClient, token: string, args: any, tel
       para: { nombre: q.nombre, tipo: q.tipo, telefono: telBonito(tel) },
       documento: descripcion,
       pie: msg || '(el nombre del documento)',
-      como_sale: ventana ? 'el archivo, directo al chat' : 'aviso con plantilla; el archivo le llega cuando conteste',
+      como_sale: ventana ? 'el archivo, directo al chat'
+        : q.tipo === 'equipo' ? 'aviso con plantilla; el archivo le llega cuando conteste'
+        : 'mensaje con plantilla para abrir la conversación ("…te comparto <documento>. Responde a este mensaje y te lo envío por aquí"); el archivo se le entrega solo en cuanto conteste',
       instruccion: 'Enseña esto y pregunta "¿Lo mando?". Solo con un sí, vuelve a llamar con confirmar=true y lo mismo.',
     })
   }
   try {
-    const r = await llamarSend(token, { action: 'send_document', to: '+52' + tel, documento, caption: msg || undefined })
+    const r = await llamarSend(token, { action: 'send_document', to: '+52' + tel, documento, caption: msg || undefined, nombre: q.tipo !== 'desconocido' ? q.nombre : undefined })
     return texto({ enviado: true, para: q.nombre, documento: descripcion, ...(r?.diferido ? { nota: r.nota } : {}) })
   } catch (e) {
     return texto({ enviado: false, error: (e as Error).message })
