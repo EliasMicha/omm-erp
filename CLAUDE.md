@@ -3690,9 +3690,13 @@ Elias: *"que sea útil como un WhatsApp literalmente si lo veo en el celular… 
 - `src/main.tsx`: un envoltorio de `window.fetch` agrega `Authorization: Bearer <token de sesión>` a toda llamada a `/api/*` que no lo traiga. Por eso no se tocaron los ~30 lugares que llaman al proxy. **Si un modelo nuevo se usa desde el front, hay que agregarlo a `MODELOS_PERMITIDOS`.**
 - `process-obra-report` (v27) llama directo a Anthropic con su `ANTHROPIC_API_KEY` y ya no pasa por el proxy.
 
-**Pendiente (Elias):**
-- Crear una llave nueva y ponerla en Vercel (`ANTHROPIC_API_KEY`, `ANTHROPIC_KEY` y `VITE_ANTHROPIC_KEY`, la que exista). Redesplegar y desactivar OMM-ERP-KEY.
-- Revisar `JOSEG_ERP_KEY` (12-sep, $0, nadie sabe de quién es).
+**Rotación hecha (27-oct):**
+- La llave nueva **OMM-ERP-OCT-2026** está en Vercel, marcada como *Sensitive*, y se redesplegó (612e1f2).
+- **OMM-ERP-KEY quedó desactivada** (total $241.80). El 26-oct su uso real fue de 327 M tokens de entrada y 1.2 M de salida.
+- Comprobado: con sesión, el proxy llega a Anthropic con la llave nueva. Responde "usage limits", no "authentication_error", así que la llave es válida.
+- El tope de $200 sigue cerrado hasta el 1-nov.
+
+**Pendiente:** `JOSEG_ERP_KEY` (12-sep, $0) sigue activa y nadie sabe de quién es.
 - El bundle público no trae ninguna llave (revisado).
 
 **Pendiente (código):** las demás `/api/*` que llaman a Claude (`extract`, `extract-bank-statement`, `ai-chat`, `analyze-plan`, `memoria-tecnica`, `resumen-cotizaciones`, `process-obra-report`, `gmail`) usan Sonnet fijo pero tampoco piden sesión. Ya reciben el JWT por el envoltorio, así que se les puede agregar la misma guarda.
