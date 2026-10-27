@@ -3755,3 +3755,11 @@ Elias: *"que sea útil como un WhatsApp literalmente si lo veo en el celular… 
 ## 🏦 Conciliación: se quitaron los botones de Belvo (2026-10-27)
 - Elias: "no sirven de nada esas funciones". Se quitaron "🔗 Conectar banco (Belvo)" y "🔄 Sincronizar Belvo", junto con su código en `Contabilidad.tsx` (`sincronizarBelvo`, `conectarBancoBelvo`, `loadBelvoWidget` y los estados).
 - **Quedan sin tocar:** el API route `api/belvo.ts`, sus variables de entorno y la columna `bank_movements.belvo_transaction_id`. Si se decide borrar Belvo del todo, quitar `api/belvo.ts` libera una función de Vercel (plan Hobby con tope).
+
+## 🏦 Conciliación: OC con folio truncado por BBVA (2026-10-27)
+- **Problema:** BBVA corta el texto libre del concepto a **18 caracteres**. "Material MATIE01C30" llegó como "Material MATIE01C3" + sufijo "N06" del banco, y el folio completo ya no empataba.
+- **Regla nueva:** `omm_oc_por_folio_truncado(concepto, monto, mov)` busca una OC no cancelada, no ligada a otro movimiento, con **total exacto** (±0.01) cuyo folio compacto (≥9 caracteres) aparezca en el concepto **sin sus últimos 1–3 caracteres** (prefijo ≥8). Solo asigna si hay **un único** candidato.
+- `omm_tg_movimiento_folio` la usa en cargos cuando el folio completo no dio una OC; deja `confianza_autodetect='alta'`. Después `tg_movimiento_oc` llena proyecto, categoría, tipo_gasto y beneficiario.
+- **Relleno:** 8 cargos ligados (MAT-IE01-C23/C29/C30/C32, OFP1-IE01-C11, R222-IE01-C03, PILO-IL01-40-C03, E102C-ES01-C04). Cuatro estaban solo a nivel cotización. Respaldo en `bank_movements_respaldo_folio_trunc_20261027`.
+- Sin match: "PILOIE10C" $22,615.59 (10-23). No hay una OC única con ese total.
+- **Recomendación operativa:** en la transferencia escribir **solo el folio** (p. ej. `MATIE01C30`) o ponerlo al inicio del concepto.
