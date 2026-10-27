@@ -3699,4 +3699,15 @@ Elias: *"que sea útil como un WhatsApp literalmente si lo veo en el celular… 
 **Pendiente:** `JOSEG_ERP_KEY` (12-sep, $0) sigue activa y nadie sabe de quién es.
 - El bundle público no trae ninguna llave (revisado).
 
-**Pendiente (código):** las demás `/api/*` que llaman a Claude (`extract`, `extract-bank-statement`, `ai-chat`, `analyze-plan`, `memoria-tecnica`, `resumen-cotizaciones`, `process-obra-report`, `gmail`) usan Sonnet fijo pero tampoco piden sesión. Ya reciben el JWT por el envoltorio, así que se les puede agregar la misma guarda.
+**Hecho (27-oct, commit 6396279): todas las `/api` piden sesión.**
+- Candado común en `api/_sesion.ts` (`exigirSesion(req,res)`, guion bajo = no cuenta como función; se importa `'./_sesion.js'`). Deja pasar:
+  - usuario del ERP con sesión (JWT, que agrega el envoltorio de `src/main.tsx`; la app de obra usa el mismo cliente, así que también lo manda);
+  - una función nuestra: `x-omm-internal` = `SUPABASE_SERVICE_ROLE_KEY`;
+  - el cron de Vercel: `Authorization: Bearer CRON_SECRET` (daily_brief, ingesta de Gmail);
+  - los Atajos del iPhone: `CAPTURE_TOKEN` en `x-omm-token`, `?token=` o `body.token`.
+- Aplicado a extract, extract-bank-statement, analyze-plan, memoria-tecnica, process-obra-report, resumen-cotizaciones, chatbot (el chat de OpenAI; transcribir conserva su revisión), agent (Lutron) y gmail. `ai-chat`, `anthropic` y `facturapi` ya tenían la suya.
+- **Gmail:** quedan abiertas solo `action=connect` y el regreso de Google (`?code=`), porque llegan navegando, sin encabezados.
+- Verificado: sin sesión, las 12 rutas dan 401 (connect da 302); con la sesión de Elias, pasan (gmail status 200, las demás 400 por cuerpo vacío).
+- **Regla:** toda función nueva de `/api` empieza con `if (!(await exigirSesion(req, res))) return` después del OPTIONS/405.
+
+**Pendiente:** `connect` + callback de Gmail sin `state`: alguien podría conectar otro Gmail en lugar del de OMM. Arreglo: firmar un `state` con el JWT al conectar y validarlo en el regreso. Las descargas de facturapi que se abren con `window.open` tampoco llevan encabezado.
