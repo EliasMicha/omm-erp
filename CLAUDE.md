@@ -3751,3 +3751,7 @@ Elias: *"que sea útil como un WhatsApp literalmente si lo veo en el celular… 
   - si el movimiento trae OC y la base dice pago/anticipo a proveedor, el clasificador por palabras ya no lo pisa;
   - "Re-clasificar" se salta los cargos con OC;
   - al ligar una OC a mano, el update hace `.select()` y pinta lo que el trigger completó.
+
+## 🏦 Conciliación: se quitaron los botones de Belvo (2026-10-27)
+- Elias: "no sirven de nada esas funciones". Se quitaron "🔗 Conectar banco (Belvo)" y "🔄 Sincronizar Belvo", junto con su código en `Contabilidad.tsx` (`sincronizarBelvo`, `conectarBancoBelvo`, `loadBelvoWidget` y los estados).
+- **Quedan sin tocar:** el API route `api/belvo.ts`, sus variables de entorno y la columna `bank_movements.belvo_transaction_id`. Si se decide borrar Belvo del todo, quitar `api/belvo.ts` libera una función de Vercel (plan Hobby con tope).
