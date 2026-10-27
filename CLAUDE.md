@@ -3761,5 +3761,5 @@ Elias: *"que sea útil como un WhatsApp literalmente si lo veo en el celular… 
 - **Regla nueva:** `omm_oc_por_folio_truncado(concepto, monto, mov)` busca una OC no cancelada, no ligada a otro movimiento, con **total exacto** (±0.01) cuyo folio compacto (≥9 caracteres) aparezca en el concepto **sin sus últimos 1–3 caracteres** (prefijo ≥8). Solo asigna si hay **un único** candidato.
 - `omm_tg_movimiento_folio` la usa en cargos cuando el folio completo no dio una OC; deja `confianza_autodetect='alta'`. Después `tg_movimiento_oc` llena proyecto, categoría, tipo_gasto y beneficiario.
 - **Relleno:** 8 cargos ligados (MAT-IE01-C23/C29/C30/C32, OFP1-IE01-C11, R222-IE01-C03, PILO-IL01-40-C03, E102C-ES01-C04). Cuatro estaban solo a nivel cotización. Respaldo en `bank_movements_respaldo_folio_trunc_20261027`.
-- Sin match: "PILOIE10C" $22,615.59 (10-23). No hay una OC única con ese total.
+- "PILOIE10C" $22,615.59 (10-23) traía un error de captura (IE10 en vez de IE01). Se ligó a mano a PILO-IE01-C10 (mismo total, sin pagos previos), con respaldo en la misma tabla.
 - **Recomendación operativa:** en la transferencia escribir **solo el folio** (p. ej. `MATIE01C30`) o ponerlo al inicio del concepto.
