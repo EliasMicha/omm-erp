@@ -13,6 +13,7 @@
 // El refresh_token vive en la tabla gmail_tokens (RLS sin políticas → solo service_role).
 
 import type { VercelRequest, VercelResponse } from '@vercel/node'
+import { exigirSesion } from './_sesion.js'
 
 const REDIRECT_URI = 'https://omm-erp.vercel.app/api/gmail'
 const APP_URL = 'https://omm-erp.vercel.app'
@@ -112,6 +113,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const q: any = req.query || {}
   const action = String(q.action || '')
   const code = q.code
+  // Todo pide sesión salvo dos que llegan por navegación, sin encabezados: el
+  // botón «Conectar» (action=connect) y el regreso de Google (?code=). La
+  // ingesta diaria entra con CRON_SECRET.
+  if (!code && action !== 'connect' && !(await exigirSesion(req, res))) return
 
   try {
     // ── Callback de Google (llega con ?code=) ──

@@ -3,6 +3,7 @@
 // Returns JSON with sections: alcance, fichas_tecnicas, topologia, consideraciones
 
 import type { VercelRequest, VercelResponse } from '@vercel/node'
+import { exigirSesion } from './_sesion.js'
 
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || 'https://ubbumxommqjcpdozpunf.supabase.co'
 const SUPABASE_ANON = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || ''
@@ -133,6 +134,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
   if (req.method === 'OPTIONS') return res.status(200).end()
   if (req.method !== 'POST') return res.status(405).json({ ok: false, error: 'Method not allowed' })
+  if (!(await exigirSesion(req, res))) return
 
   const apiKey = process.env.ANTHROPIC_KEY || process.env.VITE_ANTHROPIC_KEY
   if (!apiKey) return res.status(500).json({ ok: false, error: 'ANTHROPIC_KEY no configurada' })

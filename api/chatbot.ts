@@ -1,5 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { timingSafeEqual } from 'crypto'
+import { exigirSesion } from './_sesion.js'
 
 export const config = { maxDuration: 60 }
 
@@ -807,6 +808,8 @@ export default async function handler(
     res.status(405).json({ ok: false, error: 'Método no permitido' })
     return
   }
+
+  if (!(await exigirSesion(req, res))) return
 
   // Notas de voz del bot de WhatsApp. Vive aquí porque la llave de OpenAI está
   // en Vercel (no en Supabase) y no se pueden agregar archivos a /api.

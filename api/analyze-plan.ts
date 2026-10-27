@@ -3,6 +3,7 @@
 // Output: { ok, areas: [{name, description, items:[...]}], rationale, warnings }
 
 import type { VercelRequest, VercelResponse } from '@vercel/node'
+import { exigirSesion } from './_sesion.js'
 
 const SYSTEM_PROMPT = `Eres un ingeniero de diseño de OMM Technologies (CDMX), empresa de instalaciones especiales para proyectos residenciales y comerciales. Tu tarea es analizar un PLANO ARQUITECTÓNICO y generar una propuesta de sembrado (equipos por área) basada en el scope del cliente, el catálogo de productos y cotizaciones previas como referencia.
 
@@ -260,6 +261,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
   if (req.method === 'OPTIONS') return res.status(200).end()
   if (req.method !== 'POST') return res.status(405).json({ ok: false, error: 'Method not allowed' })
+  if (!(await exigirSesion(req, res))) return
 
   const apiKey = process.env.ANTHROPIC_KEY || process.env.VITE_ANTHROPIC_KEY
   if (!apiKey) return res.status(500).json({ ok: false, error: 'ANTHROPIC_KEY no configurada en el servidor' })

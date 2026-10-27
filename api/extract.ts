@@ -12,6 +12,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node'
 // Se apunta al .js (la salida compilada), no al .ts: el import del frontend en
 // src/lib/avisoPagoLogistica.ts lo resuelve Vite y ese se queda como estaba.
 import { construirAvisoPago, CORREO_LOGISTICA, CORREO_COPIA } from './_avisoPago.js'
+import { exigirSesion } from './_sesion.js'
 
 const PROMPT_GENERIC = `Eres un asistente experto en listados de productos para instalaciones especiales (audio, redes, CCTV, control de acceso, control de iluminación, detección de humo, BMS, telefonía, red celular, cortinas/persianas).
 
@@ -215,7 +216,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*')
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-omm-token')
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-omm-token, Authorization')
+  if (req.method === 'OPTIONS') return res.status(200).end()
+  // Sesión del ERP, llave de servicio, cron (CRON_SECRET) o Atajo del iPhone (CAPTURE_TOKEN).
+  // Cada acción conserva además su propia revisión.
+  if (!(await exigirSesion(req, res))) return
   // ── Comprobante de pago desde el celular (Atajo de iOS) ──────────────────
   //
   //  Elias: "quiero hacer un shortcut en mi celular para subirlos, que detecte

@@ -3,6 +3,7 @@
 // Devuelve: { ok: boolean, movements?: BankMovementExtracted[], warnings?: string[], error?: string }
 
 import type { VercelRequest, VercelResponse } from '@vercel/node'
+import { exigirSesion } from './_sesion.js'
 
 // Permitir hasta 60s de ejecución (default de Vercel es 10s, insuficiente con retries + PDF grande)
 export const config = {
@@ -371,6 +372,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
   if (req.method === 'OPTIONS') return res.status(200).end()
   if (req.method !== 'POST') return res.status(405).json({ ok: false, error: 'Method not allowed' })
+  if (!(await exigirSesion(req, res))) return
 
   const apiKey = process.env.ANTHROPIC_KEY || process.env.VITE_ANTHROPIC_KEY
   if (!apiKey) return res.status(500).json({ ok: false, error: 'ANTHROPIC_KEY no configurada en el servidor' })

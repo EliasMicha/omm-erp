@@ -3,6 +3,7 @@
 // Returns JSON with sections: resumen_ejecutivo, comparativa, diferencias, recomendacion
 
 import type { VercelRequest, VercelResponse } from '@vercel/node'
+import { exigirSesion } from './_sesion.js'
 
 const SYSTEM_PROMPT = `Eres un consultor comercial senior de OMM Technologies (CDMX), empresa de instalaciones especiales (audio, redes, CCTV, iluminación, control de acceso, automatización, etc.).
 
@@ -67,6 +68,7 @@ REGLAS:
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' })
+  if (!(await exigirSesion(req, res))) return
 
   const { quotations, items, leadName } = req.body || {}
   if (!quotations?.length || !items?.length) {

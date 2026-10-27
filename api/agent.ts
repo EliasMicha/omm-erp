@@ -17,6 +17,7 @@
 import chromium from '@sparticuz/chromium'
 import puppeteer from 'puppeteer-core'
 import path from 'path'
+import { exigirSesion } from './_sesion.js'
 
 export const config = {
   maxDuration: 60,
@@ -38,6 +39,7 @@ export default async function handler(req: any, res: any) {
     return
   }
 
+  if (!(await exigirSesion(req, res))) return
   const action = (req.query?.action || '').toString()
   const supplier = (req.query?.supplier || '').toString().toLowerCase()
 
