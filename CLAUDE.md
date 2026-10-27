@@ -3711,3 +3711,17 @@ Elias: *"que sea útil como un WhatsApp literalmente si lo veo en el celular… 
 - **Regla:** toda función nueva de `/api` empieza con `if (!(await exigirSesion(req, res))) return` después del OPTIONS/405.
 
 **Pendiente:** `connect` + callback de Gmail sin `state`: alguien podría conectar otro Gmail en lugar del de OMM. Arreglo: firmar un `state` con el JWT al conectar y validarlo en el regreso. Las descargas de facturapi que se abren con `window.open` tampoco llevan encabezado.
+
+## 🎓 Capacitaciones de Iluminación de Juan Pablo (2026-10-27)
+- **Cargadas 5 capacitaciones** "Iluminación M1…M5" (orden 11–15), desde el ZIP de Juan Pablo: deck PPTX + PDF + quiz DOCX por módulo.
+  - Autor: Juan Pablo (`autor_id` = su employee id).
+  - Alcance: puestos DIRECTOR DE ILUMINACION / DISEÑADORA JUNIOR / DISEÑADORA JR (igual que "Iluminación 1 · Capas de luz").
+  - Mínimo 80%, 30 min, obligatorias. **Estado borrador**: se publican desde Capacitaciones.
+- **Contenido de cada una:**
+  - 3 bloques: texto "Cómo tomar este módulo", PDF y PPTX, en el bucket `capacitaciones/{id}/…`;
+  - 10 preguntas: 6–7 de opción múltiple, 2–3 de verdadero/falso y 1 abierta, con lo que se espera en la explicación.
+- **Los DOCX de quiz NO se subieron:** traen la clave de respuestas.
+- **Opciones barajadas** (semilla fija por módulo): en el original la correcta era siempre la "a)". `respuesta_correcta` = índice de la opción.
+- La nota de la clave de M1 sobre EML nocturno se movió a la explicación de la pregunta 9 (V/F), que es a la que corresponde.
+- **Ojo, M5 pregunta 4:** "¿cuántas etapas tiene Contraespecificación?" → la respuesta de JP es 3, pero la plantilla `ilum_contraespecificacion_2026` tiene 4 (0 Recepción, 1 Contraespecificación, 2 Suministro, 3 Cierre). Confirmar con JP.
+- **⚠ Seguridad:** el bucket `capacitaciones` tiene políticas INSERT/UPDATE/DELETE para `public`: con la llave anon cualquiera puede subir o borrar archivos. Pendiente restringir a `authenticated`.
