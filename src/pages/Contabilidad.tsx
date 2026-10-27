@@ -641,7 +641,11 @@ export default function Contabilidad() {
           const finalCat = refineNominaCategory(rawCat, !!proyecto)
           // NIVEL 1 (naturaleza): si el usuario la fijó a mano, se respeta; si no, el clasificador.
           const naturalezaAuto = granularToNaturaleza(finalCat !== 'otro' ? finalCat : (m.categoria || 'otro'))
-          const categoria = m.categoria_manual ? (m.categoria || 'otro') : naturalezaAuto
+          // Un cargo ligado a una OC lo categoriza la base (trigger tg_movimiento_oc:
+          // pago a proveedor + tipo de gasto por especialidad). Las palabras del
+          // concepto no deben pisar lo que ya dice la orden de compra.
+          const porOC = !!m.purchase_order_id && (m.tipo || 'cargo') === 'cargo' && (m.categoria === 'pago_proveedor' || m.categoria === 'anticipo_proveedor')
+          const categoria = (m.categoria_manual || porOC) ? (m.categoria || 'otro') : naturalezaAuto
           // NIVEL 2 (tipo de gasto): valor guardado gana; si no, autosugerido por el clasificador.
           const tipoGasto = m.tipo_gasto || granularToTipoGasto(finalCat) || ''
           return {
@@ -2437,10 +2441,25 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
           updates.proyecto = ''
         }
       }
-      const { error } = await supabase.from('bank_movements').update(updates).eq('id', movId)
+      // Se pide de vuelta lo que la base completó: al ligar una OC, el trigger
+      // tg_movimiento_oc llena cotización, lead, proyecto, categoría, tipo de
+      // gasto y beneficiario desde la orden de compra.
+      const { data: fila, error } = await supabase.from('bank_movements').update(updates).eq('id', movId)
+        .select('categoria,categoria_manual,tipo_gasto,beneficiario,beneficiario_id,beneficiario_tipo,proyecto,lead_id,quotation_id,purchase_order_id').single()
       if (error) { console.error('[assign] error:', error); alert('Error al guardar: ' + error.message); return }
       // Actualizar el state local — sync proyecto_sugerido alias
-      const localUpdates = { ...updates }
+      const localUpdates: any = { ...updates }
+      if (field === 'purchase_order_id' && value && fila) {
+        const f: any = fila
+        localUpdates.lead_id = f.lead_id || undefined
+        localUpdates.quotation_id = f.quotation_id || undefined
+        localUpdates.proyecto = f.proyecto || ''
+        localUpdates.beneficiario = f.beneficiario || ''
+        localUpdates.beneficiario_id = f.beneficiario_id || undefined
+        localUpdates.beneficiario_tipo = f.beneficiario_tipo || undefined
+        localUpdates.tipo_gasto = f.tipo_gasto || undefined
+        if (f.categoria) localUpdates.categoria_sugerida = f.categoria
+      }
       if ('proyecto' in localUpdates) localUpdates.proyecto_sugerido = localUpdates.proyecto
       setBankMovements(prev => prev.map(bm => bm.id === movId ? { ...bm, ...localUpdates } : bm))
     } finally {
@@ -5074,7 +5093,9 @@ function TabCostosObra({ bankMovements, setBankMovements }: { bankMovements: Ban
     setReclassifying(true)
     try {
       // Solo los que NO están fijados manualmente
-      const updates = bankMovements.filter(m => !m.categoria_manual).map(m => {
+      // Los ligados a una OC tampoco: su categoría sale de la orden de compra.
+      const sinTocar = (m: BankMovement) => m.categoria_manual || (!!m.purchase_order_id && m.tipo === 'cargo')
+      const updates = bankMovements.filter(m => !sinTocar(m)).map(m => {
         const proyecto = m.proyecto_codigo || m.proyecto_sugerido || ''
         const rawCat = classifyConcepto(m.concepto || '', m.tipo)
         const finalCat = refineNominaCategory(rawCat, !!proyecto)
@@ -5089,7 +5110,7 @@ function TabCostosObra({ bankMovements, setBankMovements }: { bankMovements: Ban
       }
       // Refrescar state local
       setBankMovements(prev => prev.map(m => {
-        if (m.categoria_manual) return m
+        if (sinTocar(m)) return m
         const proyecto = m.proyecto_codigo || m.proyecto_sugerido || ''
         const rawCat = classifyConcepto(m.concepto || '', m.tipo)
         const finalCat = refineNominaCategory(rawCat, !!proyecto)

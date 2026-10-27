@@ -3728,3 +3728,26 @@ Elias: *"que sea útil como un WhatsApp literalmente si lo veo en el celular… 
 - **Bucket `capacitaciones` restringido** (migración `capacitaciones_storage_solo_sesion`): las políticas INSERT/UPDATE/DELETE/SELECT pasan a `authenticated` + `(select usuario_real())`.
   - Probado: anon recibe 400 al subir y 403 al borrar; con sesión sí inserta.
   - Las URLs públicas de los archivos siguen respondiendo 200, porque el bucket es público.
+
+## 🏦 Conciliación: cargo con OC detectada → se categoriza solo (2026-10-27)
+- **Pedido de Elias:** si ya detecta la OC, que asigne proyecto y cotización y que categorice el gasto.
+- **Antes:**
+  - `tg_movimiento_folio` (folio en el concepto) ya ligaba lead + cotización + OC, pero no tocaba la categoría (quedaba la legacy `proveedor`/`proveedor_obra`, que la pantalla pintaba como "Otro") ni el beneficiario;
+  - la columna Proyecto salía "—" porque el texto `proyecto` iba vacío.
+- **Trigger nuevo `tg_movimiento_oc` → `omm_tg_movimiento_desde_oc()`:**
+  - BEFORE INSERT OR UPDATE OF `purchase_order_id`, `concepto`;
+  - corre después de `tg_movimiento_folio` (orden alfabético);
+  - solo cargos.
+  - Completa sin pisar:
+    - `quotation_id`/`lead_id` desde la OC;
+    - `proyecto` = nombre de la cotización o del lead, si está vacío;
+    - `categoria` = `pago_proveedor` si `categoria_manual = false` (respeta `anticipo_proveedor`);
+    - `tipo_gasto` por especialidad: elec→material_electrico, ilum→luminarias, esp→instalaciones_especiales, cort→cortinas_persianas; dist/proy → null;
+    - `beneficiario_id`/`tipo`/nombre = proveedor de la OC, si no hay.
+- **Backfill:** 59 cargos con OC (respaldo previo en `bank_movements_respaldo_oc_20261027`).
+  - 0 manuales alterados.
+  - Quedan 2 incompletos: OC-2610-045 no tiene cotización; THHE-IL01-C01 no tiene proveedor en la OC.
+- **Pantalla (Contabilidad.tsx):**
+  - si el movimiento trae OC y la base dice pago/anticipo a proveedor, el clasificador por palabras ya no lo pisa;
+  - "Re-clasificar" se salta los cargos con OC;
+  - al ligar una OC a mano, el update hace `.select()` y pinta lo que el trigger completó.
