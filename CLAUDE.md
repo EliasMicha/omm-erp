@@ -3763,3 +3763,18 @@ Elias: *"que sea útil como un WhatsApp literalmente si lo veo en el celular… 
 - **Relleno:** 8 cargos ligados (MAT-IE01-C23/C29/C30/C32, OFP1-IE01-C11, R222-IE01-C03, PILO-IL01-40-C03, E102C-ES01-C04). Cuatro estaban solo a nivel cotización. Respaldo en `bank_movements_respaldo_folio_trunc_20261027`.
 - "PILOIE10C" $22,615.59 (10-23) traía un error de captura (IE10 en vez de IE01). Se ligó a mano a PILO-IE01-C10 (mismo total, sin pagos previos), con respaldo en la misma tabla.
 - **Recomendación operativa:** en la transferencia escribir **solo el folio** (p. ej. `MATIE01C30`) o ponerlo al inicio del concepto.
+
+## 💱 Estado de cuenta: cobros en pesos aplicados a cotizaciones en USD (2026-10-27)
+- **Problema:** en el estado de cuenta parcial, un depósito de $43,015.18 MXN aplicado a una cotización en USD (TC 18.50) salía como "US$2,325.14 USD", como si el cliente hubiera pagado en dólares.
+- **Fix** en `supabase/functions/_shared/estadoCuentaPdf.ts`, el generador único del ERP y de WhatsApp. Si algún renglón tiene conversión, "Movimientos de cobro recibidos" cambia a las columnas **RECIBIDO** (monto y moneda reales), **TC** y **APLICADO**.
+  - Totales: "Total recibido en pesos" y "De eso, convertido de pesos a dólares", que muestra los MXN → USD.
+  - Cuando no hay conversión, la tabla queda igual que antes.
+- **De dónde sale la conversión:**
+  - Parcial: de `pagos` (`montoOrigen`, `monedaOrigen`, `tc`).
+  - General: de los prorrateos del movimiento, solo si todos van a UNA moneda distinta a la del depósito. Si hay varios TC, se usa el ponderado.
+  - Efectivo: de `tc_aplicado`, `monto_cotizacion` y `moneda_cotizacion`.
+- Otros arreglos:
+  - La flecha "→" salía como `!'` (Helvetica de jsPDF no la tiene); se cambió por "=".
+  - `checkPage(40)` antes de "Cobros por cotización", para que el título no quede huérfano.
+- **Desplegado:** `whatsapp-webhook` v43 y `whatsapp-send` v10, empaquetados en el contenedor (esbuild con `--external:jspdf` y jspdf como `npm:jspdf@4.2.1`) y desplegados con curl desde la Mac. `mcp-contabilidad` está retirada (tapón 410) y no se tocó.
+- ⚠️ `git pull` en la Mac deja `.git/index.lock` porque la carpeta conectada no permite borrar. Se movió a `.git/stale-index-lock-20261027`. La copia de la Mac está atrasada (1431c80); para desplegar, empaquetar en el contenedor.
