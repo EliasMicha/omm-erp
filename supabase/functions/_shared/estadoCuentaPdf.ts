@@ -202,16 +202,73 @@ export function generarEstadoCuentaPdf(input: EstadoCuentaInput): jsPDF {
   // cotizaciones elegidas, por el monto que les tocó (una transferencia
   // prorrateada entre dos proyectos aparece sólo con la parte de éste). Así el
   // "Total recibido" cuadra con el "Cobrado" de las tarjetas.
-  const ingresos = (parcial
-    ? quoteData.flatMap(d => d.pagos.map(p => ({ fecha: p.date, concepto: (p.concepto || '').replace(/💵 /, ''), moneda: p.cur, monto: p.monto, metodo: p.source === 'efectivo' ? 'Efectivo' : 'Transf.' })))
+  // Cada renglón dice lo que REALMENTE entró (recibido, en su moneda) y, si se
+  // aplicó a una cotización en otra moneda, el TC acordado y lo aplicado.
+  // Antes el parcial pintaba solo lo ya convertido: un depósito de $43,015 MXN
+  // salía como "US$2,325.14 USD" y parecía que el cliente había pagado en dólares.
+  interface FilaCobro {
+    fecha: string; concepto: string; metodo: string
+    recibido: number; monRecibido: 'USD' | 'MXN'
+    tc: number | null; aplicado: number; monAplicado: 'USD' | 'MXN'
+  }
+  const aMon = (c: any): 'USD' | 'MXN' => (c === 'USD' ? 'USD' : 'MXN')
+  const curDeCot: Record<string, 'USD' | 'MXN'> = {}
+  quotations.forEach((q: any) => { curDeCot[q.id] = getQuotCurrency(q) })
+  // General: para un movimiento de banco, si sus prorrateos lo convirtieron a la
+  // moneda de la cotización, se reporta el TC y lo aplicado. Solo si todo fue a
+  // UNA moneda distinta a la del depósito; si no, se deja como entró.
+  const cruceDeMovimiento = (m: any): { tc: number; aplicado: number; mon: 'USD' | 'MXN' } | null => {
+    const pas = paymentAllocations.filter((pa: any) => pa.bank_movement_id === m.id && pa.tc_aplicado && pa.monto_origen)
+    if (pas.length === 0) return null
+    const destinos = new Set(pas.map((pa: any) => curDeCot[pa.quotation_id] || ''))
+    if (destinos.size !== 1) return null
+    const mon = aMon(Array.from(destinos)[0])
+    if (mon === aMon(m.moneda)) return null
+    const aplicado = pas.reduce((t: number, pa: any) => t + (Number(pa.monto) || 0), 0)
+    const origen = pas.reduce((t: number, pa: any) => t + (Number(pa.monto_origen) || 0), 0)
+    if (!(aplicado > 0)) return null
+    const tcs = new Set(pas.map((pa: any) => Number(pa.tc_aplicado)))
+    const tc = tcs.size === 1 ? Number(pas[0].tc_aplicado) : Math.round((origen / aplicado) * 10000) / 10000
+    return { tc, aplicado, mon }
+  }
+  const ingresos: FilaCobro[] = (parcial
+    ? quoteData.flatMap(d => d.pagos.map(p => {
+        const cruce = !!(p.tc && p.montoOrigen && p.monedaOrigen)
+        const fila: FilaCobro = {
+          fecha: p.date, concepto: (p.concepto || '').replace(/💵 /, ''), metodo: p.source === 'efectivo' ? 'Efectivo' : 'Transf.',
+          recibido: cruce ? Number(p.montoOrigen) : p.monto, monRecibido: cruce ? aMon(p.monedaOrigen) : aMon(p.cur),
+          tc: cruce ? Number(p.tc) : null, aplicado: p.monto, monAplicado: aMon(p.cur),
+        }
+        return fila
+      }))
     : [
-      ...bankMovements.filter((m: any) => m.tipo === 'abono').map((m: any) => ({ fecha: m.fecha, concepto: m.concepto || 'Transferencia', moneda: (m.moneda === 'USD' ? 'USD' : 'MXN'), monto: Number(m.monto) || 0, metodo: 'Transf.' })),
-      ...cashMovements.filter((m: any) => m.tipo === 'cobro_cliente').map((m: any) => ({ fecha: m.fecha, concepto: m.concepto || m.persona || 'Efectivo', moneda: (m.moneda === 'USD' ? 'USD' : 'MXN'), monto: Number(m.monto) || 0, metodo: 'Efectivo' })),
+      ...bankMovements.filter((m: any) => m.tipo === 'abono').map((m: any) => {
+        const c = cruceDeMovimiento(m)
+        const fila: FilaCobro = {
+          fecha: m.fecha, concepto: m.concepto || 'Transferencia', metodo: 'Transf.',
+          recibido: Number(m.monto) || 0, monRecibido: aMon(m.moneda),
+          tc: c ? c.tc : null, aplicado: c ? c.aplicado : (Number(m.monto) || 0), monAplicado: c ? c.mon : aMon(m.moneda),
+        }
+        return fila
+      }),
+      ...cashMovements.filter((m: any) => m.tipo === 'cobro_cliente').map((m: any) => {
+        const cruce = !!(m.tc_aplicado && m.moneda_cotizacion && aMon(m.moneda) !== aMon(m.moneda_cotizacion) && Number(m.monto_cotizacion) > 0)
+        const fila: FilaCobro = {
+          fecha: m.fecha, concepto: m.concepto || m.persona || 'Efectivo', metodo: 'Efectivo',
+          recibido: Number(m.monto) || 0, monRecibido: aMon(m.moneda),
+          tc: cruce ? Number(m.tc_aplicado) : null,
+          aplicado: cruce ? Number(m.monto_cotizacion) : (Number(m.monto) || 0),
+          monAplicado: cruce ? aMon(m.moneda_cotizacion) : aMon(m.moneda),
+        }
+        return fila
+      }),
     ]).sort((a, b) => (a.fecha || '').localeCompare(b.fecha || ''))
+  const hayCruce = ingresos.some(m => m.tc !== null)
+  const tcTxt = (n: number) => n.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 4 })
   sectionTitle('Movimientos de cobro recibidos')
   if (ingresos.length === 0) {
     setTxt(GRAY); doc.setFont('helvetica', 'italic'); doc.setFontSize(9); doc.text('Sin cobros registrados', M + 3, y); y += 8
-  } else {
+  } else if (!hayCruce) {
     const cX = { fec: M + 3, con: 40, met: 112, mon: 138 }
     setFill(HEADFILL); doc.rect(M, y, RIGHT - M, 6, 'F')
     setTxt(GRAY); doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5)
@@ -220,14 +277,14 @@ export function generarEstadoCuentaPdf(input: EstadoCuentaInput): jsPDF {
     const totCobros = { USD: 0, MXN: 0 }
     ingresos.forEach((m, i) => {
       checkPage(7)
-      const cur = m.moneda as 'USD' | 'MXN'
-      totCobros[cur] += m.monto
+      const cur = m.monRecibido
+      totCobros[cur] += m.recibido
       if (i % 2 === 1) { setFill(ZEBRA); doc.rect(M, y, RIGHT - M, 6, 'F') }
       setTxt(DARK); doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5)
       doc.text(m.fecha || '—', cX.fec, y + 4)
       doc.text((m.concepto || '—').substring(0, 40), cX.con, y + 4)
       setTxt(GRAY); doc.setFontSize(7.5); doc.text(m.metodo, cX.met, y + 4); doc.text(cur, cX.mon, y + 4)
-      setTxt(DARK); doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); doc.text(money(m.monto, cur), RIGHT - 3, y + 4, { align: 'right' })
+      setTxt(DARK); doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); doc.text(money(m.recibido, cur), RIGHT - 3, y + 4, { align: 'right' })
       y += 6
     })
     checkPage(6 * (Object.values(totCobros).filter(v => v > 0).length) + 4)
@@ -239,9 +296,66 @@ export function generarEstadoCuentaPdf(input: EstadoCuentaInput): jsPDF {
       y += 6
     })
     y += 6
+  } else {
+    // Con conversión: RECIBIDO (lo que entró, en su moneda) · TC · APLICADO
+    const cX = { fec: M + 3, con: 37, met: 100, rec: 146, tc: 163 }
+    setFill(HEADFILL); doc.rect(M, y, RIGHT - M, 6, 'F')
+    setTxt(GRAY); doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5)
+    doc.text('FECHA', cX.fec, y + 4); doc.text('CONCEPTO', cX.con, y + 4); doc.text('MÉTODO', cX.met, y + 4)
+    doc.text('RECIBIDO', cX.rec, y + 4, { align: 'right' }); doc.text('TC', cX.tc, y + 4, { align: 'right' }); doc.text('APLICADO', RIGHT - 3, y + 4, { align: 'right' })
+    y += 6
+    const totRec = { USD: 0, MXN: 0 }
+        ingresos.forEach((m, i) => {
+      checkPage(7)
+      totRec[m.monRecibido] += m.recibido
+      if (i % 2 === 1) { setFill(ZEBRA); doc.rect(M, y, RIGHT - M, 6, 'F') }
+      setTxt(DARK); doc.setFont('helvetica', 'normal'); doc.setFontSize(8)
+      doc.text(m.fecha || '—', cX.fec, y + 4)
+      doc.text((m.concepto || '—').substring(0, 34), cX.con, y + 4)
+      setTxt(GRAY); doc.setFontSize(7.5); doc.text(m.metodo, cX.met, y + 4)
+      setTxt(DARK); doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5)
+      doc.text(`${money(m.recibido, m.monRecibido)} ${m.monRecibido}`, cX.rec, y + 4, { align: 'right' })
+      setTxt(GRAY); doc.setFontSize(8)
+      doc.text(m.tc !== null ? tcTxt(m.tc) : '—', cX.tc, y + 4, { align: 'right' })
+      setTxt(DARK); doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5)
+      doc.text(`${money(m.aplicado, m.monAplicado)} ${m.monAplicado}`, RIGHT - 3, y + 4, { align: 'right' })
+      y += 6
+    })
+    // Totales: lo que entró por moneda, y aparte cuánto de eso se convirtió.
+    const conv: Record<string, { rec: number; apl: number; de: 'USD' | 'MXN'; a: 'USD' | 'MXN' }> = {}
+    ingresos.filter(m => m.monRecibido !== m.monAplicado).forEach(m => {
+      const k = m.monRecibido + '>' + m.monAplicado
+      if (!conv[k]) conv[k] = { rec: 0, apl: 0, de: m.monRecibido, a: m.monAplicado }
+      conv[k].rec += m.recibido; conv[k].apl += m.aplicado
+    })
+    const nomMon = (c: string) => (c === 'MXN' ? 'pesos' : 'dólares')
+    const filasTot = (['USD', 'MXN'] as const).filter(c => totRec[c] > 0).length + Object.keys(conv).length
+    checkPage(6 * filasTot + 10)
+    ;(['MXN', 'USD'] as const).filter(c => totRec[c] > 0).forEach(c => {
+      setFill([242, 245, 244]); doc.rect(M, y, RIGHT - M, 6, 'F')
+      setTxt(DARK); doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5)
+      doc.text(`Total recibido en ${nomMon(c)}`, M + 3, y + 4)
+      doc.text(`${money(totRec[c], c)} ${c}`, cX.rec, y + 4, { align: 'right' })
+      y += 6
+    })
+    Object.values(conv).forEach(cv => {
+      setFill([242, 245, 244]); doc.rect(M, y, RIGHT - M, 6, 'F')
+      setTxt(DARK); doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5)
+      doc.text(`De eso, convertido de ${nomMon(cv.de)} a ${nomMon(cv.a)}`, M + 3, y + 4)
+      doc.setFont('helvetica', 'normal')
+      doc.text(`${money(cv.rec, cv.de)} ${cv.de}`, cX.rec, y + 4, { align: 'right' })
+      doc.setFont('helvetica', 'bold')
+      doc.text(`${money(cv.apl, cv.a)} ${cv.a}`, RIGHT - 3, y + 4, { align: 'right' })
+      y += 6
+    })
+    y += 2
+    setTxt(GRAY); doc.setFont('helvetica', 'italic'); doc.setFontSize(7.5)
+    doc.text('Los pagos se reciben en la moneda indicada en RECIBIDO; cuando la cotización es en otra moneda se aplican al tipo de cambio acordado (TC).', M + 3, y + 2, { maxWidth: RIGHT - M - 6 })
+    y += 9
   }
 
   // Cobros por cotización (mini estado de cuenta)
+  checkPage(40)
   sectionTitle('Cobros por cotización')
   // Se listan TODOS los contratos, hayan pagado o no. Una cotizacion sin un solo
   // cobro es justamente la que hay que ver en un estado de cuenta: sale con
@@ -292,7 +406,7 @@ export function generarEstadoCuentaPdf(input: EstadoCuentaInput): jsPDF {
         setTxt(GREEN); doc.setFont('helvetica', 'bold'); doc.setFontSize(8); doc.text(money(p.monto, p.cur), RIGHT - 3, y + 3.6, { align: 'right' })
         if (cruce) {
           setTxt([150, 150, 150]); doc.setFont('helvetica', 'normal'); doc.setFontSize(6.8)
-          doc.text(`Cobro en ${money(p.montoOrigen as number, p.monedaOrigen as string)} ${p.monedaOrigen}  ·  TC acordado ${p.tc}  →  ${money(p.monto, p.cur)}`, M + 28, y + 7.4)
+          doc.text(`Cobro en ${money(p.montoOrigen as number, p.monedaOrigen as string)} ${p.monedaOrigen}  ·  TC acordado ${p.tc}  =  ${money(p.monto, p.cur)} ${p.cur}`, M + 28, y + 7.4)
         }
         y += rh
       })
