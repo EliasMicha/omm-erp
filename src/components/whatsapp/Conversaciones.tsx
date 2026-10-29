@@ -4,6 +4,7 @@ import { Search, Send, Bot, User, Wrench, HelpCircle, FileText, TriangleAlert, C
 import { supabase } from '../../lib/supabase'
 import { useIsMobile } from '../../lib/useIsMobile'
 import { useAuth } from '../../contexts/AuthContext'
+import { useMedios, VistaMedio, tieneArchivo, esMarcadorDeTipo } from './Medio'
 
 // Vista tipo WhatsApp sobre la bitácora `whatsapp_messages`.
 // Agrupa por los últimos 10 dígitos del teléfono (Meta manda 521…, nosotros
@@ -22,6 +23,7 @@ import { useAuth } from '../../contexts/AuthContext'
 // Responder desde aquí solo se permite dentro de la ventana de 24 h que abre el
 // último mensaje de esa persona: fuera de ella Meta exige plantilla.
 
+const SIN_MSGS: Msg[] = []
 interface Msg {
   id: string; direction: 'in' | 'out'; phone_e164: string; kind: string | null; body: string | null
   template_name: string | null; sender_type: string | null; status: string | null; error: string | null
@@ -280,6 +282,8 @@ export default function Conversaciones({ enviar, modo = 'erp' }: { enviar: (payl
     return { key: sel, telefono: telBonito(sel), quien: q, msgs: [], ultimo: null, ultimoEntrante: null, grupoAuto: auto, grupo: manual[sel] || auto, sinLeer: 0 }
   })() : null)
   const ultimoId = chat?.ultimo?.id
+  // Fotos, audios, videos y documentos del chat abierto (URLs firmadas).
+  const medios = useMedios(chat ? chat.msgs : SIN_MSGS)
   useEffect(() => { finRef.current?.scrollIntoView({ block: 'end' }) }, [sel, ultimoId])
 
   // Marca como visto lo que está en pantalla.
@@ -589,12 +593,10 @@ export default function Conversaciones({ enviar, modo = 'erp' }: { enviar: (payl
                         {autor === 'Bot' ? <Bot size={12} /> : null}{autor}
                       </div>
                     )}
-                    {m.media_path && (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'rgba(0,0,0,.18)', padding: '6px 8px', borderRadius: 6, marginBottom: 4, fontSize: 13, overflowWrap: 'anywhere' }}>
-                        <FileText size={16} style={{ flexShrink: 0 }} /> {m.media_path.split('/').pop()}
-                      </div>
+                    {tieneArchivo(m) && <VistaMedio m={m} medio={medios[m.id]} />}
+                    {!(tieneArchivo(m) && esMarcadorDeTipo(m.body)) && (
+                      <div style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}><Formato texto={m.body || `[${m.kind || 'mensaje'}]`} /></div>
                     )}
-                    <div style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}><Formato texto={m.body || `[${m.kind || 'mensaje'}]`} /></div>
                     {m.ticket && <div style={{ fontSize: 11.5, color: '#fbbf24', marginTop: 3 }}>Ticket #{m.ticket.ticket_number}</div>}
                     {m.status === 'fallido' && m.error && <div style={{ fontSize: 11.5, color: '#fca5a5', marginTop: 3 }}>No salió: {m.error.slice(0, 160)}</div>}
                     <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 4, color: C.tenue, fontSize: 11, marginTop: 2 }}>
