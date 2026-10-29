@@ -1,52 +1,86 @@
+import { lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import ProtectedRoute from './components/ProtectedRoute'
 import Sidebar from './components/layout/Sidebar'
 import Login from './pages/Login'
-import OAuthConsent from './pages/OAuthConsent'
-import Dashboard from './pages/Dashboard'
-import CRM from './pages/CRM'
-import Cotizaciones from './pages/Cotizaciones'
-import EstimacionEditor from './pages/EstimacionEditor'
-import Proyectos from './pages/Proyectos'
-import OtrosModulos from './pages/OtrosModulos'
-import Contabilidad from './pages/Contabilidad'
-import Clientes from './pages/Clientes'
-import Catalogo from './pages/Catalogo'
-import Compras from './pages/Compras'
-import Obra from './pages/Obra'
-import Entregas from './pages/Entregas'
-import Facturacion from './pages/Facturacion'
-import DesignRules from './pages/DesignRules'
-import Nomina from './pages/Nomina'
-import Finanzas from './pages/Finanzas'
-import Empleados from './pages/Empleados'
-import EmpleadoExpediente from './pages/EmpleadoExpediente'
-import CotizacionPdf from './pages/CotizacionPdf'
-import MemoriaTecnica from './pages/MemoriaTecnica'
-import LeadDashboard from './pages/LeadDashboard'
-import RadarVentas from './components/RadarVentas'
-import Cobranza from './pages/Cobranza'
-import Usuarios from './pages/Usuarios'
-import Archivados from './pages/Archivados'
-import Desempeno from './pages/Desempeno'
-import Capacitaciones from './pages/Capacitaciones'
-import Reclutamiento from './pages/Reclutamiento'
-import Documentacion from './pages/Documentacion'
-import MiTrabajo from './pages/MiTrabajo'
-import Mantenimiento from './pages/Mantenimiento'
-import WhatsApp from './pages/WhatsApp'
-import WhatsAppApp from './pages/WhatsAppApp'
-import Privacidad from './pages/Privacidad'
-import ObraApp from './obra-app/ObraApp'
-import ExamenPublicoPage from './pages/ExamenPublico'
-import ChatBot from './components/ChatBot'
 
+// ── Carga por demanda (oct-2026) ──────────────────────────────────────────
+// Antes todas las páginas iban en UN archivo de 4.4 MB: abrir el CRM bajaba e
+// interpretaba también Contabilidad, Nómina, los PDFs, etc. Ahora cada página
+// se baja cuando se abre por primera vez.
+//
+// Gotcha de Vercel: cada deploy cambia el nombre de los archivos. Quien tenía
+// el ERP abierto desde antes pide un archivo que ya no existe y React truena
+// con "Failed to fetch dynamically imported module". Ahí se recarga la página
+// UNA vez (la marca en sessionStorage evita un ciclo si el error es otro).
+function cargarPagina(importar: () => Promise<any>) {
+  return lazy(() => importar().then((m: any) => {
+    try { sessionStorage.removeItem('omm_recarga_chunk') } catch { /* sin storage */ }
+    return m
+  }).catch((err: any) => {
+    let yaRecargo = false
+    try { yaRecargo = sessionStorage.getItem('omm_recarga_chunk') === '1' } catch { /* sin storage */ }
+    if (!yaRecargo) {
+      try { sessionStorage.setItem('omm_recarga_chunk', '1') } catch { /* sin storage */ }
+      window.location.reload()
+      return new Promise(() => { /* la página se está recargando */ })
+    }
+    throw err
+  }))
+}
+
+function Cargando() {
+  return (
+    <div style={{ padding: 40, color: '#666', fontSize: 13, fontFamily: "'Inter', system-ui, sans-serif" }}>
+      Cargando…
+    </div>
+  )
+}
+
+const OAuthConsent = cargarPagina(() => import('./pages/OAuthConsent'))
+const Dashboard = cargarPagina(() => import('./pages/Dashboard'))
+const CRM = cargarPagina(() => import('./pages/CRM'))
+const Cotizaciones = cargarPagina(() => import('./pages/Cotizaciones'))
+const EstimacionEditor = cargarPagina(() => import('./pages/EstimacionEditor'))
+const Proyectos = cargarPagina(() => import('./pages/Proyectos'))
+const Contabilidad = cargarPagina(() => import('./pages/Contabilidad'))
+const Clientes = cargarPagina(() => import('./pages/Clientes'))
+const Catalogo = cargarPagina(() => import('./pages/Catalogo'))
+const Compras = cargarPagina(() => import('./pages/Compras'))
+const Obra = cargarPagina(() => import('./pages/Obra'))
+const Entregas = cargarPagina(() => import('./pages/Entregas'))
+const Facturacion = cargarPagina(() => import('./pages/Facturacion'))
+const DesignRules = cargarPagina(() => import('./pages/DesignRules'))
+const Nomina = cargarPagina(() => import('./pages/Nomina'))
+const Finanzas = cargarPagina(() => import('./pages/Finanzas'))
+const Empleados = cargarPagina(() => import('./pages/Empleados'))
+const EmpleadoExpediente = cargarPagina(() => import('./pages/EmpleadoExpediente'))
+const CotizacionPdf = cargarPagina(() => import('./pages/CotizacionPdf'))
+const MemoriaTecnica = cargarPagina(() => import('./pages/MemoriaTecnica'))
+const LeadDashboard = cargarPagina(() => import('./pages/LeadDashboard'))
+const RadarVentas = cargarPagina(() => import('./components/RadarVentas'))
+const Cobranza = cargarPagina(() => import('./pages/Cobranza'))
+const Usuarios = cargarPagina(() => import('./pages/Usuarios'))
+const Archivados = cargarPagina(() => import('./pages/Archivados'))
+const Desempeno = cargarPagina(() => import('./pages/Desempeno'))
+const Capacitaciones = cargarPagina(() => import('./pages/Capacitaciones'))
+const Reclutamiento = cargarPagina(() => import('./pages/Reclutamiento'))
+const Documentacion = cargarPagina(() => import('./pages/Documentacion'))
+const MiTrabajo = cargarPagina(() => import('./pages/MiTrabajo'))
+const Mantenimiento = cargarPagina(() => import('./pages/Mantenimiento'))
+const WhatsApp = cargarPagina(() => import('./pages/WhatsApp'))
+const WhatsAppApp = cargarPagina(() => import('./pages/WhatsAppApp'))
+const Privacidad = cargarPagina(() => import('./pages/Privacidad'))
+const ObraApp = cargarPagina(() => import('./obra-app/ObraApp'))
+const ExamenPublicoPage = cargarPagina(() => import('./pages/ExamenPublico'))
+const ChatBot = cargarPagina(() => import('./components/ChatBot'))
 
 export default function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
+        <Suspense fallback={<Cargando />}>
         <Routes>
           {/* Login — sin protección */}
           <Route path="/login" element={<Login />} />
@@ -80,6 +114,7 @@ export default function App() {
               <div style={{ display: 'flex', background: '#0a0a0a', color: '#ccc', minHeight: '100vh', fontFamily: "'Inter', system-ui, sans-serif" }}>
                 <Sidebar />
                 <main style={{ flex: 1, overflowX: 'hidden', overflowY: 'auto', minHeight: '100vh', width: 0 }}>
+                  <Suspense fallback={<Cargando />}>
                   <Routes>
                     <Route path="/" element={<Inicio />} />
                     <Route path="/tablero" element={<Dashboard />} />
@@ -160,12 +195,14 @@ export default function App() {
                       </ProtectedRoute>
                     } />
                   </Routes>
+                  </Suspense>
                 </main>
-                <ChatBot />
+                <Suspense fallback={null}><ChatBot /></Suspense>
               </div>
             </ProtectedRoute>
           } />
         </Routes>
+        </Suspense>
       </AuthProvider>
     </BrowserRouter>
   )
