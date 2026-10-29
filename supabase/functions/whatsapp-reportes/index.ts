@@ -2,9 +2,14 @@
 //
 // La llama pg_cron (con la llave del vault en x-cron-key) o un DG/Admin desde
 // el ERP (con su JWT). Acciones:
-//   pedir     18:00  le pide su reporte a cada persona de reporte_diario_personas
-//                    según su planeación del día (installer_daily_assignment).
+//   pedir     18:00  le pregunta a cada persona de reporte_diario_personas en qué
+//                    obra estuvo, partiendo de su planeación del día
+//                    (installer_daily_assignment). El reporte se pide después de
+//                    que confirma la obra (whatsapp-webhook/reportes.ts).
 //   insistir  19:30  a quien no ha contestado, una sola vez.
+//   lecturas  c/2min lo que entendimos de cada reporte (avances, bloqueos,
+//                    avisos), de regreso al instalador para que lo confirme. Sale
+//                    cuando lleva 3 minutos sin mandar nada (lectura.ts).
 //   resumen   21:00  procesa los reportes (process-obra-report), manda el
 //                    resumen de cada obra a su lista, al jefe de cuadrilla el de
 //                    su equipo con las actividades detectadas para que decida
@@ -19,6 +24,8 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.0';
 import { hoyCDMX, telefonoDeEmpleado, avisar, primerNombre, alHistorial, ZONA, empleadoDeTelefono } from '../whatsapp-webhook/reportesComun.ts';
 import { armarPropuestas, abiertasDe, textoPropuestas, fechaCorta, detectarComunicados, textoComunicados } from '../whatsapp-webhook/supervisor.ts';
 import { contextoCoord, panorama, ejecutarCoord } from '../whatsapp-webhook/coordinador.ts';
+import { preguntaObra } from '../whatsapp-webhook/reportes.ts';
+import { enviarLectura } from '../whatsapp-webhook/lectura.ts';
 import { graphGet, graphPost } from '../whatsapp-webhook/whatsapp.ts';
 import { crearPlantillasFaltantes, estadoPlantillas } from '../_shared/waPlantillas.ts';
 
@@ -91,9 +98,8 @@ async function pedir(opts: { soloEmpleado?: string; telefonoPrueba?: string | nu
     }
     if (!nuevas.length) { res.push({ persona: e.nombre, omitido: 'ya se le había pedido' }); continue; }
     const saludo = saludoDe(p, e);
-    const obrasTxt = lista(nuevas.map(n => `*${n}*`));
-    const texto = `Hola ${saludo} 👷 ¿Cómo quedó hoy ${obrasTxt}? Mándame tu reporte del día: qué avanzaste, fotos y qué falta o qué necesitas. Puede ser por nota de voz.`;
-    const compacto = `manda tu reporte de hoy de ${lista(nuevas)}: qué avanzaste, fotos y qué falta. Puede ser nota de voz`;
+    // Paso 1: primero que confirme en qué obra estuvo; la planeación no siempre se cumple.
+    const { texto, compacto } = preguntaObra(saludo, nuevas);
     const r = await avisar(sb, tel, saludo, texto, compacto);
     res.push({ persona: e.nombre, obras: nuevas, enviado: r.ok, error: r.error });
   }
@@ -104,7 +110,7 @@ async function pedir(opts: { soloEmpleado?: string; telefonoPrueba?: string | nu
 async function insistir() {
   const fecha = hoyCDMX();
   const { data: sols } = await sb.from('reporte_solicitudes')
-    .select('id, employee_id, telefono, obras(nombre), employees(nombre)')
+    .select('id, employee_id, telefono, obra_confirmada, obras(nombre), employees(nombre)')
     .eq('fecha', fecha).eq('estado', 'pedido');
   const porPersona = new Map<string, any[]>();
   for (const s of sols || []) porPersona.set(s.employee_id, [...(porPersona.get(s.employee_id) || []), s]);
@@ -114,13 +120,36 @@ async function insistir() {
     const p = (personas || []).find((x: any) => x.employee_id === empId);
     const saludo = saludoDe(p, ss[0].employees);
     const obras = ss.map((s: any) => s.obras?.nombre || 'la obra');
-    const r = await avisar(sb, ss[0].telefono, saludo,
-      `${saludo}, me falta tu reporte de hoy de ${lista(obras.map((o: string) => `*${o}*`))}. Aunque sea corto o una nota de voz 🙏`,
-      `me falta tu reporte de hoy de ${lista(obras)}. Aunque sea corto o una nota de voz`);
+    // Si ni siquiera ha dicho en qué obra estuvo, se le vuelve a preguntar eso.
+    const sinObra = ss.every((s: any) => !s.obra_confirmada);
+    const q = preguntaObra(saludo, obras);
+    const r = sinObra
+      ? await avisar(sb, ss[0].telefono, saludo, `${saludo}, me falta tu reporte de hoy 🙏 ${q.texto.replace(/^Hola\s+\S+\s+👷 Antes de tu reporte: /, '')}`, `me falta tu reporte de hoy. ${q.compacto.replace(/^antes de tu reporte: /, '')}`)
+      : await avisar(sb, ss[0].telefono, saludo,
+        `${saludo}, me falta tu reporte de hoy de ${lista(obras.map((o: string) => `*${o}*`))}: qué avanzaste, bloqueos y avisos. Aunque sea corto o una nota de voz 🙏`,
+        `me falta tu reporte de hoy de ${lista(obras)}. Aunque sea corto o una nota de voz`);
     if (r.ok) await sb.from('reporte_solicitudes').update({ estado: 'insistido', insistido_at: new Date().toISOString() }).in('id', ss.map((s: any) => s.id));
     res.push({ persona: ss[0].employees?.nombre, enviado: r.ok, error: r.error });
   }
   return { fecha, insistidos: res.filter(r => r.enviado).length, detalle: res };
+}
+
+// ── lecturas ────────────────────────────────────────────────────────────────
+// Reportes que ya tienen texto y que llevan 3 minutos sin moverse: se procesan y
+// se le manda al instalador lo que se entendió, para que lo confirme. La misma
+// condición vive en el cron (wa-reportes-lecturas); si cambia aquí, allá también.
+async function lecturas() {
+  const limite = new Date(Date.now() - 3 * 60e3).toISOString();
+  const { data } = await sb.from('reporte_solicitudes')
+    .select('id, ultimo_mensaje_at, lectura_enviada_at, obra_reportes!reporte_solicitudes_reporte_id_fkey(texto_raw)')
+    .eq('estado', 'recibiendo').eq('obra_confirmada', true).not('reporte_id', 'is', null)
+    .gte('fecha', new Date(Date.now() - 2 * 86400e3).toISOString().slice(0, 10))
+    .lt('ultimo_mensaje_at', limite);
+  const listas = (data || []).filter((s: any) =>
+    (!s.lectura_enviada_at || s.lectura_enviada_at < s.ultimo_mensaje_at) && String(s.obra_reportes?.texto_raw || '').trim());
+  const res: any[] = [];
+  for (const s of listas) res.push({ solicitud: s.id, ...(await enviarLectura(sb, s.id)) });
+  return { lecturas: res.filter(r => r.ok).length, detalle: res };
 }
 
 // ── resumen ─────────────────────────────────────────────────────────────────
@@ -140,6 +169,9 @@ async function procesar(reporteId: string) {
 const vineta = (xs: string[] | null | undefined, max = 4) => (xs || []).filter(Boolean).slice(0, max).map(x => `• ${x}`).join('\n');
 
 let ALIAS = new Map<string, string>();
+// Reportes de WhatsApp cuya lectura el instalador NO confirmó (o corrigió y no
+// volvió a confirmar): en el resumen se marcan para que se lean con cuidado.
+let SIN_CONFIRMAR = new Set<string>();
 const nombreCorto = (id: string | null | undefined, nombre: string | null | undefined) => (id && ALIAS.get(id)) || primerNombre(nombre);
 
 function bloqueObra(nombre: string, reps: any[], faltan: string[]): { texto: string; compacto: string } {
@@ -147,7 +179,8 @@ function bloqueObra(nombre: string, reps: any[], faltan: string[]): { texto: str
   const compacto: string[] = [`${nombre}:`];
   for (const r of reps) {
     const quien = nombreCorto(r.instalador_id, r.employees?.nombre);
-    partes.push(`_${quien}_${r.fotos?.length ? ` · ${r.fotos.length} foto${r.fotos.length > 1 ? 's' : ''}` : ''}`);
+    const sinConf = SIN_CONFIRMAR.has(r.id);
+    partes.push(`_${quien}_${r.fotos?.length ? ` · ${r.fotos.length} foto${r.fotos.length > 1 ? 's' : ''}` : ''}${sinConf ? ' · ⚠️ no confirmó el resumen' : ''}`);
     if (r.ai_resumen) partes.push(r.ai_resumen);
     else if (r.texto_raw) partes.push(String(r.texto_raw).replace(/\[\d{2}:\d{2}\]\s*/g, '').slice(0, 500));
     if (r.ai_avances?.length) partes.push('Avances:\n' + vineta(r.ai_avances));
@@ -173,13 +206,14 @@ async function resumen(opts: { soloObra?: string; soloA?: { telefono: string; sa
 
   // 2. Lo de hoy, por obra.
   let qs = sb.from('reporte_solicitudes')
-    .select('id, employee_id, obra_id, obra_texto, estado, reporte_id, employees(nombre), obras(nombre, coordinador_id)')
+    .select('id, employee_id, obra_id, obra_texto, estado, reporte_id, confirmado_at, employees(nombre), obras(nombre, coordinador_id)')
     .eq('fecha', fecha).neq('estado', 'cancelado');
   if (opts.soloObra) qs = qs.eq('obra_id', opts.soloObra);
   const { data: sols } = await qs;
   let qr = sb.from('obra_reportes').select('id, obra_id, obra_texto, instalador_id, texto_raw, fotos, ai_resumen, ai_avances, ai_faltantes, ai_bloqueos, ai_pendientes, origen, employees:instalador_id(nombre)').eq('fecha', fecha);
   if (opts.soloObra) qr = qr.eq('obra_id', opts.soloObra);
   const { data: reps } = await qr;
+  SIN_CONFIRMAR = new Set((sols || []).filter((x: any) => x.reporte_id && !x.confirmado_at && x.estado !== 'no_fue').map((x: any) => x.reporte_id));
 
   const obras = new Map<string, { nombre: string; coordinador: string | null; reps: any[]; faltan: string[] }>();
   for (const s of sols || []) {
@@ -441,6 +475,7 @@ Deno.serve(async (req) => {
     switch (p.accion) {
       case 'pedir': return json({ ok: true, ...(await pedir({})) });
       case 'insistir': return json({ ok: true, ...(await insistir()) });
+      case 'lecturas': return json({ ok: true, ...(await lecturas()) });
       case 'domingo': case 'domingo_insistir': case 'recordatorios': {
         const f = p.accion === 'domingo' ? () => domingo({}) : p.accion === 'domingo_insistir' ? domingoInsistir : recordatorios;
         if (req.headers.get('x-cron-key')) {

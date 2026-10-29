@@ -57,6 +57,8 @@ Reglas:
 - Se especifico y concreto, incluye cantidades y ubicaciones cuando esten mencionadas
 - Si no hubo audio, "transcripcion": null
 - No inventes datos que no esten en el input
+- Las lineas marcadas [Correccion] o [Corrección] son aclaraciones del instalador sobre el resumen que le mandamos: mandan sobre lo que dijo antes. Si corrige un dato, usa el corregido y no repitas el viejo.
+- "avances": lo que se hizo hoy. "bloqueos": lo que lo detuvo o impide seguir. "faltantes": avisos, material que falta y lo que queda pendiente.
 
 ACTIVIDADES TERMINADAS:
 - Solo puedes usar ids de la lista de actividades abiertas que te paso abajo. Si no hay lista, devuelve [].
@@ -209,7 +211,9 @@ serve(async (req) => {
       return json({ error: "Failed to parse Claude response", raw: textContent }, 500)
     }
 
-    const finalText = parsed.transcripcion
+    // Al reprocesar (el instalador corrigió el resumen) no se vuelve a pegar la
+    // transcripción que ya quedó en el texto.
+    const finalText = parsed.transcripcion && !String(reporte.texto_raw || "").includes("[Audio transcrito]")
       ? (reporte.texto_raw ? `${reporte.texto_raw}\n\n[Audio transcrito]: ${parsed.transcripcion}` : `[Audio transcrito]: ${parsed.transcripcion}`)
       : reporte.texto_raw
 

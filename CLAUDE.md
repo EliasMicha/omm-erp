@@ -3790,3 +3790,17 @@ Elias: *"que sea útil como un WhatsApp literalmente si lo veo en el celular… 
 - ⚠️ `drop policy` dentro de `execute_sql` hace que la llamada se cancele (pide confirmación). Crear la política sin el drop sí pasa.
 - **Pendiente (webhook, cuando la Mac esté conectada):** que el agente guarde videos (hoy caen en `default`) y que el modo pausa también guarde el archivo; escribir `media_path` al registrar.
 - ⚠️ `obra_reportes_read` deja leer el bucket a `anon` (pre-existente). Revisar si la app de obra lo necesita antes de cerrarlo.
+
+## 📋 Reporte diario en tres pasos: obra → reporte → "¿está bien?" (2026-10-29)
+- **Pedido de Elias:** "la planeación no se cumple al 100%… primero que confirmen en qué obra estaban; después la retro; y mándales de regreso lo que captes —avances, bloqueos y avisos— para que confirmen. Si no, estamos confundiendo todo."
+- **Flujo nuevo** (`whatsapp-webhook/reportes.ts`, `lectura.ts`; `whatsapp-reportes`):
+  1. **6 pm:** `preguntaObra()` — "¿hoy estuviste en *X*? Contesta sí, o dime en qué obra estuviste". Con varias planeadas, lista numerada. `reporte_solicitudes.obra_confirmada=false`.
+  2. Contesta → `leerObra()` (atajos sin IA para "sí" y números; si no, Haiku): confirma / otra / sin_obra / charla. "Otra" **reusa la misma solicitud** (`repuntar`) para que las fotos mandadas antes se vayan con ella. Luego `pedirReporte()`: avances, bloqueos, avisos.
+  3. **Lectura:** cuando lleva 3 min sin mandar nada y ya hay texto (fotos solas no cuentan), el cron `wa-reportes-lecturas` (cada 2 min, solo llama si hay alguna lista) → acción `lecturas` → `enviarLectura()`: procesa con process-obra-report y le manda "Esto entendí: ✅ Avances / ⛔ Bloqueos / 📣 Avisos y lo que falta. ¿Está bien?". Estado `por_confirmar`.
+  4. "sí" (`esAfirmativo`: quitando palabras de asentir y cortesía no debe quedar nada; "sí, nada más que fueron 3" es corrección) → `confirmado` + `confirmado_at`. "no" pelón → pregunta qué corregir. Cualquier otra cosa → se agrega `[Corrección] …` y se vuelve a leer al momento.
+- **7:30 pm:** a quien no dijo la obra se le vuelve a preguntar la obra; a quien sí, el reporte.
+- **9 pm resumen:** los reportes sin `confirmado_at` salen con "⚠️ no confirmó el resumen".
+- **process-obra-report v28:** las líneas `[Corrección]` mandan sobre lo anterior; ya no repite "[Audio transcrito]" al reprocesar.
+- **BD** (`20261029_reportes_confirmar.sql`): columnas `obra_confirmada`, `lectura_enviada_at`, `confirmado_at`; estados nuevos `por_confirmar`, `confirmado`. Las 17 solicitudes previas quedaron `obra_confirmada=true`.
+- **Desplegado:** process-obra-report v28, whatsapp-reportes v9, whatsapp-webhook v44 (bundles en el contenedor, md5 cotejado en la Mac, curl con `.claude-sbp`). Acción `lecturas` probada: 200.
+- **No probado de punta a punta** con un instalador real: el primer uso es hoy a las 6 pm. Probar antes con "Reportes de obra → prueba" en /whatsapp.
