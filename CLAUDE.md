@@ -3804,3 +3804,26 @@ Elias: *"que sea útil como un WhatsApp literalmente si lo veo en el celular… 
 - **BD** (`20261029_reportes_confirmar.sql`): columnas `obra_confirmada`, `lectura_enviada_at`, `confirmado_at`; estados nuevos `por_confirmar`, `confirmado`. Las 17 solicitudes previas quedaron `obra_confirmada=true`.
 - **Desplegado:** process-obra-report v28, whatsapp-reportes v9, whatsapp-webhook v44 (bundles en el contenedor, md5 cotejado en la Mac, curl con `.claude-sbp`). Acción `lecturas` probada: 200.
 - **No probado de punta a punta** con un instalador real: el primer uso es hoy a las 6 pm. Probar antes con "Reportes de obra → prueba" en /whatsapp.
+
+## ⚡ Velocidad del ERP (2026-10-29)
+**Diagnóstico:**
+- La base es chica (~30 MB, 100% en caché), pero las consultas tardaban mucho. Ejemplo: `facturas` con 4,427 renglones, 900 ms como usuario DG contra 12 ms sin RLS.
+- **Causa 1:** casi todas las políticas llamaban `usuario_real()` / `es_area(...)` / `soy_instalador()` **por renglón**. Las de Finanzas ya se habían envuelto el 25-oct; el resto no.
+- **Causa 2:** el front era UN solo bundle de 4.4 MB (1.2 MB gzip), con todos los módulos y PDFs, que se bajaba completo en cada carga.
+
+**Hecho:**
+1. **RLS InitPlan en todo `public`.** Migración `rls_initplan_todas` (`supabase/migrations/20261029_rls_initplan_todas.sql`): 232 de 256 políticas, envueltas con `( SELECT f() )` por regex con lookbehind, así que es idempotente.
+   - Respaldo de las políticas originales en `_rls_politicas_respaldo_20261029`.
+   - Verificado con `_rls_tomar_huella(fase)`, que cuenta lo visible por tabla para anon + DG + Administración + Coordinador_Obra + Logística + Mantenimiento + Ventas_Ingeniería: **1,099 conteos, 0 diferencias**. Los resultados están en `_rls_huella_20261029`. La función está revocada a anon/authenticated; se puede reusar para validar cambios de RLS.
+   - facturas: 900 ms → ~38 ms.
+   - **Regla nueva:** toda política nueva se escribe ya envuelta, `( select usuario_real() )`.
+2. **Páginas por demanda** en `src/App.tsx`: `cargarPagina(() => import(...))`, que es `React.lazy`, con `Suspense` dentro de `<main>` para que el menú no parpadee.
+   - Bundle inicial: 4.4 MB → **412 KB** (121 KB gzip). Cada módulo es su propio chunk (Cotizaciones 708 KB, Contabilidad 288 KB, jspdf 381 KB solo cuando se usa).
+   - Eager se quedan: AuthContext, ProtectedRoute, Sidebar y Login.
+   - **Gotcha de Vercel:** tras un deploy, una pestaña abierta pide chunks que ya no existen. `cargarPagina` recarga la página una vez; la marca `omm_recarga_chunk` en sessionStorage evita el ciclo. Probado bloqueando el chunk de Compras.
+   - Probado con Playwright y sesión simulada: 11 rutas con navegación del lado del cliente, 0 errores.
+
+**Siguiente si sigue lento:**
+- Patrones de carga en el front: `catalog_products` completo se pide miles de veces (≈10k llamadas, ~200 ms c/u); `facturas` y `factura_conceptos` se paginan COMPLETAS (`select *`). Cachear el catálogo por sesión y pedir solo columnas o rangos.
+- `quotations` pesa ~10 KB por renglón por `notes`.
+- La instancia es chica (shared_buffers ~280 MB, 60 conexiones, CPU compartido): los tiempos varían mucho entre corridas. Subir el cómputo en Supabase es decisión de costo de Elias.
