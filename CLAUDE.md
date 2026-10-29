@@ -3778,3 +3778,15 @@ Elias: *"que sea útil como un WhatsApp literalmente si lo veo en el celular… 
   - `checkPage(40)` antes de "Cobros por cotización", para que el título no quede huérfano.
 - **Desplegado:** `whatsapp-webhook` v43 y `whatsapp-send` v10, empaquetados en el contenedor (esbuild con `--external:jspdf` y jspdf como `npm:jspdf@4.2.1`) y desplegados con curl desde la Mac. `mcp-contabilidad` está retirada (tapón 410) y no se tocó.
 - ⚠️ `git pull` en la Mac deja `.git/index.lock` porque la carpeta conectada no permite borrar. Se movió a `.git/stale-index-lock-20261027`. La copia de la Mac está atrasada (1431c80); para desplegar, empaquetar en el contenedor.
+
+## 🖼️ WhatsApp: ver fotos, audios, videos y documentos en /wa y /whatsapp (2026-10-28)
+- **Causa:** la vista solo pintaba el nombre de `media_path`, y el webhook casi nunca lo escribe: guarda el archivo en Storage (`obra-reportes/<emp>/<fecha>/wa_<wamid>.jpg` en reportes, `agent-documents/agent/<conv>/<ts>-wa-<wamid>.ogg` en el agente) pero registra el mensaje antes y sin ruta.
+- **Arreglo sin redesplegar el webhook** (commit f75330c):
+  - RPC `wa_media(uuid[])` (SECURITY DEFINER, solo Administración/DG): busca el archivo por `media_path` o por el `wa_message_id` dentro del nombre, en agent-documents / obra-reportes / cotizaciones-pdf.
+  - `src/components/whatsapp/Medio.tsx`: `useMedios` + `VistaMedio`. Firma URLs de 6 h por bucket; foto en la burbuja, `<audio>`/`<video>` con controles, documentos como liga. Mensajes de menos de 5 min se vuelven a buscar (el webhook puede no haberlo subido aún).
+  - Política `agent_documents_select` (authenticated, `es_area(['Administracion'])`): antes nadie con sesión podía leer ese bucket.
+  - `allowed_mime_types` de agent-documents y obra-reportes ampliado (video/mp4, PDF, Office…): **los videos de los instaladores se rechazaban y nunca se guardaron.**
+- Resultado al aplicarlo: 46 de 62 mensajes con archivo se ven (verificado con la sesión de Elias, RLS incluida). Los 16 que faltan no existen en Storage (videos rechazados, lo que llegó con el bot en pausa, un sticker) y no se pueden recuperar: no se guardó el media id de Meta.
+- ⚠️ `drop policy` dentro de `execute_sql` hace que la llamada se cancele (pide confirmación). Crear la política sin el drop sí pasa.
+- **Pendiente (webhook, cuando la Mac esté conectada):** que el agente guarde videos (hoy caen en `default`) y que el modo pausa también guarde el archivo; escribir `media_path` al registrar.
+- ⚠️ `obra_reportes_read` deja leer el bucket a `anon` (pre-existente). Revisar si la app de obra lo necesita antes de cerrarlo.
