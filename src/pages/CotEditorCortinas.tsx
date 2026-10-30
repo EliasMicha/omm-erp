@@ -407,7 +407,7 @@ function CortPdfModal({ items, areas, config, cotName, clientName, projectName, 
   const iva = Math.round(subConDesc * config.ivaRate / 100 * 100) / 100
   const total = subConDesc + iva
 
-  const manualCount = items.filter(i => i.tipoCierre === 'MANUAL').reduce((s, i) => s + i.cantidad, 0)
+  const manualCount = items.filter(i => i.tipoCierre === 'MANUAL' && i.itemKind !== 'EXTRA').reduce((s, i) => s + i.cantidad, 0)
   const motorCount = items.filter(i => i.tipoCierre === 'MOTORIZADO').reduce((s, i) => s + i.cantidad, 0)
 
   // Moneda de presentación: todo el cálculo interno es en MXN; si la cotización
@@ -599,16 +599,34 @@ function CortPdfModal({ items, areas, config, cotName, clientName, projectName, 
             {/* Summary */}
             <div className="pdf-area-start" style={{ marginBottom: 20 }}>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 150px', gap: 8, fontSize: 10 }}>
-                <div style={{ textAlign: 'right', color: '#555' }}>Persianas Manuales:</div>
-                <div style={{ textAlign: 'right', fontWeight: 600, color: '#000' }}>{manualCount}</div>
-                <div style={{ textAlign: 'right', color: '#555' }}>Total Tela:</div>
-                <div style={{ textAlign: 'right', fontWeight: 600, color: '#000' }}>{fmtC(telaVenta)}</div>
-                <div style={{ textAlign: 'right', color: '#555' }}>Total Confección:</div>
-                <div style={{ textAlign: 'right', fontWeight: 600, color: '#000' }}>{fmtC(confVenta)}</div>
-                <div style={{ textAlign: 'right', color: '#555', fontWeight: 600 }}>Total Telas Confeccionadas:</div>
-                <div style={{ textAlign: 'right', fontWeight: 700, color: '#000' }}>{fmtC(telaVenta + confVenta)}</div>
-                <div style={{ textAlign: 'right', color: '#555' }}>Total Motorización:</div>
-                <div style={{ textAlign: 'right', fontWeight: 600, color: '#000' }}>{fmtC(motorVenta)}</div>
+                {/* El resumen tiene que listar TODO lo que suma el subtotal. Antes
+                    solo traía tela, confección y motores: una cotización de puras
+                    persianas salía con "Tela $0" y el subtotal no cuadraba a la
+                    vista (faltaban el material de persianas y los extras). */}
+                {manualCount > 0 && <>
+                  <div style={{ textAlign: 'right', color: '#555' }}>Piezas manuales:</div>
+                  <div style={{ textAlign: 'right', fontWeight: 600, color: '#000' }}>{manualCount}</div>
+                </>}
+                {(telaVenta + confVenta) > 0 && <>
+                  <div style={{ textAlign: 'right', color: '#555' }}>Total Tela:</div>
+                  <div style={{ textAlign: 'right', fontWeight: 600, color: '#000' }}>{fmtC(telaVenta)}</div>
+                  <div style={{ textAlign: 'right', color: '#555' }}>Total Confección:</div>
+                  <div style={{ textAlign: 'right', fontWeight: 600, color: '#000' }}>{fmtC(confVenta)}</div>
+                  <div style={{ textAlign: 'right', color: '#555', fontWeight: 600 }}>Total Telas Confeccionadas:</div>
+                  <div style={{ textAlign: 'right', fontWeight: 700, color: '#000' }}>{fmtC(telaVenta + confVenta)}</div>
+                </>}
+                {persianaVenta > 0 && <>
+                  <div style={{ textAlign: 'right', color: '#555' }}>Total Persianas:</div>
+                  <div style={{ textAlign: 'right', fontWeight: 600, color: '#000' }}>{fmtC(persianaVenta)}</div>
+                </>}
+                {motorVenta > 0 && <>
+                  <div style={{ textAlign: 'right', color: '#555' }}>Total Motorización:</div>
+                  <div style={{ textAlign: 'right', fontWeight: 600, color: '#000' }}>{fmtC(motorVenta)}</div>
+                </>}
+                {extraVenta > 0 && <>
+                  <div style={{ textAlign: 'right', color: '#555' }}>Extras (envío, manejo, etc.):</div>
+                  <div style={{ textAlign: 'right', fontWeight: 600, color: '#000' }}>{fmtC(extraVenta)}</div>
+                </>}
                 <div style={{ textAlign: 'right', color: '#555' }}>Instalación ({config.instPct}%):</div>
                 <div style={{ textAlign: 'right', fontWeight: 600, color: '#000' }}>{fmtC(instalacion)}</div>
                 <div style={{ textAlign: 'right', color: '#555', borderTop: '1px solid #000', paddingTop: 4 }}>Subtotal:</div>
@@ -1279,7 +1297,7 @@ function CortSummary({ items, areas, config, showInt, onConfigChange }: {
   const persianaCount = items.filter(i => i.itemKind === 'PERSIANA').reduce((s, i) => s + i.cantidad, 0)
   // Manual/Motorizada split — across both cortinas and persianas
   const motorCount = items.filter(i => i.tipoCierre === 'MOTORIZADO').reduce((s, i) => s + i.cantidad, 0)
-  const manualCount = items.filter(i => i.tipoCierre === 'MANUAL').reduce((s, i) => s + i.cantidad, 0)
+  const manualCount = items.filter(i => i.tipoCierre === 'MANUAL' && i.itemKind !== 'EXTRA').reduce((s, i) => s + i.cantidad, 0)
 
   const inputS = { ...S.input, width: 55, fontSize: 11 }
 
