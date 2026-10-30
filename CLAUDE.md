@@ -3834,3 +3834,20 @@ Elias: *"que sea útil como un WhatsApp literalmente si lo veo en el celular… 
   - El resumen lista cada concepto solo si es mayor que 0: Tela / Confección / Telas confeccionadas, Persianas, Motorización y Extras.
   - "Persianas Manuales" ahora es "Piezas manuales" y excluye los renglones EXTRA, que nacen con `tipoCierre='MANUAL'`. El mismo filtro se aplicó en el resumen del editor.
 - Puede haber diferencias de centavos entre la suma de renglones y el resumen: el resumen aplica el margen al costo agregado y los renglones lo aplican uno por uno (ej. motores $106,662.40 contra $106,662.42). No se tocó, porque el total guardado de la cotización usa el agregado.
+
+## 💸 Compras: pago masivo de OC con TXT para BBVA Net Cash (2026-10-30)
+- **Uso:** en la lista de OC se palomean órdenes (hay checkbox en el encabezado para todas las de la vista), barra verde → "Generar TXT de pago" → modal `PagoMasivoModal` (`Compras.tsx`).
+  - Solo se pueden palomear las que deben algo, en **MXN**, no canceladas y con proveedor. Las de USD quedan fuera: el layout es en pesos.
+- **Archivos** (`src/lib/layoutsBancarios.ts`), un renglón por OC; motivo/concepto = **folio sin guiones** (`MATIE01C36`), solo el folio y al principio:
+  - `PAGO_PROVEEDORES_BBVA_YYYYMMDD.txt`: terceros BBVA, 85 posiciones = abono18 + cargo18 + MXN + importe16 + motivo30.
+  - `PAGO_PROVEEDORES_SPEI_YYYYMMDD.txt`: SPEI, 128 posiciones, el mismo de nómina, con concepto = folio y referencia consecutiva.
+  - Cuenta de cargo: `0118270236`.
+- **Destino por proveedor:** sale de `supplier_bank_accounts` con `destinosDe()`:
+  - `bnet_codigo` de 10 dígitos = cuenta BBVA.
+  - CLABE 012… = cuenta BBVA dentro de la CLABE (`clabe[7..17]`).
+  - CLABE de otro banco = SPEI.
+  - Si hay varias, se elige en un select.
+- **Semáforo de la cuenta:** RPC `proveedor_cuentas_historial(text[])` cuenta cuántos cargos del banco ya fueron a esa cuenta (`BNET <cuenta>` o la CLABE). Muestra "✓ N pagos previos" o "⚠ Nunca se le ha pagado a esta cuenta".
+- **A propósito NO registra los pagos.** Elias: "se tiene que subir el comprobante, para que se tenga toda la trazabilidad". Cada pago se registra con su comprobante desde "+ Pago". Hubo un botón de registrar en bloque y se quitó el mismo día.
+- ⚠️ **Por validar con el primer archivo real:** el layout de terceros BBVA de 85 posiciones se armó con la estructura documentada (cuenta abono/cargo 18, divisa, importe, motivo 30). Net Cash valida al subir; si lo rechaza, ajustar `layoutTercerosBbva`.
+- Probado con Playwright y respuestas simuladas: USD deshabilitada; líneas de 85 y 128; Procables → BBVA, STP → SPEI; 0 pagos registrados.

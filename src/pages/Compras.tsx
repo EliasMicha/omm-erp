@@ -1925,7 +1925,7 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
             total: totalMostrado(o), pagado: pagosPorOC[o.id]?.pagado || 0, status: o.status,
           }))}
           onClose={() => setShowPagoMasivo(false)}
-          onRegistrados={() => { setShowPagoMasivo(false); setSelPago(new Set()); load() }}
+          onRegistrados={() => { setShowPagoMasivo(false); setSelPago(new Set()) }}
         />
       )}
       {pagandoOC && (
@@ -1957,8 +1957,9 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
 // cargo llega al estado de cuenta con su folio y su monto exacto, y la
 // conciliación lo liga sola a la OC.
 //
-// Bajar el TXT NO marca nada como pagado: el dinero sale hasta que alguien lo
-// autoriza en Net Cash. El registro en el ERP es un segundo paso, explícito.
+// Bajar el TXT NO marca nada como pagado, y a propósito tampoco hay un
+// "registrar en bloque": Elias pidió que cada pago se registre con SU
+// comprobante (+ Pago), para que cada OC tenga la trazabilidad completa.
 
 interface OCParaPago {
   id: string
@@ -1988,8 +1989,6 @@ function PagoMasivoModal({ ocs, onClose, onRegistrados }: { ocs: OCParaPago[]; o
     return m
   })
   const [descargado, setDescargado] = useState<{ bbva: number; spei: number } | null>(null)
-  const [registrando, setRegistrando] = useState(false)
-  const [resultado, setResultado] = useState<{ ok: number; fallos: string[]; avisosFallidos: string[] } | null>(null)
 
   // Se carga una vez al abrir: la lista de OCs no cambia mientras el modal está abierto.
   useEffect(() => {
@@ -2072,50 +2071,6 @@ function PagoMasivoModal({ ocs, onClose, onRegistrados }: { ocs: OCParaPago[]; o
     }
   }
 
-  async function registrar() {
-    const total = suma(renglones)
-    if (!window.confirm(
-      `¿Ya autorizaste estos pagos en BBVA Net Cash?\n\n` +
-      `Se registrarán ${renglones.length} pagos por ${F(total)} con fecha de hoy, ` +
-      `las órdenes en borrador pasan a "Pedida" y se avisa a Logística de cada una.\n\n` +
-      `Si el banco rechazó alguno, quítalo de la lista antes de registrar.`
-    )) return
-    setRegistrando(true)
-    const fecha = hoyLocal()
-    const fallos: string[] = []
-    const avisosFallidos: string[] = []
-    let ok = 0
-    for (const r of renglones) {
-      const o = r.oc
-      const ref = folioSinGuiones(o.folio)
-      const { error: insErr } = await supabase.from('purchase_order_payments').insert({
-        purchase_order_id: o.id,
-        amount: r.linea.monto,
-        currency: 'MXN',
-        payment_date: fecha,
-        method: 'transferencia',
-        reference: ref,
-        notes: `Pago masivo · layout ${r.linea.destino.tipo === 'bbva' ? 'terceros BBVA' : 'SPEI'} ${fecha} · ${r.linea.destino.etiqueta}`,
-      })
-      if (insErr) { fallos.push(`${o.folio}: ${insErr.message}`); continue }
-      ok++
-      // Igual que el pago individual: el primer pago fija lo cotejado y la pasa a Pedida.
-      if (o.status === 'borrador' || o.status === 'aprobada') {
-        try {
-          await commitCotejadoItemsDB(o.id)
-          await supabase.from('purchase_orders').update({ status: 'pedida' }).eq('id', o.id)
-        } catch (e: any) { fallos.push(`${o.folio}: pago guardado, pero no se pudo pasar a Pedida (${e?.message || e})`) }
-      }
-      const aviso = await avisarPagoALogistica({
-        poId: o.id, monto: r.linea.monto, moneda: 'MXN', fecha, metodo: 'transferencia',
-        referencia: ref, conComprobante: false, totalOC: o.total, pagadoAntes: o.pagado,
-      })
-      if (!aviso.ok) avisosFallidos.push(o.folio)
-    }
-    setRegistrando(false)
-    setResultado({ ok, fallos, avisosFallidos })
-  }
-
   const overlayStyle: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100, padding: 16 }
   const modalStyle: React.CSSProperties = { background: '#141414', border: '1px solid #2a2a2a', borderRadius: 16, padding: 24, width: 900, maxWidth: '100%', maxHeight: '90vh', overflowY: 'auto', boxSizing: 'border-box' }
   const mono: React.CSSProperties = { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 12 }
@@ -2134,22 +2089,7 @@ function PagoMasivoModal({ ocs, onClose, onRegistrados }: { ocs: OCParaPago[]; o
 
         {error && <div style={{ background: '#3a1a1a', border: '1px solid #5a2a2a', borderRadius: 8, padding: 10, color: '#f87171', fontSize: 12, marginBottom: 12 }}>{error}</div>}
 
-        {cargando ? <Loading /> : resultado ? (
-          <div style={{ fontSize: 13, color: '#ccc', lineHeight: 1.7 }}>
-            <div style={{ color: '#10B981', fontWeight: 600, marginBottom: 6 }}>✓ {resultado.ok} pagos registrados.</div>
-            {resultado.fallos.length > 0 && (
-              <div style={{ color: '#f87171', marginBottom: 6 }}>
-                No se pudo completar:<br />{resultado.fallos.map(f => <div key={f}>· {f}</div>)}
-              </div>
-            )}
-            {resultado.avisosFallidos.length > 0 && (
-              <div style={{ color: '#D97706', marginBottom: 6 }}>
-                El pago quedó guardado, pero el aviso a Logística no salió para: {resultado.avisosFallidos.join(', ')}. Avísales tú.
-              </div>
-            )}
-            <div style={{ marginTop: 12 }}><Btn variant="primary" onClick={onRegistrados}>Listo</Btn></div>
-          </div>
-        ) : (
+        {cargando ? <Loading /> : (
           <>
             {grupos.map(g => {
               const ds = destinos[g.supplierId] || []
@@ -2221,13 +2161,12 @@ function PagoMasivoModal({ ocs, onClose, onRegistrados }: { ocs: OCParaPago[]; o
                 <div style={{ fontWeight: 600, marginBottom: 4 }}>✓ Archivo{descargado.bbva > 0 && descargado.spei > 0 ? 's' : ''} descargado{descargado.bbva > 0 && descargado.spei > 0 ? 's' : ''}</div>
                 {descargado.bbva > 0 && <div>· PAGO_PROVEEDORES_BBVA ({descargado.bbva}): súbelo en Net Cash como archivo de pagos a terceros BBVA.</div>}
                 {descargado.spei > 0 && <div>· PAGO_PROVEEDORES_SPEI ({descargado.spei}): súbelo en Net Cash como archivo de SPEI (otros bancos).</div>}
-                <div style={{ marginTop: 8, color: '#a7f3d0' }}>Las órdenes NO se han marcado como pagadas. Cuando autorices en el banco, regístralas aquí:</div>
+                <div style={{ marginTop: 8, color: '#a7f3d0' }}>
+                  Las órdenes siguen como pendientes. Cuando el banco procese cada pago, regístralo con su comprobante desde "+ Pago" en la orden.
+                </div>
                 <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 10, flexWrap: 'wrap' }}>
                   <Btn onClick={descargar}>Volver a descargar</Btn>
-                  <Btn onClick={onClose}>Cerrar sin registrar</Btn>
-                  <Btn variant="primary" onClick={registrar} disabled={registrando}>
-                    {registrando ? 'Registrando…' : `Ya los autoricé · registrar ${renglones.length} pagos`}
-                  </Btn>
+                  <Btn variant="primary" onClick={onRegistrados}>Listo</Btn>
                 </div>
               </div>
             )}
