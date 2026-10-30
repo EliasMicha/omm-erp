@@ -3851,3 +3851,14 @@ Elias: *"que sea útil como un WhatsApp literalmente si lo veo en el celular… 
 - **A propósito NO registra los pagos.** Elias: "se tiene que subir el comprobante, para que se tenga toda la trazabilidad". Cada pago se registra con su comprobante desde "+ Pago". Hubo un botón de registrar en bloque y se quitó el mismo día.
 - ⚠️ **Por validar con el primer archivo real:** el layout de terceros BBVA de 85 posiciones se armó con la estructura documentada (cuenta abono/cargo 18, divisa, importe, motivo 30). Net Cash valida al subir; si lo rechaza, ajustar `layoutTercerosBbva`.
 - Probado con Playwright y respuestas simuladas: USD deshabilitada; líneas de 85 y 128; Procables → BBVA, STP → SPEI; 0 pagos registrados.
+
+## 📊 Resumen de inversión: sistemas apagados y carrera al guardar notas de ESP (2026-10-30)
+- **Síntoma:** en Depto Landmark DGL, el resumen de inversión daba US$127,322 contra US$93,004 de sus cotizaciones. Dos causas:
+  1. `LeadDashboard.quotSummaryByCur` (rama ESP) sumaba TODOS los renglones, incluidos los sistemas en `systems_no_suma`, y les aplicaba IVA fijo de 1.16.
+  2. **Carrera en `CotEditorESP`:** cada escritura de `notes` lee el JSON, mezcla y lo regresa entero. Dos clics rápidos en "no suma" (General, luego Caseta Lutron) mandaron dos guardados que llegaron en desorden. La bitácora muestra `sistema_apagado custom_caseta_lutron` y 60 ms después `sistema_prendido`. La pantalla y `total_final` excluían Caseta; la base no.
+- **Fix:**
+  - **Resumen.** Rama ESP usa `soloSistemasVendidos(items, q.notes)`. Cada sistema = (raw + su parte de programación) × (1 − desc) × (1 + ivaRate). Si hay viáticos activos, el resto contra `total_final` sale como renglón **"Viáticos"**. Si no cuadra por otra razón, se reparte proporcional sobre `total_final`, así la suma de sistemas siempre da el total de la cotización. Las "partidas" de ESP tampoco cuentan los sistemas apagados.
+  - **Cotizador ESP.** `enFilaNotas()` (fila a nivel módulo) serializa TODAS las escrituras de `quotations.notes`: saveNotes, saveNotesWithCustom, systemNotes, viáticos, import IA y lead. `toggleNoSuma` y `toggleGlobalSystem` parten de una ref (último valor), no del estado del render.
+  - **Dato.** Se agregó `custom_caseta_lutron` a `systems_no_suma` de "Depto Landmark GDL (B) (C)". Ahora cuadra: sistemas US$52,147.03 + viáticos US$7,692.64 = US$59,839.67.
+- **Barrido:** ninguna otra ESP vigente quedó con un "no suma" perdido. Las diferencias restantes son viáticos (Rancho Hirschfeld, Mesa de Gallos, Ritz Cancún). GV303 tiene US$189.96 sin explicar, menor, y cae al reparto proporcional.
+- `apagar` (sacar de `notes.systems`) solo oculta el sistema en pantalla. Lo que excluye del total es `systems_no_suma`.

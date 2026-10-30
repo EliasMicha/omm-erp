@@ -16,6 +16,7 @@ import {
 import jsPDF from 'jspdf'
 import { generarEstadoCuentaPdf } from '../lib/estadoCuentaPdf'
 import { generarResumenInversionPdf } from '../lib/resumenInversionPdf'
+import { soloSistemasVendidos } from '../lib/sistemasVendidos'
 import PaymentPlanModal from '../components/PaymentPlanModal'
 import EstimacionesLead from '../components/EstimacionesLead'
 import LevantamientoLead from '../components/LevantamientoLead'
@@ -688,14 +689,18 @@ export default function LeadDashboard() {
         const totalAlreadyHasIva = q.specialty === 'cort' || q.specialty === 'ilum' || q.specialty === 'proy'
 
         if (q.specialty === 'esp') {
-          // ESP: break down by system, applying descuento + IVA proportionally
-          const espItems = quotItems.filter(i => i.quotation_id === q.id)
+          // ESP: desglose por sistema SOLO con los sistemas que suman. Los
+          // apagados en el cotizador (notes.systems_no_suma) no se vendieron:
+          // antes entraban aquí y el resumen salía inflado (Landmark DGL decía
+          // US$127k contra US$93k de las dos cotizaciones). El monto se reparte
+          // sobre total_final — la misma cifra que guarda el cotizador, con
+          // descuento, programación, viáticos e IVA — así la suma de sistemas
+          // cuadra exacto con el total de la cotización.
+          const espItems = soloSistemasVendidos(quotItems.filter(i => i.quotation_id === q.id), q.notes)
           let espMeta: any = {}
-          try { espMeta = typeof q.notes === 'string' ? JSON.parse(q.notes) : (q.notes || {}) } catch {}
-          const desc = espMeta.descuento || 0
-          const prog = espMeta.programacion || 0
-          const rawTotal = espItems.reduce((s, i) => s + (Number(i.total) || 0), 0)
-          const multiplier = (1 - desc / 100) * 1.16
+          try { espMeta = typeof q.notes === 'string' ? JSON.parse(q.notes) : (q.notes || {}) } catch { /* notas libres */ }
+          const qFinal = quoteFinalConIva(q)
+          const rawTotal = espItems.reduce((acc, i) => acc + (Number(i.total) || 0), 0)
 
           const customSys: any[] = Array.isArray(espMeta.customSystems) ? espMeta.customSystems : []
           const sysTotals: Record<string, { raw: number; count: number }> = {}
@@ -709,20 +714,44 @@ export default function LeadDashboard() {
                 const cs = customSys.find((c: any) => c && c.id === inotes.customSystemId)
                 if (cs && cs.name) sys = cs.name
               }
-            } catch {}
+            } catch { /* notas libres */ }
             if (!sysTotals[sys]) sysTotals[sys] = { raw: 0, count: 0 }
             sysTotals[sys].raw += Number(item.total) || 0
             sysTotals[sys].count += 1
           })
 
-          Object.entries(sysTotals).forEach(([sys, data]) => {
-            const proportion = rawTotal > 0 ? data.raw / rawTotal : 0
-            const sysFinal = (data.raw + prog * proportion) * multiplier
+          const sysKeys = Object.keys(sysTotals)
+          const sumar = (sys: string, monto: number, n: number) => {
             if (!systemTotals[sys]) systemTotals[sys] = { subtotal: 0, items: 0 }
-            systemTotals[sys].subtotal += sysFinal
-            systemTotals[sys].items += data.count
-            grandTotal += sysFinal
-          })
+            systemTotals[sys].subtotal += monto
+            systemTotals[sys].items += n
+            grandTotal += monto
+          }
+          if (sysKeys.length === 0 || rawTotal <= 0) {
+            sumar(q.name || q.specialty, qFinal, 0)
+          } else {
+            // Cada sistema con las mismas cuentas del cotizador: (renglones +
+            // su parte de programación) − descuento, + IVA. Los viáticos no son
+            // de ningún sistema: van en su propio renglón (antes se repartían y
+            // inflaban Audio, Redes, etc.).
+            const desc = Number(espMeta.descuento) || 0
+            const prog = Number(espMeta.programacion) || 0
+            const iva = espMeta.ivaRate !== undefined && espMeta.ivaRate !== null && !isNaN(Number(espMeta.ivaRate)) ? Number(espMeta.ivaRate) : 16
+            const factor = (1 - desc / 100) * (1 + iva / 100)
+            const finales = sysKeys.map(sys => ({ sys, n: sysTotals[sys].count, monto: (sysTotals[sys].raw + prog * (sysTotals[sys].raw / rawTotal)) * factor }))
+            const sumaSistemas = finales.reduce((a, f) => a + f.monto, 0)
+            const resto = qFinal - sumaSistemas
+            const conViaticos = !!(espMeta.viaticos && espMeta.viaticos.activo)
+            if (conViaticos && resto > 0.5) {
+              finales.forEach(f => sumar(f.sys, f.monto, f.n))
+              sumar('Viáticos', resto, 0)
+            } else {
+              // Si no cuadra por otra razón, se reparte sobre total_final para
+              // que la suma de sistemas nunca contradiga el total de la cotización.
+              const k = sumaSistemas > 0 ? qFinal / sumaSistemas : 0
+              finales.forEach(f => sumar(f.sys, f.monto * k, f.n))
+            }
+          }
         } else if (totalAlreadyHasIva) {
           // Fuente canónica: total_final (monto final con descuento + IVA), igual que las tarjetas.
           // Antes usaba q.total (subtotal sin el cálculo final) → el total no cuadraba con las tarjetas.
@@ -771,7 +800,10 @@ export default function LeadDashboard() {
         name: q.name,
         specialty: q.specialty,
         subtotalIva: getQuotTotalIva(q),
-        items: quotItems.filter(i => i.quotation_id === q.id).length,
+        // Partidas: en especiales no cuentan las de sistemas apagados.
+        items: (q.specialty === 'esp'
+          ? soloSistemasVendidos(quotItems.filter(i => i.quotation_id === q.id), q.notes)
+          : quotItems.filter(i => i.quotation_id === q.id)).length,
       }))
 
       result[cur].grandTotal = grandTotal

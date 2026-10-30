@@ -77,6 +77,21 @@ function sysDbName(systemId: string): string {
 }
 
 // Helper: lee notes del item y devuelve customSystemId si existe
+// ── Fila de escrituras a quotations.notes ─────────────────────────────────
+// Todas las escrituras de notes leen el JSON, le pegan su cambio y lo regresan
+// ENTERO. Si dos salen al mismo tiempo, la que llega al último pisa a la otra.
+// Pasó el 30-oct-2026: dos clics seguidos en "no suma" (General y Caseta
+// Lutron) mandaron dos guardados, llegaron en desorden y Caseta quedó sumando
+// en la base mientras la pantalla —y el total guardado— la excluían. El
+// resumen de inversión salió inflado. Con la fila, cada escritura espera a que
+// termine la anterior y lee lo que ésta dejó.
+let colaNotas: Promise<void> = Promise.resolve()
+function enFilaNotas(fn: () => Promise<void>): Promise<void> {
+  const p = colaNotas.then(fn, fn)
+  colaNotas = p.catch(() => { /* el error lo maneja quien llamó */ })
+  return p
+}
+
 function customSysIdFromItemNotes(notes: string | null | undefined): string | null {
   try {
     const m = JSON.parse(notes || '{}')
@@ -1202,11 +1217,13 @@ function AIImportModal({ cotId, areas, activeSysIds, currency, tipoCambio, onClo
       const usedSystems = Array.from(new Set(items.map(it => it.systemId).filter(Boolean)))
       const newActiveSystems = Array.from(new Set([...activeSysIds, ...usedSystems]))
       if (newActiveSystems.length !== activeSysIds.length) {
-        const { data: cot } = await supabase.from('quotations').select('notes').eq('id', cotId).single()
-        let meta: any = {}
-        try { meta = JSON.parse(cot?.notes || '{}') } catch {}
-        meta.systems = newActiveSystems
-        await supabase.from('quotations').update({ notes: JSON.stringify(meta) }).eq('id', cotId)
+        await enFilaNotas(async () => {
+          const { data: cot } = await supabase.from('quotations').select('notes').eq('id', cotId).single()
+          let meta: any = {}
+          try { meta = JSON.parse(cot?.notes || '{}') } catch {}
+          meta.systems = newActiveSystems
+          await supabase.from('quotations').update({ notes: JSON.stringify(meta) }).eq('id', cotId)
+        })
       }
 
       onImported()
@@ -2249,8 +2266,12 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
   const isMobile = useIsMobile()
   const [areas, setAreas] = useState<EspArea[]>([])
   const [activeSysIds, setActiveSysIds] = useState<string[]>([])
+  const activeRef = useRef<string[]>([])
+  activeRef.current = activeSysIds
   // Sistemas EXCLUIDOS del total (siguen existiendo pero no suman a la cotización)
   const [noSumaSysIds, setNoSumaSysIds] = useState<string[]>([])
+  const noSumaRef = useRef<string[]>([])
+  noSumaRef.current = noSumaSysIds
   const [products, setProducts] = useState<EspProduct[]>([])
   const [loading, setLoading] = useState(true)
   const [config, setConfig] = useState<EspQuoteConfig>({ currency: 'USD', ivaRate: 16, programacion: 0, descuento: 0, tipoCambio: 20.5, nominaPct: 20, paymentSchedule: [{ label: 'Anticipo', percentage: 80 }, { label: 'Entrega de equipos', percentage: 10 }, { label: 'Finalización de Obra', percentage: 10 }], version: '1.0' })
@@ -2409,10 +2430,12 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
 
   // Wrapper de saveNotes que también persiste customSystems
   async function saveNotesWithCustom(custom: EspSystemDef[], active: string[]) {
-    let existing: any = {}
-    try { const cur = await supabase.from('quotations').select('notes').eq('id', cotId).single(); existing = JSON.parse((cur.data as any)?.notes || '{}') } catch {}
-    const merged = { ...existing, systems: active, customSystems: custom }
-    await supabase.from('quotations').update({ notes: JSON.stringify(merged) }).eq('id', cotId)
+    await enFilaNotas(async () => {
+      let existing: any = {}
+      try { const cur = await supabase.from('quotations').select('notes').eq('id', cotId).single(); existing = JSON.parse((cur.data as any)?.notes || '{}') } catch {}
+      const merged = { ...existing, systems: active, customSystems: custom }
+      await supabase.from('quotations').update({ notes: JSON.stringify(merged) }).eq('id', cotId)
+    })
   }
   // Viaticos convertidos a la moneda de la cotizacion (se capturan en MXN).
   const viaticosMonto = useMemo(
@@ -2518,35 +2541,49 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
     else delete next[key]
     setSystemNotes(next)
     // Persist into quotations.notes JSON
-    let existing: any = {}
-    try {
-      const { data: q } = await supabase.from('quotations').select('notes').eq('id', cotId).single()
-      if (q?.notes) existing = JSON.parse(q.notes)
-    } catch (_) { /* ignore */ }
-    const merged = { ...existing, systemNotes: next }
-    await supabase.from('quotations').update({ notes: JSON.stringify(merged) }).eq('id', cotId)
+    await enFilaNotas(async () => {
+      let existing: any = {}
+      try {
+        const { data: q } = await supabase.from('quotations').select('notes').eq('id', cotId).single()
+        if (q?.notes) existing = JSON.parse(q.notes)
+      } catch (_) { /* ignore */ }
+      const merged = { ...existing, systemNotes: next }
+      await supabase.from('quotations').update({ notes: JSON.stringify(merged) }).eq('id', cotId)
+    })
   }
 
   async function saveNotes(overrides?: Partial<{ systems: string[]; systems_no_suma: string[]; currency: string; tipoCambio: number; descuento: number; programacion: number; nominaPct: number; ivaRate: number; viaticos: Viaticos }>) {
     // Preserve existing notes fields (lead_id, source, etc.)
-    let existing: any = {}
-    try {
-      const { data: q } = await supabase.from('quotations').select('notes').eq('id', cotId).single()
-      if (q?.notes) existing = JSON.parse(q.notes)
-    } catch (_) { /* ignore */ }
-    const merged = { ...existing, systems: overrides?.systems ?? activeSysIds, systems_no_suma: overrides?.systems_no_suma ?? noSumaSysIds, currency: overrides?.currency ?? config.currency, tipoCambio: overrides?.tipoCambio ?? config.tipoCambio, descuento: overrides?.descuento ?? config.descuento, programacion: overrides?.programacion ?? config.programacion, nominaPct: overrides?.nominaPct ?? config.nominaPct, ivaRate: overrides?.ivaRate ?? config.ivaRate, viaticos: overrides?.viaticos ?? viaticosRef.current, customSystems }
-    await supabase.from('quotations').update({ notes: JSON.stringify(merged) }).eq('id', cotId)
+    // En fila: ver enFilaNotas. Los valores de pantalla se toman al llamar
+    // (orden de los clics); la lectura de la base, al tocarle su turno.
+    const sistemas = overrides?.systems ?? activeSysIds
+    const noSuma = overrides?.systems_no_suma ?? noSumaSysIds
+    await enFilaNotas(async () => {
+      let existing: any = {}
+      try {
+        const { data: q } = await supabase.from('quotations').select('notes').eq('id', cotId).single()
+        if (q?.notes) existing = JSON.parse(q.notes)
+      } catch (_) { /* ignore */ }
+      const merged = { ...existing, systems: sistemas, systems_no_suma: noSuma, currency: overrides?.currency ?? config.currency, tipoCambio: overrides?.tipoCambio ?? config.tipoCambio, descuento: overrides?.descuento ?? config.descuento, programacion: overrides?.programacion ?? config.programacion, nominaPct: overrides?.nominaPct ?? config.nominaPct, ivaRate: overrides?.ivaRate ?? config.ivaRate, viaticos: overrides?.viaticos ?? viaticosRef.current, customSystems }
+      await supabase.from('quotations').update({ notes: JSON.stringify(merged) }).eq('id', cotId)
+    })
   }
 
   function toggleGlobalSystem(sysId: string) {
-    const next = activeSysIds.includes(sysId) ? activeSysIds.filter(s => s !== sysId) : [...activeSysIds, sysId]
+    const cur = activeRef.current
+    const next = cur.includes(sysId) ? cur.filter(s => s !== sysId) : [...cur, sysId]
+    activeRef.current = next
     setActiveSysIds(next)
     saveNotes({ systems: next })
   }
 
   // Excluir/incluir un sistema del TOTAL de la cotización (sin borrar sus productos).
   function toggleNoSuma(sysId: string) {
-    const next = noSumaSysIds.includes(sysId) ? noSumaSysIds.filter(s => s !== sysId) : [...noSumaSysIds, sysId]
+    // Se parte del último valor (ref), no del estado del render: dos clics en
+    // el mismo cuadro de render partirían de la misma lista y uno se perdería.
+    const cur = noSumaRef.current
+    const next = cur.includes(sysId) ? cur.filter(s => s !== sysId) : [...cur, sysId]
+    noSumaRef.current = next
     setNoSumaSysIds(next)
     saveNotes({ systems_no_suma: next })
   }
@@ -2575,12 +2612,14 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
   // escritura que se dispara sola no tiene por que tocar esos campos.
   async function guardarViaticos() {
     viaticosTimer.current = null
-    let existing: any = {}
-    try {
-      const { data: q } = await supabase.from('quotations').select('notes').eq('id', cotId).single()
-      if (q?.notes) existing = JSON.parse(q.notes)
-    } catch (_) { /* ignore */ }
-    await supabase.from('quotations').update({ notes: JSON.stringify({ ...existing, viaticos: viaticosRef.current }) }).eq('id', cotId)
+    await enFilaNotas(async () => {
+      let existing: any = {}
+      try {
+        const { data: q } = await supabase.from('quotations').select('notes').eq('id', cotId).single()
+        if (q?.notes) existing = JSON.parse(q.notes)
+      } catch (_) { /* ignore */ }
+      await supabase.from('quotations').update({ notes: JSON.stringify({ ...existing, viaticos: viaticosRef.current }) }).eq('id', cotId)
+    })
   }
 
   // Si se cierra la cotizacion antes de que corra el retraso, se guarda al salir.
@@ -3712,13 +3751,15 @@ function EditCotModal({ cotId, name, clientName, projectId, onClose, onSaved }: 
       name: form.name, client_name: form.client_name, project_id: form.project_id || null,
     }).eq('id', cotId)
     // Update lead_id in notes (merge with existing notes)
-    const { data: current } = await supabase.from('quotations').select('notes').eq('id', cotId).single()
-    let meta: any = {}
-    try { meta = JSON.parse(current?.notes || '{}') } catch {}
     const selectedLead = leads.find(l => l.id === form.lead_id)
-    meta.lead_id = form.lead_id || null
-    meta.lead_name = selectedLead?.name || ''
-    await supabase.from('quotations').update({ notes: JSON.stringify(meta) }).eq('id', cotId)
+    await enFilaNotas(async () => {
+      const { data: current } = await supabase.from('quotations').select('notes').eq('id', cotId).single()
+      let meta: any = {}
+      try { meta = JSON.parse(current?.notes || '{}') } catch {}
+      meta.lead_id = form.lead_id || null
+      meta.lead_name = selectedLead?.name || ''
+      await supabase.from('quotations').update({ notes: JSON.stringify(meta) }).eq('id', cotId)
+    })
 
     const proj = projects.find(p => p.id === form.project_id)
     onSaved(form.name, form.client_name, form.project_id || null, proj?.name || '')
